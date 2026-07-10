@@ -26,9 +26,17 @@ pub(super) fn parse_struct(
     let mut depth: i32 = 0;
     let mut last = 0usize;
     let bytes = inner.as_bytes();
+    let mut prev: u8 = 0;
     for (i, &b) in bytes.iter().enumerate() {
         match b {
             b'(' | b'<' => depth += 1,
+            // Chunk 794 — the `>` of a fn-type return arrow
+            // (`__cls(a|b)->r`) is not a generic closer; counting it
+            // dropped the depth below zero right after the fn's `)`
+            // closed, so every later depth-0 `|` went unseen and a
+            // fn-typed field swallowed the rest of the field list
+            // (fill_optional_fields splitter mirror).
+            b'>' if prev == b'-' => {}
             b')' | b'>' => depth -= 1,
             b'|' if depth == 0 => {
                 let part = &inner[last..i];
@@ -47,6 +55,7 @@ pub(super) fn parse_struct(
             }
             _ => {}
         }
+        prev = b;
     }
     if !inner.is_empty() {
         let part = &inner[last..];

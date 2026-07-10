@@ -270,13 +270,25 @@ fn sentinel_capable(inner: &str, env: &AliasEnv, depth: u32) -> bool {
 }
 
 /// Split `s` on `sep` at paren depth 0.
+// Chunk 794 — the `>` of a fn-type return arrow (`__fn(a|b)->r` /
+// `__cls(...)->r`) is NOT a generic closer: counting it dropped the
+// depth below zero right after the fn's `)` closed, so every later
+// depth-0 separator went unseen — an inline object ann with a
+// fn-typed field before any other field never split
+// (`__inlobj(cb:__nullable(__cls()->number)|n:number)` resolved to
+// one bogus field and the fill stayed a loud checker reject). `-`
+// only precedes `>` in the return-arrow spelling of these
+// encodings, so skip exactly that pair.
+
 fn split_depth0(s: &str, sep: char) -> Vec<&str> {
     let mut parts = Vec::new();
     let mut depth = 0i32;
     let mut start = 0;
+    let mut prev = '\0';
     for (i, c) in s.char_indices() {
         match c {
             '(' | '[' | '<' | '{' => depth += 1,
+            '>' if prev == '-' => {}
             ')' | ']' | '>' | '}' => depth -= 1,
             _ if c == sep && depth == 0 => {
                 parts.push(&s[start..i]);
@@ -284,6 +296,7 @@ fn split_depth0(s: &str, sep: char) -> Vec<&str> {
             }
             _ => {}
         }
+        prev = c;
     }
     parts.push(&s[start..]);
     parts
@@ -292,13 +305,16 @@ fn split_depth0(s: &str, sep: char) -> Vec<&str> {
 /// First `sep` at depth 0 splits; `None` if absent.
 fn split_once_depth0(s: &str, sep: char) -> Option<(&str, &str)> {
     let mut depth = 0i32;
+    let mut prev = '\0';
     for (i, c) in s.char_indices() {
         match c {
             '(' | '[' | '<' | '{' => depth += 1,
+            '>' if prev == '-' => {}
             ')' | ']' | '>' | '}' => depth -= 1,
             _ if c == sep && depth == 0 => return Some((&s[..i], &s[i + 1..])),
             _ => {}
         }
+        prev = c;
     }
     None
 }
