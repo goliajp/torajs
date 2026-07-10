@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-10T20:17:25.310Z",
+  "generatedAt": "2026-07-10T21:20:13.538Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "8bfd881d",
-    "commitSubject": "feat: annex b octal fallback for out-of-range decimal backrefs",
+    "commit": "7baf2ba8",
+    "commitSubject": "fix: pack_any_elem keeps the AST undefined probe alongside the checker one",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,26 @@
   },
   "commits": [
     {
+      "hash": "7baf2ba8",
+      "subject": "fix: pack_any_elem keeps the AST undefined probe alongside the checker one"
+    },
+    {
+      "hash": "40f8cdac",
+      "subject": "fix: undefined/null array-literal elements route to the tagged any lane"
+    },
+    {
+      "hash": "7a643167",
+      "subject": "fix: a void call used as a value answers undefined"
+    },
+    {
+      "hash": "22580f92",
+      "subject": "feat: un-annotated named-fn references promote to closure globals"
+    },
+    {
+      "hash": "37c28aa2",
+      "subject": "chore(dashboard): refresh @ 8bfd881d - rotation 67 (798-804: fn-name .name registry rewire - typed-tier alias/field/bind receivers read the runtime table, bound fns register 'bound <fn>' with print-face strip; regex debt axis cleared - search(RegExp) + substr-receiver gate on the regex method family, 32-capture cap retired for stride-sized saves, multi-digit decimal backrefs, split capture-splice, annex b octal fallback; nine pre-existing silent-wrongs fixed; gates 1410 -> 1418 seven green, tr baseline 61614016, nextest regex+core 509)"
+    },
+    {
       "hash": "8bfd881d",
       "subject": "feat: annex b octal fallback for out-of-range decimal backrefs"
     },
@@ -739,47 +759,38 @@
     {
       "hash": "85981e3b",
       "subject": "feat: typed-tier .name reads the runtime fn-addr registry"
-    },
-    {
-      "hash": "ce6b70de",
-      "subject": "chore(dashboard): refresh @ be4109ba - rotation 66 (791-797: rotation-65 archive closed via optchain sentinel-capable receivers; fn-name/closure-repr double axis closed - obj-field named-eval, inline-ann fn fields closure-repr plus four forwarder axes, arrow-splitter family at four sites, generic-instantiation fn-arg three fronts, fn-expr self-names, anonymous print [Function] alignment with .expected pin retired; three pre-existing silent-wrongs fixed; gates 1403 -> 1410 seven green, tr baseline 61597504, nextest core 180 each)"
-    },
-    {
-      "hash": "be4109ba",
-      "subject": "test: retire the [Function (anonymous)] .expected pin"
-    },
-    {
-      "hash": "f449480d",
-      "subject": "fix: print unregistered fns as [Function], bun's anonymous spelling"
-    },
-    {
-      "hash": "42d5d6f4",
-      "subject": "feat: named function expressions keep their self-name"
-    },
-    {
-      "hash": "2482fd38",
-      "subject": "chore(dashboard): refresh @ da1ced7b - rotation 66 (791-795: rotation-65 archive closed via optchain sentinel-capable receivers; fn-name/closure-repr double axis - obj-field named-eval, inline-ann fn fields closure-repr plus four forwarder axes, arrow-splitter family fixed at three sites, generic-instantiation fn-arg three fronts; three pre-existing silent-wrongs fixed (optchain sentinel garbage read, inline-ann SIGBUS family, named-TypeDecl call-arg named-fn store); gates 1403 -> 1408 five green, tr baseline 61597488 stable, nextest core 180 each)"
     }
   ],
-  "headSha": "8bfd881d",
+  "headSha": "7baf2ba8",
   "autorun": {
-    "total": 373,
+    "total": 374,
     "baselineTarget": 10,
-    "bySelf": 368,
+    "bySelf": 369,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1783709291-564b",
-      "at": "2026-07-10T18:48:11Z",
-      "ts": 1783709291,
+      "rotationId": "r-1783714741-0ab2",
+      "at": "2026-07-10T20:19:01Z",
+      "ts": 1783714741,
       "trigger": "self",
-      "prevHead": "ce6b70de",
-      "handoffSha": "sha256:c8056791618cd333663d3eab38ab24929b13f44790e4f6791823e3a919187306",
-      "handoffAgeSec": 8,
+      "prevHead": "37c28aa2",
+      "handoffSha": "sha256:7d2e8a63730cf0c3d1da1735f58ab80d58c92bffa39bb98724ec7eaf01147fe1",
+      "handoffAgeSec": 9,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1783714741-0ab2",
+        "at": "2026-07-10T20:19:01Z",
+        "ts": 1783714741,
+        "trigger": "self",
+        "prevHead": "37c28aa2",
+        "handoffSha": "sha256:7d2e8a63730cf0c3d1da1735f58ab80d58c92bffa39bb98724ec7eaf01147fe1",
+        "handoffAgeSec": 9,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1783709291-564b",
         "at": "2026-07-10T18:48:11Z",
@@ -875,17 +886,6 @@
         "trigger": "self",
         "prevHead": "d18e9f78",
         "handoffSha": "sha256:48bac16061d86e83971511ee16dc900745c606d95774530d37a76fd6806e3cc2",
-        "handoffAgeSec": 7,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1783616607-219c",
-        "at": "2026-07-09T17:03:27Z",
-        "ts": 1783616607,
-        "trigger": "self",
-        "prevHead": "d7d6d799",
-        "handoffSha": "sha256:e1c565591fb3ad02d685251dbd1fe9a7b949f368235905ee47ee70e0ce2806b0",
         "handoffAgeSec": 7,
         "conformanceBefore": null,
         "commitsInSession": null
