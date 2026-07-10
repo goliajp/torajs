@@ -78,12 +78,10 @@ pub(crate) fn lower(ctx: &mut LowerCtx, stmts: &[Stmt]) {
             // releases its box stake (content drops with the box on
             // the last release).
             if !info.borrowed && ctx.boxed_noncopy_lets.contains(name) {
+                let fid = ctx.capture_box_drop_fid(info.ty);
                 ctx.f.append_void(
                     ctx.cur_block,
-                    InstKind::Call(
-                        ctx.intrinsics.capture_box_drop_heap,
-                        vec![Operand::Value(info.slot)],
-                    ),
+                    InstKind::Call(fid, vec![Operand::Value(info.slot)]),
                 );
                 continue;
             }

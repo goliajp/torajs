@@ -325,7 +325,7 @@ pub(crate) fn lower(
     // (NaN-box / view-cell release paths differ from the universal
     // heap drop).
     let boxed_noncopy = !ty.is_copy()
-        && !matches!(ty, Type::Any | Type::Substr)
+        && ty != Type::Substr
         && ctx.escape_captured_lets.contains(name)
         && ctx.mutated_captured_lets.contains(name);
     let escape_captured =
@@ -333,8 +333,9 @@ pub(crate) fn lower(
     let slot = if escape_captured {
         if boxed_noncopy && is_alias_init && !boxed_any {
             // An alias-shape init carries no stake of its own — the
-            // box takes a fresh share (the source binding keeps its).
-            ctx.emit_rc_inc(init_val.clone());
+            // box takes a fresh share (the source binding keeps its;
+            // Any payloads take the NaN-box-aware inc).
+            ctx.emit_owned_result_inc(init_val.clone(), ty);
         }
         ctx.emit_capture_boxed(ty, init_val)
     } else {

@@ -57,6 +57,7 @@ pub(crate) struct Intrinsics {
     pub(crate) capture_box_inc: FuncId,
     pub(crate) capture_box_drop: FuncId,
     pub(crate) capture_box_drop_heap: FuncId,
+    pub(crate) capture_box_drop_any: FuncId,
     pub(crate) obj_drop_sized: FuncId,
     pub(crate) value_drop_heap: FuncId,
     pub(crate) cycle_unbuffer: FuncId,

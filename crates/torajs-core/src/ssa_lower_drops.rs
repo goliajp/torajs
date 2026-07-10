@@ -21,9 +21,22 @@ impl LowerCtx<'_> {
         info.moved
             && !info.borrowed
             && !info.ty.is_copy()
-            && !matches!(info.ty, Type::Any | Type::Substr)
+            && info.ty != Type::Substr
             && self.escape_captured_lets.contains(name)
             && self.mutated_captured_lets.contains(name)
+    }
+
+    /// RFC 20260710 — the box-release intrinsic matching a promoted
+    /// capture's payload type: plain Copy box / universal heap
+    /// content / NaN-box Any content (C4).
+    pub(crate) fn capture_box_drop_fid(&self, ty: Type) -> crate::ssa::FuncId {
+        if ty.is_copy() {
+            self.intrinsics.capture_box_drop
+        } else if ty == Type::Any {
+            self.intrinsics.capture_box_drop_any
+        } else {
+            self.intrinsics.capture_box_drop_heap
+        }
     }
 
     pub(crate) fn emit_drops_for_owned_locals(&mut self) {
@@ -75,20 +88,18 @@ impl LowerCtx<'_> {
         // on the last drop. Borrowed entries are closure-body
         // preamble bindings — the env owns their stake, not this
         // frame.
-        let mut boxed_heap: Vec<ValueId> = self
+        let mut boxed_heap: Vec<(ValueId, Type)> = self
             .locals
             .iter()
             .filter(|(name, info)| !info.borrowed && self.boxed_noncopy_lets.contains(*name))
-            .map(|(_, info)| info.slot)
+            .map(|(_, info)| (info.slot, info.ty))
             .collect();
-        boxed_heap.sort_by_key(|slot| std::cmp::Reverse(slot.0));
-        for slot in boxed_heap {
+        boxed_heap.sort_by_key(|&(slot, _)| std::cmp::Reverse(slot.0));
+        for (slot, ty) in boxed_heap {
+            let fid = self.capture_box_drop_fid(ty);
             self.f.append_void(
                 self.cur_block,
-                InstKind::Call(
-                    self.intrinsics.capture_box_drop_heap,
-                    vec![Operand::Value(slot)],
-                ),
+                InstKind::Call(fid, vec![Operand::Value(slot)]),
             );
         }
     }

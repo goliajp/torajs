@@ -39,6 +39,10 @@ unsafe extern "C" {
     /// releases the boxed non-Copy content when the last stake on a
     /// promoted mutable capture box drops (RFC 20260710).
     fn __torajs_value_drop_heap(p: *mut c_void);
+    /// NaN-box-aware release — cell-shaped AnyValues dec their heap
+    /// cell, immediates are no-ops (RFC 20260710 C4, Any-typed
+    /// promoted captures).
+    fn __torajs_anyv_rc_dec(v: u64);
 }
 
 const BOX_SIZE: usize = 16;
@@ -161,6 +165,35 @@ pub unsafe extern "C" fn __torajs_capture_box_drop_heap(slot_ptr: *mut c_void) {
     }
 }
 
+/// [`__torajs_capture_box_drop_heap`]'s Any-typed sibling (RFC
+/// 20260710 C4): the box payload is a NaN-box AnyValue — the last
+/// stake releases it through the NaN-box-aware dec (cell values dec
+/// their heap cell, immediates are no-ops).
+///
+/// # Safety
+///
+/// `slot_ptr` is null or a value-slot pointer from
+/// [`__torajs_capture_box_alloc`]; the payload carries a valid
+/// AnyValue bit pattern (zero decodes as an immediate — no-op).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_capture_box_drop_any(slot_ptr: *mut c_void) {
+    if slot_ptr.is_null() {
+        return;
+    }
+    unsafe {
+        let rc = rc_word(slot_ptr);
+        if *rc > 1 {
+            *rc -= 1;
+            return;
+        }
+        let content = *(slot_ptr as *const u64);
+        if content != 0 {
+            __torajs_anyv_rc_dec(content);
+        }
+        std::alloc::dealloc(rc as *mut u8, box_layout());
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -172,6 +205,11 @@ mod tests {
     /// exercise box rc mechanics with a zero payload.
     #[unsafe(no_mangle)]
     extern "C" fn __torajs_value_drop_heap(_p: *mut c_void) {}
+
+    /// Same stub convention for the NaN-box-aware dec (real provider
+    /// is the torajs-anyvalue staticlib).
+    #[unsafe(no_mangle)]
+    extern "C" fn __torajs_anyv_rc_dec(_v: u64) {}
 
     #[test]
     fn drop_heap_zero_payload_round_trip() {

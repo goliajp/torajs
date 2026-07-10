@@ -196,12 +196,10 @@ pub(crate) fn lower(
         // RFC 20260710 — a promoted mutable non-Copy capture in the
         // for-init releases its box stake at loop close.
         if !info.borrowed && ctx.boxed_noncopy_lets.contains(name) {
+            let fid = ctx.capture_box_drop_fid(info.ty);
             ctx.f.append_void(
                 ctx.cur_block,
-                InstKind::Call(
-                    ctx.intrinsics.capture_box_drop_heap,
-                    vec![Operand::Value(info.slot)],
-                ),
+                InstKind::Call(fid, vec![Operand::Value(info.slot)]),
             );
             continue;
         }
@@ -245,8 +243,7 @@ fn setup_per_iter_vars(ctx: &mut LowerCtx, candidates: Vec<String>) -> Vec<PerIt
             continue;
         };
         if !outer.ty.is_copy()
-            && !(ctx.mutated_captured_lets.contains(&name)
-                && !matches!(outer.ty, Type::Any | Type::Substr))
+            && !(ctx.mutated_captured_lets.contains(&name) && outer.ty != Type::Substr)
         {
             continue;
         }
@@ -280,7 +277,7 @@ fn mint_per_iter_boxes(ctx: &mut LowerCtx, per_iter: &mut [PerIterVar]) {
         // stake (the outer slot keeps its); the close/break release
         // routes through `capture_box_drop_heap`.
         if !pv.outer.ty.is_copy() {
-            ctx.emit_rc_inc(Operand::Value(cur));
+            ctx.emit_owned_result_inc(Operand::Value(cur), pv.outer.ty);
         }
         let boxed = ctx.emit_capture_boxed(pv.outer.ty, Operand::Value(cur));
         ctx.f.append_void(
@@ -331,7 +328,7 @@ fn close_per_iter_boxes(ctx: &mut LowerCtx, per_iter: &[PerIterVar]) {
         // through the heap variant (a closure holding the box keeps
         // it and the value alive).
         if !pv.outer.ty.is_copy() {
-            ctx.emit_rc_inc(Operand::Value(v));
+            ctx.emit_owned_result_inc(Operand::Value(v), pv.outer.ty);
             let old = ctx.f.append_inst(
                 ctx.cur_block,
                 InstKind::Load(pv.outer.ty, Operand::Value(pv.outer.slot), 0),
@@ -344,11 +341,7 @@ fn close_per_iter_boxes(ctx: &mut LowerCtx, per_iter: &[PerIterVar]) {
             ctx.cur_block,
             InstKind::Store(Operand::Value(v), Operand::Value(pv.outer.slot), 0),
         );
-        let drop_fid = if pv.outer.ty.is_copy() {
-            ctx.intrinsics.capture_box_drop
-        } else {
-            ctx.intrinsics.capture_box_drop_heap
-        };
+        let drop_fid = ctx.capture_box_drop_fid(pv.outer.ty);
         ctx.f.append_void(
             ctx.cur_block,
             InstKind::Call(drop_fid, vec![Operand::Value(boxed)]),

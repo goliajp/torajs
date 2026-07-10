@@ -99,6 +99,8 @@ pub(crate) fn synthesize_env_drop(
             );
             let drop_fid = if cap_ty.is_copy() {
                 intrinsics.capture_box_drop
+            } else if *cap_ty == Type::Any {
+                intrinsics.capture_box_drop_any
             } else {
                 intrinsics.capture_box_drop_heap
             };

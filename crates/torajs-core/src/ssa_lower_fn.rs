@@ -313,8 +313,22 @@ impl<'a> LowerCtx<'a> {
     /// `__env` / `__cm_*` `__this` marked moved+borrowed — caller owns)
     fn materialize_fn_params(&mut self, fn_name: &str, param_setup: Vec<(String, ValueId, Type)>) {
         for (pname, pid, ty) in param_setup {
-            let escape_captured = ty.is_copy() && self.escape_captured_lets.contains(&pname);
+            // RFC 20260710 C4 — a mutated non-Copy captured PARAM
+            // promotes to a capture box like a let (the caller keeps
+            // its stake, so the box incs its own share); the byref /
+            // assign / drop lanes then ride the C1 machinery.
+            let boxed_noncopy = !ty.is_copy()
+                && ty != Type::Substr
+                && pname != "__env"
+                && !(fn_name.starts_with("__cm_") && pname == "__this")
+                && self.escape_captured_lets.contains(&pname)
+                && self.mutated_captured_lets.contains(&pname);
+            let escape_captured =
+                (ty.is_copy() && self.escape_captured_lets.contains(&pname)) || boxed_noncopy;
             let slot = if escape_captured {
+                if boxed_noncopy {
+                    self.emit_owned_result_inc(Operand::Value(pid), ty);
+                }
                 self.emit_capture_boxed(ty, Operand::Value(pid))
             } else {
                 let s = self.alloca(ty, Some(&pname));
@@ -324,6 +338,9 @@ impl<'a> LowerCtx<'a> {
                 );
                 s
             };
+            if boxed_noncopy {
+                self.boxed_noncopy_lets.insert(pname.clone());
+            }
             let is_env_param = pname == "__env";
             let is_class_self = fn_name.starts_with("__cm_") && pname == "__this";
             let borrows_caller = is_env_param || is_class_self || !ty.is_copy() || escape_captured;
@@ -333,7 +350,9 @@ impl<'a> LowerCtx<'a> {
                     slot,
                     ty,
                     moved: borrows_caller,
-                    borrowed: borrows_caller,
+                    // A boxed param owns its box stake — the fn-exit
+                    // boxed walk releases it (`!borrowed` gate).
+                    borrowed: borrows_caller && !boxed_noncopy,
                     scope_depth: 0,
                 },
             );
