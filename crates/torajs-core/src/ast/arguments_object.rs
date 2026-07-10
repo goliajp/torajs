@@ -35,77 +35,10 @@ pub(super) enum ArgcMode {
 }
 
 pub fn desugar_arguments_object(ast: &mut Ast) {
-    // Snapshot per-fn user-param names, indexed by FnDecl name. The
-    // walk below mutates expression nodes in place using these
-    // snapshots.
-    use std::collections::{HashMap, HashSet};
-    let mut fn_params: HashMap<String, Vec<String>> = HashMap::new();
-    // T-31 — fns where `arguments.length` is referenced. Restricted to
-    // free top-level FnDecls (user_start == 0; closures with `__env`
-    // and class methods with `__this` keep the old declared-arity fold
-    // to avoid disturbing their dispatch ABI). Each such fn gets a
-    // synthetic first param `__torajs_real_argc: number`, and every
-    // direct-Ident-callee Call to it gets `Number(args.len())`
-    // prepended below.
-    let mut uses_real_argc: HashSet<String> = HashSet::new();
-    // Chunk 613 — lifted closures (hidden `__env` first param); their
-    // `arguments.length` is only foldable through the IIFE static-argc
-    // path, otherwise it stays loud (ArgcMode::KeepLoud).
-    let mut env_fns: HashSet<String> = HashSet::new();
-    for s in &ast.stmts {
-        if let Stmt::FnDecl {
-            name, params, body, ..
-        } = s
-        {
-            // Skip the synthetic `__env` (closure capture vector) and
-            // `__this` (class instance) prefix params — they're not
-            // user-visible "arguments". Everything after is the
-            // user's declared param list.
-            let user_start = params
-                .first()
-                .filter(|p| p.name == "__env" || p.name == "__this")
-                .map(|_| 1)
-                .unwrap_or(0);
-            let names: Vec<String> = params[user_start..]
-                .iter()
-                .map(|p| p.name.clone())
-                .collect();
-            fn_params.insert(name.clone(), names);
-            if params.first().is_some_and(|p| p.name == "__env") {
-                env_fns.insert(name.clone());
-            }
-            if user_start == 0 && body_has_arguments_length(ast, body) {
-                uses_real_argc.insert(name.clone());
-            }
-        }
-    }
-
-    // Chunk 613 — IIFE closure form: `(function (a, b) { ...
-    // arguments.length ... })(1)` lifts to a `__closure_N` FnDecl
-    // (with the hidden `__env` param) whose ONLY call site is the
-    // Call wrapping the Closure placeholder — so the real argc is
-    // statically that call's arg count. Same T-31 shape: inject
-    // `__torajs_real_argc: number` as the first USER param (after
-    // `__env`) and prepend the static count at the call site.
-    let mut iife_real_argc: HashSet<String> = HashSet::new();
-    let mut iife_call_sites: Vec<usize> = Vec::new();
-    for i in 0..ast.exprs.len() {
-        let Expr::Call { callee, .. } = &ast.exprs[i] else {
-            continue;
-        };
-        let Expr::Closure { fn_name, .. } = ast.get_expr(*callee) else {
-            continue;
-        };
-        let fn_name = fn_name.clone();
-        let has_len = ast.stmts.iter().any(|s| {
-            matches!(s, Stmt::FnDecl { name, body, .. }
-                if *name == fn_name && body_has_arguments_length(ast, body))
-        });
-        if has_len {
-            iife_real_argc.insert(fn_name);
-            iife_call_sites.push(i);
-        }
-    }
+    // Stage helpers extracted chunk 767 (the pass had drifted past
+    // the 200-line fn limit as argc/argv tiers stacked up).
+    let (fn_params, uses_real_argc, env_fns) = snapshot_fn_params(ast);
+    let (iife_real_argc, iife_call_sites) = collect_iife_real_argc(ast);
 
     // RFC 20260708-closure-argc-abi chunk 1 — closure VALUE form
     // seed + binding safety walk (see collect_value_argc).
@@ -118,56 +51,13 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
     ast.closure_argv_fns = value_argv_fns.clone();
     ast.closure_argv_locals = argv_locals;
 
-    // T-31 — inject `__torajs_real_argc: number` at param[0] for each
-    // uses_real_argc fn. Done before the body-rewrite walk so the
-    // typechecker (which runs after desugar) sees the new signature
-    // and so the recursive `arguments.length` rewrite below can resolve
-    // `Ident("__torajs_real_argc")` cleanly.
-    if !uses_real_argc.is_empty()
-        || !iife_real_argc.is_empty()
-        || !value_real_argc.is_empty()
-        || !value_argv_fns.is_empty()
-    {
-        for s in ast.stmts.iter_mut() {
-            if let Stmt::FnDecl { name, params, .. } = s {
-                // Chunk 613 — IIFE closures put the synthetic param
-                // AFTER the hidden `__env` (first USER param slot);
-                // RFC 20260708 value-form closures share that slot.
-                let at = if iife_real_argc.contains(name)
-                    || value_real_argc.contains(name)
-                    || value_argv_fns.contains(name)
-                {
-                    1
-                } else if uses_real_argc.contains(name) {
-                    0
-                } else {
-                    continue;
-                };
-                params.insert(
-                    at,
-                    Param {
-                        name: "__torajs_real_argc".into(),
-                        type_ann: Some("number".into()),
-                        default: None,
-                        is_rest: false,
-                    },
-                );
-                // argv-face bodies also take the adapter's raw argv
-                // pointer right after the argc slot.
-                if value_argv_fns.contains(name) {
-                    params.insert(
-                        at + 1,
-                        Param {
-                            name: "__torajs_argv".into(),
-                            type_ann: Some("__argvptr()".into()),
-                            default: None,
-                            is_rest: false,
-                        },
-                    );
-                }
-            }
-        }
-    }
+    inject_argc_params(
+        ast,
+        &uses_real_argc,
+        &iife_real_argc,
+        &value_real_argc,
+        &value_argv_fns,
+    );
 
     let stmts_clone: Vec<Stmt> = ast.stmts.clone();
     for (idx, stmt) in stmts_clone.iter().enumerate() {
@@ -249,6 +139,152 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
     }
 
     prepend_static_argc(ast, &uses_real_argc, iife_call_sites);
+}
+
+/// Snapshot per-fn user-param names, indexed by FnDecl name (the
+/// rewrite walk mutates expression nodes in place using these).
+/// Also answers:
+///
+/// - T-31 `uses_real_argc` — fns where `arguments.length` is
+///   referenced, restricted to free top-level FnDecls (user_start
+///   == 0; closures with `__env` and class methods with `__this`
+///   keep the old declared-arity fold to avoid disturbing their
+///   dispatch ABI). Each such fn gets a synthetic first param
+///   `__torajs_real_argc: number`, and every direct-Ident-callee
+///   Call to it gets `Number(args.len())` prepended.
+/// - Chunk 613 `env_fns` — lifted closures (hidden `__env` first
+///   param); their `arguments.length` is only foldable through the
+///   IIFE static-argc path, otherwise ArgcMode::KeepLoud.
+#[allow(clippy::type_complexity)]
+fn snapshot_fn_params(
+    ast: &Ast,
+) -> (
+    std::collections::HashMap<String, Vec<String>>,
+    std::collections::HashSet<String>,
+    std::collections::HashSet<String>,
+) {
+    use std::collections::{HashMap, HashSet};
+    let mut fn_params: HashMap<String, Vec<String>> = HashMap::new();
+    let mut uses_real_argc: HashSet<String> = HashSet::new();
+    let mut env_fns: HashSet<String> = HashSet::new();
+    for s in &ast.stmts {
+        if let Stmt::FnDecl {
+            name, params, body, ..
+        } = s
+        {
+            // Skip the synthetic `__env` (closure capture vector) and
+            // `__this` (class instance) prefix params — they're not
+            // user-visible "arguments". Everything after is the
+            // user's declared param list.
+            let user_start = params
+                .first()
+                .filter(|p| p.name == "__env" || p.name == "__this")
+                .map(|_| 1)
+                .unwrap_or(0);
+            let names: Vec<String> = params[user_start..]
+                .iter()
+                .map(|p| p.name.clone())
+                .collect();
+            fn_params.insert(name.clone(), names);
+            if params.first().is_some_and(|p| p.name == "__env") {
+                env_fns.insert(name.clone());
+            }
+            if user_start == 0 && body_has_arguments_length(ast, body) {
+                uses_real_argc.insert(name.clone());
+            }
+        }
+    }
+    (fn_params, uses_real_argc, env_fns)
+}
+
+/// Chunk 613 — IIFE closure form: `(function (a, b) { ...
+/// arguments.length ... })(1)` lifts to a `__closure_N` FnDecl
+/// (with the hidden `__env` param) whose ONLY call site is the
+/// Call wrapping the Closure placeholder — so the real argc is
+/// statically that call's arg count. Same T-31 shape: inject
+/// `__torajs_real_argc: number` as the first USER param (after
+/// `__env`) and prepend the static count at the call site.
+fn collect_iife_real_argc(ast: &Ast) -> (std::collections::HashSet<String>, Vec<usize>) {
+    let mut iife_real_argc = std::collections::HashSet::new();
+    let mut iife_call_sites: Vec<usize> = Vec::new();
+    for i in 0..ast.exprs.len() {
+        let Expr::Call { callee, .. } = &ast.exprs[i] else {
+            continue;
+        };
+        let Expr::Closure { fn_name, .. } = ast.get_expr(*callee) else {
+            continue;
+        };
+        let fn_name = fn_name.clone();
+        let has_len = ast.stmts.iter().any(|s| {
+            matches!(s, Stmt::FnDecl { name, body, .. }
+                if *name == fn_name && body_has_arguments_length(ast, body))
+        });
+        if has_len {
+            iife_real_argc.insert(fn_name);
+            iife_call_sites.push(i);
+        }
+    }
+    (iife_real_argc, iife_call_sites)
+}
+
+/// T-31 — inject `__torajs_real_argc: number` at param[0] for each
+/// uses_real_argc fn. Done before the body-rewrite walk so the
+/// typechecker (which runs after desugar) sees the new signature
+/// and so the recursive `arguments.length` rewrite can resolve
+/// `Ident("__torajs_real_argc")` cleanly.
+fn inject_argc_params(
+    ast: &mut Ast,
+    uses_real_argc: &std::collections::HashSet<String>,
+    iife_real_argc: &std::collections::HashSet<String>,
+    value_real_argc: &std::collections::HashSet<String>,
+    value_argv_fns: &std::collections::HashSet<String>,
+) {
+    if uses_real_argc.is_empty()
+        && iife_real_argc.is_empty()
+        && value_real_argc.is_empty()
+        && value_argv_fns.is_empty()
+    {
+        return;
+    }
+    for s in ast.stmts.iter_mut() {
+        if let Stmt::FnDecl { name, params, .. } = s {
+            // Chunk 613 — IIFE closures put the synthetic param
+            // AFTER the hidden `__env` (first USER param slot);
+            // RFC 20260708 value-form closures share that slot.
+            let at = if iife_real_argc.contains(name)
+                || value_real_argc.contains(name)
+                || value_argv_fns.contains(name)
+            {
+                1
+            } else if uses_real_argc.contains(name) {
+                0
+            } else {
+                continue;
+            };
+            params.insert(
+                at,
+                Param {
+                    name: "__torajs_real_argc".into(),
+                    type_ann: Some("number".into()),
+                    default: None,
+                    is_rest: false,
+                },
+            );
+            // argv-face bodies also take the adapter's raw argv
+            // pointer right after the argc slot.
+            if value_argv_fns.contains(name) {
+                params.insert(
+                    at + 1,
+                    Param {
+                        name: "__torajs_argv".into(),
+                        type_ann: Some("__argvptr()".into()),
+                        default: None,
+                        is_rest: false,
+                    },
+                );
+            }
+        }
+    }
 }
 
 /// T-31 + chunk 613 — prepend the argc argument at static call
