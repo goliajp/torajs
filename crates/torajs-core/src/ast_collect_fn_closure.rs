@@ -82,6 +82,12 @@ pub(crate) struct FnToClosureCollector<'a> {
     /// this map to reach the field's declared annotation. Scope-
     /// approximate like the sets.
     pub(crate) struct_bindings: &'a HashMap<String, String>,
+    /// Binding name → declared struct-ARRAY annotation (`O[]` /
+    /// `Array<O>` whose element resolves to a known TypeDecl) —
+    /// chunk 790: the member-assign wrap axis reaches through
+    /// element receivers (`arr[0].cb = top_fn`). Scope-approximate
+    /// like the sets.
+    pub(crate) struct_arr_bindings: &'a HashMap<String, String>,
     pub(crate) targets: HashSet<String>,
     pub(crate) rewrites: Vec<(ExprId, String)>,
 }
@@ -113,6 +119,25 @@ impl<'a> FnToClosureCollector<'a> {
                     .trim();
                 if self.struct_field_anns.contains_key(inner) {
                     Some(inner.to_string())
+                } else {
+                    None
+                }
+            }
+            // Chunk 790 — an element receiver (`arr[0].cb` /
+            // `h.list[i].cb`): resolve the container's declared
+            // array annotation and answer its element type.
+            Expr::Index { obj, .. } => {
+                let container_ann: String = match self.ast.get_expr(*obj) {
+                    Expr::Ident(n) => self.struct_arr_bindings.get(n)?.clone(),
+                    Expr::Member { obj: mobj, name } => {
+                        let outer = self.resolve_receiver_struct(*mobj)?;
+                        self.struct_field_anns.get(&outer)?.get(name)?.clone()
+                    }
+                    _ => return None,
+                };
+                let elem = strip_arr_ann(&container_ann)?;
+                if self.struct_field_anns.contains_key(elem) {
+                    Some(elem.to_string())
                 } else {
                     None
                 }
@@ -443,6 +468,24 @@ impl<'a> FnToClosureCollector<'a> {
 /// (`__nullable(__cls(...))` after the retag pass — RFC 20260710 C5,
 /// same mutable Closure-repr slot). Shared by the objlit-field and
 /// member-assign (chunk 783) wrap axes.
+/// Chunk 790 — element type of an array annotation (`O[]` /
+/// `Array<O>` / `ReadonlyArray<O>` spellings); `None` for anything
+/// else.
+pub(crate) fn strip_arr_ann(ann: &str) -> Option<&str> {
+    let t = ann.trim();
+    if let Some(rest) = t.strip_suffix("[]") {
+        return Some(rest.trim());
+    }
+    for head in ["Array<", "ReadonlyArray<"] {
+        if let Some(rest) = t.strip_prefix(head)
+            && t.ends_with('>')
+        {
+            return Some(rest[..rest.len() - 1].trim());
+        }
+    }
+    None
+}
+
 pub(crate) fn is_fn_like_field_ann(fann: &str) -> bool {
     let inner = fann
         .strip_prefix("__nullable(")

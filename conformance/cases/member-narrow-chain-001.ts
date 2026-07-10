@@ -1,8 +1,8 @@
 // chunk 789 — member-path narrows key on canonical receiver paths,
 // so Member-chain receivers narrow too: `if (h.o.cb) { h.o.cb() }`.
 // the named-fn member-assign wrap also resolves chain receivers
-// (`h.o.cb = g`). Index receivers (`arr[0].cb`) stay a loud reject —
-// the SSA lanes don't reach through element loads yet (archived).
+// (`h.o.cb = g`). Index receivers ride the same paths since
+// chunk 790 (see member-narrow-index-001).
 type O = { cb?: () => number };
 type H = { o: O };
 const h: H = { o: {} };

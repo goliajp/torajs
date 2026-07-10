@@ -42,16 +42,20 @@ pub(crate) fn stmt_assigns_to(ast: &Ast, s: &Stmt, name: &str) -> bool {
 }
 
 /// Chunk 789 — canonical source path for a member-narrow receiver:
-/// an Ident (`h`) or a Member chain (`h.o.p`). `None` for every
-/// other shape, which stays un-narrowed (loud). Index receivers
-/// (`arr[0].cb`) are deliberately excluded: the SSA member-assign /
-/// narrowed-call lanes don't reach through element loads yet, so a
-/// narrow there would trade the loud reject for silent-wrong
-/// (probe s5b: whole-program output swallowed) — archived.
+/// an Ident (`h`), a Member chain (`h.o.p`), or an integer-literal
+/// Index (`arr[0]` — chunk 790; a computed index is not stable
+/// across re-evaluation). `None` for every other shape, which stays
+/// un-narrowed (loud).
 pub(crate) fn member_path(ast: &Ast, eid: ExprId) -> Option<String> {
     match ast.get_expr(eid) {
         Expr::Ident(n) => Some(n.clone()),
         Expr::Member { obj, name } => Some(format!("{}.{name}", member_path(ast, *obj)?)),
+        Expr::Index { obj, index } => match ast.get_expr(*index) {
+            Expr::Number(v) if v.fract() == 0.0 && *v >= 0.0 => {
+                Some(format!("{}[{}]", member_path(ast, *obj)?, *v as u64))
+            }
+            _ => None,
+        },
         _ => None,
     }
 }

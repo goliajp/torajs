@@ -180,6 +180,17 @@ pub fn synthesize_fn_to_closure_forwarders(ast: &mut Ast) {
         &|a| struct_field_anns.contains_key(a.trim()),
         &mut struct_bindings,
     );
+    // Chunk 790 — binding name → struct-ARRAY annotation, for the
+    // element-receiver face of the same axis (`arr[0].cb = top_fn`).
+    let mut struct_arr_bindings: HashMap<String, String> = HashMap::new();
+    crate::ast_collect_bindings::collect_bindings_ann_matching(
+        &ast.stmts,
+        &|a| {
+            crate::ast_collect_fn_closure::strip_arr_ann(a)
+                .is_some_and(|e| struct_field_anns.contains_key(e))
+        },
+        &mut struct_arr_bindings,
+    );
 
     // Walk all top-level stmts (including FnDecl bodies recursively)
     // collecting the store-sites where a bare top-FnDecl Ident needs
@@ -194,6 +205,7 @@ pub fn synthesize_fn_to_closure_forwarders(ast: &mut Ast) {
         closure_bindings: &closure_bindings,
         fn_arr_bindings: &fn_arr_bindings,
         struct_bindings: &struct_bindings,
+        struct_arr_bindings: &struct_arr_bindings,
         targets: HashSet::new(),
         rewrites: Vec::new(),
     };

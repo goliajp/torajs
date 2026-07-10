@@ -52,6 +52,20 @@ pub(crate) fn check(
             crate::check_assign_target::check_member(checker, ast, obj, field, value)
         }
         Expr::Index { obj, index } => {
+            // Chunk 790 — an element write invalidates narrows rooted
+            // at that element path; a computed index (`arr[i] = ...`)
+            // conservatively kills every index-rooted narrow under
+            // the same base (it may alias any of them).
+            if let Some(tp) = crate::check_assigns_to::member_path(ast, target) {
+                checker
+                    .member_narrows
+                    .retain(|(recv, _), _| !crate::check_assigns_to::path_overlaps(recv, &tp));
+            } else if let Some(bp) = crate::check_assigns_to::member_path(ast, obj) {
+                let base = format!("{bp}[");
+                checker
+                    .member_narrows
+                    .retain(|(recv, _), _| !recv.starts_with(&base));
+            }
             crate::check_assign_target::check_index(checker, ast, obj, index, value)
         }
         _ => Err("invalid assignment target".into()),
