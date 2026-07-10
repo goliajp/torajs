@@ -48,8 +48,14 @@ use crate::ssa_lower::LowerCtx;
 
 pub(crate) fn lower(ctx: &mut LowerCtx, eid: ExprId) {
     let v = ctx.lower_expr(eid);
-    ctx.consume_all_idents_in_return(eid);
     let v_ty = ctx.operand_ty(&v);
+    // Chunk 752 — same Copy-result gate as the Return site: a thrown
+    // scalar packs by value into the throw slot and cannot alias any
+    // local's heap (`throw v.length` stranded v — probe vT 15.97MB
+    // vs 6.37MB flat).
+    if !v_ty.is_copy() {
+        ctx.consume_all_idents_in_return(eid);
+    }
     let is_undef = matches!(
         ctx.expr_types.get(&eid),
         Some(crate::check::Type::Undefined)

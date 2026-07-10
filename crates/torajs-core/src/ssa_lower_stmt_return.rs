@@ -98,7 +98,16 @@ pub(crate) fn lower(ctx: &mut LowerCtx, maybe: Option<crate::ast::ExprId>) {
             ctx.consume_all_idents_in_return(*index);
             return Operand::Value(retained);
         }
-        ctx.consume_all_idents_in_return(eid);
+        // Chunk 752 — a Copy-typed result (scalar) cannot alias any
+        // local's heap, so no binding needs the moved mark; the
+        // blanket walk stranded every non-Copy local the expression
+        // touched (`return v.length` skipped v's scope drop and
+        // leaked one concat cell per call — probe vJ 15.97MB vs
+        // 6.37MB flat; the L3b #6 any-alias framing was refuted by
+        // the typed-string variant leaking identically).
+        if !ctx.operand_ty(&v).is_copy() {
+            ctx.consume_all_idents_in_return(eid);
+        }
         v
     });
     if !ctx.try_finally_stack.is_empty() {

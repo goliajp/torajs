@@ -77,7 +77,27 @@ impl<'a> LowerCtx<'a> {
                     stack.push(expr);
                 }
                 Expr::Member { obj, .. } | Expr::OptChain { obj, .. } => {
-                    stack.push(obj);
+                    // Chunk 752 — an any-member read answers an OWNED
+                    // box (chunk 717 contract; OptChain mints a fresh
+                    // owned box likewise), never an alias of the
+                    // receiver's heap — same owned-result invariant
+                    // as the Call / New arms. Descending marked the
+                    // receiver moved and stranded its cell per call
+                    // (`return v.length` with `v: any` leaked the
+                    // concat cell — probe vE 15.97MB vs 6.37MB flat,
+                    // while the non-return read vM stayed flat).
+                    // Non-Any receivers keep the conservative walk
+                    // (a struct field read may borrow).
+                    let any_owned_answer = if let Expr::Ident(name) = self.ast.get_expr(obj) {
+                        self.locals
+                            .get(name)
+                            .is_some_and(|info| info.ty == crate::ssa::Type::Any)
+                    } else {
+                        false
+                    };
+                    if !any_owned_answer {
+                        stack.push(obj);
+                    }
                 }
                 Expr::OptIndex { obj, index } => {
                     stack.push(obj);
