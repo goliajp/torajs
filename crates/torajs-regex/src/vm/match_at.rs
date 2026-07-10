@@ -7,7 +7,6 @@
 //! resolved transitively by [`add_thread`](super::dispatch::add_thread).
 
 use super::{Workspace, char_eq};
-use crate::node::REGEX_SAVE_SLOTS;
 use crate::parser::{RE_FLAG_S, RE_FLAG_U};
 use crate::program::{Op, Program};
 use crate::utf8::{utf8_decode_cp, utf8_len_for};
@@ -31,7 +30,7 @@ pub fn vm_match_at(
     start_pos: i64,
     flags: u8,
     ws: &mut Workspace,
-    mut out_saves: Option<&mut [i64; REGEX_SAVE_SLOTS]>,
+    mut out_saves: Option<&mut [i64]>,
     end_target: i64,
 ) -> i64 {
     let slen = s.len() as i64;
@@ -139,13 +138,14 @@ pub fn vm_match_at(
                         saw_match_this_step = true;
                         end_pos = pos;
                         if let Some(ref mut o) = out_saves {
-                            // Arena row is `stride`-wide (≤
-                            // REGEX_SAVE_SLOTS); caller buffer is the
-                            // full 64-wide array pre-initialised to
-                            // `-1`. Partial copy keeps tail slots at
-                            // the caller's sentinel value.
+                            // Arena row and caller buffer are both
+                            // `stride`-wide (chunk 801 — the caller
+                            // allocates `vec![-1; stride]`); min-len
+                            // copy keeps any tail slots at the
+                            // caller's sentinel value.
                             let row = ws.arena.get(t_saves_id);
-                            (*o)[..row.len()].copy_from_slice(row);
+                            let n = row.len().min(o.len());
+                            (*o)[..n].copy_from_slice(&row[..n]);
                         }
                     }
                 }
@@ -296,7 +296,7 @@ fn match_at_eoi(
     ws: &Workspace,
     slen: i64,
     end_target: i64,
-    mut out_saves: Option<&mut [i64; REGEX_SAVE_SLOTS]>,
+    mut out_saves: Option<&mut [i64]>,
 ) -> Option<i64> {
     for ti in 0..ws.cur.list.len() {
         let t_pc = ws.cur.list[ti].pc;
@@ -308,7 +308,8 @@ fn match_at_eoi(
         {
             if let Some(ref mut o) = out_saves {
                 let row = ws.arena.get(t_saves_id);
-                (*o)[..row.len()].copy_from_slice(row);
+                let n = row.len().min(o.len());
+                (*o)[..n].copy_from_slice(&row[..n]);
             }
             return Some(slen);
         }

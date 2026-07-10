@@ -33,7 +33,7 @@ pub mod result;
 pub mod saves_arena;
 pub mod search;
 
-pub use result::{EMPTY_SAVES, MatchResult};
+pub use result::{MatchResult, save_slot};
 pub use saves_arena::SavesArena;
 use saves_arena::detect_stride;
 pub use search::{match_anchor, search_from, search_from_with_ws};
@@ -70,7 +70,7 @@ pub struct Thread {
     /// step-to-step swaps without colliding with fresh entrants.
     pub u_skip: i32,
     /// Handle into the Workspace `SavesArena` — identifies the row of
-    /// `REGEX_SAVE_SLOTS` `i64`s holding this thread's capture saves.
+    /// Handle of this thread's stride-sized capture-saves row.
     /// SPLIT forks each get a fresh `alloc_clone` so SAVE in one
     /// branch doesn't leak into the other.
     pub saves_id: u32,
@@ -334,8 +334,10 @@ mod tests {
         let r = search_from(&prog, b"xxabcyy", 0, 0, None).expect("hit");
         assert_eq!(r.start, 2);
         assert_eq!(r.end, 5);
-        assert_eq!(r.saves()[0], -1);
-        assert_eq!(r.saves()[1], -1);
+        // NoSaves answers an empty row; save_slot reads it as all -1.
+        assert!(r.saves().is_empty());
+        assert_eq!(save_slot(r.saves(), 0), -1);
+        assert_eq!(save_slot(r.saves(), 1), -1);
     }
 
     #[test]

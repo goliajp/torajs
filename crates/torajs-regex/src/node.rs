@@ -8,14 +8,14 @@
 use crate::charclass::CharClass;
 use alloc::{boxed::Box, vec::Vec};
 
-/// Maximum number of capture groups in one regex. Indices 1..=N are
-/// user groups; index 0 is reserved for the whole-match span. The
-/// parser rejects patterns with more than this many `(...)` and the
-/// matcher allocates `2 * (N+1)` save slots per thread.
-pub const REGEX_MAX_CAPTURES: usize = 32;
-
-/// `2 * REGEX_MAX_CAPTURES` — width of the Thread.saves array.
-pub const REGEX_SAVE_SLOTS: usize = REGEX_MAX_CAPTURES * 2;
+/// Sanity cap on capture groups in one regex — V8's kMaxCaptures
+/// (`1 << 16`), a pathological-pattern guard rather than a feature
+/// limit. Indices 1..=N are user groups; index 0 is reserved for
+/// the whole-match span. Chunk 801 retired the old 32-group cap
+/// (and with it the fixed `REGEX_SAVE_SLOTS` buffers): save rows
+/// are stride-sized per program, so group count no longer bounds
+/// any stack array.
+pub const REGEX_MAX_CAPTURES: usize = 1 << 16;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NodeKind {
@@ -174,8 +174,7 @@ mod tests {
     }
 
     #[test]
-    fn constants_match_c_port() {
-        assert_eq!(REGEX_MAX_CAPTURES, 32);
-        assert_eq!(REGEX_SAVE_SLOTS, 64);
+    fn capture_sanity_cap_matches_v8() {
+        assert_eq!(REGEX_MAX_CAPTURES, 65536);
     }
 }

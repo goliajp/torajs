@@ -15,9 +15,8 @@ use super::replace_fn_dispatch::invoke_replace_cb;
 use super::{
     __torajs_str_drop, abort_unsupported, as_regex, byte_to_utf16_units, str_from_bytes, str_slice,
 };
-use crate::node::REGEX_SAVE_SLOTS;
 use crate::parser::{RE_FLAG_G, RE_FLAG_Y};
-use crate::vm::{Workspace, match_anchor, search_from_with_ws};
+use crate::vm::{Workspace, match_anchor, save_slot, search_from_with_ws};
 
 /// Build N capture Strs from saves[]. Each cap slot reads
 /// `saves[2*(i+1)] / saves[2*(i+1)+1]` (group 0 = whole match is
@@ -30,13 +29,13 @@ use crate::vm::{Workspace, match_anchor, search_from_with_ws};
 /// at least `n_caps` entries (max 9).
 unsafe fn build_capture_strs(
     n_caps: i64,
-    saves: &[i64; REGEX_SAVE_SLOTS],
+    saves: &[i64],
     s: &[u8],
     out_caps: &mut [*mut c_void; 9],
 ) {
     for i in 0..(n_caps as usize) {
-        let gs = saves[2 * (i + 1)];
-        let ge = saves[2 * (i + 1) + 1];
+        let gs = save_slot(saves, 2 * (i + 1));
+        let ge = save_slot(saves, 2 * (i + 1) + 1);
         let p = if gs < 0 || ge < 0 {
             unsafe { str_from_bytes(b"") }
         } else {

@@ -5,7 +5,7 @@
 //! (slots 0/1 hold the whole-match start/end; slots `2*i` / `2*i+1`
 //! hold capture group `i`'s start/end). For the common case of zero
 //! or one user capture group, stride is 2 or 4 — vs. the pre-S13
-//! fixed `REGEX_SAVE_SLOTS = 64`, that shrinks each `Op::Save`
+//! pre-S13 fixed 64-slot rows, that shrinks each `Op::Save`
 //! `alloc_clone` row copy from 512 bytes to 16-32 bytes.
 
 use crate::program::Program;
@@ -16,12 +16,10 @@ use alloc::vec::Vec;
 #[derive(Debug)]
 pub struct SavesArena {
     pub data: Vec<i64>,
-    /// Width of each row in slots (`i64` count). Always
-    /// `<= REGEX_SAVE_SLOTS`. Caller `out_saves` buffer stays a
-    /// fixed `[i64; REGEX_SAVE_SLOTS]` so high-slot reads against a
-    /// match without that many captures return the caller's `-1`
-    /// init sentinel — `vm_match_at`'s writeback only fills
-    /// `arena.get(id)[..stride]`.
+    /// Width of each row in slots (`i64` count) — `2 * (max save
+    /// slot + 1)` for the program. Caller `out_saves` buffers are
+    /// allocated at this same stride (chunk 801); high-slot reads
+    /// against a shorter row answer `-1` through `save_slot`.
     pub stride: usize,
 }
 
@@ -89,14 +87,10 @@ pub(super) fn detect_stride(prog: &Program) -> usize {
     } else {
         (max_slot as usize) + 1
     };
-    // Invariant declared on `SavesArena::stride` and relied on by
-    // `vm_match_at`'s fixed-width `[i64; REGEX_SAVE_SLOTS]` writeback;
-    // the parser's capture cap (group index < REGEX_MAX_CAPTURES)
-    // guarantees it for every accepted pattern.
-    debug_assert!(
-        stride <= crate::node::REGEX_SAVE_SLOTS,
-        "saves stride {stride} exceeds REGEX_SAVE_SLOTS"
-    );
+    // The parser's sanity cap (group index < REGEX_MAX_CAPTURES)
+    // bounds the stride at 2 * REGEX_MAX_CAPTURES for every
+    // accepted pattern; rows and caller buffers are all allocated
+    // at this stride, so no fixed-width invariant remains.
     stride
 }
 

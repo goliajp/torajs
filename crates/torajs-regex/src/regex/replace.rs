@@ -13,9 +13,9 @@ use super::{
     RegExp, abort_unsupported, as_regex, str_from_bytes, str_from_bytes_ascii, str_slice,
     str_slice_ascii_view,
 };
-use crate::node::{REGEX_MAX_CAPTURES, REGEX_SAVE_SLOTS};
+use crate::node::REGEX_MAX_CAPTURES;
 use crate::parser::{RE_FLAG_G, RE_FLAG_Y};
-use crate::vm::{match_anchor, search_from_with_ws};
+use crate::vm::{match_anchor, save_slot, search_from_with_ws};
 
 /// Expand `repl` into `out`, dereferencing `$N` against the
 /// captured `saves[]` pairs. Unparticipating groups substitute the
@@ -25,7 +25,7 @@ pub fn expand_repl(
     s: &[u8],
     st: i64,
     en: i64,
-    saves: &[i64; REGEX_SAVE_SLOTS],
+    saves: &[i64],
     n_captures: i32,
     out: &mut Vec<u8>,
 ) {
@@ -62,8 +62,8 @@ pub fn expand_repl(
                 }
             }
             if idx >= 1 && idx <= n_captures && (idx as usize) < REGEX_MAX_CAPTURES {
-                let gs = saves[(2 * idx) as usize];
-                let ge = saves[(2 * idx + 1) as usize];
+                let gs = save_slot(saves, (2 * idx) as usize);
+                let ge = save_slot(saves, (2 * idx + 1) as usize);
                 if gs >= 0 && ge >= 0 {
                     out.extend_from_slice(&s[gs as usize..ge as usize]);
                 }

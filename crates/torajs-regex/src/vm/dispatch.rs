@@ -15,12 +15,12 @@
 //! workspace because they recurse — they can't share the parent's.
 
 use super::{SavesArena, ThreadList, VisitedTable, Workspace};
-use crate::node::REGEX_SAVE_SLOTS;
 use crate::parser::{RE_FLAG_M, is_word_byte};
 use crate::program::{Op, Program};
 use crate::vm::Thread;
 use crate::vm::match_at::vm_match_at;
 use crate::vm::match_at_rev::vm_match_at_rev;
+use alloc::vec;
 
 /// Transitively expand epsilon ops reachable from `pc` and enqueue
 /// the resulting waiting threads into `tl`. Visited-table dedup
@@ -100,7 +100,11 @@ pub(super) fn add_thread(
         }
         Op::Lookahead => {
             let sub = &prog.sub_progs[ins.a as usize];
-            let mut sub_saves = [-1i64; REGEX_SAVE_SLOTS];
+            // Chunk 801 — stride-sized row (the fixed 64-slot stack
+            // buffer scaled with the retired capture cap); slot
+            // indices are global so the parent stride bounds every
+            // sub-program SAVE.
+            let mut sub_saves = vec![-1i64; arena.stride];
             if sub_probe_saving(sub, s, pos, flags, &mut sub_saves) {
                 // ES §22.2.2 — a successful lookahead KEEPS the
                 // captures its body wrote (`/(?=(a+))/` answers
@@ -123,7 +127,7 @@ pub(super) fn add_thread(
             // (`/(?<=(\d+))px/` answers group 1) — merged into this
             // thread's row exactly like the lookahead arm.
             let sub = &prog.sub_progs[ins.a as usize];
-            let mut sub_saves = [-1i64; REGEX_SAVE_SLOTS];
+            let mut sub_saves = vec![-1i64; arena.stride];
             if sub_probe_rev_saving(sub, s, pos, flags, &mut sub_saves) {
                 let merged = merge_sub_saves(arena, saves_id, &sub_saves);
                 add_thread(tl, vt, arena, pc + 1, prog, s, pos, flags, merged);
@@ -162,13 +166,7 @@ pub fn sub_probe(sub: &Program, s: &[u8], pos: i64, flags: u8) -> bool {
 
 /// [`sub_probe`] with capture write-back — the positive lookahead
 /// keeps its body's SAVEs. `out` must be pre-filled with `-1`.
-fn sub_probe_saving(
-    sub: &Program,
-    s: &[u8],
-    pos: i64,
-    flags: u8,
-    out: &mut [i64; REGEX_SAVE_SLOTS],
-) -> bool {
+fn sub_probe_saving(sub: &Program, s: &[u8], pos: i64, flags: u8, out: &mut [i64]) -> bool {
     if sub.is_empty() {
         return true;
     }
@@ -183,11 +181,7 @@ fn sub_probe_saving(
 /// Slot indices are global (parser-assigned across the whole
 /// pattern) and `detect_stride` counts sub-program SAVEs, so every
 /// written slot fits the parent row.
-fn merge_sub_saves(
-    arena: &mut SavesArena,
-    saves_id: u32,
-    sub_saves: &[i64; REGEX_SAVE_SLOTS],
-) -> u32 {
+fn merge_sub_saves(arena: &mut SavesArena, saves_id: u32, sub_saves: &[i64]) -> u32 {
     let stride = arena.stride;
     let mut merged = saves_id;
     let mut forked = false;
@@ -220,13 +214,7 @@ pub fn sub_probe_rev(sub: &Program, s: &[u8], pos: i64, flags: u8) -> bool {
 /// [`sub_probe_rev`] with capture write-back — the positive
 /// lookbehind keeps its body's SAVEs. `out` must be pre-filled with
 /// `-1`.
-fn sub_probe_rev_saving(
-    sub: &Program,
-    s: &[u8],
-    pos: i64,
-    flags: u8,
-    out: &mut [i64; REGEX_SAVE_SLOTS],
-) -> bool {
+fn sub_probe_rev_saving(sub: &Program, s: &[u8], pos: i64, flags: u8, out: &mut [i64]) -> bool {
     if sub.is_empty() {
         return true;
     }

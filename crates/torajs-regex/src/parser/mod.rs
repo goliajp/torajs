@@ -35,7 +35,7 @@ mod class;
 mod escape;
 
 use crate::charclass::CharClass;
-use crate::node::{Node, NodeKind, REGEX_MAX_CAPTURES};
+use crate::node::{Node, NodeKind};
 use alloc::{boxed::Box, vec::Vec};
 
 // Flag bitset — mirrors `RE_FLAG_*` in runtime_regex.c L79-87. Only
@@ -72,10 +72,11 @@ pub struct Parser<'p> {
 
 impl<'p> Parser<'p> {
     pub fn new(pattern: &'p [u8], flags: u8) -> Self {
-        // names[0] is reserved (whole-match record). Capacity sized
-        // for the worst case (REGEX_MAX_CAPTURES + 1) so push never
-        // reallocates regardless of how many named groups land.
-        let mut names = Vec::with_capacity(REGEX_MAX_CAPTURES + 1);
+        // names[0] is reserved (whole-match record). Chunk 801 —
+        // the capture cap became a 65536 sanity bound, so capacity
+        // no longer pre-sizes to it; a small seed covers typical
+        // patterns and the Vec grows for the rest.
+        let mut names = Vec::with_capacity(8);
         names.push(Vec::new());
         Self {
             p: pattern,

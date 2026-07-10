@@ -6,9 +6,9 @@
 //! programs the DFA gate refuses (backref / lookaround).
 
 use super::{Workspace, match_at, prog_has_save};
-use crate::node::REGEX_SAVE_SLOTS;
 use crate::program::Program;
 use crate::vm::MatchResult;
+use alloc::vec;
 
 /// Search for a match starting at any position `>= from_pos`. Returns
 /// `Some(MatchResult)` on hit, `None` on miss. Allocates a fresh
@@ -162,9 +162,8 @@ fn dfa_probe(
 ///
 /// Round 3 Phase B sub-batch 5 attack #R-A3 — split the no-saves fast
 /// path. `prog.has_save == false` (or `want_saves == false`) skips the
-/// per-iter `[-1i64; REGEX_SAVE_SLOTS]` stack init entirely; the
-/// `EMPTY_SAVES` const ref is materialised only when a caller actually
-/// calls `m.saves()`.
+/// per-iter saves-row init entirely; `m.saves()` answers an empty
+/// slice that reads as all `-1` through `save_slot`.
 fn dfa_hit_result(
     prog: &Program,
     s: &[u8],
@@ -177,7 +176,8 @@ fn dfa_hit_result(
     if !prog_has_save(prog) || !want_saves {
         return MatchResult::no_saves(st, end);
     }
-    let mut saves = [-1i64; REGEX_SAVE_SLOTS];
+    let ws_ref = ws.get_or_insert_with(|| Workspace::for_program(prog));
+    let mut saves = vec![-1i64; ws_ref.arena.stride];
     // Second-pass NFA at exactly the DFA-found window to
     // pull captures out. If the NFA disagrees with the DFA
     // boundary we leave saves all-`-1` rather than report
@@ -194,7 +194,7 @@ fn dfa_hit_result(
         end,
     );
     if nfa_end != end {
-        saves = [-1i64; REGEX_SAVE_SLOTS];
+        saves.fill(-1);
     }
     MatchResult::with_saves(st, end, saves)
 }
@@ -202,7 +202,7 @@ fn dfa_hit_result(
 /// Pike-VM-only probe at `st` (DFA gate refused). When the program has
 /// no `Op::Save` ops we still need the pass for the `end` boundary (no
 /// DFA to give us one), but skip the slot array entirely —
-/// `MatchResult::no_saves` carries the `EMPTY_SAVES` sentinel.
+/// `MatchResult::no_saves` answers an empty saves row.
 fn pike_only_at(
     prog: &Program,
     s: &[u8],
@@ -225,16 +225,9 @@ fn pike_only_at(
             return Some(MatchResult::no_saves(st, end));
         }
     } else {
-        let mut saves = [-1i64; REGEX_SAVE_SLOTS];
-        let end = match_at::vm_match_at(
-            prog,
-            s,
-            st,
-            flags,
-            ws.get_or_insert_with(|| Workspace::for_program(prog)),
-            Some(&mut saves),
-            -1,
-        );
+        let ws_ref = ws.get_or_insert_with(|| Workspace::for_program(prog));
+        let mut saves = vec![-1i64; ws_ref.arena.stride];
+        let end = match_at::vm_match_at(prog, s, st, flags, ws_ref, Some(&mut saves), -1);
         if end >= 0 {
             return Some(MatchResult::with_saves(st, end, saves));
         }
@@ -371,7 +364,7 @@ pub fn match_anchor(prog: &Program, s: &[u8], at: i64, flags: u8) -> Option<Matc
             None
         }
     } else {
-        let mut saves = [-1i64; REGEX_SAVE_SLOTS];
+        let mut saves = vec![-1i64; ws.arena.stride];
         let end = match_at::vm_match_at(prog, s, at, flags, &mut ws, Some(&mut saves), -1);
         if end >= 0 {
             Some(MatchResult::with_saves(at, end, saves))

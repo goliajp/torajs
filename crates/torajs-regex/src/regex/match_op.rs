@@ -12,9 +12,9 @@ use super::{
     as_regex_mut, byte_to_utf16_units, str_from_bytes, str_slice, str_slice_ascii_view,
     utf16_units_to_byte,
 };
-use crate::node::{REGEX_MAX_CAPTURES, REGEX_SAVE_SLOTS};
+use crate::node::REGEX_MAX_CAPTURES;
 use crate::parser::{RE_FLAG_G, RE_FLAG_Y};
-use crate::vm::{Workspace, match_anchor, search_from, search_from_with_ws};
+use crate::vm::{Workspace, match_anchor, save_slot, search_from, search_from_with_ws};
 
 /// `torajs_rc::FLAG_STATIC_LITERAL` — `1 << 2 = 4`. Mirrored as a
 /// local const so torajs-regex doesn't need a torajs-rc cargo dep
@@ -126,7 +126,7 @@ pub unsafe fn attach_exec_all(
     s: &[u8],
     str_ptr: *const c_void,
     index: i64,
-    saves: &[i64; REGEX_SAVE_SLOTS],
+    saves: &[i64],
 ) {
     if re.n_named_captures == 0 || re.capture_names.is_empty() {
         unsafe {
@@ -174,12 +174,7 @@ pub unsafe fn attach_exec_props(arr: *mut c_void, str_ptr: *const c_void, index:
 ///
 /// Calls cross-tier extern allocators; `arr` must be a live tora
 /// Array. `re` and `s` must outlive the call.
-pub unsafe fn attach_groups(
-    arr: *mut c_void,
-    re: &RegExp,
-    s: &[u8],
-    saves: &[i64; REGEX_SAVE_SLOTS],
-) {
+pub unsafe fn attach_groups(arr: *mut c_void, re: &RegExp, s: &[u8], saves: &[i64]) {
     if re.n_named_captures == 0 || re.capture_names.is_empty() {
         // Round 4 wire-back Phase B chunk 1 — cached static "groups" key.
         let outer_key = unsafe { cached_static_key(&K_GROUPS, b"groups") };
@@ -200,8 +195,8 @@ pub unsafe fn attach_groups(
             _ => continue,
         };
         let name_key = unsafe { str_from_bytes(name) };
-        let gs = saves[2 * i];
-        let ge = saves[2 * i + 1];
+        let gs = save_slot(saves, 2 * i);
+        let ge = save_slot(saves, 2 * i + 1);
         if gs < 0 || ge < 0 {
             // Non-participating named group → undefined.
             unsafe {
@@ -351,8 +346,8 @@ pub unsafe extern "C" fn __torajs_str_match_regex(
             // Append captures.
             let n_cap_lim = (re.n_captures as usize).min(REGEX_MAX_CAPTURES - 1);
             for i in 1..=n_cap_lim {
-                let gs = m.saves()[2 * i];
-                let ge = m.saves()[2 * i + 1];
+                let gs = save_slot(m.saves(), 2 * i);
+                let ge = save_slot(m.saves(), 2 * i + 1);
                 if gs < 0 || ge < 0 {
                     // Non-participating group = JS undefined (RFC
                     // 20260707 chunk 2: the sentinel cell, not NULL).
@@ -463,8 +458,8 @@ pub unsafe extern "C" fn __torajs_regex_exec(
     let whole = unsafe { str_from_bytes(&s[m.start as usize..m.end as usize]) };
     out = unsafe { __torajs_arr_push(out, whole as i64) };
     for i in 1..=n_cap_lim {
-        let gs = m.saves()[2 * i];
-        let ge = m.saves()[2 * i + 1];
+        let gs = save_slot(m.saves(), 2 * i);
+        let ge = save_slot(m.saves(), 2 * i + 1);
         if gs < 0 || ge < 0 {
             // Non-participating group = JS undefined (RFC 20260707
             // chunk 2: the sentinel cell, not NULL).

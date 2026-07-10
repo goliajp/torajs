@@ -13,9 +13,9 @@ use super::{
     __torajs_arr_alloc, __torajs_arr_push, __torajs_throw_type_error, abort_unsupported, as_regex,
     byte_to_utf16_units, str_from_bytes, str_slice,
 };
-use crate::node::{REGEX_MAX_CAPTURES, REGEX_SAVE_SLOTS};
+use crate::node::REGEX_MAX_CAPTURES;
 use crate::parser::{RE_FLAG_G, RE_FLAG_Y};
-use crate::vm::{Workspace, match_anchor, search_from_with_ws};
+use crate::vm::{Workspace, match_anchor, save_slot, search_from_with_ws};
 
 /// # Safety
 ///
@@ -91,7 +91,7 @@ unsafe fn append_inner(
     re: &super::RegExp,
     s: &[u8],
     str_ptr: *const c_void,
-    saves: &[i64; REGEX_SAVE_SLOTS],
+    saves: &[i64],
     st: i64,
     en: i64,
 ) -> *mut c_void {
@@ -100,8 +100,8 @@ unsafe fn append_inner(
     inner = unsafe { __torajs_arr_push(inner, whole as i64) };
     let n_cap_lim = (re.n_captures as usize).min(REGEX_MAX_CAPTURES - 1);
     for i in 1..=n_cap_lim {
-        let gs = saves[2 * i];
-        let ge = saves[2 * i + 1];
+        let gs = save_slot(saves, 2 * i);
+        let ge = save_slot(saves, 2 * i + 1);
         if gs < 0 || ge < 0 {
             inner = unsafe { __torajs_arr_push(inner, 0) };
         } else {

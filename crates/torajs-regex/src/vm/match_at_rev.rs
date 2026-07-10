@@ -21,7 +21,6 @@
 use super::dispatch::add_thread;
 use super::match_at::add_thread_adv;
 use super::{Workspace, char_eq};
-use crate::node::REGEX_SAVE_SLOTS;
 use crate::parser::{RE_FLAG_S, RE_FLAG_U};
 use crate::program::{Op, Program};
 use crate::utf8::utf8_decode_cp_before;
@@ -38,7 +37,7 @@ pub fn vm_match_at_rev(
     start_pos: i64,
     flags: u8,
     ws: &mut Workspace,
-    mut out_saves: Option<&mut [i64; REGEX_SAVE_SLOTS]>,
+    mut out_saves: Option<&mut [i64]>,
 ) -> i64 {
     ws.cur.clear();
     ws.cur.step_id = ws.next_step_id();
@@ -123,7 +122,8 @@ pub fn vm_match_at_rev(
                     match_pos = pos;
                     if let Some(ref mut o) = out_saves {
                         let row = ws.arena.get(t_saves_id);
-                        (*o)[..row.len()].copy_from_slice(row);
+                        let n = row.len().min(o.len());
+                        (*o)[..n].copy_from_slice(&row[..n]);
                     }
                 }
                 _ => {}
@@ -318,10 +318,10 @@ mod tests {
         prog
     }
 
-    fn probe(pat: &str, hay: &str, pos: i64, flags: u8) -> (i64, [i64; REGEX_SAVE_SLOTS]) {
+    fn probe(pat: &str, hay: &str, pos: i64, flags: u8) -> (i64, [i64; 16]) {
         let prog = build_rev(pat, flags);
         let mut ws = Workspace::for_program(&prog);
-        let mut saves = [-1i64; REGEX_SAVE_SLOTS];
+        let mut saves = [-1i64; 16];
         let j = vm_match_at_rev(&prog, hay.as_bytes(), pos, flags, &mut ws, Some(&mut saves));
         (j, saves)
     }

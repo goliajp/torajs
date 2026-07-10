@@ -131,15 +131,12 @@ impl<'p> Parser<'p> {
     /// Increment `n_captures` and return the new 1-based index, or
     /// `None` (sets err) if it would exceed the save-slot budget.
     ///
-    /// The cap is `REGEX_MAX_CAPTURES - 1 = 31` user groups, not 32:
-    /// group `i` saves into slots `2*i` / `2*i + 1`, and slots 0/1
-    /// hold the whole match, so group 32 would need slots 64/65 —
-    /// past the fixed `REGEX_SAVE_SLOTS = 64` caller buffer that
-    /// `vm_match_at` writes back into (the pre-fix off-by-one let a
-    /// 32-group pattern through the parser and aborted at match time
-    /// on the out-of-bounds writeback). Rejected patterns take the
-    /// `rejected` path — miss for test/find, `abort_unsupported`
-    /// subset boundary for the heavier surfaces.
+    /// The cap is `REGEX_MAX_CAPTURES - 1` user groups — a 65535
+    /// sanity bound (V8's kMaxCaptures), not a buffer limit: save
+    /// rows are stride-sized per program since chunk 801, so any
+    /// accepted group count fits its own row. Rejected pathological
+    /// patterns take the `rejected` path — miss for test/find,
+    /// `abort_unsupported` subset boundary for heavier surfaces.
     fn assign_capture_idx(&mut self) -> Option<i32> {
         self.n_captures += 1;
         let idx = self.n_captures as i32;
@@ -230,20 +227,21 @@ mod tests {
     }
 
     #[test]
-    fn accepts_31_capture_groups() {
-        // 31 user groups = save slots up to 62/63, the last pair that
-        // fits the fixed REGEX_SAVE_SLOTS = 64 writeback buffer.
-        let pat: alloc::string::String = (0..31).map(|_| "(a)").collect();
+    fn accepts_many_capture_groups() {
+        // Chunk 801 retired the fixed 32-group cap — save rows are
+        // stride-sized, so counts past the old buffer boundary parse
+        // and carry their indices.
+        let pat: alloc::string::String = (0..100).map(|_| "(a)").collect();
         let mut p = Parser::new(pat.as_bytes(), 0);
         assert!(p.parse().is_some() && !p.err());
-        assert_eq!(p.n_captures, 31);
+        assert_eq!(p.n_captures, 100);
     }
 
     #[test]
-    fn rejects_32_capture_groups() {
-        // Group 32 would save into slots 64/65 — past the buffer. The
-        // pre-fix off-by-one accepted it and aborted at match time.
-        let pat: alloc::string::String = (0..32).map(|_| "(a)").collect();
+    fn rejects_past_sanity_cap() {
+        // REGEX_MAX_CAPTURES (65536, V8's kMaxCaptures) stays as a
+        // pathological-pattern guard: group 65536 is rejected.
+        let pat: alloc::string::String = (0..65536).map(|_| "(a)").collect();
         parse_err(&pat, 0);
     }
 }
