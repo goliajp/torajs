@@ -162,7 +162,12 @@ pub fn synthesize_fn_to_closure_forwarders(ast: &mut Ast) {
     // RFC 20260709-closure-global chunk 4 — top-level Closure-repr
     // binding names (lifted-arrow init or fn-type annotation): the
     // assign axis wraps `cb = top_fn` so the global assign lane
-    // stores a closure cell.
+    // stores a closure cell. Chunk 805 — a bare named-fn Ident init
+    // that the let-init axis below will wrap joins too (mirror of
+    // that axis's gate): the binding becomes a Closure-repr global,
+    // so a body-local `op = other_fn` re-assign must wrap as well or
+    // the assign lane stores a raw FnSig into the Closure slot.
+    let binding_refs = crate::ast_refs::toplevel_binding_refs(ast);
     let mut closure_bindings: HashSet<String> = HashSet::new();
     for s in &ast.stmts {
         if let Stmt::LetDecl {
@@ -173,7 +178,10 @@ pub fn synthesize_fn_to_closure_forwarders(ast: &mut Ast) {
             ..
         } = s
             && (matches!(ast.get_expr(*init), Expr::Closure { .. })
-                || type_ann.as_deref().is_some_and(is_fn_like_ann))
+                || type_ann.as_deref().is_some_and(is_fn_like_ann)
+                || (type_ann.is_none()
+                    && binding_refs.named_fn_refs.contains(name)
+                    && matches!(ast.get_expr(*init), Expr::Ident(n) if fn_sigs.contains_key(n))))
         {
             closure_bindings.insert(name.clone());
         }
@@ -251,7 +259,6 @@ pub fn synthesize_fn_to_closure_forwarders(ast: &mut Ast) {
     // binding keeps the direct-dispatch fn_addr_let home, and a
     // closure-captured one stays main-local (a slot would split the
     // binding into two homes).
-    let binding_refs = crate::ast_refs::toplevel_binding_refs(ast);
     for s in &stmts_snapshot {
         if let Stmt::LetDecl {
             name,
@@ -271,12 +278,17 @@ pub fn synthesize_fn_to_closure_forwarders(ast: &mut Ast) {
             // (capture filter reads + Assign-Ident global writes =
             // one home), so its named-fn init wraps too.
             && let Expr::Ident(n) = ast.get_expr(*init)
-            // The target needs an explicit return ann: the forwarder
-            // clones it, and a `None` ret on the promoted slot's
-            // synthesized canon would spell `void` — dropping the
-            // return value silently. Un-annotated rets keep the
-            // pre-wrap loud reject instead.
-            && fn_sigs.get(n).is_some_and(|(_, ret)| ret.is_some())
+            // Chunk 805 — no explicit-return-ann gate anymore: the
+            // forwarder clones the target's `None` ret, and
+            // `desugar_implicit_generics` (which runs AFTER this
+            // pass) backfills it — its `__env` arm infers the
+            // forwarder's `return target(...)` from the target's own
+            // backfilled ret. A target with no value returns stays
+            // `None` and the synthesized canon spells `void`, which
+            // is exactly right for it. The other wrap axes (any /
+            // assign / struct-field) have shipped this un-annotated
+            // path all along.
+            && fn_sigs.contains_key(n)
         {
             targets.insert(n.clone());
             rewrites.push((*init, n.clone()));
