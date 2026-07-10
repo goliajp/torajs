@@ -8,6 +8,38 @@ use crate::ast::{Ast, Expr, ExprId, Stmt};
 
 use super::{AliasEnv, resolve_struct_ann};
 
+/// Chunk 788 — push a fill job for `lit_eid` against `declared`,
+/// first recursing into struct-typed fields whose value is itself an
+/// ObjectLit: `const h: H = { o: {} }` fills the INNER literal
+/// against O's declared list too (the chunk-784 walk only jobbed the
+/// outer literal, so the short inner literal stayed a loud checker
+/// reject). An optional struct field's `__nullable(...)` wrapper
+/// strips before resolving, mirroring the sentinel gate.
+fn push_objlit_jobs(
+    ast: &Ast,
+    lit_eid: ExprId,
+    declared: Vec<(String, String)>,
+    env: &AliasEnv,
+    jobs: &mut Vec<(ExprId, Vec<(String, String)>)>,
+) {
+    if let Expr::ObjectLit { fields } = ast.get_expr(lit_eid) {
+        for (fname, feid) in fields {
+            if matches!(ast.get_expr(*feid), Expr::ObjectLit { .. })
+                && let Some((_, fann)) = declared.iter().find(|(n, _)| n == fname)
+            {
+                let inner = fann
+                    .strip_prefix("__nullable(")
+                    .and_then(|r| r.strip_suffix(')'))
+                    .unwrap_or(fann);
+                if let Some(fdecl) = resolve_struct_ann(inner.trim(), env) {
+                    push_objlit_jobs(ast, *feid, fdecl, env, jobs);
+                }
+            }
+        }
+    }
+    jobs.push((lit_eid, declared));
+}
+
 /// Walk statement trees collecting `(objlit_eid, declared_fields)`
 /// pairs for annotated let-decls whose init is a plain ObjectLit,
 /// plus direct-call argument sites via the expression walk
@@ -26,7 +58,7 @@ pub(super) fn collect_jobs(
                     && let Some(declared) = resolve_struct_ann(ann.trim(), env)
                     && matches!(ast.get_expr(*init), Expr::ObjectLit { .. })
                 {
-                    jobs.push((*init, declared));
+                    push_objlit_jobs(ast, *init, declared, env, jobs);
                 }
                 collect_expr_jobs(ast, *init, env, fn_params, jobs);
             }
@@ -152,7 +184,7 @@ fn collect_expr_jobs(
                         && let Some(declared) = resolve_struct_ann(ann.trim(), env)
                         && matches!(ast.get_expr(*arg), Expr::ObjectLit { .. })
                     {
-                        jobs.push((*arg, declared));
+                        push_objlit_jobs(ast, *arg, declared, env, jobs);
                     }
                 }
             }
