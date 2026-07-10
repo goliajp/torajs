@@ -151,70 +151,16 @@ pub(crate) fn general_call(
     let is_class_method = crate::check_type_of_call_dispatch_flags::derive(ast, callee);
     for (i, (param_ty, arg_id)) in params.iter().zip(args.iter()).enumerate() {
         let arg_ty = checker.type_of(ast, *arg_id)?;
-        // M5.2 class-method receiver subclass prefix-subtype check extracted
-        // to [`crate::check_type_of_call_class_method_subtype`] (chunk 309).
-        let skip_type_check = crate::check_type_of_call_class_method_subtype::skip(
+        if !arg_admitted(
+            checker,
+            ast,
+            callee,
             is_class_method,
             i,
-            &arg_ty,
             param_ty,
-        );
-        // V3-18 Nullable<T> match wedge extracted to
-        // [`crate::check_type_of_call_nullable_match`]
-        // (chunk 308).
-        let nullable_match = crate::check_type_of_call_nullable_match::matches(param_ty, &arg_ty);
-        // S133 callback Function subtype carve-out extracted
-        // to [`crate::check_type_of_call_callback_subtype`]
-        // (chunk 307).
-        let callback_subtype =
-            crate::check_type_of_call_callback_subtype::matches(param_ty, &arg_ty);
-        // RFC 20260707 chunk 626 — T-11 container widen at the call
-        // boundary: an `Array(Any)` param admits any concrete
-        // `Array(T)` arg (mirror of check_assignable's T-11 arm).
-        // Every lowering call-arg station pairs this admit with
-        // `emit_arr_mark_kind` per the RFC §2 protocol so the
-        // callee's kind-aware Arr<Any> readers decode the raw block.
-        let t11_arr_any = matches!(param_ty, Type::Array(el) if matches!(**el, Type::Any))
-            && matches!(arg_ty, Type::Array(_));
-        // Chunk 641 — an empty `[]` literal argument has no element
-        // to infer from and types Array(Any); any Array(T) param
-        // admits it contextually (`take([])`, `new N([])` — bun
-        // accepts, l17b/l17e). The lowering side pairs this with a
-        // param-typed empty alloc (`try_lower_empty_array_arg`) so
-        // the callee never sees a FLAG_ARR_ANY block behind a typed
-        // param slot.
-        let empty_lit_into_arr = matches!(param_ty, Type::Array(_))
-            && matches!(
-                ast.get_expr(*arg_id),
-                crate::ast::Expr::Array(els) if els.is_empty()
-            );
-        // RFC 20260708-spread-call chunk 2a — TS any-assignability
-        // at the call boundary: an Any arg into a scalar / String
-        // param is admitted, paired with a caller-side coerce at
-        // every plain-Ident-callee lowering lane (terminal
-        // coerce_args / closure-local / fn-indirect). The admit is
-        // gated to plain Ident callees: `__cm_` class-method calls
-        // route through vtable / sibling-static dispatch and
-        // Member-callee shapes through struct-method dispatch —
-        // none of those lanes has a per-param coerce hook, so they
-        // stay loud. Heap-typed params (Array / struct / Map / …)
-        // also stay loud: there is no caller-side Any→heap unbox
-        // helper (mirrors the let-decl lane's wrong-repr stance).
-        let any_into_scalar = matches!(arg_ty, Type::Any)
-            && matches!(param_ty, Type::Number | Type::String | Type::Boolean)
-            && matches!(
-                ast.get_expr(*callee),
-                crate::ast::Expr::Ident(n) if !crate::check::is_class_method_name(n)
-            );
-        if !skip_type_check
-            && !nullable_match
-            && !callback_subtype
-            && !t11_arr_any
-            && !empty_lit_into_arr
-            && !any_into_scalar
-            && param_ty != &Type::Any
-            && &arg_ty != param_ty
-        {
+            &arg_ty,
+            arg_id,
+        ) {
             return Err(format!(
                 "argument {i}: expected {param_ty:?}, got {arg_ty:?}"
             ));
@@ -226,4 +172,93 @@ pub(crate) fn general_call(
         // caller-side consume double-counted into a leak.
     }
     Ok(*ret)
+}
+
+/// Per-arg admit predicate — strict equality plus the accumulated
+/// carve-out wedges (chunk 762 extraction; the wedge stack had
+/// grown the loop body past the 200-line fn limit).
+#[allow(clippy::too_many_arguments)]
+fn arg_admitted(
+    checker: &Checker,
+    ast: &Ast,
+    callee: &ExprId,
+    is_class_method: bool,
+    i: usize,
+    param_ty: &Type,
+    arg_ty: &Type,
+    arg_id: &ExprId,
+) -> bool {
+    if param_ty == &Type::Any || arg_ty == param_ty {
+        return true;
+    }
+    // M5.2 class-method receiver subclass prefix-subtype check extracted
+    // to [`crate::check_type_of_call_class_method_subtype`] (chunk 309).
+    if crate::check_type_of_call_class_method_subtype::skip(is_class_method, i, arg_ty, param_ty) {
+        return true;
+    }
+    // V3-18 Nullable<T> match wedge extracted to
+    // [`crate::check_type_of_call_nullable_match`]
+    // (chunk 308).
+    if crate::check_type_of_call_nullable_match::matches(param_ty, arg_ty) {
+        return true;
+    }
+    // S133 callback Function subtype carve-out extracted
+    // to [`crate::check_type_of_call_callback_subtype`]
+    // (chunk 307).
+    if crate::check_type_of_call_callback_subtype::matches(param_ty, arg_ty) {
+        return true;
+    }
+    // RFC 20260707 chunk 626 — T-11 container widen at the call
+    // boundary: an `Array(Any)` param admits any concrete
+    // `Array(T)` arg (mirror of check_assignable's T-11 arm).
+    // Every lowering call-arg station pairs this admit with
+    // `emit_arr_mark_kind` per the RFC §2 protocol so the
+    // callee's kind-aware Arr<Any> readers decode the raw block.
+    if matches!(param_ty, Type::Array(el) if matches!(**el, Type::Any))
+        && matches!(arg_ty, Type::Array(_))
+    {
+        return true;
+    }
+    // Chunk 641 — an empty `[]` literal argument has no element
+    // to infer from and types Array(Any); any Array(T) param
+    // admits it contextually (`take([])`, `new N([])` — bun
+    // accepts, l17b/l17e). The lowering side pairs this with a
+    // param-typed empty alloc (`try_lower_empty_array_arg`) so
+    // the callee never sees a FLAG_ARR_ANY block behind a typed
+    // param slot.
+    if matches!(param_ty, Type::Array(_))
+        && matches!(
+            ast.get_expr(*arg_id),
+            crate::ast::Expr::Array(els) if els.is_empty()
+        )
+    {
+        return true;
+    }
+    // RFC 20260708-spread-call chunk 2a — TS any-assignability
+    // at the call boundary: an Any arg into a scalar / String
+    // param is admitted, paired with a caller-side coerce at
+    // every plain-Ident-callee lowering lane (terminal
+    // coerce_args / closure-local / fn-indirect). The admit is
+    // gated to plain Ident callees: `__cm_` class-method calls
+    // route through vtable / sibling-static dispatch and
+    // Member-callee shapes through struct-method dispatch —
+    // none of those lanes has a per-param coerce hook, so they
+    // stay loud. Heap-typed params (Array / struct / Map / …)
+    // also stay loud: there is no caller-side Any→heap unbox
+    // helper (mirrors the let-decl lane's wrong-repr stance).
+    if matches!(arg_ty, Type::Any)
+        && matches!(param_ty, Type::Number | Type::String | Type::Boolean)
+        && matches!(
+            ast.get_expr(*callee),
+            crate::ast::Expr::Ident(n) if !crate::check::is_class_method_name(n)
+        )
+    {
+        return true;
+    }
+    // Chunk 762 — struct-param Nullable-field covariance wedge:
+    // `{ inner: { a: 3 } }` / `{ inner: undefined }` into a declared
+    // `{ inner?: Inner }` param, riding the same assignability
+    // lattice the let-decl lane uses. See
+    // [`crate::check_type_of_call_struct_field_covariance`].
+    crate::check_type_of_call_struct_field_covariance::matches(checker, param_ty, arg_ty)
 }
