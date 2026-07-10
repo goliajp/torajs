@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-10T00:15:26.152Z",
+  "generatedAt": "2026-07-10T00:31:41.732Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "c4c0255f",
-    "commitSubject": "fix: release fresh-owned operands in inline str-eq and switch scrutinee",
+    "commit": "16267719",
+    "commitSubject": "feat: promote mutated captured params and any-typed captures to boxes",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "16267719",
+      "subject": "feat: promote mutated captured params and any-typed captures to boxes"
+    },
+    {
+      "hash": "54c86368",
+      "subject": "chore(dashboard): refresh @ c4c0255f - rotation 60 (745-750: struct literal-index via member lanes; fromEntries accessor getters; RFC 20260710 noncopy-mutable-capture C1-C3 shipped - shared live bindings via capture box, for-init per-iter; inline str-eq and switch scrutinee fresh-owned release; gate 1375 -> 1380 six green)"
+    },
+    {
       "hash": "c4c0255f",
       "subject": "fix: release fresh-owned operands in inline str-eq and switch scrutinee"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "0d6b433b",
       "subject": "fix: unshift owned-temp release closes push-twin leak"
-    },
-    {
-      "hash": "551c32db",
-      "subject": "feat: mutable closure-captured toplevel bindings promote to globals"
-    },
-    {
-      "hash": "6391d8dd",
-      "subject": "fix: any-elem array literals mint FLAG_ARR_ANY; fromEntries accepts dynobj entries"
     }
   ],
-  "headSha": "c4c0255f",
+  "headSha": "16267719",
   "autorun": {
     "total": 366,
     "baselineTarget": 10,
