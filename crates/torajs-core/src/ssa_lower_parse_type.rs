@@ -13,6 +13,42 @@ mod markers;
 use crate::ssa::{self, Type};
 use crate::ssa_lower::intern_arr_layout;
 
+/// RFC 20260710-optional-undefined-repr C4 — struct FIELD-position
+/// type resolution. A `__nullable(number|boolean)` field slot
+/// materializes as `Type::Any` (8B NaN-box): scalar slots have no
+/// in-band undefined/null encoding, so the optional slot pays the
+/// box tax (undefined = ANY_UNDEF, null = ANY_NULL, values box as
+/// i64/f64/bool) while non-optional slots stay raw. Param / let /
+/// return positions keep the plain [`parse_type`] strip — their ABI
+/// is unchanged. A `__nullable(<alias>)` whose alias RESOLVES to a
+/// scalar is not covered yet (keeps the pre-RFC in-band collapse);
+/// every other spelling delegates verbatim.
+pub(crate) fn parse_struct_field_type(
+    ann: &str,
+    aliases: &HashMap<String, Type>,
+    arr_layouts: &mut Vec<Type>,
+    fn_sigs: &mut Vec<(Vec<Type>, Type)>,
+    generic_struct_decls: &HashMap<String, (Vec<String>, Vec<(String, String)>)>,
+    struct_layouts: &mut Vec<Vec<(String, Type)>>,
+    inst_memo: &mut HashMap<String, ssa::StructId>,
+) -> Type {
+    if let Some(rest) = ann.strip_prefix("__nullable(")
+        && let Some(inner) = rest.strip_suffix(')')
+        && matches!(inner, "number" | "boolean")
+    {
+        return Type::Any;
+    }
+    parse_type(
+        Some(ann),
+        aliases,
+        arr_layouts,
+        fn_sigs,
+        generic_struct_decls,
+        struct_layouts,
+        inst_memo,
+    )
+}
+
 pub(crate) fn parse_type(
     ann: Option<&str>,
     aliases: &HashMap<String, Type>,

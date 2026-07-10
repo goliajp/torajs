@@ -53,7 +53,15 @@ pub(crate) fn resolve_objlit_layout(
                         && (rt == lt
                             || (*lt == Type::Ptr && rt.is_pointer_shaped())
                             || (*lt == Type::F64 && *rt == Type::I64)
-                            || (*lt == Type::I64 && *rt == Type::F64))
+                            || (*lt == Type::I64 && *rt == Type::F64)
+                            // RFC 20260710 C4 — a declared-Any slot
+                            // (`__nullable(number|boolean)` optional
+                            // field, plain `any` field) admits a raw
+                            // scalar literal value; the caller boxes
+                            // it after layout resolution (only a
+                            // retype happens here).
+                            || (*rt == Type::Any
+                                && matches!(*lt, Type::I64 | Type::I32 | Type::F64 | Type::Bool)))
                 })
     };
 
@@ -72,7 +80,10 @@ pub(crate) fn resolve_objlit_layout(
 
     // Canonicalize to the registered layout. A numeric width mismatch
     // emits the cast inline (case 2 above); everything else (the Ptr
-    // null-literal allowance) just retypes the slot.
+    // null-literal allowance, the C4 declared-Any slot) just retypes
+    // the slot — the ObjectLit caller boxes raw values behind
+    // Any-typed slots after resolution (it owns the LowerCtx the
+    // box helpers need).
     let canon = layouts[sid.0 as usize].clone();
     for (i, (_, reg_ty)) in canon.iter().enumerate() {
         let lit_ty = field_tys[i].1;

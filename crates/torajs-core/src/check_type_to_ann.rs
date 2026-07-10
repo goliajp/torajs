@@ -45,7 +45,20 @@ pub fn type_to_ann(ty: &Type) -> String {
         Type::Struct(fields) => {
             let parts: Vec<String> = fields
                 .iter()
-                .map(|(n, ft)| format!("{n}:{}", type_to_ann(ft)))
+                .map(|(n, ft)| match ft {
+                    // RFC 20260710 C4 — FIELD position keeps the
+                    // nullable wrapper: a `__nullable(number|boolean)`
+                    // slot is Any at SSA (per-type undefined repr), so
+                    // collapsing to the bare inner ann would intern a
+                    // raw-scalar twin layout diverging from the
+                    // TypeDecl-registered one. Non-field positions
+                    // keep the historical collapse (Nullable arm
+                    // below) — their storage is repr-identical to T.
+                    Type::Nullable(inner) => {
+                        format!("{n}:__nullable({})", type_to_ann(inner))
+                    }
+                    other => format!("{n}:{}", type_to_ann(other)),
+                })
                 .collect();
             format!("__struct({})", parts.join("|"))
         }

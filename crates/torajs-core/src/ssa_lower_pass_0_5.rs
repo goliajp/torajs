@@ -20,7 +20,7 @@ use std::collections::{HashMap, HashSet};
 use crate::ast::{Ast, ExprId, Stmt};
 use crate::num_width::WidthTable;
 use crate::ssa::{self, BakedRegexEntry, Module, Type};
-use crate::ssa_lower_parse_type::parse_type;
+use crate::ssa_lower_parse_type::{parse_struct_field_type, parse_type};
 
 pub(crate) struct Pass05 {
     pub aliases: HashMap<String, Type>,
@@ -122,8 +122,8 @@ pub(crate) fn run(
                 || num_f64_slots.is_nominal_alias(name))
             .then(|| crate::num_width::SlotKey::Class(name.clone()));
             for (fname, fty_ann) in fields {
-                let mut ty = parse_type(
-                    Some(fty_ann.as_str()),
+                let mut ty = parse_struct_field_type(
+                    fty_ann.as_str(),
                     &aliases,
                     &mut arr_layouts,
                     &mut fn_sigs,

@@ -91,6 +91,33 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, fields: Vec<(String, ExprId)>, eid: 
         {
             field_vals[i] = sentinel;
         }
+        // RFC 20260710 C4 — a declared-Any slot (`__nullable(number|
+        // boolean)` optional field, plain `any` field) takes a
+        // NaN-box, never a raw scalar: resolve_objlit_layout only
+        // retyped the slot, the value boxes here. The expr-aware
+        // variant keeps null vs undefined distinct (ANY_NULL vs
+        // ANY_UNDEF from the same lowered ConstPtrNull). Sources
+        // outside the scalar/nullish set (heap values behind an
+        // `any` field) keep their pre-RFC raw store — their
+        // ownership story is a separate face.
+        if *slot_ty == Type::Any {
+            let src_ty = ctx.operand_ty(&field_vals[i]);
+            let boxable = matches!(src_ty, Type::I64 | Type::I32 | Type::F64 | Type::Bool)
+                || (src_ty == Type::Ptr && matches!(field_vals[i], Operand::ConstPtrNull));
+            if boxable {
+                let veid = fields
+                    .iter()
+                    .rev()
+                    .find(|(n, _)| n == fname)
+                    .map(|(_, veid)| *veid);
+                field_vals[i] = match veid {
+                    Some(e) => ctx.box_to_any_from_expr(e, field_vals[i].clone()),
+                    // spread-unfolded field — no source expr; the
+                    // plain box maps ConstPtrNull to ANY_NULL.
+                    None => ctx.box_to_any(field_vals[i].clone()),
+                };
+            }
+        }
     }
     for (i, val) in field_vals.iter().enumerate() {
         // L3b #6 crash fix — a typed Array stored into a struct field

@@ -427,6 +427,21 @@ fn lower_struct_field_store(
                 "ssa-lower: f64 value into i64 struct field `{field}` — \
                  container width analysis missed this write"
             ),
+            // RFC 20260710 C4 — a declared-Any slot (`__nullable(
+            // number|boolean)` optional field, plain `any` field)
+            // takes a NaN-box: box the scalar / nullish-literal
+            // write (expr-aware — an undefined literal boxes to
+            // ANY_UNDEF, a null literal to ANY_NULL). The box is an
+            // rc-inert immediate for these payloads, so the share
+            // inc below no-ops through __torajs_rc_inc's NaN-box
+            // gate. Heap sources keep their pre-RFC raw store —
+            // their ownership story is a separate face.
+            (Type::Any, Type::I64 | Type::I32 | Type::F64 | Type::Bool) => {
+                ctx.box_to_any_from_expr(value, v)
+            }
+            (Type::Any, Type::Ptr) if matches!(v, Operand::ConstPtrNull) => {
+                ctx.box_to_any_from_expr(value, v)
+            }
             _ => v,
         };
         let v_ty = ctx.operand_ty(&v);

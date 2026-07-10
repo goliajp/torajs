@@ -7,11 +7,12 @@ use std::collections::HashMap;
 use crate::ssa::{self, Type};
 use crate::ssa_lower::intern_fn_sig;
 
-use super::parse_type;
+use super::{parse_struct_field_type, parse_type};
 
-/// `__struct(name:T|...)` — parse each field ann, dedup against the
-/// existing struct_layouts pool, intern. `inner` is the annotation
-/// between `__struct(` and the trailing `)`.
+/// `__struct(name:T|...)` — parse each field ann (field position:
+/// `__nullable(number|boolean)` → Any, RFC 20260710 C4), dedup
+/// against the existing struct_layouts pool, intern. `inner` is the
+/// annotation between `__struct(` and the trailing `)`.
 pub(super) fn parse_struct(
     inner: &str,
     aliases: &HashMap<String, Type>,
@@ -32,8 +33,8 @@ pub(super) fn parse_struct(
             b'|' if depth == 0 => {
                 let part = &inner[last..i];
                 let (n, t) = part.split_once(':').unwrap_or((part, ""));
-                let fty = parse_type(
-                    Some(t),
+                let fty = parse_struct_field_type(
+                    t,
                     aliases,
                     arr_layouts,
                     fn_sigs,
@@ -50,8 +51,8 @@ pub(super) fn parse_struct(
     if !inner.is_empty() {
         let part = &inner[last..];
         let (n, t) = part.split_once(':').unwrap_or((part, ""));
-        let fty = parse_type(
-            Some(t),
+        let fty = parse_struct_field_type(
+            t,
             aliases,
             arr_layouts,
             fn_sigs,

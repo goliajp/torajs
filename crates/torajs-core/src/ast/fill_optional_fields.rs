@@ -11,11 +11,12 @@
 //! print / truthiness / JSON) lines up.
 //!
 //! **Sentinel-capability gate** (no silent-wrong middle state): only
-//! fields whose `__nullable(T)` inner is a Str-family or fn-type
-//! spelling are filled — those slot types have a landed undefined
-//! repr. A missing `n?: number` (I64 in-band, RFC C4) or object /
-//! array field (inline-dec drop guards, RFC C2b) keeps the loud
-//! reject; filling them would store NULL/0 and silently diverge.
+//! fields whose `__nullable(T)` inner is a Str-family, fn-type,
+//! number, or boolean spelling are filled — those slot types have a
+//! landed undefined repr (C4 gave number/boolean an Any slot with
+//! ANY_UNDEF). A missing object / array field (inline-dec drop
+//! guards, RFC C2b) keeps the loud reject; filling it would store
+//! NULL and silently diverge.
 //!
 //! Scope (mirrors the chunk-741 survey pass, rebuilt narrow):
 //! - `Stmt::LetDecl { type_ann: Some(_), init: ObjectLit }` sites,
@@ -200,11 +201,12 @@ fn plan_fill(literal: &[(String, ExprId)], declared: &[(String, String)]) -> Opt
     Some(out)
 }
 
-/// Slot types whose undefined sentinel repr has landed: Str-family
-/// (RFC 20260707 + C1) and fn-type (C2a). Number/Bool (C4) and
-/// object/array (C2b) stay loud.
+/// Slot types whose undefined repr has landed: Str-family (RFC
+/// 20260707 + C1), fn-type (C2a), and number/boolean (C4 — the
+/// optional slot materializes as Any, absent = ANY_UNDEF box).
+/// Object/array fields (C2b) stay loud.
 fn sentinel_capable(inner: &str) -> bool {
-    inner == "string" || inner.starts_with("__fn(")
+    inner == "string" || inner.starts_with("__fn(") || inner == "number" || inner == "boolean"
 }
 
 /// Split `s` on `sep` at paren depth 0.

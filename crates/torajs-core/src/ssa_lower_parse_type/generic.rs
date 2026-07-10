@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use crate::ssa::{self, Type};
 use crate::ssa_lower::substitute_in_ann;
 
-use super::parse_type;
+use super::{parse_struct_field_type, parse_type};
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn parse_generic(
@@ -89,8 +89,8 @@ pub(super) fn parse_generic(
         let mut layout: Vec<(String, Type)> = Vec::with_capacity(fields.len());
         for (fname, fann) in &fields {
             let substituted = substitute_in_ann(fann, &subst);
-            let fty = parse_type(
-                Some(&substituted),
+            let fty = parse_struct_field_type(
+                &substituted,
                 aliases,
                 arr_layouts,
                 fn_sigs,
