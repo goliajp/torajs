@@ -410,7 +410,19 @@ fn lower_struct_field_store(
         let ids: Vec<ExprId> = els.clone();
         ctx.lower_array_any_literal(&ids)
     } else {
+        // Chunk 784 — pin the field's declared struct layout for a
+        // direct ObjectLit rhs (mirrors the chunk-780 let-decl site):
+        // without it resolve_objlit_layout first-matches a
+        // same-shaped layout registered under a different declared
+        // type and the slot reprs collide (silent-wrong reads
+        // through the declared layout).
+        if let Type::Obj(inner_sid) = field_ty
+            && matches!(ctx.ast.get_expr(value), Expr::ObjectLit { .. })
+        {
+            ctx.let_declared_obj_layout = Some(inner_sid);
+        }
         let v = ctx.lower_expr(value);
+        ctx.let_declared_obj_layout = None;
         // Chunk 566 — a field store SHARES the rhs (TS has no move
         // semantics): a borrow-shape value takes +1 so the field
         // owns its stake while the source binding keeps its own —

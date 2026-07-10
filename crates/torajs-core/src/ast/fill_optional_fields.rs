@@ -21,6 +21,13 @@
 //! Scope (mirrors the chunk-741 survey pass, rebuilt narrow):
 //! - `Stmt::LetDecl { type_ann: Some(_), init: ObjectLit }` sites,
 //!   walked recursively through fn bodies / blocks / control flow.
+//! - Direct-call argument sites (chunk 784): `f({ n: 5 })` where the
+//!   named top-level FnDecl's matching param carries a struct-
+//!   resolving annotation — found by an expression walk under every
+//!   statement position (the checker's positional layout match
+//!   rejects the short literal there exactly like the let-decl
+//!   site). Method calls / `new` stay loud (their param tables live
+//!   elsewhere; archived).
 //! - The annotation resolves through a `TypeDecl` alias snapshot, a
 //!   generic-alias instantiation (`Box<number>` — word-boundary
 //!   substitution of the decl's type params, mirroring the checker's
@@ -36,6 +43,8 @@ use std::collections::HashMap;
 use crate::check_type_ann_substitute::ann_substitute;
 
 use super::{Ast, Expr, ExprId, Stmt};
+
+mod collect;
 
 /// TypeDecl snapshots the fill pass resolves annotations through:
 /// `plain` holds non-generic aliases (name → declared fields),
@@ -53,23 +62,34 @@ pub fn fill_optional_fields(ast: &mut Ast) {
         plain: HashMap::new(),
         generic: HashMap::new(),
     };
+    // Chunk 784 — top-level FnDecl param annotations, for the
+    // direct-call argument fill sites.
+    let mut fn_params: HashMap<String, Vec<Option<String>>> = HashMap::new();
     for s in &ast.stmts {
-        if let Stmt::TypeDecl {
-            name,
-            type_params,
-            fields,
-        } = s
-        {
-            if type_params.is_empty() {
-                env.plain.insert(name.clone(), fields.clone());
-            } else {
-                env.generic
-                    .insert(name.clone(), (type_params.clone(), fields.clone()));
+        match s {
+            Stmt::TypeDecl {
+                name,
+                type_params,
+                fields,
+            } => {
+                if type_params.is_empty() {
+                    env.plain.insert(name.clone(), fields.clone());
+                } else {
+                    env.generic
+                        .insert(name.clone(), (type_params.clone(), fields.clone()));
+                }
             }
+            Stmt::FnDecl { name, params, .. } => {
+                fn_params.insert(
+                    name.clone(),
+                    params.iter().map(|p| p.type_ann.clone()).collect(),
+                );
+            }
+            _ => {}
         }
     }
     let mut jobs: Vec<(ExprId, Vec<(String, String)>)> = Vec::new();
-    collect_jobs(ast, &ast.stmts, &env, &mut jobs);
+    collect::collect_jobs(ast, &ast.stmts, &env, &fn_params, &mut jobs);
     for (lit_eid, declared) in jobs {
         let Expr::ObjectLit { fields } = ast.get_expr(lit_eid).clone() else {
             continue;
@@ -94,65 +114,6 @@ pub fn fill_optional_fields(ast: &mut Ast) {
 enum FillSlot {
     Existing(String, ExprId),
     Undefined(String),
-}
-
-/// Walk statement trees collecting `(objlit_eid, declared_fields)`
-/// pairs for annotated let-decls whose init is a plain ObjectLit.
-fn collect_jobs(
-    ast: &Ast,
-    stmts: &[Stmt],
-    env: &AliasEnv,
-    jobs: &mut Vec<(ExprId, Vec<(String, String)>)>,
-) {
-    for s in stmts {
-        match s {
-            Stmt::LetDecl {
-                type_ann: Some(ann),
-                init,
-                ..
-            } => {
-                if let Some(declared) = resolve_struct_ann(ann.trim(), env)
-                    && matches!(ast.get_expr(*init), Expr::ObjectLit { .. })
-                {
-                    jobs.push((*init, declared));
-                }
-            }
-            Stmt::FnDecl { body, .. } => collect_jobs(ast, body, env, jobs),
-            Stmt::Block(inner) | Stmt::Multi(inner) => collect_jobs(ast, inner, env, jobs),
-            Stmt::If {
-                then_branch,
-                else_branch,
-                ..
-            } => {
-                collect_jobs(ast, core::slice::from_ref(then_branch.as_ref()), env, jobs);
-                if let Some(eb) = else_branch {
-                    collect_jobs(ast, core::slice::from_ref(eb.as_ref()), env, jobs);
-                }
-            }
-            Stmt::While { body, .. } | Stmt::DoWhile { body, .. } | Stmt::ForOf { body, .. } => {
-                collect_jobs(ast, core::slice::from_ref(body.as_ref()), env, jobs);
-            }
-            Stmt::For { init, body, .. } => {
-                if let Some(i) = init {
-                    collect_jobs(ast, core::slice::from_ref(i.as_ref()), env, jobs);
-                }
-                collect_jobs(ast, core::slice::from_ref(body.as_ref()), env, jobs);
-            }
-            Stmt::Try {
-                body,
-                catch_body,
-                finally_body,
-                ..
-            } => {
-                collect_jobs(ast, body, env, jobs);
-                collect_jobs(ast, catch_body, env, jobs);
-                if let Some(fb) = finally_body {
-                    collect_jobs(ast, fb, env, jobs);
-                }
-            }
-            _ => {}
-        }
-    }
 }
 
 /// Resolve a let-decl annotation to a declared field list: a bare

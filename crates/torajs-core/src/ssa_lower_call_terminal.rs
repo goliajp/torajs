@@ -56,8 +56,23 @@ pub(crate) fn emit(
         .enumerate()
         .map(|(i, a)| {
             let expected = param_tys.as_ref().and_then(|ps| ps.get(i));
-            ctx.try_lower_empty_array_arg(*a, expected)
-                .unwrap_or_else(|| ctx.lower_expr(*a))
+            if let Some(op) = ctx.try_lower_empty_array_arg(*a, expected) {
+                return op;
+            }
+            // Chunk 784 — pin the param's declared struct layout for
+            // a direct ObjectLit arg (mirrors the chunk-780 let-decl
+            // site): without it resolve_objlit_layout first-matches a
+            // same-shaped layout registered under a different
+            // declared type and the slot reprs collide (silent-wrong
+            // reads through the declared layout).
+            if let Some(Type::Obj(sid)) = expected
+                && matches!(ctx.ast.get_expr(*a), crate::ast::Expr::ObjectLit { .. })
+            {
+                ctx.let_declared_obj_layout = Some(*sid);
+            }
+            let v = ctx.lower_expr(*a);
+            ctx.let_declared_obj_layout = None;
+            v
         })
         .collect();
     // RC-4 — a Nullable<Array> arg decayed against a generic Array
