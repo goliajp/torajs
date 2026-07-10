@@ -46,6 +46,7 @@ pub(crate) struct RegexIds {
     pub regex_replace_fn: FuncId,
     pub regex_replace_all_fn: FuncId,
     pub regex_split: FuncId,
+    pub regex_search: FuncId,
     pub regex_exec: FuncId,
     pub regex_get_source: FuncId,
     pub regex_get_flags: FuncId,
@@ -127,6 +128,13 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             "__torajs_str_split_regex",
             &[Type::Str, Type::RegExp],
             Type::Ptr,
+        ),
+        regex_search: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_str_search_regex",
+            &[Type::Str, Type::RegExp],
+            Type::I64,
         ),
         regex_exec: declare_intrinsic(
             module,

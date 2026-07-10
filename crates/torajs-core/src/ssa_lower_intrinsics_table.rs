@@ -157,6 +157,7 @@ pub(crate) fn build(
         regex_replace_fn: init_b.regex.regex_replace_fn,
         regex_replace_all_fn: init_b.regex.regex_replace_all_fn,
         regex_split: init_b.regex.regex_split,
+        regex_search: init_b.regex.regex_search,
         regex_exec: init_b.regex.regex_exec,
         regex_match_all: init_b.regex.regex_match_all,
         regex_get_last_index: init_b.regex.regex_get_last_index,

@@ -143,6 +143,7 @@ pub(crate) mod check_type_of_call_string_predicate_2arg;
 pub(crate) mod check_type_of_call_string_repeat_undef;
 pub(crate) mod check_type_of_call_string_replace_split_trailing;
 pub(crate) mod check_type_of_call_string_replace_undef;
+pub(crate) mod check_type_of_call_string_search_regex;
 pub(crate) mod check_type_of_call_string_search_short_circuit;
 pub(crate) mod check_type_of_call_string_search_trailing;
 pub(crate) mod check_type_of_call_string_search_undef;

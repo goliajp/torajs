@@ -103,3 +103,37 @@ pub unsafe extern "C" fn __torajs_regex_find(
         None => -1,
     }
 }
+
+/// `s.search(re)` — ES §22.1.3.19 via §22.2.6.12 Symbol.search:
+/// the search always starts at 0 and `lastIndex` is saved/restored,
+/// so this helper never reads or writes it (global / sticky flags
+/// don't advance anything). Sticky anchors at 0; everything else is
+/// a plain scan. Returns the match start in UTF-16 code units, or
+/// `-1` on miss.
+///
+/// # Safety
+///
+/// `re_ptr` is null or a live `*RegExp`; `str_ptr` is null or a
+/// live `*Str`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_search_regex(
+    str_ptr: *const c_void,
+    re_ptr: *const c_void,
+) -> i64 {
+    if re_ptr.is_null() || str_ptr.is_null() {
+        return -1;
+    }
+    let re = unsafe { super::as_regex(re_ptr) };
+    let s = unsafe { str_slice(str_ptr) };
+    let hit = if (re.flags & RE_FLAG_Y) != 0 {
+        match_anchor(&re.prog, &s, 0, re.flags)
+    } else {
+        let dfa_view = re.baked_dfa_view();
+        let dfa_ref = dfa_view.as_ref().or(re.dfa_runtime.as_ref());
+        search_from(&re.prog, &s, 0, re.flags, dfa_ref)
+    };
+    match hit {
+        Some(m) => byte_to_utf16_units(&s, m.start, false),
+        None => -1,
+    }
+}

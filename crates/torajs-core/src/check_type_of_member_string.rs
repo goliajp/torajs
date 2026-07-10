@@ -141,10 +141,11 @@ pub(crate) fn try_match(obj_ty: &Type, name: &str) -> Option<Result<Type, String
             // spec §22.1.3.16. The full spec coerces the
             // arg to a RegExp and uses Symbol.search, but
             // for a plain string arg the result is exactly
-            // indexOf — first match position or -1.
-            // tora's subset only routes the string-arg
-            // form (RegExp arg is a follow-up substrate
-            // item alongside Symbol.search dispatch).
+            // indexOf — first match position or -1. This
+            // entry types the string-arg form only; the
+            // RegExp-arg form routes through the chunk-800
+            // `check_type_of_call_string_search_regex`
+            // wedge before the general arm reaches here.
             | "search",
         ) => Type::Function(vec![Type::String], Box::new(Type::Number)),
         // s.split(sep): string[] — `sep` is Str or RegExp;

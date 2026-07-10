@@ -5,12 +5,15 @@
 //! Map dispatch + Set dispatch + Arr.push + Number methods + bare-name
 //! globals).
 //!
-//! Five methods share `Expr::Member { obj, name }` + first-arg-is-RegExp
+//! Six methods (search joined at chunk 800) share
+//! `Expr::Member { obj, name }` + first-arg-is-RegExp
 //! peek; when both gates pass, dispatch routes to `__torajs_regex_*`
 //! intrinsics. The non-regex `(Str, Str)` path is owned by
 //! `ssa_lower_str::try_lower_method_call` (the M6.1 sidekick) downstream
 //! — this block intercepts only when the first arg is statically a
 //! regex (literal `/.../flags` or Ident with tracked Type::RegExp).
+//! Substr receivers materialize through `substr_to_owned` before the
+//! runtime call (chunk 800 — the byte reader misreads view blocks).
 //!
 //! Returns `Some(result)` when the regex intercept dispatches; `None`
 //! lets the caller fall through to the M6.1 String/Substr/Array stdlib
@@ -33,7 +36,7 @@ pub(crate) fn try_lower(
     };
     if !matches!(
         name.as_str(),
-        "replace" | "replaceAll" | "split" | "match" | "matchAll"
+        "replace" | "replaceAll" | "split" | "match" | "matchAll" | "search"
     ) {
         return None;
     }
@@ -62,19 +65,65 @@ pub(crate) fn try_lower(
     if !arg0_is_regex {
         return None;
     }
-    let recv_op = ctx.lower_expr(obj);
-    let recv_ty = ctx.operand_ty(&recv_op);
-    debug_assert_eq!(recv_ty, Type::Str);
+    let raw_recv = ctx.lower_expr(obj);
+    // Chunk 800 — a Substr receiver (charAt view, for-of-str char,
+    // exec capture) is a 16-byte parent-pointer block the runtime
+    // `str_slice` reader would misread as an owned Str header
+    // (probe: `ch.match(/o/)` answered null on a matching char,
+    // `ch.split(/x/)` answered mojibake). Materialize through
+    // `substr_to_owned` — the chunk-699 test/exec haystack dance —
+    // and drop the fresh temp after the call. Owned-Str receivers
+    // pass through.
+    let recv_is_view = ctx.operand_ty(&raw_recv) == Type::Substr;
+    let recv_op = if recv_is_view {
+        let owned = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.substr_to_owned, vec![raw_recv]),
+            Type::Str,
+            None,
+        );
+        Operand::Value(owned)
+    } else {
+        raw_recv
+    };
     let re_op = ctx.lower_expr(args[0]);
     let arr_id = intern_arr_layout(ctx.arr_layouts, Type::Str);
     let result = match name.as_str() {
-        "match" => emit_match(ctx, recv_op, re_op, args, arr_id),
-        "matchAll" => emit_match_all(ctx, recv_op, re_op, args, arr_id),
-        "split" => emit_split(ctx, recv_op, re_op, args, arr_id),
-        "replace" | "replaceAll" => emit_replace(ctx, recv_op, re_op, &name, args),
+        "match" => emit_match(ctx, recv_op.clone(), re_op, args, arr_id),
+        "matchAll" => emit_match_all(ctx, recv_op.clone(), re_op, args, arr_id),
+        "split" => emit_split(ctx, recv_op.clone(), re_op, args, arr_id),
+        "replace" | "replaceAll" => emit_replace(ctx, recv_op.clone(), re_op, &name, args),
+        "search" => emit_search(ctx, recv_op.clone(), re_op, args),
         _ => unreachable!(),
     };
+    if recv_is_view {
+        ctx.emit_drop_value(recv_op, Type::Str);
+    }
     Some(result)
+}
+
+/// `s.search(re)` — ES §22.1.3.19 (chunk 800). The runtime helper
+/// anchors sticky at 0 / scans from 0 and never touches lastIndex
+/// (§22.2.6.12 saves/restores it); returns the UTF-16 match index
+/// or -1.
+fn emit_search(
+    ctx: &mut LowerCtx<'_>,
+    recv_op: Operand,
+    re_op: Operand,
+    args: &[ExprId],
+) -> Operand {
+    // Trailing-arg ignore per the S286 family idiom: spec reads
+    // only `re`, step()-style side-effect exprs still fire.
+    for &a in args.iter().skip(1) {
+        let _ = ctx.lower_expr(a);
+    }
+    let v = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(ctx.intrinsics.regex_search, vec![recv_op, re_op]),
+        Type::I64,
+        None,
+    );
+    Operand::Value(v)
 }
 
 fn emit_match(

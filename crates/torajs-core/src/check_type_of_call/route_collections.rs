@@ -86,6 +86,15 @@ pub(crate) fn try_route(
     {
         return Some(r);
     }
+    // Chunk 800 — `String.search(RegExp)` per ES §22.1.3.19
+    // ([`crate::check_type_of_call_string_search_regex`]); the
+    // method table's (String) -> Number entry covers only the
+    // plain-string needle.
+    if let Some(r) =
+        crate::check_type_of_call_string_search_regex::try_match(checker, ast, callee, args)
+    {
+        return Some(r);
+    }
     // S210 — `String.search()` / `String.search(undefined)`
     // short-circuit wedge extracted to
     // [`crate::check_type_of_call_string_search_short_circuit`]

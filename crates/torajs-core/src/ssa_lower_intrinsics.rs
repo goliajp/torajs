@@ -180,6 +180,9 @@ pub(crate) struct Intrinsics {
     pub(crate) regex_replace_fn: FuncId,
     pub(crate) regex_replace_all_fn: FuncId,
     pub(crate) regex_split: FuncId,
+    /// Chunk 800 — `s.search(re)` per ES §22.1.3.19: UTF-16 match
+    /// index or -1; lastIndex untouched.
+    pub(crate) regex_search: FuncId,
     pub(crate) regex_exec: FuncId,
     pub(crate) regex_match_all: FuncId,
     /// P9.4 — `RegExp.prototype.lastIndex` accessors. Get returns the
