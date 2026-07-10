@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-10T13:46:03.650Z",
+  "generatedAt": "2026-07-10T15:11:41.770Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 85.13
   },
   "torajs": {
-    "commit": "c073228f",
-    "commitSubject": "refactor: type_of literal variants invert to a catch-all",
+    "commit": "19daa81b",
+    "commitSubject": "test(conformance): pin heap sources into declared-any struct fields",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "19daa81b",
+      "subject": "test(conformance): pin heap sources into declared-any struct fields"
+    },
+    {
+      "hash": "03d927d6",
+      "subject": "feat: fill absent optional fields at generic struct instantiation sites"
+    },
+    {
+      "hash": "220f0b35",
+      "subject": "chore: upgrade web dependencies to latest"
+    },
+    {
+      "hash": "80fe3ee8",
+      "subject": "chore: upgrade rust dependencies to latest"
+    },
+    {
+      "hash": "8de543c3",
+      "subject": "chore: bump rust toolchain nightly-2026-05-19 -> nightly-2026-07-10"
+    },
+    {
+      "hash": "e708b849",
+      "subject": "chore(dashboard): refresh @ c073228f - rotation 63 (762-776: call-arg struct nullable-field covariance shipped closing the 759 archive; workspace file-size audit caught 13 fn + 3 file non-carve-out drift entries, ALL cleared across 763-776 - decl-table convergence, stage extraction, sibling splits, leaf catch-all inversions; non-carve-out debt zero at c073228f, only 4 CARVE-OUT #2 items remain; gate 1389 -> 1390 fifteen green, tr baseline 60026288 -> 60042800 at 774 layout drift)"
+    },
+    {
       "hash": "c073228f",
       "subject": "refactor: type_of literal variants invert to a catch-all"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "73905131",
       "subject": "refactor: deep-clone leaf variants invert to a catch-all shallow clone"
-    },
-    {
-      "hash": "ee5d8454",
-      "subject": "refactor: insertion-sort inner shift loop extracts to its own emitter"
-    },
-    {
-      "hash": "15d5a27a",
-      "subject": "chore(dashboard): refresh @ 3d077086 - rotation 63 (762-769: call-arg struct nullable-field covariance wedge shipped closing the 759 archive entry; workspace file-size audit caught 13 fn + 3 file non-carve-out drift entries, seven cleared across 763-769 via decl-table convergence, stage extraction, and sibling splits - all release-tr byte-identical; gate 1389 -> 1390 eight green)"
-    },
-    {
-      "hash": "3d077086",
-      "subject": "refactor: closure-param inference extracts its table build and apply stages"
-    },
-    {
-      "hash": "a42e45ca",
-      "subject": "refactor: lower_inner closure partition + fn-name registry extract"
-    },
-    {
-      "hash": "259dfd85",
-      "subject": "refactor: arguments-object desugar splits its seed stages"
-    },
-    {
-      "hash": "189feef6",
-      "subject": "refactor: num-format extern shells move to format_ffi"
     }
   ],
-  "headSha": "c073228f",
+  "headSha": "19daa81b",
   "autorun": {
-    "total": 369,
+    "total": 370,
     "baselineTarget": 10,
-    "bySelf": 364,
+    "bySelf": 365,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1783684511-4fb6",
-      "at": "2026-07-10T11:55:11Z",
-      "ts": 1783684511,
+      "rotationId": "r-1783691183-1d52",
+      "at": "2026-07-10T13:46:23Z",
+      "ts": 1783691183,
       "trigger": "self",
-      "prevHead": "a97e6c08",
-      "handoffSha": "sha256:84dcdfd66d891c5a25f7ec8452e90a621d7aa8d42ca4c3021bb94d8cb2f3ac09",
-      "handoffAgeSec": 6,
+      "prevHead": "e708b849",
+      "handoffSha": "sha256:e05d2e21f55a22f730ef301b4515c23658e3d4c1a2cfb4831cfc95c37f749e8a",
+      "handoffAgeSec": 43,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1783691183-1d52",
+        "at": "2026-07-10T13:46:23Z",
+        "ts": 1783691183,
+        "trigger": "self",
+        "prevHead": "e708b849",
+        "handoffSha": "sha256:e05d2e21f55a22f730ef301b4515c23658e3d4c1a2cfb4831cfc95c37f749e8a",
+        "handoffAgeSec": 43,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1783684511-4fb6",
         "at": "2026-07-10T11:55:11Z",
@@ -876,17 +887,6 @@
         "prevHead": "21a18f0f",
         "handoffSha": "sha256:2e491c0a53a6ad41f75082299ff73b11b0ff640a0c23f71b7feed1bbd85cd8e7",
         "handoffAgeSec": 14,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1783519655-75fe",
-        "at": "2026-07-08T14:07:35Z",
-        "ts": 1783519655,
-        "trigger": "self",
-        "prevHead": "60e7f902",
-        "handoffSha": "sha256:0351207666b481a0f771efe2f0493bef6a12e11ee33279bd83aaf4f8df80ccdd",
-        "handoffAgeSec": 8,
         "conformanceBefore": null,
         "commitsInSession": null
       }
