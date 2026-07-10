@@ -101,44 +101,18 @@ pub(crate) fn lower_fn(
     );
     let mut f = ssa::Function::new(name, ret_ty);
 
-    let mut param_setup: Vec<(String, ValueId, Type)> = Vec::with_capacity(params.len());
-    // RFC 20260708-closure-argc-abi chunk 2 — `__clsargc(`-annotated
-    // params (mono-instantiated real-argc closure slots) register for
-    // the call arm's argc prepend.
-    let mut argc_locals: std::collections::HashSet<String> = std::collections::HashSet::new();
-    // RFC 20260708-variadic — `__rest(`-bearing anns route the
-    // boxed-dual-entry call lane.
-    let mut variadic_locals: std::collections::HashSet<String> = std::collections::HashSet::new();
-    for p in params {
-        if p.type_ann
-            .as_deref()
-            .is_some_and(|a| a.starts_with("__clsargc("))
-        {
-            argc_locals.insert(p.name.clone());
-        }
-        if p.type_ann.as_deref().is_some_and(|a| a.contains("__rest(")) {
-            variadic_locals.insert(p.name.clone());
-        }
-        let pty = promote_and_widen(
-            parse_type(
-                p.type_ann.as_deref(),
-                aliases,
-                arr_layouts,
-                fn_sigs,
-                generic_struct_decls,
-                struct_layouts,
-                inst_memo,
-            ),
-            p.type_ann.as_deref(),
-            &crate::num_width::SlotKey::Param(name.to_string(), p.name.clone()),
-            num_f64_slots,
-            arr_layouts,
-            struct_layouts,
-            fn_sigs,
-        );
-        let pid = f.add_param(pty, &p.name);
-        param_setup.push((p.name.clone(), pid, pty));
-    }
+    let (param_setup, argc_locals, variadic_locals) = setup_fn_params(
+        &mut f,
+        name,
+        params,
+        aliases,
+        arr_layouts,
+        fn_sigs,
+        generic_struct_decls,
+        struct_layouts,
+        inst_memo,
+        num_f64_slots,
+    );
 
     let entry = f.add_block();
     let mut new_strings: Vec<ssa::StringLiteral> = Vec::new();
@@ -250,6 +224,68 @@ pub(crate) fn lower_fn(
     }
 
     (f, new_strings)
+}
+
+/// Param materialize prelude of [`lower_fn`] (chunk 775 extraction):
+/// parse + width-promote each declared param into an SSA param slot,
+/// and register the two annotation-keyed lanes —
+///
+/// - RFC 20260708-closure-argc-abi chunk 2 `argc_locals`:
+///   `__clsargc(`-annotated params (mono-instantiated real-argc
+///   closure slots) register for the call arm's argc prepend.
+/// - RFC 20260708-variadic `variadic_locals`: `__rest(`-bearing anns
+///   route the boxed-dual-entry call lane.
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+fn setup_fn_params(
+    f: &mut ssa::Function,
+    name: &str,
+    params: &[ast::Param],
+    aliases: &HashMap<String, Type>,
+    arr_layouts: &mut Vec<Type>,
+    fn_sigs: &mut Vec<(Vec<Type>, Type)>,
+    generic_struct_decls: &HashMap<String, (Vec<String>, Vec<(String, String)>)>,
+    struct_layouts: &mut Vec<Vec<(String, Type)>>,
+    inst_memo: &mut HashMap<String, ssa::StructId>,
+    num_f64_slots: &crate::num_width::WidthTable,
+) -> (
+    Vec<(String, ValueId, Type)>,
+    std::collections::HashSet<String>,
+    std::collections::HashSet<String>,
+) {
+    let mut param_setup: Vec<(String, ValueId, Type)> = Vec::with_capacity(params.len());
+    let mut argc_locals: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut variadic_locals: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for p in params {
+        if p.type_ann
+            .as_deref()
+            .is_some_and(|a| a.starts_with("__clsargc("))
+        {
+            argc_locals.insert(p.name.clone());
+        }
+        if p.type_ann.as_deref().is_some_and(|a| a.contains("__rest(")) {
+            variadic_locals.insert(p.name.clone());
+        }
+        let pty = promote_and_widen(
+            parse_type(
+                p.type_ann.as_deref(),
+                aliases,
+                arr_layouts,
+                fn_sigs,
+                generic_struct_decls,
+                struct_layouts,
+                inst_memo,
+            ),
+            p.type_ann.as_deref(),
+            &crate::num_width::SlotKey::Param(name.to_string(), p.name.clone()),
+            num_f64_slots,
+            arr_layouts,
+            struct_layouts,
+            fn_sigs,
+        );
+        let pid = f.add_param(pty, &p.name);
+        param_setup.push((p.name.clone(), pid, pty));
+    }
+    (param_setup, argc_locals, variadic_locals)
 }
 
 /// shared tail of ret/param slot type resolution: W1 f64-slot promotion
