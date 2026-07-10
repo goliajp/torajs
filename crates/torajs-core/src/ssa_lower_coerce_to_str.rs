@@ -147,6 +147,20 @@ impl<'a> LowerCtx<'a> {
                 );
                 Operand::Value(s)
             }
+            // RFC 20260710 C2a — a fn-typed slot value ToStrings via
+            // the fnname runtime (null → "null", the undefined
+            // sentinel → the sentinel cell itself, a real address →
+            // "[Function: name]" / anonymous). Owned result; the
+            // caller's drop is a no-op on the static sentinel.
+            Type::FnSig(_) => {
+                let v = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(self.intrinsics.fnsig_to_str, vec![val]),
+                    Type::Str,
+                    None,
+                );
+                Operand::Value(v)
+            }
             other => {
                 panic!("ssa-lower: console multi-arg coercion of type {other:?} not supported")
             }

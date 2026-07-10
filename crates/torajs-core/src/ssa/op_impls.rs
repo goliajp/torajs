@@ -100,8 +100,13 @@ impl Type {
     /// any other heap handle). Used by ObjectLit's permissive layout
     /// match so a literal `null` Ptr field maps onto a registered
     /// pointer-shaped class field of any specific tag.
+    /// RFC 20260710 C2a — FnSig joins: a fn-typed slot carries a code
+    /// address, NULL, or the undefined sentinel (all pointers), and
+    /// without it `{ cb: undefined }` failed the declared-layout match
+    /// and registered a fresh anon (cb: Ptr) shape the member reader
+    /// never saw.
     pub fn is_pointer_shaped(self) -> bool {
-        self.is_refcounted() || matches!(self, Type::Ptr)
+        self.is_refcounted() || matches!(self, Type::Ptr | Type::FnSig(_))
     }
 }
 

@@ -83,7 +83,16 @@ unsafe extern "C" {
     /// `u64` entry count placed immediately after the entries.
     static __torajs_fn_name_table_count: u64;
     fn __torajs_io_putc_stdout(c: i32) -> i32;
+    // torajs-str — RFC 20260710 C2a: a Nullable fn-typed slot holds
+    // NULL (JS null) or the immortal undefined sentinel alongside
+    // real fn addresses; print/ToString must not render those as
+    // [Function].
+    fn __torajs_str_is_undef(p: *const u8) -> i64;
+    fn __torajs_str_alloc_pooled(len: u64) -> *mut u8;
+    fn __torajs_str_undef() -> *mut u8;
 }
+
+const STR_DATA_OFF: usize = 16;
 
 const PREFIX: &[u8] = b"[Function: ";
 const SUFFIX: &[u8] = b"]";
@@ -142,6 +151,16 @@ pub unsafe extern "C" fn __torajs_fn_name_lookup(
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_fn_print_inline(fn_addr: u64) {
+    // RFC 20260710 C2a — a Nullable fn-typed slot's nullish reprs
+    // print as their JS values, not as [Function].
+    if fn_addr == 0 {
+        emit_bytes(b"null");
+        return;
+    }
+    if unsafe { __torajs_str_is_undef(fn_addr as *const u8) } != 0 {
+        emit_bytes(b"undefined");
+        return;
+    }
     let mut name_len: u32 = 0;
     let mut arity: u32 = 0;
     let name_ptr = unsafe { __torajs_fn_name_lookup(fn_addr, &mut name_len, &mut arity) };
@@ -168,6 +187,64 @@ pub unsafe extern "C" fn __torajs_fn_print_inline(fn_addr: u64) {
             emit_bytes(ANON);
         }
     }
+}
+
+/// ToString for a fn-typed slot value (RFC 20260710 C2a — the
+/// console multi-arg join path). Returns an owned Str:
+///
+/// - `0` (JS null) → a fresh pooled "null".
+/// - the undefined sentinel → the sentinel cell itself (Str-shaped,
+///   payload "undefined", `FLAG_STATIC_LITERAL` → the caller's drop
+///   is a no-op).
+/// - a real fn address → fresh `[Function: <name>]` /
+///   `[Function (anonymous)]` per the name-table lookup.
+///
+/// # Safety
+/// `fn_addr` is a fn-typed slot value: 0, the sentinel address, or
+/// an in-image code vaddr (compared, never called).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_fnsig_to_str(fn_addr: u64) -> *mut u8 {
+    if fn_addr == 0 {
+        return unsafe { alloc_str(b"null") };
+    }
+    if unsafe { __torajs_str_is_undef(fn_addr as *const u8) } != 0 {
+        return unsafe { __torajs_str_undef() };
+    }
+    let mut name_len: u32 = 0;
+    let mut arity: u32 = 0;
+    let name_ptr = unsafe { __torajs_fn_name_lookup(fn_addr, &mut name_len, &mut arity) };
+    if name_ptr.is_null() {
+        return unsafe { alloc_str(ANON) };
+    }
+    let total = PREFIX.len() + name_len as usize + SUFFIX.len();
+    let s = unsafe { __torajs_str_alloc_pooled(total as u64) };
+    let mut dst = unsafe { s.add(STR_DATA_OFF) };
+    for &b in PREFIX {
+        unsafe {
+            *dst = b;
+            dst = dst.add(1);
+        }
+    }
+    for j in 0..name_len {
+        unsafe {
+            *dst = *name_ptr.add(j as usize);
+            dst = dst.add(1);
+        }
+    }
+    for &b in SUFFIX {
+        unsafe {
+            *dst = b;
+            dst = dst.add(1);
+        }
+    }
+    s
+}
+
+/// Fresh pooled Str holding `bytes` (Latin-1/ASCII payloads only).
+unsafe fn alloc_str(bytes: &[u8]) -> *mut u8 {
+    let s = unsafe { __torajs_str_alloc_pooled(bytes.len() as u64) };
+    unsafe { core::ptr::copy_nonoverlapping(bytes.as_ptr(), s.add(STR_DATA_OFF), bytes.len()) };
+    s
 }
 
 #[inline(always)]

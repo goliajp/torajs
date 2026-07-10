@@ -56,6 +56,7 @@ pub(crate) struct PrintFreezeIds {
     pub map_print_outer: FuncId,
     pub set_print_outer: FuncId,
     pub fn_print_outer: FuncId,
+    pub fnsig_to_str: FuncId,
     pub any_to_str: FuncId,
     pub any_to_str_box: FuncId,
     pub obj_freeze: FuncId,
@@ -146,6 +147,13 @@ pub(crate) fn declare(
             "__torajs_fn_print_outer",
             &[Type::I64],
             Type::Void,
+        ),
+        fnsig_to_str: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_fnsig_to_str",
+            &[Type::I64],
+            Type::Str,
         ),
         any_to_str: declare_intrinsic(
             module,

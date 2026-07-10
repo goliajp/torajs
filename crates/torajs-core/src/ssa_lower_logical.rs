@@ -279,16 +279,32 @@ impl LowerCtx<'_> {
                 Operand::Value(v)
             }
             // Heap-typed values (Obj / Arr / Closure / Symbol /
-            // RegExp / Date / BigInt / ...) lower to a single pointer
-            // at codegen, so ToBoolean per spec §7.1.2 is exactly
-            // `ptr != null` — null is the only falsy value for an
-            // object / heap value. The previous shortcut returned
-            // ConstBool(true) under the assumption that these values
-            // always come from `new` / literal alloc; the truthy-
-            // narrow wedge breaks that (a Nullable<Obj> binding can
-            // legitimately carry NULL through `if (b) ...`), so the
-            // fallback now does the explicit null-check.
-            _ => self.cmp(IPred::Ne, op, Operand::ConstPtrNull),
+            // RegExp / Date / BigInt / FnSig / ...) lower to a single
+            // pointer at codegen, so ToBoolean per spec §7.1.2 is a
+            // nullish check: NULL (JS null) and the immortal
+            // undefined sentinel (RFC 20260710 C2a — a Nullable slot
+            // can carry either repr) are the two falsy pointers;
+            // everything else is a live object → true. Two inline
+            // cmps + and, zero calls.
+            _ => {
+                let ne_null = self.cmp(IPred::Ne, op.clone(), Operand::ConstPtrNull);
+                let sentinel = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::GlobalRef(
+                        crate::ssa_lower_intrinsics_str_b::STR_UNDEF_CELL_SYM.to_string(),
+                    ),
+                    ty,
+                    None,
+                );
+                let ne_undef = self.cmp(IPred::Ne, op, Operand::Value(sentinel));
+                let r = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::BinOp(crate::ssa::BinOp::And, ne_null, ne_undef),
+                    Type::Bool,
+                    None,
+                );
+                Operand::Value(r)
+            }
         }
     }
 }

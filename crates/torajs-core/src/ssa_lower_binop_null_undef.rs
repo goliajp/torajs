@@ -41,6 +41,13 @@ impl<'a> LowerCtx<'a> {
         let sym = match slot_ty {
             Type::Str => STR_UNDEF_CELL_SYM,
             Type::Substr => SUBSTR_UNDEF_CELL_SYM,
+            // RFC 20260710 C2a — a fn-typed slot is Copy (no rc/drop
+            // traffic), so the Str-shaped oddball serves as its
+            // undefined repr directly: eq compares the address,
+            // print/ToString consult the identity probe. Other
+            // pointer slot types (Obj/Arr/Closure) keep NULL until
+            // their inline-dec drop guards land (C2b).
+            Type::FnSig(_) => STR_UNDEF_CELL_SYM,
             _ => return None,
         };
         let v = self.f.append_inst(
@@ -132,22 +139,14 @@ pub(crate) fn try_lower(
             }
             return Some(Operand::Value(cmp));
         }
-        if !matches!(val_ty, Type::Str | Type::Substr) {
+        // RFC 20260710 C2a — fn-typed slots join the sentinel-capable
+        // set (their undefined repr is the Str-shaped oddball).
+        if !matches!(val_ty, Type::Str | Type::Substr | Type::FnSig(_)) {
             return None;
         }
         let rhs = if nullish_is_undef {
-            let (sym, sentinel_ty) = if val_ty == Type::Str {
-                (STR_UNDEF_CELL_SYM, Type::Str)
-            } else {
-                (SUBSTR_UNDEF_CELL_SYM, Type::Substr)
-            };
-            let u = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::GlobalRef(sym.to_string()),
-                sentinel_ty,
-                None,
-            );
-            Operand::Value(u)
+            ctx.str_undef_sentinel_for(val_ty)
+                .expect("gate admits only sentinel-capable slot types")
         } else {
             Operand::ConstPtrNull
         };

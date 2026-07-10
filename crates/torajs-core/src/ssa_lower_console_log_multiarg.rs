@@ -117,6 +117,28 @@ pub(crate) fn try_lower(ctx: &mut LowerCtx, s: &Stmt) -> bool {
             }
         }
 
+        // RFC 20260710 C2a — a fn-typed slot value has no box repr
+        // (a code address is not a heap cell); ToString it through
+        // the fnname runtime (null → "null", the undefined sentinel
+        // → "undefined", a real address → "[Function: name]") and
+        // print the owned Str via the Str-slot box.
+        if matches!(arg_ty, Type::FnSig(_)) {
+            let s = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.fnsig_to_str, vec![arg]),
+                Type::Str,
+                None,
+            );
+            let boxed = ctx.box_to_any(Operand::Value(s));
+            ctx.f.append_void(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.print_any_inline_top, vec![boxed.clone()]),
+            );
+            ctx.emit_drop_value(boxed, Type::Any);
+            ctx.emit_drop_value(Operand::Value(s), Type::Str);
+            continue;
+        }
+
         // Everything else: box to Any (a Type::Any operand passes
         // through unchanged), print via the tag-aware no-\n entry,
         // then drop the box. `box_to_any` is TRANSFER for refcounted

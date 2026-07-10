@@ -337,6 +337,7 @@ pub(crate) fn build(
         map_print_outer: init_c.print_freeze.map_print_outer,
         set_print_outer: init_c.print_freeze.set_print_outer,
         fn_print_outer: init_c.print_freeze.fn_print_outer,
+        fnsig_to_str: init_c.print_freeze.fnsig_to_str,
         any_to_str: init_c.print_freeze.any_to_str,
         any_to_str_box: init_c.print_freeze.any_to_str_box,
         obj_freeze: init_c.print_freeze.obj_freeze,
