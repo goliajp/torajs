@@ -23,7 +23,7 @@ use lsp_types::{
     DidOpenTextDocumentParams, GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverContents,
     HoverParams, HoverProviderCapability, InitializeParams, InitializeResult, Location,
     MarkupContent, MarkupKind, OneOf, Position, PublishDiagnosticsParams, Range,
-    ServerCapabilities, ServerInfo, TextDocumentSyncCapability, TextDocumentSyncKind, Url,
+    ServerCapabilities, ServerInfo, TextDocumentSyncCapability, TextDocumentSyncKind, Uri,
 };
 
 use text_intel::{
@@ -57,10 +57,10 @@ pub fn run() -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
     };
     connection.initialize_finish(initialize_id, serde_json::to_value(initialize_result)?)?;
 
-    // L-2 — in-memory document store. Keyed by Url (file:// or
+    // L-2 — in-memory document store. Keyed by Uri (file:// or
     // untitled:); value is the latest full text. didChange (Full
     // sync mode) overwrites; didClose removes.
-    let mut docs: HashMap<Url, String> = HashMap::new();
+    let mut docs: HashMap<Uri, String> = HashMap::new();
 
     for msg in &connection.receiver {
         match msg {
@@ -87,7 +87,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
 
 fn handle_notification(
     connection: &Connection,
-    docs: &mut HashMap<Url, String>,
+    docs: &mut HashMap<Uri, String>,
     notif: Notification,
 ) -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
     match notif.method.as_str() {
@@ -124,7 +124,7 @@ fn handle_notification(
 
 fn publish_diagnostics(
     connection: &Connection,
-    uri: &Url,
+    uri: &Uri,
     text: &str,
 ) -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
     let diags = compute_diagnostics(uri, text);
@@ -138,6 +138,35 @@ fn publish_diagnostics(
     Ok(())
 }
 
+/// `file://` Uri → filesystem path. lsp-types ≥ 0.96 replaced the
+/// `url` crate's `Url` (which had `to_file_path`) with a thin
+/// `fluent_uri` newtype that only exposes raw components, so the
+/// scheme check + percent-decode live here. Non-file schemes (and
+/// undecodable bytes) answer `None` — the caller falls back to `"."`.
+fn uri_to_file_path(uri: &Uri) -> Option<PathBuf> {
+    if uri.scheme()?.as_str() != "file" {
+        return None;
+    }
+    let raw = uri.path().as_str();
+    let bytes = raw.as_bytes();
+    let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        let hex = |b: u8| (b as char).to_digit(16).map(|d| d as u8);
+        if bytes[i] == b'%'
+            && i + 2 < bytes.len()
+            && let (Some(hi), Some(lo)) = (hex(bytes[i + 1]), hex(bytes[i + 2]))
+        {
+            out.push(hi * 16 + lo);
+            i += 3;
+        } else {
+            out.push(bytes[i]);
+            i += 1;
+        }
+    }
+    Some(PathBuf::from(String::from_utf8(out).ok()?))
+}
+
 /// Run lex → parse → desugars → check on `text`. Convert each
 /// resulting error string into an LSP `Diagnostic`.
 ///
@@ -148,7 +177,7 @@ fn publish_diagnostics(
 /// users see WHAT is wrong even when the squiggle position isn't
 /// exact. L-2.b refactors check.rs to attach real spans (~80-100
 /// push sites).
-fn compute_diagnostics(uri: &Url, text: &str) -> Vec<Diagnostic> {
+fn compute_diagnostics(uri: &Uri, text: &str) -> Vec<Diagnostic> {
     // Catch panics from lex/parse/desugar so the server stays alive
     // even when the user types syntactically invalid code.
     let computation = std::panic::AssertUnwindSafe(|| {
@@ -166,9 +195,7 @@ fn compute_diagnostics(uri: &Url, text: &str) -> Vec<Diagnostic> {
         // Resolve cross-file imports relative to the document's
         // directory if it's a file:// URL. Failures here surface
         // as a single import-error diagnostic.
-        let base_dir = uri
-            .to_file_path()
-            .ok()
+        let base_dir = uri_to_file_path(uri)
             .and_then(|p| p.parent().map(PathBuf::from))
             .unwrap_or_else(|| PathBuf::from("."));
         if let Err(e) = torajs_core::modules::resolve_imports(&mut ast, &base_dir) {
@@ -299,7 +326,7 @@ fn diagnostic_from_core(text: &str, d: torajs_core::check::Diagnostic) -> Diagno
 
 fn handle_request(
     connection: &Connection,
-    docs: &HashMap<Url, String>,
+    docs: &HashMap<Uri, String>,
     req: Request,
 ) -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
     let response = match req.method.as_str() {
