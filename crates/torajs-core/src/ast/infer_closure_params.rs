@@ -207,37 +207,7 @@ fn resolve_receiver_ann(
 pub fn infer_anonymous_closure_params(ast: &mut Ast) {
     use std::collections::HashMap;
 
-    // Build per-fn name → param/let type-annotation table. Walk all
-    // top-level FnDecl bodies, gathering let-decl names and param
-    // names. The same name may appear in multiple fns; we key by the
-    // enclosing fn so call-site inference resolves the right binding.
-    //
-    // Side-effect-free: just reads the AST, populates a name→ann map.
-    let mut all_anns: HashMap<String, String> = HashMap::new();
-    for s in &ast.stmts {
-        if let Stmt::FnDecl { params, body, .. } = s {
-            for p in params {
-                if let Some(ann) = &p.type_ann {
-                    all_anns.insert(p.name.clone(), ann.clone());
-                }
-            }
-            collect_let_anns(body, &mut all_anns);
-        }
-    }
-    // V3-18 m1.h.23 — also walk top-level let decls. The synthetic
-    // `main` wraps these at ssa_lower time, but at this AST pass
-    // they're sitting at ast.stmts level, so the FnDecl-only walk
-    // above missed them. Without this, `let arr = [1,2,3]; arr.find(x => ...)`
-    // can't infer x's type.
-    collect_let_anns(&ast.stmts, &mut all_anns);
-    // Inferred-from-init shape: `let arr = [<lit>, ...]` infers
-    // arr's annotation as "<lit_ty>[]" so .map / .filter / etc on
-    // unannotated lets still get param inference.
-    let mut inferred_inits: HashMap<String, String> = HashMap::new();
-    collect_let_init_anns(ast, &ast.stmts, &mut inferred_inits);
-    for (k, v) in inferred_inits {
-        all_anns.entry(k).or_insert(v);
-    }
+    let all_anns = build_ann_table(ast);
 
     // Map from lifted closure fn_name → (param annotations, return
     // annotation). Filled by walking call sites; applied at the end
@@ -383,11 +353,53 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
         }
     }
 
+    apply_closure_ann_updates(ast, &updates);
+}
+
+/// Per-name → type-annotation table feeding receiver resolution.
+/// Walk all top-level FnDecl bodies gathering param + let-decl
+/// annotations (the same name may appear in multiple fns; call-site
+/// inference resolves the right binding via the enclosing fn), plus:
+///
+/// - V3-18 m1.h.23 — top-level let decls (the synthetic `main`
+///   wraps these at ssa_lower time, but at this AST pass they sit at
+///   ast.stmts level, so the FnDecl-only walk misses them; without
+///   this `let arr = [1,2,3]; arr.find(x => ...)` can't infer x).
+/// - Inferred-from-init shape: `let arr = [<lit>, ...]` infers
+///   arr's annotation as `<lit_ty>[]` so .map / .filter on
+///   unannotated lets still get param inference.
+fn build_ann_table(ast: &Ast) -> std::collections::HashMap<String, String> {
+    use std::collections::HashMap;
+    let mut all_anns: HashMap<String, String> = HashMap::new();
+    for s in &ast.stmts {
+        if let Stmt::FnDecl { params, body, .. } = s {
+            for p in params {
+                if let Some(ann) = &p.type_ann {
+                    all_anns.insert(p.name.clone(), ann.clone());
+                }
+            }
+            collect_let_anns(body, &mut all_anns);
+        }
+    }
+    collect_let_anns(&ast.stmts, &mut all_anns);
+    let mut inferred_inits: HashMap<String, String> = HashMap::new();
+    collect_let_init_anns(ast, &ast.stmts, &mut inferred_inits);
+    for (k, v) in inferred_inits {
+        all_anns.entry(k).or_insert(v);
+    }
+    all_anns
+}
+
+/// Apply the deferred updates: mutate each lifted FnDecl's params +
+/// return type (deferred so the call-site walk doesn't mutate
+/// ast.stmts mid-walk).
+fn apply_closure_ann_updates(
+    ast: &mut Ast,
+    updates: &std::collections::HashMap<String, (Vec<String>, String)>,
+) {
     if updates.is_empty() {
         return;
     }
-
-    // Apply updates: mutate each lifted FnDecl's params + return type.
     for stmt in &mut ast.stmts {
         if let Stmt::FnDecl {
             name,
