@@ -81,208 +81,48 @@ pub(crate) struct ArrStrEtcIds {
 }
 
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) -> ArrStrEtcIds {
-    let ptr_str = &[Type::Ptr, Type::Str][..];
-    let ptr_ptr = &[Type::Ptr, Type::Ptr][..];
-    let ptr1 = &[Type::Ptr][..];
-    let str_ii = &[Type::Str, Type::I64, Type::I64][..];
+    // defined inside the fn so `module` / `fn_table` resolve at the
+    // macro definition site (macro_rules locals are hygienic) — the
+    // chunk 457 intrinsics_object convergence pattern
+    macro_rules! decl {
+        ($name:literal, [$($param:ident),*], $ret:ident) => {
+            declare_intrinsic(module, fn_table, $name, &[$(Type::$param),*], Type::$ret)
+        };
+    }
     ArrStrEtcIds {
-        substr_concat_substr_str: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_substr_concat_substr_str",
-            ptr_str,
-            Type::Str,
-        ),
-        substr_concat_str_substr: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_substr_concat_str_substr",
-            &[Type::Str, Type::Ptr],
-            Type::Str,
-        ),
-        substr_concat_substr_substr: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_substr_concat_substr_substr",
-            ptr_ptr,
-            Type::Str,
-        ),
-        substr_to_owned: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_substr_to_owned",
-            &[Type::Substr],
-            Type::Str,
-        ),
-        arr_from_string: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_arr_from_string",
-            &[Type::Str],
-            Type::Ptr,
-        ),
-        str_substring: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_str_substring",
-            str_ii,
-            Type::Str,
-        ),
-        str_substr: declare_intrinsic(module, fn_table, "__torajs_str_substr", str_ii, Type::Str),
-        arr_set_length_validate: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_arr_set_length_validate",
-            &[Type::I64, Type::I64],
-            Type::Void,
-        ),
-        arr_set_length_truncate_scalar: declare_intrinsic(
-            module,
-            fn_table,
+        substr_concat_substr_str: decl!("__torajs_substr_concat_substr_str", [Ptr, Str], Str),
+        substr_concat_str_substr: decl!("__torajs_substr_concat_str_substr", [Str, Ptr], Str),
+        substr_concat_substr_substr: decl!("__torajs_substr_concat_substr_substr", [Ptr, Ptr], Str),
+        substr_to_owned: decl!("__torajs_substr_to_owned", [Substr], Str),
+        arr_from_string: decl!("__torajs_arr_from_string", [Str], Ptr),
+        str_substring: decl!("__torajs_str_substring", [Str, I64, I64], Str),
+        str_substr: decl!("__torajs_str_substr", [Str, I64, I64], Str),
+        arr_set_length_validate: decl!("__torajs_arr_set_length_validate", [I64, I64], Void),
+        arr_set_length_truncate_scalar: decl!(
             "__torajs_arr_set_length_truncate_scalar",
-            &[Type::Ptr, Type::I64, Type::I64],
-            Type::Void,
+            [Ptr, I64, I64],
+            Void
         ),
-        arr_to_reversed: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_arr_to_reversed",
-            ptr1,
-            Type::Ptr,
-        ),
-        arr_with: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_arr_with",
-            &[Type::Ptr, Type::I64, Type::I64],
-            Type::Ptr,
-        ),
-        arr_oob_throw: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_arr_oob_throw",
-            &[],
-            Type::Void,
-        ),
-        arr_join: declare_intrinsic(module, fn_table, "__torajs_arr_join", ptr_str, Type::Str),
-        arr_join_substr: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_arr_join_substr",
-            ptr_str,
-            Type::Str,
-        ),
-        i64_to_str: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_i64_to_str",
-            &[Type::I64],
-            Type::Str,
-        ),
-        f64_to_str: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_f64_to_str",
-            &[Type::F64],
-            Type::Str,
-        ),
-        str_to_number: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_str_to_number",
-            &[Type::Str],
-            Type::F64,
-        ),
-        arr_print_i64: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_arr_print_i64",
-            ptr1,
-            Type::Void,
-        ),
-        arr_print_f64: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_arr_print_f64",
-            ptr1,
-            Type::Void,
-        ),
-        arr_print_bool: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_arr_print_bool",
-            ptr1,
-            Type::Void,
-        ),
-        arr_print_str: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_arr_print_str",
-            ptr1,
-            Type::Void,
-        ),
-        arr_print_substr: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_arr_print_substr",
-            ptr1,
-            Type::Void,
-        ),
-        substr_print: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_substr_print",
-            ptr1,
-            Type::Void,
-        ),
-        str_char_at: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_str_char_at",
-            &[Type::Ptr, Type::I64],
-            Type::Substr,
-        ),
-        arr_join_i64: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_arr_join_i64",
-            ptr_ptr,
-            Type::Str,
-        ),
-        arr_join_f64: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_arr_join_f64",
-            ptr_ptr,
-            Type::Str,
-        ),
-        arr_join_i64_locale: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_arr_join_i64_locale",
-            ptr_ptr,
-            Type::Str,
-        ),
-        arr_join_f64_locale: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_arr_join_f64_locale",
-            ptr_ptr,
-            Type::Str,
-        ),
-        arr_join_bool: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_arr_join_bool",
-            ptr_ptr,
-            Type::Str,
-        ),
-        arr_join_any: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_arr_join_any",
-            ptr_ptr,
-            Type::Str,
-        ),
+        arr_to_reversed: decl!("__torajs_arr_to_reversed", [Ptr], Ptr),
+        arr_with: decl!("__torajs_arr_with", [Ptr, I64, I64], Ptr),
+        arr_oob_throw: decl!("__torajs_arr_oob_throw", [], Void),
+        arr_join: decl!("__torajs_arr_join", [Ptr, Str], Str),
+        arr_join_substr: decl!("__torajs_arr_join_substr", [Ptr, Str], Str),
+        i64_to_str: decl!("__torajs_i64_to_str", [I64], Str),
+        f64_to_str: decl!("__torajs_f64_to_str", [F64], Str),
+        str_to_number: decl!("__torajs_str_to_number", [Str], F64),
+        arr_print_i64: decl!("__torajs_arr_print_i64", [Ptr], Void),
+        arr_print_f64: decl!("__torajs_arr_print_f64", [Ptr], Void),
+        arr_print_bool: decl!("__torajs_arr_print_bool", [Ptr], Void),
+        arr_print_str: decl!("__torajs_arr_print_str", [Ptr], Void),
+        arr_print_substr: decl!("__torajs_arr_print_substr", [Ptr], Void),
+        substr_print: decl!("__torajs_substr_print", [Ptr], Void),
+        str_char_at: decl!("__torajs_str_char_at", [Ptr, I64], Substr),
+        arr_join_i64: decl!("__torajs_arr_join_i64", [Ptr, Ptr], Str),
+        arr_join_f64: decl!("__torajs_arr_join_f64", [Ptr, Ptr], Str),
+        arr_join_i64_locale: decl!("__torajs_arr_join_i64_locale", [Ptr, Ptr], Str),
+        arr_join_f64_locale: decl!("__torajs_arr_join_f64_locale", [Ptr, Ptr], Str),
+        arr_join_bool: decl!("__torajs_arr_join_bool", [Ptr, Ptr], Str),
+        arr_join_any: decl!("__torajs_arr_join_any", [Ptr, Ptr], Str),
     }
 }
