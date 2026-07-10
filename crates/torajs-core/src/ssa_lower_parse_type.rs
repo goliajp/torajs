@@ -83,14 +83,11 @@ pub(crate) fn parse_type(
         // Bare `null` annotation (rare). Pointer-shaped, value is null.
         return Type::Ptr;
     }
-    // `T[]` array suffix. Recurse on the element type, intern, return Arr.
-    // The flat string is produced by parser::parse_type_ann, so we can
-    // strip a trailing "[]" and recurse cleanly. Multi-dim arrays
-    // (`T[][]`) work via the recursion: `number[][]` → strip to
-    // `number[]` → strip to `number` → I64; intern outer-to-inner.
+    // `T[]` array suffix — recurse on the element type, intern,
+    // return Arr (body in `parse_arr_suffix` below).
     if let Some(rest) = s.strip_suffix("[]") {
-        let elem = parse_type(
-            Some(rest),
+        return parse_arr_suffix(
+            rest,
             aliases,
             arr_layouts,
             fn_sigs,
@@ -98,19 +95,6 @@ pub(crate) fn parse_type(
             struct_layouts,
             inst_memo,
         );
-        // Chunk 733 — a fn-typed array element is Closure-repr, mirror
-        // of the struct-field `__cls` tagging: the slot is mutable and
-        // can hold capturing closures (`fns.push(() => s)`), which are
-        // env pointers — dispatching one as a raw FnSig fn address
-        // jumps into the env block (SIGBUS). Named-fn store-sites are
-        // wrapped by the fn-arr axes in `ast_collect_fn_closure` so
-        // both shapes reach the slot as closure cells.
-        let elem = match elem {
-            Type::FnSig(sig) => Type::Closure(sig),
-            e => e,
-        };
-        let id = intern_arr_layout(arr_layouts, elem);
-        return Type::Arr(id);
     }
     // M2 — closure env marker `__env(cap0|cap1|...)` injected by
     // `lift_arrow_fns` on the hidden first param of capturing arrows. At
@@ -163,16 +147,31 @@ pub(crate) fn parse_type(
     if s == "Function" {
         return Type::Any;
     }
-    // RFC 20260708-variadic — a rest-tail fn type
-    // (`__fn(fixed|__rest(E[]))->R`) is Closure-repr regardless of
-    // spelling: the boxed dual entry the variadic call lane
-    // dispatches through lives in the closure env, so the slot can
-    // never be a bare fn ptr. parse_cls skips the `__rest(` segment
-    // (the static sig is the fixed prefix; nothing static-dispatches
-    // a variadic slot — the call arm routes through
-    // `closure_call_variadic`).
-    if s.starts_with("__fn(") && s.contains("__rest(") {
-        let rest = s.strip_prefix("__fn(").expect("guarded by starts_with");
+    // Closure-repr marker family — all three spellings decode via
+    // markers::parse_cls (env-first CallIndirect ABI):
+    // - RFC 20260708-variadic rest-tail fn type
+    //   (`__fn(fixed|__rest(E[]))->R`): the boxed dual entry the
+    //   variadic call lane dispatches through lives in the closure
+    //   env, so the slot can never be a bare fn ptr. parse_cls skips
+    //   the `__rest(` segment (the static sig is the fixed prefix;
+    //   the call arm routes through `closure_call_variadic`).
+    // - P3.closure-in-struct-field `__cls(P)->R`, tagged by the
+    //   `tag_struct_field_closure_types` desugar pass: struct fields
+    //   can store both FnSig (forwarder-wrapped at construction) and
+    //   capturing Closure values, so the slot is Closure-typed.
+    //   Fn-typed param / return / let bindings keep `__fn(P)->R` →
+    //   Type::FnSig via try_parse_fn_type below, preserving direct
+    //   dispatch on the hot fn-as-callback path.
+    // - RFC 20260708-closure-argc-abi `__clsargc(P)->R`: a `__cls(`
+    //   slot whose closure carries the synthetic real-argc first
+    //   param; the TYPE parses identically — the argc-prepend signal
+    //   rides the ann prefix (lower_fn marks `argc_locals`).
+    if let Some(rest) = s
+        .strip_prefix("__fn(")
+        .filter(|_| s.contains("__rest("))
+        .or_else(|| s.strip_prefix("__cls("))
+        .or_else(|| s.strip_prefix("__clsargc("))
+    {
         return markers::parse_cls(
             s,
             rest,
@@ -197,50 +196,6 @@ pub(crate) fn parse_type(
     ) {
         return ty;
     }
-    // P3.closure-in-struct-field — TypeDecl field types tagged with
-    // `__cls(P)->R` by the `tag_struct_field_closure_types` desugar
-    // pass. This is the narrow set of `(...)=>R` annotations that
-    // actually need the Closure (env-first CallIndirect) ABI: struct
-    // fields can store both FnSig (top-level FnDecl ref, wrapped by
-    // `synthesize_fn_to_closure_forwarders` ObjectLit arm) and Closure
-    // values (capturing function expressions lifted by
-    // `lift_arrow_fns`), so the slot has to be Closure-typed and the
-    // forwarder pass wraps any FnSig store-site at construction time.
-    //
-    // Fn-typed param / return / let bindings keep `__fn(P)->R` →
-    // Type::FnSig, preserving direct (non-env-first) dispatch on the
-    // hot fn-as-callback path (`reduce(xs, add1)` etc.).
-    if let Some(rest) = s.strip_prefix("__cls(") {
-        return markers::parse_cls(
-            s,
-            rest,
-            aliases,
-            arr_layouts,
-            fn_sigs,
-            generic_struct_decls,
-            struct_layouts,
-            inst_memo,
-        );
-    }
-    // RFC 20260708-closure-argc-abi chunk 2 — `__clsargc(P)->R` is a
-    // `__cls(` slot whose closure carries the synthetic real-argc
-    // first param (mono-instantiated, see
-    // ssa_lower_generics_mono_shapes). The TYPE parses identically
-    // (Closure sig, argc slot is params[0]); the argc-prepend signal
-    // rides the ann prefix — lower_fn's param walk marks the param
-    // name into `LowerCtx::argc_locals`.
-    if let Some(rest) = s.strip_prefix("__clsargc(") {
-        return markers::parse_cls(
-            s,
-            rest,
-            aliases,
-            arr_layouts,
-            fn_sigs,
-            generic_struct_decls,
-            struct_layouts,
-            inst_memo,
-        );
-    }
     // M3.4 — generic struct instantiation `Foo<arg1|arg2|...>`. Same
     // depth-aware split as `__fn(...)`. Substitute type-params into each
     // field annotation (string-level word-boundary substitution) and
@@ -262,6 +217,46 @@ pub(crate) fn parse_type(
         return t;
     }
     parse_keyword(s, aliases)
+}
+
+/// `T[]` array-suffix arm of [`parse_type`] — recurse on the element
+/// type, intern, return Arr. The flat string is produced by
+/// parser::parse_type_ann, so stripping a trailing "[]" recurses
+/// cleanly; multi-dim arrays (`T[][]`) work via the recursion:
+/// `number[][]` → strip to `number[]` → strip to `number` → I64,
+/// interned outer-to-inner.
+///
+/// Chunk 733 — a fn-typed array element is Closure-repr, mirror of
+/// the struct-field `__cls` tagging: the slot is mutable and can hold
+/// capturing closures (`fns.push(() => s)`), which are env pointers —
+/// dispatching one as a raw FnSig fn address jumps into the env block
+/// (SIGBUS). Named-fn store-sites are wrapped by the fn-arr axes in
+/// `ast_collect_fn_closure` so both shapes reach the slot as closure
+/// cells.
+fn parse_arr_suffix(
+    elem_ann: &str,
+    aliases: &HashMap<String, Type>,
+    arr_layouts: &mut Vec<Type>,
+    fn_sigs: &mut Vec<(Vec<Type>, Type)>,
+    generic_struct_decls: &HashMap<String, (Vec<String>, Vec<(String, String)>)>,
+    struct_layouts: &mut Vec<Vec<(String, Type)>>,
+    inst_memo: &mut HashMap<String, ssa::StructId>,
+) -> Type {
+    let elem = parse_type(
+        Some(elem_ann),
+        aliases,
+        arr_layouts,
+        fn_sigs,
+        generic_struct_decls,
+        struct_layouts,
+        inst_memo,
+    );
+    let elem = match elem {
+        Type::FnSig(sig) => Type::Closure(sig),
+        e => e,
+    };
+    let id = intern_arr_layout(arr_layouts, elem);
+    Type::Arr(id)
 }
 
 /// Flat scalar / keyword annotation tail (`number` / `string` / `Map`
