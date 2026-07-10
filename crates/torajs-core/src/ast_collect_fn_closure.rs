@@ -62,6 +62,11 @@ pub(crate) struct FnToClosureCollector<'a> {
     pub(crate) ast: &'a Ast,
     pub(crate) fn_sigs: &'a HashMap<String, (Vec<Param>, Option<String>)>,
     pub(crate) struct_field_anns: &'a HashMap<String, HashMap<String, String>>,
+    /// Generic TypeDecl snapshots (name → (type params, fields with
+    /// the params still spelled inside)) — chunk 795: the wrap axes
+    /// resolve `Box<() => number>` instantiations by word-boundary
+    /// substitution, mirroring `fill_optional_fields`'s AliasEnv.
+    pub(crate) generic_field_anns: &'a HashMap<String, (Vec<String>, Vec<(String, String)>)>,
     /// Binding names declared with an `any` annotation anywhere in
     /// the program (scope-approximate; see module doc).
     pub(crate) any_bindings: &'a HashSet<String>,

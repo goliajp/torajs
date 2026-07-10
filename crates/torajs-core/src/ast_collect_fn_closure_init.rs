@@ -54,6 +54,33 @@ pub(crate) fn parse_inlobj_field_anns(ann: &str) -> Option<HashMap<String, Strin
     Some(map)
 }
 
+/// Chunk 795 — split a generic-instantiation arg list at depth-0
+/// `|` (paren + angle nesting; the `>` of a fn-type return arrow is
+/// not a closer — chunk-794 splitter-family mirror).
+fn split_generic_args(inner: &str) -> Vec<&str> {
+    let mut parts: Vec<&str> = Vec::new();
+    let mut depth: i32 = 0;
+    let mut last = 0usize;
+    let mut prev: u8 = 0;
+    for (i, &b) in inner.as_bytes().iter().enumerate() {
+        match b {
+            b'(' | b'<' => depth += 1,
+            b'>' if prev == b'-' => {}
+            b')' | b'>' => depth -= 1,
+            b'|' if depth == 0 => {
+                parts.push(&inner[last..i]);
+                last = i + 1;
+            }
+            _ => {}
+        }
+        prev = b;
+    }
+    if !inner.is_empty() {
+        parts.push(&inner[last..]);
+    }
+    parts
+}
+
 impl<'a> FnToClosureCollector<'a> {
     /// Chunk 789 — resolve the declared struct field→ann map of a
     /// member-assign receiver chain (chunk 793: named TypeDecl and
@@ -97,13 +124,45 @@ impl<'a> FnToClosureCollector<'a> {
 
     /// Chunk 793 — resolve a declared annotation to its struct
     /// field→ann map: a known TypeDecl name answers its snapshot,
-    /// an inline object type decodes in place. Every wrap axis
-    /// resolves through here so both spellings behave identically.
+    /// an inline object type decodes in place, and a generic
+    /// instantiation (`Box<() => number>` — chunk 795) substitutes
+    /// its type args into the generic decl's fields (same dance as
+    /// `fill_optional_fields::instantiate_generic`). Every wrap
+    /// axis resolves through here so all spellings behave
+    /// identically.
     pub(crate) fn resolve_field_anns(&self, ann: &str) -> Option<HashMap<String, String>> {
-        if let Some(m) = self.struct_field_anns.get(ann.trim()) {
+        let t = ann.trim();
+        if let Some(m) = self.struct_field_anns.get(t) {
             return Some(m.clone());
         }
-        parse_inlobj_field_anns(ann)
+        if let Some(m) = parse_inlobj_field_anns(t) {
+            return Some(m);
+        }
+        let open_idx = t.find('<')?;
+        if !t.ends_with('>') {
+            return None;
+        }
+        let (tp_names, fields) = self.generic_field_anns.get(&t[..open_idx])?;
+        let args = split_generic_args(&t[open_idx + 1..t.len() - 1]);
+        if args.len() != tp_names.len() {
+            return None;
+        }
+        let subst: Vec<(String, String)> = tp_names
+            .iter()
+            .cloned()
+            .zip(args.iter().map(|s| s.trim().to_string()))
+            .collect();
+        Some(
+            fields
+                .iter()
+                .map(|(n, a)| {
+                    (
+                        n.clone(),
+                        crate::check_type_ann_substitute::ann_substitute(a, &subst),
+                    )
+                })
+                .collect(),
+        )
     }
 
     /// Mark bare top-FnDecl Ident values of `eid`'s ObjectLit fields

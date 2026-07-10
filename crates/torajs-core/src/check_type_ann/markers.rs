@@ -13,14 +13,21 @@ use crate::check::{GenericAliasMap, Type};
 /// Split `s` at every depth-0 `|`. With `angle`, `<`/`>` nest depth
 /// alongside `(`/`)` (the generic-argument spelling); without, only
 /// parens nest (the `__inlobj` / `__fn` param spelling — verbatim
-/// from the pre-split inline copies).
+/// from the pre-split inline copies). Chunk 795 — in angle mode the
+/// `>` of a fn-type return arrow (`Pair<__fn()->number|string>`) is
+/// not a generic closer: counting it dropped the depth below zero
+/// and the depth-0 `|` between the type args went unseen (chunk-794
+/// splitter-family mirror; `-` only precedes `>` in the
+/// return-arrow spelling).
 pub(super) fn split_top_pipe(s: &str, angle: bool) -> Vec<&str> {
     let mut parts: Vec<&str> = Vec::new();
     let mut depth: i32 = 0;
     let mut last = 0usize;
+    let mut prev: u8 = 0;
     for (i, &b) in s.as_bytes().iter().enumerate() {
         match b {
             b'<' if angle => depth += 1,
+            b'>' if angle && prev == b'-' => {}
             b'>' if angle => depth -= 1,
             b'(' => depth += 1,
             b')' => depth -= 1,
@@ -30,6 +37,7 @@ pub(super) fn split_top_pipe(s: &str, angle: bool) -> Vec<&str> {
             }
             _ => {}
         }
+        prev = b;
     }
     if !s.is_empty() {
         parts.push(&s[last..]);

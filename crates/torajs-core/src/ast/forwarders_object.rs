@@ -128,11 +128,23 @@ pub fn synthesize_fn_to_closure_forwarders(ast: &mut Ast) {
     // resolve `const o: T = { k: name }` against `T`'s declared field
     // types.
     let mut struct_field_anns: HashMap<String, HashMap<String, String>> = HashMap::new();
+    // Chunk 795 — generic TypeDecl snapshots for the wrap axes'
+    // `Box<() => number>` instantiation resolution.
+    let mut generic_field_anns: HashMap<String, (Vec<String>, Vec<(String, String)>)> =
+        HashMap::new();
     for s in &ast.stmts {
-        if let Stmt::TypeDecl { name, fields, .. } = s {
+        if let Stmt::TypeDecl {
+            name,
+            type_params,
+            fields,
+        } = s
+        {
             let map: HashMap<String, String> =
                 fields.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
             struct_field_anns.insert(name.clone(), map);
+            if !type_params.is_empty() {
+                generic_field_anns.insert(name.clone(), (type_params.clone(), fields.clone()));
+            }
         }
     }
 
@@ -178,11 +190,17 @@ pub fn synthesize_fn_to_closure_forwarders(ast: &mut Ast) {
     // (`__inlobj(...)`) join named TypeDecl names; the collector's
     // `resolve_field_anns` decodes both.
     let mut struct_bindings: HashMap<String, String> = HashMap::new();
+    let is_generic_inst = |a: &str| {
+        let t = a.trim();
+        t.find('<')
+            .is_some_and(|i| t.ends_with('>') && generic_field_anns.contains_key(&t[..i]))
+    };
     crate::ast_collect_bindings::collect_bindings_ann_matching(
         &ast.stmts,
         &|a| {
             struct_field_anns.contains_key(a.trim())
                 || crate::ast_collect_fn_closure_init::parse_inlobj_field_anns(a).is_some()
+                || is_generic_inst(a)
         },
         &mut struct_bindings,
     );
@@ -195,6 +213,7 @@ pub fn synthesize_fn_to_closure_forwarders(ast: &mut Ast) {
             crate::ast_collect_fn_closure::strip_arr_ann(a).is_some_and(|e| {
                 struct_field_anns.contains_key(e)
                     || crate::ast_collect_fn_closure_init::parse_inlobj_field_anns(e).is_some()
+                    || is_generic_inst(e)
             })
         },
         &mut struct_arr_bindings,
@@ -209,6 +228,7 @@ pub fn synthesize_fn_to_closure_forwarders(ast: &mut Ast) {
         ast,
         fn_sigs: &fn_sigs,
         struct_field_anns: &struct_field_anns,
+        generic_field_anns: &generic_field_anns,
         any_bindings: &any_bindings,
         closure_bindings: &closure_bindings,
         fn_arr_bindings: &fn_arr_bindings,

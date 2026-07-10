@@ -28,9 +28,16 @@ pub(super) fn parse_generic(
         let mut args: Vec<&str> = Vec::new();
         let mut depth: i32 = 0;
         let mut last = 0usize;
+        let mut prev: u8 = 0;
         for (i, &b) in inner.as_bytes().iter().enumerate() {
             match b {
                 b'<' | b'(' => depth += 1,
+                // Chunk 795 — the `>` of a fn-type return arrow
+                // (`Pair<__fn()->number|string>`) is not a generic
+                // closer; counting it dropped the depth below zero
+                // and the depth-0 `|` between the type args went
+                // unseen (chunk-794 splitter-family mirror).
+                b'>' if prev == b'-' => {}
                 b'>' | b')' => depth -= 1,
                 b'|' if depth == 0 => {
                     args.push(&inner[last..i]);
@@ -38,6 +45,7 @@ pub(super) fn parse_generic(
                 }
                 _ => {}
             }
+            prev = b;
         }
         if !inner.is_empty() {
             args.push(&inner[last..]);
@@ -89,6 +97,22 @@ pub(super) fn parse_generic(
         let mut layout: Vec<(String, Type)> = Vec::with_capacity(fields.len());
         for (fname, fann) in &fields {
             let substituted = substitute_in_ann(fann, &subst);
+            // Chunk 795 — struct-field fn slots are Closure-repr.
+            // `tag_struct_field_closure_types` retags TypeDecl field
+            // anns, but a generic decl spells the field as its type
+            // param ("v: T") — the `__fn(` only appears here after
+            // substitution, so retag at the instantiation point
+            // (mirror of the chunk-793 inline-object birth-site
+            // retag; without it `Box<() => number>` held a FnSig
+            // layout slot while the literal stored a closure env
+            // block — SIGBUS on the field call).
+            let substituted = if let Some(rest) = substituted.strip_prefix("__fn(") {
+                format!("__cls({rest}")
+            } else if let Some(rest) = substituted.strip_prefix("__nullable(__fn(") {
+                format!("__nullable(__cls({rest}")
+            } else {
+                substituted
+            };
             let fty = parse_struct_field_type(
                 &substituted,
                 aliases,
