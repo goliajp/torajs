@@ -34,6 +34,17 @@ pub(crate) fn check(
     obj: &ExprId,
     name: &str,
 ) -> Result<Type, String> {
+    // RFC 20260710 C5 — a member-path truthiness narrow
+    // (`if (o.cb) { o.cb() }`) overrides the declared Nullable
+    // field type inside the guarded branch. Ident receivers only —
+    // the narrow key is minted from the same shape.
+    if let Expr::Ident(recv) = ast.get_expr(*obj)
+        && let Some(narrowed) = checker
+            .member_narrows
+            .get(&(recv.clone(), name.to_string()))
+    {
+        return Ok(narrowed.clone());
+    }
     let obj_ty = checker.type_of(ast, *obj)?;
     // RC-4 F1a — Nullable<Array<T>> receiver (un-narrowed
     // exec/match result) decays to the bare array for member

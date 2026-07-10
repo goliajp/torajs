@@ -42,10 +42,24 @@ pub(crate) fn check(
         Err(e) => checker.errors.push_err(e),
     }
     let narrow = checker.collect_null_narrow(ast, cond);
+    // RFC 20260710 C5 — member-path guard (`if (o.cb) { o.cb() }`):
+    // parallels the binding narrow; the entry lives in
+    // `member_narrows` (assignments to the receiver or the member
+    // invalidate it, see check_type_of_assign).
+    let member_narrow = checker.collect_member_narrow(ast, cond);
     let pre = checker.snapshot_moved();
     let then_narrow = if let Some((name, inner, polarity)) = &narrow {
         if *polarity {
             checker.apply_narrow(name, inner.clone())
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    let then_member = if let Some((key, inner, polarity)) = &member_narrow {
+        if *polarity {
+            Some(checker.apply_member_narrow(key, inner.clone()))
         } else {
             None
         }
@@ -58,6 +72,9 @@ pub(crate) fn check(
     checker.flush_assign_narrows();
     if let (Some((name, _, _)), Some(saved)) = (&narrow, then_narrow) {
         checker.restore_narrow(name, saved);
+    }
+    if let (Some((key, _, _)), Some(prev)) = (&member_narrow, then_member) {
+        checker.restore_member_narrow(key, prev);
     }
     let then_div = stmt_diverges(then_branch);
     let then_post = checker.snapshot_moved();
@@ -72,10 +89,22 @@ pub(crate) fn check(
         } else {
             None
         };
+        let else_member = if let Some((key, inner, polarity)) = &member_narrow {
+            if !*polarity {
+                Some(checker.apply_member_narrow(key, inner.clone()))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
         checker.check_stmt(ast, eb);
         checker.flush_assign_narrows();
         if let (Some((name, _, _)), Some(saved)) = (&narrow, else_narrow) {
             checker.restore_narrow(name, saved);
+        }
+        if let (Some((key, _, _)), Some(prev)) = (&member_narrow, else_member) {
+            checker.restore_member_narrow(key, prev);
         }
         let div = stmt_diverges(eb);
         let snap2 = checker.snapshot_moved();

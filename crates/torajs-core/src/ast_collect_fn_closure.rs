@@ -480,10 +480,18 @@ impl<'a> FnToClosureCollector<'a> {
         };
         if let Expr::ObjectLit { fields } = self.ast.get_expr(init) {
             for (fname, feid) in fields.clone() {
-                if let Some(fann) = field_anns.get(&fname)
-                    && is_fn_like_ann(fann)
-                {
-                    self.try_mark(feid);
+                if let Some(fann) = field_anns.get(&fname) {
+                    // RFC 20260710 C5 — an optional fn field
+                    // (`__nullable(__cls(...))` after the retag
+                    // pass) is the same Closure-repr slot; a bare
+                    // named-fn init needs the forwarder wrap too.
+                    let inner = fann
+                        .strip_prefix("__nullable(")
+                        .and_then(|r| r.strip_suffix(')'))
+                        .unwrap_or(fann);
+                    if is_fn_like_ann(inner) {
+                        self.try_mark(feid);
+                    }
                 }
             }
         }

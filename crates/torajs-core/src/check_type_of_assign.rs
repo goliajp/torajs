@@ -28,8 +28,20 @@ pub(crate) fn check(
     value: ExprId,
 ) -> Result<Type, String> {
     match ast.get_expr(target).clone() {
-        Expr::Ident(name) => crate::check_assign_ident::check(checker, ast, name, value),
+        Expr::Ident(name) => {
+            // RFC 20260710 C5 — rebinding the receiver invalidates
+            // every member-path narrow rooted at it.
+            checker.member_narrows.retain(|(recv, _), _| recv != &name);
+            crate::check_assign_ident::check(checker, ast, name, value)
+        }
         Expr::Member { obj, name: field } => {
+            // RFC 20260710 C5 — writing the member invalidates its
+            // own narrow entry (Ident receivers mint the keys).
+            if let Expr::Ident(recv) = ast.get_expr(obj) {
+                checker
+                    .member_narrows
+                    .remove(&(recv.clone(), field.clone()));
+            }
             crate::check_assign_target::check_member(checker, ast, obj, field, value)
         }
         Expr::Index { obj, index } => {

@@ -51,6 +51,15 @@ pub(crate) fn try_lower(
         return None;
     };
     let (_, field_check_ty) = fields.iter().find(|(n, _)| n == name)?;
+    // RFC 20260710 C5 — an optional fn field (`cb?: (n) => R`) is
+    // declared Nullable(Function); the checker only admits the call
+    // inside a truthiness-narrowed branch (`if (o.cb) { o.cb() }`),
+    // so by here the callable shape is guaranteed — unwrap to reach
+    // the signature. Un-narrowed calls never lower (loud reject).
+    let field_check_ty = match field_check_ty {
+        check_mod::Type::Nullable(inner) => inner.as_ref(),
+        other => other,
+    };
     let check_mod::Type::Function(field_params, _) = field_check_ty else {
         return None;
     };

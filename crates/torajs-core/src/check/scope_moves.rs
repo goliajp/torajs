@@ -115,6 +115,90 @@ impl Checker {
         }
     }
 
+    /// RFC 20260710 C5 — detect a member-path narrowing cond on a
+    /// truthiness / nullish-eq guard over `recv.field` where `recv`
+    /// is an Ident whose struct field is declared `Nullable<T>`:
+    /// `if (o.cb)` / `if (!o.cb)` / `o.cb !== null|undefined` /
+    /// `o.cb === null|undefined`. Returns ((recv, field), inner,
+    /// then-narrows). Mirrors [`Self::collect_null_narrow`]'s
+    /// binding shapes; the narrow lands in `member_narrows` instead
+    /// of a scope slot (a member path has no binding to retype).
+    pub(crate) fn collect_member_narrow(
+        &self,
+        ast: &Ast,
+        cond: ExprId,
+    ) -> Option<((String, String), Type, bool)> {
+        let (member_eid, polarity) = match ast.get_expr(cond) {
+            Expr::Member { .. } => (cond, true),
+            Expr::Unary {
+                op: crate::ast::UnaryOp::Not,
+                expr,
+            } if matches!(ast.get_expr(*expr), Expr::Member { .. }) => (*expr, false),
+            Expr::BinOp { op, left, right } => {
+                let polarity = match op {
+                    BinOp::Neq | BinOp::LooseNeq => true,
+                    BinOp::Eq | BinOp::LooseEq => false,
+                    _ => return None,
+                };
+                let is_nullish = |e: ExprId| {
+                    matches!(ast.get_expr(e), Expr::Null)
+                        || matches!(ast.get_expr(e), Expr::Ident(n) if n == "undefined")
+                };
+                if matches!(ast.get_expr(*left), Expr::Member { .. }) && is_nullish(*right) {
+                    (*left, polarity)
+                } else if matches!(ast.get_expr(*right), Expr::Member { .. }) && is_nullish(*left) {
+                    (*right, polarity)
+                } else {
+                    return None;
+                }
+            }
+            _ => return None,
+        };
+        let Expr::Member { obj, name: field } = ast.get_expr(member_eid) else {
+            return None;
+        };
+        let Expr::Ident(recv) = ast.get_expr(*obj) else {
+            return None;
+        };
+        let recv_ty = self.lookup(recv)?.ty;
+        let fields = match recv_ty {
+            Type::Struct(fields) => fields,
+            Type::Object(alias) => match self.aliases.get(alias) {
+                Some(Type::Struct(fields)) => fields.clone(),
+                _ => return None,
+            },
+            _ => return None,
+        };
+        let fty = fields.iter().find(|(n, _)| n == field).map(|(_, t)| t)?;
+        if let Type::Nullable(inner) = fty {
+            Some(((recv.clone(), field.clone()), (**inner).clone(), polarity))
+        } else {
+            None
+        }
+    }
+
+    /// RFC 20260710 C5 — install a member-path narrow; returns the
+    /// previous entry (shadow-restore across nested guards).
+    pub(crate) fn apply_member_narrow(
+        &mut self,
+        key: &(String, String),
+        inner_ty: Type,
+    ) -> Option<Type> {
+        self.member_narrows.insert(key.clone(), inner_ty)
+    }
+
+    /// Restore a member-path narrow to its pre-branch state.
+    pub(crate) fn restore_member_narrow(&mut self, key: &(String, String), prev: Option<Type>) {
+        match prev {
+            Some(t) => {
+                self.member_narrows.insert(key.clone(), t);
+            }
+            None => {
+                self.member_narrows.remove(key);
+            }
+        }
+    }
+
     /// V3-18 wedge — narrow the binding `name` to `inner_ty`
     /// in the innermost scope that owns it; return the previous
     /// type so it can be restored after the narrowed branch.

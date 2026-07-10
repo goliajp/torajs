@@ -41,6 +41,15 @@ pub fn tag_struct_field_closure_types(ast: &mut Ast) {
         if let Some(rest) = ann.strip_prefix("__fn(") {
             let new_ann = format!("__cls({rest}");
             *ann = new_ann;
+        } else if let Some(rest) = ann.strip_prefix("__nullable(__fn(") {
+            // RFC 20260710 C5 — an OPTIONAL fn field (`cb?: (n) =>
+            // R` → `__nullable(__fn(...))`) is the same mutable
+            // Closure-repr slot: a lifted arrow stores an env
+            // pointer, and the FnSig repr the unwrapped spelling
+            // used to produce made the narrowed call CallIndirect
+            // into the env block (SIGBUS).
+            let new_ann = format!("__nullable(__cls({rest}");
+            *ann = new_ann;
         }
     }
     for s in &mut ast.stmts {
