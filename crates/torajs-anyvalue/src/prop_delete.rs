@@ -26,11 +26,22 @@ use core::ffi::c_void;
 use torajs_rc::Tag;
 
 use crate::member_get::{closure_props, recv_cell};
+
+/// torajs-arr inline props-dynobj slot at +24
+/// (`torajs_arr::layout::ARR_PROPS_OFF` mirror — same constant
+/// `prop_has` uses).
+unsafe fn arr_props(arr: *mut c_void) -> *const c_void {
+    unsafe { arr.cast::<u8>().add(24).cast::<*const c_void>().read() }
+}
 use crate::nanbox::{AnyValue, is_null, is_undefined};
 
 unsafe extern "C" {
     /// torajs-dynobj — OrdinaryDelete (1 = an entry was removed).
     fn __torajs_dynobj_delete(obj: *mut c_void, key: *const c_void) -> i32;
+    /// torajs-dynobj — own-entry presence + packed W/E/C flags
+    /// (bit 2 = configurable) for the §10.1.10 step-4 refusal.
+    fn __torajs_dynobj_has(obj: *const c_void, key: *const c_void) -> i32;
+    fn __torajs_dynobj_get_flags(obj: *const c_void, key: *const c_void) -> u64;
     /// torajs-arr — expando delete through the props slot.
     fn __torajs_arrprops_delete(arr: *mut c_void, key: *const c_void) -> i32;
     /// torajs-throw — record a pending catchable TypeError.
@@ -53,16 +64,26 @@ pub unsafe extern "C" fn __torajs_any_prop_delete(recv: AnyValue, key: *const c_
     }
     match recv_cell(recv) {
         Some((ptr, t)) if t == Tag::DynObj as u16 => {
+            if unsafe { refuse_non_configurable(ptr, key) } {
+                return 0;
+            }
             unsafe { __torajs_dynobj_delete(ptr, key) };
             1
         }
         Some((ptr, t)) if t == Tag::Arr as u16 => {
+            let props = unsafe { arr_props(ptr) };
+            if !props.is_null() && unsafe { refuse_non_configurable(props, key) } {
+                return 0;
+            }
             unsafe { __torajs_arrprops_delete(ptr, key) };
             1
         }
         Some((ptr, t)) if t == Tag::Closure as u16 => {
             let props = unsafe { closure_props(ptr) };
             if !props.is_null() {
+                if unsafe { refuse_non_configurable(props as *mut c_void, key) } {
+                    return 0;
+                }
                 unsafe { __torajs_dynobj_delete(props as *mut c_void, key) };
             }
             1
@@ -70,4 +91,23 @@ pub unsafe extern "C" fn __torajs_any_prop_delete(recv: AnyValue, key: *const c_
         Some((_, t)) if t == Tag::Obj as u16 => 0,
         _ => 1,
     }
+}
+
+/// §10.1.10 OrdinaryDelete step 4 (chunk D-2a, RFC 20260711): a
+/// present own property whose `configurable` flag is clear refuses
+/// the delete; tr programs are module-strict so §13.5.1.2 then
+/// throws the catchable TypeError (test262 propertyHelper's
+/// isConfigurable probe relies on exactly this shape). A plain
+/// `o.k = v` entry carries BUCKET_FLAGS_DEFAULT (all set), so only
+/// defineProperty-shaped entries can refuse.
+unsafe fn refuse_non_configurable(obj: *const c_void, key: *const c_void) -> bool {
+    if unsafe { __torajs_dynobj_has(obj, key) } != 0
+        && unsafe { __torajs_dynobj_get_flags(obj, key) } & 0x4 == 0
+    {
+        unsafe {
+            __torajs_throw_type_error(c"cannot delete a non-configurable property".as_ptr());
+        }
+        return true;
+    }
+    false
 }
