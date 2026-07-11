@@ -39,6 +39,10 @@ use crate::nanbox::{AnyValue, is_null, is_short_str, is_undefined};
 unsafe extern "C" {
     /// torajs-dynobj — own-entry presence (1 = live entry).
     fn __torajs_dynobj_has(obj: *const c_void, key: *const c_void) -> i32;
+    /// torajs-dynobj — packed W/E/C data-attribute flags
+    /// (bit 1 = enumerable); answers 0 for an absent key, which is
+    /// exactly the propertyIsEnumerable miss semantics.
+    fn __torajs_dynobj_get_flags(obj: *const c_void, key: *const c_void) -> u64;
     /// torajs-structmeta — class-layout lookup + field probe.
     fn __torajs_struct_layout_lookup(class_tag: u32) -> *const c_void;
     fn __torajs_struct_field_find(layout: *const c_void, name: *const u8, name_len: u32) -> u32;
@@ -169,4 +173,90 @@ unsafe fn str_index_has(len: u64, key: *const c_void) -> i64 {
         return 1;
     }
     unsafe { key_is(key, b"length") as i64 }
+}
+
+/// `Object.prototype.propertyIsEnumerable` substrate (chunk D-1,
+/// RFC 20260711): own AND enumerable. Mirrors
+/// [`__torajs_any_prop_has`]'s dispatch with the enumerable-flag
+/// filter applied where flags exist:
+///
+/// - DynObj / expando entries → packed-flags bit 1 (absent key
+///   answers 0 flags — the miss and the non-enumerable case
+///   coincide, matching §20.1.4.5).
+/// - Arr / Str index keys and struct fields → enumerable when
+///   present (tr data slots carry no non-enumerable state).
+/// - `length` / `name` virtual props → 0 (spec non-enumerable).
+/// - primitives → 0; null / undefined → catchable TypeError.
+///
+/// # Safety
+/// Cell receivers are valid heap pointers; `key` is a live Str cell.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_any_prop_enumerable(recv: AnyValue, key: *const c_void) -> i64 {
+    if is_null(recv) || is_undefined(recv) {
+        unsafe {
+            __torajs_throw_type_error(c"cannot read properties of null or undefined".as_ptr());
+        }
+        return 0;
+    }
+    if is_short_str(recv) {
+        let len = (recv >> 40) & 0xFF;
+        return unsafe { str_index_enumerable(len, key) };
+    }
+    match recv_cell(recv) {
+        Some((ptr, t)) if t == Tag::DynObj as u16 => {
+            ((unsafe { __torajs_dynobj_get_flags(ptr, key) } & 0x2) != 0) as i64
+        }
+        Some((ptr, t)) if t == Tag::Arr as u16 => {
+            let len = unsafe { ptr.cast::<u8>().add(ARR_LEN_OFF).cast::<u64>().read() };
+            if let Some(i) = unsafe { canonical_index(key) }
+                && i < len
+            {
+                return 1;
+            }
+            let props = unsafe {
+                ptr.cast::<u8>()
+                    .add(ARR_PROPS_OFF)
+                    .cast::<*const c_void>()
+                    .read()
+            };
+            if props.is_null() {
+                0
+            } else {
+                ((unsafe { __torajs_dynobj_get_flags(props, key) } & 0x2) != 0) as i64
+            }
+        }
+        Some((ptr, t)) if t == Tag::Closure as u16 => {
+            let props = unsafe { closure_props(ptr) };
+            if props.is_null() {
+                0
+            } else {
+                ((unsafe { __torajs_dynobj_get_flags(props, key) } & 0x2) != 0) as i64
+            }
+        }
+        Some((ptr, t)) if t == Tag::Obj as u16 => {
+            let class_tag = unsafe { ptr.cast::<u8>().add(OBJ_CLASS_TAG_OFF).cast::<u32>().read() };
+            let layout = unsafe { __torajs_struct_layout_lookup(class_tag) };
+            if layout.is_null() {
+                return 0;
+            }
+            let (name_bytes, name_len) = unsafe { key_bytes(key) };
+            (unsafe { __torajs_struct_field_find(layout, name_bytes, name_len) } != u32::MAX) as i64
+        }
+        Some((ptr, t)) if t == Tag::Str as u16 => {
+            let len = unsafe { ptr.cast::<u8>().add(STR_LEN_OFF).cast::<u32>().read() } as u64;
+            unsafe { str_index_enumerable(len, key) }
+        }
+        _ => 0,
+    }
+}
+
+/// Str-receiver enumerable arm: index chars are enumerable,
+/// `length` is not (§22.1.5.1).
+unsafe fn str_index_enumerable(len: u64, key: *const c_void) -> i64 {
+    if let Some(i) = unsafe { canonical_index(key) }
+        && i < len
+    {
+        return 1;
+    }
+    0
 }

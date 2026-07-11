@@ -65,7 +65,10 @@
 
 use core::ffi::c_void;
 
-use torajs_rc::{__torajs_rc_inc, ANY_METHOD_TO_STRING, Tag};
+use torajs_rc::{
+    __torajs_rc_inc, ANY_METHOD_HAS_OWN_PROPERTY, ANY_METHOD_PROPERTY_IS_ENUMERABLE,
+    ANY_METHOD_TO_STRING, Tag,
+};
 
 use crate::nanbox::{
     AnyValue, VALUE_UNDEFINED, as_void_ptr, is_bool, is_cell, is_double, is_int32, is_null,
@@ -102,6 +105,31 @@ pub(crate) unsafe fn to_index(av: AnyValue, default: i64) -> i64 {
     }
     let n = unsafe { __torajs_anyv_to_number(av) };
     if n.is_nan() { 0 } else { n as i64 }
+}
+
+/// chunk D-1 — `hasOwnProperty` / `propertyIsEnumerable` universal
+/// arm: ToPropertyKey the first argument (`anyv_to_str` — a missing
+/// slot stringifies undefined per §7.1.19), probe the prop_has /
+/// prop_enumerable substrate, answer a Bool box. The key temp is
+/// owned and dropped here.
+unsafe fn own_prop_probe(recv: AnyValue, mid: i64, argv: *const u64, argc: i64) -> AnyValue {
+    let key_av = if argc >= 1 {
+        unsafe { *argv }
+    } else {
+        VALUE_UNDEFINED
+    };
+    let key = unsafe { crate::nanbox_ffi::__torajs_anyv_to_str(key_av) };
+    let hit = if mid == ANY_METHOD_HAS_OWN_PROPERTY {
+        unsafe { crate::prop_has::__torajs_any_prop_has(recv, key as *const c_void) }
+    } else {
+        unsafe { crate::prop_has::__torajs_any_prop_enumerable(recv, key as *const c_void) }
+    };
+    unsafe { __torajs_str_drop(key as *mut c_void) };
+    if hit != 0 {
+        crate::nanbox::VALUE_TRUE
+    } else {
+        crate::nanbox::VALUE_FALSE
+    }
 }
 
 /// See module doc.
@@ -167,6 +195,13 @@ pub(crate) unsafe fn any_method_call_inner(
             __torajs_throw_type_error(c"cannot call a method of null or undefined".as_ptr());
         }
         return VALUE_UNDEFINED;
+    }
+    // chunk D-1 (RFC 20260711) — universal own-property probes
+    // (§20.1.4.3 / §20.1.4.5): every receiver shape answers through
+    // the prop_has substrate, so these dispatch BEFORE the per-tag
+    // arms.
+    if mid == ANY_METHOD_HAS_OWN_PROPERTY || mid == ANY_METHOD_PROPERTY_IS_ENUMERABLE {
+        return unsafe { own_prop_probe(recv, mid, argv, argc) };
     }
     if is_short_str(recv) {
         // toString on a string is identity; a ShortStr is an

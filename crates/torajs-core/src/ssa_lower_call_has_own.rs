@@ -30,7 +30,7 @@
 //! re-lowered.
 
 use crate::ast::{Expr, ExprId};
-use crate::ssa::{Operand, Type};
+use crate::ssa::{IPred, InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 
 pub(crate) fn try_lower(
@@ -56,22 +56,71 @@ pub(crate) fn try_lower(
     if args.len() < 2 {
         return None;
     }
-    let Expr::String(key_lit) = ctx.ast.get_expr(args[1]) else {
-        return None;
+    let key_lit: Option<String> = match ctx.ast.get_expr(args[1]) {
+        Expr::String(k) => Some(k.clone()),
+        _ => None,
     };
-    let key = key_lit.clone();
     // Borrow-only read of the obj — lower_expr loads the local slot
     // but ownership stays with the caller's scope (which will drop on
     // exit). No emit_drop_value here.
     let obj_op = ctx.lower_expr(args[0]);
+    let obj_ty = ctx.operand_ty(&obj_op);
+    // chunk D-1 (RFC 20260711) — Any receiver: runtime own-property
+    // probe through `any_prop_has` (B3 substrate). Static key names
+    // intern; dynamic keys lower + coerce to a Str (Substr temps are
+    // owned and dropped — same ledger as `ssa_lower_delete`).
+    if matches!(obj_ty, Type::Any) {
+        let (key_v, owned_temp) = if let Some(key) = &key_lit {
+            (ctx.intern_string_literal(key), None)
+        } else {
+            let k_raw = ctx.lower_expr(args[1]);
+            let k_ty = ctx.operand_ty(&k_raw);
+            let key_op = ctx.coerce_to_str(k_raw.clone(), k_ty);
+            let Operand::Value(key_v) = key_op else {
+                panic!("ssa-lower: hasOwn key lowered to a non-value operand");
+            };
+            (key_v, Some((key_op, k_ty == Type::Substr, k_raw, k_ty)))
+        };
+        for &a in args.iter().skip(2) {
+            let _ = ctx.lower_expr(a);
+        }
+        let ans = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(
+                ctx.intrinsics.any_prop_has,
+                vec![obj_op, Operand::Value(key_v)],
+            ),
+            Type::I64,
+            None,
+        );
+        ctx.emit_throw_check(None);
+        if let Some((key_op, coerce_owned, k_raw, k_ty)) = owned_temp {
+            if coerce_owned {
+                ctx.emit_drop_value(key_op, Type::Str);
+            }
+            if k_ty.is_refcounted() && ctx.expr_transfers_ownership(args[1]) {
+                ctx.emit_drop_value(k_raw, k_ty);
+            }
+        }
+        let b = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::ICmp(IPred::Ne, Operand::Value(ans), Operand::ConstI64(0)),
+            Type::Bool,
+            None,
+        );
+        return Some(Operand::Value(b));
+    }
+    let Some(key) = key_lit else {
+        // Typed target + dynamic key: deferred — caller falls through.
+        return None;
+    };
     // S302 — lower-and-drop trailing args[2..] per S272 idiom so
     // step()-style side-effect exprs fire per ES eval-then-discard
     // (check.rs S257 already typecheck-dropped). args[1] is a String
-    // literal (no side effect) gated by the let-pattern above.
+    // literal (no side effect) gated above.
     for &a in args.iter().skip(2) {
         let _ = ctx.lower_expr(a);
     }
-    let obj_ty = ctx.operand_ty(&obj_op);
     let Type::Obj(sid) = obj_ty else {
         // Non-struct target: deferred substrate — caller falls through.
         return None;

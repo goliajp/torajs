@@ -185,6 +185,12 @@ pub const ANY_METHOD_APPLY: i64 = 78;
 /// cell carrying the target, the bound this and the partial
 /// arguments.
 pub const ANY_METHOD_BIND: i64 = 79;
+/// `Object.prototype.hasOwnProperty` (RFC 20260711 chunk D-1) —
+/// universal own-property probe through `__torajs_any_prop_has`.
+pub const ANY_METHOD_HAS_OWN_PROPERTY: i64 = 80;
+/// `Object.prototype.propertyIsEnumerable` (chunk D-1) — own +
+/// enumerable-flag probe (`__torajs_any_prop_enumerable`).
+pub const ANY_METHOD_PROPERTY_IS_ENUMERABLE: i64 = 81;
 
 /// RegExp property-read ids (Any-method-call RFC 20260704 C4-3c-2)
 /// — `r.source` / `r.lastIndex` / flag booleans through an `any`
@@ -306,6 +312,8 @@ pub fn any_method_id(name: &str) -> i64 {
         "call" => ANY_METHOD_CALL,
         "apply" => ANY_METHOD_APPLY,
         "bind" => ANY_METHOD_BIND,
+        "hasOwnProperty" => ANY_METHOD_HAS_OWN_PROPERTY,
+        "propertyIsEnumerable" => ANY_METHOD_PROPERTY_IS_ENUMERABLE,
         "keys" => ANY_METHOD_KEYS,
         "values" => ANY_METHOD_VALUES,
         "entries" => ANY_METHOD_ENTRIES,
@@ -406,6 +414,8 @@ pub fn any_method_meta(mid: i64) -> Option<(&'static str, u32)> {
         ANY_METHOD_CALL => ("call", 1),
         ANY_METHOD_APPLY => ("apply", 2),
         ANY_METHOD_BIND => ("bind", 1),
+        ANY_METHOD_HAS_OWN_PROPERTY => ("hasOwnProperty", 1),
+        ANY_METHOD_PROPERTY_IS_ENUMERABLE => ("propertyIsEnumerable", 1),
         _ => return None,
     })
 }
@@ -418,7 +428,7 @@ mod tests {
     fn meta_round_trips_every_interned_name() {
         // Every id the intern table can answer must carry metadata
         // whose name interns back to the same id.
-        for mid in 1..=ANY_METHOD_BIND {
+        for mid in 1..=ANY_METHOD_PROPERTY_IS_ENUMERABLE {
             let (name, _) =
                 any_method_meta(mid).unwrap_or_else(|| panic!("mid {mid} has no metadata row"));
             assert_eq!(any_method_id(name), mid, "name {name:?} round-trip");
@@ -428,7 +438,7 @@ mod tests {
     #[test]
     fn meta_rejects_unknown_and_out_of_table() {
         assert!(any_method_meta(ANY_METHOD_UNKNOWN).is_none());
-        assert!(any_method_meta(ANY_METHOD_BIND + 1).is_none());
+        assert!(any_method_meta(ANY_METHOD_PROPERTY_IS_ENUMERABLE + 1).is_none());
         assert!(any_method_meta(-1).is_none());
     }
 }

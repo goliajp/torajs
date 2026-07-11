@@ -257,6 +257,14 @@ unsafe fn key_method_id(key: *const c_void) -> i64 {
 /// `method_call_*` dispatch module, listing the ids that arm
 /// resolves (extend together when an arm grows a method).
 pub(crate) fn builtin_method_supported(recv: AnyValue, mid: i64) -> bool {
+    // chunk D-1 — the universal own-property probes resolve on every
+    // receiver shape (Object.prototype methods; primitives coerce
+    // through ToObject and simply answer false-valued Bools).
+    if mid == torajs_rc::ANY_METHOD_HAS_OWN_PROPERTY
+        || mid == torajs_rc::ANY_METHOD_PROPERTY_IS_ENUMERABLE
+    {
+        return true;
+    }
     if is_short_str(recv) {
         return str_supports(mid);
     }
