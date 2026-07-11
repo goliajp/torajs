@@ -193,7 +193,11 @@ pub unsafe extern "C" fn __torajs_any_member_get_tag(recv: AnyValue, key: *const
             if crate::method_support::__torajs_builtin_proto_own_method_cell(ptr, key) != 0 {
                 4
             } else {
-                5
+                // Ordinary dynobj — the inherited Object.prototype
+                // surface still reifies (valueOf / toLocaleString /
+                // the universal probes), same fallthrough as the
+                // Arr / Closure / struct arms.
+                reify_tag(recv, key)
             }
         },
         Some((ptr, t)) if t == Tag::Arr as u16 => unsafe {
@@ -365,7 +369,12 @@ pub unsafe extern "C" fn __torajs_any_member_get_value(recv: AnyValue, key: *con
         Some((ptr, t)) if t == Tag::DynObj as u16 => unsafe {
             let v = __torajs_dynobj_get_value(ptr, key);
             if v == 0 && __torajs_dynobj_get_tag(ptr, key) == 5 {
-                return crate::method_support::__torajs_builtin_proto_own_method_cell(ptr, key);
+                let cell = crate::method_support::__torajs_builtin_proto_own_method_cell(ptr, key);
+                if cell != 0 {
+                    return cell;
+                }
+                // Inherited Object.prototype reify (tag twin above).
+                return reify_value(recv, key);
             }
             v
         },

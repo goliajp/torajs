@@ -87,6 +87,8 @@ pub(crate) fn str_supports(mid: i64) -> bool {
             | ANY_METHOD_MATCH_ALL
             | ANY_METHOD_IS_WELL_FORMED
             | ANY_METHOD_TO_WELL_FORMED
+            | ANY_METHOD_VALUE_OF
+            | ANY_METHOD_TO_LOCALE_STRING
             // annexB B.2.2 html methods — ids 95-107 are contiguous
             // by design (attr forms first), one range covers the
             // family.
@@ -138,6 +140,7 @@ pub(crate) fn arr_supports(mid: i64) -> bool {
             | ANY_METHOD_KEYS
             | ANY_METHOD_VALUES
             | ANY_METHOD_ENTRIES
+            | ANY_METHOD_TO_LOCALE_STRING
     )
 }
 
@@ -278,7 +281,10 @@ fn proto_tag_supports(tag: i64, mid: i64) -> bool {
     // every receiver shape, so every builtin prototype hands them
     // out (mirrors `builtin_method_supported`'s leading arm); the
     // per-family surface is shared with the own-property variant.
-    if mid == ANY_METHOD_HAS_OWN_PROPERTY || mid == ANY_METHOD_PROPERTY_IS_ENUMERABLE {
+    if mid == ANY_METHOD_HAS_OWN_PROPERTY
+        || mid == ANY_METHOD_PROPERTY_IS_ENUMERABLE
+        || mid == ANY_METHOD_VALUE_OF
+    {
         return true;
     }
     proto_tag_owns(tag, mid)
@@ -315,9 +321,15 @@ pub(crate) fn proto_tag_family_owns(tag: i64, mid: i64) -> bool {
     }
     match tag {
         0 => num_supports(mid),
+        // Object.prototype's own methods beyond the universal
+        // probes handled above — valueOf / toLocaleString
+        // (§20.1.4.7 / §20.1.4.6).
+        1 => matches!(mid, ANY_METHOD_VALUE_OF | ANY_METHOD_TO_LOCALE_STRING),
         2 => arr_supports(mid),
         3 => str_supports(mid),
-        4 => mid == ANY_METHOD_TO_STRING,
+        // Boolean.prototype owns toString + valueOf (§20.3.3);
+        // toLocaleString is inherited.
+        4 => matches!(mid, ANY_METHOD_TO_STRING | ANY_METHOD_VALUE_OF),
         7 => regexp_supports(mid),
         8 => date_supports(mid),
         11 => map_supports(mid),

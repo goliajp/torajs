@@ -66,8 +66,9 @@
 use core::ffi::c_void;
 
 use torajs_rc::{
-    __torajs_rc_inc, ANY_METHOD_HAS_OWN_PROPERTY, ANY_METHOD_PROPERTY_IS_ENUMERABLE,
-    ANY_METHOD_TO_STRING, Tag,
+    __torajs_rc_inc, ANY_METHOD_HAS_OWN_PROPERTY, ANY_METHOD_JOIN,
+    ANY_METHOD_PROPERTY_IS_ENUMERABLE, ANY_METHOD_TO_LOCALE_STRING, ANY_METHOD_TO_STRING,
+    ANY_METHOD_VALUE_OF, Tag,
 };
 
 use crate::nanbox::{
@@ -207,8 +208,14 @@ pub(crate) unsafe fn any_method_call_inner(
         // toString on a string is identity; a ShortStr is an
         // immediate (copy semantics, no rc), so the bits return
         // as-is — the materialize path below would hand back a
-        // temp this dispatcher is about to drop.
-        if mid == ANY_METHOD_TO_STRING {
+        // temp this dispatcher is about to drop. valueOf
+        // (§22.1.3.35) and toLocaleString (§22.1.3.26 — plain
+        // toString under the typed tier's locale posture) are the
+        // same identity.
+        if mid == ANY_METHOD_TO_STRING
+            || mid == ANY_METHOD_VALUE_OF
+            || mid == ANY_METHOD_TO_LOCALE_STRING
+        {
             return recv;
         }
         // Materialize once, reuse the heap-Str arm, drop the temp
@@ -229,6 +236,37 @@ pub(crate) unsafe fn any_method_call_inner(
     if is_cell(recv) {
         let ptr = as_void_ptr(recv);
         let tag = unsafe { (ptr.cast::<u8>().add(4) as *const u16).read() };
+        // §20.1.4.7 Object.prototype.valueOf is ToObject(this) —
+        // identity on every cell receiver. Date keeps its own
+        // valueOf (the getTime alias in its per-tag arm), and the
+        // Number/Boolean immediates answered above.
+        if mid == ANY_METHOD_VALUE_OF && tag != Tag::Date as u16 {
+            unsafe { __torajs_rc_inc(ptr) };
+            return recv;
+        }
+        // §20.1.4.6 Object.prototype.toLocaleString invokes
+        // this.toString — Str is identity, Arr delegates to the
+        // §23.1.3.32 join-with-"," shape, plain objects answer the
+        // §20.1.4.6/§20.1.3.6 "[object Object]" text. Date / Number
+        // keep their own per-arm specializations; other tags fall
+        // through to their arm (a miss stays the no-such TypeError).
+        if mid == ANY_METHOD_TO_LOCALE_STRING {
+            if tag == Tag::Str as u16 {
+                unsafe { __torajs_rc_inc(ptr) };
+                return recv;
+            }
+            if tag == Tag::Arr as u16 {
+                return unsafe {
+                    crate::method_call_arr::arr_method(ptr, ANY_METHOD_JOIN, recv_slot, argv, 0)
+                };
+            }
+            if tag == Tag::DynObj as u16 || tag == Tag::Obj as u16 {
+                unsafe {
+                    let p = __torajs_str_alloc(b"[object Object]".as_ptr(), 15);
+                    return __torajs_anyv_box_pointer(p as *mut c_void);
+                }
+            }
+        }
         if tag == Tag::Str as u16 {
             // toString is identity — hand the caller its own +1 on
             // the same cell per the boxed-value convention.
@@ -404,10 +442,15 @@ pub unsafe extern "C" fn __torajs_closure_call_variadic(
     }
 }
 
-/// bool-immediate arm — `toString` answers a fresh "true"/"false"
-/// Str (ES §20.3.3.3); every other id is a TypeError.
+/// bool-immediate arm — `toString` / the inherited
+/// `Object.prototype.toLocaleString` answer a fresh "true"/"false"
+/// Str (ES §20.3.3.3), `valueOf` (§20.3.3.4) is the immediate
+/// itself; every other id is a TypeError.
 unsafe fn bool_method(recv: AnyValue, mid: i64) -> AnyValue {
-    if mid == ANY_METHOD_TO_STRING {
+    if mid == ANY_METHOD_VALUE_OF {
+        return recv;
+    }
+    if mid == ANY_METHOD_TO_STRING || mid == ANY_METHOD_TO_LOCALE_STRING {
         let bytes: &[u8] = if is_true(recv) { b"true" } else { b"false" };
         unsafe {
             let p = __torajs_str_alloc(bytes.as_ptr(), bytes.len() as i64);

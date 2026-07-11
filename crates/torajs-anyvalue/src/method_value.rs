@@ -265,8 +265,12 @@ pub(crate) fn builtin_method_supported(recv: AnyValue, mid: i64) -> bool {
     // chunk D-1 — the universal own-property probes resolve on every
     // receiver shape (Object.prototype methods; primitives coerce
     // through ToObject and simply answer false-valued Bools).
+    // valueOf joins them (§20.1.4.7 — identity on every cell, the
+    // immediate itself on primitives; the dispatcher's universal
+    // arm makes it callable everywhere).
     if mid == torajs_rc::ANY_METHOD_HAS_OWN_PROPERTY
         || mid == torajs_rc::ANY_METHOD_PROPERTY_IS_ENUMERABLE
+        || mid == torajs_rc::ANY_METHOD_VALUE_OF
     {
         return true;
     }
@@ -277,7 +281,7 @@ pub(crate) fn builtin_method_supported(recv: AnyValue, mid: i64) -> bool {
         return num_supports(mid);
     }
     if is_bool(recv) {
-        return mid == ANY_METHOD_TO_STRING;
+        return mid == ANY_METHOD_TO_STRING || mid == torajs_rc::ANY_METHOD_TO_LOCALE_STRING;
     }
     if !is_cell(recv) {
         return false;
@@ -296,6 +300,12 @@ pub(crate) fn builtin_method_supported(recv: AnyValue, mid: i64) -> bool {
         t if t == Tag::WeakMap as u16 => weakmap_supports(mid),
         t if t == Tag::WeakSet as u16 => weakset_supports(mid),
         t if t == Tag::Closure as u16 => closure_supports(mid),
+        // Plain objects (dynobj / static-layout struct) reach the
+        // dispatcher's Object.prototype toLocaleString arm; their
+        // other methods resolve by name probe, not by mid.
+        t if t == Tag::DynObj as u16 || t == Tag::Obj as u16 => {
+            mid == torajs_rc::ANY_METHOD_TO_LOCALE_STRING
+        }
         _ => false,
     }
 }
