@@ -245,9 +245,24 @@ pub(crate) fn date_supports(mid: i64) -> bool {
 fn proto_tag_supports(tag: i64, mid: i64) -> bool {
     // Object.prototype's universal own-property probes resolve on
     // every receiver shape, so every builtin prototype hands them
-    // out (mirrors `builtin_method_supported`'s leading arm).
+    // out (mirrors `builtin_method_supported`'s leading arm); the
+    // per-family surface is shared with the own-property variant.
     if mid == ANY_METHOD_HAS_OWN_PROPERTY || mid == ANY_METHOD_PROPERTY_IS_ENUMERABLE {
         return true;
+    }
+    proto_tag_owns(tag, mid)
+}
+
+/// Own-property variant of [`proto_tag_supports`] (RFC 20260712
+/// chunk 1) — the readable surface counts inherited methods (the
+/// universal `Object.prototype` probes resolve on every prototype),
+/// but an own-property probe must NOT: `hasOwnProperty` /
+/// `propertyIsEnumerable` are own only on `Object.prototype`
+/// (tag 1). Every family method IS its prototype's own property
+/// per spec.
+pub(crate) fn proto_tag_owns(tag: i64, mid: i64) -> bool {
+    if mid == ANY_METHOD_HAS_OWN_PROPERTY || mid == ANY_METHOD_PROPERTY_IS_ENUMERABLE {
+        return tag == 1;
     }
     match tag {
         0 => num_supports(mid),

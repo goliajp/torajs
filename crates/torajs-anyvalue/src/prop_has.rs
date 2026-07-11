@@ -112,9 +112,17 @@ pub unsafe extern "C" fn __torajs_any_prop_has(recv: AnyValue, key: *const c_voi
         return unsafe { str_index_has(len, key) };
     }
     match recv_cell(recv) {
-        Some((ptr, t)) if t == Tag::DynObj as u16 => unsafe {
-            __torajs_dynobj_has(ptr, key) as i64
-        },
+        Some((ptr, t)) if t == Tag::DynObj as u16 => {
+            if unsafe { __torajs_dynobj_has(ptr, key) } != 0 {
+                return 1;
+            }
+            // Builtin `<Ctor>.prototype` singleton — an interned
+            // builtin method is the prototype's own property per
+            // spec even though it lives in the method-cell table,
+            // not the dynobj (RFC 20260712 chunk 1; the
+            // delete-tombstone shading is chunk 3).
+            unsafe { builtin_proto_method_own(ptr, key) }
+        }
         Some((ptr, t)) if t == Tag::Arr as u16 => {
             let len = unsafe { ptr.cast::<u8>().add(ARR_LEN_OFF).cast::<u64>().read() };
             if let Some(i) = unsafe { canonical_index(key) }
@@ -172,6 +180,22 @@ pub unsafe extern "C" fn __torajs_any_prop_has(recv: AnyValue, key: *const c_voi
         }
         _ => 0,
     }
+}
+
+/// Own-property probe for a dynobj that turns out to be a builtin
+/// `<Ctor>.prototype` singleton: the interned method families count
+/// as own entries (`proto_tag_owns` — the universal probes stay
+/// Object.prototype-only). Answers 0 for every ordinary dynobj.
+unsafe fn builtin_proto_method_own(ptr: *const c_void, key: *const c_void) -> i64 {
+    let tag = unsafe { torajs_rc::builtin_proto::__torajs_builtin_proto_tag_of(ptr) };
+    if tag < 0 {
+        return 0;
+    }
+    let mid = unsafe { crate::method_value::key_method_id(key) };
+    if mid == torajs_rc::ANY_METHOD_UNKNOWN {
+        return 0;
+    }
+    crate::method_support::proto_tag_owns(tag, mid) as i64
 }
 
 /// Shared Str-receiver arm: index in `[0, len)` or `"length"` → 1.

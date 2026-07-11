@@ -85,6 +85,28 @@ pub unsafe extern "C" fn __torajs_get_builtin_prototype(tag: i64) -> *mut c_void
     }
 }
 
+/// Reverse lookup — the builtin tag whose `.prototype` singleton is
+/// `p`, or `-1` when `p` is not one (never-allocated protos can't
+/// match: their slots still hold 0). O(14) scan; callers are cold
+/// reflection probes (own-property / descriptor synthesis, RFC
+/// 20260712).
+///
+/// # Safety
+/// `p` is any pointer value — only compared, never dereferenced.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_builtin_proto_tag_of(p: *const c_void) -> i64 {
+    if p.is_null() {
+        return -1;
+    }
+    let addr = p as usize;
+    for (i, slot) in SLOTS.iter().enumerate() {
+        if slot.load(Ordering::Acquire) == addr {
+            return i as i64;
+        }
+    }
+    -1
+}
+
 // Cargo-test stub for the dynobj_alloc extern. The real symbol lives
 // in the runtime substrate (linked into `tr`); unit tests in this
 // crate only verify the singleton-CAS logic, so we hand out unique
@@ -137,6 +159,22 @@ mod tests {
                 assert_ne!(ptrs[i], ptrs[j], "tag {i} and {j} collide");
             }
         }
+    }
+
+    #[test]
+    fn tag_of_round_trips_and_rejects_strangers() {
+        let p3 = unsafe { __torajs_get_builtin_prototype(3) };
+        let p8 = unsafe { __torajs_get_builtin_prototype(8) };
+        assert_eq!(unsafe { __torajs_builtin_proto_tag_of(p3) }, 3);
+        assert_eq!(unsafe { __torajs_builtin_proto_tag_of(p8) }, 8);
+        assert_eq!(
+            unsafe { __torajs_builtin_proto_tag_of(core::ptr::null()) },
+            -1
+        );
+        assert_eq!(
+            unsafe { __torajs_builtin_proto_tag_of(0xDEAD_BEE0 as *const c_void) },
+            -1
+        );
     }
 
     #[test]
