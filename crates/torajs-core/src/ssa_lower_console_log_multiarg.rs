@@ -96,20 +96,15 @@ pub(crate) fn try_lower(ctx: &mut LowerCtx, s: &Stmt) -> bool {
         }
         let mut arg = ctx.lower_expr(aid);
         let arg_ty = ctx.operand_ty(&arg);
-        // Same borrow judgement as `lower_single_arg`: Ident / Member
-        // lower to a borrowed operand the local (or its container)
-        // still owns; everything else (literal / call / new) is a
-        // temp this statement owns. Chunk 721 — a Member read whose
-        // lowering recorded it owned (chunk 637/717
-        // `owned_member_reads`) carries its own stake, so the
-        // predicate runs AFTER the lowering and skips the inc: the
-        // box transfer consumes the read's reference and the
-        // post-print drop balances it.
-        let is_borrow = match ctx.ast.get_expr(aid) {
-            Expr::Ident(_) => true,
-            Expr::Member { .. } => !ctx.owned_member_reads.contains(&aid),
-            _ => false,
-        };
+        // Shared borrow judgement with `lower_single_arg`
+        // (`console_arg_is_borrow`): Ident / This / Member /
+        // OptChain / container Index lower to borrowed operands the
+        // local (or its container) still owns; everything else
+        // (literal / call / new / string index) is a temp this
+        // statement owns. The judgement runs AFTER the lowering so
+        // `owned_member_reads`-recorded reads answer owned (their
+        // box transfer consumes the read's stake).
+        let is_borrow = crate::ssa_lower_call_console::console_arg_is_borrow(ctx, aid);
         let staked = if arg_ty == Type::Any {
             // Chunk 721 — an owned Any temp (Call / OptCall results,
             // recorded member reads: `expr_owned_shape`) releases
