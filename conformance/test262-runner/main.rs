@@ -353,6 +353,8 @@ fn transform_source(src: &str) -> String {
             (b"verifyNotEnumerable(", "__t262_verifyNotEnumerable("),
             (b"verifyNotWritable(", "__t262_verifyNotWritable("),
             (b"verifyCallableProperty(", "__t262_verifyCallableProperty("),
+            (b"verifyPrimordialProperty(", "__t262_verifyProperty("),
+            (b"verifyPrimordialCallableProperty(", "__t262_verifyCallableProperty("),
             (b"verifyEqualTo(", "__t262_verifyEqualTo("),
             (b"isConfigurable(", "__t262_isConfigurable("),
             (b"isEnumerable(", "__t262_isEnumerable("),
@@ -471,6 +473,7 @@ fn run_case(
     const PORTED_INCLUDES: &[&str] = &[
         "compareArray.js",
         "dateConstants.js",
+        "propertyHelper.js",
         "decimalToHexString.js",
         "nans.js",
         "promiseHelper.js",

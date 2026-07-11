@@ -21,11 +21,10 @@
 // bucket (2026-06-13 survey; PORTED_INCLUDES in test262-runner/main.rs
 // is the machine-readable list) ───
 //
-// propertyHelper.js (5,208 cases) — verifyProperty's real semantics
-//   need the `delete` operator (no parser surface; __torajs_dynobj_delete
-//   intrinsic exists but nothing lowers to it), string computed index
-//   on any (`obj[k]` rejects with "index must be number"), and for-in
-//   over any. Substrate gaps, not harness engineering.
+// propertyHelper.js — PORTED 2026-07-11 (RFC 20260711 chunks A/B/D:
+//   delete operator + non-configurable refusal, for-in var/bare/null
+//   /mid-delete guard, hasOwnProperty / propertyIsEnumerable /
+//   Object.hasOwn on any). Real verifyProperty family below.
 // temporalHelpers.js (2,765) — Temporal API itself is unimplemented.
 // testTypedArray.js (2,064) — TypedArray family is unimplemented
 //   (loud reject in check.rs).
@@ -114,19 +113,265 @@ function __t262_throws_runtime(thunk: () => void, msg: string = ""): void {
 // rewriter pass in test262-runner/main.rs textually replaces each
 // bare-call site with the `__t262_*` shim below.
 
-// Single-T any since the descriptor / array contents are user-
-// provided and don't carry uniform element types at this layer.
-function __t262_verifyProperty(_obj: any, _key: any, _desc: any): boolean {
-  return true;
-}
-function __t262_verifyConfigurable(_obj: any, _key: any): void {}
-function __t262_verifyEnumerable(_obj: any, _key: any): void {}
-function __t262_verifyWritable(_obj: any, _key: any): void {}
-function __t262_verifyNotConfigurable(_obj: any, _key: any): void {}
-function __t262_verifyNotEnumerable(_obj: any, _key: any): void {}
-function __t262_verifyNotWritable(_obj: any, _key: any): void {}
 function __t262_isConstructor(_obj: any): boolean { return true; }
 function __t262_assertRelativeDateMs(_date: any, _ms: any): void {}
+
+// ─── propertyHelper.js port (2026-07-11, RFC 20260711 chunk D-2b) ───
+//
+// Real implementations replacing the 2026-05-18 no-op stubs. Mirrors
+// vendor/test262/harness/propertyHelper.js on tr's any substrate:
+// delete (chunk 813 + the D-2a non-configurable refusal), for-in
+// (chunks 814-816), hasOwnProperty / propertyIsEnumerable /
+// Object.hasOwn (D-1), gOPD / defineProperty (chunk 594+).
+// Divergences from the untyped source:
+// - symbol property names don't exist in tr — the symbol lanes are
+//   dropped (name params are string).
+// - Function.prototype.call.bind primordial capture is unnecessary:
+//   the typed port calls the receiver methods directly (cases that
+//   destroy Object.prototype primordials would diverge — exotic).
+// - verifyCallableProperty runs its fn-valued verifyProperty checks
+//   for real; tr closures answer undefined gOPD for name/length, so
+//   those cases fail loudly into the bug bucket (attributable
+//   substrate gap, not a silent pass).
+
+function __t262_isSameValue(a: any, b: any): boolean {
+  if (a !== a && b !== b) {
+    return true;
+  }
+  if (a === 0 && b === 0) {
+    return 1 / a === 1 / b;
+  }
+  return a === b;
+}
+
+function __t262_isConfigurable(obj: any, name: string): boolean {
+  try {
+    delete obj[name];
+  } catch (e) {
+    if (!(e instanceof TypeError)) {
+      throw new Test262Error("Expected TypeError, got " + e);
+    }
+  }
+  if (obj.hasOwnProperty(name)) {
+    return false;
+  }
+  return true;
+}
+
+function __t262_isEnumerable(obj: any, name: string): boolean {
+  let stringCheck: boolean = false;
+  for (const x in obj) {
+    if (x === name) {
+      stringCheck = true;
+      break;
+    }
+  }
+  if (!stringCheck) {
+    return false;
+  }
+  if (!obj.hasOwnProperty(name)) {
+    return false;
+  }
+  if (!obj.propertyIsEnumerable(name)) {
+    return false;
+  }
+  return true;
+}
+
+function __t262_isWritable(obj: any, name: string, verifyProp: string = "", value: any = undefined): boolean {
+  const hadValue: any = obj.hasOwnProperty(name);
+  const oldValue: any = obj[name];
+  let newValue: any = value;
+  if (newValue === undefined) {
+    if (Array.isArray(obj) && name === "length") {
+      newValue = 4294967295;
+    } else {
+      newValue = "unlikelyValue";
+    }
+    if (newValue === oldValue) {
+      newValue = newValue + "2";
+    }
+  }
+  try {
+    obj[name] = newValue;
+  } catch (e) {
+    if (!(e instanceof TypeError)) {
+      throw new Test262Error("Expected TypeError, got " + e);
+    }
+  }
+  const readProp: string = verifyProp !== "" ? verifyProp : name;
+  const writeSucceeded: boolean = __t262_isSameValue(obj[readProp], newValue);
+  // Revert only successful writes (reverting a refused write may
+  // itself throw for certain property configurations).
+  if (writeSucceeded) {
+    if (hadValue) {
+      obj[name] = oldValue;
+    } else {
+      delete obj[name];
+    }
+  }
+  return writeSucceeded;
+}
+
+function __t262_verifyProperty(obj: any, name: string, desc: any, options: any = undefined): boolean {
+  const originalDesc: any = Object.getOwnPropertyDescriptor(obj, name);
+  // Allows checking for undefined descriptor if it's explicitly given.
+  if (desc === undefined) {
+    if (originalDesc !== undefined) {
+      throw new Test262Error("obj['" + name + "'] descriptor should be undefined");
+    }
+    return true;
+  }
+  if (!obj.hasOwnProperty(name)) {
+    throw new Test262Error("obj should have an own property " + name);
+  }
+  if (desc === null) {
+    throw new Test262Error("The desc argument should be an object or undefined, null");
+  }
+  if (typeof desc !== "object") {
+    throw new Test262Error("The desc argument should be an object or undefined");
+  }
+  const names: string[] = Object.getOwnPropertyNames(desc);
+  for (let i = 0; i < names.length; i++) {
+    const f: string = names[i];
+    if (f !== "value" && f !== "writable" && f !== "enumerable" && f !== "configurable" && f !== "get" && f !== "set") {
+      throw new Test262Error("Invalid descriptor field: " + f);
+    }
+  }
+  const failures: string[] = [];
+  if (desc.hasOwnProperty("value")) {
+    if (!__t262_isSameValue(desc.value, originalDesc.value)) {
+      failures.push("obj['" + name + "'] descriptor value should be " + desc.value);
+    }
+    if (!__t262_isSameValue(desc.value, obj[name])) {
+      failures.push("obj['" + name + "'] value should be " + desc.value);
+    }
+  }
+  if (desc.hasOwnProperty("enumerable")) {
+    if (desc.enumerable !== undefined) {
+      if (desc.enumerable !== originalDesc.enumerable || desc.enumerable !== __t262_isEnumerable(obj, name)) {
+        failures.push("obj['" + name + "'] descriptor enumerable mismatch");
+      }
+    }
+  }
+  // Operations past this point are potentially destructive!
+  if (desc.hasOwnProperty("writable")) {
+    if (desc.writable !== undefined) {
+      if (desc.writable !== originalDesc.writable || desc.writable !== __t262_isWritable(obj, name)) {
+        failures.push("obj['" + name + "'] descriptor writable mismatch");
+      }
+    }
+  }
+  if (desc.hasOwnProperty("configurable")) {
+    if (desc.configurable !== undefined) {
+      if (desc.configurable !== originalDesc.configurable || desc.configurable !== __t262_isConfigurable(obj, name)) {
+        failures.push("obj['" + name + "'] descriptor configurable mismatch");
+      }
+    }
+  }
+  if (failures.length > 0) {
+    throw new Test262Error(failures.join("; "));
+  }
+  if (options !== undefined && options !== null) {
+    if (options.restore) {
+      Object.defineProperty(obj, name, originalDesc);
+    }
+  }
+  return true;
+}
+
+function __t262_verifyEqualTo(obj: any, name: string, value: any): void {
+  if (!__t262_isSameValue(obj[name], value)) {
+    throw new Test262Error("Expected obj[" + name + "] to equal " + value + ", actually " + obj[name]);
+  }
+}
+
+function __t262_verifyWritable(obj: any, name: string, verifyProp: string = "", value: any = undefined): void {
+  if (verifyProp === "") {
+    const d: any = Object.getOwnPropertyDescriptor(obj, name);
+    if (!d.writable) {
+      throw new Test262Error("Expected obj[" + name + "] to have writable:true.");
+    }
+  }
+  if (!__t262_isWritable(obj, name, verifyProp, value)) {
+    throw new Test262Error("Expected obj[" + name + "] to be writable, but was not.");
+  }
+}
+
+function __t262_verifyNotWritable(obj: any, name: string, verifyProp: string = "", value: any = undefined): void {
+  if (verifyProp === "") {
+    const d: any = Object.getOwnPropertyDescriptor(obj, name);
+    if (d.writable) {
+      throw new Test262Error("Expected obj[" + name + "] to have writable:false.");
+    }
+  }
+  if (__t262_isWritable(obj, name, verifyProp, value)) {
+    throw new Test262Error("Expected obj[" + name + "] NOT to be writable, but was.");
+  }
+}
+
+function __t262_verifyEnumerable(obj: any, name: string): void {
+  const d: any = Object.getOwnPropertyDescriptor(obj, name);
+  if (!d.enumerable) {
+    throw new Test262Error("Expected obj[" + name + "] to have enumerable:true.");
+  }
+  if (!__t262_isEnumerable(obj, name)) {
+    throw new Test262Error("Expected obj[" + name + "] to be enumerable, but was not.");
+  }
+}
+
+function __t262_verifyNotEnumerable(obj: any, name: string): void {
+  const d: any = Object.getOwnPropertyDescriptor(obj, name);
+  if (d.enumerable) {
+    throw new Test262Error("Expected obj[" + name + "] to have enumerable:false.");
+  }
+  if (__t262_isEnumerable(obj, name)) {
+    throw new Test262Error("Expected obj[" + name + "] NOT to be enumerable, but was.");
+  }
+}
+
+function __t262_verifyConfigurable(obj: any, name: string): void {
+  const d: any = Object.getOwnPropertyDescriptor(obj, name);
+  if (!d.configurable) {
+    throw new Test262Error("Expected obj[" + name + "] to have configurable:true.");
+  }
+  if (!__t262_isConfigurable(obj, name)) {
+    throw new Test262Error("Expected obj[" + name + "] to be configurable, but was not.");
+  }
+}
+
+function __t262_verifyNotConfigurable(obj: any, name: string): void {
+  const d: any = Object.getOwnPropertyDescriptor(obj, name);
+  if (d.configurable) {
+    throw new Test262Error("Expected obj[" + name + "] to have configurable:false.");
+  }
+  if (__t262_isConfigurable(obj, name)) {
+    throw new Test262Error("Expected obj[" + name + "] NOT to be configurable, but was.");
+  }
+}
+
+function __t262_verifyCallableProperty(obj: any, name: string, functionName: any = undefined, functionLength: any = undefined, desc: any = undefined, options: any = undefined): boolean {
+  const value: any = obj[name];
+  if (typeof value !== "function") {
+    throw new Test262Error("obj['" + name + "'] descriptor should be a function");
+  }
+  let d: any = desc;
+  if (d === undefined) {
+    d = { writable: true, enumerable: false, configurable: true, value: value };
+  } else {
+    if (!d.hasOwnProperty("value") && !d.hasOwnProperty("get")) {
+      d.value = value;
+    }
+  }
+  __t262_verifyProperty(obj, name, d, options);
+  let fname: any = functionName;
+  if (fname === undefined) {
+    fname = name;
+  }
+  __t262_verifyProperty(value, "name", { value: fname, writable: false, enumerable: false, configurable: d.configurable }, options);
+  __t262_verifyProperty(value, "length", { value: functionLength, writable: false, enumerable: false, configurable: d.configurable }, options);
+  return true;
+}
 
 // ─── compareArray.js port (2026-06-13) ───
 //
@@ -416,9 +661,3 @@ function checkSettledPromises<T, U>(settleds: T[], expected: U[], message: strin
 }
 function __t262_deepEqual(_actual: any, _expected: any, _msg: string = ""): void {}
 function __t262_compareIterator(_iter: any, _vals: any, _msg: string = ""): void {}
-function __t262_verifyCallableProperty(_obj: any, _name: any, _fnName: any, _fnLen: any, _desc: any): boolean { return true; }
-function __t262_verifyEqualTo(_obj: any, _name: any, _value: any): boolean { return true; }
-function __t262_isConfigurable(_obj: any, _name: any): boolean { return true; }
-function __t262_isEnumerable(_obj: any, _name: any): boolean { return true; }
-function __t262_isSameValue(_a: any, _b: any): boolean { return true; }
-function __t262_isWritable(_obj: any, _name: any): boolean { return true; }
