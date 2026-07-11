@@ -70,6 +70,10 @@ TR_SRC="target/$TARGET/release/tr"
 TR_DST="target/release/tr"
 if [ -f "$TR_SRC" ]; then
     mkdir -p "$(dirname "$TR_DST")"
+    # unlink first: cp over an existing binary reuses the vnode, and the
+    # kernel's cached code-signature for it goes stale on Apple Silicon —
+    # the next exec dies with SIGKILL. A fresh vnode avoids it.
+    rm -f "$TR_DST"
     cp -p "$TR_SRC" "$TR_DST"
     echo "polish-A4.1 tr -> $TR_DST ($(stat -f %z "$TR_DST" 2>/dev/null || stat -c %s "$TR_DST") bytes)"
 fi
@@ -79,5 +83,5 @@ fi
 for bin in torajs-conformance bench-harness; do
     SRC="target/$TARGET/release/$bin"
     DST="target/release/$bin"
-    [ -f "$SRC" ] && cp -p "$SRC" "$DST"
+    [ -f "$SRC" ] && { rm -f "$DST"; cp -p "$SRC" "$DST"; }
 done
