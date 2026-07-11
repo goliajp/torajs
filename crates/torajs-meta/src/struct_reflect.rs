@@ -41,12 +41,7 @@ unsafe extern "C" {
     fn __torajs_anyv_unbox_tag(v: u64) -> i64;
     fn __torajs_anyv_unbox_value(v: u64) -> i64;
 
-    // torajs-dynobj + sibling helpers — same surface reflect.rs uses to
-    // build the descriptor object.
-    fn __torajs_dynobj_alloc() -> *mut c_void;
-    fn __torajs_dynobj_set(dst: *mut *mut c_void, key: *const u8, tag: u64, value: u64);
-    fn __torajs_str_alloc_pooled(len: u64) -> *mut u8;
-    fn __torajs_str_drop(s: *mut u8);
+    // torajs-rc — the descriptor's heap value owns a fresh share.
     fn __torajs_rc_inc(p: *mut c_void);
 
     // torajs-str — undefined sentinel identity probe (RFC 20260710
@@ -88,17 +83,6 @@ const OBJ_CLASS_TAG_OFF: usize = 8;
 /// (mirror torajs-str::layout STR_LEN_OFF / STR_DATA_OFF).
 const STR_LEN_OFF: usize = 8;
 const STR_DATA_OFF: usize = 16;
-
-/// Build a pooled `Str` key holding `name`'s bytes (mirror reflect.rs's
-/// private `alloc_str_key`).
-#[inline]
-unsafe fn alloc_str_key(name: &[u8]) -> *mut u8 {
-    let s = unsafe { __torajs_str_alloc_pooled(name.len() as u64) };
-    if !name.is_empty() {
-        unsafe { core::ptr::copy_nonoverlapping(name.as_ptr(), s.add(STR_DATA_OFF), name.len()) };
-    }
-    s
-}
 
 /// Map a struct field's coarse `type_tag` (see
 /// `ssa::field_type_tag_of`) + its raw 8-byte slot to an AnyValue
@@ -185,17 +169,5 @@ pub(crate) unsafe fn struct_cell_descriptor(cell: *const c_void, key: *const c_v
     }
 
     // Build `{ value, writable: true, enumerable: true, configurable: true }`.
-    let mut desc = unsafe { __torajs_dynobj_alloc() };
-    let entries: [(&[u8], u64, u64); 4] = [
-        (b"value", v_tag, v_val),
-        (b"writable", ANY_BOOL, 1),
-        (b"enumerable", ANY_BOOL, 1),
-        (b"configurable", ANY_BOOL, 1),
-    ];
-    for &(name, t, val) in entries.iter() {
-        let kk = unsafe { alloc_str_key(name) };
-        unsafe { __torajs_dynobj_set(&mut desc, kk, t, val) };
-        unsafe { __torajs_str_drop(kk) };
-    }
-    desc as u64
+    unsafe { crate::reflect::build_data_descriptor(v_tag, v_val, 1, 1, 1) }
 }

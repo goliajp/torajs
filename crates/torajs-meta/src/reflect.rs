@@ -58,6 +58,9 @@ const TAG_DYNOBJ: u16 = 14;
 // Tag::Obj — static-layout struct cell (W-J Phase B struct arm /
 // Phase C struct enumeration arms in `struct_enum.rs`).
 pub(crate) const TAG_OBJ: u16 = 1;
+// Tag::Closure — fn cell; gOPD routes to the virtual name/length
+// descriptor arm in `closure_reflect.rs` (RFC 20260711 chunk B).
+const TAG_CLOSURE: u16 = 3;
 /// Tag::Str / Tag::Symbol / Tag::BigInt from `torajs-rc` — primitive-in-spec
 /// heap cells. RFC C4b throws TypeError on these because `Object.defineProperty(O, ...)`
 /// step 1 is a strict `Type(O) is Object` check (no ToObject wrapper boxing).
@@ -98,6 +101,34 @@ const TOP_16_MASK: u64 = 0xFFFF_0000_0000_0000;
 #[inline]
 pub(crate) const fn is_cell_imm(v: u64) -> bool {
     (v & TOP_16_MASK) == 0 && (v & TAG_BIT_TYPE_OTHER) == 0 && v != 0
+}
+
+/// Build a data descriptor dynobj `{ value, writable, enumerable,
+/// configurable }` — the shared tail of every gOPD arm (general
+/// dynobj walk / Arr length / Str length / struct field / closure
+/// virtual pair). A heap-tagged `value` transfers ownership into the
+/// descriptor (callers inc beforehand when the source keeps its own
+/// reference).
+pub(crate) unsafe fn build_data_descriptor(
+    v_tag: u64,
+    v_val: u64,
+    writable: u64,
+    enumerable: u64,
+    configurable: u64,
+) -> u64 {
+    let mut desc = unsafe { __torajs_dynobj_alloc() };
+    let entries: [(&[u8], u64, u64); 4] = [
+        (b"value", v_tag, v_val),
+        (b"writable", ANY_BOOL as u64, writable),
+        (b"enumerable", ANY_BOOL as u64, enumerable),
+        (b"configurable", ANY_BOOL as u64, configurable),
+    ];
+    for &(name, t, val) in entries.iter() {
+        let k = unsafe { alloc_str_key(name) };
+        unsafe { __torajs_dynobj_set(&mut desc, k, t, val) };
+        unsafe { __torajs_str_drop(k) };
+    }
+    desc as u64
 }
 
 #[inline]
@@ -212,6 +243,12 @@ pub unsafe extern "C" fn __torajs_anyv_get_property_descriptor(
     if htag == TAG_OBJ {
         return unsafe { crate::struct_reflect::struct_cell_descriptor(dynobj, key) };
     }
+    // RFC 20260711 chunk B — Closure cell answers the virtual ES
+    // §20.2.4 name/length descriptors (expando entries win). SAFETY:
+    // `dynobj` is a live Tag::Closure cell; `key` non-NULL (above).
+    if htag == TAG_CLOSURE {
+        return unsafe { crate::closure_reflect::closure_cell_descriptor(dynobj, key) };
+    }
     if htag != TAG_DYNOBJ {
         return VALUE_UNDEFINED_IMM;
     }
@@ -258,28 +295,17 @@ pub unsafe extern "C" fn __torajs_anyv_get_property_descriptor(
         return desc as u64;
     }
 
-    let mut desc = unsafe { __torajs_dynobj_alloc() };
     if v_tag as i64 == ANY_HEAP && v_val != 0 {
-        // SAFETY: ANY_HEAP slot holds a valid heap pointer.
+        // SAFETY: ANY_HEAP slot holds a valid heap pointer — the
+        // source dynobj keeps its share, the descriptor owns a
+        // fresh one.
         unsafe { __torajs_rc_inc(v_val as *mut c_void) };
-    }
-
-    let entries: [(&[u8], u64, u64); 4] = [
-        (b"value", v_tag, v_val),
-        (b"writable", ANY_BOOL as u64, flags & 1),
-        (b"enumerable", ANY_BOOL as u64, (flags >> 1) & 1),
-        (b"configurable", ANY_BOOL as u64, (flags >> 2) & 1),
-    ];
-    for &(name, t, val) in entries.iter() {
-        let k = unsafe { alloc_str_key(name) };
-        unsafe { __torajs_dynobj_set(&mut desc, k, t, val) };
-        unsafe { __torajs_str_drop(k) };
     }
     // desc owns rc=1 from dynobj_alloc; transferred to caller
     // via the returned cell-encoded AnyValue (pre-7d the AnyBox-
     // wrapped path rc_inc'd + dropped the local; both cancel
     // out and we skip both).
-    desc as u64
+    unsafe { build_data_descriptor(v_tag, v_val, flags & 1, (flags >> 1) & 1, (flags >> 2) & 1) }
 }
 
 /// RFC C5a — `Object.getOwnPropertyDescriptor(arr, "length")` real
@@ -298,21 +324,8 @@ pub unsafe extern "C" fn __torajs_anyv_get_property_descriptor(
 /// transparently.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_arr_length_descriptor(len: u64) -> u64 {
-    let mut desc = unsafe { __torajs_dynobj_alloc() };
-    // tag values mirror AnySlotTag: I64=2 (numeric), Bool=1.
-    const ANY_I64: u64 = 2;
-    let entries: [(&[u8], u64, u64); 4] = [
-        (b"value", ANY_I64, len),
-        (b"writable", ANY_BOOL as u64, 1),
-        (b"enumerable", ANY_BOOL as u64, 0),
-        (b"configurable", ANY_BOOL as u64, 0),
-    ];
-    for &(name, t, val) in entries.iter() {
-        let k = unsafe { alloc_str_key(name) };
-        unsafe { __torajs_dynobj_set(&mut desc, k, t, val) };
-        unsafe { __torajs_str_drop(k) };
-    }
-    desc as u64
+    // tag value mirrors AnySlotTag::I64 = 2 (numeric).
+    unsafe { build_data_descriptor(2, len, 1, 0, 0) }
 }
 
 /// W-M — `Object.getOwnPropertyDescriptor(str, "length")` real
@@ -331,20 +344,7 @@ pub unsafe extern "C" fn __torajs_anyv_arr_length_descriptor(len: u64) -> u64 {
 pub unsafe extern "C" fn __torajs_anyv_str_length_descriptor(str_ptr: *const c_void) -> u64 {
     // SAFETY: STR_LEN_OFF=8 holds the live u32 length per torajs-str layout.
     let len = unsafe { (str_ptr.cast::<u8>().add(8) as *const u32).read() } as u64;
-    let mut desc = unsafe { __torajs_dynobj_alloc() };
-    const ANY_I64: u64 = 2;
-    let entries: [(&[u8], u64, u64); 4] = [
-        (b"value", ANY_I64, len),
-        (b"writable", ANY_BOOL as u64, 0),
-        (b"enumerable", ANY_BOOL as u64, 0),
-        (b"configurable", ANY_BOOL as u64, 0),
-    ];
-    for &(name, t, val) in entries.iter() {
-        let k = unsafe { alloc_str_key(name) };
-        unsafe { __torajs_dynobj_set(&mut desc, k, t, val) };
-        unsafe { __torajs_str_drop(k) };
-    }
-    desc as u64
+    unsafe { build_data_descriptor(2, len, 0, 0, 0) }
 }
 
 /// RFC C5b — `Object.preventExtensions(O)`. Spec ES §20.1.2.16 step 1

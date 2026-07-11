@@ -133,6 +133,18 @@ pub unsafe extern "C" fn __torajs_any_length_get(recv: AnyValue) -> AnyValue {
     VALUE_UNDEFINED
 }
 
+/// `.length` metadata read for external consumers — torajs-meta's
+/// gOPD Closure arm (RFC 20260711-closure-reflection chunk B) builds
+/// the virtual `length` descriptor from this. `-1` = no metadata
+/// (the descriptor stays undefined, mirroring the `.length` read).
+///
+/// # Safety
+/// `ptr` is a live `Tag::Closure` cell.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_closure_length(ptr: *mut c_void) -> i64 {
+    unsafe { closure_length_of(ptr) }.unwrap_or(-1)
+}
+
 /// ES `length` of a closure-tagged cell: method-cell arity, bound
 /// cell (recursive over its target, partial args subtract), or the
 /// fn-addr registry's fn-decl arity. `None` = no metadata (arrow /

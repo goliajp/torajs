@@ -24,6 +24,7 @@
 //! - `__torajs_value_drop_heap` — `runtime_str.c` (will move in P7.i)
 
 pub mod classmeta;
+pub(crate) mod closure_reflect;
 pub mod fnprops;
 pub mod from_entries;
 pub mod obj_own_keys;
@@ -127,6 +128,18 @@ pub unsafe extern "C" fn __torajs_dynobj_get_flags(
     _key: *const u8,
 ) -> u64 {
     panic!("torajs-meta test stub: __torajs_dynobj_get_flags should not be called from cargo test");
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_closure_name_str(_p: *mut core::ffi::c_void) -> *mut u8 {
+    panic!("torajs-meta test stub: __torajs_closure_name_str should not be called from cargo test");
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_closure_length(_p: *mut core::ffi::c_void) -> i64 {
+    panic!("torajs-meta test stub: __torajs_closure_length should not be called from cargo test");
 }
 
 #[cfg(test)]
