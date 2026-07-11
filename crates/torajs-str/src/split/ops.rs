@@ -156,6 +156,8 @@ unsafe fn split_init_inline<const PARENT_RC: bool>(
     substr_slot: *mut u8,
     arr_ptr_slot: *mut *mut u8,
     parent: *const u8,
+    // Substr offset / len are CODE-UNIT values (P11.1-S5); byte
+    // positions recover through the parent's encoding stride.
     offset: u64,
     len: u64,
 ) {
@@ -223,7 +225,7 @@ unsafe fn write_arr_header(block: NonNull<u8>, out_count: u64) {
 
 /// Build the 1-element "no match" block: an Arr containing a
 /// single inline Substr that aliases the whole of `s`
-/// (offset=0, length=byte_len). Reused by:
+/// (offset=0, length=`len_cu` code units). Reused by:
 ///  - `__torajs_str_split` Latin-1-haystack / UTF-16-needle path
 ///    (match is structurally impossible — emit `[s]` directly)
 ///  - `__torajs_str_split_no_sep` (separator is `undefined` per
@@ -231,17 +233,17 @@ unsafe fn write_arr_header(block: NonNull<u8>, out_count: u64) {
 ///
 /// # Safety
 ///
-/// `s` must be a valid Str heap block; `byte_len` its payload byte
-/// length.
+/// `s` must be a valid Str heap block; `len_cu` its code-unit
+/// count.
 #[inline]
-unsafe fn single_token_block<const PARENT_RC: bool>(s: *const u8, byte_len: u64) -> *mut u8 {
+unsafe fn single_token_block<const PARENT_RC: bool>(s: *const u8, len_cu: u64) -> *mut u8 {
     let block = pool::alloc(1);
     unsafe { write_arr_header(block, 1) };
     let slots_size = 8usize;
     let substrs_base = unsafe { block.as_ptr().add(ARR_HDR_SIZE + slots_size) };
     let slots_base = unsafe { block.as_ptr().add(ARR_HDR_SIZE) as *mut *mut u8 };
     unsafe {
-        split_init_inline::<PARENT_RC>(substrs_base, slots_base, s, 0, byte_len);
+        split_init_inline::<PARENT_RC>(substrs_base, slots_base, s, 0, len_cu);
     }
     block.as_ptr()
 }
@@ -289,8 +291,8 @@ unsafe fn fill_substrs<const PARENT_RC: bool>(
                     substrs_base.add(k * SUBSTR_SIZE),
                     slots_base.add(k),
                     s,
-                    (k * stride) as u64,
-                    stride as u64,
+                    k as u64,
+                    1,
                 );
             }
         }
@@ -336,8 +338,8 @@ unsafe fn fill_substrs<const PARENT_RC: bool>(
                         substrs_base.add(ix * SUBSTR_SIZE),
                         slots_base.add(ix),
                         s,
-                        start_byte as u64,
-                        (i - start_byte) as u64,
+                        (start_byte / stride) as u64,
+                        ((i - start_byte) / stride) as u64,
                     );
                 }
                 ix += 1;
@@ -354,8 +356,8 @@ unsafe fn fill_substrs<const PARENT_RC: bool>(
             substrs_base.add(ix * SUBSTR_SIZE),
             slots_base.add(ix),
             s,
-            start_byte as u64,
-            (s_byte_len - start_byte) as u64,
+            (start_byte / stride) as u64,
+            ((s_byte_len - start_byte) / stride) as u64,
         );
     }
 }
@@ -401,9 +403,9 @@ pub unsafe extern "C" fn __torajs_str_split(s: *const u8, sep: *const u8) -> *mu
             // Impossible match — emit a single trailing token
             // covering the whole haystack and return.
             return if parent_static {
-                unsafe { single_token_block::<false>(s, s_payload.len() as u64) }
+                unsafe { single_token_block::<false>(s, s_len_cu as u64) }
             } else {
-                unsafe { single_token_block::<true>(s, s_payload.len() as u64) }
+                unsafe { single_token_block::<true>(s, s_len_cu as u64) }
             };
         }
         (false, true) => {
@@ -472,11 +474,11 @@ pub unsafe extern "C" fn __torajs_str_split(s: *const u8, sep: *const u8) -> *mu
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_split_no_sep(s: *const u8) -> *mut u8 {
     let parent_static = unsafe { parent_is_static_literal(s) };
-    let (s_payload, _, _) = unsafe { str_view(s) };
+    let (_, s_len_cu, _) = unsafe { str_view(s) };
     if parent_static {
-        unsafe { single_token_block::<false>(s, s_payload.len() as u64) }
+        unsafe { single_token_block::<false>(s, s_len_cu as u64) }
     } else {
-        unsafe { single_token_block::<true>(s, s_payload.len() as u64) }
+        unsafe { single_token_block::<true>(s, s_len_cu as u64) }
     }
 }
 
@@ -484,7 +486,9 @@ pub unsafe extern "C" fn __torajs_str_split_no_sep(s: *const u8) -> *mut u8 {
 mod tests {
     use super::*;
     use crate::block::{__torajs_str_free, StrBlock};
-    use crate::split::iter::{__torajs_split_iter_drop, __torajs_split_iter_init, SplitIter};
+    use crate::split::iter::{
+        __torajs_split_iter_drop, __torajs_split_iter_init, __torajs_split_iter_next, SplitIter,
+    };
     use alloc::{vec, vec::Vec};
 
     // ARR layout consts (mirror C runtime_str.c — cross-layer until
@@ -503,21 +507,39 @@ mod tests {
 
     /// Reach into a split block and pull each token's bytes out
     /// for assertion. Uses the inline substr layout (SUBSTR_PARENT
-    /// → STR_DATA, SUBSTR_OFFSET, SUBSTR_LEN).
+    /// → STR_DATA, SUBSTR_OFFSET, SUBSTR_LEN). Substr offset/len are
+    /// code-unit values — byte positions recover through the
+    /// parent's encoding stride.
     unsafe fn read_split_tokens(block: *mut u8) -> Vec<Vec<u8>> {
         let len = unsafe { (block.add(ARR_LEN_OFF) as *const u64).read() } as usize;
         let slots = unsafe { block.add(ARR_DATA_OFF) as *const *mut u8 };
         let mut out = Vec::with_capacity(len);
         for i in 0..len {
             let substr = unsafe { *slots.add(i) };
-            let plen = unsafe { (substr.add(SUBSTR_LEN_OFF) as *const u64).read() } as usize;
+            let units = unsafe { (substr.add(SUBSTR_LEN_OFF) as *const u64).read() } as usize;
             let parent = unsafe { *(substr.add(SUBSTR_PARENT_OFF) as *const *const u8) };
             let off = unsafe { (substr.add(SUBSTR_OFFSET_OFF) as *const u64).read() } as usize;
-            let bytes =
-                unsafe { core::slice::from_raw_parts(parent.add(STR_DATA_OFF + off), plen) };
+            let latin1 =
+                unsafe { (*(parent as *const HeapHeader)).flags & STR_FLAG_IS_LATIN1 != 0 };
+            let stride = if latin1 { 1 } else { 2 };
+            let bytes = unsafe {
+                core::slice::from_raw_parts(parent.add(STR_DATA_OFF + off * stride), units * stride)
+            };
             out.push(bytes.to_vec());
         }
         out
+    }
+
+    fn make_utf16(units: &[u16]) -> *mut u8 {
+        let length = units.len() as u32;
+        let mut b = StrBlock::alloc_with_encoding(length, false);
+        let dst = unsafe { b.as_bytes_mut(length * 2) };
+        for (i, &u) in units.iter().enumerate() {
+            let le = u.to_le_bytes();
+            dst[i * 2] = le[0];
+            dst[i * 2 + 1] = le[1];
+        }
+        b.into_raw()
     }
 
     /// Manually free a split block — drop is normally
@@ -613,6 +635,71 @@ mod tests {
         let toks = unsafe { read_split_tokens(block) };
         assert_eq!(toks, vec![b"a".to_vec(), b"b".to_vec(), b"".to_vec()]);
         unsafe { free_split_block(block, s) };
+        unsafe { __torajs_str_free(s) };
+        unsafe { __torajs_str_free(sep) };
+    }
+
+    /// RFC 20260711 follow-up — a UTF-16 haystack splits on the
+    /// code-unit grid: `"汉x字x界".split("x")` must answer three
+    /// 1-unit tokens (the byte-based shape answered 2/2/2-unit
+    /// garbage: byte offsets written into the unit-semantics Substr
+    /// fields).
+    #[test]
+    fn split_utf16_haystack_unit_offsets() {
+        let s = make_utf16(&[0x6C49, 0x0078, 0x5B57, 0x0078, 0x754C]);
+        let sep = make_str(b"x");
+        let block = unsafe { __torajs_str_split(s, sep) };
+        let toks = unsafe { read_split_tokens(block) };
+        assert_eq!(
+            toks,
+            vec![vec![0x49u8, 0x6C], vec![0x57u8, 0x5B], vec![0x4Cu8, 0x75]]
+        );
+        unsafe { free_split_block(block, s) };
+        unsafe { __torajs_str_free(s) };
+        unsafe { __torajs_str_free(sep) };
+    }
+
+    #[test]
+    fn split_utf16_no_match_singleton_unit_len() {
+        let s = make_utf16(&[0x6C49, 0x754C]);
+        let sep = make_str(b"z");
+        let block = unsafe { __torajs_str_split(s, sep) };
+        let toks = unsafe { read_split_tokens(block) };
+        assert_eq!(toks, vec![vec![0x49u8, 0x6C, 0x4C, 0x75]]);
+        unsafe { free_split_block(block, s) };
+        unsafe { __torajs_str_free(s) };
+        unsafe { __torajs_str_free(sep) };
+    }
+
+    #[test]
+    fn split_utf16_per_char_units() {
+        let s = make_utf16(&[0x6C49, 0x754C]);
+        let sep = make_str(b"");
+        let block = unsafe { __torajs_str_split(s, sep) };
+        let toks = unsafe { read_split_tokens(block) };
+        assert_eq!(toks, vec![vec![0x49u8, 0x6C], vec![0x4Cu8, 0x75]]);
+        unsafe { free_split_block(block, s) };
+        unsafe { __torajs_str_free(s) };
+        unsafe { __torajs_str_free(sep) };
+    }
+
+    #[test]
+    fn split_iter_utf16_parent_latin1_sep() {
+        let s = make_utf16(&[0x6C49, 0x0078, 0x5B57]);
+        let sep = make_str(b"x");
+        let mut iter: SplitIter = unsafe { core::mem::zeroed() };
+        unsafe { __torajs_split_iter_init(&mut iter, s, sep) };
+        let mut out = [0u8; 32];
+        // token 1: offset 0, 1 unit (汉)
+        assert!(unsafe { __torajs_split_iter_next(&mut iter, out.as_mut_ptr()) });
+        assert_eq!(unsafe { (out.as_ptr().add(8) as *const u64).read() }, 1);
+        assert_eq!(unsafe { (out.as_ptr().add(24) as *const u64).read() }, 0);
+        // token 2: offset 2, 1 unit (字)
+        assert!(unsafe { __torajs_split_iter_next(&mut iter, out.as_mut_ptr()) });
+        assert_eq!(unsafe { (out.as_ptr().add(8) as *const u64).read() }, 1);
+        assert_eq!(unsafe { (out.as_ptr().add(24) as *const u64).read() }, 2);
+        assert!(!unsafe { __torajs_split_iter_next(&mut iter, out.as_mut_ptr()) });
+        unsafe { __torajs_split_iter_drop(&mut iter) };
         unsafe { __torajs_str_free(s) };
         unsafe { __torajs_str_free(sep) };
     }
