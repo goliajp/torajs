@@ -78,6 +78,33 @@ pub enum GlobalSlotShape {
 }
 
 pub fn infer_toplevel_slot_shape(ast: &Ast, init: ExprId) -> Option<GlobalSlotShape> {
+    infer_slot_shape(ast, init, 0)
+}
+
+/// Alias resolution is depth-capped: each hop is one top-level `let`
+/// lookup, and a cycle (`const a = b; const b = a`) would otherwise
+/// recurse forever. Eight hops covers any hand-written chain; deeper
+/// just keeps the main-fn-local behavior.
+const MAX_ALIAS_DEPTH: u32 = 8;
+
+/// The four annotation spellings whose slot shape is statically
+/// certain — the same table the named-fn-call arm has always used
+/// for return annotations. Anything else (any / unions / containers)
+/// answers None and the binding stays a main-fn local.
+fn shape_of_simple_ann(ann: &str) -> Option<GlobalSlotShape> {
+    match ann {
+        "number" | "i64" => Some(GlobalSlotShape::I64),
+        "f64" => Some(GlobalSlotShape::F64),
+        "string" => Some(GlobalSlotShape::Str),
+        "boolean" => Some(GlobalSlotShape::Bool),
+        _ => None,
+    }
+}
+
+fn infer_slot_shape(ast: &Ast, init: ExprId, depth: u32) -> Option<GlobalSlotShape> {
+    if depth > MAX_ALIAS_DEPTH {
+        return None;
+    }
     match ast.get_expr(init) {
         // Mirrors infer_arg_width: genuinely fractional or past i64
         // range must be f64; integral literals take the i64 default.
@@ -89,10 +116,31 @@ pub fn infer_toplevel_slot_shape(ast: &Ast, init: ExprId) -> Option<GlobalSlotSh
         Expr::String(_) => Some(GlobalSlotShape::Str),
         Expr::Bool(_) => Some(GlobalSlotShape::Bool),
         Expr::Ident(n) if n == "NaN" || n == "Infinity" => Some(GlobalSlotShape::F64),
+        // Alias of another top-level binding: same shape as the
+        // binding it copies. An annotated upstream maps through the
+        // simple-ann table; an un-annotated one recurses into its
+        // init. Anything unresolved (fn names, missing decls, deep
+        // chains) keeps the main-fn-local behavior.
+        Expr::Ident(n) => ast
+            .stmts
+            .iter()
+            .find_map(|s| match s {
+                Stmt::LetDecl {
+                    name,
+                    type_ann,
+                    init,
+                    ..
+                } if name == n => Some(match type_ann.as_deref() {
+                    Some(ann) => shape_of_simple_ann(ann),
+                    None => infer_slot_shape(ast, *init, depth + 1),
+                }),
+                _ => None,
+            })
+            .flatten(),
         Expr::Unary {
             op: UnaryOp::Neg,
             expr,
-        } => infer_toplevel_slot_shape(ast, *expr),
+        } => infer_slot_shape(ast, *expr, depth + 1),
         // Call to a top-level named fn: the return annotation is the
         // same ground truth lowering uses for the callee's ret slot.
         Expr::Call { callee, .. } => {
@@ -106,13 +154,7 @@ pub fn infer_toplevel_slot_shape(ast: &Ast, init: ExprId) -> Option<GlobalSlotSh
                     params,
                     ..
                 } if name == fname && params.first().is_none_or(|p| p.name != "__env") => {
-                    match return_type.as_deref() {
-                        Some("number") | Some("i64") => Some(GlobalSlotShape::I64),
-                        Some("f64") => Some(GlobalSlotShape::F64),
-                        Some("string") => Some(GlobalSlotShape::Str),
-                        Some("boolean") => Some(GlobalSlotShape::Bool),
-                        _ => None,
-                    }
+                    return_type.as_deref().and_then(shape_of_simple_ann)
                 }
                 _ => None,
             })
