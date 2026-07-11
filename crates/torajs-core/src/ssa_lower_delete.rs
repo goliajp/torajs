@@ -47,7 +47,11 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, operand: ExprId) -> Operand {
                     panic!("ssa-lower: delete key lowered to a non-value operand");
                 };
                 let coerce_owned = k_ty == Type::Substr;
-                (recv, key_v, Some((key_op, coerce_owned, k_raw, k_ty, index)))
+                (
+                    recv,
+                    key_v,
+                    Some((key_op, coerce_owned, k_raw, k_ty, index)),
+                )
             }
         }
         other => panic!("ssa-lower: `delete` on non-property operand {other:?}"),
