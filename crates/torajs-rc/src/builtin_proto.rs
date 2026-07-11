@@ -110,7 +110,7 @@ pub unsafe extern "C" fn __torajs_builtin_proto_tag_of(p: *const c_void) -> i64 
 /// Method-id span of the per-tag deleted bitmask below — mirrors
 /// `torajs-anyvalue::method_value::TABLE_SIZE` (the intern-table
 /// span; ids are append-only).
-const DELETED_MASK_WORDS: usize = 2; // 128 mids / 64 bits
+const DELETED_MASK_WORDS: usize = 4; // 256 mids / 64 bits
 
 // Per-tag deleted-method-id bitmask (RFC 20260712 chunk 3) — the
 // `FLAG_FN_NAME_DELETED` precedent generalized: `delete
@@ -232,9 +232,9 @@ mod tests {
         assert_eq!(unsafe { __torajs_builtin_proto_is_deleted(3, 95) }, 1);
         // out-of-range ignored / answers 0.
         unsafe { __torajs_builtin_proto_mark_deleted(99, 5) };
-        unsafe { __torajs_builtin_proto_mark_deleted(3, 200) };
+        unsafe { __torajs_builtin_proto_mark_deleted(3, 300) };
         assert_eq!(unsafe { __torajs_builtin_proto_is_deleted(99, 5) }, 0);
-        assert_eq!(unsafe { __torajs_builtin_proto_is_deleted(3, 200) }, 0);
+        assert_eq!(unsafe { __torajs_builtin_proto_is_deleted(3, 300) }, 0);
     }
 
     #[test]

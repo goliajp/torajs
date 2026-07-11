@@ -285,6 +285,16 @@ pub const ANY_METHOD_REPEAT: i64 = 121;
 pub const ANY_METHOD_CODE_POINT_AT: i64 = 122;
 /// `String.prototype.localeCompare`.
 pub const ANY_METHOD_LOCALE_COMPARE: i64 = 123;
+/// `String.prototype.normalize`.
+pub const ANY_METHOD_NORMALIZE: i64 = 124;
+/// `String.prototype.toLocaleLowerCase`.
+pub const ANY_METHOD_TO_LOCALE_LOWER_CASE: i64 = 125;
+/// `String.prototype.toLocaleUpperCase`.
+pub const ANY_METHOD_TO_LOCALE_UPPER_CASE: i64 = 126;
+/// `String.prototype.search`.
+pub const ANY_METHOD_SEARCH: i64 = 127;
+/// `String.prototype.matchAll`.
+pub const ANY_METHOD_MATCH_ALL: i64 = 128;
 
 /// RegExp property-read ids (Any-method-call RFC 20260704 C4-3c-2)
 /// — `r.source` / `r.lastIndex` / flag booleans through an `any`
@@ -454,6 +464,11 @@ pub fn any_method_id(name: &str) -> i64 {
         "repeat" => ANY_METHOD_REPEAT,
         "codePointAt" => ANY_METHOD_CODE_POINT_AT,
         "localeCompare" => ANY_METHOD_LOCALE_COMPARE,
+        "normalize" => ANY_METHOD_NORMALIZE,
+        "toLocaleLowerCase" => ANY_METHOD_TO_LOCALE_LOWER_CASE,
+        "toLocaleUpperCase" => ANY_METHOD_TO_LOCALE_UPPER_CASE,
+        "search" => ANY_METHOD_SEARCH,
+        "matchAll" => ANY_METHOD_MATCH_ALL,
         _ => ANY_METHOD_UNKNOWN,
     }
 }

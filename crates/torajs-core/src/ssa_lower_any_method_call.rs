@@ -133,7 +133,17 @@ pub(crate) fn pack_any_argv(
     );
     let mut boxed_slots: Vec<Option<Operand>> = Vec::with_capacity(argc);
     for (i, &aid) in args.iter().enumerate() {
-        let is_borrow = matches!(ctx.ast.get_expr(aid), Expr::Ident(_) | Expr::Member { .. });
+        // A regex literal is a BORROW, not a temp — `lower_expr`
+        // answers the fn-scope LICM-cached RegExp (hoisted compile,
+        // shared by every occurrence of the same `(pattern, flags)`
+        // pair), so the box must take its own reference or the
+        // post-call dec frees the cached cell out from under the
+        // second occurrence. `new RegExp(...)` stays a per-call
+        // fresh temp (Expr::New — not matched here).
+        let is_borrow = matches!(
+            ctx.ast.get_expr(aid),
+            Expr::Ident(_) | Expr::Member { .. } | Expr::Regex { .. }
+        );
         let raw = ctx.lower_expr(aid);
         let raw_ty = ctx.operand_ty(&raw);
         let (slot_val, we_boxed) = if raw_ty == Type::Any {

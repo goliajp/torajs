@@ -10,11 +10,13 @@ use core::ffi::c_void;
 use torajs_rc::{
     ANY_METHOD_ANCHOR, ANY_METHOD_AT, ANY_METHOD_CHAR_AT, ANY_METHOD_CHAR_CODE_AT,
     ANY_METHOD_CODE_POINT_AT, ANY_METHOD_CONCAT, ANY_METHOD_ENDS_WITH, ANY_METHOD_INCLUDES,
-    ANY_METHOD_INDEX_OF, ANY_METHOD_LINK, ANY_METHOD_LOCALE_COMPARE, ANY_METHOD_MATCH,
-    ANY_METHOD_PAD_END, ANY_METHOD_PAD_START, ANY_METHOD_REPEAT, ANY_METHOD_REPLACE,
-    ANY_METHOD_REPLACE_ALL, ANY_METHOD_SLICE, ANY_METHOD_SPLIT, ANY_METHOD_STARTS_WITH,
-    ANY_METHOD_SUBSTR, ANY_METHOD_SUBSTRING, ANY_METHOD_SUP, ANY_METHOD_TO_LOWER_CASE,
-    ANY_METHOD_TO_UPPER_CASE, ANY_METHOD_TRIM, ANY_METHOD_TRIM_END, ANY_METHOD_TRIM_START, Tag,
+    ANY_METHOD_INDEX_OF, ANY_METHOD_LAST_INDEX_OF, ANY_METHOD_LINK, ANY_METHOD_LOCALE_COMPARE,
+    ANY_METHOD_MATCH, ANY_METHOD_MATCH_ALL, ANY_METHOD_NORMALIZE, ANY_METHOD_PAD_END,
+    ANY_METHOD_PAD_START, ANY_METHOD_REPEAT, ANY_METHOD_REPLACE, ANY_METHOD_REPLACE_ALL,
+    ANY_METHOD_SEARCH, ANY_METHOD_SLICE, ANY_METHOD_SPLIT, ANY_METHOD_STARTS_WITH,
+    ANY_METHOD_SUBSTR, ANY_METHOD_SUBSTRING, ANY_METHOD_SUP, ANY_METHOD_TO_LOCALE_LOWER_CASE,
+    ANY_METHOD_TO_LOCALE_UPPER_CASE, ANY_METHOD_TO_LOWER_CASE, ANY_METHOD_TO_UPPER_CASE,
+    ANY_METHOD_TRIM, ANY_METHOD_TRIM_END, ANY_METHOD_TRIM_START, Tag,
 };
 
 use crate::method_call::{method_no_such, to_index};
@@ -76,6 +78,16 @@ unsafe extern "C" {
     fn __torajs_str_any_code_point_at(s: *const u8, i: i64) -> i64;
     /// torajs-str — localeCompare glue (-1/0/1).
     fn __torajs_str_any_locale_compare(s: *const u8, other: *const u8) -> i64;
+    /// torajs-str — normalize glue (NULL form = the "NFC" default;
+    /// invalid form records a TLS pending RangeError).
+    fn __torajs_str_any_normalize(s: *const u8, form: *const u8) -> u64;
+    /// torajs-str — lastIndexOf glue (missing/NaN from = i64::MAX).
+    fn __torajs_str_any_last_index_of(s: *const u8, needle: *const u8, from: i64) -> i64;
+    /// torajs-str — search glue (match start or -1).
+    fn __torajs_str_any_search(s: *const u8, re: *const c_void) -> i64;
+    /// torajs-str — matchAll glue (array of exec-shape arrays;
+    /// non-global regex records a TLS pending TypeError).
+    fn __torajs_str_any_match_all(s: *const u8, re: *const c_void) -> u64;
     /// torajs-str — release a heap Str/Substr reference.
     fn __torajs_str_drop(s: *mut c_void);
     /// torajs-throw — record a pending catchable TypeError.
@@ -257,6 +269,75 @@ pub(crate) unsafe fn str_method(s: *mut u8, mid: i64, argv: *const u64, argc: i6
                 } else {
                     __torajs_str_any_html(s, m, core::ptr::null())
                 }
+            }
+            _ => str_method_ext(s, mid, argv, argc),
+        }
+    }
+}
+
+/// Second id-switch slice of [`str_method`] (200-line fn
+/// discipline, chunk 449 cascade shape) — the locale/normalize/
+/// regex-lane family. Unmatched ids answer the shared
+/// no-such-method TypeError.
+unsafe fn str_method_ext(s: *mut u8, mid: i64, argv: *const u64, argc: i64) -> AnyValue {
+    let arg_at = |i: i64| -> u64 {
+        if i < argc {
+            unsafe { *argv.add(i as usize) }
+        } else {
+            VALUE_UNDEFINED
+        }
+    };
+    unsafe {
+        match mid {
+            m if m == ANY_METHOD_NORMALIZE => {
+                let form_av = arg_at(0);
+                if is_undefined(form_av) {
+                    __torajs_str_any_normalize(s, core::ptr::null())
+                } else {
+                    let form = __torajs_anyv_to_str(form_av);
+                    let out = __torajs_str_any_normalize(s, form as *const u8);
+                    __torajs_str_drop(form);
+                    out
+                }
+            }
+            m if m == ANY_METHOD_TO_LOCALE_UPPER_CASE => __torajs_str_any_case(s, 1),
+            m if m == ANY_METHOD_TO_LOCALE_LOWER_CASE => __torajs_str_any_case(s, 0),
+            m if m == ANY_METHOD_LAST_INDEX_OF => {
+                // §22.1.3.11 — a NaN fromIndex means +Infinity
+                // (search the whole string), unlike indexOf's 0, so
+                // this arm can't ride to_index's NaN→0.
+                let needle = __torajs_anyv_to_str(arg_at(0));
+                let from_av = arg_at(1);
+                let from = if is_undefined(from_av) {
+                    i64::MAX
+                } else {
+                    let n = crate::nanbox_ffi::__torajs_anyv_to_number(from_av);
+                    if n.is_nan() { i64::MAX } else { n as i64 }
+                };
+                let idx = __torajs_str_any_last_index_of(s, needle as *const u8, from);
+                __torajs_str_drop(needle);
+                __torajs_anyv_box_i64(idx)
+            }
+            m if m == ANY_METHOD_SEARCH => {
+                // RegExp-cell argument only, same lane posture as
+                // `match` (the string→RegExp coercion is the shared
+                // recorded follow-up).
+                let Some(re_ptr) = regexp_cell(arg_at(0)) else {
+                    __torajs_throw_type_error(
+                        c"s.search(...) on an any receiver requires a RegExp argument".as_ptr(),
+                    );
+                    return VALUE_UNDEFINED;
+                };
+                __torajs_anyv_box_i64(__torajs_str_any_search(s, re_ptr))
+            }
+            m if m == ANY_METHOD_MATCH_ALL => {
+                let Some(re_ptr) = regexp_cell(arg_at(0)) else {
+                    __torajs_throw_type_error(
+                        c"s.matchAll(...) on an any receiver requires a RegExp argument".as_ptr(),
+                    );
+                    return VALUE_UNDEFINED;
+                };
+                __torajs_str_any_match_all(s, re_ptr)
             }
             _ => method_no_such(),
         }

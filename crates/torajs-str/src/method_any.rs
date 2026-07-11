@@ -71,8 +71,9 @@ unsafe extern "C" {
 const VALUE_NULL_BOX: u64 = 2;
 
 /// `ARR_KIND_HEAP` mirror (torajs-rc) — the one kind `split` output
-/// slots ever hold.
-const KIND_HEAP_CHAIN: u64 = 4;
+/// slots ever hold. Shared with the [`crate::method_any_ext`] slice
+/// (matchAll's product).
+pub(crate) const KIND_HEAP_CHAIN: u64 = 4;
 
 /// Resolve a possibly-Substr `Tag::Str` cell to an owned-layout
 /// source: `(src, tmp)` where `tmp` is NULL for an already-owned Str

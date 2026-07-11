@@ -359,7 +359,11 @@ pub unsafe extern "C" fn __torajs_str_normalize(s: *const u8, form: *const u8) -
         // value when throwing" — emit_throw_check kills the path
         // before the value flows downstream.
         unsafe {
-            __torajs_throw_range_error(b"Invalid normalization form\0".as_ptr());
+            // Message matches bun's so conformance diff-tests can
+            // rely on `(e as Error).message`.
+            __torajs_throw_range_error(
+                b"argument does not match any normalization form\0".as_ptr(),
+            );
         }
         return s as *mut u8;
     };

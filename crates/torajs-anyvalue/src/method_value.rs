@@ -75,7 +75,7 @@ const STR_FLAG_IS_LATIN1: u16 = 0x0002;
 
 /// Method-id intern table span (ids are append-only; headroom
 /// beyond the current max keeps future ids table-hits).
-pub(crate) const TABLE_SIZE: usize = 128;
+pub(crate) const TABLE_SIZE: usize = 256;
 
 /// Per-mid interned cells. Atomic-static, NOT `thread_local!` —
 /// std's lazy TLS machinery is unavailable inside the baked
