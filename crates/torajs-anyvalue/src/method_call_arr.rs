@@ -10,10 +10,12 @@
 use core::ffi::c_void;
 
 use torajs_rc::{
-    ANY_METHOD_CONCAT, ANY_METHOD_COPY_WITHIN, ANY_METHOD_FILL, ANY_METHOD_FILTER,
-    ANY_METHOD_FOR_EACH, ANY_METHOD_INCLUDES, ANY_METHOD_INDEX_OF, ANY_METHOD_JOIN,
-    ANY_METHOD_LAST_INDEX_OF, ANY_METHOD_MAP, ANY_METHOD_POP, ANY_METHOD_PUSH, ANY_METHOD_REVERSE,
-    ANY_METHOD_SHIFT, ANY_METHOD_SLICE, ANY_METHOD_SPLICE, ANY_METHOD_UNSHIFT,
+    ANY_METHOD_CONCAT, ANY_METHOD_COPY_WITHIN, ANY_METHOD_EVERY, ANY_METHOD_FILL,
+    ANY_METHOD_FILTER, ANY_METHOD_FIND, ANY_METHOD_FIND_INDEX, ANY_METHOD_FOR_EACH,
+    ANY_METHOD_INCLUDES, ANY_METHOD_INDEX_OF, ANY_METHOD_JOIN, ANY_METHOD_LAST_INDEX_OF,
+    ANY_METHOD_MAP, ANY_METHOD_POP, ANY_METHOD_PUSH, ANY_METHOD_REDUCE, ANY_METHOD_REDUCE_RIGHT,
+    ANY_METHOD_REVERSE, ANY_METHOD_SHIFT, ANY_METHOD_SLICE, ANY_METHOD_SOME, ANY_METHOD_SPLICE,
+    ANY_METHOD_UNSHIFT,
 };
 
 use crate::index_any::MIRROR_ARR_LEN_OFF;
@@ -89,6 +91,21 @@ unsafe extern "C" {
     fn __torajs_arr_any_map(arr: *const c_void, cb_env: *mut c_void, cb_entry: u64) -> u64;
     fn __torajs_arr_any_filter(arr: *const c_void, cb_env: *mut c_void, cb_entry: u64) -> u64;
     fn __torajs_arr_any_for_each(arr: *const c_void, cb_env: *mut c_void, cb_entry: u64) -> u64;
+    /// torajs-arr — early-exit predicate loops (chunk 3).
+    fn __torajs_arr_any_every(arr: *const c_void, cb_env: *mut c_void, cb_entry: u64) -> u64;
+    fn __torajs_arr_any_some(arr: *const c_void, cb_env: *mut c_void, cb_entry: u64) -> u64;
+    fn __torajs_arr_any_find(arr: *const c_void, cb_env: *mut c_void, cb_entry: u64) -> u64;
+    fn __torajs_arr_any_find_index(arr: *const c_void, cb_env: *mut c_void, cb_entry: u64) -> u64;
+    /// torajs-arr — accumulator fold; `init` is borrowed when
+    /// `has_init != 0`, the returned accumulator is owned.
+    fn __torajs_arr_any_reduce(
+        arr: *const c_void,
+        cb_env: *mut c_void,
+        cb_entry: u64,
+        init: u64,
+        has_init: i64,
+        right: i64,
+    ) -> u64;
     /// torajs-str — allocate a fresh Str from raw bytes (the
     /// `join()` default "," separator).
     fn __torajs_str_alloc(src: *const u8, len: i64) -> *mut u8;
@@ -237,6 +254,34 @@ pub(crate) unsafe fn arr_method(
                 } else {
                     __torajs_arr_any_for_each(arr, cb_env, cb_entry)
                 }
+            }
+            m if m == ANY_METHOD_EVERY
+                || m == ANY_METHOD_SOME
+                || m == ANY_METHOD_FIND
+                || m == ANY_METHOD_FIND_INDEX =>
+            {
+                let Some((cb_env, cb_entry)) = closure_boxed_entry(arg_at(0)) else {
+                    return not_callable();
+                };
+                if m == ANY_METHOD_EVERY {
+                    __torajs_arr_any_every(arr, cb_env, cb_entry)
+                } else if m == ANY_METHOD_SOME {
+                    __torajs_arr_any_some(arr, cb_env, cb_entry)
+                } else if m == ANY_METHOD_FIND {
+                    __torajs_arr_any_find(arr, cb_env, cb_entry)
+                } else {
+                    __torajs_arr_any_find_index(arr, cb_env, cb_entry)
+                }
+            }
+            m if m == ANY_METHOD_REDUCE || m == ANY_METHOD_REDUCE_RIGHT => {
+                let Some((cb_env, cb_entry)) = closure_boxed_entry(arg_at(0)) else {
+                    return not_callable();
+                };
+                // §23.1.3.24 step 4 — initialValue presence is an
+                // argc question, not an undefined question.
+                let has_init = (argc >= 2) as i64;
+                let right = (m == ANY_METHOD_REDUCE_RIGHT) as i64;
+                __torajs_arr_any_reduce(arr, cb_env, cb_entry, arg_at(1), has_init, right)
             }
             m if m == ANY_METHOD_JOIN => {
                 // ES §23.1.3.18 step 2: missing sep means ",".

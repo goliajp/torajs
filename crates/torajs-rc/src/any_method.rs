@@ -209,6 +209,18 @@ pub const ANY_METHOD_COPY_WITHIN: i64 = 86;
 /// `Array.prototype.splice` (chunk 2) — remove + variadic insert;
 /// answers the removed slice.
 pub const ANY_METHOD_SPLICE: i64 = 87;
+/// `Array.prototype.every` (chunk 3) — early-exit predicate loop.
+pub const ANY_METHOD_EVERY: i64 = 88;
+/// `Array.prototype.some` (chunk 3) — early-exit predicate loop.
+pub const ANY_METHOD_SOME: i64 = 89;
+/// `Array.prototype.find` (chunk 3) — first matching element.
+pub const ANY_METHOD_FIND: i64 = 90;
+/// `Array.prototype.findIndex` (chunk 3) — first matching index.
+pub const ANY_METHOD_FIND_INDEX: i64 = 91;
+/// `Array.prototype.reduce` (chunk 3) — 4-arg accumulator fold.
+pub const ANY_METHOD_REDUCE: i64 = 92;
+/// `Array.prototype.reduceRight` (chunk 3) — backwards fold.
+pub const ANY_METHOD_REDUCE_RIGHT: i64 = 93;
 
 /// RegExp property-read ids (Any-method-call RFC 20260704 C4-3c-2)
 /// — `r.source` / `r.lastIndex` / flag booleans through an `any`
@@ -338,6 +350,12 @@ pub fn any_method_id(name: &str) -> i64 {
         "fill" => ANY_METHOD_FILL,
         "copyWithin" => ANY_METHOD_COPY_WITHIN,
         "splice" => ANY_METHOD_SPLICE,
+        "every" => ANY_METHOD_EVERY,
+        "some" => ANY_METHOD_SOME,
+        "find" => ANY_METHOD_FIND,
+        "findIndex" => ANY_METHOD_FIND_INDEX,
+        "reduce" => ANY_METHOD_REDUCE,
+        "reduceRight" => ANY_METHOD_REDUCE_RIGHT,
         "keys" => ANY_METHOD_KEYS,
         "values" => ANY_METHOD_VALUES,
         "entries" => ANY_METHOD_ENTRIES,
@@ -446,6 +464,12 @@ pub fn any_method_meta(mid: i64) -> Option<(&'static str, u32)> {
         ANY_METHOD_FILL => ("fill", 1),
         ANY_METHOD_COPY_WITHIN => ("copyWithin", 2),
         ANY_METHOD_SPLICE => ("splice", 2),
+        ANY_METHOD_EVERY => ("every", 1),
+        ANY_METHOD_SOME => ("some", 1),
+        ANY_METHOD_FIND => ("find", 1),
+        ANY_METHOD_FIND_INDEX => ("findIndex", 1),
+        ANY_METHOD_REDUCE => ("reduce", 1),
+        ANY_METHOD_REDUCE_RIGHT => ("reduceRight", 1),
         _ => return None,
     })
 }
@@ -468,7 +492,7 @@ mod tests {
     #[test]
     fn meta_rejects_unknown_and_out_of_table() {
         assert!(any_method_meta(ANY_METHOD_UNKNOWN).is_none());
-        assert!(any_method_meta(ANY_METHOD_SPLICE + 1).is_none());
+        assert!(any_method_meta(ANY_METHOD_REDUCE_RIGHT + 1).is_none());
         assert!(any_method_meta(-1).is_none());
     }
 }

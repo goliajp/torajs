@@ -44,6 +44,8 @@ unsafe extern "C" {
     fn __torajs_anyv_to_bool(v: u64) -> bool;
     /// Cross-tier — universal NaN-box-safe heap dropper.
     fn __torajs_value_drop_heap(p: *mut c_void);
+    /// Cross-tier — torajs-rc. NaN-box-safe refcount bump.
+    fn __torajs_rc_inc(p: *mut c_void);
     /// Cross-tier — torajs-throw. Non-zero iff a throw is pending.
     fn __torajs_throw_check() -> i64;
 }
@@ -170,4 +172,186 @@ pub unsafe extern "C" fn __torajs_arr_any_for_each(
     cb_entry: u64,
 ) -> u64 {
     unsafe { hof_loop(arr, cb_env, cb_entry, 0) }
+}
+
+/// Shared early-exit predicate loop (any-dispatch backfill chunk 3).
+/// `mode`: 0 = every, 1 = some, 2 = find, 3 = findIndex. Same
+/// ledger as [`hof_loop`]; on the exit hit `find` transfers the
+/// owned element read as the return, the others release it.
+unsafe fn find_loop(arr: *const c_void, cb_env: *mut c_void, cb_entry: u64, mode: i64) -> u64 {
+    unsafe {
+        let cb: BoxedFn = core::mem::transmute(cb_entry as usize);
+        let len = *((arr as *const u8).add(ARR_LEN_OFF) as *const u64);
+        let arr_boxed = arr as u64;
+        let mut i: u64 = 0;
+        while i < len {
+            let v = crate::index_any::__torajs_arr_index_get(arr, i as i64);
+            let mut argv = [undef(); ARGV_SLOTS];
+            argv[0] = v;
+            argv[1] = __torajs_anyv_box_from_pair(2, i as i64);
+            argv[2] = arr_boxed;
+            let r = cb(cb_env, argv.as_ptr(), 3);
+            if __torajs_throw_check() != 0 {
+                __torajs_value_drop_heap(v as *mut c_void);
+                __torajs_value_drop_heap(r as *mut c_void);
+                return undef();
+            }
+            let hit = __torajs_anyv_to_bool(r);
+            __torajs_value_drop_heap(r as *mut c_void);
+            match mode {
+                // every — the first false predicate answers false.
+                0 => {
+                    __torajs_value_drop_heap(v as *mut c_void);
+                    if !hit {
+                        return __torajs_anyv_box_from_pair(1, 0);
+                    }
+                }
+                // some — the first true predicate answers true.
+                1 => {
+                    __torajs_value_drop_heap(v as *mut c_void);
+                    if hit {
+                        return __torajs_anyv_box_from_pair(1, 1);
+                    }
+                }
+                // find — the hit transfers the owned element read.
+                2 => {
+                    if hit {
+                        return v;
+                    }
+                    __torajs_value_drop_heap(v as *mut c_void);
+                }
+                // findIndex — the hit answers the index.
+                _ => {
+                    __torajs_value_drop_heap(v as *mut c_void);
+                    if hit {
+                        return __torajs_anyv_box_from_pair(2, i as i64);
+                    }
+                }
+            }
+            i += 1;
+        }
+        match mode {
+            0 => __torajs_anyv_box_from_pair(1, 1),
+            1 => __torajs_anyv_box_from_pair(1, 0),
+            2 => undef(),
+            _ => __torajs_anyv_box_from_pair(2, -1),
+        }
+    }
+}
+
+/// `a.every(cb)` per ES §23.1.3.6.
+///
+/// # Safety
+/// See [`__torajs_arr_any_map`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_any_every(
+    arr: *const c_void,
+    cb_env: *mut c_void,
+    cb_entry: u64,
+) -> u64 {
+    unsafe { find_loop(arr, cb_env, cb_entry, 0) }
+}
+
+/// `a.some(cb)` per ES §23.1.3.29.
+///
+/// # Safety
+/// See [`__torajs_arr_any_map`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_any_some(
+    arr: *const c_void,
+    cb_env: *mut c_void,
+    cb_entry: u64,
+) -> u64 {
+    unsafe { find_loop(arr, cb_env, cb_entry, 1) }
+}
+
+/// `a.find(cb)` per ES §23.1.3.9 — the matching element (owned) or
+/// `undefined`.
+///
+/// # Safety
+/// See [`__torajs_arr_any_map`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_any_find(
+    arr: *const c_void,
+    cb_env: *mut c_void,
+    cb_entry: u64,
+) -> u64 {
+    unsafe { find_loop(arr, cb_env, cb_entry, 2) }
+}
+
+/// `a.findIndex(cb)` per ES §23.1.3.10 — the matching index or -1.
+///
+/// # Safety
+/// See [`__torajs_arr_any_map`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_any_find_index(
+    arr: *const c_void,
+    cb_env: *mut c_void,
+    cb_entry: u64,
+) -> u64 {
+    unsafe { find_loop(arr, cb_env, cb_entry, 3) }
+}
+
+/// `a.reduce(cb, init?)` / `a.reduceRight(cb, init?)` per ES
+/// §23.1.3.24 / §23.1.3.25 — `right` flips the walk. The callback
+/// receives `(acc, value, index, array)`. `init` is BORROWED
+/// (+1 taken here when present); without one the seed is the first
+/// walked element (owned read), and an empty array raises the
+/// spec TypeError through the existing throw_empty sentinels. The
+/// returned accumulator is +1-owned (the callback's owned return
+/// carries through; the seed paths stake their own).
+///
+/// # Safety
+/// See [`__torajs_arr_any_map`]; `init` is a valid NaN-box AnyValue
+/// when `has_init != 0`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_any_reduce(
+    arr: *const c_void,
+    cb_env: *mut c_void,
+    cb_entry: u64,
+    init: u64,
+    has_init: i64,
+    right: i64,
+) -> u64 {
+    unsafe {
+        let cb: BoxedFn = core::mem::transmute(cb_entry as usize);
+        let len = *((arr as *const u8).add(ARR_LEN_OFF) as *const u64) as i64;
+        let arr_boxed = arr as u64;
+        let step: i64 = if right != 0 { -1 } else { 1 };
+        let mut i: i64 = if right != 0 { len - 1 } else { 0 };
+        let mut acc: u64;
+        if has_init != 0 {
+            __torajs_rc_inc(init as *mut c_void);
+            acc = init;
+        } else {
+            if len == 0 {
+                if right != 0 {
+                    crate::throw_empty::__torajs_arr_throw_reduce_right_empty();
+                } else {
+                    crate::throw_empty::__torajs_arr_throw_reduce_empty();
+                }
+                return undef();
+            }
+            acc = crate::index_any::__torajs_arr_index_get(arr, i);
+            i += step;
+        }
+        while i >= 0 && i < len {
+            let v = crate::index_any::__torajs_arr_index_get(arr, i);
+            let mut argv = [undef(); ARGV_SLOTS];
+            argv[0] = acc;
+            argv[1] = v;
+            argv[2] = __torajs_anyv_box_from_pair(2, i);
+            argv[3] = arr_boxed;
+            let r = cb(cb_env, argv.as_ptr(), 4);
+            __torajs_value_drop_heap(v as *mut c_void);
+            __torajs_value_drop_heap(acc as *mut c_void);
+            if __torajs_throw_check() != 0 {
+                __torajs_value_drop_heap(r as *mut c_void);
+                return undef();
+            }
+            acc = r;
+            i += step;
+        }
+        acc
+    }
 }
