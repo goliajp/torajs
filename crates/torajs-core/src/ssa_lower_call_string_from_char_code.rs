@@ -109,10 +109,18 @@ pub(crate) fn try_lower(
                 let cur_block = ctx.cur_block;
                 let cat = ctx.f.append_inst(
                     cur_block,
-                    InstKind::Call(ctx.intrinsics.str_concat, vec![prev, one_op]),
+                    InstKind::Call(
+                        ctx.intrinsics.str_concat,
+                        vec![prev.clone(), one_op.clone()],
+                    ),
                     Type::Str,
                     None,
                 );
+                // str_concat borrows its inputs (chunk 664 ledger)
+                // — both fresh rc=1 temps release here or every
+                // multi-arg call leaks the whole intermediate chain.
+                ctx.emit_drop_value(prev, Type::Str);
+                ctx.emit_drop_value(one_op, Type::Str);
                 Operand::Value(cat)
             }
         });
