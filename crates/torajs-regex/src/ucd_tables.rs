@@ -1,4 +1,4 @@
-// CODEGEN: labs/ucd-gen/gen.py from UCD 16.0.0 — do not edit.
+// CODEGEN: labs/ucd-gen/gen.py from UCD 17.0.0 — do not edit.
 //! Unicode property range tables for `\p{...}` escapes
 //! (RFC 20260711-regex-property-escapes chunk A).
 
@@ -110,7 +110,7 @@ static GC_C: &[UPropRange] = &[
         hi: 0x086F,
     },
     UPropRange {
-        lo: 0x088F,
+        lo: 0x0890,
         hi: 0x0896,
     },
     UPropRange {
@@ -447,7 +447,7 @@ static GC_C: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x0C5B,
-        hi: 0x0C5C,
+        hi: 0x0C5B,
     },
     UPropRange {
         lo: 0x0C5E,
@@ -495,7 +495,7 @@ static GC_C: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x0CD7,
-        hi: 0x0CDC,
+        hi: 0x0CDB,
     },
     UPropRange {
         lo: 0x0CDF,
@@ -882,7 +882,11 @@ static GC_C: &[UPropRange] = &[
         hi: 0x1AAF,
     },
     UPropRange {
-        lo: 0x1ACF,
+        lo: 0x1ADE,
+        hi: 0x1ADF,
+    },
+    UPropRange {
+        lo: 0x1AEC,
         hi: 0x1AFF,
     },
     UPropRange {
@@ -1006,7 +1010,7 @@ static GC_C: &[UPropRange] = &[
         hi: 0x209F,
     },
     UPropRange {
-        lo: 0x20C1,
+        lo: 0x20C2,
         hi: 0x20CF,
     },
     UPropRange {
@@ -1028,10 +1032,6 @@ static GC_C: &[UPropRange] = &[
     UPropRange {
         lo: 0x2B74,
         hi: 0x2B75,
-    },
-    UPropRange {
-        lo: 0x2B96,
-        hi: 0x2B96,
     },
     UPropRange {
         lo: 0x2CF4,
@@ -1154,20 +1154,8 @@ static GC_C: &[UPropRange] = &[
         hi: 0xA6FF,
     },
     UPropRange {
-        lo: 0xA7CE,
-        hi: 0xA7CF,
-    },
-    UPropRange {
-        lo: 0xA7D2,
-        hi: 0xA7D2,
-    },
-    UPropRange {
-        lo: 0xA7D4,
-        hi: 0xA7D4,
-    },
-    UPropRange {
         lo: 0xA7DD,
-        hi: 0xA7F1,
+        hi: 0xA7F0,
     },
     UPropRange {
         lo: 0xA82D,
@@ -1308,18 +1296,6 @@ static GC_C: &[UPropRange] = &[
     UPropRange {
         lo: 0xFB45,
         hi: 0xFB45,
-    },
-    UPropRange {
-        lo: 0xFBC3,
-        hi: 0xFBD2,
-    },
-    UPropRange {
-        lo: 0xFD90,
-        hi: 0xFD91,
-    },
-    UPropRange {
-        lo: 0xFDC8,
-        hi: 0xFDCE,
     },
     UPropRange {
         lo: 0xFDD0,
@@ -1602,7 +1578,7 @@ static GC_C: &[UPropRange] = &[
         hi: 0x1093E,
     },
     UPropRange {
-        lo: 0x10940,
+        lo: 0x1095A,
         hi: 0x1097F,
     },
     UPropRange {
@@ -1730,8 +1706,12 @@ static GC_C: &[UPropRange] = &[
         hi: 0x10EC1,
     },
     UPropRange {
-        lo: 0x10EC5,
-        hi: 0x10EFB,
+        lo: 0x10EC8,
+        hi: 0x10ECF,
+    },
+    UPropRange {
+        lo: 0x10ED9,
+        hi: 0x10EF9,
     },
     UPropRange {
         lo: 0x10F28,
@@ -2063,6 +2043,10 @@ static GC_C: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x11B0A,
+        hi: 0x11B5F,
+    },
+    UPropRange {
+        lo: 0x11B68,
         hi: 0x11BBF,
     },
     UPropRange {
@@ -2151,6 +2135,14 @@ static GC_C: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x11DAA,
+        hi: 0x11DAF,
+    },
+    UPropRange {
+        lo: 0x11DDC,
+        hi: 0x11DDF,
+    },
+    UPropRange {
+        lo: 0x11DEA,
         hi: 0x11EDF,
     },
     UPropRange {
@@ -2271,6 +2263,14 @@ static GC_C: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x16E9B,
+        hi: 0x16E9F,
+    },
+    UPropRange {
+        lo: 0x16EB9,
+        hi: 0x16EBA,
+    },
+    UPropRange {
+        lo: 0x16ED4,
         hi: 0x16EFF,
     },
     UPropRange {
@@ -2290,19 +2290,19 @@ static GC_C: &[UPropRange] = &[
         hi: 0x16FEF,
     },
     UPropRange {
-        lo: 0x16FF2,
+        lo: 0x16FF7,
         hi: 0x16FFF,
-    },
-    UPropRange {
-        lo: 0x187F8,
-        hi: 0x187FF,
     },
     UPropRange {
         lo: 0x18CD6,
         hi: 0x18CFE,
     },
     UPropRange {
-        lo: 0x18D09,
+        lo: 0x18D1F,
+        hi: 0x18D7F,
+    },
+    UPropRange {
+        lo: 0x18DF3,
         hi: 0x1AFEF,
     },
     UPropRange {
@@ -2362,11 +2362,19 @@ static GC_C: &[UPropRange] = &[
         hi: 0x1CBFF,
     },
     UPropRange {
-        lo: 0x1CCFA,
+        lo: 0x1CCFD,
         hi: 0x1CCFF,
     },
     UPropRange {
         lo: 0x1CEB4,
+        hi: 0x1CEB9,
+    },
+    UPropRange {
+        lo: 0x1CED1,
+        hi: 0x1CEDF,
+    },
+    UPropRange {
+        lo: 0x1CEF1,
         hi: 0x1CEFF,
     },
     UPropRange {
@@ -2583,6 +2591,18 @@ static GC_C: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x1E600,
+        hi: 0x1E6BF,
+    },
+    UPropRange {
+        lo: 0x1E6DF,
+        hi: 0x1E6DF,
+    },
+    UPropRange {
+        lo: 0x1E6F6,
+        hi: 0x1E6FD,
+    },
+    UPropRange {
+        lo: 0x1E700,
         hi: 0x1E7DF,
     },
     UPropRange {
@@ -2814,7 +2834,7 @@ static GC_C: &[UPropRange] = &[
         hi: 0x1F2FF,
     },
     UPropRange {
-        lo: 0x1F6D8,
+        lo: 0x1F6D9,
         hi: 0x1F6DB,
     },
     UPropRange {
@@ -2824,10 +2844,6 @@ static GC_C: &[UPropRange] = &[
     UPropRange {
         lo: 0x1F6FD,
         hi: 0x1F6FF,
-    },
-    UPropRange {
-        lo: 0x1F777,
-        hi: 0x1F77A,
     },
     UPropRange {
         lo: 0x1F7DA,
@@ -2867,10 +2883,14 @@ static GC_C: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x1F8C2,
+        hi: 0x1F8CF,
+    },
+    UPropRange {
+        lo: 0x1F8D9,
         hi: 0x1F8FF,
     },
     UPropRange {
-        lo: 0x1FA54,
+        lo: 0x1FA58,
         hi: 0x1FA5F,
     },
     UPropRange {
@@ -2882,20 +2902,24 @@ static GC_C: &[UPropRange] = &[
         hi: 0x1FA7F,
     },
     UPropRange {
-        lo: 0x1FA8A,
-        hi: 0x1FA8E,
+        lo: 0x1FA8B,
+        hi: 0x1FA8D,
     },
     UPropRange {
         lo: 0x1FAC7,
-        hi: 0x1FACD,
+        hi: 0x1FAC7,
+    },
+    UPropRange {
+        lo: 0x1FAC9,
+        hi: 0x1FACC,
     },
     UPropRange {
         lo: 0x1FADD,
         hi: 0x1FADE,
     },
     UPropRange {
-        lo: 0x1FAEA,
-        hi: 0x1FAEF,
+        lo: 0x1FAEB,
+        hi: 0x1FAEE,
     },
     UPropRange {
         lo: 0x1FAF9,
@@ -2906,7 +2930,7 @@ static GC_C: &[UPropRange] = &[
         hi: 0x1FB93,
     },
     UPropRange {
-        lo: 0x1FBFA,
+        lo: 0x1FBFB,
         hi: 0x1FFFF,
     },
     UPropRange {
@@ -2914,15 +2938,11 @@ static GC_C: &[UPropRange] = &[
         hi: 0x2A6FF,
     },
     UPropRange {
-        lo: 0x2B73A,
-        hi: 0x2B73F,
-    },
-    UPropRange {
         lo: 0x2B81E,
         hi: 0x2B81F,
     },
     UPropRange {
-        lo: 0x2CEA2,
+        lo: 0x2CEAE,
         hi: 0x2CEAF,
     },
     UPropRange {
@@ -2942,7 +2962,7 @@ static GC_C: &[UPropRange] = &[
         hi: 0x3134F,
     },
     UPropRange {
-        lo: 0x323B0,
+        lo: 0x3347A,
         hi: 0xE00FF,
     },
     UPropRange {
@@ -3133,10 +3153,6 @@ static GC_CN: &[UPropRange] = &[
     UPropRange {
         lo: 0x086B,
         hi: 0x086F,
-    },
-    UPropRange {
-        lo: 0x088F,
-        hi: 0x088F,
     },
     UPropRange {
         lo: 0x0892,
@@ -3472,7 +3488,7 @@ static GC_CN: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x0C5B,
-        hi: 0x0C5C,
+        hi: 0x0C5B,
     },
     UPropRange {
         lo: 0x0C5E,
@@ -3520,7 +3536,7 @@ static GC_CN: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x0CD7,
-        hi: 0x0CDC,
+        hi: 0x0CDB,
     },
     UPropRange {
         lo: 0x0CDF,
@@ -3903,7 +3919,11 @@ static GC_CN: &[UPropRange] = &[
         hi: 0x1AAF,
     },
     UPropRange {
-        lo: 0x1ACF,
+        lo: 0x1ADE,
+        hi: 0x1ADF,
+    },
+    UPropRange {
+        lo: 0x1AEC,
         hi: 0x1AFF,
     },
     UPropRange {
@@ -4019,7 +4039,7 @@ static GC_CN: &[UPropRange] = &[
         hi: 0x209F,
     },
     UPropRange {
-        lo: 0x20C1,
+        lo: 0x20C2,
         hi: 0x20CF,
     },
     UPropRange {
@@ -4041,10 +4061,6 @@ static GC_CN: &[UPropRange] = &[
     UPropRange {
         lo: 0x2B74,
         hi: 0x2B75,
-    },
-    UPropRange {
-        lo: 0x2B96,
-        hi: 0x2B96,
     },
     UPropRange {
         lo: 0x2CF4,
@@ -4167,20 +4183,8 @@ static GC_CN: &[UPropRange] = &[
         hi: 0xA6FF,
     },
     UPropRange {
-        lo: 0xA7CE,
-        hi: 0xA7CF,
-    },
-    UPropRange {
-        lo: 0xA7D2,
-        hi: 0xA7D2,
-    },
-    UPropRange {
-        lo: 0xA7D4,
-        hi: 0xA7D4,
-    },
-    UPropRange {
         lo: 0xA7DD,
-        hi: 0xA7F1,
+        hi: 0xA7F0,
     },
     UPropRange {
         lo: 0xA82D,
@@ -4321,18 +4325,6 @@ static GC_CN: &[UPropRange] = &[
     UPropRange {
         lo: 0xFB45,
         hi: 0xFB45,
-    },
-    UPropRange {
-        lo: 0xFBC3,
-        hi: 0xFBD2,
-    },
-    UPropRange {
-        lo: 0xFD90,
-        hi: 0xFD91,
-    },
-    UPropRange {
-        lo: 0xFDC8,
-        hi: 0xFDCE,
     },
     UPropRange {
         lo: 0xFDD0,
@@ -4619,7 +4611,7 @@ static GC_CN: &[UPropRange] = &[
         hi: 0x1093E,
     },
     UPropRange {
-        lo: 0x10940,
+        lo: 0x1095A,
         hi: 0x1097F,
     },
     UPropRange {
@@ -4747,8 +4739,12 @@ static GC_CN: &[UPropRange] = &[
         hi: 0x10EC1,
     },
     UPropRange {
-        lo: 0x10EC5,
-        hi: 0x10EFB,
+        lo: 0x10EC8,
+        hi: 0x10ECF,
+    },
+    UPropRange {
+        lo: 0x10ED9,
+        hi: 0x10EF9,
     },
     UPropRange {
         lo: 0x10F28,
@@ -5080,6 +5076,10 @@ static GC_CN: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x11B0A,
+        hi: 0x11B5F,
+    },
+    UPropRange {
+        lo: 0x11B68,
         hi: 0x11BBF,
     },
     UPropRange {
@@ -5168,6 +5168,14 @@ static GC_CN: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x11DAA,
+        hi: 0x11DAF,
+    },
+    UPropRange {
+        lo: 0x11DDC,
+        hi: 0x11DDF,
+    },
+    UPropRange {
+        lo: 0x11DEA,
         hi: 0x11EDF,
     },
     UPropRange {
@@ -5284,6 +5292,14 @@ static GC_CN: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x16E9B,
+        hi: 0x16E9F,
+    },
+    UPropRange {
+        lo: 0x16EB9,
+        hi: 0x16EBA,
+    },
+    UPropRange {
+        lo: 0x16ED4,
         hi: 0x16EFF,
     },
     UPropRange {
@@ -5303,19 +5319,19 @@ static GC_CN: &[UPropRange] = &[
         hi: 0x16FEF,
     },
     UPropRange {
-        lo: 0x16FF2,
+        lo: 0x16FF7,
         hi: 0x16FFF,
-    },
-    UPropRange {
-        lo: 0x187F8,
-        hi: 0x187FF,
     },
     UPropRange {
         lo: 0x18CD6,
         hi: 0x18CFE,
     },
     UPropRange {
-        lo: 0x18D09,
+        lo: 0x18D1F,
+        hi: 0x18D7F,
+    },
+    UPropRange {
+        lo: 0x18DF3,
         hi: 0x1AFEF,
     },
     UPropRange {
@@ -5375,11 +5391,19 @@ static GC_CN: &[UPropRange] = &[
         hi: 0x1CBFF,
     },
     UPropRange {
-        lo: 0x1CCFA,
+        lo: 0x1CCFD,
         hi: 0x1CCFF,
     },
     UPropRange {
         lo: 0x1CEB4,
+        hi: 0x1CEB9,
+    },
+    UPropRange {
+        lo: 0x1CED1,
+        hi: 0x1CEDF,
+    },
+    UPropRange {
+        lo: 0x1CEF1,
         hi: 0x1CEFF,
     },
     UPropRange {
@@ -5592,6 +5616,18 @@ static GC_CN: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x1E600,
+        hi: 0x1E6BF,
+    },
+    UPropRange {
+        lo: 0x1E6DF,
+        hi: 0x1E6DF,
+    },
+    UPropRange {
+        lo: 0x1E6F6,
+        hi: 0x1E6FD,
+    },
+    UPropRange {
+        lo: 0x1E700,
         hi: 0x1E7DF,
     },
     UPropRange {
@@ -5823,7 +5859,7 @@ static GC_CN: &[UPropRange] = &[
         hi: 0x1F2FF,
     },
     UPropRange {
-        lo: 0x1F6D8,
+        lo: 0x1F6D9,
         hi: 0x1F6DB,
     },
     UPropRange {
@@ -5833,10 +5869,6 @@ static GC_CN: &[UPropRange] = &[
     UPropRange {
         lo: 0x1F6FD,
         hi: 0x1F6FF,
-    },
-    UPropRange {
-        lo: 0x1F777,
-        hi: 0x1F77A,
     },
     UPropRange {
         lo: 0x1F7DA,
@@ -5876,10 +5908,14 @@ static GC_CN: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x1F8C2,
+        hi: 0x1F8CF,
+    },
+    UPropRange {
+        lo: 0x1F8D9,
         hi: 0x1F8FF,
     },
     UPropRange {
-        lo: 0x1FA54,
+        lo: 0x1FA58,
         hi: 0x1FA5F,
     },
     UPropRange {
@@ -5891,20 +5927,24 @@ static GC_CN: &[UPropRange] = &[
         hi: 0x1FA7F,
     },
     UPropRange {
-        lo: 0x1FA8A,
-        hi: 0x1FA8E,
+        lo: 0x1FA8B,
+        hi: 0x1FA8D,
     },
     UPropRange {
         lo: 0x1FAC7,
-        hi: 0x1FACD,
+        hi: 0x1FAC7,
+    },
+    UPropRange {
+        lo: 0x1FAC9,
+        hi: 0x1FACC,
     },
     UPropRange {
         lo: 0x1FADD,
         hi: 0x1FADE,
     },
     UPropRange {
-        lo: 0x1FAEA,
-        hi: 0x1FAEF,
+        lo: 0x1FAEB,
+        hi: 0x1FAEE,
     },
     UPropRange {
         lo: 0x1FAF9,
@@ -5915,7 +5955,7 @@ static GC_CN: &[UPropRange] = &[
         hi: 0x1FB93,
     },
     UPropRange {
-        lo: 0x1FBFA,
+        lo: 0x1FBFB,
         hi: 0x1FFFF,
     },
     UPropRange {
@@ -5923,15 +5963,11 @@ static GC_CN: &[UPropRange] = &[
         hi: 0x2A6FF,
     },
     UPropRange {
-        lo: 0x2B73A,
-        hi: 0x2B73F,
-    },
-    UPropRange {
         lo: 0x2B81E,
         hi: 0x2B81F,
     },
     UPropRange {
-        lo: 0x2CEA2,
+        lo: 0x2CEAE,
         hi: 0x2CEAF,
     },
     UPropRange {
@@ -5951,7 +5987,7 @@ static GC_CN: &[UPropRange] = &[
         hi: 0x3134F,
     },
     UPropRange {
-        lo: 0x323B0,
+        lo: 0x3347A,
         hi: 0xE0000,
     },
     UPropRange {
@@ -6199,7 +6235,7 @@ static GC_L: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x0889,
-        hi: 0x088E,
+        hi: 0x088F,
     },
     UPropRange {
         lo: 0x08A0,
@@ -6462,7 +6498,7 @@ static GC_L: &[UPropRange] = &[
         hi: 0x0C5A,
     },
     UPropRange {
-        lo: 0x0C5D,
+        lo: 0x0C5C,
         hi: 0x0C5D,
     },
     UPropRange {
@@ -6498,7 +6534,7 @@ static GC_L: &[UPropRange] = &[
         hi: 0x0CBD,
     },
     UPropRange {
-        lo: 0x0CDD,
+        lo: 0x0CDC,
         hi: 0x0CDE,
     },
     UPropRange {
@@ -7235,22 +7271,10 @@ static GC_L: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0xA78B,
-        hi: 0xA7CD,
-    },
-    UPropRange {
-        lo: 0xA7D0,
-        hi: 0xA7D1,
-    },
-    UPropRange {
-        lo: 0xA7D3,
-        hi: 0xA7D3,
-    },
-    UPropRange {
-        lo: 0xA7D5,
         hi: 0xA7DC,
     },
     UPropRange {
-        lo: 0xA7F2,
+        lo: 0xA7F1,
         hi: 0xA801,
     },
     UPropRange {
@@ -7710,6 +7734,10 @@ static GC_L: &[UPropRange] = &[
         hi: 0x10939,
     },
     UPropRange {
+        lo: 0x10940,
+        hi: 0x10959,
+    },
+    UPropRange {
         lo: 0x10980,
         hi: 0x109B7,
     },
@@ -7799,7 +7827,7 @@ static GC_L: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x10EC2,
-        hi: 0x10EC4,
+        hi: 0x10EC7,
     },
     UPropRange {
         lo: 0x10F00,
@@ -8170,6 +8198,10 @@ static GC_L: &[UPropRange] = &[
         hi: 0x11D98,
     },
     UPropRange {
+        lo: 0x11DB0,
+        hi: 0x11DDB,
+    },
+    UPropRange {
         lo: 0x11EE0,
         hi: 0x11EF2,
     },
@@ -8262,6 +8294,14 @@ static GC_L: &[UPropRange] = &[
         hi: 0x16E7F,
     },
     UPropRange {
+        lo: 0x16EA0,
+        hi: 0x16EB8,
+    },
+    UPropRange {
+        lo: 0x16EBB,
+        hi: 0x16ED3,
+    },
+    UPropRange {
         lo: 0x16F00,
         hi: 0x16F4A,
     },
@@ -8282,16 +8322,20 @@ static GC_L: &[UPropRange] = &[
         hi: 0x16FE3,
     },
     UPropRange {
-        lo: 0x17000,
-        hi: 0x187F7,
+        lo: 0x16FF2,
+        hi: 0x16FF3,
     },
     UPropRange {
-        lo: 0x18800,
+        lo: 0x17000,
         hi: 0x18CD5,
     },
     UPropRange {
         lo: 0x18CFF,
-        hi: 0x18D08,
+        hi: 0x18D1E,
+    },
+    UPropRange {
+        lo: 0x18D80,
+        hi: 0x18DF2,
     },
     UPropRange {
         lo: 0x1AFF0,
@@ -8510,6 +8554,30 @@ static GC_L: &[UPropRange] = &[
         hi: 0x1E5F0,
     },
     UPropRange {
+        lo: 0x1E6C0,
+        hi: 0x1E6DE,
+    },
+    UPropRange {
+        lo: 0x1E6E0,
+        hi: 0x1E6E2,
+    },
+    UPropRange {
+        lo: 0x1E6E4,
+        hi: 0x1E6E5,
+    },
+    UPropRange {
+        lo: 0x1E6E7,
+        hi: 0x1E6ED,
+    },
+    UPropRange {
+        lo: 0x1E6F0,
+        hi: 0x1E6F4,
+    },
+    UPropRange {
+        lo: 0x1E6FE,
+        hi: 0x1E6FF,
+    },
+    UPropRange {
         lo: 0x1E7E0,
         hi: 0x1E7E6,
     },
@@ -8675,15 +8743,11 @@ static GC_L: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x2A700,
-        hi: 0x2B739,
-    },
-    UPropRange {
-        lo: 0x2B740,
         hi: 0x2B81D,
     },
     UPropRange {
         lo: 0x2B820,
-        hi: 0x2CEA1,
+        hi: 0x2CEAD,
     },
     UPropRange {
         lo: 0x2CEB0,
@@ -8703,7 +8767,7 @@ static GC_L: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x31350,
-        hi: 0x323AF,
+        hi: 0x33479,
     },
 ];
 
@@ -8741,7 +8805,7 @@ static GC_LC: &[UPropRange] = &[
         hi: 0x0293,
     },
     UPropRange {
-        lo: 0x0295,
+        lo: 0x0296,
         hi: 0x02AF,
     },
     UPropRange {
@@ -9034,18 +9098,6 @@ static GC_LC: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0xA790,
-        hi: 0xA7CD,
-    },
-    UPropRange {
-        lo: 0xA7D0,
-        hi: 0xA7D1,
-    },
-    UPropRange {
-        lo: 0xA7D3,
-        hi: 0xA7D3,
-    },
-    UPropRange {
-        lo: 0xA7D5,
         hi: 0xA7DC,
     },
     UPropRange {
@@ -9151,6 +9203,14 @@ static GC_LC: &[UPropRange] = &[
     UPropRange {
         lo: 0x16E40,
         hi: 0x16E7F,
+    },
+    UPropRange {
+        lo: 0x16EA0,
+        hi: 0x16EB8,
+    },
+    UPropRange {
+        lo: 0x16EBB,
+        hi: 0x16ED3,
     },
     UPropRange {
         lo: 0x1D400,
@@ -9872,7 +9932,7 @@ static GC_LL: &[UPropRange] = &[
         hi: 0x0293,
     },
     UPropRange {
-        lo: 0x0295,
+        lo: 0x0296,
         hi: 0x02AF,
     },
     UPropRange {
@@ -11716,6 +11776,10 @@ static GC_LL: &[UPropRange] = &[
         hi: 0xA7CD,
     },
     UPropRange {
+        lo: 0xA7CF,
+        hi: 0xA7CF,
+    },
+    UPropRange {
         lo: 0xA7D1,
         hi: 0xA7D1,
     },
@@ -11810,6 +11874,10 @@ static GC_LL: &[UPropRange] = &[
     UPropRange {
         lo: 0x16E60,
         hi: 0x16E7F,
+    },
+    UPropRange {
+        lo: 0x16EBB,
+        hi: 0x16ED3,
     },
     UPropRange {
         lo: 0x1D41A,
@@ -12127,7 +12195,7 @@ static GC_LM: &[UPropRange] = &[
         hi: 0xA788,
     },
     UPropRange {
-        lo: 0xA7F2,
+        lo: 0xA7F1,
         hi: 0xA7F4,
     },
     UPropRange {
@@ -12191,6 +12259,14 @@ static GC_LM: &[UPropRange] = &[
         hi: 0x10D6F,
     },
     UPropRange {
+        lo: 0x10EC5,
+        hi: 0x10EC5,
+    },
+    UPropRange {
+        lo: 0x11DD9,
+        hi: 0x11DD9,
+    },
+    UPropRange {
         lo: 0x16B40,
         hi: 0x16B43,
     },
@@ -12213,6 +12289,10 @@ static GC_LM: &[UPropRange] = &[
     UPropRange {
         lo: 0x16FE3,
         hi: 0x16FE3,
+    },
+    UPropRange {
+        lo: 0x16FF2,
+        hi: 0x16FF3,
     },
     UPropRange {
         lo: 0x1AFF0,
@@ -12239,6 +12319,10 @@ static GC_LM: &[UPropRange] = &[
         hi: 0x1E4EB,
     },
     UPropRange {
+        lo: 0x1E6FF,
+        hi: 0x1E6FF,
+    },
+    UPropRange {
         lo: 0x1E94B,
         hi: 0x1E94B,
     },
@@ -12263,7 +12347,7 @@ static GC_LO: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x0294,
-        hi: 0x0294,
+        hi: 0x0295,
     },
     UPropRange {
         lo: 0x05D0,
@@ -12343,7 +12427,7 @@ static GC_LO: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x0889,
-        hi: 0x088E,
+        hi: 0x088F,
     },
     UPropRange {
         lo: 0x08A0,
@@ -12606,7 +12690,7 @@ static GC_LO: &[UPropRange] = &[
         hi: 0x0C5A,
     },
     UPropRange {
-        lo: 0x0C5D,
+        lo: 0x0C5C,
         hi: 0x0C5D,
     },
     UPropRange {
@@ -12642,7 +12726,7 @@ static GC_LO: &[UPropRange] = &[
         hi: 0x0CBD,
     },
     UPropRange {
-        lo: 0x0CDD,
+        lo: 0x0CDC,
         hi: 0x0CDE,
     },
     UPropRange {
@@ -13546,6 +13630,10 @@ static GC_LO: &[UPropRange] = &[
         hi: 0x10939,
     },
     UPropRange {
+        lo: 0x10940,
+        hi: 0x10959,
+    },
+    UPropRange {
         lo: 0x10980,
         hi: 0x109B7,
     },
@@ -13628,6 +13716,10 @@ static GC_LO: &[UPropRange] = &[
     UPropRange {
         lo: 0x10EC2,
         hi: 0x10EC4,
+    },
+    UPropRange {
+        lo: 0x10EC6,
+        hi: 0x10EC7,
     },
     UPropRange {
         lo: 0x10F00,
@@ -13994,6 +14086,14 @@ static GC_LO: &[UPropRange] = &[
         hi: 0x11D98,
     },
     UPropRange {
+        lo: 0x11DB0,
+        hi: 0x11DD8,
+    },
+    UPropRange {
+        lo: 0x11DDA,
+        hi: 0x11DDB,
+    },
+    UPropRange {
         lo: 0x11EE0,
         hi: 0x11EF2,
     },
@@ -14087,15 +14187,15 @@ static GC_LO: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x17000,
-        hi: 0x187F7,
-    },
-    UPropRange {
-        lo: 0x18800,
         hi: 0x18CD5,
     },
     UPropRange {
         lo: 0x18CFF,
-        hi: 0x18D08,
+        hi: 0x18D1E,
+    },
+    UPropRange {
+        lo: 0x18D80,
+        hi: 0x18DF2,
     },
     UPropRange {
         lo: 0x1B000,
@@ -14168,6 +14268,30 @@ static GC_LO: &[UPropRange] = &[
     UPropRange {
         lo: 0x1E5F0,
         hi: 0x1E5F0,
+    },
+    UPropRange {
+        lo: 0x1E6C0,
+        hi: 0x1E6DE,
+    },
+    UPropRange {
+        lo: 0x1E6E0,
+        hi: 0x1E6E2,
+    },
+    UPropRange {
+        lo: 0x1E6E4,
+        hi: 0x1E6E5,
+    },
+    UPropRange {
+        lo: 0x1E6E7,
+        hi: 0x1E6ED,
+    },
+    UPropRange {
+        lo: 0x1E6F0,
+        hi: 0x1E6F4,
+    },
+    UPropRange {
+        lo: 0x1E6FE,
+        hi: 0x1E6FE,
     },
     UPropRange {
         lo: 0x1E7E0,
@@ -14327,15 +14451,11 @@ static GC_LO: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x2A700,
-        hi: 0x2B739,
-    },
-    UPropRange {
-        lo: 0x2B740,
         hi: 0x2B81D,
     },
     UPropRange {
         lo: 0x2B820,
-        hi: 0x2CEA1,
+        hi: 0x2CEAD,
     },
     UPropRange {
         lo: 0x2CEB0,
@@ -14355,7 +14475,7 @@ static GC_LO: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x31350,
-        hi: 0x323AF,
+        hi: 0x33479,
     },
 ];
 
@@ -16812,8 +16932,20 @@ static GC_LU: &[UPropRange] = &[
         hi: 0xA7CC,
     },
     UPropRange {
+        lo: 0xA7CE,
+        hi: 0xA7CE,
+    },
+    UPropRange {
         lo: 0xA7D0,
         hi: 0xA7D0,
+    },
+    UPropRange {
+        lo: 0xA7D2,
+        hi: 0xA7D2,
+    },
+    UPropRange {
+        lo: 0xA7D4,
+        hi: 0xA7D4,
     },
     UPropRange {
         lo: 0xA7D6,
@@ -16878,6 +17010,10 @@ static GC_LU: &[UPropRange] = &[
     UPropRange {
         lo: 0x16E40,
         hi: 0x16E5F,
+    },
+    UPropRange {
+        lo: 0x16EA0,
+        hi: 0x16EB8,
     },
     UPropRange {
         lo: 0x1D400,
@@ -17556,7 +17692,11 @@ static GC_M: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x1AB0,
-        hi: 0x1ACE,
+        hi: 0x1ADD,
+    },
+    UPropRange {
+        lo: 0x1AE0,
+        hi: 0x1AEB,
     },
     UPropRange {
         lo: 0x1B00,
@@ -17819,7 +17959,7 @@ static GC_M: &[UPropRange] = &[
         hi: 0x10EAC,
     },
     UPropRange {
-        lo: 0x10EFC,
+        lo: 0x10EFA,
         hi: 0x10EFF,
     },
     UPropRange {
@@ -18067,6 +18207,10 @@ static GC_M: &[UPropRange] = &[
         hi: 0x11A99,
     },
     UPropRange {
+        lo: 0x11B60,
+        hi: 0x11B67,
+    },
+    UPropRange {
         lo: 0x11C2F,
         hi: 0x11C36,
     },
@@ -18281,6 +18425,22 @@ static GC_M: &[UPropRange] = &[
     UPropRange {
         lo: 0x1E5EE,
         hi: 0x1E5EF,
+    },
+    UPropRange {
+        lo: 0x1E6E3,
+        hi: 0x1E6E3,
+    },
+    UPropRange {
+        lo: 0x1E6E6,
+        hi: 0x1E6E6,
+    },
+    UPropRange {
+        lo: 0x1E6EE,
+        hi: 0x1E6EF,
+    },
+    UPropRange {
+        lo: 0x1E6F5,
+        hi: 0x1E6F5,
     },
     UPropRange {
         lo: 0x1E8D0,
@@ -18986,6 +19146,18 @@ static GC_MC: &[UPropRange] = &[
         hi: 0x11A97,
     },
     UPropRange {
+        lo: 0x11B61,
+        hi: 0x11B61,
+    },
+    UPropRange {
+        lo: 0x11B65,
+        hi: 0x11B65,
+    },
+    UPropRange {
+        lo: 0x11B67,
+        hi: 0x11B67,
+    },
+    UPropRange {
         lo: 0x11C2F,
         hi: 0x11C2F,
     },
@@ -19653,7 +19825,11 @@ static GC_MN: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x1ABF,
-        hi: 0x1ACE,
+        hi: 0x1ADD,
+    },
+    UPropRange {
+        lo: 0x1AE0,
+        hi: 0x1AEB,
     },
     UPropRange {
         lo: 0x1B00,
@@ -19980,7 +20156,7 @@ static GC_MN: &[UPropRange] = &[
         hi: 0x10EAC,
     },
     UPropRange {
-        lo: 0x10EFC,
+        lo: 0x10EFA,
         hi: 0x10EFF,
     },
     UPropRange {
@@ -20280,6 +20456,18 @@ static GC_MN: &[UPropRange] = &[
         hi: 0x11A99,
     },
     UPropRange {
+        lo: 0x11B60,
+        hi: 0x11B60,
+    },
+    UPropRange {
+        lo: 0x11B62,
+        hi: 0x11B64,
+    },
+    UPropRange {
+        lo: 0x11B66,
+        hi: 0x11B66,
+    },
+    UPropRange {
         lo: 0x11C30,
         hi: 0x11C36,
     },
@@ -20498,6 +20686,22 @@ static GC_MN: &[UPropRange] = &[
     UPropRange {
         lo: 0x1E5EE,
         hi: 0x1E5EF,
+    },
+    UPropRange {
+        lo: 0x1E6E3,
+        hi: 0x1E6E3,
+    },
+    UPropRange {
+        lo: 0x1E6E6,
+        hi: 0x1E6E6,
+    },
+    UPropRange {
+        lo: 0x1E6EE,
+        hi: 0x1E6EF,
+    },
+    UPropRange {
+        lo: 0x1E6F5,
+        hi: 0x1E6F5,
     },
     UPropRange {
         lo: 0x1E8D0,
@@ -20979,6 +21183,10 @@ static GC_N: &[UPropRange] = &[
         hi: 0x11DA9,
     },
     UPropRange {
+        lo: 0x11DE0,
+        hi: 0x11DE9,
+    },
+    UPropRange {
         lo: 0x11F50,
         hi: 0x11F59,
     },
@@ -21017,6 +21225,10 @@ static GC_N: &[UPropRange] = &[
     UPropRange {
         lo: 0x16E80,
         hi: 0x16E96,
+    },
+    UPropRange {
+        lo: 0x16FF4,
+        hi: 0x16FF6,
     },
     UPropRange {
         lo: 0x1CCF0,
@@ -21322,6 +21534,10 @@ static GC_ND: &[UPropRange] = &[
         hi: 0x11DA9,
     },
     UPropRange {
+        lo: 0x11DE0,
+        hi: 0x11DE9,
+    },
+    UPropRange {
         lo: 0x11F50,
         hi: 0x11F59,
     },
@@ -21427,6 +21643,10 @@ static GC_NL: &[UPropRange] = &[
     UPropRange {
         lo: 0x12400,
         hi: 0x1246E,
+    },
+    UPropRange {
+        lo: 0x16FF4,
+        hi: 0x16FF6,
     },
 ];
 
@@ -22313,6 +22533,10 @@ static GC_P: &[UPropRange] = &[
     UPropRange {
         lo: 0x10EAD,
         hi: 0x10EAD,
+    },
+    UPropRange {
+        lo: 0x10ED0,
+        hi: 0x10ED0,
     },
     UPropRange {
         lo: 0x10F55,
@@ -23597,6 +23821,10 @@ static GC_PO: &[UPropRange] = &[
         hi: 0x10B9C,
     },
     UPropRange {
+        lo: 0x10ED0,
+        hi: 0x10ED0,
+    },
+    UPropRange {
         lo: 0x10F55,
         hi: 0x10F59,
     },
@@ -24408,7 +24636,7 @@ static GC_S: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x20A0,
-        hi: 0x20C0,
+        hi: 0x20C1,
     },
     UPropRange {
         lo: 0x2100,
@@ -24520,10 +24748,6 @@ static GC_S: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x2B76,
-        hi: 0x2B95,
-    },
-    UPropRange {
-        lo: 0x2B97,
         hi: 0x2BFF,
     },
     UPropRange {
@@ -24660,14 +24884,18 @@ static GC_S: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0xFBB2,
-        hi: 0xFBC2,
+        hi: 0xFBD2,
     },
     UPropRange {
         lo: 0xFD40,
         hi: 0xFD4F,
     },
     UPropRange {
-        lo: 0xFDCF,
+        lo: 0xFD90,
+        hi: 0xFD91,
+    },
+    UPropRange {
+        lo: 0xFDC8,
         hi: 0xFDCF,
     },
     UPropRange {
@@ -24763,6 +24991,10 @@ static GC_S: &[UPropRange] = &[
         hi: 0x10D8F,
     },
     UPropRange {
+        lo: 0x10ED1,
+        hi: 0x10ED8,
+    },
+    UPropRange {
         lo: 0x1173F,
         hi: 0x1173F,
     },
@@ -24787,8 +25019,20 @@ static GC_S: &[UPropRange] = &[
         hi: 0x1CCEF,
     },
     UPropRange {
+        lo: 0x1CCFA,
+        hi: 0x1CCFC,
+    },
+    UPropRange {
         lo: 0x1CD00,
         hi: 0x1CEB3,
+    },
+    UPropRange {
+        lo: 0x1CEBA,
+        hi: 0x1CED0,
+    },
+    UPropRange {
+        lo: 0x1CEE0,
+        hi: 0x1CEF0,
     },
     UPropRange {
         lo: 0x1CF50,
@@ -24968,7 +25212,7 @@ static GC_S: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x1F300,
-        hi: 0x1F6D7,
+        hi: 0x1F6D8,
     },
     UPropRange {
         lo: 0x1F6DC,
@@ -24980,10 +25224,6 @@ static GC_S: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x1F700,
-        hi: 0x1F776,
-    },
-    UPropRange {
-        lo: 0x1F77B,
         hi: 0x1F7D9,
     },
     UPropRange {
@@ -25023,8 +25263,12 @@ static GC_S: &[UPropRange] = &[
         hi: 0x1F8C1,
     },
     UPropRange {
+        lo: 0x1F8D0,
+        hi: 0x1F8D8,
+    },
+    UPropRange {
         lo: 0x1F900,
-        hi: 0x1FA53,
+        hi: 0x1FA57,
     },
     UPropRange {
         lo: 0x1FA60,
@@ -25036,22 +25280,26 @@ static GC_S: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x1FA80,
-        hi: 0x1FA89,
+        hi: 0x1FA8A,
     },
     UPropRange {
-        lo: 0x1FA8F,
+        lo: 0x1FA8E,
         hi: 0x1FAC6,
     },
     UPropRange {
-        lo: 0x1FACE,
+        lo: 0x1FAC8,
+        hi: 0x1FAC8,
+    },
+    UPropRange {
+        lo: 0x1FACD,
         hi: 0x1FADC,
     },
     UPropRange {
         lo: 0x1FADF,
-        hi: 0x1FAE9,
+        hi: 0x1FAEA,
     },
     UPropRange {
-        lo: 0x1FAF0,
+        lo: 0x1FAEF,
         hi: 0x1FAF8,
     },
     UPropRange {
@@ -25061,6 +25309,10 @@ static GC_S: &[UPropRange] = &[
     UPropRange {
         lo: 0x1FB94,
         hi: 0x1FBEF,
+    },
+    UPropRange {
+        lo: 0x1FBFA,
+        hi: 0x1FBFA,
     },
 ];
 
@@ -25111,7 +25363,7 @@ static GC_SC: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x20A0,
-        hi: 0x20C0,
+        hi: 0x20C1,
     },
     UPropRange {
         lo: 0xA838,
@@ -25496,6 +25748,10 @@ static GC_SM: &[UPropRange] = &[
         hi: 0x10D8F,
     },
     UPropRange {
+        lo: 0x1CEF0,
+        hi: 0x1CEF0,
+    },
+    UPropRange {
         lo: 0x1D6C1,
         hi: 0x1D6C1,
     },
@@ -25538,6 +25794,10 @@ static GC_SM: &[UPropRange] = &[
     UPropRange {
         lo: 0x1EEF0,
         hi: 0x1EEF1,
+    },
+    UPropRange {
+        lo: 0x1F8D0,
+        hi: 0x1F8D8,
     },
 ];
 
@@ -25860,10 +26120,6 @@ static GC_SO: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x2B76,
-        hi: 0x2B95,
-    },
-    UPropRange {
-        lo: 0x2B97,
         hi: 0x2BFF,
     },
     UPropRange {
@@ -25975,11 +26231,19 @@ static GC_SO: &[UPropRange] = &[
         hi: 0xAA79,
     },
     UPropRange {
+        lo: 0xFBC3,
+        hi: 0xFBD2,
+    },
+    UPropRange {
         lo: 0xFD40,
         hi: 0xFD4F,
     },
     UPropRange {
-        lo: 0xFDCF,
+        lo: 0xFD90,
+        hi: 0xFD91,
+    },
+    UPropRange {
+        lo: 0xFDC8,
         hi: 0xFDCF,
     },
     UPropRange {
@@ -26035,6 +26299,10 @@ static GC_SO: &[UPropRange] = &[
         hi: 0x10AC8,
     },
     UPropRange {
+        lo: 0x10ED1,
+        hi: 0x10ED8,
+    },
+    UPropRange {
         lo: 0x1173F,
         hi: 0x1173F,
     },
@@ -26063,8 +26331,20 @@ static GC_SO: &[UPropRange] = &[
         hi: 0x1CCEF,
     },
     UPropRange {
+        lo: 0x1CCFA,
+        hi: 0x1CCFC,
+    },
+    UPropRange {
         lo: 0x1CD00,
         hi: 0x1CEB3,
+    },
+    UPropRange {
+        lo: 0x1CEBA,
+        hi: 0x1CED0,
+    },
+    UPropRange {
+        lo: 0x1CEE0,
+        hi: 0x1CEEF,
     },
     UPropRange {
         lo: 0x1CF50,
@@ -26196,7 +26476,7 @@ static GC_SO: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x1F400,
-        hi: 0x1F6D7,
+        hi: 0x1F6D8,
     },
     UPropRange {
         lo: 0x1F6DC,
@@ -26208,10 +26488,6 @@ static GC_SO: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x1F700,
-        hi: 0x1F776,
-    },
-    UPropRange {
-        lo: 0x1F77B,
         hi: 0x1F7D9,
     },
     UPropRange {
@@ -26252,7 +26528,7 @@ static GC_SO: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x1F900,
-        hi: 0x1FA53,
+        hi: 0x1FA57,
     },
     UPropRange {
         lo: 0x1FA60,
@@ -26264,22 +26540,26 @@ static GC_SO: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x1FA80,
-        hi: 0x1FA89,
+        hi: 0x1FA8A,
     },
     UPropRange {
-        lo: 0x1FA8F,
+        lo: 0x1FA8E,
         hi: 0x1FAC6,
     },
     UPropRange {
-        lo: 0x1FACE,
+        lo: 0x1FAC8,
+        hi: 0x1FAC8,
+    },
+    UPropRange {
+        lo: 0x1FACD,
         hi: 0x1FADC,
     },
     UPropRange {
         lo: 0x1FADF,
-        hi: 0x1FAE9,
+        hi: 0x1FAEA,
     },
     UPropRange {
-        lo: 0x1FAF0,
+        lo: 0x1FAEF,
         hi: 0x1FAF8,
     },
     UPropRange {
@@ -26289,6 +26569,10 @@ static GC_SO: &[UPropRange] = &[
     UPropRange {
         lo: 0x1FB94,
         hi: 0x1FBEF,
+    },
+    UPropRange {
+        lo: 0x1FBFA,
+        hi: 0x1FBFA,
     },
 ];
 
@@ -26487,10 +26771,6 @@ static SCRIPT_ARABIC: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x0870,
-        hi: 0x088E,
-    },
-    UPropRange {
-        lo: 0x0890,
         hi: 0x0891,
     },
     UPropRange {
@@ -26503,22 +26783,10 @@ static SCRIPT_ARABIC: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0xFB50,
-        hi: 0xFBC2,
-    },
-    UPropRange {
-        lo: 0xFBD3,
         hi: 0xFD3D,
     },
     UPropRange {
         lo: 0xFD40,
-        hi: 0xFD8F,
-    },
-    UPropRange {
-        lo: 0xFD92,
-        hi: 0xFDC7,
-    },
-    UPropRange {
-        lo: 0xFDCF,
         hi: 0xFDCF,
     },
     UPropRange {
@@ -26539,10 +26807,14 @@ static SCRIPT_ARABIC: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x10EC2,
-        hi: 0x10EC4,
+        hi: 0x10EC7,
     },
     UPropRange {
-        lo: 0x10EFC,
+        lo: 0x10ED0,
+        hi: 0x10ED8,
+    },
+    UPropRange {
+        lo: 0x10EFA,
         hi: 0x10EFF,
     },
     UPropRange {
@@ -26813,6 +27085,17 @@ static SCRIPT_BENGALI: &[UPropRange] = &[
     UPropRange {
         lo: 0x09E6,
         hi: 0x09FE,
+    },
+];
+
+static SCRIPT_BERIA_ERFE: &[UPropRange] = &[
+    UPropRange {
+        lo: 0x16EA0,
+        hi: 0x16EB8,
+    },
+    UPropRange {
+        lo: 0x16EBB,
+        hi: 0x16ED3,
     },
 ];
 
@@ -27130,7 +27413,7 @@ static SCRIPT_COMMON: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x20A0,
-        hi: 0x20C0,
+        hi: 0x20C1,
     },
     UPropRange {
         lo: 0x2100,
@@ -27174,10 +27457,6 @@ static SCRIPT_COMMON: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x2B76,
-        hi: 0x2B95,
-    },
-    UPropRange {
-        lo: 0x2B97,
         hi: 0x2BFF,
     },
     UPropRange {
@@ -27362,11 +27641,19 @@ static SCRIPT_COMMON: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x1CC00,
-        hi: 0x1CCF9,
+        hi: 0x1CCFC,
     },
     UPropRange {
         lo: 0x1CD00,
         hi: 0x1CEB3,
+    },
+    UPropRange {
+        lo: 0x1CEBA,
+        hi: 0x1CED0,
+    },
+    UPropRange {
+        lo: 0x1CEE0,
+        hi: 0x1CEF0,
     },
     UPropRange {
         lo: 0x1CF50,
@@ -27562,7 +27849,7 @@ static SCRIPT_COMMON: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x1F300,
-        hi: 0x1F6D7,
+        hi: 0x1F6D8,
     },
     UPropRange {
         lo: 0x1F6DC,
@@ -27574,10 +27861,6 @@ static SCRIPT_COMMON: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x1F700,
-        hi: 0x1F776,
-    },
-    UPropRange {
-        lo: 0x1F77B,
         hi: 0x1F7D9,
     },
     UPropRange {
@@ -27617,8 +27900,12 @@ static SCRIPT_COMMON: &[UPropRange] = &[
         hi: 0x1F8C1,
     },
     UPropRange {
+        lo: 0x1F8D0,
+        hi: 0x1F8D8,
+    },
+    UPropRange {
         lo: 0x1F900,
-        hi: 0x1FA53,
+        hi: 0x1FA57,
     },
     UPropRange {
         lo: 0x1FA60,
@@ -27630,22 +27917,26 @@ static SCRIPT_COMMON: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x1FA80,
-        hi: 0x1FA89,
+        hi: 0x1FA8A,
     },
     UPropRange {
-        lo: 0x1FA8F,
+        lo: 0x1FA8E,
         hi: 0x1FAC6,
     },
     UPropRange {
-        lo: 0x1FACE,
+        lo: 0x1FAC8,
+        hi: 0x1FAC8,
+    },
+    UPropRange {
+        lo: 0x1FACD,
         hi: 0x1FADC,
     },
     UPropRange {
         lo: 0x1FADF,
-        hi: 0x1FAE9,
+        hi: 0x1FAEA,
     },
     UPropRange {
-        lo: 0x1FAF0,
+        lo: 0x1FAEF,
         hi: 0x1FAF8,
     },
     UPropRange {
@@ -27654,7 +27945,7 @@ static SCRIPT_COMMON: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x1FB94,
-        hi: 0x1FBF9,
+        hi: 0x1FBFA,
     },
     UPropRange {
         lo: 0xE0001,
@@ -28543,7 +28834,7 @@ static SCRIPT_HAN: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x16FF0,
-        hi: 0x16FF1,
+        hi: 0x16FF6,
     },
     UPropRange {
         lo: 0x20000,
@@ -28551,15 +28842,11 @@ static SCRIPT_HAN: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x2A700,
-        hi: 0x2B739,
-    },
-    UPropRange {
-        lo: 0x2B740,
         hi: 0x2B81D,
     },
     UPropRange {
         lo: 0x2B820,
-        hi: 0x2CEA1,
+        hi: 0x2CEAD,
     },
     UPropRange {
         lo: 0x2CEB0,
@@ -28579,7 +28866,7 @@ static SCRIPT_HAN: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x31350,
-        hi: 0x323AF,
+        hi: 0x33479,
     },
 ];
 
@@ -28773,7 +29060,11 @@ static SCRIPT_INHERITED: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x1AB0,
-        hi: 0x1ACE,
+        hi: 0x1ADD,
+    },
+    UPropRange {
+        lo: 0x1AE0,
+        hi: 0x1AEB,
     },
     UPropRange {
         lo: 0x1CD0,
@@ -28955,7 +29246,7 @@ static SCRIPT_KANNADA: &[UPropRange] = &[
         hi: 0x0CD6,
     },
     UPropRange {
-        lo: 0x0CDD,
+        lo: 0x0CDC,
         hi: 0x0CDE,
     },
     UPropRange {
@@ -29295,22 +29586,10 @@ static SCRIPT_LATIN: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0xA78B,
-        hi: 0xA7CD,
-    },
-    UPropRange {
-        lo: 0xA7D0,
-        hi: 0xA7D1,
-    },
-    UPropRange {
-        lo: 0xA7D3,
-        hi: 0xA7D3,
-    },
-    UPropRange {
-        lo: 0xA7D5,
         hi: 0xA7DC,
     },
     UPropRange {
-        lo: 0xA7F2,
+        lo: 0xA7F1,
         hi: 0xA7FF,
     },
     UPropRange {
@@ -30119,10 +30398,16 @@ static SCRIPT_SAURASHTRA: &[UPropRange] = &[
     },
 ];
 
-static SCRIPT_SHARADA: &[UPropRange] = &[UPropRange {
-    lo: 0x11180,
-    hi: 0x111DF,
-}];
+static SCRIPT_SHARADA: &[UPropRange] = &[
+    UPropRange {
+        lo: 0x11180,
+        hi: 0x111DF,
+    },
+    UPropRange {
+        lo: 0x11B60,
+        hi: 0x11B67,
+    },
+];
 
 static SCRIPT_SHAVIAN: &[UPropRange] = &[UPropRange {
     lo: 0x10450,
@@ -30139,6 +30424,11 @@ static SCRIPT_SIDDHAM: &[UPropRange] = &[
         hi: 0x115DD,
     },
 ];
+
+static SCRIPT_SIDETIC: &[UPropRange] = &[UPropRange {
+    lo: 0x10940,
+    hi: 0x10959,
+}];
 
 static SCRIPT_SIGNWRITING: &[UPropRange] = &[
     UPropRange {
@@ -30348,6 +30638,21 @@ static SCRIPT_TAI_VIET: &[UPropRange] = &[
     },
 ];
 
+static SCRIPT_TAI_YO: &[UPropRange] = &[
+    UPropRange {
+        lo: 0x1E6C0,
+        hi: 0x1E6DE,
+    },
+    UPropRange {
+        lo: 0x1E6E0,
+        hi: 0x1E6F5,
+    },
+    UPropRange {
+        lo: 0x1E6FE,
+        hi: 0x1E6FF,
+    },
+];
+
 static SCRIPT_TAKRI: &[UPropRange] = &[
     UPropRange {
         lo: 0x11680,
@@ -30452,15 +30757,15 @@ static SCRIPT_TANGUT: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x17000,
-        hi: 0x187F7,
-    },
-    UPropRange {
-        lo: 0x18800,
         hi: 0x18AFF,
     },
     UPropRange {
         lo: 0x18D00,
-        hi: 0x18D08,
+        hi: 0x18D1E,
+    },
+    UPropRange {
+        lo: 0x18D80,
+        hi: 0x18DF2,
     },
 ];
 
@@ -30502,7 +30807,7 @@ static SCRIPT_TELUGU: &[UPropRange] = &[
         hi: 0x0C5A,
     },
     UPropRange {
-        lo: 0x0C5D,
+        lo: 0x0C5C,
         hi: 0x0C5D,
     },
     UPropRange {
@@ -30596,6 +30901,17 @@ static SCRIPT_TODHRI: &[UPropRange] = &[UPropRange {
     lo: 0x105C0,
     hi: 0x105F3,
 }];
+
+static SCRIPT_TOLONG_SIKI: &[UPropRange] = &[
+    UPropRange {
+        lo: 0x11DB0,
+        hi: 0x11DDB,
+    },
+    UPropRange {
+        lo: 0x11DE0,
+        hi: 0x11DE9,
+    },
+];
 
 static SCRIPT_TOTO: &[UPropRange] = &[UPropRange {
     lo: 0x1E290,
@@ -30765,6 +31081,7 @@ pub static SCRIPT_TABLES: &[(&str, &[UPropRange])] = &[
     ("Bassa_Vah", SCRIPT_BASSA_VAH),
     ("Batak", SCRIPT_BATAK),
     ("Bengali", SCRIPT_BENGALI),
+    ("Beria_Erfe", SCRIPT_BERIA_ERFE),
     ("Bhaiksuki", SCRIPT_BHAIKSUKI),
     ("Bopomofo", SCRIPT_BOPOMOFO),
     ("Brahmi", SCRIPT_BRAHMI),
@@ -30889,6 +31206,7 @@ pub static SCRIPT_TABLES: &[(&str, &[UPropRange])] = &[
     ("Sharada", SCRIPT_SHARADA),
     ("Shavian", SCRIPT_SHAVIAN),
     ("Siddham", SCRIPT_SIDDHAM),
+    ("Sidetic", SCRIPT_SIDETIC),
     ("SignWriting", SCRIPT_SIGNWRITING),
     ("Sinhala", SCRIPT_SINHALA),
     ("Sogdian", SCRIPT_SOGDIAN),
@@ -30903,6 +31221,7 @@ pub static SCRIPT_TABLES: &[(&str, &[UPropRange])] = &[
     ("Tai_Le", SCRIPT_TAI_LE),
     ("Tai_Tham", SCRIPT_TAI_THAM),
     ("Tai_Viet", SCRIPT_TAI_VIET),
+    ("Tai_Yo", SCRIPT_TAI_YO),
     ("Takri", SCRIPT_TAKRI),
     ("Tamil", SCRIPT_TAMIL),
     ("Tangsa", SCRIPT_TANGSA),
@@ -30914,6 +31233,7 @@ pub static SCRIPT_TABLES: &[(&str, &[UPropRange])] = &[
     ("Tifinagh", SCRIPT_TIFINAGH),
     ("Tirhuta", SCRIPT_TIRHUTA),
     ("Todhri", SCRIPT_TODHRI),
+    ("Tolong_Siki", SCRIPT_TOLONG_SIKI),
     ("Toto", SCRIPT_TOTO),
     ("Tulu_Tigalari", SCRIPT_TULU_TIGALARI),
     ("Ugaritic", SCRIPT_UGARITIC),
@@ -30996,10 +31316,6 @@ static SCX_ARABIC: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x0870,
-        hi: 0x088E,
-    },
-    UPropRange {
-        lo: 0x0890,
         hi: 0x0891,
     },
     UPropRange {
@@ -31020,18 +31336,6 @@ static SCX_ARABIC: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0xFB50,
-        hi: 0xFBC2,
-    },
-    UPropRange {
-        lo: 0xFBD3,
-        hi: 0xFD8F,
-    },
-    UPropRange {
-        lo: 0xFD92,
-        hi: 0xFDC7,
-    },
-    UPropRange {
-        lo: 0xFDCF,
         hi: 0xFDCF,
     },
     UPropRange {
@@ -31056,10 +31360,14 @@ static SCX_ARABIC: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x10EC2,
-        hi: 0x10EC4,
+        hi: 0x10EC7,
     },
     UPropRange {
-        lo: 0x10EFC,
+        lo: 0x10ED0,
+        hi: 0x10ED8,
+    },
+    UPropRange {
+        lo: 0x10EFA,
         hi: 0x10EFF,
     },
     UPropRange {
@@ -31394,6 +31702,17 @@ static SCX_BENGALI: &[UPropRange] = &[
     UPropRange {
         lo: 0xA8F1,
         hi: 0xA8F1,
+    },
+];
+
+static SCX_BERIA_ERFE: &[UPropRange] = &[
+    UPropRange {
+        lo: 0x16EA0,
+        hi: 0x16EB8,
+    },
+    UPropRange {
+        lo: 0x16EBB,
+        hi: 0x16ED3,
     },
 ];
 
@@ -31803,7 +32122,7 @@ static SCX_COMMON: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x20A0,
-        hi: 0x20C0,
+        hi: 0x20C1,
     },
     UPropRange {
         lo: 0x2100,
@@ -31847,10 +32166,6 @@ static SCX_COMMON: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x2B76,
-        hi: 0x2B95,
-    },
-    UPropRange {
-        lo: 0x2B97,
         hi: 0x2BFF,
     },
     UPropRange {
@@ -32003,11 +32318,19 @@ static SCX_COMMON: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x1CC00,
-        hi: 0x1CCF9,
+        hi: 0x1CCFC,
     },
     UPropRange {
         lo: 0x1CD00,
         hi: 0x1CEB3,
+    },
+    UPropRange {
+        lo: 0x1CEBA,
+        hi: 0x1CED0,
+    },
+    UPropRange {
+        lo: 0x1CEE0,
+        hi: 0x1CEF0,
     },
     UPropRange {
         lo: 0x1CF50,
@@ -32199,7 +32522,7 @@ static SCX_COMMON: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x1F300,
-        hi: 0x1F6D7,
+        hi: 0x1F6D8,
     },
     UPropRange {
         lo: 0x1F6DC,
@@ -32211,10 +32534,6 @@ static SCX_COMMON: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x1F700,
-        hi: 0x1F776,
-    },
-    UPropRange {
-        lo: 0x1F77B,
         hi: 0x1F7D9,
     },
     UPropRange {
@@ -32254,8 +32573,12 @@ static SCX_COMMON: &[UPropRange] = &[
         hi: 0x1F8C1,
     },
     UPropRange {
+        lo: 0x1F8D0,
+        hi: 0x1F8D8,
+    },
+    UPropRange {
         lo: 0x1F900,
-        hi: 0x1FA53,
+        hi: 0x1FA57,
     },
     UPropRange {
         lo: 0x1FA60,
@@ -32267,22 +32590,26 @@ static SCX_COMMON: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x1FA80,
-        hi: 0x1FA89,
+        hi: 0x1FA8A,
     },
     UPropRange {
-        lo: 0x1FA8F,
+        lo: 0x1FA8E,
         hi: 0x1FAC6,
     },
     UPropRange {
-        lo: 0x1FACE,
+        lo: 0x1FAC8,
+        hi: 0x1FAC8,
+    },
+    UPropRange {
+        lo: 0x1FACD,
         hi: 0x1FADC,
     },
     UPropRange {
         lo: 0x1FADF,
-        hi: 0x1FAE9,
+        hi: 0x1FAEA,
     },
     UPropRange {
-        lo: 0x1FAF0,
+        lo: 0x1FAEF,
         hi: 0x1FAF8,
     },
     UPropRange {
@@ -32291,7 +32618,7 @@ static SCX_COMMON: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x1FB94,
-        hi: 0x1FBF9,
+        hi: 0x1FBFA,
     },
     UPropRange {
         lo: 0xE0001,
@@ -33582,7 +33909,7 @@ static SCX_HAN: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x16FF0,
-        hi: 0x16FF1,
+        hi: 0x16FF6,
     },
     UPropRange {
         lo: 0x1D360,
@@ -33598,15 +33925,11 @@ static SCX_HAN: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x2A700,
-        hi: 0x2B739,
-    },
-    UPropRange {
-        lo: 0x2B740,
         hi: 0x2B81D,
     },
     UPropRange {
         lo: 0x2B820,
-        hi: 0x2CEA1,
+        hi: 0x2CEAD,
     },
     UPropRange {
         lo: 0x2CEB0,
@@ -33626,7 +33949,7 @@ static SCX_HAN: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x31350,
-        hi: 0x323AF,
+        hi: 0x33479,
     },
 ];
 
@@ -33904,10 +34227,6 @@ static SCX_INHERITED: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x0314,
-        hi: 0x031F,
-    },
-    UPropRange {
-        lo: 0x0321,
         hi: 0x0322,
     },
     UPropRange {
@@ -33944,7 +34263,11 @@ static SCX_INHERITED: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x1AB0,
-        hi: 0x1ACE,
+        hi: 0x1ADD,
+    },
+    UPropRange {
+        lo: 0x1AE0,
+        hi: 0x1AEB,
     },
     UPropRange {
         lo: 0x1DC2,
@@ -34114,7 +34437,7 @@ static SCX_KANNADA: &[UPropRange] = &[
         hi: 0x0CD6,
     },
     UPropRange {
-        lo: 0x0CDD,
+        lo: 0x0CDC,
         hi: 0x0CDE,
     },
     UPropRange {
@@ -34499,10 +34822,6 @@ static SCX_LATIN: &[UPropRange] = &[
         hi: 0x0313,
     },
     UPropRange {
-        lo: 0x0320,
-        hi: 0x0320,
-    },
-    UPropRange {
         lo: 0x0323,
         hi: 0x0325,
     },
@@ -34620,22 +34939,10 @@ static SCX_LATIN: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0xA78B,
-        hi: 0xA7CD,
-    },
-    UPropRange {
-        lo: 0xA7D0,
-        hi: 0xA7D1,
-    },
-    UPropRange {
-        lo: 0xA7D3,
-        hi: 0xA7D3,
-    },
-    UPropRange {
-        lo: 0xA7D5,
         hi: 0xA7DC,
     },
     UPropRange {
-        lo: 0xA7F2,
+        lo: 0xA7F1,
         hi: 0xA7FF,
     },
     UPropRange {
@@ -35201,6 +35508,10 @@ static SCX_NAG_MUNDARI: &[UPropRange] = &[UPropRange {
 
 static SCX_NANDINAGARI: &[UPropRange] = &[
     UPropRange {
+        lo: 0x0951,
+        hi: 0x0951,
+    },
+    UPropRange {
         lo: 0x0964,
         hi: 0x0965,
     },
@@ -35258,6 +35569,34 @@ static SCX_NEW_TAI_LUE: &[UPropRange] = &[
 ];
 
 static SCX_NEWA: &[UPropRange] = &[
+    UPropRange {
+        lo: 0x0951,
+        hi: 0x0952,
+    },
+    UPropRange {
+        lo: 0x1CD5,
+        hi: 0x1CD5,
+    },
+    UPropRange {
+        lo: 0x1CD7,
+        hi: 0x1CD8,
+    },
+    UPropRange {
+        lo: 0x1CE2,
+        hi: 0x1CE2,
+    },
+    UPropRange {
+        lo: 0x1CE9,
+        hi: 0x1CE9,
+    },
+    UPropRange {
+        lo: 0x1CEB,
+        hi: 0x1CEB,
+    },
+    UPropRange {
+        lo: 0x1CED,
+        hi: 0x1CED,
+    },
     UPropRange {
         lo: 0x11400,
         hi: 0x1145B,
@@ -35738,6 +36077,14 @@ static SCX_SHARADA: &[UPropRange] = &[
         hi: 0x1CE0,
     },
     UPropRange {
+        lo: 0x1CEA,
+        hi: 0x1CEA,
+    },
+    UPropRange {
+        lo: 0x1CED,
+        hi: 0x1CED,
+    },
+    UPropRange {
         lo: 0xA830,
         hi: 0xA835,
     },
@@ -35748,6 +36095,10 @@ static SCX_SHARADA: &[UPropRange] = &[
     UPropRange {
         lo: 0x11180,
         hi: 0x111DF,
+    },
+    UPropRange {
+        lo: 0x11B60,
+        hi: 0x11B67,
     },
 ];
 
@@ -35772,6 +36123,11 @@ static SCX_SIDDHAM: &[UPropRange] = &[
         hi: 0x115DD,
     },
 ];
+
+static SCX_SIDETIC: &[UPropRange] = &[UPropRange {
+    lo: 0x10940,
+    hi: 0x10959,
+}];
 
 static SCX_SIGNWRITING: &[UPropRange] = &[
     UPropRange {
@@ -35953,10 +36309,6 @@ static SCX_SYRIAC: &[UPropRange] = &[
         hi: 0x030A,
     },
     UPropRange {
-        lo: 0x0320,
-        hi: 0x0320,
-    },
-    UPropRange {
         lo: 0x0323,
         hi: 0x0325,
     },
@@ -35966,7 +36318,7 @@ static SCX_SYRIAC: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x0330,
-        hi: 0x0330,
+        hi: 0x0331,
     },
     UPropRange {
         lo: 0x060C,
@@ -36110,6 +36462,21 @@ static SCX_TAI_VIET: &[UPropRange] = &[
     UPropRange {
         lo: 0xAADB,
         hi: 0xAADF,
+    },
+];
+
+static SCX_TAI_YO: &[UPropRange] = &[
+    UPropRange {
+        lo: 0x1E6C0,
+        hi: 0x1E6DE,
+    },
+    UPropRange {
+        lo: 0x1E6E0,
+        hi: 0x1E6F5,
+    },
+    UPropRange {
+        lo: 0x1E6FE,
+        hi: 0x1E6FF,
     },
 ];
 
@@ -36261,15 +36628,15 @@ static SCX_TANGUT: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x17000,
-        hi: 0x187F7,
-    },
-    UPropRange {
-        lo: 0x18800,
         hi: 0x18AFF,
     },
     UPropRange {
         lo: 0x18D00,
-        hi: 0x18D08,
+        hi: 0x18D1E,
+    },
+    UPropRange {
+        lo: 0x18D80,
+        hi: 0x18DF2,
     },
 ];
 
@@ -36319,7 +36686,7 @@ static SCX_TELUGU: &[UPropRange] = &[
         hi: 0x0C5A,
     },
     UPropRange {
-        lo: 0x0C5D,
+        lo: 0x0C5C,
         hi: 0x0C5D,
     },
     UPropRange {
@@ -36333,6 +36700,14 @@ static SCX_TELUGU: &[UPropRange] = &[
     UPropRange {
         lo: 0x0C77,
         hi: 0x0C7F,
+    },
+    UPropRange {
+        lo: 0x1CD5,
+        hi: 0x1CD6,
+    },
+    UPropRange {
+        lo: 0x1CD8,
+        hi: 0x1CD8,
     },
     UPropRange {
         lo: 0x1CDA,
@@ -36447,12 +36822,12 @@ static SCX_TIFINAGH: &[UPropRange] = &[
         hi: 0x0304,
     },
     UPropRange {
-        lo: 0x0307,
-        hi: 0x0307,
+        lo: 0x0306,
+        hi: 0x0309,
     },
     UPropRange {
-        lo: 0x0309,
-        hi: 0x0309,
+        lo: 0x0323,
+        hi: 0x0323,
     },
     UPropRange {
         lo: 0x2D30,
@@ -36476,6 +36851,14 @@ static SCX_TIRHUTA: &[UPropRange] = &[
     UPropRange {
         lo: 0x0964,
         hi: 0x0965,
+    },
+    UPropRange {
+        lo: 0x1CD5,
+        hi: 0x1CD5,
+    },
+    UPropRange {
+        lo: 0x1CE2,
+        hi: 0x1CE2,
     },
     UPropRange {
         lo: 0x1CF2,
@@ -36523,6 +36906,17 @@ static SCX_TODHRI: &[UPropRange] = &[
     UPropRange {
         lo: 0x105C0,
         hi: 0x105F3,
+    },
+];
+
+static SCX_TOLONG_SIKI: &[UPropRange] = &[
+    UPropRange {
+        lo: 0x11DB0,
+        hi: 0x11DDB,
+    },
+    UPropRange {
+        lo: 0x11DE0,
+        hi: 0x11DE9,
     },
 ];
 
@@ -36756,6 +37150,7 @@ pub static SCX_TABLES: &[(&str, &[UPropRange])] = &[
     ("Bassa_Vah", SCX_BASSA_VAH),
     ("Batak", SCX_BATAK),
     ("Bengali", SCX_BENGALI),
+    ("Beria_Erfe", SCX_BERIA_ERFE),
     ("Bhaiksuki", SCX_BHAIKSUKI),
     ("Bopomofo", SCX_BOPOMOFO),
     ("Brahmi", SCX_BRAHMI),
@@ -36880,6 +37275,7 @@ pub static SCX_TABLES: &[(&str, &[UPropRange])] = &[
     ("Sharada", SCX_SHARADA),
     ("Shavian", SCX_SHAVIAN),
     ("Siddham", SCX_SIDDHAM),
+    ("Sidetic", SCX_SIDETIC),
     ("SignWriting", SCX_SIGNWRITING),
     ("Sinhala", SCX_SINHALA),
     ("Sogdian", SCX_SOGDIAN),
@@ -36894,6 +37290,7 @@ pub static SCX_TABLES: &[(&str, &[UPropRange])] = &[
     ("Tai_Le", SCX_TAI_LE),
     ("Tai_Tham", SCX_TAI_THAM),
     ("Tai_Viet", SCX_TAI_VIET),
+    ("Tai_Yo", SCX_TAI_YO),
     ("Takri", SCX_TAKRI),
     ("Tamil", SCX_TAMIL),
     ("Tangsa", SCX_TANGSA),
@@ -36905,6 +37302,7 @@ pub static SCX_TABLES: &[(&str, &[UPropRange])] = &[
     ("Tifinagh", SCX_TIFINAGH),
     ("Tirhuta", SCX_TIRHUTA),
     ("Todhri", SCX_TODHRI),
+    ("Tolong_Siki", SCX_TOLONG_SIKI),
     ("Toto", SCX_TOTO),
     ("Tulu_Tigalari", SCX_TULU_TIGALARI),
     ("Ugaritic", SCX_UGARITIC),
@@ -37152,7 +37550,7 @@ static BINARY_ALPHABETIC: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x0889,
-        hi: 0x088E,
+        hi: 0x088F,
     },
     UPropRange {
         lo: 0x0897,
@@ -37515,7 +37913,7 @@ static BINARY_ALPHABETIC: &[UPropRange] = &[
         hi: 0x0C5A,
     },
     UPropRange {
-        lo: 0x0C5D,
+        lo: 0x0C5C,
         hi: 0x0C5D,
     },
     UPropRange {
@@ -37563,7 +37961,7 @@ static BINARY_ALPHABETIC: &[UPropRange] = &[
         hi: 0x0CD6,
     },
     UPropRange {
-        lo: 0x0CDD,
+        lo: 0x0CDC,
         hi: 0x0CDE,
     },
     UPropRange {
@@ -38364,22 +38762,10 @@ static BINARY_ALPHABETIC: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0xA78B,
-        hi: 0xA7CD,
-    },
-    UPropRange {
-        lo: 0xA7D0,
-        hi: 0xA7D1,
-    },
-    UPropRange {
-        lo: 0xA7D3,
-        hi: 0xA7D3,
-    },
-    UPropRange {
-        lo: 0xA7D5,
         hi: 0xA7DC,
     },
     UPropRange {
-        lo: 0xA7F2,
+        lo: 0xA7F1,
         hi: 0xA805,
     },
     UPropRange {
@@ -38815,6 +39201,10 @@ static BINARY_ALPHABETIC: &[UPropRange] = &[
         hi: 0x10939,
     },
     UPropRange {
+        lo: 0x10940,
+        hi: 0x10959,
+    },
+    UPropRange {
         lo: 0x10980,
         hi: 0x109B7,
     },
@@ -38916,10 +39306,10 @@ static BINARY_ALPHABETIC: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x10EC2,
-        hi: 0x10EC4,
+        hi: 0x10EC7,
     },
     UPropRange {
-        lo: 0x10EFC,
+        lo: 0x10EFA,
         hi: 0x10EFC,
     },
     UPropRange {
@@ -39291,6 +39681,10 @@ static BINARY_ALPHABETIC: &[UPropRange] = &[
         hi: 0x11AF8,
     },
     UPropRange {
+        lo: 0x11B60,
+        hi: 0x11B67,
+    },
+    UPropRange {
         lo: 0x11BC0,
         hi: 0x11BE0,
     },
@@ -39377,6 +39771,10 @@ static BINARY_ALPHABETIC: &[UPropRange] = &[
     UPropRange {
         lo: 0x11D98,
         hi: 0x11D98,
+    },
+    UPropRange {
+        lo: 0x11DB0,
+        hi: 0x11DDB,
     },
     UPropRange {
         lo: 0x11EE0,
@@ -39475,6 +39873,14 @@ static BINARY_ALPHABETIC: &[UPropRange] = &[
         hi: 0x16E7F,
     },
     UPropRange {
+        lo: 0x16EA0,
+        hi: 0x16EB8,
+    },
+    UPropRange {
+        lo: 0x16EBB,
+        hi: 0x16ED3,
+    },
+    UPropRange {
         lo: 0x16F00,
         hi: 0x16F4A,
     },
@@ -39496,19 +39902,19 @@ static BINARY_ALPHABETIC: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x16FF0,
-        hi: 0x16FF1,
+        hi: 0x16FF6,
     },
     UPropRange {
         lo: 0x17000,
-        hi: 0x187F7,
-    },
-    UPropRange {
-        lo: 0x18800,
         hi: 0x18CD5,
     },
     UPropRange {
         lo: 0x18CFF,
-        hi: 0x18D08,
+        hi: 0x18D1E,
+    },
+    UPropRange {
+        lo: 0x18D80,
+        hi: 0x18DF2,
     },
     UPropRange {
         lo: 0x1AFF0,
@@ -39755,6 +40161,18 @@ static BINARY_ALPHABETIC: &[UPropRange] = &[
         hi: 0x1E5F0,
     },
     UPropRange {
+        lo: 0x1E6C0,
+        hi: 0x1E6DE,
+    },
+    UPropRange {
+        lo: 0x1E6E0,
+        hi: 0x1E6F5,
+    },
+    UPropRange {
+        lo: 0x1E6FE,
+        hi: 0x1E6FF,
+    },
+    UPropRange {
         lo: 0x1E7E0,
         hi: 0x1E7E6,
     },
@@ -39936,15 +40354,11 @@ static BINARY_ALPHABETIC: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x2A700,
-        hi: 0x2B739,
-    },
-    UPropRange {
-        lo: 0x2B740,
         hi: 0x2B81D,
     },
     UPropRange {
         lo: 0x2B820,
-        hi: 0x2CEA1,
+        hi: 0x2CEAD,
     },
     UPropRange {
         lo: 0x2CEB0,
@@ -39964,7 +40378,7 @@ static BINARY_ALPHABETIC: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x31350,
-        hi: 0x323AF,
+        hi: 0x33479,
     },
 ];
 
@@ -40060,10 +40474,6 @@ static BINARY_ASSIGNED: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x0870,
-        hi: 0x088E,
-    },
-    UPropRange {
-        lo: 0x0890,
         hi: 0x0891,
     },
     UPropRange {
@@ -40399,7 +40809,7 @@ static BINARY_ASSIGNED: &[UPropRange] = &[
         hi: 0x0C5A,
     },
     UPropRange {
-        lo: 0x0C5D,
+        lo: 0x0C5C,
         hi: 0x0C5D,
     },
     UPropRange {
@@ -40447,7 +40857,7 @@ static BINARY_ASSIGNED: &[UPropRange] = &[
         hi: 0x0CD6,
     },
     UPropRange {
-        lo: 0x0CDD,
+        lo: 0x0CDC,
         hi: 0x0CDE,
     },
     UPropRange {
@@ -40828,7 +41238,11 @@ static BINARY_ASSIGNED: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x1AB0,
-        hi: 0x1ACE,
+        hi: 0x1ADD,
+    },
+    UPropRange {
+        lo: 0x1AE0,
+        hi: 0x1AEB,
     },
     UPropRange {
         lo: 0x1B00,
@@ -40944,7 +41358,7 @@ static BINARY_ASSIGNED: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x20A0,
-        hi: 0x20C0,
+        hi: 0x20C1,
     },
     UPropRange {
         lo: 0x20D0,
@@ -40968,10 +41382,6 @@ static BINARY_ASSIGNED: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x2B76,
-        hi: 0x2B95,
-    },
-    UPropRange {
-        lo: 0x2B97,
         hi: 0x2CF3,
     },
     UPropRange {
@@ -41092,22 +41502,10 @@ static BINARY_ASSIGNED: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0xA700,
-        hi: 0xA7CD,
-    },
-    UPropRange {
-        lo: 0xA7D0,
-        hi: 0xA7D1,
-    },
-    UPropRange {
-        lo: 0xA7D3,
-        hi: 0xA7D3,
-    },
-    UPropRange {
-        lo: 0xA7D5,
         hi: 0xA7DC,
     },
     UPropRange {
-        lo: 0xA7F2,
+        lo: 0xA7F1,
         hi: 0xA82C,
     },
     UPropRange {
@@ -41248,18 +41646,6 @@ static BINARY_ASSIGNED: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0xFB46,
-        hi: 0xFBC2,
-    },
-    UPropRange {
-        lo: 0xFBD3,
-        hi: 0xFD8F,
-    },
-    UPropRange {
-        lo: 0xFD92,
-        hi: 0xFDC7,
-    },
-    UPropRange {
-        lo: 0xFDCF,
         hi: 0xFDCF,
     },
     UPropRange {
@@ -41544,7 +41930,7 @@ static BINARY_ASSIGNED: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x1093F,
-        hi: 0x1093F,
+        hi: 0x10959,
     },
     UPropRange {
         lo: 0x10980,
@@ -41672,10 +42058,14 @@ static BINARY_ASSIGNED: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x10EC2,
-        hi: 0x10EC4,
+        hi: 0x10EC7,
     },
     UPropRange {
-        lo: 0x10EFC,
+        lo: 0x10ED0,
+        hi: 0x10ED8,
+    },
+    UPropRange {
+        lo: 0x10EFA,
         hi: 0x10F27,
     },
     UPropRange {
@@ -42007,6 +42397,10 @@ static BINARY_ASSIGNED: &[UPropRange] = &[
         hi: 0x11B09,
     },
     UPropRange {
+        lo: 0x11B60,
+        hi: 0x11B67,
+    },
+    UPropRange {
         lo: 0x11BC0,
         hi: 0x11BE1,
     },
@@ -42093,6 +42487,14 @@ static BINARY_ASSIGNED: &[UPropRange] = &[
     UPropRange {
         lo: 0x11DA0,
         hi: 0x11DA9,
+    },
+    UPropRange {
+        lo: 0x11DB0,
+        hi: 0x11DDB,
+    },
+    UPropRange {
+        lo: 0x11DE0,
+        hi: 0x11DE9,
     },
     UPropRange {
         lo: 0x11EE0,
@@ -42211,6 +42613,14 @@ static BINARY_ASSIGNED: &[UPropRange] = &[
         hi: 0x16E9A,
     },
     UPropRange {
+        lo: 0x16EA0,
+        hi: 0x16EB8,
+    },
+    UPropRange {
+        lo: 0x16EBB,
+        hi: 0x16ED3,
+    },
+    UPropRange {
         lo: 0x16F00,
         hi: 0x16F4A,
     },
@@ -42228,19 +42638,19 @@ static BINARY_ASSIGNED: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x16FF0,
-        hi: 0x16FF1,
+        hi: 0x16FF6,
     },
     UPropRange {
         lo: 0x17000,
-        hi: 0x187F7,
-    },
-    UPropRange {
-        lo: 0x18800,
         hi: 0x18CD5,
     },
     UPropRange {
         lo: 0x18CFF,
-        hi: 0x18D08,
+        hi: 0x18D1E,
+    },
+    UPropRange {
+        lo: 0x18D80,
+        hi: 0x18DF2,
     },
     UPropRange {
         lo: 0x1AFF0,
@@ -42300,11 +42710,19 @@ static BINARY_ASSIGNED: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x1CC00,
-        hi: 0x1CCF9,
+        hi: 0x1CCFC,
     },
     UPropRange {
         lo: 0x1CD00,
         hi: 0x1CEB3,
+    },
+    UPropRange {
+        lo: 0x1CEBA,
+        hi: 0x1CED0,
+    },
+    UPropRange {
+        lo: 0x1CEE0,
+        hi: 0x1CEF0,
     },
     UPropRange {
         lo: 0x1CF00,
@@ -42517,6 +42935,18 @@ static BINARY_ASSIGNED: &[UPropRange] = &[
     UPropRange {
         lo: 0x1E5FF,
         hi: 0x1E5FF,
+    },
+    UPropRange {
+        lo: 0x1E6C0,
+        hi: 0x1E6DE,
+    },
+    UPropRange {
+        lo: 0x1E6E0,
+        hi: 0x1E6F5,
+    },
+    UPropRange {
+        lo: 0x1E6FE,
+        hi: 0x1E6FF,
     },
     UPropRange {
         lo: 0x1E7E0,
@@ -42748,7 +43178,7 @@ static BINARY_ASSIGNED: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x1F300,
-        hi: 0x1F6D7,
+        hi: 0x1F6D8,
     },
     UPropRange {
         lo: 0x1F6DC,
@@ -42760,10 +43190,6 @@ static BINARY_ASSIGNED: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x1F700,
-        hi: 0x1F776,
-    },
-    UPropRange {
-        lo: 0x1F77B,
         hi: 0x1F7D9,
     },
     UPropRange {
@@ -42803,8 +43229,12 @@ static BINARY_ASSIGNED: &[UPropRange] = &[
         hi: 0x1F8C1,
     },
     UPropRange {
+        lo: 0x1F8D0,
+        hi: 0x1F8D8,
+    },
+    UPropRange {
         lo: 0x1F900,
-        hi: 0x1FA53,
+        hi: 0x1FA57,
     },
     UPropRange {
         lo: 0x1FA60,
@@ -42816,22 +43246,26 @@ static BINARY_ASSIGNED: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x1FA80,
-        hi: 0x1FA89,
+        hi: 0x1FA8A,
     },
     UPropRange {
-        lo: 0x1FA8F,
+        lo: 0x1FA8E,
         hi: 0x1FAC6,
     },
     UPropRange {
-        lo: 0x1FACE,
+        lo: 0x1FAC8,
+        hi: 0x1FAC8,
+    },
+    UPropRange {
+        lo: 0x1FACD,
         hi: 0x1FADC,
     },
     UPropRange {
         lo: 0x1FADF,
-        hi: 0x1FAE9,
+        hi: 0x1FAEA,
     },
     UPropRange {
-        lo: 0x1FAF0,
+        lo: 0x1FAEF,
         hi: 0x1FAF8,
     },
     UPropRange {
@@ -42840,7 +43274,7 @@ static BINARY_ASSIGNED: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x1FB94,
-        hi: 0x1FBF9,
+        hi: 0x1FBFA,
     },
     UPropRange {
         lo: 0x20000,
@@ -42848,15 +43282,11 @@ static BINARY_ASSIGNED: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x2A700,
-        hi: 0x2B739,
-    },
-    UPropRange {
-        lo: 0x2B740,
         hi: 0x2B81D,
     },
     UPropRange {
         lo: 0x2B820,
-        hi: 0x2CEA1,
+        hi: 0x2CEAD,
     },
     UPropRange {
         lo: 0x2CEB0,
@@ -42876,7 +43306,7 @@ static BINARY_ASSIGNED: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x31350,
-        hi: 0x323AF,
+        hi: 0x33479,
     },
     UPropRange {
         lo: 0xE0001,
@@ -44041,7 +44471,11 @@ static BINARY_CASE_IGNORABLE: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x1AB0,
-        hi: 0x1ACE,
+        hi: 0x1ADD,
+    },
+    UPropRange {
+        lo: 0x1AE0,
+        hi: 0x1AEB,
     },
     UPropRange {
         lo: 0x1B00,
@@ -44308,7 +44742,7 @@ static BINARY_CASE_IGNORABLE: &[UPropRange] = &[
         hi: 0xA78A,
     },
     UPropRange {
-        lo: 0xA7F2,
+        lo: 0xA7F1,
         hi: 0xA7F4,
     },
     UPropRange {
@@ -44600,7 +45034,11 @@ static BINARY_CASE_IGNORABLE: &[UPropRange] = &[
         hi: 0x10EAC,
     },
     UPropRange {
-        lo: 0x10EFC,
+        lo: 0x10EC5,
+        hi: 0x10EC5,
+    },
+    UPropRange {
+        lo: 0x10EFA,
         hi: 0x10EFF,
     },
     UPropRange {
@@ -44908,6 +45346,18 @@ static BINARY_CASE_IGNORABLE: &[UPropRange] = &[
         hi: 0x11A99,
     },
     UPropRange {
+        lo: 0x11B60,
+        hi: 0x11B60,
+    },
+    UPropRange {
+        lo: 0x11B62,
+        hi: 0x11B64,
+    },
+    UPropRange {
+        lo: 0x11B66,
+        hi: 0x11B66,
+    },
+    UPropRange {
         lo: 0x11C30,
         hi: 0x11C36,
     },
@@ -44966,6 +45416,10 @@ static BINARY_CASE_IGNORABLE: &[UPropRange] = &[
     UPropRange {
         lo: 0x11D97,
         hi: 0x11D97,
+    },
+    UPropRange {
+        lo: 0x11DD9,
+        hi: 0x11DD9,
     },
     UPropRange {
         lo: 0x11EF3,
@@ -45042,6 +45496,10 @@ static BINARY_CASE_IGNORABLE: &[UPropRange] = &[
     UPropRange {
         lo: 0x16FE3,
         hi: 0x16FE4,
+    },
+    UPropRange {
+        lo: 0x16FF2,
+        hi: 0x16FF3,
     },
     UPropRange {
         lo: 0x1AFF0,
@@ -45164,6 +45622,26 @@ static BINARY_CASE_IGNORABLE: &[UPropRange] = &[
         hi: 0x1E5EF,
     },
     UPropRange {
+        lo: 0x1E6E3,
+        hi: 0x1E6E3,
+    },
+    UPropRange {
+        lo: 0x1E6E6,
+        hi: 0x1E6E6,
+    },
+    UPropRange {
+        lo: 0x1E6EE,
+        hi: 0x1E6EF,
+    },
+    UPropRange {
+        lo: 0x1E6F5,
+        hi: 0x1E6F5,
+    },
+    UPropRange {
+        lo: 0x1E6FF,
+        hi: 0x1E6FF,
+    },
+    UPropRange {
         lo: 0x1E8D0,
         hi: 0x1E8D6,
     },
@@ -45231,7 +45709,7 @@ static BINARY_CASED: &[UPropRange] = &[
         hi: 0x0293,
     },
     UPropRange {
-        lo: 0x0295,
+        lo: 0x0296,
         hi: 0x02B8,
     },
     UPropRange {
@@ -45540,22 +46018,10 @@ static BINARY_CASED: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0xA790,
-        hi: 0xA7CD,
-    },
-    UPropRange {
-        lo: 0xA7D0,
-        hi: 0xA7D1,
-    },
-    UPropRange {
-        lo: 0xA7D3,
-        hi: 0xA7D3,
-    },
-    UPropRange {
-        lo: 0xA7D5,
         hi: 0xA7DC,
     },
     UPropRange {
-        lo: 0xA7F2,
+        lo: 0xA7F1,
         hi: 0xA7F6,
     },
     UPropRange {
@@ -45673,6 +46139,14 @@ static BINARY_CASED: &[UPropRange] = &[
     UPropRange {
         lo: 0x16E40,
         hi: 0x16E7F,
+    },
+    UPropRange {
+        lo: 0x16EA0,
+        hi: 0x16EB8,
+    },
+    UPropRange {
+        lo: 0x16EBB,
+        hi: 0x16ED3,
     },
     UPropRange {
         lo: 0x1D400,
@@ -48250,8 +48724,20 @@ static BINARY_CHANGES_WHEN_CASEFOLDED: &[UPropRange] = &[
         hi: 0xA7CC,
     },
     UPropRange {
+        lo: 0xA7CE,
+        hi: 0xA7CE,
+    },
+    UPropRange {
         lo: 0xA7D0,
         hi: 0xA7D0,
+    },
+    UPropRange {
+        lo: 0xA7D2,
+        hi: 0xA7D2,
+    },
+    UPropRange {
+        lo: 0xA7D4,
+        hi: 0xA7D4,
     },
     UPropRange {
         lo: 0xA7D6,
@@ -48328,6 +48814,10 @@ static BINARY_CHANGES_WHEN_CASEFOLDED: &[UPropRange] = &[
     UPropRange {
         lo: 0x16E40,
         hi: 0x16E5F,
+    },
+    UPropRange {
+        lo: 0x16EA0,
+        hi: 0x16EB8,
     },
     UPropRange {
         lo: 0x1E900,
@@ -48750,14 +49240,6 @@ static BINARY_CHANGES_WHEN_CASEMAPPED: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0xA7B0,
-        hi: 0xA7CD,
-    },
-    UPropRange {
-        lo: 0xA7D0,
-        hi: 0xA7D1,
-    },
-    UPropRange {
-        lo: 0xA7D6,
         hi: 0xA7DC,
     },
     UPropRange {
@@ -48855,6 +49337,14 @@ static BINARY_CHANGES_WHEN_CASEMAPPED: &[UPropRange] = &[
     UPropRange {
         lo: 0x16E40,
         hi: 0x16E7F,
+    },
+    UPropRange {
+        lo: 0x16EA0,
+        hi: 0x16EB8,
+    },
+    UPropRange {
+        lo: 0x16EBB,
+        hi: 0x16ED3,
     },
     UPropRange {
         lo: 0x1E900,
@@ -51248,8 +51738,20 @@ static BINARY_CHANGES_WHEN_LOWERCASED: &[UPropRange] = &[
         hi: 0xA7CC,
     },
     UPropRange {
+        lo: 0xA7CE,
+        hi: 0xA7CE,
+    },
+    UPropRange {
         lo: 0xA7D0,
         hi: 0xA7D0,
+    },
+    UPropRange {
+        lo: 0xA7D2,
+        hi: 0xA7D2,
+    },
+    UPropRange {
+        lo: 0xA7D4,
+        hi: 0xA7D4,
     },
     UPropRange {
         lo: 0xA7D6,
@@ -51314,6 +51816,10 @@ static BINARY_CHANGES_WHEN_LOWERCASED: &[UPropRange] = &[
     UPropRange {
         lo: 0x16E40,
         hi: 0x16E5F,
+    },
+    UPropRange {
+        lo: 0x16EA0,
+        hi: 0x16EB8,
     },
     UPropRange {
         lo: 0x1E900,
@@ -54159,8 +54665,20 @@ static BINARY_CHANGES_WHEN_NFKC_CASEFOLDED: &[UPropRange] = &[
         hi: 0xA7CC,
     },
     UPropRange {
+        lo: 0xA7CE,
+        hi: 0xA7CE,
+    },
+    UPropRange {
         lo: 0xA7D0,
         hi: 0xA7D0,
+    },
+    UPropRange {
+        lo: 0xA7D2,
+        hi: 0xA7D2,
+    },
+    UPropRange {
+        lo: 0xA7D4,
+        hi: 0xA7D4,
     },
     UPropRange {
         lo: 0xA7D6,
@@ -54179,7 +54697,7 @@ static BINARY_CHANGES_WHEN_NFKC_CASEFOLDED: &[UPropRange] = &[
         hi: 0xA7DC,
     },
     UPropRange {
-        lo: 0xA7F2,
+        lo: 0xA7F1,
         hi: 0xA7F5,
     },
     UPropRange {
@@ -54405,6 +54923,10 @@ static BINARY_CHANGES_WHEN_NFKC_CASEFOLDED: &[UPropRange] = &[
     UPropRange {
         lo: 0x16E40,
         hi: 0x16E5F,
+    },
+    UPropRange {
+        lo: 0x16EA0,
+        hi: 0x16EB8,
     },
     UPropRange {
         lo: 0x1BCA0,
@@ -57134,8 +57656,20 @@ static BINARY_CHANGES_WHEN_TITLECASED: &[UPropRange] = &[
         hi: 0xA7CD,
     },
     UPropRange {
+        lo: 0xA7CF,
+        hi: 0xA7CF,
+    },
+    UPropRange {
         lo: 0xA7D1,
         hi: 0xA7D1,
+    },
+    UPropRange {
+        lo: 0xA7D3,
+        hi: 0xA7D3,
+    },
+    UPropRange {
+        lo: 0xA7D5,
+        hi: 0xA7D5,
     },
     UPropRange {
         lo: 0xA7D7,
@@ -57212,6 +57746,10 @@ static BINARY_CHANGES_WHEN_TITLECASED: &[UPropRange] = &[
     UPropRange {
         lo: 0x16E60,
         hi: 0x16E7F,
+    },
+    UPropRange {
+        lo: 0x16EBB,
+        hi: 0x16ED3,
     },
     UPropRange {
         lo: 0x1E922,
@@ -59657,8 +60195,20 @@ static BINARY_CHANGES_WHEN_UPPERCASED: &[UPropRange] = &[
         hi: 0xA7CD,
     },
     UPropRange {
+        lo: 0xA7CF,
+        hi: 0xA7CF,
+    },
+    UPropRange {
         lo: 0xA7D1,
         hi: 0xA7D1,
+    },
+    UPropRange {
+        lo: 0xA7D3,
+        hi: 0xA7D3,
+    },
+    UPropRange {
+        lo: 0xA7D5,
+        hi: 0xA7D5,
     },
     UPropRange {
         lo: 0xA7D7,
@@ -59735,6 +60285,10 @@ static BINARY_CHANGES_WHEN_UPPERCASED: &[UPropRange] = &[
     UPropRange {
         lo: 0x16E60,
         hi: 0x16E7F,
+    },
+    UPropRange {
+        lo: 0x16EBB,
+        hi: 0x16ED3,
     },
     UPropRange {
         lo: 0x1E922,
@@ -60006,10 +60560,6 @@ static BINARY_DIACRITIC: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x0591,
-        hi: 0x05A1,
-    },
-    UPropRange {
-        lo: 0x05A3,
         hi: 0x05BD,
     },
     UPropRange {
@@ -60022,7 +60572,11 @@ static BINARY_DIACRITIC: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x05C4,
-        hi: 0x05C4,
+        hi: 0x05C5,
+    },
+    UPropRange {
+        lo: 0x05C7,
+        hi: 0x05C7,
     },
     UPropRange {
         lo: 0x064B,
@@ -60285,6 +60839,14 @@ static BINARY_DIACRITIC: &[UPropRange] = &[
         hi: 0x1ACB,
     },
     UPropRange {
+        lo: 0x1ACF,
+        hi: 0x1ADD,
+    },
+    UPropRange {
+        lo: 0x1AE0,
+        hi: 0x1AEB,
+    },
+    UPropRange {
         lo: 0x1B34,
         hi: 0x1B34,
     },
@@ -60335,6 +60897,10 @@ static BINARY_DIACRITIC: &[UPropRange] = &[
     UPropRange {
         lo: 0x1D2C,
         hi: 0x1D6A,
+    },
+    UPropRange {
+        lo: 0x1D9B,
+        hi: 0x1DBE,
     },
     UPropRange {
         lo: 0x1DC4,
@@ -60415,6 +60981,10 @@ static BINARY_DIACRITIC: &[UPropRange] = &[
     UPropRange {
         lo: 0xA788,
         hi: 0xA78A,
+    },
+    UPropRange {
+        lo: 0xA7F1,
+        hi: 0xA7F1,
     },
     UPropRange {
         lo: 0xA7F8,
@@ -60547,6 +61117,10 @@ static BINARY_DIACRITIC: &[UPropRange] = &[
     UPropRange {
         lo: 0x10D69,
         hi: 0x10D6D,
+    },
+    UPropRange {
+        lo: 0x10EFA,
+        hi: 0x10EFA,
     },
     UPropRange {
         lo: 0x10EFD,
@@ -60695,6 +61269,10 @@ static BINARY_DIACRITIC: &[UPropRange] = &[
     UPropRange {
         lo: 0x11D97,
         hi: 0x11D97,
+    },
+    UPropRange {
+        lo: 0x11DD9,
+        hi: 0x11DD9,
     },
     UPropRange {
         lo: 0x11F41,
@@ -61341,7 +61919,7 @@ static BINARY_EMOJI: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x1F6D5,
-        hi: 0x1F6D7,
+        hi: 0x1F6D8,
     },
     UPropRange {
         lo: 0x1F6DC,
@@ -61389,22 +61967,26 @@ static BINARY_EMOJI: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x1FA80,
-        hi: 0x1FA89,
+        hi: 0x1FA8A,
     },
     UPropRange {
-        lo: 0x1FA8F,
+        lo: 0x1FA8E,
         hi: 0x1FAC6,
     },
     UPropRange {
-        lo: 0x1FACE,
+        lo: 0x1FAC8,
+        hi: 0x1FAC8,
+    },
+    UPropRange {
+        lo: 0x1FACD,
         hi: 0x1FADC,
     },
     UPropRange {
         lo: 0x1FADF,
-        hi: 0x1FAE9,
+        hi: 0x1FAEA,
     },
     UPropRange {
-        lo: 0x1FAF0,
+        lo: 0x1FAEF,
         hi: 0x1FAF8,
     },
 ];
@@ -61883,7 +62465,7 @@ static BINARY_EMOJI_PRESENTATION: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x1F6D5,
-        hi: 0x1F6D7,
+        hi: 0x1F6D8,
     },
     UPropRange {
         lo: 0x1F6DC,
@@ -61923,22 +62505,26 @@ static BINARY_EMOJI_PRESENTATION: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x1FA80,
-        hi: 0x1FA89,
+        hi: 0x1FA8A,
     },
     UPropRange {
-        lo: 0x1FA8F,
+        lo: 0x1FA8E,
         hi: 0x1FAC6,
     },
     UPropRange {
-        lo: 0x1FACE,
+        lo: 0x1FAC8,
+        hi: 0x1FAC8,
+    },
+    UPropRange {
+        lo: 0x1FACD,
         hi: 0x1FADC,
     },
     UPropRange {
         lo: 0x1FADF,
-        hi: 0x1FAE9,
+        hi: 0x1FAEA,
     },
     UPropRange {
-        lo: 0x1FAF0,
+        lo: 0x1FAEF,
         hi: 0x1FAF8,
     },
 ];
@@ -61985,10 +62571,6 @@ static BINARY_EXTENDED_PICTOGRAPHIC: &[UPropRange] = &[
         hi: 0x2328,
     },
     UPropRange {
-        lo: 0x2388,
-        hi: 0x2388,
-    },
-    UPropRange {
         lo: 0x23CF,
         hi: 0x23CF,
     },
@@ -62022,22 +62604,174 @@ static BINARY_EXTENDED_PICTOGRAPHIC: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x2600,
-        hi: 0x2605,
+        hi: 0x2604,
     },
     UPropRange {
-        lo: 0x2607,
-        hi: 0x2612,
+        lo: 0x260E,
+        hi: 0x260E,
+    },
+    UPropRange {
+        lo: 0x2611,
+        hi: 0x2611,
     },
     UPropRange {
         lo: 0x2614,
-        hi: 0x2685,
+        hi: 0x2615,
     },
     UPropRange {
-        lo: 0x2690,
+        lo: 0x2618,
+        hi: 0x2618,
+    },
+    UPropRange {
+        lo: 0x261D,
+        hi: 0x261D,
+    },
+    UPropRange {
+        lo: 0x2620,
+        hi: 0x2620,
+    },
+    UPropRange {
+        lo: 0x2622,
+        hi: 0x2623,
+    },
+    UPropRange {
+        lo: 0x2626,
+        hi: 0x2626,
+    },
+    UPropRange {
+        lo: 0x262A,
+        hi: 0x262A,
+    },
+    UPropRange {
+        lo: 0x262E,
+        hi: 0x262F,
+    },
+    UPropRange {
+        lo: 0x2638,
+        hi: 0x263A,
+    },
+    UPropRange {
+        lo: 0x2640,
+        hi: 0x2640,
+    },
+    UPropRange {
+        lo: 0x2642,
+        hi: 0x2642,
+    },
+    UPropRange {
+        lo: 0x2648,
+        hi: 0x2653,
+    },
+    UPropRange {
+        lo: 0x265F,
+        hi: 0x2660,
+    },
+    UPropRange {
+        lo: 0x2663,
+        hi: 0x2663,
+    },
+    UPropRange {
+        lo: 0x2665,
+        hi: 0x2666,
+    },
+    UPropRange {
+        lo: 0x2668,
+        hi: 0x2668,
+    },
+    UPropRange {
+        lo: 0x267B,
+        hi: 0x267B,
+    },
+    UPropRange {
+        lo: 0x267E,
+        hi: 0x267F,
+    },
+    UPropRange {
+        lo: 0x2692,
+        hi: 0x2697,
+    },
+    UPropRange {
+        lo: 0x2699,
+        hi: 0x2699,
+    },
+    UPropRange {
+        lo: 0x269B,
+        hi: 0x269C,
+    },
+    UPropRange {
+        lo: 0x26A0,
+        hi: 0x26A1,
+    },
+    UPropRange {
+        lo: 0x26A7,
+        hi: 0x26A7,
+    },
+    UPropRange {
+        lo: 0x26AA,
+        hi: 0x26AB,
+    },
+    UPropRange {
+        lo: 0x26B0,
+        hi: 0x26B1,
+    },
+    UPropRange {
+        lo: 0x26BD,
+        hi: 0x26BE,
+    },
+    UPropRange {
+        lo: 0x26C4,
+        hi: 0x26C5,
+    },
+    UPropRange {
+        lo: 0x26C8,
+        hi: 0x26C8,
+    },
+    UPropRange {
+        lo: 0x26CE,
+        hi: 0x26CF,
+    },
+    UPropRange {
+        lo: 0x26D1,
+        hi: 0x26D1,
+    },
+    UPropRange {
+        lo: 0x26D3,
+        hi: 0x26D4,
+    },
+    UPropRange {
+        lo: 0x26E9,
+        hi: 0x26EA,
+    },
+    UPropRange {
+        lo: 0x26F0,
+        hi: 0x26F5,
+    },
+    UPropRange {
+        lo: 0x26F7,
+        hi: 0x26FA,
+    },
+    UPropRange {
+        lo: 0x26FD,
+        hi: 0x26FD,
+    },
+    UPropRange {
+        lo: 0x2702,
+        hi: 0x2702,
+    },
+    UPropRange {
+        lo: 0x2705,
         hi: 0x2705,
     },
     UPropRange {
         lo: 0x2708,
+        hi: 0x270D,
+    },
+    UPropRange {
+        lo: 0x270F,
+        hi: 0x270F,
+    },
+    UPropRange {
+        lo: 0x2712,
         hi: 0x2712,
     },
     UPropRange {
@@ -62090,7 +62824,7 @@ static BINARY_EXTENDED_PICTOGRAPHIC: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x2763,
-        hi: 0x2767,
+        hi: 0x2764,
     },
     UPropRange {
         lo: 0x2795,
@@ -62145,19 +62879,35 @@ static BINARY_EXTENDED_PICTOGRAPHIC: &[UPropRange] = &[
         hi: 0x3299,
     },
     UPropRange {
-        lo: 0x1F000,
+        lo: 0x1F004,
+        hi: 0x1F004,
+    },
+    UPropRange {
+        lo: 0x1F02C,
+        hi: 0x1F02F,
+    },
+    UPropRange {
+        lo: 0x1F094,
+        hi: 0x1F09F,
+    },
+    UPropRange {
+        lo: 0x1F0AF,
+        hi: 0x1F0B0,
+    },
+    UPropRange {
+        lo: 0x1F0C0,
+        hi: 0x1F0C0,
+    },
+    UPropRange {
+        lo: 0x1F0CF,
+        hi: 0x1F0D0,
+    },
+    UPropRange {
+        lo: 0x1F0F6,
         hi: 0x1F0FF,
     },
     UPropRange {
-        lo: 0x1F10D,
-        hi: 0x1F10F,
-    },
-    UPropRange {
-        lo: 0x1F12F,
-        hi: 0x1F12F,
-    },
-    UPropRange {
-        lo: 0x1F16C,
+        lo: 0x1F170,
         hi: 0x1F171,
     },
     UPropRange {
@@ -62173,7 +62923,7 @@ static BINARY_EXTENDED_PICTOGRAPHIC: &[UPropRange] = &[
         hi: 0x1F19A,
     },
     UPropRange {
-        lo: 0x1F1AD,
+        lo: 0x1F1AE,
         hi: 0x1F1E5,
     },
     UPropRange {
@@ -62198,26 +62948,154 @@ static BINARY_EXTENDED_PICTOGRAPHIC: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x1F249,
+        hi: 0x1F25F,
+    },
+    UPropRange {
+        lo: 0x1F266,
+        hi: 0x1F321,
+    },
+    UPropRange {
+        lo: 0x1F324,
+        hi: 0x1F393,
+    },
+    UPropRange {
+        lo: 0x1F396,
+        hi: 0x1F397,
+    },
+    UPropRange {
+        lo: 0x1F399,
+        hi: 0x1F39B,
+    },
+    UPropRange {
+        lo: 0x1F39E,
+        hi: 0x1F3F0,
+    },
+    UPropRange {
+        lo: 0x1F3F3,
+        hi: 0x1F3F5,
+    },
+    UPropRange {
+        lo: 0x1F3F7,
         hi: 0x1F3FA,
     },
     UPropRange {
         lo: 0x1F400,
+        hi: 0x1F4FD,
+    },
+    UPropRange {
+        lo: 0x1F4FF,
         hi: 0x1F53D,
     },
     UPropRange {
-        lo: 0x1F546,
+        lo: 0x1F549,
+        hi: 0x1F54E,
+    },
+    UPropRange {
+        lo: 0x1F550,
+        hi: 0x1F567,
+    },
+    UPropRange {
+        lo: 0x1F56F,
+        hi: 0x1F570,
+    },
+    UPropRange {
+        lo: 0x1F573,
+        hi: 0x1F57A,
+    },
+    UPropRange {
+        lo: 0x1F587,
+        hi: 0x1F587,
+    },
+    UPropRange {
+        lo: 0x1F58A,
+        hi: 0x1F58D,
+    },
+    UPropRange {
+        lo: 0x1F590,
+        hi: 0x1F590,
+    },
+    UPropRange {
+        lo: 0x1F595,
+        hi: 0x1F596,
+    },
+    UPropRange {
+        lo: 0x1F5A4,
+        hi: 0x1F5A5,
+    },
+    UPropRange {
+        lo: 0x1F5A8,
+        hi: 0x1F5A8,
+    },
+    UPropRange {
+        lo: 0x1F5B1,
+        hi: 0x1F5B2,
+    },
+    UPropRange {
+        lo: 0x1F5BC,
+        hi: 0x1F5BC,
+    },
+    UPropRange {
+        lo: 0x1F5C2,
+        hi: 0x1F5C4,
+    },
+    UPropRange {
+        lo: 0x1F5D1,
+        hi: 0x1F5D3,
+    },
+    UPropRange {
+        lo: 0x1F5DC,
+        hi: 0x1F5DE,
+    },
+    UPropRange {
+        lo: 0x1F5E1,
+        hi: 0x1F5E1,
+    },
+    UPropRange {
+        lo: 0x1F5E3,
+        hi: 0x1F5E3,
+    },
+    UPropRange {
+        lo: 0x1F5E8,
+        hi: 0x1F5E8,
+    },
+    UPropRange {
+        lo: 0x1F5EF,
+        hi: 0x1F5EF,
+    },
+    UPropRange {
+        lo: 0x1F5F3,
+        hi: 0x1F5F3,
+    },
+    UPropRange {
+        lo: 0x1F5FA,
         hi: 0x1F64F,
     },
     UPropRange {
         lo: 0x1F680,
+        hi: 0x1F6C5,
+    },
+    UPropRange {
+        lo: 0x1F6CB,
+        hi: 0x1F6D2,
+    },
+    UPropRange {
+        lo: 0x1F6D5,
+        hi: 0x1F6E5,
+    },
+    UPropRange {
+        lo: 0x1F6E9,
+        hi: 0x1F6E9,
+    },
+    UPropRange {
+        lo: 0x1F6EB,
+        hi: 0x1F6F0,
+    },
+    UPropRange {
+        lo: 0x1F6F3,
         hi: 0x1F6FF,
     },
     UPropRange {
-        lo: 0x1F774,
-        hi: 0x1F77F,
-    },
-    UPropRange {
-        lo: 0x1F7D5,
+        lo: 0x1F7DA,
         hi: 0x1F7FF,
     },
     UPropRange {
@@ -62238,6 +63116,18 @@ static BINARY_EXTENDED_PICTOGRAPHIC: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x1F8AE,
+        hi: 0x1F8AF,
+    },
+    UPropRange {
+        lo: 0x1F8BC,
+        hi: 0x1F8BF,
+    },
+    UPropRange {
+        lo: 0x1F8C2,
+        hi: 0x1F8CF,
+    },
+    UPropRange {
+        lo: 0x1F8D9,
         hi: 0x1F8FF,
     },
     UPropRange {
@@ -62250,6 +63140,14 @@ static BINARY_EXTENDED_PICTOGRAPHIC: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x1F947,
+        hi: 0x1F9FF,
+    },
+    UPropRange {
+        lo: 0x1FA58,
+        hi: 0x1FA5F,
+    },
+    UPropRange {
+        lo: 0x1FA6E,
         hi: 0x1FAFF,
     },
     UPropRange {
@@ -62400,6 +63298,10 @@ static BINARY_EXTENDER: &[UPropRange] = &[
         hi: 0x11A98,
     },
     UPropRange {
+        lo: 0x11DD9,
+        hi: 0x11DD9,
+    },
+    UPropRange {
         lo: 0x16B42,
         hi: 0x16B43,
     },
@@ -62410,6 +63312,10 @@ static BINARY_EXTENDER: &[UPropRange] = &[
     UPropRange {
         lo: 0x16FE3,
         hi: 0x16FE3,
+    },
+    UPropRange {
+        lo: 0x16FF2,
+        hi: 0x16FF3,
     },
     UPropRange {
         lo: 0x1E13C,
@@ -62596,7 +63502,7 @@ static BINARY_GRAPHEME_BASE: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x0870,
-        hi: 0x088E,
+        hi: 0x088F,
     },
     UPropRange {
         lo: 0x08A0,
@@ -62955,7 +63861,7 @@ static BINARY_GRAPHEME_BASE: &[UPropRange] = &[
         hi: 0x0C5A,
     },
     UPropRange {
-        lo: 0x0C5D,
+        lo: 0x0C5C,
         hi: 0x0C5D,
     },
     UPropRange {
@@ -63003,7 +63909,7 @@ static BINARY_GRAPHEME_BASE: &[UPropRange] = &[
         hi: 0x0CC4,
     },
     UPropRange {
-        lo: 0x0CDD,
+        lo: 0x0CDC,
         hi: 0x0CDE,
     },
     UPropRange {
@@ -63708,7 +64614,7 @@ static BINARY_GRAPHEME_BASE: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x20A0,
-        hi: 0x20C0,
+        hi: 0x20C1,
     },
     UPropRange {
         lo: 0x2100,
@@ -63728,10 +64634,6 @@ static BINARY_GRAPHEME_BASE: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x2B76,
-        hi: 0x2B95,
-    },
-    UPropRange {
-        lo: 0x2B97,
         hi: 0x2CEE,
     },
     UPropRange {
@@ -63876,22 +64778,10 @@ static BINARY_GRAPHEME_BASE: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0xA700,
-        hi: 0xA7CD,
-    },
-    UPropRange {
-        lo: 0xA7D0,
-        hi: 0xA7D1,
-    },
-    UPropRange {
-        lo: 0xA7D3,
-        hi: 0xA7D3,
-    },
-    UPropRange {
-        lo: 0xA7D5,
         hi: 0xA7DC,
     },
     UPropRange {
-        lo: 0xA7F2,
+        lo: 0xA7F1,
         hi: 0xA801,
     },
     UPropRange {
@@ -64136,18 +65026,6 @@ static BINARY_GRAPHEME_BASE: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0xFB46,
-        hi: 0xFBC2,
-    },
-    UPropRange {
-        lo: 0xFBD3,
-        hi: 0xFD8F,
-    },
-    UPropRange {
-        lo: 0xFD92,
-        hi: 0xFDC7,
-    },
-    UPropRange {
-        lo: 0xFDCF,
         hi: 0xFDCF,
     },
     UPropRange {
@@ -64436,7 +65314,7 @@ static BINARY_GRAPHEME_BASE: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x1093F,
-        hi: 0x1093F,
+        hi: 0x10959,
     },
     UPropRange {
         lo: 0x10980,
@@ -64556,7 +65434,11 @@ static BINARY_GRAPHEME_BASE: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x10EC2,
-        hi: 0x10EC4,
+        hi: 0x10EC7,
+    },
+    UPropRange {
+        lo: 0x10ED0,
+        hi: 0x10ED8,
     },
     UPropRange {
         lo: 0x10F00,
@@ -65091,6 +65973,18 @@ static BINARY_GRAPHEME_BASE: &[UPropRange] = &[
         hi: 0x11B09,
     },
     UPropRange {
+        lo: 0x11B61,
+        hi: 0x11B61,
+    },
+    UPropRange {
+        lo: 0x11B65,
+        hi: 0x11B65,
+    },
+    UPropRange {
+        lo: 0x11B67,
+        hi: 0x11B67,
+    },
+    UPropRange {
         lo: 0x11BC0,
         hi: 0x11BE1,
     },
@@ -65181,6 +66075,14 @@ static BINARY_GRAPHEME_BASE: &[UPropRange] = &[
     UPropRange {
         lo: 0x11DA0,
         hi: 0x11DA9,
+    },
+    UPropRange {
+        lo: 0x11DB0,
+        hi: 0x11DDB,
+    },
+    UPropRange {
+        lo: 0x11DE0,
+        hi: 0x11DE9,
     },
     UPropRange {
         lo: 0x11EE0,
@@ -65323,6 +66225,14 @@ static BINARY_GRAPHEME_BASE: &[UPropRange] = &[
         hi: 0x16E9A,
     },
     UPropRange {
+        lo: 0x16EA0,
+        hi: 0x16EB8,
+    },
+    UPropRange {
+        lo: 0x16EBB,
+        hi: 0x16ED3,
+    },
+    UPropRange {
         lo: 0x16F00,
         hi: 0x16F4A,
     },
@@ -65339,16 +66249,20 @@ static BINARY_GRAPHEME_BASE: &[UPropRange] = &[
         hi: 0x16FE3,
     },
     UPropRange {
-        lo: 0x17000,
-        hi: 0x187F7,
+        lo: 0x16FF2,
+        hi: 0x16FF6,
     },
     UPropRange {
-        lo: 0x18800,
+        lo: 0x17000,
         hi: 0x18CD5,
     },
     UPropRange {
         lo: 0x18CFF,
-        hi: 0x18D08,
+        hi: 0x18D1E,
+    },
+    UPropRange {
+        lo: 0x18D80,
+        hi: 0x18DF2,
     },
     UPropRange {
         lo: 0x1AFF0,
@@ -65412,11 +66326,19 @@ static BINARY_GRAPHEME_BASE: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x1CC00,
-        hi: 0x1CCF9,
+        hi: 0x1CCFC,
     },
     UPropRange {
         lo: 0x1CD00,
         hi: 0x1CEB3,
+    },
+    UPropRange {
+        lo: 0x1CEBA,
+        hi: 0x1CED0,
+    },
+    UPropRange {
+        lo: 0x1CEE0,
+        hi: 0x1CEF0,
     },
     UPropRange {
         lo: 0x1CF50,
@@ -65637,6 +66559,30 @@ static BINARY_GRAPHEME_BASE: &[UPropRange] = &[
     UPropRange {
         lo: 0x1E5FF,
         hi: 0x1E5FF,
+    },
+    UPropRange {
+        lo: 0x1E6C0,
+        hi: 0x1E6DE,
+    },
+    UPropRange {
+        lo: 0x1E6E0,
+        hi: 0x1E6E2,
+    },
+    UPropRange {
+        lo: 0x1E6E4,
+        hi: 0x1E6E5,
+    },
+    UPropRange {
+        lo: 0x1E6E7,
+        hi: 0x1E6ED,
+    },
+    UPropRange {
+        lo: 0x1E6F0,
+        hi: 0x1E6F4,
+    },
+    UPropRange {
+        lo: 0x1E6FE,
+        hi: 0x1E6FF,
     },
     UPropRange {
         lo: 0x1E7E0,
@@ -65872,7 +66818,7 @@ static BINARY_GRAPHEME_BASE: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x1F300,
-        hi: 0x1F6D7,
+        hi: 0x1F6D8,
     },
     UPropRange {
         lo: 0x1F6DC,
@@ -65884,10 +66830,6 @@ static BINARY_GRAPHEME_BASE: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x1F700,
-        hi: 0x1F776,
-    },
-    UPropRange {
-        lo: 0x1F77B,
         hi: 0x1F7D9,
     },
     UPropRange {
@@ -65927,8 +66869,12 @@ static BINARY_GRAPHEME_BASE: &[UPropRange] = &[
         hi: 0x1F8C1,
     },
     UPropRange {
+        lo: 0x1F8D0,
+        hi: 0x1F8D8,
+    },
+    UPropRange {
         lo: 0x1F900,
-        hi: 0x1FA53,
+        hi: 0x1FA57,
     },
     UPropRange {
         lo: 0x1FA60,
@@ -65940,22 +66886,26 @@ static BINARY_GRAPHEME_BASE: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x1FA80,
-        hi: 0x1FA89,
+        hi: 0x1FA8A,
     },
     UPropRange {
-        lo: 0x1FA8F,
+        lo: 0x1FA8E,
         hi: 0x1FAC6,
     },
     UPropRange {
-        lo: 0x1FACE,
+        lo: 0x1FAC8,
+        hi: 0x1FAC8,
+    },
+    UPropRange {
+        lo: 0x1FACD,
         hi: 0x1FADC,
     },
     UPropRange {
         lo: 0x1FADF,
-        hi: 0x1FAE9,
+        hi: 0x1FAEA,
     },
     UPropRange {
-        lo: 0x1FAF0,
+        lo: 0x1FAEF,
         hi: 0x1FAF8,
     },
     UPropRange {
@@ -65964,7 +66914,7 @@ static BINARY_GRAPHEME_BASE: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x1FB94,
-        hi: 0x1FBF9,
+        hi: 0x1FBFA,
     },
     UPropRange {
         lo: 0x20000,
@@ -65972,15 +66922,11 @@ static BINARY_GRAPHEME_BASE: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x2A700,
-        hi: 0x2B739,
-    },
-    UPropRange {
-        lo: 0x2B740,
         hi: 0x2B81D,
     },
     UPropRange {
         lo: 0x2B820,
-        hi: 0x2CEA1,
+        hi: 0x2CEAD,
     },
     UPropRange {
         lo: 0x2CEB0,
@@ -66000,7 +66946,7 @@ static BINARY_GRAPHEME_BASE: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x31350,
-        hi: 0x323AF,
+        hi: 0x33479,
     },
 ];
 
@@ -66611,7 +67557,11 @@ static BINARY_GRAPHEME_EXTEND: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x1AB0,
-        hi: 0x1ACE,
+        hi: 0x1ADD,
+    },
+    UPropRange {
+        lo: 0x1AE0,
+        hi: 0x1AEB,
     },
     UPropRange {
         lo: 0x1B00,
@@ -66934,7 +67884,7 @@ static BINARY_GRAPHEME_EXTEND: &[UPropRange] = &[
         hi: 0x10EAC,
     },
     UPropRange {
-        lo: 0x10EFC,
+        lo: 0x10EFA,
         hi: 0x10EFF,
     },
     UPropRange {
@@ -67266,6 +68216,18 @@ static BINARY_GRAPHEME_EXTEND: &[UPropRange] = &[
         hi: 0x11A99,
     },
     UPropRange {
+        lo: 0x11B60,
+        hi: 0x11B60,
+    },
+    UPropRange {
+        lo: 0x11B62,
+        hi: 0x11B64,
+    },
+    UPropRange {
+        lo: 0x11B66,
+        hi: 0x11B66,
+    },
+    UPropRange {
         lo: 0x11C30,
         hi: 0x11C36,
     },
@@ -67488,6 +68450,22 @@ static BINARY_GRAPHEME_EXTEND: &[UPropRange] = &[
     UPropRange {
         lo: 0x1E5EE,
         hi: 0x1E5EF,
+    },
+    UPropRange {
+        lo: 0x1E6E3,
+        hi: 0x1E6E3,
+    },
+    UPropRange {
+        lo: 0x1E6E6,
+        hi: 0x1E6E6,
+    },
+    UPropRange {
+        lo: 0x1E6EE,
+        hi: 0x1E6EF,
+    },
+    UPropRange {
+        lo: 0x1E6F5,
+        hi: 0x1E6F5,
     },
     UPropRange {
         lo: 0x1E8D0,
@@ -67765,7 +68743,7 @@ static BINARY_ID_CONTINUE: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x0889,
-        hi: 0x088E,
+        hi: 0x088F,
     },
     UPropRange {
         lo: 0x0897,
@@ -68124,7 +69102,7 @@ static BINARY_ID_CONTINUE: &[UPropRange] = &[
         hi: 0x0C5A,
     },
     UPropRange {
-        lo: 0x0C5D,
+        lo: 0x0C5C,
         hi: 0x0C5D,
     },
     UPropRange {
@@ -68176,7 +69154,7 @@ static BINARY_ID_CONTINUE: &[UPropRange] = &[
         hi: 0x0CD6,
     },
     UPropRange {
-        lo: 0x0CDD,
+        lo: 0x0CDC,
         hi: 0x0CDE,
     },
     UPropRange {
@@ -68629,7 +69607,11 @@ static BINARY_ID_CONTINUE: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x1ABF,
-        hi: 0x1ACE,
+        hi: 0x1ADD,
+    },
+    UPropRange {
+        lo: 0x1AE0,
+        hi: 0x1AEB,
     },
     UPropRange {
         lo: 0x1B00,
@@ -68997,22 +69979,10 @@ static BINARY_ID_CONTINUE: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0xA78B,
-        hi: 0xA7CD,
-    },
-    UPropRange {
-        lo: 0xA7D0,
-        hi: 0xA7D1,
-    },
-    UPropRange {
-        lo: 0xA7D3,
-        hi: 0xA7D3,
-    },
-    UPropRange {
-        lo: 0xA7D5,
         hi: 0xA7DC,
     },
     UPropRange {
-        lo: 0xA7F2,
+        lo: 0xA7F1,
         hi: 0xA827,
     },
     UPropRange {
@@ -69476,6 +70446,10 @@ static BINARY_ID_CONTINUE: &[UPropRange] = &[
         hi: 0x10939,
     },
     UPropRange {
+        lo: 0x10940,
+        hi: 0x10959,
+    },
+    UPropRange {
         lo: 0x10980,
         hi: 0x109B7,
     },
@@ -69589,10 +70563,10 @@ static BINARY_ID_CONTINUE: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x10EC2,
-        hi: 0x10EC4,
+        hi: 0x10EC7,
     },
     UPropRange {
-        lo: 0x10EFC,
+        lo: 0x10EFA,
         hi: 0x10F1C,
     },
     UPropRange {
@@ -69968,6 +70942,10 @@ static BINARY_ID_CONTINUE: &[UPropRange] = &[
         hi: 0x11AF8,
     },
     UPropRange {
+        lo: 0x11B60,
+        hi: 0x11B67,
+    },
+    UPropRange {
         lo: 0x11BC0,
         hi: 0x11BE0,
     },
@@ -70054,6 +71032,14 @@ static BINARY_ID_CONTINUE: &[UPropRange] = &[
     UPropRange {
         lo: 0x11DA0,
         hi: 0x11DA9,
+    },
+    UPropRange {
+        lo: 0x11DB0,
+        hi: 0x11DDB,
+    },
+    UPropRange {
+        lo: 0x11DE0,
+        hi: 0x11DE9,
     },
     UPropRange {
         lo: 0x11EE0,
@@ -70176,6 +71162,14 @@ static BINARY_ID_CONTINUE: &[UPropRange] = &[
         hi: 0x16E7F,
     },
     UPropRange {
+        lo: 0x16EA0,
+        hi: 0x16EB8,
+    },
+    UPropRange {
+        lo: 0x16EBB,
+        hi: 0x16ED3,
+    },
+    UPropRange {
         lo: 0x16F00,
         hi: 0x16F4A,
     },
@@ -70197,19 +71191,19 @@ static BINARY_ID_CONTINUE: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x16FF0,
-        hi: 0x16FF1,
+        hi: 0x16FF6,
     },
     UPropRange {
         lo: 0x17000,
-        hi: 0x187F7,
-    },
-    UPropRange {
-        lo: 0x18800,
         hi: 0x18CD5,
     },
     UPropRange {
         lo: 0x18CFF,
-        hi: 0x18D08,
+        hi: 0x18D1E,
+    },
+    UPropRange {
+        lo: 0x18D80,
+        hi: 0x18DF2,
     },
     UPropRange {
         lo: 0x1AFF0,
@@ -70520,6 +71514,18 @@ static BINARY_ID_CONTINUE: &[UPropRange] = &[
         hi: 0x1E5FA,
     },
     UPropRange {
+        lo: 0x1E6C0,
+        hi: 0x1E6DE,
+    },
+    UPropRange {
+        lo: 0x1E6E0,
+        hi: 0x1E6F5,
+    },
+    UPropRange {
+        lo: 0x1E6FE,
+        hi: 0x1E6FF,
+    },
+    UPropRange {
         lo: 0x1E7E0,
         hi: 0x1E7E6,
     },
@@ -70693,15 +71699,11 @@ static BINARY_ID_CONTINUE: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x2A700,
-        hi: 0x2B739,
-    },
-    UPropRange {
-        lo: 0x2B740,
         hi: 0x2B81D,
     },
     UPropRange {
         lo: 0x2B820,
-        hi: 0x2CEA1,
+        hi: 0x2CEAD,
     },
     UPropRange {
         lo: 0x2CEB0,
@@ -70721,7 +71723,7 @@ static BINARY_ID_CONTINUE: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x31350,
-        hi: 0x323AF,
+        hi: 0x33479,
     },
     UPropRange {
         lo: 0xE0100,
@@ -70932,7 +71934,7 @@ static BINARY_ID_START: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x0889,
-        hi: 0x088E,
+        hi: 0x088F,
     },
     UPropRange {
         lo: 0x08A0,
@@ -71195,7 +72197,7 @@ static BINARY_ID_START: &[UPropRange] = &[
         hi: 0x0C5A,
     },
     UPropRange {
-        lo: 0x0C5D,
+        lo: 0x0C5C,
         hi: 0x0C5D,
     },
     UPropRange {
@@ -71231,7 +72233,7 @@ static BINARY_ID_START: &[UPropRange] = &[
         hi: 0x0CBD,
     },
     UPropRange {
-        lo: 0x0CDD,
+        lo: 0x0CDC,
         hi: 0x0CDE,
     },
     UPropRange {
@@ -71960,22 +72962,10 @@ static BINARY_ID_START: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0xA78B,
-        hi: 0xA7CD,
-    },
-    UPropRange {
-        lo: 0xA7D0,
-        hi: 0xA7D1,
-    },
-    UPropRange {
-        lo: 0xA7D3,
-        hi: 0xA7D3,
-    },
-    UPropRange {
-        lo: 0xA7D5,
         hi: 0xA7DC,
     },
     UPropRange {
-        lo: 0xA7F2,
+        lo: 0xA7F1,
         hi: 0xA801,
     },
     UPropRange {
@@ -72439,6 +73429,10 @@ static BINARY_ID_START: &[UPropRange] = &[
         hi: 0x10939,
     },
     UPropRange {
+        lo: 0x10940,
+        hi: 0x10959,
+    },
+    UPropRange {
         lo: 0x10980,
         hi: 0x109B7,
     },
@@ -72528,7 +73522,7 @@ static BINARY_ID_START: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x10EC2,
-        hi: 0x10EC4,
+        hi: 0x10EC7,
     },
     UPropRange {
         lo: 0x10F00,
@@ -72899,6 +73893,10 @@ static BINARY_ID_START: &[UPropRange] = &[
         hi: 0x11D98,
     },
     UPropRange {
+        lo: 0x11DB0,
+        hi: 0x11DDB,
+    },
+    UPropRange {
         lo: 0x11EE0,
         hi: 0x11EF2,
     },
@@ -72995,6 +73993,14 @@ static BINARY_ID_START: &[UPropRange] = &[
         hi: 0x16E7F,
     },
     UPropRange {
+        lo: 0x16EA0,
+        hi: 0x16EB8,
+    },
+    UPropRange {
+        lo: 0x16EBB,
+        hi: 0x16ED3,
+    },
+    UPropRange {
         lo: 0x16F00,
         hi: 0x16F4A,
     },
@@ -73015,16 +74021,20 @@ static BINARY_ID_START: &[UPropRange] = &[
         hi: 0x16FE3,
     },
     UPropRange {
-        lo: 0x17000,
-        hi: 0x187F7,
+        lo: 0x16FF2,
+        hi: 0x16FF6,
     },
     UPropRange {
-        lo: 0x18800,
+        lo: 0x17000,
         hi: 0x18CD5,
     },
     UPropRange {
         lo: 0x18CFF,
-        hi: 0x18D08,
+        hi: 0x18D1E,
+    },
+    UPropRange {
+        lo: 0x18D80,
+        hi: 0x18DF2,
     },
     UPropRange {
         lo: 0x1AFF0,
@@ -73243,6 +74253,30 @@ static BINARY_ID_START: &[UPropRange] = &[
         hi: 0x1E5F0,
     },
     UPropRange {
+        lo: 0x1E6C0,
+        hi: 0x1E6DE,
+    },
+    UPropRange {
+        lo: 0x1E6E0,
+        hi: 0x1E6E2,
+    },
+    UPropRange {
+        lo: 0x1E6E4,
+        hi: 0x1E6E5,
+    },
+    UPropRange {
+        lo: 0x1E6E7,
+        hi: 0x1E6ED,
+    },
+    UPropRange {
+        lo: 0x1E6F0,
+        hi: 0x1E6F4,
+    },
+    UPropRange {
+        lo: 0x1E6FE,
+        hi: 0x1E6FF,
+    },
+    UPropRange {
         lo: 0x1E7E0,
         hi: 0x1E7E6,
     },
@@ -73408,15 +74442,11 @@ static BINARY_ID_START: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x2A700,
-        hi: 0x2B739,
-    },
-    UPropRange {
-        lo: 0x2B740,
         hi: 0x2B81D,
     },
     UPropRange {
         lo: 0x2B820,
-        hi: 0x2CEA1,
+        hi: 0x2CEAD,
     },
     UPropRange {
         lo: 0x2CEB0,
@@ -73436,7 +74466,7 @@ static BINARY_ID_START: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x31350,
-        hi: 0x323AF,
+        hi: 0x33479,
     },
 ];
 
@@ -73474,16 +74504,20 @@ static BINARY_IDEOGRAPHIC: &[UPropRange] = &[
         hi: 0x16FE4,
     },
     UPropRange {
-        lo: 0x17000,
-        hi: 0x187F7,
+        lo: 0x16FF2,
+        hi: 0x16FF6,
     },
     UPropRange {
-        lo: 0x18800,
+        lo: 0x17000,
         hi: 0x18CD5,
     },
     UPropRange {
         lo: 0x18CFF,
-        hi: 0x18D08,
+        hi: 0x18D1E,
+    },
+    UPropRange {
+        lo: 0x18D80,
+        hi: 0x18DF2,
     },
     UPropRange {
         lo: 0x1B170,
@@ -73495,15 +74529,11 @@ static BINARY_IDEOGRAPHIC: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x2A700,
-        hi: 0x2B739,
-    },
-    UPropRange {
-        lo: 0x2B740,
         hi: 0x2B81D,
     },
     UPropRange {
         lo: 0x2B820,
-        hi: 0x2CEA1,
+        hi: 0x2CEAD,
     },
     UPropRange {
         lo: 0x2CEB0,
@@ -73523,7 +74553,7 @@ static BINARY_IDEOGRAPHIC: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x31350,
-        hi: 0x323AF,
+        hi: 0x33479,
     },
 ];
 
@@ -74153,7 +75183,7 @@ static BINARY_LOWERCASE: &[UPropRange] = &[
         hi: 0x0293,
     },
     UPropRange {
-        lo: 0x0295,
+        lo: 0x0296,
         hi: 0x02B8,
     },
     UPropRange {
@@ -76017,6 +77047,10 @@ static BINARY_LOWERCASE: &[UPropRange] = &[
         hi: 0xA7CD,
     },
     UPropRange {
+        lo: 0xA7CF,
+        hi: 0xA7CF,
+    },
+    UPropRange {
         lo: 0xA7D1,
         hi: 0xA7D1,
     },
@@ -76041,7 +77075,7 @@ static BINARY_LOWERCASE: &[UPropRange] = &[
         hi: 0xA7DB,
     },
     UPropRange {
-        lo: 0xA7F2,
+        lo: 0xA7F1,
         hi: 0xA7F4,
     },
     UPropRange {
@@ -76131,6 +77165,10 @@ static BINARY_LOWERCASE: &[UPropRange] = &[
     UPropRange {
         lo: 0x16E60,
         hi: 0x16E7F,
+    },
+    UPropRange {
+        lo: 0x16EBB,
+        hi: 0x16ED3,
     },
     UPropRange {
         lo: 0x1D41A,
@@ -76604,6 +77642,10 @@ static BINARY_MATH: &[UPropRange] = &[
         hi: 0x10D8F,
     },
     UPropRange {
+        lo: 0x1CEF0,
+        hi: 0x1CEF0,
+    },
+    UPropRange {
         lo: 0x1D400,
         hi: 0x1D454,
     },
@@ -76822,6 +77864,10 @@ static BINARY_MATH: &[UPropRange] = &[
     UPropRange {
         lo: 0x1EEF0,
         hi: 0x1EEF1,
+    },
+    UPropRange {
+        lo: 0x1F8D0,
+        hi: 0x1F8D8,
     },
 ];
 
@@ -78117,15 +79163,11 @@ static BINARY_UNIFIED_IDEOGRAPH: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x2A700,
-        hi: 0x2B739,
-    },
-    UPropRange {
-        lo: 0x2B740,
         hi: 0x2B81D,
     },
     UPropRange {
         lo: 0x2B820,
-        hi: 0x2CEA1,
+        hi: 0x2CEAD,
     },
     UPropRange {
         lo: 0x2CEB0,
@@ -78141,7 +79183,7 @@ static BINARY_UNIFIED_IDEOGRAPH: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x31350,
-        hi: 0x323AF,
+        hi: 0x33479,
     },
 ];
 
@@ -80563,8 +81605,20 @@ static BINARY_UPPERCASE: &[UPropRange] = &[
         hi: 0xA7CC,
     },
     UPropRange {
+        lo: 0xA7CE,
+        hi: 0xA7CE,
+    },
+    UPropRange {
         lo: 0xA7D0,
         hi: 0xA7D0,
+    },
+    UPropRange {
+        lo: 0xA7D2,
+        hi: 0xA7D2,
+    },
+    UPropRange {
+        lo: 0xA7D4,
+        hi: 0xA7D4,
     },
     UPropRange {
         lo: 0xA7D6,
@@ -80629,6 +81683,10 @@ static BINARY_UPPERCASE: &[UPropRange] = &[
     UPropRange {
         lo: 0x16E40,
         hi: 0x16E5F,
+    },
+    UPropRange {
+        lo: 0x16EA0,
+        hi: 0x16EB8,
     },
     UPropRange {
         lo: 0x1D400,
@@ -81045,7 +82103,7 @@ static BINARY_XID_CONTINUE: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x0889,
-        hi: 0x088E,
+        hi: 0x088F,
     },
     UPropRange {
         lo: 0x0897,
@@ -81404,7 +82462,7 @@ static BINARY_XID_CONTINUE: &[UPropRange] = &[
         hi: 0x0C5A,
     },
     UPropRange {
-        lo: 0x0C5D,
+        lo: 0x0C5C,
         hi: 0x0C5D,
     },
     UPropRange {
@@ -81456,7 +82514,7 @@ static BINARY_XID_CONTINUE: &[UPropRange] = &[
         hi: 0x0CD6,
     },
     UPropRange {
-        lo: 0x0CDD,
+        lo: 0x0CDC,
         hi: 0x0CDE,
     },
     UPropRange {
@@ -81909,7 +82967,11 @@ static BINARY_XID_CONTINUE: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x1ABF,
-        hi: 0x1ACE,
+        hi: 0x1ADD,
+    },
+    UPropRange {
+        lo: 0x1AE0,
+        hi: 0x1AEB,
     },
     UPropRange {
         lo: 0x1B00,
@@ -82281,22 +83343,10 @@ static BINARY_XID_CONTINUE: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0xA78B,
-        hi: 0xA7CD,
-    },
-    UPropRange {
-        lo: 0xA7D0,
-        hi: 0xA7D1,
-    },
-    UPropRange {
-        lo: 0xA7D3,
-        hi: 0xA7D3,
-    },
-    UPropRange {
-        lo: 0xA7D5,
         hi: 0xA7DC,
     },
     UPropRange {
-        lo: 0xA7F2,
+        lo: 0xA7F1,
         hi: 0xA827,
     },
     UPropRange {
@@ -82784,6 +83834,10 @@ static BINARY_XID_CONTINUE: &[UPropRange] = &[
         hi: 0x10939,
     },
     UPropRange {
+        lo: 0x10940,
+        hi: 0x10959,
+    },
+    UPropRange {
         lo: 0x10980,
         hi: 0x109B7,
     },
@@ -82897,10 +83951,10 @@ static BINARY_XID_CONTINUE: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x10EC2,
-        hi: 0x10EC4,
+        hi: 0x10EC7,
     },
     UPropRange {
-        lo: 0x10EFC,
+        lo: 0x10EFA,
         hi: 0x10F1C,
     },
     UPropRange {
@@ -83276,6 +84330,10 @@ static BINARY_XID_CONTINUE: &[UPropRange] = &[
         hi: 0x11AF8,
     },
     UPropRange {
+        lo: 0x11B60,
+        hi: 0x11B67,
+    },
+    UPropRange {
         lo: 0x11BC0,
         hi: 0x11BE0,
     },
@@ -83362,6 +84420,14 @@ static BINARY_XID_CONTINUE: &[UPropRange] = &[
     UPropRange {
         lo: 0x11DA0,
         hi: 0x11DA9,
+    },
+    UPropRange {
+        lo: 0x11DB0,
+        hi: 0x11DDB,
+    },
+    UPropRange {
+        lo: 0x11DE0,
+        hi: 0x11DE9,
     },
     UPropRange {
         lo: 0x11EE0,
@@ -83484,6 +84550,14 @@ static BINARY_XID_CONTINUE: &[UPropRange] = &[
         hi: 0x16E7F,
     },
     UPropRange {
+        lo: 0x16EA0,
+        hi: 0x16EB8,
+    },
+    UPropRange {
+        lo: 0x16EBB,
+        hi: 0x16ED3,
+    },
+    UPropRange {
         lo: 0x16F00,
         hi: 0x16F4A,
     },
@@ -83505,19 +84579,19 @@ static BINARY_XID_CONTINUE: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x16FF0,
-        hi: 0x16FF1,
+        hi: 0x16FF6,
     },
     UPropRange {
         lo: 0x17000,
-        hi: 0x187F7,
-    },
-    UPropRange {
-        lo: 0x18800,
         hi: 0x18CD5,
     },
     UPropRange {
         lo: 0x18CFF,
-        hi: 0x18D08,
+        hi: 0x18D1E,
+    },
+    UPropRange {
+        lo: 0x18D80,
+        hi: 0x18DF2,
     },
     UPropRange {
         lo: 0x1AFF0,
@@ -83828,6 +84902,18 @@ static BINARY_XID_CONTINUE: &[UPropRange] = &[
         hi: 0x1E5FA,
     },
     UPropRange {
+        lo: 0x1E6C0,
+        hi: 0x1E6DE,
+    },
+    UPropRange {
+        lo: 0x1E6E0,
+        hi: 0x1E6F5,
+    },
+    UPropRange {
+        lo: 0x1E6FE,
+        hi: 0x1E6FF,
+    },
+    UPropRange {
         lo: 0x1E7E0,
         hi: 0x1E7E6,
     },
@@ -84001,15 +85087,11 @@ static BINARY_XID_CONTINUE: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x2A700,
-        hi: 0x2B739,
-    },
-    UPropRange {
-        lo: 0x2B740,
         hi: 0x2B81D,
     },
     UPropRange {
         lo: 0x2B820,
-        hi: 0x2CEA1,
+        hi: 0x2CEAD,
     },
     UPropRange {
         lo: 0x2CEB0,
@@ -84029,7 +85111,7 @@ static BINARY_XID_CONTINUE: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x31350,
-        hi: 0x323AF,
+        hi: 0x33479,
     },
     UPropRange {
         lo: 0xE0100,
@@ -84240,7 +85322,7 @@ static BINARY_XID_START: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x0889,
-        hi: 0x088E,
+        hi: 0x088F,
     },
     UPropRange {
         lo: 0x08A0,
@@ -84503,7 +85585,7 @@ static BINARY_XID_START: &[UPropRange] = &[
         hi: 0x0C5A,
     },
     UPropRange {
-        lo: 0x0C5D,
+        lo: 0x0C5C,
         hi: 0x0C5D,
     },
     UPropRange {
@@ -84539,7 +85621,7 @@ static BINARY_XID_START: &[UPropRange] = &[
         hi: 0x0CBD,
     },
     UPropRange {
-        lo: 0x0CDD,
+        lo: 0x0CDC,
         hi: 0x0CDE,
     },
     UPropRange {
@@ -85268,22 +86350,10 @@ static BINARY_XID_START: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0xA78B,
-        hi: 0xA7CD,
-    },
-    UPropRange {
-        lo: 0xA7D0,
-        hi: 0xA7D1,
-    },
-    UPropRange {
-        lo: 0xA7D3,
-        hi: 0xA7D3,
-    },
-    UPropRange {
-        lo: 0xA7D5,
         hi: 0xA7DC,
     },
     UPropRange {
-        lo: 0xA7F2,
+        lo: 0xA7F1,
         hi: 0xA801,
     },
     UPropRange {
@@ -85775,6 +86845,10 @@ static BINARY_XID_START: &[UPropRange] = &[
         hi: 0x10939,
     },
     UPropRange {
+        lo: 0x10940,
+        hi: 0x10959,
+    },
+    UPropRange {
         lo: 0x10980,
         hi: 0x109B7,
     },
@@ -85864,7 +86938,7 @@ static BINARY_XID_START: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x10EC2,
-        hi: 0x10EC4,
+        hi: 0x10EC7,
     },
     UPropRange {
         lo: 0x10F00,
@@ -86235,6 +87309,10 @@ static BINARY_XID_START: &[UPropRange] = &[
         hi: 0x11D98,
     },
     UPropRange {
+        lo: 0x11DB0,
+        hi: 0x11DDB,
+    },
+    UPropRange {
         lo: 0x11EE0,
         hi: 0x11EF2,
     },
@@ -86331,6 +87409,14 @@ static BINARY_XID_START: &[UPropRange] = &[
         hi: 0x16E7F,
     },
     UPropRange {
+        lo: 0x16EA0,
+        hi: 0x16EB8,
+    },
+    UPropRange {
+        lo: 0x16EBB,
+        hi: 0x16ED3,
+    },
+    UPropRange {
         lo: 0x16F00,
         hi: 0x16F4A,
     },
@@ -86351,16 +87437,20 @@ static BINARY_XID_START: &[UPropRange] = &[
         hi: 0x16FE3,
     },
     UPropRange {
-        lo: 0x17000,
-        hi: 0x187F7,
+        lo: 0x16FF2,
+        hi: 0x16FF6,
     },
     UPropRange {
-        lo: 0x18800,
+        lo: 0x17000,
         hi: 0x18CD5,
     },
     UPropRange {
         lo: 0x18CFF,
-        hi: 0x18D08,
+        hi: 0x18D1E,
+    },
+    UPropRange {
+        lo: 0x18D80,
+        hi: 0x18DF2,
     },
     UPropRange {
         lo: 0x1AFF0,
@@ -86579,6 +87669,30 @@ static BINARY_XID_START: &[UPropRange] = &[
         hi: 0x1E5F0,
     },
     UPropRange {
+        lo: 0x1E6C0,
+        hi: 0x1E6DE,
+    },
+    UPropRange {
+        lo: 0x1E6E0,
+        hi: 0x1E6E2,
+    },
+    UPropRange {
+        lo: 0x1E6E4,
+        hi: 0x1E6E5,
+    },
+    UPropRange {
+        lo: 0x1E6E7,
+        hi: 0x1E6ED,
+    },
+    UPropRange {
+        lo: 0x1E6F0,
+        hi: 0x1E6F4,
+    },
+    UPropRange {
+        lo: 0x1E6FE,
+        hi: 0x1E6FF,
+    },
+    UPropRange {
         lo: 0x1E7E0,
         hi: 0x1E7E6,
     },
@@ -86744,15 +87858,11 @@ static BINARY_XID_START: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x2A700,
-        hi: 0x2B739,
-    },
-    UPropRange {
-        lo: 0x2B740,
         hi: 0x2B81D,
     },
     UPropRange {
         lo: 0x2B820,
-        hi: 0x2CEA1,
+        hi: 0x2CEAD,
     },
     UPropRange {
         lo: 0x2CEB0,
@@ -86772,7 +87882,7 @@ static BINARY_XID_START: &[UPropRange] = &[
     },
     UPropRange {
         lo: 0x31350,
-        hi: 0x323AF,
+        hi: 0x33479,
     },
 ];
 
@@ -86895,6 +88005,7 @@ pub static SCRIPT_ALIASES: &[(&str, &str)] = &[
     ("Bass", "Bassa_Vah"),
     ("Batk", "Batak"),
     ("Beng", "Bengali"),
+    ("Berf", "Beria_Erfe"),
     ("Bhks", "Bhaiksuki"),
     ("Bopo", "Bopomofo"),
     ("Brah", "Brahmi"),
@@ -87011,6 +88122,7 @@ pub static SCRIPT_ALIASES: &[(&str, &str)] = &[
     ("Shaw", "Shavian"),
     ("Shrd", "Sharada"),
     ("Sidd", "Siddham"),
+    ("Sidt", "Sidetic"),
     ("Sind", "Khudawadi"),
     ("Sinh", "Sinhala"),
     ("Sogd", "Sogdian"),
@@ -87028,6 +88140,7 @@ pub static SCRIPT_ALIASES: &[(&str, &str)] = &[
     ("Taml", "Tamil"),
     ("Tang", "Tangut"),
     ("Tavt", "Tai_Viet"),
+    ("Tayo", "Tai_Yo"),
     ("Telu", "Telugu"),
     ("Tfng", "Tifinagh"),
     ("Tglg", "Tagalog"),
@@ -87036,6 +88149,7 @@ pub static SCRIPT_ALIASES: &[(&str, &str)] = &[
     ("Tirh", "Tirhuta"),
     ("Tnsa", "Tangsa"),
     ("Todr", "Todhri"),
+    ("Tols", "Tolong_Siki"),
     ("Tutg", "Tulu_Tigalari"),
     ("Ugar", "Ugaritic"),
     ("Vaii", "Vai"),

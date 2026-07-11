@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""UCD 16.0.0 -> crates/torajs-regex/src/ucd_tables.rs generator.
+"""UCD 17.0.0 -> crates/torajs-regex/src/ucd_tables.rs generator.
 
 RFC 20260711-regex-property-escapes chunk A. Reads the UCD data files
-under ./data (downloaded from unicode.org/Public/16.0.0/ucd/) and
+under ./data (downloaded from unicode.org/Public/17.0.0/ucd/) and
 emits one CODEGEN Rust file with sorted, merged UPropRange tables for:
 
 - General_Category values (38: the 30 leaf categories + L/LC/M/N/P/S/Z/C composites)
@@ -253,7 +253,7 @@ def main():
         sys.exit(1)
 
     out = []
-    out.append("// CODEGEN: labs/ucd-gen/gen.py from UCD 16.0.0 — do not edit.")
+    out.append("// CODEGEN: labs/ucd-gen/gen.py from UCD 17.0.0 — do not edit.")
     out.append("//! Unicode property range tables for `\\p{...}` escapes")
     out.append("//! (RFC 20260711-regex-property-escapes chunk A).")
     out.append("")

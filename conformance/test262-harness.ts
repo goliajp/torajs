@@ -485,9 +485,12 @@ const $MAX_ITERATIONS: number = 100000;
 //
 // Unblocked by the `RegExp` type-annotation surface (ee989df). All
 // helpers are same-name top-level definitions — no rewrite entries.
-// buildString drops the original's String.fromCodePoint.apply +
-// CHUNK_SIZE batching for a per-code-point append (the chunking is a
-// perf workaround for engine argument limits, not semantics).
+// buildString collects per-code-point pieces and joins once — the
+// original's String.fromCodePoint.apply + CHUNK_SIZE batching exists
+// for the same reason (a generated property test spans ~1.1M code
+// points; per-append string concat is quadratic without rope
+// strings — the earlier per-cp `+=` port shape timed out every
+// generated case).
 // testPropertyOfStrings declares nonMatchStrings as required — the
 // few generated cases that omit it (rgi-emoji property-of-strings)
 // land in the type-error bucket, attributably.
@@ -495,18 +498,18 @@ const $MAX_ITERATIONS: number = 100000;
 type __T262BuildStringArgs = { loneCodePoints: number[]; ranges: number[][] };
 
 function buildString(args: __T262BuildStringArgs): string {
-  let result: string = "";
+  const buf: string[] = [];
   const lone: number[] = args.loneCodePoints;
   for (let i = 0; i < lone.length; i++) {
-    result += String.fromCodePoint(lone[i]);
+    buf.push(String.fromCodePoint(lone[i]));
   }
   const ranges: number[][] = args.ranges;
   for (let i = 0; i < ranges.length; i++) {
     for (let cp = ranges[i][0]; cp <= ranges[i][1]; cp++) {
-      result += String.fromCodePoint(cp);
+      buf.push(String.fromCodePoint(cp));
     }
   }
-  return result;
+  return buf.join("");
 }
 
 function printCodePoint(codePoint: number): string {
