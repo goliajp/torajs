@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-11T05:56:58.255Z",
+  "generatedAt": "2026-07-11T07:39:31.566Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-10T22:52:41Z",
-    "headSha": "a414071c",
-    "elapsedSec": 428.61,
+    "ranAt": "2026-07-11T07:35:35Z",
+    "headSha": "847f5b0c",
+    "elapsedSec": 1105.81,
     "workers": 8,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 2748,
-    "passNoOracle": 73,
+    "pass": 3055,
+    "passNoOracle": 74,
     "passNegative": 4444,
-    "passTotal": 7265,
-    "bug": 1885,
-    "incompatible": 44024,
-    "bunSkip": 11433,
+    "passTotal": 7573,
+    "bug": 2770,
+    "incompatible": 42831,
+    "bunSkip": 12862,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 9150,
-    "passRateInScope": 13.66,
-    "passRateTrAccepted": 79.4
+    "trAccepted": 10343,
+    "passRateInScope": 14.24,
+    "passRateTrAccepted": 73.22
   },
   "torajs": {
-    "commit": "076d47c7",
-    "commitSubject": "chore: rustfmt fixup for the delete-operator files",
+    "commit": "3461168d",
+    "commitSubject": "chore: rustfmt fixup for the primordial rewrite entry",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,38 @@
   },
   "commits": [
     {
+      "hash": "3461168d",
+      "subject": "chore: rustfmt fixup for the primordial rewrite entry"
+    },
+    {
+      "hash": "d16637f4",
+      "subject": "feat: propertyHelper.js typed port — test262 harness-includes -4977"
+    },
+    {
+      "hash": "847f5b0c",
+      "subject": "fix: delete refuses non-configurable properties (ES §10.1.10 step 4)"
+    },
+    {
+      "hash": "a690bc60",
+      "subject": "feat: hasOwnProperty/propertyIsEnumerable on any + Object.hasOwn any arm"
+    },
+    {
+      "hash": "5f33c869",
+      "subject": "feat: for-in mid-loop-delete guard via any_prop_has (ES §14.7.5)"
+    },
+    {
+      "hash": "80153b24",
+      "subject": "feat: for-in/for-of var and bare head forms + null zero-iteration (ES §14.7.5)"
+    },
+    {
+      "hash": "48b82bc4",
+      "subject": "feat: Object.keys/gOPN ToObject dispatch on any primitives (ES §20.1.2.17)"
+    },
+    {
+      "hash": "79ece0b1",
+      "subject": "chore(dashboard): refresh @ 076d47c7 - rotation 69 (810-813: ident-alias bindings promote to data-global slots via upstream let-decl shape recursion; ctor-less derived classes synthesize the implicit default ctor closing the expected-0-arguments gap and the silently-elided zero-param parent ctor body; class .length answers the ctor expected argument count with synthesized ctors reporting 0 per spec; delete operator lands end to end - lexer keyword through Expr::Delete to __torajs_any_prop_delete with dynobj OrdinaryDelete, expando deletes, and a 300k churn-flat drop ledger; RFC 20260711-delete-forin-propertyhelper opened toward the propertyHelper port with str-computed-index refuted as already fixed; five stale records audited closed; gates 1423 -> 1427 four green, tr baseline 61630832, nextest core 180)"
+    },
+    {
       "hash": "076d47c7",
       "subject": "chore: rustfmt fixup for the delete-operator files"
     },
@@ -727,59 +759,38 @@
     {
       "hash": "0c1f8245",
       "subject": "feat: ctor-less derived classes synthesize the implicit default ctor"
-    },
-    {
-      "hash": "4b1cde81",
-      "subject": "feat: top-level ident-alias bindings promote to data-global slots"
-    },
-    {
-      "hash": "2026bc9a",
-      "subject": "chore(bench,test262): full-matrix refresh @ a414071c"
-    },
-    {
-      "hash": "fb055e52",
-      "subject": "chore(dashboard): refresh @ a414071c - rotation 68 (805-809: closure-global wrap gate sheds the ret-ann requirement; void-call-as-value answers undefined across every lane; undefined/null array literals route to the tagged any lane fixing a print face and a scalar-anchor SIGSEGV; multi-arg console.log evaluates all arguments before printing with phase-1 rc_inc pinning print-as-evaluated semantics; any-annotated top-level bindings promote to a NaN-box global slot with annotation-over-literal checker registration; five stale records audited closed; gates 1418 -> 1423 six green one gate-caught fixup, tr baseline 61614080, nextest core 180)"
-    },
-    {
-      "hash": "a414071c",
-      "subject": "feat: any-annotated top-level bindings promote to a NaN-box global slot"
-    },
-    {
-      "hash": "8ddf94e3",
-      "subject": "fix: multi-arg console.log evaluates all arguments before printing"
-    },
-    {
-      "hash": "5728b1db",
-      "subject": "chore(dashboard): refresh @ 7baf2ba8 - rotation 68 (805-807: un-annotated named-fn refs promote to closure globals - forwarder wrap sheds the explicit-ret-ann gate, closure_bindings gains the bare-fn-ident arm; void-call-as-value answers undefined across every lane - checker types user-fn void calls Undefined, call lanes answer ConstPtrNull, typeof keeps the effect, return box goes expr-aware, assignability admits Undefined into Void; undefined/null array literals route to the tagged any lane fixing the [unknown-any-tag] print face and the scalar-anchor SIGSEGV, with a gate-caught fix-up keeping the AST undefined probe beside the checker one; three stale records audited closed - generic-position arrow splitter, lookbehind captures, regex exec leak/utf16 trio; gates 1418 -> 1421 four green, tr baseline 61614016, nextest core 180)"
-    },
-    {
-      "hash": "7baf2ba8",
-      "subject": "fix: pack_any_elem keeps the AST undefined probe alongside the checker one"
-    },
-    {
-      "hash": "40f8cdac",
-      "subject": "fix: undefined/null array-literal elements route to the tagged any lane"
     }
   ],
-  "headSha": "076d47c7",
+  "headSha": "3461168d",
   "autorun": {
-    "total": 375,
+    "total": 376,
     "baselineTarget": 10,
-    "bySelf": 370,
+    "bySelf": 371,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1783722250-2a18",
-      "at": "2026-07-10T22:24:10Z",
-      "ts": 1783722250,
+      "rotationId": "r-1783749492-3d0e",
+      "at": "2026-07-11T05:58:12Z",
+      "ts": 1783749492,
       "trigger": "self",
-      "prevHead": "fb055e52",
-      "handoffSha": "sha256:67d684dcb7129b4ba030bb0640b3b648ad47b1e87189e3b545d994b8e99476ec",
+      "prevHead": "79ece0b1",
+      "handoffSha": "sha256:f289ed3e3294e897f5c92016a27e36286215615fed83a4ffd017ec927d904758",
       "handoffAgeSec": 7,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1783749492-3d0e",
+        "at": "2026-07-11T05:58:12Z",
+        "ts": 1783749492,
+        "trigger": "self",
+        "prevHead": "79ece0b1",
+        "handoffSha": "sha256:f289ed3e3294e897f5c92016a27e36286215615fed83a4ffd017ec927d904758",
+        "handoffAgeSec": 7,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1783722250-2a18",
         "at": "2026-07-10T22:24:10Z",
@@ -876,17 +887,6 @@
         "prevHead": "83de1aaa",
         "handoffSha": "sha256:63ddf14850b527428faf92e073497854809f8216d9a25db35f359652fd3c14f4",
         "handoffAgeSec": 11,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1783637373-16a6",
-        "at": "2026-07-09T22:49:33Z",
-        "ts": 1783637373,
-        "trigger": "self",
-        "prevHead": "f221774d",
-        "handoffSha": "sha256:16482a095cd5076a9be7fed379472013ffa4547b1b687094e42543f4e0670215",
-        "handoffAgeSec": 205,
         "conformanceBefore": null,
         "commitsInSession": null
       }
