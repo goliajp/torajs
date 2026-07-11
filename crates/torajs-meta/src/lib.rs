@@ -28,6 +28,7 @@ pub(crate) mod closure_reflect;
 pub mod fnprops;
 pub mod from_entries;
 pub mod obj_own_keys;
+pub mod obj_own_values;
 pub mod own_names;
 pub mod reflect;
 pub mod str_descriptor;

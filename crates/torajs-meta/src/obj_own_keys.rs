@@ -22,71 +22,59 @@ use core::ffi::c_void;
 unsafe extern "C" {
     fn __torajs_arr_alloc(cap: u64) -> *mut u8;
     fn __torajs_arr_push(arr: *mut u8, val: i64) -> *mut u8;
-    fn __torajs_arr_alloc_any(cap: u64) -> *mut u8;
-    fn __torajs_arr_push_any(arr: *mut c_void, tag: u64, value: u64) -> *mut u8;
-    fn __torajs_arr_mark_kind(arr: *mut c_void, chain: u64);
     fn __torajs_rc_inc(p: *mut c_void);
     /// `runtime_str.c` universal-drop dispatcher (settles the unused
     /// static list on the DynObj path).
     fn __torajs_value_drop_heap(p: *mut c_void);
-    /// torajs-dynobj iteration surface — keys are BORROWED; values
-    /// are the bucket's NaN-box AnyValue (borrowed).
+    /// torajs-dynobj iteration surface — keys are BORROWED.
     fn __torajs_dynobj_iter_len(obj: *const c_void) -> u64;
     fn __torajs_dynobj_iter_key(obj: *const c_void, i: u64) -> *mut c_void;
-    fn __torajs_dynobj_iter_value(obj: *const c_void, i: u64) -> u64;
     fn __torajs_dynobj_iter_order(obj: *const c_void, out: *mut u64, cap: u64) -> u64;
     fn __torajs_dynobj_iter_flags(obj: *const c_void, i: u64) -> u64;
     /// torajs-throw — ToObject on null / undefined (§20.1.2.17 step 1).
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
-    /// torajs-anyvalue box decode — `unbox_value` is a borrow read;
-    /// `unbox_value_owned` fuses materialize + rc_inc so the slot
-    /// owns its share (chunk 610 owned-unbox protocol).
-    fn __torajs_anyv_unbox_tag(v: u64) -> i64;
-    fn __torajs_anyv_unbox_value(v: u64) -> i64;
-    fn __torajs_anyv_unbox_value_owned(v: u64) -> i64;
-    /// torajs-dynobj accessor — runs the getter, answers an OWNED box.
-    fn __torajs_accessor_invoke_getter(pair: *const c_void) -> u64;
 }
 
 /// `HeapHeader::type_tag` mirror of `torajs_rc::Tag::DynObj` (locked
-/// there); header field lives at byte offset 4.
+/// there); header field lives at byte offset 4. Shared with the
+/// values/entries chooser twin (`obj_own_values.rs`).
 const TAG_DYNOBJ: u16 = 14;
-const HDR_TYPE_TAG_OFF: usize = 4;
+pub(crate) const HDR_TYPE_TAG_OFF: usize = 4;
 
 /// `torajs_rc::Tag` mirrors for the ToObject dispatch arms
 /// (chunk B1 — for-in RFC): Str / Arr / Closure / Obj cells each get
 /// their own own-keys shape instead of the former non-struct throw.
-const TAG_STR_CELL: u16 = 0;
-const TAG_OBJ_CELL: u16 = 1;
-const TAG_ARR_CELL: u16 = 2;
-const TAG_CLOSURE_CELL: u16 = 3;
+pub(crate) const TAG_STR_CELL: u16 = 0;
+pub(crate) const TAG_OBJ_CELL: u16 = 1;
+pub(crate) const TAG_ARR_CELL: u16 = 2;
+pub(crate) const TAG_CLOSURE_CELL: u16 = 3;
 
 /// torajs-arr layout mirrors — `len` u64 at +8, inline props-dynobj
 /// slot at +24 (`torajs_arr::layout::ARR_PROPS_OFF`).
-const ARR_LEN_OFF: usize = 8;
-const ARR_PROPS_OFF: usize = 24;
+pub(crate) const ARR_LEN_OFF: usize = 8;
+pub(crate) const ARR_PROPS_OFF: usize = 24;
 /// Closure env-cell props-dynobj slot (T-27 Function-as-Object,
 /// mirror `torajs_anyvalue::member_get::CLOSURE_PROPS_OFF`).
-const CLOSURE_PROPS_OFF: usize = 24;
+pub(crate) const CLOSURE_PROPS_OFF: usize = 24;
 /// Str payload length u32 at +8 (`torajs-str` layout).
-const STR_LEN_OFF: usize = 8;
+pub(crate) const STR_LEN_OFF: usize = 8;
 
 /// ShortStr NaN-box marker (`top16 == 0x0001`) + len bits 47..40
 /// (mirror `torajs_anyvalue::nanbox` SSO layout).
-const SHORT_STR_TOP16: u64 = 0x0001;
+pub(crate) const SHORT_STR_TOP16: u64 = 0x0001;
 
 /// `torajs_dynobj::layout::BUCKET_FLAG_ENUMERABLE` mirror (bit 1).
-const FLAG_ENUMERABLE: u64 = 1 << 1;
+pub(crate) const FLAG_ENUMERABLE: u64 = 1 << 1;
 
 /// `AnySlotTag` heap tag (mirror torajs-anyvalue) — the tag
 /// `unbox_tag` reports for any heap cell, including an AccessorPair.
-const ANY_HEAP_TAG: i64 = 4;
+pub(crate) const ANY_HEAP_TAG: i64 = 4;
 /// `torajs_dynobj::accessor::TAG_ACCESSOR_PAIR` mirror.
-const TAG_ACCESSOR_PAIR: u16 = 18;
+pub(crate) const TAG_ACCESSOR_PAIR: u16 = 18;
 /// Elem-kind chain stamping the entries outer array (`Arr<Arr<Any>>`:
 /// heap elem = 4, inner FLAG_ARR_ANY blocks self-describe) so
 /// kind-aware borrow readers (Object.fromEntries) decode the slots.
-const KIND_CHAIN_HEAP: u64 = 4;
+pub(crate) const KIND_CHAIN_HEAP: u64 = 4;
 
 /// Runtime chooser — see module doc. Returns a +1-rc `Arr<Str>`.
 ///
@@ -240,9 +228,10 @@ pub unsafe extern "C" fn __torajs_anyv_own_keys(v: u64, include_nonenum: i64) ->
 }
 
 /// Universal-header `type_tag` read (u16 at +4) — local twin of
-/// `is_dynobj`'s read for the ToObject dispatch arms.
+/// `is_dynobj`'s read for the ToObject dispatch arms. Shared with
+/// the values/entries chooser twin (`obj_own_values.rs`).
 #[inline]
-unsafe fn heap_type_tag_local(cell: *const c_void) -> u16 {
+pub(crate) unsafe fn heap_type_tag_local(cell: *const c_void) -> u16 {
     unsafe { *((cell as *const u8).add(HDR_TYPE_TAG_OFF) as *const u16) }
 }
 
@@ -264,106 +253,10 @@ pub unsafe extern "C" fn __torajs_anyv_forin_keys(v: u64) -> *mut c_void {
 
 /// Cell-imm + DynObj tag test on a raw NaN-box value (mirrors
 /// `struct_enum::is_cell_imm` — the header read is only sound for a
-/// real heap ptr bit pattern).
-fn is_dynobj_imm(v: u64) -> bool {
+/// real heap ptr bit pattern). Shared with the values/entries
+/// chooser twin (`obj_own_values.rs`).
+pub(crate) fn is_dynobj_imm(v: u64) -> bool {
     let top16_zero = v & 0xFFFF_0000_0000_0000 == 0;
     let not_sentinel = v & 0x2 == 0;
     top16_zero && not_sentinel && v != 0 && unsafe { is_dynobj(v as *const c_void) }
-}
-
-/// The `i`-th entry's value as an owned `(tag, value)` pair for an
-/// array slot. A plain data value owned-unboxes (the bucket keeps its
-/// share, the slot takes a fresh one). An accessor entry (heap box at
-/// an `AccessorPair` cell) runs the getter — ES §7.3.24
-/// EnumerableOwnProperties calls `[[Get]]` — and the OWNED answer's
-/// share transfers to the slot via a borrow unbox.
-unsafe fn entry_value_pair(obj: *const c_void, i: u64) -> (u64, u64) {
-    let b = unsafe { __torajs_dynobj_iter_value(obj, i) };
-    let t = unsafe { __torajs_anyv_unbox_tag(b) };
-    if t == ANY_HEAP_TAG {
-        let p = unsafe { __torajs_anyv_unbox_value(b) } as *const c_void;
-        if !p.is_null()
-            && unsafe { *((p as *const u8).add(HDR_TYPE_TAG_OFF) as *const u16) }
-                == TAG_ACCESSOR_PAIR
-        {
-            let g = unsafe { __torajs_accessor_invoke_getter(p) };
-            let gt = unsafe { __torajs_anyv_unbox_tag(g) };
-            return (gt as u64, unsafe { __torajs_anyv_unbox_value(g) } as u64);
-        }
-    }
-    (t as u64, unsafe { __torajs_anyv_unbox_value_owned(b) }
-        as u64)
-}
-
-/// Build the value `Arr<Any>` from a live DynObj walk — ES order,
-/// enumerable-only (`Object.values`, §20.1.2.22).
-unsafe fn dynobj_values_walk(obj: *const c_void) -> *mut c_void {
-    let len = unsafe { __torajs_dynobj_iter_len(obj) };
-    let mut order = vec![0u64; len as usize];
-    let n = unsafe { __torajs_dynobj_iter_order(obj, order.as_mut_ptr(), len) };
-    let mut arr = unsafe { __torajs_arr_alloc_any(n) };
-    for &i in order.iter().take(n as usize) {
-        let flags = unsafe { __torajs_dynobj_iter_flags(obj, i) };
-        if flags & FLAG_ENUMERABLE == 0 {
-            continue;
-        }
-        if unsafe { __torajs_dynobj_iter_key(obj, i) }.is_null() {
-            continue;
-        }
-        let (tag, val) = unsafe { entry_value_pair(obj, i) };
-        arr = unsafe { __torajs_arr_push_any(arr as *mut c_void, tag, val) };
-    }
-    arr as *mut c_void
-}
-
-/// Build the `[key, value]` pair `Arr<Arr<Any>>` from a live DynObj
-/// walk — ES order, enumerable-only (`Object.entries`, §20.1.2.5).
-/// The outer array is elem-kind stamped so kind-aware borrow readers
-/// (Object.fromEntries) decode its slots.
-unsafe fn dynobj_entries_walk(obj: *const c_void) -> *mut c_void {
-    let len = unsafe { __torajs_dynobj_iter_len(obj) };
-    let mut order = vec![0u64; len as usize];
-    let n = unsafe { __torajs_dynobj_iter_order(obj, order.as_mut_ptr(), len) };
-    let mut outer = unsafe { __torajs_arr_alloc(n) };
-    for &i in order.iter().take(n as usize) {
-        let flags = unsafe { __torajs_dynobj_iter_flags(obj, i) };
-        if flags & FLAG_ENUMERABLE == 0 {
-            continue;
-        }
-        let key = unsafe { __torajs_dynobj_iter_key(obj, i) };
-        if key.is_null() {
-            continue;
-        }
-        // Borrowed key → the inner pair takes its own share.
-        unsafe { __torajs_rc_inc(key) };
-        let (tag, val) = unsafe { entry_value_pair(obj, i) };
-        let inner = unsafe { __torajs_arr_alloc_any(2) };
-        let inner =
-            unsafe { __torajs_arr_push_any(inner as *mut c_void, ANY_HEAP_TAG as u64, key as u64) };
-        let inner = unsafe { __torajs_arr_push_any(inner as *mut c_void, tag, val) };
-        outer = unsafe { __torajs_arr_push(outer, inner as i64) };
-    }
-    unsafe { __torajs_arr_mark_kind(outer as *mut c_void, KIND_CHAIN_HEAP) };
-    outer as *mut c_void
-}
-
-/// `Object.values` arm for an `any`-typed receiver: a DynObj cell
-/// walks its live entries; everything else delegates to the struct
-/// arm (loud non-struct TypeError for non-struct cells).
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_anyv_own_values(v: u64) -> *mut c_void {
-    if is_dynobj_imm(v) {
-        return unsafe { dynobj_values_walk(v as *const c_void) };
-    }
-    unsafe { crate::struct_enum::__torajs_anyv_struct_values(v) }
-}
-
-/// `Object.entries` arm for an `any`-typed receiver — same chooser
-/// shape as [`__torajs_anyv_own_values`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_anyv_own_entries(v: u64) -> *mut c_void {
-    if is_dynobj_imm(v) {
-        return unsafe { dynobj_entries_walk(v as *const c_void) };
-    }
-    unsafe { crate::struct_enum::__torajs_anyv_struct_entries(v) }
 }
