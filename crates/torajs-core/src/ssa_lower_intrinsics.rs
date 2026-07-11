@@ -303,6 +303,7 @@ pub(crate) struct Intrinsics {
      * that may have been dynobj-converted by defineProperty. */
     pub(crate) obj_own_keys: FuncId,
     pub(crate) anyv_own_keys: FuncId,
+    pub(crate) anyv_forin_keys: FuncId,
     pub(crate) anyv_own_symbols: FuncId,
     pub(crate) anyv_from_entries: FuncId,
     pub(crate) str_to_char_arr: FuncId,

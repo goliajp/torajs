@@ -17,13 +17,107 @@ use super::*;
 
 use super::forof_destr::ForOfPatScan;
 
+/// chunk B2 — prepend the fn-scoped `var k;` declaration (var-form
+/// for-of/for-in heads) so var-hoist lifts the binding past the loop.
+fn wrap_var_decl(var_decl: Option<Stmt>, stmt: Stmt) -> Stmt {
+    match var_decl {
+        Some(d) => Stmt::Block(vec![d, stmt]),
+        None => stmt,
+    }
+}
+
 impl<'a> Parser<'a> {
+    /// chunk B2 (RFC 20260711 for-in) — head-form gate. Three forms:
+    /// - `let` / `const`: block-scoped binding (`Some(false)`, false).
+    /// - `var`: fn-scoped (`Some(true)`, false) — binds a fresh
+    ///   loop-local and assigns the user's var-hoisted binding per
+    ///   iteration.
+    /// - bare `for (k in o)` / `for (k of a)` (`None`, true): assigns
+    ///   an existing binding per iteration (no declaration). Gated on
+    ///   IDENT immediately followed by contextual `of` / `in` so
+    ///   C-style inits and destructuring pattern heads fall through.
+    ///
+    /// Consumes the decl keyword on the decl forms. `None` = not a
+    /// for-of/for-in head at all.
+    fn scan_forof_head(&mut self) -> Option<(Option<bool>, bool)> {
+        let is_var_decl = match self.peek() {
+            Token::Let | Token::Const => Some(false),
+            Token::Var => Some(true),
+            _ => None,
+        };
+        let bare_form = is_var_decl.is_none();
+        if bare_form {
+            let next_is_of_in = matches!(
+                self.tokens.get(self.pos + 1).map(|t| &t.token),
+                Some(Token::Ident(n)) if n == "of" || n == "in"
+            );
+            if !matches!(self.peek(), Token::Ident(_)) || !next_is_of_in {
+                return None;
+            }
+        } else {
+            self.pos += 1;
+        }
+        Some((is_var_decl, bare_form))
+    }
+
+    /// chunk B2 — for-in keys source: `Object.__forinKeys(raw_src)`,
+    /// the parser-synthesized twin of `Object.keys` whose Any arm
+    /// enumerates nothing on a null / undefined receiver (ES §14.7.5
+    /// ForIn/OfHeadEvaluation step 3 short-circuits before ToObject)
+    /// instead of throwing.
+    fn wrap_forin_keys_src(&mut self, raw_src: ExprId) -> ExprId {
+        let object_id = self.ast.add_expr(Expr::Ident("Object".into()));
+        let keys_member = self.ast.add_expr(Expr::Member {
+            obj: object_id,
+            name: "__forinKeys".into(),
+        });
+        self.ast.add_expr(Expr::Call {
+            callee: keys_member,
+            args: vec![raw_src],
+        })
+    }
+
+    /// chunk B2 — `var` head form: the fn-scoped declaration
+    /// (`var k;`, Uninit init) prepended before the loop so var-hoist
+    /// lifts it and the binding leaks past the loop per §14.7.5 /
+    /// §14.3.2 var semantics.
+    fn make_forof_var_decl(
+        &mut self,
+        is_var_decl: Option<bool>,
+        assign_target: &Option<String>,
+    ) -> Option<Stmt> {
+        if is_var_decl != Some(true) {
+            return None;
+        }
+        let target = assign_target.as_ref()?;
+        let init = self.ast.add_expr(Expr::Uninit);
+        Some(Stmt::LetDecl {
+            mutable: true,
+            name: target.clone(),
+            type_ann: None,
+            init,
+            is_var: true,
+        })
+    }
+
+    /// chunk B2 — assignment-form body wrap: `{ k = __forvar_N; body }`
+    /// so the user's binding tracks the fresh loop-local each
+    /// iteration (`var` and bare head forms).
+    fn wrap_assign_form(&mut self, target: &str, fresh: &str, body: Stmt) -> Stmt {
+        let target_ref = self.ast.add_expr(Expr::Ident(target.to_string()));
+        let fresh_ref = self.ast.add_expr(Expr::Ident(fresh.to_string()));
+        let assign = self.ast.add_expr(Expr::Assign {
+            target: target_ref,
+            value: fresh_ref,
+        });
+        Stmt::Block(vec![Stmt::Expr(assign), body])
+    }
+
     pub(super) fn try_parse_for_of(&mut self, is_async: bool) -> Result<Option<Stmt>, String> {
         let saved = self.pos;
-        if !matches!(self.peek(), Token::Let | Token::Const) {
+        let Some((is_var_decl, bare_form)) = self.scan_forof_head() else {
             return Ok(None);
-        }
-        self.pos += 1;
+        };
         // V3-18 wedge — for-of with array-destructuring pattern:
         // `for (let [a, b] of pairs) { ... }`. Common shape for
         // iterating tuple arrays.
@@ -72,6 +166,24 @@ impl<'a> Parser<'a> {
                 }
             }
         };
+        // chunk B2 — `var` / bare forms route through a fresh
+        // loop-local; the user's binding is assigned at the top of
+        // each iteration (var+destructuring keeps the block-scoped
+        // per-field lets — recorded divergence on fn-scope leak).
+        let assign_target: Option<String> = if (bare_form || is_var_decl == Some(true))
+            && destruct_names.is_none()
+            && destruct_obj.is_none()
+        {
+            Some(var_name.clone())
+        } else {
+            None
+        };
+        let var_name = if assign_target.is_some() {
+            let id = self.mint_desugar_id();
+            format!("__forvar_{id}")
+        } else {
+            var_name
+        };
         // P5.3 — preserve the optional `: T` annotation on the
         // binding name so check.rs / ssa_lower can pin the var's
         // type when src's element type is harder to infer (Type::Any
@@ -98,18 +210,10 @@ impl<'a> Parser<'a> {
         self.pos += 1; // consume "of" / "in"
         let _ = have_type_ann; // not yet propagated; suppress unused warning
         let raw_src = self.parse_expr()?;
-        // for-in wraps `Object.keys(raw_src)` so the body sees a
-        // string[]. for-of uses raw_src directly.
+        // for-in wraps `Object.__forinKeys(raw_src)` so the body sees
+        // a string[]; for-of uses raw_src directly.
         let src = if kind == "in" {
-            let object_id = self.ast.add_expr(Expr::Ident("Object".into()));
-            let keys_member = self.ast.add_expr(Expr::Member {
-                obj: object_id,
-                name: "keys".into(),
-            });
-            self.ast.add_expr(Expr::Call {
-                callee: keys_member,
-                args: vec![raw_src],
-            })
+            self.wrap_forin_keys_src(raw_src)
         } else {
             raw_src
         };
@@ -127,6 +231,14 @@ impl<'a> Parser<'a> {
         // lets when the loop var was a pattern. The original `body` is
         // wrapped in a block so block-close drops still fire normally.
         let body = self.wrap_forof_destr_body(&destruct_names, &destruct_obj, &var_name, body);
+        // chunk B2 — `var` / bare forms: assign the user's binding
+        // from the fresh loop-local at the top of each iteration.
+        let body = if let Some(target) = &assign_target {
+            self.wrap_assign_form(target, &var_name, body)
+        } else {
+            body
+        };
+        let var_decl = self.make_forof_var_decl(is_var_decl, &assign_target);
 
         // P-iter — `for (let v of <expr>.split(<literal_sep>))` →
         // emit Stmt::ForOfSplitIter. ssa_lower handles via stack
@@ -149,12 +261,15 @@ impl<'a> Parser<'a> {
         {
             let parent_id = *parent;
             let sep_id = args[0];
-            return Ok(Some(Stmt::ForOfSplitIter {
-                var_name,
-                parent: parent_id,
-                sep: sep_id,
-                body: Box::new(body),
-            }));
+            return Ok(Some(wrap_var_decl(
+                var_decl,
+                Stmt::ForOfSplitIter {
+                    var_name,
+                    parent: parent_id,
+                    sep: sep_id,
+                    body: Box::new(body),
+                },
+            )));
         }
 
         // I.2 — for-of over a user iterable. Triggered when `kind == "of"`
@@ -177,13 +292,9 @@ impl<'a> Parser<'a> {
             && let Some(yield_ty) = self.generator_fns.get(callee_name).cloned()
         {
             let callee_name = callee_name.clone();
-            return Ok(Some(self.desugar_forof_generator(
-                &callee_name,
-                yield_ty,
-                src,
-                var_name,
-                body,
-            )));
+            let gen_stmt =
+                self.desugar_forof_generator(&callee_name, yield_ty, src, var_name, body);
+            return Ok(Some(wrap_var_decl(var_decl, gen_stmt)));
         }
 
         // P5.3 — default for-of emits Stmt::ForOf wrapped in a
@@ -193,13 +304,8 @@ impl<'a> Parser<'a> {
         // protocol. The pre-allocated `elem_expr = src_ident[i_ident]`
         // routes element loads through Expr::Index lowering — handles
         // Type::Any / Substr / typed-Array uniformly.
-        Ok(Some(self.emit_forof_default(
-            var_name,
-            var_type_ann,
-            src,
-            body,
-            is_async,
-        )))
+        let default_stmt = self.emit_forof_default(var_name, var_type_ann, src, body, is_async);
+        Ok(Some(wrap_var_decl(var_decl, default_stmt)))
     }
 
     /// Generator-factory for-of desugar (I.2) — split from

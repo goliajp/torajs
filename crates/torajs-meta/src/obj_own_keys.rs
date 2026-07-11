@@ -246,6 +246,22 @@ unsafe fn heap_type_tag_local(cell: *const c_void) -> u16 {
     unsafe { *((cell as *const u8).add(HDR_TYPE_TAG_OFF) as *const u16) }
 }
 
+/// for-in keys source (chunk B2, RFC 20260711): the `Object.keys`
+/// enumerable-own surface, except a null / undefined receiver
+/// enumerates nothing — ES §14.7.5 ForIn/OfHeadEvaluation step 3
+/// short-circuits before ToObject can throw.
+///
+/// # Safety
+/// `v` carries a valid AnyValue bit pattern; the caller owns the
+/// returned `+1`-rc `Arr<Str>`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_forin_keys(v: u64) -> *mut c_void {
+    if v == crate::reflect::VALUE_NULL_IMM || v == crate::reflect::VALUE_UNDEFINED_IMM {
+        return unsafe { __torajs_arr_alloc(0) as *mut c_void };
+    }
+    unsafe { __torajs_anyv_own_keys(v, 0) }
+}
+
 /// Cell-imm + DynObj tag test on a raw NaN-box value (mirrors
 /// `struct_enum::is_cell_imm` — the header read is only sound for a
 /// real heap ptr bit pattern).

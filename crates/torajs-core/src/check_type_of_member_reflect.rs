@@ -41,6 +41,11 @@ pub(crate) fn try_match(obj_ty: &Type, name: &str) -> Option<Result<Type, String
         // the arg actually carries Type::Obj at lower-time
         // and panics on non-struct args.
         (Type::Object("Object"), "keys")
+        // chunk B2 (RFC 20260711 for-in) — parser-synthesized twin of
+        // `keys` for the for-in desugar: a null / undefined Any
+        // receiver enumerates nothing instead of throwing (§14.7.5
+        // ForIn/OfHeadEvaluation step 3).
+        | (Type::Object("Object"), "__forinKeys")
         // tr has no prototype chain, so own == all; alias
         // getOwnPropertyNames to keys at lower time.
         | (Type::Object("Object"), "getOwnPropertyNames")

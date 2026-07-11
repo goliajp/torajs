@@ -65,6 +65,10 @@ pub(crate) fn try_lower(
     };
     let matched = (ns == "Object"
         && (m_name == "keys"
+            // chunk B2 — parser-synthesized for-in keys source; same
+            // enumerable-own emit as `keys` except the Any arm
+            // tolerates null / undefined (enumerates nothing).
+            || m_name == "__forinKeys"
             || m_name == "getOwnPropertyNames"
             || m_name == "getOwnPropertySymbols"))
         // Reflect.ownKeys aliases the same emit — tr has no symbol keys
@@ -119,7 +123,7 @@ pub(crate) fn try_lower(
     // §22.1.5.1) so it's omitted. `getOwnPropertyNames` / `Reflect.ownKeys`
     // include all own keys (length included). Pick helper by surface
     // name so the three share the SSA arm.
-    let is_keys_only = m_name == "keys";
+    let is_keys_only = m_name == "keys" || m_name == "__forinKeys";
 
     // W-N-b — Arr<T> receiver: keys → `["0", ..., "<len-1>"]`,
     // getOwnPropertyNames / ownKeys → `[..., "length"]`. Length is
@@ -174,14 +178,22 @@ pub(crate) fn try_lower(
     if matches!(arg_ty, Type::Any) {
         // RC-4 F1c — a DynObj cell (defineProperty-degraded binding)
         // walks its live entries with the surface's enumerable
-        // filter; struct cells keep the compile-time-layout walk;
-        // non-struct cells still throw loudly inside the helper.
-        let v = ctx.f.append_inst(
-            ctx.cur_block,
+        // filter; struct cells keep the compile-time-layout walk.
+        // chunk B2 — the for-in surface routes through
+        // `anyv_forin_keys` so a null / undefined receiver
+        // enumerates nothing (§14.7.5) instead of the ToObject
+        // TypeError `Object.keys` raises.
+        let call = if m_name == "__forinKeys" {
+            InstKind::Call(ctx.intrinsics.anyv_forin_keys, vec![arg_op])
+        } else {
             InstKind::Call(
                 ctx.intrinsics.anyv_own_keys,
                 vec![arg_op, Operand::ConstI64(if is_keys_only { 0 } else { 1 })],
-            ),
+            )
+        };
+        let v = ctx.f.append_inst(
+            ctx.cur_block,
+            call,
             Type::Arr(intern_arr_layout(ctx.arr_layouts, Type::Str)),
             None,
         );
