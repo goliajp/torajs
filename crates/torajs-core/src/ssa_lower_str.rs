@@ -182,6 +182,19 @@ pub(crate) fn try_lower_method_call(
                     | "search"
                     | "toString"
                     | "toLocaleString"
+                    | "anchor"
+                    | "fontcolor"
+                    | "fontsize"
+                    | "link"
+                    | "big"
+                    | "blink"
+                    | "bold"
+                    | "fixed"
+                    | "italics"
+                    | "small"
+                    | "strike"
+                    | "sub"
+                    | "sup"
             ) =>
         {
             (*obj, name.clone())
@@ -263,6 +276,12 @@ fn dispatch_method(
         return Some(v);
     }
     // String methods.
+    // Annex B B.2.2 HTML wrap methods (anchor / bold / ...) — one
+    // small arm ahead of the big Str tower; claims Str AND Substr
+    // receivers (materializes the view itself).
+    if let Some(v) = crate::ssa_lower_str_html::try_dispatch(ctx, method, args, recv_op, recv_ty) {
+        return Some(v);
+    }
     if let Some(v) =
         crate::ssa_lower_str_str_dispatch::try_dispatch(ctx, method, args, recv_op, recv_ty)
     {

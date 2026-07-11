@@ -29,6 +29,11 @@ pub(crate) fn try_route(
     {
         return Some(r);
     }
+    // Annex B B.2.2 — `s.{anchor,bold,...}` HTML wrap methods
+    // (any arity; attributed forms ToString their first arg).
+    if let Some(r) = crate::check_type_of_call_string_html::try_match(checker, ast, callee, args) {
+        return Some(r);
+    }
     // V3-18 m1.h.48 — `s.normalize(form)` 1-arg optional-
     // form wedge arm extracted to
     // [`crate::check_type_of_call_string_normalize_form`]

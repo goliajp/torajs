@@ -22,6 +22,7 @@ pub(crate) struct InitA {
     pub str_a: crate::ssa_lower_intrinsics_str_a::StrAIds,
     pub num: crate::ssa_lower_intrinsics_num::NumIds,
     pub str_b: crate::ssa_lower_intrinsics_str_b::StrBIds,
+    pub str_html: crate::ssa_lower_intrinsics_str_html::StrHtmlIds,
 }
 
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) -> InitA {
@@ -32,5 +33,6 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
         str_a: crate::ssa_lower_intrinsics_str_a::declare(module, fn_table),
         num: crate::ssa_lower_intrinsics_num::declare(module, fn_table),
         str_b: crate::ssa_lower_intrinsics_str_b::declare(module, fn_table),
+        str_html: crate::ssa_lower_intrinsics_str_html::declare(module, fn_table),
     }
 }

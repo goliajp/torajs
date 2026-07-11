@@ -30,7 +30,7 @@
 
 #![allow(clippy::too_many_arguments)]
 
-mod add_str;
+pub(crate) mod add_str;
 
 use crate::ast::BinOp as AstBinOp;
 use crate::ssa::{Operand, Type};

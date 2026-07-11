@@ -234,7 +234,9 @@ fn drop_minted_temps(ctx: &mut LowerCtx, a: Operand, a_temp: bool, b: Operand, b
 /// branches on the bits and answers "undefined" instead of "NaN"
 /// (covers `\`${a[i]}\`` templates — the parser desugars them to
 /// this concat chain).
-fn coerce_to_str(ctx: &mut LowerCtx, v: Operand, undefable: bool) -> (Operand, bool) {
+/// Shared with `ssa_lower_str_html`'s attribute-value coercion —
+/// keep the arm set in sync with the mixed-concat surface.
+pub(crate) fn coerce_to_str(ctx: &mut LowerCtx, v: Operand, undefable: bool) -> (Operand, bool) {
     match ctx.operand_ty(&v) {
         Type::Str => (v, false),
         Type::Substr => {
