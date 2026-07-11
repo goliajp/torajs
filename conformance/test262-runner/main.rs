@@ -354,7 +354,10 @@ fn transform_source(src: &str) -> String {
             (b"verifyNotWritable(", "__t262_verifyNotWritable("),
             (b"verifyCallableProperty(", "__t262_verifyCallableProperty("),
             (b"verifyPrimordialProperty(", "__t262_verifyProperty("),
-            (b"verifyPrimordialCallableProperty(", "__t262_verifyCallableProperty("),
+            (
+                b"verifyPrimordialCallableProperty(",
+                "__t262_verifyCallableProperty(",
+            ),
             (b"verifyEqualTo(", "__t262_verifyEqualTo("),
             (b"isConfigurable(", "__t262_isConfigurable("),
             (b"isEnumerable(", "__t262_isEnumerable("),
