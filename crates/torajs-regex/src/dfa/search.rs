@@ -137,6 +137,16 @@ pub struct DfaProgram {
     /// (every fixture without word-boundary or other zero-width
     /// accept site benefits).
     pub any_accept_before_byte: bool,
+    /// RFC 20260711 chunk B — `true` when the BFS met a K-PROPERTY
+    /// state shape the single-class pending mechanism cannot serve
+    /// (content-distinct property classes in one ready set, e.g.
+    /// `\p{L}|\p{N}`, or K-PROPERTY mixed with deferred bytes). A
+    /// poisoned DFA would silently drop non-ASCII cps on those
+    /// states, so every consumer (eager `dfa_runtime`, `resolve_dfa`
+    /// local build, AOT bake) discards it and the cp-aware Pike VM
+    /// serves the program. Never baked — `baked_dfa_view` hardcodes
+    /// `false` because `try_bake_regex_dfa` refuses poisoned builds.
+    pub poisoned: bool,
 }
 
 /// V0.2 P14 chunk 7.7 v2 step 12 C2 Phase C-1 (2026-06-24) — C-ABI
@@ -601,6 +611,7 @@ mod tests {
             start_mid_nonword: 1,
             all_starts_equal: true,
             any_accept_before_byte: false,
+            poisoned: false,
         };
         assert_eq!(dfa_search(&dfa, &prog, b"a"), Some(1));
         assert_eq!(dfa_search(&dfa, &prog, b"abc"), Some(1));

@@ -291,6 +291,37 @@ impl<'p> Parser<'p> {
         Some(name)
     }
 
+    /// Read the `Name` or `Name=Value` body of a `\p{...}` escape,
+    /// consuming the closing `}`. Both parts are word-byte sequences;
+    /// returns `(name, None)` for the lone form and
+    /// `(name, Some(value))` for the keyed form. `None` (sets err) on
+    /// EOF, empty name, or a non-word byte.
+    pub(super) fn read_property_expr(&mut self) -> Option<(Vec<u8>, Option<Vec<u8>>)> {
+        let start = self.i;
+        while !self.eof() && self.peek() != b'}' && self.peek() != b'=' {
+            if !is_word_byte(self.peek()) {
+                self.err = true;
+                return None;
+            }
+            self.get();
+        }
+        if self.eof() {
+            self.err = true;
+            return None;
+        }
+        let name = self.p[start..self.i].to_vec();
+        if name.is_empty() {
+            self.err = true;
+            return None;
+        }
+        if self.get() == b'}' {
+            return Some((name, None));
+        }
+        // consumed `=` — the value part runs to `}`.
+        let value = self.read_word_name(b'}')?;
+        Some((name, Some(value)))
+    }
+
     /// Consume one hex digit. Returns nibble value 0..=15 or `None`
     /// (sets err) on EOF or non-hex byte.
     pub(super) fn read_hex_digit(&mut self) -> Option<u8> {
@@ -346,23 +377,41 @@ pub fn is_word_byte(c: u8) -> bool {
     c.is_ascii_alphanumeric() || c == b'_'
 }
 
-/// Apply a Unicode property name (`L` / `Letter` / `N` / `Number` /
-/// `ASCII`) to the char-class on `n`. Returns `false` on unknown name.
-pub(super) fn apply_property_name(n: &mut Node, name: &[u8]) -> bool {
-    match name {
-        b"L" | b"Letter" => {
-            n.cc.add_property_letter();
+/// Apply a Unicode property expression (`\p{Name}` /
+/// `\p{Name=Value}`) to the char-class on `n` per ES §22.2.1
+/// UnicodePropertyValueExpression. Returns `false` on unknown
+/// name/value (→ parser SyntaxError, spec early-error semantics).
+///
+/// Keyed form: only `General_Category` / `gc`, `Script` / `sc`,
+/// `Script_Extensions` / `scx` are valid keys, each resolving the
+/// value in its own table family. Lone form: binary property names
+/// first (`Alphabetic`, `White_Space`, …), then bare
+/// `General_Category` values (`Lu`, `Letter`, …).
+pub(super) fn apply_property_name(n: &mut Node, name: &[u8], value: Option<&[u8]>) -> bool {
+    use crate::ucd::{lookup_binary, lookup_gc_value, lookup_script, lookup_scx};
+    let Ok(name) = core::str::from_utf8(name) else {
+        return false;
+    };
+    let table = match value {
+        Some(v) => {
+            let Ok(v) = core::str::from_utf8(v) else {
+                return false;
+            };
+            match name {
+                "General_Category" | "gc" => lookup_gc_value(v),
+                "Script" | "sc" => lookup_script(v),
+                "Script_Extensions" | "scx" => lookup_scx(v),
+                _ => None,
+            }
+        }
+        None => lookup_binary(name).or_else(|| lookup_gc_value(name)),
+    };
+    match table {
+        Some(t) => {
+            n.cc.add_property_table(t);
             true
         }
-        b"N" | b"Number" => {
-            n.cc.add_property_number();
-            true
-        }
-        b"ASCII" => {
-            n.cc.add_property_ascii();
-            true
-        }
-        _ => false,
+        None => false,
     }
 }
 

@@ -236,7 +236,7 @@ impl Program {
     /// port doesn't dedupe either, so this is a no-loss carryover.)
     pub fn intern_class(&mut self, cc: &CharClass) -> i32 {
         let idx = self.classes.len() as i32;
-        self.classes.push(*cc);
+        self.classes.push(cc.clone());
         idx
     }
 

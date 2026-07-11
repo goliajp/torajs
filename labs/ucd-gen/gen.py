@@ -119,6 +119,26 @@ def complement(ranges):
     return out
 
 
+def parse_binary_aliases(path, es_binary):
+    """PropertyAliases.txt rows: `AHex ; ASCII_Hex_Digit [; more]`.
+    Canonical is the LONG name (column 2); rows whose long name is in
+    the ES binary whitelist contribute every other spelling as an
+    alias (ES 22.2.1 accepts binary property names AND aliases)."""
+    out = {}
+    for line in open(path, encoding="utf-8"):
+        line = line.split("#", 1)[0].strip()
+        if not line:
+            continue
+        parts = [p.strip() for p in line.split(";")]
+        if len(parts) < 2 or parts[1] not in es_binary:
+            continue
+        long = parts[1]
+        for name in [parts[0]] + parts[2:]:
+            if name and name != long:
+                out[name] = long
+    return out
+
+
 def parse_aliases(path):
     """PropertyValueAliases.txt rows for gc and sc:
     `gc ; Lu ; Uppercase_Letter [; more]` -> every name maps to a
@@ -165,6 +185,9 @@ def main():
     scx_by_short = parse_scx(DATA / "ScriptExtensions.txt")
     gc_alias, sc_alias, sc_short_to_long = parse_aliases(
         DATA / "PropertyValueAliases.txt"
+    )
+    binary_alias = parse_binary_aliases(
+        DATA / "PropertyAliases.txt", set(ES_BINARY)
     )
 
     binaries = defaultdict(list)
@@ -261,6 +284,7 @@ def main():
 
     emit_alias("GC_ALIASES", gc_alias)
     emit_alias("SCRIPT_ALIASES", sc_alias)
+    emit_alias("BINARY_ALIASES", binary_alias)
 
     total = sum(len(r) for t in (gc, scripts, scx, binaries) for r in t.values())
     print(f"// {total} ranges across {len(gc)}+{len(scripts)}+{len(scx)}+{len(binaries)} tables", file=sys.stderr)

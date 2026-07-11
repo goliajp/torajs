@@ -76,7 +76,7 @@ pub fn search_from(
 ///   / `\B` / RE_FLAG_I (i) / RE_FLAG_M (m) / SAVE / AnyChar-w/o-s;
 ///   the function stays as a safety net for future opcode adds.
 /// - chunk 10d cleared the last u-flag blocker — unsafe classes
-///   (negate / `u_props` / non-ASCII bits) get compile-time
+///   (negate / `u_prop_tables` / non-ASCII bits) get compile-time
 ///   rewritten by `utf8_class_expand` into a byte-level Alt-of-
 ///   Concat over `Op::Class` instructions referencing
 ///   `byte_only` leaf classes (re2 / regex-syntax `Utf8Sequences`
@@ -93,7 +93,9 @@ fn resolve_dfa<'a>(
 ) -> Option<&'a crate::dfa::DfaProgram> {
     let dfa_fast_path = prog.can_dfa && crate::dfa::prog_ops_dfa_safe(prog);
     if dfa_fast_path && dfa_cached.is_none() {
-        *local = Some(crate::dfa::build_dfa(prog, flags));
+        // RFC 20260711 chunk B — drop poisoned builds (unserveable
+        // K-PROPERTY shape); the caller falls to the Pike VM.
+        *local = Some(crate::dfa::build_dfa(prog, flags)).filter(|d| !d.poisoned);
     }
     if dfa_fast_path {
         dfa_cached.or(local.as_ref())

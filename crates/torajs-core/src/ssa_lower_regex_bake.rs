@@ -85,6 +85,12 @@ pub(crate) fn try_bake_regex_dfa(
     // run-time reader reconstructs `&[DfaState]` from the same byte
     // sequence (see `RegExp::baked_dfa_view`).
     let dfa = build_dfa(&prog, flag_bits);
+    // RFC 20260711 chunk B — poisoned builds (unserveable K-PROPERTY
+    // shape, e.g. `\p{L}|\p{N}` disjunction) never bake; the runtime
+    // Pike VM path serves those literals.
+    if dfa.poisoned {
+        return None;
+    }
     let states_slice: &[DfaState] = &dfa.states;
     let state_size = core::mem::size_of::<DfaState>();
     let mut payload: Vec<u8> = Vec::with_capacity(states_slice.len() * state_size);

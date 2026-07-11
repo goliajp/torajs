@@ -18,6 +18,7 @@ use alloc::collections::BTreeSet;
 use alloc::vec::Vec;
 
 use crate::dfa::ctx::{PositionCtx, epsilon_closure_full};
+use crate::dfa::search::{DfaProgram, DfaState};
 use crate::program::{Op, Program};
 
 /// chunk 8.6b — left-byte class carried as part of a DFA state's
@@ -219,5 +220,72 @@ pub(super) fn compute_monotone_accept(states: &mut [super::search::DfaState]) {
             }
         }
         states[i].monotone_accept = monotone;
+    }
+}
+
+/// Derive the post-BFS whole-DFA flags and assemble the
+/// [`DfaProgram`].
+pub(super) fn finish_dfa(
+    mut states: Vec<DfaState>,
+    start: u32,
+    start_mid_word: u32,
+    start_mid_nonword: u32,
+    poisoned: bool,
+) -> DfaProgram {
+    // Round 3 Phase B attack #R-A2 — derive `all_starts_equal` from the
+    // four BFS-interned start indices. `needs_attr_split == false` (no
+    // `^` / `\b` / `\B` / multiline-`^` in pattern) already collapses
+    // all four to the same state; the runtime wire reads this flag and
+    // short-circuits the `at_line_start` / `prev_is_word` selection.
+    // `start_mid_nonword` doubles as the returned `start_mid` field,
+    // so checking equality against the two unique mid-entries is
+    // sufficient (transitive: a == b && a == c implies b == c).
+    let all_starts_equal = start == start_mid_word && start == start_mid_nonword;
+    // Round 3 Phase B attack #R-E — derive `any_accept_before_byte` by
+    // OR-ing every state's 256-bit mask. Set iff at least one bit is
+    // non-zero. Cost: O(states × 8 u32 ORs) at build time (cold path,
+    // amortised); the runtime hot loop reads a single bool. For
+    // `/\p{L}+/u` (no `\b`) this short-circuits the per-byte mask
+    // load + branch (~35 ns/iter saved).
+    let any_accept_before_byte = states
+        .iter()
+        .any(|s| s.accept_before_byte.iter().any(|w| *w != 0));
+    // Round 3 Phase B sub-batch 6 attack #R-G — derive
+    // `monotone_accept` per state. A state is monotone-accept iff:
+    // (1) it accepts (`is_accept == true`); AND
+    // (2) every non-dead `transitions[b]` (b in 0..256) lands on a
+    //     state that also accepts; AND
+    // (3) if `pending_class.active != 0`, both `yes_target` and
+    //     `no_target` either equal 0 (dead) or land on an accepting
+    //     state.
+    // The executor's hot path consults this bit to skip the per-byte
+    // `last_accept = Some(cursor)` write inside a self-loop run on
+    // `\p{L}+/u`-class patterns. Cost: O(states × 256) build-time scan
+    // (cold path, ~0.3 µs for the 4-state `\p{L}+/u` DFA); the runtime
+    // save is ~2-8 ns/iter on letter-heavy haystacks. Body lives in
+    // `super::build_helpers::compute_monotone_accept` to keep build.rs
+    // under the 500 LOC HARD limit.
+    compute_monotone_accept(&mut states);
+    // Round 5 attack #9 — fold each destination's `is_accept` /
+    // `monotone_accept` into the top two bits of every transition
+    // word, AFTER `compute_monotone_accept` (which reads transitions
+    // as plain indices). The executor's per-byte step then reads one
+    // cache line instead of two. Applies identically to the AOT bake
+    // path (`try_bake_regex_dfa` serialises this function's output
+    // byte-for-byte), so baked `.rodata` tables and the runtime
+    // executor always agree on the encoding.
+    fold_accept_bits(&mut states);
+    DfaProgram {
+        // chunk 7.7 v2 step 12 C2 Phase B — wrap as DfaStates::Owned;
+        // Phase C will emit DfaStates::Static(&'static [...]) from the
+        // tr build pipeline.
+        states: crate::dfa::search::DfaStates::Owned(states),
+        start,
+        start_mid: start_mid_nonword,
+        start_mid_word,
+        start_mid_nonword,
+        all_starts_equal,
+        any_accept_before_byte,
+        poisoned,
     }
 }

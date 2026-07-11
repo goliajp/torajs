@@ -235,13 +235,25 @@ pub fn tree_contains_anchor_end(root: &Node) -> bool {
 /// over `sub_progs` is a belt-and-suspenders defensive check (it
 /// always returns true for `can_dfa`-eligible programs but stays so
 /// future opcode additions don't quietly slip past).
-pub fn prog_ops_dfa_safe(_prog: &Program) -> bool {
+pub fn prog_ops_dfa_safe(prog: &Program) -> bool {
     // No opcode is rejected at this layer any more — `can_dfa`
     // upstream rules out backref / lookaround which are the only
-    // truly DFA-incompatible ops the AST can emit. Function stays as
-    // a safety net so future opcode additions can wire a quick
-    // blocker here without touching every call site.
-    true
+    // truly DFA-incompatible ops the AST can emit.
+    //
+    // RFC 20260711 chunk B — class-shape gate: property-table-bearing
+    // classes that are neither byte-steppable (`byte_only` expansion
+    // leaves) nor pending-serveable (pure positive property) reach the
+    // Program as single cp-aware `Op::Class` ops (negated `\P{...}`,
+    // property + explicit non-ASCII bits — `expand_unsafe_class`
+    // declines them since the full UCD tables explode the byte-level
+    // expansion). `byte_step`'s `class.test(byte)` would evaluate the
+    // negation at byte level and silently mis-match multi-byte cps,
+    // so these programs are Pike-VM-only (`dispatch_class` decodes
+    // the cp and `test_cp` applies the negation after the table
+    // union). DFA residency for them is the L3b follow-up.
+    prog.classes
+        .iter()
+        .all(|c| c.byte_only || c.u_prop_tables.is_empty() || c.is_uflag_property_only())
 }
 
 pub fn epsilon_closure(prog: &Program, seeds: &[usize]) -> BTreeSet<usize> {
@@ -1958,19 +1970,47 @@ mod tests {
         assert_eq!(dfa_search(&dfa, &prog, &[0xCE, 0xCE]), None);
     }
 
+    /// RFC 20260711 chunk B — content-distinct property classes in one
+    /// ready set (`\p{L}|\p{N}` disjunction) cannot be served by the
+    /// single-class pending slot; the build must poison so consumers
+    /// fall to the cp-aware Pike VM (was a silent byte-step fallback
+    /// that returned `false` for `/\p{L}|\p{N}/u.test("α")`).
+    /// Content-EQUAL duplicates (two `\p{L}` occurrences interned at
+    /// distinct indices) stay serveable.
+    #[test]
+    fn multi_property_disjunction_poisons_dfa() {
+        let prog = compile_uflag_pattern("\\p{L}|\\p{N}");
+        let dfa = build_dfa(&prog, crate::parser::RE_FLAG_U);
+        assert!(dfa.poisoned, "\\p{{L}}|\\p{{N}} must poison the DFA");
+
+        let prog = compile_uflag_pattern("\\p{L}x|\\p{L}y");
+        let dfa = build_dfa(&prog, crate::parser::RE_FLAG_U);
+        assert!(
+            !dfa.poisoned,
+            "content-equal \\p{{L}} duplicates stay pending-serveable"
+        );
+
+        let prog = compile_uflag_pattern("\\p{L}+");
+        let dfa = build_dfa(&prog, crate::parser::RE_FLAG_U);
+        assert!(!dfa.poisoned, "single-class loop must not poison");
+    }
+
     /// §4.3 test G — cp-boundary edge: 2-byte plane minimum letter
-    /// U+00C0 (À) = 0xC3 0x80. 4-byte plane Linear B Aa (U+10000) is
-    /// outside curated UCD_LETTER → reject.
+    /// U+00C0 (À) = 0xC3 0x80. 4-byte plane letters and non-letters
+    /// resolve through the full UCD 16.0.0 gc L table (RFC 20260711
+    /// chunk B — the pre-chunk-B curated table missed all of plane 1+,
+    /// so U+10000 used to pin as a reject).
     #[test]
     fn path_a_v2_cp_boundary_decoding() {
         let prog = compile_uflag_pattern("\\p{L}+");
         let dfa = build_dfa(&prog, crate::parser::RE_FLAG_U);
         // U+00C0 À — 2-byte K-LETTER → match.
         assert_eq!(dfa_search(&dfa, &prog, &[0xC3, 0x80]), Some(2));
-        // U+10000 Linear B Aa — 4-byte cp, outside curated UCD_LETTER
-        // → reject (handler decodes cp + class.test_cp(cp) returns
-        // false).
-        assert_eq!(dfa_search(&dfa, &prog, &[0xF0, 0x90, 0x80, 0x80]), None);
+        // U+10000 Linear B Aa — 4-byte cp, gc Lo → match.
+        assert_eq!(dfa_search(&dfa, &prog, &[0xF0, 0x90, 0x80, 0x80]), Some(4));
+        // U+1F600 😀 — 4-byte cp, gc So (not a letter) → reject
+        // (handler decodes cp + class.test_cp(cp) returns false).
+        assert_eq!(dfa_search(&dfa, &prog, &[0xF0, 0x9F, 0x98, 0x80]), None);
     }
 
     /// §4.3 test I — nested K-PROPERTY under repeat

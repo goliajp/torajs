@@ -448,6 +448,24 @@ mod tests {
         assert!(search_from(&prog, b"foo", 0, 0, None).is_none());
     }
 
+    /// RFC 20260711 chunk B — `\p{L}|\p{N}` builds a poisoned DFA
+    /// (content-distinct property classes in one ready set); the
+    /// production wire (`resolve_dfa` with `can_dfa == true`) must
+    /// drop it and serve the match through the cp-aware Pike VM.
+    /// Pre-chunk-B this shape silently returned no-match for
+    /// non-ASCII cps on the DFA path.
+    #[test]
+    fn multi_property_disjunction_matches_via_pike() {
+        let flags = crate::parser::RE_FLAG_U;
+        let mut prog = build("\\p{L}|\\p{N}", flags);
+        prog.can_dfa = true; // production shape — poison gate must fire
+        let r = search_from(&prog, "\u{03B1}".as_bytes(), 0, flags, None).expect("α is a letter");
+        assert_eq!((r.start, r.end), (0, 2));
+        let r = search_from(&prog, "\u{0664}".as_bytes(), 0, flags, None).expect("٤ is a number");
+        assert_eq!((r.start, r.end), (0, 2));
+        assert!(search_from(&prog, b"!", 0, flags, None).is_none());
+    }
+
     // Round 3 Phase B sub-batch 4 attack #R-J v4 — regex-024 fix
     // diagnostic. Both subcases below are reproductions of the two
     // failing fixtures in `conformance/cases/regex-024-uflag-unsafe-
@@ -488,22 +506,21 @@ mod tests {
     #[test]
     fn path_a_v4_regex024_subcase_2_letter_nonletter_letter_capture() {
         // /(\p{L}+)(\P{L}+)(\p{L}+)/u on "abc 漢字" — capture:
-        // ("abc"," ","漢字"). Multi-K-PROPERTY chain mixed with K-NEG
-        // (`\P{L}` negates → utf8_class_expand emits byte-only Class
-        // chain). v3-A's post-第一-`\p{L}+` ready set is mixed
-        // K-PROPERTY + byte_only Class which the v3 gate rejected.
-        // v4 keeps transitions[] for the byte_only path AND pending_
-        // class fallback for the K-PROPERTY path.
+        // ("abc"," ","漢字"). RFC 20260711 chunk B — `\P{L}` no longer
+        // expands (the full UCD gc L table is ~730 ranges; the
+        // byte-level Alt-of-Concat exploded past 20k insts and its
+        // DFA subset construction ran minutes). The negated class
+        // stays a single cp-aware `Op::Class`, `prog_ops_dfa_safe`
+        // rejects the program from the DFA, and the Pike VM
+        // (`dispatch_class` cp decode + `test_cp` negation) serves
+        // both the match and the captures.
         let flags = crate::parser::RE_FLAG_U;
         let prog = build("(\\p{L}+)(\\P{L}+)(\\p{L}+)", flags);
         let hay = "abc \u{6F22}\u{5B57}";
         // 3 (abc) + 1 (space) + 6 (2*3 CJK bytes) = 10
-        let dfa = crate::dfa::build_dfa(&prog, flags);
-        assert_eq!(
-            crate::dfa::dfa_search(&dfa, &prog, hay.as_bytes()),
-            Some(10),
-            "v4 — direct DFA must find /(\\p{{L}}+)(\\P{{L}}+)(\\p{{L}}+)/u over \
-             'abc 漢字' as 10 bytes",
+        assert!(
+            !crate::dfa::prog_ops_dfa_safe(&prog),
+            "negated property class must gate the program off the DFA"
         );
         let r = search_from(&prog, hay.as_bytes(), 0, flags, None).expect("subcase 2 must match");
         assert_eq!(r.start, 0);

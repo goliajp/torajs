@@ -92,8 +92,13 @@ use crate::utf8::utf8_encode_cp;
 ///
 /// Returns `None` when:
 /// - `uflag == false` (non-u patterns keep ASCII byte-step semantics).
-/// - `cc` is u-safe (no negate, no non-ASCII bits, no property bits).
-///   Those classes already work on the DFA byte path verbatim.
+/// - `cc` references property tables (RFC 20260711 chunk B — those
+///   classes stay single cp-aware `Op::Class` ops served by the Pike
+///   VM; `prog_ops_dfa_safe` gates the DFA off unless the class is
+///   pending-serveable).
+/// - `cc` is u-safe (no negate, no non-ASCII bits, no property
+///   tables). Those classes already work on the DFA byte path
+///   verbatim.
 ///
 /// Returns `Some(node)` otherwise.
 pub fn expand_unsafe_class(cc: &CharClass, uflag: bool) -> Option<Box<Node>> {
@@ -107,6 +112,18 @@ pub fn expand_unsafe_class(cc: &CharClass, uflag: bool) -> Option<Box<Node>> {
     // reject them and we'd recurse forever — the leaf's bits encode
     // the byte-step shape, not a cp set to re-encode.
     if cc.byte_only {
+        return None;
+    }
+    // RFC 20260711 chunk B — property-table-bearing unsafe classes
+    // (negated `\P{...}` / property + explicit non-ASCII bits) are
+    // NOT expanded: the full UCD tables run to ~800 ranges each, and
+    // the byte-level Alt-of-Concat explodes past 20k insts whose DFA
+    // subset construction takes minutes. They stay single cp-aware
+    // `Op::Class` ops; `prog_ops_dfa_safe` rejects the program from
+    // the DFA and the Pike VM (`dispatch_class` cp decode +
+    // `test_cp`) serves matches. Suffix-shared byte expansion /
+    // negated-pending DFA residency is the L3b follow-up.
+    if !cc.u_prop_tables.is_empty() {
         return None;
     }
     if is_uflag_safe(cc) {
@@ -141,7 +158,7 @@ pub fn expand_unsafe_class(cc: &CharClass, uflag: bool) -> Option<Box<Node>> {
 }
 
 fn is_uflag_safe(cc: &CharClass) -> bool {
-    if cc.negate || cc.u_props != 0 {
+    if cc.negate || !cc.u_prop_tables.is_empty() {
         return false;
     }
     cc.bits[16..32].iter().all(|&b| b == 0)
@@ -473,59 +490,36 @@ mod tests {
     }
 
     #[test]
-    fn property_letter_spot_checks() {
-        let mut cc = CharClass::new();
-        cc.add_property_letter();
-        let node = expand_unsafe_class(&cc, true).expect("expansion");
-        // ASCII letters in bits (add_property_letter adds [A-Za-z])
-        for cp in [b'A' as u32, b'a' as u32, b'Z' as u32, b'z' as u32] {
-            assert!(accept_cp(&node, cp));
+    fn table_bearing_classes_decline_expansion() {
+        // RFC 20260711 chunk B — property-table-bearing unsafe classes
+        // (negated / mixed) are NOT expanded: full UCD tables explode
+        // the byte-level Alt-of-Concat. They stay single cp-aware
+        // `Op::Class` ops served by the Pike VM (`prog_ops_dfa_safe`
+        // gates the DFA off).
+        let mut neg = CharClass::new();
+        neg.add_property_table(crate::ucd::lookup_gc_value("L").unwrap());
+        neg.negate = true;
+        assert!(expand_unsafe_class(&neg, true).is_none());
+        // Sanity: the cp-aware membership the Pike VM consults is the
+        // inverted table union.
+        for cp in [b'A' as i32, 0x03B1, 0x4E2D] {
+            assert!(!neg.test_cp(cp));
         }
-        // ASCII non-letters reject
-        for cp in [b'0' as u32, b'9' as u32, b' ' as u32, b'!' as u32] {
-            assert!(!accept_cp(&node, cp));
+        for cp in [b'0' as i32, b' ' as i32, 0x0664, 0x1F600] {
+            assert!(neg.test_cp(cp));
         }
-        // UCD letter cp — Greek alpha, Cyrillic ё, CJK 中, Hangul 가, Hiragana あ
-        for cp in [0x03B1u32, 0x0451, 0x4E2D, 0xAC00, 0x3042] {
-            assert!(accept_cp(&node, cp), "letter cp 0x{cp:X} should accept");
-        }
-        // UCD non-letter cp — Arabic-Indic digit 4 in NUMBER not LETTER
-        assert!(!accept_cp(&node, 0x0664));
-        // Concat count should stay small (≤ few hundred)
-        let count = count_concats(&node);
-        assert!(count < 1000, "expected < 1000 Concats, got {count}");
-    }
-
-    #[test]
-    fn property_number_spot_checks() {
-        let mut cc = CharClass::new();
-        cc.add_property_number();
-        let node = expand_unsafe_class(&cc, true).expect("expansion");
-        for cp in b'0' as u32..=b'9' as u32 {
-            assert!(accept_cp(&node, cp));
-        }
-        assert!(!accept_cp(&node, b'A' as u32));
-        // Arabic-Indic digit 4
-        assert!(accept_cp(&node, 0x0664));
-        // Fullwidth digit 5
-        assert!(accept_cp(&node, 0xFF15));
-        assert!(!accept_cp(&node, 0x4E2D));
-    }
-
-    #[test]
-    fn negate_property_letter_inverts() {
-        let mut cc = CharClass::new();
-        cc.add_property_letter();
-        cc.negate = true;
-        let node = expand_unsafe_class(&cc, true).expect("expansion");
-        // letters reject
-        for cp in [b'A' as u32, b'a' as u32, 0x03B1, 0x4E2D] {
-            assert!(!accept_cp(&node, cp));
-        }
-        // non-letters accept
-        for cp in [b'0' as u32, b' ' as u32, 0x0664u32, 0x1F600] {
-            assert!(accept_cp(&node, cp));
-        }
+        // Mixed shape (table + explicit non-ASCII byte bit) declines
+        // expansion the same way.
+        let mut mixed = CharClass::new();
+        mixed.add_property_table(crate::ucd::lookup_gc_value("L").unwrap());
+        mixed.bits[24] = 0x01;
+        assert!(expand_unsafe_class(&mixed, true).is_none());
+        // Small negated bitmap classes (no tables) keep the chunk-10d
+        // expansion path.
+        let mut small_neg = CharClass::new();
+        small_neg.add(b'a');
+        small_neg.negate = true;
+        assert!(expand_unsafe_class(&small_neg, true).is_some());
     }
 
     #[test]

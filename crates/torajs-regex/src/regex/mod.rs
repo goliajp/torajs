@@ -470,6 +470,9 @@ impl RegExp {
             // by ssa_lower (see `try_bake_regex_dfa`); reading the
             // `.rodata` byte is free.
             any_accept_before_byte: meta.any_accept_before_byte,
+            // Poisoned DFAs are never baked (`try_bake_regex_dfa`
+            // refuses them), so a baked view is always sound.
+            poisoned: false,
         })
     }
 }

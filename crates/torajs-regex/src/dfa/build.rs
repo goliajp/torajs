@@ -14,12 +14,12 @@ use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec::Vec;
 
 use crate::dfa::build_helpers::{
-    LeftByteAttr, attr_of_byte, ctx_for, pc_set_is_accept, pc_set_is_accept_at_end,
+    LeftByteAttr, attr_of_byte, ctx_for, finish_dfa, pc_set_is_accept, pc_set_is_accept_at_end,
     prog_uses_word_boundary,
 };
 use crate::dfa::byte_step_full;
 use crate::dfa::ctx::{PositionCtx, epsilon_closure_full_into, epsilon_closure_with_ctx};
-use crate::dfa::pending_class::{PendingClass, classify_kproperty_shape};
+use crate::dfa::pending_class::{KPropertyVerdict, PendingClass, classify_kproperty_shape};
 use crate::dfa::search::{DfaProgram, DfaState, mask_set};
 use crate::program::Program;
 
@@ -55,9 +55,21 @@ fn compute_pending_class_for(
     states: &mut Vec<DfaState>,
     set_to_idx: &mut BTreeMap<StateKey, u32>,
     work: &mut Vec<WorkItem>,
+    poisoned: &mut bool,
 ) -> PendingClass {
-    let Some(shape) = classify_kproperty_shape(prog, ready, deferred, flags) else {
-        return PendingClass::INERT;
+    let shape = match classify_kproperty_shape(prog, ready, deferred, flags) {
+        KPropertyVerdict::NoKProperty => return PendingClass::INERT,
+        KPropertyVerdict::Unserveable => {
+            // RFC 20260711 chunk B — K-PROPERTY present but not
+            // serveable by the single-class pending slot. The state
+            // still byte-steps (so the build completes), but the
+            // whole DFA is marked poisoned: every consumer
+            // (`resolve_dfa` / eager `dfa_runtime` / AOT bake) drops
+            // it and the cp-aware Pike VM serves the program.
+            *poisoned = true;
+            return PendingClass::INERT;
+        }
+        KPropertyVerdict::Shape(s) => s,
     };
     // Compute yes_target = ε-closure(union of pc + 1 per K-PROPERTY
     // pc) and intern recursively. The recursive intern may push
@@ -75,6 +87,7 @@ fn compute_pending_class_for(
         states,
         set_to_idx,
         work,
+        poisoned,
     );
     PendingClass {
         active: 1,
@@ -105,6 +118,7 @@ fn intern_state(
     states: &mut Vec<DfaState>,
     set_to_idx: &mut BTreeMap<StateKey, u32>,
     work: &mut Vec<WorkItem>,
+    poisoned: &mut bool,
 ) -> u32 {
     if ready.is_empty() && deferred.iter().all(|d| d.is_empty()) {
         return 0;
@@ -188,6 +202,7 @@ fn intern_state(
         states,
         set_to_idx,
         work,
+        poisoned,
     );
     // Patch the pending_class field on the reserved slot. Until here
     // `states[i].pending_class == INERT` so any recursive dedup hit
@@ -251,6 +266,8 @@ pub fn build_dfa(prog: &Program, flags: u8) -> DfaProgram {
 
     let needs_attr_split = prog_uses_word_boundary(prog);
 
+    let mut poisoned = false;
+
     let mut seed = |attr: LeftByteAttr| {
         seed_start(
             prog,
@@ -261,6 +278,7 @@ pub fn build_dfa(prog: &Program, flags: u8) -> DfaProgram {
             &mut states,
             &mut set_to_idx,
             &mut work,
+            &mut poisoned,
         )
     };
     let start = seed(LeftByteAttr::TextStart);
@@ -332,6 +350,7 @@ pub fn build_dfa(prog: &Program, flags: u8) -> DfaProgram {
                 &mut states,
                 &mut set_to_idx,
                 &mut work,
+                &mut poisoned,
             );
             transitions[byte as usize] = next_idx;
         }
@@ -339,7 +358,7 @@ pub fn build_dfa(prog: &Program, flags: u8) -> DfaProgram {
         states[cur_idx as usize].accept_before_byte = accept_before_byte;
     }
 
-    finish_dfa(states, start, start_mid_word, start_mid_nonword)
+    finish_dfa(states, start, start_mid_word, start_mid_nonword, poisoned)
 }
 
 /// Seed one BFS start state: ε-close PC 0 under `attr`'s cursor ctx
@@ -357,6 +376,7 @@ fn seed_start(
     states: &mut Vec<DfaState>,
     set_to_idx: &mut BTreeMap<StateKey, u32>,
     work: &mut Vec<WorkItem>,
+    poisoned: &mut bool,
 ) -> u32 {
     let initial = epsilon_closure_with_ctx(prog, &[0], ctx_for(attr, mflag));
     intern_state(
@@ -370,6 +390,7 @@ fn seed_start(
         states,
         set_to_idx,
         work,
+        poisoned,
     )
 }
 
@@ -428,69 +449,4 @@ fn advance_deferred(
         epsilon_closure_with_ctx(prog, merged_seeds, ctx_after)
     };
     (next_ready, next_deferred)
-}
-
-/// Derive the post-BFS whole-DFA flags and assemble the
-/// [`DfaProgram`].
-fn finish_dfa(
-    mut states: Vec<DfaState>,
-    start: u32,
-    start_mid_word: u32,
-    start_mid_nonword: u32,
-) -> DfaProgram {
-    // Round 3 Phase B attack #R-A2 — derive `all_starts_equal` from the
-    // four BFS-interned start indices. `needs_attr_split == false` (no
-    // `^` / `\b` / `\B` / multiline-`^` in pattern) already collapses
-    // all four to the same state; the runtime wire reads this flag and
-    // short-circuits the `at_line_start` / `prev_is_word` selection.
-    // `start_mid_nonword` doubles as the returned `start_mid` field,
-    // so checking equality against the two unique mid-entries is
-    // sufficient (transitive: a == b && a == c implies b == c).
-    let all_starts_equal = start == start_mid_word && start == start_mid_nonword;
-    // Round 3 Phase B attack #R-E — derive `any_accept_before_byte` by
-    // OR-ing every state's 256-bit mask. Set iff at least one bit is
-    // non-zero. Cost: O(states × 8 u32 ORs) at build time (cold path,
-    // amortised); the runtime hot loop reads a single bool. For
-    // `/\p{L}+/u` (no `\b`) this short-circuits the per-byte mask
-    // load + branch (~35 ns/iter saved).
-    let any_accept_before_byte = states
-        .iter()
-        .any(|s| s.accept_before_byte.iter().any(|w| *w != 0));
-    // Round 3 Phase B sub-batch 6 attack #R-G — derive
-    // `monotone_accept` per state. A state is monotone-accept iff:
-    // (1) it accepts (`is_accept == true`); AND
-    // (2) every non-dead `transitions[b]` (b in 0..256) lands on a
-    //     state that also accepts; AND
-    // (3) if `pending_class.active != 0`, both `yes_target` and
-    //     `no_target` either equal 0 (dead) or land on an accepting
-    //     state.
-    // The executor's hot path consults this bit to skip the per-byte
-    // `last_accept = Some(cursor)` write inside a self-loop run on
-    // `\p{L}+/u`-class patterns. Cost: O(states × 256) build-time scan
-    // (cold path, ~0.3 µs for the 4-state `\p{L}+/u` DFA); the runtime
-    // save is ~2-8 ns/iter on letter-heavy haystacks. Body lives in
-    // `super::build_helpers::compute_monotone_accept` to keep build.rs
-    // under the 500 LOC HARD limit.
-    crate::dfa::build_helpers::compute_monotone_accept(&mut states);
-    // Round 5 attack #9 — fold each destination's `is_accept` /
-    // `monotone_accept` into the top two bits of every transition
-    // word, AFTER `compute_monotone_accept` (which reads transitions
-    // as plain indices). The executor's per-byte step then reads one
-    // cache line instead of two. Applies identically to the AOT bake
-    // path (`try_bake_regex_dfa` serialises this function's output
-    // byte-for-byte), so baked `.rodata` tables and the runtime
-    // executor always agree on the encoding.
-    crate::dfa::build_helpers::fold_accept_bits(&mut states);
-    DfaProgram {
-        // chunk 7.7 v2 step 12 C2 Phase B — wrap as DfaStates::Owned;
-        // Phase C will emit DfaStates::Static(&'static [...]) from the
-        // tr build pipeline.
-        states: crate::dfa::search::DfaStates::Owned(states),
-        start,
-        start_mid: start_mid_nonword,
-        start_mid_word,
-        start_mid_nonword,
-        all_starts_equal,
-        any_accept_before_byte,
-    }
 }

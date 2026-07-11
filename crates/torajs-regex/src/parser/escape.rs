@@ -183,9 +183,9 @@ impl<'p> Parser<'p> {
             return None;
         }
         self.get(); // consume `{`
-        let name = self.read_word_name(b'}')?;
+        let (name, value) = self.read_property_expr()?;
         let mut n = Node::new(NodeKind::Class);
-        let matched = apply_property_name(&mut n, &name);
+        let matched = apply_property_name(&mut n, &name, value.as_deref());
         if !matched {
             self.set_err();
             return None;
@@ -302,6 +302,62 @@ mod tests {
     fn parses_unicode_property_negated_capital_p() {
         let r = parse_ok("\\P{L}", RE_FLAG_U);
         assert!(r.kids[0].cc.negate);
+    }
+
+    /// RFC 20260711 chunk B — full §22.2.1 property-expression
+    /// surface: keyed `Name=Value` forms, lone binary properties,
+    /// bare gc values, and alias spellings all resolve; unknown /
+    /// malformed names are early parse errors (→ SyntaxError).
+    #[test]
+    fn parses_property_name_value_forms() {
+        for pat in [
+            "\\p{Script=Adlam}",
+            "\\p{sc=Adlm}",
+            "\\p{Script_Extensions=Adlam}",
+            "\\p{scx=Adlam}",
+            "\\p{General_Category=Lu}",
+            "\\p{gc=Uppercase_Letter}",
+            "\\p{Lu}",
+            "\\p{Letter}",
+            "\\p{LC}",
+            "\\p{Alphabetic}",
+            "\\p{Alpha}",
+            "\\p{White_Space}",
+            "\\p{Any}",
+            "\\p{Assigned}",
+            "\\p{ASCII}",
+        ] {
+            let r = parse_ok(pat, RE_FLAG_U);
+            assert_eq!(r.kids[0].kind, NodeKind::Class, "{pat}");
+        }
+        for pat in [
+            "\\p{Foo}",
+            "\\p{Script=NotAScript}",
+            "\\p{gc=Adlam}",     // script value under the gc key
+            "\\p{Script=Lu}",    // gc value under the Script key
+            "\\p{Alphabetic=Y}", // binary properties take no value
+            "\\p{Script=}",      // empty value
+            "\\p{=Lu}",          // empty name
+            "\\p{lu}",           // case-sensitive, no loose matching
+            "\\p{script=Adlam}", // key is case-sensitive too
+            "\\p{alpha}",
+        ] {
+            parse_err(pat, RE_FLAG_U);
+        }
+    }
+
+    #[test]
+    fn property_value_expression_spot_membership() {
+        // scx is a superset of sc: U+0640 ARABIC TATWEEL has
+        // Script=Arabic but lists Adlam in Script_Extensions.
+        let r = parse_ok("\\p{Script_Extensions=Adlam}", RE_FLAG_U);
+        assert!(r.kids[0].cc.test_cp(0x0640));
+        let r = parse_ok("\\p{Script=Adlam}", RE_FLAG_U);
+        assert!(!r.kids[0].cc.test_cp(0x0640));
+        assert!(r.kids[0].cc.test_cp(0x1E900)); // 𞤀 ADLAM CAPITAL ALIF
+        // binary alias resolves to the same table
+        let a = parse_ok("\\p{Alpha}", RE_FLAG_U);
+        assert!(a.kids[0].cc.test_cp(0x4E2D)); // 中 is Alphabetic
     }
 
     #[test]

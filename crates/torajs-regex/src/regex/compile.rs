@@ -147,7 +147,9 @@ pub unsafe extern "C" fn __torajs_regex_compile(
     // closes the chunk-7.6 SIGBUS UB family which originated from
     // interior-mutable cache shapes.
     let dfa_runtime = if rejected == 0 && prog.can_dfa && crate::dfa::prog_ops_dfa_safe(&prog) {
-        Some(crate::dfa::build_dfa(&prog, flag_bits))
+        // RFC 20260711 chunk B — a poisoned build (unserveable
+        // K-PROPERTY shape) is discarded; the Pike VM serves.
+        Some(crate::dfa::build_dfa(&prog, flag_bits)).filter(|d| !d.poisoned)
     } else {
         None
     };

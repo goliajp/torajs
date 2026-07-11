@@ -55,8 +55,9 @@ fn compile_dir(prog: &mut Program, node: &Node, flags: u8, rev: bool) {
         NodeKind::Class => {
             let uflag = flags & RE_FLAG_U != 0;
             // Round 3 Path A v2 — K-PROPERTY (pure-property u-flag
-            // classes: u_props set, no negate, no explicit non-ASCII
-            // bits) skip chunk-10d Alt-of-Concat expansion. The DFA
+            // classes: property tables referenced, no negate, no
+            // explicit non-ASCII bits) skip chunk-10d Alt-of-Concat
+            // expansion. The DFA
             // build pre-emits a pending K-PROPERTY state whose executor
             // handler decodes one UTF-8 cp per step and consults
             // `class.test_cp(cp)`; the Pike VM second-pass cp-aware
@@ -486,7 +487,7 @@ mod tests {
     #[test]
     fn uflag_safe_class_keeps_single_op_class() {
         // `\d` under u flag is u-safe (ASCII-only, no negate, no
-        // u_props) — chunk 10d expansion is a no-op, so we still
+        // property tables) — chunk 10d expansion is a no-op, so we still
         // emit a single OP_CLASS pointing at an interned class.
         let prog = compile_pattern_uflag("\\d");
         assert_eq!(prog.insts[0].op, Op::Class as u8);
@@ -564,19 +565,20 @@ mod tests {
 
     #[test]
     fn uflag_property_letter_emits_single_op_class() {
-        // Round 3 Path A v2 — `\p{L}/u` is K-PROPERTY (u_props set, no
-        // negate, no explicit non-ASCII bits). Compiler emits a single
-        // `Op::Class` referencing the cp-range form; the DFA build
-        // pre-emits a pending K-PROPERTY state whose executor handler
-        // decodes one UTF-8 cp per step under u-flag. Was a SPLIT
-        // cascade from `utf8_class_expand` Alt-of-Concat (chunk-10d).
+        // Round 3 Path A v2 — `\p{L}/u` is K-PROPERTY (property tables
+        // referenced, no negate, no explicit non-ASCII bits). Compiler
+        // emits a single `Op::Class` referencing the cp-range form; the
+        // DFA build pre-emits a pending K-PROPERTY state whose executor
+        // handler decodes one UTF-8 cp per step under u-flag. Was a
+        // SPLIT cascade from `utf8_class_expand` Alt-of-Concat
+        // (chunk-10d).
         let prog = compile_pattern_uflag("\\p{L}");
         assert_eq!(prog.insts[0].op, Op::Class as u8);
         assert_eq!(prog.classes.len(), 1);
         // K-PROPERTY class is NOT marked byte_only — the executor
         // consults `test_cp(cp)`, not `test(byte)`.
         assert!(!prog.classes[0].byte_only);
-        assert_ne!(prog.classes[0].u_props, 0);
+        assert!(!prog.classes[0].u_prop_tables.is_empty());
         assert!(prog.classes[0].is_uflag_property_only());
     }
 }

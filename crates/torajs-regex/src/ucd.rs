@@ -1,356 +1,34 @@
-//! Curated Unicode property tables — port of `runtime_regex.c`
-//! L155-251.
+//! Unicode property name resolution for `\p{...}` / `\P{...}`
+//! escapes (RFC 20260711 chunk B).
 //!
-//! Subsets of UCD Letter / Number categories covering the dominant
-//! test262 usages (Greek, Cyrillic, Hebrew, Arabic, CJK, Hangul,
-//! Hiragana, Katakana, common decimal-digit scripts).
+//! The range data lives in the CODEGEN tables of
+//! [`crate::ucd_tables`] (UCD 16.0.0, produced by
+//! `labs/ucd-gen/gen.py`). This module owns the [`UPropRange`]
+//! element type, the binary-search membership test, and the ES
+//! §22.2.1 name-resolution rules mapping a property expression to
+//! the backing table:
 //!
-//! ASCII portions live in the [`super::charclass::CharClass`]
-//! bitmap (populated by `add_property_*`). Code points ≥ 128 are
-//! covered by these range tables, scanned via binary search by
-//! [`uprop_range_contains`].
+//! - `\p{General_Category=V}` / `\p{gc=V}` → [`lookup_gc_value`]
+//! - `\p{Script=V}` / `\p{sc=V}` → [`lookup_script`]
+//! - `\p{Script_Extensions=V}` / `\p{scx=V}` → [`lookup_scx`]
+//! - lone `\p{Name}` → [`lookup_binary`] first, then
+//!   [`lookup_gc_value`] (gc values may be written bare)
 //!
-//! The full UCD Letter category has hundreds of ranges; the curated
-//! subset here is intentionally a partial cover — per
-//! `docs/design-principles.md`'s "正统 / textbook" pragma, this is
-//! minimum-viable: lift the dominant test262 cases, then iterate.
-//! L3b follow-up: full UCD import or generated table.
+//! All lookups are exact-match (spec: no loose matching, names are
+//! case-sensitive); aliases resolve through the CODEGEN alias
+//! tables (`Letter` → `L`, `Adlm` → `Adlam`, `Alpha` →
+//! `Alphabetic`, …). A miss returns `None` → the parser reports a
+//! SyntaxError, per spec early-error semantics.
 
-/// `CharClass::u_props` bit — `\p{L}` (Letter).
-pub const UP_LETTER: u8 = 0x01;
-
-/// `CharClass::u_props` bit — `\p{N}` (Number).
-pub const UP_NUMBER: u8 = 0x02;
+use crate::ucd_tables::{
+    BINARY_ALIASES, BINARY_TABLES, GC_ALIASES, GC_TABLES, SCRIPT_ALIASES, SCRIPT_TABLES, SCX_TABLES,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct UPropRange {
     pub lo: i32,
     pub hi: i32,
 }
-
-pub const UCD_LETTER: &[UPropRange] = &[
-    // Latin-1 supplement letters (cp > 0x7F)
-    UPropRange {
-        lo: 0x00AA,
-        hi: 0x00AA,
-    },
-    UPropRange {
-        lo: 0x00B5,
-        hi: 0x00B5,
-    },
-    UPropRange {
-        lo: 0x00BA,
-        hi: 0x00BA,
-    },
-    UPropRange {
-        lo: 0x00C0,
-        hi: 0x00D6,
-    },
-    UPropRange {
-        lo: 0x00D8,
-        hi: 0x00F6,
-    },
-    UPropRange {
-        lo: 0x00F8,
-        hi: 0x024F,
-    },
-    // IPA + Spacing Modifier
-    UPropRange {
-        lo: 0x0250,
-        hi: 0x02AF,
-    },
-    UPropRange {
-        lo: 0x02B0,
-        hi: 0x02C1,
-    },
-    UPropRange {
-        lo: 0x02C6,
-        hi: 0x02D1,
-    },
-    UPropRange {
-        lo: 0x02E0,
-        hi: 0x02E4,
-    },
-    UPropRange {
-        lo: 0x02EC,
-        hi: 0x02EC,
-    },
-    UPropRange {
-        lo: 0x02EE,
-        hi: 0x02EE,
-    },
-    // Greek and Coptic
-    UPropRange {
-        lo: 0x0370,
-        hi: 0x0373,
-    },
-    UPropRange {
-        lo: 0x0376,
-        hi: 0x0377,
-    },
-    UPropRange {
-        lo: 0x037A,
-        hi: 0x037D,
-    },
-    UPropRange {
-        lo: 0x037F,
-        hi: 0x037F,
-    },
-    UPropRange {
-        lo: 0x0386,
-        hi: 0x0386,
-    },
-    UPropRange {
-        lo: 0x0388,
-        hi: 0x038A,
-    },
-    UPropRange {
-        lo: 0x038C,
-        hi: 0x038C,
-    },
-    UPropRange {
-        lo: 0x038E,
-        hi: 0x03A1,
-    },
-    UPropRange {
-        lo: 0x03A3,
-        hi: 0x03F5,
-    },
-    UPropRange {
-        lo: 0x03F7,
-        hi: 0x0481,
-    },
-    // Cyrillic
-    UPropRange {
-        lo: 0x048A,
-        hi: 0x052F,
-    },
-    // Armenian
-    UPropRange {
-        lo: 0x0531,
-        hi: 0x0556,
-    },
-    UPropRange {
-        lo: 0x0561,
-        hi: 0x0587,
-    },
-    // Hebrew letters
-    UPropRange {
-        lo: 0x05D0,
-        hi: 0x05EA,
-    },
-    UPropRange {
-        lo: 0x05F0,
-        hi: 0x05F2,
-    },
-    // Arabic letters
-    UPropRange {
-        lo: 0x0620,
-        hi: 0x064A,
-    },
-    UPropRange {
-        lo: 0x066E,
-        hi: 0x066F,
-    },
-    UPropRange {
-        lo: 0x0671,
-        hi: 0x06D3,
-    },
-    UPropRange {
-        lo: 0x06D5,
-        hi: 0x06D5,
-    },
-    UPropRange {
-        lo: 0x06E5,
-        hi: 0x06E6,
-    },
-    UPropRange {
-        lo: 0x06EE,
-        hi: 0x06EF,
-    },
-    UPropRange {
-        lo: 0x06FA,
-        hi: 0x06FC,
-    },
-    UPropRange {
-        lo: 0x06FF,
-        hi: 0x06FF,
-    },
-    // Devanagari letters
-    UPropRange {
-        lo: 0x0904,
-        hi: 0x0939,
-    },
-    UPropRange {
-        lo: 0x093D,
-        hi: 0x093D,
-    },
-    UPropRange {
-        lo: 0x0950,
-        hi: 0x0950,
-    },
-    UPropRange {
-        lo: 0x0958,
-        hi: 0x0961,
-    },
-    // Thai letters
-    UPropRange {
-        lo: 0x0E01,
-        hi: 0x0E30,
-    },
-    UPropRange {
-        lo: 0x0E32,
-        hi: 0x0E33,
-    },
-    UPropRange {
-        lo: 0x0E40,
-        hi: 0x0E46,
-    },
-    // Hiragana
-    UPropRange {
-        lo: 0x3041,
-        hi: 0x3096,
-    },
-    UPropRange {
-        lo: 0x309D,
-        hi: 0x309F,
-    },
-    // Katakana
-    UPropRange {
-        lo: 0x30A1,
-        hi: 0x30FA,
-    },
-    UPropRange {
-        lo: 0x30FC,
-        hi: 0x30FF,
-    },
-    // CJK Unified Ideographs (basic + extension A)
-    UPropRange {
-        lo: 0x3400,
-        hi: 0x4DBF,
-    },
-    UPropRange {
-        lo: 0x4E00,
-        hi: 0x9FFF,
-    },
-    // Hangul Syllables
-    UPropRange {
-        lo: 0xAC00,
-        hi: 0xD7A3,
-    },
-];
-
-pub const UCD_NUMBER: &[UPropRange] = &[
-    // Latin-1 numeric
-    UPropRange {
-        lo: 0x00B2,
-        hi: 0x00B3,
-    },
-    UPropRange {
-        lo: 0x00B9,
-        hi: 0x00B9,
-    },
-    UPropRange {
-        lo: 0x00BC,
-        hi: 0x00BE,
-    },
-    // Arabic-Indic digits
-    UPropRange {
-        lo: 0x0660,
-        hi: 0x0669,
-    },
-    UPropRange {
-        lo: 0x06F0,
-        hi: 0x06F9,
-    },
-    // NKo
-    UPropRange {
-        lo: 0x07C0,
-        hi: 0x07C9,
-    },
-    // Devanagari digits
-    UPropRange {
-        lo: 0x0966,
-        hi: 0x096F,
-    },
-    // Bengali
-    UPropRange {
-        lo: 0x09E6,
-        hi: 0x09EF,
-    },
-    UPropRange {
-        lo: 0x09F4,
-        hi: 0x09F9,
-    },
-    // Gurmukhi / Gujarati / Oriya / Tamil / Telugu / Kannada / Malayalam
-    UPropRange {
-        lo: 0x0A66,
-        hi: 0x0A6F,
-    },
-    UPropRange {
-        lo: 0x0AE6,
-        hi: 0x0AEF,
-    },
-    UPropRange {
-        lo: 0x0B66,
-        hi: 0x0B6F,
-    },
-    UPropRange {
-        lo: 0x0BE6,
-        hi: 0x0BF2,
-    },
-    UPropRange {
-        lo: 0x0C66,
-        hi: 0x0C6F,
-    },
-    UPropRange {
-        lo: 0x0CE6,
-        hi: 0x0CEF,
-    },
-    UPropRange {
-        lo: 0x0D66,
-        hi: 0x0D75,
-    },
-    // Sinhala / Thai / Lao / Tibetan / Myanmar
-    UPropRange {
-        lo: 0x0DE6,
-        hi: 0x0DEF,
-    },
-    UPropRange {
-        lo: 0x0E50,
-        hi: 0x0E59,
-    },
-    UPropRange {
-        lo: 0x0ED0,
-        hi: 0x0ED9,
-    },
-    UPropRange {
-        lo: 0x0F20,
-        hi: 0x0F33,
-    },
-    UPropRange {
-        lo: 0x1040,
-        hi: 0x1049,
-    },
-    UPropRange {
-        lo: 0x1090,
-        hi: 0x1099,
-    },
-    // Khmer / Mongolian
-    UPropRange {
-        lo: 0x17E0,
-        hi: 0x17E9,
-    },
-    UPropRange {
-        lo: 0x1810,
-        hi: 0x1819,
-    },
-    // Fullwidth digits
-    UPropRange {
-        lo: 0xFF10,
-        hi: 0xFF19,
-    },
-];
 
 pub fn uprop_range_contains(t: &[UPropRange], cp: i32) -> bool {
     let mut lo: isize = 0;
@@ -368,58 +46,118 @@ pub fn uprop_range_contains(t: &[UPropRange], cp: i32) -> bool {
     false
 }
 
+fn find_table(
+    family: &[(&str, &'static [UPropRange])],
+    name: &str,
+) -> Option<&'static [UPropRange]> {
+    family
+        .binary_search_by(|&(n, _)| n.cmp(name))
+        .ok()
+        .map(|i| family[i].1)
+}
+
+/// Resolve `name` through the alias table (alias → canonical
+/// spelling; a name with no alias row may already be canonical),
+/// then binary-search the range-table family.
+fn lookup_with_aliases(
+    aliases: &'static [(&'static str, &'static str)],
+    family: &[(&str, &'static [UPropRange])],
+    name: &str,
+) -> Option<&'static [UPropRange]> {
+    let canonical = match aliases.binary_search_by(|&(a, _)| a.cmp(name)) {
+        Ok(i) => aliases[i].1,
+        Err(_) => name,
+    };
+    find_table(family, canonical)
+}
+
+/// `General_Category` value (canonical short form `Lu` / composite
+/// `L` / long alias `Uppercase_Letter` / legacy `digit`).
+pub fn lookup_gc_value(name: &str) -> Option<&'static [UPropRange]> {
+    lookup_with_aliases(GC_ALIASES, GC_TABLES, name)
+}
+
+/// `Script` value (canonical long form `Adlam` / short alias `Adlm`).
+pub fn lookup_script(name: &str) -> Option<&'static [UPropRange]> {
+    lookup_with_aliases(SCRIPT_ALIASES, SCRIPT_TABLES, name)
+}
+
+/// `Script_Extensions` value — same name domain as `Script`,
+/// superset range tables.
+pub fn lookup_scx(name: &str) -> Option<&'static [UPropRange]> {
+    lookup_with_aliases(SCRIPT_ALIASES, SCX_TABLES, name)
+}
+
+/// Lone binary property (`Alphabetic` / alias `Alpha` / `White_Space`
+/// / alias `space` / `Any` / `Assigned` / `ASCII` / …).
+pub fn lookup_binary(name: &str) -> Option<&'static [UPropRange]> {
+    lookup_with_aliases(BINARY_ALIASES, BINARY_TABLES, name)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn tables_are_sorted_and_disjoint() {
-        for table in [UCD_LETTER, UCD_NUMBER] {
-            for w in table.windows(2) {
-                assert!(w[0].hi < w[1].lo, "ranges must be sorted + disjoint");
-            }
-        }
+    fn range_contains_hits_and_misses() {
+        let t = lookup_gc_value("L").unwrap();
+        assert!(uprop_range_contains(t, 0x03B1)); // α (Greek)
+        assert!(uprop_range_contains(t, 0x0451)); // ё (Cyrillic)
+        assert!(uprop_range_contains(t, 0x4E2D)); // 中
+        assert!(uprop_range_contains(t, 0xAC00)); // 가
+        assert!(uprop_range_contains(t, b'A' as i32)); // full table covers ASCII
+        assert!(!uprop_range_contains(t, 0x0030)); // '0'
+        assert!(!uprop_range_contains(t, 0xD7A4)); // just past Hangul syllables
     }
 
     #[test]
-    fn letter_hits() {
-        assert!(uprop_range_contains(UCD_LETTER, 0x03B1)); // α (Greek)
-        assert!(uprop_range_contains(UCD_LETTER, 0x0451)); // ё (Cyrillic)
-        assert!(uprop_range_contains(UCD_LETTER, 0x4E2D)); // 中
-        assert!(uprop_range_contains(UCD_LETTER, 0xAC00)); // 가
-        assert!(uprop_range_contains(UCD_LETTER, 0x3042)); // あ
+    fn gc_value_aliases_resolve() {
+        assert_eq!(lookup_gc_value("Letter"), lookup_gc_value("L"));
+        assert_eq!(lookup_gc_value("Uppercase_Letter"), lookup_gc_value("Lu"));
+        assert_eq!(lookup_gc_value("digit"), lookup_gc_value("Nd"));
+        assert!(lookup_gc_value("L").is_some());
+        assert!(lookup_gc_value("Foo").is_none());
+        // case-sensitive: no loose matching per spec
+        assert!(lookup_gc_value("letter").is_none());
+        assert!(lookup_gc_value("lu").is_none());
     }
 
     #[test]
-    fn letter_misses() {
-        assert!(!uprop_range_contains(UCD_LETTER, b'A' as i32)); // ASCII not in table
-        assert!(!uprop_range_contains(UCD_LETTER, 0x0030)); // '0'
-        assert!(!uprop_range_contains(UCD_LETTER, 0xD7A4)); // just past Hangul
+    fn script_and_scx_aliases_resolve() {
+        assert_eq!(lookup_script("Adlm"), lookup_script("Adlam"));
+        assert_eq!(lookup_script("Latn"), lookup_script("Latin"));
+        assert!(lookup_script("Adlam").is_some());
+        assert!(lookup_script("NotAScript").is_none());
+        // scx superset: U+0640 ARABIC TATWEEL lists Adlam in
+        // ScriptExtensions.txt but its Script is Arabic.
+        assert!(uprop_range_contains(lookup_scx("Adlam").unwrap(), 0x0640));
+        assert!(!uprop_range_contains(
+            lookup_script("Adlam").unwrap(),
+            0x0640
+        ));
     }
 
     #[test]
-    fn number_hits_and_misses() {
-        assert!(uprop_range_contains(UCD_NUMBER, 0x0664)); // ٤ (Arabic-Indic 4)
-        assert!(uprop_range_contains(UCD_NUMBER, 0xFF15)); // ５ (fullwidth)
-        assert!(!uprop_range_contains(UCD_NUMBER, b'5' as i32)); // ASCII not in table
-        assert!(!uprop_range_contains(UCD_NUMBER, 0x4E2D)); // 中 is letter not number
-    }
-
-    #[test]
-    fn boundary_inclusive() {
-        for r in UCD_LETTER.iter().take(3) {
-            assert!(uprop_range_contains(UCD_LETTER, r.lo));
-            assert!(uprop_range_contains(UCD_LETTER, r.hi));
-        }
+    fn binary_names_and_aliases_resolve() {
+        assert_eq!(lookup_binary("Alpha"), lookup_binary("Alphabetic"));
+        assert_eq!(lookup_binary("space"), lookup_binary("White_Space"));
+        assert_eq!(lookup_binary("AHex"), lookup_binary("ASCII_Hex_Digit"));
+        assert!(lookup_binary("Alphabetic").is_some());
+        assert!(lookup_binary("Any").is_some());
+        assert!(lookup_binary("Assigned").is_some());
+        assert!(lookup_binary("ASCII").is_some());
+        // gc values are NOT binary names (parser falls back separately)
+        assert!(lookup_binary("Lu").is_none());
+        assert!(lookup_binary("alpha").is_none());
     }
 
     /// CODEGEN table invariants (RFC 20260711 chunk A) — every
     /// generated table is sorted + disjoint (the binary-search
-    /// contract) and name-sorted (the future name binary search);
-    /// spot hits pin the generator's range coalescing.
+    /// contract) and name-sorted (the name binary search); spot hits
+    /// pin the generator's range coalescing.
     #[test]
     fn codegen_tables_sorted_and_disjoint() {
-        use crate::ucd_tables::{BINARY_TABLES, GC_TABLES, SCRIPT_TABLES, SCX_TABLES};
+        use crate::ucd_tables::BINARY_TABLES;
         for family in [GC_TABLES, SCRIPT_TABLES, SCX_TABLES, BINARY_TABLES] {
             for pair in family.windows(2) {
                 assert!(pair[0].0 < pair[1].0, "table names must be sorted");
@@ -436,35 +174,33 @@ mod tests {
     }
 
     #[test]
-    fn codegen_spot_hits() {
-        use crate::ucd_tables::{GC_ALIASES, GC_TABLES, SCRIPT_TABLES, SCX_TABLES};
-        fn find(
-            family: &'static [(&'static str, &'static [UPropRange])],
-            n: &str,
-        ) -> &'static [UPropRange] {
-            family
-                .iter()
-                .find(|(name, _)| *name == n)
-                .unwrap_or_else(|| panic!("missing table {n}"))
-                .1
+    fn alias_tables_sorted() {
+        for aliases in [GC_ALIASES, SCRIPT_ALIASES, BINARY_ALIASES] {
+            for pair in aliases.windows(2) {
+                assert!(pair[0].0 < pair[1].0, "alias names must be sorted");
+            }
         }
+    }
+
+    #[test]
+    fn codegen_spot_hits() {
         // Adlam script: 1E900..1E94B coalesced from three UCD rows.
-        assert!(uprop_range_contains(find(SCRIPT_TABLES, "Adlam"), 0x1E94B));
-        assert!(!uprop_range_contains(find(SCRIPT_TABLES, "Adlam"), 0x1E94C));
-        // gc composite L covers what the handwritten UCD_LETTER does.
-        assert!(uprop_range_contains(find(GC_TABLES, "L"), 0x4E2D));
-        assert!(!uprop_range_contains(find(GC_TABLES, "L"), 0x0030));
-        // scx: U+0640 ARABIC TATWEEL lists Adlam in ScriptExtensions.
-        assert!(uprop_range_contains(find(SCX_TABLES, "Adlam"), 0x0640));
-        assert!(!uprop_range_contains(find(SCRIPT_TABLES, "Adlam"), 0x0640));
-        // alias rows are (alias, canonical) and sorted.
+        assert!(uprop_range_contains(
+            lookup_script("Adlam").unwrap(),
+            0x1E94B
+        ));
+        assert!(!uprop_range_contains(
+            lookup_script("Adlam").unwrap(),
+            0x1E94C
+        ));
+        // gc composite L covers CJK; not digits.
+        assert!(uprop_range_contains(lookup_gc_value("L").unwrap(), 0x4E2D));
+        assert!(!uprop_range_contains(lookup_gc_value("L").unwrap(), 0x0030));
+        // alias rows are (alias, canonical).
         assert!(
             GC_ALIASES
                 .iter()
                 .any(|&(a, c)| a == "Uppercase_Letter" && c == "Lu")
         );
-        for pair in GC_ALIASES.windows(2) {
-            assert!(pair[0].0 < pair[1].0);
-        }
     }
 }

@@ -130,8 +130,8 @@ impl<'p> Parser<'p> {
             return None;
         }
         self.get(); // consume `{`
-        let name = self.read_word_name(b'}')?;
-        let matched = apply_property_name(n, &name);
+        let (name, value) = self.read_property_expr()?;
+        let matched = apply_property_name(n, &name, value.as_deref());
         if !matched {
             self.set_err();
             return None;
@@ -205,6 +205,15 @@ mod tests {
         r
     }
 
+    fn parse_err(pattern: &str, flags: u8) {
+        let mut p = Parser::new(pattern.as_bytes(), flags);
+        let r = p.parse();
+        assert!(
+            r.is_none() && p.err(),
+            "expected parse error for {pattern:?}"
+        );
+    }
+
     #[test]
     fn parses_char_class_simple() {
         let r = parse_ok("[abc]", 0);
@@ -260,6 +269,27 @@ mod tests {
         let class = &r.kids[0];
         assert!(class.cc.test(b'_'));
         assert!(class.cc.test_cp(0x03B1)); // α
+    }
+
+    /// RFC 20260711 chunk B — keyed `Name=Value` forms work inside
+    /// `[...]` through the shared `read_property_expr` /
+    /// `apply_property_name` pair; two property escapes union.
+    #[test]
+    fn parses_class_with_property_name_value() {
+        let r = parse_ok("[\\p{Script=Greek}x]", RE_FLAG_U);
+        let class = &r.kids[0];
+        assert!(class.cc.test(b'x'));
+        assert!(class.cc.test_cp(0x03B1)); // α — Script=Greek
+        assert!(!class.cc.test_cp(0x0451)); // ё — Cyrillic
+
+        let r = parse_ok("[\\p{Lu}\\p{Nd}]", RE_FLAG_U);
+        let class = &r.kids[0];
+        assert!(class.cc.test_cp(0x0391)); // Α — Lu
+        assert!(class.cc.test_cp(0x0664)); // ٤ — Nd
+        assert!(!class.cc.test_cp(0x03B1)); // α is Ll
+
+        parse_err("[\\p{Foo}]", RE_FLAG_U);
+        parse_err("[\\p{Script=NotAScript}]", RE_FLAG_U);
     }
 
     #[test]

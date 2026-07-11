@@ -84,7 +84,7 @@ impl PendingClass {
 
 /// Round 3 Phase B sub-batch 4 attack #R-J v2 (§2.5.E) — true iff `pc`
 /// is a K-PROPERTY `Op::Class` instruction under u-flag. K-PROPERTY =
-/// `cc.u_props != 0 && !cc.negate && cc.bits[16..32] all zero` (see
+/// `!cc.u_prop_tables.is_empty() && !cc.negate && cc.bits[16..32] all zero` (see
 /// [`crate::charclass::CharClass::is_uflag_property_only`]). Used by
 /// `dfa/build.rs` BFS to emit a pending state when this PC is among
 /// the byte-consuming ops in the closure.
@@ -104,6 +104,29 @@ pub(crate) fn kproperty_pc_for(prog: &Program, pc: usize, flags: u8) -> Option<u
     }
 }
 
+/// Verdict of [`classify_kproperty_shape`] over one `(ready,
+/// deferred)` PC set (RFC 20260711 chunk B — split from the old
+/// `Option<KPropertyShape>` so "no K-PROPERTY present" and
+/// "K-PROPERTY present but not serveable" are distinguishable; the
+/// latter must poison the whole DFA instead of silently falling back
+/// to the ASCII-only byte-step).
+pub(crate) enum KPropertyVerdict {
+    /// No K-PROPERTY PC in the set — ordinary byte-step state.
+    NoKProperty,
+    /// Pending-serveable: every K-PROPERTY PC shares one class (by
+    /// content), deferred buckets empty.
+    Shape(KPropertyShape),
+    /// K-PROPERTY PCs present but the single-class pending mechanism
+    /// cannot serve them (content-distinct property classes in one
+    /// set — `\p{L}|\p{N}` disjunction shapes — or K-PROPERTY mixed
+    /// with in-flight deferred bytes). A byte-stepped fallback would
+    /// silently drop every non-ASCII cp for those PCs (the pre-chunk-B
+    /// `/\p{L}|\p{N}/u.test("α") == false` silent-wrong), so the
+    /// builder poisons the DFA and the cp-aware Pike VM serves the
+    /// program. Multi-pending DFA residency is the L3b follow-up.
+    Unserveable,
+}
+
 /// Round 3 Phase B sub-batch 4 attack #R-J v3 option A — analysis of a
 /// `(ready, deferred)` PC set to decide whether it is "K-PROPERTY
 /// shaped" for the pending_class mechanism. Pure predicate — no
@@ -111,15 +134,17 @@ pub(crate) fn kproperty_pc_for(prog: &Program, pc: usize, flags: u8) -> Option<u
 /// `dfa/build.rs::compute_pending_class_for` can take this verdict
 /// and decide whether to recursively intern the yes_target.
 ///
-/// Returns `Some(KPropertyShape)` iff:
-/// 1. `deferred[0..3]` are all empty.
-/// 2. At least one PC in `ready` is K-PROPERTY ([`kproperty_pc_for`]).
-/// 3. All K-PROPERTY PCs in `ready` share the same `class_idx`.
-/// 4. All non-K-PROPERTY PCs in `ready` are ε-only
-///    ([`is_epsilon_only_pc`]).
+/// Returns [`KPropertyVerdict::Shape`] iff:
+/// 1. At least one PC in `ready` is K-PROPERTY ([`kproperty_pc_for`]).
+/// 2. All K-PROPERTY PCs in `ready` share one class **by content**
+///    (`intern_class` does not dedupe, so two `\p{L}` occurrences get
+///    distinct indices with equal payloads — any of them serves).
+/// 3. `deferred[0..3]` are all empty.
 ///
-/// Returns `None` otherwise → the caller falls back to the ordinary
-/// 256-way transitions path.
+/// Non-K-PROPERTY byte-consumers in `ready` are allowed (v4 — the
+/// mixed state keeps its 256-way transitions AND the pending triple;
+/// the executor consults pending only when `transitions[byte]` is
+/// dead).
 pub(crate) struct KPropertyShape {
     /// The shared K-PROPERTY class index (the value to bake into
     /// `PendingClass::class_idx`).
@@ -137,28 +162,39 @@ pub(crate) fn classify_kproperty_shape(
     ready: &BTreeSet<usize>,
     deferred: &[BTreeSet<usize>; 3],
     flags: u8,
-) -> Option<KPropertyShape> {
-    if !deferred.iter().all(|d| d.is_empty()) {
-        return None;
-    }
+) -> KPropertyVerdict {
     let mut kp_pcs: Vec<usize> = Vec::new();
     let mut kp_class_idx: Option<usize> = None;
     for &pc in ready.iter() {
         if let Some(cidx) = kproperty_pc_for(prog, pc, flags) {
             match kp_class_idx {
                 None => kp_class_idx = Some(cidx),
-                Some(existing) if existing != cidx => {
-                    // Multi-class K-PROPERTY disjunction (e.g.
-                    // `\p{L}|\p{N}` in a Split) — out of v3-A scope;
-                    // caller falls back to normal byte-step.
-                    return None;
+                Some(existing)
+                    if existing != cidx && prog.classes[existing] != prog.classes[cidx] =>
+                {
+                    // Content-distinct K-PROPERTY classes in one set
+                    // (e.g. `\p{L}|\p{N}` in a Split) — the single
+                    // class_idx pending slot cannot represent the
+                    // union; poison (RFC 20260711 chunk B — was a
+                    // silent byte-step fallback that dropped every
+                    // non-ASCII cp).
+                    return KPropertyVerdict::Unserveable;
                 }
                 _ => {}
             }
             kp_pcs.push(pc);
         }
     }
-    let class_idx = kp_class_idx?;
+    let Some(class_idx) = kp_class_idx else {
+        return KPropertyVerdict::NoKProperty;
+    };
+    if !deferred.iter().all(|d| d.is_empty()) {
+        // K-PROPERTY coexists with an in-flight u-flag multi-byte
+        // sequence — the pending handler owns the whole cp step and
+        // cannot also resume the deferred PCs; poison rather than
+        // drop the K-PROPERTY coverage.
+        return KPropertyVerdict::Unserveable;
+    }
     // v4 (regex-024 regression fix) — non-K-PROPERTY byte-consumers in
     // the ready set are NOT a disqualifier any more. The DFA build now
     // enqueues "mixed" states for ordinary byte_step (so transitions[]
@@ -180,7 +216,7 @@ pub(crate) fn classify_kproperty_shape(
     // byte-consumer participates in byte_step; the pending handler
     // takes every byte).
     let yes_seeds: Vec<usize> = kp_pcs.iter().map(|&pc| pc + 1).collect();
-    Some(KPropertyShape {
+    KPropertyVerdict::Shape(KPropertyShape {
         class_idx: class_idx as u16,
         yes_seeds,
     })
