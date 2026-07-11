@@ -45,6 +45,7 @@ pub mod grow;
 pub mod index_any;
 pub mod iter;
 pub mod join;
+mod join_enc;
 pub mod join_locale;
 pub mod layout;
 pub mod mark_kind;
@@ -116,6 +117,14 @@ pub use transform::{
 pub unsafe extern "C" fn __torajs_str_alloc_pooled(_len: u64) -> *mut u8 {
     panic!(
         "torajs-arr unit-test stub: __torajs_str_alloc_pooled should not be called from cargo test paths"
+    );
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_alloc_pooled_enc(_len: u64, _is_latin1: i64) -> *mut u8 {
+    panic!(
+        "torajs-arr unit-test stub: __torajs_str_alloc_pooled_enc should not be called from cargo test paths"
     );
 }
 

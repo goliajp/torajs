@@ -19,6 +19,10 @@ unsafe extern "C" {
     /// len=arg, body uninitialized (caller writes payload bytes after
     /// `+ STR_DATA_OFF = 16`).
     fn __torajs_str_alloc_pooled(len: u64) -> *mut u8;
+    /// Encoding-aware sibling (RFC 20260711 join follow-up):
+    /// `len` = code units; `is_latin1 != 0` selects the 1-byte
+    /// stride, else UTF-16 LE. Provided by `libtorajs_str.a`.
+    fn __torajs_str_alloc_pooled_enc(len: u64, is_latin1: i64) -> *mut u8;
 }
 
 /// Thin wrapper exposing the cross-tier `__torajs_str_alloc_pooled`
@@ -27,4 +31,10 @@ unsafe extern "C" {
 #[inline]
 pub unsafe fn str_alloc_pooled(len: u64) -> *mut u8 {
     unsafe { __torajs_str_alloc_pooled(len) }
+}
+
+/// Encoding-aware wrapper for the `arr.join` family (join_enc.rs).
+#[inline]
+pub(crate) unsafe fn str_alloc_pooled_enc(units: u64, is_latin1: bool) -> *mut u8 {
+    unsafe { __torajs_str_alloc_pooled_enc(units, is_latin1 as i64) }
 }

@@ -321,6 +321,18 @@ pub unsafe extern "C" fn __torajs_str_alloc_pooled(len: u64) -> *mut u8 {
     StrBlock::alloc(len as u32).into_raw()
 }
 
+/// Encoding-aware sibling of [`__torajs_str_alloc_pooled`] (RFC
+/// 20260711 `arr.join` follow-up). `len` counts CODE UNITS;
+/// `is_latin1 != 0` selects the 1-byte payload stride, zero selects
+/// UTF-16 LE (2 bytes per unit). Cross-staticlib consumers
+/// (torajs-arr's join kernels) that fold a widest-of-inputs output
+/// encoding need to allocate the wide layout directly — the legacy
+/// entry above hard-codes Latin-1.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_alloc_pooled_enc(len: u64, is_latin1: i64) -> *mut u8 {
+    StrBlock::alloc_with_encoding(len as u32, is_latin1 != 0).into_raw()
+}
+
 /// ASCII-certain variant of [`__torajs_str_alloc`] — Round 5 attack
 /// str-replace #5 (2026-07-03). The caller has already established
 /// every byte of `src[0..len]` is ≤ 0x7F (e.g. the regex replace
