@@ -267,6 +267,14 @@ pub const ANY_METHOD_SET_UTC_MINUTES: i64 = 112;
 pub const ANY_METHOD_SET_UTC_SECONDS: i64 = 113;
 /// `Date.prototype.setUTCMilliseconds`.
 pub const ANY_METHOD_SET_UTC_MILLISECONDS: i64 = 114;
+/// `String.prototype.substring`.
+pub const ANY_METHOD_SUBSTRING: i64 = 115;
+/// `String.prototype.substr` (annexB §B.2.2.1).
+pub const ANY_METHOD_SUBSTR: i64 = 116;
+/// `String.prototype.at` (ES2022 relative indexing).
+pub const ANY_METHOD_AT: i64 = 117;
+/// `String.prototype.charCodeAt`.
+pub const ANY_METHOD_CHAR_CODE_AT: i64 = 118;
 
 /// RegExp property-read ids (Any-method-call RFC 20260704 C4-3c-2)
 /// — `r.source` / `r.lastIndex` / flag booleans through an `any`
@@ -427,6 +435,10 @@ pub fn any_method_id(name: &str) -> i64 {
         "strike" => ANY_METHOD_STRIKE,
         "sub" => ANY_METHOD_SUB,
         "sup" => ANY_METHOD_SUP,
+        "substring" => ANY_METHOD_SUBSTRING,
+        "substr" => ANY_METHOD_SUBSTR,
+        "at" => ANY_METHOD_AT,
+        "charCodeAt" => ANY_METHOD_CHAR_CODE_AT,
         _ => ANY_METHOD_UNKNOWN,
     }
 }

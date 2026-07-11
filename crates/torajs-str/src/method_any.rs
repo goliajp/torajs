@@ -366,6 +366,84 @@ pub unsafe extern "C" fn __torajs_str_any_html(s: *const u8, mid: i64, val: *con
     }
 }
 
+/// NaN-box `undefined` bit pattern (torajs-anyvalue
+/// `VALUE_UNDEFINED` mirror) — `s.at(oob)` answers JS undefined.
+const VALUE_UNDEF_BOX: u64 = 0x0A;
+
+/// `s.substring(start, end)` per ES §22.1.3.24 — negative clamps to
+/// 0 and swapped bounds re-order in the kernel. The dispatcher
+/// encodes a missing `end` as `i64::MAX` (clamps to `len`).
+///
+/// # Safety
+/// `s` is a valid heap Str/Substr pointer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_any_substring(s: *const u8, start: i64, end: i64) -> u64 {
+    unsafe {
+        let (src, tmp) = owned_src(s);
+        let out = crate::transform::construct::__torajs_str_substring(src, start, end);
+        drop_tmp(tmp);
+        out as u64
+    }
+}
+
+/// `s.substr(start, length)` per annexB §B.2.2.1 — negative `start`
+/// wraps, `length` clamps to the remainder. Missing `length` rides
+/// as `i64::MAX`.
+///
+/// # Safety
+/// `s` is a valid heap Str/Substr pointer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_any_substr(s: *const u8, start: i64, length: i64) -> u64 {
+    unsafe {
+        let (src, tmp) = owned_src(s);
+        let out = crate::transform::construct::__torajs_str_substr(src, start, length);
+        drop_tmp(tmp);
+        out as u64
+    }
+}
+
+/// `s.at(i)` per ES §22.1.3.1 — negative wraps in the kernel; OOB
+/// answers the boxed JS `undefined` (the kernel's immortal undef-Str
+/// sentinel translates to the immediate here — an any-world read
+/// must not hand out the sentinel cell).
+///
+/// # Safety
+/// `s` is a valid heap Str/Substr pointer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_any_at(s: *const u8, i: i64) -> u64 {
+    unsafe {
+        let (src, tmp) = owned_src(s);
+        let out = crate::transform::construct::__torajs_str_at(src, i);
+        drop_tmp(tmp);
+        if out == crate::undef_sentinel::undef_ptr() {
+            VALUE_UNDEF_BOX
+        } else {
+            out as u64
+        }
+    }
+}
+
+/// `s.charCodeAt(i)` per ES §22.1.3.3 — the code unit, or `-1` for
+/// out-of-range (the dispatcher boxes that as the spec NaN; the
+/// typed-tier kernel's 0-for-OOB stays its own recorded divergence).
+///
+/// # Safety
+/// `s` is a valid heap Str/Substr pointer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_any_char_code_at(s: *const u8, i: i64) -> i64 {
+    unsafe {
+        let (src, tmp) = owned_src(s);
+        let (_, len, _) = crate::lookup::str_view(src);
+        let out = if i < 0 || i >= len as i64 {
+            -1
+        } else {
+            crate::lookup_ffi::__torajs_str_char_code_at(src, i)
+        };
+        drop_tmp(tmp);
+        out
+    }
+}
+
 /// `s.endsWith(needle, endPos)` per ES §22.1.3.7 — 1/0. The
 /// dispatcher encodes a missing `endPos` as `i64::MAX` (the kernel
 /// clamps to `s.length`).
