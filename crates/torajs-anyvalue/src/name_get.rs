@@ -24,6 +24,7 @@
 //! - everything else (primitives, other heap tags) → `undefined`.
 
 use core::ffi::c_void;
+use core::sync::atomic::{AtomicPtr, AtomicU64, Ordering};
 
 use torajs_rc::Tag;
 
@@ -46,6 +47,92 @@ unsafe extern "C" {
 /// `ssa_lower.rs` constants).
 const CLOSURE_FN_ADDR_OFF: usize = 8;
 const CLOSURE_PROPS_OFF: usize = 24;
+
+/// Per-fn-addr interned immortal name cells (chunk D, RFC
+/// 20260711-closure-reflection). The dynamic-key member probe
+/// (`f[k]`, k == "name") is borrow-shaped — the answer must be
+/// immortal, so registry names intern one Str cell per fn_addr in a
+/// lock-free append-only list. Cold path (dynamic-key fn-name
+/// reads), linear scan is fine; a CAS-race double-mint leaks one
+/// immortal cell, benign. AtomicPtr-static, NOT `thread_local!` —
+/// std's lazy TLS machinery is unavailable inside the baked
+/// staticlib runtime (`method_value.rs` precedent).
+struct FnNameNode {
+    fn_addr: u64,
+    cell: *mut u8,
+    next: *mut FnNameNode,
+}
+static FN_NAME_INTERN_HEAD: AtomicPtr<FnNameNode> = AtomicPtr::new(core::ptr::null_mut());
+/// Shared `""` cell — the ES anonymous-function name for registry
+/// misses.
+static EMPTY_NAME_CELL: AtomicU64 = AtomicU64::new(0);
+
+/// Interned immortal cell for a registry fn name.
+unsafe fn interned_registry_name_cell(fn_addr: u64, bytes: *const u8, len: u32) -> *mut u8 {
+    let mut cur = FN_NAME_INTERN_HEAD.load(Ordering::Acquire);
+    while !cur.is_null() {
+        // SAFETY: nodes are leaked Boxes — live for the process.
+        let n = unsafe { &*cur };
+        if n.fn_addr == fn_addr {
+            return n.cell;
+        }
+        cur = n.next;
+    }
+    // SAFETY: registry bytes are live rodata for the process.
+    let name = unsafe { core::slice::from_raw_parts(bytes, len as usize) };
+    let cell = crate::method_value::mint_immortal_str(name);
+    let node = Box::into_raw(Box::new(FnNameNode {
+        fn_addr,
+        cell,
+        next: core::ptr::null_mut(),
+    }));
+    loop {
+        let head = FN_NAME_INTERN_HEAD.load(Ordering::Acquire);
+        // SAFETY: node is a fresh leaked Box owned by this loop.
+        unsafe { (*node).next = head };
+        if FN_NAME_INTERN_HEAD
+            .compare_exchange(head, node, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
+        {
+            return cell;
+        }
+    }
+}
+
+/// The IMMORTAL name cell of a closure for the borrow-shaped
+/// dynamic-key probe (`member_get`'s virtual pair, chunk D):
+/// method cells reuse their chunk-715 interned name; registry fns
+/// intern per fn_addr; a registry miss answers the shared `""`.
+/// Bound cells answer `None` — their `"bound "` concat has no
+/// stable intern key (recorded boundary; the static `.name` member
+/// read covers them through the owned channel).
+///
+/// # Safety
+/// `ptr` is a live `Tag::Closure` cell.
+pub(crate) unsafe fn closure_virtual_name_cell(ptr: *mut c_void) -> Option<*mut u8> {
+    unsafe {
+        if let Some(cell) = crate::method_value::builtin_method_name_cell_of(ptr) {
+            return Some(cell);
+        }
+        if crate::method_bind::bound_cell_meta(ptr).is_some() {
+            return None;
+        }
+        let fn_addr = *(ptr.cast::<u8>().add(CLOSURE_FN_ADDR_OFF) as *const u64);
+        let mut name_len: u32 = 0;
+        let mut arity: u32 = 0;
+        let name_ptr = __torajs_fn_name_lookup(fn_addr, &mut name_len, &mut arity);
+        if name_ptr.is_null() {
+            let p = EMPTY_NAME_CELL.load(Ordering::Relaxed);
+            if p != 0 {
+                return Some(p as *mut u8);
+            }
+            let cell = crate::method_value::mint_immortal_str(b"");
+            EMPTY_NAME_CELL.store(cell as u64, Ordering::Relaxed);
+            return Some(cell);
+        }
+        Some(interned_registry_name_cell(fn_addr, name_ptr, name_len))
+    }
+}
 
 /// See module doc.
 ///

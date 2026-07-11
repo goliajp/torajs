@@ -18,10 +18,12 @@
 //!   answers absent).
 //! - `Tag::Closure` (L3b #11 residue, chunk 529) → the lazy
 //!   `props_dynobj` at `CLOSURE_PROPS_OFF` (T-27 Function-as-Object
-//!   expandos; NULL slot answers absent). `.name` / `.length` fn
-//!   metadata never reaches this pair — the lowering's member
-//!   fallback routes those literal keys to `__torajs_any_name_get`
-//!   / `__torajs_any_length_get` (chunks 715/716).
+//!   expandos; NULL slot answers absent). STATIC `.name` / `.length`
+//!   member reads route to `__torajs_any_name_get` /
+//!   `__torajs_any_length_get` (chunks 715/716) and never reach this
+//!   pair; a DYNAMIC key (`f[k]`, chunk D RFC 20260711) lands here
+//!   and answers the same metadata through `closure_virtual_pair`
+//!   (immortal interned name cells — the pair is borrow-shaped).
 //! - every other receiver (and an Arr / Closure expando miss) →
 //!   the builtin-method reification probe (chunk 711,
 //!   `method_value`): a supported method name answers the interned
@@ -194,6 +196,9 @@ pub unsafe extern "C" fn __torajs_any_member_get_tag(recv: AnyValue, key: *const
                     return tag;
                 }
             }
+            if let Some((tag, _)) = closure_virtual_pair(ptr, key) {
+                return tag;
+            }
             reify_tag(recv, key)
         },
         // Chunk 744 — struct cell: class-layout field probe before
@@ -206,6 +211,36 @@ pub unsafe extern "C" fn __torajs_any_member_get_tag(recv: AnyValue, key: *const
             reify_tag(recv, key)
         },
         _ => unsafe { reify_tag(recv, key) },
+    }
+}
+
+/// Virtual §20.2.4 `name` / `length` pair for the borrow-shaped
+/// dynamic-key probe (chunk D, RFC 20260711-closure-reflection) —
+/// `f[k]` with k == "name"/"length" answers the same metadata the
+/// static member read does, tombstone-gated (chunk C). `name` hands
+/// out an IMMORTAL interned cell (`closure_virtual_name_cell`;
+/// bound cells stay None — recorded boundary), `length` is an i64
+/// immediate. `None` falls to the builtin reify probe.
+///
+/// # Safety
+/// `ptr` is a live `Tag::Closure` cell; `key` a live Str cell.
+unsafe fn closure_virtual_pair(ptr: *mut c_void, key: *const c_void) -> Option<(u64, u64)> {
+    unsafe {
+        if crate::prop_has::key_is(key, b"name")
+            && !header_flag(ptr, torajs_rc::FLAG_FN_NAME_DELETED)
+            && let Some(cell) = crate::name_get::closure_virtual_name_cell(ptr)
+        {
+            return Some((AnySlotTag::Heap as u64, cell as u64));
+        }
+        if crate::prop_has::key_is(key, b"length")
+            && !header_flag(ptr, torajs_rc::FLAG_FN_LENGTH_DELETED)
+        {
+            let l = crate::len_get::__torajs_closure_length(ptr);
+            if l >= 0 {
+                return Some((AnySlotTag::I64 as u64, l as u64));
+            }
+        }
+        None
     }
 }
 
@@ -318,6 +353,9 @@ pub unsafe extern "C" fn __torajs_any_member_get_value(recv: AnyValue, key: *con
             let props = closure_props(ptr);
             if !props.is_null() && __torajs_dynobj_get_tag(props, key) != 5 {
                 return __torajs_dynobj_get_value(props, key);
+            }
+            if let Some((_, val)) = closure_virtual_pair(ptr, key) {
+                return val;
             }
             reify_value(recv, key)
         },

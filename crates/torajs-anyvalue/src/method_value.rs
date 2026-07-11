@@ -149,6 +149,16 @@ fn builtin_method_name_cell(mid: i64, name: &'static str) -> *mut u8 {
     if p != 0 {
         return p as *mut u8;
     }
+    let cell = mint_immortal_str(name.as_bytes());
+    slot.store(cell as u64, Ordering::Relaxed);
+    cell
+}
+
+/// Mint an immortal (`FLAG_STATIC_LITERAL`) Latin-1 Str cell — rc
+/// traffic no-ops, the cycle collector skips it, it never drops.
+/// Shared by the method-name intern table above and `name_get`'s
+/// dynamic-key fn-name intern list (chunk D, RFC 20260711).
+pub(crate) fn mint_immortal_str(name: &[u8]) -> *mut u8 {
     // SAFETY: fresh allocation sized for the 16-byte Str prefix +
     // payload, fully initialized below.
     unsafe {
@@ -158,8 +168,9 @@ fn builtin_method_name_cell(mid: i64, name: &'static str) -> *mut u8 {
         *(cell.add(4) as *mut u16) = Tag::Str as u16;
         *(cell.add(6) as *mut u16) = FLAG_STATIC_LITERAL | STR_FLAG_IS_LATIN1;
         *(cell.add(STR_LEN_OFF) as *mut u32) = name.len() as u32;
-        core::ptr::copy_nonoverlapping(name.as_ptr(), cell.add(STR_DATA_OFF), name.len());
-        slot.store(cell as u64, Ordering::Relaxed);
+        if !name.is_empty() {
+            core::ptr::copy_nonoverlapping(name.as_ptr(), cell.add(STR_DATA_OFF), name.len());
+        }
         cell
     }
 }
