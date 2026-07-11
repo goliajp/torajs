@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-11T10:34:20.418Z",
+  "generatedAt": "2026-07-11T10:50:53.783Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 76.02
   },
   "torajs": {
-    "commit": "0c892069",
-    "commitSubject": "chore: test262 refresh @ 12115353 - array any-dispatch backfill close (passTotal 7850 to 7884, bug 2521 to 2487)",
+    "commit": "07e51d2b",
+    "commitSubject": "feat: UCD 16.0.0 property-range tables land in torajs-regex",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,18 @@
   },
   "commits": [
     {
+      "hash": "07e51d2b",
+      "subject": "feat: UCD 16.0.0 property-range tables land in torajs-regex"
+    },
+    {
+      "hash": "26b7b14b",
+      "subject": "feat(labs): ucd-gen — UCD 16.0.0 property-range table generator"
+    },
+    {
+      "hash": "2e98dcfc",
+      "subject": "chore(dashboard): refresh @ 0c892069 - rotation 72 (array any-dispatch backfill lands end to end - concat/fill/copyWithin/splice ride a new kind-aware transform kernel with the as-any receiver mark fix unlocking every kind-aware arm, the callback six (every/some/find/findIndex/reduce/reduceRight) share early-exit and fold loops over the boxed dual-entry ABI, sort grows ANY modes on the merge-sort kernel with compare-time rebox and the iterator trio reads kind-aware - test262 passTotal 7850 to 7884, bug 2521 to 2487; gates 1437 to 1440 four green, tr 61663872, nextest 387 four-crate green)"
+    },
+    {
       "hash": "0c892069",
       "subject": "chore: test262 refresh @ 12115353 - array any-dispatch backfill close (passTotal 7850 to 7884, bug 2521 to 2487)"
     },
@@ -747,21 +759,9 @@
     {
       "hash": "fe1a0379",
       "subject": "feat: fn name/length carry the ES 20.2.4 attribute protocol on any receivers"
-    },
-    {
-      "hash": "04c3cd9c",
-      "subject": "feat: gOPD answers virtual name/length descriptors on closure cells"
-    },
-    {
-      "hash": "cca8ffe9",
-      "subject": "feat: <Ctor>.prototype.<m> static method-value reads mint reified method cells"
-    },
-    {
-      "hash": "4c261a8e",
-      "subject": "chore(dashboard): refresh @ 3461168d - rotation 70 (814-818: for-in lands end to end - Object.keys grows the ES2015 ToObject arms over Str/Arr/Closure/primitive any cells, var and bare loop heads with fn-scope leak via var-hoist, null/undefined zero-iteration through the parser-synthesized Object.__forinKeys twin, and the mid-loop-delete guard re-checking snapshot keys against the live object per 14.7.5; hasOwnProperty and propertyIsEnumerable land as universal any-method arms with Object.hasOwn growing its Any receiver lane; delete refuses non-configurable properties per 10.1.10 step 4; propertyHelper.js typed port ships closing RFC 20260711 - test262 passTotal 7265 to 7573, harness-includes bucket down 4977, trAccepted up 1193; gates 1427 to 1432 six green, tr baseline 61647360, nextest core 180 anyvalue 95 rc 92)"
     }
   ],
-  "headSha": "0c892069",
+  "headSha": "07e51d2b",
   "autorun": {
     "total": 378,
     "baselineTarget": 10,
