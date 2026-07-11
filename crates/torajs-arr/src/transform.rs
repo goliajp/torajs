@@ -87,6 +87,9 @@ unsafe fn arr_alloc_with(len: u64, cap: u64) -> *mut u8 {
         (p.add(ARR_LEN_OFF) as *mut u64).write(len);
         (p.add(ARR_CAP_OFF) as *mut u32).write(cap as u32);
         (p.add(ARR_HEAD_OFF) as *mut u32).write(0);
+        // props NULL (chunk 516 slice fix, same latent-garbage class
+        // — a props consumer's NULL gate would chase malloc garbage).
+        (p.add(crate::layout::ARR_PROPS_OFF) as *mut u64).write(0);
         // B1 — data pointer starts self-referential (inline slots).
         (p.add(ARR_DATA_PTR_OFF) as *mut *mut u8).write(p.add(ARR_CELL_SIZE));
     }

@@ -48,9 +48,10 @@ unsafe fn data_ptr_at(arr: *const u8, i: usize) -> *const u8 {
 /// Internal alloc + header init for `Array<T>` (matches C's
 /// `arr_alloc_`). Bypasses the cap-matched pool — slice always
 /// produces a fresh right-sized block (no cap slack), so pooling
-/// would just waste a search for nothing.
+/// would just waste a search for nothing. Shared with
+/// `method_any_transform`'s splice (typed removed-array alloc).
 #[inline]
-unsafe fn arr_alloc_fresh(len: u64, cap: u64) -> *mut u8 {
+pub(crate) unsafe fn arr_alloc_fresh(len: u64, cap: u64) -> *mut u8 {
     unsafe {
         let total = ARR_CELL_SIZE + (cap as usize) * 8;
         let p = malloc(total) as *mut u8;

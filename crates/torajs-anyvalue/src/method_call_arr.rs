@@ -10,15 +10,18 @@
 use core::ffi::c_void;
 
 use torajs_rc::{
-    ANY_METHOD_FILTER, ANY_METHOD_FOR_EACH, ANY_METHOD_INCLUDES, ANY_METHOD_INDEX_OF,
-    ANY_METHOD_JOIN, ANY_METHOD_LAST_INDEX_OF, ANY_METHOD_MAP, ANY_METHOD_POP, ANY_METHOD_PUSH,
-    ANY_METHOD_REVERSE, ANY_METHOD_SHIFT, ANY_METHOD_SLICE, ANY_METHOD_UNSHIFT,
+    ANY_METHOD_CONCAT, ANY_METHOD_COPY_WITHIN, ANY_METHOD_FILL, ANY_METHOD_FILTER,
+    ANY_METHOD_FOR_EACH, ANY_METHOD_INCLUDES, ANY_METHOD_INDEX_OF, ANY_METHOD_JOIN,
+    ANY_METHOD_LAST_INDEX_OF, ANY_METHOD_MAP, ANY_METHOD_POP, ANY_METHOD_PUSH, ANY_METHOD_REVERSE,
+    ANY_METHOD_SHIFT, ANY_METHOD_SLICE, ANY_METHOD_SPLICE, ANY_METHOD_UNSHIFT,
 };
 
+use crate::index_any::MIRROR_ARR_LEN_OFF;
 use crate::method_call::{closure_boxed_entry, method_no_such, not_callable, to_index};
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED, is_undefined};
 use crate::nanbox_encode::{
     __torajs_anyv_box_from_pair, __torajs_anyv_box_i64, __torajs_anyv_box_pointer,
+    __torajs_anyv_unbox_tag, __torajs_anyv_unbox_value,
 };
 use crate::nanbox_ffi::__torajs_anyv_to_str;
 
@@ -59,6 +62,29 @@ unsafe extern "C" {
     /// torajs-arr — kind-aware slice for any receivers (C4+); the
     /// returned array is fresh +1 rc, same slot layout as the source.
     fn __torajs_arr_any_slice(arr: *const u8, start: i64, end: i64) -> *mut u8;
+    /// torajs-arr — variadic kind-aware concat (fresh +1 rc).
+    fn __torajs_arr_any_concat(arr: *const u8, argv: *const u64, argc: i64) -> *mut u8;
+    /// torajs-arr — kind-aware fill (`(tag, value)` pair form);
+    /// answers the receiver.
+    fn __torajs_arr_fill_any(
+        arr: *mut c_void,
+        tag: u64,
+        value: u64,
+        start: i64,
+        end: i64,
+    ) -> *mut u8;
+    /// torajs-arr — in-place move with the heap-slot rc ledger
+    /// (raw relative indices — the kernel wraps + clamps).
+    fn __torajs_arr_any_copy_within(arr: *mut u8, target: i64, start: i64, end: i64) -> *mut u8;
+    /// torajs-arr — remove + variadic insert; answers the fresh
+    /// (+1 rc) removed array. Start / delete arrive normalized.
+    fn __torajs_arr_any_splice(
+        arr: *mut u8,
+        actual_start: i64,
+        actual_delete: i64,
+        items: *const u64,
+        item_count: i64,
+    ) -> *mut u8;
     /// torajs-arr — HO loops over the boxed dual-entry callback ABI.
     fn __torajs_arr_any_map(arr: *const c_void, cb_env: *mut c_void, cb_entry: u64) -> u64;
     fn __torajs_arr_any_filter(arr: *const c_void, cb_env: *mut c_void, cb_entry: u64) -> u64;
@@ -128,6 +154,72 @@ pub(crate) unsafe fn arr_method(
                 // The receiver is the return value (chaining) — the
                 // owned return protocol takes a fresh stake.
                 torajs_rc::__torajs_rc_inc(p as *mut c_void);
+                __torajs_anyv_box_pointer(p as *mut c_void)
+            }
+            m if m == ANY_METHOD_CONCAT => {
+                let p = __torajs_arr_any_concat(arr as *const u8, argv, argc);
+                __torajs_anyv_box_pointer(p as *mut c_void)
+            }
+            m if m == ANY_METHOD_FILL => {
+                // §23.1.3.7 — relative start / end wrap from the end
+                // here (the kernel's clamp is [0, len] only, matching
+                // its SSA callers which pre-normalize); a missing end
+                // is len (i64::MAX stays non-negative → kernel clamp).
+                let av = arg_at(0);
+                let len = *((arr as *const u8).add(MIRROR_ARR_LEN_OFF) as *const u64) as i64;
+                let wrap = |v: i64| if v < 0 { v + len } else { v };
+                let start = wrap(to_index(arg_at(1), 0));
+                let end = wrap(to_index(arg_at(2), i64::MAX));
+                let p = __torajs_arr_fill_any(
+                    arr,
+                    __torajs_anyv_unbox_tag(av) as u64,
+                    __torajs_anyv_unbox_value(av) as u64,
+                    start,
+                    end,
+                );
+                torajs_rc::__torajs_rc_inc(p as *mut c_void);
+                __torajs_anyv_box_pointer(p as *mut c_void)
+            }
+            m if m == ANY_METHOD_COPY_WITHIN => {
+                // Raw relative indices — the kernel owns §23.1.3.4's
+                // wrap + clamp; a missing end is len.
+                let target = to_index(arg_at(0), 0);
+                let start = to_index(arg_at(1), 0);
+                let end = to_index(arg_at(2), i64::MAX);
+                let p = __torajs_arr_any_copy_within(arr as *mut u8, target, start, end);
+                torajs_rc::__torajs_rc_inc(p as *mut c_void);
+                __torajs_anyv_box_pointer(p as *mut c_void)
+            }
+            m if m == ANY_METHOD_SPLICE => {
+                // §23.1.3.31 steps 3-7 — argc decides the delete
+                // count: absent start deletes nothing, a lone start
+                // deletes through the end.
+                let len = *((arr as *const u8).add(MIRROR_ARR_LEN_OFF) as *const u64) as i64;
+                let rel = to_index(arg_at(0), 0);
+                let actual_start = if rel < 0 {
+                    (rel + len).max(0)
+                } else {
+                    rel.min(len)
+                };
+                let actual_delete = if argc == 0 {
+                    0
+                } else if argc == 1 {
+                    len - actual_start
+                } else {
+                    to_index(arg_at(1), 0).clamp(0, len - actual_start)
+                };
+                let (items, item_count) = if argc > 2 {
+                    (argv.add(2), argc - 2)
+                } else {
+                    (core::ptr::null(), 0)
+                };
+                let p = __torajs_arr_any_splice(
+                    arr as *mut u8,
+                    actual_start,
+                    actual_delete,
+                    items,
+                    item_count,
+                );
                 __torajs_anyv_box_pointer(p as *mut c_void)
             }
             m if m == ANY_METHOD_INCLUDES => {

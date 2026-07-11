@@ -52,6 +52,13 @@ pub(crate) fn try_lower(
     let name_str = ctx.intern_string_literal(&name);
 
     let recv = ctx.lower_expr(obj);
+    // Backfill chunk 2 — an `xs as any` receiver reaches here as a
+    // typed-Arr SSA value (the As cast is a pass-through for heap
+    // values), so this call IS its typed→any coercion boundary:
+    // mark the elem kind or the kind-aware arms (fill / splice /
+    // concat spread) see UNSET. Self-gates on the operand's SSA
+    // type — already-Any receivers no-op.
+    ctx.emit_arr_mark_kind(&recv);
     // Ident receivers ride their variable slot along so
     // growth-relocating methods write the fresh pointer back —
     // local alloca or K.3 top-level global slot (the same two

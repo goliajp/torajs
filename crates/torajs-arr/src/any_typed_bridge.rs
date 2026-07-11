@@ -236,9 +236,11 @@ pub(crate) unsafe fn typed_set_grow(arr: *mut u8, i: u64, tag: u64, value: u64) 
 /// then raw-fill `[lo, hi)` honoring the deque head. The pair is a
 /// BORROW (fill_any's contract — the Any path incs per replaced
 /// slot), so a mismatch only throws; scalar slots carry no rc, so
-/// the fill loop is a plain store. Every HEAP case is a mismatch
-/// (`coerce_raw_scalar` has no HEAP arm — the 3-bit kind can't
-/// verify the static elem type).
+/// the fill loop is a plain store. An `ARR_KIND_HEAP` receiver
+/// accepts heap cells (and undefined → NULL hole) with the per-slot
+/// drop-old + inc-new ledger (backfill chunk 2 — the 3-bit kind
+/// still can't verify the static elem SUBtype, same admit as
+/// `typed_push_pair`); other cross-kind pairs throw.
 ///
 /// # Safety
 /// `arr` is a valid non-Any `Tag::Arr` heap pointer with
@@ -246,13 +248,24 @@ pub(crate) unsafe fn typed_set_grow(arr: *mut u8, i: u64, tag: u64, value: u64) 
 pub(crate) unsafe fn typed_fill_pair(arr: *mut u8, tag: u64, value: u64, lo: i64, hi: i64) {
     unsafe {
         let kind = (*(arr as *const HeapHeader)).arr_elem_kind();
+        let head = *(arr.add(ARR_HEAD_OFF) as *const u32) as u64;
+        if kind == ARR_KIND_HEAP && (tag == ANY_HEAP || tag == ANY_UNDEF) {
+            let raw = if tag == ANY_HEAP { value } else { 0 };
+            for i in lo..hi {
+                let slot =
+                    arr_data(arr).add(((head + i as u64) as usize) * ANY_SLOT_BYTES) as *mut u64;
+                __torajs_value_drop_heap(*slot as *mut c_void);
+                *slot = raw;
+                __torajs_rc_inc(raw as *mut c_void);
+            }
+            return;
+        }
         let Some(raw) = coerce_raw_scalar(kind, tag, value) else {
             __torajs_throw_type_error(
                 c"fill through an any[] view would change the typed array's element kind".as_ptr(),
             );
             return;
         };
-        let head = *(arr.add(ARR_HEAD_OFF) as *const u32) as u64;
         for i in lo..hi {
             *(arr_data(arr).add(((head + i as u64) as usize) * ANY_SLOT_BYTES) as *mut u64) = raw;
         }

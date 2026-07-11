@@ -197,6 +197,18 @@ pub const ANY_METHOD_LAST_INDEX_OF: i64 = 82;
 /// `Array.prototype.reverse` (any-dispatch backfill) — in-place
 /// 8-byte-slot swap, answers the receiver for chaining.
 pub const ANY_METHOD_REVERSE: i64 = 83;
+/// `Array.prototype.concat` (any-dispatch backfill chunk 2) —
+/// variadic; array arguments spread, others append as one element.
+pub const ANY_METHOD_CONCAT: i64 = 84;
+/// `Array.prototype.fill` (chunk 2) — rides `arr_fill_any`'s
+/// kind-aware write; answers the receiver for chaining.
+pub const ANY_METHOD_FILL: i64 = 85;
+/// `Array.prototype.copyWithin` (chunk 2) — in-place move with the
+/// heap-slot rc ledger; answers the receiver for chaining.
+pub const ANY_METHOD_COPY_WITHIN: i64 = 86;
+/// `Array.prototype.splice` (chunk 2) — remove + variadic insert;
+/// answers the removed slice.
+pub const ANY_METHOD_SPLICE: i64 = 87;
 
 /// RegExp property-read ids (Any-method-call RFC 20260704 C4-3c-2)
 /// — `r.source` / `r.lastIndex` / flag booleans through an `any`
@@ -322,6 +334,10 @@ pub fn any_method_id(name: &str) -> i64 {
         "propertyIsEnumerable" => ANY_METHOD_PROPERTY_IS_ENUMERABLE,
         "lastIndexOf" => ANY_METHOD_LAST_INDEX_OF,
         "reverse" => ANY_METHOD_REVERSE,
+        "concat" => ANY_METHOD_CONCAT,
+        "fill" => ANY_METHOD_FILL,
+        "copyWithin" => ANY_METHOD_COPY_WITHIN,
+        "splice" => ANY_METHOD_SPLICE,
         "keys" => ANY_METHOD_KEYS,
         "values" => ANY_METHOD_VALUES,
         "entries" => ANY_METHOD_ENTRIES,
@@ -426,6 +442,10 @@ pub fn any_method_meta(mid: i64) -> Option<(&'static str, u32)> {
         ANY_METHOD_PROPERTY_IS_ENUMERABLE => ("propertyIsEnumerable", 1),
         ANY_METHOD_LAST_INDEX_OF => ("lastIndexOf", 1),
         ANY_METHOD_REVERSE => ("reverse", 0),
+        ANY_METHOD_CONCAT => ("concat", 1),
+        ANY_METHOD_FILL => ("fill", 1),
+        ANY_METHOD_COPY_WITHIN => ("copyWithin", 2),
+        ANY_METHOD_SPLICE => ("splice", 2),
         _ => return None,
     })
 }
@@ -448,7 +468,7 @@ mod tests {
     #[test]
     fn meta_rejects_unknown_and_out_of_table() {
         assert!(any_method_meta(ANY_METHOD_UNKNOWN).is_none());
-        assert!(any_method_meta(ANY_METHOD_REVERSE + 1).is_none());
+        assert!(any_method_meta(ANY_METHOD_SPLICE + 1).is_none());
         assert!(any_method_meta(-1).is_none());
     }
 }
