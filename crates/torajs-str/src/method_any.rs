@@ -17,9 +17,18 @@
 //! Substr cells too (e.g. an element read out of a `split` array),
 //! so they go through the same helper.
 
-use torajs_rc::HeapHeader;
+use torajs_rc::{
+    ANY_METHOD_ANCHOR, ANY_METHOD_BIG, ANY_METHOD_BLINK, ANY_METHOD_BOLD, ANY_METHOD_FIXED,
+    ANY_METHOD_FONTCOLOR, ANY_METHOD_FONTSIZE, ANY_METHOD_ITALICS, ANY_METHOD_LINK,
+    ANY_METHOD_SMALL, ANY_METHOD_STRIKE, ANY_METHOD_SUB, ANY_METHOD_SUP, HeapHeader,
+};
 
 use crate::block::__torajs_str_alloc;
+use crate::html::{
+    __torajs_str_anchor, __torajs_str_big, __torajs_str_blink, __torajs_str_bold,
+    __torajs_str_fixed, __torajs_str_fontcolor, __torajs_str_fontsize, __torajs_str_italics,
+    __torajs_str_link, __torajs_str_small, __torajs_str_strike, __torajs_str_sub, __torajs_str_sup,
+};
 use crate::index_any::__torajs_str_index_get;
 use crate::lookup_ffi::{
     __torajs_str_ends_with_from, __torajs_str_index_of_from, __torajs_str_starts_with_from,
@@ -313,6 +322,47 @@ pub unsafe extern "C" fn __torajs_str_any_starts_with(
         drop_tmp(n_tmp);
         drop_tmp(s_tmp);
         out
+    }
+}
+
+/// annexB B.2.2 html-method glue — `mid` is the interned
+/// `ANY_METHOD_*` id picking the CreateHTML form (attr forms 95-98,
+/// plain wraps 99-107); the receiver and a non-NULL attribute value
+/// materialize through [`owned_src`] (the html kernel reads the
+/// owned-Str layout). NULL `val` denotes the JS `undefined` (the
+/// kernel renders the "undefined" text). Ids outside the html
+/// family answer 0 — the dispatcher's range guard never sends one.
+///
+/// # Safety
+/// `s` is a valid heap Str/Substr pointer; `val` is NULL or one too.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_any_html(s: *const u8, mid: i64, val: *const u8) -> u64 {
+    unsafe {
+        let (src, s_tmp) = owned_src(s);
+        let (v, v_tmp) = if val.is_null() {
+            (core::ptr::null(), core::ptr::null_mut())
+        } else {
+            owned_src(val)
+        };
+        let out = match mid {
+            m if m == ANY_METHOD_ANCHOR => __torajs_str_anchor(src, v),
+            m if m == ANY_METHOD_FONTCOLOR => __torajs_str_fontcolor(src, v),
+            m if m == ANY_METHOD_FONTSIZE => __torajs_str_fontsize(src, v),
+            m if m == ANY_METHOD_LINK => __torajs_str_link(src, v),
+            m if m == ANY_METHOD_BIG => __torajs_str_big(src),
+            m if m == ANY_METHOD_BLINK => __torajs_str_blink(src),
+            m if m == ANY_METHOD_BOLD => __torajs_str_bold(src),
+            m if m == ANY_METHOD_FIXED => __torajs_str_fixed(src),
+            m if m == ANY_METHOD_ITALICS => __torajs_str_italics(src),
+            m if m == ANY_METHOD_SMALL => __torajs_str_small(src),
+            m if m == ANY_METHOD_STRIKE => __torajs_str_strike(src),
+            m if m == ANY_METHOD_SUB => __torajs_str_sub(src),
+            m if m == ANY_METHOD_SUP => __torajs_str_sup(src),
+            _ => core::ptr::null_mut(),
+        };
+        drop_tmp(v_tmp);
+        drop_tmp(s_tmp);
+        out as u64
     }
 }
 

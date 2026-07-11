@@ -8,10 +8,11 @@
 use core::ffi::c_void;
 
 use torajs_rc::{
-    ANY_METHOD_CHAR_AT, ANY_METHOD_ENDS_WITH, ANY_METHOD_INCLUDES, ANY_METHOD_INDEX_OF,
-    ANY_METHOD_MATCH, ANY_METHOD_REPLACE, ANY_METHOD_REPLACE_ALL, ANY_METHOD_SLICE,
-    ANY_METHOD_SPLIT, ANY_METHOD_STARTS_WITH, ANY_METHOD_TO_LOWER_CASE, ANY_METHOD_TO_UPPER_CASE,
-    ANY_METHOD_TRIM, ANY_METHOD_TRIM_END, ANY_METHOD_TRIM_START, Tag,
+    ANY_METHOD_ANCHOR, ANY_METHOD_CHAR_AT, ANY_METHOD_ENDS_WITH, ANY_METHOD_INCLUDES,
+    ANY_METHOD_INDEX_OF, ANY_METHOD_LINK, ANY_METHOD_MATCH, ANY_METHOD_REPLACE,
+    ANY_METHOD_REPLACE_ALL, ANY_METHOD_SLICE, ANY_METHOD_SPLIT, ANY_METHOD_STARTS_WITH,
+    ANY_METHOD_SUP, ANY_METHOD_TO_LOWER_CASE, ANY_METHOD_TO_UPPER_CASE, ANY_METHOD_TRIM,
+    ANY_METHOD_TRIM_END, ANY_METHOD_TRIM_START, Tag,
 };
 
 use crate::method_call::{method_no_such, to_index};
@@ -48,6 +49,9 @@ unsafe extern "C" {
         repl: *const u8,
         all: i64,
     ) -> u64;
+    /// torajs-str — annexB B.2.2 html-method glue (`mid` picks the
+    /// CreateHTML form; NULL `val` rides as the JS `undefined`).
+    fn __torajs_str_any_html(s: *const u8, mid: i64, val: *const u8) -> u64;
     /// torajs-str — release a heap Str/Substr reference.
     fn __torajs_str_drop(s: *mut c_void);
     /// torajs-throw — record a pending catchable TypeError.
@@ -146,6 +150,24 @@ pub(crate) unsafe fn str_method(s: *mut u8, mid: i64, argv: *const u64, argc: i6
             m if m == ANY_METHOD_TRIM => __torajs_str_any_trim(s, 0),
             m if m == ANY_METHOD_TRIM_START => __torajs_str_any_trim(s, 1),
             m if m == ANY_METHOD_TRIM_END => __torajs_str_any_trim(s, 2),
+            m if (ANY_METHOD_ANCHOR..=ANY_METHOD_SUP).contains(&m) => {
+                // annexB B.2.2 html methods — the four attributed
+                // forms (anchor/fontcolor/fontsize/link, ids 95-98)
+                // ToString their value argument through an owned
+                // temp; undefined rides as NULL (the kernel renders
+                // the "undefined" text). Plain wraps ignore
+                // arguments per CreateHTML.
+                let val_av = arg_at(0);
+                let is_attr = (ANY_METHOD_ANCHOR..=ANY_METHOD_LINK).contains(&m);
+                if is_attr && !is_undefined(val_av) {
+                    let v = __torajs_anyv_to_str(val_av);
+                    let out = __torajs_str_any_html(s, m, v as *const u8);
+                    __torajs_str_drop(v);
+                    out
+                } else {
+                    __torajs_str_any_html(s, m, core::ptr::null())
+                }
+            }
             _ => method_no_such(),
         }
     }
