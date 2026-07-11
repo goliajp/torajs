@@ -88,6 +88,42 @@ pub unsafe extern "C" fn __torajs_arr_any_index_of(
     unsafe { search(arr, needle, from, false) }
 }
 
+/// `a.lastIndexOf(x, from)` per ES §23.1.3.20 — strict-eq scan
+/// BACKWARDS from `from` (§ step 4-6: `n >= len` clamps to the last
+/// slot, negative wraps from the end, still-negative answers -1
+/// without scanning), found index or -1 (never finds NaN — no
+/// SameValueZero row on this method).
+///
+/// # Safety
+/// See [`__torajs_arr_any_index_of`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_any_last_index_of(
+    arr: *const c_void,
+    needle: u64,
+    from: i64,
+) -> i64 {
+    unsafe {
+        let len = *((arr as *const u8).add(ARR_LEN_OFF) as *const u64) as i64;
+        let mut i = if from >= len {
+            len - 1
+        } else if from < 0 {
+            len + from
+        } else {
+            from
+        };
+        while i >= 0 {
+            let v = crate::index_any::__torajs_arr_index_get(arr, i);
+            let hit = __torajs_anyv_strict_eq(v, needle);
+            __torajs_value_drop_heap(v as *mut c_void);
+            if hit {
+                return i;
+            }
+            i -= 1;
+        }
+        -1
+    }
+}
+
 /// `a.includes(x, from)` per ES §23.1.3.16 — SameValueZero scan
 /// (finds NaN), 1/0.
 ///

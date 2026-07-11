@@ -191,6 +191,12 @@ pub const ANY_METHOD_HAS_OWN_PROPERTY: i64 = 80;
 /// `Object.prototype.propertyIsEnumerable` (chunk D-1) — own +
 /// enumerable-flag probe (`__torajs_any_prop_enumerable`).
 pub const ANY_METHOD_PROPERTY_IS_ENUMERABLE: i64 = 81;
+/// `Array.prototype.lastIndexOf` (RFC 20260711 any-dispatch
+/// backfill) — backwards strict-eq scan.
+pub const ANY_METHOD_LAST_INDEX_OF: i64 = 82;
+/// `Array.prototype.reverse` (any-dispatch backfill) — in-place
+/// 8-byte-slot swap, answers the receiver for chaining.
+pub const ANY_METHOD_REVERSE: i64 = 83;
 
 /// RegExp property-read ids (Any-method-call RFC 20260704 C4-3c-2)
 /// — `r.source` / `r.lastIndex` / flag booleans through an `any`
@@ -314,6 +320,8 @@ pub fn any_method_id(name: &str) -> i64 {
         "bind" => ANY_METHOD_BIND,
         "hasOwnProperty" => ANY_METHOD_HAS_OWN_PROPERTY,
         "propertyIsEnumerable" => ANY_METHOD_PROPERTY_IS_ENUMERABLE,
+        "lastIndexOf" => ANY_METHOD_LAST_INDEX_OF,
+        "reverse" => ANY_METHOD_REVERSE,
         "keys" => ANY_METHOD_KEYS,
         "values" => ANY_METHOD_VALUES,
         "entries" => ANY_METHOD_ENTRIES,
@@ -416,6 +424,8 @@ pub fn any_method_meta(mid: i64) -> Option<(&'static str, u32)> {
         ANY_METHOD_BIND => ("bind", 1),
         ANY_METHOD_HAS_OWN_PROPERTY => ("hasOwnProperty", 1),
         ANY_METHOD_PROPERTY_IS_ENUMERABLE => ("propertyIsEnumerable", 1),
+        ANY_METHOD_LAST_INDEX_OF => ("lastIndexOf", 1),
+        ANY_METHOD_REVERSE => ("reverse", 0),
         _ => return None,
     })
 }
@@ -438,7 +448,7 @@ mod tests {
     #[test]
     fn meta_rejects_unknown_and_out_of_table() {
         assert!(any_method_meta(ANY_METHOD_UNKNOWN).is_none());
-        assert!(any_method_meta(ANY_METHOD_PROPERTY_IS_ENUMERABLE + 1).is_none());
+        assert!(any_method_meta(ANY_METHOD_REVERSE + 1).is_none());
         assert!(any_method_meta(-1).is_none());
     }
 }

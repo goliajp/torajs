@@ -11,8 +11,8 @@ use core::ffi::c_void;
 
 use torajs_rc::{
     ANY_METHOD_FILTER, ANY_METHOD_FOR_EACH, ANY_METHOD_INCLUDES, ANY_METHOD_INDEX_OF,
-    ANY_METHOD_JOIN, ANY_METHOD_MAP, ANY_METHOD_POP, ANY_METHOD_PUSH, ANY_METHOD_SHIFT,
-    ANY_METHOD_SLICE, ANY_METHOD_UNSHIFT,
+    ANY_METHOD_JOIN, ANY_METHOD_LAST_INDEX_OF, ANY_METHOD_MAP, ANY_METHOD_POP, ANY_METHOD_PUSH,
+    ANY_METHOD_REVERSE, ANY_METHOD_SHIFT, ANY_METHOD_SLICE, ANY_METHOD_UNSHIFT,
 };
 
 use crate::method_call::{closure_boxed_entry, method_no_such, not_callable, to_index};
@@ -46,6 +46,12 @@ unsafe extern "C" {
     ) -> u64;
     /// torajs-arr — strict-eq index scan (found index or -1).
     fn __torajs_arr_any_index_of(arr: *const c_void, needle: u64, from: i64) -> i64;
+    /// torajs-arr — backwards strict-eq scan (§23.1.3.20).
+    fn __torajs_arr_any_last_index_of(arr: *const c_void, needle: u64, from: i64) -> i64;
+    /// torajs-arr — in-place 8-byte-slot swap (element-type-agnostic
+    /// — FLAG_ARR_ANY slots are 8-byte NaN-box immediates too);
+    /// answers the same pointer for chaining.
+    fn __torajs_arr_reverse(arr: *mut u8) -> *mut u8;
     /// torajs-arr — SameValueZero scan (1/0).
     fn __torajs_arr_any_includes(arr: *const c_void, needle: u64, from: i64) -> i64;
     /// torajs-arr — element-kind-dispatched join (fresh Str).
@@ -104,6 +110,25 @@ pub(crate) unsafe fn arr_method(
             m if m == ANY_METHOD_INDEX_OF => {
                 let from = to_index(arg_at(1), 0);
                 __torajs_anyv_box_i64(__torajs_arr_any_index_of(arr, arg_at(0), from))
+            }
+            m if m == ANY_METHOD_LAST_INDEX_OF => {
+                // §23.1.3.20 step 4: absent fromIndex starts at the
+                // last slot (i64::MAX rides the kernel clamp); a
+                // PRESENT undefined is ToIntegerOrInfinity(undefined)
+                // = 0 — only slot 0 is scanned.
+                let from = if argc >= 2 {
+                    to_index(arg_at(1), 0)
+                } else {
+                    i64::MAX
+                };
+                __torajs_anyv_box_i64(__torajs_arr_any_last_index_of(arr, arg_at(0), from))
+            }
+            m if m == ANY_METHOD_REVERSE => {
+                let p = __torajs_arr_reverse(arr as *mut u8);
+                // The receiver is the return value (chaining) — the
+                // owned return protocol takes a fresh stake.
+                torajs_rc::__torajs_rc_inc(p as *mut c_void);
+                __torajs_anyv_box_pointer(p as *mut c_void)
             }
             m if m == ANY_METHOD_INCLUDES => {
                 let from = to_index(arg_at(1), 0);
