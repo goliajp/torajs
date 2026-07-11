@@ -32,10 +32,11 @@ use super::{Ast, Expr, Stmt};
 /// rejected as un-callable Any. Real callable constructor object is a
 /// follow-up.
 ///
-/// Phase B will extend this pass to add a `prototype` field (singleton
-/// `__proto_<C>` dynobj) and `length` (ctor's declared arg count);
-/// Phase C wires the prototype chain across `extends`. This phase A
-/// is the minimum substrate that lets the rest land incrementally.
+/// Phase B added the `prototype` field (singleton `__proto_<C>`
+/// dynobj); Phase C wired the prototype chain across `extends`;
+/// chunk 812 added `length` (ES §15.7.13 expected argument count —
+/// formal params before the first default / rest, 0 for a
+/// synthesized derived default ctor).
 pub fn synthesize_class_globals(ast: &mut Ast) {
     use std::collections::HashSet;
 
@@ -43,11 +44,27 @@ pub fn synthesize_class_globals(ast: &mut Ast) {
     // `desugar_classes`. (ClassDecl stmts are gone post-desugar; the
     // factory FnDecl names are the most stable handle.)
     let mut class_names: Vec<String> = Vec::new();
+    // Chunk 812 — `C.length` per ES §15.7.13: the ctor's expected
+    // argument count (formal params before the first default / rest).
+    // The factory's params ARE the user ctor's, except a synthesized
+    // derived default ctor (rest-shaped per spec, so length 0) —
+    // desugar records those in `derived_default_ctor_classes`.
+    let mut class_lengths: std::collections::HashMap<String, usize> =
+        std::collections::HashMap::new();
     for s in &ast.stmts {
-        if let Stmt::FnDecl { name, .. } = s
+        if let Stmt::FnDecl { name, params, .. } = s
             && let Some(c) = name.strip_prefix("__new_")
         {
+            let len = if ast.derived_default_ctor_classes.contains(c) {
+                0
+            } else {
+                params
+                    .iter()
+                    .take_while(|p| p.default.is_none() && !p.is_rest)
+                    .count()
+            };
             class_names.push(c.to_string());
+            class_lengths.insert(c.to_string(), len);
         }
     }
     if class_names.is_empty() {
@@ -82,10 +99,12 @@ pub fn synthesize_class_globals(ast: &mut Ast) {
     for cname in &class_names {
         let name_expr = ast.add_expr(Expr::String(cname.clone()));
         let proto_ident = ast.add_expr(Expr::Ident(format!("__proto_{cname}")));
+        let length_expr = ast.add_expr(Expr::Number(class_lengths[cname] as f64));
         let obj_expr = ast.add_expr(Expr::ObjectLit {
             fields: vec![
                 ("name".to_string(), name_expr),
                 ("prototype".to_string(), proto_ident),
+                ("length".to_string(), length_expr),
             ],
         });
         prepended.push(Stmt::LetDecl {

@@ -231,7 +231,7 @@ fn synthesize_derived_default_ctors(
         })
         .collect();
     let max_hops = class_index.len();
-    for (_, _, type_params, parent, _, _, ctor, _, _) in class_index.iter_mut() {
+    for (_, cname, type_params, parent, _, _, ctor, _, _) in class_index.iter_mut() {
         if ctor.is_some() || parent.is_none() || !type_params.is_empty() {
             continue;
         }
@@ -263,6 +263,7 @@ fn synthesize_derived_default_ctors(
             params,
             body: vec![Stmt::Expr(super_eid)],
         });
+        ast.derived_default_ctor_classes.insert(cname.clone());
     }
 }
 

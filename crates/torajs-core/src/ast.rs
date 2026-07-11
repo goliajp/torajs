@@ -113,6 +113,13 @@ pub struct Ast {
     /// declared class name to its parent (None if no `extends`). Empty
     /// before desugar runs and for programs with no class declarations.
     pub class_parents: std::collections::HashMap<String, Option<String>>,
+    /// Chunk 812 — classes whose ctor was synthesized by
+    /// `synthesize_derived_default_ctors` (ctor-less derived). Their
+    /// factory params mirror the ancestor ctor, but per ES the
+    /// implicit default ctor is rest-shaped, so `C.length` is 0 —
+    /// `synthesize_class_globals` consults this to avoid reporting
+    /// the forwarded param count.
+    pub derived_default_ctor_classes: std::collections::HashSet<String>,
     /// Phase H.3.b — method name → declaring classes in source order
     /// (deepest sub last). Used by ssa_lower's `__dispatch_<M>` Call
     /// interception to emit the runtime tag-switch and call the right
