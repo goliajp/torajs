@@ -208,6 +208,13 @@ def main():
         gc[comp] = merge([r for leaf in leaves for r in gc[leaf]])
 
     scripts = {v: merge(r) for v, r in scripts.items()}
+    # Unknown (Zzzz): Scripts.txt only lists cps with an assigned script;
+    # per UAX24 (and the file's `@missing: 0000..10FFFF; Unknown` line)
+    # everything else — unassigned, private use, surrogates — is
+    # Script=Unknown. Synthesize it as the complement of the file's
+    # domain so \p{Script=Unknown} / \p{scx=Unknown} resolve.
+    script_domain = merge([r for rs in scripts.values() for r in rs])
+    scripts["Unknown"] = complement(script_domain)
     # Script_Extensions: ScriptExtensions.txt only lists cps whose scx
     # differs from their sc; everywhere else scx == sc. Per UTS24 the
     # scx set for other cps is {sc(cp)} — so scx(X) = sc(X) minus the

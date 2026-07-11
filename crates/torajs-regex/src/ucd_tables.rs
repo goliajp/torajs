@@ -30976,6 +30976,2941 @@ static SCRIPT_UGARITIC: &[UPropRange] = &[
     },
 ];
 
+static SCRIPT_UNKNOWN: &[UPropRange] = &[
+    UPropRange {
+        lo: 0x0378,
+        hi: 0x0379,
+    },
+    UPropRange {
+        lo: 0x0380,
+        hi: 0x0383,
+    },
+    UPropRange {
+        lo: 0x038B,
+        hi: 0x038B,
+    },
+    UPropRange {
+        lo: 0x038D,
+        hi: 0x038D,
+    },
+    UPropRange {
+        lo: 0x03A2,
+        hi: 0x03A2,
+    },
+    UPropRange {
+        lo: 0x0530,
+        hi: 0x0530,
+    },
+    UPropRange {
+        lo: 0x0557,
+        hi: 0x0558,
+    },
+    UPropRange {
+        lo: 0x058B,
+        hi: 0x058C,
+    },
+    UPropRange {
+        lo: 0x0590,
+        hi: 0x0590,
+    },
+    UPropRange {
+        lo: 0x05C8,
+        hi: 0x05CF,
+    },
+    UPropRange {
+        lo: 0x05EB,
+        hi: 0x05EE,
+    },
+    UPropRange {
+        lo: 0x05F5,
+        hi: 0x05FF,
+    },
+    UPropRange {
+        lo: 0x070E,
+        hi: 0x070E,
+    },
+    UPropRange {
+        lo: 0x074B,
+        hi: 0x074C,
+    },
+    UPropRange {
+        lo: 0x07B2,
+        hi: 0x07BF,
+    },
+    UPropRange {
+        lo: 0x07FB,
+        hi: 0x07FC,
+    },
+    UPropRange {
+        lo: 0x082E,
+        hi: 0x082F,
+    },
+    UPropRange {
+        lo: 0x083F,
+        hi: 0x083F,
+    },
+    UPropRange {
+        lo: 0x085C,
+        hi: 0x085D,
+    },
+    UPropRange {
+        lo: 0x085F,
+        hi: 0x085F,
+    },
+    UPropRange {
+        lo: 0x086B,
+        hi: 0x086F,
+    },
+    UPropRange {
+        lo: 0x0892,
+        hi: 0x0896,
+    },
+    UPropRange {
+        lo: 0x0984,
+        hi: 0x0984,
+    },
+    UPropRange {
+        lo: 0x098D,
+        hi: 0x098E,
+    },
+    UPropRange {
+        lo: 0x0991,
+        hi: 0x0992,
+    },
+    UPropRange {
+        lo: 0x09A9,
+        hi: 0x09A9,
+    },
+    UPropRange {
+        lo: 0x09B1,
+        hi: 0x09B1,
+    },
+    UPropRange {
+        lo: 0x09B3,
+        hi: 0x09B5,
+    },
+    UPropRange {
+        lo: 0x09BA,
+        hi: 0x09BB,
+    },
+    UPropRange {
+        lo: 0x09C5,
+        hi: 0x09C6,
+    },
+    UPropRange {
+        lo: 0x09C9,
+        hi: 0x09CA,
+    },
+    UPropRange {
+        lo: 0x09CF,
+        hi: 0x09D6,
+    },
+    UPropRange {
+        lo: 0x09D8,
+        hi: 0x09DB,
+    },
+    UPropRange {
+        lo: 0x09DE,
+        hi: 0x09DE,
+    },
+    UPropRange {
+        lo: 0x09E4,
+        hi: 0x09E5,
+    },
+    UPropRange {
+        lo: 0x09FF,
+        hi: 0x0A00,
+    },
+    UPropRange {
+        lo: 0x0A04,
+        hi: 0x0A04,
+    },
+    UPropRange {
+        lo: 0x0A0B,
+        hi: 0x0A0E,
+    },
+    UPropRange {
+        lo: 0x0A11,
+        hi: 0x0A12,
+    },
+    UPropRange {
+        lo: 0x0A29,
+        hi: 0x0A29,
+    },
+    UPropRange {
+        lo: 0x0A31,
+        hi: 0x0A31,
+    },
+    UPropRange {
+        lo: 0x0A34,
+        hi: 0x0A34,
+    },
+    UPropRange {
+        lo: 0x0A37,
+        hi: 0x0A37,
+    },
+    UPropRange {
+        lo: 0x0A3A,
+        hi: 0x0A3B,
+    },
+    UPropRange {
+        lo: 0x0A3D,
+        hi: 0x0A3D,
+    },
+    UPropRange {
+        lo: 0x0A43,
+        hi: 0x0A46,
+    },
+    UPropRange {
+        lo: 0x0A49,
+        hi: 0x0A4A,
+    },
+    UPropRange {
+        lo: 0x0A4E,
+        hi: 0x0A50,
+    },
+    UPropRange {
+        lo: 0x0A52,
+        hi: 0x0A58,
+    },
+    UPropRange {
+        lo: 0x0A5D,
+        hi: 0x0A5D,
+    },
+    UPropRange {
+        lo: 0x0A5F,
+        hi: 0x0A65,
+    },
+    UPropRange {
+        lo: 0x0A77,
+        hi: 0x0A80,
+    },
+    UPropRange {
+        lo: 0x0A84,
+        hi: 0x0A84,
+    },
+    UPropRange {
+        lo: 0x0A8E,
+        hi: 0x0A8E,
+    },
+    UPropRange {
+        lo: 0x0A92,
+        hi: 0x0A92,
+    },
+    UPropRange {
+        lo: 0x0AA9,
+        hi: 0x0AA9,
+    },
+    UPropRange {
+        lo: 0x0AB1,
+        hi: 0x0AB1,
+    },
+    UPropRange {
+        lo: 0x0AB4,
+        hi: 0x0AB4,
+    },
+    UPropRange {
+        lo: 0x0ABA,
+        hi: 0x0ABB,
+    },
+    UPropRange {
+        lo: 0x0AC6,
+        hi: 0x0AC6,
+    },
+    UPropRange {
+        lo: 0x0ACA,
+        hi: 0x0ACA,
+    },
+    UPropRange {
+        lo: 0x0ACE,
+        hi: 0x0ACF,
+    },
+    UPropRange {
+        lo: 0x0AD1,
+        hi: 0x0ADF,
+    },
+    UPropRange {
+        lo: 0x0AE4,
+        hi: 0x0AE5,
+    },
+    UPropRange {
+        lo: 0x0AF2,
+        hi: 0x0AF8,
+    },
+    UPropRange {
+        lo: 0x0B00,
+        hi: 0x0B00,
+    },
+    UPropRange {
+        lo: 0x0B04,
+        hi: 0x0B04,
+    },
+    UPropRange {
+        lo: 0x0B0D,
+        hi: 0x0B0E,
+    },
+    UPropRange {
+        lo: 0x0B11,
+        hi: 0x0B12,
+    },
+    UPropRange {
+        lo: 0x0B29,
+        hi: 0x0B29,
+    },
+    UPropRange {
+        lo: 0x0B31,
+        hi: 0x0B31,
+    },
+    UPropRange {
+        lo: 0x0B34,
+        hi: 0x0B34,
+    },
+    UPropRange {
+        lo: 0x0B3A,
+        hi: 0x0B3B,
+    },
+    UPropRange {
+        lo: 0x0B45,
+        hi: 0x0B46,
+    },
+    UPropRange {
+        lo: 0x0B49,
+        hi: 0x0B4A,
+    },
+    UPropRange {
+        lo: 0x0B4E,
+        hi: 0x0B54,
+    },
+    UPropRange {
+        lo: 0x0B58,
+        hi: 0x0B5B,
+    },
+    UPropRange {
+        lo: 0x0B5E,
+        hi: 0x0B5E,
+    },
+    UPropRange {
+        lo: 0x0B64,
+        hi: 0x0B65,
+    },
+    UPropRange {
+        lo: 0x0B78,
+        hi: 0x0B81,
+    },
+    UPropRange {
+        lo: 0x0B84,
+        hi: 0x0B84,
+    },
+    UPropRange {
+        lo: 0x0B8B,
+        hi: 0x0B8D,
+    },
+    UPropRange {
+        lo: 0x0B91,
+        hi: 0x0B91,
+    },
+    UPropRange {
+        lo: 0x0B96,
+        hi: 0x0B98,
+    },
+    UPropRange {
+        lo: 0x0B9B,
+        hi: 0x0B9B,
+    },
+    UPropRange {
+        lo: 0x0B9D,
+        hi: 0x0B9D,
+    },
+    UPropRange {
+        lo: 0x0BA0,
+        hi: 0x0BA2,
+    },
+    UPropRange {
+        lo: 0x0BA5,
+        hi: 0x0BA7,
+    },
+    UPropRange {
+        lo: 0x0BAB,
+        hi: 0x0BAD,
+    },
+    UPropRange {
+        lo: 0x0BBA,
+        hi: 0x0BBD,
+    },
+    UPropRange {
+        lo: 0x0BC3,
+        hi: 0x0BC5,
+    },
+    UPropRange {
+        lo: 0x0BC9,
+        hi: 0x0BC9,
+    },
+    UPropRange {
+        lo: 0x0BCE,
+        hi: 0x0BCF,
+    },
+    UPropRange {
+        lo: 0x0BD1,
+        hi: 0x0BD6,
+    },
+    UPropRange {
+        lo: 0x0BD8,
+        hi: 0x0BE5,
+    },
+    UPropRange {
+        lo: 0x0BFB,
+        hi: 0x0BFF,
+    },
+    UPropRange {
+        lo: 0x0C0D,
+        hi: 0x0C0D,
+    },
+    UPropRange {
+        lo: 0x0C11,
+        hi: 0x0C11,
+    },
+    UPropRange {
+        lo: 0x0C29,
+        hi: 0x0C29,
+    },
+    UPropRange {
+        lo: 0x0C3A,
+        hi: 0x0C3B,
+    },
+    UPropRange {
+        lo: 0x0C45,
+        hi: 0x0C45,
+    },
+    UPropRange {
+        lo: 0x0C49,
+        hi: 0x0C49,
+    },
+    UPropRange {
+        lo: 0x0C4E,
+        hi: 0x0C54,
+    },
+    UPropRange {
+        lo: 0x0C57,
+        hi: 0x0C57,
+    },
+    UPropRange {
+        lo: 0x0C5B,
+        hi: 0x0C5B,
+    },
+    UPropRange {
+        lo: 0x0C5E,
+        hi: 0x0C5F,
+    },
+    UPropRange {
+        lo: 0x0C64,
+        hi: 0x0C65,
+    },
+    UPropRange {
+        lo: 0x0C70,
+        hi: 0x0C76,
+    },
+    UPropRange {
+        lo: 0x0C8D,
+        hi: 0x0C8D,
+    },
+    UPropRange {
+        lo: 0x0C91,
+        hi: 0x0C91,
+    },
+    UPropRange {
+        lo: 0x0CA9,
+        hi: 0x0CA9,
+    },
+    UPropRange {
+        lo: 0x0CB4,
+        hi: 0x0CB4,
+    },
+    UPropRange {
+        lo: 0x0CBA,
+        hi: 0x0CBB,
+    },
+    UPropRange {
+        lo: 0x0CC5,
+        hi: 0x0CC5,
+    },
+    UPropRange {
+        lo: 0x0CC9,
+        hi: 0x0CC9,
+    },
+    UPropRange {
+        lo: 0x0CCE,
+        hi: 0x0CD4,
+    },
+    UPropRange {
+        lo: 0x0CD7,
+        hi: 0x0CDB,
+    },
+    UPropRange {
+        lo: 0x0CDF,
+        hi: 0x0CDF,
+    },
+    UPropRange {
+        lo: 0x0CE4,
+        hi: 0x0CE5,
+    },
+    UPropRange {
+        lo: 0x0CF0,
+        hi: 0x0CF0,
+    },
+    UPropRange {
+        lo: 0x0CF4,
+        hi: 0x0CFF,
+    },
+    UPropRange {
+        lo: 0x0D0D,
+        hi: 0x0D0D,
+    },
+    UPropRange {
+        lo: 0x0D11,
+        hi: 0x0D11,
+    },
+    UPropRange {
+        lo: 0x0D45,
+        hi: 0x0D45,
+    },
+    UPropRange {
+        lo: 0x0D49,
+        hi: 0x0D49,
+    },
+    UPropRange {
+        lo: 0x0D50,
+        hi: 0x0D53,
+    },
+    UPropRange {
+        lo: 0x0D64,
+        hi: 0x0D65,
+    },
+    UPropRange {
+        lo: 0x0D80,
+        hi: 0x0D80,
+    },
+    UPropRange {
+        lo: 0x0D84,
+        hi: 0x0D84,
+    },
+    UPropRange {
+        lo: 0x0D97,
+        hi: 0x0D99,
+    },
+    UPropRange {
+        lo: 0x0DB2,
+        hi: 0x0DB2,
+    },
+    UPropRange {
+        lo: 0x0DBC,
+        hi: 0x0DBC,
+    },
+    UPropRange {
+        lo: 0x0DBE,
+        hi: 0x0DBF,
+    },
+    UPropRange {
+        lo: 0x0DC7,
+        hi: 0x0DC9,
+    },
+    UPropRange {
+        lo: 0x0DCB,
+        hi: 0x0DCE,
+    },
+    UPropRange {
+        lo: 0x0DD5,
+        hi: 0x0DD5,
+    },
+    UPropRange {
+        lo: 0x0DD7,
+        hi: 0x0DD7,
+    },
+    UPropRange {
+        lo: 0x0DE0,
+        hi: 0x0DE5,
+    },
+    UPropRange {
+        lo: 0x0DF0,
+        hi: 0x0DF1,
+    },
+    UPropRange {
+        lo: 0x0DF5,
+        hi: 0x0E00,
+    },
+    UPropRange {
+        lo: 0x0E3B,
+        hi: 0x0E3E,
+    },
+    UPropRange {
+        lo: 0x0E5C,
+        hi: 0x0E80,
+    },
+    UPropRange {
+        lo: 0x0E83,
+        hi: 0x0E83,
+    },
+    UPropRange {
+        lo: 0x0E85,
+        hi: 0x0E85,
+    },
+    UPropRange {
+        lo: 0x0E8B,
+        hi: 0x0E8B,
+    },
+    UPropRange {
+        lo: 0x0EA4,
+        hi: 0x0EA4,
+    },
+    UPropRange {
+        lo: 0x0EA6,
+        hi: 0x0EA6,
+    },
+    UPropRange {
+        lo: 0x0EBE,
+        hi: 0x0EBF,
+    },
+    UPropRange {
+        lo: 0x0EC5,
+        hi: 0x0EC5,
+    },
+    UPropRange {
+        lo: 0x0EC7,
+        hi: 0x0EC7,
+    },
+    UPropRange {
+        lo: 0x0ECF,
+        hi: 0x0ECF,
+    },
+    UPropRange {
+        lo: 0x0EDA,
+        hi: 0x0EDB,
+    },
+    UPropRange {
+        lo: 0x0EE0,
+        hi: 0x0EFF,
+    },
+    UPropRange {
+        lo: 0x0F48,
+        hi: 0x0F48,
+    },
+    UPropRange {
+        lo: 0x0F6D,
+        hi: 0x0F70,
+    },
+    UPropRange {
+        lo: 0x0F98,
+        hi: 0x0F98,
+    },
+    UPropRange {
+        lo: 0x0FBD,
+        hi: 0x0FBD,
+    },
+    UPropRange {
+        lo: 0x0FCD,
+        hi: 0x0FCD,
+    },
+    UPropRange {
+        lo: 0x0FDB,
+        hi: 0x0FFF,
+    },
+    UPropRange {
+        lo: 0x10C6,
+        hi: 0x10C6,
+    },
+    UPropRange {
+        lo: 0x10C8,
+        hi: 0x10CC,
+    },
+    UPropRange {
+        lo: 0x10CE,
+        hi: 0x10CF,
+    },
+    UPropRange {
+        lo: 0x1249,
+        hi: 0x1249,
+    },
+    UPropRange {
+        lo: 0x124E,
+        hi: 0x124F,
+    },
+    UPropRange {
+        lo: 0x1257,
+        hi: 0x1257,
+    },
+    UPropRange {
+        lo: 0x1259,
+        hi: 0x1259,
+    },
+    UPropRange {
+        lo: 0x125E,
+        hi: 0x125F,
+    },
+    UPropRange {
+        lo: 0x1289,
+        hi: 0x1289,
+    },
+    UPropRange {
+        lo: 0x128E,
+        hi: 0x128F,
+    },
+    UPropRange {
+        lo: 0x12B1,
+        hi: 0x12B1,
+    },
+    UPropRange {
+        lo: 0x12B6,
+        hi: 0x12B7,
+    },
+    UPropRange {
+        lo: 0x12BF,
+        hi: 0x12BF,
+    },
+    UPropRange {
+        lo: 0x12C1,
+        hi: 0x12C1,
+    },
+    UPropRange {
+        lo: 0x12C6,
+        hi: 0x12C7,
+    },
+    UPropRange {
+        lo: 0x12D7,
+        hi: 0x12D7,
+    },
+    UPropRange {
+        lo: 0x1311,
+        hi: 0x1311,
+    },
+    UPropRange {
+        lo: 0x1316,
+        hi: 0x1317,
+    },
+    UPropRange {
+        lo: 0x135B,
+        hi: 0x135C,
+    },
+    UPropRange {
+        lo: 0x137D,
+        hi: 0x137F,
+    },
+    UPropRange {
+        lo: 0x139A,
+        hi: 0x139F,
+    },
+    UPropRange {
+        lo: 0x13F6,
+        hi: 0x13F7,
+    },
+    UPropRange {
+        lo: 0x13FE,
+        hi: 0x13FF,
+    },
+    UPropRange {
+        lo: 0x169D,
+        hi: 0x169F,
+    },
+    UPropRange {
+        lo: 0x16F9,
+        hi: 0x16FF,
+    },
+    UPropRange {
+        lo: 0x1716,
+        hi: 0x171E,
+    },
+    UPropRange {
+        lo: 0x1737,
+        hi: 0x173F,
+    },
+    UPropRange {
+        lo: 0x1754,
+        hi: 0x175F,
+    },
+    UPropRange {
+        lo: 0x176D,
+        hi: 0x176D,
+    },
+    UPropRange {
+        lo: 0x1771,
+        hi: 0x1771,
+    },
+    UPropRange {
+        lo: 0x1774,
+        hi: 0x177F,
+    },
+    UPropRange {
+        lo: 0x17DE,
+        hi: 0x17DF,
+    },
+    UPropRange {
+        lo: 0x17EA,
+        hi: 0x17EF,
+    },
+    UPropRange {
+        lo: 0x17FA,
+        hi: 0x17FF,
+    },
+    UPropRange {
+        lo: 0x181A,
+        hi: 0x181F,
+    },
+    UPropRange {
+        lo: 0x1879,
+        hi: 0x187F,
+    },
+    UPropRange {
+        lo: 0x18AB,
+        hi: 0x18AF,
+    },
+    UPropRange {
+        lo: 0x18F6,
+        hi: 0x18FF,
+    },
+    UPropRange {
+        lo: 0x191F,
+        hi: 0x191F,
+    },
+    UPropRange {
+        lo: 0x192C,
+        hi: 0x192F,
+    },
+    UPropRange {
+        lo: 0x193C,
+        hi: 0x193F,
+    },
+    UPropRange {
+        lo: 0x1941,
+        hi: 0x1943,
+    },
+    UPropRange {
+        lo: 0x196E,
+        hi: 0x196F,
+    },
+    UPropRange {
+        lo: 0x1975,
+        hi: 0x197F,
+    },
+    UPropRange {
+        lo: 0x19AC,
+        hi: 0x19AF,
+    },
+    UPropRange {
+        lo: 0x19CA,
+        hi: 0x19CF,
+    },
+    UPropRange {
+        lo: 0x19DB,
+        hi: 0x19DD,
+    },
+    UPropRange {
+        lo: 0x1A1C,
+        hi: 0x1A1D,
+    },
+    UPropRange {
+        lo: 0x1A5F,
+        hi: 0x1A5F,
+    },
+    UPropRange {
+        lo: 0x1A7D,
+        hi: 0x1A7E,
+    },
+    UPropRange {
+        lo: 0x1A8A,
+        hi: 0x1A8F,
+    },
+    UPropRange {
+        lo: 0x1A9A,
+        hi: 0x1A9F,
+    },
+    UPropRange {
+        lo: 0x1AAE,
+        hi: 0x1AAF,
+    },
+    UPropRange {
+        lo: 0x1ADE,
+        hi: 0x1ADF,
+    },
+    UPropRange {
+        lo: 0x1AEC,
+        hi: 0x1AFF,
+    },
+    UPropRange {
+        lo: 0x1B4D,
+        hi: 0x1B4D,
+    },
+    UPropRange {
+        lo: 0x1BF4,
+        hi: 0x1BFB,
+    },
+    UPropRange {
+        lo: 0x1C38,
+        hi: 0x1C3A,
+    },
+    UPropRange {
+        lo: 0x1C4A,
+        hi: 0x1C4C,
+    },
+    UPropRange {
+        lo: 0x1C8B,
+        hi: 0x1C8F,
+    },
+    UPropRange {
+        lo: 0x1CBB,
+        hi: 0x1CBC,
+    },
+    UPropRange {
+        lo: 0x1CC8,
+        hi: 0x1CCF,
+    },
+    UPropRange {
+        lo: 0x1CFB,
+        hi: 0x1CFF,
+    },
+    UPropRange {
+        lo: 0x1F16,
+        hi: 0x1F17,
+    },
+    UPropRange {
+        lo: 0x1F1E,
+        hi: 0x1F1F,
+    },
+    UPropRange {
+        lo: 0x1F46,
+        hi: 0x1F47,
+    },
+    UPropRange {
+        lo: 0x1F4E,
+        hi: 0x1F4F,
+    },
+    UPropRange {
+        lo: 0x1F58,
+        hi: 0x1F58,
+    },
+    UPropRange {
+        lo: 0x1F5A,
+        hi: 0x1F5A,
+    },
+    UPropRange {
+        lo: 0x1F5C,
+        hi: 0x1F5C,
+    },
+    UPropRange {
+        lo: 0x1F5E,
+        hi: 0x1F5E,
+    },
+    UPropRange {
+        lo: 0x1F7E,
+        hi: 0x1F7F,
+    },
+    UPropRange {
+        lo: 0x1FB5,
+        hi: 0x1FB5,
+    },
+    UPropRange {
+        lo: 0x1FC5,
+        hi: 0x1FC5,
+    },
+    UPropRange {
+        lo: 0x1FD4,
+        hi: 0x1FD5,
+    },
+    UPropRange {
+        lo: 0x1FDC,
+        hi: 0x1FDC,
+    },
+    UPropRange {
+        lo: 0x1FF0,
+        hi: 0x1FF1,
+    },
+    UPropRange {
+        lo: 0x1FF5,
+        hi: 0x1FF5,
+    },
+    UPropRange {
+        lo: 0x1FFF,
+        hi: 0x1FFF,
+    },
+    UPropRange {
+        lo: 0x2065,
+        hi: 0x2065,
+    },
+    UPropRange {
+        lo: 0x2072,
+        hi: 0x2073,
+    },
+    UPropRange {
+        lo: 0x208F,
+        hi: 0x208F,
+    },
+    UPropRange {
+        lo: 0x209D,
+        hi: 0x209F,
+    },
+    UPropRange {
+        lo: 0x20C2,
+        hi: 0x20CF,
+    },
+    UPropRange {
+        lo: 0x20F1,
+        hi: 0x20FF,
+    },
+    UPropRange {
+        lo: 0x218C,
+        hi: 0x218F,
+    },
+    UPropRange {
+        lo: 0x242A,
+        hi: 0x243F,
+    },
+    UPropRange {
+        lo: 0x244B,
+        hi: 0x245F,
+    },
+    UPropRange {
+        lo: 0x2B74,
+        hi: 0x2B75,
+    },
+    UPropRange {
+        lo: 0x2CF4,
+        hi: 0x2CF8,
+    },
+    UPropRange {
+        lo: 0x2D26,
+        hi: 0x2D26,
+    },
+    UPropRange {
+        lo: 0x2D28,
+        hi: 0x2D2C,
+    },
+    UPropRange {
+        lo: 0x2D2E,
+        hi: 0x2D2F,
+    },
+    UPropRange {
+        lo: 0x2D68,
+        hi: 0x2D6E,
+    },
+    UPropRange {
+        lo: 0x2D71,
+        hi: 0x2D7E,
+    },
+    UPropRange {
+        lo: 0x2D97,
+        hi: 0x2D9F,
+    },
+    UPropRange {
+        lo: 0x2DA7,
+        hi: 0x2DA7,
+    },
+    UPropRange {
+        lo: 0x2DAF,
+        hi: 0x2DAF,
+    },
+    UPropRange {
+        lo: 0x2DB7,
+        hi: 0x2DB7,
+    },
+    UPropRange {
+        lo: 0x2DBF,
+        hi: 0x2DBF,
+    },
+    UPropRange {
+        lo: 0x2DC7,
+        hi: 0x2DC7,
+    },
+    UPropRange {
+        lo: 0x2DCF,
+        hi: 0x2DCF,
+    },
+    UPropRange {
+        lo: 0x2DD7,
+        hi: 0x2DD7,
+    },
+    UPropRange {
+        lo: 0x2DDF,
+        hi: 0x2DDF,
+    },
+    UPropRange {
+        lo: 0x2E5E,
+        hi: 0x2E7F,
+    },
+    UPropRange {
+        lo: 0x2E9A,
+        hi: 0x2E9A,
+    },
+    UPropRange {
+        lo: 0x2EF4,
+        hi: 0x2EFF,
+    },
+    UPropRange {
+        lo: 0x2FD6,
+        hi: 0x2FEF,
+    },
+    UPropRange {
+        lo: 0x3040,
+        hi: 0x3040,
+    },
+    UPropRange {
+        lo: 0x3097,
+        hi: 0x3098,
+    },
+    UPropRange {
+        lo: 0x3100,
+        hi: 0x3104,
+    },
+    UPropRange {
+        lo: 0x3130,
+        hi: 0x3130,
+    },
+    UPropRange {
+        lo: 0x318F,
+        hi: 0x318F,
+    },
+    UPropRange {
+        lo: 0x31E6,
+        hi: 0x31EE,
+    },
+    UPropRange {
+        lo: 0x321F,
+        hi: 0x321F,
+    },
+    UPropRange {
+        lo: 0xA48D,
+        hi: 0xA48F,
+    },
+    UPropRange {
+        lo: 0xA4C7,
+        hi: 0xA4CF,
+    },
+    UPropRange {
+        lo: 0xA62C,
+        hi: 0xA63F,
+    },
+    UPropRange {
+        lo: 0xA6F8,
+        hi: 0xA6FF,
+    },
+    UPropRange {
+        lo: 0xA7DD,
+        hi: 0xA7F0,
+    },
+    UPropRange {
+        lo: 0xA82D,
+        hi: 0xA82F,
+    },
+    UPropRange {
+        lo: 0xA83A,
+        hi: 0xA83F,
+    },
+    UPropRange {
+        lo: 0xA878,
+        hi: 0xA87F,
+    },
+    UPropRange {
+        lo: 0xA8C6,
+        hi: 0xA8CD,
+    },
+    UPropRange {
+        lo: 0xA8DA,
+        hi: 0xA8DF,
+    },
+    UPropRange {
+        lo: 0xA954,
+        hi: 0xA95E,
+    },
+    UPropRange {
+        lo: 0xA97D,
+        hi: 0xA97F,
+    },
+    UPropRange {
+        lo: 0xA9CE,
+        hi: 0xA9CE,
+    },
+    UPropRange {
+        lo: 0xA9DA,
+        hi: 0xA9DD,
+    },
+    UPropRange {
+        lo: 0xA9FF,
+        hi: 0xA9FF,
+    },
+    UPropRange {
+        lo: 0xAA37,
+        hi: 0xAA3F,
+    },
+    UPropRange {
+        lo: 0xAA4E,
+        hi: 0xAA4F,
+    },
+    UPropRange {
+        lo: 0xAA5A,
+        hi: 0xAA5B,
+    },
+    UPropRange {
+        lo: 0xAAC3,
+        hi: 0xAADA,
+    },
+    UPropRange {
+        lo: 0xAAF7,
+        hi: 0xAB00,
+    },
+    UPropRange {
+        lo: 0xAB07,
+        hi: 0xAB08,
+    },
+    UPropRange {
+        lo: 0xAB0F,
+        hi: 0xAB10,
+    },
+    UPropRange {
+        lo: 0xAB17,
+        hi: 0xAB1F,
+    },
+    UPropRange {
+        lo: 0xAB27,
+        hi: 0xAB27,
+    },
+    UPropRange {
+        lo: 0xAB2F,
+        hi: 0xAB2F,
+    },
+    UPropRange {
+        lo: 0xAB6C,
+        hi: 0xAB6F,
+    },
+    UPropRange {
+        lo: 0xABEE,
+        hi: 0xABEF,
+    },
+    UPropRange {
+        lo: 0xABFA,
+        hi: 0xABFF,
+    },
+    UPropRange {
+        lo: 0xD7A4,
+        hi: 0xD7AF,
+    },
+    UPropRange {
+        lo: 0xD7C7,
+        hi: 0xD7CA,
+    },
+    UPropRange {
+        lo: 0xD7FC,
+        hi: 0xF8FF,
+    },
+    UPropRange {
+        lo: 0xFA6E,
+        hi: 0xFA6F,
+    },
+    UPropRange {
+        lo: 0xFADA,
+        hi: 0xFAFF,
+    },
+    UPropRange {
+        lo: 0xFB07,
+        hi: 0xFB12,
+    },
+    UPropRange {
+        lo: 0xFB18,
+        hi: 0xFB1C,
+    },
+    UPropRange {
+        lo: 0xFB37,
+        hi: 0xFB37,
+    },
+    UPropRange {
+        lo: 0xFB3D,
+        hi: 0xFB3D,
+    },
+    UPropRange {
+        lo: 0xFB3F,
+        hi: 0xFB3F,
+    },
+    UPropRange {
+        lo: 0xFB42,
+        hi: 0xFB42,
+    },
+    UPropRange {
+        lo: 0xFB45,
+        hi: 0xFB45,
+    },
+    UPropRange {
+        lo: 0xFDD0,
+        hi: 0xFDEF,
+    },
+    UPropRange {
+        lo: 0xFE1A,
+        hi: 0xFE1F,
+    },
+    UPropRange {
+        lo: 0xFE53,
+        hi: 0xFE53,
+    },
+    UPropRange {
+        lo: 0xFE67,
+        hi: 0xFE67,
+    },
+    UPropRange {
+        lo: 0xFE6C,
+        hi: 0xFE6F,
+    },
+    UPropRange {
+        lo: 0xFE75,
+        hi: 0xFE75,
+    },
+    UPropRange {
+        lo: 0xFEFD,
+        hi: 0xFEFE,
+    },
+    UPropRange {
+        lo: 0xFF00,
+        hi: 0xFF00,
+    },
+    UPropRange {
+        lo: 0xFFBF,
+        hi: 0xFFC1,
+    },
+    UPropRange {
+        lo: 0xFFC8,
+        hi: 0xFFC9,
+    },
+    UPropRange {
+        lo: 0xFFD0,
+        hi: 0xFFD1,
+    },
+    UPropRange {
+        lo: 0xFFD8,
+        hi: 0xFFD9,
+    },
+    UPropRange {
+        lo: 0xFFDD,
+        hi: 0xFFDF,
+    },
+    UPropRange {
+        lo: 0xFFE7,
+        hi: 0xFFE7,
+    },
+    UPropRange {
+        lo: 0xFFEF,
+        hi: 0xFFF8,
+    },
+    UPropRange {
+        lo: 0xFFFE,
+        hi: 0xFFFF,
+    },
+    UPropRange {
+        lo: 0x1000C,
+        hi: 0x1000C,
+    },
+    UPropRange {
+        lo: 0x10027,
+        hi: 0x10027,
+    },
+    UPropRange {
+        lo: 0x1003B,
+        hi: 0x1003B,
+    },
+    UPropRange {
+        lo: 0x1003E,
+        hi: 0x1003E,
+    },
+    UPropRange {
+        lo: 0x1004E,
+        hi: 0x1004F,
+    },
+    UPropRange {
+        lo: 0x1005E,
+        hi: 0x1007F,
+    },
+    UPropRange {
+        lo: 0x100FB,
+        hi: 0x100FF,
+    },
+    UPropRange {
+        lo: 0x10103,
+        hi: 0x10106,
+    },
+    UPropRange {
+        lo: 0x10134,
+        hi: 0x10136,
+    },
+    UPropRange {
+        lo: 0x1018F,
+        hi: 0x1018F,
+    },
+    UPropRange {
+        lo: 0x1019D,
+        hi: 0x1019F,
+    },
+    UPropRange {
+        lo: 0x101A1,
+        hi: 0x101CF,
+    },
+    UPropRange {
+        lo: 0x101FE,
+        hi: 0x1027F,
+    },
+    UPropRange {
+        lo: 0x1029D,
+        hi: 0x1029F,
+    },
+    UPropRange {
+        lo: 0x102D1,
+        hi: 0x102DF,
+    },
+    UPropRange {
+        lo: 0x102FC,
+        hi: 0x102FF,
+    },
+    UPropRange {
+        lo: 0x10324,
+        hi: 0x1032C,
+    },
+    UPropRange {
+        lo: 0x1034B,
+        hi: 0x1034F,
+    },
+    UPropRange {
+        lo: 0x1037B,
+        hi: 0x1037F,
+    },
+    UPropRange {
+        lo: 0x1039E,
+        hi: 0x1039E,
+    },
+    UPropRange {
+        lo: 0x103C4,
+        hi: 0x103C7,
+    },
+    UPropRange {
+        lo: 0x103D6,
+        hi: 0x103FF,
+    },
+    UPropRange {
+        lo: 0x1049E,
+        hi: 0x1049F,
+    },
+    UPropRange {
+        lo: 0x104AA,
+        hi: 0x104AF,
+    },
+    UPropRange {
+        lo: 0x104D4,
+        hi: 0x104D7,
+    },
+    UPropRange {
+        lo: 0x104FC,
+        hi: 0x104FF,
+    },
+    UPropRange {
+        lo: 0x10528,
+        hi: 0x1052F,
+    },
+    UPropRange {
+        lo: 0x10564,
+        hi: 0x1056E,
+    },
+    UPropRange {
+        lo: 0x1057B,
+        hi: 0x1057B,
+    },
+    UPropRange {
+        lo: 0x1058B,
+        hi: 0x1058B,
+    },
+    UPropRange {
+        lo: 0x10593,
+        hi: 0x10593,
+    },
+    UPropRange {
+        lo: 0x10596,
+        hi: 0x10596,
+    },
+    UPropRange {
+        lo: 0x105A2,
+        hi: 0x105A2,
+    },
+    UPropRange {
+        lo: 0x105B2,
+        hi: 0x105B2,
+    },
+    UPropRange {
+        lo: 0x105BA,
+        hi: 0x105BA,
+    },
+    UPropRange {
+        lo: 0x105BD,
+        hi: 0x105BF,
+    },
+    UPropRange {
+        lo: 0x105F4,
+        hi: 0x105FF,
+    },
+    UPropRange {
+        lo: 0x10737,
+        hi: 0x1073F,
+    },
+    UPropRange {
+        lo: 0x10756,
+        hi: 0x1075F,
+    },
+    UPropRange {
+        lo: 0x10768,
+        hi: 0x1077F,
+    },
+    UPropRange {
+        lo: 0x10786,
+        hi: 0x10786,
+    },
+    UPropRange {
+        lo: 0x107B1,
+        hi: 0x107B1,
+    },
+    UPropRange {
+        lo: 0x107BB,
+        hi: 0x107FF,
+    },
+    UPropRange {
+        lo: 0x10806,
+        hi: 0x10807,
+    },
+    UPropRange {
+        lo: 0x10809,
+        hi: 0x10809,
+    },
+    UPropRange {
+        lo: 0x10836,
+        hi: 0x10836,
+    },
+    UPropRange {
+        lo: 0x10839,
+        hi: 0x1083B,
+    },
+    UPropRange {
+        lo: 0x1083D,
+        hi: 0x1083E,
+    },
+    UPropRange {
+        lo: 0x10856,
+        hi: 0x10856,
+    },
+    UPropRange {
+        lo: 0x1089F,
+        hi: 0x108A6,
+    },
+    UPropRange {
+        lo: 0x108B0,
+        hi: 0x108DF,
+    },
+    UPropRange {
+        lo: 0x108F3,
+        hi: 0x108F3,
+    },
+    UPropRange {
+        lo: 0x108F6,
+        hi: 0x108FA,
+    },
+    UPropRange {
+        lo: 0x1091C,
+        hi: 0x1091E,
+    },
+    UPropRange {
+        lo: 0x1093A,
+        hi: 0x1093E,
+    },
+    UPropRange {
+        lo: 0x1095A,
+        hi: 0x1097F,
+    },
+    UPropRange {
+        lo: 0x109B8,
+        hi: 0x109BB,
+    },
+    UPropRange {
+        lo: 0x109D0,
+        hi: 0x109D1,
+    },
+    UPropRange {
+        lo: 0x10A04,
+        hi: 0x10A04,
+    },
+    UPropRange {
+        lo: 0x10A07,
+        hi: 0x10A0B,
+    },
+    UPropRange {
+        lo: 0x10A14,
+        hi: 0x10A14,
+    },
+    UPropRange {
+        lo: 0x10A18,
+        hi: 0x10A18,
+    },
+    UPropRange {
+        lo: 0x10A36,
+        hi: 0x10A37,
+    },
+    UPropRange {
+        lo: 0x10A3B,
+        hi: 0x10A3E,
+    },
+    UPropRange {
+        lo: 0x10A49,
+        hi: 0x10A4F,
+    },
+    UPropRange {
+        lo: 0x10A59,
+        hi: 0x10A5F,
+    },
+    UPropRange {
+        lo: 0x10AA0,
+        hi: 0x10ABF,
+    },
+    UPropRange {
+        lo: 0x10AE7,
+        hi: 0x10AEA,
+    },
+    UPropRange {
+        lo: 0x10AF7,
+        hi: 0x10AFF,
+    },
+    UPropRange {
+        lo: 0x10B36,
+        hi: 0x10B38,
+    },
+    UPropRange {
+        lo: 0x10B56,
+        hi: 0x10B57,
+    },
+    UPropRange {
+        lo: 0x10B73,
+        hi: 0x10B77,
+    },
+    UPropRange {
+        lo: 0x10B92,
+        hi: 0x10B98,
+    },
+    UPropRange {
+        lo: 0x10B9D,
+        hi: 0x10BA8,
+    },
+    UPropRange {
+        lo: 0x10BB0,
+        hi: 0x10BFF,
+    },
+    UPropRange {
+        lo: 0x10C49,
+        hi: 0x10C7F,
+    },
+    UPropRange {
+        lo: 0x10CB3,
+        hi: 0x10CBF,
+    },
+    UPropRange {
+        lo: 0x10CF3,
+        hi: 0x10CF9,
+    },
+    UPropRange {
+        lo: 0x10D28,
+        hi: 0x10D2F,
+    },
+    UPropRange {
+        lo: 0x10D3A,
+        hi: 0x10D3F,
+    },
+    UPropRange {
+        lo: 0x10D66,
+        hi: 0x10D68,
+    },
+    UPropRange {
+        lo: 0x10D86,
+        hi: 0x10D8D,
+    },
+    UPropRange {
+        lo: 0x10D90,
+        hi: 0x10E5F,
+    },
+    UPropRange {
+        lo: 0x10E7F,
+        hi: 0x10E7F,
+    },
+    UPropRange {
+        lo: 0x10EAA,
+        hi: 0x10EAA,
+    },
+    UPropRange {
+        lo: 0x10EAE,
+        hi: 0x10EAF,
+    },
+    UPropRange {
+        lo: 0x10EB2,
+        hi: 0x10EC1,
+    },
+    UPropRange {
+        lo: 0x10EC8,
+        hi: 0x10ECF,
+    },
+    UPropRange {
+        lo: 0x10ED9,
+        hi: 0x10EF9,
+    },
+    UPropRange {
+        lo: 0x10F28,
+        hi: 0x10F2F,
+    },
+    UPropRange {
+        lo: 0x10F5A,
+        hi: 0x10F6F,
+    },
+    UPropRange {
+        lo: 0x10F8A,
+        hi: 0x10FAF,
+    },
+    UPropRange {
+        lo: 0x10FCC,
+        hi: 0x10FDF,
+    },
+    UPropRange {
+        lo: 0x10FF7,
+        hi: 0x10FFF,
+    },
+    UPropRange {
+        lo: 0x1104E,
+        hi: 0x11051,
+    },
+    UPropRange {
+        lo: 0x11076,
+        hi: 0x1107E,
+    },
+    UPropRange {
+        lo: 0x110C3,
+        hi: 0x110CC,
+    },
+    UPropRange {
+        lo: 0x110CE,
+        hi: 0x110CF,
+    },
+    UPropRange {
+        lo: 0x110E9,
+        hi: 0x110EF,
+    },
+    UPropRange {
+        lo: 0x110FA,
+        hi: 0x110FF,
+    },
+    UPropRange {
+        lo: 0x11135,
+        hi: 0x11135,
+    },
+    UPropRange {
+        lo: 0x11148,
+        hi: 0x1114F,
+    },
+    UPropRange {
+        lo: 0x11177,
+        hi: 0x1117F,
+    },
+    UPropRange {
+        lo: 0x111E0,
+        hi: 0x111E0,
+    },
+    UPropRange {
+        lo: 0x111F5,
+        hi: 0x111FF,
+    },
+    UPropRange {
+        lo: 0x11212,
+        hi: 0x11212,
+    },
+    UPropRange {
+        lo: 0x11242,
+        hi: 0x1127F,
+    },
+    UPropRange {
+        lo: 0x11287,
+        hi: 0x11287,
+    },
+    UPropRange {
+        lo: 0x11289,
+        hi: 0x11289,
+    },
+    UPropRange {
+        lo: 0x1128E,
+        hi: 0x1128E,
+    },
+    UPropRange {
+        lo: 0x1129E,
+        hi: 0x1129E,
+    },
+    UPropRange {
+        lo: 0x112AA,
+        hi: 0x112AF,
+    },
+    UPropRange {
+        lo: 0x112EB,
+        hi: 0x112EF,
+    },
+    UPropRange {
+        lo: 0x112FA,
+        hi: 0x112FF,
+    },
+    UPropRange {
+        lo: 0x11304,
+        hi: 0x11304,
+    },
+    UPropRange {
+        lo: 0x1130D,
+        hi: 0x1130E,
+    },
+    UPropRange {
+        lo: 0x11311,
+        hi: 0x11312,
+    },
+    UPropRange {
+        lo: 0x11329,
+        hi: 0x11329,
+    },
+    UPropRange {
+        lo: 0x11331,
+        hi: 0x11331,
+    },
+    UPropRange {
+        lo: 0x11334,
+        hi: 0x11334,
+    },
+    UPropRange {
+        lo: 0x1133A,
+        hi: 0x1133A,
+    },
+    UPropRange {
+        lo: 0x11345,
+        hi: 0x11346,
+    },
+    UPropRange {
+        lo: 0x11349,
+        hi: 0x1134A,
+    },
+    UPropRange {
+        lo: 0x1134E,
+        hi: 0x1134F,
+    },
+    UPropRange {
+        lo: 0x11351,
+        hi: 0x11356,
+    },
+    UPropRange {
+        lo: 0x11358,
+        hi: 0x1135C,
+    },
+    UPropRange {
+        lo: 0x11364,
+        hi: 0x11365,
+    },
+    UPropRange {
+        lo: 0x1136D,
+        hi: 0x1136F,
+    },
+    UPropRange {
+        lo: 0x11375,
+        hi: 0x1137F,
+    },
+    UPropRange {
+        lo: 0x1138A,
+        hi: 0x1138A,
+    },
+    UPropRange {
+        lo: 0x1138C,
+        hi: 0x1138D,
+    },
+    UPropRange {
+        lo: 0x1138F,
+        hi: 0x1138F,
+    },
+    UPropRange {
+        lo: 0x113B6,
+        hi: 0x113B6,
+    },
+    UPropRange {
+        lo: 0x113C1,
+        hi: 0x113C1,
+    },
+    UPropRange {
+        lo: 0x113C3,
+        hi: 0x113C4,
+    },
+    UPropRange {
+        lo: 0x113C6,
+        hi: 0x113C6,
+    },
+    UPropRange {
+        lo: 0x113CB,
+        hi: 0x113CB,
+    },
+    UPropRange {
+        lo: 0x113D6,
+        hi: 0x113D6,
+    },
+    UPropRange {
+        lo: 0x113D9,
+        hi: 0x113E0,
+    },
+    UPropRange {
+        lo: 0x113E3,
+        hi: 0x113FF,
+    },
+    UPropRange {
+        lo: 0x1145C,
+        hi: 0x1145C,
+    },
+    UPropRange {
+        lo: 0x11462,
+        hi: 0x1147F,
+    },
+    UPropRange {
+        lo: 0x114C8,
+        hi: 0x114CF,
+    },
+    UPropRange {
+        lo: 0x114DA,
+        hi: 0x1157F,
+    },
+    UPropRange {
+        lo: 0x115B6,
+        hi: 0x115B7,
+    },
+    UPropRange {
+        lo: 0x115DE,
+        hi: 0x115FF,
+    },
+    UPropRange {
+        lo: 0x11645,
+        hi: 0x1164F,
+    },
+    UPropRange {
+        lo: 0x1165A,
+        hi: 0x1165F,
+    },
+    UPropRange {
+        lo: 0x1166D,
+        hi: 0x1167F,
+    },
+    UPropRange {
+        lo: 0x116BA,
+        hi: 0x116BF,
+    },
+    UPropRange {
+        lo: 0x116CA,
+        hi: 0x116CF,
+    },
+    UPropRange {
+        lo: 0x116E4,
+        hi: 0x116FF,
+    },
+    UPropRange {
+        lo: 0x1171B,
+        hi: 0x1171C,
+    },
+    UPropRange {
+        lo: 0x1172C,
+        hi: 0x1172F,
+    },
+    UPropRange {
+        lo: 0x11747,
+        hi: 0x117FF,
+    },
+    UPropRange {
+        lo: 0x1183C,
+        hi: 0x1189F,
+    },
+    UPropRange {
+        lo: 0x118F3,
+        hi: 0x118FE,
+    },
+    UPropRange {
+        lo: 0x11907,
+        hi: 0x11908,
+    },
+    UPropRange {
+        lo: 0x1190A,
+        hi: 0x1190B,
+    },
+    UPropRange {
+        lo: 0x11914,
+        hi: 0x11914,
+    },
+    UPropRange {
+        lo: 0x11917,
+        hi: 0x11917,
+    },
+    UPropRange {
+        lo: 0x11936,
+        hi: 0x11936,
+    },
+    UPropRange {
+        lo: 0x11939,
+        hi: 0x1193A,
+    },
+    UPropRange {
+        lo: 0x11947,
+        hi: 0x1194F,
+    },
+    UPropRange {
+        lo: 0x1195A,
+        hi: 0x1199F,
+    },
+    UPropRange {
+        lo: 0x119A8,
+        hi: 0x119A9,
+    },
+    UPropRange {
+        lo: 0x119D8,
+        hi: 0x119D9,
+    },
+    UPropRange {
+        lo: 0x119E5,
+        hi: 0x119FF,
+    },
+    UPropRange {
+        lo: 0x11A48,
+        hi: 0x11A4F,
+    },
+    UPropRange {
+        lo: 0x11AA3,
+        hi: 0x11AAF,
+    },
+    UPropRange {
+        lo: 0x11AF9,
+        hi: 0x11AFF,
+    },
+    UPropRange {
+        lo: 0x11B0A,
+        hi: 0x11B5F,
+    },
+    UPropRange {
+        lo: 0x11B68,
+        hi: 0x11BBF,
+    },
+    UPropRange {
+        lo: 0x11BE2,
+        hi: 0x11BEF,
+    },
+    UPropRange {
+        lo: 0x11BFA,
+        hi: 0x11BFF,
+    },
+    UPropRange {
+        lo: 0x11C09,
+        hi: 0x11C09,
+    },
+    UPropRange {
+        lo: 0x11C37,
+        hi: 0x11C37,
+    },
+    UPropRange {
+        lo: 0x11C46,
+        hi: 0x11C4F,
+    },
+    UPropRange {
+        lo: 0x11C6D,
+        hi: 0x11C6F,
+    },
+    UPropRange {
+        lo: 0x11C90,
+        hi: 0x11C91,
+    },
+    UPropRange {
+        lo: 0x11CA8,
+        hi: 0x11CA8,
+    },
+    UPropRange {
+        lo: 0x11CB7,
+        hi: 0x11CFF,
+    },
+    UPropRange {
+        lo: 0x11D07,
+        hi: 0x11D07,
+    },
+    UPropRange {
+        lo: 0x11D0A,
+        hi: 0x11D0A,
+    },
+    UPropRange {
+        lo: 0x11D37,
+        hi: 0x11D39,
+    },
+    UPropRange {
+        lo: 0x11D3B,
+        hi: 0x11D3B,
+    },
+    UPropRange {
+        lo: 0x11D3E,
+        hi: 0x11D3E,
+    },
+    UPropRange {
+        lo: 0x11D48,
+        hi: 0x11D4F,
+    },
+    UPropRange {
+        lo: 0x11D5A,
+        hi: 0x11D5F,
+    },
+    UPropRange {
+        lo: 0x11D66,
+        hi: 0x11D66,
+    },
+    UPropRange {
+        lo: 0x11D69,
+        hi: 0x11D69,
+    },
+    UPropRange {
+        lo: 0x11D8F,
+        hi: 0x11D8F,
+    },
+    UPropRange {
+        lo: 0x11D92,
+        hi: 0x11D92,
+    },
+    UPropRange {
+        lo: 0x11D99,
+        hi: 0x11D9F,
+    },
+    UPropRange {
+        lo: 0x11DAA,
+        hi: 0x11DAF,
+    },
+    UPropRange {
+        lo: 0x11DDC,
+        hi: 0x11DDF,
+    },
+    UPropRange {
+        lo: 0x11DEA,
+        hi: 0x11EDF,
+    },
+    UPropRange {
+        lo: 0x11EF9,
+        hi: 0x11EFF,
+    },
+    UPropRange {
+        lo: 0x11F11,
+        hi: 0x11F11,
+    },
+    UPropRange {
+        lo: 0x11F3B,
+        hi: 0x11F3D,
+    },
+    UPropRange {
+        lo: 0x11F5B,
+        hi: 0x11FAF,
+    },
+    UPropRange {
+        lo: 0x11FB1,
+        hi: 0x11FBF,
+    },
+    UPropRange {
+        lo: 0x11FF2,
+        hi: 0x11FFE,
+    },
+    UPropRange {
+        lo: 0x1239A,
+        hi: 0x123FF,
+    },
+    UPropRange {
+        lo: 0x1246F,
+        hi: 0x1246F,
+    },
+    UPropRange {
+        lo: 0x12475,
+        hi: 0x1247F,
+    },
+    UPropRange {
+        lo: 0x12544,
+        hi: 0x12F8F,
+    },
+    UPropRange {
+        lo: 0x12FF3,
+        hi: 0x12FFF,
+    },
+    UPropRange {
+        lo: 0x13456,
+        hi: 0x1345F,
+    },
+    UPropRange {
+        lo: 0x143FB,
+        hi: 0x143FF,
+    },
+    UPropRange {
+        lo: 0x14647,
+        hi: 0x160FF,
+    },
+    UPropRange {
+        lo: 0x1613A,
+        hi: 0x167FF,
+    },
+    UPropRange {
+        lo: 0x16A39,
+        hi: 0x16A3F,
+    },
+    UPropRange {
+        lo: 0x16A5F,
+        hi: 0x16A5F,
+    },
+    UPropRange {
+        lo: 0x16A6A,
+        hi: 0x16A6D,
+    },
+    UPropRange {
+        lo: 0x16ABF,
+        hi: 0x16ABF,
+    },
+    UPropRange {
+        lo: 0x16ACA,
+        hi: 0x16ACF,
+    },
+    UPropRange {
+        lo: 0x16AEE,
+        hi: 0x16AEF,
+    },
+    UPropRange {
+        lo: 0x16AF6,
+        hi: 0x16AFF,
+    },
+    UPropRange {
+        lo: 0x16B46,
+        hi: 0x16B4F,
+    },
+    UPropRange {
+        lo: 0x16B5A,
+        hi: 0x16B5A,
+    },
+    UPropRange {
+        lo: 0x16B62,
+        hi: 0x16B62,
+    },
+    UPropRange {
+        lo: 0x16B78,
+        hi: 0x16B7C,
+    },
+    UPropRange {
+        lo: 0x16B90,
+        hi: 0x16D3F,
+    },
+    UPropRange {
+        lo: 0x16D7A,
+        hi: 0x16E3F,
+    },
+    UPropRange {
+        lo: 0x16E9B,
+        hi: 0x16E9F,
+    },
+    UPropRange {
+        lo: 0x16EB9,
+        hi: 0x16EBA,
+    },
+    UPropRange {
+        lo: 0x16ED4,
+        hi: 0x16EFF,
+    },
+    UPropRange {
+        lo: 0x16F4B,
+        hi: 0x16F4E,
+    },
+    UPropRange {
+        lo: 0x16F88,
+        hi: 0x16F8E,
+    },
+    UPropRange {
+        lo: 0x16FA0,
+        hi: 0x16FDF,
+    },
+    UPropRange {
+        lo: 0x16FE5,
+        hi: 0x16FEF,
+    },
+    UPropRange {
+        lo: 0x16FF7,
+        hi: 0x16FFF,
+    },
+    UPropRange {
+        lo: 0x18CD6,
+        hi: 0x18CFE,
+    },
+    UPropRange {
+        lo: 0x18D1F,
+        hi: 0x18D7F,
+    },
+    UPropRange {
+        lo: 0x18DF3,
+        hi: 0x1AFEF,
+    },
+    UPropRange {
+        lo: 0x1AFF4,
+        hi: 0x1AFF4,
+    },
+    UPropRange {
+        lo: 0x1AFFC,
+        hi: 0x1AFFC,
+    },
+    UPropRange {
+        lo: 0x1AFFF,
+        hi: 0x1AFFF,
+    },
+    UPropRange {
+        lo: 0x1B123,
+        hi: 0x1B131,
+    },
+    UPropRange {
+        lo: 0x1B133,
+        hi: 0x1B14F,
+    },
+    UPropRange {
+        lo: 0x1B153,
+        hi: 0x1B154,
+    },
+    UPropRange {
+        lo: 0x1B156,
+        hi: 0x1B163,
+    },
+    UPropRange {
+        lo: 0x1B168,
+        hi: 0x1B16F,
+    },
+    UPropRange {
+        lo: 0x1B2FC,
+        hi: 0x1BBFF,
+    },
+    UPropRange {
+        lo: 0x1BC6B,
+        hi: 0x1BC6F,
+    },
+    UPropRange {
+        lo: 0x1BC7D,
+        hi: 0x1BC7F,
+    },
+    UPropRange {
+        lo: 0x1BC89,
+        hi: 0x1BC8F,
+    },
+    UPropRange {
+        lo: 0x1BC9A,
+        hi: 0x1BC9B,
+    },
+    UPropRange {
+        lo: 0x1BCA4,
+        hi: 0x1CBFF,
+    },
+    UPropRange {
+        lo: 0x1CCFD,
+        hi: 0x1CCFF,
+    },
+    UPropRange {
+        lo: 0x1CEB4,
+        hi: 0x1CEB9,
+    },
+    UPropRange {
+        lo: 0x1CED1,
+        hi: 0x1CEDF,
+    },
+    UPropRange {
+        lo: 0x1CEF1,
+        hi: 0x1CEFF,
+    },
+    UPropRange {
+        lo: 0x1CF2E,
+        hi: 0x1CF2F,
+    },
+    UPropRange {
+        lo: 0x1CF47,
+        hi: 0x1CF4F,
+    },
+    UPropRange {
+        lo: 0x1CFC4,
+        hi: 0x1CFFF,
+    },
+    UPropRange {
+        lo: 0x1D0F6,
+        hi: 0x1D0FF,
+    },
+    UPropRange {
+        lo: 0x1D127,
+        hi: 0x1D128,
+    },
+    UPropRange {
+        lo: 0x1D1EB,
+        hi: 0x1D1FF,
+    },
+    UPropRange {
+        lo: 0x1D246,
+        hi: 0x1D2BF,
+    },
+    UPropRange {
+        lo: 0x1D2D4,
+        hi: 0x1D2DF,
+    },
+    UPropRange {
+        lo: 0x1D2F4,
+        hi: 0x1D2FF,
+    },
+    UPropRange {
+        lo: 0x1D357,
+        hi: 0x1D35F,
+    },
+    UPropRange {
+        lo: 0x1D379,
+        hi: 0x1D3FF,
+    },
+    UPropRange {
+        lo: 0x1D455,
+        hi: 0x1D455,
+    },
+    UPropRange {
+        lo: 0x1D49D,
+        hi: 0x1D49D,
+    },
+    UPropRange {
+        lo: 0x1D4A0,
+        hi: 0x1D4A1,
+    },
+    UPropRange {
+        lo: 0x1D4A3,
+        hi: 0x1D4A4,
+    },
+    UPropRange {
+        lo: 0x1D4A7,
+        hi: 0x1D4A8,
+    },
+    UPropRange {
+        lo: 0x1D4AD,
+        hi: 0x1D4AD,
+    },
+    UPropRange {
+        lo: 0x1D4BA,
+        hi: 0x1D4BA,
+    },
+    UPropRange {
+        lo: 0x1D4BC,
+        hi: 0x1D4BC,
+    },
+    UPropRange {
+        lo: 0x1D4C4,
+        hi: 0x1D4C4,
+    },
+    UPropRange {
+        lo: 0x1D506,
+        hi: 0x1D506,
+    },
+    UPropRange {
+        lo: 0x1D50B,
+        hi: 0x1D50C,
+    },
+    UPropRange {
+        lo: 0x1D515,
+        hi: 0x1D515,
+    },
+    UPropRange {
+        lo: 0x1D51D,
+        hi: 0x1D51D,
+    },
+    UPropRange {
+        lo: 0x1D53A,
+        hi: 0x1D53A,
+    },
+    UPropRange {
+        lo: 0x1D53F,
+        hi: 0x1D53F,
+    },
+    UPropRange {
+        lo: 0x1D545,
+        hi: 0x1D545,
+    },
+    UPropRange {
+        lo: 0x1D547,
+        hi: 0x1D549,
+    },
+    UPropRange {
+        lo: 0x1D551,
+        hi: 0x1D551,
+    },
+    UPropRange {
+        lo: 0x1D6A6,
+        hi: 0x1D6A7,
+    },
+    UPropRange {
+        lo: 0x1D7CC,
+        hi: 0x1D7CD,
+    },
+    UPropRange {
+        lo: 0x1DA8C,
+        hi: 0x1DA9A,
+    },
+    UPropRange {
+        lo: 0x1DAA0,
+        hi: 0x1DAA0,
+    },
+    UPropRange {
+        lo: 0x1DAB0,
+        hi: 0x1DEFF,
+    },
+    UPropRange {
+        lo: 0x1DF1F,
+        hi: 0x1DF24,
+    },
+    UPropRange {
+        lo: 0x1DF2B,
+        hi: 0x1DFFF,
+    },
+    UPropRange {
+        lo: 0x1E007,
+        hi: 0x1E007,
+    },
+    UPropRange {
+        lo: 0x1E019,
+        hi: 0x1E01A,
+    },
+    UPropRange {
+        lo: 0x1E022,
+        hi: 0x1E022,
+    },
+    UPropRange {
+        lo: 0x1E025,
+        hi: 0x1E025,
+    },
+    UPropRange {
+        lo: 0x1E02B,
+        hi: 0x1E02F,
+    },
+    UPropRange {
+        lo: 0x1E06E,
+        hi: 0x1E08E,
+    },
+    UPropRange {
+        lo: 0x1E090,
+        hi: 0x1E0FF,
+    },
+    UPropRange {
+        lo: 0x1E12D,
+        hi: 0x1E12F,
+    },
+    UPropRange {
+        lo: 0x1E13E,
+        hi: 0x1E13F,
+    },
+    UPropRange {
+        lo: 0x1E14A,
+        hi: 0x1E14D,
+    },
+    UPropRange {
+        lo: 0x1E150,
+        hi: 0x1E28F,
+    },
+    UPropRange {
+        lo: 0x1E2AF,
+        hi: 0x1E2BF,
+    },
+    UPropRange {
+        lo: 0x1E2FA,
+        hi: 0x1E2FE,
+    },
+    UPropRange {
+        lo: 0x1E300,
+        hi: 0x1E4CF,
+    },
+    UPropRange {
+        lo: 0x1E4FA,
+        hi: 0x1E5CF,
+    },
+    UPropRange {
+        lo: 0x1E5FB,
+        hi: 0x1E5FE,
+    },
+    UPropRange {
+        lo: 0x1E600,
+        hi: 0x1E6BF,
+    },
+    UPropRange {
+        lo: 0x1E6DF,
+        hi: 0x1E6DF,
+    },
+    UPropRange {
+        lo: 0x1E6F6,
+        hi: 0x1E6FD,
+    },
+    UPropRange {
+        lo: 0x1E700,
+        hi: 0x1E7DF,
+    },
+    UPropRange {
+        lo: 0x1E7E7,
+        hi: 0x1E7E7,
+    },
+    UPropRange {
+        lo: 0x1E7EC,
+        hi: 0x1E7EC,
+    },
+    UPropRange {
+        lo: 0x1E7EF,
+        hi: 0x1E7EF,
+    },
+    UPropRange {
+        lo: 0x1E7FF,
+        hi: 0x1E7FF,
+    },
+    UPropRange {
+        lo: 0x1E8C5,
+        hi: 0x1E8C6,
+    },
+    UPropRange {
+        lo: 0x1E8D7,
+        hi: 0x1E8FF,
+    },
+    UPropRange {
+        lo: 0x1E94C,
+        hi: 0x1E94F,
+    },
+    UPropRange {
+        lo: 0x1E95A,
+        hi: 0x1E95D,
+    },
+    UPropRange {
+        lo: 0x1E960,
+        hi: 0x1EC70,
+    },
+    UPropRange {
+        lo: 0x1ECB5,
+        hi: 0x1ED00,
+    },
+    UPropRange {
+        lo: 0x1ED3E,
+        hi: 0x1EDFF,
+    },
+    UPropRange {
+        lo: 0x1EE04,
+        hi: 0x1EE04,
+    },
+    UPropRange {
+        lo: 0x1EE20,
+        hi: 0x1EE20,
+    },
+    UPropRange {
+        lo: 0x1EE23,
+        hi: 0x1EE23,
+    },
+    UPropRange {
+        lo: 0x1EE25,
+        hi: 0x1EE26,
+    },
+    UPropRange {
+        lo: 0x1EE28,
+        hi: 0x1EE28,
+    },
+    UPropRange {
+        lo: 0x1EE33,
+        hi: 0x1EE33,
+    },
+    UPropRange {
+        lo: 0x1EE38,
+        hi: 0x1EE38,
+    },
+    UPropRange {
+        lo: 0x1EE3A,
+        hi: 0x1EE3A,
+    },
+    UPropRange {
+        lo: 0x1EE3C,
+        hi: 0x1EE41,
+    },
+    UPropRange {
+        lo: 0x1EE43,
+        hi: 0x1EE46,
+    },
+    UPropRange {
+        lo: 0x1EE48,
+        hi: 0x1EE48,
+    },
+    UPropRange {
+        lo: 0x1EE4A,
+        hi: 0x1EE4A,
+    },
+    UPropRange {
+        lo: 0x1EE4C,
+        hi: 0x1EE4C,
+    },
+    UPropRange {
+        lo: 0x1EE50,
+        hi: 0x1EE50,
+    },
+    UPropRange {
+        lo: 0x1EE53,
+        hi: 0x1EE53,
+    },
+    UPropRange {
+        lo: 0x1EE55,
+        hi: 0x1EE56,
+    },
+    UPropRange {
+        lo: 0x1EE58,
+        hi: 0x1EE58,
+    },
+    UPropRange {
+        lo: 0x1EE5A,
+        hi: 0x1EE5A,
+    },
+    UPropRange {
+        lo: 0x1EE5C,
+        hi: 0x1EE5C,
+    },
+    UPropRange {
+        lo: 0x1EE5E,
+        hi: 0x1EE5E,
+    },
+    UPropRange {
+        lo: 0x1EE60,
+        hi: 0x1EE60,
+    },
+    UPropRange {
+        lo: 0x1EE63,
+        hi: 0x1EE63,
+    },
+    UPropRange {
+        lo: 0x1EE65,
+        hi: 0x1EE66,
+    },
+    UPropRange {
+        lo: 0x1EE6B,
+        hi: 0x1EE6B,
+    },
+    UPropRange {
+        lo: 0x1EE73,
+        hi: 0x1EE73,
+    },
+    UPropRange {
+        lo: 0x1EE78,
+        hi: 0x1EE78,
+    },
+    UPropRange {
+        lo: 0x1EE7D,
+        hi: 0x1EE7D,
+    },
+    UPropRange {
+        lo: 0x1EE7F,
+        hi: 0x1EE7F,
+    },
+    UPropRange {
+        lo: 0x1EE8A,
+        hi: 0x1EE8A,
+    },
+    UPropRange {
+        lo: 0x1EE9C,
+        hi: 0x1EEA0,
+    },
+    UPropRange {
+        lo: 0x1EEA4,
+        hi: 0x1EEA4,
+    },
+    UPropRange {
+        lo: 0x1EEAA,
+        hi: 0x1EEAA,
+    },
+    UPropRange {
+        lo: 0x1EEBC,
+        hi: 0x1EEEF,
+    },
+    UPropRange {
+        lo: 0x1EEF2,
+        hi: 0x1EFFF,
+    },
+    UPropRange {
+        lo: 0x1F02C,
+        hi: 0x1F02F,
+    },
+    UPropRange {
+        lo: 0x1F094,
+        hi: 0x1F09F,
+    },
+    UPropRange {
+        lo: 0x1F0AF,
+        hi: 0x1F0B0,
+    },
+    UPropRange {
+        lo: 0x1F0C0,
+        hi: 0x1F0C0,
+    },
+    UPropRange {
+        lo: 0x1F0D0,
+        hi: 0x1F0D0,
+    },
+    UPropRange {
+        lo: 0x1F0F6,
+        hi: 0x1F0FF,
+    },
+    UPropRange {
+        lo: 0x1F1AE,
+        hi: 0x1F1E5,
+    },
+    UPropRange {
+        lo: 0x1F203,
+        hi: 0x1F20F,
+    },
+    UPropRange {
+        lo: 0x1F23C,
+        hi: 0x1F23F,
+    },
+    UPropRange {
+        lo: 0x1F249,
+        hi: 0x1F24F,
+    },
+    UPropRange {
+        lo: 0x1F252,
+        hi: 0x1F25F,
+    },
+    UPropRange {
+        lo: 0x1F266,
+        hi: 0x1F2FF,
+    },
+    UPropRange {
+        lo: 0x1F6D9,
+        hi: 0x1F6DB,
+    },
+    UPropRange {
+        lo: 0x1F6ED,
+        hi: 0x1F6EF,
+    },
+    UPropRange {
+        lo: 0x1F6FD,
+        hi: 0x1F6FF,
+    },
+    UPropRange {
+        lo: 0x1F7DA,
+        hi: 0x1F7DF,
+    },
+    UPropRange {
+        lo: 0x1F7EC,
+        hi: 0x1F7EF,
+    },
+    UPropRange {
+        lo: 0x1F7F1,
+        hi: 0x1F7FF,
+    },
+    UPropRange {
+        lo: 0x1F80C,
+        hi: 0x1F80F,
+    },
+    UPropRange {
+        lo: 0x1F848,
+        hi: 0x1F84F,
+    },
+    UPropRange {
+        lo: 0x1F85A,
+        hi: 0x1F85F,
+    },
+    UPropRange {
+        lo: 0x1F888,
+        hi: 0x1F88F,
+    },
+    UPropRange {
+        lo: 0x1F8AE,
+        hi: 0x1F8AF,
+    },
+    UPropRange {
+        lo: 0x1F8BC,
+        hi: 0x1F8BF,
+    },
+    UPropRange {
+        lo: 0x1F8C2,
+        hi: 0x1F8CF,
+    },
+    UPropRange {
+        lo: 0x1F8D9,
+        hi: 0x1F8FF,
+    },
+    UPropRange {
+        lo: 0x1FA58,
+        hi: 0x1FA5F,
+    },
+    UPropRange {
+        lo: 0x1FA6E,
+        hi: 0x1FA6F,
+    },
+    UPropRange {
+        lo: 0x1FA7D,
+        hi: 0x1FA7F,
+    },
+    UPropRange {
+        lo: 0x1FA8B,
+        hi: 0x1FA8D,
+    },
+    UPropRange {
+        lo: 0x1FAC7,
+        hi: 0x1FAC7,
+    },
+    UPropRange {
+        lo: 0x1FAC9,
+        hi: 0x1FACC,
+    },
+    UPropRange {
+        lo: 0x1FADD,
+        hi: 0x1FADE,
+    },
+    UPropRange {
+        lo: 0x1FAEB,
+        hi: 0x1FAEE,
+    },
+    UPropRange {
+        lo: 0x1FAF9,
+        hi: 0x1FAFF,
+    },
+    UPropRange {
+        lo: 0x1FB93,
+        hi: 0x1FB93,
+    },
+    UPropRange {
+        lo: 0x1FBFB,
+        hi: 0x1FFFF,
+    },
+    UPropRange {
+        lo: 0x2A6E0,
+        hi: 0x2A6FF,
+    },
+    UPropRange {
+        lo: 0x2B81E,
+        hi: 0x2B81F,
+    },
+    UPropRange {
+        lo: 0x2CEAE,
+        hi: 0x2CEAF,
+    },
+    UPropRange {
+        lo: 0x2EBE1,
+        hi: 0x2EBEF,
+    },
+    UPropRange {
+        lo: 0x2EE5E,
+        hi: 0x2F7FF,
+    },
+    UPropRange {
+        lo: 0x2FA1E,
+        hi: 0x2FFFF,
+    },
+    UPropRange {
+        lo: 0x3134B,
+        hi: 0x3134F,
+    },
+    UPropRange {
+        lo: 0x3347A,
+        hi: 0xE0000,
+    },
+    UPropRange {
+        lo: 0xE0002,
+        hi: 0xE001F,
+    },
+    UPropRange {
+        lo: 0xE0080,
+        hi: 0xE00FF,
+    },
+    UPropRange {
+        lo: 0xE01F0,
+        hi: 0x10FFFF,
+    },
+];
+
 static SCRIPT_VAI: &[UPropRange] = &[UPropRange {
     lo: 0xA500,
     hi: 0xA62B,
@@ -31237,6 +34172,7 @@ pub static SCRIPT_TABLES: &[(&str, &[UPropRange])] = &[
     ("Toto", SCRIPT_TOTO),
     ("Tulu_Tigalari", SCRIPT_TULU_TIGALARI),
     ("Ugaritic", SCRIPT_UGARITIC),
+    ("Unknown", SCRIPT_UNKNOWN),
     ("Vai", SCRIPT_VAI),
     ("Vithkuqi", SCRIPT_VITHKUQI),
     ("Wancho", SCRIPT_WANCHO),
@@ -37009,6 +39945,2941 @@ static SCX_UGARITIC: &[UPropRange] = &[
     },
 ];
 
+static SCX_UNKNOWN: &[UPropRange] = &[
+    UPropRange {
+        lo: 0x0378,
+        hi: 0x0379,
+    },
+    UPropRange {
+        lo: 0x0380,
+        hi: 0x0383,
+    },
+    UPropRange {
+        lo: 0x038B,
+        hi: 0x038B,
+    },
+    UPropRange {
+        lo: 0x038D,
+        hi: 0x038D,
+    },
+    UPropRange {
+        lo: 0x03A2,
+        hi: 0x03A2,
+    },
+    UPropRange {
+        lo: 0x0530,
+        hi: 0x0530,
+    },
+    UPropRange {
+        lo: 0x0557,
+        hi: 0x0558,
+    },
+    UPropRange {
+        lo: 0x058B,
+        hi: 0x058C,
+    },
+    UPropRange {
+        lo: 0x0590,
+        hi: 0x0590,
+    },
+    UPropRange {
+        lo: 0x05C8,
+        hi: 0x05CF,
+    },
+    UPropRange {
+        lo: 0x05EB,
+        hi: 0x05EE,
+    },
+    UPropRange {
+        lo: 0x05F5,
+        hi: 0x05FF,
+    },
+    UPropRange {
+        lo: 0x070E,
+        hi: 0x070E,
+    },
+    UPropRange {
+        lo: 0x074B,
+        hi: 0x074C,
+    },
+    UPropRange {
+        lo: 0x07B2,
+        hi: 0x07BF,
+    },
+    UPropRange {
+        lo: 0x07FB,
+        hi: 0x07FC,
+    },
+    UPropRange {
+        lo: 0x082E,
+        hi: 0x082F,
+    },
+    UPropRange {
+        lo: 0x083F,
+        hi: 0x083F,
+    },
+    UPropRange {
+        lo: 0x085C,
+        hi: 0x085D,
+    },
+    UPropRange {
+        lo: 0x085F,
+        hi: 0x085F,
+    },
+    UPropRange {
+        lo: 0x086B,
+        hi: 0x086F,
+    },
+    UPropRange {
+        lo: 0x0892,
+        hi: 0x0896,
+    },
+    UPropRange {
+        lo: 0x0984,
+        hi: 0x0984,
+    },
+    UPropRange {
+        lo: 0x098D,
+        hi: 0x098E,
+    },
+    UPropRange {
+        lo: 0x0991,
+        hi: 0x0992,
+    },
+    UPropRange {
+        lo: 0x09A9,
+        hi: 0x09A9,
+    },
+    UPropRange {
+        lo: 0x09B1,
+        hi: 0x09B1,
+    },
+    UPropRange {
+        lo: 0x09B3,
+        hi: 0x09B5,
+    },
+    UPropRange {
+        lo: 0x09BA,
+        hi: 0x09BB,
+    },
+    UPropRange {
+        lo: 0x09C5,
+        hi: 0x09C6,
+    },
+    UPropRange {
+        lo: 0x09C9,
+        hi: 0x09CA,
+    },
+    UPropRange {
+        lo: 0x09CF,
+        hi: 0x09D6,
+    },
+    UPropRange {
+        lo: 0x09D8,
+        hi: 0x09DB,
+    },
+    UPropRange {
+        lo: 0x09DE,
+        hi: 0x09DE,
+    },
+    UPropRange {
+        lo: 0x09E4,
+        hi: 0x09E5,
+    },
+    UPropRange {
+        lo: 0x09FF,
+        hi: 0x0A00,
+    },
+    UPropRange {
+        lo: 0x0A04,
+        hi: 0x0A04,
+    },
+    UPropRange {
+        lo: 0x0A0B,
+        hi: 0x0A0E,
+    },
+    UPropRange {
+        lo: 0x0A11,
+        hi: 0x0A12,
+    },
+    UPropRange {
+        lo: 0x0A29,
+        hi: 0x0A29,
+    },
+    UPropRange {
+        lo: 0x0A31,
+        hi: 0x0A31,
+    },
+    UPropRange {
+        lo: 0x0A34,
+        hi: 0x0A34,
+    },
+    UPropRange {
+        lo: 0x0A37,
+        hi: 0x0A37,
+    },
+    UPropRange {
+        lo: 0x0A3A,
+        hi: 0x0A3B,
+    },
+    UPropRange {
+        lo: 0x0A3D,
+        hi: 0x0A3D,
+    },
+    UPropRange {
+        lo: 0x0A43,
+        hi: 0x0A46,
+    },
+    UPropRange {
+        lo: 0x0A49,
+        hi: 0x0A4A,
+    },
+    UPropRange {
+        lo: 0x0A4E,
+        hi: 0x0A50,
+    },
+    UPropRange {
+        lo: 0x0A52,
+        hi: 0x0A58,
+    },
+    UPropRange {
+        lo: 0x0A5D,
+        hi: 0x0A5D,
+    },
+    UPropRange {
+        lo: 0x0A5F,
+        hi: 0x0A65,
+    },
+    UPropRange {
+        lo: 0x0A77,
+        hi: 0x0A80,
+    },
+    UPropRange {
+        lo: 0x0A84,
+        hi: 0x0A84,
+    },
+    UPropRange {
+        lo: 0x0A8E,
+        hi: 0x0A8E,
+    },
+    UPropRange {
+        lo: 0x0A92,
+        hi: 0x0A92,
+    },
+    UPropRange {
+        lo: 0x0AA9,
+        hi: 0x0AA9,
+    },
+    UPropRange {
+        lo: 0x0AB1,
+        hi: 0x0AB1,
+    },
+    UPropRange {
+        lo: 0x0AB4,
+        hi: 0x0AB4,
+    },
+    UPropRange {
+        lo: 0x0ABA,
+        hi: 0x0ABB,
+    },
+    UPropRange {
+        lo: 0x0AC6,
+        hi: 0x0AC6,
+    },
+    UPropRange {
+        lo: 0x0ACA,
+        hi: 0x0ACA,
+    },
+    UPropRange {
+        lo: 0x0ACE,
+        hi: 0x0ACF,
+    },
+    UPropRange {
+        lo: 0x0AD1,
+        hi: 0x0ADF,
+    },
+    UPropRange {
+        lo: 0x0AE4,
+        hi: 0x0AE5,
+    },
+    UPropRange {
+        lo: 0x0AF2,
+        hi: 0x0AF8,
+    },
+    UPropRange {
+        lo: 0x0B00,
+        hi: 0x0B00,
+    },
+    UPropRange {
+        lo: 0x0B04,
+        hi: 0x0B04,
+    },
+    UPropRange {
+        lo: 0x0B0D,
+        hi: 0x0B0E,
+    },
+    UPropRange {
+        lo: 0x0B11,
+        hi: 0x0B12,
+    },
+    UPropRange {
+        lo: 0x0B29,
+        hi: 0x0B29,
+    },
+    UPropRange {
+        lo: 0x0B31,
+        hi: 0x0B31,
+    },
+    UPropRange {
+        lo: 0x0B34,
+        hi: 0x0B34,
+    },
+    UPropRange {
+        lo: 0x0B3A,
+        hi: 0x0B3B,
+    },
+    UPropRange {
+        lo: 0x0B45,
+        hi: 0x0B46,
+    },
+    UPropRange {
+        lo: 0x0B49,
+        hi: 0x0B4A,
+    },
+    UPropRange {
+        lo: 0x0B4E,
+        hi: 0x0B54,
+    },
+    UPropRange {
+        lo: 0x0B58,
+        hi: 0x0B5B,
+    },
+    UPropRange {
+        lo: 0x0B5E,
+        hi: 0x0B5E,
+    },
+    UPropRange {
+        lo: 0x0B64,
+        hi: 0x0B65,
+    },
+    UPropRange {
+        lo: 0x0B78,
+        hi: 0x0B81,
+    },
+    UPropRange {
+        lo: 0x0B84,
+        hi: 0x0B84,
+    },
+    UPropRange {
+        lo: 0x0B8B,
+        hi: 0x0B8D,
+    },
+    UPropRange {
+        lo: 0x0B91,
+        hi: 0x0B91,
+    },
+    UPropRange {
+        lo: 0x0B96,
+        hi: 0x0B98,
+    },
+    UPropRange {
+        lo: 0x0B9B,
+        hi: 0x0B9B,
+    },
+    UPropRange {
+        lo: 0x0B9D,
+        hi: 0x0B9D,
+    },
+    UPropRange {
+        lo: 0x0BA0,
+        hi: 0x0BA2,
+    },
+    UPropRange {
+        lo: 0x0BA5,
+        hi: 0x0BA7,
+    },
+    UPropRange {
+        lo: 0x0BAB,
+        hi: 0x0BAD,
+    },
+    UPropRange {
+        lo: 0x0BBA,
+        hi: 0x0BBD,
+    },
+    UPropRange {
+        lo: 0x0BC3,
+        hi: 0x0BC5,
+    },
+    UPropRange {
+        lo: 0x0BC9,
+        hi: 0x0BC9,
+    },
+    UPropRange {
+        lo: 0x0BCE,
+        hi: 0x0BCF,
+    },
+    UPropRange {
+        lo: 0x0BD1,
+        hi: 0x0BD6,
+    },
+    UPropRange {
+        lo: 0x0BD8,
+        hi: 0x0BE5,
+    },
+    UPropRange {
+        lo: 0x0BFB,
+        hi: 0x0BFF,
+    },
+    UPropRange {
+        lo: 0x0C0D,
+        hi: 0x0C0D,
+    },
+    UPropRange {
+        lo: 0x0C11,
+        hi: 0x0C11,
+    },
+    UPropRange {
+        lo: 0x0C29,
+        hi: 0x0C29,
+    },
+    UPropRange {
+        lo: 0x0C3A,
+        hi: 0x0C3B,
+    },
+    UPropRange {
+        lo: 0x0C45,
+        hi: 0x0C45,
+    },
+    UPropRange {
+        lo: 0x0C49,
+        hi: 0x0C49,
+    },
+    UPropRange {
+        lo: 0x0C4E,
+        hi: 0x0C54,
+    },
+    UPropRange {
+        lo: 0x0C57,
+        hi: 0x0C57,
+    },
+    UPropRange {
+        lo: 0x0C5B,
+        hi: 0x0C5B,
+    },
+    UPropRange {
+        lo: 0x0C5E,
+        hi: 0x0C5F,
+    },
+    UPropRange {
+        lo: 0x0C64,
+        hi: 0x0C65,
+    },
+    UPropRange {
+        lo: 0x0C70,
+        hi: 0x0C76,
+    },
+    UPropRange {
+        lo: 0x0C8D,
+        hi: 0x0C8D,
+    },
+    UPropRange {
+        lo: 0x0C91,
+        hi: 0x0C91,
+    },
+    UPropRange {
+        lo: 0x0CA9,
+        hi: 0x0CA9,
+    },
+    UPropRange {
+        lo: 0x0CB4,
+        hi: 0x0CB4,
+    },
+    UPropRange {
+        lo: 0x0CBA,
+        hi: 0x0CBB,
+    },
+    UPropRange {
+        lo: 0x0CC5,
+        hi: 0x0CC5,
+    },
+    UPropRange {
+        lo: 0x0CC9,
+        hi: 0x0CC9,
+    },
+    UPropRange {
+        lo: 0x0CCE,
+        hi: 0x0CD4,
+    },
+    UPropRange {
+        lo: 0x0CD7,
+        hi: 0x0CDB,
+    },
+    UPropRange {
+        lo: 0x0CDF,
+        hi: 0x0CDF,
+    },
+    UPropRange {
+        lo: 0x0CE4,
+        hi: 0x0CE5,
+    },
+    UPropRange {
+        lo: 0x0CF0,
+        hi: 0x0CF0,
+    },
+    UPropRange {
+        lo: 0x0CF4,
+        hi: 0x0CFF,
+    },
+    UPropRange {
+        lo: 0x0D0D,
+        hi: 0x0D0D,
+    },
+    UPropRange {
+        lo: 0x0D11,
+        hi: 0x0D11,
+    },
+    UPropRange {
+        lo: 0x0D45,
+        hi: 0x0D45,
+    },
+    UPropRange {
+        lo: 0x0D49,
+        hi: 0x0D49,
+    },
+    UPropRange {
+        lo: 0x0D50,
+        hi: 0x0D53,
+    },
+    UPropRange {
+        lo: 0x0D64,
+        hi: 0x0D65,
+    },
+    UPropRange {
+        lo: 0x0D80,
+        hi: 0x0D80,
+    },
+    UPropRange {
+        lo: 0x0D84,
+        hi: 0x0D84,
+    },
+    UPropRange {
+        lo: 0x0D97,
+        hi: 0x0D99,
+    },
+    UPropRange {
+        lo: 0x0DB2,
+        hi: 0x0DB2,
+    },
+    UPropRange {
+        lo: 0x0DBC,
+        hi: 0x0DBC,
+    },
+    UPropRange {
+        lo: 0x0DBE,
+        hi: 0x0DBF,
+    },
+    UPropRange {
+        lo: 0x0DC7,
+        hi: 0x0DC9,
+    },
+    UPropRange {
+        lo: 0x0DCB,
+        hi: 0x0DCE,
+    },
+    UPropRange {
+        lo: 0x0DD5,
+        hi: 0x0DD5,
+    },
+    UPropRange {
+        lo: 0x0DD7,
+        hi: 0x0DD7,
+    },
+    UPropRange {
+        lo: 0x0DE0,
+        hi: 0x0DE5,
+    },
+    UPropRange {
+        lo: 0x0DF0,
+        hi: 0x0DF1,
+    },
+    UPropRange {
+        lo: 0x0DF5,
+        hi: 0x0E00,
+    },
+    UPropRange {
+        lo: 0x0E3B,
+        hi: 0x0E3E,
+    },
+    UPropRange {
+        lo: 0x0E5C,
+        hi: 0x0E80,
+    },
+    UPropRange {
+        lo: 0x0E83,
+        hi: 0x0E83,
+    },
+    UPropRange {
+        lo: 0x0E85,
+        hi: 0x0E85,
+    },
+    UPropRange {
+        lo: 0x0E8B,
+        hi: 0x0E8B,
+    },
+    UPropRange {
+        lo: 0x0EA4,
+        hi: 0x0EA4,
+    },
+    UPropRange {
+        lo: 0x0EA6,
+        hi: 0x0EA6,
+    },
+    UPropRange {
+        lo: 0x0EBE,
+        hi: 0x0EBF,
+    },
+    UPropRange {
+        lo: 0x0EC5,
+        hi: 0x0EC5,
+    },
+    UPropRange {
+        lo: 0x0EC7,
+        hi: 0x0EC7,
+    },
+    UPropRange {
+        lo: 0x0ECF,
+        hi: 0x0ECF,
+    },
+    UPropRange {
+        lo: 0x0EDA,
+        hi: 0x0EDB,
+    },
+    UPropRange {
+        lo: 0x0EE0,
+        hi: 0x0EFF,
+    },
+    UPropRange {
+        lo: 0x0F48,
+        hi: 0x0F48,
+    },
+    UPropRange {
+        lo: 0x0F6D,
+        hi: 0x0F70,
+    },
+    UPropRange {
+        lo: 0x0F98,
+        hi: 0x0F98,
+    },
+    UPropRange {
+        lo: 0x0FBD,
+        hi: 0x0FBD,
+    },
+    UPropRange {
+        lo: 0x0FCD,
+        hi: 0x0FCD,
+    },
+    UPropRange {
+        lo: 0x0FDB,
+        hi: 0x0FFF,
+    },
+    UPropRange {
+        lo: 0x10C6,
+        hi: 0x10C6,
+    },
+    UPropRange {
+        lo: 0x10C8,
+        hi: 0x10CC,
+    },
+    UPropRange {
+        lo: 0x10CE,
+        hi: 0x10CF,
+    },
+    UPropRange {
+        lo: 0x1249,
+        hi: 0x1249,
+    },
+    UPropRange {
+        lo: 0x124E,
+        hi: 0x124F,
+    },
+    UPropRange {
+        lo: 0x1257,
+        hi: 0x1257,
+    },
+    UPropRange {
+        lo: 0x1259,
+        hi: 0x1259,
+    },
+    UPropRange {
+        lo: 0x125E,
+        hi: 0x125F,
+    },
+    UPropRange {
+        lo: 0x1289,
+        hi: 0x1289,
+    },
+    UPropRange {
+        lo: 0x128E,
+        hi: 0x128F,
+    },
+    UPropRange {
+        lo: 0x12B1,
+        hi: 0x12B1,
+    },
+    UPropRange {
+        lo: 0x12B6,
+        hi: 0x12B7,
+    },
+    UPropRange {
+        lo: 0x12BF,
+        hi: 0x12BF,
+    },
+    UPropRange {
+        lo: 0x12C1,
+        hi: 0x12C1,
+    },
+    UPropRange {
+        lo: 0x12C6,
+        hi: 0x12C7,
+    },
+    UPropRange {
+        lo: 0x12D7,
+        hi: 0x12D7,
+    },
+    UPropRange {
+        lo: 0x1311,
+        hi: 0x1311,
+    },
+    UPropRange {
+        lo: 0x1316,
+        hi: 0x1317,
+    },
+    UPropRange {
+        lo: 0x135B,
+        hi: 0x135C,
+    },
+    UPropRange {
+        lo: 0x137D,
+        hi: 0x137F,
+    },
+    UPropRange {
+        lo: 0x139A,
+        hi: 0x139F,
+    },
+    UPropRange {
+        lo: 0x13F6,
+        hi: 0x13F7,
+    },
+    UPropRange {
+        lo: 0x13FE,
+        hi: 0x13FF,
+    },
+    UPropRange {
+        lo: 0x169D,
+        hi: 0x169F,
+    },
+    UPropRange {
+        lo: 0x16F9,
+        hi: 0x16FF,
+    },
+    UPropRange {
+        lo: 0x1716,
+        hi: 0x171E,
+    },
+    UPropRange {
+        lo: 0x1737,
+        hi: 0x173F,
+    },
+    UPropRange {
+        lo: 0x1754,
+        hi: 0x175F,
+    },
+    UPropRange {
+        lo: 0x176D,
+        hi: 0x176D,
+    },
+    UPropRange {
+        lo: 0x1771,
+        hi: 0x1771,
+    },
+    UPropRange {
+        lo: 0x1774,
+        hi: 0x177F,
+    },
+    UPropRange {
+        lo: 0x17DE,
+        hi: 0x17DF,
+    },
+    UPropRange {
+        lo: 0x17EA,
+        hi: 0x17EF,
+    },
+    UPropRange {
+        lo: 0x17FA,
+        hi: 0x17FF,
+    },
+    UPropRange {
+        lo: 0x181A,
+        hi: 0x181F,
+    },
+    UPropRange {
+        lo: 0x1879,
+        hi: 0x187F,
+    },
+    UPropRange {
+        lo: 0x18AB,
+        hi: 0x18AF,
+    },
+    UPropRange {
+        lo: 0x18F6,
+        hi: 0x18FF,
+    },
+    UPropRange {
+        lo: 0x191F,
+        hi: 0x191F,
+    },
+    UPropRange {
+        lo: 0x192C,
+        hi: 0x192F,
+    },
+    UPropRange {
+        lo: 0x193C,
+        hi: 0x193F,
+    },
+    UPropRange {
+        lo: 0x1941,
+        hi: 0x1943,
+    },
+    UPropRange {
+        lo: 0x196E,
+        hi: 0x196F,
+    },
+    UPropRange {
+        lo: 0x1975,
+        hi: 0x197F,
+    },
+    UPropRange {
+        lo: 0x19AC,
+        hi: 0x19AF,
+    },
+    UPropRange {
+        lo: 0x19CA,
+        hi: 0x19CF,
+    },
+    UPropRange {
+        lo: 0x19DB,
+        hi: 0x19DD,
+    },
+    UPropRange {
+        lo: 0x1A1C,
+        hi: 0x1A1D,
+    },
+    UPropRange {
+        lo: 0x1A5F,
+        hi: 0x1A5F,
+    },
+    UPropRange {
+        lo: 0x1A7D,
+        hi: 0x1A7E,
+    },
+    UPropRange {
+        lo: 0x1A8A,
+        hi: 0x1A8F,
+    },
+    UPropRange {
+        lo: 0x1A9A,
+        hi: 0x1A9F,
+    },
+    UPropRange {
+        lo: 0x1AAE,
+        hi: 0x1AAF,
+    },
+    UPropRange {
+        lo: 0x1ADE,
+        hi: 0x1ADF,
+    },
+    UPropRange {
+        lo: 0x1AEC,
+        hi: 0x1AFF,
+    },
+    UPropRange {
+        lo: 0x1B4D,
+        hi: 0x1B4D,
+    },
+    UPropRange {
+        lo: 0x1BF4,
+        hi: 0x1BFB,
+    },
+    UPropRange {
+        lo: 0x1C38,
+        hi: 0x1C3A,
+    },
+    UPropRange {
+        lo: 0x1C4A,
+        hi: 0x1C4C,
+    },
+    UPropRange {
+        lo: 0x1C8B,
+        hi: 0x1C8F,
+    },
+    UPropRange {
+        lo: 0x1CBB,
+        hi: 0x1CBC,
+    },
+    UPropRange {
+        lo: 0x1CC8,
+        hi: 0x1CCF,
+    },
+    UPropRange {
+        lo: 0x1CFB,
+        hi: 0x1CFF,
+    },
+    UPropRange {
+        lo: 0x1F16,
+        hi: 0x1F17,
+    },
+    UPropRange {
+        lo: 0x1F1E,
+        hi: 0x1F1F,
+    },
+    UPropRange {
+        lo: 0x1F46,
+        hi: 0x1F47,
+    },
+    UPropRange {
+        lo: 0x1F4E,
+        hi: 0x1F4F,
+    },
+    UPropRange {
+        lo: 0x1F58,
+        hi: 0x1F58,
+    },
+    UPropRange {
+        lo: 0x1F5A,
+        hi: 0x1F5A,
+    },
+    UPropRange {
+        lo: 0x1F5C,
+        hi: 0x1F5C,
+    },
+    UPropRange {
+        lo: 0x1F5E,
+        hi: 0x1F5E,
+    },
+    UPropRange {
+        lo: 0x1F7E,
+        hi: 0x1F7F,
+    },
+    UPropRange {
+        lo: 0x1FB5,
+        hi: 0x1FB5,
+    },
+    UPropRange {
+        lo: 0x1FC5,
+        hi: 0x1FC5,
+    },
+    UPropRange {
+        lo: 0x1FD4,
+        hi: 0x1FD5,
+    },
+    UPropRange {
+        lo: 0x1FDC,
+        hi: 0x1FDC,
+    },
+    UPropRange {
+        lo: 0x1FF0,
+        hi: 0x1FF1,
+    },
+    UPropRange {
+        lo: 0x1FF5,
+        hi: 0x1FF5,
+    },
+    UPropRange {
+        lo: 0x1FFF,
+        hi: 0x1FFF,
+    },
+    UPropRange {
+        lo: 0x2065,
+        hi: 0x2065,
+    },
+    UPropRange {
+        lo: 0x2072,
+        hi: 0x2073,
+    },
+    UPropRange {
+        lo: 0x208F,
+        hi: 0x208F,
+    },
+    UPropRange {
+        lo: 0x209D,
+        hi: 0x209F,
+    },
+    UPropRange {
+        lo: 0x20C2,
+        hi: 0x20CF,
+    },
+    UPropRange {
+        lo: 0x20F1,
+        hi: 0x20FF,
+    },
+    UPropRange {
+        lo: 0x218C,
+        hi: 0x218F,
+    },
+    UPropRange {
+        lo: 0x242A,
+        hi: 0x243F,
+    },
+    UPropRange {
+        lo: 0x244B,
+        hi: 0x245F,
+    },
+    UPropRange {
+        lo: 0x2B74,
+        hi: 0x2B75,
+    },
+    UPropRange {
+        lo: 0x2CF4,
+        hi: 0x2CF8,
+    },
+    UPropRange {
+        lo: 0x2D26,
+        hi: 0x2D26,
+    },
+    UPropRange {
+        lo: 0x2D28,
+        hi: 0x2D2C,
+    },
+    UPropRange {
+        lo: 0x2D2E,
+        hi: 0x2D2F,
+    },
+    UPropRange {
+        lo: 0x2D68,
+        hi: 0x2D6E,
+    },
+    UPropRange {
+        lo: 0x2D71,
+        hi: 0x2D7E,
+    },
+    UPropRange {
+        lo: 0x2D97,
+        hi: 0x2D9F,
+    },
+    UPropRange {
+        lo: 0x2DA7,
+        hi: 0x2DA7,
+    },
+    UPropRange {
+        lo: 0x2DAF,
+        hi: 0x2DAF,
+    },
+    UPropRange {
+        lo: 0x2DB7,
+        hi: 0x2DB7,
+    },
+    UPropRange {
+        lo: 0x2DBF,
+        hi: 0x2DBF,
+    },
+    UPropRange {
+        lo: 0x2DC7,
+        hi: 0x2DC7,
+    },
+    UPropRange {
+        lo: 0x2DCF,
+        hi: 0x2DCF,
+    },
+    UPropRange {
+        lo: 0x2DD7,
+        hi: 0x2DD7,
+    },
+    UPropRange {
+        lo: 0x2DDF,
+        hi: 0x2DDF,
+    },
+    UPropRange {
+        lo: 0x2E5E,
+        hi: 0x2E7F,
+    },
+    UPropRange {
+        lo: 0x2E9A,
+        hi: 0x2E9A,
+    },
+    UPropRange {
+        lo: 0x2EF4,
+        hi: 0x2EFF,
+    },
+    UPropRange {
+        lo: 0x2FD6,
+        hi: 0x2FEF,
+    },
+    UPropRange {
+        lo: 0x3040,
+        hi: 0x3040,
+    },
+    UPropRange {
+        lo: 0x3097,
+        hi: 0x3098,
+    },
+    UPropRange {
+        lo: 0x3100,
+        hi: 0x3104,
+    },
+    UPropRange {
+        lo: 0x3130,
+        hi: 0x3130,
+    },
+    UPropRange {
+        lo: 0x318F,
+        hi: 0x318F,
+    },
+    UPropRange {
+        lo: 0x31E6,
+        hi: 0x31EE,
+    },
+    UPropRange {
+        lo: 0x321F,
+        hi: 0x321F,
+    },
+    UPropRange {
+        lo: 0xA48D,
+        hi: 0xA48F,
+    },
+    UPropRange {
+        lo: 0xA4C7,
+        hi: 0xA4CF,
+    },
+    UPropRange {
+        lo: 0xA62C,
+        hi: 0xA63F,
+    },
+    UPropRange {
+        lo: 0xA6F8,
+        hi: 0xA6FF,
+    },
+    UPropRange {
+        lo: 0xA7DD,
+        hi: 0xA7F0,
+    },
+    UPropRange {
+        lo: 0xA82D,
+        hi: 0xA82F,
+    },
+    UPropRange {
+        lo: 0xA83A,
+        hi: 0xA83F,
+    },
+    UPropRange {
+        lo: 0xA878,
+        hi: 0xA87F,
+    },
+    UPropRange {
+        lo: 0xA8C6,
+        hi: 0xA8CD,
+    },
+    UPropRange {
+        lo: 0xA8DA,
+        hi: 0xA8DF,
+    },
+    UPropRange {
+        lo: 0xA954,
+        hi: 0xA95E,
+    },
+    UPropRange {
+        lo: 0xA97D,
+        hi: 0xA97F,
+    },
+    UPropRange {
+        lo: 0xA9CE,
+        hi: 0xA9CE,
+    },
+    UPropRange {
+        lo: 0xA9DA,
+        hi: 0xA9DD,
+    },
+    UPropRange {
+        lo: 0xA9FF,
+        hi: 0xA9FF,
+    },
+    UPropRange {
+        lo: 0xAA37,
+        hi: 0xAA3F,
+    },
+    UPropRange {
+        lo: 0xAA4E,
+        hi: 0xAA4F,
+    },
+    UPropRange {
+        lo: 0xAA5A,
+        hi: 0xAA5B,
+    },
+    UPropRange {
+        lo: 0xAAC3,
+        hi: 0xAADA,
+    },
+    UPropRange {
+        lo: 0xAAF7,
+        hi: 0xAB00,
+    },
+    UPropRange {
+        lo: 0xAB07,
+        hi: 0xAB08,
+    },
+    UPropRange {
+        lo: 0xAB0F,
+        hi: 0xAB10,
+    },
+    UPropRange {
+        lo: 0xAB17,
+        hi: 0xAB1F,
+    },
+    UPropRange {
+        lo: 0xAB27,
+        hi: 0xAB27,
+    },
+    UPropRange {
+        lo: 0xAB2F,
+        hi: 0xAB2F,
+    },
+    UPropRange {
+        lo: 0xAB6C,
+        hi: 0xAB6F,
+    },
+    UPropRange {
+        lo: 0xABEE,
+        hi: 0xABEF,
+    },
+    UPropRange {
+        lo: 0xABFA,
+        hi: 0xABFF,
+    },
+    UPropRange {
+        lo: 0xD7A4,
+        hi: 0xD7AF,
+    },
+    UPropRange {
+        lo: 0xD7C7,
+        hi: 0xD7CA,
+    },
+    UPropRange {
+        lo: 0xD7FC,
+        hi: 0xF8FF,
+    },
+    UPropRange {
+        lo: 0xFA6E,
+        hi: 0xFA6F,
+    },
+    UPropRange {
+        lo: 0xFADA,
+        hi: 0xFAFF,
+    },
+    UPropRange {
+        lo: 0xFB07,
+        hi: 0xFB12,
+    },
+    UPropRange {
+        lo: 0xFB18,
+        hi: 0xFB1C,
+    },
+    UPropRange {
+        lo: 0xFB37,
+        hi: 0xFB37,
+    },
+    UPropRange {
+        lo: 0xFB3D,
+        hi: 0xFB3D,
+    },
+    UPropRange {
+        lo: 0xFB3F,
+        hi: 0xFB3F,
+    },
+    UPropRange {
+        lo: 0xFB42,
+        hi: 0xFB42,
+    },
+    UPropRange {
+        lo: 0xFB45,
+        hi: 0xFB45,
+    },
+    UPropRange {
+        lo: 0xFDD0,
+        hi: 0xFDEF,
+    },
+    UPropRange {
+        lo: 0xFE1A,
+        hi: 0xFE1F,
+    },
+    UPropRange {
+        lo: 0xFE53,
+        hi: 0xFE53,
+    },
+    UPropRange {
+        lo: 0xFE67,
+        hi: 0xFE67,
+    },
+    UPropRange {
+        lo: 0xFE6C,
+        hi: 0xFE6F,
+    },
+    UPropRange {
+        lo: 0xFE75,
+        hi: 0xFE75,
+    },
+    UPropRange {
+        lo: 0xFEFD,
+        hi: 0xFEFE,
+    },
+    UPropRange {
+        lo: 0xFF00,
+        hi: 0xFF00,
+    },
+    UPropRange {
+        lo: 0xFFBF,
+        hi: 0xFFC1,
+    },
+    UPropRange {
+        lo: 0xFFC8,
+        hi: 0xFFC9,
+    },
+    UPropRange {
+        lo: 0xFFD0,
+        hi: 0xFFD1,
+    },
+    UPropRange {
+        lo: 0xFFD8,
+        hi: 0xFFD9,
+    },
+    UPropRange {
+        lo: 0xFFDD,
+        hi: 0xFFDF,
+    },
+    UPropRange {
+        lo: 0xFFE7,
+        hi: 0xFFE7,
+    },
+    UPropRange {
+        lo: 0xFFEF,
+        hi: 0xFFF8,
+    },
+    UPropRange {
+        lo: 0xFFFE,
+        hi: 0xFFFF,
+    },
+    UPropRange {
+        lo: 0x1000C,
+        hi: 0x1000C,
+    },
+    UPropRange {
+        lo: 0x10027,
+        hi: 0x10027,
+    },
+    UPropRange {
+        lo: 0x1003B,
+        hi: 0x1003B,
+    },
+    UPropRange {
+        lo: 0x1003E,
+        hi: 0x1003E,
+    },
+    UPropRange {
+        lo: 0x1004E,
+        hi: 0x1004F,
+    },
+    UPropRange {
+        lo: 0x1005E,
+        hi: 0x1007F,
+    },
+    UPropRange {
+        lo: 0x100FB,
+        hi: 0x100FF,
+    },
+    UPropRange {
+        lo: 0x10103,
+        hi: 0x10106,
+    },
+    UPropRange {
+        lo: 0x10134,
+        hi: 0x10136,
+    },
+    UPropRange {
+        lo: 0x1018F,
+        hi: 0x1018F,
+    },
+    UPropRange {
+        lo: 0x1019D,
+        hi: 0x1019F,
+    },
+    UPropRange {
+        lo: 0x101A1,
+        hi: 0x101CF,
+    },
+    UPropRange {
+        lo: 0x101FE,
+        hi: 0x1027F,
+    },
+    UPropRange {
+        lo: 0x1029D,
+        hi: 0x1029F,
+    },
+    UPropRange {
+        lo: 0x102D1,
+        hi: 0x102DF,
+    },
+    UPropRange {
+        lo: 0x102FC,
+        hi: 0x102FF,
+    },
+    UPropRange {
+        lo: 0x10324,
+        hi: 0x1032C,
+    },
+    UPropRange {
+        lo: 0x1034B,
+        hi: 0x1034F,
+    },
+    UPropRange {
+        lo: 0x1037B,
+        hi: 0x1037F,
+    },
+    UPropRange {
+        lo: 0x1039E,
+        hi: 0x1039E,
+    },
+    UPropRange {
+        lo: 0x103C4,
+        hi: 0x103C7,
+    },
+    UPropRange {
+        lo: 0x103D6,
+        hi: 0x103FF,
+    },
+    UPropRange {
+        lo: 0x1049E,
+        hi: 0x1049F,
+    },
+    UPropRange {
+        lo: 0x104AA,
+        hi: 0x104AF,
+    },
+    UPropRange {
+        lo: 0x104D4,
+        hi: 0x104D7,
+    },
+    UPropRange {
+        lo: 0x104FC,
+        hi: 0x104FF,
+    },
+    UPropRange {
+        lo: 0x10528,
+        hi: 0x1052F,
+    },
+    UPropRange {
+        lo: 0x10564,
+        hi: 0x1056E,
+    },
+    UPropRange {
+        lo: 0x1057B,
+        hi: 0x1057B,
+    },
+    UPropRange {
+        lo: 0x1058B,
+        hi: 0x1058B,
+    },
+    UPropRange {
+        lo: 0x10593,
+        hi: 0x10593,
+    },
+    UPropRange {
+        lo: 0x10596,
+        hi: 0x10596,
+    },
+    UPropRange {
+        lo: 0x105A2,
+        hi: 0x105A2,
+    },
+    UPropRange {
+        lo: 0x105B2,
+        hi: 0x105B2,
+    },
+    UPropRange {
+        lo: 0x105BA,
+        hi: 0x105BA,
+    },
+    UPropRange {
+        lo: 0x105BD,
+        hi: 0x105BF,
+    },
+    UPropRange {
+        lo: 0x105F4,
+        hi: 0x105FF,
+    },
+    UPropRange {
+        lo: 0x10737,
+        hi: 0x1073F,
+    },
+    UPropRange {
+        lo: 0x10756,
+        hi: 0x1075F,
+    },
+    UPropRange {
+        lo: 0x10768,
+        hi: 0x1077F,
+    },
+    UPropRange {
+        lo: 0x10786,
+        hi: 0x10786,
+    },
+    UPropRange {
+        lo: 0x107B1,
+        hi: 0x107B1,
+    },
+    UPropRange {
+        lo: 0x107BB,
+        hi: 0x107FF,
+    },
+    UPropRange {
+        lo: 0x10806,
+        hi: 0x10807,
+    },
+    UPropRange {
+        lo: 0x10809,
+        hi: 0x10809,
+    },
+    UPropRange {
+        lo: 0x10836,
+        hi: 0x10836,
+    },
+    UPropRange {
+        lo: 0x10839,
+        hi: 0x1083B,
+    },
+    UPropRange {
+        lo: 0x1083D,
+        hi: 0x1083E,
+    },
+    UPropRange {
+        lo: 0x10856,
+        hi: 0x10856,
+    },
+    UPropRange {
+        lo: 0x1089F,
+        hi: 0x108A6,
+    },
+    UPropRange {
+        lo: 0x108B0,
+        hi: 0x108DF,
+    },
+    UPropRange {
+        lo: 0x108F3,
+        hi: 0x108F3,
+    },
+    UPropRange {
+        lo: 0x108F6,
+        hi: 0x108FA,
+    },
+    UPropRange {
+        lo: 0x1091C,
+        hi: 0x1091E,
+    },
+    UPropRange {
+        lo: 0x1093A,
+        hi: 0x1093E,
+    },
+    UPropRange {
+        lo: 0x1095A,
+        hi: 0x1097F,
+    },
+    UPropRange {
+        lo: 0x109B8,
+        hi: 0x109BB,
+    },
+    UPropRange {
+        lo: 0x109D0,
+        hi: 0x109D1,
+    },
+    UPropRange {
+        lo: 0x10A04,
+        hi: 0x10A04,
+    },
+    UPropRange {
+        lo: 0x10A07,
+        hi: 0x10A0B,
+    },
+    UPropRange {
+        lo: 0x10A14,
+        hi: 0x10A14,
+    },
+    UPropRange {
+        lo: 0x10A18,
+        hi: 0x10A18,
+    },
+    UPropRange {
+        lo: 0x10A36,
+        hi: 0x10A37,
+    },
+    UPropRange {
+        lo: 0x10A3B,
+        hi: 0x10A3E,
+    },
+    UPropRange {
+        lo: 0x10A49,
+        hi: 0x10A4F,
+    },
+    UPropRange {
+        lo: 0x10A59,
+        hi: 0x10A5F,
+    },
+    UPropRange {
+        lo: 0x10AA0,
+        hi: 0x10ABF,
+    },
+    UPropRange {
+        lo: 0x10AE7,
+        hi: 0x10AEA,
+    },
+    UPropRange {
+        lo: 0x10AF7,
+        hi: 0x10AFF,
+    },
+    UPropRange {
+        lo: 0x10B36,
+        hi: 0x10B38,
+    },
+    UPropRange {
+        lo: 0x10B56,
+        hi: 0x10B57,
+    },
+    UPropRange {
+        lo: 0x10B73,
+        hi: 0x10B77,
+    },
+    UPropRange {
+        lo: 0x10B92,
+        hi: 0x10B98,
+    },
+    UPropRange {
+        lo: 0x10B9D,
+        hi: 0x10BA8,
+    },
+    UPropRange {
+        lo: 0x10BB0,
+        hi: 0x10BFF,
+    },
+    UPropRange {
+        lo: 0x10C49,
+        hi: 0x10C7F,
+    },
+    UPropRange {
+        lo: 0x10CB3,
+        hi: 0x10CBF,
+    },
+    UPropRange {
+        lo: 0x10CF3,
+        hi: 0x10CF9,
+    },
+    UPropRange {
+        lo: 0x10D28,
+        hi: 0x10D2F,
+    },
+    UPropRange {
+        lo: 0x10D3A,
+        hi: 0x10D3F,
+    },
+    UPropRange {
+        lo: 0x10D66,
+        hi: 0x10D68,
+    },
+    UPropRange {
+        lo: 0x10D86,
+        hi: 0x10D8D,
+    },
+    UPropRange {
+        lo: 0x10D90,
+        hi: 0x10E5F,
+    },
+    UPropRange {
+        lo: 0x10E7F,
+        hi: 0x10E7F,
+    },
+    UPropRange {
+        lo: 0x10EAA,
+        hi: 0x10EAA,
+    },
+    UPropRange {
+        lo: 0x10EAE,
+        hi: 0x10EAF,
+    },
+    UPropRange {
+        lo: 0x10EB2,
+        hi: 0x10EC1,
+    },
+    UPropRange {
+        lo: 0x10EC8,
+        hi: 0x10ECF,
+    },
+    UPropRange {
+        lo: 0x10ED9,
+        hi: 0x10EF9,
+    },
+    UPropRange {
+        lo: 0x10F28,
+        hi: 0x10F2F,
+    },
+    UPropRange {
+        lo: 0x10F5A,
+        hi: 0x10F6F,
+    },
+    UPropRange {
+        lo: 0x10F8A,
+        hi: 0x10FAF,
+    },
+    UPropRange {
+        lo: 0x10FCC,
+        hi: 0x10FDF,
+    },
+    UPropRange {
+        lo: 0x10FF7,
+        hi: 0x10FFF,
+    },
+    UPropRange {
+        lo: 0x1104E,
+        hi: 0x11051,
+    },
+    UPropRange {
+        lo: 0x11076,
+        hi: 0x1107E,
+    },
+    UPropRange {
+        lo: 0x110C3,
+        hi: 0x110CC,
+    },
+    UPropRange {
+        lo: 0x110CE,
+        hi: 0x110CF,
+    },
+    UPropRange {
+        lo: 0x110E9,
+        hi: 0x110EF,
+    },
+    UPropRange {
+        lo: 0x110FA,
+        hi: 0x110FF,
+    },
+    UPropRange {
+        lo: 0x11135,
+        hi: 0x11135,
+    },
+    UPropRange {
+        lo: 0x11148,
+        hi: 0x1114F,
+    },
+    UPropRange {
+        lo: 0x11177,
+        hi: 0x1117F,
+    },
+    UPropRange {
+        lo: 0x111E0,
+        hi: 0x111E0,
+    },
+    UPropRange {
+        lo: 0x111F5,
+        hi: 0x111FF,
+    },
+    UPropRange {
+        lo: 0x11212,
+        hi: 0x11212,
+    },
+    UPropRange {
+        lo: 0x11242,
+        hi: 0x1127F,
+    },
+    UPropRange {
+        lo: 0x11287,
+        hi: 0x11287,
+    },
+    UPropRange {
+        lo: 0x11289,
+        hi: 0x11289,
+    },
+    UPropRange {
+        lo: 0x1128E,
+        hi: 0x1128E,
+    },
+    UPropRange {
+        lo: 0x1129E,
+        hi: 0x1129E,
+    },
+    UPropRange {
+        lo: 0x112AA,
+        hi: 0x112AF,
+    },
+    UPropRange {
+        lo: 0x112EB,
+        hi: 0x112EF,
+    },
+    UPropRange {
+        lo: 0x112FA,
+        hi: 0x112FF,
+    },
+    UPropRange {
+        lo: 0x11304,
+        hi: 0x11304,
+    },
+    UPropRange {
+        lo: 0x1130D,
+        hi: 0x1130E,
+    },
+    UPropRange {
+        lo: 0x11311,
+        hi: 0x11312,
+    },
+    UPropRange {
+        lo: 0x11329,
+        hi: 0x11329,
+    },
+    UPropRange {
+        lo: 0x11331,
+        hi: 0x11331,
+    },
+    UPropRange {
+        lo: 0x11334,
+        hi: 0x11334,
+    },
+    UPropRange {
+        lo: 0x1133A,
+        hi: 0x1133A,
+    },
+    UPropRange {
+        lo: 0x11345,
+        hi: 0x11346,
+    },
+    UPropRange {
+        lo: 0x11349,
+        hi: 0x1134A,
+    },
+    UPropRange {
+        lo: 0x1134E,
+        hi: 0x1134F,
+    },
+    UPropRange {
+        lo: 0x11351,
+        hi: 0x11356,
+    },
+    UPropRange {
+        lo: 0x11358,
+        hi: 0x1135C,
+    },
+    UPropRange {
+        lo: 0x11364,
+        hi: 0x11365,
+    },
+    UPropRange {
+        lo: 0x1136D,
+        hi: 0x1136F,
+    },
+    UPropRange {
+        lo: 0x11375,
+        hi: 0x1137F,
+    },
+    UPropRange {
+        lo: 0x1138A,
+        hi: 0x1138A,
+    },
+    UPropRange {
+        lo: 0x1138C,
+        hi: 0x1138D,
+    },
+    UPropRange {
+        lo: 0x1138F,
+        hi: 0x1138F,
+    },
+    UPropRange {
+        lo: 0x113B6,
+        hi: 0x113B6,
+    },
+    UPropRange {
+        lo: 0x113C1,
+        hi: 0x113C1,
+    },
+    UPropRange {
+        lo: 0x113C3,
+        hi: 0x113C4,
+    },
+    UPropRange {
+        lo: 0x113C6,
+        hi: 0x113C6,
+    },
+    UPropRange {
+        lo: 0x113CB,
+        hi: 0x113CB,
+    },
+    UPropRange {
+        lo: 0x113D6,
+        hi: 0x113D6,
+    },
+    UPropRange {
+        lo: 0x113D9,
+        hi: 0x113E0,
+    },
+    UPropRange {
+        lo: 0x113E3,
+        hi: 0x113FF,
+    },
+    UPropRange {
+        lo: 0x1145C,
+        hi: 0x1145C,
+    },
+    UPropRange {
+        lo: 0x11462,
+        hi: 0x1147F,
+    },
+    UPropRange {
+        lo: 0x114C8,
+        hi: 0x114CF,
+    },
+    UPropRange {
+        lo: 0x114DA,
+        hi: 0x1157F,
+    },
+    UPropRange {
+        lo: 0x115B6,
+        hi: 0x115B7,
+    },
+    UPropRange {
+        lo: 0x115DE,
+        hi: 0x115FF,
+    },
+    UPropRange {
+        lo: 0x11645,
+        hi: 0x1164F,
+    },
+    UPropRange {
+        lo: 0x1165A,
+        hi: 0x1165F,
+    },
+    UPropRange {
+        lo: 0x1166D,
+        hi: 0x1167F,
+    },
+    UPropRange {
+        lo: 0x116BA,
+        hi: 0x116BF,
+    },
+    UPropRange {
+        lo: 0x116CA,
+        hi: 0x116CF,
+    },
+    UPropRange {
+        lo: 0x116E4,
+        hi: 0x116FF,
+    },
+    UPropRange {
+        lo: 0x1171B,
+        hi: 0x1171C,
+    },
+    UPropRange {
+        lo: 0x1172C,
+        hi: 0x1172F,
+    },
+    UPropRange {
+        lo: 0x11747,
+        hi: 0x117FF,
+    },
+    UPropRange {
+        lo: 0x1183C,
+        hi: 0x1189F,
+    },
+    UPropRange {
+        lo: 0x118F3,
+        hi: 0x118FE,
+    },
+    UPropRange {
+        lo: 0x11907,
+        hi: 0x11908,
+    },
+    UPropRange {
+        lo: 0x1190A,
+        hi: 0x1190B,
+    },
+    UPropRange {
+        lo: 0x11914,
+        hi: 0x11914,
+    },
+    UPropRange {
+        lo: 0x11917,
+        hi: 0x11917,
+    },
+    UPropRange {
+        lo: 0x11936,
+        hi: 0x11936,
+    },
+    UPropRange {
+        lo: 0x11939,
+        hi: 0x1193A,
+    },
+    UPropRange {
+        lo: 0x11947,
+        hi: 0x1194F,
+    },
+    UPropRange {
+        lo: 0x1195A,
+        hi: 0x1199F,
+    },
+    UPropRange {
+        lo: 0x119A8,
+        hi: 0x119A9,
+    },
+    UPropRange {
+        lo: 0x119D8,
+        hi: 0x119D9,
+    },
+    UPropRange {
+        lo: 0x119E5,
+        hi: 0x119FF,
+    },
+    UPropRange {
+        lo: 0x11A48,
+        hi: 0x11A4F,
+    },
+    UPropRange {
+        lo: 0x11AA3,
+        hi: 0x11AAF,
+    },
+    UPropRange {
+        lo: 0x11AF9,
+        hi: 0x11AFF,
+    },
+    UPropRange {
+        lo: 0x11B0A,
+        hi: 0x11B5F,
+    },
+    UPropRange {
+        lo: 0x11B68,
+        hi: 0x11BBF,
+    },
+    UPropRange {
+        lo: 0x11BE2,
+        hi: 0x11BEF,
+    },
+    UPropRange {
+        lo: 0x11BFA,
+        hi: 0x11BFF,
+    },
+    UPropRange {
+        lo: 0x11C09,
+        hi: 0x11C09,
+    },
+    UPropRange {
+        lo: 0x11C37,
+        hi: 0x11C37,
+    },
+    UPropRange {
+        lo: 0x11C46,
+        hi: 0x11C4F,
+    },
+    UPropRange {
+        lo: 0x11C6D,
+        hi: 0x11C6F,
+    },
+    UPropRange {
+        lo: 0x11C90,
+        hi: 0x11C91,
+    },
+    UPropRange {
+        lo: 0x11CA8,
+        hi: 0x11CA8,
+    },
+    UPropRange {
+        lo: 0x11CB7,
+        hi: 0x11CFF,
+    },
+    UPropRange {
+        lo: 0x11D07,
+        hi: 0x11D07,
+    },
+    UPropRange {
+        lo: 0x11D0A,
+        hi: 0x11D0A,
+    },
+    UPropRange {
+        lo: 0x11D37,
+        hi: 0x11D39,
+    },
+    UPropRange {
+        lo: 0x11D3B,
+        hi: 0x11D3B,
+    },
+    UPropRange {
+        lo: 0x11D3E,
+        hi: 0x11D3E,
+    },
+    UPropRange {
+        lo: 0x11D48,
+        hi: 0x11D4F,
+    },
+    UPropRange {
+        lo: 0x11D5A,
+        hi: 0x11D5F,
+    },
+    UPropRange {
+        lo: 0x11D66,
+        hi: 0x11D66,
+    },
+    UPropRange {
+        lo: 0x11D69,
+        hi: 0x11D69,
+    },
+    UPropRange {
+        lo: 0x11D8F,
+        hi: 0x11D8F,
+    },
+    UPropRange {
+        lo: 0x11D92,
+        hi: 0x11D92,
+    },
+    UPropRange {
+        lo: 0x11D99,
+        hi: 0x11D9F,
+    },
+    UPropRange {
+        lo: 0x11DAA,
+        hi: 0x11DAF,
+    },
+    UPropRange {
+        lo: 0x11DDC,
+        hi: 0x11DDF,
+    },
+    UPropRange {
+        lo: 0x11DEA,
+        hi: 0x11EDF,
+    },
+    UPropRange {
+        lo: 0x11EF9,
+        hi: 0x11EFF,
+    },
+    UPropRange {
+        lo: 0x11F11,
+        hi: 0x11F11,
+    },
+    UPropRange {
+        lo: 0x11F3B,
+        hi: 0x11F3D,
+    },
+    UPropRange {
+        lo: 0x11F5B,
+        hi: 0x11FAF,
+    },
+    UPropRange {
+        lo: 0x11FB1,
+        hi: 0x11FBF,
+    },
+    UPropRange {
+        lo: 0x11FF2,
+        hi: 0x11FFE,
+    },
+    UPropRange {
+        lo: 0x1239A,
+        hi: 0x123FF,
+    },
+    UPropRange {
+        lo: 0x1246F,
+        hi: 0x1246F,
+    },
+    UPropRange {
+        lo: 0x12475,
+        hi: 0x1247F,
+    },
+    UPropRange {
+        lo: 0x12544,
+        hi: 0x12F8F,
+    },
+    UPropRange {
+        lo: 0x12FF3,
+        hi: 0x12FFF,
+    },
+    UPropRange {
+        lo: 0x13456,
+        hi: 0x1345F,
+    },
+    UPropRange {
+        lo: 0x143FB,
+        hi: 0x143FF,
+    },
+    UPropRange {
+        lo: 0x14647,
+        hi: 0x160FF,
+    },
+    UPropRange {
+        lo: 0x1613A,
+        hi: 0x167FF,
+    },
+    UPropRange {
+        lo: 0x16A39,
+        hi: 0x16A3F,
+    },
+    UPropRange {
+        lo: 0x16A5F,
+        hi: 0x16A5F,
+    },
+    UPropRange {
+        lo: 0x16A6A,
+        hi: 0x16A6D,
+    },
+    UPropRange {
+        lo: 0x16ABF,
+        hi: 0x16ABF,
+    },
+    UPropRange {
+        lo: 0x16ACA,
+        hi: 0x16ACF,
+    },
+    UPropRange {
+        lo: 0x16AEE,
+        hi: 0x16AEF,
+    },
+    UPropRange {
+        lo: 0x16AF6,
+        hi: 0x16AFF,
+    },
+    UPropRange {
+        lo: 0x16B46,
+        hi: 0x16B4F,
+    },
+    UPropRange {
+        lo: 0x16B5A,
+        hi: 0x16B5A,
+    },
+    UPropRange {
+        lo: 0x16B62,
+        hi: 0x16B62,
+    },
+    UPropRange {
+        lo: 0x16B78,
+        hi: 0x16B7C,
+    },
+    UPropRange {
+        lo: 0x16B90,
+        hi: 0x16D3F,
+    },
+    UPropRange {
+        lo: 0x16D7A,
+        hi: 0x16E3F,
+    },
+    UPropRange {
+        lo: 0x16E9B,
+        hi: 0x16E9F,
+    },
+    UPropRange {
+        lo: 0x16EB9,
+        hi: 0x16EBA,
+    },
+    UPropRange {
+        lo: 0x16ED4,
+        hi: 0x16EFF,
+    },
+    UPropRange {
+        lo: 0x16F4B,
+        hi: 0x16F4E,
+    },
+    UPropRange {
+        lo: 0x16F88,
+        hi: 0x16F8E,
+    },
+    UPropRange {
+        lo: 0x16FA0,
+        hi: 0x16FDF,
+    },
+    UPropRange {
+        lo: 0x16FE5,
+        hi: 0x16FEF,
+    },
+    UPropRange {
+        lo: 0x16FF7,
+        hi: 0x16FFF,
+    },
+    UPropRange {
+        lo: 0x18CD6,
+        hi: 0x18CFE,
+    },
+    UPropRange {
+        lo: 0x18D1F,
+        hi: 0x18D7F,
+    },
+    UPropRange {
+        lo: 0x18DF3,
+        hi: 0x1AFEF,
+    },
+    UPropRange {
+        lo: 0x1AFF4,
+        hi: 0x1AFF4,
+    },
+    UPropRange {
+        lo: 0x1AFFC,
+        hi: 0x1AFFC,
+    },
+    UPropRange {
+        lo: 0x1AFFF,
+        hi: 0x1AFFF,
+    },
+    UPropRange {
+        lo: 0x1B123,
+        hi: 0x1B131,
+    },
+    UPropRange {
+        lo: 0x1B133,
+        hi: 0x1B14F,
+    },
+    UPropRange {
+        lo: 0x1B153,
+        hi: 0x1B154,
+    },
+    UPropRange {
+        lo: 0x1B156,
+        hi: 0x1B163,
+    },
+    UPropRange {
+        lo: 0x1B168,
+        hi: 0x1B16F,
+    },
+    UPropRange {
+        lo: 0x1B2FC,
+        hi: 0x1BBFF,
+    },
+    UPropRange {
+        lo: 0x1BC6B,
+        hi: 0x1BC6F,
+    },
+    UPropRange {
+        lo: 0x1BC7D,
+        hi: 0x1BC7F,
+    },
+    UPropRange {
+        lo: 0x1BC89,
+        hi: 0x1BC8F,
+    },
+    UPropRange {
+        lo: 0x1BC9A,
+        hi: 0x1BC9B,
+    },
+    UPropRange {
+        lo: 0x1BCA4,
+        hi: 0x1CBFF,
+    },
+    UPropRange {
+        lo: 0x1CCFD,
+        hi: 0x1CCFF,
+    },
+    UPropRange {
+        lo: 0x1CEB4,
+        hi: 0x1CEB9,
+    },
+    UPropRange {
+        lo: 0x1CED1,
+        hi: 0x1CEDF,
+    },
+    UPropRange {
+        lo: 0x1CEF1,
+        hi: 0x1CEFF,
+    },
+    UPropRange {
+        lo: 0x1CF2E,
+        hi: 0x1CF2F,
+    },
+    UPropRange {
+        lo: 0x1CF47,
+        hi: 0x1CF4F,
+    },
+    UPropRange {
+        lo: 0x1CFC4,
+        hi: 0x1CFFF,
+    },
+    UPropRange {
+        lo: 0x1D0F6,
+        hi: 0x1D0FF,
+    },
+    UPropRange {
+        lo: 0x1D127,
+        hi: 0x1D128,
+    },
+    UPropRange {
+        lo: 0x1D1EB,
+        hi: 0x1D1FF,
+    },
+    UPropRange {
+        lo: 0x1D246,
+        hi: 0x1D2BF,
+    },
+    UPropRange {
+        lo: 0x1D2D4,
+        hi: 0x1D2DF,
+    },
+    UPropRange {
+        lo: 0x1D2F4,
+        hi: 0x1D2FF,
+    },
+    UPropRange {
+        lo: 0x1D357,
+        hi: 0x1D35F,
+    },
+    UPropRange {
+        lo: 0x1D379,
+        hi: 0x1D3FF,
+    },
+    UPropRange {
+        lo: 0x1D455,
+        hi: 0x1D455,
+    },
+    UPropRange {
+        lo: 0x1D49D,
+        hi: 0x1D49D,
+    },
+    UPropRange {
+        lo: 0x1D4A0,
+        hi: 0x1D4A1,
+    },
+    UPropRange {
+        lo: 0x1D4A3,
+        hi: 0x1D4A4,
+    },
+    UPropRange {
+        lo: 0x1D4A7,
+        hi: 0x1D4A8,
+    },
+    UPropRange {
+        lo: 0x1D4AD,
+        hi: 0x1D4AD,
+    },
+    UPropRange {
+        lo: 0x1D4BA,
+        hi: 0x1D4BA,
+    },
+    UPropRange {
+        lo: 0x1D4BC,
+        hi: 0x1D4BC,
+    },
+    UPropRange {
+        lo: 0x1D4C4,
+        hi: 0x1D4C4,
+    },
+    UPropRange {
+        lo: 0x1D506,
+        hi: 0x1D506,
+    },
+    UPropRange {
+        lo: 0x1D50B,
+        hi: 0x1D50C,
+    },
+    UPropRange {
+        lo: 0x1D515,
+        hi: 0x1D515,
+    },
+    UPropRange {
+        lo: 0x1D51D,
+        hi: 0x1D51D,
+    },
+    UPropRange {
+        lo: 0x1D53A,
+        hi: 0x1D53A,
+    },
+    UPropRange {
+        lo: 0x1D53F,
+        hi: 0x1D53F,
+    },
+    UPropRange {
+        lo: 0x1D545,
+        hi: 0x1D545,
+    },
+    UPropRange {
+        lo: 0x1D547,
+        hi: 0x1D549,
+    },
+    UPropRange {
+        lo: 0x1D551,
+        hi: 0x1D551,
+    },
+    UPropRange {
+        lo: 0x1D6A6,
+        hi: 0x1D6A7,
+    },
+    UPropRange {
+        lo: 0x1D7CC,
+        hi: 0x1D7CD,
+    },
+    UPropRange {
+        lo: 0x1DA8C,
+        hi: 0x1DA9A,
+    },
+    UPropRange {
+        lo: 0x1DAA0,
+        hi: 0x1DAA0,
+    },
+    UPropRange {
+        lo: 0x1DAB0,
+        hi: 0x1DEFF,
+    },
+    UPropRange {
+        lo: 0x1DF1F,
+        hi: 0x1DF24,
+    },
+    UPropRange {
+        lo: 0x1DF2B,
+        hi: 0x1DFFF,
+    },
+    UPropRange {
+        lo: 0x1E007,
+        hi: 0x1E007,
+    },
+    UPropRange {
+        lo: 0x1E019,
+        hi: 0x1E01A,
+    },
+    UPropRange {
+        lo: 0x1E022,
+        hi: 0x1E022,
+    },
+    UPropRange {
+        lo: 0x1E025,
+        hi: 0x1E025,
+    },
+    UPropRange {
+        lo: 0x1E02B,
+        hi: 0x1E02F,
+    },
+    UPropRange {
+        lo: 0x1E06E,
+        hi: 0x1E08E,
+    },
+    UPropRange {
+        lo: 0x1E090,
+        hi: 0x1E0FF,
+    },
+    UPropRange {
+        lo: 0x1E12D,
+        hi: 0x1E12F,
+    },
+    UPropRange {
+        lo: 0x1E13E,
+        hi: 0x1E13F,
+    },
+    UPropRange {
+        lo: 0x1E14A,
+        hi: 0x1E14D,
+    },
+    UPropRange {
+        lo: 0x1E150,
+        hi: 0x1E28F,
+    },
+    UPropRange {
+        lo: 0x1E2AF,
+        hi: 0x1E2BF,
+    },
+    UPropRange {
+        lo: 0x1E2FA,
+        hi: 0x1E2FE,
+    },
+    UPropRange {
+        lo: 0x1E300,
+        hi: 0x1E4CF,
+    },
+    UPropRange {
+        lo: 0x1E4FA,
+        hi: 0x1E5CF,
+    },
+    UPropRange {
+        lo: 0x1E5FB,
+        hi: 0x1E5FE,
+    },
+    UPropRange {
+        lo: 0x1E600,
+        hi: 0x1E6BF,
+    },
+    UPropRange {
+        lo: 0x1E6DF,
+        hi: 0x1E6DF,
+    },
+    UPropRange {
+        lo: 0x1E6F6,
+        hi: 0x1E6FD,
+    },
+    UPropRange {
+        lo: 0x1E700,
+        hi: 0x1E7DF,
+    },
+    UPropRange {
+        lo: 0x1E7E7,
+        hi: 0x1E7E7,
+    },
+    UPropRange {
+        lo: 0x1E7EC,
+        hi: 0x1E7EC,
+    },
+    UPropRange {
+        lo: 0x1E7EF,
+        hi: 0x1E7EF,
+    },
+    UPropRange {
+        lo: 0x1E7FF,
+        hi: 0x1E7FF,
+    },
+    UPropRange {
+        lo: 0x1E8C5,
+        hi: 0x1E8C6,
+    },
+    UPropRange {
+        lo: 0x1E8D7,
+        hi: 0x1E8FF,
+    },
+    UPropRange {
+        lo: 0x1E94C,
+        hi: 0x1E94F,
+    },
+    UPropRange {
+        lo: 0x1E95A,
+        hi: 0x1E95D,
+    },
+    UPropRange {
+        lo: 0x1E960,
+        hi: 0x1EC70,
+    },
+    UPropRange {
+        lo: 0x1ECB5,
+        hi: 0x1ED00,
+    },
+    UPropRange {
+        lo: 0x1ED3E,
+        hi: 0x1EDFF,
+    },
+    UPropRange {
+        lo: 0x1EE04,
+        hi: 0x1EE04,
+    },
+    UPropRange {
+        lo: 0x1EE20,
+        hi: 0x1EE20,
+    },
+    UPropRange {
+        lo: 0x1EE23,
+        hi: 0x1EE23,
+    },
+    UPropRange {
+        lo: 0x1EE25,
+        hi: 0x1EE26,
+    },
+    UPropRange {
+        lo: 0x1EE28,
+        hi: 0x1EE28,
+    },
+    UPropRange {
+        lo: 0x1EE33,
+        hi: 0x1EE33,
+    },
+    UPropRange {
+        lo: 0x1EE38,
+        hi: 0x1EE38,
+    },
+    UPropRange {
+        lo: 0x1EE3A,
+        hi: 0x1EE3A,
+    },
+    UPropRange {
+        lo: 0x1EE3C,
+        hi: 0x1EE41,
+    },
+    UPropRange {
+        lo: 0x1EE43,
+        hi: 0x1EE46,
+    },
+    UPropRange {
+        lo: 0x1EE48,
+        hi: 0x1EE48,
+    },
+    UPropRange {
+        lo: 0x1EE4A,
+        hi: 0x1EE4A,
+    },
+    UPropRange {
+        lo: 0x1EE4C,
+        hi: 0x1EE4C,
+    },
+    UPropRange {
+        lo: 0x1EE50,
+        hi: 0x1EE50,
+    },
+    UPropRange {
+        lo: 0x1EE53,
+        hi: 0x1EE53,
+    },
+    UPropRange {
+        lo: 0x1EE55,
+        hi: 0x1EE56,
+    },
+    UPropRange {
+        lo: 0x1EE58,
+        hi: 0x1EE58,
+    },
+    UPropRange {
+        lo: 0x1EE5A,
+        hi: 0x1EE5A,
+    },
+    UPropRange {
+        lo: 0x1EE5C,
+        hi: 0x1EE5C,
+    },
+    UPropRange {
+        lo: 0x1EE5E,
+        hi: 0x1EE5E,
+    },
+    UPropRange {
+        lo: 0x1EE60,
+        hi: 0x1EE60,
+    },
+    UPropRange {
+        lo: 0x1EE63,
+        hi: 0x1EE63,
+    },
+    UPropRange {
+        lo: 0x1EE65,
+        hi: 0x1EE66,
+    },
+    UPropRange {
+        lo: 0x1EE6B,
+        hi: 0x1EE6B,
+    },
+    UPropRange {
+        lo: 0x1EE73,
+        hi: 0x1EE73,
+    },
+    UPropRange {
+        lo: 0x1EE78,
+        hi: 0x1EE78,
+    },
+    UPropRange {
+        lo: 0x1EE7D,
+        hi: 0x1EE7D,
+    },
+    UPropRange {
+        lo: 0x1EE7F,
+        hi: 0x1EE7F,
+    },
+    UPropRange {
+        lo: 0x1EE8A,
+        hi: 0x1EE8A,
+    },
+    UPropRange {
+        lo: 0x1EE9C,
+        hi: 0x1EEA0,
+    },
+    UPropRange {
+        lo: 0x1EEA4,
+        hi: 0x1EEA4,
+    },
+    UPropRange {
+        lo: 0x1EEAA,
+        hi: 0x1EEAA,
+    },
+    UPropRange {
+        lo: 0x1EEBC,
+        hi: 0x1EEEF,
+    },
+    UPropRange {
+        lo: 0x1EEF2,
+        hi: 0x1EFFF,
+    },
+    UPropRange {
+        lo: 0x1F02C,
+        hi: 0x1F02F,
+    },
+    UPropRange {
+        lo: 0x1F094,
+        hi: 0x1F09F,
+    },
+    UPropRange {
+        lo: 0x1F0AF,
+        hi: 0x1F0B0,
+    },
+    UPropRange {
+        lo: 0x1F0C0,
+        hi: 0x1F0C0,
+    },
+    UPropRange {
+        lo: 0x1F0D0,
+        hi: 0x1F0D0,
+    },
+    UPropRange {
+        lo: 0x1F0F6,
+        hi: 0x1F0FF,
+    },
+    UPropRange {
+        lo: 0x1F1AE,
+        hi: 0x1F1E5,
+    },
+    UPropRange {
+        lo: 0x1F203,
+        hi: 0x1F20F,
+    },
+    UPropRange {
+        lo: 0x1F23C,
+        hi: 0x1F23F,
+    },
+    UPropRange {
+        lo: 0x1F249,
+        hi: 0x1F24F,
+    },
+    UPropRange {
+        lo: 0x1F252,
+        hi: 0x1F25F,
+    },
+    UPropRange {
+        lo: 0x1F266,
+        hi: 0x1F2FF,
+    },
+    UPropRange {
+        lo: 0x1F6D9,
+        hi: 0x1F6DB,
+    },
+    UPropRange {
+        lo: 0x1F6ED,
+        hi: 0x1F6EF,
+    },
+    UPropRange {
+        lo: 0x1F6FD,
+        hi: 0x1F6FF,
+    },
+    UPropRange {
+        lo: 0x1F7DA,
+        hi: 0x1F7DF,
+    },
+    UPropRange {
+        lo: 0x1F7EC,
+        hi: 0x1F7EF,
+    },
+    UPropRange {
+        lo: 0x1F7F1,
+        hi: 0x1F7FF,
+    },
+    UPropRange {
+        lo: 0x1F80C,
+        hi: 0x1F80F,
+    },
+    UPropRange {
+        lo: 0x1F848,
+        hi: 0x1F84F,
+    },
+    UPropRange {
+        lo: 0x1F85A,
+        hi: 0x1F85F,
+    },
+    UPropRange {
+        lo: 0x1F888,
+        hi: 0x1F88F,
+    },
+    UPropRange {
+        lo: 0x1F8AE,
+        hi: 0x1F8AF,
+    },
+    UPropRange {
+        lo: 0x1F8BC,
+        hi: 0x1F8BF,
+    },
+    UPropRange {
+        lo: 0x1F8C2,
+        hi: 0x1F8CF,
+    },
+    UPropRange {
+        lo: 0x1F8D9,
+        hi: 0x1F8FF,
+    },
+    UPropRange {
+        lo: 0x1FA58,
+        hi: 0x1FA5F,
+    },
+    UPropRange {
+        lo: 0x1FA6E,
+        hi: 0x1FA6F,
+    },
+    UPropRange {
+        lo: 0x1FA7D,
+        hi: 0x1FA7F,
+    },
+    UPropRange {
+        lo: 0x1FA8B,
+        hi: 0x1FA8D,
+    },
+    UPropRange {
+        lo: 0x1FAC7,
+        hi: 0x1FAC7,
+    },
+    UPropRange {
+        lo: 0x1FAC9,
+        hi: 0x1FACC,
+    },
+    UPropRange {
+        lo: 0x1FADD,
+        hi: 0x1FADE,
+    },
+    UPropRange {
+        lo: 0x1FAEB,
+        hi: 0x1FAEE,
+    },
+    UPropRange {
+        lo: 0x1FAF9,
+        hi: 0x1FAFF,
+    },
+    UPropRange {
+        lo: 0x1FB93,
+        hi: 0x1FB93,
+    },
+    UPropRange {
+        lo: 0x1FBFB,
+        hi: 0x1FFFF,
+    },
+    UPropRange {
+        lo: 0x2A6E0,
+        hi: 0x2A6FF,
+    },
+    UPropRange {
+        lo: 0x2B81E,
+        hi: 0x2B81F,
+    },
+    UPropRange {
+        lo: 0x2CEAE,
+        hi: 0x2CEAF,
+    },
+    UPropRange {
+        lo: 0x2EBE1,
+        hi: 0x2EBEF,
+    },
+    UPropRange {
+        lo: 0x2EE5E,
+        hi: 0x2F7FF,
+    },
+    UPropRange {
+        lo: 0x2FA1E,
+        hi: 0x2FFFF,
+    },
+    UPropRange {
+        lo: 0x3134B,
+        hi: 0x3134F,
+    },
+    UPropRange {
+        lo: 0x3347A,
+        hi: 0xE0000,
+    },
+    UPropRange {
+        lo: 0xE0002,
+        hi: 0xE001F,
+    },
+    UPropRange {
+        lo: 0xE0080,
+        hi: 0xE00FF,
+    },
+    UPropRange {
+        lo: 0xE01F0,
+        hi: 0x10FFFF,
+    },
+];
+
 static SCX_VAI: &[UPropRange] = &[UPropRange {
     lo: 0xA500,
     hi: 0xA62B,
@@ -37306,6 +43177,7 @@ pub static SCX_TABLES: &[(&str, &[UPropRange])] = &[
     ("Toto", SCX_TOTO),
     ("Tulu_Tigalari", SCX_TULU_TIGALARI),
     ("Ugaritic", SCX_UGARITIC),
+    ("Unknown", SCX_UNKNOWN),
     ("Vai", SCX_VAI),
     ("Vithkuqi", SCX_VITHKUQI),
     ("Wancho", SCX_WANCHO),
