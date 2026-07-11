@@ -120,6 +120,19 @@ pub unsafe extern "C" fn __torajs_any_member_set(
             return;
         }
         if cell_tag == Tag::Closure as u16 {
+            // chunk C (RFC 20260711) — ES §20.2.4 `name` / `length`
+            // are non-writable; tr programs are module-strict so the
+            // assign throws (bun: "Attempted to assign to readonly
+            // property."). Unconditional even after a delete — the
+            // set then walks to `Function.prototype`'s own
+            // non-writable pair and refuses the same way (bun
+            // parity); recreates go through defineProperty (a
+            // recorded follow-up).
+            if crate::prop_has::key_is(key, b"name") || crate::prop_has::key_is(key, b"length") {
+                drop_payload(tag, value);
+                __torajs_throw_type_error(c"Attempted to assign to readonly property.".as_ptr());
+                return;
+            }
             let props_slot = ptr.cast::<u8>().add(MEMBER_SET_CLOSURE_PROPS_OFF) as *mut u64;
             let mut props = *props_slot as *mut c_void;
             if props.is_null() {

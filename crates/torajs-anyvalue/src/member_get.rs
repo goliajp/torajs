@@ -85,6 +85,26 @@ pub(crate) unsafe fn closure_props(ptr: *mut c_void) -> *const c_void {
     unsafe { *(ptr.cast::<u8>().add(CLOSURE_PROPS_OFF) as *const u64) as *const c_void }
 }
 
+/// Universal heap-header flags probe — u16 at +6 (RFC 20260711
+/// chunk C consumers test the `FLAG_FN_*_DELETED` tombstones).
+///
+/// # Safety
+/// `ptr` is a live heap cell.
+pub(crate) unsafe fn header_flag(ptr: *const c_void, bit: u16) -> bool {
+    unsafe { (ptr.cast::<u8>().add(6) as *const u16).read() & bit != 0 }
+}
+
+/// Set a heap-header flag bit (read-or-write, u16 at +6).
+///
+/// # Safety
+/// `ptr` is a live heap cell.
+pub(crate) unsafe fn header_flag_set(ptr: *mut c_void, bit: u16) {
+    unsafe {
+        let p = ptr.cast::<u8>().add(6) as *mut u16;
+        p.write(p.read() | bit);
+    }
+}
+
 /// `Tag::Obj` struct-cell field probe — the class-layout reflection
 /// walk (`struct_reflect::struct_cell_descriptor` twin): class_tag
 /// (u32 @ +8) → layout entry → field_find by key bytes → raw 8-byte

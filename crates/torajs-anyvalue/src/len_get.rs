@@ -114,6 +114,23 @@ pub unsafe extern "C" fn __torajs_any_length_get(recv: AnyValue) -> AnyValue {
             return crate::nanbox_encode::__torajs_anyv_box_from_pair(dtag as i64, dval as i64);
         }
         if tag == Tag::Closure as u16 {
+            // chunk C (RFC 20260711) — a tombstoned virtual `length`
+            // reads the expando recreate or undefined.
+            if crate::member_get::header_flag(ptr, torajs_rc::FLAG_FN_LENGTH_DELETED) {
+                let props = crate::member_get::closure_props(ptr);
+                if !props.is_null() {
+                    let key = __torajs_str_alloc(c"length".as_ptr() as *const u8, 6);
+                    let dtag = __torajs_dynobj_get_tag(props, key as *const c_void);
+                    let dval = __torajs_dynobj_get_value(props, key as *const c_void);
+                    __torajs_str_drop(key as *mut c_void);
+                    crate::payload_rc_inc(dtag as i64, dval as i64);
+                    return crate::nanbox_encode::__torajs_anyv_box_from_pair(
+                        dtag as i64,
+                        dval as i64,
+                    );
+                }
+                return VALUE_UNDEFINED;
+            }
             // chunk 715 — a reified builtin method cell answers its
             // ES-spec arity; chunk 716 — an ordinary closure walks
             // the fn-addr registry (the entry's former pad slot now

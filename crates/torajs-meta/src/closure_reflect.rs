@@ -33,6 +33,12 @@ unsafe extern "C" {
 const ANY_I64: u64 = 2;
 const ANY_HEAP: u64 = 4;
 
+/// `torajs_rc::FLAG_FN_NAME_DELETED` / `FLAG_FN_LENGTH_DELETED`
+/// mirrors (chunk C tombstones; this crate keeps its dep tree
+/// narrow — the u16 bit positions are part of the header ABI).
+const FLAG_FN_NAME_DELETED: u16 = 1 << 13;
+const FLAG_FN_LENGTH_DELETED: u16 = 1 << 14;
+
 /// Closure-env layout mirror (torajs-core `ssa_lower.rs` constants):
 /// expando props-dynobj slot at +24.
 const CLOSURE_PROPS_OFF: usize = 24;
@@ -69,12 +75,14 @@ pub(crate) unsafe fn closure_cell_descriptor(cell: *const c_void, key: *const c_
     }
     // 2. the virtual §20.2.4 pair — `{ writable: false, enumerable:
     //    false, configurable: true }`. The owned name Str transfers
-    //    into the descriptor (no extra inc).
-    if unsafe { key_is(key, b"name") } {
+    //    into the descriptor (no extra inc). A chunk-C tombstone
+    //    (delete fn.name / fn.length) skips the virtual answer.
+    let flags = unsafe { (cell.cast::<u8>().add(6) as *const u16).read() };
+    if unsafe { key_is(key, b"name") } && flags & FLAG_FN_NAME_DELETED == 0 {
         let s = unsafe { __torajs_closure_name_str(cell as *mut c_void) };
         return unsafe { build_data_descriptor(ANY_HEAP, s as u64, 0, 0, 1) };
     }
-    if unsafe { key_is(key, b"length") } {
+    if unsafe { key_is(key, b"length") } && flags & FLAG_FN_LENGTH_DELETED == 0 {
         let l = unsafe { __torajs_closure_length(cell as *mut c_void) };
         if l >= 0 {
             return unsafe { build_data_descriptor(ANY_I64, l as u64, 0, 0, 1) };

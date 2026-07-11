@@ -33,7 +33,7 @@ use core::ffi::c_void;
 
 use torajs_rc::Tag;
 
-use crate::member_get::{closure_props, recv_cell};
+use crate::member_get::{closure_props, header_flag, recv_cell};
 use crate::nanbox::{AnyValue, is_null, is_short_str, is_undefined};
 
 unsafe extern "C" {
@@ -86,7 +86,7 @@ unsafe fn canonical_index(key: *const c_void) -> Option<u64> {
 }
 
 /// `true` iff the key spells exactly `name`.
-unsafe fn key_is(key: *const c_void, name: &[u8]) -> bool {
+pub(crate) unsafe fn key_is(key: *const c_void, name: &[u8]) -> bool {
     let (bytes, len) = unsafe { key_bytes(key) };
     len as usize == name.len()
         && unsafe { core::slice::from_raw_parts(bytes, len as usize) } == name
@@ -138,7 +138,16 @@ pub unsafe extern "C" fn __torajs_any_prop_has(recv: AnyValue, key: *const c_voi
             }
         }
         Some((ptr, t)) if t == Tag::Closure as u16 => {
-            if unsafe { key_is(key, b"length") } || unsafe { key_is(key, b"name") } {
+            // chunk C — a tombstoned virtual prop is gone until an
+            // expando write recreates it (probed below).
+            if unsafe { key_is(key, b"length") }
+                && !unsafe { header_flag(ptr, torajs_rc::FLAG_FN_LENGTH_DELETED) }
+            {
+                return 1;
+            }
+            if unsafe { key_is(key, b"name") }
+                && !unsafe { header_flag(ptr, torajs_rc::FLAG_FN_NAME_DELETED) }
+            {
                 return 1;
             }
             let props = unsafe { closure_props(ptr) };

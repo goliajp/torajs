@@ -103,6 +103,11 @@ unsafe fn closure_name(ptr: *mut c_void) -> AnyValue {
                 return crate::nanbox_encode::__torajs_anyv_box_from_pair(dtag as i64, dval as i64);
             }
         }
+        // chunk C — a tombstoned virtual `name` reads undefined
+        // until an expando write recreates it (probed above).
+        if crate::member_get::header_flag(ptr, torajs_rc::FLAG_FN_NAME_DELETED) {
+            return VALUE_UNDEFINED;
+        }
         let cell = closure_name_str(ptr);
         crate::nanbox_encode::__torajs_anyv_box_from_pair(4, cell as i64)
     }

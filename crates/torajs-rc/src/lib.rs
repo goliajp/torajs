@@ -190,6 +190,20 @@ pub const FLAG_NON_EXTENSIBLE: u16 = 1 << 8;
 /// `HeapHeader.flags`.
 pub const FLAG_SEALED: u16 = 1 << 9;
 
+/// `delete fn.name` tombstone (Tag::Closure cells; RFC
+/// 20260711-closure-reflection chunk C). tr carries the ES §20.2.4
+/// `name` / `length` own properties virtually off the fn-metadata
+/// chain — a successful delete (they are configurable) sets the bit
+/// so every reader (has / enumerable / member read / gOPD) skips
+/// the virtual answer; a later write recreates a plain expando
+/// entry. Interned method cells share the bit process-wide — the
+/// spec object is a singleton, so `delete String.prototype.slice.name`
+/// is a global effect in bun too. Bits 13/14 are universally free
+/// (10-12 are Tag::Arr element-kind).
+pub const FLAG_FN_NAME_DELETED: u16 = 1 << 13;
+/// `delete fn.length` tombstone — see [`FLAG_FN_NAME_DELETED`].
+pub const FLAG_FN_LENGTH_DELETED: u16 = 1 << 14;
+
 // Array element-kind field constants (Tag::Arr, flags bits 10-12 —
 // Any-dynamic-access RFC 20260704) live in `arr_kind.rs`;
 // re-exported at crate root just below, same shape as `color`.

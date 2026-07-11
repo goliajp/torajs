@@ -25,7 +25,7 @@ use core::ffi::c_void;
 
 use torajs_rc::Tag;
 
-use crate::member_get::{closure_props, recv_cell};
+use crate::member_get::{closure_props, header_flag_set, recv_cell};
 
 /// torajs-arr inline props-dynobj slot at +24
 /// (`torajs_arr::layout::ARR_PROPS_OFF` mirror — same constant
@@ -85,6 +85,16 @@ pub unsafe extern "C" fn __torajs_any_prop_delete(recv: AnyValue, key: *const c_
                     return 0;
                 }
                 unsafe { __torajs_dynobj_delete(props as *mut c_void, key) };
+            }
+            // chunk C — the virtual §20.2.4 name/length pair is
+            // configurable: a delete tombstones the header bit so
+            // every reader skips the virtual answer (idempotent on
+            // a re-delete / post-recreate delete).
+            if unsafe { crate::prop_has::key_is(key, b"name") } {
+                unsafe { header_flag_set(ptr, torajs_rc::FLAG_FN_NAME_DELETED) };
+            }
+            if unsafe { crate::prop_has::key_is(key, b"length") } {
+                unsafe { header_flag_set(ptr, torajs_rc::FLAG_FN_LENGTH_DELETED) };
             }
             1
         }
