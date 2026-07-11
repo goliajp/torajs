@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-11T07:39:31.566Z",
+  "generatedAt": "2026-07-11T09:07:19.596Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-11T07:35:35Z",
-    "headSha": "847f5b0c",
-    "elapsedSec": 1105.81,
+    "ranAt": "2026-07-11T09:04:21Z",
+    "headSha": "a7e531fa",
+    "elapsedSec": 510.95,
     "workers": 8,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 3055,
-    "passNoOracle": 74,
+    "pass": 3329,
+    "passNoOracle": 77,
     "passNegative": 4444,
-    "passTotal": 7573,
-    "bug": 2770,
-    "incompatible": 42831,
+    "passTotal": 7850,
+    "bug": 2521,
+    "incompatible": 42803,
     "bunSkip": 12862,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 10343,
-    "passRateInScope": 14.24,
-    "passRateTrAccepted": 73.22
+    "trAccepted": 10371,
+    "passRateInScope": 14.76,
+    "passRateTrAccepted": 75.69
   },
   "torajs": {
-    "commit": "3461168d",
-    "commitSubject": "chore: rustfmt fixup for the primordial rewrite entry",
+    "commit": "5e15e3ca",
+    "commitSubject": "chore: test262 refresh @ a7e531fa - closure-reflection RFC close (passTotal 7573 to 7850, bug 2770 to 2521)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "5e15e3ca",
+      "subject": "chore: test262 refresh @ a7e531fa - closure-reflection RFC close (passTotal 7573 to 7850, bug 2770 to 2521)"
+    },
+    {
+      "hash": "a7e531fa",
+      "subject": "feat: dynamic-key member reads answer fn name/length on closure receivers"
+    },
+    {
+      "hash": "fe1a0379",
+      "subject": "feat: fn name/length carry the ES 20.2.4 attribute protocol on any receivers"
+    },
+    {
+      "hash": "04c3cd9c",
+      "subject": "feat: gOPD answers virtual name/length descriptors on closure cells"
+    },
+    {
+      "hash": "cca8ffe9",
+      "subject": "feat: <Ctor>.prototype.<m> static method-value reads mint reified method cells"
+    },
+    {
+      "hash": "4c261a8e",
+      "subject": "chore(dashboard): refresh @ 3461168d - rotation 70 (814-818: for-in lands end to end - Object.keys grows the ES2015 ToObject arms over Str/Arr/Closure/primitive any cells, var and bare loop heads with fn-scope leak via var-hoist, null/undefined zero-iteration through the parser-synthesized Object.__forinKeys twin, and the mid-loop-delete guard re-checking snapshot keys against the live object per 14.7.5; hasOwnProperty and propertyIsEnumerable land as universal any-method arms with Object.hasOwn growing its Any receiver lane; delete refuses non-configurable properties per 10.1.10 step 4; propertyHelper.js typed port ships closing RFC 20260711 - test262 passTotal 7265 to 7573, harness-includes bucket down 4977, trAccepted up 1193; gates 1427 to 1432 six green, tr baseline 61647360, nextest core 180 anyvalue 95 rc 92)"
+    },
+    {
       "hash": "3461168d",
       "subject": "chore: rustfmt fixup for the primordial rewrite entry"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "80153b24",
       "subject": "feat: for-in/for-of var and bare head forms + null zero-iteration (ES §14.7.5)"
-    },
-    {
-      "hash": "48b82bc4",
-      "subject": "feat: Object.keys/gOPN ToObject dispatch on any primitives (ES §20.1.2.17)"
-    },
-    {
-      "hash": "79ece0b1",
-      "subject": "chore(dashboard): refresh @ 076d47c7 - rotation 69 (810-813: ident-alias bindings promote to data-global slots via upstream let-decl shape recursion; ctor-less derived classes synthesize the implicit default ctor closing the expected-0-arguments gap and the silently-elided zero-param parent ctor body; class .length answers the ctor expected argument count with synthesized ctors reporting 0 per spec; delete operator lands end to end - lexer keyword through Expr::Delete to __torajs_any_prop_delete with dynobj OrdinaryDelete, expando deletes, and a 300k churn-flat drop ledger; RFC 20260711-delete-forin-propertyhelper opened toward the propertyHelper port with str-computed-index refuted as already fixed; five stale records audited closed; gates 1423 -> 1427 four green, tr baseline 61630832, nextest core 180)"
-    },
-    {
-      "hash": "076d47c7",
-      "subject": "chore: rustfmt fixup for the delete-operator files"
-    },
-    {
-      "hash": "94e533eb",
-      "subject": "feat: delete operator on any receivers (ES §13.5.1)"
-    },
-    {
-      "hash": "458e7a6c",
-      "subject": "feat: class .length answers the ctor's expected argument count"
-    },
-    {
-      "hash": "0c1f8245",
-      "subject": "feat: ctor-less derived classes synthesize the implicit default ctor"
     }
   ],
-  "headSha": "3461168d",
+  "headSha": "5e15e3ca",
   "autorun": {
-    "total": 376,
+    "total": 377,
     "baselineTarget": 10,
-    "bySelf": 371,
+    "bySelf": 372,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1783749492-3d0e",
-      "at": "2026-07-11T05:58:12Z",
-      "ts": 1783749492,
+      "rotationId": "r-1783755649-3af2",
+      "at": "2026-07-11T07:40:49Z",
+      "ts": 1783755649,
       "trigger": "self",
-      "prevHead": "79ece0b1",
-      "handoffSha": "sha256:f289ed3e3294e897f5c92016a27e36286215615fed83a4ffd017ec927d904758",
+      "prevHead": "4c261a8e",
+      "handoffSha": "sha256:26c93fa52183ebb7d5839355bff2c979c0cab65223f246e335725c748f326250",
       "handoffAgeSec": 7,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1783755649-3af2",
+        "at": "2026-07-11T07:40:49Z",
+        "ts": 1783755649,
+        "trigger": "self",
+        "prevHead": "4c261a8e",
+        "handoffSha": "sha256:26c93fa52183ebb7d5839355bff2c979c0cab65223f246e335725c748f326250",
+        "handoffAgeSec": 7,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1783749492-3d0e",
         "at": "2026-07-11T05:58:12Z",
@@ -876,17 +887,6 @@
         "prevHead": "04c41b87",
         "handoffSha": "sha256:4a1d19f338e6d87f19620715f7c8e87120c4ddced1d6304ca60f42c07bfb8187",
         "handoffAgeSec": 8,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1783643563-409a",
-        "at": "2026-07-10T00:32:43Z",
-        "ts": 1783643563,
-        "trigger": "self",
-        "prevHead": "83de1aaa",
-        "handoffSha": "sha256:63ddf14850b527428faf92e073497854809f8216d9a25db35f359652fd3c14f4",
-        "handoffAgeSec": 11,
         "conformanceBefore": null,
         "commitsInSession": null
       }
