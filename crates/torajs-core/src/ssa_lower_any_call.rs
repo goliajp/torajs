@@ -36,7 +36,7 @@ pub(crate) fn try_lower(
         InstKind::Call(
             ctx.intrinsics.any_call,
             vec![
-                recv,
+                recv.clone(),
                 Operand::Value(argv),
                 Operand::ConstI64(args.len() as i64),
             ],
@@ -47,6 +47,11 @@ pub(crate) fn try_lower(
     for slot in boxed_slots.into_iter().flatten() {
         ctx.emit_drop_value(slot, Type::Any);
     }
+    // A Call-shaped callee (`f(1)(2)` — the inner call's owned Any
+    // temp) is only borrowed by the runtime; release it here or the
+    // curried hop leaks (mirrors the method-call arm's receiver
+    // account). Borrow shapes (Ident) self-gate false.
+    ctx.release_owned_temp(callee, &recv);
     ctx.emit_throw_check(None);
     Some(Operand::Value(result))
 }

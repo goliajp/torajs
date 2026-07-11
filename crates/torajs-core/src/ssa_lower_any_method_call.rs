@@ -87,7 +87,7 @@ pub(crate) fn try_lower(
         InstKind::Call(
             ctx.intrinsics.any_method_call,
             vec![
-                recv,
+                recv.clone(),
                 Operand::ConstI64(mid),
                 Operand::Value(name_str),
                 Operand::ConstI64(0),
@@ -106,6 +106,11 @@ pub(crate) fn try_lower(
     for slot in boxed_slots.into_iter().flatten() {
         ctx.emit_drop_value(slot, Type::Any);
     }
+    // A Call-shaped receiver (`s.bold().italics()`) is an owned Any
+    // temp the runtime only borrowed — release it or every chained
+    // hop leaks its intermediate (the optcall sibling already keeps
+    // this account). Borrow shapes (Ident / Member) self-gate false.
+    ctx.release_owned_temp(obj, &recv);
     ctx.emit_throw_check(None);
     Some(Operand::Value(result))
 }
