@@ -125,6 +125,7 @@ pub mod literals;
 pub mod lookup;
 pub mod lookup_ffi;
 pub mod method_any;
+pub mod method_any_ext;
 pub mod norm_table;
 pub mod normalize;
 pub mod null_guard;

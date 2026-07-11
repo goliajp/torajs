@@ -9,11 +9,12 @@ use core::ffi::c_void;
 
 use torajs_rc::{
     ANY_METHOD_ANCHOR, ANY_METHOD_AT, ANY_METHOD_CHAR_AT, ANY_METHOD_CHAR_CODE_AT,
-    ANY_METHOD_ENDS_WITH, ANY_METHOD_INCLUDES, ANY_METHOD_INDEX_OF, ANY_METHOD_LINK,
-    ANY_METHOD_MATCH, ANY_METHOD_REPLACE, ANY_METHOD_REPLACE_ALL, ANY_METHOD_SLICE,
-    ANY_METHOD_SPLIT, ANY_METHOD_STARTS_WITH, ANY_METHOD_SUBSTR, ANY_METHOD_SUBSTRING,
-    ANY_METHOD_SUP, ANY_METHOD_TO_LOWER_CASE, ANY_METHOD_TO_UPPER_CASE, ANY_METHOD_TRIM,
-    ANY_METHOD_TRIM_END, ANY_METHOD_TRIM_START, Tag,
+    ANY_METHOD_CODE_POINT_AT, ANY_METHOD_CONCAT, ANY_METHOD_ENDS_WITH, ANY_METHOD_INCLUDES,
+    ANY_METHOD_INDEX_OF, ANY_METHOD_LINK, ANY_METHOD_LOCALE_COMPARE, ANY_METHOD_MATCH,
+    ANY_METHOD_PAD_END, ANY_METHOD_PAD_START, ANY_METHOD_REPEAT, ANY_METHOD_REPLACE,
+    ANY_METHOD_REPLACE_ALL, ANY_METHOD_SLICE, ANY_METHOD_SPLIT, ANY_METHOD_STARTS_WITH,
+    ANY_METHOD_SUBSTR, ANY_METHOD_SUBSTRING, ANY_METHOD_SUP, ANY_METHOD_TO_LOWER_CASE,
+    ANY_METHOD_TO_UPPER_CASE, ANY_METHOD_TRIM, ANY_METHOD_TRIM_END, ANY_METHOD_TRIM_START, Tag,
 };
 
 use crate::method_call::{method_no_such, to_index};
@@ -61,6 +62,20 @@ unsafe extern "C" {
     /// torajs-str — annexB B.2.2 html-method glue (`mid` picks the
     /// CreateHTML form; NULL `val` rides as the JS `undefined`).
     fn __torajs_str_any_html(s: *const u8, mid: i64, val: *const u8) -> u64;
+    /// torajs-str — padStart/padEnd glue (NULL pad = missing
+    /// argument → the spec's single-space default; `end` picks
+    /// padEnd).
+    fn __torajs_str_any_pad(s: *const u8, target_len: i64, pad: *const u8, end: i64) -> u64;
+    /// torajs-str — repeat glue (negative/Infinity n records a TLS
+    /// pending RangeError).
+    fn __torajs_str_any_repeat(s: *const u8, n: i64) -> u64;
+    /// torajs-str — one concat fold step (fresh Str out).
+    fn __torajs_str_any_concat2(a: *const u8, b: *const u8) -> u64;
+    /// torajs-str — codePointAt glue (-1 = OOB, boxed as undefined
+    /// here).
+    fn __torajs_str_any_code_point_at(s: *const u8, i: i64) -> i64;
+    /// torajs-str — localeCompare glue (-1/0/1).
+    fn __torajs_str_any_locale_compare(s: *const u8, other: *const u8) -> i64;
     /// torajs-str — release a heap Str/Substr reference.
     fn __torajs_str_drop(s: *mut c_void);
     /// torajs-throw — record a pending catchable TypeError.
@@ -175,6 +190,52 @@ pub(crate) unsafe fn str_method(s: *mut u8, mid: i64, argv: *const u64, argc: i6
                 };
                 __torajs_str_drop(repl);
                 out
+            }
+            m if m == ANY_METHOD_PAD_START || m == ANY_METHOD_PAD_END => {
+                let target = to_index(arg_at(0), 0);
+                let end = (m == ANY_METHOD_PAD_END) as i64;
+                let pad_av = arg_at(1);
+                if is_undefined(pad_av) {
+                    __torajs_str_any_pad(s, target, core::ptr::null(), end)
+                } else {
+                    let pad = __torajs_anyv_to_str(pad_av);
+                    let out = __torajs_str_any_pad(s, target, pad as *const u8, end);
+                    __torajs_str_drop(pad);
+                    out
+                }
+            }
+            m if m == ANY_METHOD_REPEAT => __torajs_str_any_repeat(s, to_index(arg_at(0), 0)),
+            m if m == ANY_METHOD_CONCAT => {
+                // Fold left per §22.1.3.5 — the accumulator starts
+                // as a fresh owned copy of the receiver (the
+                // substring glue's full-range form), each argument
+                // ToStrings through an owned temp.
+                let mut acc = __torajs_str_any_substring(s, 0, i64::MAX);
+                for i in 0..argc {
+                    let arg = __torajs_anyv_to_str(arg_at(i));
+                    let next = __torajs_str_any_concat2(acc as *const u8, arg as *const u8);
+                    __torajs_str_drop(acc as *mut c_void);
+                    __torajs_str_drop(arg);
+                    acc = next;
+                }
+                acc
+            }
+            m if m == ANY_METHOD_CODE_POINT_AT => {
+                // OOB rides the -1 contract; spec answers undefined.
+                let cp = __torajs_str_any_code_point_at(s, to_index(arg_at(0), 0));
+                if cp < 0 {
+                    VALUE_UNDEFINED
+                } else {
+                    __torajs_anyv_box_i64(cp)
+                }
+            }
+            m if m == ANY_METHOD_LOCALE_COMPARE => {
+                // ToString the comparand (a missing slot stringifies
+                // to "undefined" per §7.1.19).
+                let other = __torajs_anyv_to_str(arg_at(0));
+                let ord = __torajs_str_any_locale_compare(s, other as *const u8);
+                __torajs_str_drop(other);
+                __torajs_anyv_box_i64(ord)
             }
             m if m == ANY_METHOD_TRIM => __torajs_str_any_trim(s, 0),
             m if m == ANY_METHOD_TRIM_START => __torajs_str_any_trim(s, 1),

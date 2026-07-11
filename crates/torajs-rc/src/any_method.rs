@@ -275,6 +275,16 @@ pub const ANY_METHOD_SUBSTR: i64 = 116;
 pub const ANY_METHOD_AT: i64 = 117;
 /// `String.prototype.charCodeAt`.
 pub const ANY_METHOD_CHAR_CODE_AT: i64 = 118;
+/// `String.prototype.padStart`.
+pub const ANY_METHOD_PAD_START: i64 = 119;
+/// `String.prototype.padEnd`.
+pub const ANY_METHOD_PAD_END: i64 = 120;
+/// `String.prototype.repeat`.
+pub const ANY_METHOD_REPEAT: i64 = 121;
+/// `String.prototype.codePointAt`.
+pub const ANY_METHOD_CODE_POINT_AT: i64 = 122;
+/// `String.prototype.localeCompare`.
+pub const ANY_METHOD_LOCALE_COMPARE: i64 = 123;
 
 /// RegExp property-read ids (Any-method-call RFC 20260704 C4-3c-2)
 /// — `r.source` / `r.lastIndex` / flag booleans through an `any`
@@ -439,6 +449,11 @@ pub fn any_method_id(name: &str) -> i64 {
         "substr" => ANY_METHOD_SUBSTR,
         "at" => ANY_METHOD_AT,
         "charCodeAt" => ANY_METHOD_CHAR_CODE_AT,
+        "padStart" => ANY_METHOD_PAD_START,
+        "padEnd" => ANY_METHOD_PAD_END,
+        "repeat" => ANY_METHOD_REPEAT,
+        "codePointAt" => ANY_METHOD_CODE_POINT_AT,
+        "localeCompare" => ANY_METHOD_LOCALE_COMPARE,
         _ => ANY_METHOD_UNKNOWN,
     }
 }

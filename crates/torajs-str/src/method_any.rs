@@ -77,8 +77,9 @@ const KIND_HEAP_CHAIN: u64 = 4;
 /// Resolve a possibly-Substr `Tag::Str` cell to an owned-layout
 /// source: `(src, tmp)` where `tmp` is NULL for an already-owned Str
 /// and the fresh materialized temp otherwise (caller drops it after
-/// the kernel call).
-unsafe fn owned_src(s: *const u8) -> (*const u8, *mut u8) {
+/// the kernel call). Shared with the [`crate::method_any_ext`]
+/// slice.
+pub(crate) unsafe fn owned_src(s: *const u8) -> (*const u8, *mut u8) {
     let header = unsafe { &*(s as *const HeapHeader) };
     if header.flags & (FLAG_SUBSTR_INLINE | FLAG_SUBSTR_VIEW) != 0 {
         let tmp = unsafe { __torajs_substr_to_owned(s) as *mut u8 };
@@ -90,7 +91,7 @@ unsafe fn owned_src(s: *const u8) -> (*const u8, *mut u8) {
 
 /// Drop a non-NULL materialized temp.
 #[inline]
-unsafe fn drop_tmp(tmp: *mut u8) {
+pub(crate) unsafe fn drop_tmp(tmp: *mut u8) {
     if !tmp.is_null() {
         unsafe { __torajs_str_drop(tmp) };
     }
