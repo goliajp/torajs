@@ -10,12 +10,13 @@
 use core::ffi::c_void;
 
 use torajs_rc::{
-    ANY_METHOD_CONCAT, ANY_METHOD_COPY_WITHIN, ANY_METHOD_EVERY, ANY_METHOD_FILL,
-    ANY_METHOD_FILTER, ANY_METHOD_FIND, ANY_METHOD_FIND_INDEX, ANY_METHOD_FOR_EACH,
-    ANY_METHOD_INCLUDES, ANY_METHOD_INDEX_OF, ANY_METHOD_JOIN, ANY_METHOD_LAST_INDEX_OF,
-    ANY_METHOD_MAP, ANY_METHOD_POP, ANY_METHOD_PUSH, ANY_METHOD_REDUCE, ANY_METHOD_REDUCE_RIGHT,
-    ANY_METHOD_REVERSE, ANY_METHOD_SHIFT, ANY_METHOD_SLICE, ANY_METHOD_SOME, ANY_METHOD_SPLICE,
-    ANY_METHOD_UNSHIFT,
+    ANY_METHOD_CONCAT, ANY_METHOD_COPY_WITHIN, ANY_METHOD_ENTRIES, ANY_METHOD_EVERY,
+    ANY_METHOD_FILL, ANY_METHOD_FILTER, ANY_METHOD_FIND, ANY_METHOD_FIND_INDEX,
+    ANY_METHOD_FOR_EACH, ANY_METHOD_INCLUDES, ANY_METHOD_INDEX_OF, ANY_METHOD_JOIN,
+    ANY_METHOD_KEYS, ANY_METHOD_LAST_INDEX_OF, ANY_METHOD_MAP, ANY_METHOD_POP, ANY_METHOD_PUSH,
+    ANY_METHOD_REDUCE, ANY_METHOD_REDUCE_RIGHT, ANY_METHOD_REVERSE, ANY_METHOD_SHIFT,
+    ANY_METHOD_SLICE, ANY_METHOD_SOME, ANY_METHOD_SORT, ANY_METHOD_SPLICE, ANY_METHOD_UNSHIFT,
+    ANY_METHOD_VALUES,
 };
 
 use crate::index_any::MIRROR_ARR_LEN_OFF;
@@ -106,6 +107,20 @@ unsafe extern "C" {
         has_init: i64,
         right: i64,
     ) -> u64;
+    /// torajs-arr — in-place stable merge sort (chunk 4); boxed
+    /// comparator when `has_cb != 0`, else the §23.1.3.30.2
+    /// ToString default. Answers the receiver.
+    fn __torajs_arr_any_sort(
+        arr: *mut u8,
+        cb_env: *mut c_void,
+        cb_entry: u64,
+        has_cb: i64,
+    ) -> *mut u8;
+    /// torajs-arr — ArrIter mint (fresh +1 rc cells; the kind-aware
+    /// step reads both receiver shapes).
+    fn __torajs_arr_iter_create_keys(arr: *mut c_void) -> *mut c_void;
+    fn __torajs_arr_iter_create_values(arr: *mut c_void) -> *mut c_void;
+    fn __torajs_arr_iter_create_entries(arr: *mut c_void) -> *mut c_void;
     /// torajs-str — allocate a fresh Str from raw bytes (the
     /// `join()` default "," separator).
     fn __torajs_str_alloc(src: *const u8, len: i64) -> *mut u8;
@@ -282,6 +297,34 @@ pub(crate) unsafe fn arr_method(
                 let has_init = (argc >= 2) as i64;
                 let right = (m == ANY_METHOD_REDUCE_RIGHT) as i64;
                 __torajs_arr_any_reduce(arr, cb_env, cb_entry, arg_at(1), has_init, right)
+            }
+            m if m == ANY_METHOD_SORT => {
+                // §23.1.3.30 step 1 — an undefined comparator is the
+                // ToString default; a present non-callable throws.
+                let (cb_env, cb_entry, has_cb) = if is_undefined(arg_at(0)) {
+                    (core::ptr::null_mut(), 0u64, 0i64)
+                } else {
+                    let Some((e, en)) = closure_boxed_entry(arg_at(0)) else {
+                        return not_callable();
+                    };
+                    (e, en, 1)
+                };
+                let p = __torajs_arr_any_sort(arr as *mut u8, cb_env, cb_entry, has_cb);
+                // The receiver is the return value (chaining).
+                torajs_rc::__torajs_rc_inc(p as *mut c_void);
+                __torajs_anyv_box_pointer(p as *mut c_void)
+            }
+            m if m == ANY_METHOD_KEYS || m == ANY_METHOD_VALUES || m == ANY_METHOD_ENTRIES => {
+                // Fresh ArrIter cell (rc=1) — the owned return
+                // protocol takes it as-is.
+                let it = if m == ANY_METHOD_KEYS {
+                    __torajs_arr_iter_create_keys(arr)
+                } else if m == ANY_METHOD_VALUES {
+                    __torajs_arr_iter_create_values(arr)
+                } else {
+                    __torajs_arr_iter_create_entries(arr)
+                };
+                __torajs_anyv_box_pointer(it)
             }
             m if m == ANY_METHOD_JOIN => {
                 // ES §23.1.3.18 step 2: missing sep means ",".

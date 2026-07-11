@@ -24,8 +24,6 @@ use core::ffi::c_void;
 
 use torajs_rc::HeapHeader;
 
-use crate::layout::arr_data;
-
 /// `type_tag` for ArrIter heap blocks (matches `torajs_rc::Tag::ArrIter`
 /// = 17).
 pub const TAG_ARR_ITER: u16 = 17;
@@ -41,9 +39,6 @@ pub const ARR_ITER_ENTRIES: u32 = 2;
 const ANY_I64: u8 = 2;
 const ANY_HEAP: u8 = 4;
 const ANY_UNDEF: u8 = 5;
-
-/// Array<Any> per-slot stride (Step 7e-A: NaN-box AnyValue per slot).
-const ANY_SLOT_BYTES: usize = 8;
 
 /// ArrIter heap block — 32 bytes, ABI-shared with the C-side
 /// definition we just deleted.
@@ -170,8 +165,10 @@ pub unsafe extern "C" fn __torajs_arr_iter_step(
         }
         return 0;
     }
-    let slot_av =
-        unsafe { *(arr_data(arr as *const u8).add((i as usize) * ANY_SLOT_BYTES) as *const u64) };
+    // Kind-aware borrowed whole-box read (backfill chunk 4) — a
+    // typed block behind an `any` view reboxes per its recorded elem
+    // kind; FLAG_ARR_ANY blocks keep the raw NaN-box slot read.
+    let slot_av = unsafe { crate::any::__torajs_arr_get_any_boxed(arr, i as u64) };
     let slot_tag = unsafe { __torajs_anyv_unbox_tag(slot_av) } as u64;
     let slot_val = unsafe { __torajs_anyv_unbox_value(slot_av) } as u64;
     unsafe { (*it).cursor = (i + 1) as i64 };

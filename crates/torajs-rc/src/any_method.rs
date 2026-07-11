@@ -221,6 +221,9 @@ pub const ANY_METHOD_FIND_INDEX: i64 = 91;
 pub const ANY_METHOD_REDUCE: i64 = 92;
 /// `Array.prototype.reduceRight` (chunk 3) — backwards fold.
 pub const ANY_METHOD_REDUCE_RIGHT: i64 = 93;
+/// `Array.prototype.sort` (chunk 4) — in-place stable merge sort;
+/// boxed-comparator or the §23.1.3.30.2 ToString default.
+pub const ANY_METHOD_SORT: i64 = 94;
 
 /// RegExp property-read ids (Any-method-call RFC 20260704 C4-3c-2)
 /// — `r.source` / `r.lastIndex` / flag booleans through an `any`
@@ -356,6 +359,7 @@ pub fn any_method_id(name: &str) -> i64 {
         "findIndex" => ANY_METHOD_FIND_INDEX,
         "reduce" => ANY_METHOD_REDUCE,
         "reduceRight" => ANY_METHOD_REDUCE_RIGHT,
+        "sort" => ANY_METHOD_SORT,
         "keys" => ANY_METHOD_KEYS,
         "values" => ANY_METHOD_VALUES,
         "entries" => ANY_METHOD_ENTRIES,
@@ -470,6 +474,7 @@ pub fn any_method_meta(mid: i64) -> Option<(&'static str, u32)> {
         ANY_METHOD_FIND_INDEX => ("findIndex", 1),
         ANY_METHOD_REDUCE => ("reduce", 1),
         ANY_METHOD_REDUCE_RIGHT => ("reduceRight", 1),
+        ANY_METHOD_SORT => ("sort", 1),
         _ => return None,
     })
 }
@@ -492,7 +497,7 @@ mod tests {
     #[test]
     fn meta_rejects_unknown_and_out_of_table() {
         assert!(any_method_meta(ANY_METHOD_UNKNOWN).is_none());
-        assert!(any_method_meta(ANY_METHOD_REDUCE_RIGHT + 1).is_none());
+        assert!(any_method_meta(ANY_METHOD_SORT + 1).is_none());
         assert!(any_method_meta(-1).is_none());
     }
 }

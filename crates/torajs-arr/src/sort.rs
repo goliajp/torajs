@@ -55,6 +55,19 @@ unsafe extern "C" {
     /// (SortCompare answer, comparator skipped), `2` otherwise.
     fn __torajs_str_sort_undef_pre(a: *const u8, b: *const u8) -> i64;
 
+    /// Cross-tier — torajs-anyvalue NaN-box protocol + coercions
+    /// (the any-receiver sort modes, backfill chunk 4).
+    fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64;
+    fn __torajs_anyv_unbox_tag(v: u64) -> i64;
+    fn __torajs_anyv_to_number(v: u64) -> f64;
+    fn __torajs_anyv_to_str(v: u64) -> *mut c_void;
+    /// Cross-tier — torajs-str / universal dropper (temp release).
+    fn __torajs_str_drop(s: *mut c_void);
+    fn __torajs_value_drop_heap(p: *mut c_void);
+    /// Cross-tier — torajs-str. Default SortCompare: undefined-last
+    /// + UTF-16 ToString order.
+    fn __torajs_str_sort_cmp(a: *const u8, b: *const u8) -> i64;
+
     /// torajs-mmalloc libc-compat malloc / free — merge scratch buffer.
     #[link_name = "__torajs_libc_malloc"]
     fn malloc(n: usize) -> *mut c_void;
@@ -71,6 +84,34 @@ const MODE_HAS_ENV: i64 = 4;
 /// `mode` bit 3 — element slots are Str pointers (undefined
 /// sentinel pre-probe runs before every comparator call).
 const MODE_ELEM_STR: i64 = 8;
+/// `mode` bit 4 — any-receiver sort with a user comparator: slots
+/// are NaN-box AnyValues, the callback is the boxed dual entry
+/// (`(env, argv, argc) -> AnyValue`), and undefined slots sort last
+/// without a call (§23.1.3.30.2 steps 5-8 on the box tag).
+const MODE_ANY_BOXED: i64 = 16;
+/// `mode` bit 5 — any-receiver default sort: undefined-last +
+/// ToString UTF-16 order per §23.1.3.30.2 step 10 (anyv_to_str +
+/// str_sort_cmp per compare; `fn_ptr` unused).
+const MODE_ANY_DEFAULT: i64 = 32;
+
+/// `Cmp.rebox_kind` = ARR_KIND_UNSET means the slots already ARE
+/// AnyValues (FLAG_ARR_ANY receiver); any other kind reboxes the
+/// raw slot bits per the recorded elem kind before comparing (typed
+/// block behind an `any` view — the slots keep their raw layout,
+/// only the compare sees boxes).
+#[inline]
+unsafe fn rebox_slot(kind: u16, raw: u64) -> u64 {
+    unsafe {
+        match kind {
+            torajs_rc::ARR_KIND_I64 => __torajs_anyv_box_from_pair(2, raw as i64),
+            torajs_rc::ARR_KIND_F64 => __torajs_anyv_box_from_pair(3, raw as i64),
+            torajs_rc::ARR_KIND_BOOL => __torajs_anyv_box_from_pair(1, raw as i64),
+            torajs_rc::ARR_KIND_HEAP if raw == 0 => __torajs_anyv_box_from_pair(5, 0),
+            torajs_rc::ARR_KIND_HEAP => raw, // a heap cell's box IS its pointer
+            _ => raw,
+        }
+    }
+}
 
 /// Runs at or below this length sort via binary-free insertion —
 /// same base-case cutoff family as JSC / std sorts.
@@ -83,6 +124,9 @@ struct Cmp {
     fn_ptr: *const u8,
     env: *mut u8,
     mode: i64,
+    /// Elem-kind rebox for the ANY modes on typed-behind-any
+    /// receivers; ARR_KIND_UNSET = slots already NaN-boxed.
+    rebox_kind: u16,
 }
 
 impl Cmp {
@@ -94,6 +138,35 @@ impl Cmp {
     #[inline]
     unsafe fn is_gt(&self, a: u64, b: u64) -> bool {
         unsafe {
+            if self.mode & (MODE_ANY_BOXED | MODE_ANY_DEFAULT) != 0 {
+                let a = rebox_slot(self.rebox_kind, a);
+                let b = rebox_slot(self.rebox_kind, b);
+                // §23.1.3.30.2 steps 5-8 — undefined sorts last, the
+                // comparator never sees one; both-undefined is +0.
+                let a_undef = __torajs_anyv_unbox_tag(a) == 5;
+                let b_undef = __torajs_anyv_unbox_tag(b) == 5;
+                if a_undef || b_undef {
+                    return a_undef && !b_undef;
+                }
+                if self.mode & MODE_ANY_DEFAULT != 0 {
+                    // Step 10 — ToString both sides, UTF-16 order.
+                    let sa = __torajs_anyv_to_str(a);
+                    let sb = __torajs_anyv_to_str(b);
+                    let r = __torajs_str_sort_cmp(sa as *const u8, sb as *const u8);
+                    __torajs_str_drop(sa);
+                    __torajs_str_drop(sb);
+                    return r > 0;
+                }
+                // Boxed dual-entry comparator — argv is borrowed,
+                // the owned return releases after ToNumber.
+                let cb: unsafe extern "C" fn(*mut c_void, *const u64, i64) -> u64 =
+                    core::mem::transmute(self.fn_ptr);
+                let argv = [a, b];
+                let r = cb(self.env as *mut c_void, argv.as_ptr(), 2);
+                let n = __torajs_anyv_to_number(r);
+                __torajs_value_drop_heap(r as *mut c_void);
+                return n > 0.0;
+            }
             if self.mode & MODE_ELEM_STR != 0 {
                 let pre = __torajs_str_sort_undef_pre(a as *const u8, b as *const u8);
                 if pre != 2 {
@@ -269,7 +342,12 @@ pub unsafe extern "C" fn __torajs_arr_sort_cb(
         }
         let head = *(arr.add(ARR_HDR_HEAD_OFF) as *const u32) as usize;
         let slots = arr_data(arr).add(head * 8) as *mut u64;
-        let cmp = Cmp { fn_ptr, env, mode };
+        let cmp = Cmp {
+            fn_ptr,
+            env,
+            mode,
+            rebox_kind: torajs_rc::ARR_KIND_UNSET,
+        };
         if len <= INSERTION_RUN {
             insertion(slots, len, &cmp);
             return;
@@ -279,6 +357,61 @@ pub unsafe extern "C" fn __torajs_arr_sort_cb(
         let scratch = malloc(len.div_ceil(2) * 8) as *mut u64;
         sort_range(slots, scratch, 0, len, &cmp);
         free(scratch as *mut c_void);
+    }
+}
+
+/// `xs.sort(cmp?)` where the receiver arrived through `any`
+/// (backfill chunk 4) — the same stable merge sort over 8-byte
+/// slots, comparing through the ANY modes: a user comparator rides
+/// the boxed dual-entry ABI (`has_cb != 0`), its absence is the
+/// §23.1.3.30.2 step-10 default (undefined-last + ToString UTF-16
+/// order). Pure slot permutation — refcounts are untouched; a
+/// typed block behind the `any` view keeps its raw slot layout
+/// (compares rebox per the recorded elem kind). Answers the same
+/// pointer for chaining.
+///
+/// # Safety
+/// `arr` is a valid `Tag::Arr` heap pointer; when `has_cb != 0`,
+/// `(cb_env, cb_entry)` is a live closure cell + its non-zero boxed
+/// dual entry.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_any_sort(
+    arr: *mut u8,
+    cb_env: *mut c_void,
+    cb_entry: u64,
+    has_cb: i64,
+) -> *mut u8 {
+    unsafe {
+        let len = *(arr.add(ARR_HDR_LEN_OFF) as *const u64) as usize;
+        if len < 2 {
+            return arr;
+        }
+        let header = &*(arr as *const torajs_rc::HeapHeader);
+        let rebox_kind = if header.flags & torajs_rc::FLAG_ARR_ANY != 0 {
+            torajs_rc::ARR_KIND_UNSET
+        } else {
+            header.arr_elem_kind()
+        };
+        let head = *(arr.add(ARR_HDR_HEAD_OFF) as *const u32) as usize;
+        let slots = arr_data(arr).add(head * 8) as *mut u64;
+        let cmp = Cmp {
+            fn_ptr: cb_entry as usize as *const u8,
+            env: cb_env as *mut u8,
+            mode: if has_cb != 0 {
+                MODE_ANY_BOXED
+            } else {
+                MODE_ANY_DEFAULT
+            },
+            rebox_kind,
+        };
+        if len <= INSERTION_RUN {
+            insertion(slots, len, &cmp);
+            return arr;
+        }
+        let scratch = malloc(len.div_ceil(2) * 8) as *mut u64;
+        sort_range(slots, scratch, 0, len, &cmp);
+        free(scratch as *mut c_void);
+        arr
     }
 }
 
@@ -296,6 +429,10 @@ mod tests {
     pub unsafe extern "C" fn __torajs_throw_check() -> i64 {
         THROW_FLAG.load(Ordering::Relaxed)
     }
+
+    // The ANY-mode extern stubs (anyv_* / str_sort_cmp / str_drop)
+    // live in lib.rs's crate-level `#[cfg(test)]` stub block beside
+    // `__torajs_value_drop_heap` — single home per symbol.
 
     /// Build a minimal Array<T> heap block: [header 8][len 8]
     /// [cap+head 8][props 8][slots]. Returns the backing Vec (keep

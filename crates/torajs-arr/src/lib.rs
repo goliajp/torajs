@@ -172,6 +172,41 @@ pub extern "C" fn __torajs_str_sort_undef_pre(_a: *const u8, _b: *const u8) -> i
     );
 }
 
+// The ANY sort modes (sort.rs is_gt, backfill chunk 4) reference
+// the anyvalue NaN-box protocol + the str default comparator; all
+// live in their staticlibs at `tr build` link time. No sort unit
+// test sets the ANY bits — panic stubs keep misuse loud.
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_box_from_pair(_t: i64, _v: i64) -> u64 {
+    panic!("torajs-arr unit-test stub: __torajs_anyv_box_from_pair (ANY sort mode) unexpected");
+}
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_unbox_tag(_v: u64) -> i64 {
+    panic!("torajs-arr unit-test stub: __torajs_anyv_unbox_tag (ANY sort mode) unexpected");
+}
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_to_number(_v: u64) -> f64 {
+    panic!("torajs-arr unit-test stub: __torajs_anyv_to_number (ANY sort mode) unexpected");
+}
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_to_str(_v: u64) -> *mut core::ffi::c_void {
+    panic!("torajs-arr unit-test stub: __torajs_anyv_to_str (ANY sort mode) unexpected");
+}
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_sort_cmp(_a: *const u8, _b: *const u8) -> i64 {
+    panic!("torajs-arr unit-test stub: __torajs_str_sort_cmp (ANY sort mode) unexpected");
+}
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_drop(_s: *mut core::ffi::c_void) {
+    panic!("torajs-arr unit-test stub: __torajs_str_drop (ANY sort mode) unexpected");
+}
+
 // `__torajs_split_block_free_push` (called from `__torajs_arr_free`
 // in alloc.rs) is defined in runtime_str.c at `tr build` link time;
 // no rlib provider, so a stub is required for cargo test linking.
