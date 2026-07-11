@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-11T10:50:53.783Z",
+  "generatedAt": "2026-07-11T16:38:40.682Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-11T10:32:28Z",
-    "headSha": "12115353",
-    "elapsedSec": 493.27,
+    "ranAt": "2026-07-11T16:07:21Z",
+    "headSha": "983111ff",
+    "elapsedSec": 531.56,
     "workers": 8,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 3363,
+    "pass": 3805,
     "passNoOracle": 77,
     "passNegative": 4444,
-    "passTotal": 7884,
-    "bug": 2487,
-    "incompatible": 42803,
-    "bunSkip": 12862,
+    "passTotal": 8326,
+    "bug": 2057,
+    "incompatible": 42791,
+    "bunSkip": 12861,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 10371,
-    "passRateInScope": 14.83,
-    "passRateTrAccepted": 76.02
+    "trAccepted": 10383,
+    "passRateInScope": 15.66,
+    "passRateTrAccepted": 80.19
   },
   "torajs": {
-    "commit": "07e51d2b",
-    "commitSubject": "feat: UCD 16.0.0 property-range tables land in torajs-regex",
+    "commit": "b5019195",
+    "commitSubject": "feat: annexB string.prototype html methods",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,73 +713,84 @@
   },
   "commits": [
     {
-      "hash": "07e51d2b",
-      "subject": "feat: UCD 16.0.0 property-range tables land in torajs-regex"
+      "hash": "b5019195",
+      "subject": "feat: annexB string.prototype html methods"
     },
     {
-      "hash": "26b7b14b",
-      "subject": "feat(labs): ucd-gen — UCD 16.0.0 property-range table generator"
+      "hash": "9758ca07",
+      "subject": "feat: Object.values/entries any-receiver ToObject dispatch"
     },
     {
-      "hash": "2e98dcfc",
-      "subject": "chore(dashboard): refresh @ 0c892069 - rotation 72 (array any-dispatch backfill lands end to end - concat/fill/copyWithin/splice ride a new kind-aware transform kernel with the as-any receiver mark fix unlocking every kind-aware arm, the callback six (every/some/find/findIndex/reduce/reduceRight) share early-exit and fold loops over the boxed dual-entry ABI, sort grows ANY modes on the merge-sort kernel with compare-time rebox and the iterator trio reads kind-aware - test262 passTotal 7850 to 7884, bug 2521 to 2487; gates 1437 to 1440 four green, tr 61663872, nextest 387 four-crate green)"
+      "hash": "1d5eb1d5",
+      "subject": "chore: test262 accounting at 983111ff — passTotal 8326, bug 2057"
     },
     {
-      "hash": "0c892069",
-      "subject": "chore: test262 refresh @ 12115353 - array any-dispatch backfill close (passTotal 7850 to 7884, bug 2521 to 2487)"
+      "hash": "983111ff",
+      "subject": "feat: synthesize Script=Unknown per UAX24 in UCD tables"
     },
     {
-      "hash": "12115353",
-      "subject": "feat: Array sort/keys/values/entries land in the any-method dispatch table"
+      "hash": "d12fa31e",
+      "subject": "fix: release-build unlinks exec binaries before copy"
     },
     {
-      "hash": "e8cb89a2",
-      "subject": "feat: Array every/some/find/findIndex/reduce/reduceRight land in the any-method dispatch table"
+      "hash": "2963c687",
+      "subject": "fix: multiarg console.log borrow judgement covers container index reads"
     },
     {
-      "hash": "92f57e22",
-      "subject": "feat: Array concat/fill/copyWithin/splice land in the any-method dispatch table"
+      "hash": "4cd061a8",
+      "subject": "fix: Array.from(string) iterates code points, encoding-aware"
     },
     {
-      "hash": "f1d274a7",
-      "subject": "feat: Array lastIndexOf/reverse land in the any-method dispatch table"
+      "hash": "366e611b",
+      "subject": "fix: str.split on the code-unit grid vs utf-16 haystacks"
     },
     {
-      "hash": "56fb2475",
-      "subject": "chore(dashboard): refresh @ 5e15e3ca - rotation 71 (closure-reflection RFC lands end to end - X.prototype.m static forms mint the chunk-711 reified method cells with monkey-patch entries winning over the interned table and the hasOwnProperty.call idiom coming alive; gOPD grows its Closure arm answering the virtual ES 20.2.4 name/length descriptors off the metadata chain; delete tombstones the virtual pair via header flags 13/14 with writes refusing readonly unconditionally per the Function.prototype walk; dynamic keys answer the same metadata through per-fn-addr interned immortal name cells - test262 passTotal 7573 to 7850, bug 2770 to 2521, TypeError cluster 335 to 164; gates 1432 to 1436 four green, tr baseline 61647360 stable, nextest anyvalue 96 meta+rc green)"
+      "hash": "ba4efeda",
+      "subject": "fix: arr.join family encoding-aware vs dual-encoding str payloads"
     },
     {
-      "hash": "5e15e3ca",
-      "subject": "chore: test262 refresh @ a7e531fa - closure-reflection RFC close (passTotal 7573 to 7850, bug 2770 to 2521)"
+      "hash": "ac9334a3",
+      "subject": "fix: UCD tables realigned to 17.0.0 + harness buildString join shape"
     },
     {
-      "hash": "a7e531fa",
-      "subject": "feat: dynamic-key member reads answer fn name/length on closure receivers"
+      "hash": "f42ba781",
+      "subject": "feat: regex unicode property escapes full surface via UCD 16.0.0 tables"
     },
     {
-      "hash": "fe1a0379",
-      "subject": "feat: fn name/length carry the ES 20.2.4 attribute protocol on any receivers"
+      "hash": "0c07ab78",
+      "subject": "chore(dashboard): refresh @ 07e51d2b - rotation 72 close (array any-dispatch backfill four green chunks + regex property-escapes RFC opens with the UCD 16.0.0 codegen tables landing - 21309 ranges across gc/script/scx/binary families baked into libtorajs_regex; test262 passTotal 7884, bug 2487; gates 1437 to 1440, tr 61911552)"
     }
   ],
-  "headSha": "07e51d2b",
+  "headSha": "b5019195",
   "autorun": {
-    "total": 378,
+    "total": 379,
     "baselineTarget": 10,
-    "bySelf": 373,
+    "bySelf": 374,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1783761984-1b5c",
-      "at": "2026-07-11T09:26:24Z",
-      "ts": 1783761984,
+      "rotationId": "r-1783767402-6bb4",
+      "at": "2026-07-11T10:56:42Z",
+      "ts": 1783767402,
       "trigger": "self",
-      "prevHead": "f1d274a7",
-      "handoffSha": "sha256:7bdc80732bdd07de3bb7a6a953189228f75d767059829b7fead7cd566e979b39",
-      "handoffAgeSec": 0,
+      "prevHead": "0c07ab78",
+      "handoffSha": "sha256:a40ec843f071e2be21f2b1946059546c8dfb75969664161e79a53a1ce98871cb",
+      "handoffAgeSec": 303,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1783767402-6bb4",
+        "at": "2026-07-11T10:56:42Z",
+        "ts": 1783767402,
+        "trigger": "self",
+        "prevHead": "0c07ab78",
+        "handoffSha": "sha256:a40ec843f071e2be21f2b1946059546c8dfb75969664161e79a53a1ce98871cb",
+        "handoffAgeSec": 303,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1783761984-1b5c",
         "at": "2026-07-11T09:26:24Z",
@@ -876,17 +887,6 @@
         "prevHead": "e708b849",
         "handoffSha": "sha256:e05d2e21f55a22f730ef301b4515c23658e3d4c1a2cfb4831cfc95c37f749e8a",
         "handoffAgeSec": 43,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1783684511-4fb6",
-        "at": "2026-07-10T11:55:11Z",
-        "ts": 1783684511,
-        "trigger": "self",
-        "prevHead": "a97e6c08",
-        "handoffSha": "sha256:84dcdfd66d891c5a25f7ec8452e90a621d7aa8d42ca4c3021bb94d8cb2f3ac09",
-        "handoffAgeSec": 6,
         "conformanceBefore": null,
         "commitsInSession": null
       }
