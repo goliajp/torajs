@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-10T22:53:53.476Z",
+  "generatedAt": "2026-07-11T05:56:58.255Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 79.4
   },
   "torajs": {
-    "commit": "fb055e52",
-    "commitSubject": "chore(dashboard): refresh @ a414071c - rotation 68 (805-809: closure-global wrap gate sheds the ret-ann requirement; void-call-as-value answers undefined across every lane; undefined/null array literals route to the tagged any lane fixing a print face and a scalar-anchor SIGSEGV; multi-arg console.log evaluates all arguments before printing with phase-1 rc_inc pinning print-as-evaluated semantics; any-annotated top-level bindings promote to a NaN-box global slot with annotation-over-literal checker registration; five stale records audited closed; gates 1418 -> 1423 six green one gate-caught fixup, tr baseline 61614080, nextest core 180)",
+    "commit": "076d47c7",
+    "commitSubject": "chore: rustfmt fixup for the delete-operator files",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "076d47c7",
+      "subject": "chore: rustfmt fixup for the delete-operator files"
+    },
+    {
+      "hash": "94e533eb",
+      "subject": "feat: delete operator on any receivers (ES §13.5.1)"
+    },
+    {
+      "hash": "458e7a6c",
+      "subject": "feat: class .length answers the ctor's expected argument count"
+    },
+    {
+      "hash": "0c1f8245",
+      "subject": "feat: ctor-less derived classes synthesize the implicit default ctor"
+    },
+    {
+      "hash": "4b1cde81",
+      "subject": "feat: top-level ident-alias bindings promote to data-global slots"
+    },
+    {
+      "hash": "2026bc9a",
+      "subject": "chore(bench,test262): full-matrix refresh @ a414071c"
+    },
+    {
       "hash": "fb055e52",
       "subject": "chore(dashboard): refresh @ a414071c - rotation 68 (805-809: closure-global wrap gate sheds the ret-ann requirement; void-call-as-value answers undefined across every lane; undefined/null array literals route to the tagged any lane fixing a print face and a scalar-anchor SIGSEGV; multi-arg console.log evaluates all arguments before printing with phase-1 rc_inc pinning print-as-evaluated semantics; any-annotated top-level bindings promote to a NaN-box global slot with annotation-over-literal checker registration; five stale records audited closed; gates 1418 -> 1423 six green one gate-caught fixup, tr baseline 61614080, nextest core 180)"
     },
@@ -735,33 +759,9 @@
     {
       "hash": "40f8cdac",
       "subject": "fix: undefined/null array-literal elements route to the tagged any lane"
-    },
-    {
-      "hash": "7a643167",
-      "subject": "fix: a void call used as a value answers undefined"
-    },
-    {
-      "hash": "22580f92",
-      "subject": "feat: un-annotated named-fn references promote to closure globals"
-    },
-    {
-      "hash": "37c28aa2",
-      "subject": "chore(dashboard): refresh @ 8bfd881d - rotation 67 (798-804: fn-name .name registry rewire - typed-tier alias/field/bind receivers read the runtime table, bound fns register 'bound <fn>' with print-face strip; regex debt axis cleared - search(RegExp) + substr-receiver gate on the regex method family, 32-capture cap retired for stride-sized saves, multi-digit decimal backrefs, split capture-splice, annex b octal fallback; nine pre-existing silent-wrongs fixed; gates 1410 -> 1418 seven green, tr baseline 61614016, nextest regex+core 509)"
-    },
-    {
-      "hash": "8bfd881d",
-      "subject": "feat: annex b octal fallback for out-of-range decimal backrefs"
-    },
-    {
-      "hash": "beaeb52c",
-      "subject": "feat: split() splices capture-group values into the result"
-    },
-    {
-      "hash": "b3faf3c6",
-      "subject": "fix: decimal backrefs read the longest digit run"
     }
   ],
-  "headSha": "fb055e52",
+  "headSha": "076d47c7",
   "autorun": {
     "total": 375,
     "baselineTarget": 10,
