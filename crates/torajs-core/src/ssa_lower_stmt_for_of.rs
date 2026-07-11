@@ -44,6 +44,7 @@ pub(crate) fn lower(
     i_ident: &str,
     elem_expr: crate::ast::ExprId,
     body: &Stmt,
+    forin_obj: Option<crate::ast::ExprId>,
 ) {
     let index_eid = resolve_index_eid(ctx, elem_expr);
     let src_ref_eid = if let Expr::Index { obj, .. } = ctx.ast.get_expr(index_eid) {
@@ -165,6 +166,9 @@ pub(crate) fn lower(
     ctx.shadow_stack.push(Vec::new());
     let v_val = ctx.lower_expr(elem_expr);
     let v_ty = ctx.operand_ty(&v_val);
+    if let Some(obj_eid) = forin_obj {
+        emit_forin_guard(ctx, obj_eid, &v_val, step_blk);
+    }
     let v_slot = ctx.alloca(v_ty, Some(var_name));
     ctx.f.append_void(
         ctx.cur_block,
@@ -206,6 +210,48 @@ pub(crate) fn lower(
     for (n, prev) in i_shadows {
         ctx.locals.insert(n, prev);
     }
+}
+
+/// chunk B3 (RFC 20260711 for-in) — mid-loop-delete guard: the loop
+/// walks the key snapshot `Object.__forinKeys` took at entry, but ES
+/// §14.7.5 EnumerateObjectProperties forbids visiting a property
+/// deleted during enumeration. Re-check the key against the live
+/// object (`any_prop_has`) and skip straight to the step block when
+/// it's gone. Only an `any` receiver can mutate mid-loop (`delete`
+/// pins any receivers at typecheck), so typed sources skip the guard
+/// entirely — their key set is fixed.
+fn emit_forin_guard(
+    ctx: &mut LowerCtx,
+    obj_eid: crate::ast::ExprId,
+    key_val: &Operand,
+    step_blk: crate::ssa::BlockId,
+) {
+    let obj_op = ctx.lower_expr(obj_eid);
+    if ctx.operand_ty(&obj_op) != Type::Any {
+        return;
+    }
+    let has = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(ctx.intrinsics.any_prop_has, vec![obj_op, key_val.clone()]),
+        Type::I64,
+        None,
+    );
+    let cond = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::ICmp(IPred::Ne, Operand::Value(has), Operand::ConstI64(0)),
+        Type::Bool,
+        None,
+    );
+    let live_blk = ctx.f.add_block();
+    ctx.f.set_term(
+        ctx.cur_block,
+        Terminator::CondBr {
+            cond: Operand::Value(cond),
+            then_blk: live_blk,
+            else_blk: step_blk,
+        },
+    );
+    ctx.cur_block = live_blk;
 }
 
 /// Peel the for-await `.value` Member wrapper (P10.3-A1) to the

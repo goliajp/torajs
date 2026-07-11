@@ -323,6 +323,7 @@ pub(crate) fn build(
         any_method_call_opt: init_c.any_substrate.any_method_call_opt,
         any_method_probe: init_c.any_substrate.any_method_probe,
         any_prop_delete: init_c.any_substrate.any_prop_delete,
+        any_prop_has: init_c.any_substrate.any_prop_has,
         any_unbox_tag: init_c.any_substrate.any_unbox_tag,
         any_unbox_value: init_c.any_substrate.any_unbox_value,
         any_cell_ptr: init_c.any_substrate.any_cell_ptr,

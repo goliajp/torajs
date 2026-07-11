@@ -111,6 +111,7 @@ mod method_call_weak;
 mod method_value;
 mod name_get;
 mod prop_delete;
+mod prop_has;
 
 pub mod inspect;
 

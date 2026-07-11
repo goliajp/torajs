@@ -125,6 +125,9 @@ impl Checker {
                 i_ident,
                 elem_expr,
                 body,
+                // chunk B3 — guard obj typing is a lowering concern
+                // (the hoisted obj let is checked on its own decl).
+                forin_obj: _,
             } => {
                 // P5.3 generic for-of + P5.3 Phase B Struct skip +
                 // P6.4c Map/Set/MapIter/ArrIter skip. See

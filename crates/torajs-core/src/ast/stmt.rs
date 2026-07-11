@@ -106,6 +106,12 @@ pub enum Stmt {
         i_ident: String,
         elem_expr: ExprId,
         body: Box<Stmt>,
+        /// chunk B3 (RFC 20260711 for-in) — `Some(obj Ident ExprId)`
+        /// when this loop is a for-in desugar walking the object's
+        /// key snapshot. The lowering re-checks each key against the
+        /// live object (`any_prop_has`) before the body runs so
+        /// properties deleted mid-loop are not visited (ES §14.7.5).
+        forin_obj: Option<ExprId>,
     },
     /// `break;` — exits the innermost enclosing loop. M1.7.
     Break,

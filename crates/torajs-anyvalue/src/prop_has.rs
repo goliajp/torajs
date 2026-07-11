@@ -1,0 +1,172 @@
+//! `__torajs_any_prop_has` — own-property presence probe on an `any`
+//! receiver (chunk B3, RFC 20260711 for-in).
+//!
+//! Primary consumer: the for-in mid-loop-delete guard — ES §14.7.5
+//! EnumerateObjectProperties requires that properties deleted during
+//! enumeration are NOT visited, so the lowering re-checks each key
+//! before running the body. Also the substrate the hasOwnProperty /
+//! propertyIsEnumerable port (RFC chunk D) will consume.
+//!
+//! Presence — not value truthiness: an entry whose stored value is
+//! `undefined` still answers 1 (mirrors `"k" in o`), which is why the
+//! dynobj arms route through `__torajs_dynobj_has` instead of the
+//! nullish-tag probe `any_method_probe` uses.
+//!
+//! Per-receiver dispatch mirrors `prop_delete`:
+//!
+//! - null / undefined receiver → catchable TypeError, answers 0
+//!   (hasOwnProperty ToObject shape; the for-in guard never sends
+//!   these — a null source enumerates nothing upstream).
+//! - `Tag::DynObj` → `__torajs_dynobj_has`.
+//! - `Tag::Arr` → canonical index in `[0, len)` or `"length"` → 1;
+//!   otherwise the expando props dynobj.
+//! - `Tag::Closure` → expando props dynobj; `"length"` / `"name"`
+//!   answer 1 per §20.2.4 (own non-enumerable in spec — tr carries
+//!   them virtually).
+//! - `Tag::Obj` (struct cell) → class-layout field probe.
+//! - `Tag::Str` cell / ShortStr imm → index in `[0, len)` or
+//!   `"length"` → 1 (§22.1.5.2).
+//! - every other receiver → 0 (primitive ToObject wrappers carry no
+//!   own string-keyed properties).
+
+use core::ffi::c_void;
+
+use torajs_rc::Tag;
+
+use crate::member_get::{closure_props, recv_cell};
+use crate::nanbox::{AnyValue, is_null, is_short_str, is_undefined};
+
+unsafe extern "C" {
+    /// torajs-dynobj — own-entry presence (1 = live entry).
+    fn __torajs_dynobj_has(obj: *const c_void, key: *const c_void) -> i32;
+    /// torajs-structmeta — class-layout lookup + field probe.
+    fn __torajs_struct_layout_lookup(class_tag: u32) -> *const c_void;
+    fn __torajs_struct_field_find(layout: *const c_void, name: *const u8, name_len: u32) -> u32;
+    /// torajs-throw — record a pending catchable TypeError.
+    fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
+}
+
+/// Layout mirrors (see `member_get`): struct `class_tag` u32 at +8;
+/// Str len u32 at +8, bytes at +16; Arr len u64 at +8, inline
+/// props-dynobj slot at +24 (`torajs_arr::layout::ARR_PROPS_OFF`);
+/// Closure props-dynobj slot at +24.
+const OBJ_CLASS_TAG_OFF: usize = 8;
+const STR_LEN_OFF: usize = 8;
+const STR_DATA_OFF: usize = 16;
+const ARR_LEN_OFF: usize = 8;
+const ARR_PROPS_OFF: usize = 24;
+
+/// Decode the key Str cell to `(bytes, len)`.
+#[inline]
+unsafe fn key_bytes(key: *const c_void) -> (*const u8, u32) {
+    let len = unsafe { key.cast::<u8>().add(STR_LEN_OFF).cast::<u32>().read() };
+    (unsafe { key.cast::<u8>().add(STR_DATA_OFF) }, len)
+}
+
+/// Parse a canonical array-index key (`"0"`, `"12"` — all digits, no
+/// leading zero except `"0"` itself). `None` for anything else.
+unsafe fn canonical_index(key: *const c_void) -> Option<u64> {
+    let (bytes, len) = unsafe { key_bytes(key) };
+    if len == 0 || len > 20 {
+        return None;
+    }
+    let s = unsafe { core::slice::from_raw_parts(bytes, len as usize) };
+    if !s.iter().all(u8::is_ascii_digit) || (len > 1 && s[0] == b'0') {
+        return None;
+    }
+    let mut v: u64 = 0;
+    for &b in s {
+        v = v.checked_mul(10)?.checked_add((b - b'0') as u64)?;
+    }
+    Some(v)
+}
+
+/// `true` iff the key spells exactly `name`.
+unsafe fn key_is(key: *const c_void, name: &[u8]) -> bool {
+    let (bytes, len) = unsafe { key_bytes(key) };
+    len as usize == name.len()
+        && unsafe { core::slice::from_raw_parts(bytes, len as usize) } == name
+}
+
+/// See module doc. `key` is a live Str cell (the lowering interns
+/// static names and materializes dynamic string keys before the
+/// call).
+///
+/// # Safety
+/// Cell receivers are valid heap pointers; `key` is a live Str cell.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_any_prop_has(recv: AnyValue, key: *const c_void) -> i64 {
+    if is_null(recv) || is_undefined(recv) {
+        unsafe {
+            __torajs_throw_type_error(c"cannot read properties of null or undefined".as_ptr());
+        }
+        return 0;
+    }
+    if is_short_str(recv) {
+        // ShortStr imm — len lives in bits 47..40 (SSO layout).
+        let len = (recv >> 40) & 0xFF;
+        return unsafe { str_index_has(len, key) };
+    }
+    match recv_cell(recv) {
+        Some((ptr, t)) if t == Tag::DynObj as u16 => unsafe {
+            __torajs_dynobj_has(ptr, key) as i64
+        },
+        Some((ptr, t)) if t == Tag::Arr as u16 => {
+            let len = unsafe { ptr.cast::<u8>().add(ARR_LEN_OFF).cast::<u64>().read() };
+            if let Some(i) = unsafe { canonical_index(key) }
+                && i < len
+            {
+                return 1;
+            }
+            if unsafe { key_is(key, b"length") } {
+                return 1;
+            }
+            let props = unsafe {
+                ptr.cast::<u8>()
+                    .add(ARR_PROPS_OFF)
+                    .cast::<*const c_void>()
+                    .read()
+            };
+            if props.is_null() {
+                0
+            } else {
+                unsafe { __torajs_dynobj_has(props, key) as i64 }
+            }
+        }
+        Some((ptr, t)) if t == Tag::Closure as u16 => {
+            if unsafe { key_is(key, b"length") } || unsafe { key_is(key, b"name") } {
+                return 1;
+            }
+            let props = unsafe { closure_props(ptr) };
+            if props.is_null() {
+                0
+            } else {
+                unsafe { __torajs_dynobj_has(props, key) as i64 }
+            }
+        }
+        Some((ptr, t)) if t == Tag::Obj as u16 => {
+            let class_tag = unsafe { ptr.cast::<u8>().add(OBJ_CLASS_TAG_OFF).cast::<u32>().read() };
+            let layout = unsafe { __torajs_struct_layout_lookup(class_tag) };
+            if layout.is_null() {
+                return 0;
+            }
+            let (name_bytes, name_len) = unsafe { key_bytes(key) };
+            (unsafe { __torajs_struct_field_find(layout, name_bytes, name_len) } != u32::MAX) as i64
+        }
+        Some((ptr, t)) if t == Tag::Str as u16 => {
+            let len = unsafe { ptr.cast::<u8>().add(STR_LEN_OFF).cast::<u32>().read() } as u64;
+            unsafe { str_index_has(len, key) }
+        }
+        _ => 0,
+    }
+}
+
+/// Shared Str-receiver arm: index in `[0, len)` or `"length"` → 1.
+unsafe fn str_index_has(len: u64, key: *const c_void) -> i64 {
+    if let Some(i) = unsafe { canonical_index(key) }
+        && i < len
+    {
+        return 1;
+    }
+    unsafe { key_is(key, b"length") as i64 }
+}

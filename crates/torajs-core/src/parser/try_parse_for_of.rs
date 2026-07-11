@@ -17,12 +17,15 @@ use super::*;
 
 use super::forof_destr::ForOfPatScan;
 
-/// chunk B2 — prepend the fn-scoped `var k;` declaration (var-form
-/// for-of/for-in heads) so var-hoist lifts the binding past the loop.
-fn wrap_var_decl(var_decl: Option<Stmt>, stmt: Stmt) -> Stmt {
-    match var_decl {
-        Some(d) => Stmt::Block(vec![d, stmt]),
-        None => stmt,
+/// chunk B2/B3 — prepend the head-form prelude statements (the
+/// fn-scoped `var k;` declaration and/or the for-in object hoist
+/// `let __forin_obj_N = <src>;`) before the loop statement.
+fn wrap_prelude(mut prelude: Vec<Stmt>, stmt: Stmt) -> Stmt {
+    if prelude.is_empty() {
+        stmt
+    } else {
+        prelude.push(stmt);
+        Stmt::Block(prelude)
     }
 }
 
@@ -75,6 +78,28 @@ impl<'a> Parser<'a> {
             callee: keys_member,
             args: vec![raw_src],
         })
+    }
+
+    /// chunk B2/B3 — for-in source desugar. Hoists the head object
+    /// ONCE to a fresh binding (`let __forin_obj_N = raw_src`) —
+    /// §14.7.5 evaluates the head expression once, so the keys call
+    /// and the per-iter mid-loop-delete guard must keep reading that
+    /// snapshot even when the user reassigns the source binding
+    /// inside the body — then wraps `Object.__forinKeys` over the
+    /// hoisted binding so the body walks a `string[]`. Returns
+    /// `(keys_src, obj Ident ExprId, hoist stmt)`.
+    fn make_forin_src(&mut self, raw_src: ExprId) -> (ExprId, ExprId, Stmt) {
+        let id = self.mint_desugar_id();
+        let name = format!("__forin_obj_{id}");
+        let hoist = Stmt::LetDecl {
+            mutable: false,
+            name: name.clone(),
+            type_ann: None,
+            init: raw_src,
+            is_var: false,
+        };
+        let obj_eid = self.ast.add_expr(Expr::Ident(name));
+        (self.wrap_forin_keys_src(obj_eid), obj_eid, hoist)
     }
 
     /// chunk B2 — `var` head form: the fn-scoped declaration
@@ -210,12 +235,11 @@ impl<'a> Parser<'a> {
         self.pos += 1; // consume "of" / "in"
         let _ = have_type_ann; // not yet propagated; suppress unused warning
         let raw_src = self.parse_expr()?;
-        // for-in wraps `Object.__forinKeys(raw_src)` so the body sees
-        // a string[]; for-of uses raw_src directly.
-        let src = if kind == "in" {
-            self.wrap_forin_keys_src(raw_src)
+        let (src, forin_obj, forin_obj_hoist) = if kind == "in" {
+            let (s, o, h) = self.make_forin_src(raw_src);
+            (s, Some(o), Some(h))
         } else {
-            raw_src
+            (raw_src, None, None)
         };
         match self.peek() {
             Token::RParen => self.pos += 1,
@@ -239,6 +263,10 @@ impl<'a> Parser<'a> {
             body
         };
         let var_decl = self.make_forof_var_decl(is_var_decl, &assign_target);
+        // Prelude order: the fn-scoped `var k;` first, then the
+        // for-in object hoist (its init may reference `k`-free exprs
+        // only, but keeping decl-before-init order is the safe form).
+        let prelude: Vec<Stmt> = var_decl.into_iter().chain(forin_obj_hoist).collect();
 
         // P-iter — `for (let v of <expr>.split(<literal_sep>))` →
         // emit Stmt::ForOfSplitIter. ssa_lower handles via stack
@@ -261,8 +289,8 @@ impl<'a> Parser<'a> {
         {
             let parent_id = *parent;
             let sep_id = args[0];
-            return Ok(Some(wrap_var_decl(
-                var_decl,
+            return Ok(Some(wrap_prelude(
+                prelude,
                 Stmt::ForOfSplitIter {
                     var_name,
                     parent: parent_id,
@@ -294,7 +322,7 @@ impl<'a> Parser<'a> {
             let callee_name = callee_name.clone();
             let gen_stmt =
                 self.desugar_forof_generator(&callee_name, yield_ty, src, var_name, body);
-            return Ok(Some(wrap_var_decl(var_decl, gen_stmt)));
+            return Ok(Some(wrap_prelude(prelude, gen_stmt)));
         }
 
         // P5.3 — default for-of emits Stmt::ForOf wrapped in a
@@ -304,8 +332,9 @@ impl<'a> Parser<'a> {
         // protocol. The pre-allocated `elem_expr = src_ident[i_ident]`
         // routes element loads through Expr::Index lowering — handles
         // Type::Any / Substr / typed-Array uniformly.
-        let default_stmt = self.emit_forof_default(var_name, var_type_ann, src, body, is_async);
-        Ok(Some(wrap_var_decl(var_decl, default_stmt)))
+        let default_stmt =
+            self.emit_forof_default(var_name, var_type_ann, src, body, is_async, forin_obj);
+        Ok(Some(wrap_prelude(prelude, default_stmt)))
     }
 
     /// Generator-factory for-of desugar (I.2) — split from
@@ -404,6 +433,7 @@ impl<'a> Parser<'a> {
         src: ExprId,
         body: Stmt,
         is_async: bool,
+        forin_obj: Option<ExprId>,
     ) -> Stmt {
         let id = self.mint_desugar_id();
         let i_name = format!("__forof_i_{id}");
@@ -448,6 +478,7 @@ impl<'a> Parser<'a> {
             i_ident: i_name,
             elem_expr,
             body: Box::new(body),
+            forin_obj,
         };
         if src_is_ident {
             forof_stmt
