@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-11T18:51:46.953Z",
+  "generatedAt": "2026-07-11T20:21:21.688Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-11T18:32:23Z",
-    "headSha": "d7a50641",
-    "elapsedSec": 425.42,
+    "ranAt": "2026-07-11T19:50:40Z",
+    "headSha": "5e41403b",
+    "elapsedSec": 424.32,
     "workers": 8,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 3831,
+    "pass": 3949,
     "passNoOracle": 77,
     "passNegative": 4444,
-    "passTotal": 8352,
-    "bug": 2031,
+    "passTotal": 8470,
+    "bug": 1913,
     "incompatible": 42791,
     "bunSkip": 12861,
     "harnessError": 0,
     "inScope": 53174,
     "trAccepted": 10383,
-    "passRateInScope": 15.71,
-    "passRateTrAccepted": 80.44
+    "passRateInScope": 15.93,
+    "passRateTrAccepted": 81.58
   },
   "torajs": {
-    "commit": "fe97face",
-    "commitSubject": "feat: builtin prototype methods answer own-property probes",
+    "commit": "5981af91",
+    "commitSubject": "feat: string slice-family any dispatch — substring substr at charCodeAt",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "5981af91",
+      "subject": "feat: string slice-family any dispatch — substring substr at charCodeAt"
+    },
+    {
+      "hash": "96c02505",
+      "subject": "feat: date setUTC setter family across both tiers"
+    },
+    {
+      "hash": "5762ebef",
+      "subject": "chore: test262 accounting at 5e41403b — passTotal 8470, bug 1913"
+    },
+    {
+      "hash": "5e41403b",
+      "subject": "style: fmt prop_delete proto-tag binding"
+    },
+    {
+      "hash": "866fcc33",
+      "subject": "feat: delete tombstones builtin prototype interned methods"
+    },
+    {
+      "hash": "d393d249",
+      "subject": "feat: gopd synthesizes builtin prototype method descriptors"
+    },
+    {
+      "hash": "b6eedc71",
+      "subject": "chore: hardev dashboard snapshot"
+    },
+    {
       "hash": "fe97face",
       "subject": "feat: builtin prototype methods answer own-property probes"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "d7a50641",
       "subject": "feat: annexB html methods any-receiver dispatch"
-    },
-    {
-      "hash": "adfc4392",
-      "subject": "chore: hardev dashboard snapshot"
-    },
-    {
-      "hash": "b5019195",
-      "subject": "feat: annexB string.prototype html methods"
-    },
-    {
-      "hash": "9758ca07",
-      "subject": "feat: Object.values/entries any-receiver ToObject dispatch"
-    },
-    {
-      "hash": "1d5eb1d5",
-      "subject": "chore: test262 accounting at 983111ff — passTotal 8326, bug 2057"
-    },
-    {
-      "hash": "983111ff",
-      "subject": "feat: synthesize Script=Unknown per UAX24 in UCD tables"
-    },
-    {
-      "hash": "d12fa31e",
-      "subject": "fix: release-build unlinks exec binaries before copy"
-    },
-    {
-      "hash": "2963c687",
-      "subject": "fix: multiarg console.log borrow judgement covers container index reads"
     }
   ],
-  "headSha": "fe97face",
+  "headSha": "5981af91",
   "autorun": {
-    "total": 380,
+    "total": 381,
     "baselineTarget": 10,
-    "bySelf": 375,
+    "bySelf": 376,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1783787999-3754",
-      "at": "2026-07-11T16:39:59Z",
-      "ts": 1783787999,
+      "rotationId": "r-1783795963-10c5",
+      "at": "2026-07-11T18:52:43Z",
+      "ts": 1783795963,
       "trigger": "self",
-      "prevHead": "adfc4392",
-      "handoffSha": "sha256:2714da4803ad3903add3a646db8c5fe2fb4cde95d84941e1aa3e240e86e7a7eb",
-      "handoffAgeSec": 7,
+      "prevHead": "b6eedc71",
+      "handoffSha": "sha256:363e6d48c1cc5738e86a036183b7ebf911fe4d8c9432f765bf6434beeedc5e59",
+      "handoffAgeSec": 4,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1783795963-10c5",
+        "at": "2026-07-11T18:52:43Z",
+        "ts": 1783795963,
+        "trigger": "self",
+        "prevHead": "b6eedc71",
+        "handoffSha": "sha256:363e6d48c1cc5738e86a036183b7ebf911fe4d8c9432f765bf6434beeedc5e59",
+        "handoffAgeSec": 4,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1783787999-3754",
         "at": "2026-07-11T16:39:59Z",
@@ -875,17 +886,6 @@
         "trigger": "self",
         "prevHead": "2ee3b985",
         "handoffSha": "sha256:5458f23d9326a88b0f11745bbe04aaaa9c67b3c6dace2513a3128f4726ee4179",
-        "handoffAgeSec": 7,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1783697230-5221",
-        "at": "2026-07-10T15:27:10Z",
-        "ts": 1783697230,
-        "trigger": "self",
-        "prevHead": "676407c5",
-        "handoffSha": "sha256:23662a4c1ed360c57459ea39a482fd535ec02eaef01ce607329c4e7d3a464b75",
         "handoffAgeSec": 7,
         "conformanceBefore": null,
         "commitsInSession": null
