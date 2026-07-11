@@ -295,6 +295,10 @@ pub const ANY_METHOD_TO_LOCALE_UPPER_CASE: i64 = 126;
 pub const ANY_METHOD_SEARCH: i64 = 127;
 /// `String.prototype.matchAll`.
 pub const ANY_METHOD_MATCH_ALL: i64 = 128;
+/// `String.prototype.isWellFormed` (ES2024).
+pub const ANY_METHOD_IS_WELL_FORMED: i64 = 129;
+/// `String.prototype.toWellFormed` (ES2024).
+pub const ANY_METHOD_TO_WELL_FORMED: i64 = 130;
 
 /// RegExp property-read ids (Any-method-call RFC 20260704 C4-3c-2)
 /// — `r.source` / `r.lastIndex` / flag booleans through an `any`
@@ -469,6 +473,8 @@ pub fn any_method_id(name: &str) -> i64 {
         "toLocaleUpperCase" => ANY_METHOD_TO_LOCALE_UPPER_CASE,
         "search" => ANY_METHOD_SEARCH,
         "matchAll" => ANY_METHOD_MATCH_ALL,
+        "isWellFormed" => ANY_METHOD_IS_WELL_FORMED,
+        "toWellFormed" => ANY_METHOD_TO_WELL_FORMED,
         _ => ANY_METHOD_UNKNOWN,
     }
 }

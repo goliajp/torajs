@@ -148,6 +148,8 @@ pub fn any_method_meta(mid: i64) -> Option<(&'static str, u32)> {
         ANY_METHOD_TO_LOCALE_UPPER_CASE => ("toLocaleUpperCase", 0),
         ANY_METHOD_SEARCH => ("search", 1),
         ANY_METHOD_MATCH_ALL => ("matchAll", 1),
+        ANY_METHOD_IS_WELL_FORMED => ("isWellFormed", 0),
+        ANY_METHOD_TO_WELL_FORMED => ("toWellFormed", 0),
         _ => return None,
     })
 }
@@ -160,7 +162,7 @@ mod tests {
     fn meta_round_trips_every_interned_name() {
         // Every id the intern table can answer must carry metadata
         // whose name interns back to the same id.
-        for mid in 1..=ANY_METHOD_MATCH_ALL {
+        for mid in 1..=ANY_METHOD_TO_WELL_FORMED {
             let (name, _) =
                 any_method_meta(mid).unwrap_or_else(|| panic!("mid {mid} has no metadata row"));
             assert_eq!(any_method_id(name), mid, "name {name:?} round-trip");
@@ -170,7 +172,7 @@ mod tests {
     #[test]
     fn meta_rejects_unknown_and_out_of_table() {
         assert!(any_method_meta(ANY_METHOD_UNKNOWN).is_none());
-        assert!(any_method_meta(ANY_METHOD_MATCH_ALL + 1).is_none());
+        assert!(any_method_meta(ANY_METHOD_TO_WELL_FORMED + 1).is_none());
         assert!(any_method_meta(-1).is_none());
     }
 }

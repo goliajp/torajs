@@ -10,13 +10,14 @@ use core::ffi::c_void;
 use torajs_rc::{
     ANY_METHOD_ANCHOR, ANY_METHOD_AT, ANY_METHOD_CHAR_AT, ANY_METHOD_CHAR_CODE_AT,
     ANY_METHOD_CODE_POINT_AT, ANY_METHOD_CONCAT, ANY_METHOD_ENDS_WITH, ANY_METHOD_INCLUDES,
-    ANY_METHOD_INDEX_OF, ANY_METHOD_LAST_INDEX_OF, ANY_METHOD_LINK, ANY_METHOD_LOCALE_COMPARE,
-    ANY_METHOD_MATCH, ANY_METHOD_MATCH_ALL, ANY_METHOD_NORMALIZE, ANY_METHOD_PAD_END,
-    ANY_METHOD_PAD_START, ANY_METHOD_REPEAT, ANY_METHOD_REPLACE, ANY_METHOD_REPLACE_ALL,
-    ANY_METHOD_SEARCH, ANY_METHOD_SLICE, ANY_METHOD_SPLIT, ANY_METHOD_STARTS_WITH,
-    ANY_METHOD_SUBSTR, ANY_METHOD_SUBSTRING, ANY_METHOD_SUP, ANY_METHOD_TO_LOCALE_LOWER_CASE,
-    ANY_METHOD_TO_LOCALE_UPPER_CASE, ANY_METHOD_TO_LOWER_CASE, ANY_METHOD_TO_UPPER_CASE,
-    ANY_METHOD_TRIM, ANY_METHOD_TRIM_END, ANY_METHOD_TRIM_START, Tag,
+    ANY_METHOD_INDEX_OF, ANY_METHOD_IS_WELL_FORMED, ANY_METHOD_LAST_INDEX_OF, ANY_METHOD_LINK,
+    ANY_METHOD_LOCALE_COMPARE, ANY_METHOD_MATCH, ANY_METHOD_MATCH_ALL, ANY_METHOD_NORMALIZE,
+    ANY_METHOD_PAD_END, ANY_METHOD_PAD_START, ANY_METHOD_REPEAT, ANY_METHOD_REPLACE,
+    ANY_METHOD_REPLACE_ALL, ANY_METHOD_SEARCH, ANY_METHOD_SLICE, ANY_METHOD_SPLIT,
+    ANY_METHOD_STARTS_WITH, ANY_METHOD_SUBSTR, ANY_METHOD_SUBSTRING, ANY_METHOD_SUP,
+    ANY_METHOD_TO_LOCALE_LOWER_CASE, ANY_METHOD_TO_LOCALE_UPPER_CASE, ANY_METHOD_TO_LOWER_CASE,
+    ANY_METHOD_TO_UPPER_CASE, ANY_METHOD_TO_WELL_FORMED, ANY_METHOD_TRIM, ANY_METHOD_TRIM_END,
+    ANY_METHOD_TRIM_START, Tag,
 };
 
 use crate::method_call::{method_no_such, to_index};
@@ -302,6 +303,13 @@ unsafe fn str_method_ext(s: *mut u8, mid: i64, argv: *const u64, argc: i64) -> A
             }
             m if m == ANY_METHOD_TO_LOCALE_UPPER_CASE => __torajs_str_any_case(s, 1),
             m if m == ANY_METHOD_TO_LOCALE_LOWER_CASE => __torajs_str_any_case(s, 0),
+            // ES2024 §22.1.3.10/33 — torajs Str is internally UTF-8
+            // and well-formed by construction (the typed tier's
+            // short-circuit wedge answers the same constants):
+            // isWellFormed is always true, toWellFormed is identity
+            // (a fresh owned full-range copy via the substring glue).
+            m if m == ANY_METHOD_IS_WELL_FORMED => __torajs_anyv_box_from_pair(1, 1),
+            m if m == ANY_METHOD_TO_WELL_FORMED => __torajs_str_any_substring(s, 0, i64::MAX),
             m if m == ANY_METHOD_LAST_INDEX_OF => {
                 // §22.1.3.11 — a NaN fromIndex means +Infinity
                 // (search the whole string), unlike indexOf's 0, so
