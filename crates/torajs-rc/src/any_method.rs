@@ -253,6 +253,20 @@ pub const ANY_METHOD_STRIKE: i64 = 105;
 pub const ANY_METHOD_SUB: i64 = 106;
 /// `String.prototype.sup` (annexB plain wrap).
 pub const ANY_METHOD_SUP: i64 = 107;
+/// `Date.prototype.setUTCFullYear`.
+pub const ANY_METHOD_SET_UTC_FULL_YEAR: i64 = 108;
+/// `Date.prototype.setUTCMonth`.
+pub const ANY_METHOD_SET_UTC_MONTH: i64 = 109;
+/// `Date.prototype.setUTCDate`.
+pub const ANY_METHOD_SET_UTC_DATE: i64 = 110;
+/// `Date.prototype.setUTCHours`.
+pub const ANY_METHOD_SET_UTC_HOURS: i64 = 111;
+/// `Date.prototype.setUTCMinutes`.
+pub const ANY_METHOD_SET_UTC_MINUTES: i64 = 112;
+/// `Date.prototype.setUTCSeconds`.
+pub const ANY_METHOD_SET_UTC_SECONDS: i64 = 113;
+/// `Date.prototype.setUTCMilliseconds`.
+pub const ANY_METHOD_SET_UTC_MILLISECONDS: i64 = 114;
 
 /// RegExp property-read ids (Any-method-call RFC 20260704 C4-3c-2)
 /// — `r.source` / `r.lastIndex` / flag booleans through an `any`
@@ -360,6 +374,13 @@ pub fn any_method_id(name: &str) -> i64 {
         "setMinutes" => ANY_METHOD_SET_MINUTES,
         "setSeconds" => ANY_METHOD_SET_SECONDS,
         "setMilliseconds" => ANY_METHOD_SET_MILLISECONDS,
+        "setUTCFullYear" => ANY_METHOD_SET_UTC_FULL_YEAR,
+        "setUTCMonth" => ANY_METHOD_SET_UTC_MONTH,
+        "setUTCDate" => ANY_METHOD_SET_UTC_DATE,
+        "setUTCHours" => ANY_METHOD_SET_UTC_HOURS,
+        "setUTCMinutes" => ANY_METHOD_SET_UTC_MINUTES,
+        "setUTCSeconds" => ANY_METHOD_SET_UTC_SECONDS,
+        "setUTCMilliseconds" => ANY_METHOD_SET_UTC_MILLISECONDS,
         "toString" => ANY_METHOD_TO_STRING,
         "toFixed" => ANY_METHOD_TO_FIXED,
         "toExponential" => ANY_METHOD_TO_EXPONENTIAL,

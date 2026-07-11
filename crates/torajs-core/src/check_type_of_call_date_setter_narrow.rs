@@ -42,7 +42,16 @@ pub(crate) fn apply(
     };
     if !matches!(
         name.as_str(),
-        "setFullYear" | "setMonth" | "setHours" | "setMinutes" | "setSeconds"
+        "setFullYear"
+            | "setMonth"
+            | "setHours"
+            | "setMinutes"
+            | "setSeconds"
+            | "setUTCFullYear"
+            | "setUTCMonth"
+            | "setUTCHours"
+            | "setUTCMinutes"
+            | "setUTCSeconds"
     ) {
         return Ok(());
     }

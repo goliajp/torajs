@@ -64,6 +64,13 @@ pub(crate) fn try_match(
             | "setMilliseconds"
             | "setTime"
             | "setYear"
+            | "setUTCFullYear"
+            | "setUTCMonth"
+            | "setUTCDate"
+            | "setUTCHours"
+            | "setUTCMinutes"
+            | "setUTCSeconds"
+            | "setUTCMilliseconds"
     ) {
         return None;
     }
@@ -75,10 +82,11 @@ pub(crate) fn try_match(
         return None;
     }
     let max_arity: usize = match m_name.as_str() {
-        "setFullYear" | "setMinutes" => 3,
-        "setMonth" | "setSeconds" => 2,
-        "setDate" | "setMilliseconds" | "setTime" | "setYear" => 1,
-        "setHours" => 4,
+        "setFullYear" | "setMinutes" | "setUTCFullYear" | "setUTCMinutes" => 3,
+        "setMonth" | "setSeconds" | "setUTCMonth" | "setUTCSeconds" => 2,
+        "setDate" | "setMilliseconds" | "setTime" | "setYear" | "setUTCDate"
+        | "setUTCMilliseconds" => 1,
+        "setHours" | "setUTCHours" => 4,
         _ => unreachable!(),
     };
     if args.len() <= max_arity {

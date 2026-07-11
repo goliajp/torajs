@@ -68,6 +68,24 @@ pub(crate) fn try_match(name: &str) -> Option<Result<Type, String>> {
         ),
         "setSeconds" => Type::Function(vec![Type::Number, Type::Number], Box::new(Type::Number)),
         "setMilliseconds" => Type::Function(vec![Type::Number], Box::new(Type::Number)),
+        // UTC mirrors per ES §21.4.4.29-35 — same arity table as the
+        // LOCAL family, pure-UTC recompose on the runtime side.
+        "setUTCFullYear" => Type::Function(
+            vec![Type::Number, Type::Number, Type::Number],
+            Box::new(Type::Number),
+        ),
+        "setUTCMonth" => Type::Function(vec![Type::Number, Type::Number], Box::new(Type::Number)),
+        "setUTCDate" => Type::Function(vec![Type::Number], Box::new(Type::Number)),
+        "setUTCHours" => Type::Function(
+            vec![Type::Number, Type::Number, Type::Number, Type::Number],
+            Box::new(Type::Number),
+        ),
+        "setUTCMinutes" => Type::Function(
+            vec![Type::Number, Type::Number, Type::Number],
+            Box::new(Type::Number),
+        ),
+        "setUTCSeconds" => Type::Function(vec![Type::Number, Type::Number], Box::new(Type::Number)),
+        "setUTCMilliseconds" => Type::Function(vec![Type::Number], Box::new(Type::Number)),
         "getYear" => Type::Function(Vec::new(), Box::new(Type::Number)),
         "toGMTString" | "toUTCString" | "toDateString" | "toLocaleString"
         | "toLocaleDateString" | "toLocaleTimeString" | "toString" => {

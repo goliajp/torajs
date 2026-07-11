@@ -42,10 +42,13 @@ use torajs_rc::{
     ANY_METHOD_GET_UTC_MONTH, ANY_METHOD_GET_UTC_SECONDS, ANY_METHOD_GET_YEAR, ANY_METHOD_SET_DATE,
     ANY_METHOD_SET_FULL_YEAR, ANY_METHOD_SET_HOURS, ANY_METHOD_SET_MILLISECONDS,
     ANY_METHOD_SET_MINUTES, ANY_METHOD_SET_MONTH, ANY_METHOD_SET_SECONDS, ANY_METHOD_SET_TIME,
-    ANY_METHOD_SET_YEAR, ANY_METHOD_TO_DATE_STRING, ANY_METHOD_TO_GMT_STRING,
-    ANY_METHOD_TO_ISO_STRING, ANY_METHOD_TO_JSON, ANY_METHOD_TO_LOCALE_DATE_STRING,
-    ANY_METHOD_TO_LOCALE_STRING, ANY_METHOD_TO_LOCALE_TIME_STRING, ANY_METHOD_TO_STRING,
-    ANY_METHOD_TO_UTC_STRING, ANY_METHOD_VALUE_OF,
+    ANY_METHOD_SET_UTC_DATE, ANY_METHOD_SET_UTC_FULL_YEAR, ANY_METHOD_SET_UTC_HOURS,
+    ANY_METHOD_SET_UTC_MILLISECONDS, ANY_METHOD_SET_UTC_MINUTES, ANY_METHOD_SET_UTC_MONTH,
+    ANY_METHOD_SET_UTC_SECONDS, ANY_METHOD_SET_YEAR, ANY_METHOD_TO_DATE_STRING,
+    ANY_METHOD_TO_GMT_STRING, ANY_METHOD_TO_ISO_STRING, ANY_METHOD_TO_JSON,
+    ANY_METHOD_TO_LOCALE_DATE_STRING, ANY_METHOD_TO_LOCALE_STRING,
+    ANY_METHOD_TO_LOCALE_TIME_STRING, ANY_METHOD_TO_STRING, ANY_METHOD_TO_UTC_STRING,
+    ANY_METHOD_VALUE_OF,
 };
 
 use crate::method_call::method_no_such;
@@ -94,6 +97,13 @@ unsafe extern "C" {
     fn __torajs_date_set_minutes(d: *mut c_void, mi: i64, s: i64, ms: i64) -> i64;
     fn __torajs_date_set_seconds(d: *mut c_void, s: i64, ms: i64) -> i64;
     fn __torajs_date_set_milliseconds(d: *mut c_void, ms: i64) -> i64;
+    fn __torajs_date_set_utc_full_year(d: *mut c_void, y: i64, mo: i64, dd: i64) -> i64;
+    fn __torajs_date_set_utc_month(d: *mut c_void, mo: i64, dd: i64) -> i64;
+    fn __torajs_date_set_utc_date(d: *mut c_void, dd: i64) -> i64;
+    fn __torajs_date_set_utc_hours(d: *mut c_void, h: i64, mi: i64, s: i64, ms: i64) -> i64;
+    fn __torajs_date_set_utc_minutes(d: *mut c_void, mi: i64, s: i64, ms: i64) -> i64;
+    fn __torajs_date_set_utc_seconds(d: *mut c_void, s: i64, ms: i64) -> i64;
+    fn __torajs_date_set_utc_milliseconds(d: *mut c_void, ms: i64) -> i64;
 }
 
 /// `Tag::Date` arm — id-switch onto the torajs-date kernels (see
@@ -174,6 +184,35 @@ pub(crate) unsafe fn date_method(
             }
             m if m == ANY_METHOD_SET_SECONDS => i(__torajs_date_set_seconds(d, field(0), field(1))),
             m if m == ANY_METHOD_SET_MILLISECONDS => i(__torajs_date_set_milliseconds(d, field(0))),
+            m if m == ANY_METHOD_SET_UTC_FULL_YEAR => i(__torajs_date_set_utc_full_year(
+                d,
+                field(0),
+                field(1),
+                field(2),
+            )),
+            m if m == ANY_METHOD_SET_UTC_MONTH => {
+                i(__torajs_date_set_utc_month(d, field(0), field(1)))
+            }
+            m if m == ANY_METHOD_SET_UTC_DATE => i(__torajs_date_set_utc_date(d, field(0))),
+            m if m == ANY_METHOD_SET_UTC_HOURS => i(__torajs_date_set_utc_hours(
+                d,
+                field(0),
+                field(1),
+                field(2),
+                field(3),
+            )),
+            m if m == ANY_METHOD_SET_UTC_MINUTES => i(__torajs_date_set_utc_minutes(
+                d,
+                field(0),
+                field(1),
+                field(2),
+            )),
+            m if m == ANY_METHOD_SET_UTC_SECONDS => {
+                i(__torajs_date_set_utc_seconds(d, field(0), field(1)))
+            }
+            m if m == ANY_METHOD_SET_UTC_MILLISECONDS => {
+                i(__torajs_date_set_utc_milliseconds(d, field(0)))
+            }
             _ => method_no_such(),
         }
     }

@@ -81,6 +81,13 @@ pub fn any_method_meta(mid: i64) -> Option<(&'static str, u32)> {
         ANY_METHOD_SET_MINUTES => ("setMinutes", 3),
         ANY_METHOD_SET_SECONDS => ("setSeconds", 2),
         ANY_METHOD_SET_MILLISECONDS => ("setMilliseconds", 1),
+        ANY_METHOD_SET_UTC_FULL_YEAR => ("setUTCFullYear", 3),
+        ANY_METHOD_SET_UTC_MONTH => ("setUTCMonth", 2),
+        ANY_METHOD_SET_UTC_DATE => ("setUTCDate", 1),
+        ANY_METHOD_SET_UTC_HOURS => ("setUTCHours", 4),
+        ANY_METHOD_SET_UTC_MINUTES => ("setUTCMinutes", 3),
+        ANY_METHOD_SET_UTC_SECONDS => ("setUTCSeconds", 2),
+        ANY_METHOD_SET_UTC_MILLISECONDS => ("setUTCMilliseconds", 1),
         ANY_METHOD_TO_STRING => ("toString", 0),
         ANY_METHOD_TO_FIXED => ("toFixed", 1),
         ANY_METHOD_TO_EXPONENTIAL => ("toExponential", 1),
@@ -139,7 +146,7 @@ mod tests {
     fn meta_round_trips_every_interned_name() {
         // Every id the intern table can answer must carry metadata
         // whose name interns back to the same id.
-        for mid in 1..=ANY_METHOD_SUP {
+        for mid in 1..=ANY_METHOD_SET_UTC_MILLISECONDS {
             let (name, _) =
                 any_method_meta(mid).unwrap_or_else(|| panic!("mid {mid} has no metadata row"));
             assert_eq!(any_method_id(name), mid, "name {name:?} round-trip");
@@ -149,7 +156,7 @@ mod tests {
     #[test]
     fn meta_rejects_unknown_and_out_of_table() {
         assert!(any_method_meta(ANY_METHOD_UNKNOWN).is_none());
-        assert!(any_method_meta(ANY_METHOD_SUP + 1).is_none());
+        assert!(any_method_meta(ANY_METHOD_SET_UTC_MILLISECONDS + 1).is_none());
         assert!(any_method_meta(-1).is_none());
     }
 }

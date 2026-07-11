@@ -74,6 +74,13 @@ const DATE_METHOD_ALLOWLIST: &[&str] = &[
     "setMinutes",
     "setSeconds",
     "setMilliseconds",
+    "setUTCFullYear",
+    "setUTCMonth",
+    "setUTCDate",
+    "setUTCHours",
+    "setUTCMinutes",
+    "setUTCSeconds",
+    "setUTCMilliseconds",
 ];
 
 pub(crate) fn try_lower(
@@ -119,13 +126,13 @@ fn build_arg_ops(
     // (`i64::MIN`) so the runtime can keep the current field value
     // without a separate arity-N intrinsic per overload.
     let per_field_arity: Option<usize> = match method {
-        "setFullYear" => Some(3),
-        "setMonth" => Some(2),
-        "setDate" => Some(1),
-        "setHours" => Some(4),
-        "setMinutes" => Some(3),
-        "setSeconds" => Some(2),
-        "setMilliseconds" => Some(1),
+        "setFullYear" | "setUTCFullYear" => Some(3),
+        "setMonth" | "setUTCMonth" => Some(2),
+        "setDate" | "setUTCDate" => Some(1),
+        "setHours" | "setUTCHours" => Some(4),
+        "setMinutes" | "setUTCMinutes" => Some(3),
+        "setSeconds" | "setUTCSeconds" => Some(2),
+        "setMilliseconds" | "setUTCMilliseconds" => Some(1),
         _ => None,
     };
     if method == "setTime" || method == "setYear" {
@@ -207,6 +214,13 @@ fn resolve_intrinsic(ctx: &LowerCtx<'_>, method: &str) -> (FuncId, Type) {
         "setMinutes" => (ctx.intrinsics.date_set_minutes, Type::I64),
         "setSeconds" => (ctx.intrinsics.date_set_seconds, Type::I64),
         "setMilliseconds" => (ctx.intrinsics.date_set_milliseconds, Type::I64),
+        "setUTCFullYear" => (ctx.intrinsics.date_set_utc_full_year, Type::I64),
+        "setUTCMonth" => (ctx.intrinsics.date_set_utc_month, Type::I64),
+        "setUTCDate" => (ctx.intrinsics.date_set_utc_date, Type::I64),
+        "setUTCHours" => (ctx.intrinsics.date_set_utc_hours, Type::I64),
+        "setUTCMinutes" => (ctx.intrinsics.date_set_utc_minutes, Type::I64),
+        "setUTCSeconds" => (ctx.intrinsics.date_set_utc_seconds, Type::I64),
+        "setUTCMilliseconds" => (ctx.intrinsics.date_set_utc_milliseconds, Type::I64),
         _ => unreachable!(),
     }
 }

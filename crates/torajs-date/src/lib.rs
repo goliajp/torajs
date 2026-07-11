@@ -26,6 +26,7 @@ pub mod api_strings;
 pub mod civil;
 pub mod getters;
 pub mod parse;
+pub mod setters_utc;
 pub mod tm;
 pub mod tz;
 pub mod tz_names;
