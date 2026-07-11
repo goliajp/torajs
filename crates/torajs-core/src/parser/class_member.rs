@@ -72,6 +72,7 @@ fn token_starts_class_member_name(t: Option<&Token>, allow_private: bool) -> boo
             | Token::This
             | Token::Function
             | Token::TypeOf
+            | Token::Delete
             | Token::InstanceOf
             | Token::Try
             | Token::Yield

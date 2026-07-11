@@ -303,7 +303,7 @@ fn eal_expr_safe(ast: &Ast, eid: ExprId, x_name: &str) -> bool {
                 && args.iter().all(|a| eal_expr_safe(ast, *a, x_name))
         }
         Expr::PostIncr { target, .. } => eal_expr_safe(ast, *target, x_name),
-        Expr::TypeOf { expr } => eal_expr_safe(ast, *expr, x_name),
+        Expr::TypeOf { expr } | Expr::Delete { expr } => eal_expr_safe(ast, *expr, x_name),
         Expr::InstanceOf { expr, .. } => eal_expr_safe(ast, *expr, x_name),
         Expr::As { expr, .. } => eal_expr_safe(ast, *expr, x_name),
         Expr::Sequence { left, right } => {

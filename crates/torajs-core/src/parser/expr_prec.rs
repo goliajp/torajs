@@ -354,6 +354,25 @@ impl<'a> Parser<'a> {
             let inner = self.parse_unary()?;
             return Ok(self.ast.add_expr(Expr::TypeOf { expr: inner }));
         }
+        // `delete obj.k` per ES §13.5.1 — only a property reference
+        // is accepted: deleting a variable is the strict-mode
+        // SyntaxError (modules are strict), and the exotic
+        // non-reference forms (`delete 42`, always true) stay a loud
+        // recorded boundary.
+        if matches!(self.peek(), Token::Delete) {
+            self.pos += 1;
+            let inner = self.parse_unary()?;
+            if !matches!(
+                self.ast.get_expr(inner),
+                Expr::Member { .. } | Expr::Index { .. }
+            ) {
+                return Err(format!(
+                    "`delete` target must be a property reference (obj.k / obj[k]) at {}",
+                    self.at()
+                ));
+            }
+            return Ok(self.ast.add_expr(Expr::Delete { expr: inner }));
+        }
         // V3-18 m1.h.30 — `void <expr>` evaluates expr (for side
         // effects) then yields `undefined`. Desugars to
         // `Expr::Sequence { left: <expr>, right: Expr::Ident

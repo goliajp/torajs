@@ -59,6 +59,51 @@ pub(crate) fn check_instanceof(
     Ok(Type::Boolean)
 }
 
+/// ES §13.5.1 — `delete <Member|Index>` → Boolean. The parser only
+/// admits property-reference operands; here the receiver must be
+/// `any`-typed (the dynobj / expando world where OrdinaryDelete is
+/// meaningful) and an Index key must be a string (numeric keys are
+/// the array-hole lane — recorded loud boundary). Only the receiver
+/// and key are typechecked, never the property itself: deleting an
+/// absent key is legal and answers true.
+pub(crate) fn check_delete(
+    checker: &mut Checker,
+    ast: &Ast,
+    operand: ExprId,
+) -> Result<Type, String> {
+    match ast.get_expr(operand) {
+        crate::ast::Expr::Member { obj, .. } => {
+            let obj_ty = checker.type_of(ast, *obj)?;
+            if obj_ty == Type::Any {
+                Ok(Type::Boolean)
+            } else {
+                Err(format!(
+                    "`delete` receiver must be an `any`-typed object (got {obj_ty:?}); \
+                     typed layouts have no removable properties"
+                ))
+            }
+        }
+        crate::ast::Expr::Index { obj, index } => {
+            let obj_ty = checker.type_of(ast, *obj)?;
+            let idx_ty = checker.type_of(ast, *index)?;
+            if obj_ty != Type::Any {
+                return Err(format!(
+                    "`delete` receiver must be an `any`-typed object (got {obj_ty:?}); \
+                     typed layouts have no removable properties"
+                ));
+            }
+            if idx_ty != Type::String {
+                return Err(format!(
+                    "`delete` key must be a string (got {idx_ty:?}); \
+                     numeric element deletion is not supported"
+                ));
+            }
+            Ok(Type::Boolean)
+        }
+        _ => Err("`delete` target must be a property reference (obj.k / obj[k])".into()),
+    }
+}
+
 pub(crate) fn check_nullish(
     checker: &mut Checker,
     ast: &Ast,

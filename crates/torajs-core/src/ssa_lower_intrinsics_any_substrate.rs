@@ -78,6 +78,7 @@ pub(crate) struct AnySubstrateIds {
     pub any_method_call: FuncId,
     pub any_method_call_opt: FuncId,
     pub any_method_probe: FuncId,
+    pub any_prop_delete: FuncId,
     pub any_unbox_tag: FuncId,
     pub any_unbox_value: FuncId,
     pub any_cell_ptr: FuncId,
@@ -186,6 +187,7 @@ pub(crate) fn declare(
             Any
         ),
         any_method_probe: decl!("__torajs_any_method_probe", [Any, I64, Ptr], I64),
+        any_prop_delete: decl!("__torajs_any_prop_delete", [Any, Ptr], I64),
         any_unbox_tag: decl!("__torajs_anyv_unbox_tag", [Any], I64),
         any_unbox_value: decl!("__torajs_anyv_unbox_value", [Any], I64),
         // chunk 712 — borrow-shaped cell-pointer read: heap cell →

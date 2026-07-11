@@ -140,6 +140,10 @@ impl<'a> Formatter<'a> {
                 self.write("typeof ");
                 self.fmt_expr(*expr);
             }
+            Expr::Delete { expr } => {
+                self.write("delete ");
+                self.fmt_expr(*expr);
+            }
             Expr::InstanceOf { expr, class_name } => {
                 self.fmt_expr(*expr);
                 self.write(" instanceof ");

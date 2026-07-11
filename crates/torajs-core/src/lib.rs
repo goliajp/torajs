@@ -307,6 +307,7 @@ pub(crate) mod ssa_lower_ctx_state;
 pub(crate) mod ssa_lower_ctx_struct;
 pub(crate) mod ssa_lower_deep_clone;
 pub mod ssa_lower_deque_escape;
+pub mod ssa_lower_delete;
 pub(crate) mod ssa_lower_drops;
 pub(crate) mod ssa_lower_dynobj_init;
 pub(crate) mod ssa_lower_emit_drop_value;

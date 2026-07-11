@@ -249,6 +249,12 @@ pub(crate) fn lower(ctx: &mut LowerCtx, eid: ExprId) -> Operand {
             // [`crate::ssa_lower_typeof::lower`].
             crate::ssa_lower_typeof::lower(ctx, *expr)
         }
+        Expr::Delete { expr } => {
+            // `delete obj.k` (ES §13.5.1) — runtime OrdinaryDelete
+            // dispatch on an `any` receiver, answers Bool. See
+            // [`crate::ssa_lower_delete::lower`].
+            crate::ssa_lower_delete::lower(ctx, *expr)
+        }
         Expr::InstanceOf { expr, class_name } => {
             // Phase H.1.c — runtime class membership via the
             // header tag at OBJ_CLASS_TAG_OFF (compile-time static

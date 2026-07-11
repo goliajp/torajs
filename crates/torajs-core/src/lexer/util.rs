@@ -72,6 +72,7 @@ pub(super) fn regex_context(prev: Option<&Token>) -> bool {
             // Expression-starting keywords
             | Token::Return
             | Token::TypeOf
+            | Token::Delete
             | Token::Void
             | Token::InstanceOf
             | Token::New

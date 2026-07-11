@@ -140,6 +140,16 @@ impl Checker {
                 // [`crate::check_type_of_misc::check_instanceof`].
                 crate::check_type_of_misc::check_instanceof(self, ast, *expr)
             }
+            Expr::Delete { expr } => {
+                // ES §13.5.1 — `delete obj.k` / `delete obj[k]` →
+                // Boolean. Admitted for an `any`-typed receiver
+                // (dynobj world) with a string key; typed receivers
+                // (fixed struct layouts, arrays) and numeric keys
+                // (array holes) are recorded loud boundaries. The
+                // absent-key case is legal (answers true), so only
+                // the receiver is typechecked — never the property.
+                crate::check_type_of_misc::check_delete(self, ast, *expr)
+            }
             Expr::Nullish { lhs, rhs } => {
                 // `lhs ?? rhs` — Nullable/Null/Undef/Any lhs +
                 // rhs T or Nullable<T>; non-nullable lhs → lhs

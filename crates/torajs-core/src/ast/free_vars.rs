@@ -352,6 +352,7 @@ fn walk_expr(ast: &Ast, eid: ExprId, bound: &mut Vec<String>, out: &mut Vec<Stri
             walk_expr(ast, *else_branch, bound, out);
         }
         Expr::TypeOf { expr }
+        | Expr::Delete { expr }
         | Expr::Spread { expr }
         | Expr::InstanceOf { expr, .. }
         | Expr::As { expr, .. } => walk_expr(ast, *expr, bound, out),

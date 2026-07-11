@@ -214,6 +214,7 @@ pub(super) fn scan_ident_or_keyword(
         "case" => Token::Case,
         "default" => Token::Default,
         "typeof" => Token::TypeOf,
+        "delete" => Token::Delete,
         "void" => Token::Void,
         "instanceof" => Token::InstanceOf,
         "yield" => Token::Yield,

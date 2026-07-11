@@ -207,6 +207,17 @@ pub enum Expr {
     TypeOf {
         expr: ExprId,
     },
+    /// `delete obj.k` / `delete obj["k"]` — ES §13.5.1 property
+    /// removal, answering a Boolean. The parser only accepts a
+    /// Member / Index operand (deleting a variable is the strict-
+    /// mode SyntaxError; other operand shapes are a recorded loud
+    /// boundary). Checker admits an `any`-typed receiver with a
+    /// string key; lowering dispatches through
+    /// `__torajs_any_prop_delete` (dynobj OrdinaryDelete, expando
+    /// props, non-object receivers answer true per spec).
+    Delete {
+        expr: ExprId,
+    },
     /// `expr instanceof ClassName` — compile-time class membership check.
     /// tr is statically typed: if `expr`'s declared type is the named
     /// class (or a subclass via `extends`), this lowers to ConstBool(true);

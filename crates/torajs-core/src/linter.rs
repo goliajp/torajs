@@ -407,6 +407,7 @@ fn expr_can_throw(ast: &Ast, eid: ExprId) -> bool {
         }
         Expr::Unary { expr, .. }
         | Expr::TypeOf { expr }
+        | Expr::Delete { expr }
         | Expr::PostIncr { target: expr, .. }
         | Expr::As { expr, .. } => expr_can_throw(ast, *expr),
         Expr::Sequence { left, right } => expr_can_throw(ast, *left) || expr_can_throw(ast, *right),

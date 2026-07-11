@@ -81,7 +81,7 @@ const STR_DATA_OFF: usize = 16;
 
 /// The closure's `props_dynobj` pointer, NULL when no expando was
 /// ever written.
-unsafe fn closure_props(ptr: *mut c_void) -> *const c_void {
+pub(crate) unsafe fn closure_props(ptr: *mut c_void) -> *const c_void {
     unsafe { *(ptr.cast::<u8>().add(CLOSURE_PROPS_OFF) as *const u64) as *const c_void }
 }
 
@@ -134,7 +134,7 @@ pub(crate) unsafe fn struct_field_pair(ptr: *mut c_void, key: *const c_void) -> 
 
 /// Cell tag of a dispatchable receiver, `None` for everything the
 /// gate answers `(ANY_UNDEF, 0)` for.
-fn recv_cell(recv: AnyValue) -> Option<(*mut c_void, u16)> {
+pub(crate) fn recv_cell(recv: AnyValue) -> Option<(*mut c_void, u16)> {
     if !is_cell(recv) {
         return None;
     }

@@ -395,6 +395,7 @@ impl Parser<'_> {
             Token::This => "this",
             Token::Function => "function",
             Token::TypeOf => "typeof",
+            Token::Delete => "delete",
             Token::InstanceOf => "instanceof",
             Token::Try => "try",
             Token::Yield => "yield",

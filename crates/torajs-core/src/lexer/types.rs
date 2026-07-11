@@ -163,6 +163,8 @@ pub enum Token {
     Default,
     /// `typeof x` — yields a string literal at runtime.
     TypeOf,
+    /// `delete obj.k` — ES §13.5.1 property removal, yields a Boolean.
+    Delete,
     /// `void x` — evaluates `x` (for side effects) then yields `undefined`.
     /// Per JS spec §13.5.2; the standard idiom for "produce undefined" in
     /// pre-ES2020 code (`void 0`).

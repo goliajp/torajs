@@ -317,6 +317,7 @@ fn scan_expr(
             scan_expr(ast, *else_branch, out, direct, fn_values, expr_types);
         }
         Expr::TypeOf { expr }
+        | Expr::Delete { expr }
         | Expr::Spread { expr }
         | Expr::InstanceOf { expr, .. }
         | Expr::As { expr, .. } => scan_expr(ast, *expr, out, direct, fn_values, expr_types),

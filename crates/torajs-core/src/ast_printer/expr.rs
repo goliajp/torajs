@@ -111,6 +111,10 @@ pub(crate) fn print_expr(ast: &Ast, id: ExprId, indent: usize) {
             println!("{pad}TypeOf");
             print_expr(ast, *expr, indent + 1);
         }
+        Expr::Delete { expr } => {
+            println!("{pad}Delete");
+            print_expr(ast, *expr, indent + 1);
+        }
         Expr::InstanceOf { expr, class_name } => {
             println!("{pad}InstanceOf {class_name}");
             print_expr(ast, *expr, indent + 1);

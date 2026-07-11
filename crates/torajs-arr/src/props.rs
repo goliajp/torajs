@@ -39,6 +39,9 @@ unsafe extern "C" {
     /// Cross-tier — read the tag (or ANY_UNDEF=5 on miss).
     fn __torajs_dynobj_get_tag(dynobj: *mut c_void, key: *const c_void) -> u64;
 
+    /// Cross-tier — OrdinaryDelete on the props dynobj (1 = removed).
+    fn __torajs_dynobj_delete(dynobj: *mut c_void, key: *const c_void) -> i32;
+
     /// Cross-tier — read the value (or 0 on miss).
     fn __torajs_dynobj_get_value(dynobj: *mut c_void, key: *const c_void) -> u64;
 
@@ -127,6 +130,25 @@ pub unsafe extern "C" fn __torajs_arrprops_attach_exec3(
     unsafe {
         let slot = props_slot_ptr(arr_ptr);
         __torajs_dynobj_attach_exec3(slot, k_index, index_val, k_input, input_ptr, k_groups);
+    }
+}
+
+/// `delete arr.key` — remove an expando entry (ES §10.1.10 via the
+/// props dynobj). Answers 1 when an entry was removed, 0 when the
+/// props slot is NULL or the key is absent; the delete-expression
+/// lowering answers true either way (absent-key delete is true per
+/// §13.5.1.2 — the 0/1 split is kept for diagnostics).
+///
+/// # Safety
+/// `arr_ptr` is a live array heap block; `key` is a Str pointer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arrprops_delete(arr_ptr: *mut c_void, key: *const c_void) -> i32 {
+    unsafe {
+        let props = dynobj_of(arr_ptr);
+        if props.is_null() {
+            return 0;
+        }
+        __torajs_dynobj_delete(props, key)
     }
 }
 
