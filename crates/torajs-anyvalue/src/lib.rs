@@ -108,6 +108,7 @@ mod method_call_num;
 mod method_call_regexp;
 mod method_call_str;
 mod method_call_weak;
+mod method_support;
 mod method_value;
 mod name_get;
 mod prop_delete;

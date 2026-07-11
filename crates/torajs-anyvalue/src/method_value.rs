@@ -40,19 +40,13 @@
 use core::ffi::c_void;
 use core::sync::atomic::{AtomicU64, Ordering};
 
-use torajs_rc::{
-    ANY_METHOD_ADD, ANY_METHOD_APPLY, ANY_METHOD_BIND, ANY_METHOD_CALL, ANY_METHOD_CHAR_AT,
-    ANY_METHOD_CLEAR, ANY_METHOD_DELETE, ANY_METHOD_ENDS_WITH, ANY_METHOD_ENTRIES, ANY_METHOD_EXEC,
-    ANY_METHOD_FILTER, ANY_METHOD_FOR_EACH, ANY_METHOD_GET, ANY_METHOD_HAS, ANY_METHOD_INCLUDES,
-    ANY_METHOD_INDEX_OF, ANY_METHOD_JOIN, ANY_METHOD_KEYS, ANY_METHOD_MAP, ANY_METHOD_MATCH,
-    ANY_METHOD_NEXT, ANY_METHOD_POP, ANY_METHOD_PUSH, ANY_METHOD_REPLACE, ANY_METHOD_REPLACE_ALL,
-    ANY_METHOD_SET, ANY_METHOD_SHIFT, ANY_METHOD_SLICE, ANY_METHOD_SPLIT, ANY_METHOD_STARTS_WITH,
-    ANY_METHOD_TEST, ANY_METHOD_TO_EXPONENTIAL, ANY_METHOD_TO_FIXED, ANY_METHOD_TO_LOCALE_STRING,
-    ANY_METHOD_TO_LOWER_CASE, ANY_METHOD_TO_PRECISION, ANY_METHOD_TO_STRING,
-    ANY_METHOD_TO_UPPER_CASE, ANY_METHOD_TRIM, ANY_METHOD_TRIM_END, ANY_METHOD_TRIM_START,
-    ANY_METHOD_UNKNOWN, ANY_METHOD_UNSHIFT, ANY_METHOD_VALUE_OF, ANY_METHOD_VALUES, any_method_id,
-};
+use torajs_rc::{ANY_METHOD_NEXT, ANY_METHOD_TO_STRING, ANY_METHOD_UNKNOWN, any_method_id};
 use torajs_rc::{FLAG_STATIC_LITERAL, Tag};
+
+use crate::method_support::{
+    arr_supports, closure_supports, date_supports, map_supports, num_supports, regexp_supports,
+    set_supports, str_supports, weakmap_supports, weakset_supports,
+};
 
 use crate::nanbox::{
     AnyValue, VALUE_UNDEFINED, as_void_ptr, is_bool, is_cell, is_double, is_int32, is_short_str,
@@ -81,7 +75,7 @@ const STR_FLAG_IS_LATIN1: u16 = 0x0002;
 
 /// Method-id intern table span (ids are append-only; headroom
 /// beyond the current max keeps future ids table-hits).
-const TABLE_SIZE: usize = 128;
+pub(crate) const TABLE_SIZE: usize = 128;
 
 /// Per-mid interned cells. Atomic-static, NOT `thread_local!` —
 /// std's lazy TLS machinery is unavailable inside the baked
@@ -239,7 +233,7 @@ pub(crate) unsafe fn builtin_method_lookup(recv: AnyValue, key: *const c_void) -
 
 /// Read the key Str's bytes and intern them through the shared
 /// compile-time table.
-unsafe fn key_method_id(key: *const c_void) -> i64 {
+pub(crate) unsafe fn key_method_id(key: *const c_void) -> i64 {
     if key.is_null() {
         return ANY_METHOD_UNKNOWN;
     }
@@ -282,157 +276,15 @@ pub(crate) fn builtin_method_supported(recv: AnyValue, mid: i64) -> bool {
     let tag = unsafe { (ptr.cast::<u8>().add(4) as *const u16).read() };
     match tag {
         t if t == Tag::Str as u16 => str_supports(mid),
-        t if t == Tag::Arr as u16 => matches!(
-            mid,
-            ANY_METHOD_PUSH
-                | ANY_METHOD_POP
-                | ANY_METHOD_SHIFT
-                | ANY_METHOD_UNSHIFT
-                | ANY_METHOD_INDEX_OF
-                | ANY_METHOD_INCLUDES
-                | ANY_METHOD_JOIN
-                | ANY_METHOD_SLICE
-                | ANY_METHOD_MAP
-                | ANY_METHOD_FILTER
-                | ANY_METHOD_FOR_EACH
-        ),
-        t if t == Tag::Map as u16 => matches!(
-            mid,
-            ANY_METHOD_GET
-                | ANY_METHOD_SET
-                | ANY_METHOD_HAS
-                | ANY_METHOD_DELETE
-                | ANY_METHOD_CLEAR
-                | ANY_METHOD_FOR_EACH
-                | ANY_METHOD_KEYS
-                | ANY_METHOD_VALUES
-                | ANY_METHOD_ENTRIES
-        ),
-        t if t == Tag::Set as u16 => matches!(
-            mid,
-            ANY_METHOD_ADD
-                | ANY_METHOD_HAS
-                | ANY_METHOD_DELETE
-                | ANY_METHOD_CLEAR
-                | ANY_METHOD_FOR_EACH
-                | ANY_METHOD_KEYS
-                | ANY_METHOD_VALUES
-                | ANY_METHOD_ENTRIES
-        ),
+        t if t == Tag::Arr as u16 => arr_supports(mid),
+        t if t == Tag::Map as u16 => map_supports(mid),
+        t if t == Tag::Set as u16 => set_supports(mid),
         t if t == Tag::MapIter as u16 => mid == ANY_METHOD_NEXT,
         t if t == Tag::Date as u16 => date_supports(mid),
-        t if t == Tag::RegExp as u16 => {
-            matches!(
-                mid,
-                ANY_METHOD_TEST | ANY_METHOD_EXEC | ANY_METHOD_TO_STRING
-            )
-        }
-        t if t == Tag::WeakMap as u16 => matches!(
-            mid,
-            ANY_METHOD_GET | ANY_METHOD_SET | ANY_METHOD_HAS | ANY_METHOD_DELETE
-        ),
-        t if t == Tag::WeakSet as u16 => {
-            matches!(mid, ANY_METHOD_ADD | ANY_METHOD_HAS | ANY_METHOD_DELETE)
-        }
-        t if t == Tag::Closure as u16 => {
-            matches!(mid, ANY_METHOD_CALL | ANY_METHOD_APPLY | ANY_METHOD_BIND)
-        }
+        t if t == Tag::RegExp as u16 => regexp_supports(mid),
+        t if t == Tag::WeakMap as u16 => weakmap_supports(mid),
+        t if t == Tag::WeakSet as u16 => weakset_supports(mid),
+        t if t == Tag::Closure as u16 => closure_supports(mid),
         _ => false,
     }
-}
-
-/// `method_call_str` arm ids (+ the dispatcher's toString identity).
-fn str_supports(mid: i64) -> bool {
-    matches!(
-        mid,
-        ANY_METHOD_TO_STRING
-            | ANY_METHOD_CHAR_AT
-            | ANY_METHOD_TO_UPPER_CASE
-            | ANY_METHOD_TO_LOWER_CASE
-            | ANY_METHOD_INDEX_OF
-            | ANY_METHOD_INCLUDES
-            | ANY_METHOD_SLICE
-            | ANY_METHOD_SPLIT
-            | ANY_METHOD_TRIM
-            | ANY_METHOD_TRIM_START
-            | ANY_METHOD_TRIM_END
-            | ANY_METHOD_MATCH
-            | ANY_METHOD_REPLACE
-            | ANY_METHOD_REPLACE_ALL
-            | ANY_METHOD_STARTS_WITH
-            | ANY_METHOD_ENDS_WITH
-    )
-}
-
-/// `method_call_num` arm ids.
-fn num_supports(mid: i64) -> bool {
-    matches!(
-        mid,
-        ANY_METHOD_TO_STRING
-            | ANY_METHOD_TO_FIXED
-            | ANY_METHOD_TO_EXPONENTIAL
-            | ANY_METHOD_TO_PRECISION
-            | ANY_METHOD_TO_LOCALE_STRING
-            | ANY_METHOD_VALUE_OF
-    )
-}
-
-/// `method_call_date` arm ids — the getter / setter / to*String
-/// table (ids 25-62 with the annexB aliases).
-fn date_supports(mid: i64) -> bool {
-    use torajs_rc::{
-        ANY_METHOD_GET_DATE, ANY_METHOD_GET_DAY, ANY_METHOD_GET_FULL_YEAR, ANY_METHOD_GET_HOURS,
-        ANY_METHOD_GET_MILLISECONDS, ANY_METHOD_GET_MINUTES, ANY_METHOD_GET_MONTH,
-        ANY_METHOD_GET_SECONDS, ANY_METHOD_GET_TIME, ANY_METHOD_GET_TIMEZONE_OFFSET,
-        ANY_METHOD_GET_UTC_DATE, ANY_METHOD_GET_UTC_DAY, ANY_METHOD_GET_UTC_FULL_YEAR,
-        ANY_METHOD_GET_UTC_HOURS, ANY_METHOD_GET_UTC_MILLISECONDS, ANY_METHOD_GET_UTC_MINUTES,
-        ANY_METHOD_GET_UTC_MONTH, ANY_METHOD_GET_UTC_SECONDS, ANY_METHOD_GET_YEAR,
-        ANY_METHOD_SET_DATE, ANY_METHOD_SET_FULL_YEAR, ANY_METHOD_SET_HOURS,
-        ANY_METHOD_SET_MILLISECONDS, ANY_METHOD_SET_MINUTES, ANY_METHOD_SET_MONTH,
-        ANY_METHOD_SET_SECONDS, ANY_METHOD_SET_TIME, ANY_METHOD_SET_YEAR,
-        ANY_METHOD_TO_DATE_STRING, ANY_METHOD_TO_GMT_STRING, ANY_METHOD_TO_ISO_STRING,
-        ANY_METHOD_TO_JSON, ANY_METHOD_TO_LOCALE_DATE_STRING, ANY_METHOD_TO_LOCALE_TIME_STRING,
-        ANY_METHOD_TO_UTC_STRING,
-    };
-    matches!(
-        mid,
-        ANY_METHOD_GET_TIME
-            | ANY_METHOD_VALUE_OF
-            | ANY_METHOD_TO_STRING
-            | ANY_METHOD_TO_ISO_STRING
-            | ANY_METHOD_TO_JSON
-            | ANY_METHOD_TO_LOCALE_STRING
-            | ANY_METHOD_GET_FULL_YEAR
-            | ANY_METHOD_GET_UTC_FULL_YEAR
-            | ANY_METHOD_GET_MONTH
-            | ANY_METHOD_GET_UTC_MONTH
-            | ANY_METHOD_GET_DATE
-            | ANY_METHOD_GET_UTC_DATE
-            | ANY_METHOD_GET_HOURS
-            | ANY_METHOD_GET_UTC_HOURS
-            | ANY_METHOD_GET_MINUTES
-            | ANY_METHOD_GET_UTC_MINUTES
-            | ANY_METHOD_GET_SECONDS
-            | ANY_METHOD_GET_UTC_SECONDS
-            | ANY_METHOD_GET_MILLISECONDS
-            | ANY_METHOD_GET_UTC_MILLISECONDS
-            | ANY_METHOD_GET_DAY
-            | ANY_METHOD_GET_UTC_DAY
-            | ANY_METHOD_GET_TIMEZONE_OFFSET
-            | ANY_METHOD_GET_YEAR
-            | ANY_METHOD_SET_TIME
-            | ANY_METHOD_SET_YEAR
-            | ANY_METHOD_SET_FULL_YEAR
-            | ANY_METHOD_SET_MONTH
-            | ANY_METHOD_SET_DATE
-            | ANY_METHOD_SET_HOURS
-            | ANY_METHOD_SET_MINUTES
-            | ANY_METHOD_SET_SECONDS
-            | ANY_METHOD_SET_MILLISECONDS
-            | ANY_METHOD_TO_UTC_STRING
-            | ANY_METHOD_TO_GMT_STRING
-            | ANY_METHOD_TO_DATE_STRING
-            | ANY_METHOD_TO_LOCALE_DATE_STRING
-            | ANY_METHOD_TO_LOCALE_TIME_STRING
-    )
 }

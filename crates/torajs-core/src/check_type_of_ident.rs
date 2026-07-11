@@ -52,6 +52,9 @@ pub(crate) fn check(checker: &Checker, name: &str) -> Result<Type, String> {
         "Symbol" => Ok(Type::Object("Symbol")),
         "BigInt" => Ok(Type::Object("BigInt")),
         "Promise" => Ok(Type::Object("Promise")),
+        // RFC 20260711-closure-reflection chunk A — `Function.prototype.<m>`
+        // (call/apply/bind method cells) needs the namespace ident typed.
+        "Function" => Ok(Type::Object("Function")),
         "fs" => Ok(Type::Object("fs")),
         "fs_promises" => Ok(Type::Object("fs_promises")),
         "process" => Ok(Type::Object("process")),

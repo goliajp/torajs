@@ -25,17 +25,43 @@
 //!   — never reorder): `.prototype` builtin-proto singleton +
 //!   any_box; `.name` interns the namespace string; `.length`
 //!   ConstI64(1). Other Member names fall through.
+//! - **`<Ctor>.prototype.<m>` method value** (RFC
+//!   20260711-closure-reflection chunk A) — the THREE-level static
+//!   form (`String.prototype.anchor`) routes to
+//!   `__torajs_builtin_proto_method_value(tag, key)`: singleton
+//!   dynobj own-entry probe first (user monkey-patch wins), then
+//!   the interned reified method cell for names the receiver
+//!   shape's dispatch arm supports, else undefined. Tried before
+//!   the two-level arms because its `obj` is a Member, not an
+//!   Ident.
 //!
-//! All three sub-arms return `Some(op)` on hit. Falls through
-//! (`None`) only when `obj` isn't an `Expr::Ident` matching one of
-//! the three namespaces; missing constants within `Math.*` or
-//! `Number.*` panic (typechecker contract).
+//! All sub-arms return `Some(op)` on hit. Falls through (`None`)
+//! only when `obj` isn't an `Expr::Ident` matching one of the
+//! three namespaces (or the proto-method Member form); missing
+//! constants within `Math.*` or `Number.*` panic (typechecker
+//! contract).
 
 use crate::ast::{Expr, ExprId};
 use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 
 pub(crate) fn try_lower(ctx: &mut LowerCtx<'_>, obj: ExprId, name: &str) -> Option<Operand> {
+    // `<Ctor>.prototype.<m>` — obj is itself a Member on a builtin
+    // namespace ident. Handled here (before the Ident gate) so the
+    // outer member never falls to the generic any-member walk.
+    let proto_inner = match ctx.ast.get_expr(obj) {
+        Expr::Member {
+            obj: inner,
+            name: pname,
+        } if pname == "prototype" => Some(*inner),
+        _ => None,
+    };
+    if let Some(inner) = proto_inner
+        && let Expr::Ident(ns) = ctx.ast.get_expr(inner)
+        && let Some(tag) = proto_method_tag(ns)
+    {
+        return Some(lower_proto_method_value(ctx, tag, name));
+    }
     let Expr::Ident(ns_name) = ctx.ast.get_expr(obj) else {
         return None;
     };
@@ -47,6 +73,33 @@ pub(crate) fn try_lower(ctx: &mut LowerCtx<'_>, obj: ExprId, name: &str) -> Opti
             lower_ctor_namespace(ctx, other, tag, name)
         }
     }
+}
+
+/// Builtin-proto tag for the proto-method form — `Number` (tag 0)
+/// plus the [`builtin_proto_tag`] ctor set (tags 1..14).
+fn proto_method_tag(ns: &str) -> Option<i64> {
+    if ns == "Number" {
+        return Some(0);
+    }
+    builtin_proto_tag(ns)
+}
+
+/// `Call(__torajs_builtin_proto_method_value, [tag, key])` — the
+/// runtime resolves monkey-patch entries / interned method cells /
+/// undefined; the result is an owned `Type::Any`.
+fn lower_proto_method_value(ctx: &mut LowerCtx<'_>, tag: i64, name: &str) -> Operand {
+    let key = ctx.intern_string_literal(name);
+    let cur_block = ctx.cur_block;
+    let v = ctx.f.append_inst(
+        cur_block,
+        InstKind::Call(
+            ctx.intrinsics.builtin_proto_method_value,
+            vec![Operand::ConstI64(tag), Operand::Value(key)],
+        ),
+        Type::Any,
+        None,
+    );
+    Operand::Value(v)
 }
 
 fn lower_math_const(name: &str) -> Operand {
