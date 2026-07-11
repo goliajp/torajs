@@ -1,21 +1,23 @@
 //! `Array.from(s)` for string sources — port of
-//! `runtime_str.c` L1613-1623.
+//! `runtime_str.c` L1613-1623, encoding-aware since RFC 20260711
+//! follow-up.
 //!
-//! Equivalent to `s.split("")` in JS but scoped to tr's byte-Str
-//! layout (no UTF-16 / surrogate handling). Returns a fresh
-//! `string[]` with one single-byte string per byte of `s`. Each
-//! result Str has rc=1; the array has cap pre-sized to `s.len`.
+//! ES §23.1.2.1 iterates the string's CODE POINTS (the string
+//! iterator groups surrogate pairs): `Array.from("𝄞a")` is
+//! `["𝄞", "a"]`, two elements. The pre-fix shape emitted one
+//! single-byte Str per PAYLOAD BYTE — correct only for Latin-1
+//! sources (byte == unit == cp there, no pairs); UTF-16 sources
+//! got their unit low-bytes as elements.
+//!
+//! Each result Str has rc=1; the array has cap pre-sized to the
+//! unit count (≥ element count; surrogate pairs make it shrink).
 
 use crate::alloc::__torajs_arr_alloc;
 use crate::grow::__torajs_arr_push;
-use crate::str_bridge::str_alloc_pooled;
+use crate::join_enc::{STR_DATA_OFF, str_data, str_is_latin1, str_units};
+use crate::str_bridge::str_alloc_pooled_enc;
 
-const STR_HDR_SIZE: usize = 16;
-const STR_LEN_OFF: usize = 8;
-
-/// `Array.from(s)` over a Str source. Each byte of `s` becomes a
-/// fresh single-byte Str element. Cap is pre-sized to `s.len` so
-/// the per-element push never triggers a grow.
+/// `Array.from(s)` over a Str source: one element per code point.
 ///
 /// # Safety
 ///
@@ -24,14 +26,49 @@ const STR_LEN_OFF: usize = 8;
 /// rc=1.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_from_string(s: *const u8) -> *mut u8 {
-    let s_len = unsafe { (s.add(STR_LEN_OFF) as *const u64).read() };
-    let s_data = unsafe { s.add(STR_HDR_SIZE) };
-    let mut arr = unsafe { __torajs_arr_alloc(s_len) };
-    for i in 0..s_len {
-        let byte = unsafe { s_data.add(i as usize).read() };
-        let p = unsafe { str_alloc_pooled(1) };
-        unsafe { p.add(STR_HDR_SIZE).write(byte) };
-        arr = unsafe { __torajs_arr_push(arr, p as i64) };
+    unsafe {
+        let units = str_units(s);
+        let data = str_data(s);
+        let mut arr = __torajs_arr_alloc(units);
+        if str_is_latin1(s) {
+            // Latin-1: every unit is one byte and one cp.
+            for i in 0..units {
+                let byte = data.add(i as usize).read();
+                let p = str_alloc_pooled_enc(1, true);
+                p.add(STR_DATA_OFF).write(byte);
+                arr = __torajs_arr_push(arr, p as i64);
+            }
+            return arr;
+        }
+        // UTF-16 LE: group surrogate pairs into 2-unit elements
+        // (string-iterator cp semantics); narrow lone units ≤ 0xFF
+        // back to a Latin-1 element so downstream fast paths keep
+        // their 1-byte shape.
+        let mut i: u64 = 0;
+        while i < units {
+            let u = (data.add((i as usize) * 2) as *const u16).read_unaligned();
+            let is_pair = (0xD800..=0xDBFF).contains(&u) && i + 1 < units && {
+                let lo = (data.add((i as usize + 1) * 2) as *const u16).read_unaligned();
+                (0xDC00..=0xDFFF).contains(&lo)
+            };
+            let p = if is_pair {
+                let p = str_alloc_pooled_enc(2, false);
+                core::ptr::copy_nonoverlapping(data.add((i as usize) * 2), p.add(STR_DATA_OFF), 4);
+                i += 2;
+                p
+            } else if u <= 0xFF {
+                let p = str_alloc_pooled_enc(1, true);
+                p.add(STR_DATA_OFF).write(u as u8);
+                i += 1;
+                p
+            } else {
+                let p = str_alloc_pooled_enc(1, false);
+                core::ptr::copy_nonoverlapping(data.add((i as usize) * 2), p.add(STR_DATA_OFF), 2);
+                i += 1;
+                p
+            };
+            arr = __torajs_arr_push(arr, p as i64);
+        }
+        arr
     }
-    arr
 }
