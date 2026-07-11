@@ -180,7 +180,22 @@ pub unsafe extern "C" fn __torajs_any_member_get_tag(recv: AnyValue, key: *const
         return 5;
     }
     match recv_cell(recv) {
-        Some((ptr, t)) if t == Tag::DynObj as u16 => unsafe { __torajs_dynobj_get_tag(ptr, key) },
+        // Entry miss falls through to the builtin-proto own-method
+        // probe (RFC 20260712 chunk 2) — a builtin `<Ctor>.prototype`
+        // singleton hands out its interned family cells so
+        // `(String.prototype as any).small` reads the same immortal
+        // cell the static form does. Ordinary dynobjs answer 0 there.
+        Some((ptr, t)) if t == Tag::DynObj as u16 => unsafe {
+            let tag = __torajs_dynobj_get_tag(ptr, key);
+            if tag != 5 {
+                return tag;
+            }
+            if crate::method_support::__torajs_builtin_proto_own_method_cell(ptr, key) != 0 {
+                4
+            } else {
+                5
+            }
+        },
         Some((ptr, t)) if t == Tag::Arr as u16 => unsafe {
             let tag = __torajs_arrprops_get_tag(ptr, key);
             if tag != 5 {
@@ -342,7 +357,18 @@ pub unsafe extern "C" fn __torajs_any_method_probe(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_any_member_get_value(recv: AnyValue, key: *const c_void) -> u64 {
     match recv_cell(recv) {
-        Some((ptr, t)) if t == Tag::DynObj as u16 => unsafe { __torajs_dynobj_get_value(ptr, key) },
+        // Miss → builtin-proto own-method cell bits (0 = absent),
+        // pairing the tag channel's fallthrough above. The nonzero
+        // hit path stays a single hash probe — only a 0 slot (absent
+        // OR a stored 0/false/null payload) pays the tag re-probe to
+        // disambiguate.
+        Some((ptr, t)) if t == Tag::DynObj as u16 => unsafe {
+            let v = __torajs_dynobj_get_value(ptr, key);
+            if v == 0 && __torajs_dynobj_get_tag(ptr, key) == 5 {
+                return crate::method_support::__torajs_builtin_proto_own_method_cell(ptr, key);
+            }
+            v
+        },
         Some((ptr, t)) if t == Tag::Arr as u16 => unsafe {
             if __torajs_arrprops_get_tag(ptr, key) != 5 {
                 return __torajs_arrprops_get_value(ptr, key);

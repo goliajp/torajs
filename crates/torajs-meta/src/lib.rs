@@ -25,6 +25,7 @@
 
 pub mod classmeta;
 pub(crate) mod closure_reflect;
+pub mod extensible_reflect;
 pub mod fnprops;
 pub mod from_entries;
 pub mod obj_own_keys;
@@ -129,6 +130,17 @@ pub unsafe extern "C" fn __torajs_dynobj_get_flags(
     _key: *const u8,
 ) -> u64 {
     panic!("torajs-meta test stub: __torajs_dynobj_get_flags should not be called from cargo test");
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_builtin_proto_own_method_cell(
+    _dynobj: *const core::ffi::c_void,
+    _key: *const core::ffi::c_void,
+) -> u64 {
+    panic!(
+        "torajs-meta test stub: __torajs_builtin_proto_own_method_cell should not be called from cargo test"
+    );
 }
 
 #[cfg(test)]

@@ -278,6 +278,37 @@ pub(crate) fn proto_tag_owns(tag: i64, mid: i64) -> bool {
     }
 }
 
+/// gOPD own-entry synthesis probe (RFC 20260712 chunk 2) — when a
+/// dynobj turns out to be a builtin `<Ctor>.prototype` singleton and
+/// `key` interns to a method its family owns, hand out the immortal
+/// interned cell so torajs-meta can synthesize the spec method
+/// descriptor `{value: cell, writable: true, enumerable: false,
+/// configurable: true}`. 0 = not a builtin proto / not an owned
+/// method (the caller keeps its undefined answer).
+///
+/// # Safety
+/// `dynobj` is NULL or a live heap cell; `key` is NULL or a live
+/// Str cell.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_builtin_proto_own_method_cell(
+    dynobj: *const c_void,
+    key: *const c_void,
+) -> u64 {
+    let tag = unsafe { torajs_rc::builtin_proto::__torajs_builtin_proto_tag_of(dynobj) };
+    if tag < 0 {
+        return 0;
+    }
+    let mid = unsafe { crate::method_value::key_method_id(key) };
+    if mid == ANY_METHOD_UNKNOWN
+        || (mid as usize) >= crate::method_value::TABLE_SIZE
+        || !proto_tag_owns(tag, mid)
+    {
+        return 0;
+    }
+    // Immortal interned cell — rc traffic no-ops.
+    crate::method_value::builtin_method_cell(mid) as u64
+}
+
 /// `<Ctor>.prototype.<m>` static member read (chunk A). Own-entry
 /// probe on the builtin-proto singleton dynobj first — a user
 /// monkey-patch (`String.prototype.foo = …`) wins over the interned
