@@ -29,10 +29,20 @@
 
 use core::ffi::c_void;
 
+use torajs_rc::{
+    __torajs_rc_inc, ANY_METHOD_TO_LOCALE_STRING, ANY_METHOD_TO_STRING, ANY_METHOD_VALUE_OF,
+};
+
 use crate::method_call::{closure_boxed_entry, closure_cell_entry, not_callable};
 use crate::nanbox::AnyValue;
+use crate::nanbox_encode::__torajs_anyv_box_pointer;
 
 unsafe extern "C" {
+    /// torajs-str — allocate a fresh Str from raw bytes (the
+    /// "[object Object]" text + the re-dispatch "toString" key).
+    fn __torajs_str_alloc(src: *const u8, len: i64) -> *mut u8;
+    /// torajs-str — release a heap Str reference.
+    fn __torajs_str_drop(s: *mut c_void);
     /// torajs-dynobj — property probe by Str key: the slot's ANY_TAG
     /// (5 = absent) / per-tag payload.
     fn __torajs_dynobj_get_tag(obj: *const c_void, key: *const c_void) -> u64;
@@ -84,6 +94,7 @@ const FIELD_TAG_CLOSURE: u8 = 8;
 /// the boxed-value convention.
 pub(crate) unsafe fn dynobj_method(
     obj: *mut c_void,
+    mid: i64,
     name_str: *const u8,
     argv: *const u64,
     argc: i64,
@@ -92,6 +103,13 @@ pub(crate) unsafe fn dynobj_method(
         if !name_str.is_null() {
             let key = name_str as *const c_void;
             let dtag = __torajs_dynobj_get_tag(obj, key);
+            // Absent own entry → the inherited Object.prototype
+            // surface. Ordered AFTER the own probe so a user
+            // monkey-patch (`o.valueOf = fn`) always wins; a
+            // resolved-but-not-callable entry keeps the TypeError.
+            if dtag == 5 {
+                return object_proto_fallback(obj, mid, false, argv);
+            }
             // ANY_HEAP = 4 — a plain closure-cell property.
             if dtag == 4 {
                 let cell = __torajs_dynobj_get_value(obj, key);
@@ -124,6 +142,7 @@ pub(crate) unsafe fn dynobj_method(
 /// outlives the call).
 pub(crate) unsafe fn struct_method(
     obj: *mut c_void,
+    mid: i64,
     name_str: *const u8,
     argv: *const u64,
     argc: i64,
@@ -150,8 +169,49 @@ pub(crate) unsafe fn struct_method(
                     if let Some((env, entry)) = pair {
                         return crate::method_call::invoke_boxed(env, entry, argv, argc);
                     }
+                    // A resolved field that isn't callable keeps the
+                    // TypeError — never shadowed by the fallback.
+                    return not_callable();
                 }
             }
+        }
+        // No layout / absent field → the inherited Object.prototype
+        // surface, mirroring the dynobj arm's absent branch.
+        object_proto_fallback(obj, mid, true, argv)
+    }
+}
+
+/// Inherited `Object.prototype` surface for plain-object receivers —
+/// runs only AFTER the own-property probe missed, so user
+/// monkey-patches always win. `valueOf` (§20.1.4.7) answers the
+/// receiver itself (fresh +1 per the boxed-value convention);
+/// `toString` (§20.1.3.6) answers the "[object Object]" text;
+/// `toLocaleString` (§20.1.4.6 "invoke this.toString") re-dispatches
+/// as a toString call so a user own `toString` wins there too.
+unsafe fn object_proto_fallback(
+    obj: *mut c_void,
+    mid: i64,
+    is_struct: bool,
+    argv: *const u64,
+) -> AnyValue {
+    unsafe {
+        if mid == ANY_METHOD_VALUE_OF {
+            __torajs_rc_inc(obj);
+            return __torajs_anyv_box_pointer(obj);
+        }
+        if mid == ANY_METHOD_TO_LOCALE_STRING {
+            let key = __torajs_str_alloc(b"toString".as_ptr(), 8);
+            let out = if is_struct {
+                struct_method(obj, ANY_METHOD_TO_STRING, key as *const u8, argv, 0)
+            } else {
+                dynobj_method(obj, ANY_METHOD_TO_STRING, key as *const u8, argv, 0)
+            };
+            __torajs_str_drop(key as *mut c_void);
+            return out;
+        }
+        if mid == ANY_METHOD_TO_STRING {
+            let p = __torajs_str_alloc(b"[object Object]".as_ptr(), 15);
+            return __torajs_anyv_box_pointer(p as *mut c_void);
         }
         not_callable()
     }

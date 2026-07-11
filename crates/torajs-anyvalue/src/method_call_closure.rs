@@ -81,6 +81,7 @@ pub(crate) unsafe fn closure_method(
         {
             return crate::method_call_dynobj::dynobj_method(
                 props as *mut c_void,
+                mid,
                 name_str,
                 argv,
                 argc,

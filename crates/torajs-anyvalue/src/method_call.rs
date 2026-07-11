@@ -238,18 +238,26 @@ pub(crate) unsafe fn any_method_call_inner(
         let tag = unsafe { (ptr.cast::<u8>().add(4) as *const u16).read() };
         // §20.1.4.7 Object.prototype.valueOf is ToObject(this) —
         // identity on every cell receiver. Date keeps its own
-        // valueOf (the getTime alias in its per-tag arm), and the
-        // Number/Boolean immediates answered above.
-        if mid == ANY_METHOD_VALUE_OF && tag != Tag::Date as u16 {
+        // valueOf (the getTime alias in its per-tag arm), the
+        // Number/Boolean immediates answered above, and the
+        // property-carrying shapes (dynobj / struct) resolve their
+        // OWN entry first — their arms fall back here-equivalent
+        // via `object_proto_fallback` so a monkey-patch wins.
+        if mid == ANY_METHOD_VALUE_OF
+            && tag != Tag::Date as u16
+            && tag != Tag::DynObj as u16
+            && tag != Tag::Obj as u16
+        {
             unsafe { __torajs_rc_inc(ptr) };
             return recv;
         }
         // §20.1.4.6 Object.prototype.toLocaleString invokes
         // this.toString — Str is identity, Arr delegates to the
-        // §23.1.3.32 join-with-"," shape, plain objects answer the
-        // §20.1.4.6/§20.1.3.6 "[object Object]" text. Date / Number
-        // keep their own per-arm specializations; other tags fall
-        // through to their arm (a miss stays the no-such TypeError).
+        // §23.1.3.32 join-with-"," shape; plain objects answer
+        // through their arm's own-probe-then-fallback (monkey-patch
+        // order). Date / Number keep their own per-arm
+        // specializations; other tags fall through to their arm (a
+        // miss stays the no-such TypeError).
         if mid == ANY_METHOD_TO_LOCALE_STRING {
             if tag == Tag::Str as u16 {
                 unsafe { __torajs_rc_inc(ptr) };
@@ -259,12 +267,6 @@ pub(crate) unsafe fn any_method_call_inner(
                 return unsafe {
                     crate::method_call_arr::arr_method(ptr, ANY_METHOD_JOIN, recv_slot, argv, 0)
                 };
-            }
-            if tag == Tag::DynObj as u16 || tag == Tag::Obj as u16 {
-                unsafe {
-                    let p = __torajs_str_alloc(b"[object Object]".as_ptr(), 15);
-                    return __torajs_anyv_box_pointer(p as *mut c_void);
-                }
             }
         }
         if tag == Tag::Str as u16 {
@@ -280,12 +282,16 @@ pub(crate) unsafe fn any_method_call_inner(
             return unsafe { crate::method_call_arr::arr_method(ptr, mid, recv_slot, argv, argc) };
         }
         if tag == Tag::DynObj as u16 {
-            return unsafe { crate::method_call_dynobj::dynobj_method(ptr, name_str, argv, argc) };
+            return unsafe {
+                crate::method_call_dynobj::dynobj_method(ptr, mid, name_str, argv, argc)
+            };
         }
         // L3b #9 (chunk 524) — static-layout struct receivers probe
         // the class-layouts field metadata instead of a dynobj table.
         if tag == Tag::Obj as u16 {
-            return unsafe { crate::method_call_dynobj::struct_method(ptr, name_str, argv, argc) };
+            return unsafe {
+                crate::method_call_dynobj::struct_method(ptr, mid, name_str, argv, argc)
+            };
         }
         if tag == Tag::Map as u16 || tag == Tag::Set as u16 {
             return unsafe {

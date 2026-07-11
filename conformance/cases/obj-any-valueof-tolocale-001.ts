@@ -1,4 +1,4 @@
-// Object.prototype universal any-dispatch — valueOf identity + toLocaleString (mids 26/52 universal arms).
+// Object.prototype universal any-dispatch — valueOf identity + toString/toLocaleString + monkey-patch precedence.
 const s: any = "hi";
 const n: any = 42;
 const b: any = true;
@@ -30,3 +30,12 @@ console.log(sub.toLocaleString());
 // reflection face
 console.log(s.valueOf.name, s.valueOf.length);
 console.log(o.toLocaleString.name, o.toLocaleString.length);
+
+// plain-object toString (§20.1.3.6) + monkey-patch precedence
+console.log(o.toString());
+const st: any = { a: 1 };
+console.log(st.toString());
+const mp: any = { valueOf: () => 7, toString: () => "custom" };
+console.log(mp.valueOf());
+console.log(mp.toString());
+console.log(mp.toLocaleString());
