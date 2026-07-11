@@ -47,10 +47,12 @@ pub fn desugar_classes(ast: &mut Ast) {
     // in source order.
     let mut static_field_inits: Vec<Stmt> = Vec::new();
 
-    let class_index = snapshot_class_index(ast);
+    let mut class_index = snapshot_class_index(ast);
     if class_index.is_empty() {
         return;
     }
+    synthesize_derived_default_ctors(ast, &mut class_index);
+    let class_index = class_index;
 
     // M-OO.6 — abstract-class collection + validation extracted to
     // `desugar_classes_abstract.rs` sub-sibling (chunk 178, 2026-06-28).
@@ -186,6 +188,84 @@ pub fn desugar_classes(ast: &mut Ast) {
 /// mutated in-place without aliasing). M5.2 adds `parent` to the
 /// tuple — for inheritance flattening + super(args) rewriting;
 /// M-OO.4 adds the static-init / static-methods slices.
+/// ES §15.7.10 — a ctor-less derived class carries the implicit
+/// default ctor `constructor(...args) { super(...args) }`. The static
+/// world spells it concretely: params are the nearest explicit
+/// ancestor ctor's params verbatim, the body a single
+/// `super(<param names>)` (Pass 1.5 rewrites it into the
+/// `__cm_<Parent>__ctor` call like any user-written super, and the
+/// factory / `C.length` / spread lanes all follow from the filled
+/// ctor). Pre-fix the factory elided the ctor call entirely —
+/// `new B(7)` on `class B extends A {}` rejected loud with
+/// "expected 0 argument(s)", and a zero-param parent ctor's body
+/// silently never ran.
+///
+/// Skipped (keeping today's behavior) when the whole chain is
+/// ctor-less (nothing to forward), when the class or any ancestor on
+/// the walk is generic (ctor param anns may reference that class's
+/// type params), or when the ancestor ctor is variadic (rest
+/// forwarding needs a spread — apply_rest_args territory). The walk
+/// is hop-capped by the class count; malformed parent chains fall
+/// through to `compute_full_fields`' existing declaration-order
+/// panic.
+fn synthesize_derived_default_ctors(
+    ast: &mut Ast,
+    class_index: &mut [super::desugar_classes_super::ClassIndexEntry],
+) {
+    struct ChainInfo {
+        parent: Option<String>,
+        ctor_params: Option<Vec<Param>>,
+        generic: bool,
+    }
+    let by_name: std::collections::HashMap<String, ChainInfo> = class_index
+        .iter()
+        .map(|(_, cname, tp, parent, _, _, ctor, _, _)| {
+            (
+                cname.clone(),
+                ChainInfo {
+                    parent: parent.clone(),
+                    ctor_params: ctor.as_ref().map(|c| c.params.clone()),
+                    generic: !tp.is_empty(),
+                },
+            )
+        })
+        .collect();
+    let max_hops = class_index.len();
+    for (_, _, type_params, parent, _, _, ctor, _, _) in class_index.iter_mut() {
+        if ctor.is_some() || parent.is_none() || !type_params.is_empty() {
+            continue;
+        }
+        let mut cur = parent.clone();
+        let mut found: Option<Vec<Param>> = None;
+        for _ in 0..max_hops {
+            let Some(info) = cur.as_ref().and_then(|n| by_name.get(n)) else {
+                break;
+            };
+            if info.generic {
+                break;
+            }
+            if let Some(params) = &info.ctor_params {
+                found = Some(params.clone());
+                break;
+            }
+            cur = info.parent.clone();
+        }
+        let Some(params) = found else { continue };
+        if params.iter().any(|p| p.is_rest) {
+            continue;
+        }
+        let args: Vec<ExprId> = params
+            .iter()
+            .map(|p| ast.add_expr(Expr::Ident(p.name.clone())))
+            .collect();
+        let super_eid = ast.add_expr(Expr::Super { args });
+        *ctor = Some(ClassCtor {
+            params,
+            body: vec![Stmt::Expr(super_eid)],
+        });
+    }
+}
+
 fn snapshot_class_index(ast: &Ast) -> Vec<super::desugar_classes_super::ClassIndexEntry> {
     ast.stmts
         .iter()
