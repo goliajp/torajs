@@ -260,7 +260,25 @@ fn proto_tag_supports(tag: i64, mid: i64) -> bool {
 /// `propertyIsEnumerable` are own only on `Object.prototype`
 /// (tag 1). Every family method IS its prototype's own property
 /// per spec.
+///
+/// Chunk 3 — a `delete <Ctor>.prototype.<m>` tombstone (torajs-rc
+/// deleted-mid bitmask) clears the answer for every consumer in one
+/// place: prop_has / gOPD synthesis / the member-read fallthrough /
+/// the static `String.prototype.small` read all funnel here. A
+/// dynobj own entry is probed BEFORE any of them consult this, so a
+/// set / defineProperty restore revives without a clear call.
 pub(crate) fn proto_tag_owns(tag: i64, mid: i64) -> bool {
+    // SAFETY: pure bitmask read; range-checked inside.
+    if unsafe { torajs_rc::builtin_proto::__torajs_builtin_proto_is_deleted(tag, mid) } != 0 {
+        return false;
+    }
+    proto_tag_family_owns(tag, mid)
+}
+
+/// The raw family-membership half of [`proto_tag_owns`] — no
+/// tombstone consultation. `prop_delete` gates its mark on this
+/// (marking must not depend on the current deleted state).
+pub(crate) fn proto_tag_family_owns(tag: i64, mid: i64) -> bool {
     if mid == ANY_METHOD_HAS_OWN_PROPERTY || mid == ANY_METHOD_PROPERTY_IS_ENUMERABLE {
         return tag == 1;
     }
@@ -369,5 +387,21 @@ mod tests {
         // …but the universal probes resolve everywhere.
         assert!(proto_tag_supports(9, ANY_METHOD_HAS_OWN_PROPERTY));
         assert!(proto_tag_supports(1, ANY_METHOD_PROPERTY_IS_ENUMERABLE));
+    }
+
+    #[test]
+    fn tombstone_hides_owned_method() {
+        assert!(proto_tag_owns(3, ANY_METHOD_SLICE));
+        unsafe {
+            torajs_rc::builtin_proto::__torajs_builtin_proto_mark_deleted(3, ANY_METHOD_SLICE)
+        };
+        assert!(!proto_tag_owns(3, ANY_METHOD_SLICE));
+        // …the raw family half stays true (prop_delete's mark gate)…
+        assert!(proto_tag_family_owns(3, ANY_METHOD_SLICE));
+        // …and the readable surface funnels through the same check.
+        assert!(!proto_tag_supports(3, ANY_METHOD_SLICE));
+        // Sibling tag / sibling mid unaffected.
+        assert!(proto_tag_owns(2, ANY_METHOD_SLICE));
+        assert!(proto_tag_owns(3, ANY_METHOD_SPLIT));
     }
 }

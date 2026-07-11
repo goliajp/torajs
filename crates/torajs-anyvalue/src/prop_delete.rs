@@ -68,6 +68,24 @@ pub unsafe extern "C" fn __torajs_any_prop_delete(recv: AnyValue, key: *const c_
                 return 0;
             }
             unsafe { __torajs_dynobj_delete(ptr, key) };
+            // RFC 20260712 chunk 3 — a builtin `<Ctor>.prototype`
+            // singleton also hides its interned family method behind
+            // the deleted-mid tombstone (the entry delete above only
+            // removes a monkey-patch shadow, if any). Idempotent.
+            let proto_tag =
+                unsafe { torajs_rc::builtin_proto::__torajs_builtin_proto_tag_of(ptr) };
+            if proto_tag >= 0 {
+                let mid = unsafe { crate::method_value::key_method_id(key) };
+                if mid != torajs_rc::ANY_METHOD_UNKNOWN
+                    && crate::method_support::proto_tag_family_owns(proto_tag, mid)
+                {
+                    unsafe {
+                        torajs_rc::builtin_proto::__torajs_builtin_proto_mark_deleted(
+                            proto_tag, mid,
+                        )
+                    };
+                }
+            }
             1
         }
         Some((ptr, t)) if t == Tag::Arr as u16 => {

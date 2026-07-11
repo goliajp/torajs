@@ -26,7 +26,7 @@
 //! at most ~14 times per program lifetime, dwarfed by everything else.
 
 use core::ffi::c_void;
-use core::sync::atomic::{AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
 #[cfg(not(test))]
 unsafe extern "C" {
@@ -107,6 +107,49 @@ pub unsafe extern "C" fn __torajs_builtin_proto_tag_of(p: *const c_void) -> i64 
     -1
 }
 
+/// Method-id span of the per-tag deleted bitmask below — mirrors
+/// `torajs-anyvalue::method_value::TABLE_SIZE` (the intern-table
+/// span; ids are append-only).
+const DELETED_MASK_WORDS: usize = 2; // 128 mids / 64 bits
+
+// Per-tag deleted-method-id bitmask (RFC 20260712 chunk 3) — the
+// `FLAG_FN_NAME_DELETED` precedent generalized: `delete
+// String.prototype.small` cannot remove the immortal interned method
+// cell, so the deleted state lives here as an owner-side flag. A
+// dynobj own entry (monkey-patch / defineProperty restore) always
+// wins before any intern fallthrough consults this mask, so a re-set
+// revives without a clear call. AtomicU64 fetch_or / load per
+// design-principles §6.2 (multi-thread-ready shape).
+#[allow(clippy::declare_interior_mutable_const)]
+const MASK_INIT: [AtomicU64; DELETED_MASK_WORDS] =
+    [const { AtomicU64::new(0) }; DELETED_MASK_WORDS];
+static DELETED_MIDS: [[AtomicU64; DELETED_MASK_WORDS]; NUM_BUILTIN_PROTOS] =
+    [MASK_INIT; NUM_BUILTIN_PROTOS];
+
+/// Mark `<proto tag>`'s interned method `mid` as deleted. Idempotent;
+/// out-of-range inputs are ignored (defensive — callers gate on the
+/// family-owns check first).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_builtin_proto_mark_deleted(tag: i64, mid: i64) {
+    let (t, m) = (tag as usize, mid as usize);
+    if t >= NUM_BUILTIN_PROTOS || m >= DELETED_MASK_WORDS * 64 {
+        return;
+    }
+    DELETED_MIDS[t][m / 64].fetch_or(1u64 << (m % 64), Ordering::AcqRel);
+}
+
+/// 1 = `<proto tag>`'s interned method `mid` was deleted (and no
+/// dynobj own entry has since shadowed the question — the caller
+/// probes entries first). Out-of-range inputs answer 0.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_builtin_proto_is_deleted(tag: i64, mid: i64) -> i64 {
+    let (t, m) = (tag as usize, mid as usize);
+    if t >= NUM_BUILTIN_PROTOS || m >= DELETED_MASK_WORDS * 64 {
+        return 0;
+    }
+    ((DELETED_MIDS[t][m / 64].load(Ordering::Acquire) >> (m % 64)) & 1) as i64
+}
+
 // Cargo-test stub for the dynobj_alloc extern. The real symbol lives
 // in the runtime substrate (linked into `tr`); unit tests in this
 // crate only verify the singleton-CAS logic, so we hand out unique
@@ -175,6 +218,23 @@ mod tests {
             unsafe { __torajs_builtin_proto_tag_of(0xDEAD_BEE0 as *const c_void) },
             -1
         );
+    }
+
+    #[test]
+    fn deleted_mask_marks_per_tag_per_mid() {
+        assert_eq!(unsafe { __torajs_builtin_proto_is_deleted(3, 95) }, 0);
+        unsafe { __torajs_builtin_proto_mark_deleted(3, 95) };
+        assert_eq!(unsafe { __torajs_builtin_proto_is_deleted(3, 95) }, 1);
+        // other tag / other mid unaffected; idempotent re-mark.
+        assert_eq!(unsafe { __torajs_builtin_proto_is_deleted(0, 95) }, 0);
+        assert_eq!(unsafe { __torajs_builtin_proto_is_deleted(3, 94) }, 0);
+        unsafe { __torajs_builtin_proto_mark_deleted(3, 95) };
+        assert_eq!(unsafe { __torajs_builtin_proto_is_deleted(3, 95) }, 1);
+        // out-of-range ignored / answers 0.
+        unsafe { __torajs_builtin_proto_mark_deleted(99, 5) };
+        unsafe { __torajs_builtin_proto_mark_deleted(3, 200) };
+        assert_eq!(unsafe { __torajs_builtin_proto_is_deleted(99, 5) }, 0);
+        assert_eq!(unsafe { __torajs_builtin_proto_is_deleted(3, 200) }, 0);
     }
 
     #[test]
