@@ -63,6 +63,7 @@ pub mod program;
 pub mod regex;
 pub mod resolve;
 pub mod ucd;
+pub mod ucd_tables;
 pub mod utf8;
 pub mod utf8_class_expand;
 pub mod vm;

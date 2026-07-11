@@ -412,4 +412,59 @@ mod tests {
             assert!(uprop_range_contains(UCD_LETTER, r.hi));
         }
     }
+
+    /// CODEGEN table invariants (RFC 20260711 chunk A) — every
+    /// generated table is sorted + disjoint (the binary-search
+    /// contract) and name-sorted (the future name binary search);
+    /// spot hits pin the generator's range coalescing.
+    #[test]
+    fn codegen_tables_sorted_and_disjoint() {
+        use crate::ucd_tables::{BINARY_TABLES, GC_TABLES, SCRIPT_TABLES, SCX_TABLES};
+        for family in [GC_TABLES, SCRIPT_TABLES, SCX_TABLES, BINARY_TABLES] {
+            for pair in family.windows(2) {
+                assert!(pair[0].0 < pair[1].0, "table names must be sorted");
+            }
+            for (name, table) in family {
+                for w in table.windows(2) {
+                    assert!(
+                        w[0].hi < w[1].lo,
+                        "{name}: ranges must be sorted + disjoint"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn codegen_spot_hits() {
+        use crate::ucd_tables::{GC_ALIASES, GC_TABLES, SCRIPT_TABLES, SCX_TABLES};
+        fn find(
+            family: &'static [(&'static str, &'static [UPropRange])],
+            n: &str,
+        ) -> &'static [UPropRange] {
+            family
+                .iter()
+                .find(|(name, _)| *name == n)
+                .unwrap_or_else(|| panic!("missing table {n}"))
+                .1
+        }
+        // Adlam script: 1E900..1E94B coalesced from three UCD rows.
+        assert!(uprop_range_contains(find(SCRIPT_TABLES, "Adlam"), 0x1E94B));
+        assert!(!uprop_range_contains(find(SCRIPT_TABLES, "Adlam"), 0x1E94C));
+        // gc composite L covers what the handwritten UCD_LETTER does.
+        assert!(uprop_range_contains(find(GC_TABLES, "L"), 0x4E2D));
+        assert!(!uprop_range_contains(find(GC_TABLES, "L"), 0x0030));
+        // scx: U+0640 ARABIC TATWEEL lists Adlam in ScriptExtensions.
+        assert!(uprop_range_contains(find(SCX_TABLES, "Adlam"), 0x0640));
+        assert!(!uprop_range_contains(find(SCRIPT_TABLES, "Adlam"), 0x0640));
+        // alias rows are (alias, canonical) and sorted.
+        assert!(
+            GC_ALIASES
+                .iter()
+                .any(|&(a, c)| a == "Uppercase_Letter" && c == "Lu")
+        );
+        for pair in GC_ALIASES.windows(2) {
+            assert!(pair[0].0 < pair[1].0);
+        }
+    }
 }
