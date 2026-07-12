@@ -11,9 +11,9 @@ use core::ffi::c_void;
 
 use crate::define::define_apply;
 use crate::layout::{
-    ANY_HEAP, ANY_UNDEF, DEFINE_FLAG_CONFIGURABLE, DEFINE_FLAG_ENUMERABLE, DEFINE_FLAG_WRITABLE,
-    DEFINE_PRESENT_CONFIGURABLE, DEFINE_PRESENT_ENUMERABLE, DEFINE_PRESENT_VALUE,
-    DEFINE_PRESENT_WRITABLE,
+    ANY_HEAP, ANY_UNDEF, CELL_PROPS_OFF, DEFINE_FLAG_CONFIGURABLE, DEFINE_FLAG_ENUMERABLE,
+    DEFINE_FLAG_WRITABLE, DEFINE_PRESENT_CONFIGURABLE, DEFINE_PRESENT_ENUMERABLE,
+    DEFINE_PRESENT_VALUE, DEFINE_PRESENT_WRITABLE, TAG_ARR_HDR, TAG_CLOSURE_HDR, TAG_DYNOBJ,
 };
 use crate::probe::{entries, probe};
 
@@ -166,6 +166,27 @@ pub unsafe extern "C" fn __torajs_dynobj_define_from_desc(
     desc: *const c_void,
 ) {
     if desc.is_null() {
+        return;
+    }
+    // §6.2.6.5 ToPropertyDescriptor reads off ANY object — dispatch
+    // per the desc cell's shape to its dynobj-backed own-field store.
+    // Pre-fix a Closure descriptor (test262's `descObj = function(){};
+    // descObj.enumerable = true` idiom) was probed as a dynobj —
+    // SIGSEGV. A NULL store (fresh Closure/Arr, or a shape with no
+    // expando domain) is an empty descriptor: all-absent flags still
+    // create / validate the property.
+    let desc = match unsafe { (desc.cast::<u8>().add(4) as *const u16).read() } {
+        TAG_DYNOBJ => desc,
+        TAG_CLOSURE_HDR | TAG_ARR_HDR => unsafe {
+            desc.cast::<u8>()
+                .add(CELL_PROPS_OFF)
+                .cast::<*const c_void>()
+                .read()
+        },
+        _ => core::ptr::null(),
+    };
+    if desc.is_null() {
+        unsafe { define_apply(obj_slot, key, 0, 0, 0) };
         return;
     }
 

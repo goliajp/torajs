@@ -62,6 +62,19 @@ pub const DYNOBJ_INITIAL_CAP: u32 = 8;
 /// `torajs_rc::Tag::DynObj` = 14).
 pub const TAG_DYNOBJ: u16 = 14;
 
+/// `type_tag` mirror for Arr heap cells (`torajs_rc::Tag::Arr` = 2) —
+/// the define/descriptor paths dispatch per receiver shape.
+pub const TAG_ARR_HDR: u16 = 2;
+
+/// `type_tag` mirror for Closure heap cells (`torajs_rc::Tag::Closure`
+/// = 3). A Closure's expando props dynobj lives at +24
+/// (`CLOSURE_PROPS_OFF` mirror — same slot Arr uses).
+pub const TAG_CLOSURE_HDR: u16 = 3;
+
+/// Arr / Closure expando props-dynobj slot offset (torajs-arr
+/// `ARR_PROPS_OFF` / torajs-core `CLOSURE_PROPS_OFF` mirror).
+pub const CELL_PROPS_OFF: usize = 24;
+
 /// Heap-header `flags` bit (u16 @6) marking a DynObj created with a
 /// null prototype (`Object.create(null)` semantics — e.g. a regex
 /// match's `.groups` dict per spec §22.2.7.8). Print surfaces render

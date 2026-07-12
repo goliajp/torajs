@@ -201,9 +201,12 @@ fn emit_define_objlit_runtime(
     true
 }
 
-/// Runtime descriptor (RFC C1) — gated on both obj and desc being Any
-/// (dynobj-backed). Key is lowered before desc to preserve obj → key
-/// → desc evaluation order.
+/// Runtime descriptor (RFC C1) — obj is Any (dynobj-backed) or a
+/// typed Array (define_apply's TAG_ARR dispatch); desc is Any or a
+/// typed Closure heap cell (its shape resolves at the
+/// `define_from_desc` entry — a Closure descriptor reads through its
+/// expando props dynobj). Key is lowered before desc to preserve
+/// obj → key → desc evaluation order.
 fn emit_define_runtime_desc(
     ctx: &mut LowerCtx,
     obj_op: Operand,
@@ -212,29 +215,48 @@ fn emit_define_runtime_desc(
     receiver_ident: &Option<String>,
     desc_eid: ExprId,
 ) -> bool {
+    if !matches!(obj_ty, Type::Any | Type::Arr(_)) {
+        return false;
+    }
     let key_op = lower_key(ctx, key);
     let desc_op = ctx.lower_expr(desc_eid);
     let desc_ty = ctx.operand_ty(&desc_op);
-    if matches!(obj_ty, Type::Any) && matches!(desc_ty, Type::Any) {
-        let desc_ptr = ctx.any_unbox_value_as_ptr(desc_op);
-        let dynobj = ctx.any_unbox_value_as_ptr(obj_op);
-        let slot = ctx.alloca(Type::Ptr, Some("__dynobj_slot"));
-        ctx.f.append_void(
-            ctx.cur_block,
-            InstKind::Store(Operand::Value(dynobj), Operand::Value(slot), 0),
-        );
-        ctx.f.append_void(
-            ctx.cur_block,
-            InstKind::Call(
-                ctx.intrinsics.dynobj_define_from_desc,
-                vec![Operand::Value(slot), key_op, Operand::Value(desc_ptr)],
-            ),
-        );
-        ctx.emit_throw_check(None);
+    let desc_ptr: Operand = match desc_ty {
+        Type::Any => Operand::Value(ctx.any_unbox_value_as_ptr(desc_op)),
+        // Heap cells whose shape the define_from_desc entry resolves
+        // (Closure / Arr expando props dynobj at +24). Typed structs
+        // stay declined — no dynobj-backed own domain (recorded
+        // divergence, same reflection boundary as prop_delete's
+        // Tag::Obj arm).
+        Type::Closure(_) | Type::Arr(_) => desc_op,
+        _ => return false,
+    };
+    let obj_ptr: Operand = match &obj_ty {
+        Type::Any => Operand::Value(ctx.any_unbox_value_as_ptr(obj_op)),
+        _ => {
+            // Kernel element writes are kind-aware — mark at the
+            // reflection boundary (mirror of the literal Arr arm).
+            ctx.emit_arr_mark_kind(&obj_op);
+            obj_op
+        }
+    };
+    let slot = ctx.alloca(Type::Ptr, Some("__dynobj_slot"));
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Store(obj_ptr, Operand::Value(slot), 0),
+    );
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Call(
+            ctx.intrinsics.dynobj_define_from_desc,
+            vec![Operand::Value(slot), key_op, desc_ptr],
+        ),
+    );
+    ctx.emit_throw_check(None);
+    if matches!(obj_ty, Type::Any) {
         ctx.emit_any_dynobj_writeback(receiver_ident, slot);
-        return true;
     }
-    false
+    true
 }
 
 /// Dispatch `Object.defineProperty` / `Object.defineProperties` — the

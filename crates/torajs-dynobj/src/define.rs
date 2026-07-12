@@ -26,7 +26,7 @@ use crate::layout::{
     ANY_HEAP, ANY_UNDEF, BUCKET_FLAG_CONFIGURABLE, BUCKET_FLAG_ENUMERABLE, BUCKET_FLAG_WRITABLE,
     BUCKET_KEY_PTR_MASK, BUCKET_TAG_MASK, DEFINE_FLAG_CONFIGURABLE, DEFINE_FLAG_ENUMERABLE,
     DEFINE_FLAG_WRITABLE, DEFINE_PRESENT_CONFIGURABLE, DEFINE_PRESENT_ENUMERABLE,
-    DEFINE_PRESENT_VALUE, DEFINE_PRESENT_WRITABLE, DYNOBJ_HDR_FLAG_NON_EXTENSIBLE,
+    DEFINE_PRESENT_VALUE, DEFINE_PRESENT_WRITABLE, DYNOBJ_HDR_FLAG_NON_EXTENSIBLE, TAG_ARR_HDR,
 };
 use crate::probe::{
     Entry, bucket_flags, bucket_make_key_tagged, count, entries, entries_cap, entries_len,
@@ -52,10 +52,6 @@ unsafe extern "C" {
         flags_byte: u64,
     );
 }
-
-/// `Tag::Arr` universal-header value (torajs-rc mirror) — the
-/// receiver-dispatch gate in [`define_apply`].
-const TAG_ARR_HDR: u16 = 2;
 
 /// `__torajs_dynobj_define(obj_slot, key, tag, value, flags_byte)`.
 ///
