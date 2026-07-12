@@ -18,11 +18,13 @@
 use core::ffi::c_void;
 
 use torajs_rc::{
-    ANY_METHOD_POP, ANY_METHOD_PUSH, ANY_METHOD_REVERSE, ANY_METHOD_SHIFT, ANY_METHOD_UNSHIFT,
+    ANY_METHOD_COPY_WITHIN, ANY_METHOD_FILL, ANY_METHOD_POP, ANY_METHOD_PUSH, ANY_METHOD_REVERSE,
+    ANY_METHOD_SHIFT, ANY_METHOD_SORT, ANY_METHOD_SPLICE, ANY_METHOD_UNSHIFT,
 };
 
+use crate::method_call::{closure_boxed_entry, not_callable, to_index};
 use crate::method_call_arraylike::{arraylike_get, arraylike_has};
-use crate::nanbox::{AnyValue, VALUE_UNDEFINED};
+use crate::nanbox::{AnyValue, VALUE_UNDEFINED, is_undefined};
 use crate::nanbox_encode::{
     __torajs_anyv_box_i64, __torajs_anyv_box_pointer, __torajs_anyv_unbox_tag,
     __torajs_anyv_unbox_value,
@@ -41,9 +43,28 @@ unsafe extern "C" {
     /// torajs-rc — NaN-box-safe refcount bump (argv borrows →
     /// stored stakes).
     fn __torajs_rc_inc(p: *mut c_void);
+    /// torajs-arr — fresh Array<Any> (splice's removed product /
+    /// sort's staging).
+    fn __torajs_arr_alloc_any(cap: u64) -> *mut u8;
+    /// torajs-arr — append one (tag, value) pair; ANY_HEAP transfers
+    /// ownership. Caller must capture the (possibly moved) return.
+    fn __torajs_arr_push_any(arr: *mut c_void, tag: u64, value: u64) -> *mut u8;
+    /// torajs-arr — in-place stable merge sort over an Array<Any>
+    /// (boxed comparator or the §23.1.3.30.2 ToString default).
+    fn __torajs_arr_any_sort(
+        arr: *mut u8,
+        cb_env: *mut c_void,
+        cb_entry: u64,
+        has_cb: i64,
+    ) -> *mut u8;
+    /// torajs-arr — borrowed whole-box slot read (the sort
+    /// writeback).
+    fn __torajs_arr_get_any_boxed(arr: *const c_void, i: u64) -> u64;
+    /// torajs-throw — pending-throw flag (the sort comparator leg).
+    fn __torajs_throw_check() -> i64;
 }
 
-/// 3b-1 mutator set — the dynobj routing gates on this alongside
+/// 3b mutator set — the dynobj routing gates on this alongside
 /// the read family.
 pub(crate) fn arraylike_mut_supported(mid: i64) -> bool {
     matches!(
@@ -53,6 +74,10 @@ pub(crate) fn arraylike_mut_supported(mid: i64) -> bool {
             | ANY_METHOD_SHIFT
             | ANY_METHOD_UNSHIFT
             | ANY_METHOD_REVERSE
+            | ANY_METHOD_SPLICE
+            | ANY_METHOD_SORT
+            | ANY_METHOD_FILL
+            | ANY_METHOD_COPY_WITHIN
     )
 }
 
@@ -195,6 +220,10 @@ pub(crate) unsafe fn arraylike_mut(
                 set_len(&mut obj, len + argc);
                 __torajs_anyv_box_i64(len + argc)
             }
+            m if m == ANY_METHOD_SPLICE => do_splice(&mut obj, len, argv, argc),
+            m if m == ANY_METHOD_SORT => do_sort(&mut obj, len, arg_at(0)),
+            m if m == ANY_METHOD_FILL => do_fill(&mut obj, len, argv, argc),
+            m if m == ANY_METHOD_COPY_WITHIN => do_copy_within(&mut obj, len, argv, argc),
             // reverse — §23.1.3.26 two-pointer swap with the four
             // present/absent cases.
             _ => {
@@ -239,4 +268,206 @@ pub(crate) unsafe fn arraylike_mut(
         unsafe { *recv_slot = __torajs_anyv_box_pointer(obj) };
     }
     out
+}
+
+/// `splice(start, deleteCount, …items)` per §23.1.3.31 — the
+/// removed Gets transfer into a fresh Array<Any> (absent keys ride
+/// the dense-emulation undefined), the gap moves are Has-gated
+/// Set/Delete pairs, items store at actualStart, length Sets last.
+unsafe fn do_splice(obj: &mut *mut c_void, len: i64, argv: *const u64, argc: i64) -> AnyValue {
+    unsafe {
+        let arg_at = |i: i64| -> u64 {
+            if i < argc {
+                *argv.add(i as usize)
+            } else {
+                VALUE_UNDEFINED
+            }
+        };
+        let rel = to_index(arg_at(0), 0);
+        let start = if rel < 0 {
+            (rel + len).max(0)
+        } else {
+            rel.min(len)
+        };
+        let del = if argc == 0 {
+            0
+        } else if argc == 1 {
+            len - start
+        } else {
+            to_index(arg_at(1), 0).clamp(0, len - start)
+        };
+        let items = (argc - 2).max(0);
+        let mut removed = __torajs_arr_alloc_any(del.clamp(0, 4096) as u64);
+        for k in 0..del {
+            let v = if arraylike_has(*obj, start + k) {
+                arraylike_get(*obj, start + k)
+            } else {
+                VALUE_UNDEFINED
+            };
+            removed = __torajs_arr_push_any(
+                removed as *mut c_void,
+                __torajs_anyv_unbox_tag(v) as u64,
+                __torajs_anyv_unbox_value(v) as u64,
+            );
+        }
+        if items < del {
+            let mut k = start;
+            while k < len - del {
+                let from = k + del;
+                if arraylike_has(*obj, from) {
+                    let v = arraylike_get(*obj, from);
+                    set_at(obj, k + items, v);
+                } else {
+                    delete_at(*obj, k + items);
+                }
+                k += 1;
+            }
+            let mut k = len;
+            while k > len - del + items {
+                delete_at(*obj, k - 1);
+                k -= 1;
+            }
+        } else if items > del {
+            let mut k = len - del;
+            while k > start {
+                let from = k + del - 1;
+                if arraylike_has(*obj, from) {
+                    let v = arraylike_get(*obj, from);
+                    set_at(obj, k + items - 1, v);
+                } else {
+                    delete_at(*obj, k + items - 1);
+                }
+                k -= 1;
+            }
+        }
+        for i in 0..items {
+            let v = arg_at(2 + i);
+            __torajs_rc_inc(v as *mut c_void);
+            set_at(obj, start + i, v);
+        }
+        set_len(obj, len - del + items);
+        __torajs_anyv_box_pointer(removed as *mut c_void)
+    }
+}
+
+/// `sort(comparefn)` per §23.1.3.30 — the present Gets stage into a
+/// fresh Array<Any>, the existing kind-aware merge-sort kernel runs
+/// (boxed comparator or the ToString default), the sorted prefix
+/// Sets back and the hole tail Deletes.
+unsafe fn do_sort(obj: &mut *mut c_void, len: i64, cmp: AnyValue) -> AnyValue {
+    unsafe {
+        let (cb_env, cb_entry, has_cb) = if is_undefined(cmp) {
+            (core::ptr::null_mut(), 0u64, 0i64)
+        } else {
+            let Some((e, en)) = closure_boxed_entry(cmp) else {
+                return not_callable();
+            };
+            (e, en, 1)
+        };
+        let mut tmp = __torajs_arr_alloc_any(len.clamp(0, 4096) as u64);
+        let mut count: i64 = 0;
+        for j in 0..len {
+            if arraylike_has(*obj, j) {
+                let v = arraylike_get(*obj, j);
+                tmp = __torajs_arr_push_any(
+                    tmp as *mut c_void,
+                    __torajs_anyv_unbox_tag(v) as u64,
+                    __torajs_anyv_unbox_value(v) as u64,
+                );
+                count += 1;
+            }
+        }
+        __torajs_arr_any_sort(tmp, cb_env, cb_entry, has_cb);
+        if __torajs_throw_check() != 0 {
+            __torajs_value_drop_heap(tmp as *mut c_void);
+            return VALUE_UNDEFINED;
+        }
+        for j in 0..count {
+            let bv = __torajs_arr_get_any_boxed(tmp as *const c_void, j as u64);
+            // Borrowed slot read → the bucket's stake.
+            __torajs_rc_inc(bv as *mut c_void);
+            set_at(obj, j, bv);
+        }
+        for j in count..len {
+            delete_at(*obj, j);
+        }
+        __torajs_value_drop_heap(tmp as *mut c_void);
+        __torajs_rc_inc(*obj);
+        __torajs_anyv_box_pointer(*obj)
+    }
+}
+
+/// `fill(value, start, end)` per §23.1.3.7 — relative-wrapped Sets
+/// of the same borrowed value (a stake per slot).
+unsafe fn do_fill(obj: &mut *mut c_void, len: i64, argv: *const u64, argc: i64) -> AnyValue {
+    unsafe {
+        let arg_at = |i: i64| -> u64 {
+            if i < argc {
+                *argv.add(i as usize)
+            } else {
+                VALUE_UNDEFINED
+            }
+        };
+        let v = arg_at(0);
+        let wrap = |r: i64| if r < 0 { (r + len).max(0) } else { r.min(len) };
+        let lo = wrap(to_index(arg_at(1), 0));
+        let hi = wrap(to_index(arg_at(2), i64::MAX));
+        let mut k = lo;
+        while k < hi {
+            __torajs_rc_inc(v as *mut c_void);
+            set_at(obj, k, v);
+            k += 1;
+        }
+        __torajs_rc_inc(*obj);
+        __torajs_anyv_box_pointer(*obj)
+    }
+}
+
+/// `copyWithin(target, start, end)` per §23.1.3.4 — direction-aware
+/// Has-gated moves.
+unsafe fn do_copy_within(obj: &mut *mut c_void, len: i64, argv: *const u64, argc: i64) -> AnyValue {
+    unsafe {
+        let arg_at = |i: i64| -> u64 {
+            if i < argc {
+                *argv.add(i as usize)
+            } else {
+                VALUE_UNDEFINED
+            }
+        };
+        let wrap = |r: i64| if r < 0 { (r + len).max(0) } else { r.min(len) };
+        let mut to = wrap(to_index(arg_at(0), 0));
+        let mut from = wrap(to_index(arg_at(1), 0));
+        let fin = wrap(to_index(arg_at(2), i64::MAX));
+        let mut count = (fin - from).min(len - to);
+        if count > 0 && from < to && to < from + count {
+            // Overlap — copy backwards.
+            from += count - 1;
+            to += count - 1;
+            while count > 0 {
+                if arraylike_has(*obj, from) {
+                    let v = arraylike_get(*obj, from);
+                    set_at(obj, to, v);
+                } else {
+                    delete_at(*obj, to);
+                }
+                from -= 1;
+                to -= 1;
+                count -= 1;
+            }
+        } else {
+            while count > 0 {
+                if arraylike_has(*obj, from) {
+                    let v = arraylike_get(*obj, from);
+                    set_at(obj, to, v);
+                } else {
+                    delete_at(*obj, to);
+                }
+                from += 1;
+                to += 1;
+                count -= 1;
+            }
+        }
+        __torajs_rc_inc(*obj);
+        __torajs_anyv_box_pointer(*obj)
+    }
 }
