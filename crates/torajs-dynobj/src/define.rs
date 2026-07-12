@@ -121,136 +121,15 @@ pub(crate) unsafe fn define_apply(
     let pr = unsafe { probe(obj, key as *const c_void) };
     let ent = unsafe { entries(obj) };
 
-    let has_writable = flags_byte & DEFINE_PRESENT_WRITABLE != 0;
-    let has_enumerable = flags_byte & DEFINE_PRESENT_ENUMERABLE != 0;
-    let has_configurable = flags_byte & DEFINE_PRESENT_CONFIGURABLE != 0;
     let has_value = flags_byte & DEFINE_PRESENT_VALUE != 0;
     let desc_writable = flags_byte & DEFINE_FLAG_WRITABLE != 0;
     let desc_enumerable = flags_byte & DEFINE_FLAG_ENUMERABLE != 0;
     let desc_configurable = flags_byte & DEFINE_FLAG_CONFIGURABLE != 0;
 
     if pr.found {
-        let e = unsafe { ent.add(pr.entry as usize) };
-        let cur_kp_tagged = unsafe { (*e).key_ptr_tagged };
-        let cur_value_anyv = unsafe { (*e).value_anyv };
-        let cur_flags = bucket_flags(cur_kp_tagged);
-        let cur_writable = cur_flags & BUCKET_FLAG_WRITABLE != 0;
-        let cur_enumerable = cur_flags & BUCKET_FLAG_ENUMERABLE != 0;
-        let cur_configurable = cur_flags & BUCKET_FLAG_CONFIGURABLE != 0;
-        let cur_value_tag = unsafe { __torajs_anyv_unbox_tag(cur_value_anyv) } as u64;
-
-        if !cur_configurable {
-            // Spec §10.1.6.3 — non-configurable entry; reject diverging
-            // present-flag changes.
-            if has_configurable && desc_configurable && !cur_configurable {
-                unsafe {
-                    __torajs_throw_type_error(
-                        c"Attempting to change configurable attribute of unconfigurable property."
-                            .as_ptr() as *const u8,
-                    );
-                }
-                return;
-            }
-            if has_enumerable && desc_enumerable != cur_enumerable {
-                unsafe {
-                    __torajs_throw_type_error(
-                        c"Attempting to change enumerable attribute of unconfigurable property."
-                            .as_ptr() as *const u8,
-                    );
-                }
-                return;
-            }
-            if !cur_writable {
-                if has_writable && desc_writable {
-                    unsafe {
-                        __torajs_throw_type_error(
-                            c"Attempting to change writable attribute of unconfigurable property."
-                                .as_ptr() as *const u8,
-                        );
-                    }
-                    return;
-                }
-                if has_value {
-                    // SameValue approximated by exact (tag, value) match.
-                    let cur_unboxed_value =
-                        unsafe { __torajs_anyv_unbox_value(cur_value_anyv) } as u64;
-                    let same =
-                        (tag & BUCKET_TAG_MASK) == cur_value_tag && value == cur_unboxed_value;
-                    if !same {
-                        unsafe {
-                            __torajs_throw_type_error(
-                                c"Attempting to change value of a readonly property.".as_ptr()
-                                    as *const u8,
-                            );
-                        }
-                        return;
-                    }
-                }
-            }
-        }
-
-        // Validation passed — apply. Drop the old heap value first if
-        // the new descriptor brings a fresh [[Value]] over an ANY_HEAP slot.
-        if has_value && cur_value_tag == ANY_HEAP {
-            unsafe {
-                __torajs_value_drop_heap(cur_value_anyv as *mut c_void);
-            }
-        }
-
-        // Per-flag fold: present → take desc value; absent → preserve current.
-        let mut new_flags: u64 = 0;
-        new_flags |= if has_writable {
-            if desc_writable {
-                BUCKET_FLAG_WRITABLE
-            } else {
-                0
-            }
-        } else if cur_writable {
-            BUCKET_FLAG_WRITABLE
-        } else {
-            0
-        };
-        new_flags |= if has_enumerable {
-            if desc_enumerable {
-                BUCKET_FLAG_ENUMERABLE
-            } else {
-                0
-            }
-        } else if cur_enumerable {
-            BUCKET_FLAG_ENUMERABLE
-        } else {
-            0
-        };
-        new_flags |= if has_configurable {
-            if desc_configurable {
-                BUCKET_FLAG_CONFIGURABLE
-            } else {
-                0
-            }
-        } else if cur_configurable {
-            BUCKET_FLAG_CONFIGURABLE
-        } else {
-            0
-        };
-
-        let new_value_tag = if has_value {
-            tag & BUCKET_TAG_MASK
-        } else {
-            cur_value_tag
-        };
-        let new_value = if has_value {
-            value
-        } else {
-            unsafe { __torajs_anyv_unbox_value(cur_value_anyv) as u64 }
-        };
-
-        // Preserve the existing key pointer (re-pack with new flags);
-        // rebox the (tag, value) pair into a fresh NaN-box AnyValue.
-        let cur_key_ptr = (cur_kp_tagged & BUCKET_KEY_PTR_MASK) as *mut c_void;
-        unsafe {
-            (*e).key_ptr_tagged = bucket_make_key_tagged(cur_key_ptr, new_flags);
-            (*e).value_anyv = __torajs_anyv_box_from_pair(new_value_tag as i64, new_value as i64);
-        }
+        // Existing entry — §10.1.6.3 validate + apply, split out to
+        // keep this dispatcher under the 200-line fn hard limit.
+        unsafe { redefine_entry(ent.add(pr.entry as usize), tag, value, flags_byte) };
     } else {
         // RFC C5b-4 — Object.defineProperty(O, "newKey", desc) on a
         // sealed / non-extensible dict must throw TypeError. Existing-
@@ -296,5 +175,140 @@ pub(crate) unsafe fn define_apply(
             set_entries_len(obj, e_idx + 1);
             set_count(obj, count(obj) + 1);
         }
+    }
+}
+
+/// Existing-entry arm of [`define_apply`] — validate the transition
+/// against the current flags (§10.1.6.3 non-configurable rules) and
+/// apply the per-flag fold + value swap in place.
+///
+/// # Safety
+/// `e` points at a live entry of the probed dynobj; same `tag` /
+/// `value` ownership contract as [`define_apply`].
+unsafe fn redefine_entry(e: *mut Entry, tag: u64, value: u64, flags_byte: u64) {
+    let has_writable = flags_byte & DEFINE_PRESENT_WRITABLE != 0;
+    let has_enumerable = flags_byte & DEFINE_PRESENT_ENUMERABLE != 0;
+    let has_configurable = flags_byte & DEFINE_PRESENT_CONFIGURABLE != 0;
+    let has_value = flags_byte & DEFINE_PRESENT_VALUE != 0;
+    let desc_writable = flags_byte & DEFINE_FLAG_WRITABLE != 0;
+    let desc_enumerable = flags_byte & DEFINE_FLAG_ENUMERABLE != 0;
+    let desc_configurable = flags_byte & DEFINE_FLAG_CONFIGURABLE != 0;
+    let cur_kp_tagged = unsafe { (*e).key_ptr_tagged };
+    let cur_value_anyv = unsafe { (*e).value_anyv };
+    let cur_flags = bucket_flags(cur_kp_tagged);
+    let cur_writable = cur_flags & BUCKET_FLAG_WRITABLE != 0;
+    let cur_enumerable = cur_flags & BUCKET_FLAG_ENUMERABLE != 0;
+    let cur_configurable = cur_flags & BUCKET_FLAG_CONFIGURABLE != 0;
+    let cur_value_tag = unsafe { __torajs_anyv_unbox_tag(cur_value_anyv) } as u64;
+
+    if !cur_configurable {
+        // Spec §10.1.6.3 — non-configurable entry; reject diverging
+        // present-flag changes.
+        if has_configurable && desc_configurable && !cur_configurable {
+            unsafe {
+                __torajs_throw_type_error(
+                    c"Attempting to change configurable attribute of unconfigurable property."
+                        .as_ptr() as *const u8,
+                );
+            }
+            return;
+        }
+        if has_enumerable && desc_enumerable != cur_enumerable {
+            unsafe {
+                __torajs_throw_type_error(
+                    c"Attempting to change enumerable attribute of unconfigurable property."
+                        .as_ptr() as *const u8,
+                );
+            }
+            return;
+        }
+        if !cur_writable {
+            if has_writable && desc_writable {
+                unsafe {
+                    __torajs_throw_type_error(
+                        c"Attempting to change writable attribute of unconfigurable property."
+                            .as_ptr() as *const u8,
+                    );
+                }
+                return;
+            }
+            if has_value {
+                // SameValue approximated by exact (tag, value) match.
+                let cur_unboxed_value = unsafe { __torajs_anyv_unbox_value(cur_value_anyv) } as u64;
+                let same = (tag & BUCKET_TAG_MASK) == cur_value_tag && value == cur_unboxed_value;
+                if !same {
+                    unsafe {
+                        __torajs_throw_type_error(
+                            c"Attempting to change value of a readonly property.".as_ptr()
+                                as *const u8,
+                        );
+                    }
+                    return;
+                }
+            }
+        }
+    }
+
+    // Validation passed — apply. Drop the old heap value first if
+    // the new descriptor brings a fresh [[Value]] over an ANY_HEAP slot.
+    if has_value && cur_value_tag == ANY_HEAP {
+        unsafe {
+            __torajs_value_drop_heap(cur_value_anyv as *mut c_void);
+        }
+    }
+
+    // Per-flag fold: present → take desc value; absent → preserve current.
+    let mut new_flags: u64 = 0;
+    new_flags |= if has_writable {
+        if desc_writable {
+            BUCKET_FLAG_WRITABLE
+        } else {
+            0
+        }
+    } else if cur_writable {
+        BUCKET_FLAG_WRITABLE
+    } else {
+        0
+    };
+    new_flags |= if has_enumerable {
+        if desc_enumerable {
+            BUCKET_FLAG_ENUMERABLE
+        } else {
+            0
+        }
+    } else if cur_enumerable {
+        BUCKET_FLAG_ENUMERABLE
+    } else {
+        0
+    };
+    new_flags |= if has_configurable {
+        if desc_configurable {
+            BUCKET_FLAG_CONFIGURABLE
+        } else {
+            0
+        }
+    } else if cur_configurable {
+        BUCKET_FLAG_CONFIGURABLE
+    } else {
+        0
+    };
+
+    let new_value_tag = if has_value {
+        tag & BUCKET_TAG_MASK
+    } else {
+        cur_value_tag
+    };
+    let new_value = if has_value {
+        value
+    } else {
+        unsafe { __torajs_anyv_unbox_value(cur_value_anyv) as u64 }
+    };
+
+    // Preserve the existing key pointer (re-pack with new flags);
+    // rebox the (tag, value) pair into a fresh NaN-box AnyValue.
+    let cur_key_ptr = (cur_kp_tagged & BUCKET_KEY_PTR_MASK) as *mut c_void;
+    unsafe {
+        (*e).key_ptr_tagged = bucket_make_key_tagged(cur_key_ptr, new_flags);
+        (*e).value_anyv = __torajs_anyv_box_from_pair(new_value_tag as i64, new_value as i64);
     }
 }
