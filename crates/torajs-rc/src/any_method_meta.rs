@@ -168,6 +168,7 @@ pub fn any_method_meta(mid: i64) -> Option<(&'static str, u32)> {
         // Accessor id — its name is the spec getter name and does
         // NOT intern back (excluded from the round-trip test).
         ANY_METHOD_GET_SIZE => ("get size", 0),
+        ANY_METHOD_OBJECT_TO_STRING => ("toString", 0),
         _ => return None,
     })
 }
@@ -191,7 +192,7 @@ mod tests {
     #[test]
     fn meta_rejects_unknown_and_out_of_table() {
         assert!(any_method_meta(ANY_METHOD_UNKNOWN).is_none());
-        assert!(any_method_meta(ANY_METHOD_GET_SIZE + 1).is_none());
+        assert!(any_method_meta(ANY_METHOD_OBJECT_TO_STRING + 1).is_none());
         assert!(any_method_meta(-1).is_none());
     }
 

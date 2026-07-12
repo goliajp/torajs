@@ -40,6 +40,27 @@ pub(crate) fn try_route(
         }
         return Some(Ok(Type::Any));
     }
+    // RFC 20260713-array-proto-residual blade 2 — the
+    // `<any>.toString.call(x)` family: the `(Any, "toString" /
+    // "valueOf")` member sugar arms type the read as a concrete
+    // Function so its DIRECT call answers String, but the read is
+    // still a runtime any cell (a reified builtin / user closure),
+    // so the Function.prototype surfaces (.call / .apply / .bind)
+    // on it stay any-dispatched. Mirrored by the ssa_lower
+    // any-method-call gate.
+    if let Expr::Member { obj, name } = ast.get_expr(*callee)
+        && matches!(name.as_str(), "call" | "apply" | "bind")
+        && matches!(checker.type_of(ast, *obj), Ok(Type::Function(..)))
+        && let Expr::Member { obj: inner, .. } = ast.get_expr(*obj)
+        && matches!(checker.type_of(ast, *inner), Ok(Type::Any))
+    {
+        for a in args {
+            if let Err(e) = checker.type_of(ast, *a) {
+                return Some(Err(e));
+            }
+        }
+        return Some(Ok(Type::Any));
+    }
     // RFC C4+ — a bare call whose callee itself types as `any`
     // (`f(1)` on an any-held closure) is legal per TS and answers
     // `any`; lowering routes it to the runtime closure dispatch.

@@ -108,31 +108,6 @@ pub(crate) unsafe fn to_index(av: AnyValue, default: i64) -> i64 {
     if n.is_nan() { 0 } else { n as i64 }
 }
 
-/// chunk D-1 — `hasOwnProperty` / `propertyIsEnumerable` universal
-/// arm: ToPropertyKey the first argument (`anyv_to_str` — a missing
-/// slot stringifies undefined per §7.1.19), probe the prop_has /
-/// prop_enumerable substrate, answer a Bool box. The key temp is
-/// owned and dropped here.
-unsafe fn own_prop_probe(recv: AnyValue, mid: i64, argv: *const u64, argc: i64) -> AnyValue {
-    let key_av = if argc >= 1 {
-        unsafe { *argv }
-    } else {
-        VALUE_UNDEFINED
-    };
-    let key = unsafe { crate::nanbox_ffi::__torajs_anyv_to_str(key_av) };
-    let hit = if mid == ANY_METHOD_HAS_OWN_PROPERTY {
-        unsafe { crate::prop_has::__torajs_any_prop_has(recv, key as *const c_void) }
-    } else {
-        unsafe { crate::prop_has::__torajs_any_prop_enumerable(recv, key as *const c_void) }
-    };
-    unsafe { __torajs_str_drop(key as *mut c_void) };
-    if hit != 0 {
-        crate::nanbox::VALUE_TRUE
-    } else {
-        crate::nanbox::VALUE_FALSE
-    }
-}
-
 /// See module doc.
 ///
 /// # Safety
@@ -191,6 +166,16 @@ pub(crate) unsafe fn any_method_call_inner(
     argv: *const u64,
     argc: i64,
 ) -> AnyValue {
+    // §20.1.3.6 Object.prototype.toString — the badge classifier
+    // dispatches on EVERY this-value including undefined / null
+    // (steps 1-2 answer their badges, no ToObject throw), so the
+    // arm sits before the nullish guard. Reached only through the
+    // reified badge cell (proto alias / `.call` re-dispatch /
+    // expando-stored cell) — a plain `toString` name never interns
+    // to this mid.
+    if mid == torajs_rc::ANY_METHOD_OBJECT_TO_STRING {
+        return unsafe { crate::method_call_object_proto::object_proto_to_string(recv) };
+    }
     if is_null(recv) || is_undefined(recv) {
         unsafe {
             __torajs_throw_type_error(c"cannot call a method of null or undefined".as_ptr());
@@ -202,7 +187,7 @@ pub(crate) unsafe fn any_method_call_inner(
     // the prop_has substrate, so these dispatch BEFORE the per-tag
     // arms.
     if mid == ANY_METHOD_HAS_OWN_PROPERTY || mid == ANY_METHOD_PROPERTY_IS_ENUMERABLE {
-        return unsafe { own_prop_probe(recv, mid, argv, argc) };
+        return unsafe { crate::method_call_object_proto::own_prop_probe(recv, mid, argv, argc) };
     }
     if is_short_str(recv) {
         // toString on a string is identity; a ShortStr is an
@@ -279,6 +264,20 @@ pub(crate) unsafe fn any_method_call_inner(
             return unsafe { crate::method_call_str::str_method(ptr as *mut u8, mid, argv, argc) };
         }
         if tag == Tag::Arr as u16 {
+            // §10.1.8.1 OrdinaryGet — an own arr-props expando entry
+            // shadows the built-in method surface (`arr.getClass =
+            // Object.prototype.toString; arr.getClass()` / a user
+            // closure stored on the array). One props-NULL check on
+            // the no-expando fast path (RFC 20260713 blade 2).
+            if !name_str.is_null()
+                && let Some(r) = unsafe {
+                    crate::method_call_dynobj::arr_expando_method(
+                        ptr, recv, name_str, recv_slot, argv, argc,
+                    )
+                }
+            {
+                return r;
+            }
             return unsafe { crate::method_call_arr::arr_method(ptr, mid, recv_slot, argv, argc) };
         }
         if tag == Tag::DynObj as u16 {

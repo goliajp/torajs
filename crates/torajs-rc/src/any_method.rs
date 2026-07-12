@@ -336,6 +336,15 @@ pub const ANY_METHOD_IS_DISJOINT_FROM: i64 = 145;
 /// read never resolves to a method cell (the property read path
 /// answers the value directly).
 pub const ANY_METHOD_GET_SIZE: i64 = 146;
+/// `Object.prototype.toString` (§20.1.3.6) — a DISTINCT function
+/// object from every per-receiver `toString`: it classifies the
+/// this-value into the "[object X]" badge instead of stringifying
+/// it. Deliberately absent from the intern table (a plain
+/// `toString` member read keeps resolving to the receiver's own
+/// surface); handed out only by the `Object.prototype` proto-
+/// singleton alias so `Object.prototype.toString` reads / `.call`
+/// re-dispatch carry the badge semantics with any receiver.
+pub const ANY_METHOD_OBJECT_TO_STRING: i64 = 147;
 
 /// RegExp property-read ids (Any-method-call RFC 20260704 C4-3c-2)
 /// — `r.source` / `r.lastIndex` / flag booleans through an `any`

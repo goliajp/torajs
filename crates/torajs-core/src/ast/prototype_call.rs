@@ -71,6 +71,15 @@ pub fn desugar_prototype_call(ast: &mut Ast) {
         if !known_ns {
             continue;
         }
+        // RFC 20260713-array-proto-residual blade 2 — `Object.
+        // prototype.toString.call(x)` SKIPS the rewrite: `x.
+        // toString()` is the receiver's OWN toString (an array
+        // joins), not the §20.1.3.6 badge classifier. The runtime
+        // path reifies the distinct badge cell (proto alias) and
+        // the `.call` short-circuit re-dispatches its carried mid.
+        if ns == "Object" && method_name == "toString" {
+            continue;
+        }
         // RFC 20260712-array-generic-receiver chunks 2+3a — the
         // Array read family SKIPS the rewrite: `recv.m(args)` is
         // semantically wrong for it (a receiver's own `m` would

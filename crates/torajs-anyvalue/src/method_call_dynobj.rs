@@ -50,6 +50,10 @@ unsafe extern "C" {
     /// torajs-dynobj — run an accessor entry's getter; the answer is
     /// an owned AnyValue per the boxed-value convention.
     fn __torajs_accessor_invoke_getter(pair: *const c_void) -> u64;
+    /// torajs-arr — arr-props expando probe (NULL props answers 5 =
+    /// absent internally); same ANY_TAG channel as the dynobj pair.
+    fn __torajs_arrprops_get_tag(arr: *mut c_void, key: *const c_void) -> u64;
+    fn __torajs_arrprops_get_value(arr: *mut c_void, key: *const c_void) -> u64;
     /// torajs-structmeta — read side over `__torajs_class_layouts`
     /// (NULL for class_tag 0 / past the table).
     fn __torajs_struct_layout_lookup(class_tag: u32) -> *const c_void;
@@ -128,13 +132,27 @@ pub(crate) unsafe fn dynobj_method(
                 // (`obj.pop = Array.prototype.pop`) re-dispatches
                 // its CARRIED mid with this receiver — the bare
                 // entry would be the this=undefined TypeError.
+                // Array-family mids run the ES generic array-like
+                // semantics over this receiver; every other carried
+                // mid (the §20.1.3.6 badge cell, per-type methods)
+                // re-enters the dispatcher with the boxed receiver
+                // (RFC 20260713 blade 2 — a miss there stays loud).
                 if crate::nanbox::is_cell(cell)
                     && let Some(mid2) =
                         crate::method_value::builtin_method_mid(crate::nanbox::as_void_ptr(cell))
-                    && crate::method_call_arraylike::arraylike_supported(mid2)
                 {
-                    return crate::method_call_arraylike::arraylike_method(
-                        obj, mid2, recv_slot, argv, argc,
+                    if crate::method_call_arraylike::arraylike_supported(mid2) {
+                        return crate::method_call_arraylike::arraylike_method(
+                            obj, mid2, recv_slot, argv, argc,
+                        );
+                    }
+                    return crate::method_call::any_method_call_inner(
+                        __torajs_anyv_box_pointer(obj),
+                        mid2,
+                        core::ptr::null(),
+                        recv_slot,
+                        argv,
+                        argc,
                     );
                 }
                 // The cell's NaN-box encoding is its pointer bits.
@@ -158,6 +176,67 @@ pub(crate) unsafe fn dynobj_method(
             }
         }
         not_callable()
+    }
+}
+
+/// `Tag::Arr` own-expando probe (RFC 20260713-array-proto-residual
+/// blade 2) — §10.1.8.1 OrdinaryGet: an own arr-props entry shadows
+/// the built-in method surface (`arr.getClass = Object.prototype.
+/// toString; arr.getClass()` / a user closure stored on the array).
+/// `None` = no own entry, the caller proceeds to the builtin mid
+/// dispatch; `Some` = the entry resolved (invoked, or the
+/// resolved-but-not-callable TypeError fired — a shadowing
+/// non-callable must NOT fall through to the builtin, per spec).
+pub(crate) unsafe fn arr_expando_method(
+    arr: *mut c_void,
+    recv: AnyValue,
+    name_str: *const u8,
+    recv_slot: *mut u64,
+    argv: *const u64,
+    argc: i64,
+) -> Option<AnyValue> {
+    unsafe {
+        let key = name_str as *const c_void;
+        let dtag = __torajs_arrprops_get_tag(arr, key);
+        if dtag == 5 {
+            return None;
+        }
+        // ANY_HEAP = 4 — a closure-cell property.
+        if dtag == 4 {
+            let cell = __torajs_arrprops_get_value(arr, key);
+            // A reified builtin cell re-dispatches its CARRIED mid
+            // with this receiver (NULL name — the mid is
+            // authoritative; the badge / array-family arms apply).
+            if crate::nanbox::is_cell(cell)
+                && let Some(mid2) =
+                    crate::method_value::builtin_method_mid(crate::nanbox::as_void_ptr(cell))
+            {
+                return Some(crate::method_call::any_method_call_inner(
+                    recv,
+                    mid2,
+                    core::ptr::null(),
+                    recv_slot,
+                    argv,
+                    argc,
+                ));
+            }
+            if let Some((env, entry)) = closure_boxed_entry(cell) {
+                return Some(crate::method_call::invoke_boxed(env, entry, argv, argc));
+            }
+        }
+        // Accessor entry — getter runs first, its (owned) answer
+        // dispatches as the callee (mirror of the dynobj arm).
+        if dtag == ANY_ACCESSOR_TAG {
+            let pair = __torajs_arrprops_get_value(arr, key) as *const c_void;
+            let got = __torajs_accessor_invoke_getter(pair);
+            if let Some((env, entry)) = closure_boxed_entry(got) {
+                let r = crate::method_call::invoke_boxed(env, entry, argv, argc);
+                crate::nanbox_ffi::__torajs_anyv_rc_dec(got);
+                return Some(r);
+            }
+            crate::nanbox_ffi::__torajs_anyv_rc_dec(got);
+        }
+        Some(not_callable())
     }
 }
 

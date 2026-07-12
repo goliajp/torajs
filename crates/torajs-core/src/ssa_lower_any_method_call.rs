@@ -41,7 +41,25 @@ pub(crate) fn try_lower(
         return None;
     };
     if !matches!(ctx.expr_types.get(obj), Some(crate::check::Type::Any)) {
-        return None;
+        // RFC 20260713-array-proto-residual blade 2 — the
+        // `<any>.toString.call(x)` family: the member sugar arms
+        // type the read as a concrete Function, but the read
+        // lowers to a runtime any cell, so .call / .apply / .bind
+        // on it ride this any lane (checker mirror in
+        // route_early.rs).
+        let sugar_fn_on_any = matches!(name.as_str(), "call" | "apply" | "bind")
+            && matches!(
+                ctx.expr_types.get(obj),
+                Some(crate::check::Type::Function(..))
+            )
+            && matches!(
+                ctx.ast.get_expr(*obj),
+                Expr::Member { obj: inner, .. }
+                    if matches!(ctx.expr_types.get(inner), Some(crate::check::Type::Any))
+            );
+        if !sugar_fn_on_any {
+            return None;
+        }
     }
     let obj = *obj;
     let name = name.clone();
