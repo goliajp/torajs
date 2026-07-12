@@ -213,6 +213,14 @@ pub const FLAG_FN_LENGTH_DELETED: u16 = 1 << 14;
 /// fast-path on this bit staying clear. Bit 15 is Tag::Arr-private
 /// (disjoint-by-tag reuse, same pattern as bits 13/14 on Closure).
 pub const FLAG_ARR_EXOTIC_INDEX: u16 = 1 << 15;
+/// `Tag::Arr` `length` property lock (RFC 20260712-arr-exotic-define
+/// chunk D) — `Object.defineProperty(arr, "length", {writable:
+/// false})` sets it; every later length mutation (assign / define /
+/// fresh-index append through defineProperty) throws. §10.4.2.4 makes
+/// the lock one-way (non-configurable length can never regain
+/// writability). Bit 14 is Tag::Arr-private (disjoint-by-tag reuse
+/// with Closure's FLAG_FN_LENGTH_DELETED).
+pub const FLAG_ARR_LENGTH_RO: u16 = 1 << 14;
 
 // Array element-kind field constants (Tag::Arr, flags bits 10-12 —
 // Any-dynamic-access RFC 20260704) live in `arr_kind.rs`;

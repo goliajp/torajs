@@ -29,7 +29,7 @@
 
 use core::ffi::c_void;
 
-use torajs_rc::{FLAG_ARR_EXOTIC_INDEX, FLAG_NON_EXTENSIBLE};
+use torajs_rc::{FLAG_ARR_EXOTIC_INDEX, FLAG_ARR_LENGTH_RO, FLAG_NON_EXTENSIBLE};
 
 use crate::layout::ARR_LEN_OFF;
 
@@ -54,6 +54,8 @@ unsafe extern "C" {
     fn __torajs_str_drop(s: *mut c_void);
     fn __torajs_arr_set_length_any(arr: *mut c_void, tag: i64, value: i64);
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
+    /// torajs-throw — non-destructive pending-throw probe.
+    fn __torajs_throw_check() -> i64;
     fn __torajs_value_drop_heap(p: *mut c_void);
 }
 
@@ -180,11 +182,7 @@ pub unsafe extern "C" fn __torajs_arr_define(
 ) {
     let bytes = unsafe { key_bytes(key) };
     if bytes == b"length" {
-        // §10.4.2.4 ArraySetLength — value present resizes through
-        // the shared validate helper; the writable lock is chunk D.
-        if flags_byte & P_VALUE != 0 {
-            unsafe { __torajs_arr_set_length_any(arr, tag as i64, value as i64) };
-        }
+        unsafe { define_length(arr, tag, value, flags_byte) };
         return;
     }
     if let Some(idx) = canonical_index(bytes) {
@@ -279,8 +277,17 @@ unsafe fn define_index(
         return;
     }
 
-    // Fresh index — §10.4.2.1 step 2: reject beyond a non-extensible
-    // array (the length-writable gate is chunk D).
+    // Fresh index — §10.4.2.1 step 2: a locked length (chunk D)
+    // rejects the implicit length bump before the extensible check.
+    if unsafe { header_flags(arr) } & FLAG_ARR_LENGTH_RO != 0 {
+        unsafe { drop_owned(tag, value) };
+        unsafe {
+            __torajs_throw_type_error(
+                c"Attempting to define property beyond a non-writable array length.".as_ptr(),
+            )
+        };
+        return;
+    }
     if unsafe { header_flags(arr) } & FLAG_NON_EXTENSIBLE != 0 {
         unsafe { drop_owned(tag, value) };
         unsafe {
@@ -308,6 +315,57 @@ unsafe fn define_index(
     let new_flags = flags_byte & FLAGS_DEFAULT;
     if new_flags != FLAGS_DEFAULT {
         unsafe { store_shadow(arr, key, new_flags) };
+    }
+}
+
+/// §10.4.2.4 ArraySetLength via defineProperty — length is
+/// permanently `{enumerable: false, configurable: false}`; a present
+/// `[[Value]]` resizes through the shared validate helper (which
+/// also carries the writable lock — a locked length rejects any
+/// change but admits the same value); `writable: false` arms the
+/// lock AFTER the resize (spec applies the value first, then the
+/// writability drop).
+unsafe fn define_length(arr: *mut c_void, tag: u64, value: u64, flags_byte: u64) {
+    let ro = unsafe { header_flags(arr) } & FLAG_ARR_LENGTH_RO != 0;
+    if flags_byte & P_CONFIGURABLE != 0 && flags_byte & F_CONFIGURABLE != 0 {
+        unsafe { drop_owned(tag, value) };
+        unsafe {
+            __torajs_throw_type_error(
+                c"Attempting to change configurable attribute of unconfigurable property.".as_ptr(),
+            )
+        };
+        return;
+    }
+    if flags_byte & P_ENUMERABLE != 0 && flags_byte & F_ENUMERABLE != 0 {
+        unsafe { drop_owned(tag, value) };
+        unsafe {
+            __torajs_throw_type_error(
+                c"Attempting to change enumerable attribute of unconfigurable property.".as_ptr(),
+            )
+        };
+        return;
+    }
+    if ro && flags_byte & P_WRITABLE != 0 && flags_byte & F_WRITABLE != 0 {
+        unsafe { drop_owned(tag, value) };
+        unsafe {
+            __torajs_throw_type_error(
+                c"Attempting to change writable attribute of unconfigurable property.".as_ptr(),
+            )
+        };
+        return;
+    }
+    if flags_byte & P_VALUE != 0 {
+        // The resize helper carries the lock (rejects a changed
+        // value, admits the same one) — pending throw short-circuits
+        // the writable drop below per the spec's fail-fast order.
+        unsafe { __torajs_arr_set_length_any(arr, tag as i64, value as i64) };
+        if unsafe { __torajs_throw_check() } != 0 {
+            return;
+        }
+    }
+    if flags_byte & P_WRITABLE != 0 && flags_byte & F_WRITABLE == 0 {
+        let p = unsafe { (arr as *mut u8).add(6) as *mut u16 };
+        unsafe { p.write(p.read() | FLAG_ARR_LENGTH_RO) };
     }
 }
 

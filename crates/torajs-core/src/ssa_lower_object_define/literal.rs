@@ -1,8 +1,9 @@
 //! Compile-time literal-descriptor arm of [`super::emit_define_one`] —
 //! the `Expr::ObjectLit` descriptor is decoded at compile time and
-//! routed per receiver type: accessor pair (RFC C3) / Array `length`
-//! validate (T-29.b) / Array `arrprops_set` side table / typed no-op /
-//! dynobj_define main path (spec §10.1.6.3).
+//! routed per receiver type: accessor pair (RFC C3) / Array
+//! DefineOwnProperty kernel (RFC 20260712-arr-exotic-define — length
+//! lock, index shadow flags, expando) / typed no-op / dynobj_define
+//! main path (spec §10.1.6.3).
 
 use crate::ast::{Expr, ExprId};
 use crate::ssa::{InstKind, Operand, Type};
@@ -21,7 +22,6 @@ pub(super) fn emit_define_literal(
     key: &DefineKey,
     receiver_ident: &Option<String>,
     desc_eid: ExprId,
-    is_length: bool,
 ) -> bool {
     let value_eid = descriptor_field(ctx, desc_eid, "value");
 
@@ -50,10 +50,10 @@ pub(super) fn emit_define_literal(
 
     let flags_byte = compute_flags_byte(ctx, desc_eid, value_eid.is_some());
 
-    if matches!(obj_ty, Type::Arr(_)) && is_length {
-        emit_define_arr_length(ctx, obj_op, value_eid);
-        return true;
-    }
+    // Arr receiver — every key (length included) routes through the
+    // DefineOwnProperty kernel: chunk D moved the §10.4.2.4 length
+    // arm (writable lock + e/c validation) inside it, so the old
+    // value-only length shortcut would drop flag-only descriptors.
     if matches!(obj_ty, Type::Arr(_)) {
         emit_define_arr_prop(ctx, obj_op, key, value_eid, flags_byte);
         return true;
@@ -154,26 +154,6 @@ fn pack_tagged_value(ctx: &mut LowerCtx, v_raw: Operand, v_ty: Type) -> (i64, Op
         }
         Type::Ptr if matches!(v_raw, Operand::ConstPtrNull) => (0, Operand::ConstI64(0)),
         _ => (0, Operand::ConstI64(0)),
-    }
-}
-
-/// T-29.b — Array length setter via defineProperty. Spec §9.4.2.4
-/// ToUint32(v) == ToNumber(v) validation + §10.4.2.5 real resize
-/// (RFC 20260712: per-slot release on truncate, undefined fill on
-/// Array<Any> grow) through the same helper as the assign lane.
-fn emit_define_arr_length(ctx: &mut LowerCtx, obj_op: Operand, value_eid: Option<ExprId>) {
-    if let Some(val_eid) = value_eid {
-        let v_raw = ctx.lower_expr(val_eid);
-        let v_ty = ctx.operand_ty(&v_raw);
-        let (tag, val_op) = pack_tagged_value(ctx, v_raw, v_ty);
-        ctx.f.append_void(
-            ctx.cur_block,
-            InstKind::Call(
-                ctx.intrinsics.arr_set_length_any,
-                vec![obj_op, Operand::ConstI64(tag), val_op],
-            ),
-        );
-        ctx.emit_throw_check(None);
     }
 }
 

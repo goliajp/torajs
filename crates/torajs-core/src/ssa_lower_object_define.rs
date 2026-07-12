@@ -99,15 +99,6 @@ pub(crate) fn is_typed_object(ty: Type) -> bool {
     )
 }
 
-/// Is this key the string `"length"`? (Array `length` descriptor takes
-/// the `arr_set_length_validate` path.) Pure AST/str check — no lowering.
-fn key_is_length(ctx: &LowerCtx, key: &DefineKey) -> bool {
-    match key {
-        DefineKey::Expr(eid) => matches!(ctx.ast.get_expr(*eid), Expr::String(s) if s == "length"),
-        DefineKey::Name(n) => *n == "length",
-    }
-}
-
 /// Lower the key to a `Str` operand. Call at the spec evaluation point
 /// (after `obj`, before the descriptor) so a side-effecting key expr
 /// orders correctly.
@@ -137,20 +128,10 @@ fn emit_define_one(ctx: &mut LowerCtx, obj_eid: ExprId, key: DefineKey, desc_eid
 
     emit_receiver_typecheck(ctx, obj_eid, &obj_op, obj_ty);
 
-    let is_length = key_is_length(ctx, &key);
-
     // Compile-time literal descriptor — extract value + the three data
     // flags from the ObjectLit at compile time.
     if matches!(ctx.ast.get_expr(desc_eid), Expr::ObjectLit { .. }) {
-        return literal::emit_define_literal(
-            ctx,
-            obj_op,
-            obj_ty,
-            &key,
-            &receiver_ident,
-            desc_eid,
-            is_length,
-        );
+        return literal::emit_define_literal(ctx, obj_op, obj_ty, &key, &receiver_ident, desc_eid);
     }
     emit_define_runtime_desc(ctx, obj_op, obj_ty, &key, &receiver_ident, desc_eid)
 }

@@ -23,11 +23,10 @@
 //!   canonical decimal-integer string keys (`"0".."N"` without
 //!   leading zero except literal `"0"`) take the fast path; other
 //!   shapes fall through.
-//! - **RFC C5a** — typed `Type::Arr(_)` `.length`. ES §10.4.2.4:
-//!   Array's `length` own prop is `{value, writable: true,
-//!   enumerable: false, configurable: false}`. Bypasses the general
-//!   dynobj-walking path (which would report undefined for
-//!   Array.length).
+//! - **RFC C5a (retired)** — the typed `Type::Arr(_)` `.length`
+//!   fast path is gone (RFC 20260712-arr-exotic-define chunk D):
+//!   the general helper's TAG_ARR arm answers the full §10.4.2.4
+//!   descriptor including the length-lock writable bit.
 //! - **S315** — trailing args past `(obj, key)` `lower_expr`'d
 //!   (silent-drop per spec) so step()-style side-effect exprs fire.
 //!   Placed after obj-lower but before key/dispatch so trailing
@@ -108,28 +107,11 @@ pub(crate) fn try_lower(
         );
         return Some(Operand::Value(v));
     }
-    if matches!(obj_ty, Type::Arr(_))
-        && let Expr::String(k) = key_expr
-        && k == "length"
-    {
-        let len = ctx.f.append_inst(
-            cur_block,
-            InstKind::Load(Type::I64, obj_raw, 8),
-            Type::I64,
-            None,
-        );
-        let cur_block = ctx.cur_block;
-        let v = ctx.f.append_inst(
-            cur_block,
-            InstKind::Call(
-                ctx.intrinsics.arr_length_descriptor,
-                vec![Operand::Value(len)],
-            ),
-            Type::Any,
-            None,
-        );
-        return Some(Operand::Value(v));
-    }
+    // RFC C5a's typed-Arr "length" fast path retired (RFC
+    // 20260712-arr-exotic-define chunk D): the general helper's
+    // TAG_ARR arm answers the full descriptor including the
+    // FLAG_ARR_LENGTH_RO writable bit, which the len-only helper
+    // cannot see.
     let obj_op = if matches!(obj_ty, Type::Any) {
         obj_raw
     } else {

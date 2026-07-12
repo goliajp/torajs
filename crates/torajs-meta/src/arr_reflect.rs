@@ -84,10 +84,13 @@ fn canonical_index(bytes: &[u8]) -> Option<u64> {
 pub(crate) unsafe fn arr_cell_descriptor(arr: *const c_void, key: *const c_void) -> u64 {
     let bytes = unsafe { key_bytes(key) };
     if bytes == b"length" {
-        // §10.4.2.4 — {value: len, writable: true, enumerable: false,
-        // configurable: false}. AnySlotTag::I64 = 2.
+        // §10.4.2.4 — {value: len, writable: !locked, enumerable:
+        // false, configurable: false}. AnySlotTag::I64 = 2; the lock
+        // is chunk D's FLAG_ARR_LENGTH_RO (Tag::Arr-private bit 14).
         let len = unsafe { arr.cast::<u8>().add(ARR_LEN_OFF).cast::<u64>().read() };
-        return unsafe { build_data_descriptor(2, len, 1, 0, 0) };
+        let flags = unsafe { arr.cast::<u8>().add(6).cast::<u16>().read() };
+        let writable = (flags & (1 << 14) == 0) as u64;
+        return unsafe { build_data_descriptor(2, len, writable, 0, 0) };
     }
     if let Some(idx) = canonical_index(bytes) {
         let len = unsafe { arr.cast::<u8>().add(ARR_LEN_OFF).cast::<u64>().read() };

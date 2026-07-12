@@ -37,6 +37,10 @@ unsafe extern "C" {
     /// what actually propagates to user-side `try/catch`.
     fn __torajs_throw_range_error(msg: *const u8);
 
+    /// Cross-tier — torajs-throw catchable TypeError (RFC
+    /// 20260712-arr-exotic-define chunk D length lock).
+    fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
+
     /// torajs-mmalloc libc-compat realloc — v0.7-A2 step 6b cutover.
     #[link_name = "__torajs_libc_realloc"]
     fn realloc(p: *mut c_void, n: usize) -> *mut c_void;
@@ -162,10 +166,20 @@ pub unsafe extern "C" fn __torajs_arr_set_length_truncate_scalar(
     let new_n = n as u64;
     let len_ptr = unsafe { arr.add(ARR_HDR_LEN_OFF) as *mut u64 };
     let old_len = unsafe { *len_ptr };
+    if new_n == old_len {
+        return;
+    }
+    // Chunk D (RFC 20260712-arr-exotic-define) — locked length
+    // rejects every change on the scalar lane too.
+    let flags = unsafe { *(arr.add(6) as *const u16) };
+    if flags & torajs_rc::FLAG_ARR_LENGTH_RO != 0 {
+        unsafe { __torajs_throw_type_error(c"Attempted to assign to readonly property.".as_ptr()) };
+        return;
+    }
     if new_n < old_len {
         unsafe { *len_ptr = new_n };
     }
-    // new_n >= old_len: scalar typed array can't extend with undefined
+    // new_n > old_len: scalar typed array can't extend with undefined
     // — leave len untouched (silent no-op for now, recorded as L3b).
 }
 
@@ -336,6 +350,13 @@ pub unsafe extern "C" fn __torajs_arr_set_length_any(arr: *mut u8, tag: i64, val
         return;
     }
     let header = unsafe { &*(arr as *const torajs_rc::HeapHeader) };
+    // Chunk D — a locked length (defineProperty writable: false)
+    // rejects every change; the same-value path above stays legal
+    // (SameValue redefine is not a change per §10.1.6.3).
+    if header.flags & torajs_rc::FLAG_ARR_LENGTH_RO != 0 {
+        unsafe { __torajs_throw_type_error(c"Attempted to assign to readonly property.".as_ptr()) };
+        return;
+    }
     let is_any = header.flags & torajs_rc::FLAG_ARR_ANY != 0;
     let head = unsafe { *(arr.add(ARR_HDR_HEAD_OFF) as *const u32) } as usize;
     if new_n < old {
