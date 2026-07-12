@@ -53,6 +53,11 @@ const ANY_HEAP: u64 = 4;
 /// `torajs_arr::define::F_HOLE` mirror, RFC 20260713 chunk C).
 const ARR_F_HOLE: u64 = 1 << 3;
 
+/// `torajs_rc::FLAG_ARR_LENGTH_RO` mirror (Tag::Arr-private bit 7;
+/// this crate keeps its dep tree narrow — the u16 bit position is
+/// part of the header ABI).
+const ARR_FLAG_LENGTH_RO: u16 = 1 << 7;
+
 /// Key Str payload as a byte slice.
 unsafe fn key_bytes<'a>(key: *const c_void) -> &'a [u8] {
     let len = unsafe { key.cast::<u8>().add(STR_LEN_OFF).cast::<u32>().read() };
@@ -90,10 +95,11 @@ pub(crate) unsafe fn arr_cell_descriptor(arr: *const c_void, key: *const c_void)
     if bytes == b"length" {
         // §10.4.2.4 — {value: len, writable: !locked, enumerable:
         // false, configurable: false}. AnySlotTag::I64 = 2; the lock
-        // is chunk D's FLAG_ARR_LENGTH_RO (Tag::Arr-private bit 14).
+        // is FLAG_ARR_LENGTH_RO (Tag::Arr-private bit 7 — bits 13-14
+        // are the cycle-collector color field, RFC 20260713 chunk A).
         let len = unsafe { arr.cast::<u8>().add(ARR_LEN_OFF).cast::<u64>().read() };
         let flags = unsafe { arr.cast::<u8>().add(6).cast::<u16>().read() };
-        let writable = (flags & (1 << 14) == 0) as u64;
+        let writable = (flags & ARR_FLAG_LENGTH_RO == 0) as u64;
         return unsafe { build_data_descriptor(2, len, writable, 0, 0) };
     }
     if let Some(idx) = canonical_index(bytes) {

@@ -140,87 +140,9 @@ pub struct HeapHeader {
     pub flags: u16,
 }
 
-// ============================================================
-// Header flags — bit positions (mirror runtime_str.c constants)
-// ============================================================
-
-/// `str_split` single-malloc block carrying N inline substrs.
-pub const FLAG_SPLIT_BLOCK: u16 = 1 << 1;
-/// rc_inc / rc_dec / str_free no-op when set (immortal literal).
-pub const FLAG_STATIC_LITERAL: u16 = 1 << 2;
-/// Array<Any>: 16-byte slots instead of 8.
-pub const FLAG_ARR_ANY: u16 = 1 << 3;
-/// `Object.freeze(obj)` set — field stores become silent no-ops.
-pub const FLAG_FROZEN: u16 = 1 << 4;
-/// "this object is in the cycle-collector buffer right now" gate
-/// to avoid traversing the buffer for dedup on every `rc_dec`.
-pub const FLAG_BUFFERED: u16 = 1 << 5;
-/// `Tag::Obj` instance is an Error-derived class (Error itself or a
-/// transitive `extends Error` subclass — TypeError/RangeError/… and
-/// user subclasses). Set at the `__new_<C>` factory alloc site so the
-/// uncaught-throw reporter can render `name: message` (fields are at
-/// the Error layout prefix: message @ field0, name @ field1). Bit 6 is
-/// taken by torajs-dynobj's NULL_PROTO marker (Tag::DynObj, disjoint
-/// tag), so this uses bit 7. Disjoint from every other flag user.
-pub const FLAG_ERROR: u16 = 1 << 7;
-
-/// `Object.preventExtensions(obj)` / `Object.seal(obj)` — clear the
-/// `[[Extensible]]` internal slot per spec §10.1. Default 0 means the
-/// object is extensible (the common case), so fresh allocs do not
-/// need to touch this bit. `Object.isExtensible` reads it; `seal` sets
-/// it AND clears every entry's `configurable` flag.
-///
-/// Bit 8 is the first universally-free position on `HeapHeader.flags`
-/// — bits 1-5 / 7 are taken by [`FLAG_SPLIT_BLOCK`] /
-/// [`FLAG_STATIC_LITERAL`] / [`FLAG_ARR_ANY`] / [`FLAG_FROZEN`] /
-/// [`FLAG_BUFFERED`] / [`FLAG_ERROR`]; bit 6 is
-/// `DynObj`-private NULL_PROTO. Disjoint from every prior user
-/// regardless of `type_tag`.
-pub const FLAG_NON_EXTENSIBLE: u16 = 1 << 8;
-
-/// `Object.seal(obj)` marker — distinguishes "user explicitly called
-/// `Object.seal`" from "user called `Object.preventExtensions` but not
-/// `seal`". `isSealed` returns true iff this bit OR the DynObj entry
-/// walk reports all-non-configurable; pure prevent-only sets
-/// [`FLAG_NON_EXTENSIBLE`] alone and leaves this clear, matching bun's
-/// "typed class instance after `preventExtensions` is not sealed (own
-/// keys still configurable per spec)" semantics.
-///
-/// Disjoint from every prior user — bit 9 is universally free on
-/// `HeapHeader.flags`.
-pub const FLAG_SEALED: u16 = 1 << 9;
-
-/// `delete fn.name` tombstone (Tag::Closure cells; RFC
-/// 20260711-closure-reflection chunk C). tr carries the ES §20.2.4
-/// `name` / `length` own properties virtually off the fn-metadata
-/// chain — a successful delete (they are configurable) sets the bit
-/// so every reader (has / enumerable / member read / gOPD) skips
-/// the virtual answer; a later write recreates a plain expando
-/// entry. Interned method cells share the bit process-wide — the
-/// spec object is a singleton, so `delete String.prototype.slice.name`
-/// is a global effect in bun too. Bits 13/14 are universally free
-/// (10-12 are Tag::Arr element-kind).
-pub const FLAG_FN_NAME_DELETED: u16 = 1 << 13;
-/// `delete fn.length` tombstone — see [`FLAG_FN_NAME_DELETED`].
-pub const FLAG_FN_LENGTH_DELETED: u16 = 1 << 14;
-/// `Tag::Arr` cell carries at least one array index with non-default
-/// property attributes (RFC 20260712-arr-exotic-define chunk B) — set
-/// by `Object.defineProperty(arr, index, desc)` when the resulting
-/// per-index flags differ from the implicit `{writable: true,
-/// enumerable: true, configurable: true}`. The flags live as shadow
-/// entries (canonical index key, value slot dead) in the array's
-/// expando props dynobj; readers (gOPD / element writes / delete)
-/// fast-path on this bit staying clear. Bit 15 is Tag::Arr-private
-/// (disjoint-by-tag reuse, same pattern as bits 13/14 on Closure).
-pub const FLAG_ARR_EXOTIC_INDEX: u16 = 1 << 15;
-/// `Tag::Arr` `length` property lock (RFC 20260712-arr-exotic-define
-/// chunk D) — `Object.defineProperty(arr, "length", {writable:
-/// false})` sets it; every later length mutation (assign / define /
-/// fresh-index append through defineProperty) throws. §10.4.2.4 makes
-/// the lock one-way (non-configurable length can never regain
-/// writability). Bit 14 is Tag::Arr-private (disjoint-by-tag reuse
-/// with Closure's FLAG_FN_LENGTH_DELETED).
-pub const FLAG_ARR_LENGTH_RO: u16 = 1 << 14;
+// Header-flags bit-position constants (incl. the u16 occupancy map)
+// live in `flags.rs`; re-exported at crate root just below, same
+// shape as `color`.
 
 // Array element-kind field constants (Tag::Arr, flags bits 10-12 —
 // Any-dynamic-access RFC 20260704) live in `arr_kind.rs`;
@@ -235,6 +157,7 @@ pub mod any_method_intern;
 pub mod any_method_meta;
 pub mod arr_kind;
 pub mod color;
+pub mod flags;
 pub mod undef_cell;
 pub use any_method::{
     ANY_METHOD_ADD, ANY_METHOD_ANCHOR, ANY_METHOD_APPLY, ANY_METHOD_AT, ANY_METHOD_BIG,
@@ -288,6 +211,11 @@ pub use arr_kind::{
     ARR_KIND_I64, ARR_KIND_UNSET,
 };
 pub use color::{COLOR_MASK, COLOR_SHIFT, Color};
+pub use flags::{
+    FLAG_ARR_ANY, FLAG_ARR_EXOTIC_INDEX, FLAG_ARR_LENGTH_RO, FLAG_BUFFERED, FLAG_ERROR,
+    FLAG_FN_LENGTH_DELETED, FLAG_FN_NAME_DELETED, FLAG_FROZEN, FLAG_NON_EXTENSIBLE, FLAG_SEALED,
+    FLAG_SPLIT_BLOCK, FLAG_STATIC_LITERAL,
+};
 
 // Type tags (`Tag` enum) live in `tag.rs`; re-exported at crate
 // root just below, same shape as `color` / `arr_kind`.
@@ -587,6 +515,48 @@ mod tests {
         assert_eq!(Color::Gray as u16, 1 << 13);
         assert_eq!(Color::Purple as u16, 1 << 14);
         assert_eq!(Color::White as u16, 0b11 << 13);
+    }
+
+    #[test]
+    fn tag_private_flags_avoid_shared_header_fields() {
+        // RFC 20260713-defprop-residual-cluster chunk A: the color
+        // field (bits 13-14) paints EVERY tag when the cycle
+        // collector buffers a candidate — a tag-private flag placed
+        // there reads back as set after a Purple paint (an Arr looked
+        // length-locked, a Closure looked name/length-deleted). No
+        // flag, tag-private or not, may overlap COLOR_MASK or
+        // FLAG_BUFFERED.
+        let shared = COLOR_MASK | FLAG_BUFFERED;
+        for f in [
+            FLAG_SPLIT_BLOCK,
+            FLAG_STATIC_LITERAL,
+            FLAG_ARR_ANY,
+            FLAG_FROZEN,
+            FLAG_ERROR,
+            FLAG_NON_EXTENSIBLE,
+            FLAG_SEALED,
+            FLAG_FN_NAME_DELETED,
+            FLAG_FN_LENGTH_DELETED,
+            FLAG_ARR_EXOTIC_INDEX,
+            FLAG_ARR_LENGTH_RO,
+            ARR_ELEM_KIND_MASK,
+        ] {
+            assert_eq!(f & shared, 0, "flag {f:#06x} overlaps color/buffered");
+        }
+        // Same-tag flags stay disjoint: Closure = tombstones;
+        // Arr = elem-kind + exotic + length-RO (+ ARR_ANY).
+        assert_eq!(FLAG_FN_NAME_DELETED & FLAG_FN_LENGTH_DELETED, 0);
+        let arr_flags = [
+            FLAG_ARR_ANY,
+            ARR_ELEM_KIND_MASK,
+            FLAG_ARR_EXOTIC_INDEX,
+            FLAG_ARR_LENGTH_RO,
+        ];
+        for (i, a) in arr_flags.iter().enumerate() {
+            for b in &arr_flags[i + 1..] {
+                assert_eq!(a & b, 0, "Arr flags {a:#06x} / {b:#06x} overlap");
+            }
+        }
     }
 
     // ---- Methods ----

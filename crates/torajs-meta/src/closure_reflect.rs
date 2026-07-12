@@ -36,8 +36,10 @@ const ANY_HEAP: u64 = 4;
 /// `torajs_rc::FLAG_FN_NAME_DELETED` / `FLAG_FN_LENGTH_DELETED`
 /// mirrors (chunk C tombstones; this crate keeps its dep tree
 /// narrow — the u16 bit positions are part of the header ABI).
-const FLAG_FN_NAME_DELETED: u16 = 1 << 13;
-const FLAG_FN_LENGTH_DELETED: u16 = 1 << 14;
+/// Bits 10-11: 13-14 are the cycle-collector color field (RFC
+/// 20260713-defprop-residual-cluster chunk A).
+const FLAG_FN_NAME_DELETED: u16 = 1 << 10;
+const FLAG_FN_LENGTH_DELETED: u16 = 1 << 11;
 
 /// Closure-env layout mirror (torajs-core `ssa_lower.rs` constants):
 /// expando props-dynobj slot at +24.
