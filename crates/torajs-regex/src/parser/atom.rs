@@ -57,17 +57,30 @@ impl<'p> Parser<'p> {
     }
 
     /// Parse the body after `(` has been consumed. Dispatches on the
-    /// `?...` prefix variants (non-capturing, lookahead/behind, named
-    /// capture) and falls through to plain capturing group.
+    /// `?...` prefix variants (non-capturing, modifier group,
+    /// lookahead/behind, named capture) and falls through to plain
+    /// capturing group.
     fn parse_group(&mut self) -> Option<Box<Node>> {
         let mut kind = NodeKind::Group;
         let mut capture_idx: i32 = -1;
+        let mut saved_eff: Option<u8> = None;
         if !self.eof() && self.peek() == b'?' {
             let after = self.peek_at(1);
             match after {
                 b':' => {
                     self.get();
                     self.get();
+                }
+                b'i' | b'm' | b's' | b'-' => {
+                    // `(?ims-ims:…)` — ES 2025 regexp-modifiers. Both
+                    // flag runs restrict to i/m/s; only the group form
+                    // (`:` terminator) exists in the spec. The body
+                    // parses under the updated effective set, restored
+                    // after `)`.
+                    self.get(); // consume `?`
+                    let (add, remove) = self.parse_modifier_flags()?;
+                    saved_eff = Some(self.eff_ims);
+                    self.eff_ims = (self.eff_ims | add) & !remove;
                 }
                 b'=' => {
                     self.get();
@@ -118,6 +131,9 @@ impl<'p> Parser<'p> {
             capture_idx = self.assign_capture_idx()?;
         }
         let inner = self.parse_alt_for_group()?;
+        if let Some(outer) = saved_eff {
+            self.eff_ims = outer;
+        }
         if !self.match_byte(b')') {
             self.set_err();
             return None;
@@ -126,6 +142,49 @@ impl<'p> Parser<'p> {
         g.child = Some(inner);
         g.capture_idx = capture_idx;
         Some(g)
+    }
+
+    /// Parse the `ims-ims:` tail of a modifier group — cursor sits on
+    /// the first flag letter (or `-`). Consumes through the `:`.
+    /// Returns `(add, remove)` bit masks. Errors (ES early errors):
+    /// a letter outside `i`/`m`/`s`, a duplicate within either run, a
+    /// letter present in both runs, or both runs empty.
+    fn parse_modifier_flags(&mut self) -> Option<(u8, u8)> {
+        let add = self.read_modifier_run()?;
+        let remove = if self.match_byte(b'-') {
+            self.read_modifier_run()?
+        } else {
+            0
+        };
+        if !self.match_byte(b':') || add & remove != 0 || (add == 0 && remove == 0) {
+            self.set_err();
+            return None;
+        }
+        Some((add, remove))
+    }
+
+    /// One run of modifier letters (`i` / `m` / `s`, no duplicates).
+    /// Stops at the first non-letter byte without consuming it.
+    fn read_modifier_run(&mut self) -> Option<u8> {
+        let mut mask = 0u8;
+        loop {
+            let bit = match if self.eof() { 0 } else { self.peek() } {
+                b'i' => crate::parser::RE_FLAG_I,
+                b'm' => crate::parser::RE_FLAG_M,
+                b's' => crate::parser::RE_FLAG_S,
+                b'-' | b':' => return Some(mask),
+                _ => {
+                    self.set_err();
+                    return None;
+                }
+            };
+            if mask & bit != 0 {
+                self.set_err();
+                return None;
+            }
+            mask |= bit;
+            self.get();
+        }
     }
 
     /// Increment `n_captures` and return the new 1-based index, or
@@ -235,6 +294,49 @@ mod tests {
         let mut p = Parser::new(pat.as_bytes(), 0);
         assert!(p.parse().is_some() && !p.err());
         assert_eq!(p.n_captures, 100);
+    }
+
+    #[test]
+    fn modifier_group_updates_eff_ims_and_restores() {
+        // `(?i:a)b` — 'a' carries the i bit, 'b' does not.
+        use crate::parser::{RE_FLAG_I, RE_FLAG_M, RE_FLAG_S};
+        let r = parse_ok("(?i:a)b", 0);
+        let group = &r.kids[0];
+        assert_eq!(group.kind, NodeKind::Group);
+        assert_eq!(group.capture_idx, -1);
+        let inner = group.child.as_ref().expect("inner");
+        assert_eq!(inner.kids[0].eff_ims, RE_FLAG_I);
+        assert_eq!(r.kids[1].eff_ims, 0);
+        // Remove form: global i, `(?-i:a)` clears it inside only.
+        let r = parse_ok("(?-i:a)b", RE_FLAG_I);
+        let inner = r.kids[0].child.as_ref().expect("inner");
+        assert_eq!(inner.kids[0].eff_ims, 0);
+        assert_eq!(r.kids[1].eff_ims, RE_FLAG_I);
+        // Combined add/remove + nesting.
+        let r = parse_ok("(?ms-i:(?i:a)b)", RE_FLAG_I);
+        let outer = r.kids[0].child.as_ref().expect("outer");
+        let nested = outer.kids[0].child.as_ref().expect("nested");
+        assert_eq!(nested.kids[0].eff_ims, RE_FLAG_I | RE_FLAG_M | RE_FLAG_S);
+        assert_eq!(outer.kids[1].eff_ims, RE_FLAG_M | RE_FLAG_S);
+        // Empty remove run after `-` is allowed.
+        parse_ok("(?i-:a)", 0);
+    }
+
+    #[test]
+    fn modifier_group_syntax_errors() {
+        // Bare `(?i)` (no `:`), non-ims letters, duplicates, overlap,
+        // both-empty.
+        for pat in [
+            "(?i)",
+            "(?g:a)",
+            "(?u:a)",
+            "(?ii:a)",
+            "(?i-i:a)",
+            "(?-:a)",
+            "(?im-mi:a)",
+        ] {
+            parse_err(pat, 0);
+        }
     }
 
     #[test]

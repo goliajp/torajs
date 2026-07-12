@@ -89,7 +89,7 @@ pub fn vm_match_at_rev(
             };
             match op {
                 Op::Char => {
-                    if pos > 0 && char_eq(ins.ch, s[(pos - 1) as usize], flags) {
+                    if pos > 0 && char_eq(ins.ch, s[(pos - 1) as usize], ins.pad as u8) {
                         add_thread(
                             &mut ws.nxt,
                             &mut ws.vn,
@@ -164,7 +164,7 @@ fn dispatch_anychar_rev(
         cp = dcp;
         adv = dlen as i64;
     }
-    if flags & RE_FLAG_S == 0 && cp == '\n' as i32 {
+    if prog.insts[t_pc].pad as u8 & RE_FLAG_S == 0 && cp == '\n' as i32 {
         return;
     }
     add_thread_adv(
@@ -196,17 +196,18 @@ fn dispatch_class_rev(
     }
     let ins = prog.insts[t_pc];
     let cc = &prog.classes[ins.a as usize];
+    let ci = ins.pad as u8 & crate::parser::RE_FLAG_I != 0;
     let last = s[(pos - 1) as usize];
     let mut adv: i64 = 1;
     let matched;
     if cc.byte_only {
-        matched = cc.test(last);
+        matched = cc.test_fold(last, ci);
     } else if flags & RE_FLAG_U != 0 {
         let (cp, dlen) = utf8_decode_cp_before(s, pos as usize);
         adv = dlen as i64;
-        matched = cc.test_cp(cp);
+        matched = cc.test_cp_fold(cp, ci);
     } else {
-        matched = cc.test(last);
+        matched = cc.test_fold(last, ci);
     }
     if matched {
         add_thread_adv(
@@ -270,7 +271,7 @@ fn handle_backref_rev(
         && char_eq(
             s[(ce - 1 - t.br_offset as i64) as usize],
             s[(pos - 1) as usize],
-            flags,
+            prog.insts[t.pc].pad as u8,
         )
     {
         let new_offset = t.br_offset + 1;

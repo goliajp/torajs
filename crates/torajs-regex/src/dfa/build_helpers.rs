@@ -27,8 +27,10 @@ use crate::program::{Op, Program};
 /// right byte, supplied by the BFS step), so a 3-way attr lets us key
 /// the state pool by `(PC set, attr)` without exploding into a per-
 /// byte map. `TextStart` covers both "no preceding byte" and the
-/// `RE_FLAG_M` line-start fold-in (left = `\n` is non-word so WBound
-/// sees the same boundary as text-start when right is word-class).
+/// all-multiline-`^` line-start fold-in (left = `\n` is non-word so
+/// WBound sees the same boundary as text-start when right is
+/// word-class; mixed per-inst m-bits are gated off the DFA in
+/// `regex/compile.rs`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum LeftByteAttr {
     TextStart,
@@ -49,12 +51,12 @@ pub(super) fn attr_of_byte(b: u8) -> LeftByteAttr {
 
 /// Pick a representative left byte for a [`LeftByteAttr`] so the
 /// closure can read `ctx.left_byte` uniformly. The value only matters
-/// for `at_word_boundary` (word vs non-word) and `AnchorB`-mflag
-/// (`Some(b'\n')`); the wire folds the mflag line-start case into
+/// for `at_word_boundary` (word vs non-word) and multiline `AnchorB`
+/// (`Some(b'\n')`); the wire folds the line-start case into
 /// `TextStart` so a representative `None`/`Some(b'a')`/`Some(b' ')`
-/// is enough — mflag mid-pattern AnchorB re-fire (left = `\n`) is
-/// handled separately when the BFS steps past `\n`, which surfaces in
-/// the post-step set under whatever attr the actual byte produced.
+/// is enough — mid-pattern multiline AnchorB re-fire (left = `\n`)
+/// is handled separately when the BFS steps past `\n`, which surfaces
+/// in the post-step set under whatever attr the actual byte produced.
 pub(super) fn attr_to_left_byte(attr: LeftByteAttr) -> Option<u8> {
     match attr {
         LeftByteAttr::TextStart => None,
@@ -75,26 +77,23 @@ pub(super) fn pc_set_is_accept(prog: &Program, set: &BTreeSet<usize>) -> bool {
 /// the flag after the byte walk so `Op::AnchorE` (`$`) can fire at
 /// the haystack end.
 ///
-/// chunk 8.6b — the at-end ctx now uses the state's left-byte attr
-/// (instead of always `None`) and the compiled `mflag`. This lets
-/// WBound resolve under `(left = attr, right = None / non-word)` so
-/// patterns like `/\w$/` accept iff the live state's incoming byte
-/// was word-class. mflag `Op::AnchorB` after `\n` doesn't trigger
-/// here (the at-end check is about `$` / AnchorE, not `^`); but mflag
-/// `AnchorE` *before* `\n` is folded in by the closure's right=None
-/// path (right=None == non-word in `at_word_boundary`).
+/// chunk 8.6b — the at-end ctx uses the state's left-byte attr
+/// (instead of always `None`). This lets WBound resolve under
+/// `(left = attr, right = None / non-word)` so patterns like `/\w$/`
+/// accept iff the live state's incoming byte was word-class.
+/// Multiline `Op::AnchorB` after `\n` doesn't trigger here (the
+/// at-end check is about `$` / AnchorE, not `^`; the closure reads
+/// the per-inst m-bit and `attr_to_left_byte` never answers `\n`).
 pub(super) fn pc_set_is_accept_at_end(
     prog: &Program,
     set: &BTreeSet<usize>,
     attr: LeftByteAttr,
-    mflag: bool,
 ) -> bool {
     let seeds: Vec<usize> = set.iter().copied().collect();
     let at_end_ctx = PositionCtx {
         left_byte: attr_to_left_byte(attr),
         is_text_start: matches!(attr, LeftByteAttr::TextStart),
         is_text_end: true,
-        mflag,
     };
     let closed = epsilon_closure_full(prog, &seeds, at_end_ctx, None);
     pc_set_is_accept(prog, &closed)
@@ -104,12 +103,11 @@ pub(super) fn pc_set_is_accept_at_end(
 /// factory. Pulled out of `build_dfa`'s inline closure so
 /// `intern_state` can also build at-cursor ctx values when computing
 /// K-PROPERTY pending states' `yes_target` ε-closures.
-pub(super) fn ctx_for(attr: LeftByteAttr, mflag: bool) -> PositionCtx {
+pub(super) fn ctx_for(attr: LeftByteAttr) -> PositionCtx {
     PositionCtx {
         left_byte: attr_to_left_byte(attr),
         is_text_start: matches!(attr, LeftByteAttr::TextStart),
         is_text_end: false,
-        mflag,
     }
 }
 

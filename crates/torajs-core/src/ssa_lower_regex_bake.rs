@@ -63,7 +63,11 @@ pub(crate) fn try_bake_regex_dfa(
         return None;
     }
 
-    if !analyze(&root).is_eligible() {
+    // Mirrors `regex/compile.rs` can_dfa gates: a multiline `$`
+    // (per-inst m-bit, regexp-modifiers) is VM-only — the runtime
+    // RegExp for such a literal carries `can_dfa = false`, so a baked
+    // table would be dead weight.
+    if !analyze(&root).is_eligible() || torajs_regex::dfa::tree_contains_ml_anchor_end(&root) {
         return None;
     }
 
@@ -75,6 +79,24 @@ pub(crate) fn try_bake_regex_dfa(
     if !prog_ops_dfa_safe(&prog) {
         return None;
     }
+
+    // regexp-modifiers — mixed `^` m-bits gate the DFA off at
+    // runtime (`regex/compile.rs`); don't bake dead tables for them.
+    let mut any_ml = false;
+    let mut any_plain = false;
+    for inst in &prog.insts {
+        if inst.op == torajs_regex::program::Op::AnchorB as u8 {
+            if inst.pad as u8 & torajs_regex::parser::RE_FLAG_M != 0 {
+                any_ml = true;
+            } else {
+                any_plain = true;
+            }
+        }
+    }
+    if any_ml && any_plain {
+        return None;
+    }
+    prog.has_ml_anchor_b = any_ml;
 
     // ABI-locked: `DfaState` is `#[repr(C)]`, 1072 bytes on
     // aarch64-apple-darwin (Round 3 Phase B sub-batch 4 attack #R-J v2,
@@ -250,7 +272,7 @@ mod tests {
             (r"^\w+", "", "anchored"),
             (r"hello", "i", "iflag"),
             (r"\w+\b", "", "wbound"),
-            (r"hello$", "m", "mflag"),
+            (r"hello$", "", "eflag"),
             (r".+", "s", "dotall"),
             (r"[abc]+", "", "safeclass"),
             (r"\p{L}+", "u", "uflag"),
@@ -262,6 +284,15 @@ mod tests {
             assert_eq!(idx, Some(0), "{name} ({pat}, {fl}) should be eligible");
             counts.push((name, buf[0].states_len));
         }
+        // regexp-modifiers — a multiline `$` (global m or `(?m:…)`)
+        // is VM-only at runtime (`can_dfa = false`), so the bake now
+        // declines it instead of emitting a dead table. Mixed `^`
+        // m-bits decline for the same reason.
+        let mut buf = Vec::new();
+        assert_eq!(try_bake_regex_dfa(&mut buf, r"hello$", "m"), None);
+        assert_eq!(try_bake_regex_dfa(&mut buf, r"(?m:^a)|^b", ""), None);
+        // Uniform-multiline `^` (no `$`) stays bake-eligible.
+        assert!(try_bake_regex_dfa(&mut buf, r"^hello", "m").is_some());
         let uflag_count = counts.last().unwrap().1;
         let anchored_count = counts[0].1;
         assert!(

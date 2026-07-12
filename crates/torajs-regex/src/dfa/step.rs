@@ -11,9 +11,9 @@
 //!
 //! Split out of `dfa/mod.rs` (chunk 10d follow-up) to keep the
 //! parent module under the 500-line HARD limit as more substrate
-//! lands. `byte_step` / `byte_step_full` / `class_test_case_fold`
-//! were the only inline functions here; `epsilon_closure` lives in
-//! [`super::ctx`] and the BFS driver in [`super::build`].
+//! lands. `byte_step` / `byte_step_full` are the only inline
+//! functions here; `epsilon_closure` lives in [`super::ctx`] and the
+//! BFS driver in [`super::build`].
 
 use alloc::collections::BTreeSet;
 
@@ -24,13 +24,12 @@ use crate::program::{Op, Program};
 /// around [`byte_step_full`] discarding the deferred buckets — used
 /// by callers that don't model u-flag multi-byte deferral.
 ///
-/// `Op::Char` uses [`crate::vm::char_eq`] (case-pair under
-/// `RE_FLAG_I`); `Op::AnyChar` advances on any byte except `\n`
-/// (0x0A) when `RE_FLAG_S` is unset (chunk 10a — the JS spec says
-/// `.` does not match line terminators unless `s` is set; the
-/// dot-all branch under `s` is the only way to match `\n` via `.`);
-/// `Op::Class` tests the byte then [`class_test_case_fold`] for the
-/// i-flag pair. Other ops are terminal — ε via the BFS's closure pass,
+/// `Op::Char` uses [`crate::vm::char_eq`] (case-pair under the
+/// inst's baked i-bit); `Op::AnyChar` advances on any byte except
+/// `\n` (0x0A) when the inst's s-bit is unset (chunk 10a — the JS
+/// spec says `.` does not match line terminators unless `s` is set);
+/// `Op::Class` goes through `CharClass::test_fold` (pre-negate
+/// case-pair fold). Other ops are terminal — ε via the BFS's closure pass,
 /// lookaround / backref filtered upstream in [`super::analyze`].
 /// Out-of-range PCs (defensive) and `pc + 1` past program end are
 /// silently dropped.
@@ -52,7 +51,6 @@ pub fn byte_step_full(
     let mut ready: BTreeSet<usize> = BTreeSet::new();
     let mut deferred: [BTreeSet<usize>; 3] = Default::default();
     let plen = prog.len();
-    let s_flag = flags & crate::parser::RE_FLAG_S != 0;
     let u_flag = flags & crate::parser::RE_FLAG_U != 0;
     for &pc in states.iter() {
         if pc >= plen {
@@ -65,7 +63,7 @@ pub fn byte_step_full(
         };
         match op {
             Op::Char => {
-                if crate::vm::char_eq(ins.ch, byte, flags) {
+                if crate::vm::char_eq(ins.ch, byte, ins.pad as u8) {
                     let n = pc + 1;
                     if n < plen {
                         ready.insert(n);
@@ -73,6 +71,7 @@ pub fn byte_step_full(
                 }
             }
             Op::AnyChar => {
+                let s_flag = ins.pad as u8 & crate::parser::RE_FLAG_S != 0;
                 if !(s_flag || byte != b'\n') {
                     continue;
                 }
@@ -105,7 +104,8 @@ pub fn byte_step_full(
                 let cls_idx = ins.a as usize;
                 if cls_idx < prog.classes.len() {
                     let class = &prog.classes[cls_idx];
-                    if class.test(byte) || class_test_case_fold(class, byte, flags) {
+                    let ci = ins.pad as u8 & crate::parser::RE_FLAG_I != 0;
+                    if class.test_fold(byte, ci) {
                         let n = pc + 1;
                         if n < plen {
                             ready.insert(n);
@@ -117,22 +117,4 @@ pub fn byte_step_full(
         }
     }
     (ready, deferred)
-}
-
-/// `byte_step` helper (chunk 8.7) — true iff `class` contains the
-/// ASCII case-pair of `byte` under `RE_FLAG_I`; otherwise false.
-pub(super) fn class_test_case_fold(
-    class: &crate::charclass::CharClass,
-    byte: u8,
-    flags: u8,
-) -> bool {
-    if flags & crate::parser::RE_FLAG_I == 0 {
-        return false;
-    }
-    let paired = match byte {
-        b'A'..=b'Z' => byte | 0x20,
-        b'a'..=b'z' => byte & !0x20,
-        _ => return false,
-    };
-    class.test(paired)
 }

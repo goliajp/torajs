@@ -156,23 +156,25 @@ pub fn analyze(root: &Node) -> DfaEligibility {
 }
 
 /// RC-4 multiline-`$` face — true iff the tree contains an
-/// `AnchorEnd` (`$`) node anywhere. Under `RE_FLAG_M` the DFA
-/// closure resolves `Op::AnchorE` only at text end (`PositionCtx`
-/// carries no right byte), so a multiline `$` before `\n` silently
-/// missed; callers gate `can_dfa` off for `m` + `$` patterns and the
-/// Pike VM (multiline-aware AnchorE) takes over. DFA support needs a
+/// `AnchorEnd` (`$`) node whose effective m-bit is set (the global
+/// `m` flag or an enclosing `(?m:…)` modifier group merged into
+/// `Node::eff_ims` at parse time). The DFA closure resolves
+/// `Op::AnchorE` only at text end (`PositionCtx` carries no right
+/// byte), so a multiline `$` before `\n` silently missed; callers
+/// gate `can_dfa` off for such patterns and the Pike VM
+/// (multiline-aware AnchorE) takes over. DFA support needs a
 /// right-byte-aware closure or RE2-style `(?=\n|$)` folding —
 /// roadmap item.
-pub fn tree_contains_anchor_end(root: &Node) -> bool {
-    if matches!(root.kind, NodeKind::AnchorEnd) {
+pub fn tree_contains_ml_anchor_end(root: &Node) -> bool {
+    if matches!(root.kind, NodeKind::AnchorEnd) && root.eff_ims & crate::parser::RE_FLAG_M != 0 {
         return true;
     }
     if let Some(child) = root.child.as_ref()
-        && tree_contains_anchor_end(child)
+        && tree_contains_ml_anchor_end(child)
     {
         return true;
     }
-    root.kids.iter().any(|k| tree_contains_anchor_end(k))
+    root.kids.iter().any(|k| tree_contains_ml_anchor_end(k))
 }
 
 /// Compute the ε-closure of `seeds` under `prog` — the set of all PCs
@@ -658,13 +660,16 @@ mod tests {
 
     #[test]
     fn byte_step_anychar_advances_on_any_byte_under_s_flag() {
-        // chunk 10a — under `s`, `.` matches every byte (dot-all).
+        // chunk 10a — under `s` (per-inst pad s-bit since
+        // regexp-modifiers), `.` matches every byte (dot-all).
         let mut prog = Program::new();
-        prog.emit(Inst::simple(Op::AnyChar));
+        let mut any = Inst::simple(Op::AnyChar);
+        any.pad = crate::parser::RE_FLAG_S as u16;
+        prog.emit(any);
         prog.emit(Inst::match_accept());
         for b in [b'a', b'\n', 0u8, 0xff] {
             assert_eq!(
-                byte_step(&prog, &set(&[0]), b, crate::parser::RE_FLAG_S),
+                byte_step(&prog, &set(&[0]), b, 0),
                 set(&[1]),
                 "byte 0x{b:02x}"
             );
@@ -870,14 +875,16 @@ mod tests {
             ),
             (
                 &|p: &mut Program| {
-                    // /a.+c/s: CHAR a; ANY; SPLIT 1, 4; CHAR c; MATCH
+                    // /a.+c/s: CHAR a; ANY(s); SPLIT 1, 4; CHAR c; MATCH
                     p.emit(Inst::char_lit(b'a'));
-                    p.emit(Inst::simple(Op::AnyChar));
+                    let mut any = Inst::simple(Op::AnyChar);
+                    any.pad = crate::parser::RE_FLAG_S as u16;
+                    p.emit(any);
                     p.emit(Inst::split(1, 4));
                     p.emit(Inst::char_lit(b'c'));
                     p.emit(Inst::match_accept());
                 },
-                crate::parser::RE_FLAG_S,
+                0,
             ),
         ];
         for (emit, flags) in progs {
@@ -948,11 +955,14 @@ mod tests {
 
     #[test]
     fn build_dfa_anychar_routes_every_byte_to_accept_under_s_flag() {
-        // 0: ANY; 1: MATCH — under `s`, `.` matches every byte.
+        // 0: ANY(s); 1: MATCH — under `s` (per-inst pad s-bit), `.`
+        // matches every byte.
         let mut prog = Program::new();
-        prog.emit(Inst::simple(Op::AnyChar));
+        let mut any = Inst::simple(Op::AnyChar);
+        any.pad = crate::parser::RE_FLAG_S as u16;
+        prog.emit(any);
         prog.emit(Inst::match_accept());
-        let dfa = build_dfa(&prog, crate::parser::RE_FLAG_S);
+        let dfa = build_dfa(&prog, 0);
         let start = dfa.start as usize;
         let target = dfa.states[start].transitions[0];
         assert_ne!(target, 0);
@@ -1286,11 +1296,13 @@ mod tests {
 
     #[test]
     fn dfa_search_anychar_matches_newline_under_s_flag() {
-        // chunk 10a — with `s`, `.` covers `\n` too.
+        // chunk 10a — with `s` (per-inst pad s-bit), `.` covers `\n`.
         let mut prog = Program::new();
-        prog.emit(Inst::simple(Op::AnyChar));
+        let mut any = Inst::simple(Op::AnyChar);
+        any.pad = crate::parser::RE_FLAG_S as u16;
+        prog.emit(any);
         prog.emit(Inst::match_accept());
-        let dfa = build_dfa(&prog, crate::parser::RE_FLAG_S);
+        let dfa = build_dfa(&prog, 0);
         assert_eq!(dfa_search(&dfa, &prog, b"\n"), Some(1));
         assert_eq!(dfa_search(&dfa, &prog, b"a"), Some(1));
     }
@@ -1564,52 +1576,71 @@ mod tests {
 
     use crate::parser::RE_FLAG_I;
 
+    fn char_ci(ch: u8) -> Inst {
+        let mut i = Inst::char_lit(ch);
+        i.pad = RE_FLAG_I as u16;
+        i
+    }
+
+    fn class_ref_ci(idx: i32) -> Inst {
+        let mut i = Inst::class_ref(idx);
+        i.pad = RE_FLAG_I as u16;
+        i
+    }
+
     #[test]
     fn byte_step_i_flag_char_advances_on_both_cases() {
-        // 0: CHAR 'a'; 1: MATCH — under i flag both 'a' and 'A' advance.
+        // Under the per-inst i-bit both 'a' and 'A' advance; a plain
+        // char inst stays case-sensitive.
         let mut prog = Program::new();
-        prog.emit(Inst::char_lit(b'a'));
+        prog.emit(char_ci(b'a'));
         prog.emit(Inst::match_accept());
-        // Plain (no flag): only 'a' advances.
+        let mut plain = Program::new();
+        plain.emit(Inst::char_lit(b'a'));
+        plain.emit(Inst::match_accept());
+        // Plain (no i-bit): only 'a' advances.
+        assert_eq!(byte_step(&plain, &set(&[0]), b'a', 0), set(&[1]));
+        assert!(byte_step(&plain, &set(&[0]), b'A', 0).is_empty());
+        // i-bit: both 'a' and 'A' advance.
         assert_eq!(byte_step(&prog, &set(&[0]), b'a', 0), set(&[1]));
-        assert!(byte_step(&prog, &set(&[0]), b'A', 0).is_empty());
-        // Under i: both 'a' and 'A' advance.
-        assert_eq!(byte_step(&prog, &set(&[0]), b'a', RE_FLAG_I), set(&[1]));
-        assert_eq!(byte_step(&prog, &set(&[0]), b'A', RE_FLAG_I), set(&[1]));
+        assert_eq!(byte_step(&prog, &set(&[0]), b'A', 0), set(&[1]));
         // Non-alpha bytes still respect literal compare.
-        assert!(byte_step(&prog, &set(&[0]), b'0', RE_FLAG_I).is_empty());
+        assert!(byte_step(&prog, &set(&[0]), b'0', 0).is_empty());
     }
 
     #[test]
     fn byte_step_i_flag_class_matches_case_paired_byte() {
-        // 0: CLASS [a-c]; 1: MATCH — under i flag 'A' / 'B' / 'C' also
-        // match.
-        let mut prog = Program::new();
+        // 0: CLASS [a-c](i); 1: MATCH — 'A' / 'B' / 'C' also match.
         let mut cc = CharClass::new();
         cc.add_range(b'a', b'c');
+        let mut prog = Program::new();
         let idx = prog.intern_class(&cc);
-        prog.emit(Inst::class_ref(idx));
+        prog.emit(class_ref_ci(idx));
         prog.emit(Inst::match_accept());
+        let mut plain = Program::new();
+        let pidx = plain.intern_class(&cc);
+        plain.emit(Inst::class_ref(pidx));
+        plain.emit(Inst::match_accept());
         // Plain: only lowercase.
-        assert_eq!(byte_step(&prog, &set(&[0]), b'a', 0), set(&[1]));
-        assert!(byte_step(&prog, &set(&[0]), b'A', 0).is_empty());
-        // i flag: uppercase pair matches via class_test_case_fold.
-        assert_eq!(byte_step(&prog, &set(&[0]), b'A', RE_FLAG_I), set(&[1]));
-        assert_eq!(byte_step(&prog, &set(&[0]), b'C', RE_FLAG_I), set(&[1]));
+        assert_eq!(byte_step(&plain, &set(&[0]), b'a', 0), set(&[1]));
+        assert!(byte_step(&plain, &set(&[0]), b'A', 0).is_empty());
+        // i-bit: uppercase pair matches via CharClass::test_fold.
+        assert_eq!(byte_step(&prog, &set(&[0]), b'A', 0), set(&[1]));
+        assert_eq!(byte_step(&prog, &set(&[0]), b'C', 0), set(&[1]));
         // Out-of-class bytes still miss.
-        assert!(byte_step(&prog, &set(&[0]), b'D', RE_FLAG_I).is_empty());
-        assert!(byte_step(&prog, &set(&[0]), b'1', RE_FLAG_I).is_empty());
+        assert!(byte_step(&prog, &set(&[0]), b'D', 0).is_empty());
+        assert!(byte_step(&prog, &set(&[0]), b'1', 0).is_empty());
     }
 
     #[test]
     fn build_dfa_i_flag_literal_accepts_both_cases() {
-        // /abc/i: 0: CHAR a; 1: CHAR b; 2: CHAR c; 3: MATCH
+        // /abc/i: 0: CHAR a(i); 1: CHAR b(i); 2: CHAR c(i); 3: MATCH
         let mut prog = Program::new();
-        prog.emit(Inst::char_lit(b'a'));
-        prog.emit(Inst::char_lit(b'b'));
-        prog.emit(Inst::char_lit(b'c'));
+        prog.emit(char_ci(b'a'));
+        prog.emit(char_ci(b'b'));
+        prog.emit(char_ci(b'c'));
         prog.emit(Inst::match_accept());
-        let dfa = build_dfa(&prog, RE_FLAG_I);
+        let dfa = build_dfa(&prog, 0);
         // All eight case combinations of "abc" should accept under i.
         for hay in [
             &b"abc"[..],
@@ -1644,14 +1675,14 @@ mod tests {
 
     #[test]
     fn build_dfa_i_flag_class_range_case_folds() {
-        // /[a-z]/i: under i flag also matches A-Z.
+        // /[a-z]/i: under the per-inst i-bit also matches A-Z.
         let mut prog = Program::new();
         let mut lower = CharClass::new();
         lower.add_range(b'a', b'z');
         let li = prog.intern_class(&lower);
-        prog.emit(Inst::class_ref(li));
+        prog.emit(class_ref_ci(li));
         prog.emit(Inst::match_accept());
-        let dfa = build_dfa(&prog, RE_FLAG_I);
+        let dfa = build_dfa(&prog, 0);
         for hay in [&b"a"[..], b"z", b"M", b"Z"] {
             assert_eq!(dfa_search(&dfa, &prog, hay), Some(1), "hay={hay:?}");
         }
@@ -1659,33 +1690,42 @@ mod tests {
         assert_eq!(dfa_search(&dfa, &prog, b"7"), None);
     }
 
-    // chunk 8.8 — `RE_FLAG_M` multiline `^`. `build_dfa` threads
-    // `mflag` into `PositionCtx`; `Op::AnchorB` advances when the ctx
-    // is at text-start *or* `left_byte == Some(b'\n')`. The
-    // `vm::search_from_with_ws` wire picks `dfa.start` at line-start
-    // cursor positions and `dfa.start_mid` elsewhere.
+    // chunk 8.8 (per-inst since regexp-modifiers) — multiline `^`.
+    // `Op::AnchorB` advances when the ctx is at text-start *or* the
+    // instruction's baked `pad` m-bit is set and `left_byte ==
+    // Some(b'\n')`. The `vm::search_from_with_ws` wire picks
+    // `dfa.start` at line-start cursor positions (gated on
+    // `Program::has_ml_anchor_b`) and `dfa.start_mid` elsewhere.
 
     use crate::parser::RE_FLAG_M;
 
+    fn anchor_b_ml() -> Inst {
+        let mut i = Inst::simple(Op::AnchorB);
+        i.pad = RE_FLAG_M as u16;
+        i
+    }
+
     #[test]
     fn build_dfa_mflag_for_anchor_b_pattern_compiles() {
-        // `^a`: 0: ANCHOR_B; 1: CHAR a; 2: MATCH
+        // `^a` with the m-bit baked on the anchor inst:
+        // 0: ANCHOR_B(m); 1: CHAR a; 2: MATCH
         // Multiline `^` resolution is wire-level (see
         // `vm::search_from_with_ws`: line-start positions re-enter via
         // `dfa.start`). The BFS just has to produce a valid DFA — the
         // `start` state mirrors the no-flag DFA (AnchorB advances under
-        // `is_text_start = true` regardless of mflag) and `start_mid`
-        // still blocks AnchorB (left_byte = None in ctx_mid_default).
+        // `is_text_start = true` regardless of the m-bit) and
+        // `start_mid` still blocks AnchorB (left_byte = None in
+        // ctx_mid_default).
         let mut prog = Program::new();
-        prog.emit(Inst::simple(Op::AnchorB));
+        prog.emit(anchor_b_ml());
         prog.emit(Inst::char_lit(b'a'));
         prog.emit(Inst::match_accept());
-        let dfa = build_dfa(&prog, RE_FLAG_M);
+        let dfa = build_dfa(&prog, 0);
         // start (text_start=true closure) accepts 'a'.
         let via_a = tgt(dfa.states[dfa.start as usize].transitions[b'a' as usize]);
         assert!(
             dfa.states[via_a].is_accept,
-            "start + 'a' must accept under mflag (text_start ctx)"
+            "start + 'a' must accept under the m-bit (text_start ctx)"
         );
         // start_mid (no left_byte) blocks AnchorB — all bytes dead.
         for b in [b'a', b'\n', b'x'] {
@@ -1698,41 +1738,37 @@ mod tests {
 
     #[test]
     fn epsilon_closure_full_anchor_b_advances_under_mflag_after_newline() {
-        // Direct ε-closure test against the new mflag semantic.
+        // Direct ε-closure test against the per-inst m-bit semantic.
         let mut prog = Program::new();
-        prog.emit(Inst::simple(Op::AnchorB));
+        prog.emit(anchor_b_ml());
         prog.emit(Inst::char_lit(b'a'));
         prog.emit(Inst::match_accept());
-        // mflag = true, left = '\n': AnchorB advances.
+        // m-bit set, left = '\n': AnchorB advances.
         let ctx_after_nl = PositionCtx {
             left_byte: Some(b'\n'),
             is_text_start: false,
             is_text_end: false,
-            mflag: true,
         };
         let cl = crate::dfa::epsilon_closure_full(&prog, &[0], ctx_after_nl, Some(b'a'));
         assert!(
             cl.contains(&1),
-            "AnchorB must advance after \\n under mflag"
+            "AnchorB must advance after \\n under the m-bit"
         );
-        // mflag = true, left = 'a': AnchorB stays terminal.
+        // m-bit set, left = 'a': AnchorB stays terminal.
         let ctx_after_a = PositionCtx {
             left_byte: Some(b'a'),
             is_text_start: false,
             is_text_end: false,
-            mflag: true,
         };
         let cl = crate::dfa::epsilon_closure_full(&prog, &[0], ctx_after_a, Some(b'b'));
         assert!(!cl.contains(&1));
-        // mflag = false, left = '\n': AnchorB stays terminal (legacy
-        // semantic).
-        let ctx_no_mflag = PositionCtx {
-            left_byte: Some(b'\n'),
-            is_text_start: false,
-            is_text_end: false,
-            mflag: false,
-        };
-        let cl = crate::dfa::epsilon_closure_full(&prog, &[0], ctx_no_mflag, Some(b'a'));
+        // m-bit clear, left = '\n': AnchorB stays terminal (plain `^`
+        // inside a `(?-m:…)` scope or without the m flag).
+        let mut plain = Program::new();
+        plain.emit(Inst::simple(Op::AnchorB));
+        plain.emit(Inst::char_lit(b'a'));
+        plain.emit(Inst::match_accept());
+        let cl = crate::dfa::epsilon_closure_full(&plain, &[0], ctx_after_nl, Some(b'a'));
         assert!(!cl.contains(&1));
     }
 
@@ -1744,11 +1780,13 @@ mod tests {
 
     #[test]
     fn byte_step_full_u_flag_anychar_routes_multi_byte_to_deferred() {
-        // 0: ANY; 1: MATCH
+        // 0: ANY(s); 1: MATCH — dotAll per-inst; u stays a real flag.
         let mut prog = Program::new();
-        prog.emit(Inst::simple(Op::AnyChar));
+        let mut any = Inst::simple(Op::AnyChar);
+        any.pad = crate::parser::RE_FLAG_S as u16;
+        prog.emit(any);
         prog.emit(Inst::match_accept());
-        let u_s = crate::parser::RE_FLAG_U | crate::parser::RE_FLAG_S;
+        let u_s = crate::parser::RE_FLAG_U;
         // ASCII first byte → ready advance (u_skip = 0).
         let (ready, def) = byte_step_full(&prog, &set(&[0]), b'a', u_s);
         assert_eq!(ready, set(&[1]));
@@ -1776,10 +1814,12 @@ mod tests {
     #[test]
     fn byte_step_full_without_u_flag_never_defers() {
         let mut prog = Program::new();
-        prog.emit(Inst::simple(Op::AnyChar));
+        let mut any = Inst::simple(Op::AnyChar);
+        any.pad = crate::parser::RE_FLAG_S as u16;
+        prog.emit(any);
         prog.emit(Inst::match_accept());
         for b in [b'a', 0xCEu8, 0xE6, 0xF0, 0x80] {
-            let (_, def) = byte_step_full(&prog, &set(&[0]), b, crate::parser::RE_FLAG_S);
+            let (_, def) = byte_step_full(&prog, &set(&[0]), b, 0);
             assert!(
                 def.iter().all(|d| d.is_empty()),
                 "byte 0x{b:02x} unexpectedly deferred without u-flag"

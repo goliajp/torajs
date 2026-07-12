@@ -47,10 +47,10 @@ pub fn compile_rev(prog: &mut Program, node: &Node, flags: u8) {
 fn compile_dir(prog: &mut Program, node: &Node, flags: u8, rev: bool) {
     match node.kind {
         NodeKind::Char => {
-            prog.emit(Inst::char_lit(node.ch));
+            emit_with_ims(prog, Inst::char_lit(node.ch), node);
         }
         NodeKind::Any => {
-            prog.emit(Inst::simple(Op::AnyChar));
+            emit_with_ims(prog, Inst::simple(Op::AnyChar), node);
         }
         NodeKind::Class => {
             let uflag = flags & RE_FLAG_U != 0;
@@ -66,29 +66,32 @@ fn compile_dir(prog: &mut Program, node: &Node, flags: u8, rev: bool) {
             // through `expand_unsafe_class` (chunk-10d byte-step).
             if uflag && node.cc.is_uflag_property_only() {
                 let cidx = prog.intern_class(&node.cc);
-                prog.emit(Inst::class_ref(cidx));
-            } else if let Some(expansion) = expand_unsafe_class(&node.cc, uflag) {
+                emit_with_ims(prog, Inst::class_ref(cidx), node);
+            } else if let Some(mut expansion) = expand_unsafe_class(&node.cc, uflag) {
                 // rev threads through: the expansion is an Alt of
                 // per-length Concats of byte-level ops, and reversing
                 // those Concats makes the reverse VM consume the
                 // multi-byte sequence right-to-left byte by byte.
+                // The synthesized leaves inherit the class atom's
+                // effective i/m/s scope (regexp-modifiers).
+                stamp_eff_ims(&mut expansion, node.eff_ims);
                 compile_dir(prog, &expansion, flags, rev);
             } else {
                 let cidx = prog.intern_class(&node.cc);
-                prog.emit(Inst::class_ref(cidx));
+                emit_with_ims(prog, Inst::class_ref(cidx), node);
             }
         }
         NodeKind::AnchorBeg => {
-            prog.emit(Inst::simple(Op::AnchorB));
+            emit_with_ims(prog, Inst::simple(Op::AnchorB), node);
         }
         NodeKind::AnchorEnd => {
-            prog.emit(Inst::simple(Op::AnchorE));
+            emit_with_ims(prog, Inst::simple(Op::AnchorE), node);
         }
         NodeKind::WBound => {
-            prog.emit(Inst::simple(Op::WBound));
+            emit_with_ims(prog, Inst::simple(Op::WBound), node);
         }
         NodeKind::NWBound => {
-            prog.emit(Inst::simple(Op::NWBound));
+            emit_with_ims(prog, Inst::simple(Op::NWBound), node);
         }
         NodeKind::Concat => {
             if rev {
@@ -105,12 +108,35 @@ fn compile_dir(prog: &mut Program, node: &Node, flags: u8, rev: bool) {
         NodeKind::Repeat => compile_repeat(prog, node, flags, rev),
         NodeKind::Group => compile_group(prog, node, flags, rev),
         NodeKind::Backref => {
-            prog.emit(Inst::backref(node.capture_idx));
+            emit_with_ims(prog, Inst::backref(node.capture_idx), node);
         }
         NodeKind::Lookahead
         | NodeKind::NegLookahead
         | NodeKind::Lookbehind
         | NodeKind::NegLookbehind => compile_lookaround(prog, node, flags),
+    }
+}
+
+/// Emit `ins` with the atom's effective i/m/s bits baked into the
+/// instruction's `pad` low byte (regexp-modifiers). The VM / DFA read
+/// ignoreCase / multiline / dotAll from `Inst.pad` per instruction —
+/// bit positions reuse `RE_FLAG_I` / `RE_FLAG_M` / `RE_FLAG_S`, so
+/// helpers like [`crate::vm::char_eq`] take the pad byte verbatim.
+fn emit_with_ims(prog: &mut Program, mut ins: Inst, node: &Node) {
+    ins.pad = node.eff_ims as u16;
+    prog.emit(ins);
+}
+
+/// Recursively stamp `eff` onto a synthesized sub-tree (chunk-10d
+/// `expand_unsafe_class` output) whose nodes were built with the
+/// default scope.
+fn stamp_eff_ims(node: &mut Node, eff: u8) {
+    node.eff_ims = eff;
+    if let Some(child) = node.child.as_deref_mut() {
+        stamp_eff_ims(child, eff);
+    }
+    for kid in &mut node.kids {
+        stamp_eff_ims(kid, eff);
     }
 }
 

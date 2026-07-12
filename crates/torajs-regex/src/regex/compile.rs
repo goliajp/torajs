@@ -89,15 +89,36 @@ pub unsafe extern "C" fn __torajs_regex_compile(
     let mut prog = Program::new();
     let rejected = if let Some(root) = root_ok.take() {
         // DFA eligibility — runs post-resolve so named backrefs are
-        // correctly identified as blockers. RC-4: multiline `$` is
-        // VM-only (the DFA closure can't see the right byte, so `$`
-        // before `\n` silently missed).
+        // correctly identified as blockers. RC-4: a multiline `$`
+        // (per-inst m-bit, regexp-modifiers) is VM-only (the DFA
+        // closure can't see the right byte, so `$` before `\n`
+        // silently missed).
         prog.can_dfa = crate::dfa::analyze(&root).is_eligible()
-            && !(flag_bits & crate::parser::RE_FLAG_M != 0
-                && crate::dfa::tree_contains_anchor_end(&root));
+            && !crate::dfa::tree_contains_ml_anchor_end(&root);
         compile(&mut prog, &root, flag_bits);
         prog.emit(Inst::match_accept());
         prog.has_save = prog.any_save();
+        // regexp-modifiers — classify the emitted `^` anchors' m-bits.
+        // Uniform multiline drives the wire's line-start entry
+        // selection (`has_ml_anchor_b`); MIXED m-bits gate the DFA
+        // off entirely: the four-entry scheme folds every line-start
+        // position onto the text-start entry, which advances ALL
+        // AnchorB pcs — wrong for a plain `^` sharing the program
+        // with a `(?m:^)`. The Pike VM resolves per instruction.
+        let (mut any_ml, mut any_plain) = (false, false);
+        for inst in &prog.insts {
+            if inst.op == crate::program::Op::AnchorB as u8 {
+                if inst.pad as u8 & crate::parser::RE_FLAG_M != 0 {
+                    any_ml = true;
+                } else {
+                    any_plain = true;
+                }
+            }
+        }
+        prog.has_ml_anchor_b = any_ml;
+        if any_ml && any_plain {
+            prog.can_dfa = false;
+        }
         0u8
     } else {
         prog.emit(Inst::char_lit(0xff));
@@ -111,13 +132,14 @@ pub unsafe extern "C" fn __torajs_regex_compile(
     // `AnchorB` for `^`, `WBound` etc), until we either hit an
     // `OP_CHAR(b)` (set anchor) or a byte-consuming op of a
     // different shape (`AnyChar` / `Class` / `Split` / ... → no
-    // anchor). The i flag invalidates the byte comparison
+    // anchor). The leading char's baked i-bit (per-inst
+    // ignoreCase, regexp-modifiers) invalidates the byte comparison
     // (memchr can't match both cases without a lookup table) so
-    // skip the anchor entirely there. The u flag is fine — leading
+    // skip the anchor there. The u flag is fine — leading
     // `Char` ops only emit ASCII bytes; non-ASCII literals decode
     // to `Class` at parse time which lands in the "different
     // shape" branch.
-    if rejected == 0 && flag_bits & crate::parser::RE_FLAG_I == 0 {
+    if rejected == 0 {
         for inst in &prog.insts {
             match crate::program::Op::from_u8(inst.op) {
                 Some(crate::program::Op::Save)
@@ -126,7 +148,9 @@ pub unsafe extern "C" fn __torajs_regex_compile(
                 | Some(crate::program::Op::WBound)
                 | Some(crate::program::Op::NWBound) => continue,
                 Some(crate::program::Op::Char) => {
-                    prog.prefix_byte = Some(inst.ch);
+                    if inst.pad as u8 & crate::parser::RE_FLAG_I == 0 {
+                        prog.prefix_byte = Some(inst.ch);
+                    }
                     break;
                 }
                 _ => break,

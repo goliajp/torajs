@@ -99,13 +99,30 @@ pub unsafe extern "C" fn __torajs_regex_compile_from_static_dfa(
 
     let mut prog = Program::new();
     let rejected = if let Some(root) = root_ok.take() {
-        // RC-4: multiline `$` is VM-only, mirroring compile.rs.
+        // RC-4: multiline `$` (per-inst m-bit) is VM-only, mirroring
+        // compile.rs.
         prog.can_dfa = crate::dfa::analyze(&root).is_eligible()
-            && !(flag_bits & crate::parser::RE_FLAG_M != 0
-                && crate::dfa::tree_contains_anchor_end(&root));
+            && !crate::dfa::tree_contains_ml_anchor_end(&root);
         compile(&mut prog, &root, flag_bits);
         prog.emit(Inst::match_accept());
         prog.has_save = prog.any_save();
+        // regexp-modifiers — mirror compile.rs: uniform-ml drives the
+        // wire's line-start entry selection; mixed m-bits gate the
+        // DFA off (the text-start-entry fold can't represent them).
+        let (mut any_ml, mut any_plain) = (false, false);
+        for inst in &prog.insts {
+            if inst.op == crate::program::Op::AnchorB as u8 {
+                if inst.pad as u8 & crate::parser::RE_FLAG_M != 0 {
+                    any_ml = true;
+                } else {
+                    any_plain = true;
+                }
+            }
+        }
+        prog.has_ml_anchor_b = any_ml;
+        if any_ml && any_plain {
+            prog.can_dfa = false;
+        }
         0u8
     } else {
         prog.emit(Inst::char_lit(0xff));
@@ -116,7 +133,7 @@ pub unsafe extern "C" fn __torajs_regex_compile_from_static_dfa(
     // V0.2 P14-S2 — literal-byte prefix anchor detection (mirrors
     // compile.rs). The baked DFA path benefits from the prefix anchor
     // too: it shrinks the search window before the DFA byte-walk runs.
-    if rejected == 0 && flag_bits & crate::parser::RE_FLAG_I == 0 {
+    if rejected == 0 {
         for inst in &prog.insts {
             match crate::program::Op::from_u8(inst.op) {
                 Some(crate::program::Op::Save)
@@ -125,7 +142,9 @@ pub unsafe extern "C" fn __torajs_regex_compile_from_static_dfa(
                 | Some(crate::program::Op::WBound)
                 | Some(crate::program::Op::NWBound) => continue,
                 Some(crate::program::Op::Char) => {
-                    prog.prefix_byte = Some(inst.ch);
+                    if inst.pad as u8 & crate::parser::RE_FLAG_I == 0 {
+                        prog.prefix_byte = Some(inst.ch);
+                    }
                     break;
                 }
                 _ => break,

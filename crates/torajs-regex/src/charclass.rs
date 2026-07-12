@@ -72,6 +72,54 @@ impl CharClass {
         if self.negate { !in_set } else { in_set }
     }
 
+    /// Byte membership with an optional ASCII case-pair fold under
+    /// `ci` (the instruction's baked i-bit). The fold joins the RAW
+    /// set BEFORE the class-level negate — ES Canonicalize-then-
+    /// member semantics: `/[^ab]/i` rejects both `a` and `A`.
+    /// Shared by the DFA byte-step and the Pike VM class dispatch.
+    pub fn test_fold(&self, ch: u8, ci: bool) -> bool {
+        let mut in_raw = self.raw_test(ch);
+        if !in_raw && ci {
+            if let Some(p) = ascii_case_pair(ch) {
+                in_raw = self.raw_test(p);
+            }
+        }
+        if self.negate { !in_raw } else { in_raw }
+    }
+
+    /// [`Self::test_cp`] with the same pre-negate ASCII case-pair
+    /// fold as [`Self::test_fold`]. Non-ASCII case folding is a
+    /// recorded gap (no Unicode fold tables anywhere in the crate).
+    pub fn test_cp_fold(&self, cp: i32, ci: bool) -> bool {
+        let mut in_raw = self.raw_test_cp(cp);
+        if !in_raw && ci && (0..128).contains(&cp) {
+            if let Some(p) = ascii_case_pair(cp as u8) {
+                in_raw = self.raw_test(p);
+            }
+        }
+        if self.negate { !in_raw } else { in_raw }
+    }
+
+    /// Raw bitmap membership — no negate applied.
+    fn raw_test(&self, ch: u8) -> bool {
+        (self.bits[(ch >> 3) as usize] >> (ch & 7)) & 1 != 0
+    }
+
+    /// Raw bitmap + property-table membership — no negate applied.
+    fn raw_test_cp(&self, cp: i32) -> bool {
+        let mut in_set = false;
+        if (0..256).contains(&cp) {
+            in_set = (self.bits[(cp >> 3) as usize] >> (cp & 7)) & 1 != 0;
+        }
+        if !in_set && cp >= 0x80 {
+            in_set = self
+                .u_prop_tables
+                .iter()
+                .any(|t| uprop_range_contains(t, cp));
+        }
+        in_set
+    }
+
     /// Round 3 Path A — true iff this class is a "pure property" u-flag
     /// unsafe class: property tables referenced, no `negate`, no
     /// explicit non-ASCII byte bits (`bits[16..32]` all zero).
@@ -95,16 +143,7 @@ impl CharClass {
     /// with tables referenced binary-searches each. Class-level
     /// `negate` inverts after the union.
     pub fn test_cp(&self, cp: i32) -> bool {
-        let mut in_set = false;
-        if (0..256).contains(&cp) {
-            in_set = (self.bits[(cp >> 3) as usize] >> (cp & 7)) & 1 != 0;
-        }
-        if !in_set && cp >= 0x80 {
-            in_set = self
-                .u_prop_tables
-                .iter()
-                .any(|t| uprop_range_contains(t, cp));
-        }
+        let in_set = self.raw_test_cp(cp);
         if self.negate { !in_set } else { in_set }
     }
 
@@ -148,6 +187,15 @@ impl CharClass {
         if reaches_high {
             self.u_prop_tables.push(table);
         }
+    }
+}
+
+/// ASCII case pair of `ch` (`a` ↔ `A`), `None` for non-letters.
+fn ascii_case_pair(ch: u8) -> Option<u8> {
+    match ch {
+        b'A'..=b'Z' => Some(ch | 0x20),
+        b'a'..=b'z' => Some(ch & !0x20),
+        _ => None,
     }
 }
 

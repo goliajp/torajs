@@ -49,7 +49,6 @@ fn compute_pending_class_for(
     ready: &BTreeSet<usize>,
     deferred: &[BTreeSet<usize>; 3],
     attr: LeftByteAttr,
-    mflag: bool,
     needs_attr_split: bool,
     flags: u8,
     states: &mut Vec<DfaState>,
@@ -75,13 +74,12 @@ fn compute_pending_class_for(
     // pc) and intern recursively. The recursive intern may push
     // additional states; that's fine — they fill the states vec at
     // indices < the pending state we are about to push.
-    let post_ready = epsilon_closure_with_ctx(prog, &shape.yes_seeds, ctx_for(attr, mflag));
+    let post_ready = epsilon_closure_with_ctx(prog, &shape.yes_seeds, ctx_for(attr));
     let yes_target = intern_state(
         prog,
         post_ready,
         Default::default(),
         attr,
-        mflag,
         needs_attr_split,
         flags,
         states,
@@ -112,7 +110,6 @@ fn intern_state(
     ready: BTreeSet<usize>,
     deferred: [BTreeSet<usize>; 3],
     attr: LeftByteAttr,
-    mflag: bool,
     needs_attr_split: bool,
     flags: u8,
     states: &mut Vec<DfaState>,
@@ -152,7 +149,7 @@ fn intern_state(
     states.push(DfaState {
         transitions: [0u32; 256],
         is_accept: pc_set_is_accept(prog, &ready),
-        is_accept_at_end: pc_set_is_accept_at_end(prog, &ready, attr, mflag),
+        is_accept_at_end: pc_set_is_accept_at_end(prog, &ready, attr),
         // Round 3 Phase B sub-batch 6 attack #R-G — patched by
         // `compute_monotone_accept` after the BFS completes and all
         // `transitions[b]` slots are populated. `false` here keeps
@@ -196,7 +193,6 @@ fn intern_state(
         &ready,
         &deferred,
         attr,
-        mflag,
         needs_attr_split,
         flags,
         states,
@@ -238,9 +234,10 @@ fn intern_state(
 /// `start_mid_word` / `start_mid_nonword` per the just-consumed byte's
 /// class; `start_mid` = `start_mid_nonword` for back-compat). The wire
 /// picks the right entry per cursor position. `flags` threads through
-/// [`byte_step_full`] (i-flag case-fold, chunk 8.7; u-flag deferred
-/// buckets, chunk 10b) and into `PositionCtx` (`RE_FLAG_M` enables
-/// `Op::AnchorB` re-fire after a consumed `\n`, chunk 8.8).
+/// [`byte_step_full`] (u-flag deferred buckets, chunk 10b); the
+/// i / m / s bits are read per instruction from `Inst.pad`
+/// (regexp-modifiers) — case-fold in the byte-step, `Op::AnchorB`
+/// re-fire after a consumed `\n` in the ε-closure.
 /// `set_to_idx` keys are `(ready, deferred[3], LeftByteAttr)` so
 /// `Op::WBound` / `Op::NWBound` resolution can differ across cursor
 /// classes (chunk 8.6b) and in-flight u-flag multi-byte sequences
@@ -260,8 +257,6 @@ pub fn build_dfa(prog: &Program, flags: u8) -> DfaProgram {
         set_to_idx.insert((BTreeSet::new(), empty_def.clone(), attr), 0);
     }
 
-    let mflag = flags & crate::parser::RE_FLAG_M != 0;
-
     let mut work: Vec<WorkItem> = Vec::new();
 
     let needs_attr_split = prog_uses_word_boundary(prog);
@@ -272,7 +267,6 @@ pub fn build_dfa(prog: &Program, flags: u8) -> DfaProgram {
         seed_start(
             prog,
             attr,
-            mflag,
             needs_attr_split,
             flags,
             &mut states,
@@ -296,7 +290,7 @@ pub fn build_dfa(prog: &Program, flags: u8) -> DfaProgram {
     while let Some((cur_ready, cur_deferred, cur_attr, cur_idx)) = work.pop() {
         let mut transitions = [0u32; 256];
         let mut accept_before_byte = [0u32; 8];
-        let ctx_at_cursor = ctx_for(cur_attr, mflag);
+        let ctx_at_cursor = ctx_for(cur_attr);
         // chunk 7.7 v2 step 12 polish — hoist cur_seeds Vec materialise
         // outside the 256-byte loop; cur_ready is invariant within this
         // BFS step so the same Vec contents apply to every byte.
@@ -332,7 +326,6 @@ pub fn build_dfa(prog: &Program, flags: u8) -> DfaProgram {
             let (next_ready, next_deferred) = advance_deferred(
                 prog,
                 byte,
-                mflag,
                 &cur_deferred,
                 ready_from_step,
                 deferred_from_step,
@@ -344,7 +337,6 @@ pub fn build_dfa(prog: &Program, flags: u8) -> DfaProgram {
                 next_ready,
                 next_deferred,
                 next_attr,
-                mflag,
                 needs_attr_split,
                 flags,
                 &mut states,
@@ -370,7 +362,6 @@ pub fn build_dfa(prog: &Program, flags: u8) -> DfaProgram {
 fn seed_start(
     prog: &Program,
     attr: LeftByteAttr,
-    mflag: bool,
     needs_attr_split: bool,
     flags: u8,
     states: &mut Vec<DfaState>,
@@ -378,13 +369,12 @@ fn seed_start(
     work: &mut Vec<WorkItem>,
     poisoned: &mut bool,
 ) -> u32 {
-    let initial = epsilon_closure_with_ctx(prog, &[0], ctx_for(attr, mflag));
+    let initial = epsilon_closure_with_ctx(prog, &[0], ctx_for(attr));
     intern_state(
         prog,
         initial,
         Default::default(),
         attr,
-        mflag,
         needs_attr_split,
         flags,
         states,
@@ -406,7 +396,6 @@ fn seed_start(
 fn advance_deferred(
     prog: &Program,
     byte: u8,
-    mflag: bool,
     cur_deferred: &[BTreeSet<usize>; 3],
     ready_from_step: BTreeSet<usize>,
     mut deferred_from_step: [BTreeSet<usize>; 3],
@@ -435,8 +424,9 @@ fn advance_deferred(
         BTreeSet::new()
     } else {
         // Post-step ctx (cursor k+1): left = the byte we just
-        // consumed. Under mflag this lets mid-pattern AnchorB
-        // re-fire when byte == `\n`. WBound stays unresolved
+        // consumed. Mid-pattern `Op::AnchorB` re-fires after `\n`
+        // when the instruction's baked m-bit is set (per-inst
+        // multiline, regexp-modifiers). WBound stays unresolved
         // here — `closure_with_ctx` leaves it terminal so the
         // next BFS step can resolve it under the upcoming
         // right_byte.
@@ -444,7 +434,6 @@ fn advance_deferred(
             left_byte: Some(byte),
             is_text_start: false,
             is_text_end: false,
-            mflag,
         };
         epsilon_closure_with_ctx(prog, merged_seeds, ctx_after)
     };

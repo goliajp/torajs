@@ -82,6 +82,16 @@ pub struct Node {
     /// lifetime tied to the pattern buffer — names are short, so the
     /// alloc cost is negligible.)
     pub backref_name: Vec<u8>,
+
+    /// Effective `i`/`m`/`s` bits at this atom's source position —
+    /// the global flags merged with any enclosing `(?ims-ims:…)`
+    /// modifier groups (ES 2025 regexp-modifiers). Stamped by the
+    /// parser on every atom (`parse_atom_with_repeat`); consumed by
+    /// the compiler which bakes it into `Inst.pad` so the VM / DFA
+    /// resolve ignoreCase / multiline / dotAll per instruction
+    /// instead of from one global flag word. Bit values reuse
+    /// `RE_FLAG_I` / `RE_FLAG_M` / `RE_FLAG_S`.
+    pub eff_ims: u8,
 }
 
 impl Node {
@@ -97,6 +107,7 @@ impl Node {
             child: None,
             capture_idx: -1,
             backref_name: Vec::new(),
+            eff_ims: 0,
         })
     }
 

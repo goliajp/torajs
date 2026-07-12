@@ -109,6 +109,10 @@ fn demote_annexb(node: &mut Node) {
     for &b in &bytes {
         let mut kid = Node::new(NodeKind::Char);
         kid.ch = b;
+        // Synthesized literals inherit the demoted backref's effective
+        // i/m/s scope (regexp-modifiers) — `(?i:(\12))`-style bodies
+        // keep case-insensitivity on the demoted chars.
+        kid.eff_ims = node.eff_ims;
         node.kids.push(kid);
     }
 }

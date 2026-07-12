@@ -109,9 +109,11 @@ fn resolve_dfa<'a>(
 ///
 /// chunk 8.5 / 8.8 entry-state selection. Use the text-start closure
 /// (`dfa.start` — `^` advanced) when the cursor is at a line boundary:
-/// byte 0 of the haystack, or — under `RE_FLAG_M` — immediately after
-/// a `\n` byte. Otherwise use the mid entries (`^` blocked). Patterns
-/// without `Op::AnchorB` dedup the indices, so the branch is free.
+/// byte 0 of the haystack, or — when the pattern's `^`s are multiline
+/// (`Program::has_ml_anchor_b`, per-inst m-bits; mixed bits are gated
+/// off the DFA at compile) — immediately after a `\n` byte. Otherwise
+/// use the mid entries (`^` blocked). Patterns without `Op::AnchorB`
+/// dedup the indices, so the branch is free.
 ///
 /// Round 3 Phase B attack #R-A2 — `all_starts_equal` is set by
 /// `build_dfa` (and `baked_dfa_view`) when the four anchored start
@@ -125,19 +127,13 @@ fn resolve_dfa<'a>(
 /// first step sees the correct left-byte class. Word class = ASCII
 /// `[A-Za-z0-9_]`, mirroring `at_word_boundary`. Patterns without
 /// `\b` / `\B` dedup the two mid states down.
-fn dfa_probe(
-    dfa: &crate::dfa::DfaProgram,
-    prog: &Program,
-    s: &[u8],
-    st: i64,
-    flags: u8,
-) -> Option<usize> {
+fn dfa_probe(dfa: &crate::dfa::DfaProgram, prog: &Program, s: &[u8], st: i64) -> Option<usize> {
     let hay_suffix = &s[st as usize..];
     if dfa.all_starts_equal {
         return crate::dfa::dfa_search(dfa, prog, hay_suffix);
     }
-    let at_line_start = st == 0
-        || (flags & crate::parser::RE_FLAG_M != 0 && st > 0 && s[(st - 1) as usize] == b'\n');
+    let at_line_start =
+        st == 0 || (prog.has_ml_anchor_b && st > 0 && s[(st - 1) as usize] == b'\n');
     if at_line_start {
         crate::dfa::dfa_search(dfa, prog, hay_suffix)
     } else {
@@ -319,7 +315,7 @@ pub fn search_from_with_ws(
             continue;
         }
         if let Some(dfa) = dfa_built {
-            if let Some(n) = dfa_probe(dfa, prog, s, st, flags) {
+            if let Some(n) = dfa_probe(dfa, prog, s, st) {
                 return Some(dfa_hit_result(
                     prog,
                     s,

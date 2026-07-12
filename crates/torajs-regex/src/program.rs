@@ -10,7 +10,12 @@
 //! ```text
 //!   op : u8     opcode (see Op)
 //!   ch : u8     OP_CHAR literal
-//!   pad: u16
+//!   pad: u16    low byte = effective i/m/s bits at this atom
+//!               (RE_FLAG_I / RE_FLAG_M / RE_FLAG_S positions; ES
+//!               regexp-modifiers `(?ims-ims:…)` merged with the
+//!               global flags at parse time). Consumers: CHAR /
+//!               CLASS / BACKREF read the i bit, ANYCHAR the s bit,
+//!               ANCHOR_B/E the m bit. High byte reserved (0).
 //!   a  : i32    OP_CLASS=cls_idx, OP_JMP=target, OP_SPLIT=t1,
 //!               OP_SAVE=slot, OP_LOOK*=sub_prog_idx, OP_BACKREF=cap_idx
 //!   b  : i32    OP_SPLIT=t2
@@ -216,6 +221,16 @@ pub struct Program {
     /// patterns like `/\p{L}+/u` and showed up as ~13% of per-iter
     /// budget in the uflag-100k decomposition.
     pub has_save: bool,
+    /// regexp-modifiers — true iff `insts` contains an
+    /// [`Op::AnchorB`] with the `pad` m-bit set (a multiline `^`,
+    /// from the global `m` flag or a `(?m:…)` group). Read by the
+    /// DFA wire's entry-state selection (`vm/search.rs::dfa_probe`):
+    /// at a mid-haystack line start (`s[st-1] == b'\n'`) the
+    /// text-start entry is only correct when the pattern's `^`s are
+    /// multiline. Mixed m-bits across `Op::AnchorB` instructions
+    /// gate `can_dfa` off entirely (`regex/compile.rs`) — the fold
+    /// of line-start onto the text-start entry can't represent them.
+    pub has_ml_anchor_b: bool,
 }
 
 impl Program {

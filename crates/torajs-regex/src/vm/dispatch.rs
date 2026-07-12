@@ -71,15 +71,17 @@ pub(super) fn add_thread(
             add_thread(tl, vt, arena, pc + 1, prog, s, pos, flags, new_id);
         }
         Op::AnchorB => {
-            let ok =
-                pos == 0 || (flags & RE_FLAG_M != 0 && pos > 0 && s[(pos - 1) as usize] == b'\n');
+            // multiline is the instruction's baked `pad` m-bit
+            // (regexp-modifiers), not the global flag word.
+            let ml = ins.pad as u8 & RE_FLAG_M != 0;
+            let ok = pos == 0 || (ml && pos > 0 && s[(pos - 1) as usize] == b'\n');
             if ok {
                 add_thread(tl, vt, arena, pc + 1, prog, s, pos, flags, saves_id);
             }
         }
         Op::AnchorE => {
-            let ok =
-                pos == slen || (flags & RE_FLAG_M != 0 && pos < slen && s[pos as usize] == b'\n');
+            let ml = ins.pad as u8 & RE_FLAG_M != 0;
+            let ok = pos == slen || (ml && pos < slen && s[pos as usize] == b'\n');
             if ok {
                 add_thread(tl, vt, arena, pc + 1, prog, s, pos, flags, saves_id);
             }

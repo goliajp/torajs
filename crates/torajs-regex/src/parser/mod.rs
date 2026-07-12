@@ -38,16 +38,21 @@ use crate::charclass::CharClass;
 use crate::node::{Node, NodeKind};
 use alloc::{boxed::Box, vec::Vec};
 
-// Flag bitset — mirrors `RE_FLAG_*` in runtime_regex.c L79-87. Only
-// the u flag is observed during parse (gates `\u{HHHH..}` / `\p{}`
-// extended forms). Other flags (i / g / m / s / y) are honored at
-// match time, not parse time.
+// Flag bitset — mirrors `RE_FLAG_*` in runtime_regex.c L79-87. The
+// u flag gates parse-time forms (`\u{HHHH..}` / `\p{}`). i / m / s
+// are resolved at parse time into per-atom `Node::eff_ims` (merged
+// with `(?ims-ims:…)` modifier groups) and baked into `Inst.pad` by
+// the compiler; g / y stay match-time surface flags.
 pub const RE_FLAG_I: u8 = 0x01;
 pub const RE_FLAG_G: u8 = 0x02;
 pub const RE_FLAG_M: u8 = 0x04;
 pub const RE_FLAG_S: u8 = 0x08;
 pub const RE_FLAG_U: u8 = 0x10;
 pub const RE_FLAG_Y: u8 = 0x20;
+
+/// The three flag bits an inline modifier group `(?ims-ims:…)` may
+/// toggle (ES 2025 regexp-modifiers).
+pub const RE_FLAGS_IMS: u8 = RE_FLAG_I | RE_FLAG_M | RE_FLAG_S;
 
 #[derive(Debug)]
 pub struct Parser<'p> {
@@ -57,6 +62,12 @@ pub struct Parser<'p> {
     pub(super) i: usize,
     /// Active flag set (only `RE_FLAG_U` observed by parser).
     pub(super) flags: u8,
+    /// Effective `i`/`m`/`s` bits at the cursor — the global flags
+    /// merged with every enclosing `(?ims-ims:…)` modifier group.
+    /// Saved/restored around each modifier group's body by
+    /// `parse_group`; stamped onto every atom in
+    /// `parse_atom_with_repeat`.
+    pub(super) eff_ims: u8,
     /// Sticky error flag — once set, the recursive descent unwinds
     /// returning `None` from each level.
     pub(super) err: bool,
@@ -82,6 +93,7 @@ impl<'p> Parser<'p> {
             p: pattern,
             i: 0,
             flags,
+            eff_ims: flags & RE_FLAGS_IMS,
             err: false,
             n_captures: 0,
             names,
@@ -177,7 +189,13 @@ impl<'p> Parser<'p> {
     }
 
     fn parse_atom_with_repeat(&mut self) -> Option<Box<Node>> {
-        let a = self.parse_atom()?;
+        let mut a = self.parse_atom()?;
+        // Stamp the effective i/m/s bits onto the atom. Nested atoms
+        // (group / lookaround bodies) were stamped by their own
+        // recursive descent — under the body's own modifier scope —
+        // so this only records the container node's outer scope
+        // (unused for non-leaf kinds; the compiler reads leaves).
+        a.eff_ims = self.eff_ims;
         self.parse_repeat(a)
     }
 

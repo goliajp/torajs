@@ -99,7 +99,7 @@ pub fn vm_match_at(
             };
             match op {
                 Op::Char => {
-                    if pos < slen && char_eq(ins.ch, s[pos as usize], flags) {
+                    if pos < slen && char_eq(ins.ch, s[pos as usize], ins.pad as u8) {
                         add_thread(
                             &mut ws.nxt,
                             &mut ws.vn,
@@ -206,7 +206,9 @@ pub(super) fn add_thread_adv(
 
 /// OP_ANYCHAR consume. Under u flag `.` consumes 1 code point;
 /// schedule the destination thread(s) with u_skip = adv-1 so they
-/// sit (adv-1) outer steps before dispatching pc+1.
+/// sit (adv-1) outer steps before dispatching pc+1. dotAll is the
+/// instruction's baked `pad` s-bit (regexp-modifiers), not the
+/// global flag word.
 fn dispatch_anychar(
     ws: &mut Workspace,
     prog: &Program,
@@ -217,7 +219,8 @@ fn dispatch_anychar(
     t_saves_id: u32,
 ) {
     let slen = s.len() as i64;
-    if pos < slen && (flags & RE_FLAG_S != 0 || s[pos as usize] != b'\n') {
+    let ins = prog.insts[t_pc];
+    if pos < slen && (ins.pad as u8 & RE_FLAG_S != 0 || s[pos as usize] != b'\n') {
         let mut adv: i64 = 1;
         if flags & RE_FLAG_U != 0 {
             let ul = utf8_len_for(s[pos as usize]) as i64;
@@ -243,6 +246,12 @@ fn dispatch_anychar(
 /// byte-level Alt-of-Concat) step a single haystack byte regardless
 /// of `u`. The cp-aware path stays for hand-written classes whose
 /// semantics expect "decode one cp at the cursor".
+///
+/// ignoreCase goes through `CharClass::test_fold` — the pre-negate
+/// ASCII case-pair fold shared with the DFA byte-step (the VM
+/// previously skipped the fold entirely, a silent-wrong on every
+/// VM-served `/[a-z]/i` shape: lookaround / backref programs and the
+/// DFA-hit second-pass capture extraction).
 fn dispatch_class(
     ws: &mut Workspace,
     prog: &Program,
@@ -258,21 +267,22 @@ fn dispatch_class(
     }
     let ins = prog.insts[t_pc];
     let cc = &prog.classes[ins.a as usize];
+    let ci = ins.pad as u8 & crate::parser::RE_FLAG_I != 0;
     let mut adv: i64 = 1;
     let matched;
     if cc.byte_only {
-        matched = cc.test(s[pos as usize]);
+        matched = cc.test_fold(s[pos as usize], ci);
     } else if flags & RE_FLAG_U != 0 {
         let ul = utf8_len_for(s[pos as usize]) as i64;
         if ul >= 1 && pos + ul <= slen {
             let (cp, dec_len) = utf8_decode_cp(&s[pos as usize..]);
             adv = if dec_len > 0 { dec_len as i64 } else { ul };
-            matched = cc.test_cp(cp);
+            matched = cc.test_cp_fold(cp, ci);
         } else {
-            matched = cc.test(s[pos as usize]);
+            matched = cc.test_fold(s[pos as usize], ci);
         }
     } else {
-        matched = cc.test(s[pos as usize]);
+        matched = cc.test_fold(s[pos as usize], ci);
     }
     if matched {
         add_thread_adv(
@@ -364,7 +374,7 @@ fn handle_backref(
         && char_eq(
             s[(cs + t.br_offset as i64) as usize],
             s[pos as usize],
-            flags,
+            prog.insts[t.pc].pad as u8,
         )
     {
         let new_offset = t.br_offset + 1;

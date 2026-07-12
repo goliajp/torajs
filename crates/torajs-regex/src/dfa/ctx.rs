@@ -23,10 +23,10 @@ use crate::program::{Op, Program};
 /// `Op::WBound`, and `Op::NWBound` resolve correctly when they would
 /// otherwise be terminal under plain [`crate::dfa::epsilon_closure`].
 ///
-/// `mflag` is the compile-time `RE_FLAG_M` (multiline) bit. Under it
-/// `Op::AnchorB` (`^`) also advances when `left_byte == Some(b'\n')`
-/// — line-start, not only text-start (chunk 8.8). Subsequent chunks
-/// thread the same flag through `Op::AnchorE` resolution.
+/// Multiline `^` (chunk 8.8, per-instruction since the
+/// regexp-modifiers chunk) is resolved per `Op::AnchorB` from the
+/// instruction's baked `pad` m-bit — see [`anchor_b_advances`]; the
+/// ctx only supplies the position facts (`left_byte`).
 ///
 /// `right_byte` (the byte the cursor is about to consume) is *not*
 /// included — `WBound` / `NWBound` compare the *left* byte against
@@ -38,7 +38,6 @@ pub struct PositionCtx {
     pub left_byte: Option<u8>,
     pub is_text_start: bool,
     pub is_text_end: bool,
-    pub mflag: bool,
 }
 
 impl PositionCtx {
@@ -51,20 +50,17 @@ impl PositionCtx {
             left_byte: None,
             is_text_start: true,
             is_text_end: is_empty,
-            mflag: false,
         }
     }
 
     /// Ctx at an arbitrary cursor: `left_byte` is the byte at
     /// `pos - 1` (or `None` at `pos == 0`), `is_text_end` is
-    /// `pos == s.len()`. `mflag` defaults to `false`; callers under
-    /// `RE_FLAG_M` set it explicitly.
+    /// `pos == s.len()`.
     pub fn at(pos: usize, s: &[u8]) -> Self {
         Self {
             left_byte: pos.checked_sub(1).and_then(|i| s.get(i).copied()),
             is_text_start: pos == 0,
             is_text_end: pos == s.len(),
-            mflag: false,
         }
     }
 
@@ -139,7 +135,7 @@ pub fn epsilon_closure_with_ctx(
                 }
             }
             Op::AnchorB => {
-                if anchor_b_advances(ctx) {
+                if anchor_b_advances(ctx, ins.pad as u8) {
                     let t = pc + 1;
                     if t < prog.len() && closure.insert(t) {
                         work.push(t);
@@ -166,11 +162,13 @@ pub fn epsilon_closure_with_ctx(
     closure
 }
 
-/// `Op::AnchorB` advances when at text-start, or — under `mflag` —
-/// immediately after a newline byte. Shared by
-/// [`epsilon_closure_with_ctx`] and [`epsilon_closure_full`].
-fn anchor_b_advances(ctx: PositionCtx) -> bool {
-    ctx.is_text_start || (ctx.mflag && ctx.left_byte == Some(b'\n'))
+/// `Op::AnchorB` advances when at text-start, or — when the
+/// instruction's baked `pad` m-bit is set (multiline, merged with
+/// `(?m:…)` modifier groups at parse time) — immediately after a
+/// newline byte. Shared by [`epsilon_closure_with_ctx`] and
+/// [`epsilon_closure_full`].
+fn anchor_b_advances(ctx: PositionCtx, ins_pad: u8) -> bool {
+    ctx.is_text_start || (ins_pad & crate::parser::RE_FLAG_M != 0 && ctx.left_byte == Some(b'\n'))
 }
 
 /// Right-byte-aware variant of [`epsilon_closure_with_ctx`] (chunk 8.3).
@@ -244,7 +242,7 @@ pub fn epsilon_closure_full_into(
                 None
             }
             Op::AnchorB => {
-                if anchor_b_advances(ctx) {
+                if anchor_b_advances(ctx, ins.pad as u8) {
                     Some(pc + 1)
                 } else {
                     None
@@ -332,7 +330,6 @@ mod tests {
             left_byte: Some(b'a'),
             is_text_start: false,
             is_text_end: false,
-            mflag: false,
         };
         assert!(ctx.at_word_boundary(Some(b' ')));
         // left 'a' + right 'b' → not a boundary
@@ -342,7 +339,6 @@ mod tests {
             left_byte: Some(b' '),
             is_text_start: false,
             is_text_end: false,
-            mflag: false,
         };
         assert!(!ctx.at_word_boundary(Some(b' ')));
         // left None + right None → not a boundary
@@ -489,7 +485,6 @@ mod tests {
             left_byte: Some(b'a'),
             is_text_start: false,
             is_text_end: false,
-            mflag: false,
         };
         assert_eq!(
             epsilon_closure_full(&prog, &[0], ctx, Some(b'b')),
@@ -509,7 +504,6 @@ mod tests {
             left_byte: Some(b'a'),
             is_text_start: false,
             is_text_end: false,
-            mflag: false,
         };
         assert_eq!(
             epsilon_closure_full(&prog, &[0], ctx, Some(b'b')),

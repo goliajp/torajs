@@ -177,7 +177,10 @@ impl Workspace {
 
 /// ASCII case-insensitive char compare. Port of `char_eq` —
 /// matches C's behaviour exactly (only the basic Latin uppercase /
-/// lowercase pair when `i` flag is set; no Unicode case-fold).
+/// lowercase pair when the i bit is set; no Unicode case-fold).
+/// Since regexp-modifiers, callers pass the instruction's baked
+/// `Inst.pad` low byte — its i bit sits at the `RE_FLAG_I` position,
+/// so the parameter is bit-compatible with the old global flag word.
 pub fn char_eq(a: u8, b: u8, flags: u8) -> bool {
     if a == b {
         return true;
