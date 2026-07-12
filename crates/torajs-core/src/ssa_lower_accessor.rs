@@ -159,6 +159,135 @@ fn accessor_param_kind(ctx: &LowerCtx, op: &Operand) -> i64 {
     }
 }
 
+/// One `get` / `set` face of a literal accessor descriptor (chunk D,
+/// RFC 20260713-defprop-tpd-cluster):
+///
+/// - explicit `undefined` → NULL face (present-and-clearing; the
+///   flags byte's per-face present bit still lands).
+/// - a named top-level fn (`Type::FnSig` — a raw code address, NOT a
+///   closure cell) → mint a zero-capture env cell so the pair's
+///   env-first invoke / drop contract holds (pre-fix the raw address
+///   was stored verbatim: invoke read code memory as a cell header —
+///   SIGBUS). Invoke rides the boxed dual entry (`ACC_KIND_BOXED`).
+/// - everything else keeps the prior shape (closure cells verbatim
+///   with their signature-derived kind).
+fn lower_accessor_face(ctx: &mut LowerCtx, eid: ExprId, is_get: bool) -> (Operand, i64) {
+    if matches!(ctx.ast.get_expr(eid), crate::ast::Expr::Ident(n) if n == "undefined")
+        && !ctx.locals.contains_key("undefined")
+    {
+        return (Operand::ConstPtrNull, 0);
+    }
+    let op = ctx.lower_expr(eid);
+    if matches!(ctx.operand_ty(&op), Type::FnSig(_))
+        && let crate::ast::Expr::Ident(name) = ctx.ast.get_expr(eid)
+        && let Some(&fid) = ctx.fn_table.get(name)
+    {
+        // Signature-derived kind | ACC_KIND_NAKED (0x80, torajs-dynobj
+        // accessor.rs mirror) — the named fn's native signature has
+        // no leading env param, so the setter's user value is param 0
+        // (accessor_param_kind reads the env-first param 1).
+        let sig = *ctx.fn_sig_ids.get(&fid).expect("named fn has a signature");
+        let k = if is_get {
+            accessor_ret_kind(ctx, &op)
+        } else {
+            ctx.fn_sigs[sig.0 as usize]
+                .0
+                .first()
+                .map_or(0, accessor_kind_of)
+        };
+        return (mint_named_fn_env(ctx, fid), k | 0x80);
+    }
+    let k = if is_get {
+        accessor_ret_kind(ctx, &op)
+    } else {
+        accessor_param_kind(ctx, &op)
+    };
+    (op, k)
+}
+
+/// Zero-capture env cell for a named top-level fn used as an
+/// accessor face — header + fn_addr + trivial drop + NULL props +
+/// boxed dual entry (the `ACC_KIND_BOXED` invoke channel; 0 when no
+/// adapter was synthesized, which the invoke answers as undefined /
+/// no-op). Same hand-mint shape as the promise-chain thunk wrap.
+fn mint_named_fn_env(ctx: &mut LowerCtx, fid: crate::ssa::FuncId) -> Operand {
+    let sig = *ctx.fn_sig_ids.get(&fid).expect("named fn has a signature");
+    let env_v = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(
+            ctx.intrinsics.obj_alloc,
+            vec![Operand::ConstI64(
+                crate::ssa_lower::CLOSURE_CAP_BASE_OFF as i64,
+            )],
+        ),
+        Type::Closure(sig),
+        None,
+    );
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Store(Operand::ConstI32(1), Operand::Value(env_v), 0),
+    );
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Store(Operand::ConstI32(3), Operand::Value(env_v), 4),
+    );
+    let fn_addr = ctx
+        .f
+        .append_inst(ctx.cur_block, InstKind::FnAddr(fid), Type::FnSig(sig), None);
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Store(
+            Operand::Value(fn_addr),
+            Operand::Value(env_v),
+            crate::ssa_lower::CLOSURE_FN_ADDR_OFF,
+        ),
+    );
+    let (drop_fid, drop_sig) = ctx.intrinsics.env_drop_trivial;
+    let drop_addr = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::FnAddr(drop_fid),
+        Type::FnSig(drop_sig),
+        None,
+    );
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Store(
+            Operand::Value(drop_addr),
+            Operand::Value(env_v),
+            crate::ssa_lower::CLOSURE_DROP_FN_OFF,
+        ),
+    );
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Store(
+            Operand::ConstI64(0),
+            Operand::Value(env_v),
+            crate::ssa_lower::CLOSURE_PROPS_OFF,
+        ),
+    );
+    let boxed_op = match ctx.boxed_entries.get(&fid) {
+        Some(&(bfid, bsig)) => {
+            let v = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::FnAddr(bfid),
+                Type::FnSig(bsig),
+                None,
+            );
+            Operand::Value(v)
+        }
+        None => Operand::ConstI64(0),
+    };
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Store(
+            boxed_op,
+            Operand::Value(env_v),
+            crate::ssa_lower::CLOSURE_BOXED_ENTRY_OFF,
+        ),
+    );
+    Operand::Value(env_v)
+}
+
 /// Emit an accessor (`{ get, set }`) `defineProperty` on a dynobj-backed
 /// Any object: lower the getter/setter closures, build an `AccessorPair`
 /// (its `+1` ref moves into the dynobj entry — no extra rc_inc), and
@@ -178,19 +307,11 @@ pub(crate) fn emit_accessor_define(
 ) -> bool {
     let key_op = lower_key(ctx, key);
     let (get_op, get_kind) = match get_eid {
-        Some(e) => {
-            let op = ctx.lower_expr(e);
-            let k = accessor_ret_kind(ctx, &op);
-            (op, k)
-        }
+        Some(e) => lower_accessor_face(ctx, e, true),
         None => (Operand::ConstPtrNull, 0),
     };
     let (set_op, set_kind) = match set_eid {
-        Some(e) => {
-            let op = ctx.lower_expr(e);
-            let k = accessor_param_kind(ctx, &op);
-            (op, k)
-        }
+        Some(e) => lower_accessor_face(ctx, e, false),
         None => (Operand::ConstPtrNull, 0),
     };
     let kinds = get_kind | (set_kind << 8);
@@ -206,8 +327,16 @@ pub(crate) fn emit_accessor_define(
 
     // flags_byte: value present (the pair is the stored value) +
     // enumerable / configurable present per the descriptor (default
-    // false when absent). Accessors have no `writable` attribute.
+    // false when absent) + per-face present bits (chunk D — the
+    // redefine merge keeps the current face when absent). Accessors
+    // have no `writable` attribute.
     let mut flags: i64 = 1 << 6;
+    if get_eid.is_some() {
+        flags |= 1 << 7; // DEFINE_PRESENT_GET
+    }
+    if set_eid.is_some() {
+        flags |= 1 << 8; // DEFINE_PRESENT_SET
+    }
     if let Some(b) = enumerable {
         flags |= 1 << 4;
         if b {

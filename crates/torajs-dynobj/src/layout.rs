@@ -196,6 +196,13 @@ pub const DEFINE_PRESENT_ENUMERABLE: u64 = 1 << 4;
 pub const DEFINE_PRESENT_CONFIGURABLE: u64 = 1 << 5;
 /// "Descriptor includes [[Value]] field" sentinel (bit 6).
 pub const DEFINE_PRESENT_VALUE: u64 = 1 << 6;
+/// "Descriptor includes a `get` field" sentinel (bit 7) — accessor
+/// descriptors only (RFC 20260713 chunk D). §10.1.6.3 partial
+/// redefine keeps the current getter when `get` is absent; an
+/// explicit `get: undefined` is present + NULL (clears it).
+pub const DEFINE_PRESENT_GET: u64 = 1 << 7;
+/// "Descriptor includes a `set` field" sentinel (bit 8).
+pub const DEFINE_PRESENT_SET: u64 = 1 << 8;
 
 // `Str` layout — mirrored from `torajs-str::layout` (separately
 // compiled, shared contract; same dep-avoidance pattern torajs-arr uses

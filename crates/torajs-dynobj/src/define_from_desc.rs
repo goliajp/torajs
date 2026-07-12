@@ -199,6 +199,7 @@ pub unsafe extern "C" fn __torajs_dynobj_define_from_desc(
     // getter); presence checks use the raw entry probe.
     let get_f = unsafe { desc_field_get(desc, "get") };
     let set_f = unsafe { desc_field_get(desc, "set") };
+    let (get_present, set_present) = (get_f.is_some(), set_f.is_some());
     if get_f.is_some() || set_f.is_some() {
         if unsafe { desc_field(desc, "value") }.is_some()
             || unsafe { desc_field(desc, "writable") }.is_some()
@@ -238,6 +239,14 @@ pub unsafe extern "C" fn __torajs_dynobj_define_from_desc(
             | ((crate::accessor::ACC_KIND_BOXED as u64) << 8);
         let pair = unsafe { crate::accessor::__torajs_accessor_pair_new(get_ptr, set_ptr, kinds) };
         flags_byte |= DEFINE_PRESENT_VALUE;
+        // Per-face present bits (chunk D) — the redefine merge keeps
+        // the current face when absent from the descriptor.
+        if get_present {
+            flags_byte |= crate::layout::DEFINE_PRESENT_GET;
+        }
+        if set_present {
+            flags_byte |= crate::layout::DEFINE_PRESENT_SET;
+        }
         if let Some((e, o)) = unsafe { desc_field_get(desc, "enumerable") } {
             flags_byte |= DEFINE_PRESENT_ENUMERABLE;
             if unsafe { __torajs_anyv_to_bool(e) } {

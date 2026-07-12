@@ -245,6 +245,27 @@ unsafe fn redefine_entry(e: *mut Entry, tag: u64, value: u64, flags_byte: u64) {
         }
     }
 
+    // Accessor-over-accessor redefine (RFC 20260713 chunk D) —
+    // §10.1.6.3 partial update; a rejection inside drops the fresh
+    // pair and records the pending throw.
+    if has_value
+        && (tag & BUCKET_TAG_MASK) == ANY_HEAP
+        && value != 0
+        && unsafe { crate::accessor::value_is_accessor(cur_value_anyv) }
+        && unsafe { (value as *const u8).add(4).cast::<u16>().read() }
+            == crate::accessor::TAG_ACCESSOR_PAIR
+        && !unsafe {
+            merge_accessor_redefine(
+                cur_value_anyv,
+                value as *mut u8,
+                flags_byte,
+                cur_configurable,
+            )
+        }
+    {
+        return;
+    }
+
     // Validation passed — apply. Drop the old heap value first if
     // the new descriptor brings a fresh [[Value]] over an ANY_HEAP slot.
     if has_value && cur_value_tag == ANY_HEAP {
@@ -307,4 +328,59 @@ unsafe fn redefine_entry(e: *mut Entry, tag: u64, value: u64, flags_byte: u64) {
         (*e).key_ptr_tagged = bucket_make_key_tagged(cur_key_ptr, new_flags);
         (*e).value_anyv = __torajs_anyv_box_from_pair(new_value_tag as i64, new_value as i64);
     }
+}
+
+/// Accessor-over-accessor redefine merge (RFC 20260713 chunk D) —
+/// §10.1.6.3 partial update: a face absent from the descriptor
+/// (`DEFINE_PRESENT_GET` / `_SET` clear) inherits the current closure
+/// and its kind byte (an explicit `undefined` face is present + NULL
+/// and clears it); a non-configurable accessor rejects any face
+/// change. Answers `false` on rejection (the fresh pair is dropped
+/// and a TypeError is pending — the caller returns), `true` to
+/// proceed with the ordinary apply.
+///
+/// # Safety
+/// `cur_value_anyv` wraps a live `AccessorPair`; `new_pair` is a live
+/// fresh `AccessorPair` whose ref the caller owns.
+unsafe fn merge_accessor_redefine(
+    cur_value_anyv: u64,
+    new_pair: *mut u8,
+    flags_byte: u64,
+    cur_configurable: bool,
+) -> bool {
+    use crate::accessor::{ACC_GET_OFF, ACC_KINDS_OFF, ACC_SET_OFF};
+    let cur_pair = unsafe { __torajs_anyv_unbox_value(cur_value_anyv) } as *const u8;
+    let has_get = flags_byte & crate::layout::DEFINE_PRESENT_GET != 0;
+    let has_set = flags_byte & crate::layout::DEFINE_PRESENT_SET != 0;
+    let cur_get = unsafe { cur_pair.add(ACC_GET_OFF).cast::<u64>().read() };
+    let cur_set = unsafe { cur_pair.add(ACC_SET_OFF).cast::<u64>().read() };
+    let cur_kinds = unsafe { cur_pair.add(ACC_KINDS_OFF).cast::<u64>().read() };
+    if !cur_configurable {
+        let new_get = unsafe { new_pair.add(ACC_GET_OFF).cast::<u64>().read() };
+        let new_set = unsafe { new_pair.add(ACC_SET_OFF).cast::<u64>().read() };
+        if (has_get && new_get != cur_get) || (has_set && new_set != cur_set) {
+            unsafe { __torajs_value_drop_heap(new_pair as *mut c_void) };
+            unsafe {
+                __torajs_throw_type_error(
+                    c"Attempting to change access mechanism for an unconfigurable property."
+                        .as_ptr() as *const u8,
+                );
+            }
+            return false;
+        }
+    }
+    unsafe {
+        let kinds_p = new_pair.add(ACC_KINDS_OFF).cast::<u64>();
+        if !has_get && cur_get != 0 {
+            __torajs_rc_inc(cur_get as *mut c_void);
+            new_pair.add(ACC_GET_OFF).cast::<u64>().write(cur_get);
+            kinds_p.write((kinds_p.read() & !0xFF) | (cur_kinds & 0xFF));
+        }
+        if !has_set && cur_set != 0 {
+            __torajs_rc_inc(cur_set as *mut c_void);
+            new_pair.add(ACC_SET_OFF).cast::<u64>().write(cur_set);
+            kinds_p.write((kinds_p.read() & !0xFF00) | (cur_kinds & 0xFF00));
+        }
+    }
+    true
 }

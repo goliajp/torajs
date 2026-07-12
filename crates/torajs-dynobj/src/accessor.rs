@@ -114,6 +114,13 @@ pub const ACC_KIND_PTR: u8 = 4;
 /// `+32`, same channel as any-world calls). A closure without an
 /// adapter (entry 0) answers `undefined` / no-ops the setter.
 pub const ACC_KIND_BOXED: u8 = 5;
+/// Kind-byte flag bit (OR'd onto a base kind): the face is a named
+/// top-level fn behind a zero-capture env cell — its native signature
+/// carries NO leading env param, so the invoke transmutes to the
+/// env-less shape (RFC 20260713 chunk D; a getter tolerates the
+/// spurious env argument either way, a setter's value would land in
+/// the wrong register without this).
+pub const ACC_KIND_NAKED: u8 = 0x80;
 
 /// Closure-cell boxed dual entry offset — ABI mirror of
 /// `torajs_anyvalue`'s `CLOSURE_BOXED_ENTRY_OFF`.
@@ -221,7 +228,10 @@ pub unsafe extern "C" fn __torajs_accessor_invoke_getter(pair: *const c_void) ->
         return VALUE_UNDEFINED;
     }
     let kinds = unsafe { *((pair as *const u8).add(ACC_KINDS_OFF) as *const u64) };
-    let ret_kind = (kinds & 0xff) as u8;
+    let ret_kind = (kinds & 0xff) as u8 & !ACC_KIND_NAKED;
+    // A NAKED getter's env argument is spurious either way (the fn
+    // reads no params) — the env-first transmutes below stay correct
+    // for both shapes, so the flag only matters for the setter.
     if ret_kind == ACC_KIND_BOXED {
         let entry = unsafe { *((getter as *const u8).add(CLOSURE_BOXED_ENTRY_OFF) as *const u64) };
         if entry == 0 {
@@ -288,7 +298,36 @@ pub unsafe extern "C" fn __torajs_accessor_invoke_setter(
         return 0;
     }
     let kinds = unsafe { *((pair as *const u8).add(ACC_KINDS_OFF) as *const u64) };
-    let param_kind = ((kinds >> 8) & 0xff) as u8;
+    let raw_kind = ((kinds >> 8) & 0xff) as u8;
+    let naked = raw_kind & ACC_KIND_NAKED != 0;
+    let param_kind = raw_kind & !ACC_KIND_NAKED;
+    if naked {
+        // Named top-level fn — no leading env param; the value is
+        // its FIRST argument.
+        let fn_addr = unsafe { *((setter as *const u8).add(CLOSURE_FN_ADDR_OFF) as *const usize) };
+        unsafe {
+            match param_kind {
+                ACC_KIND_F64 => {
+                    let v = f64::from_bits(__torajs_anyv_unbox_value(value_anyv) as u64);
+                    let f: unsafe extern "C" fn(f64) = core::mem::transmute(fn_addr);
+                    f(v);
+                }
+                ACC_KIND_BOOL | ACC_KIND_I64 => {
+                    let f: unsafe extern "C" fn(i64) = core::mem::transmute(fn_addr);
+                    f(__torajs_anyv_unbox_value(value_anyv));
+                }
+                ACC_KIND_PTR => {
+                    let f: unsafe extern "C" fn(*mut c_void) = core::mem::transmute(fn_addr);
+                    f(__torajs_anyv_unbox_value(value_anyv) as *mut c_void);
+                }
+                _ => {
+                    let f: unsafe extern "C" fn(u64) = core::mem::transmute(fn_addr);
+                    f(value_anyv);
+                }
+            }
+        }
+        return 1;
+    }
     if param_kind == ACC_KIND_BOXED {
         let entry = unsafe { *((setter as *const u8).add(CLOSURE_BOXED_ENTRY_OFF) as *const u64) };
         if entry == 0 {
