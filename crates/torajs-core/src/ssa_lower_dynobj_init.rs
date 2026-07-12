@@ -45,6 +45,39 @@ impl<'a> LowerCtx<'a> {
         // For each (name, value), set into the dynobj. Box value
         // first using the same scheme as box_to_any but inlined.
         for (fname, fval_eid) in fields {
+            // RFC 20260712-object-create-define-props — a nested
+            // ObjectLit recurses through the dynobj lane (mirror of
+            // lower_array_any_literal's nested-array recursion): the
+            // whole literal tree lives in the any world, so runtime
+            // descriptor walks (defineProperties runtime props /
+            // Object.create props) and reflection see dynobj-backed
+            // inner objects instead of anon-stamped structs. The
+            // fresh dynobj's +1 transfers into the bucket (no inc,
+            // no drop). Spread sentinels keep the general path.
+            if fname != "__spread__"
+                && matches!(self.ast.get_expr(fval_eid), Expr::ObjectLit { .. })
+            {
+                let nested = self.lower_dynobj_init(fval_eid);
+                let key_str = self.intern_string_literal(&fname);
+                let slot = self.alloca(Type::Ptr, Some("__dynobj_init_slot"));
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Store(Operand::Value(dynobj), Operand::Value(slot), 0),
+                );
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Call(
+                        self.intrinsics.dynobj_set,
+                        vec![
+                            Operand::Value(slot),
+                            Operand::Value(key_str),
+                            Operand::ConstI64(4),
+                            nested,
+                        ],
+                    ),
+                );
+                continue;
+            }
             let v_raw = self.lower_expr(fval_eid);
             // Chunk 570 — SHARE: the bucket takes its own +1 (the
             // refcounted arm's rc_inc / the Any arm's payload inc);
