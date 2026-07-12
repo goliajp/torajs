@@ -63,6 +63,22 @@ pub const ANY_UNDEF: u8 = 5;
 /// pointer-identity fallback for other heap types.
 pub const TAG_STR: u16 = 0;
 
+/// `BigInt` heap type_tag (mirror of `torajs-bigint::layout::TAG_BIGINT`,
+/// narrow-ABI constant replication same as [`TAG_STR`]). BigInt keys
+/// compare by value under SameValueZero (§7.2.10), so [`crate::hash`] /
+/// [`crate::eq`] need the sign-and-magnitude layout below.
+pub const TAG_BIGINT: u16 = 10;
+
+/// Offset of the BigInt `sign` u32 (0 = non-negative, 1 = negative).
+pub const BIGINT_SIGN_OFF: usize = 8;
+
+/// Offset of the BigInt `len` u32 (number of u64 limbs; 0 = zero).
+pub const BIGINT_LEN_OFF: usize = 12;
+
+/// Offset of `words[0]` — little-endian u64 limb array, canonical
+/// (no leading zero limbs; `len == 0` implies `sign == 0`).
+pub const BIGINT_WORDS_OFF: usize = 16;
+
 /// Initial `entries[]` capacity at create.
 pub const MAP_ENTRIES_INITIAL: u32 = 8;
 

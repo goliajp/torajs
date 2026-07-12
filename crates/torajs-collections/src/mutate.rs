@@ -16,7 +16,7 @@
 
 use core::ffi::c_void;
 
-use crate::layout::{ANY_HEAP, Map, MapEntry};
+use crate::layout::{ANY_F64, ANY_HEAP, Map, MapEntry};
 use crate::probe::{map_lookup_slot, map_rehash, map_slot_insert, slot_load_exceeded};
 
 unsafe extern "C" {
@@ -47,8 +47,14 @@ pub unsafe extern "C" fn __torajs_map_set(
     let m = p as *mut Map;
     let kt = key_tag as u8;
     let vt = value_tag as u8;
-    let kp = key_payload as u64;
+    let mut kp = key_payload as u64;
     let vp = value_payload as u64;
+
+    // Spec §24.1.3.9 / §24.2.4.1: if key is -0, set key to +0 before
+    // storing (iteration must observe +0, not -0).
+    if kt == ANY_F64 && kp == (-0.0f64).to_bits() {
+        kp = 0;
+    }
 
     // Slot-side load: grow slot table if (entries + tombstones + 1)
     // would exceed 3/4. Grow entries[] in the same rehash if we're

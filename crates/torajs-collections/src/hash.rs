@@ -13,8 +13,8 @@
 use core::ffi::c_void;
 
 use crate::layout::{
-    ANY_BOOL, ANY_F64, ANY_HEAP, ANY_I64, ANY_NULL, ANY_UNDEF, HeapHeader, STR_DATA_OFF,
-    STR_LEN_OFF, TAG_STR,
+    ANY_BOOL, ANY_F64, ANY_HEAP, ANY_I64, ANY_NULL, ANY_UNDEF, BIGINT_LEN_OFF, BIGINT_SIGN_OFF,
+    BIGINT_WORDS_OFF, HeapHeader, STR_DATA_OFF, STR_LEN_OFF, TAG_BIGINT, TAG_STR,
 };
 
 /// SplitMix64 finalizer — strong avalanche; same primitive V8 / Java
@@ -44,10 +44,29 @@ pub(crate) unsafe fn map_hash_bytes(bytes: *const u8, len: u64) -> u32 {
     map_mix_u64(h)
 }
 
+/// True iff `d` is an integral f64 exactly representable as i64 —
+/// the shared range gate for hash/eq numeric canonicalization. The
+/// upper bound is exclusive: f64 `2^63` saturates on `as i64` cast,
+/// so it must NOT take the i64 path (its value exceeds i64::MAX).
+#[inline]
+pub(crate) fn f64_as_exact_i64(d: f64) -> Option<i64> {
+    if d >= -9_223_372_036_854_775_808.0 && d < 9_223_372_036_854_775_808.0 && d.trunc() == d {
+        Some(d as i64)
+    } else {
+        None
+    }
+}
+
 /// Hash an Any-tagged key. Returned value is always `>= 1` so it
 /// never collides with `ENTRY_HASH_TOMBSTONE`. Handles SameValueZero
-/// canonicalization for `NaN` (all bit patterns hash the same) and
-/// `+0` / `-0` (the IEEE eq predicate already says equal — hash same).
+/// canonicalization:
+/// - `NaN` — all bit patterns hash the same.
+/// - JS Number is one type; the I64/F64 tag split is a torajs internal
+///   representation detail. Integral f64 keys (incl. `±0`) hash through
+///   the I64 path so `has(0)` finds an `add(-0)` entry and vice versa.
+///   [`crate::eq::map_keys_equal`] mirrors this (eq true ⇒ hash equal).
+/// - BigInt hashes by content (sign + limbs), matching the by-value
+///   eq arm — two separately-allocated `1n` keys collide as required.
 ///
 /// # Safety
 /// For `ANY_HEAP` tag, `payload` must be either NULL or a valid live
@@ -61,11 +80,11 @@ pub(crate) unsafe fn map_hash_key(tag: u8, payload: u64) -> u32 {
         ANY_I64 => map_mix_u64(payload ^ 0xa11),
         ANY_F64 => {
             let d = f64::from_bits(payload);
-            // SameValueZero: NaN → canonical; ±0 → shared bucket.
             if d.is_nan() {
                 0xdead_beef
-            } else if d == 0.0 {
-                0xfa57_c0de
+            } else if let Some(i) = f64_as_exact_i64(d) {
+                // Same bucket as the ANY_I64 arm for the same value.
+                map_mix_u64((i as u64) ^ 0xa11)
             } else {
                 map_mix_u64(payload ^ 0xa11)
             }
@@ -81,6 +100,12 @@ pub(crate) unsafe fn map_hash_key(tag: u8, payload: u64) -> u32 {
                     let len = unsafe { *((p as *const u8).add(STR_LEN_OFF) as *const u64) };
                     let data = unsafe { (p as *const u8).add(STR_DATA_OFF) };
                     unsafe { map_hash_bytes(data, len) }
+                } else if type_tag == TAG_BIGINT {
+                    let sign = unsafe { *((p as *const u8).add(BIGINT_SIGN_OFF) as *const u32) };
+                    let len = unsafe { *((p as *const u8).add(BIGINT_LEN_OFF) as *const u32) };
+                    let words = unsafe { (p as *const u8).add(BIGINT_WORDS_OFF) };
+                    let limbs = unsafe { map_hash_bytes(words, len as u64 * 8) };
+                    map_mix_u64((limbs as u64) ^ ((sign as u64) << 32) ^ 0xb16)
                 } else {
                     // Non-Str heap: pointer-identity hash.
                     map_mix_u64((p as u64) ^ 0xf00d)
@@ -130,6 +155,40 @@ mod tests {
         assert_eq!(unsafe { map_hash_key(ANY_F64, pos_zero) }, unsafe {
             map_hash_key(ANY_F64, neg_zero)
         });
+    }
+
+    #[test]
+    fn hash_key_i64_f64_same_value_same_bucket() {
+        // JS Number is one type — integral f64 keys must land in the
+        // same bucket as the equal i64 key (eq true ⇒ hash equal).
+        for v in [0i64, 7, -3, 9007199254740991, i64::MIN] {
+            assert_eq!(
+                unsafe { map_hash_key(ANY_I64, v as u64) },
+                unsafe { map_hash_key(ANY_F64, (v as f64).to_bits()) },
+                "i64 {v} vs f64 {}",
+                v as f64
+            );
+        }
+        // f64 zero (either sign) shares the i64-0 bucket.
+        assert_eq!(unsafe { map_hash_key(ANY_I64, 0) }, unsafe {
+            map_hash_key(ANY_F64, (-0.0f64).to_bits())
+        });
+    }
+
+    #[test]
+    fn f64_exact_i64_range_gate() {
+        assert_eq!(f64_as_exact_i64(7.0), Some(7));
+        assert_eq!(f64_as_exact_i64(-0.0), Some(0));
+        assert_eq!(f64_as_exact_i64(7.5), None);
+        assert_eq!(f64_as_exact_i64(f64::NAN), None);
+        assert_eq!(f64_as_exact_i64(f64::INFINITY), None);
+        // 2^63 saturates on cast — must be rejected, not mapped to i64::MAX.
+        assert_eq!(f64_as_exact_i64(9_223_372_036_854_775_808.0), None);
+        // -2^63 is exactly representable.
+        assert_eq!(
+            f64_as_exact_i64(-9_223_372_036_854_775_808.0),
+            Some(i64::MIN)
+        );
     }
 
     #[test]
