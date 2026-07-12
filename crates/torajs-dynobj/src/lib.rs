@@ -26,6 +26,7 @@ pub mod accessor;
 pub mod alloc;
 pub mod attach_exec;
 pub mod define;
+pub mod define_all;
 pub mod delete;
 pub mod drop;
 pub mod get;

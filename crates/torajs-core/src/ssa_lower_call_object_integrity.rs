@@ -164,17 +164,75 @@ fn lower_create(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
             ctx.release_owned_temp(proto_eid, &proto_op);
         }
     }
-    for &a in args.iter().skip(1) {
+    // §20.1.2.2 step 3 — evaluate the props arg. A literal ObjectLit
+    // forces the dynobj lane (the desc-of-descs tree must be
+    // dynobj-backed for the runtime walk; the fresh tree is an owned
+    // Any temp released after the walk); an Any variable is a borrow.
+    let props: Option<(ExprId, Operand, bool)> = match args.get(1) {
+        Some(&p_eid) if matches!(ctx.ast.get_expr(p_eid), Expr::ObjectLit { .. }) => {
+            let d = ctx.lower_dynobj_init(p_eid);
+            let boxed = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(
+                    ctx.intrinsics.any_box,
+                    vec![Operand::ConstI64(4 /* ANY_HEAP */), d],
+                ),
+                Type::Any,
+                None,
+            );
+            Some((p_eid, Operand::Value(boxed), true))
+        }
+        Some(&p_eid) => Some((p_eid, ctx.lower_expr(p_eid), false)),
+        None => None,
+    };
+    for &a in args.iter().skip(2) {
         let op = ctx.lower_expr(a);
         ctx.release_owned_temp(a, &op);
     }
     let cur_block = ctx.cur_block;
-    let dynobj = ctx.f.append_inst(
+    let mut dynobj = ctx.f.append_inst(
         cur_block,
         InstKind::Call(ctx.intrinsics.dynobj_alloc, vec![]),
         Type::Ptr,
         None,
     );
+    // §20.1.2.2 step 3 — ObjectDefineProperties(obj, props) on the
+    // fresh dynobj via the two-phase runtime walk; defines can resize
+    // the dense array, so the post-walk pointer reloads from the slot.
+    if let Some((p_eid, p_op, is_literal)) = props {
+        let p_ty = ctx.operand_ty(&p_op);
+        if matches!(p_ty, Type::Any) {
+            let props_ptr = ctx.any_unbox_value_as_ptr(p_op.clone());
+            let slot = ctx.alloca(Type::Ptr, Some("__dynobj_slot"));
+            ctx.f.append_void(
+                ctx.cur_block,
+                InstKind::Store(Operand::Value(dynobj), Operand::Value(slot), 0),
+            );
+            ctx.f.append_void(
+                ctx.cur_block,
+                InstKind::Call(
+                    ctx.intrinsics.dynobj_define_properties_from,
+                    vec![Operand::Value(slot), Operand::Value(props_ptr)],
+                ),
+            );
+            if is_literal {
+                ctx.emit_drop_value(p_op, Type::Any);
+            } else {
+                ctx.release_owned_temp(p_eid, &p_op);
+            }
+            ctx.emit_throw_check(None);
+            let cur_block = ctx.cur_block;
+            dynobj = ctx.f.append_inst(
+                cur_block,
+                InstKind::Load(Type::Ptr, Operand::Value(slot), 0),
+                Type::Ptr,
+                None,
+            );
+        } else {
+            ctx.release_owned_temp(p_eid, &p_op);
+        }
+    }
+    let cur_block = ctx.cur_block;
     let box_v = ctx.f.append_inst(
         cur_block,
         InstKind::Call(

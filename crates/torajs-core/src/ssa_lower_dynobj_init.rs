@@ -82,10 +82,15 @@ impl<'a> LowerCtx<'a> {
                 );
                 continue;
             }
-            if fname != "__spread__"
-                && matches!(self.ast.get_expr(fval_eid), Expr::ObjectLit { .. })
+            // `as` casts are value-layer pass-throughs — strip them so
+            // `{ p: {} as any }` recurses the same as `{ p: {} }`.
+            let mut lit_eid = fval_eid;
+            while let Expr::As { expr, .. } = self.ast.get_expr(lit_eid) {
+                lit_eid = *expr;
+            }
+            if fname != "__spread__" && matches!(self.ast.get_expr(lit_eid), Expr::ObjectLit { .. })
             {
-                let nested = self.lower_dynobj_init(fval_eid);
+                let nested = self.lower_dynobj_init(lit_eid);
                 let key_str = self.intern_string_literal(&fname);
                 let slot = self.alloca(Type::Ptr, Some("__dynobj_init_slot"));
                 self.f.append_void(

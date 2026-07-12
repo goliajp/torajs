@@ -94,6 +94,7 @@ pub(crate) struct ObjectIds {
     pub dynobj_has: FuncId,
     pub dynobj_delete: FuncId,
     pub object_create_check_proto: FuncId,
+    pub dynobj_define_properties_from: FuncId,
 }
 
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) -> ObjectIds {
@@ -153,5 +154,10 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
         dynobj_has: decl!("__torajs_dynobj_has", [Ptr, Ptr], I32),
         dynobj_delete: decl!("__torajs_dynobj_delete", [Ptr, Ptr], I32),
         object_create_check_proto: decl!("__torajs_object_create_check_proto", [Any], Void),
+        dynobj_define_properties_from: decl!(
+            "__torajs_dynobj_define_properties_from",
+            [Ptr, Ptr],
+            Void
+        ),
     }
 }

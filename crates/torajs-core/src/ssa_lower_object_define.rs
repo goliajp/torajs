@@ -276,9 +276,38 @@ fn try_lower_define_properties(
                 emit_define_one(ctx, args[0], DefineKey::Name(name), *desc_eid);
             }
         } else {
-            // Runtime props / non-Ident receiver — eval-drop the props
-            // arg for side effects; full runtime walk is a follow-up.
-            let _ = ctx.lower_expr(args[1]);
+            // RFC 20260712 chunk 2 — runtime props walk: both shapes
+            // Any (dynobj-backed) route through the two-phase
+            // §20.1.2.3.1 helper; anything else keeps the prior
+            // eval-drop (typed receivers are the RFC backlog).
+            let receiver_ident: Option<String> = if let Expr::Ident(n) = ctx.ast.get_expr(args[0]) {
+                Some(n.clone())
+            } else {
+                None
+            };
+            let props_op = ctx.lower_expr(args[1]);
+            let props_ty = ctx.operand_ty(&props_op);
+            if matches!(obj_ty, Type::Any) && matches!(props_ty, Type::Any) {
+                let props_ptr = ctx.any_unbox_value_as_ptr(props_op.clone());
+                let dynobj = ctx.any_unbox_value_as_ptr(obj_raw.clone());
+                let slot = ctx.alloca(Type::Ptr, Some("__dynobj_slot"));
+                ctx.f.append_void(
+                    ctx.cur_block,
+                    InstKind::Store(Operand::Value(dynobj), Operand::Value(slot), 0),
+                );
+                ctx.f.append_void(
+                    ctx.cur_block,
+                    InstKind::Call(
+                        ctx.intrinsics.dynobj_define_properties_from,
+                        vec![Operand::Value(slot), Operand::Value(props_ptr)],
+                    ),
+                );
+                ctx.release_owned_temp(args[1], &props_op);
+                ctx.emit_throw_check(None);
+                ctx.emit_any_dynobj_writeback(&receiver_ident, slot);
+            } else {
+                ctx.release_owned_temp(args[1], &props_op);
+            }
         }
         // RFC 20260705 owned-result invariant: ES answers the receiver;
         // the pass-through result carries its own ref (this dedicated
