@@ -84,15 +84,6 @@ const MODE_HAS_ENV: i64 = 4;
 /// `mode` bit 3 — element slots are Str pointers (undefined
 /// sentinel pre-probe runs before every comparator call).
 const MODE_ELEM_STR: i64 = 8;
-/// `mode` bit 4 — any-receiver sort with a user comparator: slots
-/// are NaN-box AnyValues, the callback is the boxed dual entry
-/// (`(env, argv, argc) -> AnyValue`), and undefined slots sort last
-/// without a call (§23.1.3.30.2 steps 5-8 on the box tag).
-const MODE_ANY_BOXED: i64 = 16;
-/// `mode` bit 5 — any-receiver default sort: undefined-last +
-/// ToString UTF-16 order per §23.1.3.30.2 step 10 (anyv_to_str +
-/// str_sort_cmp per compare; `fn_ptr` unused).
-const MODE_ANY_DEFAULT: i64 = 32;
 
 /// `Cmp.rebox_kind` = ARR_KIND_UNSET means the slots already ARE
 /// AnyValues (FLAG_ARR_ANY receiver); any other kind reboxes the
@@ -117,6 +108,17 @@ unsafe fn rebox_slot(kind: u16, raw: u64) -> u64 {
 /// same base-case cutoff family as JSC / std sorts.
 const INSERTION_RUN: usize = 32;
 
+/// Comparator polymorphism seam — the sort kernels (insertion /
+/// merge / sort_range) are generic over it and monomorphize per
+/// implementation, so the typed-tier comparator keeps its
+/// pre-ANY-modes codegen (bench regression 12115353: folding the ANY
+/// arms into one `is_gt` grew the fn past the inline threshold and
+/// taxed every typed compare).
+trait SortCmp {
+    /// Compare raw slot bits `a`, `b` — `true` iff a sorts after b.
+    unsafe fn is_gt(&self, a: u64, b: u64) -> bool;
+}
+
 /// Comparator callback bundle. `is_gt(a, b)` dispatches to the exact
 /// extern "C" signature selected by `mode` and reports whether the
 /// user comparator returned > 0.
@@ -124,12 +126,9 @@ struct Cmp {
     fn_ptr: *const u8,
     env: *mut u8,
     mode: i64,
-    /// Elem-kind rebox for the ANY modes on typed-behind-any
-    /// receivers; ARR_KIND_UNSET = slots already NaN-boxed.
-    rebox_kind: u16,
 }
 
-impl Cmp {
+impl SortCmp for Cmp {
     /// Call the user comparator with raw slot bits `a`, `b`.
     /// Returns `true` iff the comparator result is strictly greater
     /// than zero (f64 NaN → false, i.e. treated as 0). Str elements
@@ -138,35 +137,6 @@ impl Cmp {
     #[inline]
     unsafe fn is_gt(&self, a: u64, b: u64) -> bool {
         unsafe {
-            if self.mode & (MODE_ANY_BOXED | MODE_ANY_DEFAULT) != 0 {
-                let a = rebox_slot(self.rebox_kind, a);
-                let b = rebox_slot(self.rebox_kind, b);
-                // §23.1.3.30.2 steps 5-8 — undefined sorts last, the
-                // comparator never sees one; both-undefined is +0.
-                let a_undef = __torajs_anyv_unbox_tag(a) == 5;
-                let b_undef = __torajs_anyv_unbox_tag(b) == 5;
-                if a_undef || b_undef {
-                    return a_undef && !b_undef;
-                }
-                if self.mode & MODE_ANY_DEFAULT != 0 {
-                    // Step 10 — ToString both sides, UTF-16 order.
-                    let sa = __torajs_anyv_to_str(a);
-                    let sb = __torajs_anyv_to_str(b);
-                    let r = __torajs_str_sort_cmp(sa as *const u8, sb as *const u8);
-                    __torajs_str_drop(sa);
-                    __torajs_str_drop(sb);
-                    return r > 0;
-                }
-                // Boxed dual-entry comparator — argv is borrowed,
-                // the owned return releases after ToNumber.
-                let cb: unsafe extern "C" fn(*mut c_void, *const u64, i64) -> u64 =
-                    core::mem::transmute(self.fn_ptr);
-                let argv = [a, b];
-                let r = cb(self.env as *mut c_void, argv.as_ptr(), 2);
-                let n = __torajs_anyv_to_number(r);
-                __torajs_value_drop_heap(r as *mut c_void);
-                return n > 0.0;
-            }
             if self.mode & MODE_ELEM_STR != 0 {
                 let pre = __torajs_str_sort_undef_pre(a as *const u8, b as *const u8);
                 if pre != 2 {
@@ -216,6 +186,55 @@ impl Cmp {
     }
 }
 
+/// Any-receiver comparator (backfill chunk 4) — slots are NaN-box
+/// AnyValues (or typed raw slots reboxed per `rebox_kind`); a user
+/// comparator rides the boxed dual-entry ABI, its absence is the
+/// §23.1.3.30.2 step-10 default (undefined-last + ToString UTF-16
+/// order).
+struct AnyCmp {
+    fn_ptr: *const u8,
+    env: *mut u8,
+    /// `true` = step-10 default compare (`fn_ptr` unused).
+    default_mode: bool,
+    /// Elem-kind rebox for typed-behind-any receivers;
+    /// ARR_KIND_UNSET = slots already NaN-boxed.
+    rebox_kind: u16,
+}
+
+impl SortCmp for AnyCmp {
+    unsafe fn is_gt(&self, a: u64, b: u64) -> bool {
+        unsafe {
+            let a = rebox_slot(self.rebox_kind, a);
+            let b = rebox_slot(self.rebox_kind, b);
+            // §23.1.3.30.2 steps 5-8 — undefined sorts last, the
+            // comparator never sees one; both-undefined is +0.
+            let a_undef = __torajs_anyv_unbox_tag(a) == 5;
+            let b_undef = __torajs_anyv_unbox_tag(b) == 5;
+            if a_undef || b_undef {
+                return a_undef && !b_undef;
+            }
+            if self.default_mode {
+                // Step 10 — ToString both sides, UTF-16 order.
+                let sa = __torajs_anyv_to_str(a);
+                let sb = __torajs_anyv_to_str(b);
+                let r = __torajs_str_sort_cmp(sa as *const u8, sb as *const u8);
+                __torajs_str_drop(sa);
+                __torajs_str_drop(sb);
+                return r > 0;
+            }
+            // Boxed dual-entry comparator — argv is borrowed,
+            // the owned return releases after ToNumber.
+            let cb: unsafe extern "C" fn(*mut c_void, *const u64, i64) -> u64 =
+                core::mem::transmute(self.fn_ptr);
+            let argv = [a, b];
+            let r = cb(self.env as *mut c_void, argv.as_ptr(), 2);
+            let n = __torajs_anyv_to_number(r);
+            __torajs_value_drop_heap(r as *mut c_void);
+            n > 0.0
+        }
+    }
+}
+
 /// Pending-throw poll — comparator side effects land in the TLS
 /// throw slot; the sort must stop permuting and hand control back.
 #[inline]
@@ -227,7 +246,7 @@ unsafe fn aborted() -> bool {
 /// a comparator throw aborted the pass; the slots then hold a
 /// complete permutation (the in-flight element is written back into
 /// the current hole before returning).
-unsafe fn insertion(s: *mut u64, n: usize, cmp: &Cmp) -> bool {
+unsafe fn insertion<C: SortCmp>(s: *mut u64, n: usize, cmp: &C) -> bool {
     unsafe {
         for i in 1..n {
             let cur = *s.add(i);
@@ -257,13 +276,13 @@ unsafe fn insertion(s: *mut u64, n: usize, cmp: &Cmp) -> bool {
 /// (holds the left run, `mid - lo` slots). Returns `false` on
 /// comparator throw; remaining scratch elements are flushed back so
 /// `s[lo..hi]` stays a complete permutation.
-unsafe fn merge(
+unsafe fn merge<C: SortCmp>(
     s: *mut u64,
     scratch: *mut u64,
     lo: usize,
     mid: usize,
     hi: usize,
-    cmp: &Cmp,
+    cmp: &C,
 ) -> bool {
     unsafe {
         let ln = mid - lo;
@@ -297,7 +316,13 @@ unsafe fn merge(
 
 /// Recursive top-down merge sort of `s[lo..hi]`; insertion base at
 /// [`INSERTION_RUN`]. Depth is log2(n) (~10 frames for 1000 slots).
-unsafe fn sort_range(s: *mut u64, scratch: *mut u64, lo: usize, hi: usize, cmp: &Cmp) -> bool {
+unsafe fn sort_range<C: SortCmp>(
+    s: *mut u64,
+    scratch: *mut u64,
+    lo: usize,
+    hi: usize,
+    cmp: &C,
+) -> bool {
     unsafe {
         let n = hi - lo;
         if n <= INSERTION_RUN {
@@ -342,12 +367,7 @@ pub unsafe extern "C" fn __torajs_arr_sort_cb(
         }
         let head = *(arr.add(ARR_HDR_HEAD_OFF) as *const u32) as usize;
         let slots = arr_data(arr).add(head * 8) as *mut u64;
-        let cmp = Cmp {
-            fn_ptr,
-            env,
-            mode,
-            rebox_kind: torajs_rc::ARR_KIND_UNSET,
-        };
+        let cmp = Cmp { fn_ptr, env, mode };
         if len <= INSERTION_RUN {
             insertion(slots, len, &cmp);
             return;
@@ -394,14 +414,10 @@ pub unsafe extern "C" fn __torajs_arr_any_sort(
         };
         let head = *(arr.add(ARR_HDR_HEAD_OFF) as *const u32) as usize;
         let slots = arr_data(arr).add(head * 8) as *mut u64;
-        let cmp = Cmp {
+        let cmp = AnyCmp {
             fn_ptr: cb_entry as usize as *const u8,
             env: cb_env as *mut u8,
-            mode: if has_cb != 0 {
-                MODE_ANY_BOXED
-            } else {
-                MODE_ANY_DEFAULT
-            },
+            default_mode: has_cb == 0,
             rebox_kind,
         };
         if len <= INSERTION_RUN {
