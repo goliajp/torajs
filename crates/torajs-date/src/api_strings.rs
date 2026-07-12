@@ -7,10 +7,11 @@
 
 use core::ffi::c_void;
 
+use crate::api::valid_ms;
 use crate::civil::civil_from_days;
 use crate::getters::decompose;
 use crate::tm::{Tm, localtime_decompose};
-use crate::{__torajs_str_alloc_pooled, STR_HDR_SIZE, as_date};
+use crate::{__torajs_str_alloc_pooled, __torajs_throw_range_error, STR_HDR_SIZE};
 
 const DAY_NAMES: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTH_NAMES: [&str; 12] = [
@@ -47,6 +48,30 @@ fn fmt_locale_time(tm: &Tm) -> String {
     format!("{}:{:02}:{:02} {}", h12, tm.tm_min, tm.tm_sec, ampm)
 }
 
+/// helper — spec DateString / toUTCString year: abs 4-digit
+/// zero-pad with a leading '-' for negative years (§21.4.4.41.2 —
+/// year -1 renders "-0001", not the sign-inclusive-width "-001").
+fn fmt_year_padded(y: i64) -> String {
+    if y < 0 {
+        format!("-{:04}", -y)
+    } else {
+        format!("{:04}", y)
+    }
+}
+
+/// helper — toISOString year: plain 4-digit for 0..=9999, expanded
+/// sign + 6-digit otherwise (§21.4.4.36 / ISO 8601 expanded years:
+/// "+275760" / "-271821").
+fn fmt_iso_year(y: i64) -> String {
+    if (0..=9999).contains(&y) {
+        format!("{:04}", y)
+    } else if y < 0 {
+        format!("-{:06}", -y)
+    } else {
+        format!("+{:06}", y)
+    }
+}
+
 /// `.toISOString()` → `YYYY-MM-DDTHH:MM:SS.sssZ` (UTC).
 ///
 /// # Safety
@@ -55,15 +80,23 @@ fn fmt_locale_time(tm: &Tm) -> String {
 /// Str (rc=1; caller takes ownership).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_date_to_iso_string(d_ptr: *const c_void) -> *mut u8 {
-    let ms = if d_ptr.is_null() {
-        0
-    } else {
-        unsafe { as_date(d_ptr) }.ms
+    let Some(ms) = valid_ms(d_ptr) else {
+        // invalid time value → RangeError (§21.4.4.36 step 3); the
+        // call-site emit_throw_check propagates before the value is
+        // consumed. Message matches bun/JSC ("Invalid Date").
+        unsafe { __torajs_throw_range_error(b"Invalid Date\0".as_ptr()) };
+        return alloc_str("");
     };
     let (y, m, d, hour, minute, second, milli) = decompose(ms);
     let s = format!(
-        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:03}Z",
-        y, m, d, hour, minute, second, milli
+        "{}-{:02}-{:02}T{:02}:{:02}:{:02}.{:03}Z",
+        fmt_iso_year(y as i64),
+        m,
+        d,
+        hour,
+        minute,
+        second,
+        milli
     );
     let bytes = s.as_bytes();
     let p = unsafe { __torajs_str_alloc_pooled(bytes.len() as u64) };
@@ -87,17 +120,16 @@ pub unsafe extern "C" fn __torajs_date_to_iso_string(d_ptr: *const c_void) -> *m
 /// Str (rc=1; caller takes ownership).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_date_to_date_string(d_ptr: *const c_void) -> *mut u8 {
-    if d_ptr.is_null() {
-        return unsafe { __torajs_str_alloc_pooled(0) };
-    }
-    let ms = unsafe { as_date(d_ptr) }.ms;
+    let Some(ms) = valid_ms(d_ptr) else {
+        return alloc_str("Invalid Date");
+    };
     let tm = localtime_decompose(ms);
     let s = format!(
-        "{} {} {:02} {:04}",
+        "{} {} {:02} {}",
         DAY_NAMES[tm.tm_wday as usize],
         MONTH_NAMES[tm.tm_mon as usize],
         tm.tm_mday,
-        tm.tm_year + 1900,
+        fmt_year_padded(tm.tm_year as i64 + 1900),
     );
     let bytes = s.as_bytes();
     let p = unsafe { __torajs_str_alloc_pooled(bytes.len() as u64) };
@@ -122,10 +154,9 @@ pub unsafe extern "C" fn __torajs_date_to_date_string(d_ptr: *const c_void) -> *
 /// Str (rc=1; caller takes ownership).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_date_to_string(d_ptr: *const c_void) -> *mut u8 {
-    if d_ptr.is_null() {
-        return unsafe { __torajs_str_alloc_pooled(0) };
-    }
-    let ms = unsafe { as_date(d_ptr) }.ms;
+    let Some(ms) = valid_ms(d_ptr) else {
+        return alloc_str("Invalid Date");
+    };
     let tm = localtime_decompose(ms);
     let utc_secs = ms.div_euclid(1000);
     let offs = crate::tz::local_utoff(utc_secs);
@@ -135,11 +166,11 @@ pub unsafe extern "C" fn __torajs_date_to_string(d_ptr: *const c_void) -> *mut u
     let gmt = format!("GMT{}{:02}{:02}", sign, oh, om);
     let name = crate::tz::zone_long_name(utc_secs);
     let s = format!(
-        "{} {} {:02} {:04} {:02}:{:02}:{:02} {} ({})",
+        "{} {} {:02} {} {:02}:{:02}:{:02} {} ({})",
         DAY_NAMES[tm.tm_wday as usize],
         MONTH_NAMES[tm.tm_mon as usize],
         tm.tm_mday,
-        tm.tm_year + 1900,
+        fmt_year_padded(tm.tm_year as i64 + 1900),
         tm.tm_hour,
         tm.tm_min,
         tm.tm_sec,
@@ -160,10 +191,9 @@ pub unsafe extern "C" fn __torajs_date_to_string(d_ptr: *const c_void) -> *mut u
 /// Str (rc=1; caller takes ownership).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_date_to_locale_string(d_ptr: *const c_void) -> *mut u8 {
-    if d_ptr.is_null() {
-        return unsafe { __torajs_str_alloc_pooled(0) };
-    }
-    let ms = unsafe { as_date(d_ptr) }.ms;
+    let Some(ms) = valid_ms(d_ptr) else {
+        return alloc_str("Invalid Date");
+    };
     let tm = localtime_decompose(ms);
     let s = format!("{}, {}", fmt_locale_date(&tm), fmt_locale_time(&tm));
     alloc_str(&s)
@@ -178,10 +208,9 @@ pub unsafe extern "C" fn __torajs_date_to_locale_string(d_ptr: *const c_void) ->
 /// Str (rc=1; caller takes ownership).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_date_to_locale_date_string(d_ptr: *const c_void) -> *mut u8 {
-    if d_ptr.is_null() {
-        return unsafe { __torajs_str_alloc_pooled(0) };
-    }
-    let ms = unsafe { as_date(d_ptr) }.ms;
+    let Some(ms) = valid_ms(d_ptr) else {
+        return alloc_str("Invalid Date");
+    };
     let tm = localtime_decompose(ms);
     alloc_str(&fmt_locale_date(&tm))
 }
@@ -195,10 +224,9 @@ pub unsafe extern "C" fn __torajs_date_to_locale_date_string(d_ptr: *const c_voi
 /// Str (rc=1; caller takes ownership).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_date_to_locale_time_string(d_ptr: *const c_void) -> *mut u8 {
-    if d_ptr.is_null() {
-        return unsafe { __torajs_str_alloc_pooled(0) };
-    }
-    let ms = unsafe { as_date(d_ptr) }.ms;
+    let Some(ms) = valid_ms(d_ptr) else {
+        return alloc_str("Invalid Date");
+    };
     let tm = localtime_decompose(ms);
     alloc_str(&fmt_locale_time(&tm))
 }
@@ -212,10 +240,9 @@ pub unsafe extern "C" fn __torajs_date_to_locale_time_string(d_ptr: *const c_voi
 /// Str (rc=1; caller takes ownership).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_date_to_gmt_string(d_ptr: *const c_void) -> *mut u8 {
-    if d_ptr.is_null() {
-        return unsafe { __torajs_str_alloc_pooled(0) };
-    }
-    let ms = unsafe { as_date(d_ptr) }.ms;
+    let Some(ms) = valid_ms(d_ptr) else {
+        return alloc_str("Invalid Date");
+    };
     let day_ms = 86_400_000i64;
     let mut days = ms.div_euclid(day_ms);
     let mut tod = ms - days * day_ms;
@@ -231,11 +258,11 @@ pub unsafe extern "C" fn __torajs_date_to_gmt_string(d_ptr: *const c_void) -> *m
     let second = rem / 1000;
     let dow = ((days % 7) + 4 + 7) % 7;
     let s = format!(
-        "{}, {:02} {} {:04} {:02}:{:02}:{:02} GMT",
+        "{}, {:02} {} {} {:02}:{:02}:{:02} GMT",
         DAY_NAMES[dow as usize],
         d,
         MONTH_NAMES[(m - 1) as usize],
-        y,
+        fmt_year_padded(y as i64),
         hour,
         minute,
         second

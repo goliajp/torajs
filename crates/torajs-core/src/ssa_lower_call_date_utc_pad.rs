@@ -6,7 +6,7 @@
 //!
 //! S153 — `Date.UTC(y, m?, d?, h?, min?, s?, ms?)` per ES §21.4.2.21.
 //! The runtime intrinsic `__torajs_date_utc_components` is statically
-//! signed with 7 i64 args; this arm pads trailing components with the
+//! signed with 7 f64 args (spec ToNumber — NaN components invalidate); this arm pads trailing components with the
 //! spec defaults (month=0, day=1, hour=0, min=0, sec=0, ms=0) when
 //! the call site omits them. The 7-arg form falls through to the
 //! generic resolve_callee path unchanged.
@@ -44,20 +44,20 @@ pub(crate) fn try_lower(
         .iter()
         .map(|a| {
             let v = ctx.lower_expr(*a);
-            ctx.coerce_to_i64(v)
+            ctx.coerce_to_f64(v)
         })
         .collect();
     // defaults indexed by position (year=required so skipped;
     // month=0 day=1 hour=0 min=0 sec=0 ms=0)
-    let defaults = [0i64, 0, 1, 0, 0, 0, 0];
+    let defaults = [0.0f64, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0];
     while arg_ops.len() < 7 {
-        arg_ops.push(Operand::ConstI64(defaults[arg_ops.len()]));
+        arg_ops.push(Operand::ConstF64(defaults[arg_ops.len()]));
     }
     let cur_block = ctx.cur_block;
     let v = ctx.f.append_inst(
         cur_block,
         InstKind::Call(ctx.intrinsics.date_utc_components, arg_ops),
-        Type::I64,
+        Type::F64,
         None,
     );
     Some(Operand::Value(v))

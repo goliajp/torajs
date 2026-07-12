@@ -83,9 +83,11 @@ pub(crate) struct DateIds {
     pub date_parse_iso: FuncId,
 }
 
-/// `(Date) -> i64` getter shape — 21 of the 42 declarations
-fn d_i64(module: &mut Module, fn_table: &mut HashMap<String, FuncId>, name: &str) -> FuncId {
-    declare_intrinsic(module, fn_table, name, &[Type::Date], Type::I64)
+/// `(Date) -> f64` getter shape — 21 of the 42 declarations
+/// (RFC 20260713-date-invalid-time: spec number semantics, NaN when
+/// the receiver is an invalid date)
+fn d_f64(module: &mut Module, fn_table: &mut HashMap<String, FuncId>, name: &str) -> FuncId {
+    declare_intrinsic(module, fn_table, name, &[Type::Date], Type::F64)
 }
 
 /// `(Date) -> Str` rendering shape — the 6 to*String declarations
@@ -93,8 +95,9 @@ fn d_str(module: &mut Module, fn_table: &mut HashMap<String, FuncId>, name: &str
     declare_intrinsic(module, fn_table, name, &[Type::Date], Type::Str)
 }
 
-/// `(Date, i64 × n) -> i64` setter shape (n = value + optional
-/// cascading components, per the T-30 setter family)
+/// `(Date, f64 × n, i64 present-mask) -> f64` per-field setter shape
+/// (n = value + optional cascading components, per the T-30 setter
+/// family; the trailing i64 mask carries bit k = arg k supplied)
 fn d_set(
     module: &mut Module,
     fn_table: &mut HashMap<String, FuncId>,
@@ -102,19 +105,26 @@ fn d_set(
     n: usize,
 ) -> FuncId {
     let mut params = vec![Type::Date];
-    params.extend(std::iter::repeat_n(Type::I64, n));
-    declare_intrinsic(module, fn_table, name, &params, Type::I64)
+    params.extend(std::iter::repeat_n(Type::F64, n));
+    params.push(Type::I64);
+    declare_intrinsic(module, fn_table, name, &params, Type::F64)
+}
+
+/// `(Date, f64) -> f64` single-mandatory-arg setter shape
+/// (`setTime` / annexB `setYear` — no present mask)
+fn d_set1(module: &mut Module, fn_table: &mut HashMap<String, FuncId>, name: &str) -> FuncId {
+    declare_intrinsic(module, fn_table, name, &[Type::Date, Type::F64], Type::F64)
 }
 
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) -> DateIds {
-    let seven_i64 = &[Type::I64; 7];
+    let seven_f64 = &[Type::F64; 7];
     DateIds {
         date_now: declare_intrinsic(module, fn_table, "__torajs_date_now", &[], Type::Date),
         date_from_ms: declare_intrinsic(
             module,
             fn_table,
             "__torajs_date_from_ms",
-            &[Type::I64],
+            &[Type::F64],
             Type::Date,
         ),
         date_drop: declare_intrinsic(
@@ -131,11 +141,11 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             &[],
             Type::I64,
         ),
-        date_get_time: d_i64(module, fn_table, "__torajs_date_get_time"),
+        date_get_time: d_f64(module, fn_table, "__torajs_date_get_time"),
         date_to_iso_string: d_str(module, fn_table, "__torajs_date_to_iso_string"),
-        date_set_time: d_set(module, fn_table, "__torajs_date_set_time", 1),
-        date_get_year: d_i64(module, fn_table, "__torajs_date_get_year"),
-        date_set_year: d_set(module, fn_table, "__torajs_date_set_year", 1),
+        date_set_time: d_set1(module, fn_table, "__torajs_date_set_time"),
+        date_get_year: d_f64(module, fn_table, "__torajs_date_get_year"),
+        date_set_year: d_set1(module, fn_table, "__torajs_date_set_year"),
         date_to_gmt_string: d_str(module, fn_table, "__torajs_date_to_gmt_string"),
         date_to_date_string: d_str(module, fn_table, "__torajs_date_to_date_string"),
         date_to_string: d_str(module, fn_table, "__torajs_date_to_string"),
@@ -156,36 +166,36 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
         date_set_utc_minutes: d_set(module, fn_table, "__torajs_date_set_utc_minutes", 3),
         date_set_utc_seconds: d_set(module, fn_table, "__torajs_date_set_utc_seconds", 2),
         date_set_utc_milliseconds: d_set(module, fn_table, "__torajs_date_set_utc_milliseconds", 1),
-        date_get_full_year: d_i64(module, fn_table, "__torajs_date_get_full_year"),
-        date_get_month: d_i64(module, fn_table, "__torajs_date_get_month"),
-        date_get_date: d_i64(module, fn_table, "__torajs_date_get_date"),
-        date_get_hours: d_i64(module, fn_table, "__torajs_date_get_hours"),
-        date_get_minutes: d_i64(module, fn_table, "__torajs_date_get_minutes"),
-        date_get_seconds: d_i64(module, fn_table, "__torajs_date_get_seconds"),
-        date_get_milliseconds: d_i64(module, fn_table, "__torajs_date_get_milliseconds"),
-        date_get_day: d_i64(module, fn_table, "__torajs_date_get_day"),
-        date_get_timezone_offset: d_i64(module, fn_table, "__torajs_date_get_timezone_offset"),
-        date_get_utc_full_year: d_i64(module, fn_table, "__torajs_date_get_utc_full_year"),
-        date_get_utc_month: d_i64(module, fn_table, "__torajs_date_get_utc_month"),
-        date_get_utc_date: d_i64(module, fn_table, "__torajs_date_get_utc_date"),
-        date_get_utc_hours: d_i64(module, fn_table, "__torajs_date_get_utc_hours"),
-        date_get_utc_minutes: d_i64(module, fn_table, "__torajs_date_get_utc_minutes"),
-        date_get_utc_seconds: d_i64(module, fn_table, "__torajs_date_get_utc_seconds"),
-        date_get_utc_milliseconds: d_i64(module, fn_table, "__torajs_date_get_utc_milliseconds"),
-        date_get_utc_day: d_i64(module, fn_table, "__torajs_date_get_utc_day"),
+        date_get_full_year: d_f64(module, fn_table, "__torajs_date_get_full_year"),
+        date_get_month: d_f64(module, fn_table, "__torajs_date_get_month"),
+        date_get_date: d_f64(module, fn_table, "__torajs_date_get_date"),
+        date_get_hours: d_f64(module, fn_table, "__torajs_date_get_hours"),
+        date_get_minutes: d_f64(module, fn_table, "__torajs_date_get_minutes"),
+        date_get_seconds: d_f64(module, fn_table, "__torajs_date_get_seconds"),
+        date_get_milliseconds: d_f64(module, fn_table, "__torajs_date_get_milliseconds"),
+        date_get_day: d_f64(module, fn_table, "__torajs_date_get_day"),
+        date_get_timezone_offset: d_f64(module, fn_table, "__torajs_date_get_timezone_offset"),
+        date_get_utc_full_year: d_f64(module, fn_table, "__torajs_date_get_utc_full_year"),
+        date_get_utc_month: d_f64(module, fn_table, "__torajs_date_get_utc_month"),
+        date_get_utc_date: d_f64(module, fn_table, "__torajs_date_get_utc_date"),
+        date_get_utc_hours: d_f64(module, fn_table, "__torajs_date_get_utc_hours"),
+        date_get_utc_minutes: d_f64(module, fn_table, "__torajs_date_get_utc_minutes"),
+        date_get_utc_seconds: d_f64(module, fn_table, "__torajs_date_get_utc_seconds"),
+        date_get_utc_milliseconds: d_f64(module, fn_table, "__torajs_date_get_utc_milliseconds"),
+        date_get_utc_day: d_f64(module, fn_table, "__torajs_date_get_utc_day"),
         date_from_components: declare_intrinsic(
             module,
             fn_table,
             "__torajs_date_from_components",
-            seven_i64,
+            seven_f64,
             Type::Date,
         ),
         date_utc_components: declare_intrinsic(
             module,
             fn_table,
             "__torajs_date_utc_components",
-            seven_i64,
-            Type::I64,
+            seven_f64,
+            Type::F64,
         ),
         date_from_iso: declare_intrinsic(
             module,

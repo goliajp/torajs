@@ -187,6 +187,28 @@ pub(super) unsafe fn closure_fn_addr(closure: *const c_void) -> u64 {
 ///
 /// # Safety
 /// `closure` is a live `Tag::Closure` cell.
+/// Emit a Date cell inline — the fresh-Str ISO form, or the literal
+/// `Invalid Date` when the time value is the invalid sentinel
+/// (i64::MIN, RFC 20260713-date-invalid-time; routing an invalid
+/// date through `__torajs_date_to_iso_string` would record a
+/// spurious pending RangeError). No trailing newline.
+///
+/// # Safety
+/// `child` is a live `Tag::Date` cell (torajs-date layout: header 8B
+/// + i64 ms at offset 8).
+pub(super) unsafe fn put_date_inline(child: *const c_void) {
+    let ms = unsafe { *((child as *const u8).add(8) as *const i64) };
+    if ms == i64::MIN {
+        unsafe { put_bytes(b"Invalid Date") };
+        return;
+    }
+    let iso = unsafe { __torajs_date_to_iso_string(child) };
+    if !iso.is_null() {
+        unsafe { put_str_cell_inline(iso as *const c_void) };
+        unsafe { __torajs_rc_dec(iso as *mut c_void) };
+    }
+}
+
 pub(super) unsafe fn put_closure_fn_name(closure: *const c_void) {
     if let Some(name) = unsafe { crate::method_value::builtin_method_name(closure as *mut c_void) }
     {

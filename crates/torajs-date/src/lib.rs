@@ -25,6 +25,7 @@ pub mod api;
 pub mod api_strings;
 pub mod civil;
 pub mod getters;
+pub mod make_time;
 pub mod parse;
 pub mod setters_utc;
 pub mod tm;
@@ -54,6 +55,11 @@ pub const STR_HDR_SIZE: usize = 16;
 /// Date sentinel for `parse_iso` failure (caller maps to JS NaN).
 pub const DATE_PARSE_FAIL: i64 = i64::MIN;
 
+/// Invalid-date sentinel — the i64 stand-in for the spec's NaN time
+/// value ([[DateValue]] = NaN, RFC 20260713-date-invalid-time). The
+/// valid time range |t| ≤ 8.64e15 (TimeClip) can never collide.
+pub const DATE_INVALID: i64 = i64::MIN;
+
 /// In-memory Date object.
 #[repr(C)]
 pub struct Date {
@@ -72,6 +78,7 @@ pub struct Date {
 unsafe extern "C" {
     pub fn __torajs_rc_dec(p: *mut c_void) -> i32;
     pub fn __torajs_str_alloc_pooled(len: u64) -> *mut u8;
+    pub fn __torajs_throw_range_error(msg: *const u8);
 }
 
 #[cfg(test)]
@@ -84,6 +91,14 @@ pub unsafe extern "C" fn __torajs_rc_dec(_p: *mut c_void) -> i32 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_alloc_pooled(_len: u64) -> *mut u8 {
     panic!("torajs-date test stub: __torajs_str_alloc_pooled should not be called from cargo test");
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_throw_range_error(_msg: *const u8) {
+    panic!(
+        "torajs-date test stub: __torajs_throw_range_error should not be called from cargo test"
+    );
 }
 
 // tz.rs's TZ probe (torajs-process at link time) — the cargo-test

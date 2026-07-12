@@ -9,11 +9,11 @@ use core::ffi::c_void;
 
 use super::formatters::{
     __torajs_anyv_struct_print_inline, __torajs_arr_print_any, __torajs_bigint_print_inline,
-    __torajs_date_to_iso_string, __torajs_fn_print_inline, __torajs_inspect_line_reset,
-    __torajs_io_putc_stdout, __torajs_map_print, __torajs_obj_print_any, __torajs_promise_print,
-    __torajs_rc_dec, __torajs_regex_print_inline, __torajs_set_print, __torajs_str_print,
-    __torajs_substr_print, __torajs_symbol_print_inline, SUBSTR_VIEW_FLAG, alloc_literal,
-    heap_flags, heap_type_tag, print_bool, print_f64, print_i64, put_bytes, put_closure_fn_name,
+    __torajs_fn_print_inline, __torajs_inspect_line_reset, __torajs_io_putc_stdout,
+    __torajs_map_print, __torajs_obj_print_any, __torajs_promise_print,
+    __torajs_regex_print_inline, __torajs_set_print, __torajs_str_print, __torajs_substr_print,
+    __torajs_symbol_print_inline, SUBSTR_VIEW_FLAG, alloc_literal, heap_flags, heap_type_tag,
+    print_bool, print_f64, print_i64, put_bytes, put_closure_fn_name, put_date_inline,
     put_f64_inline, put_i64_inline, put_str_cell_inline, put_str_cell_inline_esc,
     put_substr_cell_inline, put_substr_cell_inline_esc, str_cell_is_bare_key, write_line,
 };
@@ -192,22 +192,12 @@ pub unsafe extern "C" fn __torajs_print_anyv(v: AnyValue) {
             unsafe { __torajs_obj_print_any(child) };
             unsafe { __torajs_io_putc_stdout(b'\n' as i32) };
         } else if tag == Tag::Date as u16 {
-            // Commit 5 — Date wire. Reuses the existing
-            // __torajs_date_to_iso_string which returns a fresh
-            // rc=1 Str holding `YYYY-MM-DDTHH:MM:SS.sssZ` (24
-            // bytes). The Str payload is walked directly through
-            // `put_str_cell_inline` (no quotes — bun prints Date
-            // values unquoted, e.g. `1970-01-01T00:00:00.000Z`
-            // not `"1970-..."`), then rc_dec'd to balance the
-            // fresh allocation. Cell ptr cast as *mut for rc_dec
-            // (rc operations don't actually mutate the pointee
-            // beyond the refcount header).
+            // Commit 5 — Date wire. `put_date_inline` prints the
+            // ISO-8601 form unquoted (bun: `1970-01-01T00:00:00.000Z`
+            // not `"1970-..."`), or `Invalid Date` for the invalid
+            // sentinel.
             // SAFETY: Date layout per torajs-date::layout.
-            let iso = unsafe { __torajs_date_to_iso_string(child) };
-            if !iso.is_null() {
-                unsafe { put_str_cell_inline(iso as *const c_void) };
-                unsafe { __torajs_rc_dec(iso as *mut c_void) };
-            }
+            unsafe { put_date_inline(child) };
             unsafe { __torajs_io_putc_stdout(b'\n' as i32) };
         } else if tag == Tag::RegExp as u16 {
             // Commit 6 — RegExp wire. Bun prints RegExp values as
@@ -352,11 +342,7 @@ pub unsafe extern "C" fn __torajs_print_anyv_inline_top(v: AnyValue) {
         } else if tag == Tag::DynObj as u16 {
             unsafe { __torajs_obj_print_any(child) };
         } else if tag == Tag::Date as u16 {
-            let iso = unsafe { __torajs_date_to_iso_string(child) };
-            if !iso.is_null() {
-                unsafe { put_str_cell_inline(iso as *const c_void) };
-                unsafe { __torajs_rc_dec(iso as *mut c_void) };
-            }
+            unsafe { put_date_inline(child) };
         } else if tag == Tag::RegExp as u16 {
             unsafe { __torajs_regex_print_inline(child) };
         } else if tag == Tag::Promise as u16 {

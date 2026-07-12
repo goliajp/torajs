@@ -15,16 +15,16 @@
 //! - **0-arg getter / format** (S295) — recv only; trailing args
 //!   typecheck-and-dropped (check.rs S261) and lower-and-dropped
 //!   here for step()-side-effect semantics (S272 idiom).
-//! - **`setTime` / `setYear` (1-arg, S268)** — `recv + i64(args[0])`;
+//! - **`setTime` / `setYear` (1-arg, S268)** — `recv + f64(args[0])`;
 //!   trailing args silent-drop per ES §21.4.4.27 / annexB §B.2.4.2.
 //! - **Per-field setters** `setFullYear` (3) / `setMonth` (2) /
 //!   `setDate` (1) / `setHours` (4) / `setMinutes` (3) /
 //!   `setSeconds` (2) / `setMilliseconds` (1) — `recv +
-//!   i64(args[..arity])`; missing trailing fields padded with the
-//!   `DATE_FIELD_KEEP` sentinel (`i64::MIN`) so the runtime can keep
-//!   the current field value without a separate arity-N intrinsic
-//!   per overload. Extras silent-drop with side-effect eval per
-//!   S268.
+//!   f64(args[..arity]) + i64 present-mask` (RFC
+//!   20260713-date-invalid-time): missing trailing fields ride
+//!   ConstF64(0) with the mask bit clear so the runtime keeps the
+//!   current component, while a supplied NaN invalidates the date.
+//!   Extras silent-drop with side-effect eval per S268.
 //!
 //! Returns `Some(op)` on hit; `None` on miss (callee not a
 //! `Member`-call, name not in the allowlist, or receiver isn't
@@ -111,7 +111,23 @@ pub(crate) fn try_lower(
     let v = ctx
         .f
         .append_inst(cur_block, InstKind::Call(target, arg_ops), ret_ty, None);
+    if matches!(method.as_str(), "toISOString" | "toJSON") {
+        // RFC 20260713-date-invalid-time — invalid time value records
+        // a pending RangeError (§21.4.4.36 step 3); propagate it.
+        ctx.emit_throw_check(None);
+    }
     Some(Operand::Value(v))
+}
+
+/// Coerce a Date-method numeric argument to the f64 ABI slot: spec
+/// ToNumber semantics — Any routes through `any_to_number`, an
+/// undefined payload (SSA Ptr) is NaN, numerics widen via SiToFp.
+fn coerce_date_num(ctx: &mut LowerCtx<'_>, op: Operand) -> Operand {
+    match ctx.operand_ty(&op) {
+        Type::Any => ctx.coerce_any_to_number(op, Type::F64),
+        Type::Ptr => Operand::ConstF64(f64::NAN),
+        _ => ctx.coerce_to_f64(op),
+    }
 }
 
 fn build_arg_ops(
@@ -120,11 +136,14 @@ fn build_arg_ops(
     recv_op: Operand,
     args: &[ExprId],
 ) -> Vec<Operand> {
-    // T-30 setters take 1 arg (Number → I64). The per-field setters
-    // (setFullYear / setMonth / setHours / …) take 1-4 args; missing
-    // trailing args are padded with the DATE_FIELD_KEEP sentinel
-    // (`i64::MIN`) so the runtime can keep the current field value
-    // without a separate arity-N intrinsic per overload.
+    // T-30 setters take f64 args (spec ToNumber). The per-field
+    // setters (setFullYear / setMonth / setHours / …) take 1-4 args
+    // plus a trailing i64 present-mask (bit k = arg k supplied):
+    // missing trailing slots ride ConstF64(0) with the bit clear so
+    // the runtime keeps the current field, while a supplied NaN
+    // invalidates the date (RFC 20260713-date-invalid-time — the
+    // retired i64::MIN KEEP sentinel collided with NaN's saturating
+    // i64 cast).
     let per_field_arity: Option<usize> = match method {
         "setFullYear" | "setUTCFullYear" => Some(3),
         "setMonth" | "setUTCMonth" => Some(2),
@@ -143,26 +162,31 @@ fn build_arg_ops(
         for ai in args.iter().skip(1) {
             let _ = ctx.lower_expr(*ai);
         }
-        return vec![recv_op, ctx.coerce_to_i64(a)];
+        let a = coerce_date_num(ctx, a);
+        return vec![recv_op, a];
     }
     if let Some(target_arity) = per_field_arity {
         // S268 — trailing args beyond `target_arity` silent-drop per
         // ES §21.4.4.{20-26}; preserve side effects via the
         // skip(arity) eval loop.
         debug_assert!(!args.is_empty());
-        let mut ops = Vec::with_capacity(target_arity + 1);
+        let mut ops = Vec::with_capacity(target_arity + 2);
         ops.push(recv_op);
+        let mut present = 0i64;
         for i in 0..target_arity {
             if i < args.len() {
                 let a = ctx.lower_expr(args[i]);
-                ops.push(ctx.coerce_to_i64(a));
+                let a = coerce_date_num(ctx, a);
+                ops.push(a);
+                present |= 1 << i;
             } else {
-                ops.push(Operand::ConstI64(i64::MIN));
+                ops.push(Operand::ConstF64(0.0));
             }
         }
         for ai in args.iter().skip(target_arity) {
             let _ = ctx.lower_expr(*ai);
         }
+        ops.push(Operand::ConstI64(present));
         return ops;
     }
     // S295 — Date 0-arg getter / format methods (getTime / valueOf /
@@ -179,48 +203,48 @@ fn build_arg_ops(
 
 fn resolve_intrinsic(ctx: &LowerCtx<'_>, method: &str) -> (FuncId, Type) {
     match method {
-        "getTime" | "valueOf" => (ctx.intrinsics.date_get_time, Type::I64),
+        "getTime" | "valueOf" => (ctx.intrinsics.date_get_time, Type::F64),
         "toISOString" | "toJSON" => (ctx.intrinsics.date_to_iso_string, Type::Str),
-        "getFullYear" => (ctx.intrinsics.date_get_full_year, Type::I64),
-        "getUTCFullYear" => (ctx.intrinsics.date_get_utc_full_year, Type::I64),
-        "getMonth" => (ctx.intrinsics.date_get_month, Type::I64),
-        "getUTCMonth" => (ctx.intrinsics.date_get_utc_month, Type::I64),
-        "getDate" => (ctx.intrinsics.date_get_date, Type::I64),
-        "getUTCDate" => (ctx.intrinsics.date_get_utc_date, Type::I64),
-        "getHours" => (ctx.intrinsics.date_get_hours, Type::I64),
-        "getUTCHours" => (ctx.intrinsics.date_get_utc_hours, Type::I64),
-        "getMinutes" => (ctx.intrinsics.date_get_minutes, Type::I64),
-        "getUTCMinutes" => (ctx.intrinsics.date_get_utc_minutes, Type::I64),
-        "getSeconds" => (ctx.intrinsics.date_get_seconds, Type::I64),
-        "getUTCSeconds" => (ctx.intrinsics.date_get_utc_seconds, Type::I64),
-        "getMilliseconds" => (ctx.intrinsics.date_get_milliseconds, Type::I64),
-        "getUTCMilliseconds" => (ctx.intrinsics.date_get_utc_milliseconds, Type::I64),
-        "getDay" => (ctx.intrinsics.date_get_day, Type::I64),
-        "getUTCDay" => (ctx.intrinsics.date_get_utc_day, Type::I64),
-        "getTimezoneOffset" => (ctx.intrinsics.date_get_timezone_offset, Type::I64),
-        "setTime" => (ctx.intrinsics.date_set_time, Type::I64),
-        "setYear" => (ctx.intrinsics.date_set_year, Type::I64),
-        "getYear" => (ctx.intrinsics.date_get_year, Type::I64),
+        "getFullYear" => (ctx.intrinsics.date_get_full_year, Type::F64),
+        "getUTCFullYear" => (ctx.intrinsics.date_get_utc_full_year, Type::F64),
+        "getMonth" => (ctx.intrinsics.date_get_month, Type::F64),
+        "getUTCMonth" => (ctx.intrinsics.date_get_utc_month, Type::F64),
+        "getDate" => (ctx.intrinsics.date_get_date, Type::F64),
+        "getUTCDate" => (ctx.intrinsics.date_get_utc_date, Type::F64),
+        "getHours" => (ctx.intrinsics.date_get_hours, Type::F64),
+        "getUTCHours" => (ctx.intrinsics.date_get_utc_hours, Type::F64),
+        "getMinutes" => (ctx.intrinsics.date_get_minutes, Type::F64),
+        "getUTCMinutes" => (ctx.intrinsics.date_get_utc_minutes, Type::F64),
+        "getSeconds" => (ctx.intrinsics.date_get_seconds, Type::F64),
+        "getUTCSeconds" => (ctx.intrinsics.date_get_utc_seconds, Type::F64),
+        "getMilliseconds" => (ctx.intrinsics.date_get_milliseconds, Type::F64),
+        "getUTCMilliseconds" => (ctx.intrinsics.date_get_utc_milliseconds, Type::F64),
+        "getDay" => (ctx.intrinsics.date_get_day, Type::F64),
+        "getUTCDay" => (ctx.intrinsics.date_get_utc_day, Type::F64),
+        "getTimezoneOffset" => (ctx.intrinsics.date_get_timezone_offset, Type::F64),
+        "setTime" => (ctx.intrinsics.date_set_time, Type::F64),
+        "setYear" => (ctx.intrinsics.date_set_year, Type::F64),
+        "getYear" => (ctx.intrinsics.date_get_year, Type::F64),
         "toGMTString" | "toUTCString" => (ctx.intrinsics.date_to_gmt_string, Type::Str),
         "toDateString" => (ctx.intrinsics.date_to_date_string, Type::Str),
         "toString" => (ctx.intrinsics.date_to_string, Type::Str),
         "toLocaleString" => (ctx.intrinsics.date_to_locale_string, Type::Str),
         "toLocaleDateString" => (ctx.intrinsics.date_to_locale_date_string, Type::Str),
         "toLocaleTimeString" => (ctx.intrinsics.date_to_locale_time_string, Type::Str),
-        "setFullYear" => (ctx.intrinsics.date_set_full_year, Type::I64),
-        "setMonth" => (ctx.intrinsics.date_set_month, Type::I64),
-        "setDate" => (ctx.intrinsics.date_set_date, Type::I64),
-        "setHours" => (ctx.intrinsics.date_set_hours, Type::I64),
-        "setMinutes" => (ctx.intrinsics.date_set_minutes, Type::I64),
-        "setSeconds" => (ctx.intrinsics.date_set_seconds, Type::I64),
-        "setMilliseconds" => (ctx.intrinsics.date_set_milliseconds, Type::I64),
-        "setUTCFullYear" => (ctx.intrinsics.date_set_utc_full_year, Type::I64),
-        "setUTCMonth" => (ctx.intrinsics.date_set_utc_month, Type::I64),
-        "setUTCDate" => (ctx.intrinsics.date_set_utc_date, Type::I64),
-        "setUTCHours" => (ctx.intrinsics.date_set_utc_hours, Type::I64),
-        "setUTCMinutes" => (ctx.intrinsics.date_set_utc_minutes, Type::I64),
-        "setUTCSeconds" => (ctx.intrinsics.date_set_utc_seconds, Type::I64),
-        "setUTCMilliseconds" => (ctx.intrinsics.date_set_utc_milliseconds, Type::I64),
+        "setFullYear" => (ctx.intrinsics.date_set_full_year, Type::F64),
+        "setMonth" => (ctx.intrinsics.date_set_month, Type::F64),
+        "setDate" => (ctx.intrinsics.date_set_date, Type::F64),
+        "setHours" => (ctx.intrinsics.date_set_hours, Type::F64),
+        "setMinutes" => (ctx.intrinsics.date_set_minutes, Type::F64),
+        "setSeconds" => (ctx.intrinsics.date_set_seconds, Type::F64),
+        "setMilliseconds" => (ctx.intrinsics.date_set_milliseconds, Type::F64),
+        "setUTCFullYear" => (ctx.intrinsics.date_set_utc_full_year, Type::F64),
+        "setUTCMonth" => (ctx.intrinsics.date_set_utc_month, Type::F64),
+        "setUTCDate" => (ctx.intrinsics.date_set_utc_date, Type::F64),
+        "setUTCHours" => (ctx.intrinsics.date_set_utc_hours, Type::F64),
+        "setUTCMinutes" => (ctx.intrinsics.date_set_utc_minutes, Type::F64),
+        "setUTCSeconds" => (ctx.intrinsics.date_set_utc_seconds, Type::F64),
+        "setUTCMilliseconds" => (ctx.intrinsics.date_set_utc_milliseconds, Type::F64),
         _ => unreachable!(),
     }
 }
