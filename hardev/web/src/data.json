@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-12T14:57:32.714Z",
+  "generatedAt": "2026-07-12T17:00:14.777Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-12T14:39:47Z",
-    "headSha": "dfaa9003",
-    "elapsedSec": 462.83,
+    "ranAt": "2026-07-12T16:57:12Z",
+    "headSha": "68daeb85",
+    "elapsedSec": 462.66,
     "workers": 8,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 4567,
+    "pass": 4632,
     "passNoOracle": 78,
     "passNegative": 4444,
-    "passTotal": 9089,
-    "bug": 1311,
-    "incompatible": 42774,
+    "passTotal": 9154,
+    "bug": 1250,
+    "incompatible": 42770,
     "bunSkip": 12861,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 10400,
-    "passRateInScope": 17.09,
-    "passRateTrAccepted": 87.39
+    "trAccepted": 10404,
+    "passRateInScope": 17.22,
+    "passRateTrAccepted": 87.99
   },
   "torajs": {
-    "commit": "74a95bca",
-    "commitSubject": "chore: bench results at dfaa9003 — array-sort regression bisect runs",
+    "commit": "31fad980",
+    "commitSubject": "chore: test262 sweep at 68daeb85 — 9154 pass (+65), 4 appeared are incompat-to-runnable moves",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "31fad980",
+      "subject": "chore: test262 sweep at 68daeb85 — 9154 pass (+65), 4 appeared are incompat-to-runnable moves"
+    },
+    {
+      "hash": "68daeb85",
+      "subject": "fix: accessor redefine merges per-face and named fns mint env cells"
+    },
+    {
+      "hash": "59b87f14",
+      "subject": "feat: delete on an array index produces a hole instead of a silent no-op"
+    },
+    {
+      "hash": "db294b88",
+      "subject": "fix: descriptor shape dispatch reads closure and array descriptors via expando props"
+    },
+    {
+      "hash": "eb4516d7",
+      "subject": "fix: literal descriptor with non-bool flag falls back to runtime tpd path"
+    },
+    {
+      "hash": "c5dc2bab",
+      "subject": "chore: hardev dashboard snapshot"
+    },
+    {
       "hash": "74a95bca",
       "subject": "chore: bench results at dfaa9003 — array-sort regression bisect runs"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "7ac718e1",
       "subject": "feat: array length lock via defineproperty writable false"
-    },
-    {
-      "hash": "de7dd408",
-      "subject": "feat: array consumer surfaces honor per-index attribute flags"
-    },
-    {
-      "hash": "012278cc",
-      "subject": "feat: array defineownproperty kernel with per-index attribute shadow"
-    },
-    {
-      "hash": "859b0276",
-      "subject": "feat: array cell gopd arm + dynamic-key length/index member read"
-    },
-    {
-      "hash": "5fe18499",
-      "subject": "chore: hardev dashboard snapshot"
-    },
-    {
-      "hash": "758fc59e",
-      "subject": "fix: object.is compares numeric cross-tag pairs by value"
-    },
-    {
-      "hash": "72dae6ee",
-      "subject": "chore: hardev dashboard snapshot"
     }
   ],
-  "headSha": "74a95bca",
+  "headSha": "31fad980",
   "autorun": {
-    "total": 388,
+    "total": 389,
     "baselineTarget": 10,
-    "bySelf": 383,
+    "bySelf": 384,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1783857848-4108",
-      "at": "2026-07-12T12:04:08Z",
-      "ts": 1783857848,
+      "rotationId": "r-1783868364-2b0f",
+      "at": "2026-07-12T14:59:24Z",
+      "ts": 1783868364,
       "trigger": "self",
-      "prevHead": "5fe18499",
-      "handoffSha": "sha256:ee309f856369ad5a095ca146cd6e5b326094aa74128903e6a42bdbf5e23703c9",
-      "handoffAgeSec": 5,
+      "prevHead": "c5dc2bab",
+      "handoffSha": "sha256:1925b4d91f6490f6f16319b12f0e6b5712fc240e3ac9537352169d173e3418a3",
+      "handoffAgeSec": 7,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1783868364-2b0f",
+        "at": "2026-07-12T14:59:24Z",
+        "ts": 1783868364,
+        "trigger": "self",
+        "prevHead": "c5dc2bab",
+        "handoffSha": "sha256:1925b4d91f6490f6f16319b12f0e6b5712fc240e3ac9537352169d173e3418a3",
+        "handoffAgeSec": 7,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1783857848-4108",
         "at": "2026-07-12T12:04:08Z",
@@ -876,17 +887,6 @@
         "prevHead": "adfc4392",
         "handoffSha": "sha256:2714da4803ad3903add3a646db8c5fe2fb4cde95d84941e1aa3e240e86e7a7eb",
         "handoffAgeSec": 7,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1783767402-6bb4",
-        "at": "2026-07-11T10:56:42Z",
-        "ts": 1783767402,
-        "trigger": "self",
-        "prevHead": "0c07ab78",
-        "handoffSha": "sha256:a40ec843f071e2be21f2b1946059546c8dfb75969664161e79a53a1ce98871cb",
-        "handoffAgeSec": 303,
         "conformanceBefore": null,
         "commitsInSession": null
       }
