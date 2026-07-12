@@ -51,6 +51,10 @@ pub(crate) const TAG_DYNOBJ: u16 = 14;
 // Tag::Obj — static-layout struct cell (W-J Phase B struct arm /
 // Phase C struct enumeration arms in `struct_enum.rs`).
 pub(crate) const TAG_OBJ: u16 = 1;
+// Tag::Arr — array cell; gOPD routes to the length / canonical-index /
+// expando arms in `arr_reflect.rs` (RFC 20260712-arr-exotic-define
+// chunk A).
+const TAG_ARR: u16 = 2;
 // Tag::Closure — fn cell; gOPD routes to the virtual name/length
 // descriptor arm in `closure_reflect.rs` (RFC 20260711 chunk B).
 const TAG_CLOSURE: u16 = 3;
@@ -241,6 +245,12 @@ pub unsafe extern "C" fn __torajs_anyv_get_property_descriptor(
     // `dynobj` is a live Tag::Closure cell; `key` non-NULL (above).
     if htag == TAG_CLOSURE {
         return unsafe { crate::closure_reflect::closure_cell_descriptor(dynobj, key) };
+    }
+    // RFC 20260712-arr-exotic-define chunk A — Array cell answers the
+    // §10.4.2 length / canonical-index / expando descriptors. SAFETY:
+    // `dynobj` is a live Tag::Arr cell; `key` non-NULL (above).
+    if htag == TAG_ARR {
+        return unsafe { crate::arr_reflect::arr_cell_descriptor(dynobj, key) };
     }
     if htag != TAG_DYNOBJ {
         return VALUE_UNDEFINED_IMM;

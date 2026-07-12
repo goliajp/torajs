@@ -54,6 +54,10 @@ unsafe extern "C" {
     /// torajs-arr — expando probe through the props slot.
     fn __torajs_arrprops_get_tag(arr: *mut c_void, key: *const c_void) -> u64;
     fn __torajs_arrprops_get_value(arr: *mut c_void, key: *const c_void) -> u64;
+    /// torajs-arr — kind-aware slot reads, borrow contract (RFC
+    /// 20260712-arr-exotic-define chunk A dynamic-key arm).
+    fn __torajs_arr_get_any_tag(arr: *const c_void, i: u64) -> u64;
+    fn __torajs_arr_get_any_value(arr: *const c_void, i: u64) -> u64;
     /// torajs-structmeta — read side over `__torajs_class_layouts`
     /// (mirror of `method_call_dynobj`'s declares).
     fn __torajs_struct_layout_lookup(class_tag: u32) -> *const c_void;
@@ -154,6 +158,62 @@ pub(crate) unsafe fn struct_field_pair(ptr: *mut c_void, key: *const c_void) -> 
     })
 }
 
+/// Array `len` u64 offset — mirrors `torajs-arr::layout::ARR_LEN_OFF`.
+const ARR_LEN_OFF: usize = 8;
+
+/// Canonical array-index parse — ES §10.4.2 array index shape
+/// (`"0"`, or nonzero-leading all-digits, value `< 2^32 - 1`).
+/// `arr_reflect.rs` (torajs-meta) twin.
+fn canonical_index(bytes: &[u8]) -> Option<u64> {
+    if bytes.is_empty() || bytes.len() > 10 {
+        return None;
+    }
+    if bytes == b"0" {
+        return Some(0);
+    }
+    if bytes[0] == b'0' || !bytes.iter().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let mut v: u64 = 0;
+    for &b in bytes {
+        v = v * 10 + (b - b'0') as u64;
+    }
+    if v < u32::MAX as u64 { Some(v) } else { None }
+}
+
+/// `Tag::Arr` own-property probe for a dynamic string key (RFC
+/// 20260712-arr-exotic-define chunk A) — `"length"` answers the len
+/// as I64; a canonical index answers the element via the kind-aware
+/// slot read (in-range) or a definite `(ANY_UNDEF, 0)` (out-of-range
+/// — the index domain is owned by element storage, never by the
+/// expando dynobj). `None` = not an own-domain key, fall through to
+/// the expando probe / builtin reify. Borrow-shaped like every
+/// other probe answer. Pre-fix `o[k]` with a runtime `"length"` /
+/// index key answered `undefined` for every Array receiver (the
+/// literal-key form lowers to the static member read and was fine).
+///
+/// # Safety
+/// `ptr` is a live `Tag::Arr` heap pointer; `key` is a live Str cell.
+unsafe fn arr_own_pair(ptr: *mut c_void, key: *const c_void) -> Option<(u64, u64)> {
+    let k = key as *const u8;
+    let key_len = unsafe { k.add(STR_LEN_OFF).cast::<u32>().read() };
+    let bytes = unsafe { core::slice::from_raw_parts(k.add(STR_DATA_OFF), key_len as usize) };
+    let len = unsafe { ptr.cast::<u8>().add(ARR_LEN_OFF).cast::<u64>().read() };
+    if bytes == b"length" {
+        return Some((AnySlotTag::I64 as u64, len));
+    }
+    let idx = canonical_index(bytes)?;
+    if idx >= len {
+        return Some((5, 0));
+    }
+    Some(unsafe {
+        (
+            __torajs_arr_get_any_tag(ptr, idx),
+            __torajs_arr_get_any_value(ptr, idx),
+        )
+    })
+}
+
 /// Cell tag of a dispatchable receiver, `None` for everything the
 /// gate answers `(ANY_UNDEF, 0)` for.
 pub(crate) fn recv_cell(recv: AnyValue) -> Option<(*mut c_void, u16)> {
@@ -201,6 +261,9 @@ pub unsafe extern "C" fn __torajs_any_member_get_tag(recv: AnyValue, key: *const
             }
         },
         Some((ptr, t)) if t == Tag::Arr as u16 => unsafe {
+            if let Some((tag, _)) = arr_own_pair(ptr, key) {
+                return tag;
+            }
             let tag = __torajs_arrprops_get_tag(ptr, key);
             if tag != 5 {
                 return tag;
@@ -379,6 +442,9 @@ pub unsafe extern "C" fn __torajs_any_member_get_value(recv: AnyValue, key: *con
             v
         },
         Some((ptr, t)) if t == Tag::Arr as u16 => unsafe {
+            if let Some((_, val)) = arr_own_pair(ptr, key) {
+                return val;
+            }
             if __torajs_arrprops_get_tag(ptr, key) != 5 {
                 return __torajs_arrprops_get_value(ptr, key);
             }

@@ -23,6 +23,7 @@
 //! - `__torajs_str_alloc_pooled / str_drop` — `torajs-str`
 //! - `__torajs_value_drop_heap` — `runtime_str.c` (will move in P7.i)
 
+pub(crate) mod arr_reflect;
 pub mod classmeta;
 pub(crate) mod closure_reflect;
 pub mod extensible_reflect;
