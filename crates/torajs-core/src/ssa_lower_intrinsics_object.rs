@@ -67,6 +67,7 @@ pub(crate) struct ObjectIds {
     pub arr_index_strs: FuncId,
     pub str_index_strs: FuncId,
     pub arr_keys_only: FuncId,
+    pub arr_keys_only_of: FuncId,
     pub str_keys_only: FuncId,
     /// RC-4 F1c — runtime chooser for keys/gOPN on struct receivers
     /// that may have been dynobj-converted by defineProperty.
@@ -132,6 +133,7 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
         arr_length_descriptor: decl!("__torajs_anyv_arr_length_descriptor", [I64], Any),
         str_length_descriptor: decl!("__torajs_anyv_str_length_descriptor", [Ptr], Any),
         arr_index_strs: decl!("__torajs_arr_index_strs", [I64], Ptr),
+        arr_keys_only_of: decl!("__torajs_arr_keys_only_of", [Ptr], Ptr),
         str_index_strs: decl!("__torajs_str_index_strs", [Ptr], Ptr),
         arr_keys_only: decl!("__torajs_arr_keys_only", [I64], Ptr),
         str_keys_only: decl!("__torajs_str_keys_only", [Ptr], Ptr),

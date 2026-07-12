@@ -40,6 +40,14 @@ unsafe extern "C" {
     /// torajs-arr — expando write through the lazily-allocated
     /// props dynobj.
     fn __torajs_arrprops_set(arr_ptr: *mut c_void, key: *const c_void, tag: i64, value: i64);
+    /// torajs-arr — §10.4.2.4 length setter (ToUint32 validate +
+    /// real resize) for the dynamic-string-key `o[k] = v` form.
+    fn __torajs_arr_set_length_any(arr: *mut c_void, tag: i64, value: i64);
+    /// torajs-arr — kind-aware element store (consumes a tag-4 rc).
+    fn __torajs_arr_index_set(arr: *mut c_void, idx: i64, tag: u64, value: u64);
+    /// torajs-arr — per-index attribute flags (RFC
+    /// 20260712-arr-exotic-define chunk C writable gate).
+    fn __torajs_arr_index_flags(arr: *const c_void, idx: u64) -> u64;
     /// torajs-regex — `re.lastIndex` setter.
     fn __torajs_regex_set_last_index(re: *mut c_void, idx: f64);
     /// torajs-dynobj — fresh empty table for the first closure
@@ -145,7 +153,28 @@ pub unsafe extern "C" fn __torajs_any_member_set(
             *props_slot = props as u64;
             return;
         }
-        if cell_tag == Tag::Arr as u16 && hint != ANY_WPROP_ARR_LENGTH {
+        if cell_tag == Tag::Arr as u16 {
+            // RFC 20260712-arr-exotic-define chunk C — own-domain
+            // routing for the dynamic string key. Pre-fix every
+            // `o[k] = v` landed in the expando dynobj: an index key
+            // never reached element storage (the write "succeeded"
+            // but reads answered the old element), and a "length"
+            // key missed the resize path.
+            if hint == ANY_WPROP_ARR_LENGTH || crate::prop_has::key_is(key, b"length") {
+                __torajs_arr_set_length_any(ptr, tag as i64, value as i64);
+                return;
+            }
+            if let Some(idx) = crate::prop_has::canonical_index(key) {
+                if __torajs_arr_index_flags(ptr, idx) & 0x1 == 0 {
+                    drop_payload(tag, value);
+                    __torajs_throw_type_error(
+                        c"Attempted to assign to readonly property.".as_ptr(),
+                    );
+                    return;
+                }
+                __torajs_arr_index_set(ptr, idx as i64, tag, value);
+                return;
+            }
             __torajs_arrprops_set(ptr, key, tag as i64, value as i64);
             return;
         }

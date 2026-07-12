@@ -48,6 +48,9 @@ unsafe extern "C" {
     fn __torajs_struct_field_find(layout: *const c_void, name: *const u8, name_len: u32) -> u32;
     /// torajs-throw — record a pending catchable TypeError.
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
+    /// torajs-arr — per-index attribute flags (RFC
+    /// 20260712-arr-exotic-define chunk C).
+    fn __torajs_arr_index_flags(arr: *const c_void, idx: u64) -> u64;
 }
 
 /// Layout mirrors (see `member_get`): struct `class_tag` u32 at +8;
@@ -69,7 +72,7 @@ unsafe fn key_bytes(key: *const c_void) -> (*const u8, u32) {
 
 /// Parse a canonical array-index key (`"0"`, `"12"` — all digits, no
 /// leading zero except `"0"` itself). `None` for anything else.
-unsafe fn canonical_index(key: *const c_void) -> Option<u64> {
+pub(crate) unsafe fn canonical_index(key: *const c_void) -> Option<u64> {
     let (bytes, len) = unsafe { key_bytes(key) };
     if len == 0 || len > 20 {
         return None;
@@ -252,7 +255,9 @@ pub unsafe extern "C" fn __torajs_any_prop_enumerable(recv: AnyValue, key: *cons
             if let Some(i) = unsafe { canonical_index(key) }
                 && i < len
             {
-                return 1;
+                // RFC 20260712-arr-exotic-define chunk C — a
+                // defineProperty'd index carries shadow flags.
+                return ((unsafe { __torajs_arr_index_flags(ptr, i) } & 0x2) != 0) as i64;
             }
             let props = unsafe {
                 ptr.cast::<u8>()

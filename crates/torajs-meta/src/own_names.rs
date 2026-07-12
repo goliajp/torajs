@@ -17,6 +17,8 @@ unsafe extern "C" {
     fn __torajs_arr_alloc_any(cap: u64) -> *mut u8;
     fn __torajs_arr_push_any(arr: *mut c_void, tag: u64, value: u64) -> *mut u8;
     fn __torajs_i64_to_str(n: i64) -> *mut u8;
+    /// torajs-arr — per-index attribute flags (chunk C filter).
+    fn __torajs_arr_index_flags(arr: *const c_void, idx: u64) -> u64;
     fn __torajs_str_alloc_pooled(len: u64) -> *mut u8;
     fn __torajs_str_at(s: *const u8, i: i64) -> *mut u8;
     fn __torajs_rc_inc(p: *mut c_void);
@@ -65,6 +67,31 @@ pub unsafe extern "C" fn __torajs_arr_index_strs(len: i64) -> *mut c_void {
 ///
 /// `extern "C"` ABI. Returned pointer owns a fresh `+1`-rc `Arr<Str>`
 /// of length `len`.
+/// RFC 20260712-arr-exotic-define chunk C — pointer-taking twin of
+/// [`__torajs_arr_keys_only`]: an exotic array (per-index attribute
+/// shadow entries) filters `enumerable: false` indices out of the
+/// `Object.keys` / for-in surface; a plain array keeps the zero-probe
+/// bulk mint.
+///
+/// # Safety
+/// `arr` is a live `Tag::Arr` heap pointer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_keys_only_of(arr: *const c_void) -> *mut c_void {
+    let len = unsafe { (arr.cast::<u8>().add(8) as *const u64).read() } as i64;
+    let exotic = unsafe { (arr.cast::<u8>().add(6) as *const u16).read() } & (1 << 15) != 0;
+    if !exotic {
+        return unsafe { __torajs_arr_keys_only(len) };
+    }
+    let mut out = unsafe { __torajs_arr_alloc(len.max(0) as u64) };
+    for i in 0..len {
+        if unsafe { __torajs_arr_index_flags(arr, i as u64) } & 0x2 != 0 {
+            let s = unsafe { __torajs_i64_to_str(i) };
+            out = unsafe { __torajs_arr_push(out, s as i64) };
+        }
+    }
+    out as *mut c_void
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_keys_only(len: i64) -> *mut c_void {
     let mut out = unsafe { __torajs_arr_alloc(len.max(0) as u64) };

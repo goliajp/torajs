@@ -91,10 +91,16 @@ unsafe fn is_dynobj(obj: *const c_void) -> bool {
 /// Append a live DynObj walk's keys onto `arr` in ES §10.1.11.1
 /// order. `include_nonenum = 0` filters enumerable-only. Returns the
 /// (possibly reallocated) array.
+/// `skip_index_shadow` — an Array receiver's props dynobj carries
+/// per-index attribute shadow entries under canonical index keys
+/// (RFC 20260712-arr-exotic-define chunk B); the index domain is
+/// already enumerated from element storage, so those keys are
+/// filtered here.
 unsafe fn dynobj_keys_append(
     obj: *const c_void,
     include_nonenum: i64,
     mut arr: *mut u8,
+    skip_index_shadow: bool,
 ) -> *mut u8 {
     let len = unsafe { __torajs_dynobj_iter_len(obj) };
     let mut order = vec![0u64; len as usize];
@@ -110,6 +116,9 @@ unsafe fn dynobj_keys_append(
         if key.is_null() {
             continue;
         }
+        if skip_index_shadow && unsafe { key_is_canonical_index(key) } {
+            continue;
+        }
         // Borrowed key → the array slot takes its own share.
         unsafe { __torajs_rc_inc(key) };
         arr = unsafe { __torajs_arr_push(arr, key as i64) };
@@ -122,7 +131,7 @@ unsafe fn dynobj_keys_append(
 unsafe fn dynobj_keys_walk(obj: *const c_void, include_nonenum: i64) -> *mut c_void {
     let len = unsafe { __torajs_dynobj_iter_len(obj) };
     let arr = unsafe { __torajs_arr_alloc(len) };
-    unsafe { dynobj_keys_append(obj, include_nonenum, arr) as *mut c_void }
+    unsafe { dynobj_keys_append(obj, include_nonenum, arr, false) as *mut c_void }
 }
 
 #[unsafe(no_mangle)]
@@ -155,13 +164,41 @@ unsafe fn index_keys(len: i64, include_nonenum: i64) -> *mut c_void {
 /// OrdinaryOwnPropertyKeys creation-order tail).
 unsafe fn arr_cell_keys(cell: *const c_void, include_nonenum: i64) -> *mut c_void {
     let len = unsafe { (cell.cast::<u8>().add(ARR_LEN_OFF) as *const u64).read() } as i64;
-    let out = unsafe { index_keys(len, include_nonenum) };
+    // RFC 20260712-arr-exotic-define chunk C — the keys surface
+    // rides the exotic-aware helper (per-index enumerable filter);
+    // gOPN keeps the unfiltered index list (+ "length").
+    let out = if include_nonenum == 0 {
+        unsafe { crate::own_names::__torajs_arr_keys_only_of(cell) }
+    } else {
+        unsafe { index_keys(len, include_nonenum) }
+    };
     let props =
         unsafe { (cell.cast::<u8>().add(ARR_PROPS_OFF) as *const u64).read() } as *const c_void;
     if props.is_null() {
         return out;
     }
-    unsafe { dynobj_keys_append(props, include_nonenum, out as *mut u8) as *mut c_void }
+    unsafe { dynobj_keys_append(props, include_nonenum, out as *mut u8, true) as *mut c_void }
+}
+
+/// Canonical array-index test on a live Str key — the shadow-entry
+/// filter's key shape check ([`crate::arr_reflect`] twin).
+unsafe fn key_is_canonical_index(key: *const c_void) -> bool {
+    let len = unsafe { key.cast::<u8>().add(8).cast::<u32>().read() } as usize;
+    if len == 0 || len > 10 {
+        return false;
+    }
+    let bytes = unsafe { core::slice::from_raw_parts(key.cast::<u8>().add(16), len) };
+    if bytes == b"0" {
+        return true;
+    }
+    if bytes[0] == b'0' || !bytes.iter().all(|b| b.is_ascii_digit()) {
+        return false;
+    }
+    let mut v: u64 = 0;
+    for &b in bytes {
+        v = v * 10 + (b - b'0') as u64;
+    }
+    v < u32::MAX as u64
 }
 
 /// `Object.keys` / `getOwnPropertyNames` / `Reflect.ownKeys` arm for
@@ -215,7 +252,7 @@ pub unsafe extern "C" fn __torajs_anyv_own_keys(v: u64, include_nonenum: i64) ->
                 if props.is_null() {
                     out as *mut c_void
                 } else {
-                    unsafe { dynobj_keys_append(props, include_nonenum, out) as *mut c_void }
+                    unsafe { dynobj_keys_append(props, include_nonenum, out, false) as *mut c_void }
                 }
             }
             TAG_OBJ_CELL => unsafe { crate::struct_enum::__torajs_anyv_struct_keys(v) },

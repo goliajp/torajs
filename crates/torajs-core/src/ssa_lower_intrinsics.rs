@@ -301,6 +301,7 @@ pub(crate) struct Intrinsics {
     pub(crate) fnprops_get_value: FuncId,
     pub(crate) arrprops_set: FuncId,
     pub(crate) arr_define: FuncId,
+    pub(crate) arr_keys_only_of: FuncId,
     pub(crate) arrprops_get_tag: FuncId,
     pub(crate) arrprops_get_value: FuncId,
     pub(crate) dynobj_get_tag: FuncId,

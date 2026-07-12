@@ -131,23 +131,31 @@ pub(crate) fn try_lower(
     // route through the per-surface helper instead of building a
     // compile-time literal name list.
     if matches!(arg_ty, Type::Arr(_)) {
-        let len = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Load(Type::I64, arg_op, 8),
-            Type::I64,
-            None,
-        );
-        let helper = if is_keys_only {
-            ctx.intrinsics.arr_keys_only
+        // keys / for-in ride the exotic-aware pointer helper (RFC
+        // 20260712-arr-exotic-define chunk C: a defineProperty'd
+        // index may be enumerable: false); gOPN / ownKeys keep the
+        // unfiltered len-driven mint (+ "length").
+        let v = if is_keys_only {
+            ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.arr_keys_only_of, vec![arg_op]),
+                Type::Arr(intern_arr_layout(ctx.arr_layouts, Type::Str)),
+                None,
+            )
         } else {
-            ctx.intrinsics.arr_index_strs
+            let len = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Load(Type::I64, arg_op, 8),
+                Type::I64,
+                None,
+            );
+            ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.arr_index_strs, vec![Operand::Value(len)]),
+                Type::Arr(intern_arr_layout(ctx.arr_layouts, Type::Str)),
+                None,
+            )
         };
-        let v = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Call(helper, vec![Operand::Value(len)]),
-            Type::Arr(intern_arr_layout(ctx.arr_layouts, Type::Str)),
-            None,
-        );
         return Some(Operand::Value(v));
     }
     // W-N-d — Str receiver: keys → `["0", ..., "<len-1>"]`,
