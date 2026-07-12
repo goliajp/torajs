@@ -13,11 +13,7 @@ use crate::substr::{
     SUBSTR_PARENT_OFF,
 };
 use crate::substr_methods::{substr_offset, substr_parent, substr_view};
-
-#[inline]
-fn substr_is_ws(b: u8) -> bool {
-    matches!(b, b' ' | b'\t' | b'\n' | b'\r' | 0x0B | 0x0C)
-}
+use crate::transform::trim::{is_trim_ws, is_trim_ws_u16};
 
 /// Compute trim bounds for Substr `v` and return the
 /// `(parent, code_unit_offset, code_unit_len)` triple that the
@@ -26,10 +22,11 @@ fn substr_is_ws(b: u8) -> bool {
 /// which sides scan (`_trim_start` skips end, `_trim_end` skips
 /// start, `_trim` does both).
 ///
-/// Encoding-aware (P11.1-S5): Latin-1 = byte-stride scan; UTF-16 LE
-/// = u16-stride scan with high-byte-zero + low-byte-in-WS predicate.
-/// Byte indices from the scan are divided by the parent's stride to
-/// yield code-unit `(lo, hi)`.
+/// Encoding-aware (P11.1-S5): Latin-1 = byte-stride scan against
+/// the Latin-1 projection of the ES TrimString set; UTF-16 LE =
+/// u16-stride scan against the full set (shared predicates from
+/// `transform::trim`). Byte indices from the scan are divided by
+/// the parent's stride to yield code-unit `(lo, hi)`.
 #[inline]
 unsafe fn trim_cu_bounds(v: *const u8, do_start: bool, do_end: bool) -> (*mut c_void, u64, u64) {
     let (payload, _cu_len, is_latin1) = unsafe { substr_view(v) };
@@ -39,13 +36,13 @@ unsafe fn trim_cu_bounds(v: *const u8, do_start: bool, do_end: bool) -> (*mut c_
     let (lo_byte, hi_byte) = if is_latin1 {
         let mut lo = 0usize;
         if do_start {
-            while lo < byte_len && substr_is_ws(payload[lo]) {
+            while lo < byte_len && is_trim_ws(payload[lo]) {
                 lo += 1;
             }
         }
         let mut hi = byte_len;
         if do_end {
-            while hi > lo && substr_is_ws(payload[hi - 1]) {
+            while hi > lo && is_trim_ws(payload[hi - 1]) {
                 hi -= 1;
             }
         }
@@ -53,13 +50,17 @@ unsafe fn trim_cu_bounds(v: *const u8, do_start: bool, do_end: bool) -> (*mut c_
     } else {
         let mut lo = 0usize;
         if do_start {
-            while lo + 1 < byte_len && payload[lo + 1] == 0 && substr_is_ws(payload[lo]) {
+            while lo + 1 < byte_len
+                && is_trim_ws_u16(u16::from_le_bytes([payload[lo], payload[lo + 1]]))
+            {
                 lo += 2;
             }
         }
         let mut hi = byte_len;
         if do_end {
-            while hi >= lo + 2 && payload[hi - 1] == 0 && substr_is_ws(payload[hi - 2]) {
+            while hi >= lo + 2
+                && is_trim_ws_u16(u16::from_le_bytes([payload[hi - 2], payload[hi - 1]]))
+            {
                 hi -= 2;
             }
         }

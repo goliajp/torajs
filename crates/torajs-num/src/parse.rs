@@ -15,29 +15,85 @@
 //! invalid digit, returns the parsed prefix as f64). Rust's
 //! `from_str_radix` rejects any trailing junk.
 
-use crate::layout::{STR_DATA_OFF, STR_LEN_OFF};
+use crate::layout::{STR_DATA_OFF, STR_FLAG_IS_LATIN1, STR_FLAGS_OFF, STR_LEN_OFF};
 
 // ============================================================
 // Layout-aware FFI helpers (sub-module-local)
 // ============================================================
 
 #[inline]
-unsafe fn str_len(p: *const u8) -> u64 {
-    unsafe { (p.add(STR_LEN_OFF) as *const u64).read() }
+unsafe fn str_len(p: *const u8) -> usize {
+    unsafe { (p.add(STR_LEN_OFF) as *const u32).read() as usize }
 }
 
 #[inline]
-unsafe fn str_bytes<'a>(p: *const u8, len: u64) -> &'a [u8] {
-    unsafe { core::slice::from_raw_parts(p.add(STR_DATA_OFF), len as usize) }
+unsafe fn str_is_latin1(p: *const u8) -> bool {
+    let flags = unsafe { (p.add(STR_FLAGS_OFF) as *const u16).read() };
+    (flags & STR_FLAG_IS_LATIN1) != 0
+}
+
+#[inline]
+unsafe fn str_bytes<'a>(p: *const u8, byte_cnt: usize) -> &'a [u8] {
+    unsafe { core::slice::from_raw_parts(p.add(STR_DATA_OFF), byte_cnt) }
 }
 
 // ============================================================
 // Pure-Rust cores
 // ============================================================
 
+/// Latin-1 projection of the ES TrimString whitespace set (ASCII
+/// whitespace + NBSP `0xA0`). Mirrors the single-source predicate
+/// in `torajs-str/src/transform/trim.rs` — duplicated because
+/// same-layer crate deps are forbidden (see `layout.rs` header).
 #[inline]
-fn is_ascii_ws(c: u8) -> bool {
-    matches!(c, b' ' | b'\t' | b'\n' | b'\r' | 0x0b | 0x0c)
+fn is_trim_ws(c: u8) -> bool {
+    matches!(c, b'\t'..=b'\r' | b' ' | 0xa0)
+}
+
+/// Full ES TrimString predicate over a UTF-16 code unit. Mirror of
+/// `torajs-str::transform::trim::is_trim_ws_u16` (same-layer dep
+/// prohibition, see `layout.rs` header).
+#[inline]
+fn is_trim_ws_u16(u: u16) -> bool {
+    matches!(
+        u,
+        0x0009..=0x000d
+            | 0x0020
+            | 0x00a0
+            | 0x1680
+            | 0x2000..=0x200a
+            | 0x2028
+            | 0x2029
+            | 0x202f
+            | 0x205f
+            | 0x3000
+            | 0xfeff
+    )
+}
+
+/// Narrow a UTF-16 LE payload for the byte-slice parse cores: skip
+/// leading TrimString whitespace per code unit, then copy units
+/// until the first one > 0x7F. Both `parse_int` and `parse_float`
+/// stop at the first non-ASCII character anyway (digits, sign,
+/// exponent and `Infinity` are all ASCII), so truncating there is
+/// semantics-preserving prefix parsing.
+fn narrow_utf16_prefix(payload: &[u8]) -> Vec<u8> {
+    let unit_at = |i: usize| u16::from_le_bytes([payload[i], payload[i + 1]]);
+    let end = payload.len() & !1;
+    let mut i = 0usize;
+    while i < end && is_trim_ws_u16(unit_at(i)) {
+        i += 2;
+    }
+    let mut ascii = Vec::with_capacity((end - i) / 2);
+    while i < end {
+        let u = unit_at(i);
+        if u > 0x7f {
+            break;
+        }
+        ascii.push(u as u8);
+        i += 2;
+    }
+    ascii
 }
 
 /// Decode one ASCII digit byte to its base-36 value, or `None` if
@@ -62,7 +118,7 @@ fn digit_value(c: u8) -> Option<u32> {
 /// - Reject `radix < 2 || radix > 36` → `NaN`
 pub fn parse_int(s: &[u8], radix: i64) -> f64 {
     let mut i = 0usize;
-    while i < s.len() && is_ascii_ws(s[i]) {
+    while i < s.len() && is_trim_ws(s[i]) {
         i += 1;
     }
     let mut sign = 1i32;
@@ -108,9 +164,9 @@ pub fn parse_int(s: &[u8], radix: i64) -> f64 {
 /// input cap: scans for the longest valid numeric prefix, then
 /// parses via `f64::from_str` over the matching slice.
 pub fn parse_float(s: &[u8]) -> f64 {
-    // Skip leading ASCII whitespace.
+    // Skip leading whitespace (Latin-1 TrimString projection).
     let mut i = 0usize;
-    while i < s.len() && is_ascii_ws(s[i]) {
+    while i < s.len() && is_trim_ws(s[i]) {
         i += 1;
     }
     let scan_start = i;
@@ -183,8 +239,13 @@ fn parse_prefix(prefix: &[u8]) -> f64 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_num_parse_int(s: *const u8, radix: i64) -> f64 {
     let len = unsafe { str_len(s) };
-    let bytes = unsafe { str_bytes(s, len) };
-    parse_int(bytes, radix)
+    if unsafe { str_is_latin1(s) } {
+        let bytes = unsafe { str_bytes(s, len) };
+        parse_int(bytes, radix)
+    } else {
+        let payload = unsafe { str_bytes(s, len * 2) };
+        parse_int(&narrow_utf16_prefix(payload), radix)
+    }
 }
 
 /// `Number.parseFloat(str)` — finds the longest valid numeric
@@ -196,8 +257,13 @@ pub unsafe extern "C" fn __torajs_num_parse_int(s: *const u8, radix: i64) -> f64
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_num_parse_float(s: *const u8) -> f64 {
     let len = unsafe { str_len(s) };
-    let bytes = unsafe { str_bytes(s, len) };
-    parse_float(bytes)
+    if unsafe { str_is_latin1(s) } {
+        let bytes = unsafe { str_bytes(s, len) };
+        parse_float(bytes)
+    } else {
+        let payload = unsafe { str_bytes(s, len * 2) };
+        parse_float(&narrow_utf16_prefix(payload))
+    }
 }
 
 #[cfg(test)]
@@ -264,6 +330,24 @@ mod tests {
         assert!(parse_float(b"").is_nan());
         assert!(parse_float(b"xyz").is_nan());
         assert!(parse_float(b"   ").is_nan());
+    }
+
+    #[test]
+    fn leading_nbsp_trimmed() {
+        // NBSP (0xA0) is in the Latin-1 TrimString projection.
+        assert_eq!(parse_int(b"\xa042", 10), 42.0);
+        assert_eq!(parse_float(b"\xa03.5"), 3.5);
+    }
+
+    #[test]
+    fn utf16_narrow_trims_and_truncates() {
+        // "\u{3000}42\u{4E00}" as UTF-16 LE — leading ideographic
+        // space trimmed, narrow stops at the first non-ASCII unit.
+        let payload = [0x00u8, 0x30, 0x34, 0x00, 0x32, 0x00, 0x00, 0x4e];
+        let ascii = narrow_utf16_prefix(&payload);
+        assert_eq!(ascii, b"42");
+        assert_eq!(parse_int(&ascii, 10), 42.0);
+        assert_eq!(parse_float(&ascii), 42.0);
     }
 
     #[test]

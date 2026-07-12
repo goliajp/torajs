@@ -13,8 +13,17 @@
 //! these constants move there and both torajs-str + torajs-num
 //! import from one source of truth.
 
-/// Str payload length field — `*(u64*)(p + 8)`.
+/// Str payload length field — `*(u32*)(p + 8)` (code unit count;
+/// `_pad u32 @12` is reserved-zero, so a legacy u64 read happens to
+/// yield the same value).
 pub const STR_LEN_OFF: usize = 8;
 
 /// Str payload data — `p + 16`.
 pub const STR_DATA_OFF: usize = 16;
+
+/// HeapHeader `flags: u16` field — `*(u16*)(p + 6)`.
+pub const STR_FLAGS_OFF: usize = 6;
+
+/// `flags` bit 1 — payload encoding: 1 = Latin-1 (1 byte / code
+/// unit), 0 = UTF-16 LE (2 bytes / code unit).
+pub const STR_FLAG_IS_LATIN1: u16 = 0x0002;

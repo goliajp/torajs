@@ -1,17 +1,18 @@
 //! Str whitespace trim — `s.trim()` / `s.trimStart()` / `s.trimEnd()`.
 //!
-//! **ASCII whitespace set**: space / tab (`\t`) / LF (`\n`) / CR
-//! (`\r`) / VT (`\x0b`) / FF (`\x0c`). Matches the pre-rewrite C
-//! `is_trim_ws_` predicate bit-for-bit. Unicode whitespace beyond
-//! ASCII (NBSP `\xA0`, U+2028 line separator, etc.) is NOT
-//! trimmed — same as the prior subset behavior.
+//! **Whitespace set** per ES §22.1.3.32.1 TrimString = WhiteSpace
+//! (TAB / VT / FF / SP / NBSP / ZWNBSP + Unicode Zs) ∪
+//! LineTerminator (LF / CR / LS / PS). Full code-unit set:
+//! `{0009-000D, 0020, 00A0, 1680, 2000-200A, 2028, 2029, 202F,
+//! 205F, 3000, FEFF}`. [`is_trim_ws`] is the Latin-1 (≤ 0xFF)
+//! projection; [`is_trim_ws_u16`] is the full-set predicate. Both
+//! are the single source of truth shared by the Substr trim shims
+//! (`substr_trim.rs`) and StringToNumber (`to_number.rs`).
 //!
-//! P11.1-S2.5 — encoding-aware iteration: for a Latin-1 payload the
-//! per-byte ASCII whitespace test runs as before; for a UTF-16 LE
-//! payload each candidate code unit is read as a little-endian u16
-//! and only matched against the ASCII whitespace set when its high
-//! byte is zero (BMP code unit value ≤ 0xFF). Source and result
-//! encodings always match.
+//! P11.1-S2.5 — encoding-aware iteration: a Latin-1 payload runs
+//! the per-byte predicate; a UTF-16 LE payload reads each candidate
+//! code unit as a little-endian u16 and matches the full set.
+//! Source and result encodings always match.
 //!
 //! IR-side surface (declared in `ssa_lower::lower`, intrinsic
 //! noalias-whitelisted on the LLVM-era backend):
@@ -45,11 +46,35 @@ unsafe fn str_view<'a>(p: *const u8) -> (&'a [u8], u32, bool) {
 // Pure-Rust cores
 // ============================================================
 
-/// ASCII trim-whitespace predicate. Single byte test — LLVM lowers
-/// to a small jump-table or branchless compare-chain at `-O3`.
+/// Latin-1 trim-whitespace predicate: the `≤ 0xFF` projection of
+/// the ES TrimString set — ASCII whitespace + NBSP (`0xA0`).
+/// Single byte test — LLVM lowers to a small jump-table or
+/// branchless compare-chain at `-O3`.
 #[inline]
 pub fn is_trim_ws(c: u8) -> bool {
-    matches!(c, b' ' | b'\t' | b'\n' | b'\r' | 0x0b | 0x0c)
+    matches!(c, b'\t'..=b'\r' | b' ' | 0xa0)
+}
+
+/// Full ES TrimString predicate over a UTF-16 code unit:
+/// WhiteSpace (TAB VT FF SP NBSP ZWNBSP + Zs) ∪ LineTerminator
+/// (LF CR LS PS). Surrogate code units are never whitespace, so a
+/// per-unit scan is safe on WTF-16 payloads.
+#[inline]
+pub fn is_trim_ws_u16(u: u16) -> bool {
+    matches!(
+        u,
+        0x0009..=0x000d
+            | 0x0020
+            | 0x00a0
+            | 0x1680
+            | 0x2000..=0x200a
+            | 0x2028
+            | 0x2029
+            | 0x202f
+            | 0x205f
+            | 0x3000
+            | 0xfeff
+    )
 }
 
 /// First non-whitespace **byte** offset in a Latin-1 payload.
@@ -76,13 +101,14 @@ pub fn trim_end_idx(s: &[u8], min: usize) -> usize {
 }
 
 /// UTF-16 LE variant of [`trim_start_idx`] — steps by 2 bytes per
-/// code unit. Only u16s whose high byte is zero and whose low byte
-/// matches the ASCII whitespace set are dropped, mirroring the
-/// Latin-1 path.
+/// code unit, matching each little-endian u16 against the full ES
+/// TrimString set.
 #[inline]
 fn trim_start_idx_utf16(payload: &[u8]) -> usize {
     let mut lo = 0;
-    while lo + 1 < payload.len() && payload[lo + 1] == 0 && is_trim_ws(payload[lo]) {
+    while lo + 1 < payload.len()
+        && is_trim_ws_u16(u16::from_le_bytes([payload[lo], payload[lo + 1]]))
+    {
         lo += 2;
     }
     lo
@@ -91,7 +117,7 @@ fn trim_start_idx_utf16(payload: &[u8]) -> usize {
 #[inline]
 fn trim_end_idx_utf16(payload: &[u8], min: usize) -> usize {
     let mut hi = payload.len();
-    while hi >= min + 2 && payload[hi - 1] == 0 && is_trim_ws(payload[hi - 2]) {
+    while hi >= min + 2 && is_trim_ws_u16(u16::from_le_bytes([payload[hi - 2], payload[hi - 1]])) {
         hi -= 2;
     }
     hi
@@ -100,8 +126,31 @@ fn trim_end_idx_utf16(payload: &[u8], min: usize) -> usize {
 /// Allocate a fresh Str block holding `src[range]` under
 /// `is_latin1`. The byte range must already be aligned to the
 /// encoding's code-unit stride.
+///
+/// Canonical-encoding invariant (`eq.rs` short-circuit contract):
+/// a UTF-16 source whose surviving units are all ≤ 0xFF must
+/// narrow to Latin-1 — trimming the full TrimString set can strip
+/// every supra-Latin-1 unit (`"\u{3000}abc".trim()` → `"abc"`),
+/// and an un-narrowed result would compare unequal to the Latin-1
+/// literal with identical content.
 #[inline]
 fn alloc_payload(src: &[u8], is_latin1: bool) -> *mut u8 {
+    if !is_latin1 {
+        let all_latin1 = src
+            .chunks_exact(2)
+            .all(|c| u16::from_le_bytes([c[0], c[1]]) <= 0xff);
+        if all_latin1 {
+            let length = (src.len() / 2) as u32;
+            let mut block = StrBlock::alloc_with_encoding(length, true);
+            if length != 0 {
+                let dst = unsafe { block.as_bytes_mut(length) };
+                for (i, c) in src.chunks_exact(2).enumerate() {
+                    dst[i] = c[0];
+                }
+            }
+            return block.into_raw();
+        }
+    }
     let stride: u32 = if is_latin1 { 1 } else { 2 };
     let byte_cnt = src.len() as u32;
     let length = byte_cnt / stride;
@@ -174,16 +223,32 @@ mod tests {
     use alloc::vec::Vec;
 
     #[test]
-    fn ws_predicate_recognizes_ascii_set() {
-        for c in [b' ', b'\t', b'\n', b'\r', 0x0bu8, 0x0cu8] {
+    fn ws_predicate_recognizes_latin1_set() {
+        for c in [b' ', b'\t', b'\n', b'\r', 0x0bu8, 0x0cu8, 0xa0u8] {
             assert!(is_trim_ws(c), "{c:#04x} should be ws");
         }
     }
 
     #[test]
     fn ws_predicate_rejects_non_ws() {
-        for c in [b'a', b'Z', b'0', b'.', 0x00u8, 0xa0u8, 0xffu8] {
+        for c in [b'a', b'Z', b'0', b'.', 0x00u8, 0x9fu8, 0xa1u8, 0xffu8] {
             assert!(!is_trim_ws(c), "{c:#04x} should NOT be ws");
+        }
+    }
+
+    #[test]
+    fn u16_predicate_matches_full_trimstring_set() {
+        for u in [
+            0x0009u16, 0x000a, 0x000b, 0x000c, 0x000d, 0x0020, 0x00a0, 0x1680, 0x2000, 0x2005,
+            0x200a, 0x2028, 0x2029, 0x202f, 0x205f, 0x3000, 0xfeff,
+        ] {
+            assert!(is_trim_ws_u16(u), "{u:#06x} should be ws");
+        }
+        for u in [
+            0x0000u16, 0x0041, 0x00a1, 0x167f, 0x1681, 0x200b, 0x2027, 0x202a, 0x2060, 0x3001,
+            0xd800, 0xfefe, 0xfffd,
+        ] {
+            assert!(!is_trim_ws_u16(u), "{u:#06x} should NOT be ws");
         }
     }
 
@@ -227,11 +292,18 @@ mod tests {
     }
 
     #[test]
-    fn utf16_trim_preserves_non_ascii_ws() {
-        // U+3000 (ideographic space) is whitespace in Unicode but not
-        // in the ASCII trim set — UTF-16 LE bytes [0x00 0x30]. Must
-        // NOT be trimmed.
-        let payload = [0x00, 0x30, 0x41, 0x00];
+    fn utf16_trim_strips_unicode_ws() {
+        // U+3000 (ideographic space) IS in the ES TrimString set —
+        // UTF-16 LE bytes [0x00 0x30]. Must be trimmed on both sides.
+        let payload = [0x00, 0x30, 0x41, 0x00, 0x00, 0x30];
+        assert_eq!(trim_start_idx_utf16(&payload), 2);
+        assert_eq!(trim_end_idx_utf16(&payload, 0), 4);
+    }
+
+    #[test]
+    fn utf16_trim_preserves_non_ws_bmp() {
+        // U+3001 (ideographic comma) is NOT whitespace — must stay.
+        let payload = [0x01, 0x30, 0x41, 0x00];
         assert_eq!(trim_start_idx_utf16(&payload), 0);
         assert_eq!(trim_end_idx_utf16(&payload, 0), 4);
     }

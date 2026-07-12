@@ -29,17 +29,9 @@
 
 use core::ffi::c_void;
 
-use crate::layout::{STR_DATA_OFF, STR_LEN_OFF};
-
-/// Whitespace per ES spec §7.1.4.1.1 StringWhiteSpace. ASCII subset
-/// matched: SP / TAB / LF / CR / VT / FF. (NBSP, BOM, ZWNBSP are
-/// multi-byte UTF-8 and the C original explicitly skipped them too
-/// — they only show up via `String(...)` rituals and the test262
-/// failures around them are diagnosed separately.)
-#[inline]
-fn is_ws(b: u8) -> bool {
-    matches!(b, b' ' | b'\t' | b'\n' | b'\r' | 0x0B | 0x0C)
-}
+use crate::layout::{STR_DATA_OFF, STR_FLAG_IS_LATIN1, STR_LEN_OFF};
+use crate::transform::trim::{is_trim_ws, is_trim_ws_u16};
+use torajs_rc::HeapHeader;
 
 /// String → Number per ES spec §7.1.4. Pure Rust core; the FFI
 /// wrapper [`__torajs_str_to_number`] reads the Str layout and
@@ -48,13 +40,14 @@ fn is_ws(b: u8) -> bool {
 /// Returns f64::NAN on any parse failure; identical semantics to
 /// the pre-rewrite C `strtod`-with-`endp`-must-be-end check.
 pub fn parse_number(bytes: &[u8]) -> f64 {
-    // Trim leading/trailing whitespace.
+    // Trim leading/trailing whitespace (Latin-1 projection of the
+    // ES TrimString set — shared predicate with `s.trim()`).
     let mut s = 0usize;
     let mut e = bytes.len();
-    while s < e && is_ws(bytes[s]) {
+    while s < e && is_trim_ws(bytes[s]) {
         s += 1;
     }
-    while e > s && is_ws(bytes[e - 1]) {
+    while e > s && is_trim_ws(bytes[e - 1]) {
         e -= 1;
     }
     if s == e {
@@ -124,8 +117,37 @@ pub fn parse_number(bytes: &[u8]) -> f64 {
     s.parse::<f64>().unwrap_or(f64::NAN)
 }
 
+/// UTF-16 LE variant of [`parse_number`]: trims the full ES
+/// TrimString set per code unit, then narrows the remainder to
+/// ASCII bytes for the shared byte-slice core. Any unit > 0x7F in
+/// the trimmed body → NaN (a StringNumericLiteral is ASCII-only).
+pub fn parse_number_utf16(payload: &[u8]) -> f64 {
+    let unit_at = |i: usize| u16::from_le_bytes([payload[i], payload[i + 1]]);
+    let mut s = 0usize;
+    let mut e = payload.len() & !1;
+    while s < e && is_trim_ws_u16(unit_at(s)) {
+        s += 2;
+    }
+    while e > s && is_trim_ws_u16(unit_at(e - 2)) {
+        e -= 2;
+    }
+    let mut ascii = alloc::vec::Vec::with_capacity((e - s) / 2);
+    let mut i = s;
+    while i < e {
+        let u = unit_at(i);
+        if u > 0x7f {
+            return f64::NAN;
+        }
+        ascii.push(u as u8);
+        i += 2;
+    }
+    parse_number(&ascii)
+}
+
 /// Mirrors the pre-rewrite C `__torajs_str_to_number(const void *p)
 /// -> double`. Null input returns 0.0 (matches the C guard).
+/// Encoding-aware: a Latin-1 payload parses in place; a UTF-16 LE
+/// payload routes through [`parse_number_utf16`].
 ///
 /// # Safety
 ///
@@ -137,10 +159,18 @@ pub unsafe extern "C" fn __torajs_str_to_number(p: *const c_void) -> f64 {
         return 0.0;
     }
     // SAFETY: caller's invariant.
-    let len = unsafe { (p.cast::<u8>().add(STR_LEN_OFF) as *const u64).read() } as usize;
-    // SAFETY: same.
-    let bytes = unsafe { core::slice::from_raw_parts(p.cast::<u8>().add(STR_DATA_OFF), len) };
-    parse_number(bytes)
+    let len = unsafe { (p.cast::<u8>().add(STR_LEN_OFF) as *const u32).read() } as usize;
+    let header = unsafe { &*(p as *const HeapHeader) };
+    if (header.flags & STR_FLAG_IS_LATIN1) != 0 {
+        // SAFETY: Latin-1 payload is `len` bytes.
+        let bytes = unsafe { core::slice::from_raw_parts(p.cast::<u8>().add(STR_DATA_OFF), len) };
+        parse_number(bytes)
+    } else {
+        // SAFETY: UTF-16 payload is `len` code units = `len * 2` bytes.
+        let payload =
+            unsafe { core::slice::from_raw_parts(p.cast::<u8>().add(STR_DATA_OFF), len * 2) };
+        parse_number_utf16(payload)
+    }
 }
 
 #[cfg(test)]
@@ -218,6 +248,22 @@ mod tests {
     fn surrounding_whitespace_trimmed() {
         assert_to_number(b"  42  ", 42.0);
         assert_to_number(b"\t3.14\n", 3.14);
+        // NBSP (0xA0) is in the Latin-1 TrimString projection.
+        assert_to_number(b"\xa042\xa0", 42.0);
+        assert_to_number(b"\xa0\xa0", 0.0);
+    }
+
+    #[test]
+    fn utf16_payload_trims_unicode_ws() {
+        // "\u{3000}42\u{FEFF}" as UTF-16 LE units.
+        let payload = [0x00u8, 0x30, 0x34, 0x00, 0x32, 0x00, 0xff, 0xfe];
+        assert_eq!(parse_number_utf16(&payload), 42.0);
+        // All-whitespace → 0.
+        let ws = [0x00u8, 0x30, 0x28, 0x20];
+        assert_eq!(parse_number_utf16(&ws), 0.0);
+        // Non-ASCII in the trimmed body → NaN.
+        let bad = [0x34u8, 0x00, 0x00, 0x4e];
+        assert!(parse_number_utf16(&bad).is_nan());
     }
 
     #[test]
