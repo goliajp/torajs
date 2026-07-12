@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-12T08:08:23.572Z",
+  "generatedAt": "2026-07-12T10:33:22.687Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-12T07:51:29Z",
-    "headSha": "d8f59376",
-    "elapsedSec": 462.23,
+    "ranAt": "2026-07-12T10:21:24Z",
+    "headSha": "2d9afb8d",
+    "elapsedSec": 1118.62,
     "workers": 8,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 4356,
+    "pass": 4420,
     "passNoOracle": 78,
     "passNegative": 4444,
-    "passTotal": 8878,
-    "bug": 1521,
-    "incompatible": 42775,
+    "passTotal": 8942,
+    "bug": 1456,
+    "incompatible": 42776,
     "bunSkip": 12861,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 10399,
-    "passRateInScope": 16.7,
-    "passRateTrAccepted": 85.37
+    "trAccepted": 10398,
+    "passRateInScope": 16.82,
+    "passRateTrAccepted": 86
   },
   "torajs": {
-    "commit": "2543c7de",
-    "commitSubject": "fix: regex-literal LICM singleton stolen by taking consumers (UAF)",
+    "commit": "ca2ea9c4",
+    "commitSubject": "fix: ordinary-to-primitive skips own non-callable tostring/valueof entries",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "ca2ea9c4",
+      "subject": "fix: ordinary-to-primitive skips own non-callable tostring/valueof entries"
+    },
+    {
+      "hash": "2d9afb8d",
+      "subject": "fix: regexp split spec protocol and lazy-quantifier dfa gate"
+    },
+    {
+      "hash": "6ff95703",
+      "subject": "feat: tostring coercion for replace args and post-call drop of fresh-owned argv temps"
+    },
+    {
+      "hash": "6cd40593",
+      "subject": "feat: ordinary-to-primitive for object operands of tostring and tonumber"
+    },
+    {
+      "hash": "de8e7162",
+      "subject": "fix: mixed-encoding str equality and canonical narrowing for range-carving kernels"
+    },
+    {
+      "hash": "821908f2",
+      "subject": "feat: es trimstring unicode whitespace set for trim family and string-to-number"
+    },
+    {
+      "hash": "0716d1db",
+      "subject": "chore: hardev dashboard snapshot"
+    },
+    {
       "hash": "2543c7de",
       "subject": "fix: regex-literal LICM singleton stolen by taking consumers (UAF)"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "8b754585",
       "subject": "feat: regexp v flag (unicodeSets) core — cp set algebra classes"
-    },
-    {
-      "hash": "d0489198",
-      "subject": "feat: regexp-modifiers (?ims-ims:) via per-inst flag bits"
-    },
-    {
-      "hash": "697d976c",
-      "subject": "chore: hardev dashboard snapshot"
-    },
-    {
-      "hash": "6d5552ef",
-      "subject": "chore: test262 accounting @ c93a6526 — passTotal 8775 (+68), 0 regressions"
-    },
-    {
-      "hash": "c93a6526",
-      "subject": "feat: generic array-like splice/sort/fill/copyWithin"
-    },
-    {
-      "hash": "d3215825",
-      "subject": "feat: generic array-like mutators (pop/push/shift/unshift/reverse)"
-    },
-    {
-      "hash": "6a21b719",
-      "subject": "feat: generic array-like receiver arm for Array.prototype read family"
-    },
-    {
-      "hash": "8a923c3c",
-      "subject": "feat: array any-tier method surface catch-up (flat family + change-by-copy)"
     }
   ],
-  "headSha": "2543c7de",
+  "headSha": "ca2ea9c4",
   "autorun": {
-    "total": 385,
+    "total": 386,
     "baselineTarget": 10,
-    "bySelf": 380,
+    "bySelf": 381,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1783834962-59f5",
-      "at": "2026-07-12T05:42:42Z",
-      "ts": 1783834962,
+      "rotationId": "r-1783843789-3d72",
+      "at": "2026-07-12T08:09:49Z",
+      "ts": 1783843789,
       "trigger": "self",
-      "prevHead": "697d976c",
-      "handoffSha": "sha256:1ee53eeed8dd26a6137163f36d5d2df1ff09433c15946d3e951f4c8e9fc94542",
+      "prevHead": "0716d1db",
+      "handoffSha": "sha256:9de521577fe745156866ab9c31624e7c6900cd0180697b09827402cdd28eb876",
       "handoffAgeSec": 8,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1783843789-3d72",
+        "at": "2026-07-12T08:09:49Z",
+        "ts": 1783843789,
+        "trigger": "self",
+        "prevHead": "0716d1db",
+        "handoffSha": "sha256:9de521577fe745156866ab9c31624e7c6900cd0180697b09827402cdd28eb876",
+        "handoffAgeSec": 8,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1783834962-59f5",
         "at": "2026-07-12T05:42:42Z",
@@ -875,17 +886,6 @@
         "trigger": "self",
         "prevHead": "4c261a8e",
         "handoffSha": "sha256:26c93fa52183ebb7d5839355bff2c979c0cab65223f246e335725c748f326250",
-        "handoffAgeSec": 7,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1783749492-3d0e",
-        "at": "2026-07-11T05:58:12Z",
-        "ts": 1783749492,
-        "trigger": "self",
-        "prevHead": "79ece0b1",
-        "handoffSha": "sha256:f289ed3e3294e897f5c92016a27e36286215615fed83a4ffd017ec927d904758",
         "handoffAgeSec": 7,
         "conformanceBefore": null,
         "commitsInSession": null
