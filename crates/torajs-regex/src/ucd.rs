@@ -30,6 +30,38 @@ pub struct UPropRange {
     pub hi: i32,
 }
 
+/// One ES §22.2.1 "property of strings" (RFC 20260712 chunk B3) —
+/// single-cp members as sorted ranges + multi-cp sequences as UTF-8
+/// strings. Data lives in the CODEGEN [`crate::ucd_emoji_seq`].
+pub struct StringProp {
+    pub cp_ranges: &'static [UPropRange],
+    pub strings: &'static [&'static str],
+}
+
+/// Resolve a lone `\p{Name}` against the properties-of-strings
+/// whitelist (v-flag only; `\P` of a strings property is the
+/// MayContainStrings early error at the call sites). `RGI_Emoji` is
+/// the six-part union per UTS #51 — parts are folded by the caller.
+pub fn lookup_string_property(name: &str) -> Option<&'static [&'static StringProp]> {
+    use crate::ucd_emoji_seq::*;
+    static BASIC: [&StringProp; 1] = [&BASIC_EMOJI];
+    static KEYCAP: [&StringProp; 1] = [&EMOJI_KEYCAP_SEQUENCE];
+    static FLAG: [&StringProp; 1] = [&RGI_EMOJI_FLAG_SEQUENCE];
+    static MODIFIER: [&StringProp; 1] = [&RGI_EMOJI_MODIFIER_SEQUENCE];
+    static TAG: [&StringProp; 1] = [&RGI_EMOJI_TAG_SEQUENCE];
+    static ZWJ: [&StringProp; 1] = [&RGI_EMOJI_ZWJ_SEQUENCE];
+    match name {
+        "Basic_Emoji" => Some(&BASIC),
+        "Emoji_Keycap_Sequence" => Some(&KEYCAP),
+        "RGI_Emoji_Flag_Sequence" => Some(&FLAG),
+        "RGI_Emoji_Modifier_Sequence" => Some(&MODIFIER),
+        "RGI_Emoji_Tag_Sequence" => Some(&TAG),
+        "RGI_Emoji_ZWJ_Sequence" => Some(&ZWJ),
+        "RGI_Emoji" => Some(&RGI_EMOJI_PARTS),
+        _ => None,
+    }
+}
+
 pub fn uprop_range_contains(t: &[UPropRange], cp: i32) -> bool {
     let mut lo: isize = 0;
     let mut hi: isize = t.len() as isize - 1;

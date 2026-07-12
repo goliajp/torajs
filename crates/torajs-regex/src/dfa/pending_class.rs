@@ -215,6 +215,39 @@ pub(crate) fn classify_kproperty_shape(
     // (transitions stays all-zero there because no non-K-PROPERTY
     // byte-consumer participates in byte_step; the pending handler
     // takes every byte).
+    //
+    // RFC 20260712 chunk B3 — the v4 fallback is only sound when the
+    // non-K-PROPERTY consumers' byte domains don't overlap the K
+    // class's UTF-8 LEAD bytes: `transitions[byte] != 0` wins over
+    // pending, so a non-ASCII `Op::Char` (a `\q{…}` / PoS string
+    // branch's lead byte, e.g. 0xF0 for an emoji) steals the step
+    // from the cp handler and the single-cp side silently misses
+    // (`/\p{Basic_Emoji}/v` dropped every single-cp member whose
+    // lead byte any string branch shared). Any non-K consumer that
+    // can eat a byte ≥ 0x80 poisons the state → the cp-aware Pike VM
+    // serves the program. The v4 digit case (ASCII-only consumers)
+    // stays DFA-resident.
+    for &pc in ready.iter() {
+        if kproperty_pc_for(prog, pc, flags).is_some() {
+            continue;
+        }
+        let Some(ins) = prog.insts.get(pc) else {
+            continue;
+        };
+        match Op::from_u8(ins.op) {
+            Some(Op::Char) if ins.ch >= 0x80 => return KPropertyVerdict::Unserveable,
+            Some(Op::AnyChar) => return KPropertyVerdict::Unserveable,
+            Some(Op::Class) => {
+                let Some(cc) = prog.classes.get(ins.a as usize) else {
+                    continue;
+                };
+                if cc.negate || cc.bits[16..32].iter().any(|&b| b != 0) {
+                    return KPropertyVerdict::Unserveable;
+                }
+            }
+            _ => {}
+        }
+    }
     let yes_seeds: Vec<usize> = kp_pcs.iter().map(|&pc| pc + 1).collect();
     KPropertyVerdict::Shape(KPropertyShape {
         class_idx: class_idx as u16,

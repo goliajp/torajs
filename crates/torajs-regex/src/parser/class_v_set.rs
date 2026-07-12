@@ -9,7 +9,7 @@
 
 use crate::cpset::CpRangeSet;
 use crate::node::Node;
-use crate::ucd::UPropRange;
+use crate::ucd::{StringProp, UPropRange};
 use alloc::collections::BTreeSet;
 use alloc::vec::Vec;
 
@@ -86,6 +86,22 @@ pub(super) fn is_class_set_syntax_char(b: u8) -> bool {
         b,
         b'(' | b')' | b'[' | b']' | b'{' | b'}' | b'/' | b'-' | b'\\' | b'|'
     )
+}
+
+/// Fold a properties-of-strings hit (chunk B3) into a class set:
+/// single-cp ranges join `cps`, multi-cp sequences decode into
+/// `strings`. `RGI_Emoji` arrives as six parts (UTS #51 union).
+pub(super) fn string_prop_to_set(parts: &[&StringProp]) -> ClassSetV {
+    let mut set = ClassSetV::default();
+    for part in parts {
+        for r in part.cp_ranges {
+            set.cps.insert(r.lo as u32, r.hi as u32);
+        }
+        for s in part.strings {
+            set.strings.insert(s.chars().map(u32::from).collect());
+        }
+    }
+    set
 }
 
 /// Record one `\q{}` alternative: empty and multi-cp go to

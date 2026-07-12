@@ -32,7 +32,7 @@
 
 use super::class_v_set::{
     ClassSetV, class_to_set, fold_set_into_class, is_class_set_syntax_char,
-    is_reserved_double_lead, push_q_alternative, shorthand_set,
+    is_reserved_double_lead, push_q_alternative, shorthand_set, string_prop_to_set,
 };
 use super::{Parser, apply_property_name};
 use crate::cpset::CpRangeSet;
@@ -89,7 +89,7 @@ impl<'p> Parser<'p> {
     /// desugar. Synthesized leaves carry the current effective i/m/s
     /// scope (they never travel back through `parse_atom_with_repeat`
     /// stamping).
-    fn class_set_to_node(&self, set: ClassSetV) -> Box<Node> {
+    pub(super) fn class_set_to_node(&self, set: ClassSetV) -> Box<Node> {
         let mut class_node = Node::new(NodeKind::Class);
         fold_set_into_class(&set.cps, &mut class_node);
         class_node.eff_ims = self.eff_ims;
@@ -358,6 +358,18 @@ impl<'p> Parser<'p> {
         }
         self.get();
         let (name, value) = self.read_property_expr()?;
+        // Properties of strings (chunk B3) — lone form only; `\P` of
+        // a strings property is the MayContainStrings early error.
+        if value.is_none()
+            && let Ok(n) = core::str::from_utf8(&name)
+            && let Some(parts) = crate::ucd::lookup_string_property(n)
+        {
+            if complement {
+                self.set_err();
+                return None;
+            }
+            return Some(OperandV::Set(string_prop_to_set(parts)));
+        }
         // Reuse apply_property_name through a scratch node — it
         // resolves alias/keyed forms against the CODEGEN tables.
         let mut scratch = Node::new(NodeKind::Class);

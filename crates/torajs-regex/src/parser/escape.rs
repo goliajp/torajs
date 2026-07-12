@@ -184,6 +184,22 @@ impl<'p> Parser<'p> {
         }
         self.get(); // consume `{`
         let (name, value) = self.read_property_expr()?;
+        // v-flag properties of strings (RFC 20260712 chunk B3) —
+        // standalone `\p{RGI_Emoji}` is legal under `v` and desugars
+        // exactly like a strings-carrying class; `\P` of a strings
+        // property is the MayContainStrings early error, and the
+        // whole family stays an unknown-name error under plain `u`.
+        if self.flags & crate::parser::RE_FLAG_V != 0
+            && value.is_none()
+            && let Ok(nm) = core::str::from_utf8(&name)
+            && let Some(parts) = crate::ucd::lookup_string_property(nm)
+        {
+            if c == b'P' {
+                self.set_err();
+                return None;
+            }
+            return Some(self.class_set_to_node(super::class_v_set::string_prop_to_set(parts)));
+        }
         let mut n = Node::new(NodeKind::Class);
         let matched = apply_property_name(&mut n, &name, value.as_deref());
         if !matched {
