@@ -60,6 +60,8 @@ pub(crate) struct ObjectIds {
     pub accessor_invoke_getter: FuncId,
     pub get_property_descriptor: FuncId,
     pub throw_typeerror_if_not_object: FuncId,
+    pub throw_typeerror_if_not_desc_object: FuncId,
+    pub throw_typeerror_if_props_nullish: FuncId,
     pub arr_throw_reduce_empty: FuncId,
     pub arr_throw_reduce_right_empty: FuncId,
     pub arr_length_descriptor: FuncId,
@@ -125,6 +127,16 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
         get_property_descriptor: decl!("__torajs_anyv_get_property_descriptor", [Any, Ptr], Any),
         throw_typeerror_if_not_object: decl!(
             "__torajs_anyv_throw_typeerror_if_not_object",
+            [Any],
+            Void
+        ),
+        throw_typeerror_if_not_desc_object: decl!(
+            "__torajs_anyv_throw_typeerror_if_not_desc_object",
+            [Any],
+            Void
+        ),
+        throw_typeerror_if_props_nullish: decl!(
+            "__torajs_anyv_throw_typeerror_if_props_nullish",
             [Any],
             Void
         ),

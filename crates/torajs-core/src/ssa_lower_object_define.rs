@@ -126,8 +126,23 @@ fn emit_define_one(ctx: &mut LowerCtx, obj_eid: ExprId, key: DefineKey, desc_eid
     let obj_op = ctx.lower_expr(obj_eid);
     let obj_ty = ctx.operand_ty(&obj_op);
 
-    emit_receiver_typecheck(ctx, obj_eid, &obj_op, obj_ty);
+    emit_receiver_typecheck(ctx, obj_eid, &obj_op, obj_ty.clone());
+    emit_define_one_core(ctx, obj_op, obj_ty, &receiver_ident, key, desc_eid)
+}
 
+/// [`emit_define_one`] with the receiver already lowered and
+/// typechecked — `defineProperties`' non-Ident-receiver unfold lowers
+/// the receiver once and feeds every field through here (a per-field
+/// re-lower of an ObjectLit receiver would mint a fresh object each
+/// time).
+fn emit_define_one_core(
+    ctx: &mut LowerCtx,
+    obj_op: Operand,
+    obj_ty: Type,
+    receiver_ident: &Option<String>,
+    key: DefineKey,
+    desc_eid: ExprId,
+) -> bool {
     // Compile-time literal descriptor — extract value + the three data
     // flags from the ObjectLit at compile time. The fast path declines
     // (false) when a flag field is not a Bool literal; the descriptor
@@ -139,14 +154,14 @@ fn emit_define_one(ctx: &mut LowerCtx, obj_eid: ExprId, key: DefineKey, desc_eid
             obj_op.clone(),
             obj_ty.clone(),
             &key,
-            &receiver_ident,
+            receiver_ident,
             desc_eid,
         ) {
             return true;
         }
-        return emit_define_objlit_runtime(ctx, obj_op, obj_ty, &key, &receiver_ident, desc_eid);
+        return emit_define_objlit_runtime(ctx, obj_op, obj_ty, &key, receiver_ident, desc_eid);
     }
-    emit_define_runtime_desc(ctx, obj_op, obj_ty, &key, &receiver_ident, desc_eid)
+    emit_define_runtime_desc(ctx, obj_op, obj_ty, &key, receiver_ident, desc_eid)
 }
 
 /// Literal descriptor the fast path declined — materialize the
@@ -215,22 +230,59 @@ fn emit_define_runtime_desc(
     receiver_ident: &Option<String>,
     desc_eid: ExprId,
 ) -> bool {
-    if !matches!(obj_ty, Type::Any | Type::Arr(_)) {
-        return false;
-    }
     let key_op = lower_key(ctx, key);
     let desc_op = ctx.lower_expr(desc_eid);
     let desc_ty = ctx.operand_ty(&desc_op);
     let desc_ptr: Operand = match desc_ty {
-        Type::Any => Operand::Value(ctx.any_unbox_value_as_ptr(desc_op)),
+        // §6.2.6.5 step 1 gate BEFORE the unbox — an imm AnyValue's
+        // payload is not a cell (the old path handed a number's bits
+        // to define_from_desc as a pointer), and null / undefined /
+        // primitive cells must throw (RFC 20260713 chunk B).
+        Type::Any => {
+            ctx.f.append_void(
+                ctx.cur_block,
+                InstKind::Call(
+                    ctx.intrinsics.throw_typeerror_if_not_desc_object,
+                    vec![desc_op.clone()],
+                ),
+            );
+            ctx.emit_throw_check(None);
+            Operand::Value(ctx.any_unbox_value_as_ptr(desc_op))
+        }
         // Heap cells whose shape the define_from_desc entry resolves
         // (Closure / Arr expando props dynobj at +24). Typed structs
         // stay declined — no dynobj-backed own domain (recorded
         // divergence, same reflection boundary as prop_delete's
         // Tag::Obj arm).
         Type::Closure(_) | Type::Arr(_) => desc_op,
-        _ => return false,
+        _ if is_typed_object(desc_ty) => return false,
+        // Statically-known primitive descriptor (`defineProperty(o,
+        // "k", 5)` / `null` literal) — box once and let the helper
+        // throw the §6.2.6.5 step 1 TypeError (same shape as
+        // `emit_receiver_typecheck`'s primitive arm: the post-check
+        // block is unreachable at runtime). Decided before the
+        // obj-storage gate below: the throw needs no receiver storage,
+        // so `defineProperty({}, "k", 5)` / an unfolded `{a: null}`
+        // field throws instead of falling through.
+        _ => {
+            let boxed = ctx.box_to_any_from_expr(desc_eid, desc_op.clone());
+            ctx.f.append_void(
+                ctx.cur_block,
+                InstKind::Call(
+                    ctx.intrinsics.throw_typeerror_if_not_desc_object,
+                    vec![boxed],
+                ),
+            );
+            ctx.emit_throw_check(None);
+            return true;
+        }
     };
+    // Receiver storage gate — only Any (dynobj-backed) and typed Arr
+    // receivers carry a define surface here; other shapes keep the
+    // caller's fall-through.
+    if !matches!(obj_ty, Type::Any | Type::Arr(_)) {
+        return false;
+    }
     let obj_ptr: Operand = match &obj_ty {
         Type::Any => Operand::Value(ctx.any_unbox_value_as_ptr(obj_op)),
         _ => {
@@ -331,17 +383,32 @@ fn try_lower_define_properties(
         let obj_ty = ctx.operand_ty(&obj_raw);
         emit_receiver_typecheck(ctx, args[0], &obj_raw, obj_ty);
 
-        // Compile-time unfold when both shapes match — Ident lower is
-        // idempotent, so emit_define_one's per-field re-lower is safe.
-        if matches!(ctx.ast.get_expr(args[0]), Expr::Ident(_))
-            && let Expr::ObjectLit { fields } = ctx.ast.get_expr(args[1])
-        {
+        // Compile-time unfold on an ObjectLit props. An Ident receiver
+        // re-lowers per field (idempotent, and a resize in one field is
+        // seen by the next); any other receiver shape reuses the
+        // already-lowered operand — a per-field re-lower of an
+        // ObjectLit receiver would mint a fresh object each time (RFC
+        // 20260713 chunk B: `defineProperties({}, {a: null})` must
+        // reach the per-field §6.2.6.5 TypeError).
+        if let Expr::ObjectLit { fields } = ctx.ast.get_expr(args[1]) {
             // Clone the (name, desc_eid) list — `emit_define_one` borrows ctx
             // mutably, so we can't hold the AST borrow across the loop.
             let field_list: Vec<(String, ExprId)> =
                 fields.iter().map(|(n, e)| (n.clone(), *e)).collect();
+            let obj_is_ident = matches!(ctx.ast.get_expr(args[0]), Expr::Ident(_));
             for (name, desc_eid) in &field_list {
-                emit_define_one(ctx, args[0], DefineKey::Name(name), *desc_eid);
+                if obj_is_ident {
+                    emit_define_one(ctx, args[0], DefineKey::Name(name), *desc_eid);
+                } else {
+                    emit_define_one_core(
+                        ctx,
+                        obj_raw.clone(),
+                        obj_ty.clone(),
+                        &None,
+                        DefineKey::Name(name),
+                        *desc_eid,
+                    );
+                }
             }
         } else {
             // RFC 20260712 chunk 2 — runtime props walk: both shapes
@@ -355,6 +422,28 @@ fn try_lower_define_properties(
             };
             let props_op = ctx.lower_expr(args[1]);
             let props_ty = ctx.operand_ty(&props_op);
+            // §20.1.2.3.1 step 2 — ToObject(Properties) throws only
+            // on null / undefined (other primitives wrap to key-less
+            // objects; the walk no-ops). Statically-typed non-object
+            // props box once so the helper can throw; a runtime Any
+            // gates before the walk (RFC 20260713 chunk B).
+            if !matches!(props_ty, Type::Any) && !is_typed_object(props_ty.clone()) {
+                let boxed = ctx.box_to_any_from_expr(args[1], props_op.clone());
+                ctx.f.append_void(
+                    ctx.cur_block,
+                    InstKind::Call(ctx.intrinsics.throw_typeerror_if_props_nullish, vec![boxed]),
+                );
+                ctx.emit_throw_check(None);
+            } else if matches!(props_ty, Type::Any) {
+                ctx.f.append_void(
+                    ctx.cur_block,
+                    InstKind::Call(
+                        ctx.intrinsics.throw_typeerror_if_props_nullish,
+                        vec![props_op.clone()],
+                    ),
+                );
+                ctx.emit_throw_check(None);
+            }
             if matches!(obj_ty, Type::Any) && matches!(props_ty, Type::Any) {
                 let props_ptr = ctx.any_unbox_value_as_ptr(props_op.clone());
                 let dynobj = ctx.any_unbox_value_as_ptr(obj_raw.clone());

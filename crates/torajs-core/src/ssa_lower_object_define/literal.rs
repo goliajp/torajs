@@ -42,6 +42,15 @@ pub(super) fn emit_define_literal(
     let get_eid = descriptor_field(ctx, desc_eid, "get");
     let set_eid = descriptor_field(ctx, desc_eid, "set");
     if (get_eid.is_some() || set_eid.is_some()) && matches!(obj_ty, Type::Any) {
+        // §6.2.6.5 — a present face that is not statically a plausible
+        // callable (`get: []` / `get: false`) declines the fast path;
+        // the runtime ToPropertyDescriptor's IsCallable check throws
+        // the spec TypeError (pre-fix the face's pointer was stored in
+        // the AccessorPair verbatim — an Arr cell invoked as a
+        // closure). RFC 20260713-defprop-residual-cluster chunk B.
+        if !face_statically_callable(ctx, get_eid) || !face_statically_callable(ctx, set_eid) {
+            return false;
+        }
         let acc_enum = lookup_bool_field(ctx, desc_eid, "enumerable");
         let acc_config = lookup_bool_field(ctx, desc_eid, "configurable");
         return crate::ssa_lower_accessor::emit_accessor_define(
@@ -73,6 +82,32 @@ pub(super) fn emit_define_literal(
     }
     emit_define_dynobj(ctx, obj_op, key, receiver_ident, value_eid, flags_byte);
     true
+}
+
+/// Whether a present accessor face is statically a plausible callable
+/// so the compile-time accessor arm may store it in an AccessorPair:
+/// fn expressions, `undefined` (present-and-clearing), and bindings
+/// whose static type is Closure / FnSig / Any (Any resolves at the
+/// runtime IsCallable check). Anything else — literals, array/object
+/// literals, arbitrary exprs — answers false and the caller declines
+/// to the runtime ToPropertyDescriptor path, whose
+/// `take_accessor_closure` throws the §6.2.6.5 "not callable"
+/// TypeError. Conservative: a false negative only costs the slow
+/// path.
+fn face_statically_callable(ctx: &LowerCtx, face_eid: Option<ExprId>) -> bool {
+    let Some(eid) = face_eid else {
+        return true;
+    };
+    match ctx.ast.get_expr(eid) {
+        Expr::Closure { .. } => true,
+        Expr::Ident(n) if n == "undefined" && !ctx.locals.contains_key("undefined") => true,
+        Expr::Ident(n) => {
+            ctx.locals.get(n).is_some_and(|info| {
+                matches!(info.ty, Type::Closure(_) | Type::FnSig(_) | Type::Any)
+            }) || ctx.fn_table.contains_key(n)
+        }
+        _ => false,
+    }
 }
 
 /// Field expr of the literal descriptor by name (`value` / `get` /

@@ -421,6 +421,55 @@ pub unsafe extern "C" fn __torajs_anyv_throw_typeerror_if_not_object(obj_any: u6
     }
 }
 
+/// §20.1.2.3.1 ObjectDefineProperties step 2 —
+/// `ToObject(Properties)` throws a TypeError on `undefined` / `null`
+/// only (other primitives wrap to objects with no enumerable own
+/// keys, so the walk is a no-op) — RFC
+/// 20260713-defprop-residual-cluster chunk B.
+///
+/// # Safety
+///
+/// `props_any` must carry a valid AnyValue bit pattern.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_throw_typeerror_if_props_nullish(props_any: u64) {
+    if props_any == VALUE_UNDEFINED_IMM || props_any == VALUE_NULL_IMM {
+        // SAFETY: NUL-terminated static C string.
+        unsafe {
+            __torajs_throw_type_error(c"Cannot convert undefined or null to object.".as_ptr())
+        };
+    }
+}
+
+/// §6.2.6.5 ToPropertyDescriptor step 1 — `If Type(Obj) is not
+/// Object, throw a TypeError` (RFC 20260713-defprop-residual-cluster
+/// chunk B). Same strict Type() branch as
+/// [`__torajs_anyv_throw_typeerror_if_not_object`], different spec
+/// message; ssa-lower gates a runtime-`Any` descriptor through this
+/// BEFORE unboxing it to a pointer (an imm AnyValue's payload is not
+/// a cell — the old path handed it to `define_from_desc` verbatim).
+///
+/// # Safety
+///
+/// `desc_any` must carry a valid AnyValue bit pattern.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_throw_typeerror_if_not_desc_object(desc_any: u64) {
+    let is_primitive_cell = desc_any != VALUE_UNDEFINED_IMM
+        && desc_any != VALUE_NULL_IMM
+        && is_cell_imm(desc_any)
+        && matches!(
+            unsafe { heap_type_tag(desc_any as *const c_void) },
+            TAG_STR | TAG_BIGINT | TAG_SYMBOL
+        );
+    if desc_any == VALUE_UNDEFINED_IMM
+        || desc_any == VALUE_NULL_IMM
+        || !is_cell_imm(desc_any)
+        || is_primitive_cell
+    {
+        // SAFETY: NUL-terminated static C string.
+        unsafe { __torajs_throw_type_error(c"Property description must be an object.".as_ptr()) };
+    }
+}
+
 /// RFC 20260712-object-create-define-props chunk 1 —
 /// `Object.create(proto, ...)` §20.1.2.2 step 1: `If Type(O) is
 /// neither Object nor Null, throw a TypeError`. Same runtime branch
