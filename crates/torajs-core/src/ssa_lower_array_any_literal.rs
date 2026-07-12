@@ -71,7 +71,14 @@ impl<'a> LowerCtx<'a> {
                 // extend copies + rc_incs the slots, so drop after.
                 let mut src_is_owned_temp = false;
                 if matches!(src_ty, Type::Any) {
-                    src_op = crate::ssa_lower_arr_from_any::emit(self, src_op);
+                    let any_src = src_op.clone();
+                    src_op = crate::ssa_lower_arr_from_any::emit(self, any_src.clone());
+                    // The owned any source itself (Call-shaped product)
+                    // is only borrowed by the materialization — release
+                    // it here; the drop below covers the materialized
+                    // array, not this source (same account as the
+                    // primary spread lane).
+                    self.release_owned_temp(inner_eid, &any_src);
                     src_ty = self.operand_ty(&src_op);
                     src_is_owned_temp = true;
                 }

@@ -143,7 +143,14 @@ fn lower_spread_source(ctx: &mut LowerCtx<'_>, inner: ExprId) -> (Operand, Type,
     // (the assembler drops it after the extend).
     if matches!(v_ty, Type::Any) {
         let arr_any_id = intern_arr_layout(ctx.arr_layouts, Type::Any);
-        v = crate::ssa_lower_arr_from_any::emit(ctx, v);
+        let materialized = crate::ssa_lower_arr_from_any::emit(ctx, v.clone());
+        // An owned any source (`[...s.split("b")]` — Call / New /
+        // OptCall shapes) is only borrowed by the iteration protocol;
+        // release it after the materialization or every spread strands
+        // the product's +1 (mirrors the any-call receiver account).
+        // Borrow shapes (Ident / Member) self-gate false.
+        ctx.release_owned_temp(inner, &v);
+        v = materialized;
         v_ty = Type::Arr(arr_any_id);
         return (v, v_ty, true);
     }
