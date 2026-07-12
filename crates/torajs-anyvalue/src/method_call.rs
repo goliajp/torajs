@@ -283,7 +283,7 @@ pub(crate) unsafe fn any_method_call_inner(
         }
         if tag == Tag::DynObj as u16 {
             return unsafe {
-                crate::method_call_dynobj::dynobj_method(ptr, mid, name_str, argv, argc)
+                crate::method_call_dynobj::dynobj_method(ptr, mid, name_str, recv_slot, argv, argc)
             };
         }
         // L3b #9 (chunk 524) — static-layout struct receivers probe

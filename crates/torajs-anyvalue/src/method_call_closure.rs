@@ -79,10 +79,13 @@ pub(crate) unsafe fn closure_method(
             && !name_str.is_null()
             && __torajs_dynobj_get_tag(props, name_str as *const c_void) != 5
         {
+            // NULL recv_slot — the props side-table cell is not the
+            // caller's variable (no relocation writeback target).
             return crate::method_call_dynobj::dynobj_method(
                 props as *mut c_void,
                 mid,
                 name_str,
+                core::ptr::null_mut(),
                 argv,
                 argc,
             );

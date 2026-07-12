@@ -91,11 +91,14 @@ const FIELD_TAG_CLOSURE: u8 = 8;
 /// value invokes through its boxed dual entry. The property probe
 /// borrows (dynobj keeps its own value reference; the receiver
 /// outlives the call), and the adapter's return is caller-owned per
-/// the boxed-value convention.
+/// the boxed-value convention. `recv_slot` threads to the generic
+/// array-like mutators (dynobj relocation writeback; NULL for
+/// non-variable receivers).
 pub(crate) unsafe fn dynobj_method(
     obj: *mut c_void,
     mid: i64,
     name_str: *const u8,
+    recv_slot: *mut u64,
     argv: *const u64,
     argc: i64,
 ) -> AnyValue {
@@ -106,7 +109,7 @@ pub(crate) unsafe fn dynobj_method(
         // mid runs the ES generic array-like semantics over this
         // receiver instead of falling to the not-callable exit.
         if name_str.is_null() && crate::method_call_arraylike::arraylike_supported(mid) {
-            return crate::method_call_arraylike::arraylike_method(obj, mid, argv, argc);
+            return crate::method_call_arraylike::arraylike_method(obj, mid, recv_slot, argv, argc);
         }
         if !name_str.is_null() {
             let key = name_str as *const c_void;
@@ -130,7 +133,9 @@ pub(crate) unsafe fn dynobj_method(
                         crate::method_value::builtin_method_mid(crate::nanbox::as_void_ptr(cell))
                     && crate::method_call_arraylike::arraylike_supported(mid2)
                 {
-                    return crate::method_call_arraylike::arraylike_method(obj, mid2, argv, argc);
+                    return crate::method_call_arraylike::arraylike_method(
+                        obj, mid2, recv_slot, argv, argc,
+                    );
                 }
                 // The cell's NaN-box encoding is its pointer bits.
                 if let Some((env, entry)) = closure_boxed_entry(cell) {
@@ -223,7 +228,14 @@ unsafe fn object_proto_fallback(
             let out = if is_struct {
                 struct_method(obj, ANY_METHOD_TO_STRING, key as *const u8, argv, 0)
             } else {
-                dynobj_method(obj, ANY_METHOD_TO_STRING, key as *const u8, argv, 0)
+                dynobj_method(
+                    obj,
+                    ANY_METHOD_TO_STRING,
+                    key as *const u8,
+                    core::ptr::null_mut(),
+                    argv,
+                    0,
+                )
             };
             __torajs_str_drop(key as *mut c_void);
             return out;

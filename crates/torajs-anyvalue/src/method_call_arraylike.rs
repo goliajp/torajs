@@ -75,10 +75,14 @@ unsafe extern "C" {
 /// mirror of `method_call_dynobj.rs::ANY_ACCESSOR_TAG`.
 const ANY_ACCESSOR_TAG: u64 = 6;
 
-/// The mids the generic arm implements (3a read family) — the
-/// dynobj routing gates on this, so an unimplemented array mid
-/// keeps today's TypeError instead of a silent wrong answer.
+/// The mids the generic arm implements (3a read family + the 3b-1
+/// mutators) — the dynobj routing gates on this, so an
+/// unimplemented array mid keeps today's TypeError instead of a
+/// silent wrong answer.
 pub(crate) fn arraylike_supported(mid: i64) -> bool {
+    if crate::method_call_arraylike_mut::arraylike_mut_supported(mid) {
+        return true;
+    }
     matches!(
         mid,
         ANY_METHOD_INDEX_OF
@@ -170,10 +174,13 @@ pub(crate) unsafe fn arraylike_has(obj: *mut c_void, k: i64) -> bool {
 }
 
 /// Generic arm entry — dispatches the scan family here, the
-/// callback family in the hof sibling. `obj` is a live DynObj cell.
+/// callback family in the hof sibling, the mutators in the mut
+/// sibling (which threads `recv_slot` for the dynobj relocation
+/// writeback). `obj` is a live DynObj cell.
 pub(crate) unsafe fn arraylike_method(
     obj: *mut c_void,
     mid: i64,
+    recv_slot: *mut u64,
     argv: *const u64,
     argc: i64,
 ) -> AnyValue {
@@ -191,6 +198,11 @@ pub(crate) unsafe fn arraylike_method(
         let Some(len) = arraylike_len(obj) else {
             return VALUE_UNDEFINED;
         };
+        if crate::method_call_arraylike_mut::arraylike_mut_supported(mid) {
+            return crate::method_call_arraylike_mut::arraylike_mut(
+                obj, mid, len, recv_slot, argv, argc,
+            );
+        }
         match mid {
             m if m == ANY_METHOD_INDEX_OF || m == ANY_METHOD_INCLUDES => {
                 let needle = arg_at(0);
