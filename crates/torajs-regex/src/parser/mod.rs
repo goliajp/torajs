@@ -30,11 +30,14 @@
 //!   (`\k<>`, `\xHH`, `\u…`, `\p{…}`).
 //! - [`class`] — `parse_class` + range/item helpers for `[...]`.
 //! - [`class_v`] — v-flag `ClassSetExpression` (`[...]` under
-//!   unicodeSets: nested classes + `&&` / `--` set algebra).
+//!   unicodeSets: nested classes + `&&` / `--` set algebra +
+//!   `\q{}` strings); [`class_v_set`] — its set value + fold
+//!   helpers.
 
 mod atom;
 mod class;
 mod class_v;
+mod class_v_set;
 mod escape;
 
 use crate::charclass::CharClass;

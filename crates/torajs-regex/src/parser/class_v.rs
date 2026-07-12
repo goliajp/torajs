@@ -15,72 +15,58 @@
 //! (`( ) [ ] { } / - \ |`) rejected as literals; reserved double
 //! punctuators (`&&` `!!` `##` …) rejected at operand position
 //! (single `&&` between operands is the intersection operator);
-//! operator kinds don't mix at one nesting level. `\q{…}` string
-//! literals land in chunk B2 (parse error until then).
+//! operator kinds don't mix at one nesting level.
+//!
+//! Chunk B2 — `\q{…}` ClassStringDisjunction. A class may contain
+//! multi-cp STRINGS alongside code points; sets become
+//! [`ClassSetV`] = (cps, strings) with componentwise algebra
+//! (length-1 alternatives fold into the cp set at parse time; the
+//! empty alternative is a real member matching the empty string).
+//! A class whose value may contain strings cannot be complemented
+//! (`[^…\q{ab}]` / `[^…]` over a strings-carrying nested class is
+//! the spec's MayContainStrings early error). Classes with strings
+//! desugar at parse time into an [`Alt`](NodeKind::Alt): string
+//! alternatives sorted by descending length (leftmost-first Pike
+//! priority == leftmost-longest string preference, matching the
+//! DFA), then the cp-set class, then the empty string if present.
 
+use super::class_v_set::{
+    ClassSetV, class_to_set, fold_set_into_class, is_class_set_syntax_char,
+    is_reserved_double_lead, push_q_alternative, shorthand_set,
+};
 use super::{Parser, apply_property_name};
 use crate::cpset::CpRangeSet;
 use crate::node::{Node, NodeKind};
-use crate::ucd::UPropRange;
-use crate::utf8::utf8_decode_cp;
+use crate::utf8::{utf8_decode_cp, utf8_encode_cp};
 use alloc::boxed::Box;
+use alloc::vec::Vec;
 
 /// One parsed operand — a single character keeps its identity so the
 /// union level can extend it into a `c1-c2` range.
 enum OperandV {
     Single(u32),
-    Set(CpRangeSet),
+    Set(ClassSetV),
 }
 
 impl OperandV {
-    fn into_set(self) -> CpRangeSet {
+    fn into_set(self) -> ClassSetV {
         match self {
             OperandV::Single(cp) => {
                 let mut s = CpRangeSet::new();
                 s.insert_cp(cp);
-                s
+                ClassSetV::from_cps(s)
             }
             OperandV::Set(s) => s,
         }
     }
 }
 
-/// `ClassSetReservedDoublePunctuator` leads — two of the same byte at
-/// operand position is a SyntaxError (`[&&]`, `[a!!b]`, …).
-fn is_reserved_double_lead(b: u8) -> bool {
-    matches!(
-        b,
-        b'&' | b'!'
-            | b'#'
-            | b'$'
-            | b'%'
-            | b'*'
-            | b'+'
-            | b','
-            | b'.'
-            | b':'
-            | b';'
-            | b'<'
-            | b'='
-            | b'>'
-            | b'?'
-            | b'@'
-            | b'^'
-            | b'`'
-            | b'~'
-    )
-}
-
-/// `ClassSetSyntaxCharacter` — must be escaped to appear literally.
-fn is_class_set_syntax_char(b: u8) -> bool {
-    matches!(
-        b,
-        b'(' | b')' | b'[' | b']' | b'{' | b'}' | b'/' | b'-' | b'\\' | b'|'
-    )
-}
-
 impl<'p> Parser<'p> {
     /// Parse a v-mode class body after `[` has been consumed.
+    /// Strings-free classes stay a single `Class` node; classes with
+    /// `\q{}` / string members desugar into an `Alt` (see module
+    /// doc). Complementing a strings-carrying class is the spec's
+    /// MayContainStrings early error.
     pub(super) fn parse_class_v(&mut self) -> Option<Box<Node>> {
         let negate = self.match_byte(b'^');
         let mut set = self.parse_class_set_expression()?;
@@ -89,11 +75,70 @@ impl<'p> Parser<'p> {
             return None;
         }
         if negate {
-            set = set.complement();
+            if !set.strings.is_empty() {
+                self.set_err();
+                return None;
+            }
+            set.cps = set.cps.complement();
         }
-        let mut n = Node::new(NodeKind::Class);
-        fold_set_into_class(&set, &mut n);
-        Some(n)
+        Some(self.class_set_to_node(set))
+    }
+
+    /// Materialise a finished [`ClassSetV`] as an AST node — a plain
+    /// `Class` when strings-free, else the string/class `Alt`
+    /// desugar. Synthesized leaves carry the current effective i/m/s
+    /// scope (they never travel back through `parse_atom_with_repeat`
+    /// stamping).
+    fn class_set_to_node(&self, set: ClassSetV) -> Box<Node> {
+        let mut class_node = Node::new(NodeKind::Class);
+        fold_set_into_class(&set.cps, &mut class_node);
+        class_node.eff_ims = self.eff_ims;
+        if set.strings.is_empty() {
+            return class_node;
+        }
+        // Descending length: longer strings win over shorter ones and
+        // over single-cp class matches (Pike leftmost-first == the
+        // spec's longest-string preference; the DFA is longest-match
+        // by construction). Equal lengths are mutually exclusive so
+        // their relative order is free.
+        let mut strings: Vec<&Vec<u32>> = set.strings.iter().collect();
+        strings.sort_by(|a, b| b.len().cmp(&a.len()));
+        let mut alt = Node::new(NodeKind::Alt);
+        alt.eff_ims = self.eff_ims;
+        let mut saw_empty = false;
+        for s in strings {
+            if s.is_empty() {
+                saw_empty = true;
+                continue;
+            }
+            let mut concat = Node::new(NodeKind::Concat);
+            concat.eff_ims = self.eff_ims;
+            for &cp in s {
+                let mut buf = [0u8; 4];
+                let blen = utf8_encode_cp(cp as i32, &mut buf);
+                for &byte in &buf[..blen] {
+                    let mut ch = Node::new(NodeKind::Char);
+                    ch.ch = byte;
+                    ch.eff_ims = self.eff_ims;
+                    concat.push_kid(ch);
+                }
+            }
+            alt.push_kid(concat);
+        }
+        if !set.cps.is_empty() {
+            alt.push_kid(class_node);
+        }
+        if saw_empty {
+            // The empty string matches last (length 0) — an empty
+            // Concat is a pure epsilon branch.
+            let mut empty = Node::new(NodeKind::Concat);
+            empty.eff_ims = self.eff_ims;
+            alt.push_kid(empty);
+        }
+        if alt.kids.len() == 1 {
+            return alt.kids.pop().expect("single alt kid");
+        }
+        alt
     }
 
     /// `ClassSetExpression` — the first operand plus lookahead decide
@@ -102,10 +147,10 @@ impl<'p> Parser<'p> {
     /// Ranges (`c1-c2`) only exist at union level per the grammar —
     /// `[a-b&&c]` is a SyntaxError (the chain check runs on the raw
     /// operand, before range extension).
-    fn parse_class_set_expression(&mut self) -> Option<CpRangeSet> {
+    fn parse_class_set_expression(&mut self) -> Option<ClassSetV> {
         // Empty class `[]` / fully-negated `[^]`.
         if !self.eof() && self.peek() == b']' {
-            return Some(CpRangeSet::new());
+            return Some(ClassSetV::default());
         }
         let first = self.parse_class_set_operand()?;
         if self.peek_pair(b'&', b'&') {
@@ -114,7 +159,7 @@ impl<'p> Parser<'p> {
                 self.get();
                 self.get();
                 let rhs = self.parse_class_set_operand()?.into_set();
-                acc = acc.intersect(&rhs);
+                acc = acc.intersect(rhs);
             }
             return self.expect_close(acc);
         }
@@ -124,7 +169,7 @@ impl<'p> Parser<'p> {
                 self.get();
                 self.get();
                 let rhs = self.parse_class_set_operand()?.into_set();
-                acc = acc.difference(&rhs);
+                acc = acc.difference(rhs);
             }
             return self.expect_close(acc);
         }
@@ -139,14 +184,14 @@ impl<'p> Parser<'p> {
             }
             let op = self.parse_class_set_operand()?;
             let next = self.extend_union_element(op)?;
-            acc = acc.union(&next);
+            acc = acc.union(next);
         }
         Some(acc)
     }
 
     /// Union-level range extension: a single-character operand
     /// followed by `-c2` becomes a range.
-    fn extend_union_element(&mut self, op: OperandV) -> Option<CpRangeSet> {
+    fn extend_union_element(&mut self, op: OperandV) -> Option<ClassSetV> {
         if let OperandV::Single(lo) = op {
             // Range only when `-` is not `--` (subtraction) and not
             // the closing `-]` position (that dash is itself invalid
@@ -173,7 +218,7 @@ impl<'p> Parser<'p> {
                 }
                 let mut s = CpRangeSet::new();
                 s.insert(lo, hi);
-                return Some(s);
+                return Some(ClassSetV::from_cps(s));
             }
         }
         Some(op.into_set())
@@ -195,7 +240,13 @@ impl<'p> Parser<'p> {
                 return None;
             }
             if negate {
-                set = set.complement();
+                // MayContainStrings — a strings-carrying class value
+                // cannot be complemented.
+                if !set.strings.is_empty() {
+                    self.set_err();
+                    return None;
+                }
+                set.cps = set.cps.complement();
             }
             return Some(OperandV::Set(set));
         }
@@ -237,14 +288,10 @@ impl<'p> Parser<'p> {
             b'0' => 0,
             b'b' => 0x08,
             b'd' | b'D' | b'w' | b'W' | b's' | b'S' => {
-                return Some(OperandV::Set(shorthand_set(e)));
+                return Some(OperandV::Set(ClassSetV::from_cps(shorthand_set(e))));
             }
             b'p' | b'P' => return self.parse_class_set_property(e == b'P'),
-            b'q' => {
-                // ClassStringDisjunction — chunk B2.
-                self.set_err();
-                return None;
-            }
+            b'q' => return self.parse_class_string_disjunction(),
             b'x' => {
                 let h1 = self.read_hex_digit()?;
                 let h2 = self.read_hex_digit()?;
@@ -322,92 +369,82 @@ impl<'p> Parser<'p> {
         if complement {
             set = set.complement();
         }
-        Some(OperandV::Set(set))
+        Some(OperandV::Set(ClassSetV::from_cps(set)))
+    }
+
+    /// `\q{Alt|Alt|…}` — ClassStringDisjunction. Each alternative is
+    /// a (possibly empty) run of ClassSetCharacters; length-1
+    /// alternatives fold into the cp set, the rest join `strings`.
+    fn parse_class_string_disjunction(&mut self) -> Option<OperandV> {
+        if !self.match_byte(b'{') {
+            self.set_err();
+            return None;
+        }
+        let mut set = ClassSetV::default();
+        let mut cur: Vec<u32> = Vec::new();
+        loop {
+            if self.eof() {
+                self.set_err();
+                return None;
+            }
+            match self.peek() {
+                b'}' => {
+                    self.get();
+                    push_q_alternative(&mut set, core::mem::take(&mut cur));
+                    return Some(OperandV::Set(set));
+                }
+                b'|' => {
+                    self.get();
+                    push_q_alternative(&mut set, core::mem::take(&mut cur));
+                }
+                _ => {
+                    let cp = self.parse_q_string_char()?;
+                    cur.push(cp);
+                }
+            }
+        }
+    }
+
+    /// One character inside `\q{…}` — a literal cp or a character
+    /// escape (no sets: `\d` / `\p{}` / nested classes are not
+    /// ClassSetCharacters here).
+    fn parse_q_string_char(&mut self) -> Option<u32> {
+        let b = self.peek();
+        if b == b'\\' {
+            self.get();
+            match self.parse_class_set_escape()? {
+                OperandV::Single(cp) => Some(cp),
+                OperandV::Set(_) => {
+                    self.set_err();
+                    None
+                }
+            }
+        } else if is_class_set_syntax_char(b)
+            || (is_reserved_double_lead(b) && self.peek_at(1) == b)
+        {
+            self.set_err();
+            None
+        } else {
+            let (cp, len) = utf8_decode_cp(&self.p[self.i..]);
+            if cp < 0 || len == 0 {
+                self.set_err();
+                return None;
+            }
+            self.i += len;
+            Some(cp as u32)
+        }
     }
 
     fn peek_pair(&self, a: u8, b: u8) -> bool {
         !self.eof() && self.peek() == a && self.peek_at(1) == b
     }
 
-    fn expect_close(&mut self, acc: CpRangeSet) -> Option<CpRangeSet> {
+    fn expect_close(&mut self, acc: ClassSetV) -> Option<ClassSetV> {
         if self.eof() || self.peek() != b']' {
             self.set_err();
             return None;
         }
         Some(acc)
-    }
-}
-
-/// `\d` / `\w` / `\s` and their complements as cp sets. Complements
-/// span the full cp domain (v-mode sets are true cp sets, unlike the
-/// byte-bitmap complements of the legacy class parser).
-fn shorthand_set(e: u8) -> CpRangeSet {
-    let mut s = CpRangeSet::new();
-    match e.to_ascii_lowercase() {
-        b'd' => s.insert(u32::from(b'0'), u32::from(b'9')),
-        b'w' => {
-            s.insert(u32::from(b'0'), u32::from(b'9'));
-            s.insert(u32::from(b'A'), u32::from(b'Z'));
-            s.insert(u32::from(b'a'), u32::from(b'z'));
-            s.insert_cp(u32::from(b'_'));
-        }
-        b's' => {
-            // ECMA WhiteSpace ∪ LineTerminator (mirrors the legacy
-            // `add_space` ASCII subset plus the Unicode members the
-            // cp domain can now express).
-            for cp in [
-                0x09u32, 0x0A, 0x0B, 0x0C, 0x0D, 0x20, 0xA0, 0x1680, 0x2028, 0x2029, 0x202F,
-                0x205F, 0x3000, 0xFEFF,
-            ] {
-                s.insert_cp(cp);
-            }
-            s.insert(0x2000, 0x200A);
-        }
-        _ => {}
-    }
-    if e.is_ascii_uppercase() {
-        s.complement()
-    } else {
-        s
-    }
-}
-
-/// Materialise a property-lookup scratch class (ASCII bits + table
-/// refs) into a cp set.
-fn class_to_set(cc: &crate::charclass::CharClass) -> CpRangeSet {
-    let mut s = CpRangeSet::new();
-    for cp in 0..128u32 {
-        if cc.test_cp(cp as i32) {
-            s.insert_cp(cp);
-        }
-    }
-    for t in &cc.u_prop_tables {
-        for r in t.iter() {
-            if r.hi >= 0x80 {
-                s.insert(r.lo.max(0x80) as u32, r.hi as u32);
-            }
-        }
-    }
-    s
-}
-
-/// Fold a finished cp set onto a Class node: `cp < 0x100` into the
-/// byte bitmap, the rest into `owned_ranges`. `negate` stays false —
-/// complements were computed eagerly into the set.
-fn fold_set_into_class(set: &CpRangeSet, n: &mut Node) {
-    for &(lo, hi) in set.ranges() {
-        if lo < 0x100 {
-            let bhi = hi.min(0xFF);
-            for b in lo..=bhi {
-                n.cc.add(b as u8);
-            }
-        }
-        if hi >= 0x100 {
-            n.cc.owned_ranges.push(UPropRange {
-                lo: lo.max(0x100) as i32,
-                hi: hi as i32,
-            });
-        }
     }
 }
 
@@ -510,7 +547,8 @@ mod tests {
     #[test]
     fn v_syntax_errors() {
         // Unescaped syntax chars, reserved doubles, mixed operators,
-        // set-operand range endpoint, bad property, \q (B2).
+        // set-operand range endpoint, bad property, malformed \q,
+        // MayContainStrings complement, set inside \q.
         for pat in [
             "[(]",
             "[|]",
@@ -520,7 +558,10 @@ mod tests {
             "[a-b&&c]",
             "[a-\\d]",
             "[\\p{NotAProp}]",
-            "[\\q{a}]",
+            "[\\q{a}",
+            "[\\qa]",
+            "[^\\q{ab}]",
+            "[\\q{a-b}]",
         ] {
             parse_err(pat);
         }
@@ -533,6 +574,65 @@ mod tests {
         for c in ['-', '[', ']', '&'] {
             assert!(cc.test_cp(c as i32), "expected literal {c}");
         }
+    }
+
+    #[test]
+    fn q_string_disjunction_folds_and_desugars() {
+        // Single-cp alternatives fold into the class; multi-cp become
+        // Alt branches sorted by descending length; empty matches ε.
+        let r = parse_ok("[\\q{a}]");
+        assert_eq!(r.kids[0].kind, NodeKind::Class);
+        assert!(r.kids[0].cc.test_cp('a' as i32));
+
+        let r = parse_ok("[\\q{ab|c|xyz}]");
+        let alt = &r.kids[0];
+        assert_eq!(alt.kind, NodeKind::Alt);
+        // xyz (3) before ab (2) before the cp class holding 'c'.
+        assert_eq!(alt.kids.len(), 3);
+        assert_eq!(alt.kids[0].kids.len(), 3);
+        assert_eq!(alt.kids[1].kids.len(), 2);
+        assert_eq!(alt.kids[2].kind, NodeKind::Class);
+        assert!(alt.kids[2].cc.test_cp('c' as i32));
+
+        // Empty alternative → trailing epsilon Concat branch.
+        let r = parse_ok("[\\q{ab|}]");
+        let alt = &r.kids[0];
+        assert_eq!(alt.kind, NodeKind::Alt);
+        assert_eq!(alt.kids.len(), 2);
+        assert_eq!(alt.kids[1].kind, NodeKind::Concat);
+        assert!(alt.kids[1].kids.is_empty());
+    }
+
+    #[test]
+    fn q_string_set_algebra() {
+        use crate::parser::RE_FLAG_V;
+        // Intersection keeps only shared strings; difference removes.
+        let parse_set = |pat: &str| {
+            let mut p = Parser::new(pat.as_bytes(), RE_FLAG_V);
+            let r = p.parse().expect("parse failed");
+            assert!(!p.err());
+            r
+        };
+        // [\q{ab|cd}&&\q{cd|ef}] → only "cd" survives.
+        let r = parse_set("[\\q{ab|cd}&&\\q{cd|ef}]");
+        let n = &r.kids[0];
+        assert_eq!(
+            n.kind,
+            NodeKind::Concat,
+            "single string folds to its Concat"
+        );
+        assert_eq!(n.kids.len(), 2);
+        assert_eq!(n.kids[0].ch, b'c');
+        // [\q{ab|cd}--\q{cd}] → only "ab".
+        let r = parse_set("[\\q{ab|cd}--\\q{cd}]");
+        let n = &r.kids[0];
+        assert_eq!(n.kind, NodeKind::Concat);
+        assert_eq!(n.kids[0].ch, b'a');
+        // cps and strings mix: union keeps both sides.
+        let r = parse_set("[[0-9]\\q{ab}]");
+        let alt = &r.kids[0];
+        assert_eq!(alt.kind, NodeKind::Alt);
+        assert_eq!(alt.kids.len(), 2);
     }
 
     #[test]
