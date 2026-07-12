@@ -34,6 +34,9 @@ unsafe extern "C" {
     /// torajs-arr — per-index attribute flags (shadow entry or the
     /// implicit `w|e|c` defaults; chunk B).
     fn __torajs_arr_index_flags(arr: *const c_void, idx: u64) -> u64;
+    /// torajs-arr — the index's AccessorPair, NULL when not an
+    /// accessor (RFC 20260713 chunk C).
+    fn __torajs_arr_index_accessor(arr: *const c_void, idx: u64) -> *mut c_void;
 }
 
 /// Array heap layout mirror (`torajs-arr::layout`): len u64 at +8,
@@ -110,6 +113,21 @@ pub(crate) unsafe fn arr_cell_descriptor(arr: *const c_void, key: *const c_void)
         // A deleted index (hole shadow entry, chunk C) is absent.
         if unsafe { __torajs_arr_index_flags(arr, idx) } & ARR_F_HOLE != 0 {
             return VALUE_UNDEFINED_IMM;
+        }
+        // An accessor index (RFC 20260713 chunk C) — its shadow entry
+        // IS a dynobj accessor entry; delegate to the main gOPD with
+        // the props dynobj as receiver so the TAG_DYNOBJ arm reports
+        // {get, set, enumerable, configurable}.
+        if unsafe { !__torajs_arr_index_accessor(arr, idx).is_null() } {
+            let props = unsafe {
+                arr.cast::<u8>()
+                    .add(ARR_PROPS_OFF)
+                    .cast::<*const c_void>()
+                    .read()
+            };
+            return unsafe {
+                crate::reflect::__torajs_anyv_get_property_descriptor(props as u64, key)
+            };
         }
         let tag = unsafe { __torajs_arr_get_any_tag(arr, idx) };
         let val = unsafe { __torajs_arr_get_any_value(arr, idx) };

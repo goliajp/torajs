@@ -37,11 +37,13 @@ pub(super) fn emit_define_literal(
     // accessor descriptor is mutually exclusive with a data
     // `value`; when the literal carries a `get` and/or `set`
     // function, store an `AccessorPair` cell instead of a data
-    // value. Only dynobj-backed Any objects carry accessor storage
-    // (typed Struct / Array accessors stay the prior no-op).
+    // value. Dynobj-backed Any objects and typed Arrays carry
+    // accessor storage (RFC 20260713 chunk C routes the Arr receiver
+    // through `dynobj_define`'s TAG_ARR dispatch into the index
+    // kernel); typed Structs stay the prior no-op.
     let get_eid = descriptor_field(ctx, desc_eid, "get");
     let set_eid = descriptor_field(ctx, desc_eid, "set");
-    if (get_eid.is_some() || set_eid.is_some()) && matches!(obj_ty, Type::Any) {
+    if (get_eid.is_some() || set_eid.is_some()) && matches!(obj_ty, Type::Any | Type::Arr(_)) {
         // §6.2.6.5 — a present face that is not statically a plausible
         // callable (`get: []` / `get: false`) declines the fast path;
         // the runtime ToPropertyDescriptor's IsCallable check throws

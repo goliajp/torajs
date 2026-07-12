@@ -70,10 +70,19 @@ pub unsafe extern "C" fn __torajs_arr_index_get(arr: *const c_void, idx: i64) ->
         if idx as u64 >= len {
             return undef();
         }
+        let header = &*(arr as *const HeapHeader);
+        // Exotic slow path (chunk C accessor) — an accessor index
+        // reads through its getter; plain arrays never take this
+        // branch (one predictable bit test).
+        if header.flags & torajs_rc::FLAG_ARR_EXOTIC_INDEX != 0 {
+            let pair = crate::define_accessor::__torajs_arr_index_accessor(arr, idx as u64);
+            if !pair.is_null() {
+                return crate::define_accessor::read_via_getter(pair);
+            }
+        }
         let head = *(p.add(ARR_HEAD_OFF) as *const u32) as u64;
         let slot = arr_data(p).add(((head + idx as u64) as usize) * 8);
         let raw = *(slot as *const u64);
-        let header = &*(arr as *const HeapHeader);
         if header.flags & FLAG_ARR_ANY != 0 {
             // NaN-box slot — the slot keeps its own reference, the
             // returned copy takes another (+1 for cells, no-op for

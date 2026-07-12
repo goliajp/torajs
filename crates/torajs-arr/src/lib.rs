@@ -37,10 +37,13 @@ extern crate torajs_mmalloc as _;
 
 pub mod alloc;
 pub mod any;
+pub mod any_fill;
 pub mod any_to_typed;
 pub mod any_typed_bridge;
 pub mod define;
+pub mod define_accessor;
 pub mod define_hole;
+pub mod define_length;
 pub mod drop;
 pub mod from_string;
 pub mod grow;

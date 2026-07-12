@@ -53,6 +53,9 @@ unsafe extern "C" {
     /// torajs-dynobj — HOLE sentinel probe (chunk C; the upsert
     /// lives in `define_hole.rs`).
     fn __torajs_dynobj_entry_is_hole(dynobj: *const c_void, key: *const c_void) -> i32;
+    /// torajs-dynobj — entry removal (drops key + value; the
+    /// accessor→data transition deletes the pair-owning shadow entry).
+    fn __torajs_dynobj_delete(dynobj: *mut c_void, key: *const c_void) -> i32;
     /// torajs-str — canonical index key mint for the flags probe.
     fn __torajs_str_alloc_pooled(len: u64) -> *mut u8;
     fn __torajs_str_drop(s: *mut c_void);
@@ -73,10 +76,14 @@ unsafe extern "C" {
 pub(crate) const F_WRITABLE: u64 = 1 << 0;
 pub(crate) const F_ENUMERABLE: u64 = 1 << 1;
 pub(crate) const F_CONFIGURABLE: u64 = 1 << 2;
-const P_WRITABLE: u64 = 1 << 3;
-const P_ENUMERABLE: u64 = 1 << 4;
-const P_CONFIGURABLE: u64 = 1 << 5;
-const P_VALUE: u64 = 1 << 6;
+pub(crate) const P_WRITABLE: u64 = 1 << 3;
+pub(crate) const P_ENUMERABLE: u64 = 1 << 4;
+pub(crate) const P_CONFIGURABLE: u64 = 1 << 5;
+pub(crate) const P_VALUE: u64 = 1 << 6;
+/// Accessor-face present bits (DEFINE_PRESENT_GET / _SET mirrors) —
+/// route to the chunk-C accessor arm.
+const P_GET: u64 = 1 << 7;
+const P_SET: u64 = 1 << 8;
 /// All three attribute bits — the implicit flags of a plain element.
 pub(crate) const FLAGS_DEFAULT: u64 = F_WRITABLE | F_ENUMERABLE | F_CONFIGURABLE;
 /// `arr_index_flags` RESULT bit (not a descriptor `flags_byte` bit):
@@ -118,7 +125,7 @@ fn canonical_index(bytes: &[u8]) -> Option<u64> {
 }
 
 /// Release a transferred `tag == ANY_HEAP` rc on a rejected define.
-unsafe fn drop_owned(tag: u64, value: u64) {
+pub(crate) unsafe fn drop_owned(tag: u64, value: u64) {
     if tag == ANY_HEAP && value != 0 {
         unsafe { __torajs_value_drop_heap(value as *mut c_void) };
     }
@@ -132,7 +139,7 @@ pub(crate) unsafe fn props_slot(arr: *mut c_void) -> *mut *mut c_void {
 
 /// Header flags word (u16 @6).
 #[inline]
-unsafe fn header_flags(arr: *const c_void) -> u16 {
+pub(crate) unsafe fn header_flags(arr: *const c_void) -> u16 {
     unsafe { (arr.cast::<u8>().add(6) as *const u16).read() }
 }
 
@@ -164,6 +171,15 @@ pub unsafe extern "C" fn __torajs_arr_index_flags(arr: *const c_void, idx: u64) 
     if unsafe { header_flags(arr) } & FLAG_ARR_EXOTIC_INDEX == 0 {
         return FLAGS_DEFAULT;
     }
+    let key = unsafe { mint_index_key(idx) };
+    let flags = unsafe { index_flags_with_key(arr, key as *const c_void) };
+    unsafe { __torajs_str_drop(key as *mut c_void) };
+    flags
+}
+
+/// Mint a pooled Str carrying the canonical decimal digits of `idx`
+/// (the shadow-entry key shape). Caller owns the returned Str.
+pub(crate) unsafe fn mint_index_key(idx: u64) -> *mut u8 {
     let mut buf = [0u8; 20];
     let mut n = buf.len();
     let mut v = idx;
@@ -178,9 +194,7 @@ pub unsafe extern "C" fn __torajs_arr_index_flags(arr: *const c_void, idx: u64) 
     let digits = &buf[n..];
     let key = unsafe { __torajs_str_alloc_pooled(digits.len() as u64) };
     unsafe { core::ptr::copy_nonoverlapping(digits.as_ptr(), key.add(STR_DATA_OFF), digits.len()) };
-    let flags = unsafe { index_flags_with_key(arr, key as *const c_void) };
-    unsafe { __torajs_str_drop(key as *mut c_void) };
-    flags
+    key
 }
 
 /// §10.4.2.1 ArrayDefineOwnProperty entry — see module doc. `tag` /
@@ -200,10 +214,28 @@ pub unsafe extern "C" fn __torajs_arr_define(
 ) {
     let bytes = unsafe { key_bytes(key) };
     if bytes == b"length" {
-        unsafe { define_length(arr, tag, value, flags_byte) };
+        if flags_byte & (P_GET | P_SET) != 0 {
+            // §10.4.2.4 — length is a data property; an accessor
+            // redefine of a non-configurable property throws.
+            unsafe { drop_owned(tag, value) };
+            unsafe {
+                __torajs_throw_type_error(
+                    c"Attempting to change configurable attribute of unconfigurable property."
+                        .as_ptr(),
+                )
+            };
+            return;
+        }
+        unsafe { crate::define_length::define_length(arr, tag, value, flags_byte) };
         return;
     }
     if let Some(idx) = canonical_index(bytes) {
+        if flags_byte & (P_GET | P_SET) != 0 {
+            unsafe {
+                crate::define_accessor::define_index_accessor(arr, key, idx, tag, value, flags_byte)
+            };
+            return;
+        }
         unsafe { define_index(arr, key, idx, tag, value, flags_byte) };
         return;
     }
@@ -253,6 +285,53 @@ unsafe fn define_index(
             // clears the hole sentinel, so a defaults-flags define
             // must still land.
             unsafe { store_shadow(arr, key, flags_byte & FLAGS_DEFAULT) };
+            return;
+        }
+        // Accessor → data transition (chunk C): a data descriptor over
+        // an accessor index needs the configurable gate, then the
+        // shadow entry (owning the pair) is deleted and the define
+        // lands as a data property — absent `writable` completes to
+        // false, e/c keep the current values (§10.1.6.3 step 4).
+        let pair = unsafe { crate::define_accessor::__torajs_arr_index_accessor(arr, idx) };
+        if !pair.is_null() {
+            let cur_e = cur_flags & F_ENUMERABLE != 0;
+            let cur_c = cur_flags & F_CONFIGURABLE != 0;
+            if !cur_c {
+                unsafe { drop_owned(tag, value) };
+                unsafe {
+                    __torajs_throw_type_error(
+                        c"Attempting to change configurable attribute of unconfigurable property."
+                            .as_ptr(),
+                    )
+                };
+                return;
+            }
+            let props = unsafe { *props_slot(arr) };
+            unsafe { __torajs_dynobj_delete(props, key as *const c_void) };
+            if has_value {
+                unsafe { crate::index_any::__torajs_arr_index_set(arr, idx as i64, tag, value) };
+            }
+            let mut new_flags = 0u64;
+            if flags_byte & P_WRITABLE != 0 && flags_byte & F_WRITABLE != 0 {
+                new_flags |= F_WRITABLE;
+            }
+            let e = if flags_byte & P_ENUMERABLE != 0 {
+                flags_byte & F_ENUMERABLE != 0
+            } else {
+                cur_e
+            };
+            let c = if flags_byte & P_CONFIGURABLE != 0 {
+                flags_byte & F_CONFIGURABLE != 0
+            } else {
+                cur_c
+            };
+            if e {
+                new_flags |= F_ENUMERABLE;
+            }
+            if c {
+                new_flags |= F_CONFIGURABLE;
+            }
+            unsafe { store_shadow(arr, key, new_flags) };
             return;
         }
         let cur_w = cur_flags & F_WRITABLE != 0;
@@ -355,90 +434,6 @@ unsafe fn define_index(
     let new_flags = flags_byte & FLAGS_DEFAULT;
     if new_flags != FLAGS_DEFAULT {
         unsafe { store_shadow(arr, key, new_flags) };
-    }
-}
-
-/// Spec §7.1.7 ToUint32 over an already-ToNumber'd f64 — NaN / ±inf
-/// map to 0, everything else truncates and wraps modulo 2^32.
-fn to_uint32(n: f64) -> u32 {
-    if n.is_nan() || n.is_infinite() {
-        return 0;
-    }
-    (n.trunc() as i64 as u64 & 0xFFFF_FFFF) as u32
-}
-
-/// §10.4.2.4 ArraySetLength via defineProperty — length is
-/// permanently `{enumerable: false, configurable: false}`; a present
-/// `[[Value]]` resizes through the shared validate helper (which
-/// also carries the writable lock — a locked length rejects any
-/// change but admits the same value); `writable: false` arms the
-/// lock AFTER the resize (spec applies the value first, then the
-/// writability drop). Step order: ToUint32 of the [[Value]] runs
-/// FIRST (steps 3-4 — a throwing valueOf wins over every attribute
-/// rejection and runs exactly once), then the e/c/w validation, then
-/// the apply with the already-converted number.
-unsafe fn define_length(arr: *mut c_void, tag: u64, value: u64, flags_byte: u64) {
-    // §10.4.2.4 steps 3-5 — `newLen = ToUint32(v)` then `numberLen =
-    // ToNumber(v)` (the spec really runs a side-effecting valueOf
-    // TWICE), RangeError when they disagree. Conversion precedes the
-    // attribute validation, and a throwing valueOf wins outright.
-    let mut converted: Option<i64> = None;
-    if flags_byte & P_VALUE != 0 {
-        let anyv = unsafe { __torajs_anyv_box_from_pair(tag as i64, value as i64) };
-        let n1 = unsafe { __torajs_anyv_to_number(anyv) };
-        if unsafe { __torajs_throw_check() } != 0 {
-            unsafe { drop_owned(tag, value) };
-            return;
-        }
-        let n2 = unsafe { __torajs_anyv_to_number(anyv) };
-        unsafe { drop_owned(tag, value) };
-        if unsafe { __torajs_throw_check() } != 0 {
-            return;
-        }
-        let new_len = to_uint32(n1);
-        if new_len as f64 != n2 {
-            unsafe { __torajs_throw_range_error(c"Invalid array length".as_ptr() as *const u8) };
-            return;
-        }
-        converted = Some(new_len as i64);
-    }
-    let ro = unsafe { header_flags(arr) } & FLAG_ARR_LENGTH_RO != 0;
-    if flags_byte & P_CONFIGURABLE != 0 && flags_byte & F_CONFIGURABLE != 0 {
-        unsafe {
-            __torajs_throw_type_error(
-                c"Attempting to change configurable attribute of unconfigurable property.".as_ptr(),
-            )
-        };
-        return;
-    }
-    if flags_byte & P_ENUMERABLE != 0 && flags_byte & F_ENUMERABLE != 0 {
-        unsafe {
-            __torajs_throw_type_error(
-                c"Attempting to change enumerable attribute of unconfigurable property.".as_ptr(),
-            )
-        };
-        return;
-    }
-    if ro && flags_byte & P_WRITABLE != 0 && flags_byte & F_WRITABLE != 0 {
-        unsafe {
-            __torajs_throw_type_error(
-                c"Attempting to change writable attribute of unconfigurable property.".as_ptr(),
-            )
-        };
-        return;
-    }
-    if let Some(n) = converted {
-        // The resize helper carries the lock (rejects a changed
-        // value, admits the same one) — pending throw short-circuits
-        // the writable drop below per the spec's fail-fast order.
-        unsafe { __torajs_arr_set_length_any(arr, 2, n) };
-        if unsafe { __torajs_throw_check() } != 0 {
-            return;
-        }
-    }
-    if flags_byte & P_WRITABLE != 0 && flags_byte & F_WRITABLE == 0 {
-        let p = unsafe { (arr as *mut u8).add(6) as *mut u16 };
-        unsafe { p.write(p.read() | FLAG_ARR_LENGTH_RO) };
     }
 }
 

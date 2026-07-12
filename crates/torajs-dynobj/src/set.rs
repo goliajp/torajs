@@ -226,6 +226,10 @@ pub unsafe extern "C" fn __torajs_dynobj_set_entry_hole(
         let key_ptr =
             (unsafe { (*e).key_ptr_tagged } & crate::layout::BUCKET_KEY_PTR_MASK) as *mut c_void;
         unsafe { (*e).key_ptr_tagged = bucket_make_key_tagged(key_ptr, 0) };
+        // Drop the entry's current value before the sentinel lands —
+        // deleting an accessor index would otherwise leak the pair
+        // (RFC 20260713 chunk C; NaN-box-safe, immediates no-op).
+        unsafe { __torajs_value_drop_heap((*e).value_anyv as *mut c_void) };
         unsafe { (*e).value_anyv = crate::layout::DYNOBJ_HOLE_SENTINEL };
     } else {
         let e_idx = unsafe { entries_len(obj) };

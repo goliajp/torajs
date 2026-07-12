@@ -350,11 +350,22 @@ pub(crate) fn emit_accessor_define(
         }
     }
 
-    let dynobj = ctx.any_unbox_value_as_ptr(obj_op);
+    // Receiver cell — an Any receiver unboxes to its dynobj/Arr cell;
+    // a typed Arr receiver (RFC 20260713 chunk C) is already the cell
+    // (kernel element writes are kind-aware — mark at the reflection
+    // boundary). `dynobj_define`'s apply core carries the TAG_ARR
+    // dispatch into the array index kernel either way.
+    let obj_is_any = matches!(ctx.operand_ty(&obj_op), Type::Any);
+    let obj_ptr: Operand = if obj_is_any {
+        Operand::Value(ctx.any_unbox_value_as_ptr(obj_op))
+    } else {
+        ctx.emit_arr_mark_kind(&obj_op);
+        obj_op
+    };
     let slot = ctx.alloca(Type::Ptr, Some("__dynobj_slot"));
     ctx.f.append_void(
         ctx.cur_block,
-        InstKind::Store(Operand::Value(dynobj), Operand::Value(slot), 0),
+        InstKind::Store(obj_ptr, Operand::Value(slot), 0),
     );
     ctx.f.append_void(
         ctx.cur_block,
@@ -370,6 +381,8 @@ pub(crate) fn emit_accessor_define(
         ),
     );
     ctx.emit_throw_check(None);
-    ctx.emit_any_dynobj_writeback(receiver_ident, slot);
+    if obj_is_any {
+        ctx.emit_any_dynobj_writeback(receiver_ident, slot);
+    }
     true
 }
