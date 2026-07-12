@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-12T19:14:03.917Z",
+  "generatedAt": "2026-07-12T21:23:32.639Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-12T19:12:49Z",
-    "headSha": "1aadd9d2",
-    "elapsedSec": 465.1,
+    "ranAt": "2026-07-12T21:20:01Z",
+    "headSha": "890f573f",
+    "elapsedSec": 461.4,
     "workers": 8,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 4704,
+    "pass": 4880,
     "passNoOracle": 78,
     "passNegative": 4444,
-    "passTotal": 9226,
-    "bug": 1178,
-    "incompatible": 42770,
-    "bunSkip": 12861,
+    "passTotal": 9402,
+    "bug": 1003,
+    "incompatible": 42769,
+    "bunSkip": 12565,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 10404,
-    "passRateInScope": 17.35,
-    "passRateTrAccepted": 88.68
+    "trAccepted": 10405,
+    "passRateInScope": 17.68,
+    "passRateTrAccepted": 90.36
   },
   "torajs": {
-    "commit": "df4b6eb6",
-    "commitSubject": "chore: test262 sweep at 1aadd9d2 — 9226 pass (+72 cumulative), fix-up nets +10 fixed / 0 appeared",
+    "commit": "890f573f",
+    "commitSubject": "fix: generic mono width infers NaN and Infinity idents as f64",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "890f573f",
+      "subject": "fix: generic mono width infers NaN and Infinity idents as f64"
+    },
+    {
+      "hash": "d1cc8879",
+      "subject": "fix: harness sameValue keeps comparisons in the generic domain"
+    },
+    {
+      "hash": "aefdb913",
+      "subject": "fix: test262 harness sameValue uses SameValue semantics not strict equality"
+    },
+    {
+      "hash": "774e6f35",
+      "subject": "fix: number method dispatch coerces arguments lazily after mid validation"
+    },
+    {
+      "hash": "4600f46b",
+      "subject": "feat: date invalid-time substrate with f64 ABI and present-mask setters"
+    },
+    {
+      "hash": "cc2cb47e",
+      "subject": "chore: hardev dashboard snapshot"
+    },
+    {
       "hash": "df4b6eb6",
       "subject": "chore: test262 sweep at 1aadd9d2 — 9226 pass (+72 cumulative), fix-up nets +10 fixed / 0 appeared"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "60a08838",
       "subject": "chore: hardev dashboard snapshot"
-    },
-    {
-      "hash": "31fad980",
-      "subject": "chore: test262 sweep at 68daeb85 — 9154 pass (+65), 4 appeared are incompat-to-runnable moves"
-    },
-    {
-      "hash": "68daeb85",
-      "subject": "fix: accessor redefine merges per-face and named fns mint env cells"
-    },
-    {
-      "hash": "59b87f14",
-      "subject": "feat: delete on an array index produces a hole instead of a silent no-op"
-    },
-    {
-      "hash": "db294b88",
-      "subject": "fix: descriptor shape dispatch reads closure and array descriptors via expando props"
-    },
-    {
-      "hash": "eb4516d7",
-      "subject": "fix: literal descriptor with non-bool flag falls back to runtime tpd path"
-    },
-    {
-      "hash": "c5dc2bab",
-      "subject": "chore: hardev dashboard snapshot"
     }
   ],
-  "headSha": "df4b6eb6",
+  "headSha": "890f573f",
   "autorun": {
-    "total": 390,
+    "total": 391,
     "baselineTarget": 10,
-    "bySelf": 385,
+    "bySelf": 386,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1783875675-1352",
-      "at": "2026-07-12T17:01:15Z",
-      "ts": 1783875675,
+      "rotationId": "r-1783883741-5574",
+      "at": "2026-07-12T19:15:41Z",
+      "ts": 1783883741,
       "trigger": "self",
-      "prevHead": "60a08838",
-      "handoffSha": "sha256:8eca3de87b0925b54d27256846f186a6606ab2c783d87d1ba51b5c43cf54a724",
-      "handoffAgeSec": 8,
+      "prevHead": "cc2cb47e",
+      "handoffSha": "sha256:32fc6b038f4e71a46b190eb0948a5487b43e947438fc47862759ef69de1e863a",
+      "handoffAgeSec": 6,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1783883741-5574",
+        "at": "2026-07-12T19:15:41Z",
+        "ts": 1783883741,
+        "trigger": "self",
+        "prevHead": "cc2cb47e",
+        "handoffSha": "sha256:32fc6b038f4e71a46b190eb0948a5487b43e947438fc47862759ef69de1e863a",
+        "handoffAgeSec": 6,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1783875675-1352",
         "at": "2026-07-12T17:01:15Z",
@@ -876,17 +887,6 @@
         "prevHead": "176fdcd0",
         "handoffSha": "sha256:1a752a03c8f5553d01a8927a8c83f461aee6e5fd3b42471764ae641b2f1df298",
         "handoffAgeSec": 6,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1783795963-10c5",
-        "at": "2026-07-11T18:52:43Z",
-        "ts": 1783795963,
-        "trigger": "self",
-        "prevHead": "b6eedc71",
-        "handoffSha": "sha256:363e6d48c1cc5738e86a036183b7ebf911fe4d8c9432f765bf6434beeedc5e59",
-        "handoffAgeSec": 4,
         "conformanceBefore": null,
         "commitsInSession": null
       }
