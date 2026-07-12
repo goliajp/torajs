@@ -175,16 +175,20 @@ pub unsafe extern "C" fn __torajs_arr_any_for_each(
 }
 
 /// Shared early-exit predicate loop (any-dispatch backfill chunk 3).
-/// `mode`: 0 = every, 1 = some, 2 = find, 3 = findIndex. Same
-/// ledger as [`hof_loop`]; on the exit hit `find` transfers the
-/// owned element read as the return, the others release it.
+/// `mode`: 0 = every, 1 = some, 2 = find, 3 = findIndex,
+/// 4 = findLast, 5 = findLastIndex (modes ≥ 4 walk backwards,
+/// §23.1.3.11 / §23.1.3.12). Same ledger as [`hof_loop`]; on the
+/// exit hit `find` / `findLast` transfer the owned element read as
+/// the return, the others release it.
 unsafe fn find_loop(arr: *const c_void, cb_env: *mut c_void, cb_entry: u64, mode: i64) -> u64 {
     unsafe {
         let cb: BoxedFn = core::mem::transmute(cb_entry as usize);
         let len = *((arr as *const u8).add(ARR_LEN_OFF) as *const u64);
         let arr_boxed = arr as u64;
-        let mut i: u64 = 0;
-        while i < len {
+        let right = mode >= 4;
+        let mut step: u64 = 0;
+        while step < len {
+            let i = if right { len - 1 - step } else { step };
             let v = crate::index_any::__torajs_arr_index_get(arr, i as i64);
             let mut argv = [undef(); ARGV_SLOTS];
             argv[0] = v;
@@ -213,14 +217,16 @@ unsafe fn find_loop(arr: *const c_void, cb_env: *mut c_void, cb_entry: u64, mode
                         return __torajs_anyv_box_from_pair(1, 1);
                     }
                 }
-                // find — the hit transfers the owned element read.
-                2 => {
+                // find / findLast — the hit transfers the owned
+                // element read.
+                2 | 4 => {
                     if hit {
                         return v;
                     }
                     __torajs_value_drop_heap(v as *mut c_void);
                 }
-                // findIndex — the hit answers the index.
+                // findIndex / findLastIndex — the hit answers the
+                // index.
                 _ => {
                     __torajs_value_drop_heap(v as *mut c_void);
                     if hit {
@@ -228,12 +234,12 @@ unsafe fn find_loop(arr: *const c_void, cb_env: *mut c_void, cb_entry: u64, mode
                     }
                 }
             }
-            i += 1;
+            step += 1;
         }
         match mode {
             0 => __torajs_anyv_box_from_pair(1, 1),
             1 => __torajs_anyv_box_from_pair(1, 0),
-            2 => undef(),
+            2 | 4 => undef(),
             _ => __torajs_anyv_box_from_pair(2, -1),
         }
     }
@@ -290,6 +296,34 @@ pub unsafe extern "C" fn __torajs_arr_any_find_index(
     cb_entry: u64,
 ) -> u64 {
     unsafe { find_loop(arr, cb_env, cb_entry, 3) }
+}
+
+/// `a.findLast(cb)` per ES §23.1.3.11 — backwards walk, the
+/// matching element (owned) or `undefined`.
+///
+/// # Safety
+/// See [`__torajs_arr_any_map`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_any_find_last(
+    arr: *const c_void,
+    cb_env: *mut c_void,
+    cb_entry: u64,
+) -> u64 {
+    unsafe { find_loop(arr, cb_env, cb_entry, 4) }
+}
+
+/// `a.findLastIndex(cb)` per ES §23.1.3.12 — backwards walk, the
+/// matching index or -1.
+///
+/// # Safety
+/// See [`__torajs_arr_any_map`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_any_find_last_index(
+    arr: *const c_void,
+    cb_env: *mut c_void,
+    cb_entry: u64,
+) -> u64 {
+    unsafe { find_loop(arr, cb_env, cb_entry, 5) }
 }
 
 /// `a.reduce(cb, init?)` / `a.reduceRight(cb, init?)` per ES

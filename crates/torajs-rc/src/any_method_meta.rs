@@ -150,6 +150,14 @@ pub fn any_method_meta(mid: i64) -> Option<(&'static str, u32)> {
         ANY_METHOD_MATCH_ALL => ("matchAll", 1),
         ANY_METHOD_IS_WELL_FORMED => ("isWellFormed", 0),
         ANY_METHOD_TO_WELL_FORMED => ("toWellFormed", 0),
+        ANY_METHOD_FLAT => ("flat", 0),
+        ANY_METHOD_FLAT_MAP => ("flatMap", 1),
+        ANY_METHOD_FIND_LAST => ("findLast", 1),
+        ANY_METHOD_FIND_LAST_INDEX => ("findLastIndex", 1),
+        ANY_METHOD_TO_REVERSED => ("toReversed", 0),
+        ANY_METHOD_TO_SORTED => ("toSorted", 1),
+        ANY_METHOD_TO_SPLICED => ("toSpliced", 2),
+        ANY_METHOD_WITH => ("with", 2),
         _ => return None,
     })
 }
@@ -157,12 +165,13 @@ pub fn any_method_meta(mid: i64) -> Option<(&'static str, u32)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::any_method_intern::any_method_id;
 
     #[test]
     fn meta_round_trips_every_interned_name() {
         // Every id the intern table can answer must carry metadata
         // whose name interns back to the same id.
-        for mid in 1..=ANY_METHOD_TO_WELL_FORMED {
+        for mid in 1..=ANY_METHOD_WITH {
             let (name, _) =
                 any_method_meta(mid).unwrap_or_else(|| panic!("mid {mid} has no metadata row"));
             assert_eq!(any_method_id(name), mid, "name {name:?} round-trip");
@@ -172,7 +181,7 @@ mod tests {
     #[test]
     fn meta_rejects_unknown_and_out_of_table() {
         assert!(any_method_meta(ANY_METHOD_UNKNOWN).is_none());
-        assert!(any_method_meta(ANY_METHOD_TO_WELL_FORMED + 1).is_none());
+        assert!(any_method_meta(ANY_METHOD_WITH + 1).is_none());
         assert!(any_method_meta(-1).is_none());
     }
 }

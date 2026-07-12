@@ -20,7 +20,7 @@ use torajs_rc::{
 };
 
 use crate::index_any::MIRROR_ARR_LEN_OFF;
-use crate::method_call::{closure_boxed_entry, method_no_such, not_callable, to_index};
+use crate::method_call::{closure_boxed_entry, not_callable, to_index};
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED, is_undefined};
 use crate::nanbox_encode::{
     __torajs_anyv_box_from_pair, __torajs_anyv_box_i64, __torajs_anyv_box_pointer,
@@ -346,7 +346,10 @@ pub(crate) unsafe fn arr_method(
                 let p = __torajs_arr_any_slice(arr as *const u8, start, end);
                 __torajs_anyv_box_pointer(p as *mut c_void)
             }
-            _ => method_no_such(),
+            // Copy-family / reflection extension arms (chunk 1, RFC
+            // 20260712-array-generic-receiver) — the sibling floats
+            // no-such for a genuine miss.
+            _ => crate::method_call_arr_copy::arr_method_ext(arr, mid, argv, argc),
         }
     }
 }
