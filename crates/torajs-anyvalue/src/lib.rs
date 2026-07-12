@@ -101,6 +101,8 @@ mod method_bind;
 mod method_call;
 mod method_call_arr;
 mod method_call_arr_copy;
+mod method_call_arraylike;
+mod method_call_arraylike_hof;
 mod method_call_closure;
 mod method_call_date;
 mod method_call_dynobj;

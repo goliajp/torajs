@@ -100,6 +100,14 @@ pub(crate) unsafe fn dynobj_method(
     argc: i64,
 ) -> AnyValue {
     unsafe {
+        // RFC 20260712 chunks 2+3a — a NULL name is the reified-cell
+        // `call` / `apply` re-dispatch (ordinary calls always carry
+        // name bytes): the mid is authoritative, so an array-family
+        // mid runs the ES generic array-like semantics over this
+        // receiver instead of falling to the not-callable exit.
+        if name_str.is_null() && crate::method_call_arraylike::arraylike_supported(mid) {
+            return crate::method_call_arraylike::arraylike_method(obj, mid, argv, argc);
+        }
         if !name_str.is_null() {
             let key = name_str as *const c_void;
             let dtag = __torajs_dynobj_get_tag(obj, key);
@@ -113,6 +121,17 @@ pub(crate) unsafe fn dynobj_method(
             // ANY_HEAP = 4 — a plain closure-cell property.
             if dtag == 4 {
                 let cell = __torajs_dynobj_get_value(obj, key);
+                // A reified builtin cell stored as an own property
+                // (`obj.pop = Array.prototype.pop`) re-dispatches
+                // its CARRIED mid with this receiver — the bare
+                // entry would be the this=undefined TypeError.
+                if crate::nanbox::is_cell(cell)
+                    && let Some(mid2) =
+                        crate::method_value::builtin_method_mid(crate::nanbox::as_void_ptr(cell))
+                    && crate::method_call_arraylike::arraylike_supported(mid2)
+                {
+                    return crate::method_call_arraylike::arraylike_method(obj, mid2, argv, argc);
+                }
                 // The cell's NaN-box encoding is its pointer bits.
                 if let Some((env, entry)) = closure_boxed_entry(cell) {
                     return crate::method_call::invoke_boxed(env, entry, argv, argc);
