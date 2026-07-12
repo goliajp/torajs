@@ -148,6 +148,11 @@ unsafe fn kind_mismatch_threw(msg: &core::ffi::CStr) -> u64 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_any_pop(arr: *mut c_void) -> u64 {
     unsafe {
+        // RFC 20260713 blade 4 — frozen / RO-length receivers throw
+        // before the empty short-circuit (§23.1.3.20 step 3.b).
+        if crate::define_length::__torajs_arr_len_write_guard(arr) != 0 {
+            return __torajs_anyv_box_from_pair(5, 0);
+        }
         let p = arr as *mut u8;
         let len = *(p.add(ARR_LEN_OFF) as *const u64);
         if len == 0 {
@@ -186,6 +191,10 @@ pub unsafe extern "C" fn __torajs_arr_any_pop(arr: *mut c_void) -> u64 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_any_shift(arr: *mut c_void) -> u64 {
     unsafe {
+        // RFC 20260713 blade 4 — pop's twin (§23.1.3.29 step 3.b).
+        if crate::define_length::__torajs_arr_len_write_guard(arr) != 0 {
+            return __torajs_anyv_box_from_pair(5, 0);
+        }
         let p = arr as *mut u8;
         let len = *(p.add(ARR_LEN_OFF) as *const u64);
         if len == 0 {

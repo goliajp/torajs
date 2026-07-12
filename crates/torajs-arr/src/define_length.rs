@@ -6,7 +6,7 @@
 
 use core::ffi::c_void;
 
-use torajs_rc::FLAG_ARR_LENGTH_RO;
+use torajs_rc::{FLAG_ARR_LENGTH_RO, FLAG_FROZEN};
 
 use crate::define::{
     F_CONFIGURABLE, F_ENUMERABLE, F_WRITABLE, P_CONFIGURABLE, P_ENUMERABLE, P_VALUE, P_WRITABLE,
@@ -104,4 +104,26 @@ pub(crate) unsafe fn define_length(arr: *mut c_void, tag: u64, value: u64, flags
         let p = unsafe { (arr as *mut u8).add(6) as *mut u16 };
         unsafe { p.write(p.read() | FLAG_ARR_LENGTH_RO) };
     }
+}
+
+/// §23.1.3.{20,29} pop/shift step 4.f / 5.g — `Set(O, "length", …,
+/// true)` on a frozen array or a non-writable `length` throws
+/// TypeError (OrdinarySetWithOwnDescriptor step 2.a + Set's Throw
+/// flag). Fired at the head of every pop/shift lane — the EMPTY
+/// receiver also writes length 0 per step 3.b, so the guard
+/// precedes the empty short-circuit (RFC 20260713-array-proto-
+/// residual blade 4). Returns 1 when the TypeError was recorded.
+///
+/// # Safety
+/// `arr` is a live array heap block pointer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_len_write_guard(arr: *const c_void) -> i64 {
+    let locked = unsafe { header_flags(arr as *mut c_void) } & (FLAG_ARR_LENGTH_RO | FLAG_FROZEN);
+    if locked == 0 {
+        return 0;
+    }
+    unsafe {
+        __torajs_throw_type_error(c"Attempted to assign to readonly property.".as_ptr());
+    }
+    1
 }

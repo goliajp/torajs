@@ -31,6 +31,68 @@ impl<'a> LowerCtx<'a> {
         self.emit_throw_check(None);
     }
 
+    /// §23.1.3.{20,29} pop/shift length-write lock (RFC 20260713
+    /// blade 4) — `Set(O, "length", …, true)` on a frozen array or a
+    /// non-writable `length` throws TypeError, INCLUDING the empty
+    /// receiver (step 3.b writes length 0), so this precedes the
+    /// empty short-circuit. Inline hot path: one header load +
+    /// shift/mask/branch (the flags word rides the same cache line
+    /// as the len the op reads next); the cold block calls the
+    /// runtime thrower and propagates.
+    pub(crate) fn emit_arr_len_lock_guard(&mut self, arr: Operand) {
+        const LOCK_BITS: i64 = 16 + 128; // FLAG_FROZEN | FLAG_ARR_LENGTH_RO
+        let hdr = self.f.append_inst(
+            self.cur_block,
+            InstKind::Load(Type::I64, arr.clone(), 0),
+            Type::I64,
+            None,
+        );
+        let sh = self.f.append_inst(
+            self.cur_block,
+            InstKind::BinOp(SsaBinOp::LShr, Operand::Value(hdr), Operand::ConstI64(48)),
+            Type::I64,
+            None,
+        );
+        let masked = self.f.append_inst(
+            self.cur_block,
+            InstKind::BinOp(
+                SsaBinOp::And,
+                Operand::Value(sh),
+                Operand::ConstI64(LOCK_BITS),
+            ),
+            Type::I64,
+            None,
+        );
+        let locked = self.f.append_inst(
+            self.cur_block,
+            InstKind::ICmp(IPred::Ne, Operand::Value(masked), Operand::ConstI64(0)),
+            Type::Bool,
+            None,
+        );
+        let locked_blk = self.f.add_block();
+        let ok_blk = self.f.add_block();
+        let cb = self.cur_block;
+        self.f.set_term(
+            cb,
+            Terminator::CondBr {
+                cond: Operand::Value(locked),
+                then_blk: locked_blk,
+                else_blk: ok_blk,
+            },
+        );
+        self.cur_block = locked_blk;
+        self.f.append_inst(
+            self.cur_block,
+            InstKind::Call(self.intrinsics.arr_len_write_guard, vec![arr]),
+            Type::I64,
+            None,
+        );
+        self.emit_throw_check(None);
+        let after_throw = self.cur_block;
+        self.f.set_term(after_throw, Terminator::Br(ok_blk));
+        self.cur_block = ok_blk;
+    }
+
     /// B1 — load the slots base pointer from the cell's data field.
     /// Emit once per access site; grow-capable calls in between
     /// invalidate it (grow swaps the buffer, not the cell).

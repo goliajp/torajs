@@ -220,6 +220,10 @@ impl<'a> LowerCtx<'a> {
                     _ => unreachable!(),
                 };
                 let elem_ty = self.arr_layouts[arr_id.0 as usize];
+                // RFC 20260713 blade 4 — frozen / RO-length receivers
+                // throw before the empty short-circuit (§23.1.3.20
+                // step 3.b writes length even when empty).
+                self.emit_arr_len_lock_guard(arr_op.clone());
                 // Chunk 628 — static Arr<Any> receivers go through the
                 // kind-aware runtime pop (typed-behind-any blocks rebox
                 // per elem kind; empty → undefined built in). The old
@@ -313,6 +317,8 @@ impl<'a> LowerCtx<'a> {
                     _ => unreachable!(),
                 };
                 let elem_ty = self.arr_layouts[arr_id.0 as usize];
+                // RFC 20260713 blade 4 — length-write lock, pop's twin.
+                self.emit_arr_len_lock_guard(arr_op.clone());
                 // Chunk 628 — static Arr<Any> receivers go through the
                 // kind-aware runtime shift (pop's deque twin; see the
                 // pop arm above).
