@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-12T02:12:41.480Z",
+  "generatedAt": "2026-07-12T03:28:00.535Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-11T19:50:40Z",
-    "headSha": "5e41403b",
-    "elapsedSec": 424.32,
+    "ranAt": "2026-07-12T02:23:28Z",
+    "headSha": "df3481af",
+    "elapsedSec": 423.93,
     "workers": 8,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 3949,
+    "pass": 4070,
     "passNoOracle": 77,
     "passNegative": 4444,
-    "passTotal": 8470,
-    "bug": 1913,
-    "incompatible": 42791,
+    "passTotal": 8591,
+    "bug": 1794,
+    "incompatible": 42789,
     "bunSkip": 12861,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 10383,
-    "passRateInScope": 15.93,
-    "passRateTrAccepted": 81.58
+    "trAccepted": 10385,
+    "passRateInScope": 16.16,
+    "passRateTrAccepted": 82.73
   },
   "torajs": {
-    "commit": "f4950468",
-    "commitSubject": "fix: plain-object proto surface respects own-entry precedence + toString",
+    "commit": "600a07db",
+    "commitSubject": "feat: object.create props + defineproperties runtime props walk",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "600a07db",
+      "subject": "feat: object.create props + defineproperties runtime props walk"
+    },
+    {
+      "hash": "e0fbbb40",
+      "subject": "feat: runtime accessor descriptors + undefined dynobj field fix"
+    },
+    {
+      "hash": "9b30dc63",
+      "subject": "feat: nested objectlit in any-dynobj literal recurses through dynobj lane"
+    },
+    {
+      "hash": "caead20e",
+      "subject": "feat: object.create proto validation + arg temp release"
+    },
+    {
+      "hash": "5702acc4",
+      "subject": "fix: release owned any source temp in array-literal spread lanes"
+    },
+    {
+      "hash": "3a3f223a",
+      "subject": "chore: test262 accounting @ df3481af — passTotal 8591 (+121), 0 regressions"
+    },
+    {
+      "hash": "df3481af",
+      "subject": "chore: hardev dashboard snapshot"
+    },
+    {
       "hash": "f4950468",
       "subject": "fix: plain-object proto surface respects own-entry precedence + toString"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "ed36e677",
       "subject": "feat: string pad-family any dispatch — padStart padEnd repeat concat codePointAt localeCompare"
-    },
-    {
-      "hash": "176fdcd0",
-      "subject": "chore: hardev dashboard snapshot"
-    },
-    {
-      "hash": "5981af91",
-      "subject": "feat: string slice-family any dispatch — substring substr at charCodeAt"
-    },
-    {
-      "hash": "96c02505",
-      "subject": "feat: date setUTC setter family across both tiers"
-    },
-    {
-      "hash": "5762ebef",
-      "subject": "chore: test262 accounting at 5e41403b — passTotal 8470, bug 1913"
-    },
-    {
-      "hash": "5e41403b",
-      "subject": "style: fmt prop_delete proto-tag binding"
-    },
-    {
-      "hash": "866fcc33",
-      "subject": "feat: delete tombstones builtin prototype interned methods"
-    },
-    {
-      "hash": "d393d249",
-      "subject": "feat: gopd synthesizes builtin prototype method descriptors"
     }
   ],
-  "headSha": "f4950468",
+  "headSha": "600a07db",
   "autorun": {
-    "total": 382,
+    "total": 383,
     "baselineTarget": 10,
-    "bySelf": 377,
+    "bySelf": 378,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1783801367-3568",
-      "at": "2026-07-11T20:22:47Z",
-      "ts": 1783801367,
+      "rotationId": "r-1783822417-42a9",
+      "at": "2026-07-12T02:13:37Z",
+      "ts": 1783822417,
       "trigger": "self",
-      "prevHead": "176fdcd0",
-      "handoffSha": "sha256:1a752a03c8f5553d01a8927a8c83f461aee6e5fd3b42471764ae641b2f1df298",
+      "prevHead": "df3481af",
+      "handoffSha": "sha256:1de639c093d6472e259b38835b1062e321dfcc70d12592dd860a241c25d0a1f6",
       "handoffAgeSec": 6,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1783822417-42a9",
+        "at": "2026-07-12T02:13:37Z",
+        "ts": 1783822417,
+        "trigger": "self",
+        "prevHead": "df3481af",
+        "handoffSha": "sha256:1de639c093d6472e259b38835b1062e321dfcc70d12592dd860a241c25d0a1f6",
+        "handoffAgeSec": 6,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1783801367-3568",
         "at": "2026-07-11T20:22:47Z",
@@ -876,17 +887,6 @@
         "prevHead": "37c28aa2",
         "handoffSha": "sha256:7d2e8a63730cf0c3d1da1735f58ab80d58c92bffa39bb98724ec7eaf01147fe1",
         "handoffAgeSec": 9,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1783709291-564b",
-        "at": "2026-07-10T18:48:11Z",
-        "ts": 1783709291,
-        "trigger": "self",
-        "prevHead": "ce6b70de",
-        "handoffSha": "sha256:c8056791618cd333663d3eab38ab24929b13f44790e4f6791823e3a919187306",
-        "handoffAgeSec": 8,
         "conformanceBefore": null,
         "commitsInSession": null
       }
