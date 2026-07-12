@@ -30,9 +30,11 @@
 use core::ffi::c_void;
 
 use torajs_rc::{
-    ANY_METHOD_ADD, ANY_METHOD_CLEAR, ANY_METHOD_DELETE, ANY_METHOD_ENTRIES, ANY_METHOD_FOR_EACH,
-    ANY_METHOD_GET, ANY_METHOD_HAS, ANY_METHOD_KEYS, ANY_METHOD_NEXT, ANY_METHOD_SET,
-    ANY_METHOD_VALUES,
+    ANY_METHOD_ADD, ANY_METHOD_CLEAR, ANY_METHOD_DELETE, ANY_METHOD_DIFFERENCE, ANY_METHOD_ENTRIES,
+    ANY_METHOD_FOR_EACH, ANY_METHOD_GET, ANY_METHOD_HAS, ANY_METHOD_INTERSECTION,
+    ANY_METHOD_IS_DISJOINT_FROM, ANY_METHOD_IS_SUBSET_OF, ANY_METHOD_IS_SUPERSET_OF,
+    ANY_METHOD_KEYS, ANY_METHOD_NEXT, ANY_METHOD_SET, ANY_METHOD_SYMMETRIC_DIFFERENCE,
+    ANY_METHOD_UNION, ANY_METHOD_VALUES, Tag,
 };
 
 use crate::method_call::{MAX_BOXED_ARGS, closure_boxed_entry, method_no_such, not_callable};
@@ -59,6 +61,18 @@ unsafe extern "C" {
     fn __torajs_map_has(p: *const c_void, key_tag: i64, key_payload: i64) -> i64;
     fn __torajs_map_delete(p: *mut c_void, key_tag: i64, key_payload: i64) -> i64;
     fn __torajs_map_clear(p: *mut c_void);
+    /// torajs-collections — ES2025 set methods (§24.2.5). The four
+    /// combiners answer a fresh rc=1 Set (ownership transfers out);
+    /// the three predicates answer 0/1.
+    fn __torajs_set_union(this: *const c_void, other: *const c_void) -> *mut c_void;
+    fn __torajs_set_intersection(this: *const c_void, other: *const c_void) -> *mut c_void;
+    fn __torajs_set_difference(this: *const c_void, other: *const c_void) -> *mut c_void;
+    fn __torajs_set_symmetric_difference(this: *const c_void, other: *const c_void) -> *mut c_void;
+    fn __torajs_set_is_subset_of(this: *const c_void, other: *const c_void) -> i64;
+    fn __torajs_set_is_superset_of(this: *const c_void, other: *const c_void) -> i64;
+    fn __torajs_set_is_disjoint_from(this: *const c_void, other: *const c_void) -> i64;
+    /// Cross-tier — torajs-throw (records a pending TypeError).
+    fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
     /// torajs-collections — caller-managed-cursor entry walk
     /// (`*cursor = -1` = first call; out pairs are borrows).
     fn __torajs_map_iter_next(
@@ -171,6 +185,52 @@ pub(crate) unsafe fn map_set_method(
                     return not_callable();
                 };
                 map_set_for_each(m, is_set, cb_env, cb_entry)
+            }
+            m2 if is_set
+                && matches!(
+                    m2,
+                    ANY_METHOD_UNION
+                        | ANY_METHOD_INTERSECTION
+                        | ANY_METHOD_DIFFERENCE
+                        | ANY_METHOD_SYMMETRIC_DIFFERENCE
+                        | ANY_METHOD_IS_SUBSET_OF
+                        | ANY_METHOD_IS_SUPERSET_OF
+                        | ANY_METHOD_IS_DISJOINT_FROM
+                ) =>
+            {
+                // ES2025 §24.2.5 — GetSetRecord requires a Set-shaped
+                // argument; tr's subset accepts real Set cells only
+                // (a non-Set answers the catchable TypeError below).
+                let other = {
+                    let av = arg_at(0);
+                    let tag = crate::nanbox_encode::__torajs_anyv_unbox_tag(av);
+                    let p = crate::nanbox_encode::__torajs_anyv_unbox_value(av) as *mut c_void;
+                    if tag != 4
+                        || p.is_null()
+                        || (p.cast::<u8>().add(4) as *const u16).read() != Tag::Set as u16
+                    {
+                        __torajs_throw_type_error(
+                            c"argument of a Set method must be a Set".as_ptr(),
+                        );
+                        return VALUE_UNDEFINED;
+                    }
+                    p as *const c_void
+                };
+                match m2 {
+                    ANY_METHOD_UNION => __torajs_set_union(m, other) as u64,
+                    ANY_METHOD_INTERSECTION => __torajs_set_intersection(m, other) as u64,
+                    ANY_METHOD_DIFFERENCE => __torajs_set_difference(m, other) as u64,
+                    ANY_METHOD_SYMMETRIC_DIFFERENCE => {
+                        __torajs_set_symmetric_difference(m, other) as u64
+                    }
+                    ANY_METHOD_IS_SUBSET_OF => {
+                        __torajs_anyv_box_from_pair(1, __torajs_set_is_subset_of(m, other))
+                    }
+                    ANY_METHOD_IS_SUPERSET_OF => {
+                        __torajs_anyv_box_from_pair(1, __torajs_set_is_superset_of(m, other))
+                    }
+                    _ => __torajs_anyv_box_from_pair(1, __torajs_set_is_disjoint_from(m, other)),
+                }
             }
             m2 if m2 == ANY_METHOD_KEYS || m2 == ANY_METHOD_VALUES || m2 == ANY_METHOD_ENTRIES => {
                 // Iterator mints — fresh rc=1 MapIter cell transfers

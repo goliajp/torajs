@@ -315,6 +315,20 @@ pub const ANY_METHOD_TO_SORTED: i64 = 136;
 pub const ANY_METHOD_TO_SPLICED: i64 = 137;
 /// `Array.prototype.with` (ES2023 change-array-by-copy).
 pub const ANY_METHOD_WITH: i64 = 138;
+/// `Set.prototype.union` (ES2025 set methods).
+pub const ANY_METHOD_UNION: i64 = 139;
+/// `Set.prototype.intersection` (ES2025 set methods).
+pub const ANY_METHOD_INTERSECTION: i64 = 140;
+/// `Set.prototype.difference` (ES2025 set methods).
+pub const ANY_METHOD_DIFFERENCE: i64 = 141;
+/// `Set.prototype.symmetricDifference` (ES2025 set methods).
+pub const ANY_METHOD_SYMMETRIC_DIFFERENCE: i64 = 142;
+/// `Set.prototype.isSubsetOf` (ES2025 set methods).
+pub const ANY_METHOD_IS_SUBSET_OF: i64 = 143;
+/// `Set.prototype.isSupersetOf` (ES2025 set methods).
+pub const ANY_METHOD_IS_SUPERSET_OF: i64 = 144;
+/// `Set.prototype.isDisjointFrom` (ES2025 set methods).
+pub const ANY_METHOD_IS_DISJOINT_FROM: i64 = 145;
 
 /// RegExp property-read ids (Any-method-call RFC 20260704 C4-3c-2)
 /// — `r.source` / `r.lastIndex` / flag booleans through an `any`

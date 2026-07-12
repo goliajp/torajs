@@ -147,6 +147,13 @@ pub fn any_method_id(name: &str) -> i64 {
         "toSorted" => ANY_METHOD_TO_SORTED,
         "toSpliced" => ANY_METHOD_TO_SPLICED,
         "with" => ANY_METHOD_WITH,
+        "union" => ANY_METHOD_UNION,
+        "intersection" => ANY_METHOD_INTERSECTION,
+        "difference" => ANY_METHOD_DIFFERENCE,
+        "symmetricDifference" => ANY_METHOD_SYMMETRIC_DIFFERENCE,
+        "isSubsetOf" => ANY_METHOD_IS_SUBSET_OF,
+        "isSupersetOf" => ANY_METHOD_IS_SUPERSET_OF,
+        "isDisjointFrom" => ANY_METHOD_IS_DISJOINT_FROM,
         _ => ANY_METHOD_UNKNOWN,
     }
 }
