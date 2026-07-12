@@ -7,7 +7,7 @@
 //! resolved transitively by [`add_thread`](super::dispatch::add_thread).
 
 use super::{Workspace, char_eq};
-use crate::parser::{RE_FLAG_S, RE_FLAG_U};
+use crate::parser::{RE_FLAG_S, unicode_mode};
 use crate::program::{Op, Program};
 use crate::utf8::{utf8_decode_cp, utf8_len_for};
 use crate::vm::Thread;
@@ -222,7 +222,7 @@ fn dispatch_anychar(
     let ins = prog.insts[t_pc];
     if pos < slen && (ins.pad as u8 & RE_FLAG_S != 0 || s[pos as usize] != b'\n') {
         let mut adv: i64 = 1;
-        if flags & RE_FLAG_U != 0 {
+        if unicode_mode(flags) {
             let ul = utf8_len_for(s[pos as usize]) as i64;
             if ul >= 1 && pos + ul <= slen {
                 adv = ul;
@@ -272,7 +272,7 @@ fn dispatch_class(
     let matched;
     if cc.byte_only {
         matched = cc.test_fold(s[pos as usize], ci);
-    } else if flags & RE_FLAG_U != 0 {
+    } else if unicode_mode(flags) {
         let ul = utf8_len_for(s[pos as usize]) as i64;
         if ul >= 1 && pos + ul <= slen {
             let (cp, dec_len) = utf8_decode_cp(&s[pos as usize..]);

@@ -23,7 +23,11 @@ impl<'p> Parser<'p> {
             }
             b'[' => {
                 self.get();
-                self.parse_class()
+                if self.flags & crate::parser::RE_FLAG_V != 0 {
+                    self.parse_class_v()
+                } else {
+                    self.parse_class()
+                }
             }
             b'.' => {
                 self.get();

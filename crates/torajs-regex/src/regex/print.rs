@@ -10,7 +10,7 @@
 
 use core::ffi::c_void;
 
-use crate::parser::{RE_FLAG_G, RE_FLAG_I, RE_FLAG_M, RE_FLAG_S, RE_FLAG_U, RE_FLAG_Y};
+use crate::parser::{RE_FLAG_G, RE_FLAG_I, RE_FLAG_M, RE_FLAG_S, RE_FLAG_U, RE_FLAG_V, RE_FLAG_Y};
 
 use super::as_regex;
 
@@ -63,6 +63,9 @@ pub unsafe extern "C" fn __torajs_regex_print_inline(re_ptr: *const c_void) {
         }
         if f & RE_FLAG_U != 0 {
             put_byte(b'u');
+        }
+        if f & RE_FLAG_V != 0 {
+            put_byte(b'v');
         }
         if f & RE_FLAG_Y != 0 {
             put_byte(b'y');

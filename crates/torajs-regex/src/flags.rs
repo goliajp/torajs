@@ -8,7 +8,7 @@
 //! behavior. L3b follow-up: strict mode that rejects unknowns at
 //! `RegExp.compile` time.
 
-use crate::parser::{RE_FLAG_G, RE_FLAG_I, RE_FLAG_M, RE_FLAG_S, RE_FLAG_U, RE_FLAG_Y};
+use crate::parser::{RE_FLAG_G, RE_FLAG_I, RE_FLAG_M, RE_FLAG_S, RE_FLAG_U, RE_FLAG_V, RE_FLAG_Y};
 
 pub fn parse_flags(s: &[u8]) -> u8 {
     let mut out = 0u8;
@@ -20,6 +20,7 @@ pub fn parse_flags(s: &[u8]) -> u8 {
             b's' => out |= RE_FLAG_S,
             b'u' => out |= RE_FLAG_U,
             b'y' => out |= RE_FLAG_Y,
+            b'v' => out |= RE_FLAG_V,
             _ => {} // unknown — silently skip (matches C port)
         }
     }

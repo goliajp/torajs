@@ -15,7 +15,8 @@
 //!   Routes through the shared `__torajs_regex_has_flag` helper
 //!   with the matching `RE_FLAG_*` byte constant. Bit values
 //!   mirror `torajs-regex::parser`:
-//!   `RE_FLAG_I=0x01, _G=0x02, _M=0x04, _S=0x08, _U=0x10, _Y=0x20`.
+//!   `RE_FLAG_I=0x01, _G=0x02, _M=0x04, _S=0x08, _U=0x10, _Y=0x20,
+//!   _V=0x40`.
 //! - **P9.4** — `re.lastIndex`. Reads the f64 field on the
 //!   RegExp heap object via `__torajs_regex_get_last_index`. Value
 //!   tracks across exec / match calls when the regex carries
@@ -96,6 +97,7 @@ fn bool_flag_bit(name: &str) -> Option<i64> {
         "dotAll" => Some(0x08),
         "unicode" => Some(0x10),
         "sticky" => Some(0x20),
+        "unicodeSets" => Some(0x40),
         _ => None,
     }
 }

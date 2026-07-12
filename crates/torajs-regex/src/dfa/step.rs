@@ -51,7 +51,7 @@ pub fn byte_step_full(
     let mut ready: BTreeSet<usize> = BTreeSet::new();
     let mut deferred: [BTreeSet<usize>; 3] = Default::default();
     let plen = prog.len();
-    let u_flag = flags & crate::parser::RE_FLAG_U != 0;
+    let u_flag = crate::parser::unicode_mode(flags);
     for &pc in states.iter() {
         if pc >= plen {
             continue;

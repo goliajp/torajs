@@ -23,7 +23,7 @@
 //! to unknown name, or out-of-range positional under `u`).
 
 use crate::node::{Node, NodeKind};
-use crate::parser::RE_FLAG_U;
+use crate::parser::unicode_mode;
 use crate::utf8::utf8_encode_cp;
 use alloc::vec::Vec;
 
@@ -60,7 +60,7 @@ fn resolve_one(node: &mut Node, names: &[Vec<u8>], n_captures: usize, flags: u8)
     } else if node.capture_idx >= 1 && node.capture_idx <= n_captures as i32 {
         node.backref_name.clear();
         true
-    } else if flags & RE_FLAG_U == 0 {
+    } else if !unicode_mode(flags) {
         demote_annexb(node);
         true
     } else {
@@ -121,6 +121,7 @@ fn demote_annexb(node: &mut Node) {
 mod tests {
     use super::*;
     use crate::parser::Parser;
+    use crate::parser::RE_FLAG_U;
     use alloc::boxed::Box;
 
     fn parse(pat: &str) -> (Box<Node>, Vec<Vec<u8>>, usize) {

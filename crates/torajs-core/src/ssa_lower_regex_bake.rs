@@ -43,6 +43,13 @@ pub(crate) fn try_bake_regex_dfa(
     use torajs_regex::resolve::resolve_backrefs;
 
     let flag_bits = parse_flags(flags.as_bytes());
+    // ES §22.2.3.1 — `u` + `v` is a SyntaxError; runtime takes the
+    // rejected-stub path, so a baked table would be dead weight.
+    if flag_bits & torajs_regex::parser::RE_FLAG_U != 0
+        && flag_bits & torajs_regex::parser::RE_FLAG_V != 0
+    {
+        return None;
+    }
     let mut parser = Parser::new(pattern.as_bytes(), flag_bits);
     let mut root = parser.parse()?;
     if parser.err() {

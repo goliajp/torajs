@@ -89,7 +89,7 @@ impl PendingClass {
 /// `dfa/build.rs` BFS to emit a pending state when this PC is among
 /// the byte-consuming ops in the closure.
 pub(crate) fn kproperty_pc_for(prog: &Program, pc: usize, flags: u8) -> Option<usize> {
-    if flags & crate::parser::RE_FLAG_U == 0 {
+    if !crate::parser::unicode_mode(flags) {
         return None;
     }
     let ins = prog.insts.get(pc)?;

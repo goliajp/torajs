@@ -307,7 +307,7 @@ pub fn search_from_with_ws(
         // u-flag fixtures (the common case for `/\p{L}+/u` style
         // patterns against Latin-1 / ASCII inputs).
         if !haystack_is_ascii
-            && flags & crate::parser::RE_FLAG_U != 0
+            && crate::parser::unicode_mode(flags)
             && st < slen
             && s[st as usize] & 0xC0 == 0x80
         {
@@ -348,7 +348,7 @@ pub fn match_anchor(prog: &Program, s: &[u8], at: i64, flags: u8) -> Option<Matc
     if at < 0 || at > slen {
         return None;
     }
-    if flags & crate::parser::RE_FLAG_U != 0 && at < slen && s[at as usize] & 0xC0 == 0x80 {
+    if crate::parser::unicode_mode(flags) && at < slen && s[at as usize] & 0xC0 == 0x80 {
         return None;
     }
     let mut ws = Workspace::for_program(prog);

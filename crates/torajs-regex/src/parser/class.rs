@@ -9,7 +9,7 @@
 //! - the leading `^` for negation,
 //! - the special empty form `[]` / `[^]`.
 
-use super::{Parser, RE_FLAG_U, apply_property_name};
+use super::{Parser, apply_property_name, unicode_mode};
 use crate::node::{Node, NodeKind};
 use alloc::boxed::Box;
 
@@ -122,7 +122,7 @@ impl<'p> Parser<'p> {
     /// `\p{}` inside `[...]` under the u flag. Without the u flag
     /// returns literal `p`. `\P` complement inside class is L3b.
     fn parse_class_property(&mut self, n: &mut Node) -> Option<ClassItem> {
-        if self.flags & RE_FLAG_U == 0 {
+        if !unicode_mode(self.flags) {
             return Some(ClassItem::Char(b'p'));
         }
         if self.eof() || self.peek() != b'{' {
@@ -197,6 +197,7 @@ fn add_complement_space(n: &mut Node) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::parser::RE_FLAG_U;
 
     fn parse_ok(pattern: &str, flags: u8) -> Box<Node> {
         let mut p = Parser::new(pattern.as_bytes(), flags);

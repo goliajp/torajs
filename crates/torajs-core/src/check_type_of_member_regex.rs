@@ -42,7 +42,9 @@ pub(crate) fn try_match(name: &str) -> Option<Result<Type, String>> {
         // the runtime helper `__torajs_regex_has_flag(re,
         // flag_bit)` does the AND. ssa_lower emits the
         // appropriate `RE_FLAG_*` byte constant per arm.
-        "global" | "ignoreCase" | "multiline" | "dotAll" | "unicode" | "sticky" => Type::Boolean,
+        "global" | "ignoreCase" | "multiline" | "dotAll" | "unicode" | "sticky" | "unicodeSets" => {
+            Type::Boolean
+        }
         // P9.4 — `re.lastIndex` is a writable Number per
         // spec §22.2.6.9. ssa_lower routes reads through
         // __torajs_regex_get_last_index; writes through

@@ -25,6 +25,15 @@ pub struct CharClass {
     /// in `bits` (populated at push time). Class-level `negate` still
     /// applies after the union.
     pub u_prop_tables: Vec<&'static [UPropRange]>,
+    /// RFC 20260712 chunk B1 — owned cp ranges (`cp ≥ 0x100`) from a
+    /// v-flag ClassSetExpression fold. The set algebra (`&&` / `--` /
+    /// nested classes / eager `[^…]` complement) produces arbitrary
+    /// cp ranges no `'static` UCD table covers; they live here,
+    /// binary-searched by [`test_cp`](Self::test_cp) exactly like the
+    /// property tables. Sorted + disjoint (built from
+    /// [`crate::cpset::CpRangeSet`]). v classes never set `negate`
+    /// (complement is computed eagerly into the set).
+    pub owned_ranges: Vec<UPropRange>,
     /// chunk 10d marker — `true` for the byte-level leaf classes
     /// emitted by [`crate::utf8_class_expand`] when rewriting a u-flag
     /// unsafe class into an Alt-of-Concat of byte slots. The Pike VM
@@ -48,6 +57,7 @@ impl CharClass {
             bits: [0; 32],
             negate: false,
             u_prop_tables: Vec::new(),
+            owned_ranges: Vec::new(),
             byte_only: false,
         }
     }
@@ -115,14 +125,16 @@ impl CharClass {
             in_set = self
                 .u_prop_tables
                 .iter()
-                .any(|t| uprop_range_contains(t, cp));
+                .any(|t| uprop_range_contains(t, cp))
+                || uprop_range_contains(&self.owned_ranges, cp);
         }
         in_set
     }
 
-    /// Round 3 Path A — true iff this class is a "pure property" u-flag
-    /// unsafe class: property tables referenced, no `negate`, no
-    /// explicit non-ASCII byte bits (`bits[16..32]` all zero).
+    /// Round 3 Path A — true iff this class is a "pure cp-range" u/v
+    /// unsafe class: property tables OR owned v-flag ranges referenced,
+    /// no `negate`, no explicit non-ASCII byte bits (`bits[16..32]`
+    /// all zero).
     /// K-PROPERTY classes skip chunk-10d Alt-of-Concat expansion; the
     /// DFA build pre-emits a pending K-PROPERTY state whose executor
     /// handler decodes one UTF-8 cp per step and consults
@@ -133,7 +145,9 @@ impl CharClass {
     /// (RFC 20260711 chunk B) and are Pike-VM-served —
     /// `prog_ops_dfa_safe` gates their programs off the DFA.
     pub fn is_uflag_property_only(&self) -> bool {
-        !self.u_prop_tables.is_empty() && !self.negate && self.bits[16..32].iter().all(|&b| b == 0)
+        (!self.u_prop_tables.is_empty() || !self.owned_ranges.is_empty())
+            && !self.negate
+            && self.bits[16..32].iter().all(|&b| b == 0)
     }
 
     /// Code-point membership test for the u flag — port of `cc_test_cp`.

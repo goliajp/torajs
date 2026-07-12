@@ -21,7 +21,7 @@
 use super::dispatch::add_thread;
 use super::match_at::add_thread_adv;
 use super::{Workspace, char_eq};
-use crate::parser::{RE_FLAG_S, RE_FLAG_U};
+use crate::parser::{RE_FLAG_S, unicode_mode};
 use crate::program::{Op, Program};
 use crate::utf8::utf8_decode_cp_before;
 use crate::vm::Thread;
@@ -159,7 +159,7 @@ fn dispatch_anychar_rev(
     let last = s[(pos - 1) as usize];
     let mut adv: i64 = 1;
     let mut cp = last as i32;
-    if flags & RE_FLAG_U != 0 {
+    if unicode_mode(flags) {
         let (dcp, dlen) = utf8_decode_cp_before(s, pos as usize);
         cp = dcp;
         adv = dlen as i64;
@@ -202,7 +202,7 @@ fn dispatch_class_rev(
     let matched;
     if cc.byte_only {
         matched = cc.test_fold(last, ci);
-    } else if flags & RE_FLAG_U != 0 {
+    } else if unicode_mode(flags) {
         let (cp, dlen) = utf8_decode_cp_before(s, pos as usize);
         adv = dlen as i64;
         matched = cc.test_cp_fold(cp, ci);
@@ -305,6 +305,7 @@ mod tests {
     use super::*;
     use crate::compiler::compile_rev;
     use crate::parser::Parser;
+    use crate::parser::RE_FLAG_U;
     use crate::program::Inst;
 
     /// Build a reverse-compiled program for `pat` (as a lookbehind

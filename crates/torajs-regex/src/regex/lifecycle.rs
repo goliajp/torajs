@@ -101,16 +101,18 @@ pub unsafe extern "C" fn __torajs_regex_get_flags(re_ptr: *const c_void) -> *mut
         return unsafe { __torajs_str_alloc_pooled(0) as *mut c_void };
     }
     let f = unsafe { as_regex(re_ptr) }.flags;
-    // Build the canonical 6-byte buffer at most, ordered g, i, m, s, u, y.
-    // Mirrors `flags::flag_bit_for_char` / `parse_flags` source of truth.
-    let mut buf = [0u8; 6];
+    // Build the canonical 7-byte buffer at most, ordered
+    // g, i, m, s, u, v, y (ES §22.2.6.4 flag order).
+    // Mirrors `flags::parse_flags` source of truth.
+    let mut buf = [0u8; 7];
     let mut n = 0usize;
-    let bits: [(u8, u8); 6] = [
+    let bits: [(u8, u8); 7] = [
         (crate::parser::RE_FLAG_G, b'g'),
         (crate::parser::RE_FLAG_I, b'i'),
         (crate::parser::RE_FLAG_M, b'm'),
         (crate::parser::RE_FLAG_S, b's'),
         (crate::parser::RE_FLAG_U, b'u'),
+        (crate::parser::RE_FLAG_V, b'v'),
         (crate::parser::RE_FLAG_Y, b'y'),
     ];
     for (bit, ch) in bits {

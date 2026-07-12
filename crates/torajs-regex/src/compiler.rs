@@ -17,7 +17,7 @@
 //! of `u`.
 
 use crate::node::{Node, NodeKind};
-use crate::parser::RE_FLAG_U;
+use crate::parser::unicode_mode;
 use crate::program::{Inst, Op, Program};
 use crate::utf8_class_expand::expand_unsafe_class;
 use alloc::{boxed::Box, vec::Vec};
@@ -53,7 +53,7 @@ fn compile_dir(prog: &mut Program, node: &Node, flags: u8, rev: bool) {
             emit_with_ims(prog, Inst::simple(Op::AnyChar), node);
         }
         NodeKind::Class => {
-            let uflag = flags & RE_FLAG_U != 0;
+            let uflag = unicode_mode(flags);
             // Round 3 Path A v2 — K-PROPERTY (pure-property u-flag
             // classes: property tables referenced, no negate, no
             // explicit non-ASCII bits) skip chunk-10d Alt-of-Concat

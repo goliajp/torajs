@@ -29,9 +29,12 @@
 //! - [`escape`] — `parse_escape` + 7 specialized escape helpers
 //!   (`\k<>`, `\xHH`, `\u…`, `\p{…}`).
 //! - [`class`] — `parse_class` + range/item helpers for `[...]`.
+//! - [`class_v`] — v-flag `ClassSetExpression` (`[...]` under
+//!   unicodeSets: nested classes + `&&` / `--` set algebra).
 
 mod atom;
 mod class;
+mod class_v;
 mod escape;
 
 use crate::charclass::CharClass;
@@ -49,6 +52,17 @@ pub const RE_FLAG_M: u8 = 0x04;
 pub const RE_FLAG_S: u8 = 0x08;
 pub const RE_FLAG_U: u8 = 0x10;
 pub const RE_FLAG_Y: u8 = 0x20;
+pub const RE_FLAG_V: u8 = 0x40;
+
+/// True iff the pattern is in Unicode mode — the `u` OR `v`
+/// (unicodeSets) flag. Every parse / match decision that used to gate
+/// on `RE_FLAG_U` alone (cp decode, `\u{}` / `\p{}` forms, lone
+/// surrogate rejection, strict backrefs) applies identically under
+/// `v`, which is a superset of `u` semantics.
+#[inline]
+pub fn unicode_mode(flags: u8) -> bool {
+    flags & (RE_FLAG_U | RE_FLAG_V) != 0
+}
 
 /// The three flag bits an inline modifier group `(?ims-ims:…)` may
 /// toggle (ES 2025 regexp-modifiers).

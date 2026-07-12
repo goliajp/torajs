@@ -7,7 +7,7 @@
 //! or `\k<name>`), or a `Concat` of `Char` nodes (multi-byte UTF-8
 //! encoding of `\uHHHH` / `\u{HHHH..}`).
 
-use super::{Parser, RE_FLAG_U, apply_property_name, char_node, class_node, hex_value};
+use super::{Parser, apply_property_name, char_node, class_node, hex_value, unicode_mode};
 use crate::node::{Node, NodeKind};
 use crate::utf8::utf8_encode_cp;
 use alloc::boxed::Box;
@@ -96,7 +96,7 @@ impl<'p> Parser<'p> {
     }
 
     fn parse_unicode_escape(&mut self) -> Option<Box<Node>> {
-        let cp = if !self.eof() && self.peek() == b'{' && self.flags & RE_FLAG_U != 0 {
+        let cp = if !self.eof() && self.peek() == b'{' && unicode_mode(self.flags) {
             self.parse_braced_unicode()?
         } else {
             self.parse_4digit_unicode()
@@ -175,7 +175,7 @@ impl<'p> Parser<'p> {
     /// `\p{NAME}` / `\P{NAME}` — Unicode property class. Requires u
     /// flag; without it returns literal `p` / `P`.
     fn parse_property_escape(&mut self, c: u8) -> Option<Box<Node>> {
-        if self.flags & RE_FLAG_U == 0 {
+        if !unicode_mode(self.flags) {
             return Some(char_node(c));
         }
         if self.eof() || self.peek() != b'{' {
@@ -200,6 +200,7 @@ impl<'p> Parser<'p> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::parser::RE_FLAG_U;
 
     fn parse_ok(pattern: &str, flags: u8) -> Box<Node> {
         let mut p = Parser::new(pattern.as_bytes(), flags);
