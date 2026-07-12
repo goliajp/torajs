@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-11T20:21:21.688Z",
+  "generatedAt": "2026-07-12T02:12:41.480Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 81.58
   },
   "torajs": {
-    "commit": "5981af91",
-    "commitSubject": "feat: string slice-family any dispatch — substring substr at charCodeAt",
+    "commit": "f4950468",
+    "commitSubject": "fix: plain-object proto surface respects own-entry precedence + toString",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "f4950468",
+      "subject": "fix: plain-object proto surface respects own-entry precedence + toString"
+    },
+    {
+      "hash": "741aa19a",
+      "subject": "feat: object-proto universal any dispatch — valueOf identity + toLocaleString"
+    },
+    {
+      "hash": "70d76593",
+      "subject": "feat: string wellformed-family any dispatch — isWellFormed toWellFormed"
+    },
+    {
+      "hash": "3afc505f",
+      "subject": "feat: string locale-family any dispatch — normalize toLocale-case lastIndexOf search matchAll"
+    },
+    {
+      "hash": "ed36e677",
+      "subject": "feat: string pad-family any dispatch — padStart padEnd repeat concat codePointAt localeCompare"
+    },
+    {
+      "hash": "176fdcd0",
+      "subject": "chore: hardev dashboard snapshot"
+    },
+    {
       "hash": "5981af91",
       "subject": "feat: string slice-family any dispatch — substring substr at charCodeAt"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "d393d249",
       "subject": "feat: gopd synthesizes builtin prototype method descriptors"
-    },
-    {
-      "hash": "b6eedc71",
-      "subject": "chore: hardev dashboard snapshot"
-    },
-    {
-      "hash": "fe97face",
-      "subject": "feat: builtin prototype methods answer own-property probes"
-    },
-    {
-      "hash": "1ae34e8b",
-      "subject": "fix: drop fromCharCode concat-chain intermediates"
-    },
-    {
-      "hash": "338671ef",
-      "subject": "fix: release owned any-call receiver and callee temps"
-    },
-    {
-      "hash": "81658918",
-      "subject": "chore: test262 accounting at d7a50641 — passTotal 8352, bug 2031"
-    },
-    {
-      "hash": "d7a50641",
-      "subject": "feat: annexB html methods any-receiver dispatch"
     }
   ],
-  "headSha": "5981af91",
+  "headSha": "f4950468",
   "autorun": {
-    "total": 381,
+    "total": 382,
     "baselineTarget": 10,
-    "bySelf": 376,
+    "bySelf": 377,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1783795963-10c5",
-      "at": "2026-07-11T18:52:43Z",
-      "ts": 1783795963,
+      "rotationId": "r-1783801367-3568",
+      "at": "2026-07-11T20:22:47Z",
+      "ts": 1783801367,
       "trigger": "self",
-      "prevHead": "b6eedc71",
-      "handoffSha": "sha256:363e6d48c1cc5738e86a036183b7ebf911fe4d8c9432f765bf6434beeedc5e59",
-      "handoffAgeSec": 4,
+      "prevHead": "176fdcd0",
+      "handoffSha": "sha256:1a752a03c8f5553d01a8927a8c83f461aee6e5fd3b42471764ae641b2f1df298",
+      "handoffAgeSec": 6,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1783801367-3568",
+        "at": "2026-07-11T20:22:47Z",
+        "ts": 1783801367,
+        "trigger": "self",
+        "prevHead": "176fdcd0",
+        "handoffSha": "sha256:1a752a03c8f5553d01a8927a8c83f461aee6e5fd3b42471764ae641b2f1df298",
+        "handoffAgeSec": 6,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1783795963-10c5",
         "at": "2026-07-11T18:52:43Z",
@@ -876,17 +887,6 @@
         "prevHead": "ce6b70de",
         "handoffSha": "sha256:c8056791618cd333663d3eab38ab24929b13f44790e4f6791823e3a919187306",
         "handoffAgeSec": 8,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1783703199-18b4",
-        "at": "2026-07-10T17:06:39Z",
-        "ts": 1783703199,
-        "trigger": "self",
-        "prevHead": "2ee3b985",
-        "handoffSha": "sha256:5458f23d9326a88b0f11745bbe04aaaa9c67b3c6dace2513a3128f4726ee4179",
-        "handoffAgeSec": 7,
         "conformanceBefore": null,
         "commitsInSession": null
       }
