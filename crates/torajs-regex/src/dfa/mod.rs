@@ -115,6 +115,12 @@ pub enum DfaEligibility {
     HasNegLookahead,
     HasLookbehind,
     HasNegLookbehind,
+    /// RFC 20260712 chunk D — a lazy quantifier's match END depends
+    /// on thread priority, which the DFA powerset erases (it always
+    /// answers the greedy/longest boundary: `/.*?/.exec("x")` came
+    /// back `"x"` instead of `""`). Pike-VM-only until a
+    /// DFA-existence + Pike-boundary split lands (L3b).
+    HasLazyQuantifier,
 }
 
 impl DfaEligibility {
@@ -139,6 +145,9 @@ pub fn analyze(root: &Node) -> DfaEligibility {
         NodeKind::Lookbehind => return DfaEligibility::HasLookbehind,
         NodeKind::NegLookbehind => return DfaEligibility::HasNegLookbehind,
         _ => {}
+    }
+    if root.lazy {
+        return DfaEligibility::HasLazyQuantifier;
     }
     if let Some(child) = root.child.as_ref() {
         let r = analyze(child);

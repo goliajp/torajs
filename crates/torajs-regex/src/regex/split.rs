@@ -65,40 +65,66 @@ pub unsafe extern "C" fn __torajs_str_split_regex(
     let dfa_ref = dfa_view.as_ref().or(re.dfa_runtime.as_ref());
 
     let mut out = out;
-    let mut pos: i64 = 0;
-    while pos <= slen {
+    // §22.2.6.14 step 14 (size == 0) — a zero-length subject only
+    // asks whether the separator matches the empty string: a match
+    // answers [], no match [""].
+    if slen == 0 {
         let m = if sticky {
-            match_anchor(&re.prog, &s, pos, re.flags)
+            match_anchor(&re.prog, &s, 0, re.flags)
+        } else {
+            search_from_with_ws(&re.prog, &s, 0, re.flags, &mut ws, dfa_ref, false, true)
+        };
+        if m.is_none() {
+            let seg = unsafe { str_from_bytes(&[]) };
+            out = unsafe { __torajs_arr_push(out, seg as i64) };
+        }
+        return out;
+    }
+    // §22.2.6.14 step 17 — p is the current segment start, q the
+    // scan position. An empty match adjacent to the segment start
+    // (`e == p`) never splits (`"x".split(/^/)` answers `["x"]`),
+    // and the exec only happens while `q < size`, so a match
+    // starting at the very end (`/$/`) never contributes either.
+    let mut p: i64 = 0;
+    let mut q: i64 = 0;
+    while q < slen {
+        let m = if sticky {
+            // The spec splitter carries the `y` flag; a failed
+            // anchor at q advances q (AdvanceStringIndex).
+            match match_anchor(&re.prog, &s, q, re.flags) {
+                Some(m) => Some(m),
+                None => {
+                    q += 1;
+                    continue;
+                }
+            }
         } else {
             // Round 3 Phase B attack #R-A1 — split currently routes
             // through `str_slice` (transcodes to owned bytes), so the
             // ASCII-view shortcut isn't on this path. Pass `false`.
             // Round 5 attack #1 — Workspace materialises lazily
             // inside the vm.
-            search_from_with_ws(&re.prog, &s, pos, re.flags, &mut ws, dfa_ref, false, true)
+            search_from_with_ws(&re.prog, &s, q, re.flags, &mut ws, dfa_ref, false, true)
         };
         let Some(m) = m else { break };
-        if m.end == m.start {
-            // Empty separator — JS: "ab".split(//) → ["a","b"].
-            // Take one byte, push, advance.
-            if m.start >= slen {
-                break;
-            }
-            let seg = unsafe { str_from_bytes(&s[pos as usize..m.start as usize]) };
-            out = unsafe { __torajs_arr_push(out, seg as i64) };
-            out = unsafe { push_captures(out, re, &s, m.saves()) };
-            pos = m.end + 1;
+        if m.start >= slen {
+            break;
+        }
+        let e = m.end.min(slen);
+        if e == p {
+            // Empty match at the segment start — no split; advance
+            // past this position.
+            q = m.start + 1;
             continue;
         }
-        let seg = unsafe { str_from_bytes(&s[pos as usize..m.start as usize]) };
+        let seg = unsafe { str_from_bytes(&s[p as usize..m.start as usize]) };
         out = unsafe { __torajs_arr_push(out, seg as i64) };
         out = unsafe { push_captures(out, re, &s, m.saves()) };
-        pos = m.end;
+        p = e;
+        q = e;
     }
-    // Append final tail.
-    if pos <= slen {
-        let seg = unsafe { str_from_bytes(&s[pos as usize..]) };
-        out = unsafe { __torajs_arr_push(out, seg as i64) };
-    }
+    // Append final segment.
+    let seg = unsafe { str_from_bytes(&s[p as usize..]) };
+    out = unsafe { __torajs_arr_push(out, seg as i64) };
     out
 }
