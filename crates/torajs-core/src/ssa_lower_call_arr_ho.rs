@@ -57,6 +57,12 @@ fn lower_higher_order(
         Operand::Value(v) => v,
         _ => unreachable!("Type::Arr can't be a constant operand"),
     };
+    // §23.1.3.19/.8 step 3 ArraySpeciesCreate — map / filter build a
+    // species product; reduce / reduceRight / forEach don't (RFC
+    // 20260713 blade 3 constructor-face guard).
+    if matches!(method.as_str(), "map" | "filter") {
+        ctx.emit_arr_species_guard(Operand::Value(src_arr));
+    }
     /* Devirt opportunity: if args[0]'s AST is a known
      * `Expr::Closure { fn_name, .. }` (capturing arrow lifted by
      * lift_arrow_fns) or `Expr::Ident(fn_name)` resolving to a top-level

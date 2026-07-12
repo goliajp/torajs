@@ -12,6 +12,25 @@ use crate::ssa::{BinOp as SsaBinOp, IPred, InstKind, Operand, Terminator, Type};
 use crate::ssa_lower::{ARR_DATA_PTR_OFF, LowerCtx};
 
 impl<'a> LowerCtx<'a> {
+    /// §9.4.2.3 ArraySpeciesCreate constructor-face guard (RFC
+    /// 20260713-array-proto-residual blade 3) — emitted at the head
+    /// of every species-family method arm (concat / filter / flat /
+    /// map / slice / splice; NOT the change-array-by-copy family,
+    /// which always builds plain Arrays per §23.1.3.33+). The
+    /// runtime records a TypeError for a present non-object
+    /// non-undefined `constructor` expando; the throw check
+    /// propagates it before the derive kernel runs. Fast path is a
+    /// props-NULL load inside the helper.
+    pub(crate) fn emit_arr_species_guard(&mut self, recv: Operand) {
+        self.f.append_inst(
+            self.cur_block,
+            InstKind::Call(self.intrinsics.arr_species_guard, vec![recv]),
+            Type::I64,
+            None,
+        );
+        self.emit_throw_check(None);
+    }
+
     /// B1 — load the slots base pointer from the cell's data field.
     /// Emit once per access site; grow-capable calls in between
     /// invalidate it (grow swaps the buffer, not the cell).

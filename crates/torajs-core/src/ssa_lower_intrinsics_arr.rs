@@ -36,6 +36,7 @@ pub(crate) struct ArrIds {
     pub arr_unshift: FuncId,
     pub arr_splice: FuncId,
     pub arr_drop: FuncId,
+    pub arr_species_guard: FuncId,
     pub arr_reserve: FuncId,
     pub arr_push_unchecked: FuncId,
     pub arr_extend_unchecked: FuncId,
@@ -103,6 +104,13 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             "__torajs_arr_drop",
             &[Type::Ptr],
             Type::Void,
+        ),
+        arr_species_guard: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_arr_species_guard",
+            &[Type::Ptr],
+            Type::I64,
         ),
         arr_reserve: declare_intrinsic(
             module,

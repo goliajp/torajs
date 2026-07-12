@@ -157,6 +157,14 @@ pub unsafe extern "C" fn __torajs_builtin_proto_own_accessor_getter(
 
 #[cfg(test)]
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_get_builtin_prototype(_tag: i64) -> *mut core::ffi::c_void {
+    panic!(
+        "torajs-meta test stub: __torajs_get_builtin_prototype should not be called from cargo test"
+    );
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_closure_name_str(_p: *mut core::ffi::c_void) -> *mut u8 {
     panic!("torajs-meta test stub: __torajs_closure_name_str should not be called from cargo test");
 }

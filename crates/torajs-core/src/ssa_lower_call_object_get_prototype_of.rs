@@ -89,6 +89,21 @@ pub(crate) fn try_lower(
             Type::Any,
             None,
         ),
+        // RFC 20260713 blade 3 — typed heap receivers (Arr / Str /
+        // Date / RegExp / Map / Set / Closure …) route through the
+        // same runtime classifier, which answers the builtin
+        // `<Ctor>.prototype` singleton per §10.1.1 (`getPrototypeOf(
+        // [1]) === Array.prototype`). box_to_any is a pure pointer
+        // encode for heap values — no rc traffic.
+        t if t.is_refcounted() => {
+            let boxed = ctx.box_to_any(v.clone());
+            ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.get_proto_of_any, vec![boxed]),
+                Type::Any,
+                None,
+            )
+        }
         _ => ctx.f.append_inst(
             ctx.cur_block,
             InstKind::Call(

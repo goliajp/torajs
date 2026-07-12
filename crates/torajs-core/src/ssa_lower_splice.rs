@@ -150,6 +150,9 @@ fn emit_splice_return(
     cur_arr: crate::ssa::ValueId,
     args: &[ExprId],
 ) -> Operand {
+    // §23.1.3.31 step 8 ArraySpeciesCreate (the removed product) —
+    // constructor-face guard (RFC 20260713 blade 3).
+    ctx.emit_arr_species_guard(Operand::Value(cur_arr));
     let start = if args.is_empty() {
         Operand::ConstI64(0)
     } else {

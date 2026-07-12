@@ -132,6 +132,12 @@ unsafe extern "C" {
 /// `method_call.rs::ANY_METHOD_THREW`.
 const ANY_METHOD_THREW: u64 = u64::MAX;
 
+unsafe extern "C" {
+    /// torajs-arr — §9.4.2.3 constructor-face guard (RFC 20260713
+    /// blade 3); 1 = TypeError recorded, answer undefined early.
+    fn __torajs_arr_species_guard(arr: *const u8) -> i64;
+}
+
 /// `Tag::Arr` arm — id-switch onto the torajs-arr glue.
 pub(crate) unsafe fn arr_method(
     arr: *mut c_void,
@@ -140,6 +146,19 @@ pub(crate) unsafe fn arr_method(
     argv: *const u64,
     argc: i64,
 ) -> AnyValue {
+    // §23.1.3 species family — ArraySpeciesCreate reads the
+    // constructor face before building the product.
+    if matches!(mid, m if m == torajs_rc::ANY_METHOD_SLICE
+        || m == torajs_rc::ANY_METHOD_SPLICE
+        || m == torajs_rc::ANY_METHOD_CONCAT
+        || m == torajs_rc::ANY_METHOD_FILTER
+        || m == torajs_rc::ANY_METHOD_MAP
+        || m == torajs_rc::ANY_METHOD_FLAT
+        || m == torajs_rc::ANY_METHOD_FLAT_MAP)
+        && unsafe { __torajs_arr_species_guard(arr as *const u8) } != 0
+    {
+        return VALUE_UNDEFINED;
+    }
     let arg_at = |i: i64| -> u64 {
         if i < argc {
             unsafe { *argv.add(i as usize) }

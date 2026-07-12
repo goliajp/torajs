@@ -86,6 +86,9 @@ pub(crate) fn try_dispatch(
     if let Type::Arr(arr_id) = recv_ty
         && method == "concat"
     {
+        // §23.1.3.1 step 2 ArraySpeciesCreate — constructor-face
+        // guard before the derive (RFC 20260713 blade 3).
+        ctx.emit_arr_species_guard(recv_op.clone());
         // Any receiver — every step must stay FLAG_ARR_ANY-aware
         // (raw arr_slice / arr_concat products are flag-blind and a
         // scalar arg would be deref'd as an array pointer). Dedicated

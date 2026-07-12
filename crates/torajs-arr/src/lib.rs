@@ -70,6 +70,7 @@ mod print_typed;
 pub mod props;
 pub mod slice;
 pub mod sort;
+pub mod species;
 pub mod str_bridge;
 pub mod sum_precise;
 pub mod throw_empty;

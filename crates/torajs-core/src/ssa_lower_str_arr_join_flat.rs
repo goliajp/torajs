@@ -145,6 +145,9 @@ fn try_flat(
     if let Type::Arr(_) = recv_ty
         && method == "flat"
     {
+        // §23.1.3.13 step 3 ArraySpeciesCreate — constructor-face
+        // guard before the derive (RFC 20260713 blade 3).
+        ctx.emit_arr_species_guard(recv_op.clone());
         // S289 — accept any trailing operands past `depth` per ES
         // §23.1.3.10 trailing-arg ignore; lower-and-drop so step()-
         // style side-effect exprs fire (S272 idiom). depth detection

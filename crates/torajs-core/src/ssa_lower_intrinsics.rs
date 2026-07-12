@@ -68,6 +68,7 @@ pub(crate) struct Intrinsics {
     pub(crate) arr_shift: FuncId,
     pub(crate) arr_unshift: FuncId,
     pub(crate) arr_splice: FuncId,
+    pub(crate) arr_species_guard: FuncId,
     pub(crate) arr_drop: FuncId,
     pub(crate) arr_reserve: FuncId,
     pub(crate) arr_push_unchecked: FuncId,

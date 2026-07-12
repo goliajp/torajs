@@ -35,6 +35,10 @@ unsafe extern "C" {
     // probe (same crate). Non-zero = the immortal getter cell.
     fn __torajs_builtin_proto_own_accessor_getter(dynobj: *const c_void, key: *const c_void)
     -> u64;
+    // torajs-rc — lazy `<Ctor>.prototype` singleton by builtin tag
+    // (Array=2 / String=3 / RegExp=7 / Date=8 / Map=11 / Set=12 /
+    // Function=13; `builtin_proto.rs` order).
+    fn __torajs_get_builtin_prototype(tag: i64) -> *mut c_void;
 }
 
 // Tag values mirrored from torajs-anyvalue::AnySlotTag — re-declared
@@ -176,7 +180,31 @@ pub unsafe extern "C" fn __torajs_anyv_get_proto_of_any(v: u64) -> u64 {
     }
     let dynobj = v as *const c_void;
     // SAFETY: cell pointer to valid heap object per invariant.
-    if unsafe { heap_type_tag(dynobj) } != TAG_DYNOBJ {
+    let tag = unsafe { heap_type_tag(dynobj) };
+    if tag != TAG_DYNOBJ {
+        // RFC 20260713-array-proto-residual blade 3 — builtin-tagged
+        // cells answer their `<Ctor>.prototype` singleton per
+        // §10.1.1 (an Array's [[Prototype]] IS Array.prototype, so
+        // `getPrototypeOf(xs) === Array.prototype` holds). Tags with
+        // no proto singleton (struct / iterator internals) keep the
+        // null answer (recorded boundary).
+        let proto_tag = match tag {
+            TAG_ARR => 2,
+            0 => 3, // Str / Substr view
+            TAG_CLOSURE => 13,
+            4 => 7,   // RegExp
+            5 => 8,   // Date
+            15 => 11, // Map
+            19 => 12, // Set
+            _ => -1,
+        };
+        if proto_tag >= 0 {
+            let p = unsafe { __torajs_get_builtin_prototype(proto_tag) };
+            if !p.is_null() {
+                unsafe { __torajs_rc_inc(p as *mut c_void) };
+                return p as u64;
+            }
+        }
         return VALUE_NULL_IMM;
     }
     let k = unsafe { alloc_str_key(b"__proto__") };
