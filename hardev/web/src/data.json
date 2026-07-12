@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-12T10:33:22.687Z",
+  "generatedAt": "2026-07-12T11:50:49.055Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-12T10:21:24Z",
-    "headSha": "2d9afb8d",
-    "elapsedSec": 1118.62,
+    "ranAt": "2026-07-12T11:49:09Z",
+    "headSha": "f04e8485",
+    "elapsedSec": 575.75,
     "workers": 8,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 4420,
+    "pass": 4470,
     "passNoOracle": 78,
     "passNegative": 4444,
-    "passTotal": 8942,
-    "bug": 1456,
+    "passTotal": 8992,
+    "bug": 1406,
     "incompatible": 42776,
     "bunSkip": 12861,
     "harnessError": 0,
     "inScope": 53174,
     "trAccepted": 10398,
-    "passRateInScope": 16.82,
-    "passRateTrAccepted": 86
+    "passRateInScope": 16.91,
+    "passRateTrAccepted": 86.48
   },
   "torajs": {
-    "commit": "ca2ea9c4",
-    "commitSubject": "fix: ordinary-to-primitive skips own non-callable tostring/valueof entries",
+    "commit": "d10b2d5b",
+    "commitSubject": "chore: test262 sweep at f04e8485 — 8992 pass (+50), 0 regressions",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "d10b2d5b",
+      "subject": "chore: test262 sweep at f04e8485 — 8992 pass (+50), 0 regressions"
+    },
+    {
+      "hash": "f04e8485",
+      "subject": "feat: get map/set prototype size accessor reflection"
+    },
+    {
+      "hash": "3b1d2b37",
+      "subject": "fix: set.prototype.keys is the values function object"
+    },
+    {
+      "hash": "b17f7803",
+      "subject": "feat: es2025 set methods on the any tier and the reflection surface"
+    },
+    {
+      "hash": "5086d085",
+      "subject": "fix: instanceof static fold recognizes map/set/weakmap/weakset types"
+    },
+    {
+      "hash": "cf29cefd",
+      "subject": "fix: samevaluezero key canonicalization for map/set numeric and bigint keys"
+    },
+    {
+      "hash": "3f0d0df4",
+      "subject": "chore: hardev dashboard snapshot"
+    },
+    {
       "hash": "ca2ea9c4",
       "subject": "fix: ordinary-to-primitive skips own non-callable tostring/valueof entries"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "de8e7162",
       "subject": "fix: mixed-encoding str equality and canonical narrowing for range-carving kernels"
-    },
-    {
-      "hash": "821908f2",
-      "subject": "feat: es trimstring unicode whitespace set for trim family and string-to-number"
-    },
-    {
-      "hash": "0716d1db",
-      "subject": "chore: hardev dashboard snapshot"
-    },
-    {
-      "hash": "2543c7de",
-      "subject": "fix: regex-literal LICM singleton stolen by taking consumers (UAF)"
-    },
-    {
-      "hash": "f7a28738",
-      "subject": "chore: test262 accounting @ d8f59376 — passTotal 8878 (+103), 0 regressions"
-    },
-    {
-      "hash": "d8f59376",
-      "subject": "feat: v-flag properties of strings (\\p{RGI_Emoji} family)"
-    },
-    {
-      "hash": "df805707",
-      "subject": "feat: v-flag \\q{} class string disjunction"
-    },
-    {
-      "hash": "8b754585",
-      "subject": "feat: regexp v flag (unicodeSets) core — cp set algebra classes"
     }
   ],
-  "headSha": "ca2ea9c4",
+  "headSha": "d10b2d5b",
   "autorun": {
-    "total": 386,
+    "total": 387,
     "baselineTarget": 10,
-    "bySelf": 381,
+    "bySelf": 382,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1783843789-3d72",
-      "at": "2026-07-12T08:09:49Z",
-      "ts": 1783843789,
+      "rotationId": "r-1783852433-5444",
+      "at": "2026-07-12T10:33:53Z",
+      "ts": 1783852433,
       "trigger": "self",
-      "prevHead": "0716d1db",
-      "handoffSha": "sha256:9de521577fe745156866ab9c31624e7c6900cd0180697b09827402cdd28eb876",
-      "handoffAgeSec": 8,
+      "prevHead": "3f0d0df4",
+      "handoffSha": "sha256:2b9835aaef93a9a65ba7ba69a122c8804d83548f9596e812c45431faca210ffa",
+      "handoffAgeSec": 46,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1783852433-5444",
+        "at": "2026-07-12T10:33:53Z",
+        "ts": 1783852433,
+        "trigger": "self",
+        "prevHead": "3f0d0df4",
+        "handoffSha": "sha256:2b9835aaef93a9a65ba7ba69a122c8804d83548f9596e812c45431faca210ffa",
+        "handoffAgeSec": 46,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1783843789-3d72",
         "at": "2026-07-12T08:09:49Z",
@@ -876,17 +887,6 @@
         "prevHead": "f1d274a7",
         "handoffSha": "sha256:7bdc80732bdd07de3bb7a6a953189228f75d767059829b7fead7cd566e979b39",
         "handoffAgeSec": 0,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1783755649-3af2",
-        "at": "2026-07-11T07:40:49Z",
-        "ts": 1783755649,
-        "trigger": "self",
-        "prevHead": "4c261a8e",
-        "handoffSha": "sha256:26c93fa52183ebb7d5839355bff2c979c0cab65223f246e335725c748f326250",
-        "handoffAgeSec": 7,
         "conformanceBefore": null,
         "commitsInSession": null
       }
