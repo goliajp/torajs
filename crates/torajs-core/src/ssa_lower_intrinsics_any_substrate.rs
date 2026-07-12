@@ -40,6 +40,10 @@ pub(crate) struct AnySubstrateIds {
     pub arrprops_set: FuncId,
     pub arrprops_get_tag: FuncId,
     pub arrprops_get_value: FuncId,
+    /// RFC 20260712-arr-exotic-define chunk B — Array
+    /// DefineOwnProperty kernel (§10.4.2.1 index/length/expando
+    /// dispatch + §10.1.6.3 validation).
+    pub arr_define: FuncId,
     pub arr_drop_any: FuncId,
     pub any_typeof: FuncId,
     pub any_to_bool: FuncId,
@@ -110,6 +114,7 @@ pub(crate) fn declare(
         fnprops_get_tag: decl!("__torajs_fnprops_get_tag", [Ptr, Ptr], I64),
         fnprops_get_value: decl!("__torajs_fnprops_get_value", [Ptr, Ptr], I64),
         arrprops_set: decl!("__torajs_arrprops_set", [Ptr, Ptr, I64, I64], Void),
+        arr_define: decl!("__torajs_arr_define", [Ptr, Ptr, I64, I64, I64], Void),
         arrprops_get_tag: decl!("__torajs_arrprops_get_tag", [Ptr, Ptr], I64),
         arrprops_get_value: decl!("__torajs_arrprops_get_value", [Ptr, Ptr], I64),
         arr_drop_any: decl!("__torajs_arr_drop_any", [Ptr], Void),

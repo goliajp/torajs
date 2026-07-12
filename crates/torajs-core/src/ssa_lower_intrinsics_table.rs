@@ -269,6 +269,7 @@ pub(crate) fn build(
         fnprops_get_tag: init_c.any_substrate.fnprops_get_tag,
         fnprops_get_value: init_c.any_substrate.fnprops_get_value,
         arrprops_set: init_c.any_substrate.arrprops_set,
+        arr_define: init_c.any_substrate.arr_define,
         arrprops_get_tag: init_c.any_substrate.arrprops_get_tag,
         arrprops_get_value: init_c.any_substrate.arrprops_get_value,
         dynobj_get_tag: init_b.object.dynobj_get_tag,

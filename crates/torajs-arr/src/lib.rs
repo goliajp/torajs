@@ -39,6 +39,7 @@ pub mod alloc;
 pub mod any;
 pub mod any_to_typed;
 pub mod any_typed_bridge;
+pub mod define;
 pub mod drop;
 pub mod from_string;
 pub mod grow;

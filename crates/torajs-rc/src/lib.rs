@@ -203,6 +203,16 @@ pub const FLAG_SEALED: u16 = 1 << 9;
 pub const FLAG_FN_NAME_DELETED: u16 = 1 << 13;
 /// `delete fn.length` tombstone — see [`FLAG_FN_NAME_DELETED`].
 pub const FLAG_FN_LENGTH_DELETED: u16 = 1 << 14;
+/// `Tag::Arr` cell carries at least one array index with non-default
+/// property attributes (RFC 20260712-arr-exotic-define chunk B) — set
+/// by `Object.defineProperty(arr, index, desc)` when the resulting
+/// per-index flags differ from the implicit `{writable: true,
+/// enumerable: true, configurable: true}`. The flags live as shadow
+/// entries (canonical index key, value slot dead) in the array's
+/// expando props dynobj; readers (gOPD / element writes / delete)
+/// fast-path on this bit staying clear. Bit 15 is Tag::Arr-private
+/// (disjoint-by-tag reuse, same pattern as bits 13/14 on Closure).
+pub const FLAG_ARR_EXOTIC_INDEX: u16 = 1 << 15;
 
 // Array element-kind field constants (Tag::Arr, flags bits 10-12 —
 // Any-dynamic-access RFC 20260704) live in `arr_kind.rs`;

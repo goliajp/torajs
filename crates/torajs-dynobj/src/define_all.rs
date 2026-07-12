@@ -18,7 +18,7 @@
 
 use core::ffi::c_void;
 
-use crate::define::__torajs_dynobj_define_from_desc;
+use crate::define_from_desc::__torajs_dynobj_define_from_desc;
 use crate::get::type_tag;
 use crate::layout::{BUCKET_FLAG_ENUMERABLE, DYNOBJ_KEY_HOLE, TAG_DYNOBJ};
 use crate::probe::{bucket_flags, bucket_key_ptr, entries, entries_len};

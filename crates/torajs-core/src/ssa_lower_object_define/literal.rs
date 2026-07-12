@@ -55,7 +55,7 @@ pub(super) fn emit_define_literal(
         return true;
     }
     if matches!(obj_ty, Type::Arr(_)) {
-        emit_define_arr_prop(ctx, obj_op, key, value_eid);
+        emit_define_arr_prop(ctx, obj_op, key, value_eid, flags_byte);
         return true;
     }
     // Non-Any/non-Arr obj (typed Struct etc.) — no dynobj backing
@@ -177,29 +177,47 @@ fn emit_define_arr_length(ctx: &mut LowerCtx, obj_op: Operand, value_eid: Option
     }
 }
 
-/// Array obj (non-"length" key) — legacy arrprops_set side table
-/// when the descriptor has a .value. Without .value (accessor
-/// descriptor), Array attribute tracking is a follow-up — silent
-/// no-op (T-29.b tolerance).
+/// Array obj (non-"length" key) — RFC 20260712-arr-exotic-define
+/// chunk B: route through the Array DefineOwnProperty kernel
+/// (§10.4.2.1 canonical-index vs expando dispatch + §10.1.6.3
+/// validation + per-index attribute shadow entries). Pre-fix this
+/// mis-routed to `arrprops_set` (index defines landed in the expando
+/// dynobj where element reads never look) and dropped value-less
+/// descriptors entirely (a generic descriptor must still create the
+/// property).
 fn emit_define_arr_prop(
     ctx: &mut LowerCtx,
     obj_op: Operand,
     key: &DefineKey,
     value_eid: Option<ExprId>,
+    flags_byte: i64,
 ) {
-    if let Some(val_eid) = value_eid {
-        let key_op = lower_key(ctx, key);
+    // The kernel's element writes are kind-aware; a typed array that
+    // never crossed the any boundary carries ARR_KIND_UNSET, so mark
+    // it here (defineProperty is a reflection boundary like boxing).
+    ctx.emit_arr_mark_kind(&obj_op);
+    let key_op = lower_key(ctx, key);
+    let (tag, val_op) = if let Some(val_eid) = value_eid {
         let v_raw = ctx.lower_expr(val_eid);
         let v_ty = ctx.operand_ty(&v_raw);
-        let (tag, val_op) = pack_tagged_value(ctx, v_raw, v_ty);
-        ctx.f.append_void(
-            ctx.cur_block,
-            InstKind::Call(
-                ctx.intrinsics.arrprops_set,
-                vec![obj_op, key_op, Operand::ConstI64(tag), val_op],
-            ),
-        );
-    }
+        pack_tagged_value(ctx, v_raw, v_ty)
+    } else {
+        (0, Operand::ConstI64(0))
+    };
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Call(
+            ctx.intrinsics.arr_define,
+            vec![
+                obj_op,
+                key_op,
+                Operand::ConstI64(tag),
+                val_op,
+                Operand::ConstI64(flags_byte),
+            ],
+        ),
+    );
+    ctx.emit_throw_check(None);
 }
 
 /// Dynobj-backed Any obj — route through dynobj_define so spec

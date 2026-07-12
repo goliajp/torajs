@@ -31,6 +31,9 @@ unsafe extern "C" {
     /// torajs-arr kind-aware slot reads — borrow contract (no inc).
     fn __torajs_arr_get_any_tag(arr: *const c_void, i: u64) -> u64;
     fn __torajs_arr_get_any_value(arr: *const c_void, i: u64) -> u64;
+    /// torajs-arr — per-index attribute flags (shadow entry or the
+    /// implicit `w|e|c` defaults; chunk B).
+    fn __torajs_arr_index_flags(arr: *const c_void, idx: u64) -> u64;
 }
 
 /// Array heap layout mirror (`torajs-arr::layout`): len u64 at +8,
@@ -98,7 +101,12 @@ pub(crate) unsafe fn arr_cell_descriptor(arr: *const c_void, key: *const c_void)
             // element keeps its share, the descriptor owns a fresh one.
             unsafe { __torajs_rc_inc(val as *mut c_void) };
         }
-        return unsafe { build_data_descriptor(tag, val, 1, 1, 1) };
+        // Shadow entry flags (or the implicit defaults) — bits 0/1/2
+        // = writable / enumerable / configurable.
+        let flags = unsafe { __torajs_arr_index_flags(arr, idx) };
+        return unsafe {
+            build_data_descriptor(tag, val, flags & 1, (flags >> 1) & 1, (flags >> 2) & 1)
+        };
     }
     // Expando walk — delegate to the main gOPD entry with the props
     // dynobj as receiver (rides the TAG_DYNOBJ arm; the has-gate keeps

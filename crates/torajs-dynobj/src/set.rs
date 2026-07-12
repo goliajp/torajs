@@ -140,3 +140,53 @@ pub unsafe extern "C" fn __torajs_dynobj_set(
         }
     }
 }
+
+/// Raw attribute-flags upsert — RFC 20260712-arr-exotic-define
+/// chunk B. The Array DefineOwnProperty kernel (torajs-arr) stores
+/// per-index attribute flags as shadow entries in the array's expando
+/// dynobj; it has already run the §10.1.6.3 validation, so this
+/// bypasses `dynobj_define`'s checks. A hit rewrites only the flag
+/// bits in `key_ptr_tagged`; a miss inserts a fresh entry whose value
+/// slot is dead (`undefined` — the element storage owns the value).
+///
+/// # Safety
+/// `obj_slot` is non-NULL and points at a live `*mut c_void` holding
+/// a dynobj (non-NULL — the caller allocates). `key` is a live Str
+/// heap pointer. `flags` uses the `BUCKET_FLAG_*` bit positions.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_dynobj_set_entry_flags(
+    obj_slot: *mut *mut c_void,
+    key: *mut c_void,
+    flags: u64,
+) {
+    let mut obj = unsafe { *obj_slot };
+    if obj.is_null() {
+        return;
+    }
+    if unsafe { entries_len(obj) } == unsafe { entries_cap(obj) } {
+        unsafe {
+            resize(obj_slot);
+            obj = *obj_slot;
+        }
+    }
+    let pr = unsafe { probe(obj, key as *const c_void) };
+    let ent = unsafe { entries(obj) };
+    if pr.found {
+        let e = unsafe { ent.add(pr.entry as usize) };
+        let key_ptr =
+            (unsafe { (*e).key_ptr_tagged } & crate::layout::BUCKET_KEY_PTR_MASK) as *mut c_void;
+        unsafe { (*e).key_ptr_tagged = bucket_make_key_tagged(key_ptr, flags) };
+    } else {
+        let e_idx = unsafe { entries_len(obj) };
+        unsafe {
+            __torajs_rc_inc(key);
+            *ent.add(e_idx as usize) = Entry {
+                key_ptr_tagged: bucket_make_key_tagged(key, flags),
+                value_anyv: __torajs_anyv_box_from_pair(5, 0),
+            };
+            *index_ptr(obj).add(pr.slot as usize) = e_idx;
+            set_entries_len(obj, e_idx + 1);
+            set_count(obj, count(obj) + 1);
+        }
+    }
+}
