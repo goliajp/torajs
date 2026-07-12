@@ -92,6 +92,8 @@ fn try_compile_time_fold(actual_ty: Type, class_name: &str) -> Option<bool> {
         ("Object", Type::Date) => Some(true),
         ("Object", Type::RegExp) => Some(true),
         ("Object", Type::Promise) => Some(true),
+        ("Object", Type::Map | Type::Set | Type::WeakMap | Type::WeakSet) => Some(true),
+        ("Object", Type::MapIter | Type::ArrIter) => Some(true),
         ("Object", Type::Closure(_)) | ("Object", Type::FnSig(_)) => Some(true),
         ("Object", _) => Some(false),
         ("Number" | "String" | "Boolean" | "BigInt" | "Symbol", _) => Some(false),
@@ -101,6 +103,14 @@ fn try_compile_time_fold(actual_ty: Type, class_name: &str) -> Option<bool> {
         ("RegExp", _) => Some(false),
         ("Promise", Type::Promise) => Some(true),
         ("Promise", _) => Some(false),
+        ("Map", Type::Map) => Some(true),
+        ("Map", _) => Some(false),
+        ("Set", Type::Set) => Some(true),
+        ("Set", _) => Some(false),
+        ("WeakMap", Type::WeakMap) => Some(true),
+        ("WeakMap", _) => Some(false),
+        ("WeakSet", Type::WeakSet) => Some(true),
+        ("WeakSet", _) => Some(false),
         _ => None,
     }
 }
