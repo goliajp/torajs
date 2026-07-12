@@ -387,6 +387,21 @@ impl<'a> Parser<'a> {
         if matches!(self.peek(), Token::Void) {
             self.pos += 1;
             let inner = self.parse_unary()?;
+            // RFC 20260713-array-proto-residual blade 5 — a pure
+            // literal operand folds to the plain `undefined` ident
+            // (ES §13.5.2 evaluates then discards; literals have no
+            // effects). The Sequence wrapper defeated every
+            // undefined-shape probe downstream (any-literal pack /
+            // let-binding lanes tagged `void 0` as null — printed
+            // "null", typeof "object"). Effectful operands keep the
+            // Sequence (evaluation order preserved).
+            if matches!(
+                self.ast.get_expr(inner),
+                Expr::Number(_) | Expr::String(_) | Expr::Bool(_) | Expr::Null
+            ) || matches!(self.ast.get_expr(inner), Expr::Ident(n) if n == "undefined")
+            {
+                return Ok(self.ast.add_expr(Expr::Ident("undefined".into())));
+            }
             let undef = self.ast.add_expr(Expr::Ident("undefined".into()));
             return Ok(self.ast.add_expr(Expr::Sequence {
                 left: inner,
