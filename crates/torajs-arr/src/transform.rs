@@ -116,6 +116,9 @@ pub unsafe extern "C" fn __torajs_arr_flat(outer: *const u8) -> *mut u8 {
     let mut cursor = 0usize;
     for i in 0..outer_len {
         let inner = unsafe { (data_ptr(outer).add(i as usize * 8) as *const *const u8).read() };
+        // Product slots come from the inner arrays — inherit their
+        // element-descriptor bits (uniform T per the checker).
+        unsafe { crate::layout::copy_elem_desc_bits(inner, p) };
         let inner_len = unsafe { arr_len(inner) } as usize;
         if inner_len > 0 {
             unsafe {
@@ -143,6 +146,12 @@ pub unsafe extern "C" fn __torajs_arr_concat(a: *const u8, b: *const u8) -> *mut
     let b_len = unsafe { arr_len(b) } as usize;
     let total = a_len + b_len;
     let p = unsafe { arr_alloc_with(total as u64, total as u64) };
+    // Both inputs share one element type (checker invariant); an
+    // empty `a` from an earlier derive still carries its bits.
+    unsafe {
+        crate::layout::copy_elem_desc_bits(a, p);
+        crate::layout::copy_elem_desc_bits(b, p);
+    }
     let dst = unsafe { data_ptr_raw(p, 0) };
     if a_len > 0 {
         unsafe {
@@ -326,6 +335,7 @@ pub unsafe extern "C" fn __torajs_arr_splice(
         delete_count
     };
     let removed = unsafe { arr_alloc_with(actual_delete as u64, actual_delete as u64) };
+    unsafe { crate::layout::copy_elem_desc_bits(arr, removed) };
     if actual_delete > 0 {
         unsafe {
             core::ptr::copy_nonoverlapping(
@@ -424,6 +434,7 @@ pub unsafe extern "C" fn __torajs_arr_to_reversed(arr: *const u8) -> *mut u8 {
     unsafe {
         let len = arr_len(arr);
         let p = arr_alloc_fresh(len, len);
+        crate::layout::copy_elem_desc_bits(arr, p);
         let dst = arr_data(p);
         for i in 0..len {
             let src = slot_addr(arr, len - 1 - i);
@@ -451,6 +462,7 @@ pub unsafe extern "C" fn __torajs_arr_with(arr: *const u8, i: i64, v: i64) -> *m
             return core::ptr::null_mut();
         }
         let p = arr_alloc_fresh(len, len);
+        crate::layout::copy_elem_desc_bits(arr, p);
         let dst = arr_data(p);
         if len > 0 {
             let src = slot_addr(arr, 0);

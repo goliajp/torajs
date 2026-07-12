@@ -83,6 +83,7 @@ pub unsafe extern "C" fn __torajs_arr_slice(arr: *const u8, start: i64, end: i64
         let (lo, hi) = clamp_range(len as i64, start, end);
         let out_len = (hi - lo) as u64;
         let p = arr_alloc_fresh(out_len, out_len);
+        crate::layout::copy_elem_desc_bits(arr, p);
         if out_len > 0 {
             let src = data_ptr_at(arr, lo as usize);
             let dst = arr_data(p);

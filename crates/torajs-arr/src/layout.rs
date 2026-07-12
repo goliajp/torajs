@@ -81,3 +81,26 @@ pub unsafe fn arr_data(arr: *const u8) -> *mut u8 {
 pub unsafe fn arr_data_is_inline(arr: *const u8) -> bool {
     unsafe { arr_data(arr) == (arr as *mut u8).add(ARR_CELL_SIZE) }
 }
+
+/// Copy the element-descriptor bits (`FLAG_ARR_ANY` +
+/// `ARR_ELEM_KIND_*`) from `src`'s header onto the fresh derive
+/// product `dst`. Every clone that memcpys slots verbatim (slice /
+/// toReversed / with / splice-removed / concat / flat) must stay
+/// self-describing: an `Array<Any>` source's NaN-box slots read back
+/// through `arr_get_any_tag`, whose `ARR_KIND_UNSET` contract answers
+/// `undefined` — a flags=0 clone silently blanks every element (RFC
+/// 20260713-array-proto-residual B1). Mirrors `arr_any_slice`'s
+/// kind-bits propagation; mutability faces (FLAG_FROZEN /
+/// FLAG_ARR_LENGTH_RO / exotic-index) deliberately stay behind —
+/// derive products are fresh ordinary arrays per spec.
+///
+/// # Safety
+/// Both pointers are valid array cells with initialized headers.
+#[inline]
+pub(crate) unsafe fn copy_elem_desc_bits(src: *const u8, dst: *mut u8) {
+    unsafe {
+        let bits =
+            *(src.add(6) as *const u16) & (torajs_rc::FLAG_ARR_ANY | torajs_rc::ARR_ELEM_KIND_MASK);
+        *(dst.add(6) as *mut u16) |= bits;
+    }
+}

@@ -118,11 +118,22 @@ pub(crate) fn try_dispatch(
         } else {
             ctx.lower_expr(args[0])
         };
-        let v_val = ctx.lower_expr(args[1]);
-        let v_ty = ctx.operand_ty(&v_val);
-        if v_ty == Type::F64 {
-            panic!("ssa-lower: Array.with on f64 elements not yet supported (need IR bitcast)");
-        }
+        let v_raw = ctx.lower_expr(args[1]);
+        let v_ty = ctx.operand_ty(&v_raw);
+        // RFC 20260713-array-proto-residual B2 — an Any-elem receiver
+        // stores NaN-box slots; a raw scalar/pointer written verbatim
+        // reads back as garbage (and the post-call NaN-box-safe rc
+        // walk chases it — the with/immutable SIGSEGV). Box first;
+        // the walk then incs the slot like every copied box.
+        let elem_layout = ctx.arr_layouts[arr_id.0 as usize];
+        let v_val = if elem_layout == Type::Any && v_ty != Type::Any {
+            ctx.box_to_any(v_raw)
+        } else {
+            if v_ty == Type::F64 {
+                panic!("ssa-lower: Array.with on f64 elements not yet supported (need IR bitcast)");
+            }
+            v_raw
+        };
         // S283 — lower-and-drop trailing args[2..] per S272 idiom so
         // step()-style side-effect exprs fire per ES eval-then-discard
         // semantics. The arr_with helper is 2-arg only; trailing slots
