@@ -75,6 +75,16 @@ pub const TAG_CLOSURE_HDR: u16 = 3;
 /// `ARR_PROPS_OFF` / torajs-core `CLOSURE_PROPS_OFF` mirror).
 pub const CELL_PROPS_OFF: usize = 24;
 
+/// HOLE sentinel bit pattern for a shadow entry's dead value slot
+/// (RFC 20260713 chunk C — `delete arr[i]`). Deliberately NOT a
+/// NaN-box encoder product: `TAG_BIT_TYPE_OTHER | TAG_BIT_UNDEFINED
+/// | 0x10` — the 0x10 bit is unused by every `VALUE_*` encoding, so
+/// no boxed value can collide (the encoder canonicalizes undefined
+/// to 0x0A, which is why `box_from_pair(5, 1)` cannot serve as a
+/// sentinel). An immediate bit pattern — the drop walk's cell gate
+/// filters it like any other non-heap value.
+pub const DYNOBJ_HOLE_SENTINEL: u64 = 0x1A;
+
 /// Heap-header `flags` bit (u16 @6) marking a DynObj created with a
 /// null prototype (`Object.create(null)` semantics — e.g. a regex
 /// match's `.groups` dict per spec §22.2.7.8). Print surfaces render

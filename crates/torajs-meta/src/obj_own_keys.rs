@@ -163,14 +163,14 @@ unsafe fn index_keys(len: i64, include_nonenum: i64) -> *mut c_void {
 /// order — `length` predates any expando write, matching the ES
 /// OrdinaryOwnPropertyKeys creation-order tail).
 unsafe fn arr_cell_keys(cell: *const c_void, include_nonenum: i64) -> *mut c_void {
-    let len = unsafe { (cell.cast::<u8>().add(ARR_LEN_OFF) as *const u64).read() } as i64;
-    // RFC 20260712-arr-exotic-define chunk C — the keys surface
-    // rides the exotic-aware helper (per-index enumerable filter);
-    // gOPN keeps the unfiltered index list (+ "length").
+    // RFC 20260712-arr-exotic-define chunk C — both surfaces ride
+    // exotic-aware helpers: keys filters per-index enumerable, gOPN
+    // keeps non-enumerable indices but skips deleted (hole) ones
+    // (RFC 20260713 chunk C).
     let out = if include_nonenum == 0 {
         unsafe { crate::own_names::__torajs_arr_keys_only_of(cell) }
     } else {
-        unsafe { index_keys(len, include_nonenum) }
+        unsafe { crate::own_names::__torajs_arr_index_strs_of(cell) }
     };
     let props =
         unsafe { (cell.cast::<u8>().add(ARR_PROPS_OFF) as *const u64).read() } as *const c_void;

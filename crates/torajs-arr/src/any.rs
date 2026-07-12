@@ -19,7 +19,7 @@
 
 use core::ffi::c_void;
 
-use torajs_rc::{FLAG_ARR_ANY, HeapHeader};
+use torajs_rc::{FLAG_ARR_ANY, FLAG_ARR_EXOTIC_INDEX, HeapHeader};
 
 use crate::grow::grow_data_buffer;
 use crate::layout::{ARR_LEN_OFF, TAG_ARR, arr_data};
@@ -276,6 +276,11 @@ pub unsafe extern "C" fn __torajs_arr_set_any(arr: *mut c_void, i: u64, tag: u64
         let old_av = *slot_anyvalue_ptr(arr, i);
         __torajs_value_drop_heap(old_av as *mut c_void);
         *slot_anyvalue_ptr(arr, i) = __torajs_anyv_box_from_pair(tag as i64, value as i64);
+        // Exotic slow path — a write into a deleted (hole) index
+        // re-creates it as a default data property (chunk C).
+        if (*(arr as *const HeapHeader)).flags & FLAG_ARR_EXOTIC_INDEX != 0 {
+            crate::define_hole::revive_index_if_hole(arr as *mut c_void, i);
+        }
     }
 }
 
@@ -379,6 +384,11 @@ pub unsafe extern "C" fn __torajs_arr_set_any_grow(
             let old_av = *slot_anyvalue_ptr(arr, i);
             __torajs_value_drop_heap(old_av as *mut c_void);
             *slot_anyvalue_ptr(arr, i) = __torajs_anyv_box_from_pair(tag as i64, value as i64);
+            // Exotic slow path — a write into a deleted (hole) index
+            // re-creates it as a default data property (chunk C).
+            if (*(arr as *const HeapHeader)).flags & FLAG_ARR_EXOTIC_INDEX != 0 {
+                crate::define_hole::revive_index_if_hole(arr as *mut c_void, i);
+            }
             return arr;
         }
         if i >= ARR_DENSE_LIMIT {

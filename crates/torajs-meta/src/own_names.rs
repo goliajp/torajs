@@ -54,6 +54,38 @@ pub unsafe extern "C" fn __torajs_arr_index_strs(len: i64) -> *mut c_void {
     out as *mut c_void
 }
 
+/// Pointer-taking twin of [`__torajs_arr_index_strs`] for the gOPN
+/// surface (RFC 20260713 chunk C) — an exotic array skips deleted
+/// (hole) indices; non-enumerable live indices stay listed (gOPN
+/// doesn't filter enumerability). A plain array keeps the zero-probe
+/// bulk mint.
+///
+/// # Safety
+/// `arr` is a live `Tag::Arr` heap pointer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_index_strs_of(arr: *const c_void) -> *mut c_void {
+    let len = unsafe { (arr.cast::<u8>().add(8) as *const u64).read() } as i64;
+    let exotic = unsafe { (arr.cast::<u8>().add(6) as *const u16).read() } & (1 << 15) != 0;
+    if !exotic {
+        return unsafe { __torajs_arr_index_strs(len) };
+    }
+    let mut out = unsafe { __torajs_arr_alloc((len.max(0) as u64) + 1) };
+    for i in 0..len {
+        if unsafe { __torajs_arr_index_flags(arr, i as u64) } & ARR_F_HOLE != 0 {
+            continue;
+        }
+        let s = unsafe { __torajs_i64_to_str(i) };
+        out = unsafe { __torajs_arr_push(out, s as i64) };
+    }
+    let s_len = unsafe { alloc_str_literal(b"length") };
+    out = unsafe { __torajs_arr_push(out, s_len as i64) };
+    out as *mut c_void
+}
+
+/// `arr_index_flags` result bit 3 — deleted index (hole;
+/// `torajs_arr::define::F_HOLE` mirror, RFC 20260713 chunk C).
+const ARR_F_HOLE: u64 = 1 << 3;
+
 /// W-N-b' — `Object.keys(arr)` Arr-receiver path. Spec §22.1.3.16 +
 /// §10.4.2.OrdinaryOwnPropertyKeys: keys() filters to enumerable own.
 /// Array's `length` is non-enumerable (spec §10.4.2.4 step 4 sets

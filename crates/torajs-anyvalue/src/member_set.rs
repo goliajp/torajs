@@ -48,6 +48,9 @@ unsafe extern "C" {
     /// torajs-arr — per-index attribute flags (RFC
     /// 20260712-arr-exotic-define chunk C writable gate).
     fn __torajs_arr_index_flags(arr: *const c_void, idx: u64) -> u64;
+    /// torajs-arr — re-create a deleted index as a default data
+    /// property (hole revive, RFC 20260713 chunk C).
+    fn __torajs_arr_index_revive(arr: *mut c_void, key: *mut c_void);
     /// torajs-regex — `re.lastIndex` setter.
     fn __torajs_regex_set_last_index(re: *mut c_void, idx: f64);
     /// torajs-dynobj — fresh empty table for the first closure
@@ -165,7 +168,16 @@ pub unsafe extern "C" fn __torajs_any_member_set(
                 return;
             }
             if let Some(idx) = crate::prop_has::canonical_index(key) {
-                if __torajs_arr_index_flags(ptr, idx) & 0x1 == 0 {
+                let flags = __torajs_arr_index_flags(ptr, idx);
+                if flags & crate::prop_has::ARR_F_HOLE != 0 {
+                    // A deleted index is absent — the set re-creates
+                    // it as a fresh default data property (chunk C;
+                    // the shadow upsert clears the hole sentinel).
+                    __torajs_arr_index_set(ptr, idx as i64, tag, value);
+                    __torajs_arr_index_revive(ptr, key as *mut c_void);
+                    return;
+                }
+                if flags & 0x1 == 0 {
                     drop_payload(tag, value);
                     __torajs_throw_type_error(
                         c"Attempted to assign to readonly property.".as_ptr(),

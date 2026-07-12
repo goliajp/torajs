@@ -47,8 +47,12 @@ unsafe extern "C" {
     fn __torajs_dynobj_has(dynobj: *const c_void, key: *const c_void) -> bool;
     fn __torajs_dynobj_get_flags(dynobj: *const c_void, key: *const c_void) -> u64;
     /// torajs-dynobj — raw flags upsert for shadow entries (no
-    /// §10.1.6.3 validation; this kernel already validated).
+    /// §10.1.6.3 validation; this kernel already validated). A hit
+    /// also revives a hole entry (value slot resets to live).
     fn __torajs_dynobj_set_entry_flags(obj_slot: *mut *mut c_void, key: *mut c_void, flags: u64);
+    /// torajs-dynobj — HOLE sentinel probe (chunk C; the upsert
+    /// lives in `define_hole.rs`).
+    fn __torajs_dynobj_entry_is_hole(dynobj: *const c_void, key: *const c_void) -> i32;
     /// torajs-str — canonical index key mint for the flags probe.
     fn __torajs_str_alloc_pooled(len: u64) -> *mut u8;
     fn __torajs_str_drop(s: *mut c_void);
@@ -66,23 +70,29 @@ unsafe extern "C" {
 
 // flags_byte layout mirror (torajs-dynobj::layout DEFINE_*): low 3
 // bits = flag value, bits 3-5 = flag present, bit 6 = value present.
-const F_WRITABLE: u64 = 1 << 0;
-const F_ENUMERABLE: u64 = 1 << 1;
-const F_CONFIGURABLE: u64 = 1 << 2;
+pub(crate) const F_WRITABLE: u64 = 1 << 0;
+pub(crate) const F_ENUMERABLE: u64 = 1 << 1;
+pub(crate) const F_CONFIGURABLE: u64 = 1 << 2;
 const P_WRITABLE: u64 = 1 << 3;
 const P_ENUMERABLE: u64 = 1 << 4;
 const P_CONFIGURABLE: u64 = 1 << 5;
 const P_VALUE: u64 = 1 << 6;
 /// All three attribute bits — the implicit flags of a plain element.
-const FLAGS_DEFAULT: u64 = F_WRITABLE | F_ENUMERABLE | F_CONFIGURABLE;
+pub(crate) const FLAGS_DEFAULT: u64 = F_WRITABLE | F_ENUMERABLE | F_CONFIGURABLE;
+/// `arr_index_flags` RESULT bit (not a descriptor `flags_byte` bit):
+/// the index was deleted — element storage stays dense but the index
+/// is not an own property (RFC 20260713-defprop-tpd-cluster chunk C).
+/// Every consumer treats a hole as absent: reads answer undefined,
+/// has/gOPD answer absent, enumeration skips, writes re-create.
+pub const F_HOLE: u64 = 1 << 3;
 
 /// Key Str layout mirror — len u32 at +8, payload at +16.
 const STR_LEN_OFF: usize = 8;
-const STR_DATA_OFF: usize = 16;
+pub(crate) const STR_DATA_OFF: usize = 16;
 
 /// `AnySlotTag` mirrors.
 const ANY_HEAP: u64 = 4;
-const ANY_UNDEF: u64 = 5;
+pub(crate) const ANY_UNDEF: u64 = 5;
 
 unsafe fn key_bytes<'a>(key: *const c_void) -> &'a [u8] {
     let len = unsafe { key.cast::<u8>().add(STR_LEN_OFF).cast::<u32>().read() };
@@ -116,7 +126,7 @@ unsafe fn drop_owned(tag: u64, value: u64) {
 
 /// Props-dynobj slot pointer (offset mirror of `crate::props`).
 #[inline]
-unsafe fn props_slot(arr: *mut c_void) -> *mut *mut c_void {
+pub(crate) unsafe fn props_slot(arr: *mut c_void) -> *mut *mut c_void {
     unsafe { (arr as *mut u8).add(crate::layout::ARR_PROPS_OFF) as *mut *mut c_void }
 }
 
@@ -129,13 +139,16 @@ unsafe fn header_flags(arr: *const c_void) -> u16 {
 /// Current attribute flags of index `idx` — the shadow entry when one
 /// exists, the implicit defaults otherwise. `key` is the caller's
 /// index Str (avoids a re-mint).
-unsafe fn index_flags_with_key(arr: *const c_void, key: *const c_void) -> u64 {
+pub(crate) unsafe fn index_flags_with_key(arr: *const c_void, key: *const c_void) -> u64 {
     if unsafe { header_flags(arr) } & FLAG_ARR_EXOTIC_INDEX == 0 {
         return FLAGS_DEFAULT;
     }
     let props = unsafe { *props_slot(arr as *mut c_void) };
     if props.is_null() || !unsafe { __torajs_dynobj_has(props, key) } {
         return FLAGS_DEFAULT;
+    }
+    if unsafe { __torajs_dynobj_entry_is_hole(props, key) } != 0 {
+        return F_HOLE;
     }
     unsafe { __torajs_dynobj_get_flags(props, key) }
 }
@@ -220,6 +233,28 @@ unsafe fn define_index(
 
     if idx < len {
         let cur_flags = unsafe { index_flags_with_key(arr, key as *const c_void) };
+        // A hole is an absent property — the define is a fresh
+        // CreateDataProperty (extensible check, no current-flags
+        // validation) that revives the index (chunk C).
+        if cur_flags & F_HOLE != 0 {
+            if unsafe { header_flags(arr) } & FLAG_NON_EXTENSIBLE != 0 {
+                unsafe { drop_owned(tag, value) };
+                unsafe {
+                    __torajs_throw_type_error(
+                        c"Attempting to define property on object that is not extensible.".as_ptr(),
+                    )
+                };
+                return;
+            }
+            if has_value {
+                unsafe { crate::index_any::__torajs_arr_index_set(arr, idx as i64, tag, value) };
+            }
+            // Unconditional shadow write — the flags upsert also
+            // clears the hole sentinel, so a defaults-flags define
+            // must still land.
+            unsafe { store_shadow(arr, key, flags_byte & FLAGS_DEFAULT) };
+            return;
+        }
         let cur_w = cur_flags & F_WRITABLE != 0;
         let cur_e = cur_flags & F_ENUMERABLE != 0;
         let cur_c = cur_flags & F_CONFIGURABLE != 0;
@@ -422,7 +457,7 @@ fn fold_flags(cur: u64, flags_byte: u64) -> u64 {
 }
 
 /// Write the shadow flags entry + raise the header exotic bit.
-unsafe fn store_shadow(arr: *mut c_void, key: *mut c_void, flags: u64) {
+pub(crate) unsafe fn store_shadow(arr: *mut c_void, key: *mut c_void, flags: u64) {
     let slot = unsafe { props_slot(arr) };
     if unsafe { (*slot).is_null() } {
         unsafe { *slot = __torajs_dynobj_alloc() };

@@ -176,6 +176,9 @@ pub unsafe extern "C" fn __torajs_dynobj_set_entry_flags(
         let key_ptr =
             (unsafe { (*e).key_ptr_tagged } & crate::layout::BUCKET_KEY_PTR_MASK) as *mut c_void;
         unsafe { (*e).key_ptr_tagged = bucket_make_key_tagged(key_ptr, flags) };
+        // A flags upsert revives a hole entry (RFC 20260713 chunk C):
+        // the dead value slot resets to the live-shadow spelling.
+        unsafe { (*e).value_anyv = __torajs_anyv_box_from_pair(5, 0) };
     } else {
         let e_idx = unsafe { entries_len(obj) };
         unsafe {
@@ -189,4 +192,73 @@ pub unsafe extern "C" fn __torajs_dynobj_set_entry_flags(
             set_count(obj, count(obj) + 1);
         }
     }
+}
+
+/// Shadow-entry HOLE sentinel (RFC 20260713-defprop-tpd-cluster
+/// chunk C) — `delete arr[i]` marks the index absent while element
+/// storage stays dense. A hole entry is a shadow entry whose dead
+/// value slot holds [`crate::layout::DYNOBJ_HOLE_SENTINEL`] instead
+/// of the live `VALUE_UNDEFINED`; flag bits read as 0 (w/e/c all
+/// false is a distinct, legal live state — the sentinel
+/// disambiguates).
+///
+/// # Safety
+/// Same contract as [`__torajs_dynobj_set_entry_flags`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_dynobj_set_entry_hole(
+    obj_slot: *mut *mut c_void,
+    key: *mut c_void,
+) {
+    let mut obj = unsafe { *obj_slot };
+    if obj.is_null() {
+        return;
+    }
+    if unsafe { entries_len(obj) } == unsafe { entries_cap(obj) } {
+        unsafe {
+            resize(obj_slot);
+            obj = *obj_slot;
+        }
+    }
+    let pr = unsafe { probe(obj, key as *const c_void) };
+    let ent = unsafe { entries(obj) };
+    if pr.found {
+        let e = unsafe { ent.add(pr.entry as usize) };
+        let key_ptr =
+            (unsafe { (*e).key_ptr_tagged } & crate::layout::BUCKET_KEY_PTR_MASK) as *mut c_void;
+        unsafe { (*e).key_ptr_tagged = bucket_make_key_tagged(key_ptr, 0) };
+        unsafe { (*e).value_anyv = crate::layout::DYNOBJ_HOLE_SENTINEL };
+    } else {
+        let e_idx = unsafe { entries_len(obj) };
+        unsafe {
+            __torajs_rc_inc(key);
+            *ent.add(e_idx as usize) = Entry {
+                key_ptr_tagged: bucket_make_key_tagged(key, 0),
+                value_anyv: crate::layout::DYNOBJ_HOLE_SENTINEL,
+            };
+            *index_ptr(obj).add(pr.slot as usize) = e_idx;
+            set_entries_len(obj, e_idx + 1);
+            set_count(obj, count(obj) + 1);
+        }
+    }
+}
+
+/// Whether `key`'s entry is a HOLE sentinel (see
+/// [`__torajs_dynobj_set_entry_hole`]). Absent key answers 0.
+///
+/// # Safety
+/// `obj` is null or a live dynobj heap pointer; `key` a live Str.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_dynobj_entry_is_hole(
+    obj: *const c_void,
+    key: *const c_void,
+) -> i32 {
+    if obj.is_null() {
+        return 0;
+    }
+    let pr = unsafe { probe(obj, key) };
+    if !pr.found {
+        return 0;
+    }
+    let v = unsafe { (*entries(obj).add(pr.entry as usize)).value_anyv };
+    (v == crate::layout::DYNOBJ_HOLE_SENTINEL) as i32
 }

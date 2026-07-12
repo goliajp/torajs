@@ -49,6 +49,10 @@ const STR_DATA_OFF: usize = 16;
 /// inc (the slot keeps its reference, the descriptor owns a fresh one).
 const ANY_HEAP: u64 = 4;
 
+/// `arr_index_flags` result bit 3 — deleted index (hole;
+/// `torajs_arr::define::F_HOLE` mirror, RFC 20260713 chunk C).
+const ARR_F_HOLE: u64 = 1 << 3;
+
 /// Key Str payload as a byte slice.
 unsafe fn key_bytes<'a>(key: *const c_void) -> &'a [u8] {
     let len = unsafe { key.cast::<u8>().add(STR_LEN_OFF).cast::<u32>().read() };
@@ -95,6 +99,10 @@ pub(crate) unsafe fn arr_cell_descriptor(arr: *const c_void, key: *const c_void)
     if let Some(idx) = canonical_index(bytes) {
         let len = unsafe { arr.cast::<u8>().add(ARR_LEN_OFF).cast::<u64>().read() };
         if idx >= len {
+            return VALUE_UNDEFINED_IMM;
+        }
+        // A deleted index (hole shadow entry, chunk C) is absent.
+        if unsafe { __torajs_arr_index_flags(arr, idx) } & ARR_F_HOLE != 0 {
             return VALUE_UNDEFINED_IMM;
         }
         let tag = unsafe { __torajs_arr_get_any_tag(arr, idx) };

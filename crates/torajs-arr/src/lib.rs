@@ -40,6 +40,7 @@ pub mod any;
 pub mod any_to_typed;
 pub mod any_typed_bridge;
 pub mod define;
+pub mod define_hole;
 pub mod drop;
 pub mod from_string;
 pub mod grow;

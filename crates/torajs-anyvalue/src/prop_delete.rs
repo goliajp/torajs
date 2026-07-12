@@ -44,6 +44,10 @@ unsafe extern "C" {
     fn __torajs_dynobj_get_flags(obj: *const c_void, key: *const c_void) -> u64;
     /// torajs-arr — expando delete through the props slot.
     fn __torajs_arrprops_delete(arr: *mut c_void, key: *const c_void) -> i32;
+    /// torajs-arr — canonical-index delete (§10.4.2 [[Delete]], RFC
+    /// 20260713 chunk C): 1 = deleted / absent, 0 = refused
+    /// (non-configurable).
+    fn __torajs_arr_delete_index(arr: *mut c_void, key: *mut c_void, idx: u64) -> i32;
     /// torajs-throw — record a pending catchable TypeError.
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
 }
@@ -98,6 +102,29 @@ pub unsafe extern "C" fn __torajs_any_prop_delete(recv: AnyValue, key: *const c_
             1
         }
         Some((ptr, t)) if t == Tag::Arr as u16 => {
+            // Canonical index — element-domain delete (hole shadow
+            // entry, chunk C). The expando dynobj never owns the
+            // index domain.
+            if let Some(idx) = unsafe { crate::prop_has::canonical_index(key) } {
+                if unsafe { __torajs_arr_delete_index(ptr, key as *mut c_void, idx) } == 0 {
+                    unsafe {
+                        __torajs_throw_type_error(
+                            c"cannot delete a non-configurable property".as_ptr(),
+                        );
+                    }
+                    return 0;
+                }
+                return 1;
+            }
+            // `length` is permanently non-configurable (§10.4.2).
+            if unsafe { crate::prop_has::key_is(key, b"length") } {
+                unsafe {
+                    __torajs_throw_type_error(
+                        c"cannot delete a non-configurable property".as_ptr(),
+                    );
+                }
+                return 0;
+            }
             let props = unsafe { arr_props(ptr) };
             if !props.is_null() && unsafe { refuse_non_configurable(props, key) } {
                 return 0;

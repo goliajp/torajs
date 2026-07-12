@@ -62,6 +62,9 @@ const STR_LEN_OFF: usize = 8;
 const STR_DATA_OFF: usize = 16;
 const ARR_LEN_OFF: usize = 8;
 const ARR_PROPS_OFF: usize = 24;
+/// `arr_index_flags` result bit 3 — the index was deleted (hole;
+/// `torajs_arr::define::F_HOLE` mirror, RFC 20260713 chunk C).
+pub(crate) const ARR_F_HOLE: u64 = 1 << 3;
 
 /// Decode the key Str cell to `(bytes, len)`.
 #[inline]
@@ -131,7 +134,9 @@ pub unsafe extern "C" fn __torajs_any_prop_has(recv: AnyValue, key: *const c_voi
             if let Some(i) = unsafe { canonical_index(key) }
                 && i < len
             {
-                return 1;
+                // A deleted index (hole shadow entry) is absent
+                // (chunk C).
+                return (unsafe { __torajs_arr_index_flags(ptr, i) } & ARR_F_HOLE == 0) as i64;
             }
             if unsafe { key_is(key, b"length") } {
                 return 1;
