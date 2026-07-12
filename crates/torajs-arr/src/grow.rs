@@ -45,6 +45,15 @@ unsafe extern "C" {
     /// inline slots region to an independent buffer (B1).
     #[link_name = "__torajs_libc_malloc"]
     fn malloc(n: usize) -> *mut c_void;
+
+    /// torajs-anyvalue — NaN-box a `(tag, value)` pair.
+    fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64;
+    /// torajs-anyvalue — spec ToNumber over a NaN-box AnyValue
+    /// (`"2"` parses, `true` = 1, `null` = 0, `undefined` = NaN).
+    fn __torajs_anyv_to_number(v: u64) -> f64;
+    /// Cross-tier — universal heap value dropper (NaN-box safe; the
+    /// cell gate skips immediates).
+    fn __torajs_value_drop_heap(p: *mut c_void);
 }
 
 /// RFC 20260706-arr-grow-alias-stability B1 — grow the data buffer to
@@ -289,4 +298,80 @@ pub unsafe extern "C" fn __torajs_arr_reserve(arr: *mut u8, new_cap: i64) -> *mu
     }
     unsafe { grow_data_buffer(arr, new_cap as u64) };
     arr
+}
+
+/// `arr.length = N` / `defineProperty(arr, "length", { value: N })`
+/// with a real resize — spec §10.4.2.5 ArraySetLength (RFC
+/// 20260712-object-create-define-props backlog item). ToNumber goes
+/// through the NaN-box coercer (`"2"` parses, `true` = 1, `null` = 0,
+/// `undefined` = NaN); ToUint32 must equal ToNumber, else RangeError.
+///
+/// - `N < len` — release each removed slot's cell (NaN-box walk for
+///   `Array<Any>`, raw-cell walk for HEAP-kind typed blocks; scalar
+///   slots carry no refs), then write `len = N`.
+/// - `N > len` — only NaN-box slots can represent the undefined
+///   fill: compact the deque head, grow the data buffer, fill
+///   `[len, N)` with `undefined`, write `len = N`. A typed block
+///   behind a static `Arr<Any>` slot (T-11 widen, FLAG_ARR_ANY
+///   clear) silently keeps its length — same recorded gap as the
+///   scalar helper.
+///
+/// # Safety
+/// `arr` is a live array heap block; `(tag, value)` is a valid
+/// AnySlotTag pair. Caller must check for pending throw after return.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_set_length_any(arr: *mut u8, tag: i64, value: i64) {
+    let anyv = unsafe { __torajs_anyv_box_from_pair(tag, value) };
+    let n = unsafe { __torajs_anyv_to_number(anyv) };
+    if n.is_nan() || n < 0.0 || n > 4_294_967_295.0 || n != (n as i64) as f64 {
+        unsafe {
+            __torajs_throw_range_error(b"Invalid array length\0".as_ptr());
+        }
+        return;
+    }
+    let new_n = n as u64;
+    let len_ptr = unsafe { arr.add(ARR_HDR_LEN_OFF) as *mut u64 };
+    let old = unsafe { *len_ptr };
+    if new_n == old {
+        return;
+    }
+    let header = unsafe { &*(arr as *const torajs_rc::HeapHeader) };
+    let is_any = header.flags & torajs_rc::FLAG_ARR_ANY != 0;
+    let head = unsafe { *(arr.add(ARR_HDR_HEAD_OFF) as *const u32) } as usize;
+    if new_n < old {
+        // §10.4.2.5 step 4 — the removed slots' refs die here (this
+        // is the only owner walk; value_drop_heap's cell gate skips
+        // immediates / raw scalars stay unwalked).
+        if is_any || header.arr_elem_kind() == torajs_rc::ARR_KIND_HEAP {
+            let slots = unsafe { arr_data(arr) };
+            for i in new_n..old {
+                let av = unsafe { *(slots.add((head + i as usize) * 8) as *const u64) };
+                unsafe { __torajs_value_drop_heap(av as *mut c_void) };
+            }
+        }
+        unsafe { *len_ptr = new_n };
+        return;
+    }
+    if !is_any {
+        return;
+    }
+    if head > 0 {
+        unsafe {
+            let raw = arr_data(arr);
+            core::ptr::copy(raw.add(head * 8), raw, old as usize * 8);
+            *(arr.add(ARR_HDR_HEAD_OFF) as *mut u32) = 0;
+        }
+    }
+    let cap = unsafe { *(arr.add(ARR_HDR_CAP_OFF) as *const u32) } as u64;
+    if cap < new_n {
+        unsafe { grow_data_buffer(arr, new_n) };
+    }
+    unsafe {
+        let slots = arr_data(arr);
+        for i in old..new_n {
+            // NaN-box undefined immediate (VALUE_UNDEFINED = 0x0A).
+            *(slots.add(i as usize * 8) as *mut u64) = 0x0A;
+        }
+        *len_ptr = new_n;
+    }
 }

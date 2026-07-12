@@ -547,6 +547,7 @@ pub(crate) struct Intrinsics {
     pub(crate) str_substr: FuncId,
     pub(crate) arr_set_length_validate: FuncId,
     pub(crate) arr_set_length_truncate_scalar: FuncId,
+    pub(crate) arr_set_length_any: FuncId,
     pub(crate) arr_to_reversed: FuncId,
     pub(crate) arr_with: FuncId,
     pub(crate) arr_oob_throw: FuncId,

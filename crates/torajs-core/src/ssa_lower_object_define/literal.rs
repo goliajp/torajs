@@ -51,7 +51,7 @@ pub(super) fn emit_define_literal(
     let flags_byte = compute_flags_byte(ctx, desc_eid, value_eid.is_some());
 
     if matches!(obj_ty, Type::Arr(_)) && is_length {
-        emit_define_arr_length(ctx, value_eid);
+        emit_define_arr_length(ctx, obj_op, value_eid);
         return true;
     }
     if matches!(obj_ty, Type::Arr(_)) {
@@ -157,12 +157,11 @@ fn pack_tagged_value(ctx: &mut LowerCtx, v_raw: Operand, v_ty: Type) -> (i64, Op
     }
 }
 
-/// T-29.b — Array length setter via defineProperty. Spec §9.4.2.4:
-/// ToUint32(v) must equal ToNumber(v), else throw RangeError. tora
-/// can't yet resize Array storage to a new length, so on valid
-/// value we silently no-op; on invalid we throw via the runtime
-/// validator (sufficient for the assert.throws assertion shape).
-fn emit_define_arr_length(ctx: &mut LowerCtx, value_eid: Option<ExprId>) {
+/// T-29.b — Array length setter via defineProperty. Spec §9.4.2.4
+/// ToUint32(v) == ToNumber(v) validation + §10.4.2.5 real resize
+/// (RFC 20260712: per-slot release on truncate, undefined fill on
+/// Array<Any> grow) through the same helper as the assign lane.
+fn emit_define_arr_length(ctx: &mut LowerCtx, obj_op: Operand, value_eid: Option<ExprId>) {
     if let Some(val_eid) = value_eid {
         let v_raw = ctx.lower_expr(val_eid);
         let v_ty = ctx.operand_ty(&v_raw);
@@ -170,8 +169,8 @@ fn emit_define_arr_length(ctx: &mut LowerCtx, value_eid: Option<ExprId>) {
         ctx.f.append_void(
             ctx.cur_block,
             InstKind::Call(
-                ctx.intrinsics.arr_set_length_validate,
-                vec![Operand::ConstI64(tag), val_op],
+                ctx.intrinsics.arr_set_length_any,
+                vec![obj_op, Operand::ConstI64(tag), val_op],
             ),
         );
         ctx.emit_throw_check(None);

@@ -57,6 +57,7 @@ pub(crate) struct ArrStrEtcIds {
     pub str_substr: FuncId,
     pub arr_set_length_validate: FuncId,
     pub arr_set_length_truncate_scalar: FuncId,
+    pub arr_set_length_any: FuncId,
     pub arr_to_reversed: FuncId,
     pub arr_with: FuncId,
     pub arr_oob_throw: FuncId,
@@ -98,6 +99,7 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
         str_substring: decl!("__torajs_str_substring", [Str, I64, I64], Str),
         str_substr: decl!("__torajs_str_substr", [Str, I64, I64], Str),
         arr_set_length_validate: decl!("__torajs_arr_set_length_validate", [I64, I64], Void),
+        arr_set_length_any: decl!("__torajs_arr_set_length_any", [Ptr, I64, I64], Void),
         arr_set_length_truncate_scalar: decl!(
             "__torajs_arr_set_length_truncate_scalar",
             [Ptr, I64, I64],

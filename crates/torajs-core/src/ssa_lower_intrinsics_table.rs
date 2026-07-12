@@ -486,6 +486,7 @@ pub(crate) fn build(
         str_substr: init_d.arr_str_etc.str_substr,
         arr_set_length_validate: init_d.arr_str_etc.arr_set_length_validate,
         arr_set_length_truncate_scalar: init_d.arr_str_etc.arr_set_length_truncate_scalar,
+        arr_set_length_any: init_d.arr_str_etc.arr_set_length_any,
         arr_to_reversed: init_d.arr_str_etc.arr_to_reversed,
         arr_with: init_d.arr_str_etc.arr_with,
         arr_oob_throw: init_d.arr_str_etc.arr_oob_throw,

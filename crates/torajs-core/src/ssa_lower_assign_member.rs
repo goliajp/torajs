@@ -144,11 +144,10 @@ fn lower_arr_length_assign(
     // so the historical consume was a Copy no-op; an Any-typed Ident
     // rhs must keep its stake (the validate helper only reads).
     let (tag, val_op) = ctx.lower_to_tag_value(value);
-    // ES §10.4.2.5 step 4 — for non-refcounted scalar element types
-    // we route to the truncate-aware helper that also writes
-    // `len = N` when `N < oldLen`. Refcounted element types (Str /
-    // Substr / Arr / ...) still go through validate-only until the
-    // per-slot rc_dec truncate path lands.
+    // ES §10.4.2.5 — scalar element types keep the truncate helper;
+    // every other element type (Any / Str / Arr / ...) routes to the
+    // full resize helper (per-slot release on truncate, undefined
+    // fill on Array<Any> grow — RFC 20260712 backlog item landed).
     let elem_ty = if let Type::Arr(elem_arr_id) = obj_ty {
         Some(ctx.arr_layouts[elem_arr_id.0 as usize])
     } else {
@@ -161,13 +160,9 @@ fn lower_arr_length_assign(
     let helper = if truncate_scalar {
         ctx.intrinsics.arr_set_length_truncate_scalar
     } else {
-        ctx.intrinsics.arr_set_length_validate
+        ctx.intrinsics.arr_set_length_any
     };
-    let argv = if truncate_scalar {
-        vec![obj_val, tag, val_op]
-    } else {
-        vec![tag, val_op]
-    };
+    let argv = vec![obj_val, tag, val_op];
     let cur_block = ctx.cur_block;
     ctx.f.append_void(cur_block, InstKind::Call(helper, argv));
     ctx.emit_throw_check(None);
