@@ -58,14 +58,19 @@ function __t262_assert(actual: boolean, msg: string = ""): void {
   }
 }
 
+// SameValue (§7.2.11), not strict equality: NaN equals NaN, and
+// +0 / -0 are distinct (RFC 20260713-date-invalid-time — the
+// strict-`!==` version failed every `assert.sameValue(x, NaN)`
+// case at the harness layer). Delegates to the propertyHelper
+// port's `__t262_isSameValue` below.
 function __t262_sameValue<T>(actual: T, expected: T, msg: string = ""): void {
-  if (actual !== expected) {
+  if (!__t262_isSameValue(actual, expected)) {
     throw new Test262Error(msg);
   }
 }
 
 function __t262_notSameValue<T>(actual: T, expected: T, msg: string = ""): void {
-  if (actual === expected) {
+  if (__t262_isSameValue(actual, expected)) {
     throw new Test262Error(msg);
   }
 }
