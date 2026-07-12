@@ -54,11 +54,14 @@ pub(crate) fn try_lower(
         });
     }
     // V3-18 m1.h.52 — Number(undefined) → NaN; String(undefined) →
-    // "undefined"; Boolean(undefined) → false. Detect bare-Ident
-    // before lowering since undefined/null both collapse to
-    // ConstPtrNull at runtime.
-    if let Expr::Ident(arg_name) = ctx.ast.get_expr(args[0])
-        && arg_name == "undefined"
+    // "undefined"; Boolean(undefined) → false. Detect via the
+    // checker's static type before lowering since undefined/null
+    // both collapse to ConstPtrNull at runtime (chunk B — the old
+    // bare-Ident name test missed `void 0`, replace A1_T7).
+    if matches!(
+        ctx.expr_types.get(&args[0]),
+        Some(crate::check::Type::Undefined)
+    ) || matches!(ctx.ast.get_expr(args[0]), Expr::Ident(n) if n == "undefined")
     {
         return Some(match n_kind.as_str() {
             "Number" => Operand::ConstF64(f64::NAN),

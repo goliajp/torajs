@@ -187,8 +187,41 @@ pub(crate) fn populate_argv(
             // S338 — `s.{padStart,padEnd}(Any [, fillStr])`
             // ToLength accepts arbitrary-typed input.
             argv.push(any_arg_to_i64(ctx, a));
+        } else if matches!(method, "replace" | "replaceAll") && i < 2 {
+            // RFC 20260712 chunk B — non-regex searchValue and
+            // non-fn replaceValue are ToString-coerced per
+            // §22.1.3.19 steps 3/6 (a throwing user toString
+            // propagates; argv order keeps searchValue first). A
+            // str-shaped arg passes through; anything else routes
+            // via coerce_to_str + throw check. Fresh-owned
+            // operands park in argv_owned_temps so the drop lands
+            // AFTER the helper call.
+            let raw = ctx.lower_expr(a);
+            let raw_ty = ctx.operand_ty(&raw);
+            if matches!(raw_ty, Type::Str | Type::Substr) {
+                if ctx.expr_is_fresh_owned(a) {
+                    ctx.argv_owned_temps.push((raw.clone(), raw_ty));
+                }
+                argv.push(raw);
+            } else {
+                let s = ctx.coerce_to_str(raw.clone(), raw_ty);
+                ctx.emit_throw_check(None);
+                if raw_ty.is_refcounted() && ctx.expr_is_fresh_owned(a) {
+                    ctx.emit_drop_value(raw, raw_ty);
+                }
+                ctx.argv_owned_temps.push((s.clone(), Type::Str));
+                argv.push(s);
+            }
         } else {
-            argv.push(ctx.lower_expr(a));
+            // Fresh-owned str temps (`s.replace(n.slice(0,1), x)`)
+            // park for the post-call drop — pre-chunk-B they
+            // leaked one cell per call.
+            let v = ctx.lower_expr(a);
+            let v_ty = ctx.operand_ty(&v);
+            if matches!(v_ty, Type::Str | Type::Substr) && ctx.expr_is_fresh_owned(a) {
+                ctx.argv_owned_temps.push((v.clone(), v_ty));
+            }
+            argv.push(v);
         }
     }
 }

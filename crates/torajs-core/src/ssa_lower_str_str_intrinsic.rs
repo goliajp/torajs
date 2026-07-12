@@ -31,6 +31,7 @@ pub(crate) fn dispatch_intrinsic(
     method: &str,
     args: &[ExprId],
     argv: Vec<Operand>,
+    owned_base: usize,
 ) -> Operand {
     // V3-18 m1.h.50 — indexOf / lastIndexOf 2-arg (needle, fromIndex)
     if matches!(method, "indexOf" | "lastIndexOf") && args.len() >= 2 {
@@ -42,6 +43,7 @@ pub(crate) fn dispatch_intrinsic(
         let v = ctx
             .f
             .append_inst(ctx.cur_block, InstKind::Call(target, argv), Type::I64, None);
+        drain_owned_temps(ctx, owned_base);
         return Operand::Value(v);
     }
     // V3-18 m1.h.51 — startsWith / endsWith / includes 2-arg
@@ -57,12 +59,16 @@ pub(crate) fn dispatch_intrinsic(
             Type::Bool,
             None,
         );
+        drain_owned_temps(ctx, owned_base);
         return Operand::Value(v);
     }
     // split has its own inline emit (multi-block CondBr / arr_slice
-    // limit-clamp) — delegate to chunk #1.
+    // limit-clamp) — delegate to chunk #1; the drop drain lands in
+    // the join block lower_split leaves as cur_block.
     if method == "split" {
-        return crate::ssa_lower_str_str_split::lower_split(ctx, args, argv);
+        let r = crate::ssa_lower_str_str_split::lower_split(ctx, args, argv);
+        drain_owned_temps(ctx, owned_base);
+        return r;
     }
     // Final per-method intrinsic + return-type lookup.
     let (target, ret_ty) = match method {
@@ -108,5 +114,18 @@ pub(crate) fn dispatch_intrinsic(
     if method == "repeat" {
         ctx.emit_throw_check(None);
     }
+    drain_owned_temps(ctx, owned_base);
     Operand::Value(v)
+}
+
+/// RFC 20260712 chunk B — drop the fresh-owned argv operands parked
+/// since `owned_base` (ToString-coerced replace args, fresh str
+/// temps) now that the helper call has consumed them. The base
+/// index keeps a nested str-method lowering (an arg expression that
+/// is itself a str method call) from draining its caller's parks.
+fn drain_owned_temps(ctx: &mut LowerCtx<'_>, owned_base: usize) {
+    let temps: Vec<_> = ctx.argv_owned_temps.split_off(owned_base);
+    for (op, ty) in temps {
+        ctx.emit_drop_value(op, ty);
+    }
 }

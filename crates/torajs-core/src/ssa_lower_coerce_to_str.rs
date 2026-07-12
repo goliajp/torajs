@@ -147,6 +147,38 @@ impl<'a> LowerCtx<'a> {
                 );
                 Operand::Value(s)
             }
+            // RFC 20260712 chunk B — a struct operand mirrors the
+            // String(struct) S137 emit: a layout carrying a
+            // toString / valueOf hook runs OrdinaryToPrimitive at
+            // runtime (+ throw check); hook-free layouts keep the
+            // static §20.1.4.4 literal (drop is a no-op on it).
+            Type::Obj(sid) => {
+                let layout = &self.struct_layouts[sid.0 as usize];
+                let has_hook = layout
+                    .iter()
+                    .any(|(n, _)| n == "toString" || n == "valueOf");
+                if has_hook {
+                    let raw = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::PtrToInt(val),
+                        Type::I64,
+                        None,
+                    );
+                    let s = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(
+                            self.intrinsics.any_to_str,
+                            vec![Operand::ConstI64(4), Operand::Value(raw)],
+                        ),
+                        Type::Str,
+                        None,
+                    );
+                    self.emit_throw_check(None);
+                    Operand::Value(s)
+                } else {
+                    Operand::Value(self.intern_string_literal("[object Object]"))
+                }
+            }
             // RFC 20260710 C2a — a fn-typed slot value ToStrings via
             // the fnname runtime (null → "null", the undefined
             // sentinel → the sentinel cell itself, a real address →

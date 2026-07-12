@@ -137,6 +137,7 @@ pub(crate) fn synthesize_main(
             let_stack_alloc_hint: None,
             let_declared_obj_layout: None,
             redispatch_lowered: None,
+            argv_owned_temps: Vec::new(),
             owned_member_reads: std::collections::HashSet::new(),
         };
         // T-15.g.5 fix: prime escape_captured_lets BEFORE lowering any

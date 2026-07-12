@@ -74,6 +74,10 @@ pub(crate) fn try_dispatch(
         }
         let mut argv = Vec::with_capacity(args.len() + 1);
         argv.push(recv_op);
+        // RFC 20260712 chunk B — fresh-owned argv operands parked
+        // past this watermark drop after the helper call (nested
+        // str-method args keep their own window).
+        let owned_base = ctx.argv_owned_temps.len();
         // Per-arg lowering with the full spec-carve-out tower
         // (S140 drop_args / S207-S338 undef + Any substitutions /
         // trailing-arg ignore). Documented in
@@ -88,7 +92,7 @@ pub(crate) fn try_dispatch(
         // lookup + repeat throw check). Documented in
         // `ssa_lower_str_str_intrinsic`.
         Some(crate::ssa_lower_str_str_intrinsic::dispatch_intrinsic(
-            ctx, method, args, argv,
+            ctx, method, args, argv, owned_base,
         ))
     } else {
         None
