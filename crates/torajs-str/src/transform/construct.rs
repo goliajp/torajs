@@ -82,15 +82,9 @@ unsafe fn str_view<'a>(p: *const u8) -> (&'a [u8], u32, bool) {
 /// translated via code_unit × stride at the call site).
 #[inline]
 fn alloc_str_slice(payload: &[u8], byte_lo: usize, byte_hi: usize, is_latin1: bool) -> *mut u8 {
-    let new_byte_cnt = (byte_hi - byte_lo) as u32;
-    let stride: u32 = if is_latin1 { 1 } else { 2 };
-    let new_length = new_byte_cnt / stride;
-    let mut block = StrBlock::alloc_with_encoding(new_length, is_latin1);
-    if new_byte_cnt > 0 {
-        let dst = unsafe { block.as_bytes_mut(new_byte_cnt) };
-        dst.copy_from_slice(&payload[byte_lo..byte_hi]);
-    }
-    block.into_raw()
+    // Range carving can drop every supra-Latin-1 unit — narrow per
+    // the canonical-encoding invariant (chunk A2).
+    crate::alloc_canonical::alloc_units_canonical(&payload[byte_lo..byte_hi], is_latin1)
 }
 
 #[inline]

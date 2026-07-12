@@ -11,8 +11,9 @@
 //!
 //! P11.1-S2.5 — encoding-aware iteration: a Latin-1 payload runs
 //! the per-byte predicate; a UTF-16 LE payload reads each candidate
-//! code unit as a little-endian u16 and matches the full set.
-//! Source and result encodings always match.
+//! code unit as a little-endian u16 and matches the full set. The
+//! result narrows to Latin-1 when every surviving unit fits
+//! (canonical-encoding invariant, chunk A2).
 //!
 //! IR-side surface (declared in `ssa_lower::lower`, intrinsic
 //! noalias-whitelisted on the LLVM-era backend):
@@ -20,7 +21,6 @@
 //! - `__torajs_str_trim_start(s) -> Str`
 //! - `__torajs_str_trim_end(s) -> Str`
 
-use crate::block::StrBlock;
 use crate::layout::{STR_DATA_OFF, STR_FLAG_IS_LATIN1, STR_LEN_OFF};
 use torajs_rc::HeapHeader;
 
@@ -125,48 +125,20 @@ fn trim_end_idx_utf16(payload: &[u8], min: usize) -> usize {
 
 /// Allocate a fresh Str block holding `src[range]` under
 /// `is_latin1`. The byte range must already be aligned to the
-/// encoding's code-unit stride.
-///
-/// Canonical-encoding invariant (`eq.rs` short-circuit contract):
-/// a UTF-16 source whose surviving units are all ≤ 0xFF must
-/// narrow to Latin-1 — trimming the full TrimString set can strip
-/// every supra-Latin-1 unit (`"\u{3000}abc".trim()` → `"abc"`),
-/// and an un-narrowed result would compare unequal to the Latin-1
-/// literal with identical content.
+/// encoding's code-unit stride. Delegates to `alloc_canonical`
+/// (chunk A2): trimming the full TrimString set can strip every
+/// supra-Latin-1 unit (`"\u{3000}abc".trim()` → `"abc"`), so the
+/// result narrows to keep the canonical-encoding invariant.
 #[inline]
 fn alloc_payload(src: &[u8], is_latin1: bool) -> *mut u8 {
-    if !is_latin1 {
-        let all_latin1 = src
-            .chunks_exact(2)
-            .all(|c| u16::from_le_bytes([c[0], c[1]]) <= 0xff);
-        if all_latin1 {
-            let length = (src.len() / 2) as u32;
-            let mut block = StrBlock::alloc_with_encoding(length, true);
-            if length != 0 {
-                let dst = unsafe { block.as_bytes_mut(length) };
-                for (i, c) in src.chunks_exact(2).enumerate() {
-                    dst[i] = c[0];
-                }
-            }
-            return block.into_raw();
-        }
-    }
-    let stride: u32 = if is_latin1 { 1 } else { 2 };
-    let byte_cnt = src.len() as u32;
-    let length = byte_cnt / stride;
-    let mut block = StrBlock::alloc_with_encoding(length, is_latin1);
-    if !src.is_empty() {
-        let dst = unsafe { block.as_bytes_mut(byte_cnt) };
-        dst.copy_from_slice(src);
-    }
-    block.into_raw()
+    crate::alloc_canonical::alloc_units_canonical(src, is_latin1)
 }
 
 // ============================================================
 // extern "C" wrappers — preserve pre-rewrite ABI bit-for-bit
 // ============================================================
 
-/// `s.trimStart()` — drop leading ASCII whitespace.
+/// `s.trimStart()` — drop leading TrimString whitespace.
 ///
 /// # Safety
 ///
@@ -183,7 +155,7 @@ pub unsafe extern "C" fn __torajs_str_trim_start(s: *const u8) -> *mut u8 {
     alloc_payload(&payload[lo..], is_latin1)
 }
 
-/// `s.trimEnd()` — drop trailing ASCII whitespace.
+/// `s.trimEnd()` — drop trailing TrimString whitespace.
 ///
 /// # Safety
 ///
@@ -199,7 +171,7 @@ pub unsafe extern "C" fn __torajs_str_trim_end(s: *const u8) -> *mut u8 {
     alloc_payload(&payload[..hi], is_latin1)
 }
 
-/// `s.trim()` — drop both leading and trailing ASCII whitespace.
+/// `s.trim()` — drop both leading and trailing TrimString whitespace.
 ///
 /// # Safety
 ///
@@ -313,6 +285,7 @@ mod tests {
     // ============================================================
 
     use crate::block::__torajs_str_free;
+    use crate::block::StrBlock;
 
     fn make_str(payload: &[u8]) -> *mut u8 {
         let mut b = StrBlock::alloc(payload.len() as u32);

@@ -21,11 +21,12 @@
 //! `String.prototype.slice` spec). The source's `length` is the
 //! code-unit count; the byte offsets into the source's payload
 //! come from `index × stride` (1 for Latin-1, 2 for UTF-16). The
-//! result is allocated with the **same** encoding as the source —
-//! slicing never changes the codepoint set, so the canonical
-//! encoding picked for the source is also right for the slice.
+//! result allocates through `alloc_canonical` (chunk A2): slicing
+//! can drop every supra-Latin-1 unit, so a UTF-16 source's slice
+//! narrows to Latin-1 whenever the surviving units all fit —
+//! upholding the canonical-encoding invariant `str_eq` and the
+//! inline `=== "literal"` fast path rely on.
 
-use crate::block::StrBlock;
 use crate::layout::{STR_DATA_OFF, STR_FLAG_IS_LATIN1, STR_LEN_OFF};
 use torajs_rc::HeapHeader;
 
@@ -91,23 +92,19 @@ pub fn slice_range(start: i64, end: i64, len: u32) -> (u32, u32) {
 pub unsafe extern "C" fn __torajs_str_slice(s: *const u8, start: i64, end: i64) -> *mut u8 {
     let (payload, length, is_latin1) = unsafe { str_view(s) };
     let (lo, hi) = slice_range(start, end, length);
-    let new_length = hi - lo;
     let stride = if is_latin1 { 1 } else { 2 };
-    let mut block = StrBlock::alloc_with_encoding(new_length, is_latin1);
-    if new_length > 0 {
-        let lo_b = (lo as usize) * stride;
-        let hi_b = (hi as usize) * stride;
-        let byte_cnt = (hi_b - lo_b) as u32;
-        let dst = unsafe { block.as_bytes_mut(byte_cnt) };
-        dst.copy_from_slice(&payload[lo_b..hi_b]);
-    }
-    block.into_raw()
+    let lo_b = (lo as usize) * stride;
+    let hi_b = (hi as usize) * stride;
+    // Slicing can drop every supra-Latin-1 unit — narrow per the
+    // canonical-encoding invariant (chunk A2).
+    crate::alloc_canonical::alloc_units_canonical(&payload[lo_b..hi_b], is_latin1)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::block::__torajs_str_free;
+    use crate::block::StrBlock;
     use alloc::vec::Vec;
 
     fn make_str(payload: &[u8]) -> *mut u8 {
@@ -185,15 +182,27 @@ mod tests {
     }
 
     #[test]
-    fn ffi_slice_utf16_round_trips() {
+    fn ffi_slice_utf16_narrows_when_units_fit() {
         // Build a UTF-16 Str "AB" (length=2, payload="\x41\x00\x42\x00")
-        // and slice [1..2] → "B".
+        // and slice [1..2] → "B". All surviving units fit Latin-1, so
+        // the result narrows (canonical-encoding invariant, chunk A2).
         let mut b = StrBlock::alloc_with_encoding(2, false);
         unsafe { b.as_bytes_mut(4) }.copy_from_slice(&[0x41, 0x00, 0x42, 0x00]);
         let s = b.into_raw();
         let r = unsafe { __torajs_str_slice(s, 1, 2) };
-        // Result payload should be the second u16 little-endian.
-        assert_eq!(read_payload(r), [0x42, 0x00]);
+        assert_eq!(read_payload(r), [0x42]);
+        unsafe { __torajs_str_free(s) };
+        unsafe { __torajs_str_free(r) };
+    }
+
+    #[test]
+    fn ffi_slice_utf16_wide_unit_stays_wide() {
+        // UTF-16 "A\u{6C49}" sliced to keep the wide unit — no narrow.
+        let mut b = StrBlock::alloc_with_encoding(2, false);
+        unsafe { b.as_bytes_mut(4) }.copy_from_slice(&[0x41, 0x00, 0x49, 0x6c]);
+        let s = b.into_raw();
+        let r = unsafe { __torajs_str_slice(s, 1, 2) };
+        assert_eq!(read_payload(r), [0x49, 0x6c]);
         unsafe { __torajs_str_free(s) };
         unsafe { __torajs_str_free(r) };
     }

@@ -110,6 +110,7 @@ pub(crate) fn write_stderr(bytes: &[u8]) {
     }
 }
 
+pub(crate) mod alloc_canonical;
 pub mod block;
 pub mod case_table;
 pub mod code_point;

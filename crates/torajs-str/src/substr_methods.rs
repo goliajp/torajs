@@ -195,15 +195,14 @@ pub unsafe extern "C" fn __torajs_substr_char_code_at(v: *const u8, i: i64) -> i
 }
 
 /// `Substr === Str` content compare. Returns 1 iff the view's
-/// code units equal the Str's, under the canonical-encoding
-/// invariant.
+/// code units equal the Str's.
 ///
-/// P11.1-S2.5 Round 2 — encoding-aware. Same canonical
-/// short-circuit as `__torajs_str_eq`: a Substr inherits its
-/// parent's encoding flag, so a Substr with parent-Latin-1 can
-/// never equal a UTF-16 Str (and vice versa). When encodings
-/// match, the comparison is a byte-equal over the shared payload
-/// stride.
+/// P11.1-S2.5 Round 2 — encoding-aware; same-encoding operands
+/// byte-compare over the shared payload stride. Mixed encodings
+/// compare per code unit (chunk A2): a view inherits its parent's
+/// encoding flag and cannot narrow, so a UTF-16 view can carry
+/// all-Latin-1 content that genuinely equals a canonical Latin-1
+/// Str.
 ///
 /// # Safety
 /// `v` is a live `*const Substr`, `s` is a live `*const Str`.
@@ -222,16 +221,32 @@ pub unsafe extern "C" fn __torajs_substr_eq_str(v: *const u8, s: *const u8) -> i
     }
     let (v_payload, _v_cu_len, v_latin1) = unsafe { substr_view(v) };
     let (s_payload, _, s_latin1) = unsafe { str_view(s) };
-    if v_latin1 != s_latin1 {
+    if v_latin1 == s_latin1 {
+        if v_payload.len() != s_payload.len() {
+            return 0;
+        }
+        return (v_payload == s_payload) as i64;
+    }
+    // Mixed encoding — a view inherits its parent's encoding and
+    // cannot narrow, so a UTF-16 view holding all-Latin-1 content
+    // (`"\u{6C49}abc".slice(1)`) legitimately compares against a
+    // canonical Latin-1 Str. Per-code-unit walk (RFC
+    // 20260712-string-proto-cluster chunk A2; the pre-A2 encoding
+    // short-circuit answered 0).
+    let (narrow, wide) = if v_latin1 {
+        (v_payload, s_payload)
+    } else {
+        (s_payload, v_payload)
+    };
+    if narrow.len() * 2 != wide.len() {
         return 0;
     }
-    if v_payload.len() != s_payload.len() {
-        return 0;
+    for (i, &c) in narrow.iter().enumerate() {
+        if u16::from_le_bytes([wide[2 * i], wide[2 * i + 1]]) != c as u16 {
+            return 0;
+        }
     }
-    if v_payload.is_empty() {
-        return 1;
-    }
-    if v_payload == s_payload { 1 } else { 0 }
+    1
 }
 
 /// Materialize a Substr into a fresh OWNED Str (for crossing fn-call

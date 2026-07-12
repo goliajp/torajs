@@ -141,26 +141,33 @@ pub unsafe extern "C" fn __torajs_str_eq(a: *const u8, b: *const u8) -> i64 {
     // owned/owned fast path pays one flags test per operand.
     let (aa, a_latin1) = unsafe { resolve_payload(a) };
     let (bb, b_latin1) = unsafe { resolve_payload(b) };
-    if aa.len() != bb.len() {
+    if a_latin1 == b_latin1 {
+        // Same encoding ⇒ same stride: plain byte compare. Owned
+        // Strs uphold the canonical-encoding invariant
+        // (`StringLiteral::encode_from_str` at build time,
+        // narrowing kernels at runtime), so two owned cells with
+        // equal content always land here.
+        if aa.len() != bb.len() {
+            return 0;
+        }
+        return if bytes_eq(aa, bb) { 1 } else { 0 };
+    }
+    // Mixed encoding — a Substr VIEW inherits its parent's
+    // encoding and cannot narrow, so a UTF-16 view whose units all
+    // fit Latin-1 (`"\u{6C49}abc".slice(1)`) legitimately reaches
+    // here with content equal to a canonical Latin-1 operand.
+    // Compare per code unit (RFC 20260712-string-proto-cluster
+    // chunk A2; the pre-A2 encoding short-circuit answered 0).
+    let (l1, wide) = if a_latin1 { (aa, bb) } else { (bb, aa) };
+    if l1.len() * 2 != wide.len() {
         return 0;
     }
-    if aa.is_empty() {
-        // Both empty regardless of encoding flag — by the canonical-
-        // encoding invariant zero-length Strs are always Latin-1
-        // (max codepoint vacuously 0 ≤ 0xFF), but a defensive
-        // empty-vs-empty short circuit covers the case where a
-        // legacy caller stamped the wrong flag.
-        return 1;
+    for (i, &c) in l1.iter().enumerate() {
+        if u16::from_le_bytes([wide[2 * i], wide[2 * i + 1]]) != c as u16 {
+            return 0;
+        }
     }
-    if a_latin1 != b_latin1 {
-        // P11.1-S2.3 canonical short-circuit: distinct encodings
-        // ⇒ distinct content under the canonical-encoding
-        // invariant maintained by `StringLiteral::encode_from_str`
-        // (build-time) and `__torajs_str_alloc` (runtime); a view
-        // inherits its parent's encoding. No need to walk bytes.
-        return 0;
-    }
-    if bytes_eq(aa, bb) { 1 } else { 0 }
+    1
 }
 
 /// Resolve a Tag::Str-tagged cell to its `(payload bytes, latin1)`
@@ -262,15 +269,16 @@ mod tests {
     }
 
     #[test]
-    fn cross_encoding_short_circuits_to_false() {
+    fn cross_encoding_compares_by_code_unit() {
         let _g = TEST_LOCK.lock().unwrap();
         crate::pool::clear_for_test();
-        // Construct two Strs with identical length / payload but
-        // opposite IS_LATIN1 flags — under the canonical-encoding
-        // invariant this case "shouldn't happen" for real
-        // content, but the short-circuit must still return false
-        // because the invariant guarantees identical content
-        // would have picked the same encoding.
+        // A UTF-16 cell whose units all fit Latin-1 vs the
+        // canonical Latin-1 cell with the same content. Owned Strs
+        // uphold the canonical-encoding invariant, but Substr
+        // VIEWs inherit their parent's encoding and reach the
+        // mixed branch with genuinely equal content (RFC
+        // 20260712-string-proto-cluster chunk A2) — the eq kernel
+        // itself must compare per code unit, not short-circuit.
         let a = make_str(b"abc"); // Latin-1 via StrBlock::alloc
         let b = StrBlock::alloc_with_encoding(3, false);
         unsafe {
@@ -279,10 +287,23 @@ mod tests {
                 .copy_from_nonoverlapping([0x61u8, 0x00, 0x62, 0x00, 0x63, 0x00].as_ptr(), 6)
         };
         let eq = unsafe { __torajs_str_eq(a.0.as_ptr(), b.0.as_ptr()) };
-        // Lengths match (both 3) but encodings differ — short-circuit false.
-        assert_eq!(eq, 0);
+        assert_eq!(eq, 1);
+        // Different content must still answer false in both orders.
+        let c = make_str(b"abd");
+        assert_eq!(unsafe { __torajs_str_eq(c.0.as_ptr(), b.0.as_ptr()) }, 0);
+        assert_eq!(unsafe { __torajs_str_eq(b.0.as_ptr(), c.0.as_ptr()) }, 0);
+        // A supra-Latin-1 unit on the wide side is never equal.
+        let d = StrBlock::alloc_with_encoding(3, false);
+        unsafe {
+            d.0.as_ptr()
+                .add(crate::layout::STR_DATA_OFF)
+                .copy_from_nonoverlapping([0x61u8, 0x00, 0x62, 0x00, 0x49, 0x6c].as_ptr(), 6)
+        };
+        assert_eq!(unsafe { __torajs_str_eq(a.0.as_ptr(), d.0.as_ptr()) }, 0);
         a.free_pool_aware();
         b.free_pool_aware();
+        c.free_pool_aware();
+        d.free_pool_aware();
     }
 
     #[test]
