@@ -388,7 +388,18 @@ pub unsafe extern "C" fn __torajs_builtin_proto_own_method_cell(
         return 0;
     }
     // Immortal interned cell — rc traffic no-ops.
-    crate::method_value::builtin_method_cell(mid) as u64
+    crate::method_value::builtin_method_cell(set_keys_alias(tag, mid)) as u64
+}
+
+/// §24.2.4.8 — `Set.prototype.keys` IS the values function object;
+/// the Set proto tag (12, `torajs-rc/builtin_proto.rs` order) hands
+/// out the values cell for a `keys` read so the two compare `===`.
+fn set_keys_alias(tag: i64, mid: i64) -> i64 {
+    if tag == 12 && mid == ANY_METHOD_KEYS {
+        ANY_METHOD_VALUES
+    } else {
+        mid
+    }
 }
 
 /// `<Ctor>.prototype.<m>` static member read (chunk A). Own-entry
@@ -429,7 +440,7 @@ pub unsafe extern "C" fn __torajs_builtin_proto_method_value(
         return VALUE_UNDEFINED;
     }
     // Immortal interned cell — rc traffic no-ops, hand out as-is.
-    crate::method_value::builtin_method_cell(mid) as AnyValue
+    crate::method_value::builtin_method_cell(set_keys_alias(tag, mid)) as AnyValue
 }
 
 #[cfg(test)]

@@ -239,7 +239,25 @@ pub(crate) unsafe fn builtin_method_lookup(recv: AnyValue, key: *const c_void) -
     if !builtin_method_supported(recv, mid) {
         return None;
     }
+    // §24.2.4.8 — Set.prototype.keys IS the values function object;
+    // reads through a live Set receiver hand out the values cell so
+    // `s.keys === s.values` holds.
+    let mid = if mid == torajs_rc::ANY_METHOD_KEYS && is_set_cell(recv) {
+        torajs_rc::ANY_METHOD_VALUES
+    } else {
+        mid
+    };
     Some(builtin_method_cell(mid))
+}
+
+/// True iff the boxed value is a live `Tag::Set` heap cell.
+fn is_set_cell(recv: AnyValue) -> bool {
+    if !is_cell(recv) {
+        return false;
+    }
+    let ptr = as_void_ptr(recv);
+    // SAFETY: is_cell guarantees a live heap pointer with a header.
+    unsafe { (ptr.cast::<u8>().add(4) as *const u16).read() == Tag::Set as u16 }
 }
 
 /// Read the key Str's bytes and intern them through the shared
