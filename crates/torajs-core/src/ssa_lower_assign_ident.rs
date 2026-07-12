@@ -229,6 +229,11 @@ fn apply_borrow_rc_inc(ctx: &mut LowerCtx<'_>, v: &Operand, value: ExprId) {
         // keep transferring. Global-slot reads borrow the same way
         // (chunk 558).
         Expr::Ident(src) => ctx.locals.contains_key(src) || ctx.globals.contains_key(src),
+        // Hoisted regex-literal singleton (fn-scope LICM,
+        // `ssa_lower_lit::lower_regex`) — the slot takes a share of
+        // the fn-owned compile; without the +1 the slot's drop-old
+        // stole the fn's stake (UAF on the next occurrence).
+        Expr::Regex { .. } => true,
         _ => false,
     };
     if needs_inc {

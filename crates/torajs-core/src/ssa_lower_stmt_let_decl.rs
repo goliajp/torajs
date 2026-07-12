@@ -163,15 +163,26 @@ pub(crate) fn lower(
     let boxed_any = ty == Type::Any && ctx.operand_ty(&init_val) != Type::Any;
     if !is_alias_init {
         let pre_ty = ctx.operand_ty(&init_val);
-        let shares = if let Expr::Ident(src) = ctx.ast.get_expr(init) {
-            // Chunk 698 — a converted init is a fresh cell the
-            // binding owns outright; no share with the source.
-            !converted
-                && ctx.locals.contains_key(src)
-                && pre_ty.is_refcounted()
-                && !(ty == Type::Any && pre_ty != Type::Any)
-        } else {
-            false
+        let shares = match ctx.ast.get_expr(init) {
+            Expr::Ident(src) => {
+                // Chunk 698 — a converted init is a fresh cell the
+                // binding owns outright; no share with the source.
+                !converted
+                    && ctx.locals.contains_key(src)
+                    && pre_ty.is_refcounted()
+                    && !(ty == Type::Any && pre_ty != Type::Any)
+            }
+            // A regex literal is the fn-scope LICM singleton
+            // (`ssa_lower_lit::lower_regex` hoists one compile into
+            // the entry block; fn exit drops its single stake) — a
+            // binding taking it is a SHARE, not a transfer. Without
+            // the +1 the binding's scope-drop stole the fn's stake
+            // and every later occurrence ran use-after-free
+            // (`for { const a = /x/; a.test(s) }` answered 1/4).
+            Expr::Regex { .. } => {
+                !converted && pre_ty.is_refcounted() && !(ty == Type::Any && pre_ty != Type::Any)
+            }
+            _ => false,
         };
         // No consume on the non-share side: every shape reaching it is
         // a no-op for the move-walk (Copy / non-local Ident / non-Ident

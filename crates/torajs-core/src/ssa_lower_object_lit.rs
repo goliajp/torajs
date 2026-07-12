@@ -261,6 +261,9 @@ fn lower_regular_field(
                 .map(|info| !info.moved)
                 .unwrap_or(false),
             Expr::Member { .. } | Expr::Index { .. } => true,
+            // Hoisted regex-literal singleton (fn-scope LICM) — the
+            // field takes a share; see apply_borrow_rc_inc mirror.
+            Expr::Regex { .. } => true,
             _ => false,
         };
     // No consume on the else side: every shape reaching it is a no-op

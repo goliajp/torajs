@@ -269,6 +269,9 @@ fn lower_no_spread_elements(
                     ctx.locals.contains_key(name) || ctx.globals.contains_key(name)
                 }
                 Expr::Member { .. } | Expr::Index { .. } => true,
+                // Hoisted regex-literal singleton (fn-scope LICM) —
+                // the slot takes a share; see apply_borrow_rc_inc.
+                Expr::Regex { .. } => true,
                 _ => false,
             };
         elem_inc_after.push(needs_inc);
