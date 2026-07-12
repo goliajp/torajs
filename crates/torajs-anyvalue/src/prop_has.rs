@@ -193,6 +193,14 @@ unsafe fn builtin_proto_method_own(ptr: *const c_void, key: *const c_void) -> i6
     }
     let mid = unsafe { crate::method_value::key_method_id(key) };
     if mid == torajs_rc::ANY_METHOD_UNKNOWN {
+        // The Map/Set `size` accessor is an own property too — it
+        // deliberately doesn't intern (C2-size), so probe it here
+        // behind the same tombstone gate.
+        if let Some(amid) = unsafe { crate::method_support::proto_tag_accessor_mid(tag, key) } {
+            let deleted =
+                unsafe { torajs_rc::builtin_proto::__torajs_builtin_proto_is_deleted(tag, amid) };
+            return (deleted == 0) as i64;
+        }
         return 0;
     }
     crate::method_support::proto_tag_owns(tag, mid) as i64

@@ -402,6 +402,63 @@ fn set_keys_alias(tag: i64, mid: i64) -> i64 {
     }
 }
 
+/// The per-family accessor probe: `Map.prototype` (tag 11) and
+/// `Set.prototype` (tag 12) own a `size` accessor (§24.1.3.10 /
+/// §24.2.3.9). Answers the carried accessor id for the tombstone
+/// bitmask; `None` for every other (tag, key) pair.
+///
+/// # Safety
+/// `key` is NULL or a live Str cell.
+pub(crate) unsafe fn proto_tag_accessor_mid(tag: i64, key: *const c_void) -> Option<i64> {
+    if tag != 11 && tag != 12 {
+        return None;
+    }
+    if key.is_null() {
+        return None;
+    }
+    // Same read shape as key_method_id — ASCII name, Latin-1 payload.
+    use crate::method_value::{STR_DATA_OFF, STR_LEN_OFF};
+    let len = unsafe { (key.cast::<u8>().add(STR_LEN_OFF) as *const u32).read() } as usize;
+    if len != 4 {
+        return None;
+    }
+    let bytes = unsafe { core::slice::from_raw_parts(key.cast::<u8>().add(STR_DATA_OFF), 4) };
+    if bytes == b"size" {
+        Some(torajs_rc::ANY_METHOD_GET_SIZE)
+    } else {
+        None
+    }
+}
+
+/// gOPD accessor-entry synthesis probe (set-proto-cluster C2-size)
+/// — when a dynobj is a builtin `Map.prototype` / `Set.prototype`
+/// singleton and `key` is the `size` accessor its family owns (and
+/// no `delete` tombstone hides it), hand out the immortal getter
+/// cell so torajs-meta can synthesize the spec accessor descriptor
+/// `{get: cell, set: undefined, enumerable: false, configurable:
+/// true}`. 0 = not applicable (the caller keeps its answer).
+///
+/// # Safety
+/// `dynobj` is NULL or a live heap cell; `key` is NULL or a live
+/// Str cell.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_builtin_proto_own_accessor_getter(
+    dynobj: *const c_void,
+    key: *const c_void,
+) -> u64 {
+    let tag = unsafe { torajs_rc::builtin_proto::__torajs_builtin_proto_tag_of(dynobj) };
+    if tag < 0 {
+        return 0;
+    }
+    let Some(mid) = (unsafe { proto_tag_accessor_mid(tag, key) }) else {
+        return 0;
+    };
+    if unsafe { torajs_rc::builtin_proto::__torajs_builtin_proto_is_deleted(tag, mid) } != 0 {
+        return 0;
+    }
+    crate::method_value::size_getter_cell(tag) as u64
+}
+
 /// `<Ctor>.prototype.<m>` static member read (chunk A). Own-entry
 /// probe on the builtin-proto singleton dynobj first — a user
 /// monkey-patch (`String.prototype.foo = …`) wins over the interned

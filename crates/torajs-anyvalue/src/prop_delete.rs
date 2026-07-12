@@ -83,6 +83,16 @@ pub unsafe extern "C" fn __torajs_any_prop_delete(recv: AnyValue, key: *const c_
                             proto_tag, mid,
                         )
                     };
+                } else if let Some(amid) =
+                    unsafe { crate::method_support::proto_tag_accessor_mid(proto_tag, key) }
+                {
+                    // The non-interning `size` accessor id (C2-size)
+                    // tombstones through the same bitmask.
+                    unsafe {
+                        torajs_rc::builtin_proto::__torajs_builtin_proto_mark_deleted(
+                            proto_tag, amid,
+                        )
+                    };
                 }
             }
             1

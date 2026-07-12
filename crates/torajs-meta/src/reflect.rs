@@ -31,6 +31,10 @@ unsafe extern "C" {
     // probe from torajs-anyvalue/method_support.rs. Non-zero = the
     // immortal interned method cell (rc traffic no-ops on it).
     fn __torajs_builtin_proto_own_method_cell(dynobj: *const c_void, key: *const c_void) -> u64;
+    // set-proto-cluster C2-size — the Map/Set `size` own-accessor
+    // probe (same crate). Non-zero = the immortal getter cell.
+    fn __torajs_builtin_proto_own_accessor_getter(dynobj: *const c_void, key: *const c_void)
+    -> u64;
 }
 
 // Tag values mirrored from torajs-anyvalue::AnySlotTag — re-declared
@@ -252,6 +256,26 @@ pub unsafe extern "C" fn __torajs_anyv_get_property_descriptor(
         let cell = unsafe { __torajs_builtin_proto_own_method_cell(dynobj, key) };
         if cell != 0 {
             return unsafe { build_data_descriptor(ANY_HEAP as u64, cell, 1, 0, 1) };
+        }
+        // C2-size — the Map/Set `size` own accessor synthesizes the
+        // spec accessor descriptor {get, set: undefined,
+        // enumerable: false, configurable: true}. The getter cell
+        // is immortal, so the get slot taking ownership is a no-op.
+        let getter = unsafe { __torajs_builtin_proto_own_accessor_getter(dynobj, key) };
+        if getter != 0 {
+            let mut desc = unsafe { __torajs_dynobj_alloc() };
+            let acc_entries: [(&[u8], u64, u64); 4] = [
+                (b"get", ANY_HEAP as u64, getter),
+                (b"set", ANY_UNDEF as u64, 0),
+                (b"enumerable", ANY_BOOL as u64, 0),
+                (b"configurable", ANY_BOOL as u64, 1),
+            ];
+            for &(name, t, val) in acc_entries.iter() {
+                let k = unsafe { alloc_str_key(name) };
+                unsafe { __torajs_dynobj_set(&mut desc, k, t, val) };
+                unsafe { __torajs_str_drop(k) };
+            }
+            return desc as u64;
         }
         return VALUE_UNDEFINED_IMM;
     }

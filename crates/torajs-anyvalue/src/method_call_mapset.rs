@@ -31,10 +31,10 @@ use core::ffi::c_void;
 
 use torajs_rc::{
     ANY_METHOD_ADD, ANY_METHOD_CLEAR, ANY_METHOD_DELETE, ANY_METHOD_DIFFERENCE, ANY_METHOD_ENTRIES,
-    ANY_METHOD_FOR_EACH, ANY_METHOD_GET, ANY_METHOD_HAS, ANY_METHOD_INTERSECTION,
-    ANY_METHOD_IS_DISJOINT_FROM, ANY_METHOD_IS_SUBSET_OF, ANY_METHOD_IS_SUPERSET_OF,
-    ANY_METHOD_KEYS, ANY_METHOD_NEXT, ANY_METHOD_SET, ANY_METHOD_SYMMETRIC_DIFFERENCE,
-    ANY_METHOD_UNION, ANY_METHOD_VALUES, Tag,
+    ANY_METHOD_FOR_EACH, ANY_METHOD_GET, ANY_METHOD_GET_SIZE, ANY_METHOD_HAS,
+    ANY_METHOD_INTERSECTION, ANY_METHOD_IS_DISJOINT_FROM, ANY_METHOD_IS_SUBSET_OF,
+    ANY_METHOD_IS_SUPERSET_OF, ANY_METHOD_KEYS, ANY_METHOD_NEXT, ANY_METHOD_SET,
+    ANY_METHOD_SYMMETRIC_DIFFERENCE, ANY_METHOD_UNION, ANY_METHOD_VALUES, Tag,
 };
 
 use crate::method_call::{MAX_BOXED_ARGS, closure_boxed_entry, method_no_such, not_callable};
@@ -61,6 +61,7 @@ unsafe extern "C" {
     fn __torajs_map_has(p: *const c_void, key_tag: i64, key_payload: i64) -> i64;
     fn __torajs_map_delete(p: *mut c_void, key_tag: i64, key_payload: i64) -> i64;
     fn __torajs_map_clear(p: *mut c_void);
+    fn __torajs_map_size(p: *const c_void) -> i64;
     /// torajs-collections — ES2025 set methods (§24.2.5). The four
     /// combiners answer a fresh rc=1 Set (ownership transfers out);
     /// the three predicates answer 0/1.
@@ -179,6 +180,12 @@ pub(crate) unsafe fn map_set_method(
             m2 if m2 == ANY_METHOD_CLEAR => {
                 __torajs_map_clear(m);
                 VALUE_UNDEFINED
+            }
+            m2 if m2 == ANY_METHOD_GET_SIZE => {
+                // The reified `get size` getter invoked through
+                // `.call(recv)` — the id is only reachable via the
+                // carried-mid re-dispatch (it never interns).
+                __torajs_anyv_box_from_pair(2, __torajs_map_size(m))
             }
             m2 if m2 == ANY_METHOD_FOR_EACH => {
                 let Some((cb_env, cb_entry)) = closure_boxed_entry(arg_at(0)) else {

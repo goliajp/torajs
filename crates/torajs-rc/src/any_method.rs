@@ -329,6 +329,13 @@ pub const ANY_METHOD_IS_SUBSET_OF: i64 = 143;
 pub const ANY_METHOD_IS_SUPERSET_OF: i64 = 144;
 /// `Set.prototype.isDisjointFrom` (ES2025 set methods).
 pub const ANY_METHOD_IS_DISJOINT_FROM: i64 = 145;
+/// `get Map.prototype.size` / `get Set.prototype.size` — an
+/// ACCESSOR id, not a method name: it is carried by the reified
+/// getter cells (`.name` answers "get size" via the meta row) and
+/// deliberately absent from the intern table, so a `size` member
+/// read never resolves to a method cell (the property read path
+/// answers the value directly).
+pub const ANY_METHOD_GET_SIZE: i64 = 146;
 
 /// RegExp property-read ids (Any-method-call RFC 20260704 C4-3c-2)
 /// — `r.source` / `r.lastIndex` / flag booleans through an `any`
