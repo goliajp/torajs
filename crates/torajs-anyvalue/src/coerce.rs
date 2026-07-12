@@ -25,7 +25,6 @@ use torajs_rc::{__torajs_rc_inc, AnySlotTag, HeapHeader, Tag};
 use crate::{
     __torajs_bool_to_str, __torajs_f64_to_str, __torajs_i64_to_str, __torajs_null_to_str,
     __torajs_str_alloc_pooled, __torajs_str_to_number, __torajs_undefined_to_str, AnyView,
-    STR_HDR_SIZE,
 };
 
 /// Tag-dispatch ToString for a packed `(tag, value)` pair.
@@ -79,21 +78,22 @@ pub(crate) unsafe fn any_to_str(tag: i64, value: i64) -> *mut c_void {
             unsafe { __torajs_rc_inc(child as *mut c_void) };
             return child as *mut c_void;
         }
-        // Object placeholder. Replaced by per-type pretty-print
-        // when P3 lands proper ToString dispatch.
-        const PLACEHOLDER: &[u8] = b"[object]";
-        // SAFETY: str_alloc_pooled returns a Str-shaped heap with
-        // header + len fields written; the body slot starts at
-        // `STR_HDR_SIZE` and is `len` bytes wide. We write
-        // exactly 8 bytes there.
+        // Non-Str heap object — OrdinaryToPrimitive (hint string):
+        // run the receiver's toString / valueOf and ToString the
+        // first primitive result (chunk C; pre-C this answered a
+        // static "[object]" placeholder without ever calling a
+        // user toString).
         unsafe {
-            let p = __torajs_str_alloc_pooled(PLACEHOLDER.len() as u64);
-            core::ptr::copy_nonoverlapping(
-                PLACEHOLDER.as_ptr(),
-                p.add(STR_HDR_SIZE),
-                PLACEHOLDER.len(),
-            );
-            p as *mut c_void
+            match crate::to_primitive::heap_to_primitive(child as *mut c_void, true) {
+                Some(prim) => {
+                    let s = crate::nanbox_ffi::__torajs_anyv_to_str(prim);
+                    crate::nanbox_ffi::__torajs_anyv_rc_dec(prim);
+                    s
+                }
+                // TypeError pending — type-correct empty-string
+                // placeholder; the caller's throw check unwinds.
+                None => __torajs_str_alloc_pooled(0) as *mut c_void,
+            }
         }
     } else {
         // Unknown tag (defensive): treat as null.
@@ -151,7 +151,22 @@ pub(crate) unsafe fn any_to_number(tag: i64, value: i64) -> f64 {
             // the header.
             return unsafe { __torajs_str_to_number(child as *const c_void) };
         }
-        return f64::NAN;
+        // Non-Str heap object — OrdinaryToPrimitive (hint number):
+        // valueOf → toString, ToNumber of the first primitive
+        // result (chunk C; pre-C every object answered NaN
+        // without calling a user valueOf).
+        return unsafe {
+            match crate::to_primitive::heap_to_primitive(child as *mut c_void, false) {
+                Some(prim) => {
+                    let n = crate::nanbox_ffi::__torajs_anyv_to_number(prim);
+                    crate::nanbox_ffi::__torajs_anyv_rc_dec(prim);
+                    n
+                }
+                // TypeError pending — NaN placeholder; the
+                // caller's throw check unwinds.
+                None => f64::NAN,
+            }
+        };
     }
     f64::NAN
 }

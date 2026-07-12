@@ -117,6 +117,7 @@ mod method_value;
 mod name_get;
 mod prop_delete;
 mod prop_has;
+mod to_primitive;
 
 pub mod inspect;
 
@@ -377,6 +378,15 @@ mod tests {
     }
     #[unsafe(no_mangle)]
     pub unsafe extern "C" fn __torajs_str_drop(_s: *mut c_void) {}
+    /// Chunk C — to_primitive's pending-throw probe + TypeError
+    /// recorder resolve from libtorajs_throw.a in the shipped
+    /// binary; unit tests never exercise a throwing coercion.
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_throw_check() -> i64 {
+        0
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_throw_type_error(_msg: *const core::ffi::c_char) {}
     /// RFC 20260707 chunk 3 — the shipped binary resolves the
     /// undefined sentinel cell from libtorajs_str.a; tests get a
     /// stable dummy address (identity compares still behave).

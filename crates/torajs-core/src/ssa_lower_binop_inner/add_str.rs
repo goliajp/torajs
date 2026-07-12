@@ -320,10 +320,40 @@ pub(crate) fn coerce_to_str(ctx: &mut LowerCtx, v: Operand, undefable: bool) -> 
             );
             (Operand::Value(r), true)
         }
-        Type::Obj(_) => (
-            Operand::Value(ctx.intern_string_literal("[object Object]")),
-            false,
-        ),
+        // A struct layout carrying a toString / valueOf hook runs
+        // OrdinaryToPrimitive at runtime (RFC 20260712 chunk C —
+        // mirror of the String(struct) S137 emit); a hook-free
+        // layout keeps the static §20.1.4.4 literal.
+        Type::Obj(sid) => {
+            let layout = &ctx.struct_layouts[sid.0 as usize];
+            let has_hook = layout
+                .iter()
+                .any(|(n, _)| n == "toString" || n == "valueOf");
+            if has_hook {
+                let raw = ctx.f.append_inst(
+                    ctx.cur_block,
+                    InstKind::PtrToInt(v.clone()),
+                    Type::I64,
+                    None,
+                );
+                let s = ctx.f.append_inst(
+                    ctx.cur_block,
+                    InstKind::Call(
+                        ctx.intrinsics.any_to_str,
+                        vec![Operand::ConstI64(4), Operand::Value(raw)],
+                    ),
+                    Type::Str,
+                    None,
+                );
+                ctx.emit_throw_check(None);
+                (Operand::Value(s), true)
+            } else {
+                (
+                    Operand::Value(ctx.intern_string_literal("[object Object]")),
+                    false,
+                )
+            }
+        }
         other => panic!("ssa-lower: mixed string concat unexpected type {other:?}"),
     }
 }
