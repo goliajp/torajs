@@ -129,11 +129,76 @@ fn emit_define_one(ctx: &mut LowerCtx, obj_eid: ExprId, key: DefineKey, desc_eid
     emit_receiver_typecheck(ctx, obj_eid, &obj_op, obj_ty);
 
     // Compile-time literal descriptor — extract value + the three data
-    // flags from the ObjectLit at compile time.
+    // flags from the ObjectLit at compile time. The fast path declines
+    // (false) when a flag field is not a Bool literal; the descriptor
+    // then materializes as a dynobj and takes the full runtime
+    // ToPropertyDescriptor path (§6.2.6.5 ToBoolean semantics).
     if matches!(ctx.ast.get_expr(desc_eid), Expr::ObjectLit { .. }) {
-        return literal::emit_define_literal(ctx, obj_op, obj_ty, &key, &receiver_ident, desc_eid);
+        if literal::emit_define_literal(
+            ctx,
+            obj_op.clone(),
+            obj_ty.clone(),
+            &key,
+            &receiver_ident,
+            desc_eid,
+        ) {
+            return true;
+        }
+        return emit_define_objlit_runtime(ctx, obj_op, obj_ty, &key, &receiver_ident, desc_eid);
     }
     emit_define_runtime_desc(ctx, obj_op, obj_ty, &key, &receiver_ident, desc_eid)
+}
+
+/// Literal descriptor the fast path declined — materialize the
+/// ObjectLit as a fresh dynobj (owned temp, released after the call)
+/// and route through `__torajs_dynobj_define_from_desc`, whose
+/// `define_apply` entry carries the Arr receiver dispatch.
+fn emit_define_objlit_runtime(
+    ctx: &mut LowerCtx,
+    obj_op: Operand,
+    obj_ty: Type,
+    key: &DefineKey,
+    receiver_ident: &Option<String>,
+    desc_eid: ExprId,
+) -> bool {
+    let obj_ptr: Operand = match &obj_ty {
+        Type::Any => Operand::Value(ctx.any_unbox_value_as_ptr(obj_op)),
+        Type::Arr(_) => {
+            // Kernel element writes are kind-aware — mark at the
+            // reflection boundary (mirror of the literal Arr arm).
+            ctx.emit_arr_mark_kind(&obj_op);
+            obj_op
+        }
+        // Typed Struct etc. — no dynobj backing store, attribute
+        // tracking N/A (same handled-no-op contract as the literal
+        // arm).
+        _ => return true,
+    };
+    let key_op = lower_key(ctx, key);
+    let desc_ptr = ctx.lower_dynobj_init(desc_eid);
+    let slot = ctx.alloca(Type::Ptr, Some("__dynobj_slot"));
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Store(obj_ptr, Operand::Value(slot), 0),
+    );
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Call(
+            ctx.intrinsics.dynobj_define_from_desc,
+            vec![Operand::Value(slot), key_op, desc_ptr.clone()],
+        ),
+    );
+    // Release the fresh descriptor before the throw-check (mirror of
+    // Object.create's literal-props drop).
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Call(ctx.intrinsics.value_drop_heap, vec![desc_ptr]),
+    );
+    ctx.emit_throw_check(None);
+    if matches!(obj_ty, Type::Any) {
+        ctx.emit_any_dynobj_writeback(receiver_ident, slot);
+    }
+    true
 }
 
 /// Runtime descriptor (RFC C1) — gated on both obj and desc being Any

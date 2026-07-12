@@ -23,6 +23,14 @@ pub(super) fn emit_define_literal(
     receiver_ident: &Option<String>,
     desc_eid: ExprId,
 ) -> bool {
+    // The compile-time flags byte can only represent Bool-literal
+    // flag fields; any other expression carries §6.2.6.5 ToBoolean
+    // semantics (`enumerable: -9` is present + true) that a silent
+    // absent-treatment would drop. Decline — the caller falls back
+    // to the runtime ToPropertyDescriptor path.
+    if !flags_statically_decodable(ctx, desc_eid) {
+        return false;
+    }
     let value_eid = descriptor_field(ctx, desc_eid, "value");
 
     // RFC C3 — accessor (get/set) descriptor. Per spec §6.2.5 an
@@ -74,6 +82,23 @@ fn descriptor_field(ctx: &LowerCtx, desc_eid: ExprId, name: &str) -> Option<Expr
         Expr::ObjectLit { fields } => fields.iter().find(|(n, _)| n == name).map(|(_, e)| *e),
         _ => None,
     }
+}
+
+/// Whether every attribute flag field of the literal descriptor is a
+/// Bool literal (or absent) — the fast path's legality condition.
+/// `value` / `get` / `set` are unconstrained (arbitrary exprs lower
+/// normally).
+fn flags_statically_decodable(ctx: &LowerCtx, desc_eid: ExprId) -> bool {
+    if let Expr::ObjectLit { fields } = ctx.ast.get_expr(desc_eid) {
+        for (n, e) in fields {
+            if matches!(n.as_str(), "writable" | "enumerable" | "configurable")
+                && !matches!(ctx.ast.get_expr(*e), Expr::Bool(_))
+            {
+                return false;
+            }
+        }
+    }
+    true
 }
 
 /// Boolean flag field of the literal descriptor. Each flag is
