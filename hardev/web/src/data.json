@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-12T17:00:14.777Z",
+  "generatedAt": "2026-07-12T19:14:03.917Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-12T16:57:12Z",
-    "headSha": "68daeb85",
-    "elapsedSec": 462.66,
+    "ranAt": "2026-07-12T19:12:49Z",
+    "headSha": "1aadd9d2",
+    "elapsedSec": 465.1,
     "workers": 8,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 4632,
+    "pass": 4704,
     "passNoOracle": 78,
     "passNegative": 4444,
-    "passTotal": 9154,
-    "bug": 1250,
+    "passTotal": 9226,
+    "bug": 1178,
     "incompatible": 42770,
     "bunSkip": 12861,
     "harnessError": 0,
     "inScope": 53174,
     "trAccepted": 10404,
-    "passRateInScope": 17.22,
-    "passRateTrAccepted": 87.99
+    "passRateInScope": 17.35,
+    "passRateTrAccepted": 88.68
   },
   "torajs": {
-    "commit": "31fad980",
-    "commitSubject": "chore: test262 sweep at 68daeb85 — 9154 pass (+65), 4 appeared are incompat-to-runnable moves",
+    "commit": "df4b6eb6",
+    "commitSubject": "chore: test262 sweep at 1aadd9d2 — 9226 pass (+72 cumulative), fix-up nets +10 fixed / 0 appeared",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "df4b6eb6",
+      "subject": "chore: test262 sweep at 1aadd9d2 — 9226 pass (+72 cumulative), fix-up nets +10 fixed / 0 appeared"
+    },
+    {
+      "hash": "1aadd9d2",
+      "subject": "fix: accessor redefine validation order and dynamic-key setter routing"
+    },
+    {
+      "hash": "4dc26b7c",
+      "subject": "feat: accessor properties on array indexes"
+    },
+    {
+      "hash": "5cfdb0f7",
+      "subject": "fix: defineProperty descriptor and defineProperties Properties argument validation"
+    },
+    {
+      "hash": "002d05e0",
+      "subject": "fix: tag-private header flags move off the cycle-collector color bits"
+    },
+    {
+      "hash": "60a08838",
+      "subject": "chore: hardev dashboard snapshot"
+    },
+    {
       "hash": "31fad980",
       "subject": "chore: test262 sweep at 68daeb85 — 9154 pass (+65), 4 appeared are incompat-to-runnable moves"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "c5dc2bab",
       "subject": "chore: hardev dashboard snapshot"
-    },
-    {
-      "hash": "74a95bca",
-      "subject": "chore: bench results at dfaa9003 — array-sort regression bisect runs"
-    },
-    {
-      "hash": "5d4228cd",
-      "subject": "chore: test262 sweep at dfaa9003 — 9089 pass (+97), 1 appeared fixed in c35828ee"
-    },
-    {
-      "hash": "c35828ee",
-      "subject": "fix: array length define runs the spec double conversion first"
-    },
-    {
-      "hash": "6ea63858",
-      "subject": "perf: monomorphize sort kernels so any-modes stop taxing typed compares"
-    },
-    {
-      "hash": "dfaa9003",
-      "subject": "refactor: split oversized fns pushed past the 200-line limit"
-    },
-    {
-      "hash": "7ac718e1",
-      "subject": "feat: array length lock via defineproperty writable false"
     }
   ],
-  "headSha": "31fad980",
+  "headSha": "df4b6eb6",
   "autorun": {
-    "total": 389,
+    "total": 390,
     "baselineTarget": 10,
-    "bySelf": 384,
+    "bySelf": 385,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1783868364-2b0f",
-      "at": "2026-07-12T14:59:24Z",
-      "ts": 1783868364,
+      "rotationId": "r-1783875675-1352",
+      "at": "2026-07-12T17:01:15Z",
+      "ts": 1783875675,
       "trigger": "self",
-      "prevHead": "c5dc2bab",
-      "handoffSha": "sha256:1925b4d91f6490f6f16319b12f0e6b5712fc240e3ac9537352169d173e3418a3",
-      "handoffAgeSec": 7,
+      "prevHead": "60a08838",
+      "handoffSha": "sha256:8eca3de87b0925b54d27256846f186a6606ab2c783d87d1ba51b5c43cf54a724",
+      "handoffAgeSec": 8,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1783875675-1352",
+        "at": "2026-07-12T17:01:15Z",
+        "ts": 1783875675,
+        "trigger": "self",
+        "prevHead": "60a08838",
+        "handoffSha": "sha256:8eca3de87b0925b54d27256846f186a6606ab2c783d87d1ba51b5c43cf54a724",
+        "handoffAgeSec": 8,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1783868364-2b0f",
         "at": "2026-07-12T14:59:24Z",
@@ -876,17 +887,6 @@
         "prevHead": "b6eedc71",
         "handoffSha": "sha256:363e6d48c1cc5738e86a036183b7ebf911fe4d8c9432f765bf6434beeedc5e59",
         "handoffAgeSec": 4,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1783787999-3754",
-        "at": "2026-07-11T16:39:59Z",
-        "ts": 1783787999,
-        "trigger": "self",
-        "prevHead": "adfc4392",
-        "handoffSha": "sha256:2714da4803ad3903add3a646db8c5fe2fb4cde95d84941e1aa3e240e86e7a7eb",
-        "handoffAgeSec": 7,
         "conformanceBefore": null,
         "commitsInSession": null
       }
