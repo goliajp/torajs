@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-12T11:50:49.055Z",
+  "generatedAt": "2026-07-12T12:01:06.185Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 86.48
   },
   "torajs": {
-    "commit": "d10b2d5b",
-    "commitSubject": "chore: test262 sweep at f04e8485 — 8992 pass (+50), 0 regressions",
+    "commit": "758fc59e",
+    "commitSubject": "fix: object.is compares numeric cross-tag pairs by value",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "758fc59e",
+      "subject": "fix: object.is compares numeric cross-tag pairs by value"
+    },
+    {
+      "hash": "72dae6ee",
+      "subject": "chore: hardev dashboard snapshot"
+    },
+    {
       "hash": "d10b2d5b",
       "subject": "chore: test262 sweep at f04e8485 — 8992 pass (+50), 0 regressions"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "6ff95703",
       "subject": "feat: tostring coercion for replace args and post-call drop of fresh-owned argv temps"
-    },
-    {
-      "hash": "6cd40593",
-      "subject": "feat: ordinary-to-primitive for object operands of tostring and tonumber"
-    },
-    {
-      "hash": "de8e7162",
-      "subject": "fix: mixed-encoding str equality and canonical narrowing for range-carving kernels"
     }
   ],
-  "headSha": "d10b2d5b",
+  "headSha": "758fc59e",
   "autorun": {
     "total": 387,
     "baselineTarget": 10,
