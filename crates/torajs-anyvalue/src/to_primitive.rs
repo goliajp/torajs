@@ -57,6 +57,30 @@ unsafe fn dispatch_method(_recv: AnyValue, _mid: i64, _name_str: *const u8) -> A
     crate::nanbox::VALUE_UNDEFINED
 }
 
+/// §7.1.1.1 IsCallable probe — an own struct/dynobj entry holding a
+/// non-callable value makes OrdinaryToPrimitive skip that method
+/// name (`{toString: void 0, valueOf: fn}` coerces through valueOf;
+/// pre-fix the dispatch's not-callable TypeError was mistaken for a
+/// user throw and propagated — test262 search A1_T9).
+#[cfg(not(test))]
+unsafe fn skip_not_callable(cell: *mut c_void, name_str: *const u8) -> bool {
+    let h = unsafe { &*(cell as *const HeapHeader) };
+    match h.tag() {
+        Tag::Obj => unsafe {
+            crate::method_call_dynobj::own_entry_not_callable(cell, true, name_str)
+        },
+        Tag::DynObj => unsafe {
+            crate::method_call_dynobj::own_entry_not_callable(cell, false, name_str)
+        },
+        _ => false,
+    }
+}
+
+#[cfg(test)]
+unsafe fn skip_not_callable(_cell: *mut c_void, _name_str: *const u8) -> bool {
+    false
+}
+
 /// A NaN-boxed value is an "object" for ToPrimitive purposes iff it
 /// is a heap cell whose tag is not `Str` (Str cells and ShortStr
 /// immediates are the string primitive; every other immediate is a
@@ -93,6 +117,10 @@ pub(crate) unsafe fn heap_to_primitive(cell: *mut c_void, hint_string: bool) -> 
     };
     for (mid, name) in order {
         let key = unsafe { __torajs_str_alloc(name.as_ptr(), name.len() as i64) };
+        if unsafe { skip_not_callable(cell, key) } {
+            unsafe { __torajs_str_drop(key as *mut c_void) };
+            continue;
+        }
         let out = unsafe { dispatch_method(recv, mid, key) };
         unsafe { __torajs_str_drop(key as *mut c_void) };
         if unsafe { __torajs_throw_check() } != 0 {

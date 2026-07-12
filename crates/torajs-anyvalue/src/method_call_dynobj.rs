@@ -161,6 +161,57 @@ pub(crate) unsafe fn dynobj_method(
     }
 }
 
+/// RFC 20260712 chunk C fix — OrdinaryToPrimitive's IsCallable
+/// probe: true iff the receiver has an OWN entry under `name_str`
+/// whose value is NOT callable. §7.1.1.1 skips such an entry and
+/// tries the next method (`{toString: void 0, valueOf: fn}`), while
+/// an explicit `o.toString()` method call keeps the TypeError —
+/// so the skip lives here as a probe, not inside the dispatch.
+/// Absent entries answer false (the inherited prototype surface is
+/// callable); accessor entries answer false (the getter-as-callee
+/// dispatch path resolves them).
+#[cfg_attr(test, allow(dead_code))] // test builds stub the to_primitive probe
+pub(crate) unsafe fn own_entry_not_callable(
+    obj: *mut c_void,
+    is_struct: bool,
+    name_str: *const u8,
+) -> bool {
+    unsafe {
+        if is_struct {
+            let class_tag = (obj.cast::<u8>().add(OBJ_CLASS_TAG_OFF) as *const u32).read();
+            let layout = __torajs_struct_layout_lookup(class_tag);
+            if layout.is_null() {
+                return false;
+            }
+            let name_len = (name_str.add(STR_LEN_OFF) as *const u32).read();
+            let name_bytes = name_str.add(STR_DATA_OFF);
+            let idx = __torajs_struct_field_find(layout, name_bytes, name_len);
+            if idx == u32::MAX {
+                return false;
+            }
+            let info = __torajs_struct_field_info(layout, idx);
+            let raw = (obj.cast::<u8>().add(info.field_byte_offset as usize) as *const u64).read();
+            let pair = match info.type_tag {
+                FIELD_TAG_ANY => closure_boxed_entry(raw),
+                FIELD_TAG_CLOSURE => closure_cell_entry(raw as *mut c_void),
+                _ => None,
+            };
+            pair.is_none()
+        } else {
+            let key = name_str as *const c_void;
+            let dtag = __torajs_dynobj_get_tag(obj, key);
+            if dtag == 5 || dtag == ANY_ACCESSOR_TAG {
+                return false;
+            }
+            if dtag == 4 {
+                let cell = __torajs_dynobj_get_value(obj, key);
+                return closure_boxed_entry(cell).is_none();
+            }
+            true
+        }
+    }
+}
+
 /// `Tag::Obj` arm — see module doc. `obj` is the struct cell, and
 /// the field slot read is a borrow (the receiver owns it and
 /// outlives the call).

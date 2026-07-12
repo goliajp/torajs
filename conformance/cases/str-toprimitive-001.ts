@@ -47,3 +47,11 @@ console.log("v=" + a2);
 // typed-lane concat + template run the hook too (S138 mirror).
 console.log("t=" + o2);
 console.log(String(o2) + "!");
+
+// own entry present but NOT callable -> skipped, next method runs
+// (IsCallable probe; search A1_T9 shape).
+var o8 = { valueOf: function() {}, toString: void 0 } as any;
+console.log(JSON.stringify(String(o8)));
+console.log(String(o8).indexOf("undef"));
+var o9 = { toString: 42, valueOf: function() { return 3; } } as any;
+console.log(String(o9));
