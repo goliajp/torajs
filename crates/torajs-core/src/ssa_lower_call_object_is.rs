@@ -82,6 +82,38 @@ pub(crate) fn try_lower(
     let a_ty = ctx.operand_ty(&a_op);
     let b_ty = ctx.operand_ty(&b_op);
     if a_ty != b_ty {
+        // JS Number is ONE type — the I64/F64 split is a torajs
+        // internal representation detail, so a numeric cross-tag
+        // pair compares by value through the f64 SameValue kernel
+        // (an i64-held value is always f64-exact under JS Number
+        // semantics; the SiToFp widen is lossless there).
+        if matches!(
+            (a_ty, b_ty),
+            (Type::I64, Type::F64) | (Type::F64, Type::I64)
+        ) {
+            let cur_block = ctx.cur_block;
+            let widen = |ctx: &mut LowerCtx<'_>, op: Operand, ty: Type| -> Operand {
+                if ty == Type::I64 {
+                    Operand::Value(ctx.f.append_inst(
+                        cur_block,
+                        InstKind::SiToFp(op),
+                        Type::F64,
+                        None,
+                    ))
+                } else {
+                    op
+                }
+            };
+            let a_f = widen(ctx, a_op, a_ty);
+            let b_f = widen(ctx, b_op, b_ty);
+            let r = ctx.f.append_inst(
+                cur_block,
+                InstKind::Call(ctx.intrinsics.object_is_f64, vec![a_f, b_f]),
+                Type::Bool,
+                None,
+            );
+            return Some(Operand::Value(r));
+        }
         // === yields false on differing types; same for Object.is.
         // Drop only fresh args; borrows stay owned by their source.
         if !a_borrow {
