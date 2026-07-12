@@ -67,28 +67,34 @@ pub(crate) unsafe fn number_method(
     let n = unsafe { __torajs_anyv_to_number(recv) };
     // First-argument decode: `None` = missing or explicit undefined
     // (both fold to the method's default per ES §21.1.3.{3,5,6}).
-    let arg0: Option<i64> = if argc >= 1 {
-        let av = unsafe { *argv.add(0) };
-        if av == VALUE_UNDEFINED {
-            None
+    // Lazy — a no-such-method miss (e.g. `Date.prototype.setDate
+    // .call(0, arg)` landing here off the int32 receiver) must
+    // throw its TypeError WITHOUT coercing arguments first
+    // ("validation precedes input coercion", §21.4.4.20 step order).
+    let arg0 = || -> Option<i64> {
+        if argc >= 1 {
+            let av = unsafe { *argv.add(0) };
+            if av == VALUE_UNDEFINED {
+                None
+            } else {
+                Some(unsafe { __torajs_anyv_to_number(av) as i64 })
+            }
         } else {
-            Some(unsafe { __torajs_anyv_to_number(av) as i64 })
+            None
         }
-    } else {
-        None
     };
     let boxed = |p: *mut u8| unsafe { __torajs_anyv_box_from_pair(4, p as i64) };
     unsafe {
         match mid {
             m if m == ANY_METHOD_VALUE_OF => recv,
-            m if m == ANY_METHOD_TO_STRING => match arg0 {
+            m if m == ANY_METHOD_TO_STRING => match arg0() {
                 Some(radix) if is_f => boxed(__torajs_num_to_string_radix_f(n, radix)),
                 Some(radix) => boxed(__torajs_num_to_string_radix_i(n as i64, radix)),
                 None if is_f => boxed(__torajs_f64_to_str(n) as *mut u8),
                 None => boxed(__torajs_i64_to_str(n as i64) as *mut u8),
             },
             m if m == ANY_METHOD_TO_FIXED => {
-                let d = arg0.unwrap_or(0);
+                let d = arg0().unwrap_or(0);
                 if is_f {
                     boxed(__torajs_num_to_fixed_f(n, d))
                 } else {
@@ -96,14 +102,14 @@ pub(crate) unsafe fn number_method(
                 }
             }
             m if m == ANY_METHOD_TO_EXPONENTIAL => {
-                let d = arg0.unwrap_or(EXP_SHORTEST);
+                let d = arg0().unwrap_or(EXP_SHORTEST);
                 if is_f {
                     boxed(__torajs_num_to_exp_f(n, d))
                 } else {
                     boxed(__torajs_num_to_exp_i(n as i64, d))
                 }
             }
-            m if m == ANY_METHOD_TO_PRECISION => match arg0 {
+            m if m == ANY_METHOD_TO_PRECISION => match arg0() {
                 Some(p) if is_f => boxed(__torajs_num_to_precision_f(n, p)),
                 Some(p) => boxed(__torajs_num_to_precision_i(n as i64, p)),
                 // §21.1.3.5 step 2 — no precision routes to ToString.
