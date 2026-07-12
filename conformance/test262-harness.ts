@@ -61,16 +61,32 @@ function __t262_assert(actual: boolean, msg: string = ""): void {
 // SameValue (§7.2.11), not strict equality: NaN equals NaN, and
 // +0 / -0 are distinct (RFC 20260713-date-invalid-time — the
 // strict-`!==` version failed every `assert.sameValue(x, NaN)`
-// case at the harness layer). Delegates to the propertyHelper
-// port's `__t262_isSameValue` below.
+// case at the harness layer). The comparisons stay in the generic
+// T domain — routing through the any-typed `__t262_isSameValue`
+// boxed BigInt operands into pointer identity and broke every
+// bigint-arithmetic case; only the ±0 probe (numbers, boxing is
+// lossless) drops to any for the 1/x sign read.
+function __t262_sameValueCheck<T>(actual: T, expected: T): boolean {
+  if (actual !== expected) {
+    // NaN, NaN — self-inequality keeps T typed
+    return actual !== actual && expected !== expected;
+  }
+  const a: any = actual;
+  if (typeof a === "number" && a === 0) {
+    const e: any = expected;
+    return 1 / a === 1 / e; // ±0 distinct
+  }
+  return true;
+}
+
 function __t262_sameValue<T>(actual: T, expected: T, msg: string = ""): void {
-  if (!__t262_isSameValue(actual, expected)) {
+  if (!__t262_sameValueCheck(actual, expected)) {
     throw new Test262Error(msg);
   }
 }
 
 function __t262_notSameValue<T>(actual: T, expected: T, msg: string = ""): void {
-  if (__t262_isSameValue(actual, expected)) {
+  if (__t262_sameValueCheck(actual, expected)) {
     throw new Test262Error(msg);
   }
 }
