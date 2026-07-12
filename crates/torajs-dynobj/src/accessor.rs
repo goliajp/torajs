@@ -108,6 +108,16 @@ pub const ACC_KIND_BOOL: u8 = 3;
 /// Getter returns a refcounted heap pointer — a raw cell is already a
 /// valid `AnyValue`; box as tag 4 (heap) so null collapses to `null`.
 pub const ACC_KIND_PTR: u8 = 4;
+/// Runtime-descriptor closures (RFC 20260712 chunk 2) — signature
+/// unknown at define time, so invoke through the closure's boxed
+/// dual entry (uniform `(env, argv, argc) -> AnyValue` ABI at cell
+/// `+32`, same channel as any-world calls). A closure without an
+/// adapter (entry 0) answers `undefined` / no-ops the setter.
+pub const ACC_KIND_BOXED: u8 = 5;
+
+/// Closure-cell boxed dual entry offset — ABI mirror of
+/// `torajs_anyvalue`'s `CLOSURE_BOXED_ENTRY_OFF`.
+const CLOSURE_BOXED_ENTRY_OFF: usize = 32;
 
 /// `undefined` NaN-box sentinel (mirrors
 /// `torajs_anyvalue::nanbox::VALUE_UNDEFINED` = 0x0A). Returned when an
@@ -212,6 +222,18 @@ pub unsafe extern "C" fn __torajs_accessor_invoke_getter(pair: *const c_void) ->
     }
     let kinds = unsafe { *((pair as *const u8).add(ACC_KINDS_OFF) as *const u64) };
     let ret_kind = (kinds & 0xff) as u8;
+    if ret_kind == ACC_KIND_BOXED {
+        let entry = unsafe { *((getter as *const u8).add(CLOSURE_BOXED_ENTRY_OFF) as *const u64) };
+        if entry == 0 {
+            return VALUE_UNDEFINED;
+        }
+        let call: unsafe extern "C" fn(*mut c_void, *const u64, i64) -> u64 =
+            unsafe { core::mem::transmute(entry as usize) };
+        // Zero-arg call still hands the adapter a live argv buffer —
+        // it reads its declared param slots unconditionally.
+        let buf = [VALUE_UNDEFINED; 8];
+        return unsafe { call(getter, buf.as_ptr(), 0) };
+    }
     let fn_addr = unsafe { *((getter as *const u8).add(CLOSURE_FN_ADDR_OFF) as *const usize) };
     unsafe {
         match ret_kind {
@@ -267,6 +289,18 @@ pub unsafe extern "C" fn __torajs_accessor_invoke_setter(
     }
     let kinds = unsafe { *((pair as *const u8).add(ACC_KINDS_OFF) as *const u64) };
     let param_kind = ((kinds >> 8) & 0xff) as u8;
+    if param_kind == ACC_KIND_BOXED {
+        let entry = unsafe { *((setter as *const u8).add(CLOSURE_BOXED_ENTRY_OFF) as *const u64) };
+        if entry == 0 {
+            return 1;
+        }
+        let call: unsafe extern "C" fn(*mut c_void, *const u64, i64) -> u64 =
+            unsafe { core::mem::transmute(entry as usize) };
+        let mut buf = [VALUE_UNDEFINED; 8];
+        buf[0] = value_anyv;
+        unsafe { call(setter, buf.as_ptr(), 1) };
+        return 1;
+    }
     let fn_addr = unsafe { *((setter as *const u8).add(CLOSURE_FN_ADDR_OFF) as *const usize) };
     unsafe {
         match param_kind {

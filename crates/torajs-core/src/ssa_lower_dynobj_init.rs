@@ -54,6 +54,34 @@ impl<'a> LowerCtx<'a> {
             // inner objects instead of anon-stamped structs. The
             // fresh dynobj's +1 transfers into the bucket (no inc,
             // no drop). Spread sentinels keep the general path.
+            // An `undefined` field stores the ANY_UNDEF slot pair —
+            // the general lower answers the same ConstPtrNull shape
+            // as `null`, silently collapsing the two (`{u: undefined}`
+            // read back `=== null`; probe-proven). A local binding
+            // shadowing `undefined` keeps the general path.
+            if matches!(self.ast.get_expr(fval_eid), Expr::Ident(n) if n == "undefined")
+                && !self.locals.contains_key("undefined")
+            {
+                let key_str = self.intern_string_literal(&fname);
+                let slot = self.alloca(Type::Ptr, Some("__dynobj_init_slot"));
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Store(Operand::Value(dynobj), Operand::Value(slot), 0),
+                );
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Call(
+                        self.intrinsics.dynobj_set,
+                        vec![
+                            Operand::Value(slot),
+                            Operand::Value(key_str),
+                            Operand::ConstI64(5),
+                            Operand::ConstI64(0),
+                        ],
+                    ),
+                );
+                continue;
+            }
             if fname != "__spread__"
                 && matches!(self.ast.get_expr(fval_eid), Expr::ObjectLit { .. })
             {

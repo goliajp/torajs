@@ -318,6 +318,36 @@ unsafe fn desc_field(desc: *const c_void, name: &str) -> Option<u64> {
     Some(unsafe { (*ent.add(pr.entry as usize)).value_anyv })
 }
 
+/// One accessor field (`get` / `set`) decoded off a runtime
+/// descriptor: absent / explicit `undefined` both answer a NULL
+/// closure; a Closure cell answers its pointer; anything else is the
+/// §6.2.6.5 ToPropertyDescriptor "not callable" TypeError (`Err`).
+unsafe fn accessor_field_closure(field: Option<u64>, which: &str) -> Result<*mut c_void, ()> {
+    let Some(anyv) = field else {
+        return Ok(core::ptr::null_mut());
+    };
+    let tag = unsafe { __torajs_anyv_unbox_tag(anyv) } as u64;
+    let val = unsafe { __torajs_anyv_unbox_value(anyv) } as u64;
+    if tag == ANY_UNDEF {
+        return Ok(core::ptr::null_mut());
+    }
+    // Closure heap cell — universal header type_tag at +4 (Tag::Closure = 3).
+    if tag == ANY_HEAP && val != 0 {
+        let type_tag = unsafe { *((val as *const u8).add(4) as *const u16) };
+        if type_tag == 3 {
+            return Ok(val as *mut c_void);
+        }
+    }
+    unsafe {
+        if which == "get" {
+            __torajs_throw_type_error(c"Getter must be a function.".as_ptr() as *const u8);
+        } else {
+            __torajs_throw_type_error(c"Setter must be a function.".as_ptr() as *const u8);
+        }
+    }
+    Err(())
+}
+
 /// `__torajs_dynobj_define_from_desc(obj_slot, key, desc)` — the
 /// runtime-descriptor path for `Object.defineProperty`. Reads the
 /// data-descriptor fields (`value` / `writable` / `enumerable` /
@@ -325,9 +355,12 @@ unsafe fn desc_field(desc: *const c_void, name: &str) -> Option<u64> {
 /// `flags_byte` + `(tag, value)` the compile-time literal path
 /// produces, and applies via [`define_apply`].
 ///
-/// Accessor fields (`get` / `set`) are a follow-up substrate piece
-/// (RFC C3) — a descriptor carrying only accessors currently defines a
-/// generic property with `undefined` value.
+/// Accessor descriptors (RFC 20260712 chunk 2): when `get` / `set` is
+/// present, an `AccessorPair` is built (mirroring the compile-time
+/// `emit_accessor_define` shape — each closure ref is inc'd since the
+/// desc keeps its own, the pair's +1 transfers into the entry) and
+/// stored as the property value; a descriptor mixing accessor and
+/// `value` / `writable` fields throws per §10.1.6.3.
 ///
 /// # Safety
 /// `obj_slot` points at a live `*mut c_void` (dynobj or NULL). `key`
@@ -346,6 +379,58 @@ pub unsafe extern "C" fn __torajs_dynobj_define_from_desc(
     let mut flags_byte: u64 = 0;
     let mut out_tag: u64 = 0;
     let mut out_value: u64 = 0;
+
+    let get_f = unsafe { desc_field(desc, "get") };
+    let set_f = unsafe { desc_field(desc, "set") };
+    if get_f.is_some() || set_f.is_some() {
+        if unsafe { desc_field(desc, "value") }.is_some()
+            || unsafe { desc_field(desc, "writable") }.is_some()
+        {
+            unsafe {
+                __torajs_throw_type_error(
+                    c"Invalid property descriptor. Cannot both specify accessors and a value or writable attribute."
+                        .as_ptr() as *const u8,
+                );
+            }
+            return;
+        }
+        let Ok(get_ptr) = (unsafe { accessor_field_closure(get_f, "get") }) else {
+            return;
+        };
+        let Ok(set_ptr) = (unsafe { accessor_field_closure(set_f, "set") }) else {
+            return;
+        };
+        // The desc keeps its own ref on each closure; the pair takes
+        // a transferred +1 per closure, and the pair's own +1
+        // transfers into the entry via define_apply's ANY_HEAP
+        // consume. Runtime closures are any-world (kinds = ANY/ANY).
+        unsafe {
+            if !get_ptr.is_null() {
+                __torajs_rc_inc(get_ptr);
+            }
+            if !set_ptr.is_null() {
+                __torajs_rc_inc(set_ptr);
+            }
+        }
+        let kinds = (crate::accessor::ACC_KIND_BOXED as u64)
+            | ((crate::accessor::ACC_KIND_BOXED as u64) << 8);
+        let pair = unsafe { crate::accessor::__torajs_accessor_pair_new(get_ptr, set_ptr, kinds) };
+        flags_byte |= DEFINE_PRESENT_VALUE;
+        if let Some(e) = unsafe { desc_field(desc, "enumerable") } {
+            flags_byte |= DEFINE_PRESENT_ENUMERABLE;
+            if unsafe { __torajs_anyv_to_bool(e) } {
+                flags_byte |= DEFINE_FLAG_ENUMERABLE;
+            }
+        }
+        if let Some(c) = unsafe { desc_field(desc, "configurable") } {
+            flags_byte |= DEFINE_PRESENT_CONFIGURABLE;
+            if unsafe { __torajs_anyv_to_bool(c) } {
+                flags_byte |= DEFINE_FLAG_CONFIGURABLE;
+            }
+        }
+        unsafe { define_apply(obj_slot, key, ANY_HEAP, pair as u64, flags_byte) };
+        return;
+    }
 
     if let Some(v_anyv) = unsafe { desc_field(desc, "value") } {
         let v_tag = unsafe { __torajs_anyv_unbox_tag(v_anyv) } as u64;
