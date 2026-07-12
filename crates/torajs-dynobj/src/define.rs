@@ -318,12 +318,51 @@ unsafe fn desc_field(desc: *const c_void, name: &str) -> Option<u64> {
     Some(unsafe { (*ent.add(pr.entry as usize)).value_anyv })
 }
 
-/// One accessor field (`get` / `set`) decoded off a runtime
-/// descriptor: absent / explicit `undefined` both answer a NULL
-/// closure; a Closure cell answers its pointer; anything else is the
-/// §6.2.6.5 ToPropertyDescriptor "not callable" TypeError (`Err`).
-unsafe fn accessor_field_closure(field: Option<u64>, which: &str) -> Result<*mut c_void, ()> {
-    let Some(anyv) = field else {
+/// [`desc_field`] with §6.2.6.5 ToPropertyDescriptor [[Get]]
+/// semantics: a descriptor field that is itself an accessor property
+/// invokes its getter (test262 defines desc fields via accessors to
+/// probe exactly this; a getter-less accessor answers `undefined`).
+/// Answers `(anyv, owned)` — `owned` marks a fresh getter product
+/// whose ref the caller must consume or drop; a plain data field is
+/// a borrow. Caller must check for pending throw when `owned`.
+///
+/// # Safety
+/// Same contract as [`desc_field`].
+unsafe fn desc_field_get(desc: *const c_void, name: &str) -> Option<(u64, bool)> {
+    let raw = unsafe { desc_field(desc, name) }?;
+    if unsafe { crate::accessor::value_is_accessor(raw) } {
+        let pair = unsafe { __torajs_anyv_unbox_value(raw) } as *const c_void;
+        let v = unsafe { crate::accessor::__torajs_accessor_invoke_getter(pair) };
+        return Some((v, true));
+    }
+    Some((raw, false))
+}
+
+/// Consume an `owned` flag from [`desc_field_get`] after the value
+/// has been read — drops a fresh heap product's surplus ref
+/// (immediates no-op through the cell gate).
+unsafe fn release_desc_field(anyv: u64, owned: bool) {
+    if owned {
+        let tag = unsafe { __torajs_anyv_unbox_tag(anyv) } as u64;
+        let val = unsafe { __torajs_anyv_unbox_value(anyv) } as u64;
+        if tag == ANY_HEAP && val != 0 {
+            unsafe { __torajs_value_drop_heap(val as *mut c_void) };
+        }
+    }
+}
+
+/// One accessor field (`get` / `set`) off [`desc_field_get`]'s
+/// `(anyv, owned)` pair, normalized to an **owned** closure ref:
+/// absent / explicit `undefined` answer NULL; a Closure cell answers
+/// its pointer with one transferred ref (borrows inc, getter
+/// products transfer as-is); anything else is the §6.2.6.5
+/// ToPropertyDescriptor "not callable" TypeError (`Err`, input
+/// released).
+unsafe fn take_accessor_closure(
+    field: Option<(u64, bool)>,
+    which: &str,
+) -> Result<*mut c_void, ()> {
+    let Some((anyv, owned)) = field else {
         return Ok(core::ptr::null_mut());
     };
     let tag = unsafe { __torajs_anyv_unbox_tag(anyv) } as u64;
@@ -335,9 +374,13 @@ unsafe fn accessor_field_closure(field: Option<u64>, which: &str) -> Result<*mut
     if tag == ANY_HEAP && val != 0 {
         let type_tag = unsafe { *((val as *const u8).add(4) as *const u16) };
         if type_tag == 3 {
+            if !owned {
+                unsafe { __torajs_rc_inc(val as *mut c_void) };
+            }
             return Ok(val as *mut c_void);
         }
     }
+    unsafe { release_desc_field(anyv, owned) };
     unsafe {
         if which == "get" {
             __torajs_throw_type_error(c"Getter must be a function.".as_ptr() as *const u8);
@@ -380,12 +423,21 @@ pub unsafe extern "C" fn __torajs_dynobj_define_from_desc(
     let mut out_tag: u64 = 0;
     let mut out_value: u64 = 0;
 
-    let get_f = unsafe { desc_field(desc, "get") };
-    let set_f = unsafe { desc_field(desc, "set") };
+    // §6.2.6.5 ToPropertyDescriptor — every field read goes through
+    // [[Get]] (a field that is itself an accessor invokes its
+    // getter); presence checks use the raw entry probe.
+    let get_f = unsafe { desc_field_get(desc, "get") };
+    let set_f = unsafe { desc_field_get(desc, "set") };
     if get_f.is_some() || set_f.is_some() {
         if unsafe { desc_field(desc, "value") }.is_some()
             || unsafe { desc_field(desc, "writable") }.is_some()
         {
+            if let Some((v, o)) = get_f {
+                unsafe { release_desc_field(v, o) };
+            }
+            if let Some((v, o)) = set_f {
+                unsafe { release_desc_field(v, o) };
+            }
             unsafe {
                 __torajs_throw_type_error(
                     c"Invalid property descriptor. Cannot both specify accessors and a value or writable attribute."
@@ -394,51 +446,52 @@ pub unsafe extern "C" fn __torajs_dynobj_define_from_desc(
             }
             return;
         }
-        let Ok(get_ptr) = (unsafe { accessor_field_closure(get_f, "get") }) else {
+        // take_accessor_closure answers an OWNED ref per closure
+        // (borrows inc, getter products transfer); the pair takes
+        // both, and the pair's own +1 transfers into the entry via
+        // define_apply's ANY_HEAP consume. Runtime closures are
+        // any-world (kinds = BOXED/BOXED).
+        let Ok(get_ptr) = (unsafe { take_accessor_closure(get_f, "get") }) else {
+            if let Some((v, o)) = set_f {
+                unsafe { release_desc_field(v, o) };
+            }
             return;
         };
-        let Ok(set_ptr) = (unsafe { accessor_field_closure(set_f, "set") }) else {
-            return;
-        };
-        // The desc keeps its own ref on each closure; the pair takes
-        // a transferred +1 per closure, and the pair's own +1
-        // transfers into the entry via define_apply's ANY_HEAP
-        // consume. Runtime closures are any-world (kinds = ANY/ANY).
-        unsafe {
+        let Ok(set_ptr) = (unsafe { take_accessor_closure(set_f, "set") }) else {
             if !get_ptr.is_null() {
-                __torajs_rc_inc(get_ptr);
+                unsafe { __torajs_value_drop_heap(get_ptr) };
             }
-            if !set_ptr.is_null() {
-                __torajs_rc_inc(set_ptr);
-            }
-        }
+            return;
+        };
         let kinds = (crate::accessor::ACC_KIND_BOXED as u64)
             | ((crate::accessor::ACC_KIND_BOXED as u64) << 8);
         let pair = unsafe { crate::accessor::__torajs_accessor_pair_new(get_ptr, set_ptr, kinds) };
         flags_byte |= DEFINE_PRESENT_VALUE;
-        if let Some(e) = unsafe { desc_field(desc, "enumerable") } {
+        if let Some((e, o)) = unsafe { desc_field_get(desc, "enumerable") } {
             flags_byte |= DEFINE_PRESENT_ENUMERABLE;
             if unsafe { __torajs_anyv_to_bool(e) } {
                 flags_byte |= DEFINE_FLAG_ENUMERABLE;
             }
+            unsafe { release_desc_field(e, o) };
         }
-        if let Some(c) = unsafe { desc_field(desc, "configurable") } {
+        if let Some((c, o)) = unsafe { desc_field_get(desc, "configurable") } {
             flags_byte |= DEFINE_PRESENT_CONFIGURABLE;
             if unsafe { __torajs_anyv_to_bool(c) } {
                 flags_byte |= DEFINE_FLAG_CONFIGURABLE;
             }
+            unsafe { release_desc_field(c, o) };
         }
         unsafe { define_apply(obj_slot, key, ANY_HEAP, pair as u64, flags_byte) };
         return;
     }
 
-    if let Some(v_anyv) = unsafe { desc_field(desc, "value") } {
+    if let Some((v_anyv, v_owned)) = unsafe { desc_field_get(desc, "value") } {
         let v_tag = unsafe { __torajs_anyv_unbox_tag(v_anyv) } as u64;
         let v_val = unsafe { __torajs_anyv_unbox_value(v_anyv) } as u64;
-        // define_apply consumes one rc of a Heap value (it is stored
-        // into `obj` while still owned by `desc`) — mirror the literal
-        // path's `pack` rc_inc.
-        if v_tag == ANY_HEAP && v_val != 0 {
+        // define_apply consumes one rc of a Heap value; a borrowed
+        // field (still owned by `desc`) incs, a getter product
+        // transfers its fresh ref as-is.
+        if v_tag == ANY_HEAP && v_val != 0 && !v_owned {
             unsafe { __torajs_rc_inc(v_val as *mut c_void) };
         }
         out_tag = v_tag;
@@ -446,23 +499,26 @@ pub unsafe extern "C" fn __torajs_dynobj_define_from_desc(
         flags_byte |= DEFINE_PRESENT_VALUE;
     }
 
-    if let Some(w) = unsafe { desc_field(desc, "writable") } {
+    if let Some((w, o)) = unsafe { desc_field_get(desc, "writable") } {
         flags_byte |= DEFINE_PRESENT_WRITABLE;
         if unsafe { __torajs_anyv_to_bool(w) } {
             flags_byte |= DEFINE_FLAG_WRITABLE;
         }
+        unsafe { release_desc_field(w, o) };
     }
-    if let Some(e) = unsafe { desc_field(desc, "enumerable") } {
+    if let Some((e, o)) = unsafe { desc_field_get(desc, "enumerable") } {
         flags_byte |= DEFINE_PRESENT_ENUMERABLE;
         if unsafe { __torajs_anyv_to_bool(e) } {
             flags_byte |= DEFINE_FLAG_ENUMERABLE;
         }
+        unsafe { release_desc_field(e, o) };
     }
-    if let Some(c) = unsafe { desc_field(desc, "configurable") } {
+    if let Some((c, o)) = unsafe { desc_field_get(desc, "configurable") } {
         flags_byte |= DEFINE_PRESENT_CONFIGURABLE;
         if unsafe { __torajs_anyv_to_bool(c) } {
             flags_byte |= DEFINE_FLAG_CONFIGURABLE;
         }
+        unsafe { release_desc_field(c, o) };
     }
 
     unsafe { define_apply(obj_slot, key, out_tag, out_value, flags_byte) }
