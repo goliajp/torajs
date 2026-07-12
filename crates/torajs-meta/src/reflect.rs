@@ -386,3 +386,32 @@ pub unsafe extern "C" fn __torajs_anyv_throw_typeerror_if_not_object(obj_any: u6
         };
     }
 }
+
+/// RFC 20260712-object-create-define-props chunk 1 —
+/// `Object.create(proto, ...)` §20.1.2.2 step 1: `If Type(O) is
+/// neither Object nor Null, throw a TypeError`. Same runtime branch
+/// shape as [`__torajs_anyv_throw_typeerror_if_not_object`] except
+/// `null` passes (it is the one legal non-object proto).
+///
+/// # Safety
+///
+/// `proto_any` must carry a valid AnyValue bit pattern.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_object_create_check_proto(proto_any: u64) {
+    if proto_any == VALUE_NULL_IMM {
+        return;
+    }
+    let primitive = if proto_any == VALUE_UNDEFINED_IMM || !is_cell_imm(proto_any) {
+        true
+    } else {
+        // Cell — Str / BigInt / Symbol cells are spec primitives.
+        let tag = unsafe { heap_type_tag(proto_any as *const c_void) };
+        matches!(tag, TAG_STR | TAG_BIGINT | TAG_SYMBOL)
+    };
+    if primitive {
+        // SAFETY: NUL-terminated static C string.
+        unsafe {
+            __torajs_throw_type_error(c"Object prototype may only be an Object or null.".as_ptr())
+        };
+    }
+}

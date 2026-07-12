@@ -79,7 +79,7 @@ fn emit_receiver_typecheck(ctx: &mut LowerCtx, obj_eid: ExprId, obj_op: &Operand
 /// Frontend types that are spec-`Type(O) is Object` so RFC C4b's
 /// receiver guard can skip them — the SSA-level type already proves
 /// the receiver is an object cell.
-fn is_typed_object(ty: Type) -> bool {
+pub(crate) fn is_typed_object(ty: Type) -> bool {
     matches!(
         ty,
         Type::Obj(_)

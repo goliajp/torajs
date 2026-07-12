@@ -133,11 +133,40 @@ fn lower_freeze_or_is_frozen(ctx: &mut LowerCtx<'_>, method: &str, args: &[ExprI
     Operand::Value(v)
 }
 
-/// `Object.create(proto[, descriptors])` — allocate fresh dynobj-
-/// backed Any-box. Args evaluated for side effects then discarded.
+/// `Object.create(proto[, descriptors])` — §20.1.2.2. Validates the
+/// proto argument (Object or null, else TypeError) then allocates a
+/// fresh dynobj-backed Any-box. The proto value itself is not yet
+/// wired to the new object (no per-object proto slot — RFC
+/// 20260712-object-create-define-props backlog); the descriptors arg
+/// is evaluated for side effects (props processing is RFC chunk 2).
 fn lower_create(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
-    for a in args {
-        let _ = ctx.lower_expr(*a);
+    if let Some(&proto_eid) = args.first() {
+        let proto_op = ctx.lower_expr(proto_eid);
+        let proto_ty = ctx.operand_ty(&proto_op);
+        // Statically-proven object cells skip the runtime check; Any
+        // and primitive shapes route through the helper (null passes,
+        // every other primitive throws — for a typed primitive the
+        // post-throw-check block is unreachable, so box_to_any's
+        // payload inc cannot accumulate).
+        if !crate::ssa_lower_object_define::is_typed_object(proto_ty) {
+            let boxed = if matches!(proto_ty, Type::Any) {
+                proto_op.clone()
+            } else {
+                ctx.box_to_any_from_expr(proto_eid, proto_op.clone())
+            };
+            ctx.f.append_void(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.object_create_check_proto, vec![boxed]),
+            );
+            ctx.release_owned_temp(proto_eid, &proto_op);
+            ctx.emit_throw_check(None);
+        } else {
+            ctx.release_owned_temp(proto_eid, &proto_op);
+        }
+    }
+    for &a in args.iter().skip(1) {
+        let op = ctx.lower_expr(a);
+        ctx.release_owned_temp(a, &op);
     }
     let cur_block = ctx.cur_block;
     let dynobj = ctx.f.append_inst(

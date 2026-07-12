@@ -93,6 +93,7 @@ pub(crate) struct ObjectIds {
     pub anyv_is_sealed: FuncId,
     pub dynobj_has: FuncId,
     pub dynobj_delete: FuncId,
+    pub object_create_check_proto: FuncId,
 }
 
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) -> ObjectIds {
@@ -151,5 +152,6 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
         anyv_is_sealed: decl!("__torajs_anyv_is_sealed", [Any], Bool),
         dynobj_has: decl!("__torajs_dynobj_has", [Ptr, Ptr], I32),
         dynobj_delete: decl!("__torajs_dynobj_delete", [Ptr, Ptr], I32),
+        object_create_check_proto: decl!("__torajs_object_create_check_proto", [Any], Void),
     }
 }

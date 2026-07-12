@@ -280,6 +280,7 @@ pub(crate) fn build(
         accessor_invoke_getter: init_b.object.accessor_invoke_getter,
         get_property_descriptor: init_b.object.get_property_descriptor,
         throw_typeerror_if_not_object: init_b.object.throw_typeerror_if_not_object,
+        object_create_check_proto: init_b.object.object_create_check_proto,
         arr_throw_reduce_empty: init_b.object.arr_throw_reduce_empty,
         arr_throw_reduce_right_empty: init_b.object.arr_throw_reduce_right_empty,
         arr_length_descriptor: init_b.object.arr_length_descriptor,
