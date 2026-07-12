@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-12T05:41:37.590Z",
+  "generatedAt": "2026-07-12T08:08:23.572Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-12T05:40:32Z",
-    "headSha": "c93a6526",
-    "elapsedSec": 455.66,
+    "ranAt": "2026-07-12T07:51:29Z",
+    "headSha": "d8f59376",
+    "elapsedSec": 462.23,
     "workers": 8,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 4254,
-    "passNoOracle": 77,
+    "pass": 4356,
+    "passNoOracle": 78,
     "passNegative": 4444,
-    "passTotal": 8775,
-    "bug": 1625,
-    "incompatible": 42774,
+    "passTotal": 8878,
+    "bug": 1521,
+    "incompatible": 42775,
     "bunSkip": 12861,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 10400,
-    "passRateInScope": 16.5,
-    "passRateTrAccepted": 84.38
+    "trAccepted": 10399,
+    "passRateInScope": 16.7,
+    "passRateTrAccepted": 85.37
   },
   "torajs": {
-    "commit": "6d5552ef",
-    "commitSubject": "chore: test262 accounting @ c93a6526 — passTotal 8775 (+68), 0 regressions",
+    "commit": "2543c7de",
+    "commitSubject": "fix: regex-literal LICM singleton stolen by taking consumers (UAF)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "2543c7de",
+      "subject": "fix: regex-literal LICM singleton stolen by taking consumers (UAF)"
+    },
+    {
+      "hash": "f7a28738",
+      "subject": "chore: test262 accounting @ d8f59376 — passTotal 8878 (+103), 0 regressions"
+    },
+    {
+      "hash": "d8f59376",
+      "subject": "feat: v-flag properties of strings (\\p{RGI_Emoji} family)"
+    },
+    {
+      "hash": "df805707",
+      "subject": "feat: v-flag \\q{} class string disjunction"
+    },
+    {
+      "hash": "8b754585",
+      "subject": "feat: regexp v flag (unicodeSets) core — cp set algebra classes"
+    },
+    {
+      "hash": "d0489198",
+      "subject": "feat: regexp-modifiers (?ims-ims:) via per-inst flag bits"
+    },
+    {
+      "hash": "697d976c",
+      "subject": "chore: hardev dashboard snapshot"
+    },
+    {
       "hash": "6d5552ef",
       "subject": "chore: test262 accounting @ c93a6526 — passTotal 8775 (+68), 0 regressions"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "8a923c3c",
       "subject": "feat: array any-tier method surface catch-up (flat family + change-by-copy)"
-    },
-    {
-      "hash": "16e145ac",
-      "subject": "chore: hardev dashboard snapshot"
-    },
-    {
-      "hash": "632cc032",
-      "subject": "chore: test262 accounting @ 79a03ab3 — passTotal 8707 (+116), 0 regressions"
-    },
-    {
-      "hash": "79a03ab3",
-      "subject": "fix: descriptor field reads honor ToPropertyDescriptor get semantics"
-    },
-    {
-      "hash": "86705acb",
-      "subject": "feat: arr.length real resize for any/refcounted element arrays"
-    },
-    {
-      "hash": "2a817e2d",
-      "subject": "chore: hardev dashboard snapshot"
-    },
-    {
-      "hash": "600a07db",
-      "subject": "feat: object.create props + defineproperties runtime props walk"
-    },
-    {
-      "hash": "e0fbbb40",
-      "subject": "feat: runtime accessor descriptors + undefined dynobj field fix"
     }
   ],
-  "headSha": "6d5552ef",
+  "headSha": "2543c7de",
   "autorun": {
-    "total": 384,
+    "total": 385,
     "baselineTarget": 10,
-    "bySelf": 379,
+    "bySelf": 380,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1783829316-79a1",
-      "at": "2026-07-12T04:08:36Z",
-      "ts": 1783829316,
+      "rotationId": "r-1783834962-59f5",
+      "at": "2026-07-12T05:42:42Z",
+      "ts": 1783834962,
       "trigger": "self",
-      "prevHead": "16e145ac",
-      "handoffSha": "sha256:3da3c706436556902627033568bf5fed1ce9e14bbd70ef1de49c778b3b2db506",
-      "handoffAgeSec": 7,
+      "prevHead": "697d976c",
+      "handoffSha": "sha256:1ee53eeed8dd26a6137163f36d5d2df1ff09433c15946d3e951f4c8e9fc94542",
+      "handoffAgeSec": 8,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1783834962-59f5",
+        "at": "2026-07-12T05:42:42Z",
+        "ts": 1783834962,
+        "trigger": "self",
+        "prevHead": "697d976c",
+        "handoffSha": "sha256:1ee53eeed8dd26a6137163f36d5d2df1ff09433c15946d3e951f4c8e9fc94542",
+        "handoffAgeSec": 8,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1783829316-79a1",
         "at": "2026-07-12T04:08:36Z",
@@ -875,17 +886,6 @@
         "trigger": "self",
         "prevHead": "79ece0b1",
         "handoffSha": "sha256:f289ed3e3294e897f5c92016a27e36286215615fed83a4ffd017ec927d904758",
-        "handoffAgeSec": 7,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1783722250-2a18",
-        "at": "2026-07-10T22:24:10Z",
-        "ts": 1783722250,
-        "trigger": "self",
-        "prevHead": "fb055e52",
-        "handoffSha": "sha256:67d684dcb7129b4ba030bb0640b3b648ad47b1e87189e3b545d994b8e99476ec",
         "handoffAgeSec": 7,
         "conformanceBefore": null,
         "commitsInSession": null
