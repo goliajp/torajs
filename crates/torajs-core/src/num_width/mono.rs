@@ -33,6 +33,12 @@ pub(crate) fn infer_arg_width(ast: &Ast, eid: ExprId) -> NumWidth {
         // Genuinely fractional, OR magnitude past i64 range (e.g. `1e21`)
         // — both must promote to f64 since `n as i64` would saturate.
         Expr::Number(n) if n.fract() != 0.0 || n.abs() >= 9.223372036854776e18 => NumWidth::F64,
+        // NaN / Infinity are f64-only values — an i64 mono would
+        // saturate them at the call boundary and break NaN
+        // self-inequality inside the instance (RFC
+        // 20260713-date-invalid-time: `sameValue(x, NaN)` harness
+        // shape monomorphized T=i64 and truncated the F64 actual).
+        Expr::Ident(n) if n == "NaN" || n == "Infinity" => NumWidth::F64,
         Expr::BinOp {
             op: AstBinOp::Div, ..
         } => NumWidth::F64,
