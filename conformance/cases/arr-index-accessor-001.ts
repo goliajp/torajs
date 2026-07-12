@@ -53,3 +53,31 @@ Object.defineProperties(crr, {
   },
 });
 console.log(crr[1], crr.length, crr[0]);
+
+// Same-faces redefine of a non-configurable accessor is a no-op
+// (the fresh pair must not SameValue-compare as a data value).
+var drr = [];
+Object.defineProperty(drr, "1", { set: undefined });
+try {
+  Object.defineProperties(drr, { "1": { set: undefined } });
+  console.log("same-face ok");
+} catch (e) {
+  console.log("same-face threw");
+}
+
+// A dynamic string key routes through the accessor faces too.
+var err2 = [];
+var got = 0;
+Object.defineProperty(err2, "0", {
+  get: function () {
+    return got;
+  },
+  set: function (v) {
+    got = v;
+  },
+  configurable: true,
+});
+var err2any: any = err2;
+var k: string = "0";
+err2any[k] = 5;
+console.log(got, err2any[k]);

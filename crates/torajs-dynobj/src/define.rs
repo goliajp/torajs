@@ -196,6 +196,17 @@ unsafe fn redefine_entry(e: *mut Entry, tag: u64, value: u64, flags_byte: u64) {
     let cur_enumerable = cur_flags & BUCKET_FLAG_ENUMERABLE != 0;
     let cur_configurable = cur_flags & BUCKET_FLAG_CONFIGURABLE != 0;
     let cur_value_tag = unsafe { __torajs_anyv_unbox_tag(cur_value_anyv) } as u64;
+    // Descriptor kind split (RFC 20260713 residual fix-up) — the
+    // data-only writable/value rules must not fire on accessor pairs
+    // (a fresh pair never SameValue-matches the current one, so a
+    // same-faces redefine of a non-configurable accessor wrongly
+    // threw "readonly").
+    let incoming_accessor = has_value
+        && (tag & BUCKET_TAG_MASK) == ANY_HEAP
+        && value != 0
+        && unsafe { (value as *const u8).add(4).cast::<u16>().read() }
+            == crate::accessor::TAG_ACCESSOR_PAIR;
+    let cur_accessor = unsafe { crate::accessor::value_is_accessor(cur_value_anyv) };
 
     if !cur_configurable {
         // Spec §10.1.6.3 — non-configurable entry; reject diverging
@@ -218,7 +229,18 @@ unsafe fn redefine_entry(e: *mut Entry, tag: u64, value: u64, flags_byte: u64) {
             }
             return;
         }
-        if !cur_writable {
+        // §10.1.6.3 step 4 — a data↔accessor kind switch on a
+        // non-configurable property throws (either direction).
+        if has_value && incoming_accessor != cur_accessor {
+            unsafe {
+                __torajs_throw_type_error(
+                    c"Attempting to change access mechanism for an unconfigurable property."
+                        .as_ptr() as *const u8,
+                );
+            }
+            return;
+        }
+        if !incoming_accessor && !cur_accessor && !cur_writable {
             if has_writable && desc_writable {
                 unsafe {
                     __torajs_throw_type_error(
@@ -248,12 +270,8 @@ unsafe fn redefine_entry(e: *mut Entry, tag: u64, value: u64, flags_byte: u64) {
     // Accessor-over-accessor redefine (RFC 20260713 chunk D) —
     // §10.1.6.3 partial update; a rejection inside drops the fresh
     // pair and records the pending throw.
-    if has_value
-        && (tag & BUCKET_TAG_MASK) == ANY_HEAP
-        && value != 0
-        && unsafe { crate::accessor::value_is_accessor(cur_value_anyv) }
-        && unsafe { (value as *const u8).add(4).cast::<u16>().read() }
-            == crate::accessor::TAG_ACCESSOR_PAIR
+    if incoming_accessor
+        && cur_accessor
         && !unsafe {
             merge_accessor_redefine(
                 cur_value_anyv,

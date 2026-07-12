@@ -48,6 +48,11 @@ unsafe extern "C" {
     /// torajs-arr — per-index attribute flags (RFC
     /// 20260712-arr-exotic-define chunk C writable gate).
     fn __torajs_arr_index_flags(arr: *const c_void, idx: u64) -> u64;
+    /// torajs-arr — the index's AccessorPair, NULL when not an
+    /// accessor (RFC 20260713 chunk C).
+    fn __torajs_arr_index_accessor(arr: *const c_void, idx: u64) -> *mut c_void;
+    /// torajs-dynobj — setter dispatch; `0` = getter-only accessor.
+    fn __torajs_accessor_invoke_setter(pair: *const c_void, value_anyv: u64) -> i32;
     /// torajs-arr — re-create a deleted index as a default data
     /// property (hole revive, RFC 20260713 chunk C).
     fn __torajs_arr_index_revive(arr: *mut c_void, key: *mut c_void);
@@ -168,6 +173,20 @@ pub unsafe extern "C" fn __torajs_any_member_set(
                 return;
             }
             if let Some(idx) = crate::prop_has::canonical_index(key) {
+                // An accessor index writes through its setter (RFC
+                // 20260713 chunk C) — checked before the writable
+                // gate, which would misread the pair entry's dead w
+                // bit as a readonly data property.
+                let pair = __torajs_arr_index_accessor(ptr, idx);
+                if !pair.is_null() {
+                    let value_anyv = __torajs_anyv_box_from_pair(tag as i64, value as i64);
+                    if __torajs_accessor_invoke_setter(pair, value_anyv) == 0 {
+                        __torajs_throw_type_error(
+                            c"Attempted to assign to readonly property.".as_ptr(),
+                        );
+                    }
+                    return;
+                }
                 let flags = __torajs_arr_index_flags(ptr, idx);
                 if flags & crate::prop_has::ARR_F_HOLE != 0 {
                     // A deleted index is absent — the set re-creates
