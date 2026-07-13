@@ -20,10 +20,22 @@ impl<'a> Parser<'a> {
             // consume-and-discard it so the synth name controls all
             // downstream resolution. Inner self-binding (Inner referring
             // to the class inside its own body) is an L3b follow-up.
-            Token::Ident(_) if force_synth => {
+            Token::Ident(n) if force_synth => {
+                // RFC 20260714-dstr-residual blade 4 — the discarded
+                // inner name is still the class's `.name` (§15.5.5:
+                // a named class expression keeps its self-name over
+                // any binding). Record it in the display channel; it
+                // lands first, so binding-position or_insert
+                // registrations never override it. Inner self-binding
+                // resolution stays an L3b follow-up.
+                let inner = n.clone();
                 self.pos += 1;
                 let id = self.mint_desugar_id();
-                format!("__ClassExpr_{id}")
+                let synth = format!("__ClassExpr_{id}");
+                self.ast
+                    .class_expr_display_names
+                    .insert(synth.clone(), inner);
+                synth
             }
             Token::Ident(n) => {
                 let n = n.clone();

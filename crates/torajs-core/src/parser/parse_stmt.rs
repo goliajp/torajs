@@ -433,6 +433,16 @@ impl<'a> Parser<'a> {
                     if init_name.starts_with("__ClassExpr_") {
                         self.class_value_aliases
                             .insert(name.clone(), init_name.clone());
+                        // RFC 20260714-dstr-residual blade 4 — ES
+                        // §8.4.5 NamedEvaluation: `let D = class {}`
+                        // names the anonymous class expression by its
+                        // binding (first binding wins; a later alias
+                        // of the same synth class doesn't rename it).
+                        let init_name = init_name.clone();
+                        self.ast
+                            .class_expr_display_names
+                            .entry(init_name)
+                            .or_insert_with(|| name.clone());
                         aliased = true;
                     } else if let Some(target) = self.class_value_aliases.get(init_name) {
                         let target = target.clone();

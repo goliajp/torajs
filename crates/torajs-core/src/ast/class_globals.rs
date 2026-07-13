@@ -72,6 +72,22 @@ pub fn synthesize_class_globals(ast: &mut Ast) {
     }
     let class_set: HashSet<String> = class_names.iter().cloned().collect();
 
+    // RFC 20260714-dstr-residual blade 4 — a static method named
+    // `name` / `length` shadows the synthesized reflection field
+    // (§15.7.14: static members are own properties of the class):
+    // the `__class_<C>` field holds the `__sm_<C>__<M>` fn value
+    // instead of the string / number.
+    let static_shadow: HashSet<String> = ast
+        .stmts
+        .iter()
+        .filter_map(|s| match s {
+            Stmt::FnDecl { name, .. } if name.starts_with("__sm_") => {
+                (name.ends_with("__name") || name.ends_with("__length")).then(|| name.clone())
+            }
+            _ => None,
+        })
+        .collect();
+
     let mut prepended: Vec<Stmt> = Vec::with_capacity(class_names.len() * 3);
 
     // P4.2 Phase B — `let __proto_<C>: any = {}` per class. Singleton
@@ -97,9 +113,26 @@ pub fn synthesize_class_globals(ast: &mut Ast) {
     // (instance)` returns, so identity holds across both paths via
     // the P4.0 nested-Any-dynobj fix.
     for cname in &class_names {
-        let name_expr = ast.add_expr(Expr::String(cname.clone()));
+        // RFC 20260714-dstr-residual blade 4 — NamedEvaluation: an
+        // anonymous class expression bound by a declaration or a
+        // destructuring default reflects the binding identifier as
+        // `.name` instead of the `__ClassExpr_<id>` synth name.
+        let display = ast
+            .class_expr_display_names
+            .get(cname)
+            .unwrap_or(cname)
+            .clone();
+        let name_expr = if static_shadow.contains(&format!("__sm_{cname}__name")) {
+            ast.add_expr(Expr::Ident(format!("__sm_{cname}__name")))
+        } else {
+            ast.add_expr(Expr::String(display))
+        };
         let proto_ident = ast.add_expr(Expr::Ident(format!("__proto_{cname}")));
-        let length_expr = ast.add_expr(Expr::Number(class_lengths[cname] as f64));
+        let length_expr = if static_shadow.contains(&format!("__sm_{cname}__length")) {
+            ast.add_expr(Expr::Ident(format!("__sm_{cname}__length")))
+        } else {
+            ast.add_expr(Expr::Number(class_lengths[cname] as f64))
+        };
         let obj_expr = ast.add_expr(Expr::ObjectLit {
             fields: vec![
                 ("name".to_string(), name_expr),

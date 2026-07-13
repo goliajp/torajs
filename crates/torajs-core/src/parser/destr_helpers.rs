@@ -60,6 +60,17 @@ impl<'a> Parser<'a> {
                     self.ast.dstr_default_names.insert(eid, binding.to_string());
                     return;
                 }
+                // Blade 4 — an anonymous class expression parses into
+                // an `Ident(__ClassExpr_<id>)` use site; NamedEvaluation
+                // flows through the class display-name channel instead.
+                Expr::Ident(n) if n.starts_with("__ClassExpr_") => {
+                    let n = n.clone();
+                    self.ast
+                        .class_expr_display_names
+                        .entry(n)
+                        .or_insert_with(|| binding.to_string());
+                    return;
+                }
                 _ => return,
             }
         }

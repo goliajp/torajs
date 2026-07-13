@@ -145,6 +145,15 @@ pub struct Ast {
     /// merged into pass-2B's registry BEFORE the self-name overlay
     /// (a named fn expression's self-name still wins per §15.5.5).
     pub closure_dstr_names: std::collections::HashMap<String, String>,
+    /// RFC 20260714-dstr-residual blade 4 — NamedEvaluation for
+    /// anonymous class expressions: synth class name
+    /// (`__ClassExpr_<id>`) → binding identifier, recorded by the
+    /// parser at `let D = class {}` bindings and destructuring
+    /// defaults. `synthesize_class_globals` uses it as the `.name`
+    /// field of the class value global. A named class expression
+    /// (`class Inner {}`) parses under its own name and never
+    /// enters this map (§15.5.5: the self-name wins).
+    pub class_expr_display_names: std::collections::HashMap<String, String>,
     /// Recorded by `desugar_classes` so post-desugar passes (check, ssa_lower)
     /// can resolve `instanceof Parent` on a subclass instance: maps each
     /// declared class name to its parent (None if no `extends`). Empty
