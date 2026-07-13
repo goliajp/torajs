@@ -1,9 +1,13 @@
 //! `__torajs_str_replace_regex` / `_all_regex` + `expand_repl` —
 //! port of `runtime_regex.c` L2401-2600.
 //!
-//! Replacement-string substitution per ES spec: `$&` (whole match),
-//! `$1`..`$99` (capture groups; two-digit form when the resulting
-//! index is a valid group), `$$` (literal `$`), other `$X` left
+//! Replacement-string substitution per ES §22.1.3.18.5
+//! GetSubstitution: `$&` (whole match), `` $` `` (portion before
+//! the match), `$'` (portion after the match), `$1`..`$99` (capture
+//! groups; two-digit form when the resulting index is a valid
+//! group), `$<name>` (named capture; empty when the name is unknown
+//! or the group did not participate — literal when the pattern has
+//! no named groups at all), `$$` (literal `$`), other `$X` left
 //! literal.
 
 use alloc::vec::Vec;
@@ -19,7 +23,11 @@ use crate::vm::{match_anchor, save_slot, search_from_with_ws};
 
 /// Expand `repl` into `out`, dereferencing `$N` against the
 /// captured `saves[]` pairs. Unparticipating groups substitute the
-/// empty string.
+/// empty string. `capture_names` is the pattern's `(?<name>...)`
+/// table (index 0 unused; empty `Vec` at positional groups) and
+/// `has_named` its non-empty-entry count gate — `$<name>` is only
+/// interpreted when the pattern has at least one named group
+/// (namedCaptures ≠ undefined per GetSubstitution).
 pub fn expand_repl(
     repl: &[u8],
     s: &[u8],
@@ -27,6 +35,8 @@ pub fn expand_repl(
     en: i64,
     saves: &[i64],
     n_captures: i32,
+    capture_names: &[Vec<u8>],
+    has_named: bool,
     out: &mut Vec<u8>,
 ) {
     let mut i = 0;
@@ -47,6 +57,39 @@ pub fn expand_repl(
             out.extend_from_slice(&s[st as usize..en as usize]);
             i += 2;
             continue;
+        }
+        if nxt == b'`' {
+            out.extend_from_slice(&s[..st as usize]);
+            i += 2;
+            continue;
+        }
+        if nxt == b'\'' {
+            out.extend_from_slice(&s[en as usize..]);
+            i += 2;
+            continue;
+        }
+        if nxt == b'<' && has_named {
+            // `$<name>` — scan for the closing `>`. Without one the
+            // whole thing is literal (fall through to the `$` arm).
+            if let Some(close) = repl[i + 2..].iter().position(|&b| b == b'>') {
+                let name = &repl[i + 2..i + 2 + close];
+                // Duplicate named groups (ES2025): the name maps to
+                // whichever same-named group participated; scan all
+                // indices carrying the name and take the first with
+                // written slots. Unknown name / no participant → empty.
+                for (gi, gn) in capture_names.iter().enumerate() {
+                    if gi >= 1 && gi < REGEX_MAX_CAPTURES && gn.as_slice() == name {
+                        let gs = save_slot(saves, 2 * gi);
+                        let ge = save_slot(saves, 2 * gi + 1);
+                        if gs >= 0 && ge >= 0 {
+                            out.extend_from_slice(&s[gs as usize..ge as usize]);
+                            break;
+                        }
+                    }
+                }
+                i += 2 + close + 1;
+                continue;
+            }
         }
         if nxt.is_ascii_digit() {
             let d1 = (nxt - b'0') as i32;
@@ -145,7 +188,17 @@ fn replace_inner<'a>(
         };
         let Some(m) = m else { break };
         out.extend_from_slice(&s[pos as usize..m.start as usize]);
-        expand_repl(repl, s, m.start, m.end, m.saves(), re.n_captures, out);
+        expand_repl(
+            repl,
+            s,
+            m.start,
+            m.end,
+            m.saves(),
+            re.n_captures,
+            &re.capture_names,
+            re.n_named_captures > 0,
+            out,
+        );
         if m.end == m.start {
             if m.start < slen {
                 out.push(s[m.start as usize]);
@@ -261,4 +314,106 @@ pub unsafe extern "C" fn __torajs_str_replace_all_regex(
         return unsafe { str_from_bytes_ascii(out) as *mut c_void };
     }
     unsafe { str_from_bytes(out) as *mut c_void }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::expand_repl;
+    use alloc::vec;
+    use alloc::vec::Vec;
+
+    // s = "abcd", match = "bc" (st 1, en 3), no captures.
+    fn expand_plain(repl: &[u8]) -> Vec<u8> {
+        let mut out = Vec::new();
+        expand_repl(repl, b"abcd", 1, 3, &[1, 3], 0, &[], false, &mut out);
+        out
+    }
+
+    #[test]
+    fn dollar_backtick_emits_pre() {
+        assert_eq!(expand_plain(b"[$`]"), b"[a]");
+    }
+
+    #[test]
+    fn dollar_quote_emits_post() {
+        assert_eq!(expand_plain(b"[$']"), b"[d]");
+    }
+
+    #[test]
+    fn dollar_amp_pre_post_combined() {
+        assert_eq!(expand_plain(b"$`|$&|$'"), b"a|bc|d");
+    }
+
+    #[test]
+    fn named_ref_literal_without_named_groups() {
+        // namedCaptures is undefined → `$<x>` stays literal.
+        assert_eq!(expand_plain(b"[$<x>]"), b"[$<x>]");
+    }
+
+    // s = "abcd", pattern shape `(?<fst>.)(?<snd>.)` matched at 0..2:
+    // group 1 = "a" (0,1), group 2 = "b" (1,2).
+    fn named_names() -> Vec<Vec<u8>> {
+        vec![Vec::new(), b"fst".to_vec(), b"snd".to_vec()]
+    }
+
+    fn expand_named(repl: &[u8], saves: &[i64]) -> Vec<u8> {
+        let mut out = Vec::new();
+        expand_repl(
+            repl,
+            b"abcd",
+            0,
+            2,
+            saves,
+            2,
+            &named_names(),
+            true,
+            &mut out,
+        );
+        out
+    }
+
+    #[test]
+    fn named_ref_participating_group() {
+        let out = expand_named(b"[$<snd>]", &[0, 2, 0, 1, 1, 2]);
+        assert_eq!(out, b"[b]");
+    }
+
+    #[test]
+    fn named_ref_unknown_name_empty() {
+        let out = expand_named(b"[$<fth>]", &[0, 2, 0, 1, 1, 2]);
+        assert_eq!(out, b"[]");
+    }
+
+    #[test]
+    fn named_ref_unparticipating_group_empty() {
+        // group 2 slots unwritten (-1) → empty.
+        let out = expand_named(b"[$<snd>]", &[0, 2, 0, 1, -1, -1]);
+        assert_eq!(out, b"[]");
+    }
+
+    #[test]
+    fn named_ref_unterminated_stays_literal() {
+        let out = expand_named(b"[$<snd]", &[0, 2, 0, 1, 1, 2]);
+        assert_eq!(out, b"[$<snd]");
+    }
+
+    #[test]
+    fn named_ref_duplicate_takes_participant() {
+        // `(?<x>a)|(?<x>b)` alternation: same name at 1 and 2, only
+        // group 2 participated.
+        let names = vec![Vec::new(), b"x".to_vec(), b"x".to_vec()];
+        let mut out = Vec::new();
+        expand_repl(
+            b"[$<x>]",
+            b"ba",
+            0,
+            1,
+            &[0, 1, -1, -1, 0, 1],
+            2,
+            &names,
+            true,
+            &mut out,
+        );
+        assert_eq!(out, b"[b]");
+    }
 }
