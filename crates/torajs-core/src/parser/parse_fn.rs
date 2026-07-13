@@ -229,6 +229,18 @@ impl<'a> Parser<'a> {
                     } else {
                         None
                     };
+                    // RFC 20260714-dstr-residual — a whole-pattern
+                    // default pins the un-annotated synth param to the
+                    // default's inferred type (`= {}` → empty Struct),
+                    // and the desugared pattern reads then miss at
+                    // lower time ("no field" panic). Force `any` — the
+                    // catch-destr precedent: reads route the Any tier
+                    // and per-field defaults gate correctly.
+                    let type_ann = if type_ann.is_none() && default.is_some() {
+                        Some("any".to_string())
+                    } else {
+                        type_ann
+                    };
                     params.push(Param {
                         name: synth,
                         type_ann,
