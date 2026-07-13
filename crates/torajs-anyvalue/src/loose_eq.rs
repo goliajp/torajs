@@ -227,12 +227,14 @@ unsafe fn bigint_num_eq(b: AnyValue, n: f64) -> bool {
 }
 
 /// §7.2.14 steps 11-12 — object × primitive: `ToPrimitive(obj)`
-/// with default hint, recurse on the primitive result. A pending
-/// TypeError (both coercion methods answered objects) surfaces
-/// through the caller's throw check; `false` is the placeholder.
+/// with default hint (number order for ordinary objects, string
+/// order for Date per §21.4.4.45), recurse on the primitive
+/// result. A pending TypeError (both coercion methods answered
+/// objects) surfaces through the caller's throw check; `false` is
+/// the placeholder.
 unsafe fn obj_prim_eq(obj: AnyValue, other: AnyValue) -> bool {
     // SAFETY: obj is a non-Str/BigInt/Symbol cell per bucket.
-    match unsafe { crate::to_primitive::heap_to_primitive(as_void_ptr(obj), false) } {
+    match unsafe { crate::to_primitive::heap_to_primitive_default(as_void_ptr(obj)) } {
         Some(prim) => {
             let eq = unsafe { loose_eq(prim, other) };
             unsafe { __torajs_anyv_rc_dec(prim) };

@@ -94,6 +94,18 @@ fn is_object_value(v: AnyValue) -> bool {
     !matches!(h.tag(), Tag::Str)
 }
 
+/// `ToPrimitive(cell)` with the DEFAULT hint (§7.1.1 step 1.c):
+/// every ordinary object treats default as number order, but a
+/// Date's `@@toPrimitive` maps default to string order
+/// (§21.4.4.45) — `date == str` compares the toString form, not
+/// the epoch millis. Loose-equality's object arm (§7.2.14 steps
+/// 11-12) is the consumer.
+pub(crate) unsafe fn heap_to_primitive_default(cell: *mut c_void) -> Option<AnyValue> {
+    let h = unsafe { &*(cell as *const HeapHeader) };
+    let hint_string = matches!(h.tag(), Tag::Date);
+    unsafe { heap_to_primitive(cell, hint_string) }
+}
+
 /// OrdinaryToPrimitive over a heap cell. `hint_string` picks the
 /// method order (`toString` → `valueOf` for hint string, reversed
 /// for hint number). Returns the first primitive result as a
