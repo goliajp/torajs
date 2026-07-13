@@ -33,45 +33,61 @@ pub fn check(ast: &Ast) -> Result<GenericCallSites, String> {
 /// 22+ parse_type call sites — this side-channel is the smaller
 /// change).
 pub fn check_with_types(ast: &Ast) -> Result<(GenericCallSites, HashMap<ExprId, Type>), String> {
-    check_with_arity(ast).map(|(g, t, _, _, _)| (g, t))
+    check_with_arity(ast).map(|(g, t, _, _, _, _)| (g, t))
 }
 
 /// T-28 — full pipeline artifacts: generic call sites, per-Expr types,
-/// per-Call arity pad map, and the demoted speculative-rewrite map
+/// per-Call arity pad map, the demoted speculative-rewrite map
 /// (name-based class-method rewrites whose receiver checked as a
-/// builtin container; ssa_lower restores the member-call shape for
-/// those — see cm_demote.rs).
+/// builtin container; the member-call shape is restored inside the
+/// mono pass — see cm_demote.rs), the contextual-any literal set, and
+/// the monomorphization output (owned post-restore AST with
+/// specialization FnDecls appended + call retargets + generic names
+/// for lower pass-1 to skip — see check_monomorph.rs).
 pub type CheckArtifacts = (
     GenericCallSites,
     HashMap<ExprId, Type>,
     HashMap<ExprId, usize>,
     HashMap<ExprId, ExprId>,
     std::collections::HashSet<ExprId>,
+    crate::check_monomorph::MonoOutput,
 );
 
 /// T-28 — check that also returns the per-Call arity pad + demotion
 /// maps. New callers (main.rs `tr run` / `tr build`) use this; the
 /// older `check_with_types` is kept for back-compat (tests, lsp).
+///
+/// Runs post-check monomorphization (specializations emitted AND
+/// checked — RFC 20260713-mono-check-specializations) after the main
+/// pipeline; errors surfaced inside specialization bodies reject the
+/// program the same way top-level errors do.
 pub fn check_with_arity(ast: &Ast) -> Result<CheckArtifacts, String> {
     let mut c = Checker::new();
     c.run_full_pipeline(ast);
-    let error_messages: Vec<String> = c
-        .errors
-        .iter()
-        .filter(|d| d.severity == Severity::Error)
-        .map(|d| d.message.clone())
-        .collect();
-    if error_messages.is_empty() {
-        Ok((
-            c.generic_call_sites,
-            c.expr_types,
-            c.arity_pad_count,
-            c.demoted_cm_rewrites,
-            c.contextual_any_literals,
-        ))
-    } else {
-        Err(error_messages.join("\n"))
+    let collect_errors = |c: &Checker| -> Vec<String> {
+        c.errors
+            .iter()
+            .filter(|d| d.severity == Severity::Error)
+            .map(|d| d.message.clone())
+            .collect()
+    };
+    let error_messages = collect_errors(&c);
+    if !error_messages.is_empty() {
+        return Err(error_messages.join("\n"));
     }
+    let mono = crate::check_monomorph::monomorphize_and_check(&mut c, ast);
+    let error_messages = collect_errors(&c);
+    if !error_messages.is_empty() {
+        return Err(error_messages.join("\n"));
+    }
+    Ok((
+        c.generic_call_sites,
+        c.expr_types,
+        c.arity_pad_count,
+        c.demoted_cm_rewrites,
+        c.contextual_any_literals,
+        mono,
+    ))
 }
 
 /// v0.3 #5 LSP — string-typed errors-only collector kept for back-

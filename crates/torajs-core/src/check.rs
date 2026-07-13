@@ -332,6 +332,11 @@ pub use crate::check_entry::{
     collect_types_and_errors,
 };
 
+// Post-check monomorphization output (RFC
+// 20260713-mono-check-specializations) — carried inside
+// `CheckArtifacts`, so the type needs a public path.
+pub use crate::check_monomorph::MonoOutput;
+
 impl Checker {
     pub(crate) fn new() -> Self {
         Self {

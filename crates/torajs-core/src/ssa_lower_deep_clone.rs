@@ -1,12 +1,11 @@
 //! Deep-clone Stmt/Expr helpers extracted from `ssa_lower.rs` chunk 365.
 //!
 //! Used exclusively by generic monomorphization
-//! (`ssa_lower_generics_monomorph::monomorphize_generics`) — each mono
+//! (`check_monomorph::monomorphize_and_check`) — each mono
 //! instantiation gets a private copy of the body's expressions so that
 //! subsequent per-instantiation rewrites (substitute_in_stmt +
-//! rewrite_tvdefault_in_stmt + rewrite_inner_generic_calls) do not clobber
-//! each other. The clone allocates fresh ExprIds by appending to
-//! `Ast::exprs`.
+//! rewrite_tvdefault_in_stmt) do not clobber each other. The clone
+//! allocates fresh ExprIds by appending to `Ast::exprs`.
 
 use crate::ast::{Ast, Expr, ExprId, Stmt};
 
@@ -14,11 +13,18 @@ use crate::ast::{Ast, Expr, ExprId, Stmt};
 /// a Stmt that references freshly-allocated ExprIds. Used by
 /// monomorphization so each instantiation gets its own private copy of
 /// the body's expressions (no shared rewriting between instantiations).
-pub(crate) fn deep_clone_stmt(ast: &mut Ast, s: &Stmt) -> Stmt {
+///
+/// `map` records every `(original ExprId, cloned ExprId)` pair in
+/// traversal order (a Vec, not a HashMap, so downstream consumers
+/// iterate deterministically). The monomorphizer uses it to migrate
+/// the checker's per-ExprId side tables (generic_call_sites /
+/// arity_pad_count) onto the cloned body — those are keyed by the
+/// ORIGINAL body's ExprIds and would otherwise never match a clone.
+pub(crate) fn deep_clone_stmt(ast: &mut Ast, map: &mut Vec<(ExprId, ExprId)>, s: &Stmt) -> Stmt {
     match s {
-        Stmt::Expr(eid) => Stmt::Expr(deep_clone_expr(ast, *eid)),
-        Stmt::Throw(eid) => Stmt::Throw(deep_clone_expr(ast, *eid)),
-        Stmt::Return(maybe) => Stmt::Return(maybe.map(|eid| deep_clone_expr(ast, eid))),
+        Stmt::Expr(eid) => Stmt::Expr(deep_clone_expr(ast, map, *eid)),
+        Stmt::Throw(eid) => Stmt::Throw(deep_clone_expr(ast, map, *eid)),
+        Stmt::Return(maybe) => Stmt::Return(maybe.map(|eid| deep_clone_expr(ast, map, eid))),
         Stmt::LetDecl {
             mutable,
             name,
@@ -29,7 +35,7 @@ pub(crate) fn deep_clone_stmt(ast: &mut Ast, s: &Stmt) -> Stmt {
             mutable: *mutable,
             name: name.clone(),
             type_ann: type_ann.clone(),
-            init: deep_clone_expr(ast, *init),
+            init: deep_clone_expr(ast, map, *init),
             // a deep clone must preserve `is_var` — hardcoding false
             // silently turned cloned `var` decls into `let`/`const`,
             // dropping var-hoist semantics (zero-warn surfaced it).
@@ -40,19 +46,19 @@ pub(crate) fn deep_clone_stmt(ast: &mut Ast, s: &Stmt) -> Stmt {
             then_branch,
             else_branch,
         } => Stmt::If {
-            cond: deep_clone_expr(ast, *cond),
-            then_branch: Box::new(deep_clone_stmt(ast, then_branch)),
+            cond: deep_clone_expr(ast, map, *cond),
+            then_branch: Box::new(deep_clone_stmt(ast, map, then_branch)),
             else_branch: else_branch
                 .as_ref()
-                .map(|e| Box::new(deep_clone_stmt(ast, e))),
+                .map(|e| Box::new(deep_clone_stmt(ast, map, e))),
         },
         Stmt::While { cond, body } => Stmt::While {
-            cond: deep_clone_expr(ast, *cond),
-            body: Box::new(deep_clone_stmt(ast, body)),
+            cond: deep_clone_expr(ast, map, *cond),
+            body: Box::new(deep_clone_stmt(ast, map, body)),
         },
         Stmt::DoWhile { body, cond } => Stmt::DoWhile {
-            body: Box::new(deep_clone_stmt(ast, body)),
-            cond: deep_clone_expr(ast, *cond),
+            body: Box::new(deep_clone_stmt(ast, map, body)),
+            cond: deep_clone_expr(ast, map, *cond),
         },
         Stmt::For {
             init,
@@ -60,30 +66,40 @@ pub(crate) fn deep_clone_stmt(ast: &mut Ast, s: &Stmt) -> Stmt {
             step,
             body,
         } => Stmt::For {
-            init: init.as_ref().map(|i| Box::new(deep_clone_stmt(ast, i))),
-            cond: cond.map(|c| deep_clone_expr(ast, c)),
-            step: step.map(|s2| deep_clone_expr(ast, s2)),
-            body: Box::new(deep_clone_stmt(ast, body)),
+            init: init
+                .as_ref()
+                .map(|i| Box::new(deep_clone_stmt(ast, map, i))),
+            cond: cond.map(|c| deep_clone_expr(ast, map, c)),
+            step: step.map(|s2| deep_clone_expr(ast, map, s2)),
+            body: Box::new(deep_clone_stmt(ast, map, body)),
         },
         Stmt::Switch {
             scrutinee,
             cases,
             default,
         } => Stmt::Switch {
-            scrutinee: deep_clone_expr(ast, *scrutinee),
+            scrutinee: deep_clone_expr(ast, map, *scrutinee),
             cases: cases
                 .iter()
                 .map(|c| crate::ast::SwitchCase {
-                    value: deep_clone_expr(ast, c.value),
-                    body: c.body.iter().map(|s| deep_clone_stmt(ast, s)).collect(),
+                    value: deep_clone_expr(ast, map, c.value),
+                    body: c
+                        .body
+                        .iter()
+                        .map(|s| deep_clone_stmt(ast, map, s))
+                        .collect(),
                 })
                 .collect(),
             default: default
                 .as_ref()
-                .map(|db| db.iter().map(|s| deep_clone_stmt(ast, s)).collect()),
+                .map(|db| db.iter().map(|s| deep_clone_stmt(ast, map, s)).collect()),
         },
-        Stmt::Block(stmts) => Stmt::Block(stmts.iter().map(|s| deep_clone_stmt(ast, s)).collect()),
-        Stmt::Multi(stmts) => Stmt::Multi(stmts.iter().map(|s| deep_clone_stmt(ast, s)).collect()),
+        Stmt::Block(stmts) => {
+            Stmt::Block(stmts.iter().map(|s| deep_clone_stmt(ast, map, s)).collect())
+        }
+        Stmt::Multi(stmts) => {
+            Stmt::Multi(stmts.iter().map(|s| deep_clone_stmt(ast, map, s)).collect())
+        }
         Stmt::Try {
             body,
             had_catch,
@@ -92,14 +108,17 @@ pub(crate) fn deep_clone_stmt(ast: &mut Ast, s: &Stmt) -> Stmt {
             catch_body,
             finally_body,
         } => Stmt::Try {
-            body: body.iter().map(|s| deep_clone_stmt(ast, s)).collect(),
+            body: body.iter().map(|s| deep_clone_stmt(ast, map, s)).collect(),
             had_catch: *had_catch,
             catch_param: catch_param.clone(),
             catch_type: catch_type.clone(),
-            catch_body: catch_body.iter().map(|s| deep_clone_stmt(ast, s)).collect(),
+            catch_body: catch_body
+                .iter()
+                .map(|s| deep_clone_stmt(ast, map, s))
+                .collect(),
             finally_body: finally_body
                 .as_ref()
-                .map(|fb| fb.iter().map(|s| deep_clone_stmt(ast, s)).collect()),
+                .map(|fb| fb.iter().map(|s| deep_clone_stmt(ast, map, s)).collect()),
         },
         // Stmts that don't carry ExprIds — clone trivially.
         other => other.clone(),
@@ -139,7 +158,11 @@ fn clone_leaf(e: &Expr) -> Expr {
     }
 }
 
-pub(crate) fn deep_clone_expr(ast: &mut Ast, eid: ExprId) -> ExprId {
+pub(crate) fn deep_clone_expr(
+    ast: &mut Ast,
+    map: &mut Vec<(ExprId, ExprId)>,
+    eid: ExprId,
+) -> ExprId {
     let new_expr = match ast.get_expr(eid) {
         Expr::BinOp { op, left, right } => {
             let op = *op;
@@ -147,8 +170,8 @@ pub(crate) fn deep_clone_expr(ast: &mut Ast, eid: ExprId) -> ExprId {
             let r = *right;
             Expr::BinOp {
                 op,
-                left: deep_clone_expr(ast, l),
-                right: deep_clone_expr(ast, r),
+                left: deep_clone_expr(ast, map, l),
+                right: deep_clone_expr(ast, map, r),
             }
         }
         Expr::Unary { op, expr } => {
@@ -156,14 +179,14 @@ pub(crate) fn deep_clone_expr(ast: &mut Ast, eid: ExprId) -> ExprId {
             let e = *expr;
             Expr::Unary {
                 op,
-                expr: deep_clone_expr(ast, e),
+                expr: deep_clone_expr(ast, map, e),
             }
         }
         Expr::Member { obj, name } => {
             let o = *obj;
             let name = name.clone();
             Expr::Member {
-                obj: deep_clone_expr(ast, o),
+                obj: deep_clone_expr(ast, map, o),
                 name,
             }
         }
@@ -171,36 +194,43 @@ pub(crate) fn deep_clone_expr(ast: &mut Ast, eid: ExprId) -> ExprId {
             let c = *callee;
             let args = args.clone();
             Expr::Call {
-                callee: deep_clone_expr(ast, c),
-                args: args.into_iter().map(|a| deep_clone_expr(ast, a)).collect(),
+                callee: deep_clone_expr(ast, map, c),
+                args: args
+                    .into_iter()
+                    .map(|a| deep_clone_expr(ast, map, a))
+                    .collect(),
             }
         }
         Expr::Assign { target, value } => {
             let t = *target;
             let v = *value;
             Expr::Assign {
-                target: deep_clone_expr(ast, t),
-                value: deep_clone_expr(ast, v),
+                target: deep_clone_expr(ast, map, t),
+                value: deep_clone_expr(ast, map, v),
             }
         }
         Expr::Index { obj, index } => {
             let o = *obj;
             let i = *index;
             Expr::Index {
-                obj: deep_clone_expr(ast, o),
-                index: deep_clone_expr(ast, i),
+                obj: deep_clone_expr(ast, map, o),
+                index: deep_clone_expr(ast, map, i),
             }
         }
         Expr::Array(els) => {
             let els = els.clone();
-            Expr::Array(els.into_iter().map(|e| deep_clone_expr(ast, e)).collect())
+            Expr::Array(
+                els.into_iter()
+                    .map(|e| deep_clone_expr(ast, map, e))
+                    .collect(),
+            )
         }
         Expr::ObjectLit { fields } => {
             let fields = fields.clone();
             Expr::ObjectLit {
                 fields: fields
                     .into_iter()
-                    .map(|(n, e)| (n, deep_clone_expr(ast, e)))
+                    .map(|(n, e)| (n, deep_clone_expr(ast, map, e)))
                     .collect(),
             }
         }
@@ -218,7 +248,7 @@ pub(crate) fn deep_clone_expr(ast: &mut Ast, eid: ExprId) -> ExprId {
             Expr::ArrowFn {
                 params,
                 return_type,
-                body: body.iter().map(|s| deep_clone_stmt(ast, s)).collect(),
+                body: body.iter().map(|s| deep_clone_stmt(ast, map, s)).collect(),
             }
         }
         Expr::New { class_name, args } => {
@@ -226,13 +256,19 @@ pub(crate) fn deep_clone_expr(ast: &mut Ast, eid: ExprId) -> ExprId {
             let args = args.clone();
             Expr::New {
                 class_name,
-                args: args.into_iter().map(|a| deep_clone_expr(ast, a)).collect(),
+                args: args
+                    .into_iter()
+                    .map(|a| deep_clone_expr(ast, map, a))
+                    .collect(),
             }
         }
         Expr::Super { args } => {
             let args = args.clone();
             Expr::Super {
-                args: args.into_iter().map(|a| deep_clone_expr(ast, a)).collect(),
+                args: args
+                    .into_iter()
+                    .map(|a| deep_clone_expr(ast, map, a))
+                    .collect(),
             }
         }
         Expr::Ternary {
@@ -244,66 +280,69 @@ pub(crate) fn deep_clone_expr(ast: &mut Ast, eid: ExprId) -> ExprId {
             let t = *then_branch;
             let e = *else_branch;
             Expr::Ternary {
-                cond: deep_clone_expr(ast, c),
-                then_branch: deep_clone_expr(ast, t),
-                else_branch: deep_clone_expr(ast, e),
+                cond: deep_clone_expr(ast, map, c),
+                then_branch: deep_clone_expr(ast, map, t),
+                else_branch: deep_clone_expr(ast, map, e),
             }
         }
         Expr::TypeOf { expr } => {
             let e = *expr;
             Expr::TypeOf {
-                expr: deep_clone_expr(ast, e),
+                expr: deep_clone_expr(ast, map, e),
             }
         }
         Expr::InstanceOf { expr, class_name } => {
             let e = *expr;
             let cn = class_name.clone();
             Expr::InstanceOf {
-                expr: deep_clone_expr(ast, e),
+                expr: deep_clone_expr(ast, map, e),
                 class_name: cn,
             }
         }
         Expr::Spread { expr } => {
             let e = *expr;
             Expr::Spread {
-                expr: deep_clone_expr(ast, e),
+                expr: deep_clone_expr(ast, map, e),
             }
         }
         Expr::Nullish { lhs, rhs } => {
             let l = *lhs;
             let r = *rhs;
             Expr::Nullish {
-                lhs: deep_clone_expr(ast, l),
-                rhs: deep_clone_expr(ast, r),
+                lhs: deep_clone_expr(ast, map, l),
+                rhs: deep_clone_expr(ast, map, r),
             }
         }
         Expr::OptChain { obj, name } => {
             let o = *obj;
             let name = name.clone();
             Expr::OptChain {
-                obj: deep_clone_expr(ast, o),
+                obj: deep_clone_expr(ast, map, o),
                 name,
             }
         }
         Expr::OptIndex { obj, index } => {
             let (o, i) = (*obj, *index);
             Expr::OptIndex {
-                obj: deep_clone_expr(ast, o),
-                index: deep_clone_expr(ast, i),
+                obj: deep_clone_expr(ast, map, o),
+                index: deep_clone_expr(ast, map, i),
             }
         }
         Expr::OptCall { callee, args } => {
             let (c, args) = (*callee, args.clone());
             Expr::OptCall {
-                callee: deep_clone_expr(ast, c),
-                args: args.into_iter().map(|a| deep_clone_expr(ast, a)).collect(),
+                callee: deep_clone_expr(ast, map, c),
+                args: args
+                    .into_iter()
+                    .map(|a| deep_clone_expr(ast, map, a))
+                    .collect(),
             }
         }
         Expr::PostIncr { target, is_inc } => {
             let t = *target;
             let is_inc = *is_inc;
             Expr::PostIncr {
-                target: deep_clone_expr(ast, t),
+                target: deep_clone_expr(ast, map, t),
                 is_inc,
             }
         }
@@ -311,7 +350,7 @@ pub(crate) fn deep_clone_expr(ast: &mut Ast, eid: ExprId) -> ExprId {
             let e = *expr;
             let ty_ann = ty_ann.clone();
             Expr::As {
-                expr: deep_clone_expr(ast, e),
+                expr: deep_clone_expr(ast, map, e),
                 ty_ann,
             }
         }
@@ -319,11 +358,13 @@ pub(crate) fn deep_clone_expr(ast: &mut Ast, eid: ExprId) -> ExprId {
             let l = *left;
             let r = *right;
             Expr::Sequence {
-                left: deep_clone_expr(ast, l),
-                right: deep_clone_expr(ast, r),
+                left: deep_clone_expr(ast, map, l),
+                right: deep_clone_expr(ast, map, r),
             }
         }
         leaf => clone_leaf(leaf),
     };
-    ast.add_expr(new_expr)
+    let new_id = ast.add_expr(new_expr);
+    map.push((eid, new_id));
+    new_id
 }

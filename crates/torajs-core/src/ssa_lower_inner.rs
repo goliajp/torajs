@@ -3,8 +3,9 @@
 //!
 //! Invoked once per compile from `ssa_lower::lower_with_arity`. Runs the
 //! whole SSA lowering pipeline in order:
-//!   0. M3 generic monomorphization (see [`crate::ssa_lower_generics_monomorph`]).
-//!   0. W1 num_width analysis (see [`crate::num_width`]).
+//!   0. W1 num_width analysis (see [`crate::num_width`]) over the
+//!      check-side monomorphization output (`check_monomorph.rs` —
+//!      the mono AST + call retargets arrive via `CheckArtifacts`).
 //!   0. Intrinsic-declare batches A/B/C/D (see the four
 //!      [`crate::ssa_lower_intrinsics_init_a`]-style siblings).
 //!   0.5 Type-alias + TypeDecl + class-tag + may-throw (see
@@ -37,21 +38,24 @@ mod body_passes;
 use std::collections::HashMap;
 
 use crate::ast::{Ast, Stmt};
-use crate::check::GenericCallSites;
+use crate::check_monomorph::MonoOutput;
 use crate::ssa::{self, FuncId, Module, Type};
-use crate::ssa_lower::monomorphize_generics;
 
 pub(crate) fn lower_inner(
-    ast: &Ast,
-    generic_call_sites: &GenericCallSites,
     expr_types: &HashMap<crate::ast::ExprId, crate::check::Type>,
     arity_pad_count: &HashMap<crate::ast::ExprId, usize>,
     demoted_cm_rewrites: &HashMap<crate::ast::ExprId, crate::ast::ExprId>,
     contextual_any: &std::collections::HashSet<crate::ast::ExprId>,
+    mono: &MonoOutput,
 ) -> Module {
-    let (owned_ast, call_retargets, generic_fn_names, num_f64_slots) =
-        monomorphize_and_analyze(ast, generic_call_sites, demoted_cm_rewrites);
-    let ast: &Ast = &owned_ast;
+    // Monomorphization ran at the end of the check pipeline
+    // (check_monomorph.rs) — specializations are already appended and
+    // type-checked, demoted member-call shapes already restored. W1
+    // num-width analysis is all that remains of the old pass 0.
+    let ast: &Ast = &mono.mono_ast;
+    let call_retargets = &mono.call_retargets;
+    let generic_fn_names = &mono.generic_fn_names;
+    let num_f64_slots = crate::num_width::analyze(ast, call_retargets, demoted_cm_rewrites);
 
     let mut module = Module::default();
     let mut fn_table: HashMap<String, FuncId> = HashMap::new();
@@ -95,7 +99,7 @@ pub(crate) fn lower_inner(
         &mut struct_layouts,
         &mut inst_memo,
         &num_f64_slots,
-        &generic_fn_names,
+        generic_fn_names,
     );
     let mut fn_sig_ids = pass1.fn_sig_ids;
     let (decl_indices, closure_decls) = partition_closure_decls(ast, pass1.decl_indices);
@@ -205,7 +209,7 @@ pub(crate) fn lower_inner(
         &mut inst_memo,
         &generic_struct_decls,
         &mut closure_captures,
-        &call_retargets,
+        call_retargets,
         &may_throw,
         &class_name_to_tag,
         &anon_stamp_pool,
@@ -261,46 +265,6 @@ fn partition_closure_decls(
             });
     closure_decls.reverse();
     (user_decls, closure_decls)
-}
-
-/// M3 monomorphization + W1 num-width analysis — the AST-owning
-/// front half of `lower_inner` (split 2026-07-03, fn-debt decomp;
-/// body verbatim, the final `analyze` call reads `&owned_ast`
-/// directly instead of the caller-side `ast` rebind).
-fn monomorphize_and_analyze(
-    ast: &Ast,
-    generic_call_sites: &GenericCallSites,
-    demoted_cm_rewrites: &HashMap<crate::ast::ExprId, crate::ast::ExprId>,
-) -> (
-    Ast,
-    HashMap<crate::ast::ExprId, String>,
-    std::collections::HashSet<String>,
-    crate::num_width::WidthTable,
-) {
-    // M3 — produce monomorphized FnDecls from each generic call site,
-    // and a per-call-site `ExprId → mono_name` retarget map. We clone
-    // the AST so the appended mono FnDecls don't mutate the caller's
-    // copy (cheap: the AST is a few thousand exprs at most). The
-    // monomorphizer needs a `&mut Ast` so it can fabricate new Ident
-    // expressions when transitively-rewriting inner generic-call
-    // callees in cloned bodies (class methods calling each other with
-    // shared type params).
-    let mut owned_ast: Ast = ast.clone();
-    // Restore the member-call shape at demoted speculative rewrites
-    // BEFORE monomorphization, so cloned generic bodies and num_width
-    // see the builtin dispatch shape (mechanism: cm_demote.rs).
-    for (&call_eid, &alt_eid) in demoted_cm_rewrites {
-        owned_ast.exprs[call_eid.0 as usize] = owned_ast.exprs[alt_eid.0 as usize].clone();
-    }
-    let (mono_decls, call_retargets, generic_fn_names) =
-        monomorphize_generics(&mut owned_ast, generic_call_sites);
-    owned_ast.stmts.extend(mono_decls);
-    // W1 (ann-width RFC) — module-wide number-slot width inference.
-    // Single ground truth for every `: number` (or un-annotated
-    // number) slot's I64-vs-F64 representation; consumers below gate
-    // on the annotation and the `__` synthetic-fn exclusion.
-    let num_f64_slots = crate::num_width::analyze(&owned_ast, &call_retargets, demoted_cm_rewrites);
-    (owned_ast, call_retargets, generic_fn_names, num_f64_slots)
 }
 
 /// Pass 0 — the four intrinsic-declare batches (A/B/C/D aggregator

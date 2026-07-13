@@ -1,31 +1,28 @@
-//! Generics monomorphization pre-pass (M3). Extracted from `ssa_lower.rs`
-//! chunk 364 — the substitute + monomorphize + rewrite-tvdefault family.
+//! Generics monomorphization machine parts (M3). The monomorphizer
+//! itself moved into the check pipeline (`check_monomorph.rs`, RFC
+//! 20260713-mono-check-specializations) so each specialization body
+//! is type-checked after substitution — this file keeps the shared
+//! parts both sides use:
 //!
-//! Pipeline (called from `lower_with_arity` after typecheck):
-//!   1. `monomorphize_generics(ast, generic_call_sites)` — produces
-//!      specialized `Stmt::FnDecl`s for each unique `(name, type_args)`
-//!      tuple, plus a `CallRetargets` map rewriting each generic call
-//!      site's callee.
-//!   2. `substitute_in_ann` — bare-word type-param substitution inside
-//!      annotation strings. Also used by:
-//!        * `num_width::alias` for width-aware alias resolution
-//!        * `ssa_lower_parse_type` for FnAnn subst
-//!   3. `rewrite_tvdefault_in_*` (sibling
-//!      `ssa_lower_generics_tvdefault.rs`) — replaces the `__tvdefault__<T>` marker
-//!      Idents (planted by class-factory default-init) with the concrete
-//!      default expression for the substituted type.
+//!   - `collect_generics` / `Generics` — index of generic FnDecls.
+//!   - `compute_arg_anns` — width/closure-shape-aware ann key per
+//!     call site.
+//!   - `substitute_in_ann` — bare-word type-param substitution inside
+//!     annotation strings. Also used by:
+//!       * `num_width::alias` for width-aware alias resolution
+//!       * `ssa_lower_parse_type` for FnAnn subst
+//!   - `substitute_in_stmt` — recursive ann substitution over a body.
+//!   - `name_safe` — mono-name encoding of an ann string.
 //!
-//! Cross-file deps still in `ssa_lower.rs`:
-//!   - `deep_clone_stmt` (fresh ExprIds per mono instance)
-//!   - `rewrite_inner_generic_calls` (transitive rewrite)
-//!   Both are `pub(crate)` so this sibling can call them via
-//!   `crate::ssa_lower::{deep_clone_stmt, rewrite_inner_generic_calls}`.
+//! Sibling `ssa_lower_generics_tvdefault.rs` still rewrites the
+//! `__tvdefault__<T>` marker Idents (planted by class-factory
+//! default-init) with the concrete default expression for the
+//! substituted type.
 
 use std::collections::HashMap;
 
 use crate::ast::{Ast, Param, Stmt};
-use crate::check::{self as check_mod, GenericCallSites, type_to_ann};
-use crate::ssa_lower::{CallRetargets, deep_clone_stmt, rewrite_inner_generic_calls};
+use crate::check::{self as check_mod, type_to_ann};
 
 /// Encode an annotation string into a name-safe form for use inside a
 /// monomorphized fn name. `number` → `number`; `number[]` → `number_arr`;
@@ -82,7 +79,7 @@ pub(crate) fn substitute_in_ann(ann: &str, subst: &[(String, String)]) -> String
 /// carry annotation strings; we walk into nested Block / If / While / For
 /// bodies. `subst` is the (param → concrete-ann) list applied to every
 /// `type_ann` Some(...) string encountered.
-fn substitute_in_stmt(stmt: &mut Stmt, subst: &[(String, String)]) {
+pub(crate) fn substitute_in_stmt(stmt: &mut Stmt, subst: &[(String, String)]) {
     match stmt {
         Stmt::LetDecl { type_ann, .. } => {
             if let Some(ann) = type_ann {
@@ -135,28 +132,74 @@ fn substitute_in_stmt(stmt: &mut Stmt, subst: &[(String, String)]) {
     }
 }
 
-/// M3 — produce a monomorphized FnDecl for each unique
-/// `(generic_name, type_args)` tuple in `generic_call_sites`. Returns:
-///   - `mono_decls`: the new specialized FnDecls (to be appended to
-///     ast.stmts so pass 1 / 2 lower them as concrete fns)
-///   - `call_retargets`: per-call-site mapping `ExprId → mono_name` so
-///     the lowerer can rewrite each generic call's callee
-///   - `generic_fn_names`: original generic-fn names (for pass 1 to skip)
-pub(crate) fn monomorphize_generics(
-    ast: &mut Ast,
-    generic_call_sites: &GenericCallSites,
-) -> (Vec<Stmt>, CallRetargets, std::collections::HashSet<String>) {
-    let mut mono_decls: Vec<Stmt> = Vec::new();
-    let mut call_retargets: CallRetargets = HashMap::new();
-    let mut generic_fn_names: std::collections::HashSet<String> = std::collections::HashSet::new();
-    // Cache: (name, [annotation_strings]) → mono_name. Re-uses an existing
-    // monomorphization when two call sites infer the same type args.
-    let mut cache: HashMap<(String, Vec<String>), String> = HashMap::new();
+/// Width- and closure-shape-aware annotation strings for one generic
+/// call site's inferred type args. Shared by the seed loop (checker-
+/// recorded top-level call sites) and `migrate_cloned_call_sites`
+/// (the same records replayed onto cloned specialization bodies).
+///
+/// Width: a type-arg that resolved to `Type::Number` picks "f64" when
+/// any arg position naming that type-param statically lowers to f64
+/// (Math.* call, decimal literal, etc.); otherwise "number" → I64.
+/// This lets one generic fn serve both `check<T=Number>(1, 2)` (I64
+/// mono) and `check<T=Number>(Math.abs(-1), 1)` (F64 mono) cleanly.
+///
+/// Closure shape: `check::Type::Function` carries no closure-vs-bare-
+/// fn distinction, so `type_to_ann` always answers `__fn(` — but a
+/// closure ARG instantiating that type-param needs a `__cls(` slot
+/// (env-block ptr, env-first CallIndirect). Without the flip the mono
+/// body's call arm treats the env ptr as a bare fn ptr and jumps into
+/// it (SIGBUS). The 153-pass `__fn(`→`__cls(` infection can't see
+/// these anns — monomorphization runs after typecheck.
+pub(crate) fn compute_arg_anns(
+    ast: &Ast,
+    eid: crate::ast::ExprId,
+    callee_name: &str,
+    type_args: &[check_mod::Type],
+    generics: &HashMap<String, (Vec<String>, Vec<Param>, Option<String>, Vec<Stmt>)>,
+) -> Vec<String> {
+    let widths: Vec<crate::num_width::NumWidth> =
+        crate::num_width::compute_typevar_widths(ast, eid, callee_name, type_args, generics);
+    let cls_shapes: Vec<crate::ssa_lower_generics_mono_shapes::ClsShape> =
+        crate::ssa_lower_generics_mono_shapes::compute_typevar_closure_shapes(
+            ast,
+            eid,
+            callee_name,
+            type_args,
+            generics,
+        );
+    type_args
+        .iter()
+        .zip(widths.iter())
+        .zip(cls_shapes.iter())
+        .map(|((ty, w), shape)| {
+            use crate::ssa_lower_generics_mono_shapes::ClsShape;
+            if matches!(ty, check_mod::Type::Number) && matches!(w, crate::num_width::NumWidth::F64)
+            {
+                "f64".into()
+            } else {
+                let ann = type_to_ann(ty);
+                match shape {
+                    ClsShape::Closure if ann.starts_with("__fn(") => {
+                        format!("__cls({}", &ann["__fn(".len()..])
+                    }
+                    ClsShape::ClosureArgc if ann.starts_with("__fn(") => {
+                        format!("__clsargc({}", &ann["__fn(".len()..])
+                    }
+                    _ => ann,
+                }
+            }
+        })
+        .collect()
+}
 
-    // Index original generic FnDecls by name. Cloned out so we can
-    // mutate ast freely below without aliasing.
-    let generics: HashMap<String, (Vec<String>, Vec<Param>, Option<String>, Vec<Stmt>)> = ast
-        .stmts
+/// Alias for the generic-FnDecl index: name -> (type_params, params,
+/// return_type, body).
+pub(crate) type Generics = HashMap<String, (Vec<String>, Vec<Param>, Option<String>, Vec<Stmt>)>;
+
+/// Index the AST's generic FnDecls by name. Cloned out so callers can
+/// mutate the AST freely while holding the index.
+pub(crate) fn collect_generics(ast: &Ast) -> Generics {
+    ast.stmts
         .iter()
         .filter_map(|s| match s {
             Stmt::FnDecl {
@@ -177,137 +220,5 @@ pub(crate) fn monomorphize_generics(
             )),
             _ => None,
         })
-        .collect();
-    for k in generics.keys() {
-        generic_fn_names.insert(k.clone());
-    }
-
-    // Worklist: (callee_name, arg_anns) — pending monomorphizations to
-    // emit. Seeded from generic_call_sites; grown by recursive walk
-    // over each just-emitted body.
-    let mut worklist: std::collections::VecDeque<(String, Vec<String>)> =
-        std::collections::VecDeque::new();
-    for (eid, (callee_name, type_args)) in generic_call_sites {
-        // Width-aware ann selection: for each type-arg that resolved to
-        // `Type::Number`, walk the arg positions whose param annotation
-        // names this type-param and pick "f64" if any arg statically
-        // lowers to f64 (Math.* call, decimal literal, etc.). Otherwise
-        // keep the default "number" → I64. This lets one generic fn
-        // serve both `check<T=Number>(1, 2)` (I64 mono) and
-        // `check<T=Number>(Math.abs(-1), 1)` (F64 mono) cleanly.
-        let widths: Vec<crate::num_width::NumWidth> =
-            crate::num_width::compute_typevar_widths(ast, *eid, callee_name, type_args, &generics);
-        // Closure-shape-aware ann selection (same mechanism as the
-        // width pass): `check::Type::Function` carries no
-        // closure-vs-bare-fn distinction, so `type_to_ann` always
-        // answers `__fn(` — but a closure ARG instantiating that
-        // type-param needs a `__cls(` slot (env-block ptr, env-first
-        // CallIndirect). Without the flip the mono body's call arm
-        // treats the env ptr as a bare fn ptr and jumps into it
-        // (SIGBUS). The 153-pass `__fn(`→`__cls(` infection can't
-        // see these anns — monomorphization runs after typecheck.
-        let cls_shapes: Vec<crate::ssa_lower_generics_mono_shapes::ClsShape> =
-            crate::ssa_lower_generics_mono_shapes::compute_typevar_closure_shapes(
-                ast,
-                *eid,
-                callee_name,
-                type_args,
-                &generics,
-            );
-        let arg_anns: Vec<String> = type_args
-            .iter()
-            .zip(widths.iter())
-            .zip(cls_shapes.iter())
-            .map(|((ty, w), shape)| {
-                use crate::ssa_lower_generics_mono_shapes::ClsShape;
-                if matches!(ty, check_mod::Type::Number)
-                    && matches!(w, crate::num_width::NumWidth::F64)
-                {
-                    "f64".into()
-                } else {
-                    let ann = type_to_ann(ty);
-                    match shape {
-                        ClsShape::Closure if ann.starts_with("__fn(") => {
-                            format!("__cls({}", &ann["__fn(".len()..])
-                        }
-                        ClsShape::ClosureArgc if ann.starts_with("__fn(") => {
-                            format!("__clsargc({}", &ann["__fn(".len()..])
-                        }
-                        _ => ann,
-                    }
-                }
-            })
-            .collect();
-        let cache_key = (callee_name.clone(), arg_anns.clone());
-        if !cache.contains_key(&cache_key) {
-            // Reserve mono name early so cycles break.
-            let suffix: Vec<String> = arg_anns.iter().map(|a| name_safe(a)).collect();
-            let mono_name = format!("{}$$_{}", callee_name, suffix.join("_"));
-            cache.insert(cache_key.clone(), mono_name.clone());
-            worklist.push_back((callee_name.clone(), arg_anns.clone()));
-        }
-        let mono_name = cache[&cache_key].clone();
-        call_retargets.insert(*eid, mono_name);
-    }
-    while let Some((callee_name, arg_anns)) = worklist.pop_front() {
-        let cache_key = (callee_name.clone(), arg_anns.clone());
-        let mono_name = cache[&cache_key].clone();
-        let Some((type_params, params, return_type, body)) = generics.get(&callee_name) else {
-            continue;
-        };
-        let subst: Vec<(String, String)> = type_params
-            .iter()
-            .cloned()
-            .zip(arg_anns.iter().cloned())
-            .collect();
-        let mut new_params: Vec<Param> = params.clone();
-        for p in new_params.iter_mut() {
-            if let Some(ann) = &mut p.type_ann {
-                *ann = substitute_in_ann(ann, &subst);
-            }
-        }
-        let new_return_type = return_type.as_ref().map(|rt| substitute_in_ann(rt, &subst));
-        // Deep-clone the body's expression graph so each mono body has
-        // FRESH ExprIds. Without this, multiple instantiations of the
-        // same generic share one expression arena and the
-        // transitive-rewrite step below would overwrite each other.
-        let mut new_body: Vec<Stmt> = body.iter().map(|s| deep_clone_stmt(ast, s)).collect();
-        for s in new_body.iter_mut() {
-            substitute_in_stmt(s, &subst);
-        }
-        // Rewrite `__tvdefault__T` marker Idents in object-literal field
-        // initializers to the concrete default for the substituted type.
-        // These markers are emitted by `default_init_for_type` for
-        // generic-class fields whose type is a TypeVar; without this
-        // rewrite the ObjectLit's field types wouldn't match the
-        // factory's let-decl type ann after substitution.
-        for s in new_body.iter() {
-            crate::ssa_lower_generics_tvdefault::rewrite_tvdefault_in_stmt(ast, s, &subst);
-        }
-        // Transitive rewrite: walk the freshly-substituted body for
-        // Call expressions whose callee is a generic fn sharing the
-        // SAME type_params name list. Reuse the outer subst (matching
-        // by position), rewrite the callee Ident to the mono name,
-        // and queue the inner instantiation. Class methods all share
-        // the class's type_params, so this covers __cm_C__m, the
-        // factory __new_C, and the ctor uniformly.
-        rewrite_inner_generic_calls(
-            ast,
-            &mut new_body,
-            &generics,
-            type_params,
-            &arg_anns,
-            &mut cache,
-            &mut worklist,
-        );
-        mono_decls.push(Stmt::FnDecl {
-            name: mono_name,
-            type_params: Vec::new(),
-            params: new_params,
-            return_type: new_return_type,
-            body: new_body,
-            is_generator: false,
-        });
-    }
-    (mono_decls, call_retargets, generic_fn_names)
+        .collect()
 }

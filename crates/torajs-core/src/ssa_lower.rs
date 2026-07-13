@@ -30,10 +30,9 @@ use crate::ssa::{Module, Type, ValueId};
 pub(crate) use crate::ssa_lower_ctx_struct::LowerCtx;
 pub(crate) use crate::ssa_lower_deep_clone::deep_clone_stmt;
 pub(crate) use crate::ssa_lower_env_drop_and_ret_ty::{effective_ret_ty, synthesize_env_drop};
-pub(crate) use crate::ssa_lower_generics_monomorph::{monomorphize_generics, substitute_in_ann};
+pub(crate) use crate::ssa_lower_generics_monomorph::substitute_in_ann;
 use crate::ssa_lower_inner::lower_inner;
 pub(crate) use crate::ssa_lower_intrinsics::Intrinsics;
-pub(crate) use crate::ssa_lower_rewrite_inner_generics::rewrite_inner_generic_calls;
 pub(crate) use crate::ssa_lower_synthesize_main::{declare_intrinsic, synthesize_main};
 
 /// Phase 2B refcount: every heap-allocated Obj reserves a 24-byte
@@ -124,15 +123,21 @@ pub(crate) type CallRetargets = HashMap<ExprId, String>;
 /// trailing missing params are Type::Any. ssa_lower's Expr::Call arm
 /// reads this and emits the padding before invoking the callee.
 pub fn lower_with_arity(ast: &Ast, artifacts: &crate::check::CheckArtifacts) -> Module {
-    let (generic_call_sites, expr_types, arity_pad_count, demoted_cm_rewrites, contextual_any) =
-        artifacts;
-    lower_inner(
-        ast,
-        generic_call_sites,
+    let (
+        _generic_call_sites,
         expr_types,
         arity_pad_count,
         demoted_cm_rewrites,
         contextual_any,
+        mono,
+    ) = artifacts;
+    let _ = ast;
+    lower_inner(
+        expr_types,
+        arity_pad_count,
+        demoted_cm_rewrites,
+        contextual_any,
+        mono,
     )
 }
 
