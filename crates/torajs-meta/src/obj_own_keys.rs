@@ -119,6 +119,14 @@ unsafe fn dynobj_keys_append(
         if skip_index_shadow && unsafe { key_is_canonical_index(key) } {
             continue;
         }
+        // `__proto__` is tr's [[Prototype]]-slot simulation key
+        // (class proto chains, %GeneratorPrototype% wiring — RFC
+        // 20260713 blade 5), never a spec own property: hide it from
+        // every own-keys surface (§10.1.11.1 lists own PROPERTY
+        // keys; the prototype lives in an internal slot).
+        if unsafe { key_is_proto_slot(key) } {
+            continue;
+        }
         // Borrowed key → the array slot takes its own share.
         unsafe { __torajs_rc_inc(key) };
         arr = unsafe { __torajs_arr_push(arr, key as i64) };
@@ -178,6 +186,13 @@ unsafe fn arr_cell_keys(cell: *const c_void, include_nonenum: i64) -> *mut c_voi
         return out;
     }
     unsafe { dynobj_keys_append(props, include_nonenum, out as *mut u8, true) as *mut c_void }
+}
+
+/// `true` iff the live Str key spells exactly `__proto__` (the
+/// [[Prototype]]-slot simulation key hidden from own-keys walks).
+unsafe fn key_is_proto_slot(key: *const c_void) -> bool {
+    let len = unsafe { key.cast::<u8>().add(8).cast::<u32>().read() } as usize;
+    len == 9 && unsafe { core::slice::from_raw_parts(key.cast::<u8>().add(16), 9) } == b"__proto__"
 }
 
 /// Canonical array-index test on a live Str key — the shadow-entry

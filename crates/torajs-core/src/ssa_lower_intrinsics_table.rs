@@ -327,6 +327,8 @@ pub(crate) fn build(
         class_register: init_c.any_substrate.class_register,
         class_get: init_c.any_substrate.class_get,
         get_proto_of_any: init_c.any_substrate.get_proto_of_any,
+        genfn_proto: init_c.any_substrate.genfn_proto,
+        genfn_chain: init_c.any_substrate.genfn_chain,
         any_typeof: init_c.any_substrate.any_typeof,
         any_to_bool: init_c.any_substrate.any_to_bool,
         any_to_number: init_c.any_substrate.any_to_number,

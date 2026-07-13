@@ -84,6 +84,13 @@ pub(crate) fn check(checker: &Checker, name: &str) -> Result<Type, String> {
             Ok(Type::Function(vec![Type::String], Box::new(Type::Void)))
         }
         "__torajs_my_class_ref" => Ok(Type::Function(vec![Type::String], Box::new(Type::Any))),
+        // RFC 20260713 blade 5 cut 4 — generator-proto →
+        // %GeneratorPrototype% chain writer (class_globals emits it
+        // at module init; lowered in the class-synth lane).
+        "__torajs_genfn_chain" => Ok(Type::Function(
+            vec![Type::Any, Type::Number],
+            Box::new(Type::Void),
+        )),
         "gc" => Ok(Type::Function(Vec::new(), Box::new(Type::Void))),
         "undefined" => Ok(Type::Undefined),
         "NaN" | "Infinity" => Ok(Type::Number),

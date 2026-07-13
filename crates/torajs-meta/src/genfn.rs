@@ -1,0 +1,197 @@
+//! `%GeneratorFunction%` / `%AsyncGeneratorFunction%` intrinsic
+//! reflection cells (RFC 20260713-generator-fn-value-substrate
+//! blade 5 cut 4).
+//!
+//! Per ES §27.3 / §27.4, every generator function's [[Prototype]] is
+//! `%GeneratorFunction.prototype%` (an ordinary object, NOT a
+//! function), whose `constructor` is the `%GeneratorFunction%`
+//! intrinsic and whose `prototype` is `%GeneratorPrototype%` — the
+//! shared [[Prototype]] of every per-generator `.prototype` object.
+//! Async generators mirror the trio under §27.4.
+//!
+//! tr mints each kind's trio lazily as dynobj singletons (the same
+//! immortal-singleton shape as `builtin_proto.rs`), wired with the
+//! spec attribute flags via the DefineOwnProperty kernel:
+//!
+//! - fn_proto.constructor → ctor            {W:0, E:0, C:1} §27.3.3.1
+//! - fn_proto.prototype   → gen_proto       {W:0, E:0, C:1} §27.3.3.2
+//! - fn_proto.__proto__   → Function.prototype (proto-slot key)
+//! - ctor.name            → "GeneratorFunction" {W:0, E:0, C:1}
+//! - ctor.length          → 1               {W:0, E:0, C:1}
+//! - ctor.prototype       → fn_proto        {W:0, E:0, C:0} §27.3.2.1
+//! - gen_proto.constructor → fn_proto       {W:0, E:0, C:1} §27.5.1.1
+//!
+//! Known boundary: `%GeneratorFunction%` is a dynobj, not a callable
+//! cell — `typeof` answers "object" and dynamic construction
+//! (`GeneratorFunction("yield 1")`) is out of scope (eval surface).
+//! ctor.__proto__ (%Function%) is unwired for the same reason.
+
+//! Capacity invariant: every dynobj minted or written here stays at
+//! ≤ 3 entries, under DYNOBJ_INITIAL_CAP's 7-entry dense capacity —
+//! no insert below ever relocates a cell, so the raw pointers held
+//! in `CELLS` (and the circular cross-links) stay valid without the
+//! obj_slot writeback dance.
+
+use core::ffi::c_void;
+
+use crate::reflect::{alloc_str_key, is_cell_imm};
+
+unsafe extern "C" {
+    fn __torajs_rc_inc(p: *mut c_void);
+    fn __torajs_str_drop(s: *mut u8);
+    fn __torajs_dynobj_alloc() -> *mut c_void;
+    fn __torajs_dynobj_set(obj_slot: *mut *mut c_void, key: *const u8, tag: u64, value: u64);
+    fn __torajs_dynobj_define(
+        obj_slot: *mut *mut c_void,
+        key: *const u8,
+        tag: u64,
+        value: u64,
+        flags_byte: u64,
+    );
+    fn __torajs_get_builtin_prototype(tag: i64) -> *mut c_void;
+}
+
+const ANY_I64: u64 = 2;
+const ANY_HEAP: u64 = 4;
+
+/// `layout.rs` DEFINE_* mirrors (flags-byte ABI): value-present +
+/// all-three-attrs-present, with the attr bits themselves cleared
+/// except as noted.
+const PRESENT_ALL_VALUE: u64 = (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6);
+const FLAG_CONFIGURABLE: u64 = 1 << 2;
+/// {writable:false, enumerable:false, configurable:true}
+const ATTRS_WEC_001: u64 = PRESENT_ALL_VALUE | FLAG_CONFIGURABLE;
+/// {writable:false, enumerable:false, configurable:false}
+const ATTRS_WEC_000: u64 = PRESENT_ALL_VALUE;
+
+/// Builtin-proto singleton tag for Function.prototype
+/// (`builtin_proto.rs` tag space).
+const FUNCTION_PROTO_TAG: i64 = 13;
+
+/// Per-kind trio: [fn_proto, ctor, gen_proto]. kind 0 = generator,
+/// kind 1 = async generator. Pointer addresses stored as usize so
+/// the statics stay Sync (multi-thread-ready shape); slot 0 doubles
+/// as the installed flag, and the mint itself is serialized behind
+/// GENFN_LOCK so the trio installs atomically (mirrors fnprops'
+/// lock-gated table rather than builtin_proto's single-slot CAS —
+/// three cross-linked slots can't CAS-install independently).
+#[allow(clippy::declare_interior_mutable_const)]
+const CELL_INIT: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
+static CELLS: [[core::sync::atomic::AtomicUsize; 3]; 2] = [[CELL_INIT; 3], [CELL_INIT; 3]];
+static GENFN_LOCK: torajs_mutex::Mutex<()> = torajs_mutex::Mutex::new(());
+
+#[inline]
+fn heap_anyv(p: *mut c_void) -> u64 {
+    // Heap pointers ARE the cell-encoded AnyValue (48-bit user VA,
+    // top bits clear) — same encoding box_pair_imm(ANY_HEAP, p)
+    // produces for cells.
+    p as u64
+}
+
+unsafe fn define_heap(obj: *mut c_void, key: &[u8], value: *mut c_void, flags: u64) {
+    let mut slot = obj;
+    let k = unsafe { alloc_str_key(key) };
+    // define consumes one rc of an ANY_HEAP value — the singletons
+    // are immortal, so the extra inc keeps the circular graph alive
+    // by design (mirrors builtin_proto's leaked singletons).
+    unsafe { __torajs_rc_inc(value) };
+    unsafe { __torajs_dynobj_define(&mut slot, k, ANY_HEAP, heap_anyv(value), flags) };
+    unsafe { __torajs_str_drop(k) };
+}
+
+unsafe fn mint_kind(kind: usize) {
+    let fn_proto = unsafe { __torajs_dynobj_alloc() };
+    let ctor = unsafe { __torajs_dynobj_alloc() };
+    let gen_proto = unsafe { __torajs_dynobj_alloc() };
+
+    // fn_proto: constructor / prototype / __proto__.
+    unsafe { define_heap(fn_proto, b"constructor", ctor, ATTRS_WEC_001) };
+    unsafe { define_heap(fn_proto, b"prototype", gen_proto, ATTRS_WEC_001) };
+    let func_proto = unsafe { __torajs_get_builtin_prototype(FUNCTION_PROTO_TAG) };
+    if !func_proto.is_null() {
+        let mut slot = fn_proto;
+        let k = unsafe { alloc_str_key(b"__proto__") };
+        unsafe { __torajs_rc_inc(func_proto as *mut c_void) };
+        unsafe { __torajs_dynobj_set(&mut slot, k, ANY_HEAP, heap_anyv(func_proto)) };
+        unsafe { __torajs_str_drop(k) };
+    }
+
+    // ctor: name / length / prototype.
+    let name: &[u8] = if kind == 0 {
+        b"GeneratorFunction"
+    } else {
+        b"AsyncGeneratorFunction"
+    };
+    let name_str = unsafe { alloc_str_key(name) };
+    {
+        let mut slot = ctor;
+        let k = unsafe { alloc_str_key(b"name") };
+        unsafe {
+            __torajs_dynobj_define(
+                &mut slot,
+                k,
+                ANY_HEAP,
+                heap_anyv(name_str as *mut c_void),
+                ATTRS_WEC_001,
+            )
+        };
+        unsafe { __torajs_str_drop(k) };
+    }
+    {
+        let mut slot = ctor;
+        let k = unsafe { alloc_str_key(b"length") };
+        unsafe { __torajs_dynobj_define(&mut slot, k, ANY_I64, 1, ATTRS_WEC_001) };
+        unsafe { __torajs_str_drop(k) };
+    }
+    unsafe { define_heap(ctor, b"prototype", fn_proto, ATTRS_WEC_000) };
+
+    // gen_proto: constructor back-link (§27.5.1.1 / §27.6.1.1).
+    unsafe { define_heap(gen_proto, b"constructor", fn_proto, ATTRS_WEC_001) };
+
+    use core::sync::atomic::Ordering;
+    CELLS[kind][1].store(ctor as usize, Ordering::Release);
+    CELLS[kind][2].store(gen_proto as usize, Ordering::Release);
+    CELLS[kind][0].store(fn_proto as usize, Ordering::Release);
+}
+
+#[inline]
+unsafe fn cell(kind: i64, idx: usize) -> u64 {
+    use core::sync::atomic::Ordering;
+    let k = if kind == 1 { 1usize } else { 0usize };
+    {
+        let _g = GENFN_LOCK.lock();
+        if CELLS[k][0].load(Ordering::Acquire) == 0 {
+            unsafe { mint_kind(k) };
+        }
+    }
+    let p = CELLS[k][idx].load(Ordering::Acquire) as *mut c_void;
+    unsafe { __torajs_rc_inc(p) };
+    heap_anyv(p)
+}
+
+/// `%GeneratorFunction.prototype%` (kind 0) /
+/// `%AsyncGeneratorFunction.prototype%` (kind 1) as an owned
+/// AnyValue — what `Object.getPrototypeOf(<generator fn>)` answers.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_genfn_proto(kind: i64) -> u64 {
+    unsafe { cell(kind, 0) }
+}
+
+/// Chain a per-generator `__proto___Gen_<name>` object (passed as
+/// the AnyValue its module-scope binding holds) to the shared
+/// `%GeneratorPrototype%` of `kind`: writes the `__proto__` slot the
+/// `get_proto_of_any` dynobj arm reads. Non-cell / null input is a
+/// no-op (misordered toolchain resilience, mirrors classmeta).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_genfn_chain(proto_anyv: u64, kind: i64) -> u64 {
+    if !is_cell_imm(proto_anyv) {
+        return 0;
+    }
+    let obj = proto_anyv as *mut c_void;
+    let gen_proto_anyv = unsafe { cell(kind, 2) };
+    let mut slot = obj;
+    let k = unsafe { alloc_str_key(b"__proto__") };
+    unsafe { __torajs_dynobj_set(&mut slot, k, ANY_HEAP, gen_proto_anyv) };
+    unsafe { __torajs_str_drop(k) };
+    0
+}

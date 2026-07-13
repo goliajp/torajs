@@ -67,6 +67,11 @@ pub(crate) struct AnySubstrateIds {
     pub class_register: FuncId,
     pub class_get: FuncId,
     pub get_proto_of_any: FuncId,
+    /// RFC 20260713 blade 5 cut 4 — %GeneratorFunction.prototype% /
+    /// %AsyncGeneratorFunction.prototype% singleton (kind 0/1) and
+    /// the per-generator-proto → %GeneratorPrototype% chain writer.
+    pub genfn_proto: FuncId,
+    pub genfn_chain: FuncId,
     pub any_index_get: FuncId,
     pub any_index_set: FuncId,
     pub any_length_get: FuncId,
@@ -142,6 +147,8 @@ pub(crate) fn declare(
         class_register: decl!("__torajs_anyv_class_register", [I64, Any], Void),
         class_get: decl!("__torajs_anyv_class_get", [I64], Any),
         get_proto_of_any: decl!("__torajs_anyv_get_proto_of_any", [Any], Any),
+        genfn_proto: decl!("__torajs_genfn_proto", [I64], Any),
+        genfn_chain: decl!("__torajs_genfn_chain", [Any, I64], I64),
         // RFC 20260704 S3 — recv[idx] on an `any` receiver (Arr
         // kind-aware / Str / primitive dispatch); S3-set = the
         // (tag, value) pair write mirror.

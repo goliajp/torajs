@@ -64,6 +64,56 @@ pub(crate) fn try_lower(
     for a in args.iter().skip(1) {
         let _ = ctx.lower_expr(*a);
     }
+    // RFC 20260713 blade 5 cut 4 — a generator factory fn as the
+    // receiver: `Object.getPrototypeOf(g)` answers the
+    // %GeneratorFunction.prototype% / %AsyncGeneratorFunction
+    // .prototype% intrinsic singleton per §27.3 (compile-time
+    // resolved from the factory name; the fn value itself is never
+    // materialized).
+    if let Expr::Ident(fn_name) = ctx.ast.get_expr(args[0])
+        && ctx.ast.generator_factory_classes.contains_key(fn_name)
+    {
+        let kind: i64 = if ctx.ast.async_generator_fns.contains(fn_name) {
+            1
+        } else {
+            0
+        };
+        let v = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.genfn_proto, vec![Operand::ConstI64(kind)]),
+            Type::Any,
+            None,
+        );
+        return Some(Operand::Value(v));
+    }
+    // Ordinary top-level fn receiver — §10.2 a function's
+    // [[Prototype]] is %Function.prototype% (builtin-proto tag 13),
+    // mirroring the runtime classifier's Tag::Closure answer. Bare
+    // fn idents lower to non-refcounted FnSig operands, which used
+    // to fall through to the null arm.
+    if let Expr::Ident(fn_name) = ctx.ast.get_expr(args[0])
+        && ctx.fn_table.contains_key(fn_name)
+    {
+        let proto = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(
+                ctx.intrinsics.get_builtin_prototype,
+                vec![Operand::ConstI64(13)],
+            ),
+            Type::Ptr,
+            None,
+        );
+        let v = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(
+                ctx.intrinsics.any_box,
+                vec![Operand::ConstI64(4), Operand::Value(proto)],
+            ),
+            Type::Any,
+            None,
+        );
+        return Some(Operand::Value(v));
+    }
     // BORROW semantics — see module doc for rc-balance rationale.
     let v = ctx.lower_expr(args[0]);
     let v_ty = ctx.operand_ty(&v);

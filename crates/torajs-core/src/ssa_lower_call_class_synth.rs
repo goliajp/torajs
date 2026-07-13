@@ -57,8 +57,36 @@ pub(crate) fn try_lower(
         "__torajs_register_native_error" => try_lower_register_native_error(ctx, args),
         "__torajs_my_class_ref" => try_lower_my_class_ref(ctx, args),
         "__torajs_arguments_materialize" => try_lower_arguments_materialize(ctx, args),
+        "__torajs_genfn_chain" => try_lower_genfn_chain(ctx, args),
         _ => None,
     }
+}
+
+/// RFC 20260713 blade 5 cut 4 —
+/// `__torajs_genfn_chain(__proto_<cls>, <kind>)`, emitted by
+/// synthesize_class_globals for each generator class: chains the
+/// per-generator prototype object to the shared %GeneratorPrototype%
+/// of `kind` (0 = generator, 1 = async generator). The proto operand
+/// is a borrow (runtime reads + writes its `__proto__` slot; the
+/// module-scope binding keeps the ref).
+fn try_lower_genfn_chain(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Operand> {
+    if args.len() != 2 {
+        return None;
+    }
+    let Expr::Number(kind) = ctx.ast.get_expr(args[1]) else {
+        return None;
+    };
+    let kind = *kind as i64;
+    let proto_op = ctx.lower_expr(args[0]);
+    let cur_block = ctx.cur_block;
+    let genfn_chain = ctx.intrinsics.genfn_chain;
+    let v = ctx.f.append_inst(
+        cur_block,
+        InstKind::Call(genfn_chain, vec![proto_op, Operand::ConstI64(kind)]),
+        Type::I64,
+        None,
+    );
+    Some(Operand::Value(v))
 }
 
 /// RFC 20260708-closure-argv-face — expand the synthetic

@@ -157,6 +157,36 @@ pub fn synthesize_class_globals(ast: &mut Ast) {
         prepended.push(Stmt::Expr(call));
     }
 
+    // RFC 20260713 blade 5 cut 4 — chain each generator class's
+    // prototype object to the shared %GeneratorPrototype% of its
+    // kind (§27.3.3.2: the [[Prototype]] of every generator fn's
+    // `.prototype` IS %GeneratorPrototype%). Emitted as
+    // `__torajs_genfn_chain(__proto_<cls>, <kind>)`, intercepted in
+    // the class-synth lowering lane. Sorted for a deterministic
+    // emit order (the side table is a HashMap).
+    let mut gen_classes: Vec<(String, i64)> = ast
+        .generator_factory_classes
+        .iter()
+        .map(|(factory, cls)| {
+            let kind = i64::from(ast.async_generator_fns.contains(factory));
+            (cls.clone(), kind)
+        })
+        .collect();
+    gen_classes.sort();
+    for (cls, kind) in gen_classes {
+        if !class_names.iter().any(|c| c == &cls) {
+            continue;
+        }
+        let proto_ident = ast.add_expr(Expr::Ident(format!("__proto_{cls}")));
+        let kind_expr = ast.add_expr(Expr::Number(kind as f64));
+        let callee = ast.add_expr(Expr::Ident("__torajs_genfn_chain".to_string()));
+        let call = ast.add_expr(Expr::Call {
+            callee,
+            args: vec![proto_ident, kind_expr],
+        });
+        prepended.push(Stmt::Expr(call));
+    }
+
     // P4.5 — parallel registration: store each `__class_<C>` Any-box
     // in the classes-by-tag side table. Read inside `__new_<C>`
     // factory bodies via `__torajs_my_class_ref("<C>")` (intercepted
