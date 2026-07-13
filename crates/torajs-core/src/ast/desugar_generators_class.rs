@@ -129,6 +129,11 @@ pub(super) fn assemble_generator_class_and_factory(
         args: factory_args,
     });
     let factory_body = vec![Stmt::Return(Some(new_expr))];
+    // Reflection link (RFC 20260713 blade 5): `g.prototype` /
+    // `x instanceof g` resolve through the __Gen class's prototype
+    // substrate via this map.
+    ast.generator_factory_classes
+        .insert(gen_name.clone(), class_name.clone());
     ast.stmts[idx] = Stmt::FnDecl {
         name: gen_name,
         type_params: Vec::new(),

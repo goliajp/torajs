@@ -182,6 +182,17 @@ pub unsafe extern "C" fn __torajs_anyv_get_proto_of_any(v: u64) -> u64 {
     // SAFETY: cell pointer to valid heap object per invariant.
     let tag = unsafe { heap_type_tag(dynobj) };
     if tag != TAG_DYNOBJ {
+        // Static-layout class instance (Tag::Obj) — the class tag
+        // lives in the universal +8 header slot (0 for plain
+        // type-alias structs, so unregistered shapes keep the null
+        // answer). Route through the same tag→proto table the typed
+        // `Object.getPrototypeOf` lowering reads, so the answer is
+        // identical across the Any and Obj tiers (RFC 20260713
+        // blade 5: `Object.getPrototypeOf(g()) === g.prototype`).
+        if tag == TAG_OBJ {
+            let class_tag = unsafe { dynobj.cast::<u8>().add(8).cast::<i64>().read() };
+            return unsafe { crate::classmeta::__torajs_anyv_proto_get(class_tag) };
+        }
         // RFC 20260713-array-proto-residual blade 3 — builtin-tagged
         // cells answer their `<Ctor>.prototype` singleton per
         // §10.1.1 (an Array's [[Prototype]] IS Array.prototype, so

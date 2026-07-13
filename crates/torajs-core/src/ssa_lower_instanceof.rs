@@ -61,6 +61,17 @@ use crate::ssa::{BinOp as SsaBinOp, IPred, InstKind, Operand, Type, ValueId};
 use crate::ssa_lower::{LowerCtx, OBJ_CLASS_TAG_OFF};
 
 pub(crate) fn lower(ctx: &mut LowerCtx<'_>, expr: ExprId, class_name: &str) -> Operand {
+    // RFC 20260713 blade 5 — `x instanceof g` where g is a generator
+    // factory: §27.5.3 [[HasInstance]] walks g.prototype, which IS
+    // the desugared __Gen class's prototype object, so the class
+    // tag-set dispatch below is the exact equivalent.
+    let class_name = ctx
+        .ast
+        .generator_factory_classes
+        .get(class_name)
+        .cloned()
+        .unwrap_or_else(|| class_name.to_string());
+    let class_name = class_name.as_str();
     let v = ctx.lower_expr(expr);
     let actual_ty = ctx.operand_ty(&v);
     if let Some(r) = try_compile_time_fold(actual_ty, class_name) {

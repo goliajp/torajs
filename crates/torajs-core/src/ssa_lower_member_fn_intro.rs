@@ -32,21 +32,45 @@
 //! not `length`/`name`, or neither path resolves the ident).
 
 use crate::ast::{Expr, ExprId, Stmt};
-use crate::ssa::{Operand, Type};
+use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 
 pub(crate) fn try_lower(ctx: &mut LowerCtx<'_>, obj: ExprId, name: &str) -> Option<Operand> {
-    if name != "length" && name != "name" {
+    if name != "length" && name != "name" && name != "prototype" {
         return None;
     }
     let Expr::Ident(fn_name_ref) = ctx.ast.get_expr(obj) else {
         return None;
     };
     let fn_name_ref = fn_name_ref.clone();
+    if name == "prototype" {
+        return try_generator_factory_prototype(ctx, &fn_name_ref);
+    }
     if let Some(op) = try_top_level_fn_decl(ctx, &fn_name_ref, name) {
         return Some(op);
     }
     try_closure_local_binding(ctx, &fn_name_ref, name)
+}
+
+/// RFC 20260713 blade 5 — `g.prototype` on a generator factory fn.
+/// Answers via the runtime tag→proto table (`__torajs_anyv_proto_get`)
+/// keyed by the desugared `__Gen_<name>` class's tag — the same source
+/// `Object.getPrototypeOf(g())` reads, so identity holds for free.
+/// Non-generator fn `.prototype` stays on the fall-through paths
+/// (ordinary-fn prototype minting is a recorded RFC 残面).
+fn try_generator_factory_prototype(ctx: &mut LowerCtx<'_>, fn_name_ref: &str) -> Option<Operand> {
+    let cls = ctx.ast.generator_factory_classes.get(fn_name_ref)?;
+    let tag = *ctx.class_name_to_tag.get(cls)?;
+    let v = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(
+            ctx.intrinsics.proto_get,
+            vec![Operand::ConstI64(tag as i64)],
+        ),
+        Type::Any,
+        None,
+    );
+    Some(Operand::Value(v))
 }
 
 fn try_top_level_fn_decl(ctx: &mut LowerCtx<'_>, fn_name_ref: &str, name: &str) -> Option<Operand> {

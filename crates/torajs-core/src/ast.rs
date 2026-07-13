@@ -255,6 +255,15 @@ pub struct Ast {
     /// capture channel works unchanged (unlike the hoist path, which
     /// is capture-free by construction).
     pub async_fn_value_exprs: std::collections::HashSet<ExprId>,
+    /// Generator factory fn name → desugared `__Gen_<name>` class
+    /// name, recorded by `desugar_generators` when it replaces the
+    /// `function*` decl with its thin factory (RFC 20260713 blade 5).
+    /// Consumers wire the fn-value reflection surface to the class's
+    /// existing prototype substrate: `g.prototype` reads the
+    /// tag-registered `__proto___Gen_<name>` (identical to what
+    /// `Object.getPrototypeOf(g())` answers) and `x instanceof g`
+    /// dispatches on the class's tag set per §27.5.3 [[HasInstance]].
+    pub generator_factory_classes: std::collections::HashMap<String, String>,
     /// Generator decls whose parameter list contained binding
     /// patterns: fn name → count of parser-synthesized destructuring
     /// `let` stmts prefixed to the body (parse_fn's param_destr_lets).
