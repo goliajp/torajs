@@ -320,8 +320,22 @@ impl<'a> Parser<'a> {
             && let Some(yield_ty) = self.generator_fns.get(callee_name).cloned()
         {
             let callee_name = callee_name.clone();
-            let gen_stmt =
-                self.desugar_forof_generator(&callee_name, yield_ty, src, var_name, body);
+            // RFC 20260713 blade 4 step 2 — `for await (... of ag(...))`
+            // over an async generator awaits each next() step (the
+            // step methods return Promises per §27.6): the desugar
+            // wraps `__it.next()` in the same `.value` Member the
+            // `await e` parse fold uses. A sync generator under
+            // `for await` keeps the sync next-loop (per-value await
+            // is a recorded boundary).
+            let await_next = is_async && self.ast.async_generator_fns.contains(&callee_name);
+            let gen_stmt = self.desugar_forof_generator(
+                &callee_name,
+                yield_ty,
+                src,
+                var_name,
+                body,
+                await_next,
+            );
             return Ok(Some(wrap_prelude(prelude, gen_stmt)));
         }
 
@@ -349,6 +363,7 @@ impl<'a> Parser<'a> {
         src: ExprId,
         var_name: String,
         body: Stmt,
+        await_next: bool,
     ) -> Stmt {
         let gen_class = format!("__Gen_{callee_name}");
         let step_ty = format!("__step_{callee_name}");
@@ -380,11 +395,21 @@ impl<'a> Parser<'a> {
             callee: next_member,
             args: Vec::new(),
         });
+        // Async-generator steps come back as Promise<__step_*> — the
+        // `.value` wrap is the `await e` parse fold (for-await form).
+        let step_init = if await_next {
+            self.ast.add_expr(Expr::Member {
+                obj: next_call,
+                name: "value".into(),
+            })
+        } else {
+            next_call
+        };
         let step_decl = Stmt::LetDecl {
             mutable: false,
             name: step_name.clone(),
             type_ann: Some(step_ty),
-            init: next_call,
+            init: step_init,
             is_var: false,
         };
 
