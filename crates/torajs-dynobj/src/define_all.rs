@@ -20,7 +20,9 @@ use core::ffi::c_void;
 
 use crate::define_from_desc::__torajs_dynobj_define_from_desc;
 use crate::get::type_tag;
-use crate::layout::{BUCKET_FLAG_ENUMERABLE, DYNOBJ_KEY_HOLE, TAG_DYNOBJ};
+use crate::layout::{
+    BUCKET_FLAG_ENUMERABLE, DYNOBJ_KEY_HOLE, TAG_ARR_HDR, TAG_CLOSURE_HDR, TAG_DYNOBJ,
+};
 use crate::probe::{bucket_flags, bucket_key_ptr, entries, entries_len};
 
 unsafe extern "C" {
@@ -89,10 +91,20 @@ pub unsafe extern "C" fn __torajs_dynobj_define_properties_from(
         let desc_anyv = unsafe { (*e).value_anyv };
         let d_tag = unsafe { __torajs_anyv_unbox_tag(desc_anyv) } as u64;
         let d_val = unsafe { __torajs_anyv_unbox_value(desc_anyv) } as u64;
-        if d_tag != ANY_HEAP
-            || d_val == 0
-            || unsafe { type_tag(d_val as *const c_void) } != TAG_DYNOBJ
-        {
+        // 刀 3 (RFC 20260714-t262-top-clusters) — §8.10.5
+        // ToPropertyDescriptor accepts ANY object: a Closure / Arr
+        // descriptor (test262's `descObj = function(){};
+        // descObj.configurable = true`) reads its expando fields —
+        // `define_from_desc` already dispatches per desc-cell shape,
+        // so the gate here matches its accept set instead of
+        // dynobj-only.
+        let desc_ok = d_tag == ANY_HEAP
+            && d_val != 0
+            && matches!(
+                unsafe { type_tag(d_val as *const c_void) },
+                TAG_DYNOBJ | TAG_CLOSURE_HDR | TAG_ARR_HDR
+            );
+        if !desc_ok {
             unsafe {
                 __torajs_throw_type_error(
                     c"Property description must be an object.".as_ptr() as *const u8
