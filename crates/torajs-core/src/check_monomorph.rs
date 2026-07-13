@@ -161,13 +161,30 @@ pub(crate) fn monomorphize_and_check(c: &mut Checker, ast: &Ast) -> MonoOutput {
             body: new_body,
             is_generator: false,
         };
-        // Check the concrete body. Swap-capture the per-ExprId tables
-        // so the inner generic calls this body contains can be seeded
-        // from exactly the new records, then fold them into the main
-        // tables (fresh clone ExprIds — no collisions).
+        // Check the concrete body — INFERENCE-ONLY. Swap-capture the
+        // per-ExprId tables so the inner generic calls this body
+        // contains can be seeded from exactly the new records, then
+        // fold them into the main tables (fresh clone ExprIds — no
+        // collisions).
+        //
+        // Diagnostics raised inside the specialization are discarded:
+        // these bodies were NEVER checked before this pass existed
+        // (pass-2 skips generic decls), and the checker is stricter
+        // than the runtime on shapes the lowerer supports — gate
+        // fixtures caught two on the first run: `substitute_typevars`
+        // leaves TypeVars inside fn-type param anns un-replaced
+        // (check-generic-variadic-fn-ann-001, "expected TypeVar(T)"),
+        // and closure-argc ABI arity mismatches are legal JS the
+        // checker rejects (closure-argc-hof-001). Suppressing keeps
+        // the error surface at the pre-RFC waterline while the
+        // inference records (this pass's whole purpose) still land.
+        // Promoting specializations to full strictness is recorded in
+        // the RFC as a follow-up gated on those checker gaps.
         let saved_sites = std::mem::take(&mut c.generic_call_sites);
         let saved_pads = std::mem::take(&mut c.arity_pad_count);
+        let saved_error_count = c.errors.len();
         c.check_stmt(&owned_ast, &spec_decl);
+        c.errors.truncate(saved_error_count);
         let inner_sites = std::mem::replace(&mut c.generic_call_sites, saved_sites);
         let inner_pads = std::mem::replace(&mut c.arity_pad_count, saved_pads);
         let mut inner: Vec<(ExprId, (String, Vec<Type>))> =

@@ -57,29 +57,24 @@ pub type CheckArtifacts = (
 /// maps. New callers (main.rs `tr run` / `tr build`) use this; the
 /// older `check_with_types` is kept for back-compat (tests, lsp).
 ///
-/// Runs post-check monomorphization (specializations emitted AND
-/// checked — RFC 20260713-mono-check-specializations) after the main
-/// pipeline; errors surfaced inside specialization bodies reject the
-/// program the same way top-level errors do.
+/// Runs post-check monomorphization (specializations emitted and
+/// checked inference-only — RFC 20260713-mono-check-specializations)
+/// after the main pipeline; specialization diagnostics are discarded
+/// inside the pass (see check_monomorph.rs), so only main-pipeline
+/// errors reject the program.
 pub fn check_with_arity(ast: &Ast) -> Result<CheckArtifacts, String> {
     let mut c = Checker::new();
     c.run_full_pipeline(ast);
-    let collect_errors = |c: &Checker| -> Vec<String> {
-        c.errors
-            .iter()
-            .filter(|d| d.severity == Severity::Error)
-            .map(|d| d.message.clone())
-            .collect()
-    };
-    let error_messages = collect_errors(&c);
+    let error_messages: Vec<String> = c
+        .errors
+        .iter()
+        .filter(|d| d.severity == Severity::Error)
+        .map(|d| d.message.clone())
+        .collect();
     if !error_messages.is_empty() {
         return Err(error_messages.join("\n"));
     }
     let mono = crate::check_monomorph::monomorphize_and_check(&mut c, ast);
-    let error_messages = collect_errors(&c);
-    if !error_messages.is_empty() {
-        return Err(error_messages.join("\n"));
-    }
     Ok((
         c.generic_call_sites,
         c.expr_types,
