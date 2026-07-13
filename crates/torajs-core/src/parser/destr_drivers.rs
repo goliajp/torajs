@@ -157,6 +157,9 @@ impl<'a> Parser<'a> {
         }
         for (i, entry) in entries.iter().enumerate() {
             if let Some((name, default)) = entry {
+                if let Some(default_eid) = default {
+                    self.record_dstr_default_name(*default_eid, name);
+                }
                 let src_ref = self.ast.add_expr(Expr::Ident(src_ref_name.clone()));
                 let idx = self.ast.add_expr(Expr::Number(i as f64));
                 let elem = self.ast.add_expr(Expr::Index {
@@ -425,6 +428,9 @@ impl<'a> Parser<'a> {
         let guard = self.emit_object_coercible_guard(&src_ref_name);
         stmts.push(guard);
         for (field, bound, default) in entries {
+            if let Some(default_eid) = default {
+                self.record_dstr_default_name(*default_eid, bound);
+            }
             let src_ref = self.ast.add_expr(Expr::Ident(src_ref_name.clone()));
             let mem = self.ast.add_expr(Expr::Member {
                 obj: src_ref,

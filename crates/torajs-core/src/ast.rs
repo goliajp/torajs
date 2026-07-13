@@ -133,6 +133,18 @@ pub struct Ast {
     /// `lift_arrow_fns`; overlaid LAST in pass-2B's NamedEvaluation
     /// registry so the self-name wins over the binding name.
     pub closure_self_names: std::collections::HashMap<String, String>,
+    /// RFC 20260714-dstr-residual blade 2 — ES §8.4.5 NamedEvaluation
+    /// for destructuring defaults: `[fn = function () {}]` names the
+    /// anonymous definition by its binding identifier. The desugar
+    /// wraps the default in a ternary, so pass-2B's LetDecl-init walk
+    /// can't see it; the parser records the pair here by the default's
+    /// `ArrowFn` ExprId at pattern-parse time instead.
+    pub dstr_default_names: std::collections::HashMap<ExprId, String>,
+    /// Lifted-closure name (`__closure_N`) → destructuring binding
+    /// name, translated from `dstr_default_names` by `lift_arrow_fns`;
+    /// merged into pass-2B's registry BEFORE the self-name overlay
+    /// (a named fn expression's self-name still wins per §15.5.5).
+    pub closure_dstr_names: std::collections::HashMap<String, String>,
     /// Recorded by `desugar_classes` so post-desugar passes (check, ssa_lower)
     /// can resolve `instanceof Parent` on a subclass instance: maps each
     /// declared class name to its parent (None if no `extends`). Empty

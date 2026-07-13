@@ -45,6 +45,26 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// RFC 20260714-dstr-residual blade 2 — ES §8.4.5 NamedEvaluation
+    /// for destructuring defaults: when a binding's default is an
+    /// anonymous function definition, record (ArrowFn ExprId →
+    /// binding name) so `lift_arrow_fns` can carry the name onto the
+    /// lifted `__closure_N` (pass-2B merges it into the `.name`
+    /// registry; a named fn expression's self-name still wins).
+    pub(super) fn record_dstr_default_name(&mut self, default_eid: ExprId, binding: &str) {
+        let mut eid = default_eid;
+        loop {
+            match self.ast.get_expr(eid) {
+                Expr::As { expr, .. } => eid = *expr,
+                Expr::ArrowFn { .. } => {
+                    self.ast.dstr_default_names.insert(eid, binding.to_string());
+                    return;
+                }
+                _ => return,
+            }
+        }
+    }
+
     pub(super) fn parse_destr_param(&mut self, lets: &mut Vec<Stmt>) -> Result<String, String> {
         let id = self.mint_desugar_id();
         let synth = format!("__param_destr_{id}");
@@ -105,8 +125,12 @@ impl<'a> Parser<'a> {
                         // tora's array source is fixed-length, so
                         // the runtime check collapses to a plain
                         // `src.length > i` ternary.
-                        let init_expr =
-                            self.maybe_parse_destr_default(elem, src_name.clone(), elem_idx)?;
+                        let init_expr = self.maybe_parse_destr_default(
+                            elem,
+                            src_name.clone(),
+                            elem_idx,
+                            Some(&nn),
+                        )?;
                         lets.push(Stmt::LetDecl {
                             mutable: false,
                             name: nn,
@@ -128,7 +152,7 @@ impl<'a> Parser<'a> {
                         let mut nested_body_lets: Vec<Stmt> = Vec::new();
                         self.parse_destr_into(nested_src.clone(), &mut nested_body_lets)?;
                         let init_expr =
-                            self.maybe_parse_destr_default(elem, src_name.clone(), elem_idx)?;
+                            self.maybe_parse_destr_default(elem, src_name.clone(), elem_idx, None)?;
                         lets.push(Stmt::LetDecl {
                             mutable: false,
                             name: nested_src.clone(),
@@ -257,12 +281,16 @@ impl<'a> Parser<'a> {
         load_expr: ExprId,
         src_name: String,
         elem_idx: usize,
+        binding: Option<&str>,
     ) -> Result<ExprId, String> {
         if !matches!(self.peek(), Token::Eq) {
             return Ok(load_expr);
         }
         self.pos += 1; // consume `=`
         let default_expr = self.parse_expr()?;
+        if let Some(b) = binding {
+            self.record_dstr_default_name(default_expr, b);
+        }
         // Build: src.length > elem_idx && src[i] !== undefined
         //          ? load_expr : default_expr
         // Per ES §13.15.5.3 IteratorBindingInitialization the default
@@ -309,12 +337,16 @@ impl<'a> Parser<'a> {
     pub(super) fn maybe_parse_object_destr_default(
         &mut self,
         load_expr: ExprId,
+        binding: Option<&str>,
     ) -> Result<ExprId, String> {
         if !matches!(self.peek(), Token::Eq) {
             return Ok(load_expr);
         }
         self.pos += 1; // consume `=`
         let default_expr = self.parse_expr()?;
+        if let Some(b) = binding {
+            self.record_dstr_default_name(default_expr, b);
+        }
         // load_expr === undefined ? default_expr : load_expr
         let undef_ident = self.ast.add_expr(Expr::Ident("undefined".into()));
         let cond = self.ast.add_expr(Expr::BinOp {
@@ -365,7 +397,8 @@ impl<'a> Parser<'a> {
                             let nn = n.clone();
                             self.pos += 1;
                             // P-PARSE.3 — `{ x: y = D }`.
-                            let init_expr = self.maybe_parse_object_destr_default(mem)?;
+                            let init_expr =
+                                self.maybe_parse_object_destr_default(mem, Some(&nn))?;
                             lets.push(Stmt::LetDecl {
                                 mutable: false,
                                 name: nn,
@@ -384,7 +417,7 @@ impl<'a> Parser<'a> {
                             let nested_src = format!("__nested_destr_{nested_id}");
                             let mut nested_body_lets: Vec<Stmt> = Vec::new();
                             self.parse_destr_into(nested_src.clone(), &mut nested_body_lets)?;
-                            let init_expr = self.maybe_parse_object_destr_default(mem)?;
+                            let init_expr = self.maybe_parse_object_destr_default(mem, None)?;
                             lets.push(Stmt::LetDecl {
                                 mutable: false,
                                 name: nested_src.clone(),
@@ -408,7 +441,7 @@ impl<'a> Parser<'a> {
                             self.at()
                         ));
                     }
-                    let init_expr = self.maybe_parse_object_destr_default(mem)?;
+                    let init_expr = self.maybe_parse_object_destr_default(mem, Some(&field))?;
                     lets.push(Stmt::LetDecl {
                         mutable: false,
                         name: field,

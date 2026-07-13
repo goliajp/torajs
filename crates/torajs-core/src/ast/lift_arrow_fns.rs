@@ -295,6 +295,15 @@ pub fn lift_arrow_fns(ast: &mut Ast) {
             let sn = sn.clone();
             ast.closure_self_names.insert(name.clone(), sn);
         }
+        // RFC 20260714-dstr-residual blade 2 — a destructuring
+        // default's anonymous fn takes its binding name (§8.4.5);
+        // recorded by ExprId at pattern-parse time, carried onto the
+        // lifted closure name here (merged in pass-2B before the
+        // self-name overlay).
+        if let Some(bn) = ast.dstr_default_names.get(&crate::ast::ExprId(i as u32)) {
+            let bn = bn.clone();
+            ast.closure_dstr_names.insert(name.clone(), bn);
+        }
         // Compute captures BEFORE moving the arrow body out — collect free
         // vars (idents referenced inside the body that are neither one of
         // the arrow's params nor declared by an inner let, and not a

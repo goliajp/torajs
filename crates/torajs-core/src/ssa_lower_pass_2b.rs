@@ -141,6 +141,14 @@ fn collect_named_eval(ast: &Ast) -> HashMap<String, String> {
             }
         }
     }
+    // RFC 20260714-dstr-residual blade 2 — destructuring-default
+    // position (§8.4.5): the desugar buries the anonymous fn inside
+    // a ternary the statement walk can't see; the parser recorded
+    // the binding name by ExprId and lift_arrow_fns translated it
+    // to the lifted closure name.
+    for (cn, bn) in &ast.closure_dstr_names {
+        map.insert(cn.clone(), bn.clone());
+    }
     // Chunk 796 — a named function expression's self-name wins over
     // every syntactic-position name (ES §15.5.5: NamedEvaluation
     // applies only to ANONYMOUS definitions), so overlay it last.
