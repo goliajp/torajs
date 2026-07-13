@@ -235,17 +235,33 @@ impl<'a> Parser<'a> {
         }
         self.pos += 1; // consume `=`
         let default_expr = self.parse_expr()?;
-        // Build: src.length > elem_idx ? load_expr : default_expr
+        // Build: src.length > elem_idx && src[i] !== undefined
+        //          ? load_expr : default_expr
+        // Per ES §13.15.5.3 IteratorBindingInitialization the default
+        // fires when the iterator value IS undefined — both past-end
+        // (length check, which also keeps typed-lane OOB reads out)
+        // and an explicit undefined element (`[a = 5] = [undefined]`).
         let src_ref = self.ast.add_expr(Expr::Ident(src_name));
         let len_member = self.ast.add_expr(Expr::Member {
             obj: src_ref,
             name: "length".into(),
         });
         let idx_lit = self.ast.add_expr(Expr::Number(elem_idx as f64));
-        let cond = self.ast.add_expr(Expr::BinOp {
+        let len_ok = self.ast.add_expr(Expr::BinOp {
             op: BinOp::Gt,
             left: len_member,
             right: idx_lit,
+        });
+        let undef_ident = self.ast.add_expr(Expr::Ident("undefined".into()));
+        let not_undef = self.ast.add_expr(Expr::BinOp {
+            op: BinOp::Neq,
+            left: load_expr,
+            right: undef_ident,
+        });
+        let cond = self.ast.add_expr(Expr::BinOp {
+            op: BinOp::LAnd,
+            left: len_ok,
+            right: not_undef,
         });
         Ok(self.ast.add_expr(Expr::Ternary {
             cond,
@@ -256,15 +272,12 @@ impl<'a> Parser<'a> {
 
     /// P-PARSE.3 — `{ x = D }` / `{ x: y = D }`. Per ES spec
     /// §13.15.5.4 KeyedDestructuringAssignmentEvaluation the
-    /// default fires when the looked-up value is `undefined`.
-    /// tora doesn't have real undefined yet (P1) and the
-    /// existing struct field path doesn't surface `missing` as
-    /// a runtime value, so the default expression is parsed (so
-    /// the source actually compiles) but only fires when the
-    /// field type is Nullable<T> AND the load returns null.
-    /// For non-Nullable struct fields the field is always
-    /// present and the default is dead code — same observable
-    /// behaviour as bun in the typed case.
+    /// default fires when the looked-up value is `undefined` —
+    /// and ONLY undefined: an explicit `null` field keeps null
+    /// (test262 obj-ptrn-id-init-skipped asserts the initializer
+    /// never evaluates for null/0/false/''). The pre-undefined-era
+    /// form compared `=== null`, which both missed any-lane absent
+    /// fields (undefined) and wrongly fired on explicit null.
     pub(super) fn maybe_parse_object_destr_default(
         &mut self,
         load_expr: ExprId,
@@ -274,12 +287,12 @@ impl<'a> Parser<'a> {
         }
         self.pos += 1; // consume `=`
         let default_expr = self.parse_expr()?;
-        // load_expr === null ? default_expr : load_expr
-        let null_lit = self.ast.add_expr(Expr::Null);
+        // load_expr === undefined ? default_expr : load_expr
+        let undef_ident = self.ast.add_expr(Expr::Ident("undefined".into()));
         let cond = self.ast.add_expr(Expr::BinOp {
             op: BinOp::Eq,
             left: load_expr,
-            right: null_lit,
+            right: undef_ident,
         });
         Ok(self.ast.add_expr(Expr::Ternary {
             cond,
