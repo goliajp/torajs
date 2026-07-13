@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-13T09:43:40.175Z",
+  "generatedAt": "2026-07-13T11:10:50.631Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-13T07:19:14Z",
-    "headSha": "09e1550b",
-    "elapsedSec": 572.84,
+    "ranAt": "2026-07-13T11:09:39Z",
+    "headSha": "e892052b",
+    "elapsedSec": 572.04,
     "workers": 8,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 5180,
+    "pass": 5209,
     "passNoOracle": 105,
     "passNegative": 4445,
-    "passTotal": 9730,
-    "bug": 906,
+    "passTotal": 9759,
+    "bug": 877,
     "incompatible": 42538,
     "bunSkip": 12565,
     "harnessError": 0,
     "inScope": 53174,
     "trAccepted": 10636,
-    "passRateInScope": 18.3,
-    "passRateTrAccepted": 91.48
+    "passRateInScope": 18.35,
+    "passRateTrAccepted": 91.75
   },
   "torajs": {
-    "commit": "75b6fbb4",
-    "commitSubject": "chore: test262 sweep at 09e1550b - passTotal 9730 (+29), bug 906",
+    "commit": "1ac4b312",
+    "commitSubject": "chore: test262 sweep at e892052b - passTotal 9759 (+16), bug 877",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "1ac4b312",
+      "subject": "chore: test262 sweep at e892052b - passTotal 9759 (+16), bug 877"
+    },
+    {
+      "hash": "e892052b",
+      "subject": "feat: annex b legacy accessor surface defineGetter defineSetter lookupGetter lookupSetter"
+    },
+    {
+      "hash": "d3861f44",
+      "subject": "chore: test262 sweep at 764ebf36 - passTotal 9743 (+13), bug 893"
+    },
+    {
+      "hash": "764ebf36",
+      "subject": "fix: length and size special-prop reads run an accessor entry's getter"
+    },
+    {
+      "hash": "c433014e",
+      "subject": "fix: void getter gets its own accessor kind instead of reading x0 garbage"
+    },
+    {
+      "hash": "3c2a15fb",
+      "subject": "chore: hardev dashboard snapshot at rotation 89"
+    },
+    {
       "hash": "75b6fbb4",
       "subject": "chore: test262 sweep at 09e1550b - passTotal 9730 (+29), bug 906"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "888c2904",
       "subject": "feat: any-side loose equality walks the full spec coercion ladder"
-    },
-    {
-      "hash": "6fbc4573",
-      "subject": "chore: hardev dashboard snapshot at rotation 88"
-    },
-    {
-      "hash": "4351a524",
-      "subject": "chore: test262 sweep at 36232830 - passTotal 9701 (+253), bug 939"
-    },
-    {
-      "hash": "36232830",
-      "subject": "feat: for-await over async generator awaits each next step"
-    },
-    {
-      "hash": "b5bb9396",
-      "subject": "feat: GeneratorFunction and AsyncGeneratorFunction intrinsic chain"
-    },
-    {
-      "hash": "bbae5fe9",
-      "subject": "feat: generator fn prototype reflection and instanceof"
-    },
-    {
-      "hash": "4e539a8e",
-      "subject": "feat: async fn-value expressions parse and run for real"
     }
   ],
-  "headSha": "75b6fbb4",
+  "headSha": "1ac4b312",
   "autorun": {
-    "total": 395,
+    "total": 396,
     "baselineTarget": 10,
-    "bySelf": 390,
+    "bySelf": 391,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1783917459-7e69",
-      "at": "2026-07-13T04:37:39Z",
-      "ts": 1783917459,
+      "rotationId": "r-1783935919-1633",
+      "at": "2026-07-13T09:45:19Z",
+      "ts": 1783935919,
       "trigger": "self",
-      "prevHead": "6fbc4573",
-      "handoffSha": "sha256:3f77f820f40e46d66e697bc07d53ebef58388d88fac58e17051f91b5565f910a",
+      "prevHead": "3c2a15fb",
+      "handoffSha": "sha256:0c22999ca4d003ef0c050fdb4578e776bf643e9a9d0bb6b83a25509b10ac3848",
       "handoffAgeSec": 7,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1783935919-1633",
+        "at": "2026-07-13T09:45:19Z",
+        "ts": 1783935919,
+        "trigger": "self",
+        "prevHead": "3c2a15fb",
+        "handoffSha": "sha256:0c22999ca4d003ef0c050fdb4578e776bf643e9a9d0bb6b83a25509b10ac3848",
+        "handoffAgeSec": 7,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1783917459-7e69",
         "at": "2026-07-13T04:37:39Z",
@@ -876,17 +887,6 @@
         "prevHead": "3f0d0df4",
         "handoffSha": "sha256:2b9835aaef93a9a65ba7ba69a122c8804d83548f9596e812c45431faca210ffa",
         "handoffAgeSec": 46,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1783843789-3d72",
-        "at": "2026-07-12T08:09:49Z",
-        "ts": 1783843789,
-        "trigger": "self",
-        "prevHead": "0716d1db",
-        "handoffSha": "sha256:9de521577fe745156866ab9c31624e7c6900cd0180697b09827402cdd28eb876",
-        "handoffAgeSec": 8,
         "conformanceBefore": null,
         "commitsInSession": null
       }
