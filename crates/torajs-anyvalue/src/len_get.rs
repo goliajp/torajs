@@ -26,6 +26,10 @@ unsafe extern "C" {
     /// torajs-fnname — registry walk (chunk 716); NULL = miss. The
     /// `.length` arm reads the arity out param off a fn-decl entry.
     fn __torajs_fn_name_lookup(fn_addr: u64, out_len: *mut u32, out_arity: *mut u32) -> *const u8;
+    /// torajs-dynobj — run an accessor entry's getter (owned answer).
+    fn __torajs_accessor_invoke_getter(pair: *const c_void) -> u64;
+    /// torajs-throw — pending-throw flag (1 = a throw is recorded).
+    fn __torajs_throw_check() -> i64;
     /// torajs-str — release a heap Str/Substr reference.
     fn __torajs_str_drop(s: *mut c_void);
     /// torajs-throw — record a pending catchable TypeError; returns
@@ -46,6 +50,31 @@ unsafe extern "C" {
 /// Closure fn body vaddr slot — mirror of `member_get.rs` /
 /// torajs-core `ssa_lower.rs` closure-env constants.
 const MIRROR_CLOSURE_FN_ADDR_OFF: usize = 8;
+
+/// Accessor-entry sentinel in the dynobj probe's tag channel —
+/// mirror of `method_call_dynobj.rs::ANY_ACCESSOR_TAG`.
+const ANY_ACCESSOR_TAG: u64 = 6;
+
+/// Resolve a DynObj own-property probe pair to an owned boxed value,
+/// running an accessor entry's getter (§9.1.8 — observable; a pending
+/// throw answers `undefined` and the caller's throw-check propagates).
+/// A data pair takes `payload_rc_inc` before boxing — both arms answer
+/// OWNED (RFC 20260713-accessor-void-kind blade 2; pre-fix the
+/// `.length` / `.size` special-prop reads boxed the raw accessor pair
+/// as data: the getter never ran).
+unsafe fn box_probe_pair(dtag: u64, dval: u64) -> AnyValue {
+    unsafe {
+        if dtag == ANY_ACCESSOR_TAG {
+            let got = __torajs_accessor_invoke_getter(dval as *const c_void);
+            if __torajs_throw_check() != 0 {
+                return VALUE_UNDEFINED;
+            }
+            return got;
+        }
+        crate::payload_rc_inc(dtag as i64, dval as i64);
+        crate::nanbox_encode::__torajs_anyv_box_from_pair(dtag as i64, dval as i64)
+    }
+}
 
 /// `recv.length` where the receiver is an `any` value
 /// (RFC 20260704 S4).
@@ -102,16 +131,13 @@ pub unsafe extern "C" fn __torajs_any_length_get(recv: AnyValue) -> AnyValue {
         if tag == Tag::DynObj as u16 {
             // Own-property probe for the literal key "length" — a
             // user `{ length: 5 }` through any answers its value;
-            // absence answers (5, 0) = undefined by construction.
+            // absence answers (5, 0) = undefined by construction; an
+            // accessor entry runs its getter (box_probe_pair).
             let key = __torajs_str_alloc(c"length".as_ptr() as *const u8, 6);
             let dtag = __torajs_dynobj_get_tag(ptr, key as *const c_void);
             let dval = __torajs_dynobj_get_value(ptr, key as *const c_void);
             __torajs_str_drop(key as *mut c_void);
-            // The probe pair is a borrow — the returned box owns its
-            // own reference (same shape as the lower-side dynobj
-            // fallback's payload_rc_inc + any_box pairing).
-            crate::payload_rc_inc(dtag as i64, dval as i64);
-            return crate::nanbox_encode::__torajs_anyv_box_from_pair(dtag as i64, dval as i64);
+            return box_probe_pair(dtag, dval);
         }
         if tag == Tag::Closure as u16 {
             // chunk C (RFC 20260711) — a tombstoned virtual `length`
@@ -123,11 +149,7 @@ pub unsafe extern "C" fn __torajs_any_length_get(recv: AnyValue) -> AnyValue {
                     let dtag = __torajs_dynobj_get_tag(props, key as *const c_void);
                     let dval = __torajs_dynobj_get_value(props, key as *const c_void);
                     __torajs_str_drop(key as *mut c_void);
-                    crate::payload_rc_inc(dtag as i64, dval as i64);
-                    return crate::nanbox_encode::__torajs_anyv_box_from_pair(
-                        dtag as i64,
-                        dval as i64,
-                    );
+                    return box_probe_pair(dtag, dval);
                 }
                 return VALUE_UNDEFINED;
             }
@@ -226,14 +248,12 @@ pub unsafe extern "C" fn __torajs_any_size_get(recv: AnyValue) -> AnyValue {
         }
         if tag == Tag::DynObj as u16 {
             // Same probe shape as the `.length` DynObj arm above —
-            // the pair is a borrow, the returned box owns its own
-            // reference.
+            // an accessor entry runs its getter (box_probe_pair).
             let key = __torajs_str_alloc(c"size".as_ptr() as *const u8, 4);
             let dtag = __torajs_dynobj_get_tag(ptr, key as *const c_void);
             let dval = __torajs_dynobj_get_value(ptr, key as *const c_void);
             __torajs_str_drop(key as *mut c_void);
-            crate::payload_rc_inc(dtag as i64, dval as i64);
-            return crate::nanbox_encode::__torajs_anyv_box_from_pair(dtag as i64, dval as i64);
+            return box_probe_pair(dtag, dval);
         }
     }
     VALUE_UNDEFINED
