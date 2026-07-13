@@ -109,6 +109,14 @@ impl<'a> Parser<'a> {
         // parameter was a binding pattern. Order is preserved (lets
         // run first, then user body).
         if !param_destr_lets.is_empty() {
+            // Generator decls: record how many synthesized destr lets
+            // prefix the body so desugar_generators can peel them into
+            // the __Gen ctor (eager param-binding timing, ES §9.2).
+            if is_generator {
+                self.ast
+                    .gen_param_destr_prefix
+                    .insert(name.clone(), param_destr_lets.len());
+            }
             let mut full = param_destr_lets;
             full.extend(body);
             body = full;

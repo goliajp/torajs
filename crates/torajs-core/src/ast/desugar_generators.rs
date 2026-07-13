@@ -123,7 +123,18 @@ pub fn desugar_generators(ast: &mut Ast) {
 
     let mut appended: Vec<Stmt> = Vec::new();
 
-    for (idx, gen_name, gen_params, gen_ret, gen_body) in gen_indices {
+    for (idx, gen_name, mut gen_params, gen_ret, mut gen_body) in gen_indices {
+        // Un-annotated generator params flow through the Any-tier.
+        // The __Gen ctor / fields / factory all clone these params;
+        // leaving ann=None fails check_fn_type's mandatory-ann rule
+        // on `__cm___Gen_*__ctor` (implicit-generics' `__this` arm
+        // never back-fills method params), and the old field-only
+        // `"number"` fallback was wrong for non-number defaults.
+        for p in &mut gen_params {
+            if p.type_ann.is_none() {
+                p.type_ann = Some("any".into());
+            }
+        }
         // P10.7 — Default-Any generator. When the user omits the
         // return-type annotation (`function* foo() {...}`), infer
         // `Generator<any>` so the body's `yield` values flow through
@@ -133,15 +144,50 @@ pub fn desugar_generators(ast: &mut Ast) {
         // `IterableIterator<T>` annotations keep their explicit T.
         let yield_ty = gen_ret.unwrap_or_else(|| "any".into());
 
+        // Param-destructuring prefix: parse_fn recorded how many
+        // synthesized `let leaf = __param_destr_N.<field>` stmts it
+        // prepended to the body. Peel them off — they move into the
+        // __Gen ctor (eager binding at the factory call per ES §9.2
+        // FunctionDeclarationInstantiation; a throwing destructure
+        // must fire at `f()`, not at the first `next()`). Leaf names
+        // become class fields so the state machine reads them via
+        // `this.<leaf>`.
+        let destr_prefix = ast
+            .gen_param_destr_prefix
+            .get(&gen_name)
+            .copied()
+            .unwrap_or(0);
+        let ctor_destr_lets: Vec<Stmt> = gen_body.drain(..destr_prefix).collect();
+        let destr_leaf_fields: Vec<String> = ctor_destr_lets
+            .iter()
+            .filter_map(|s| match s {
+                Stmt::LetDecl { name, .. } if !name.starts_with("__nested_destr_") => {
+                    Some(name.clone())
+                }
+                _ => None,
+            })
+            .collect();
+
         // J.2.a/b + J.4 — prep gen_body: expand yield-into pairs,
         // lift `let` decls to class fields, rewrite param/local
         // idents to `this.<name>`. Returns (prepared_body,
         // lifted_locals) for the class-assembly step below.
+        // Destr leaf names join the rewrite set so body reads of a
+        // destructured binding resolve to the ctor-assigned field.
+        let mut rewrite_params = gen_params.clone();
+        for leaf in &destr_leaf_fields {
+            rewrite_params.push(Param {
+                name: leaf.clone(),
+                type_ann: Some("any".into()),
+                default: None,
+                is_rest: false,
+            });
+        }
         let (gen_body, lifted_locals) = crate::ast::desugar_generators_prep::prep_generator_body(
             ast,
             gen_body,
             &gen_name,
-            &gen_params,
+            &rewrite_params,
             &yield_ty,
         );
 
@@ -230,6 +276,8 @@ pub fn desugar_generators(ast: &mut Ast) {
             class_name,
             &lifted_locals,
             ctor.body,
+            ctor_destr_lets,
+            &destr_leaf_fields,
             next_method,
             return_method,
             throw_method,

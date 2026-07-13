@@ -198,6 +198,15 @@ pub struct Ast {
     /// Avoids adding an `is_async: bool` to every FnDecl construction
     /// site.
     pub async_fns: std::collections::HashSet<String>,
+    /// Generator decls whose parameter list contained binding
+    /// patterns: fn name → count of parser-synthesized destructuring
+    /// `let` stmts prefixed to the body (parse_fn's param_destr_lets).
+    /// desugar_generators peels exactly this prefix off the generator
+    /// body and moves it into the `__Gen_<name>` ctor so parameter
+    /// destructuring evaluates eagerly at the factory call (ES §9.2
+    /// FunctionDeclarationInstantiation timing) instead of at the
+    /// first `next()`.
+    pub gen_param_destr_prefix: std::collections::HashMap<String, usize>,
     /// Plan A — Array literal ExprIds that the escape verifier proved
     /// safe to emit on the stack instead of `__torajs_arr_alloc_pooled`.
     /// Populated by `escape_analyze_array_literals`. ssa_lower's

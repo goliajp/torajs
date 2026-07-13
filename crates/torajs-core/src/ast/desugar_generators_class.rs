@@ -32,6 +32,8 @@ pub(super) fn assemble_generator_class_and_factory(
     class_name: String,
     lifted_locals: &[(String, String)],
     ctor_body_base: Vec<Stmt>,
+    ctor_destr_lets: Vec<Stmt>,
+    destr_leaf_fields: &[String],
     next_method: ClassMethod,
     return_method: ClassMethod,
     throw_method: ClassMethod,
@@ -54,8 +56,16 @@ pub(super) fn assemble_generator_class_and_factory(
     }
     let mut ctor_body_with_params = ctor_body_base;
     for p in &gen_params {
+        // Synthetic destr-pattern params (`__param_destr_N`) stay
+        // plain ctor params: the moved destr lets below consume them,
+        // the state machine never reads them, and a struct-annotated
+        // field would need a struct zero-init the factory's default
+        // literal can't provide.
+        if p.name.starts_with("__param_destr_") {
+            continue;
+        }
         let pname = p.name.clone();
-        let pty = p.type_ann.clone().unwrap_or_else(|| "number".into());
+        let pty = p.type_ann.clone().unwrap_or_else(|| "any".into());
         class_fields.push((pname.clone(), pty));
         // this.<param> = <param>
         let this_id = ast.add_expr(Expr::This);
@@ -67,6 +77,27 @@ pub(super) fn assemble_generator_class_and_factory(
         let assign = ast.add_expr(Expr::Assign {
             target: f_member,
             value: arg_ident,
+        });
+        ctor_body_with_params.push(Stmt::Expr(assign));
+    }
+    // Param destructuring runs inside the ctor (eager, at the factory
+    // call — ES §9.2 timing): the parser-synthesized lets execute
+    // against the ctor params verbatim, then each leaf binding is
+    // stored into its class field for the state machine to read.
+    for leaf in destr_leaf_fields {
+        class_fields.push((leaf.clone(), "any".into()));
+    }
+    ctor_body_with_params.extend(ctor_destr_lets);
+    for leaf in destr_leaf_fields {
+        let this_id = ast.add_expr(Expr::This);
+        let f_member = ast.add_expr(Expr::Member {
+            obj: this_id,
+            name: leaf.clone(),
+        });
+        let leaf_ident = ast.add_expr(Expr::Ident(leaf.clone()));
+        let assign = ast.add_expr(Expr::Assign {
+            target: f_member,
+            value: leaf_ident,
         });
         ctor_body_with_params.push(Stmt::Expr(assign));
     }
