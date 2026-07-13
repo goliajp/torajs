@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-13T11:10:50.631Z",
+  "generatedAt": "2026-07-13T11:20:45.279Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 91.75
   },
   "torajs": {
-    "commit": "1ac4b312",
-    "commitSubject": "chore: test262 sweep at e892052b - passTotal 9759 (+16), bug 877",
+    "commit": "8121da2b",
+    "commitSubject": "feat: trimLeft and trimRight annex b aliases intern to trimStart trimEnd",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "8121da2b",
+      "subject": "feat: trimLeft and trimRight annex b aliases intern to trimStart trimEnd"
+    },
+    {
+      "hash": "ee147a7e",
+      "subject": "chore: hardev dashboard snapshot at rotation 90"
+    },
+    {
       "hash": "1ac4b312",
       "subject": "chore: test262 sweep at e892052b - passTotal 9759 (+16), bug 877"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "551338f8",
       "subject": "feat: object loose equality compares identity and walks toprimitive"
-    },
-    {
-      "hash": "0315bd2e",
-      "subject": "feat: static bigint loose equality mixes compare mathematical values"
-    },
-    {
-      "hash": "888c2904",
-      "subject": "feat: any-side loose equality walks the full spec coercion ladder"
     }
   ],
-  "headSha": "1ac4b312",
+  "headSha": "8121da2b",
   "autorun": {
     "total": 396,
     "baselineTarget": 10,
