@@ -274,12 +274,31 @@ fn scan_expr(
             scan_expr(ast, *right, out, direct, fn_values, expr_types);
         }
         Expr::Unary { expr, .. } => scan_expr(ast, *expr, out, direct, fn_values, expr_types),
-        Expr::Member { obj, .. } => scan_expr(ast, *obj, out, direct, fn_values, expr_types),
+        Expr::Member { obj, .. } => {
+            // RFC 20260713 blade 6 — an any-receiver member READ lowers
+            // to __torajs_any_member_get_tag, which records a pending
+            // TypeError on a null/undefined receiver. Before this rule
+            // a named fn whose only throw source was `p.x` (p: any) was
+            // M4.3.b-skipped at the caller: the pending throw was
+            // silently dropped, the read answered garbage NaN-box bits
+            // (`[unknown-any-tag]`), and a later drop walk could
+            // SIGSEGV. Mirrors the chunk-701 method-call rule; typed
+            // receivers stay unmarked (no hot-path throw-check cost).
+            if matches!(expr_types.get(obj), Some(crate::check::Type::Any)) {
+                *direct = true;
+            }
+            scan_expr(ast, *obj, out, direct, fn_values, expr_types)
+        }
         Expr::Assign { target, value } => {
             scan_expr(ast, *target, out, direct, fn_values, expr_types);
             scan_expr(ast, *value, out, direct, fn_values, expr_types);
         }
         Expr::Index { obj, index } => {
+            // Same as the Member arm: any-receiver index reads throw on
+            // null/undefined via __torajs_any_index.
+            if matches!(expr_types.get(obj), Some(crate::check::Type::Any)) {
+                *direct = true;
+            }
             scan_expr(ast, *obj, out, direct, fn_values, expr_types);
             scan_expr(ast, *index, out, direct, fn_values, expr_types);
         }
