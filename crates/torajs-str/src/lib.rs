@@ -123,6 +123,7 @@ pub mod json_builder;
 pub mod json_parse;
 pub mod layout;
 pub mod literals;
+pub mod locale_id;
 pub mod lookup;
 pub mod lookup_ffi;
 pub mod method_any;

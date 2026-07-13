@@ -103,29 +103,25 @@ pub(crate) fn try_dispatch(
         return Some(Operand::Value(v));
     }
     // ES402 sup-string.prototype.tolocale{upper,lower}case —
-    // `s.toLocaleUpperCase(locale?)` routes to the 2-arg tailored
-    // runtime kernel (tr/az/lt SpecialCasing; everything else takes
-    // the default fold inside). Missing / undefined locale rides as
-    // the interned empty string (host default). A non-Str locale
-    // arg (e.g. an Arr of identifiers) falls through to the generic
-    // dispatch (CanonicalizeLocaleList walk is the follow-up cut).
+    // `s.toLocaleUpperCase(locale?)` routes to the tailored runtime
+    // kernels (tr/az/lt SpecialCasing; everything else takes the
+    // default fold inside). Missing / undefined locale rides as the
+    // interned "und" (valid tag, host-default tailoring, skips no
+    // validation semantics — CanonicalizeLocaleList(undefined) is
+    // the empty list). A Str locale is validated by the kernel
+    // (RangeError on a structurally invalid tag); an Arr<Str>
+    // locales list walks CanonicalizeLocaleList on the anyvalue
+    // side. Any other locale type falls through to the generic
+    // dispatch (number/bool coerce to a length-0 array-like =
+    // host default there).
     if method == "toLocaleUpperCase" || method == "toLocaleLowerCase" {
-        if let Some(locale_op) = lower_locale_arg(ctx, args) {
-            let target = if method == "toLocaleUpperCase" {
-                ctx.intrinsics.str_to_locale_upper
-            } else {
-                ctx.intrinsics.str_to_locale_lower
-            };
-            let v = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Call(target, vec![recv_op, locale_op]),
-                Type::Str,
-                None,
-            );
+        let upper = method == "toLocaleUpperCase";
+        if let Some(v) = lower_locale_case(ctx, args, recv_op, upper) {
             for &a in args.iter().skip(1) {
                 let _ = ctx.lower_expr(a);
             }
-            return Some(Operand::Value(v));
+            ctx.emit_throw_check(None);
+            return Some(v);
         }
         return None;
     }
@@ -155,30 +151,80 @@ pub(crate) fn try_dispatch(
     None
 }
 
-/// Lower the `toLocale{Upper,Lower}Case` locale argument. Answers:
-/// - `Some(interned "")` for the 0-arg / explicit-undefined shape
-///   (host default),
-/// - `Some(lowered)` when the static type of `args[0]` is `Str`,
-/// - `None` for anything else (Arr / Any locale lists) — the caller
-///   falls through to the generic dispatch until the
-///   CanonicalizeLocaleList cut lands.
+/// Lower a `toLocale{Upper,Lower}Case` call against an owned-Str
+/// receiver operand. Dispatches on the locale argument's static
+/// type:
+/// - 0-arg / explicit-undefined → 2-arg kernel with the interned
+///   `"und"` (valid tag whose tailoring is the host default),
+/// - `Str` → 2-arg kernel (the kernel validates and raises
+///   RangeError on a structurally invalid tag),
+/// - `Arr<_>` → the anyvalue-side CanonicalizeLocaleList walk
+///   (`str_locale_case_arr`),
+/// - anything else → `None`; the caller falls through to the
+///   generic locale-dropping dispatch (number/bool locales are a
+///   length-0 array-like = host default).
 ///
-/// Shared with the Substr-receiver dispatch in
+/// The caller owns trailing-arg eval-and-drop plus the
+/// `emit_throw_check`. Shared with the Substr-receiver dispatch in
 /// [`crate::ssa_lower_str_substr_dispatch`].
-pub(crate) fn lower_locale_arg(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Operand> {
+pub(crate) fn lower_locale_case(
+    ctx: &mut LowerCtx<'_>,
+    args: &[ExprId],
+    recv_op: Operand,
+    upper: bool,
+) -> Option<Operand> {
     let undef0 = !args.is_empty()
         && matches!(
             ctx.expr_types.get(&args[0]),
             Some(crate::check::Type::Undefined)
         );
     if args.is_empty() || undef0 {
-        return Some(Operand::Value(ctx.intern_string_literal("")));
+        let und = Operand::Value(ctx.intern_string_literal("und"));
+        return Some(emit_locale_call(ctx, recv_op, und, upper));
     }
-    if matches!(
-        ctx.expr_types.get(&args[0]),
-        Some(crate::check::Type::String)
-    ) {
-        return Some(ctx.lower_expr(args[0]));
+    match ctx.expr_types.get(&args[0]) {
+        Some(crate::check::Type::String) => {
+            let locale_op = ctx.lower_expr(args[0]);
+            Some(emit_locale_call(ctx, recv_op, locale_op, upper))
+        }
+        Some(crate::check::Type::Array(_)) => {
+            let arr_op = ctx.lower_expr(args[0]);
+            // The walk reads elements through the kind-aware anyv
+            // path — an unescaped typed Arr must carry its
+            // ElementsKind stamp or every slot reads as UNSET.
+            ctx.emit_arr_mark_kind(&arr_op);
+            let v = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(
+                    ctx.intrinsics.str_locale_case_arr,
+                    vec![recv_op, arr_op, Operand::ConstI64(upper as i64)],
+                ),
+                Type::Str,
+                None,
+            );
+            Some(Operand::Value(v))
+        }
+        _ => None,
     }
-    None
+}
+
+/// Append the 2-arg tailored-kernel call.
+fn emit_locale_call(
+    ctx: &mut LowerCtx<'_>,
+    recv_op: Operand,
+    locale_op: Operand,
+    upper: bool,
+) -> Operand {
+    let target = if upper {
+        ctx.intrinsics.str_to_locale_upper
+    } else {
+        ctx.intrinsics.str_to_locale_lower
+    };
+    let v = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(target, vec![recv_op, locale_op]),
+        Type::Str,
+        None,
+    );
+    Operand::Value(v)
 }

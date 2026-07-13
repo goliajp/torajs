@@ -5,6 +5,8 @@
 //! fresh rc=1 cells transfer to the caller) and the same
 //! [`owned_src`] Substr-materialize pattern.
 
+use core::ffi::c_void;
+
 use crate::block::__torajs_str_alloc;
 use crate::method_any::{KIND_HEAP_CHAIN, drop_tmp, owned_src};
 
@@ -163,7 +165,10 @@ pub unsafe extern "C" fn __torajs_str_any_normalize(s: *const u8, form: *const u
 /// `s.toLocaleUpperCase(locale)` / `s.toLocaleLowerCase(locale)`
 /// per ES402 — `upper != 0` picks the uppercase tables. NULL
 /// `locale` denotes a missing / undefined argument (host default =
-/// Default Case Conversion).
+/// Default Case Conversion). A structurally invalid locale records
+/// a pending RangeError and the kernel echoes the receiver; that
+/// echo must not transfer to the caller (same substitution shape
+/// as `__torajs_str_any_normalize`).
 ///
 /// # Safety
 /// `s` is a valid heap Str/Substr pointer; `locale` is NULL or one
@@ -186,7 +191,46 @@ pub unsafe extern "C" fn __torajs_str_any_locale_case(
         } else {
             crate::transform::case_locale::__torajs_str_to_locale_lower(src, lc)
         };
+        let out = if out == src as *mut u8 {
+            __torajs_str_alloc(core::ptr::null(), 0)
+        } else {
+            out
+        };
         drop_tmp(l_tmp);
+        drop_tmp(s_tmp);
+        out as u64
+    }
+}
+
+unsafe extern "C" {
+    /// Cross-tier — the anyvalue-side CanonicalizeLocaleList walk
+    /// over a `Tag::Arr` locales argument (torajs-anyvalue
+    /// `locale_list`).
+    fn __torajs_str_locale_case_arr(s: *const u8, arr: *const c_void, upper: i64) -> *mut u8;
+}
+
+/// Array-locales variant of [`__torajs_str_any_locale_case`] —
+/// materializes a Substr receiver, then hands off to the
+/// anyvalue-side CanonicalizeLocaleList walk. Same
+/// receiver-echo substitution on the throw path.
+///
+/// # Safety
+/// `s` is a valid heap Str/Substr pointer; `arr` is a valid
+/// `Tag::Arr` heap pointer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_any_locale_case_arr(
+    s: *const u8,
+    arr: *const c_void,
+    upper: i64,
+) -> u64 {
+    unsafe {
+        let (src, s_tmp) = owned_src(s);
+        let out = __torajs_str_locale_case_arr(src, arr, upper);
+        let out = if out == src as *mut u8 {
+            __torajs_str_alloc(core::ptr::null(), 0)
+        } else {
+            out
+        };
         drop_tmp(s_tmp);
         out as u64
     }

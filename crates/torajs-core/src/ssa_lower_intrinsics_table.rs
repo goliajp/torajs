@@ -92,6 +92,7 @@ pub(crate) fn build(
         str_normalize: init_a.str_a.str_normalize,
         str_to_locale_upper: init_a.str_a.str_to_locale_upper,
         str_to_locale_lower: init_a.str_a.str_to_locale_lower,
+        str_locale_case_arr: init_a.str_a.str_locale_case_arr,
         str_at: init_a.str_a.str_at,
         str_replace: init_a.str_a.str_replace,
         str_replace_all: init_a.str_a.str_replace_all,

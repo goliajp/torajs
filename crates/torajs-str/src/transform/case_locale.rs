@@ -180,11 +180,20 @@ unsafe fn parse_case_locale(locale: *const u8) -> CaseLocale {
     }
 }
 
-/// Shared core for the two typed-tier FFI entry points.
+/// Shared core for the two typed-tier FFI entry points. A NULL
+/// `locale` is the missing-argument sentinel (host default, no
+/// validation per CanonicalizeLocaleList(undefined) = empty list);
+/// any provided locale is structurally validated first — an invalid
+/// tag records a pending RangeError and echoes the receiver (the
+/// call site's throw check kills the path, same stand-in shape as
+/// `normalize`).
 unsafe fn to_locale_case(s: *const u8, locale: *const u8, upper: bool) -> *mut u8 {
     let loc = if locale.is_null() {
         CaseLocale::Default
     } else {
+        if unsafe { crate::locale_id::__torajs_str_locale_check(locale) } == 0 {
+            return s as *mut u8;
+        }
         unsafe { parse_case_locale(locale) }
     };
     let (payload, length, is_latin1) = unsafe { str_view(s) };

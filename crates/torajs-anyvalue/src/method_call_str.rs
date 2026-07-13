@@ -85,6 +85,9 @@ unsafe extern "C" {
     /// torajs-str — toLocale{Upper,Lower}Case glue (NULL locale =
     /// host default; tr/az/lt select tailored SpecialCasing).
     fn __torajs_str_any_locale_case(s: *const u8, locale: *const u8, upper: i64) -> u64;
+    /// torajs-str — array-locales variant (materializes a Substr
+    /// receiver, walks CanonicalizeLocaleList on the anyvalue side).
+    fn __torajs_str_any_locale_case_arr(s: *const u8, arr: *const c_void, upper: i64) -> u64;
     /// torajs-str — lastIndexOf glue (missing/NaN from = i64::MAX).
     fn __torajs_str_any_last_index_of(s: *const u8, needle: *const u8, from: i64) -> i64;
     /// torajs-str — search glue (match start or -1).
@@ -307,19 +310,32 @@ unsafe fn str_method_ext(s: *mut u8, mid: i64, argv: *const u64, argc: i64) -> A
             m if m == ANY_METHOD_TO_LOCALE_UPPER_CASE || m == ANY_METHOD_TO_LOCALE_LOWER_CASE => {
                 // ES402 — the locale argument selects the tailored
                 // SpecialCasing rule set (tr/az/lt); undefined =
-                // host default. Array locales ride the AnyValue
-                // ToString bridge for now (CanonicalizeLocaleList
-                // walk + RangeError validation is the follow-up
-                // cut).
+                // host default; a string is validated by the kernel
+                // (RangeError); a Tag::Arr walks
+                // CanonicalizeLocaleList on the anyvalue side; any
+                // other type is a length-0 array-like per
+                // ToObject = host default.
                 let up = (m == ANY_METHOD_TO_LOCALE_UPPER_CASE) as i64;
                 let loc_av = arg_at(0);
-                if is_undefined(loc_av) {
-                    __torajs_str_any_locale_case(s, core::ptr::null(), up)
+                let cell_tag = if is_cell(loc_av) {
+                    let p = as_void_ptr(loc_av);
+                    (p.cast::<u8>().add(4) as *const u16).read()
                 } else {
+                    u16::MAX
+                };
+                if cell_tag == Tag::Arr as u16 {
+                    __torajs_str_any_locale_case_arr(
+                        s as *const u8,
+                        as_void_ptr(loc_av) as *const c_void,
+                        up,
+                    )
+                } else if cell_tag == Tag::Str as u16 || crate::nanbox::is_short_str(loc_av) {
                     let lc = __torajs_anyv_to_str(loc_av);
                     let out = __torajs_str_any_locale_case(s, lc as *const u8, up);
                     __torajs_str_drop(lc);
                     out
+                } else {
+                    __torajs_str_any_locale_case(s, core::ptr::null(), up)
                 }
             }
             // ES2024 §22.1.3.10/33 — torajs Str is internally UTF-8

@@ -41,6 +41,7 @@ pub(crate) struct StrAIds {
     pub str_normalize: FuncId,
     pub str_to_locale_upper: FuncId,
     pub str_to_locale_lower: FuncId,
+    pub str_locale_case_arr: FuncId,
     pub str_at: FuncId,
     pub str_replace: FuncId,
     pub str_replace_all: FuncId,
@@ -139,6 +140,13 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             fn_table,
             "__torajs_str_to_locale_lower",
             &[Type::Str, Type::Str],
+            Type::Str,
+        ),
+        str_locale_case_arr: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_str_locale_case_arr",
+            &[Type::Str, Type::Ptr, Type::I64],
             Type::Str,
         ),
         str_at: declare_intrinsic(
