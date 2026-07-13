@@ -19,9 +19,10 @@
 //! (`ast::desugar_classes_emit`) keep their existing `use super::*`
 //! access path unchanged.
 
-use super::{Ast, Expr, Stmt, default_init_for_type};
+use super::{Ast, Expr, ExprId, Stmt, default_init_for_type};
 
 pub fn desugar_async(ast: &mut Ast) {
+    rewrite_async_fn_value_exprs(ast);
     if ast.async_fns.is_empty() {
         return;
     }
@@ -65,90 +66,7 @@ pub fn desugar_async(ast: &mut Ast) {
         // `check/promise_static.rs`; `.then` / `.catch` accept
         // `Promise<Any>` at `check.rs:5008` / `:5054`.
         let declared_ty = return_type.unwrap_or_else(|| "any".into());
-        // P10.3-A2 — accept both annotation forms:
-        //   `async function f(): number { ... }`        → inner_ty = "number"
-        //   `async function f(): Promise<number> { ... }` → inner_ty = "number"
-        // Pre-P10.3-A2 the desugar unconditionally prepended `Promise<...>`,
-        // double-wrapping the idiomatic TS form into `Promise<Promise<T>>` and
-        // surfacing as "return type mismatch: function expects
-        // Promise(Promise(Number)), got Promise(Number)" at first `return e`.
-        // Strip a leading `Promise<...>` wrapper (if any) to recover the
-        // inner T; the body's `return e` rewrites still produce
-        // `Promise.resolve(e)` of type Promise<T>, matching the resolved
-        // promise_ty below.
-        let inner_ty = if let Some(rest) = declared_ty.strip_prefix("Promise<")
-            && let Some(inner) = rest.strip_suffix('>')
-        {
-            inner.to_string()
-        } else {
-            declared_ty.clone()
-        };
-        let promise_ty = format!("Promise<{inner_ty}>");
-
-        // T-15.h: rewrite each `return e;` to `return Promise.resolve(e);`.
-        // No shared `__async_p` state — every return constructs a
-        // fresh fulfilled built-in Promise. Cleaner than the v0.4.x
-        // user-class MVP and removes the multi-return move-tracker
-        // workaround.
-        let mut new_body: Vec<Stmt> = Vec::with_capacity(body.len() + 1);
-        for s in body {
-            let mut s = s;
-            rewrite_returns_for_async(ast, &mut s, &inner_ty);
-            new_body.push(s);
-        }
-        // Tail safety: if control flow falls off the end, return
-        // `Promise.resolve(<default T>)`.
-        if !body_ends_in_return(&new_body) {
-            let default_init = default_init_for_type(&inner_ty);
-            let default_id = ast.add_expr(default_init);
-            let promise_ident = ast.add_expr(Expr::Ident("Promise".into()));
-            let resolve_member = ast.add_expr(Expr::Member {
-                obj: promise_ident,
-                name: "resolve".into(),
-            });
-            let call = ast.add_expr(Expr::Call {
-                callee: resolve_member,
-                args: vec![default_id],
-            });
-            new_body.push(Stmt::Return(Some(call)));
-        }
-
-        // P10.5-A1 — wrap the rewritten body in `try { ... } catch
-        // (__async_err: any) { return Promise.reject(__async_err); }`
-        // per ES spec §27.7.3.6 AsyncFunctionBody. Without this an
-        // uncaught throw inside an async fn would propagate
-        // synchronously to the caller instead of becoming a rejected
-        // Promise, short-circuiting the sync continuation and
-        // skipping unhandled-rejection handling entirely (the wider
-        // P10.5 handler hook builds on this).
-        //
-        // P10.5-A2 — `catch_type` is `any` (spec-correct), upgraded
-        // from the A1-era narrow MVP that pinned it to the fn's
-        // declared inner T. The shadow type now matches what the
-        // user actually wrote in `throw <expr>` (which may differ
-        // from inner T — e.g. `async fn f(): Promise<number> { throw
-        // "err"; }`); `Promise.reject` accepts `any` at
-        // `check/promise_static.rs`, dispatching to the existing
-        // heap reject path at SSA (boxed-any pointer is i64-sized).
-        let err_ident_for_arg = ast.add_expr(Expr::Ident("__async_err".into()));
-        let promise_ident_rj = ast.add_expr(Expr::Ident("Promise".into()));
-        let reject_member = ast.add_expr(Expr::Member {
-            obj: promise_ident_rj,
-            name: "reject".into(),
-        });
-        let reject_call = ast.add_expr(Expr::Call {
-            callee: reject_member,
-            args: vec![err_ident_for_arg],
-        });
-        let catch_body = vec![Stmt::Return(Some(reject_call))];
-        let wrapped_body = vec![Stmt::Try {
-            body: new_body,
-            had_catch: true,
-            catch_param: Some("__async_err".into()),
-            catch_type: Some("any".into()),
-            catch_body,
-            finally_body: None,
-        }];
+        let (wrapped_body, promise_ty) = build_async_body(ast, body, &declared_ty);
 
         ast.stmts[idx] = Stmt::FnDecl {
             name,
@@ -159,6 +77,119 @@ pub fn desugar_async(ast: &mut Ast) {
             is_generator: false,
         };
     }
+}
+
+/// RFC 20260713 blade 3 — async function-VALUE expressions (`async
+/// () => ...` / `async x => ...` / `async function(){}`). Each marked
+/// `Expr::ArrowFn` gets the same body transform as an async FnDecl,
+/// applied in place while the body is still inside the expression —
+/// `lift_arrow_fns` runs later, so the lifted `__closure_N` is an
+/// ordinary Promise-returning closure and captures ride the normal
+/// `__env` channel (no async_fns registration, no pass reordering).
+fn rewrite_async_fn_value_exprs(ast: &mut Ast) {
+    if ast.async_fn_value_exprs.is_empty() {
+        return;
+    }
+    // Deterministic order: the rewrites append fresh exprs to the
+    // arena, so iterating the HashSet directly would make the arena
+    // layout (and the compiled artifact) run-to-run unstable.
+    let mut ids: Vec<ExprId> = ast.async_fn_value_exprs.iter().copied().collect();
+    ids.sort_by_key(|e| e.0);
+    for eid in ids {
+        let i = eid.0 as usize;
+        let arrow = std::mem::replace(&mut ast.exprs[i], Expr::Null);
+        let Expr::ArrowFn {
+            params,
+            return_type,
+            body,
+        } = arrow
+        else {
+            panic!("async_fn_value_exprs marker on a non-ArrowFn ExprId {eid:?} (parser contract)");
+        };
+        let declared_ty = return_type.unwrap_or_else(|| "any".into());
+        let (wrapped_body, promise_ty) = build_async_body(ast, body, &declared_ty);
+        ast.exprs[i] = Expr::ArrowFn {
+            params,
+            return_type: Some(promise_ty),
+            body: wrapped_body,
+        };
+    }
+}
+
+/// Shared async body transform (FnDecl and ArrowFn shapes): rewrite
+/// every `return e` to `return Promise.resolve(e)`, add the
+/// tail-safety default return, and wrap the whole body in `try {...}
+/// catch (__async_err: any) { return Promise.reject(__async_err) }`.
+/// Returns the wrapped body plus the `Promise<T>` annotation for the
+/// function's return slot.
+///
+/// P10.3-A2 — accept both annotation forms:
+///   `async function f(): number { ... }`          → inner_ty = "number"
+///   `async function f(): Promise<number> { ... }` → inner_ty = "number"
+/// Pre-P10.3-A2 the desugar unconditionally prepended `Promise<...>`,
+/// double-wrapping the idiomatic TS form into `Promise<Promise<T>>`.
+///
+/// P10.5-A1 — the try/catch wrap is ES spec §27.7.3.6
+/// AsyncFunctionBody: an uncaught throw becomes a rejected Promise
+/// instead of propagating synchronously to the caller. P10.5-A2 —
+/// `catch_type` is `any` (spec-correct; `throw <expr>` may differ from
+/// inner T), accepted by `Promise.reject` at `check/promise_static.rs`.
+fn build_async_body(ast: &mut Ast, body: Vec<Stmt>, declared_ty: &str) -> (Vec<Stmt>, String) {
+    let inner_ty = if let Some(rest) = declared_ty.strip_prefix("Promise<")
+        && let Some(inner) = rest.strip_suffix('>')
+    {
+        inner.to_string()
+    } else {
+        declared_ty.to_string()
+    };
+    let promise_ty = format!("Promise<{inner_ty}>");
+
+    // T-15.h: rewrite each `return e;` to `return Promise.resolve(e);`.
+    // No shared `__async_p` state — every return constructs a fresh
+    // fulfilled built-in Promise.
+    let mut new_body: Vec<Stmt> = Vec::with_capacity(body.len() + 1);
+    for s in body {
+        let mut s = s;
+        rewrite_returns_for_async(ast, &mut s, &inner_ty);
+        new_body.push(s);
+    }
+    // Tail safety: if control flow falls off the end, return
+    // `Promise.resolve(<default T>)`.
+    if !body_ends_in_return(&new_body) {
+        let default_init = default_init_for_type(&inner_ty);
+        let default_id = ast.add_expr(default_init);
+        let promise_ident = ast.add_expr(Expr::Ident("Promise".into()));
+        let resolve_member = ast.add_expr(Expr::Member {
+            obj: promise_ident,
+            name: "resolve".into(),
+        });
+        let call = ast.add_expr(Expr::Call {
+            callee: resolve_member,
+            args: vec![default_id],
+        });
+        new_body.push(Stmt::Return(Some(call)));
+    }
+
+    let err_ident_for_arg = ast.add_expr(Expr::Ident("__async_err".into()));
+    let promise_ident_rj = ast.add_expr(Expr::Ident("Promise".into()));
+    let reject_member = ast.add_expr(Expr::Member {
+        obj: promise_ident_rj,
+        name: "reject".into(),
+    });
+    let reject_call = ast.add_expr(Expr::Call {
+        callee: reject_member,
+        args: vec![err_ident_for_arg],
+    });
+    let catch_body = vec![Stmt::Return(Some(reject_call))];
+    let wrapped_body = vec![Stmt::Try {
+        body: new_body,
+        had_catch: true,
+        catch_param: Some("__async_err".into()),
+        catch_type: Some("any".into()),
+        catch_body,
+        finally_body: None,
+    }];
+    (wrapped_body, promise_ty)
 }
 
 /// True if the (possibly-empty) body's last reachable statement is a

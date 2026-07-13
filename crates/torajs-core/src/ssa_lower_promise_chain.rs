@@ -257,6 +257,34 @@ impl crate::ssa_lower::LowerCtx<'_> {
                     } else {
                         false
                     };
+                // RFC 20260713 blade 3 — closure-valued callee whose
+                // signature returns Promise: a lifted async arrow /
+                // fn-expr bound to a local or K.3-promoted global
+                // (`const f = async () => ...; f().then(...)`), or an
+                // IIFE directly on the closure value
+                // (`(async () => ...)().then(...)`).
+                let closure_returns_promise = match self.ast.get_expr(*src_callee) {
+                    Expr::Ident(n) => {
+                        let slot_ty = self
+                            .locals
+                            .get(n)
+                            .map(|info| &info.ty)
+                            .or_else(|| self.globals.get(n));
+                        matches!(
+                            slot_ty,
+                            Some(Type::Closure(sig)) | Some(Type::FnSig(sig))
+                                if matches!(self.fn_sigs[sig.0 as usize].1, Type::Promise)
+                        )
+                    }
+                    Expr::Closure { fn_name, .. } => self
+                        .fn_table
+                        .get(fn_name)
+                        .copied()
+                        .and_then(|fid| self.signatures.get(&fid).copied())
+                        .map(|ty| matches!(ty, Type::Promise))
+                        .unwrap_or(false),
+                    _ => false,
+                };
                 let fs_async = matches!(
                     self.ast.get_expr(*src_callee),
                     Expr::Member { obj: ns_id, name: m_name }
@@ -287,7 +315,12 @@ impl crate::ssa_lower::LowerCtx<'_> {
                                     )
                             )
                 );
-                static_ctor || then_chain || fn_returns_promise || fs_async || bun_file_text
+                static_ctor
+                    || then_chain
+                    || fn_returns_promise
+                    || closure_returns_promise
+                    || fs_async
+                    || bun_file_text
             }
             _ => false,
         }

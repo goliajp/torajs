@@ -79,6 +79,15 @@ pub fn hoist_gen_fn_exprs(ast: &mut Ast) {
             ast.gen_param_destr_prefix
                 .insert(name.clone(), info.destr_prefix);
         }
+        // `async function*` expressions register the hoisted name in
+        // async_generator_fns so the decl-form blade 4 machinery
+        // applies: desugar_async leaves the factory unwrapped (calling
+        // it returns the generator object per §27.6) and
+        // desugar_generators gives the step methods their Promise
+        // shape.
+        if info.kind == crate::ast::GenFnExprKind::AsyncGenerator {
+            ast.async_generator_fns.insert(name.clone());
+        }
         // Later genexprs may reference earlier hoisted names (nested
         // generator expressions) — treat them as globals too.
         global_names.push(name.clone());

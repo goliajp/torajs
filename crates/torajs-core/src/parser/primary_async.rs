@@ -1,198 +1,116 @@
-//! Async expression-position forms (chunk 420).
+//! Async expression-position forms (chunk 420; real substrate since
+//! RFC 20260713-generator-fn-value-substrate blade 3).
 //!
-//! Extracted verbatim from parse_primary (parser.rs) — the two async
-//! arms, fused into one fall-through probe:
-//! - async arrow — `async x => ...` / `async (a, b) => ...` (P1
-//!   opaque stub: params + body dropped, empty Expr::ArrowFn)
-//! - async function expression — `async function [NAME](...) {...}` /
-//!   `async function*` (P0.10 opaque stub, same strategy)
+//! One fall-through probe covering:
+//! - async arrow — `async x => ...` / `async (a, b) => ...`: parsed
+//!   for real as `Expr::ArrowFn` (the paren form delegates to
+//!   `parse_arrow_fn`) and marked in `ast.async_fn_value_exprs` so
+//!   `desugar_async` rewrites the body in place before the closure
+//!   lift. Captures ride the normal `__env` channel.
+//! - async function expression — `async function [NAME](...) {...}`:
+//!   delegates to `parse_fn_expr` (same ArrowFn emission as its
+//!   non-async form) and marks the ExprId the same way.
+//! - `async function*` — `parse_fn_expr` registers the generator in
+//!   `ast.gen_fn_exprs`; here the kind is flipped to `AsyncGenerator`
+//!   so `hoist_gen_fn_exprs` registers the hoisted name in
+//!   `async_generator_fns` (blade 4 decl machinery: factory returns
+//!   the generator object, step methods return Promises).
 //!
 //! Returns Ok(None) when the cursor is not at either form (including
 //! `async` used as a plain identifier), so parse_primary falls through
-//! to its remaining arms. The only non-verbatim edits are the two
-//! `Ok(expr)` -> `Ok(Some(expr))` wraps at the arm tails.
+//! to its remaining arms.
 
 use super::*;
 
 impl<'a> Parser<'a> {
     pub(super) fn try_parse_async_expr(&mut self) -> Result<Option<ExprId>, String> {
-        // P0.10 — async function expression `async function() {...}` /
-        // `async function NAME() {...}` per ES spec §15.8.5
-        // AsyncFunctionExpression. Used in test262 for `async function()
-        // {}.constructor` (~15+ cases under built-ins/AsyncFunction/* and
-        // built-ins/AsyncDisposableStack/*). Real async-fn-expression
-        // substrate (state-machine generation, await binding) is a
-        // P-LATER item; for the parser milestone we accept the syntax,
-        // brace-balance the body, and emit an empty placeholder
-        // Expr::ArrowFn — same strategy as generator-expression
-        // (function*) and getter/setter/computed-method bodies.
-        // P1 — async arrow functions `async x => ...` / `async (a, b)
-        // => ...`. tora's regular arrow parser doesn't recognize the
-        // `async` prefix in expression position (the keyword is
-        // distinct from Ident "async"). Stub the syntax by dropping
-        // the body — same opaque-stub strategy as async function
-        // expression (real await binding / state-machine substrate
-        // is P-LATER). Detected forms:
-        //   async Ident => <expr | { body }>
-        //   async (Params) => <expr | { body }>
+        // Async arrow — `async Ident => ...` / `async (Params) => ...`.
+        // The `async` keyword token is distinct from Ident "async", so
+        // lookahead must confirm the `=>` before committing (plain
+        // `async` as an identifier falls through).
         if matches!(self.peek(), Token::Async)
             && let Some(t1) = self.tokens.get(self.pos + 1)
             && (matches!(t1.token, Token::Ident(_)) || matches!(t1.token, Token::LParen))
         {
-            // Distinguish `async function ...` (handled below) from
-            // an async arrow. The Function check is later in the if
-            // chain — here both Ident and LParen lead to arrow form.
-            // For Ident case, peek+2 must be FatArrow.
             let is_arrow = if matches!(t1.token, Token::Ident(_)) {
                 self.tokens
                     .get(self.pos + 2)
                     .is_some_and(|t| matches!(t.token, Token::FatArrow))
             } else {
-                // LParen — scan to matching RParen, then check for FatArrow
-                let mut j = self.pos + 2;
-                let mut depth = 1i32;
-                while depth > 0 && j < self.tokens.len() {
-                    match self.tokens[j].token {
-                        Token::LParen => depth += 1,
-                        Token::RParen => depth -= 1,
-                        _ => {}
-                    }
-                    j += 1;
-                }
-                self.tokens
-                    .get(j)
-                    .is_some_and(|t| matches!(t.token, Token::FatArrow))
+                // LParen — reuse the arrow lookahead from the `(`
+                // position (handles both `(...) =>` and the
+                // return-annotated `(...): T =>`; a plain `async(...)`
+                // call — e.g. the middle of a ternary — stays false).
+                self.pos += 1;
+                let r = self.is_arrow_fn_at_lparen();
+                self.pos -= 1;
+                r
             };
             if is_arrow {
                 self.pos += 1; // consume `async`
-                // Drop the param list / single Ident.
-                if matches!(self.peek(), Token::Ident(_)) {
-                    self.pos += 1; // single-param shorthand
-                } else {
-                    // (...)
-                    self.pos += 1; // consume LParen
-                    let mut depth = 1i32;
-                    while depth > 0 {
+                let eid = if let Token::Ident(pname) = self.peek() {
+                    // Single-param shorthand: `async x => body`.
+                    let pname = pname.clone();
+                    self.pos += 1; // consume param ident
+                    self.pos += 1; // consume `=>` (lookahead-guaranteed)
+                    let body = if matches!(self.peek(), Token::LBrace) {
+                        self.pos += 1;
+                        let mut stmts = Vec::new();
+                        while !matches!(self.peek(), Token::RBrace | Token::Eof) {
+                            stmts.push(self.parse_stmt()?);
+                        }
                         match self.peek() {
-                            Token::LParen => depth += 1,
-                            Token::RParen => depth -= 1,
-                            Token::Eof => {
+                            Token::RBrace => self.pos += 1,
+                            t => {
                                 return Err(format!(
-                                    "unexpected eof in async arrow params at {}",
+                                    "expected `}}` after async arrow body, got {t:?} at {}",
                                     self.at()
                                 ));
                             }
-                            _ => {}
                         }
-                        self.pos += 1;
-                    }
-                }
-                // Consume FatArrow.
-                self.pos += 1;
-                // Body — either expression or block.
-                if matches!(self.peek(), Token::LBrace) {
-                    self.pos += 1;
-                    let mut depth = 1i32;
-                    while depth > 0 {
-                        match self.peek() {
-                            Token::LBrace => depth += 1,
-                            Token::RBrace => depth -= 1,
-                            Token::Eof => {
-                                return Err(format!(
-                                    "unexpected eof in async arrow body at {}",
-                                    self.at()
-                                ));
-                            }
-                            _ => {}
-                        }
-                        self.pos += 1;
-                    }
+                        stmts
+                    } else {
+                        let e = self.parse_expr()?;
+                        vec![Stmt::Return(Some(e))]
+                    };
+                    self.ast.add_expr(Expr::ArrowFn {
+                        params: vec![Param {
+                            name: pname,
+                            type_ann: None,
+                            default: None,
+                            is_rest: false,
+                        }],
+                        return_type: None,
+                        body,
+                    })
                 } else {
-                    // Expression body — parse and discard.
-                    let _ = self.parse_assign()?;
-                }
-                return Ok(Some(self.ast.add_expr(Expr::ArrowFn {
-                    params: Vec::new(),
-                    return_type: None,
-                    body: Vec::new(),
-                })));
+                    // Paren form — parse_arrow_fn assumes the cursor
+                    // sits on `(` and handles params / return ann /
+                    // `=>` / body.
+                    self.parse_arrow_fn()?
+                };
+                self.ast.async_fn_value_exprs.insert(eid);
+                return Ok(Some(eid));
             }
         }
+        // `async function [*] [NAME](...) {...}` — consume `async`,
+        // then delegate to parse_fn_expr (cursor on `function`), which
+        // handles the optional `*`, self-name, params, return-ann
+        // unwrap and body exactly as for the non-async forms.
         if matches!(self.peek(), Token::Async)
             && let Some(next) = self.tokens.get(self.pos + 1)
             && matches!(next.token, Token::Function)
         {
-            self.pos += 2; // consume `async function`
-            // P1 — `async function*` (async generator) is also accepted
-            // and stubbed via the same drop-the-body strategy. Consume
-            // the optional `*` token.
-            if matches!(self.peek(), Token::Star) {
-                self.pos += 1;
+            self.pos += 1; // consume `async` only
+            let eid = self.parse_fn_expr()?;
+            if let Some(info) = self.ast.gen_fn_exprs.get_mut(&eid) {
+                // `async function*` — flip Generator → AsyncGenerator
+                // so the hoist pass wires blade 4's decl machinery.
+                info.kind = crate::ast::GenFnExprKind::AsyncGenerator;
+            } else {
+                self.ast.async_fn_value_exprs.insert(eid);
             }
-            // Optional name — accept and discard.
-            if let Token::Ident(_) = self.peek() {
-                self.pos += 1;
-            }
-            // Drop the param list paren-balanced.
-            match self.peek() {
-                Token::LParen => self.pos += 1,
-                t => {
-                    return Err(format!(
-                        "expected `(` after async function expression, got {t:?} at {}",
-                        self.at()
-                    ));
-                }
-            }
-            let mut depth: i32 = 1;
-            while depth > 0 {
-                match self.peek() {
-                    Token::LParen => depth += 1,
-                    Token::RParen => depth -= 1,
-                    Token::Eof => {
-                        return Err(format!(
-                            "unexpected EOF inside async function expression param list at {}",
-                            self.at()
-                        ));
-                    }
-                    _ => {}
-                }
-                self.pos += 1;
-            }
-            // Optional return-type annotation.
-            if matches!(self.peek(), Token::Colon) {
-                self.pos += 1;
-                let _ = self.parse_type_ann()?;
-            }
-            // Drop the body brace-balanced.
-            match self.peek() {
-                Token::LBrace => self.pos += 1,
-                t => {
-                    return Err(format!(
-                        "expected `{{` after async function expression header, got {t:?} at {}",
-                        self.at()
-                    ));
-                }
-            }
-            let mut depth: i32 = 1;
-            while depth > 0 {
-                match self.peek() {
-                    Token::LBrace => depth += 1,
-                    Token::RBrace => depth -= 1,
-                    Token::Eof => {
-                        return Err(format!(
-                            "unexpected EOF inside async function expression body at {}",
-                            self.at()
-                        ));
-                    }
-                    _ => {}
-                }
-                self.pos += 1;
-            }
-            return Ok(Some(self.ast.add_expr(Expr::ArrowFn {
-                params: Vec::new(),
-                return_type: None,
-                body: Vec::new(),
-            })));
+            return Ok(Some(eid));
         }
         Ok(None)
     }

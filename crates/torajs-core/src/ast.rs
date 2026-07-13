@@ -96,12 +96,13 @@ pub use uninit_let::desugar_uninit_let;
 pub use var_hoist::desugar_var_hoist;
 
 /// Which function-value expression form a `gen_fn_exprs` entry came
-/// from. Blade 2 emits `Generator` only; `Async` / `AsyncGenerator`
-/// land with the async-expression blades of the same RFC.
+/// from. Only the two generator shapes hoist: plain `async
+/// function(){}` expressions stay `Expr::ArrowFn` and ride the
+/// closure lift (marked in `async_fn_value_exprs` instead), so no
+/// `Async` variant exists here.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GenFnExprKind {
     Generator,
-    Async,
     AsyncGenerator,
 }
 
@@ -243,6 +244,17 @@ pub struct Ast {
     /// the ~24 files matching Expr::ArrowFn (precedent:
     /// `stack_array_literals`, `fn_expr_self_names`).
     pub gen_fn_exprs: std::collections::HashMap<ExprId, GenFnExprInfo>,
+    /// Async function-VALUE expressions that stay in expression
+    /// position (RFC 20260713 blade 3): `async () => ...` /
+    /// `async x => ...` / `async function(){}`. The parser parses
+    /// them for real as `Expr::ArrowFn` and records the ExprId here;
+    /// `desugar_async` rewrites each marked body in place (return →
+    /// Promise.resolve, try/catch → Promise.reject, return type →
+    /// Promise<T>) BEFORE `lift_arrow_fns` runs, so the lifted
+    /// `__closure_N` is an ordinary Promise-returning closure and the
+    /// capture channel works unchanged (unlike the hoist path, which
+    /// is capture-free by construction).
+    pub async_fn_value_exprs: std::collections::HashSet<ExprId>,
     /// Generator decls whose parameter list contained binding
     /// patterns: fn name → count of parser-synthesized destructuring
     /// `let` stmts prefixed to the body (parse_fn's param_destr_lets).
