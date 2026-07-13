@@ -124,15 +124,15 @@ pub(crate) fn try_lower(
     None
 }
 
-/// RFC 20260713-loose-eq-substrate blade 1 — either side `Any` and
-/// none of the earlier arms hit (nullish shapes are folded above):
-/// route through the runtime §7.2.14 ladder
-/// (`__torajs_anyv_loose_eq`). The concrete side boxes to an
-/// AnyValue borrow — Str/Substr via the sentinel-aware str-slot
-/// boxer (NULL → null / undef-cell → undefined), everything else
-/// through the `(tag, value)` pair encoder. A ToPrimitive coercion
-/// on an object operand can raise a pending TypeError, so the call
-/// is followed by a throw check.
+/// RFC 20260713-loose-eq-substrate blade 1 — either side `Any` (or,
+/// blade 2, a static BigInt-mix pair) and none of the earlier arms
+/// hit (nullish shapes are folded above): route through the runtime
+/// §7.2.14 ladder (`__torajs_anyv_loose_eq`). The concrete side
+/// boxes to an AnyValue borrow — Str/Substr via the sentinel-aware
+/// str-slot boxer (NULL → null / undef-cell → undefined), everything
+/// else through the `(tag, value)` pair encoder. A ToPrimitive
+/// coercion on an object operand can raise a pending TypeError, so
+/// the call is followed by a throw check.
 fn try_lower_any_ladder(
     ctx: &mut LowerCtx<'_>,
     op: AstBinOp,
@@ -141,7 +141,28 @@ fn try_lower_any_ladder(
 ) -> Option<Operand> {
     let a_ty = ctx.operand_ty(&a);
     let b_ty = ctx.operand_ty(&b);
-    if !matches!(a_ty, Type::Any) && !matches!(b_ty, Type::Any) {
+    // Blade 2 — static BigInt pairs: BigInt × BigInt loose-eq must
+    // compare mathematical values (the generic path compared
+    // pointers), and BigInt × {num, bool, str} walks the same
+    // ladder arms the Any route uses.
+    let bigint_mix = |x: &Type, y: &Type| {
+        matches!(x, Type::BigInt)
+            && matches!(
+                y,
+                Type::BigInt
+                    | Type::I64
+                    | Type::I32
+                    | Type::F64
+                    | Type::Bool
+                    | Type::Str
+                    | Type::Substr
+            )
+    };
+    if !matches!(a_ty, Type::Any)
+        && !matches!(b_ty, Type::Any)
+        && !bigint_mix(&a_ty, &b_ty)
+        && !bigint_mix(&b_ty, &a_ty)
+    {
         return None;
     }
     let l = ensure_anyv(ctx, a, a_ty);

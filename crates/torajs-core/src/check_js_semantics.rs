@@ -128,6 +128,16 @@ pub(crate) fn js_loose_eq_supported(l: &Type, r: &Type) -> bool {
     {
         return true;
     }
+    // RFC 20260713-loose-eq-substrate blade 2 — BigInt loose-eq
+    // mixes (§7.2.14 steps 7-8 / 12-13): BigInt × {Number, String,
+    // Boolean} route through the runtime ladder (StringToBigInt /
+    // exact BigInt-vs-f64 mathematical compare — never rounded
+    // through f64).
+    let bigint_mix = |t: &Type| matches!(t, Type::Number | Type::String | Type::Boolean);
+    if (matches!(l, Type::BigInt) && bigint_mix(r)) || (matches!(r, Type::BigInt) && bigint_mix(l))
+    {
+        return true;
+    }
     // ES §7.2.13 steps 2-4 — Null / Undefined never coerce to other
     // primitive types for loose-eq, so the cross-type result is
     // statically false (unless the other side is also nullish, in
