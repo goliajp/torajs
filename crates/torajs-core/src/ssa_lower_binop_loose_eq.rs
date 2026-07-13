@@ -158,10 +158,42 @@ fn try_lower_any_ladder(
                     | Type::Substr
             )
     };
+    // Blade 3 — C3: a same-type object pair compares by pointer
+    // identity (§7.2.14 step 1 → IsStrictlyEqual); one icmp beats
+    // the box-and-call round trip.
+    if a_ty == b_ty && is_heap_obj(&a_ty) {
+        let pred = if matches!(op, AstBinOp::LooseEq) {
+            IPred::Eq
+        } else {
+            IPred::Ne
+        };
+        let cur_block = ctx.cur_block;
+        let v = ctx
+            .f
+            .append_inst(cur_block, InstKind::ICmp(pred, a, b), Type::Bool, None);
+        return Some(Operand::Value(v));
+    }
+    // Blade 3 — C4: object × primitive walks ToPrimitive through
+    // the ladder (§7.2.14 steps 11-12).
+    let obj_prim_mix = |x: &Type, y: &Type| {
+        is_heap_obj(x)
+            && matches!(
+                y,
+                Type::I64
+                    | Type::I32
+                    | Type::F64
+                    | Type::Bool
+                    | Type::Str
+                    | Type::Substr
+                    | Type::BigInt
+            )
+    };
     if !matches!(a_ty, Type::Any)
         && !matches!(b_ty, Type::Any)
         && !bigint_mix(&a_ty, &b_ty)
         && !bigint_mix(&b_ty, &a_ty)
+        && !obj_prim_mix(&a_ty, &b_ty)
+        && !obj_prim_mix(&b_ty, &a_ty)
     {
         return None;
     }
@@ -204,6 +236,12 @@ fn ensure_anyv(ctx: &mut LowerCtx<'_>, v: Operand, ty: Type) -> Operand {
         );
         return Operand::Value(b);
     }
+    // A typed Arr crossing into the anyv ladder must be
+    // self-describing — without the kind mark the helper's
+    // ToPrimitive join reads elements under the UNSET contract
+    // (undefined) and `[1] == 1` answers false. No-op for
+    // non-Arr types and Arr<Any>.
+    ctx.emit_arr_mark_kind(&v);
     let (tag, value) = ctx.pack_any_slot_value(&v, ty, false);
     let cur_block = ctx.cur_block;
     let b = ctx.f.append_inst(
@@ -220,6 +258,15 @@ fn ensure_anyv(ctx: &mut LowerCtx<'_>, v: Operand, ty: Type) -> Operand {
 /// convention stores undefined in a Str slot as NULL, and
 /// `undefined == null` is true. FnSig stays out (raw fn addresses
 /// are never null; the checker doesn't admit the pair yet).
+/// Heap-object SSA types whose same-type loose-eq is pointer
+/// identity and whose primitive mixes walk ToPrimitive (blade 3).
+/// Str/Substr stay out (string bucket — byte equality), BigInt
+/// stays out (mathematical-value bucket), Ptr stays out (nullish
+/// carrier, folded earlier).
+fn is_heap_obj(ty: &Type) -> bool {
+    is_heap_ref(ty) && !matches!(ty, Type::Str | Type::Substr | Type::BigInt | Type::Ptr)
+}
+
 fn is_heap_ref(ty: &Type) -> bool {
     matches!(
         ty,

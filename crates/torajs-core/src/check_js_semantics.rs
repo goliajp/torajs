@@ -193,6 +193,24 @@ pub(crate) fn js_loose_eq_supported(l: &Type, r: &Type) -> bool {
     if (nullish(l) && heap_ref(r)) || (nullish(r) && heap_ref(l)) {
         return true;
     }
+    // RFC 20260713-loose-eq-substrate blade 3 — C3: a same-type
+    // object pair (§7.2.14 step 1 → IsStrictlyEqual) is pointer
+    // identity, mirroring `===`.
+    if heap_ref(l) && l == r {
+        return true;
+    }
+    // Blade 3 — C4: object × primitive coerces the object through
+    // ToPrimitive (§7.2.14 steps 11-12) via the runtime ladder
+    // (user valueOf/toString dispatch included).
+    let to_prim_mix = |t: &Type| {
+        matches!(
+            t,
+            Type::Number | Type::String | Type::Boolean | Type::BigInt
+        )
+    };
+    if (heap_ref(l) && to_prim_mix(r)) || (heap_ref(r) && to_prim_mix(l)) {
+        return true;
+    }
     // Chunk 619 — nullish × Any (`u == a` with u: undefined,
     // a: any): ssa_lower's S127-2 arm already emits the
     // `any_strict_eq(NULL) || any_strict_eq(UNDEF)` probe for a
