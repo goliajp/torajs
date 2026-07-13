@@ -21,6 +21,13 @@ pub fn any_method_id(name: &str) -> i64 {
         "trim" => ANY_METHOD_TRIM,
         "trimStart" => ANY_METHOD_TRIM_START,
         "trimEnd" => ANY_METHOD_TRIM_END,
+        // Annex B §B.2.3 aliases — the property values ARE the
+        // trimStart / trimEnd functions (same mid → same reified
+        // cell, so `trimLeft === trimStart` and `.name` answers
+        // "trimStart" for free). The typed tier already carries the
+        // alias in its name matches.
+        "trimLeft" => ANY_METHOD_TRIM_START,
+        "trimRight" => ANY_METHOD_TRIM_END,
         "shift" => ANY_METHOD_SHIFT,
         "unshift" => ANY_METHOD_UNSHIFT,
         "join" => ANY_METHOD_JOIN,
