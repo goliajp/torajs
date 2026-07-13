@@ -1,9 +1,9 @@
 //! Generator (`function*`) desugar pass — chunk 363, extracted from
 //! ast.rs. Companion to `ast/desugar_generators_{prep,rewrite,class,
 //! methods,sm}.rs` (chunks 336-341); this file houses the top-level
-//! `desugar_generators` driver + the state-machine assembly helper
-//! + the yield-into / let-lift walkers that the `_prep` sibling
-//! delegates to.
+//! `desugar_generators` driver + the state-machine assembly helper;
+//! the yield-into / let-lift walkers the `_prep` sibling delegates
+//! to live in `desugar_generators_walkers.rs`.
 //!
 //! Pub entry `desugar_generators` (Phase J MVP) walks
 //! `ast.stmts` for every top-level `is_generator: true` FnDecl and
@@ -21,12 +21,6 @@
 //!   * `desugar_generators_methods::build_{next,return,throw}_method`.
 //!   * `desugar_generators_class::assemble_generator_class_and_factory`
 //!     — final ClassDecl + `__new_<name>` factory splice.
-//!
-//! Two `pub(crate)` walkers exposed for `ast::desugar_generators_prep`
-//! (which imports them via `super::{expand_yield_into_in_stmt,
-//! lift_lets_in_stmt}`):
-//!   * `expand_yield_into_in_stmt` (J.4 YieldInto → Yield + LetDecl).
-//!   * `lift_lets_in_stmt` (J.2.b let-decl → class-field lift).
 
 use super::{Ast, BinOp, ClassCtor, Expr, Param, Stmt, default_init_for_type};
 
@@ -391,125 +385,4 @@ fn build_state_machine_next_body(ast: &mut Ast, gen_body: Vec<Stmt>, yield_ty: &
         },
         Stmt::Return(Some(final_after)),
     ]
-}
-
-/// J.4 — recursively expand every `Stmt::YieldInto { var, type_ann,
-/// value }` in `s` into the pair `[Stmt::Yield(value);
-/// Stmt::LetDecl { name: var, type_ann, init: this.__sent }]`. The
-/// pair is wrapped in `Stmt::Multi` so it occupies the YieldInto's
-/// original slot without disturbing surrounding scope. Walks into
-/// nested control-flow.
-///
-/// `yield_ty` is the surrounding generator's declared yield type; it
-/// supplies the let's annotation when the user omitted one (so the
-/// J.2.b lift picks the right field type).
-pub(crate) fn expand_yield_into_in_stmt(ast: &mut Ast, s: &mut Stmt, yield_ty: &str) {
-    match s {
-        Stmt::YieldInto {
-            var,
-            type_ann,
-            value,
-        } => {
-            let var = std::mem::take(var);
-            let ty = type_ann.clone().or_else(|| Some(yield_ty.to_string()));
-            let value = *value;
-            let yield_stmt = Stmt::Yield(value);
-            let this_id = ast.add_expr(Expr::This);
-            let sent_member = ast.add_expr(Expr::Member {
-                obj: this_id,
-                name: "__sent".into(),
-            });
-            let let_stmt = Stmt::LetDecl {
-                mutable: true,
-                name: var,
-                type_ann: ty,
-                init: sent_member,
-                is_var: false,
-            };
-            *s = Stmt::Multi(vec![yield_stmt, let_stmt]);
-        }
-        Stmt::If {
-            then_branch,
-            else_branch,
-            ..
-        } => {
-            expand_yield_into_in_stmt(ast, then_branch, yield_ty);
-            if let Some(eb) = else_branch.as_deref_mut() {
-                expand_yield_into_in_stmt(ast, eb, yield_ty);
-            }
-        }
-        Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
-            expand_yield_into_in_stmt(ast, body, yield_ty);
-        }
-        Stmt::For { init, body, .. } => {
-            if let Some(i) = init.as_deref_mut() {
-                expand_yield_into_in_stmt(ast, i, yield_ty);
-            }
-            expand_yield_into_in_stmt(ast, body, yield_ty);
-        }
-        Stmt::Block(stmts) | Stmt::Multi(stmts) => {
-            for s in stmts {
-                expand_yield_into_in_stmt(ast, s, yield_ty);
-            }
-        }
-        // Switch / try cases not yet in yield scope (J.2.b).
-        _ => {}
-    }
-}
-
-/// Recursively replace every `let x = init` in `s` (and any nested
-/// stmts) with `this.x = init`, recording each lifted `(name, type)`
-/// in `lifted`. Used by `desugar_generators` so locals declared in
-/// for-init / if-branches / while-bodies survive yield boundaries
-/// the same way top-level lets do.
-pub(crate) fn lift_lets_in_stmt(ast: &mut Ast, s: &mut Stmt, lifted: &mut Vec<(String, String)>) {
-    match s {
-        Stmt::LetDecl {
-            name,
-            type_ann,
-            init,
-            ..
-        } => {
-            let n = name.clone();
-            let t = type_ann.clone().unwrap_or_else(|| "number".into());
-            lifted.push((n.clone(), t));
-            let this_id = ast.add_expr(Expr::This);
-            let m = ast.add_expr(Expr::Member {
-                obj: this_id,
-                name: n,
-            });
-            let assign = ast.add_expr(Expr::Assign {
-                target: m,
-                value: *init,
-            });
-            *s = Stmt::Expr(assign);
-        }
-        Stmt::If {
-            then_branch,
-            else_branch,
-            ..
-        } => {
-            lift_lets_in_stmt(ast, then_branch, lifted);
-            if let Some(eb) = else_branch.as_deref_mut() {
-                lift_lets_in_stmt(ast, eb, lifted);
-            }
-        }
-        Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
-            lift_lets_in_stmt(ast, body, lifted);
-        }
-        Stmt::For { init, body, .. } => {
-            if let Some(i) = init.as_deref_mut() {
-                lift_lets_in_stmt(ast, i, lifted);
-            }
-            lift_lets_in_stmt(ast, body, lifted);
-        }
-        Stmt::Block(stmts) | Stmt::Multi(stmts) => {
-            for s in stmts {
-                lift_lets_in_stmt(ast, s, lifted);
-            }
-        }
-        // Switch / try cases don't yet support yields (J.2.b scope)
-        // so their inner lets stay as plain locals — no lift needed.
-        _ => {}
-    }
 }
