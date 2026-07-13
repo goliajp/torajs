@@ -294,6 +294,7 @@ pub(crate) struct Intrinsics {
     pub(crate) arr_any_pop: FuncId,
     pub(crate) arr_any_shift: FuncId,
     pub(crate) dynobj_alloc: FuncId,
+    pub(crate) dynobj_mark_null_proto: FuncId,
     pub(crate) get_builtin_prototype: FuncId,
     pub(crate) instanceof_class_any_tag: FuncId,
     pub(crate) instanceof_builtin_any_tag: FuncId,

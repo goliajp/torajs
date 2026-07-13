@@ -44,6 +44,7 @@ use crate::ssa_lower::declare_intrinsic;
 
 pub(crate) struct ObjectIds {
     pub dynobj_alloc: FuncId,
+    pub dynobj_mark_null_proto: FuncId,
     pub get_builtin_prototype: FuncId,
     pub instanceof_class_any_tag: FuncId,
     pub instanceof_builtin_any_tag: FuncId,
@@ -110,6 +111,7 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
     }
     ObjectIds {
         dynobj_alloc: decl!("__torajs_dynobj_alloc", [], Ptr),
+        dynobj_mark_null_proto: decl!("__torajs_dynobj_mark_null_proto", [Ptr], Void),
         get_builtin_prototype: decl!("__torajs_get_builtin_prototype", [I64], Ptr),
         instanceof_class_any_tag: decl!("__torajs_instanceof_class_any_tag", [Any, I64], Bool),
         instanceof_builtin_any_tag: decl!("__torajs_instanceof_builtin_any_tag", [Any, I64], Bool),

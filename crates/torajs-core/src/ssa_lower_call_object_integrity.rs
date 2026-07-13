@@ -232,6 +232,25 @@ fn lower_create(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
             ctx.release_owned_temp(p_eid, &p_op);
         }
     }
+    // §20.1.2.2 step 2 — a (statically) null proto marks the fresh
+    // dict with the null-prototype header bit: inspect renders the
+    // `[Object: null prototype] ` prefix and OrdinaryToPrimitive
+    // finds no inherited valueOf/toString (TypeError instead of
+    // "[object Object]"). A runtime-null Any proto is a recorded
+    // residual (corpus writes the literal).
+    let proto_is_null = args.first().is_some_and(|&p| {
+        matches!(ctx.ast.get_expr(p), Expr::Null)
+            || matches!(ctx.expr_types.get(&p), Some(crate::check::Type::Null))
+    });
+    if proto_is_null {
+        ctx.f.append_void(
+            ctx.cur_block,
+            InstKind::Call(
+                ctx.intrinsics.dynobj_mark_null_proto,
+                vec![Operand::Value(dynobj)],
+            ),
+        );
+    }
     let cur_block = ctx.cur_block;
     let box_v = ctx.f.append_inst(
         cur_block,

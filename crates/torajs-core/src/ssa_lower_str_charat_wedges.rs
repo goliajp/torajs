@@ -122,6 +122,11 @@ pub(crate) fn try_dispatch(
                 Type::F64,
                 None,
             );
+            // ToNumber over a no-primitive object records a pending
+            // TypeError (§7.1.1) — propagate before the NaN
+            // placeholder becomes a position (and before the stale
+            // pending leaks into an unrelated later check).
+            ctx.emit_throw_check(None);
             ctx.coerce_to_i64(Operand::Value(f))
         } else {
             let idx_raw = ctx.lower_expr(args[0]);

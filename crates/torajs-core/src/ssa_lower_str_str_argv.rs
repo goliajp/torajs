@@ -228,7 +228,10 @@ pub(crate) fn populate_argv(
 
 /// S332 / S333 / S338 shared Any → i64 decode chain: lower the arg,
 /// route through `any_to_number` → `coerce_to_i64` so the helper's
-/// `(Str, i64, …)` ABI sees a clean i64.
+/// `(Str, i64, …)` ABI sees a clean i64. ToNumber over an object
+/// with no primitive conversion records a pending TypeError
+/// (§7.1.1 OrdinaryToPrimitive) — propagate it before the NaN
+/// placeholder flows into the position slot.
 fn any_arg_to_i64(ctx: &mut LowerCtx<'_>, a: ExprId) -> Operand {
     let raw = ctx.lower_expr(a);
     let f = ctx.f.append_inst(
@@ -237,5 +240,6 @@ fn any_arg_to_i64(ctx: &mut LowerCtx<'_>, a: ExprId) -> Operand {
         Type::F64,
         None,
     );
+    ctx.emit_throw_check(None);
     ctx.coerce_to_i64(Operand::Value(f))
 }

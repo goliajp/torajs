@@ -279,7 +279,17 @@ pub(crate) unsafe fn own_entry_not_callable(
         } else {
             let key = name_str as *const c_void;
             let dtag = __torajs_dynobj_get_tag(obj, key);
-            if dtag == 5 || dtag == ANY_ACCESSOR_TAG {
+            if dtag == 5 {
+                // Absent own key: an ordinary dict inherits the
+                // builtin Object.prototype method surface, so the
+                // dispatch proceeds — unless this is a null-
+                // prototype dict (`Object.create(null)`), which
+                // inherits nothing (mirror of torajs-dynobj's
+                // DYNOBJ_HDR_FLAG_NULL_PROTO, header bit 6).
+                let flags = (obj.cast::<u8>().add(6) as *const u16).read();
+                return flags & (1 << 6) != 0;
+            }
+            if dtag == ANY_ACCESSOR_TAG {
                 return false;
             }
             if dtag == 4 {
