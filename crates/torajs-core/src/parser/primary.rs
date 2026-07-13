@@ -132,14 +132,14 @@ impl<'a> Parser<'a> {
         // element position is an elision; per ES spec §13.2.4 it
         // contributes one slot whose value is `undefined`. Pre-fix
         // tora's parser bailed at the comma with 'expected expression,
-        // got Comma'. Until P1 ships real Type::Undefined the elision
-        // synthesizes an `Expr::Null` placeholder — at the storage
-        // layer Nullable<T> is the closest existing shape, and
-        // test262 cases that hit sparse arrays mostly check `.length`
-        // which is unaffected by the elision-value choice.
+        // got Comma'. The elision synthesized an `Expr::Null`
+        // placeholder while Type::Undefined didn't exist yet
+        // (pre-P1); RFC 20260714-dstr-residual switched it to real
+        // `undefined` — observable through destructuring defaults
+        // (`f([,])` must fire `x = 23`; null must not) and hole reads.
         let parse_elem_or_elision = |this: &mut Self| -> Result<ExprId, String> {
             if matches!(this.peek(), Token::Comma | Token::RBracket) {
-                return Ok(this.ast.add_expr(Expr::Null));
+                return Ok(this.ast.add_expr(Expr::Ident("undefined".to_string())));
             }
             this.parse_array_element()
         };

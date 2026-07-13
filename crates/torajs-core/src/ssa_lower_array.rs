@@ -222,6 +222,20 @@ fn probe_anchor_ty(
         if matches!(ctx.ast.get_expr(*eid), Expr::Array(els) if els.is_empty()) {
             continue;
         }
+        // RFC 20260714-dstr-residual — a syntactic nullish constant
+        // (`undefined` ident / `null` literal, incl. elision holes)
+        // must not anchor the literal: `[undefined, "z"]` anchored
+        // Ptr and stored the Str sibling raw (read answered the
+        // pointer as a number — silent-wrong). Skipping realizes
+        // chunk 807's documented invariant (the Str sentinel lane
+        // assumed a Str anchor, which only held with the string
+        // first). Shape-matched, not type-matched: a void-call
+        // element stays probe-eligible so evaluation order holds.
+        match ctx.ast.get_expr(*eid) {
+            Expr::Ident(n) if n == "undefined" => continue,
+            Expr::Null => continue,
+            _ => {}
+        }
         let probe = ctx.lower_expr(*eid);
         let ty = ctx.operand_ty(&probe);
         return (Some(ty), Some((idx, probe)));
