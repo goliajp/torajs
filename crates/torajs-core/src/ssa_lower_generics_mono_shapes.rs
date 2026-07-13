@@ -40,6 +40,7 @@ pub(crate) fn compute_typevar_closure_shapes(
     _callee_name: &str,
     type_args: &[check_mod::Type],
     generics: &HashMap<String, (Vec<String>, Vec<Param>, Option<String>, Vec<Stmt>)>,
+    param_env: &HashMap<String, String>,
 ) -> Vec<ClsShape> {
     let arg_eids: Vec<ExprId> = match ast.get_expr(call_eid) {
         Expr::Call { args, .. } => args.clone(),
@@ -56,7 +57,7 @@ pub(crate) fn compute_typevar_closure_shapes(
                 if ann == tp_name
                     && let Some(arg_eid) = arg_eids.get(pi)
                 {
-                    let shape = arg_cls_shape(ast, *arg_eid);
+                    let shape = arg_cls_shape(ast, *arg_eid, param_env);
                     if shape != ClsShape::NotClosure {
                         return shape;
                     }
@@ -70,7 +71,24 @@ pub(crate) fn compute_typevar_closure_shapes(
 /// A closure literal, or an ident whose top-level `let`/`const`
 /// binding init is one; argc-carrying closures (synthetic
 /// `__torajs_real_argc` after `__env`) report `ClosureArgc`.
-fn arg_cls_shape(ast: &Ast, eid: ExprId) -> ClsShape {
+///
+/// `param_env` maps an enclosing specialization's param names to
+/// their substituted annotations — an Ident arg naming a `__cls(`/
+/// `__clsargc(` param carries that shape through generic-to-generic
+/// calls (same env as `num_width::infer_arg_width`; without it the
+/// mono body's call arm would jump an env-block ptr as a bare fn
+/// ptr, SIGBUS).
+fn arg_cls_shape(ast: &Ast, eid: ExprId, param_env: &HashMap<String, String>) -> ClsShape {
+    if let Expr::Ident(n) = ast.get_expr(eid)
+        && let Some(ann) = param_env.get(n.as_str())
+    {
+        if ann.starts_with("__clsargc(") {
+            return ClsShape::ClosureArgc;
+        }
+        if ann.starts_with("__cls(") {
+            return ClsShape::Closure;
+        }
+    }
     let fn_name = match ast.get_expr(eid) {
         Expr::Closure { fn_name, .. } => Some(fn_name.clone()),
         Expr::Ident(n) => ast.stmts.iter().find_map(|s| match s {

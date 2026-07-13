@@ -133,9 +133,11 @@ pub(crate) fn substitute_in_stmt(stmt: &mut Stmt, subst: &[(String, String)]) {
 }
 
 /// Width- and closure-shape-aware annotation strings for one generic
-/// call site's inferred type args. Shared by the seed loop (checker-
-/// recorded top-level call sites) and `migrate_cloned_call_sites`
-/// (the same records replayed onto cloned specialization bodies).
+/// call site's inferred type args. Shared by `check_monomorph`'s
+/// top-level seed loop and its inner-call seeding (the records the
+/// checker produces while checking each specialization body).
+/// `param_env` carries the enclosing specialization's substituted
+/// param anns for param-passthrough args (empty at top level).
 ///
 /// Width: a type-arg that resolved to `Type::Number` picks "f64" when
 /// any arg position naming that type-param statically lowers to f64
@@ -156,9 +158,16 @@ pub(crate) fn compute_arg_anns(
     callee_name: &str,
     type_args: &[check_mod::Type],
     generics: &HashMap<String, (Vec<String>, Vec<Param>, Option<String>, Vec<Stmt>)>,
+    param_env: &HashMap<String, String>,
 ) -> Vec<String> {
-    let widths: Vec<crate::num_width::NumWidth> =
-        crate::num_width::compute_typevar_widths(ast, eid, callee_name, type_args, generics);
+    let widths: Vec<crate::num_width::NumWidth> = crate::num_width::compute_typevar_widths(
+        ast,
+        eid,
+        callee_name,
+        type_args,
+        generics,
+        param_env,
+    );
     let cls_shapes: Vec<crate::ssa_lower_generics_mono_shapes::ClsShape> =
         crate::ssa_lower_generics_mono_shapes::compute_typevar_closure_shapes(
             ast,
@@ -166,6 +175,7 @@ pub(crate) fn compute_arg_anns(
             callee_name,
             type_args,
             generics,
+            param_env,
         );
     type_args
         .iter()

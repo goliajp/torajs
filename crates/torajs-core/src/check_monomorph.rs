@@ -87,10 +87,15 @@ pub(crate) fn monomorphize_and_check(c: &mut Checker, ast: &Ast) -> MonoOutput {
         .map(|(k, v)| (*k, v.clone()))
         .collect();
     seed.sort_by_key(|(eid, _)| eid.0);
+    // Top-level call sites live outside any specialization — empty
+    // param env; f64/closure-shape hints come from the literal arg
+    // expressions alone.
+    let empty_env: HashMap<String, String> = HashMap::new();
     seed_records(
         &owned_ast,
         &seed,
         &generics,
+        &empty_env,
         &mut cache,
         &mut worklist,
         &mut call_retargets,
@@ -190,10 +195,17 @@ pub(crate) fn monomorphize_and_check(c: &mut Checker, ast: &Ast) -> MonoOutput {
         let mut inner: Vec<(ExprId, (String, Vec<Type>))> =
             inner_sites.iter().map(|(k, v)| (*k, v.clone())).collect();
         inner.sort_by_key(|(eid, _)| eid.0);
+        // Param env: this specialization's substituted param anns, so
+        // an inner call passing a param straight through keeps its
+        // width ("f64") and closure shape ("__cls(") — the Type layer
+        // collapses both to Number/Function and a syntactic walk of
+        // the arg (a bare Ident) sees neither.
+        let param_env: HashMap<String, String> = spec_params_env(&spec_decl);
         seed_records(
             &owned_ast,
             &inner,
             &generics,
+            &param_env,
             &mut cache,
             &mut worklist,
             &mut call_retargets,
@@ -219,6 +231,7 @@ fn seed_records(
     owned_ast: &Ast,
     records: &[(ExprId, (String, Vec<Type>))],
     generics: &Generics,
+    param_env: &HashMap<String, String>,
     cache: &mut HashMap<(String, Vec<String>), String>,
     worklist: &mut VecDeque<WorkItem>,
     call_retargets: &mut HashMap<ExprId, String>,
@@ -227,7 +240,7 @@ fn seed_records(
         if !generics.contains_key(name) {
             continue;
         }
-        let arg_anns = compute_arg_anns(owned_ast, *eid, name, type_args, generics);
+        let arg_anns = compute_arg_anns(owned_ast, *eid, name, type_args, generics, param_env);
         let cache_key = (name.clone(), arg_anns);
         let mono_name = if let Some(n) = cache.get(&cache_key) {
             n.clone()
@@ -244,4 +257,17 @@ fn seed_records(
         };
         call_retargets.insert(*eid, mono_name);
     }
+}
+
+/// The (param name → substituted ann) environment of one emitted
+/// specialization — the seed pass hands it to the width/closure-shape
+/// classifiers so param-passthrough args keep their lane.
+fn spec_params_env(spec_decl: &Stmt) -> HashMap<String, String> {
+    let Stmt::FnDecl { params, .. } = spec_decl else {
+        return HashMap::new();
+    };
+    params
+        .iter()
+        .filter_map(|p| p.type_ann.as_ref().map(|a| (p.name.clone(), a.clone())))
+        .collect()
 }

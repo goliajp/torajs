@@ -28,7 +28,18 @@ pub(crate) enum NumWidth {
 /// Conservative: returns Unknown for any shape we can't classify
 /// purely from the AST (Idents, member accesses on user objects, etc.)
 /// so we don't accidentally widen integer-shaped generics.
-pub(crate) fn infer_arg_width(ast: &Ast, eid: ExprId) -> NumWidth {
+///
+/// `param_env` maps an enclosing specialization's param names to
+/// their substituted annotations — an Ident arg naming an "f64"
+/// param IS statically f64 (check_monomorph inner-call seeding; the
+/// retired same-name heuristic inherited the caller's anns wholesale,
+/// so f64 lanes survived generic-to-generic calls — a plain
+/// syntactic walk loses them: test262 Math/Date appeared-125).
+pub(crate) fn infer_arg_width(
+    ast: &Ast,
+    eid: ExprId,
+    param_env: &HashMap<String, String>,
+) -> NumWidth {
     match ast.get_expr(eid) {
         // Genuinely fractional, OR magnitude past i64 range (e.g. `1e21`)
         // — both must promote to f64 since `n as i64` would saturate.
@@ -39,13 +50,16 @@ pub(crate) fn infer_arg_width(ast: &Ast, eid: ExprId) -> NumWidth {
         // 20260713-date-invalid-time: `sameValue(x, NaN)` harness
         // shape monomorphized T=i64 and truncated the F64 actual).
         Expr::Ident(n) if n == "NaN" || n == "Infinity" => NumWidth::F64,
+        Expr::Ident(n) if param_env.get(n.as_str()).is_some_and(|ann| ann == "f64") => {
+            NumWidth::F64
+        }
         Expr::BinOp {
             op: AstBinOp::Div, ..
         } => NumWidth::F64,
         Expr::Unary {
             op: AstUnaryOp::Neg,
             expr,
-        } => infer_arg_width(ast, *expr),
+        } => infer_arg_width(ast, *expr, param_env),
         Expr::Call { callee, .. } => {
             // Math.* methods all return f64 (libm-shaped intrinsics).
             // String.fromCharCode and Number.parseInt return non-Number
@@ -77,6 +91,7 @@ pub(crate) fn compute_typevar_widths(
     callee_name: &str,
     type_args: &[crate::check::Type],
     generics: &HashMap<String, (Vec<String>, Vec<Param>, Option<String>, Vec<Stmt>)>,
+    param_env: &HashMap<String, String>,
 ) -> Vec<NumWidth> {
     let arg_eids: Vec<ExprId> = match ast.get_expr(call_eid) {
         Expr::Call { args, .. } => args.clone(),
@@ -105,7 +120,7 @@ pub(crate) fn compute_typevar_widths(
                 if ann == tp_name
                     && let Some(arg_eid) = arg_eids.get(pi)
                 {
-                    let w = infer_arg_width(ast, *arg_eid);
+                    let w = infer_arg_width(ast, *arg_eid, param_env);
                     if matches!(w, NumWidth::F64) {
                         acc = NumWidth::F64;
                         break;
