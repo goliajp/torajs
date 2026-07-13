@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-13T04:36:34.063Z",
+  "generatedAt": "2026-07-13T09:43:40.175Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-13T04:32:00Z",
-    "headSha": "36232830",
-    "elapsedSec": 1215.65,
+    "ranAt": "2026-07-13T07:19:14Z",
+    "headSha": "09e1550b",
+    "elapsedSec": 572.84,
     "workers": 8,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 5184,
-    "passNoOracle": 72,
+    "pass": 5180,
+    "passNoOracle": 105,
     "passNegative": 4445,
-    "passTotal": 9701,
-    "bug": 939,
-    "incompatible": 42534,
+    "passTotal": 9730,
+    "bug": 906,
+    "incompatible": 42538,
     "bunSkip": 12565,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 10640,
-    "passRateInScope": 18.24,
-    "passRateTrAccepted": 91.17
+    "trAccepted": 10636,
+    "passRateInScope": 18.3,
+    "passRateTrAccepted": 91.48
   },
   "torajs": {
-    "commit": "4351a524",
-    "commitSubject": "chore: test262 sweep at 36232830 - passTotal 9701 (+253), bug 939",
+    "commit": "75b6fbb4",
+    "commitSubject": "chore: test262 sweep at 09e1550b - passTotal 9730 (+29), bug 906",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "75b6fbb4",
+      "subject": "chore: test262 sweep at 09e1550b - passTotal 9730 (+29), bug 906"
+    },
+    {
+      "hash": "09e1550b",
+      "subject": "fix: date toprimitive default hint walks tostring first in loose equality"
+    },
+    {
+      "hash": "eb698077",
+      "subject": "fix: test262 runner passes loose equality through unchanged"
+    },
+    {
+      "hash": "551338f8",
+      "subject": "feat: object loose equality compares identity and walks toprimitive"
+    },
+    {
+      "hash": "0315bd2e",
+      "subject": "feat: static bigint loose equality mixes compare mathematical values"
+    },
+    {
+      "hash": "888c2904",
+      "subject": "feat: any-side loose equality walks the full spec coercion ladder"
+    },
+    {
+      "hash": "6fbc4573",
+      "subject": "chore: hardev dashboard snapshot at rotation 88"
+    },
+    {
       "hash": "4351a524",
       "subject": "chore: test262 sweep at 36232830 - passTotal 9701 (+253), bug 939"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "4e539a8e",
       "subject": "feat: async fn-value expressions parse and run for real"
-    },
-    {
-      "hash": "4c88867c",
-      "subject": "chore: hardev dashboard snapshot at rotation 87"
-    },
-    {
-      "hash": "fcbea9c5",
-      "subject": "refactor: split generator body walkers out of desugar_generators"
-    },
-    {
-      "hash": "752dd58e",
-      "subject": "fix: keep __yield_arg default shape-uniform across generator classes"
-    },
-    {
-      "hash": "f745f01f",
-      "subject": "feat: async generator declarations return the generator object with promise-shaped steps"
-    },
-    {
-      "hash": "74012994",
-      "subject": "fix: any-receiver member/index reads propagate pending TypeError across fn boundary"
-    },
-    {
-      "hash": "3414f187",
-      "subject": "fix: destructuring defaults fire on undefined per spec"
-    },
-    {
-      "hash": "a73ef41b",
-      "subject": "feat: generator function expressions parse real + hoist to decl form"
     }
   ],
-  "headSha": "4351a524",
+  "headSha": "75b6fbb4",
   "autorun": {
-    "total": 394,
+    "total": 395,
     "baselineTarget": 10,
-    "bySelf": 389,
+    "bySelf": 390,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1783908867-1811",
-      "at": "2026-07-13T02:14:27Z",
-      "ts": 1783908867,
+      "rotationId": "r-1783917459-7e69",
+      "at": "2026-07-13T04:37:39Z",
+      "ts": 1783917459,
       "trigger": "self",
-      "prevHead": "4c88867c",
-      "handoffSha": "sha256:285eb25bc01e4b745bb3dce0e2e83303a1e854412dd9f8c6933755f66bd2c4e9",
-      "handoffAgeSec": 39,
+      "prevHead": "6fbc4573",
+      "handoffSha": "sha256:3f77f820f40e46d66e697bc07d53ebef58388d88fac58e17051f91b5565f910a",
+      "handoffAgeSec": 7,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1783917459-7e69",
+        "at": "2026-07-13T04:37:39Z",
+        "ts": 1783917459,
+        "trigger": "self",
+        "prevHead": "6fbc4573",
+        "handoffSha": "sha256:3f77f820f40e46d66e697bc07d53ebef58388d88fac58e17051f91b5565f910a",
+        "handoffAgeSec": 7,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1783908867-1811",
         "at": "2026-07-13T02:14:27Z",
@@ -875,17 +886,6 @@
         "trigger": "self",
         "prevHead": "0716d1db",
         "handoffSha": "sha256:9de521577fe745156866ab9c31624e7c6900cd0180697b09827402cdd28eb876",
-        "handoffAgeSec": 8,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1783834962-59f5",
-        "at": "2026-07-12T05:42:42Z",
-        "ts": 1783834962,
-        "trigger": "self",
-        "prevHead": "697d976c",
-        "handoffSha": "sha256:1ee53eeed8dd26a6137163f36d5d2df1ff09433c15946d3e951f4c8e9fc94542",
         "handoffAgeSec": 8,
         "conformanceBefore": null,
         "commitsInSession": null
