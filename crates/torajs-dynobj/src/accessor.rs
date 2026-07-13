@@ -114,6 +114,14 @@ pub const ACC_KIND_PTR: u8 = 4;
 /// `+32`, same channel as any-world calls). A closure without an
 /// adapter (entry 0) answers `undefined` / no-ops the setter.
 pub const ACC_KIND_BOXED: u8 = 5;
+/// Getter returns nothing — a throw-only / no-`return` getter lowers
+/// to a native void fn (x0 is never written), so the invoke must NOT
+/// read the return register: call through the void shape and answer
+/// `undefined` (a JS getter with no return yields undefined). Pre-fix
+/// these fell into the ANY catch-all and read x0 garbage — a
+/// throwing `length` getter under an Array generic method SIGSEGV'd
+/// in `__torajs_value_drop_heap` (RFC 20260713-accessor-void-kind).
+pub const ACC_KIND_VOID: u8 = 6;
 /// Kind-byte flag bit (OR'd onto a base kind): the face is a named
 /// top-level fn behind a zero-capture env cell — its native signature
 /// carries NO leading env param, so the invoke transmutes to the
@@ -262,6 +270,11 @@ pub unsafe extern "C" fn __torajs_accessor_invoke_getter(pair: *const c_void) ->
             ACC_KIND_PTR => {
                 let f: unsafe extern "C" fn(*mut c_void) -> u64 = core::mem::transmute(fn_addr);
                 __torajs_anyv_box_from_pair(4, f(getter) as i64)
+            }
+            ACC_KIND_VOID => {
+                let f: unsafe extern "C" fn(*mut c_void) = core::mem::transmute(fn_addr);
+                f(getter);
+                VALUE_UNDEFINED
             }
             // ACC_KIND_ANY (and any unknown): the getter already
             // returns a NaN-box AnyValue — pass it through verbatim.

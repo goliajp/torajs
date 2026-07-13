@@ -82,11 +82,17 @@ pub(crate) fn emit_dynobj_get_result(ctx: &mut LowerCtx, tag: ValueId, value: Va
         Type::Any,
         None,
     );
+    // The getter runs user code — route its pending throw before the
+    // result is touched (pre-fix the pending flag stayed latent and a
+    // throwing getter read fell through as undefined; RFC
+    // 20260713-accessor-void-kind). Data reads never take this arm.
+    ctx.emit_throw_check(None);
+    let acc_cont = ctx.cur_block;
     ctx.f.append_void(
-        acc_blk,
+        acc_cont,
         InstKind::Store(Operand::Value(getr), Operand::Value(res_slot), 0),
     );
-    ctx.f.set_term(acc_blk, Terminator::Br(after));
+    ctx.f.set_term(acc_cont, Terminator::Br(after));
     // data path: take an owned stake on the heap payload (immediates
     // no-op), then NaN-box `(tag, value)`. `any_box` itself is a pure
     // bit-encode (`__torajs_anyv_box_from_pair` takes no ref), so the
@@ -134,6 +140,10 @@ fn accessor_kind_of(ty: &Type) -> i64 {
         Type::F64 => 2,
         Type::Bool => 3,
         Type::Any => 0,
+        // A throw-only / no-`return` getter is a native void fn —
+        // never read its return register (ACC_KIND_VOID answers
+        // undefined; RFC 20260713-accessor-void-kind).
+        Type::Void => 6,
         t if t.is_refcounted() => 4,
         _ => 0,
     }
