@@ -46,7 +46,9 @@
 // `message` is inherited from Error (do NOT redeclare — desugar
 // field-flattening rejects parent-field redeclaration).
 class Test262Error extends Error {
-  constructor(m: string) {
+  // Real test262's Test262Error takes an optional message —
+  // `throw new Test262Error()` (0-arg) is a common case shape.
+  constructor(m: string = "") {
     super(m);
     this.name = "Test262Error";
   }

@@ -37,6 +37,7 @@ mod fold_fromentries;
 mod forwarders;
 mod forwarders_object;
 mod free_vars;
+mod hoist_gen_fn_exprs;
 mod implicit_generics_infer;
 mod infer_closure_params;
 mod infer_closure_typevars;
@@ -70,6 +71,7 @@ pub use fill_optional_fields::fill_optional_fields;
 pub use fold_fromentries::fold_fromentries;
 pub use forwarders::synthesize_forwarders;
 pub use forwarders_object::{synthesize_fn_to_closure_forwarders, tag_struct_field_closure_types};
+pub use hoist_gen_fn_exprs::hoist_gen_fn_exprs;
 pub(crate) use implicit_generics_infer::{
     AstExprsView, binds_to_params, body_has_value_return, infer_expr_ann_with, infer_return_ann,
     infer_return_ann_seeded,
@@ -91,6 +93,27 @@ pub use stmt::{
 };
 pub use uninit_let::desugar_uninit_let;
 pub use var_hoist::desugar_var_hoist;
+
+/// Which function-value expression form a `gen_fn_exprs` entry came
+/// from. Blade 2 emits `Generator` only; `Async` / `AsyncGenerator`
+/// land with the async-expression blades of the same RFC.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GenFnExprKind {
+    Generator,
+    Async,
+    AsyncGenerator,
+}
+
+/// Per-expression payload for `Ast::gen_fn_exprs`: the form kind plus
+/// how many parser-synthesized destructuring lets prefix the body
+/// (mirrors `gen_param_destr_prefix` for decl-form generators —
+/// `hoist_gen_fn_exprs` re-registers the count under the hoisted name
+/// so the __Gen ctor gets the eager destructure).
+#[derive(Debug, Clone, Copy)]
+pub struct GenFnExprInfo {
+    pub kind: GenFnExprKind,
+    pub destr_prefix: usize,
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct Ast {
@@ -198,6 +221,16 @@ pub struct Ast {
     /// Avoids adding an `is_async: bool` to every FnDecl construction
     /// site.
     pub async_fns: std::collections::HashSet<String>,
+    /// Generator / async function-value EXPRESSIONS parsed for real
+    /// (RFC 20260713-generator-fn-value-substrate). Keyed by the
+    /// `Expr::ArrowFn` ExprId the parser emitted; `hoist_gen_fn_exprs`
+    /// replaces each marked slot with `Expr::Ident("__genexpr_N")` and
+    /// appends a top-level FnDecl so the decl-form desugar machinery
+    /// (desugar_generators / desugar_async) handles the body. Side
+    /// table instead of a new Expr variant: zero blast radius across
+    /// the ~24 files matching Expr::ArrowFn (precedent:
+    /// `stack_array_literals`, `fn_expr_self_names`).
+    pub gen_fn_exprs: std::collections::HashMap<ExprId, GenFnExprInfo>,
     /// Generator decls whose parameter list contained binding
     /// patterns: fn name → count of parser-synthesized destructuring
     /// `let` stmts prefixed to the body (parse_fn's param_destr_lets).

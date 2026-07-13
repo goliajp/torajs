@@ -203,6 +203,7 @@ fn compute_diagnostics(uri: &Uri, text: &str) -> Vec<Diagnostic> {
         }
 
         torajs_core::ast::unwrap_exports(&mut ast);
+        torajs_core::ast::hoist_gen_fn_exprs(&mut ast);
         torajs_core::ast::desugar_generators(&mut ast);
         torajs_core::ast::desugar_async(&mut ast);
         torajs_core::ast::desugar_builtin_imports(&mut ast);

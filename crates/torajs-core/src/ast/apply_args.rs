@@ -105,17 +105,35 @@ pub fn apply_default_args(ast: &mut Ast) {
     // means a call to `f(...)` should adopt `__closure_N`'s defaults.
     // Without this, arrow fns with default params silently lose them at the
     // call site since the FnDecl is keyed by the synthetic closure name.
+    // Hoisted generator expressions (`__genexpr_N`, RFC 20260713) join
+    // via both binding shapes — `let f = <genexpr>` and the test262
+    // staple `var f; f = function*(...) {...}` (top-level assign).
+    let synthetic_fn_ident = |e: &Expr| -> Option<String> {
+        match e {
+            Expr::Ident(n) if n.starts_with("__closure_") || n.starts_with("__genexpr_") => {
+                Some(n.clone())
+            }
+            Expr::Closure { fn_name, .. } => Some(fn_name.clone()),
+            _ => None,
+        }
+    };
     let mut let_alias: HashMap<String, String> = HashMap::new();
     for s in &ast.stmts {
-        if let Stmt::LetDecl { name, init, .. } = s {
-            let target = match ast.get_expr(*init) {
-                Expr::Ident(n) if n.starts_with("__closure_") => Some(n.clone()),
-                Expr::Closure { fn_name, .. } => Some(fn_name.clone()),
-                _ => None,
-            };
-            if let Some(t) = target {
-                let_alias.insert(name.clone(), t);
+        match s {
+            Stmt::LetDecl { name, init, .. } => {
+                if let Some(t) = synthetic_fn_ident(ast.get_expr(*init)) {
+                    let_alias.insert(name.clone(), t);
+                }
             }
+            Stmt::Expr(eid) => {
+                if let Expr::Assign { target, value } = ast.get_expr(*eid)
+                    && let Expr::Ident(name) = ast.get_expr(*target)
+                    && let Some(t) = synthetic_fn_ident(ast.get_expr(*value))
+                {
+                    let_alias.insert(name.clone(), t);
+                }
+            }
+            _ => {}
         }
     }
 
