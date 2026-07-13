@@ -142,6 +142,11 @@ pub(crate) fn default_init_for_type(ann: &str) -> Expr {
         "number" => Expr::Number(0.0),
         "string" => Expr::String(String::new()),
         "boolean" => Expr::Bool(false),
+        // JS's zero value for an untyped slot IS undefined — the old
+        // Number(0.0) catch-all leaked `0` where bun answers
+        // `undefined` (exhausted generator step values, async
+        // tail-safety defaults, any-field zero-init).
+        "any" => Expr::Ident("undefined".into()),
         // T[] / __nullable(T) — typed zero / null (M5.2 inheritance follow-up).
         _ if ann.ends_with("[]") => Expr::Array(Vec::new()),
         // V3-05 — `T | null` field default null (parser flat `__nullable(T)`).

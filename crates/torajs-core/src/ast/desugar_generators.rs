@@ -194,6 +194,17 @@ pub fn desugar_generators(ast: &mut Ast) {
         // Class name + struct return type for next().
         let class_name = format!("__Gen_{gen_name}");
         let step_ann = format!("__step_{gen_name}");
+        // Async generator (RFC 20260713 blade 4): the factory itself
+        // stays un-wrapped (parser kept the name out of async_fns —
+        // ag() answers the generator object directly per §27.6), and
+        // the step methods pick up their Promise<__step_*> shape via
+        // the class-method async rewrite: registering the mangled
+        // names here is all desugar_classes_emit needs.
+        if ast.async_generator_fns.contains(&gen_name) {
+            for m in ["next", "return", "throw"] {
+                ast.async_fns.insert(format!("__cm_{class_name}__{m}"));
+            }
+        }
         // Type alias `type __step_<gen> = { value: T, done: boolean }`.
         ast.stmts.push(Stmt::TypeDecl {
             name: step_ann.clone(),

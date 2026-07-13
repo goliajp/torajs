@@ -81,7 +81,16 @@ fn detect_obj_is_builtin_promise(ctx: &LowerCtx<'_>, obj: ExprId) -> bool {
             .get(n)
             .map(|info| matches!(info.ty, Type::Promise))
             .unwrap_or(false),
-        Expr::Call { callee, .. } => detect_promise_returning_call(ctx, *callee),
+        // Call shape probe first; fall back to the checker's verdict —
+        // a multi-owner method call (`it.next()` with sync AND async
+        // generator classes in scope) stays a Member call for
+        // sibling-class dispatch, so no callee shape matches, but the
+        // checker typed the call Promise<T> all the same (RFC 20260713
+        // blade 4: async-generator next()).
+        Expr::Call { callee, .. } => {
+            detect_promise_returning_call(ctx, *callee)
+                || matches!(ctx.expr_types.get(&obj), Some(check_mod::Type::Promise(_)))
+        }
         _ => matches!(ctx.expr_types.get(&obj), Some(check_mod::Type::Promise(_))),
     }
 }

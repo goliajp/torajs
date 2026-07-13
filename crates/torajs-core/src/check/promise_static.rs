@@ -131,6 +131,12 @@ impl Checker {
             // lowers to an opaque pointer at SSA — NaN-box AnyValue
             // is i64-sized).
             Type::Any if m_name == "resolve" => Type::Any,
+            // RFC 20260713 blade 4 — the async tail-safety default for
+            // an `any` inner type is now the undefined ident (JS's
+            // zero value): `Promise.resolve(undefined)` lands a
+            // Promise<any> like the As-any-wrapped explicit-return
+            // path does.
+            Type::Undefined if m_name == "resolve" => Type::Any,
             other => {
                 return Some(Err(format!(
                     "Promise.{m_name}: T must be number / string / boolean / array / struct / Date / RegExp / nullable / Promise<T> in v0.5 MVP (got {other:?})"

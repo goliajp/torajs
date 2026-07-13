@@ -221,6 +221,17 @@ pub struct Ast {
     /// Avoids adding an `is_async: bool` to every FnDecl construction
     /// site.
     pub async_fns: std::collections::HashSet<String>,
+    /// `async function*` declarations (RFC 20260713 blade 4). The
+    /// parser records the intersection HERE instead of `async_fns` so
+    /// `desugar_async` never Promise-wraps the generator FACTORY
+    /// (spec §27.6: calling an async generator returns the generator
+    /// object directly; each next()/return()/throw() returns a
+    /// Promise). `desugar_generators` consumes this set and registers
+    /// the mangled `__cm___Gen_<name>__{next,return,throw}` methods
+    /// into `async_fns`, so the class-method async rewrite
+    /// (desugar_classes_emit) gives the step methods their
+    /// Promise<__step_*> shape.
+    pub async_generator_fns: std::collections::HashSet<String>,
     /// Generator / async function-value EXPRESSIONS parsed for real
     /// (RFC 20260713-generator-fn-value-substrate). Keyed by the
     /// `Expr::ArrowFn` ExprId the parser emitted; `hoist_gen_fn_exprs`

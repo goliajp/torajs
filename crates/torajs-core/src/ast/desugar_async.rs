@@ -169,6 +169,13 @@ pub fn desugar_async(ast: &mut Ast) {
 pub(super) fn body_ends_in_return(body: &[Stmt]) -> bool {
     match body.last() {
         Some(Stmt::Return(_)) => true,
+        // A trailing `throw` is a terminal completion too — control
+        // never falls through, so the async tail-safety return is
+        // both unreachable AND (for struct inner types like the
+        // async-generator `__step_*`) wrongly typed: the
+        // default_init_for_type catch-all answers Number(0.0), which
+        // fails check as Promise(Number) vs Promise(Struct).
+        Some(Stmt::Throw(_)) => true,
         Some(Stmt::Multi(stmts)) | Some(Stmt::Block(stmts)) => body_ends_in_return(stmts),
         _ => false,
     }

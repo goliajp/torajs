@@ -222,7 +222,7 @@ fn unwrap_generator_return_ann(ann: &str) -> String {
     let head = &ann[..open];
     if !matches!(
         head,
-        "Generator" | "IterableIterator" | "Iterator" | "Iterable"
+        "Generator" | "IterableIterator" | "Iterator" | "Iterable" | "AsyncGenerator"
     ) {
         return ann.to_string();
     }

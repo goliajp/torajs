@@ -77,7 +77,16 @@ impl<'a> Parser<'a> {
             self.generator_fns.insert(name.clone(), yield_ty);
         }
         if is_async {
-            self.ast.async_fns.insert(name.clone());
+            if is_generator {
+                // Async generators go in their own set: desugar_async
+                // must NOT Promise-wrap the factory (ag() returns the
+                // generator object directly per §27.6); the step
+                // methods get their Promise shape via
+                // desugar_generators → async_fns registration.
+                self.ast.async_generator_fns.insert(name.clone());
+            } else {
+                self.ast.async_fns.insert(name.clone());
+            }
         }
         // V3-18 wedge — TS overload signature: `function f(...): R;`
         // (no body, terminated by `;`). Type-only; the runtime impl
