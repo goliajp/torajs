@@ -31,8 +31,8 @@ mod type_def;
 
 pub use module_extras::demo_fib40;
 pub use module_methods::{
-    BakedRegexEntry, ClassLayoutMeta, DataGlobal, FieldMetaSpec, FnNameEntry, Module,
-    StringLiteral, VtableGlobal, field_type_tag_of,
+    BakedRegexEntry, ClassLayoutMeta, DataGlobal, FieldMetaSpec, FnNameEntry, MethodMetaSpec,
+    Module, StringLiteral, VtableGlobal, field_type_tag_of,
 };
 pub use type_def::Type;
 

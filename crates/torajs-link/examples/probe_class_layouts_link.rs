@@ -91,6 +91,7 @@ fn main() {
             // no inner field-meta global, no extra rebase target.
             fields: Vec::new(),
             is_named: true,
+            methods: Vec::new(),
         }],
         force_emit_class_layouts_globals: false,
         fn_name_globals: Vec::new(),

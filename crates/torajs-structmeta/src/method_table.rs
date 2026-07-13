@@ -1,0 +1,238 @@
+//! 刀 4 (RFC 20260714-t262-top-clusters) — class-methods dispatch
+//! table read side, over the per-class `.__class_methods_<i>` inner
+//! globals the link layer bakes next to the field metadata:
+//!
+//! ```text
+//!   MethodMetaArrayHeader { u32 n_methods; u32 _pad }  // 8 bytes
+//!   MethodMeta[n_methods] { *name; u32 name_len;       // 24 bytes
+//!                           u32 _pad; *adapter }        //   each
+//! ```
+//!
+//! Each `adapter` is the `__cm_<C>__<m>` body's boxed dual-entry fn
+//! (`(this-as-env, argv, argc) -> AnyValue`); torajs-anyvalue's
+//! `struct_method` resolves a name here after the field probe misses
+//! and invokes the hit through the uniform boxed ABI with the
+//! instance in the env slot. ABI consts mirror
+//! `torajs-link/src/user_class_layouts_layout/types.rs` (`METHOD_META_*`
+//! / `INNER_METHOD_META_*`), locked by the compile-time block below.
+
+use crate::StructLayoutEntry;
+
+/// `OUTER_METHOD_TABLE_PTR_OFFSET_IN_ENTRY`.
+const OUTER_METHOD_TABLE_PTR_OFFSET: usize = 24;
+/// `INNER_METHOD_META_HEADER_SIZE` — `{ u32 n_methods, u32 _pad }`.
+const INNER_METHOD_META_HEADER_SIZE: usize = 8;
+/// `INNER_METHOD_META_ELEM_SIZE` — one [`MethodMeta`].
+const INNER_METHOD_META_ELEM_SIZE: usize = 24;
+/// `METHOD_META_NAME_PTR_OFFSET_IN_ELEM`.
+const METHOD_META_NAME_PTR_OFFSET: usize = 0;
+/// `METHOD_META_NAME_LEN_OFFSET_IN_ELEM`.
+const METHOD_META_NAME_LEN_OFFSET: usize = 8;
+/// `METHOD_META_ADAPTER_PTR_OFFSET_IN_ELEM`.
+const METHOD_META_ADAPTER_PTR_OFFSET: usize = 16;
+
+/// Header at the top of every non-empty `.__class_methods_<i>` inner
+/// global (mirrors the FieldMeta header shape).
+#[repr(C)]
+struct MethodMetaArrayHeader {
+    n_methods: u32,
+    _pad: u32,
+}
+
+/// One method-metadata record.
+///
+/// Layout: `{ *const u8 name; u32 name_len; u32 _pad;
+/// *const c_void adapter }` — 24 bytes, 8-aligned.
+#[repr(C)]
+pub struct MethodMeta {
+    /// UTF-8 method-name bytes (no NUL terminator).
+    pub name_ptr: *const u8,
+    /// Length of the method name in bytes.
+    pub name_len: u32,
+    _pad: u32,
+    /// The boxed adapter's vaddr (rebased at load time).
+    pub adapter: *const core::ffi::c_void,
+}
+
+// Compile-time ABI lock against the emit side (same posture as the
+// field-meta block in lib.rs).
+const _: () = {
+    use core::mem::{align_of, offset_of, size_of};
+    assert!(offset_of!(StructLayoutEntry, method_table_ptr) == OUTER_METHOD_TABLE_PTR_OFFSET);
+    assert!(size_of::<MethodMeta>() == INNER_METHOD_META_ELEM_SIZE);
+    assert!(align_of::<MethodMeta>() == 8);
+    assert!(offset_of!(MethodMeta, name_ptr) == METHOD_META_NAME_PTR_OFFSET);
+    assert!(offset_of!(MethodMeta, name_len) == METHOD_META_NAME_LEN_OFFSET);
+    assert!(offset_of!(MethodMeta, adapter) == METHOD_META_ADAPTER_PTR_OFFSET);
+    assert!(size_of::<MethodMetaArrayHeader>() == INNER_METHOD_META_HEADER_SIZE);
+};
+
+impl StructLayoutEntry {
+    /// Number of method-metadata records, or `0` when the class has
+    /// no dispatch table (`method_table_ptr` is NULL).
+    #[inline]
+    fn n_methods(&self) -> u32 {
+        if self.method_table_ptr.is_null() {
+            return 0;
+        }
+        // SAFETY: a non-NULL `method_table_ptr` points at a
+        // `MethodMetaArrayHeader` (8-aligned, 8 bytes) in rodata.
+        unsafe { (*(self.method_table_ptr as *const MethodMetaArrayHeader)).n_methods }
+    }
+
+    /// The `idx`-th method-metadata record.
+    #[inline]
+    fn method(&self, idx: u32) -> Option<&'static MethodMeta> {
+        if idx >= self.n_methods() {
+            return None;
+        }
+        let body = INNER_METHOD_META_HEADER_SIZE + (idx as usize) * INNER_METHOD_META_ELEM_SIZE;
+        // SAFETY: `method_table_ptr` is non-NULL (n_methods() > 0)
+        // and `idx < n_methods`, so the element lies within the
+        // `.__class_methods_<i>` global.
+        let p = unsafe { self.method_table_ptr.add(body) } as *const MethodMeta;
+        Some(unsafe { &*p })
+    }
+
+    /// Linear scan for a method's boxed adapter by name. `None` if
+    /// absent (same small-count posture as `find_field`).
+    #[inline]
+    fn find_method(&self, name: &[u8]) -> Option<*const core::ffi::c_void> {
+        let n = self.n_methods();
+        let mut i = 0;
+        while i < n {
+            if let Some(m) = self.method(i) {
+                if m.name_bytes() == name {
+                    return Some(m.adapter);
+                }
+            }
+            i += 1;
+        }
+        None
+    }
+}
+
+impl MethodMeta {
+    /// The method name as a byte slice (mirrors `FieldMeta::name_bytes`).
+    #[inline]
+    fn name_bytes(&self) -> &'static [u8] {
+        if self.name_ptr.is_null() || self.name_len == 0 {
+            return &[];
+        }
+        // SAFETY: a non-NULL `name_ptr` points at `name_len` UTF-8
+        // bytes in the `.__class_method_name_<i>_<j>` rodata.
+        unsafe { core::slice::from_raw_parts(self.name_ptr, self.name_len as usize) }
+    }
+}
+
+/// Resolve a class method's boxed dual-entry adapter by name. Answers
+/// NULL when the layout is NULL, the class has no dispatch table, or
+/// no method matches — the caller (torajs-anyvalue `struct_method`)
+/// keeps its honest no-such-method TypeError on a miss.
+///
+/// # Safety
+/// `layout` must be NULL or a live result of
+/// `__torajs_struct_layout_lookup`; `name` must be NULL or point at
+/// `name_len` readable bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_struct_method_find(
+    layout: *const StructLayoutEntry,
+    name: *const u8,
+    name_len: u32,
+) -> *const core::ffi::c_void {
+    if layout.is_null() || name.is_null() {
+        return core::ptr::null();
+    }
+    // SAFETY: caller contract above.
+    let entry = unsafe { &*layout };
+    let needle = unsafe { core::slice::from_raw_parts(name, name_len as usize) };
+    entry.find_method(needle).unwrap_or(core::ptr::null())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // A hand-built `.__class_methods_<i>` image: 8-byte header
+    // (n_methods = 2) + two 24-byte MethodMeta records — walked
+    // exactly like the link-emitted global.
+    #[repr(C)]
+    struct TwoMethodImage {
+        n_methods: u32,
+        _pad: u32,
+        methods: [MethodMeta; 2],
+    }
+
+    const NAME_NEXT: &[u8] = b"next";
+    const NAME_ADD: &[u8] = b"add";
+    const ADAPTER_A: *const core::ffi::c_void = 0xA000usize as *const _;
+    const ADAPTER_B: *const core::ffi::c_void = 0xB000usize as *const _;
+
+    fn two_method_entry(image: &TwoMethodImage) -> StructLayoutEntry {
+        StructLayoutEntry {
+            n_children: 0,
+            flags: 0,
+            child_offsets: core::ptr::null(),
+            field_metadata_ptr: core::ptr::null(),
+            method_table_ptr: image as *const TwoMethodImage as *const u8,
+        }
+    }
+
+    fn image() -> TwoMethodImage {
+        TwoMethodImage {
+            n_methods: 2,
+            _pad: 0,
+            methods: [
+                MethodMeta {
+                    name_ptr: NAME_NEXT.as_ptr(),
+                    name_len: NAME_NEXT.len() as u32,
+                    _pad: 0,
+                    adapter: ADAPTER_A,
+                },
+                MethodMeta {
+                    name_ptr: NAME_ADD.as_ptr(),
+                    name_len: NAME_ADD.len() as u32,
+                    _pad: 0,
+                    adapter: ADAPTER_B,
+                },
+            ],
+        }
+    }
+
+    #[test]
+    fn find_hits_both_and_misses_absent() {
+        let img = image();
+        let e = two_method_entry(&img);
+        let p = &e as *const StructLayoutEntry;
+        unsafe {
+            assert_eq!(
+                __torajs_struct_method_find(p, NAME_NEXT.as_ptr(), 4),
+                ADAPTER_A
+            );
+            assert_eq!(
+                __torajs_struct_method_find(p, NAME_ADD.as_ptr(), 3),
+                ADAPTER_B
+            );
+            assert!(__torajs_struct_method_find(p, b"nosuch".as_ptr(), 6).is_null());
+        }
+    }
+
+    #[test]
+    fn null_table_and_null_args_answer_null() {
+        let e = StructLayoutEntry {
+            n_children: 0,
+            flags: 0,
+            child_offsets: core::ptr::null(),
+            field_metadata_ptr: core::ptr::null(),
+            method_table_ptr: core::ptr::null(),
+        };
+        let p = &e as *const StructLayoutEntry;
+        unsafe {
+            assert!(__torajs_struct_method_find(p, NAME_NEXT.as_ptr(), 4).is_null());
+            assert!(
+                __torajs_struct_method_find(core::ptr::null(), NAME_NEXT.as_ptr(), 4).is_null()
+            );
+            assert!(__torajs_struct_method_find(p, core::ptr::null(), 0).is_null());
+        }
+    }
+}

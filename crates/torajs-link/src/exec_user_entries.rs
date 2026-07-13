@@ -85,6 +85,23 @@ pub struct UserClassLayoutEntry {
     /// so the runtime Obj drop can restrict cycle-root buffering to
     /// named-class instances (mirrors the typed drop's policy).
     pub is_named: bool,
+    /// 刀 4 (RFC 20260714-t262-top-clusters) — runtime-dispatchable
+    /// methods (name + boxed-adapter fn). Lowered into the per-class
+    /// `.__class_methods_<i>` inner global; the outer entry's
+    /// `method_table_ptr` slot (+24) points at it (NULL when empty).
+    pub methods: Vec<UserMethodMetaEntry>,
+}
+
+/// 刀 4 — one runtime-dispatchable method row. Mirrors
+/// `ssa::MethodMetaSpec`; the adapter resolves through `fn_vaddrs`
+/// by id at rebase-assembly time (the fn-name table's mechanism).
+#[derive(Debug, Clone)]
+pub struct UserMethodMetaEntry {
+    /// Method name as declared (`next`, not `__cm_Gen__next`).
+    pub name: String,
+    /// The boxed adapter's `FuncId` index into the link layer's
+    /// `fn_vaddrs` slice.
+    pub adapter_fn_id: u32,
 }
 
 /// W-J A3b — one per-field metadata row carried into the link layer.

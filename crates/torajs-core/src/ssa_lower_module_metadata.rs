@@ -65,7 +65,91 @@ pub(crate) fn populate_vtables(
     }
 }
 
+/// 刀 4 (RFC 20260714-t262-top-clusters) — collect every class's OWN
+/// `__cm_<C>__<m>` method bodies by scanning the fn table (NOT
+/// `ast.method_index`, which only carries chain/vtable methods —
+/// single-owner methods are statically rewritten and never enter it).
+/// A class name may itself contain `__`, so the `<C>` boundary is
+/// resolved by longest-match against the known class-name set. The
+/// ctor (`__cm_<C>__ctor`) never enters — `new` is not a method call.
+fn collect_own_class_methods(
+    fn_table: &HashMap<String, ssa::FuncId>,
+    class_names: &[&String],
+) -> HashMap<String, Vec<(String, ssa::FuncId)>> {
+    let mut own: HashMap<String, Vec<(String, ssa::FuncId)>> = HashMap::new();
+    for (fname, &fid) in fn_table {
+        let Some(rest) = fname.strip_prefix("__cm_") else {
+            continue;
+        };
+        // Longest class-name match wins (`__cm_A__b__c` with classes
+        // `A` and `A__b` belongs to `A__b`).
+        let mut best: Option<(&str, &str)> = None;
+        for cname in class_names {
+            if let Some(m) = rest.strip_prefix(&format!("{cname}__"))
+                && best.is_none_or(|(b, _)| cname.len() > b.len())
+            {
+                best = Some((cname.as_str(), m));
+            }
+        }
+        let Some((cname, mname)) = best else { continue };
+        if mname == "ctor" || mname.is_empty() {
+            continue;
+        }
+        own.entry(cname.to_string())
+            .or_default()
+            .push((mname.to_string(), fid));
+    }
+    own
+}
+
+/// 刀 4 — resolve one class's runtime-dispatchable methods: its own
+/// `__cm_` bodies plus inherited ones up the parent chain (child
+/// declarations shadow, the vtable walk's override semantics). Only
+/// bodies with a synthesized boxed adapter survive — a synthesis
+/// dropout (>8 params / unboxable type) keeps the runtime miss an
+/// honest no-such TypeError.
+fn resolve_class_methods(
+    ast: &crate::ast::Ast,
+    own_methods: &HashMap<String, Vec<(String, ssa::FuncId)>>,
+    boxed_entries: &HashMap<ssa::FuncId, (ssa::FuncId, ssa::SigId)>,
+    cname: &str,
+) -> Vec<ssa::MethodMetaSpec> {
+    let mut out: Vec<ssa::MethodMetaSpec> = Vec::new();
+    let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    let mut cur: Option<String> = Some(cname.to_string());
+    let mut depth = 0u32;
+    while let Some(name) = cur {
+        if depth > 64 {
+            break;
+        }
+        if let Some(methods) = own_methods.get(&name) {
+            for (mname, fid) in methods {
+                if seen.contains(mname.as_str()) {
+                    continue;
+                }
+                if let Some(&(adapter_fid, _)) = boxed_entries.get(fid) {
+                    out.push(ssa::MethodMetaSpec {
+                        name: mname.clone(),
+                        adapter_fid,
+                    });
+                }
+                // Shadow even on adapter dropout — a child decl
+                // without an adapter must not expose the parent's.
+                seen.insert(mname.as_str());
+            }
+        }
+        cur = ast.class_parents.get(&name).and_then(|p| p.clone());
+        depth += 1;
+    }
+    // Deterministic table order (HashMap iteration fed `own_methods`).
+    out.sort_by(|a, b| a.name.cmp(&b.name));
+    out
+}
+
 pub(crate) fn populate_class_layouts(
+    ast: &crate::ast::Ast,
+    fn_table: &HashMap<String, ssa::FuncId>,
+    boxed_entries: &HashMap<ssa::FuncId, (ssa::FuncId, ssa::SigId)>,
     class_name_to_tag: &HashMap<String, u32>,
     aliases: &HashMap<String, Type>,
     module: &mut Module,
@@ -81,6 +165,10 @@ pub(crate) fn populate_class_layouts(
     let mut class_names_by_tag: Vec<(&String, u32)> =
         class_name_to_tag.iter().map(|(n, t)| (n, *t)).collect();
     class_names_by_tag.sort_by_key(|(_, t)| *t);
+    // 刀 4 — own `__cm_` bodies per class, resolved once for the
+    // whole table (the per-class walk below merges parent chains).
+    let all_class_names: Vec<&String> = class_names_by_tag.iter().map(|(n, _)| *n).collect();
+    let own_methods = collect_own_class_methods(fn_table, &all_class_names);
     for (cname, _tag) in &class_names_by_tag {
         let sid = match module.struct_layouts.iter().enumerate().find_map(|(i, _)| {
             aliases.get(*cname).and_then(|t| match t {
@@ -115,6 +203,7 @@ pub(crate) fn populate_class_layouts(
             child_offsets,
             field_metadata,
             is_named: true,
+            methods: resolve_class_methods(ast, &own_methods, boxed_entries, cname),
         });
     }
 
@@ -165,6 +254,7 @@ pub(crate) fn populate_class_layouts(
             child_offsets,
             field_metadata,
             is_named: false,
+            methods: Vec::new(),
         });
     }
 }

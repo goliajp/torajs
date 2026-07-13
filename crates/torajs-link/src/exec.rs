@@ -53,7 +53,7 @@ pub struct UserStringEntry {
 
 pub use crate::exec_user_entries::{
     UserBakedRegexEntry, UserClassLayoutEntry, UserClassNameEntry, UserDataGlobalEntry,
-    UserFieldMetaEntry, UserFnNameEntry, UserVtableEntry,
+    UserFieldMetaEntry, UserFnNameEntry, UserMethodMetaEntry, UserVtableEntry,
 };
 
 /// Configuration for `link_to_exec` — caller supplies the per-fn

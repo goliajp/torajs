@@ -44,7 +44,7 @@ pub use sym::{
 };
 pub use types::{
     CLASS_LAYOUTS_SYM, ENTRY_FLAG_NAMED_CLASS, N_CLASS_LAYOUTS_SYM, UserClassLayoutEntryLayout,
-    UserClassLayoutsLayout, UserFieldMetaPlacement,
+    UserClassLayoutsLayout, UserFieldMetaPlacement, UserMethodMetaPlacement,
 };
 
 #[cfg(test)]

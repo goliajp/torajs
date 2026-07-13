@@ -13,7 +13,9 @@
 use super::types::{
     FIELD_META_FIELD_OFFSET_OFFSET_IN_ELEM, FIELD_META_NAME_LEN_OFFSET_IN_ELEM,
     FIELD_META_NAME_PTR_OFFSET_IN_ELEM, FIELD_META_TYPE_TAG_OFFSET_IN_ELEM,
-    INNER_FIELD_META_ELEM_SIZE, UserClassLayoutsLayout,
+    INNER_FIELD_META_ELEM_SIZE, INNER_METHOD_META_ELEM_SIZE,
+    METHOD_META_ADAPTER_PTR_OFFSET_IN_ELEM, METHOD_META_NAME_LEN_OFFSET_IN_ELEM,
+    UserClassLayoutsLayout,
 };
 
 pub fn build_user_class_layouts_payload(
@@ -77,6 +79,42 @@ pub fn build_user_class_layouts_payload(
                 let _ = FIELD_META_NAME_PTR_OFFSET_IN_ELEM; // = 0, asserted by construction
             }
         }
+        // 刀 4 — .__class_method_name_<i>_<j> strings +
+        // .__class_methods_<i> array, inside the SAME per-entry walk
+        // (compute's inner cursor interleaves per class; buf writes
+        // must stay strictly offset-ascending).
+        for mm in &entry.methods {
+            pad_buf_to(&mut buf, region_start, mm.name_file_offset);
+            buf.extend_from_slice(&mm.name_bytes);
+        }
+        if entry.method_meta_array_vaddr.is_some() {
+            pad_buf_to(&mut buf, region_start, entry.method_meta_array_file_offset);
+            // Header: u32 n_methods + u32 _pad.
+            buf.extend_from_slice(&(entry.methods.len() as u32).to_le_bytes());
+            buf.extend_from_slice(&[0u8; 4]);
+            // Body: N x MethodMeta (24B each).
+            for mm in &entry.methods {
+                let elem_start = buf.len();
+                // name_ptr u64 (chain-fixup link value).
+                let lv = take_link_value(class_layouts_link_values, &mut link_idx);
+                buf.extend_from_slice(&lv.to_le_bytes());
+                debug_assert_eq!(
+                    buf.len() - elem_start,
+                    METHOD_META_NAME_LEN_OFFSET_IN_ELEM as usize
+                );
+                // name_len u32 + u32 pad.
+                buf.extend_from_slice(&(mm.name_bytes.len() as u32).to_le_bytes());
+                buf.extend_from_slice(&[0u8; 4]);
+                debug_assert_eq!(
+                    buf.len() - elem_start,
+                    METHOD_META_ADAPTER_PTR_OFFSET_IN_ELEM as usize
+                );
+                // adapter_ptr u64 (chain-fixup link value → fn vaddr).
+                let lv = take_link_value(class_layouts_link_values, &mut link_idx);
+                buf.extend_from_slice(&lv.to_le_bytes());
+                debug_assert_eq!(buf.len() - elem_start, INNER_METHOD_META_ELEM_SIZE as usize);
+            }
+        }
     }
 
     // Phase 2: outer table.
@@ -97,6 +135,13 @@ pub fn build_user_class_layouts_payload(
             0
         };
         buf.extend_from_slice(&field_meta_lv.to_le_bytes());
+        // 刀 4 — method_table_ptr slot (+24).
+        let method_table_lv: u64 = if entry.method_meta_array_vaddr.is_some() {
+            take_link_value(class_layouts_link_values, &mut link_idx)
+        } else {
+            0
+        };
+        buf.extend_from_slice(&method_table_lv.to_le_bytes());
     }
     debug_assert_eq!(
         link_idx,

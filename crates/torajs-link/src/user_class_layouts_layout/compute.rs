@@ -5,8 +5,9 @@
 use super::types::{
     COUNT_ALIGN, COUNT_SIZE, ENTRY_FLAG_NAMED_CLASS, INNER_ELEM_ALIGN, INNER_ELEM_SIZE,
     INNER_FIELD_META_ALIGN, INNER_FIELD_META_ELEM_SIZE, INNER_FIELD_META_HEADER_SIZE,
+    INNER_METHOD_META_ALIGN, INNER_METHOD_META_ELEM_SIZE, INNER_METHOD_META_HEADER_SIZE,
     OUTER_ENTRY_ALIGN, OUTER_ENTRY_SIZE, UserClassLayoutEntryLayout, UserClassLayoutsLayout,
-    UserFieldMetaPlacement,
+    UserFieldMetaPlacement, UserMethodMetaPlacement,
 };
 use crate::exec::UserClassLayoutEntry;
 
@@ -90,6 +91,36 @@ pub fn compute_user_class_layouts_layout(
             (Some(array_vaddr), array_file_offset)
         };
 
+        // 刀 4 — per-method name byte strings (mirrors the field-name
+        // placement above: names precede the MethodMeta array).
+        let mut methods: Vec<UserMethodMetaPlacement> = Vec::with_capacity(entry.methods.len());
+        for mm in &entry.methods {
+            let name_bytes = mm.name.as_bytes().to_vec();
+            let name_byte_len = name_bytes.len() as u32;
+            let name_file_offset = region_file_offset + inner_cursor;
+            let name_vaddr = region_vaddr + u64::from(inner_cursor);
+            inner_cursor += name_byte_len;
+            methods.push(UserMethodMetaPlacement {
+                name_bytes,
+                name_vaddr,
+                name_file_offset,
+                adapter_fn_id: mm.adapter_fn_id,
+            });
+        }
+
+        // .__class_methods_<i>  (header 8B + N x 24B, 8-align).
+        let (method_meta_array_vaddr, method_meta_array_file_offset) = if entry.methods.is_empty() {
+            (None, 0u32)
+        } else {
+            let pad = pad_to(inner_cursor, INNER_METHOD_META_ALIGN);
+            inner_cursor += pad;
+            let array_file_offset = region_file_offset + inner_cursor;
+            let array_vaddr = region_vaddr + u64::from(inner_cursor);
+            inner_cursor += INNER_METHOD_META_HEADER_SIZE
+                + (entry.methods.len() as u32) * INNER_METHOD_META_ELEM_SIZE;
+            (Some(array_vaddr), array_file_offset)
+        };
+
         entries.push(UserClassLayoutEntryLayout {
             n_children,
             child_offsets: entry.child_offsets.clone(),
@@ -103,6 +134,9 @@ pub fn compute_user_class_layouts_layout(
             field_metadata,
             field_meta_array_vaddr,
             field_meta_array_file_offset,
+            methods,
+            method_meta_array_vaddr,
+            method_meta_array_file_offset,
             entry_vaddr: 0, // filled in below once outer placement is known
             entry_file_offset: 0,
         });

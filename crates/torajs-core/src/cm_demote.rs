@@ -102,7 +102,14 @@ impl Checker {
         let Ok(recv_ty) = self.type_of(ast, recv_eid) else {
             return None;
         };
-        if !is_builtin_container_ty(&recv_ty) {
+        // 刀 4 (RFC 20260714-t262-top-clusters) — an Any receiver
+        // demotes too: the member-call shape routes through
+        // route_early's any-member arm into the runtime dispatcher,
+        // which resolves REAL class methods through the class-methods
+        // table (struct_method) — the static `__cm_<C>__m(any_recv)`
+        // form was a guaranteed checker reject ("expected Struct,
+        // got Any").
+        if !is_builtin_container_ty(&recv_ty) && !matches!(recv_ty, Type::Any) {
             return None;
         }
         self.demoted_cm_rewrites.insert(eid, alt_id);

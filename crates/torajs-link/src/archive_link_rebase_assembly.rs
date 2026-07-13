@@ -50,6 +50,7 @@ pub fn assemble_text_rebase_targets(
     );
     let class_layouts_targets = compute_class_layouts_rebase_targets(
         &data_const_layout.class_layouts_layout,
+        fn_vaddrs,
         seg_vmaddr_base,
         TEXT_VMADDR_BASE,
     );

@@ -226,6 +226,7 @@ pub(crate) fn lower_inner(
         &mut module,
         ast,
         &fn_table,
+        &boxed_entries,
         arr_layouts,
         fn_sigs,
         struct_layouts,
@@ -409,6 +410,7 @@ fn finalize_module(
     module: &mut Module,
     ast: &Ast,
     fn_table: &HashMap<String, FuncId>,
+    boxed_entries: &HashMap<FuncId, (FuncId, ssa::SigId)>,
     arr_layouts: Vec<Type>,
     fn_sigs: Vec<(Vec<Type>, Type)>,
     struct_layouts: Vec<Vec<(String, Type)>>,
@@ -427,7 +429,14 @@ fn finalize_module(
     // — see [`crate::ssa_lower_module_metadata`] for the consolidated
     // builder docs.
     crate::ssa_lower_module_metadata::populate_vtables(ast, fn_table, module);
-    crate::ssa_lower_module_metadata::populate_class_layouts(class_name_to_tag, aliases, module);
+    crate::ssa_lower_module_metadata::populate_class_layouts(
+        ast,
+        fn_table,
+        boxed_entries,
+        class_name_to_tag,
+        aliases,
+        module,
+    );
 
     // W-J Phase A1 follow-up — append `ClassLayoutMeta` rows for
     // each Pass 2 fresh sid recorded in `anon_stamp_pool`.

@@ -232,6 +232,21 @@ pub struct FieldMetaSpec {
     pub type_tag: u8,
 }
 
+/// RFC 20260714-t262-top-clusters 刀 4 — one runtime-dispatchable
+/// class method: the surface name plus the boxed dual-entry adapter
+/// synthesized for its `__cm_<C>__<m>` body (uniform
+/// `(this-as-env, argv, argc) -> AnyValue` ABI). Lowered into the
+/// per-class `.__class_methods_<i>` rodata global so an any-held
+/// class instance can resolve `c.next()` by name at runtime.
+#[derive(Debug, Clone)]
+pub struct MethodMetaSpec {
+    /// Method name as declared (`next`, not `__cm_Gen__next`).
+    pub name: String,
+    /// The boxed adapter fn — resolves to a vaddr through the
+    /// `__torajs_fn_<i>` sym convention (vtable slots' mechanism).
+    pub adapter_fid: FuncId,
+}
+
 #[derive(Debug, Clone)]
 pub struct ClassLayoutMeta {
     /// Class name (informational; useful for naming a per-class
@@ -257,6 +272,10 @@ pub struct ClassLayoutMeta {
     /// buffer scrub for speed, so a runtime-buffered anon struct
     /// would leave a dangling buffer entry behind).
     pub is_named: bool,
+    /// 刀 4 — runtime-dispatchable methods (inherited included, the
+    /// vtable walk's resolution). Empty for anonymous shapes and for
+    /// classes whose methods all failed adapter synthesis.
+    pub methods: Vec<MethodMetaSpec>,
 }
 
 /// W-J Phase A3 — coarse `Type` → 8-bit `type_tag` for [`FieldMetaSpec`].

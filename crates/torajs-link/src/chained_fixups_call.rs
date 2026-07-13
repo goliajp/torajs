@@ -113,6 +113,7 @@ pub fn recompute_chained_fixups_with_data_rebase(
     );
     let class_layouts_rebase_targets = compute_class_layouts_rebase_targets(
         &layout.data_const_layout.class_layouts_layout,
+        &layout.fn_vaddrs,
         layout.data_const_layout.segment_vmaddr,
         TEXT_VMADDR_BASE,
     );

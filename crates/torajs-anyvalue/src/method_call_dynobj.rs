@@ -62,6 +62,13 @@ unsafe extern "C" {
     /// torajs-structmeta — field byte offset + coarse type tag
     /// (zeroed for a miss; a real offset is never 0).
     fn __torajs_struct_field_info(layout: *const c_void, idx: u32) -> FieldInfo;
+    /// torajs-structmeta 刀 4 — class-method boxed adapter by name
+    /// bytes (NULL miss).
+    fn __torajs_struct_method_find(
+        layout: *const c_void,
+        name: *const u8,
+        name_len: u32,
+    ) -> *const c_void;
 }
 
 /// Mirror of `torajs-structmeta::FieldInfo` (returned by value
@@ -336,6 +343,15 @@ pub(crate) unsafe fn struct_method(
                     // A resolved field that isn't callable keeps the
                     // TypeError — never shadowed by the fallback.
                     return not_callable();
+                }
+                // 刀 4 (RFC 20260714-t262-top-clusters) — no such
+                // FIELD: probe the class-methods dispatch table. A
+                // hit invokes the `__cm_<C>__<m>` body through its
+                // boxed adapter with the instance in the env slot
+                // (the adapter feeds it into the `__this` param).
+                let adapter = __torajs_struct_method_find(layout, name_bytes, name_len);
+                if !adapter.is_null() {
+                    return crate::method_call::invoke_boxed(obj, adapter as u64, argv, argc);
                 }
             }
         }

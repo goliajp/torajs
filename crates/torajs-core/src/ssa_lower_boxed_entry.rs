@@ -84,7 +84,16 @@ pub(crate) fn synthesize_boxed_entries(
         let Stmt::FnDecl { name, params, .. } = stmt else {
             continue;
         };
-        if params.first().is_none_or(|p| p.name != "__env") {
+        // Lifted closure bodies carry `__env` first; class-method
+        // bodies (`__cm_<C>__<m>`) carry `__this` first — 刀 4 (RFC
+        // 20260714-t262-top-clusters) reifies those too, so an
+        // any-held class instance can dispatch its methods by name
+        // through the class-methods table. Both are pointer-shaped
+        // first params the adapter feeds its env argument into.
+        let first_is_env = params.first().is_some_and(|p| p.name == "__env");
+        let first_is_this =
+            params.first().is_some_and(|p| p.name == "__this") && name.starts_with("__cm_");
+        if !first_is_env && !first_is_this {
             continue;
         }
         let Some(&fid) = fn_table.get(name.as_str()) else {

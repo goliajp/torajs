@@ -107,10 +107,13 @@ pub struct HeapHeader {
 /// NULL u64 in the on-disk image). Phase A3 will fill it.
 ///
 /// Entry layout: `{ u32 n_children; u32 flags; *const u32 child_offsets;
-/// *const c_void field_metadata_ptr }` — 24 bytes, 8-aligned (matches
-/// LLVM struct rule for `{ i32, i32, ptr, ptr }`). L3b #4 turned the
-/// former pad at +4 into a flags word (bit 0 =
-/// [`CLASS_LAYOUT_FLAG_NAMED`]).
+/// *const c_void field_metadata_ptr; *const c_void method_table_ptr }`
+/// — 32 bytes, 8-aligned (matches the LLVM struct rule for
+/// `{ i32, i32, ptr, ptr, ptr }`). L3b #4 turned the former pad at +4
+/// into a flags word (bit 0 = [`CLASS_LAYOUT_FLAG_NAMED`]); 刀 4
+/// (RFC 20260714-t262-top-clusters) extended 24 → 32 with the
+/// class-methods dispatch table pointer (read by torajs-structmeta,
+/// never by the cycle collector).
 #[repr(C)]
 pub struct ClassLayout {
     pub n_children: u32,
@@ -120,6 +123,9 @@ pub struct ClassLayout {
     pub child_offsets: *const u32,
     /// W-J Phase A2 reserved slot — NULL until A3 fills it.
     pub field_metadata_ptr: *const c_void,
+    /// 刀 4 — `.__class_methods_<i>` inner global (NULL when the
+    /// class has no runtime-dispatchable methods).
+    pub method_table_ptr: *const c_void,
 }
 
 /// L3b #4 — [`ClassLayout::flags`] bit 0: entry describes a declared
@@ -161,6 +167,7 @@ pub static __torajs_class_layouts: ClassLayout = ClassLayout {
     flags: 0,
     child_offsets: core::ptr::null(),
     field_metadata_ptr: core::ptr::null(),
+    method_table_ptr: core::ptr::null(),
 };
 
 #[inline]
@@ -288,12 +295,14 @@ mod tests {
 
     #[test]
     fn class_layout_struct() {
-        // W-J Phase A2: ClassLayout = u32 + 4B pad + 2 ptr = 24B, align 8.
-        // (Was 16B pre-A2 — see torajs-link/src/user_class_layouts_layout.rs
-        // OUTER_ENTRY_SIZE for the on-disk emit side that must stay in
-        // lockstep with this struct's size.)
-        assert_eq!(core::mem::size_of::<ClassLayout>(), 24);
+        // 刀 4: ClassLayout = u32 + u32 flags + 3 ptr = 32B, align 8.
+        // (Was 24B pre-刀4 / 16B pre-A2 — see
+        // torajs-link/src/user_class_layouts_layout.rs OUTER_ENTRY_SIZE
+        // for the on-disk emit side that must stay in lockstep with
+        // this struct's size.)
+        assert_eq!(core::mem::size_of::<ClassLayout>(), 32);
         assert_eq!(core::mem::align_of::<ClassLayout>(), 8);
+        assert_eq!(core::mem::offset_of!(ClassLayout, method_table_ptr), 24);
     }
 
     #[test]

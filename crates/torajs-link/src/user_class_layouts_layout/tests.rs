@@ -10,6 +10,7 @@ fn entry(offsets: &[u32]) -> UserClassLayoutEntry {
         child_offsets: offsets.to_vec(),
         fields: Vec::new(),
         is_named: true,
+        methods: Vec::new(),
     }
 }
 
@@ -26,6 +27,7 @@ fn entry_with_fields(offsets: &[u32], fields: Vec<UserFieldMetaEntry>) -> UserCl
         child_offsets: offsets.to_vec(),
         fields,
         is_named: true,
+        methods: Vec::new(),
     }
 }
 
@@ -66,10 +68,10 @@ fn single_entry_two_offsets_no_fields() {
     // Outer past 8-byte inner.
     assert_eq!(layout.outer_file_offset, 0x4008);
     assert_eq!(layout.outer_vaddr, 0x1_0000_4008);
-    assert_eq!(layout.count_file_offset, 0x4020);
-    assert_eq!(layout.count_vaddr, 0x1_0000_4020);
-    // Total = 8 (inner) + 24 (outer) + 4 (count) = 36.
-    assert_eq!(layout.total_size, 36);
+    assert_eq!(layout.count_file_offset, 0x4028);
+    assert_eq!(layout.count_vaddr, 0x1_0000_4028);
+    // Total = 8 (inner) + 32 (outer) + 4 (count) = 44.
+    assert_eq!(layout.total_size, 44);
 }
 
 #[test]
@@ -79,8 +81,8 @@ fn empty_child_offsets_no_fields_skips_all_inner() {
     assert!(layout.entries[0].inner_vaddr.is_none());
     assert!(layout.entries[0].field_meta_array_vaddr.is_none());
     assert_eq!(layout.outer_file_offset, 0x4000);
-    // 24 (outer) + 4 (count) = 28.
-    assert_eq!(layout.total_size, 28);
+    // 32 (outer) + 4 (count) = 36.
+    assert_eq!(layout.total_size, 36);
 }
 
 #[test]
@@ -95,9 +97,9 @@ fn mixed_empty_and_nonempty_pack_back_to_back() {
     assert_eq!(layout.entries[2].inner_file_offset, 0x4004);
     // Total inner = 4 + 8 = 12 bytes; outer 8-align pad = 4 bytes.
     assert_eq!(layout.outer_file_offset, 0x4010);
-    // 3 outer entries × 24 = 72 bytes; count at 0x4058.
-    assert_eq!(layout.count_file_offset, 0x4058);
-    assert_eq!(layout.total_size, 4 + 8 + 4 + 72 + 4); // 92
+    // 3 outer entries × 32 = 96 bytes; count at 0x4070.
+    assert_eq!(layout.count_file_offset, 0x4070);
+    assert_eq!(layout.total_size, 4 + 8 + 4 + 96 + 4); // 116
 }
 
 #[test]
@@ -106,8 +108,8 @@ fn build_payload_emits_inner_outer_count_in_order_no_fields() {
     let layout = compute_user_class_layouts_layout(&class_layouts, 0x4000, 0x1_0000_4000, false);
     let link_values = [0xDEAD_BEEFu64];
     let payload = build_user_class_layouts_payload(&layout, &link_values);
-    // 8 inner + 24 outer + 4 count = 36.
-    assert_eq!(payload.len(), 36);
+    // 8 inner + 32 outer + 4 count = 44.
+    assert_eq!(payload.len(), 44);
     // [0..8]   inner [16, 24] LE
     assert_eq!(u32::from_le_bytes(payload[0..4].try_into().unwrap()), 16);
     assert_eq!(u32::from_le_bytes(payload[4..8].try_into().unwrap()), 24);
@@ -125,8 +127,10 @@ fn build_payload_emits_inner_outer_count_in_order_no_fields() {
     );
     // [24..32] outer entry field_metadata_ptr = NULL (no fields)
     assert_eq!(u64::from_le_bytes(payload[24..32].try_into().unwrap()), 0);
-    // [32..36] count = 1
-    assert_eq!(u32::from_le_bytes(payload[32..36].try_into().unwrap()), 1);
+    // [32..40] outer entry method_table_ptr = NULL (no methods)
+    assert_eq!(u64::from_le_bytes(payload[32..40].try_into().unwrap()), 0);
+    // [40..44] count = 1
+    assert_eq!(u32::from_le_bytes(payload[40..44].try_into().unwrap()), 1);
 }
 
 #[test]
@@ -134,12 +138,13 @@ fn build_payload_zeroes_empty_entry_outer_slot() {
     let class_layouts = [entry(&[])];
     let layout = compute_user_class_layouts_layout(&class_layouts, 0x4000, 0x1_0000_4000, false);
     let payload = build_user_class_layouts_payload(&layout, &[]);
-    // 24 outer + 4 count = 28.
-    assert_eq!(payload.len(), 28);
+    // 32 outer + 4 count = 36.
+    assert_eq!(payload.len(), 36);
     assert_eq!(u32::from_le_bytes(payload[0..4].try_into().unwrap()), 0);
     assert_eq!(u64::from_le_bytes(payload[8..16].try_into().unwrap()), 0);
     assert_eq!(u64::from_le_bytes(payload[16..24].try_into().unwrap()), 0);
-    assert_eq!(u32::from_le_bytes(payload[24..28].try_into().unwrap()), 1);
+    assert_eq!(u64::from_le_bytes(payload[24..32].try_into().unwrap()), 0);
+    assert_eq!(u32::from_le_bytes(payload[32..36].try_into().unwrap()), 1);
 }
 
 #[test]
@@ -183,7 +188,7 @@ fn extra_defined_syms_two_when_nonempty_or_force_emit() {
 fn rebase_targets_only_child_offsets_when_no_fields() {
     let class_layouts = [entry(&[16]), entry(&[]), entry(&[24, 32])];
     let layout = compute_user_class_layouts_layout(&class_layouts, 0x4000, 0x1_0000_4000, false);
-    let targets = compute_class_layouts_rebase_targets(&layout, 0x1_0000_0000, 0x1_0000_0000);
+    let targets = compute_class_layouts_rebase_targets(&layout, &[], 0x1_0000_0000, 0x1_0000_0000);
     // 2 non-empty entries → 2 rebase targets (no fields, no name_ptr
     // rebases, no field_metadata_ptr rebases).
     assert_eq!(targets.len(), 2);
@@ -202,7 +207,7 @@ fn single_entry_with_one_field_layout_shape() {
     // 1 class, 0 child_offsets, 1 field "x" at offset 24, type_tag 1.
     // Inner region: name string "x" (1B) + pad to 8 (7B) + field_meta
     //   header (8B) + 1 FieldMeta (24B) = 40B.
-    // Outer: 24B. Count: 4B. Total = 40 + 24 + 4 = 68.
+    // Outer: 32B. Count: 4B. Total = 40 + 32 + 4 = 76.
     let fields = vec![fmeta("x", 24, 1)];
     let class_layouts = [entry_with_fields(&[], fields)];
     let layout = compute_user_class_layouts_layout(&class_layouts, 0x4000, 0x1_0000_4000, false);
@@ -217,9 +222,9 @@ fn single_entry_with_one_field_layout_shape() {
     assert_eq!(e.field_meta_array_vaddr, Some(0x1_0000_4008));
     // Outer past inner = 0x4008 + 8 + 24 = 0x4028.
     assert_eq!(layout.outer_file_offset, 0x4028);
-    // Count past outer = 0x4028 + 24 = 0x4040.
-    assert_eq!(layout.count_file_offset, 0x4040);
-    assert_eq!(layout.total_size, 40 + 24 + 4);
+    // Count past outer = 0x4028 + 32 = 0x4048.
+    assert_eq!(layout.count_file_offset, 0x4048);
+    assert_eq!(layout.total_size, 40 + 32 + 4);
 }
 
 #[test]
@@ -268,8 +273,10 @@ fn single_entry_with_fields_payload_emits_in_order() {
         u64::from_le_bytes(payload[56..64].try_into().unwrap()),
         0xBBBB
     );
-    // [64..68] count = 1
-    assert_eq!(u32::from_le_bytes(payload[64..68].try_into().unwrap()), 1);
+    // [64..72] outer entry method_table_ptr = NULL (no methods)
+    assert_eq!(u64::from_le_bytes(payload[64..72].try_into().unwrap()), 0);
+    // [72..76] count = 1
+    assert_eq!(u32::from_le_bytes(payload[72..76].try_into().unwrap()), 1);
 }
 
 #[test]
@@ -289,7 +296,7 @@ fn fields_with_child_offsets_rebase_target_order() {
         entry_with_fields(&[], vec![fmeta("b", 24, 4), fmeta("cd", 32, 6)]),
     ];
     let layout = compute_user_class_layouts_layout(&class_layouts, 0x4000, 0x1_0000_4000, false);
-    let targets = compute_class_layouts_rebase_targets(&layout, 0x1_0000_0000, 0x1_0000_0000);
+    let targets = compute_class_layouts_rebase_targets(&layout, &[], 0x1_0000_0000, 0x1_0000_0000);
     assert_eq!(targets.len(), 6);
 
     // class 0 has child_offsets [16] (4B), then name "a" (1B), then pad
@@ -360,7 +367,7 @@ fn round_trip_payload_total_size_matches_layout() {
     ];
     let layout = compute_user_class_layouts_layout(&class_layouts, 0x4000, 0x1_0000_4000, false);
     // Link value count = total rebase target count.
-    let targets = compute_class_layouts_rebase_targets(&layout, 0x1_0000_0000, 0x1_0000_0000);
+    let targets = compute_class_layouts_rebase_targets(&layout, &[], 0x1_0000_0000, 0x1_0000_0000);
     let lvs: Vec<u64> = (0..targets.len() as u64).map(|i| 0xC000 + i).collect();
     let payload = build_user_class_layouts_payload(&layout, &lvs);
     assert_eq!(payload.len() as u32, layout.total_size);
@@ -378,4 +385,100 @@ impl FieldMetaPlacementExt for super::types::UserFieldMetaPlacement {
     fn name_byte_offset_check(&self) -> u32 {
         self.name_file_offset
     }
+}
+
+// ---------------- 刀 4 — class-methods table tests ----------------
+
+fn entry_with_methods(
+    offsets: &[u32],
+    methods: Vec<crate::exec::UserMethodMetaEntry>,
+) -> UserClassLayoutEntry {
+    UserClassLayoutEntry {
+        child_offsets: offsets.to_vec(),
+        fields: Vec::new(),
+        is_named: true,
+        methods,
+    }
+}
+
+fn mmeta(name: &str, adapter_fn_id: u32) -> crate::exec::UserMethodMetaEntry {
+    crate::exec::UserMethodMetaEntry {
+        name: name.into(),
+        adapter_fn_id,
+    }
+}
+
+#[test]
+fn single_entry_with_one_method_layout_and_payload() {
+    // 1 class, no child_offsets, no fields, 1 method "next" (adapter
+    // fn id 7). Inner: name "next" (4B) + pad to 8 (4B) + method_meta
+    // header (8B) + 1 MethodMeta (24B) = 40B. Outer: 32B. Count: 4B.
+    let class_layouts = [entry_with_methods(&[], vec![mmeta("next", 7)])];
+    let layout = compute_user_class_layouts_layout(&class_layouts, 0x4000, 0x1_0000_4000, false);
+    let e = &layout.entries[0];
+    assert!(e.inner_vaddr.is_none());
+    assert!(e.field_meta_array_vaddr.is_none());
+    assert_eq!(e.methods.len(), 1);
+    assert_eq!(e.methods[0].name_bytes, b"next");
+    assert_eq!(e.methods[0].adapter_fn_id, 7);
+    assert_eq!(e.method_meta_array_file_offset, 0x4008);
+    assert_eq!(e.method_meta_array_vaddr, Some(0x1_0000_4008));
+    assert_eq!(layout.total_size, 40 + 32 + 4);
+
+    // Rebase order: method name_ptr, adapter_ptr, outer method_table_ptr.
+    let fn_vaddrs = vec![0u64; 8];
+    let mut fv = fn_vaddrs.clone();
+    fv[7] = 0x1_0000_9000;
+    let targets = compute_class_layouts_rebase_targets(&layout, &fv, 0x1_0000_0000, 0x1_0000_0000);
+    assert_eq!(targets.len(), 3);
+    let array = e.method_meta_array_vaddr.unwrap();
+    // name_ptr slot @ array + 8 (header) + 0.
+    assert_eq!(
+        targets[0],
+        (
+            (array + 8) - 0x1_0000_0000,
+            e.methods[0].name_vaddr - 0x1_0000_0000
+        )
+    );
+    // adapter_ptr slot @ array + 8 + 16.
+    assert_eq!(
+        targets[1],
+        (
+            (array + 8 + 16) - 0x1_0000_0000,
+            0x1_0000_9000 - 0x1_0000_0000
+        )
+    );
+    // outer method_table_ptr @ entry + 24.
+    assert_eq!(
+        targets[2],
+        ((e.entry_vaddr + 24) - 0x1_0000_0000, array - 0x1_0000_0000)
+    );
+
+    // Payload: 3 link values in the same order.
+    let lvs = [0x1111u64, 0x2222u64, 0x3333u64];
+    let payload = build_user_class_layouts_payload(&layout, &lvs);
+    assert_eq!(payload.len() as u32, layout.total_size);
+    // [0..4] name "next"; [4..8] pad.
+    assert_eq!(&payload[0..4], b"next");
+    // [8..12] header n_methods = 1.
+    assert_eq!(u32::from_le_bytes(payload[8..12].try_into().unwrap()), 1);
+    // [16..24] MethodMeta name_ptr = 0x1111.
+    assert_eq!(
+        u64::from_le_bytes(payload[16..24].try_into().unwrap()),
+        0x1111
+    );
+    // [24..28] name_len = 4.
+    assert_eq!(u32::from_le_bytes(payload[24..28].try_into().unwrap()), 4);
+    // [32..40] adapter_ptr = 0x2222.
+    assert_eq!(
+        u64::from_le_bytes(payload[32..40].try_into().unwrap()),
+        0x2222
+    );
+    // Outer entry starts at 40: method_table_ptr @ +24 = 0x3333.
+    assert_eq!(
+        u64::from_le_bytes(payload[64..72].try_into().unwrap()),
+        0x3333
+    );
+    // Count @ 72.
+    assert_eq!(u32::from_le_bytes(payload[72..76].try_into().unwrap()), 1);
 }

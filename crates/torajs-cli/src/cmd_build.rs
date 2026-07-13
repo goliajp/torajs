@@ -318,6 +318,17 @@ fn build_class_layout_entries(ssa_module: &Module) -> Vec<UserClassLayoutEntry> 
                     type_tag: fm.type_tag,
                 })
                 .collect(),
+            // 刀 4 (RFC 20260714-t262-top-clusters) — runtime class-
+            // method dispatch rows; adapter fids resolve through
+            // fn_vaddrs at rebase-assembly time.
+            methods: cl
+                .methods
+                .iter()
+                .map(|mm| torajs_link::exec::UserMethodMetaEntry {
+                    name: mm.name.clone(),
+                    adapter_fn_id: mm.adapter_fid.0,
+                })
+                .collect(),
         })
         .collect()
 }

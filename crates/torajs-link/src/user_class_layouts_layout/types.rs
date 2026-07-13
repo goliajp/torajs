@@ -18,8 +18,11 @@ pub const N_CLASS_LAYOUTS_SYM: &str = "___torajs_n_class_layouts";
 /// no field metadata). L3b #4 turns the former 4-byte pad at +4
 /// into a `u32 flags` word (bit 0 = named class).
 ///   `u32 n_children` (4) + `u32 flags` (4) + `ptr child_offsets` (8) +
-///   `ptr field_metadata` (8) = 24
-pub(super) const OUTER_ENTRY_SIZE: u32 = 24;
+///   `ptr field_metadata` (8) + `ptr method_table` (8) = 32
+/// (刀 4 extended 24 → 32 for the runtime class-method dispatch
+/// table; runtime mirrors in torajs-cycle + torajs-structmeta moved
+/// in the same commit.)
+pub(super) const OUTER_ENTRY_SIZE: u32 = 32;
 /// L3b #4 — outer-entry flags bit 0: entry describes a declared
 /// class (vs an anonymous struct shape). The runtime Obj drop reads
 /// this to restrict cycle-root buffering to named-class instances,
@@ -61,6 +64,27 @@ pub(super) const OUTER_CHILD_OFFSETS_PTR_OFFSET_IN_ENTRY: u32 = 8;
 /// W-J A3b — outer-entry byte offset where the `field_metadata_ptr`
 /// field lives (after child_offsets_ptr).
 pub(super) const OUTER_FIELD_META_PTR_OFFSET_IN_ENTRY: u32 = 16;
+/// 刀 4 (RFC 20260714-t262-top-clusters) — outer-entry byte offset of
+/// the `method_table_ptr` slot (NULL when the class has no
+/// runtime-dispatchable methods). Runtime mirrors:
+/// `torajs-cycle::layout::ClassLayout.method_table_ptr` /
+/// `torajs-structmeta`'s `OUTER_METHOD_TABLE_PTR_OFFSET`.
+pub(super) const OUTER_METHOD_TABLE_PTR_OFFSET_IN_ENTRY: u32 = 24;
+/// 刀 4 — inner MethodMeta array header size (`u32 n_methods` +
+/// `u32 _pad`), mirroring the FieldMeta header shape.
+pub(super) const INNER_METHOD_META_HEADER_SIZE: u32 = 8;
+/// 刀 4 — on-disk size of one MethodMeta entry:
+///   `ptr name (8)` + `u32 name_len (4)` + `u32 _pad (4)`
+///   + `ptr adapter (8)` = 24 bytes.
+pub(super) const INNER_METHOD_META_ELEM_SIZE: u32 = 24;
+/// 刀 4 — alignment of the inner MethodMeta global.
+pub(super) const INNER_METHOD_META_ALIGN: u32 = 8;
+/// 刀 4 — byte offset of `name_ptr` inside one MethodMeta entry.
+pub(super) const METHOD_META_NAME_PTR_OFFSET_IN_ELEM: u32 = 0;
+/// 刀 4 — byte offset of `name_len` inside one MethodMeta entry.
+pub(super) const METHOD_META_NAME_LEN_OFFSET_IN_ELEM: u32 = 8;
+/// 刀 4 — byte offset of `adapter_ptr` inside one MethodMeta entry.
+pub(super) const METHOD_META_ADAPTER_PTR_OFFSET_IN_ELEM: u32 = 16;
 
 /// W-J A3b — placement record for one per-field name byte string and
 /// its FieldMeta descriptor. Both live in the inner globals region; the
@@ -82,6 +106,22 @@ pub struct UserFieldMetaPlacement {
     pub field_byte_offset: u32,
     /// Coarse 8-bit Type discriminator (`ssa::field_type_tag_of`).
     pub type_tag: u8,
+}
+
+/// 刀 4 — placement record for one per-method name byte string and
+/// its MethodMeta descriptor (mirrors [`UserFieldMetaPlacement`]).
+#[derive(Debug, Clone)]
+pub struct UserMethodMetaPlacement {
+    /// UTF-8 bytes of the method name (no NUL terminator).
+    pub name_bytes: Vec<u8>,
+    /// Absolute vaddr of `.__class_method_name_<i>_<j>` (chained-
+    /// fixup rebase target for the MethodMeta's `name_ptr` slot).
+    pub name_vaddr: u64,
+    /// File offset of `.__class_method_name_<i>_<j>`.
+    pub name_file_offset: u32,
+    /// The boxed adapter's fn id — indexes the link layer's
+    /// `fn_vaddrs` slice at rebase-assembly time.
+    pub adapter_fn_id: u32,
 }
 
 /// Per-entry placement — inner child_offsets global, per-field name
@@ -114,6 +154,15 @@ pub struct UserClassLayoutEntryLayout {
     pub field_meta_array_vaddr: Option<u64>,
     /// W-J A3b — file offset of `.__class_fields_<i>`.
     pub field_meta_array_file_offset: u32,
+    /// 刀 4 — per-method name-string + adapter placement. Empty Vec
+    /// means no `.__class_methods_<i>` global; the outer entry's
+    /// `method_table_ptr` slot stays NULL.
+    pub methods: Vec<UserMethodMetaPlacement>,
+    /// 刀 4 — vaddr of the per-class MethodMeta array
+    /// `.__class_methods_<i>`. `None` ↔ `methods.is_empty()`.
+    pub method_meta_array_vaddr: Option<u64>,
+    /// 刀 4 — file offset of `.__class_methods_<i>`.
+    pub method_meta_array_file_offset: u32,
     /// Outer-table entry vaddr (= `outer_vaddr + i * OUTER_ENTRY_SIZE`).
     pub entry_vaddr: u64,
     /// Outer-table entry file offset.

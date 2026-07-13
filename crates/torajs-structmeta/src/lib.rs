@@ -52,8 +52,9 @@
 // cross-reference table against the link layer's emit-side consts.
 // ---------------------------------------------------------------------------
 
-/// `OUTER_ENTRY_SIZE` — on-disk size of one [`StructLayoutEntry`].
-const OUTER_ENTRY_SIZE: usize = 24;
+/// `OUTER_ENTRY_SIZE` — on-disk size of one [`StructLayoutEntry`]
+/// (刀 4 extended 24 → 32 with the `method_table_ptr` slot).
+const OUTER_ENTRY_SIZE: usize = 32;
 /// `OUTER_CHILD_OFFSETS_PTR_OFFSET_IN_ENTRY`.
 const OUTER_CHILD_OFFSETS_PTR_OFFSET: usize = 8;
 /// `OUTER_FIELD_META_PTR_OFFSET_IN_ENTRY`.
@@ -76,7 +77,9 @@ const FIELD_META_TYPE_TAG_OFFSET: usize = 16;
 // ---------------------------------------------------------------------------
 
 mod class_name;
+mod method_table;
 pub use class_name::{__torajs_struct_class_name, ClassNameTableEntry};
+pub use method_table::{__torajs_struct_method_find, MethodMeta};
 
 /// One outer-table entry — the same 24-byte record `torajs-cycle`'s
 /// `ClassLayout` mirrors. `n_children` + `child_offsets` belong to the
@@ -101,6 +104,10 @@ pub struct StructLayoutEntry {
     /// Base of the per-class `.__class_fields_<i>` inner global
     /// (header + body). `NULL` when the class has no field metadata.
     pub field_metadata_ptr: *const u8,
+    /// 刀 4 (RFC 20260714-t262-top-clusters) — base of the per-class
+    /// `.__class_methods_<i>` inner global (header + body). `NULL`
+    /// when the class has no runtime-dispatchable methods.
+    pub method_table_ptr: *const u8,
 }
 
 // SAFETY: `StructLayoutEntry` carries raw pointers so the auto `Sync`
@@ -218,6 +225,7 @@ static __torajs_class_layouts: StructLayoutEntry = StructLayoutEntry {
     flags: 0,
     child_offsets: core::ptr::null(),
     field_metadata_ptr: core::ptr::null(),
+    method_table_ptr: core::ptr::null(),
 };
 
 /// Read the global outer-table base + length. `&raw const` keeps this
@@ -454,6 +462,7 @@ mod tests {
             flags: 0,
             child_offsets: core::ptr::null(),
             field_metadata_ptr: image as *const TwoFieldImage as *const u8,
+            method_table_ptr: core::ptr::null(),
         }
     }
 
@@ -514,6 +523,7 @@ mod tests {
                 flags: 0,
                 child_offsets: core::ptr::null(),
                 field_metadata_ptr: core::ptr::null(),
+                method_table_ptr: core::ptr::null(),
             };
             assert_eq!(
                 __torajs_struct_field_count(&empty as *const StructLayoutEntry),
@@ -575,6 +585,7 @@ mod tests {
                 flags: 0,
                 child_offsets: core::ptr::null(),
                 field_metadata_ptr: core::ptr::null(),
+                method_table_ptr: core::ptr::null(),
             };
             let p = &empty as *const StructLayoutEntry;
             assert_eq!(
