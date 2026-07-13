@@ -36,8 +36,9 @@
 use core::ffi::c_void;
 
 use torajs_rc::{
-    ANY_METHOD_APPLY, ANY_METHOD_BIND, ANY_METHOD_CALL, ANY_METHOD_TO_LOCALE_STRING,
-    ANY_METHOD_TO_STRING, ANY_METHOD_VALUE_OF, Tag,
+    ANY_METHOD_APPLY, ANY_METHOD_AT, ANY_METHOD_BIND, ANY_METHOD_CALL, ANY_METHOD_CONCAT,
+    ANY_METHOD_INCLUDES, ANY_METHOD_INDEX_OF, ANY_METHOD_LAST_INDEX_OF, ANY_METHOD_SLICE,
+    ANY_METHOD_TO_LOCALE_STRING, ANY_METHOD_TO_STRING, ANY_METHOD_VALUE_OF, Tag,
 };
 
 use crate::method_call::{
@@ -180,11 +181,17 @@ unsafe fn dispatch(
 /// non-string thisArg runs ToString(this) (full OrdinaryToPrimitive,
 /// observable toString→valueOf order; a double-object receiver
 /// leaves a pending TypeError for the caller's throw check) and
-/// dispatches the Str arm on the coerced temp. `toString` / `valueOf`
-/// (thisStringValue §22.1.3.28/.35) and `toLocaleString` stay on the
-/// ordinary lane — a non-String receiver is a TypeError there.
-/// String-shaped and nullish receivers also stay on the ordinary
-/// lane (identity fast paths / RequireObjectCoercible throw).
+/// dispatches the Str arm on the coerced temp. Excluded from the
+/// coerce, staying on the ordinary lane:
+/// - `toString` / `valueOf` (thisStringValue §22.1.3.28/.35) and
+///   `toLocaleString` — a non-String receiver is a TypeError there;
+/// - mids SHARED with the Array surface (at / concat / includes /
+///   indexOf / lastIndexOf / slice) — a reified cell carries only
+///   its mid, no family, so `Array.prototype.indexOf.call(arrayLike)`
+///   re-dispatches the same id and must reach the array-like generic
+///   arm (per-family cells are the recorded fix for the String half);
+/// - string-shaped and nullish receivers (identity fast paths /
+///   RequireObjectCoercible throw).
 unsafe fn generic_str_this(
     mid: i64,
     this_arg: AnyValue,
@@ -194,7 +201,15 @@ unsafe fn generic_str_this(
     if !crate::method_support::str_supports(mid)
         || matches!(
             mid,
-            ANY_METHOD_TO_STRING | ANY_METHOD_VALUE_OF | ANY_METHOD_TO_LOCALE_STRING
+            ANY_METHOD_TO_STRING
+                | ANY_METHOD_VALUE_OF
+                | ANY_METHOD_TO_LOCALE_STRING
+                | ANY_METHOD_AT
+                | ANY_METHOD_CONCAT
+                | ANY_METHOD_INCLUDES
+                | ANY_METHOD_INDEX_OF
+                | ANY_METHOD_LAST_INDEX_OF
+                | ANY_METHOD_SLICE
         )
     {
         return None;

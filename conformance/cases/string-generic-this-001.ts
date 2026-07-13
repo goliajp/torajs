@@ -58,5 +58,7 @@ catch (e: any) { console.log("direct:", e instanceof TypeError ? "TypeError" : e
 try { (String.prototype.trim as any).call(undefined); console.log("no throw"); }
 catch (e: any) { console.log("nullish:", e instanceof TypeError ? "TypeError" : e); }
 
-// apply lane shares the coerce
-console.log("[" + (String.prototype.slice as any).apply(9876, [1, 3]) + "]");
+// apply lane shares the coerce (substring is a str-only mid; slice
+// is shared with the Array surface and stays on the ordinary lane —
+// recorded per-family-cell boundary)
+console.log("[" + (String.prototype.substring as any).apply(9876, [1, 3]) + "]");
