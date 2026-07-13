@@ -113,6 +113,16 @@ pub(crate) fn js_truthy_acceptable(t: &Type) -> bool {
 /// pairs go through ToPrimitive → numeric and ship in a later
 /// wedge.
 pub(crate) fn js_loose_eq_supported(l: &Type, r: &Type) -> bool {
+    // RFC 20260713-loose-eq-substrate blade 1 — either side Any:
+    // the runtime ladder (`__torajs_anyv_loose_eq`) resolves every
+    // §7.2.14 tag pair at runtime. Void never holds a value and a
+    // fn-value operand lowers to a raw fn address the Any boxer
+    // has no encoding for (`fn == primitive` stays a checker
+    // reject — recorded RFC residual), so those two stay out.
+    if matches!(l, Type::Any) || matches!(r, Type::Any) {
+        let ladder_ok = |t: &Type| !matches!(t, Type::Void | Type::Function(..) | Type::Rest(..));
+        return ladder_ok(l) && ladder_ok(r);
+    }
     if matches!(l, Type::Number | Type::Boolean | Type::Null)
         && matches!(r, Type::Number | Type::Boolean | Type::Null)
     {

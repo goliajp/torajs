@@ -52,6 +52,7 @@ pub mod compare;
 pub mod construct;
 pub mod divmod;
 pub mod drop;
+pub mod from_str_strict;
 pub mod internal;
 pub mod layout;
 pub mod mul;

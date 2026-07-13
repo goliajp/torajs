@@ -259,7 +259,7 @@ impl<'a> LowerCtx<'a> {
     /// scheme as box_to_any but without the heap allocation.
     /// `any_owned` selects the owned unbox for an Any input (the
     /// pair carries the slot's +1; see pack_any_slot_value_shared).
-    fn pack_any_slot_value(
+    pub(crate) fn pack_any_slot_value(
         &mut self,
         v_raw: &Operand,
         v_ty: Type,

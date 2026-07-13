@@ -289,6 +289,19 @@ pub unsafe extern "C" fn __torajs_anyv_strict_eq(l: AnyValue, r: AnyValue) -> bo
             // reads the matching Str layout.
             return unsafe { __torajs_str_eq(lp as *const u8, rp as *const u8) != 0 };
         }
+        // §7.2.15 step 3 → §7.2.12: BigInt === BigInt compares
+        // mathematical values, not identity (RFC
+        // 20260713-loose-eq-substrate blade 1 — distinct 1n cells
+        // used to answer false here).
+        if matches!(lh.tag(), Tag::BigInt) && matches!(rh.tag(), Tag::BigInt) {
+            // SAFETY: both cells are Tag::BigInt blocks.
+            return unsafe {
+                crate::loose_eq::bigint_ffi::__torajs_bigint_eq(
+                    lp as *const c_void,
+                    rp as *const c_void,
+                ) != 0
+            };
+        }
         // Other heap pairs: pointer identity only — already
         // covered by `l == r` early-exit above.
         return false;

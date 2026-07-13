@@ -53,6 +53,9 @@ pub(crate) struct AnySubstrateIds {
     pub any_compare: FuncId,
     pub any_strict_eq: FuncId,
     pub any_any_strict_eq: FuncId,
+    /// RFC 20260713-loose-eq-substrate blade 1 — IsLooselyEqual
+    /// (§7.2.14) full coercion ladder over two AnyValues.
+    pub any_any_loose_eq: FuncId,
     pub any_box: FuncId,
     pub anyv_box_str_slot: FuncId,
     pub anyv_str_slot_tag: FuncId,
@@ -135,6 +138,7 @@ pub(crate) fn declare(
         ),
         any_strict_eq: decl!("__torajs_anyv_strict_eq_imm_pair", [Any, I64, I64], Bool),
         any_any_strict_eq: decl!("__torajs_anyv_strict_eq", [Any, Any], Bool),
+        any_any_loose_eq: decl!("__torajs_anyv_loose_eq", [Any, Any], Bool),
         any_box: decl!("__torajs_anyv_box_from_pair", [I64, I64], Any),
         anyv_box_str_slot: decl!("__torajs_anyv_box_str_slot", [Str], Any),
         anyv_str_slot_tag: decl!("__torajs_anyv_str_slot_tag", [Str], I64),

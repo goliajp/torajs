@@ -337,6 +337,7 @@ pub(crate) fn build(
         any_compare: init_c.any_substrate.any_compare,
         any_strict_eq: init_c.any_substrate.any_strict_eq,
         any_any_strict_eq: init_c.any_substrate.any_any_strict_eq,
+        any_any_loose_eq: init_c.any_substrate.any_any_loose_eq,
         any_index_get: init_c.any_substrate.any_index_get,
         any_index_set: init_c.any_substrate.any_index_set,
         any_length_get: init_c.any_substrate.any_length_get,

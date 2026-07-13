@@ -122,6 +122,7 @@ mod prop_has;
 mod to_primitive;
 
 pub mod inspect;
+pub mod loose_eq;
 
 pub mod nanbox;
 pub use nanbox::*;

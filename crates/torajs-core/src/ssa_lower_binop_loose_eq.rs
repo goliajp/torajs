@@ -118,7 +118,80 @@ pub(crate) fn try_lower(
     if let Some(v) = try_lower_bool_str(ctx, op, a, b, a_ty, b_ty) {
         return Some(v);
     }
+    if let Some(v) = try_lower_any_ladder(ctx, op, a, b) {
+        return Some(v);
+    }
     None
+}
+
+/// RFC 20260713-loose-eq-substrate blade 1 — either side `Any` and
+/// none of the earlier arms hit (nullish shapes are folded above):
+/// route through the runtime §7.2.14 ladder
+/// (`__torajs_anyv_loose_eq`). The concrete side boxes to an
+/// AnyValue borrow — Str/Substr via the sentinel-aware str-slot
+/// boxer (NULL → null / undef-cell → undefined), everything else
+/// through the `(tag, value)` pair encoder. A ToPrimitive coercion
+/// on an object operand can raise a pending TypeError, so the call
+/// is followed by a throw check.
+fn try_lower_any_ladder(
+    ctx: &mut LowerCtx<'_>,
+    op: AstBinOp,
+    a: Operand,
+    b: Operand,
+) -> Option<Operand> {
+    let a_ty = ctx.operand_ty(&a);
+    let b_ty = ctx.operand_ty(&b);
+    if !matches!(a_ty, Type::Any) && !matches!(b_ty, Type::Any) {
+        return None;
+    }
+    let l = ensure_anyv(ctx, a, a_ty);
+    let r = ensure_anyv(ctx, b, b_ty);
+    let cur_block = ctx.cur_block;
+    let v = ctx.f.append_inst(
+        cur_block,
+        InstKind::Call(ctx.intrinsics.any_any_loose_eq, vec![l, r]),
+        Type::Bool,
+        None,
+    );
+    ctx.emit_throw_check(None);
+    if matches!(op, AstBinOp::LooseNeq) {
+        let cur_block = ctx.cur_block;
+        let neg = ctx.f.append_inst(
+            cur_block,
+            InstKind::BinOp(SsaBinOp::Xor, Operand::Value(v), Operand::ConstBool(true)),
+            Type::Bool,
+            None,
+        );
+        return Some(Operand::Value(neg));
+    }
+    Some(Operand::Value(v))
+}
+
+/// Coerce a concrete-typed operand into a borrow-shaped AnyValue
+/// for the loose-eq ladder; an Any operand passes through.
+fn ensure_anyv(ctx: &mut LowerCtx<'_>, v: Operand, ty: Type) -> Operand {
+    if matches!(ty, Type::Any) {
+        return v;
+    }
+    let cur_block = ctx.cur_block;
+    if matches!(ty, Type::Str | Type::Substr) {
+        let b = ctx.f.append_inst(
+            cur_block,
+            InstKind::Call(ctx.intrinsics.anyv_box_str_slot, vec![v]),
+            Type::Any,
+            None,
+        );
+        return Operand::Value(b);
+    }
+    let (tag, value) = ctx.pack_any_slot_value(&v, ty, false);
+    let cur_block = ctx.cur_block;
+    let b = ctx.f.append_inst(
+        cur_block,
+        InstKind::Call(ctx.intrinsics.any_box, vec![tag, value]),
+        Type::Any,
+        None,
+    );
+    Operand::Value(b)
 }
 
 /// Heap-pointer SSA types whose loose-eq-vs-nullish is a runtime
