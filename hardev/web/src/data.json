@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-13T17:47:38.142Z",
+  "generatedAt": "2026-07-13T19:08:16.619Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-13T17:26:04Z",
-    "headSha": "bc52d732",
-    "elapsedSec": 470.94,
+    "ranAt": "2026-07-13T19:04:18Z",
+    "headSha": "b787dd36",
+    "elapsedSec": 482.32,
     "workers": 8,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 5313,
-    "passNoOracle": 105,
+    "pass": 6551,
+    "passNoOracle": 110,
     "passNegative": 4445,
-    "passTotal": 9863,
-    "bug": 854,
-    "incompatible": 42457,
+    "passTotal": 11106,
+    "bug": 1364,
+    "incompatible": 40704,
     "bunSkip": 12565,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 10717,
-    "passRateInScope": 18.55,
-    "passRateTrAccepted": 92.03
+    "trAccepted": 12470,
+    "passRateInScope": 20.89,
+    "passRateTrAccepted": 89.06
   },
   "torajs": {
-    "commit": "837ef30f",
-    "commitSubject": "fix: ToNumber(position) TypeError propagation + null-proto dict inherits nothing",
+    "commit": "370a0f0b",
+    "commitSubject": "chore: test262 sweep at b787dd36 - passTotal 11106 (+1241), bug 1364",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "370a0f0b",
+      "subject": "chore: test262 sweep at b787dd36 - passTotal 11106 (+1241), bug 1364"
+    },
+    {
+      "hash": "b787dd36",
+      "subject": "fix: exclude Array-shared mids from generic str this-coerce"
+    },
+    {
+      "hash": "3586ad28",
+      "subject": "feat: generic String.prototype methods coerce this via ToString"
+    },
+    {
+      "hash": "d7554e63",
+      "subject": "feat: LineContinuation in string and template literals"
+    },
+    {
+      "hash": "6b9702f3",
+      "subject": "feat: GetSubstitution $` / $' / $<name> in regex replace"
+    },
+    {
+      "hash": "a5d0b296",
+      "subject": "chore: test262 sweep at c3f3218c - passTotal 9865 (+2), bug 852"
+    },
+    {
+      "hash": "c3f3218c",
+      "subject": "chore: hardev dashboard snapshot at rotation 92 close"
+    },
+    {
       "hash": "837ef30f",
       "subject": "fix: ToNumber(position) TypeError propagation + null-proto dict inherits nothing"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "dbe58814",
       "subject": "chore: test262 sweep at 888a0ca6 - passTotal 9855 (+6), bug 862"
-    },
-    {
-      "hash": "ac351f88",
-      "subject": "chore: hardev dashboard snapshot at rotation 91 close"
-    },
-    {
-      "hash": "888a0ca6",
-      "subject": "feat: paired surrogate escapes combine into one supplementary code point"
-    },
-    {
-      "hash": "123168c3",
-      "subject": "chore: test262 sweep at 3f115e64 - passTotal 9849 (+90), bug 868"
-    },
-    {
-      "hash": "3f115e64",
-      "subject": "fix: param-ann env carries f64 width and closure shape through inner generic seeding"
-    },
-    {
-      "hash": "828a9c4c",
-      "subject": "fix: specialization typecheck is inference-only, discard its diagnostics"
-    },
-    {
-      "hash": "9976dbbf",
-      "subject": "feat: monomorphize inside check pipeline with per-specialization body typecheck"
-    },
-    {
-      "hash": "9495a31f",
-      "subject": "chore: hardev dashboard snapshot at rotation 90 close"
     }
   ],
-  "headSha": "837ef30f",
+  "headSha": "370a0f0b",
   "autorun": {
-    "total": 398,
+    "total": 399,
     "baselineTarget": 10,
-    "bySelf": 393,
+    "bySelf": 394,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1783956740-7633",
-      "at": "2026-07-13T15:32:20Z",
-      "ts": 1783956740,
+      "rotationId": "r-1783964924-496a",
+      "at": "2026-07-13T17:48:44Z",
+      "ts": 1783964924,
       "trigger": "self",
-      "prevHead": "ac351f88",
-      "handoffSha": "sha256:c7ef41fc04806665e845e800aedb873f42217fafac1ab72fcd8b10c8f5e50db3",
-      "handoffAgeSec": 53,
+      "prevHead": "c3f3218c",
+      "handoffSha": "sha256:3840acdf0f5db09b3d6ce6b03ea529c097ee542800257cd3c39be31ba85c00a8",
+      "handoffAgeSec": 8,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1783964924-496a",
+        "at": "2026-07-13T17:48:44Z",
+        "ts": 1783964924,
+        "trigger": "self",
+        "prevHead": "c3f3218c",
+        "handoffSha": "sha256:3840acdf0f5db09b3d6ce6b03ea529c097ee542800257cd3c39be31ba85c00a8",
+        "handoffAgeSec": 8,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1783956740-7633",
         "at": "2026-07-13T15:32:20Z",
@@ -876,17 +887,6 @@
         "prevHead": "60a08838",
         "handoffSha": "sha256:8eca3de87b0925b54d27256846f186a6606ab2c783d87d1ba51b5c43cf54a724",
         "handoffAgeSec": 8,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1783868364-2b0f",
-        "at": "2026-07-12T14:59:24Z",
-        "ts": 1783868364,
-        "trigger": "self",
-        "prevHead": "c5dc2bab",
-        "handoffSha": "sha256:1925b4d91f6490f6f16319b12f0e6b5712fc240e3ac9537352169d173e3418a3",
-        "handoffAgeSec": 7,
         "conformanceBefore": null,
         "commitsInSession": null
       }
