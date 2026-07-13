@@ -227,11 +227,15 @@ fn read_harness() -> Result<String, String> {
 ///   - bare `assert(`          → `__t262_assert(`
 ///   - leading-word `var `     → `let `
 ///
-/// What this DOESN'T do: handle `==` → `===`, untyped fn-decl
-/// parameter annotation, `null` / `undefined` literals, or features
-/// like Symbol / Proxy / WeakMap. Those hit torajs's subset boundary
-/// directly and the case stays classified `incompatible` until a
-/// bigger transform layer or substrate change addresses them.
+/// What this DOESN'T do: untyped fn-decl parameter annotation,
+/// `null` / `undefined` literals, or features like Proxy. Those hit
+/// torajs's subset boundary directly and the case stays classified
+/// `incompatible` until a bigger transform layer or substrate
+/// change addresses them. `==` / `!=` pass through UNCHANGED — the
+/// substrate implements IsLooselyEqual (§7.2.14) for real (RFC
+/// 20260713-loose-eq-substrate blade 4 retired the old `==` →
+/// `===` byte rewrite, which had been erasing loose-equality
+/// semantics across the whole corpus).
 fn transform_source(src: &str) -> String {
     let bytes = src.as_bytes();
     let mut out = String::with_capacity(bytes.len() + 64);
@@ -385,40 +389,6 @@ fn transform_source(src: &str) -> String {
         if starts_with_at(bytes, i, b"var ") && !preceded_by_word(bytes, i) {
             out.push_str("let ");
             i += b"var ".len();
-            continue;
-        }
-        // `==` / `!=` → strict form. Skip already-strict (`===` /
-        // `!==`) and the negation-then-eq combo `!==`. byte-walker
-        // sees `=` first; if next is `=`, look one further:
-        //   `===` (already strict) — pass through 3 bytes
-        //   `==`  + non-`=` next   — rewrite to `===`
-        //   `=`   + non-`=`         — assignment, pass through
-        if b == b'=' && i + 1 < bytes.len() && bytes[i + 1] == b'=' {
-            if i + 2 < bytes.len() && bytes[i + 2] == b'=' {
-                // `===` — copy verbatim
-                out.push('=');
-                out.push('=');
-                out.push('=');
-                i += 3;
-                continue;
-            }
-            // `==` not followed by `=` — rewrite.
-            out.push_str("===");
-            i += 2;
-            continue;
-        }
-        if b == b'!' && i + 1 < bytes.len() && bytes[i + 1] == b'=' {
-            if i + 2 < bytes.len() && bytes[i + 2] == b'=' {
-                // `!==` — copy verbatim
-                out.push('!');
-                out.push('=');
-                out.push('=');
-                i += 3;
-                continue;
-            }
-            // `!=` not followed by `=` — rewrite.
-            out.push_str("!==");
-            i += 2;
             continue;
         }
         out.push(b as char);
