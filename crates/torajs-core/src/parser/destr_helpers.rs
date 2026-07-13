@@ -17,6 +17,34 @@
 use super::*;
 
 impl<'a> Parser<'a> {
+    /// ES §13.3.3.5 RequireObjectCoercible — an ObjectBindingPattern
+    /// throws TypeError when its source is null / undefined, even for
+    /// the empty pattern `{}` (which otherwise reads nothing) and for
+    /// nested patterns (whose member reads would otherwise fault on a
+    /// null intermediate). One loose-eq compare covers both values:
+    /// `if (src == null) throw new TypeError(...)`.
+    pub(super) fn emit_object_coercible_guard(&mut self, src_name: &str) -> Stmt {
+        let src_ref = self.ast.add_expr(Expr::Ident(src_name.to_string()));
+        let null_e = self.ast.add_expr(Expr::Null);
+        let cond = self.ast.add_expr(Expr::BinOp {
+            op: BinOp::LooseEq,
+            left: src_ref,
+            right: null_e,
+        });
+        let msg = self.ast.add_expr(Expr::String(
+            "cannot destructure null or undefined".to_string(),
+        ));
+        let err = self.ast.add_expr(Expr::New {
+            class_name: "TypeError".to_string(),
+            args: vec![msg],
+        });
+        Stmt::If {
+            cond,
+            then_branch: Box::new(Stmt::Block(vec![Stmt::Throw(err)])),
+            else_branch: None,
+        }
+    }
+
     pub(super) fn parse_destr_param(&mut self, lets: &mut Vec<Stmt>) -> Result<String, String> {
         let id = self.mint_desugar_id();
         let synth = format!("__param_destr_{id}");
@@ -308,6 +336,8 @@ impl<'a> Parser<'a> {
     ) -> Result<(), String> {
         // assumes current token is `{`
         self.pos += 1;
+        let guard = self.emit_object_coercible_guard(&src_name);
+        lets.push(guard);
         if !matches!(self.peek(), Token::RBrace) {
             loop {
                 let (field, field_is_kw) = match self.peek() {

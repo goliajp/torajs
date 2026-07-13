@@ -422,6 +422,8 @@ impl<'a> Parser<'a> {
                 is_var: false,
             });
         }
+        let guard = self.emit_object_coercible_guard(&src_ref_name);
+        stmts.push(guard);
         for (field, bound, default) in entries {
             let src_ref = self.ast.add_expr(Expr::Ident(src_ref_name.clone()));
             let mem = self.ast.add_expr(Expr::Member {

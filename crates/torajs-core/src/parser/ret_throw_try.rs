@@ -56,6 +56,11 @@ impl<'a> Parser<'a> {
         // the catch body, we synthesize lets at the top of the body
         // that read each binding from the synthetic catch ident.
         let mut destr_bindings: Vec<(String, String, bool)> = Vec::new();
+        // Some(is_obj) when the catch param was a binding pattern —
+        // tracked independently of `destr_bindings` because the empty
+        // object pattern (`catch ({})`) binds nothing yet still owes
+        // the §13.3.3.5 RequireObjectCoercible throw on nullish.
+        let mut destr_pattern_is_obj: Option<bool> = None;
         if matches!(self.peek(), Token::Catch) {
             had_catch = true;
             self.pos += 1;
@@ -81,6 +86,7 @@ impl<'a> Parser<'a> {
                     // string-keyed numeric indices.
                     Token::LBrace | Token::LBracket => {
                         let is_obj = matches!(self.peek(), Token::LBrace);
+                        destr_pattern_is_obj = Some(is_obj);
                         let synth_name = format!("__catch_destr_{}", self.pos);
                         self.pos += 1; // skip opener
                         let mut idx = 0u32;
@@ -159,17 +165,22 @@ impl<'a> Parser<'a> {
                 catch_type = ty;
                 // P4.7 — destructure forces `: any` catch type so the
                 // synthesized Member-reads route through the Any-tier.
-                if !destr_bindings.is_empty() {
+                if destr_pattern_is_obj.is_some() {
                     catch_type = Some("any".to_string());
                 }
             }
             catch_body = self.parse_block_stmts("catch")?;
             // P4.7 — synthesize `const <bind>: any = <__catch>.<src_key>;`
             // for each destructure binding and prepend to catch_body.
-            if !destr_bindings.is_empty()
-                && let Some(catch_n) = catch_param.as_ref()
+            // An object pattern additionally owes the §13.3.3.5
+            // RequireObjectCoercible guard even when it binds nothing.
+            if let (Some(is_obj), Some(catch_n)) =
+                (destr_pattern_is_obj, catch_param.as_ref().cloned())
             {
-                let mut prepend: Vec<Stmt> = Vec::with_capacity(destr_bindings.len());
+                let mut prepend: Vec<Stmt> = Vec::with_capacity(destr_bindings.len() + 1);
+                if is_obj {
+                    prepend.push(self.emit_object_coercible_guard(&catch_n));
+                }
                 for (bind_name, src_key, _is_obj) in destr_bindings.iter() {
                     let obj_eid = self.ast.add_expr(Expr::Ident(catch_n.clone()));
                     let member_eid = self.ast.add_expr(Expr::Member {
