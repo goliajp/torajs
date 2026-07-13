@@ -244,7 +244,20 @@ pub fn desugar_generators(ast: &mut Ast) {
         // sites read that field to receive the value passed to
         // `g.next(arg)`. First call's arg is ignored per JS spec; tr's
         // typed-default uses zero/empty depending on yield type.
-        let yield_arg_default = default_init_for_type(&yield_ty);
+        // NOT default_init_for_type(&yield_ty): apply_default_args
+        // groups method defaults by NAME ("next"), so every __Gen
+        // class's __yield_arg default must stay shape-uniform — the
+        // first-seen class's default ExprId pads every `it.next()`
+        // call site. An any-lane `undefined` default here would leak
+        // into a number-lane next() (gate-caught: "argument 0:
+        // expected Number, got Undefined"). The first call's arg is
+        // ignored per spec, so the numeric zero is only ever a
+        // placeholder.
+        let yield_arg_default = if yield_ty == "any" {
+            Expr::Number(0.0)
+        } else {
+            default_init_for_type(&yield_ty)
+        };
         let yield_arg_default_id = ast.add_expr(yield_arg_default);
         let next_method = crate::ast::desugar_generators_methods::build_next_method(
             ast,
