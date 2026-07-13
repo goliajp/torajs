@@ -223,7 +223,7 @@ pub(crate) unsafe fn any_method_call_inner(
         }
     }
     if is_bool(recv) {
-        return unsafe { bool_method(recv, mid) };
+        return unsafe { bool_method(recv, mid, argv, argc) };
     }
     if is_int32(recv) || is_double(recv) {
         return unsafe { crate::method_call_num::number_method(recv, mid, argv, argc) };
@@ -460,8 +460,12 @@ pub unsafe extern "C" fn __torajs_closure_call_variadic(
 /// bool-immediate arm — `toString` / the inherited
 /// `Object.prototype.toLocaleString` answer a fresh "true"/"false"
 /// Str (ES §20.3.3.3), `valueOf` (§20.3.3.4) is the immediate
-/// itself; every other id is a TypeError.
-unsafe fn bool_method(recv: AnyValue, mid: i64) -> AnyValue {
+/// itself; 刀 2 (RFC 20260714-t262-top-clusters) — a generic
+/// array-family mid reached through
+/// `Array.prototype.every.call(true, …)` runs the empty-receiver
+/// semantics (ToObject(bool) has no own `length` → every loop is
+/// vacuous). Every other id is a TypeError.
+unsafe fn bool_method(recv: AnyValue, mid: i64, argv: *const u64, argc: i64) -> AnyValue {
     if mid == ANY_METHOD_VALUE_OF {
         return recv;
     }
@@ -471,6 +475,11 @@ unsafe fn bool_method(recv: AnyValue, mid: i64) -> AnyValue {
             let p = __torajs_str_alloc(bytes.as_ptr(), bytes.len() as i64);
             return __torajs_anyv_box_pointer(p as *mut c_void);
         }
+    }
+    if crate::method_call_arraylike::arraylike_supported(mid)
+        && !crate::method_call_arraylike_mut::arraylike_mut_supported(mid)
+    {
+        return unsafe { crate::method_call_arraylike::arraylike_empty(mid, argv, argc) };
     }
     unsafe { method_no_such() }
 }

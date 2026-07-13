@@ -319,6 +319,24 @@ pub(crate) unsafe fn struct_method(
     argc: i64,
 ) -> AnyValue {
     unsafe {
+        // 刀 2 (RFC 20260714-t262-top-clusters) — a NULL-name entry
+        // is the reified-cell `.call` re-dispatch; an array-family
+        // mid runs the ES generic array-like semantics over the
+        // struct receiver (index/length reads route the chunk-744
+        // struct arms). Mutators stay excluded: a static-layout
+        // struct has no growable props bag to relocate.
+        if name_str.is_null()
+            && crate::method_call_arraylike::arraylike_supported(mid)
+            && !crate::method_call_arraylike_mut::arraylike_mut_supported(mid)
+        {
+            return crate::method_call_arraylike::arraylike_method(
+                obj,
+                mid,
+                core::ptr::null_mut(),
+                argv,
+                argc,
+            );
+        }
         if !name_str.is_null() {
             let class_tag = (obj.cast::<u8>().add(OBJ_CLASS_TAG_OFF) as *const u32).read();
             let layout = __torajs_struct_layout_lookup(class_tag);
