@@ -358,4 +358,34 @@ impl<'a> Parser<'a> {
         }
         Ok((params, param_destr_lets))
     }
+
+    /// RFC 20260714-t262-top-clusters 刀 1b — an un-annotated method
+    /// param with a default has no type source: the fn / arrow tiers
+    /// get implicit-generic TypeVar + call-site mono instantiation,
+    /// but method positions (class `__cm_` / obj-literal field
+    /// closure) dispatch without an instantiation site, so the
+    /// TypeVar ABI reads garbage (SIGSEGV when the body uses the
+    /// param) or the checker rejects ("requires a type annotation").
+    /// TS-spec posture: the param's type IS the default's type —
+    /// infer from the literal shape; a non-literal default falls to
+    /// `any` (the Any tier boxes correctly through every dispatch
+    /// path). Destr synth params arrive already any-forced (blade 5)
+    /// with `type_ann` set, so they pass through untouched; the `x?`
+    /// implicit-null default keeps today's posture.
+    pub(super) fn infer_default_param_anns(&self, params: &mut [Param]) {
+        for p in params.iter_mut() {
+            if p.type_ann.is_some() || p.is_rest {
+                continue;
+            }
+            let Some(d) = p.default else { continue };
+            let ann = match self.ast.get_expr(d) {
+                Expr::Number(_) => "number",
+                Expr::String(_) => "string",
+                Expr::Bool(_) => "boolean",
+                Expr::Null => continue,
+                _ => "any",
+            };
+            p.type_ann = Some(ann.to_string());
+        }
+    }
 }

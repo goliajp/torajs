@@ -398,7 +398,10 @@ impl<'a> Parser<'a> {
         // by routing through `parse_fn_expr`-equivalent shape, then
         // sticking the resulting `Expr::ArrowFn` under the field name.
         if matches!(self.peek(), Token::LParen) {
-            let (params, destr_lets) = self.parse_param_list()?;
+            let (mut params, destr_lets) = self.parse_param_list()?;
+            // 刀 1b — method-position default params infer their ann
+            // from the default (see param_list.rs).
+            self.infer_default_param_anns(&mut params);
             let return_type = if matches!(self.peek(), Token::Colon) {
                 self.pos += 1;
                 Some(self.parse_type_ann()?)

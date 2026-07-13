@@ -206,17 +206,30 @@ fn coerce_args(
     let Some(sig_id) = ctx.fn_sig_ids.get(&target).copied() else {
         return Vec::new();
     };
-    // Width-aware coercion for monomorphized generic calls AND
-    // direct intrinsics. Coerce both directions:
-    //   expected F64 + actual I64 → SiToFp (widen)
-    //   expected I64 + actual F64 → FpToSi (truncate; matches JS
-    //     ToInt32 / ToUint32 prefix for indexes/codepoints/bit
-    //     positions)
-    // P0.9 — global FnDecl with Any param + concrete arg: box the
-    // concrete value into Any at the call boundary. S126-3
-    // `box_to_any_from_expr` reads `args[i]` expr_types so
-    // undefined/null literals keep ANY_UNDEF/ANY_NULL tags.
     let param_tys = ctx.fn_sigs[sig_id.0 as usize].0.clone();
+    coerce_args_by_param_tys(ctx, &param_tys, args, argv)
+}
+
+/// Width-aware per-arg coercion against a declared param-type list.
+/// Coerce both directions:
+///   expected F64 + actual I64 → SiToFp (widen)
+///   expected I64 + actual F64 → FpToSi (truncate; matches JS
+///     ToInt32 / ToUint32 prefix for indexes/codepoints/bit
+///     positions)
+/// P0.9 — Any param + concrete arg: box the concrete value into Any
+/// at the call boundary. S126-3 `box_to_any_from_expr` reads
+/// `args[i]` expr_types so undefined/null literals keep
+/// ANY_UNDEF/ANY_NULL tags. Shared by the direct-call terminal and
+/// the struct-field closure dispatch (RFC 20260714-t262-top-clusters
+/// 刀 1 — an Array-literal arg into an obj-method's any param used
+/// to pass its typed repr raw). Returns the fresh-owned Any→Str
+/// temps the caller must release after the call.
+pub(crate) fn coerce_args_by_param_tys(
+    ctx: &mut LowerCtx<'_>,
+    param_tys: &[Type],
+    args: &[ExprId],
+    argv: &mut [Operand],
+) -> Vec<Operand> {
     let mut coerce_owned: Vec<Operand> = Vec::new();
     for (i, expected) in param_tys.iter().enumerate() {
         if i >= argv.len() {

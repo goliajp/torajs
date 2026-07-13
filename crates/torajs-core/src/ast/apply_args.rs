@@ -43,6 +43,61 @@ pub(crate) fn collect_fn_defaults(ast: &Ast) -> HashMap<String, Vec<Option<ExprI
     fn_defaults
 }
 
+/// Fold one method's default list into the Member-callee padding
+/// table. Same-named methods from different owners stay compatible
+/// only when their defaults agree — same arity, same defaulted
+/// positions, and literal defaults with equal values (different
+/// ExprIds for the same `Number(0.0)` literal count as equal; a
+/// non-literal default never matches another owner's). A
+/// disagreement evicts the name: padding a wrong default is a
+/// silent-wrong, an unpadded call is an honest arity error.
+fn merge_method_defaults(
+    ast: &Ast,
+    mname: &str,
+    user_defaults: Vec<Option<ExprId>>,
+    method_defaults: &mut HashMap<String, Vec<Option<ExprId>>>,
+    method_conflict: &mut std::collections::HashSet<String>,
+) {
+    if !user_defaults.iter().any(|d| d.is_some()) {
+        return;
+    }
+    if method_conflict.contains(mname) {
+        return;
+    }
+    match method_defaults.get(mname) {
+        None => {
+            method_defaults.insert(mname.to_string(), user_defaults);
+        }
+        Some(existing) => {
+            let compatible = existing.len() == user_defaults.len()
+                && existing
+                    .iter()
+                    .zip(&user_defaults)
+                    .all(|(a, b)| match (a, b) {
+                        (None, None) => true,
+                        (Some(x), Some(y)) => x == y || same_literal(ast, *x, *y),
+                        _ => false,
+                    });
+            if !compatible {
+                method_conflict.insert(mname.to_string());
+                method_defaults.remove(mname);
+            }
+        }
+    }
+}
+
+/// Literal-value equality across distinct ExprIds (the merge rule's
+/// "same default" test). NaN literals compare equal to themselves.
+fn same_literal(ast: &Ast, a: ExprId, b: ExprId) -> bool {
+    match (ast.get_expr(a), ast.get_expr(b)) {
+        (Expr::Number(x), Expr::Number(y)) => x == y || (x.is_nan() && y.is_nan()),
+        (Expr::String(x), Expr::String(y)) => x == y,
+        (Expr::Bool(x), Expr::Bool(y)) => x == y,
+        (Expr::Null, Expr::Null) => true,
+        _ => false,
+    }
+}
+
 pub fn apply_default_args(ast: &mut Ast) {
     let fn_defaults = collect_fn_defaults(ast);
     // Sibling-shape Member calls (`obj.method(args)`) survive desugar
@@ -52,6 +107,19 @@ pub fn apply_default_args(ast: &mut Ast) {
     // same defaults shape (length + which positions have defaults),
     // we can apply them to the bare `obj.method(args)` call site
     // without knowing the receiver's static type.
+    // Synthetic-fn classifier, shared by the let-alias walk below and
+    // the obj-literal method-field walk: `let f = __closure_N` (or a
+    // `Closure{fn_name}` value) names the lifted FnDecl that carries
+    // the defaults.
+    let synthetic_fn_ident = |e: &Expr| -> Option<String> {
+        match e {
+            Expr::Ident(n) if n.starts_with("__closure_") || n.starts_with("__genexpr_") => {
+                Some(n.clone())
+            }
+            Expr::Closure { fn_name, .. } => Some(fn_name.clone()),
+            _ => None,
+        }
+    };
     let mut method_defaults: HashMap<String, Vec<Option<ExprId>>> = HashMap::new();
     let mut method_conflict: std::collections::HashSet<String> = std::collections::HashSet::new();
     for (fname, defaults) in &fn_defaults {
@@ -70,34 +138,38 @@ pub fn apply_default_args(ast: &mut Ast) {
         if defaults.is_empty() {
             continue;
         }
-        let user_defaults: Vec<Option<ExprId>> = defaults[1..].to_vec();
-        if !user_defaults.iter().any(|d| d.is_some()) {
+        merge_method_defaults(
+            ast,
+            mname,
+            defaults[1..].to_vec(),
+            &mut method_defaults,
+            &mut method_conflict,
+        );
+    }
+    // RFC 20260714-t262-top-clusters 刀 1a — obj-literal method
+    // fields (`{ m(x = 5) {} }` lifts to a Closure-valued field)
+    // join the Member-callee padding table by field name: `o.m()`
+    // has no FnDecl-named call site, and the field-closure dispatch
+    // never fires call-site defaults. Same merge rule as the
+    // `__cm_` grouping above.
+    for e in &ast.exprs {
+        let Expr::ObjectLit { fields } = e else {
             continue;
-        }
-        if method_conflict.contains(mname) {
-            continue;
-        }
-        match method_defaults.get(mname) {
-            None => {
-                method_defaults.insert(mname.to_string(), user_defaults);
-            }
-            Some(existing) => {
-                // Conflict only if defaults shape differs (different
-                // arity or different which-positions). We don't compare
-                // ExprIds — different generator classes use different
-                // ExprId for the same Number(0.0) literal but should
-                // count as compatible. Compare lengths + Some/None
-                // pattern only.
-                let same_shape = existing.len() == user_defaults.len()
-                    && existing
-                        .iter()
-                        .zip(&user_defaults)
-                        .all(|(a, b)| a.is_some() == b.is_some());
-                if !same_shape {
-                    method_conflict.insert(mname.to_string());
-                    method_defaults.remove(mname);
-                }
-            }
+        };
+        for (fname, feid) in fields {
+            let Some(target) = synthetic_fn_ident(ast.get_expr(*feid)) else {
+                continue;
+            };
+            let Some(defaults) = fn_defaults.get(&target) else {
+                continue;
+            };
+            merge_method_defaults(
+                ast,
+                fname,
+                defaults.clone(),
+                &mut method_defaults,
+                &mut method_conflict,
+            );
         }
     }
 
@@ -108,15 +180,6 @@ pub fn apply_default_args(ast: &mut Ast) {
     // Hoisted generator expressions (`__genexpr_N`, RFC 20260713) join
     // via both binding shapes — `let f = <genexpr>` and the test262
     // staple `var f; f = function*(...) {...}` (top-level assign).
-    let synthetic_fn_ident = |e: &Expr| -> Option<String> {
-        match e {
-            Expr::Ident(n) if n.starts_with("__closure_") || n.starts_with("__genexpr_") => {
-                Some(n.clone())
-            }
-            Expr::Closure { fn_name, .. } => Some(fn_name.clone()),
-            _ => None,
-        }
-    };
     let mut let_alias: HashMap<String, String> = HashMap::new();
     for s in &ast.stmts {
         match s {

@@ -125,22 +125,33 @@ fn emit_fnsig_call(
     // block with the merge block's operands (chunk 659, same family
     // as the chunk-656 regex-method fix). The fn_ptr load above
     // dominates the merge block, so the cross-block use is sound.
-    let argv: Vec<Operand> = args.iter().map(|a| ctx.lower_expr(*a)).collect();
-    let (_params, ret_ty) = ctx.fn_sigs[sig_id.0 as usize].clone();
-    if ret_ty == Type::Void {
+    let mut argv: Vec<Operand> = args.iter().map(|a| ctx.lower_expr(*a)).collect();
+    let (params, ret_ty) = ctx.fn_sigs[sig_id.0 as usize].clone();
+    // RFC 20260714-t262-top-clusters 刀 1 — same call-boundary
+    // coercion as the direct-call terminal: an Array-literal arg
+    // into an any param used to pass its typed repr raw (elem reads
+    // answered undefined).
+    let coerce_owned =
+        crate::ssa_lower_call_terminal::coerce_args_by_param_tys(ctx, &params, args, &mut argv);
+    let result = if ret_ty == Type::Void {
         ctx.f.append_void(
             ctx.cur_block,
             InstKind::CallIndirect(sig_id, Operand::Value(fn_ptr), argv),
         );
-        return Operand::ConstPtrNull;
+        Operand::ConstPtrNull
+    } else {
+        let v = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::CallIndirect(sig_id, Operand::Value(fn_ptr), argv),
+            ret_ty,
+            None,
+        );
+        Operand::Value(v)
+    };
+    for op in coerce_owned {
+        ctx.emit_drop_value(op, Type::Str);
     }
-    let v = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::CallIndirect(sig_id, Operand::Value(fn_ptr), argv),
-        ret_ty,
-        None,
-    );
-    Operand::Value(v)
+    result
 }
 
 fn emit_closure_call(
@@ -165,7 +176,7 @@ fn emit_closure_call(
     let (user_params, ret_ty) = ctx.fn_sigs[user_sig_id.0 as usize].clone();
     let mut env_first_params = Vec::with_capacity(user_params.len() + 1);
     env_first_params.push(Type::Ptr);
-    env_first_params.extend(user_params);
+    env_first_params.extend(user_params.iter().copied());
     let env_first_sig = intern_fn_sig(ctx.fn_sigs, env_first_params, ret_ty);
     let mut argv: Vec<Operand> = Vec::with_capacity(args.len() + 1);
     argv.push(Operand::Value(closure_env));
@@ -174,18 +185,32 @@ fn emit_closure_call(
     for a in args {
         argv.push(ctx.lower_expr(*a));
     }
-    if ret_ty == Type::Void {
+    // RFC 20260714-t262-top-clusters 刀 1 — same call-boundary
+    // coercion as the direct-call terminal (argv[0] is the env; the
+    // user args align with the user param list).
+    let coerce_owned = crate::ssa_lower_call_terminal::coerce_args_by_param_tys(
+        ctx,
+        &user_params,
+        args,
+        &mut argv[1..],
+    );
+    let result = if ret_ty == Type::Void {
         ctx.f.append_void(
             ctx.cur_block,
             InstKind::CallIndirect(env_first_sig, Operand::Value(fn_ptr), argv),
         );
-        return Operand::ConstPtrNull;
+        Operand::ConstPtrNull
+    } else {
+        let v = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::CallIndirect(env_first_sig, Operand::Value(fn_ptr), argv),
+            ret_ty,
+            None,
+        );
+        Operand::Value(v)
+    };
+    for op in coerce_owned {
+        ctx.emit_drop_value(op, Type::Str);
     }
-    let v = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::CallIndirect(env_first_sig, Operand::Value(fn_ptr), argv),
-        ret_ty,
-        None,
-    );
-    Operand::Value(v)
+    result
 }

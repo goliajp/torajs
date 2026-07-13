@@ -45,7 +45,10 @@ impl<'a> Parser<'a> {
             let (p, pr, dl) = self.parse_ctor_param_list()?;
             (p, pr, dl)
         } else {
-            let (p, dl) = self.parse_param_list()?;
+            let (mut p, dl) = self.parse_param_list()?;
+            // 刀 1b — method-position default params infer their ann
+            // from the default (see param_list.rs).
+            self.infer_default_param_anns(&mut p);
             (p, Vec::new(), dl)
         };
         let return_type = if matches!(self.peek(), Token::Colon) {
