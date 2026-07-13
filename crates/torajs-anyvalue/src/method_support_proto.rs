@@ -79,11 +79,16 @@ pub(crate) fn proto_tag_family_owns(tag: i64, mid: i64) -> bool {
         // Object.prototype's own methods beyond the universal
         // probes handled above — valueOf / toLocaleString /
         // toString (§20.1.4.7 / §20.1.4.6 / §20.1.3.6; the alias
-        // below swaps toString onto the distinct badge cell).
-        1 => matches!(
-            mid,
-            ANY_METHOD_VALUE_OF | ANY_METHOD_TO_LOCALE_STRING | ANY_METHOD_TO_STRING
-        ),
+        // below swaps toString onto the distinct badge cell) plus
+        // the Annex B §B.2.2.2-5 legacy accessor four (RFC
+        // 20260713-annexb-legacy-accessor).
+        1 => {
+            matches!(
+                mid,
+                ANY_METHOD_VALUE_OF | ANY_METHOD_TO_LOCALE_STRING | ANY_METHOD_TO_STRING
+            ) || (torajs_rc::ANY_METHOD_DEFINE_GETTER..=torajs_rc::ANY_METHOD_LOOKUP_SETTER)
+                .contains(&mid)
+        }
         2 => arr_supports(mid),
         3 => str_supports(mid),
         // Boolean.prototype owns toString + valueOf (§20.3.3);

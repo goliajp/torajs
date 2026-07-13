@@ -189,6 +189,16 @@ pub(crate) unsafe fn any_method_call_inner(
     if mid == ANY_METHOD_HAS_OWN_PROPERTY || mid == ANY_METHOD_PROPERTY_IS_ENUMERABLE {
         return unsafe { crate::method_call_object_proto::own_prop_probe(recv, mid, argv, argc) };
     }
+    // Annex B §B.2.2.2-5 legacy accessor surface — universal like the
+    // own-property probes (ToObject semantics per receiver shape live
+    // in the arm).
+    if (torajs_rc::ANY_METHOD_DEFINE_GETTER..=torajs_rc::ANY_METHOD_LOOKUP_SETTER).contains(&mid) {
+        return unsafe {
+            crate::method_call_legacy_accessor::legacy_accessor_method(
+                recv, mid, recv_slot, argv, argc,
+            )
+        };
+    }
     if is_short_str(recv) {
         // toString on a string is identity; a ShortStr is an
         // immediate (copy semantics, no rc), so the bits return

@@ -345,6 +345,18 @@ pub const ANY_METHOD_GET_SIZE: i64 = 146;
 /// singleton alias so `Object.prototype.toString` reads / `.call`
 /// re-dispatch carry the badge semantics with any receiver.
 pub const ANY_METHOD_OBJECT_TO_STRING: i64 = 147;
+/// Annex B §B.2.2.2-5 legacy accessor surface (RFC
+/// 20260713-annexb-legacy-accessor) — `Object.prototype.
+/// __defineGetter__` / `__defineSetter__` install one accessor face
+/// via the define kernel; `__lookupGetter__` / `__lookupSetter__`
+/// answer the matching face's closure through the `__proto__` walk.
+pub const ANY_METHOD_DEFINE_GETTER: i64 = 148;
+/// See [`ANY_METHOD_DEFINE_GETTER`].
+pub const ANY_METHOD_DEFINE_SETTER: i64 = 149;
+/// See [`ANY_METHOD_DEFINE_GETTER`].
+pub const ANY_METHOD_LOOKUP_GETTER: i64 = 150;
+/// See [`ANY_METHOD_DEFINE_GETTER`].
+pub const ANY_METHOD_LOOKUP_SETTER: i64 = 151;
 
 /// RegExp property-read ids (Any-method-call RFC 20260704 C4-3c-2)
 /// — `r.source` / `r.lastIndex` / flag booleans through an `any`
