@@ -42,9 +42,18 @@ import sys
 import os
 
 def parse_unicode_data(path):
-    """Parse UnicodeData.txt. Return (simple_upper, simple_lower) dicts."""
+    """Parse UnicodeData.txt. Return (simple_upper, simple_lower,
+    ccc_above_ranges, ccc_nonzero_ranges) — the ccc range lists are
+    (start, end) inclusive, sorted + merged, for ccc == 230 (Above)
+    and ccc != 0 respectively (the two combining-class buckets the
+    UAX #21 / SpecialCasing.txt locale-conditional context rules
+    distinguish: After_I / Not_Before_Dot / More_Above /
+    After_Soft_Dotted all skip "neither 0 nor 230" and stop at the
+    first cp whose ccc is 0 or 230)."""
     simple_upper = {}  # source_cp -> upper_cp
     simple_lower = {}  # source_cp -> lower_cp
+    ccc_above = []  # cps with ccc == 230
+    ccc_nonzero = []  # cps with ccc != 0
     with open(path) as f:
         for line in f:
             line = line.rstrip()
@@ -61,7 +70,32 @@ def parse_unicode_data(path):
                 simple_upper[cp] = int(upper_str, 16)
             if lower_str:
                 simple_lower[cp] = int(lower_str, 16)
-    return simple_upper, simple_lower
+            # field 3 = Canonical_Combining_Class. UnicodeData.txt
+            # range-pair rows ("First>"/"Last>") all carry ccc 0, so
+            # per-cp collection here is complete for ccc != 0.
+            ccc = int(fields[3])
+            if ccc == 230:
+                ccc_above.append(cp)
+            if ccc != 0:
+                ccc_nonzero.append(cp)
+    return (
+        simple_upper,
+        simple_lower,
+        merge_ranges([(c, c) for c in ccc_above]),
+        merge_ranges([(c, c) for c in ccc_nonzero]),
+    )
+
+
+def merge_ranges(ranges):
+    """Sort (start, end) inclusive ranges and fuse adjacent/overlapping."""
+    ranges = sorted(ranges)
+    merged = []
+    for start, end in ranges:
+        if merged and start <= merged[-1][1] + 1:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+        else:
+            merged.append((start, end))
+    return merged
 
 
 def parse_special_casing(path):
@@ -111,9 +145,11 @@ def parse_cp_seq(s):
 
 
 def parse_derived_property(path, prop_name):
-    """Parse DerivedCoreProperties.txt. Returns a list of (start_cp,
-    end_cp) ranges (inclusive) for rows whose property == `prop_name`,
-    sorted + merged with adjacent ranges fused."""
+    """Parse a `cp(..cp) ; PropName # comment` property file
+    (DerivedCoreProperties.txt / PropList.txt share the format).
+    Returns a list of (start_cp, end_cp) ranges (inclusive) for rows
+    whose property == `prop_name`, sorted + merged with adjacent
+    ranges fused."""
     ranges = []
     with open(path) as f:
         for line in f:
@@ -134,14 +170,7 @@ def parse_derived_property(path, prop_name):
             else:
                 cp = int(cp_field, 16)
                 ranges.append((cp, cp))
-    ranges.sort()
-    merged = []
-    for start, end in ranges:
-        if merged and start <= merged[-1][1] + 1:
-            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
-        else:
-            merged.append([start, end])
-    return [tuple(r) for r in merged]
+    return merge_ranges(ranges)
 
 
 def emit_rust(
@@ -151,6 +180,9 @@ def emit_rust(
     full_lower,
     cased_ranges,
     case_ignorable_ranges,
+    soft_dotted_ranges,
+    ccc_above_ranges,
+    ccc_nonzero_ranges,
     ucd_version,
 ):
     """Emit the case_table.rs source as a single string."""
@@ -198,6 +230,21 @@ def emit_rust(
     out.append(emit_range_table('CASE_IGNORABLE_RANGES', case_ignorable_ranges))
     out.append('')
 
+    # Soft_Dotted ranges (PropList.txt) for the Lithuanian
+    # After_Soft_Dotted context rule.
+    out.append(emit_range_table('SOFT_DOTTED_RANGES', soft_dotted_ranges))
+    out.append('')
+
+    # ccc == 230 (Above) / ccc != 0 ranges (UnicodeData.txt field 3)
+    # for the locale-conditional context rules: After_I /
+    # Not_Before_Dot / More_Above / After_Soft_Dotted all skip code
+    # points whose combining class is neither 0 nor 230 and stop at
+    # the first cp whose ccc is 0 or 230.
+    out.append(emit_range_table('CCC_ABOVE_RANGES', ccc_above_ranges))
+    out.append('')
+    out.append(emit_range_table('CCC_NONZERO_RANGES', ccc_nonzero_ranges))
+    out.append('')
+
     out.append('/// Look up `cp` in a sorted `(u32, u32)` simple-mapping table.')
     out.append('/// Returns `Some(mapped)` if found, else `None`. Binary search')
     out.append('/// — O(log N) per lookup, N ~1500 per direction.')
@@ -234,6 +281,25 @@ def emit_rust(
     out.append('#[inline]')
     out.append('pub(crate) fn is_case_ignorable(cp: u32) -> bool {')
     out.append('    range_contains(CASE_IGNORABLE_RANGES, cp)')
+    out.append('}')
+    out.append('')
+    out.append('/// Test whether `cp` carries the UCD `Soft_Dotted` property')
+    out.append('/// (PropList.txt) — the Lithuanian After_Soft_Dotted context rule.')
+    out.append('#[inline]')
+    out.append('pub(crate) fn is_soft_dotted(cp: u32) -> bool {')
+    out.append('    range_contains(SOFT_DOTTED_RANGES, cp)')
+    out.append('}')
+    out.append('')
+    out.append('/// Test whether `cp` has Canonical_Combining_Class 230 (Above).')
+    out.append('#[inline]')
+    out.append('pub(crate) fn is_ccc_above(cp: u32) -> bool {')
+    out.append('    range_contains(CCC_ABOVE_RANGES, cp)')
+    out.append('}')
+    out.append('')
+    out.append('/// Test whether `cp` has Canonical_Combining_Class 0 (starter).')
+    out.append('#[inline]')
+    out.append('pub(crate) fn is_ccc_zero(cp: u32) -> bool {')
+    out.append('    !range_contains(CCC_NONZERO_RANGES, cp)')
     out.append('}')
     out.append('')
     out.append('/// Shared binary search over a sorted inclusive-range table.')
@@ -296,7 +362,8 @@ def main():
     udp = os.path.join(ucd_dir, 'UnicodeData.txt')
     scp = os.path.join(ucd_dir, 'SpecialCasing.txt')
     dcp = os.path.join(ucd_dir, 'DerivedCoreProperties.txt')
-    for required in (udp, scp, dcp):
+    plp = os.path.join(ucd_dir, 'PropList.txt')
+    for required in (udp, scp, dcp, plp):
         if not os.path.isfile(required):
             print(f'error: missing {os.path.basename(required)} under {ucd_dir}', file=sys.stderr)
             sys.exit(1)
@@ -309,10 +376,11 @@ def main():
                 ucd_version = line.split('SpecialCasing-')[1].split('.txt')[0]
                 break
 
-    simple_upper, simple_lower = parse_unicode_data(udp)
+    simple_upper, simple_lower, ccc_above_ranges, ccc_nonzero_ranges = parse_unicode_data(udp)
     full_upper, full_lower = parse_special_casing(scp)
     cased_ranges = parse_derived_property(dcp, 'Cased')
     case_ignorable_ranges = parse_derived_property(dcp, 'Case_Ignorable')
+    soft_dotted_ranges = parse_derived_property(plp, 'Soft_Dotted')
 
     print(
         emit_rust(
@@ -322,6 +390,9 @@ def main():
             full_lower,
             cased_ranges,
             case_ignorable_ranges,
+            soft_dotted_ranges,
+            ccc_above_ranges,
+            ccc_nonzero_ranges,
             ucd_version,
         ),
         end='',

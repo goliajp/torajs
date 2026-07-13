@@ -239,13 +239,16 @@ fn followed_by_cased(cps: &[u32], idx: usize) -> bool {
 
 /// Walk `(payload, total_cu, is_latin1)` decoding each code point,
 /// mapping it via [`map_cp`] (or the Final_Sigma override on Σ in
-/// lowercase mode), and collecting the mapped cps + their max value
-/// (for output-encoding decision) + their total cu count.
-fn collect_mapped(
+/// lowercase mode, or the locale-tailored SpecialCasing rules when
+/// `loc != Default` — see [`super::case_locale`]), and collecting
+/// the mapped cps + their max value (for output-encoding decision)
+/// + their total cu count.
+pub(crate) fn collect_mapped(
     payload: &[u8],
     total_cu: usize,
     is_latin1: bool,
     upper: bool,
+    loc: super::case_locale::CaseLocale,
 ) -> (Vec<u32>, u32, u32) {
     // Pass 1 — decode source code points into a contiguous Vec so
     // the Final_Sigma check can look at adjacent source positions
@@ -263,7 +266,14 @@ fn collect_mapped(
     let mut out_cu: u32 = 0;
     for (idx, &cp) in src_cps.iter().enumerate() {
         let mut holder: [u32; 1] = [0];
-        let mapped: &[u32] = if !upper && is_final_sigma(&src_cps, idx) {
+        let tailored = if loc == super::case_locale::CaseLocale::Default {
+            None
+        } else {
+            super::case_locale::map_cp_tailored(&src_cps, idx, upper, loc)
+        };
+        let mapped: &[u32] = if let Some(t) = tailored {
+            t
+        } else if !upper && is_final_sigma(&src_cps, idx) {
             holder[0] = SIGMA_FINAL;
             &holder[..]
         } else {
@@ -283,7 +293,7 @@ fn collect_mapped(
 /// Encode `out_cps` into a fresh StrBlock. Picks Latin-1 if every
 /// cp ≤ 0xFF (canonical encoding invariant: payload bytes match
 /// the Latin-1 code-unit values 1:1); otherwise UTF-16 LE.
-fn build_block(out_cps: &[u32], max_cp: u32, out_cu: u32) -> *mut u8 {
+pub(crate) fn build_block(out_cps: &[u32], max_cp: u32, out_cu: u32) -> *mut u8 {
     let out_latin1 = max_cp <= 0xFF;
     let mut block = StrBlock::alloc_with_encoding(out_cu, out_latin1);
     if out_cu == 0 {
@@ -316,7 +326,13 @@ fn build_block(out_cps: &[u32], max_cp: u32, out_cu: u32) -> *mut u8 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_to_upper(s: *const u8) -> *mut u8 {
     let (payload, length, is_latin1) = unsafe { str_view(s) };
-    let (out_cps, max_cp, out_cu) = collect_mapped(payload, length as usize, is_latin1, true);
+    let (out_cps, max_cp, out_cu) = collect_mapped(
+        payload,
+        length as usize,
+        is_latin1,
+        true,
+        super::case_locale::CaseLocale::Default,
+    );
     build_block(&out_cps, max_cp, out_cu)
 }
 
@@ -329,7 +345,13 @@ pub unsafe extern "C" fn __torajs_str_to_upper(s: *const u8) -> *mut u8 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_to_lower(s: *const u8) -> *mut u8 {
     let (payload, length, is_latin1) = unsafe { str_view(s) };
-    let (out_cps, max_cp, out_cu) = collect_mapped(payload, length as usize, is_latin1, false);
+    let (out_cps, max_cp, out_cu) = collect_mapped(
+        payload,
+        length as usize,
+        is_latin1,
+        false,
+        super::case_locale::CaseLocale::Default,
+    );
     build_block(&out_cps, max_cp, out_cu)
 }
 

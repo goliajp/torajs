@@ -100,6 +100,8 @@ pub(crate) struct Intrinsics {
     pub(crate) str_from_char_code: FuncId,
     pub(crate) str_from_code_point: FuncId,
     pub(crate) str_normalize: FuncId,
+    pub(crate) str_to_locale_upper: FuncId,
+    pub(crate) str_to_locale_lower: FuncId,
     pub(crate) str_at: FuncId,
     pub(crate) str_replace: FuncId,
     pub(crate) str_replace_all: FuncId,

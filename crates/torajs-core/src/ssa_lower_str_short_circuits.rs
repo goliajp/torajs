@@ -102,6 +102,33 @@ pub(crate) fn try_dispatch(
         ctx.emit_throw_check(None);
         return Some(Operand::Value(v));
     }
+    // ES402 sup-string.prototype.tolocale{upper,lower}case —
+    // `s.toLocaleUpperCase(locale?)` routes to the 2-arg tailored
+    // runtime kernel (tr/az/lt SpecialCasing; everything else takes
+    // the default fold inside). Missing / undefined locale rides as
+    // the interned empty string (host default). A non-Str locale
+    // arg (e.g. an Arr of identifiers) falls through to the generic
+    // dispatch (CanonicalizeLocaleList walk is the follow-up cut).
+    if method == "toLocaleUpperCase" || method == "toLocaleLowerCase" {
+        if let Some(locale_op) = lower_locale_arg(ctx, args) {
+            let target = if method == "toLocaleUpperCase" {
+                ctx.intrinsics.str_to_locale_upper
+            } else {
+                ctx.intrinsics.str_to_locale_lower
+            };
+            let v = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(target, vec![recv_op, locale_op]),
+                Type::Str,
+                None,
+            );
+            for &a in args.iter().skip(1) {
+                let _ = ctx.lower_expr(a);
+            }
+            return Some(Operand::Value(v));
+        }
+        return None;
+    }
     // ES2024 §22.1.3.10 / §22.1.3.30 — `isWellFormed()` / `toWellFormed()`.
     // torajs strings are internally UTF-8 so lone surrogates can't be
     // encoded at all: every reachable Str is well-formed by construction.
@@ -124,6 +151,34 @@ pub(crate) fn try_dispatch(
         }
         ctx.emit_rc_inc(recv_op.clone());
         return Some(recv_op);
+    }
+    None
+}
+
+/// Lower the `toLocale{Upper,Lower}Case` locale argument. Answers:
+/// - `Some(interned "")` for the 0-arg / explicit-undefined shape
+///   (host default),
+/// - `Some(lowered)` when the static type of `args[0]` is `Str`,
+/// - `None` for anything else (Arr / Any locale lists) — the caller
+///   falls through to the generic dispatch until the
+///   CanonicalizeLocaleList cut lands.
+///
+/// Shared with the Substr-receiver dispatch in
+/// [`crate::ssa_lower_str_substr_dispatch`].
+pub(crate) fn lower_locale_arg(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Operand> {
+    let undef0 = !args.is_empty()
+        && matches!(
+            ctx.expr_types.get(&args[0]),
+            Some(crate::check::Type::Undefined)
+        );
+    if args.is_empty() || undef0 {
+        return Some(Operand::Value(ctx.intern_string_literal("")));
+    }
+    if matches!(
+        ctx.expr_types.get(&args[0]),
+        Some(crate::check::Type::String)
+    ) {
+        return Some(ctx.lower_expr(args[0]));
     }
     None
 }

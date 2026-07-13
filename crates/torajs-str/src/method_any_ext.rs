@@ -160,6 +160,38 @@ pub unsafe extern "C" fn __torajs_str_any_normalize(s: *const u8, form: *const u
     }
 }
 
+/// `s.toLocaleUpperCase(locale)` / `s.toLocaleLowerCase(locale)`
+/// per ES402 — `upper != 0` picks the uppercase tables. NULL
+/// `locale` denotes a missing / undefined argument (host default =
+/// Default Case Conversion).
+///
+/// # Safety
+/// `s` is a valid heap Str/Substr pointer; `locale` is NULL or one
+/// too.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_any_locale_case(
+    s: *const u8,
+    locale: *const u8,
+    upper: i64,
+) -> u64 {
+    unsafe {
+        let (src, s_tmp) = owned_src(s);
+        let (lc, l_tmp) = if locale.is_null() {
+            (core::ptr::null(), core::ptr::null_mut())
+        } else {
+            owned_src(locale)
+        };
+        let out = if upper != 0 {
+            crate::transform::case_locale::__torajs_str_to_locale_upper(src, lc)
+        } else {
+            crate::transform::case_locale::__torajs_str_to_locale_lower(src, lc)
+        };
+        drop_tmp(l_tmp);
+        drop_tmp(s_tmp);
+        out as u64
+    }
+}
+
 /// `s.lastIndexOf(needle, from)` per ES §22.1.3.11 — found
 /// code-unit index or `-1`. A missing / NaN `from` rides as
 /// `i64::MAX` (the kernel clamps to the last viable start).

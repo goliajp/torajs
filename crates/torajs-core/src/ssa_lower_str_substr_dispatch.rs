@@ -151,6 +151,11 @@ pub(crate) fn try_dispatch(
                 Type::Str,
                 None,
             );
+            if matches!(method, "toLocaleUpperCase" | "toLocaleLowerCase") {
+                if let Some(v) = lower_owned_to_locale_case(ctx, method, args, owned) {
+                    return Some(v);
+                }
+            }
             let mut argv = Vec::with_capacity(args.len() + 1);
             argv.push(Operand::Value(owned));
             for a in args {
@@ -208,4 +213,38 @@ pub(crate) fn try_dispatch(
             Some(Operand::Value(v))
         }
     }
+}
+
+/// ES402 — Substr.toLocale{Upper,Lower}Case routes the materialized
+/// receiver through the 2-arg tailored kernel (same wedge shape as
+/// the Str path in [`crate::ssa_lower_str_short_circuits`]). Answers
+/// `None` for a non-Str locale arg — the caller falls through to
+/// the legacy locale-dropping remap until the
+/// CanonicalizeLocaleList cut lands.
+fn lower_owned_to_locale_case(
+    ctx: &mut LowerCtx<'_>,
+    method: &str,
+    args: &[ExprId],
+    owned: crate::ssa::ValueId,
+) -> Option<Operand> {
+    let locale_op = crate::ssa_lower_str_short_circuits::lower_locale_arg(ctx, args)?;
+    let target = if method == "toLocaleUpperCase" {
+        ctx.intrinsics.str_to_locale_upper
+    } else {
+        ctx.intrinsics.str_to_locale_lower
+    };
+    let v = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(target, vec![Operand::Value(owned), locale_op]),
+        Type::Str,
+        None,
+    );
+    for &a in args.iter().skip(1) {
+        let _ = ctx.lower_expr(a);
+    }
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Call(ctx.intrinsics.str_drop, vec![Operand::Value(owned)]),
+    );
+    Some(Operand::Value(v))
 }
