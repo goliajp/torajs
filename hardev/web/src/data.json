@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-13T20:43:14.917Z",
+  "generatedAt": "2026-07-13T21:06:06.228Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-13T20:41:33Z",
-    "headSha": "002c1f37",
-    "elapsedSec": 620.55,
+    "ranAt": "2026-07-13T21:04:50Z",
+    "headSha": "498ecc7b",
+    "elapsedSec": 614.12,
     "workers": 8,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 6713,
-    "passNoOracle": 140,
+    "pass": 6833,
+    "passNoOracle": 147,
     "passNegative": 4445,
-    "passTotal": 11298,
-    "bug": 1175,
-    "incompatible": 40701,
+    "passTotal": 11425,
+    "bug": 1177,
+    "incompatible": 40572,
     "bunSkip": 12565,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 12473,
-    "passRateInScope": 21.25,
-    "passRateTrAccepted": 90.58
+    "trAccepted": 12602,
+    "passRateInScope": 21.49,
+    "passRateTrAccepted": 90.66
   },
   "torajs": {
-    "commit": "f2339f24",
-    "commitSubject": "chore: test262 sweep at 002c1f37 - passTotal 11298 (+192), bug 1175",
+    "commit": "edebf157",
+    "commitSubject": "chore: test262 sweep at 498ecc7b - passTotal 11425 (+127), bug 1177",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,18 @@
   },
   "commits": [
     {
+      "hash": "edebf157",
+      "subject": "chore: test262 sweep at 498ecc7b - passTotal 11425 (+127), bug 1177"
+    },
+    {
+      "hash": "498ecc7b",
+      "subject": "feat: any-force destructuring params with whole-pattern defaults"
+    },
+    {
+      "hash": "bcc2b9bb",
+      "subject": "chore: hardev dashboard snapshot at rotation 94 close"
+    },
+    {
       "hash": "f2339f24",
       "subject": "chore: test262 sweep at 002c1f37 - passTotal 11298 (+192), bug 1175"
     },
@@ -747,21 +759,9 @@
     {
       "hash": "3586ad28",
       "subject": "feat: generic String.prototype methods coerce this via ToString"
-    },
-    {
-      "hash": "d7554e63",
-      "subject": "feat: LineContinuation in string and template literals"
-    },
-    {
-      "hash": "6b9702f3",
-      "subject": "feat: GetSubstitution $` / $' / $<name> in regex replace"
-    },
-    {
-      "hash": "a5d0b296",
-      "subject": "chore: test262 sweep at c3f3218c - passTotal 9865 (+2), bug 852"
     }
   ],
-  "headSha": "f2339f24",
+  "headSha": "edebf157",
   "autorun": {
     "total": 400,
     "baselineTarget": 10,
