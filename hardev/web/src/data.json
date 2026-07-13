@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-12T23:34:26.501Z",
+  "generatedAt": "2026-07-13T02:13:15.155Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 90.89
   },
   "torajs": {
-    "commit": "15ab890d",
-    "commitSubject": "fix: void with a pure literal operand folds to the undefined ident",
+    "commit": "fcbea9c5",
+    "commitSubject": "refactor: split generator body walkers out of desugar_generators",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,38 @@
   },
   "commits": [
     {
+      "hash": "fcbea9c5",
+      "subject": "refactor: split generator body walkers out of desugar_generators"
+    },
+    {
+      "hash": "752dd58e",
+      "subject": "fix: keep __yield_arg default shape-uniform across generator classes"
+    },
+    {
+      "hash": "f745f01f",
+      "subject": "feat: async generator declarations return the generator object with promise-shaped steps"
+    },
+    {
+      "hash": "74012994",
+      "subject": "fix: any-receiver member/index reads propagate pending TypeError across fn boundary"
+    },
+    {
+      "hash": "3414f187",
+      "subject": "fix: destructuring defaults fire on undefined per spec"
+    },
+    {
+      "hash": "a73ef41b",
+      "subject": "feat: generator function expressions parse real + hoist to decl form"
+    },
+    {
+      "hash": "e71e3d09",
+      "subject": "feat: generator decl param defaults + destructuring with eager ctor binding"
+    },
+    {
+      "hash": "8e304b42",
+      "subject": "chore: test262 sweep at 15ab890d — 9448 pass (+46), dashboard snapshot"
+    },
+    {
       "hash": "15ab890d",
       "subject": "fix: void with a pure literal operand folds to the undefined ident"
     },
@@ -727,59 +759,38 @@
     {
       "hash": "95bfb057",
       "subject": "feat: object proto tostring badge cell + arr expando call dispatch"
-    },
-    {
-      "hash": "1382b231",
-      "subject": "fix: array derive clones keep element descriptor and alias class under any-escape"
-    },
-    {
-      "hash": "ee1d0329",
-      "subject": "chore: test262 sweep at 890f573f — 9402 pass (+176 cumulative), dashboard snapshot"
-    },
-    {
-      "hash": "890f573f",
-      "subject": "fix: generic mono width infers NaN and Infinity idents as f64"
-    },
-    {
-      "hash": "d1cc8879",
-      "subject": "fix: harness sameValue keeps comparisons in the generic domain"
-    },
-    {
-      "hash": "aefdb913",
-      "subject": "fix: test262 harness sameValue uses SameValue semantics not strict equality"
-    },
-    {
-      "hash": "774e6f35",
-      "subject": "fix: number method dispatch coerces arguments lazily after mid validation"
-    },
-    {
-      "hash": "4600f46b",
-      "subject": "feat: date invalid-time substrate with f64 ABI and present-mask setters"
-    },
-    {
-      "hash": "cc2cb47e",
-      "subject": "chore: hardev dashboard snapshot"
     }
   ],
-  "headSha": "15ab890d",
+  "headSha": "fcbea9c5",
   "autorun": {
-    "total": 392,
+    "total": 393,
     "baselineTarget": 10,
-    "bySelf": 387,
+    "bySelf": 388,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1783891512-1096",
-      "at": "2026-07-12T21:25:12Z",
-      "ts": 1783891512,
+      "rotationId": "r-1783899382-3465",
+      "at": "2026-07-12T23:36:22Z",
+      "ts": 1783899382,
       "trigger": "self",
-      "prevHead": "ee1d0329",
-      "handoffSha": "sha256:33480aeffe1b20ad07071798896712c053bd764103be8862b723fcc74491bd3f",
-      "handoffAgeSec": 28,
+      "prevHead": "8e304b42",
+      "handoffSha": "sha256:850a35b41d5353c0c146b69e6c7a561cc5d51cf925a12486d81c3d1ee3fd85ce",
+      "handoffAgeSec": 9,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1783899382-3465",
+        "at": "2026-07-12T23:36:22Z",
+        "ts": 1783899382,
+        "trigger": "self",
+        "prevHead": "8e304b42",
+        "handoffSha": "sha256:850a35b41d5353c0c146b69e6c7a561cc5d51cf925a12486d81c3d1ee3fd85ce",
+        "handoffAgeSec": 9,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1783891512-1096",
         "at": "2026-07-12T21:25:12Z",
@@ -876,17 +887,6 @@
         "prevHead": "16e145ac",
         "handoffSha": "sha256:3da3c706436556902627033568bf5fed1ce9e14bbd70ef1de49c778b3b2db506",
         "handoffAgeSec": 7,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1783822417-42a9",
-        "at": "2026-07-12T02:13:37Z",
-        "ts": 1783822417,
-        "trigger": "self",
-        "prevHead": "df3481af",
-        "handoffSha": "sha256:1de639c093d6472e259b38835b1062e321dfcc70d12592dd860a241c25d0a1f6",
-        "handoffAgeSec": 6,
         "conformanceBefore": null,
         "commitsInSession": null
       }
