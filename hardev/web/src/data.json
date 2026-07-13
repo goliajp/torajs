@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-13T15:30:34.378Z",
+  "generatedAt": "2026-07-13T17:47:38.142Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-13T15:16:00Z",
-    "headSha": "3f115e64",
-    "elapsedSec": 468.83,
+    "ranAt": "2026-07-13T17:26:04Z",
+    "headSha": "bc52d732",
+    "elapsedSec": 470.94,
     "workers": 8,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 5299,
+    "pass": 5313,
     "passNoOracle": 105,
     "passNegative": 4445,
-    "passTotal": 9849,
-    "bug": 868,
+    "passTotal": 9863,
+    "bug": 854,
     "incompatible": 42457,
     "bunSkip": 12565,
     "harnessError": 0,
     "inScope": 53174,
     "trAccepted": 10717,
-    "passRateInScope": 18.52,
-    "passRateTrAccepted": 91.9
+    "passRateInScope": 18.55,
+    "passRateTrAccepted": 92.03
   },
   "torajs": {
-    "commit": "888a0ca6",
-    "commitSubject": "feat: paired surrogate escapes combine into one supplementary code point",
+    "commit": "837ef30f",
+    "commitSubject": "fix: ToNumber(position) TypeError propagation + null-proto dict inherits nothing",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "837ef30f",
+      "subject": "fix: ToNumber(position) TypeError propagation + null-proto dict inherits nothing"
+    },
+    {
+      "hash": "016d4130",
+      "subject": "chore: test262 sweep at bc52d732 - passTotal 9863 (+8), bug 854"
+    },
+    {
+      "hash": "bc52d732",
+      "subject": "feat: locale identifier validation + array locales for toLocale case methods"
+    },
+    {
+      "hash": "5510aa9b",
+      "subject": "feat: locale-tailored case folding for toLocaleUpperCase/LowerCase (tr/az/lt)"
+    },
+    {
+      "hash": "dbe58814",
+      "subject": "chore: test262 sweep at 888a0ca6 - passTotal 9855 (+6), bug 862"
+    },
+    {
+      "hash": "ac351f88",
+      "subject": "chore: hardev dashboard snapshot at rotation 91 close"
+    },
+    {
       "hash": "888a0ca6",
       "subject": "feat: paired surrogate escapes combine into one supplementary code point"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "9495a31f",
       "subject": "chore: hardev dashboard snapshot at rotation 90 close"
-    },
-    {
-      "hash": "8121da2b",
-      "subject": "feat: trimLeft and trimRight annex b aliases intern to trimStart trimEnd"
-    },
-    {
-      "hash": "ee147a7e",
-      "subject": "chore: hardev dashboard snapshot at rotation 90"
-    },
-    {
-      "hash": "1ac4b312",
-      "subject": "chore: test262 sweep at e892052b - passTotal 9759 (+16), bug 877"
-    },
-    {
-      "hash": "e892052b",
-      "subject": "feat: annex b legacy accessor surface defineGetter defineSetter lookupGetter lookupSetter"
-    },
-    {
-      "hash": "d3861f44",
-      "subject": "chore: test262 sweep at 764ebf36 - passTotal 9743 (+13), bug 893"
-    },
-    {
-      "hash": "764ebf36",
-      "subject": "fix: length and size special-prop reads run an accessor entry's getter"
     }
   ],
-  "headSha": "888a0ca6",
+  "headSha": "837ef30f",
   "autorun": {
-    "total": 397,
+    "total": 398,
     "baselineTarget": 10,
-    "bySelf": 392,
+    "bySelf": 393,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1783941647-3dfb",
-      "at": "2026-07-13T11:20:47Z",
-      "ts": 1783941647,
+      "rotationId": "r-1783956740-7633",
+      "at": "2026-07-13T15:32:20Z",
+      "ts": 1783956740,
       "trigger": "self",
-      "prevHead": "9495a31f",
-      "handoffSha": "sha256:29fb8967c6eaa7282ffbce7a443fb7d024ec0a2f9fdec12cd7871789f4c3129f",
-      "handoffAgeSec": 10,
+      "prevHead": "ac351f88",
+      "handoffSha": "sha256:c7ef41fc04806665e845e800aedb873f42217fafac1ab72fcd8b10c8f5e50db3",
+      "handoffAgeSec": 53,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1783956740-7633",
+        "at": "2026-07-13T15:32:20Z",
+        "ts": 1783956740,
+        "trigger": "self",
+        "prevHead": "ac351f88",
+        "handoffSha": "sha256:c7ef41fc04806665e845e800aedb873f42217fafac1ab72fcd8b10c8f5e50db3",
+        "handoffAgeSec": 53,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1783941647-3dfb",
         "at": "2026-07-13T11:20:47Z",
@@ -876,17 +887,6 @@
         "prevHead": "c5dc2bab",
         "handoffSha": "sha256:1925b4d91f6490f6f16319b12f0e6b5712fc240e3ac9537352169d173e3418a3",
         "handoffAgeSec": 7,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1783857848-4108",
-        "at": "2026-07-12T12:04:08Z",
-        "ts": 1783857848,
-        "trigger": "self",
-        "prevHead": "5fe18499",
-        "handoffSha": "sha256:ee309f856369ad5a095ca146cd6e5b326094aa74128903e6a42bdbf5e23703c9",
-        "handoffAgeSec": 5,
         "conformanceBefore": null,
         "commitsInSession": null
       }
