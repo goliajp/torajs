@@ -80,6 +80,25 @@ pub fn desugar_prototype_call(ast: &mut Ast) {
         if ns == "Object" && method_name == "toString" {
             continue;
         }
+        // RFC 20260713-string-proto-residual blade 6 — the String
+        // generic family SKIPS the rewrite: §22.1.3 methods accept
+        // any this and coerce via ToString (observable
+        // OrdinaryToPrimitive order, trim 15.5.4.20-2-42), which
+        // `recv.m()` cannot express — a plain-object receiver has no
+        // `m` (checker reject / runtime garbage throw), and an own
+        // `m` would shadow the explicitly-called builtin. The
+        // runtime path reifies the method cell and the `.call`
+        // re-dispatch coerces (`generic_str_this`). `toString` /
+        // `valueOf` / `toLocaleString` keep the rewrite —
+        // thisStringValue mid-aliasing boundary, recorded.
+        if ns == "String"
+            && !matches!(
+                method_name.as_str(),
+                "toString" | "valueOf" | "toLocaleString"
+            )
+        {
+            continue;
+        }
         // RFC 20260712-array-generic-receiver chunks 2+3a — the
         // Array read family SKIPS the rewrite: `recv.m(args)` is
         // semantically wrong for it (a receiver's own `m` would

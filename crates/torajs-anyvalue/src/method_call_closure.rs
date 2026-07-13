@@ -35,12 +35,17 @@
 
 use core::ffi::c_void;
 
-use torajs_rc::{ANY_METHOD_APPLY, ANY_METHOD_BIND, ANY_METHOD_CALL, Tag};
+use torajs_rc::{
+    ANY_METHOD_APPLY, ANY_METHOD_BIND, ANY_METHOD_CALL, ANY_METHOD_TO_LOCALE_STRING,
+    ANY_METHOD_TO_STRING, ANY_METHOD_VALUE_OF, Tag,
+};
 
 use crate::method_call::{
     MAX_BOXED_ARGS, closure_cell_entry, invoke_boxed, method_no_such, not_callable,
 };
-use crate::nanbox::{AnyValue, VALUE_UNDEFINED, as_void_ptr, is_cell, is_null, is_undefined};
+use crate::nanbox::{
+    AnyValue, VALUE_UNDEFINED, as_void_ptr, is_cell, is_null, is_short_str, is_undefined,
+};
 
 unsafe extern "C" {
     /// torajs-dynobj — own-property probe (5 = absent).
@@ -50,6 +55,8 @@ unsafe extern "C" {
     fn __torajs_arr_index_get(arr: *const c_void, idx: i64) -> u64;
     /// torajs-throw — record a pending catchable TypeError.
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
+    /// torajs-str — release an owned Str temp.
+    fn __torajs_str_drop(s: *mut c_void);
 }
 
 /// Closure-cell lazy props slot — mirror of torajs-core
@@ -151,15 +158,61 @@ unsafe fn dispatch(
     unsafe {
         match target {
             CallTarget::Boxed(env, entry) => invoke_boxed(*env, *entry, argv, argc),
-            CallTarget::Builtin(mid) => crate::method_call::any_method_call_inner(
-                this_arg,
-                *mid,
-                core::ptr::null(),
-                core::ptr::null_mut(),
-                argv,
-                argc,
-            ),
+            CallTarget::Builtin(mid) => {
+                if let Some(out) = generic_str_this(*mid, this_arg, argv, argc) {
+                    return out;
+                }
+                crate::method_call::any_method_call_inner(
+                    this_arg,
+                    *mid,
+                    core::ptr::null(),
+                    core::ptr::null_mut(),
+                    argv,
+                    argc,
+                )
+            }
         }
+    }
+}
+
+/// §22.1.3 "the String.prototype methods are generic" — a reified
+/// String.prototype method reached through `.call` / `.apply` with a
+/// non-string thisArg runs ToString(this) (full OrdinaryToPrimitive,
+/// observable toString→valueOf order; a double-object receiver
+/// leaves a pending TypeError for the caller's throw check) and
+/// dispatches the Str arm on the coerced temp. `toString` / `valueOf`
+/// (thisStringValue §22.1.3.28/.35) and `toLocaleString` stay on the
+/// ordinary lane — a non-String receiver is a TypeError there.
+/// String-shaped and nullish receivers also stay on the ordinary
+/// lane (identity fast paths / RequireObjectCoercible throw).
+unsafe fn generic_str_this(
+    mid: i64,
+    this_arg: AnyValue,
+    argv: *const u64,
+    argc: i64,
+) -> Option<AnyValue> {
+    if !crate::method_support::str_supports(mid)
+        || matches!(
+            mid,
+            ANY_METHOD_TO_STRING | ANY_METHOD_VALUE_OF | ANY_METHOD_TO_LOCALE_STRING
+        )
+    {
+        return None;
+    }
+    if is_undefined(this_arg) || is_null(this_arg) || is_short_str(this_arg) {
+        return None;
+    }
+    if is_cell(this_arg) {
+        let ptr = as_void_ptr(this_arg);
+        if unsafe { (ptr.cast::<u8>().add(4) as *const u16).read() } == Tag::Str as u16 {
+            return None;
+        }
+    }
+    unsafe {
+        let s = crate::nanbox_ffi::__torajs_anyv_to_str(this_arg);
+        let out = crate::method_call_str::str_method(s as *mut u8, mid, argv, argc);
+        __torajs_str_drop(s);
+        Some(out)
     }
 }
 

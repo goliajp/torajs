@@ -16,7 +16,15 @@ pub(crate) fn unify_typevar(
     match (pattern, actual) {
         (Type::TypeVar(name), concrete) => {
             if let Some(existing) = subst.get(name) {
-                if existing != concrete {
+                // `any` absorbs in inference (TS semantics): an Any
+                // binding is compatible with every later actual (T
+                // stays any), and an Any actual is compatible with
+                // any earlier concrete binding. Only two distinct
+                // concrete types conflict.
+                if existing != concrete
+                    && !matches!(existing, Type::Any)
+                    && !matches!(concrete, Type::Any)
+                {
                     return Err(format!(
                         "type parameter `{name}` was inferred as {existing:?} earlier but here is {concrete:?}"
                     ));
