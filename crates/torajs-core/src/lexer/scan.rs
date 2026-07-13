@@ -173,6 +173,29 @@ pub(super) fn scan_string(
                     *i += 2;
                     continue;
                 }
+                // §12.9.4.3 LineContinuation — `\` followed by a
+                // LineTerminatorSequence contributes nothing to the
+                // string value (SV is the empty sequence). `\r\n`
+                // counts as one sequence.
+                b'\n' => {
+                    *i += 2;
+                    continue;
+                }
+                b'\r' => {
+                    *i += 2;
+                    if *i < len && bytes[*i as usize] == b'\n' {
+                        *i += 1;
+                    }
+                    continue;
+                }
+                // U+2028 / U+2029 (LS / PS) in UTF-8: E2 80 A8 / A9.
+                0xE2 if *i + 3 < len
+                    && bytes[*i as usize + 2] == 0x80
+                    && (bytes[*i as usize + 3] == 0xA8 || bytes[*i as usize + 3] == 0xA9) =>
+                {
+                    *i += 4;
+                    continue;
+                }
                 other => {
                     buf.push(other);
                     *i += 2;

@@ -53,6 +53,29 @@ pub(super) fn scan_template(
         // the escaped char (lenient — mirrors v8/bun).
         if b == b'\\' && *i + 1 < len {
             let esc = bytes[(*i + 1) as usize];
+            // §12.9.4.3 LineContinuation — `\` + LineTerminator
+            // Sequence contributes nothing (TV is the empty
+            // sequence). `\r\n` is one sequence; U+2028 / U+2029
+            // are E2 80 A8 / A9 in UTF-8.
+            if esc == b'\n' {
+                *i += 2;
+                continue;
+            }
+            if esc == b'\r' {
+                *i += 2;
+                if *i < len && bytes[*i as usize] == b'\n' {
+                    *i += 1;
+                }
+                continue;
+            }
+            if esc == 0xE2
+                && *i + 3 < len
+                && bytes[(*i + 2) as usize] == 0x80
+                && (bytes[(*i + 3) as usize] == 0xA8 || bytes[(*i + 3) as usize] == 0xA9)
+            {
+                *i += 4;
+                continue;
+            }
             let mapped: u8 = match esc {
                 b'n' => b'\n',
                 b't' => b'\t',
