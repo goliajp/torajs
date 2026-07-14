@@ -172,7 +172,21 @@ pub unsafe extern "C" fn __torajs_bigint_to_string(a_: *const c_void) -> *mut u8
 /// `[2, 36]`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_bigint_to_string_radix(a_: *const c_void, radix: i64) -> *mut u8 {
-    debug_assert!((2..=36).contains(&radix));
+    // ES §6.1.6.2.13 step 2 — radix must be in [2, 36]; otherwise
+    // RangeError. This was a `debug_assert!` (a no-op in release), so an
+    // out-of-range radix (e.g. `(255n).toString(1)`) reached
+    // `radix_chunk`, whose `chunk *= radix` loop never overflows a u64
+    // when radix < 2 — a non-terminating spin (the `tr run` hung).
+    // Mirror `__torajs_num_to_string_radix_i`'s runtime gate; the
+    // pending throw propagates via the caller's SSA emit_throw_check.
+    if !(2..=36).contains(&radix) {
+        unsafe {
+            __torajs_throw_range_error(
+                b"toString() radix argument must be between 2 and 36\0".as_ptr(),
+            );
+        }
+        return alloc_str(b"");
+    }
     unsafe { to_string_radix(a_, radix as u32) }
 }
 
@@ -184,6 +198,14 @@ unsafe extern "C" {
     fn __torajs_io_write_stdout(buf: *const u8, len: u64);
     fn __torajs_io_putc_stdout(c: i32) -> i32;
     fn __torajs_rc_dec(p: *mut c_void) -> i32;
+    // torajs-throw — record a pending catchable RangeError (§6.1.6.2.13
+    // radix gate). NUL-terminated message.
+    fn __torajs_throw_range_error(msg: *const u8);
+}
+
+#[cfg(test)]
+unsafe extern "C" fn __torajs_throw_range_error(_msg: *const u8) {
+    panic!("torajs-bigint unit-test stub: __torajs_throw_range_error should not be called");
 }
 
 // cargo test of torajs-bigint doesn't link io / rc staticlibs; the
