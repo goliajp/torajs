@@ -18,6 +18,28 @@ unsafe extern "C" {
     fn __torajs_str_alloc(src: *const u8, len: i64) -> *mut u8;
     /// torajs-str — release a heap Str/Substr reference.
     fn __torajs_str_drop(s: *mut c_void);
+    /// torajs-meta — Error.prototype.toString (§20.5.3.4): render
+    /// `name: message` from a FLAG_ERROR OBJ instance pointer.
+    fn __torajs_error_to_string(p: *const u8) -> *mut u8;
+}
+
+/// `Error.prototype.toString` (§20.5.3.4) for a struct receiver: a
+/// FLAG_ERROR OBJ answers `name: message` (via the torajs-meta helper,
+/// the same one the SSA typed-tier lowering emits), boxed as an owned
+/// Str. `None` when the struct is not Error-derived — the caller then
+/// answers the "[object Object]" badge (ES §19.1.3.6). Ordered after
+/// the own-property probe by its call site, so a monkey-patched own
+/// `toString` still wins.
+///
+/// # Safety
+/// `obj` is a live `Tag::Obj` struct cell.
+pub(crate) unsafe fn error_struct_tostring(obj: *mut c_void) -> Option<AnyValue> {
+    let flags = unsafe { (obj.cast::<u8>().add(6) as *const u16).read() };
+    if flags & torajs_rc::FLAG_ERROR == 0 {
+        return None;
+    }
+    let s = unsafe { __torajs_error_to_string(obj.cast::<u8>()) };
+    Some(unsafe { __torajs_anyv_box_pointer(s as *mut c_void) })
 }
 
 /// chunk D-1 — `hasOwnProperty` / `propertyIsEnumerable` universal

@@ -25,3 +25,12 @@ console.log((new D()).toString());
 // gated on Error-derived class receivers only).
 console.log((255).toString(16));
 console.log(true.toString());
+// any-lane: an Error boxed as `any`, and Error.prototype.toString.call
+// — both route through the runtime any method dispatcher, which now
+// answers §20.5.3.4 for a FLAG_ERROR receiver instead of "[object
+// Object]". Object.prototype.toString.call keeps its "[object Error]"
+// badge (a distinct method).
+const ea: any = new Error("boxed");
+console.log(ea.toString());
+console.log(Error.prototype.toString.call(new TypeError("via-call")));
+console.log(Object.prototype.toString.call(new RangeError("badge")));

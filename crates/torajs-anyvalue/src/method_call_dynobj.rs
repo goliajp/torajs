@@ -441,6 +441,16 @@ unsafe fn object_proto_fallback(
             return out;
         }
         if mid == ANY_METHOD_TO_STRING {
+            // Error.prototype.toString (§20.5.3.4) — a FLAG_ERROR
+            // struct answers `name: message` (matching the SSA
+            // typed-tier lowering), not the "[object Object]" badge.
+            // After the own-property probe, so a monkey-patched own
+            // `toString` still wins.
+            if is_struct
+                && let Some(v) = crate::method_call_object_proto::error_struct_tostring(obj)
+            {
+                return v;
+            }
             // §20.1.3.6 through the badge classifier rather than a
             // hardcoded "[object Object]": the five container
             // prototypes carry a well-known `Symbol.toStringTag`, so
