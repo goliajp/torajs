@@ -108,25 +108,10 @@ pub(crate) fn try_lower(
     }
     if m_name == "toString" {
         if is_obj {
-            // A class that declares OR inherits an own `toString` must
-            // dispatch to its `__cm_<C>__toString`, NOT the `[object
-            // Object]` default — this is the injected
-            // `Error.prototype.toString` (§20.5.3.4, declared on the
-            // root `Error` and inherited by every NativeError subclass)
-            // and any user class overriding toString. `toString` is a
-            // universal-method name, so unlike an ordinary inherited
-            // call (`sub.greet()`) desugar never rewrites the call site
-            // — we resolve the nearest ancestor's `__cm_<A>__toString`
-            // here and emit the static call directly.
-            if let Some(cname) = crate::ssa_lower_member_obj_field::class_name_of_expr(ctx, recv_id)
-                && let Some(op) = try_dispatch_class_tostring(ctx, &cname, recv_op, args)
-            {
-                return Some(op);
-            }
             // S304 — lower-and-drop trailing args per S272 idiom so
             // step()-style side-effect exprs fire (toString is 0-useful
-            // on a struct instance with no own toString; "[object
-            // Object]" const independent of args, ES §19.1.3.6).
+            // on struct instance; "[object Object]" const independent
+            // of args).
             for &a in args.iter() {
                 let _ = ctx.lower_expr(a);
             }
@@ -161,42 +146,6 @@ pub(crate) fn try_lower(
         let _ = ctx.lower_expr(a);
     }
     Some(Operand::ConstBool(false))
-}
-
-/// Dispatch `recv.toString()` to the nearest `__cm_<C>__toString` in the
-/// receiver class's ancestor chain (self first), emitting the static
-/// call with the already-lowered `recv_op` as the receiver arg. Trailing
-/// args are lowered-and-dropped (§20.5.3.4 toString ignores arguments).
-/// Returns `None` when no class in the chain declares an own `toString`
-/// (the caller then folds to the `[object Object]` default) — in that
-/// case no args are lowered here, so the caller's fold lowers them once.
-fn try_dispatch_class_tostring(
-    ctx: &mut LowerCtx<'_>,
-    cname: &str,
-    recv_op: Operand,
-    args: &[ExprId],
-) -> Option<Operand> {
-    let mut cur = Some(cname.to_string());
-    while let Some(c) = cur {
-        let fn_name = format!("__cm_{c}__toString");
-        if let Some(&fid) = ctx.fn_table.get(&fn_name) {
-            // S304 — lower-and-drop trailing args (toString is 0-arg).
-            for &a in args.iter() {
-                let _ = ctx.lower_expr(a);
-            }
-            let ret_ty = ctx.f_ret_type_hint(fid);
-            let cur_block = ctx.cur_block;
-            let v = ctx
-                .f
-                .append_inst(cur_block, InstKind::Call(fid, vec![recv_op]), ret_ty, None);
-            if ctx.may_throw_fns.contains(&fn_name) {
-                ctx.emit_throw_check(None);
-            }
-            return Some(Operand::Value(v));
-        }
-        cur = ctx.ast.class_parents.get(&c).and_then(|p| p.clone());
-    }
-    None
 }
 
 /// Emit `obj.hasOwnProperty(k)` / `obj.propertyIsEnumerable(k)` on a
