@@ -83,6 +83,31 @@ pub(crate) fn run(
             if !fields.iter().any(|(_, e)| objlit_method_exprs.contains(e)) {
                 continue;
             }
+            // Only a method that actually REFERENCES `this` changes
+            // shape. `free_vars_of_arrow` already answered that question:
+            // pass-2 rewrote the body's `this` to a bare `__this` Ident,
+            // so it is sitting in the capture list.
+            //
+            // This is what keeps the blast radius at zero. A method that
+            // never says `this` is ABI-identical to a plain closure
+            // field, and plenty of code hands such a closure to consumers
+            // that know nothing about receivers — most sharply
+            // `Object.defineProperty(o, k, { get() {..}, set(v) {..} })`,
+            // whose descriptor IS an object literal with method
+            // shorthands, and whose accessor-define path pulls the
+            // closure straight out of the field. Giving those a `__this`
+            // silently shifted every argument (a setter fixture started
+            // storing NaN).
+            let uses_this = |feid: &ExprId| {
+                matches!(&view[feid.0 as usize],
+                    Expr::Closure { captures, .. } if captures.iter().any(|c| c == "__this"))
+            };
+            if !fields
+                .iter()
+                .any(|(_, e)| objlit_method_exprs.contains(e) && uses_this(e))
+            {
+                continue;
+            }
             let objlit_ty = format!("__ObjLit_{next}");
             next += 1;
 
@@ -99,7 +124,7 @@ pub(crate) fn run(
             let mut td_fields: Vec<(String, String)> = Vec::new();
             let mut method_names: Vec<String> = Vec::new();
             for (fname, feid) in fields {
-                if objlit_method_exprs.contains(feid) {
+                if objlit_method_exprs.contains(feid) && uses_this(feid) {
                     let Expr::Closure { fn_name, .. } = &view[feid.0 as usize] else {
                         // Not lifted (`lift_arrow_fns` runs first, so
                         // this shouldn't happen). Leave it be rather
@@ -116,6 +141,9 @@ pub(crate) fn run(
                     });
                     continue;
                 }
+                // Data field, or a `this`-free method — the latter keeps
+                // the plain closure-slot ABI, so its ann comes from the
+                // same sniffer as any other fn-valued field.
                 let ann = infer_expr_ann_with(view, *feid, &bind_params, outer_binds, fn_sigs)
                     .unwrap_or_else(|| "any".to_string());
                 td_fields.push((fname.clone(), super::retag_field_fn_ann(&ann)));

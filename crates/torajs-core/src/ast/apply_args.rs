@@ -22,16 +22,38 @@
 use super::{Ast, Expr, ExprId, Param, Stmt};
 use std::collections::HashMap;
 
+/// Peel a FnDecl's hidden leading params, leaving the user-facing ones.
+///
+/// A lifted closure leads with `__env`. An object-literal method (RFC
+/// 20260714-objlit-accessor blade 1) leads with `__env, __this` — the
+/// Member-call path supplies the receiver, so no call site counts it and
+/// neither may the default / rest tables.
+///
+/// A CLASS method (`__cm_C__M`) leads with a bare `__this` and NO
+/// `__env`, and its consumer below peels that itself (`defaults[1..]`).
+/// So `__this` is only hidden here when it sits BEHIND `__env` —
+/// stripping a leading one too would peel it twice and eat a real user
+/// param ("expected 2 argument(s), got 1").
+fn peel_hidden_params(params: &[Param]) -> &[Param] {
+    if !params.first().is_some_and(|p| p.name == "__env") {
+        return params;
+    }
+    let rest = &params[1..];
+    if rest.first().is_some_and(|p| p.name == "__this") {
+        return &rest[1..];
+    }
+    rest
+}
+
 /// Map every FnDecl with at least one defaulted param to its
-/// user-param default list (closure `__env` first param peeled).
+/// user-param default list (hidden leading params peeled).
 /// Shared between `apply_default_args` (call-site padding) and
 /// `apply_spread_args` (defaulted-slot ternary expansion).
 pub(crate) fn collect_fn_defaults(ast: &Ast) -> HashMap<String, Vec<Option<ExprId>>> {
     let mut fn_defaults: HashMap<String, Vec<Option<ExprId>>> = HashMap::new();
     for s in &ast.stmts {
         if let Stmt::FnDecl { name, params, .. } = s {
-            let is_closure = params.first().is_some_and(|p| p.name == "__env");
-            let user_params: &[Param] = if is_closure { &params[1..] } else { params };
+            let user_params: &[Param] = peel_hidden_params(params);
             if user_params.iter().any(|p| p.default.is_some()) {
                 fn_defaults.insert(
                     name.clone(),
@@ -273,8 +295,7 @@ pub fn apply_rest_args(ast: &mut Ast) {
     let mut fn_rest: HashMap<String, (usize, String)> = HashMap::new();
     for s in &ast.stmts {
         if let Stmt::FnDecl { name, params, .. } = s {
-            let is_closure = params.first().is_some_and(|p| p.name == "__env");
-            let user_params: &[Param] = if is_closure { &params[1..] } else { params };
+            let user_params: &[Param] = peel_hidden_params(params);
             if let Some(last) = user_params.last() {
                 if last.is_rest {
                     let n_required = user_params.len() - 1;
