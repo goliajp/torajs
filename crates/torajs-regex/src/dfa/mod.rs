@@ -121,12 +121,130 @@ pub enum DfaEligibility {
     /// back `"x"` instead of `""`). Pike-VM-only until a
     /// DFA-existence + Pike-boundary split lands (L3b).
     HasLazyQuantifier,
+    /// A prefix-overlapping alternation — a higher-priority branch is a
+    /// fixed-length atom prefix of a lower-priority branch (`1|12`,
+    /// `a|ab`, `\d|\d\d`), so ECMAScript §22.2 leftmost-first and the
+    /// DFA's leftmost-longest disagree (`/1|12/.exec("123")` came back
+    /// "12" instead of "1"). Same DFA-powerset-erases-thread-priority
+    /// root as [`HasLazyQuantifier`]; the Pike VM is leftmost-first
+    /// correct, so Pike-VM-only until a priority-ordered DFA lands
+    /// (L3b — the unified "DFA priority awareness" item that also
+    /// reclaims the lazy + multiline-`$` faces).
+    HasPrefixAlt,
 }
 
 impl DfaEligibility {
     pub fn is_eligible(self) -> bool {
         matches!(self, DfaEligibility::Eligible)
     }
+}
+
+/// A single fixed-position matcher at the head of an alternation branch
+/// — as far as a positional prefix comparison can reach.
+enum Atom {
+    Ch(u8),
+    Cls(crate::charclass::CharClass),
+    /// `.` — overlaps every other atom, so treated as compatible with
+    /// anything (over-approximates: only ever costs the DFA fast path,
+    /// never correctness).
+    Any,
+}
+
+impl Atom {
+    /// Whether the two atoms can match the SAME input char at a given
+    /// position — the condition under which branch priority becomes
+    /// observable. Conservative: unequal classes are treated as
+    /// disjoint (a rare `[ab]|[abc]`-style overlap keeps the DFA;
+    /// recorded L3b).
+    fn overlaps(&self, other: &Atom) -> bool {
+        match (self, other) {
+            (Atom::Any, _) | (_, Atom::Any) => true,
+            (Atom::Ch(a), Atom::Ch(b)) => a == b,
+            (Atom::Cls(a), Atom::Cls(b)) => a == b,
+            _ => false,
+        }
+    }
+}
+
+/// The leading fixed-position atoms of an alternation branch, stopping
+/// at the first non-atomic node (quantifier / group / anchor / nested
+/// alt / backref). `complete` is true when EVERY node of the branch was
+/// an atom — i.e. the branch matches exactly this atom string, which is
+/// what lets a shorter complete branch be a genuine prefix of a longer
+/// one.
+struct LeadingAtoms {
+    atoms: alloc::vec::Vec<Atom>,
+    complete: bool,
+}
+
+fn atom_of(node: &Node) -> Option<Atom> {
+    match node.kind {
+        NodeKind::Char => Some(Atom::Ch(node.ch)),
+        NodeKind::Class => Some(Atom::Cls(node.cc.clone())),
+        NodeKind::Any => Some(Atom::Any),
+        _ => None,
+    }
+}
+
+fn leading_atoms(node: &Node) -> LeadingAtoms {
+    if let Some(a) = atom_of(node) {
+        return LeadingAtoms {
+            atoms: alloc::vec![a],
+            complete: true,
+        };
+    }
+    if matches!(node.kind, NodeKind::Concat) {
+        let mut atoms = alloc::vec::Vec::new();
+        for kid in node.kids.iter() {
+            match atom_of(kid) {
+                Some(a) => atoms.push(a),
+                None => {
+                    return LeadingAtoms {
+                        atoms,
+                        complete: false,
+                    };
+                }
+            }
+        }
+        return LeadingAtoms {
+            atoms,
+            complete: true,
+        };
+    }
+    LeadingAtoms {
+        atoms: alloc::vec::Vec::new(),
+        complete: false,
+    }
+}
+
+/// True iff some higher-priority branch (earlier in source order) is a
+/// complete atom prefix of a lower-priority branch — the exact case
+/// where leftmost-first (ES §22.2) and the DFA's leftmost-longest
+/// disagree. A complete shorter branch that positionally overlaps the
+/// head of a longer branch will win under leftmost-first (the DFA would
+/// wrongly extend to the longer match). Prefix-unrelated alternations
+/// (`cat|dog`, `POST|PUT`) are left on the DFA fast path.
+fn alt_forces_leftmost_first(alt: &Node) -> bool {
+    let branches: alloc::vec::Vec<LeadingAtoms> =
+        alt.kids.iter().map(|k| leading_atoms(k)).collect();
+    for i in 0..branches.len() {
+        let hi = &branches[i];
+        if !hi.complete || hi.atoms.is_empty() {
+            continue;
+        }
+        for lo in branches.iter().skip(i + 1) {
+            if hi.atoms.len() <= lo.atoms.len()
+                && hi
+                    .atoms
+                    .iter()
+                    .zip(lo.atoms.iter())
+                    .all(|(x, y)| x.overlaps(y))
+            {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 /// Walk `root` recursively, returning the first blocker encountered or
@@ -148,6 +266,9 @@ pub fn analyze(root: &Node) -> DfaEligibility {
     }
     if root.lazy {
         return DfaEligibility::HasLazyQuantifier;
+    }
+    if matches!(root.kind, NodeKind::Alt) && alt_forces_leftmost_first(root) {
+        return DfaEligibility::HasPrefixAlt;
     }
     if let Some(child) = root.child.as_ref() {
         let r = analyze(child);
