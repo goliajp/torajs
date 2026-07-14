@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-14T14:23:38.016Z",
+  "generatedAt": "2026-07-14T15:52:14.421Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 91.61
   },
   "torajs": {
-    "commit": "956f836d",
-    "commitSubject": "feat: serialize an object-literal accessor through [[Get]]",
+    "commit": "bc807532",
+    "commitSubject": "refactor: carve the typeof namespace classification into a sibling",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,26 @@
   },
   "commits": [
     {
+      "hash": "bc807532",
+      "subject": "refactor: carve the typeof namespace classification into a sibling"
+    },
+    {
+      "hash": "f60239db",
+      "subject": "fix: release the owned any-member read a typeof consumes"
+    },
+    {
+      "hash": "d6e6b4c3",
+      "subject": "feat: enumerate an object-literal accessor's value through [[Get]]"
+    },
+    {
+      "hash": "aaf92b3f",
+      "subject": "feat: reach a struct accessor through an any receiver"
+    },
+    {
+      "hash": "cd0f3caf",
+      "subject": "chore: hardev dashboard snapshot at rotation 99 close"
+    },
+    {
       "hash": "956f836d",
       "subject": "feat: serialize an object-literal accessor through [[Get]]"
     },
@@ -739,47 +759,38 @@
     {
       "hash": "c2fdaf65",
       "subject": "feat: run object-literal getters and setters"
-    },
-    {
-      "hash": "23576652",
-      "subject": "fix: keep the object-literal `__this` receiver out of the paths that never pass one"
-    },
-    {
-      "hash": "bea95b71",
-      "subject": "feat: bind `this` in an object-literal method"
-    },
-    {
-      "hash": "9c28d29b",
-      "subject": "fix: intern a struct fn-field slot as a closure in every lane that mints its type"
-    },
-    {
-      "hash": "0de07de2",
-      "subject": "chore: hardev dashboard snapshot at rotation 97 close"
-    },
-    {
-      "hash": "891a14c7",
-      "subject": "chore: test262 sweep at 688e3561 - passTotal 11554 (+54), bug 1062"
     }
   ],
-  "headSha": "956f836d",
+  "headSha": "bc807532",
   "autorun": {
-    "total": 405,
+    "total": 406,
     "baselineTarget": 10,
-    "bySelf": 400,
+    "bySelf": 401,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784034236-2963",
-      "at": "2026-07-14T13:03:56Z",
-      "ts": 1784034236,
+      "rotationId": "r-1784039653-2b37",
+      "at": "2026-07-14T14:34:13Z",
+      "ts": 1784039653,
       "trigger": "self",
-      "prevHead": "ab854544",
-      "handoffSha": "sha256:81f8afc11e64009550f539f04cbfd638330678ad19e2b9f9f7558382b2ffafc1",
-      "handoffAgeSec": 116,
+      "prevHead": "cd0f3caf",
+      "handoffSha": "sha256:2ba14827638ac26c6b46322af94f0e68d82080266ac5313c3bd6d606c710199c",
+      "handoffAgeSec": 0,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784039653-2b37",
+        "at": "2026-07-14T14:34:13Z",
+        "ts": 1784039653,
+        "trigger": "self",
+        "prevHead": "cd0f3caf",
+        "handoffSha": "sha256:2ba14827638ac26c6b46322af94f0e68d82080266ac5313c3bd6d606c710199c",
+        "handoffAgeSec": 0,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784034236-2963",
         "at": "2026-07-14T13:03:56Z",
@@ -876,17 +887,6 @@
         "prevHead": "9495a31f",
         "handoffSha": "sha256:29fb8967c6eaa7282ffbce7a443fb7d024ec0a2f9fdec12cd7871789f4c3129f",
         "handoffAgeSec": 10,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1783935919-1633",
-        "at": "2026-07-13T09:45:19Z",
-        "ts": 1783935919,
-        "trigger": "self",
-        "prevHead": "3c2a15fb",
-        "handoffSha": "sha256:0c22999ca4d003ef0c050fdb4578e776bf643e9a9d0bb6b83a25509b10ac3848",
-        "handoffAgeSec": 7,
         "conformanceBefore": null,
         "commitsInSession": null
       }
