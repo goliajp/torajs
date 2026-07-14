@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-14T16:01:07.427Z",
+  "generatedAt": "2026-07-14T18:11:14.999Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-14T23:15:34Z",
-    "headSha": "96f42cd5",
-    "elapsedSec": 499.6,
+    "ranAt": "2026-07-14T17:58:15Z",
+    "headSha": "08c180b2",
+    "elapsedSec": 506.78,
     "workers": 8,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 6966,
+    "pass": 6968,
     "passNoOracle": 149,
     "passNegative": 4445,
-    "passTotal": 11560,
+    "passTotal": 11562,
     "bug": 1059,
-    "incompatible": 40555,
+    "incompatible": 40553,
     "bunSkip": 12565,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 12619,
+    "trAccepted": 12621,
     "passRateInScope": 21.74,
     "passRateTrAccepted": 91.61
   },
   "torajs": {
-    "commit": "c3438806",
-    "commitSubject": "feat: write a struct accessor through an any receiver",
+    "commit": "50b38938",
+    "commitSubject": "fix: give the three primitive prototypes their internal slot",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "50b38938",
+      "subject": "fix: give the three primitive prototypes their internal slot"
+    },
+    {
+      "hash": "4efa29fc",
+      "subject": "chore: archive the test262 sweep baseline at 08c180b2"
+    },
+    {
+      "hash": "08c180b2",
+      "subject": "fix: let a class name survive the three places that assumed a struct"
+    },
+    {
+      "hash": "edc22c73",
+      "subject": "fix: give a class its own identity in the type system"
+    },
+    {
+      "hash": "195af14d",
+      "subject": "fix: reach Object.assign accessors through their own halves"
+    },
+    {
+      "hash": "44ec3635",
+      "subject": "chore: hardev dashboard snapshot at rotation 100 close"
+    },
+    {
       "hash": "c3438806",
       "subject": "feat: write a struct accessor through an any receiver"
     },
@@ -735,51 +759,49 @@
     {
       "hash": "aaf92b3f",
       "subject": "feat: reach a struct accessor through an any receiver"
-    },
-    {
-      "hash": "cd0f3caf",
-      "subject": "chore: hardev dashboard snapshot at rotation 99 close"
-    },
-    {
-      "hash": "956f836d",
-      "subject": "feat: serialize an object-literal accessor through [[Get]]"
-    },
-    {
-      "hash": "96f42cd5",
-      "subject": "fix: an accessor is an own property for hasOwnProperty / in"
-    },
-    {
-      "hash": "488139f1",
-      "subject": "feat: reflect an object-literal accessor as an accessor"
-    },
-    {
-      "hash": "05385ac2",
-      "subject": "fix: enumerate an object-literal accessor under its property name"
-    },
-    {
-      "hash": "ab854544",
-      "subject": "chore: hardev dashboard snapshot at rotation 98 close"
     }
   ],
-  "headSha": "c3438806",
+  "headSha": "50b38938",
   "autorun": {
-    "total": 406,
+    "total": 408,
     "baselineTarget": 10,
-    "bySelf": 401,
+    "bySelf": 403,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784039653-2b37",
-      "at": "2026-07-14T14:34:13Z",
-      "ts": 1784039653,
+      "rotationId": "r-1784052659-2bec",
+      "at": "2026-07-14T18:10:59Z",
+      "ts": 1784052659,
       "trigger": "self",
-      "prevHead": "cd0f3caf",
-      "handoffSha": "sha256:2ba14827638ac26c6b46322af94f0e68d82080266ac5313c3bd6d606c710199c",
-      "handoffAgeSec": 0,
+      "prevHead": "50b38938",
+      "handoffSha": "sha256:a015d7c428750850e2c39d5a534a8621cc547ceefda59a22bc3890c8ffc42db9",
+      "handoffAgeSec": 7691,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784052659-2bec",
+        "at": "2026-07-14T18:10:59Z",
+        "ts": 1784052659,
+        "trigger": "self",
+        "prevHead": "50b38938",
+        "handoffSha": "sha256:a015d7c428750850e2c39d5a534a8621cc547ceefda59a22bc3890c8ffc42db9",
+        "handoffAgeSec": 7691,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
+      {
+        "rotationId": "r-1784045058-20fb",
+        "at": "2026-07-14T16:04:18Z",
+        "ts": 1784045058,
+        "trigger": "self",
+        "prevHead": "44ec3635",
+        "handoffSha": "sha256:a015d7c428750850e2c39d5a534a8621cc547ceefda59a22bc3890c8ffc42db9",
+        "handoffAgeSec": 90,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784039653-2b37",
         "at": "2026-07-14T14:34:13Z",
@@ -865,28 +887,6 @@
         "prevHead": "c3f3218c",
         "handoffSha": "sha256:3840acdf0f5db09b3d6ce6b03ea529c097ee542800257cd3c39be31ba85c00a8",
         "handoffAgeSec": 8,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1783956740-7633",
-        "at": "2026-07-13T15:32:20Z",
-        "ts": 1783956740,
-        "trigger": "self",
-        "prevHead": "ac351f88",
-        "handoffSha": "sha256:c7ef41fc04806665e845e800aedb873f42217fafac1ab72fcd8b10c8f5e50db3",
-        "handoffAgeSec": 53,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1783941647-3dfb",
-        "at": "2026-07-13T11:20:47Z",
-        "ts": 1783941647,
-        "trigger": "self",
-        "prevHead": "9495a31f",
-        "handoffSha": "sha256:29fb8967c6eaa7282ffbce7a443fb7d024ec0a2f9fdec12cd7871789f4c3129f",
-        "handoffAgeSec": 10,
         "conformanceBefore": null,
         "commitsInSession": null
       }
