@@ -16,6 +16,10 @@
 //!   ArrayIterator re-reads length live; mid-loop pushes are
 //!   visited). Strings step per UTF-16 code unit — same documented
 //!   deviation from per-code-point iteration as the RFC's S5 note.
+//! - **`Tag::Map` / `Tag::Set`** — the collection itself, not one of
+//!   its iterator cells. ES §23.1.4 / §24.2.5.1: a Map's default
+//!   iterator is `entries()`, a Set's is `values()`. Mint it once
+//!   into `iter_slot` and step it through the MapIter lane below.
 //! - **`Tag::MapIter` / `Tag::ArrIter`** — the cell carries its own
 //!   cursor; route through the `*_iter_step` kernels. Step payloads
 //!   come out borrowed (ENTRIES pair arrays pre-decremented to 0),
@@ -57,6 +61,14 @@ unsafe extern "C" {
     fn __torajs_map_iter_step(p: *mut c_void, out_tag: *mut i64, out_payload: *mut i64) -> i64;
     /// torajs-arr — ArrIter cursor advance (same out-pair contract).
     fn __torajs_arr_iter_step(p: *mut c_void, out_tag: *mut i64, out_payload: *mut i64) -> i64;
+    /// torajs-collections — mint an ENTRIES-kind MapIter (a Map's
+    /// default iterator). Answers a fresh cell at rc 1 and rc_inc's
+    /// the source Map.
+    fn __torajs_map_iter_create_entries(map_p: *mut c_void) -> *mut c_void;
+    /// torajs-collections — mint a KEYS-kind MapIter (a Set's default
+    /// iterator; Set shares the Map layout and parks `undefined` in
+    /// every value slot, so keys == values). Same rc contract.
+    fn __torajs_map_iter_create_keys(map_p: *mut c_void) -> *mut c_void;
     /// torajs-throw — record a pending catchable TypeError; returns
     /// normally (caller's throw-check propagates).
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
@@ -102,6 +114,32 @@ unsafe fn call_obj_method_0(obj: *mut c_void, name: &[u8]) -> Option<AnyValue> {
     // `__yield_arg`) materializes its own default.
     let argv: [u64; 0] = [];
     Some(unsafe { invoke_boxed(obj, adapter as u64, argv.as_ptr(), 0) })
+}
+
+/// The `Tag::Map` / `Tag::Set` lane of [`__torajs_any_iter_next`] —
+/// derive the collection's default iterator once and answer it, so the
+/// MapIter lane steps it from then on. The mint answers a cell at rc 1
+/// and `box_from_pair` adds no stake of its own, so the box in
+/// `iter_slot` IS that single reference — the caller's to release at
+/// loop exit, exactly like the class-instance lane's.
+///
+/// # Safety
+/// `recv` is a live `Tag::Map` / `Tag::Set` heap cell; `iter_slot` is a
+/// valid writable pointer holding `undefined` or a previously derived
+/// MapIter box.
+unsafe fn map_set_derive_iter(recv: AnyValue, is_map: bool, iter_slot: *mut AnyValue) -> AnyValue {
+    unsafe {
+        if *iter_slot == VALUE_UNDEFINED {
+            let src = as_void_ptr(recv) as *mut c_void;
+            let it = if is_map {
+                __torajs_map_iter_create_entries(src)
+            } else {
+                __torajs_map_iter_create_keys(src)
+            };
+            *iter_slot = __torajs_anyv_box_from_pair(AnySlotTag::Heap as i64, it as i64);
+        }
+        *iter_slot
+    }
 }
 
 /// The `Tag::Obj` lane of [`__torajs_any_iter_next`] — see the module
@@ -206,6 +244,16 @@ pub unsafe extern "C" fn __torajs_any_iter_next(
             *out = __torajs_any_index_get(recv, idx);
         }
         return 1;
+    }
+    // A Map / Set receiver is not itself a cursor — derive its default
+    // iterator into `iter_slot` on the first step and route every step
+    // (this one included) through the MapIter lane below.
+    let mut recv = recv;
+    let mut cell_tag = cell_tag;
+    if matches!(cell_tag, Some(t) if t == Tag::Map as u16 || t == Tag::Set as u16) {
+        let is_map = cell_tag == Some(Tag::Map as u16);
+        recv = unsafe { map_set_derive_iter(recv, is_map, iter_slot) };
+        cell_tag = Some(Tag::MapIter as u16);
     }
     type StepFn = unsafe extern "C" fn(*mut c_void, *mut i64, *mut i64) -> i64;
     let step: Option<StepFn> = match cell_tag {
