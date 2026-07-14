@@ -43,12 +43,23 @@ unsafe extern "C" {
     // Same link-time-resolved, zero-Cargo-dep pattern as the unbox
     // helpers above.
     fn __torajs_any_prop_has(recv: u64, key: *const c_void) -> i64;
+    // torajs-anyvalue — non-zero when the cell is a builtin
+    // `<Ctor>.prototype` singleton owning `key` as an interned family
+    // method (it lives in the method-cell table, not in any entry
+    // table, yet is an own property per spec). -1/0 for every other
+    // receiver.
+    fn __torajs_builtin_proto_own_method_cell(proto: *const c_void, key: *const c_void) -> u64;
 }
 
 // Offset of the i64 `len` slot inside the Array heap block — matches
 // `ARR_LEN_OFF = 8` in ssa_lower.rs (8 bytes after the universal
 // HeapHeader).
 const ARR_LEN_OFF: usize = 8;
+
+// Offset of the inline props-dynobj slot inside the Array heap block
+// (`torajs_arr::layout::ARR_PROPS_OFF`) — NULL until the array takes
+// its first non-index property.
+const ARR_PROPS_OFF: usize = 24;
 
 // Tag value ssa_lower emits for NaN-boxed heap pointers (mirrors
 // `ANY_TAG_HEAP = 4` from torajs-anyvalue / ssa_lower).
@@ -201,11 +212,28 @@ pub unsafe extern "C" fn __torajs_in_op_any_str(v: i64, key: *const u8) -> bool 
         let r = unsafe { __torajs_dynobj_has(ptr, key) };
         return r != 0;
     }
-    if type_tag == TAG_ARR
-        && let Some(idx) = unsafe { parse_canonical_array_index(key) }
-    {
-        let len = unsafe { *((ptr as *const u8).add(ARR_LEN_OFF) as *const i64) };
-        return idx >= 0 && idx < len;
+    if type_tag == TAG_ARR {
+        if let Some(idx) = unsafe { parse_canonical_array_index(key) } {
+            let len = unsafe { *((ptr as *const u8).add(ARR_LEN_OFF) as *const i64) };
+            return idx >= 0 && idx < len;
+        }
+        // §10.4.2 — `length` is an own property of every array…
+        let (bytes, len) = unsafe { str_view(key) };
+        if unsafe { core::slice::from_raw_parts(bytes, len) } == b"length" {
+            return true;
+        }
+        // …and a non-index write (`xs.foo = 1`) lands in the side
+        // props dynobj, which the arm never looked at: `"foo" in xs`
+        // answered false for a property `xs.foo` reads back fine.
+        let props = unsafe { *((ptr as *const u8).add(ARR_PROPS_OFF) as *const *const c_void) };
+        if !props.is_null() && unsafe { __torajs_dynobj_has(props, key) } != 0 {
+            return true;
+        }
+        // `Array.prototype` is itself an Arr (ES §23.1.3), so its
+        // interned family methods have to answer here — `"map" in
+        // Array.prototype` is true. Ordinary arrays are not any
+        // builtin's prototype and fall out at false.
+        return unsafe { __torajs_builtin_proto_own_method_cell(ptr, key as *const c_void) } != 0;
     }
     if type_tag == TAG_OBJ {
         // A static-layout struct owns its declared fields — and, since
@@ -264,6 +292,17 @@ unsafe fn __torajs_dynobj_has(_obj: *const c_void, _key: *const u8) -> i32 {
     // Tests that exercise the DynObj path set this thread-local
     // ahead of the call.
     DYNOBJ_HAS_RESULT.with(|r| r.get())
+}
+
+#[cfg(test)]
+unsafe fn __torajs_builtin_proto_own_method_cell(
+    _proto: *const c_void,
+    _key: *const c_void,
+) -> u64 {
+    // Only `Array.prototype` (an Arr singleton the runtime mints at
+    // link time) ever answers non-zero here; the tag dispatch under
+    // test never constructs one. Conformance covers the real probe.
+    0
 }
 
 #[cfg(test)]

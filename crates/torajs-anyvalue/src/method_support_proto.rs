@@ -23,6 +23,37 @@ unsafe extern "C" {
     /// torajs-dynobj — own-property probe pair ((5, 0) = absent).
     fn __torajs_dynobj_get_tag(obj: *const c_void, key: *const c_void) -> u64;
     fn __torajs_dynobj_get_value(obj: *const c_void, key: *const c_void) -> u64;
+    /// torajs-arr — the same pair against an array's side props
+    /// (`Array.prototype` is an Arr cell, so its monkey-patches land
+    /// there instead of in a dynobj).
+    fn __torajs_arrprops_get_tag(arr: *mut c_void, key: *const c_void) -> u64;
+    fn __torajs_arrprops_get_value(arr: *mut c_void, key: *const c_void) -> u64;
+}
+
+/// Own-property probe pair against a builtin prototype, whichever
+/// cell shape backs it — `Array.prototype` is an Arr (ES §23.1.3),
+/// the rest are dynobjs. Reading an Arr through the dynobj probe
+/// would walk an entry table that isn't there.
+unsafe fn proto_own_probe(proto: *mut c_void, key: *const c_void) -> (i64, i64) {
+    // HeapHeader: rc @ +0 (u32), type_tag @ +4 (u16).
+    let cell_tag = unsafe { proto.cast::<u8>().add(4).cast::<u16>().read() };
+    let is_arr = cell_tag == torajs_rc::Tag::Arr as u16;
+    let (tag, value) = if is_arr {
+        unsafe {
+            (
+                __torajs_arrprops_get_tag(proto, key),
+                __torajs_arrprops_get_value(proto, key),
+            )
+        }
+    } else {
+        unsafe {
+            (
+                __torajs_dynobj_get_tag(proto, key),
+                __torajs_dynobj_get_value(proto, key),
+            )
+        }
+    };
+    (tag as i64, value as i64)
 }
 
 /// The builtin-proto tag's method surface — tag order is locked to
@@ -230,9 +261,8 @@ pub unsafe extern "C" fn __torajs_builtin_proto_method_value(
     }
     let proto = unsafe { torajs_rc::builtin_proto::__torajs_get_builtin_prototype(tag) };
     if !proto.is_null() {
-        let dtag = unsafe { __torajs_dynobj_get_tag(proto, key) } as i64;
+        let (dtag, dval) = unsafe { proto_own_probe(proto, key) };
         if (0..=4).contains(&dtag) {
-            let dval = unsafe { __torajs_dynobj_get_value(proto, key) } as i64;
             // The probe pair is a borrow — the returned box owns
             // its own reference.
             crate::payload_rc_inc(dtag, dval);

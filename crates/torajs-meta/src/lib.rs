@@ -34,6 +34,7 @@ pub mod obj_own_keys;
 pub mod obj_own_values;
 pub mod own_names;
 pub mod reflect;
+pub mod reflect_descriptors;
 pub mod str_descriptor;
 pub mod struct_enum;
 pub mod struct_print;
@@ -175,6 +176,14 @@ pub unsafe extern "C" fn __torajs_builtin_proto_own_accessor_getter(
 pub unsafe extern "C" fn __torajs_get_builtin_prototype(_tag: i64) -> *mut core::ffi::c_void {
     panic!(
         "torajs-meta test stub: __torajs_get_builtin_prototype should not be called from cargo test"
+    );
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_builtin_proto_tag_of(_p: *const core::ffi::c_void) -> i64 {
+    panic!(
+        "torajs-meta test stub: __torajs_builtin_proto_tag_of should not be called from cargo test"
     );
 }
 

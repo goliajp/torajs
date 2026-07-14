@@ -31,11 +31,24 @@ use core::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 #[cfg(not(test))]
 unsafe extern "C" {
     fn __torajs_dynobj_alloc() -> *mut c_void;
+    fn __torajs_arr_alloc_any(cap: u64) -> *mut u8;
 }
 
 /// Number of builtin prototypes ssa_lower can request. Order is
 /// fixed by the tag constants ssa_lower emits — never reorder.
 pub const NUM_BUILTIN_PROTOS: usize = 14;
+
+/// `Array.prototype`'s slot. ES §23.1.3 makes it an *Array exotic
+/// object* (an empty one) rather than an ordinary object, so its
+/// singleton is a real `Arr` cell — that is what makes
+/// `Array.isArray(Array.prototype)` true, `Array.prototype.length`
+/// 0, and `Array.prototype.toString()` "" (an empty join) instead of
+/// the inherited `[object Object]`. Every consumer reaching the cell
+/// through the Any lane then routes on its heap tag and lands in the
+/// array arm for free; the ones that read a prototype's own
+/// properties branch on the cell shape (`method_support_proto`,
+/// `prop_has`).
+pub const ARRAY_PROTO_TAG: usize = 2;
 
 // One AtomicUsize slot per builtin tag. Initialized to 0 (= "not yet
 // allocated"); `__torajs_get_builtin_prototype` CAS-installs the
@@ -57,11 +70,11 @@ static SLOTS: [AtomicUsize; NUM_BUILTIN_PROTOS] = [SLOT_INIT; NUM_BUILTIN_PROTOS
 /// of these via `Operand::ConstI64(<tag>)`. Out-of-range `tag`
 /// returns NULL (defensive — ssa_lower should never emit it).
 ///
-/// First call per tag allocates a fresh dynobj via
-/// `__torajs_dynobj_alloc()` and CAS-installs its address into the
-/// slot; subsequent calls return the cached pointer so
-/// `<Ctor>.prototype === <Ctor>.prototype` is `true` (spec
-/// singleton identity).
+/// First call per tag allocates the cell the spec asks for —
+/// an empty `Arr` for [`ARRAY_PROTO_TAG`], a dynobj for the rest —
+/// and CAS-installs its address into the slot; subsequent calls
+/// return the cached pointer so `<Ctor>.prototype ===
+/// <Ctor>.prototype` is `true` (spec singleton identity).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_get_builtin_prototype(tag: i64) -> *mut c_void {
     let idx = tag as usize;
@@ -73,11 +86,15 @@ pub unsafe extern "C" fn __torajs_get_builtin_prototype(tag: i64) -> *mut c_void
     if cached != 0 {
         return cached as *mut c_void;
     }
-    // SAFETY: extern is wired to the runtime dynobj allocator
-    // (`crates/torajs-meta` / `runtime_*.c` impl) when linked into
-    // the final binary. Cargo-test builds in this crate use the
-    // unique-address stub below.
-    let fresh = unsafe { __torajs_dynobj_alloc() };
+    // SAFETY: both externs are wired to the runtime allocators
+    // (torajs-dynobj / torajs-arr) when linked into the final
+    // binary. Cargo-test builds in this crate use the unique-address
+    // stubs below.
+    let fresh = if idx == ARRAY_PROTO_TAG {
+        unsafe { __torajs_arr_alloc_any(0) as *mut c_void }
+    } else {
+        unsafe { __torajs_dynobj_alloc() }
+    };
     let fresh_addr = fresh as usize;
     match slot.compare_exchange(0, fresh_addr, Ordering::AcqRel, Ordering::Acquire) {
         Ok(_) => fresh,
@@ -161,6 +178,13 @@ pub unsafe extern "C" fn __torajs_builtin_proto_is_deleted(tag: i64, mid: i64) -
 unsafe fn __torajs_dynobj_alloc() -> *mut c_void {
     static NEXT_ADDR: AtomicUsize = AtomicUsize::new(0x1000);
     NEXT_ADDR.fetch_add(0x10, Ordering::SeqCst) as *mut c_void
+}
+
+// Same for the Array-prototype cell — the singleton logic under
+// test only cares that the address is unique and non-null.
+#[cfg(test)]
+unsafe fn __torajs_arr_alloc_any(_cap: u64) -> *mut u8 {
+    unsafe { __torajs_dynobj_alloc() as *mut u8 }
 }
 
 #[cfg(test)]

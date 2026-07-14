@@ -183,11 +183,15 @@ pub unsafe extern "C" fn __torajs_any_prop_has(recv: AnyValue, key: *const c_voi
                     .cast::<*const c_void>()
                     .read()
             };
-            if props.is_null() {
-                0
-            } else {
-                unsafe { __torajs_dynobj_has(props, key) as i64 }
+            if !props.is_null() && unsafe { __torajs_dynobj_has(props, key) } != 0 {
+                return 1;
             }
+            // `Array.prototype` is itself an Arr (ES §23.1.3), so the
+            // interned-method probe the DynObj arm runs has to reach
+            // it here too — `"map" in Array.prototype` is `true`.
+            // Ordinary arrays answer -1 from the tag lookup inside
+            // and fall out at 0.
+            unsafe { builtin_proto_method_own(ptr, key) }
         }
         Some((ptr, t)) if t == Tag::Closure as u16 => {
             // chunk C — a tombstoned virtual prop is gone until an

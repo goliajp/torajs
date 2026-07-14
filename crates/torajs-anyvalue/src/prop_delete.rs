@@ -72,33 +72,7 @@ pub unsafe extern "C" fn __torajs_any_prop_delete(recv: AnyValue, key: *const c_
                 return 0;
             }
             unsafe { __torajs_dynobj_delete(ptr, key) };
-            // RFC 20260712 chunk 3 — a builtin `<Ctor>.prototype`
-            // singleton also hides its interned family method behind
-            // the deleted-mid tombstone (the entry delete above only
-            // removes a monkey-patch shadow, if any). Idempotent.
-            let proto_tag = unsafe { torajs_rc::builtin_proto::__torajs_builtin_proto_tag_of(ptr) };
-            if proto_tag >= 0 {
-                let mid = unsafe { crate::method_value::key_method_id(key) };
-                if mid != torajs_rc::ANY_METHOD_UNKNOWN
-                    && crate::method_support::proto_tag_family_owns(proto_tag, mid)
-                {
-                    unsafe {
-                        torajs_rc::builtin_proto::__torajs_builtin_proto_mark_deleted(
-                            proto_tag, mid,
-                        )
-                    };
-                } else if let Some(amid) =
-                    unsafe { crate::method_support::proto_tag_accessor_mid(proto_tag, key) }
-                {
-                    // The non-interning `size` accessor id (C2-size)
-                    // tombstones through the same bitmask.
-                    unsafe {
-                        torajs_rc::builtin_proto::__torajs_builtin_proto_mark_deleted(
-                            proto_tag, amid,
-                        )
-                    };
-                }
-            }
+            unsafe { tombstone_proto_method(ptr, key) };
             1
         }
         Some((ptr, t)) if t == Tag::Arr as u16 => {
@@ -130,6 +104,12 @@ pub unsafe extern "C" fn __torajs_any_prop_delete(recv: AnyValue, key: *const c_
                 return 0;
             }
             unsafe { __torajs_arrprops_delete(ptr, key) };
+            // `Array.prototype` is an Arr cell (ES §23.1.3), so the
+            // tombstone the dynobj protos take above has to be taken
+            // here too — otherwise `delete Array.prototype.map` drops
+            // a monkey-patch shadow that may not exist and leaves the
+            // interned `map` answering every reader.
+            unsafe { tombstone_proto_method(ptr, key) };
             1
         }
         Some((ptr, t)) if t == Tag::Closure as u16 => {
@@ -154,6 +134,36 @@ pub unsafe extern "C" fn __torajs_any_prop_delete(recv: AnyValue, key: *const c_
         }
         Some((_, t)) if t == Tag::Obj as u16 => 0,
         _ => 1,
+    }
+}
+
+/// RFC 20260712 chunk 3 — a builtin `<Ctor>.prototype` singleton
+/// hides its interned family method behind the deleted-mid tombstone;
+/// the entry delete the callers run first only removes a monkey-patch
+/// shadow, if any. No-op on every other receiver. Idempotent.
+///
+/// Shared by the dynobj arm and the Arr one, since `Array.prototype`
+/// is an Arr cell rather than a dynobj (ES §23.1.3).
+///
+/// # Safety
+/// `ptr` is a live heap cell (compared, not dereferenced); `key` is a
+/// live Str cell.
+unsafe fn tombstone_proto_method(ptr: *mut c_void, key: *const c_void) {
+    let proto_tag = unsafe { torajs_rc::builtin_proto::__torajs_builtin_proto_tag_of(ptr) };
+    if proto_tag < 0 {
+        return;
+    }
+    let mid = unsafe { crate::method_value::key_method_id(key) };
+    if mid != torajs_rc::ANY_METHOD_UNKNOWN
+        && crate::method_support::proto_tag_family_owns(proto_tag, mid)
+    {
+        unsafe { torajs_rc::builtin_proto::__torajs_builtin_proto_mark_deleted(proto_tag, mid) };
+    } else if let Some(amid) =
+        unsafe { crate::method_support::proto_tag_accessor_mid(proto_tag, key) }
+    {
+        // The non-interning `size` accessor id (C2-size) tombstones
+        // through the same bitmask.
+        unsafe { torajs_rc::builtin_proto::__torajs_builtin_proto_mark_deleted(proto_tag, amid) };
     }
 }
 

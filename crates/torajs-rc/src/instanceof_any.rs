@@ -103,6 +103,16 @@ pub unsafe extern "C" fn __torajs_instanceof_builtin_any_tag(
     if ptr.is_null() {
         return false;
     }
+    // A builtin's own `.prototype` is never an instance of it:
+    // `instanceof` walks the receiver's [[Prototype]] chain looking
+    // for the ctor's `.prototype`, and a prototype does not appear
+    // on its own chain (its [[Prototype]] is %Object.prototype%).
+    // Tag-comparison alone would say `Array.prototype instanceof
+    // Array` is true — it is an Arr cell (ES §23.1.3), just not an
+    // instance.
+    if unsafe { crate::builtin_proto::__torajs_builtin_proto_tag_of(ptr) } >= 0 {
+        return false;
+    }
     // HeapHeader layout (torajs-rc): `{ refcount: u32@0, type_tag:
     // u16@+4, flags: u16@+6 }`. We read the u16 type_tag and
     // zero-extend to i64 for the comparison.
