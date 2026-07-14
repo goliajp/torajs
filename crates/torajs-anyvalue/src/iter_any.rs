@@ -72,6 +72,11 @@ unsafe extern "C" {
     /// torajs-throw — record a pending catchable TypeError; returns
     /// normally (caller's throw-check propagates).
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
+    /// torajs-throw — non-zero iff a throw is in flight. Every method
+    /// this module invokes runs USER code (a generator body, a custom
+    /// `next()`), so each call has to be checked before its result is
+    /// touched.
+    fn __torajs_throw_check() -> i64;
     /// torajs-structmeta — read side over `__torajs_class_layouts`
     /// (NULL for class_tag 0 / past the table).
     fn __torajs_struct_layout_lookup(class_tag: u32) -> *const c_void;
@@ -93,27 +98,50 @@ const OBJ_CLASS_TAG_OFF: usize = 8;
 /// `__cm_<C>____sym_Symbol_iterator__`).
 const SYM_ITERATOR_METHOD: &[u8] = b"__sym_Symbol_iterator__";
 
+/// What came back from [`call_obj_method_0`].
+enum MethodOutcome {
+    /// The receiver has no layout, or declares no method by that name.
+    Missing,
+    /// The method ran and threw. Its "result" is the sentinel an
+    /// aborted fn returns — NOT a value: it must not be read, released,
+    /// or handed on. The pending throw is left in flight for the
+    /// caller's own throw-check to propagate.
+    Threw,
+    Ok(AnyValue),
+}
+
 /// Invoke a zero-argument method on a `Tag::Obj` receiver through the
-/// class-methods dispatch table. `None` when the receiver has no
-/// layout or declares no such method.
+/// class-methods dispatch table.
+///
+/// Every method reached from this module is USER code — a generator
+/// body, a hand-written `next()` — so it can throw, and ES §7.4.6
+/// IteratorNext forwards that abrupt completion rather than looking at
+/// a result. Reading the sentinel as an IteratorResult instead is a
+/// wild deref: `for (const v of gen)` over a generator that throws on
+/// its first step was a SIGSEGV, and the destructuring lanes silently
+/// clobbered the thrown Error (`e.message` came back empty).
 ///
 /// # Safety
 /// `obj` is a live `Tag::Obj` heap pointer.
-unsafe fn call_obj_method_0(obj: *mut c_void, name: &[u8]) -> Option<AnyValue> {
+unsafe fn call_obj_method_0(obj: *mut c_void, name: &[u8]) -> MethodOutcome {
     let class_tag = unsafe { obj.cast::<u8>().add(OBJ_CLASS_TAG_OFF).cast::<u32>().read() };
     let layout = unsafe { __torajs_struct_layout_lookup(class_tag) };
     if layout.is_null() {
-        return None;
+        return MethodOutcome::Missing;
     }
     let adapter = unsafe { __torajs_struct_method_find(layout, name.as_ptr(), name.len() as u32) };
     if adapter.is_null() {
-        return None;
+        return MethodOutcome::Missing;
     }
     // argc 0 — invoke_boxed hands the adapter its undefined-filled
     // argv buffer, so a defaulted param (a generator `next`'s
     // `__yield_arg`) materializes its own default.
     let argv: [u64; 0] = [];
-    Some(unsafe { invoke_boxed(obj, adapter as u64, argv.as_ptr(), 0) })
+    let result = unsafe { invoke_boxed(obj, adapter as u64, argv.as_ptr(), 0) };
+    if unsafe { __torajs_throw_check() } != 0 {
+        return MethodOutcome::Threw;
+    }
+    MethodOutcome::Ok(result)
 }
 
 /// The `Tag::Map` / `Tag::Set` lane of [`__torajs_any_iter_next`] —
@@ -161,12 +189,20 @@ unsafe fn obj_iter_step(
         // caller's to release, so a re-entry with a live slot skips
         // straight to the step.
         if *iter_slot == VALUE_UNDEFINED {
-            let Some(iter) = call_obj_method_0(obj, SYM_ITERATOR_METHOD) else {
-                __torajs_throw_type_error(c"value is not iterable".as_ptr());
-                *out = VALUE_UNDEFINED;
-                return Some(0);
-            };
-            *iter_slot = iter;
+            match call_obj_method_0(obj, SYM_ITERATOR_METHOD) {
+                MethodOutcome::Ok(iter) => *iter_slot = iter,
+                MethodOutcome::Missing => {
+                    __torajs_throw_type_error(c"value is not iterable".as_ptr());
+                    *out = VALUE_UNDEFINED;
+                    return Some(0);
+                }
+                // The user's throw is already in flight — say done and
+                // let the caller's throw-check forward it.
+                MethodOutcome::Threw => {
+                    *out = VALUE_UNDEFINED;
+                    return Some(0);
+                }
+            }
         }
         let iter = *iter_slot;
         if !is_cell(iter) {
@@ -175,10 +211,19 @@ unsafe fn obj_iter_step(
             return Some(0);
         }
         let iter_ptr = as_void_ptr(iter) as *mut c_void;
-        let Some(step) = call_obj_method_0(iter_ptr, b"next") else {
-            __torajs_throw_type_error(c"iterator has no next() method".as_ptr());
-            *out = VALUE_UNDEFINED;
-            return Some(0);
+        // ES §7.4.6 IteratorNext — a step that throws forwards the
+        // abrupt completion; there is no result to inspect.
+        let step = match call_obj_method_0(iter_ptr, b"next") {
+            MethodOutcome::Ok(step) => step,
+            MethodOutcome::Missing => {
+                __torajs_throw_type_error(c"iterator has no next() method".as_ptr());
+                *out = VALUE_UNDEFINED;
+                return Some(0);
+            }
+            MethodOutcome::Threw => {
+                *out = VALUE_UNDEFINED;
+                return Some(0);
+            }
         };
         if !is_cell(step) {
             __torajs_anyv_rc_dec(step);
@@ -245,7 +290,9 @@ pub unsafe extern "C" fn __torajs_any_iter_close(recv: AnyValue, iter_slot: *mut
         if (iter_ptr.cast::<u8>().add(4) as *const u16).read() != Tag::Obj as u16 {
             return;
         }
-        if let Some(result) = call_obj_method_0(iter_ptr, b"return") {
+        // A `return()` that throws propagates on a normal completion
+        // (§7.4.9 step 6) — leave the throw in flight and touch nothing.
+        if let MethodOutcome::Ok(result) = call_obj_method_0(iter_ptr, b"return") {
             __torajs_anyv_rc_dec(result);
         }
     }
@@ -282,13 +329,18 @@ unsafe fn derive_for_close(recv: AnyValue, iter_slot: *mut AnyValue) -> bool {
             __torajs_throw_type_error(c"value is not iterable".as_ptr());
             return false;
         }
-        let Some(iter) = call_obj_method_0(as_void_ptr(recv) as *mut c_void, SYM_ITERATOR_METHOD)
-        else {
-            __torajs_throw_type_error(c"value is not iterable".as_ptr());
-            return false;
-        };
-        *iter_slot = iter;
-        true
+        match call_obj_method_0(as_void_ptr(recv) as *mut c_void, SYM_ITERATOR_METHOD) {
+            MethodOutcome::Ok(iter) => {
+                *iter_slot = iter;
+                true
+            }
+            MethodOutcome::Missing => {
+                __torajs_throw_type_error(c"value is not iterable".as_ptr());
+                false
+            }
+            // The user's `[Symbol.iterator]()` threw — forward it.
+            MethodOutcome::Threw => false,
+        }
     }
 }
 

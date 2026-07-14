@@ -168,6 +168,10 @@ pub(crate) fn lower_for_of_iter_protocol(
         iter_ret_ty,
         None,
     );
+    // `[Symbol.iterator]()` is user code and can throw; what an aborted
+    // fn answers is a sentinel, not an iterator (see the `next()` check
+    // below).
+    ctx.emit_throw_check(None);
 
     let plan = resolve_iter_plan(ctx, iter_sid);
     let IterPlan {
@@ -229,6 +233,12 @@ pub(crate) fn lower_for_of_iter_protocol(
         let ty = ctx.operand_ty(&owned);
         ctx.emit_drop_value(owned, ty);
     }
+    // ES §7.4.6 IteratorNext — a step that throws forwards the abrupt
+    // completion. `next()` is user code (a generator body runs here), and
+    // an aborted fn returns the throw sentinel, so reading `.done` off it
+    // is a wild deref: `for (const v of gen)` over a generator that throws
+    // on its first step was a SIGSEGV.
+    ctx.emit_throw_check(None);
     let done_val = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Load(Type::Bool, Operand::Value(step_val), done_off),
