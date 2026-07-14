@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-14T13:03:49.626Z",
+  "generatedAt": "2026-07-14T14:23:38.016Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-14T10:35:44Z",
-    "headSha": "688e3561",
-    "elapsedSec": 488.77,
+    "ranAt": "2026-07-14T23:15:34Z",
+    "headSha": "96f42cd5",
+    "elapsedSec": 499.6,
     "workers": 8,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 6960,
+    "pass": 6966,
     "passNoOracle": 149,
     "passNegative": 4445,
-    "passTotal": 11554,
-    "bug": 1062,
-    "incompatible": 40558,
+    "passTotal": 11560,
+    "bug": 1059,
+    "incompatible": 40555,
     "bunSkip": 12565,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 12616,
-    "passRateInScope": 21.73,
-    "passRateTrAccepted": 91.58
+    "trAccepted": 12619,
+    "passRateInScope": 21.74,
+    "passRateTrAccepted": 91.61
   },
   "torajs": {
-    "commit": "8e45d311",
-    "commitSubject": "feat: copy a source accessor through [[Get]] when spreading or resting",
+    "commit": "956f836d",
+    "commitSubject": "feat: serialize an object-literal accessor through [[Get]]",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,26 @@
   },
   "commits": [
     {
+      "hash": "956f836d",
+      "subject": "feat: serialize an object-literal accessor through [[Get]]"
+    },
+    {
+      "hash": "96f42cd5",
+      "subject": "fix: an accessor is an own property for hasOwnProperty / in"
+    },
+    {
+      "hash": "488139f1",
+      "subject": "feat: reflect an object-literal accessor as an accessor"
+    },
+    {
+      "hash": "05385ac2",
+      "subject": "fix: enumerate an object-literal accessor under its property name"
+    },
+    {
+      "hash": "ab854544",
+      "subject": "chore: hardev dashboard snapshot at rotation 98 close"
+    },
+    {
       "hash": "8e45d311",
       "subject": "feat: copy a source accessor through [[Get]] when spreading or resting"
     },
@@ -739,47 +759,38 @@
     {
       "hash": "891a14c7",
       "subject": "chore: test262 sweep at 688e3561 - passTotal 11554 (+54), bug 1062"
-    },
-    {
-      "hash": "688e3561",
-      "subject": "fix: route a generator's rewritten break and continue through the local cursor"
-    },
-    {
-      "hash": "80396512",
-      "subject": "fix: a generator whose body throws is completed, not resumable"
-    },
-    {
-      "hash": "113e24c9",
-      "subject": "fix: forward an iterator step that throws instead of reading its result"
-    },
-    {
-      "hash": "2ffdd785",
-      "subject": "feat: destructure an array pattern through the iterator protocol"
-    },
-    {
-      "hash": "63b5f5f2",
-      "subject": "feat: iterate a Map or Set held behind any"
     }
   ],
-  "headSha": "8e45d311",
+  "headSha": "956f836d",
   "autorun": {
-    "total": 404,
+    "total": 405,
     "baselineTarget": 10,
-    "bySelf": 399,
+    "bySelf": 400,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784025563-0083",
-      "at": "2026-07-14T10:39:23Z",
-      "ts": 1784025563,
+      "rotationId": "r-1784034236-2963",
+      "at": "2026-07-14T13:03:56Z",
+      "ts": 1784034236,
       "trigger": "self",
-      "prevHead": "0de07de2",
-      "handoffSha": "sha256:37f191eab5d56a5a69870626ee429dfe0b60427f937596435d76d7fecf40c64d",
-      "handoffAgeSec": 31,
+      "prevHead": "ab854544",
+      "handoffSha": "sha256:81f8afc11e64009550f539f04cbfd638330678ad19e2b9f9f7558382b2ffafc1",
+      "handoffAgeSec": 116,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784034236-2963",
+        "at": "2026-07-14T13:03:56Z",
+        "ts": 1784034236,
+        "trigger": "self",
+        "prevHead": "ab854544",
+        "handoffSha": "sha256:81f8afc11e64009550f539f04cbfd638330678ad19e2b9f9f7558382b2ffafc1",
+        "handoffAgeSec": 116,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784025563-0083",
         "at": "2026-07-14T10:39:23Z",
@@ -875,17 +886,6 @@
         "trigger": "self",
         "prevHead": "3c2a15fb",
         "handoffSha": "sha256:0c22999ca4d003ef0c050fdb4578e776bf643e9a9d0bb6b83a25509b10ac3848",
-        "handoffAgeSec": 7,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1783917459-7e69",
-        "at": "2026-07-13T04:37:39Z",
-        "ts": 1783917459,
-        "trigger": "self",
-        "prevHead": "6fbc4573",
-        "handoffSha": "sha256:3f77f820f40e46d66e697bc07d53ebef58388d88fac58e17051f91b5565f910a",
         "handoffAgeSec": 7,
         "conformanceBefore": null,
         "commitsInSession": null
