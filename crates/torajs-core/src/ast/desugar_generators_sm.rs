@@ -87,15 +87,17 @@ fn rewrite_break_continue_for_outer(
     cont_target: usize,
     brk_target: usize,
 ) {
+    /// A rewritten `break` / `continue` is a goto, so it moves the local
+    /// resume cursor — same as [`GenSm::emit_goto`], and for the same
+    /// reason (see [`RESUME_LOCAL`]). Writing `this.__state` here while
+    /// the dispatch reads the local would re-enter the SAME arm on every
+    /// turn of the `while (true)`: an infinite loop in any generator
+    /// whose yield-bearing loop breaks or continues.
     fn make_goto(ast: &mut Ast, target: usize) -> Stmt {
-        let this_id = ast.add_expr(Expr::This);
-        let m = ast.add_expr(Expr::Member {
-            obj: this_id,
-            name: "__state".into(),
-        });
+        let st = ast.add_expr(Expr::Ident(RESUME_LOCAL.into()));
         let lit = ast.add_expr(Expr::Number(target as f64));
         let assign = ast.add_expr(Expr::Assign {
-            target: m,
+            target: st,
             value: lit,
         });
         Stmt::Block(vec![Stmt::Expr(assign), Stmt::Continue])

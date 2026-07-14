@@ -76,6 +76,30 @@ for (const v of upto(4)) {
 }
 console.log(acc.join(","));
 
+// A yield-bearing loop that BREAKS and CONTINUES: those rewrite to
+// gotos too, so they move the same local cursor. Persisting the label
+// instead would re-enter the arm the goto came from on every turn of
+// the dispatch loop — an infinite loop.
+function* evensUpto(n: number): Generator<number> {
+  let i = 0;
+  while (true) {
+    if (i >= n) {
+      break;
+    }
+    if (i % 2 === 1) {
+      i = i + 1;
+      continue;
+    }
+    yield i;
+    i = i + 1;
+  }
+}
+const evens: number[] = [];
+for (const v of evensUpto(7)) {
+  evens.push(v);
+}
+console.log(evens.join(","));
+
 // The generator's own return() closes it, and stays closed.
 const r = three();
 console.log(r.next().value, r.return(0).done, r.next().done);
