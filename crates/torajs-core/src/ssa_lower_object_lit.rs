@@ -213,24 +213,56 @@ fn unfold_spread(
     };
     let layout = ctx.struct_layouts[sid.0 as usize].clone();
     for (idx, (sn, st)) in layout.iter().enumerate() {
-        if omit.contains(sn) {
-            continue;
-        }
         let off = OBJ_HEADER_SIZE + (idx as u64) * 8;
-        let cur_block = ctx.cur_block;
-        let v = ctx
-            .f
-            .append_inst(cur_block, InstKind::Load(*st, src_op, off), *st, None);
-        if st.is_refcounted() {
-            ctx.emit_rc_inc(Operand::Value(v));
-        }
-        let v_op = Operand::Value(v);
-        if let Some(pos) = field_tys.iter().position(|(k, _)| k == sn) {
-            field_tys[pos] = (sn.clone(), *st);
-            field_vals[pos] = v_op;
+        // RFC 20260714-objlit-accessor blade 3 — CopyDataProperties
+        // (ES §7.3.25) reaches each own key through [[Get]], so a source
+        // accessor contributes the getter's RESULT as a DATA property.
+        // Loading the `__getter_b` slot would have copied the getter
+        // CLOSURE across instead of calling it.
+        let (name, ty, val) = match crate::check_type_of_object_lit::accessor_slot(sn) {
+            // A setter is not a source of data: its property already came
+            // from the paired getter. (Recorded gap: a LONE setter should
+            // read `undefined`; here it drops out of the copy.)
+            Some(("__setter_", _)) => continue,
+            Some(("__getter_", prop)) => {
+                if omit.contains(&prop.to_string()) {
+                    continue;
+                }
+                let Type::Closure(sig_id) = *st else {
+                    panic!("ssa-lower: accessor slot `{sn}` is not a closure (got {st:?})");
+                };
+                let ret = ctx.fn_sigs[sig_id.0 as usize].1;
+                // Owned already — the getter returns its own value, so no
+                // rc_inc (unlike the borrowed field load below).
+                let v = crate::ssa_lower_call_struct_method_dispatch::emit_receiver_closure_call(
+                    ctx,
+                    src_op,
+                    off,
+                    sig_id,
+                    &[],
+                );
+                (prop.to_string(), ret, v)
+            }
+            _ => {
+                if omit.contains(sn) {
+                    continue;
+                }
+                let cur_block = ctx.cur_block;
+                let v = ctx
+                    .f
+                    .append_inst(cur_block, InstKind::Load(*st, src_op, off), *st, None);
+                if st.is_refcounted() {
+                    ctx.emit_rc_inc(Operand::Value(v));
+                }
+                (sn.clone(), *st, Operand::Value(v))
+            }
+        };
+        if let Some(pos) = field_tys.iter().position(|(k, _)| *k == name) {
+            field_tys[pos] = (name, ty);
+            field_vals[pos] = val;
         } else {
-            field_tys.push((sn.clone(), *st));
-            field_vals.push(v_op);
+            field_tys.push((name, ty));
+            field_vals.push(val);
         }
     }
 }
