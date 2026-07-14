@@ -184,10 +184,25 @@ pub(crate) fn try_lower(
         return Some(Operand::Value(v));
     }
     let field_names: Vec<String> = match arg_ty {
-        Type::Obj(sid) => ctx.struct_layouts[sid.0 as usize]
-            .iter()
-            .map(|(n, _)| n.clone())
-            .collect(),
+        Type::Obj(sid) => {
+            // RFC 20260714-objlit-accessor — an accessor lives in the
+            // layout under a synthetic slot name (`__getter_v` /
+            // `__setter_v`), but ES §10.4 makes it one own property
+            // keyed by the plain name. Enumerate it as `v`, once (a
+            // get/set pair is a single key), never as the internal
+            // spelling.
+            let mut out: Vec<String> = Vec::new();
+            for (fname, _) in ctx.struct_layouts[sid.0 as usize].iter() {
+                let key = match crate::check_type_of_object_lit::accessor_slot(fname) {
+                    Some((_, prop)) => prop.to_string(),
+                    None => fname.clone(),
+                };
+                if !out.contains(&key) {
+                    out.push(key);
+                }
+            }
+            out
+        }
         other => panic!("ssa-lower: Object.{m_name} requires a struct arg, got {other:?}"),
     };
     let n = field_names.len() as i64;
