@@ -18,7 +18,11 @@
 //!
 //!   `__torajs_in_op_any_str(v, key_str_ptr)` — key is String-typed
 //!     • Tag::DynObj → `__torajs_dynobj_has(ptr, key)`
-//!     • else        → false (Array str→numeric coercion deferred)
+//!     • Tag::Arr    → canonical index within bounds
+//!     • Tag::Obj    → `__torajs_any_prop_has` (declared fields +
+//!                     accessor slots; pre-fix a struct through `any`
+//!                     answered false even for a field it plainly has)
+//!     • else        → false
 //!
 //! Both helpers mirror `instanceof_any` discipline: NaN-box unbox →
 //! tag-gate (ANY_HEAP) → NULL-gate → `HeapHeader::type_tag@+4` read.
@@ -34,6 +38,11 @@ unsafe extern "C" {
     // torajs-rc keeps 0 Cargo deps (vision §2). Same pattern as
     // dynobj_has / anyv_unbox above.
     fn __torajs_num_to_string_radix_i(n: i64, radix: i64) -> *mut u8;
+    // torajs-anyvalue — the shared own-property predicate for a
+    // `Tag::Obj` struct receiver (declared fields + accessor slots).
+    // Same link-time-resolved, zero-Cargo-dep pattern as the unbox
+    // helpers above.
+    fn __torajs_any_prop_has(recv: u64, key: *const c_void) -> i64;
 }
 
 // Offset of the i64 `len` slot inside the Array heap block — matches
@@ -48,6 +57,7 @@ const ANY_TAG_HEAP: i64 = 4;
 // `torajs_rc::Tag` numeric values (stable ABI per assert_eq! suite
 // in `lib.rs`):
 const TAG_ARR: u16 = 2;
+const TAG_OBJ: u16 = 1;
 const TAG_DYNOBJ: u16 = 14;
 
 // Str heap layout (mirrors `torajs_str::layout`):
@@ -197,6 +207,15 @@ pub unsafe extern "C" fn __torajs_in_op_any_str(v: i64, key: *const u8) -> bool 
         let len = unsafe { *((ptr as *const u8).add(ARR_LEN_OFF) as *const i64) };
         return idx >= 0 && idx < len;
     }
+    if type_tag == TAG_OBJ {
+        // A static-layout struct owns its declared fields — and, since
+        // RFC 20260714-objlit-accessor, its accessor slots too. Pre-fix
+        // every `<key> in <struct-through-any>` answered false, even for
+        // a plain declared field. Delegating keeps one own-property
+        // predicate for `in` / `hasOwnProperty` / `propertyIsEnumerable`
+        // instead of a third copy of the layout walk.
+        return unsafe { __torajs_any_prop_has(v as u64, key as *const c_void) } != 0;
+    }
     false
 }
 
@@ -245,6 +264,22 @@ unsafe fn __torajs_dynobj_has(_obj: *const c_void, _key: *const u8) -> i32 {
     // Tests that exercise the DynObj path set this thread-local
     // ahead of the call.
     DYNOBJ_HAS_RESULT.with(|r| r.get())
+}
+
+#[cfg(test)]
+unsafe fn __torajs_any_prop_has(_recv: u64, _key: *const c_void) -> i64 {
+    // The struct arm delegates to torajs-anyvalue's own-property
+    // predicate, which only exists once the staticlibs are linked at
+    // `tr build` time. Tests here cover this module's tag dispatch,
+    // not that predicate — same stub discipline as unbox / dynobj_has
+    // above. Struct-receiver behaviour is covered end-to-end by the
+    // conformance fixtures.
+    STRUCT_PROP_HAS_RESULT.with(|r| r.get())
+}
+
+#[cfg(test)]
+thread_local! {
+    static STRUCT_PROP_HAS_RESULT: core::cell::Cell<i64> = const { core::cell::Cell::new(0) };
 }
 
 #[cfg(test)]

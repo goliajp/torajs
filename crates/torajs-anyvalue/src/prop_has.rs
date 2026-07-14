@@ -46,6 +46,14 @@ unsafe extern "C" {
     /// torajs-structmeta — class-layout lookup + field probe.
     fn __torajs_struct_layout_lookup(class_tag: u32) -> *const c_void;
     fn __torajs_struct_field_find(layout: *const c_void, name: *const u8, name_len: u32) -> u32;
+    /// Accessor slot standing for a plain property name (`kind` 0 =
+    /// getter, 1 = setter) — RFC 20260714-objlit-accessor.
+    fn __torajs_struct_accessor_find(
+        layout: *const c_void,
+        name: *const u8,
+        name_len: u32,
+        kind: u8,
+    ) -> u32;
     /// torajs-throw — record a pending catchable TypeError.
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
     /// torajs-arr — per-index attribute flags (RFC
@@ -96,6 +104,34 @@ pub(crate) unsafe fn key_is(key: *const c_void, name: &[u8]) -> bool {
     let (bytes, len) = unsafe { key_bytes(key) };
     len as usize == name.len()
         && unsafe { core::slice::from_raw_parts(bytes, len as usize) } == name
+}
+
+/// Whether a `Tag::Obj` struct carries `key` as an own property. A
+/// data field matches by name; an accessor (RFC
+/// 20260714-objlit-accessor) lives under a synthetic slot name that
+/// the plain-name lookup can never match, so both halves are probed —
+/// an accessor IS an own property (§10.4), and both `hasOwnProperty`
+/// and `propertyIsEnumerable` must say so.
+///
+/// # Safety
+/// `ptr` is a live `Tag::Obj` heap pointer; `key` is a live Str cell.
+unsafe fn struct_has_own(ptr: *const c_void, key: *const c_void) -> i64 {
+    let class_tag = unsafe { ptr.cast::<u8>().add(OBJ_CLASS_TAG_OFF).cast::<u32>().read() };
+    let layout = unsafe { __torajs_struct_layout_lookup(class_tag) };
+    if layout.is_null() {
+        return 0;
+    }
+    let (name_bytes, name_len) = unsafe { key_bytes(key) };
+    if unsafe { __torajs_struct_field_find(layout, name_bytes, name_len) } != u32::MAX {
+        return 1;
+    }
+    const ACC_GETTER: u8 = 0;
+    const ACC_SETTER: u8 = 1;
+    let has_half = |kind: u8| {
+        let idx = unsafe { __torajs_struct_accessor_find(layout, name_bytes, name_len, kind) };
+        idx != u32::MAX
+    };
+    (has_half(ACC_GETTER) || has_half(ACC_SETTER)) as i64
 }
 
 /// See module doc. `key` is a live Str cell (the lowering interns
@@ -173,15 +209,7 @@ pub unsafe extern "C" fn __torajs_any_prop_has(recv: AnyValue, key: *const c_voi
                 unsafe { __torajs_dynobj_has(props, key) as i64 }
             }
         }
-        Some((ptr, t)) if t == Tag::Obj as u16 => {
-            let class_tag = unsafe { ptr.cast::<u8>().add(OBJ_CLASS_TAG_OFF).cast::<u32>().read() };
-            let layout = unsafe { __torajs_struct_layout_lookup(class_tag) };
-            if layout.is_null() {
-                return 0;
-            }
-            let (name_bytes, name_len) = unsafe { key_bytes(key) };
-            (unsafe { __torajs_struct_field_find(layout, name_bytes, name_len) } != u32::MAX) as i64
-        }
+        Some((ptr, t)) if t == Tag::Obj as u16 => unsafe { struct_has_own(ptr, key) },
         Some((ptr, t)) if t == Tag::Str as u16 => {
             let len = unsafe { ptr.cast::<u8>().add(STR_LEN_OFF).cast::<u32>().read() } as u64;
             unsafe { str_index_has(len, key) }
@@ -284,15 +312,7 @@ pub unsafe extern "C" fn __torajs_any_prop_enumerable(recv: AnyValue, key: *cons
                 ((unsafe { __torajs_dynobj_get_flags(props, key) } & 0x2) != 0) as i64
             }
         }
-        Some((ptr, t)) if t == Tag::Obj as u16 => {
-            let class_tag = unsafe { ptr.cast::<u8>().add(OBJ_CLASS_TAG_OFF).cast::<u32>().read() };
-            let layout = unsafe { __torajs_struct_layout_lookup(class_tag) };
-            if layout.is_null() {
-                return 0;
-            }
-            let (name_bytes, name_len) = unsafe { key_bytes(key) };
-            (unsafe { __torajs_struct_field_find(layout, name_bytes, name_len) } != u32::MAX) as i64
-        }
+        Some((ptr, t)) if t == Tag::Obj as u16 => unsafe { struct_has_own(ptr, key) },
         Some((ptr, t)) if t == Tag::Str as u16 => {
             let len = unsafe { ptr.cast::<u8>().add(STR_LEN_OFF).cast::<u32>().read() } as u64;
             unsafe { str_index_enumerable(len, key) }

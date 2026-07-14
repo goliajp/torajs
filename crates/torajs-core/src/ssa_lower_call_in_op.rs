@@ -77,7 +77,14 @@ pub(crate) fn try_lower(
     if let Type::Obj(sid) = obj_ty {
         let layout = ctx.struct_layouts[sid.0 as usize].clone();
         if let Expr::String(s) = ctx.ast.get_expr(args[0]) {
-            let present = layout.iter().any(|(n, _)| n == s);
+            // An accessor is an own property (§10.4) but sits in the
+            // layout under a synthetic slot name, so the plain-name
+            // scan alone would deny it (RFC 20260714-objlit-accessor).
+            let present = layout.iter().any(|(n, _)| {
+                n == s
+                    || crate::check_type_of_object_lit::accessor_slot(n)
+                        .is_some_and(|(_, prop)| prop == s)
+            });
             return Some(Operand::ConstBool(present));
         }
         panic!(
