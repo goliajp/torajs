@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-14T19:29:03.085Z",
+  "generatedAt": "2026-07-14T20:13:08.527Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 92.05
   },
   "torajs": {
-    "commit": "63bae07c",
-    "commitSubject": "fix: let the legacy accessor four be read, not just called",
+    "commit": "5bf75398",
+    "commitSubject": "feat: give an object its __proto__ and Object.getPrototypeOf answer",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "5bf75398",
+      "subject": "feat: give an object its __proto__ and Object.getPrototypeOf answer"
+    },
+    {
+      "hash": "ed07d49d",
+      "subject": "chore: hardev dashboard snapshot at rotation 102 close"
+    },
+    {
       "hash": "63bae07c",
       "subject": "fix: let the legacy accessor four be read, not just called"
     },
@@ -751,35 +759,38 @@
     {
       "hash": "edc22c73",
       "subject": "fix: give a class its own identity in the type system"
-    },
-    {
-      "hash": "195af14d",
-      "subject": "fix: reach Object.assign accessors through their own halves"
-    },
-    {
-      "hash": "44ec3635",
-      "subject": "chore: hardev dashboard snapshot at rotation 100 close"
     }
   ],
-  "headSha": "63bae07c",
+  "headSha": "5bf75398",
   "autorun": {
-    "total": 408,
+    "total": 409,
     "baselineTarget": 10,
-    "bySelf": 403,
+    "bySelf": 404,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784052659-2bec",
-      "at": "2026-07-14T18:10:59Z",
-      "ts": 1784052659,
+      "rotationId": "r-1784059914-3bc9",
+      "at": "2026-07-14T20:11:54Z",
+      "ts": 1784059914,
       "trigger": "self",
-      "prevHead": "50b38938",
-      "handoffSha": "sha256:a015d7c428750850e2c39d5a534a8621cc547ceefda59a22bc3890c8ffc42db9",
-      "handoffAgeSec": 7691,
+      "prevHead": "5bf75398",
+      "handoffSha": "sha256:2e96b9d7ea3308b546a4c629038836120ce5e74f392d1a27fbc08370df9b1180",
+      "handoffAgeSec": 2577,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784059914-3bc9",
+        "at": "2026-07-14T20:11:54Z",
+        "ts": 1784059914,
+        "trigger": "self",
+        "prevHead": "5bf75398",
+        "handoffSha": "sha256:2e96b9d7ea3308b546a4c629038836120ce5e74f392d1a27fbc08370df9b1180",
+        "handoffAgeSec": 2577,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784052659-2bec",
         "at": "2026-07-14T18:10:59Z",
@@ -876,17 +887,6 @@
         "prevHead": "0bec4a40",
         "handoffSha": "sha256:4c8283d63c3268d6f95b258b0365adfd755a329bb9af9451ea09aef60587b115",
         "handoffAgeSec": 595,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1783964924-496a",
-        "at": "2026-07-13T17:48:44Z",
-        "ts": 1783964924,
-        "trigger": "self",
-        "prevHead": "c3f3218c",
-        "handoffSha": "sha256:3840acdf0f5db09b3d6ce6b03ea529c097ee542800257cd3c39be31ba85c00a8",
-        "handoffAgeSec": 8,
         "conformanceBefore": null,
         "commitsInSession": null
       }
