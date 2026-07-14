@@ -70,37 +70,94 @@ pub(crate) unsafe fn object_proto_to_string(recv: AnyValue) -> AnyValue {
     } else if is_short_str(recv) {
         b"String"
     } else if let Some((ptr, tag)) = crate::member_get::recv_cell(recv) {
-        match tag {
-            t if t == Tag::Str as u16 => b"String",
-            t if t == Tag::Arr as u16 => b"Array",
-            t if t == Tag::Closure as u16 => b"Function",
-            t if t == Tag::Date as u16 => b"Date",
-            t if t == Tag::RegExp as u16 => b"RegExp",
-            t if t == Tag::Map as u16 => b"Map",
-            t if t == Tag::Set as u16 => b"Set",
-            t if t == Tag::Promise as u16 => b"Promise",
-            t if t == Tag::Symbol as u16 => b"Symbol",
-            t if t == Tag::BigInt as u16 => b"BigInt",
-            t if t == Tag::WeakMap as u16 => b"WeakMap",
-            t if t == Tag::WeakSet as u16 => b"WeakSet",
-            t if t == Tag::WeakRef as u16 => b"WeakRef",
-            t if t == Tag::Undefined as u16 => b"Undefined",
-            // Errors are static-layout structs carrying FLAG_ERROR
-            // (disjoint-by-tag bit 7).
-            t if t == Tag::Obj as u16 => {
-                let flags = unsafe { (ptr.cast::<u8>().add(6) as *const u16).read() };
-                if flags & torajs_rc::FLAG_ERROR != 0 {
-                    b"Error"
-                } else {
-                    b"Object"
-                }
-            }
-            _ => b"Object",
-        }
+        unsafe { cell_badge(ptr, tag) }
     } else {
         b"Object"
     };
-    // "[object " + badge + "]" in a stack buffer (max badge 9B).
+    unsafe { badge_string(badge) }
+}
+
+/// The badge a heap cell classifies into. Shared with the
+/// `Object.prototype.toString` fallback a builtin prototype reaches
+/// when nothing else claims the call.
+///
+/// # Safety
+/// `ptr` is a live heap cell whose header tag is `tag`.
+pub(crate) unsafe fn cell_badge(ptr: *mut c_void, tag: u16) -> &'static [u8] {
+    // A builtin prototype answers for what it IS, which the cell tag
+    // alone cannot always say: `Number.prototype` is a dynobj in tr
+    // but a Number object per §21.1.3, and the five container
+    // prototypes carry a well-known `Symbol.toStringTag`. (The ones
+    // that are genuinely ordinary objects — Object / RegExp / Date /
+    // Error, none of which has the well-known tag — keep "Object",
+    // matching bun.)
+    let proto_tag = unsafe { torajs_rc::builtin_proto::__torajs_builtin_proto_tag_of(ptr) };
+    if proto_tag >= 0 {
+        return match proto_tag {
+            0 => b"Number",
+            2 => b"Array",
+            3 => b"String",
+            4 => b"Boolean",
+            5 => b"Symbol",
+            6 => b"BigInt",
+            10 => b"Promise",
+            11 => b"Map",
+            12 => b"Set",
+            13 => b"Function",
+            _ => b"Object",
+        };
+    }
+    match tag {
+        t if t == Tag::Str as u16 => b"String",
+        t if t == Tag::Arr as u16 => b"Array",
+        t if t == Tag::Closure as u16 => b"Function",
+        t if t == Tag::Date as u16 => b"Date",
+        t if t == Tag::RegExp as u16 => b"RegExp",
+        t if t == Tag::Map as u16 => b"Map",
+        t if t == Tag::Set as u16 => b"Set",
+        t if t == Tag::Promise as u16 => b"Promise",
+        t if t == Tag::Symbol as u16 => b"Symbol",
+        t if t == Tag::BigInt as u16 => b"BigInt",
+        t if t == Tag::WeakMap as u16 => b"WeakMap",
+        t if t == Tag::WeakSet as u16 => b"WeakSet",
+        t if t == Tag::WeakRef as u16 => b"WeakRef",
+        t if t == Tag::Undefined as u16 => b"Undefined",
+        // Errors are static-layout structs carrying FLAG_ERROR
+        // (disjoint-by-tag bit 7).
+        t if t == Tag::Obj as u16 => {
+            let flags = unsafe { (ptr.cast::<u8>().add(6) as *const u16).read() };
+            if flags & torajs_rc::FLAG_ERROR != 0 {
+                b"Error"
+            } else {
+                b"Object"
+            }
+        }
+        _ => b"Object",
+    }
+}
+
+/// The badge a receiver reaching the `Object.prototype` fallback
+/// answers with. A struct receiver has no badge of its own; every
+/// cell classifies through [`cell_badge`].
+///
+/// # Safety
+/// `obj` is a live heap cell.
+pub(crate) unsafe fn cell_badge_string(obj: *mut c_void, is_struct: bool) -> AnyValue {
+    let badge: &'static [u8] = if is_struct {
+        b"Object"
+    } else {
+        // HeapHeader: type_tag @ +4 (u16).
+        let tag = unsafe { obj.cast::<u8>().add(4).cast::<u16>().read() };
+        unsafe { cell_badge(obj, tag) }
+    };
+    unsafe { badge_string(badge) }
+}
+
+/// `"[object " + badge + "]"` as an owned Str box.
+///
+/// # Safety
+/// `badge` is at most 9 bytes (every caller passes a literal).
+unsafe fn badge_string(badge: &'static [u8]) -> AnyValue {
     let mut buf = [0u8; 24];
     buf[..8].copy_from_slice(b"[object ");
     buf[8..8 + badge.len()].copy_from_slice(badge);

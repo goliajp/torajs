@@ -441,8 +441,11 @@ unsafe fn object_proto_fallback(
             return out;
         }
         if mid == ANY_METHOD_TO_STRING {
-            let p = __torajs_str_alloc(b"[object Object]".as_ptr(), 15);
-            return __torajs_anyv_box_pointer(p as *mut c_void);
+            // §20.1.3.6 through the badge classifier rather than a
+            // hardcoded "[object Object]": the five container
+            // prototypes carry a well-known `Symbol.toStringTag`, so
+            // `Map.prototype.toString()` is "[object Map]".
+            return crate::method_call_object_proto::cell_badge_string(obj, is_struct);
         }
         not_callable()
     }
