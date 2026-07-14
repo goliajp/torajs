@@ -261,55 +261,26 @@ pub unsafe extern "C" fn __torajs_arr_get_any_value(arr: *const c_void, i: u64) 
 /// keep refcount accounting balanced (`value_drop_heap` is
 /// NaN-box-safe — primitives no-op).
 ///
-/// bug-327 C3 — OOB `i` raises a catchable RangeError instead of the
-/// pre-fix unchecked write (which first treated adjacent heap bytes
-/// as a droppable AnyValue — arbitrary deref+free — then wrote past
-/// the block: silent corruption for small `i`, SIGSEGV past the
-/// page). This entry stays on receivers with no write-back slot
-/// (`getArr()[i] = v`); growable receivers route through
-/// [`__torajs_arr_set_any_grow`].
+/// Indexed write on a receiver with no write-back slot
+/// (`getArr()[i] = v`, `Array.prototype[0] = v`).
+///
+/// Identical to [`__torajs_arr_set_any`]'s growable sibling — the
+/// missing write-back slot is not a reason to refuse an out-of-bounds
+/// write, because B1 made the cell fixed: a grow swaps the data
+/// buffer behind it and hands back the same pointer. (It WAS a
+/// reason, before B1, which is why this entry used to raise
+/// "out-of-bounds index write through a temporary array receiver is
+/// not yet supported" — the typed arm below already stopped doing
+/// that. `Array.prototype[0] = false` is ordinary ES §10.4.2.1
+/// OrdinarySet, and it is what test262 uses to set up an inherited
+/// index property.)
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_set_any(arr: *mut c_void, i: u64, tag: u64, value: u64) {
     if arr.is_null() {
         return;
     }
-    let arr = arr as *mut u8;
-    unsafe {
-        if (*(arr as *const HeapHeader)).flags & FLAG_ARR_ANY == 0 {
-            // Chunk 622 — typed block behind the static Arr<Any>
-            // view: in-bounds kind-coerced write / `i == len`
-            // append / past-the-end RangeError. The returned cell is
-            // always `arr` itself (B1 fixed-cell: grow swaps the
-            // data buffer, never the cell), so the missing
-            // write-back slot on this entry is safe to ignore.
-            crate::any_typed_bridge::typed_set_grow(arr, i, tag, value);
-            return;
-        }
-        let len = *(arr.add(ARR_LEN_OFF) as *const u64);
-        if i >= len {
-            __torajs_throw_range_error(
-                b"out-of-bounds index write through a temporary array receiver is not yet supported\0".as_ptr(),
-            );
-            return;
-        }
-        // Exotic slow path (pre-store) — an accessor index writes
-        // through its setter, never element storage (chunk C).
-        if (*(arr as *const HeapHeader)).flags & FLAG_ARR_EXOTIC_INDEX != 0 {
-            let pair = crate::define_accessor::__torajs_arr_index_accessor(arr as *const c_void, i);
-            if !pair.is_null() {
-                crate::define_accessor::write_via_setter(pair, tag, value);
-                return;
-            }
-        }
-        let old_av = *slot_anyvalue_ptr(arr, i);
-        __torajs_value_drop_heap(old_av as *mut c_void);
-        *slot_anyvalue_ptr(arr, i) = __torajs_anyv_box_from_pair(tag as i64, value as i64);
-        // A write into a deleted (hole) index re-creates it as a
-        // default data property (chunk C).
-        if (*(arr as *const HeapHeader)).flags & FLAG_ARR_EXOTIC_INDEX != 0 {
-            crate::define_hole::revive_index_if_hole(arr as *mut c_void, i);
-        }
-    }
+    // The returned cell is always `arr` itself, so dropping it is safe.
+    let _ = unsafe { __torajs_arr_set_any_grow(arr, i, tag, value) };
 }
 
 /// ES-spec dense limit for the growable indexed-write path. Writing

@@ -30,14 +30,27 @@ unsafe extern "C" {
     fn __torajs_arrprops_get_value(arr: *mut c_void, key: *const c_void) -> u64;
 }
 
+/// Offset of the `len` slot in an Array heap block
+/// (`torajs_arr::layout::ARR_LEN_OFF`).
+const ARR_LEN_OFF: usize = 8;
+
+/// `Array.prototype` is the one builtin prototype backed by an Arr
+/// cell (ES §23.1.3) rather than a dynobj.
+///
+/// # Safety
+/// `proto` is a live heap cell.
+unsafe fn proto_is_arr(proto: *mut c_void) -> bool {
+    // HeapHeader: rc @ +0 (u32), type_tag @ +4 (u16).
+    let cell_tag = unsafe { proto.cast::<u8>().add(4).cast::<u16>().read() };
+    cell_tag == torajs_rc::Tag::Arr as u16
+}
+
 /// Own-property probe pair against a builtin prototype, whichever
 /// cell shape backs it — `Array.prototype` is an Arr (ES §23.1.3),
 /// the rest are dynobjs. Reading an Arr through the dynobj probe
 /// would walk an entry table that isn't there.
 unsafe fn proto_own_probe(proto: *mut c_void, key: *const c_void) -> (i64, i64) {
-    // HeapHeader: rc @ +0 (u32), type_tag @ +4 (u16).
-    let cell_tag = unsafe { proto.cast::<u8>().add(4).cast::<u16>().read() };
-    let is_arr = cell_tag == torajs_rc::Tag::Arr as u16;
+    let is_arr = unsafe { proto_is_arr(proto) };
     let (tag, value) = if is_arr {
         unsafe {
             (
@@ -267,6 +280,15 @@ pub unsafe extern "C" fn __torajs_builtin_proto_method_value(
             // its own reference.
             crate::payload_rc_inc(dtag, dval);
             return unsafe { crate::nanbox_encode::__torajs_anyv_box_from_pair(dtag, dval) };
+        }
+        // `Array.prototype.length` is the Arr cell's own length, not a
+        // method name — and it moves (`Array.prototype[0] = false`
+        // grows it to 1, which is how test262 sets up an inherited
+        // index property). Every other prototype falls through to the
+        // method table.
+        if unsafe { proto_is_arr(proto) } && unsafe { crate::prop_has::key_is(key, b"length") } {
+            let len = unsafe { proto.cast::<u8>().add(ARR_LEN_OFF).cast::<u64>().read() };
+            return crate::nanbox_encode::__torajs_anyv_box_i64(len as i64);
         }
     }
     let mid = unsafe { crate::method_value::key_method_id(key) };
