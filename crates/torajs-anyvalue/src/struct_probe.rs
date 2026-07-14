@@ -1,0 +1,311 @@
+//! The `Tag::Obj` own-property surface for the `any` lane: the
+//! class-layout FIELD probe (chunk 744) and — RFC
+//! 20260714-objlit-accessor blade 5 — the ACCESSOR [[Get]] behind it.
+//! Carved out of `member_get.rs`, which owns the tag/value dispatch and
+//! was over the 500-line file limit with both halves in it.
+//!
+//! Blades 1-4 taught the reflection surface (keys / gOPD / hasOwnProperty
+//! / JSON) that an accessor is an own property, and the TYPED member
+//! read has invoked getters since blade 2. The `any` lane still could
+//! not: `(o as any).v` answered `undefined` and a class getter through
+//! `any` did the same (probe at `cd0f3caf` vs bun's `2` / `999`).
+//!
+//! Two representations, one property. Both resolve from the plain name:
+//!
+//! * **object literal** — the getter closure is a layout FIELD named
+//!   `__getter_v`. Its lifted body is `(__env, __this, ...)`, so the
+//!   boxed dual entry the closure cell already carries takes the
+//!   receiver as argv[0].
+//! * **class** — the accessor is prototype-level and has no layout
+//!   field. `__cm_<C>__v_get`'s boxed adapter rides in the class's
+//!   dispatch table under the same `__getter_v` spelling (emit side:
+//!   `ssa_lower_module_metadata::collect_own_class_methods`), and takes
+//!   the receiver in the ENV slot with an empty argv — the shape
+//!   `struct_method` already invokes plain methods with.
+//!
+//! **Called exactly once per read.** The `(tag, value)` probe pair is
+//! two kernel calls, so it must not invoke anything: the tag channel
+//! answers the [`ANY_ACCESSOR_TAG`] sentinel and the emitted accessor
+//! arm (`ssa_lower_accessor::emit_any_get_result`) does the single
+//! [[Get]] through [`__torajs_any_accessor_get`]. A getter with side
+//! effects runs once, like ES §10.1.8 says.
+//!
+//! Ownership: the result is OWNED (the boxed adapter's return carries
+//! its own ref), matching the dynobj accessor arm the emit joins with.
+//! The receiver rides argv/env as a BORROW — the caller outlives the
+//! call.
+
+use core::ffi::c_void;
+
+use torajs_rc::{AnySlotTag, Tag};
+
+use crate::method_call::invoke_boxed;
+use crate::nanbox::{AnyValue, VALUE_UNDEFINED, as_void_ptr, box_void_ptr, is_cell};
+
+unsafe extern "C" {
+    /// torajs-structmeta — layout + accessor resolution.
+    fn __torajs_struct_layout_lookup(class_tag: u32) -> *const c_void;
+    fn __torajs_struct_accessor_find(
+        layout: *const c_void,
+        name: *const u8,
+        name_len: u32,
+        kind: u8,
+    ) -> u32;
+    fn __torajs_struct_accessor_method_find(
+        layout: *const c_void,
+        name: *const u8,
+        name_len: u32,
+        kind: u8,
+    ) -> *const c_void;
+    fn __torajs_struct_field_info(layout: *const c_void, idx: u32) -> FieldInfo;
+    fn __torajs_struct_field_find(layout: *const c_void, name: *const u8, name_len: u32) -> u32;
+    /// torajs-structmeta — does a name spell an accessor SLOT
+    /// (`__getter_v`)? 255 = a plain property name.
+    fn __torajs_accessor_name_kind(name: *const u8, name_len: u32) -> u8;
+    /// torajs-dynobj — the AccessorPair lane (unchanged).
+    fn __torajs_accessor_invoke_getter(pair: *const c_void) -> u64;
+}
+
+/// Mirror of `torajs-structmeta::FieldInfo` (`member_get.rs` twin).
+#[repr(C)]
+struct FieldInfo {
+    field_byte_offset: u32,
+    type_tag: u8,
+}
+
+/// `class_tag` u32 offset inside a `Tag::Obj` instance.
+const OBJ_CLASS_TAG_OFF: usize = 8;
+/// Str-cell payload offsets — mirror of `member_get.rs`.
+const STR_LEN_OFF: usize = 8;
+const STR_DATA_OFF: usize = 16;
+/// Closure-cell boxed dual-entry slot — mirror of torajs-core
+/// `ssa_lower.rs::CLOSURE_BOXED_ENTRY_OFF` (32; `torajs-dynobj`'s
+/// `accessor.rs` carries the same twin). NOT 16 — that slot is the
+/// drop fn, and calling IT through the boxed ABI hands back an
+/// unboxed word that decodes as a garbage Str (`typeof` said
+/// "string" while the probe was mid-bringup).
+const CLOSURE_BOXED_ENTRY_OFF: usize = 32;
+
+/// `kind` bytes of `__torajs_struct_accessor_find` (torajs-structmeta
+/// `AccessorKind::from_raw`).
+pub(crate) const KIND_GETTER: u8 = 0;
+pub(crate) const KIND_SETTER: u8 = 1;
+
+/// The dynobj probe's accessor sentinel — mirrors
+/// `torajs_dynobj::layout::ANY_ACCESSOR`. A struct accessor answers the
+/// same tag with a ZERO value channel: there is no AccessorPair cell,
+/// and that zero is what routes [`__torajs_any_accessor_get`] into the
+/// struct lane.
+pub(crate) const ANY_ACCESSOR_TAG: u64 = 6;
+
+/// How a struct's accessor half is reached.
+enum StructAccessor {
+    /// Object literal — the closure env cell out of the layout slot.
+    Closure(*mut c_void),
+    /// Class — the boxed adapter out of the dispatch table.
+    Adapter(*const c_void),
+}
+
+/// Resolve one half of a struct's accessor for `prop`.
+///
+/// # Safety
+/// `ptr` is a live `Tag::Obj` cell.
+unsafe fn resolve(ptr: *mut c_void, prop: &[u8], kind: u8) -> Option<StructAccessor> {
+    unsafe {
+        let class_tag = ptr.cast::<u8>().add(OBJ_CLASS_TAG_OFF).cast::<u32>().read();
+        let layout = __torajs_struct_layout_lookup(class_tag);
+        if layout.is_null() {
+            return None;
+        }
+        let idx = __torajs_struct_accessor_find(layout, prop.as_ptr(), prop.len() as u32, kind);
+        if idx != u32::MAX {
+            let info = __torajs_struct_field_info(layout, idx);
+            let env = ptr
+                .cast::<u8>()
+                .add(info.field_byte_offset as usize)
+                .cast::<*mut c_void>()
+                .read();
+            if env.is_null() {
+                return None;
+            }
+            return Some(StructAccessor::Closure(env));
+        }
+        let adapter =
+            __torajs_struct_accessor_method_find(layout, prop.as_ptr(), prop.len() as u32, kind);
+        if adapter.is_null() {
+            return None;
+        }
+        Some(StructAccessor::Adapter(adapter))
+    }
+}
+
+/// Does `ptr` carry an accessor property named `prop`? EITHER half
+/// makes the property present: reading a set-only property answers
+/// `undefined` (ES §10.1.8 — an accessor with an undefined `[[Get]]`),
+/// which is a definite value, not an absent key.
+///
+/// # Safety
+/// `ptr` is a live `Tag::Obj` cell.
+pub(crate) unsafe fn struct_accessor_present(ptr: *mut c_void, prop: &[u8]) -> bool {
+    unsafe {
+        resolve(ptr, prop, KIND_GETTER).is_some() || resolve(ptr, prop, KIND_SETTER).is_some()
+    }
+}
+
+/// Invoke a resolved getter half, borrowing `recv` into the call.
+///
+/// # Safety
+/// `recv` is the live `Tag::Obj` cell the accessor was resolved from.
+unsafe fn invoke_getter(recv: *mut c_void, acc: StructAccessor) -> AnyValue {
+    unsafe {
+        match acc {
+            // The lifted body is `(__env, __this)`: the closure cell's
+            // boxed adapter feeds argv[0] into `__this`.
+            StructAccessor::Closure(env) => {
+                let entry = env
+                    .cast::<u8>()
+                    .add(CLOSURE_BOXED_ENTRY_OFF)
+                    .cast::<u64>()
+                    .read();
+                if entry == 0 {
+                    return VALUE_UNDEFINED;
+                }
+                // Borrowed into the call — the receiver outlives it, so
+                // the box takes no ref (the adapter's argv slots are
+                // borrows by the boxed-entry contract).
+                let argv = [box_void_ptr(recv)];
+                invoke_boxed(env, entry, argv.as_ptr(), 1)
+            }
+            // `__cm_<C>__<p>_get` takes `__this` as its first param,
+            // which the adapter reads out of the env slot — empty argv.
+            StructAccessor::Adapter(adapter) => {
+                invoke_boxed(recv, adapter as u64, core::ptr::null(), 0)
+            }
+        }
+    }
+}
+
+/// The single [[Get]] behind an accessor member read on an `any`
+/// receiver — see module doc. `pair_bits` is the value channel of the
+/// probe that answered [`ANY_ACCESSOR_TAG`]:
+///
+/// * NON-ZERO — a dynobj `AccessorPair` cell; the existing lane invokes
+///   it (unchanged, receiver-independent).
+/// * ZERO — a struct accessor; resolve it against the receiver's
+///   layout / dispatch table and invoke it WITH the receiver, so
+///   `get v() { return this.a + 10 }` sees its `this`.
+///
+/// The result is owned. A getter that throws records a pending throw
+/// the emitted `emit_throw_check` routes right after this call.
+///
+/// # Safety
+/// `recv` is a live receiver (the probe just walked it); `key` is a
+/// live Str cell.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_any_accessor_get(
+    recv: AnyValue,
+    key: *const c_void,
+    pair_bits: u64,
+) -> AnyValue {
+    unsafe {
+        if pair_bits != 0 {
+            return __torajs_accessor_invoke_getter(pair_bits as *const c_void);
+        }
+        if !is_cell(recv) {
+            return VALUE_UNDEFINED;
+        }
+        let ptr = as_void_ptr(recv);
+        let cell_tag = ptr.cast::<u8>().add(4).cast::<u16>().read();
+        if cell_tag != Tag::Obj as u16 {
+            return VALUE_UNDEFINED;
+        }
+        let k = key as *const u8;
+        let key_len = k.add(STR_LEN_OFF).cast::<u32>().read();
+        let prop = core::slice::from_raw_parts(k.add(STR_DATA_OFF), key_len as usize);
+        match resolve(ptr, prop, KIND_GETTER) {
+            Some(acc) => invoke_getter(ptr, acc),
+            // Set-only property: present, but its [[Get]] is undefined.
+            None => VALUE_UNDEFINED,
+        }
+    }
+}
+
+/// `Tag::Obj` struct-cell field probe — the class-layout reflection
+/// walk (`struct_reflect::struct_cell_descriptor` twin): class_tag
+/// (u32 @ +8) → layout entry → field_find by key bytes → raw 8-byte
+/// slot decoded per the field's coarse type_tag. Answers the
+/// `(any_tag, payload)` pair on a hit — borrow-shaped like the
+/// dynobj probe (the struct keeps its stake) — or `None` for a
+/// missing layout / absent field. Chunk 744: pre-fix a struct cell
+/// fell to the builtin-reify arm and every field read through an
+/// `any` receiver whose sid the compile-time IC couldn't see (a
+/// Pass 2 fresh literal in a later-lowered fn) answered a silent
+/// `undefined`.
+///
+/// # Safety
+/// `ptr` is a live `Tag::Obj` heap pointer; `key` is a live Str cell.
+pub(crate) unsafe fn struct_field_pair(ptr: *mut c_void, key: *const c_void) -> Option<(u64, u64)> {
+    let k = key as *const u8;
+    let key_len = unsafe { k.add(STR_LEN_OFF).cast::<u32>().read() };
+    let key_bytes = unsafe { core::slice::from_raw_parts(k.add(STR_DATA_OFF), key_len as usize) };
+    unsafe { struct_field_pair_bytes(ptr, key_bytes) }
+}
+
+/// [`struct_field_pair`] keyed by raw name bytes — the shape the
+/// iteration kernel needs, which probes fixed field names (`done` /
+/// `value`) and has no Str cell to spend an allocation on per step.
+///
+/// # Safety
+/// `ptr` is a live `Tag::Obj` heap pointer.
+pub(crate) unsafe fn struct_field_pair_bytes(ptr: *mut c_void, name: &[u8]) -> Option<(u64, u64)> {
+    // RFC 20260714-objlit-accessor blade 5 — the accessor SLOT spelling
+    // is not a property. `find_field` resolves `__getter_v` (the layout
+    // really does carry that field), so without this guard an `any` read
+    // of `o.__getter_v` handed the getter closure back as a value — the
+    // internal name leaking onto the user-visible surface. bun: absent.
+    if unsafe { __torajs_accessor_name_kind(name.as_ptr(), name.len() as u32) } != 255 {
+        return None;
+    }
+    let class_tag = unsafe { ptr.cast::<u8>().add(OBJ_CLASS_TAG_OFF).cast::<u32>().read() };
+    let layout = unsafe { __torajs_struct_layout_lookup(class_tag) };
+    if layout.is_null() {
+        return None;
+    }
+    let idx = unsafe { __torajs_struct_field_find(layout, name.as_ptr(), name.len() as u32) };
+    if idx == u32::MAX {
+        return None;
+    }
+    let info = unsafe { __torajs_struct_field_info(layout, idx) };
+    let raw = unsafe {
+        ptr.cast::<u8>()
+            .add(info.field_byte_offset as usize)
+            .cast::<u64>()
+            .read()
+    };
+    Some(match info.type_tag {
+        // Any-typed field: the slot is a NaN-box — decode it.
+        0 => (
+            crate::nanbox_encode::__torajs_anyv_unbox_tag(raw) as u64,
+            crate::nanbox_encode::__torajs_anyv_unbox_value(raw) as u64,
+        ),
+        1 => (AnySlotTag::I64 as u64, raw),
+        2 => (AnySlotTag::F64 as u64, raw),
+        3 => (AnySlotTag::Bool as u64, raw),
+        _ => (AnySlotTag::Heap as u64, raw),
+    })
+}
+
+/// Blade 5 — is `key` an accessor property of the struct cell `ptr`?
+/// The value channel answers 0 for one (there is no AccessorPair cell),
+/// which is exactly what routes the invoke into the struct lane.
+///
+/// # Safety
+/// `ptr` is a live `Tag::Obj` cell; `key` a live Str cell.
+pub(crate) unsafe fn struct_accessor_key(ptr: *mut c_void, key: *const c_void) -> bool {
+    unsafe {
+        let k = key as *const u8;
+        let key_len = k.add(STR_LEN_OFF).cast::<u32>().read();
+        let bytes = core::slice::from_raw_parts(k.add(STR_DATA_OFF), key_len as usize);
+        struct_accessor_present(ptr, bytes)
+    }
+}

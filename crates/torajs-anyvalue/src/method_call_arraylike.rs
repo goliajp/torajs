@@ -119,7 +119,7 @@ pub(crate) unsafe fn arraylike_len(obj: *mut c_void) -> Option<i64> {
         // field answers the undefined pair (→ ToLength 0).
         let obj_tag = (obj.cast::<u8>().add(4) as *const u16).read();
         let (dtag, dval) = if obj_tag == torajs_rc::Tag::Obj as u16 {
-            crate::member_get::struct_field_pair(obj, key as *const c_void).unwrap_or((5, 0))
+            crate::struct_probe::struct_field_pair(obj, key as *const c_void).unwrap_or((5, 0))
         } else {
             (
                 __torajs_dynobj_get_tag(obj, key as *const c_void),

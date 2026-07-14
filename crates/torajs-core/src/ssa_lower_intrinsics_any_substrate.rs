@@ -83,6 +83,7 @@ pub(crate) struct AnySubstrateIds {
     pub any_regexp_prop: FuncId,
     pub any_member_get_tag: FuncId,
     pub any_member_get_value: FuncId,
+    pub any_accessor_get: FuncId,
     pub any_member_set: FuncId,
     pub any_iter_next: FuncId,
     pub any_iter_close: FuncId,
@@ -174,6 +175,11 @@ pub(crate) fn declare(
         // TypeError on the tag call.
         any_member_get_tag: decl!("__torajs_any_member_get_tag", [Any, Ptr], I64),
         any_member_get_value: decl!("__torajs_any_member_get_value", [Any, Ptr], I64),
+        // RFC 20260714-objlit-accessor blade 5 — the single [[Get]]
+        // behind an accessor member read. A non-zero value channel is
+        // a dynobj AccessorPair; a ZERO one is a struct accessor,
+        // invoked WITH the receiver so its `this` is bound.
+        any_accessor_get: decl!("__torajs_any_accessor_get", [Any, Ptr, I64], Any),
         // RFC 20260704 C4+ — tag-gated member write (recv AnyValue
         // slot, key Str, payload (tag, value) pair, name hint):
         // DynObj set with relocation write-back, RegExp lastIndex,

@@ -72,10 +72,35 @@ pub(crate) fn populate_vtables(
 /// A class name may itself contain `__`, so the `<C>` boundary is
 /// resolved by longest-match against the known class-name set. The
 /// ctor (`__cm_<C>__ctor`) never enters — `new` is not a method call.
+///
+/// RFC 20260714-objlit-accessor blade 5 — an ACCESSOR body
+/// (`__cm_<C>__<p>_get`) enters under the synthetic slot spelling
+/// `__getter_<p>`, the same name an object-literal accessor carries in
+/// the layout. Two things ride on that:
+///
+/// * the runtime `any` member read resolves `o.p` through it (a class
+///   accessor is prototype-level, so unlike the literal's it has no
+///   layout field to live in);
+/// * `<p>_get` STOPS being a callable method name. It was one — probe
+///   at `cd0f3caf`: `(new C() as any).b_get()` answered the getter's
+///   999 while bun rejects the name outright. The mangled spelling was
+///   leaking onto the user-visible method surface.
+///
+/// The name is taken from `ast.accessor_getters` / `accessor_setters`
+/// (keyed by fn name), never by guessing at a `_get` suffix — a plain
+/// method really called `b_get` is a legal method.
 fn collect_own_class_methods(
+    ast: &crate::ast::Ast,
     fn_table: &HashMap<String, ssa::FuncId>,
     class_names: &[&String],
 ) -> HashMap<String, Vec<(String, ssa::FuncId)>> {
+    let mut accessor_slots: HashMap<&str, String> = HashMap::new();
+    for ((_, prop), fname) in &ast.accessor_getters {
+        accessor_slots.insert(fname.as_str(), format!("__getter_{prop}"));
+    }
+    for ((_, prop), fname) in &ast.accessor_setters {
+        accessor_slots.insert(fname.as_str(), format!("__setter_{prop}"));
+    }
     let mut own: HashMap<String, Vec<(String, ssa::FuncId)>> = HashMap::new();
     for (fname, &fid) in fn_table {
         let Some(rest) = fname.strip_prefix("__cm_") else {
@@ -95,9 +120,13 @@ fn collect_own_class_methods(
         if mname == "ctor" || mname.is_empty() {
             continue;
         }
+        let entry_name = match accessor_slots.get(fname.as_str()) {
+            Some(slot) => slot.clone(),
+            None => mname.to_string(),
+        };
         own.entry(cname.to_string())
             .or_default()
-            .push((mname.to_string(), fid));
+            .push((entry_name, fid));
     }
     own
 }
@@ -168,7 +197,7 @@ pub(crate) fn populate_class_layouts(
     // 刀 4 — own `__cm_` bodies per class, resolved once for the
     // whole table (the per-class walk below merges parent chains).
     let all_class_names: Vec<&String> = class_names_by_tag.iter().map(|(n, _)| *n).collect();
-    let own_methods = collect_own_class_methods(fn_table, &all_class_names);
+    let own_methods = collect_own_class_methods(ast, fn_table, &all_class_names);
     for (cname, _tag) in &class_names_by_tag {
         let sid = match module.struct_layouts.iter().enumerate().find_map(|(i, _)| {
             aliases.get(*cname).and_then(|t| match t {

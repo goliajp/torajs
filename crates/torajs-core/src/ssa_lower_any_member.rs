@@ -53,9 +53,21 @@ pub(crate) fn lower_any_member_read(
     name: &str,
 ) -> Operand {
     ctx.owned_member_reads.insert(eid);
+    // RFC 20260714-objlit-accessor blade 5 — an accessor SLOT name is
+    // not a property. The IC below enumerates candidates by LAYOUT
+    // FIELD name, and `__getter_v` really is one, so without this the
+    // mangled spelling read back as the getter closure itself
+    // (`(o as any).__getter_v` → `[Function: __getter_v]`; bun:
+    // undefined). The runtime probe rejects it too — this closes the
+    // compile-time half.
+    let is_accessor_slot = crate::check_type_of_object_lit::accessor_slot(name).is_some();
     // Compile-time enumerate class candidates whose layout declares
     // `name` as a field. AOT — both maps are stable by this point.
     let mut candidates: Vec<(u32, u64, Type)> = Vec::new();
+    if is_accessor_slot {
+        let key_str = ctx.intern_string_literal(name);
+        return emit_member_fallback(ctx, &obj_val, key_str, name);
+    }
     for (cname, ctag) in ctx.class_name_to_tag.iter() {
         let Some(Type::Obj(sid)) = ctx.aliases.get(cname) else {
             continue;
@@ -346,5 +358,5 @@ pub(crate) fn emit_any_member_probe(
         None,
     );
     ctx.emit_throw_check(None);
-    crate::ssa_lower_accessor::emit_dynobj_get_result(ctx, tag, value)
+    crate::ssa_lower_accessor::emit_any_get_result(ctx, obj_val, key_str, tag, value)
 }

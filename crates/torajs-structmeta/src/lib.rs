@@ -76,10 +76,16 @@ const FIELD_META_TYPE_TAG_OFFSET: usize = 16;
 // On-disk struct mirrors
 // ---------------------------------------------------------------------------
 
+mod accessor_table;
 mod class_name;
 mod method_table;
+pub use accessor_table::{
+    __torajs_accessor_name_kind, __torajs_struct_accessor_find, AccessorKind,
+};
 pub use class_name::{__torajs_struct_class_name, ClassNameTableEntry};
-pub use method_table::{__torajs_struct_method_find, MethodMeta};
+pub use method_table::{
+    __torajs_struct_accessor_method_find, __torajs_struct_method_find, MethodMeta,
+};
 
 /// One outer-table entry — the same 24-byte record `torajs-cycle`'s
 /// `ClassLayout` mirrors. `n_children` + `child_offsets` belong to the
@@ -304,60 +310,6 @@ impl StructLayoutEntry {
         }
         None
     }
-
-    /// Find an object-literal accessor slot by the property it stands
-    /// for: `prop = "v"` matches the field named `__getter_v` (or
-    /// `__setter_v`). The layout stores accessors under a synthetic
-    /// name, but ES §10.4 keys the own property by the plain name —
-    /// the reflection consumers ask by the plain name and this walk
-    /// resolves it without allocating the mangled spelling (this crate
-    /// is `no_std` and the name may be arbitrarily long).
-    fn find_accessor(&self, prop: &[u8], kind: AccessorKind) -> Option<u32> {
-        let prefix = kind.prefix();
-        let n = self.n_fields();
-        let mut i = 0;
-        while i < n {
-            if let Some(f) = self.field(i) {
-                let name = f.name_bytes();
-                if name.len() == prefix.len() + prop.len()
-                    && &name[..prefix.len()] == prefix
-                    && &name[prefix.len()..] == prop
-                {
-                    return Some(i);
-                }
-            }
-            i += 1;
-        }
-        None
-    }
-}
-
-/// Which half of an accessor pair a lookup wants (RFC
-/// 20260714-objlit-accessor). The prefixes mirror torajs-core's
-/// `check_type_of_object_lit::accessor_slot`.
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum AccessorKind {
-    Getter,
-    Setter,
-}
-
-impl AccessorKind {
-    fn prefix(self) -> &'static [u8] {
-        match self {
-            AccessorKind::Getter => b"__getter_",
-            AccessorKind::Setter => b"__setter_",
-        }
-    }
-
-    /// Decode the FFI shell's `kind` byte. Anything other than the two
-    /// live spellings is not an accessor request.
-    fn from_raw(kind: u8) -> Option<Self> {
-        match kind {
-            0 => Some(AccessorKind::Getter),
-            1 => Some(AccessorKind::Setter),
-            _ => None,
-        }
-    }
 }
 
 impl FieldMeta {
@@ -486,35 +438,6 @@ pub unsafe extern "C" fn __torajs_struct_field_find(
     let entry = unsafe { &*layout };
     let needle = unsafe { core::slice::from_raw_parts(name, name_len as usize) };
     entry.find_field(needle).unwrap_or(u32::MAX)
-}
-
-/// Find the accessor slot standing for property `name`: `kind` 0 asks
-/// for the getter (`__getter_<name>`), 1 for the setter. Returns
-/// `u32::MAX` when the layout is NULL, the name pointer is NULL, the
-/// kind is unknown, or the class has no such accessor.
-///
-/// # Safety
-/// `layout` must be NULL or a pointer returned by
-/// [`__torajs_struct_layout_lookup`]; `name` must be NULL or point at
-/// `name_len` readable bytes.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_struct_accessor_find(
-    layout: *const StructLayoutEntry,
-    name: *const u8,
-    name_len: u32,
-    kind: u8,
-) -> u32 {
-    if layout.is_null() || name.is_null() {
-        return u32::MAX;
-    }
-    let Some(kind) = AccessorKind::from_raw(kind) else {
-        return u32::MAX;
-    };
-    // SAFETY: caller contract — `layout` is a live lookup result and
-    // `name` points at `name_len` readable bytes.
-    let entry = unsafe { &*layout };
-    let prop = unsafe { core::slice::from_raw_parts(name, name_len as usize) };
-    entry.find_accessor(prop, kind).unwrap_or(u32::MAX)
 }
 
 #[cfg(test)]

@@ -135,7 +135,7 @@ unsafe fn struct_index_get(obj: *mut c_void, idx: i64) -> AnyValue {
     let (start, len) = i64_dec(&mut buf, idx);
     unsafe {
         let key = __torajs_str_alloc(buf[start..].as_ptr(), len as i64);
-        let pair = crate::member_get::struct_field_pair(obj, key as *const c_void);
+        let pair = crate::struct_probe::struct_field_pair(obj, key as *const c_void);
         __torajs_str_drop(key as *mut c_void);
         let Some((ftag, fval)) = pair else {
             return VALUE_UNDEFINED;

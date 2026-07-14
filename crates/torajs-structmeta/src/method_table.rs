@@ -16,7 +16,7 @@
 //! `torajs-link/src/user_class_layouts_layout/types.rs` (`METHOD_META_*`
 //! / `INNER_METHOD_META_*`), locked by the compile-time block below.
 
-use crate::StructLayoutEntry;
+use crate::{AccessorKind, StructLayoutEntry};
 
 /// `OUTER_METHOD_TABLE_PTR_OFFSET_IN_ENTRY`.
 const OUTER_METHOD_TABLE_PTR_OFFSET: usize = 24;
@@ -110,6 +110,32 @@ impl StructLayoutEntry {
         }
         None
     }
+
+    /// Linear scan for a CLASS accessor's boxed adapter by the property
+    /// it stands for. A class accessor is prototype-level, so unlike an
+    /// object-literal one it has no layout field to sit in — the
+    /// dispatch table carries it under the same `__getter_<p>` /
+    /// `__setter_<p>` spelling, and the plain-name walk here mirrors
+    /// `find_accessor`'s (no allocation, `no_std`).
+    #[inline]
+    fn find_accessor_method(
+        &self,
+        prop: &[u8],
+        kind: AccessorKind,
+    ) -> Option<*const core::ffi::c_void> {
+        let prefix = kind.prefix();
+        let n = self.n_methods();
+        let mut i = 0;
+        while i < n {
+            if let Some(m) = self.method(i)
+                && crate::accessor_table::slot_name_matches(m.name_bytes(), prefix, prop)
+            {
+                return Some(m.adapter);
+            }
+            i += 1;
+        }
+        None
+    }
 }
 
 impl MethodMeta {
@@ -149,6 +175,42 @@ pub unsafe extern "C" fn __torajs_struct_method_find(
     entry.find_method(needle).unwrap_or(core::ptr::null())
 }
 
+/// Resolve a CLASS accessor's boxed adapter by the property it stands
+/// for — `kind` 0 asks for the getter, 1 for the setter (the byte the
+/// `__torajs_struct_accessor_find` shell takes). NULL when the layout
+/// is NULL, the kind is unknown, or the class declares no such
+/// accessor.
+///
+/// The adapter is the `__cm_<C>__<p>_get` body's boxed dual entry, so
+/// the caller invokes it with the instance in the env slot and an
+/// EMPTY argv (the `__this` param is the env) — the same shape
+/// `struct_method` uses for a plain method.
+///
+/// # Safety
+/// `layout` must be NULL or a live result of
+/// `__torajs_struct_layout_lookup`; `name` must be NULL or point at
+/// `name_len` readable bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_struct_accessor_method_find(
+    layout: *const StructLayoutEntry,
+    name: *const u8,
+    name_len: u32,
+    kind: u8,
+) -> *const core::ffi::c_void {
+    if layout.is_null() || name.is_null() {
+        return core::ptr::null();
+    }
+    let Some(kind) = AccessorKind::from_raw(kind) else {
+        return core::ptr::null();
+    };
+    // SAFETY: caller contract above.
+    let entry = unsafe { &*layout };
+    let prop = unsafe { core::slice::from_raw_parts(name, name_len as usize) };
+    entry
+        .find_accessor_method(prop, kind)
+        .unwrap_or(core::ptr::null())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -165,6 +227,8 @@ mod tests {
 
     const NAME_NEXT: &[u8] = b"next";
     const NAME_ADD: &[u8] = b"add";
+    const NAME_GETTER_B: &[u8] = b"__getter_b";
+    const NAME_SETTER_B: &[u8] = b"__setter_b";
     const ADAPTER_A: *const core::ffi::c_void = 0xA000usize as *const _;
     const ADAPTER_B: *const core::ffi::c_void = 0xB000usize as *const _;
 
@@ -214,6 +278,66 @@ mod tests {
                 ADAPTER_B
             );
             assert!(__torajs_struct_method_find(p, b"nosuch".as_ptr(), 6).is_null());
+        }
+    }
+
+    // A class-accessor table: the getter/setter adapters sit under the
+    // synthetic slot spelling, exactly as the emit side registers them.
+    fn accessor_image() -> TwoMethodImage {
+        TwoMethodImage {
+            n_methods: 2,
+            _pad: 0,
+            methods: [
+                MethodMeta {
+                    name_ptr: NAME_GETTER_B.as_ptr(),
+                    name_len: NAME_GETTER_B.len() as u32,
+                    _pad: 0,
+                    adapter: ADAPTER_A,
+                },
+                MethodMeta {
+                    name_ptr: NAME_SETTER_B.as_ptr(),
+                    name_len: NAME_SETTER_B.len() as u32,
+                    _pad: 0,
+                    adapter: ADAPTER_B,
+                },
+            ],
+        }
+    }
+
+    #[test]
+    fn accessor_method_find_resolves_both_halves_from_the_plain_name() {
+        let img = accessor_image();
+        let e = two_method_entry(&img);
+        let p = &e as *const StructLayoutEntry;
+        unsafe {
+            assert_eq!(
+                __torajs_struct_accessor_method_find(p, b"b".as_ptr(), 1, 0),
+                ADAPTER_A
+            );
+            assert_eq!(
+                __torajs_struct_accessor_method_find(p, b"b".as_ptr(), 1, 1),
+                ADAPTER_B
+            );
+            // Unknown kind byte is not an accessor request.
+            assert!(__torajs_struct_accessor_method_find(p, b"b".as_ptr(), 1, 7).is_null());
+            // The property is `b` — asking with the slot's own spelling
+            // must miss, or the internal name leaks back in as a key.
+            assert!(
+                __torajs_struct_accessor_method_find(p, NAME_GETTER_B.as_ptr(), 10, 0).is_null()
+            );
+        }
+    }
+
+    #[test]
+    fn plain_method_find_does_not_see_accessor_entries_under_the_plain_name() {
+        // The method-call probe must miss `b` — a getter is not a
+        // callable method, and `o.b()` on an accessor property has to
+        // keep its honest TypeError.
+        let img = accessor_image();
+        let e = two_method_entry(&img);
+        let p = &e as *const StructLayoutEntry;
+        unsafe {
+            assert!(__torajs_struct_method_find(p, b"b".as_ptr(), 1).is_null());
         }
     }
 

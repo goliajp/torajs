@@ -47,12 +47,12 @@
 use core::ffi::c_void;
 
 use crate::index_any::{__torajs_any_index_get, __torajs_any_iter_len};
-use crate::member_get::struct_field_pair_bytes;
 use crate::method_call::invoke_boxed;
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED, as_void_ptr, is_cell, is_short_str};
 use crate::nanbox_encode::__torajs_anyv_box_from_pair;
 use crate::nanbox_ffi::__torajs_anyv_rc_dec;
 use crate::payload_rc_inc;
+use crate::struct_probe::struct_field_pair_bytes;
 use torajs_rc::{AnySlotTag, Tag};
 
 unsafe extern "C" {

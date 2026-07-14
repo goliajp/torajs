@@ -121,6 +121,7 @@ mod method_value;
 mod name_get;
 mod prop_delete;
 mod prop_has;
+mod struct_probe;
 mod to_primitive;
 
 pub mod inspect;

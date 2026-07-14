@@ -43,6 +43,38 @@ const ANY_ACCESSOR_TAG: i64 = 6;
 /// per accessor/special-prop read). Consumers key off
 /// `owned_member_reads` to take the release over.
 pub(crate) fn emit_dynobj_get_result(ctx: &mut LowerCtx, tag: ValueId, value: ValueId) -> Operand {
+    emit_get_result(ctx, tag, value, None)
+}
+
+/// [`emit_dynobj_get_result`] for a probe over an ARBITRARY `any`
+/// receiver (RFC 20260714-objlit-accessor blade 5). Same two arms, but
+/// the accessor one routes through `__torajs_any_accessor_get(recv,
+/// key, pair)` so a STRUCT accessor — which has no `AccessorPair` cell
+/// to invoke, only a layout slot / dispatch-table adapter keyed off the
+/// receiver — reaches its getter with `this` bound. A dynobj receiver
+/// answers a non-zero pair and the kernel invokes it exactly as before.
+///
+/// The probe pair itself never invokes: it runs TWICE (once per
+/// channel), and a getter runs once per read (ES §10.1.8).
+pub(crate) fn emit_any_get_result(
+    ctx: &mut LowerCtx,
+    recv: &Operand,
+    key: ValueId,
+    tag: ValueId,
+    value: ValueId,
+) -> Operand {
+    emit_get_result(ctx, tag, value, Some((recv.clone(), key)))
+}
+
+/// `recv_key` = the `any`-lane receiver + key, or `None` for the
+/// dynobj-only lane (a closure's props bag, whose accessor entries are
+/// always real `AccessorPair` cells).
+fn emit_get_result(
+    ctx: &mut LowerCtx,
+    tag: ValueId,
+    value: ValueId,
+    recv_key: Option<(Operand, ValueId)>,
+) -> Operand {
     let is_acc = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::ICmp(
@@ -65,23 +97,37 @@ pub(crate) fn emit_dynobj_get_result(ctx: &mut LowerCtx, tag: ValueId, value: Va
             else_blk: data_blk,
         },
     );
-    // accessor path: `value` is the AccessorPair pointer.
+    // accessor path: `value` is the AccessorPair pointer (0 = a struct
+    // accessor, which the receiver-aware kernel resolves by key).
     ctx.cur_block = acc_blk;
-    let pair = ctx.f.append_inst(
-        acc_blk,
-        InstKind::IntToPtr(Operand::Value(value)),
-        Type::Ptr,
-        None,
-    );
-    let getr = ctx.f.append_inst(
-        acc_blk,
-        InstKind::Call(
-            ctx.intrinsics.accessor_invoke_getter,
-            vec![Operand::Value(pair)],
+    let getr = match &recv_key {
+        Some((recv, key)) => ctx.f.append_inst(
+            acc_blk,
+            InstKind::Call(
+                ctx.intrinsics.any_accessor_get,
+                vec![recv.clone(), Operand::Value(*key), Operand::Value(value)],
+            ),
+            Type::Any,
+            None,
         ),
-        Type::Any,
-        None,
-    );
+        None => {
+            let pair = ctx.f.append_inst(
+                acc_blk,
+                InstKind::IntToPtr(Operand::Value(value)),
+                Type::Ptr,
+                None,
+            );
+            ctx.f.append_inst(
+                acc_blk,
+                InstKind::Call(
+                    ctx.intrinsics.accessor_invoke_getter,
+                    vec![Operand::Value(pair)],
+                ),
+                Type::Any,
+                None,
+            )
+        }
+    };
     // The getter runs user code — route its pending throw before the
     // result is touched (pre-fix the pending flag stayed latent and a
     // throwing getter read fell through as undefined; RFC

@@ -69,6 +69,9 @@ unsafe extern "C" {
         name: *const u8,
         name_len: u32,
     ) -> *const c_void;
+    /// torajs-structmeta — does a name spell an accessor SLOT
+    /// (`__getter_v`)? 255 = a plain, user-callable name.
+    fn __torajs_accessor_name_kind(name: *const u8, name_len: u32) -> u8;
 }
 
 /// Mirror of `torajs-structmeta::FieldInfo` (returned by value
@@ -367,7 +370,18 @@ pub(crate) unsafe fn struct_method(
                 // hit invokes the `__cm_<C>__<m>` body through its
                 // boxed adapter with the instance in the env slot
                 // (the adapter feeds it into the `__this` param).
-                let adapter = __torajs_struct_method_find(layout, name_bytes, name_len);
+                //
+                // RFC 20260714-objlit-accessor blade 5 — class
+                // ACCESSORS ride the same table under `__getter_<p>`,
+                // and that spelling is not a callable method name:
+                // `o.__getter_b()` keeps the honest no-such TypeError
+                // (the property read reaches the getter, the call does
+                // not). A user method really named `b` still wins here.
+                let adapter = if __torajs_accessor_name_kind(name_bytes, name_len) == 255 {
+                    __torajs_struct_method_find(layout, name_bytes, name_len)
+                } else {
+                    core::ptr::null()
+                };
                 if !adapter.is_null() {
                     return crate::method_call::invoke_boxed(obj, adapter as u64, argv, argc);
                 }
