@@ -442,6 +442,14 @@ impl<'a> Parser<'a> {
                 return_type,
                 body,
             });
+            // RFC 20260714-objlit-accessor blade 1 — the ArrowFn node is
+            // a lossy encoding of a method: an arrow takes the LEXICAL
+            // `this`, a method binds it to the receiver. Record the
+            // method position so `desugar_objlit_nominal` can give this
+            // closure a `__this` param — without the mark, the `this` in
+            // the body is left a free variable and the checker rejects it
+            // ("references unknown identifier `__this`").
+            self.ast.objlit_method_exprs.insert(value);
             return Ok((name, value));
         }
         // Property shorthand: `{ x }` is sugar for `{ x: x }`. Triggers

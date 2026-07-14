@@ -166,11 +166,18 @@ pub(crate) fn parse_type(
     //   slot whose closure carries the synthetic real-argc first
     //   param; the TYPE parses identically — the argc-prepend signal
     //   rides the ann prefix (lower_fn marks `argc_locals`).
+    // - RFC 20260714-objlit-accessor `__mth(recv|P)->R`: an object-literal
+    //   method slot. Closure-repr like `__cls(`, and the sig KEEPS the
+    //   leading receiver — `CallIndirect`'s argv must match it, and the
+    //   field-call arm prepends the receiver for exactly the slots
+    //   `LowerCtx::objlit_method_slots` names. The checker drops that
+    //   leading param instead, so `o.m(x)` types at the source arity.
     if let Some(rest) = s
         .strip_prefix("__fn(")
         .filter(|_| s.contains("__rest("))
         .or_else(|| s.strip_prefix("__cls("))
         .or_else(|| s.strip_prefix("__clsargc("))
+        .or_else(|| s.strip_prefix("__mth("))
     {
         return markers::parse_cls(
             s,

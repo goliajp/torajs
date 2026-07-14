@@ -104,6 +104,15 @@ fn resolve_type_ann_inner(
     {
         return markers::resolve_fn_cls(rest, aliases, type_params, generic_aliases, in_flight);
     }
+    // RFC 20260714-objlit-accessor blade 1 — `__mth(P1|...)->R`, an
+    // object-literal METHOD slot. Types exactly like `__cls(`: the
+    // receiver is not in the signature (it is the lifted fn's hidden
+    // `__this`, reassembled at the field-call arm), so `o.m(x)` types at
+    // the arity the source has. The prefix exists only to tell that call
+    // arm to push the receiver — the `__clsargc(` idiom.
+    if let Some(rest) = name.strip_prefix("__mth(") {
+        return markers::resolve_fn_cls(rest, aliases, type_params, generic_aliases, in_flight);
+    }
     // M3 — bare identifier matching an in-scope type-param resolves to a
     // TypeVar regardless of any conflicting alias / primitive.
     if type_params.iter().any(|p| p == name) {

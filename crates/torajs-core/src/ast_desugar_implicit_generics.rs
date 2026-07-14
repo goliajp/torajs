@@ -143,7 +143,13 @@ fn collect_outer_binds(
 }
 
 pub(crate) fn run(ast: &mut Ast) {
-    let Ast { stmts, exprs, .. } = ast;
+    let Ast {
+        stmts,
+        exprs,
+        objlit_method_exprs,
+        objlit_method_fields,
+        ..
+    } = ast;
     let ast_exprs_view: AstExprsView = &*exprs;
 
     let mut fn_sigs: std::collections::HashMap<String, String> = std::collections::HashMap::new();
@@ -179,6 +185,21 @@ pub(crate) fn run(ast: &mut Ast) {
     // anns; `parse_type` maps `__fn` to FnSig and `effective_ret_ty`
     // upgrades to Closure where the body returns closure values.
     preinfer_closure_sigs(stmts, ast_exprs_view, &outer_binds, &mut fn_sigs);
+    // RFC 20260714-objlit-accessor blade 1 — must sit between the
+    // pre-infer above and the main loop below: the lifted closures and
+    // `fn_sigs` exist by now (so a method's FnDecl can take `__this` and
+    // re-publish its sig as `__mth(`), while the object literal's own
+    // `__inlobj(...)` ann is minted by the loop below — which is what
+    // carries the `__mth(` field out to the checker and the lowerer.
+    crate::ast::objlit_nominal::run(
+        stmts,
+        exprs,
+        objlit_method_exprs,
+        objlit_method_fields,
+        &outer_binds,
+        &mut fn_sigs,
+    );
+    let ast_exprs_view: AstExprsView = &*exprs;
     // Second pass over top-level lets — a `const h = <closure>`
     // binding could not resolve before the closure sigs existed.
     for s in stmts.iter() {

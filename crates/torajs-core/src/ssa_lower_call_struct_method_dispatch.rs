@@ -100,10 +100,36 @@ pub(crate) fn try_lower(
             )
         }
         Type::Closure(user_sig_id) => {
-            Some(emit_closure_call(ctx, recv_op, offset, user_sig_id, args))
+            let takes_recv = is_objlit_method_slot(ctx, sid, name);
+            Some(emit_closure_call(
+                ctx,
+                recv_op,
+                offset,
+                user_sig_id,
+                args,
+                takes_recv,
+            ))
         }
         _ => None,
     }
+}
+
+/// RFC 20260714-objlit-accessor blade 1 — is `(sid, name)` an
+/// object-literal METHOD slot (`{ m() { ... } }`) rather than a plain
+/// fn-valued field (`{ f: () => ... }`)? A method's lifted closure
+/// takes the receiver as `__this`, so the call has to push it.
+///
+/// Resolved through the synthetic NOMINAL alias `desugar_objlit_nominal`
+/// minted for the literal — never by matching struct shapes. The class
+/// accessor lane answers the same question by scanning `aliases` for a
+/// structurally-equal entry, and that is exactly why a plain `{a:1}`
+/// steals a same-layout class's getter (RFC §2.1); this must not copy it.
+fn is_objlit_method_slot(ctx: &LowerCtx<'_>, sid: crate::ssa::StructId, name: &str) -> bool {
+    ctx.ast
+        .objlit_method_fields
+        .iter()
+        .filter(|(_, methods)| methods.iter().any(|m| m == name))
+        .any(|(objlit_ty, _)| matches!(ctx.aliases.get(objlit_ty), Some(Type::Obj(s)) if *s == sid))
 }
 
 fn emit_fnsig_call(
@@ -160,6 +186,7 @@ fn emit_closure_call(
     offset: u64,
     user_sig_id: SigId,
     args: &[ExprId],
+    takes_recv: bool,
 ) -> Operand {
     let closure_env = ctx.f.append_inst(
         ctx.cur_block,
@@ -173,26 +200,40 @@ fn emit_closure_call(
         Type::Ptr,
         None,
     );
+    // The sig holds the USER params only. An object-literal method's
+    // lifted fn really is `(__env, __this, ...user)`, and this is the
+    // one arm that knows it — the receiver is deliberately absent from
+    // every Type so a `__mth(` slot can live in its own struct's layout
+    // without the layout naming itself (see `ast/objlit_nominal.rs`).
     let (user_params, ret_ty) = ctx.fn_sigs[user_sig_id.0 as usize].clone();
-    let mut env_first_params = Vec::with_capacity(user_params.len() + 1);
-    env_first_params.push(Type::Ptr);
-    env_first_params.extend(user_params.iter().copied());
-    let env_first_sig = intern_fn_sig(ctx.fn_sigs, env_first_params, ret_ty);
-    let mut argv: Vec<Operand> = Vec::with_capacity(args.len() + 1);
+    let fixed = 1 + usize::from(takes_recv);
+    let mut abi_params = Vec::with_capacity(user_params.len() + fixed);
+    abi_params.push(Type::Ptr);
+    if takes_recv {
+        abi_params.push(Type::Ptr);
+    }
+    abi_params.extend(user_params.iter().copied());
+    let env_first_sig = intern_fn_sig(ctx.fn_sigs, abi_params, ret_ty);
+    let mut argv: Vec<Operand> = Vec::with_capacity(args.len() + fixed);
     argv.push(Operand::Value(closure_env));
+    if takes_recv {
+        // Borrowed, like a class method's receiver — a method does not
+        // consume its `this`.
+        argv.push(recv_op);
+    }
     // Same post-lower cur_block rule as emit_fnsig_call above — a
     // branching arg moves cur_block; the loads dominate the merge.
     for a in args {
         argv.push(ctx.lower_expr(*a));
     }
     // RFC 20260714-t262-top-clusters 刀 1 — same call-boundary
-    // coercion as the direct-call terminal (argv[0] is the env; the
-    // user args align with the user param list).
+    // coercion as the direct-call terminal (the leading env / `__this`
+    // slots are ours; the user args align with the user param list).
     let coerce_owned = crate::ssa_lower_call_terminal::coerce_args_by_param_tys(
         ctx,
         &user_params,
         args,
-        &mut argv[1..],
+        &mut argv[fixed..],
     );
     let result = if ret_ty == Type::Void {
         ctx.f.append_void(

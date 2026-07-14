@@ -46,6 +46,7 @@ mod inject_builtin_classes;
 mod lift_arrow_fns;
 mod module_passes;
 mod nested_fns;
+pub(crate) mod objlit_nominal;
 mod prop_key;
 mod prototype_call;
 mod sfi_pass;
@@ -243,6 +244,28 @@ pub struct Ast {
     /// wedge admits beyond-arity calls through these names and the
     /// ssa_lower closure-local call arm prepends the runtime argc.
     pub closure_argc_locals: std::collections::HashSet<String>,
+    /// RFC 20260714-objlit-accessor blade 1 — ExprIds of object-literal
+    /// METHOD-shorthand values (`{ m() { ... } }`). The parser desugars
+    /// the shorthand to an `Expr::ArrowFn` like any other field value,
+    /// which erases the one semantic that separates them: a method binds
+    /// `this` to the receiver, an arrow takes the lexical `this`.
+    /// `desugar_objlit_nominal` reads this set to give exactly these
+    /// closures a `__this` receiver param. Keyed by ExprId, which
+    /// survives `lift_arrow_fns` (it replaces the arena slot in place
+    /// with the `Expr::Closure`).
+    pub objlit_method_exprs: std::collections::HashSet<ExprId>,
+    /// RFC 20260714-objlit-accessor blade 1 — `__ObjLit_<n>` (the synth
+    /// nominal alias minted for a method-bearing object literal) → its
+    /// method field names. `ssa_lower` resolves the alias to a
+    /// `StructId` once and turns this into a `(StructId, field)` set, so
+    /// the field-call arm knows to prepend the receiver.
+    ///
+    /// Keyed by the NOMINAL name on purpose. The class accessor lane
+    /// keys the same question by reverse-looking-up a class name from a
+    /// structurally-equal alias, which is unsound (a plain `{a:1}` steals
+    /// a same-layout class's accessor — see the RFC); this table must not
+    /// repeat that.
+    pub objlit_method_fields: std::collections::HashMap<String, Vec<String>>,
     /// RFC 20260708-closure-argv-face — lifted closures whose body
     /// reads `arguments[i]` (the full-arguments tier) and whose
     /// value passed the direct-call-or-alias safety walk. These

@@ -102,6 +102,17 @@ pub(crate) fn check_closure(
     let Type::Function(param_tys, ret_ty) = user_fn_ty.clone() else {
         unreachable!();
     };
+    // RFC 20260714-objlit-accessor blade 1 — an object-literal method's
+    // receiver is a param of the LIFTED fn, not of the method the user
+    // wrote: `o.m()` passes no receiver. It still has to be declared
+    // into the body's scope below (that is what makes `this.a` resolve),
+    // so only the VALUE type sheds it.
+    let takes_recv = real_params.first().is_some_and(|p| p.name == "__this");
+    let user_fn_ty = if takes_recv {
+        Type::Function(param_tys.iter().skip(1).cloned().collect(), ret_ty.clone())
+    } else {
+        user_fn_ty
+    };
     let saved_scopes = std::mem::replace(&mut checker.scopes, vec![HashMap::new()]);
     let saved_return = checker.expected_return.replace(*ret_ty);
     for (cap_name, cap_ty) in &cap_tys {
