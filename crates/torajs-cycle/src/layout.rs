@@ -257,10 +257,40 @@ pub unsafe fn is_visitable_arr(p: *mut c_void) -> bool {
     (header.flags & ARR_ELEM_KIND_MASK) >> ARR_ELEM_KIND_SHIFT == ARR_KIND_HEAP
 }
 
+/// True when `p`'s bit pattern looks like a real heap pointer (top 16
+/// bits zero, low tag bit clear). A NaN-box immediate — an Int32 / f64
+/// (top tag bits set) or a Null / Undef / Bool sentinel (low
+/// TAG_BIT_TYPE_OTHER bit set) — has no heap header behind it, so
+/// dereferencing one is a wild read. Mirrors the identical gate in
+/// `torajs-rc::ffi` (rc_inc / rc_dec) and `torajs-value-drop`, kept
+/// bit-local so the collector takes no dependency on torajs-anyvalue.
+#[inline]
+fn nan_box_is_cell_like(p: *mut c_void) -> bool {
+    const TOP_16_MASK: u64 = 0xFFFF_0000_0000_0000;
+    const TAG_BIT_TYPE_OTHER: u64 = 0x02;
+    let v = p as u64;
+    v != 0 && (v & TOP_16_MASK) == 0 && (v & TAG_BIT_TYPE_OTHER) == 0
+}
+
 /// True iff any cycle-collector phase can descend into `p`. Today =
 /// declared-class instances + arrays.
+///
+/// The cell-like gate is load-bearing, not defensive: an `any`-typed
+/// class field is a cycle child (`Type::Any` is refcounted, so the
+/// emit side records its offset in `child_offsets`), but the slot
+/// holds a NaN-BOX, not a raw pointer. Every other child consumer
+/// already gates — `rc_inc` / `rc_dec` / `__torajs_value_drop_heap`
+/// all skip non-cell-like bits — and the collector was the one walk
+/// that read the slot raw: `class K { v: any }` with `this.v = 1`
+/// stored `0xFFFE…0001`, which the phases then dereferenced as a
+/// header (wild read) and decremented (wild write). It only ever
+/// fired once a program crossed the 1024-candidate auto-collect
+/// threshold, so it read as a mysterious SIGSEGV at scale.
 #[inline]
 pub unsafe fn has_walkable_children(p: *mut c_void) -> bool {
+    if !nan_box_is_cell_like(p) {
+        return false;
+    }
     unsafe { is_class_obj(p) || is_visitable_arr(p) }
 }
 
@@ -283,6 +313,38 @@ pub unsafe fn layout_for_class_obj(p: *mut c_void) -> *const ClassLayout {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn nan_box_immediates_are_not_cell_like() {
+        // Int32 / f64 immediates carry the NaN tag in the top bits.
+        assert!(!nan_box_is_cell_like(
+            0xFFFE_0000_0000_0001u64 as *mut c_void
+        ));
+        assert!(!nan_box_is_cell_like(
+            0xFFFF_0000_0000_0000u64 as *mut c_void
+        ));
+        // Null / Undef / Bool sentinels set the low type-other bit.
+        assert!(!nan_box_is_cell_like(0x02u64 as *mut c_void));
+        assert!(!nan_box_is_cell_like(0x0Au64 as *mut c_void));
+        // ShortStr (top16 = 0x0001) is an immediate too.
+        assert!(!nan_box_is_cell_like(
+            0x0001_0000_0000_0061u64 as *mut c_void
+        ));
+        assert!(!nan_box_is_cell_like(core::ptr::null_mut()));
+        // An 8-aligned 48-bit user VA is the real-cell shape.
+        assert!(nan_box_is_cell_like(
+            0x0000_0001_2345_6788u64 as *mut c_void
+        ));
+    }
+
+    #[test]
+    fn walkable_children_rejects_nan_box_immediates() {
+        // A boxed `1` in an `any` field must never be dereferenced as
+        // a heap header — the pre-fix wild read behind the 1024-
+        // candidate auto-collect SIGSEGV.
+        assert!(!unsafe { has_walkable_children(0xFFFE_0000_0000_0001u64 as *mut c_void) });
+        assert!(!unsafe { has_walkable_children(core::ptr::null_mut()) });
+    }
 
     #[test]
     fn header_layout() {
