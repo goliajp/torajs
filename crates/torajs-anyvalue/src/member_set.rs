@@ -80,6 +80,11 @@ unsafe fn reject(tag: u64, value: u64) {
 }
 
 /// See module doc. `hint` carries the compile-time member-name
+/// Str-cell payload offsets — mirror of `struct_probe.rs` (the key is
+/// a live Str cell; blade 7 reads its bytes to resolve the accessor).
+const STR_LEN_OFF: usize = 8;
+const STR_DATA_OFF: usize = 16;
+
 /// Closure-cell lazy props slot — mirror of torajs-core
 /// `ssa_lower.rs::CLOSURE_PROPS_OFF`.
 const MEMBER_SET_CLOSURE_PROPS_OFF: usize = 24;
@@ -160,6 +165,26 @@ pub unsafe extern "C" fn __torajs_any_member_set(
             // itself never moves.
             *props_slot = props as u64;
             return;
+        }
+        // RFC 20260714-objlit-accessor blade 7 — a struct accessor's
+        // [[Set]] (the write mirror of blade 5's read). A setter runs
+        // with the value; a GET-ONLY property throws (ES §10.1.9 — an
+        // assignment whose [[Set]] is undefined fails, and a module is
+        // strict). A plain data field keeps the reject below: a typed
+        // struct through `any` cannot grow or rewrite a slot yet (RFC
+        // 20260714-struct-dynamic-props).
+        if cell_tag == Tag::Obj as u16 {
+            let name_len = (key.cast::<u8>().add(STR_LEN_OFF) as *const u32).read();
+            let name_bytes = key.cast::<u8>().add(STR_DATA_OFF);
+            let value_anyv = __torajs_anyv_box_from_pair(tag as i64, value as i64);
+            if crate::struct_probe::__torajs_struct_accessor_set(
+                ptr, name_bytes, name_len, value_anyv,
+            ) {
+                // The setter borrowed the value out of argv; the write
+                // path owns the payload it was handed.
+                drop_payload(tag, value);
+                return;
+            }
         }
         if cell_tag == Tag::Arr as u16 {
             // RFC 20260712-arr-exotic-define chunk C — own-domain

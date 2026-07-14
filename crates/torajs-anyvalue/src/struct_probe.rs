@@ -64,6 +64,8 @@ unsafe extern "C" {
     fn __torajs_accessor_name_kind(name: *const u8, name_len: u32) -> u8;
     /// torajs-dynobj — the AccessorPair lane (unchanged).
     fn __torajs_accessor_invoke_getter(pair: *const c_void) -> u64;
+    /// torajs-throw — record a pending catchable TypeError.
+    fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
 }
 
 /// Mirror of `torajs-structmeta::FieldInfo` (`member_get.rs` twin).
@@ -180,6 +182,80 @@ unsafe fn invoke_getter(recv: *mut c_void, acc: StructAccessor) -> AnyValue {
             // which the adapter reads out of the env slot — empty argv.
             StructAccessor::Adapter(adapter) => {
                 invoke_boxed(recv, adapter as u64, core::ptr::null(), 0)
+            }
+        }
+    }
+}
+
+/// A struct accessor's [[Set]] (RFC 20260714-objlit-accessor blade 7 —
+/// the write mirror of blade 5's read). `value` is BORROWED into the
+/// call, like every boxed-entry argv slot; the caller keeps its stake.
+///
+/// Answers `true` when the property is an accessor and the write is
+/// resolved:
+///
+/// * a setter runs with the value as its argument;
+/// * a GET-ONLY property throws (ES §10.1.9 / §6.2.5.6 — an assignment
+///   whose [[Set]] is undefined fails, and a module is strict, so the
+///   failure is a TypeError, not a silent no-op; bun agrees).
+///
+/// `false` = not an accessor at all — the caller keeps its own answer
+/// for a data field (a typed struct through `any` cannot grow a
+/// property; that is RFC 20260714-struct-dynamic-props).
+///
+/// # Safety
+/// `obj` is a live `Tag::Obj` cell; `name` points at `name_len` bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_struct_accessor_set(
+    obj: *mut c_void,
+    name: *const u8,
+    name_len: u32,
+    value: AnyValue,
+) -> bool {
+    unsafe {
+        if obj.is_null() || name.is_null() {
+            return false;
+        }
+        let prop = core::slice::from_raw_parts(name, name_len as usize);
+        if let Some(acc) = resolve(obj, prop, KIND_SETTER) {
+            invoke_setter(obj, acc, value);
+            return true;
+        }
+        if resolve(obj, prop, KIND_GETTER).is_some() {
+            __torajs_throw_type_error(
+                c"Attempted to assign to readonly property.".as_ptr() as *const core::ffi::c_char
+            );
+            return true;
+        }
+        false
+    }
+}
+
+/// Invoke a resolved setter half with `value` — the receiver rides the
+/// same slot the getter's does, and the value follows it.
+///
+/// # Safety
+/// `recv` is the live `Tag::Obj` cell the accessor was resolved from.
+unsafe fn invoke_setter(recv: *mut c_void, acc: StructAccessor, value: AnyValue) {
+    unsafe {
+        match acc {
+            // The lifted body is `(__env, __this, v)`.
+            StructAccessor::Closure(env) => {
+                let entry = env
+                    .cast::<u8>()
+                    .add(CLOSURE_BOXED_ENTRY_OFF)
+                    .cast::<u64>()
+                    .read();
+                if entry == 0 {
+                    return;
+                }
+                let argv = [box_void_ptr(recv), value];
+                invoke_boxed(env, entry, argv.as_ptr(), 2);
+            }
+            // `__cm_<C>__<p>_set(__this, v)` — `__this` is the env.
+            StructAccessor::Adapter(adapter) => {
+                let argv = [value];
+                invoke_boxed(recv, adapter as u64, argv.as_ptr(), 1);
             }
         }
     }
