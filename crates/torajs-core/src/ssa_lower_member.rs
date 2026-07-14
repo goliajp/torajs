@@ -42,7 +42,7 @@
 //!    struct-field-layout fallback.
 
 use crate::ast::ExprId;
-use crate::ssa::{Operand, Type};
+use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 
 pub(crate) fn lower(ctx: &mut LowerCtx<'_>, eid: ExprId, obj: ExprId, name: &str) -> Operand {
@@ -106,6 +106,24 @@ pub(crate) fn lower_with_val(
     obj_ty: Type,
     name: &str,
 ) -> Operand {
+    if name == "__proto__" {
+        // Annex B §B.2.2.1 — `o.__proto__` IS the [[Prototype]]
+        // getter, and it answers for every receiver shape, so it sits
+        // ahead of the typed ladder: a typed receiver boxes into the
+        // Any lane the intrinsic reads (which is also what
+        // `Object.getPrototypeOf` calls, so the two cannot drift).
+        // Owned return, the `.length` shape.
+        ctx.owned_member_reads.insert(eid);
+        let any_op = ctx.box_to_any(obj_val);
+        let v = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.proto_member_get, vec![any_op]),
+            Type::Any,
+            None,
+        );
+        ctx.emit_throw_check(None);
+        return Operand::Value(v);
+    }
     if let Some(op) =
         crate::ssa_lower_member_typed_props::try_lower(ctx, obj, obj_val, obj_ty, name)
     {

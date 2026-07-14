@@ -46,13 +46,27 @@ unsafe extern "C" {
 
 /// `Object.prototype`'s builtin tag (`builtin_proto.rs` order) — the
 /// root every other builtin prototype inherits from.
-const OBJECT_PROTO_TAG: i64 = 1;
+pub(crate) const OBJECT_PROTO_TAG: i64 = 1;
+
+/// Mirror of `torajs_dynobj::layout::DYNOBJ_HDR_FLAG_NULL_PROTO`
+/// (header bit 6) — set on the dict `Object.create(null)` mints.
+pub(crate) const DYNOBJ_HDR_FLAG_NULL_PROTO: u16 = 1 << 6;
+
+/// Builtin-proto tags of the primitive wrappers (`builtin_proto.rs`
+/// order).
+pub(crate) const NUMBER_PROTO_TAG: i64 = 0;
+pub(crate) const STRING_PROTO_TAG: i64 = 3;
+pub(crate) const BOOLEAN_PROTO_TAG: i64 = 4;
+
+/// ShortStr's NaN-box signature — the top 16 bits are `0x0001`
+/// (mirrors `is_cell_imm`'s note above).
+pub(crate) const SHORT_STR_TOP16: u64 = 0x0001_0000_0000_0000;
 
 // Tag values mirrored from torajs-anyvalue::AnySlotTag — re-declared
 // here to keep this crate's dep tree narrow (no torajs-anyvalue
 // Cargo dep; the i64 wire tag is part of the ABI anyway).
 const ANY_BOOL: i64 = 1;
-const ANY_HEAP: i64 = 4;
+pub(crate) const ANY_HEAP: i64 = 4;
 const ANY_UNDEF: i64 = 5;
 /// `get_tag` accessor sentinel (mirrors `torajs_dynobj::layout::ANY_ACCESSOR`).
 const ANY_ACCESSOR: u64 = 6;
@@ -65,10 +79,10 @@ pub(crate) const TAG_OBJ: u16 = 1;
 // Tag::Arr — array cell; gOPD routes to the length / canonical-index /
 // expando arms in `arr_reflect.rs` (RFC 20260712-arr-exotic-define
 // chunk A).
-const TAG_ARR: u16 = 2;
+pub(crate) const TAG_ARR: u16 = 2;
 // Tag::Closure — fn cell; gOPD routes to the virtual name/length
 // descriptor arm in `closure_reflect.rs` (RFC 20260711 chunk B).
-const TAG_CLOSURE: u16 = 3;
+pub(crate) const TAG_CLOSURE: u16 = 3;
 /// Tag::Str / Tag::Symbol / Tag::BigInt from `torajs-rc` — primitive-in-spec
 /// heap cells. RFC C4b throws TypeError on these because `Object.defineProperty(O, ...)`
 /// step 1 is a strict `Type(O) is Object` check (no ToObject wrapper boxing).
@@ -95,8 +109,8 @@ pub(crate) unsafe fn alloc_str_key(name: &[u8]) -> *mut u8 {
 // null / undefined shared with own_names.rs (W-N-c ToObject guard).
 pub(crate) const VALUE_NULL_IMM: u64 = 0x02;
 pub(crate) const VALUE_UNDEFINED_IMM: u64 = 0x0A;
-const VALUE_FALSE_IMM: u64 = 0x06;
-const VALUE_TRUE_IMM: u64 = 0x07;
+pub(crate) const VALUE_FALSE_IMM: u64 = 0x06;
+pub(crate) const VALUE_TRUE_IMM: u64 = 0x07;
 const TAG_TYPE_NUMBER: u64 = 0xFFFE_0000_0000_0000;
 const TAG_BIT_TYPE_OTHER: u64 = 0x02;
 const DOUBLE_ENCODE_OFFSET: u64 = 0x0007_0000_0000_0000;
@@ -104,7 +118,7 @@ const DOUBLE_ENCODE_OFFSET: u64 = 0x0007_0000_0000_0000;
 /// claims `top16 == 0x0001`; weak `& TAG_TYPE_NUMBER == 0` would
 /// misclassify ShortStr as cell when its low byte happened to
 /// clear bit 1 (e.g. `'a'` = 0x61).
-const TOP_16_MASK: u64 = 0xFFFF_0000_0000_0000;
+pub(crate) const TOP_16_MASK: u64 = 0xFFFF_0000_0000_0000;
 
 #[inline]
 pub(crate) const fn is_cell_imm(v: u64) -> bool {
@@ -169,7 +183,7 @@ pub(crate) unsafe fn build_accessor_descriptor(
 }
 
 #[inline]
-fn box_pair_imm(tag: i64, value: i64) -> u64 {
+pub(crate) fn box_pair_imm(tag: i64, value: i64) -> u64 {
     match tag {
         0 => VALUE_NULL_IMM,
         1 => {
@@ -197,95 +211,6 @@ fn box_pair_imm(tag: i64, value: i64) -> u64 {
         5 => VALUE_UNDEFINED_IMM,
         _ => VALUE_NULL_IMM,
     }
-}
-
-/// AnyValue-immediate `Object.getPrototypeOf(any)` — reads the
-/// `__proto__` slot from the wrapped dynobj and returns a NaN-box
-/// `AnyValue` immediate. Identity-preserving (the returned cell
-/// wraps the SAME dynobj pointer the parent prototype was stored
-/// at, so `getPrototypeOf(C.prototype) === B.prototype`).
-///
-/// # Safety
-///
-/// `v` carries a valid AnyValue bit pattern; cell case must
-/// point to a valid heap object.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_anyv_get_proto_of_any(v: u64) -> u64 {
-    if !is_cell_imm(v) {
-        return VALUE_NULL_IMM;
-    }
-    let dynobj = v as *const c_void;
-    // A builtin prototype answers before anything reads its shape:
-    // every one of them inherits from %Object.prototype% (§20.1.3 —
-    // whose own [[Prototype]] is the chain's null root), and that
-    // holds no matter which cell shape backs it. Asking the tag
-    // table instead would send `Array.prototype` — an Arr cell —
-    // through the TAG_ARR arm below and hand back *itself*.
-    let bp_tag = unsafe { __torajs_builtin_proto_tag_of(dynobj) };
-    if bp_tag == OBJECT_PROTO_TAG {
-        return VALUE_NULL_IMM;
-    }
-    if bp_tag >= 0 {
-        let p = unsafe { __torajs_get_builtin_prototype(OBJECT_PROTO_TAG) };
-        if !p.is_null() {
-            unsafe { __torajs_rc_inc(p) };
-            return p as u64;
-        }
-        return VALUE_NULL_IMM;
-    }
-    // SAFETY: cell pointer to valid heap object per invariant.
-    let tag = unsafe { heap_type_tag(dynobj) };
-    if tag != TAG_DYNOBJ {
-        // Static-layout class instance (Tag::Obj) — the class tag
-        // lives in the universal +8 header slot (0 for plain
-        // type-alias structs, so unregistered shapes keep the null
-        // answer). Route through the same tag→proto table the typed
-        // `Object.getPrototypeOf` lowering reads, so the answer is
-        // identical across the Any and Obj tiers (RFC 20260713
-        // blade 5: `Object.getPrototypeOf(g()) === g.prototype`).
-        if tag == TAG_OBJ {
-            let class_tag = unsafe { dynobj.cast::<u8>().add(8).cast::<i64>().read() };
-            return unsafe { crate::classmeta::__torajs_anyv_proto_get(class_tag) };
-        }
-        // RFC 20260713-array-proto-residual blade 3 — builtin-tagged
-        // cells answer their `<Ctor>.prototype` singleton per
-        // §10.1.1 (an Array's [[Prototype]] IS Array.prototype, so
-        // `getPrototypeOf(xs) === Array.prototype` holds). Tags with
-        // no proto singleton (struct / iterator internals) keep the
-        // null answer (recorded boundary).
-        let proto_tag = match tag {
-            TAG_ARR => 2,
-            0 => 3, // Str / Substr view
-            TAG_CLOSURE => 13,
-            4 => 7,   // RegExp
-            5 => 8,   // Date
-            15 => 11, // Map
-            19 => 12, // Set
-            _ => -1,
-        };
-        if proto_tag >= 0 {
-            let p = unsafe { __torajs_get_builtin_prototype(proto_tag) };
-            if !p.is_null() {
-                unsafe { __torajs_rc_inc(p as *mut c_void) };
-                return p as u64;
-            }
-        }
-        return VALUE_NULL_IMM;
-    }
-    let k = unsafe { alloc_str_key(b"__proto__") };
-    if !unsafe { __torajs_dynobj_has(dynobj, k) } {
-        unsafe { __torajs_str_drop(k) };
-        return VALUE_NULL_IMM;
-    }
-    let v_tag = unsafe { __torajs_dynobj_get_tag(dynobj, k) } as i64;
-    let v_val = unsafe { __torajs_dynobj_get_value(dynobj, k) } as i64;
-    unsafe { __torajs_str_drop(k) };
-    // rc_inc heap payload — caller owns the returned reference.
-    if v_tag == ANY_HEAP && v_val != 0 {
-        // SAFETY: ANY_HEAP slot holds a valid heap pointer.
-        unsafe { __torajs_rc_inc(v_val as *mut c_void) };
-    }
-    box_pair_imm(v_tag, v_val)
 }
 
 /// AnyValue-immediate `Object.getOwnPropertyDescriptor(obj, key)`

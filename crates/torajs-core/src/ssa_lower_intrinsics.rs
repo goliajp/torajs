@@ -369,6 +369,7 @@ pub(crate) struct Intrinsics {
     pub(crate) class_register: FuncId,
     pub(crate) class_get: FuncId,
     pub(crate) get_proto_of_any: FuncId,
+    pub(crate) proto_member_get: FuncId,
     pub(crate) genfn_proto: FuncId,
     pub(crate) genfn_chain: FuncId,
     pub(crate) any_typeof: FuncId,

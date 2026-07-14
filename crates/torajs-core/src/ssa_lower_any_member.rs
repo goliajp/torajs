@@ -276,6 +276,22 @@ fn emit_member_fallback(
         ctx.emit_throw_check(None);
         return Operand::Value(v);
     }
+    if name == "__proto__" {
+        // Annex B §B.2.2.1 — `o.__proto__` IS the [[Prototype]]
+        // getter, so it answers whatever `Object.getPrototypeOf(o)`
+        // does (one intrinsic, no second copy of the walk). The
+        // dynobj-only path below would have probed for an own entry
+        // named "__proto__" and answered undefined for every object
+        // that never got one. Owned return, the `.length` shape.
+        let v = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.proto_member_get, vec![obj_val.clone()]),
+            Type::Any,
+            None,
+        );
+        ctx.emit_throw_check(None);
+        return Operand::Value(v);
+    }
     if name == "name" {
         // chunk 716 — fn reflection metadata (reified method cell
         // interned name / fn-addr registry / dynobj `{ name: .. }`
