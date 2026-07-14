@@ -212,6 +212,86 @@ unsafe fn obj_iter_step(
     }
 }
 
+/// `__torajs_any_iter_close(recv, iter_slot)` — ES §7.4.9
+/// IteratorClose. A consumer that stops before the iterator reports
+/// done owes it a `return()` call: that is what runs a generator's
+/// `finally` blocks and lets a custom iterator release what it holds.
+/// Array / string / Map / Set iterators have no `return` method, so
+/// closing one is a no-op — as it is for any iterator whose prototype
+/// omits it (the spec returns early on an undefined `return`).
+///
+/// An `iter_slot` still at `undefined` means the consumer never took a
+/// step (an empty pattern, `const [] = src`). ES §13.15.5.3 calls
+/// GetIterator regardless, so this still rejects a non-iterable source
+/// — otherwise `const [] = 5` would bind nothing and pass.
+///
+/// The slot's reference stays the caller's to release.
+///
+/// # Safety
+/// `recv` is an AnyValue whose cells are live heap pointers;
+/// `iter_slot` is a valid writable pointer holding `undefined` or a
+/// derived iterator box.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_any_iter_close(recv: AnyValue, iter_slot: *mut AnyValue) {
+    unsafe {
+        if *iter_slot == VALUE_UNDEFINED && !derive_for_close(recv, iter_slot) {
+            return;
+        }
+        let iter = *iter_slot;
+        if !is_cell(iter) {
+            return;
+        }
+        let iter_ptr = as_void_ptr(iter) as *mut c_void;
+        if (iter_ptr.cast::<u8>().add(4) as *const u16).read() != Tag::Obj as u16 {
+            return;
+        }
+        if let Some(result) = call_obj_method_0(iter_ptr, b"return") {
+            __torajs_anyv_rc_dec(result);
+        }
+    }
+}
+
+/// The zero-step case of [`__torajs_any_iter_close`] — assert the
+/// receiver is iterable, and derive the iterator only when it is a
+/// class instance (the one shape with something to close). `false`
+/// means either a pending TypeError or a lane with no closable
+/// iterator; both leave the slot alone.
+///
+/// # Safety
+/// Same as the caller's.
+unsafe fn derive_for_close(recv: AnyValue, iter_slot: *mut AnyValue) -> bool {
+    unsafe {
+        if is_short_str(recv) {
+            return false;
+        }
+        if !is_cell(recv) {
+            __torajs_throw_type_error(c"value is not iterable".as_ptr());
+            return false;
+        }
+        let tag = (as_void_ptr(recv).cast::<u8>().add(4) as *const u16).read();
+        if tag == Tag::Str as u16
+            || tag == Tag::Arr as u16
+            || tag == Tag::Map as u16
+            || tag == Tag::Set as u16
+            || tag == Tag::MapIter as u16
+            || tag == Tag::ArrIter as u16
+        {
+            return false;
+        }
+        if tag != Tag::Obj as u16 {
+            __torajs_throw_type_error(c"value is not iterable".as_ptr());
+            return false;
+        }
+        let Some(iter) = call_obj_method_0(as_void_ptr(recv) as *mut c_void, SYM_ITERATOR_METHOD)
+        else {
+            __torajs_throw_type_error(c"value is not iterable".as_ptr());
+            return false;
+        };
+        *iter_slot = iter;
+        true
+    }
+}
+
 /// See module doc.
 ///
 /// # Safety

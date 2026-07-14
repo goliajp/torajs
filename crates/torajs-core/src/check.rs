@@ -357,6 +357,7 @@ impl Checker {
             expr_types: HashMap::new(),
             demoted_cm_rewrites: HashMap::new(),
             contextual_any_literals: std::collections::HashSet::new(),
+            iter_destr_srcs: HashMap::new(),
             assign_narrows: HashMap::new(),
             member_narrows: HashMap::new(),
         }
@@ -470,6 +471,13 @@ pub(crate) struct Checker {
     /// but are deliberately taken by the typed lane (Str undefined
     /// sentinel slots).
     pub contextual_any_literals: std::collections::HashSet<ExprId>,
+    /// RFC 20260714-dstr-residual blade 3 — the array-destructuring
+    /// groups (`ast.ary_destr_groups`) whose source is not a statically
+    /// indexable container, mapped to their step budget. Only the
+    /// checker can tell: the parser sees `[a, b] = src` with no idea
+    /// whether `src` is an array, a generator, or a Set. Carried to the
+    /// lowerer on the post-check AST by `check_monomorph`.
+    pub(crate) iter_destr_srcs: HashMap<ExprId, i64>,
     /// Straight-line assignment-narrowing ledger — `name → declared
     /// (pre-narrow) type` for bindings narrowed by a statement-level
     /// `b = <non-null>` assign (see check_assign_narrow.rs). Flushed

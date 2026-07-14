@@ -85,6 +85,7 @@ pub(crate) struct AnySubstrateIds {
     pub any_member_get_value: FuncId,
     pub any_member_set: FuncId,
     pub any_iter_next: FuncId,
+    pub any_iter_close: FuncId,
     pub any_call: FuncId,
     pub closure_call_variadic: FuncId,
     pub any_method_call: FuncId,
@@ -185,6 +186,12 @@ pub(crate) fn declare(
         // caller-owned iterator park slot, owned-AnyValue out slot)
         // → live flag.
         any_iter_next: decl!("__torajs_any_iter_next", [Any, Ptr, Ptr, Ptr], I64),
+        // ES §7.4.9 IteratorClose — owed to an iterator a consumer
+        // stops stepping before it reports done (a destructuring
+        // pattern shorter than its source). Runs a generator's
+        // `finally`; a no-op for the lanes whose iterators have no
+        // `return` method. (recv, iterator park slot) → void.
+        any_iter_close: decl!("__torajs_any_iter_close", [Any, Ptr], Void),
         // RFC C4+ — bare any-call `f(args…)`: (callee, argv, argc)
         // → Any; non-closures raise a catchable TypeError.
         any_call: decl!("__torajs_any_call", [Any, Ptr, I64], Any),

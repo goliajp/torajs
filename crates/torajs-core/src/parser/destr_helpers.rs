@@ -1,18 +1,20 @@
 //! Destructuring-binding helpers for let/const/param positions (chunk 410).
 //!
-//! Extracted verbatim from parser.rs — 6 methods that lower TS binding
-//! patterns (`[a, b, c]`, `{ x, y }`, `{ x: foo }`, defaults `= expr`)
-//! into a synthetic-name + per-element / per-field let synthesis:
+//! Extracted verbatim from parser.rs — the methods that lower TS binding
+//! patterns (`[a, b, c]`, `{ x, y }`, `{ x: foo }`) into a synthetic-name
+//! + per-element / per-field let synthesis:
+//! - emit_object_coercible_guard — §13.3.3.5 null / undefined source
+//! - record_dstr_default_name — §8.4.5 NamedEvaluation registry
 //! - parse_destr_param — entry point for fn-param destructuring
 //! - parse_destr_into — dispatch on `[` vs `{` and delegate
 //! - parse_destr_array_into — array-pattern element walker
-//! - maybe_parse_destr_default — `= expr` default handler (array shape)
-//! - maybe_parse_object_destr_default — same for object-field defaults
 //! - parse_destr_object_into — object-pattern field walker
 //!
-//! All 6 marked `pub(super)` for cross-module impl-block access. Called
-//! only from parser.rs main file (parse_fn / parse_class_member /
-//! parse_let / parse_const paths). Body unchanged.
+//! The `= D` slot initializers live in the `destr_defaults` sibling.
+//!
+//! All `pub(super)` for cross-module impl-block access. Called only from
+//! parser.rs main file (parse_fn / parse_class_member / parse_let /
+//! parse_const paths).
 
 use super::*;
 
@@ -109,11 +111,26 @@ impl<'a> Parser<'a> {
 
     pub(super) fn parse_destr_array_into(
         &mut self,
-        src_name: String,
+        outer_src: String,
         lets: &mut Vec<Stmt>,
     ) -> Result<(), String> {
         // assumes current token is `[`
         self.pos += 1;
+        // RFC 20260714-dstr-residual blade 3 — every element read goes
+        // through a group temp bound to the source rather than through
+        // the source name itself. When the source turns out not to be a
+        // statically indexable container (a generator, a Map / Set, a
+        // class instance with `[Symbol.iterator]()`, anything behind
+        // `any`), the checker retypes this one binding to `Array<Any>`
+        // and the lowerer fills it by walking the iterator protocol —
+        // the index reads below then read the materialized steps and
+        // need no shape of their own. The decl is inserted once the
+        // pattern's step budget is known: a rest element drains to
+        // exhaustion, and it can only appear last.
+        let gid = self.mint_desugar_id();
+        let src_name = format!("__ary_src_{gid}");
+        let insert_at = lets.len();
+        let mut rest_seen = false;
         let mut elem_idx: usize = 0;
         if !matches!(self.peek(), Token::RBracket) {
             loop {
@@ -184,6 +201,7 @@ impl<'a> Parser<'a> {
                         // and then either binds it to a name or
                         // recursively destructures it.
                         self.pos += 1;
+                        rest_seen = true;
                         let src_ref = self.ast.add_expr(Expr::Ident(src_name.clone()));
                         let slice_call = {
                             let slice_member = self.ast.add_expr(Expr::Member {
@@ -277,99 +295,20 @@ impl<'a> Parser<'a> {
             }
         }
         self.pos += 1; // consume `]`
+        let group_src = self.ast.add_expr(Expr::Ident(outer_src));
+        let limit: i64 = if rest_seen { -1 } else { elem_idx as i64 };
+        self.ast.ary_destr_groups.insert(group_src, limit);
+        lets.insert(
+            insert_at,
+            Stmt::LetDecl {
+                mutable: false,
+                name: src_name,
+                type_ann: None,
+                init: group_src,
+                is_var: false,
+            },
+        );
         Ok(())
-    }
-
-    /// P-PARSE.3 — peek for a `=` after a destr slot binding and
-    /// wrap the load expression in a length-check ternary that
-    /// substitutes the default when the source iterator is
-    /// "exhausted" at this index (src.length <= elem_idx). The
-    /// spec also fires the default when the value is `undefined`,
-    /// but tora has no real undefined yet (P1) — once that lands
-    /// the ternary should also test `=== undefined`.
-    pub(super) fn maybe_parse_destr_default(
-        &mut self,
-        load_expr: ExprId,
-        src_name: String,
-        elem_idx: usize,
-        binding: Option<&str>,
-    ) -> Result<ExprId, String> {
-        if !matches!(self.peek(), Token::Eq) {
-            return Ok(load_expr);
-        }
-        self.pos += 1; // consume `=`
-        let default_expr = self.parse_expr()?;
-        if let Some(b) = binding {
-            self.record_dstr_default_name(default_expr, b);
-        }
-        // Build: src.length > elem_idx && src[i] !== undefined
-        //          ? load_expr : default_expr
-        // Per ES §13.15.5.3 IteratorBindingInitialization the default
-        // fires when the iterator value IS undefined — both past-end
-        // (length check, which also keeps typed-lane OOB reads out)
-        // and an explicit undefined element (`[a = 5] = [undefined]`).
-        let src_ref = self.ast.add_expr(Expr::Ident(src_name));
-        let len_member = self.ast.add_expr(Expr::Member {
-            obj: src_ref,
-            name: "length".into(),
-        });
-        let idx_lit = self.ast.add_expr(Expr::Number(elem_idx as f64));
-        let len_ok = self.ast.add_expr(Expr::BinOp {
-            op: BinOp::Gt,
-            left: len_member,
-            right: idx_lit,
-        });
-        let undef_ident = self.ast.add_expr(Expr::Ident("undefined".into()));
-        let not_undef = self.ast.add_expr(Expr::BinOp {
-            op: BinOp::Neq,
-            left: load_expr,
-            right: undef_ident,
-        });
-        let cond = self.ast.add_expr(Expr::BinOp {
-            op: BinOp::LAnd,
-            left: len_ok,
-            right: not_undef,
-        });
-        Ok(self.ast.add_expr(Expr::Ternary {
-            cond,
-            then_branch: load_expr,
-            else_branch: default_expr,
-        }))
-    }
-
-    /// P-PARSE.3 — `{ x = D }` / `{ x: y = D }`. Per ES spec
-    /// §13.15.5.4 KeyedDestructuringAssignmentEvaluation the
-    /// default fires when the looked-up value is `undefined` —
-    /// and ONLY undefined: an explicit `null` field keeps null
-    /// (test262 obj-ptrn-id-init-skipped asserts the initializer
-    /// never evaluates for null/0/false/''). The pre-undefined-era
-    /// form compared `=== null`, which both missed any-lane absent
-    /// fields (undefined) and wrongly fired on explicit null.
-    pub(super) fn maybe_parse_object_destr_default(
-        &mut self,
-        load_expr: ExprId,
-        binding: Option<&str>,
-    ) -> Result<ExprId, String> {
-        if !matches!(self.peek(), Token::Eq) {
-            return Ok(load_expr);
-        }
-        self.pos += 1; // consume `=`
-        let default_expr = self.parse_expr()?;
-        if let Some(b) = binding {
-            self.record_dstr_default_name(default_expr, b);
-        }
-        // load_expr === undefined ? default_expr : load_expr
-        let undef_ident = self.ast.add_expr(Expr::Ident("undefined".into()));
-        let cond = self.ast.add_expr(Expr::BinOp {
-            op: BinOp::Eq,
-            left: load_expr,
-            right: undef_ident,
-        });
-        Ok(self.ast.add_expr(Expr::Ternary {
-            cond,
-            then_branch: default_expr,
-            else_branch: load_expr,
-        }))
     }
 
     pub(super) fn parse_destr_object_into(

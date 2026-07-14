@@ -48,6 +48,7 @@ const COMPILER_SOURCE_FILES: &[&str] = &[
     "src/ssa_lower_optcall.rs",
     "src/ssa_lower_optindex.rs",
     "src/ssa_lower_intrinsics_any_substrate.rs",
+    "src/ssa_lower_dstr_iter.rs",
     "src/ssa_lower_intrinsics_regex.rs",
     "src/ssa_lower_member_regexp_props.rs",
     "src/ssa_lower_str_arr_sort.rs",

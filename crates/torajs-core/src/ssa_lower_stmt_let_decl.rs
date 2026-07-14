@@ -77,6 +77,12 @@ pub(crate) fn lower(
     if crate::ssa_lower_stmt_let_decl_global::try_lower_fn_addr_let(ctx, name, init) {
         return;
     }
+    // RFC 20260714-dstr-residual blade 3 — an array binding pattern
+    // whose source has to be STEPPED, not indexed (a generator, a
+    // Map / Set, a class iterable, anything behind `any`). Sub-sibling.
+    if crate::ssa_lower_dstr_iter::try_lower_group(ctx, name, init) {
+        return;
+    }
     // General path. Stage helpers live in
     // [`crate::ssa_lower_stmt_let_decl_general`] (chunk 764).
     let mut ty =
@@ -104,11 +110,23 @@ pub(crate) fn lower(
             !matches!(ctx.expr_types.get(obj), Some(crate::check::Type::String))
         }
         Expr::Member { .. } => true,
-        Expr::Ident(src) => ctx
-            .locals
-            .get(src)
-            .map(|info| info.scope_depth < cur_depth)
-            .unwrap_or(false),
+        // Blade 3 — an array pattern's group temp is a compiler-
+        // generated, read-only view of its source and never outlives
+        // it, so an Ident source is a borrow at ANY scope depth. (The
+        // pre-blade-3 desugar expressed the same rule by aliasing onto
+        // the source binding and emitting no temp at all; keeping the
+        // temp is what gives the iterator lane something to rebind, and
+        // it must stay free on the indexable one.) Reaching here at all
+        // means the group took the indexable lane — the iterator lane
+        // returned above, owning the array it materialized.
+        Expr::Ident(src) => {
+            ctx.ast.ary_destr_groups.contains_key(&init)
+                || ctx
+                    .locals
+                    .get(src)
+                    .map(|info| info.scope_depth < cur_depth)
+                    .unwrap_or(false)
+        }
         _ => false,
     };
     let stack_alloc_hinted = matches!(ctx.ast.get_expr(init), Expr::ObjectLit { .. })

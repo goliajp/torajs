@@ -34,6 +34,7 @@ use crate::ast::{self, Ast, BinOp, ClassCtor, ClassMethod, Expr, ExprId, Param, 
 use crate::lexer::{self, Spanned, Token};
 
 mod class_member;
+mod destr_defaults;
 mod destr_drivers;
 mod destr_helpers;
 mod expr_entry;

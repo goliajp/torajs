@@ -126,6 +126,21 @@ pub(crate) fn monomorphize_and_check(c: &mut Checker, ast: &Ast) -> MonoOutput {
             .iter()
             .map(|s| crate::ssa_lower::deep_clone_stmt(&mut owned_ast, &mut id_map, s))
             .collect();
+        // Blade 3 — carry the array-destructuring group registry onto
+        // the clone's fresh ExprIds, so the specialization's own check
+        // below picks each group's lane. It can differ per
+        // instantiation: the same `const [a, b] = xs` destructures an
+        // array in one and a generator in the next.
+        let cloned_groups: Vec<(ExprId, i64)> = id_map
+            .iter()
+            .filter_map(|&(old, new)| {
+                owned_ast
+                    .ary_destr_groups
+                    .get(&old)
+                    .map(|&limit| (new, limit))
+            })
+            .collect();
+        owned_ast.ary_destr_groups.extend(cloned_groups);
         for s in new_body.iter_mut() {
             substitute_in_stmt(s, &subst);
         }
@@ -215,6 +230,10 @@ pub(crate) fn monomorphize_and_check(c: &mut Checker, ast: &Ast) -> MonoOutput {
         mono_decls.push(spec_decl);
     }
     owned_ast.stmts.extend(mono_decls);
+    // Blade 3 — the checker's per-group lane verdicts (top-level ones
+    // from the main pipeline, specialization ones from the body checks
+    // above) ride to the lowerer on the AST it already reads.
+    owned_ast.iter_destr_srcs = std::mem::take(&mut c.iter_destr_srcs);
     MonoOutput {
         mono_ast: owned_ast,
         call_retargets,

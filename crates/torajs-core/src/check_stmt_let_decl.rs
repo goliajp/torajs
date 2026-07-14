@@ -67,6 +67,14 @@ pub(crate) fn check(
     } else {
         init_ty
     };
+    // RFC 20260714-dstr-residual blade 3 — an array binding pattern
+    // whose source isn't a statically indexable container. This is the
+    // one place in the pipeline that knows: pick the group's lane here
+    // and let the lowerer read the verdict back off the post-check AST.
+    let init_ty = match pick_ary_destr_lane(checker, ast, init, &init_ty) {
+        Some(materialized) => materialized,
+        None => init_ty,
+    };
     let final_ty = match type_ann {
         None => init_ty,
         Some(ann) => {
@@ -124,6 +132,37 @@ pub(crate) fn check(
     ) {
         checker.errors.push_err(e);
     }
+}
+
+/// RFC 20260714-dstr-residual blade 3 — decide which lane an array
+/// binding pattern's group temp takes, and answer the type the temp
+/// binds when that lane is the iterator one.
+///
+/// The parse-time desugar reads a pattern's elements by index, which is
+/// right for an Array (and for a String, whose per-code-unit index walk
+/// is the same deviation the runtime iteration kernel already
+/// documents) and wrong for everything else: ES §13.15.5.3 destructures
+/// through the iterator protocol, so a generator, a Map / Set, a class
+/// instance with `[Symbol.iterator]()`, or any of those behind `any` has
+/// to be STEPPED, not indexed. Before this, an `any` source silently
+/// read `undefined` out of every slot and a typed generator source was
+/// rejected outright (`no member .0 on Struct([__gen_nominal_g, …])`).
+///
+/// The verdict is recorded against the group temp's init and the temp
+/// binds `Array<Any>` — the shape the lowerer materializes the walk
+/// into, so every index read below it stays exactly as desugared.
+fn pick_ary_destr_lane(
+    checker: &mut Checker,
+    ast: &Ast,
+    init: ExprId,
+    init_ty: &Type,
+) -> Option<Type> {
+    let limit = *ast.ary_destr_groups.get(&init)?;
+    if matches!(init_ty, Type::Array(_) | Type::String) {
+        return None;
+    }
+    checker.iter_destr_srcs.insert(init, limit);
+    Some(Type::Array(Box::new(Type::Any)))
 }
 
 /// Chunk 702 — TS contextual typing for array-literal inits: after the

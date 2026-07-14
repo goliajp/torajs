@@ -135,26 +135,29 @@ impl<'a> Parser<'a> {
         src: ExprId,
     ) -> Vec<Stmt> {
         let id = self.mint_desugar_id();
-        let src_is_ident = matches!(self.ast.get_expr(src), Expr::Ident(_));
-        let src_ref_name: String = if src_is_ident {
-            if let Expr::Ident(n) = self.ast.get_expr(src) {
-                n.clone()
-            } else {
-                unreachable!()
-            }
+        // RFC 20260714-dstr-residual blade 3 — the pattern always reads
+        // through its own group temp, an Ident source included (the
+        // pre-blade-3 desugar aliased straight onto the source binding
+        // and so had nowhere to put a different shape). The temp is
+        // what the checker retypes to `Array<Any>` when the source is
+        // not a statically indexable container, and what the lowerer
+        // then fills by walking the iterator protocol. On the indexable
+        // lane an Ident source still costs nothing: the temp is a
+        // compiler-generated read-only view and lowers as a borrow.
+        let src_ref_name = format!("__ary_src_{id}");
+        let limit: i64 = if rest_name.is_some() {
+            -1
         } else {
-            format!("__destr_src_{id}")
+            entries.len() as i64
         };
-        let mut stmts: Vec<Stmt> = Vec::new();
-        if !src_is_ident {
-            stmts.push(Stmt::LetDecl {
-                mutable: false,
-                name: src_ref_name.clone(),
-                type_ann: None,
-                init: src,
-                is_var: false,
-            });
-        }
+        self.ast.ary_destr_groups.insert(src, limit);
+        let mut stmts: Vec<Stmt> = vec![Stmt::LetDecl {
+            mutable: false,
+            name: src_ref_name.clone(),
+            type_ann: None,
+            init: src,
+            is_var: false,
+        }];
         for (i, entry) in entries.iter().enumerate() {
             if let Some((name, default)) = entry {
                 if let Some(default_eid) = default {

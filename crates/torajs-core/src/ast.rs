@@ -145,6 +145,26 @@ pub struct Ast {
     /// merged into pass-2B's registry BEFORE the self-name overlay
     /// (a named fn expression's self-name still wins per §15.5.5).
     pub closure_dstr_names: std::collections::HashMap<String, String>,
+    /// RFC 20260714-dstr-residual blade 3 — every array binding pattern
+    /// reads its elements out of a `__ary_src_<id>` group temp, and the
+    /// temp's init ExprId is the key here. The value is the pattern's
+    /// step budget: how many elements the pattern names before its rest
+    /// (`-1` when it HAS a rest, which drains to exhaustion). The
+    /// checker consults this to pick the group's lane and the lowerer
+    /// to size the iterator walk.
+    pub ary_destr_groups: std::collections::HashMap<ExprId, i64>,
+    /// The `ary_destr_groups` subset whose source is not a statically
+    /// indexable container — a generator, a Map / Set, a class instance
+    /// with `[Symbol.iterator]()`, or anything behind `any`. Index reads
+    /// are wrong for those (ES §13.15.5.3 destructures through the
+    /// iterator protocol), so the lowerer materializes the source's
+    /// first `limit` steps into an `Array<Any>` and the pattern reads
+    /// that instead.
+    ///
+    /// Decided by the checker (only it knows the source's type) and
+    /// parked here by `check_monomorph` on the owned post-check AST, so
+    /// the lowerer reads it straight off `ctx.ast`. Empty pre-check.
+    pub iter_destr_srcs: std::collections::HashMap<ExprId, i64>,
     /// RFC 20260714-dstr-residual blade 4 — NamedEvaluation for
     /// anonymous class expressions: synth class name
     /// (`__ClassExpr_<id>`) → binding identifier, recorded by the

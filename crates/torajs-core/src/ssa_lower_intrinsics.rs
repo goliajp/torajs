@@ -385,6 +385,7 @@ pub(crate) struct Intrinsics {
     pub(crate) any_member_get_value: FuncId,
     pub(crate) any_member_set: FuncId,
     pub(crate) any_iter_next: FuncId,
+    pub(crate) any_iter_close: FuncId,
     pub(crate) any_call: FuncId,
     pub(crate) closure_call_variadic: FuncId,
     pub(crate) any_method_call: FuncId,
