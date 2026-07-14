@@ -30,7 +30,7 @@
 //! here.
 
 use crate::reflect::{TAG_OBJ, heap_type_tag, is_cell_imm};
-use crate::struct_reflect::{field_slot_to_pair, slot_key};
+use crate::struct_reflect::{accessor_slot_name, field_slot_to_pair, slot_key};
 use core::ffi::{c_char, c_void};
 
 unsafe extern "C" {
@@ -55,6 +55,13 @@ unsafe extern "C" {
 
     // torajs-throw — loud failure for the non-struct slot.
     fn __torajs_throw_type_error(msg: *const c_char);
+    /// torajs-anyvalue — a struct accessor's [[Get]], keyed by raw name
+    /// bytes (RFC 20260714-objlit-accessor blade 6). Answers the
+    /// getter's result OWNED; `undefined` for a set-only property.
+    fn __torajs_struct_accessor_get(obj: *mut c_void, name: *const u8, name_len: u32) -> u64;
+    /// torajs-anyvalue — split an AnyValue into its `(tag, value)` pair.
+    fn __torajs_anyv_unbox_tag(v: u64) -> i64;
+    fn __torajs_anyv_unbox_value(v: u64) -> i64;
 }
 
 /// `(ptr, len)` field-name slice returned by
@@ -108,6 +115,47 @@ unsafe fn key_already_emitted(layout: *const c_void, upto: u32, key: (*const u8,
         j += 1;
     }
     false
+}
+
+/// The `(tag, value)` an own property contributes to `Object.values` /
+/// `Object.entries`, OWNED (the caller pushes it into the array, which
+/// takes the ref). RFC 20260714-objlit-accessor blade 6 — an accessor
+/// slot contributes the getter's RESULT ([[Get]], ES §7.3.25 / §20.1.2.x),
+/// not the getter closure sitting in the slot; the walkers used to hand
+/// the closure over (`[1, [Function: __getter_v]]` where bun says
+/// `[1, 2]`). The getter's result arrives owned, so unlike the borrowed
+/// field slot below it takes NO rc_inc.
+///
+/// # Safety
+/// `cell` is a live `Tag::Obj` struct cell; `layout` its live entry.
+unsafe fn slot_own_value(
+    cell: *const c_void,
+    layout: *const c_void,
+    idx: u32,
+    name: StrSlice,
+) -> (u64, u64) {
+    if let Some((_, p, plen)) = unsafe { accessor_slot_name(name.ptr, name.len) } {
+        let boxed = unsafe { __torajs_struct_accessor_get(cell as *mut c_void, p, plen as u32) };
+        return unsafe {
+            (
+                __torajs_anyv_unbox_tag(boxed) as u64,
+                __torajs_anyv_unbox_value(boxed) as u64,
+            )
+        };
+    }
+    let info = unsafe { __torajs_struct_field_info(layout, idx) };
+    let raw = unsafe {
+        cell.cast::<u8>()
+            .add(info.field_byte_offset as usize)
+            .cast::<u64>()
+            .read()
+    };
+    let (tag, val) = unsafe { field_slot_to_pair(info.type_tag, raw) };
+    // Borrowed from the struct slot — the array owns its own share.
+    if tag == ANY_HEAP && val != 0 {
+        unsafe { __torajs_rc_inc(val as *mut c_void) };
+    }
+    (tag, val)
 }
 
 /// Allocate a pooled `Str` holding `len` bytes copied from `ptr`.
@@ -196,17 +244,16 @@ pub unsafe extern "C" fn __torajs_anyv_struct_values(v: u64) -> *mut c_void {
     let mut out = unsafe { __torajs_arr_alloc_any(n as u64) };
     let mut i = 0;
     while i < n {
-        let info = unsafe { __torajs_struct_field_info(layout, i) };
-        let raw = unsafe {
-            cell.cast::<u8>()
-                .add(info.field_byte_offset as usize)
-                .cast::<u64>()
-                .read()
-        };
-        let (tag, val) = unsafe { field_slot_to_pair(info.type_tag, raw) };
-        if tag == ANY_HEAP && val != 0 {
-            unsafe { __torajs_rc_inc(val as *mut c_void) };
+        let name = unsafe { __torajs_struct_field_name(layout, i) };
+        // A get/set pair is ONE own property: skip the second slot, the
+        // same dedup the keys walk does (pre-blade-6 the values walk had
+        // none, so a paired accessor contributed its value twice).
+        let key = unsafe { slot_key(name.ptr, name.len) };
+        if unsafe { key_already_emitted(layout, i, key) } {
+            i += 1;
+            continue;
         }
+        let (tag, val) = unsafe { slot_own_value(cell, layout, i, name) };
         out = unsafe { __torajs_arr_push_any(out as *mut c_void, tag, val) };
         i += 1;
     }
@@ -248,24 +295,17 @@ pub unsafe extern "C" fn __torajs_anyv_struct_entries(v: u64) -> *mut c_void {
     while i < n {
         let name = unsafe { __torajs_struct_field_name(layout, i) };
         // The freshly minted name Str (rc=1) is consumed by push_any.
-        // An accessor slot pairs under its plain property name (the
-        // value payload is a recorded follow-up: it should be the
-        // getter's result, not the closure).
+        // An accessor slot pairs under its plain property name, and its
+        // value is the getter's RESULT (blade 6 — `slot_own_value`).
         let (kp, klen) = unsafe { slot_key(name.ptr, name.len) };
-        let name_s = unsafe { alloc_str_from_raw(kp, klen) };
-        let info = unsafe { __torajs_struct_field_info(layout, i) };
-        let raw = unsafe {
-            cell.cast::<u8>()
-                .add(info.field_byte_offset as usize)
-                .cast::<u64>()
-                .read()
-        };
-        let (tag, val) = unsafe { field_slot_to_pair(info.type_tag, raw) };
-        // The value is borrowed from the struct slot; the inner pair
-        // owns its share.
-        if tag == ANY_HEAP && val != 0 {
-            unsafe { __torajs_rc_inc(val as *mut c_void) };
+        // A get/set pair is ONE own property (the keys walk dedups the
+        // same way).
+        if unsafe { key_already_emitted(layout, i, (kp, klen)) } {
+            i += 1;
+            continue;
         }
+        let name_s = unsafe { alloc_str_from_raw(kp, klen) };
+        let (tag, val) = unsafe { slot_own_value(cell, layout, i, name) };
         let inner = unsafe { __torajs_arr_alloc_any(2) };
         let inner = unsafe { __torajs_arr_push_any(inner as *mut c_void, ANY_HEAP, name_s as u64) };
         let inner = unsafe { __torajs_arr_push_any(inner as *mut c_void, tag, val) };

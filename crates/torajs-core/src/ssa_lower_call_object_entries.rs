@@ -36,7 +36,7 @@
 
 use crate::ast::{Expr, ExprId};
 use crate::ssa::{ArrId, InstKind, Operand, Type, ValueId};
-use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx, OBJ_HEADER_SIZE, intern_arr_layout};
+use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx, intern_arr_layout};
 
 /// Try to lower an `Object.entries(obj, ...)` call. Returns `Some` when
 /// dispatched.
@@ -144,7 +144,11 @@ fn emit_struct_entries_unfold(
     arg_op: Operand,
     layout: &[(String, Type)],
 ) -> Operand {
-    let n = layout.len() as i64;
+    // RFC 20260714-objlit-accessor blade 6 — one entry per own PROPERTY:
+    // an accessor's key is the plain name and its value is what the
+    // getter answers (the slot walk emitted `["__getter_v", [Function]]`).
+    let props = crate::ssa_lower_struct_own_props::own_props(layout, ctx.fn_sigs);
+    let n = props.len() as i64;
     let inner_arr_id = intern_arr_layout(ctx.arr_layouts, Type::Any);
     let outer_arr_id = intern_arr_layout(ctx.arr_layouts, Type::Arr(inner_arr_id));
     let outer = ctx.f.append_inst(
@@ -158,8 +162,8 @@ fn emit_struct_entries_unfold(
         ctx.cur_block,
         InstKind::Store(Operand::ConstI64(n), Operand::Value(outer), ARR_LEN_OFF),
     );
-    for (idx, (fname, fty)) in layout.iter().enumerate() {
-        let inner_after_val = emit_one_pair(ctx, inner_arr_id, &arg_op, idx, fname, *fty);
+    for (idx, prop) in props.iter().enumerate() {
+        let inner_after_val = emit_one_pair(ctx, inner_arr_id, &arg_op, prop);
         // Store inner ptr directly into the outer's slot region
         // (regular Array<T> layout, through the data pointer). No
         // rc_inc — inner has rc=1 from arr_alloc_any and outer takes
@@ -183,9 +187,7 @@ fn emit_one_pair(
     ctx: &mut LowerCtx<'_>,
     inner_arr_id: ArrId,
     arg_op: &Operand,
-    idx: usize,
-    fname: &str,
-    fty: Type,
+    prop: &crate::ssa_lower_struct_own_props::OwnProp,
 ) -> ValueId {
     // Inner Array<Any> with cap=2: [key, value].
     let inner = ctx.f.append_inst(
@@ -194,8 +196,9 @@ fn emit_one_pair(
         Type::Arr(inner_arr_id),
         None,
     );
-    // Push key — Str literal, ANY_HEAP tag (4).
-    let key_str = ctx.intern_string_literal(fname);
+    // Push key — Str literal, ANY_HEAP tag (4). An accessor enumerates
+    // under its plain property name, never the synthetic slot spelling.
+    let key_str = ctx.intern_string_literal(&prop.key);
     // rc_inc on key str so push_any takes an owning ref (matches
     // T-10.b push_any contract).
     ctx.emit_rc_inc(Operand::Value(key_str));
@@ -212,15 +215,41 @@ fn emit_one_pair(
         Type::Arr(inner_arr_id),
         None,
     );
-    // Read field value at struct offset, tag per type.
-    let field_off = OBJ_HEADER_SIZE + (idx as u64) * 8;
-    let val = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::Load(fty, arg_op.clone(), field_off),
-        fty,
-        None,
-    );
-    let val_op = Operand::Value(val);
+    // The property's value: a data field is borrowed out of its slot, a
+    // getter's result arrives OWNED (so it skips the rc_inc below —
+    // `push_any` takes an owning ref either way).
+    let (val_op, owned) = crate::ssa_lower_struct_own_props::emit_prop_value(ctx, arg_op, prop);
+    let fty = prop.ty();
+    // An `Any` value is a NaN-box, but `push_any` takes a (tag, value)
+    // pair — split it at runtime (a set-only property's `undefined`
+    // lands here, as does an `any`-typed data field).
+    if fty == Type::Any {
+        let tag = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.any_unbox_tag, vec![val_op.clone()]),
+            Type::I64,
+            None,
+        );
+        let value = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.any_unbox_value, vec![val_op]),
+            Type::I64,
+            None,
+        );
+        return ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(
+                ctx.intrinsics.arr_push_any,
+                vec![
+                    Operand::Value(inner_after_key),
+                    Operand::Value(tag),
+                    Operand::Value(value),
+                ],
+            ),
+            Type::Arr(inner_arr_id),
+            None,
+        );
+    }
     let (tag, push_val): (i64, Operand) = match fty {
         Type::I64 | Type::I32 => (2, val_op),
         Type::F64 => {
@@ -242,7 +271,9 @@ fn emit_one_pair(
             (1, Operand::Value(zext))
         }
         t if t.is_refcounted() => {
-            ctx.emit_rc_inc(val_op.clone());
+            if !owned {
+                ctx.emit_rc_inc(val_op.clone());
+            }
             (4, val_op)
         }
         Type::Ptr => (0, Operand::ConstI64(0)),

@@ -124,13 +124,20 @@ pub(crate) fn try_match(
                 "Object.values requires a struct arg, got {arg_ty:?}"
             )));
         };
-        if fields.is_empty() {
+        // RFC 20260714-objlit-accessor blade 6 — an accessor contributes
+        // the value its GETTER answers (ES §20.1.2.23 reaches every own
+        // key through [[Get]]), so the homogeneity test runs over the
+        // PROPERTIES, not the layout slots. Pre-fix `{a: 1, get v(): number}`
+        // was rejected outright: the `__getter_v` slot is a Function and
+        // "earlier fields are Number" (bun answers `[1, 2]`).
+        let props = own_property_types(fields);
+        if props.is_empty() {
             return Some(Err(
                 "Object.values on an empty struct can't infer element type".into(),
             ));
         }
-        let first = &fields[0].1;
-        for (n, t) in fields.iter().skip(1) {
+        let first = &props[0].1;
+        for (n, t) in props.iter().skip(1) {
             if t != first {
                 return Some(Err(format!(
                     "Object.values requires homogeneous struct fields; field `{n}` is {t:?} but earlier fields are {first:?}"
@@ -140,4 +147,39 @@ pub(crate) fn try_match(
         return Some(Ok(Type::Array(Box::new(first.clone()))));
     }
     None
+}
+
+/// The own properties a struct's layout enumerates, in declaration
+/// order, with the type each contributes to a [[Get]]-based read
+/// (`Object.values` / `Object.entries` / `JSON.stringify` all reach an
+/// accessor through its getter — RFC 20260714-objlit-accessor).
+///
+/// * a data field contributes itself;
+/// * `__getter_v` contributes the getter's RETURN type under the key `v`;
+/// * `__setter_v` alone contributes `undefined` (ES §10.1.8 — an
+///   accessor with no [[Get]]), and pairs with its getter into ONE
+///   property when both halves are present.
+pub(crate) fn own_property_types(fields: &[(String, Type)]) -> Vec<(String, Type)> {
+    let mut out: Vec<(String, Type)> = Vec::new();
+    for (name, ty) in fields {
+        let (key, prop_ty) = match crate::check_type_of_object_lit::accessor_slot(name) {
+            Some(("__getter_", prop)) => {
+                let ret = match ty {
+                    Type::Function(_, ret) => (**ret).clone(),
+                    _ => Type::Any,
+                };
+                (prop.to_string(), ret)
+            }
+            Some((_, prop)) => (prop.to_string(), Type::Undefined),
+            None => (name.clone(), ty.clone()),
+        };
+        match out.iter_mut().find(|(k, _)| *k == key) {
+            // The getter half wins over a lone setter's `undefined` —
+            // declaration order between the two halves is irrelevant.
+            Some(slot) if slot.1 == Type::Undefined => slot.1 = prop_ty,
+            Some(_) => {}
+            None => out.push((key, prop_ty)),
+        }
+    }
+    out
 }

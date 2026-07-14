@@ -40,7 +40,7 @@
 
 use crate::ast::{Expr, ExprId};
 use crate::ssa::{InstKind, Operand, Type};
-use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx, OBJ_HEADER_SIZE, intern_arr_layout};
+use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx, intern_arr_layout};
 
 pub(crate) fn try_lower(
     ctx: &mut LowerCtx<'_>,
@@ -147,8 +147,12 @@ pub(crate) fn try_lower(
         panic!("ssa-lower: Object.values requires a struct arg, got {arg_ty:?}");
     };
     let layout = ctx.struct_layouts[sid.0 as usize].clone();
-    let n = layout.len() as i64;
-    let elem_ty = layout[0].1;
+    // RFC 20260714-objlit-accessor blade 6 — enumerate PROPERTIES, not
+    // layout slots: an accessor is one property whose value comes from
+    // its getter ([[Get]]), and a get/set pair is not two of them.
+    let props = crate::ssa_lower_struct_own_props::own_props(&layout, ctx.fn_sigs);
+    let n = props.len() as i64;
+    let elem_ty = props[0].ty();
     // S132 — heterogeneous-via-`as any` guard. check.rs enforces
     // homogeneous fields when arg type is Struct (5172 reject-loud),
     // but `<typed> as any` makes check see Type::Any (走 Array<Any> arm)
@@ -161,7 +165,7 @@ pub(crate) fn try_lower(
     // mismatch + box the typed operand + route through the W-J walker
     // (the same Any-arm above), which per-field decodes via the
     // field_metadata's type_tag — the correct heterogeneous path.
-    if !layout.iter().all(|(_, t)| *t == elem_ty) {
+    if !props.iter().all(|p| p.ty() == elem_ty) {
         let boxed = ctx.box_to_any(arg_op);
         let arr_id = intern_arr_layout(ctx.arr_layouts, Type::Any);
         let v = ctx.f.append_inst(
@@ -185,20 +189,15 @@ pub(crate) fn try_lower(
         ctx.cur_block,
         InstKind::Store(Operand::ConstI64(n), Operand::Value(arr_ptr), ARR_LEN_OFF),
     );
-    for (i, _) in layout.iter().enumerate() {
-        let field_off = OBJ_HEADER_SIZE + (i as u64) * 8;
-        let v = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Load(elem_ty, arg_op, field_off),
-            elem_ty,
-            None,
-        );
+    for (i, prop) in props.iter().enumerate() {
+        // A getter's result is already owned; the array takes that ref
+        // straight over. A borrowed field slot keeps the pre-blade-6
+        // shape (the array views the struct's stake).
+        let (v, _owned) = crate::ssa_lower_struct_own_props::emit_prop_value(ctx, &arg_op, prop);
         let data = ctx.emit_arr_data_ptr(Operand::Value(arr_ptr));
         let arr_off = (i as u64) * 8;
-        ctx.f.append_void(
-            ctx.cur_block,
-            InstKind::Store(Operand::Value(v), data, arr_off),
-        );
+        ctx.f
+            .append_void(ctx.cur_block, InstKind::Store(v, data, arr_off));
     }
     Some(Operand::Value(arr_ptr))
 }

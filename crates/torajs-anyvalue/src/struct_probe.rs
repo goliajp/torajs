@@ -185,6 +185,36 @@ unsafe fn invoke_getter(recv: *mut c_void, acc: StructAccessor) -> AnyValue {
     }
 }
 
+/// A struct accessor's [[Get]], keyed by raw name bytes — the shape
+/// the reflection walkers need (`torajs-meta`'s `Object.values` /
+/// `Object.entries` over a struct cell enumerate layout slot names and
+/// have no Str cell to spend an allocation on per key).
+///
+/// Answers the getter's result (OWNED), or `undefined` for a set-only
+/// property — ES §10.1.8, an accessor with an undefined [[Get]]. An
+/// absent property answers `undefined` too; the walkers only ask about
+/// slots they just read out of the layout.
+///
+/// # Safety
+/// `obj` is a live `Tag::Obj` cell; `name` points at `name_len` bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_struct_accessor_get(
+    obj: *mut c_void,
+    name: *const u8,
+    name_len: u32,
+) -> AnyValue {
+    unsafe {
+        if obj.is_null() || name.is_null() {
+            return VALUE_UNDEFINED;
+        }
+        let prop = core::slice::from_raw_parts(name, name_len as usize);
+        match resolve(obj, prop, KIND_GETTER) {
+            Some(acc) => invoke_getter(obj, acc),
+            None => VALUE_UNDEFINED,
+        }
+    }
+}
+
 /// The single [[Get]] behind an accessor member read on an `any`
 /// receiver — see module doc. `pair_bits` is the value channel of the
 /// probe that answered [`ANY_ACCESSOR_TAG`]:
@@ -221,12 +251,8 @@ pub unsafe extern "C" fn __torajs_any_accessor_get(
         }
         let k = key as *const u8;
         let key_len = k.add(STR_LEN_OFF).cast::<u32>().read();
-        let prop = core::slice::from_raw_parts(k.add(STR_DATA_OFF), key_len as usize);
-        match resolve(ptr, prop, KIND_GETTER) {
-            Some(acc) => invoke_getter(ptr, acc),
-            // Set-only property: present, but its [[Get]] is undefined.
-            None => VALUE_UNDEFINED,
-        }
+        // Set-only property: present, but its [[Get]] is undefined.
+        __torajs_struct_accessor_get(ptr, k.add(STR_DATA_OFF), key_len)
     }
 }
 
