@@ -28,31 +28,60 @@
 //! direct field loads. v is marked `moved + borrowed` so the
 //! end-of-body drop pass doesn't double-dec the step's owned rc.
 
-use crate::ast::Stmt;
+use crate::ast::{ExprId, Stmt};
 use crate::ssa::{FuncId, InstKind, Operand, Terminator, Type};
 use crate::ssa_lower::{LocalInfo, LowerCtx, OBJ_HEADER_SIZE};
 
-pub(crate) fn lower_for_of_iter_protocol(
-    ctx: &mut LowerCtx,
-    src_op: Operand,
-    iter_fid: FuncId,
-    var_name: &str,
-    body: &Stmt,
-    src_class: &str,
-) {
-    let iter_ret_ty = ctx.f_ret_type_hint(iter_fid);
-    let Type::Obj(iter_sid) = iter_ret_ty else {
-        panic!(
-            "ssa-lower: for-of protocol on class `{src_class}` — `[Symbol.iterator]()` must return a class instance, got {iter_ret_ty:?}"
-        );
-    };
-    let iter_val = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::Call(iter_fid, vec![src_op]),
-        iter_ret_ty,
-        None,
-    );
+/// Default-value ExprIds of the iterator's `next` beyond the leading
+/// `__this` param. The call-site default-padding pass (`apply_default_args`)
+/// only rewrites AST `it.next()` calls; this protocol emits the call
+/// straight at SSA, so a `next` with defaulted params (a desugared
+/// generator's `next(__yield_arg = 0)`, which stashes the value passed
+/// to `g.next(v)`) would be invoked one argument short. for-of never
+/// sends a value, so the declared default IS the argument per
+/// ES §27.5.3.2 (`next()` with no arg).
+fn next_param_defaults(ctx: &LowerCtx, next_fn: &str) -> Vec<ExprId> {
+    for s in &ctx.ast.stmts {
+        let Stmt::FnDecl { name, params, .. } = s else {
+            continue;
+        };
+        if name != next_fn {
+            continue;
+        }
+        return params
+            .iter()
+            .skip(1)
+            .map(|p| {
+                p.default.unwrap_or_else(|| {
+                    panic!(
+                        "ssa-lower: for-of protocol — `{next_fn}` param `{}` has no default; an iterator's next() must be callable with no arguments",
+                        p.name
+                    )
+                })
+            })
+            .collect();
+    }
+    Vec::new()
+}
 
+/// Everything the loop emit needs about the resolved iterator: its
+/// `next` FuncId + the call shape to invoke it with, and where
+/// `value` / `done` sit inside the IteratorResult struct it returns.
+struct IterPlan {
+    next_fid: FuncId,
+    /// Default-value ExprIds for `next`'s params past `__this`.
+    next_defaults: Vec<ExprId>,
+    /// `next`'s declared param types (leading `__this` included).
+    next_param_tys: Vec<Type>,
+    step_ret_ty: Type,
+    value_ty: Type,
+    value_off: u64,
+    done_off: u64,
+}
+
+/// Resolve the iterator class behind `iter_sid`, its `next` method,
+/// and the field offsets of the IteratorResult struct `next` returns.
+fn resolve_iter_plan(ctx: &LowerCtx, iter_sid: crate::ssa::StructId) -> IterPlan {
     let mut iter_cname: Option<String> = None;
     for (n, ty) in ctx.aliases.iter() {
         if matches!(ty, Type::Obj(s) if s.0 == iter_sid.0) && ctx.ast.class_parents.contains_key(n)
@@ -73,6 +102,12 @@ pub(crate) fn lower_for_of_iter_protocol(
             "ssa-lower: for-of protocol — iter class `{iter_cname}` must declare `next(): IteratorResult<T>` (fn `{next_fn}` not registered)"
         );
     };
+    let next_defaults = next_param_defaults(ctx, &next_fn);
+    let next_param_tys: Vec<Type> = ctx
+        .fn_sig_ids
+        .get(&next_fid)
+        .map(|sid| ctx.fn_sigs[sid.0 as usize].0.clone())
+        .unwrap_or_default();
     let step_ret_ty = ctx.f_ret_type_hint(next_fid);
     let Type::Obj(step_sid) = step_ret_ty else {
         panic!(
@@ -102,8 +137,48 @@ pub(crate) fn lower_for_of_iter_protocol(
     if !matches!(done_ty, Type::Bool) {
         panic!("ssa-lower: for-of protocol — step.done must be boolean, got {done_ty:?}");
     }
-    let value_off = OBJ_HEADER_SIZE + (value_idx as u64) * 8;
-    let done_off = OBJ_HEADER_SIZE + (done_idx as u64) * 8;
+    IterPlan {
+        next_fid,
+        next_defaults,
+        next_param_tys,
+        step_ret_ty,
+        value_ty,
+        value_off: OBJ_HEADER_SIZE + (value_idx as u64) * 8,
+        done_off: OBJ_HEADER_SIZE + (done_idx as u64) * 8,
+    }
+}
+
+pub(crate) fn lower_for_of_iter_protocol(
+    ctx: &mut LowerCtx,
+    src_op: Operand,
+    iter_fid: FuncId,
+    var_name: &str,
+    body: &Stmt,
+    src_class: &str,
+) {
+    let iter_ret_ty = ctx.f_ret_type_hint(iter_fid);
+    let Type::Obj(iter_sid) = iter_ret_ty else {
+        panic!(
+            "ssa-lower: for-of protocol on class `{src_class}` — `[Symbol.iterator]()` must return a class instance, got {iter_ret_ty:?}"
+        );
+    };
+    let iter_val = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(iter_fid, vec![src_op]),
+        iter_ret_ty,
+        None,
+    );
+
+    let plan = resolve_iter_plan(ctx, iter_sid);
+    let IterPlan {
+        next_fid,
+        next_defaults,
+        next_param_tys,
+        step_ret_ty,
+        value_ty,
+        value_off,
+        done_off,
+    } = plan;
 
     ctx.scope_stack.push(Vec::new());
     ctx.shadow_stack.push(Vec::new());
@@ -125,12 +200,35 @@ pub(crate) fn lower_for_of_iter_protocol(
         iter_ret_ty,
         None,
     );
+    let mut next_argv: Vec<Operand> = Vec::with_capacity(1 + next_defaults.len());
+    next_argv.push(Operand::Value(iter_load));
+    for d in &next_defaults {
+        let op = ctx.lower_expr(*d);
+        next_argv.push(op);
+    }
+    // Widen / box each defaulted arg into its declared param lane (an
+    // `any`-yield generator's numeric-zero placeholder default has to
+    // reach an Any param boxed).
+    let coerce_owned = if next_param_tys.len() == next_argv.len() {
+        crate::ssa_lower_call_terminal::coerce_args_by_param_tys(
+            ctx,
+            &next_param_tys[1..],
+            &next_defaults,
+            &mut next_argv[1..],
+        )
+    } else {
+        Vec::new()
+    };
     let step_val = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::Call(next_fid, vec![Operand::Value(iter_load)]),
+        InstKind::Call(next_fid, next_argv),
         step_ret_ty,
         None,
     );
+    for owned in coerce_owned {
+        let ty = ctx.operand_ty(&owned);
+        ctx.emit_drop_value(owned, ty);
+    }
     let done_val = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Load(Type::Bool, Operand::Value(step_val), done_off),

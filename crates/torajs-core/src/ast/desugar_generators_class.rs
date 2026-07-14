@@ -20,7 +20,7 @@
 //! borrowed since it survives outside the per-generator loop for
 //! cross-cutting checks.
 
-use super::{Ast, ClassCtor, ClassMethod, Expr, ExprId, Param, Stmt};
+use super::{Ast, ClassCtor, ClassMethod, Expr, ExprId, Param, Stmt, Visibility};
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn assemble_generator_class_and_factory(
@@ -106,6 +106,23 @@ pub(super) fn assemble_generator_class_and_factory(
         body: ctor_body_with_params,
     };
 
+    // ES §27.5.1.5 — `%GeneratorPrototype%[@@iterator]` answers the
+    // generator itself, so a generator object IS its own iterable.
+    // Without this method `for (const v of gen())` had no iterator to
+    // resolve (the P5.3 Phase B protocol path looks up
+    // `__cm_<C>____sym_Symbol_iterator__` and panics when absent), and
+    // the any-lane runtime kernel has no name to probe either.
+    let self_this = ast.add_expr(Expr::This);
+    let self_iter_method = ClassMethod {
+        name: "__sym_Symbol_iterator__".into(),
+        params: Vec::new(),
+        return_type: Some(class_name.clone()),
+        body: vec![Stmt::Return(Some(self_this))],
+        is_abstract: false,
+        visibility: Visibility::Public,
+        accessor_kind: None,
+    };
+
     appended.push(Stmt::ClassDecl {
         name: class_name.clone(),
         type_params: Vec::new(),
@@ -114,7 +131,7 @@ pub(super) fn assemble_generator_class_and_factory(
         fields: class_fields,
         static_init: Vec::new(),
         ctor: Some(ctor_with_params),
-        methods: vec![next_method, return_method, throw_method],
+        methods: vec![next_method, return_method, throw_method, self_iter_method],
         static_methods: Vec::new(),
     });
 
