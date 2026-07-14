@@ -34,36 +34,26 @@ use crate::ast::{Ast, Expr, ExprId, Stmt};
 use crate::check::{Checker, DiagPush, LocalInfo, Type, resolve_type_ann};
 
 /// The declared class whose instance type is `ty` — the checker-side
-/// twin of ssa_lower's alias scan (`Type::Obj(sid)` → class name).
-/// A `ClassRef` names itself; a `Struct` is matched structurally
-/// against the registered classes, so two classes sharing a field
-/// shape resolve to whichever registered first (the generator desugar
-/// gives each `__Gen_<name>` a unique nominal-marker field precisely
-/// to keep that from happening).
-fn class_name_of(checker: &Checker, ast: &Ast, ty: &Type) -> Option<String> {
-    if let Type::ClassRef(n) = ty {
-        return Some(n.clone());
+/// twin of ssa_lower's alias scan.
+///
+/// RFC 20260715-nominal-class-identity — a class instance NAMES its
+/// class. This used to fall back to matching a bare `Struct`
+/// structurally against every registered class, which is exactly how a
+/// same-shaped object literal reached a class's members.
+fn class_name_of(ast: &Ast, ty: &Type) -> Option<String> {
+    match ty {
+        Type::ClassRef(n) if ast.class_parents.contains_key(n) => Some(n.clone()),
+        _ => None,
     }
-    if !matches!(ty, Type::Struct(_)) {
-        return None;
-    }
-    checker
-        .aliases
-        .iter()
-        .find(|(n, alias_ty)| *alias_ty == ty && ast.class_parents.contains_key(*n))
-        .map(|(n, _)| n.clone())
 }
 
-/// Return type of a declared fn, with a `ClassRef` result dereferenced
-/// to the class's real struct type.
+/// Return type of a declared fn, keeping a `ClassRef` result nominal —
+/// the iterator hops below look the next class up BY NAME.
 fn fn_ret_ty(checker: &Checker, fn_name: &str) -> Option<Type> {
     let Some(Type::Function(_, ret)) = checker.globals.get(fn_name) else {
         return None;
     };
-    match ret.as_ref() {
-        Type::ClassRef(n) => checker.aliases.get(n).cloned(),
-        other => Some(other.clone()),
-    }
+    Some((**ret).clone())
 }
 
 /// Element type yielded by a class-instance for-of source: walk the
@@ -73,13 +63,20 @@ fn fn_ret_ty(checker: &Checker, fn_name: &str) -> Option<Type> {
 /// Any binding rather than raising an error, since ssa_lower owns the
 /// real diagnostic for a malformed iterable.
 fn class_iter_elem_ty(checker: &Checker, ast: &Ast, src: &Type) -> Option<Type> {
-    let src_class = class_name_of(checker, ast, src)?;
+    let src_class = class_name_of(ast, src)?;
     let iter_ty = fn_ret_ty(
         checker,
         &format!("__cm_{src_class}____sym_Symbol_iterator__"),
     )?;
-    let iter_class = class_name_of(checker, ast, &iter_ty)?;
-    let step_ty = fn_ret_ty(checker, &format!("__cm_{iter_class}__next"))?;
+    let iter_class = class_name_of(ast, &iter_ty)?;
+    // The step result (`{ value, done }`) is a structural shape, so it
+    // is unwrapped — only the class hops above stay nominal.
+    let step_ty = crate::check::resolve_class_ref(
+        &fn_ret_ty(checker, &format!("__cm_{iter_class}__next"))?,
+        &checker.class_structs,
+        &checker.aliases,
+        &checker.generic_alias_decls,
+    );
     let Type::Struct(fields) = step_ty else {
         return None;
     };
@@ -117,6 +114,7 @@ pub(crate) fn check(
     let src_is_iter_subset = matches!(
         src_kind,
         Some(Type::Struct(_))
+            | Some(Type::ClassRef(_))
             | Some(Type::Map)
             | Some(Type::Set)
             | Some(Type::MapIter)
@@ -125,7 +123,7 @@ pub(crate) fn check(
     let elem_ty = if src_is_iter_subset {
         match &src_kind {
             Some(Type::Map) => Type::Array(Box::new(Type::Any)),
-            Some(src_struct @ Type::Struct(_)) => {
+            Some(src_struct @ (Type::Struct(_) | Type::ClassRef(_))) => {
                 class_iter_elem_ty(checker, ast, src_struct).unwrap_or(Type::Any)
             }
             _ => Type::Any,

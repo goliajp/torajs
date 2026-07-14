@@ -60,6 +60,7 @@ impl Checker {
         ) && is_assignable_to_resolved(
             &inner,
             value_ty,
+            &self.class_structs,
             &self.aliases,
             &self.generic_alias_decls,
         );

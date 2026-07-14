@@ -84,7 +84,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, obj: ExprId, field: String, value: E
         Type::Obj(sid) => sid,
         other => panic!("ssa-lower: field assign on non-obj {other:?}"),
     };
-    lower_obj_assign(ctx, obj_val, sid, &field, value)
+    lower_obj_assign(ctx, obj, obj_val, sid, &field, value)
 }
 
 fn lower_closure_props_assign(
@@ -240,12 +240,13 @@ fn lower_regex_last_index_assign(
 
 fn lower_obj_assign(
     ctx: &mut LowerCtx<'_>,
+    obj: ExprId,
     obj_val: Operand,
     sid: StructId,
     field: &str,
     value: ExprId,
 ) -> Operand {
-    if let Some(v) = try_lower_setter_call(ctx, obj_val, sid, field, value) {
+    if let Some(v) = try_lower_setter_call(ctx, obj, obj_val, sid, field, value) {
         return v;
     }
     if let Some(v) =
@@ -258,8 +259,9 @@ fn lower_obj_assign(
 
 fn try_lower_setter_call(
     ctx: &mut LowerCtx<'_>,
+    obj: ExprId,
     obj_val: Operand,
-    sid: StructId,
+    _sid: StructId,
     field: &str,
     value: ExprId,
 ) -> Option<Operand> {
@@ -270,14 +272,10 @@ fn try_lower_setter_call(
     // to the setter with `[obj_val, value]` and return the value
     // (parallel to a normal Store which also evaluates to the
     // value). Skips the struct field lookup + Store path below.
-    let mut setter_cname: Option<String> = None;
-    for (n, ty) in ctx.aliases.iter() {
-        if matches!(ty, Type::Obj(s) if s.0 == sid.0) && ctx.ast.class_parents.contains_key(n) {
-            setter_cname = Some(n.clone());
-            break;
-        }
-    }
-    let cname = setter_cname?;
+    // RFC 20260715-nominal-class-identity — the setter's class comes
+    // from the receiver's NAME, not from whichever class shares its
+    // layout id.
+    let cname = crate::ssa_lower_member_obj_field::class_name_of_expr(ctx, obj)?;
     let setter_fn = ctx
         .ast
         .accessor_setters

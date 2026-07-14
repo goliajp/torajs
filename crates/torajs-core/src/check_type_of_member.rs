@@ -54,60 +54,28 @@ pub(crate) fn check(
         Type::Nullable(inner) if matches!(*inner, Type::Array(_)) => *inner,
         other => other,
     };
-    // M-OO.5 — visibility enforcement. Find the binding's
-    // nominal class:
-    //   - `this` inside a class method body inherits the
-    //     current class context.
-    //   - An Ident bound by `let x: ClassName = ...` carries
-    //     its `declared_class` from the LetDecl arm.
-    // Other shapes (chained Member, Call result, etc.)
-    // currently get no nominal info; treat their visibility
-    // as Public until that path needs tightening.
-    let obj_class: Option<String> = match ast.get_expr(*obj) {
-        Expr::This => checker.current_class.clone(),
-        Expr::Ident(n) => checker.lookup(n).and_then(|info| info.declared_class),
-        _ => None,
-    };
-    if let Some(cls) = obj_class.as_deref()
-        && let Some(vis) = ast
-            .member_visibility
-            .get(&(cls.to_string(), name.to_string()))
-            .copied()
-    {
-        let allowed = match vis {
-            Visibility::Public => true,
-            Visibility::Private => checker.current_class.as_deref() == Some(cls),
-            Visibility::Protected => checker
-                .current_class
-                .as_deref()
-                .map(|c| c == cls || checker.is_descendant_of(ast, c, cls))
-                .unwrap_or(false),
-        };
-        if !allowed {
-            return Err(format!(
-                "M-OO.5: cannot access {vis:?} member `{cls}.{name}` from {}",
-                checker
-                    .current_class
-                    .as_deref()
-                    .map(|c| format!("class `{c}`"))
-                    .unwrap_or_else(|| "outside any class".to_string())
-            ));
-        }
-    }
+    enforce_visibility(checker, ast, obj, name)?;
     // Struct field access is the most general path — look up
     // the named field; type is whatever it was declared as.
     // V3-05 — resolve any ClassRef placeholder embedded in
     // obj_ty (self-reference fields hit this).
-    let resolved_obj_ty =
-        resolve_class_ref(&obj_ty, &checker.aliases, &checker.generic_alias_decls);
+    let resolved_obj_ty = resolve_class_ref(
+        &obj_ty,
+        &checker.class_structs,
+        &checker.aliases,
+        &checker.generic_alias_decls,
+    );
     if let Type::Struct(fields) = &resolved_obj_ty
         && let Some((_, ty)) = fields.iter().find(|(fname, _)| fname == name)
     {
-        return Ok(resolve_class_ref(
-            ty,
-            &checker.aliases,
-            &checker.generic_alias_decls,
-        ));
+        // RFC 20260715-nominal-class-identity — hand back the field's
+        // type AS DECLARED. Unwrapping a `ClassRef` here would strip the
+        // class name off every field holding an instance, and the next
+        // member access off it would have no class to look a method up
+        // in (`yield*` lifts its delegate iterator into exactly such a
+        // field, then calls `.next()` on it). Structural consumers
+        // resolve on their own.
+        return Ok(ty.clone());
     }
     // RFC 20260714-objlit-accessor blade 2 — an object-literal accessor
     // lives in the layout under `__getter_<name>` holding the getter
@@ -127,6 +95,7 @@ pub(crate) fn check(
         };
         return Ok(resolve_class_ref(
             ret,
+            &checker.class_structs,
             &checker.aliases,
             &checker.generic_alias_decls,
         ));
@@ -141,20 +110,21 @@ pub(crate) fn check(
     // getter's `ret` so caller sites see a normal value
     // (not a Function), matching ES §10.1.7 [[Get]]
     // semantics.
-    if let Type::Struct(_) = &resolved_obj_ty {
-        let mut accessor_class: Option<String> = None;
-        for (n, ty) in checker.aliases.iter() {
-            if *ty == resolved_obj_ty && ast.class_parents.contains_key(n) {
-                accessor_class = Some(n.clone());
-                break;
-            }
-        }
+    // RFC 20260715-nominal-class-identity — the receiver's own type
+    // NAMES its class. This used to scan `aliases` for a class whose
+    // struct equalled the receiver's, so a plain `{a: 1}` reached
+    // `class C { a; get b() }`'s getter and answered its value — a
+    // silent-wrong needing neither `any` nor a cast. An object literal
+    // is a bare `Struct` and owns no class's accessors.
+    {
+        let accessor_class = class_name_of(&obj_ty, ast);
         if let Some(cls) = accessor_class
             && let Some(getter_fn) = ast.accessor_getters.get(&(cls.clone(), name.to_string()))
             && let Some(Type::Function(_params, ret)) = checker.globals.get(getter_fn)
         {
             return Ok(resolve_class_ref(
                 ret,
+                &checker.class_structs,
                 &checker.aliases,
                 &checker.generic_alias_decls,
             ));
@@ -196,35 +166,28 @@ pub(crate) fn check(
     {
         return Ok(obj_ty);
     }
-    // Phase I.1 — class method on Type::Struct. Reverse-lookup
-    // the class name from the struct shape (matches the
-    // first-aliased class with that struct), then probe
-    // `__cm_<class>__<name>` in globals. If found, return
-    // its Function type with `__this` (the implicit first
-    // param) stripped — caller's args fill the remaining
-    // params. Used by sibling-method calls left
-    // un-rewritten by desugar (the chain-and-static cases
-    // were rewritten into Ident calls already).
-    if let Type::Struct(_) = &obj_ty {
-        let mut class_name: Option<String> = None;
-        for (n, ty) in checker.aliases.iter() {
-            if *ty == obj_ty && ast.class_parents.contains_key(n) {
-                class_name = Some(n.clone());
-                break;
-            }
-        }
-        if let Some(cname) = class_name {
-            let cm_name = format!("__cm_{cname}__{name}");
-            if let Some(Type::Function(params, ret)) = checker.globals.get(&cm_name) {
-                // Strip the implicit `__this` first param.
-                if !params.is_empty() {
-                    let user_params = params[1..].to_vec();
-                    return Ok(Type::Function(user_params, ret.clone()));
-                }
+    // Phase I.1 — class method. Probe `__cm_<class>__<name>` in
+    // globals; if found, return its Function type with the implicit
+    // `__this` first param stripped (the caller's args fill the rest).
+    // Used by sibling-method calls left un-rewritten by desugar.
+    //
+    // RFC 20260715-nominal-class-identity — the class comes from the
+    // receiver's NAME. This used to reverse-look-up "the first aliased
+    // class with my struct shape", so `{a: 1}` could call
+    // `class C { a; m() }`'s method and get its result.
+    if let Some(cname) = class_name_of(&obj_ty, ast) {
+        let cm_name = format!("__cm_{cname}__{name}");
+        if let Some(Type::Function(params, ret)) = checker.globals.get(&cm_name) {
+            // Strip the implicit `__this` first param.
+            if !params.is_empty() {
+                let user_params = params[1..].to_vec();
+                return Ok(Type::Function(user_params, ret.clone()));
             }
         }
     }
-    if let Some(r) = try_family_dispatch(&obj_ty, name) {
+    // Structural families (Array / Map / Date / ...) read the resolved
+    // shape — a class instance reaches its struct's members too.
+    if let Some(r) = try_family_dispatch(&resolved_obj_ty, name) {
         return r;
     }
     // Every other `(obj_ty, name)` shape has already been
@@ -233,6 +196,70 @@ pub(crate) fn check(
     // 191-206). Anything reaching this point is genuinely
     // unknown for the obj_ty — emit a typecheck error.
     Err(format!("no member `.{name}` on type {obj_ty:?}"))
+}
+
+/// M-OO.5 — visibility enforcement. Find the binding's nominal class:
+///
+///   - `this` inside a class method body inherits the current class
+///     context.
+///   - An Ident bound by `let x: ClassName = ...` carries its
+///     `declared_class` from the LetDecl arm.
+///
+/// Other shapes (chained Member, Call result, etc.) currently get no
+/// nominal info; treat their visibility as Public until that path needs
+/// tightening.
+fn enforce_visibility(
+    checker: &Checker,
+    ast: &Ast,
+    obj: &ExprId,
+    name: &str,
+) -> Result<(), String> {
+    let obj_class: Option<String> = match ast.get_expr(*obj) {
+        Expr::This => checker.current_class.clone(),
+        Expr::Ident(n) => checker.lookup(n).and_then(|info| info.declared_class),
+        _ => None,
+    };
+    let Some(cls) = obj_class.as_deref() else {
+        return Ok(());
+    };
+    let Some(vis) = ast
+        .member_visibility
+        .get(&(cls.to_string(), name.to_string()))
+        .copied()
+    else {
+        return Ok(());
+    };
+    let allowed = match vis {
+        Visibility::Public => true,
+        Visibility::Private => checker.current_class.as_deref() == Some(cls),
+        Visibility::Protected => checker
+            .current_class
+            .as_deref()
+            .map(|c| c == cls || checker.is_descendant_of(ast, c, cls))
+            .unwrap_or(false),
+    };
+    if !allowed {
+        return Err(format!(
+            "M-OO.5: cannot access {vis:?} member `{cls}.{name}` from {}",
+            checker
+                .current_class
+                .as_deref()
+                .map(|c| format!("class `{c}`"))
+                .unwrap_or_else(|| "outside any class".to_string())
+        ));
+    }
+    Ok(())
+}
+
+/// RFC 20260715-nominal-class-identity — the class a receiver belongs
+/// to, taken from its type's NAME. A bare `Struct` (object literal, or
+/// a `type P = {...}` alias) belongs to no class, however closely its
+/// shape matches one — that is the whole point.
+fn class_name_of(obj_ty: &Type, ast: &Ast) -> Option<String> {
+    match obj_ty {
+        Type::ClassRef(n) if ast.class_parents.contains_key(n) => Some(n.clone()),
+        _ => None,
+    }
 }
 
 /// Per-type-family `try_match` dispatch chain (chunks 191-206).

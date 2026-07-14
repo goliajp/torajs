@@ -52,6 +52,7 @@ pub(crate) fn check(checker: &mut Checker, ast: &Ast, elements: &[ExprId]) -> Re
             && !is_assignable_to_resolved(
                 &first_ty,
                 &ty,
+                &checker.class_structs,
                 &checker.aliases,
                 &checker.generic_alias_decls,
             )

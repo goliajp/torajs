@@ -33,7 +33,10 @@ pub(crate) fn check(checker: &mut Checker, ast: &Ast, eid: ExprId) {
     let t_result = checker.type_of(ast, eid);
     match &t_result {
         Ok(Type::Number) | Ok(Type::String) | Ok(Type::Boolean) => {}
-        Ok(Type::Array(_)) | Ok(Type::Struct(_)) => {}
+        // RFC 20260715-nominal-class-identity — `throw new Error(...)`
+        // types as `ClassRef("Error")` now; a class instance is a heap
+        // pointer, the same 8-byte shape as the struct behind it.
+        Ok(Type::Array(_)) | Ok(Type::Struct(_)) | Ok(Type::ClassRef(_)) => {}
         Ok(Type::Null) | Ok(Type::Nullable(_)) => {}
         Ok(Type::Undefined) => {}
         Ok(Type::Any) => {}

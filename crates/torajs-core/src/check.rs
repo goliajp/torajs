@@ -343,6 +343,7 @@ impl Checker {
             globals: HashMap::new(),
             scopes: vec![HashMap::new()],
             aliases: HashMap::new(),
+            class_structs: HashMap::new(),
             errors: Vec::new(),
             expected_return: None,
             current_class: None,
@@ -384,7 +385,19 @@ pub(crate) struct Checker {
     pub(crate) scopes: Vec<HashMap<String, LocalInfo>>,
     /// User-declared type aliases — populated in pass 0 from
     /// `Stmt::TypeDecl`. `Point → Type::Struct(...)`.
+    ///
+    /// A CLASS keeps its `Type::ClassRef(name)` placeholder here (RFC
+    /// 20260715-nominal-class-identity): TS is structural for
+    /// ASSIGNABILITY but nominal for MEMBER OWNERSHIP, and a class
+    /// whose type collapsed to its field struct let `{a: 1}` — the
+    /// same shape — inherit `class C { a; get b() }`'s accessors and
+    /// methods. Its resolved shape lives in [`Self::class_structs`].
     pub(crate) aliases: HashMap<String, Type>,
+    /// The resolved field struct behind each class name. Separate from
+    /// `aliases` so a class annotation resolves to `ClassRef(C)` (its
+    /// nominal identity) while structural operations — field reads,
+    /// assignability — still reach the shape via `resolve_class_ref`.
+    pub(crate) class_structs: HashMap<String, Type>,
     /// T-04 — was `Vec<String>`; now carries severity + span. The
     /// public APIs (`check`, `collect_errors`) stringify back to the
     /// caller's expected shape; LSP consumes via `collect_diagnostics`.

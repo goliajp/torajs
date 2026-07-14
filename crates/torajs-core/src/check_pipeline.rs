@@ -110,7 +110,22 @@ pub(crate) fn pass_0_register_type_aliases(c: &mut Checker, ast: &Ast) {
                 }
             }
             if !had_err {
-                c.aliases.insert(name.clone(), Type::Struct(field_tys));
+                // RFC 20260715-nominal-class-identity — a CLASS keeps
+                // its `ClassRef(name)` placeholder in `aliases`, so a
+                // `let c: C` annotation resolves to the class's NAME.
+                // Collapsing it to the field struct here is what let an
+                // object literal of the same shape inherit the class's
+                // accessors and methods (both sides asked "which class
+                // has my shape?"). Structural consumers reach the shape
+                // through `resolve_class_ref`, which reads this map.
+                // A plain `type P = {...}` alias has no nominal identity
+                // to keep — it resolves to the struct as before.
+                let resolved = Type::Struct(field_tys);
+                if ast.class_parents.contains_key(name) {
+                    c.class_structs.insert(name.clone(), resolved);
+                } else {
+                    c.aliases.insert(name.clone(), resolved);
+                }
             }
         }
     }

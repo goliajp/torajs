@@ -109,7 +109,18 @@ impl Checker {
         // table (struct_method) — the static `__cm_<C>__m(any_recv)`
         // form was a guaranteed checker reject ("expected Struct,
         // got Any").
-        if !is_builtin_container_ty(&recv_ty) && !matches!(recv_ty, Type::Any) {
+        // RFC 20260715-nominal-class-identity — the speculative rewrite
+        // is keyed on the METHOD NAME alone (desugar runs before any
+        // type is known), so `plain.m()` on a plain `{a: 1}` became
+        // `__cm_C__m(plain)` whenever some class C owned an `m` — and
+        // the struct-prefix subtype rule then admitted the receiver,
+        // answering C's method body. A bare `Struct` is an object
+        // literal or a `type P = {...}` alias: it is an instance of NO
+        // class, however closely its shape matches one. Demote, and the
+        // member checker rejects the call loudly (a class instance types
+        // as `ClassRef`, so it never lands here).
+        let steals_by_shape = matches!(recv_ty, Type::Struct(_));
+        if !is_builtin_container_ty(&recv_ty) && !matches!(recv_ty, Type::Any) && !steals_by_shape {
             return None;
         }
         self.demoted_cm_rewrites.insert(eid, alt_id);

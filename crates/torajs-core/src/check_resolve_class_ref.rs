@@ -28,12 +28,17 @@ use crate::check_type_ann::resolve_type_ann_full;
 /// rationale + recursion invariant.
 pub fn resolve_class_ref(
     ty: &Type,
+    class_structs: &std::collections::HashMap<String, Type>,
     aliases: &std::collections::HashMap<String, Type>,
     generic_aliases: &GenericAliasMap,
 ) -> Type {
     match ty {
         Type::ClassRef(name) => {
-            match aliases.get(name) {
+            // RFC 20260715-nominal-class-identity — a declared class
+            // stays `ClassRef(C)` in `aliases`; its shape lives in
+            // `class_structs`. Everything else (forward refs, generic
+            // back-edges) still resolves out of `aliases`.
+            match class_structs.get(name).or_else(|| aliases.get(name)) {
                 Some(t) if !matches!(t, Type::ClassRef(_)) => {
                     // Recurse: the alias entry's own fields may
                     // themselves contain ClassRef placeholders (the
@@ -41,7 +46,7 @@ pub fn resolve_class_ref(
                     // ClassRef("Node")). One unwrap pass keeps
                     // following levels resolved at access time.
                     let resolved = t.clone();
-                    resolve_class_ref_one(&resolved, aliases, generic_aliases)
+                    resolve_class_ref_one(&resolved, class_structs, aliases, generic_aliases)
                 }
                 // Generic-instantiation back-edge (`Rec<number>` from a
                 // recursive `type Rec<T>`): the key is not in `aliases`
@@ -59,7 +64,7 @@ pub fn resolve_class_ref(
                 _ => ty.clone(),
             }
         }
-        _ => resolve_class_ref_one(ty, aliases, generic_aliases),
+        _ => resolve_class_ref_one(ty, class_structs, aliases, generic_aliases),
     }
 }
 
@@ -69,16 +74,23 @@ pub fn resolve_class_ref(
 /// fully-resolved Node would expand infinitely.
 fn resolve_class_ref_one(
     ty: &Type,
+    class_structs: &std::collections::HashMap<String, Type>,
     aliases: &std::collections::HashMap<String, Type>,
     generic_aliases: &GenericAliasMap,
 ) -> Type {
     match ty {
-        Type::Nullable(inner) => {
-            Type::Nullable(Box::new(resolve_class_ref(inner, aliases, generic_aliases)))
-        }
-        Type::Array(inner) => {
-            Type::Array(Box::new(resolve_class_ref(inner, aliases, generic_aliases)))
-        }
+        Type::Nullable(inner) => Type::Nullable(Box::new(resolve_class_ref(
+            inner,
+            class_structs,
+            aliases,
+            generic_aliases,
+        ))),
+        Type::Array(inner) => Type::Array(Box::new(resolve_class_ref(
+            inner,
+            class_structs,
+            aliases,
+            generic_aliases,
+        ))),
         _ => ty.clone(),
     }
 }

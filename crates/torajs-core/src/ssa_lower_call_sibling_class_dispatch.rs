@@ -47,18 +47,15 @@ pub(crate) fn try_lower(
     let method_name = name.clone();
     let recv_op = ctx.lower_expr(recv_id);
     let recv_ty = ctx.operand_ty(&recv_op);
-    let Type::Obj(sid) = recv_ty else {
+    let Type::Obj(_sid) = recv_ty else {
         return None;
     };
 
-    let mut class_name: Option<String> = None;
-    for (n, ty) in ctx.aliases.iter() {
-        if matches!(ty, Type::Obj(s) if s.0 == sid.0) && ctx.ast.class_parents.contains_key(n) {
-            class_name = Some(n.clone());
-            break;
-        }
-    }
-    let cname = class_name?;
+    // RFC 20260715-nominal-class-identity — dispatch on the receiver's
+    // NAME. The layout id is shared by every same-shaped class (and by
+    // a plain object literal), so a reverse lookup by shape answered
+    // whichever class registered first.
+    let cname = crate::ssa_lower_member_obj_field::class_name_of_expr(ctx, recv_id)?;
     let fn_name = format!("__cm_{cname}__{method_name}");
     let fid = *ctx.fn_table.get(&fn_name)?;
 

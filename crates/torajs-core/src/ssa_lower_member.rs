@@ -140,5 +140,5 @@ pub(crate) fn lower_with_val(
         Type::Obj(sid) => sid,
         _ => panic!("ssa-lower: member access on non-object {obj_ty:?} (.{name})"),
     };
-    crate::ssa_lower_member_obj_field::try_lower(ctx, obj_val, sid, name)
+    crate::ssa_lower_member_obj_field::try_lower(ctx, obj, obj_val, sid, name)
 }

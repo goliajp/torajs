@@ -204,6 +204,27 @@ fn arg_admitted(
     if param_ty == &Type::Any || arg_ty == param_ty {
         return true;
     }
+    // RFC 20260715-nominal-class-identity — a class instance types as
+    // its NAME, so every structural wedge below (subclass prefix,
+    // Nullable match, callback subtype, container widen) needs the
+    // shape behind it. Two DIFFERENT class names still compare
+    // structurally, which is what TS assignability is (a TypeError is
+    // assignable to an Error param because its layout is a prefix).
+    let param_ty = &crate::check::resolve_class_ref(
+        param_ty,
+        &checker.class_structs,
+        &checker.aliases,
+        &checker.generic_alias_decls,
+    );
+    let arg_ty = &crate::check::resolve_class_ref(
+        arg_ty,
+        &checker.class_structs,
+        &checker.aliases,
+        &checker.generic_alias_decls,
+    );
+    if arg_ty == param_ty {
+        return true;
+    }
     // M5.2 class-method receiver subclass prefix-subtype check extracted
     // to [`crate::check_type_of_call_class_method_subtype`] (chunk 309).
     if crate::check_type_of_call_class_method_subtype::skip(is_class_method, i, arg_ty, param_ty) {

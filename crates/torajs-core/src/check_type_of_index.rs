@@ -25,7 +25,20 @@ pub(crate) fn check(
     obj: ExprId,
     index: ExprId,
 ) -> Result<Type, String> {
-    let obj_ty = checker.type_of(ast, obj)?;
+    // RFC 20260715-nominal-class-identity — indexing is a structural
+    // operation; a class instance types as its NAME, so unwrap it to
+    // the shape first. (The literal-key lane below re-enters the member
+    // checker with the receiver EXPR, which sees the name again and
+    // keeps accessor / method lookup nominal.)
+    let obj_ty = {
+        let t = checker.type_of(ast, obj)?;
+        crate::check::resolve_class_ref(
+            &t,
+            &checker.class_structs,
+            &checker.aliases,
+            &checker.generic_alias_decls,
+        )
+    };
     // Chunk 745 — struct receiver + compile-time literal index:
     // `g[0]` ≡ `g."0"` per ES ToPropertyKey (§7.1.19). Numeric keys
     // in object literals are stored under their integer spelling

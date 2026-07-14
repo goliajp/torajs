@@ -30,24 +30,26 @@ use crate::check::{GenericAliasMap, Type, resolve_class_ref};
 pub fn is_assignable_to_resolved(
     to: &Type,
     from: &Type,
+    class_structs: &std::collections::HashMap<String, Type>,
     aliases: &std::collections::HashMap<String, Type>,
     generic_aliases: &GenericAliasMap,
 ) -> bool {
     let mut seen: std::collections::HashSet<(String, String)> = std::collections::HashSet::new();
-    is_assignable_to_deep(to, from, aliases, generic_aliases, &mut seen)
+    is_assignable_to_deep(to, from, class_structs, aliases, generic_aliases, &mut seen)
 }
 
 fn is_assignable_to_deep(
     to: &Type,
     from: &Type,
+    class_structs: &std::collections::HashMap<String, Type>,
     aliases: &std::collections::HashMap<String, Type>,
     generic_aliases: &GenericAliasMap,
     seen: &mut std::collections::HashSet<(String, String)>,
 ) -> bool {
     // Resolve any ClassRef placeholders one layer up before deeper
     // structural comparison.
-    let to_r = resolve_class_ref(to, aliases, generic_aliases);
-    let from_r = resolve_class_ref(from, aliases, generic_aliases);
+    let to_r = resolve_class_ref(to, class_structs, aliases, generic_aliases);
+    let from_r = resolve_class_ref(from, class_structs, aliases, generic_aliases);
     if to_r == from_r {
         return true;
     }
@@ -76,13 +78,27 @@ fn is_assignable_to_deep(
         if matches!(from_r, Type::Null | Type::Undefined) {
             return true;
         }
-        return is_assignable_to_deep(inner, &from_r, aliases, generic_aliases, seen);
+        return is_assignable_to_deep(
+            inner,
+            &from_r,
+            class_structs,
+            aliases,
+            generic_aliases,
+            seen,
+        );
     }
     if let (Type::Array(to_el), Type::Array(from_el)) = (&to_r, &from_r) {
         if matches!(**to_el, Type::Any) {
             return true;
         }
-        return is_assignable_to_deep(to_el, from_el, aliases, generic_aliases, seen);
+        return is_assignable_to_deep(
+            to_el,
+            from_el,
+            class_structs,
+            aliases,
+            generic_aliases,
+            seen,
+        );
     }
     // Fn-typed pairings (rest-tail AND fixed-arity) delegate to the
     // callback-subtype lattice in the shallow layer's tail arm — the
@@ -95,7 +111,14 @@ fn is_assignable_to_deep(
     // to strict equality and false-rejected legal async fns whose
     // bodies await concrete-typed promises.
     if let (Type::Promise(to_inner), Type::Promise(from_inner)) = (&to_r, &from_r) {
-        return is_assignable_to_deep(to_inner, from_inner, aliases, generic_aliases, seen);
+        return is_assignable_to_deep(
+            to_inner,
+            from_inner,
+            class_structs,
+            aliases,
+            generic_aliases,
+            seen,
+        );
     }
     if let (Type::Struct(to_fields), Type::Struct(from_fields)) = (&to_r, &from_r)
         && from_fields.len() >= to_fields.len()
@@ -117,7 +140,8 @@ fn is_assignable_to_deep(
         }
         let result = to_fields.iter().enumerate().all(|(i, (n, t))| {
             let (fn_name, fn_ty) = &from_fields[i];
-            fn_name == n && is_assignable_to_deep(t, fn_ty, aliases, generic_aliases, seen)
+            fn_name == n
+                && is_assignable_to_deep(t, fn_ty, class_structs, aliases, generic_aliases, seen)
         });
         seen.remove(&key);
         return result;

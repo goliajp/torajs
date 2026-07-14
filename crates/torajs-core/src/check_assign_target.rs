@@ -52,7 +52,16 @@ pub(crate) fn check_member(
     field: String,
     value: ExprId,
 ) -> Result<Type, String> {
-    let obj_ty = checker.type_of(ast, obj)?;
+    // RFC 20260715-nominal-class-identity — a class instance's type is
+    // its NAME (`ClassRef(C)`); every structural step below needs the
+    // shape behind it.
+    let obj_ty_nominal = checker.type_of(ast, obj)?;
+    let obj_ty = resolve_class_ref(
+        &obj_ty_nominal,
+        &checker.class_structs,
+        &checker.aliases,
+        &checker.generic_alias_decls,
+    );
     enforce_readonly(checker, ast, obj, &field)?;
     // Chunk 566 — member assignment does NOT consume the rhs:
     // ssa_lower's member-store lanes now share (slot/bucket +1,
@@ -78,7 +87,7 @@ pub(crate) fn check_member(
             "field assignment target must be a struct, got {obj_ty:?}"
         ));
     };
-    if let Some(t) = try_accessor_setter(checker, ast, &obj_ty, &field, value)? {
+    if let Some(t) = try_accessor_setter(checker, ast, &obj_ty_nominal, &field, value)? {
         return Ok(t);
     }
     if let Some(t) = try_objlit_setter(checker, ast, fields, &field, value)? {
@@ -93,7 +102,12 @@ pub(crate) fn check_member(
     // array type.
     if matches!(ast.get_expr(value), Expr::Array(els) if els.is_empty())
         && matches!(
-            resolve_class_ref(&field_ty, &checker.aliases, &checker.generic_alias_decls),
+            resolve_class_ref(
+                &field_ty,
+                &checker.class_structs,
+                &checker.aliases,
+                &checker.generic_alias_decls
+            ),
             Type::Array(_)
         )
     {
@@ -103,6 +117,7 @@ pub(crate) fn check_member(
     if !is_assignable_to_resolved(
         &field_ty,
         &value_ty,
+        &checker.class_structs,
         &checker.aliases,
         &checker.generic_alias_decls,
     ) {
@@ -178,6 +193,7 @@ fn try_objlit_setter(
     if !is_assignable_to_resolved(
         &param_ty,
         &value_ty,
+        &checker.class_structs,
         &checker.aliases,
         &checker.generic_alias_decls,
     ) {
@@ -195,16 +211,13 @@ fn try_accessor_setter(
     field: &str,
     value: ExprId,
 ) -> Result<Option<Type>, String> {
-    let mut setter_class: Option<String> = None;
-    for (n, ty) in checker.aliases.iter() {
-        if ty == obj_ty && ast.class_parents.contains_key(n) {
-            setter_class = Some(n.clone());
-            break;
-        }
-    }
-    let cls = match setter_class {
-        Some(c) => c,
-        None => return Ok(None),
+    // RFC 20260715-nominal-class-identity — the setter's class comes
+    // from the receiver's NAME. Scanning `aliases` for a class with the
+    // receiver's struct shape let a plain `{a: 1}` write through
+    // `class C { a; set b(v) }`'s setter.
+    let cls = match obj_ty {
+        Type::ClassRef(n) if ast.class_parents.contains_key(n) => n.clone(),
+        _ => return Ok(None),
     };
     let Some(setter_fn) = ast
         .accessor_setters
@@ -224,6 +237,7 @@ fn try_accessor_setter(
     if !is_assignable_to_resolved(
         &setter_param_ty,
         &value_ty,
+        &checker.class_structs,
         &checker.aliases,
         &checker.generic_alias_decls,
     ) {
@@ -278,6 +292,7 @@ pub(crate) fn check_index(
     if !is_assignable_to_resolved(
         &elem_ty,
         &value_ty,
+        &checker.class_structs,
         &checker.aliases,
         &checker.generic_alias_decls,
     ) {

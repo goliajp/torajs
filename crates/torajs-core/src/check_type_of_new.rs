@@ -174,6 +174,7 @@ fn check_array(checker: &mut Checker, ast: &Ast, args: &[ExprId]) -> Result<Type
         if !is_assignable_to_resolved(
             &Type::Number,
             &arg_ty,
+            &checker.class_structs,
             &checker.aliases,
             &checker.generic_alias_decls,
         ) {
@@ -202,6 +203,7 @@ fn check_regexp(checker: &mut Checker, ast: &Ast, args: &[ExprId]) -> Result<Typ
         if !is_assignable_to_resolved(
             &Type::String,
             &arg_ty,
+            &checker.class_structs,
             &checker.aliases,
             &checker.generic_alias_decls,
         ) {

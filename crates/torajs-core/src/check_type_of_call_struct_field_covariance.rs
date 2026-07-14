@@ -25,6 +25,7 @@ pub(crate) fn matches(checker: &Checker, param_ty: &Type, arg_ty: &Type) -> bool
         && is_assignable_to_resolved(
             param_ty,
             arg_ty,
+            &checker.class_structs,
             &checker.aliases,
             &checker.generic_alias_decls,
         )

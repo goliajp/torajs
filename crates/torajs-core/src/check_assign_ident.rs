@@ -41,6 +41,7 @@ pub(crate) fn check(
         if !is_assignable_to_resolved(
             &global_ty,
             &value_ty,
+            &checker.class_structs,
             &checker.aliases,
             &checker.generic_alias_decls,
         ) {
@@ -68,6 +69,7 @@ pub(crate) fn check(
     if !is_assignable_to_resolved(
         &target_ty,
         &value_ty,
+        &checker.class_structs,
         &checker.aliases,
         &checker.generic_alias_decls,
     ) {

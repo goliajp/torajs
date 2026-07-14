@@ -132,8 +132,13 @@ fn materialize_src(
         // undefined-filled Array<Any> `new Array(n)` mints. ToLength
         // rides coerce_to_i64; the alloc arms a RangeError for
         // lengths outside [0, 2^32-1] and returns NULL.
-        let len_op =
-            crate::ssa_lower_member_obj_field::try_lower(ctx, arg_op.clone(), sid, "length");
+        let len_op = crate::ssa_lower_member_obj_field::try_lower(
+            ctx,
+            arg_eid,
+            arg_op.clone(),
+            sid,
+            "length",
+        );
         let len_i64 = ctx.coerce_to_i64(len_op);
         let arr_id = intern_arr_layout(ctx.arr_layouts, Type::Any);
         let fid = *ctx

@@ -87,6 +87,7 @@ pub(crate) fn check(
             if !is_assignable_to_resolved(
                 &ann_ty,
                 &init_ty,
+                &checker.class_structs,
                 &checker.aliases,
                 &checker.generic_alias_decls,
             ) {
