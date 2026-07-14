@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-14T10:38:57.725Z",
+  "generatedAt": "2026-07-14T13:03:49.626Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 91.58
   },
   "torajs": {
-    "commit": "891a14c7",
-    "commitSubject": "chore: test262 sweep at 688e3561 - passTotal 11554 (+54), bug 1062",
+    "commit": "8e45d311",
+    "commitSubject": "feat: copy a source accessor through [[Get]] when spreading or resting",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "8e45d311",
+      "subject": "feat: copy a source accessor through [[Get]] when spreading or resting"
+    },
+    {
+      "hash": "c2fdaf65",
+      "subject": "feat: run object-literal getters and setters"
+    },
+    {
+      "hash": "23576652",
+      "subject": "fix: keep the object-literal `__this` receiver out of the paths that never pass one"
+    },
+    {
+      "hash": "bea95b71",
+      "subject": "feat: bind `this` in an object-literal method"
+    },
+    {
+      "hash": "9c28d29b",
+      "subject": "fix: intern a struct fn-field slot as a closure in every lane that mints its type"
+    },
+    {
+      "hash": "0de07de2",
+      "subject": "chore: hardev dashboard snapshot at rotation 97 close"
+    },
+    {
       "hash": "891a14c7",
       "subject": "chore: test262 sweep at 688e3561 - passTotal 11554 (+54), bug 1062"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "63b5f5f2",
       "subject": "feat: iterate a Map or Set held behind any"
-    },
-    {
-      "hash": "807b406a",
-      "subject": "chore: hardev dashboard snapshot at rotation 96 close"
-    },
-    {
-      "hash": "0745952d",
-      "subject": "fix: never walk a NaN-box immediate as a cycle child"
-    },
-    {
-      "hash": "236ec295",
-      "subject": "feat: step class instances in the any-lane iteration kernel"
-    },
-    {
-      "hash": "ccfe1d1f",
-      "subject": "feat: type the for-of element of a class-iterator source"
-    },
-    {
-      "hash": "478ff244",
-      "subject": "feat: generator objects are iterable via Symbol.iterator"
-    },
-    {
-      "hash": "355d76d2",
-      "subject": "chore: hardev dashboard snapshot at rotation 95 close"
     }
   ],
-  "headSha": "891a14c7",
+  "headSha": "8e45d311",
   "autorun": {
-    "total": 403,
+    "total": 404,
     "baselineTarget": 10,
-    "bySelf": 398,
+    "bySelf": 399,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784001768-56d4",
-      "at": "2026-07-14T04:02:48Z",
-      "ts": 1784001768,
+      "rotationId": "r-1784025563-0083",
+      "at": "2026-07-14T10:39:23Z",
+      "ts": 1784025563,
       "trigger": "self",
-      "prevHead": "807b406a",
-      "handoffSha": "sha256:3f39b631b3c170996cbfd1f41910bedd58215ac61ca2e1312c874fecfb3d0c9f",
-      "handoffAgeSec": 5,
+      "prevHead": "0de07de2",
+      "handoffSha": "sha256:37f191eab5d56a5a69870626ee429dfe0b60427f937596435d76d7fecf40c64d",
+      "handoffAgeSec": 31,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784025563-0083",
+        "at": "2026-07-14T10:39:23Z",
+        "ts": 1784025563,
+        "trigger": "self",
+        "prevHead": "0de07de2",
+        "handoffSha": "sha256:37f191eab5d56a5a69870626ee429dfe0b60427f937596435d76d7fecf40c64d",
+        "handoffAgeSec": 31,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784001768-56d4",
         "at": "2026-07-14T04:02:48Z",
@@ -876,17 +887,6 @@
         "prevHead": "6fbc4573",
         "handoffSha": "sha256:3f77f820f40e46d66e697bc07d53ebef58388d88fac58e17051f91b5565f910a",
         "handoffAgeSec": 7,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1783908867-1811",
-        "at": "2026-07-13T02:14:27Z",
-        "ts": 1783908867,
-        "trigger": "self",
-        "prevHead": "4c88867c",
-        "handoffSha": "sha256:285eb25bc01e4b745bb3dce0e2e83303a1e854412dd9f8c6933755f66bd2c4e9",
-        "handoffAgeSec": 39,
         "conformanceBefore": null,
         "commitsInSession": null
       }
