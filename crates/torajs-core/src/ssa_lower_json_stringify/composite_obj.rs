@@ -166,14 +166,54 @@ fn lower_obj_concat(
         ctx.cur_block,
         InstKind::Store(Operand::Value(lbrace), Operand::Value(acc_slot), 0),
     );
-    for (i, (fname, fty)) in layout.iter().enumerate() {
+    for (i, (fname, slot_ty)) in layout.iter().enumerate() {
         let field_off = OBJ_HEADER_SIZE + (i as u64) * 8;
-        let field_v = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Load(*fty, Operand::Value(obj_ptr), field_off),
-            *fty,
-            None,
-        );
+        // RFC 20260714-objlit-accessor — §25.5.2.4 serializes through
+        // [[Get]], so an accessor contributes its GETTER'S RESULT under
+        // the plain property name, never the closure sitting in its
+        // synthetic slot (which used to reach the value recursion as a
+        // `Type::Closure` and panic "not yet supported"). A setter is
+        // skipped outright: paired with a getter its key is already
+        // emitted, and alone its [[Get]] is undefined — step 8.b then
+        // omits the whole segment.
+        let accessor = crate::check_type_of_object_lit::accessor_slot(fname);
+        if matches!(accessor, Some(("__setter_", _))) {
+            continue;
+        }
+        let (key, field_v, fty, getter_owned) = match accessor {
+            Some((_, prop)) => {
+                let Type::Closure(sig_id) = *slot_ty else {
+                    continue;
+                };
+                // A body with no `return` types Void — its [[Get]] is
+                // `undefined`, so step 8.b omits the key. (Calling it
+                // and handing a Void operand to the value recursion is
+                // the shape that read x0 garbage in the
+                // RFC 20260713-accessor-void-kind incident.)
+                if matches!(ctx.fn_sigs[sig_id.0 as usize].1, Type::Void) {
+                    continue;
+                }
+                let got = crate::ssa_lower_call_struct_method_dispatch::emit_receiver_closure_call(
+                    ctx,
+                    Operand::Value(obj_ptr),
+                    field_off,
+                    sig_id,
+                    &[],
+                );
+                let ret_ty = ctx.operand_ty(&got);
+                (prop.to_string(), got, ret_ty, true)
+            }
+            None => {
+                let v = ctx.f.append_inst(
+                    ctx.cur_block,
+                    InstKind::Load(*slot_ty, Operand::Value(obj_ptr), field_off),
+                    *slot_ty,
+                    None,
+                );
+                (fname.clone(), Operand::Value(v), *slot_ty, false)
+            }
+        };
+        let fty = &fty;
         // Undefined-only probe (NULL keeps the key, prints null):
         // §25.5.2.4 step 8.b skips the whole `<sep>"key":<val>`
         // segment. Str slots probe the Str sentinel; refcounted
@@ -188,7 +228,7 @@ fn lower_obj_concat(
         let merge_blk = if let Some(probe_fid) = undef_probe {
             let is_undef = ctx.f.append_inst(
                 ctx.cur_block,
-                InstKind::Call(probe_fid, vec![Operand::Value(field_v)]),
+                InstKind::Call(probe_fid, vec![field_v.clone()]),
                 Type::Bool,
                 None,
             );
@@ -219,7 +259,7 @@ fn lower_obj_concat(
             Type::Str,
             None,
         );
-        let key_str = ctx.intern_string_literal(fname);
+        let key_str = ctx.intern_string_literal(&key);
         let key_quoted = ctx.f.append_inst(
             ctx.cur_block,
             InstKind::Call(ctx.intrinsics.json_quote_str, vec![Operand::Value(key_str)]),
@@ -251,7 +291,7 @@ fn lower_obj_concat(
             None,
         );
         ctx.emit_drop_value(Operand::Value(v1), Type::Str);
-        let field_str = super::lower(ctx, Operand::Value(field_v), *fty);
+        let field_str = super::lower(ctx, field_v.clone(), *fty);
         let v3 = ctx.f.append_inst(
             ctx.cur_block,
             InstKind::Call(
@@ -263,6 +303,11 @@ fn lower_obj_concat(
         );
         ctx.emit_drop_value(Operand::Value(v2), Type::Str);
         ctx.emit_drop_value(field_str.clone(), Type::Str);
+        // A field Load borrows the struct's slot; a getter call answers
+        // a fresh +1 that nothing else owns.
+        if getter_owned {
+            ctx.emit_drop_value(field_v.clone(), *fty);
+        }
         ctx.f.append_void(
             ctx.cur_block,
             InstKind::Store(Operand::Value(v3), Operand::Value(acc_slot), 0),
