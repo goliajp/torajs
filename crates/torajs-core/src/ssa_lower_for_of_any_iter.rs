@@ -20,11 +20,52 @@
 //! AnyValue out-slot and alloca-binds `var_name` as owned
 //! (`moved=false` — `close_body_scope`'s drop walk releases the
 //! element box each iteration, balancing the kernel's +1).
+//!
+//! The kernel's class-instance lane (a generator object / any user
+//! class with `[Symbol.iterator]()`) parks the iterator it derives in
+//! `iter_slot` so the next step resumes the same one. That reference
+//! is OURS: the `after` block releases it, which is also the block a
+//! `break` lands in. A loop that never took the class lane leaves the
+//! slot at `undefined`, whose release is a no-op.
 
 use crate::ast::Stmt;
-use crate::ssa::{IPred, InstKind, Operand, Terminator, Type};
+use crate::ssa::{IPred, InstKind, Operand, Terminator, Type, ValueId};
 use crate::ssa_lower::LowerCtx;
 use crate::ssa_lower_stmt_for_of::{bind_scoped_local, close_body_scope};
+
+/// The kernel's iterator park slot — an `Any` alloca seeded with
+/// `undefined` (the "not yet derived" sentinel). Shared with
+/// `ssa_lower_arr_from_any`, the other `any_iter_next` driver.
+pub(crate) fn emit_iter_slot(ctx: &mut LowerCtx, name: &str) -> ValueId {
+    let slot = ctx.alloca(Type::Any, Some(name));
+    let undef = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(
+            ctx.intrinsics.any_box,
+            vec![Operand::ConstI64(5), Operand::ConstI64(0)],
+        ),
+        Type::Any,
+        None,
+    );
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Store(Operand::Value(undef), Operand::Value(slot), 0),
+    );
+    slot
+}
+
+/// Release whatever the kernel parked in the iterator slot. Emitted in
+/// the loop's exit block so both a natural finish and a `break` land on
+/// it; `undefined` (the never-derived case) drops as a no-op.
+pub(crate) fn emit_iter_slot_release(ctx: &mut LowerCtx, iter_slot: ValueId) {
+    let iter_val = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(Type::Any, Operand::Value(iter_slot), 0),
+        Type::Any,
+        None,
+    );
+    ctx.emit_drop_value(Operand::Value(iter_val), Type::Any);
+}
 
 pub(crate) fn lower(ctx: &mut LowerCtx, src_op: Operand, var_name: &str, body: &Stmt) {
     ctx.scope_stack.push(Vec::new());
@@ -35,6 +76,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx, src_op: Operand, var_name: &str, body: &
         ctx.cur_block,
         InstKind::Store(Operand::ConstI64(0), Operand::Value(idx_slot), 0),
     );
+    let iter_slot = emit_iter_slot(ctx, "__forof_any_iter");
     let out_slot = ctx.alloca(Type::Any, Some("__forof_any_out"));
 
     let header = ctx.f.add_block();
@@ -47,7 +89,12 @@ pub(crate) fn lower(ctx: &mut LowerCtx, src_op: Operand, var_name: &str, body: &
         ctx.cur_block,
         InstKind::Call(
             ctx.intrinsics.any_iter_next,
-            vec![src_op, Operand::Value(idx_slot), Operand::Value(out_slot)],
+            vec![
+                src_op,
+                Operand::Value(idx_slot),
+                Operand::Value(iter_slot),
+                Operand::Value(out_slot),
+            ],
         ),
         Type::I64,
         None,
@@ -90,6 +137,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx, src_op: Operand, var_name: &str, body: &
     close_body_scope(ctx, header, body_open);
 
     ctx.cur_block = after;
+    emit_iter_slot_release(ctx, iter_slot);
     let _ = ctx.scope_stack.pop().expect("for-of-any iter scope");
     let _ = ctx.shadow_stack.pop().expect("shadow frame");
 }

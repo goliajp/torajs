@@ -21,6 +21,18 @@
 //!   come out borrowed (ENTRIES pair arrays pre-decremented to 0),
 //!   so `payload_rc_inc` converts to owned before boxing — the same
 //!   ledger the C4+ `next()` arm uses.
+//! - **`Tag::Obj`** — a class instance (a generator object, or any
+//!   user class declaring `[Symbol.iterator]()`). ES §7.4.3
+//!   GetIterator: call the receiver's `[Symbol.iterator]()` once,
+//!   then step the returned iterator's `next()` per iteration,
+//!   reading `done` / `value` off the IteratorResult struct it
+//!   answers. Both calls go through the class-methods dispatch table
+//!   (torajs-structmeta `__torajs_struct_method_find`) and the boxed
+//!   `(this-as-env, argv, argc)` adapter ABI. The iterator itself
+//!   lives in `iter_slot` across the loop — re-deriving it per step
+//!   would restart a fresh-iterator iterable — and the CALLER owns
+//!   that reference: it releases the slot at loop exit, which is
+//!   also what makes a `break` release it.
 //! - anything else — catchable TypeError (ES §7.4.3 GetIterator on
 //!   a non-iterable), returns 0 so the loop body never runs.
 //!
@@ -31,10 +43,13 @@
 use core::ffi::c_void;
 
 use crate::index_any::{__torajs_any_index_get, __torajs_any_iter_len};
+use crate::member_get::struct_field_pair_bytes;
+use crate::method_call::invoke_boxed;
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED, as_void_ptr, is_cell, is_short_str};
 use crate::nanbox_encode::__torajs_anyv_box_from_pair;
+use crate::nanbox_ffi::__torajs_anyv_rc_dec;
 use crate::payload_rc_inc;
-use torajs_rc::Tag;
+use torajs_rc::{AnySlotTag, Tag};
 
 unsafe extern "C" {
     /// torajs-collections — MapIter cursor advance (out pair is a
@@ -45,17 +60,132 @@ unsafe extern "C" {
     /// torajs-throw — record a pending catchable TypeError; returns
     /// normally (caller's throw-check propagates).
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
+    /// torajs-structmeta — read side over `__torajs_class_layouts`
+    /// (NULL for class_tag 0 / past the table).
+    fn __torajs_struct_layout_lookup(class_tag: u32) -> *const c_void;
+    /// torajs-structmeta — class-method boxed adapter by name bytes
+    /// (NULL miss).
+    fn __torajs_struct_method_find(
+        layout: *const c_void,
+        name: *const u8,
+        name_len: u32,
+    ) -> *const c_void;
+}
+
+/// `class_tag` u32 offset inside a `Tag::Obj` instance — mirror of
+/// torajs-core `ssa_lower::OBJ_CLASS_TAG_OFF`.
+const OBJ_CLASS_TAG_OFF: usize = 8;
+
+/// The desugared name of a `[Symbol.iterator]()` class member (the
+/// parser mangles the computed key; torajs-core emits
+/// `__cm_<C>____sym_Symbol_iterator__`).
+const SYM_ITERATOR_METHOD: &[u8] = b"__sym_Symbol_iterator__";
+
+/// Invoke a zero-argument method on a `Tag::Obj` receiver through the
+/// class-methods dispatch table. `None` when the receiver has no
+/// layout or declares no such method.
+///
+/// # Safety
+/// `obj` is a live `Tag::Obj` heap pointer.
+unsafe fn call_obj_method_0(obj: *mut c_void, name: &[u8]) -> Option<AnyValue> {
+    let class_tag = unsafe { obj.cast::<u8>().add(OBJ_CLASS_TAG_OFF).cast::<u32>().read() };
+    let layout = unsafe { __torajs_struct_layout_lookup(class_tag) };
+    if layout.is_null() {
+        return None;
+    }
+    let adapter = unsafe { __torajs_struct_method_find(layout, name.as_ptr(), name.len() as u32) };
+    if adapter.is_null() {
+        return None;
+    }
+    // argc 0 — invoke_boxed hands the adapter its undefined-filled
+    // argv buffer, so a defaulted param (a generator `next`'s
+    // `__yield_arg`) materializes its own default.
+    let argv: [u64; 0] = [];
+    Some(unsafe { invoke_boxed(obj, adapter as u64, argv.as_ptr(), 0) })
+}
+
+/// The `Tag::Obj` lane of [`__torajs_any_iter_next`] — see the module
+/// doc's dispatch tree. Answers `Some(live)` once the receiver is a
+/// class instance (including the non-iterable TypeError, which is
+/// `Some(0)`); `None` when it is not a class instance at all, so the
+/// caller falls through to its own TypeError.
+///
+/// # Safety
+/// `obj` is a live `Tag::Obj` heap pointer; `iter_slot` / `out` are
+/// valid writable pointers.
+unsafe fn obj_iter_step(
+    obj: *mut c_void,
+    iter_slot: *mut AnyValue,
+    out: *mut AnyValue,
+) -> Option<i64> {
+    unsafe {
+        // GetIterator, once per loop: the cached iterator is the
+        // caller's to release, so a re-entry with a live slot skips
+        // straight to the step.
+        if *iter_slot == VALUE_UNDEFINED {
+            let Some(iter) = call_obj_method_0(obj, SYM_ITERATOR_METHOD) else {
+                __torajs_throw_type_error(c"value is not iterable".as_ptr());
+                *out = VALUE_UNDEFINED;
+                return Some(0);
+            };
+            *iter_slot = iter;
+        }
+        let iter = *iter_slot;
+        if !is_cell(iter) {
+            __torajs_throw_type_error(c"iterator is not an object".as_ptr());
+            *out = VALUE_UNDEFINED;
+            return Some(0);
+        }
+        let iter_ptr = as_void_ptr(iter) as *mut c_void;
+        let Some(step) = call_obj_method_0(iter_ptr, b"next") else {
+            __torajs_throw_type_error(c"iterator has no next() method".as_ptr());
+            *out = VALUE_UNDEFINED;
+            return Some(0);
+        };
+        if !is_cell(step) {
+            __torajs_anyv_rc_dec(step);
+            __torajs_throw_type_error(c"iterator result is not an object".as_ptr());
+            *out = VALUE_UNDEFINED;
+            return Some(0);
+        }
+        let step_ptr = as_void_ptr(step) as *mut c_void;
+        // `done` / `value` come back BORROWED off the step struct —
+        // the step cell keeps the stake until it is released below,
+        // so the yielded value is retained before it outlives it.
+        let done = matches!(
+            struct_field_pair_bytes(step_ptr, b"done"),
+            Some((tag, payload)) if tag == AnySlotTag::Bool as u64 && payload != 0
+        );
+        if done {
+            __torajs_anyv_rc_dec(step);
+            *out = VALUE_UNDEFINED;
+            return Some(0);
+        }
+        let value = match struct_field_pair_bytes(step_ptr, b"value") {
+            Some((tag, payload)) => {
+                payload_rc_inc(tag as i64, payload as i64);
+                __torajs_anyv_box_from_pair(tag as i64, payload as i64)
+            }
+            None => VALUE_UNDEFINED,
+        };
+        __torajs_anyv_rc_dec(step);
+        *out = value;
+        Some(1)
+    }
 }
 
 /// See module doc.
 ///
 /// # Safety
 /// Cell receivers must be valid heap pointers matching their header
-/// tag layout; `idx_slot` / `out` are valid writable pointers.
+/// tag layout; `idx_slot` / `iter_slot` / `out` are valid writable
+/// pointers. `iter_slot` starts at `undefined` and belongs to the
+/// caller, which releases it when the loop exits.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_any_iter_next(
     recv: AnyValue,
     idx_slot: *mut i64,
+    iter_slot: *mut AnyValue,
     out: *mut AnyValue,
 ) -> i64 {
     let cell_tag = if is_cell(recv) {
@@ -97,6 +227,12 @@ pub unsafe extern "C" fn __torajs_any_iter_next(
             *out = __torajs_anyv_box_from_pair(tag, payload);
         }
         return 1;
+    }
+    if matches!(cell_tag, Some(t) if t == Tag::Obj as u16) {
+        let obj = as_void_ptr(recv) as *mut c_void;
+        if let Some(live) = unsafe { obj_iter_step(obj, iter_slot, out) } {
+            return live;
+        }
     }
     unsafe {
         __torajs_throw_type_error(c"value is not iterable".as_ptr());

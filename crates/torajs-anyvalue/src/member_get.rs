@@ -126,15 +126,25 @@ pub(crate) unsafe fn header_flag_set(ptr: *mut c_void, bit: u16) {
 /// # Safety
 /// `ptr` is a live `Tag::Obj` heap pointer; `key` is a live Str cell.
 pub(crate) unsafe fn struct_field_pair(ptr: *mut c_void, key: *const c_void) -> Option<(u64, u64)> {
+    let k = key as *const u8;
+    let key_len = unsafe { k.add(STR_LEN_OFF).cast::<u32>().read() };
+    let key_bytes = unsafe { core::slice::from_raw_parts(k.add(STR_DATA_OFF), key_len as usize) };
+    unsafe { struct_field_pair_bytes(ptr, key_bytes) }
+}
+
+/// [`struct_field_pair`] keyed by raw name bytes — the shape the
+/// iteration kernel needs, which probes fixed field names (`done` /
+/// `value`) and has no Str cell to spend an allocation on per step.
+///
+/// # Safety
+/// `ptr` is a live `Tag::Obj` heap pointer.
+pub(crate) unsafe fn struct_field_pair_bytes(ptr: *mut c_void, name: &[u8]) -> Option<(u64, u64)> {
     let class_tag = unsafe { ptr.cast::<u8>().add(OBJ_CLASS_TAG_OFF).cast::<u32>().read() };
     let layout = unsafe { __torajs_struct_layout_lookup(class_tag) };
     if layout.is_null() {
         return None;
     }
-    let k = key as *const u8;
-    let key_len = unsafe { k.add(STR_LEN_OFF).cast::<u32>().read() };
-    let key_bytes = unsafe { k.add(STR_DATA_OFF) };
-    let idx = unsafe { __torajs_struct_field_find(layout, key_bytes, key_len) };
+    let idx = unsafe { __torajs_struct_field_find(layout, name.as_ptr(), name.len() as u32) };
     if idx == u32::MAX {
         return None;
     }

@@ -47,6 +47,7 @@ pub(crate) fn emit(ctx: &mut LowerCtx, src_op: Operand) -> Operand {
         ctx.cur_block,
         InstKind::Store(Operand::ConstI64(0), Operand::Value(idx_slot), 0),
     );
+    let iter_slot = crate::ssa_lower_for_of_any_iter::emit_iter_slot(ctx, "__from_any_iter");
     let out_slot = ctx.alloca(Type::Any, Some("__from_any_out"));
 
     let header_blk = ctx.f.add_block();
@@ -59,7 +60,12 @@ pub(crate) fn emit(ctx: &mut LowerCtx, src_op: Operand) -> Operand {
         ctx.cur_block,
         InstKind::Call(
             ctx.intrinsics.any_iter_next,
-            vec![src_op, Operand::Value(idx_slot), Operand::Value(out_slot)],
+            vec![
+                src_op,
+                Operand::Value(idx_slot),
+                Operand::Value(iter_slot),
+                Operand::Value(out_slot),
+            ],
         ),
         Type::I64,
         None,
@@ -125,6 +131,7 @@ pub(crate) fn emit(ctx: &mut LowerCtx, src_op: Operand) -> Operand {
     ctx.f.set_term(ctx.cur_block, Terminator::Br(header_blk));
 
     ctx.cur_block = after_blk;
+    crate::ssa_lower_for_of_any_iter::emit_iter_slot_release(ctx, iter_slot);
     let final_dst = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Load(Type::Arr(arr_id), Operand::Value(dst_slot), 0),

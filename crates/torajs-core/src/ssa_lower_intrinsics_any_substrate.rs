@@ -179,10 +179,12 @@ pub(crate) fn declare(
         // Arr expando; everything else a catchable TypeError.
         any_member_set: decl!("__torajs_any_member_set", [Ptr, Ptr, I64, I64, I64], Void),
         // RFC 20260704 S5+ — unified for-of iteration protocol
-        // (indexed strings/arrays + stateful MapIter/ArrIter cells;
-        // throws on non-iterables). (recv, idx-cursor slot, owned-
-        // AnyValue out slot) → live flag.
-        any_iter_next: decl!("__torajs_any_iter_next", [Any, Ptr, Ptr], I64),
+        // (indexed strings/arrays + stateful MapIter/ArrIter cells +
+        // class instances stepped through `[Symbol.iterator]()` /
+        // `next()`; throws on non-iterables). (recv, idx-cursor slot,
+        // caller-owned iterator park slot, owned-AnyValue out slot)
+        // → live flag.
+        any_iter_next: decl!("__torajs_any_iter_next", [Any, Ptr, Ptr, Ptr], I64),
         // RFC C4+ — bare any-call `f(args…)`: (callee, argv, argc)
         // → Any; non-closures raise a catchable TypeError.
         any_call: decl!("__torajs_any_call", [Any, Ptr, I64], Any),
