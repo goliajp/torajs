@@ -224,6 +224,7 @@ pub(crate) mod ssa_lower_array_spread;
 pub(crate) mod ssa_lower_assign_ident;
 pub(crate) mod ssa_lower_assign_member;
 pub(crate) mod ssa_lower_assign_member_any;
+pub(crate) mod ssa_lower_assign_member_objlit;
 pub(crate) mod ssa_lower_binop;
 pub(crate) mod ssa_lower_binop_inner;
 pub(crate) mod ssa_lower_binop_inner_any_arith;

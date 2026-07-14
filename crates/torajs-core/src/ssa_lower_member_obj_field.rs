@@ -39,7 +39,44 @@ pub(crate) fn try_lower(
     if let Some(op) = try_accessor_getter(ctx, obj_val, sid, name) {
         return op;
     }
+    if let Some(op) = try_objlit_getter(ctx, obj_val, sid, name) {
+        return op;
+    }
     lower_struct_field(ctx, obj_val, sid, name)
+}
+
+/// RFC 20260714-objlit-accessor blade 2 — `o.b` where the literal
+/// declared `get b() { ... }`. The getter closure sits in the layout
+/// under `__getter_b`; invoke it with the receiver (blade 1's `__mth(`
+/// ABI — `(__env, __this)`) and hand back its result. The accessor being
+/// a layout field is what makes it belong to the TYPE, so no
+/// same-layout object can reach it (unlike the class lane above, which
+/// reverse-looks-up a class name by structural equality).
+fn try_objlit_getter(
+    ctx: &mut LowerCtx<'_>,
+    obj_val: Operand,
+    sid: StructId,
+    name: &str,
+) -> Option<Operand> {
+    let slot = format!("__getter_{name}");
+    let layout = &ctx.struct_layouts[sid.0 as usize];
+    let (idx, ty) = layout
+        .iter()
+        .enumerate()
+        .find_map(|(i, (fname, fty))| (*fname == slot).then_some((i, *fty)))?;
+    let Type::Closure(sig_id) = ty else {
+        return None;
+    };
+    let offset = OBJ_HEADER_SIZE + idx as u64 * 8;
+    Some(
+        crate::ssa_lower_call_struct_method_dispatch::emit_receiver_closure_call(
+            ctx,
+            obj_val,
+            offset,
+            sig_id,
+            &[],
+        ),
+    )
 }
 
 fn try_accessor_getter(

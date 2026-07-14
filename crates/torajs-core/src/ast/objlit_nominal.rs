@@ -102,10 +102,20 @@ pub(crate) fn run(
                 matches!(&view[feid.0 as usize],
                     Expr::Closure { captures, .. } if captures.iter().any(|c| c == "__this"))
             };
-            if !fields
-                .iter()
-                .any(|(_, e)| objlit_method_exprs.contains(e) && uses_this(e))
-            {
+            // An ACCESSOR always takes the receiver, even when its body
+            // never says `this` — test262's target case is exactly that
+            // (`{ get v() { count++; return 2 } }` closes over an outer
+            // `count`). It can afford to: `__getter_<n>` / `__setter_<n>`
+            // are synthetic names, and the accessor lane is the only
+            // thing that ever reads those slots. A plain method can't —
+            // its closure gets handed to consumers that pass no receiver.
+            let needs_recv = |fname: &String, feid: &ExprId| {
+                objlit_method_exprs.contains(feid)
+                    && (uses_this(feid)
+                        || fname.starts_with("__getter_")
+                        || fname.starts_with("__setter_"))
+            };
+            if !fields.iter().any(|(n, e)| needs_recv(n, e)) {
                 continue;
             }
             let objlit_ty = format!("__ObjLit_{next}");
@@ -124,7 +134,7 @@ pub(crate) fn run(
             let mut td_fields: Vec<(String, String)> = Vec::new();
             let mut method_names: Vec<String> = Vec::new();
             for (fname, feid) in fields {
-                if objlit_method_exprs.contains(feid) && uses_this(feid) {
+                if needs_recv(fname, feid) {
                     let Expr::Closure { fn_name, .. } = &view[feid.0 as usize] else {
                         // Not lifted (`lift_arrow_fns` runs first, so
                         // this shouldn't happen). Leave it be rather

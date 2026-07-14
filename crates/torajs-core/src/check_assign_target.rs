@@ -81,6 +81,9 @@ pub(crate) fn check_member(
     if let Some(t) = try_accessor_setter(checker, ast, &obj_ty, &field, value)? {
         return Ok(t);
     }
+    if let Some(t) = try_objlit_setter(checker, ast, fields, &field, value)? {
+        return Ok(t);
+    }
     let Some((_, field_ty)) = fields.iter().find(|(n, _)| n == &field) else {
         return Err(format!("no field `{field}` on type {obj_ty:?}"));
     };
@@ -136,6 +139,53 @@ fn enforce_readonly(checker: &Checker, ast: &Ast, obj: ExprId, field: &str) -> R
         ));
     }
     Ok(())
+}
+
+/// RFC 20260714-objlit-accessor blade 2 — `o.b = v` where the literal
+/// declared `set b(v) { ... }`. The setter closure is a layout field
+/// (`__setter_b`), so this reads straight off the receiver's own type —
+/// no reverse lookup, unlike the class lane above, whose scan of
+/// `aliases` for a structurally-equal entry is what lets a plain `{a:1}`
+/// reach a same-layout class's accessor (RFC §2.1).
+///
+/// Assigning to a getter-only accessor is rejected here rather than
+/// silently writing a data field that doesn't exist.
+fn try_objlit_setter(
+    checker: &mut Checker,
+    ast: &Ast,
+    fields: &[(String, Type)],
+    field: &str,
+    value: ExprId,
+) -> Result<Option<Type>, String> {
+    let setter = fields
+        .iter()
+        .find(|(n, _)| *n == format!("__setter_{field}"));
+    let Some((_, Type::Function(params, _))) = setter else {
+        if fields
+            .iter()
+            .any(|(n, _)| *n == format!("__getter_{field}"))
+        {
+            return Err(format!(
+                "cannot assign to `{field}`: it is a getter-only accessor"
+            ));
+        }
+        return Ok(None);
+    };
+    let Some(param_ty) = params.first().cloned() else {
+        return Err(format!("setter `{field}` declares no parameter"));
+    };
+    let value_ty = checker.type_of(ast, value)?;
+    if !is_assignable_to_resolved(
+        &param_ty,
+        &value_ty,
+        &checker.aliases,
+        &checker.generic_alias_decls,
+    ) {
+        return Err(format!(
+            "type mismatch assigning to accessor `{field}`: setter expects {param_ty:?}, value is {value_ty:?}"
+        ));
+    }
+    Ok(Some(param_ty))
 }
 
 fn try_accessor_setter(

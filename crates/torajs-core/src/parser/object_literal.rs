@@ -341,24 +341,30 @@ impl<'a> Parser<'a> {
             };
             self.pos += 1;
             if matches!(self.peek(), Token::LParen) {
-                // Consume the param list + optional return ann + body
-                // braces, but DROP the parsed body. Reason: getter /
-                // setter bodies typically use `this` to refer to the
-                // owning object, but tora's `this` resolution only
-                // exists inside class methods (desugar enforces it at
-                // check time). Emitting an ArrowFn with that body
-                // would route through closure-lift and hit 'bare
-                // `this` reached check.rs'. By dropping the body the
-                // surrounding object literal stays compilable; the
-                // field still appears under the synthetic name
-                // `__getter_<n>` / `__setter_<n>` with a placeholder
-                // (`null`) value. Real accessor-descriptor substrate
-                // is P3 / P7.
-                let (_params, _destr_lets) = self.parse_param_list()?;
-                if matches!(self.peek(), Token::Colon) {
+                // RFC 20260714-objlit-accessor blade 2 — parse the body
+                // for real. It used to be walked brace-balanced and
+                // THROWN AWAY, leaving a `__getter_<n>: null` placeholder
+                // field: the accessor never ran, and even a direct read
+                // `o.b` failed ("no member `.b` on Struct([(\"__getter_b\",
+                // Null)])"). The stated reason was that a getter body
+                // uses `this`, which only resolved inside a class method
+                // — blade 1 fixed that, so the body can be a normal
+                // method now.
+                //
+                // The value is an ArrowFn under the same `__getter_<n>` /
+                // `__setter_<n>` synth name, marked as a method so it
+                // picks up the `__this` receiver and the `__mth(` ABI.
+                // Keeping the accessor IN the layout is what makes the
+                // type carry it: `{a:1, get b(){}}` is structurally
+                // distinct from `{a:1}`, so no same-layout object can
+                // reach for its getter (RFC §2.1).
+                let (params, destr_lets) = self.parse_param_list()?;
+                let return_type = if matches!(self.peek(), Token::Colon) {
                     self.pos += 1;
-                    let _ = self.parse_type_ann()?;
-                }
+                    Some(self.parse_type_ann()?)
+                } else {
+                    None
+                };
                 match self.peek() {
                     Token::LBrace => self.pos += 1,
                     t => {
@@ -368,23 +374,32 @@ impl<'a> Parser<'a> {
                         ));
                     }
                 }
-                // Walk the body brace-balanced and discard.
-                let mut depth: i32 = 1;
-                while depth > 0 {
-                    match self.peek() {
-                        Token::LBrace => depth += 1,
-                        Token::RBrace => depth -= 1,
-                        Token::Eof => {
-                            return Err(format!(
-                                "unexpected EOF inside {kind}ter `{prop_name}` body at {}",
-                                self.at()
-                            ));
-                        }
-                        _ => {}
-                    }
-                    self.pos += 1;
+                let mut body = Vec::new();
+                while !matches!(self.peek(), Token::RBrace | Token::Eof) {
+                    body.push(self.parse_stmt()?);
                 }
-                let value = self.ast.add_expr(Expr::Null);
+                match self.peek() {
+                    Token::RBrace => self.pos += 1,
+                    t => {
+                        return Err(format!(
+                            "expected `}}` after {kind}ter `{prop_name}` body, got {t:?} at {}",
+                            self.at()
+                        ));
+                    }
+                }
+                let body = if destr_lets.is_empty() {
+                    body
+                } else {
+                    let mut full = destr_lets;
+                    full.extend(body);
+                    full
+                };
+                let value = self.ast.add_expr(Expr::ArrowFn {
+                    params,
+                    return_type,
+                    body,
+                });
+                self.ast.objlit_method_exprs.insert(value);
                 let synth = format!("__{kind}ter_{prop_name}");
                 return Ok((synth, value));
             }

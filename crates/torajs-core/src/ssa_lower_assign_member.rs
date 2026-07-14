@@ -248,6 +248,11 @@ fn lower_obj_assign(
     if let Some(v) = try_lower_setter_call(ctx, obj_val, sid, field, value) {
         return v;
     }
+    if let Some(v) =
+        crate::ssa_lower_assign_member_objlit::try_lower(ctx, obj_val, sid, field, value)
+    {
+        return v;
+    }
     lower_struct_field_store(ctx, obj_val, sid, field, value)
 }
 

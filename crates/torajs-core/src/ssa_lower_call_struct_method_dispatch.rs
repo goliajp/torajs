@@ -180,6 +180,20 @@ fn emit_fnsig_call(
     result
 }
 
+/// Invoke a receiver-taking closure held in a struct field — the
+/// `(__env, __this, ...user)` ABI blade 1 introduced. Object-literal
+/// accessors reuse it verbatim (`ssa_lower_member_obj_field`): a getter
+/// is a zero-arg method, a setter a one-arg one.
+pub(crate) fn emit_receiver_closure_call(
+    ctx: &mut LowerCtx<'_>,
+    recv_op: Operand,
+    offset: u64,
+    user_sig_id: SigId,
+    args: &[ExprId],
+) -> Operand {
+    emit_closure_call(ctx, recv_op, offset, user_sig_id, args, true)
+}
+
 fn emit_closure_call(
     ctx: &mut LowerCtx<'_>,
     recv_op: Operand,

@@ -109,6 +109,28 @@ pub(crate) fn check(
             &checker.generic_alias_decls,
         ));
     }
+    // RFC 20260714-objlit-accessor blade 2 — an object-literal accessor
+    // lives in the layout under `__getter_<name>` holding the getter
+    // closure, so `o.b` reads as the getter's RETURN type (ES §10.1.7
+    // [[Get]] hands back a value, not a function). Keeping the accessor
+    // IN the type is what makes it un-stealable: `{a:1, get b(){}}` is
+    // structurally distinct from `{a:1}`, unlike the class lane, which
+    // reverse-looks-up a class name from a structurally-equal alias and
+    // therefore lets a plain `{a:1}` reach a same-layout class's getter.
+    if let Type::Struct(fields) = &resolved_obj_ty
+        && let Some((_, ty)) = fields
+            .iter()
+            .find(|(fname, _)| *fname == format!("__getter_{name}"))
+    {
+        let Type::Function(_, ret) = ty else {
+            return Err(format!("accessor `{name}` is not a getter closure"));
+        };
+        return Ok(resolve_class_ref(
+            ret,
+            &checker.aliases,
+            &checker.generic_alias_decls,
+        ));
+    }
     // P8.2 — accessor read: `c.value` where the resolved
     // class C has a `get value(): T` declaration. After the
     // struct-field lookup misses (accessors aren't fields),
