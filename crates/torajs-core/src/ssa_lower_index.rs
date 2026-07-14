@@ -52,10 +52,8 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, eid: ExprId, obj: ExprId, index: Exp
     // lane in `check_type_of_index` (un-resolved Struct only), so
     // checker-admitted struct indices never fall through to the
     // array panic below.
-    if matches!(
-        ctx.expr_types.get(&obj),
-        Some(crate::check::Type::Struct(_))
-    ) && let Some(name) = crate::ast::literal_prop_key(ctx.ast, index)
+    if obj_is_struct_like(ctx, obj)
+        && let Some(name) = crate::ast::literal_prop_key(ctx.ast, index)
     {
         return crate::ssa_lower_member::lower(ctx, eid, obj, &name);
     }
@@ -96,12 +94,7 @@ pub(crate) fn lower_from_value(
     // instead and the same runtime lane answers them. The checker
     // admits the dynamic form with an Any answer; dynamic writes
     // keep the loud reject.
-    if matches!(arr_ty, Type::Obj(_))
-        && matches!(
-            ctx.expr_types.get(&obj),
-            Some(crate::check::Type::Struct(_))
-        )
-    {
+    if matches!(arr_ty, Type::Obj(_)) && obj_is_struct_like(ctx, obj) {
         let boxed = ctx.box_to_any(arr_val);
         if let crate::ast::Expr::String(lit) = ctx.ast.get_expr(index) {
             let lit = lit.clone();
@@ -387,4 +380,18 @@ pub(crate) fn lower_any_index_str_key(
         ctx.emit_drop_value(k_raw, k_ty);
     }
     out
+}
+
+/// The receiver shapes `check_type_of_index` admits: a bare struct, and
+/// — since RFC 20260715-nominal-class-identity — a class instance, whose
+/// checked type now NAMES its class instead of collapsing to the field
+/// struct behind it. Both index the same way (`this["#m"]` reads the
+/// field; a dynamic key rides the any-index lane), so both gates below
+/// have to see them alike, or a class receiver falls through to the
+/// array panic.
+fn obj_is_struct_like(ctx: &LowerCtx<'_>, obj: crate::ast::ExprId) -> bool {
+    matches!(
+        ctx.expr_types.get(&obj),
+        Some(crate::check::Type::Struct(_) | crate::check::Type::ClassRef(_))
+    )
 }

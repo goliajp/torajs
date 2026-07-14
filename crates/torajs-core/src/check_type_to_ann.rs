@@ -89,24 +89,16 @@ pub fn type_to_ann(ty: &Type) -> String {
         }
         Type::Function(args, ret) => fn_ann("__fn", args, ret),
         Type::Object(name) => (*name).into(),
-        Type::ClassRef(name) => {
-            // Generic-instantiation back-edge (`Rec<number>`): the key
-            // IS its own canonical annotation — emit it verbatim and
-            // ssa_lower::parse_type re-instantiates on its side.
-            if name.contains('<') {
-                return name.clone();
-            }
-            /* V3-05 — non-generic class references should have been
-             * resolved (via aliases lookup) before reaching ssa_lower.
-             * The placeholder Pass should have been replaced by the
-             * Real Type::Struct in c.aliases by the time anyone
-             * asks for an SSA annotation. Panic to surface stale
-             * usage rather than silently emitting `__struct()` for
-             * a class. */
-            panic!(
-                "type_to_ann: ClassRef(`{name}`) reached SSA-ann emission — caller should have called resolve_class_ref first"
-            )
-        }
+        // A class reference IS its own canonical annotation — the class
+        // name — and ssa_lower::parse_type resolves it against the SSA
+        // layer's own alias table. This covers both the generic
+        // back-edge (`Rec<number>`, which re-instantiates on that side)
+        // and, since RFC 20260715-nominal-class-identity, every ordinary
+        // class instance: its checked type is now `ClassRef(C)` rather
+        // than the field struct it used to collapse to. Emitting
+        // `__struct(...)` here instead would strip the class name off
+        // the SSA type and undo the nominal identity.
+        Type::ClassRef(name) => name.clone(),
         Type::TypeVar(_) => {
             panic!("type_to_ann: TypeVar should be substituted before SSA layer")
         }

@@ -41,8 +41,16 @@ pub(crate) fn try_match(
     if let Err(e) = checker.type_of(ast, args[0]) {
         return Some(Err(e));
     }
+    // RFC 20260715-nominal-class-identity — `in` asks a STRUCTURAL
+    // question ("does this shape carry the key"), so unwrap a class
+    // instance's name to the struct behind it.
     let obj_ty = match checker.type_of(ast, args[1]) {
-        Ok(t) => t,
+        Ok(t) => crate::check::resolve_class_ref(
+            &t,
+            &checker.class_structs,
+            &checker.aliases,
+            &checker.generic_alias_decls,
+        ),
         Err(e) => return Some(Err(e)),
     };
     if !matches!(obj_ty, Type::Array(_) | Type::Any | Type::Struct(_)) {

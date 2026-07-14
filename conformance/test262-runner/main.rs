@@ -612,6 +612,10 @@ fn main() {
         Mutex::new(std::collections::HashMap::new());
     let bugs: Mutex<Vec<(PathBuf, String, String)>> = Mutex::new(Vec::new());
     let harness_err: Mutex<Vec<(PathBuf, String)>> = Mutex::new(Vec::new());
+    // `--dump-verdicts` — one line per case, so two runs diff into the
+    // list of cases that MOVED. An aggregate delta ("passTotal -19")
+    // can't distinguish a regression from a by-design reclassification.
+    let verdicts: Mutex<Vec<(PathBuf, String)>> = Mutex::new(Vec::new());
 
     let progress = AtomicUsize::new(0);
     let start = Instant::now();
@@ -630,6 +634,8 @@ fn main() {
             let incompat_samples = &incompat_samples;
             let bugs = &bugs;
             let harness_err = &harness_err;
+            let verdicts = &verdicts;
+            let want_verdicts = args.dump_verdicts.is_some();
             let progress = &progress;
             scope.spawn(move || {
                 loop {
@@ -644,6 +650,17 @@ fn main() {
                     }
                     let p = &cases[idx];
                     let outcome = run_case(p, harness, tr_bin, slot, dump_src);
+                    if want_verdicts {
+                        let label = match &outcome {
+                            Outcome::Pass => "pass".to_string(),
+                            Outcome::PassNoOracle => "pass-no-oracle".to_string(),
+                            Outcome::PassNegative => "pass-negative".to_string(),
+                            Outcome::Incompatible { kind, .. } => format!("incompatible:{kind}"),
+                            Outcome::Bug { kind, .. } => format!("bug:{kind}"),
+                            Outcome::HarnessError { .. } => "harness-error".to_string(),
+                        };
+                        verdicts.lock().unwrap().push((p.clone(), label));
+                    }
                     match outcome {
                         Outcome::Pass => {
                             pass.fetch_add(1, Ordering::Relaxed);
@@ -703,6 +720,21 @@ fn main() {
     let incompat = incompat.into_inner().unwrap();
     let incompat_samples = incompat_samples.into_inner().unwrap();
     let incompat_total: usize = incompat.values().sum();
+    let verdicts = verdicts.into_inner().unwrap();
+    if let Some(path) = &args.dump_verdicts {
+        let mut lines: Vec<String> = verdicts
+            .iter()
+            .map(|(p, label)| {
+                let rel = p.strip_prefix(root).unwrap_or(p);
+                format!("{}\t{label}", rel.display())
+            })
+            .collect();
+        lines.sort();
+        match std::fs::write(path, lines.join("\n") + "\n") {
+            Ok(()) => println!("\nverdicts: {path} ({} cases)", lines.len()),
+            Err(e) => eprintln!("error writing verdicts to {path}: {e}"),
+        }
+    }
     let bugs = bugs.into_inner().unwrap();
     let harness_err = harness_err.into_inner().unwrap();
     let elapsed = start.elapsed().as_secs_f64();

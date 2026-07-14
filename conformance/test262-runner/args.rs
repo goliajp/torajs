@@ -20,6 +20,12 @@ pub struct Args {
     /// (138/139 = silent crash, 1 = loud fail, stdout-mismatch), `msg`
     /// the stderr first line (the substrate-gap signal).
     pub bugs_ndjson: Option<String>,
+    /// `--dump-verdicts PATH`: write one `<rel-path>\t<outcome>` line per
+    /// case. Two runs diffed against each other are what turns a sweep's
+    /// aggregate delta ("passTotal -19") into an attributable list of
+    /// cases that moved, which is the only way to tell a real regression
+    /// from a by-design reclassification.
+    pub dump_verdicts: Option<String>,
     /// `--no-cache` flag: skip the bun oracle cache (cache::lookup
     /// returns None even on disk hit). Default false → cache enabled.
     /// Useful for benchmarking the runner itself or after a corpus /
@@ -41,6 +47,7 @@ pub fn parse_args() -> Args {
     let mut report_bugs = DEFAULT_REPORT_BUGS;
     let mut json_out: Option<String> = None;
     let mut bugs_ndjson: Option<String> = None;
+    let mut dump_verdicts: Option<String> = None;
     let mut no_cache = false;
     let mut dump_src: Option<String> = None;
     let mut iter = std::env::args().skip(1);
@@ -60,6 +67,7 @@ pub fn parse_args() -> Args {
             }
             "--json" => json_out = iter.next(),
             "--bugs-ndjson" => bugs_ndjson = iter.next(),
+            "--dump-verdicts" => dump_verdicts = iter.next(),
             "--no-cache" => no_cache = true,
             "--dump-src" => dump_src = iter.next(),
             "-h" | "--help" => {
@@ -72,6 +80,7 @@ pub fn parse_args() -> Args {
                      --report-bugs N list first N bug failures (default {DEFAULT_REPORT_BUGS})\n  \
                      --json PATH     also write machine-readable summary to PATH\n  \
                      --bugs-ndjson PATH  dump every bug case (path/kind/msg) as ndjson for clustering\n  \
+                     --dump-verdicts PATH  write `<case>\\t<outcome>` per case; diff two runs to attribute a sweep delta\n  \
                      --no-cache      bypass the bun oracle cache for this run\n  \
                      --dump-src DIR  also write each assembled source (harness + transformed case) into DIR"
                 );
@@ -90,6 +99,7 @@ pub fn parse_args() -> Args {
         report_bugs,
         json_out,
         bugs_ndjson,
+        dump_verdicts,
         no_cache,
         dump_src,
     }
