@@ -233,6 +233,29 @@ fn try_undeclared_ident_typeof(ctx: &LowerCtx<'_>, expr: ExprId) -> Option<&'sta
 fn lower_by_ssa_type(ctx: &mut LowerCtx<'_>, expr: ExprId) -> Operand {
     let v = ctx.lower_expr(expr);
     let ty = ctx.operand_ty(&v);
+    // Chunk 717 made every `any`-lane member read answer an OWNED box,
+    // and listed the consumers that take the release over (let-decl
+    // slot, discard, call arg, BinOp temp, console arg, assign).
+    // `typeof` was not among them: it read the operand and returned the
+    // interned type name, stranding the +1. `typeof o.f === "function"`
+    // on a FRESH object per iteration leaked the whole payload — 61 B
+    // an iteration for a closure field (AOT churn RSS 24.3 MB over
+    // 300k, 15.2 MB for a Str field: the leak is sized by the payload,
+    // which is what identifies it as the read's reference, not the
+    // typeof's). A long-lived receiver hid it: the same cell just grew
+    // a refcount, so RSS stayed flat. Same predicate + drop pair the
+    // BinOp operand pass uses.
+    let owned = ty.is_refcounted() && ctx.expr_is_fresh_owned(expr);
+    let out = lower_by_ssa_type_inner(ctx, expr, v.clone(), ty);
+    if owned {
+        ctx.emit_drop_value(v, ty);
+    }
+    out
+}
+
+/// The type-name fold itself — see [`lower_by_ssa_type`], which owns
+/// the operand's refcount ledger around it.
+fn lower_by_ssa_type_inner(ctx: &mut LowerCtx<'_>, expr: ExprId, v: Operand, ty: Type) -> Operand {
     let s: &str = match ty {
         // RFC 20260708-typed-arr-oob-read chunk 2 — an F64 read off
         // a number[] index (or its let alias) may hold the
