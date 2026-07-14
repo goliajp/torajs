@@ -407,6 +407,18 @@ unsafe fn object_proto_fallback(
     argv: *const u64,
 ) -> AnyValue {
     unsafe {
+        // ES §21.1.3 / §20.3.3 / §22.1.3 — `Number.prototype` IS a Number
+        // object ([[NumberData]] = +0), `Boolean.prototype` a Boolean one
+        // (false), `String.prototype` a String one (""). tr builds every
+        // builtin prototype as an empty dynobj, so `Number.prototype
+        // .toString()` fell through to here and answered "[object Object]"
+        // where the spec says "0" — which is the FIRST assertion of most
+        // Number/prototype/toString cases, so the whole family died on it.
+        // Ordered after the own probe like the rest of this fallback: a
+        // monkey-patched `Number.prototype.toString` still wins.
+        if !is_struct && let Some(v) = builtin_proto_primitive(obj, mid) {
+            return v;
+        }
         if mid == ANY_METHOD_VALUE_OF {
             __torajs_rc_inc(obj);
             return __torajs_anyv_box_pointer(obj);
@@ -433,5 +445,43 @@ unsafe fn object_proto_fallback(
             return __torajs_anyv_box_pointer(p as *mut c_void);
         }
         not_callable()
+    }
+}
+
+/// The primitive a builtin prototype carries as its internal slot, for
+/// the two methods that read it. `None` for every other receiver (and
+/// for the prototypes with no primitive data — `Object.prototype`,
+/// `Map.prototype`, ... — which keep the ordinary Object.prototype
+/// surface), so the caller falls through unchanged.
+///
+/// `Array.prototype` is deliberately absent: the spec makes it an ARRAY
+/// (an empty one), not a primitive wrapper, so `Array.prototype
+/// .toString()` answering "" has to come from the array lane, not here.
+unsafe fn builtin_proto_primitive(obj: *mut c_void, mid: i64) -> Option<AnyValue> {
+    // Tags are ssa_lower's, fixed by `torajs_rc::builtin_proto`:
+    // Number=0, String=3, Boolean=4.
+    let tag = unsafe { torajs_rc::builtin_proto::__torajs_builtin_proto_tag_of(obj) };
+    let is_to_string = mid == ANY_METHOD_TO_STRING;
+    if !is_to_string && mid != ANY_METHOD_VALUE_OF {
+        return None;
+    }
+    match tag {
+        // §21.1.3.6 — `Number.prototype.toString(radix)` on +0 is "0" in
+        // every radix, so the arg needs no inspection.
+        0 if is_to_string => Some(unsafe { str_any(b"0") }),
+        0 => Some(crate::nanbox_encode::__torajs_anyv_box_f64(0.0)),
+        3 if is_to_string => Some(unsafe { str_any(b"") }),
+        3 => Some(unsafe { str_any(b"") }),
+        4 if is_to_string => Some(unsafe { str_any(b"false") }),
+        4 => Some(crate::nanbox_encode::__torajs_anyv_box_bool(0)),
+        _ => None,
+    }
+}
+
+/// A fresh owned Str cell boxed as an AnyValue.
+unsafe fn str_any(bytes: &[u8]) -> AnyValue {
+    unsafe {
+        let p = __torajs_str_alloc(bytes.as_ptr(), bytes.len() as i64);
+        __torajs_anyv_box_pointer(p as *mut c_void)
     }
 }
