@@ -43,6 +43,44 @@ unsafe fn proto_singleton(tag: i64) -> u64 {
     p as u64
 }
 
+/// Reads the DYNOBJ null-proto header bit (bit 6 of the +6 u16 flags).
+///
+/// # Safety
+/// `dynobj` points to a valid TAG_DYNOBJ heap object.
+#[inline]
+unsafe fn dynobj_is_null_proto(dynobj: *const c_void) -> bool {
+    let flags = unsafe { (dynobj.cast::<u8>().add(6) as *const u16).read() };
+    flags & DYNOBJ_HDR_FLAG_NULL_PROTO != 0
+}
+
+/// Reads a dynobj's own `__proto__` data slot (rc_inc'd on heap
+/// payloads so the caller owns the reference), or `None` when the
+/// object has no own `__proto__` entry. tr stores an ordinary
+/// object's [[Prototype]] AS its own `__proto__` entry, so for a
+/// non-null-proto object this slot IS the prototype; for a null-proto
+/// object the entry (if any) is plain data (a `(?<__proto__>.)`
+/// named capture, a `defineProperty`) and the caller must NOT treat
+/// it as [[Prototype]].
+///
+/// # Safety
+/// `dynobj` points to a valid TAG_DYNOBJ heap object.
+unsafe fn dynobj_own_proto(dynobj: *const c_void) -> Option<u64> {
+    let k = unsafe { alloc_str_key(b"__proto__") };
+    if !unsafe { __torajs_dynobj_has(dynobj, k) } {
+        unsafe { __torajs_str_drop(k) };
+        return None;
+    }
+    let v_tag = unsafe { __torajs_dynobj_get_tag(dynobj, k) } as i64;
+    let v_val = unsafe { __torajs_dynobj_get_value(dynobj, k) } as i64;
+    unsafe { __torajs_str_drop(k) };
+    // rc_inc heap payload — caller owns the returned reference.
+    if v_tag == ANY_HEAP && v_val != 0 {
+        // SAFETY: ANY_HEAP slot holds a valid heap pointer.
+        unsafe { __torajs_rc_inc(v_val as *mut c_void) };
+    }
+    Some(box_pair_imm(v_tag, v_val))
+}
+
 /// Annex B §B.2.2.1 — the `o.__proto__` READ, which is the same
 /// [[Prototype]] answer with one difference: the getter lives ON
 /// Object.prototype, so an object that does not inherit from it does
@@ -58,11 +96,15 @@ pub unsafe extern "C" fn __torajs_anyv_proto_member_get(v: u64) -> u64 {
     if is_cell_imm(v) {
         let cell = v as *const c_void;
         // SAFETY: is_cell_imm guarantees a live heap pointer.
-        if unsafe { heap_type_tag(cell) } == TAG_DYNOBJ {
-            let flags = unsafe { (cell.cast::<u8>().add(6) as *const u16).read() };
-            if flags & DYNOBJ_HDR_FLAG_NULL_PROTO != 0 {
-                return VALUE_UNDEFINED_IMM;
-            }
+        if unsafe { heap_type_tag(cell) } == TAG_DYNOBJ && unsafe { dynobj_is_null_proto(cell) } {
+            // A null-proto object does not inherit Object.prototype's
+            // `__proto__` accessor, so `o.__proto__` is an ordinary
+            // property read: an own `__proto__` data slot (e.g. a
+            // `(?<__proto__>.)` named capture on a RegExp groups
+            // object) wins; otherwise the property is simply absent →
+            // undefined (NOT null — that is Object.getPrototypeOf's
+            // answer).
+            return unsafe { dynobj_own_proto(cell) }.unwrap_or(VALUE_UNDEFINED_IMM);
         }
     }
     unsafe { __torajs_anyv_get_proto_of_any(v) }
@@ -150,27 +192,23 @@ pub unsafe extern "C" fn __torajs_anyv_get_proto_of_any(v: u64) -> u64 {
         }
         return VALUE_NULL_IMM;
     }
-    let k = unsafe { alloc_str_key(b"__proto__") };
-    if !unsafe { __torajs_dynobj_has(dynobj, k) } {
-        unsafe { __torajs_str_drop(k) };
-        // §10.1.1 — an ordinary object's [[Prototype]] is
-        // %Object.prototype%. The only dynobj without one is the dict
-        // `Object.create(null)` mints, which carries the null-proto
-        // header bit; before this, both answered null, so
-        // `Object.getPrototypeOf({}) === Object.prototype` was false.
-        let flags = unsafe { (dynobj.cast::<u8>().add(6) as *const u16).read() };
-        if flags & DYNOBJ_HDR_FLAG_NULL_PROTO != 0 {
-            return VALUE_NULL_IMM;
-        }
-        return unsafe { proto_singleton(OBJECT_PROTO_TAG) };
+    // A null-proto object's [[Prototype]] IS null — and its own
+    // `__proto__` entry, if present, is plain data (a `(?<__proto__>.)`
+    // named capture, a `defineProperty`), never the prototype pointer.
+    // Check the header bit BEFORE reading the entry so that data is not
+    // mistaken for [[Prototype]] (`Object.getPrototypeOf(groups)` where
+    // `groups` came from `/(?<__proto__>.)/` must answer null, not the
+    // capture value).
+    if unsafe { dynobj_is_null_proto(dynobj) } {
+        return VALUE_NULL_IMM;
     }
-    let v_tag = unsafe { __torajs_dynobj_get_tag(dynobj, k) } as i64;
-    let v_val = unsafe { __torajs_dynobj_get_value(dynobj, k) } as i64;
-    unsafe { __torajs_str_drop(k) };
-    // rc_inc heap payload — caller owns the returned reference.
-    if v_tag == ANY_HEAP && v_val != 0 {
-        // SAFETY: ANY_HEAP slot holds a valid heap pointer.
-        unsafe { __torajs_rc_inc(v_val as *mut c_void) };
+    // §10.1.1 — tr stores an ordinary object's [[Prototype]] as its own
+    // `__proto__` entry: present → that parent; absent →
+    // %Object.prototype% (before the null-proto bit existed, an absent
+    // entry answered null, so `Object.getPrototypeOf({}) ===
+    // Object.prototype` was false).
+    if let Some(own) = unsafe { dynobj_own_proto(dynobj) } {
+        return own;
     }
-    box_pair_imm(v_tag, v_val)
+    unsafe { proto_singleton(OBJECT_PROTO_TAG) }
 }
