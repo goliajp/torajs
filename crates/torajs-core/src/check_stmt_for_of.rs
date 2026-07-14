@@ -15,8 +15,12 @@
 //!   class instance), the protocol path in ssa_lower bypasses
 //!   elem_expr entirely; typing `src[i]` here would error ("can't
 //!   index into Struct"). Probe src's type first; if it's a
-//!   class-shape Struct, defer the element type to ssa_lower (mark
-//!   as Any so var_name still typechecks downstream as opaque).
+//!   class-shape Struct, walk the iterator protocol at the type
+//!   level (`[Symbol.iterator]()` → iter class → `next()` →
+//!   IteratorResult's `value` field) — the same chain ssa_lower
+//!   resolves at the SSA layer, so the binding's checked type now
+//!   matches its lowered one. Falls back to Any when any hop is
+//!   unresolvable (the pre-existing "defer to ssa_lower" posture).
 //! - **P6.4c** — same skip for `Type::Map` / `Type::Set` /
 //!   `Type::MapIter` / `Type::ArrIter` (handled by
 //!   `lower_for_of_map_like`). For Type::Map specifically the
@@ -28,6 +32,62 @@ use std::collections::HashMap;
 
 use crate::ast::{Ast, Expr, ExprId, Stmt};
 use crate::check::{Checker, DiagPush, LocalInfo, Type, resolve_type_ann};
+
+/// The declared class whose instance type is `ty` — the checker-side
+/// twin of ssa_lower's alias scan (`Type::Obj(sid)` → class name).
+/// A `ClassRef` names itself; a `Struct` is matched structurally
+/// against the registered classes, so two classes sharing a field
+/// shape resolve to whichever registered first (the generator desugar
+/// gives each `__Gen_<name>` a unique nominal-marker field precisely
+/// to keep that from happening).
+fn class_name_of(checker: &Checker, ast: &Ast, ty: &Type) -> Option<String> {
+    if let Type::ClassRef(n) = ty {
+        return Some(n.clone());
+    }
+    if !matches!(ty, Type::Struct(_)) {
+        return None;
+    }
+    checker
+        .aliases
+        .iter()
+        .find(|(n, alias_ty)| *alias_ty == ty && ast.class_parents.contains_key(*n))
+        .map(|(n, _)| n.clone())
+}
+
+/// Return type of a declared fn, with a `ClassRef` result dereferenced
+/// to the class's real struct type.
+fn fn_ret_ty(checker: &Checker, fn_name: &str) -> Option<Type> {
+    let Some(Type::Function(_, ret)) = checker.globals.get(fn_name) else {
+        return None;
+    };
+    match ret.as_ref() {
+        Type::ClassRef(n) => checker.aliases.get(n).cloned(),
+        other => Some(other.clone()),
+    }
+}
+
+/// Element type yielded by a class-instance for-of source: walk the
+/// iterator protocol at the type level, exactly as ssa_lower walks it
+/// at the SSA layer (`ssa_lower_for_of_iter_protocol::resolve_iter_plan`).
+/// `None` when any hop is missing — the caller then keeps the opaque
+/// Any binding rather than raising an error, since ssa_lower owns the
+/// real diagnostic for a malformed iterable.
+fn class_iter_elem_ty(checker: &Checker, ast: &Ast, src: &Type) -> Option<Type> {
+    let src_class = class_name_of(checker, ast, src)?;
+    let iter_ty = fn_ret_ty(
+        checker,
+        &format!("__cm_{src_class}____sym_Symbol_iterator__"),
+    )?;
+    let iter_class = class_name_of(checker, ast, &iter_ty)?;
+    let step_ty = fn_ret_ty(checker, &format!("__cm_{iter_class}__next"))?;
+    let Type::Struct(fields) = step_ty else {
+        return None;
+    };
+    fields
+        .iter()
+        .find(|(n, _)| n == "value")
+        .map(|(_, t)| t.clone())
+}
 
 pub(crate) fn check(
     checker: &mut Checker,
@@ -63,8 +123,11 @@ pub(crate) fn check(
             | Some(Type::ArrIter)
     );
     let elem_ty = if src_is_iter_subset {
-        match src_kind {
+        match &src_kind {
             Some(Type::Map) => Type::Array(Box::new(Type::Any)),
+            Some(src_struct @ Type::Struct(_)) => {
+                class_iter_elem_ty(checker, ast, src_struct).unwrap_or(Type::Any)
+            }
             _ => Type::Any,
         }
     } else {
