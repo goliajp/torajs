@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-13T23:11:39.353Z",
+  "generatedAt": "2026-07-14T04:01:52.658Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 91.2
   },
   "torajs": {
-    "commit": "a851526c",
-    "commitSubject": "chore: test262 sweep at 44224abe - passTotal 11500 (+75), bug 1110",
+    "commit": "0745952d",
+    "commitSubject": "fix: never walk a NaN-box immediate as a cycle child",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,26 @@
   },
   "commits": [
     {
+      "hash": "0745952d",
+      "subject": "fix: never walk a NaN-box immediate as a cycle child"
+    },
+    {
+      "hash": "236ec295",
+      "subject": "feat: step class instances in the any-lane iteration kernel"
+    },
+    {
+      "hash": "ccfe1d1f",
+      "subject": "feat: type the for-of element of a class-iterator source"
+    },
+    {
+      "hash": "478ff244",
+      "subject": "feat: generator objects are iterable via Symbol.iterator"
+    },
+    {
+      "hash": "355d76d2",
+      "subject": "chore: hardev dashboard snapshot at rotation 95 close"
+    },
+    {
       "hash": "a851526c",
       "subject": "chore: test262 sweep at 44224abe - passTotal 11500 (+75), bug 1110"
     },
@@ -739,47 +759,38 @@
     {
       "hash": "edebf157",
       "subject": "chore: test262 sweep at 498ecc7b - passTotal 11425 (+127), bug 1177"
-    },
-    {
-      "hash": "498ecc7b",
-      "subject": "feat: any-force destructuring params with whole-pattern defaults"
-    },
-    {
-      "hash": "bcc2b9bb",
-      "subject": "chore: hardev dashboard snapshot at rotation 94 close"
-    },
-    {
-      "hash": "f2339f24",
-      "subject": "chore: test262 sweep at 002c1f37 - passTotal 11298 (+192), bug 1175"
-    },
-    {
-      "hash": "002c1f37",
-      "subject": "feat: array-literal elision holes are undefined + nullish never anchors a literal"
-    },
-    {
-      "hash": "38516f75",
-      "subject": "feat: NamedEvaluation for anonymous class expressions"
     }
   ],
-  "headSha": "a851526c",
+  "headSha": "0745952d",
   "autorun": {
-    "total": 401,
+    "total": 402,
     "baselineTarget": 10,
-    "bySelf": 396,
+    "bySelf": 397,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1783976812-3e29",
-      "at": "2026-07-13T21:06:52Z",
-      "ts": 1783976812,
+      "rotationId": "r-1783984356-5519",
+      "at": "2026-07-13T23:12:36Z",
+      "ts": 1783984356,
       "trigger": "self",
-      "prevHead": "88dc1066",
-      "handoffSha": "sha256:37911227b6c2b3b5281820423cf2a3324127eb06641f42b1ce57f94f7ebab955",
-      "handoffAgeSec": 6,
+      "prevHead": "355d76d2",
+      "handoffSha": "sha256:6d5117a61049be400532664041b6202ec5b5ec9d4e78d7b5280504eb10a92f27",
+      "handoffAgeSec": 26,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1783984356-5519",
+        "at": "2026-07-13T23:12:36Z",
+        "ts": 1783984356,
+        "trigger": "self",
+        "prevHead": "355d76d2",
+        "handoffSha": "sha256:6d5117a61049be400532664041b6202ec5b5ec9d4e78d7b5280504eb10a92f27",
+        "handoffAgeSec": 26,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1783976812-3e29",
         "at": "2026-07-13T21:06:52Z",
@@ -876,17 +887,6 @@
         "prevHead": "8e304b42",
         "handoffSha": "sha256:850a35b41d5353c0c146b69e6c7a561cc5d51cf925a12486d81c3d1ee3fd85ce",
         "handoffAgeSec": 9,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1783891512-1096",
-        "at": "2026-07-12T21:25:12Z",
-        "ts": 1783891512,
-        "trigger": "self",
-        "prevHead": "ee1d0329",
-        "handoffSha": "sha256:33480aeffe1b20ad07071798896712c053bd764103be8862b723fcc74491bd3f",
-        "handoffAgeSec": 28,
         "conformanceBefore": null,
         "commitsInSession": null
       }
