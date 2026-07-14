@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-14T22:48:25.689Z",
+  "generatedAt": "2026-07-14T23:50:23.038Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-14T22:46:35Z",
-    "headSha": "2cfb4ff7",
-    "elapsedSec": 484.42,
+    "ranAt": "2026-07-14T23:49:32Z",
+    "headSha": "9fc2e62c",
+    "elapsedSec": 481.91,
     "workers": 8,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 7029,
+    "pass": 7034,
     "passNoOracle": 151,
     "passNegative": 4445,
-    "passTotal": 11625,
-    "bug": 996,
+    "passTotal": 11630,
+    "bug": 991,
     "incompatible": 40553,
     "bunSkip": 12565,
     "harnessError": 0,
     "inScope": 53174,
     "trAccepted": 12621,
-    "passRateInScope": 21.86,
-    "passRateTrAccepted": 92.11
+    "passRateInScope": 21.87,
+    "passRateTrAccepted": 92.15
   },
   "torajs": {
-    "commit": "43666ec1",
-    "commitSubject": "chore: archive the test262 sweep at 2cfb4ff7",
+    "commit": "b1f05178",
+    "commitSubject": "chore: archive the test262 sweep at 9fc2e62c",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,26 @@
   },
   "commits": [
     {
+      "hash": "b1f05178",
+      "subject": "chore: archive the test262 sweep at 9fc2e62c"
+    },
+    {
+      "hash": "9fc2e62c",
+      "subject": "fix: BigInt.prototype.toString(radix) out-of-range is a RangeError, not a hang"
+    },
+    {
+      "hash": "dc83b2dd",
+      "subject": "chore: archive the test262 sweep at 3aea8598"
+    },
+    {
+      "hash": "3aea8598",
+      "subject": "fix: alternation is leftmost-first, not leftmost-longest (RFC blade 0)"
+    },
+    {
+      "hash": "13de09fe",
+      "subject": "chore: hardev dashboard snapshot at rotation 105 close"
+    },
+    {
       "hash": "43666ec1",
       "subject": "chore: archive the test262 sweep at 2cfb4ff7"
     },
@@ -739,29 +759,9 @@
     {
       "hash": "096b60bd",
       "subject": "feat: Error.prototype.toString, and class toString override on typed receivers"
-    },
-    {
-      "hash": "3d185941",
-      "subject": "chore: archive the test262 sweep at d137b6d6"
-    },
-    {
-      "hash": "d137b6d6",
-      "subject": "fix: a null-proto object owns __proto__ as data, not as its prototype"
-    },
-    {
-      "hash": "f08d8d97",
-      "subject": "chore: hardev dashboard snapshot at rotation 103 close"
-    },
-    {
-      "hash": "5bf75398",
-      "subject": "feat: give an object its __proto__ and Object.getPrototypeOf answer"
-    },
-    {
-      "hash": "ed07d49d",
-      "subject": "chore: hardev dashboard snapshot at rotation 102 close"
     }
   ],
-  "headSha": "43666ec1",
+  "headSha": "b1f05178",
   "autorun": {
     "total": 410,
     "baselineTarget": 10,
