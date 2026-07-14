@@ -33,6 +33,14 @@ unsafe extern "C" {
     // torajs-structmeta (W-J Phase A4) — read-side over __torajs_class_layouts.
     fn __torajs_struct_layout_lookup(class_tag: u32) -> *const c_void;
     fn __torajs_struct_field_find(layout: *const c_void, name: *const u8, name_len: u32) -> u32;
+    /// Accessor slot standing for a plain property name (`kind` 0 =
+    /// getter, 1 = setter) — RFC 20260714-objlit-accessor.
+    fn __torajs_struct_accessor_find(
+        layout: *const c_void,
+        name: *const u8,
+        name_len: u32,
+        kind: u8,
+    ) -> u32;
     fn __torajs_struct_field_info(layout: *const c_void, idx: u32) -> FieldInfo;
 
     // torajs-anyvalue — decode a NaN-box AnyValue back into its
@@ -124,6 +132,110 @@ pub(crate) unsafe fn field_slot_to_pair(type_tag: u8, raw: u64) -> (u64, u64) {
     }
 }
 
+/// Accessor half spellings for [`__torajs_struct_accessor_find`].
+pub(crate) const ACC_GETTER: u8 = 0;
+pub(crate) const ACC_SETTER: u8 = 1;
+
+/// Object-literal accessor slot prefixes — the single mirror of
+/// torajs-core's `check_type_of_object_lit::accessor_slot`. Every
+/// reflection consumer in this crate (keys / entries / print / gOPD)
+/// resolves slot names through [`accessor_slot_name`], so the spelling
+/// lives in exactly one place.
+const ACCESSOR_PREFIXES: [(&[u8], u8); 2] =
+    [(b"__getter_", ACC_GETTER), (b"__setter_", ACC_SETTER)];
+
+/// Split a layout slot name into `(kind, plain-name)` when it is an
+/// accessor slot (`__getter_v` → `(ACC_GETTER, "v")`); a data field
+/// answers `None`.
+///
+/// # Safety
+/// `ptr` is NULL or points at `len` readable bytes.
+pub(crate) unsafe fn accessor_slot_name(
+    ptr: *const u8,
+    len: usize,
+) -> Option<(u8, *const u8, usize)> {
+    if ptr.is_null() {
+        return None;
+    }
+    let bytes = unsafe { core::slice::from_raw_parts(ptr, len) };
+    for (prefix, kind) in ACCESSOR_PREFIXES {
+        if bytes.len() > prefix.len() && &bytes[..prefix.len()] == prefix {
+            return Some((kind, unsafe { ptr.add(prefix.len()) }, len - prefix.len()));
+        }
+    }
+    None
+}
+
+/// The own-property key a layout slot enumerates under: an accessor
+/// slot answers the property it stands for, a data field answers
+/// itself.
+///
+/// # Safety
+/// `ptr` is NULL or points at `len` readable bytes.
+pub(crate) unsafe fn slot_key(ptr: *const u8, len: usize) -> (*const u8, usize) {
+    match unsafe { accessor_slot_name(ptr, len) } {
+        Some((_, p, l)) => (p, l),
+        None => (ptr, len),
+    }
+}
+
+/// The closure sitting in an accessor slot, as a `(tag, value)` pair
+/// the descriptor can own: `(ANY_UNDEF, 0)` when the class has no such
+/// half. The descriptor takes a fresh reference — the struct keeps its
+/// own share of the slot.
+///
+/// # Safety
+/// `cell` is a live `Tag::Obj` heap pointer; `layout` is its live
+/// layout entry; `prop` points at `prop_len` readable bytes.
+unsafe fn accessor_half(
+    cell: *const c_void,
+    layout: *const c_void,
+    prop: *const u8,
+    prop_len: u32,
+    kind: u8,
+) -> (u64, u64) {
+    let idx = unsafe { __torajs_struct_accessor_find(layout, prop, prop_len, kind) };
+    if idx == u32::MAX {
+        return (ANY_UNDEF, 0);
+    }
+    let info = unsafe { __torajs_struct_field_info(layout, idx) };
+    let raw = unsafe {
+        cell.cast::<u8>()
+            .add(info.field_byte_offset as usize)
+            .cast::<u64>()
+            .read()
+    };
+    if raw == 0 {
+        return (ANY_UNDEF, 0);
+    }
+    unsafe { __torajs_rc_inc(raw as *mut c_void) };
+    (ANY_HEAP, raw)
+}
+
+/// `Object.getOwnPropertyDescriptor` for a property the layout carries
+/// as an accessor slot (RFC 20260714-objlit-accessor). Answers
+/// `{ get, set, enumerable: true, configurable: true }` — an
+/// object-literal accessor is an ordinary own property (§10.4), so
+/// both flags are set, exactly like the data-field arm. `undefined`
+/// when neither half exists (the key is simply not a member).
+///
+/// # Safety
+/// `cell` is a live `Tag::Obj` heap pointer; `layout` is its live
+/// layout entry; `prop` points at `prop_len` readable bytes.
+unsafe fn struct_accessor_descriptor(
+    cell: *const c_void,
+    layout: *const c_void,
+    prop: *const u8,
+    prop_len: u32,
+) -> u64 {
+    let (get_t, get_v) = unsafe { accessor_half(cell, layout, prop, prop_len, ACC_GETTER) };
+    let (set_t, set_v) = unsafe { accessor_half(cell, layout, prop, prop_len, ACC_SETTER) };
+    if get_t == ANY_UNDEF && set_t == ANY_UNDEF {
+        return VALUE_UNDEFINED_IMM;
+    }
+    unsafe { crate::reflect::build_accessor_descriptor(get_t, get_v, set_t, set_v, 1, 1) }
+}
+
 /// `Object.getOwnPropertyDescriptor` arm for a `Tag::Obj` struct cell.
 /// Returns the 4-key descriptor as a NaN-box AnyValue cell, or
 /// `undefined` when the class has no layout (anonymous struct interned
@@ -151,7 +263,11 @@ pub(crate) unsafe fn struct_cell_descriptor(cell: *const c_void, key: *const c_v
     let key_bytes = unsafe { k.add(STR_DATA_OFF) };
     let idx = unsafe { __torajs_struct_field_find(layout, key_bytes, key_len) };
     if idx == u32::MAX {
-        return VALUE_UNDEFINED_IMM;
+        // RFC 20260714-objlit-accessor — the plain name never matches
+        // an accessor, which the layout carries under a synthetic slot
+        // (`__getter_v` / `__setter_v`). Answer the accessor
+        // descriptor before conceding `undefined`.
+        return unsafe { struct_accessor_descriptor(cell, layout, key_bytes, key_len) };
     }
 
     // Read the raw 8-byte slot at the field's byte offset, box per type.

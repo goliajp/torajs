@@ -132,6 +132,35 @@ pub(crate) unsafe fn build_data_descriptor(
     desc as u64
 }
 
+/// Build an accessor descriptor dynobj `{ get, set, enumerable,
+/// configurable }` — no `value` / `writable` per §6.2.6. Each closure
+/// arrives already owned by the descriptor (callers inc beforehand);
+/// a missing half is `undefined`. Shared by the dynobj AccessorPair
+/// arm and the struct-layout accessor slots (RFC
+/// 20260714-objlit-accessor).
+pub(crate) unsafe fn build_accessor_descriptor(
+    get_t: u64,
+    get_v: u64,
+    set_t: u64,
+    set_v: u64,
+    enumerable: u64,
+    configurable: u64,
+) -> u64 {
+    let mut desc = unsafe { __torajs_dynobj_alloc() };
+    let entries: [(&[u8], u64, u64); 4] = [
+        (b"get", get_t, get_v),
+        (b"set", set_t, set_v),
+        (b"enumerable", ANY_BOOL as u64, enumerable),
+        (b"configurable", ANY_BOOL as u64, configurable),
+    ];
+    for &(name, t, val) in entries.iter() {
+        let k = unsafe { alloc_str_key(name) };
+        unsafe { __torajs_dynobj_set(&mut desc, k, t, val) };
+        unsafe { __torajs_str_drop(k) };
+    }
+    desc as u64
+}
+
 #[inline]
 fn box_pair_imm(tag: i64, value: i64) -> u64 {
     match tag {
@@ -352,19 +381,16 @@ pub unsafe extern "C" fn __torajs_anyv_get_property_descriptor(
             unsafe { __torajs_rc_inc(setter) };
             (ANY_HEAP as u64, setter as u64)
         };
-        let mut desc = unsafe { __torajs_dynobj_alloc() };
-        let acc_entries: [(&[u8], u64, u64); 4] = [
-            (b"get", get_t, get_v),
-            (b"set", set_t, set_v),
-            (b"enumerable", ANY_BOOL as u64, (flags >> 1) & 1),
-            (b"configurable", ANY_BOOL as u64, (flags >> 2) & 1),
-        ];
-        for &(name, t, val) in acc_entries.iter() {
-            let k = unsafe { alloc_str_key(name) };
-            unsafe { __torajs_dynobj_set(&mut desc, k, t, val) };
-            unsafe { __torajs_str_drop(k) };
-        }
-        return desc as u64;
+        return unsafe {
+            build_accessor_descriptor(
+                get_t,
+                get_v,
+                set_t,
+                set_v,
+                (flags >> 1) & 1,
+                (flags >> 2) & 1,
+            )
+        };
     }
 
     if v_tag as i64 == ANY_HEAP && v_val != 0 {

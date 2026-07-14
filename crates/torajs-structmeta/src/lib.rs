@@ -304,6 +304,60 @@ impl StructLayoutEntry {
         }
         None
     }
+
+    /// Find an object-literal accessor slot by the property it stands
+    /// for: `prop = "v"` matches the field named `__getter_v` (or
+    /// `__setter_v`). The layout stores accessors under a synthetic
+    /// name, but ES §10.4 keys the own property by the plain name —
+    /// the reflection consumers ask by the plain name and this walk
+    /// resolves it without allocating the mangled spelling (this crate
+    /// is `no_std` and the name may be arbitrarily long).
+    fn find_accessor(&self, prop: &[u8], kind: AccessorKind) -> Option<u32> {
+        let prefix = kind.prefix();
+        let n = self.n_fields();
+        let mut i = 0;
+        while i < n {
+            if let Some(f) = self.field(i) {
+                let name = f.name_bytes();
+                if name.len() == prefix.len() + prop.len()
+                    && &name[..prefix.len()] == prefix
+                    && &name[prefix.len()..] == prop
+                {
+                    return Some(i);
+                }
+            }
+            i += 1;
+        }
+        None
+    }
+}
+
+/// Which half of an accessor pair a lookup wants (RFC
+/// 20260714-objlit-accessor). The prefixes mirror torajs-core's
+/// `check_type_of_object_lit::accessor_slot`.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum AccessorKind {
+    Getter,
+    Setter,
+}
+
+impl AccessorKind {
+    fn prefix(self) -> &'static [u8] {
+        match self {
+            AccessorKind::Getter => b"__getter_",
+            AccessorKind::Setter => b"__setter_",
+        }
+    }
+
+    /// Decode the FFI shell's `kind` byte. Anything other than the two
+    /// live spellings is not an accessor request.
+    fn from_raw(kind: u8) -> Option<Self> {
+        match kind {
+            0 => Some(AccessorKind::Getter),
+            1 => Some(AccessorKind::Setter),
+            _ => None,
+        }
+    }
 }
 
 impl FieldMeta {
@@ -434,6 +488,35 @@ pub unsafe extern "C" fn __torajs_struct_field_find(
     entry.find_field(needle).unwrap_or(u32::MAX)
 }
 
+/// Find the accessor slot standing for property `name`: `kind` 0 asks
+/// for the getter (`__getter_<name>`), 1 for the setter. Returns
+/// `u32::MAX` when the layout is NULL, the name pointer is NULL, the
+/// kind is unknown, or the class has no such accessor.
+///
+/// # Safety
+/// `layout` must be NULL or a pointer returned by
+/// [`__torajs_struct_layout_lookup`]; `name` must be NULL or point at
+/// `name_len` readable bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_struct_accessor_find(
+    layout: *const StructLayoutEntry,
+    name: *const u8,
+    name_len: u32,
+    kind: u8,
+) -> u32 {
+    if layout.is_null() || name.is_null() {
+        return u32::MAX;
+    }
+    let Some(kind) = AccessorKind::from_raw(kind) else {
+        return u32::MAX;
+    };
+    // SAFETY: caller contract — `layout` is a live lookup result and
+    // `name` points at `name_len` readable bytes.
+    let entry = unsafe { &*layout };
+    let prop = unsafe { core::slice::from_raw_parts(name, name_len as usize) };
+    entry.find_accessor(prop, kind).unwrap_or(u32::MAX)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -455,6 +538,82 @@ mod tests {
 
     const NAME_ALPHA: &[u8] = b"alpha";
     const NAME_BETA: &[u8] = b"beta";
+
+    // RFC 20260714-objlit-accessor — an object literal's accessor lives
+    // in the layout under a synthetic slot name; `find_accessor`
+    // resolves it from the plain property name the reflection
+    // consumers ask with.
+    const NAME_GETTER_V: &[u8] = b"__getter_v";
+    const NAME_SETTER_V: &[u8] = b"__setter_v";
+
+    fn accessor_image() -> TwoFieldImage {
+        TwoFieldImage {
+            n_fields: 2,
+            _pad: 0,
+            fields: [
+                FieldMeta {
+                    name_ptr: NAME_GETTER_V.as_ptr(),
+                    name_len: NAME_GETTER_V.len() as u32,
+                    field_byte_offset: 8,
+                    type_tag: 4,
+                },
+                FieldMeta {
+                    name_ptr: NAME_SETTER_V.as_ptr(),
+                    name_len: NAME_SETTER_V.len() as u32,
+                    field_byte_offset: 16,
+                    type_tag: 4,
+                },
+            ],
+        }
+    }
+
+    #[test]
+    fn find_accessor_resolves_both_halves_from_the_plain_name() {
+        let image = accessor_image();
+        let entry = two_field_entry(&image);
+
+        assert_eq!(entry.find_accessor(b"v", AccessorKind::Getter), Some(0));
+        assert_eq!(entry.find_accessor(b"v", AccessorKind::Setter), Some(1));
+    }
+
+    #[test]
+    fn find_accessor_does_not_match_a_data_field_or_a_wrong_name() {
+        let data = make_image();
+        let data_entry = two_field_entry(&data);
+        // A plain data field is never an accessor, under either half.
+        assert_eq!(
+            data_entry.find_accessor(b"alpha", AccessorKind::Getter),
+            None
+        );
+        assert_eq!(
+            data_entry.find_accessor(b"alpha", AccessorKind::Setter),
+            None
+        );
+
+        let acc = accessor_image();
+        let acc_entry = two_field_entry(&acc);
+        // The property is `v`, not the slot's own spelling — asking with
+        // the mangled name must not resolve (that would let the internal
+        // name leak back in as a user-visible key).
+        assert_eq!(
+            acc_entry.find_accessor(b"__getter_v", AccessorKind::Getter),
+            None
+        );
+        // A prefix of the real property is not the property.
+        assert_eq!(acc_entry.find_accessor(b"", AccessorKind::Getter), None);
+        assert_eq!(acc_entry.find_accessor(b"vv", AccessorKind::Getter), None);
+    }
+
+    #[test]
+    fn find_field_does_not_see_accessor_slots_under_the_plain_name() {
+        // The data lookup must miss `v` — the gOPD arm relies on that
+        // miss to route into the accessor descriptor instead of reading
+        // the closure slot as if it were a value.
+        let image = accessor_image();
+        let entry = two_field_entry(&image);
+        assert_eq!(entry.find_field(b"v"), None);
+        assert_eq!(entry.find_field(b"__getter_v"), Some(0));
+    }
 
     fn two_field_entry(image: &TwoFieldImage) -> StructLayoutEntry {
         StructLayoutEntry {

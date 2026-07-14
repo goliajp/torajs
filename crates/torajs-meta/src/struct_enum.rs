@@ -30,7 +30,7 @@
 //! here.
 
 use crate::reflect::{TAG_OBJ, heap_type_tag, is_cell_imm};
-use crate::struct_reflect::field_slot_to_pair;
+use crate::struct_reflect::{field_slot_to_pair, slot_key};
 use core::ffi::{c_char, c_void};
 
 unsafe extern "C" {
@@ -88,31 +88,6 @@ const STR_DATA_OFF: usize = 16;
 /// non-struct `any` slot is a separate substrate trunk.
 const NON_STRUCT_MSG: &[u8] = b"Object reflection on a non-struct any value is not yet supported\0";
 
-/// Object-literal accessor slot spellings — mirror of torajs-core
-/// `check_type_of_object_lit::accessor_slot` (RFC
-/// 20260714-objlit-accessor). The layout carries a getter / setter
-/// under a synthetic name, but ES §10.4 makes it one own property
-/// keyed by the plain name.
-const GETTER_PREFIX: &[u8] = b"__getter_";
-const SETTER_PREFIX: &[u8] = b"__setter_";
-
-/// The own-property key a layout slot enumerates under: an accessor
-/// slot answers the property it stands for (`__getter_v` → `v`), a
-/// data field answers itself.
-#[inline]
-unsafe fn slot_key(name: &StrSlice) -> (*const u8, usize) {
-    if name.ptr.is_null() {
-        return (name.ptr, name.len);
-    }
-    let bytes = unsafe { core::slice::from_raw_parts(name.ptr, name.len) };
-    for p in [GETTER_PREFIX, SETTER_PREFIX] {
-        if bytes.len() > p.len() && &bytes[..p.len()] == p {
-            return (unsafe { name.ptr.add(p.len()) }, name.len - p.len());
-        }
-    }
-    (name.ptr, name.len)
-}
-
 /// Whether an earlier slot already enumerated `key` — a `get`/`set`
 /// pair occupies two layout slots but is one own property, so the
 /// second one is skipped.
@@ -120,7 +95,7 @@ unsafe fn key_already_emitted(layout: *const c_void, upto: u32, key: (*const u8,
     let mut j = 0;
     while j < upto {
         let prev = unsafe { __torajs_struct_field_name(layout, j) };
-        let (p, plen) = unsafe { slot_key(&prev) };
+        let (p, plen) = unsafe { slot_key(prev.ptr, prev.len) };
         if plen == key.1
             && (key.1 == 0
                 || unsafe {
@@ -177,7 +152,7 @@ pub unsafe extern "C" fn __torajs_anyv_struct_keys(v: u64) -> *mut c_void {
     let mut i = 0;
     while i < n {
         let name = unsafe { __torajs_struct_field_name(layout, i) };
-        let (kp, klen) = unsafe { slot_key(&name) };
+        let (kp, klen) = unsafe { slot_key(name.ptr, name.len) };
         if unsafe { !key_already_emitted(layout, i, (kp, klen)) } {
             let s = unsafe { alloc_str_from_raw(kp, klen) };
             out = unsafe { __torajs_arr_push(out, s as i64) };
@@ -276,7 +251,7 @@ pub unsafe extern "C" fn __torajs_anyv_struct_entries(v: u64) -> *mut c_void {
         // An accessor slot pairs under its plain property name (the
         // value payload is a recorded follow-up: it should be the
         // getter's result, not the closure).
-        let (kp, klen) = unsafe { slot_key(&name) };
+        let (kp, klen) = unsafe { slot_key(name.ptr, name.len) };
         let name_s = unsafe { alloc_str_from_raw(kp, klen) };
         let info = unsafe { __torajs_struct_field_info(layout, i) };
         let raw = unsafe {

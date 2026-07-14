@@ -36,7 +36,68 @@
 
 use core::ffi::c_void;
 
-use crate::struct_reflect::field_slot_to_pair;
+use crate::struct_reflect::{
+    ACC_GETTER, ACC_SETTER, accessor_slot_name, field_slot_to_pair, slot_key,
+};
+
+/// Whether an accessor slot for `key` was already rendered by an
+/// earlier slot — the two halves of a get/set pair are one entry.
+///
+/// # Safety
+/// `layout` is a live layout entry; `key` points at readable bytes.
+unsafe fn accessor_emitted_before(
+    layout: *const c_void,
+    upto: u32,
+    key: (*const u8, usize),
+) -> bool {
+    let mut j = 0;
+    while j < upto {
+        let prev = unsafe { __torajs_struct_field_name(layout, j) };
+        if unsafe { accessor_slot_name(prev.ptr, prev.len) }.is_none() {
+            j += 1;
+            continue;
+        }
+        let (p, plen) = unsafe { slot_key(prev.ptr, prev.len) };
+        if plen == key.1
+            && unsafe {
+                core::slice::from_raw_parts(p, plen) == core::slice::from_raw_parts(key.0, key.1)
+            }
+        {
+            return true;
+        }
+        j += 1;
+    }
+    false
+}
+
+/// bun's accessor rendering for the property `key` of this layout.
+///
+/// # Safety
+/// `layout` is a live layout entry; `key` points at `key_len` readable
+/// bytes.
+unsafe fn accessor_tag(layout: *const c_void, key: *const u8, key_len: usize) -> &'static [u8] {
+    let n = unsafe { __torajs_struct_field_count(layout) };
+    let (mut has_get, mut has_set) = (false, false);
+    let mut i = 0;
+    while i < n {
+        let name = unsafe { __torajs_struct_field_name(layout, i) };
+        if let Some((kind, p, plen)) = unsafe { accessor_slot_name(name.ptr, name.len) }
+            && plen == key_len
+            && unsafe {
+                core::slice::from_raw_parts(p, plen) == core::slice::from_raw_parts(key, key_len)
+            }
+        {
+            has_get |= kind == ACC_GETTER;
+            has_set |= kind == ACC_SETTER;
+        }
+        i += 1;
+    }
+    match (has_get, has_set) {
+        (true, true) => b"[Getter/Setter]",
+        (false, true) => b"[Setter]",
+        _ => b"[Getter]",
+    }
+}
 
 unsafe extern "C" {
     // torajs-structmeta (W-J Phase A4 + A3c chunk 2) — read-side
@@ -167,13 +228,37 @@ pub unsafe extern "C" fn __torajs_anyv_struct_print_inline_at(v: u64, indent: u3
     // torajs-dynobj::print_any for the accumulation rationale.
     unsafe { __torajs_inspect_line_reset(indent + 1) };
     let mut i: u32 = 0;
+    // Accessor slots collapse a get/set pair into one entry, so the
+    // separator keys off what was actually emitted, not off `i`.
+    let mut emitted: u32 = 0;
     while i < n {
-        if i > 0 {
+        let name = unsafe { __torajs_struct_field_name(layout, i) };
+        let kind = unsafe { accessor_slot_name(name.ptr, name.len) };
+        let (kp, klen) = unsafe { slot_key(name.ptr, name.len) };
+        // The second half of a pair was already rendered under the
+        // same key by the first (RFC 20260714-objlit-accessor).
+        if kind.is_some() && unsafe { accessor_emitted_before(layout, i, (kp, klen)) } {
+            i += 1;
+            continue;
+        }
+        if emitted > 0 {
             unsafe { put_bytes(b",\n") };
             unsafe { __torajs_inspect_line_add(1) };
         }
         unsafe { put_indent(indent + 2) };
-        let name = unsafe { __torajs_struct_field_name(layout, i) };
+        unsafe { put_bytes_from_raw(kp, klen) };
+        unsafe { put_bytes(b": ") };
+        unsafe { __torajs_inspect_line_add(klen as u32 + 2) };
+        if kind.is_some() {
+            // bun renders the accessor itself, never the closure:
+            // `[Getter]` / `[Setter]` / `[Getter/Setter]`.
+            let tag = unsafe { accessor_tag(layout, kp, klen) };
+            unsafe { put_bytes(tag) };
+            unsafe { __torajs_inspect_line_add(tag.len() as u32) };
+            emitted += 1;
+            i += 1;
+            continue;
+        }
         let info = unsafe { __torajs_struct_field_info(layout, i) };
         // SAFETY: field_byte_offset is the SSA-emitted slot offset;
         // every well-formed Tag::Obj cell has `n` slots laid out
@@ -184,12 +269,10 @@ pub unsafe extern "C" fn __torajs_anyv_struct_print_inline_at(v: u64, indent: u3
                 .cast::<u64>()
                 .read()
         };
-        unsafe { put_bytes_from_raw(name.ptr, name.len) };
-        unsafe { put_bytes(b": ") };
-        unsafe { __torajs_inspect_line_add(name.len as u32 + 2) };
         let (tag, val) = unsafe { field_slot_to_pair(info.type_tag, raw) };
         let anyv = unsafe { __torajs_anyv_box_from_pair(tag as i64, val as i64) };
         unsafe { __torajs_print_anyv_inline_at(anyv, indent + 2) };
+        emitted += 1;
         i += 1;
     }
     unsafe { put_bytes(b",\n") };
