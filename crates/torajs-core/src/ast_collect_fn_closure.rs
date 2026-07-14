@@ -425,11 +425,21 @@ impl<'a> FnToClosureCollector<'a> {
                 }
             }
             Expr::ObjectLit { fields } => {
-                // Untyped ObjectLit — only recurse into fields (no
-                // closure-typed signal available without surrounding
-                // LetDecl context).
+                // Untyped ObjectLit. A struct fn-field slot is
+                // Closure-repr in EVERY ann-minting lane (named
+                // TypeDecl / ClassDecl, the parser's `__inlobj(`, and
+                // the return-type inferrer's `__inlobj(` — all route
+                // through `retag_field_fn_ann`), so a bare top-FnDecl
+                // Ident field value needs the forwarder wrap here too,
+                // with no surrounding annotation to key off. Pre-fix
+                // this arm only recursed: `function make() { return {
+                // g: top } }` built a FnSig slot while the inferred
+                // return ann said Closure, and the field call rejected
+                // the bare ptr ("value is not a function").
                 for (_, feid) in fields {
-                    self.walk_expr(*feid);
+                    if !self.try_mark(*feid) {
+                        self.walk_expr(*feid);
+                    }
                 }
             }
             Expr::PostIncr { target, .. } => self.walk_expr(*target),

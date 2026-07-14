@@ -366,6 +366,33 @@ pub(crate) fn is_fn_like_ann(s: &str) -> bool {
     t.starts_with("__cls(") || t.starts_with("__fn(") || t.contains("=>") || t.starts_with('(')
 }
 
+/// Retag a fn-typed ann sitting in a **struct-field position** from
+/// the bare-fn-ptr repr (`__fn(P)->R` → `Type::FnSig`) to the closure
+/// repr (`__cls(P)->R` → `Type::Closure`, env-first CallIndirect).
+/// Non-fn anns pass through untouched.
+///
+/// A field slot is mutable and can receive a capturing closure, so it
+/// must be Closure-repr; `__fn(` would intern a bare-ptr slot and the
+/// field call would CallIndirect into the closure's env header —
+/// SIGBUS. Param / return / let positions keep `__fn(` for direct
+/// dispatch on the hot fn-as-callback path.
+///
+/// Every site that MINTS a struct-field ann must route through here:
+/// named `TypeDecl` / `ClassDecl` fields
+/// (`tag_struct_field_closure_types`), the parser's syntax-minted
+/// `__inlobj(` (`parser::type_ann`), and the return-type inferrer's
+/// `__inlobj(` (`implicit_generics_infer`). Each of the three was a
+/// separate SIGBUS before it was routed here.
+pub(crate) fn retag_field_fn_ann(ann: &str) -> String {
+    if let Some(rest) = ann.strip_prefix("__fn(") {
+        format!("__cls({rest}")
+    } else if let Some(rest) = ann.strip_prefix("__nullable(__fn(") {
+        format!("__nullable(__cls({rest}")
+    } else {
+        ann.to_string()
+    }
+}
+
 /// Chunk 733 — fn-typed ARRAY annotation detector (`((n)=>n)[]` /
 /// `Array<(n)=>n>` spellings, parser-internal `__fn(...)->R[]` /
 /// `Array<__fn(...)->R>`). The SSA `parse_type` re-reprs such an

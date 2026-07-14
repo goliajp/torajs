@@ -102,27 +102,13 @@ impl<'a> Parser<'a> {
                     }
                     let fty_raw = self.parse_type_ann()?;
                     // Chunk 793 — struct-field fn slots are
-                    // Closure-repr. `tag_struct_field_closure_types`
-                    // retags named TypeDecl/ClassDecl fields
-                    // `__fn(` → `__cls(`, but inline object types
-                    // never pass through it, so their fn fields
-                    // parsed to FnSig while the object literal
-                    // stored a closure env block — the field call
-                    // CallIndirect'd into the env header (SIGBUS).
-                    // Retag at birth: this is the only site that
-                    // mints `__inlobj(` from syntax, and nested
+                    // Closure-repr. Retag at birth: this is the site
+                    // that mints `__inlobj(` from syntax, and nested
                     // inline objects recurse through here, so every
                     // downstream consumer (checker / parse_type /
-                    // collectors / forwarder synthesis) sees the
-                    // same `__cls(` field the named-TypeDecl lane
-                    // sees.
-                    let fty_raw = if let Some(rest) = fty_raw.strip_prefix("__fn(") {
-                        format!("__cls({rest}")
-                    } else if let Some(rest) = fty_raw.strip_prefix("__nullable(__fn(") {
-                        format!("__nullable(__cls({rest}")
-                    } else {
-                        fty_raw
-                    };
+                    // collectors / forwarder synthesis) sees the same
+                    // `__cls(` field the named-TypeDecl lane sees.
+                    let fty_raw = crate::ast::retag_field_fn_ann(&fty_raw);
                     let fty = if optional && !fty_raw.starts_with("__nullable(") {
                         format!("__nullable({fty_raw})")
                     } else {

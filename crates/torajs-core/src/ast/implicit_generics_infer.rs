@@ -25,7 +25,7 @@
 //! `collect_return_anns(_stmt)`, `is_typevar_ann`,
 //! `stmt_has_value_return`.
 
-use super::{BinOp, Expr, ExprId, Param, Stmt, UnaryOp};
+use super::{BinOp, Expr, ExprId, Param, Stmt, UnaryOp, retag_field_fn_ann};
 
 /// Borrow-shaped view of `Ast.exprs` for the inference helper. Defined
 /// at the top of `desugar_implicit_generics` (just below) — `&[Expr]`
@@ -408,9 +408,17 @@ pub(crate) fn infer_expr_ann_with(
             .filter(|r| r == "string" || r.ends_with("[]"))
             .map(|_| "number".into()),
         Expr::Index { obj, .. } => recur(*obj)?.strip_suffix("[]").map(str::to_string),
+        // The second site that mints `__inlobj(` (the parser's syntax
+        // lane is the other). A fn-valued field arrives here as
+        // `__fn(P)->R` (the `Expr::Closure` arm above hands back the
+        // lifted closure's published sig), so it needs the same
+        // field-position retag the parser does — `function make() {
+        // return { f: () => 7 } }` interned a bare-fn-ptr slot while
+        // the literal stored a closure env block, and the field call
+        // CallIndirect'd into the env header (SIGBUS).
         Expr::ObjectLit { fields } => fields
             .iter()
-            .map(|(n, eid)| recur(*eid).map(|t| format!("{n}:{t}")))
+            .map(|(n, eid)| recur(*eid).map(|t| format!("{n}:{}", retag_field_fn_ann(&t))))
             .collect::<Option<Vec<_>>>()
             .map(|p| format!("__inlobj({})", p.join("|"))),
         _ => None,

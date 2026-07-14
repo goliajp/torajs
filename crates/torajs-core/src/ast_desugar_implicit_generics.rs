@@ -332,6 +332,21 @@ pub(crate) fn run(ast: &mut Ast) {
 /// its reserved name. Closures whose value returns resisted typing
 /// publish nothing (no fabricated ann); a body without value
 /// returns is `void`.
+fn is_synth_closure_name(name: &str) -> bool {
+    // The two reserved names a `Expr::Closure` value can carry:
+    // `lift_arrow_fns`' lifted arrows and
+    // `synthesize_fn_to_closure_forwarders`' `__forward_<fn>` shims
+    // (both closure-shaped, `__env`-first). `infer_expr_ann_with`'s
+    // `Expr::Closure` arm reads their FULL `__fn(P|..)->R` ann out of
+    // `fn_sigs`, whereas the same map holds a BARE return ann for user
+    // fns — so a name that reaches that arm without being published
+    // here silently reads back the return type as if it were the fn
+    // type (`{ g: top }` inferred `g: number`, not `g: () => number`).
+    // Both namespaces are unspellable in user source, so the shared
+    // map stays unambiguous.
+    name.starts_with("__closure_") || name.starts_with("__forward_")
+}
+
 fn preinfer_closure_sigs(
     stmts: &mut [Stmt],
     exprs: AstExprsView,
@@ -384,7 +399,7 @@ fn preinfer_closure_sigs(
         else {
             continue;
         };
-        if !name.starts_with("__closure_") {
+        if !is_synth_closure_name(name) {
             continue;
         }
         let ret = match return_type {

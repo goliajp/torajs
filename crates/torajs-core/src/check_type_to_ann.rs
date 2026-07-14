@@ -11,6 +11,15 @@
 
 use crate::check::Type;
 
+/// `<marker>(P1|...)->R` — the fn-type ann shape. `marker` picks the
+/// repr `parse_type` interns: `__fn` = `Type::FnSig` (bare ptr, direct
+/// dispatch) for param / return / let positions, `__cls` =
+/// `Type::Closure` (env-first) for struct-field slots.
+fn fn_ann(marker: &str, args: &[Type], ret: &Type) -> String {
+    let parts: Vec<String> = args.iter().map(type_to_ann).collect();
+    format!("{marker}({})->{}", parts.join("|"), type_to_ann(ret))
+}
+
 /// `parse_type` consumes. Used to translate inferred generic type args
 /// from the typechecker into ssa_lower's annotation strings.
 pub fn type_to_ann(ty: &Type) -> String {
@@ -54,18 +63,31 @@ pub fn type_to_ann(ty: &Type) -> String {
                     // TypeDecl-registered one. Non-field positions
                     // keep the historical collapse (Nullable arm
                     // below) — their storage is repr-identical to T.
-                    Type::Nullable(inner) => {
-                        format!("{n}:__nullable({})", type_to_ann(inner))
+                    // A fn-typed FIELD is a Closure-repr slot, mirroring
+                    // `tag_struct_field_closure_types`'s retag on the
+                    // annotated path: the slot can hold a capturing
+                    // closure, so it interns as `Type::Closure`
+                    // (env-first CallIndirect). `__fn(` would intern a
+                    // bare-fn-ptr slot and the call site would direct-
+                    // dispatch a closure pair — SIGBUS. Only the
+                    // annotated path was tagged; an INFERRED struct
+                    // (`function make() { return { f: () => 7 } }`)
+                    // reaches SSA through here.
+                    Type::Nullable(inner) => match &**inner {
+                        Type::Function(args, ret) => {
+                            format!("{n}:__nullable({})", fn_ann("__cls", args, ret))
+                        }
+                        _ => format!("{n}:__nullable({})", type_to_ann(inner)),
+                    },
+                    Type::Function(args, ret) => {
+                        format!("{n}:{}", fn_ann("__cls", args, ret))
                     }
                     other => format!("{n}:{}", type_to_ann(other)),
                 })
                 .collect();
             format!("__struct({})", parts.join("|"))
         }
-        Type::Function(args, ret) => {
-            let parts: Vec<String> = args.iter().map(type_to_ann).collect();
-            format!("__fn({})->{}", parts.join("|"), type_to_ann(ret))
-        }
+        Type::Function(args, ret) => fn_ann("__fn", args, ret),
         Type::Object(name) => (*name).into(),
         Type::ClassRef(name) => {
             // Generic-instantiation back-edge (`Rec<number>`): the key

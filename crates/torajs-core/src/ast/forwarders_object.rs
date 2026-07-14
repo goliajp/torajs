@@ -37,20 +37,11 @@ use super::{Ast, Expr, ExprId, Param, Stmt, is_fn_like_ann};
 /// and before `lift_arrow_fns` / `synthesize_forwarders` /
 /// `synthesize_fn_to_closure_forwarders`.
 pub fn tag_struct_field_closure_types(ast: &mut Ast) {
+    // RFC 20260710 C5 — an OPTIONAL fn field (`cb?: (n) => R` →
+    // `__nullable(__fn(...))`) is the same mutable Closure-repr slot,
+    // so `retag_field_fn_ann` handles both spellings.
     fn retag(ann: &mut String) {
-        if let Some(rest) = ann.strip_prefix("__fn(") {
-            let new_ann = format!("__cls({rest}");
-            *ann = new_ann;
-        } else if let Some(rest) = ann.strip_prefix("__nullable(__fn(") {
-            // RFC 20260710 C5 — an OPTIONAL fn field (`cb?: (n) =>
-            // R` → `__nullable(__fn(...))`) is the same mutable
-            // Closure-repr slot: a lifted arrow stores an env
-            // pointer, and the FnSig repr the unwrapped spelling
-            // used to produce made the narrowed call CallIndirect
-            // into the env block (SIGBUS).
-            let new_ann = format!("__nullable(__cls({rest}");
-            *ann = new_ann;
-        }
+        *ann = super::lift_arrow_fns::retag_field_fn_ann(ann);
     }
     for s in &mut ast.stmts {
         match s {
