@@ -71,6 +71,10 @@ pub(crate) struct AnySubstrateIds {
     pub class_get: FuncId,
     pub get_proto_of_any: FuncId,
     pub proto_member_get: FuncId,
+    /// `Error.prototype.toString` (§20.5.3.4) over a FLAG_ERROR OBJ
+    /// instance pointer — `name + ": " + message` with empty-side
+    /// special cases. Returns a fresh (owned) Str.
+    pub error_to_string: FuncId,
     /// RFC 20260713 blade 5 cut 4 — %GeneratorFunction.prototype% /
     /// %AsyncGeneratorFunction.prototype% singleton (kind 0/1) and
     /// the per-generator-proto → %GeneratorPrototype% chain writer.
@@ -155,6 +159,7 @@ pub(crate) fn declare(
         class_get: decl!("__torajs_anyv_class_get", [I64], Any),
         get_proto_of_any: decl!("__torajs_anyv_get_proto_of_any", [Any], Any),
         proto_member_get: decl!("__torajs_anyv_proto_member_get", [Any], Any),
+        error_to_string: decl!("__torajs_error_to_string", [Ptr], Str),
         genfn_proto: decl!("__torajs_genfn_proto", [I64], Any),
         genfn_chain: decl!("__torajs_genfn_chain", [Any, I64], I64),
         // RFC 20260704 S3 — recv[idx] on an `any` receiver (Arr

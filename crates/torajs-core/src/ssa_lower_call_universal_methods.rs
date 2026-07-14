@@ -108,10 +108,33 @@ pub(crate) fn try_lower(
     }
     if m_name == "toString" {
         if is_obj {
+            // Error.prototype.toString (ES §20.5.3.4) — an Error-derived
+            // class instance renders `name: message` via the runtime
+            // helper, which reads the shared message/name Str fields off
+            // the OBJ layout prefix. Kept a helper (not an injected
+            // class method) so `toString` never enters `method_owners`
+            // and pollutes the checker's resolution of a plain
+            // `x.toString()` on a primitive / any / unrelated class.
+            if let Some(cname) = crate::ssa_lower_member_obj_field::class_name_of_expr(ctx, recv_id)
+                && ctx.class_is_error_derived(&cname)
+            {
+                // S304 — lower-and-drop trailing args (toString is 0-arg).
+                for &a in args.iter() {
+                    let _ = ctx.lower_expr(a);
+                }
+                let cur_block = ctx.cur_block;
+                let v = ctx.f.append_inst(
+                    cur_block,
+                    InstKind::Call(ctx.intrinsics.error_to_string, vec![recv_op]),
+                    Type::Str,
+                    None,
+                );
+                return Some(Operand::Value(v));
+            }
             // S304 — lower-and-drop trailing args per S272 idiom so
             // step()-style side-effect exprs fire (toString is 0-useful
-            // on struct instance; "[object Object]" const independent
-            // of args).
+            // on a non-error struct instance; "[object Object]" const
+            // independent of args, ES §19.1.3.6).
             for &a in args.iter() {
                 let _ = ctx.lower_expr(a);
             }

@@ -26,6 +26,7 @@
 pub(crate) mod arr_reflect;
 pub mod classmeta;
 pub(crate) mod closure_reflect;
+pub mod error_to_string;
 pub mod extensible_reflect;
 pub mod fnprops;
 pub mod from_entries;
@@ -46,6 +47,7 @@ pub use classmeta::{
     __torajs_anyv_class_get, __torajs_anyv_class_register, __torajs_anyv_proto_get,
     __torajs_anyv_proto_register,
 };
+pub use error_to_string::__torajs_error_to_string;
 pub use fnprops::{__torajs_fnprops_get_tag, __torajs_fnprops_get_value, __torajs_fnprops_set};
 pub use reflect::__torajs_anyv_get_property_descriptor;
 pub use reflect_proto::{__torajs_anyv_get_proto_of_any, __torajs_anyv_proto_member_get};

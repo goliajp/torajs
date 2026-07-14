@@ -333,6 +333,7 @@ pub(crate) fn build(
         class_get: init_c.any_substrate.class_get,
         get_proto_of_any: init_c.any_substrate.get_proto_of_any,
         proto_member_get: init_c.any_substrate.proto_member_get,
+        error_to_string: init_c.any_substrate.error_to_string,
         genfn_proto: init_c.any_substrate.genfn_proto,
         genfn_chain: init_c.any_substrate.genfn_chain,
         any_typeof: init_c.any_substrate.any_typeof,
