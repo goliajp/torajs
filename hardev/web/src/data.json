@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-14T20:13:08.527Z",
+  "generatedAt": "2026-07-14T22:20:19.248Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-14T19:17:13Z",
-    "headSha": "ffbda942",
-    "elapsedSec": 492.3,
+    "ranAt": "2026-07-14T22:19:15Z",
+    "headSha": "5fdc4ab0",
+    "elapsedSec": 485.16,
     "workers": 8,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 7022,
+    "pass": 7028,
     "passNoOracle": 151,
     "passNegative": 4445,
-    "passTotal": 11618,
-    "bug": 1003,
+    "passTotal": 11624,
+    "bug": 997,
     "incompatible": 40553,
     "bunSkip": 12565,
     "harnessError": 0,
     "inScope": 53174,
     "trAccepted": 12621,
-    "passRateInScope": 21.85,
-    "passRateTrAccepted": 92.05
+    "passRateInScope": 21.86,
+    "passRateTrAccepted": 92.1
   },
   "torajs": {
-    "commit": "5bf75398",
-    "commitSubject": "feat: give an object its __proto__ and Object.getPrototypeOf answer",
+    "commit": "c8aed597",
+    "commitSubject": "chore: archive the test262 sweep at 5fdc4ab0",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "c8aed597",
+      "subject": "chore: archive the test262 sweep at 5fdc4ab0"
+    },
+    {
+      "hash": "5fdc4ab0",
+      "subject": "feat: Error.prototype.toString via a runtime helper (typed receivers)"
+    },
+    {
+      "hash": "4798c1c9",
+      "subject": "Revert \"feat: Error.prototype.toString, and class toString override on typed receivers\""
+    },
+    {
+      "hash": "096b60bd",
+      "subject": "feat: Error.prototype.toString, and class toString override on typed receivers"
+    },
+    {
+      "hash": "3d185941",
+      "subject": "chore: archive the test262 sweep at d137b6d6"
+    },
+    {
+      "hash": "d137b6d6",
+      "subject": "fix: a null-proto object owns __proto__ as data, not as its prototype"
+    },
+    {
+      "hash": "f08d8d97",
+      "subject": "chore: hardev dashboard snapshot at rotation 103 close"
+    },
+    {
       "hash": "5bf75398",
       "subject": "feat: give an object its __proto__ and Object.getPrototypeOf answer"
     },
@@ -731,37 +759,9 @@
     {
       "hash": "ffbda942",
       "subject": "fix: give the builtin prototypes their toString badge"
-    },
-    {
-      "hash": "98746ebb",
-      "subject": "fix: let an out-of-bounds index write grow the array it lands on"
-    },
-    {
-      "hash": "aedf92e1",
-      "subject": "fix: make Array.prototype an array"
-    },
-    {
-      "hash": "70ea0264",
-      "subject": "chore: hardev dashboard snapshot at rotation 101 close"
-    },
-    {
-      "hash": "50b38938",
-      "subject": "fix: give the three primitive prototypes their internal slot"
-    },
-    {
-      "hash": "4efa29fc",
-      "subject": "chore: archive the test262 sweep baseline at 08c180b2"
-    },
-    {
-      "hash": "08c180b2",
-      "subject": "fix: let a class name survive the three places that assumed a struct"
-    },
-    {
-      "hash": "edc22c73",
-      "subject": "fix: give a class its own identity in the type system"
     }
   ],
-  "headSha": "5bf75398",
+  "headSha": "c8aed597",
   "autorun": {
     "total": 409,
     "baselineTarget": 10,
