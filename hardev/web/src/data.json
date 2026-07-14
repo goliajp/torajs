@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-14T15:52:14.421Z",
+  "generatedAt": "2026-07-14T16:01:07.427Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 91.61
   },
   "torajs": {
-    "commit": "bc807532",
-    "commitSubject": "refactor: carve the typeof namespace classification into a sibling",
+    "commit": "c3438806",
+    "commitSubject": "feat: write a struct accessor through an any receiver",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "c3438806",
+      "subject": "feat: write a struct accessor through an any receiver"
+    },
+    {
+      "hash": "c09bffda",
+      "subject": "chore: hardev dashboard snapshot at rotation 100 close"
+    },
+    {
       "hash": "bc807532",
       "subject": "refactor: carve the typeof namespace classification into a sibling"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "ab854544",
       "subject": "chore: hardev dashboard snapshot at rotation 98 close"
-    },
-    {
-      "hash": "8e45d311",
-      "subject": "feat: copy a source accessor through [[Get]] when spreading or resting"
-    },
-    {
-      "hash": "c2fdaf65",
-      "subject": "feat: run object-literal getters and setters"
     }
   ],
-  "headSha": "bc807532",
+  "headSha": "c3438806",
   "autorun": {
     "total": 406,
     "baselineTarget": 10,
