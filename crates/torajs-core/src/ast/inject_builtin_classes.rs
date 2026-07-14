@@ -18,7 +18,7 @@
 //!   * `build_error_subclass` — synth `class <N> extends Error` for
 //!     each requested NativeError subclass.
 
-use super::{Ast, BinOp, ClassCtor, Expr, ExprId, Param, Stmt};
+use super::{Ast, BinOp, ClassCtor, ClassMethod, Expr, ExprId, Param, Stmt, Visibility};
 
 /// Synthetic root `class Error { message: string; name: string;
 /// constructor(message: string) { this.message = message;
@@ -81,6 +81,56 @@ fn build_stack_concat(ast: &mut Ast) -> ExprId {
         then_branch,
         else_branch,
     })
+}
+
+/// Synthetic `toString(): string` for `class Error`, ES §20.5.3.4:
+///
+///   name === "" ? message : (message === "" ? name : name + ": " + message)
+///
+/// The inner `message === "" ? name : name + ": " + message` is exactly
+/// [`build_stack_concat`]'s shape, reused verbatim; the outer ternary
+/// wraps it with the empty-`name` branch the stack synth omits (the
+/// stack's name is always a non-empty literal, but user code may assign
+/// `err.name = ""`, which §20.5.3.4 answers with the bare message).
+/// Subclasses (`TypeError` / …) declare no own `toString` and inherit
+/// this one through desugar's method-chain flattening, so
+/// `new TypeError("x").toString()` is "TypeError: x" via their
+/// overridden `name` field. Making it a real class method (rather than
+/// folding `e.toString()` to a constant) means the class-method
+/// dispatch path picks it up automatically, and it is a genuine own
+/// property of `Error.prototype`.
+fn build_error_tostring_method(ast: &mut Ast) -> ClassMethod {
+    let inner = build_stack_concat(ast);
+    let n_obj = ast.add_expr(Expr::This);
+    let n = ast.add_expr(Expr::Member {
+        obj: n_obj,
+        name: "name".to_string(),
+    });
+    let empty = ast.add_expr(Expr::String(String::new()));
+    let cond = ast.add_expr(Expr::BinOp {
+        op: BinOp::Eq,
+        left: n,
+        right: empty,
+    });
+    let m_obj = ast.add_expr(Expr::This);
+    let m = ast.add_expr(Expr::Member {
+        obj: m_obj,
+        name: "message".to_string(),
+    });
+    let body_expr = ast.add_expr(Expr::Ternary {
+        cond,
+        then_branch: m,
+        else_branch: inner,
+    });
+    ClassMethod {
+        name: "toString".to_string(),
+        params: Vec::new(),
+        return_type: Some("string".to_string()),
+        body: vec![Stmt::Return(Some(body_expr))],
+        is_abstract: false,
+        visibility: Visibility::Public,
+        accessor_kind: None,
+    }
 }
 
 fn build_error_class(ast: &mut Ast) -> Stmt {
@@ -149,7 +199,7 @@ fn build_error_class(ast: &mut Ast) -> Stmt {
         ],
         static_init: Vec::new(),
         ctor: Some(ctor),
-        methods: Vec::new(),
+        methods: vec![build_error_tostring_method(ast)],
         static_methods: Vec::new(),
     }
 }
