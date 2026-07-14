@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-14T22:20:19.248Z",
+  "generatedAt": "2026-07-14T22:48:25.689Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-14T22:19:15Z",
-    "headSha": "5fdc4ab0",
-    "elapsedSec": 485.16,
+    "ranAt": "2026-07-14T22:46:35Z",
+    "headSha": "2cfb4ff7",
+    "elapsedSec": 484.42,
     "workers": 8,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 7028,
+    "pass": 7029,
     "passNoOracle": 151,
     "passNegative": 4445,
-    "passTotal": 11624,
-    "bug": 997,
+    "passTotal": 11625,
+    "bug": 996,
     "incompatible": 40553,
     "bunSkip": 12565,
     "harnessError": 0,
     "inScope": 53174,
     "trAccepted": 12621,
     "passRateInScope": 21.86,
-    "passRateTrAccepted": 92.1
+    "passRateTrAccepted": 92.11
   },
   "torajs": {
-    "commit": "c8aed597",
-    "commitSubject": "chore: archive the test262 sweep at 5fdc4ab0",
+    "commit": "43666ec1",
+    "commitSubject": "chore: archive the test262 sweep at 2cfb4ff7",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,18 @@
   },
   "commits": [
     {
+      "hash": "43666ec1",
+      "subject": "chore: archive the test262 sweep at 2cfb4ff7"
+    },
+    {
+      "hash": "2cfb4ff7",
+      "subject": "feat: Error.prototype.toString on the any lane"
+    },
+    {
+      "hash": "4fb482c7",
+      "subject": "chore: hardev dashboard snapshot at rotation 104 close"
+    },
+    {
       "hash": "c8aed597",
       "subject": "chore: archive the test262 sweep at 5fdc4ab0"
     },
@@ -747,39 +759,38 @@
     {
       "hash": "ed07d49d",
       "subject": "chore: hardev dashboard snapshot at rotation 102 close"
-    },
-    {
-      "hash": "63bae07c",
-      "subject": "fix: let the legacy accessor four be read, not just called"
-    },
-    {
-      "hash": "c492e030",
-      "subject": "chore: archive the test262 sweep at ffbda942"
-    },
-    {
-      "hash": "ffbda942",
-      "subject": "fix: give the builtin prototypes their toString badge"
     }
   ],
-  "headSha": "c8aed597",
+  "headSha": "43666ec1",
   "autorun": {
-    "total": 409,
+    "total": 410,
     "baselineTarget": 10,
-    "bySelf": 404,
+    "bySelf": 405,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784059914-3bc9",
-      "at": "2026-07-14T20:11:54Z",
-      "ts": 1784059914,
+      "rotationId": "r-1784067736-45e8",
+      "at": "2026-07-14T22:22:16Z",
+      "ts": 1784067736,
       "trigger": "self",
-      "prevHead": "5bf75398",
-      "handoffSha": "sha256:2e96b9d7ea3308b546a4c629038836120ce5e74f392d1a27fbc08370df9b1180",
-      "handoffAgeSec": 2577,
+      "prevHead": "4fb482c7",
+      "handoffSha": "sha256:c28a3a16864f0d78238545dc720faa2d4e1b46ffb93277c53b1b569f1a65ca8e",
+      "handoffAgeSec": 8,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784067736-45e8",
+        "at": "2026-07-14T22:22:16Z",
+        "ts": 1784067736,
+        "trigger": "self",
+        "prevHead": "4fb482c7",
+        "handoffSha": "sha256:c28a3a16864f0d78238545dc720faa2d4e1b46ffb93277c53b1b569f1a65ca8e",
+        "handoffAgeSec": 8,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784059914-3bc9",
         "at": "2026-07-14T20:11:54Z",
@@ -876,17 +887,6 @@
         "prevHead": "88dc1066",
         "handoffSha": "sha256:37911227b6c2b3b5281820423cf2a3324127eb06641f42b1ce57f94f7ebab955",
         "handoffAgeSec": 6,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1783970351-1e38",
-        "at": "2026-07-13T19:19:11Z",
-        "ts": 1783970351,
-        "trigger": "self",
-        "prevHead": "0bec4a40",
-        "handoffSha": "sha256:4c8283d63c3268d6f95b258b0365adfd755a329bb9af9451ea09aef60587b115",
-        "handoffAgeSec": 595,
         "conformanceBefore": null,
         "commitsInSession": null
       }
