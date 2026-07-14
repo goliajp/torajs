@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-14T18:11:14.999Z",
+  "generatedAt": "2026-07-14T19:29:03.085Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-14T17:58:15Z",
-    "headSha": "08c180b2",
-    "elapsedSec": 506.78,
+    "ranAt": "2026-07-14T19:17:13Z",
+    "headSha": "ffbda942",
+    "elapsedSec": 492.3,
     "workers": 8,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 6968,
-    "passNoOracle": 149,
+    "pass": 7022,
+    "passNoOracle": 151,
     "passNegative": 4445,
-    "passTotal": 11562,
-    "bug": 1059,
+    "passTotal": 11618,
+    "bug": 1003,
     "incompatible": 40553,
     "bunSkip": 12565,
     "harnessError": 0,
     "inScope": 53174,
     "trAccepted": 12621,
-    "passRateInScope": 21.74,
-    "passRateTrAccepted": 91.61
+    "passRateInScope": 21.85,
+    "passRateTrAccepted": 92.05
   },
   "torajs": {
-    "commit": "50b38938",
-    "commitSubject": "fix: give the three primitive prototypes their internal slot",
+    "commit": "63bae07c",
+    "commitSubject": "fix: let the legacy accessor four be read, not just called",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "63bae07c",
+      "subject": "fix: let the legacy accessor four be read, not just called"
+    },
+    {
+      "hash": "c492e030",
+      "subject": "chore: archive the test262 sweep at ffbda942"
+    },
+    {
+      "hash": "ffbda942",
+      "subject": "fix: give the builtin prototypes their toString badge"
+    },
+    {
+      "hash": "98746ebb",
+      "subject": "fix: let an out-of-bounds index write grow the array it lands on"
+    },
+    {
+      "hash": "aedf92e1",
+      "subject": "fix: make Array.prototype an array"
+    },
+    {
+      "hash": "70ea0264",
+      "subject": "chore: hardev dashboard snapshot at rotation 101 close"
+    },
+    {
       "hash": "50b38938",
       "subject": "fix: give the three primitive prototypes their internal slot"
     },
@@ -735,33 +759,9 @@
     {
       "hash": "44ec3635",
       "subject": "chore: hardev dashboard snapshot at rotation 100 close"
-    },
-    {
-      "hash": "c3438806",
-      "subject": "feat: write a struct accessor through an any receiver"
-    },
-    {
-      "hash": "c09bffda",
-      "subject": "chore: hardev dashboard snapshot at rotation 100 close"
-    },
-    {
-      "hash": "bc807532",
-      "subject": "refactor: carve the typeof namespace classification into a sibling"
-    },
-    {
-      "hash": "f60239db",
-      "subject": "fix: release the owned any-member read a typeof consumes"
-    },
-    {
-      "hash": "d6e6b4c3",
-      "subject": "feat: enumerate an object-literal accessor's value through [[Get]]"
-    },
-    {
-      "hash": "aaf92b3f",
-      "subject": "feat: reach a struct accessor through an any receiver"
     }
   ],
-  "headSha": "50b38938",
+  "headSha": "63bae07c",
   "autorun": {
     "total": 408,
     "baselineTarget": 10,
