@@ -19,6 +19,21 @@
 
 use super::{Ast, Expr, ExprId, Stmt};
 
+/// The local `next()` dispatches on, seeded from `this.__state` at
+/// entry — which is set to the dead sentinel in the same breath.
+///
+/// The persisted field therefore says "resumable HERE" only while the
+/// generator is suspended at a yield, and a `next()` that leaves any
+/// other way leaves it dead. That is what ES §27.5.1.2 requires of an
+/// abrupt completion: a generator whose body throws is COMPLETED, and
+/// a later `next()` answers `{ value: undefined, done: true }` rather
+/// than re-entering the body. Persisting the label on every internal
+/// goto instead (the pre-fix shape) left the field pointing at the arm
+/// the throw escaped from, so the next call re-ran it and threw the
+/// same error again — test262's `iter-step-err` family asserts exactly
+/// this ("Iterator is closed following abrupt completion").
+pub(super) const RESUME_LOCAL: &str = "__gen_st";
+
 /// Returns true if `s` (or any nested stmt) contains a `yield`. Used
 /// by `GenSm` to decide whether a control-flow construct must be
 /// expanded into separate state arms (yields present) or can be
@@ -165,6 +180,9 @@ impl<'a> GenSm<'a> {
         self.arms[cur].extend(buf);
     }
 
+    /// Persist the resume label into `this.__state`. Only a YIELD does
+    /// this: it is the one exit that leaves the generator resumable.
+    /// See [`RESUME_LOCAL`] for why nothing else may write the field.
     fn emit_set_state(&mut self, target: usize) -> Stmt {
         let this_id = self.ast.add_expr(Expr::This);
         let m = self.ast.add_expr(Expr::Member {
@@ -179,9 +197,17 @@ impl<'a> GenSm<'a> {
         Stmt::Expr(assign)
     }
 
+    /// A goto is a transition WITHIN one `next()` call, so it moves the
+    /// local resume cursor, not the persisted field — see
+    /// [`RESUME_LOCAL`].
     fn emit_goto(&mut self, target: usize) -> Vec<Stmt> {
-        let set = self.emit_set_state(target);
-        vec![set, Stmt::Continue]
+        let st = self.ast.add_expr(Expr::Ident(RESUME_LOCAL.into()));
+        let lit = self.ast.add_expr(Expr::Number(target as f64));
+        let assign = self.ast.add_expr(Expr::Assign {
+            target: st,
+            value: lit,
+        });
+        vec![Stmt::Expr(assign), Stmt::Continue]
     }
 
     fn emit_yield_return(&mut self, val: ExprId, next: usize) -> Vec<Stmt> {

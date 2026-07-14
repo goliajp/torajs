@@ -335,18 +335,16 @@ fn build_state_machine_next_body(ast: &mut Ast, gen_body: Vec<Stmt>, yield_ty: &
     sm.cur_buf.push(Stmt::Return(Some(final_obj)));
     sm.flush_cur();
 
-    // Assemble: while (true) { if (state==0){arm0} if (state==1){arm1} ... ; catch-all }
+    // Assemble: while (true) { if (st==0){arm0} if (st==1){arm1} ... ; catch-all }
     let mut loop_body: Vec<Stmt> = Vec::new();
     for (i, arm_stmts) in sm.arms.iter().enumerate() {
         let i_lit = ast.add_expr(Expr::Number(i as f64));
-        let this_state = ast.add_expr(Expr::This);
-        let state_member = ast.add_expr(Expr::Member {
-            obj: this_state,
-            name: "__state".into(),
-        });
+        let st_ref = ast.add_expr(Expr::Ident(
+            super::desugar_generators_sm::RESUME_LOCAL.into(),
+        ));
         let cond = ast.add_expr(Expr::BinOp {
             op: BinOp::Eq,
-            left: state_member,
+            left: st_ref,
             right: i_lit,
         });
         loop_body.push(Stmt::If {
@@ -378,7 +376,38 @@ fn build_state_machine_next_body(ast: &mut Ast, gen_body: Vec<Stmt>, yield_ty: &
     let final_after = ast.add_expr(Expr::ObjectLit {
         fields: vec![("value".into(), zero_after_id), ("done".into(), done_after)],
     });
+    // Prologue — take the resume label into a local and mark the
+    // generator DEAD in the same breath (`-1`, the sentinel `return()`
+    // and `throw()` already write). Only a yield writes the field back,
+    // so ANY other way out of `next()` — running off the end, an early
+    // `return`, a throw from the body or from anything it calls —
+    // leaves the generator completed, per ES §27.5.1.2. See
+    // `desugar_generators_sm::RESUME_LOCAL`.
+    let this_read = ast.add_expr(Expr::This);
+    let state_read = ast.add_expr(Expr::Member {
+        obj: this_read,
+        name: "__state".into(),
+    });
+    let seed_local = Stmt::LetDecl {
+        mutable: true,
+        name: super::desugar_generators_sm::RESUME_LOCAL.into(),
+        type_ann: Some("number".into()),
+        init: state_read,
+        is_var: false,
+    };
+    let this_kill = ast.add_expr(Expr::This);
+    let state_kill = ast.add_expr(Expr::Member {
+        obj: this_kill,
+        name: "__state".into(),
+    });
+    let dead_lit = ast.add_expr(Expr::Number(-1.0));
+    let kill = ast.add_expr(Expr::Assign {
+        target: state_kill,
+        value: dead_lit,
+    });
     vec![
+        seed_local,
+        Stmt::Expr(kill),
         Stmt::While {
             cond: true_lit,
             body: Box::new(Stmt::Block(loop_body)),
