@@ -1,38 +1,45 @@
 //! `Object.assign(target, ...sources)` namespace static method pulled
 //! out of [`crate::ssa_lower::lower_expr_inner`] `Expr::Call` dispatch
-//! as chunk-20 of the `Expr::Call` god-arm decomp (chunks 1-19 = Arr
-//! higher-order + Map dispatch + Set dispatch + Arr.push + Number
-//! instance methods + bare-name globals + Str regex methods + Number
-//! namespace + Array.from + Arr predicate iter + Arr.flatMap +
-//! Object.entries + fn-indirect + Number/String/Boolean coercion +
-//! universal methods + closure-local + Object.values + Object.keys +
-//! Object.getPrototypeOf).
+//! as chunk-20 of the `Expr::Call` god-arm decomp.
 //!
-//! S127-3 — N sources per ES §20.1.2.1. Copy each source's fields into
-//! the target left-to-right; last-source-wins emerges naturally from
-//! the per-store drop-old dance (each Store goes through the same
-//! Load+drop+Store shape, so an intermediate source's value is dropped
-//! before the next source overwrites).
+//! S127-3 — N sources per ES §20.1.2.1. Copy each source's own
+//! enumerable properties into the target, left-to-right; last-source-
+//! wins emerges naturally from the per-write drop-old dance.
 //!
-//! tr requires target = `Type::Obj(struct)` and sources of compatible
-//! struct layout; typecheck rejects loose target types (Type::Any
-//! follows a different path via dynobj copy, not this arm).
+//! RFC 20260714-objlit-accessor blade 8 — the copy walks PROPERTIES,
+//! not layout slots. §20.1.2.1 step 4.c.ii reads each source key with
+//! [[Get]] and writes the target with [[Set]], so an accessor on either
+//! side is reached through its own half:
 //!
-//! Field copy uses the standard refcount discipline:
-//! - Plain Copy field (`number`, `bool`): load → store, no rc work
-//! - Refcounted scalar (`string` / `bigint` / ...): load → emit_rc_inc
-//!   on borrowed source → store. Target's old value dropped first.
-//! - Refcounted `Type::Arr(_)`: deep-clone via `__torajs_arr_slice` +
-//!   per-element `emit_arr_rc_inc_range` so target gets its own array
-//!   independent of the source.
+//! * a source getter contributes what it ANSWERS (pre-fix the whole
+//!   shape was rejected — the source's `__getter_v` slot made its
+//!   struct type differ from the target's plain `v`);
+//! * a target setter RECEIVES the value (a plain slot copy would have
+//!   overwritten the setter closure);
+//! * a target get-only property throws `TypeError` (ES §10.1.9) — tr
+//!   used to copy the SOURCE's getter closure over it and answer the
+//!   source's value, silently.
 //!
-//! Returns `Some(target_op)` (target ptr passed through for chaining,
-//! per ES spec — `Object.assign(t, s)` returns `t`). `None` lets the
-//! caller fall through when callee isn't `Object.assign` or args.is_empty().
+//! Ownership per write, delegated to `ssa_lower_struct_own_props`:
+//! a data slot takes the value's reference (a borrowed field load is
+//! retained first, an owned getter result stored as-is); a setter is a
+//! call, so an owned value is released after it returns.
+//!
+//! §20.1.2.1 is a SHALLOW copy — `Get` hands over the source's own
+//! reference. tr used to deep-clone an `Arr` field (`arr_slice` +
+//! per-element rc_inc), so `Object.assign(t, s); s.arr.push(x)` left
+//! `t.arr` short one element where bun shares the array.
+//!
+//! Returns `Some(target_op)` (target passed through for chaining, per
+//! spec). `None` lets the caller fall through when the callee isn't
+//! `Object.assign` or `args.is_empty()`.
 
 use crate::ast::{Expr, ExprId};
-use crate::ssa::{InstKind, Operand, Type};
-use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx, OBJ_HEADER_SIZE};
+use crate::ssa::{Operand, Type};
+use crate::ssa_lower::LowerCtx;
+use crate::ssa_lower_struct_own_props::{
+    emit_prop_store, emit_prop_value, own_prop_sinks, own_props,
+};
 
 pub(crate) fn try_lower(
     ctx: &mut LowerCtx<'_>,
@@ -57,78 +64,34 @@ pub(crate) fn try_lower(
     }
     let target_op = ctx.lower_expr(args[0]);
     let target_ty = ctx.operand_ty(&target_op);
-    let Type::Obj(sid) = target_ty else {
+    let Type::Obj(t_sid) = target_ty else {
         panic!("ssa-lower: Object.assign target must be a struct, got {target_ty:?}");
     };
-    let layout = ctx.struct_layouts[sid.0 as usize].clone();
+    let t_layout = ctx.struct_layouts[t_sid.0 as usize].clone();
+    let sinks = own_prop_sinks(&t_layout);
     for src_eid in &args[1..] {
         let source_op = ctx.lower_expr(*src_eid);
-        for (idx, (_fname, fty)) in layout.iter().enumerate() {
-            let offset = OBJ_HEADER_SIZE + (idx as u64) * 8;
-            // Drop target's old value first (if non-Copy) so any
-            // refcounted field properly releases before being
-            // overwritten.
-            if !fty.is_copy() {
-                let old = ctx.f.append_inst(
-                    ctx.cur_block,
-                    InstKind::Load(*fty, target_op, offset),
-                    *fty,
-                    None,
-                );
-                ctx.emit_drop_value(Operand::Value(old), *fty);
-            }
-            // Load source.field (borrow).
-            let src_v = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Load(*fty, source_op, offset),
-                *fty,
-                None,
-            );
-            let to_store = if let Type::Arr(arr_id) = *fty {
-                // Deep-clone via arr_slice + per-element rc_inc so
-                // target gets its own array.
-                let len = ctx.f.append_inst(
-                    ctx.cur_block,
-                    InstKind::Load(Type::I64, Operand::Value(src_v), ARR_LEN_OFF),
-                    Type::I64,
-                    None,
-                );
-                let cloned = ctx.f.append_inst(
-                    ctx.cur_block,
-                    InstKind::Call(
-                        ctx.intrinsics.arr_slice,
-                        vec![
-                            Operand::Value(src_v),
-                            Operand::ConstI64(0),
-                            Operand::Value(len),
-                        ],
-                    ),
-                    *fty,
-                    None,
-                );
-                let elem_ty = ctx.arr_layouts[arr_id.0 as usize];
-                if elem_ty.is_refcounted() {
-                    let cloned_len = ctx.f.append_inst(
-                        ctx.cur_block,
-                        InstKind::Load(Type::I64, Operand::Value(cloned), ARR_LEN_OFF),
-                        Type::I64,
-                        None,
-                    );
-                    ctx.emit_arr_rc_inc_range(
-                        Operand::Value(cloned),
-                        Operand::ConstI64(0),
-                        Operand::Value(cloned_len),
-                    );
-                }
-                Operand::Value(cloned)
-            } else {
-                if fty.is_refcounted() {
-                    ctx.emit_rc_inc(Operand::Value(src_v));
-                }
-                Operand::Value(src_v)
-            };
-            ctx.f
-                .append_void(ctx.cur_block, InstKind::Store(to_store, target_op, offset));
+        let src_ty = ctx.operand_ty(&source_op);
+        let Type::Obj(s_sid) = src_ty else {
+            panic!("ssa-lower: Object.assign source must be a struct, got {src_ty:?}");
+        };
+        let s_layout = ctx.struct_layouts[s_sid.0 as usize].clone();
+        for prop in own_props(&s_layout, ctx.fn_sigs) {
+            // The checker matched the two property sets key-for-key, so
+            // a missing sink here is a compiler bug, not a user error.
+            let sink = sinks
+                .iter()
+                .find(|s| s.key == prop.key)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "ssa-lower: Object.assign source property `{}` has no target sink",
+                        prop.key
+                    )
+                })
+                .sink;
+            let val_ty = prop.ty();
+            let (value, owned) = emit_prop_value(ctx, &source_op, &prop);
+            emit_prop_store(ctx, &target_op, &sink, value, owned, val_ty);
         }
     }
     // RFC 20260705 owned-result invariant: ES answers the target;

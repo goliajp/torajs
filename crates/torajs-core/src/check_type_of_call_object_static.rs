@@ -67,20 +67,37 @@ pub(crate) fn try_match(
             Ok(t) => t,
             Err(e) => return Some(Err(e)),
         };
-        let Type::Struct(_) = &target_ty else {
+        let Type::Struct(t_fields) = &target_ty else {
             return Some(Err(format!(
                 "Object.assign target must be a struct, got {target_ty:?}"
             )));
         };
+        let sinks = own_property_sink_types(t_fields);
         for (i, src_id) in args[1..].iter().enumerate() {
             let source_ty = match checker.type_of(ast, *src_id) {
                 Ok(t) => t,
                 Err(e) => return Some(Err(e)),
             };
-            if target_ty != source_ty {
+            let Type::Struct(s_fields) = &source_ty else {
                 return Some(Err(format!(
-                    "Object.assign requires identical struct types in this subset; target={target_ty:?}, source[{i}]={source_ty:?}"
+                    "Object.assign source[{i}] must be a struct, got {source_ty:?}"
                 )));
+            };
+            for (key, read_ty) in own_property_types(s_fields) {
+                let Some((_, accepts)) = sinks.iter().find(|(k, _)| *k == key) else {
+                    return Some(Err(format!(
+                        "Object.assign source[{i}] has property `{key}`, which the target struct has no slot for; target={target_ty:?}"
+                    )));
+                };
+                // A get-only target property accepts nothing — the write
+                // is a strict-mode TypeError (ES §10.1.9), which SSA-lower
+                // emits. It is a RUNTIME throw, so it must typecheck.
+                let Some(write_ty) = accepts else { continue };
+                if *write_ty != read_ty {
+                    return Some(Err(format!(
+                        "Object.assign source[{i}] property `{key}` is {read_ty:?}, but the target takes {write_ty:?}"
+                    )));
+                }
             }
         }
         return Some(Ok(target_ty));
@@ -147,6 +164,41 @@ pub(crate) fn try_match(
         return Some(Ok(Type::Array(Box::new(first.clone()))));
     }
     None
+}
+
+/// The own properties a struct's layout enumerates, in declaration
+/// order, with the type each ACCEPTS on a [[Set]]-based write — the
+/// mirror of [`own_property_types`], for `Object.assign`'s target side
+/// (RFC 20260714-objlit-accessor blade 8).
+///
+/// * a data field accepts its own type;
+/// * `__setter_v` accepts its setter's PARAM type under the key `v`
+///   (the setter half wins over its getter — a write goes through it);
+/// * a get-only accessor accepts nothing (`None`) — ES §10.1.9 makes
+///   the write a strict-mode `TypeError`, which SSA-lower emits, so it
+///   must typecheck rather than be rejected.
+pub(crate) fn own_property_sink_types(fields: &[(String, Type)]) -> Vec<(String, Option<Type>)> {
+    let mut out: Vec<(String, Option<Type>)> = Vec::new();
+    for (name, ty) in fields {
+        let (key, accepts) = match crate::check_type_of_object_lit::accessor_slot(name) {
+            Some(("__setter_", prop)) => {
+                let param = match ty {
+                    Type::Function(params, _) => params.first().cloned().unwrap_or(Type::Any),
+                    _ => Type::Any,
+                };
+                (prop.to_string(), Some(param))
+            }
+            Some((_, prop)) => (prop.to_string(), None),
+            None => (name.clone(), Some(ty.clone())),
+        };
+        match out.iter_mut().find(|(k, _)| *k == key) {
+            // A getter half seen first is superseded by its setter.
+            Some(slot) if slot.1.is_none() => slot.1 = accepts,
+            Some(_) => {}
+            None => out.push((key, accepts)),
+        }
+    }
+    out
 }
 
 /// The own properties a struct's layout enumerates, in declaration

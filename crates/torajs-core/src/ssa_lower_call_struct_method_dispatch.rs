@@ -194,17 +194,48 @@ pub(crate) fn emit_receiver_closure_call(
     emit_closure_call(ctx, recv_op, offset, user_sig_id, args, true)
 }
 
-fn emit_closure_call(
+/// Same `(__env, __this, ...user)` ABI as [`emit_receiver_closure_call`],
+/// but the user args are ALREADY lowered. `Object.assign`'s setter sink
+/// (RFC 20260714-objlit-accessor blade 8) hands over a value it read
+/// out of the SOURCE — there is no arg ExprId to lower, and no call-
+/// boundary coercion to run: the checker matched the source's property
+/// type against this setter's param type.
+pub(crate) fn emit_receiver_closure_call_ops(
     ctx: &mut LowerCtx<'_>,
     recv_op: Operand,
     offset: u64,
     user_sig_id: SigId,
-    args: &[ExprId],
-    takes_recv: bool,
+    arg_ops: Vec<Operand>,
 ) -> Operand {
+    let mut site = prepare_closure_call(ctx, recv_op, offset, user_sig_id, true);
+    site.argv.extend(arg_ops);
+    finish_closure_call(ctx, site)
+}
+
+/// The env / fn-ptr loads and the widened ABI signature a closure call
+/// needs, hoisted so both arg lanes (ExprId — which must lower its args
+/// BETWEEN the loads and the call — and pre-lowered Operand) share one
+/// definition of the ABI.
+struct ClosureCallSite {
+    fn_ptr: Operand,
+    user_params: Vec<Type>,
+    ret_ty: Type,
+    env_first_sig: SigId,
+    /// Seeded with the fixed leading slots (env, and `__this` when the
+    /// callee takes a receiver); the caller appends the user args.
+    argv: Vec<Operand>,
+}
+
+fn prepare_closure_call(
+    ctx: &mut LowerCtx<'_>,
+    recv_op: Operand,
+    offset: u64,
+    user_sig_id: SigId,
+    takes_recv: bool,
+) -> ClosureCallSite {
     let closure_env = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::Load(Type::Ptr, recv_op, offset),
+        InstKind::Load(Type::Ptr, recv_op.clone(), offset),
         Type::Ptr,
         None,
     );
@@ -228,42 +259,74 @@ fn emit_closure_call(
     }
     abi_params.extend(user_params.iter().copied());
     let env_first_sig = intern_fn_sig(ctx.fn_sigs, abi_params, ret_ty);
-    let mut argv: Vec<Operand> = Vec::with_capacity(args.len() + fixed);
+    let mut argv: Vec<Operand> = Vec::with_capacity(user_params.len() + fixed);
     argv.push(Operand::Value(closure_env));
     if takes_recv {
         // Borrowed, like a class method's receiver — a method does not
         // consume its `this`.
         argv.push(recv_op);
     }
-    // Same post-lower cur_block rule as emit_fnsig_call above — a
-    // branching arg moves cur_block; the loads dominate the merge.
-    for a in args {
-        argv.push(ctx.lower_expr(*a));
+    ClosureCallSite {
+        fn_ptr: Operand::Value(fn_ptr),
+        user_params,
+        ret_ty,
+        env_first_sig,
+        argv,
     }
-    // RFC 20260714-t262-top-clusters 刀 1 — same call-boundary
-    // coercion as the direct-call terminal (the leading env / `__this`
-    // slots are ours; the user args align with the user param list).
-    let coerce_owned = crate::ssa_lower_call_terminal::coerce_args_by_param_tys(
-        ctx,
-        &user_params,
-        args,
-        &mut argv[fixed..],
-    );
-    let result = if ret_ty == Type::Void {
+}
+
+fn finish_closure_call(ctx: &mut LowerCtx<'_>, site: ClosureCallSite) -> Operand {
+    let ClosureCallSite {
+        fn_ptr,
+        ret_ty,
+        env_first_sig,
+        argv,
+        ..
+    } = site;
+    if ret_ty == Type::Void {
         ctx.f.append_void(
             ctx.cur_block,
-            InstKind::CallIndirect(env_first_sig, Operand::Value(fn_ptr), argv),
+            InstKind::CallIndirect(env_first_sig, fn_ptr, argv),
         );
         Operand::ConstPtrNull
     } else {
         let v = ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::CallIndirect(env_first_sig, Operand::Value(fn_ptr), argv),
+            InstKind::CallIndirect(env_first_sig, fn_ptr, argv),
             ret_ty,
             None,
         );
         Operand::Value(v)
-    };
+    }
+}
+
+fn emit_closure_call(
+    ctx: &mut LowerCtx<'_>,
+    recv_op: Operand,
+    offset: u64,
+    user_sig_id: SigId,
+    args: &[ExprId],
+    takes_recv: bool,
+) -> Operand {
+    let mut site = prepare_closure_call(ctx, recv_op, offset, user_sig_id, takes_recv);
+    let fixed = site.argv.len();
+    // Same post-lower cur_block rule as emit_fnsig_call above — a
+    // branching arg moves cur_block; the loads dominate the merge.
+    for a in args {
+        let op = ctx.lower_expr(*a);
+        site.argv.push(op);
+    }
+    // RFC 20260714-t262-top-clusters 刀 1 — same call-boundary
+    // coercion as the direct-call terminal (the leading env / `__this`
+    // slots are ours; the user args align with the user param list).
+    let user_params = site.user_params.clone();
+    let coerce_owned = crate::ssa_lower_call_terminal::coerce_args_by_param_tys(
+        ctx,
+        &user_params,
+        args,
+        &mut site.argv[fixed..],
+    );
+    let result = finish_closure_call(ctx, site);
     for op in coerce_owned {
         ctx.emit_drop_value(op, Type::Str);
     }

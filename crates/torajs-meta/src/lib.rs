@@ -38,6 +38,7 @@ pub mod str_descriptor;
 pub mod struct_enum;
 pub mod struct_print;
 pub mod struct_reflect;
+pub mod throw_readonly;
 
 pub use classmeta::{
     __torajs_anyv_class_get, __torajs_anyv_class_register, __torajs_anyv_proto_get,
@@ -45,6 +46,7 @@ pub use classmeta::{
 };
 pub use fnprops::{__torajs_fnprops_get_tag, __torajs_fnprops_get_value, __torajs_fnprops_set};
 pub use reflect::{__torajs_anyv_get_property_descriptor, __torajs_anyv_get_proto_of_any};
+pub use throw_readonly::__torajs_throw_readonly_assign;
 
 // ============================================================
 // cargo-test stubs — cross-tier symbols

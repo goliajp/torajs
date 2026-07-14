@@ -325,6 +325,11 @@ pub(crate) struct Intrinsics {
     pub(crate) dynobj_define_properties_from: FuncId,
     pub(crate) arr_throw_reduce_empty: FuncId,
     pub(crate) arr_throw_reduce_right_empty: FuncId,
+    /// ES §10.1.9 — writing a property that has a [[Get]] but no
+    /// [[Set]] is a strict-mode `TypeError`. `Object.assign` sees this
+    /// at compile time off the target's layout (`__getter_v` with no
+    /// `__setter_v` half) and emits the 0-arg throw unconditionally.
+    pub(crate) throw_readonly_assign: FuncId,
     pub(crate) arr_length_descriptor: FuncId,
     pub(crate) str_length_descriptor: FuncId,
     pub(crate) arr_index_strs: FuncId,

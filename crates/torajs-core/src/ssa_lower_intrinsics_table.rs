@@ -294,6 +294,7 @@ pub(crate) fn build(
         dynobj_define_properties_from: init_b.object.dynobj_define_properties_from,
         arr_throw_reduce_empty: init_b.object.arr_throw_reduce_empty,
         arr_throw_reduce_right_empty: init_b.object.arr_throw_reduce_right_empty,
+        throw_readonly_assign: init_b.object.throw_readonly_assign,
         arr_length_descriptor: init_b.object.arr_length_descriptor,
         str_length_descriptor: init_b.object.str_length_descriptor,
         arr_index_strs: init_b.object.arr_index_strs,
