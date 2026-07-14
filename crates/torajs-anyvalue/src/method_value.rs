@@ -355,10 +355,18 @@ pub(crate) fn builtin_method_supported(recv: AnyValue, mid: i64) -> bool {
         t if t == Tag::WeakSet as u16 => weakset_supports(mid),
         t if t == Tag::Closure as u16 => closure_supports(mid),
         // Plain objects (dynobj / static-layout struct) reach the
-        // dispatcher's Object.prototype toLocaleString arm; their
-        // other methods resolve by name probe, not by mid.
+        // dispatcher's Object.prototype toLocaleString arm plus the
+        // Annex B §B.2.2.2-5 legacy accessor four, which they inherit
+        // from Object.prototype like any other object — the dispatcher
+        // has answered those calls since RFC
+        // 20260713-annexb-legacy-accessor, but reading one as a value
+        // (`typeof o.__defineGetter__`, `f.call(o, …)`) went through
+        // here and said undefined. Their remaining methods resolve by
+        // name probe, not by mid.
         t if t == Tag::DynObj as u16 || t == Tag::Obj as u16 => {
             mid == torajs_rc::ANY_METHOD_TO_LOCALE_STRING
+                || (torajs_rc::ANY_METHOD_DEFINE_GETTER..=torajs_rc::ANY_METHOD_LOOKUP_SETTER)
+                    .contains(&mid)
         }
         _ => false,
     }
