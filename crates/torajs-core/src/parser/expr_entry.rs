@@ -59,6 +59,10 @@ impl<'a> Parser<'a> {
                 }
                 lexer::TemplatePart::Expr(tokens) => {
                     let mut sub = Parser {
+                        // Template interpolation tokens were extracted
+                        // from `self.source` — the same slice satisfies
+                        // ASI's byte-span probe for the sub-parse.
+                        source: self.source,
                         tokens,
                         pos: 0,
                         type_close_peel: 0,

@@ -185,7 +185,7 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
             .map_err(|e| format!("import {}: {e}", target_path.display()))?;
         let tokens = lexer::tokenize(&src_text)
             .map_err(|e| format!("import {} lex: {e}", target_path.display()))?;
-        let lib_offset = parser::parse_into(&tokens, ast)
+        let lib_offset = parser::parse_into(&src_text, &tokens, ast)
             .map_err(|e| format!("import {} parse: {e}", target_path.display()))?;
         if closure_paths.insert(target_path.clone()) {
             closure_files.push((target_path.clone(), src_text.into_bytes()));

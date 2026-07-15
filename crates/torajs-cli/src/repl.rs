@@ -256,7 +256,7 @@ fn parse_check(src: &str) -> ParseOutcome {
         Ok(t) => t,
         Err(e) => return ParseOutcome::Error(format!("lex: {e}")),
     };
-    let mut a = match parser::parse(&tokens) {
+    let mut a = match parser::parse(src, &tokens) {
         Ok(a) => a,
         Err(e) => {
             if looks_like_unfinished(&e) {

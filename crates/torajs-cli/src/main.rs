@@ -181,7 +181,7 @@ fn pipeline(src: &str, base_dir: &Path, stage: Stage) -> ExitCode {
         return ExitCode::SUCCESS;
     }
 
-    let mut ast = match parser::parse(&tokens) {
+    let mut ast = match parser::parse(src, &tokens) {
         Ok(a) => a,
         Err(e) => {
             eprintln!("parse error: {e}");

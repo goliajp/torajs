@@ -71,7 +71,7 @@ pub fn format(source: &str) -> Result<String, FormatError> {
         return Err(FormatError::CommentsPresent);
     }
     let tokens = lexer::tokenize(source).map_err(FormatError::Lex)?;
-    let ast = parser::parse(&tokens).map_err(FormatError::Parse)?;
+    let ast = parser::parse(source, &tokens).map_err(FormatError::Parse)?;
     let mut f = Formatter::new(&ast);
     for stmt in &ast.stmts {
         f.fmt_top_stmt(stmt);

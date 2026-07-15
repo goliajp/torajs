@@ -454,7 +454,7 @@ mod tests {
 
     fn slots(src: &str) -> Slots {
         let tokens = lexer::tokenize(src).expect("lex");
-        let ast = parser::parse(&tokens).expect("parse");
+        let ast = parser::parse(src, &tokens).expect("parse");
         Slots(analyze(&ast, &HashMap::new(), &HashMap::new()))
     }
 

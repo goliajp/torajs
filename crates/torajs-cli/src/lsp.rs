@@ -185,7 +185,7 @@ fn compute_diagnostics(uri: &Uri, text: &str) -> Vec<Diagnostic> {
             Ok(t) => t,
             Err(e) => return vec![error_at_origin(format!("lex error: {e}"))],
         };
-        let mut ast = match torajs_core::parser::parse(&tokens) {
+        let mut ast = match torajs_core::parser::parse(text, &tokens) {
             Ok(a) => a,
             Err(e) => return vec![error_at_origin(format!("parse error: {e}"))],
         };
@@ -392,7 +392,7 @@ fn send_err(
 fn compute_hover(text: &str, pos: Position) -> Option<Hover> {
     let computation = std::panic::AssertUnwindSafe(|| {
         let tokens = torajs_core::lexer::tokenize(text).ok()?;
-        let mut ast = torajs_core::parser::parse(&tokens).ok()?;
+        let mut ast = torajs_core::parser::parse(text, &tokens).ok()?;
         ast.source = text.to_string();
         ast.warm_newline_cache();
         // No cross-file resolution + no desugars on the hover path;

@@ -19,8 +19,16 @@ use super::*;
 impl<'a> Parser<'a> {
     pub(super) fn parse_return(&mut self) -> Result<Stmt, String> {
         self.pos += 1; // consume `return`
+        // ES §14.10 ReturnStatement is a restricted production:
+        // `return [no LineTerminator here] Expression? ;` — a newline
+        // between `return` and the next token forces `return;` even
+        // if that token would otherwise start an Expression. Pre-fix
+        // `function f() { return\n1; }` parsed as `return 1;`
+        // (test262 language/asi/S7.9_A3.js: fn returns `undefined`,
+        // tr returned 1).
         let expr = match self.peek() {
             Token::Semi | Token::RBrace | Token::Eof => None,
+            _ if self.has_newline_before(self.pos) => None,
             _ => Some(self.parse_expr()?),
         };
         if matches!(self.peek(), Token::Semi) {

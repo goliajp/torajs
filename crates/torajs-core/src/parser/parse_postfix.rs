@@ -64,6 +64,17 @@ impl<'a> Parser<'a> {
                     // `Expr::PostIncr`. (Pre-increment uses `Expr::Assign`
                     // with a `target = target + 1` shape — that's already
                     // covered by the prefix-side parser.)
+                    //
+                    // ES §12.5.8 / §12.5.9 restricted production:
+                    // `LHS [no LineTerminator here] (++|--)` — a newline
+                    // between the LHS and `++` / `--` breaks the postfix,
+                    // and the operator becomes a prefix on the next stmt.
+                    // Pre-fix `x\n++y` parsed as `x++; y;` (assigning back
+                    // to `x`) instead of `x;\n++y;` (leaving x untouched
+                    // and pre-incrementing y).
+                    if self.has_newline_before(self.pos) {
+                        return Ok(node);
+                    }
                     let is_inc = matches!(self.peek(), Token::PlusPlus);
                     self.pos += 1;
                     node = self.ast.add_expr(Expr::PostIncr {

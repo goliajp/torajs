@@ -64,9 +64,9 @@ mod type_ann;
 mod type_decl;
 use class_member::ClassMemberModifierPrefix;
 
-pub fn parse(tokens: &[Spanned]) -> Result<Ast, String> {
+pub fn parse(source: &str, tokens: &[Spanned]) -> Result<Ast, String> {
     let mut ast = Ast::default();
-    parse_into(tokens, &mut ast)?;
+    parse_into(source, tokens, &mut ast)?;
     Ok(ast)
 }
 
@@ -87,11 +87,12 @@ pub fn parse(tokens: &[Spanned]) -> Result<Ast, String> {
 /// by parse-time desugars in the imported file can't collide with
 /// names already minted while parsing the main file (or any earlier
 /// imported file).
-pub fn parse_into(tokens: &[Spanned], target: &mut Ast) -> Result<usize, String> {
+pub fn parse_into(source: &str, tokens: &[Spanned], target: &mut Ast) -> Result<usize, String> {
     let stmt_offset = target.stmts.len();
     let id_offset = target.exprs.len() as u32;
     let taken = std::mem::take(target);
     let mut p = Parser {
+        source,
         tokens,
         pos: 0,
         type_close_peel: 0,
@@ -110,6 +111,15 @@ pub fn parse_into(tokens: &[Spanned], target: &mut Ast) -> Result<usize, String>
 }
 
 struct Parser<'a> {
+    /// Source bytes as originally read — kept alongside `tokens` so
+    /// restricted-production ASI checks (`parse_return`, postfix `++` /
+    /// `--` in `parse_postfix`) can scan the whitespace slice between
+    /// two adjacent tokens for a LineTerminator per ES §12.9.1.
+    /// Tokens carry byte spans but not the "was there a newline
+    /// between me and the previous token?" bit, so the check reads
+    /// `source[prev_end..cur_start]` and looks for `\n` / `\r` /
+    /// U+2028 / U+2029.
+    source: &'a str,
     tokens: &'a [Spanned],
     pos: usize,
     // S155 — `Foo<Bar<X>>` lexes the closing `>>` as one ShrShr token;
@@ -263,6 +273,58 @@ impl Parser<'_> {
 
     fn at(&self) -> u32 {
         self.tokens[self.pos].span.start
+    }
+
+    /// ES §12.9.1 restricted production probe — was there a
+    /// LineTerminator (LF/CR/U+2028/U+2029) in the whitespace slice
+    /// between the previous consumed token and `self.tokens[at]`?
+    /// Returns `false` at the start of the token stream (no "previous
+    /// token" to measure from).
+    ///
+    /// Callers:
+    /// - `parse_return`'s expr-parse gate (`return [no LT] Expr?;`)
+    /// - `parse_postfix`'s `++` / `--` arm
+    ///   (`LHS [no LT] (++|--)` — a leading `++` / `--` after a
+    ///   newline is a *prefix* op on the next stmt, not a postfix on
+    ///   the previous LHS).
+    ///
+    /// Cost: one linear scan over the between-token whitespace slice,
+    /// which is only walked on the restricted-production sites (a few
+    /// per parse). Kept simple over caching a per-token bit since the
+    /// call sites are rare.
+    fn has_newline_before(&self, at: usize) -> bool {
+        if at == 0 || at > self.tokens.len() {
+            return false;
+        }
+        let prev_end = self.tokens[at - 1].span.end as usize;
+        let cur_start = if at < self.tokens.len() {
+            self.tokens[at].span.start as usize
+        } else {
+            self.source.len()
+        };
+        if cur_start <= prev_end {
+            return false;
+        }
+        let bytes = self.source.as_bytes();
+        let end = cur_start.min(bytes.len());
+        let mut i = prev_end;
+        while i < end {
+            let b = bytes[i];
+            if b == b'\n' || b == b'\r' {
+                return true;
+            }
+            // U+2028 LINE SEPARATOR = E2 80 A8, U+2029 PARAGRAPH
+            // SEPARATOR = E2 80 A9. Both are LineTerminators per
+            // §12.3 TABLE.
+            if b == 0xE2 && i + 2 < end && bytes[i + 1] == 0x80 {
+                let b2 = bytes[i + 2];
+                if b2 == 0xA8 || b2 == 0xA9 {
+                    return true;
+                }
+            }
+            i += 1;
+        }
+        false
     }
 
     /// v0.3 #4 DWARF — add an Expr to the arena AND record its source

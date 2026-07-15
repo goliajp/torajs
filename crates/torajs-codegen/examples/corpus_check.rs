@@ -69,7 +69,7 @@ fn print_help() {
 fn run_single(path: &Path) {
     let src = fs::read_to_string(path).unwrap_or_else(|e| panic!("PIPELINE read: {e}"));
     let tokens = lexer::tokenize(&src).unwrap_or_else(|e| panic!("PIPELINE lex: {e}"));
-    let ast = parser::parse(&tokens).unwrap_or_else(|e| panic!("PIPELINE parse: {e}"));
+    let ast = parser::parse(&src, &tokens).unwrap_or_else(|e| panic!("PIPELINE parse: {e}"));
     let artifacts = check::check_with_arity(&ast).unwrap_or_else(|e| {
         // Keep only the first line so the parent's classifier
         // doesn't blow up over multi-line diagnostic blocks.

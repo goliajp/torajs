@@ -527,7 +527,7 @@ mod tests {
 
     fn check_src(src: &str) -> Result<(), String> {
         let tokens = lexer::tokenize(src).map_err(|e| format!("lex: {e}"))?;
-        let mut ast = parser::parse(&tokens).map_err(|e| format!("parse: {e}"))?;
+        let mut ast = parser::parse(src, &tokens).map_err(|e| format!("parse: {e}"))?;
         crate::ast::lift_arrow_fns(&mut ast);
         super::check(&ast).map(|_| ())
     }

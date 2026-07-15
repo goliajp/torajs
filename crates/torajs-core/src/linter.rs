@@ -51,7 +51,7 @@ impl std::error::Error for LintError {}
 
 pub fn lint(source: &str) -> Result<Vec<Diagnostic>, LintError> {
     let tokens = lexer::tokenize(source).map_err(LintError::Lex)?;
-    let ast = parser::parse(&tokens).map_err(LintError::Parse)?;
+    let ast = parser::parse(source, &tokens).map_err(LintError::Parse)?;
     let mut diags = Vec::new();
     let mut linter = Linter {
         ast: &ast,

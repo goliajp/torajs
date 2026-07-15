@@ -335,7 +335,7 @@ mod tests {
 
     fn cyclic(src: &str) -> HashSet<String> {
         let tokens = lexer::tokenize(src).expect("lex");
-        let ast = parser::parse(&tokens).expect("parse");
+        let ast = parser::parse(src, &tokens).expect("parse");
         cyclic_alias_names(&ast)
     }
 
@@ -349,7 +349,7 @@ mod tests {
     fn step_alias_is_nominal_but_not_cyclic() {
         let src = "type __step_g = { value: number; done: boolean };";
         let tokens = lexer::tokenize(src).expect("lex");
-        let ast = parser::parse(&tokens).expect("parse");
+        let ast = parser::parse(src, &tokens).expect("parse");
         assert!(nominal_alias_names(&ast).contains("__step_g"));
         assert!(cyclic_alias_names(&ast).is_empty());
     }

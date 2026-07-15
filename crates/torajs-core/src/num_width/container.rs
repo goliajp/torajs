@@ -338,13 +338,13 @@ mod tests {
 
     fn table(src: &str) -> WidthTable {
         let tokens = lexer::tokenize(src).expect("lex");
-        let ast = parser::parse(&tokens).expect("parse");
+        let ast = parser::parse(src, &tokens).expect("parse");
         analyze(&ast, &HashMap::new(), &HashMap::new())
     }
 
     fn table_classes(src: &str) -> WidthTable {
         let tokens = lexer::tokenize(src).expect("lex");
-        let mut ast = parser::parse(&tokens).expect("parse");
+        let mut ast = parser::parse(src, &tokens).expect("parse");
         crate::ast::desugar_classes(&mut ast);
         analyze(&ast, &HashMap::new(), &HashMap::new())
     }

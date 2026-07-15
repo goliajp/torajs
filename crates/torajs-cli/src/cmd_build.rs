@@ -125,7 +125,7 @@ pub(crate) fn lower_to_ssa(input: &str) -> Result<Module, ExitCode> {
         eprintln!("lex error: {e}");
         ExitCode::from(1)
     })?;
-    let mut ast = parser::parse(&tokens).map_err(|e| {
+    let mut ast = parser::parse(&src, &tokens).map_err(|e| {
         eprintln!("parse error: {e}");
         ExitCode::from(1)
     })?;

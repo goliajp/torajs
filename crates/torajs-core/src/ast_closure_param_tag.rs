@@ -427,7 +427,7 @@ mod tests {
 
     fn pass_output(src: &str) -> Ast {
         let toks = tokenize(src).expect("lex");
-        let mut ast = parse(&toks).expect("parse");
+        let mut ast = parse(src, &toks).expect("parse");
         lift_arrow_fns(&mut ast);
         tag_closure_arg_params(&mut ast);
         ast
