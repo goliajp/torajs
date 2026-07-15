@@ -20,7 +20,9 @@ use core::ffi::c_void;
 
 use crate::define_from_desc::__torajs_dynobj_define_from_desc;
 use crate::get::type_tag;
-use crate::layout::{BUCKET_FLAG_ENUMERABLE, DYNOBJ_KEY_HOLE, TAG_DYNOBJ};
+use crate::layout::{
+    BUCKET_FLAG_ENUMERABLE, DYNOBJ_KEY_HOLE, TAG_ARR_HDR, TAG_CLOSURE_HDR, TAG_DYNOBJ, TAG_OBJ,
+};
 use crate::probe::{bucket_flags, bucket_key_ptr, entries, entries_len};
 
 unsafe extern "C" {
@@ -97,20 +99,26 @@ pub unsafe extern "C" fn __torajs_dynobj_define_properties_from(
         // so the gate here matches its accept set instead of
         // dynobj-only.
         //
-        // RFC 20260716 刀 22 — the accept set was stricter than the
-        // dispatcher (Tag::Obj / Map / Set / Date / … all landed in
-        // the dispatcher's `_ => null` empty-desc fallback anyway),
-        // so an ObjectLit-shaped desc value (`{value: {},
-        // enumerable: true}` propagated through
-        // `Object.defineProperty(props, ...)`) was rejected here
-        // even though the dispatcher would have accepted it. Every
-        // ANY_HEAP + non-null cell now clears this gate;
-        // `define_from_desc` still validates and — for cells without
-        // dynobj-backed expando storage — falls through to the
-        // empty-descriptor path (create with all-false flags,
-        // `value = undefined`). Non-object primitives (Undef / Null
-        // / I64 / F64 / Bool) still fail here.
-        let desc_ok = d_tag == ANY_HEAP && d_val != 0;
+        // RFC 20260716 刀 22 — extend accept to include `TAG_OBJ`
+        // (static-layout ObjectLit cells) so a desc value like
+        // `{value: {}, enumerable: true}` propagated through
+        // `Object.defineProperty(props, ...)` clears this gate; the
+        // dispatcher's `_ => null` fallback treats such a cell as an
+        // empty descriptor (create with all-false flags,
+        // `value = undefined`). Str / Symbol / AccessorPair /
+        // BigInt / Wrapper cells stay OUT of the accept set — a
+        // primitive string `"abc"` descriptor and a "no-getter" own
+        // accessor entry (spec-Get(props, key) = undefined) must
+        // both hit the §6.2.6.5 step-1 TypeError, not the empty-desc
+        // fallback (regression witnessed by
+        // `test262:S15.2.3.5-4-{26,45}` when the accept was widened
+        // to all heap cells).
+        let desc_ok = d_tag == ANY_HEAP
+            && d_val != 0
+            && matches!(
+                unsafe { type_tag(d_val as *const c_void) },
+                TAG_DYNOBJ | TAG_CLOSURE_HDR | TAG_ARR_HDR | TAG_OBJ
+            );
         if !desc_ok {
             unsafe {
                 __torajs_throw_type_error(

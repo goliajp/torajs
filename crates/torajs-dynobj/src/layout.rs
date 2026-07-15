@@ -71,6 +71,14 @@ pub const TAG_ARR_HDR: u16 = 2;
 /// (`CLOSURE_PROPS_OFF` mirror — same slot Arr uses).
 pub const TAG_CLOSURE_HDR: u16 = 3;
 
+/// `type_tag` mirror for Obj (static-layout class instance / typed
+/// property bag = `torajs_rc::Tag::Obj` = 1). Used by
+/// `define_all`'s desc gate so an ObjectLit-shaped desc value
+/// (`{value: {}, enumerable: true}`) clears the same accept path as
+/// DynObj / Arr / Closure receivers; the dispatcher's `_ => null`
+/// fallback treats it as an empty descriptor (spec §6.2.6.5).
+pub const TAG_OBJ: u16 = 1;
+
 /// Arr / Closure expando props-dynobj slot offset (torajs-arr
 /// `ARR_PROPS_OFF` / torajs-core `CLOSURE_PROPS_OFF` mirror).
 pub const CELL_PROPS_OFF: usize = 24;
