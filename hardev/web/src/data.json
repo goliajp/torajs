@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-15T09:52:28.596Z",
+  "generatedAt": "2026-07-15T10:30:18.938Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 92.41
   },
   "torajs": {
-    "commit": "2b779be3",
-    "commitSubject": "chore: archive the test262 sweep at 42737b81",
+    "commit": "c50ff251",
+    "commitSubject": "fix: isFinite / isNaN propagate abrupt from ToNumber(object)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,18 @@
   },
   "commits": [
     {
+      "hash": "c50ff251",
+      "subject": "fix: isFinite / isNaN propagate abrupt from ToNumber(object)"
+    },
+    {
+      "hash": "4f3324eb",
+      "subject": "fix: preventExtensions ObjectLit-arg routes to DynObj lane"
+    },
+    {
+      "hash": "813edb38",
+      "subject": "chore: hardev dashboard snapshot at rotation 108 mid"
+    },
+    {
       "hash": "2b779be3",
       "subject": "chore: archive the test262 sweep at 42737b81"
     },
@@ -747,21 +759,9 @@
     {
       "hash": "07ec30a3",
       "subject": "chore: hardev dashboard snapshot at rotation 106 close"
-    },
-    {
-      "hash": "6f17b5dd",
-      "subject": "fix: Object.getPrototypeOf(null | undefined) throws TypeError"
-    },
-    {
-      "hash": "d7ccf84f",
-      "subject": "fix(test262-runner): UTF-8-safe fallback copy in transform_source"
-    },
-    {
-      "hash": "2ba96f8c",
-      "subject": "fix: honor ES §12.9.1 restricted productions in parse_return and postfix ++/--"
     }
   ],
-  "headSha": "2b779be3",
+  "headSha": "c50ff251",
   "autorun": {
     "total": 413,
     "baselineTarget": 10,
