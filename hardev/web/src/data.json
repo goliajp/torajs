@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-15T08:49:43.534Z",
+  "generatedAt": "2026-07-15T09:52:28.596Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-15T08:02:18Z",
-    "headSha": "43495ad6",
-    "elapsedSec": 616.17,
+    "ranAt": "2026-07-15T09:09:38Z",
+    "headSha": "983352d1",
+    "elapsedSec": 534.23,
     "workers": 8,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 7041,
-    "passNoOracle": 165,
-    "passNegative": 4444,
-    "passTotal": 11650,
-    "bug": 970,
-    "incompatible": 40554,
+    "pass": 7047,
+    "passNoOracle": 166,
+    "passNegative": 4447,
+    "passTotal": 11660,
+    "bug": 957,
+    "incompatible": 40557,
     "bunSkip": 12565,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 12620,
-    "passRateInScope": 21.91,
-    "passRateTrAccepted": 92.31
+    "trAccepted": 12617,
+    "passRateInScope": 21.93,
+    "passRateTrAccepted": 92.41
   },
   "torajs": {
-    "commit": "42737b81",
-    "commitSubject": "fix: str.split(undefined, limit) SIGSEGV — respect spec steps 8-9",
+    "commit": "2b779be3",
+    "commitSubject": "chore: archive the test262 sweep at 42737b81",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "2b779be3",
+      "subject": "chore: archive the test262 sweep at 42737b81"
+    },
+    {
+      "hash": "983352d1",
+      "subject": "chore: hardev dashboard snapshot at rotation 107 close"
+    },
+    {
       "hash": "42737b81",
       "subject": "fix: str.split(undefined, limit) SIGSEGV — respect spec steps 8-9"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "2ba96f8c",
       "subject": "fix: honor ES §12.9.1 restricted productions in parse_return and postfix ++/--"
-    },
-    {
-      "hash": "3f2f63aa",
-      "subject": "fix: primitive `.toString()`/`.valueOf()` demote past same-named user class method"
-    },
-    {
-      "hash": "5ea15bb1",
-      "subject": "fix: arr.lastIndexOf(v, Infinity) — clamp fromIndex before +1 to avoid overflow"
     }
   ],
-  "headSha": "42737b81",
+  "headSha": "2b779be3",
   "autorun": {
     "total": 413,
     "baselineTarget": 10,
