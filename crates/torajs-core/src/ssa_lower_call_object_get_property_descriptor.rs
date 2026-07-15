@@ -117,14 +117,39 @@ pub(crate) fn try_lower(
     } else {
         ctx.box_to_any_from_expr(args[0], obj_raw)
     };
-    let key_op = ctx.lower_expr(args[1]);
+    // RFC 20260716 刀 17 — ToPropertyKey coerce the key arg (checker
+    // 刀 17 relaxed the sig from Type::String to Type::Any). Runtime
+    // helper takes a raw Str pointer; for a StringWrapper / Number /
+    // Boolean / etc. key `emit_to_string` returns an owned Str we
+    // must drop after the helper reads it (helper borrows).
+    let key_raw = ctx.lower_expr(args[1]);
+    let key_ty = ctx.operand_ty(&key_raw);
+    let (key_op, key_owned) = match key_ty {
+        Type::Str => (key_raw, false),
+        _ => {
+            let coerced =
+                crate::ssa_lower_call_coercion::emit_to_string(ctx, args[1], key_raw, key_ty);
+            (coerced, true)
+        }
+    };
     let cur_block = ctx.cur_block;
     let v = ctx.f.append_inst(
         cur_block,
-        InstKind::Call(ctx.intrinsics.get_property_descriptor, vec![obj_op, key_op]),
+        InstKind::Call(
+            ctx.intrinsics.get_property_descriptor,
+            vec![obj_op, key_op.clone()],
+        ),
         Type::Any,
         None,
     );
+    if key_owned {
+        ctx.f.append_inst(
+            cur_block,
+            InstKind::Call(ctx.intrinsics.str_drop, vec![key_op]),
+            Type::Void,
+            None,
+        );
+    }
     ctx.emit_throw_check(None);
     Some(Operand::Value(v))
 }

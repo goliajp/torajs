@@ -63,14 +63,14 @@ pub(crate) fn try_match(
     if let Err(e) = checker.type_of(ast, args[0]) {
         return Some(Err(e));
     }
-    let aty1 = match checker.type_of(ast, args[1]) {
-        Ok(t) => t,
-        Err(e) => return Some(Err(e)),
-    };
-    if !matches!(aty1, Type::String) {
-        return Some(Err(format!(
-            "Object.getOwnPropertyDescriptor arg 1 (key) must be string, got {aty1:?}"
-        )));
+    // RFC 20260716 刀 17 — key relaxed to any type; SSA lower's
+    // `emit_to_string` performs the ES §7.1.19 ToPropertyKey coercion
+    // (StringWrapper / Number / Boolean etc.). Only the type_of
+    // side-effect walk survives here; the previous `Type::String`
+    // gate rejected `Object.getOwnPropertyDescriptor(obj, new
+    // String("k"), extra)` at checker with "must be string, got Any".
+    if let Err(e) = checker.type_of(ast, args[1]) {
+        return Some(Err(e));
     }
     for &a in args.iter().skip(2) {
         if let Err(e) = checker.type_of(ast, a) {

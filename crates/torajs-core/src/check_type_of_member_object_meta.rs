@@ -67,8 +67,16 @@ pub(crate) fn try_match(name: &str) -> Option<Result<Type, String>> {
         // configurable}` from the dynobj bucket's stored
         // tag/value/flags (per dcf069f attribute-flag
         // tracking). Missing key returns Any-boxed undefined.
+        //
+        // RFC 20260716 刀 17 — key sig relaxed from `Type::String`
+        // to `Type::Any` so a StringWrapper / Number / Boolean etc.
+        // arg (`new String("k")`, `42`) flows into SSA lower where
+        // `emit_to_string` performs the ES §7.1.19 ToPropertyKey →
+        // §7.1.17 ToString coercion. The runtime helper still takes
+        // a raw Str pointer; SSA lower drops the owned Str after
+        // the helper reads it (helper borrows).
         "getOwnPropertyDescriptor" => {
-            Type::Function(vec![Type::Any, Type::String], Box::new(Type::Any))
+            Type::Function(vec![Type::Any, Type::Any], Box::new(Type::Any))
         }
         // 2026-05-18 — accept these as permissive Any
         // typecheck-only stubs (no real substrate yet).
