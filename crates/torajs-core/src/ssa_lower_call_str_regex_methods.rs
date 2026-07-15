@@ -94,15 +94,28 @@ pub(crate) fn try_lower(
         raw_recv
     };
     let (re_op, minted_regex) = if coerce_match_lane {
-        // Lower the arg, coerce to Str (or borrow if already Str),
-        // mint a fresh RegExp via `regex_compile`. `regex_compile`
-        // takes ownership of neither arg — the caller drops both
-        // Str temps if they were freshly minted (coerce_to_str
-        // materializes ownership per its contract). matchAll gets
-        // the "g" flag per spec §22.1.3.12 step 4.c.
+        // ES §22.1.3.{11,12} step 4.c → `RegExpCreate(regexp, F)`.
+        // RegExpCreate → RegExpInitialize (§22.2.3.2):
+        //  - if pattern is undefined, P = "" (skip ToString)
+        //  - else P = ToString(pattern)
+        // Emit `""` directly for the undef case; otherwise route
+        // through the shared `emit_to_string` (which handles
+        // Str/I64/F64/Bool/Ptr(Null)/Any/Arr/Obj — the widest
+        // spec-covered set). matchAll gets `"g"` flag per step 4.c.
         let raw_arg = ctx.lower_expr(args[0]);
         let arg_ty = ctx.operand_ty(&raw_arg);
-        let pat_op = ctx.coerce_to_str(raw_arg, arg_ty);
+        let arg_is_undef = matches!(
+            ctx.expr_types.get(&args[0]),
+            Some(crate::check::Type::Undefined)
+        ) && matches!(raw_arg, Operand::ConstPtrNull);
+        let pat_op = if arg_is_undef {
+            // Drop the ConstPtrNull; it's a no-op operand but
+            // release_owned_temp is defensive across arg shapes.
+            let empty_lit = ctx.intern_string_literal("");
+            Operand::Value(empty_lit)
+        } else {
+            crate::ssa_lower_call_coercion::emit_to_string(ctx, args[0], raw_arg, arg_ty)
+        };
         let flags_bytes = if name == "matchAll" { "g" } else { "" };
         let flags_v = ctx.intern_string_literal(flags_bytes);
         let re_v = ctx.f.append_inst(
@@ -114,11 +127,14 @@ pub(crate) fn try_lower(
             Type::RegExp,
             None,
         );
-        // Drop the coerced Str temp — the compile call read the
-        // bytes and holds no borrow. `intern_string_literal`
-        // returns a static-lifetime Str with rc_inc-ed usage so no
-        // drop needed for the flags literal.
-        if arg_ty != Type::Str {
+        // Drop the coerced Str temp for non-undef path. The undef
+        // shortcut passed an interned static-lifetime Str literal
+        // (`intern_string_literal`) which the runtime does not
+        // rc-tracked — no drop needed. For every non-Str arg type,
+        // `emit_to_string` returns a fresh owned Str; the Str-arg
+        // path emits rc_inc via the identity arm so unconditional
+        // drop is correct on that fresh/borrowed ref.
+        if !arg_is_undef {
             ctx.emit_drop_value(pat_op, Type::Str);
         }
         (Operand::Value(re_v), true)
