@@ -378,6 +378,25 @@ pub unsafe extern "C" fn __torajs_any_iter_len(recv: AnyValue) -> i64 {
                     *(ptr.cast::<u8>().add(MIRROR_STR_LEN_OFF) as *const u32) as i64
                 };
             }
+            // RFC 20260716 刀 12 — StringWrapper receiver: view-through
+            // the [[StringData]] inner cell and delegate. Empty-str
+            // wrapper (`new String()` no-arg or NULL sentinel) has no
+            // inner cell — length = 0.
+            if tag == Tag::StringWrapper as u16 {
+                let inner_ptr = (ptr.cast::<u8>().add(8) as *const *const c_void).read();
+                if inner_ptr.is_null() {
+                    return 0;
+                }
+                let inner_tag = (inner_ptr.cast::<u8>().add(4) as *const u16).read();
+                if inner_tag == Tag::Str as u16 {
+                    let flags = (inner_ptr.cast::<u8>().add(6) as *const u16).read();
+                    return if flags & MIRROR_FLAG_SUBSTR_INLINE != 0 {
+                        *(inner_ptr.cast::<u8>().add(MIRROR_SUBSTR_LEN_OFF) as *const u64) as i64
+                    } else {
+                        *(inner_ptr.cast::<u8>().add(MIRROR_STR_LEN_OFF) as *const u32) as i64
+                    };
+                }
+            }
         }
     }
     unsafe {

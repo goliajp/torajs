@@ -363,8 +363,17 @@ pub unsafe extern "C" fn __torajs_any_iter_next(
     } else {
         None
     };
+    // RFC 20260716 刀 12 — StringWrapper receiver iterates its inner
+    // [[StringData]] via the same indexed lane. `__torajs_any_index_get`
+    // + `__torajs_any_iter_len` already view-through the wrapper cell
+    // (刀 3 view-through + 刀 12 iter_len arm below), so accepting the
+    // wrapper tag as `indexed` is the only site left. NumberWrapper /
+    // BooleanWrapper stay non-indexed (a `for..of` on those throws per
+    // spec, matching bun).
     let indexed = is_short_str(recv)
-        || matches!(cell_tag, Some(t) if t == Tag::Str as u16 || t == Tag::Arr as u16);
+        || matches!(cell_tag, Some(t) if t == Tag::Str as u16
+                                    || t == Tag::Arr as u16
+                                    || t == Tag::StringWrapper as u16);
     if indexed {
         unsafe {
             let idx = *idx_slot;
