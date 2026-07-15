@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-15T17:21:03.028Z",
+  "generatedAt": "2026-07-15T18:53:27.972Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 92.62
   },
   "torajs": {
-    "commit": "05d3243c",
-    "commitSubject": "fix: emit_to_number / emit_to_string Undef arm (RFC 20260716 刀 6)",
+    "commit": "34888eb1",
+    "commitSubject": "feat: getPrototypeOf(primitive wrapper) (RFC 20260716 刀 15)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,55 +713,55 @@
   },
   "commits": [
     {
+      "hash": "34888eb1",
+      "subject": "feat: getPrototypeOf(primitive wrapper) (RFC 20260716 刀 15)"
+    },
+    {
+      "hash": "1fb86ecd",
+      "subject": "feat: getOwnPropertyDescriptor(StringWrapper, \"length\") (RFC 20260716 刀 14)"
+    },
+    {
+      "hash": "1cd83fae",
+      "subject": "feat: String hasOwnProperty spec-correct (RFC 20260716 刀 13)"
+    },
+    {
+      "hash": "e7c28c40",
+      "subject": "feat: StringWrapper for-of iteration (RFC 20260716 刀 12)"
+    },
+    {
+      "hash": "e20eb0d8",
+      "subject": "feat: typed-Str match/matchAll null/undefined arg (RFC 20260716 刀 11)"
+    },
+    {
+      "hash": "bc050947",
+      "subject": "feat: NumberWrapper ToString direct-read (RFC 20260716 刀 10)"
+    },
+    {
+      "hash": "4393aed1",
+      "subject": "feat: typed-Str match/matchAll auto-coerce non-RegExp arg (RFC 20260716 刀 9)"
+    },
+    {
+      "hash": "05e622eb",
+      "subject": "feat: match/search/matchAll auto-coerce non-RegExp arg (RFC 20260716 刀 8)"
+    },
+    {
+      "hash": "9a651953",
+      "subject": "feat: wrapper bitwise substrate (RFC 20260716 刀 7)"
+    },
+    {
+      "hash": "2c0d6f84",
+      "subject": "chore: hardev dashboard snapshot at rotation 112 close"
+    },
+    {
       "hash": "05d3243c",
       "subject": "fix: emit_to_number / emit_to_string Undef arm (RFC 20260716 刀 6)"
     },
     {
       "hash": "f198620f",
       "subject": "fix: wrapper +/</> substrate — StringWrapper concat + Undefined tag (RFC 20260716 刀 5)"
-    },
-    {
-      "hash": "5dd38380",
-      "subject": "feat: Object(x) callable + ToObject (RFC 20260716 刀 4)"
-    },
-    {
-      "hash": "7daec8aa",
-      "subject": "feat: primitive-wrapper truthy + member ladder (RFC 20260716 刀 3)"
-    },
-    {
-      "hash": "91af5cb7",
-      "subject": "style: rustfmt-clean 6 sites from RFC 20260716 blades"
-    },
-    {
-      "hash": "b180887e",
-      "subject": "chore: hardev dashboard snapshot at rotation 111 close"
-    },
-    {
-      "hash": "cb42c3b0",
-      "subject": "feat: new Boolean(x) wrapper substrate (RFC 20260716 刀 2c)"
-    },
-    {
-      "hash": "9d62320b",
-      "subject": "feat: new String(x) wrapper substrate (RFC 20260716 刀 2b)"
-    },
-    {
-      "hash": "7505fe41",
-      "subject": "fix: any_to_number reads NumberWrapper [[NumberData]] directly (RFC 20260716)"
-    },
-    {
-      "hash": "6ff1a4d1",
-      "subject": "feat: new Number(x) wrapper substrate (RFC 20260716 刀 2a-Number)"
-    },
-    {
-      "hash": "0c0425f8",
-      "subject": "feat: primitive-wrapper heap substrate (RFC 20260716 刀 1)"
-    },
-    {
-      "hash": "6786979f",
-      "subject": "chore: hardev dashboard snapshot at rotation 110 close"
     }
   ],
-  "headSha": "05d3243c",
+  "headSha": "34888eb1",
   "autorun": {
     "total": 418,
     "baselineTarget": 10,
