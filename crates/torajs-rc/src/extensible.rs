@@ -7,10 +7,18 @@
 //! ## STATIC_LITERAL guard
 //!
 //! Static-literal blocks (`.rodata` constants, escape-analyzed
-//! literals) carry [`crate::FLAG_STATIC_LITERAL`]. Per spec, a frozen
-//! literal is also non-extensible; writing to the flags word on
-//! `.rodata` would SIGBUS, so `prevent_extensions` short-circuits and
-//! `is_extensible` reports `false` for those blocks.
+//! literals, reified builtin method cells) carry
+//! [`crate::FLAG_STATIC_LITERAL`]. The flag serves rc-immortality
+//! (refcount traffic no-ops, cycle collector skips them); it is
+//! orthogonal to [[Extensible]] in the spec sense. `prevent_extensions`
+//! short-circuits on it (writing to `.rodata` would SIGBUS), so an
+//! attempt to make a reified method cell non-extensible is silently a
+//! no-op — but `is_extensible` answers the standard NON_EXTENSIBLE
+//! bit either way, so a fresh reified method cell reads as extensible
+//! (spec §7.3.15 default), matching bun for
+//! `Object.isExtensible(Set.prototype.difference)`. Callers that want
+//! spec-primitive-in-cell semantics (Str/Symbol/BigInt cells reading
+//! as non-Object) gate on the heap tag one layer up.
 //!
 //! ## Sealing
 //!
@@ -22,6 +30,9 @@
 use core::ffi::c_void;
 
 use crate::{FLAG_NON_EXTENSIBLE, FLAG_SEALED, FLAG_STATIC_LITERAL, HeapHeader};
+// FLAG_STATIC_LITERAL is used by `prevent_extensions` / `seal_mark`
+// only to short-circuit rodata writes; it does not participate in
+// the extensibility answer (see file-level doc).
 
 #[inline]
 unsafe fn header_mut(p: *mut c_void) -> &'static mut HeapHeader {
@@ -57,8 +68,11 @@ pub unsafe extern "C" fn __torajs_obj_prevent_extensions(p: *mut c_void) -> *mut
 }
 
 /// `Object.isExtensible(p)` — `true` iff the `FLAG_NON_EXTENSIBLE` bit
-/// is unset. Static-literal blocks report `false` (conceptually
-/// non-extensible `.rodata`). NULL reports `false`.
+/// is unset. NULL reports `false`. STATIC_LITERAL is orthogonal — a
+/// reified builtin method cell (immortal, rodata-adjacent) reads as
+/// extensible per spec §7.3.15 default; callers that want primitive
+/// (Str/Symbol/BigInt cell) non-Object semantics gate on the heap
+/// tag at the anyv layer above.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_obj_is_extensible(p: *const c_void) -> bool {
     if p.is_null() {
@@ -66,9 +80,6 @@ pub unsafe extern "C" fn __torajs_obj_is_extensible(p: *const c_void) -> bool {
     }
     // SAFETY: same as prevent_extensions.
     let h = unsafe { header(p) };
-    if h.flags & FLAG_STATIC_LITERAL != 0 {
-        return false;
-    }
     (h.flags & FLAG_NON_EXTENSIBLE) == 0
 }
 
@@ -168,8 +179,21 @@ mod tests {
     }
 
     #[test]
-    fn is_extensible_static_literal_false() {
+    fn is_extensible_static_literal_alone_true() {
+        // STATIC_LITERAL is an rc-immortality flag, orthogonal to
+        // [[Extensible]] — a reified builtin method cell (Set.prototype.difference)
+        // carries STATIC_LITERAL but reads as extensible per spec §7.3.15.
         let h = make_header(FLAG_STATIC_LITERAL);
+        let p = &h as *const HeapHeader as *const c_void;
+        assert!(unsafe { __torajs_obj_is_extensible(p) });
+    }
+
+    #[test]
+    fn is_extensible_static_literal_plus_non_extensible_false() {
+        // Callers that explicitly want a rodata-adjacent block to
+        // report non-extensible must also set FLAG_NON_EXTENSIBLE
+        // (e.g. a mint site that hard-locks a well-known cell).
+        let h = make_header(FLAG_STATIC_LITERAL | FLAG_NON_EXTENSIBLE);
         let p = &h as *const HeapHeader as *const c_void;
         assert!(!unsafe { __torajs_obj_is_extensible(p) });
     }

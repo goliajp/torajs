@@ -6,7 +6,20 @@
 
 use core::ffi::c_void;
 
-use crate::reflect::{TAG_DYNOBJ, heap_type_tag, is_cell_imm};
+use crate::reflect::{TAG_BIGINT, TAG_DYNOBJ, TAG_STR, TAG_SYMBOL, heap_type_tag, is_cell_imm};
+
+/// Str / Symbol / BigInt are primitive in the spec sense — they live
+/// as heap cells for representation but §7.3.15 `Object.isExtensible`
+/// and §7.3.16 `Object.isSealed` treat them like any non-Object
+/// (Extensible → false, Sealed → true). Keep the tag list in one
+/// place so the two anyv predicates below stay in lockstep.
+#[inline]
+unsafe fn is_primitive_heap_tag(p: *const c_void) -> bool {
+    // SAFETY: caller has already passed is_cell_imm — `p` points at
+    // a live heap block with the universal header prefix.
+    let tag = unsafe { heap_type_tag(p) };
+    matches!(tag, TAG_STR | TAG_SYMBOL | TAG_BIGINT)
+}
 
 unsafe extern "C" {
     // RFC C5b — raw-pointer layer FLAG_NON_EXTENSIBLE / FLAG_SEALED
@@ -49,8 +62,14 @@ pub unsafe extern "C" fn __torajs_anyv_prevent_extensions(obj_any: u64) -> u64 {
 
 /// RFC C5b — `Object.isExtensible(O)`. Spec ES §20.1.2.13 step 1
 /// `If Type(O) is not Object, return false.` Primitives, null, and
-/// undefined report `false`; real cells delegate to the raw-pointer
-/// reader that inspects [`torajs_rc::FLAG_NON_EXTENSIBLE`].
+/// undefined report `false`; primitive-in-spec heap cells (Str /
+/// Symbol / BigInt) also report `false`; real object cells (DynObj /
+/// Tag::Obj struct / Arr / Closure / Map / Set / Date / …) delegate
+/// to the raw-pointer reader that inspects
+/// [`torajs_rc::FLAG_NON_EXTENSIBLE`]. Reified builtin method cells
+/// (Tag::Closure with STATIC_LITERAL — rc immortality, orthogonal to
+/// extensibility) therefore answer `true` by default, matching bun
+/// for `Object.isExtensible(Set.prototype.difference)` etc.
 ///
 /// # Safety
 ///
@@ -60,8 +79,13 @@ pub unsafe extern "C" fn __torajs_anyv_is_extensible(obj_any: u64) -> bool {
     if !is_cell_imm(obj_any) {
         return false;
     }
+    let p = obj_any as *const c_void;
+    // SAFETY: is_cell_imm guarantees a live heap pointer.
+    if unsafe { is_primitive_heap_tag(p) } {
+        return false;
+    }
     // SAFETY: cell pointer to a valid heap object.
-    unsafe { __torajs_obj_is_extensible(obj_any as *const c_void) }
+    unsafe { __torajs_obj_is_extensible(p) }
 }
 
 /// RFC C5b — `Object.seal(O)`. Spec ES §20.1.2.20: real objects flip
@@ -114,6 +138,12 @@ pub unsafe extern "C" fn __torajs_anyv_is_sealed(obj_any: u64) -> bool {
         return true;
     }
     let p = obj_any as *const c_void;
+    // SAFETY: is_cell_imm guarantees a live heap pointer.
+    if unsafe { is_primitive_heap_tag(p) } {
+        // Str / Symbol / BigInt cells are spec-primitive — §7.3.16
+        // step 1 returns true for non-Object inputs.
+        return true;
+    }
     // SAFETY: cell pointer.
     if unsafe { __torajs_obj_is_extensible(p) } {
         return false;
