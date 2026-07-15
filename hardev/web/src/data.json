@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-15T07:18:50.856Z",
+  "generatedAt": "2026-07-15T08:49:43.534Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-14T23:49:32Z",
-    "headSha": "9fc2e62c",
-    "elapsedSec": 481.91,
+    "ranAt": "2026-07-15T08:02:18Z",
+    "headSha": "43495ad6",
+    "elapsedSec": 616.17,
     "workers": 8,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 7034,
-    "passNoOracle": 151,
-    "passNegative": 4445,
-    "passTotal": 11630,
-    "bug": 991,
-    "incompatible": 40553,
+    "pass": 7041,
+    "passNoOracle": 165,
+    "passNegative": 4444,
+    "passTotal": 11650,
+    "bug": 970,
+    "incompatible": 40554,
     "bunSkip": 12565,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 12621,
-    "passRateInScope": 21.87,
-    "passRateTrAccepted": 92.15
+    "trAccepted": 12620,
+    "passRateInScope": 21.91,
+    "passRateTrAccepted": 92.31
   },
   "torajs": {
-    "commit": "6f17b5dd",
-    "commitSubject": "fix: Object.getPrototypeOf(null | undefined) throws TypeError",
+    "commit": "42737b81",
+    "commitSubject": "fix: str.split(undefined, limit) SIGSEGV — respect spec steps 8-9",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "42737b81",
+      "subject": "fix: str.split(undefined, limit) SIGSEGV — respect spec steps 8-9"
+    },
+    {
+      "hash": "c3c0f036",
+      "subject": "fix: ToBoolean(BigInt) — 0n is falsy per ES §7.1.4"
+    },
+    {
+      "hash": "a4f6cb2f",
+      "subject": "fix: ||= / &&= / ??= must short-circuit PutValue per ES2021 §13.15"
+    },
+    {
+      "hash": "ba577daf",
+      "subject": "fix: single-line comments terminate at CR / U+2028 / U+2029"
+    },
+    {
+      "hash": "5dbd1ceb",
+      "subject": "chore: archive the test262 sweep at 43495ad6"
+    },
+    {
+      "hash": "43495ad6",
+      "subject": "style: rustfmt collapse in ssa_lower_call_object_get_prototype_of"
+    },
+    {
+      "hash": "07ec30a3",
+      "subject": "chore: hardev dashboard snapshot at rotation 106 close"
+    },
+    {
       "hash": "6f17b5dd",
       "subject": "fix: Object.getPrototypeOf(null | undefined) throws TypeError"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "5ea15bb1",
       "subject": "fix: arr.lastIndexOf(v, Infinity) — clamp fromIndex before +1 to avoid overflow"
-    },
-    {
-      "hash": "947661ab",
-      "subject": "chore: hardev dashboard snapshot at rotation 105 close"
-    },
-    {
-      "hash": "b1f05178",
-      "subject": "chore: archive the test262 sweep at 9fc2e62c"
-    },
-    {
-      "hash": "9fc2e62c",
-      "subject": "fix: BigInt.prototype.toString(radix) out-of-range is a RangeError, not a hang"
-    },
-    {
-      "hash": "dc83b2dd",
-      "subject": "chore: archive the test262 sweep at 3aea8598"
-    },
-    {
-      "hash": "3aea8598",
-      "subject": "fix: alternation is leftmost-first, not leftmost-longest (RFC blade 0)"
-    },
-    {
-      "hash": "13de09fe",
-      "subject": "chore: hardev dashboard snapshot at rotation 105 close"
-    },
-    {
-      "hash": "43666ec1",
-      "subject": "chore: archive the test262 sweep at 2cfb4ff7"
     }
   ],
-  "headSha": "6f17b5dd",
+  "headSha": "42737b81",
   "autorun": {
-    "total": 412,
+    "total": 413,
     "baselineTarget": 10,
-    "bySelf": 407,
+    "bySelf": 408,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784099919-5a30",
-      "at": "2026-07-15T07:18:39Z",
-      "ts": 1784099919,
+      "rotationId": "r-1784105365-74a4",
+      "at": "2026-07-15T08:49:25Z",
+      "ts": 1784105365,
       "trigger": "self",
-      "prevHead": "6f17b5dd",
-      "handoffSha": "sha256:819ad064f09d70afb586f475d55367797b9345120c94e3cc08b6b8180ee3075c",
-      "handoffAgeSec": 26840,
+      "prevHead": "42737b81",
+      "handoffSha": "sha256:933790c9f499c06855485153418ecc33ca9219ac119c9b8a5f38583d269504c5",
+      "handoffAgeSec": 5336,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784105365-74a4",
+        "at": "2026-07-15T08:49:25Z",
+        "ts": 1784105365,
+        "trigger": "self",
+        "prevHead": "42737b81",
+        "handoffSha": "sha256:933790c9f499c06855485153418ecc33ca9219ac119c9b8a5f38583d269504c5",
+        "handoffAgeSec": 5336,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784099919-5a30",
         "at": "2026-07-15T07:18:39Z",
@@ -876,17 +887,6 @@
         "prevHead": "0de07de2",
         "handoffSha": "sha256:37f191eab5d56a5a69870626ee429dfe0b60427f937596435d76d7fecf40c64d",
         "handoffAgeSec": 31,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784001768-56d4",
-        "at": "2026-07-14T04:02:48Z",
-        "ts": 1784001768,
-        "trigger": "self",
-        "prevHead": "807b406a",
-        "handoffSha": "sha256:3f39b631b3c170996cbfd1f41910bedd58215ac61ca2e1312c874fecfb3d0c9f",
-        "handoffAgeSec": 5,
         "conformanceBefore": null,
         "commitsInSession": null
       }
