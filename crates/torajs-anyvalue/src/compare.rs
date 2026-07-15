@@ -63,9 +63,19 @@ impl CompareOp {
     }
 }
 
-/// Returns `true` iff the `(tag, value)` pair points to a live
-/// heap object tagged [`Tag::Str`]. Null and non-Heap tags return
-/// `false`.
+/// Returns `true` iff the `(tag, value)` pair points at a String-
+/// shaped receiver: a live [`Tag::Str`] cell OR a [`Tag::StringWrapper`]
+/// whose `[[StringData]]` inner cell is non-null. Null and non-Heap
+/// tags return `false`; a wrapper with a NULL sentinel inner cell
+/// also returns `false` so callers fall through to the numeric path
+/// (which delegates the empty-string handling through `any_to_str`).
+///
+/// RFC 20260716 刀 5 — wrapper operands must trigger the ES §13.15.3
+/// string-concat / §7.2.13 string-compare branch; before this the
+/// wrapper-plus-primitive `+` fell into the numeric arm and gave
+/// `1 + 1 === 2` where spec (ToPrimitive → String → concat) wants
+/// `"11"`. This predicate governs both `any_add` (arith.rs) and
+/// `any_compare` (below), so a single flip fixes both.
 ///
 /// # Safety
 ///
@@ -82,7 +92,49 @@ pub(crate) unsafe fn is_heap_str(tag: i64, value: i64) -> bool {
     }
     // SAFETY: non-null + runtime invariant says it points to a
     // live heap header.
-    matches!(unsafe { (*p).tag() }, Tag::Str)
+    let t = unsafe { (*p).tag() };
+    if matches!(t, Tag::Str) {
+        return true;
+    }
+    if matches!(t, Tag::StringWrapper) {
+        // Inner cell at [[StringData]] offset 8. NULL sentinel
+        // (`new String(NULL)` corner) → callers fall through.
+        let inner = unsafe { ((p as *const u8).add(8) as *const *const HeapHeader).read() };
+        return !inner.is_null();
+    }
+    false
+}
+
+/// Effective Str cell pointer for a str-shaped `(tag, value)` pair —
+/// the same predicate as [`is_heap_str`] but returning the layout-
+/// bearing pointer that [`compare_str_lexicographic`] / concat
+/// kernels read against. A [`Tag::StringWrapper`] returns its
+/// `[[StringData]]` inner cell, so wrapper receivers land on the
+/// same str-layout code without duplicating it.
+///
+/// # Safety
+/// Same as [`is_heap_str`].
+#[inline]
+pub(crate) unsafe fn str_effective_ptr(tag: i64, value: i64) -> Option<i64> {
+    if tag != AnySlotTag::Heap as i64 {
+        return None;
+    }
+    let p = value as *const HeapHeader;
+    if p.is_null() {
+        return None;
+    }
+    let t = unsafe { (*p).tag() };
+    if matches!(t, Tag::Str) {
+        return Some(value);
+    }
+    if matches!(t, Tag::StringWrapper) {
+        let inner = unsafe { ((p as *const u8).add(8) as *const *const HeapHeader).read() };
+        if inner.is_null() {
+            return None;
+        }
+        return Some(inner as i64);
+    }
+    None
 }
 
 /// Lexicographic byte compare of two Str-tagged heap pointers,
@@ -147,9 +199,13 @@ pub(crate) unsafe fn any_compare(op: i64, lt: i64, lv: i64, rt: i64, rv: i64) ->
     let l_is_str = unsafe { is_heap_str(lt, lv) };
     let r_is_str = unsafe { is_heap_str(rt, rv) };
     let cmp = if l_is_str && r_is_str {
-        // SAFETY: is_heap_str checked both pointers non-null + Str-
-        // headed; compare_str_lexicographic's invariants hold.
-        unsafe { compare_str_lexicographic(lv, rv) }
+        // SAFETY: is_heap_str just cleared both sides;
+        // str_effective_ptr answers the layout-bearing inner cell
+        // (wrapper receivers unwrap to `[[StringData]]`), which
+        // compare_str_lexicographic reads at the Str header offsets.
+        let l_ptr = unsafe { str_effective_ptr(lt, lv).unwrap_unchecked() };
+        let r_ptr = unsafe { str_effective_ptr(rt, rv).unwrap_unchecked() };
+        unsafe { compare_str_lexicographic(l_ptr, r_ptr) }
     } else {
         // SAFETY: caller invariant — propagated to any_to_number.
         let l = unsafe { any_to_number(lt, lv) };

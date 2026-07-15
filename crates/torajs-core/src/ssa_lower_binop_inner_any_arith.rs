@@ -104,8 +104,21 @@ pub(crate) fn try_lower(
             };
             (Operand::ConstI64(tag), value, None)
         };
-    let (lt, lv, l_src) = pack(ctx, a, a_ty);
-    let (rt, rv, r_src) = pack(ctx, b, b_ty);
+    let (mut lt, lv, l_src) = pack(ctx, a, a_ty);
+    let (mut rt, rv, r_src) = pack(ctx, b, b_ty);
+    // RFC 20260716 刀 5 — checker's Undefined flag re-tags a null-
+    // shaped pack (Ptr + ConstPtrNull collapses to ANY_NULL=0) as
+    // ANY_UNDEF=5 so any_add / any_arith / any_compare see the spec
+    // distinction: `s + undefined` concats "undefined", `s + null`
+    // concats "null"; ToNumber(undef) = NaN vs ToNumber(null) = 0.
+    // Mirrors the P1.5 `Number(undefined) === NaN` shortcut inside
+    // ssa_lower_call_coercion for the wrapper-fringe `+`/`</>` sites.
+    if ctx.binop_left_undef_id.is_some() && matches!(lt, Operand::ConstI64(0)) {
+        lt = Operand::ConstI64(5);
+    }
+    if ctx.binop_right_undef_id.is_some() && matches!(rt, Operand::ConstI64(0)) {
+        rt = Operand::ConstI64(5);
+    }
     let settles = [(l_src, lv.clone()), (r_src, rv.clone())];
     let r = match op {
         AstBinOp::Add => ctx.f.append_inst(
