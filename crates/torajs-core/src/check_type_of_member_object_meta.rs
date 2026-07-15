@@ -57,13 +57,9 @@ pub(crate) fn try_match(name: &str) -> Option<Result<Type, String>> {
         // key is Type::String; descriptor is Type::Any
         // (typically a plain object literal at the call site
         // — ssa_lower probes for the .value field at AST time).
-        // ES §20.1.2.6 — `Object.defineProperty` returns O. Pre-fix
-        // the return was `Type::Void`, which paired with the
-        // ssa_lower emitting `ConstI64(0)` (→ Any-boxed `undefined`)
-        // and broke `let root = Object.defineProperty({}, ...)`.
         "defineProperty" => Type::Function(
             vec![Type::Any, Type::String, Type::Any],
-            Box::new(Type::Any),
+            Box::new(Type::Void),
         ),
         // P3.getOwnPropertyDescriptor — accept at typecheck.
         // ssa_lower intercepts and constructs an Any-boxed

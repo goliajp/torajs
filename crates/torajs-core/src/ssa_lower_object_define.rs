@@ -114,21 +114,18 @@ pub(crate) fn lower_key(ctx: &mut LowerCtx, key: &DefineKey) -> Operand {
 /// receiver variable after a prior field resized it). Returns `true`
 /// when handled; `false` when neither a literal nor a runtime-Any
 /// descriptor applies (caller decides the fall-through).
-/// Capture the receiver's Ident name (Step 7d-A) so the dynobj-define
-/// Any path can writeback the post-resize ptr to the variable's
-/// storage as a fresh NaN-box AnyValue.
-fn receiver_ident_of(ctx: &LowerCtx, obj_eid: ExprId) -> Option<String> {
-    if let Expr::Ident(n) = ctx.ast.get_expr(obj_eid) {
+fn emit_define_one(ctx: &mut LowerCtx, obj_eid: ExprId, key: DefineKey, desc_eid: ExprId) -> bool {
+    // Step 7d-A — capture the receiver's Ident name (if any) so the
+    // dynobj-define Any path can writeback the post-resize ptr to the
+    // variable's storage as a fresh NaN-box AnyValue.
+    let receiver_ident: Option<String> = if let Expr::Ident(n) = ctx.ast.get_expr(obj_eid) {
         Some(n.clone())
     } else {
         None
-    }
-}
-
-fn emit_define_one(ctx: &mut LowerCtx, obj_eid: ExprId, key: DefineKey, desc_eid: ExprId) -> bool {
-    let receiver_ident = receiver_ident_of(ctx, obj_eid);
+    };
     let obj_op = ctx.lower_expr(obj_eid);
     let obj_ty = ctx.operand_ty(&obj_op);
+
     emit_receiver_typecheck(ctx, obj_eid, &obj_op, obj_ty.clone());
     emit_define_one_core(ctx, obj_op, obj_ty, &receiver_ident, key, desc_eid)
 }
@@ -328,58 +325,34 @@ pub(crate) fn try_lower(
     try_lower_define_properties(ctx, callee_eid, args)
 }
 
-/// Lower `Object.defineProperty(obj, key, descriptor)`. `Some` when
-/// handled; `None` falls through. ES §20.1.2.6 answers O (the
-/// receiver); we pre-lower `args[0]` and return that op so the
-/// caller-visible result matches spec. Pre-fix returned `ConstI64(0)`
-/// which Any-boxed to `undefined` and broke
-/// `let root = Object.defineProperty({}, ...)` (downstream
-/// `Object.create(root, ...)` then threw "Object prototype may only
-/// be an Object or null.").
+/// Lower `Object.defineProperty(obj, key, descriptor)`. Returns `Some`
+/// when handled; `None` to fall through (non-Any obj+desc shapes keep
+/// the prior "unsupported member call shape" panic).
 fn try_lower_define_property(
     ctx: &mut LowerCtx,
     callee_eid: ExprId,
     args: &[ExprId],
 ) -> Option<Operand> {
-    let Expr::Member {
+    if let Expr::Member {
         obj: ns_id,
         name: m_name,
     } = ctx.ast.get_expr(callee_eid)
-    else {
-        return None;
-    };
-    if m_name != "defineProperty" {
-        return None;
+        && m_name == "defineProperty"
+        && let Expr::Ident(ns) = ctx.ast.get_expr(*ns_id)
+        && ns == "Object"
+        && args.len() >= 3
+        && emit_define_one(ctx, args[0], DefineKey::Expr(args[1]), args[2])
+    {
+        // S317 — ES §20.1.2.6 silently ignores args past (obj, key,
+        // desc). `emit_define_one` lowers args[0..3] (obj + key +
+        // desc fields); lower-and-drop args[3..] after for spec
+        // left-to-right side-effect order.
+        for &a in args.iter().skip(3) {
+            let _ = ctx.lower_expr(a);
+        }
+        return Some(Operand::ConstI64(0));
     }
-    let Expr::Ident(ns) = ctx.ast.get_expr(*ns_id) else {
-        return None;
-    };
-    if ns != "Object" || args.len() < 3 {
-        return None;
-    }
-    let receiver_ident = receiver_ident_of(ctx, args[0]);
-    let obj_raw = ctx.lower_expr(args[0]);
-    let obj_ty = ctx.operand_ty(&obj_raw);
-    emit_receiver_typecheck(ctx, args[0], &obj_raw, obj_ty.clone());
-    if !emit_define_one_core(
-        ctx,
-        obj_raw.clone(),
-        obj_ty.clone(),
-        &receiver_ident,
-        DefineKey::Expr(args[1]),
-        args[2],
-    ) {
-        return None;
-    }
-    // S317 — spec silently ignores args past (obj, key, desc); lower-
-    // and-drop for left-to-right side-effect order.
-    for &a in args.iter().skip(3) {
-        let _ = ctx.lower_expr(a);
-    }
-    // RFC 20260705 owned-result: mirror the `defineProperties` return
-    // path (bottom of this file) — pass-through carries its own ref.
-    ctx.emit_owned_result_inc(obj_raw.clone(), obj_ty);
-    Some(obj_raw)
+    None
 }
 
 /// Lower `Object.defineProperties(obj, props)` (RFC C2) by compile-time
@@ -442,7 +415,11 @@ fn try_lower_define_properties(
             // Any (dynobj-backed) route through the two-phase
             // §20.1.2.3.1 helper; anything else keeps the prior
             // eval-drop (typed receivers are the RFC backlog).
-            let receiver_ident = receiver_ident_of(ctx, args[0]);
+            let receiver_ident: Option<String> = if let Expr::Ident(n) = ctx.ast.get_expr(args[0]) {
+                Some(n.clone())
+            } else {
+                None
+            };
             let props_op = ctx.lower_expr(args[1]);
             let props_ty = ctx.operand_ty(&props_op);
             // §20.1.2.3.1 step 2 — ToObject(Properties) throws only

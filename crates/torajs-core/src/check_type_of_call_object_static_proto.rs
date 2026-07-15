@@ -84,11 +84,8 @@ pub(crate) fn try_match(
             return Some(Err(e));
         }
     }
-    // ES §20.1.2.5 / §20.1.2.6 — `Object.defineProperty` and
-    // `defineProperties` both return O (the receiver), not `undefined`.
-    // Pre-fix these two arms answered `Type::Void`, which forbade
-    // fixtures like `let root = Object.defineProperty({}, ...)` from
-    // typechecking OR made them assign `undefined` — see the mirror
-    // fix in ssa_lower_object_define.rs::try_lower_define_property.
-    Some(Ok(Type::Any))
+    Some(Ok(match m_name.as_str() {
+        "defineProperties" | "defineProperty" => Type::Void,
+        _ => Type::Any,
+    }))
 }
