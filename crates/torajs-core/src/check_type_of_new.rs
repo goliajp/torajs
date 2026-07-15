@@ -52,6 +52,7 @@ pub(crate) fn try_check(
         "Array" => check_array(checker, ast, args),
         "RegExp" => check_regexp(checker, ast, args),
         "Number" => check_number_wrapper(checker, ast, args),
+        "String" => check_string_wrapper(checker, ast, args),
         _ => return None,
     };
     Some(result)
@@ -90,6 +91,49 @@ fn check_number_wrapper(
         return Err(format!(
             "`new Number({arg_ty:?})`: primitive-coercible arg not yet supported \
              (RFC 20260716 刀 2 follow-up)"
+        ));
+    }
+    for &arg in args.iter().skip(1) {
+        let _ = checker.type_of(ast, arg)?;
+    }
+    Ok(Type::Any)
+}
+
+/// RFC 20260716 刀 2b — `new String(x)` constructs a StringWrapper
+/// heap cell (`[[StringData]] = ToString(x)`, ES §22.1.1.1). Same
+/// Type::Any return + Any-lane dispatch strategy as
+/// `check_number_wrapper` above (no nominal `Type::StringWrapper`
+/// yet; later blades add one). 0-arg is pre-desugared to `""`;
+/// trailing args typechecked-and-dropped per spec.
+fn check_string_wrapper(
+    checker: &mut Checker,
+    ast: &Ast,
+    args: &[ExprId],
+) -> Result<Type, String> {
+    if args.is_empty() {
+        return Err(
+            "internal: `new String()` with 0 args reached check.rs (desugar didn't run?)".into(),
+        );
+    }
+    let arg_ty = checker.type_of(ast, args[0])?;
+    // Same coercion lattice as the callable `String(x)` (see
+    // check_type_of_call_global_ctors) — ToString accepts every
+    // primitive plus Any / Array / Struct.
+    if !matches!(
+        arg_ty,
+        Type::Number
+            | Type::Boolean
+            | Type::Null
+            | Type::Undefined
+            | Type::String
+            | Type::BigInt
+            | Type::Any
+            | Type::Array(_)
+            | Type::Struct(_)
+    ) {
+        return Err(format!(
+            "`new String({arg_ty:?})`: primitive-coercible arg not yet supported \
+             (RFC 20260716 刀 2b follow-up)"
         ));
     }
     for &arg in args.iter().skip(1) {

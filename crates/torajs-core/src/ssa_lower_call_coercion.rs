@@ -167,7 +167,7 @@ pub(crate) fn emit_to_number(
 /// null_to_str; Any → coerce_to_str (tag-dispatched); Arr → join(",")
 /// (same dispatch as `arr.toString()`); Obj → "[object Object]" per
 /// §20.1.4.4 generic Object toString.
-fn emit_to_string(
+pub(crate) fn emit_to_string(
     ctx: &mut LowerCtx<'_>,
     arg_eid: ExprId,
     arg_op: Operand,

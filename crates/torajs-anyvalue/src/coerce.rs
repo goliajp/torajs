@@ -78,6 +78,26 @@ pub(crate) unsafe fn any_to_str(tag: i64, value: i64) -> *mut c_void {
             unsafe { __torajs_rc_inc(child as *mut c_void) };
             return child as *mut c_void;
         }
+        // RFC 20260716 刀 2b — `String` wrapper cell:
+        // ToString(StringWrapper) = [[StringData]] verbatim (spec
+        // §7.1.17 step 3, ToPrimitive on String Object hits
+        // `String.prototype.toString` which returns [[StringData]]).
+        // Inner cell pointer lives at `STRING_WRAPPER_CELL_OFF = 8`.
+        // rc_inc the shared Str cell so the caller owns a fresh
+        // reference like the Tag::Str arm above.
+        if matches!(h.tag(), Tag::StringWrapper) {
+            let inner_ptr = unsafe {
+                ((child as *const u8).add(8) as *const *mut c_void).read()
+            };
+            if inner_ptr.is_null() {
+                // Empty-str wrapper (`new String(NULL)` sentinel):
+                // hand back a fresh empty pooled Str so the ownership
+                // discipline stays uniform.
+                return unsafe { __torajs_str_alloc_pooled(0) as *mut c_void };
+            }
+            unsafe { __torajs_rc_inc(inner_ptr) };
+            return inner_ptr;
+        }
         // Non-Str heap object — OrdinaryToPrimitive (hint string):
         // run the receiver's toString / valueOf and ToString the
         // first primitive result (chunk C; pre-C this answered a
@@ -162,6 +182,23 @@ pub(crate) unsafe fn any_to_number(tag: i64, value: i64) -> f64 {
         if matches!(h.tag(), Tag::NumberWrapper) {
             let value_ptr = unsafe { (child as *const u8).add(8) as *const f64 };
             return unsafe { value_ptr.read() };
+        }
+        // RFC 20260716 刀 2b — `String` wrapper cell:
+        // ToNumber(StringWrapper) = ToNumber([[StringData]]) via
+        // strtod (spec §7.1.4 step 8 → OrdinaryToPrimitive number →
+        // valueOf returns Object (skipped) → toString returns
+        // [[StringData]] → ToNumber(string)). Inner cell pointer at
+        // `STRING_WRAPPER_CELL_OFF = 8`.
+        if matches!(h.tag(), Tag::StringWrapper) {
+            let inner_ptr = unsafe {
+                ((child as *const u8).add(8) as *const *const c_void).read()
+            };
+            if inner_ptr.is_null() {
+                // Empty string ("") → NaN? No — ES §7.1.4.1 ToNumber("")
+                // = +0.
+                return 0.0;
+            }
+            return unsafe { __torajs_str_to_number(inner_ptr) };
         }
         // Non-Str heap object — OrdinaryToPrimitive (hint number):
         // valueOf → toString, ToNumber of the first primitive

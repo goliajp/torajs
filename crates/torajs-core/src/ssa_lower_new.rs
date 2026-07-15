@@ -71,11 +71,11 @@ pub(crate) fn try_lower(
         "Set" => Some(lower_set(ctx, args)),
         "Array" if args.len() == 1 => Some(lower_array_n(ctx, args)),
         "RegExp" => Some(lower_regexp(ctx, args)),
-        // RFC 20260716 刀 2 — `new Number(x)` wrapper alloc.
-        // 0-arg is pre-desugared to primitive `0` by
-        // `ast_desugar_builtin_new` (§21.1.1.1 step 2), so this arm
-        // only sees ≥1-arg forms.
+        // RFC 20260716 刀 2 — `new Number(x)` / `new String(x)`
+        // wrapper alloc. 0-arg forms are pre-desugared to primitive
+        // literals by `ast_desugar_builtin_new`.
         "Number" if !args.is_empty() => Some(lower_number_wrapper(ctx, args)),
+        "String" if !args.is_empty() => Some(lower_string_wrapper(ctx, args)),
         _ => None,
     }
 }
@@ -97,6 +97,29 @@ fn lower_number_wrapper(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
     let ptr_v = ctx.f.append_inst(
         cur_block,
         InstKind::Call(ctx.intrinsics.number_wrapper_new, vec![f64_op]),
+        Type::Ptr,
+        None,
+    );
+    ctx.box_to_any(Operand::Value(ptr_v))
+}
+
+/// RFC 20260716 刀 2b — `new String(x)` wrapper alloc. Coerces `x`
+/// through the same `emit_to_string` ladder `String(x)` callable
+/// uses (spec §7.1.17), then calls
+/// `__torajs_string_wrapper_new(cell)`. The intrinsic has **transfer
+/// semantics** — the owned `+1` `emit_to_string` produced is
+/// consumed by the wrapper (no rc_inc here; no post-call drop
+/// needed). Result is Any-boxed as ANY_HEAP.
+fn lower_string_wrapper(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
+    let arg_eid = args[0];
+    let arg_op = ctx.lower_expr(arg_eid);
+    let arg_ty = ctx.operand_ty(&arg_op);
+    let str_op =
+        crate::ssa_lower_call_coercion::emit_to_string(ctx, arg_eid, arg_op, arg_ty);
+    let cur_block = ctx.cur_block;
+    let ptr_v = ctx.f.append_inst(
+        cur_block,
+        InstKind::Call(ctx.intrinsics.string_wrapper_new, vec![str_op]),
         Type::Ptr,
         None,
     );

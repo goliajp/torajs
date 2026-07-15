@@ -145,9 +145,9 @@ pub(crate) unsafe fn cell_badge(ptr: *mut c_void, tag: u16) -> &'static [u8] {
         t if t == Tag::WeakRef as u16 => b"WeakRef",
         t if t == Tag::Undefined as u16 => b"Undefined",
         // RFC 20260716 刀 2 — primitive-wrapper cells classify by what
-        // they wrap. Only NumberWrapper is live in this blade; String /
-        // Boolean added when their wrappers ship.
+        // they wrap. Boolean added when 刀 2c ships.
         t if t == Tag::NumberWrapper as u16 => b"Number",
+        t if t == Tag::StringWrapper as u16 => b"String",
         // Errors are static-layout structs carrying FLAG_ERROR
         // (disjoint-by-tag bit 7).
         t if t == Tag::Obj as u16 => {

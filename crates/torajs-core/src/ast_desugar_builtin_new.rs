@@ -132,50 +132,43 @@ pub(crate) fn run(ast: &mut Ast) {
             ast.exprs[i] = Expr::Regex { pattern, flags };
         }
     }
-    // RFC 20260716 刀 2 — Number gets the wrapper substrate; String /
-    // Boolean still MVP-unwrap until later blades. `new Number()` with
-    // 0 args stays a primitive `0` literal (ES §21.1.1.1 step 2 —
-    // `[[NumberData]] = +0`; observably equivalent to `0` for the
-    // downstream uses that eventually ToNumber the receiver).
+    // RFC 20260716 刀 2 — Number / String get the wrapper substrate;
+    // Boolean still MVP-unwrap until 刀 2c ships. 0-arg forms stay a
+    // primitive literal per spec (§21.1.1.1 step 2 = `+0` / §22.1.1.1
+    // step 2 = `""`), observably equivalent to the corresponding
+    // primitive for downstream uses.
     let n = ast.exprs.len();
     for i in 0..n {
         let unwrap_args = match &ast.exprs[i] {
-            Expr::New { class_name, args }
-                if matches!(class_name.as_str(), "String" | "Boolean") =>
-            {
+            Expr::New { class_name, args } if class_name.as_str() == "Boolean" => {
                 Some(args.clone())
             }
             _ => None,
         };
         if let Some(args) = unwrap_args {
-            let class_name_str = match &ast.exprs[i] {
-                Expr::New { class_name, .. } => class_name.clone(),
-                _ => unreachable!(),
-            };
             ast.exprs[i] = if args.is_empty() {
-                match class_name_str.as_str() {
-                    "String" => Expr::String(String::new()),
-                    "Boolean" => Expr::Bool(false),
-                    _ => unreachable!(),
-                }
+                Expr::Bool(false)
             } else {
-                let callee = ast.add_expr(Expr::Ident(class_name_str));
+                let callee = ast.add_expr(Expr::Ident("Boolean".into()));
                 Expr::Call { callee, args }
             };
         }
     }
-    // Number-only: 0-arg → primitive `0` literal. ≥1-arg stays
-    // `Expr::New { "Number", args }` and rides the ssa_lower_new arm
-    // added in this RFC blade.
+    // Number / String 0-arg → primitive literal. ≥1-arg stays
+    // `Expr::New { <class>, args }` and rides the ssa_lower_new arms.
     let n = ast.exprs.len();
     for i in 0..n {
-        let is_zero_arg_number = matches!(
-            &ast.exprs[i],
-            Expr::New { class_name, args }
-                if class_name == "Number" && args.is_empty()
-        );
-        if is_zero_arg_number {
+        let (is_number_zero, is_string_zero) = match &ast.exprs[i] {
+            Expr::New { class_name, args } if args.is_empty() => (
+                class_name == "Number",
+                class_name == "String",
+            ),
+            _ => (false, false),
+        };
+        if is_number_zero {
             ast.exprs[i] = Expr::Number(0.0);
+        } else if is_string_zero {
+            ast.exprs[i] = Expr::String(String::new());
         }
     }
     let n = ast.exprs.len();

@@ -53,9 +53,6 @@ unsafe extern "C" {
     /// per-tag drop arm (which frees the block).
     fn __torajs_value_drop_heap(child: *mut c_void);
 
-    /// Rc increment (torajs-rc). Null-safe / nan-box-safe.
-    fn __torajs_rc_inc(p: *mut c_void);
-
     /// Rc decrement (torajs-rc). Returns `1` on hit-zero; `0` otherwise.
     fn __torajs_rc_dec(p: *mut c_void) -> i32;
 }
@@ -156,21 +153,19 @@ pub unsafe extern "C" fn __torajs_number_wrapper_drop_rc(p: *mut c_void) {
 // StringWrapper — new String(s), [[StringData]] = str cell (borrow +1)
 // ============================================================
 
-/// Allocate a fresh String wrapper holding an owning reference to
-/// `cell` (a Tag::Str block). Rc-incs `cell` — the caller keeps its
-/// own borrow. `cell` may be NULL (spec §22.1.1.1 with undefined arg
-/// coerces to `""`, but caller passes the empty-Str cell explicitly;
-/// NULL here means "wrapper points at nothing", which downstream
-/// consumers treat as `""`).
+/// Allocate a fresh String wrapper adopting an existing owning
+/// reference on `cell` (a Tag::Str block). **Transfer semantics —
+/// the caller's `+1` is consumed** (no rc_inc here), matching the
+/// convention `arr_alloc_any_filled` / `__torajs_new_*` args use.
+/// Caller must not `rc_dec` `cell` after the call; the wrapper's
+/// drop path releases it. `cell` may be NULL (interpreted as an
+/// empty-string wrapper by downstream consumers).
 ///
 /// # Safety
 /// `cell` is NULL or a live Tag::Str block with the universal
-/// HeapHeader layout.
+/// HeapHeader layout whose refcount the caller intends to transfer.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_string_wrapper_new(cell: *mut u8) -> *mut u8 {
-    if !cell.is_null() {
-        unsafe { __torajs_rc_inc(cell as *mut c_void) };
-    }
     let ptr = unsafe { libc_malloc(STRING_WRAPPER_SIZE) } as *mut u8;
     unsafe {
         init_wrapper_header(ptr, Tag::StringWrapper);

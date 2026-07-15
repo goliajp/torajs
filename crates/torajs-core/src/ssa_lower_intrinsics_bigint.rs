@@ -55,6 +55,9 @@ pub(crate) struct BigIntIds {
     /// Same batch as BigInt because it's the primitive-adjacent
     /// substrate; own sub-group unnecessary for a single fn.
     pub number_wrapper_new: FuncId,
+    /// RFC 20260716 刀 2b — String wrapper alloc (transfer-ownership
+    /// of the inner Str cell).
+    pub string_wrapper_new: FuncId,
 }
 
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) -> BigIntIds {
@@ -174,6 +177,17 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             fn_table,
             "__torajs_number_wrapper_new",
             &[Type::F64],
+            Type::Ptr,
+        ),
+        // RFC 20260716 刀 2b — `__torajs_string_wrapper_new(*mut u8) -> ptr`.
+        // Transfer-ownership: the wrapper adopts the caller's owned
+        // Str cell reference and releases it on drop; no post-call
+        // drop needed at the emit site.
+        string_wrapper_new: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_string_wrapper_new",
+            &[Type::Str],
             Type::Ptr,
         ),
     }

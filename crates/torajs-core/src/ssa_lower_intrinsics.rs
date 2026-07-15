@@ -501,6 +501,11 @@ pub(crate) struct Intrinsics {
     /// arm when the arg was primitive-coerced to f64. Result is an
     /// Any-boxed heap pointer carrying `Tag::NumberWrapper`.
     pub(crate) number_wrapper_new: FuncId,
+    /// RFC 20260716 刀 2b — `__torajs_string_wrapper_new(cell: *mut u8)
+    /// -> *mut u8` (torajs-wrapper). **Transfer semantics** — the
+    /// caller's owned `+1` on `cell` is consumed. Result is an
+    /// Any-boxed heap pointer carrying `Tag::StringWrapper`.
+    pub(crate) string_wrapper_new: FuncId,
     pub(crate) weakref_create: FuncId,
     pub(crate) weakref_deref_any: FuncId,
     pub(crate) weakref_drop: FuncId,
