@@ -31,7 +31,7 @@
 //!   fall-through into the post-match Call site.
 
 use crate::ast::ExprId;
-use crate::ssa::{IPred, InstKind, Operand, Terminator, Type};
+use crate::ssa::{BinOp as SsaBinOp, IPred, InstKind, Operand, Terminator, Type};
 use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx, intern_arr_layout};
 
 /// Lower a `<Str>.split(...)` call. The caller (`ssa_lower_str_str_dispatch::try_dispatch`)
@@ -53,6 +53,75 @@ pub(crate) fn lower_split(ctx: &mut LowerCtx<'_>, args: &[ExprId], argv: Vec<Ope
         let v = ctx.f.append_inst(
             ctx.cur_block,
             InstKind::Call(ctx.intrinsics.str_split_no_sep, argv[..1].to_vec()),
+            Type::Arr(arr_id),
+            None,
+        );
+        return Operand::Value(v);
+    }
+    // 2+ arg with a Undefined separator — spec §22.1.3.21 steps 8-9:
+    // ToUint32(limit) == 0 → return `[]`, else return `[S]`. Without
+    // this arm the sep=undefined path falls through into the
+    // `str_split(recv, sep_null_slot)` branch below and SIGSEGVs on
+    // the (Str, Str) ABI (same failure mode as the 1-arg-undef guard
+    // documented above).
+    if args.len() >= 2
+        && matches!(
+            ctx.expr_types.get(&args[0]),
+            Some(crate::check::Type::Undefined)
+        )
+    {
+        let no_sep_v = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.str_split_no_sep, argv[..1].to_vec()),
+            Type::Arr(arr_id),
+            None,
+        );
+        // limit === undefined → lim = 2^32-1 per spec step 6 → non-zero
+        // → return [S] as-is. Short-circuit here so coerce_to_i64 (which
+        // doesn't accept Ptr / ConstPtrNull) never sees the Undefined
+        // literal (=ConstPtrNull for the frontend Type::Undefined lane).
+        if matches!(
+            ctx.expr_types.get(&args[1]),
+            Some(crate::check::Type::Undefined)
+        ) {
+            return Operand::Value(no_sep_v);
+        }
+        let limit_op = ctx.coerce_to_i64(argv[2].clone());
+        let is_zero = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::ICmp(IPred::Eq, limit_op, Operand::ConstI64(0)),
+            Type::Bool,
+            None,
+        );
+        let is_zero_i = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::ZExtBoolToI64(Operand::Value(is_zero)),
+            Type::I64,
+            None,
+        );
+        // take = 1 - (limit == 0 ? 1 : 0) — keeps to 1 for every
+        // ToUint32 result but 0 (incl. negative literals whose i64
+        // representation is non-zero; matches spec's step-8 gate).
+        let take = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::BinOp(
+                SsaBinOp::Sub,
+                Operand::ConstI64(1),
+                Operand::Value(is_zero_i),
+            ),
+            Type::I64,
+            None,
+        );
+        let v = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(
+                ctx.intrinsics.arr_slice,
+                vec![
+                    Operand::Value(no_sep_v),
+                    Operand::ConstI64(0),
+                    Operand::Value(take),
+                ],
+            ),
             Type::Arr(arr_id),
             None,
         );
