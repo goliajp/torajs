@@ -323,45 +323,53 @@ fn normalize_from_index(
             None,
         );
         if want_last {
-            // end_slot = clamp(eff + 1, 0, len)
+            // spec §22.1.3.19 step 4: pos-path k = min(fromIndex, len-1);
+            // end = k + 1 ≤ len. Branch on `eff >= len` BEFORE adding 1
+            // so signed overflow never happens — pre-fix we computed
+            // `eff + 1` first and only then clamped, which wrapped when
+            // eff = i64::MAX (arr.lastIndexOf(v, Infinity) → fptosi
+            // saturates to i64::MAX; +1 wraps to i64::MIN; `> len` is
+            // false; end becomes negative; scan range [0, negative) is
+            // empty; result is -1 even when a match exists).
             ctx.f.append_void(
                 ctx.cur_block,
                 InstKind::Store(Operand::ConstI64(0), Operand::Value(i_slot), 0),
             );
-            let end_raw = ctx.f.append_inst(
+            let ge_len = ctx.f.append_inst(
                 ctx.cur_block,
-                InstKind::BinOp(SsaBinOp::Add, Operand::Value(eff), Operand::ConstI64(1)),
-                Type::I64,
-                None,
-            );
-            // upper-clamp to len
-            let over = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::ICmp(IPred::Sgt, Operand::Value(end_raw), Operand::Value(len_v)),
+                InstKind::ICmp(IPred::Sge, Operand::Value(eff), Operand::Value(len_v)),
                 Type::Bool,
                 None,
             );
-            let over_blk = ctx.f.add_block();
-            let ok_blk = ctx.f.add_block();
+            let ge_blk = ctx.f.add_block();
+            let lt_blk = ctx.f.add_block();
             let join2 = ctx.f.add_block();
             ctx.f.set_term(
                 ctx.cur_block,
                 Terminator::CondBr {
-                    cond: Operand::Value(over),
-                    then_blk: over_blk,
-                    else_blk: ok_blk,
+                    cond: Operand::Value(ge_len),
+                    then_blk: ge_blk,
+                    else_blk: lt_blk,
                 },
             );
+            // eff >= len path: end = len (equivalent to min(eff, len-1) + 1)
             ctx.f.append_void(
-                over_blk,
+                ge_blk,
                 InstKind::Store(Operand::Value(len_v), Operand::Value(end_slot), 0),
             );
-            ctx.f.set_term(over_blk, Terminator::Br(join2));
+            ctx.f.set_term(ge_blk, Terminator::Br(join2));
+            // eff < len path: end = eff + 1 (safe — eff ≤ len - 1 ≤ i64::MAX - 1)
+            let end_raw = ctx.f.append_inst(
+                lt_blk,
+                InstKind::BinOp(SsaBinOp::Add, Operand::Value(eff), Operand::ConstI64(1)),
+                Type::I64,
+                None,
+            );
             ctx.f.append_void(
-                ok_blk,
+                lt_blk,
                 InstKind::Store(Operand::Value(end_raw), Operand::Value(end_slot), 0),
             );
-            ctx.f.set_term(ok_blk, Terminator::Br(join2));
+            ctx.f.set_term(lt_blk, Terminator::Br(join2));
             ctx.cur_block = join2;
         } else {
             // indexOf/includes: start = eff (already ≥ 0)
