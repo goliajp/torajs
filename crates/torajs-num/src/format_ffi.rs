@@ -5,8 +5,8 @@
 //! range-gate + `alloc_str` only.
 
 use crate::format::{
-    to_exp_f, to_exp_i, to_fixed_f, to_fixed_i, to_locale_f, to_locale_i, to_precision_f,
-    to_precision_i,
+    special_value, to_exp_f, to_exp_i, to_fixed_f, to_fixed_i, to_locale_f, to_locale_i,
+    to_precision_f, to_precision_i,
 };
 use crate::str_bridge::alloc_str;
 
@@ -59,6 +59,15 @@ pub unsafe extern "C" fn __torajs_num_to_fixed_i(n: i64, digits: i64) -> *mut u8
 /// propagates the pending throw.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_num_to_exp_f(n: f64, digits: i64) -> *mut u8 {
+    // ES §21.1.3.3 step 4 — "If x is not finite, return
+    // Number::toString(x, 10)". This precedes step 5's range check
+    // on `f`, so `NaN.toExponential(Infinity)` returns "NaN" and
+    // `(Infinity).toExponential(1000)` returns "Infinity" without
+    // hitting the RangeError gate below. Only the finite-x path
+    // enters the range check.
+    if let Some(s) = special_value(n) {
+        return alloc_str(&s);
+    }
     if digits != i64::MIN && !(0..=100).contains(&digits) {
         unsafe {
             __torajs_throw_range_error(
@@ -95,6 +104,14 @@ pub unsafe extern "C" fn __torajs_num_to_exp_i(n: i64, digits: i64) -> *mut u8 {
 /// sentinel carve-out.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_num_to_precision_f(n: f64, digits: i64) -> *mut u8 {
+    // ES §21.1.3.5 step 4 — "If x is not finite, return
+    // Number::toString(x, 10)". Mirrors the `toExponential` fix
+    // above: NaN / ±Infinity short-circuit before the step-5
+    // precision-range gate, so `NaN.toPrecision(1000)` returns "NaN"
+    // and `(Infinity).toPrecision(1000)` returns "Infinity".
+    if let Some(s) = special_value(n) {
+        return alloc_str(&s);
+    }
     if !(1..=100).contains(&digits) {
         unsafe {
             __torajs_throw_range_error(

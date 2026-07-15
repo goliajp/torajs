@@ -88,7 +88,7 @@ fn normalize_exp(src: &[u8]) -> Vec<u8> {
 /// stores a code-unit count, so 3-byte `"∞"` gets length 3 and the
 /// print path re-encodes each byte as Latin-1. Tracked in L3b until
 /// the Str alloc surface separates byte-count from code-unit-count.)
-fn special_value(n: f64) -> Option<Vec<u8>> {
+pub(crate) fn special_value(n: f64) -> Option<Vec<u8>> {
     if n.is_nan() {
         return Some(b"NaN".to_vec());
     }
