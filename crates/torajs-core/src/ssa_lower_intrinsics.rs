@@ -145,6 +145,9 @@ pub(crate) struct Intrinsics {
     /// RFC 20260716 刀 13 — typed-Str `.hasOwnProperty(key)` per
     /// ES §22.1.4 String Exotic Object.
     pub(crate) str_prop_has: FuncId,
+    /// RFC 20260716 刀 20 — typed-Str `.propertyIsEnumerable(key)`
+    /// per ES §22.1.4 (index chars enumerable, `length` NOT).
+    pub(crate) str_prop_enumerable: FuncId,
     pub(crate) str_null_check: FuncId,
     pub(crate) str_is_nullish: FuncId,
     pub(crate) str_is_undef: FuncId,

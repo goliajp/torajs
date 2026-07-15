@@ -163,13 +163,16 @@ pub(crate) fn try_lower(
     // spec behavior on typed-Str receivers.
     // (Substr materializes through `substr_to_owned` — the runtime
     // helper reads a plain Str layout only.)
-    // `propertyIsEnumerable` on strings: `length` is non-enumerable
-    // per spec, indices ARE enumerable — the runtime returns 1 for
-    // index keys, so cap this fast-path to `hasOwnProperty` and let
-    // `propertyIsEnumerable` keep folding to `false` (subset stub;
-    // a tighter distinction is a follow-up).
+    //
+    // RFC 20260716 刀 20 — `propertyIsEnumerable(key)` shares the
+    // typed-Str/Substr fast path with `hasOwnProperty`; the pair
+    // differs only in `"length"` handling (non-enumerable per
+    // §22.1.5.1 — the `str_prop_enumerable` intrinsic returns 0 for
+    // it while `str_prop_has` returns 1). Canonical indices are 1
+    // on both. Prior comment ("cap this fast-path to hasOwnProperty
+    // and let propertyIsEnumerable keep folding to false") retired.
     if matches!(recv_ty, Type::Str | Type::Substr)
-        && m_name == "hasOwnProperty"
+        && matches!(m_name.as_str(), "hasOwnProperty" | "propertyIsEnumerable")
         && let Some(arg_eid) = args.first()
     {
         let key_op = ctx.lower_expr(*arg_eid);
@@ -203,12 +206,14 @@ pub(crate) fn try_lower(
         } else {
             recv_op.clone()
         };
+        let intrinsic = if m_name == "propertyIsEnumerable" {
+            ctx.intrinsics.str_prop_enumerable
+        } else {
+            ctx.intrinsics.str_prop_has
+        };
         let hit_i64 = ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::Call(
-                ctx.intrinsics.str_prop_has,
-                vec![recv_str.clone(), key_str.clone()],
-            ),
+            InstKind::Call(intrinsic, vec![recv_str.clone(), key_str.clone()]),
             Type::I64,
             None,
         );

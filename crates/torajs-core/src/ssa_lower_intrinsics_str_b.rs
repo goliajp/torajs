@@ -58,6 +58,11 @@ pub(crate) struct StrBIds {
     /// ES §22.1.4 String Exotic Object. Answers 1 for `"length"`
     /// or a canonical index `[0, len)`, 0 otherwise.
     pub str_prop_has: FuncId,
+    /// RFC 20260716 刀 20 — typed-Str `.propertyIsEnumerable(key)`
+    /// per ES §22.1.4 String Exotic Object. Answers 1 ONLY for a
+    /// canonical index `[0, len)`; `"length"` is spec non-enumerable
+    /// per §22.1.5.1 so this returns 0 for it (unlike `str_prop_has`).
+    pub str_prop_enumerable: FuncId,
     pub str_null_check: FuncId,
     pub str_is_nullish: FuncId,
     pub str_is_undef: FuncId,
@@ -161,6 +166,13 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             module,
             fn_table,
             "__torajs_str_prop_has",
+            &[Type::Str, Type::Str],
+            Type::I64,
+        ),
+        str_prop_enumerable: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_str_prop_enumerable",
             &[Type::Str, Type::Str],
             Type::I64,
         ),

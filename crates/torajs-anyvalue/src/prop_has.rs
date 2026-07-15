@@ -288,6 +288,21 @@ pub unsafe extern "C" fn __torajs_str_prop_has(s: *const c_void, key: *const c_v
     unsafe { str_index_has(len, key) }
 }
 
+/// RFC 20260716 刀 20 — typed-`Type::Str` receiver's
+/// `.propertyIsEnumerable(key)` per ES §22.1.4 String Exotic Object.
+/// Mirror of [`__torajs_str_prop_has`] with the enumerability filter:
+/// `"length"` is spec non-enumerable, so this returns 1 ONLY for a
+/// canonical index `[0, len)`. Delegates to [`str_index_enumerable`]
+/// (the same helper the Any-lane's `Tag::Str` arm uses).
+///
+/// # Safety
+/// `s` is a live Tag::Str block; `key` is a live Str cell.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_prop_enumerable(s: *const c_void, key: *const c_void) -> i64 {
+    let len = unsafe { s.cast::<u8>().add(STR_LEN_OFF).cast::<u32>().read() } as u64;
+    unsafe { str_index_enumerable(len, key) }
+}
+
 /// `Object.prototype.propertyIsEnumerable` substrate (chunk D-1,
 /// RFC 20260711): own AND enumerable. Mirrors
 /// [`__torajs_any_prop_has`]'s dispatch with the enumerable-flag
@@ -351,6 +366,20 @@ pub unsafe extern "C" fn __torajs_any_prop_enumerable(recv: AnyValue, key: *cons
         Some((ptr, t)) if t == Tag::Obj as u16 => unsafe { struct_has_own(ptr, key) },
         Some((ptr, t)) if t == Tag::Str as u16 => {
             let len = unsafe { ptr.cast::<u8>().add(STR_LEN_OFF).cast::<u32>().read() } as u64;
+            unsafe { str_index_enumerable(len, key) }
+        }
+        // RFC 20260716 刀 20 — StringWrapper receiver mirror of
+        // the刀 13 `__torajs_any_prop_has` arm above. `length` is
+        // spec non-enumerable per §22.1.5.1; canonical indices
+        // `[0, [[StringData]].length)` are enumerable. View-through
+        // the inner Str cell to read the code-unit count.
+        Some((ptr, t)) if t == Tag::StringWrapper as u16 => {
+            let inner_ptr = unsafe { (ptr.cast::<u8>().add(8) as *const *const c_void).read() };
+            let len = if inner_ptr.is_null() {
+                0
+            } else {
+                unsafe { inner_ptr.cast::<u8>().add(STR_LEN_OFF).cast::<u32>().read() as u64 }
+            };
             unsafe { str_index_enumerable(len, key) }
         }
         _ => 0,
