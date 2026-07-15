@@ -249,11 +249,10 @@ fn transform_source(src: &str) -> String {
             i += 1;
             while i < bytes.len() {
                 let c = bytes[i];
-                out.push(c as char);
-                i += 1;
-                if c == b'\\' && i < bytes.len() {
-                    out.push(bytes[i] as char);
-                    i += 1;
+                let is_escape = c == b'\\' && i + 1 < bytes.len();
+                copy_utf8_char(bytes, &mut i, &mut out);
+                if is_escape {
+                    copy_utf8_char(bytes, &mut i, &mut out);
                     continue;
                 }
                 if c == quote {
@@ -265,8 +264,7 @@ fn transform_source(src: &str) -> String {
         // `//` line comment.
         if b == b'/' && i + 1 < bytes.len() && bytes[i + 1] == b'/' {
             while i < bytes.len() && bytes[i] != b'\n' {
-                out.push(bytes[i] as char);
-                i += 1;
+                copy_utf8_char(bytes, &mut i, &mut out);
             }
             continue;
         }
@@ -276,8 +274,7 @@ fn transform_source(src: &str) -> String {
             out.push('*');
             i += 2;
             while i + 1 < bytes.len() && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
-                out.push(bytes[i] as char);
-                i += 1;
+                copy_utf8_char(bytes, &mut i, &mut out);
             }
             if i + 1 < bytes.len() {
                 out.push('*');
@@ -391,10 +388,46 @@ fn transform_source(src: &str) -> String {
             i += b"var ".len();
             continue;
         }
-        out.push(b as char);
-        i += 1;
+        copy_utf8_char(bytes, &mut i, &mut out);
     }
     out
+}
+
+/// Copy the UTF-8 character starting at `bytes[*i]` into `out`, advancing
+/// `*i` past its full byte length (1-4). Pre-fix the transform iterated
+/// byte-by-byte with `out.push(bytes[i] as char)` — that mapped every
+/// non-ASCII UTF-8 continuation byte to a bogus Latin-1 code point (a
+/// leading `D0 90` → `Ð\u{90}`), so every cyrillic / cjk / emoji literal
+/// in a case body was destroyed. The rewrite patterns are all pure ASCII
+/// (assert.X, var, __t262_*), so all we need is a UTF-8-safe fallback
+/// copy for everything the pattern loop doesn't consume.
+fn copy_utf8_char(bytes: &[u8], i: &mut usize, out: &mut String) {
+    let start = *i;
+    let b = bytes[start];
+    let len = if b < 0x80 {
+        1
+    } else if b < 0xC0 {
+        // Continuation / invalid lead — advance one byte and skip
+        // (upstream `src.as_bytes()` came from a `&str`, so a bare
+        // continuation byte can only appear inside a broken slice
+        // window; falling back to 1 keeps the loop bounded).
+        1
+    } else if b < 0xE0 {
+        2
+    } else if b < 0xF0 {
+        3
+    } else {
+        4
+    };
+    let end = (start + len).min(bytes.len());
+    if let Ok(s) = std::str::from_utf8(&bytes[start..end]) {
+        out.push_str(s);
+    } else {
+        // Byte was invalid UTF-8 in isolation; emit U+FFFD so the
+        // downstream lexer still gets valid input.
+        out.push(char::REPLACEMENT_CHARACTER);
+    }
+    *i = end;
 }
 
 fn starts_with_at(bytes: &[u8], i: usize, needle: &[u8]) -> bool {
@@ -855,5 +888,44 @@ fn main() {
         } else {
             println!("\njson summary: {out_path}");
         }
+    }
+}
+
+#[cfg(test)]
+mod transform_tests {
+    use super::transform_source;
+
+    #[test]
+    fn utf8_cyrillic_literal_preserved_in_string_body() {
+        // Pre-fix `out.push(bytes[i] as char)` mapped `А` (U+0410,
+        // UTF-8 = D0 90) to `Ð\u{90}` — the S7.8.4_A2.2 / A4.2_T5-7
+        // cases compared such a literal against `String.fromCharCode(0x0410)`
+        // and every assertion failed with a mangled `#Ð` label.
+        let src = "let x = \"\u{0410}\u{0451}\u{4E2D}\";";
+        let out = transform_source(src);
+        assert!(
+            out.contains("\u{0410}") && out.contains("\u{0451}") && out.contains("\u{4E2D}"),
+            "expected UTF-8 code points to survive rewrite, got: {out:?}"
+        );
+    }
+
+    #[test]
+    fn utf8_emoji_in_comment_preserved() {
+        let src = "// pile of poo: \u{1F4A9}\nlet x = 1;";
+        let out = transform_source(src);
+        assert!(out.contains("\u{1F4A9}"), "emoji lost: {out:?}");
+    }
+
+    #[test]
+    fn ascii_rewrites_still_fire() {
+        // Sanity — the rewrite pattern side stays functional after
+        // switching the fallback copy to UTF-8-safe.
+        let src = "assert.sameValue(a, b);\nvar x = 1;\n";
+        let out = transform_source(src);
+        assert!(
+            out.contains("__t262_sameValue("),
+            "assert.sameValue rewrite lost: {out:?}"
+        );
+        assert!(out.contains("let x"), "var → let rewrite lost: {out:?}");
     }
 }
