@@ -106,6 +106,12 @@ unsafe extern "C" {
     fn __torajs_regex_compile(pattern_str: *const c_void, flags_str: *const c_void) -> *mut c_void;
     /// torajs-regex — release a RegExp cell reference.
     fn __torajs_regex_drop(re: *mut c_void);
+    /// torajs-throw — read the `active` flag; non-zero iff the last
+    /// runtime call recorded a pending throw. RFC 20260716 刀 21
+    /// uses it inside the REPLACE arm to short-circuit the
+    /// replaceValue ToString so a searchValue user-toString throw is
+    /// not clobbered by a second `__torajs_throw_set`.
+    fn __torajs_throw_check() -> i64;
 }
 
 /// RFC 20260716 刀 8 — ES §22.1.3.{11,12,13} match/search/matchAll
@@ -246,19 +252,40 @@ pub(crate) unsafe fn str_method(s: *mut u8, mid: i64, argv: *const u64, argc: i6
                 // lane; both replacement operands ToString through
                 // owned temps this arm drops. A closure replacement
                 // (the `_regex_fn` kernels) is a recorded follow-up.
+                //
+                // RFC 20260716 刀 21 — spec §22.1.3.15 step 4 (search
+                // ToString) fires BEFORE step 6a (replace ToString).
+                // The prior "repl first" ordering evaluated
+                // `ToString(replaceValue)` before `ToString(searchValue)`
+                // and, when both user-toString methods threw, clobbered
+                // the earlier pending throw (test262
+                // S15.5.4.11_A1_T12). Regex-cell pattern lane skips
+                // the searchValue ToString path (§22.1.3.15 step 2
+                // hands off to `@@replace` on the RegExp cell).
                 let all = (m == ANY_METHOD_REPLACE_ALL) as i64;
-                let repl = __torajs_anyv_to_str(arg_at(1));
-                let out = if let Some(re_ptr) = regexp_cell(arg_at(0)) {
-                    __torajs_str_any_replace_regex(s, re_ptr, repl as *const u8, all)
+                if let Some(re_ptr) = regexp_cell(arg_at(0)) {
+                    let repl = __torajs_anyv_to_str(arg_at(1));
+                    let out = __torajs_str_any_replace_regex(s, re_ptr, repl as *const u8, all);
+                    __torajs_str_drop(repl);
+                    out
                 } else {
                     let needle = __torajs_anyv_to_str(arg_at(0));
+                    // A pending throw from ToString(searchValue) leaves
+                    // `needle` as a placeholder — drop it and return
+                    // early so ToString(replaceValue) does not stash a
+                    // second pending throw that would clobber the
+                    // first. Caller's emit_throw_check unwinds.
+                    if __torajs_throw_check() != 0 {
+                        __torajs_str_drop(needle);
+                        return VALUE_UNDEFINED;
+                    }
+                    let repl = __torajs_anyv_to_str(arg_at(1));
                     let out =
                         __torajs_str_any_replace(s, needle as *const u8, repl as *const u8, all);
                     __torajs_str_drop(needle);
+                    __torajs_str_drop(repl);
                     out
-                };
-                __torajs_str_drop(repl);
-                out
+                }
             }
             m if m == ANY_METHOD_PAD_START || m == ANY_METHOD_PAD_END => {
                 let target = to_index(arg_at(0), 0);
