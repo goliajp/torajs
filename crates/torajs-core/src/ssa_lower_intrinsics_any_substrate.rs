@@ -48,6 +48,10 @@ pub(crate) struct AnySubstrateIds {
     pub any_typeof: FuncId,
     pub any_to_bool: FuncId,
     pub any_to_number: FuncId,
+    /// RFC 20260716 刀 4 — `Object(v)` callable coercion (ES §20.1.1.1
+    /// + ToObject §7.1.18). Primitives mint a fresh wrapper; heap
+    /// cells identity (rc_inc + return recv); null/undef fresh {}.
+    pub any_to_object: FuncId,
     pub any_add: FuncId,
     pub any_arith: FuncId,
     pub any_compare: FuncId,
@@ -136,6 +140,7 @@ pub(crate) fn declare(
         any_typeof: decl!("__torajs_anyv_typeof", [Any], Str),
         any_to_bool: decl!("__torajs_anyv_to_bool", [Any], Bool),
         any_to_number: decl!("__torajs_anyv_to_number", [Any], F64),
+        any_to_object: decl!("__torajs_any_to_object", [Any], Any),
         any_add: decl!("__torajs_anyv_add_pair", [I64, I64, I64, I64], Any),
         any_arith: decl!("__torajs_anyv_arith_pair", [I64, I64, I64, I64, I64], Any),
         any_compare: decl!(

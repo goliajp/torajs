@@ -122,6 +122,7 @@ mod name_get;
 mod prop_delete;
 mod prop_has;
 mod struct_probe;
+mod to_object;
 mod to_primitive;
 mod wrapper_view_through;
 

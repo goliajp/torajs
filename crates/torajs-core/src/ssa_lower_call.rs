@@ -78,6 +78,10 @@ fn try_dispatch_a(ctx: &mut LowerCtx<'_>, callee: ExprId, args: &[ExprId]) -> Op
     if let Some(op) = crate::ssa_lower_call_coercion::try_lower(ctx, callee, args) {
         return Some(op);
     }
+    // RFC 20260716 刀 4 — `Object(x)` callable coercion (ES §20.1.1.1 + ToObject §7.1.18).
+    if let Some(op) = crate::ssa_lower_call_object_coerce::try_lower(ctx, callee, args) {
+        return Some(op);
+    }
     // V3-03 — `BigInt(value)` callable ctor (Type::BigInt → clone; Str → from_str; F64/I64 → from_number).
     if let Some(op) = crate::ssa_lower_call_bigint_ctor::try_lower(ctx, callee, args) {
         return Some(op);

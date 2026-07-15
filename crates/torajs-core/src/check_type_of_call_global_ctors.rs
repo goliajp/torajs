@@ -202,5 +202,22 @@ pub(crate) fn try_match(
         }
         return Some(Ok(Type::Symbol));
     }
+    // RFC 20260716 刀 4 — `Object(v)` callable coercion (ES
+    // §20.1.1.1 + ToObject §7.1.18). Any arg type is legal:
+    // primitives mint a fresh wrapper, heap objects identity,
+    // null/undef fresh `{}`. Static result type is Any — the
+    // per-input choice can't be tightened without a per-arg
+    // switch on the runtime side (Type::Any is what the
+    // Number/String/BooleanWrapper checker returns anyway).
+    if let Expr::Ident(n) = ast.get_expr(*callee)
+        && n == "Object"
+    {
+        for &a in args.iter() {
+            if let Err(e) = checker.type_of(ast, a) {
+                return Some(Err(e));
+            }
+        }
+        return Some(Ok(Type::Any));
+    }
     None
 }
