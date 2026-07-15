@@ -53,6 +53,10 @@ per_tag_drop_stub!(
     __torajs_symbol_drop,
     __torajs_promise_drop,
     __torajs_obj_drop_rc,
+    // RFC 20260716-primitive-wrapper-substrate 刀 1
+    __torajs_number_wrapper_drop,
+    __torajs_string_wrapper_drop,
+    __torajs_boolean_wrapper_drop,
 );
 
 // Transitive extern: torajs-rc's `__torajs_rc_dec` notifies the weak

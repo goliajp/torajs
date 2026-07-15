@@ -1,0 +1,29 @@
+[package]
+name = "torajs-wrapper"
+description = "Primitive-wrapper heap objects (NumberWrapper / StringWrapper / BooleanWrapper) for the torajs AOT TypeScript runtime. Implements ES §21.1.1.1 / §22.1.1.1 / §20.3.1.1 `new Number/String/Boolean(x)` heap substrate — 16B fixed-size blocks routed through the universal HeapHeader rc + tag dispatch. RFC 20260716-primitive-wrapper-substrate 刀 1."
+keywords = ["torajs", "primitive", "wrapper", "no-std"]
+categories = ["no-std"]
+readme = "README.md"
+documentation = "https://docs.rs/torajs-wrapper"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+# Dual emit: `rlib` for cargo workspace builds + unit tests; `staticlib`
+# emits libtorajs_wrapper.a so the in-house link pipeline (torajs-link)
+# bakes it into every `tr build` AOT user binary alongside the other
+# Layer-2 staticlibs.
+[lib]
+crate-type = ["rlib", "staticlib"]
+
+[dependencies]
+# Layer-1 substrate deps only. HeapHeader / Tag come from torajs-rc;
+# raw alloc / free come from torajs-mmalloc via `__torajs_libc_*` shims.
+torajs-rc = { path = "../torajs-rc" }
+torajs-mmalloc = { path = "../torajs-mmalloc" }

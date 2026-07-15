@@ -75,4 +75,17 @@ pub enum Tag {
     /// their rc-gated catch-alls (`FLAG_STATIC_LITERAL` short-
     /// circuits every rc/drop path).
     Undefined = 20,
+    /// `NumberWrapper` — `[header:8][num:8]` fixed 16B block for
+    /// `new Number(x)` (spec §21.1.1.1). `[[NumberData]]` stored
+    /// verbatim; substrate implemented in `torajs-wrapper`
+    /// (RFC 20260716-primitive-wrapper-substrate 刀 1).
+    NumberWrapper = 21,
+    /// `StringWrapper` — `[header:8][str_cell_ptr:8]` fixed 16B block
+    /// for `new String(x)` (spec §22.1.1.1). Holds an owning `+1`
+    /// reference to a Tag::Str cell as `[[StringData]]`.
+    StringWrapper = 22,
+    /// `BooleanWrapper` — `[header:8][val:1 + pad:7]` fixed 16B block
+    /// for `new Boolean(x)` (spec §20.3.1.1). `[[BooleanData]]` is
+    /// 0 (false) or 1 (true).
+    BooleanWrapper = 23,
 }

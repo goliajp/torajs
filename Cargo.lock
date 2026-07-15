@@ -1775,6 +1775,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "torajs-wrapper"
+version = "0.1.0"
+dependencies = [
+ "torajs-mmalloc",
+ "torajs-rc",
+]
+
+[[package]]
 name = "tower"
 version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"

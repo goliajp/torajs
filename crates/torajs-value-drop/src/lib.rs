@@ -42,6 +42,9 @@
 //! | `Promise`       | `__torajs_promise_drop`         | torajs-promise    |
 //! | `Obj`           | `__torajs_obj_drop_rc`          | torajs-cycle      |
 //! | `Closure`       | env's `drop_fn` slot at `+16`   | synthesized       |
+//! | `NumberWrapper` | `__torajs_number_wrapper_drop`  | torajs-wrapper    |
+//! | `StringWrapper` | `__torajs_string_wrapper_drop`  | torajs-wrapper    |
+//! | `BooleanWrapper`| `__torajs_boolean_wrapper_drop` | torajs-wrapper    |
 //! | (other)         | `__torajs_rc_dec` + libc `free` | torajs-rc + libc  |
 //!
 //! `Closure` has no fixed extern: each closure env carries the
@@ -100,6 +103,13 @@ unsafe extern "C" {
     fn __torajs_symbol_drop(p: *mut c_void);
     fn __torajs_promise_drop(p: *mut c_void);
     fn __torajs_obj_drop_rc(p: *mut c_void);
+    // RFC 20260716-primitive-wrapper-substrate 刀 1 — three fixed
+    // 16B wrapper blocks (torajs-wrapper). Each `_drop` is the direct
+    // free path (matches the BigInt shape) called by the tag arm
+    // AFTER `__torajs_rc_dec` returned 1.
+    fn __torajs_number_wrapper_drop(p: *mut c_void);
+    fn __torajs_string_wrapper_drop(p: *mut c_void);
+    fn __torajs_boolean_wrapper_drop(p: *mut c_void);
 }
 
 #[cfg(not(target_os = "wasi"))]
@@ -156,6 +166,28 @@ pub unsafe extern "C" fn __torajs_value_drop_heap(child: *mut c_void) {
             // BigInt has no inner refs — rc-dec, then drop on hit-zero.
             if __torajs_rc_dec(child) != 0 {
                 __torajs_bigint_drop(child);
+            }
+        },
+        // RFC 20260716 刀 1 — primitive-wrapper arms. NumberWrapper /
+        // BooleanWrapper are leaf blocks with no inner refs (rc-dec +
+        // free, same shape as BigInt). StringWrapper carries one +1
+        // reference on a Tag::Str cell; `__torajs_string_wrapper_drop`
+        // routes that inner release through this very dispatcher (so
+        // pool + tag walk stay uniform) before freeing the wrapper
+        // block itself.
+        t if t == Tag::NumberWrapper as u16 => unsafe {
+            if __torajs_rc_dec(child) != 0 {
+                __torajs_number_wrapper_drop(child);
+            }
+        },
+        t if t == Tag::StringWrapper as u16 => unsafe {
+            if __torajs_rc_dec(child) != 0 {
+                __torajs_string_wrapper_drop(child);
+            }
+        },
+        t if t == Tag::BooleanWrapper as u16 => unsafe {
+            if __torajs_rc_dec(child) != 0 {
+                __torajs_boolean_wrapper_drop(child);
             }
         },
         t if t == Tag::WeakRef as u16 => unsafe { __torajs_weakref_drop(child) },
