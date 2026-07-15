@@ -115,6 +115,13 @@ pub unsafe extern "C" fn __torajs_any_length_get(recv: AnyValue) -> AnyValue {
     let ptr = as_void_ptr(recv);
     unsafe {
         let tag = (ptr.cast::<u8>().add(4) as *const u16).read();
+        // RFC 20260716 刀 3 — primitive-wrapper view-through
+        // (see `wrapper_view_through`). Number/Boolean fall to
+        // primitive immediates (undefined for `.length`);
+        // StringWrapper hands its inner cell to the Str arm below.
+        if let Some(inner) = crate::wrapper_view_through::resolve_inner_recv(ptr, tag) {
+            return __torajs_any_length_get(inner);
+        }
         if tag == Tag::Arr as u16 {
             let n = *(ptr.cast::<u8>().add(MIRROR_ARR_LEN_OFF) as *const u64);
             return crate::nanbox_encode::__torajs_anyv_box_i64(n as i64);

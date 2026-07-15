@@ -107,6 +107,13 @@ pub unsafe extern "C" fn __torajs_any_index_get(recv: AnyValue, idx: i64) -> Any
     }
     let ptr = as_void_ptr(recv);
     let tag = unsafe { (ptr.cast::<u8>().add(4) as *const u16).read() };
+    // RFC 20260716 刀 3 — primitive-wrapper view-through
+    // (see `wrapper_view_through`). Number/Boolean fall to primitive
+    // immediates (undefined for indexed access); StringWrapper hands
+    // its inner Str cell to the Str arm below.
+    if let Some(inner) = unsafe { crate::wrapper_view_through::resolve_inner_recv(ptr, tag) } {
+        return unsafe { __torajs_any_index_get(inner, idx) };
+    }
     if tag == Tag::Str as u16 {
         return unsafe { index_str_cell(ptr as *mut u8, idx) };
     }

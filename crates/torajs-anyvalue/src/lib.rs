@@ -123,6 +123,7 @@ mod prop_delete;
 mod prop_has;
 mod struct_probe;
 mod to_primitive;
+mod wrapper_view_through;
 
 pub mod inspect;
 pub mod loose_eq;

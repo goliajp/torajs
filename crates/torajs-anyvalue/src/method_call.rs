@@ -231,6 +231,10 @@ pub(crate) unsafe fn any_method_call_inner(
     if is_cell(recv) {
         let ptr = as_void_ptr(recv);
         let tag = unsafe { (ptr.cast::<u8>().add(4) as *const u16).read() };
+        // RFC 20260716 刀 3 view-through (`wrapper_view_through`).
+        if let Some(inner) = unsafe { crate::wrapper_view_through::resolve_inner_recv(ptr, tag) } {
+            return unsafe { any_method_call_inner(inner, mid, name_str, recv_slot, argv, argc) };
+        }
         // §20.1.4.7 Object.prototype.valueOf is ToObject(this) —
         // identity on every cell receiver. Date keeps its own
         // valueOf (the getTime alias in its per-tag arm), the
