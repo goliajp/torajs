@@ -238,7 +238,7 @@ fn emit_define_arr_prop(
     // never crossed the any boundary carries ARR_KIND_UNSET, so mark
     // it here (defineProperty is a reflection boundary like boxing).
     ctx.emit_arr_mark_kind(&obj_op);
-    let key_op = lower_key(ctx, key);
+    let (key_op, key_owned) = lower_key(ctx, key);
     let (tag, val_op) = if let Some(val_eid) = value_eid {
         let v_raw = ctx.lower_expr(val_eid);
         let v_ty = ctx.operand_ty(&v_raw);
@@ -252,13 +252,20 @@ fn emit_define_arr_prop(
             ctx.intrinsics.arr_define,
             vec![
                 obj_op,
-                key_op,
+                key_op.clone(),
                 Operand::ConstI64(tag),
                 val_op,
                 Operand::ConstI64(flags_byte),
             ],
         ),
     );
+    // 刀 18 — coerced key was owned Str; drop after helper borrowed it.
+    if key_owned {
+        ctx.f.append_void(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.str_drop, vec![key_op]),
+        );
+    }
     ctx.emit_throw_check(None);
 }
 
@@ -272,7 +279,7 @@ fn emit_define_dynobj(
     value_eid: Option<ExprId>,
     flags_byte: i64,
 ) {
-    let key_op = lower_key(ctx, key);
+    let (key_op, key_owned) = lower_key(ctx, key);
     let (tag, val_op) = if let Some(val_eid) = value_eid {
         let v_raw = ctx.lower_expr(val_eid);
         let v_ty = ctx.operand_ty(&v_raw);
@@ -292,13 +299,20 @@ fn emit_define_dynobj(
             ctx.intrinsics.dynobj_define,
             vec![
                 Operand::Value(slot),
-                key_op,
+                key_op.clone(),
                 Operand::ConstI64(tag),
                 val_op,
                 Operand::ConstI64(flags_byte),
             ],
         ),
     );
+    // 刀 18 — coerced key was owned Str; drop after helper borrowed it.
+    if key_owned {
+        ctx.f.append_void(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.str_drop, vec![key_op]),
+        );
+    }
     ctx.emit_throw_check(None);
     ctx.emit_any_dynobj_writeback(receiver_ident, slot);
 }

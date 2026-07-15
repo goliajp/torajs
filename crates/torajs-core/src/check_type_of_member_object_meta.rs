@@ -54,13 +54,19 @@ pub(crate) fn try_match(name: &str) -> Option<Result<Type, String>> {
         // fields like writable/configurable/enumerable/get/
         // set are subset-deferred), and routes to dynobj_set.
         // obj is Type::Any (must be a dynobj-backed Any-box);
-        // key is Type::String; descriptor is Type::Any
-        // (typically a plain object literal at the call site
-        // — ssa_lower probes for the .value field at AST time).
-        "defineProperty" => Type::Function(
-            vec![Type::Any, Type::String, Type::Any],
-            Box::new(Type::Void),
-        ),
+        // descriptor is Type::Any (typically a plain object
+        // literal at the call site — ssa_lower probes for the
+        // .value field at AST time).
+        //
+        // RFC 20260716 刀 18 — key sig relaxed from `Type::String`
+        // to `Type::Any` (mirror of gOPD 刀 17). A StringWrapper /
+        // Number / Boolean / etc. key routes through `lower_key`'s
+        // `emit_to_string` coerce (§20.1.2.6 step 1 → §7.1.19 →
+        // §7.1.17); the runtime helper still borrows a raw Str
+        // pointer and SSA lower drops the coerced Str after.
+        "defineProperty" => {
+            Type::Function(vec![Type::Any, Type::Any, Type::Any], Box::new(Type::Void))
+        }
         // P3.getOwnPropertyDescriptor — accept at typecheck.
         // ssa_lower intercepts and constructs an Any-boxed
         // descriptor object `{value, writable, enumerable,

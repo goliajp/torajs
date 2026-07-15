@@ -361,7 +361,7 @@ pub(crate) fn emit_accessor_define(
     enumerable: Option<bool>,
     configurable: Option<bool>,
 ) -> bool {
-    let key_op = lower_key(ctx, key);
+    let (key_op, key_owned) = lower_key(ctx, key);
     let (get_op, get_kind) = match get_eid {
         Some(e) => lower_accessor_face(ctx, e, true),
         None => (Operand::ConstPtrNull, 0),
@@ -429,13 +429,20 @@ pub(crate) fn emit_accessor_define(
             ctx.intrinsics.dynobj_define,
             vec![
                 Operand::Value(slot),
-                key_op,
+                key_op.clone(),
                 Operand::ConstI64(4), // ANY_HEAP — the pair stored as a cell
                 Operand::Value(pair),
                 Operand::ConstI64(flags),
             ],
         ),
     );
+    // 刀 18 — coerced key was owned Str; drop after helper borrowed it.
+    if key_owned {
+        ctx.f.append_void(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.str_drop, vec![key_op]),
+        );
+    }
     ctx.emit_throw_check(None);
     if obj_is_any {
         ctx.emit_any_dynobj_writeback(receiver_ident, slot);

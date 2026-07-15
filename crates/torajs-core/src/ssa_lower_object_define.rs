@@ -102,10 +102,32 @@ pub(crate) fn is_typed_object(ty: Type) -> bool {
 /// Lower the key to a `Str` operand. Call at the spec evaluation point
 /// (after `obj`, before the descriptor) so a side-effecting key expr
 /// orders correctly.
-pub(crate) fn lower_key(ctx: &mut LowerCtx, key: &DefineKey) -> Operand {
+///
+/// Returns `(key_op, owned)` — `owned == true` means the caller must
+/// emit a `str_drop` on `key_op` after the runtime helper borrows it
+/// (RFC 20260716 刀 18 — ToPropertyKey coerce). `false` covers the
+/// interned-literal `DefineKey::Name` shape and the `Type::Str` Expr
+/// fast path (both are borrow-shaped shares of a stable Str).
+pub(crate) fn lower_key(ctx: &mut LowerCtx, key: &DefineKey) -> (Operand, bool) {
     match key {
-        DefineKey::Expr(eid) => ctx.lower_expr(*eid),
-        DefineKey::Name(n) => Operand::Value(ctx.intern_string_literal(n)),
+        DefineKey::Expr(eid) => {
+            let raw = ctx.lower_expr(*eid);
+            let ty = ctx.operand_ty(&raw);
+            match ty {
+                Type::Str => (raw, false),
+                // RFC 20260716 刀 18 — ES §20.1.2.6 step 1 / §20.1.2.10
+                // step 1 → §7.1.19 ToPropertyKey → §7.1.17 ToString.
+                // StringWrapper / Number / Boolean / etc. keys route
+                // through `emit_to_string`; returned Str is owned and
+                // callers drop after the helper borrow read.
+                _ => {
+                    let coerced =
+                        crate::ssa_lower_call_coercion::emit_to_string(ctx, *eid, raw, ty);
+                    (coerced, true)
+                }
+            }
+        }
+        DefineKey::Name(n) => (Operand::Value(ctx.intern_string_literal(n)), false),
     }
 }
 
@@ -189,7 +211,7 @@ fn emit_define_objlit_runtime(
         // arm).
         _ => return true,
     };
-    let key_op = lower_key(ctx, key);
+    let (key_op, key_owned) = lower_key(ctx, key);
     let desc_ptr = ctx.lower_dynobj_init(desc_eid);
     let slot = ctx.alloca(Type::Ptr, Some("__dynobj_slot"));
     ctx.f.append_void(
@@ -200,7 +222,7 @@ fn emit_define_objlit_runtime(
         ctx.cur_block,
         InstKind::Call(
             ctx.intrinsics.dynobj_define_from_desc,
-            vec![Operand::Value(slot), key_op, desc_ptr.clone()],
+            vec![Operand::Value(slot), key_op.clone(), desc_ptr.clone()],
         ),
     );
     // Release the fresh descriptor before the throw-check (mirror of
@@ -209,6 +231,13 @@ fn emit_define_objlit_runtime(
         ctx.cur_block,
         InstKind::Call(ctx.intrinsics.value_drop_heap, vec![desc_ptr]),
     );
+    // 刀 18 — coerced key was owned Str; drop after helper borrowed it.
+    if key_owned {
+        ctx.f.append_void(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.str_drop, vec![key_op]),
+        );
+    }
     ctx.emit_throw_check(None);
     if matches!(obj_ty, Type::Any) {
         ctx.emit_any_dynobj_writeback(receiver_ident, slot);
@@ -230,7 +259,7 @@ fn emit_define_runtime_desc(
     receiver_ident: &Option<String>,
     desc_eid: ExprId,
 ) -> bool {
-    let key_op = lower_key(ctx, key);
+    let (key_op, key_owned) = lower_key(ctx, key);
     let desc_op = ctx.lower_expr(desc_eid);
     let desc_ty = ctx.operand_ty(&desc_op);
     let desc_ptr: Operand = match desc_ty {
@@ -301,9 +330,16 @@ fn emit_define_runtime_desc(
         ctx.cur_block,
         InstKind::Call(
             ctx.intrinsics.dynobj_define_from_desc,
-            vec![Operand::Value(slot), key_op, desc_ptr],
+            vec![Operand::Value(slot), key_op.clone(), desc_ptr],
         ),
     );
+    // 刀 18 — coerced key was owned Str; drop after helper borrowed it.
+    if key_owned {
+        ctx.f.append_void(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.str_drop, vec![key_op]),
+        );
+    }
     ctx.emit_throw_check(None);
     if matches!(obj_ty, Type::Any) {
         ctx.emit_any_dynobj_writeback(receiver_ident, slot);
