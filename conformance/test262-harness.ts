@@ -102,7 +102,14 @@ function __t262_throws_runtime(thunk: () => void, msg: string = ""): void {
   let threw: boolean = false;
   try {
     thunk();
-  } catch (e: number) {
+  } catch (e) {
+    // untyped catch (any); typed `catch (e: number)` only caught
+    // numeric throws, so a case that threw an object (Test262Error /
+    // Error / any Any-boxed value) fell through and
+    // `__t262_throws_runtime` reported the opposite verdict — see
+    // e.g. isFinite / isNaN `return-abrupt-from-tonumber-number.js`
+    // after the Any-arm ToNumber throw-check landed. Other harness
+    // clauses (line 180 / 227) already use the untyped form.
     threw = true;
   }
   if (!threw) {

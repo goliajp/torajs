@@ -245,6 +245,13 @@ fn lower_is_nan_or_finite(ctx: &mut LowerCtx<'_>, name: &str, args: &[ExprId]) -
                 Type::F64,
                 None,
             );
+            // ES §19.2.{3,4} step 1 "? ToNumber" — an abrupt completion
+            // from valueOf/toString on an Any-boxed dynobj (test262
+            // `isFinite|isNaN/return-abrupt-from-tonumber-number.js`)
+            // must propagate; without this check the pending throw was
+            // stashed while a NaN garbage value fed the predicate and
+            // downstream consumers, ending in SIGSEGV.
+            ctx.emit_throw_check(None);
             if ctx.expr_is_fresh_owned(args[0]) {
                 ctx.emit_drop_value(arg_op, Type::Any);
             }
@@ -269,14 +276,42 @@ fn lower_is_nan_or_finite(ctx: &mut LowerCtx<'_>, name: &str, args: &[ExprId]) -
             Operand::Value(v)
         }
         _ => {
-            // Non-numeric, non-coercible (object / array / closure):
-            // ToNumber yields NaN per spec. isFinite(NaN) = false,
-            // isNaN(NaN) = true. Drop the borrow if fresh-owned to keep
-            // refcount balanced.
-            if arg_ty.is_refcounted() && ctx.expr_is_fresh_owned(args[0]) {
-                ctx.emit_drop_value(arg_op, arg_ty);
+            // Object / array / closure — spec §7.1.4 ToNumber invokes
+            // OrdinaryToPrimitive → valueOf / toString, and either may
+            // throw (test262 `isFinite|isNaN/return-abrupt-from-
+            // tonumber-number.js`: `let obj = { valueOf: () => throw
+            // Test262Error() }` typechecks as a struct, so it hit this
+            // arm and the static ConstBool fold skipped the abrupt
+            // completion → assert.throws saw !threw → the harness
+            // reported the opposite verdict). Route typed
+            // reference-shape args through box_to_any + any_to_number
+            // + throw_check so the spec's abrupt path propagates; the
+            // common no-valueOf-no-toString struct still resolves to
+            // NaN inside any_to_number, so the aggregate answer
+            // matches the prior static fold (isFinite = false / isNaN
+            // = true).
+            if crate::ssa_lower_object_define::is_typed_object(arg_ty) {
+                let boxed = ctx.box_to_any_from_expr(args[0], arg_op.clone());
+                let f = ctx.f.append_inst(
+                    ctx.cur_block,
+                    InstKind::Call(ctx.intrinsics.any_to_number, vec![boxed]),
+                    Type::F64,
+                    None,
+                );
+                ctx.emit_throw_check(None);
+                if arg_ty.is_refcounted() && ctx.expr_is_fresh_owned(args[0]) {
+                    ctx.emit_drop_value(arg_op, arg_ty);
+                }
+                Operand::Value(f)
+            } else {
+                // Truly non-coercible (Void / other primitives that
+                // never reach OrdinaryToPrimitive): keep the static
+                // fold, spec answer is NaN.
+                if arg_ty.is_refcounted() && ctx.expr_is_fresh_owned(args[0]) {
+                    ctx.emit_drop_value(arg_op, arg_ty);
+                }
+                return Operand::ConstBool(name == "isNaN");
             }
-            return Operand::ConstBool(name == "isNaN");
         }
     };
     let coerced_ty = ctx.operand_ty(&coerced);
