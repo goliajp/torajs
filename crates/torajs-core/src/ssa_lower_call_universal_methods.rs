@@ -155,6 +155,91 @@ pub(crate) fn try_lower(
     {
         return Some(emit_obj_has_own_property(ctx, recv_ty, *arg_eid, args));
     }
+    // RFC 20260716 刀 13 — typed-Str / -Substr `.hasOwnProperty(key)`
+    // per ES §22.1.4 String Exotic Object: `"length"` and every
+    // canonical index `[0, [[StringData]].length)` are own; every
+    // other key is not. Pre-fix the primitive fallback below folded
+    // to `ConstBool(false)` for every key, missing bun-visible
+    // spec behavior on typed-Str receivers.
+    // (Substr materializes through `substr_to_owned` — the runtime
+    // helper reads a plain Str layout only.)
+    // `propertyIsEnumerable` on strings: `length` is non-enumerable
+    // per spec, indices ARE enumerable — the runtime returns 1 for
+    // index keys, so cap this fast-path to `hasOwnProperty` and let
+    // `propertyIsEnumerable` keep folding to `false` (subset stub;
+    // a tighter distinction is a follow-up).
+    if matches!(recv_ty, Type::Str | Type::Substr)
+        && m_name == "hasOwnProperty"
+        && let Some(arg_eid) = args.first()
+    {
+        let key_op = ctx.lower_expr(*arg_eid);
+        let key_ty = ctx.operand_ty(&key_op);
+        let key_str = if key_ty == Type::Substr {
+            let owned = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.substr_to_owned, vec![key_op.clone()]),
+                Type::Str,
+                None,
+            );
+            Operand::Value(owned)
+        } else if key_ty == Type::Str {
+            key_op.clone()
+        } else {
+            // Non-Str key (Number literal etc.): coerce first so
+            // the runtime helper sees a live Str block. Uses the
+            // shared `coerce_to_str` (Substr/I64/F64/Bool/Any all
+            // covered). A borrowed Str stays borrowed; a fresh
+            // owned Str drops after the call.
+            ctx.coerce_to_str(key_op.clone(), key_ty)
+        };
+        let recv_str = if recv_ty == Type::Substr {
+            let owned = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.substr_to_owned, vec![recv_op.clone()]),
+                Type::Str,
+                None,
+            );
+            Operand::Value(owned)
+        } else {
+            recv_op.clone()
+        };
+        let hit_i64 = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(
+                ctx.intrinsics.str_prop_has,
+                vec![recv_str.clone(), key_str.clone()],
+            ),
+            Type::I64,
+            None,
+        );
+        // Drop the coerced temps we newly own. The Substr materialize
+        // path always mints a fresh Str; the non-Str-key coerce path
+        // does too. A same-tag borrow (Str + Str) uses `key_op`
+        // directly — `release_owned_temp` handles the Ident-vs-owned
+        // split.
+        if recv_ty == Type::Substr {
+            ctx.emit_drop_value(recv_str, Type::Str);
+        }
+        if !matches!(key_ty, Type::Str) {
+            ctx.emit_drop_value(key_str, Type::Str);
+        }
+        ctx.release_owned_temp(*arg_eid, &key_op);
+        // Lower trailing args for side effects (S304 idiom).
+        for &a in args.iter().skip(1) {
+            let _ = ctx.lower_expr(a);
+        }
+        let hit_bool = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::ICmp(
+                crate::ssa::IPred::Ne,
+                Operand::Value(hit_i64),
+                Operand::ConstI64(0),
+            ),
+            Type::Bool,
+            None,
+        );
+        return Some(Operand::Value(hit_bool));
+    }
     // Fallback (primitives, isPrototypeOf, no args): release an owned
     // temp arg + return false. Ident args are borrows — the old
     // consume+drop pair destroyed the source's stake while later reads

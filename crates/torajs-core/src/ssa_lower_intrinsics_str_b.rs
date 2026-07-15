@@ -54,6 +54,10 @@ pub(crate) struct StrBIds {
     pub str_sort_undef_pre: FuncId,
     pub str_includes: FuncId,
     pub str_eq: FuncId,
+    /// RFC 20260716 刀 13 — typed-Str `.hasOwnProperty(key)` per
+    /// ES §22.1.4 String Exotic Object. Answers 1 for `"length"`
+    /// or a canonical index `[0, len)`, 0 otherwise.
+    pub str_prop_has: FuncId,
     pub str_null_check: FuncId,
     pub str_is_nullish: FuncId,
     pub str_is_undef: FuncId,
@@ -152,6 +156,13 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             "__torajs_str_eq",
             &[Type::Str, Type::Str],
             Type::Bool,
+        ),
+        str_prop_has: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_str_prop_has",
+            &[Type::Str, Type::Str],
+            Type::I64,
         ),
         str_null_check: declare_intrinsic(
             module,

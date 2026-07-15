@@ -142,6 +142,9 @@ pub(crate) struct Intrinsics {
     pub(crate) str_locale_compare: FuncId,
     pub(crate) str_includes: FuncId,
     pub(crate) str_eq: FuncId,
+    /// RFC 20260716 刀 13 — typed-Str `.hasOwnProperty(key)` per
+    /// ES §22.1.4 String Exotic Object.
+    pub(crate) str_prop_has: FuncId,
     pub(crate) str_null_check: FuncId,
     pub(crate) str_is_nullish: FuncId,
     pub(crate) str_is_undef: FuncId,

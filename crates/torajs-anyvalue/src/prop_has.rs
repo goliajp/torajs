@@ -218,6 +218,20 @@ pub unsafe extern "C" fn __torajs_any_prop_has(recv: AnyValue, key: *const c_voi
             let len = unsafe { ptr.cast::<u8>().add(STR_LEN_OFF).cast::<u32>().read() } as u64;
             unsafe { str_index_has(len, key) }
         }
+        // RFC 20260716 刀 13 — `StringWrapper` receiver: `length`
+        // and numeric indices `[0, len)` are own properties per
+        // §22.1.4 String Exotic Object. View-through the inner Str
+        // cell to read the code-unit count; empty-wrapper (NULL
+        // inner sentinel) has len 0 so only `"length"` matches.
+        Some((ptr, t)) if t == Tag::StringWrapper as u16 => {
+            let inner_ptr = unsafe { (ptr.cast::<u8>().add(8) as *const *const c_void).read() };
+            let len = if inner_ptr.is_null() {
+                0
+            } else {
+                unsafe { inner_ptr.cast::<u8>().add(STR_LEN_OFF).cast::<u32>().read() as u64 }
+            };
+            unsafe { str_index_has(len, key) }
+        }
         _ => 0,
     }
 }
@@ -254,6 +268,24 @@ unsafe fn str_index_has(len: u64, key: *const c_void) -> i64 {
         return 1;
     }
     unsafe { key_is(key, b"length") as i64 }
+}
+
+/// RFC 20260716 刀 13 — typed-Str-receiver `.hasOwnProperty(key)` per
+/// ES §22.1.4 String Exotic Object. The typed SSA lower path
+/// `ssa_lower_call_universal_methods::try_lower` was folding the
+/// call to `ConstBool(false)` for every primitive receiver ("no own
+/// properties in our subset") — spec-incorrect for strings which
+/// expose `length` and each integer index `[0, [[StringData]].length)`.
+/// Runtime side just needs the same len + key math [`str_index_has`]
+/// runs on the Any-lane's `Tag::Str` arm; expose it under a stable
+/// symbol so the emit inline `Call` can bind to it.
+///
+/// # Safety
+/// `s` is a live Tag::Str block; `key` is a live Str cell.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_prop_has(s: *const c_void, key: *const c_void) -> i64 {
+    let len = unsafe { s.cast::<u8>().add(STR_LEN_OFF).cast::<u32>().read() } as u64;
+    unsafe { str_index_has(len, key) }
 }
 
 /// `Object.prototype.propertyIsEnumerable` substrate (chunk D-1,

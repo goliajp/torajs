@@ -132,6 +132,7 @@ pub(crate) fn build(
         str_locale_compare: init_a.str_b.str_locale_compare,
         str_includes: init_a.str_b.str_includes,
         str_eq: init_a.str_b.str_eq,
+        str_prop_has: init_a.str_b.str_prop_has,
         str_null_check: init_a.str_b.str_null_check,
         str_is_nullish: init_a.str_b.str_is_nullish,
         str_is_undef: init_a.str_b.str_is_undef,
