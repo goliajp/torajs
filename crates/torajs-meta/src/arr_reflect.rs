@@ -70,8 +70,10 @@ unsafe fn key_bytes<'a>(key: *const c_void) -> &'a [u8] {
 /// Canonical array-index parse — ES §10.4.2 array index: a canonical
 /// numeric string (`"0"`, or nonzero-leading all-digits) whose value
 /// is `< 2^32 - 1`. Anything else (leading zero, sign, empty, huge)
-/// is an ordinary property key.
-fn canonical_index(bytes: &[u8]) -> Option<u64> {
+/// is an ordinary property key. RFC 20260716 刀 16 reuses this from
+/// the StringWrapper char-index descriptor arm — the shape is spec
+/// §7.1.22 CanonicalNumericIndexString and applies identically.
+pub(crate) fn canonical_index(bytes: &[u8]) -> Option<u64> {
     if bytes.is_empty() || bytes.len() > 10 {
         return None;
     }

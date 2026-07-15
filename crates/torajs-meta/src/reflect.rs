@@ -296,19 +296,36 @@ pub unsafe extern "C" fn __torajs_anyv_get_property_descriptor(
         let key_len = unsafe { key.cast::<u8>().add(8).cast::<u32>().read() } as usize;
         let key_data = unsafe { key.cast::<u8>().add(16) };
         let bytes = unsafe { core::slice::from_raw_parts(key_data, key_len) };
+        // Inner Str cell at STRING_WRAPPER_CELL_OFF = 8; NULL sentinel
+        // (`new String()` no-arg) has length 0. Shared by both the
+        // `length` arm and the char-index arm below.
+        let inner_ptr = unsafe { (dynobj.cast::<u8>().add(8) as *const *const c_void).read() };
+        let inner_len = if inner_ptr.is_null() {
+            0u64
+        } else {
+            // Tag::Str layout: `len: u32 @ offset 8`.
+            unsafe { inner_ptr.cast::<u8>().add(8).cast::<u32>().read() as u64 }
+        };
         if bytes == b"length" {
-            // Inner Str cell at STRING_WRAPPER_CELL_OFF = 8; NULL
-            // sentinel (`new String()` no-arg) has length 0.
-            let inner_ptr = unsafe { (dynobj.cast::<u8>().add(8) as *const *const c_void).read() };
-            let len = if inner_ptr.is_null() {
-                0
-            } else {
-                // Tag::Str layout: `len: u32 @ offset 8`.
-                unsafe { inner_ptr.cast::<u8>().add(8).cast::<u32>().read() as u64 }
-            };
-            return unsafe { build_data_descriptor(2, len, 0, 0, 0) };
+            return unsafe { build_data_descriptor(2, inner_len, 0, 0, 0) };
         }
-        // Char-index descriptors + expando + proto walk are deferred.
+        // RFC 20260716 刀 16 — StringWrapper char-index descriptor.
+        // ES §22.1.4.4 [[GetOwnProperty]] returns for `"<idx>"` a data
+        // property `{value: char, writable: false, enumerable: true,
+        // configurable: false}` when `idx` is a canonical numeric index
+        // (§7.1.22) less than the wrapped string's length. Because the
+        // char `value` is a fresh Str cell (single code unit) rather
+        // than a `(tag, immediate)` pair, we delegate to the shared
+        // char-index helper in `str_descriptor.rs` which owns the alloc
+        // + slot-set sequence for that case.
+        if let Some(idx) = crate::arr_reflect::canonical_index(bytes) {
+            if !inner_ptr.is_null() && idx < inner_len {
+                return unsafe {
+                    crate::str_descriptor::__torajs_anyv_str_index_descriptor(inner_ptr, idx as i64)
+                };
+            }
+        }
+        // Expando entries + proto walk still deferred (L3b).
         return VALUE_UNDEFINED_IMM;
     }
     if htag != TAG_DYNOBJ {
