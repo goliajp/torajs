@@ -120,16 +120,32 @@ pub(crate) fn try_lower(
 /// char; the recorded risk was a UTF-16 SIGBUS on the same shape),
 /// so it materializes through substr_to_owned — a fresh rc=1 temp
 /// the caller drops after the call. Owned-Str args pass through.
+///
+/// RFC 20260716 刀 19 — checker relaxed the arg sig from
+/// `Type::String` to `Type::Any` per ES §22.2.6.16 step 3
+/// ToString(str). A StringWrapper / Number / Boolean / etc. arg
+/// routes through `ssa_lower_call_coercion::emit_to_string` which
+/// dispatches per SSA type (any_to_str's TAG_STRING_WRAPPER arm for
+/// StringWrapper, i64_to_str / bool_to_str for primitives). The
+/// coerced result is owned so the caller's drop fires after the
+/// helper borrow read (same pattern as the Substr path).
 fn lower_haystack(ctx: &mut LowerCtx<'_>, arg: ExprId) -> (Operand, bool) {
     let s = ctx.lower_expr(arg);
-    if ctx.operand_ty(&s) != Type::Substr {
-        return (s, false);
+    let ty = ctx.operand_ty(&s);
+    match ty {
+        Type::Str => (s, false),
+        Type::Substr => {
+            let owned = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.substr_to_owned, vec![s]),
+                Type::Str,
+                None,
+            );
+            (Operand::Value(owned), true)
+        }
+        _ => {
+            let coerced = crate::ssa_lower_call_coercion::emit_to_string(ctx, arg, s, ty);
+            (coerced, true)
+        }
     }
-    let owned = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::Call(ctx.intrinsics.substr_to_owned, vec![s]),
-        Type::Str,
-        None,
-    );
-    (Operand::Value(owned), true)
 }

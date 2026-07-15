@@ -20,7 +20,14 @@ pub(crate) fn try_match(name: &str) -> Option<Result<Type, String>> {
         // in `runtime_regex.c` is the single source of
         // truth for both `re.test(s)` and the `s.match(re)`
         // / `s.replace(re, repl)` paths in v0.2 #1.b/c.
-        "test" => Type::Function(vec![Type::String], Box::new(Type::Boolean)),
+        //
+        // RFC 20260716 刀 19 — arg sig relaxed from `Type::String`
+        // to `Type::Any` per ES §22.2.6.16 step 3 ToString(str).
+        // A StringWrapper / Number / etc. arg routes through
+        // `ssa_lower_call_regex_methods::lower_haystack`'s
+        // `emit_to_string` coerce (owned Str, dropped after the
+        // helper borrow read).
+        "test" => Type::Function(vec![Type::Any], Box::new(Type::Boolean)),
         // ES §22.2.6.13 — `re.toString()` returns
         // `/` + source + `/` + flags. Runtime helper
         // `__torajs_regex_to_string` builds the string in
@@ -56,8 +63,10 @@ pub(crate) fn try_match(name: &str) -> Option<Result<Type, String>> {
         // (spec §22.2.6.2). V3-18 narrowing (`if (m !== null)`)
         // yields the bare Array<Str>; un-narrowed member/index
         // consumption decays with a runtime null guard.
+        // RFC 20260716 刀 19 — arg sig relaxed same as `test`
+        // above (§22.2.6.4 step 3 ToString(S)).
         "exec" => Type::Function(
-            vec![Type::String],
+            vec![Type::Any],
             Box::new(Type::Nullable(Box::new(Type::Array(Box::new(
                 Type::String,
             ))))),
