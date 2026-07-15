@@ -58,6 +58,8 @@ pub(crate) struct BigIntIds {
     /// RFC 20260716 刀 2b — String wrapper alloc (transfer-ownership
     /// of the inner Str cell).
     pub string_wrapper_new: FuncId,
+    /// RFC 20260716 刀 2c — Boolean wrapper alloc.
+    pub boolean_wrapper_new: FuncId,
 }
 
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) -> BigIntIds {
@@ -188,6 +190,16 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             fn_table,
             "__torajs_string_wrapper_new",
             &[Type::Str],
+            Type::Ptr,
+        ),
+        // RFC 20260716 刀 2c — `__torajs_boolean_wrapper_new(u8) -> ptr`.
+        // Leaf substrate; caller `coerce_to_bool`s the arg and hands
+        // over a Bool value (SSA Type::Bool lowers to i8 at the ABI).
+        boolean_wrapper_new: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_boolean_wrapper_new",
+            &[Type::Bool],
             Type::Ptr,
         ),
     }

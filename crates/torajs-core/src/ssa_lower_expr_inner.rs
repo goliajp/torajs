@@ -70,6 +70,10 @@ pub(crate) fn lower(ctx: &mut LowerCtx, eid: ExprId) -> Operand {
             return crate::ssa_lower_new::try_lower(ctx, class_name, args)
                 .expect("ssa-lower: String wrapper sibling miss");
         }
+        Expr::New { class_name, args } if class_name == "Boolean" && !args.is_empty() => {
+            return crate::ssa_lower_new::try_lower(ctx, class_name, args)
+                .expect("ssa-lower: Boolean wrapper sibling miss");
+        }
         // Number literals coerce to i64 — type inference lifts them to
         // f64 once we wire numeric-mode detection into the lowerer.
         Expr::Number(n) => {

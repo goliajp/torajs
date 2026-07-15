@@ -506,6 +506,10 @@ pub(crate) struct Intrinsics {
     /// caller's owned `+1` on `cell` is consumed. Result is an
     /// Any-boxed heap pointer carrying `Tag::StringWrapper`.
     pub(crate) string_wrapper_new: FuncId,
+    /// RFC 20260716 刀 2c — `__torajs_boolean_wrapper_new(val: u8) ->
+    /// *mut u8` (torajs-wrapper). Result is an Any-boxed heap pointer
+    /// carrying `Tag::BooleanWrapper`.
+    pub(crate) boolean_wrapper_new: FuncId,
     pub(crate) weakref_create: FuncId,
     pub(crate) weakref_deref_any: FuncId,
     pub(crate) weakref_drop: FuncId,

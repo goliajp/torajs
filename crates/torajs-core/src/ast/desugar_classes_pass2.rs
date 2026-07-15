@@ -72,11 +72,13 @@ pub(super) fn rewrite_expr_arena_pass2(
                     || class_name == "Array"
                     || class_name == "RegExp"
                     // RFC 20260716 刀 2 — `new Number(x)` / `new
-                    // String(x)` stay `Expr::New` so ssa_lower_new
-                    // intercepts them for wrapper-alloc emit. The
-                    // check_type_of_new arms handle the checker side.
+                    // String(x)` / `new Boolean(x)` stay `Expr::New`
+                    // so ssa_lower_new intercepts them for wrapper-
+                    // alloc emit. check_type_of_new arms handle
+                    // typechecking.
                     || class_name == "Number"
                     || class_name == "String"
+                    || class_name == "Boolean"
                 {
                     /* P6.1 — `new Map()` is the same shape: SSA
                      * intercepts to emit __torajs_map_create.

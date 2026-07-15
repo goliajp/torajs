@@ -53,6 +53,7 @@ pub(crate) fn try_check(
         "RegExp" => check_regexp(checker, ast, args),
         "Number" => check_number_wrapper(checker, ast, args),
         "String" => check_string_wrapper(checker, ast, args),
+        "Boolean" => check_boolean_wrapper(checker, ast, args),
         _ => return None,
     };
     Some(result)
@@ -93,6 +94,29 @@ fn check_number_wrapper(
              (RFC 20260716 刀 2 follow-up)"
         ));
     }
+    for &arg in args.iter().skip(1) {
+        let _ = checker.type_of(ast, arg)?;
+    }
+    Ok(Type::Any)
+}
+
+/// RFC 20260716 刀 2c — `new Boolean(x)` constructs a BooleanWrapper
+/// heap cell (`[[BooleanData]] = ToBoolean(x)`, ES §20.3.1.1). Same
+/// Type::Any return + Any-lane dispatch strategy as the Number /
+/// String wrapper arms. `ToBoolean` accepts every value in the type
+/// lattice, so the arg-type check just runs `type_of` for side
+/// effects (and to reject upstream errors).
+fn check_boolean_wrapper(
+    checker: &mut Checker,
+    ast: &Ast,
+    args: &[ExprId],
+) -> Result<Type, String> {
+    if args.is_empty() {
+        return Err(
+            "internal: `new Boolean()` with 0 args reached check.rs (desugar didn't run?)".into(),
+        );
+    }
+    let _ = checker.type_of(ast, args[0])?;
     for &arg in args.iter().skip(1) {
         let _ = checker.type_of(ast, arg)?;
     }

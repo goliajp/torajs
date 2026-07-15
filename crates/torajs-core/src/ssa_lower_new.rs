@@ -76,6 +76,7 @@ pub(crate) fn try_lower(
         // literals by `ast_desugar_builtin_new`.
         "Number" if !args.is_empty() => Some(lower_number_wrapper(ctx, args)),
         "String" if !args.is_empty() => Some(lower_string_wrapper(ctx, args)),
+        "Boolean" if !args.is_empty() => Some(lower_boolean_wrapper(ctx, args)),
         _ => None,
     }
 }
@@ -97,6 +98,24 @@ fn lower_number_wrapper(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
     let ptr_v = ctx.f.append_inst(
         cur_block,
         InstKind::Call(ctx.intrinsics.number_wrapper_new, vec![f64_op]),
+        Type::Ptr,
+        None,
+    );
+    ctx.box_to_any(Operand::Value(ptr_v))
+}
+
+/// RFC 20260716 刀 2c — `new Boolean(x)` wrapper alloc. Coerces `x`
+/// through `LowerCtx::coerce_to_bool` (spec §7.1.2 ToBoolean),
+/// then calls `__torajs_boolean_wrapper_new(u8)` and boxes as ANY_HEAP.
+fn lower_boolean_wrapper(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
+    let arg_eid = args[0];
+    let arg_op = ctx.lower_expr(arg_eid);
+    let bool_op = ctx.coerce_to_bool(arg_op.clone());
+    ctx.release_owned_temp(arg_eid, &arg_op);
+    let cur_block = ctx.cur_block;
+    let ptr_v = ctx.f.append_inst(
+        cur_block,
+        InstKind::Call(ctx.intrinsics.boolean_wrapper_new, vec![bool_op]),
         Type::Ptr,
         None,
     );

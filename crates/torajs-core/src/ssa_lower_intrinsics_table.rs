@@ -432,6 +432,7 @@ pub(crate) fn build(
         bigint_from_number: init_c.bigint.bigint_from_number,
         number_wrapper_new: init_c.bigint.number_wrapper_new,
         string_wrapper_new: init_c.bigint.string_wrapper_new,
+        boolean_wrapper_new: init_c.bigint.boolean_wrapper_new,
         bigint_clone: init_c.bigint.bigint_clone,
         bigint_neg: init_c.bigint.bigint_neg,
         bigint_cmp: init_c.bigint.bigint_cmp,

@@ -98,6 +98,15 @@ pub(crate) unsafe fn any_to_str(tag: i64, value: i64) -> *mut c_void {
             unsafe { __torajs_rc_inc(inner_ptr) };
             return inner_ptr;
         }
+        // RFC 20260716 刀 2c — `Boolean` wrapper cell:
+        // ToString(BooleanWrapper) = "true" / "false" via
+        // OrdinaryToPrimitive → Boolean.prototype.toString → the
+        // primitive's ToString (§7.1.17 → §7.1.17.5). Reuses the
+        // primitive `bool_to_str` intrinsic.
+        if matches!(h.tag(), Tag::BooleanWrapper) {
+            let val = unsafe { *((child as *const u8).add(8)) };
+            return unsafe { crate::__torajs_bool_to_str(val as i32) };
+        }
         // Non-Str heap object — OrdinaryToPrimitive (hint string):
         // run the receiver's toString / valueOf and ToString the
         // first primitive result (chunk C; pre-C this answered a
@@ -199,6 +208,14 @@ pub(crate) unsafe fn any_to_number(tag: i64, value: i64) -> f64 {
                 return 0.0;
             }
             return unsafe { __torajs_str_to_number(inner_ptr) };
+        }
+        // RFC 20260716 刀 2c — `Boolean` wrapper cell:
+        // ToNumber(BooleanWrapper) = [[BooleanData]] ? 1 : 0 via
+        // OrdinaryToPrimitive → Boolean.prototype.valueOf →
+        // ToNumber(bool). `BOOLEAN_WRAPPER_VALUE_OFF = 8`.
+        if matches!(h.tag(), Tag::BooleanWrapper) {
+            let val = unsafe { *((child as *const u8).add(8)) };
+            return if val != 0 { 1.0 } else { 0.0 };
         }
         // Non-Str heap object — OrdinaryToPrimitive (hint number):
         // valueOf → toString, ToNumber of the first primitive
