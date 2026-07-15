@@ -58,11 +58,19 @@ pub(crate) fn record_speculative_rewrite(
         .insert(ExprId(call_idx as u32), alt);
 }
 
-/// Builtin container types whose method calls must never dispatch to
-/// a same-named user-class method. Primitives (Number / Boolean /
-/// BigInt) are deliberately absent: their method surfaces are
-/// interception-based and no false-reject evidence exists for them
-/// (narrow surface).
+/// Builtin container / primitive types whose method calls must never
+/// dispatch to a same-named user-class method. Primitives (Number /
+/// Boolean / BigInt) were previously omitted on the "no false-reject
+/// evidence" assumption; test262 evidence (rotation 106 probe:
+/// `class X { toString() { … } }` then `(3).toString()` /
+/// `"hi".toString()` / `true.toString()`) shows the same shape does
+/// silent-reject on them — the speculative `__cm_X__toString` rewrite
+/// requires `arg 0: ClassRef("X")` and rejects the primitive receiver
+/// at the checker's arg-admit gate. Demoting sends the call back
+/// through the primitive method surface (`Number.prototype.toString`,
+/// `String.prototype.toString`, `Boolean.prototype.toString`) which
+/// the interception arms in `ssa_lower_call_universal_methods` are
+/// already wired for.
 fn is_builtin_container_ty(t: &Type) -> bool {
     matches!(
         t,
@@ -77,6 +85,9 @@ fn is_builtin_container_ty(t: &Type) -> bool {
             | Type::ArrIter
             | Type::RegExp
             | Type::Date
+            | Type::Number
+            | Type::Boolean
+            | Type::BigInt
     )
 }
 
@@ -96,7 +107,24 @@ impl Checker {
     ) -> Option<Result<Type, String>> {
         let &alt_id = ast.speculative_cm_rewrites.get(&eid)?;
         let &recv_eid = args.first()?;
-        if !matches!(ast.get_expr(recv_eid), Expr::Ident(_) | Expr::Member { .. }) {
+        // Primitive literals (`(3).toString()` / `true.toString()` /
+        // `10n.toString()` / `"hi".toString()`) are pure-typed like
+        // Ident / Member — their `type_of` is a self-lookup with no
+        // affine bookkeeping, so the probe is safe. Pre-fix these were
+        // rejected here and never demoted, so the speculative
+        // `__cm_<C>__toString` (name-owned by some user class) survived
+        // and the checker's arg-admit gate rejected the primitive
+        // receiver at "expected ClassRef(...), got Number|Boolean|
+        // BigInt|String".
+        if !matches!(
+            ast.get_expr(recv_eid),
+            Expr::Ident(_)
+                | Expr::Member { .. }
+                | Expr::Number(_)
+                | Expr::String(_)
+                | Expr::Bool(_)
+                | Expr::BigInt { .. }
+        ) {
             return None;
         }
         let Ok(recv_ty) = self.type_of(ast, recv_eid) else {
