@@ -19,6 +19,17 @@ use core::ffi::c_void;
 use crate::arith::mag_cmp;
 use crate::internal::{read_len, read_sign};
 
+/// `ToBoolean(bigint)` per ES §7.1.4 — returns 1 for non-zero,
+/// 0 for zero. BigInt invariant: `len == 0` iff value is 0n.
+///
+/// # Safety
+/// `p_` must be a valid BigInt heap pointer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_bigint_is_nonzero(p_: *const c_void) -> i64 {
+    let p = p_ as *const u8;
+    if unsafe { read_len(p) } == 0 { 0 } else { 1 }
+}
+
 /// `cmp(a, b)` for BigInt — returns -1 / 0 / 1.
 ///
 /// # Safety

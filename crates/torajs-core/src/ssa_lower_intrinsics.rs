@@ -490,6 +490,7 @@ pub(crate) struct Intrinsics {
     pub(crate) bigint_clone: FuncId,
     pub(crate) bigint_neg: FuncId,
     pub(crate) bigint_cmp: FuncId,
+    pub(crate) bigint_is_nonzero: FuncId,
     pub(crate) bigint_to_string: FuncId,
     pub(crate) bigint_to_string_radix: FuncId,
     pub(crate) bigint_as_int_n: FuncId,

@@ -232,6 +232,14 @@ pub unsafe extern "C" fn __torajs_anyv_to_bool(v: AnyValue) -> bool {
             // at offset 8 in the layout.
             return unsafe { *len_ptr != 0 };
         }
+        if matches!(h.tag(), Tag::BigInt) {
+            // ES §7.1.4 ToBoolean(BigInt) — 0n is falsy. Delegate to
+            // the BigInt runtime helper (reads the layout-owned `len`
+            // field; len == 0 iff the value is 0n).
+            return unsafe {
+                crate::loose_eq::bigint_ffi::__torajs_bigint_is_nonzero(ptr as *const c_void)
+            } != 0;
+        }
         // Other heap objects (Arr, Obj, Closure, ...) → true.
         return true;
     }

@@ -43,6 +43,7 @@ pub(crate) mod bigint_ffi {
         pub fn __torajs_bigint_from_number(v: f64) -> *mut u8;
         pub fn __torajs_bigint_from_str_strict(s: *const c_void) -> *mut u8;
         pub fn __torajs_bigint_drop(p: *mut c_void);
+        pub fn __torajs_bigint_is_nonzero(p: *const c_void) -> i64;
     }
 }
 
@@ -59,6 +60,9 @@ pub(crate) mod bigint_ffi {
         core::ptr::null_mut()
     }
     pub unsafe fn __torajs_bigint_drop(_p: *mut c_void) {}
+    pub unsafe fn __torajs_bigint_is_nonzero(_p: *const c_void) -> i64 {
+        1
+    }
 }
 
 /// §7.2.14 type buckets. `Num` fuses the i32/f64 encodings (one

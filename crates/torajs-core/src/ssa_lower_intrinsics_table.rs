@@ -433,6 +433,7 @@ pub(crate) fn build(
         bigint_clone: init_c.bigint.bigint_clone,
         bigint_neg: init_c.bigint.bigint_neg,
         bigint_cmp: init_c.bigint.bigint_cmp,
+        bigint_is_nonzero: init_c.bigint.bigint_is_nonzero,
         bigint_to_string: init_c.bigint.bigint_to_string,
         bigint_to_string_radix: init_c.bigint.bigint_to_string_radix,
         bigint_as_int_n: init_c.bigint.bigint_as_int_n,

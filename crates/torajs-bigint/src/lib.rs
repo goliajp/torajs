@@ -65,7 +65,7 @@ pub use asintn::{__torajs_bigint_as_int_n, __torajs_bigint_as_uint_n};
 pub use bitwise::{
     __torajs_bigint_and, __torajs_bigint_not, __torajs_bigint_or, __torajs_bigint_xor,
 };
-pub use compare::{__torajs_bigint_cmp, __torajs_bigint_eq};
+pub use compare::{__torajs_bigint_cmp, __torajs_bigint_eq, __torajs_bigint_is_nonzero};
 pub use construct::{
     __torajs_bigint_clone, __torajs_bigint_from_decimal, __torajs_bigint_from_hex,
     __torajs_bigint_from_i64, __torajs_bigint_from_number, __torajs_bigint_from_str,

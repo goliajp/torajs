@@ -261,6 +261,19 @@ impl LowerCtx<'_> {
                 // null literal or any raw pointer — null = false.
                 self.cmp(IPred::Ne, op, Operand::ConstPtrNull)
             }
+            Type::BigInt => {
+                // ES §7.1.4 ToBoolean(BigInt) — 0n is falsy, every
+                // other BigInt is truthy. The heap layout keeps
+                // `len == 0` iff the value is 0n, so a runtime probe
+                // suffices (avoids leaking LEN_OFF into SSA).
+                let v = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(self.intrinsics.bigint_is_nonzero, vec![op]),
+                    Type::I64,
+                    None,
+                );
+                self.cmp(IPred::Ne, Operand::Value(v), Operand::ConstI64(0))
+            }
             // P0.4 — ToBoolean(Any) per JS spec §7.1.2 routes through
             // __torajs_any_to_bool which unboxes the tag + payload
             // and applies spec rules: NULL → false, BOOL → value,
