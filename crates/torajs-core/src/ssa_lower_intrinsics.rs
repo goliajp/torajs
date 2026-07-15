@@ -496,6 +496,11 @@ pub(crate) struct Intrinsics {
     pub(crate) bigint_as_int_n: FuncId,
     pub(crate) bigint_as_uint_n: FuncId,
     pub(crate) bigint_drop_rc: FuncId,
+    /// RFC 20260716 刀 2 — `__torajs_number_wrapper_new(val: f64) ->
+    /// *mut u8` (torajs-wrapper). Emits from `ssa_lower_new`'s Number
+    /// arm when the arg was primitive-coerced to f64. Result is an
+    /// Any-boxed heap pointer carrying `Tag::NumberWrapper`.
+    pub(crate) number_wrapper_new: FuncId,
     pub(crate) weakref_create: FuncId,
     pub(crate) weakref_deref_any: FuncId,
     pub(crate) weakref_drop: FuncId,

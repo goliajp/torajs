@@ -89,7 +89,11 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, expr: ExprId, class_name: &str) -> O
 fn try_compile_time_fold(actual_ty: Type, class_name: &str) -> Option<bool> {
     if matches!(actual_ty, Type::Any) {
         return match class_name {
-            "Number" | "String" | "Boolean" | "BigInt" | "Symbol" => Some(false),
+            // RFC 20260716 刀 2 — `x instanceof Number` for Any x now
+            // dispatches at runtime against Tag::NumberWrapper (heap
+            // wrapper cells `new Number(x)` builds). String / Boolean
+            // still compile-time false until their wrappers ship.
+            "String" | "Boolean" | "BigInt" | "Symbol" => Some(false),
             _ => None,
         };
     }
@@ -168,6 +172,8 @@ fn builtin_type_tag(class_name: &str) -> Option<i64> {
         "Set" => Some(19),
         "WeakMap" => Some(12),
         "WeakSet" => Some(13),
+        // RFC 20260716 刀 2 — Tag::NumberWrapper = 21.
+        "Number" => Some(21),
         _ => None,
     }
 }

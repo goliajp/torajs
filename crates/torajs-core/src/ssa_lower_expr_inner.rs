@@ -59,6 +59,13 @@ pub(crate) fn lower(ctx: &mut LowerCtx, eid: ExprId) -> Operand {
             return crate::ssa_lower_new::try_lower(ctx, class_name, args)
                 .expect("ssa-lower: Array sibling miss");
         }
+        // RFC 20260716 刀 2 — `new Number(x)` wrapper substrate. 0-arg
+        // is pre-desugared to a primitive `0`, so any Expr::New
+        // reaching this arm has ≥1 arg.
+        Expr::New { class_name, args } if class_name == "Number" && !args.is_empty() => {
+            return crate::ssa_lower_new::try_lower(ctx, class_name, args)
+                .expect("ssa-lower: Number wrapper sibling miss");
+        }
         // Number literals coerce to i64 — type inference lifts them to
         // f64 once we wire numeric-mode detection into the lowerer.
         Expr::Number(n) => {

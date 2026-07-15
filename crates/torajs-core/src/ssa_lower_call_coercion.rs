@@ -93,7 +93,7 @@ pub(crate) fn try_lower(
 /// through; Bool → I64; null → 0; Str/Substr → str_to_number (strtod);
 /// Any → coerce_any_to_number; Arr → join(",") then str_to_number
 /// (Number([1,2]) === NaN).
-fn emit_to_number(
+pub(crate) fn emit_to_number(
     ctx: &mut LowerCtx<'_>,
     arg_eid: ExprId,
     arg_op: Operand,

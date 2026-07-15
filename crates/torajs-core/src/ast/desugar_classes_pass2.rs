@@ -71,6 +71,11 @@ pub(super) fn rewrite_expr_arena_pass2(
                     || class_name == "Set"
                     || class_name == "Array"
                     || class_name == "RegExp"
+                    // RFC 20260716 刀 2 — `new Number(x)` stays
+                    // `Expr::New` so ssa_lower_new intercepts it and
+                    // emits `__torajs_number_wrapper_new`. The
+                    // check_type_of_new arm handles the checker side.
+                    || class_name == "Number"
                 {
                     /* P6.1 — `new Map()` is the same shape: SSA
                      * intercepts to emit __torajs_map_create.

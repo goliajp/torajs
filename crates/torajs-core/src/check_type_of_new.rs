@@ -51,9 +51,51 @@ pub(crate) fn try_check(
         "Set" => check_set(checker, ast, args),
         "Array" => check_array(checker, ast, args),
         "RegExp" => check_regexp(checker, ast, args),
+        "Number" => check_number_wrapper(checker, ast, args),
         _ => return None,
     };
     Some(result)
+}
+
+/// RFC 20260716 刀 2 — `new Number(x)` constructs a NumberWrapper heap
+/// cell (`[[NumberData]] = ToNumber(x)`, ES §21.1.1.1). No dedicated
+/// `Type::NumberWrapper` variant yet — checker returns `Type::Any`
+/// (heap identity + tag walkers do the right thing at ssa_lower / any
+/// lane; later blades add a nominal Type once member ladder + auto-
+/// unbox land). 0-arg is pre-desugared to primitive `0` by
+/// `desugar_builtin_new`; trailing args typechecked-and-dropped per
+/// spec.
+fn check_number_wrapper(
+    checker: &mut Checker,
+    ast: &Ast,
+    args: &[ExprId],
+) -> Result<Type, String> {
+    if args.is_empty() {
+        return Err(
+            "internal: `new Number()` with 0 args reached check.rs (desugar didn't run?)".into(),
+        );
+    }
+    let arg_ty = checker.type_of(ast, args[0])?;
+    if !matches!(
+        arg_ty,
+        Type::Number
+            | Type::Boolean
+            | Type::Null
+            | Type::Undefined
+            | Type::String
+            | Type::BigInt
+            | Type::Any
+            | Type::Array(_)
+    ) {
+        return Err(format!(
+            "`new Number({arg_ty:?})`: primitive-coercible arg not yet supported \
+             (RFC 20260716 刀 2 follow-up)"
+        ));
+    }
+    for &arg in args.iter().skip(1) {
+        let _ = checker.type_of(ast, arg)?;
+    }
+    Ok(Type::Any)
 }
 
 fn check_weak_ref(checker: &mut Checker, ast: &Ast, args: &[ExprId]) -> Result<Type, String> {

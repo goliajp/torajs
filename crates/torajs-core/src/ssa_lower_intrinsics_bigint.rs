@@ -51,6 +51,10 @@ pub(crate) struct BigIntIds {
     pub bigint_as_int_n: FuncId,
     pub bigint_as_uint_n: FuncId,
     pub bigint_drop_rc: FuncId,
+    /// RFC 20260716 刀 2 — Number wrapper alloc (torajs-wrapper).
+    /// Same batch as BigInt because it's the primitive-adjacent
+    /// substrate; own sub-group unnecessary for a single fn.
+    pub number_wrapper_new: FuncId,
 }
 
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) -> BigIntIds {
@@ -158,6 +162,19 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             "__torajs_bigint_drop_rc",
             &[Type::BigInt],
             Type::Void,
+        ),
+        // RFC 20260716 刀 2 — `__torajs_number_wrapper_new(f64) -> ptr`.
+        // ssa_lower emits the coerce-to-f64 op then calls this; the
+        // return type is Ptr (Any-boxable) rather than a dedicated SSA
+        // Wrapper variant (the checker keeps it as Type::Any for now;
+        // later blades promote to Type::NumberWrapper for member-ladder
+        // + auto-unbox).
+        number_wrapper_new: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_number_wrapper_new",
+            &[Type::F64],
+            Type::Ptr,
         ),
     }
 }

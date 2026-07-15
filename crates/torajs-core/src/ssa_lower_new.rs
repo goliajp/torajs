@@ -71,8 +71,36 @@ pub(crate) fn try_lower(
         "Set" => Some(lower_set(ctx, args)),
         "Array" if args.len() == 1 => Some(lower_array_n(ctx, args)),
         "RegExp" => Some(lower_regexp(ctx, args)),
+        // RFC 20260716 刀 2 — `new Number(x)` wrapper alloc.
+        // 0-arg is pre-desugared to primitive `0` by
+        // `ast_desugar_builtin_new` (§21.1.1.1 step 2), so this arm
+        // only sees ≥1-arg forms.
+        "Number" if !args.is_empty() => Some(lower_number_wrapper(ctx, args)),
         _ => None,
     }
+}
+
+/// RFC 20260716 刀 2 — `new Number(x)` wrapper alloc. Coerces `x` to
+/// f64 via the same ToNumber lattice `Number(x)` callable uses
+/// (spec §7.1.4), then calls `__torajs_number_wrapper_new(f64) ->
+/// *mut u8` and boxes the result as `Type::Any` (ANY_HEAP tag) so
+/// consumers see the same operand shape the checker's `Type::Any`
+/// return advertises.
+fn lower_number_wrapper(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
+    let arg_eid = args[0];
+    let arg_op = ctx.lower_expr(arg_eid);
+    let arg_ty = ctx.operand_ty(&arg_op);
+    let num_op =
+        crate::ssa_lower_call_coercion::emit_to_number(ctx, arg_eid, arg_op, arg_ty);
+    let f64_op = ctx.coerce_to_f64(num_op);
+    let cur_block = ctx.cur_block;
+    let ptr_v = ctx.f.append_inst(
+        cur_block,
+        InstKind::Call(ctx.intrinsics.number_wrapper_new, vec![f64_op]),
+        Type::Ptr,
+        None,
+    );
+    ctx.box_to_any(Operand::Value(ptr_v))
 }
 
 fn lower_weakref(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {

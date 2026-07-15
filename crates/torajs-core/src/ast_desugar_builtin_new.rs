@@ -132,11 +132,16 @@ pub(crate) fn run(ast: &mut Ast) {
             ast.exprs[i] = Expr::Regex { pattern, flags };
         }
     }
+    // RFC 20260716 刀 2 — Number gets the wrapper substrate; String /
+    // Boolean still MVP-unwrap until later blades. `new Number()` with
+    // 0 args stays a primitive `0` literal (ES §21.1.1.1 step 2 —
+    // `[[NumberData]] = +0`; observably equivalent to `0` for the
+    // downstream uses that eventually ToNumber the receiver).
     let n = ast.exprs.len();
     for i in 0..n {
         let unwrap_args = match &ast.exprs[i] {
             Expr::New { class_name, args }
-                if matches!(class_name.as_str(), "Number" | "String" | "Boolean") =>
+                if matches!(class_name.as_str(), "String" | "Boolean") =>
             {
                 Some(args.clone())
             }
@@ -149,7 +154,6 @@ pub(crate) fn run(ast: &mut Ast) {
             };
             ast.exprs[i] = if args.is_empty() {
                 match class_name_str.as_str() {
-                    "Number" => Expr::Number(0.0),
                     "String" => Expr::String(String::new()),
                     "Boolean" => Expr::Bool(false),
                     _ => unreachable!(),
@@ -158,6 +162,20 @@ pub(crate) fn run(ast: &mut Ast) {
                 let callee = ast.add_expr(Expr::Ident(class_name_str));
                 Expr::Call { callee, args }
             };
+        }
+    }
+    // Number-only: 0-arg → primitive `0` literal. ≥1-arg stays
+    // `Expr::New { "Number", args }` and rides the ssa_lower_new arm
+    // added in this RFC blade.
+    let n = ast.exprs.len();
+    for i in 0..n {
+        let is_zero_arg_number = matches!(
+            &ast.exprs[i],
+            Expr::New { class_name, args }
+                if class_name == "Number" && args.is_empty()
+        );
+        if is_zero_arg_number {
+            ast.exprs[i] = Expr::Number(0.0);
         }
     }
     let n = ast.exprs.len();
