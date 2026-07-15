@@ -1,21 +1,21 @@
 {
-  "ranAt": "2026-07-15T20:21:21Z",
-  "headSha": "56c7e668",
-  "elapsedSec": 489.67,
+  "ranAt": "2026-07-15T22:03:20Z",
+  "headSha": "d673e632",
+  "elapsedSec": 488.76,
   "workers": 8,
   "limit": null,
   "totalCases": 53174,
   "ran": 53174,
-  "pass": 7351,
+  "pass": 7352,
   "passNoOracle": 112,
   "passNegative": 4447,
-  "passTotal": 11910,
-  "bug": 975,
+  "passTotal": 11911,
+  "bug": 974,
   "incompatible": 40289,
   "bunSkip": 11908,
   "harnessError": 0,
   "inScope": 53174,
   "trAccepted": 12885,
   "passRateInScope": 22.40,
-  "passRateTrAccepted": 92.43
+  "passRateTrAccepted": 92.44
 }
