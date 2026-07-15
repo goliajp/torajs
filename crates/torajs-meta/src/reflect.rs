@@ -83,6 +83,12 @@ pub(crate) const TAG_ARR: u16 = 2;
 // Tag::Closure — fn cell; gOPD routes to the virtual name/length
 // descriptor arm in `closure_reflect.rs` (RFC 20260711 chunk B).
 pub(crate) const TAG_CLOSURE: u16 = 3;
+// Tag::StringWrapper — `new String(x)` cell (RFC 20260716 刀 2b);
+// gOPD routes to a length/index arm below. `NUMBER_WRAPPER = 21` /
+// `BOOLEAN_WRAPPER = 23` have no own numeric-index properties per
+// spec §21.1.4/§20.3.4 so they keep falling through the cascade
+// to `undefined`.
+pub(crate) const TAG_STRING_WRAPPER: u16 = 22;
 /// Tag::Str / Tag::Symbol / Tag::BigInt from `torajs-rc` — primitive-in-spec
 /// heap cells. RFC C4b throws TypeError on these because `Object.defineProperty(O, ...)`
 /// step 1 is a strict `Type(O) is Object` check (no ToObject wrapper boxing).
@@ -276,6 +282,34 @@ pub unsafe extern "C" fn __torajs_anyv_get_property_descriptor(
         // interned family methods are own properties that live in no
         // entry table — same synthesis the dynobj protos get below.
         return unsafe { builtin_proto_descriptor(dynobj, key) };
+    }
+    // RFC 20260716 刀 14 — StringWrapper cell: `length` is a data
+    // descriptor per ES §22.1.4.1 `{value: len, writable: false,
+    // enumerable: false, configurable: false}`. `[idx]` character
+    // descriptors are a follow-up (their `value` is a ShortStr
+    // NaN-box immediate that doesn't fit the (tag, value) shape
+    // `build_data_descriptor` takes).
+    if htag == TAG_STRING_WRAPPER {
+        // Key Str payload as a byte slice — mirrors `arr_reflect::key_bytes`.
+        // SAFETY: `key` is a live Str cell (Tag::Str layout: `len: u32`
+        // at offset 8; payload at offset 16).
+        let key_len = unsafe { key.cast::<u8>().add(8).cast::<u32>().read() } as usize;
+        let key_data = unsafe { key.cast::<u8>().add(16) };
+        let bytes = unsafe { core::slice::from_raw_parts(key_data, key_len) };
+        if bytes == b"length" {
+            // Inner Str cell at STRING_WRAPPER_CELL_OFF = 8; NULL
+            // sentinel (`new String()` no-arg) has length 0.
+            let inner_ptr = unsafe { (dynobj.cast::<u8>().add(8) as *const *const c_void).read() };
+            let len = if inner_ptr.is_null() {
+                0
+            } else {
+                // Tag::Str layout: `len: u32 @ offset 8`.
+                unsafe { inner_ptr.cast::<u8>().add(8).cast::<u32>().read() as u64 }
+            };
+            return unsafe { build_data_descriptor(2, len, 0, 0, 0) };
+        }
+        // Char-index descriptors + expando + proto walk are deferred.
+        return VALUE_UNDEFINED_IMM;
     }
     if htag != TAG_DYNOBJ {
         return VALUE_UNDEFINED_IMM;
