@@ -185,6 +185,14 @@ pub unsafe extern "C" fn __torajs_anyv_get_proto_of_any(v: u64) -> u64 {
             10 => 6,  // BigInt
             15 => 11, // Map
             19 => 12, // Set
+            // RFC 20260716 刀 15 — primitive-wrapper cells (刀 2 alloc
+            // tags 21/22/23) return the corresponding
+            // `<Ctor>.prototype` singleton per §10.1.1: the wrapper's
+            // [[Prototype]] IS the ctor's `.prototype`, matching bun's
+            // `Object.getPrototypeOf(new String()) === String.prototype`.
+            21 => 0, // NumberWrapper  → Number.prototype
+            22 => 3, // StringWrapper  → String.prototype
+            23 => 4, // BooleanWrapper → Boolean.prototype
             _ => -1,
         };
         if proto_tag >= 0 {
