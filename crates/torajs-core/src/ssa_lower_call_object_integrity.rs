@@ -266,13 +266,39 @@ fn lower_create(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
 
 /// `Object.preventExtensions(obj)` — flip `FLAG_NON_EXTENSIBLE`. Boxes
 /// typed receivers to Any so the helper has a single ABI.
+///
+/// ObjectLit-literal-arg 强 dynobj lane(mirror `lower_create` 的 props
+/// arm):`Object.preventExtensions({ ... })` 的下游 `__defineGetter__`/
+/// `__defineSetter__` guard 只接 DynObj tag(见
+/// `torajs-anyvalue/method_call_legacy_accessor.rs`),typed-struct box
+/// 出的 Any-boxed value 带 Obj tag → 抛 "legacy accessor methods are
+/// not supported on this receiver"(2 test262
+/// `Object/prototype/__defineGetter__/define-non-extensible.js` +
+/// `Object/prototype/__defineSetter__/define-non-extensible.js`)。走
+/// dynobj lane 后 tag == DynObj,define_face → `__torajs_dynobj_define`
+/// 内 §10.1.6.3 non-extensible new-key gate 命中 → bun-parity
+/// "Attempting to define property on object that is not extensible."。
 fn lower_prevent_extensions(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
-    let obj_op = ctx.lower_expr(args[0]);
-    let obj_ty = ctx.operand_ty(&obj_op);
-    let any_op = if matches!(obj_ty, Type::Any) {
-        obj_op
+    let any_op = if matches!(ctx.ast.get_expr(args[0]), Expr::ObjectLit { .. }) {
+        let d = ctx.lower_dynobj_init(args[0]);
+        let boxed = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(
+                ctx.intrinsics.any_box,
+                vec![Operand::ConstI64(4 /* ANY_HEAP */), d],
+            ),
+            Type::Any,
+            None,
+        );
+        Operand::Value(boxed)
     } else {
-        ctx.box_to_any_from_expr(args[0], obj_op)
+        let obj_op = ctx.lower_expr(args[0]);
+        let obj_ty = ctx.operand_ty(&obj_op);
+        if matches!(obj_ty, Type::Any) {
+            obj_op
+        } else {
+            ctx.box_to_any_from_expr(args[0], obj_op)
+        }
     };
     for a in args.iter().skip(1) {
         let _ = ctx.lower_expr(*a);
