@@ -131,10 +131,7 @@ pub(crate) fn try_lower(
             let arg_is_ident = matches!(ctx.ast.get_expr(args[0]), Expr::Ident(_));
             let proto = ctx.f.append_inst(
                 ctx.cur_block,
-                InstKind::Call(
-                    ctx.intrinsics.get_proto_of_any,
-                    vec![Operand::Value(boxed)],
-                ),
+                InstKind::Call(ctx.intrinsics.get_proto_of_any, vec![Operand::Value(boxed)]),
                 Type::Any,
                 None,
             );
