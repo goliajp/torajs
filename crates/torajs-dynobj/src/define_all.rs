@@ -20,9 +20,7 @@ use core::ffi::c_void;
 
 use crate::define_from_desc::__torajs_dynobj_define_from_desc;
 use crate::get::type_tag;
-use crate::layout::{
-    BUCKET_FLAG_ENUMERABLE, DYNOBJ_KEY_HOLE, TAG_ARR_HDR, TAG_CLOSURE_HDR, TAG_DYNOBJ,
-};
+use crate::layout::{BUCKET_FLAG_ENUMERABLE, DYNOBJ_KEY_HOLE, TAG_DYNOBJ};
 use crate::probe::{bucket_flags, bucket_key_ptr, entries, entries_len};
 
 unsafe extern "C" {
@@ -98,12 +96,21 @@ pub unsafe extern "C" fn __torajs_dynobj_define_properties_from(
         // `define_from_desc` already dispatches per desc-cell shape,
         // so the gate here matches its accept set instead of
         // dynobj-only.
-        let desc_ok = d_tag == ANY_HEAP
-            && d_val != 0
-            && matches!(
-                unsafe { type_tag(d_val as *const c_void) },
-                TAG_DYNOBJ | TAG_CLOSURE_HDR | TAG_ARR_HDR
-            );
+        //
+        // RFC 20260716 刀 22 — the accept set was stricter than the
+        // dispatcher (Tag::Obj / Map / Set / Date / … all landed in
+        // the dispatcher's `_ => null` empty-desc fallback anyway),
+        // so an ObjectLit-shaped desc value (`{value: {},
+        // enumerable: true}` propagated through
+        // `Object.defineProperty(props, ...)`) was rejected here
+        // even though the dispatcher would have accepted it. Every
+        // ANY_HEAP + non-null cell now clears this gate;
+        // `define_from_desc` still validates and — for cells without
+        // dynobj-backed expando storage — falls through to the
+        // empty-descriptor path (create with all-false flags,
+        // `value = undefined`). Non-object primitives (Undef / Null
+        // / I64 / F64 / Bool) still fail here.
+        let desc_ok = d_tag == ANY_HEAP && d_val != 0;
         if !desc_ok {
             unsafe {
                 __torajs_throw_type_error(
