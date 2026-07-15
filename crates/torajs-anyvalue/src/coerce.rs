@@ -105,6 +105,20 @@ pub(crate) unsafe fn any_to_str(tag: i64, value: i64) -> *mut c_void {
             let val = unsafe { *((child as *const u8).add(8)) };
             return unsafe { crate::__torajs_bool_to_str(val as i32) };
         }
+        // RFC 20260716 刀 10 — `Number` wrapper cell:
+        // ToString(NumberWrapper) = ToString([[NumberData]]) per
+        // §7.1.17 step 3, OrdinaryToPrimitive on Number Object hits
+        // `Number.prototype.toString(undefined)` which returns
+        // ToString([[NumberData]]). Direct-read the f64 payload
+        // at offset 8 and hand off to the primitive `f64_to_str`
+        // — same shortcut as the StringWrapper / BooleanWrapper
+        // arms above (dodges the general `heap_to_primitive` +
+        // method dispatch round-trip for a wrapper class with no
+        // user monkey-patching).
+        if matches!(h.tag(), Tag::NumberWrapper) {
+            let n = unsafe { ((child as *const u8).add(8) as *const f64).read() };
+            return unsafe { __torajs_f64_to_str(n) };
+        }
         // Non-Str heap object — OrdinaryToPrimitive (hint string):
         // run the receiver's toString / valueOf and ToString the
         // first primitive result (chunk C; pre-C this answered a
