@@ -151,6 +151,18 @@ pub(crate) unsafe fn any_to_number(tag: i64, value: i64) -> f64 {
             // the header.
             return unsafe { __torajs_str_to_number(child as *const c_void) };
         }
+        // RFC 20260716 刀 2a — `Number` wrapper cell:
+        // ToNumber(NumberWrapper) = [[NumberData]] verbatim (spec
+        // §7.1.4 step 8, OrdinaryToPrimitive on Number Object hits
+        // `Number.prototype.valueOf` which returns [[NumberData]]).
+        // Direct read is functionally equivalent and dodges the
+        // whole method-dispatch machinery, which doesn't yet know
+        // about wrapper cells. `NumberWrapper` layout mirrors
+        // `torajs_wrapper::NUMBER_WRAPPER_VALUE_OFF = 8`.
+        if matches!(h.tag(), Tag::NumberWrapper) {
+            let value_ptr = unsafe { (child as *const u8).add(8) as *const f64 };
+            return unsafe { value_ptr.read() };
+        }
         // Non-Str heap object — OrdinaryToPrimitive (hint number):
         // valueOf → toString, ToNumber of the first primitive
         // result (chunk C; pre-C every object answered NaN
