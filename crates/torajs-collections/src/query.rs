@@ -312,7 +312,12 @@ pub unsafe extern "C" fn __torajs_set_union(
 }
 
 /// `s.intersection(other)` — fresh Set containing members present
-/// in both. Empty if either side is empty.
+/// in both. Empty if either side is empty. Result order follows ES
+/// §24.2.4.7: iterate whichever side is smaller (step 5.a: iterate
+/// this if `this.size ≤ other.size`; step 5.b: iterate other
+/// otherwise). Naive "always iterate this" answers wrong for
+/// `new Set([3,2,1,0]).intersection(new Set([1,3,5]))` (spec wants
+/// `[1,3]`, iterate-this gives `[3,1]`).
 ///
 /// # Safety
 /// `this` / `other` are null or live Set heap pointers. Returns a
@@ -326,12 +331,21 @@ pub unsafe extern "C" fn __torajs_set_intersection(
     if this.is_null() || other.is_null() {
         return dst;
     }
+    let m_this = this as *const Map;
     let m_other = other as *const Map;
+    // SAFETY: both non-null cells cast from Set heap pointers.
+    let (src, probe) = unsafe {
+        if (*m_this).n_entries <= (*m_other).n_entries {
+            (this, m_other)
+        } else {
+            (other, m_this)
+        }
+    };
     unsafe {
-        for_each_entry(this, |e| {
+        for_each_entry(src, |e| {
             let k_tag = __torajs_anyv_unbox_tag(e.key_anyv) as u8;
             let k_val = __torajs_anyv_unbox_value(e.key_anyv) as u64;
-            if map_lookup_slot(m_other, k_tag, k_val).found {
+            if map_lookup_slot(probe, k_tag, k_val).found {
                 copy_entry_into(dst, e);
             }
         });
