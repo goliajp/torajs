@@ -151,21 +151,33 @@ impl<'a> Parser<'a> {
             self.drop_class_alias_on_assign(target);
             let value = self.parse_assign()?;
             let lhs = self.clone_expr_for_compound(target);
-            let rhs = match op_name {
-                "??" => self.ast.add_expr(Expr::Nullish { lhs, rhs: value }),
-                "||" => self.ast.add_expr(Expr::BinOp {
+            // ES2021 §13.15 requires short-circuit — PutValue must not
+            // fire when the lhs already satisfies the guard (truthy for
+            // ||=, falsy for &&=, non-nullish for ??=). Desugar so the
+            // Assign sits INSIDE the branch that runs only on the
+            // "assign needed" path:
+            //   x ??= y  →  x ?? (x = y)
+            //   x ||= y  →  x || (x = y)
+            //   x &&= y  →  x && (x = y)
+            // (Previously `x = (x op y)` unconditionally called
+            // PutValue, which throws on non-writeable / non-extensible
+            // targets even when the assign is spec-optional.)
+            let assign = self.ast.add_expr(Expr::Assign { target, value });
+            let expr = match op_name {
+                "??" => Expr::Nullish { lhs, rhs: assign },
+                "||" => Expr::BinOp {
                     op: BinOp::LOr,
                     left: lhs,
-                    right: value,
-                }),
-                "&&" => self.ast.add_expr(Expr::BinOp {
+                    right: assign,
+                },
+                "&&" => Expr::BinOp {
                     op: BinOp::LAnd,
                     left: lhs,
-                    right: value,
-                }),
+                    right: assign,
+                },
                 _ => unreachable!(),
             };
-            return Ok(self.ast.add_expr(Expr::Assign { target, value: rhs }));
+            return Ok(self.ast.add_expr(expr));
         }
         // V3-18 wedge — bitwise compound assignments (`|= ^= &= <<= >>=
         // >>>=`) per JS spec §13.15. Same desugar shape as the other
