@@ -97,8 +97,57 @@ unsafe extern "C" {
     fn __torajs_str_any_match_all(s: *const u8, re: *const c_void) -> u64;
     /// torajs-str — release a heap Str/Substr reference.
     fn __torajs_str_drop(s: *mut c_void);
-    /// torajs-throw — record a pending catchable TypeError.
-    fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
+    /// torajs-str — allocate a fresh heap Str from bytes (rc=1).
+    /// RFC 20260716 刀 8 uses it to mint the empty-flags Str for
+    /// the string→RegExp coercion lane of match/search/matchAll.
+    fn __torajs_str_alloc(src: *const u8, len: i64) -> *mut u8;
+    /// torajs-regex — compile a pattern (`Str *`, `Str *`) → RegExp
+    /// cell pointer (rc=1). Release with `__torajs_regex_drop`.
+    fn __torajs_regex_compile(pattern_str: *const c_void, flags_str: *const c_void) -> *mut c_void;
+    /// torajs-regex — release a RegExp cell reference.
+    fn __torajs_regex_drop(re: *mut c_void);
+}
+
+/// RFC 20260716 刀 8 — ES §22.1.3.{11,12,13} match/search/matchAll
+/// coerce a non-RegExp argument via `RegExpCreate(ToString(arg),
+/// flags)`. Owns the temporary RegExp cell; the caller is
+/// expected to `__torajs_regex_drop` it after the underlying
+/// kernel call returns. Match/search pass `""`; matchAll passes
+/// `"g"` per spec step 4.c.
+unsafe fn coerce_regexp(av: AnyValue, flag_bytes: &[u8]) -> Option<*mut c_void> {
+    // SAFETY: caller invariant on `av` (valid AnyValue bit pattern)
+    // is the same as `regexp_cell`'s.
+    if let Some(p) = unsafe { regexp_cell(av) } {
+        // Borrow: the raw RegExp cell already lives longer than the
+        // method call (owned by the caller / cell slot). The `*const
+        // c_void` cast to `*mut` is documented — the underlying
+        // kernel does not mutate the cell, and the drop path checks
+        // for identity (caller-owned vs coerced-owned) via a flag.
+        return Some(p as *mut c_void);
+    }
+    // ToString(arg) + flags Str, both freshly owned rc=1.
+    // SAFETY: `__torajs_anyv_to_str` returns a valid Str heap; the
+    // flags alloc reads `flag_bytes` in-bounds via the passed len.
+    let pat = unsafe { __torajs_anyv_to_str(av) as *const c_void };
+    let flags = unsafe {
+        __torajs_str_alloc(flag_bytes.as_ptr(), flag_bytes.len() as i64) as *const c_void
+    };
+    let re = unsafe { __torajs_regex_compile(pat, flags) };
+    unsafe { __torajs_str_drop(pat as *mut c_void) };
+    unsafe { __torajs_str_drop(flags as *mut c_void) };
+    Some(re)
+}
+
+/// RFC 20260716 刀 8 — sibling drop that only releases when the
+/// pointer was coerced (i.e. did not come from a caller-owned
+/// RegExp cell). Returns `None` when [`regexp_cell`] would have
+/// returned `Some`, matching the discriminator [`coerce_regexp`]
+/// used to decide whether to mint or reuse.
+unsafe fn regexp_drop_if_coerced(orig: AnyValue, re: *mut c_void) {
+    // SAFETY: as above (regexp_cell contract propagates).
+    if unsafe { regexp_cell(orig) }.is_none() {
+        unsafe { __torajs_regex_drop(re) };
+    }
 }
 
 /// `Tag::Str` arm — id-switch onto the torajs-str glue.
@@ -179,17 +228,18 @@ pub(crate) unsafe fn str_method(s: *mut u8, mid: i64, argv: *const u64, argc: i6
                 }
             }
             m if m == ANY_METHOD_MATCH => {
-                // RC-2 (RFC 20260706-test262-bug-corpus) — RegExp-cell
-                // argument only; the string→RegExp coercion lane is a
-                // follow-up. The torajs-str glue materializes Substr
-                // receivers and heap-chain-marks the product.
-                let Some(re_ptr) = regexp_cell(arg_at(0)) else {
-                    __torajs_throw_type_error(
-                        c"s.match(...) on an any receiver requires a RegExp argument".as_ptr(),
-                    );
+                // RFC 20260716 刀 8 — ES §22.1.3.11: non-RegExp arg
+                // coerces via `RegExpCreate(ToString(arg), undefined)`.
+                // A RegExp-cell arg passes through borrowed (owned by
+                // caller); a primitive arg mints a fresh cell dropped
+                // by the sibling `regexp_drop_if_coerced`.
+                let arg = arg_at(0);
+                let Some(re_ptr) = coerce_regexp(arg, b"") else {
                     return VALUE_UNDEFINED;
                 };
-                __torajs_str_any_match(s, re_ptr)
+                let out = __torajs_str_any_match(s, re_ptr);
+                regexp_drop_if_coerced(arg, re_ptr);
+                out
             }
             m if m == ANY_METHOD_REPLACE || m == ANY_METHOD_REPLACE_ALL => {
                 // RC-2c — the pattern argument's cell tag picks the
@@ -362,25 +412,30 @@ unsafe fn str_method_ext(s: *mut u8, mid: i64, argv: *const u64, argc: i64) -> A
                 __torajs_anyv_box_i64(idx)
             }
             m if m == ANY_METHOD_SEARCH => {
-                // RegExp-cell argument only, same lane posture as
-                // `match` (the string→RegExp coercion is the shared
-                // recorded follow-up).
-                let Some(re_ptr) = regexp_cell(arg_at(0)) else {
-                    __torajs_throw_type_error(
-                        c"s.search(...) on an any receiver requires a RegExp argument".as_ptr(),
-                    );
+                // RFC 20260716 刀 8 — ES §22.1.3.13, same shape as
+                // `match` (see above); the search kernel returns an
+                // i64 index.
+                let arg = arg_at(0);
+                let Some(re_ptr) = coerce_regexp(arg, b"") else {
                     return VALUE_UNDEFINED;
                 };
-                __torajs_anyv_box_i64(__torajs_str_any_search(s, re_ptr))
+                let idx = __torajs_str_any_search(s, re_ptr);
+                regexp_drop_if_coerced(arg, re_ptr);
+                __torajs_anyv_box_i64(idx)
             }
             m if m == ANY_METHOD_MATCH_ALL => {
-                let Some(re_ptr) = regexp_cell(arg_at(0)) else {
-                    __torajs_throw_type_error(
-                        c"s.matchAll(...) on an any receiver requires a RegExp argument".as_ptr(),
-                    );
+                // RFC 20260716 刀 8 — ES §22.1.3.12 step 4.c: a
+                // non-RegExp arg coerces via `RegExpCreate(P, "g")`
+                // (the `g` flag is mandatory here because the
+                // matchAll kernel throws TypeError on non-global
+                // regex; the coerced RegExp gets it implicitly).
+                let arg = arg_at(0);
+                let Some(re_ptr) = coerce_regexp(arg, b"g") else {
                     return VALUE_UNDEFINED;
                 };
-                __torajs_str_any_match_all(s, re_ptr)
+                let out = __torajs_str_any_match_all(s, re_ptr);
+                regexp_drop_if_coerced(arg, re_ptr);
+                out
             }
             _ => method_no_such(),
         }
