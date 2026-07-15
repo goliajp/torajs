@@ -34,6 +34,7 @@
 //! the next arm.
 
 use crate::ast::{Expr, ExprId};
+use crate::check::Type as CheckType;
 use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::{LowerCtx, OBJ_CLASS_TAG_OFF};
 
@@ -63,6 +64,100 @@ pub(crate) fn try_lower(
     // first arg).
     for a in args.iter().skip(1) {
         let _ = ctx.lower_expr(*a);
+    }
+    // §20.1.2.12 step 1 — ToObject(obj) throws TypeError when obj is
+    // null or undefined. Pre-fix tr silently returned null Any across
+    // every route (Type::Any read `__proto__` off a nullish box; typed
+    // primitives fell through to the `_` arm's ANY_NULL). test262
+    // Object/getPrototypeOf/15.2.3.2-1-2 pins the throw. Compile-time
+    // known nullish literal → emit unconditional throw; runtime-Any
+    // (or Nullable<T>) → gate before the reflection routes below.
+    let checker_ty0 = ctx.expr_types.get(&args[0]).cloned();
+    let is_nullish_lit = matches!(
+        checker_ty0,
+        Some(CheckType::Null) | Some(CheckType::Undefined)
+    );
+    let is_any_shape = matches!(
+        checker_ty0,
+        Some(CheckType::Any) | Some(CheckType::Nullable(_))
+    );
+    if is_nullish_lit || is_any_shape {
+        let boxed = if is_nullish_lit {
+            // Compile-time null / undefined literal — any_box(NULL, NULL)
+            // shapes an Any that reads as nullish, so the helper reliably
+            // throws. Preserves L-to-R side-effect order: we still lower
+            // the arg first even though the value is a compile-time
+            // constant (the lower can drag side effects out of a `void
+            // 0` or similar).
+            let _ = ctx.lower_expr(args[0]);
+            ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(
+                    ctx.intrinsics.any_box,
+                    vec![Operand::ConstI64(0), Operand::ConstI64(0)],
+                ),
+                Type::Any,
+                None,
+            )
+        } else {
+            let v = ctx.lower_expr(args[0]);
+            let v_op = ctx.box_to_any_from_expr(args[0], v);
+            match v_op {
+                Operand::Value(id) => id,
+                other => ctx.f.append_inst(
+                    ctx.cur_block,
+                    InstKind::Copy(Type::Any, other),
+                    Type::Any,
+                    None,
+                ),
+            }
+        };
+        ctx.f.append_void(
+            ctx.cur_block,
+            InstKind::Call(
+                ctx.intrinsics.throw_typeerror_if_props_nullish,
+                vec![Operand::Value(boxed)],
+            ),
+        );
+        ctx.emit_throw_check(None);
+        // For Nullable<T> the gate returns only when non-null, so the
+        // Any-boxed value survives and we can go through the runtime
+        // reflection path below. For nullish literal / uncaught-throw
+        // the emit_throw_check either propagates or (in main) exits.
+        // Fall through to the Any arm using the boxed value so the
+        // typed reflection routes below still run when the gate passes.
+        if is_any_shape {
+            let v_ty = Type::Any;
+            let arg_is_ident = matches!(ctx.ast.get_expr(args[0]), Expr::Ident(_));
+            let proto = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(
+                    ctx.intrinsics.get_proto_of_any,
+                    vec![Operand::Value(boxed)],
+                ),
+                Type::Any,
+                None,
+            );
+            if !arg_is_ident {
+                ctx.emit_drop_value(Operand::Value(boxed), v_ty);
+            }
+            return Some(Operand::Value(proto));
+        }
+        // Nullish literal path — the throw is unconditional, but we
+        // still need to yield a typed operand for the caller's IR
+        // sequencing. Return a null Any-box; nothing reads it because
+        // emit_throw_check already re-routed control flow to the
+        // catch or the propagation ret.
+        let v = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(
+                ctx.intrinsics.any_box,
+                vec![Operand::ConstI64(0), Operand::ConstI64(0)],
+            ),
+            Type::Any,
+            None,
+        );
+        return Some(Operand::Value(v));
     }
     // RFC 20260713 blade 5 cut 4 — a generator factory fn as the
     // receiver: `Object.getPrototypeOf(g)` answers the
