@@ -86,9 +86,7 @@ pub(crate) unsafe fn any_to_str(tag: i64, value: i64) -> *mut c_void {
         // rc_inc the shared Str cell so the caller owns a fresh
         // reference like the Tag::Str arm above.
         if matches!(h.tag(), Tag::StringWrapper) {
-            let inner_ptr = unsafe {
-                ((child as *const u8).add(8) as *const *mut c_void).read()
-            };
+            let inner_ptr = unsafe { ((child as *const u8).add(8) as *const *mut c_void).read() };
             if inner_ptr.is_null() {
                 // Empty-str wrapper (`new String(NULL)` sentinel):
                 // hand back a fresh empty pooled Str so the ownership
@@ -199,9 +197,7 @@ pub(crate) unsafe fn any_to_number(tag: i64, value: i64) -> f64 {
         // [[StringData]] → ToNumber(string)). Inner cell pointer at
         // `STRING_WRAPPER_CELL_OFF = 8`.
         if matches!(h.tag(), Tag::StringWrapper) {
-            let inner_ptr = unsafe {
-                ((child as *const u8).add(8) as *const *const c_void).read()
-            };
+            let inner_ptr = unsafe { ((child as *const u8).add(8) as *const *const c_void).read() };
             if inner_ptr.is_null() {
                 // Empty string ("") → NaN? No — ES §7.1.4.1 ToNumber("")
                 // = +0.

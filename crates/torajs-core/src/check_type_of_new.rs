@@ -67,11 +67,7 @@ pub(crate) fn try_check(
 /// unbox land). 0-arg is pre-desugared to primitive `0` by
 /// `desugar_builtin_new`; trailing args typechecked-and-dropped per
 /// spec.
-fn check_number_wrapper(
-    checker: &mut Checker,
-    ast: &Ast,
-    args: &[ExprId],
-) -> Result<Type, String> {
+fn check_number_wrapper(checker: &mut Checker, ast: &Ast, args: &[ExprId]) -> Result<Type, String> {
     if args.is_empty() {
         return Err(
             "internal: `new Number()` with 0 args reached check.rs (desugar didn't run?)".into(),
@@ -129,11 +125,7 @@ fn check_boolean_wrapper(
 /// `check_number_wrapper` above (no nominal `Type::StringWrapper`
 /// yet; later blades add one). 0-arg is pre-desugared to `""`;
 /// trailing args typechecked-and-dropped per spec.
-fn check_string_wrapper(
-    checker: &mut Checker,
-    ast: &Ast,
-    args: &[ExprId],
-) -> Result<Type, String> {
+fn check_string_wrapper(checker: &mut Checker, ast: &Ast, args: &[ExprId]) -> Result<Type, String> {
     if args.is_empty() {
         return Err(
             "internal: `new String()` with 0 args reached check.rs (desugar didn't run?)".into(),
