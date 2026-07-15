@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-14T23:50:23.038Z",
+  "generatedAt": "2026-07-15T07:18:50.856Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 92.15
   },
   "torajs": {
-    "commit": "b1f05178",
-    "commitSubject": "chore: archive the test262 sweep at 9fc2e62c",
+    "commit": "6f17b5dd",
+    "commitSubject": "fix: Object.getPrototypeOf(null | undefined) throws TypeError",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "6f17b5dd",
+      "subject": "fix: Object.getPrototypeOf(null | undefined) throws TypeError"
+    },
+    {
+      "hash": "d7ccf84f",
+      "subject": "fix(test262-runner): UTF-8-safe fallback copy in transform_source"
+    },
+    {
+      "hash": "2ba96f8c",
+      "subject": "fix: honor ES §12.9.1 restricted productions in parse_return and postfix ++/--"
+    },
+    {
+      "hash": "3f2f63aa",
+      "subject": "fix: primitive `.toString()`/`.valueOf()` demote past same-named user class method"
+    },
+    {
+      "hash": "5ea15bb1",
+      "subject": "fix: arr.lastIndexOf(v, Infinity) — clamp fromIndex before +1 to avoid overflow"
+    },
+    {
+      "hash": "947661ab",
+      "subject": "chore: hardev dashboard snapshot at rotation 105 close"
+    },
+    {
       "hash": "b1f05178",
       "subject": "chore: archive the test262 sweep at 9fc2e62c"
     },
@@ -735,51 +759,49 @@
     {
       "hash": "43666ec1",
       "subject": "chore: archive the test262 sweep at 2cfb4ff7"
-    },
-    {
-      "hash": "2cfb4ff7",
-      "subject": "feat: Error.prototype.toString on the any lane"
-    },
-    {
-      "hash": "4fb482c7",
-      "subject": "chore: hardev dashboard snapshot at rotation 104 close"
-    },
-    {
-      "hash": "c8aed597",
-      "subject": "chore: archive the test262 sweep at 5fdc4ab0"
-    },
-    {
-      "hash": "5fdc4ab0",
-      "subject": "feat: Error.prototype.toString via a runtime helper (typed receivers)"
-    },
-    {
-      "hash": "4798c1c9",
-      "subject": "Revert \"feat: Error.prototype.toString, and class toString override on typed receivers\""
-    },
-    {
-      "hash": "096b60bd",
-      "subject": "feat: Error.prototype.toString, and class toString override on typed receivers"
     }
   ],
-  "headSha": "b1f05178",
+  "headSha": "6f17b5dd",
   "autorun": {
-    "total": 410,
+    "total": 412,
     "baselineTarget": 10,
-    "bySelf": 405,
+    "bySelf": 407,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784067736-45e8",
-      "at": "2026-07-14T22:22:16Z",
-      "ts": 1784067736,
+      "rotationId": "r-1784099919-5a30",
+      "at": "2026-07-15T07:18:39Z",
+      "ts": 1784099919,
       "trigger": "self",
-      "prevHead": "4fb482c7",
-      "handoffSha": "sha256:c28a3a16864f0d78238545dc720faa2d4e1b46ffb93277c53b1b569f1a65ca8e",
-      "handoffAgeSec": 8,
+      "prevHead": "6f17b5dd",
+      "handoffSha": "sha256:819ad064f09d70afb586f475d55367797b9345120c94e3cc08b6b8180ee3075c",
+      "handoffAgeSec": 26840,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784099919-5a30",
+        "at": "2026-07-15T07:18:39Z",
+        "ts": 1784099919,
+        "trigger": "self",
+        "prevHead": "6f17b5dd",
+        "handoffSha": "sha256:819ad064f09d70afb586f475d55367797b9345120c94e3cc08b6b8180ee3075c",
+        "handoffAgeSec": 26840,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
+      {
+        "rotationId": "r-1784073147-6314",
+        "at": "2026-07-14T23:52:27Z",
+        "ts": 1784073147,
+        "trigger": "self",
+        "prevHead": "947661ab",
+        "handoffSha": "sha256:819ad064f09d70afb586f475d55367797b9345120c94e3cc08b6b8180ee3075c",
+        "handoffAgeSec": 68,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784067736-45e8",
         "at": "2026-07-14T22:22:16Z",
@@ -865,28 +887,6 @@
         "prevHead": "807b406a",
         "handoffSha": "sha256:3f39b631b3c170996cbfd1f41910bedd58215ac61ca2e1312c874fecfb3d0c9f",
         "handoffAgeSec": 5,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1783984356-5519",
-        "at": "2026-07-13T23:12:36Z",
-        "ts": 1783984356,
-        "trigger": "self",
-        "prevHead": "355d76d2",
-        "handoffSha": "sha256:6d5117a61049be400532664041b6202ec5b5ec9d4e78d7b5280504eb10a92f27",
-        "handoffAgeSec": 26,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1783976812-3e29",
-        "at": "2026-07-13T21:06:52Z",
-        "ts": 1783976812,
-        "trigger": "self",
-        "prevHead": "88dc1066",
-        "handoffSha": "sha256:37911227b6c2b3b5281820423cf2a3324127eb06641f42b1ce57f94f7ebab955",
-        "handoffAgeSec": 6,
         "conformanceBefore": null,
         "commitsInSession": null
       }
