@@ -102,7 +102,21 @@ pub(crate) fn emit_to_number(
     match arg_ty {
         Type::I64 | Type::F64 => arg_op,
         Type::Bool => ctx.coerce_bool_to_i64(arg_op),
-        Type::Ptr if matches!(arg_op, Operand::ConstPtrNull) => Operand::ConstI64(0),
+        // RFC 20260716 刀 6 — Type::Ptr + ConstPtrNull covers both
+        // undefined and null after SSA collapse; ToNumber(undef) is
+        // NaN vs ToNumber(null) is 0 per ES §7.1.4. The checker
+        // still knows the source frontend type — use it to pick.
+        // Mirrors the P1.5 shortcut and 刀 5's binop pack retag.
+        Type::Ptr if matches!(arg_op, Operand::ConstPtrNull) => {
+            if matches!(
+                ctx.expr_types.get(&arg_eid),
+                Some(crate::check::Type::Undefined)
+            ) {
+                Operand::ConstF64(f64::NAN)
+            } else {
+                Operand::ConstI64(0)
+            }
+        }
         Type::Str | Type::Substr => {
             // V3-18 m1.h.9 — String → ToNumber via runtime helper
             // (strtod-based, NaN on parse failure). Returns f64 since
@@ -205,12 +219,26 @@ pub(crate) fn emit_to_string(
             Type::Str,
             None,
         )),
-        Type::Ptr if matches!(arg_op, Operand::ConstPtrNull) => Operand::Value(ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Call(ctx.intrinsics.null_to_str, vec![]),
-            Type::Str,
-            None,
-        )),
+        // RFC 20260716 刀 6 — undef vs null distinction (same
+        // rationale as emit_to_number above): ToString(undef) is
+        // "undefined" per §7.1.17 step 3, ToString(null) is "null"
+        // per §7.1.17 step 2.
+        Type::Ptr if matches!(arg_op, Operand::ConstPtrNull) => {
+            let fid = if matches!(
+                ctx.expr_types.get(&arg_eid),
+                Some(crate::check::Type::Undefined)
+            ) {
+                ctx.intrinsics.undefined_to_str
+            } else {
+                ctx.intrinsics.null_to_str
+            };
+            Operand::Value(ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(fid, vec![]),
+                Type::Str,
+                None,
+            ))
+        }
         // S133-2 — `String(Any)`: tag-dispatched ToString via runtime
         // helper (reuses the existing `coerce_to_str(_, Type::Any)`
         // path used by console.log multi-arg). Borrows the Any box;
