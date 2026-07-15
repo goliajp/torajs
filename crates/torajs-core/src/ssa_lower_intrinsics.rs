@@ -360,6 +360,7 @@ pub(crate) struct Intrinsics {
     pub(crate) anyv_is_extensible: FuncId,
     pub(crate) anyv_seal: FuncId,
     pub(crate) anyv_is_sealed: FuncId,
+    pub(crate) anyv_freeze: FuncId,
     pub(crate) dynobj_has: FuncId,
     pub(crate) dynobj_delete: FuncId,
     pub(crate) arr_drop_any: FuncId,

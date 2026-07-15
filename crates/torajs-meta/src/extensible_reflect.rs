@@ -29,6 +29,10 @@ unsafe extern "C" {
     fn __torajs_obj_is_extensible(p: *const c_void) -> bool;
     fn __torajs_obj_seal_mark(p: *mut c_void) -> *mut c_void;
     fn __torajs_obj_is_sealed_marked(p: *const c_void) -> bool;
+    // `Object.freeze` low-level FLAG_FROZEN setter from
+    // torajs-rc/src/freeze.rs. FLAG_STATIC_LITERAL cells short-circuit
+    // inside the helper (writing to `.rodata` would SIGBUS).
+    fn __torajs_obj_freeze(p: *mut c_void) -> *mut c_void;
     // DynObj entry-table walk from torajs-dynobj/src/seal.rs. Clears
     // BUCKET_FLAG_CONFIGURABLE on every live entry / checks whether
     // every live entry is already non-configurable. NULL / non-DynObj
@@ -37,6 +41,11 @@ unsafe extern "C" {
     // non-DynObj cells fall through to the SEALED marker check).
     fn __torajs_dynobj_seal_entries(obj: *mut c_void);
     fn __torajs_dynobj_all_entries_non_configurable(obj: *const c_void) -> bool;
+    // `Object.freeze` DynObj entry-table walk from
+    // torajs-dynobj/src/seal.rs — clears BUCKET_FLAG_WRITABLE +
+    // BUCKET_FLAG_CONFIGURABLE (frozen = sealed + non-writable) on
+    // every live entry. NULL / non-DynObj input is a no-op.
+    fn __torajs_dynobj_freeze_entries(obj: *mut c_void);
 }
 
 /// RFC C5b — `Object.preventExtensions(O)`. Spec ES §20.1.2.16 step 1
@@ -112,6 +121,42 @@ pub unsafe extern "C" fn __torajs_anyv_seal(obj_any: u64) -> u64 {
     unsafe { __torajs_obj_seal_mark(p) };
     // SAFETY: non-DynObj cells short-circuit inside the helper.
     unsafe { __torajs_dynobj_seal_entries(p) };
+    obj_any
+}
+
+/// `Object.freeze(O)` — spec ES §20.1.2.6 = SetIntegrityLevel(O, frozen).
+/// The frozen level implies sealed which implies non-extensible, so the
+/// header flips FLAG_FROZEN + FLAG_SEALED + FLAG_NON_EXTENSIBLE together;
+/// the per-entry walk clears both writable AND configurable on every
+/// live DynObj bucket. Pre-fix `Object.freeze` set only FLAG_FROZEN, so
+/// `getOwnPropertyDescriptor` still reported `writable: true /
+/// configurable: true` on frozen buckets (test262 Object/freeze/*),
+/// `Object.isSealed` answered false on a frozen object (spec: sealed
+/// via level implication), and `Object.isExtensible` answered true
+/// (spec: not extensible via level implication).
+///
+/// Non-DynObj cells (typed Tag::Obj struct / Arr / Closure / …) carry
+/// only the header markers — no dynobj entry table to walk. Primitives
+/// and null / undef return unchanged (spec: SetIntegrityLevel on a
+/// non-Object is a no-op returning the value).
+///
+/// # Safety
+/// `obj_any` must carry a valid AnyValue bit pattern.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_freeze(obj_any: u64) -> u64 {
+    if !is_cell_imm(obj_any) {
+        return obj_any;
+    }
+    let p = obj_any as *mut c_void;
+    // SAFETY: cell pointer to a valid heap object.
+    unsafe { __torajs_obj_freeze(p) };
+    // FLAG_SEALED + FLAG_NON_EXTENSIBLE — frozen ⇒ sealed ⇒ non-extensible.
+    // SAFETY: same.
+    unsafe { __torajs_obj_seal_mark(p) };
+    // DynObj entry walk — clears writable + configurable per bucket.
+    // Non-DynObj cells short-circuit inside the helper.
+    // SAFETY: same.
+    unsafe { __torajs_dynobj_freeze_entries(p) };
     obj_any
 }
 

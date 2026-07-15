@@ -96,6 +96,13 @@ pub(crate) struct ObjectIds {
     pub anyv_is_extensible: FuncId,
     pub anyv_seal: FuncId,
     pub anyv_is_sealed: FuncId,
+    /// RFC 20260716 刀 24 — full `Object.freeze` (FLAG_FROZEN +
+    /// FLAG_SEALED + FLAG_NON_EXTENSIBLE + per-entry writable /
+    /// configurable clear). Replaces the header-only `obj_freeze` /
+    /// `obj_freeze_any` for the SSA lower's `Object.freeze` route so
+    /// downstream `getOwnPropertyDescriptor` / `isSealed` /
+    /// `isExtensible` observe the frozen level correctly.
+    pub anyv_freeze: FuncId,
     pub dynobj_has: FuncId,
     pub dynobj_delete: FuncId,
     pub object_create_check_proto: FuncId,
@@ -169,6 +176,7 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
         anyv_is_extensible: decl!("__torajs_anyv_is_extensible", [Any], Bool),
         anyv_seal: decl!("__torajs_anyv_seal", [Any], Any),
         anyv_is_sealed: decl!("__torajs_anyv_is_sealed", [Any], Bool),
+        anyv_freeze: decl!("__torajs_anyv_freeze", [Any], Any),
         dynobj_has: decl!("__torajs_dynobj_has", [Ptr, Ptr], I32),
         dynobj_delete: decl!("__torajs_dynobj_delete", [Ptr, Ptr], I32),
         object_create_check_proto: decl!("__torajs_object_create_check_proto", [Any], Void),

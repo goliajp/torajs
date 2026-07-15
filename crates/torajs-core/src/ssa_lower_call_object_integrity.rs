@@ -91,31 +91,57 @@ pub(crate) fn try_lower(
 }
 
 /// `Object.freeze(obj)` / `Object.isFrozen(obj)` — primitive short
-/// circuit + heap-header bit set/read. Any-typed receivers use the
-/// NaN-box-aware `obj_is_frozen_any` for isFrozen.
+/// circuit + full integrity-level walk (freeze) or heap-header bit
+/// read (isFrozen).
+///
+/// RFC 20260716 刀 24 — `freeze` routes through the box-aware
+/// `anyv_freeze` for every cell shape (mirrors the `anyv_seal` shape)
+/// so `getOwnPropertyDescriptor` / `isSealed` / `isExtensible`
+/// observe the frozen level correctly (spec: frozen ⇒ sealed ⇒
+/// non-extensible + every own property writable/configurable false).
+/// `isFrozen` keeps the header-only fast path.
 fn lower_freeze_or_is_frozen(ctx: &mut LowerCtx<'_>, method: &str, args: &[ExprId]) -> Operand {
     let arg_op = ctx.lower_expr(args[0]);
-    for &a in args.iter().skip(1) {
-        let _ = ctx.lower_expr(a);
-    }
     let arg_ty = ctx.operand_ty(&arg_op);
     let is_primitive = matches!(arg_ty, Type::I64 | Type::F64 | Type::Bool);
     if is_primitive {
+        for &a in args.iter().skip(1) {
+            let _ = ctx.lower_expr(a);
+        }
         return if method == "freeze" {
             arg_op
         } else {
             Operand::ConstBool(true)
         };
     }
-    let (fid, ret_ty) = if method == "freeze" {
-        if arg_ty == Type::Any {
-            // NaN-box-aware: the raw obj_freeze would deref an Any
-            // sentinel (e.g. undefined) as a heap header — SIGSEGV.
-            (ctx.intrinsics.obj_freeze_any, Type::Any)
+    if method == "freeze" {
+        // Any-box first (parity with `Object.seal` — the anyv helper
+        // owns the NaN-box tag dispatch + primitive short-circuit that
+        // a raw pointer wouldn't handle).
+        let any_op = if matches!(arg_ty, Type::Any) {
+            arg_op
         } else {
-            (ctx.intrinsics.obj_freeze, arg_ty)
+            ctx.box_to_any_from_expr(args[0], arg_op)
+        };
+        for &a in args.iter().skip(1) {
+            let _ = ctx.lower_expr(a);
         }
-    } else if arg_ty == Type::Any {
+        let cur_block = ctx.cur_block;
+        let v = ctx.f.append_inst(
+            cur_block,
+            InstKind::Call(ctx.intrinsics.anyv_freeze, vec![any_op]),
+            Type::Any,
+            None,
+        );
+        // RFC 20260705 owned-result invariant: anyv_freeze answers the
+        // receiver box un-inc'd; the result carries its own ref.
+        ctx.emit_owned_result_inc(Operand::Value(v), Type::Any);
+        return Operand::Value(v);
+    }
+    for &a in args.iter().skip(1) {
+        let _ = ctx.lower_expr(a);
+    }
+    let (fid, ret_ty) = if arg_ty == Type::Any {
         (ctx.intrinsics.obj_is_frozen_any, Type::Bool)
     } else {
         (ctx.intrinsics.obj_is_frozen, Type::Bool)
@@ -124,12 +150,6 @@ fn lower_freeze_or_is_frozen(ctx: &mut LowerCtx<'_>, method: &str, args: &[ExprI
     let v = ctx
         .f
         .append_inst(cur_block, InstKind::Call(fid, vec![arg_op]), ret_ty, None);
-    // RFC 20260705 owned-result invariant: `freeze` answers the
-    // receiver (obj_freeze passes the pointer through un-inc'd);
-    // the result must carry its own ref. isFrozen answers Bool.
-    if method == "freeze" {
-        ctx.emit_owned_result_inc(Operand::Value(v), ret_ty);
-    }
     Operand::Value(v)
 }
 

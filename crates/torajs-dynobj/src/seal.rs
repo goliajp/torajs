@@ -15,7 +15,7 @@
 use core::ffi::c_void;
 
 use crate::get::type_tag;
-use crate::layout::{BUCKET_FLAG_CONFIGURABLE, DYNOBJ_KEY_HOLE, TAG_DYNOBJ};
+use crate::layout::{BUCKET_FLAG_CONFIGURABLE, BUCKET_FLAG_WRITABLE, DYNOBJ_KEY_HOLE, TAG_DYNOBJ};
 use crate::probe::{entries, entries_len};
 
 /// `__torajs_dynobj_seal_entries(obj)` — clear
@@ -46,6 +46,44 @@ pub unsafe extern "C" fn __torajs_dynobj_seal_entries(obj: *mut c_void) {
             continue;
         }
         unsafe { (*e).key_ptr_tagged = kp & !BUCKET_FLAG_CONFIGURABLE };
+    }
+}
+
+/// `__torajs_dynobj_freeze_entries(obj)` — clear BOTH
+/// [`crate::layout::BUCKET_FLAG_WRITABLE`] and
+/// [`crate::layout::BUCKET_FLAG_CONFIGURABLE`] on every live entry, per
+/// ES §7.3.14 SetIntegrityLevel with "frozen":
+/// - data properties get `{writable: false, configurable: false}`
+/// - accessor properties get `{configurable: false}` (writable is
+///   meaningless for accessors and the bit is unread on their arm; the
+///   symmetric clear is harmless and keeps the walk shape uniform with
+///   the seal sibling above)
+///
+/// Enumerable is preserved. Holes (`key_ptr_tagged == DYNOBJ_KEY_HOLE`)
+/// are skipped. The header-flag part (`FLAG_FROZEN` +
+/// `FLAG_NON_EXTENSIBLE` + `FLAG_SEALED`) lives in `torajs-rc`; this is
+/// the per-entry half.
+///
+/// # Safety
+/// `obj` is null or a live heap pointer with a universal header.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_dynobj_freeze_entries(obj: *mut c_void) {
+    if obj.is_null() {
+        return;
+    }
+    if unsafe { type_tag(obj) } != TAG_DYNOBJ {
+        return;
+    }
+    let n = unsafe { entries_len(obj) };
+    let base = unsafe { entries(obj) };
+    let clear_mask = !(BUCKET_FLAG_CONFIGURABLE | BUCKET_FLAG_WRITABLE);
+    for i in 0..n as usize {
+        let e = unsafe { base.add(i) };
+        let kp = unsafe { (*e).key_ptr_tagged };
+        if kp == DYNOBJ_KEY_HOLE {
+            continue;
+        }
+        unsafe { (*e).key_ptr_tagged = kp & clear_mask };
     }
 }
 

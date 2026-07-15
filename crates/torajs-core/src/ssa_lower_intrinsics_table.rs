@@ -318,6 +318,7 @@ pub(crate) fn build(
         anyv_prevent_extensions: init_b.object.anyv_prevent_extensions,
         anyv_is_extensible: init_b.object.anyv_is_extensible,
         anyv_seal: init_b.object.anyv_seal,
+        anyv_freeze: init_b.object.anyv_freeze,
         anyv_is_sealed: init_b.object.anyv_is_sealed,
         dynobj_has: init_b.object.dynobj_has,
         dynobj_delete: init_b.object.dynobj_delete,
