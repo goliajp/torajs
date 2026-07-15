@@ -20,14 +20,27 @@ pub(super) fn scan_slash(
     // expression on its right.
     match peek(bytes, *i + 1) {
         Some(b'/') => {
-            // Line comment — consume to end-of-line / EOF.
+            // Line comment — consume to end-of-line / EOF. ES2024
+            // §12.4 SingleLineCommentChars exclude LineTerminator,
+            // and §11.3 LineTerminator is {LF, CR, LS, PS} — the
+            // last two are U+2028 / U+2029, UTF-8 E2 80 A8 / A9.
+            // Don't consume the terminator itself — outer loop's
+            // whitespace branch handles it (including \r\n pairs).
             *i += 2;
-            while *i < len && bytes[*i as usize] != b'\n' {
+            while *i < len {
+                let c = bytes[*i as usize];
+                if c == b'\n' || c == b'\r' {
+                    break;
+                }
+                if c == 0xE2
+                    && (*i as usize) + 2 < len as usize
+                    && bytes[*i as usize + 1] == 0x80
+                    && (bytes[*i as usize + 2] == 0xA8 || bytes[*i as usize + 2] == 0xA9)
+                {
+                    break;
+                }
                 *i += 1;
             }
-            // Don't consume the newline itself — outer loop's
-            // whitespace branch handles it (and any trailing
-            // \r\n line ending).
         }
         Some(b'*') => {
             // Block comment — consume to first `*/`. Nested

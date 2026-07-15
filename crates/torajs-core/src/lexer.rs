@@ -29,6 +29,17 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                 i += 1;
                 continue;
             }
+            // ES2024 §11.3 line terminators U+2028 (LINE SEPARATOR) and
+            // U+2029 (PARAGRAPH SEPARATOR) — UTF-8 E2 80 A8 / A9.
+            // Consumed as whitespace here so single-line comments and
+            // ASI observe them as line terminators.
+            0xE2 if (i as usize) + 2 < len as usize
+                && bytes[i as usize + 1] == 0x80
+                && (bytes[i as usize + 2] == 0xA8 || bytes[i as usize + 2] == 0xA9) =>
+            {
+                i += 3;
+                continue;
+            }
             b'.' => scan_number::scan_dot(bytes, &mut i, &mut out, start),
             b',' => emit(&mut out, Token::Comma, start, advance(&mut i)),
             b':' => emit(&mut out, Token::Colon, start, advance(&mut i)),
