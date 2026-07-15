@@ -167,8 +167,16 @@ pub(crate) fn try_match(obj_ty: &Type, name: &str) -> Option<Result<Type, String
         // `g` flag the array has 1 element (the matched
         // substring), with `g` it has all matches. Capture
         // groups + JS-spec null-on-miss are Phase 1c.
+        //
+        // RFC 20260716 刀 9 — arg type is `Type::Any` so a
+        // string / wrapper / number pattern typechecks; SSA
+        // lower `ssa_lower_call_str_regex_methods::try_lower`
+        // dispatches on arg SSA type — RegExp arg → direct
+        // regex_match call; anything else → mint temp regex
+        // via `__torajs_regex_compile(ToString(arg), "")` then
+        // regex_match then drop (spec §22.1.3.11 step 4.c).
         (Type::String, "match") => Type::Function(
-            vec![Type::RegExp],
+            vec![Type::Any],
             Box::new(Type::Array(Box::new(Type::String))),
         ),
         // s.matchAll(re) — Phase 1c.3 returns
@@ -177,8 +185,12 @@ pub(crate) fn try_match(obj_ty: &Type, name: &str) -> Option<Result<Type, String
         // JS spec returns an iterator; tr's array stand-in
         // covers the dominant test262 usage pattern (a for-of
         // loop or [...m]) until iterator protocol lands.
+        //
+        // RFC 20260716 刀 9 — same Any-lane as `match` above;
+        // spec §22.1.3.12 step 4.c forces `"g"` flag on the
+        // coerced RegExp.
         (Type::String, "matchAll") => Type::Function(
-            vec![Type::RegExp],
+            vec![Type::Any],
             Box::new(Type::Array(Box::new(Type::Array(Box::new(Type::String))))),
         ),
         // `s.concat(other)` — string concat. The single-arg

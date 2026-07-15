@@ -62,7 +62,14 @@ pub(crate) fn try_lower(
             .unwrap_or(false),
         _ => false,
     };
-    if !arg0_is_regex {
+    // RFC 20260716 刀 9 — `match` / `matchAll` accept a non-RegExp
+    // arg via ES §22.1.3.{11,12} step 4.c: `RegExpCreate(ToString(P),
+    // flags)`. match uses `""` flags; matchAll uses `"g"` (matchAll
+    // kernel throws TypeError on non-global — the coerced RegExp
+    // must be global implicitly). Emit the coerce inline below and
+    // fall through to the shared dispatch block.
+    let coerce_match_lane = !arg0_is_regex && matches!(name.as_str(), "match" | "matchAll");
+    if !arg0_is_regex && !coerce_match_lane {
         return None;
     }
     let raw_recv = ctx.lower_expr(obj);
@@ -86,16 +93,53 @@ pub(crate) fn try_lower(
     } else {
         raw_recv
     };
-    let re_op = ctx.lower_expr(args[0]);
+    let (re_op, minted_regex) = if coerce_match_lane {
+        // Lower the arg, coerce to Str (or borrow if already Str),
+        // mint a fresh RegExp via `regex_compile`. `regex_compile`
+        // takes ownership of neither arg — the caller drops both
+        // Str temps if they were freshly minted (coerce_to_str
+        // materializes ownership per its contract). matchAll gets
+        // the "g" flag per spec §22.1.3.12 step 4.c.
+        let raw_arg = ctx.lower_expr(args[0]);
+        let arg_ty = ctx.operand_ty(&raw_arg);
+        let pat_op = ctx.coerce_to_str(raw_arg, arg_ty);
+        let flags_bytes = if name == "matchAll" { "g" } else { "" };
+        let flags_v = ctx.intern_string_literal(flags_bytes);
+        let re_v = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(
+                ctx.intrinsics.regex_compile,
+                vec![pat_op.clone(), Operand::Value(flags_v)],
+            ),
+            Type::RegExp,
+            None,
+        );
+        // Drop the coerced Str temp — the compile call read the
+        // bytes and holds no borrow. `intern_string_literal`
+        // returns a static-lifetime Str with rc_inc-ed usage so no
+        // drop needed for the flags literal.
+        if arg_ty != Type::Str {
+            ctx.emit_drop_value(pat_op, Type::Str);
+        }
+        (Operand::Value(re_v), true)
+    } else {
+        (ctx.lower_expr(args[0]), false)
+    };
     let arr_id = intern_arr_layout(ctx.arr_layouts, Type::Str);
     let result = match name.as_str() {
-        "match" => emit_match(ctx, recv_op.clone(), re_op, args, arr_id),
-        "matchAll" => emit_match_all(ctx, recv_op.clone(), re_op, args, arr_id),
+        "match" => emit_match(ctx, recv_op.clone(), re_op.clone(), args, arr_id),
+        "matchAll" => emit_match_all(ctx, recv_op.clone(), re_op.clone(), args, arr_id),
         "split" => emit_split(ctx, recv_op.clone(), re_op, args, arr_id),
         "replace" | "replaceAll" => emit_replace(ctx, recv_op.clone(), re_op, &name, args),
         "search" => emit_search(ctx, recv_op.clone(), re_op, args),
         _ => unreachable!(),
     };
+    if minted_regex {
+        ctx.f.append_void(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.regex_drop, vec![re_op]),
+        );
+    }
     if recv_is_view {
         ctx.emit_drop_value(recv_op, Type::Str);
     }
