@@ -342,6 +342,8 @@ pub(crate) fn build(
         any_to_object: init_c.any_substrate.any_to_object,
         any_add: init_c.any_substrate.any_add,
         any_arith: init_c.any_substrate.any_arith,
+        any_bitwise: init_c.any_substrate.any_bitwise,
+        any_bitnot: init_c.any_substrate.any_bitnot,
         any_compare: init_c.any_substrate.any_compare,
         any_strict_eq: init_c.any_substrate.any_strict_eq,
         any_any_strict_eq: init_c.any_substrate.any_any_strict_eq,

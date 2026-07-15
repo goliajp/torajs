@@ -54,6 +54,14 @@ pub(crate) struct AnySubstrateIds {
     pub any_to_object: FuncId,
     pub any_add: FuncId,
     pub any_arith: FuncId,
+    /// RFC 20260716 刀 7 — `&` / `|` / `^` / `<<` / `>>` / `>>>`
+    /// on Any operands per ES §13.12. Both operands `ToNumber` →
+    /// `ToInt32` (`ToUint32` on `>>>`'s LHS); result boxed as I32
+    /// or F64 (`>>>` results in `[2^31, 2^32)`).
+    pub any_bitwise: FuncId,
+    /// RFC 20260716 刀 7 — unary `~` on an Any operand per ES §13.5.6.
+    /// Operand `ToNumber` → `ToInt32` → `xor -1`.
+    pub any_bitnot: FuncId,
     pub any_compare: FuncId,
     pub any_strict_eq: FuncId,
     pub any_any_strict_eq: FuncId,
@@ -143,6 +151,8 @@ pub(crate) fn declare(
         any_to_object: decl!("__torajs_any_to_object", [Any], Any),
         any_add: decl!("__torajs_anyv_add_pair", [I64, I64, I64, I64], Any),
         any_arith: decl!("__torajs_anyv_arith_pair", [I64, I64, I64, I64, I64], Any),
+        any_bitwise: decl!("__torajs_anyv_bitwise_pair", [I64, I64, I64, I64, I64], Any),
+        any_bitnot: decl!("__torajs_anyv_bitnot_pair", [I64, I64], Any),
         any_compare: decl!(
             "__torajs_anyv_compare_pair",
             [I64, I64, I64, I64, I64],

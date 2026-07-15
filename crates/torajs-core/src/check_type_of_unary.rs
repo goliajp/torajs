@@ -95,6 +95,11 @@ fn check_bit_not(t: Type) -> Result<Type, String> {
         Type::Boolean | Type::Null | Type::Undefined | Type::String
     ) {
         Ok(Type::Number)
+    } else if matches!(t, Type::Any) {
+        // RFC 20260716 刀 7 — Any operand routes through
+        // `__torajs_anyv_bitnot_pair` (ToNumber → ToInt32 → xor -1),
+        // matching arith / compare Any-fringe pattern.
+        Ok(Type::Any)
     } else {
         Err(format!("`~` requires number or bigint operand, got {t:?}"))
     }

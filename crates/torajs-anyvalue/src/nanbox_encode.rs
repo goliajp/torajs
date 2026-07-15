@@ -19,7 +19,7 @@ use std::ffi::c_void;
 
 use torajs_rc::AnySlotTag;
 
-use crate::arith::{any_add, any_arith};
+use crate::arith::{any_add, any_arith, any_bitnot, any_bitwise};
 use crate::coerce::any_to_str;
 use crate::compare::any_compare;
 use crate::nanbox::{
@@ -355,6 +355,46 @@ pub unsafe extern "C" fn __torajs_anyv_arith_pair(
 pub unsafe extern "C" fn __torajs_anyv_add_pair(lt: i64, lv: i64, rt: i64, rv: i64) -> AnyValue {
     // SAFETY: caller invariant on tag/value pairs.
     unsafe { any_add(lt, lv, rt, rv) }
+}
+
+/// Pair-arg bitwise dispatch: takes the SSA-emitted
+/// `(op, lt, lv, rt, rv)` shape per ES §13.12 — op ∈ {0=BitAnd,
+/// 1=BitOr, 2=BitXor, 3=Shl, 4=Shr, 5=UShr}. Both operands
+/// `ToNumber` → `ToInt32` (`ToUint32` on `>>>`'s LHS); returns a
+/// fresh [`AnyValue`] boxed as I32 (fits) or F64 (`>>>` results in
+/// `[2^31, 2^32)`).
+///
+/// RFC 20260716 刀 7 — closes the sweep-flagged pass→incompat
+/// regression cluster where `new Boolean(x) & prim` sites got
+/// rejected by the checker.
+///
+/// # Safety
+///
+/// `lt` / `rt` ∈ `AnySlotTag`. If tag == Heap, value is 0 or a
+/// valid `*mut HeapHeader`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_bitwise_pair(
+    op: i64,
+    lt: i64,
+    lv: i64,
+    rt: i64,
+    rv: i64,
+) -> AnyValue {
+    // SAFETY: caller invariant on tag/value pairs.
+    unsafe { any_bitwise(op, lt, lv, rt, rv) }
+}
+
+/// Pair-arg unary `~` per ES §13.5.6. Operand `(tag, value)` pair
+/// routes through `ToNumber` → `ToInt32` → `xor -1`. Result
+/// always fits in i32.
+///
+/// # Safety
+///
+/// Same as [`__torajs_anyv_bitwise_pair`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_bitnot_pair(tag: i64, value: i64) -> AnyValue {
+    // SAFETY: caller invariant on tag/value pair.
+    unsafe { any_bitnot(tag, value) }
 }
 
 /// Immediate-vs-pair strict equality. ssa_lower's array-includes

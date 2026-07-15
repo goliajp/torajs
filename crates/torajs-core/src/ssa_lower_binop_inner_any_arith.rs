@@ -4,13 +4,17 @@
 //! 185-189 try_lower shape; this chunk gets the source file
 //! ≤500 LOC HARD limit).
 //!
-//! Handles `op ∈ {Add, Sub, Mul, Div, Mod, Lt, Le, Gt, Ge}`
-//! when **at least one operand is `Type::Any`** (P0.6 / P0.7 /
-//! P0.8). Each operand is packed as `(tag, value-as-i64)` and
-//! routed to the matching runtime helper:
+//! Handles `op ∈ {Add, Sub, Mul, Div, Mod, BitAnd, BitOr, BitXor,
+//! Shl, Shr, UShr, Lt, Le, Gt, Ge}` when **at least one operand is
+//! `Type::Any`** (P0.6 / P0.7 / P0.8 / RFC 20260716 刀 7). Each
+//! operand is packed as `(tag, value-as-i64)` and routed to the
+//! matching runtime helper:
 //!
 //! - **Add** → `any_add` (with ToPrimitive→ToString fallback)
 //! - **Sub / Mul / Div / Mod** → `any_arith(op_code, ...)`
+//! - **BitAnd / BitOr / BitXor / Shl / Shr / UShr** →
+//!   `any_bitwise(op_code, ...)` per ES §13.12 (ToInt32 both
+//!   sides, `>>>` uses ToUint32 on LHS)
 //! - **Lt / Le / Gt / Ge** → `any_compare(op_code, ...)` (Bool result)
 //!
 //! Any-typed operand: shim Call `any_unbox_tag` + `any_unbox_value`
@@ -40,6 +44,12 @@ pub(crate) fn try_lower(
             | AstBinOp::Mul
             | AstBinOp::Div
             | AstBinOp::Mod
+            | AstBinOp::BitAnd
+            | AstBinOp::BitOr
+            | AstBinOp::BitXor
+            | AstBinOp::Shl
+            | AstBinOp::Shr
+            | AstBinOp::UShr
             | AstBinOp::Lt
             | AstBinOp::Le
             | AstBinOp::Gt
@@ -139,6 +149,34 @@ pub(crate) fn try_lower(
                 ctx.cur_block,
                 InstKind::Call(
                     ctx.intrinsics.any_arith,
+                    vec![Operand::ConstI64(op_code), lt, lv, rt, rv],
+                ),
+                Type::Any,
+                None,
+            )
+        }
+        AstBinOp::BitAnd
+        | AstBinOp::BitOr
+        | AstBinOp::BitXor
+        | AstBinOp::Shl
+        | AstBinOp::Shr
+        | AstBinOp::UShr => {
+            // RFC 20260716 刀 7 — ES §13.12 bitwise on Any. Op code
+            // wire aligned with `arith::BitwiseOp::from_i64` —
+            // 0=BitAnd, 1=BitOr, 2=BitXor, 3=Shl, 4=Shr, 5=UShr.
+            let op_code: i64 = match op {
+                AstBinOp::BitAnd => 0,
+                AstBinOp::BitOr => 1,
+                AstBinOp::BitXor => 2,
+                AstBinOp::Shl => 3,
+                AstBinOp::Shr => 4,
+                AstBinOp::UShr => 5,
+                _ => unreachable!(),
+            };
+            ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(
+                    ctx.intrinsics.any_bitwise,
                     vec![Operand::ConstI64(op_code), lt, lv, rt, rv],
                 ),
                 Type::Any,

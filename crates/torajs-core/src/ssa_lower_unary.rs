@@ -58,6 +58,12 @@ impl LowerCtx<'_> {
         {
             return self.lower_unary_any_arith(op, v);
         }
+        // RFC 20260716 刀 7 — Any operand on unary `~`: route
+        // through any_bitnot (ToNumber → ToInt32 → xor -1). Mirror
+        // of the Neg/Plus P0.9 pattern above.
+        if matches!(op, crate::ast::UnaryOp::BitNot) && matches!(self.operand_ty(&v), Type::Any) {
+            return self.lower_unary_any_bitnot(v);
+        }
         // V3-18 m1.f / m1.h.4 — coerce Bool / null / Str before
         // unary `-`, `~`, `+`. See [`Self::coerce_unary_operand`].
         let v = self.coerce_unary_operand(op, v);
@@ -189,6 +195,46 @@ impl LowerCtx<'_> {
             ),
         );
         result
+    }
+
+    /// RFC 20260716 刀 7 — Any operand on unary `~`: unbox pair
+    /// via shim, route through `any_bitnot` runtime helper. Mirror
+    /// of [`Self::lower_unary_any_arith`] but with a 2-arg pair
+    /// signature and no `any_unbox_settle` (any_bitnot borrows the
+    /// pair and never materializes a ShortStr temp — the operand
+    /// is ToNumber-coerced through the `any_to_number` heap path).
+    fn lower_unary_any_bitnot(&mut self, v: Operand) -> Operand {
+        let r_tag = self.f.append_inst(
+            self.cur_block,
+            InstKind::Call(self.intrinsics.any_unbox_tag, vec![v.clone()]),
+            Type::I64,
+            None,
+        );
+        let r_value = self.f.append_inst(
+            self.cur_block,
+            InstKind::Call(self.intrinsics.any_unbox_value, vec![v.clone()]),
+            Type::I64,
+            None,
+        );
+        let r = self.f.append_inst(
+            self.cur_block,
+            InstKind::Call(
+                self.intrinsics.any_bitnot,
+                vec![Operand::Value(r_tag), Operand::Value(r_value)],
+            ),
+            Type::Any,
+            None,
+        );
+        // any_bitnot only borrowed the pair — reclaim a ShortStr-
+        // materialized temp (no-op for every other input).
+        self.f.append_void(
+            self.cur_block,
+            InstKind::Call(
+                self.intrinsics.any_unbox_settle,
+                vec![v, Operand::Value(r_value)],
+            ),
+        );
+        Operand::Value(r)
     }
 
     /// V3-18 m1.f / m1.h.4 — coerce Bool / null / Str before unary

@@ -379,6 +379,10 @@ pub(crate) struct Intrinsics {
     pub(crate) any_to_object: FuncId,
     pub(crate) any_add: FuncId,
     pub(crate) any_arith: FuncId,
+    /// RFC 20260716 刀 7 — Any bitwise/shift dispatch.
+    pub(crate) any_bitwise: FuncId,
+    /// RFC 20260716 刀 7 — Any unary `~` dispatch.
+    pub(crate) any_bitnot: FuncId,
     pub(crate) any_compare: FuncId,
     pub(crate) any_strict_eq: FuncId,
     pub(crate) any_any_strict_eq: FuncId,
