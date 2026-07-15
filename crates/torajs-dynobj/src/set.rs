@@ -15,7 +15,10 @@
 use core::ffi::c_void;
 
 use crate::accessor::{__torajs_accessor_invoke_setter, value_is_accessor};
-use crate::layout::{ANY_HEAP, BUCKET_FLAG_WRITABLE, BUCKET_FLAGS_DEFAULT, BUCKET_TAG_MASK};
+use crate::layout::{
+    ANY_HEAP, BUCKET_FLAG_WRITABLE, BUCKET_FLAGS_DEFAULT, BUCKET_TAG_MASK,
+    DYNOBJ_HDR_FLAG_NON_EXTENSIBLE,
+};
 use crate::probe::{
     Entry, bucket_flags, bucket_make_key_tagged, count, entries, entries_cap, entries_len,
     index_ptr, probe, set_count, set_entries_len,
@@ -122,6 +125,23 @@ pub unsafe extern "C" fn __torajs_dynobj_set(
                 __torajs_anyv_box_from_pair((tag & BUCKET_TAG_MASK) as i64, value as i64);
         }
     } else {
+        // §10.1.5.1 [[Set]] on a non-extensible dict must reject new
+        // keys in strict mode (tr modules are all strict). Mirrors
+        // `__torajs_dynobj_define`'s fresh-insert gate so
+        // `Object.preventExtensions(o); o.newKey = 5;` throws with
+        // bun-parity wording — implicit-set was previously silently
+        // creating the entry (7 test262 Object/preventExtensions/
+        // 15.2.3.10-3-{2,5-1,6,7,12,15,16,17}.js).
+        let header_flags = unsafe { *(obj.cast::<u8>().add(6) as *const u16) };
+        if header_flags & DYNOBJ_HDR_FLAG_NON_EXTENSIBLE != 0 {
+            unsafe {
+                __torajs_throw_type_error(
+                    c"Attempting to define property on object that is not extensible.".as_ptr()
+                        as *const u8,
+                );
+            }
+            return;
+        }
         // Fresh insert: append to the dense array (insertion order),
         // point the probed slot (tombstone reuse or empty) at it.
         let e_idx = unsafe { entries_len(obj) };
