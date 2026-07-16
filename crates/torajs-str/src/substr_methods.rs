@@ -401,4 +401,3 @@ pub unsafe extern "C" fn __torajs_substr_index_of(v: *const u8, n: *const u8) ->
     }
     -1
 }
-
