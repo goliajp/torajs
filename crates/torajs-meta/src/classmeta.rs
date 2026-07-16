@@ -26,6 +26,11 @@ use core::ffi::c_void;
 
 unsafe extern "C" {
     fn __torajs_rc_inc(p: *mut c_void);
+    /// Locks `name` / `length` / `prototype` slots on the class-object
+    /// dynobj to the ES §17 built-in Function attribute pattern (no-op
+    /// if `obj` is NULL, non-cell, or non-dynobj). Cross-crate FFI
+    /// declared here to keep the classmeta dep tree lean.
+    fn __torajs_dynobj_lock_builtin_fn_class_slots(obj: *mut c_void);
 }
 
 const MAX_CLASSES: usize = 256;
@@ -67,6 +72,14 @@ pub extern "C" fn __torajs_anyv_proto_register(tag: i64, proto_anyv: u64) {
 }
 
 /// Register the class's `__class_<C>` AnyValue immediate.
+///
+/// After stashing the slot, lock the class-object dynobj's `name` /
+/// `length` / `prototype` entries to the ES §17 built-in Function
+/// attribute shape (see [`crate::seal::__torajs_dynobj_lock_builtin_fn_class_slots`]
+/// upstream). Uniform for user + built-in classes because ES §10.2.3
+/// MakeConstructor mandates the same attribute set on user classes.
+/// Non-cell / non-dynobj slots (e.g. `class_anyv` set to a sentinel by
+/// tests) are silently ignored by the helper.
 #[unsafe(no_mangle)]
 pub extern "C" fn __torajs_anyv_class_register(tag: i64, class_anyv: u64) {
     if !in_range(tag) {
@@ -75,6 +88,12 @@ pub extern "C" fn __torajs_anyv_class_register(tag: i64, class_anyv: u64) {
     // SAFETY: same as anyv_proto_register.
     unsafe {
         CLASSES_BY_TAG_IMM[tag as usize] = class_anyv;
+    }
+    if is_cell_imm(class_anyv) {
+        // SAFETY: cell-encoded AnyValue → 48-bit user-VA pointer to a
+        // valid heap object; the helper self-guards against non-dynobj
+        // shape via its own header tag check.
+        unsafe { __torajs_dynobj_lock_builtin_fn_class_slots(class_anyv as *mut c_void) };
     }
 }
 

@@ -15,8 +15,11 @@
 use core::ffi::c_void;
 
 use crate::get::type_tag;
-use crate::layout::{BUCKET_FLAG_CONFIGURABLE, BUCKET_FLAG_WRITABLE, DYNOBJ_KEY_HOLE, TAG_DYNOBJ};
-use crate::probe::{entries, entries_len};
+use crate::layout::{
+    BUCKET_FLAG_CONFIGURABLE, BUCKET_FLAG_ENUMERABLE, BUCKET_FLAG_WRITABLE, DYNOBJ_KEY_HOLE,
+    STR_DATA_OFF, STR_LEN_OFF, TAG_DYNOBJ,
+};
+use crate::probe::{bucket_key_ptr, entries, entries_len};
 
 /// `__torajs_dynobj_seal_entries(obj)` — clear
 /// `BUCKET_FLAG_CONFIGURABLE` (bit 2 of the `key_ptr_tagged` word) on
@@ -84,6 +87,81 @@ pub unsafe extern "C" fn __torajs_dynobj_freeze_entries(obj: *mut c_void) {
             continue;
         }
         unsafe { (*e).key_ptr_tagged = kp & clear_mask };
+    }
+}
+
+/// `__torajs_dynobj_lock_builtin_fn_class_slots(obj)` — apply the
+/// ECMAScript §17 built-in Function attribute pattern to a class-object
+/// dynobj (the one that reads via `<ClassName>.<slot>`):
+///
+/// - `name` and `length` become `{writable: false, enumerable: false,
+///   configurable: true}` (§17: "the name/length property of a built-in
+///   Function object has the attributes `{[[Writable]]: false,
+///   [[Enumerable]]: false, [[Configurable]]: true}`").
+/// - `prototype` becomes `{writable: false, enumerable: false,
+///   configurable: false}` (§17 for built-in Function; ES §10.2.3
+///   MakeConstructor sets the same shape on user classes).
+///
+/// Called once per class from `__torajs_anyv_class_register` at module
+/// init; uniform behaviour across built-in NativeError and user
+/// classes because the spec attribute set is the same. Value + key
+/// storage are untouched — only the `key_ptr_tagged` low-3 flag bits
+/// are masked.
+///
+/// Walk cost is O(entries), and each class dynobj only carries a handful
+/// of slots, so this is negligible.
+///
+/// # Safety
+/// `obj` is null or a live heap pointer with a universal header.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_dynobj_lock_builtin_fn_class_slots(obj: *mut c_void) {
+    if obj.is_null() {
+        return;
+    }
+    if unsafe { type_tag(obj) } != TAG_DYNOBJ {
+        return;
+    }
+    let n = unsafe { entries_len(obj) };
+    let base = unsafe { entries(obj) };
+    let clear_name_len = BUCKET_FLAG_WRITABLE | BUCKET_FLAG_ENUMERABLE;
+    let clear_proto = BUCKET_FLAG_WRITABLE | BUCKET_FLAG_ENUMERABLE | BUCKET_FLAG_CONFIGURABLE;
+    for i in 0..n as usize {
+        let e = unsafe { base.add(i) };
+        let kp = unsafe { (*e).key_ptr_tagged };
+        if kp == DYNOBJ_KEY_HOLE {
+            continue;
+        }
+        let key_ptr = bucket_key_ptr(kp);
+        if key_ptr.is_null() {
+            continue;
+        }
+        let clear_mask = match key_kind(key_ptr) {
+            Some(KeyKind::NameOrLength) => clear_name_len,
+            Some(KeyKind::Prototype) => clear_proto,
+            None => continue,
+        };
+        unsafe { (*e).key_ptr_tagged = kp & !clear_mask };
+    }
+}
+
+enum KeyKind {
+    NameOrLength,
+    Prototype,
+}
+
+/// Byte-compare the Str payload at `key` against the three built-in
+/// class-object slot names. Assumes `key` points at a live Str heap
+/// block laid out per `STR_LEN_OFF` / `STR_DATA_OFF`.
+fn key_kind(key: *const c_void) -> Option<KeyKind> {
+    unsafe {
+        let len = *((key as *const u8).add(STR_LEN_OFF) as *const u64) as usize;
+        let data = (key as *const u8).add(STR_DATA_OFF);
+        let slice = core::slice::from_raw_parts(data, len);
+        match slice {
+            b"name" | b"length" => Some(KeyKind::NameOrLength),
+            b"prototype" => Some(KeyKind::Prototype),
+            _ => None,
+        }
     }
 }
 

@@ -58,7 +58,7 @@ pub use iter::{
 };
 pub use seal::{
     __torajs_dynobj_all_entries_non_configurable, __torajs_dynobj_freeze_entries,
-    __torajs_dynobj_seal_entries,
+    __torajs_dynobj_lock_builtin_fn_class_slots, __torajs_dynobj_seal_entries,
 };
 pub use set::__torajs_dynobj_set;
 
