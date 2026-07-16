@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-16T08:04:00.666Z",
+  "generatedAt": "2026-07-16T08:34:06.306Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 92.71
   },
   "torajs": {
-    "commit": "62b46f13",
-    "commitSubject": "fix: inline ObjectLit fn arg into `any` param routes through dobj lane",
+    "commit": "7308ee2a",
+    "commitSubject": "fix: any-receiver `.k = undefined` stores tag=5 instead of collapsing to null",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "7308ee2a",
+      "subject": "fix: any-receiver `.k = undefined` stores tag=5 instead of collapsing to null"
+    },
+    {
+      "hash": "6d08837f",
+      "subject": "chore: hardev dashboard snapshot at rotation 120 close"
+    },
+    {
       "hash": "62b46f13",
       "subject": "fix: inline ObjectLit fn arg into `any` param routes through dobj lane"
     },
@@ -751,35 +759,38 @@
     {
       "hash": "9c264d3e",
       "subject": "style: fmt-drift fix for chunks 1 + 4 (mini cargo fmt didn't rsync back)"
-    },
-    {
-      "hash": "d54dacc4",
-      "subject": "refactor: extract is_identifier_name + unwrap_generator_return_ann to type_ann_helpers sibling (file-size debt)"
-    },
-    {
-      "hash": "ad8c8d82",
-      "subject": "refactor: extract parse_forof_binding_and_pattern to forof_binding sibling (file+fn-size debt)"
     }
   ],
-  "headSha": "62b46f13",
+  "headSha": "7308ee2a",
   "autorun": {
-    "total": 425,
+    "total": 426,
     "baselineTarget": 10,
-    "bySelf": 420,
+    "bySelf": 421,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784185158-6284",
-      "at": "2026-07-16T06:59:18Z",
-      "ts": 1784185158,
+      "rotationId": "r-1784190835-7346",
+      "at": "2026-07-16T08:33:55Z",
+      "ts": 1784190835,
       "trigger": "self",
-      "prevHead": "4257114b",
-      "handoffSha": "sha256:34678621a16dc5c7429c279ddc4b7aba7213e67e94ea7a5b3d82f29635c545dc",
-      "handoffAgeSec": 265,
+      "prevHead": "7308ee2a",
+      "handoffSha": "sha256:b9fb31924bb419983dbb7c15aeddb3bd0895f56b44ec871cab53447f34d3dcf7",
+      "handoffAgeSec": 1681,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784190835-7346",
+        "at": "2026-07-16T08:33:55Z",
+        "ts": 1784190835,
+        "trigger": "self",
+        "prevHead": "7308ee2a",
+        "handoffSha": "sha256:b9fb31924bb419983dbb7c15aeddb3bd0895f56b44ec871cab53447f34d3dcf7",
+        "handoffAgeSec": 1681,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784185158-6284",
         "at": "2026-07-16T06:59:18Z",
@@ -876,17 +887,6 @@
         "prevHead": "b180887e",
         "handoffSha": "sha256:0fc5821bf0cd9a1914fcb93af1fbc58e56719d0f15f0a249bc2a097c42e96ca1",
         "handoffAgeSec": 257,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784125134-26ed",
-        "at": "2026-07-15T14:18:54Z",
-        "ts": 1784125134,
-        "trigger": "self",
-        "prevHead": "6786979f",
-        "handoffSha": "sha256:716c3ddfb2f85d02250e64dc8ab15d54c7b70c65f762615178b1ee715f286ca1",
-        "handoffAgeSec": 10,
         "conformanceBefore": null,
         "commitsInSession": null
       }
