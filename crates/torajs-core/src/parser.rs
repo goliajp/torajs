@@ -40,6 +40,7 @@ mod destr_helpers;
 mod expr_entry;
 mod expr_prec;
 mod fn_expr;
+mod forof_binding;
 mod forof_destr;
 mod import_export;
 mod loops;
