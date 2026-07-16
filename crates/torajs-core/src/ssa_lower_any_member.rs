@@ -60,44 +60,11 @@ pub(crate) fn lower_any_member_read(
     // (`(o as any).__getter_v` → `[Function: __getter_v]`; bun:
     // undefined). The runtime probe rejects it too — this closes the
     // compile-time half.
-    let is_accessor_slot = crate::check_type_of_object_lit::accessor_slot(name).is_some();
-    // Compile-time enumerate class candidates whose layout declares
-    // `name` as a field. AOT — both maps are stable by this point.
-    let mut candidates: Vec<(u32, u64, Type)> = Vec::new();
-    if is_accessor_slot {
+    if crate::check_type_of_object_lit::accessor_slot(name).is_some() {
         let key_str = ctx.intern_string_literal(name);
         return emit_member_fallback(ctx, &obj_val, key_str, name);
     }
-    for (cname, ctag) in ctx.class_name_to_tag.iter() {
-        let Some(Type::Obj(sid)) = ctx.aliases.get(cname) else {
-            continue;
-        };
-        let layout = &ctx.struct_layouts[sid.0 as usize];
-        if let Some((idx, (_, fty))) = layout.iter().enumerate().find(|(_, (n, _))| n == name) {
-            let offset = OBJ_HEADER_SIZE + (idx as u64) * 8;
-            candidates.push((*ctag, offset, *fty));
-        }
-    }
-    // S126-5 — anonymous ObjectLit Pass 1.5 / Pass 2 fresh-sid stamps
-    // also land in `class_tag@+8` (W-J A1 follow-up `cc6416a6`) but
-    // don't show up in `class_name_to_tag`. Enumerate the anon pool
-    // separately so `const da: any = {x:1,y:2}; da.x` resolves via
-    // the same monomorphic IC arm instead of falling through to the
-    // dynobj path (which returns ANY_UNDEF for struct-cell receivers).
-    {
-        let pool = ctx.anon_stamp_pool.borrow();
-        for (sid, atag) in pool.sid_to_tag_iter() {
-            let layout_idx = sid.0 as usize;
-            if layout_idx >= ctx.struct_layouts.len() {
-                continue;
-            }
-            let layout = &ctx.struct_layouts[layout_idx];
-            if let Some((idx, (_, fty))) = layout.iter().enumerate().find(|(_, (n, _))| n == name) {
-                let offset = OBJ_HEADER_SIZE + (idx as u64) * 8;
-                candidates.push((atag, offset, *fty));
-            }
-        }
-    }
+    let mut candidates = collect_class_field_candidates(ctx, name);
 
     let key_str = ctx.intern_string_literal(name);
 
@@ -248,6 +215,42 @@ pub(crate) fn lower_any_member_read(
         None,
     );
     Operand::Value(r)
+}
+
+/// Compile-time enumerate class candidates whose layout declares
+/// `name` as a field (used by `lower_any_member_read`'s monomorphic
+/// IC dispatch). Walks both `class_name_to_tag` (named classes) and
+/// `anon_stamp_pool` (S126-5 anonymous ObjectLit Pass 1.5 / Pass 2
+/// fresh-sid stamps — they land in `class_tag@+8` per W-J A1 follow-up
+/// `cc6416a6` but don't appear in `class_name_to_tag`, so without this
+/// second walk `const da: any = {x:1,y:2}; da.x` falls through to the
+/// dynobj path returning ANY_UNDEF for struct-cell receivers). AOT —
+/// both maps are stable by this point.
+fn collect_class_field_candidates(ctx: &LowerCtx, name: &str) -> Vec<(u32, u64, Type)> {
+    let mut candidates: Vec<(u32, u64, Type)> = Vec::new();
+    for (cname, ctag) in ctx.class_name_to_tag.iter() {
+        let Some(Type::Obj(sid)) = ctx.aliases.get(cname) else {
+            continue;
+        };
+        let layout = &ctx.struct_layouts[sid.0 as usize];
+        if let Some((idx, (_, fty))) = layout.iter().enumerate().find(|(_, (n, _))| n == name) {
+            let offset = OBJ_HEADER_SIZE + (idx as u64) * 8;
+            candidates.push((*ctag, offset, *fty));
+        }
+    }
+    let pool = ctx.anon_stamp_pool.borrow();
+    for (sid, atag) in pool.sid_to_tag_iter() {
+        let layout_idx = sid.0 as usize;
+        if layout_idx >= ctx.struct_layouts.len() {
+            continue;
+        }
+        let layout = &ctx.struct_layouts[layout_idx];
+        if let Some((idx, (_, fty))) = layout.iter().enumerate().find(|(_, (n, _))| n == name) {
+            let offset = OBJ_HEADER_SIZE + (idx as u64) * 8;
+            candidates.push((atag, offset, *fty));
+        }
+    }
+    candidates
 }
 
 /// Member-read fallback once class-candidate dispatch is exhausted
