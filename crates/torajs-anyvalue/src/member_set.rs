@@ -27,7 +27,7 @@
 
 use core::ffi::c_void;
 
-use torajs_rc::{ANY_RPROP_LAST_INDEX, ANY_WPROP_ARR_LENGTH, Tag};
+use torajs_rc::{ANY_RPROP_LAST_INDEX, ANY_WPROP_ARR_LENGTH, FLAG_NON_EXTENSIBLE, Tag};
 
 use crate::nanbox::{AnyValue, as_void_ptr, is_cell};
 use crate::nanbox_encode::__torajs_anyv_box_from_pair;
@@ -61,6 +61,11 @@ unsafe extern "C" {
     /// torajs-dynobj — fresh empty table for the first closure
     /// expando write.
     fn __torajs_dynobj_alloc() -> *mut c_void;
+    /// torajs-dynobj — probe whether a key already lives in the
+    /// entry table (1 = live entry). Used by the wrapper
+    /// `[[Extensible]] = false` gate to distinguish new-key writes
+    /// (throw) from updates (allowed).
+    fn __torajs_dynobj_has(obj: *const c_void, key: *const c_void) -> i32;
     /// torajs-throw — record a pending catchable TypeError.
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
 }
@@ -76,6 +81,18 @@ unsafe fn reject(tag: u64, value: u64) {
     unsafe {
         drop_payload(tag, value);
         __torajs_throw_type_error(c"cannot assign to a property of this any value".as_ptr());
+    }
+}
+
+/// Wrapper-cell `[[Set]]` rejection when the receiver has
+/// `[[Extensible]] = false` and the key is fresh — mirror of
+/// `__torajs_dynobj_set`'s new-key gate wording.
+unsafe fn reject_non_extensible(tag: u64, value: u64) {
+    unsafe {
+        drop_payload(tag, value);
+        __torajs_throw_type_error(
+            c"Attempting to define property on object that is not extensible.".as_ptr(),
+        );
     }
 }
 
@@ -254,6 +271,24 @@ pub unsafe extern "C" fn __torajs_any_member_set(
         {
             let props_slot = ptr.cast::<u8>().add(MEMBER_SET_WRAPPER_PROPS_OFF) as *mut u64;
             let mut props = *props_slot as *mut c_void;
+            // §10.1.5.1 [[Set]] on a non-extensible wrapper rejects new
+            // keys. The wrapper cell owns the `FLAG_NON_EXTENSIBLE`
+            // bit (set by `Object.preventExtensions(w)`), not the
+            // expando dynobj it lazily allocates — so `dynobj_set`'s
+            // own gate can't cover this; check the wrapper header
+            // directly here. Update to an existing expando key
+            // (`w.foo = 2` after `w.foo = 1; preventExtensions(w)`)
+            // stays allowed — matches bun-parity, mirror of the
+            // dynobj_set / dynobj_define gates.
+            let wrapper_flags = *(ptr.cast::<u8>().add(6) as *const u16);
+            if wrapper_flags & FLAG_NON_EXTENSIBLE != 0 {
+                let key_present = !props.is_null()
+                    && __torajs_dynobj_has(props as *const c_void, key as *const c_void) != 0;
+                if !key_present {
+                    reject_non_extensible(tag, value);
+                    return;
+                }
+            }
             if props.is_null() {
                 props = __torajs_dynobj_alloc();
             }
