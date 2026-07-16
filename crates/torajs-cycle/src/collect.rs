@@ -58,13 +58,62 @@ unsafe extern "C" {
     fn __torajs_weakref_target_dying(target: *mut c_void);
 }
 
-/// Mark phase — Bacon & Rajan's "MarkGray". Recursively descend from
-/// `p`, color reachable children GRAY + trial-decrement their rc.
+/// Per-shape walkable-child slot enumeration — the ONLY place that
+/// knows how each cyclic shape stores its children (class Obj =
+/// layout child_offsets; Arr = element slots). Calls `f(i, child)`
+/// for every non-null candidate slot; callers apply their own
+/// `has_walkable_children` / color / rc gates. The slot index `i`
+/// round-trips into [`clear_child_slot`].
 ///
 /// # Safety
 /// `p` must satisfy `has_walkable_children`. The walk reads class
 /// layouts / arr slots — caller must guarantee the heap is
 /// well-formed.
+unsafe fn for_each_child(p: *mut c_void, mut f: impl FnMut(u64, *mut c_void)) {
+    if unsafe { is_class_obj(p) } {
+        let lay = unsafe { layout_for_class_obj(p) };
+        let n_children = unsafe { (*lay).n_children };
+        for i in 0..n_children as u64 {
+            let off = unsafe { *(*lay).child_offsets.add(i as usize) };
+            let child = unsafe { *((p as *mut u8).add(off as usize) as *mut *mut c_void) };
+            if !child.is_null() {
+                f(i, child);
+            }
+        }
+    } else {
+        // TAG_ARR
+        let n = unsafe { arr_len_of(p) };
+        for i in 0..n {
+            let child = unsafe { arr_child_at(p, i) };
+            if !child.is_null() {
+                f(i, child);
+            }
+        }
+    }
+}
+
+/// Zero child slot `i` of `p` — shape-dispatched, index semantics per
+/// [`for_each_child`]. Used by `collect_white`'s first sweep to break
+/// the cycle before recursing.
+///
+/// # Safety
+/// Same as [`for_each_child`]; `i` must be an index `for_each_child`
+/// yielded for this `p`.
+unsafe fn clear_child_slot(p: *mut c_void, i: u64) {
+    if unsafe { is_class_obj(p) } {
+        let lay = unsafe { layout_for_class_obj(p) };
+        let off = unsafe { *(*lay).child_offsets.add(i as usize) };
+        unsafe { *((p as *mut u8).add(off as usize) as *mut *mut c_void) = core::ptr::null_mut() };
+    } else {
+        unsafe { arr_slot_clear(p, i) };
+    }
+}
+
+/// Mark phase — Bacon & Rajan's "MarkGray". Recursively descend from
+/// `p`, color reachable children GRAY + trial-decrement their rc.
+///
+/// # Safety
+/// Same as [`for_each_child`].
 unsafe fn mark_gray(p: *mut c_void) {
     if !unsafe { has_walkable_children(p) } {
         return;
@@ -74,33 +123,16 @@ unsafe fn mark_gray(p: *mut c_void) {
         return;
     }
     unsafe { set_color(h, COLOR_GRAY) };
-    if unsafe { is_class_obj(p) } {
-        let lay = unsafe { layout_for_class_obj(p) };
-        let n_children = unsafe { (*lay).n_children };
-        for i in 0..n_children as usize {
-            let off = unsafe { *(*lay).child_offsets.add(i) };
-            let child = unsafe { *((p as *mut u8).add(off as usize) as *mut *mut c_void) };
-            if !child.is_null() && unsafe { has_walkable_children(child) } {
+    unsafe {
+        for_each_child(p, |_, child| {
+            if has_walkable_children(child) {
                 let ch = child as *mut HeapHeader;
-                if unsafe { (*ch).flags } & FLAG_STATIC_LITERAL == 0 {
-                    unsafe { (*ch).refcount -= 1 };
+                if (*ch).flags & FLAG_STATIC_LITERAL == 0 {
+                    (*ch).refcount -= 1;
                 }
-                unsafe { mark_gray(child) };
+                mark_gray(child);
             }
-        }
-    } else {
-        // TAG_ARR
-        let n = unsafe { arr_len_of(p) };
-        for i in 0..n {
-            let child = unsafe { arr_child_at(p, i) };
-            if !child.is_null() && unsafe { has_walkable_children(child) } {
-                let ch = child as *mut HeapHeader;
-                if unsafe { (*ch).flags } & FLAG_STATIC_LITERAL == 0 {
-                    unsafe { (*ch).refcount -= 1 };
-                }
-                unsafe { mark_gray(child) };
-            }
-        }
+        });
     }
 }
 
@@ -122,25 +154,8 @@ unsafe fn scan(p: *mut c_void) {
         unsafe { scan_black(p) };
     } else {
         unsafe { set_color(h, COLOR_WHITE) };
-        if unsafe { is_class_obj(p) } {
-            let lay = unsafe { layout_for_class_obj(p) };
-            let n_children = unsafe { (*lay).n_children };
-            for i in 0..n_children as usize {
-                let off = unsafe { *(*lay).child_offsets.add(i) };
-                let child = unsafe { *((p as *mut u8).add(off as usize) as *mut *mut c_void) };
-                if !child.is_null() {
-                    unsafe { scan(child) };
-                }
-            }
-        } else {
-            // TAG_ARR
-            let n = unsafe { arr_len_of(p) };
-            for i in 0..n {
-                let child = unsafe { arr_child_at(p, i) };
-                if !child.is_null() {
-                    unsafe { scan(child) };
-                }
-            }
+        unsafe {
+            for_each_child(p, |_, child| scan(child));
         }
     }
 }
@@ -156,37 +171,18 @@ unsafe fn scan_black(p: *mut c_void) {
     }
     let h = p as *mut HeapHeader;
     unsafe { set_color(h, COLOR_BLACK) };
-    if unsafe { is_class_obj(p) } {
-        let lay = unsafe { layout_for_class_obj(p) };
-        let n_children = unsafe { (*lay).n_children };
-        for i in 0..n_children as usize {
-            let off = unsafe { *(*lay).child_offsets.add(i) };
-            let child = unsafe { *((p as *mut u8).add(off as usize) as *mut *mut c_void) };
-            if !child.is_null() && unsafe { has_walkable_children(child) } {
+    unsafe {
+        for_each_child(p, |_, child| {
+            if has_walkable_children(child) {
                 let ch = child as *mut HeapHeader;
-                if unsafe { (*ch).flags } & FLAG_STATIC_LITERAL == 0 {
-                    unsafe { (*ch).refcount += 1 };
+                if (*ch).flags & FLAG_STATIC_LITERAL == 0 {
+                    (*ch).refcount += 1;
                 }
                 if color_of(ch) != COLOR_BLACK {
-                    unsafe { scan_black(child) };
+                    scan_black(child);
                 }
             }
-        }
-    } else {
-        // TAG_ARR
-        let n = unsafe { arr_len_of(p) };
-        for i in 0..n {
-            let child = unsafe { arr_child_at(p, i) };
-            if !child.is_null() && unsafe { has_walkable_children(child) } {
-                let ch = child as *mut HeapHeader;
-                if unsafe { (*ch).flags } & FLAG_STATIC_LITERAL == 0 {
-                    unsafe { (*ch).refcount += 1 };
-                }
-                if color_of(ch) != COLOR_BLACK {
-                    unsafe { scan_black(child) };
-                }
-            }
-        }
+        });
     }
 }
 
@@ -223,63 +219,38 @@ unsafe fn collect_white(p: *mut c_void) {
         if unsafe { (*lay).flags } & CLASS_LAYOUT_FLAG_NAMED != 0 {
             unsafe { __torajs_weakref_target_dying(p) };
         }
-        let n_children = unsafe { (*lay).n_children };
-        // First sweep: recurse into WHITE children + zero the slot.
-        for i in 0..n_children as usize {
-            let off = unsafe { *(*lay).child_offsets.add(i) };
-            let slot = unsafe { (p as *mut u8).add(off as usize) as *mut *mut c_void };
-            let child = unsafe { *slot };
-            if !child.is_null() && unsafe { has_walkable_children(child) } {
+    }
+    // First sweep: recurse into WHITE children + zero the slot.
+    unsafe {
+        for_each_child(p, |i, child| {
+            if has_walkable_children(child) {
                 let ch = child as *mut HeapHeader;
                 if color_of(ch) == COLOR_WHITE {
-                    unsafe {
-                        *slot = core::ptr::null_mut();
-                        collect_white(child);
-                    }
+                    clear_child_slot(p, i);
+                    collect_white(child);
                 }
             }
-        }
-        // Second sweep: drop surviving (non-cycle) children via the
-        // universal drop dispatch. rc == 0 marks a cycle member being
-        // freed by its own collect_white frame up the recursion (its
-        // slot stayed set because it recolored BLACK on entry, so the
-        // first sweep didn't clear it) — re-dropping it underflows
-        // the rc and re-buffers a block that's about to be freed
-        // (chunk 614: the l8 obj↔arr probe crashed here). Surviving
-        // children always carry rc ≥ 1: non-walkable types are never
-        // trial-decremented and externally-reachable walkables had
-        // their rc restored by scan_black.
-        for i in 0..n_children as usize {
-            let off = unsafe { *(*lay).child_offsets.add(i) };
-            let child = unsafe { *((p as *mut u8).add(off as usize) as *mut *mut c_void) };
-            if !child.is_null() && unsafe { (*(child as *const HeapHeader)).refcount } > 0 {
-                unsafe { __torajs_value_drop_heap(child) };
+        });
+    }
+    // Second sweep: drop surviving (non-cycle) children via the
+    // universal drop dispatch. rc == 0 marks a cycle member being
+    // freed by its own collect_white frame up the recursion (its
+    // slot stayed set because it recolored BLACK on entry, so the
+    // first sweep didn't clear it) — re-dropping it underflows
+    // the rc and re-buffers a block that's about to be freed
+    // (chunk 614: the l8 obj↔arr probe crashed here). Surviving
+    // children always carry rc ≥ 1: non-walkable types are never
+    // trial-decremented and externally-reachable walkables had
+    // their rc restored by scan_black.
+    unsafe {
+        for_each_child(p, |_, child| {
+            if (*(child as *const HeapHeader)).refcount > 0 {
+                __torajs_value_drop_heap(child);
             }
-        }
-    } else {
-        // TAG_ARR
-        let n = unsafe { arr_len_of(p) };
-        for i in 0..n {
-            let child = unsafe { arr_child_at(p, i) };
-            if !child.is_null() && unsafe { has_walkable_children(child) } {
-                let ch = child as *mut HeapHeader;
-                if color_of(ch) == COLOR_WHITE {
-                    unsafe {
-                        arr_slot_clear(p, i);
-                        collect_white(child);
-                    }
-                }
-            }
-        }
-        // Same rc == 0 cycle-member guard as the TAG_OBJ sweep above
-        // (an arr self-cycle's own slot points back at the BLACK
-        // frame being freed).
-        for i in 0..n {
-            let child = unsafe { arr_child_at(p, i) };
-            if !child.is_null() && unsafe { (*(child as *const HeapHeader)).refcount } > 0 {
-                unsafe { __torajs_value_drop_heap(child) };
-            }
-        }
+        });
+    }
+    if !unsafe { is_class_obj(p) } {
+        // TAG_ARR teardown extras.
         // Mirror __torajs_arr_drop_any's teardown — release the
         // inline props-dynobj slot (a dynobj is never walkable, so
         // the trial-deletion walk can't have released it; pre-fix a
