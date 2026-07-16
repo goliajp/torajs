@@ -210,20 +210,49 @@ pub(crate) fn lower(
             ctx.emit_rc_inc(init_val.clone());
         }
     }
-    let init_val = if ty == Type::F64 && ctx.operand_ty(&init_val) == Type::I64 {
-        ctx.coerce_to_f64(init_val)
-    } else {
-        init_val
-    };
-    let init_val = if boxed_any {
+    finalize_and_bind(
+        ctx,
+        name,
+        type_ann,
+        init,
+        ty,
+        init_val,
+        is_alias_init,
+        boxed_any,
+        cur_depth,
+    );
+}
+
+/// Post-init-val finalization + slot bind: F64/I64 coerce → box-to-any
+/// (with the RFC 20260705 ledger #2 inc-then-box on a borrow-shape init)
+/// → un-annotated `let`'s I64→F64 widen when `num_f64_slots` proved the
+/// slot is F64-only → the RFC 20260707 chunk 621 Arr<Any> kind-mark for
+/// a typed-array init shared into an any-elem annotation → Str/Substr
+/// + Arr<Str>/Arr<Substr> annotation-widen convergence → hand off to
+/// `bind_let_slot`. Kept in one flat sequence (not a chain of `let
+/// init_val = ...` shadow rebindings) so the ownership hand-off through
+/// each stage stays inspectable.
+fn finalize_and_bind(
+    ctx: &mut LowerCtx,
+    name: &str,
+    type_ann: Option<&String>,
+    init: ExprId,
+    mut ty: Type,
+    mut init_val: Operand,
+    is_alias_init: bool,
+    boxed_any: bool,
+    cur_depth: usize,
+) {
+    if ty == Type::F64 && ctx.operand_ty(&init_val) == Type::I64 {
+        init_val = ctx.coerce_to_f64(init_val);
+    }
+    if boxed_any {
         if ctx.operand_ty(&init_val).is_refcounted() && !ctx.expr_transfers_ownership(init) {
             ctx.emit_rc_inc(init_val.clone());
         }
-        ctx.box_to_any_from_expr(init, init_val)
-    } else {
-        init_val
-    };
-    let init_val = if type_ann.is_none() {
+        init_val = ctx.box_to_any_from_expr(init, init_val);
+    }
+    if type_ann.is_none() {
         ty = ctx.operand_ty(&init_val);
         if ty == Type::I64
             && ctx
@@ -231,13 +260,9 @@ pub(crate) fn lower(
                 .slot_is_f64(&ctx.num_width_local_key(name))
         {
             ty = Type::F64;
-            ctx.coerce_to_f64(init_val)
-        } else {
-            init_val
+            init_val = ctx.coerce_to_f64(init_val);
         }
-    } else {
-        init_val
-    };
+    }
     let init_ty = ctx.operand_ty(&init_val);
     // RFC 20260707 chunk 621 — a typed array shared into an `any[]`
     // binding (T-11 container widen) keeps its raw-slot layout; mark
