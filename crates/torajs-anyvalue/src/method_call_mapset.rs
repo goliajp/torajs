@@ -212,11 +212,13 @@ pub(crate) unsafe fn map_set_method(
                 // argument; tr's subset accepts real Set cells only
                 // (a non-Set answers the catchable TypeError below).
                 let other = {
-                    let av = arg_at(0);
-                    let tag = crate::nanbox_encode::__torajs_anyv_unbox_tag(av);
-                    let p = crate::nanbox_encode::__torajs_anyv_unbox_value(av) as *mut c_void;
-                    if tag != 4
-                        || p.is_null()
+                    // Borrow-shaped cell read — a ShortStr / immediate
+                    // answers NULL and falls to the TypeError below
+                    // (the pre-fix `unbox_value` materialized a Str
+                    // cell for a ShortStr arg and leaked it on the
+                    // throw path).
+                    let p = crate::nanbox_encode::__torajs_anyv_cell_ptr(arg_at(0)) as *mut c_void;
+                    if p.is_null()
                         || (p.cast::<u8>().add(4) as *const u16).read() != Tag::Set as u16
                     {
                         __torajs_throw_type_error(

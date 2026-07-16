@@ -40,6 +40,9 @@ unsafe extern "C" {
     ) -> u64;
     /// torajs-arr — pop glue (boxed last element, len shrink).
     fn __torajs_arr_any_pop(arr: *mut c_void) -> u64;
+    /// Cross-tier — universal NaN-box-safe heap dropper (the fill
+    /// arm's ShortStr-materialization release).
+    fn __torajs_value_drop_heap(p: *mut c_void);
     /// torajs-arr — shift glue (boxed first element, forward move).
     fn __torajs_arr_any_shift(arr: *mut c_void) -> u64;
     /// torajs-arr — variadic unshift glue; new length or the
@@ -221,13 +224,21 @@ pub(crate) unsafe fn arr_method(
                 let wrap = |v: i64| if v < 0 { v + len } else { v };
                 let start = wrap(to_index(arg_at(1), 0));
                 let end = wrap(to_index(arg_at(2), i64::MAX));
+                let vp = __torajs_anyv_unbox_value(av);
                 let p = __torajs_arr_fill_any(
                     arr,
                     __torajs_anyv_unbox_tag(av) as u64,
-                    __torajs_anyv_unbox_value(av) as u64,
+                    vp as u64,
                     start,
                     end,
                 );
+                // The fill kernel BORROWS the value (per-slot inc);
+                // a ShortStr arg materialized an owned rc=1 Str in
+                // the unbox above — release it or every
+                // `fill("short")` call leaks the materialization.
+                if crate::nanbox::is_short_str(av) && vp != 0 {
+                    __torajs_value_drop_heap(vp as *mut c_void);
+                }
                 torajs_rc::__torajs_rc_inc(p as *mut c_void);
                 __torajs_anyv_box_pointer(p as *mut c_void)
             }
