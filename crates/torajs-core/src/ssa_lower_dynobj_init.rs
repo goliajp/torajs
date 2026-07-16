@@ -19,10 +19,31 @@
 //! sites (`ssa_lower_stmt_let_decl.rs`) need zero edits.
 
 use crate::ast::{Expr, ExprId};
-use crate::ssa::{InstKind, Operand, Type};
+use crate::ssa::{InstKind, Operand, Type, ValueId};
 use crate::ssa_lower::LowerCtx;
 
 impl<'a> LowerCtx<'a> {
+    /// Emit the shared `dynobj_set` shape: intern the field name, alloc
+    /// the ptr-slot, store the dynobj header ptr into it, then call
+    /// `__torajs_dynobj_set(slot, key, tag, val)`. Every field path
+    /// (undefined, nested object, plain box, Any/Str runtime tag) ends
+    /// here — chunk 819 consolidated the 5 repeated call sites.
+    fn emit_dynobj_set(&mut self, dynobj: ValueId, fname: &str, tag: Operand, val: Operand) {
+        let key_str = self.intern_string_literal(fname);
+        let slot = self.alloca(Type::Ptr, Some("__dynobj_init_slot"));
+        self.f.append_void(
+            self.cur_block,
+            InstKind::Store(Operand::Value(dynobj), Operand::Value(slot), 0),
+        );
+        self.f.append_void(
+            self.cur_block,
+            InstKind::Call(
+                self.intrinsics.dynobj_set,
+                vec![Operand::Value(slot), Operand::Value(key_str), tag, val],
+            ),
+        );
+    }
+
     /// P3.2 — `let x: any = { f1: v1, f2: v2 }` lowering. Allocate
     /// a dynobj via `__torajs_dynobj_alloc()`, populate each field
     /// via `dynobj_set`, then box the dynobj ptr as ANY_HEAP=4 so
@@ -62,24 +83,7 @@ impl<'a> LowerCtx<'a> {
             if matches!(self.ast.get_expr(fval_eid), Expr::Ident(n) if n == "undefined")
                 && !self.locals.contains_key("undefined")
             {
-                let key_str = self.intern_string_literal(&fname);
-                let slot = self.alloca(Type::Ptr, Some("__dynobj_init_slot"));
-                self.f.append_void(
-                    self.cur_block,
-                    InstKind::Store(Operand::Value(dynobj), Operand::Value(slot), 0),
-                );
-                self.f.append_void(
-                    self.cur_block,
-                    InstKind::Call(
-                        self.intrinsics.dynobj_set,
-                        vec![
-                            Operand::Value(slot),
-                            Operand::Value(key_str),
-                            Operand::ConstI64(5),
-                            Operand::ConstI64(0),
-                        ],
-                    ),
-                );
+                self.emit_dynobj_set(dynobj, &fname, Operand::ConstI64(5), Operand::ConstI64(0));
                 continue;
             }
             // `as` casts are value-layer pass-throughs — strip them so
@@ -91,24 +95,7 @@ impl<'a> LowerCtx<'a> {
             if fname != "__spread__" && matches!(self.ast.get_expr(lit_eid), Expr::ObjectLit { .. })
             {
                 let nested = self.lower_dynobj_init(lit_eid);
-                let key_str = self.intern_string_literal(&fname);
-                let slot = self.alloca(Type::Ptr, Some("__dynobj_init_slot"));
-                self.f.append_void(
-                    self.cur_block,
-                    InstKind::Store(Operand::Value(dynobj), Operand::Value(slot), 0),
-                );
-                self.f.append_void(
-                    self.cur_block,
-                    InstKind::Call(
-                        self.intrinsics.dynobj_set,
-                        vec![
-                            Operand::Value(slot),
-                            Operand::Value(key_str),
-                            Operand::ConstI64(4),
-                            nested,
-                        ],
-                    ),
-                );
+                self.emit_dynobj_set(dynobj, &fname, Operand::ConstI64(4), nested);
                 continue;
             }
             let v_raw = self.lower_expr(fval_eid);
@@ -169,23 +156,11 @@ impl<'a> LowerCtx<'a> {
                         Type::I64,
                         None,
                     );
-                    let key_str = self.intern_string_literal(&fname);
-                    let slot = self.alloca(Type::Ptr, Some("__dynobj_init_slot"));
-                    self.f.append_void(
-                        self.cur_block,
-                        InstKind::Store(Operand::Value(dynobj), Operand::Value(slot), 0),
-                    );
-                    self.f.append_void(
-                        self.cur_block,
-                        InstKind::Call(
-                            self.intrinsics.dynobj_set,
-                            vec![
-                                Operand::Value(slot),
-                                Operand::Value(key_str),
-                                Operand::Value(tag_v),
-                                Operand::Value(val_v),
-                            ],
-                        ),
+                    self.emit_dynobj_set(
+                        dynobj,
+                        &fname,
+                        Operand::Value(tag_v),
+                        Operand::Value(val_v),
                     );
                     if transfers {
                         self.emit_drop_value(v_keep, Type::Any);
@@ -210,23 +185,11 @@ impl<'a> LowerCtx<'a> {
                         Type::I64,
                         None,
                     );
-                    let key_str = self.intern_string_literal(&fname);
-                    let slot = self.alloca(Type::Ptr, Some("__dynobj_init_slot"));
-                    self.f.append_void(
-                        self.cur_block,
-                        InstKind::Store(Operand::Value(dynobj), Operand::Value(slot), 0),
-                    );
-                    self.f.append_void(
-                        self.cur_block,
-                        InstKind::Call(
-                            self.intrinsics.dynobj_set,
-                            vec![
-                                Operand::Value(slot),
-                                Operand::Value(key_str),
-                                Operand::Value(tag_v),
-                                Operand::Value(val_v),
-                            ],
-                        ),
+                    self.emit_dynobj_set(
+                        dynobj,
+                        &fname,
+                        Operand::Value(tag_v),
+                        Operand::Value(val_v),
                     );
                     if transfers {
                         self.emit_drop_value(v_keep, Type::Str);
@@ -248,24 +211,7 @@ impl<'a> LowerCtx<'a> {
                 Type::Ptr if matches!(v_raw, Operand::ConstPtrNull) => (0, Operand::ConstI64(0)),
                 _ => panic!("ssa-lower: dynobj init unsupported field type {v_ty:?}"),
             };
-            let key_str = self.intern_string_literal(&fname);
-            let slot = self.alloca(Type::Ptr, Some("__dynobj_init_slot"));
-            self.f.append_void(
-                self.cur_block,
-                InstKind::Store(Operand::Value(dynobj), Operand::Value(slot), 0),
-            );
-            self.f.append_void(
-                self.cur_block,
-                InstKind::Call(
-                    self.intrinsics.dynobj_set,
-                    vec![
-                        Operand::Value(slot),
-                        Operand::Value(key_str),
-                        Operand::ConstI64(tag),
-                        val_op,
-                    ],
-                ),
-            );
+            self.emit_dynobj_set(dynobj, &fname, Operand::ConstI64(tag), val_op);
             if transfers && v_ty.is_refcounted() {
                 self.emit_drop_value(v_keep, v_ty);
             }
