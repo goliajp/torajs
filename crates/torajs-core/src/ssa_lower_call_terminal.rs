@@ -59,6 +59,24 @@ pub(crate) fn emit(
             if let Some(op) = ctx.try_lower_empty_array_arg(*a, expected) {
                 return op;
             }
+            // 2026-07-16 — mirror stmt_let_decl.rs:411 (`ty == Any &&
+            // ObjectLit → lower_dynobj_init`): a direct ObjectLit arg
+            // into an `any`-typed param goes straight through the
+            // dobj lane so `undefined` field values keep the
+            // `ANY_UNDEF` tag (`lower_dynobj_init`'s `Ident("undefined")`
+            // special case, ssa_lower_dynobj_init.rs:83). Without this,
+            // the arg lowered as a `Type::Struct` value and the
+            // subsequent `box_to_any_from_expr` at the coerce step
+            // collapsed the Type::Undefined slot to ptr-null → tag 0,
+            // so `verifyProperty(newObj, "prop", { value: undefined,
+            // ... })`'s `desc.value` read back as `null` (blocking the
+            // test262 "descriptor value should be null" 8-case cluster
+            // under `Object/create`).
+            if let Some(Type::Any) = expected
+                && matches!(ctx.ast.get_expr(*a), crate::ast::Expr::ObjectLit { .. })
+            {
+                return ctx.lower_dynobj_init(*a);
+            }
             // Chunk 784 — pin the param's declared struct layout for
             // a direct ObjectLit arg (mirrors the chunk-780 let-decl
             // site): without it resolve_objlit_layout first-matches a
