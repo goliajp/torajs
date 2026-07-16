@@ -30,11 +30,16 @@ pub(crate) const PTHUNK_ENV_SIZE: i64 = CLOSURE_CAP_BASE_OFF as i64 + 8;
 /// Synthesized adapters, keyed by
 /// `(inner_is_closure, param_is_f64, ret_is_f64)`. `drop_fid` is the
 /// matching env-drop for the wrap env (closure inners release their
-/// capture; both variants free the 40-byte block).
+/// capture; both variants free the `PTHUNK_ENV_SIZE` block).
+/// `trace_closure` is the shared cap0 trace fn closure-inner wraps
+/// store at `CLOSURE_TRACE_FN_OFF` so the cycle collector walks the
+/// wrapped callback edge (RFC 20260717 residual ①); fnsig inners
+/// hold a raw code address in cap0 — never a cell — and keep 0.
 pub(crate) struct PromiseThunks {
     map: HashMap<(bool, bool, bool), (FuncId, ssa::SigId)>,
     pub(crate) drop_closure: Option<(FuncId, ssa::SigId)>,
     pub(crate) drop_fnsig: Option<(FuncId, ssa::SigId)>,
+    pub(crate) trace_closure: Option<(FuncId, ssa::SigId)>,
 }
 
 impl PromiseThunks {
@@ -61,11 +66,13 @@ pub(crate) fn synthesize_promise_thunks(
     fn_sig_ids: &mut HashMap<FuncId, ssa::SigId>,
     obj_drop_sized_id: FuncId,
     value_drop_heap_id: FuncId,
+    cycle_unbuffer_id: FuncId,
 ) -> PromiseThunks {
     let mut thunks = PromiseThunks {
         map: HashMap::new(),
         drop_closure: None,
         drop_fnsig: None,
+        trace_closure: None,
     };
     // fn name → user param names (mirrors the analysis fn_params with
     // the lifted-closure `__env` slot stripped) plus the number-domain
@@ -132,6 +139,7 @@ pub(crate) fn synthesize_promise_thunks(
         return thunks;
     }
     needed.sort();
+    let any_closure_inner = needed.iter().any(|(c, _, _)| *c);
     for (inner_closure, p, r) in needed {
         let fid = build_thunk(module, fn_table, fn_sigs, fn_sig_ids, inner_closure, p, r);
         thunks.map.insert((inner_closure, p, r), fid);
@@ -143,6 +151,7 @@ pub(crate) fn synthesize_promise_thunks(
         fn_sig_ids,
         obj_drop_sized_id,
         Some(value_drop_heap_id),
+        cycle_unbuffer_id,
     ));
     thunks.drop_fnsig = Some(build_env_drop(
         module,
@@ -151,7 +160,36 @@ pub(crate) fn synthesize_promise_thunks(
         fn_sig_ids,
         obj_drop_sized_id,
         None,
+        cycle_unbuffer_id,
     ));
+    if any_closure_inner {
+        // Shared cap0 trace for closure-inner wraps (RFC 20260717
+        // residual ①) — the knife-2 synthesis over a single by-value
+        // Closure capture yields exactly the wrap env's shape, so the
+        // trace-body contract stays single-sourced.
+        let name = "__pthunk_env_trace";
+        let fid = FuncId(module.funcs.len() as u32);
+        let sig = crate::ssa_lower::intern_fn_sig(
+            fn_sigs,
+            vec![Type::Ptr, Type::Ptr, Type::Ptr],
+            Type::Void,
+        );
+        fn_table.insert(name.to_string(), fid);
+        fn_sig_ids.insert(fid, sig);
+        let visit_sig = crate::ssa_lower::intern_fn_sig(
+            fn_sigs,
+            vec![Type::I64, Type::Ptr, Type::Ptr, Type::Ptr],
+            Type::Void,
+        );
+        let cap_sig = crate::ssa_lower::intern_fn_sig(fn_sigs, vec![Type::I64], Type::I64);
+        let f = crate::ssa_lower_env_trace::synthesize_env_trace(
+            name,
+            &[(Type::Closure(cap_sig), false)],
+            visit_sig,
+        );
+        module.funcs.push(f);
+        thunks.trace_closure = Some((fid, sig));
+    }
     thunks
 }
 
@@ -242,8 +280,12 @@ fn build_thunk(
     (fid, own_sig)
 }
 
-/// Env-drop for a wrap env: closure inners release their captured
-/// callback ref first; both variants free the 40-byte block.
+/// Env-drop for a wrap env: cycle-buffer scrub first (a closure-inner
+/// wrap is collector-visitable once its trace_fn is set — a buffered
+/// candidate that normal-drops here would leave a dangling buffer
+/// entry, same protection as every other drop shape), then closure
+/// inners release their captured callback ref; both variants free the
+/// `PTHUNK_ENV_SIZE` block.
 fn build_env_drop(
     module: &mut Module,
     fn_table: &mut HashMap<String, FuncId>,
@@ -251,6 +293,7 @@ fn build_env_drop(
     fn_sig_ids: &mut HashMap<FuncId, ssa::SigId>,
     obj_drop_sized_id: FuncId,
     value_drop_heap_id: Option<FuncId>,
+    cycle_unbuffer_id: FuncId,
 ) -> (FuncId, ssa::SigId) {
     let name = if value_drop_heap_id.is_some() {
         "__pthunk_env_drop_c"
@@ -264,6 +307,10 @@ fn build_env_drop(
     let mut f = ssa::Function::new(name, Type::Void);
     let env = f.add_param(Type::Ptr, "env");
     let entry = f.add_block();
+    f.append_void(
+        entry,
+        InstKind::Call(cycle_unbuffer_id, vec![Operand::Value(env)]),
+    );
     if let Some(drop_heap) = value_drop_heap_id {
         let inner = f.append_inst(
             entry,

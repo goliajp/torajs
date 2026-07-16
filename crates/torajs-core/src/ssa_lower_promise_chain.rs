@@ -197,12 +197,25 @@ impl crate::ssa_lower::LowerCtx<'_> {
                 crate::ssa_lower::CLOSURE_BOXED_ENTRY_OFF,
             ),
         );
-        // trace_fn stub — obj_alloc is plain malloc, zero explicitly
-        // (RFC 20260717 closure-env-cycle knife 1).
+        // trace_fn — closure inners store the shared cap0 trace so
+        // the collector walks the wrapped-callback edge (RFC 20260717
+        // residual ①); fnsig inners hold a raw code address in cap0
+        // (not a cell — a code address could even pass the collector's
+        // cell-like gate) and keep 0. obj_alloc is plain malloc, so
+        // the 0 must be stored explicitly either way.
+        let trace_op = match self.promise_thunks.trace_closure {
+            Some((tfid, tsig)) if is_closure => Operand::Value(self.f.append_inst(
+                self.cur_block,
+                InstKind::FnAddr(tfid),
+                Type::FnSig(tsig),
+                None,
+            )),
+            _ => Operand::ConstI64(0),
+        };
         self.f.append_void(
             self.cur_block,
             InstKind::Store(
-                Operand::ConstI64(0),
+                trace_op,
                 Operand::Value(env_v),
                 crate::ssa_lower::CLOSURE_TRACE_FN_OFF,
             ),

@@ -349,6 +349,7 @@ fn setup_callable_infra(
         fn_sig_ids,
         init_a.obj_capture.obj_drop_sized,
         init_a.obj_capture.value_drop_heap,
+        init_a.obj_capture.cycle_unbuffer,
     );
 
     // Snapshot every callable's return type — used inside lower_fn to type
