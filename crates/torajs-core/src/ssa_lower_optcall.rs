@@ -166,7 +166,9 @@ fn lower_member_opt(ctx: &mut LowerCtx<'_>, obj: ExprId, name: &str, args: &[Exp
     for slot in boxed_slots.into_iter().flatten() {
         ctx.emit_drop_value(slot, Type::Any);
     }
-    ctx.emit_throw_check(None);
+    // result is an OWNED Any already in hand — the throw path must
+    // release it (mirrors the plain method-call arm).
+    ctx.emit_throw_check_owned(None, Operand::Value(result), Type::Any);
     ctx.f.append_void(
         ctx.cur_block,
         InstKind::Store(Operand::Value(result), Operand::Value(res_slot), 0),
@@ -248,7 +250,9 @@ fn lower_guarded(ctx: &mut LowerCtx<'_>, callee: ExprId, args: &[ExprId]) -> Ope
     if we_boxed {
         ctx.emit_drop_value(callee_av, Type::Any);
     }
-    ctx.emit_throw_check(None);
+    // result is an OWNED Any already in hand — the throw path must
+    // release it (mirrors the plain method-call arm).
+    ctx.emit_throw_check_owned(None, Operand::Value(result), Type::Any);
     ctx.f.append_void(
         ctx.cur_block,
         InstKind::Store(Operand::Value(result), Operand::Value(res_slot), 0),

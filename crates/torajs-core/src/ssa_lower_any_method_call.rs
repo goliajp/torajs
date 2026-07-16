@@ -129,7 +129,11 @@ pub(crate) fn try_lower(
     // hop leaks its intermediate (the optcall sibling already keeps
     // this account). Borrow shapes (Ident / Member) self-gate false.
     ctx.release_owned_temp(obj, &recv);
-    ctx.emit_throw_check(None);
+    // The result is an OWNED Any already in hand — the throw path
+    // must release it (mint-and-throw kernels like non-`g` matchAll
+    // answer a fresh cell alongside the pending TypeError; the
+    // catch can't know about it).
+    ctx.emit_throw_check_owned(None, Operand::Value(result), Type::Any);
     Some(Operand::Value(result))
 }
 

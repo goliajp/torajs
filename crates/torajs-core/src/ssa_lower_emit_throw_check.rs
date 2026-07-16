@@ -29,6 +29,27 @@ impl<'a> LowerCtx<'a> {
     /// own throw_check picks it up. Skips entirely for runtime intrinsics
     /// (they never throw).
     pub(crate) fn emit_throw_check(&mut self, target: Option<FuncId>) {
+        self.emit_throw_check_inner(target, None);
+    }
+
+    /// [`Self::emit_throw_check`] for calls whose OWNED result is
+    /// already materialized when the check runs: the throw path
+    /// (catch branch AND propagate branch) drops `owned` before
+    /// leaving, since neither destination can know about a value
+    /// that never reached a local. Mint-and-throw kernels (e.g.
+    /// `matchAll` on a non-`g` regex answers a fresh empty array
+    /// alongside the pending TypeError) stranded one cell per
+    /// caught throw without this.
+    pub(crate) fn emit_throw_check_owned(
+        &mut self,
+        target: Option<FuncId>,
+        owned: Operand,
+        ty: Type,
+    ) {
+        self.emit_throw_check_inner(target, Some((owned, ty)));
+    }
+
+    fn emit_throw_check_inner(&mut self, target: Option<FuncId>, owned: Option<(Operand, Type)>) {
         if let Some(fid) = target {
             if self.is_intrinsic(fid) {
                 return;
@@ -67,9 +88,17 @@ impl<'a> LowerCtx<'a> {
             },
         );
         // throw_blk: route to innermost active try's catch, or
-        // propagate (drop owned locals + ret sentinel).
+        // propagate (drop owned locals + ret sentinel). Either way
+        // an owned call result dies here — release it first.
         if let Some(catch) = self.try_stack.last().copied() {
-            self.f.set_term(throw_blk, Terminator::Br(catch));
+            if let Some((op, ty)) = owned {
+                self.cur_block = throw_blk;
+                self.emit_drop_value(op, ty);
+                let cb2 = self.cur_block;
+                self.f.set_term(cb2, Terminator::Br(catch));
+            } else {
+                self.f.set_term(throw_blk, Terminator::Br(catch));
+            }
         } else if self.is_main_fn {
             // bug-327 C2.5 — the throw escaped every user frame: this
             // is an uncaught exception. Pre-fix main ret'd the I32
@@ -77,6 +106,9 @@ impl<'a> LowerCtx<'a> {
             // error report + exit 1). __torajs_uncaught_exit_code
             // reports the pending throw to stderr and yields 1.
             self.cur_block = throw_blk;
+            if let Some((op, ty)) = owned {
+                self.emit_drop_value(op, ty);
+            }
             self.emit_drops_for_owned_locals();
             let uncaught_fid = *self
                 .fn_table
@@ -93,6 +125,9 @@ impl<'a> LowerCtx<'a> {
                 .set_term(cb2, Terminator::Ret(Some(Operand::Value(code))));
         } else {
             self.cur_block = throw_blk;
+            if let Some((op, ty)) = owned {
+                self.emit_drop_value(op, ty);
+            }
             self.emit_drops_for_owned_locals();
             let cb2 = self.cur_block;
             let ret_ty = self.f.ret;

@@ -52,6 +52,9 @@ pub(crate) fn try_lower(
     // curried hop leaks (mirrors the method-call arm's receiver
     // account). Borrow shapes (Ident) self-gate false.
     ctx.release_owned_temp(callee, &recv);
-    ctx.emit_throw_check(None);
+    // result is an OWNED Any already in hand — the throw path must
+    // release it (mirrors the method-call arm; see
+    // emit_throw_check_owned).
+    ctx.emit_throw_check_owned(None, Operand::Value(result), Type::Any);
     Some(Operand::Value(result))
 }
