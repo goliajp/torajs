@@ -163,6 +163,11 @@ pub(crate) fn deep_clone_expr(
     map: &mut Vec<(ExprId, ExprId)>,
     eid: ExprId,
 ) -> ExprId {
+    if let Some(e) = clone_container_expr(ast, map, eid) {
+        let new_id = ast.add_expr(e);
+        map.push((eid, new_id));
+        return new_id;
+    }
     let new_expr = match ast.get_expr(eid) {
         Expr::BinOp { op, left, right } => {
             let op = *op;
@@ -215,40 +220,6 @@ pub(crate) fn deep_clone_expr(
             Expr::Index {
                 obj: deep_clone_expr(ast, map, o),
                 index: deep_clone_expr(ast, map, i),
-            }
-        }
-        Expr::Array(els) => {
-            let els = els.clone();
-            Expr::Array(
-                els.into_iter()
-                    .map(|e| deep_clone_expr(ast, map, e))
-                    .collect(),
-            )
-        }
-        Expr::ObjectLit { fields } => {
-            let fields = fields.clone();
-            Expr::ObjectLit {
-                fields: fields
-                    .into_iter()
-                    .map(|(n, e)| (n, deep_clone_expr(ast, map, e)))
-                    .collect(),
-            }
-        }
-        Expr::ArrowFn {
-            params,
-            return_type,
-            body,
-        } => {
-            let params = params.clone();
-            let return_type = return_type.clone();
-            let body: Vec<Stmt> = body.iter().map(|s| s.clone()).collect();
-            // Arrow fn body stmts may carry ExprIds — but at this point
-            // arrows are already lifted by lift_arrow_fns in normal pipeline.
-            // Defensive: deep-clone each stmt.
-            Expr::ArrowFn {
-                params,
-                return_type,
-                body: body.iter().map(|s| deep_clone_stmt(ast, map, s)).collect(),
             }
         }
         Expr::New { class_name, args } => {
@@ -367,4 +338,55 @@ pub(crate) fn deep_clone_expr(
     let new_id = ast.add_expr(new_expr);
     map.push((eid, new_id));
     new_id
+}
+
+/// Container arms — `Expr::Array` / `Expr::ObjectLit` / `Expr::ArrowFn`
+/// — share the "clone the outer container and deep-clone each element
+/// / field-value / body-stmt" shape. Extracted so the main
+/// `deep_clone_expr` match keeps its arm-per-variant scan under the
+/// 200-line hard limit. Returns `Some(new_expr)` on hit; `None` when
+/// `eid` names any other Expr variant (main fn falls through to the
+/// remaining arm-per-variant match).
+fn clone_container_expr(
+    ast: &mut Ast,
+    map: &mut Vec<(ExprId, ExprId)>,
+    eid: ExprId,
+) -> Option<Expr> {
+    match ast.get_expr(eid) {
+        Expr::Array(els) => {
+            let els = els.clone();
+            Some(Expr::Array(
+                els.into_iter()
+                    .map(|e| deep_clone_expr(ast, map, e))
+                    .collect(),
+            ))
+        }
+        Expr::ObjectLit { fields } => {
+            let fields = fields.clone();
+            Some(Expr::ObjectLit {
+                fields: fields
+                    .into_iter()
+                    .map(|(n, e)| (n, deep_clone_expr(ast, map, e)))
+                    .collect(),
+            })
+        }
+        Expr::ArrowFn {
+            params,
+            return_type,
+            body,
+        } => {
+            let params = params.clone();
+            let return_type = return_type.clone();
+            let body: Vec<Stmt> = body.iter().map(|s| s.clone()).collect();
+            // Arrow fn body stmts may carry ExprIds — but at this point
+            // arrows are already lifted by lift_arrow_fns in normal
+            // pipeline. Defensive: deep-clone each stmt.
+            Some(Expr::ArrowFn {
+                params,
+                return_type,
+                body: body.iter().map(|s| deep_clone_stmt(ast, map, s)).collect(),
+            })
+        }
+        _ => None,
+    }
 }
