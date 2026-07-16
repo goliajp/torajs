@@ -83,12 +83,22 @@ pub(crate) const TAG_ARR: u16 = 2;
 // Tag::Closure — fn cell; gOPD routes to the virtual name/length
 // descriptor arm in `closure_reflect.rs` (RFC 20260711 chunk B).
 pub(crate) const TAG_CLOSURE: u16 = 3;
-// Tag::StringWrapper — `new String(x)` cell (RFC 20260716 刀 2b);
-// gOPD routes to a length/index arm below. `NUMBER_WRAPPER = 21` /
-// `BOOLEAN_WRAPPER = 23` have no own numeric-index properties per
-// spec §21.1.4/§20.3.4 so they keep falling through the cascade
-// to `undefined`.
+// Primitive-wrapper cells (RFC 20260716 刀 2b / 刀 5). All three
+// share the `[header:8][value:8][props:8]` layout — chunks 4+5
+// (rotation 121) landed the +16 lazy expando dynobj on write and
+// read sides. Number/Boolean have no inherent own props;
+// StringWrapper has §22.1.4.1 `length` + §22.1.4.4 char-index.
+pub(crate) const TAG_NUMBER_WRAPPER: u16 = 21;
 pub(crate) const TAG_STRING_WRAPPER: u16 = 22;
+pub(crate) const TAG_BOOLEAN_WRAPPER: u16 = 23;
+/// Mirror of `torajs-wrapper::WRAPPER_PROPS_OFF` — all three wrappers
+/// share `[header:8][value:8][props:8]` layout.
+pub(crate) const WRAPPER_PROPS_OFF: usize = 16;
+
+#[inline]
+pub(crate) fn is_wrapper_tag(t: u16) -> bool {
+    t == TAG_NUMBER_WRAPPER || t == TAG_STRING_WRAPPER || t == TAG_BOOLEAN_WRAPPER
+}
 /// Tag::Str / Tag::Symbol / Tag::BigInt from `torajs-rc` — primitive-in-spec
 /// heap cells. RFC C4b throws TypeError on these because `Object.defineProperty(O, ...)`
 /// step 1 is a strict `Type(O) is Object` check (no ToObject wrapper boxing).
@@ -282,6 +292,21 @@ pub unsafe extern "C" fn __torajs_anyv_get_property_descriptor(
         // interned family methods are own properties that live in no
         // entry table — same synthesis the dynobj protos get below.
         return unsafe { builtin_proto_descriptor(dynobj, key) };
+    }
+    // RFC 20260716 刀 5 continuation (rotation 121, chunk following
+    // 4+5) — primitive-wrapper own-property probe. Expando entry
+    // wins first via delegation to the DynObj descriptor path
+    // (accessor entries / attribute flags handled there), mirroring
+    // `closure_reflect.rs` order. StringWrapper's §22.1.4.1 `length`
+    // and §22.1.4.4 char-index inherent props take over on miss;
+    // Number/Boolean wrappers have no inherent own props so a miss
+    // is `undefined` per §21.1.4/§20.3.4.
+    if is_wrapper_tag(htag) {
+        let props =
+            unsafe { (dynobj.cast::<u8>().add(WRAPPER_PROPS_OFF) as *const *const c_void).read() };
+        if !props.is_null() && unsafe { __torajs_dynobj_has(props, key as *const u8) } {
+            return unsafe { __torajs_anyv_get_property_descriptor(props as u64, key) };
+        }
     }
     // RFC 20260716 刀 14 — StringWrapper cell: `length` is a data
     // descriptor per ES §22.1.4.1 `{value: len, writable: false,
