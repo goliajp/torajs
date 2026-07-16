@@ -170,17 +170,34 @@ pub(crate) fn run(
     if patches.is_empty() {
         return;
     }
+    apply_patches(stmts, exprs, &patches, &mut type_decls, fn_sigs);
+    stmts.extend(type_decls);
+}
 
+/// Phase 2 — for each collected `MethodPatch`, drop `__this` from the
+/// closure's capture list (it's a receiver, not a capture; it only
+/// landed there because pass-2 rewrote `this` to a bare Ident before
+/// anyone knew where it was bound), then rewrite the matching FnDecl's
+/// param list + re-publish its sig as `__mth(...)->ret` (receiver-less
+/// per the module doc), and fill the `__mth_placeholder` the collect
+/// phase parked in the TypeDecl.
+fn apply_patches(
+    stmts: &mut [Stmt],
+    exprs: &mut [Expr],
+    patches: &[MethodPatch],
+    type_decls: &mut [Stmt],
+    fn_sigs: &mut HashMap<String, String>,
+) {
     // `__this` is a receiver, not a capture. It only landed in the
     // capture list because pass-2 rewrote `this` to a bare Ident before
     // anyone knew where it was bound.
-    for p in &patches {
+    for p in patches {
         if let Expr::Closure { captures, .. } = &mut exprs[p.eid.0 as usize] {
             captures.retain(|c| c != "__this");
         }
     }
 
-    for p in &patches {
+    for p in patches {
         let Some(caps) = closure_captures(exprs, p.eid) else {
             continue;
         };
@@ -257,8 +274,6 @@ pub(crate) fn run(
             }
         }
     }
-
-    stmts.extend(type_decls);
 }
 
 fn closure_captures(exprs: &[Expr], eid: ExprId) -> Option<Vec<String>> {
