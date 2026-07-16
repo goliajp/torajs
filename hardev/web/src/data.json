@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-16T06:53:10.104Z",
+  "generatedAt": "2026-07-16T08:04:00.666Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 92.71
   },
   "torajs": {
-    "commit": "2fb3540e",
-    "commitSubject": "refactor: extract object_proto_fallback + builtin_proto_primitive + str_any to method_call_dynobj_proto sibling (file-size drift)",
+    "commit": "62b46f13",
+    "commitSubject": "fix: inline ObjectLit fn arg into `any` param routes through dobj lane",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "62b46f13",
+      "subject": "fix: inline ObjectLit fn arg into `any` param routes through dobj lane"
+    },
+    {
+      "hash": "09bd82a3",
+      "subject": "fix: any === Type::Undefined / Type::Null via bound identifier packs correct tag"
+    },
+    {
+      "hash": "58a9f483",
+      "subject": "fix: new String() / new Number() / new Boolean() 0-arg forms produce Wrapper, not primitive"
+    },
+    {
+      "hash": "7eee53a8",
+      "subject": "fix: Object.defineProperty / defineProperties return O per ES §20.1.2.5/4"
+    },
+    {
+      "hash": "23f08ff0",
+      "subject": "style: fmt-drift fix for substr_methods (chunk 9 rsync-back missed blank line)"
+    },
+    {
+      "hash": "4257114b",
+      "subject": "chore: hardev dashboard snapshot at rotation 119 close"
+    },
+    {
       "hash": "2fb3540e",
       "subject": "refactor: extract object_proto_fallback + builtin_proto_primitive + str_any to method_call_dynobj_proto sibling (file-size drift)"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "ad8c8d82",
       "subject": "refactor: extract parse_forof_binding_and_pattern to forof_binding sibling (file+fn-size debt)"
-    },
-    {
-      "hash": "f7fb03c1",
-      "subject": "refactor: extract collect_let_init_axis_rewrites helper from synthesize_fn_to_closure_forwarders (fn-size debt)"
-    },
-    {
-      "hash": "dbd3626d",
-      "subject": "refactor: extract collect_generator_fn_decls + desugar_one_generator helpers from desugar_generators (fn-size debt)"
-    },
-    {
-      "hash": "a2836e9a",
-      "subject": "refactor: extract lower_nullish_or_any_gate helper from try_lower (fn-size debt)"
-    },
-    {
-      "hash": "d7ca2f06",
-      "subject": "refactor: extract emit_dynobj_set helper from lower_dynobj_init (fn-size debt)"
-    },
-    {
-      "hash": "f20c9825",
-      "subject": "refactor: extract collect_class_metadata + emit_prototype_and_class + emit_chain_and_registration helpers from synthesize_class_globals (fn-size debt)"
-    },
-    {
-      "hash": "c3bc8aaa",
-      "subject": "chore: hardev dashboard snapshot at rotation 118 close"
     }
   ],
-  "headSha": "2fb3540e",
+  "headSha": "62b46f13",
   "autorun": {
-    "total": 424,
+    "total": 425,
     "baselineTarget": 10,
-    "bySelf": 419,
+    "bySelf": 420,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784179754-6985",
-      "at": "2026-07-16T05:29:14Z",
-      "ts": 1784179754,
+      "rotationId": "r-1784185158-6284",
+      "at": "2026-07-16T06:59:18Z",
+      "ts": 1784185158,
       "trigger": "self",
-      "prevHead": "c3bc8aaa",
-      "handoffSha": "sha256:a321e93aa474473b458d8e51c1b912b702e0a2919ad82506280389a737b3421c",
-      "handoffAgeSec": 3,
+      "prevHead": "4257114b",
+      "handoffSha": "sha256:34678621a16dc5c7429c279ddc4b7aba7213e67e94ea7a5b3d82f29635c545dc",
+      "handoffAgeSec": 265,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784185158-6284",
+        "at": "2026-07-16T06:59:18Z",
+        "ts": 1784185158,
+        "trigger": "self",
+        "prevHead": "4257114b",
+        "handoffSha": "sha256:34678621a16dc5c7429c279ddc4b7aba7213e67e94ea7a5b3d82f29635c545dc",
+        "handoffAgeSec": 265,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784179754-6985",
         "at": "2026-07-16T05:29:14Z",
@@ -876,17 +887,6 @@
         "prevHead": "6786979f",
         "handoffSha": "sha256:716c3ddfb2f85d02250e64dc8ab15d54c7b70c65f762615178b1ee715f286ca1",
         "handoffAgeSec": 10,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784116938-13e0",
-        "at": "2026-07-15T12:02:18Z",
-        "ts": 1784116938,
-        "trigger": "self",
-        "prevHead": "f76e5b7a",
-        "handoffSha": "sha256:af2af2033956f73366a801096577be34d2be09e2a7c285789a5f67c0481063ae",
-        "handoffAgeSec": 43,
         "conformanceBefore": null,
         "commitsInSession": null
       }
