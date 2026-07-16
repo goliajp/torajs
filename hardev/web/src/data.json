@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-16T05:26:56.382Z",
+  "generatedAt": "2026-07-16T06:53:10.104Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 92.71
   },
   "torajs": {
-    "commit": "40faec3a",
-    "commitSubject": "refactor: extract clone_container_expr helper from deep_clone_expr (fn-size debt)",
+    "commit": "2fb3540e",
+    "commitSubject": "refactor: extract object_proto_fallback + builtin_proto_primitive + str_any to method_call_dynobj_proto sibling (file-size drift)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,73 +713,84 @@
   },
   "commits": [
     {
-      "hash": "40faec3a",
-      "subject": "refactor: extract clone_container_expr helper from deep_clone_expr (fn-size debt)"
+      "hash": "2fb3540e",
+      "subject": "refactor: extract object_proto_fallback + builtin_proto_primitive + str_any to method_call_dynobj_proto sibling (file-size drift)"
     },
     {
-      "hash": "a8fef768",
-      "subject": "refactor: extract arr_method_callback helper from method_call_arr::arr_method (fn-size debt)"
+      "hash": "ddb47903",
+      "subject": "refactor: extract substr slice/index_view/substring family to substr_methods_slice sibling (file-size drift)"
     },
     {
-      "hash": "ef28a70d",
-      "subject": "refactor: extract scan_gt / scan_eq / scan_bang helpers from lexer::tokenize (fn-size debt)"
+      "hash": "0eddc00d",
+      "subject": "refactor: extract Type enum + impl Type to check/type_def sibling (file-size debt)"
     },
     {
-      "hash": "f7007f42",
-      "subject": "refactor: extract finalize_and_bind helper from stmt_let_decl::lower (fn-size debt)"
+      "hash": "9c264d3e",
+      "subject": "style: fmt-drift fix for chunks 1 + 4 (mini cargo fmt didn't rsync back)"
     },
     {
-      "hash": "f8754ef1",
-      "subject": "refactor: extract desugar_user_fn helper from ast_desugar_implicit_generics::run (fn-size debt)"
+      "hash": "d54dacc4",
+      "subject": "refactor: extract is_identifier_name + unwrap_generator_return_ann to type_ann_helpers sibling (file-size debt)"
     },
     {
-      "hash": "9b8ddc22",
-      "subject": "refactor: extract collect_class_field_candidates helper from lower_any_member_read (fn-size debt)"
+      "hash": "ad8c8d82",
+      "subject": "refactor: extract parse_forof_binding_and_pattern to forof_binding sibling (file+fn-size debt)"
     },
     {
-      "hash": "2cd891b3",
-      "subject": "refactor: extract apply_patches phase-2 helper from objlit_nominal::run (fn-size debt)"
+      "hash": "f7fb03c1",
+      "subject": "refactor: extract collect_let_init_axis_rewrites helper from synthesize_fn_to_closure_forwarders (fn-size debt)"
     },
     {
-      "hash": "d2b0857e",
-      "subject": "refactor: extract check_multi + check_export_decl helpers from check_stmt (fn-size debt)"
+      "hash": "dbd3626d",
+      "subject": "refactor: extract collect_generator_fn_decls + desugar_one_generator helpers from desugar_generators (fn-size debt)"
     },
     {
-      "hash": "0f76dd99",
-      "subject": "refactor: extract try_lower_define_properties to sibling (file-size debt)"
+      "hash": "a2836e9a",
+      "subject": "refactor: extract lower_nullish_or_any_gate helper from try_lower (fn-size debt)"
     },
     {
-      "hash": "a2286527",
-      "subject": "refactor: extract rewrite_extern_relocs to cmd_build_extern_relocs sibling (file-size debt)"
+      "hash": "d7ca2f06",
+      "subject": "refactor: extract emit_dynobj_set helper from lower_dynobj_init (fn-size debt)"
     },
     {
-      "hash": "91b6470f",
-      "subject": "refactor: extract try_value_of / try_to_string / try_str_prop_check sub-fns (file-size debt)"
+      "hash": "f20c9825",
+      "subject": "refactor: extract collect_class_metadata + emit_prototype_and_class + emit_chain_and_registration helpers from synthesize_class_globals (fn-size debt)"
     },
     {
-      "hash": "5f1af774",
-      "subject": "chore: hardev dashboard snapshot at rotation 117 close"
+      "hash": "c3bc8aaa",
+      "subject": "chore: hardev dashboard snapshot at rotation 118 close"
     }
   ],
-  "headSha": "40faec3a",
+  "headSha": "2fb3540e",
   "autorun": {
-    "total": 423,
+    "total": 424,
     "baselineTarget": 10,
-    "bySelf": 418,
+    "bySelf": 419,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784174092-0ac0",
-      "at": "2026-07-16T03:54:52Z",
-      "ts": 1784174092,
+      "rotationId": "r-1784179754-6985",
+      "at": "2026-07-16T05:29:14Z",
+      "ts": 1784179754,
       "trigger": "self",
-      "prevHead": "5f1af774",
-      "handoffSha": "sha256:95a8f3232843292824d7e71ecb07f02246739d5cc0f17db862453cdb5530bb8d",
-      "handoffAgeSec": 52,
+      "prevHead": "c3bc8aaa",
+      "handoffSha": "sha256:a321e93aa474473b458d8e51c1b912b702e0a2919ad82506280389a737b3421c",
+      "handoffAgeSec": 3,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784179754-6985",
+        "at": "2026-07-16T05:29:14Z",
+        "ts": 1784179754,
+        "trigger": "self",
+        "prevHead": "c3bc8aaa",
+        "handoffSha": "sha256:a321e93aa474473b458d8e51c1b912b702e0a2919ad82506280389a737b3421c",
+        "handoffAgeSec": 3,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784174092-0ac0",
         "at": "2026-07-16T03:54:52Z",
@@ -876,17 +887,6 @@
         "prevHead": "f76e5b7a",
         "handoffSha": "sha256:af2af2033956f73366a801096577be34d2be09e2a7c285789a5f67c0481063ae",
         "handoffAgeSec": 43,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784111531-7d87",
-        "at": "2026-07-15T10:32:11Z",
-        "ts": 1784111531,
-        "trigger": "self",
-        "prevHead": "6cfa3308",
-        "handoffSha": "sha256:3f2dda8137878a7180e8f2a92afc6cff1edeb298baa6c24818747aeb01b9de35",
-        "handoffAgeSec": 8,
         "conformanceBefore": null,
         "commitsInSession": null
       }
