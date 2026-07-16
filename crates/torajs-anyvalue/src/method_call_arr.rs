@@ -277,62 +277,10 @@ pub(crate) unsafe fn arr_method(
                 let from = to_index(arg_at(1), 0);
                 __torajs_anyv_box_from_pair(1, __torajs_arr_any_includes(arr, arg_at(0), from))
             }
-            m if m == ANY_METHOD_MAP || m == ANY_METHOD_FILTER || m == ANY_METHOD_FOR_EACH => {
-                let Some((cb_env, cb_entry)) = closure_boxed_entry(arg_at(0)) else {
-                    return not_callable();
-                };
-                if m == ANY_METHOD_MAP {
-                    __torajs_arr_any_map(arr, cb_env, cb_entry)
-                } else if m == ANY_METHOD_FILTER {
-                    __torajs_arr_any_filter(arr, cb_env, cb_entry)
-                } else {
-                    __torajs_arr_any_for_each(arr, cb_env, cb_entry)
-                }
-            }
-            m if m == ANY_METHOD_EVERY
-                || m == ANY_METHOD_SOME
-                || m == ANY_METHOD_FIND
-                || m == ANY_METHOD_FIND_INDEX =>
-            {
-                let Some((cb_env, cb_entry)) = closure_boxed_entry(arg_at(0)) else {
-                    return not_callable();
-                };
-                if m == ANY_METHOD_EVERY {
-                    __torajs_arr_any_every(arr, cb_env, cb_entry)
-                } else if m == ANY_METHOD_SOME {
-                    __torajs_arr_any_some(arr, cb_env, cb_entry)
-                } else if m == ANY_METHOD_FIND {
-                    __torajs_arr_any_find(arr, cb_env, cb_entry)
-                } else {
-                    __torajs_arr_any_find_index(arr, cb_env, cb_entry)
-                }
-            }
-            m if m == ANY_METHOD_REDUCE || m == ANY_METHOD_REDUCE_RIGHT => {
-                let Some((cb_env, cb_entry)) = closure_boxed_entry(arg_at(0)) else {
-                    return not_callable();
-                };
-                // §23.1.3.24 step 4 — initialValue presence is an
-                // argc question, not an undefined question.
-                let has_init = (argc >= 2) as i64;
-                let right = (m == ANY_METHOD_REDUCE_RIGHT) as i64;
-                __torajs_arr_any_reduce(arr, cb_env, cb_entry, arg_at(1), has_init, right)
-            }
-            m if m == ANY_METHOD_SORT => {
-                // §23.1.3.30 step 1 — an undefined comparator is the
-                // ToString default; a present non-callable throws.
-                let (cb_env, cb_entry, has_cb) = if is_undefined(arg_at(0)) {
-                    (core::ptr::null_mut(), 0u64, 0i64)
-                } else {
-                    let Some((e, en)) = closure_boxed_entry(arg_at(0)) else {
-                        return not_callable();
-                    };
-                    (e, en, 1)
-                };
-                let p = __torajs_arr_any_sort(arr as *mut u8, cb_env, cb_entry, has_cb);
-                // The receiver is the return value (chaining).
-                torajs_rc::__torajs_rc_inc(p as *mut c_void);
-                __torajs_anyv_box_pointer(p as *mut c_void)
-            }
+            m if is_callback_method(m) => match arr_method_callback(arr, m, argv, argc) {
+                Some(v) => v,
+                None => return not_callable(),
+            },
             m if m == ANY_METHOD_KEYS || m == ANY_METHOD_VALUES || m == ANY_METHOD_ENTRIES => {
                 // Fresh ArrIter cell (rc=1) — the owned return
                 // protocol takes it as-is.
@@ -370,5 +318,83 @@ pub(crate) unsafe fn arr_method(
             // no-such for a genuine miss.
             _ => crate::method_call_arr_copy::arr_method_ext(arr, mid, argv, argc),
         }
+    }
+}
+
+/// `true` iff `mid` is a callback-shaped method (`arg_at(0)` is a
+/// callable / comparator whose entry pair the [`arr_method_callback`]
+/// helper reads via [`closure_boxed_entry`]).
+fn is_callback_method(mid: i64) -> bool {
+    mid == ANY_METHOD_MAP
+        || mid == ANY_METHOD_FILTER
+        || mid == ANY_METHOD_FOR_EACH
+        || mid == ANY_METHOD_EVERY
+        || mid == ANY_METHOD_SOME
+        || mid == ANY_METHOD_FIND
+        || mid == ANY_METHOD_FIND_INDEX
+        || mid == ANY_METHOD_REDUCE
+        || mid == ANY_METHOD_REDUCE_RIGHT
+        || mid == ANY_METHOD_SORT
+}
+
+/// Callback-arg method dispatch — 10 methods share the closure-boxed-
+/// entry preamble (§23.1.3 callback presence check; a non-callable
+/// arg[0] returns `None` and the caller floats a TypeError). Split
+/// into three sub-arms per return shape: HO loops (map / filter /
+/// for_each), predicate loops (every / some / find / find_index),
+/// accumulator fold (reduce / reduce_right), and in-place sort. `sort`
+/// accepts an undefined comparator (ToString default) but rejects a
+/// present non-callable via the shared not_callable path.
+unsafe fn arr_method_callback(
+    arr: *mut c_void,
+    mid: i64,
+    argv: *const u64,
+    argc: i64,
+) -> Option<AnyValue> {
+    let arg_at = |i: i64| -> u64 {
+        if i < argc {
+            unsafe { *argv.add(i as usize) }
+        } else {
+            VALUE_UNDEFINED
+        }
+    };
+    unsafe {
+        if mid == ANY_METHOD_SORT {
+            // §23.1.3.30 step 1 — an undefined comparator is the
+            // ToString default; a present non-callable throws.
+            let (cb_env, cb_entry, has_cb) = if is_undefined(arg_at(0)) {
+                (core::ptr::null_mut(), 0u64, 0i64)
+            } else {
+                let (e, en) = closure_boxed_entry(arg_at(0))?;
+                (e, en, 1)
+            };
+            let p = __torajs_arr_any_sort(arr as *mut u8, cb_env, cb_entry, has_cb);
+            // The receiver is the return value (chaining).
+            torajs_rc::__torajs_rc_inc(p as *mut c_void);
+            return Some(__torajs_anyv_box_pointer(p as *mut c_void));
+        }
+        let (cb_env, cb_entry) = closure_boxed_entry(arg_at(0))?;
+        let raw = if mid == ANY_METHOD_MAP {
+            __torajs_arr_any_map(arr, cb_env, cb_entry)
+        } else if mid == ANY_METHOD_FILTER {
+            __torajs_arr_any_filter(arr, cb_env, cb_entry)
+        } else if mid == ANY_METHOD_FOR_EACH {
+            __torajs_arr_any_for_each(arr, cb_env, cb_entry)
+        } else if mid == ANY_METHOD_EVERY {
+            __torajs_arr_any_every(arr, cb_env, cb_entry)
+        } else if mid == ANY_METHOD_SOME {
+            __torajs_arr_any_some(arr, cb_env, cb_entry)
+        } else if mid == ANY_METHOD_FIND {
+            __torajs_arr_any_find(arr, cb_env, cb_entry)
+        } else if mid == ANY_METHOD_FIND_INDEX {
+            __torajs_arr_any_find_index(arr, cb_env, cb_entry)
+        } else {
+            // §23.1.3.24 step 4 — initialValue presence is an
+            // argc question, not an undefined question.
+            let has_init = (argc >= 2) as i64;
+            let right = (mid == ANY_METHOD_REDUCE_RIGHT) as i64;
+            __torajs_arr_any_reduce(arr, cb_env, cb_entry, arg_at(1), has_init, right)
+        };
+        Some(raw)
     }
 }
