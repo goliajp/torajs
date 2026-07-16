@@ -396,6 +396,11 @@ fn lower_let_init_val(ctx: &mut LowerCtx, ty: Type, init: ExprId) -> Operand {
     }
     if let Expr::Array(els) = ctx.ast.get_expr(init)
         && els.is_empty()
+        // An `any`-annotated `[]` falls through to the any-literal
+        // arm below (mints an empty Arr<Any> — chunk-809 any-ann
+        // family, rotation 73 L3b; the checker admits it since the
+        // same cut).
+        && ty != Type::Any
     {
         if !matches!(ty, Type::Arr(_)) {
             panic!("ssa-lower: empty `[]` literal needs an array type annotation; got {ty:?}");

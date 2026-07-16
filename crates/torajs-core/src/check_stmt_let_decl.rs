@@ -233,6 +233,14 @@ fn check_empty_array_ann(
                 checker.errors.push_err(format!("unknown type `{ann}`"));
                 return None;
             };
+            // An `any` annotation absorbs the literal (chunk-809
+            // any-ann family; rotation 73 L3b): `const e: any = []`
+            // is a plain Arr<Any> boxed into the any slot — bun
+            // accepts. Only a non-array, non-any annotation is a
+            // real mismatch.
+            if matches!(t, Type::Any) {
+                return Some(Type::Array(Box::new(Type::Any)));
+            }
             if !matches!(t, Type::Array(_)) {
                 checker.errors.push_err(format!(
                     "empty array literal `{name}` needs an array type annotation, got `{ann}`"
