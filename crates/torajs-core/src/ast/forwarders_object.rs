@@ -241,16 +241,53 @@ pub fn synthesize_fn_to_closure_forwarders(ast: &mut Ast) {
     }
     let (mut targets, mut rewrites) = (collector.targets, collector.rewrites);
 
-    // RFC 20260709-closure-global chunk 4 — the let-init axis:
-    // `const f: (xs)=>n = top_fn` (or un-annotated) at the TOP level
-    // where a named-fn body reads `f`. The wrap turns the init into a
-    // lifted-arrow shape so the K.3b promote fires and the named fn
-    // reaches the binding through the global-closure call lane. Gated
-    // on the same ast_refs pair the promote uses — a main-only
-    // binding keeps the direct-dispatch fn_addr_let home, and a
-    // closure-captured one stays main-local (a slot would split the
-    // binding into two homes).
-    for s in &stmts_snapshot {
+    collect_let_init_axis_rewrites(
+        ast,
+        &stmts_snapshot,
+        &binding_refs,
+        &fn_sigs,
+        &mut targets,
+        &mut rewrites,
+    );
+
+    if rewrites.is_empty() {
+        return;
+    }
+
+    let (new_decls, renames) =
+        synthesize_forwarder_decls(ast, &targets, &fn_sigs, &existing_forwarders);
+
+    // Apply rewrites.
+    for (eid, target) in rewrites {
+        if let Some(forward_name) = renames.get(&target) {
+            ast.exprs[eid.0 as usize] = Expr::Closure {
+                fn_name: forward_name.clone(),
+                captures: Vec::new(),
+            };
+        }
+    }
+
+    ast.stmts.extend(new_decls);
+}
+
+/// RFC 20260709-closure-global chunk 4 — the let-init axis:
+/// `const f: (xs)=>n = top_fn` (or un-annotated) at the TOP level
+/// where a named-fn body reads `f`. The wrap turns the init into a
+/// lifted-arrow shape so the K.3b promote fires and the named fn
+/// reaches the binding through the global-closure call lane. Gated
+/// on the same ast_refs pair the promote uses — a main-only
+/// binding keeps the direct-dispatch fn_addr_let home, and a
+/// closure-captured one stays main-local (a slot would split the
+/// binding into two homes).
+fn collect_let_init_axis_rewrites(
+    ast: &super::Ast,
+    stmts_snapshot: &[Stmt],
+    binding_refs: &crate::ast_refs::ToplevelBindingRefs,
+    fn_sigs: &std::collections::HashMap<String, (Vec<Param>, Option<String>)>,
+    targets: &mut std::collections::HashSet<String>,
+    rewrites: &mut Vec<(ExprId, String)>,
+) {
+    for s in stmts_snapshot {
         if let Stmt::LetDecl {
             name,
             init,
@@ -285,25 +322,6 @@ pub fn synthesize_fn_to_closure_forwarders(ast: &mut Ast) {
             rewrites.push((*init, n.clone()));
         }
     }
-
-    if rewrites.is_empty() {
-        return;
-    }
-
-    let (new_decls, renames) =
-        synthesize_forwarder_decls(ast, &targets, &fn_sigs, &existing_forwarders);
-
-    // Apply rewrites.
-    for (eid, target) in rewrites {
-        if let Some(forward_name) = renames.get(&target) {
-            ast.exprs[eid.0 as usize] = Expr::Closure {
-                fn_name: forward_name.clone(),
-                captures: Vec::new(),
-            };
-        }
-    }
-
-    ast.stmts.extend(new_decls);
 }
 
 /// Synthesize one `__forward_<target>(__env, args...) { return
