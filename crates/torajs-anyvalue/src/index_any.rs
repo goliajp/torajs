@@ -30,6 +30,11 @@ use crate::nanbox::{
 use crate::nanbox_ffi_materialize::materialize_short_str;
 use torajs_rc::Tag;
 
+/// Primitive-wrapper lazy expando dynobj slot (mirror of
+/// `member_set`'s `MEMBER_SET_WRAPPER_PROPS_OFF`; wrapper layout is
+/// `[header:8][value:8][props:8]`, RFC 20260716 刀 4/5).
+const WRAPPER_PROPS_OFF: usize = 16;
+
 unsafe extern "C" {
     /// torajs-str — `s[idx]` (Str or Substr); NULL = OOB.
     fn __torajs_str_index_get(s: *mut u8, idx: i64) -> *mut u8;
@@ -110,9 +115,21 @@ pub unsafe extern "C" fn __torajs_any_index_get(recv: AnyValue, idx: i64) -> Any
     // RFC 20260716 刀 3 — primitive-wrapper view-through
     // (see `wrapper_view_through`). Number/Boolean fall to primitive
     // immediates (undefined for indexed access); StringWrapper hands
-    // its inner Str cell to the Str arm below.
+    // its inner Str cell to the Str arm below. An undefined answer
+    // falls through to the `+16` lazy expando dynobj — §9.1.8
+    // OrdinaryGet reaches own numeric keys `defineProperty` planted
+    // past the inherent index face.
     if let Some(inner) = unsafe { crate::wrapper_view_through::resolve_inner_recv(ptr, tag) } {
-        return unsafe { __torajs_any_index_get(inner, idx) };
+        let out = unsafe { __torajs_any_index_get(inner, idx) };
+        if out != VALUE_UNDEFINED {
+            return out;
+        }
+        let props =
+            unsafe { (ptr.cast::<u8>().add(WRAPPER_PROPS_OFF) as *const u64).read() } as *mut u8;
+        if !props.is_null() {
+            return unsafe { dynobj_index_get(props as *mut c_void, idx) };
+        }
+        return VALUE_UNDEFINED;
     }
     if tag == Tag::Str as u16 {
         return unsafe { index_str_cell(ptr as *mut u8, idx) };

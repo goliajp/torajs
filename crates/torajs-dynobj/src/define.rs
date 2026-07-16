@@ -102,8 +102,20 @@ pub(crate) unsafe fn define_apply(
     // as a dynobj header (count/cap @8) — silent corruption. The Arr
     // cell never relocates (grow swaps the data pointer), so no
     // slot writeback is needed.
-    if unsafe { (obj.cast::<u8>().add(4) as *const u16).read() } == TAG_ARR_HDR {
+    let htag = unsafe { (obj.cast::<u8>().add(4) as *const u16).read() };
+    if htag == TAG_ARR_HDR {
         unsafe { __torajs_arr_define(obj, key, tag, value, flags_byte) };
+        return;
+    }
+    // Primitive-wrapper receiver — §10.4.3.2 inherent-slot validation
+    // / expando define (pre-fix the wrapper layout was walked as a
+    // dynobj header: silent corruption, SIGSEGV on the first define).
+    // The wrapper cell never relocates, so no slot writeback.
+    if htag == crate::define_wrapper::TAG_NUMBER_WRAPPER
+        || htag == crate::define_wrapper::TAG_STRING_WRAPPER
+        || htag == crate::define_wrapper::TAG_BOOLEAN_WRAPPER
+    {
+        unsafe { crate::define_wrapper::wrapper_define(obj, key, tag, value, flags_byte) };
         return;
     }
     // Dense-array-full guard — same shape as set.rs.
