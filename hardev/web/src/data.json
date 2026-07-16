@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-16T08:34:06.306Z",
+  "generatedAt": "2026-07-16T12:13:35.521Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-16T03:03:28Z",
-    "headSha": "5bff2675",
-    "elapsedSec": 489.4,
+    "ranAt": "2026-07-16T09:22:00Z",
+    "headSha": "9d46b88b",
+    "elapsedSec": 494.4,
     "workers": 8,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 7386,
+    "pass": 7406,
     "passNoOracle": 112,
     "passNegative": 4447,
-    "passTotal": 11945,
-    "bug": 939,
-    "incompatible": 40290,
+    "passTotal": 11965,
+    "bug": 977,
+    "incompatible": 40232,
     "bunSkip": 11908,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 12884,
-    "passRateInScope": 22.46,
-    "passRateTrAccepted": 92.71
+    "trAccepted": 12942,
+    "passRateInScope": 22.5,
+    "passRateTrAccepted": 92.45
   },
   "torajs": {
-    "commit": "7308ee2a",
-    "commitSubject": "fix: any-receiver `.k = undefined` stores tag=5 instead of collapsing to null",
+    "commit": "9d46b88b",
+    "commitSubject": "fix: `Object.create(x, null)` throws TypeError per §20.1.2.2 step 3",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,18 @@
   },
   "commits": [
     {
+      "hash": "9d46b88b",
+      "subject": "fix: `Object.create(x, null)` throws TypeError per §20.1.2.2 step 3"
+    },
+    {
+      "hash": "04ca009e",
+      "subject": "fix: pre-bound `const d1 = { value: undefined }; f(d1)` reads undef, not null"
+    },
+    {
+      "hash": "134273d0",
+      "subject": "chore: hardev dashboard snapshot at rotation 120 close (post-chunk-6 + intent)"
+    },
+    {
       "hash": "7308ee2a",
       "subject": "fix: any-receiver `.k = undefined` stores tag=5 instead of collapsing to null"
     },
@@ -747,21 +759,9 @@
     {
       "hash": "2fb3540e",
       "subject": "refactor: extract object_proto_fallback + builtin_proto_primitive + str_any to method_call_dynobj_proto sibling (file-size drift)"
-    },
-    {
-      "hash": "ddb47903",
-      "subject": "refactor: extract substr slice/index_view/substring family to substr_methods_slice sibling (file-size drift)"
-    },
-    {
-      "hash": "0eddc00d",
-      "subject": "refactor: extract Type enum + impl Type to check/type_def sibling (file-size debt)"
-    },
-    {
-      "hash": "9c264d3e",
-      "subject": "style: fmt-drift fix for chunks 1 + 4 (mini cargo fmt didn't rsync back)"
     }
   ],
-  "headSha": "7308ee2a",
+  "headSha": "9d46b88b",
   "autorun": {
     "total": 426,
     "baselineTarget": 10,
