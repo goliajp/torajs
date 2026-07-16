@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-16T12:13:35.521Z",
+  "generatedAt": "2026-07-16T12:39:32.128Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 92.45
   },
   "torajs": {
-    "commit": "9d46b88b",
-    "commitSubject": "fix: `Object.create(x, null)` throws TypeError per §20.1.2.2 step 3",
+    "commit": "c76146e2",
+    "commitSubject": "feat: wrapper expando read side — hasOwn / Object.keys / delete work",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,18 @@
   },
   "commits": [
     {
+      "hash": "c76146e2",
+      "subject": "feat: wrapper expando read side — hasOwn / Object.keys / delete work"
+    },
+    {
+      "hash": "5c986066",
+      "subject": "feat: primitive-wrapper lazy expando slot — `new Number().foo = X` works"
+    },
+    {
+      "hash": "3faf1a42",
+      "subject": "chore: hardev dashboard snapshot at rotation 121 close (post-chunk-2)"
+    },
+    {
       "hash": "9d46b88b",
       "subject": "fix: `Object.create(x, null)` throws TypeError per §20.1.2.2 step 3"
     },
@@ -747,21 +759,9 @@
     {
       "hash": "7eee53a8",
       "subject": "fix: Object.defineProperty / defineProperties return O per ES §20.1.2.5/4"
-    },
-    {
-      "hash": "23f08ff0",
-      "subject": "style: fmt-drift fix for substr_methods (chunk 9 rsync-back missed blank line)"
-    },
-    {
-      "hash": "4257114b",
-      "subject": "chore: hardev dashboard snapshot at rotation 119 close"
-    },
-    {
-      "hash": "2fb3540e",
-      "subject": "refactor: extract object_proto_fallback + builtin_proto_primitive + str_any to method_call_dynobj_proto sibling (file-size drift)"
     }
   ],
-  "headSha": "9d46b88b",
+  "headSha": "c76146e2",
   "autorun": {
     "total": 426,
     "baselineTarget": 10,
