@@ -133,10 +133,25 @@ pub(crate) fn run(ast: &mut Ast) {
         }
     }
     // RFC 20260716 刀 2 — Number / String / Boolean all get the
-    // wrapper substrate. 0-arg forms stay primitive literals per
-    // spec (§21.1.1.1 step 2 = +0 / §22.1.1.1 step 2 = "" /
-    // §20.3.1.1 step 2 = false), observably equivalent to the
-    // corresponding primitive for downstream uses.
+    // wrapper substrate. 0-arg forms are `new String() / new Number()
+    // / new Boolean()` per spec §22.1.1.1 / §21.1.1.1 / §20.3.1.1
+    // — the constructor produces the corresponding Wrapper object
+    // whose `[[StringData]] / [[NumberData]] / [[BooleanData]]` is
+    // the spec default value ("" / +0 / false). Pre-2026-07-16 the
+    // desugar collapsed 0-arg to a primitive literal — that was
+    // observably wrong: `typeof new String()` is `"object"` (not
+    // `"string"`), `Boolean(new String())` is `true` (not `false`),
+    // and the wrapper receiver reaches its own [[Get]] / prototype
+    // chain. Rewriting to a 1-arg `new String("") / new Number(0)
+    // / new Boolean(false)` routes through the existing
+    // `lower_string_wrapper` / `lower_number_wrapper` /
+    // `lower_boolean_wrapper` SSA arms; the corresponding checker
+    // fns' 0-arg guards (`check_type_of_new::check_*_wrapper`)
+    // become unreachable — desugar owns the invariant.
+    //
+    // test262 impact: unblocks the "cannot assign to a property of
+    // this any value" cluster's coercion cases like case 60
+    // (`enumerable: new String()` — expected ToBoolean → true).
     let n = ast.exprs.len();
     for i in 0..n {
         let (is_number_zero, is_string_zero, is_boolean_zero) = match &ast.exprs[i] {
@@ -148,11 +163,20 @@ pub(crate) fn run(ast: &mut Ast) {
             _ => (false, false, false),
         };
         if is_number_zero {
-            ast.exprs[i] = Expr::Number(0.0);
+            let default_arg = ast.add_expr(Expr::Number(0.0));
+            if let Expr::New { args, .. } = &mut ast.exprs[i] {
+                args.push(default_arg);
+            }
         } else if is_string_zero {
-            ast.exprs[i] = Expr::String(String::new());
+            let default_arg = ast.add_expr(Expr::String(String::new()));
+            if let Expr::New { args, .. } = &mut ast.exprs[i] {
+                args.push(default_arg);
+            }
         } else if is_boolean_zero {
-            ast.exprs[i] = Expr::Bool(false);
+            let default_arg = ast.add_expr(Expr::Bool(false));
+            if let Expr::New { args, .. } = &mut ast.exprs[i] {
+                args.push(default_arg);
+            }
         }
     }
     let n = ast.exprs.len();
