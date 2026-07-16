@@ -49,6 +49,9 @@ unsafe extern "C" {
     /// torajs-rc / torajs-value-drop — NaN-box-safe release + the
     /// universal heap dropper (props bag, held target cell).
     fn __torajs_value_drop_heap(p: *mut c_void);
+    /// torajs-cycle — scrub a normal-dropping cell from the cycle
+    /// root buffer (RFC 20260717 knife 3; no-op when never buffered).
+    fn __torajs_cycle_unbuffer(p: *mut c_void);
 }
 
 const CLOSURE_FN_ADDR_OFF: usize = 8;
@@ -237,6 +240,10 @@ unsafe extern "C" fn bound_trace(
 
 unsafe extern "C" fn bound_drop(env: *mut c_void) {
     unsafe {
+        // Scrub the cycle root buffer first — a buffered bound cell
+        // that normal-drops here would leave a dangling entry (RFC
+        // 20260717 knife 3; cheap no-op when FLAG_BUFFERED is clear).
+        __torajs_cycle_unbuffer(env);
         let cell = env.cast::<u8>();
         let props = *(cell.add(CLOSURE_PROPS_OFF) as *const u64);
         if props != 0 {

@@ -236,6 +236,14 @@ pub unsafe extern "C" fn __torajs_value_drop_heap(child: *mut c_void) {
                     (child.cast::<u8>().add(CLOSURE_DROP_FN_OFF) as *const usize).read(),
                 );
                 drop_fn(child);
+            } else {
+                // rc still positive — the exact cyclic-leak
+                // condition (RFC 20260717 knife 3): buffer as a
+                // PURPLE cycle candidate, mirroring the Obj and
+                // wrapper arms. cycle_buffer's has_walkable_children
+                // gate keeps untraceable envs (trace_fn 0, no
+                // expando) zero-cost.
+                __torajs_cycle_buffer(child);
             }
         },
         _ => unsafe {

@@ -30,14 +30,16 @@ use core::ffi::c_void;
 
 use crate::arr::{ARR_PROPS_OFF, arr_child_at, arr_len_of, arr_slot_clear, arr_spilled_data};
 use crate::buffer;
+use crate::closure_walk::{closure_trace_fn, trace_clear_tramp, trace_visit_tramp};
 use crate::dynobj::{
     dynobj_block_bytes, dynobj_child_at, dynobj_entries_len, dynobj_key_at, dynobj_value_slot_clear,
 };
 use crate::layout::{
-    CLASS_LAYOUT_FLAG_NAMED, COLOR_BLACK, COLOR_GRAY, COLOR_PURPLE, COLOR_WHITE, FLAG_BUFFERED,
-    FLAG_STATIC_LITERAL, HeapHeader, STRING_WRAPPER_CELL_OFF, TAG_BOOLEAN_WRAPPER, TAG_DYNOBJ,
-    TAG_NUMBER_WRAPPER, TAG_STRING_WRAPPER, WRAPPER_PROPS_OFF, arr_elems_walkable, color_of,
-    has_walkable_children, is_class_obj, layout_for_class_obj, set_color,
+    CLASS_LAYOUT_FLAG_NAMED, CLOSURE_DROP_FN_OFF, CLOSURE_PROPS_OFF, COLOR_BLACK, COLOR_GRAY,
+    COLOR_PURPLE, COLOR_WHITE, FLAG_BUFFERED, FLAG_STATIC_LITERAL, HeapHeader,
+    STRING_WRAPPER_CELL_OFF, TAG_BOOLEAN_WRAPPER, TAG_CLOSURE, TAG_DYNOBJ, TAG_NUMBER_WRAPPER,
+    TAG_STRING_WRAPPER, WRAPPER_PROPS_OFF, arr_elems_walkable, color_of, has_walkable_children,
+    is_class_obj, layout_for_class_obj, set_color,
 };
 
 /// Sentinel child index for a cell's out-of-band expando / props
@@ -110,6 +112,24 @@ unsafe fn for_each_child(p: *mut c_void, mut f: impl FnMut(u64, *mut c_void)) {
                 f(i, child);
             }
         }
+    } else if unsafe { (*(p as *const HeapHeader)).type_tag } == TAG_CLOSURE {
+        // Closure env (RFC 20260717 knife 3) — capture slots via the
+        // knife-2 trace_fn (0 = no traceable captures), plus the +24
+        // expando props dict every closure shares at a fixed offset.
+        if let Some(trace) = unsafe { closure_trace_fn(p) } {
+            let mut dyn_f: &mut dyn FnMut(u64, *mut c_void) = &mut f;
+            unsafe {
+                trace(
+                    p,
+                    trace_visit_tramp,
+                    &mut dyn_f as *mut &mut dyn FnMut(u64, *mut c_void) as *mut c_void,
+                )
+            };
+        }
+        let props = unsafe { *((p as *const u8).add(CLOSURE_PROPS_OFF) as *const *mut c_void) };
+        if !props.is_null() {
+            f(PROPS_SLOT_INDEX, props);
+        }
     } else if matches!(
         unsafe { (*(p as *const HeapHeader)).type_tag },
         TAG_NUMBER_WRAPPER | TAG_STRING_WRAPPER | TAG_BOOLEAN_WRAPPER
@@ -155,6 +175,18 @@ unsafe fn clear_child_slot(p: *mut c_void, i: u64) {
         unsafe { *((p as *mut u8).add(off as usize) as *mut *mut c_void) = core::ptr::null_mut() };
     } else if unsafe { (*(p as *const HeapHeader)).type_tag } == TAG_DYNOBJ {
         unsafe { dynobj_value_slot_clear(p, i) };
+    } else if unsafe { (*(p as *const HeapHeader)).type_tag } == TAG_CLOSURE {
+        if i == PROPS_SLOT_INDEX {
+            unsafe {
+                *((p as *mut u8).add(CLOSURE_PROPS_OFF) as *mut *mut c_void) = core::ptr::null_mut()
+            };
+        } else if let Some(trace) = unsafe { closure_trace_fn(p) } {
+            // Only the trace body knows which address slot `i` maps
+            // to (env slot vs capture-box interior) — replay it with
+            // the clear trampoline. O(caps) on the cold collect path.
+            let target: u64 = i;
+            unsafe { trace(p, trace_clear_tramp, &target as *const u64 as *mut c_void) };
+        }
     } else if i == PROPS_SLOT_INDEX {
         // Wrapper +16 / Arr +24 expando slot (per-shape offset).
         let off = if matches!(
@@ -293,6 +325,34 @@ unsafe fn collect_white(p: *mut c_void) {
                 }
             }
         });
+    }
+    // Closure teardown (RFC 20260717 knife 3) delegates to the
+    // synthesized drop_fn instead of the generic second sweep: only
+    // the drop body knows the per-slot release semantics (capture-box
+    // rc vs owned cell vs Any NaN-box vs Substr view), and every
+    // release helper it calls is NULL/NaN gated so the first sweep's
+    // cleared cycle edges no-op. drop_fn also frees the env block
+    // (obj_drop_sized), so no tail free either. Before delegating,
+    // zero every slot whose child is mid-collect (rc == 0 — a cycle
+    // member recolored BLACK by its own frame up the recursion, the
+    // exact case the generic second sweep's rc > 0 gate protects):
+    // drop_fn has no such gate and would re-drop a block that's
+    // about to be freed.
+    if unsafe { (*(p as *const HeapHeader)).type_tag } == TAG_CLOSURE {
+        unsafe {
+            for_each_child(p, |i, child| {
+                if (*(child as *const HeapHeader)).refcount == 0 {
+                    clear_child_slot(p, i);
+                }
+            });
+            let drop_raw = *((p as *const u8).add(CLOSURE_DROP_FN_OFF) as *const u64);
+            if drop_raw != 0 {
+                let drop_fn =
+                    core::mem::transmute::<u64, unsafe extern "C" fn(*mut c_void)>(drop_raw);
+                drop_fn(p);
+            }
+        }
+        return;
     }
     // Second sweep: drop surviving (non-cycle) children via the
     // universal drop dispatch. rc == 0 marks a cycle member being

@@ -52,6 +52,22 @@ pub const TAG_STRING_WRAPPER: u16 = 22;
 /// See [`TAG_NUMBER_WRAPPER`].
 pub const TAG_BOOLEAN_WRAPPER: u16 = 23;
 
+/// `Tag::Closure = 3` — env-first closure cell (RFC 20260717
+/// closure-env-cycle knife 3). Layout mirror of torajs-core
+/// `ssa_lower.rs` CLOSURE_* offsets: `{ hdr | fn_ptr@8 | drop_fn@16 |
+/// props@24 | boxed_entry@32 | trace_fn@40 | caps@48+ }`.
+pub const TAG_CLOSURE: u16 = 3;
+/// The synthesized `__env_drop_<fn>` pointer — collect_white's
+/// closure teardown delegates to it (every release helper it calls
+/// is NULL/NaN gated, so cleared cycle edges no-op).
+pub const CLOSURE_DROP_FN_OFF: usize = 16;
+/// Lazy `f.x = v` expando dynobj — the one child every closure
+/// shares at a fixed offset; walked directly, never via trace_fn.
+pub const CLOSURE_PROPS_OFF: usize = 24;
+/// The synthesized `__env_trace_<fn>` / hand-written `bound_trace`
+/// pointer (knife 2). 0 = no capture slot can sit on a cycle.
+pub const CLOSURE_TRACE_FN_OFF: usize = 40;
+
 /// Wrapper expando props-dynobj slot offset (torajs-wrapper
 /// `WRAPPER_PROPS_OFF` mirror).
 pub const WRAPPER_PROPS_OFF: usize = 16;
@@ -309,6 +325,29 @@ pub unsafe fn is_visitable_wrapper(p: *mut c_void) -> bool {
         )
 }
 
+/// True when `p` is a closure env cell with potential walkable
+/// children: a non-0 trace_fn (some capture can sit on a cycle,
+/// knife 2's construction-site decision) or a live expando props
+/// dict. Immortal interned method cells carry FLAG_STATIC_LITERAL —
+/// skipped wholesale (CPython-immortal shape), their rc traffic
+/// no-ops so they can never be cycle members.
+#[inline]
+pub unsafe fn is_visitable_closure(p: *mut c_void) -> bool {
+    if p.is_null() {
+        return false;
+    }
+    let header = unsafe { &*(p as *const HeapHeader) };
+    if header.flags & FLAG_STATIC_LITERAL != 0 || header.type_tag != TAG_CLOSURE {
+        return false;
+    }
+    let trace = unsafe { *((p as *const u8).add(CLOSURE_TRACE_FN_OFF) as *const u64) };
+    if trace != 0 {
+        return true;
+    }
+    let props = unsafe { *((p as *const u8).add(CLOSURE_PROPS_OFF) as *const *mut c_void) };
+    !props.is_null()
+}
+
 /// True when `p`'s bit pattern looks like a real heap pointer (top 16
 /// bits zero, low tag bit clear). A NaN-box immediate — an Int32 / f64
 /// (top tag bits set) or a Null / Undef / Bool sentinel (low
@@ -357,7 +396,11 @@ pub unsafe fn has_walkable_children(p: *mut c_void) -> bool {
         return false;
     }
     unsafe {
-        is_class_obj(p) || is_visitable_arr(p) || is_visitable_dynobj(p) || is_visitable_wrapper(p)
+        is_class_obj(p)
+            || is_visitable_arr(p)
+            || is_visitable_dynobj(p)
+            || is_visitable_wrapper(p)
+            || is_visitable_closure(p)
     }
 }
 

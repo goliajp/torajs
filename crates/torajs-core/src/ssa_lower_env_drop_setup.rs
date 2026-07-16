@@ -87,6 +87,15 @@ pub(crate) fn run(
         // Trivial env wrapper: no captures, env block size = closure
         // header only (`fn_addr@8 + drop_fn@16 + props@24 +
         // boxed_entry@32 + trace_fn@40` = `CLOSURE_CAP_BASE_OFF`).
+        // Cycle-buffer scrub first (RFC 20260717 knife 3) — same
+        // dangling-entry protection as the synthesized drop bodies.
+        f.append_void(
+            entry,
+            InstKind::Call(
+                init_a.obj_capture.cycle_unbuffer,
+                vec![Operand::Value(env_pid)],
+            ),
+        );
         f.append_void(
             entry,
             InstKind::Call(

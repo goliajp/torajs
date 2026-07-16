@@ -47,6 +47,14 @@ pub(crate) fn synthesize_env_drop(
     let env_pid = f.add_param(Type::Ptr, "env");
     let entry = f.add_block();
     let env_op = Operand::Value(env_pid);
+    // RFC 20260717 knife 3 — scrub the cycle root buffer before the
+    // env goes away (a buffered candidate that then normal-drops
+    // would leave a dangling entry; cheap no-op when FLAG_BUFFERED
+    // is clear). Same position as the class-Obj drop scrub.
+    f.append_void(
+        entry,
+        InstKind::Call(intrinsics.cycle_unbuffer, vec![env_op]),
+    );
     // T-27 — drop the props dynobj if non-NULL. SSA-side NULL check
     // skips the value_drop_heap call entirely for closures that
     // never had a property write (the common case). Without this,
