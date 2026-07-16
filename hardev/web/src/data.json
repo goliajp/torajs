@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-16T19:50:09.193Z",
+  "generatedAt": "2026-07-16T19:57:52.795Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 92.45
   },
   "torajs": {
-    "commit": "9935a660",
-    "commitSubject": "feat: defineProperties / Object.create accept a struct props container",
+    "commit": "428f1d3c",
+    "commitSubject": "fix: defineProperties eval-dropped an as-any cast struct props container",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "428f1d3c",
+      "subject": "fix: defineProperties eval-dropped an as-any cast struct props container"
+    },
+    {
+      "hash": "ced6204c",
+      "subject": "chore: hardev dashboard snapshot at rotation 125 close"
+    },
+    {
       "hash": "9935a660",
       "subject": "feat: defineProperties / Object.create accept a struct props container"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "86b6c07f",
       "subject": "fix: defineProperty runtime-desc owned temp never released"
-    },
-    {
-      "hash": "2da59297",
-      "subject": "fix: dyn arr fill / set set-ops leak materialized ShortStr per call"
-    },
-    {
-      "hash": "ac641923",
-      "subject": "chore: hardev dashboard snapshot at rotation 123 close"
     }
   ],
-  "headSha": "9935a660",
+  "headSha": "428f1d3c",
   "autorun": {
     "total": 430,
     "baselineTarget": 10,
