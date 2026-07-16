@@ -8,6 +8,7 @@
 
 use std::process::ExitCode;
 
+use crate::cmd_build_extern_relocs::rewrite_extern_relocs;
 use crate::cmd_build_ssa_string_registries::{
     build_class_names, build_fn_name_globals, build_user_strings,
 };
@@ -18,7 +19,6 @@ use crate::cmd_build_synthesize::{
 use torajs_codegen::CompiledFunction;
 use torajs_codegen::compile_function_with_sigs;
 use torajs_codegen::frame::FrameLayout;
-use torajs_codegen::reloc::{CallTarget, RelocKind};
 use torajs_core::ssa::{FuncId, Module, Type};
 use torajs_core::{
     TORAJS_STATICLIBS, ast, ast_closure_param_tag, check, lexer, modules, parser, ssa_lower,
@@ -440,52 +440,6 @@ pub(crate) fn build_link_config(ssa_module: &Module) -> LinkConfig {
         force_emit_class_names_globals: true,
         baked_regex_entries: build_baked_regex_entries(ssa_module),
     }
-}
-
-/// Rewrite `CallSite{Func(fid)}` relocs that target an extern declaration
-/// into `CallSite{Extern("_<name>")}` so the link layer resolves them
-/// through the archive symbol table (`___torajs_*` Apple form) instead
-/// of a stale fn_vaddrs slot. Page21 / PageOff12 / AbsPtr64 with
-/// `target_sym = "__torajs_fn_<fid>"` pointing at an extern get the same
-/// treatment — FnAddr of an extern becomes an external sym ref.
-fn rewrite_extern_relocs(
-    compiled: &mut [torajs_codegen::CompiledFunction],
-    ssa_funcs: &[torajs_core::ssa::Function],
-) {
-    let is_extern: Vec<bool> = ssa_funcs.iter().map(|f| f.is_declaration()).collect();
-    for cf in compiled.iter_mut() {
-        for r in cf.relocs.iter_mut() {
-            match &mut r.kind {
-                RelocKind::CallSite {
-                    target: CallTarget::Func(fid),
-                } if is_extern[fid.0 as usize] => {
-                    let name = ssa_funcs[fid.0 as usize].name.clone();
-                    r.kind = RelocKind::CallSite {
-                        target: CallTarget::Extern(format!("_{name}")),
-                    };
-                }
-                RelocKind::Page21 { target_sym }
-                | RelocKind::PageOff12 { target_sym }
-                | RelocKind::AbsPtr64 { target_sym } => {
-                    if let Some(fid) = parse_fn_addr_sym(target_sym)
-                        && fid < is_extern.len()
-                        && is_extern[fid]
-                    {
-                        *target_sym = format!("_{}", ssa_funcs[fid].name);
-                    }
-                }
-                _ => {}
-            }
-        }
-    }
-}
-
-/// Parse `"__torajs_fn_<n>"` → `<n>` (the original FuncId index), or
-/// `None` for any other sym name. Matches the codegen FnAddr convention
-/// in `crates/torajs-codegen/src/compile/refs.rs:106`.
-fn parse_fn_addr_sym(sym: &str) -> Option<usize> {
-    sym.strip_prefix("__torajs_fn_")
-        .and_then(|tail| tail.parse().ok())
 }
 
 /// SSA `Type` → `(slot size in bytes, log2 alignment)` for
