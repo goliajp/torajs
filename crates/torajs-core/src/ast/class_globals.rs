@@ -175,7 +175,10 @@ fn emit_prototype_and_class_stmts(ast: &mut Ast, meta: &ClassMetadata, out: &mut
             ast.add_expr(Expr::String(display))
         };
         let proto_ident = ast.add_expr(Expr::Ident(format!("__proto_{cname}")));
-        let length_expr = if meta.static_shadow.contains(&format!("__sm_{cname}__length")) {
+        let length_expr = if meta
+            .static_shadow
+            .contains(&format!("__sm_{cname}__length"))
+        {
             ast.add_expr(Expr::Ident(format!("__sm_{cname}__length")))
         } else {
             ast.add_expr(Expr::Number(meta.class_lengths[cname] as f64))
