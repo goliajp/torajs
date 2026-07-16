@@ -72,6 +72,24 @@ unsafe extern "C" {
 /// `ssa_lower.rs::CLOSURE_PROPS_OFF`.
 const CLOSURE_PROPS_OFF: usize = 24;
 
+/// Wrapper-cell lazy props slot — mirror of
+/// `torajs-wrapper::WRAPPER_PROPS_OFF` (RFC 20260716 刀 5, rotation
+/// 121). Every wrapper cell layout is `[header:8][value:8][props:8]`.
+const WRAPPER_PROPS_OFF: usize = 16;
+
+/// The wrapper's `props_dynobj` pointer, NULL when no expando was
+/// ever written. Same read shape as `closure_props`.
+pub(crate) unsafe fn wrapper_props(ptr: *mut c_void) -> *const c_void {
+    unsafe { *(ptr.cast::<u8>().add(WRAPPER_PROPS_OFF) as *const u64) as *const c_void }
+}
+
+#[inline]
+fn is_wrapper_tag(t: u16) -> bool {
+    t == Tag::NumberWrapper as u16
+        || t == Tag::StringWrapper as u16
+        || t == Tag::BooleanWrapper as u16
+}
+
 /// `class_tag` u32 offset inside a `Tag::Obj` instance / Str-cell
 /// layout — mirrors `method_call_dynobj`'s constants.
 const OBJ_CLASS_TAG_OFF: usize = 8;
@@ -229,6 +247,22 @@ pub unsafe extern "C" fn __torajs_any_member_get_tag(recv: AnyValue, key: *const
             }
             reify_tag(recv, key)
         },
+        // RFC 20260716 刀 5 (rotation 121 chunk 4) — wrapper cell
+        // own-property probe via the +16 lazy expando (mirror of the
+        // closure arm above). Miss falls through to `reify_tag`,
+        // which handles the wrapper's inherited built-in surface
+        // (`.valueOf` / `.toString` / `.length` on StringWrapper etc.)
+        // via the per-wrapper method tables.
+        Some((ptr, t)) if is_wrapper_tag(t) => unsafe {
+            let props = wrapper_props(ptr);
+            if !props.is_null() {
+                let tag = __torajs_dynobj_get_tag(props, key);
+                if tag != 5 {
+                    return tag;
+                }
+            }
+            reify_tag(recv, key)
+        },
         // Chunk 744 — struct cell: class-layout field probe before
         // the builtin reify (a struct has no builtin methods, so a
         // field miss falling through is exact).
@@ -348,6 +382,18 @@ pub unsafe extern "C" fn __torajs_any_method_probe(
                 return 1;
             }
         }
+        // RFC 20260716 刀 5 (rotation 121 chunk 4) — wrapper own-
+        // property expando probe. Miss falls through to the shared
+        // `builtin_method_supported` table below (mirror of the
+        // Arr / Closure fall-through — a wrapper's inherited
+        // `.toString` / `.valueOf` etc. surface reifies there).
+        Some((ptr, t)) if is_wrapper_tag(t) => {
+            let props = unsafe { wrapper_props(ptr) };
+            if !props.is_null() && non_nullish(unsafe { __torajs_dynobj_get_tag(props, key) }) == 1
+            {
+                return 1;
+            }
+        }
         Some((ptr, t)) if t == Tag::Obj as u16 => {
             let class_tag =
                 unsafe { (ptr.cast::<u8>().add(OBJ_CLASS_TAG_OFF) as *const u32).read() };
@@ -410,6 +456,15 @@ pub unsafe extern "C" fn __torajs_any_member_get_value(recv: AnyValue, key: *con
             }
             if let Some((_, val)) = closure_virtual_pair(ptr, key) {
                 return val;
+            }
+            reify_value(recv, key)
+        },
+        // RFC 20260716 刀 5 (rotation 121 chunk 4) — wrapper own-
+        // property expando value probe (mirror of the closure arm).
+        Some((ptr, t)) if is_wrapper_tag(t) => unsafe {
+            let props = wrapper_props(ptr);
+            if !props.is_null() && __torajs_dynobj_get_tag(props, key) != 5 {
+                return __torajs_dynobj_get_value(props, key);
             }
             reify_value(recv, key)
         },

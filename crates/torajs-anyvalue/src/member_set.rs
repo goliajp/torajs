@@ -89,6 +89,11 @@ const STR_DATA_OFF: usize = 16;
 /// `ssa_lower.rs::CLOSURE_PROPS_OFF`.
 const MEMBER_SET_CLOSURE_PROPS_OFF: usize = 24;
 
+/// Number/String/Boolean-wrapper lazy props slot — mirror of
+/// `torajs-wrapper::WRAPPER_PROPS_OFF` (RFC 20260716 刀 5, rotation
+/// 121). Every wrapper cell layout is `[header:8][value:8][props:8]`.
+const MEMBER_SET_WRAPPER_PROPS_OFF: usize = 16;
+
 /// intern: `ANY_RPROP_LAST_INDEX` for `lastIndex`,
 /// `ANY_WPROP_ARR_LENGTH` for `length`, −1 otherwise.
 ///
@@ -232,6 +237,28 @@ pub unsafe extern "C" fn __torajs_any_member_set(
                 return;
             }
             __torajs_arrprops_set(ptr, key, tag as i64, value as i64);
+            return;
+        }
+        // RFC 20260716 刀 5 (rotation 121 chunk 4) — a primitive-
+        // wrapper receiver (`new Number()` / `new String()` /
+        // `new Boolean()`) grew a `+16` lazy props slot; the first
+        // `wrap.foo = X` allocates a fresh dynobj, subsequent sets
+        // resize-relocate the same slot. Mirror of the closure-cell
+        // path above — no cell-identity move (only the props slot's
+        // stored pointer moves on grow). Unlocks the test262
+        // `Object.create` primitive-wrapper mutation cluster and the
+        // broader `wrap.foo = ...` face that was previously TypeErr.
+        if cell_tag == Tag::NumberWrapper as u16
+            || cell_tag == Tag::StringWrapper as u16
+            || cell_tag == Tag::BooleanWrapper as u16
+        {
+            let props_slot = ptr.cast::<u8>().add(MEMBER_SET_WRAPPER_PROPS_OFF) as *mut u64;
+            let mut props = *props_slot as *mut c_void;
+            if props.is_null() {
+                props = __torajs_dynobj_alloc();
+            }
+            __torajs_dynobj_set(&mut props, key, tag, value);
+            *props_slot = props as u64;
             return;
         }
         reject(tag, value);

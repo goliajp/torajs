@@ -5,10 +5,17 @@
 //! [`torajs_rc::HeapHeader`] plus one payload word:
 //!
 //! ```text
-//! NumberWrapper  = [header:8][num:8]          (f64)
-//! StringWrapper  = [header:8][str_cell:8]     (*mut u8 borrow of Tag::Str cell, rc_inc'd)
-//! BooleanWrapper = [header:8][val:1 + pad:7]  (0 = false, 1 = true)
+//! NumberWrapper  = [header:8][num:8]          [props_slot:8]  (f64)
+//! StringWrapper  = [header:8][str_cell:8]     [props_slot:8]  (*mut u8 borrow of Tag::Str cell, rc_inc'd)
+//! BooleanWrapper = [header:8][val:1 + pad:7]  [props_slot:8]  (0 = false, 1 = true)
 //! ```
+//!
+//! **Lazy expando props slot** (RFC 20260716 刀 5, rotation 121) — the
+//! `+16` word carries a `*mut DynObj` that starts NULL. The first
+//! `wrapper.foo = X` allocates the props table (mirror of the closure
+//! cell's `+24` slot at `member_set.rs`); subsequent gets/sets read it
+//! back. Drop releases the props dynobj through the universal drop
+//! dispatcher, so a whole own-property tree tears down uniformly.
 //!
 //! # Contract with the universal drop dispatcher
 //!
@@ -63,16 +70,23 @@ unsafe extern "C" {
 
 pub const WRAPPER_HDR_SIZE: usize = 8;
 
-/// NumberWrapper — `[header:8][num:8]`.
-pub const NUMBER_WRAPPER_SIZE: usize = 16;
+/// Shared lazy props-dynobj slot (RFC 20260716 刀 5) — every wrapper
+/// carries `[header:8][value:8][props_slot:8]`. NULL until the first
+/// `wrapper.foo = X`; then holds a `*mut DynObj` that own-property
+/// reads/writes route through. Mirror of `MEMBER_SET_CLOSURE_PROPS_OFF`
+/// at `torajs-anyvalue/src/member_set.rs`.
+pub const WRAPPER_PROPS_OFF: usize = 16;
+
+/// NumberWrapper — `[header:8][num:8][props_slot:8]`.
+pub const NUMBER_WRAPPER_SIZE: usize = 24;
 pub const NUMBER_WRAPPER_VALUE_OFF: usize = 8;
 
-/// StringWrapper — `[header:8][str_cell_ptr:8]`.
-pub const STRING_WRAPPER_SIZE: usize = 16;
+/// StringWrapper — `[header:8][str_cell_ptr:8][props_slot:8]`.
+pub const STRING_WRAPPER_SIZE: usize = 24;
 pub const STRING_WRAPPER_CELL_OFF: usize = 8;
 
-/// BooleanWrapper — `[header:8][val:1 + pad:7]`.
-pub const BOOLEAN_WRAPPER_SIZE: usize = 16;
+/// BooleanWrapper — `[header:8][val:1 + pad:7][props_slot:8]`.
+pub const BOOLEAN_WRAPPER_SIZE: usize = 24;
 pub const BOOLEAN_WRAPPER_VALUE_OFF: usize = 8;
 
 // ============================================================
@@ -86,6 +100,29 @@ unsafe fn init_wrapper_header(ptr: *mut u8, tag: Tag) {
         (*hdr).refcount = 1;
         (*hdr).type_tag = tag as u16;
         (*hdr).flags = 0;
+        // Lazy expando props slot starts NULL — no dynobj alloc until
+        // the first `wrapper.foo = X`. Mirror of the closure cell's
+        // +24 slot at member_set.rs.
+        (ptr.add(WRAPPER_PROPS_OFF) as *mut *mut c_void).write(core::ptr::null_mut());
+    }
+}
+
+/// Release the wrapper's lazy props dynobj through the universal drop
+/// dispatcher. NULL-safe. Called by each wrapper's `_drop` arm BEFORE
+/// freeing the outer block, so the drop dispatcher walks the props
+/// tree uniformly (mirror of `string_wrapper_drop`'s inner-cell
+/// release).
+///
+/// # Safety
+/// `ptr` must point to a live wrapper cell with a valid +16 props slot
+/// (any wrapper allocated via one of the three `*_wrapper_new` fns).
+#[inline]
+unsafe fn release_wrapper_props(ptr: *mut u8) {
+    unsafe {
+        let props = (ptr.add(WRAPPER_PROPS_OFF) as *const *mut c_void).read();
+        if !props.is_null() {
+            __torajs_value_drop_heap(props);
+        }
     }
 }
 
@@ -131,7 +168,10 @@ pub unsafe extern "C" fn __torajs_number_wrapper_drop(p: *mut c_void) {
     if p.is_null() {
         return;
     }
-    unsafe { libc_free(p) };
+    unsafe {
+        release_wrapper_props(p as *mut u8);
+        libc_free(p);
+    };
 }
 
 /// Rc-aware drop. Decrements; frees iff this was the last owner.
@@ -201,7 +241,10 @@ pub unsafe extern "C" fn __torajs_string_wrapper_drop(p: *mut c_void) {
     if !cell.is_null() {
         unsafe { __torajs_value_drop_heap(cell as *mut c_void) };
     }
-    unsafe { libc_free(p) };
+    unsafe {
+        release_wrapper_props(p as *mut u8);
+        libc_free(p);
+    };
 }
 
 /// Rc-aware drop. Decrements; frees + inner-cell-releases iff this
@@ -266,7 +309,10 @@ pub unsafe extern "C" fn __torajs_boolean_wrapper_drop(p: *mut c_void) {
     if p.is_null() {
         return;
     }
-    unsafe { libc_free(p) };
+    unsafe {
+        release_wrapper_props(p as *mut u8);
+        libc_free(p);
+    };
 }
 
 /// Rc-aware drop.
