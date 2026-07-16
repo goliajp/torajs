@@ -14,6 +14,7 @@ use crate::layout::{
     ANY_HEAP, ANY_UNDEF, CELL_PROPS_OFF, DEFINE_FLAG_CONFIGURABLE, DEFINE_FLAG_ENUMERABLE,
     DEFINE_FLAG_WRITABLE, DEFINE_PRESENT_CONFIGURABLE, DEFINE_PRESENT_ENUMERABLE,
     DEFINE_PRESENT_VALUE, DEFINE_PRESENT_WRITABLE, TAG_ARR_HDR, TAG_CLOSURE_HDR, TAG_DYNOBJ,
+    TAG_OBJ,
 };
 use crate::probe::{entries, probe};
 
@@ -24,6 +25,28 @@ unsafe extern "C" {
     fn __torajs_anyv_unbox_tag(v: u64) -> i64;
     fn __torajs_anyv_unbox_value(v: u64) -> i64;
     fn __torajs_anyv_to_bool(v: u64) -> bool;
+    /// torajs-anyvalue — class-layout struct field read as a
+    /// borrowed NaN-box (the §6.2.6.5 struct-desc lane).
+    fn __torajs_struct_field_read_anyv(
+        obj: *mut c_void,
+        name: *const u8,
+        name_len: u32,
+        out_anyv: *mut u64,
+    ) -> i64;
+}
+
+/// The two own-property stores a runtime descriptor object can live
+/// in: a dynobj entry table (DynObj itself, or a Closure / Arr
+/// expando) vs a static-layout class instance (`Tag::Obj` — an
+/// ObjectLit descriptor the checker typed structurally). Pre-fix the
+/// dispatcher's `_ => null` fallback read every struct-shaped desc
+/// as an EMPTY descriptor: `Object.defineProperties(o, props)` with
+/// `props.p = { value: 42, enumerable: true }` defined `p` as
+/// `{ value: undefined, all-false }`.
+#[derive(Clone, Copy)]
+enum DescStore {
+    Dyn(*const c_void),
+    Struct(*const c_void),
 }
 
 /// Stack-allocated Str-shaped probe key. [`probe`] / `hash_str` /
@@ -58,14 +81,30 @@ impl FakeStrKey {
 /// # Safety
 /// `desc` points at a live dynobj heap block.
 #[inline]
-unsafe fn desc_field(desc: *const c_void, name: &str) -> Option<u64> {
-    let probe_key = FakeStrKey::new(name);
-    let pr = unsafe { probe(desc, &probe_key as *const FakeStrKey as *const c_void) };
-    if !pr.found {
-        return None;
+unsafe fn desc_field(desc: DescStore, name: &str) -> Option<u64> {
+    match desc {
+        DescStore::Dyn(d) => {
+            let probe_key = FakeStrKey::new(name);
+            let pr = unsafe { probe(d, &probe_key as *const FakeStrKey as *const c_void) };
+            if !pr.found {
+                return None;
+            }
+            let ent = unsafe { entries(d) };
+            Some(unsafe { (*ent.add(pr.entry as usize)).value_anyv })
+        }
+        DescStore::Struct(s) => {
+            let mut anyv: u64 = 0;
+            let hit = unsafe {
+                __torajs_struct_field_read_anyv(
+                    s as *mut c_void,
+                    name.as_ptr(),
+                    name.len() as u32,
+                    &mut anyv,
+                )
+            };
+            if hit == 0 { None } else { Some(anyv) }
+        }
     }
-    let ent = unsafe { entries(desc) };
-    Some(unsafe { (*ent.add(pr.entry as usize)).value_anyv })
 }
 
 /// [`desc_field`] with §6.2.6.5 ToPropertyDescriptor [[Get]]
@@ -78,7 +117,7 @@ unsafe fn desc_field(desc: *const c_void, name: &str) -> Option<u64> {
 ///
 /// # Safety
 /// Same contract as [`desc_field`].
-unsafe fn desc_field_get(desc: *const c_void, name: &str) -> Option<(u64, bool)> {
+unsafe fn desc_field_get(desc: DescStore, name: &str) -> Option<(u64, bool)> {
     let raw = unsafe { desc_field(desc, name) }?;
     if unsafe { crate::accessor::value_is_accessor(raw) } {
         let pair = unsafe { __torajs_anyv_unbox_value(raw) } as *const c_void;
@@ -157,7 +196,7 @@ unsafe fn take_accessor_closure(
 ///
 /// # Safety
 /// `obj_slot` points at a live `*mut c_void` (dynobj or NULL). `key`
-/// is a live Str. `desc` is a dynobj heap pointer or NULL. Caller must
+/// is a live Str. `desc` is a heap cell pointer or NULL. Caller must
 /// check for pending throw after return.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_dynobj_define_from_desc(
@@ -169,26 +208,36 @@ pub unsafe extern "C" fn __torajs_dynobj_define_from_desc(
         return;
     }
     // §6.2.6.5 ToPropertyDescriptor reads off ANY object — dispatch
-    // per the desc cell's shape to its dynobj-backed own-field store.
-    // Pre-fix a Closure descriptor (test262's `descObj = function(){};
+    // per the desc cell's shape to its own-field store: dynobj entry
+    // table (DynObj / Closure-Arr expando) or class-layout struct
+    // fields (Tag::Obj — see [`DescStore`]). Pre-fix a Closure
+    // descriptor (test262's `descObj = function(){};
     // descObj.enumerable = true` idiom) was probed as a dynobj —
     // SIGSEGV. A NULL store (fresh Closure/Arr, or a shape with no
     // expando domain) is an empty descriptor: all-absent flags still
     // create / validate the property.
     let desc = match unsafe { (desc.cast::<u8>().add(4) as *const u16).read() } {
-        TAG_DYNOBJ => desc,
-        TAG_CLOSURE_HDR | TAG_ARR_HDR => unsafe {
-            desc.cast::<u8>()
-                .add(CELL_PROPS_OFF)
-                .cast::<*const c_void>()
-                .read()
-        },
-        _ => core::ptr::null(),
+        TAG_DYNOBJ => Some(DescStore::Dyn(desc)),
+        TAG_CLOSURE_HDR | TAG_ARR_HDR => {
+            let expando = unsafe {
+                desc.cast::<u8>()
+                    .add(CELL_PROPS_OFF)
+                    .cast::<*const c_void>()
+                    .read()
+            };
+            if expando.is_null() {
+                None
+            } else {
+                Some(DescStore::Dyn(expando))
+            }
+        }
+        TAG_OBJ => Some(DescStore::Struct(desc)),
+        _ => None,
     };
-    if desc.is_null() {
+    let Some(desc) = desc else {
         unsafe { define_apply(obj_slot, key, 0, 0, 0) };
         return;
-    }
+    };
 
     let mut flags_byte: u64 = 0;
     let mut out_tag: u64 = 0;
@@ -201,21 +250,22 @@ pub unsafe extern "C" fn __torajs_dynobj_define_from_desc(
     let set_f = unsafe { desc_field_get(desc, "set") };
     let (get_present, set_present) = (get_f.is_some(), set_f.is_some());
     if get_f.is_some() || set_f.is_some() {
-        if unsafe { desc_field(desc, "value") }.is_some()
-            || unsafe { desc_field(desc, "writable") }.is_some()
-        {
+        // §6.2.6.5 step 9/10 mix rejection — bun-parity messages
+        // ('value' wins when both are present, matching JSC).
+        let value_present = unsafe { desc_field(desc, "value") }.is_some();
+        if value_present || unsafe { desc_field(desc, "writable") }.is_some() {
             if let Some((v, o)) = get_f {
                 unsafe { release_desc_field(v, o) };
             }
             if let Some((v, o)) = set_f {
                 unsafe { release_desc_field(v, o) };
             }
-            unsafe {
-                __torajs_throw_type_error(
-                    c"Invalid property descriptor. Cannot both specify accessors and a value or writable attribute."
-                        .as_ptr() as *const u8,
-                );
-            }
+            let msg = if value_present {
+                c"Invalid property.  'value' present on property with getter or setter."
+            } else {
+                c"Invalid property.  'writable' present on property with getter or setter."
+            };
+            unsafe { __torajs_throw_type_error(msg.as_ptr() as *const u8) };
             return;
         }
         // take_accessor_closure answers an OWNED ref per closure

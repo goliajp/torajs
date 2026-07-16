@@ -360,6 +360,28 @@ pub(crate) unsafe fn struct_field_pair(ptr: *mut c_void, key: *const c_void) -> 
 /// # Safety
 /// `ptr` is a live `Tag::Obj` heap pointer.
 pub(crate) unsafe fn struct_field_pair_bytes(ptr: *mut c_void, name: &[u8]) -> Option<(u64, u64)> {
+    let (type_tag, raw) = unsafe { struct_field_raw(ptr, name) }?;
+    Some(match type_tag {
+        // Any-typed field: the slot is a NaN-box — decode it.
+        0 => (
+            crate::nanbox_encode::__torajs_anyv_unbox_tag(raw) as u64,
+            crate::nanbox_encode::__torajs_anyv_unbox_value(raw) as u64,
+        ),
+        1 => (AnySlotTag::I64 as u64, raw),
+        2 => (AnySlotTag::F64 as u64, raw),
+        3 => (AnySlotTag::Bool as u64, raw),
+        _ => (AnySlotTag::Heap as u64, raw),
+    })
+}
+
+/// Layout-resolved raw slot read shared by the pair / anyv decode
+/// shapes: `(layout type_tag, raw 8-byte slot bits)` for a hit,
+/// `None` for a missing layout / absent field / accessor-slot
+/// spelling.
+///
+/// # Safety
+/// `ptr` is a live `Tag::Obj` heap pointer.
+unsafe fn struct_field_raw(ptr: *mut c_void, name: &[u8]) -> Option<(u8, u64)> {
     // RFC 20260714-objlit-accessor blade 5 — the accessor SLOT spelling
     // is not a property. `find_field` resolves `__getter_v` (the layout
     // really does carry that field), so without this guard an `any` read
@@ -384,17 +406,43 @@ pub(crate) unsafe fn struct_field_pair_bytes(ptr: *mut c_void, name: &[u8]) -> O
             .cast::<u64>()
             .read()
     };
-    Some(match info.type_tag {
-        // Any-typed field: the slot is a NaN-box — decode it.
-        0 => (
-            crate::nanbox_encode::__torajs_anyv_unbox_tag(raw) as u64,
-            crate::nanbox_encode::__torajs_anyv_unbox_value(raw) as u64,
-        ),
-        1 => (AnySlotTag::I64 as u64, raw),
-        2 => (AnySlotTag::F64 as u64, raw),
-        3 => (AnySlotTag::Bool as u64, raw),
-        _ => (AnySlotTag::Heap as u64, raw),
-    })
+    Some((info.type_tag, raw))
+}
+
+/// C ABI shell over [`struct_field_raw`] for sibling runtime crates
+/// (torajs-dynobj's §6.2.6.5 ToPropertyDescriptor struct-desc lane).
+/// Answers 1 and fills `out_anyv` with the field as a BORROWED
+/// NaN-box (an Any slot passes its box through untouched — no
+/// ShortStr materialization; typed slots pure-encode, the struct
+/// keeps every heap stake), or 0 for missing layout / absent field.
+///
+/// # Safety
+/// `obj` is a live `Tag::Obj` heap pointer; `name` points at
+/// `name_len` readable bytes; `out_anyv` is writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_struct_field_read_anyv(
+    obj: *mut c_void,
+    name: *const u8,
+    name_len: u32,
+    out_anyv: *mut u64,
+) -> i64 {
+    let bytes = unsafe { core::slice::from_raw_parts(name, name_len as usize) };
+    let Some((type_tag, raw)) = (unsafe { struct_field_raw(obj, bytes) }) else {
+        return 0;
+    };
+    let anyv = if type_tag == 0 {
+        raw
+    } else {
+        let slot_tag = match type_tag {
+            1 => AnySlotTag::I64,
+            2 => AnySlotTag::F64,
+            3 => AnySlotTag::Bool,
+            _ => AnySlotTag::Heap,
+        };
+        unsafe { crate::nanbox_encode::__torajs_anyv_box_from_pair(slot_tag as i64, raw as i64) }
+    };
+    unsafe { *out_anyv = anyv };
+    1
 }
 
 /// Blade 5 — is `key` an accessor property of the struct cell `ptr`?
