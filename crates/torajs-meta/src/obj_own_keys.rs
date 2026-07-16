@@ -56,6 +56,9 @@ pub(crate) const TAG_NUMBER_WRAPPER: u16 = 21;
 pub(crate) const TAG_STRING_WRAPPER: u16 = 22;
 pub(crate) const TAG_BOOLEAN_WRAPPER: u16 = 23;
 pub(crate) const WRAPPER_PROPS_OFF: usize = 16;
+/// Wrapper `[[StringData]]` inner Str-cell ptr slot
+/// (`torajs_rc::Tag::StringWrapper` layout: `[header:8][str_cell:8]`).
+pub(crate) const WRAPPER_INNER_OFF: usize = 8;
 
 /// torajs-arr layout mirrors — `len` u64 at +8, inline props-dynobj
 /// slot at +24 (`torajs_arr::layout::ARR_PROPS_OFF`).
@@ -279,14 +282,40 @@ pub unsafe extern "C" fn __torajs_anyv_own_keys(v: u64, include_nonenum: i64) ->
                 }
             }
             TAG_OBJ_CELL => unsafe { crate::struct_enum::__torajs_anyv_struct_keys(v) },
+            // §10.4.3.3 String exotic OwnPropertyKeys — the
+            // [[StringData]] integer indices come first (+ "length"
+            // for gOPN, like the bare Str arm), then the expando
+            // keys with index shadows skipped (arr-arm pattern).
+            // A NULL inner slot (`new String()`) is the empty string.
+            TAG_STRING_WRAPPER => {
+                let inner =
+                    unsafe { (cell.cast::<u8>().add(WRAPPER_INNER_OFF) as *const u64).read() }
+                        as *const c_void;
+                let len = if inner.is_null() {
+                    0i64
+                } else {
+                    let units =
+                        unsafe { (inner.cast::<u8>().add(STR_LEN_OFF) as *const u32).read() };
+                    units as i64
+                };
+                let out = unsafe { index_keys(len, include_nonenum) };
+                let props =
+                    unsafe { (cell.cast::<u8>().add(WRAPPER_PROPS_OFF) as *const u64).read() }
+                        as *const c_void;
+                if props.is_null() {
+                    out
+                } else {
+                    unsafe {
+                        dynobj_keys_append(props, include_nonenum, out as *mut u8, true)
+                            as *mut c_void
+                    }
+                }
+            }
             // RFC 20260716 刀 5 (rotation 121 chunk 5) — wrapper
-            // cells now carry a lazy expando dynobj at `+16` (chunks
-            // 4/5). `Object.keys` walks the expando; StringWrapper's
-            // inherent §22.1.4 index face is still exposed by the
-            // subset-specific `String.prototype`-shaped helpers
-            // (recorded L3b: unify with the closure-arm empty-array
-            // baseline). Empty-slot wrappers answer an empty array.
-            TAG_NUMBER_WRAPPER | TAG_STRING_WRAPPER | TAG_BOOLEAN_WRAPPER => {
+            // cells carry a lazy expando dynobj at `+16` (chunks
+            // 4/5); Number / Boolean wrappers have no inherent own
+            // keys, so the expando walk is the whole surface.
+            TAG_NUMBER_WRAPPER | TAG_BOOLEAN_WRAPPER => {
                 let props =
                     unsafe { (cell.cast::<u8>().add(WRAPPER_PROPS_OFF) as *const u64).read() }
                         as *const c_void;

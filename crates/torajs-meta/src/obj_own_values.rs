@@ -31,8 +31,9 @@ use core::ffi::c_void;
 
 use crate::obj_own_keys::{
     ANY_HEAP_TAG, ARR_LEN_OFF, ARR_PROPS_OFF, CLOSURE_PROPS_OFF, FLAG_ENUMERABLE, HDR_TYPE_TAG_OFF,
-    KIND_CHAIN_HEAP, SHORT_STR_TOP16, TAG_ACCESSOR_PAIR, TAG_ARR_CELL, TAG_CLOSURE_CELL,
-    TAG_OBJ_CELL, TAG_STR_CELL, heap_type_tag_local, is_dynobj_imm,
+    KIND_CHAIN_HEAP, SHORT_STR_TOP16, TAG_ACCESSOR_PAIR, TAG_ARR_CELL, TAG_BOOLEAN_WRAPPER,
+    TAG_CLOSURE_CELL, TAG_NUMBER_WRAPPER, TAG_OBJ_CELL, TAG_STR_CELL, TAG_STRING_WRAPPER,
+    WRAPPER_INNER_OFF, WRAPPER_PROPS_OFF, heap_type_tag_local, is_dynobj_imm,
 };
 
 unsafe extern "C" {
@@ -247,6 +248,17 @@ unsafe fn closure_props(cell: *const c_void) -> *const c_void {
     unsafe { (cell.cast::<u8>().add(CLOSURE_PROPS_OFF) as *const u64).read() as *const c_void }
 }
 
+/// A primitive-wrapper cell's lazy expando dynobj, if any.
+unsafe fn wrapper_props(cell: *const c_void) -> *const c_void {
+    unsafe { (cell.cast::<u8>().add(WRAPPER_PROPS_OFF) as *const u64).read() as *const c_void }
+}
+
+/// A StringWrapper's inner `[[StringData]]` Str cell — NULL for the
+/// `new String()` empty-string sentinel.
+unsafe fn wrapper_str_inner(cell: *const c_void) -> *const c_void {
+    unsafe { (cell.cast::<u8>().add(WRAPPER_INNER_OFF) as *const u64).read() as *const c_void }
+}
+
 /// ToObject throw shared by both choosers (§20.1.2.17 step 1); the
 /// pending-throw model still needs a valid array for the value flow.
 unsafe fn throw_to_object(any_shape: bool) -> *mut c_void {
@@ -294,6 +306,33 @@ pub unsafe extern "C" fn __torajs_anyv_own_values(v: u64) -> *mut c_void {
                 }
             }
             TAG_OBJ_CELL => unsafe { crate::struct_enum::__torajs_anyv_struct_values(v) },
+            // §10.4.3.3 — StringWrapper's [[StringData]] per-index
+            // chars first, then the expando values (keys-face twin).
+            TAG_STRING_WRAPPER => {
+                let inner = unsafe { wrapper_str_inner(cell) };
+                let arr = if inner.is_null() {
+                    unsafe { __torajs_arr_alloc_any(0) as *mut c_void }
+                } else {
+                    unsafe { str_cell_values(inner) }
+                };
+                let props = unsafe { wrapper_props(cell) };
+                if props.is_null() {
+                    arr
+                } else {
+                    unsafe { dynobj_values_append(props, arr as *mut u8) as *mut c_void }
+                }
+            }
+            // Number / Boolean wrappers carry no inherent own keys —
+            // the expando walk is the whole surface (keys-face twin).
+            TAG_NUMBER_WRAPPER | TAG_BOOLEAN_WRAPPER => {
+                let props = unsafe { wrapper_props(cell) };
+                let arr = unsafe { __torajs_arr_alloc_any(0) };
+                if props.is_null() {
+                    arr as *mut c_void
+                } else {
+                    unsafe { dynobj_values_append(props, arr) as *mut c_void }
+                }
+            }
             _ => unsafe { __torajs_arr_alloc_any(0) as *mut c_void },
         };
     }
@@ -339,6 +378,35 @@ pub unsafe extern "C" fn __torajs_anyv_own_entries(v: u64) -> *mut c_void {
                 outer as *mut c_void
             }
             TAG_OBJ_CELL => unsafe { crate::struct_enum::__torajs_anyv_struct_entries(v) },
+            // §10.4.3.3 — StringWrapper index pairs first, then the
+            // expando pairs (keys-face twin).
+            TAG_STRING_WRAPPER => {
+                let inner = unsafe { wrapper_str_inner(cell) };
+                let outer = if inner.is_null() {
+                    unsafe { __torajs_arr_alloc(0) }
+                } else {
+                    unsafe { str_cell_entries(inner) as *mut u8 }
+                };
+                let props = unsafe { wrapper_props(cell) };
+                let outer = if props.is_null() {
+                    outer
+                } else {
+                    unsafe { dynobj_entries_append(props, outer) }
+                };
+                unsafe { __torajs_arr_mark_kind(outer as *mut c_void, KIND_CHAIN_HEAP) };
+                outer as *mut c_void
+            }
+            TAG_NUMBER_WRAPPER | TAG_BOOLEAN_WRAPPER => {
+                let props = unsafe { wrapper_props(cell) };
+                let outer = unsafe { __torajs_arr_alloc(0) };
+                let outer = if props.is_null() {
+                    outer
+                } else {
+                    unsafe { dynobj_entries_append(props, outer) }
+                };
+                unsafe { __torajs_arr_mark_kind(outer as *mut c_void, KIND_CHAIN_HEAP) };
+                outer as *mut c_void
+            }
             _ => unsafe { __torajs_arr_alloc(0) as *mut c_void },
         };
     }
