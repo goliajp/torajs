@@ -196,10 +196,33 @@ pub(crate) fn lower(
             );
             ctx.scope_stack.last_mut().unwrap().push(p.clone());
         } else {
-            ctx.f.append_void(
+            // Unbound `catch {}` still owns the taken value — take
+            // (tag, value), box, and drop it. Pre-fix this arm only
+            // cleared the active flag via a discarded throw_take,
+            // stranding the whole thrown heap payload (Error inst +
+            // message + stack) per catch.
+            let tag_v = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.throw_take_tag, vec![]),
+                Type::I64,
+                None,
+            );
+            let val_v = ctx.f.append_inst(
                 ctx.cur_block,
                 InstKind::Call(ctx.intrinsics.throw_take, vec![]),
+                Type::I64,
+                None,
             );
+            let boxed = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(
+                    ctx.intrinsics.any_box,
+                    vec![Operand::Value(tag_v), Operand::Value(val_v)],
+                ),
+                Type::Any,
+                None,
+            );
+            ctx.emit_drop_value(Operand::Value(boxed), Type::Any);
         }
         if let Some(fb) = finally_blk {
             ctx.try_stack.push(fb);

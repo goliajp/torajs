@@ -76,9 +76,11 @@ pub const SLOT_TYPE_ERROR: usize = 1;
 pub const SLOT_RANGE_ERROR: usize = 2;
 const SLOT_COUNT: usize = 3;
 
-/// Factory fn-ptr type: takes a `*mut Str` (caller transfers
-/// ownership of one refcount) and returns a fresh Error-subclass
-/// instance with `.message` filled in.
+/// Factory fn-ptr type: takes a `*mut Str` (borrowed — the codegen'd
+/// TS-level `__new_<C>` fn's ctor field store retains its own
+/// reference) and returns a fresh Error-subclass instance with
+/// `.message` filled in. The caller keeps its own stake on the Str
+/// and must release it after the call.
 pub type NativeErrorFactory = unsafe extern "C" fn(message_str: *mut c_void) -> *mut c_void;
 
 /// 3-slot registry. `AtomicPtr<()>` rather than `*mut c_void`
@@ -147,6 +149,11 @@ unsafe extern "C" {
 
     /// libc `strlen` — Layer-0 system primitive; no `dep` cost.
     fn strlen(s: *const c_char) -> usize;
+
+    /// Release one refcount on a Str block (static-literal and
+    /// Substr-view aware; frees via the pool when rc hits 0).
+    /// Implemented in `torajs-str` (`str_drop.rs`).
+    fn __torajs_str_drop(s: *mut u8);
 }
 
 // ============================================================
@@ -280,9 +287,17 @@ unsafe fn throw_native(slot: i64, msg: *const c_char) {
         if let Some(factory) = lookup_factory(slot as usize) {
             // SAFETY: factory is a valid NativeErrorFactory per the
             // safety contract of __torajs_register_native_error;
-            // err is a freshly-allocated Str the factory takes
-            // ownership of.
+            // err is a valid freshly-allocated Str.
             let inst = unsafe { factory(err as *mut c_void) };
+            // The factory is a codegen'd TS-level `__new_<C>` fn:
+            // its `message` param follows the standard borrow
+            // convention and the ctor's `this.message = message`
+            // field store takes its own retained reference (rc 1→2
+            // measured). Release our mint stake — the instance's
+            // field is now the sole owner. Without this every
+            // native throw stranded one msg Str per call.
+            // SAFETY: err is a valid non-view Str block; rc ≥ 1.
+            unsafe { __torajs_str_drop(err) };
             // P2.4-b — direct call to the local Rust impl of
             // __torajs_throw_set (no extern hop). Same observable
             // semantics as the LLVM-IR-emitted version it replaces.
