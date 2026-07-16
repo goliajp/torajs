@@ -88,8 +88,34 @@ use super::{Ast, BinOp, ClassCtor, Expr, Param, Stmt, default_init_for_type};
 ///     fields. Same name in two scopes is an error (panic) since both
 ///     would map to the same `this.<name>` field.
 pub fn desugar_generators(ast: &mut Ast) {
-    let gen_indices: Vec<(usize, String, Vec<Param>, Option<String>, Vec<Stmt>)> = ast
-        .stmts
+    let gen_indices = collect_generator_fn_decls(ast);
+    if gen_indices.is_empty() {
+        return;
+    }
+
+    let mut appended: Vec<Stmt> = Vec::new();
+    for (idx, gen_name, gen_params, gen_ret, gen_body) in gen_indices {
+        desugar_one_generator(
+            ast,
+            idx,
+            gen_name,
+            gen_params,
+            gen_ret,
+            gen_body,
+            &mut appended,
+        );
+    }
+    ast.stmts.extend(appended);
+}
+
+/// Snapshot every top-level `function*` decl's index + signature +
+/// body so the driver loop can safely mutate `ast.stmts` in place
+/// (the assemble_generator_class_and_factory call splices at each
+/// captured `idx`).
+fn collect_generator_fn_decls(
+    ast: &Ast,
+) -> Vec<(usize, String, Vec<Param>, Option<String>, Vec<Stmt>)> {
+    ast.stmts
         .iter()
         .enumerate()
         .filter_map(|(i, s)| match s {
@@ -109,201 +135,206 @@ pub fn desugar_generators(ast: &mut Ast) {
             )),
             _ => None,
         })
+        .collect()
+}
+
+/// Full per-generator desugar: rewrite one `function*` decl at `idx`
+/// into a `__Gen_<name>` class + `__new_<name>` factory, splicing the
+/// new stmts into `appended`. The heavy pipeline stays byte-for-byte
+/// from the pre-chunk-4 driver — this helper just carves the loop
+/// body out so `desugar_generators` reads as a thin orchestrator.
+fn desugar_one_generator(
+    ast: &mut Ast,
+    idx: usize,
+    gen_name: String,
+    mut gen_params: Vec<Param>,
+    gen_ret: Option<String>,
+    mut gen_body: Vec<Stmt>,
+    appended: &mut Vec<Stmt>,
+) {
+    // Un-annotated generator params flow through the Any-tier.
+    // The __Gen ctor / fields / factory all clone these params;
+    // leaving ann=None fails check_fn_type's mandatory-ann rule
+    // on `__cm___Gen_*__ctor` (implicit-generics' `__this` arm
+    // never back-fills method params), and the old field-only
+    // `"number"` fallback was wrong for non-number defaults.
+    for p in &mut gen_params {
+        if p.type_ann.is_none() {
+            p.type_ann = Some("any".into());
+        }
+    }
+    // P10.7 — Default-Any generator. When the user omits the
+    // return-type annotation (`function* foo() {...}`), infer
+    // `Generator<any>` so the body's `yield` values flow through
+    // the existing Any-tier (NaN-box AnyValue) via the
+    // `Expr::As { …, ty_ann: "any" }` wrap inside
+    // `GenSm::emit_yield_return`. `Generator<T>` /
+    // `IterableIterator<T>` annotations keep their explicit T.
+    let yield_ty = gen_ret.unwrap_or_else(|| "any".into());
+
+    // Param-destructuring prefix: parse_fn recorded how many
+    // synthesized `let leaf = __param_destr_N.<field>` stmts it
+    // prepended to the body. Peel them off — they move into the
+    // __Gen ctor (eager binding at the factory call per ES §9.2
+    // FunctionDeclarationInstantiation; a throwing destructure
+    // must fire at `f()`, not at the first `next()`). Leaf names
+    // become class fields so the state machine reads them via
+    // `this.<leaf>`.
+    let destr_prefix = ast
+        .gen_param_destr_prefix
+        .get(&gen_name)
+        .copied()
+        .unwrap_or(0);
+    let ctor_destr_lets: Vec<Stmt> = gen_body.drain(..destr_prefix).collect();
+    let destr_leaf_fields: Vec<String> = ctor_destr_lets
+        .iter()
+        .filter_map(|s| match s {
+            Stmt::LetDecl { name, .. } if !name.starts_with("__nested_destr_") => {
+                Some(name.clone())
+            }
+            _ => None,
+        })
         .collect();
 
-    if gen_indices.is_empty() {
-        return;
-    }
-
-    let mut appended: Vec<Stmt> = Vec::new();
-
-    for (idx, gen_name, mut gen_params, gen_ret, mut gen_body) in gen_indices {
-        // Un-annotated generator params flow through the Any-tier.
-        // The __Gen ctor / fields / factory all clone these params;
-        // leaving ann=None fails check_fn_type's mandatory-ann rule
-        // on `__cm___Gen_*__ctor` (implicit-generics' `__this` arm
-        // never back-fills method params), and the old field-only
-        // `"number"` fallback was wrong for non-number defaults.
-        for p in &mut gen_params {
-            if p.type_ann.is_none() {
-                p.type_ann = Some("any".into());
-            }
-        }
-        // P10.7 — Default-Any generator. When the user omits the
-        // return-type annotation (`function* foo() {...}`), infer
-        // `Generator<any>` so the body's `yield` values flow through
-        // the existing Any-tier (NaN-box AnyValue) via the
-        // `Expr::As { …, ty_ann: "any" }` wrap inside
-        // `GenSm::emit_yield_return`. `Generator<T>` /
-        // `IterableIterator<T>` annotations keep their explicit T.
-        let yield_ty = gen_ret.unwrap_or_else(|| "any".into());
-
-        // Param-destructuring prefix: parse_fn recorded how many
-        // synthesized `let leaf = __param_destr_N.<field>` stmts it
-        // prepended to the body. Peel them off — they move into the
-        // __Gen ctor (eager binding at the factory call per ES §9.2
-        // FunctionDeclarationInstantiation; a throwing destructure
-        // must fire at `f()`, not at the first `next()`). Leaf names
-        // become class fields so the state machine reads them via
-        // `this.<leaf>`.
-        let destr_prefix = ast
-            .gen_param_destr_prefix
-            .get(&gen_name)
-            .copied()
-            .unwrap_or(0);
-        let ctor_destr_lets: Vec<Stmt> = gen_body.drain(..destr_prefix).collect();
-        let destr_leaf_fields: Vec<String> = ctor_destr_lets
-            .iter()
-            .filter_map(|s| match s {
-                Stmt::LetDecl { name, .. } if !name.starts_with("__nested_destr_") => {
-                    Some(name.clone())
-                }
-                _ => None,
-            })
-            .collect();
-
-        // J.2.a/b + J.4 — prep gen_body: expand yield-into pairs,
-        // lift `let` decls to class fields, rewrite param/local
-        // idents to `this.<name>`. Returns (prepared_body,
-        // lifted_locals) for the class-assembly step below.
-        // Destr leaf names join the rewrite set so body reads of a
-        // destructured binding resolve to the ctor-assigned field.
-        let mut rewrite_params = gen_params.clone();
-        for leaf in &destr_leaf_fields {
-            rewrite_params.push(Param {
-                name: leaf.clone(),
-                type_ann: Some("any".into()),
-                default: None,
-                is_rest: false,
-            });
-        }
-        let (gen_body, lifted_locals) = crate::ast::desugar_generators_prep::prep_generator_body(
-            ast,
-            gen_body,
-            &gen_name,
-            &rewrite_params,
-            &yield_ty,
-        );
-
-        // Class name + struct return type for next().
-        let class_name = format!("__Gen_{gen_name}");
-        let step_ann = format!("__step_{gen_name}");
-        // Async generator (RFC 20260713 blade 4): the factory itself
-        // stays un-wrapped (parser kept the name out of async_fns —
-        // ag() answers the generator object directly per §27.6), and
-        // the step methods pick up their Promise<__step_*> shape via
-        // the class-method async rewrite: registering the mangled
-        // names here is all desugar_classes_emit needs.
-        if ast.async_generator_fns.contains(&gen_name) {
-            for m in ["next", "return", "throw"] {
-                ast.async_fns.insert(format!("__cm_{class_name}__{m}"));
-            }
-        }
-        // Type alias `type __step_<gen> = { value: T, done: boolean }`.
-        ast.stmts.push(Stmt::TypeDecl {
-            name: step_ann.clone(),
-            type_params: Vec::new(),
-            fields: vec![
-                ("value".into(), yield_ty.clone()),
-                ("done".into(), "boolean".into()),
-            ],
+    // J.2.a/b + J.4 — prep gen_body: expand yield-into pairs,
+    // lift `let` decls to class fields, rewrite param/local
+    // idents to `this.<name>`. Returns (prepared_body,
+    // lifted_locals) for the class-assembly step below.
+    // Destr leaf names join the rewrite set so body reads of a
+    // destructured binding resolve to the ctor-assigned field.
+    let mut rewrite_params = gen_params.clone();
+    for leaf in &destr_leaf_fields {
+        rewrite_params.push(Param {
+            name: leaf.clone(),
+            type_ann: Some("any".into()),
+            default: None,
+            is_rest: false,
         });
-
-        // Build the state machine + while-true loop body + tail return.
-        // Yields close an arm with `return {value:e, done:false}`;
-        // control-flow gotos close with `state = N; continue;` and the
-        // `while(true)` loop re-enters the if-chain at the new state.
-        let next_body = build_state_machine_next_body(ast, gen_body, &yield_ty);
-
-        // Build the generator class with __state field + ctor + next().
-        let zero_init = default_init_for_type("number");
-        let zero_init_id = ast.add_expr(zero_init);
-        let ctor = ClassCtor {
-            params: gen_params.clone(),
-            body: vec![Stmt::Expr({
-                let this_id = ast.add_expr(Expr::This);
-                let state_member = ast.add_expr(Expr::Member {
-                    obj: this_id,
-                    name: "__state".into(),
-                });
-                ast.add_expr(Expr::Assign {
-                    target: state_member,
-                    value: zero_init_id,
-                })
-            })],
-        };
-        // J.4 — next() takes an optional `__yield_arg: <yield_ty> = 0`
-        // parameter and stashes it in `this.__sent` before re-entering
-        // the state machine. YieldInto-expanded `let v = this.__sent`
-        // sites read that field to receive the value passed to
-        // `g.next(arg)`. First call's arg is ignored per JS spec; tr's
-        // typed-default uses zero/empty depending on yield type.
-        // NOT default_init_for_type(&yield_ty): apply_default_args
-        // groups method defaults by NAME ("next"), so every __Gen
-        // class's __yield_arg default must stay shape-uniform — the
-        // first-seen class's default ExprId pads every `it.next()`
-        // call site. An any-lane `undefined` default here would leak
-        // into a number-lane next() (gate-caught: "argument 0:
-        // expected Number, got Undefined"). The first call's arg is
-        // ignored per spec, so the numeric zero is only ever a
-        // placeholder.
-        let yield_arg_default = if yield_ty == "any" {
-            Expr::Number(0.0)
-        } else {
-            default_init_for_type(&yield_ty)
-        };
-        let yield_arg_default_id = ast.add_expr(yield_arg_default);
-        let next_method = crate::ast::desugar_generators_methods::build_next_method(
-            ast,
-            yield_arg_default_id,
-            &yield_ty,
-            &step_ann,
-            next_body,
-        );
-        let return_method =
-            crate::ast::desugar_generators_methods::build_return_method(ast, &yield_ty, &step_ann);
-        let throw_method =
-            crate::ast::desugar_generators_methods::build_throw_method(ast, &step_ann);
-        // For Phase J MVP, generator parameters are stored as fields on
-        // the iterator object so the body can reference them through
-        // `this.<name>`. The fields are auto-prepended to the class
-        // declaration; the ctor's prelude (above) adds an assignment
-        // for each param.
-        // P10.6-A3 — nominal-marker field whose name is unique per
-        // generator class. Generator desugar lifts every yield-fn
-        // into a class with structurally identical primitives
-        // (`__state: number` + `__sent: <yield_ty>` + params /
-        // lifted locals); two `function* a()` + `function* b()`
-        // sharing the same yield_ty + parameter shape used to
-        // collapse to the same struct sid, and ssa_lower:18693's
-        // sibling-class static dispatch picked the first-matching
-        // alias from a HashMap iter — non-deterministically
-        // routing `a().next()` to `__cm_<other>__next`. The
-        // marker breaks structural equivalence per generator (V8
-        // / SpiderMonkey side-step the same problem with nominal
-        // class identity; tora's structural type system isn't
-        // changing in this phase, so a per-class field-name
-        // marker is the narrow fix that keeps the dispatch
-        // correct without an SSA-level type-system overhaul).
-        crate::ast::desugar_generators_class::assemble_generator_class_and_factory(
-            ast,
-            idx,
-            gen_name,
-            gen_params,
-            &yield_ty,
-            class_name,
-            &lifted_locals,
-            ctor.body,
-            ctor_destr_lets,
-            &destr_leaf_fields,
-            next_method,
-            return_method,
-            throw_method,
-            &mut appended,
-        );
     }
+    let (gen_body, lifted_locals) = crate::ast::desugar_generators_prep::prep_generator_body(
+        ast,
+        gen_body,
+        &gen_name,
+        &rewrite_params,
+        &yield_ty,
+    );
 
-    ast.stmts.extend(appended);
+    // Class name + struct return type for next().
+    let class_name = format!("__Gen_{gen_name}");
+    let step_ann = format!("__step_{gen_name}");
+    // Async generator (RFC 20260713 blade 4): the factory itself
+    // stays un-wrapped (parser kept the name out of async_fns —
+    // ag() answers the generator object directly per §27.6), and
+    // the step methods pick up their Promise<__step_*> shape via
+    // the class-method async rewrite: registering the mangled
+    // names here is all desugar_classes_emit needs.
+    if ast.async_generator_fns.contains(&gen_name) {
+        for m in ["next", "return", "throw"] {
+            ast.async_fns.insert(format!("__cm_{class_name}__{m}"));
+        }
+    }
+    // Type alias `type __step_<gen> = { value: T, done: boolean }`.
+    ast.stmts.push(Stmt::TypeDecl {
+        name: step_ann.clone(),
+        type_params: Vec::new(),
+        fields: vec![
+            ("value".into(), yield_ty.clone()),
+            ("done".into(), "boolean".into()),
+        ],
+    });
+
+    // Build the state machine + while-true loop body + tail return.
+    // Yields close an arm with `return {value:e, done:false}`;
+    // control-flow gotos close with `state = N; continue;` and the
+    // `while(true)` loop re-enters the if-chain at the new state.
+    let next_body = build_state_machine_next_body(ast, gen_body, &yield_ty);
+
+    // Build the generator class with __state field + ctor + next().
+    let zero_init = default_init_for_type("number");
+    let zero_init_id = ast.add_expr(zero_init);
+    let ctor = ClassCtor {
+        params: gen_params.clone(),
+        body: vec![Stmt::Expr({
+            let this_id = ast.add_expr(Expr::This);
+            let state_member = ast.add_expr(Expr::Member {
+                obj: this_id,
+                name: "__state".into(),
+            });
+            ast.add_expr(Expr::Assign {
+                target: state_member,
+                value: zero_init_id,
+            })
+        })],
+    };
+    // J.4 — next() takes an optional `__yield_arg: <yield_ty> = 0`
+    // parameter and stashes it in `this.__sent` before re-entering
+    // the state machine. YieldInto-expanded `let v = this.__sent`
+    // sites read that field to receive the value passed to
+    // `g.next(arg)`. First call's arg is ignored per JS spec; tr's
+    // typed-default uses zero/empty depending on yield type.
+    // NOT default_init_for_type(&yield_ty): apply_default_args
+    // groups method defaults by NAME ("next"), so every __Gen
+    // class's __yield_arg default must stay shape-uniform — the
+    // first-seen class's default ExprId pads every `it.next()`
+    // call site. An any-lane `undefined` default here would leak
+    // into a number-lane next() (gate-caught: "argument 0:
+    // expected Number, got Undefined"). The first call's arg is
+    // ignored per spec, so the numeric zero is only ever a
+    // placeholder.
+    let yield_arg_default = if yield_ty == "any" {
+        Expr::Number(0.0)
+    } else {
+        default_init_for_type(&yield_ty)
+    };
+    let yield_arg_default_id = ast.add_expr(yield_arg_default);
+    let next_method = crate::ast::desugar_generators_methods::build_next_method(
+        ast,
+        yield_arg_default_id,
+        &yield_ty,
+        &step_ann,
+        next_body,
+    );
+    let return_method =
+        crate::ast::desugar_generators_methods::build_return_method(ast, &yield_ty, &step_ann);
+    let throw_method =
+        crate::ast::desugar_generators_methods::build_throw_method(ast, &step_ann);
+    // For Phase J MVP, generator parameters are stored as fields on
+    // the iterator object so the body can reference them through
+    // `this.<name>`. The fields are auto-prepended to the class
+    // declaration; the ctor's prelude (above) adds an assignment
+    // for each param.
+    // P10.6-A3 — nominal-marker field whose name is unique per
+    // generator class. Generator desugar lifts every yield-fn
+    // into a class with structurally identical primitives
+    // (`__state: number` + `__sent: <yield_ty>` + params /
+    // lifted locals); two `function* a()` + `function* b()`
+    // sharing the same yield_ty + parameter shape used to
+    // collapse to the same struct sid, and ssa_lower:18693's
+    // sibling-class static dispatch picked the first-matching
+    // alias from a HashMap iter — non-deterministically
+    // routing `a().next()` to `__cm_<other>__next`. The
+    // marker breaks structural equivalence per generator (V8
+    // / SpiderMonkey side-step the same problem with nominal
+    // class identity; tora's structural type system isn't
+    // changing in this phase, so a per-class field-name
+    // marker is the narrow fix that keeps the dispatch
+    // correct without an SSA-level type-system overhaul).
+    crate::ast::desugar_generators_class::assemble_generator_class_and_factory(
+        ast,
+        idx,
+        gen_name,
+        gen_params,
+        &yield_ty,
+        class_name,
+        &lifted_locals,
+        ctor.body,
+        ctor_destr_lets,
+        &destr_leaf_fields,
+        next_method,
+        return_method,
+        throw_method,
+        appended,
+    );
 }
 
 /// Build the next()'s state-machine body: lower `gen_body` through
