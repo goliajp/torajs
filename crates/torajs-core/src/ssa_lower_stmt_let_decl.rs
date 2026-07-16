@@ -91,9 +91,21 @@ pub(crate) fn lower(
     // binding lowers through the P3.2 dynobj-init lane (`any`),
     // mirroring the checker's dynobj_degraded typing, so the define
     // write-back can rebind the slot.
+    //
+    // 2026-07-16 (rotation 121 chunk 5-followup) — mirror the
+    // checker's undef-field-in-struct widen at `check_stmt_let_decl`
+    // (`struct_has_undef_field`). Independent SSA-side compute so
+    // the two sides can't drift; keys off the checker-stashed
+    // `expr_types` (which is the checker's source-of-truth for the
+    // init expression's type — same map the boxing sites read).
+    let init_struct_has_undef = matches!(
+        ctx.expr_types.get(&init),
+        Some(crate::check::Type::Struct(fs))
+            if fs.iter().any(|(_, ft)| matches!(ft, crate::check::Type::Undefined))
+    );
     if type_ann.is_none()
         && matches!(ctx.ast.get_expr(init), Expr::ObjectLit { .. })
-        && ctx.dynobj_degraded.contains(name)
+        && (ctx.dynobj_degraded.contains(name) || init_struct_has_undef)
     {
         ty = Type::Any;
     }

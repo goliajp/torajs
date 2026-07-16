@@ -105,9 +105,20 @@ pub(crate) fn check(
     // to a DynObj and the write-back only rebinds Any-typed slots,
     // so a static struct type would strand the defined property on
     // an orphan cell (test262 gOPN accessor family).
+    //
+    // 2026-07-16 (rotation 121 chunk 5-followup) — the same widen
+    // applies to an unannotated ObjectLit init whose inferred struct
+    // carries a `Type::Undefined` field: pre-bound
+    // `const d1 = { value: undefined }; f(d1)` (arg param typed
+    // `any`) otherwise walks the struct → `box_to_any` refcounted
+    // arm and the callee's `desc.value` read collapses to null
+    // (Type::Undefined field storage is ptr-null, so the any-lane
+    // sees ANY_NULL=0). Widening the binding to `any` routes it
+    // through the dobj lane (mirrors chunk 5's inline-ObjectLit fn
+    // arg fix at the call site — this is the pre-bound analog).
     let final_ty = if type_ann.is_none()
         && matches!(ast.get_expr(init), Expr::ObjectLit { .. })
-        && checker.dynobj_degraded.contains(name)
+        && (checker.dynobj_degraded.contains(name) || struct_has_undef_field(&final_ty))
     {
         Type::Any
     } else {
@@ -133,6 +144,19 @@ pub(crate) fn check(
     ) {
         checker.errors.push_err(e);
     }
+}
+
+/// 2026-07-16 (rotation 121 chunk 5-followup) — an ObjectLit init
+/// carrying a `Type::Undefined` field can't safely stay as a
+/// `Type::Struct` binding: any `box_to_any` at a subsequent coerce
+/// point (fn arg into an `any` param, etc.) collapses each
+/// Type::Undefined slot to ANY_NULL (ptr-null storage), stranding
+/// the spec-correct `undefined` semantics. Widening to `any` routes
+/// the init through the dobj lane so undef fields keep their
+/// ANY_UNDEF tag. Top-level fields only — nested struct inference
+/// is left untouched until a probe motivates it.
+fn struct_has_undef_field(t: &Type) -> bool {
+    matches!(t, Type::Struct(fs) if fs.iter().any(|(_, ft)| matches!(ft, Type::Undefined)))
 }
 
 /// RFC 20260714-dstr-residual blade 3 — decide which lane an array
