@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-16T03:52:12.814Z",
+  "generatedAt": "2026-07-16T05:26:56.382Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 92.71
   },
   "torajs": {
-    "commit": "f5da56bb",
-    "commitSubject": "chore: build.rs COMPILER_SOURCE_FILES audit — hedge new SSA call-site files",
+    "commit": "40faec3a",
+    "commitSubject": "refactor: extract clone_container_expr helper from deep_clone_expr (fn-size debt)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,73 +713,84 @@
   },
   "commits": [
     {
-      "hash": "f5da56bb",
-      "subject": "chore: build.rs COMPILER_SOURCE_FILES audit — hedge new SSA call-site files"
+      "hash": "40faec3a",
+      "subject": "refactor: extract clone_container_expr helper from deep_clone_expr (fn-size debt)"
     },
     {
-      "hash": "76c33fb9",
-      "subject": "refactor: extract closure-face dispatch to method_call_closure_dispatch (file-size debt)"
+      "hash": "a8fef768",
+      "subject": "refactor: extract arr_method_callback helper from method_call_arr::arr_method (fn-size debt)"
     },
     {
-      "hash": "4c45ff16",
-      "subject": "feat: struct-cell gOPD reflects FLAG_FROZEN / FLAG_SEALED (RFC 20260716 刀 25)"
+      "hash": "ef28a70d",
+      "subject": "refactor: extract scan_gt / scan_eq / scan_bang helpers from lexer::tokenize (fn-size debt)"
     },
     {
-      "hash": "da2eebd1",
-      "subject": "chore: archive the test262 sweep at 5bff2675"
+      "hash": "f7007f42",
+      "subject": "refactor: extract finalize_and_bind helper from stmt_let_decl::lower (fn-size debt)"
     },
     {
-      "hash": "5bff2675",
-      "subject": "feat: ES §17 built-in fn class-slot attribute lock (name / length / prototype)"
+      "hash": "f8754ef1",
+      "subject": "refactor: extract desugar_user_fn helper from ast_desugar_implicit_generics::run (fn-size debt)"
     },
     {
-      "hash": "354334a7",
-      "subject": "chore: hardev dashboard snapshot at rotation 116 close"
+      "hash": "9b8ddc22",
+      "subject": "refactor: extract collect_class_field_candidates helper from lower_any_member_read (fn-size debt)"
     },
     {
-      "hash": "2ecd897c",
-      "subject": "chore: archive the test262 sweep at 099b60da"
+      "hash": "2cd891b3",
+      "subject": "refactor: extract apply_patches phase-2 helper from objlit_nominal::run (fn-size debt)"
     },
     {
-      "hash": "099b60da",
-      "subject": "fix: keep Object.freeze(fn) on the header-only path (RFC 20260716 刀 24 fix-up)"
+      "hash": "d2b0857e",
+      "subject": "refactor: extract check_multi + check_export_decl helpers from check_stmt (fn-size debt)"
     },
     {
-      "hash": "75b97329",
-      "subject": "feat: Object.freeze full SetIntegrityLevel(frozen) walk (RFC 20260716 刀 24)"
+      "hash": "0f76dd99",
+      "subject": "refactor: extract try_lower_define_properties to sibling (file-size debt)"
     },
     {
-      "hash": "0592ff97",
-      "subject": "chore: archive the test262 sweep at 83031e49"
+      "hash": "a2286527",
+      "subject": "refactor: extract rewrite_extern_relocs to cmd_build_extern_relocs sibling (file-size debt)"
     },
     {
-      "hash": "83031e49",
-      "subject": "fix: Number.prototype.to{Exponential,Precision} non-finite short-circuit"
+      "hash": "91b6470f",
+      "subject": "refactor: extract try_value_of / try_to_string / try_str_prop_check sub-fns (file-size debt)"
     },
     {
-      "hash": "3488c625",
-      "subject": "chore: archive the test262 sweep at 9712b3c0"
+      "hash": "5f1af774",
+      "subject": "chore: hardev dashboard snapshot at rotation 117 close"
     }
   ],
-  "headSha": "f5da56bb",
+  "headSha": "40faec3a",
   "autorun": {
-    "total": 422,
+    "total": 423,
     "baselineTarget": 10,
-    "bySelf": 417,
+    "bySelf": 418,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784168690-6002",
-      "at": "2026-07-16T02:24:50Z",
-      "ts": 1784168690,
+      "rotationId": "r-1784174092-0ac0",
+      "at": "2026-07-16T03:54:52Z",
+      "ts": 1784174092,
       "trigger": "self",
-      "prevHead": "354334a7",
-      "handoffSha": "sha256:3cc70e6339e54d5653d60083877b95bca2f50dc46e234d96e40d59568e26e133",
-      "handoffAgeSec": 13,
+      "prevHead": "5f1af774",
+      "handoffSha": "sha256:95a8f3232843292824d7e71ecb07f02246739d5cc0f17db862453cdb5530bb8d",
+      "handoffAgeSec": 52,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784174092-0ac0",
+        "at": "2026-07-16T03:54:52Z",
+        "ts": 1784174092,
+        "trigger": "self",
+        "prevHead": "5f1af774",
+        "handoffSha": "sha256:95a8f3232843292824d7e71ecb07f02246739d5cc0f17db862453cdb5530bb8d",
+        "handoffAgeSec": 52,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784168690-6002",
         "at": "2026-07-16T02:24:50Z",
@@ -876,17 +887,6 @@
         "prevHead": "6cfa3308",
         "handoffSha": "sha256:3f2dda8137878a7180e8f2a92afc6cff1edeb298baa6c24818747aeb01b9de35",
         "handoffAgeSec": 8,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784105365-74a4",
-        "at": "2026-07-15T08:49:25Z",
-        "ts": 1784105365,
-        "trigger": "self",
-        "prevHead": "42737b81",
-        "handoffSha": "sha256:933790c9f499c06855485153418ecc33ca9219ac119c9b8a5f38583d269504c5",
-        "handoffAgeSec": 5336,
         "conformanceBefore": null,
         "commitsInSession": null
       }
