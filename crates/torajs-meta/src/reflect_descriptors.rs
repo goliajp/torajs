@@ -122,6 +122,30 @@ pub unsafe extern "C" fn __torajs_anyv_throw_typeerror_if_props_nullish(props_an
     }
 }
 
+/// §20.1.2.2 `Object.create(O, Properties)` step 3 — the outer
+/// gate: `If Properties is not undefined, then Return ?
+/// ObjectDefineProperties(obj, Properties)`. Only `null` reaches
+/// step 3.a's `ToObject` and throws; `undefined` skips the whole
+/// clause and returns `obj` untouched. Sibling of
+/// [`__torajs_anyv_throw_typeerror_if_props_nullish`] (which throws
+/// on both — used by `Object.defineProperties`); this null-only
+/// variant is the `Object.create` gate that lets `undefined`
+/// through the runtime walk (a NULL-pointer `props` there is a
+/// silent no-op).
+///
+/// # Safety
+///
+/// `props_any` must carry a valid AnyValue bit pattern.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_throw_typeerror_if_props_null_only(props_any: u64) {
+    if props_any == VALUE_NULL_IMM {
+        // SAFETY: NUL-terminated static C string.
+        unsafe {
+            __torajs_throw_type_error(c"Cannot convert undefined or null to object.".as_ptr())
+        };
+    }
+}
+
 /// §6.2.6.5 ToPropertyDescriptor step 1 — `If Type(Obj) is not
 /// Object, throw a TypeError` (RFC 20260713-defprop-residual-cluster
 /// chunk B). Same strict Type() branch as

@@ -284,6 +284,24 @@ fn lower_create(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
     if let Some((p_eid, p_op, is_literal)) = props {
         let p_ty = ctx.operand_ty(&p_op);
         if matches!(p_ty, Type::Any) {
+            // §20.1.2.2 step 3 — `null` fails ToObject; `undefined`
+            // skips the whole clause. The static-null literal is
+            // already stripped above; a dyn `Any` variable (e.g.
+            // `const p: any = null; Object.create({}, p)`) reaches
+            // this arm and must throw before the walk sees a
+            // null-immediate that unboxes to a NULL pointer (the
+            // runtime helper then silent-returns → bug). The gate
+            // is spec-correct on `undefined` too (helper is
+            // null-only, not nullish — undefined must fall through
+            // to skip step 3).
+            ctx.f.append_void(
+                ctx.cur_block,
+                InstKind::Call(
+                    ctx.intrinsics.throw_typeerror_if_props_null_only,
+                    vec![p_op.clone()],
+                ),
+            );
+            ctx.emit_throw_check(None);
             let props_ptr = ctx.any_unbox_value_as_ptr(p_op.clone());
             let slot = ctx.alloca(Type::Ptr, Some("__dynobj_slot"));
             ctx.f.append_void(

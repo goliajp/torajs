@@ -327,6 +327,7 @@ pub(crate) struct Intrinsics {
     pub(crate) throw_typeerror_if_not_object: FuncId,
     pub(crate) throw_typeerror_if_not_desc_object: FuncId,
     pub(crate) throw_typeerror_if_props_nullish: FuncId,
+    pub(crate) throw_typeerror_if_props_null_only: FuncId,
     pub(crate) object_create_check_proto: FuncId,
     pub(crate) dynobj_define_properties_from: FuncId,
     pub(crate) arr_throw_reduce_empty: FuncId,

@@ -63,6 +63,11 @@ pub(crate) struct ObjectIds {
     pub throw_typeerror_if_not_object: FuncId,
     pub throw_typeerror_if_not_desc_object: FuncId,
     pub throw_typeerror_if_props_nullish: FuncId,
+    /// §20.1.2.2 `Object.create` step-3 outer gate — throws on
+    /// `null` only (undefined skips the whole ObjectDefineProperties
+    /// clause). Sibling of `throw_typeerror_if_props_nullish` which
+    /// throws on both.
+    pub throw_typeerror_if_props_null_only: FuncId,
     pub arr_throw_reduce_empty: FuncId,
     pub arr_throw_reduce_right_empty: FuncId,
     pub throw_readonly_assign: FuncId,
@@ -147,6 +152,11 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
         ),
         throw_typeerror_if_props_nullish: decl!(
             "__torajs_anyv_throw_typeerror_if_props_nullish",
+            [Any],
+            Void
+        ),
+        throw_typeerror_if_props_null_only: decl!(
+            "__torajs_anyv_throw_typeerror_if_props_null_only",
             [Any],
             Void
         ),

@@ -292,6 +292,7 @@ pub(crate) fn build(
         throw_typeerror_if_not_object: init_b.object.throw_typeerror_if_not_object,
         throw_typeerror_if_not_desc_object: init_b.object.throw_typeerror_if_not_desc_object,
         throw_typeerror_if_props_nullish: init_b.object.throw_typeerror_if_props_nullish,
+        throw_typeerror_if_props_null_only: init_b.object.throw_typeerror_if_props_null_only,
         object_create_check_proto: init_b.object.object_create_check_proto,
         dynobj_define_properties_from: init_b.object.dynobj_define_properties_from,
         arr_throw_reduce_empty: init_b.object.arr_throw_reduce_empty,
