@@ -115,6 +115,30 @@ fn lower_freeze_or_is_frozen(ctx: &mut LowerCtx<'_>, method: &str, args: &[ExprI
         };
     }
     if method == "freeze" {
+        // Typed FnSig (closure) has no dynobj entry table to walk +
+        // `box_to_any_from_expr` doesn't support FnSig yet, so route
+        // it through the header-only `obj_freeze` (which was updated
+        // to set FLAG_FROZEN + FLAG_SEALED + FLAG_NON_EXTENSIBLE
+        // together — spec: frozen ⇒ sealed ⇒ non-extensible).
+        // Every other non-primitive shape can box into an Any and
+        // route through `anyv_freeze` for the per-entry walk.
+        if matches!(arg_ty, Type::FnSig(_)) {
+            for &a in args.iter().skip(1) {
+                let _ = ctx.lower_expr(a);
+            }
+            let cur_block = ctx.cur_block;
+            let v = ctx.f.append_inst(
+                cur_block,
+                InstKind::Call(ctx.intrinsics.obj_freeze, vec![arg_op]),
+                arg_ty,
+                None,
+            );
+            // RFC 20260705 owned-result invariant: `obj_freeze` passes
+            // the receiver through un-inc'd; the result carries its
+            // own ref.
+            ctx.emit_owned_result_inc(Operand::Value(v), arg_ty);
+            return Operand::Value(v);
+        }
         // Any-box first (parity with `Object.seal` — the anyv helper
         // owns the NaN-box tag dispatch + primitive short-circuit that
         // a raw pointer wouldn't handle).

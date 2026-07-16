@@ -26,7 +26,7 @@
 
 use core::ffi::c_void;
 
-use crate::{FLAG_FROZEN, FLAG_STATIC_LITERAL, HeapHeader};
+use crate::{FLAG_FROZEN, FLAG_NON_EXTENSIBLE, FLAG_SEALED, FLAG_STATIC_LITERAL, HeapHeader};
 
 unsafe extern "C" {
     fn __torajs_throw_type_error(msg: *const u8);
@@ -44,9 +44,17 @@ unsafe fn header(p: *const c_void) -> &'static HeapHeader {
     unsafe { &*(p as *const HeapHeader) }
 }
 
-/// `Object.freeze(p)` — set the FROZEN bit on `p`'s heap header.
-/// Returns `p` (chainable, matches the JS API which returns the
-/// passed-in object).
+/// `Object.freeze(p)` — spec ES §20.1.2.6 SetIntegrityLevel(O, frozen):
+/// mark FLAG_FROZEN + FLAG_SEALED + FLAG_NON_EXTENSIBLE on the heap
+/// header (frozen ⇒ sealed ⇒ non-extensible). Returns `p` (chainable).
+///
+/// Header-only entry point — no dynobj entry table walk. Callers that
+/// hold a DynObj cell should route through
+/// `torajs_meta::__torajs_anyv_freeze` (RFC 20260716 刀 24) which
+/// piggybacks on this + the sibling per-entry writable/configurable
+/// clear. This entry stays for typed cells whose SSA source doesn't
+/// box (e.g. `Object.freeze(fn)` — a Closure with no dynobj entry
+/// table, so the header markers suffice for spec correctness).
 ///
 /// NULL passes through unchanged (no-op + return NULL). Static-
 /// literal blocks pass through without bit-flip (writing to
@@ -62,7 +70,7 @@ pub unsafe extern "C" fn __torajs_obj_freeze(p: *mut c_void) -> *mut c_void {
     if h.flags & FLAG_STATIC_LITERAL != 0 {
         return p;
     }
-    h.flags |= FLAG_FROZEN;
+    h.flags |= FLAG_FROZEN | FLAG_SEALED | FLAG_NON_EXTENSIBLE;
     p
 }
 
