@@ -212,7 +212,45 @@ fn lower_create(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
     // forces the dynobj lane (the desc-of-descs tree must be
     // dynobj-backed for the runtime walk; the fresh tree is an owned
     // Any temp released after the walk); an Any variable is a borrow.
+    //
+    // 2026-07-16 (rotation 121 chunk 2) — a statically-null props arg
+    // (`Object.create(x, null)`) must throw TypeError per
+    // §20.1.2.2 step 3 → `ObjectDefineProperties` step 1 → `ToObject`
+    // (`null` fails the ToObject conversion; `undefined` skips step 3
+    // and is legal — hence a static-null-only gate, not a nullish
+    // one). The existing `throw_typeerror_if_props_nullish` helper
+    // throws on both null and undefined AnyValues, which is exactly
+    // what we want at this static-null site: encode a compile-time
+    // ANY_NULL box and hand it through. Dyn-null (an `any` variable
+    // holding null) stays a residual — L3b entry for the general
+    // runtime nullish gate (would need a spec-Object.create-shape
+    // helper that only throws on null, since dyn-undefined must
+    // fall through to skip step 3).
     let props: Option<(ExprId, Operand, bool)> = match args.get(1) {
+        Some(&p_eid)
+            if matches!(ctx.ast.get_expr(p_eid), Expr::Null)
+                || matches!(ctx.expr_types.get(&p_eid), Some(crate::check::Type::Null)) =>
+        {
+            let _ = ctx.lower_expr(p_eid);
+            let null_any = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(
+                    ctx.intrinsics.any_box,
+                    vec![Operand::ConstI64(0 /* ANY_NULL */), Operand::ConstI64(0)],
+                ),
+                Type::Any,
+                None,
+            );
+            ctx.f.append_void(
+                ctx.cur_block,
+                InstKind::Call(
+                    ctx.intrinsics.throw_typeerror_if_props_nullish,
+                    vec![Operand::Value(null_any)],
+                ),
+            );
+            ctx.emit_throw_check(None);
+            None
+        }
         Some(&p_eid) if matches!(ctx.ast.get_expr(p_eid), Expr::ObjectLit { .. }) => {
             let d = ctx.lower_dynobj_init(p_eid);
             let boxed = ctx.f.append_inst(
