@@ -289,61 +289,90 @@ pub(crate) fn run(ast: &mut Ast) {
             continue;
         }
 
-        let mut taken: HashSet<String> = type_params.iter().cloned().collect();
+        desugar_user_fn(
+            name,
+            params,
+            return_type,
+            type_params,
+            body,
+            ast_exprs_view,
+            &mut fn_sigs,
+        );
+    }
+}
 
-        let mut next_idx: usize = type_params.len();
-        let alloc = |taken: &mut HashSet<String>, next_idx: &mut usize| -> String {
-            loop {
-                *next_idx += 1;
-                let candidate = format!("__T{next_idx}");
-                if !taken.contains(&candidate) {
-                    taken.insert(candidate.clone());
-                    return candidate;
-                }
+/// Main-loop's "plain user fn" arm — auto-generic every un-annotated
+/// param (skipping rest-params), infer / fallback the return type per
+/// chunk 613 "un-typeable value return → `any` instead of Void", and
+/// republish the resolved `name → return_type` binding into `fn_sigs`
+/// so later fns in source order can sniff a `return <this-fn>(...)`
+/// chain. Skips auto-generic `__T*` rets — meaningless outside this
+/// fn. Runs after the two closure arms in the main loop (`__env` /
+/// `__this` / `__closure_` — the closure arms `continue` before
+/// reaching here).
+fn desugar_user_fn(
+    name: &str,
+    params: &mut Vec<Param>,
+    return_type: &mut Option<String>,
+    type_params: &mut Vec<String>,
+    body: &[Stmt],
+    ast_exprs_view: AstExprsView,
+    fn_sigs: &mut std::collections::HashMap<String, String>,
+) {
+    let mut taken: HashSet<String> = type_params.iter().cloned().collect();
+
+    let mut next_idx: usize = type_params.len();
+    let alloc = |taken: &mut HashSet<String>, next_idx: &mut usize| -> String {
+        loop {
+            *next_idx += 1;
+            let candidate = format!("__T{next_idx}");
+            if !taken.contains(&candidate) {
+                taken.insert(candidate.clone());
+                return candidate;
             }
-        };
-
-        let mut new_type_params: Vec<String> = Vec::new();
-        for p in params.iter_mut() {
-            let needs_var = p.type_ann.is_none();
-            if !needs_var {
-                continue;
-            }
-            if p.is_rest {
-                continue;
-            }
-            let var_name = alloc(&mut taken, &mut next_idx);
-            p.type_ann = Some(var_name.clone());
-            new_type_params.push(var_name);
         }
+    };
 
-        if return_type.as_deref() == Some("any") {
-            // P0.9 — explicit `: any` return stays literal "any"; no rewrite.
-        } else if return_type.is_none() && body_has_value_return(body) {
-            if let Some(inferred) = infer_return_ann(ast_exprs_view, body, params, &fn_sigs) {
-                *return_type = Some(inferred);
-            } else {
-                // Chunk 613 — mirror the closure arms: a value return
-                // the sniff can't type must not stay None (the checker
-                // then expects Void and rejects `return f(...)` chains
-                // through untyped fns). Fall back to `any`.
-                *return_type = Some("any".to_string());
-            }
+    let mut new_type_params: Vec<String> = Vec::new();
+    for p in params.iter_mut() {
+        let needs_var = p.type_ann.is_none();
+        if !needs_var {
+            continue;
         }
+        if p.is_rest {
+            continue;
+        }
+        let var_name = alloc(&mut taken, &mut next_idx);
+        p.type_ann = Some(var_name.clone());
+        new_type_params.push(var_name);
+    }
 
-        // Chunk 613 — publish the inferred ret so LATER fns in source
-        // order can sniff a `return <this-fn>(...)` chain (the a2d
-        // shape: untyped inner + outer returning inner's call). Skip
-        // auto-generic `__T*` rets — meaningless outside this fn.
-        if let Some(rt) = return_type.as_ref()
-            && !rt.starts_with("__T")
-        {
-            fn_sigs.insert(name.clone(), rt.clone());
+    if return_type.as_deref() == Some("any") {
+        // P0.9 — explicit `: any` return stays literal "any"; no rewrite.
+    } else if return_type.is_none() && body_has_value_return(body) {
+        if let Some(inferred) = infer_return_ann(ast_exprs_view, body, params, fn_sigs) {
+            *return_type = Some(inferred);
+        } else {
+            // Chunk 613 — mirror the closure arms: a value return
+            // the sniff can't type must not stay None (the checker
+            // then expects Void and rejects `return f(...)` chains
+            // through untyped fns). Fall back to `any`.
+            *return_type = Some("any".to_string());
         }
+    }
 
-        if !new_type_params.is_empty() {
-            type_params.extend(new_type_params);
-        }
+    // Chunk 613 — publish the inferred ret so LATER fns in source
+    // order can sniff a `return <this-fn>(...)` chain (the a2d
+    // shape: untyped inner + outer returning inner's call). Skip
+    // auto-generic `__T*` rets — meaningless outside this fn.
+    if let Some(rt) = return_type.as_ref()
+        && !rt.starts_with("__T")
+    {
+        fn_sigs.insert(name.to_string(), rt.clone());
+    }
+
+    if !new_type_params.is_empty() {
+        type_params.extend(new_type_params);
     }
 }
 
