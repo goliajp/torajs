@@ -62,6 +62,14 @@ unsafe extern "C" {
 
     /// Rc decrement (torajs-rc). Returns `1` on hit-zero; `0` otherwise.
     fn __torajs_rc_dec(p: *mut c_void) -> i32;
+
+    /// torajs-cycle — register a possible cycle root when the rc
+    /// stayed positive (RFC 20260717 blade 3: wrappers joined the
+    /// trial-deletion walk through their +16 expando props dict).
+    fn __torajs_cycle_buffer(p: *mut c_void);
+    /// torajs-cycle — scrub a normal-dropped block from the root
+    /// buffer before its memory is freed.
+    fn __torajs_cycle_unbuffer(p: *mut c_void);
 }
 
 /// Byte layout constants — mirror-referenced by ssa_lower emit sites
@@ -169,6 +177,7 @@ pub unsafe extern "C" fn __torajs_number_wrapper_drop(p: *mut c_void) {
         return;
     }
     unsafe {
+        __torajs_cycle_unbuffer(p);
         release_wrapper_props(p as *mut u8);
         libc_free(p);
     };
@@ -186,6 +195,8 @@ pub unsafe extern "C" fn __torajs_number_wrapper_drop_rc(p: *mut c_void) {
     }
     if unsafe { __torajs_rc_dec(p) } != 0 {
         unsafe { __torajs_number_wrapper_drop(p) };
+    } else {
+        unsafe { __torajs_cycle_buffer(p) };
     }
 }
 
@@ -237,6 +248,7 @@ pub unsafe extern "C" fn __torajs_string_wrapper_drop(p: *mut c_void) {
     if p.is_null() {
         return;
     }
+    unsafe { __torajs_cycle_unbuffer(p) };
     let cell = unsafe { string_wrapper_cell(p as *mut u8) };
     if !cell.is_null() {
         unsafe { __torajs_value_drop_heap(cell as *mut c_void) };
@@ -260,6 +272,8 @@ pub unsafe extern "C" fn __torajs_string_wrapper_drop_rc(p: *mut c_void) {
     }
     if unsafe { __torajs_rc_dec(p) } != 0 {
         unsafe { __torajs_string_wrapper_drop(p) };
+    } else {
+        unsafe { __torajs_cycle_buffer(p) };
     }
 }
 
@@ -310,6 +324,7 @@ pub unsafe extern "C" fn __torajs_boolean_wrapper_drop(p: *mut c_void) {
         return;
     }
     unsafe {
+        __torajs_cycle_unbuffer(p);
         release_wrapper_props(p as *mut u8);
         libc_free(p);
     };
@@ -327,6 +342,8 @@ pub unsafe extern "C" fn __torajs_boolean_wrapper_drop_rc(p: *mut c_void) {
     }
     if unsafe { __torajs_rc_dec(p) } != 0 {
         unsafe { __torajs_boolean_wrapper_drop(p) };
+    } else {
+        unsafe { __torajs_cycle_buffer(p) };
     }
 }
 
@@ -368,6 +385,12 @@ mod tests {
     // as torajs-value-drop / torajs-anyvalue integration tests.
     #[unsafe(no_mangle)]
     unsafe extern "C" fn __torajs_weakref_target_dying(_target: *mut c_void) {}
+    // Cycle-root buffer hooks (RFC 20260717 blade 3) live in
+    // libtorajs_cycle.a — no-op stubs, same convention as above.
+    #[unsafe(no_mangle)]
+    unsafe extern "C" fn __torajs_cycle_buffer(_p: *mut c_void) {}
+    #[unsafe(no_mangle)]
+    unsafe extern "C" fn __torajs_cycle_unbuffer(_p: *mut c_void) {}
 
     #[test]
     fn number_wrapper_new_and_read() {

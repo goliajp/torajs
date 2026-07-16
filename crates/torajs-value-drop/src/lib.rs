@@ -88,6 +88,7 @@ unsafe extern "C" {
     fn __torajs_arr_drop_any(p: *mut c_void);
     fn __torajs_arr_drop_heap(p: *mut c_void);
     fn __torajs_cycle_unbuffer(p: *mut c_void);
+    fn __torajs_cycle_buffer(p: *mut c_void);
     fn __torajs_bigint_drop(p: *mut c_void);
     fn __torajs_weakref_drop(p: *mut c_void);
     fn __torajs_weakmap_drop(p: *mut c_void);
@@ -178,16 +179,25 @@ pub unsafe extern "C" fn __torajs_value_drop_heap(child: *mut c_void) {
         t if t == Tag::NumberWrapper as u16 => unsafe {
             if __torajs_rc_dec(child) != 0 {
                 __torajs_number_wrapper_drop(child);
+            } else {
+                // RFC 20260717 blade 3 — a wrapper that lost one of
+                // several refs is a possible cycle root through its
+                // expando props dict.
+                __torajs_cycle_buffer(child);
             }
         },
         t if t == Tag::StringWrapper as u16 => unsafe {
             if __torajs_rc_dec(child) != 0 {
                 __torajs_string_wrapper_drop(child);
+            } else {
+                __torajs_cycle_buffer(child);
             }
         },
         t if t == Tag::BooleanWrapper as u16 => unsafe {
             if __torajs_rc_dec(child) != 0 {
                 __torajs_boolean_wrapper_drop(child);
+            } else {
+                __torajs_cycle_buffer(child);
             }
         },
         t if t == Tag::WeakRef as u16 => unsafe { __torajs_weakref_drop(child) },

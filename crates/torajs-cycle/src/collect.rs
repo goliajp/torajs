@@ -35,9 +35,15 @@ use crate::dynobj::{
 };
 use crate::layout::{
     CLASS_LAYOUT_FLAG_NAMED, COLOR_BLACK, COLOR_GRAY, COLOR_PURPLE, COLOR_WHITE, FLAG_BUFFERED,
-    FLAG_STATIC_LITERAL, HeapHeader, TAG_DYNOBJ, color_of, has_walkable_children, is_class_obj,
-    layout_for_class_obj, set_color,
+    FLAG_STATIC_LITERAL, HeapHeader, STRING_WRAPPER_CELL_OFF, TAG_BOOLEAN_WRAPPER, TAG_DYNOBJ,
+    TAG_NUMBER_WRAPPER, TAG_STRING_WRAPPER, WRAPPER_PROPS_OFF, arr_elems_walkable, color_of,
+    has_walkable_children, is_class_obj, layout_for_class_obj, set_color,
 };
+
+/// Sentinel child index for a cell's out-of-band expando / props
+/// slot (Arr +24, wrapper +16) — element indices are dense from 0,
+/// so MAX can't collide.
+const PROPS_SLOT_INDEX: u64 = u64::MAX;
 
 unsafe extern "C" {
     /// torajs-mmalloc libc-compat free — v0.7-A2 step 6b finale. This
@@ -104,14 +110,33 @@ unsafe fn for_each_child(p: *mut c_void, mut f: impl FnMut(u64, *mut c_void)) {
                 f(i, child);
             }
         }
+    } else if matches!(
+        unsafe { (*(p as *const HeapHeader)).type_tag },
+        TAG_NUMBER_WRAPPER | TAG_STRING_WRAPPER | TAG_BOOLEAN_WRAPPER
+    ) {
+        // Wrapper — single walkable child: the +16 expando props
+        // dict (blade 3). The StringWrapper inner Str cell is a
+        // leaf, handled by the teardown, never walked.
+        let props = unsafe { *((p as *const u8).add(WRAPPER_PROPS_OFF) as *const *mut c_void) };
+        if !props.is_null() {
+            f(PROPS_SLOT_INDEX, props);
+        }
     } else {
-        // TAG_ARR
-        let n = unsafe { arr_len_of(p) };
-        for i in 0..n {
-            let child = unsafe { arr_child_at(p, i) };
-            if !child.is_null() {
-                f(i, child);
+        // TAG_ARR — element slots only when the kind guarantees
+        // walkable bits (a scalar-kind array reaches here for its
+        // expando alone), plus the +24 expando props dict (blade 3).
+        if arr_elems_walkable(unsafe { &*(p as *const HeapHeader) }) {
+            let n = unsafe { arr_len_of(p) };
+            for i in 0..n {
+                let child = unsafe { arr_child_at(p, i) };
+                if !child.is_null() {
+                    f(i, child);
+                }
             }
+        }
+        let props = unsafe { *((p as *const u8).add(ARR_PROPS_OFF) as *const *mut c_void) };
+        if !props.is_null() {
+            f(PROPS_SLOT_INDEX, props);
         }
     }
 }
@@ -130,6 +155,17 @@ unsafe fn clear_child_slot(p: *mut c_void, i: u64) {
         unsafe { *((p as *mut u8).add(off as usize) as *mut *mut c_void) = core::ptr::null_mut() };
     } else if unsafe { (*(p as *const HeapHeader)).type_tag } == TAG_DYNOBJ {
         unsafe { dynobj_value_slot_clear(p, i) };
+    } else if i == PROPS_SLOT_INDEX {
+        // Wrapper +16 / Arr +24 expando slot (per-shape offset).
+        let off = if matches!(
+            unsafe { (*(p as *const HeapHeader)).type_tag },
+            TAG_NUMBER_WRAPPER | TAG_STRING_WRAPPER | TAG_BOOLEAN_WRAPPER
+        ) {
+            WRAPPER_PROPS_OFF
+        } else {
+            ARR_PROPS_OFF
+        };
+        unsafe { *((p as *mut u8).add(off) as *mut *mut c_void) = core::ptr::null_mut() };
     } else {
         unsafe { arr_slot_clear(p, i) };
     }
@@ -293,18 +329,26 @@ unsafe fn collect_white(p: *mut c_void) {
         unsafe { free_sized(p, dynobj_block_bytes(p)) };
         return;
     }
-    if !unsafe { is_class_obj(p) } {
-        // TAG_ARR teardown extras.
-        // Mirror __torajs_arr_drop_any's teardown — release the
-        // inline props-dynobj slot (a dynobj joined the walk in RFC
-        // 20260717 blade 2, but the props slot is not an element
-        // slot, so the trial-deletion walk can't have released it;
-        // pre-fix a cycle-collected `arr.x = v` array leaked its
-        // props).
-        let props = unsafe { *((p as *const u8).add(ARR_PROPS_OFF) as *const *mut c_void) };
-        if !props.is_null() {
-            unsafe { __torajs_value_drop_heap(props) };
+    if matches!(
+        tag,
+        TAG_NUMBER_WRAPPER | TAG_STRING_WRAPPER | TAG_BOOLEAN_WRAPPER
+    ) {
+        // Wrapper teardown extras — the StringWrapper's inner
+        // [[StringData]] Str cell is a leaf the walk never touched;
+        // release it like __torajs_string_wrapper_drop does. The
+        // expando props slot was handled by the sweeps (blade 3).
+        if tag == TAG_STRING_WRAPPER {
+            let cell =
+                unsafe { *((p as *const u8).add(STRING_WRAPPER_CELL_OFF) as *const *mut c_void) };
+            if !cell.is_null() {
+                unsafe { __torajs_value_drop_heap(cell) };
+            }
         }
+    } else if !unsafe { is_class_obj(p) } {
+        // TAG_ARR teardown extras. The +24 expando props dict joined
+        // the walk in blade 3 — the sweeps now clear (cycle member)
+        // or drop (survivor) it, so the pre-blade-3 unconditional
+        // props drop here is gone (it would double-drop).
         // B1 — a grown array spilled its slots to an independent
         // buffer; release it alongside the cell (mirror of
         // torajs-arr __torajs_arr_free's spill branch — pre-fix

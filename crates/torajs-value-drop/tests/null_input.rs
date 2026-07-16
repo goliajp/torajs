@@ -37,6 +37,7 @@ per_tag_drop_stub!(
     __torajs_arr_drop_any,
     __torajs_arr_drop_heap,
     __torajs_cycle_unbuffer,
+    __torajs_cycle_buffer,
     __torajs_bigint_drop,
     __torajs_weakref_drop,
     __torajs_weakmap_drop,

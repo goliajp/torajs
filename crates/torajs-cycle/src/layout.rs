@@ -42,6 +42,26 @@ pub const TAG_ARR: u16 = 2;
 /// dict (RFC 20260717-cycle-walk-dynobj blade 2).
 pub const TAG_DYNOBJ: u16 = 14;
 
+/// Primitive wrapper tags (`torajs_rc::Tag::{Number,String,Boolean}
+/// Wrapper` — RFC 20260717-cycle-walk-dynobj blade 3). Each carries
+/// a lazy expando props-dynobj pointer at
+/// [`WRAPPER_PROPS_OFF`], the wrapper's only walkable child.
+pub const TAG_NUMBER_WRAPPER: u16 = 21;
+/// See [`TAG_NUMBER_WRAPPER`].
+pub const TAG_STRING_WRAPPER: u16 = 22;
+/// See [`TAG_NUMBER_WRAPPER`].
+pub const TAG_BOOLEAN_WRAPPER: u16 = 23;
+
+/// Wrapper expando props-dynobj slot offset (torajs-wrapper
+/// `WRAPPER_PROPS_OFF` mirror).
+pub const WRAPPER_PROPS_OFF: usize = 16;
+
+/// StringWrapper `[[StringData]]` inner Str-cell slot offset
+/// (torajs-wrapper `STRING_WRAPPER_CELL_OFF` mirror) — dropped by
+/// collect_white's wrapper teardown, never walked (a Str has no
+/// children).
+pub const STRING_WRAPPER_CELL_OFF: usize = 8;
+
 /// `STATIC_LITERAL` flag bit. Set on heap blocks promoted to
 /// data-segment lifetime — cycle collector skips them entirely
 /// (immortal, never owned).
@@ -242,23 +262,51 @@ pub unsafe fn is_visitable_arr(p: *mut c_void) -> bool {
     if header.type_tag != TAG_ARR {
         return false;
     }
-    // RFC 20260706 Phase C (chunk 574) — Arr<Any> joins the walk:
-    // its 8-byte slots are NaN-box `AnyValue`s where a cell encodes
-    // as the raw pointer, so `arr_child_at`'s NaN-box gate filters
-    // immediates per slot (the chunk-573 color-bit migration removed
-    // the flag-clobber blocker).
+    if arr_elems_walkable(header) {
+        return true;
+    }
+    // RFC 20260717 blade 3 — a scalar-kind array can still cycle
+    // through its +24 expando props dict (`xs.d = d; d.xs = xs`);
+    // the element slots stay off-limits (for_each_child re-checks
+    // `arr_elems_walkable`), only the expando slot is enumerated.
+    let props = unsafe { *((p as *const u8).add(crate::arr::ARR_PROPS_OFF) as *const *mut c_void) };
+    !props.is_null()
+}
+
+/// True when the array's ELEMENT slots may carry refcounted children
+/// (split out of [`is_visitable_arr`] so `for_each_child` can gate
+/// element enumeration independently of the expando slot).
+///
+/// - **Arr<Any>** (RFC 20260706 Phase C, chunk 574): 8-byte NaN-box
+///   slots; `arr_child_at`'s cell-like gate filters immediates.
+/// - **ARR_KIND_HEAP**: slots are guaranteed cell pointers. Scalar
+///   kinds (raw i64/f64/bool) have no children and their slot bits
+///   would deref as garbage; UNSET means the array never crossed a
+///   marking boundary — conservatively a leaf (a missed descent
+///   under-collects a cycle, never corrupts — L3b #16 residual).
+#[inline]
+pub fn arr_elems_walkable(header: &HeapHeader) -> bool {
     if header.flags & FLAG_ARR_ANY != 0 {
         return true;
     }
-    // L3b #16 — of the typed kinds, only ARR_KIND_HEAP arrays have
-    // 8-byte slots that are guaranteed cell pointers. Scalar kinds
-    // (raw i64/f64/bool) have no children and their slot bits would
-    // deref as garbage; UNSET means the array never crossed a marking
-    // boundary — conservatively treat it as a leaf (a missed descent
-    // under-collects a cycle, never corrupts; a typed heap-elem array
-    // that never crosses into `any` therefore still hides a cycle —
-    // recorded residual, needs an alloc-site kind mark).
     (header.flags & ARR_ELEM_KIND_MASK) >> ARR_ELEM_KIND_SHIFT == ARR_KIND_HEAP
+}
+
+/// True when `p` is a primitive wrapper (Number / String / Boolean)
+/// — its only walkable child is the +16 expando props dict (RFC
+/// 20260717 blade 3). Tag-only: a wrapper with a NULL expando walks
+/// as zero children.
+#[inline]
+pub unsafe fn is_visitable_wrapper(p: *mut c_void) -> bool {
+    if p.is_null() {
+        return false;
+    }
+    let header = unsafe { &*(p as *const HeapHeader) };
+    header.flags & FLAG_STATIC_LITERAL == 0
+        && matches!(
+            header.type_tag,
+            TAG_NUMBER_WRAPPER | TAG_STRING_WRAPPER | TAG_BOOLEAN_WRAPPER
+        )
 }
 
 /// True when `p`'s bit pattern looks like a real heap pointer (top 16
@@ -308,7 +356,9 @@ pub unsafe fn has_walkable_children(p: *mut c_void) -> bool {
     if !nan_box_is_cell_like(p) {
         return false;
     }
-    unsafe { is_class_obj(p) || is_visitable_arr(p) || is_visitable_dynobj(p) }
+    unsafe {
+        is_class_obj(p) || is_visitable_arr(p) || is_visitable_dynobj(p) || is_visitable_wrapper(p)
+    }
 }
 
 /// Get the `ClassLayout` for a class-instance Obj. Caller must have
@@ -419,25 +469,49 @@ mod tests {
     // L3b #16 + RFC 20260706 Phase C — the walk descends into
     // ARR_KIND_HEAP arrays and Arr<Any> (per-slot NaN-box gate in
     // `arr_child_at`); scalar-kind and UNSET slots are not cell
-    // pointers and stay leaves.
+    // pointers and stay element leaves. RFC 20260717 blade 3 — a
+    // non-NULL +24 expando makes any non-literal Arr visitable
+    // (expando-only walk for scalar kinds), so the fake cell must
+    // carry a real props slot.
     #[test]
     fn visitable_arr_gates_on_elem_kind() {
-        fn arr_header(flags: u16) -> HeapHeader {
-            HeapHeader {
-                refcount: 1,
-                type_tag: TAG_ARR,
-                flags,
+        #[repr(C, align(8))]
+        struct FakeArr {
+            hdr: HeapHeader,
+            len: u64,
+            data: u64,
+            props: u64, // +24 — ARR_PROPS_OFF mirror
+        }
+        fn fake_arr(flags: u16, props: u64) -> FakeArr {
+            FakeArr {
+                hdr: HeapHeader {
+                    refcount: 1,
+                    type_tag: TAG_ARR,
+                    flags,
+                },
+                len: 0,
+                data: 0,
+                props,
             }
         }
-        let heap = arr_header(ARR_KIND_HEAP << ARR_ELEM_KIND_SHIFT);
+        let heap = fake_arr(ARR_KIND_HEAP << ARR_ELEM_KIND_SHIFT, 0);
         assert!(unsafe { is_visitable_arr(&heap as *const _ as *mut c_void) });
-        let unset = arr_header(0);
+        let unset = fake_arr(0, 0);
         assert!(!unsafe { is_visitable_arr(&unset as *const _ as *mut c_void) });
-        let i64_kind = arr_header(1 << ARR_ELEM_KIND_SHIFT);
+        let i64_kind = fake_arr(1 << ARR_ELEM_KIND_SHIFT, 0);
         assert!(!unsafe { is_visitable_arr(&i64_kind as *const _ as *mut c_void) });
-        let any_arr = arr_header(FLAG_ARR_ANY);
+        let any_arr = fake_arr(FLAG_ARR_ANY, 0);
         assert!(unsafe { is_visitable_arr(&any_arr as *const _ as *mut c_void) });
-        let static_heap = arr_header(FLAG_STATIC_LITERAL | (ARR_KIND_HEAP << ARR_ELEM_KIND_SHIFT));
+        let static_heap = fake_arr(
+            FLAG_STATIC_LITERAL | (ARR_KIND_HEAP << ARR_ELEM_KIND_SHIFT),
+            0,
+        );
         assert!(!unsafe { is_visitable_arr(&static_heap as *const _ as *mut c_void) });
+        // blade 3 — a scalar-kind arr with a live expando IS
+        // visitable (expando-only), a literal one still is not.
+        let scalar_with_props = fake_arr(1 << ARR_ELEM_KIND_SHIFT, 0x1000);
+        assert!(unsafe { is_visitable_arr(&scalar_with_props as *const _ as *mut c_void) });
+        let literal_with_props = fake_arr(FLAG_STATIC_LITERAL, 0x1000);
+        assert!(!unsafe { is_visitable_arr(&literal_with_props as *const _ as *mut c_void) });
     }
 }
