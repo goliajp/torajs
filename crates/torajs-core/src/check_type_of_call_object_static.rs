@@ -67,6 +67,17 @@ pub(crate) fn try_match(
             Ok(t) => t,
             Err(e) => return Some(Err(e)),
         };
+        // An `any` target takes the runtime §20.1.2.1 walk (the
+        // anyv_assign kernel) — sources just need to typecheck; any
+        // shape rides (struct literals box, any sources pass through).
+        if matches!(target_ty, Type::Any) {
+            for src_id in &args[1..] {
+                if let Err(e) = checker.type_of(ast, *src_id) {
+                    return Some(Err(e));
+                }
+            }
+            return Some(Ok(Type::Any));
+        }
         let Type::Struct(t_fields) = &target_ty else {
             return Some(Err(format!(
                 "Object.assign target must be a struct, got {target_ty:?}"

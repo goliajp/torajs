@@ -35,7 +35,7 @@
 //! `Object.assign` or `args.is_empty()`.
 
 use crate::ast::{Expr, ExprId};
-use crate::ssa::{Operand, Type};
+use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 use crate::ssa_lower_struct_own_props::{
     emit_prop_store, emit_prop_value, own_prop_sinks, own_props,
@@ -64,6 +64,40 @@ pub(crate) fn try_lower(
     }
     let target_op = ctx.lower_expr(args[0]);
     let target_ty = ctx.operand_ty(&target_op);
+    // `any` target — the checker green-lit the runtime §20.1.2.1
+    // walk; one anyv_assign call per source keeps last-source-wins
+    // in write order. Sources box to any (borrow shapes take +1 via
+    // the transfer predicate; owned temps hand their ref to the box)
+    // and release after the kernel returns — it only borrows them.
+    if matches!(target_ty, Type::Any) {
+        for src_eid in &args[1..] {
+            let s_raw = ctx.lower_expr(*src_eid);
+            let s_ty = ctx.operand_ty(&s_raw);
+            let (s_op, we_boxed) = if matches!(s_ty, Type::Any) {
+                (s_raw, false)
+            } else {
+                if !ctx.expr_transfers_ownership(*src_eid) && s_ty.is_refcounted() {
+                    ctx.emit_rc_inc(s_raw.clone());
+                }
+                (ctx.box_to_any(s_raw), true)
+            };
+            ctx.f.append_void(
+                ctx.cur_block,
+                InstKind::Call(
+                    ctx.intrinsics.anyv_assign,
+                    vec![target_op.clone(), s_op.clone()],
+                ),
+            );
+            if we_boxed {
+                ctx.emit_drop_value(s_op, Type::Any);
+            } else {
+                ctx.release_owned_temp(*src_eid, &s_op);
+            }
+            ctx.emit_throw_check(None);
+        }
+        ctx.emit_owned_result_inc(target_op.clone(), Type::Any);
+        return Some(target_op);
+    }
     let Type::Obj(t_sid) = target_ty else {
         panic!("ssa-lower: Object.assign target must be a struct, got {target_ty:?}");
     };
