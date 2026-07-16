@@ -145,12 +145,7 @@ impl Checker {
                 self.flush_assign_narrows();
             }
             Stmt::Block(stmts) => self.check_block(ast, stmts),
-            Stmt::Multi(stmts) => {
-                // Surrounding scope shared — no push.
-                for s in stmts {
-                    self.check_stmt(ast, s);
-                }
-            }
+            Stmt::Multi(stmts) => self.check_multi(ast, stmts),
             // `is_var` is intentionally ignored here: `desugar_var_hoist`
             // runs before check and rewrites every `var` into a
             // hoisted `let`-shaped decl (is_var: false), so the
@@ -206,13 +201,23 @@ impl Checker {
                 // semantic effect. K.2 will add the cross-file symbol
                 // table check here.
             }
-            Stmt::ExportDecl { inner, .. } => {
-                // K.1 single-file mode: export is the modifier wrapper;
-                // typecheck the wrapped declaration if any.
-                if let Some(inner) = inner {
-                    self.check_stmt(ast, inner);
-                }
-            }
+            Stmt::ExportDecl { inner, .. } => self.check_export_decl(ast, inner.as_deref()),
+        }
+    }
+
+    /// `Stmt::Multi` — surrounding scope shared (no push); walk each
+    /// contained stmt in order.
+    fn check_multi(&mut self, ast: &Ast, stmts: &[Stmt]) {
+        for s in stmts {
+            self.check_stmt(ast, s);
+        }
+    }
+
+    /// `Stmt::ExportDecl` — K.1 single-file mode: export is the modifier
+    /// wrapper; typecheck the wrapped declaration if any.
+    fn check_export_decl(&mut self, ast: &Ast, inner: Option<&Stmt>) {
+        if let Some(inner) = inner {
+            self.check_stmt(ast, inner);
         }
     }
     /// `Stmt::Expr` arm — typecheck for effect, then mint a
