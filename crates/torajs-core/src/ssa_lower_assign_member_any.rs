@@ -60,7 +60,23 @@ pub(crate) fn lower_dynobj_assign(
             ctx.emit_rc_inc(v_raw);
             (4, v_raw)
         }
-        Type::Ptr if matches!(v_raw, Operand::ConstPtrNull) => (0, Operand::ConstI64(0)),
+        // 2026-07-16 — an `undefined` literal RHS (`obj.k = undefined`)
+        // reaches here as ConstPtrNull; the checker still tagged
+        // `expr_types[&value]` as `Type::Undefined`. Pre-fix both
+        // undefined and null collapsed to tag 0 (null), so
+        // `obj.length = undefined` read back as `null` (test262
+        // `Array/prototype/join/S15.4.4.5_A2_T1.js` #4). Mirror
+        // `lower_to_tag_value_raw`'s expr-aware undef gate.
+        Type::Ptr if matches!(v_raw, Operand::ConstPtrNull) => {
+            if matches!(
+                ctx.expr_types.get(&value),
+                Some(crate::check::Type::Undefined)
+            ) {
+                (5, Operand::ConstI64(0))
+            } else {
+                (0, Operand::ConstI64(0))
+            }
+        }
         _ => panic!("ssa-lower: dynobj assign unsupported value type {v_ty:?}"),
     };
     emit_any_member_set(
