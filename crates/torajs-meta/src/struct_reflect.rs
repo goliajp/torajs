@@ -61,6 +61,14 @@ unsafe extern "C" {
     // C2b): a refcounted pointer slot (Obj / Arr / Closure) holding
     // the Tag::Undefined cell means JS `undefined`.
     fn __torajs_is_undef_cell(p: *const u8) -> i64;
+
+    // torajs-rc — read the frozen / sealed header bits so gOPD on a
+    // frozen or sealed struct reports spec-correct writable /
+    // configurable attributes (ES §7.3.14 SetIntegrityLevel: frozen
+    // ⇒ writable=false + configurable=false; sealed (only) ⇒
+    // configurable=false + writable preserved).
+    fn __torajs_obj_is_frozen(p: *const c_void) -> bool;
+    fn __torajs_obj_is_sealed_marked(p: *const c_void) -> bool;
 }
 
 /// Field byte-offset + coarse type tag — mirrors
@@ -284,6 +292,19 @@ pub(crate) unsafe fn struct_cell_descriptor(cell: *const c_void, key: *const c_v
         unsafe { __torajs_rc_inc(v_val as *mut c_void) };
     }
 
-    // Build `{ value, writable: true, enumerable: true, configurable: true }`.
-    unsafe { crate::reflect::build_data_descriptor(v_tag, v_val, 1, 1, 1) }
+    // ES §7.3.14 SetIntegrityLevel — struct-cell descriptors reflect
+    // the frozen / sealed integrity level:
+    // - frozen  ⇒ writable = false, configurable = false
+    // - sealed  ⇒ writable preserved, configurable = false
+    // - neither ⇒ default (all three true)
+    // Enumerable stays true either way (integrity levels don't touch
+    // it). The write-side already respects FLAG_FROZEN via the SSA
+    // struct-field-set guard; this arm brings the read-side descriptor
+    // in line so `Object.getOwnPropertyDescriptor(frozen, "field")`
+    // matches spec / bun.
+    let frozen = unsafe { __torajs_obj_is_frozen(cell) };
+    let sealed = frozen || unsafe { __torajs_obj_is_sealed_marked(cell) };
+    let writable = if frozen { 0 } else { 1 };
+    let configurable = if sealed { 0 } else { 1 };
+    unsafe { crate::reflect::build_data_descriptor(v_tag, v_val, writable, 1, configurable) }
 }
