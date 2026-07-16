@@ -45,27 +45,24 @@ unsafe extern "C" {
     /// torajs-anyvalue — extract the payload (per-tag value) from a
     /// NaN-box `AnyValue` (F64 returns the bits, Heap the pointer).
     fn __torajs_anyv_unbox_value(v: u64) -> i64;
-    /// torajs-anyvalue — NaN-box AnyValue tag decoder (Heap = 4).
-    fn __torajs_anyv_unbox_tag(v: u64) -> i64;
+    /// torajs-anyvalue — borrow-shaped cell-pointer read: a heap cell
+    /// answers its pointer bits, every immediate (ShortStr included)
+    /// answers 0 with zero materialization.
+    fn __torajs_anyv_cell_ptr(v: u64) -> i64;
 }
 
-/// `ANY_HEAP` AnySlotTag (mirrors `crate::layout::ANY_HEAP` = 4) — the
-/// tag `unbox_tag` reports for any heap cell, including an AccessorPair.
-const ANY_HEAP_TAG: i64 = 4;
-
-/// True when a dynobj entry's `value_anyv` is an `AccessorPair` cell —
-/// the single accessor-detection predicate shared by the GET (`get.rs`)
-/// and SET (`set.rs`) paths. A non-Heap value (immediate) is never an
-/// accessor, so the pointee `type_tag` read is gated on the Heap tag.
+/// True when an entry's `value_anyv` is an `AccessorPair` cell — the
+/// single accessor-detection predicate shared by the GET (`get.rs`)
+/// and SET (`set.rs`) paths. The cell gate answers 0 for every
+/// immediate — ShortStr included, which matters for the struct-desc
+/// lane's borrowed field reads (the pre-fix `unbox_tag` + `unbox_value`
+/// probe materialized a ShortStr into an owned Str it then discarded).
 ///
 /// # Safety
-/// `v_anyv` is a dynobj entry value; if it carries the Heap tag its
+/// `v_anyv` is an entry / descriptor-field value; if it is a cell its
 /// payload is a live heap pointer.
 pub(crate) unsafe fn value_is_accessor(v_anyv: u64) -> bool {
-    if unsafe { __torajs_anyv_unbox_tag(v_anyv) } != ANY_HEAP_TAG {
-        return false;
-    }
-    let ptr = unsafe { __torajs_anyv_unbox_value(v_anyv) } as *const c_void;
+    let ptr = unsafe { __torajs_anyv_cell_ptr(v_anyv) } as *const c_void;
     !ptr.is_null() && unsafe { *((ptr as *const u8).add(4) as *const u16) } == TAG_ACCESSOR_PAIR
 }
 

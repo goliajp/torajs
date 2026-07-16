@@ -3,9 +3,8 @@
 //! `__torajs_struct_class_name(class_tag)` for the named-class
 //! prefix → `__torajs_struct_field_{count,name,info}` (W-J Phase A4
 //! readers over the W-J Phase A3b inner-region rodata) for the
-//! per-field walk → boxes each `(tag, val)` slot back into a
-//! NaN-box AnyValue with
-//! `__torajs_anyv_box_from_pair` and prints via
+//! per-field walk → decodes each slot to a borrowed NaN-box
+//! AnyValue and prints via
 //! `__torajs_print_anyv_inline` (nested-print substrate trunk).
 //!
 //! Mirrors `torajs-dynobj/src/print_any.rs::__torajs_obj_print_any`
@@ -27,8 +26,9 @@
 //! bun's pretty form `Point { x: 1, y: 2 }`).
 //!
 //! Value emission: each field slot is decoded by
-//! `struct_reflect::field_slot_to_pair` into a `(any_slot_tag, value)`
-//! pair, re-boxed by `__torajs_anyv_box_from_pair`, and rendered by
+//! `struct_reflect::field_slot_to_anyv_borrowed` into a borrowed
+//! NaN-box AnyValue (zero rc traffic — an Any slot's box, ShortStr
+//! included, passes through verbatim) and rendered by
 //! `__torajs_print_anyv_inline` — the same nested-context renderer
 //! `dynobj/print_any.rs` uses, so strings auto-quote, nested structs
 //! recurse, primitives format identically to top-level
@@ -37,7 +37,7 @@
 use core::ffi::c_void;
 
 use crate::struct_reflect::{
-    ACC_GETTER, ACC_SETTER, accessor_slot_name, field_slot_to_pair, slot_key,
+    ACC_GETTER, ACC_SETTER, accessor_slot_name, field_slot_to_anyv_borrowed, slot_key,
 };
 
 /// Whether an accessor slot for `key` was already rendered by an
@@ -107,12 +107,6 @@ unsafe extern "C" {
     fn __torajs_struct_field_name(layout: *const c_void, idx: u32) -> StrSlice;
     fn __torajs_struct_field_info(layout: *const c_void, idx: u32) -> FieldInfo;
     fn __torajs_struct_class_name(class_tag: u32) -> StrSlice;
-
-    // torajs-anyvalue::nanbox_encode — re-box (tag, val) into NaN-box
-    // AnyValue so the print_anyv_inline nested-context renderer
-    // handles every primitive + heap variant identically to top-level
-    // console.log.
-    fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64;
 
     // torajs-anyvalue::inspect — indent-threaded nested-context
     // AnyValue printer (inspect indent trunk). Adds `"..."` for
@@ -269,8 +263,11 @@ pub unsafe extern "C" fn __torajs_anyv_struct_print_inline_at(v: u64, indent: u3
                 .cast::<u64>()
                 .read()
         };
-        let (tag, val) = unsafe { field_slot_to_pair(info.type_tag, raw) };
-        let anyv = unsafe { __torajs_anyv_box_from_pair(tag as i64, val as i64) };
+        // Borrowed anyv decode — an Any slot's box (ShortStr
+        // included) prints verbatim with zero rc traffic; the
+        // pre-fix pair roundtrip materialized a ShortStr slot into
+        // an owned Str this print walk never dropped.
+        let anyv = unsafe { field_slot_to_anyv_borrowed(info.type_tag, raw) };
         unsafe { __torajs_print_anyv_inline_at(anyv, indent + 2) };
         emitted += 1;
         i += 1;

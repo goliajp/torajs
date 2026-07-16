@@ -24,6 +24,14 @@ unsafe extern "C" {
     fn __torajs_value_drop_heap(child: *mut c_void);
     fn __torajs_anyv_unbox_tag(v: u64) -> i64;
     fn __torajs_anyv_unbox_value(v: u64) -> i64;
+    /// torajs-anyvalue — owned payload decode: cell +1, ShortStr
+    /// materialized at rc=1 (the materialization IS the stake),
+    /// immediates raw.
+    fn __torajs_anyv_unbox_value_owned(v: u64) -> i64;
+    /// torajs-anyvalue — borrow-shaped cell read: cell → pointer
+    /// bits, every immediate (ShortStr included) → 0, zero
+    /// materialization.
+    fn __torajs_anyv_cell_ptr(v: u64) -> i64;
     fn __torajs_anyv_to_bool(v: u64) -> bool;
     /// torajs-anyvalue — class-layout struct field read as a
     /// borrowed NaN-box (the §6.2.6.5 struct-desc lane).
@@ -120,7 +128,7 @@ unsafe fn desc_field(desc: DescStore, name: &str) -> Option<u64> {
 unsafe fn desc_field_get(desc: DescStore, name: &str) -> Option<(u64, bool)> {
     let raw = unsafe { desc_field(desc, name) }?;
     if unsafe { crate::accessor::value_is_accessor(raw) } {
-        let pair = unsafe { __torajs_anyv_unbox_value(raw) } as *const c_void;
+        let pair = unsafe { __torajs_anyv_cell_ptr(raw) } as *const c_void;
         let v = unsafe { crate::accessor::__torajs_accessor_invoke_getter(pair) };
         return Some((v, true));
     }
@@ -129,12 +137,11 @@ unsafe fn desc_field_get(desc: DescStore, name: &str) -> Option<(u64, bool)> {
 
 /// Consume an `owned` flag from [`desc_field_get`] after the value
 /// has been read — drops a fresh heap product's surplus ref
-/// (immediates no-op through the cell gate).
+/// (immediates — ShortStr included — no-op through the cell gate).
 unsafe fn release_desc_field(anyv: u64, owned: bool) {
     if owned {
-        let tag = unsafe { __torajs_anyv_unbox_tag(anyv) } as u64;
-        let val = unsafe { __torajs_anyv_unbox_value(anyv) } as u64;
-        if tag == ANY_HEAP && val != 0 {
+        let val = unsafe { __torajs_anyv_cell_ptr(anyv) };
+        if val != 0 {
             unsafe { __torajs_value_drop_heap(val as *mut c_void) };
         }
     }
@@ -154,13 +161,15 @@ unsafe fn take_accessor_closure(
     let Some((anyv, owned)) = field else {
         return Ok(core::ptr::null_mut());
     };
-    let tag = unsafe { __torajs_anyv_unbox_tag(anyv) } as u64;
-    let val = unsafe { __torajs_anyv_unbox_value(anyv) } as u64;
-    if tag == ANY_UNDEF {
+    if unsafe { __torajs_anyv_unbox_tag(anyv) } as u64 == ANY_UNDEF {
         return Ok(core::ptr::null_mut());
     }
-    // Closure heap cell — universal header type_tag at +4 (Tag::Closure = 3).
-    if tag == ANY_HEAP && val != 0 {
+    // Closure heap cell — universal header type_tag at +4 (Tag::Closure
+    // = 3). The cell gate keeps a ShortStr field on the not-callable
+    // path without materializing (the pre-fix `unbox_value` minted an
+    // owned Str the throw leg never reclaimed).
+    let val = unsafe { __torajs_anyv_cell_ptr(anyv) } as u64;
+    if val != 0 {
         let type_tag = unsafe { *((val as *const u8).add(4) as *const u16) };
         if type_tag == 3 {
             if !owned {
@@ -317,13 +326,17 @@ pub unsafe extern "C" fn __torajs_dynobj_define_from_desc(
 
     if let Some((v_anyv, v_owned)) = unsafe { desc_field_get(desc, "value") } {
         let v_tag = unsafe { __torajs_anyv_unbox_tag(v_anyv) } as u64;
-        let v_val = unsafe { __torajs_anyv_unbox_value(v_anyv) } as u64;
-        // define_apply consumes one rc of a Heap value; a borrowed
-        // field (still owned by `desc`) incs, a getter product
-        // transfers its fresh ref as-is.
-        if v_tag == ANY_HEAP && v_val != 0 && !v_owned {
-            unsafe { __torajs_rc_inc(v_val as *mut c_void) };
-        }
+        // define_apply consumes one rc of a Heap value. A borrowed
+        // field (still owned by `desc`) owned-unboxes — cell +1, a
+        // ShortStr materializes at rc=1 (the stake; the pre-fix
+        // unbox + unconditional inc left it at rc=2, one 32B Str
+        // leaked per struct-desc define). A getter product transfers
+        // its fresh ref as-is (its ShortStr materializes its own).
+        let v_val = if v_owned {
+            unsafe { __torajs_anyv_unbox_value(v_anyv) as u64 }
+        } else {
+            unsafe { __torajs_anyv_unbox_value_owned(v_anyv) as u64 }
+        };
         out_tag = v_tag;
         out_value = v_val;
         flags_byte |= DEFINE_PRESENT_VALUE;

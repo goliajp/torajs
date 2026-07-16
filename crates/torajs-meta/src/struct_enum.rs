@@ -30,7 +30,7 @@
 //! here.
 
 use crate::reflect::{TAG_OBJ, heap_type_tag, is_cell_imm};
-use crate::struct_reflect::{accessor_slot_name, field_slot_to_pair, slot_key};
+use crate::struct_reflect::{accessor_slot_name, field_slot_to_pair_owned, slot_key};
 use core::ffi::{c_char, c_void};
 
 unsafe extern "C" {
@@ -49,9 +49,6 @@ unsafe extern "C" {
 
     // torajs-str — pooled key/name allocation.
     fn __torajs_str_alloc_pooled(len: u64) -> *mut u8;
-
-    // torajs-rc — each result slot owns its share of a heap value.
-    fn __torajs_rc_inc(p: *mut c_void);
 
     // torajs-throw — loud failure for the non-struct slot.
     fn __torajs_throw_type_error(msg: *const c_char);
@@ -150,12 +147,12 @@ unsafe fn slot_own_value(
             .cast::<u64>()
             .read()
     };
-    let (tag, val) = unsafe { field_slot_to_pair(info.type_tag, raw) };
-    // Borrowed from the struct slot — the array owns its own share.
-    if tag == ANY_HEAP && val != 0 {
-        unsafe { __torajs_rc_inc(val as *mut c_void) };
-    }
-    (tag, val)
+    // Owned pair decode — exactly one fresh stake per heap payload
+    // (cell +1 / an Any slot's ShortStr materializes at rc=1). The
+    // pre-fix borrow-pair + rc_inc left a ShortStr's materialized
+    // Str at rc=2 with one reclaiming drop — 32B leaked per
+    // `Object.values` read of the slot.
+    unsafe { field_slot_to_pair_owned(info.type_tag, raw) }
 }
 
 /// Allocate a pooled `Str` holding `len` bytes copied from `ptr`.
@@ -213,9 +210,10 @@ pub unsafe extern "C" fn __torajs_anyv_struct_keys(v: u64) -> *mut c_void {
 /// `Object.values(v)` arm for a `Tag::Obj` struct cell. Returns an
 /// owned (`+1`-rc) `Arr<Any>` of the struct's field values in
 /// declaration order, each boxed to its NaN-box AnyValue per the
-/// field's coarse `type_tag` (reusing `struct_reflect::field_slot_to_pair`,
-/// the same decode the `gOPD` value slot uses). Heap-cell values get
-/// an `rc_inc` so the array owns its share. A class with no layout
+/// field's coarse `type_tag` (reusing
+/// `struct_reflect::field_slot_to_pair_owned`, the same decode the
+/// `gOPD` value slot uses — one fresh stake per heap value so the
+/// array owns its share). A class with no layout
 /// (anonymous struct, `class_tag` 0 / out of range) yields an empty
 /// array — the shared A1 anon-stamp gap.
 ///

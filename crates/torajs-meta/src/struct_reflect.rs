@@ -45,11 +45,15 @@ unsafe extern "C" {
 
     // torajs-anyvalue — decode a NaN-box AnyValue back into its
     // (tag, value) pair so an `any`-typed field slot can be re-stored
-    // through `__torajs_dynobj_set`'s pair interface.
+    // through `__torajs_dynobj_set`'s pair interface. The owned
+    // variant hands the caller its own stake (cell +1 / ShortStr
+    // materialized at rc=1); the pair encoder re-boxes typed slots.
     fn __torajs_anyv_unbox_tag(v: u64) -> i64;
-    fn __torajs_anyv_unbox_value(v: u64) -> i64;
+    fn __torajs_anyv_unbox_value_owned(v: u64) -> i64;
+    fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64;
 
-    // torajs-rc — the descriptor's heap value owns a fresh share.
+    // torajs-rc — the accessor descriptor's closure halves own a
+    // fresh share each.
     fn __torajs_rc_inc(p: *mut c_void);
 
     // torajs-str — undefined sentinel identity probe (RFC 20260710
@@ -101,43 +105,56 @@ const STR_LEN_OFF: usize = 8;
 const STR_DATA_OFF: usize = 16;
 
 /// Map a struct field's coarse `type_tag` (see
-/// `ssa::field_type_tag_of`) + its raw 8-byte slot to an AnyValue
-/// `(tag, value)` pair for `__torajs_dynobj_set`.
+/// `ssa::field_type_tag_of`) + its raw 8-byte slot to a BORROWED
+/// NaN-box AnyValue (the struct keeps every heap stake; an Any slot
+/// passes its box through untouched — no ShortStr materialization).
 ///
-/// - `0` (`Any`): the slot is already a NaN-box AnyValue — decode it.
+/// - `0` (`Any`): the slot is already a NaN-box AnyValue — verbatim.
 /// - `1` (`I32`/`I64`): integer payload.
 /// - `2` (`F64`): IEEE-754 bits.
 /// - `3` (`Bool`): `0` / `1`.
 /// - `4..=21` (`Str` / `Arr` / `Obj` / `Map` / ... heap cells): raw
-///   heap pointer.
+///   heap pointer, undefined sentinels normalized (RFC 20260710
+///   C1/C2b — a slot holding either sentinel cell reads back as JS
+///   `undefined`, not a 9-char string / a bare live cell).
 #[inline]
-pub(crate) unsafe fn field_slot_to_pair(type_tag: u8, raw: u64) -> (u64, u64) {
+pub(crate) unsafe fn field_slot_to_anyv_borrowed(type_tag: u8, raw: u64) -> u64 {
     match type_tag {
-        0 => {
-            let t = unsafe { __torajs_anyv_unbox_tag(raw) } as u64;
-            let v = unsafe { __torajs_anyv_unbox_value(raw) } as u64;
-            (t, v)
-        }
-        1 => (ANY_I64, raw),
-        2 => (ANY_F64, raw),
-        3 => (ANY_BOOL, raw),
+        0 => raw,
+        1 => unsafe { __torajs_anyv_box_from_pair(ANY_I64 as i64, raw as i64) },
+        2 => unsafe { __torajs_anyv_box_from_pair(ANY_F64 as i64, raw as i64) },
+        3 => unsafe { __torajs_anyv_box_from_pair(ANY_BOOL as i64, raw as i64) },
         _ => {
-            // RFC 20260710 C1/C2b — a slot holding either undefined
-            // sentinel (the Str/Substr cell or the generic
-            // Tag::Undefined cell) reads back as JS `undefined`
-            // (struct print / descriptors would otherwise render the
-            // Str cell's "undefined" payload as a quoted string, or
-            // walk the bare header as a live cell).
             if raw != 0
                 && (unsafe { __torajs_str_is_undef(raw as *const u8) } != 0
                     || unsafe { __torajs_is_undef_cell(raw as *const u8) } != 0)
             {
-                (ANY_UNDEF, 0)
+                VALUE_UNDEFINED_IMM
             } else {
-                (ANY_HEAP, raw)
+                // raw == 0 encodes as VALUE_NULL through the pair
+                // encoder's Heap arm — same normalization the old
+                // borrow-pair consumers produced downstream.
+                unsafe { __torajs_anyv_box_from_pair(ANY_HEAP as i64, raw as i64) }
             }
         }
     }
+}
+
+/// [`field_slot_to_anyv_borrowed`] decoded to an OWNED `(tag, value)`
+/// pair — the caller receives its own stake on a heap payload (cell
+/// +1; an Any slot's ShortStr materializes at rc=1, the
+/// materialization itself being the stake). Consumers hand the pair
+/// straight to an adopting sink (`__torajs_arr_push_any` /
+/// `__torajs_dynobj_set` / `build_data_descriptor`) with NO extra
+/// inc — the pre-fix borrow-pair + caller-side `rc_inc` left a
+/// ShortStr slot's materialized Str at rc=2 with one reclaiming
+/// drop (32B leaked per `Object.values` / gOPD / struct print read).
+#[inline]
+pub(crate) unsafe fn field_slot_to_pair_owned(type_tag: u8, raw: u64) -> (u64, u64) {
+    let anyv = unsafe { field_slot_to_anyv_borrowed(type_tag, raw) };
+    let tag = unsafe { __torajs_anyv_unbox_tag(anyv) } as u64;
+    let val = unsafe { __torajs_anyv_unbox_value_owned(anyv) } as u64;
+    (tag, val)
 }
 
 /// Accessor half spellings for [`__torajs_struct_accessor_find`].
@@ -286,11 +303,10 @@ pub(crate) unsafe fn struct_cell_descriptor(cell: *const c_void, key: *const c_v
             .cast::<u64>()
             .read()
     };
-    let (v_tag, v_val) = unsafe { field_slot_to_pair(info.type_tag, raw) };
-    // The descriptor owns its own ref to a heap value.
-    if v_tag == ANY_HEAP && v_val != 0 {
-        unsafe { __torajs_rc_inc(v_val as *mut c_void) };
-    }
+    // The descriptor owns its own ref to a heap value — the owned
+    // pair decode carries exactly one stake (cell +1 / ShortStr
+    // materialization; no separate inc, see field_slot_to_pair_owned).
+    let (v_tag, v_val) = unsafe { field_slot_to_pair_owned(info.type_tag, raw) };
 
     // ES §7.3.14 SetIntegrityLevel — struct-cell descriptors reflect
     // the frozen / sealed integrity level:
