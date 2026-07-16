@@ -38,6 +38,10 @@ pub const TAG_OBJ: u16 = 1;
 /// `__TORAJS_TAG_ARR = 2`.
 pub const TAG_ARR: u16 = 2;
 
+/// `torajs_rc::Tag::DynObj = 14` — the compact insertion-ordered
+/// dict (RFC 20260717-cycle-walk-dynobj blade 2).
+pub const TAG_DYNOBJ: u16 = 14;
+
 /// `STATIC_LITERAL` flag bit. Set on heap blocks promoted to
 /// data-segment lifetime — cycle collector skips them entirely
 /// (immortal, never owned).
@@ -265,15 +269,28 @@ pub unsafe fn is_visitable_arr(p: *mut c_void) -> bool {
 /// `torajs-rc::ffi` (rc_inc / rc_dec) and `torajs-value-drop`, kept
 /// bit-local so the collector takes no dependency on torajs-anyvalue.
 #[inline]
-fn nan_box_is_cell_like(p: *mut c_void) -> bool {
+pub(crate) fn nan_box_is_cell_like(p: *mut c_void) -> bool {
     const TOP_16_MASK: u64 = 0xFFFF_0000_0000_0000;
     const TAG_BIT_TYPE_OTHER: u64 = 0x02;
     let v = p as u64;
     v != 0 && (v & TOP_16_MASK) == 0 && (v & TAG_BIT_TYPE_OTHER) == 0
 }
 
+/// True when `p` is a DynObj dict eligible for the trial-deletion
+/// walk (RFC 20260717-cycle-walk-dynobj blade 2). Entry values are
+/// NaN-boxes; `dynobj_child_at`'s cell-like gate filters immediates
+/// per slot, mirroring the Arr<Any> shape.
+#[inline]
+pub unsafe fn is_visitable_dynobj(p: *mut c_void) -> bool {
+    if p.is_null() {
+        return false;
+    }
+    let header = unsafe { &*(p as *const HeapHeader) };
+    header.flags & FLAG_STATIC_LITERAL == 0 && header.type_tag == TAG_DYNOBJ
+}
+
 /// True iff any cycle-collector phase can descend into `p`. Today =
-/// declared-class instances + arrays.
+/// declared-class instances + arrays + dynobj dicts.
 ///
 /// The cell-like gate is load-bearing, not defensive: an `any`-typed
 /// class field is a cycle child (`Type::Any` is refcounted, so the
@@ -291,7 +308,7 @@ pub unsafe fn has_walkable_children(p: *mut c_void) -> bool {
     if !nan_box_is_cell_like(p) {
         return false;
     }
-    unsafe { is_class_obj(p) || is_visitable_arr(p) }
+    unsafe { is_class_obj(p) || is_visitable_arr(p) || is_visitable_dynobj(p) }
 }
 
 /// Get the `ClassLayout` for a class-instance Obj. Caller must have

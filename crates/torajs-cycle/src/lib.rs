@@ -62,6 +62,7 @@ extern crate torajs_mmalloc as _;
 pub mod arr;
 pub mod buffer;
 pub mod collect;
+pub mod dynobj;
 pub mod layout;
 pub mod obj_drop;
 

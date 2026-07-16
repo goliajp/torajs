@@ -23,6 +23,14 @@ unsafe extern "C" {
     /// torajs-mmalloc libc-compat free — v0.7-A2 step 6b cutover.
     #[link_name = "__torajs_free"]
     fn free(p: *mut c_void, size: usize);
+    /// torajs-cycle — register a possible cycle root when the rc
+    /// stayed positive (RFC 20260717 blade 2: dynobj joined the
+    /// trial-deletion walk; mirror of torajs-arr drop.rs).
+    fn __torajs_cycle_buffer(p: *mut c_void);
+    /// torajs-cycle — scrub a normal-dropped block from the root
+    /// buffer before its memory is freed / pool-recycled (a stale
+    /// entry dangles into the next collect).
+    fn __torajs_cycle_unbuffer(p: *mut c_void);
 }
 
 /// `__torajs_dynobj_drop(obj)` — universal heap-value drop.
@@ -37,8 +45,15 @@ pub unsafe extern "C" fn __torajs_dynobj_drop(obj: *mut c_void) {
         return;
     }
     if unsafe { __torajs_rc_dec(obj) } == 0 {
+        // Still referenced — a dict that lost one of several refs is
+        // a possible cycle root (RFC 20260717 blade 2; the buffer's
+        // FLAG_BUFFERED gate dedups repeats).
+        unsafe { __torajs_cycle_buffer(obj) };
         return;
     }
+    // Normal-drop to rc=0 — scrub any stale root-buffer entry before
+    // the block is freed or pool-recycled below.
+    unsafe { __torajs_cycle_unbuffer(obj) };
     let len = unsafe { entries_len(obj) };
     let ent = unsafe { entries(obj) };
     for i in 0..len as usize {

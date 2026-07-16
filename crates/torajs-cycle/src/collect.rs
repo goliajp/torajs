@@ -30,9 +30,12 @@ use core::ffi::c_void;
 
 use crate::arr::{ARR_PROPS_OFF, arr_child_at, arr_len_of, arr_slot_clear, arr_spilled_data};
 use crate::buffer;
+use crate::dynobj::{
+    dynobj_block_bytes, dynobj_child_at, dynobj_entries_len, dynobj_key_at, dynobj_value_slot_clear,
+};
 use crate::layout::{
     CLASS_LAYOUT_FLAG_NAMED, COLOR_BLACK, COLOR_GRAY, COLOR_PURPLE, COLOR_WHITE, FLAG_BUFFERED,
-    FLAG_STATIC_LITERAL, HeapHeader, color_of, has_walkable_children, is_class_obj,
+    FLAG_STATIC_LITERAL, HeapHeader, TAG_DYNOBJ, color_of, has_walkable_children, is_class_obj,
     layout_for_class_obj, set_color,
 };
 
@@ -56,6 +59,17 @@ unsafe extern "C" {
     /// cycle-collected obj previously left its WeakRefs dangling —
     /// deref after the collect returned freed memory).
     fn __torajs_weakref_target_dying(target: *mut c_void);
+
+    /// torajs-str — release a dynobj entry's key Str during the
+    /// collect_white dict teardown (RFC 20260717 blade 2).
+    fn __torajs_str_drop(s: *mut c_void);
+
+    /// torajs-mmalloc sized free — the DynObj block is a sized
+    /// `__torajs_calloc` allocation with NO libc-shim size header,
+    /// so the unsized `__torajs_libc_free` above must not touch it
+    /// (it reads a size word at `p - 8` that was never written).
+    #[link_name = "__torajs_free"]
+    fn free_sized(p: *mut c_void, size: usize);
 }
 
 /// Per-shape walkable-child slot enumeration — the ONLY place that
@@ -76,6 +90,16 @@ unsafe fn for_each_child(p: *mut c_void, mut f: impl FnMut(u64, *mut c_void)) {
         for i in 0..n_children as u64 {
             let off = unsafe { *(*lay).child_offsets.add(i as usize) };
             let child = unsafe { *((p as *mut u8).add(off as usize) as *mut *mut c_void) };
+            if !child.is_null() {
+                f(i, child);
+            }
+        }
+    } else if unsafe { (*(p as *const HeapHeader)).type_tag } == TAG_DYNOBJ {
+        // Dense entry values (holes / NaN-box immediates filter to
+        // NULL inside dynobj_child_at).
+        let n = unsafe { dynobj_entries_len(p) };
+        for i in 0..n {
+            let child = unsafe { dynobj_child_at(p, i) };
             if !child.is_null() {
                 f(i, child);
             }
@@ -104,6 +128,8 @@ unsafe fn clear_child_slot(p: *mut c_void, i: u64) {
         let lay = unsafe { layout_for_class_obj(p) };
         let off = unsafe { *(*lay).child_offsets.add(i as usize) };
         unsafe { *((p as *mut u8).add(off as usize) as *mut *mut c_void) = core::ptr::null_mut() };
+    } else if unsafe { (*(p as *const HeapHeader)).type_tag } == TAG_DYNOBJ {
+        unsafe { dynobj_value_slot_clear(p, i) };
     } else {
         unsafe { arr_slot_clear(p, i) };
     }
@@ -249,12 +275,32 @@ unsafe fn collect_white(p: *mut c_void) {
             }
         });
     }
+    let tag = unsafe { (*(p as *const HeapHeader)).type_tag };
+    if tag == TAG_DYNOBJ {
+        // Dict teardown extras — every live entry still owns its key
+        // Str (the sweeps only touched value slots); values were
+        // either collected (slot cleared) or dropped by the second
+        // sweep. Mirror __torajs_dynobj_drop's key walk, then free
+        // the single block (index + entries are inline) through the
+        // SIZED free — see the `free_sized` extern doc.
+        let n = unsafe { dynobj_entries_len(p) };
+        for i in 0..n {
+            let key = unsafe { dynobj_key_at(p, i) };
+            if !key.is_null() {
+                unsafe { __torajs_str_drop(key) };
+            }
+        }
+        unsafe { free_sized(p, dynobj_block_bytes(p)) };
+        return;
+    }
     if !unsafe { is_class_obj(p) } {
         // TAG_ARR teardown extras.
         // Mirror __torajs_arr_drop_any's teardown — release the
-        // inline props-dynobj slot (a dynobj is never walkable, so
-        // the trial-deletion walk can't have released it; pre-fix a
-        // cycle-collected `arr.x = v` array leaked its props).
+        // inline props-dynobj slot (a dynobj joined the walk in RFC
+        // 20260717 blade 2, but the props slot is not an element
+        // slot, so the trial-deletion walk can't have released it;
+        // pre-fix a cycle-collected `arr.x = v` array leaked its
+        // props).
         let props = unsafe { *((p as *const u8).add(ARR_PROPS_OFF) as *const *mut c_void) };
         if !props.is_null() {
             unsafe { __torajs_value_drop_heap(props) };
