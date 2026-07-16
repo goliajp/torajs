@@ -264,7 +264,7 @@ mod tests {
 
     #[test]
     fn substr_index_view_oob_and_propagation() {
-        use crate::substr_methods::__torajs_substr_index_view;
+        use crate::substr_methods_slice::__torajs_substr_index_view;
         // Sentinel receiver propagates itself; OOB on a real view
         // answers the sentinel.
         assert!(is_substr_undef(unsafe {

@@ -17,7 +17,7 @@
 
 use crate::str_drop::__torajs_str_drop;
 use crate::substr::{FLAG_SUBSTR_INLINE, SUBSTR_LEN_OFF};
-use crate::substr_methods::__torajs_substr_slice;
+use crate::substr_methods_slice::__torajs_substr_slice;
 use crate::transform::construct::__torajs_str_char_at;
 
 /// See module doc. NULL / negative / OOB → NULL (caller maps to

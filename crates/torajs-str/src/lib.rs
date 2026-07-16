@@ -139,6 +139,7 @@ pub mod str_drop;
 pub mod substr;
 pub mod substr_concat;
 pub mod substr_methods;
+pub mod substr_methods_slice;
 pub mod substr_trim;
 pub mod symbol;
 pub mod to_number;

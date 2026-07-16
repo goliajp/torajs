@@ -21,7 +21,7 @@ use torajs_rc::HeapHeader;
 
 use crate::block::StrBlock;
 use crate::layout::{STR_FLAG_IS_LATIN1, STR_HDR_SIZE, STR_LEN_OFF};
-use crate::substr::{__torajs_substr_create, SUBSTR_LEN_OFF, SUBSTR_OFFSET_OFF, SUBSTR_PARENT_OFF};
+use crate::substr::{SUBSTR_LEN_OFF, SUBSTR_OFFSET_OFF, SUBSTR_PARENT_OFF};
 
 #[cfg(not(test))]
 unsafe extern "C" {
@@ -45,7 +45,7 @@ unsafe fn substr_parent_is_latin1(v: *const u8) -> bool {
 
 /// JS code-unit count of the view (post-P11.1-S5).
 #[inline]
-unsafe fn substr_len(v: *const u8) -> u64 {
+pub(crate) unsafe fn substr_len(v: *const u8) -> u64 {
     unsafe { *(v.add(SUBSTR_LEN_OFF) as *const u64) }
 }
 
@@ -402,98 +402,3 @@ pub unsafe extern "C" fn __torajs_substr_index_of(v: *const u8, n: *const u8) ->
     -1
 }
 
-/// `substr.slice(start, end)` — view-of-view. Negative indices wrap;
-/// `start > end` clamps to empty.
-///
-/// `start` / `end` are JS code-unit indices. Post-P11.1-S5 both the
-/// view's `(offset, len)` and `__torajs_substr_create`'s args are
-/// code units, so no byte/stride conversion is needed here.
-///
-/// # Safety
-/// `v` is a live `*const Substr`. Returned pointer is a fresh
-/// Substr (rc=1) referencing the SAME root parent.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_substr_slice(v: *const u8, start: i64, end: i64) -> *mut c_void {
-    let cu_len = unsafe { substr_len(v) } as i64;
-    let mut s = if start < 0 { cu_len + start } else { start };
-    let mut e = if end < 0 { cu_len + end } else { end };
-    if s < 0 {
-        s = 0;
-    }
-    if e < 0 {
-        e = 0;
-    }
-    if s > cu_len {
-        s = cu_len;
-    }
-    if e > cu_len {
-        e = cu_len;
-    }
-    if s > e {
-        s = e;
-    }
-    let parent = unsafe { substr_parent(v) };
-    let v_off = unsafe { substr_offset(v) };
-    unsafe { __torajs_substr_create(parent as *mut c_void, v_off + s as u64, (e - s) as u64) }
-}
-
-/// `v[i]` — Substr INDEX read (ES §10.4.3 [[Get]]). Unlike the
-/// slice family (which clamps OOB to an empty view), an
-/// out-of-range index answers JS `undefined` — the immortal
-/// Substr-shaped sentinel. A sentinel receiver propagates itself
-/// (deref-safe; the spec TypeError guard face is ledgered
-/// separately). In-range reads mint a fresh 1-code-unit view on
-/// the same root parent, exactly like `substr_slice(v, i, i+1)`.
-///
-/// # Safety
-/// `v` is a live `*const Substr` or the Substr sentinel.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_substr_index_view(v: *const u8, i: i64) -> *mut u8 {
-    if crate::undef_sentinel::is_substr_undef(v) {
-        return crate::undef_sentinel::substr_undef_ptr();
-    }
-    let cu_len = unsafe { substr_len(v) } as i64;
-    if i < 0 || i >= cu_len {
-        return crate::undef_sentinel::substr_undef_ptr();
-    }
-    let parent = unsafe { substr_parent(v) };
-    let v_off = unsafe { substr_offset(v) };
-    unsafe { __torajs_substr_create(parent as *mut c_void, v_off + i as u64, 1) as *mut u8 }
-}
-
-/// `substr.substring(start, end)` — clamps + swaps (no wrap on
-/// negatives unlike slice).
-///
-/// `start` / `end` are JS code-unit indices.
-///
-/// # Safety
-/// `v` is a live `*const Substr`. Returned pointer is a fresh
-/// Substr (rc=1) referencing the SAME root parent.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_substr_substring(
-    v: *const u8,
-    start: i64,
-    end: i64,
-) -> *mut c_void {
-    let cu_len = unsafe { substr_len(v) } as i64;
-    let mut start = start.max(0);
-    let mut end = end.max(0);
-    if start > cu_len {
-        start = cu_len;
-    }
-    if end > cu_len {
-        end = cu_len;
-    }
-    if start > end {
-        core::mem::swap(&mut start, &mut end);
-    }
-    let parent = unsafe { substr_parent(v) };
-    let v_off = unsafe { substr_offset(v) };
-    unsafe {
-        __torajs_substr_create(
-            parent as *mut c_void,
-            v_off + start as u64,
-            (end - start) as u64,
-        )
-    }
-}
