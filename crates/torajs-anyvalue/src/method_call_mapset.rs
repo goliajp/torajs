@@ -133,16 +133,19 @@ pub(crate) unsafe fn map_set_method(
         }
     };
     // Decode a borrowed AnyValue into the kernels' (tag, payload)
-    // pair, pre-bumping heap payloads per the consume contract.
+    // pair, handing the kernel exactly one owned stake per the
+    // consume contract: `unbox_value_owned` rc-bumps a heap cell
+    // (the caller's box keeps its own ref) and hands a ShortStr
+    // through as a freshly-materialized rc=1 Str — already the one
+    // stake. Pre-fix the manual `unbox_value` + inc double-staked
+    // the ShortStr materialization (unbox materializes owned, the
+    // inc made it rc=2, the kernel consumed 1) and leaked one
+    // 32-byte Str cell per get/set/add/has/delete carrying a short
+    // string literal.
     let pair_consumed = |av: u64| -> (i64, i64) {
-        unsafe {
-            let tag = crate::nanbox_encode::__torajs_anyv_unbox_tag(av);
-            let payload = crate::nanbox_encode::__torajs_anyv_unbox_value(av);
-            if tag == 4 && payload != 0 {
-                __torajs_rc_inc(payload as *mut c_void);
-            }
-            (tag, payload)
-        }
+        let tag = crate::nanbox_encode::__torajs_anyv_unbox_tag(av);
+        let payload = crate::nanbox_encode::__torajs_anyv_unbox_value_owned(av);
+        (tag, payload)
     };
     unsafe {
         match mid {
