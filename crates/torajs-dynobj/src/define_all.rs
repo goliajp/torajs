@@ -22,8 +22,17 @@ use crate::accessor::TAG_ACCESSOR_PAIR;
 use crate::define_from_desc::__torajs_dynobj_define_from_desc;
 use crate::get::type_tag;
 use crate::layout::{
-    BUCKET_FLAG_ENUMERABLE, DYNOBJ_KEY_HOLE, TAG_ARR_HDR, TAG_CLOSURE_HDR, TAG_DYNOBJ, TAG_OBJ,
+    BUCKET_FLAG_ENUMERABLE, CELL_PROPS_OFF, DYNOBJ_KEY_HOLE, TAG_ARR_HDR, TAG_CLOSURE_HDR,
+    TAG_DYNOBJ, TAG_OBJ,
 };
+
+/// Primitive-wrapper tags (RFC 20260716 刀 2b / 刀 5). All three share
+/// the `[header:8][value:8][props:8]` layout; the expando dynobj slot
+/// lives at `+16` (mirror of `torajs-wrapper::WRAPPER_PROPS_OFF`).
+const TAG_NUMBER_WRAPPER: u16 = 21;
+const TAG_STRING_WRAPPER: u16 = 22;
+const TAG_BOOLEAN_WRAPPER: u16 = 23;
+const WRAPPER_PROPS_OFF: usize = 16;
 use crate::probe::{bucket_flags, bucket_key_ptr, entries, entries_len};
 
 unsafe extern "C" {
@@ -87,14 +96,42 @@ pub unsafe extern "C" fn __torajs_dynobj_define_properties_from(
     if obj.is_null() || unsafe { type_tag(obj) } != TAG_DYNOBJ {
         return;
     }
-    if unsafe { type_tag(props) } != TAG_DYNOBJ {
-        unsafe {
-            __torajs_throw_type_error(
-                c"Property description must be an object.".as_ptr() as *const u8
-            );
+    // Spec §20.1.2.3.1 ObjectDefineProperties walks `props`'s
+    // OwnPropertyKeys — every JS object shape qualifies, not just
+    // DynObj. Function / Array / Number / String / Boolean wrapper
+    // cells own an expando dynobj slot; walk that when present. A
+    // NULL expando (no `props.foo = ...` ever written) iterates zero
+    // enumerable own keys — spec-valid: `Object.create({}, function(){})`
+    // returns `obj` untouched. TAG_OBJ (static-layout struct) still
+    // rejects — class-layout own enumerable walk is L3b.
+    let source_tag = unsafe { type_tag(props) };
+    let props: *const c_void = match source_tag {
+        TAG_DYNOBJ => props,
+        TAG_CLOSURE_HDR | TAG_ARR_HDR => {
+            let expando =
+                unsafe { *(props.cast::<u8>().add(CELL_PROPS_OFF) as *const *const c_void) };
+            if expando.is_null() {
+                return;
+            }
+            expando
         }
-        return;
-    }
+        TAG_NUMBER_WRAPPER | TAG_STRING_WRAPPER | TAG_BOOLEAN_WRAPPER => {
+            let expando =
+                unsafe { *(props.cast::<u8>().add(WRAPPER_PROPS_OFF) as *const *const c_void) };
+            if expando.is_null() {
+                return;
+            }
+            expando
+        }
+        _ => {
+            unsafe {
+                __torajs_throw_type_error(
+                    c"Property description must be an object.".as_ptr() as *const u8
+                );
+            }
+            return;
+        }
+    };
     let len = unsafe { entries_len(props) } as usize;
     if len == 0 {
         return;
