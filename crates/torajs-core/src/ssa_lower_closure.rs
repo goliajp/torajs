@@ -186,13 +186,42 @@ fn init_env_header(
             CLOSURE_PROPS_OFF,
         ),
     );
-    // trace_fn — 0 stub until the `__env_trace_<fn>` synthesis lands
-    // (RFC 20260717 closure-env-cycle knife 2); obj_alloc is plain
-    // malloc so the slot must be zeroed explicitly.
+    // trace_fn — the `__env_trace_<fn>` twin the cycle collector
+    // walks capture slots through (RFC 20260717 closure-env-cycle
+    // knife 2). 0 when no capture can sit on a cycle: the collector
+    // treats that as a leaf without the indirect call. obj_alloc is
+    // plain malloc so the 0 must be stored explicitly.
+    let has_traceable = ctx.closure_captures.get(fn_name).is_some_and(|caps| {
+        caps.iter()
+            .any(|(_, t, b)| crate::ssa_lower_env_trace::cap_is_traceable(t, *b))
+    });
+    let trace_op = if has_traceable {
+        let trace_name = format!("__env_trace_{fn_name}");
+        let trace_fid = *ctx.fn_table.get(&trace_name).unwrap_or_else(|| {
+            panic!(
+                "ssa-lower: missing pre-registered trace fn `{trace_name}` \
+                 for closure `{fn_name}`"
+            )
+        });
+        let trace_sig = *ctx
+            .fn_sig_ids
+            .get(&trace_fid)
+            .expect("trace fn has interned signature");
+        let cur_block = ctx.cur_block;
+        Operand::Value(ctx.f.append_inst(
+            cur_block,
+            InstKind::FnAddr(trace_fid),
+            Type::FnSig(trace_sig),
+            None,
+        ))
+    } else {
+        Operand::ConstI64(0)
+    };
+    let cur_block = ctx.cur_block;
     ctx.f.append_void(
         cur_block,
         InstKind::Store(
-            Operand::ConstI64(0),
+            trace_op,
             Operand::Value(env_v),
             crate::ssa_lower::CLOSURE_TRACE_FN_OFF,
         ),

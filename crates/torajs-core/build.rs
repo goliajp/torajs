@@ -106,6 +106,7 @@ const COMPILER_SOURCE_FILES: &[&str] = &[
     "src/ssa_lower_closure_captures.rs",
     "src/ssa_lower_closure.rs",
     "src/ssa_lower_env_drop_and_ret_ty.rs",
+    "src/ssa_lower_env_trace.rs",
     "src/ssa_lower_pass_2_5.rs",
     "src/ssa_lower_inner/body_passes.rs",
     "src/ssa_lower_deque_escape.rs",

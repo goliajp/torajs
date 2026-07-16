@@ -104,15 +104,16 @@ pub(crate) fn lower_inner(
     let mut fn_sig_ids = pass1.fn_sig_ids;
     let (decl_indices, closure_decls) = partition_closure_decls(ast, pass1.decl_indices);
 
-    let (env_drop_fids, env_drop_trivial_fid, promise_thunks, signatures) = setup_callable_infra(
-        ast,
-        &mut module,
-        &mut fn_table,
-        &mut fn_sigs,
-        &mut fn_sig_ids,
-        &init_a,
-        &num_f64_slots,
-    );
+    let (env_drop_fids, env_drop_trivial_fid, env_trace_fids, promise_thunks, signatures) =
+        setup_callable_infra(
+            ast,
+            &mut module,
+            &mut fn_table,
+            &mut fn_sigs,
+            &mut fn_sig_ids,
+            &init_a,
+            &num_f64_slots,
+        );
 
     let intrinsics = crate::ssa_lower_intrinsics_table::build(
         env_drop_trivial_fid,
@@ -195,6 +196,7 @@ pub(crate) fn lower_inner(
         decl_indices,
         closure_decls,
         &env_drop_fids,
+        &env_trace_fids,
         ast,
         &mut module,
         &fn_table,
@@ -322,6 +324,7 @@ fn setup_callable_infra(
 ) -> (
     Vec<(String, FuncId, ssa::SigId)>,
     (FuncId, ssa::SigId),
+    Vec<(String, FuncId)>,
     crate::ssa_lower_promise_thunk::PromiseThunks,
     HashMap<FuncId, Type>,
 ) {
@@ -331,6 +334,7 @@ fn setup_callable_infra(
         crate::ssa_lower_env_drop_setup::run(ast, module, fn_table, fn_sigs, fn_sig_ids, init_a);
     let env_drop_fids = env_drop_setup.env_drop_fids;
     let env_drop_trivial_fid = env_drop_setup.env_drop_trivial_fid;
+    let env_trace_fids = env_drop_setup.env_trace_fids;
 
     // ②.6b — promise callback ABI thunks (bits-adapters for f64-faced
     // `.then` / `.catch` handlers). Synthesized here because the fn
@@ -358,6 +362,7 @@ fn setup_callable_infra(
     (
         env_drop_fids,
         env_drop_trivial_fid,
+        env_trace_fids,
         promise_thunks,
         signatures,
     )

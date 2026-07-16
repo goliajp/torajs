@@ -17,6 +17,7 @@ pub(crate) fn run(
     decl_indices: Vec<(usize, FuncId)>,
     closure_decls: Vec<(usize, FuncId)>,
     env_drop_fids: &[(String, FuncId, ssa::SigId)],
+    env_trace_fids: &[(String, FuncId)],
     ast: &Ast,
     module: &mut Module,
     fn_table: &HashMap<String, FuncId>,
@@ -164,6 +165,16 @@ pub(crate) fn run(
         env_drop_fids,
         closure_captures,
         intrinsics,
+        module,
+    );
+
+    // Pass 2.5b: the paired env-trace fn bodies (RFC 20260717
+    // closure-env-cycle knife 2) from the same closure_captures
+    // truth — [`crate::ssa_lower_pass_2_5::populate_env_trace_bodies`].
+    crate::ssa_lower_pass_2_5::populate_env_trace_bodies(
+        env_trace_fids,
+        closure_captures,
+        fn_sigs,
         module,
     );
 }

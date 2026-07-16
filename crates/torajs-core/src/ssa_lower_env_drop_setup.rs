@@ -26,6 +26,10 @@ use crate::ssa_lower_intrinsics_init_a::InitA;
 pub(crate) struct EnvDropSetup {
     pub env_drop_fids: Vec<(String, FuncId, ssa::SigId)>,
     pub env_drop_trivial_fid: (FuncId, ssa::SigId),
+    /// RFC 20260717 closure-env-cycle knife 2 — the paired
+    /// `__env_trace_<name>` FuncIds, populated in Pass 2.5 alongside
+    /// the drop bodies from the same `closure_captures` truth.
+    pub env_trace_fids: Vec<(String, FuncId)>,
 }
 
 pub(crate) fn run(
@@ -37,6 +41,7 @@ pub(crate) fn run(
     init_a: &InitA,
 ) -> EnvDropSetup {
     let mut env_drop_fids: Vec<(String, FuncId, ssa::SigId)> = Vec::new();
+    let mut env_trace_fids: Vec<(String, FuncId)> = Vec::new();
     for stmt in &ast.stmts {
         // Any FnDecl with `__env` as its first param is a closure-
         // shaped body (lifted arrow OR synthesized forwarder for
@@ -53,6 +58,21 @@ pub(crate) fn run(
                 .funcs
                 .push(ssa::Function::new(&drop_name, Type::Void));
             env_drop_fids.push((name.clone(), fid, drop_sig));
+            // Paired trace fn (RFC 20260717 knife 2). Registered
+            // unconditionally — captures aren't known until Pass 2
+            // and the fn list freezes at the signatures snapshot;
+            // untraceable closures get an empty body and store 0 in
+            // the env slot instead.
+            let trace_name = format!("__env_trace_{name}");
+            let tfid = FuncId(module.funcs.len() as u32);
+            fn_table.insert(trace_name.clone(), tfid);
+            let trace_sig =
+                intern_fn_sig(fn_sigs, vec![Type::Ptr, Type::Ptr, Type::Ptr], Type::Void);
+            fn_sig_ids.insert(tfid, trace_sig);
+            module
+                .funcs
+                .push(ssa::Function::new(&trace_name, Type::Void));
+            env_trace_fids.push((name.clone(), tfid));
         }
     }
 
@@ -85,5 +105,6 @@ pub(crate) fn run(
     EnvDropSetup {
         env_drop_fids,
         env_drop_trivial_fid,
+        env_trace_fids,
     }
 }

@@ -23,9 +23,9 @@
 //!   offset 16 — drop_fn = [`bound_drop`]
 //!   offset 24 — props (lazy expando bag, NULL)
 //!   offset 32 — boxed_entry = [`bound_entry`]
-//!   offset 40 — trace_fn (0 stub — RFC 20260717 closure-env-cycle;
-//!               a real trace for the held target/this/args cells
-//!               lands with the collector knives)
+//!   offset 40 — trace_fn = [`bound_trace`] (RFC 20260717
+//!               closure-env-cycle — enumerates the held
+//!               target/this/args children for the cycle collector)
 //!   offset 48 — kind: 0 = builtin method id / 1 = closure-shaped
 //!               target cell (held +1)
 //!   offset 56 — target (method id or cell pointer)
@@ -55,8 +55,7 @@ const CLOSURE_FN_ADDR_OFF: usize = 8;
 const CLOSURE_DROP_FN_OFF: usize = 16;
 const CLOSURE_PROPS_OFF: usize = 24;
 const CLOSURE_BOXED_ENTRY_OFF: usize = 32;
-// trace_fn slot @ 40 stays 0 (alloc_zeroed) until the collector
-// knives land; bound state lives in the capture region above it.
+const CLOSURE_TRACE_FN_OFF: usize = 40;
 const BOUND_KIND_OFF: usize = 48;
 const BOUND_TARGET_OFF: usize = 56;
 const BOUND_THIS_OFF: usize = 64;
@@ -98,6 +97,7 @@ pub(crate) unsafe fn bind_cell(ptr: *mut c_void, argv: *const u64, argc: i64) ->
         *(cell.add(CLOSURE_DROP_FN_OFF) as *mut u64) = bound_drop as *const () as u64;
         *(cell.add(CLOSURE_PROPS_OFF) as *mut u64) = 0;
         *(cell.add(CLOSURE_BOXED_ENTRY_OFF) as *mut u64) = bound_entry as *const () as u64;
+        *(cell.add(CLOSURE_TRACE_FN_OFF) as *mut u64) = bound_trace as *const () as u64;
         *(cell.add(BOUND_KIND_OFF) as *mut u64) = kind;
         *(cell.add(BOUND_TARGET_OFF) as *mut u64) = target;
         // The cell takes its own stake on the captured values
@@ -192,6 +192,49 @@ unsafe extern "C" fn bound_entry(env: *mut c_void, argv: *const u64, argc: i64) 
 /// drop_fn of a bound cell — the universal Closure drop arm calls
 /// this on hit-zero; release every captured reference, the lazy
 /// props bag, then the block itself.
+/// The bound cell's trace fn (RFC 20260717 closure-env-cycle knife
+/// 2) — enumerates the same held children [`bound_drop`] releases,
+/// minus the +24 props bag (fixed shared offset; the collector's
+/// Closure arm reads it directly). Children are raw slot payloads —
+/// AnyValue bits for this/args — and the collector's visit callback
+/// owns the cell-like gate, mirroring the SSA-emitted
+/// `__env_trace_<fn>` contract.
+unsafe extern "C" fn bound_trace(
+    env: *mut c_void,
+    visit: unsafe extern "C" fn(i64, *mut c_void, *mut c_void, *mut c_void),
+    ctx: *mut c_void,
+) {
+    unsafe {
+        let cell = env.cast::<u8>();
+        if *(cell.add(BOUND_KIND_OFF) as *const u64) == 1 {
+            let slot = cell.add(BOUND_TARGET_OFF);
+            visit(
+                0,
+                *(slot as *const u64) as *mut c_void,
+                slot as *mut c_void,
+                ctx,
+            );
+        }
+        let this_slot = cell.add(BOUND_THIS_OFF);
+        visit(
+            1,
+            *(this_slot as *const u64) as *mut c_void,
+            this_slot as *mut c_void,
+            ctx,
+        );
+        let bn = *(cell.add(BOUND_ARGC_OFF) as *const u64) as usize;
+        for i in 0..bn {
+            let slot = cell.add(BOUND_ARGS_OFF + i * 8);
+            visit(
+                2 + i as i64,
+                *(slot as *const u64) as *mut c_void,
+                slot as *mut c_void,
+                ctx,
+            );
+        }
+    }
+}
+
 unsafe extern "C" fn bound_drop(env: *mut c_void) {
     unsafe {
         let cell = env.cast::<u8>();
