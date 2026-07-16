@@ -42,9 +42,26 @@ unsafe extern "C" {
     fn __torajs_throw_check() -> i64;
     fn __torajs_anyv_unbox_tag(v: u64) -> i64;
     fn __torajs_anyv_unbox_value(v: u64) -> i64;
+    fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64;
     fn __torajs_accessor_invoke_getter(pair: *const c_void) -> u64;
     fn __torajs_value_drop_heap(p: *mut c_void);
+    /// torajs-meta struct_enum — own enumerable layout keys of a
+    /// `TAG_OBJ` struct cell as a fresh `Arr<Str>` (minted keys).
+    fn __torajs_anyv_struct_keys(v: u64) -> *mut c_void;
+    /// torajs-anyvalue member probes — the struct arm answers layout
+    /// fields borrow-shaped, accessors via the tag-6 sentinel.
+    fn __torajs_any_member_get_tag(recv: u64, key: *const c_void) -> u64;
+    fn __torajs_any_member_get_value(recv: u64, key: *const c_void) -> u64;
+    fn __torajs_any_accessor_get(recv: u64, key: *const c_void, pair_bits: u64) -> u64;
 }
+
+/// `struct_probe::ANY_ACCESSOR_TAG` mirror — member-get tag channel's
+/// accessor sentinel.
+const ANY_ACCESSOR_TAG: u64 = 6;
+
+/// torajs-arr cell layout mirrors (`layout.rs` B1 fixed cell).
+const ARR_LEN_OFF: usize = 8;
+const ARR_DATA_PTR_OFF: usize = 32;
 
 /// NaN-box slot tag mirror (`torajs_anyvalue::AnySlotTag::Heap`).
 const ANY_HEAP: u64 = 4;
@@ -102,8 +119,8 @@ pub unsafe extern "C" fn __torajs_dynobj_define_properties_from(
     // cells own an expando dynobj slot; walk that when present. A
     // NULL expando (no `props.foo = ...` ever written) iterates zero
     // enumerable own keys — spec-valid: `Object.create({}, function(){})`
-    // returns `obj` untouched. TAG_OBJ (static-layout struct) still
-    // rejects — class-layout own enumerable walk is L3b.
+    // returns `obj` untouched. TAG_OBJ (static-layout struct) walks
+    // its layout via `define_all_from_struct`.
     let source_tag = unsafe { type_tag(props) };
     let props: *const c_void = match source_tag {
         TAG_DYNOBJ => props,
@@ -122,6 +139,11 @@ pub unsafe extern "C" fn __torajs_dynobj_define_properties_from(
                 return;
             }
             expando
+        }
+        TAG_OBJ => {
+            // Static-layout struct container — its own enumerable
+            // walk is the layout, not a dynobj entry table.
+            return unsafe { define_all_from_struct(obj_slot, props) };
         }
         _ => {
             unsafe {
@@ -246,4 +268,92 @@ pub unsafe extern "C" fn __torajs_dynobj_define_properties_from(
         }
     }
     unsafe { release_buf(buf, buf_bytes, n) };
+}
+
+/// Release the minted layout-keys array (owned Str elements; the arr
+/// elem kind is UNSET so its drop can't cascade — obj_assign twin).
+unsafe fn release_struct_keys(keys: *mut c_void, len: usize, data: *const u64) {
+    for i in 0..len {
+        let key = unsafe { data.add(i).read() } as *mut c_void;
+        if !key.is_null() {
+            unsafe { __torajs_value_drop_heap(key) };
+        }
+    }
+    unsafe { __torajs_value_drop_heap(keys) };
+}
+
+/// `TAG_OBJ` (static-layout struct) `props` container — §20.1.2.3.1
+/// over layout fields. Same two-phase shape as the dynobj walk (every
+/// descriptor validates before the first apply; a getter field runs
+/// once via [[Get]]): Phase 1 probes each layout key through the
+/// anyvalue member channel (borrow-shaped; accessor sentinel routes
+/// through `any_accessor_get`, owned) into the shared triple buffer,
+/// Phase 2 applies via `define_from_desc` in field order.
+unsafe fn define_all_from_struct(obj_slot: *mut *mut c_void, props: *const c_void) {
+    let props_anyv = unsafe { __torajs_anyv_box_from_pair(ANY_HEAP as i64, props as i64) };
+    let keys = unsafe { __torajs_anyv_struct_keys(props_anyv) };
+    let klen = unsafe { (keys.cast::<u8>().add(ARR_LEN_OFF) as *const u64).read() } as usize;
+    let kdata = unsafe { (keys.cast::<u8>().add(ARR_DATA_PTR_OFF) as *const *const u64).read() };
+    if klen == 0 {
+        return unsafe { release_struct_keys(keys, klen, kdata) };
+    }
+    let buf_bytes = klen * BUF_STRIDE_BYTES;
+    let buf = unsafe { calloc(buf_bytes) } as *mut u64;
+    let mut n = 0usize;
+    for i in 0..klen {
+        let key = unsafe { kdata.add(i).read() } as *mut c_void;
+        if key.is_null() {
+            continue;
+        }
+        let tag = unsafe { __torajs_any_member_get_tag(props_anyv, key) };
+        let (d_tag, d_val, owned) = if tag == ANY_ACCESSOR_TAG {
+            let pair_bits = unsafe { __torajs_any_member_get_value(props_anyv, key) };
+            let g = unsafe { __torajs_any_accessor_get(props_anyv, key, pair_bits) };
+            if unsafe { __torajs_throw_check() } != 0 {
+                unsafe { release_buf(buf, buf_bytes, n) };
+                return unsafe { release_struct_keys(keys, klen, kdata) };
+            }
+            let gt = unsafe { __torajs_anyv_unbox_tag(g) } as u64;
+            let gv = unsafe { __torajs_anyv_unbox_value(g) } as u64;
+            (gt, gv, true)
+        } else {
+            let v = unsafe { __torajs_any_member_get_value(props_anyv, key) };
+            (tag, v, false)
+        };
+        // Accept gate — mirror of the dynobj walk's desc_ok above.
+        let desc_ok = d_tag == ANY_HEAP
+            && d_val != 0
+            && matches!(
+                unsafe { type_tag(d_val as *const c_void) },
+                TAG_DYNOBJ | TAG_CLOSURE_HDR | TAG_ARR_HDR | TAG_OBJ
+            );
+        if !desc_ok {
+            if owned && d_tag == ANY_HEAP && d_val != 0 {
+                unsafe { __torajs_value_drop_heap(d_val as *mut c_void) };
+            }
+            unsafe {
+                __torajs_throw_type_error(
+                    c"Property description must be an object.".as_ptr() as *const u8
+                );
+                release_buf(buf, buf_bytes, n);
+            }
+            return unsafe { release_struct_keys(keys, klen, kdata) };
+        }
+        unsafe {
+            *buf.add(n * BUF_STRIDE_U64) = key as u64;
+            *buf.add(n * BUF_STRIDE_U64 + 1) = d_val;
+            *buf.add(n * BUF_STRIDE_U64 + 2) = owned as u64;
+        }
+        n += 1;
+    }
+    for j in 0..n {
+        let key = unsafe { *buf.add(j * BUF_STRIDE_U64) } as *mut c_void;
+        let desc = unsafe { *buf.add(j * BUF_STRIDE_U64 + 1) } as *const c_void;
+        unsafe { __torajs_dynobj_define_from_desc(obj_slot, key, desc) };
+        if unsafe { __torajs_throw_check() } != 0 {
+            break;
+        }
+    }
+    unsafe { release_buf(buf, buf_bytes, n) };
+    unsafe { release_struct_keys(keys, klen, kdata) };
 }
