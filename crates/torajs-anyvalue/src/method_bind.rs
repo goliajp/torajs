@@ -23,12 +23,15 @@
 //!   offset 16 — drop_fn = [`bound_drop`]
 //!   offset 24 — props (lazy expando bag, NULL)
 //!   offset 32 — boxed_entry = [`bound_entry`]
-//!   offset 40 — kind: 0 = builtin method id / 1 = closure-shaped
+//!   offset 40 — trace_fn (0 stub — RFC 20260717 closure-env-cycle;
+//!               a real trace for the held target/this/args cells
+//!               lands with the collector knives)
+//!   offset 48 — kind: 0 = builtin method id / 1 = closure-shaped
 //!               target cell (held +1)
-//!   offset 48 — target (method id or cell pointer)
-//!   offset 56 — bound this (AnyValue, held ref on cells)
-//!   offset 64 — bound argc
-//!   offset 72+ — bound args (AnyValue each, held ref on cells)
+//!   offset 56 — target (method id or cell pointer)
+//!   offset 64 — bound this (AnyValue, held ref on cells)
+//!   offset 72 — bound argc
+//!   offset 80+ — bound args (AnyValue each, held ref on cells)
 //!
 //! Unlike the interned method cells this cell is OWNED — rc-managed,
 //! dropped through `drop_fn` like any synthesized closure env.
@@ -52,11 +55,13 @@ const CLOSURE_FN_ADDR_OFF: usize = 8;
 const CLOSURE_DROP_FN_OFF: usize = 16;
 const CLOSURE_PROPS_OFF: usize = 24;
 const CLOSURE_BOXED_ENTRY_OFF: usize = 32;
-const BOUND_KIND_OFF: usize = 40;
-const BOUND_TARGET_OFF: usize = 48;
-const BOUND_THIS_OFF: usize = 56;
-const BOUND_ARGC_OFF: usize = 64;
-const BOUND_ARGS_OFF: usize = 72;
+// trace_fn slot @ 40 stays 0 (alloc_zeroed) until the collector
+// knives land; bound state lives in the capture region above it.
+const BOUND_KIND_OFF: usize = 48;
+const BOUND_TARGET_OFF: usize = 56;
+const BOUND_THIS_OFF: usize = 64;
+const BOUND_ARGC_OFF: usize = 72;
+const BOUND_ARGS_OFF: usize = 80;
 
 fn bound_layout(argc: usize) -> core::alloc::Layout {
     core::alloc::Layout::from_size_align(BOUND_ARGS_OFF + argc * 8, 8).unwrap()

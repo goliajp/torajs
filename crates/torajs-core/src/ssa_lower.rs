@@ -95,8 +95,13 @@ pub(crate) const ARR_CELL_SIZE: u64 = 40;
 ///                             dual entry for dynamic any-world calls;
 ///                             V8 JSFunction code-entry analogue. 0 =
 ///                             not dynamically callable)
-///   offset 40 — cap0
-///   offset 48 — cap1
+///   offset 40 — trace_fn  (RFC 20260717 closure-env-cycle — the
+///                          per-closure `__env_trace_<fn>` twin of
+///                          drop_fn the cycle collector walks capture
+///                          slots through; CPython tp_traverse shape.
+///                          0 = stub until Pass 2.5 synthesis lands)
+///   offset 48 — cap0
+///   offset 56 — cap1
 ///   ...
 ///
 /// `__torajs_obj_alloc` stays the underlying allocator (plain malloc);
@@ -106,7 +111,8 @@ pub const CLOSURE_FN_ADDR_OFF: u64 = 8;
 pub const CLOSURE_DROP_FN_OFF: u64 = 16;
 pub(crate) const CLOSURE_PROPS_OFF: u64 = 24;
 pub(crate) const CLOSURE_BOXED_ENTRY_OFF: u64 = 32;
-pub(crate) const CLOSURE_CAP_BASE_OFF: u64 = 40;
+pub(crate) const CLOSURE_TRACE_FN_OFF: u64 = 40;
+pub(crate) const CLOSURE_CAP_BASE_OFF: u64 = 48;
 
 /// M3 — generic call-site retargeting. For each `Expr::Call` whose ExprId
 /// is a generic call site, the typechecker has already inferred the

@@ -19,9 +19,11 @@
 //!    universal heap header (refcount=1 at +0, type_tag=CLOSURE=3
 //!    at +4), store `fn_addr` at `CLOSURE_FN_ADDR_OFF`, init
 //!    `props_dynobj` slot to 0 at `CLOSURE_PROPS_OFF` (T-27 lazy
-//!    `f.x = v` ECMAScript §10.2 Function-as-Object), store
-//!    `drop_fn_addr` at `CLOSURE_DROP_FN_OFF` (pre-registered in
-//!    Pass 1 as `__env_drop_<fn_name>`).
+//!    `f.x = v` ECMAScript §10.2 Function-as-Object), zero the
+//!    `trace_fn` stub at `CLOSURE_TRACE_FN_OFF` (RFC 20260717
+//!    closure-env-cycle), store `drop_fn_addr` at
+//!    `CLOSURE_DROP_FN_OFF` (pre-registered in Pass 1 as
+//!    `__env_drop_<fn_name>`).
 //! 3. **Capture writes** — for each capture in declaration order:
 //!    - **Copy types** (`is_copy()`): by-reference. `info.slot`
 //!      is a stable pointer (heap-alloc'd at let-decl when the
@@ -182,6 +184,17 @@ fn init_env_header(
             Operand::ConstI64(0),
             Operand::Value(env_v),
             CLOSURE_PROPS_OFF,
+        ),
+    );
+    // trace_fn — 0 stub until the `__env_trace_<fn>` synthesis lands
+    // (RFC 20260717 closure-env-cycle knife 2); obj_alloc is plain
+    // malloc so the slot must be zeroed explicitly.
+    ctx.f.append_void(
+        cur_block,
+        InstKind::Store(
+            Operand::ConstI64(0),
+            Operand::Value(env_v),
+            crate::ssa_lower::CLOSURE_TRACE_FN_OFF,
         ),
     );
     // boxed_entry — the C3a-2 dual `(env, argv, argc) -> AnyValue`

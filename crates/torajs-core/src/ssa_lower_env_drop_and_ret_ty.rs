@@ -129,7 +129,7 @@ pub(crate) fn synthesize_env_drop(
         }
     }
     // Free the env block itself. Size = closure header
-    // (`CLOSURE_CAP_BASE_OFF` = 32) + N_captures * 8.
+    // (`CLOSURE_CAP_BASE_OFF`) + N_captures * 8.
     let env_block_size = CLOSURE_CAP_BASE_OFF + (cap_meta.len() as u64) * 8;
     f.append_void(
         entry,

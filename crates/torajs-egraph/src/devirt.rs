@@ -573,7 +573,7 @@ mod tests {
             val(
                 1,
                 Type::Ptr,
-                InstKind::Call(ALLOC, vec![Operand::ConstI64(40)]),
+                InstKind::Call(ALLOC, vec![Operand::ConstI64(48)]),
                 &mut vals,
             ),
             val(2, Type::FnSig(SIG), InstKind::FnAddr(CB), &mut vals),
@@ -760,7 +760,7 @@ mod tests {
             val(
                 1,
                 Type::Ptr,
-                InstKind::Call(ALLOC, vec![Operand::ConstI64(40)]),
+                InstKind::Call(ALLOC, vec![Operand::ConstI64(48)]),
                 &mut vals,
             ),
             val(2, Type::FnSig(SIG), InstKind::FnAddr(CB), &mut vals),

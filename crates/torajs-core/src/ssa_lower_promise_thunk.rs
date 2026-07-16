@@ -23,7 +23,7 @@ use crate::ssa::{self, FuncId, InstKind, Module, Operand, Terminator, Type};
 use crate::ssa_lower::{CLOSURE_CAP_BASE_OFF, CLOSURE_FN_ADDR_OFF};
 use std::collections::HashMap;
 
-/// Wrap-env byte size: closure header (32 = `CLOSURE_CAP_BASE_OFF`)
+/// Wrap-env byte size: closure header (`CLOSURE_CAP_BASE_OFF`)
 /// plus one capture slot holding the wrapped callback value.
 pub(crate) const PTHUNK_ENV_SIZE: i64 = CLOSURE_CAP_BASE_OFF as i64 + 8;
 

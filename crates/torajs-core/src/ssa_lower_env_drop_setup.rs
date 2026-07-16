@@ -12,8 +12,9 @@
 //!    `__env_drop_trivial`. Used by the Return arm when wrapping a
 //!    top-level FnAddr (Type::FnSig) into a Closure-typed value to
 //!    satisfy a fn signature that returns `(...) => R`. The wrapper env
-//!    has just `fn_addr@0 + drop_fn@8 + props@16 + cap_base@24`, no
-//!    captures; the drop body just frees the env block.
+//!    has just the closure header (`fn_addr@8 + drop_fn@16 + props@24 +
+//!    boxed_entry@32 + trace_fn@40`), no captures; the drop body just
+//!    frees the env block.
 
 use std::collections::HashMap;
 
@@ -64,8 +65,8 @@ pub(crate) fn run(
         let env_pid = f.add_param(Type::Ptr, "env");
         let entry = f.add_block();
         // Trivial env wrapper: no captures, env block size = closure
-        // header only (`fn_addr@8 + drop_fn@16 + props@24 + cap_base@32`
-        // = 32 bytes = `CLOSURE_CAP_BASE_OFF`).
+        // header only (`fn_addr@8 + drop_fn@16 + props@24 +
+        // boxed_entry@32 + trace_fn@40` = `CLOSURE_CAP_BASE_OFF`).
         f.append_void(
             entry,
             InstKind::Call(

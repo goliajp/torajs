@@ -68,7 +68,8 @@ use torajs_rc::{__torajs_rc_dec, ARR_KIND_HEAP, FLAG_ARR_ANY, HeapHeader, Tag};
 /// Byte offset of the synthesized drop-fn pointer in a Closure env
 /// block — ABI mirror of `torajs-core::ssa_lower::CLOSURE_DROP_FN_OFF`
 /// (`{ hdr | fn_ptr@8 | drop_fn@16 | props@24 | boxed_entry@32 |
-/// caps@40+ }`, see the `Tag::Closure` doc in torajs-rc).
+/// trace_fn@40 | caps@48+ }`, see the `Tag::Closure` doc in
+/// torajs-rc).
 const CLOSURE_DROP_FN_OFF: usize = 16;
 
 // v0.7-A2 step 6b — force-link mmalloc for the `__torajs_libc_free`

@@ -321,6 +321,16 @@ fn mint_named_fn_env(ctx: &mut LowerCtx, fid: crate::ssa::FuncId) -> Operand {
             crate::ssa_lower::CLOSURE_PROPS_OFF,
         ),
     );
+    // trace_fn stub — zero-capture env has nothing to trace, and
+    // obj_alloc is plain malloc (slot would be garbage otherwise).
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Store(
+            Operand::ConstI64(0),
+            Operand::Value(env_v),
+            crate::ssa_lower::CLOSURE_TRACE_FN_OFF,
+        ),
+    );
     let boxed_op = match ctx.boxed_entries.get(&fid) {
         Some(&(bfid, bsig)) => {
             let v = ctx.f.append_inst(

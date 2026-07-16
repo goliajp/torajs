@@ -63,8 +63,10 @@ const CLOSURE_FN_ADDR_OFF: usize = 8;
 const CLOSURE_DROP_FN_OFF: usize = 16;
 const CLOSURE_PROPS_OFF: usize = 24;
 const CLOSURE_BOXED_ENTRY_OFF: usize = 32;
-const CLOSURE_CAP_BASE_OFF: usize = 40;
-const CELL_SIZE: usize = 48;
+// trace_fn slot @ 40 stays 0 (alloc_zeroed) — these cells are
+// FLAG_STATIC_LITERAL, the cycle collector never walks them.
+const CLOSURE_CAP_BASE_OFF: usize = 48;
+const CELL_SIZE: usize = 56;
 
 /// Interned name Str layout — mirror of torajs-str
 /// `layout::{STR_LEN_OFF, STR_DATA_OFF}` + the `IS_LATIN1` flags
@@ -120,7 +122,7 @@ pub(crate) fn builtin_method_cell(mid: i64) -> *mut u8 {
     if p != 0 {
         return p as *mut u8;
     }
-    // SAFETY: fresh 48-byte allocation, fully initialized below.
+    // SAFETY: fresh CELL_SIZE allocation, fully initialized below.
     unsafe {
         let layout = core::alloc::Layout::from_size_align(CELL_SIZE, 8).unwrap();
         let cell = std::alloc::alloc_zeroed(layout);
@@ -158,7 +160,7 @@ pub(crate) fn size_getter_cell(proto_tag: i64) -> *mut u8 {
     if p != 0 {
         return p as *mut u8;
     }
-    // SAFETY: fresh 48-byte allocation, fully initialized below —
+    // SAFETY: fresh CELL_SIZE allocation, fully initialized below —
     // same layout as builtin_method_cell.
     unsafe {
         let layout = core::alloc::Layout::from_size_align(CELL_SIZE, 8).unwrap();

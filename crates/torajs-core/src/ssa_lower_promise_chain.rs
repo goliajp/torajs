@@ -197,6 +197,16 @@ impl crate::ssa_lower::LowerCtx<'_> {
                 crate::ssa_lower::CLOSURE_BOXED_ENTRY_OFF,
             ),
         );
+        // trace_fn stub — obj_alloc is plain malloc, zero explicitly
+        // (RFC 20260717 closure-env-cycle knife 1).
+        self.f.append_void(
+            self.cur_block,
+            InstKind::Store(
+                Operand::ConstI64(0),
+                Operand::Value(env_v),
+                crate::ssa_lower::CLOSURE_TRACE_FN_OFF,
+            ),
+        );
         // Capture 0: the real callback. Its natural ref moves into
         // the wrap (the wrap's drop releases it), so the wrap takes
         // the callback's exact ownership position at the call site.

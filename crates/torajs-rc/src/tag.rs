@@ -21,7 +21,8 @@ pub enum Tag {
     Arr = 2,
     /// `Closure` — env-first ABI; the cell is the env:
     /// `{ hdr | fn_ptr@8 | drop_fn@16 | props@24 | boxed_entry@32 |
-    /// caps@40+ }` (see torajs-core `ssa_lower.rs` CLOSURE_* offsets).
+    /// trace_fn@40 | caps@48+ }` (see torajs-core `ssa_lower.rs`
+    /// CLOSURE_* offsets).
     Closure = 3,
     /// `RegExp` — compiled NFA + flags.
     RegExp = 4,
