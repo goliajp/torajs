@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-16T15:33:22.767Z",
+  "generatedAt": "2026-07-16T17:06:18.704Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 92.45
   },
   "torajs": {
-    "commit": "9c4dd977",
-    "commitSubject": "fix: statement-position `Object.preventExtensions(w)` over-released receiver",
+    "commit": "de7cf376",
+    "commitSubject": "feat: cycle collector walks wrapper + Arr expando slots",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "de7cf376",
+      "subject": "feat: cycle collector walks wrapper + Arr expando slots"
+    },
+    {
+      "hash": "106b5ef7",
+      "subject": "feat: cycle collector walks DynObj entries — dynobj cycles now collected"
+    },
+    {
+      "hash": "9b4db6d7",
+      "subject": "refactor: unify cycle-collector child enumeration into for_each_child"
+    },
+    {
+      "hash": "a74e4c8c",
+      "subject": "feat: runtime descriptor lane reads static-layout (TAG_OBJ) desc cells"
+    },
+    {
+      "hash": "6d05d7a4",
+      "subject": "fix: dyn map/set method leaks materialized ShortStr key per call"
+    },
+    {
+      "hash": "10f27c91",
+      "subject": "chore: hardev dashboard snapshot at rotation 122 close"
+    },
+    {
       "hash": "9c4dd977",
       "subject": "fix: statement-position `Object.preventExtensions(w)` over-released receiver"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "c444aad8",
       "subject": "chore: hardev dashboard snapshot at rotation 121 close (post-chunk-5 + intent)"
-    },
-    {
-      "hash": "c76146e2",
-      "subject": "feat: wrapper expando read side — hasOwn / Object.keys / delete work"
-    },
-    {
-      "hash": "5c986066",
-      "subject": "feat: primitive-wrapper lazy expando slot — `new Number().foo = X` works"
-    },
-    {
-      "hash": "3faf1a42",
-      "subject": "chore: hardev dashboard snapshot at rotation 121 close (post-chunk-2)"
-    },
-    {
-      "hash": "9d46b88b",
-      "subject": "fix: `Object.create(x, null)` throws TypeError per §20.1.2.2 step 3"
-    },
-    {
-      "hash": "04ca009e",
-      "subject": "fix: pre-bound `const d1 = { value: undefined }; f(d1)` reads undef, not null"
-    },
-    {
-      "hash": "134273d0",
-      "subject": "chore: hardev dashboard snapshot at rotation 120 close (post-chunk-6 + intent)"
     }
   ],
-  "headSha": "9c4dd977",
+  "headSha": "de7cf376",
   "autorun": {
-    "total": 427,
+    "total": 428,
     "baselineTarget": 10,
-    "bySelf": 422,
+    "bySelf": 423,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784205723-4e14",
-      "at": "2026-07-16T12:42:03Z",
-      "ts": 1784205723,
+      "rotationId": "r-1784216137-5b67",
+      "at": "2026-07-16T15:35:37Z",
+      "ts": 1784216137,
       "trigger": "self",
-      "prevHead": "c444aad8",
-      "handoffSha": "sha256:057bcd3fe49c8f8fb8b6d7e75341d98522fe999092ed3473e6349d40b7ce8797",
-      "handoffAgeSec": 22,
+      "prevHead": "10f27c91",
+      "handoffSha": "sha256:7b3c23d1abb349205f3b59afb528d57e15e7675f06eaf389938f6f4b7b644194",
+      "handoffAgeSec": 20,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784216137-5b67",
+        "at": "2026-07-16T15:35:37Z",
+        "ts": 1784216137,
+        "trigger": "self",
+        "prevHead": "10f27c91",
+        "handoffSha": "sha256:7b3c23d1abb349205f3b59afb528d57e15e7675f06eaf389938f6f4b7b644194",
+        "handoffAgeSec": 20,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784205723-4e14",
         "at": "2026-07-16T12:42:03Z",
@@ -876,17 +887,6 @@
         "prevHead": "8ab7bc2e",
         "handoffSha": "sha256:32bb39d961b5335c614f1c987f8c99cbc51e775e15b2d94cdbd8a4f1710d231e",
         "handoffAgeSec": 48,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784135955-6a9c",
-        "at": "2026-07-15T17:19:15Z",
-        "ts": 1784135955,
-        "trigger": "self",
-        "prevHead": "05d3243c",
-        "handoffSha": "sha256:0fc5821bf0cd9a1914fcb93af1fbc58e56719d0f15f0a249bc2a097c42e96ca1",
-        "handoffAgeSec": 5660,
         "conformanceBefore": null,
         "commitsInSession": null
       }
