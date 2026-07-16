@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-16T17:06:18.704Z",
+  "generatedAt": "2026-07-16T18:35:00.336Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 92.45
   },
   "torajs": {
-    "commit": "de7cf376",
-    "commitSubject": "feat: cycle collector walks wrapper + Arr expando slots",
+    "commit": "973ee3dc",
+    "commitSubject": "fix: defineProperty on primitive wrapper walked the cell as a dynobj",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "973ee3dc",
+      "subject": "fix: defineProperty on primitive wrapper walked the cell as a dynobj"
+    },
+    {
+      "hash": "98159a10",
+      "subject": "feat: StringWrapper own-keys index face + wrapper values/entries arms"
+    },
+    {
+      "hash": "33fc0787",
+      "subject": "fix: struct reflection / desc lanes leak ShortStr materialization"
+    },
+    {
+      "hash": "86b6c07f",
+      "subject": "fix: defineProperty runtime-desc owned temp never released"
+    },
+    {
+      "hash": "2da59297",
+      "subject": "fix: dyn arr fill / set set-ops leak materialized ShortStr per call"
+    },
+    {
+      "hash": "ac641923",
+      "subject": "chore: hardev dashboard snapshot at rotation 123 close"
+    },
+    {
       "hash": "de7cf376",
       "subject": "feat: cycle collector walks wrapper + Arr expando slots"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "10f27c91",
       "subject": "chore: hardev dashboard snapshot at rotation 122 close"
-    },
-    {
-      "hash": "9c4dd977",
-      "subject": "fix: statement-position `Object.preventExtensions(w)` over-released receiver"
-    },
-    {
-      "hash": "0014f3ff",
-      "subject": "fix: `Object.create({}, p)` throws TypeError when dyn `p` is null"
-    },
-    {
-      "hash": "4df957d0",
-      "subject": "feat: wrapper `[[Extensible]] = false` gate — new-key write throws"
-    },
-    {
-      "hash": "84613637",
-      "subject": "feat: `Object.create(P, fn|arr|wrapper)` walks source cell expando"
-    },
-    {
-      "hash": "3825cac1",
-      "subject": "feat: wrapper `Object.getOwnPropertyDescriptor(w, key)` reads expando"
-    },
-    {
-      "hash": "c444aad8",
-      "subject": "chore: hardev dashboard snapshot at rotation 121 close (post-chunk-5 + intent)"
     }
   ],
-  "headSha": "de7cf376",
+  "headSha": "973ee3dc",
   "autorun": {
-    "total": 428,
+    "total": 429,
     "baselineTarget": 10,
-    "bySelf": 423,
+    "bySelf": 424,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784216137-5b67",
-      "at": "2026-07-16T15:35:37Z",
-      "ts": 1784216137,
+      "rotationId": "r-1784221678-011e",
+      "at": "2026-07-16T17:07:58Z",
+      "ts": 1784221678,
       "trigger": "self",
-      "prevHead": "10f27c91",
-      "handoffSha": "sha256:7b3c23d1abb349205f3b59afb528d57e15e7675f06eaf389938f6f4b7b644194",
-      "handoffAgeSec": 20,
+      "prevHead": "ac641923",
+      "handoffSha": "sha256:7c0642d20c3900a312c2f6fcb1dc478b98616881f604f497b2da19b5bcb6c480",
+      "handoffAgeSec": 101,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784221678-011e",
+        "at": "2026-07-16T17:07:58Z",
+        "ts": 1784221678,
+        "trigger": "self",
+        "prevHead": "ac641923",
+        "handoffSha": "sha256:7c0642d20c3900a312c2f6fcb1dc478b98616881f604f497b2da19b5bcb6c480",
+        "handoffAgeSec": 101,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784216137-5b67",
         "at": "2026-07-16T15:35:37Z",
@@ -876,17 +887,6 @@
         "prevHead": "9a7cae4f",
         "handoffSha": "sha256:828fcdffdda18afd93b7efc37b65e36c5b12b356493373d48ce9ff04ac774d1c",
         "handoffAgeSec": 36,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784141639-528c",
-        "at": "2026-07-15T18:53:59Z",
-        "ts": 1784141639,
-        "trigger": "self",
-        "prevHead": "8ab7bc2e",
-        "handoffSha": "sha256:32bb39d961b5335c614f1c987f8c99cbc51e775e15b2d94cdbd8a4f1710d231e",
-        "handoffAgeSec": 48,
         "conformanceBefore": null,
         "commitsInSession": null
       }
