@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-16T19:57:52.795Z",
+  "generatedAt": "2026-07-16T23:04:46.898Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 92.45
   },
   "torajs": {
-    "commit": "428f1d3c",
-    "commitSubject": "fix: defineProperties eval-dropped an as-any cast struct props container",
+    "commit": "08304a8a",
+    "commitSubject": "feat: any-annotated empty array literal promotes to Arr<Any>",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "08304a8a",
+      "subject": "feat: any-annotated empty array literal promotes to Arr<Any>"
+    },
+    {
+      "hash": "a607b17a",
+      "subject": "test: closure cycle fixtures across the three capture shapes"
+    },
+    {
+      "hash": "e087bb31",
+      "subject": "feat: cycle collector walks closure envs through the trace_fn"
+    },
+    {
+      "hash": "1e000801",
+      "subject": "feat: synthesize per-closure __env_trace_<fn> for the cycle collector"
+    },
+    {
+      "hash": "754b3a38",
+      "subject": "feat: closure env grows a zeroed trace_fn slot at offset 40"
+    },
+    {
+      "hash": "c84ad0b6",
+      "subject": "chore: hardev dashboard snapshot at rotation 125 close"
+    },
+    {
       "hash": "428f1d3c",
       "subject": "fix: defineProperties eval-dropped an as-any cast struct props container"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "4691bbe9",
       "subject": "fix: throw path stranded owned call results at any dispatch sites"
-    },
-    {
-      "hash": "7e32ad08",
-      "subject": "fix: catch link stranded thrown native error payloads"
-    },
-    {
-      "hash": "7dd67618",
-      "subject": "chore: hardev dashboard snapshot at rotation 124 close"
-    },
-    {
-      "hash": "973ee3dc",
-      "subject": "fix: defineProperty on primitive wrapper walked the cell as a dynobj"
-    },
-    {
-      "hash": "98159a10",
-      "subject": "feat: StringWrapper own-keys index face + wrapper values/entries arms"
-    },
-    {
-      "hash": "33fc0787",
-      "subject": "fix: struct reflection / desc lanes leak ShortStr materialization"
-    },
-    {
-      "hash": "86b6c07f",
-      "subject": "fix: defineProperty runtime-desc owned temp never released"
     }
   ],
-  "headSha": "428f1d3c",
+  "headSha": "08304a8a",
   "autorun": {
-    "total": 430,
+    "total": 431,
     "baselineTarget": 10,
-    "bySelf": 425,
+    "bySelf": 426,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784227084-5149",
-      "at": "2026-07-16T18:38:04Z",
-      "ts": 1784227084,
+      "rotationId": "r-1784232515-5b45",
+      "at": "2026-07-16T20:08:35Z",
+      "ts": 1784232515,
       "trigger": "self",
-      "prevHead": "7dd67618",
-      "handoffSha": "sha256:461a4e8457bef3e8d63e0b130b5ea1af4f835e49e151461bc979dd389cf98fa3",
-      "handoffAgeSec": 33,
+      "prevHead": "c84ad0b6",
+      "handoffSha": "sha256:4850e9cc40cfd2120cb625dcb0d159985dd5cb33d8744bc899b0f6cad247e5d8",
+      "handoffAgeSec": 201,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784232515-5b45",
+        "at": "2026-07-16T20:08:35Z",
+        "ts": 1784232515,
+        "trigger": "self",
+        "prevHead": "c84ad0b6",
+        "handoffSha": "sha256:4850e9cc40cfd2120cb625dcb0d159985dd5cb33d8744bc899b0f6cad247e5d8",
+        "handoffAgeSec": 201,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784227084-5149",
         "at": "2026-07-16T18:38:04Z",
@@ -876,17 +887,6 @@
         "prevHead": "354334a7",
         "handoffSha": "sha256:3cc70e6339e54d5653d60083877b95bca2f50dc46e234d96e40d59568e26e133",
         "handoffAgeSec": 13,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784155213-6942",
-        "at": "2026-07-15T22:40:13Z",
-        "ts": 1784155213,
-        "trigger": "self",
-        "prevHead": "09ca3dc9",
-        "handoffSha": "sha256:8aa16e0f5d9c3293a012ddbae25a8fd8bdfea9c9ceb028eb8edab9fffb17a3ad",
-        "handoffAgeSec": 7,
         "conformanceBefore": null,
         "commitsInSession": null
       }
