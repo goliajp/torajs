@@ -133,6 +133,24 @@ pub unsafe extern "C" fn __torajs_any_prop_delete(recv: AnyValue, key: *const c_
             1
         }
         Some((_, t)) if t == Tag::Obj as u16 => 0,
+        // RFC 20260716 刀 5 (rotation 121 chunk 5) — wrapper expando
+        // delete (mirror of the closure arm). A NULL props slot
+        // (never any assign) answers 1 idempotently: `delete <expr>`
+        // on a nonexistent key is a spec success.
+        Some((ptr, t))
+            if t == Tag::NumberWrapper as u16
+                || t == Tag::StringWrapper as u16
+                || t == Tag::BooleanWrapper as u16 =>
+        {
+            let props = unsafe { crate::member_get::wrapper_props(ptr) };
+            if !props.is_null() {
+                if unsafe { refuse_non_configurable(props as *mut c_void, key) } {
+                    return 0;
+                }
+                unsafe { __torajs_dynobj_delete(props as *mut c_void, key) };
+            }
+            1
+        }
         _ => 1,
     }
 }

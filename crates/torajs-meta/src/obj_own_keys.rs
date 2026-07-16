@@ -48,6 +48,14 @@ pub(crate) const TAG_STR_CELL: u16 = 0;
 pub(crate) const TAG_OBJ_CELL: u16 = 1;
 pub(crate) const TAG_ARR_CELL: u16 = 2;
 pub(crate) const TAG_CLOSURE_CELL: u16 = 3;
+/// RFC 20260716 刀 5 (rotation 121 chunk 5) — primitive-wrapper cell
+/// tags (`torajs_rc::Tag::{NumberWrapper,StringWrapper,BooleanWrapper}`
+/// mirrors). Every wrapper carries a lazy expando dynobj at
+/// `WRAPPER_PROPS_OFF` (mirror of the closure `+24` slot).
+pub(crate) const TAG_NUMBER_WRAPPER: u16 = 21;
+pub(crate) const TAG_STRING_WRAPPER: u16 = 22;
+pub(crate) const TAG_BOOLEAN_WRAPPER: u16 = 23;
+pub(crate) const WRAPPER_PROPS_OFF: usize = 16;
 
 /// torajs-arr layout mirrors — `len` u64 at +8, inline props-dynobj
 /// slot at +24 (`torajs_arr::layout::ARR_PROPS_OFF`).
@@ -271,6 +279,24 @@ pub unsafe extern "C" fn __torajs_anyv_own_keys(v: u64, include_nonenum: i64) ->
                 }
             }
             TAG_OBJ_CELL => unsafe { crate::struct_enum::__torajs_anyv_struct_keys(v) },
+            // RFC 20260716 刀 5 (rotation 121 chunk 5) — wrapper
+            // cells now carry a lazy expando dynobj at `+16` (chunks
+            // 4/5). `Object.keys` walks the expando; StringWrapper's
+            // inherent §22.1.4 index face is still exposed by the
+            // subset-specific `String.prototype`-shaped helpers
+            // (recorded L3b: unify with the closure-arm empty-array
+            // baseline). Empty-slot wrappers answer an empty array.
+            TAG_NUMBER_WRAPPER | TAG_STRING_WRAPPER | TAG_BOOLEAN_WRAPPER => {
+                let props =
+                    unsafe { (cell.cast::<u8>().add(WRAPPER_PROPS_OFF) as *const u64).read() }
+                        as *const c_void;
+                let out = unsafe { __torajs_arr_alloc(0) };
+                if props.is_null() {
+                    out as *mut c_void
+                } else {
+                    unsafe { dynobj_keys_append(props, include_nonenum, out, false) as *mut c_void }
+                }
+            }
             _ => unsafe { __torajs_arr_alloc(0) as *mut c_void },
         };
     }

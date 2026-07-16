@@ -223,6 +223,12 @@ pub unsafe extern "C" fn __torajs_any_prop_has(recv: AnyValue, key: *const c_voi
         // §22.1.4 String Exotic Object. View-through the inner Str
         // cell to read the code-unit count; empty-wrapper (NULL
         // inner sentinel) has len 0 so only `"length"` matches.
+        //
+        // 2026-07-16 (rotation 121 chunk 5) — after the inherent
+        // §22.1.4 face, also probe the wrapper's lazy expando dynobj
+        // (`new String("x").foo = 1`, chunk 4). Same fall-through
+        // shape as the Arr arm above (inherent index face first,
+        // expando keys after).
         Some((ptr, t)) if t == Tag::StringWrapper as u16 => {
             let inner_ptr = unsafe { (ptr.cast::<u8>().add(8) as *const *const c_void).read() };
             let len = if inner_ptr.is_null() {
@@ -230,7 +236,26 @@ pub unsafe extern "C" fn __torajs_any_prop_has(recv: AnyValue, key: *const c_voi
             } else {
                 unsafe { inner_ptr.cast::<u8>().add(STR_LEN_OFF).cast::<u32>().read() as u64 }
             };
-            unsafe { str_index_has(len, key) }
+            if unsafe { str_index_has(len, key) } != 0 {
+                return 1;
+            }
+            let props = unsafe { crate::member_get::wrapper_props(ptr) };
+            if props.is_null() {
+                0
+            } else {
+                unsafe { __torajs_dynobj_has(props, key) as i64 }
+            }
+        }
+        // RFC 20260716 刀 5 (rotation 121 chunk 5) — Number/Boolean
+        // wrappers carry no inherent own string keys (§21.1 / §20.3),
+        // so the expando dynobj is the whole answer.
+        Some((ptr, t)) if t == Tag::NumberWrapper as u16 || t == Tag::BooleanWrapper as u16 => {
+            let props = unsafe { crate::member_get::wrapper_props(ptr) };
+            if props.is_null() {
+                0
+            } else {
+                unsafe { __torajs_dynobj_has(props, key) as i64 }
+            }
         }
         _ => 0,
     }
