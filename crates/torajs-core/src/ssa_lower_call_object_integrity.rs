@@ -410,6 +410,14 @@ fn lower_prevent_extensions(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand 
         Type::Any,
         None,
     );
+    // RFC 20260705 owned-result invariant: anyv_prevent_extensions
+    // answers the receiver box un-inc'd; the result carries its own
+    // ref. Missing pre-fix — a statement-position
+    // `Object.preventExtensions(w);` dropped the un-inc'd result and
+    // over-released the receiver (use-after-free: the freed wrapper
+    // block got recycled by the next alloc, observed as
+    // `n.valueOf()` answering `[]` after `Object.keys(n)`).
+    ctx.emit_owned_result_inc(Operand::Value(v), Type::Any);
     Operand::Value(v)
 }
 
