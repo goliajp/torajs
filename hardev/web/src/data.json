@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-16T18:35:00.336Z",
+  "generatedAt": "2026-07-16T19:50:09.193Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 92.45
   },
   "torajs": {
-    "commit": "973ee3dc",
-    "commitSubject": "fix: defineProperty on primitive wrapper walked the cell as a dynobj",
+    "commit": "9935a660",
+    "commitSubject": "feat: defineProperties / Object.create accept a struct props container",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "9935a660",
+      "subject": "feat: defineProperties / Object.create accept a struct props container"
+    },
+    {
+      "hash": "62b3c1ba",
+      "subject": "feat: Object.assign accepts an any target via runtime walk"
+    },
+    {
+      "hash": "62b31a46",
+      "subject": "fix: defineProperty stranded runtime-minted desc values on both sides"
+    },
+    {
+      "hash": "4691bbe9",
+      "subject": "fix: throw path stranded owned call results at any dispatch sites"
+    },
+    {
+      "hash": "7e32ad08",
+      "subject": "fix: catch link stranded thrown native error payloads"
+    },
+    {
+      "hash": "7dd67618",
+      "subject": "chore: hardev dashboard snapshot at rotation 124 close"
+    },
+    {
       "hash": "973ee3dc",
       "subject": "fix: defineProperty on primitive wrapper walked the cell as a dynobj"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "ac641923",
       "subject": "chore: hardev dashboard snapshot at rotation 123 close"
-    },
-    {
-      "hash": "de7cf376",
-      "subject": "feat: cycle collector walks wrapper + Arr expando slots"
-    },
-    {
-      "hash": "106b5ef7",
-      "subject": "feat: cycle collector walks DynObj entries — dynobj cycles now collected"
-    },
-    {
-      "hash": "9b4db6d7",
-      "subject": "refactor: unify cycle-collector child enumeration into for_each_child"
-    },
-    {
-      "hash": "a74e4c8c",
-      "subject": "feat: runtime descriptor lane reads static-layout (TAG_OBJ) desc cells"
-    },
-    {
-      "hash": "6d05d7a4",
-      "subject": "fix: dyn map/set method leaks materialized ShortStr key per call"
-    },
-    {
-      "hash": "10f27c91",
-      "subject": "chore: hardev dashboard snapshot at rotation 122 close"
     }
   ],
-  "headSha": "973ee3dc",
+  "headSha": "9935a660",
   "autorun": {
-    "total": 429,
+    "total": 430,
     "baselineTarget": 10,
-    "bySelf": 424,
+    "bySelf": 425,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784221678-011e",
-      "at": "2026-07-16T17:07:58Z",
-      "ts": 1784221678,
+      "rotationId": "r-1784227084-5149",
+      "at": "2026-07-16T18:38:04Z",
+      "ts": 1784227084,
       "trigger": "self",
-      "prevHead": "ac641923",
-      "handoffSha": "sha256:7c0642d20c3900a312c2f6fcb1dc478b98616881f604f497b2da19b5bcb6c480",
-      "handoffAgeSec": 101,
+      "prevHead": "7dd67618",
+      "handoffSha": "sha256:461a4e8457bef3e8d63e0b130b5ea1af4f835e49e151461bc979dd389cf98fa3",
+      "handoffAgeSec": 33,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784227084-5149",
+        "at": "2026-07-16T18:38:04Z",
+        "ts": 1784227084,
+        "trigger": "self",
+        "prevHead": "7dd67618",
+        "handoffSha": "sha256:461a4e8457bef3e8d63e0b130b5ea1af4f835e49e151461bc979dd389cf98fa3",
+        "handoffAgeSec": 33,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784221678-011e",
         "at": "2026-07-16T17:07:58Z",
@@ -876,17 +887,6 @@
         "prevHead": "09ca3dc9",
         "handoffSha": "sha256:8aa16e0f5d9c3293a012ddbae25a8fd8bdfea9c9ceb028eb8edab9fffb17a3ad",
         "handoffAgeSec": 7,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784147040-765a",
-        "at": "2026-07-15T20:24:00Z",
-        "ts": 1784147040,
-        "trigger": "self",
-        "prevHead": "9a7cae4f",
-        "handoffSha": "sha256:828fcdffdda18afd93b7efc37b65e36c5b12b356493373d48ce9ff04ac774d1c",
-        "handoffAgeSec": 36,
         "conformanceBefore": null,
         "commitsInSession": null
       }
