@@ -301,14 +301,14 @@ fn emit_define_runtime_desc(
                 ),
             );
             ctx.emit_throw_check(None);
-            Operand::Value(ctx.any_unbox_value_as_ptr(desc_op))
+            Operand::Value(ctx.any_unbox_value_as_ptr(desc_op.clone()))
         }
         // Heap cells whose shape the define_from_desc entry resolves
         // (Closure / Arr expando props dynobj at +24). Typed structs
         // stay declined — no dynobj-backed own domain (recorded
         // divergence, same reflection boundary as prop_delete's
         // Tag::Obj arm).
-        Type::Closure(_) | Type::Arr(_) => desc_op,
+        Type::Closure(_) | Type::Arr(_) => desc_op.clone(),
         _ if is_typed_object(desc_ty) => return false,
         // Statically-known primitive descriptor (`defineProperty(o,
         // "k", 5)` / `null` literal) — box once and let the helper
@@ -358,6 +358,12 @@ fn emit_define_runtime_desc(
             vec![Operand::Value(slot), key_op.clone(), desc_ptr],
         ),
     );
+    // The helper borrows the descriptor; a fresh owned temp (call /
+    // new product) still holds its own stake — release it here,
+    // mirroring defineProperties' props release and the objlit
+    // runtime arm's descriptor drop (pre-fix `defineProperty(o, k,
+    // mkDesc())` leaked the descriptor cell per call).
+    ctx.release_owned_temp(desc_eid, &desc_op);
     // 刀 18 — coerced key was owned Str; drop after helper borrowed it.
     if key_owned {
         ctx.f.append_void(
