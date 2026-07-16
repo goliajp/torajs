@@ -177,6 +177,9 @@ pub(crate) unsafe fn wrapper_define(
                         as *const u8,
                 );
             }
+            if flags_byte & DEFINE_PRESENT_VALUE != 0 {
+                unsafe { crate::define::drop_rejected_value(tag, value) };
+            }
             return;
         }
     }

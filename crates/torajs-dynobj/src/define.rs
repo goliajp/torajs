@@ -76,6 +76,18 @@ pub unsafe extern "C" fn __torajs_dynobj_define(
     unsafe { define_apply(obj_slot, key, tag, value, flags_byte) }
 }
 
+/// Release the caller-transferred `[[Value]]` stake on a rejection
+/// path. Every throw+return leg in [`define_apply`] /
+/// [`redefine_entry`] leaves before the store that would consume the
+/// value — without this the desc value stranded one rc per rejected
+/// define (`value` is honored only under `DEFINE_PRESENT_VALUE`, so
+/// legs gate on `has_value`).
+pub(crate) unsafe fn drop_rejected_value(tag: u64, value: u64) {
+    if (tag & BUCKET_TAG_MASK) == ANY_HEAP && value != 0 {
+        unsafe { __torajs_value_drop_heap(value as *mut c_void) };
+    }
+}
+
 /// Spec §10.1.6.3 ValidateAndApplyPropertyDescriptor — data-property
 /// subset. Shared core for both the literal
 /// ([`__torajs_dynobj_define`]) and runtime-descriptor
@@ -84,7 +96,8 @@ pub unsafe extern "C" fn __torajs_dynobj_define(
 /// # Safety
 /// Same contract as [`__torajs_dynobj_define`]. When `flags_byte` sets
 /// `DEFINE_PRESENT_VALUE` and `tag == ANY_HEAP`, the caller transfers
-/// one rc of `value` (consumed on store / dropped on redefine).
+/// one rc of `value` (consumed on store, dropped on redefine, or
+/// dropped on every rejection leg via [`drop_rejected_value`]).
 pub(crate) unsafe fn define_apply(
     obj_slot: *mut *mut c_void,
     key: *mut c_void,
@@ -151,6 +164,9 @@ pub(crate) unsafe fn define_apply(
                     c"Attempting to define property on object that is not extensible.".as_ptr()
                         as *const u8,
                 );
+            }
+            if has_value {
+                unsafe { drop_rejected_value(tag, value) };
             }
             return;
         }
@@ -230,6 +246,9 @@ unsafe fn redefine_entry(e: *mut Entry, tag: u64, value: u64, flags_byte: u64) {
                         .as_ptr() as *const u8,
                 );
             }
+            if has_value {
+                unsafe { drop_rejected_value(tag, value) };
+            }
             return;
         }
         if has_enumerable && desc_enumerable != cur_enumerable {
@@ -238,6 +257,9 @@ unsafe fn redefine_entry(e: *mut Entry, tag: u64, value: u64, flags_byte: u64) {
                     c"Attempting to change enumerable attribute of unconfigurable property."
                         .as_ptr() as *const u8,
                 );
+            }
+            if has_value {
+                unsafe { drop_rejected_value(tag, value) };
             }
             return;
         }
@@ -249,6 +271,7 @@ unsafe fn redefine_entry(e: *mut Entry, tag: u64, value: u64, flags_byte: u64) {
                     c"Attempting to change access mechanism for an unconfigurable property."
                         .as_ptr() as *const u8,
                 );
+                drop_rejected_value(tag, value);
             }
             return;
         }
@@ -259,6 +282,9 @@ unsafe fn redefine_entry(e: *mut Entry, tag: u64, value: u64, flags_byte: u64) {
                         c"Attempting to change writable attribute of unconfigurable property."
                             .as_ptr() as *const u8,
                     );
+                }
+                if has_value {
+                    unsafe { drop_rejected_value(tag, value) };
                 }
                 return;
             }
@@ -272,6 +298,7 @@ unsafe fn redefine_entry(e: *mut Entry, tag: u64, value: u64, flags_byte: u64) {
                             c"Attempting to change value of a readonly property.".as_ptr()
                                 as *const u8,
                         );
+                        drop_rejected_value(tag, value);
                     }
                     return;
                 }

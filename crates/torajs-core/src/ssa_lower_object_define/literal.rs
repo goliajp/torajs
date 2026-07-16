@@ -239,9 +239,13 @@ fn emit_define_arr_prop(
     // it here (defineProperty is a reflection boundary like boxing).
     ctx.emit_arr_mark_kind(&obj_op);
     let (key_op, key_owned) = lower_key(ctx, key);
+    let mut owned_val: Option<(ExprId, Operand)> = None;
     let (tag, val_op) = if let Some(val_eid) = value_eid {
         let v_raw = ctx.lower_expr(val_eid);
         let v_ty = ctx.operand_ty(&v_raw);
+        if v_ty.is_refcounted() {
+            owned_val = Some((val_eid, v_raw.clone()));
+        }
         pack_tagged_value(ctx, v_raw, v_ty)
     } else {
         (0, Operand::ConstI64(0))
@@ -266,6 +270,13 @@ fn emit_define_arr_prop(
             InstKind::Call(ctx.intrinsics.str_drop, vec![key_op]),
         );
     }
+    // pack_tagged_value's +1 fed the kernel's transfer contract; an
+    // owned-shape value temp (concat / call result) still holds its
+    // own mint stake with no consumer — release it (borrow shapes
+    // no-op inside).
+    if let Some((val_eid, v_raw)) = owned_val {
+        ctx.release_owned_temp(val_eid, &v_raw);
+    }
     ctx.emit_throw_check(None);
 }
 
@@ -280,9 +291,13 @@ fn emit_define_dynobj(
     flags_byte: i64,
 ) {
     let (key_op, key_owned) = lower_key(ctx, key);
+    let mut owned_val: Option<(ExprId, Operand)> = None;
     let (tag, val_op) = if let Some(val_eid) = value_eid {
         let v_raw = ctx.lower_expr(val_eid);
         let v_ty = ctx.operand_ty(&v_raw);
+        if v_ty.is_refcounted() {
+            owned_val = Some((val_eid, v_raw.clone()));
+        }
         pack_tagged_value(ctx, v_raw, v_ty)
     } else {
         (0, Operand::ConstI64(0))
@@ -312,6 +327,13 @@ fn emit_define_dynobj(
             ctx.cur_block,
             InstKind::Call(ctx.intrinsics.str_drop, vec![key_op]),
         );
+    }
+    // pack_tagged_value's +1 fed the kernel's transfer contract; an
+    // owned-shape value temp (concat / call result) still holds its
+    // own mint stake with no consumer — release it (borrow shapes
+    // no-op inside).
+    if let Some((val_eid, v_raw)) = owned_val {
+        ctx.release_owned_temp(val_eid, &v_raw);
     }
     ctx.emit_throw_check(None);
     ctx.emit_any_dynobj_writeback(receiver_ident, slot);
