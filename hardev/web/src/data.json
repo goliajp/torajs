@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-16T02:22:54.007Z",
+  "generatedAt": "2026-07-16T03:52:12.814Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-16T02:21:35Z",
-    "headSha": "099b60da",
-    "elapsedSec": 499.14,
+    "ranAt": "2026-07-16T03:03:28Z",
+    "headSha": "5bff2675",
+    "elapsedSec": 489.4,
     "workers": 8,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 7369,
+    "pass": 7386,
     "passNoOracle": 112,
     "passNegative": 4447,
-    "passTotal": 11928,
-    "bug": 956,
+    "passTotal": 11945,
+    "bug": 939,
     "incompatible": 40290,
     "bunSkip": 11908,
     "harnessError": 0,
     "inScope": 53174,
     "trAccepted": 12884,
-    "passRateInScope": 22.43,
-    "passRateTrAccepted": 92.58
+    "passRateInScope": 22.46,
+    "passRateTrAccepted": 92.71
   },
   "torajs": {
-    "commit": "2ecd897c",
-    "commitSubject": "chore: archive the test262 sweep at 099b60da",
+    "commit": "f5da56bb",
+    "commitSubject": "chore: build.rs COMPILER_SOURCE_FILES audit — hedge new SSA call-site files",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "f5da56bb",
+      "subject": "chore: build.rs COMPILER_SOURCE_FILES audit — hedge new SSA call-site files"
+    },
+    {
+      "hash": "76c33fb9",
+      "subject": "refactor: extract closure-face dispatch to method_call_closure_dispatch (file-size debt)"
+    },
+    {
+      "hash": "4c45ff16",
+      "subject": "feat: struct-cell gOPD reflects FLAG_FROZEN / FLAG_SEALED (RFC 20260716 刀 25)"
+    },
+    {
+      "hash": "da2eebd1",
+      "subject": "chore: archive the test262 sweep at 5bff2675"
+    },
+    {
+      "hash": "5bff2675",
+      "subject": "feat: ES §17 built-in fn class-slot attribute lock (name / length / prototype)"
+    },
+    {
+      "hash": "354334a7",
+      "subject": "chore: hardev dashboard snapshot at rotation 116 close"
+    },
+    {
       "hash": "2ecd897c",
       "subject": "chore: archive the test262 sweep at 099b60da"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "3488c625",
       "subject": "chore: archive the test262 sweep at 9712b3c0"
-    },
-    {
-      "hash": "9712b3c0",
-      "subject": "feat: defineProperties Phase 1 spec-Get accessor descriptors (RFC 20260716 刀 23)"
-    },
-    {
-      "hash": "09ca3dc9",
-      "subject": "chore: hardev dashboard snapshot at rotation 115 close"
-    },
-    {
-      "hash": "57efaa4b",
-      "subject": "chore: archive the test262 sweep at 018cdd09"
-    },
-    {
-      "hash": "018cdd09",
-      "subject": "fix: narrow defineProperties desc-accept to +TAG_OBJ only (RFC 20260716 刀 22b)"
-    },
-    {
-      "hash": "a3c00d3a",
-      "subject": "feat: defineProperties desc-value gate mirror the dispatcher (RFC 20260716 刀 22)"
-    },
-    {
-      "hash": "88ab2a23",
-      "subject": "chore: archive the test262 sweep at d673e632"
     }
   ],
-  "headSha": "2ecd897c",
+  "headSha": "f5da56bb",
   "autorun": {
-    "total": 421,
+    "total": 422,
     "baselineTarget": 10,
-    "bySelf": 416,
+    "bySelf": 417,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784155213-6942",
-      "at": "2026-07-15T22:40:13Z",
-      "ts": 1784155213,
+      "rotationId": "r-1784168690-6002",
+      "at": "2026-07-16T02:24:50Z",
+      "ts": 1784168690,
       "trigger": "self",
-      "prevHead": "09ca3dc9",
-      "handoffSha": "sha256:8aa16e0f5d9c3293a012ddbae25a8fd8bdfea9c9ceb028eb8edab9fffb17a3ad",
-      "handoffAgeSec": 7,
+      "prevHead": "354334a7",
+      "handoffSha": "sha256:3cc70e6339e54d5653d60083877b95bca2f50dc46e234d96e40d59568e26e133",
+      "handoffAgeSec": 13,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784168690-6002",
+        "at": "2026-07-16T02:24:50Z",
+        "ts": 1784168690,
+        "trigger": "self",
+        "prevHead": "354334a7",
+        "handoffSha": "sha256:3cc70e6339e54d5653d60083877b95bca2f50dc46e234d96e40d59568e26e133",
+        "handoffAgeSec": 13,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784155213-6942",
         "at": "2026-07-15T22:40:13Z",
@@ -876,17 +887,6 @@
         "prevHead": "42737b81",
         "handoffSha": "sha256:933790c9f499c06855485153418ecc33ca9219ac119c9b8a5f38583d269504c5",
         "handoffAgeSec": 5336,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784099919-5a30",
-        "at": "2026-07-15T07:18:39Z",
-        "ts": 1784099919,
-        "trigger": "self",
-        "prevHead": "6f17b5dd",
-        "handoffSha": "sha256:819ad064f09d70afb586f475d55367797b9345120c94e3cc08b6b8180ee3075c",
-        "handoffAgeSec": 26840,
         "conformanceBefore": null,
         "commitsInSession": null
       }
