@@ -62,48 +62,73 @@ pub(crate) fn try_lower(
             // the helper avoids a fresh Any-box alloc per
             // compare. Mirrors the box_to_any tag/value
             // extraction.
-            let (any_box, concrete, concrete_ty, concrete_is_undef) = if matches!(a_ty, Type::Any) {
-                (a, b, b_ty, ctx.binop_right_undef_id.is_some())
+            let (any_box, concrete, concrete_ty, concrete_is_undef, concrete_is_null) =
+                if matches!(a_ty, Type::Any) {
+                    (
+                        a,
+                        b,
+                        b_ty,
+                        ctx.binop_right_undef_id.is_some(),
+                        ctx.binop_right_null_id.is_some(),
+                    )
+                } else {
+                    (
+                        b,
+                        a,
+                        a_ty,
+                        ctx.binop_left_undef_id.is_some(),
+                        ctx.binop_left_null_id.is_some(),
+                    )
+                };
+            // P1.8 + 2026-07-16 — `any === undefined` and `any === null`
+            // are distinct: the concrete side must carry the matching
+            // tag (5 vs 0) so the runtime helper's tag-equality short-
+            // circuit fires correctly. Pre-P1.8 both Ptr-shaped
+            // operands packed to 0, making `<undefined-box> ===
+            // undefined` falsely false and `<undefined-box> === null`
+            // falsely true. P1.8 fixed the literal `undefined` / `null`
+            // path (only when the SSA operand was `Type::Ptr` +
+            // `Operand::ConstPtrNull`), but a checker-typed
+            // `Type::Undefined` / `Type::Null` binding (e.g.
+            // `const y = undefined; anyBox === y`) reached here as a
+            // `Load` operand (not `ConstPtrNull`) and fell through to
+            // `_ => (0, 0)` — the null tag, wrong for undefined.
+            //
+            // Also observable via
+            // `Object.getOwnPropertyDescriptor(...).value === undefined`
+            // where the descriptor's Any-boxed undefined was compared
+            // against a locally-bound `undefined`, blocking test262
+            // `Object.create` `desc.value` cluster (8 case) among
+            // others. Route the id-based flags first so the SSA-Type
+            // shape of the concrete side no longer gates the tag.
+            let (tag, value): (i64, Operand) = if concrete_is_undef {
+                (5, Operand::ConstI64(0))
+            } else if concrete_is_null {
+                (0, Operand::ConstI64(0))
             } else {
-                (b, a, a_ty, ctx.binop_left_undef_id.is_some())
-            };
-            let (tag, value): (i64, Operand) = match concrete_ty {
-                Type::I64 | Type::I32 => (2, concrete),
-                Type::F64 => {
-                    let bits = ctx.f.append_inst(
-                        ctx.cur_block,
-                        InstKind::BitCastF64ToI64(concrete),
-                        Type::I64,
-                        None,
-                    );
-                    (3, Operand::Value(bits))
-                }
-                Type::Bool => {
-                    let zext = ctx.f.append_inst(
-                        ctx.cur_block,
-                        InstKind::ZExtBoolToI64(concrete),
-                        Type::I64,
-                        None,
-                    );
-                    (1, Operand::Value(zext))
-                }
-                // P1.8 — `any === undefined` and `any === null`
-                // are distinct: the concrete side must carry the
-                // matching tag (5 vs 0) so the runtime helper's
-                // tag-equality short-circuit fires correctly.
-                // Pre-P1.8 both Ptr-shaped operands packed to 0,
-                // making `<undefined-box> === undefined` falsely
-                // false and `<undefined-box> === null` falsely
-                // true.
-                Type::Ptr if matches!(concrete, Operand::ConstPtrNull) => {
-                    if concrete_is_undef {
-                        (5, Operand::ConstI64(0))
-                    } else {
-                        (0, Operand::ConstI64(0))
+                match concrete_ty {
+                    Type::I64 | Type::I32 => (2, concrete),
+                    Type::F64 => {
+                        let bits = ctx.f.append_inst(
+                            ctx.cur_block,
+                            InstKind::BitCastF64ToI64(concrete),
+                            Type::I64,
+                            None,
+                        );
+                        (3, Operand::Value(bits))
                     }
+                    Type::Bool => {
+                        let zext = ctx.f.append_inst(
+                            ctx.cur_block,
+                            InstKind::ZExtBoolToI64(concrete),
+                            Type::I64,
+                            None,
+                        );
+                        (1, Operand::Value(zext))
+                    }
+                    t if t.is_refcounted() => (4, concrete),
+                    _ => (0, Operand::ConstI64(0)),
                 }
-                t if t.is_refcounted() => (4, concrete),
-                _ => (0, Operand::ConstI64(0)),
             };
             let r = ctx.f.append_inst(
                 ctx.cur_block,
