@@ -7,6 +7,16 @@
 //! `torajs_core::ast::synthesize_class_globals` path.
 
 use super::{Ast, Expr, Stmt};
+use std::collections::{HashMap, HashSet};
+
+/// Class-index derived from `desugar_classes`' output — shared by all
+/// three emit helpers so the walk over `ast.stmts` only happens once.
+struct ClassMetadata {
+    class_names: Vec<String>,
+    class_set: HashSet<String>,
+    class_lengths: HashMap<String, usize>,
+    static_shadow: HashSet<String>,
+}
 
 /// P4.prototype-chain Phase A — expose every user-declared class as
 /// a first-class value. Runs AFTER `desugar_classes` (which has
@@ -38,8 +48,42 @@ use super::{Ast, Expr, Stmt};
 /// formal params before the first default / rest, 0 for a
 /// synthesized derived default ctor).
 pub fn synthesize_class_globals(ast: &mut Ast) {
-    use std::collections::HashSet;
+    let meta = collect_class_metadata(ast);
+    if meta.class_names.is_empty() {
+        return;
+    }
 
+    let mut prepended: Vec<Stmt> = Vec::with_capacity(meta.class_names.len() * 3);
+    emit_prototype_and_class_stmts(ast, &meta, &mut prepended);
+    emit_chain_and_registration_stmts(ast, &meta, &mut prepended);
+
+    // Rewrite Ident("<C>") → Ident("__class_<C>") for each known
+    // class name. Walks the entire expr arena since class refs can
+    // appear anywhere (let init, fn arg, return value, conditional
+    // branches, ...). Synthesized __proto_<C> / __class_<C> idents
+    // are not in class_set (their names carry the prefix), so this
+    // pass leaves them untouched.
+    let n = ast.exprs.len();
+    for i in 0..n {
+        if let Expr::Ident(name) = &ast.exprs[i]
+            && meta.class_set.contains(name)
+        {
+            let new_name = format!("__class_{name}");
+            ast.exprs[i] = Expr::Ident(new_name);
+        }
+    }
+
+    // Prepend the new LetDecls so they're initialized before any
+    // user code references them. Insert at the very top so static
+    // field inits + main body all see them.
+    let mut combined = prepended;
+    combined.extend(std::mem::take(&mut ast.stmts));
+    ast.stmts = combined;
+}
+
+/// Collect class names + lengths + static-shadow markers from the
+/// post-`desugar_classes` FnDecl stream.
+fn collect_class_metadata(ast: &Ast) -> ClassMetadata {
     // Extract class names from the `__new_<C>` factories produced by
     // `desugar_classes`. (ClassDecl stmts are gone post-desugar; the
     // factory FnDecl names are the most stable handle.)
@@ -49,8 +93,7 @@ pub fn synthesize_class_globals(ast: &mut Ast) {
     // The factory's params ARE the user ctor's, except a synthesized
     // derived default ctor (rest-shaped per spec, so length 0) —
     // desugar records those in `derived_default_ctor_classes`.
-    let mut class_lengths: std::collections::HashMap<String, usize> =
-        std::collections::HashMap::new();
+    let mut class_lengths: HashMap<String, usize> = HashMap::new();
     for s in &ast.stmts {
         if let Stmt::FnDecl { name, params, .. } = s
             && let Some(c) = name.strip_prefix("__new_")
@@ -66,9 +109,6 @@ pub fn synthesize_class_globals(ast: &mut Ast) {
             class_names.push(c.to_string());
             class_lengths.insert(c.to_string(), len);
         }
-    }
-    if class_names.is_empty() {
-        return;
     }
     let class_set: HashSet<String> = class_names.iter().cloned().collect();
 
@@ -88,17 +128,29 @@ pub fn synthesize_class_globals(ast: &mut Ast) {
         })
         .collect();
 
-    let mut prepended: Vec<Stmt> = Vec::with_capacity(class_names.len() * 3);
+    ClassMetadata {
+        class_names,
+        class_set,
+        class_lengths,
+        static_shadow,
+    }
+}
 
-    // P4.2 Phase B — `let __proto_<C>: any = {}` per class. Singleton
-    // prototype object held in a top-level local; Phase A1's class
-    // dynobj's `prototype` field points here, and `Object.getPrototypeOf
-    // (instance)` lowers to a load on `__proto_<class_name>`. Empty
-    // body — methods stay on the nominal vtable for perf; this is the
-    // identity / introspection substrate.
-    for cname in &class_names {
+/// P4.2 Phase B — `let __proto_<C>: any = {}` + `let __class_<C>: any
+/// = { name, prototype: __proto_<C>, length }` for every class. The
+/// `prototype` field is the value that `C.prototype` reads — same
+/// any-box that `Object.getPrototypeOf(instance)` returns, so identity
+/// holds across both paths via the P4.0 nested-Any-dynobj fix.
+fn emit_prototype_and_class_stmts(ast: &mut Ast, meta: &ClassMetadata, out: &mut Vec<Stmt>) {
+    // Singleton prototype object held in a top-level local; Phase A1's
+    // class dynobj's `prototype` field points here, and
+    // `Object.getPrototypeOf(instance)` lowers to a load on
+    // `__proto_<class_name>`. Empty body — methods stay on the
+    // nominal vtable for perf; this is the identity / introspection
+    // substrate.
+    for cname in &meta.class_names {
         let empty_obj = ast.add_expr(Expr::ObjectLit { fields: vec![] });
-        prepended.push(Stmt::LetDecl {
+        out.push(Stmt::LetDecl {
             mutable: false,
             name: format!("__proto_{cname}"),
             type_ann: Some("any".to_string()),
@@ -107,12 +159,7 @@ pub fn synthesize_class_globals(ast: &mut Ast) {
         });
     }
 
-    // Synthesize `let __class_<C>: any = { name: "<C>", prototype:
-    // __proto_<C> }`. The `prototype` field is the value that
-    // `C.prototype` reads — same any-box that `Object.getPrototypeOf
-    // (instance)` returns, so identity holds across both paths via
-    // the P4.0 nested-Any-dynobj fix.
-    for cname in &class_names {
+    for cname in &meta.class_names {
         // RFC 20260714-dstr-residual blade 4 — NamedEvaluation: an
         // anonymous class expression bound by a declaration or a
         // destructuring default reflects the binding identifier as
@@ -122,16 +169,16 @@ pub fn synthesize_class_globals(ast: &mut Ast) {
             .get(cname)
             .unwrap_or(cname)
             .clone();
-        let name_expr = if static_shadow.contains(&format!("__sm_{cname}__name")) {
+        let name_expr = if meta.static_shadow.contains(&format!("__sm_{cname}__name")) {
             ast.add_expr(Expr::Ident(format!("__sm_{cname}__name")))
         } else {
             ast.add_expr(Expr::String(display))
         };
         let proto_ident = ast.add_expr(Expr::Ident(format!("__proto_{cname}")));
-        let length_expr = if static_shadow.contains(&format!("__sm_{cname}__length")) {
+        let length_expr = if meta.static_shadow.contains(&format!("__sm_{cname}__length")) {
             ast.add_expr(Expr::Ident(format!("__sm_{cname}__length")))
         } else {
-            ast.add_expr(Expr::Number(class_lengths[cname] as f64))
+            ast.add_expr(Expr::Number(meta.class_lengths[cname] as f64))
         };
         let obj_expr = ast.add_expr(Expr::ObjectLit {
             fields: vec![
@@ -140,7 +187,7 @@ pub fn synthesize_class_globals(ast: &mut Ast) {
                 ("length".to_string(), length_expr),
             ],
         });
-        prepended.push(Stmt::LetDecl {
+        out.push(Stmt::LetDecl {
             mutable: false,
             name: format!("__class_{cname}"),
             type_ann: Some("any".to_string()),
@@ -148,13 +195,18 @@ pub fn synthesize_class_globals(ast: &mut Ast) {
             is_var: false,
         });
     }
+}
 
+/// Phase C prototype-chain wire + runtime side-table registration
+/// (`__torajs_proto_register` / `__torajs_genfn_chain` /
+/// `__torajs_class_register` / `__torajs_register_native_error`).
+fn emit_chain_and_registration_stmts(ast: &mut Ast, meta: &ClassMetadata, out: &mut Vec<Stmt>) {
     // P4.2 Phase C — chain wire `__proto_<Sub>.__proto__ = __proto_<Super>`
     // for each class that has a parent. ast.class_parents was
     // populated by desugar_classes; root classes (no parent) are
     // left with an empty `__proto_<C>` whose `__proto__` is missing
     // (read returns ANY_NULL via `__torajs_get_proto_of_any`).
-    for cname in &class_names {
+    for cname in &meta.class_names {
         let parent = ast.class_parents.get(cname).cloned().flatten();
         let Some(pname) = parent else { continue };
         let proto_sub = ast.add_expr(Expr::Ident(format!("__proto_{cname}")));
@@ -167,7 +219,7 @@ pub fn synthesize_class_globals(ast: &mut Ast) {
             target: member,
             value: proto_super,
         });
-        prepended.push(Stmt::Expr(assign));
+        out.push(Stmt::Expr(assign));
     }
 
     // P4.2 Phase B+C — register each `__proto_<C>` into the runtime
@@ -179,7 +231,7 @@ pub fn synthesize_class_globals(ast: &mut Ast) {
     // `__torajs_proto_register(<tag_const>, <proto_ident_load>)`.
     // The class-name argument is a String literal so ssa_lower can
     // pick the right tag without re-deriving it from sid.
-    for cname in &class_names {
+    for cname in &meta.class_names {
         let proto_ident = ast.add_expr(Expr::Ident(format!("__proto_{cname}")));
         let name_str = ast.add_expr(Expr::String(cname.clone()));
         let callee = ast.add_expr(Expr::Ident("__torajs_proto_register".to_string()));
@@ -187,7 +239,7 @@ pub fn synthesize_class_globals(ast: &mut Ast) {
             callee,
             args: vec![proto_ident, name_str],
         });
-        prepended.push(Stmt::Expr(call));
+        out.push(Stmt::Expr(call));
     }
 
     // RFC 20260713 blade 5 cut 4 — chain each generator class's
@@ -207,7 +259,7 @@ pub fn synthesize_class_globals(ast: &mut Ast) {
         .collect();
     gen_classes.sort();
     for (cls, kind) in gen_classes {
-        if !class_names.iter().any(|c| c == &cls) {
+        if !meta.class_names.iter().any(|c| c == &cls) {
             continue;
         }
         let proto_ident = ast.add_expr(Expr::Ident(format!("__proto_{cls}")));
@@ -217,14 +269,14 @@ pub fn synthesize_class_globals(ast: &mut Ast) {
             callee,
             args: vec![proto_ident, kind_expr],
         });
-        prepended.push(Stmt::Expr(call));
+        out.push(Stmt::Expr(call));
     }
 
     // P4.5 — parallel registration: store each `__class_<C>` Any-box
     // in the classes-by-tag side table. Read inside `__new_<C>`
     // factory bodies via `__torajs_my_class_ref("<C>")` (intercepted
     // at ssa_lower → emits `__torajs_class_get(<tag_const>)`).
-    for cname in &class_names {
+    for cname in &meta.class_names {
         let class_ident = ast.add_expr(Expr::Ident(format!("__class_{cname}")));
         let name_str = ast.add_expr(Expr::String(cname.clone()));
         let callee = ast.add_expr(Expr::Ident("__torajs_class_register".to_string()));
@@ -232,7 +284,7 @@ pub fn synthesize_class_globals(ast: &mut Ast) {
             callee,
             args: vec![class_ident, name_str],
         });
-        prepended.push(Stmt::Expr(call));
+        out.push(Stmt::Expr(call));
     }
 
     // P7.4-a-2 — register each present Error-family class's
@@ -244,7 +296,7 @@ pub fn synthesize_class_globals(ast: &mut Ast) {
     // arg is a String literal (not an Ident) so the `__class_<C>`
     // rewrite below leaves it untouched. Only the three
     // runtime-throwable classes are wired.
-    for cname in &class_names {
+    for cname in &meta.class_names {
         if matches!(cname.as_str(), "Error" | "TypeError" | "RangeError") {
             let name_str = ast.add_expr(Expr::String(cname.clone()));
             let callee = ast.add_expr(Expr::Ident("__torajs_register_native_error".to_string()));
@@ -252,30 +304,7 @@ pub fn synthesize_class_globals(ast: &mut Ast) {
                 callee,
                 args: vec![name_str],
             });
-            prepended.push(Stmt::Expr(call));
+            out.push(Stmt::Expr(call));
         }
     }
-
-    // Rewrite Ident("<C>") → Ident("__class_<C>") for each known
-    // class name. Walks the entire expr arena since class refs can
-    // appear anywhere (let init, fn arg, return value, conditional
-    // branches, ...). Synthesized __proto_<C> / __class_<C> idents
-    // are not in class_set (their names carry the prefix), so this
-    // pass leaves them untouched.
-    let n = ast.exprs.len();
-    for i in 0..n {
-        if let Expr::Ident(name) = &ast.exprs[i]
-            && class_set.contains(name)
-        {
-            let new_name = format!("__class_{name}");
-            ast.exprs[i] = Expr::Ident(new_name);
-        }
-    }
-
-    // Prepend the new LetDecls so they're initialized before any
-    // user code references them. Insert at the very top so static
-    // field inits + main body all see them.
-    let mut combined = prepended;
-    combined.extend(std::mem::take(&mut ast.stmts));
-    ast.stmts = combined;
 }
