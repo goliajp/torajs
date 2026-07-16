@@ -85,7 +85,10 @@ pub(crate) fn try_match(
         }
     }
     Some(Ok(match m_name.as_str() {
-        "defineProperties" | "defineProperty" => Type::Void,
+        // §20.1.2.4 / §20.1.2.5 — both answer the receiver `O`, not
+        // Void. SSA lower returns the (Any) receiver operand; the
+        // checker sig had to be Any so a `var root = defineProperty(...)`
+        // doesn't collapse to a Void slot before Object.create sees it.
         _ => Type::Any,
     }))
 }

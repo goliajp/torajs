@@ -138,15 +138,19 @@ pub(crate) fn lower_key(ctx: &mut LowerCtx, key: &DefineKey) -> (Operand, bool) 
 
 /// Emit one `Object.defineProperty(obj, key, desc)`-equivalent. `obj` is
 /// re-lowered from `obj_eid` (so `defineProperties` can re-read the
-/// receiver variable after a prior field resized it). Returns `true`
-/// when handled; `false` when neither a literal nor a runtime-Any
-/// descriptor applies (caller decides the fall-through).
+/// receiver variable after a prior field resized it). Returns
+/// `Some((obj_op, obj_ty))` when handled — the lowered receiver, so
+/// `try_lower_define_property` can answer `O` per §20.1.2.5 instead of
+/// undefined (test262 `__lookupGetter__` cluster's `Object.create(
+/// defineProperty(...), ...)` used to hit "Object prototype may only be
+/// an Object or null" here); `None` when neither a literal nor a
+/// runtime-Any descriptor applies (caller decides the fall-through).
 pub(crate) fn emit_define_one(
     ctx: &mut LowerCtx,
     obj_eid: ExprId,
     key: DefineKey,
     desc_eid: ExprId,
-) -> bool {
+) -> Option<(Operand, Type)> {
     // Step 7d-A — capture the receiver's Ident name (if any) so the
     // dynobj-define Any path can writeback the post-resize ptr to the
     // variable's storage as a fresh NaN-box AnyValue.
@@ -159,7 +163,18 @@ pub(crate) fn emit_define_one(
     let obj_ty = ctx.operand_ty(&obj_op);
 
     emit_receiver_typecheck(ctx, obj_eid, &obj_op, obj_ty.clone());
-    emit_define_one_core(ctx, obj_op, obj_ty, &receiver_ident, key, desc_eid)
+    if emit_define_one_core(
+        ctx,
+        obj_op.clone(),
+        obj_ty.clone(),
+        &receiver_ident,
+        key,
+        desc_eid,
+    ) {
+        Some((obj_op, obj_ty))
+    } else {
+        None
+    }
 }
 
 /// [`emit_define_one`] with the receiver already lowered and
@@ -387,7 +402,8 @@ fn try_lower_define_property(
         && let Expr::Ident(ns) = ctx.ast.get_expr(*ns_id)
         && ns == "Object"
         && args.len() >= 3
-        && emit_define_one(ctx, args[0], DefineKey::Expr(args[1]), args[2])
+        && let Some((obj_op, obj_ty)) =
+            emit_define_one(ctx, args[0], DefineKey::Expr(args[1]), args[2])
     {
         // S317 — ES §20.1.2.6 silently ignores args past (obj, key,
         // desc). `emit_define_one` lowers args[0..3] (obj + key +
@@ -396,7 +412,13 @@ fn try_lower_define_property(
         for &a in args.iter().skip(3) {
             let _ = ctx.lower_expr(a);
         }
-        return Some(Operand::ConstI64(0));
+        // §20.1.2.5 step 4 — return O. Mirror `defineProperties`'
+        // owned-result invariant so caller-side drop nets out with the
+        // inc here (defineProperties' RFC 20260705 line: the receiver
+        // carries its own ref through the dedicated path, bypassing
+        // integrity's lower_noop).
+        ctx.emit_owned_result_inc(obj_op.clone(), obj_ty);
+        return Some(obj_op);
     }
     None
 }

@@ -61,7 +61,7 @@ pub(crate) fn try_lower_define_properties(
             let obj_is_ident = matches!(ctx.ast.get_expr(args[0]), Expr::Ident(_));
             for (name, desc_eid) in &field_list {
                 if obj_is_ident {
-                    emit_define_one(ctx, args[0], DefineKey::Name(name), *desc_eid);
+                    let _ = emit_define_one(ctx, args[0], DefineKey::Name(name), *desc_eid);
                 } else {
                     emit_define_one_core(
                         ctx,

@@ -64,8 +64,16 @@ pub(crate) fn try_match(name: &str) -> Option<Result<Type, String>> {
         // `emit_to_string` coerce (§20.1.2.6 step 1 → §7.1.19 →
         // §7.1.17); the runtime helper still borrows a raw Str
         // pointer and SSA lower drops the coerced Str after.
+        // §20.1.2.5 step 4 — answers the receiver `O`, not Void. The
+        // SSA lower's `try_lower_define_property` returns the (Any)
+        // receiver operand; the checker sig had to match so a
+        // `var root = Object.defineProperty(obj, k, d)` doesn't
+        // collapse to a Void slot before `Object.create(root, ...)`
+        // sees it (test262 `__lookupGetter__` cluster's 12 case were
+        // failing here via `Object.create(undefined)` → "Object
+        // prototype may only be an Object or null").
         "defineProperty" => {
-            Type::Function(vec![Type::Any, Type::Any, Type::Any], Box::new(Type::Void))
+            Type::Function(vec![Type::Any, Type::Any, Type::Any], Box::new(Type::Any))
         }
         // P3.getOwnPropertyDescriptor — accept at typecheck.
         // ssa_lower intercepts and constructs an Any-boxed
@@ -94,7 +102,11 @@ pub(crate) fn try_match(name: &str) -> Option<Result<Type, String>> {
         // that need real spec behavior bucket as bugs
         // rather than incompatible.
         "setPrototypeOf" => Type::Function(vec![Type::Any, Type::Any], Box::new(Type::Any)),
-        "defineProperties" => Type::Function(vec![Type::Any, Type::Any], Box::new(Type::Void)),
+        // §20.1.2.4 step 4 — answers the receiver `O`, not Void. SSA
+        // lower's `try_lower_define_properties` already returns
+        // `obj_raw` (line 137); the checker sig had to match to unlock
+        // `var x = Object.defineProperties(obj, {...})`.
+        "defineProperties" => Type::Function(vec![Type::Any, Type::Any], Box::new(Type::Any)),
         // `Object.create(proto, descriptors?)` — common
         // test262 init pattern (`Object.create(null)`).
         // Returns Any (a fresh dynobj-backed Any-box at
