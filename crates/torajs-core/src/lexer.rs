@@ -150,60 +150,9 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                     emit(&mut out, Token::Lt, start, i);
                 }
             }
-            b'>' => {
-                i += 1;
-                if peek(bytes, i) == Some(b'=') {
-                    i += 1;
-                    emit(&mut out, Token::GtEq, start, i);
-                } else if peek(bytes, i) == Some(b'>') {
-                    i += 1;
-                    if peek(bytes, i) == Some(b'>') {
-                        i += 1;
-                        emit(&mut out, Token::ShrShrShr, start, i);
-                    } else {
-                        emit(&mut out, Token::ShrShr, start, i);
-                    }
-                } else {
-                    emit(&mut out, Token::Gt, start, i);
-                }
-            }
-            b'=' => {
-                i += 1;
-                if peek(bytes, i) == Some(b'=') {
-                    i += 1;
-                    if peek(bytes, i) == Some(b'=') {
-                        i += 1;
-                        emit(&mut out, Token::EqEqEq, start, i);
-                    } else {
-                        // V3-18 m3 — `==` IsLooselyEqual per §7.2.13.
-                        // Restored from "out-of-scope" 2026-05-10
-                        // (test262 100% bar). Emits a new
-                        // Token::EqEq → BinOp::LooseEq.
-                        emit(&mut out, Token::EqEq, start, i);
-                    }
-                } else if peek(bytes, i) == Some(b'>') {
-                    i += 1;
-                    emit(&mut out, Token::FatArrow, start, i);
-                } else {
-                    emit(&mut out, Token::Eq, start, i);
-                }
-            }
-            b'!' => {
-                i += 1;
-                if peek(bytes, i) == Some(b'=') {
-                    i += 1;
-                    if peek(bytes, i) == Some(b'=') {
-                        i += 1;
-                        emit(&mut out, Token::BangEqEq, start, i);
-                    } else {
-                        // V3-18 m3 — `!=` is `!IsLooselyEqual`.
-                        emit(&mut out, Token::BangEq, start, i);
-                    }
-                } else {
-                    // Unary logical not — used as `!cond`. M1.5.
-                    emit(&mut out, Token::Bang, start, i);
-                }
-            }
+            b'>' => scan_gt(bytes, &mut i, &mut out, start),
+            b'=' => scan_eq(bytes, &mut i, &mut out, start),
+            b'!' => scan_bang(bytes, &mut i, &mut out, start),
             b'"' | b'\'' => scan::scan_string(bytes, &mut i, &mut out, start, len)?,
             b'`' => scan_template::scan_template(bytes, &mut i, &mut out, start, len)?,
             b'#' if peek(bytes, i + 1).is_some_and(is_ident_start) => {
@@ -223,4 +172,68 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
     }
     emit(&mut out, Token::Eof, len, len);
     Ok(out)
+}
+
+/// `>` / `>=` / `>>` / `>>>` — greater-than family. Right-shift arms
+/// (`>>` / `>>>`) require an extra peek; `>=` and bare `>` are the
+/// same shape as `+=` / `+`.
+fn scan_gt(bytes: &[u8], i: &mut u32, out: &mut Vec<Spanned>, start: u32) {
+    *i += 1;
+    if peek(bytes, *i) == Some(b'=') {
+        *i += 1;
+        emit(out, Token::GtEq, start, *i);
+    } else if peek(bytes, *i) == Some(b'>') {
+        *i += 1;
+        if peek(bytes, *i) == Some(b'>') {
+            *i += 1;
+            emit(out, Token::ShrShrShr, start, *i);
+        } else {
+            emit(out, Token::ShrShr, start, *i);
+        }
+    } else {
+        emit(out, Token::Gt, start, *i);
+    }
+}
+
+/// `=` / `==` / `===` / `=>` — assignment / equality / arrow. Three-
+/// wide arms (`===`) require an extra peek; the fat-arrow arm (`=>`)
+/// keeps parser-side arrow-function detection off the operator hot
+/// path.
+fn scan_eq(bytes: &[u8], i: &mut u32, out: &mut Vec<Spanned>, start: u32) {
+    *i += 1;
+    if peek(bytes, *i) == Some(b'=') {
+        *i += 1;
+        if peek(bytes, *i) == Some(b'=') {
+            *i += 1;
+            emit(out, Token::EqEqEq, start, *i);
+        } else {
+            // V3-18 m3 — `==` IsLooselyEqual per §7.2.13. Restored
+            // from "out-of-scope" 2026-05-10 (test262 100% bar).
+            // Emits a new Token::EqEq → BinOp::LooseEq.
+            emit(out, Token::EqEq, start, *i);
+        }
+    } else if peek(bytes, *i) == Some(b'>') {
+        *i += 1;
+        emit(out, Token::FatArrow, start, *i);
+    } else {
+        emit(out, Token::Eq, start, *i);
+    }
+}
+
+/// `!` / `!=` / `!==` — logical not + non-equality.
+fn scan_bang(bytes: &[u8], i: &mut u32, out: &mut Vec<Spanned>, start: u32) {
+    *i += 1;
+    if peek(bytes, *i) == Some(b'=') {
+        *i += 1;
+        if peek(bytes, *i) == Some(b'=') {
+            *i += 1;
+            emit(out, Token::BangEqEq, start, *i);
+        } else {
+            // V3-18 m3 — `!=` is `!IsLooselyEqual`.
+            emit(out, Token::BangEq, start, *i);
+        }
+    } else {
+        // Unary logical not — used as `!cond`. M1.5.
+        emit(out, Token::Bang, start, *i);
+    }
 }
