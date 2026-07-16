@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-15T22:38:00.606Z",
+  "generatedAt": "2026-07-16T02:22:54.007Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-15T22:35:25Z",
-    "headSha": "018cdd09",
-    "elapsedSec": 488.44,
+    "ranAt": "2026-07-16T02:21:35Z",
+    "headSha": "099b60da",
+    "elapsedSec": 499.14,
     "workers": 8,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 7354,
+    "pass": 7369,
     "passNoOracle": 112,
     "passNegative": 4447,
-    "passTotal": 11913,
-    "bug": 972,
-    "incompatible": 40289,
+    "passTotal": 11928,
+    "bug": 956,
+    "incompatible": 40290,
     "bunSkip": 11908,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 12885,
-    "passRateInScope": 22.4,
-    "passRateTrAccepted": 92.46
+    "trAccepted": 12884,
+    "passRateInScope": 22.43,
+    "passRateTrAccepted": 92.58
   },
   "torajs": {
-    "commit": "57efaa4b",
-    "commitSubject": "chore: archive the test262 sweep at 018cdd09",
+    "commit": "2ecd897c",
+    "commitSubject": "chore: archive the test262 sweep at 099b60da",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,38 @@
   },
   "commits": [
     {
+      "hash": "2ecd897c",
+      "subject": "chore: archive the test262 sweep at 099b60da"
+    },
+    {
+      "hash": "099b60da",
+      "subject": "fix: keep Object.freeze(fn) on the header-only path (RFC 20260716 刀 24 fix-up)"
+    },
+    {
+      "hash": "75b97329",
+      "subject": "feat: Object.freeze full SetIntegrityLevel(frozen) walk (RFC 20260716 刀 24)"
+    },
+    {
+      "hash": "0592ff97",
+      "subject": "chore: archive the test262 sweep at 83031e49"
+    },
+    {
+      "hash": "83031e49",
+      "subject": "fix: Number.prototype.to{Exponential,Precision} non-finite short-circuit"
+    },
+    {
+      "hash": "3488c625",
+      "subject": "chore: archive the test262 sweep at 9712b3c0"
+    },
+    {
+      "hash": "9712b3c0",
+      "subject": "feat: defineProperties Phase 1 spec-Get accessor descriptors (RFC 20260716 刀 23)"
+    },
+    {
+      "hash": "09ca3dc9",
+      "subject": "chore: hardev dashboard snapshot at rotation 115 close"
+    },
+    {
       "hash": "57efaa4b",
       "subject": "chore: archive the test262 sweep at 018cdd09"
     },
@@ -727,59 +759,38 @@
     {
       "hash": "88ab2a23",
       "subject": "chore: archive the test262 sweep at d673e632"
-    },
-    {
-      "hash": "d673e632",
-      "subject": "feat: replace(wrapper) ToString-order spec-correct (RFC 20260716 刀 21)"
-    },
-    {
-      "hash": "9a7cae4f",
-      "subject": "chore: hardev dashboard snapshot at rotation 114 close"
-    },
-    {
-      "hash": "bd39b567",
-      "subject": "chore: archive the test262 sweep at 56c7e668"
-    },
-    {
-      "hash": "56c7e668",
-      "subject": "feat: propertyIsEnumerable spec-correct for String (RFC 20260716 刀 20)"
-    },
-    {
-      "hash": "99cff44a",
-      "subject": "chore: archive the test262 sweep at 6e0daf2c"
-    },
-    {
-      "hash": "6e0daf2c",
-      "subject": "feat: re.test/exec(wrapper) coerce (RFC 20260716 刀 19)"
-    },
-    {
-      "hash": "c1b8a7fd",
-      "subject": "feat: defineProperty(obj, wrapper-key, desc) coerce (RFC 20260716 刀 18)"
-    },
-    {
-      "hash": "2be4383d",
-      "subject": "feat: getOwnPropertyDescriptor(obj, wrapper-key) coerce (RFC 20260716 刀 17)"
     }
   ],
-  "headSha": "57efaa4b",
+  "headSha": "2ecd897c",
   "autorun": {
-    "total": 420,
+    "total": 421,
     "baselineTarget": 10,
-    "bySelf": 415,
+    "bySelf": 416,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784147040-765a",
-      "at": "2026-07-15T20:24:00Z",
-      "ts": 1784147040,
+      "rotationId": "r-1784155213-6942",
+      "at": "2026-07-15T22:40:13Z",
+      "ts": 1784155213,
       "trigger": "self",
-      "prevHead": "9a7cae4f",
-      "handoffSha": "sha256:828fcdffdda18afd93b7efc37b65e36c5b12b356493373d48ce9ff04ac774d1c",
-      "handoffAgeSec": 36,
+      "prevHead": "09ca3dc9",
+      "handoffSha": "sha256:8aa16e0f5d9c3293a012ddbae25a8fd8bdfea9c9ceb028eb8edab9fffb17a3ad",
+      "handoffAgeSec": 7,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784155213-6942",
+        "at": "2026-07-15T22:40:13Z",
+        "ts": 1784155213,
+        "trigger": "self",
+        "prevHead": "09ca3dc9",
+        "handoffSha": "sha256:8aa16e0f5d9c3293a012ddbae25a8fd8bdfea9c9ceb028eb8edab9fffb17a3ad",
+        "handoffAgeSec": 7,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784147040-765a",
         "at": "2026-07-15T20:24:00Z",
@@ -876,17 +887,6 @@
         "prevHead": "6f17b5dd",
         "handoffSha": "sha256:819ad064f09d70afb586f475d55367797b9345120c94e3cc08b6b8180ee3075c",
         "handoffAgeSec": 26840,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784073147-6314",
-        "at": "2026-07-14T23:52:27Z",
-        "ts": 1784073147,
-        "trigger": "self",
-        "prevHead": "947661ab",
-        "handoffSha": "sha256:819ad064f09d70afb586f475d55367797b9345120c94e3cc08b6b8180ee3075c",
-        "handoffAgeSec": 68,
         "conformanceBefore": null,
         "commitsInSession": null
       }
