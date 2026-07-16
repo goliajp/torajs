@@ -107,8 +107,22 @@ pub(crate) fn try_lower_define_properties(
                 );
                 ctx.emit_throw_check(None);
             }
-            if matches!(obj_ty, Type::Any) && matches!(props_ty, Type::Any) {
-                let props_ptr = ctx.any_unbox_value_as_ptr(props_op.clone());
+            // An `as any` props cast is an SSA pass-through for heap
+            // values — the operand keeps its Obj(struct) type, so the
+            // Any/Any gate alone missed it and the walk eval-dropped
+            // (`defineProperties(o, {bad: 5} as any)` never reached
+            // the non-object-desc TypeError). A struct operand IS the
+            // cell ptr; the kernel's TAG_OBJ arm walks its layout.
+            let props_is_struct = matches!(props_ty, Type::Obj(_));
+            if matches!(obj_ty, Type::Any) && (matches!(props_ty, Type::Any) || props_is_struct) {
+                let props_ptr = if props_is_struct {
+                    match props_op.clone() {
+                        Operand::Value(v) => v,
+                        _ => ctx.any_unbox_value_as_ptr(props_op.clone()),
+                    }
+                } else {
+                    ctx.any_unbox_value_as_ptr(props_op.clone())
+                };
                 let dynobj = ctx.any_unbox_value_as_ptr(obj_raw.clone());
                 let slot = ctx.alloca(Type::Ptr, Some("__dynobj_slot"));
                 ctx.f.append_void(
