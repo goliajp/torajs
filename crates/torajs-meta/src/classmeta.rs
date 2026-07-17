@@ -24,6 +24,8 @@
 
 use core::ffi::c_void;
 
+use crate::reflect::{ANY_HEAP, TAG_DYNOBJ, alloc_str_key, heap_type_tag};
+
 unsafe extern "C" {
     fn __torajs_rc_inc(p: *mut c_void);
     /// Locks `name` / `length` / `prototype` slots on the class-object
@@ -31,9 +33,30 @@ unsafe extern "C" {
     /// if `obj` is NULL, non-cell, or non-dynobj). Cross-crate FFI
     /// declared here to keep the classmeta dep tree lean.
     fn __torajs_dynobj_lock_builtin_fn_class_slots(obj: *mut c_void);
+    fn __torajs_dynobj_mark_class_ctor(obj: *mut c_void);
+    fn __torajs_get_builtin_prototype(tag: i64) -> *mut c_void;
+    fn __torajs_dynobj_define(
+        obj_slot: *mut *mut c_void,
+        key: *const u8,
+        tag: u64,
+        value: u64,
+        flags_byte: u64,
+    );
+    fn __torajs_str_drop(s: *mut u8);
 }
 
 const MAX_CLASSES: usize = 256;
+
+/// Builtin-proto singleton tag for %Function.prototype% (mirrors
+/// `torajs-rc::builtin_proto`'s tag table; same value genfn.rs uses).
+const FUNCTION_PROTO_TAG: i64 = 13;
+
+/// `flags_byte` for `__torajs_dynobj_define` encoding the §10.2.3
+/// MakeConstructor "constructor" descriptor `{[[Value]], writable:
+/// true, enumerable: false, configurable: true}` — DEFINE_PRESENT_
+/// {VALUE, WRITABLE, ENUMERABLE, CONFIGURABLE} + DEFINE_FLAG_
+/// {WRITABLE, CONFIGURABLE} (torajs-dynobj layout mirror).
+const DEFINE_CTOR_FLAGS: u64 = (1 << 6) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 0) | (1 << 2);
 
 // NaN-box constants mirrored from torajs-anyvalue::nanbox —
 // re-declared here to keep deps tree narrow.
@@ -94,6 +117,58 @@ pub extern "C" fn __torajs_anyv_class_register(tag: i64, class_anyv: u64) {
         // valid heap object; the helper self-guards against non-dynobj
         // shape via its own header tag check.
         unsafe { __torajs_dynobj_lock_builtin_fn_class_slots(class_anyv as *mut c_void) };
+        // SAFETY: same cell; each wiring step re-guards shape itself.
+        unsafe { wire_first_class_links(tag, class_anyv) };
+    }
+}
+
+/// RFC 20260717-class-first-class-value knife A — the first-class
+/// function-object links, wired once per class at register time:
+///
+/// 1. mark the class dynobj `FLAG_DYNOBJ_CLASS_CTOR` so `typeof C`
+///    answers `"function"` (ES: a class constructor IS a function
+///    object; tr models it as a dynobj whose tag alone reads
+///    "object"),
+/// 2. link `C.[[Prototype]]` → %Function.prototype% (§10.2.3
+///    MakeConstructor / §15.7.14: constructor functions inherit from
+///    %Function.prototype%),
+/// 3. define `__proto_<C>.constructor = C` with `{writable: true,
+///    enumerable: false, configurable: true}` (§10.2.3 step 4).
+///
+/// The `constructor ↔ prototype` reference cycle is between two
+/// module-scope singletons whose lifetime spans the process — no
+/// leak surface.
+///
+/// # Safety
+/// `class_anyv` is a cell-encoded AnyValue pointing at a live heap
+/// object; `PROTOS_BY_TAG_IMM[tag]` was registered by the emit
+/// sequence just before this call (class_globals.rs emit order).
+unsafe fn wire_first_class_links(tag: i64, class_anyv: u64) {
+    unsafe {
+        let class_cell = class_anyv as *mut c_void;
+        __torajs_dynobj_mark_class_ctor(class_cell);
+        // Step 2 — the singleton is process-lifetime (borrowed here);
+        // ordinary_set_prototype_of rc_incs the stored link itself.
+        let func_proto = __torajs_get_builtin_prototype(FUNCTION_PROTO_TAG);
+        if !func_proto.is_null() {
+            crate::reflect_proto_set::ordinary_set_prototype_of(class_cell, func_proto as u64);
+        }
+        // Step 3 — define transfers the value stake, so the entry owns
+        // one reference to the class object.
+        let proto = PROTOS_BY_TAG_IMM[tag as usize];
+        if is_cell_imm(proto) && heap_type_tag(proto as *const c_void) == TAG_DYNOBJ {
+            let key = alloc_str_key(b"constructor");
+            __torajs_rc_inc(class_cell);
+            let mut slot = proto as *mut c_void;
+            __torajs_dynobj_define(
+                &mut slot,
+                key,
+                ANY_HEAP as u64,
+                class_anyv,
+                DEFINE_CTOR_FLAGS,
+            );
+            __torajs_str_drop(key);
+        }
     }
 }
 

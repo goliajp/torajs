@@ -73,7 +73,7 @@ unsafe fn current_proto(dynobj: *const c_void, key: *const u8) -> u64 {
 
 /// §10.1.2.1 steps 4-8 — refuse on non-extensible (unless same
 /// value) and on a chain cycle; write otherwise. `true` = done.
-unsafe fn ordinary_set_prototype_of(obj: *mut c_void, proto: u64) -> bool {
+pub(crate) unsafe fn ordinary_set_prototype_of(obj: *mut c_void, proto: u64) -> bool {
     unsafe {
         let proto = if is_null_any(proto) {
             VALUE_NULL_IMM

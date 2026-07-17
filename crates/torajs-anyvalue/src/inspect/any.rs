@@ -79,6 +79,13 @@ pub unsafe extern "C" fn __torajs_anyv_typeof(v: AnyValue) -> *mut u8 {
             b"string"
         } else if tag == Tag::Closure as u16 {
             b"function"
+        } else if tag == Tag::DynObj as u16
+            && unsafe { heap_flags(child) } & torajs_rc::FLAG_DYNOBJ_CLASS_CTOR != 0
+        {
+            // A `__class_<C>` class-constructor dynobj — ES models
+            // class constructors as function objects (RFC
+            // 20260717-class-first-class-value knife A).
+            b"function"
         } else if tag == Tag::Symbol as u16 {
             b"symbol"
         } else if tag == Tag::BigInt as u16 {

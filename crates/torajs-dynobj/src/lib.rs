@@ -47,7 +47,9 @@ pub use accessor::{
     __torajs_accessor_get_setter, __torajs_accessor_invoke_getter, __torajs_accessor_invoke_setter,
     __torajs_accessor_pair_new,
 };
-pub use alloc::{__torajs_dynobj_alloc, __torajs_dynobj_mark_null_proto};
+pub use alloc::{
+    __torajs_dynobj_alloc, __torajs_dynobj_mark_class_ctor, __torajs_dynobj_mark_null_proto,
+};
 pub use define::__torajs_dynobj_define;
 pub use delete::__torajs_dynobj_delete;
 pub use drop::__torajs_dynobj_drop;

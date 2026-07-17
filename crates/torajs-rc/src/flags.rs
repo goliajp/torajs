@@ -20,6 +20,7 @@
 //! | 9     | [`FLAG_SEALED`] | universal |
 //! | 10-12 | element-kind field (`arr_kind.rs`) | Arr |
 //! | 10-11 | [`FLAG_FN_NAME_DELETED`] / [`FLAG_FN_LENGTH_DELETED`] | Closure (disjoint-by-tag with Arr kind) |
+//! | 10    | [`FLAG_DYNOBJ_CLASS_CTOR`] | DynObj (disjoint-by-tag with Closure / Arr) |
 //! | 13-14 | cycle-collector color field (`color.rs`) | **universal — never place a flag here** |
 //! | 15    | [`FLAG_ARR_EXOTIC_INDEX`] | Arr |
 //!
@@ -81,6 +82,16 @@ pub const FLAG_SEALED: u16 = 1 << 9;
 pub const FLAG_FN_NAME_DELETED: u16 = 1 << 10;
 /// `delete fn.length` tombstone — see [`FLAG_FN_NAME_DELETED`].
 pub const FLAG_FN_LENGTH_DELETED: u16 = 1 << 11;
+/// `Tag::DynObj` cell that is a class-constructor object — the
+/// `__class_<C>` singleton dynobj, marked by
+/// `__torajs_anyv_class_register` at module init (RFC
+/// 20260717-class-first-class-value knife A). ES models class
+/// constructors as function objects, but tr's class object is a
+/// dynobj whose tag alone reads "object"; `typeof` answers
+/// `"function"` off this bit. Bit 10 is Tag::DynObj-private
+/// (disjoint-by-tag reuse of Tag::Closure's [`FLAG_FN_NAME_DELETED`]
+/// / Tag::Arr's element-kind field).
+pub const FLAG_DYNOBJ_CLASS_CTOR: u16 = 1 << 10;
 /// Tag::Closure cell whose lifted body takes the call-site `this` as
 /// its first declared param (`(__env, __this, ...user)`) — a
 /// function-expression accessor face (RFC 20260717-fnexpr-this-channel

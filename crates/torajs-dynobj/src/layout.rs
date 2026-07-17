@@ -109,6 +109,15 @@ pub const DYNOBJ_HDR_FLAG_NULL_PROTO: u16 = 1 << 6;
 /// Update both sides if the bit position ever moves.
 pub const DYNOBJ_HDR_FLAG_NON_EXTENSIBLE: u16 = 1 << 8;
 
+/// Heap-header `flags` bit (u16 @6) mirror of
+/// `torajs_rc::FLAG_DYNOBJ_CLASS_CTOR` (bit 10, Tag::DynObj-private —
+/// disjoint-by-tag reuse of Closure's name-deleted / Arr's
+/// element-kind bits). Marks the `__class_<C>` class-constructor
+/// singleton dynobj so `typeof` answers `"function"` (RFC
+/// 20260717-class-first-class-value knife A). Update both sides if
+/// the bit position ever moves.
+pub const DYNOBJ_HDR_FLAG_CLASS_CTOR: u16 = 1 << 10;
+
 /// Offset of the `count` u32 within the heap block.
 pub const DYNOBJ_COUNT_OFF: usize = HEAP_HEADER_SIZE;
 

@@ -96,6 +96,31 @@ pub unsafe extern "C" fn __torajs_dynobj_clear_null_proto(obj: *mut c_void) {
     }
 }
 
+/// `__torajs_dynobj_mark_class_ctor(obj)` — set the class-constructor
+/// flag bit (see [`crate::layout::DYNOBJ_HDR_FLAG_CLASS_CTOR`]) on a
+/// `__class_<C>` singleton dynobj. Called once per class from
+/// `__torajs_anyv_class_register` at module init; `typeof` reads the
+/// bit to answer `"function"` (RFC 20260717-class-first-class-value
+/// knife A). Non-dynobj cells are ignored (defensive — the register
+/// path already guards shape).
+///
+/// # Safety
+/// `obj` is null (no-op) or a live heap pointer with a universal
+/// header.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_dynobj_mark_class_ctor(obj: *mut c_void) {
+    if obj.is_null() {
+        return;
+    }
+    if unsafe { crate::get::type_tag(obj) } != crate::layout::TAG_DYNOBJ {
+        return;
+    }
+    unsafe {
+        let flags = (obj as *mut u8).add(6) as *mut u16;
+        *flags |= crate::layout::DYNOBJ_HDR_FLAG_CLASS_CTOR;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
