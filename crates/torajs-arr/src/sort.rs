@@ -196,6 +196,10 @@ struct AnyCmp {
     env: *mut u8,
     /// `true` = step-10 default compare (`fn_ptr` unused).
     default_mode: bool,
+    /// Comparator declares the receiver-first channel (RFC
+    /// 20260717-objlit-anylane-recv knife 2e) — argv shifts one slot
+    /// so `__this` binds `undefined` (§23.1.3.30 no-thisArg).
+    recv_first: bool,
     /// Elem-kind rebox for typed-behind-any receivers;
     /// ARR_KIND_UNSET = slots already NaN-boxed.
     rebox_kind: u16,
@@ -226,8 +230,13 @@ impl SortCmp for AnyCmp {
             // the owned return releases after ToNumber.
             let cb: unsafe extern "C" fn(*mut c_void, *const u64, i64) -> u64 =
                 core::mem::transmute(self.fn_ptr);
-            let argv = [a, b];
-            let r = cb(self.env as *mut c_void, argv.as_ptr(), 2);
+            let argv = [__torajs_anyv_box_from_pair(5, 0), a, b];
+            let (window, n) = if self.recv_first {
+                (argv.as_ptr(), 3)
+            } else {
+                (argv[1..].as_ptr(), 2)
+            };
+            let r = cb(self.env as *mut c_void, window, n);
             let n = __torajs_anyv_to_number(r);
             __torajs_value_drop_heap(r as *mut c_void);
             n > 0.0
@@ -418,6 +427,9 @@ pub unsafe extern "C" fn __torajs_arr_any_sort(
             fn_ptr: cb_entry as usize as *const u8,
             env: cb_env as *mut u8,
             default_mode: has_cb == 0,
+            recv_first: has_cb != 0
+                && !cb_env.is_null()
+                && crate::method_any_hof::recv_first_shift(cb_env as *mut c_void) != 0,
             rebox_kind,
         };
         if len <= INSERTION_RUN {

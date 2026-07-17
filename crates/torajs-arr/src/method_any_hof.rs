@@ -62,11 +62,26 @@ unsafe fn undef() -> u64 {
     unsafe { __torajs_anyv_box_from_pair(5, 0) }
 }
 
+/// RFC 20260717-objlit-anylane-recv knife 2e — 1 when the callback
+/// cell declares the receiver-first channel (flags bit 12: an
+/// any-lane literal method whose body says `this`), else 0. The HOF
+/// argv shifts `(v, k, O)` up one slot so the promoted body's
+/// `__this` param reads the buffer's `undefined` padding (no-thisArg
+/// callbacks bind `this = undefined`). Read once per walk.
+#[inline]
+pub(crate) unsafe fn recv_first_shift(cb_env: *mut c_void) -> usize {
+    unsafe {
+        let flags = (cb_env as *const u8).add(6).cast::<u16>().read();
+        usize::from(flags & torajs_rc::FLAG_CLOSURE_RECV_FIRST != 0)
+    }
+}
+
 /// Shared HO loop. `mode`: 0 = forEach (result `undefined`),
 /// 1 = map, 2 = filter.
 unsafe fn hof_loop(arr: *const c_void, cb_env: *mut c_void, cb_entry: u64, mode: i64) -> u64 {
     unsafe {
         let cb: BoxedFn = core::mem::transmute(cb_entry as usize);
+        let s = recv_first_shift(cb_env);
         let len = *((arr as *const u8).add(ARR_LEN_OFF) as *const u64);
         let out: *mut u8 = if mode == 0 {
             core::ptr::null_mut()
@@ -81,10 +96,10 @@ unsafe fn hof_loop(arr: *const c_void, cb_env: *mut c_void, cb_entry: u64, mode:
             // Kind-aware boxed read — +1-owned for cells.
             let v = crate::index_any::__torajs_arr_index_get(arr, i as i64);
             let mut argv = [undef(); ARGV_SLOTS];
-            argv[0] = v;
-            argv[1] = __torajs_anyv_box_from_pair(2, i as i64);
-            argv[2] = arr_boxed;
-            let r = cb(cb_env, argv.as_ptr(), 3);
+            argv[s] = v;
+            argv[s + 1] = __torajs_anyv_box_from_pair(2, i as i64);
+            argv[s + 2] = arr_boxed;
+            let r = cb(cb_env, argv.as_ptr(), (3 + s) as i64);
             if __torajs_throw_check() != 0 {
                 // Abort: release this round's values and the partial
                 // result; the dispatcher's caller propagates.
@@ -183,6 +198,7 @@ pub unsafe extern "C" fn __torajs_arr_any_for_each(
 unsafe fn find_loop(arr: *const c_void, cb_env: *mut c_void, cb_entry: u64, mode: i64) -> u64 {
     unsafe {
         let cb: BoxedFn = core::mem::transmute(cb_entry as usize);
+        let s = recv_first_shift(cb_env);
         let len = *((arr as *const u8).add(ARR_LEN_OFF) as *const u64);
         let arr_boxed = arr as u64;
         let right = mode >= 4;
@@ -191,10 +207,10 @@ unsafe fn find_loop(arr: *const c_void, cb_env: *mut c_void, cb_entry: u64, mode
             let i = if right { len - 1 - step } else { step };
             let v = crate::index_any::__torajs_arr_index_get(arr, i as i64);
             let mut argv = [undef(); ARGV_SLOTS];
-            argv[0] = v;
-            argv[1] = __torajs_anyv_box_from_pair(2, i as i64);
-            argv[2] = arr_boxed;
-            let r = cb(cb_env, argv.as_ptr(), 3);
+            argv[s] = v;
+            argv[s + 1] = __torajs_anyv_box_from_pair(2, i as i64);
+            argv[s + 2] = arr_boxed;
+            let r = cb(cb_env, argv.as_ptr(), (3 + s) as i64);
             if __torajs_throw_check() != 0 {
                 __torajs_value_drop_heap(v as *mut c_void);
                 __torajs_value_drop_heap(r as *mut c_void);
@@ -349,6 +365,7 @@ pub unsafe extern "C" fn __torajs_arr_any_reduce(
 ) -> u64 {
     unsafe {
         let cb: BoxedFn = core::mem::transmute(cb_entry as usize);
+        let s = recv_first_shift(cb_env);
         let len = *((arr as *const u8).add(ARR_LEN_OFF) as *const u64) as i64;
         let arr_boxed = arr as u64;
         let step: i64 = if right != 0 { -1 } else { 1 };
@@ -372,11 +389,11 @@ pub unsafe extern "C" fn __torajs_arr_any_reduce(
         while i >= 0 && i < len {
             let v = crate::index_any::__torajs_arr_index_get(arr, i);
             let mut argv = [undef(); ARGV_SLOTS];
-            argv[0] = acc;
-            argv[1] = v;
-            argv[2] = __torajs_anyv_box_from_pair(2, i);
-            argv[3] = arr_boxed;
-            let r = cb(cb_env, argv.as_ptr(), 4);
+            argv[s] = acc;
+            argv[s + 1] = v;
+            argv[s + 2] = __torajs_anyv_box_from_pair(2, i);
+            argv[s + 3] = arr_boxed;
+            let r = cb(cb_env, argv.as_ptr(), (4 + s) as i64);
             __torajs_value_drop_heap(v as *mut c_void);
             __torajs_value_drop_heap(acc as *mut c_void);
             if __torajs_throw_check() != 0 {

@@ -304,6 +304,11 @@ unsafe fn map_set_for_each(
 ) -> AnyValue {
     unsafe {
         let cb: BoxedFn = core::mem::transmute(cb_entry as usize);
+        // Recv-first callback (RFC 20260717-objlit-anylane-recv
+        // knife 2e) — shift `(v, k, m)` up one slot so `__this`
+        // reads the buffer's `undefined` (§24.1.3.5 / §24.2.3.7
+        // no-thisArg forEach binds `this = undefined`).
+        let s = crate::method_call::recv_first_shift(cb_env);
         // The receiver rides as the callback's third argument — a
         // heap cell's NaN-box encoding is its pointer bits (borrow).
         let m_boxed = m as u64;
@@ -325,10 +330,10 @@ unsafe fn map_set_for_each(
                 __torajs_anyv_box_from_pair(vt, vp)
             };
             let mut argv = [VALUE_UNDEFINED; MAX_BOXED_ARGS];
-            argv[0] = v_boxed;
-            argv[1] = k_boxed;
-            argv[2] = m_boxed;
-            let r = cb(cb_env, argv.as_ptr(), 3);
+            argv[s] = v_boxed;
+            argv[s + 1] = k_boxed;
+            argv[s + 2] = m_boxed;
+            let r = cb(cb_env, argv.as_ptr(), (3 + s) as i64);
             let threw = __torajs_throw_check() != 0;
             // forEach discards the +1-owned return; release the
             // owned frame pair (one ref for the Set alias).

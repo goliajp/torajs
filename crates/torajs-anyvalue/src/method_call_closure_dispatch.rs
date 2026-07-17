@@ -177,11 +177,27 @@ pub(crate) unsafe fn invoke_with_this(
     argc: i64,
 ) -> AnyValue {
     unsafe {
-        let flags = (env as *const u8).add(6).cast::<u16>().read();
-        if flags & torajs_rc::FLAG_CLOSURE_RECV_FIRST != 0 {
+        if recv_first_shift(env) != 0 {
             return invoke_boxed_recv_first(env, entry, this_arg, argv, argc);
         }
         invoke_boxed(env, entry, argv, argc)
+    }
+}
+
+/// 1 when the closure cell declares the receiver-first channel
+/// (flags bit 12), else 0 — the argv slot shift a HOF loop applies
+/// so its `(v, k, O)` triple lands on the USER params while the
+/// `__this` slot reads the buffer's `undefined` padding (per spec
+/// every no-thisArg callback binds `this = undefined`). Hoisted out
+/// of the loop by callers: one flags read per walk, zero per-iter
+/// cost for plain callbacks.
+///
+/// # Safety
+/// `env` is a live `Tag::Closure` cell.
+pub(crate) unsafe fn recv_first_shift(env: *mut c_void) -> usize {
+    unsafe {
+        let flags = (env as *const u8).add(6).cast::<u16>().read();
+        usize::from(flags & torajs_rc::FLAG_CLOSURE_RECV_FIRST != 0)
     }
 }
 

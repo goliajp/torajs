@@ -18,7 +18,9 @@ use torajs_rc::{
     ANY_METHOD_REDUCE_RIGHT, ANY_METHOD_SOME,
 };
 
-use crate::method_call::{MAX_BOXED_ARGS, closure_boxed_entry, invoke_boxed, not_callable};
+use crate::method_call::{
+    MAX_BOXED_ARGS, closure_boxed_entry, invoke_boxed, not_callable, recv_first_shift,
+};
 use crate::method_call_arraylike::{arraylike_get, arraylike_has};
 use crate::nanbox::{AnyValue, VALUE_FALSE, VALUE_TRUE, VALUE_UNDEFINED};
 use crate::nanbox_encode::{
@@ -44,7 +46,10 @@ unsafe extern "C" {
 }
 
 /// Invoke the callback with `(v, k, O)` — `v`'s stake stays with
-/// the caller; the return is owned.
+/// the caller; the return is owned. A recv-first callback (RFC
+/// 20260717-objlit-anylane-recv knife 2e) shifts the triple up one
+/// slot so `__this` reads the buffer's `undefined` (no-thisArg HOF,
+/// `this = undefined`).
 unsafe fn call_cb(
     cb_env: *mut c_void,
     cb_entry: u64,
@@ -53,11 +58,12 @@ unsafe fn call_cb(
     obj_boxed: AnyValue,
 ) -> AnyValue {
     unsafe {
+        let s = recv_first_shift(cb_env);
         let mut argv = [VALUE_UNDEFINED; MAX_BOXED_ARGS];
-        argv[0] = v;
-        argv[1] = __torajs_anyv_box_i64(k);
-        argv[2] = obj_boxed;
-        invoke_boxed(cb_env, cb_entry, argv.as_ptr(), 3)
+        argv[s] = v;
+        argv[s + 1] = __torajs_anyv_box_i64(k);
+        argv[s + 2] = obj_boxed;
+        invoke_boxed(cb_env, cb_entry, argv.as_ptr(), (3 + s) as i64)
     }
 }
 
@@ -105,12 +111,14 @@ pub(crate) unsafe fn arraylike_hof(
                         seeded = true;
                         continue;
                     }
+                    // Recv-first shift — see `call_cb`.
+                    let s = recv_first_shift(cb_env);
                     let mut cb_argv = [VALUE_UNDEFINED; MAX_BOXED_ARGS];
-                    cb_argv[0] = acc;
-                    cb_argv[1] = v;
-                    cb_argv[2] = __torajs_anyv_box_i64(k);
-                    cb_argv[3] = obj_boxed;
-                    let r = invoke_boxed(cb_env, cb_entry, cb_argv.as_ptr(), 4);
+                    cb_argv[s] = acc;
+                    cb_argv[s + 1] = v;
+                    cb_argv[s + 2] = __torajs_anyv_box_i64(k);
+                    cb_argv[s + 3] = obj_boxed;
+                    let r = invoke_boxed(cb_env, cb_entry, cb_argv.as_ptr(), (4 + s) as i64);
                     __torajs_value_drop_heap(acc as *mut c_void);
                     __torajs_value_drop_heap(v as *mut c_void);
                     if __torajs_throw_check() != 0 {
