@@ -223,6 +223,14 @@ pub struct Ast {
     /// a direct field Load / Store at offset.
     pub accessor_getters: std::collections::HashMap<(String, String), String>,
     pub accessor_setters: std::collections::HashMap<(String, String), String>,
+    /// RFC 20260718-accessor-reify 刀 3 — static-accessor twins of
+    /// the instance maps above (`(ClassName, prop) → __sm_<C>__<p>_get
+    /// / _set`). Reads/writes were already rewritten to face calls in
+    /// desugar; class_globals reads these to emit the reify magic
+    /// (AccessorPair own entry on the class object) and to keep the
+    /// face FnDecls out of the static-METHOD reify sweep.
+    pub static_accessor_getters: std::collections::HashMap<(String, String), String>,
+    pub static_accessor_setters: std::collections::HashMap<(String, String), String>,
     /// RFC 20260708-closure-argc-abi — bindings that hold a
     /// length-only real-argc closure VALUE and passed the
     /// direct-call-or-alias safety walk. Populated by

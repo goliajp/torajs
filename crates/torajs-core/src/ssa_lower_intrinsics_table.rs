@@ -352,6 +352,7 @@ pub(crate) fn build(
         genfn_chain: init_c.any_substrate.genfn_chain,
         static_method_define: init_c.any_substrate.static_method_define,
         class_accessor_define: init_c.any_substrate.class_accessor_define,
+        class_static_accessor_define: init_c.any_substrate.class_static_accessor_define,
         any_typeof: init_c.any_substrate.any_typeof,
         any_to_bool: init_c.any_substrate.any_to_bool,
         any_to_number: init_c.any_substrate.any_to_number,

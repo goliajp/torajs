@@ -338,6 +338,16 @@ fn emit_chain_and_registration_stmts(ast: &mut Ast, meta: &ClassMetadata, out: &
     // adapter and hands runtime the (tag, name, adapter) triple.
     // Call-site dispatch is untouched (static calls were already
     // desugared to bare `__sm_` idents).
+    // RFC 20260718-accessor-reify 刀 3 — the accessor FACE FnDecls
+    // (`__sm_<C>__<p>_get` / `_set`) stay out of the static-METHOD
+    // sweep; they reify as an AccessorPair below. Exact-name set (a
+    // user method legitimately named `p_get` keeps its method reify).
+    let static_accessor_fns: std::collections::HashSet<String> = ast
+        .static_accessor_getters
+        .values()
+        .chain(ast.static_accessor_setters.values())
+        .cloned()
+        .collect();
     for cname in &meta.class_names {
         if gen_class_set.contains(cname) {
             continue;
@@ -347,7 +357,9 @@ fn emit_chain_and_registration_stmts(ast: &mut Ast, meta: &ClassMetadata, out: &
             .stmts
             .iter()
             .filter_map(|s| match s {
-                Stmt::FnDecl { name, .. } => name.strip_prefix(&prefix).map(str::to_string),
+                Stmt::FnDecl { name, .. } if !static_accessor_fns.contains(name) => {
+                    name.strip_prefix(&prefix).map(str::to_string)
+                }
                 _ => None,
             })
             .collect();
@@ -358,6 +370,34 @@ fn emit_chain_and_registration_stmts(ast: &mut Ast, meta: &ClassMetadata, out: &
             let call = ast.add_expr(Expr::Call {
                 callee,
                 args: vec![cname_str, mname_str],
+            });
+            out.push(Stmt::Expr(call));
+        }
+    }
+
+    // RFC 20260718-accessor-reify 刀 3 — same reify shape for STATIC
+    // accessors, onto the class object (`gOPD(C, "s")`).
+    {
+        let mut pairs: Vec<(String, String)> = ast
+            .static_accessor_getters
+            .keys()
+            .chain(ast.static_accessor_setters.keys())
+            .cloned()
+            .collect();
+        pairs.sort();
+        pairs.dedup();
+        for (cname, prop) in pairs {
+            if gen_class_set.contains(&cname) {
+                continue;
+            }
+            let cname_str = ast.add_expr(Expr::String(cname));
+            let pname_str = ast.add_expr(Expr::String(prop));
+            let callee = ast.add_expr(Expr::Ident(
+                "__torajs_class_static_accessor_reify".to_string(),
+            ));
+            let call = ast.add_expr(Expr::Call {
+                callee,
+                args: vec![cname_str, pname_str],
             });
             out.push(Stmt::Expr(call));
         }

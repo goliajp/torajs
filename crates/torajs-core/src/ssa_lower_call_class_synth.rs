@@ -57,7 +57,8 @@ pub(crate) fn try_lower(
         "__torajs_error_proto_install" => try_lower_error_proto_install(ctx, args),
         "__torajs_error_is_error" => try_lower_error_is_error(ctx, args),
         "__torajs_static_method_reify" => try_lower_static_method_reify(ctx, args),
-        "__torajs_class_accessor_reify" => try_lower_class_accessor_reify(ctx, args),
+        "__torajs_class_accessor_reify" => try_lower_class_accessor_reify(ctx, args, false),
+        "__torajs_class_static_accessor_reify" => try_lower_class_accessor_reify(ctx, args, true),
         "__torajs_register_native_error" => try_lower_register_native_error(ctx, args),
         "__torajs_my_class_ref" => try_lower_my_class_ref(ctx, args),
         "__torajs_arguments_materialize" => try_lower_arguments_materialize(ctx, args),
@@ -261,13 +262,18 @@ fn try_lower_static_method_reify(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Opt
     Some(Operand::ConstI64(0))
 }
 
-/// RFC 20260718-accessor-reify 刀 2 —
-/// `__torajs_class_accessor_reify("<C>", "<p>")`: resolves the
-/// `__cm_<C>__<p>_get` / `_set` bodies' boxed adapters (either may
-/// be absent for a get-/set-only accessor) and hands runtime the
-/// `(tag, name-Str, get-vaddr, set-vaddr)` quad. Both-adapters
-/// dropout skips the define entirely.
-fn try_lower_class_accessor_reify(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Operand> {
+/// RFC 20260718-accessor-reify 刀 2+3 —
+/// `__torajs_class_accessor_reify("<C>", "<p>")` (instance,
+/// `__cm_` faces onto the prototype) and its static twin
+/// (`__sm_` faces onto the class object): resolves the face
+/// bodies' boxed adapters (either may be absent for a get-/set-only
+/// accessor) and hands runtime the `(tag, name-Str, get-vaddr,
+/// set-vaddr)` quad. Both-adapters dropout skips the define.
+fn try_lower_class_accessor_reify(
+    ctx: &mut LowerCtx<'_>,
+    args: &[ExprId],
+    is_static: bool,
+) -> Option<Operand> {
     if args.len() != 2 {
         return None;
     }
@@ -282,8 +288,9 @@ fn try_lower_class_accessor_reify(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Op
     let Some(tag) = ctx.class_name_to_tag.get(&cname).copied() else {
         return Some(Operand::ConstI64(0));
     };
+    let body_prefix = if is_static { "__sm_" } else { "__cm_" };
     let face = |suffix: &str| -> Option<(crate::ssa::FuncId, crate::ssa::SigId)> {
-        let body = format!("__cm_{cname}__{pname}{suffix}");
+        let body = format!("{body_prefix}{cname}__{pname}{suffix}");
         let body_fid = ctx.fn_table.get(body.as_str()).copied()?;
         ctx.boxed_entries.get(&body_fid).copied()
     };
@@ -305,7 +312,11 @@ fn try_lower_class_accessor_reify(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Op
     let get_op = vaddr(get);
     let set_op = vaddr(set);
     let name_op = ctx.lower_expr(args[1]);
-    let define = ctx.intrinsics.class_accessor_define;
+    let define = if is_static {
+        ctx.intrinsics.class_static_accessor_define
+    } else {
+        ctx.intrinsics.class_accessor_define
+    };
     ctx.f.append_void(
         ctx.cur_block,
         InstKind::Call(

@@ -379,6 +379,56 @@ pub unsafe extern "C" fn __torajs_class_accessor_define(
     }
 }
 
+/// 刀 3 static twin of [`__torajs_class_accessor_define`] — the
+/// AccessorPair own entry lands on the CLASS object (`gOPD(C, "s")`;
+/// §15.7.14 static accessors are class-object properties).
+///
+/// # Safety
+/// `name_str` is NULL or a live Str cell.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_class_static_accessor_define(
+    tag: i64,
+    name_str: *const u8,
+    get_adapter: u64,
+    set_adapter: u64,
+) {
+    if !in_range(tag) || name_str.is_null() || (get_adapter == 0 && set_adapter == 0) {
+        return;
+    }
+    let class_anyv = unsafe { CLASSES_BY_TAG_IMM[tag as usize] };
+    if !is_cell_imm(class_anyv) {
+        return;
+    }
+    if unsafe { heap_type_tag(class_anyv as *const c_void) } != TAG_DYNOBJ {
+        return;
+    }
+    unsafe {
+        let prop_len = (name_str.add(8) as *const u32).read() as usize;
+        let prop = core::slice::from_raw_parts(name_str.add(16), prop_len);
+        let mint_face = |adapter: u64, prefix: &[u8], length: u64| -> *mut c_void {
+            if adapter == 0 {
+                return core::ptr::null_mut();
+            }
+            let mut full = Vec::with_capacity(prefix.len() + prop.len());
+            full.extend_from_slice(prefix);
+            full.extend_from_slice(prop);
+            let face_name = alloc_str_key(&full);
+            __torajs_class_accessor_cell_new(adapter, face_name, length) as *mut c_void
+        };
+        let get_cell = mint_face(get_adapter, b"get ", 0);
+        let set_cell = mint_face(set_adapter, b"set ", 1);
+        let pair = __torajs_accessor_pair_new(get_cell, set_cell, ACC_KINDS_BOXED_BOTH);
+        let mut slot = class_anyv as *mut c_void;
+        __torajs_dynobj_define(
+            &mut slot,
+            name_str,
+            ANY_HEAP as u64,
+            pair as u64,
+            DEFINE_ACCESSOR_FLAGS,
+        );
+    }
+}
+
 /// Installs the §20.5.3.2/3.3 + §20.5.6.3/6.4 own data properties
 /// on an INJECTED error class's `__proto_<C>` — `name = "<C>"` and
 /// `message = ""`, both `{W:1, E:0, C:1}` (RFC

@@ -282,10 +282,32 @@ pub(in crate::ast) fn emit_class_static_methods(
     appended: &mut Vec<Stmt>,
 ) {
     for sm in static_methods {
+        // RFC 20260718-accessor-reify 刀 3 — a static accessor's
+        // faces carry `_get` / `_set` suffixes (mirror of the
+        // instance emit above), so a same-name get/set pair no
+        // longer collides in the top-level fn table. The pair is
+        // recorded for class_globals' reify sweep.
+        let suffix = match sm.accessor_kind {
+            Some(AccessorKind::Getter) => "_get",
+            Some(AccessorKind::Setter) => "_set",
+            None => "",
+        };
+        let fn_name = format!("__sm_{cname}__{}{suffix}", sm.name);
+        match sm.accessor_kind {
+            Some(AccessorKind::Getter) => {
+                ast.static_accessor_getters
+                    .insert((cname.to_string(), sm.name.clone()), fn_name.clone());
+            }
+            Some(AccessorKind::Setter) => {
+                ast.static_accessor_setters
+                    .insert((cname.to_string(), sm.name.clone()), fn_name.clone());
+            }
+            None => {}
+        }
         let (body, return_type) = maybe_rewrite_async_method_body(ast, cname, "__sm_", sm)
             .unwrap_or_else(|| (sm.body.clone(), sm.return_type.clone()));
         appended.push(Stmt::FnDecl {
-            name: format!("__sm_{cname}__{}", sm.name),
+            name: fn_name,
             type_params: type_params.to_vec(),
             params: sm.params.clone(),
             return_type,

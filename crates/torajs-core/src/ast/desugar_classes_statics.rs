@@ -26,9 +26,16 @@ use super::desugar_classes_super::ClassIndexEntry;
 use super::*;
 use std::collections::HashMap;
 
+/// Per-(class, prop) static-accessor faces — `(getter fn, setter
+/// fn)`, either absent for a one-sided pair (RFC
+/// 20260718-accessor-reify 刀 3). Reads rewrite to a getter CALL,
+/// writes to a setter call — never to a bare Ident.
+pub(super) type StaticAccessorRewrites =
+    HashMap<(String, String), (Option<String>, Option<String>)>;
+
 pub(super) fn build_static_member_rewrites(
     class_index: &[ClassIndexEntry],
-) -> HashMap<(String, String), String> {
+) -> (HashMap<(String, String), String>, StaticAccessorRewrites) {
     // M-OO.4 — collect static-member rewrite tables: keys are
     // `(ClassName, member_name)` → flat replacement ident
     // (`__sf_<C>__<n>` for fields, `__sm_<C>__<m>` for methods). After
@@ -36,6 +43,7 @@ pub(super) fn build_static_member_rewrites(
     // rewrites every `Expr::Member { obj: Ident("ClassName"), name }`
     // whose key is in the table to a plain `Expr::Ident(replacement)`.
     let mut static_member_rewrites: HashMap<(String, String), String> = HashMap::new();
+    let mut accessor_rewrites: StaticAccessorRewrites = HashMap::new();
     for (_, cname, _, _, _, sis, _, _, sms) in class_index {
         // P8.3-A3 — only StaticInit::Field entries are addressable as
         // `ClassName.member`; static blocks have no member name and are
@@ -50,10 +58,31 @@ pub(super) fn build_static_member_rewrites(
             }
         }
         for sm in sms {
-            static_member_rewrites.insert(
-                (cname.clone(), sm.name.clone()),
-                format!("__sm_{cname}__{}", sm.name),
-            );
+            match sm.accessor_kind {
+                // RFC 20260718-accessor-reify 刀 3 — a static
+                // accessor's faces desugar with `_get` / `_set`
+                // suffixes (mirror of the instance emit); reads /
+                // writes rewrite to face CALLS, so the data table
+                // never sees the name.
+                Some(AccessorKind::Getter) => {
+                    accessor_rewrites
+                        .entry((cname.clone(), sm.name.clone()))
+                        .or_insert((None, None))
+                        .0 = Some(format!("__sm_{cname}__{}_get", sm.name));
+                }
+                Some(AccessorKind::Setter) => {
+                    accessor_rewrites
+                        .entry((cname.clone(), sm.name.clone()))
+                        .or_insert((None, None))
+                        .1 = Some(format!("__sm_{cname}__{}_set", sm.name));
+                }
+                None => {
+                    static_member_rewrites.insert(
+                        (cname.clone(), sm.name.clone()),
+                        format!("__sm_{cname}__{}", sm.name),
+                    );
+                }
+            }
         }
     }
     // V3-18 wedge — static inheritance per ES spec §15.7. When
@@ -86,7 +115,13 @@ pub(super) fn build_static_member_rewrites(
                         StaticInit::Block(_) => None,
                     })
                     .collect(),
-                sms.iter().map(|sm| sm.name.clone()).collect(),
+                // Accessor names stay out of the inheritance alias
+                // walk (an inherited static accessor resolves through
+                // the class-object proto chain — recorded boundary).
+                sms.iter()
+                    .filter(|sm| sm.accessor_kind.is_none())
+                    .map(|sm| sm.name.clone())
+                    .collect(),
             ),
         );
     }
@@ -110,5 +145,5 @@ pub(super) fn build_static_member_rewrites(
             cur = parent_map.get(&p).cloned().flatten();
         }
     }
-    static_member_rewrites
+    (static_member_rewrites, accessor_rewrites)
 }

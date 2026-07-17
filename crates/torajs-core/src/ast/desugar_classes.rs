@@ -139,7 +139,7 @@ pub fn desugar_classes(ast: &mut Ast) {
     // Pass 3 below). Extracted to `desugar_classes_statics.rs`
     // sub-sibling (chunk 177, 2026-06-28) — pure function, no
     // `&mut Ast` mutation.
-    let static_member_rewrites =
+    let (static_member_rewrites, static_accessor_rewrites) =
         super::desugar_classes_statics::build_static_member_rewrites(&class_index);
 
     // Pass 3 — ClassDecl → TypeDecl replacement + per-class synthetic
@@ -173,6 +173,12 @@ pub fn desugar_classes(ast: &mut Ast) {
         ast.stmts = new_stmts;
     }
 
+    // RFC 20260718-accessor-reify 刀 3 — static-accessor rewrites run
+    // BEFORE the data-member flat rewrite: the assign walk consumes
+    // whole `C.p = v` nodes (setter call), then the read walk turns
+    // the remaining `C.p` Members into getter calls; neither shape
+    // survives into the Ident rewrite below.
+    rewrite_static_accessor_accesses(ast, &static_accessor_rewrites);
     rewrite_static_member_accesses(ast, &static_member_rewrites);
     reject_abstract_new(ast, &abstract_classes);
     finalize_side_tables(
@@ -296,6 +302,59 @@ fn snapshot_class_index(ast: &Ast) -> Vec<super::desugar_classes_super::ClassInd
             _ => None,
         })
         .collect()
+}
+
+/// RFC 20260718-accessor-reify 刀 3 — rewrite static-accessor
+/// accesses to face CALLS: `C.p = v` becomes `__sm_<C>__<p>_set(v)`
+/// (whole-Assign replacement, walked FIRST so the read pass below
+/// never sees its target Member), then every remaining `C.p` Member
+/// becomes `__sm_<C>__<p>_get()`. A write with no setter / a read
+/// with no getter keeps its node (checker reports the miss on the
+/// un-rewritten Member — same posture as an unknown static).
+/// Compound assigns (`C.p += v`) desugar to `C.p = C.p + v` upstream,
+/// so the simple shape covers them.
+fn rewrite_static_accessor_accesses(
+    ast: &mut Ast,
+    accessor_rewrites: &super::desugar_classes_statics::StaticAccessorRewrites,
+) {
+    if accessor_rewrites.is_empty() {
+        return;
+    }
+    let member_face = |ast: &Ast, eid: ExprId, want_get: bool| -> Option<String> {
+        let Expr::Member { obj, name } = ast.get_expr(eid) else {
+            return None;
+        };
+        let Expr::Ident(class_name) = ast.get_expr(*obj) else {
+            return None;
+        };
+        let (g, s) = accessor_rewrites.get(&(class_name.clone(), name.clone()))?;
+        if want_get { g.clone() } else { s.clone() }
+    };
+    // Write pass — whole-Assign nodes first.
+    for i in 0..ast.exprs.len() {
+        let (target, value) = match &ast.exprs[i] {
+            Expr::Assign { target, value } => (*target, *value),
+            _ => continue,
+        };
+        if let Some(set_fn) = member_face(ast, target, false) {
+            let callee = ast.add_expr(Expr::Ident(set_fn));
+            ast.exprs[i] = Expr::Call {
+                callee,
+                args: vec![value],
+            };
+        }
+    }
+    // Read pass — remaining Members.
+    for i in 0..ast.exprs.len() {
+        let eid = ExprId(i as u32);
+        if let Some(get_fn) = member_face(ast, eid, true) {
+            let callee = ast.add_expr(Expr::Ident(get_fn));
+            ast.exprs[i] = Expr::Call {
+                callee,
+                args: vec![],
+            };
+        }
+    }
 }
 
 /// M-OO.4 — rewrite `<ClassName>.<member>` accesses to flat
