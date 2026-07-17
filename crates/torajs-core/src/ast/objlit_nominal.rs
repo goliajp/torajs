@@ -219,16 +219,25 @@ pub(crate) fn run(
 /// - (d) an ObjectLit nested in a marked literal —
 ///   `lower_dynobj_init` recurses nested literals;
 /// - (e) the receiver argument of `Object.defineProperty` /
-///   `defineProperties` — the `lower_define_receiver` promote.
+///   `defineProperties` — the `lower_define_receiver` promote;
+/// - (f) a direct-call arg into an explicitly `any`-annotated
+///   FnDecl param — `ssa_lower_call_terminal`'s any-param route
+///   (`expected == Type::Any && ObjectLit → lower_dynobj_init`).
+///   Only the syntactically certain subset: a bare `Ident` callee
+///   naming a non-generic FnDecl whose param says `: any` verbatim
+///   (an untyped param turns into an implicit generic — its mono
+///   instance is NOT Any — and a shadowed/duplicated fn name drops
+///   out of the map, both directions keeping (f) ⊆ the SSA route).
 ///
-/// Deliberately NOT covered: ObjectLit args into user any params
-/// (`ssa_lower_call_terminal`'s any-param route; the param type is
-/// not decidable here) — those keep the nominal stamp and the
-/// dynobj-init guard rejects their recv members loudly (knife 2b).
+/// Still NOT covered: closure-valued callees and method-shape calls
+/// whose any params the SSA route serves — those keep the nominal
+/// stamp and the dynobj-init guard rejects their recv members
+/// loudly.
 fn collect_anylane_objlits(stmts: &[Stmt], exprs: &[Expr]) -> std::collections::HashSet<u32> {
     let mut marked: std::collections::HashSet<u32> = std::collections::HashSet::new();
     let mut roots: Vec<ExprId> = Vec::new();
     collect_any_let_inits(stmts, &mut roots);
+    let fn_any_params = collect_fn_any_params(stmts);
     for (i, e) in exprs.iter().enumerate() {
         match e {
             // (b) — literal `undefined` field value.
@@ -253,6 +262,16 @@ fn collect_anylane_objlits(stmts: &[Stmt], exprs: &[Expr]) -> std::collections::
                 {
                     roots.push(*recv);
                 }
+                // (f) — arg into an explicitly-any FnDecl param.
+                if let Expr::Ident(f) = &exprs[callee.0 as usize]
+                    && let Some(mask) = fn_any_params.get(f)
+                {
+                    for (i, a) in args.iter().enumerate() {
+                        if mask.get(i).copied().unwrap_or(false) {
+                            roots.push(*a);
+                        }
+                    }
+                }
             }
             _ => {}
         }
@@ -275,6 +294,55 @@ fn collect_anylane_objlits(stmts: &[Stmt], exprs: &[Expr]) -> std::collections::
         }
     }
     marked
+}
+
+/// (f) leg of [`collect_anylane_objlits`] — per-FnDecl mask of the
+/// params annotated `: any` verbatim. Generic fns are out (a mono
+/// instance's param is not Any) and so are synthesized closure
+/// shapes (`__closure_*` / `__forward_*` are never Ident-called). A
+/// duplicated fn name drops out entirely: the mask is name-keyed
+/// while the SSA route resolves per scope, so an ambiguous name
+/// could pair the wrong mask with a call site.
+fn collect_fn_any_params(stmts: &[Stmt]) -> HashMap<String, Vec<bool>> {
+    let mut map: HashMap<String, Vec<bool>> = HashMap::new();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    collect_fn_any_params_inner(stmts, &mut map, &mut seen);
+    map
+}
+
+fn collect_fn_any_params_inner(
+    stmts: &[Stmt],
+    map: &mut HashMap<String, Vec<bool>>,
+    seen: &mut std::collections::HashSet<String>,
+) {
+    for s in stmts {
+        if let Stmt::FnDecl {
+            name,
+            params,
+            type_params,
+            body,
+            ..
+        } = s
+        {
+            if type_params.is_empty()
+                && !crate::ast_desugar_implicit_generics::is_synth_closure_name(name)
+            {
+                if !seen.insert(name.clone()) {
+                    // Second decl under this name — ambiguous, drop it.
+                    map.remove(name);
+                } else {
+                    let mask: Vec<bool> = params
+                        .iter()
+                        .map(|p| p.type_ann.as_deref() == Some("any"))
+                        .collect();
+                    if mask.iter().any(|b| *b) {
+                        map.insert(name.clone(), mask);
+                    }
+                }
+            }
+            collect_fn_any_params_inner(body, map, seen);
+        }
+    }
 }
 
 /// (a) leg of [`collect_anylane_objlits`] — `let x: any = <init>`

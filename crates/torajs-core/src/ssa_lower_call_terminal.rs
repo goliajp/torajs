@@ -75,7 +75,15 @@ pub(crate) fn emit(
             if let Some(Type::Any) = expected
                 && matches!(ctx.ast.get_expr(*a), crate::ast::Expr::ObjectLit { .. })
             {
-                return ctx.lower_dynobj_init(*a);
+                // ANY_HEAP encode (mirrors the as-cast / let-decl
+                // promotes). The raw Ptr face leaked every arg cell:
+                // `release_owned_temp` keys the drop off the operand
+                // type, and `is_copy(Ptr)` = no release site — 300k
+                // `take({a:i})` churned 83.5MB vs 6.4MB flat. The
+                // Any box gives the release a type it drops AND the
+                // callee a face that passes the any-lane tag gates.
+                let dynobj = ctx.lower_dynobj_init(*a);
+                return ctx.box_to_any(dynobj);
             }
             // Chunk 784 — pin the param's declared struct layout for
             // a direct ObjectLit arg (mirrors the chunk-780 let-decl

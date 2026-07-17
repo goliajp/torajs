@@ -398,7 +398,7 @@ fn desugar_user_fn(
 /// its reserved name. Closures whose value returns resisted typing
 /// publish nothing (no fabricated ann); a body without value
 /// returns is `void`.
-fn is_synth_closure_name(name: &str) -> bool {
+pub(crate) fn is_synth_closure_name(name: &str) -> bool {
     // The two reserved names a `Expr::Closure` value can carry:
     // `lift_arrow_fns`' lifted arrows and
     // `synthesize_fn_to_closure_forwarders`' `__forward_<fn>` shims
