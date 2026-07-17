@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-17T08:49:01.018Z",
+  "generatedAt": "2026-07-17T09:05:49.037Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 92.93
   },
   "torajs": {
-    "commit": "92877c11",
-    "commitSubject": "feat: builtin prototypes own an interned constructor identity",
+    "commit": "983ac915",
+    "commitSubject": "fix: any-typed accessor faces unbox through IsCallable before the pair",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,18 @@
   },
   "commits": [
     {
+      "hash": "983ac915",
+      "subject": "fix: any-typed accessor faces unbox through IsCallable before the pair"
+    },
+    {
+      "hash": "3b3de621",
+      "subject": "fix: mixed data+accessor literal descriptors decline to the runtime rejection"
+    },
+    {
+      "hash": "2c60a3e9",
+      "subject": "chore: hardev dashboard snapshot at rotation 131 close (post ctor-identity leg)"
+    },
+    {
       "hash": "92877c11",
       "subject": "feat: builtin prototypes own an interned constructor identity"
     },
@@ -747,21 +759,9 @@
     {
       "hash": "d1071dd0",
       "subject": "fix: String() undefined fold keeps the arg's effects and the F64 undefined sentinel"
-    },
-    {
-      "hash": "5f63c34d",
-      "subject": "fix: + runs ToPrimitive(default) before the string/number split; templates keep the string hint"
-    },
-    {
-      "hash": "abc60845",
-      "subject": "fix: own stored-undefined shadows the builtin surface on the read lanes"
-    },
-    {
-      "hash": "982228a8",
-      "subject": "fix: string wrapper length is a real own property through dynamic keys"
     }
   ],
-  "headSha": "92877c11",
+  "headSha": "983ac915",
   "autorun": {
     "total": 436,
     "baselineTarget": 10,
