@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-17T11:51:02.551Z",
+  "generatedAt": "2026-07-17T12:10:26.136Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 94
   },
   "torajs": {
-    "commit": "29849e21",
-    "commitSubject": "chore: archive the test262 sweep at 098dfb9d",
+    "commit": "b105ffdd",
+    "commitSubject": "fix: uninit-let splice moves the declaration down instead of hoisting the effect",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "b105ffdd",
+      "subject": "fix: uninit-let splice moves the declaration down instead of hoisting the effect"
+    },
+    {
+      "hash": "59d3947f",
+      "subject": "chore: hardev dashboard snapshot at rotation 133 close"
+    },
+    {
       "hash": "29849e21",
       "subject": "chore: archive the test262 sweep at 098dfb9d"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "c96364f8",
       "subject": "fix: SameValue discriminates plus-minus zero across int/double packing"
-    },
-    {
-      "hash": "ffe68bf8",
-      "subject": "chore: hardev dashboard snapshot at rotation 132 close"
-    },
-    {
-      "hash": "f0782b5c",
-      "subject": "fix: non-configurable redefines judge the value by SameValue, not bits"
     }
   ],
-  "headSha": "29849e21",
+  "headSha": "b105ffdd",
   "autorun": {
     "total": 438,
     "baselineTarget": 10,
