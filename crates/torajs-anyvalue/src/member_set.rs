@@ -172,9 +172,14 @@ pub unsafe extern "C" fn __torajs_any_member_set(
             // with the cycle walk; an invalid v is silently ignored.
             // The null-proto shape has no inherited setter — its
             // write IS an ordinary own entry (the dynobj_set below).
+            // An own `__proto__` DATA entry (shorthand `{__proto__}`
+            // / defineProperty) shadows the setter the same way
+            // (§10.1.9.2 OrdinarySet finds the own data property
+            // first) — its write stays ordinary too.
             let hdr_flags = (ptr.cast::<u8>().add(6) as *const u16).read();
             if hdr_flags & DYNOBJ_HDR_FLAG_NULL_PROTO == 0
                 && crate::prop_has::key_is(key, b"__proto__")
+                && __torajs_dynobj_has(ptr, key as *const c_void) == 0
             {
                 let boxed = __torajs_anyv_box_from_pair(tag as i64, value as i64);
                 __torajs_anyv_proto_member_set(recv, boxed);

@@ -45,7 +45,10 @@ use core::ffi::c_void;
 
 use torajs_rc::{AnySlotTag, Tag};
 
-use crate::member_get_own::{arr_own_pair, closure_virtual_pair, user_proto_cell};
+use crate::member_get_own::{
+    arr_own_pair, array_proto_props, closure_virtual_pair, dynobj_proto_pair, function_proto_props,
+    user_proto_cell, wrapper_proto_props,
+};
 pub(crate) use crate::member_get_own::{canonical_index, strwrapper_length};
 use crate::nanbox::{AnyValue, as_void_ptr, is_cell, is_null, is_undefined};
 
@@ -73,7 +76,7 @@ unsafe extern "C" {
 
 /// Closure-cell lazy props slot — mirror of torajs-core
 /// `ssa_lower.rs::CLOSURE_PROPS_OFF`.
-const CLOSURE_PROPS_OFF: usize = 24;
+pub(crate) const CLOSURE_PROPS_OFF: usize = 24;
 
 /// Wrapper-cell lazy props slot — mirror of
 /// `torajs-wrapper::WRAPPER_PROPS_OFF` (RFC 20260716 刀 5, rotation
@@ -122,41 +125,6 @@ pub(crate) unsafe fn header_flag_set(ptr: *mut c_void, bit: u16) {
     }
 }
 
-/// `Function.prototype`'s expando dynobj (builtin-proto registry
-/// tag 13) — the inheritance table a closure receiver reads through
-/// after its own expando and virtual pair miss (`Function.prototype
-/// .writable = true; funObj.writable` answers true). NULL until the
-/// singleton is first materialized.
-pub(crate) fn function_proto_props() -> *const c_void {
-    unsafe { torajs_rc::builtin_proto::__torajs_get_builtin_prototype(13) as *const c_void }
-}
-
-/// A primitive wrapper's prototype expando dynobj — the tag-0/3/4
-/// singleton (Number/String/Boolean); wrapper receivers inherit
-/// through it after their own expando misses.
-fn wrapper_proto_props(t: u16) -> *const c_void {
-    let tag = if t == Tag::StringWrapper as u16 {
-        3
-    } else if t == Tag::BooleanWrapper as u16 {
-        4
-    } else {
-        0
-    };
-    unsafe { torajs_rc::builtin_proto::__torajs_get_builtin_prototype(tag) as *const c_void }
-}
-
-/// `Array.prototype`'s expando dynobj — the tag-2 singleton is an
-/// Arr cell (§23.1.3 array exotic) whose monkey-patches land in ITS
-/// props table; an Arr receiver inherits through it after its own
-/// expando misses.
-fn array_proto_props() -> *const c_void {
-    let ap = unsafe { torajs_rc::builtin_proto::__torajs_get_builtin_prototype(2) };
-    if ap.is_null() {
-        return core::ptr::null();
-    }
-    unsafe { (ap.cast::<u8>().add(CLOSURE_PROPS_OFF) as *const *const c_void).read() }
-}
-
 /// Cell tag of a dispatchable receiver, `None` for everything the
 /// gate answers `(ANY_UNDEF, 0)` for.
 pub(crate) fn recv_cell(recv: AnyValue) -> Option<(*mut c_void, u16)> {
@@ -199,6 +167,16 @@ pub unsafe extern "C" fn __torajs_any_member_get_tag(recv: AnyValue, key: *const
             // has probe disambiguates (777e756c's read-side leg).
             if __torajs_dynobj_has(ptr, key) != 0 {
                 return 5;
+            }
+            // Annex B §B.2.2.1 — a dynamic key spelling `__proto__`
+            // answers the RECEIVER's [[Prototype]] via the inherited
+            // accessor (the own DATA probe above already covered the
+            // shadow case); the chain walk below must not run — the
+            // internal simulation slot no longer carries the
+            // user-spellable name, so the walk would miss to the
+            // reify surface.
+            if crate::prop_has::key_is(key, b"__proto__") {
+                return dynobj_proto_pair(ptr).0;
             }
             // Knife 2 — the user [[Prototype]] chain answers before
             // the builtin surface reifies (§10.1.8.1 OrdinaryGet
@@ -367,6 +345,11 @@ pub unsafe extern "C" fn __torajs_any_member_get_value(recv: AnyValue, key: *con
                 // Stored-undefined shadow — see the tag twin.
                 if __torajs_dynobj_has(ptr, key) != 0 {
                     return 0;
+                }
+                // Annex B §B.2.2.1 dynamic-key `__proto__` read —
+                // see the tag twin.
+                if crate::prop_has::key_is(key, b"__proto__") {
+                    return dynobj_proto_pair(ptr).1;
                 }
                 // Knife 2 — user chain before builtin reify
                 // (tag twin above).

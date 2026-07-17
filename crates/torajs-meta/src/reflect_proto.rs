@@ -11,9 +11,9 @@ use core::ffi::c_void;
 
 use crate::reflect::{
     ANY_HEAP, BOOLEAN_PROTO_TAG, DYNOBJ_HDR_FLAG_NULL_PROTO, NUMBER_PROTO_TAG, OBJECT_PROTO_TAG,
-    SHORT_STR_TOP16, STRING_PROTO_TAG, TAG_ARR, TAG_CLOSURE, TAG_DYNOBJ, TAG_OBJ, TOP_16_MASK,
-    VALUE_FALSE_IMM, VALUE_NULL_IMM, VALUE_TRUE_IMM, VALUE_UNDEFINED_IMM, alloc_str_key,
-    box_pair_imm, heap_type_tag, is_cell_imm,
+    PROTO_SLOT_ATTRS, PROTO_SLOT_KEY, SHORT_STR_TOP16, STRING_PROTO_TAG, TAG_ARR, TAG_CLOSURE,
+    TAG_DYNOBJ, TAG_OBJ, TOP_16_MASK, VALUE_FALSE_IMM, VALUE_NULL_IMM, VALUE_TRUE_IMM,
+    VALUE_UNDEFINED_IMM, alloc_str_key, box_pair_imm, heap_type_tag, is_cell_imm,
 };
 
 unsafe extern "C" {
@@ -26,16 +26,24 @@ unsafe extern "C" {
     // the reverse pointer→tag probe (compared, never dereferenced).
     fn __torajs_get_builtin_prototype(tag: i64) -> *mut c_void;
     fn __torajs_builtin_proto_tag_of(p: *const c_void) -> i64;
-    // torajs-dynobj — keyed store (resize relocates through the slot;
-    // the create-link insert is the fresh dict's first entry, so the
-    // block cannot grow) + the Object.create(null) header bit.
-    fn __torajs_dynobj_set(obj_slot: *mut *mut c_void, key: *const u8, tag: u64, value: u64);
+    // torajs-dynobj — DefineOwnProperty kernel (resize relocates
+    // through the slot; the create-link insert is the fresh dict's
+    // first entry, so the block cannot grow) + the
+    // Object.create(null) header bit. define (not set) so the
+    // simulation entry carries PROTO_SLOT_ATTRS' enumerable-clear.
+    fn __torajs_dynobj_define(
+        obj_slot: *mut *mut c_void,
+        key: *const u8,
+        tag: u64,
+        value: u64,
+        flags_byte: u64,
+    );
     fn __torajs_dynobj_mark_null_proto(obj: *mut c_void);
 }
 
 /// `Object.create(proto)` §20.1.2.2 step 2 — link the validated proto
 /// onto the fresh dynobj (RFC 20260717-user-proto-chain knife 1):
-/// a heap-cell proto lands in the own `__proto__` simulation slot
+/// a heap-cell proto lands in the internal [`PROTO_SLOT_KEY`] slot
 /// (the entry takes an owned +1, keeping the parent alive; identity-
 /// preserving so `Object.getPrototypeOf(child) === parent`); a null
 /// proto — static literal or a runtime-Any null, closing the
@@ -59,12 +67,12 @@ pub unsafe extern "C" fn __torajs_object_create_link_proto(obj: *mut c_void, pro
     }
     unsafe {
         let cell = proto as *mut c_void;
-        // The entry owns its reference; dynobj_set transfers the
-        // value (fresh insert incs only the key).
+        // The entry owns its reference; define transfers the value
+        // (fresh insert incs only the key).
         __torajs_rc_inc(cell);
-        let k = alloc_str_key(b"__proto__");
+        let k = alloc_str_key(PROTO_SLOT_KEY);
         let mut slot = obj;
-        __torajs_dynobj_set(&mut slot, k, ANY_HEAP as u64, cell as u64);
+        __torajs_dynobj_define(&mut slot, k, ANY_HEAP as u64, cell as u64, PROTO_SLOT_ATTRS);
         __torajs_str_drop(k);
     }
 }
@@ -94,19 +102,18 @@ unsafe fn dynobj_is_null_proto(dynobj: *const c_void) -> bool {
     flags & DYNOBJ_HDR_FLAG_NULL_PROTO != 0
 }
 
-/// Reads a dynobj's own `__proto__` data slot (rc_inc'd on heap
-/// payloads so the caller owns the reference), or `None` when the
-/// object has no own `__proto__` entry. tr stores an ordinary
-/// object's [[Prototype]] AS its own `__proto__` entry, so for a
-/// non-null-proto object this slot IS the prototype; for a null-proto
-/// object the entry (if any) is plain data (a `(?<__proto__>.)`
-/// named capture, a `defineProperty`) and the caller must NOT treat
-/// it as [[Prototype]].
+/// Reads a dynobj entry under `key_bytes` (rc_inc'd on heap payloads
+/// so the caller owns the reference), or `None` when absent. Two
+/// callers, two keys: [`PROTO_SLOT_KEY`] IS the [[Prototype]] link
+/// (simulation-slot key separation — the internal entry can never be
+/// spelled by a user property name), and the user-spellable
+/// `__proto__` is plain own DATA (a shorthand `{__proto__}`, a
+/// `(?<__proto__>.)` named capture, a `defineProperty`).
 ///
 /// # Safety
 /// `dynobj` points to a valid TAG_DYNOBJ heap object.
-unsafe fn dynobj_own_proto(dynobj: *const c_void) -> Option<u64> {
-    let k = unsafe { alloc_str_key(b"__proto__") };
+unsafe fn dynobj_entry(dynobj: *const c_void, key_bytes: &[u8]) -> Option<u64> {
+    let k = unsafe { alloc_str_key(key_bytes) };
     if !unsafe { __torajs_dynobj_has(dynobj, k) } {
         unsafe { __torajs_str_drop(k) };
         return None;
@@ -137,15 +144,31 @@ pub unsafe extern "C" fn __torajs_anyv_proto_member_get(v: u64) -> u64 {
     if is_cell_imm(v) {
         let cell = v as *const c_void;
         // SAFETY: is_cell_imm guarantees a live heap pointer.
-        if unsafe { heap_type_tag(cell) } == TAG_DYNOBJ && unsafe { dynobj_is_null_proto(cell) } {
-            // A null-proto object does not inherit Object.prototype's
-            // `__proto__` accessor, so `o.__proto__` is an ordinary
-            // property read: an own `__proto__` data slot (e.g. a
-            // `(?<__proto__>.)` named capture on a RegExp groups
-            // object) wins; otherwise the property is simply absent →
-            // undefined (NOT null — that is Object.getPrototypeOf's
-            // answer).
-            return unsafe { dynobj_own_proto(cell) }.unwrap_or(VALUE_UNDEFINED_IMM);
+        let tag = unsafe { heap_type_tag(cell) };
+        if tag == TAG_DYNOBJ {
+            // §10.1.8.1 OrdinaryGet — an own `__proto__` DATA entry
+            // (shorthand `{__proto__}`, a `(?<__proto__>.)` named
+            // capture, a `defineProperty`) shadows the inherited
+            // accessor on every dynobj, so the read answers the
+            // stored value, not the [[Prototype]].
+            if let Some(own) = unsafe { dynobj_entry(cell, b"__proto__") } {
+                return own;
+            }
+            if unsafe { dynobj_is_null_proto(cell) } {
+                // No inherited accessor — the property is simply
+                // absent → undefined (NOT null — that is
+                // Object.getPrototypeOf's answer).
+                return VALUE_UNDEFINED_IMM;
+            }
+        } else if tag == TAG_OBJ {
+            // Same own-first shadow for the struct-typed literal
+            // shape — a static layout carrying an own `__proto__`
+            // data field answers the field.
+            if let Some(own) =
+                unsafe { crate::struct_reflect::struct_own_field_anyv(cell, b"__proto__") }
+            {
+                return own;
+            }
         }
     }
     unsafe { __torajs_anyv_get_proto_of_any(v) }
@@ -241,22 +264,19 @@ pub unsafe extern "C" fn __torajs_anyv_get_proto_of_any(v: u64) -> u64 {
         }
         return VALUE_NULL_IMM;
     }
-    // A null-proto object's [[Prototype]] IS null — and its own
-    // `__proto__` entry, if present, is plain data (a `(?<__proto__>.)`
-    // named capture, a `defineProperty`), never the prototype pointer.
-    // Check the header bit BEFORE reading the entry so that data is not
-    // mistaken for [[Prototype]] (`Object.getPrototypeOf(groups)` where
-    // `groups` came from `/(?<__proto__>.)/` must answer null, not the
-    // capture value).
+    // A null-proto object's [[Prototype]] IS null (the internal slot
+    // entry is deleted when the null-proto bit is set, so the order
+    // here is belt-and-suspenders, not load-bearing).
     if unsafe { dynobj_is_null_proto(dynobj) } {
         return VALUE_NULL_IMM;
     }
-    // §10.1.1 — tr stores an ordinary object's [[Prototype]] as its own
-    // `__proto__` entry: present → that parent; absent →
-    // %Object.prototype% (before the null-proto bit existed, an absent
-    // entry answered null, so `Object.getPrototypeOf({}) ===
-    // Object.prototype` was false).
-    if let Some(own) = unsafe { dynobj_own_proto(dynobj) } {
+    // §10.1.1 — tr stores an ordinary object's [[Prototype]] in the
+    // internal PROTO_SLOT_KEY entry (user-unspellable, so an own
+    // `__proto__` data property can never be mistaken for the link):
+    // present → that parent; absent → %Object.prototype% (before the
+    // null-proto bit existed, an absent entry answered null, so
+    // `Object.getPrototypeOf({}) === Object.prototype` was false).
+    if let Some(own) = unsafe { dynobj_entry(dynobj, PROTO_SLOT_KEY) } {
         return own;
     }
     unsafe { proto_singleton(OBJECT_PROTO_TAG) }

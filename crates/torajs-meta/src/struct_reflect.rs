@@ -157,6 +157,39 @@ pub(crate) unsafe fn field_slot_to_pair_owned(type_tag: u8, raw: u64) -> (u64, u
     (tag, val)
 }
 
+/// Owned NaN-box read of a struct cell's own DATA field `name`, or
+/// `None` when the class layout has no such field (accessor slots
+/// deliberately not probed — callers want the data shadow only).
+/// Simulation-slot key separation: `o.__proto__` on a struct-typed
+/// literal carrying an own `__proto__` data field (shorthand
+/// `{__proto__}`) must answer the field per §10.1.8.1 own-first,
+/// not the [[Prototype]].
+pub(crate) unsafe fn struct_own_field_anyv(cell: *const c_void, name: &[u8]) -> Option<u64> {
+    let class_tag = unsafe {
+        cell.cast::<u8>()
+            .add(OBJ_CLASS_TAG_OFF)
+            .cast::<u32>()
+            .read()
+    };
+    let layout = unsafe { __torajs_struct_layout_lookup(class_tag) };
+    if layout.is_null() {
+        return None;
+    }
+    let idx = unsafe { __torajs_struct_field_find(layout, name.as_ptr(), name.len() as u32) };
+    if idx == u32::MAX {
+        return None;
+    }
+    let info = unsafe { __torajs_struct_field_info(layout, idx) };
+    let raw = unsafe {
+        cell.cast::<u8>()
+            .add(info.field_byte_offset as usize)
+            .cast::<u64>()
+            .read()
+    };
+    let (t, v) = unsafe { field_slot_to_pair_owned(info.type_tag, raw) };
+    Some(unsafe { __torajs_anyv_box_from_pair(t as i64, v as i64) })
+}
+
 /// Accessor half spellings for [`__torajs_struct_accessor_find`].
 pub(crate) const ACC_GETTER: u8 = 0;
 pub(crate) const ACC_SETTER: u8 = 1;

@@ -200,13 +200,17 @@ unsafe fn define_face(
     }
 }
 
-/// §B.2.2.4/5 — own probe first, then the `__proto__` simulated-key
-/// chain; an accessor entry answers its matching face (undefined
-/// when that face is absent), a data entry answers undefined and
-/// stops the walk (it shadows).
+/// §B.2.2.4/5 — own probe first, then the internal
+/// [`crate::member_get_own::PROTO_SLOT_KEY`] simulated-slot chain;
+/// an accessor entry answers its matching face (undefined when that
+/// face is absent), a data entry answers undefined and stops the
+/// walk (it shadows).
 unsafe fn lookup_face(obj: *mut c_void, key: *mut c_void, wants_getter: bool) -> AnyValue {
     unsafe {
-        let proto_key = __torajs_str_alloc(c"__proto__".as_ptr() as *const u8, 9);
+        let proto_key = __torajs_str_alloc(
+            crate::member_get_own::PROTO_SLOT_KEY.as_ptr(),
+            crate::member_get_own::PROTO_SLOT_KEY.len() as i64,
+        );
         let mut cur = obj as *const c_void;
         let mut out = VALUE_UNDEFINED;
         let mut depth = 0u32;

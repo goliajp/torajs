@@ -15,7 +15,8 @@
 //!
 //! - fn_proto.constructor → ctor            {W:0, E:0, C:1} §27.3.3.1
 //! - fn_proto.prototype   → gen_proto       {W:0, E:0, C:1} §27.3.3.2
-//! - fn_proto.__proto__   → Function.prototype (proto-slot key)
+//! - fn_proto.[[Prototype]] → Function.prototype (internal
+//!   PROTO_SLOT_KEY entry)
 //! - ctor.name            → "GeneratorFunction" {W:0, E:0, C:1}
 //! - ctor.length          → 1               {W:0, E:0, C:1}
 //! - ctor.prototype       → fn_proto        {W:0, E:0, C:0} §27.3.2.1
@@ -34,13 +35,12 @@
 
 use core::ffi::c_void;
 
-use crate::reflect::{alloc_str_key, is_cell_imm};
+use crate::reflect::{PROTO_SLOT_ATTRS, PROTO_SLOT_KEY, alloc_str_key, is_cell_imm};
 
 unsafe extern "C" {
     fn __torajs_rc_inc(p: *mut c_void);
     fn __torajs_str_drop(s: *mut u8);
     fn __torajs_dynobj_alloc() -> *mut c_void;
-    fn __torajs_dynobj_set(obj_slot: *mut *mut c_void, key: *const u8, tag: u64, value: u64);
     fn __torajs_dynobj_define(
         obj_slot: *mut *mut c_void,
         key: *const u8,
@@ -109,11 +109,7 @@ unsafe fn mint_kind(kind: usize) {
     unsafe { define_heap(fn_proto, b"prototype", gen_proto, ATTRS_WEC_001) };
     let func_proto = unsafe { __torajs_get_builtin_prototype(FUNCTION_PROTO_TAG) };
     if !func_proto.is_null() {
-        let mut slot = fn_proto;
-        let k = unsafe { alloc_str_key(b"__proto__") };
-        unsafe { __torajs_rc_inc(func_proto as *mut c_void) };
-        unsafe { __torajs_dynobj_set(&mut slot, k, ANY_HEAP, heap_anyv(func_proto)) };
-        unsafe { __torajs_str_drop(k) };
+        unsafe { define_heap(fn_proto, PROTO_SLOT_KEY, func_proto, PROTO_SLOT_ATTRS) };
     }
 
     // ctor: name / length / prototype.
@@ -179,9 +175,10 @@ pub unsafe extern "C" fn __torajs_genfn_proto(kind: i64) -> u64 {
 
 /// Chain a per-generator `__proto___Gen_<name>` object (passed as
 /// the AnyValue its module-scope binding holds) to the shared
-/// `%GeneratorPrototype%` of `kind`: writes the `__proto__` slot the
-/// `get_proto_of_any` dynobj arm reads. Non-cell / null input is a
-/// no-op (misordered toolchain resilience, mirrors classmeta).
+/// `%GeneratorPrototype%` of `kind`: writes the internal
+/// [`PROTO_SLOT_KEY`] entry the `get_proto_of_any` dynobj arm reads.
+/// Non-cell / null input is a no-op (misordered toolchain
+/// resilience, mirrors classmeta).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_genfn_chain(proto_anyv: u64, kind: i64) -> u64 {
     if !is_cell_imm(proto_anyv) {
@@ -190,8 +187,8 @@ pub unsafe extern "C" fn __torajs_genfn_chain(proto_anyv: u64, kind: i64) -> u64
     let obj = proto_anyv as *mut c_void;
     let gen_proto_anyv = unsafe { cell(kind, 2) };
     let mut slot = obj;
-    let k = unsafe { alloc_str_key(b"__proto__") };
-    unsafe { __torajs_dynobj_set(&mut slot, k, ANY_HEAP, gen_proto_anyv) };
+    let k = unsafe { alloc_str_key(PROTO_SLOT_KEY) };
+    unsafe { __torajs_dynobj_define(&mut slot, k, ANY_HEAP, gen_proto_anyv, PROTO_SLOT_ATTRS) };
     unsafe { __torajs_str_drop(k) };
     0
 }

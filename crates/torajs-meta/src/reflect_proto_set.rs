@@ -24,8 +24,8 @@
 use core::ffi::{c_char, c_void};
 
 use crate::reflect::{
-    ANY_HEAP, DYNOBJ_HDR_FLAG_NULL_PROTO, TAG_DYNOBJ, VALUE_NULL_IMM, alloc_str_key, heap_type_tag,
-    is_cell_imm,
+    ANY_HEAP, DYNOBJ_HDR_FLAG_NULL_PROTO, PROTO_SLOT_ATTRS, PROTO_SLOT_KEY, TAG_DYNOBJ,
+    VALUE_NULL_IMM, alloc_str_key, heap_type_tag, is_cell_imm,
 };
 
 unsafe extern "C" {
@@ -34,7 +34,13 @@ unsafe extern "C" {
     fn __torajs_dynobj_has(dynobj: *const c_void, key: *const u8) -> bool;
     fn __torajs_dynobj_get_tag(dynobj: *const c_void, key: *const u8) -> u64;
     fn __torajs_dynobj_get_value(dynobj: *const c_void, key: *const u8) -> u64;
-    fn __torajs_dynobj_set(obj_slot: *mut *mut c_void, key: *const u8, tag: u64, value: u64);
+    fn __torajs_dynobj_define(
+        obj_slot: *mut *mut c_void,
+        key: *const u8,
+        tag: u64,
+        value: u64,
+        flags_byte: u64,
+    );
     fn __torajs_dynobj_delete(obj: *mut c_void, key: *const c_void) -> i32;
     fn __torajs_dynobj_mark_null_proto(obj: *mut c_void);
     fn __torajs_dynobj_clear_null_proto(obj: *mut c_void);
@@ -80,7 +86,7 @@ pub(crate) unsafe fn ordinary_set_prototype_of(obj: *mut c_void, proto: u64) -> 
         } else {
             proto
         };
-        let key = alloc_str_key(b"__proto__");
+        let key = alloc_str_key(PROTO_SLOT_KEY);
         let cur = current_proto(obj, key);
         // Step 3 — SameValue(V, current) succeeds untouched, even on
         // a non-extensible receiver. The absent-entry implicit
@@ -117,11 +123,19 @@ pub(crate) unsafe fn ordinary_set_prototype_of(obj: *mut c_void, proto: u64) -> 
         } else {
             __torajs_dynobj_clear_null_proto(obj);
             let cell = proto as *mut c_void;
-            // The entry owns its reference (dynobj_set transfers the
-            // value; overwrite drops the old stake).
+            // The entry owns its reference (define transfers the
+            // value; redefine drops the old stake). define — not set
+            // — so a re-link after the null→delete path recreates
+            // the entry with PROTO_SLOT_ATTRS' enumerable-clear.
             __torajs_rc_inc(cell);
             let mut slot = obj;
-            __torajs_dynobj_set(&mut slot, key, ANY_HEAP as u64, cell as u64);
+            __torajs_dynobj_define(
+                &mut slot,
+                key,
+                ANY_HEAP as u64,
+                cell as u64,
+                PROTO_SLOT_ATTRS,
+            );
         }
         __torajs_str_drop(key);
         true

@@ -6,9 +6,9 @@
 
 use core::ffi::c_void;
 
-use torajs_rc::AnySlotTag;
+use torajs_rc::{AnySlotTag, Tag};
 
-use crate::member_get::{STR_DATA_OFF, STR_LEN_OFF, header_flag};
+use crate::member_get::{CLOSURE_PROPS_OFF, STR_DATA_OFF, STR_LEN_OFF, header_flag};
 
 unsafe extern "C" {
     /// torajs-arr — kind-aware slot reads, borrow contract (RFC
@@ -24,13 +24,23 @@ unsafe extern "C" {
 }
 
 /// `DYNOBJ_HDR_FLAG_NULL_PROTO` mirror (torajs-dynobj layout, header
-/// +6 u16 bit 6) — an `Object.create(null)` dict inherits nothing
-/// and its `__proto__` entry (if any) is plain data.
+/// +6 u16 bit 6) — an `Object.create(null)` dict inherits nothing.
 const DYNOBJ_HDR_FLAG_NULL_PROTO: u16 = 1 << 6;
 
+/// The internal [[Prototype]] simulation-slot key — cross-crate twin
+/// of `torajs_meta::reflect::PROTO_SLOT_KEY` (simulation-slot key
+/// separation: the leading NUL keeps the internal proto link out of
+/// the user-spellable property-name space, so an own `__proto__`
+/// DATA entry never collides with it).
+pub(crate) const PROTO_SLOT_KEY: &[u8] = b"\x00proto";
+
+/// `Object.prototype`'s builtin tag (torajs-rc `builtin_proto.rs`
+/// order) — the implicit-chain root every ordinary dynobj inherits.
+const OBJECT_PROTO_TAG: i64 = 1;
+
 /// The receiver dynobj's user [[Prototype]] as a borrowed cell box
-/// (RFC 20260717-user-proto-chain knife 2). Reads the own
-/// `__proto__` simulation entry: a heap-cell payload IS the parent
+/// (RFC 20260717-user-proto-chain knife 2). Reads the internal
+/// [`PROTO_SLOT_KEY`] entry: a heap-cell payload IS the parent
 /// (`Object.create(parent)` / class `__proto_<C>` chains store it
 /// there); `None` for the null-proto shape, an absent entry (the
 /// implicit %Object.prototype% chain — the builtin reify
@@ -44,7 +54,7 @@ pub(crate) unsafe fn user_proto_cell(ptr: *const c_void) -> Option<u64> {
         return None;
     }
     unsafe {
-        let k = __torajs_str_alloc(b"__proto__".as_ptr(), 9);
+        let k = __torajs_str_alloc(PROTO_SLOT_KEY.as_ptr(), PROTO_SLOT_KEY.len() as i64);
         let tag = __torajs_dynobj_get_tag(ptr, k as *const c_void);
         let val = __torajs_dynobj_get_value(ptr, k as *const c_void);
         __torajs_str_drop(k as *mut c_void);
@@ -55,6 +65,69 @@ pub(crate) unsafe fn user_proto_cell(ptr: *const c_void) -> Option<u64> {
             None
         }
     }
+}
+
+/// Annex B §B.2.2.1 answer for the dynamic-key read `o[k]` where `k`
+/// spells `__proto__`, as a borrow-shaped `(tag, value)` pair (the
+/// member-get pair contract). The own DATA probe already ran (and
+/// missed) in the caller, so this is the inherited accessor's
+/// answer: the receiver's [[Prototype]]. A null-proto receiver has
+/// no inherited accessor — plain absent → undefined. The
+/// implicit-chain root answers %Object.prototype% (borrowed from the
+/// immortal singleton table — no inc); `Object.prototype` itself
+/// answers null.
+///
+/// # Safety
+/// `ptr` is a live `Tag::DynObj` heap pointer.
+pub(crate) unsafe fn dynobj_proto_pair(ptr: *const c_void) -> (u64, u64) {
+    let flags = unsafe { ptr.cast::<u8>().add(6).cast::<u16>().read() };
+    if flags & DYNOBJ_HDR_FLAG_NULL_PROTO != 0 {
+        return (AnySlotTag::Undef as u64, 0);
+    }
+    if let Some(cell) = unsafe { user_proto_cell(ptr) } {
+        return (AnySlotTag::Heap as u64, cell);
+    }
+    if unsafe { torajs_rc::builtin_proto::__torajs_builtin_proto_tag_of(ptr) } == OBJECT_PROTO_TAG {
+        return (AnySlotTag::Null as u64, 0);
+    }
+    let root =
+        unsafe { torajs_rc::builtin_proto::__torajs_get_builtin_prototype(OBJECT_PROTO_TAG) };
+    (AnySlotTag::Heap as u64, root as u64)
+}
+
+/// `Function.prototype`'s expando dynobj (builtin-proto registry
+/// tag 13) — the inheritance table a closure receiver reads through
+/// after its own expando and virtual pair miss (`Function.prototype
+/// .writable = true; funObj.writable` answers true). NULL until the
+/// singleton is first materialized.
+pub(crate) fn function_proto_props() -> *const c_void {
+    unsafe { torajs_rc::builtin_proto::__torajs_get_builtin_prototype(13) as *const c_void }
+}
+
+/// A primitive wrapper's prototype expando dynobj — the tag-0/3/4
+/// singleton (Number/String/Boolean); wrapper receivers inherit
+/// through it after their own expando misses.
+pub(crate) fn wrapper_proto_props(t: u16) -> *const c_void {
+    let tag = if t == Tag::StringWrapper as u16 {
+        3
+    } else if t == Tag::BooleanWrapper as u16 {
+        4
+    } else {
+        0
+    };
+    unsafe { torajs_rc::builtin_proto::__torajs_get_builtin_prototype(tag) as *const c_void }
+}
+
+/// `Array.prototype`'s expando dynobj — the tag-2 singleton is an
+/// Arr cell (§23.1.3 array exotic) whose monkey-patches land in ITS
+/// props table; an Arr receiver inherits through it after its own
+/// expando misses.
+pub(crate) fn array_proto_props() -> *const c_void {
+    let ap = unsafe { torajs_rc::builtin_proto::__torajs_get_builtin_prototype(2) };
+    if ap.is_null() {
+        return core::ptr::null();
+    }
+    unsafe { (ap.cast::<u8>().add(CLOSURE_PROPS_OFF) as *const *const c_void).read() }
 }
 
 /// Arr cell length slot — torajs-arr `layout::ARR_LEN_OFF` mirror.

@@ -52,6 +52,25 @@ pub(crate) const OBJECT_PROTO_TAG: i64 = 1;
 /// (header bit 6) — set on the dict `Object.create(null)` mints.
 pub(crate) const DYNOBJ_HDR_FLAG_NULL_PROTO: u16 = 1 << 6;
 
+/// The internal [[Prototype]] simulation-slot key. The leading NUL
+/// keeps it out of the user-spellable identifier space, so a user's
+/// own `__proto__` DATA entry (shorthand `{__proto__}`, computed key,
+/// defineProperty) never collides with the internal proto link —
+/// hasOwnProperty / own-keys / descriptor reads see only real own
+/// properties. (A computed key containing a literal NUL could still
+/// spell it — recorded boundary.) Cross-crate twin:
+/// `torajs_anyvalue::member_get_own::PROTO_SLOT_KEY`.
+pub(crate) const PROTO_SLOT_KEY: &[u8] = b"\x00proto";
+
+/// DefineOwnProperty flags byte for the internal proto-slot entry:
+/// value present + all three attrs present, {W:1, E:0, C:1} —
+/// enumerable stays clear so every enumeration walk (values /
+/// entries / print / spread) skips the simulation entry without a
+/// per-walk key filter. (`torajs_dynobj::layout` DEFINE_* bit
+/// positions.)
+pub(crate) const PROTO_SLOT_ATTRS: u64 =
+    (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6) | (1 << 0) | (1 << 2);
+
 /// Builtin-proto tags of the primitive wrappers (`builtin_proto.rs`
 /// order).
 pub(crate) const NUMBER_PROTO_TAG: i64 = 0;
