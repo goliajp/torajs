@@ -11,6 +11,7 @@ mod arguments_object_rewrite;
 mod arguments_object_walkers;
 mod array_isarray_value;
 mod class_globals;
+mod closure_capture_anns;
 mod desugar_async;
 mod desugar_classes;
 mod desugar_classes_abstract;
@@ -63,6 +64,9 @@ pub use apply_spread::apply_spread_args;
 pub use arguments_object::desugar_arguments_object;
 pub use array_isarray_value::desugar_array_isarray_value;
 pub use class_globals::synthesize_class_globals;
+pub(crate) use closure_capture_anns::{
+    CaptureAnns, collect_closure_capture_anns, collect_outer_binds,
+};
 pub use desugar_async::desugar_async;
 use desugar_async::{body_ends_in_return, rewrite_returns_for_async};
 pub use desugar_classes::desugar_classes;

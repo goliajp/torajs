@@ -37,110 +37,9 @@
 use std::collections::HashSet;
 
 use crate::ast::{
-    Ast, AstExprsView, Param, Stmt, binds_to_params, body_has_value_return, infer_expr_ann_with,
-    infer_return_ann, infer_return_ann_seeded,
+    Ast, AstExprsView, Param, Stmt, binds_to_params, body_has_value_return, collect_outer_binds,
+    infer_expr_ann_with, infer_return_ann, infer_return_ann_seeded,
 };
-
-/// RFC 20260705 chunk 556 — bind-annotation collection for the
-/// closure return-ann sniff. Was a flat top-level walk: `for (let i
-/// = 0; ...)` init lets, block/loop-scoped lets and fn-body lets
-/// never entered the map, so an arrow capturing a loop variable
-/// (`(n: number) => n * 3 + i`) failed the static sniff, kept the
-/// Void return default, and every constrained use of its result was
-/// a loud mismatch. Recurse through control-flow shapes + FnDecl
-/// bodies (nested-fn desugar runs later — closures capture fn-scoped
-/// lets too). Same program-wide-by-name approximation as the rest of
-/// this pass: no scope precision, shadowing keeps the last-seen ann.
-fn collect_outer_binds(
-    stmts: &[Stmt],
-    ast_exprs_view: AstExprsView,
-    fn_sigs: &std::collections::HashMap<String, String>,
-    binds: &mut std::collections::HashMap<String, String>,
-) {
-    for s in stmts {
-        match s {
-            Stmt::LetDecl {
-                name,
-                type_ann,
-                init,
-                ..
-            } => {
-                if let Some(ann) = type_ann {
-                    binds.insert(name.clone(), ann.clone());
-                } else {
-                    let bs: Vec<Param> = binds_to_params(binds);
-                    if let Some(ann) =
-                        infer_expr_ann_with(ast_exprs_view, *init, &bs, binds, fn_sigs)
-                    {
-                        binds.insert(name.clone(), ann);
-                    }
-                }
-            }
-            Stmt::FnDecl { params, body, .. } => {
-                for p in params {
-                    if let Some(ann) = &p.type_ann
-                        && p.name != "__env"
-                        && p.name != "__this"
-                    {
-                        binds.insert(p.name.clone(), ann.clone());
-                    }
-                }
-                collect_outer_binds(body, ast_exprs_view, fn_sigs, binds);
-            }
-            Stmt::Block(inner) | Stmt::Multi(inner) => {
-                collect_outer_binds(inner, ast_exprs_view, fn_sigs, binds);
-            }
-            Stmt::If {
-                then_branch,
-                else_branch,
-                ..
-            } => {
-                collect_outer_binds(
-                    std::slice::from_ref(then_branch),
-                    ast_exprs_view,
-                    fn_sigs,
-                    binds,
-                );
-                if let Some(e) = else_branch {
-                    collect_outer_binds(std::slice::from_ref(e), ast_exprs_view, fn_sigs, binds);
-                }
-            }
-            Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
-                collect_outer_binds(std::slice::from_ref(body), ast_exprs_view, fn_sigs, binds);
-            }
-            Stmt::For { init, body, .. } => {
-                if let Some(i) = init {
-                    collect_outer_binds(std::slice::from_ref(i), ast_exprs_view, fn_sigs, binds);
-                }
-                collect_outer_binds(std::slice::from_ref(body), ast_exprs_view, fn_sigs, binds);
-            }
-            Stmt::ForOf { body, .. } | Stmt::ForOfSplitIter { body, .. } => {
-                collect_outer_binds(std::slice::from_ref(body), ast_exprs_view, fn_sigs, binds);
-            }
-            Stmt::Switch { cases, default, .. } => {
-                for c in cases {
-                    collect_outer_binds(&c.body, ast_exprs_view, fn_sigs, binds);
-                }
-                if let Some(d) = default {
-                    collect_outer_binds(d, ast_exprs_view, fn_sigs, binds);
-                }
-            }
-            Stmt::Try {
-                body,
-                catch_body,
-                finally_body,
-                ..
-            } => {
-                collect_outer_binds(body, ast_exprs_view, fn_sigs, binds);
-                collect_outer_binds(catch_body, ast_exprs_view, fn_sigs, binds);
-                if let Some(f) = finally_body {
-                    collect_outer_binds(f, ast_exprs_view, fn_sigs, binds);
-                }
-            }
-            _ => {}
-        }
-    }
-}
 
 pub(crate) fn run(ast: &mut Ast) {
     let Ast {
@@ -173,6 +72,17 @@ pub(crate) fn run(ast: &mut Ast) {
         std::collections::HashMap::new();
     collect_outer_binds(stmts, ast_exprs_view, &fn_sigs, &mut outer_binds);
 
+    // Construction-site capture-ann snapshots (closure_capture_anns) —
+    // the return-ann sniff resolves a closure's captured idents against
+    // the scope that actually captured them, falling back to the
+    // program-wide by-name `outer_binds` only on snapshot misses. Two
+    // same-named params in unrelated fns used to race on last-seen
+    // insertion order and flip the sniffed ret ann (`any` / `string`),
+    // drifting the closure ABI away from a pinned fn-type annotation
+    // (tasks/2026-07-18 num-width Captured-broadcast poison).
+    let cap_anns: crate::ast::CaptureAnns =
+        crate::ast::collect_closure_capture_anns(stmts, ast_exprs_view, &fn_sigs);
+
     // RFC 20260704 C4+ (chunk 522) — pre-infer the lifted-closure
     // signatures so a closure-typed local can bubble out of a fn as
     // its return type. The main loop below visits stmts in source
@@ -186,7 +96,7 @@ pub(crate) fn run(ast: &mut Ast) {
     // `infer_expr_ann_with`'s Expr::Closure arm answer fn-shaped
     // anns; `parse_type` maps `__fn` to FnSig and `effective_ret_ty`
     // upgrades to Closure where the body returns closure values.
-    preinfer_closure_sigs(stmts, ast_exprs_view, &outer_binds, &mut fn_sigs);
+    preinfer_closure_sigs(stmts, ast_exprs_view, &outer_binds, &cap_anns, &mut fn_sigs);
     // RFC 20260714-objlit-accessor blade 1 — must sit between the
     // pre-infer above and the main loop below: the lifted closures and
     // `fn_sigs` exist by now (so a method's FnDecl can take `__this` and
@@ -262,8 +172,9 @@ pub(crate) fn run(ast: &mut Ast) {
                 && return_type.is_none()
                 && body_has_value_return(body)
             {
+                let seeded = seeded_binds_for(name, &outer_binds, &cap_anns);
                 if let Some(inferred) =
-                    infer_return_ann_seeded(ast_exprs_view, body, params, &outer_binds, &fn_sigs)
+                    infer_return_ann_seeded(ast_exprs_view, body, params, &seeded, &fn_sigs)
                 {
                     *return_type = Some(inferred);
                 } else if is_synth_closure_name(name) {
@@ -279,8 +190,9 @@ pub(crate) fn run(ast: &mut Ast) {
                 && return_type.is_none()
                 && body_has_value_return(body)
             {
+                let seeded = seeded_binds_for(name, &outer_binds, &cap_anns);
                 if let Some(inferred) =
-                    infer_return_ann_seeded(ast_exprs_view, body, params, &outer_binds, &fn_sigs)
+                    infer_return_ann_seeded(ast_exprs_view, body, params, &seeded, &fn_sigs)
                 {
                     *return_type = Some(inferred);
                 }
@@ -413,10 +325,25 @@ pub(crate) fn is_synth_closure_name(name: &str) -> bool {
     name.starts_with("__closure_") || name.starts_with("__forward_")
 }
 
+/// Seed map for one closure's return-ann sniff: the construction-site
+/// capture snapshot overlays the program-wide by-name fallback.
+fn seeded_binds_for(
+    name: &str,
+    outer_binds: &std::collections::HashMap<String, String>,
+    cap_anns: &crate::ast::CaptureAnns,
+) -> std::collections::HashMap<String, String> {
+    let mut merged = outer_binds.clone();
+    if let Some(snap) = cap_anns.get(name) {
+        merged.extend(snap.iter().map(|(k, v)| (k.clone(), v.clone())));
+    }
+    merged
+}
+
 fn preinfer_closure_sigs(
     stmts: &mut [Stmt],
     exprs: AstExprsView,
     outer_binds: &std::collections::HashMap<String, String>,
+    cap_anns: &crate::ast::CaptureAnns,
     fn_sigs: &mut std::collections::HashMap<String, String>,
 ) {
     for stmt in stmts.iter_mut() {
@@ -441,7 +368,8 @@ fn preinfer_closure_sigs(
         if return_type.is_none() && body_has_value_return(body) {
             let has_env = params.first().is_some_and(|p| p.name == "__env");
             let inferred = if has_env {
-                infer_return_ann_seeded(exprs, body, params, outer_binds, fn_sigs)
+                let seeded = seeded_binds_for(name, outer_binds, cap_anns);
+                infer_return_ann_seeded(exprs, body, params, &seeded, fn_sigs)
             } else {
                 infer_return_ann(exprs, body, params, fn_sigs)
             };
