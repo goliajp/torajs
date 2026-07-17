@@ -183,6 +183,18 @@ pub(crate) unsafe fn any_method_call_inner(
     if mid == torajs_rc::ANY_METHOD_OBJECT_TO_STRING {
         return unsafe { crate::method_call_object_proto::object_proto_to_string(recv) };
     }
+    // %ThrowTypeError% (§10.2.4) — every invocation throws, whatever
+    // the receiver, so the arm sits before the nullish guard (a
+    // `.call(undefined)` must raise THIS TypeError, not the
+    // method-of-nullish one).
+    if mid == torajs_rc::ANY_METHOD_THROW_TYPE_ERROR {
+        unsafe {
+            __torajs_throw_type_error(
+                c"'caller', 'callee', and 'arguments' properties may not be accessed".as_ptr(),
+            );
+        }
+        return VALUE_UNDEFINED;
+    }
     if is_null(recv) || is_undefined(recv) {
         unsafe {
             __torajs_throw_type_error(c"cannot call a method of null or undefined".as_ptr());

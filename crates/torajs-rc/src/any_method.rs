@@ -371,6 +371,11 @@ pub const ANY_METHOD_IS_PROTOTYPE_OF: i64 = 152;
 pub const ANY_METHOD_PROTO_GET: i64 = 153;
 /// Annex B §B.2.2.1 `set __proto__` — see [`ANY_METHOD_PROTO_GET`].
 pub const ANY_METHOD_PROTO_SET: i64 = 154;
+/// %ThrowTypeError% (§10.2.4 AddRestrictedFunctionProperties) — the
+/// single intrinsic behind `Function.prototype.caller` / `.arguments`
+/// (both faces of both pairs are this one interned cell, so the
+/// four-way identity holds). Any invocation throws TypeError.
+pub const ANY_METHOD_THROW_TYPE_ERROR: i64 = 155;
 
 /// RegExp property-read ids (Any-method-call RFC 20260704 C4-3c-2)
 /// — `r.source` / `r.lastIndex` / flag booleans through an `any`

@@ -71,6 +71,39 @@ pub unsafe extern "C" fn __torajs_object_proto_install(proto: *mut c_void) {
     unsafe {
         let get_cell = __torajs_builtin_method_cell(ANY_METHOD_PROTO_GET_MID);
         let set_cell = __torajs_builtin_method_cell(ANY_METHOD_PROTO_SET_MID);
+        install_accessor_entry(proto, b"__proto__", get_cell, set_cell);
+    }
+}
+
+/// Mirror of `torajs_rc::ANY_METHOD_THROW_TYPE_ERROR`.
+const ANY_METHOD_THROW_TYPE_ERROR_MID: i64 = 155;
+
+/// §10.2.4 AddRestrictedFunctionProperties — `caller` / `arguments`
+/// accessor own entries on a fresh %Function.prototype% dynobj.
+/// All four faces are the ONE interned %ThrowTypeError% cell, so
+/// `callerDesc.get === argumentsDesc.set` (four-way identity).
+///
+/// # Safety
+/// `proto` points to a valid, freshly minted TAG_DYNOBJ cell.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_function_proto_install(proto: *mut c_void) {
+    unsafe {
+        let thrower = __torajs_builtin_method_cell(ANY_METHOD_THROW_TYPE_ERROR_MID);
+        install_accessor_entry(proto, b"caller", thrower, thrower);
+        install_accessor_entry(proto, b"arguments", thrower, thrower);
+    }
+}
+
+/// One `{get, set, enumerable: false, configurable: true}` accessor
+/// own entry from interned immortal faces (each pair takes its own
+/// fresh AccessorPair; the faces' rc traffic no-ops).
+unsafe fn install_accessor_entry(
+    proto: *mut c_void,
+    key_bytes: &[u8],
+    get_cell: *mut u8,
+    set_cell: *mut u8,
+) {
+    unsafe {
         let pair = __torajs_accessor_pair_new(
             get_cell as *mut c_void,
             set_cell as *mut c_void,
@@ -82,7 +115,7 @@ pub unsafe extern "C" fn __torajs_object_proto_install(proto: *mut c_void) {
             | DEFINE_PRESENT_ENUMERABLE
             | DEFINE_PRESENT_CONFIGURABLE
             | DEFINE_FLAG_CONFIGURABLE;
-        let key = alloc_str_key(b"__proto__");
+        let key = alloc_str_key(key_bytes);
         let mut slot = proto;
         __torajs_dynobj_define(&mut slot, key, ANY_HEAP as u64, pair as u64, flags);
         __torajs_str_drop(key);

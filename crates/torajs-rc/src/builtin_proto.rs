@@ -33,6 +33,7 @@ unsafe extern "C" {
     fn __torajs_dynobj_alloc() -> *mut c_void;
     fn __torajs_arr_alloc_any(cap: u64) -> *mut u8;
     fn __torajs_object_proto_install(proto: *mut c_void);
+    fn __torajs_function_proto_install(proto: *mut c_void);
 }
 
 /// Number of builtin prototypes ssa_lower can request. Order is
@@ -54,6 +55,10 @@ pub const ARRAY_PROTO_TAG: usize = 2;
 /// `Object.prototype`'s slot — its mint additionally installs the
 /// Annex B `__proto__` accessor own entry (see the mint site).
 pub const OBJECT_PROTO_TAG: usize = 1;
+
+/// `Function.prototype`'s slot — its mint installs the §10.2.4
+/// restricted-property accessors (see the mint site).
+pub const FUNCTION_PROTO_TAG: usize = 13;
 
 // One AtomicUsize slot per builtin tag. Initialized to 0 (= "not yet
 // allocated"); `__torajs_get_builtin_prototype` CAS-installs the
@@ -119,6 +124,12 @@ pub unsafe extern "C" fn __torajs_get_builtin_prototype(tag: i64) -> *mut c_void
     // as the allocation itself).
     if idx == OBJECT_PROTO_TAG {
         unsafe { __torajs_object_proto_install(fresh) };
+    }
+    // %Function.prototype% carries the §10.2.4 restricted-property
+    // accessors (`caller` / `arguments`, all four faces the ONE
+    // %ThrowTypeError% cell) — same posture as the tag-1 install.
+    if idx == FUNCTION_PROTO_TAG {
+        unsafe { __torajs_function_proto_install(fresh) };
     }
     let fresh_addr = fresh as usize;
     match slot.compare_exchange(0, fresh_addr, Ordering::AcqRel, Ordering::Acquire) {
@@ -218,6 +229,9 @@ unsafe fn __torajs_arr_alloc_any(_cap: u64) -> *mut u8 {
 // into `tr`); the singleton logic under test doesn't observe it.
 #[cfg(test)]
 unsafe fn __torajs_object_proto_install(_proto: *mut c_void) {}
+
+#[cfg(test)]
+unsafe fn __torajs_function_proto_install(_proto: *mut c_void) {}
 
 #[cfg(test)]
 mod tests {
