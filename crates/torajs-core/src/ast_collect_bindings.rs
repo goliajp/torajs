@@ -132,3 +132,79 @@ fn walk_bindings_stmt(s: &Stmt, f: &mut dyn FnMut(&str, &str)) {
         _ => {}
     }
 }
+
+/// Collect every name the fn body binds locally (params handled by
+/// the caller): let/const decls, for-of loop vars, catch params —
+/// recursing through nested blocks AND nested inline FnDecls (their
+/// locals over-shadow the outer walk, which only ever skips a wrap;
+/// the nested FnDecl arm pushes its own precise frame anyway).
+pub(crate) fn collect_local_binding_names(body: &[Stmt], out: &mut HashSet<String>) {
+    for s in body {
+        match s {
+            Stmt::LetDecl { name, .. } => {
+                out.insert(name.clone());
+            }
+            Stmt::FnDecl { params, body, .. } => {
+                for p in params {
+                    out.insert(p.name.clone());
+                }
+                collect_local_binding_names(body, out);
+            }
+            Stmt::ForOf {
+                var_name,
+                i_ident,
+                body,
+                ..
+            } => {
+                out.insert(var_name.clone());
+                out.insert(i_ident.clone());
+                collect_local_binding_names(core::slice::from_ref(body), out);
+            }
+            Stmt::Try {
+                body,
+                catch_param,
+                catch_body,
+                finally_body,
+                ..
+            } => {
+                if let Some(cp) = catch_param {
+                    out.insert(cp.clone());
+                }
+                collect_local_binding_names(body, out);
+                collect_local_binding_names(catch_body, out);
+                if let Some(fb) = finally_body {
+                    collect_local_binding_names(fb, out);
+                }
+            }
+            Stmt::Block(inner) => collect_local_binding_names(inner, out),
+            Stmt::If {
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                collect_local_binding_names(core::slice::from_ref(then_branch), out);
+                if let Some(eb) = else_branch {
+                    collect_local_binding_names(core::slice::from_ref(eb), out);
+                }
+            }
+            Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
+                collect_local_binding_names(core::slice::from_ref(body), out);
+            }
+            Stmt::For { init, body, .. } => {
+                if let Some(i) = init {
+                    collect_local_binding_names(core::slice::from_ref(i), out);
+                }
+                collect_local_binding_names(core::slice::from_ref(body), out);
+            }
+            Stmt::Switch { cases, default, .. } => {
+                for c in cases {
+                    collect_local_binding_names(&c.body, out);
+                }
+                if let Some(d) = default {
+                    collect_local_binding_names(d, out);
+                }
+            }
+            _ => {}
+        }
+    }
+}

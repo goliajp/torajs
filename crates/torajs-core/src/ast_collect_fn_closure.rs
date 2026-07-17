@@ -95,6 +95,18 @@ pub(crate) struct FnToClosureCollector<'a> {
     pub(crate) struct_arr_bindings: &'a HashMap<String, String>,
     pub(crate) targets: HashSet<String>,
     pub(crate) rewrites: Vec<(ExprId, String)>,
+    /// Per-fn shadow stack (rotation 128) — names bound as a param or
+    /// body local of the fn currently being walked. `try_mark` refuses
+    /// a shadowed name: a local `const f: string` inside an unrelated
+    /// fn is NOT a value use of top-level `function f`, and rewriting
+    /// its reads to `__forward_f` silently corrupts the local (the
+    /// test262 propertyHelper harness compares such a local against
+    /// string literals — the eq-operand axis turned 27 passing dstr
+    /// cases into whole-program rejects). Fn-granular on purpose: a
+    /// pre-declaration use inside the same fn skips the wrap (old
+    /// raw-FnSig behavior, the lesser wrong) rather than risk wrapping
+    /// a shadowed read.
+    pub(crate) shadowed: Vec<HashSet<String>>,
 }
 
 // Annotation-predicate binding walks (collect_any_bindings /
@@ -111,6 +123,7 @@ impl<'a> FnToClosureCollector<'a> {
     pub(crate) fn try_mark(&mut self, eid: ExprId) -> bool {
         if let Expr::Ident(name) = self.ast.get_expr(eid)
             && self.fn_sigs.contains_key(name)
+            && !self.shadowed.iter().any(|s| s.contains(name))
         {
             self.targets.insert(name.clone());
             self.rewrites.push((eid, name.clone()));
@@ -158,12 +171,22 @@ impl<'a> FnToClosureCollector<'a> {
                 self.walk_expr(*init);
             }
             Stmt::FnDecl {
-                return_type, body, ..
+                return_type,
+                params,
+                body,
+                ..
             } => {
                 let ret_any = return_type.as_deref().is_some_and(|a| a.trim() == "any");
+                // Shadow frame (rotation 128) — the fn's params + body
+                // locals hide a same-named top-level fn for the whole
+                // body walk; see `shadowed` field doc.
+                let mut frame: HashSet<String> = params.iter().map(|p| p.name.clone()).collect();
+                crate::ast_collect_bindings::collect_local_binding_names(body, &mut frame);
+                self.shadowed.push(frame);
                 for inner in body {
                     self.walk_stmt(inner, ret_any);
                 }
+                self.shadowed.pop();
             }
             Stmt::Expr(eid) => self.walk_expr(*eid),
             Stmt::Return(Some(eid)) => {

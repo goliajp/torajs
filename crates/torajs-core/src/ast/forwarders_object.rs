@@ -235,6 +235,7 @@ pub fn synthesize_fn_to_closure_forwarders(ast: &mut Ast) {
         struct_arr_bindings: &struct_arr_bindings,
         targets: HashSet::new(),
         rewrites: Vec::new(),
+        shadowed: Vec::new(),
     };
     for s in &stmts_snapshot {
         collector.walk_stmt(s, false);
