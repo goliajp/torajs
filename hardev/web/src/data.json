@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-17T15:38:50.563Z",
+  "generatedAt": "2026-07-17T20:25:06.814Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 94.34
   },
   "torajs": {
-    "commit": "dd7f9087",
-    "commitSubject": "fix: a shorthand proto member stays an ordinary own property",
+    "commit": "7e3f396d",
+    "commitSubject": "Revert \"feat: error.iserror probes the errordata flag through an injected static method\"",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "7e3f396d",
+      "subject": "Revert \"feat: error.iserror probes the errordata flag through an injected static method\""
+    },
+    {
+      "hash": "1ddd3d28",
+      "subject": "feat: error.iserror probes the errordata flag through an injected static method"
+    },
+    {
+      "hash": "646ec311",
+      "subject": "feat: evalerror and urierror join the injected nativeerror family"
+    },
+    {
+      "hash": "94bd0d30",
+      "subject": "feat: derived class ctors chain to the parent ctor and error prototypes carry own name/message"
+    },
+    {
+      "hash": "08a9895f",
+      "subject": "feat: internal proto link moves to a user-unspellable simulation-slot key"
+    },
+    {
+      "hash": "49c6b293",
+      "subject": "chore: hardev dashboard snapshot at rotation 135 close"
+    },
+    {
       "hash": "dd7f9087",
       "subject": "fix: a shorthand proto member stays an ordinary own property"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "29cf4d74",
       "subject": "chore: hardev dashboard snapshot at rotation 134 close"
-    },
-    {
-      "hash": "14e0031a",
-      "subject": "chore: archive the test262 sweep at 46428061"
-    },
-    {
-      "hash": "5a76af1f",
-      "subject": "feat: the object-literal proto member sets the prototype instead of an own entry"
-    },
-    {
-      "hash": "307217e2",
-      "subject": "fix: any-lane tostring flattens substr views before the concat kernels"
-    },
-    {
-      "hash": "46428061",
-      "subject": "feat: object.prototype.isPrototypeOf walks the proto chain by identity"
-    },
-    {
-      "hash": "4dc7cc69",
-      "subject": "feat: object.setPrototypeOf and the annex-b proto setter with cycle refusal"
-    },
-    {
-      "hash": "c1872df5",
-      "subject": "feat: member reads and method dispatch walk the user proto chain"
     }
   ],
-  "headSha": "dd7f9087",
+  "headSha": "7e3f396d",
   "autorun": {
-    "total": 440,
+    "total": 441,
     "baselineTarget": 10,
-    "bySelf": 435,
+    "bySelf": 436,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784296956-2e0e",
-      "at": "2026-07-17T14:02:36Z",
-      "ts": 1784296956,
+      "rotationId": "r-1784302769-281b",
+      "at": "2026-07-17T15:39:29Z",
+      "ts": 1784302769,
       "trigger": "self",
-      "prevHead": "29cf4d74",
-      "handoffSha": "sha256:962152a01c6e0dbc4ea21a3a11a1707c5729960a5a68b4802307a4b305ae8c7b",
-      "handoffAgeSec": 192,
+      "prevHead": "49c6b293",
+      "handoffSha": "sha256:0a2503acdb6dbe4b19b3e886d67f61cb654902a9c01b26a284d27194ac26c6b9",
+      "handoffAgeSec": 7,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784302769-281b",
+        "at": "2026-07-17T15:39:29Z",
+        "ts": 1784302769,
+        "trigger": "self",
+        "prevHead": "49c6b293",
+        "handoffSha": "sha256:0a2503acdb6dbe4b19b3e886d67f61cb654902a9c01b26a284d27194ac26c6b9",
+        "handoffAgeSec": 7,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784296956-2e0e",
         "at": "2026-07-17T14:02:36Z",
@@ -876,17 +887,6 @@
         "prevHead": "7e6780fb",
         "handoffSha": "sha256:97262a486fe11b997384c47aa69f2b63bc03d2b972a2d79b511abb806ec92bd0",
         "handoffAgeSec": 4,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784232515-5b45",
-        "at": "2026-07-16T20:08:35Z",
-        "ts": 1784232515,
-        "trigger": "self",
-        "prevHead": "c84ad0b6",
-        "handoffSha": "sha256:4850e9cc40cfd2120cb625dcb0d159985dd5cb33d8744bc899b0f6cad247e5d8",
-        "handoffAgeSec": 201,
         "conformanceBefore": null,
         "commitsInSession": null
       }
