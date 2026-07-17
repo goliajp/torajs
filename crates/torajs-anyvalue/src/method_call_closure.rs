@@ -195,7 +195,7 @@ unsafe fn dispatch(
 ///   arm (per-family cells are the recorded fix for the String half);
 /// - string-shaped and nullish receivers (identity fast paths /
 ///   RequireObjectCoercible throw).
-unsafe fn generic_str_this(
+pub(crate) unsafe fn generic_str_this(
     mid: i64,
     this_arg: AnyValue,
     argv: *const u64,
