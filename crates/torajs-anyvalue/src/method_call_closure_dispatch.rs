@@ -152,9 +152,33 @@ pub unsafe extern "C" fn __torajs_any_call(
 ) -> AnyValue {
     unsafe {
         if let Some((env, entry)) = closure_boxed_entry(recv) {
-            return invoke_boxed(env, entry, argv, argc);
+            return invoke_detached(env, entry, argv, argc);
         }
         not_callable()
+    }
+}
+
+/// Detached invoke — a call with no receiver expression (`g()` on a
+/// bare binding, a Closure-typed slot call). A receiver-first
+/// closure (RFC 20260717-objlit-anylane-recv: an any-lane literal
+/// method whose body says `this`) still declares `__this` as its
+/// first param, so the plain boxed ABI would feed it argv[0] — a
+/// detached `g(5)` silently bound `this = 5` and dropped the arg.
+/// Per §10.2.1.2 OrdinaryCallBindThis (strict, no thisArgument) the
+/// receiver is `undefined`: prepend it so the user args land on the
+/// declared user params and a `this.x` read throws like bun.
+pub(crate) unsafe fn invoke_detached(
+    env: *mut c_void,
+    entry: u64,
+    argv: *const u64,
+    argc: i64,
+) -> AnyValue {
+    unsafe {
+        let flags = (env as *const u8).add(6).cast::<u16>().read();
+        if flags & torajs_rc::FLAG_CLOSURE_RECV_FIRST != 0 {
+            return invoke_boxed_recv_first(env, entry, VALUE_UNDEFINED, argv, argc);
+        }
+        invoke_boxed(env, entry, argv, argc)
     }
 }
 
@@ -177,7 +201,7 @@ pub unsafe extern "C" fn __torajs_closure_call_variadic(
 ) -> AnyValue {
     unsafe {
         if let Some((env, entry)) = closure_cell_entry(env) {
-            return invoke_boxed(env, entry, argv, argc);
+            return invoke_detached(env, entry, argv, argc);
         }
         not_callable()
     }
