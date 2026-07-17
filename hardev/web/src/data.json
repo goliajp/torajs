@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-17T05:30:56.481Z",
+  "generatedAt": "2026-07-17T05:53:26.099Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 92.9
   },
   "torajs": {
-    "commit": "8ca029c8",
-    "commitSubject": "chore: archive the test262 sweep at bac76a4c",
+    "commit": "777e756c",
+    "commitSubject": "fix: arr expando own-undefined shadows the builtin surface and binop coercion throws propagate",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "777e756c",
+      "subject": "fix: arr expando own-undefined shadows the builtin surface and binop coercion throws propagate"
+    },
+    {
+      "hash": "6a220114",
+      "subject": "chore: hardev dashboard snapshot at rotation 129 close"
+    },
+    {
       "hash": "8ca029c8",
       "subject": "chore: archive the test262 sweep at bac76a4c"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "12048a16",
       "subject": "chore: archive the test262 sweep at 1e48c2a3"
-    },
-    {
-      "hash": "1e48c2a3",
-      "subject": "fix: array index accessor invoke carries the receiver through the new ABI"
-    },
-    {
-      "hash": "324948bc",
-      "subject": "feat: function-expression accessor faces bind call-site this"
     }
   ],
-  "headSha": "8ca029c8",
+  "headSha": "777e756c",
   "autorun": {
     "total": 434,
     "baselineTarget": 10,
