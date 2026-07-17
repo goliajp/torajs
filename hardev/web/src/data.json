@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-17T06:57:47.524Z",
+  "generatedAt": "2026-07-17T07:47:38.302Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 92.9
   },
   "torajs": {
-    "commit": "dbaed3ab",
-    "commitSubject": "style: fmt-drift fix on method_call_dynobj (mini rustfmt line join)",
+    "commit": "d1071dd0",
+    "commitSubject": "fix: String() undefined fold keeps the arg's effects and the F64 undefined sentinel",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,26 @@
   },
   "commits": [
     {
+      "hash": "d1071dd0",
+      "subject": "fix: String() undefined fold keeps the arg's effects and the F64 undefined sentinel"
+    },
+    {
+      "hash": "5f63c34d",
+      "subject": "fix: + runs ToPrimitive(default) before the string/number split; templates keep the string hint"
+    },
+    {
+      "hash": "abc60845",
+      "subject": "fix: own stored-undefined shadows the builtin surface on the read lanes"
+    },
+    {
+      "hash": "982228a8",
+      "subject": "fix: string wrapper length is a real own property through dynamic keys"
+    },
+    {
+      "hash": "4d382b04",
+      "subject": "chore: hardev dashboard snapshot at rotation 130 close"
+    },
+    {
       "hash": "dbaed3ab",
       "subject": "style: fmt-drift fix on method_call_dynobj (mini rustfmt line join)"
     },
@@ -739,29 +759,9 @@
     {
       "hash": "cc4f91b4",
       "subject": "feat: as-any cast object literals join the any-lane recv predicate"
-    },
-    {
-      "hash": "62f26d9e",
-      "subject": "chore: hardev dashboard snapshot at rotation 129 close (post arr-shadow leg)"
-    },
-    {
-      "hash": "777e756c",
-      "subject": "fix: arr expando own-undefined shadows the builtin surface and binop coercion throws propagate"
-    },
-    {
-      "hash": "6a220114",
-      "subject": "chore: hardev dashboard snapshot at rotation 129 close"
-    },
-    {
-      "hash": "8ca029c8",
-      "subject": "chore: archive the test262 sweep at bac76a4c"
-    },
-    {
-      "hash": "bac76a4c",
-      "subject": "feat: any-lane object-literal recv members bind this through the receiver-first channel"
     }
   ],
-  "headSha": "dbaed3ab",
+  "headSha": "d1071dd0",
   "autorun": {
     "total": 435,
     "baselineTarget": 10,
