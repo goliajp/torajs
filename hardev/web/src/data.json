@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-17T14:01:50.726Z",
+  "generatedAt": "2026-07-17T15:38:50.563Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-17T13:31:17Z",
-    "headSha": "46428061",
-    "elapsedSec": 578.3,
+    "ranAt": "2026-07-17T15:24:39Z",
+    "headSha": "7ea6753b",
+    "elapsedSec": 874.28,
     "workers": 8,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 7681,
+    "pass": 7697,
     "passNoOracle": 111,
     "passNegative": 4447,
-    "passTotal": 12239,
-    "bug": 754,
-    "incompatible": 40181,
+    "passTotal": 12255,
+    "bug": 735,
+    "incompatible": 40184,
     "bunSkip": 11908,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 12993,
-    "passRateInScope": 23.02,
-    "passRateTrAccepted": 94.2
+    "trAccepted": 12990,
+    "passRateInScope": 23.05,
+    "passRateTrAccepted": 94.34
   },
   "torajs": {
-    "commit": "14e0031a",
-    "commitSubject": "chore: archive the test262 sweep at 46428061",
+    "commit": "dd7f9087",
+    "commitSubject": "fix: a shorthand proto member stays an ordinary own property",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "dd7f9087",
+      "subject": "fix: a shorthand proto member stays an ordinary own property"
+    },
+    {
+      "hash": "7ea6753b",
+      "subject": "feat: static class methods reify as own function objects on the class"
+    },
+    {
+      "hash": "0d2e9835",
+      "subject": "feat: class methods reify as own function objects on the prototype"
+    },
+    {
+      "hash": "1701ed8c",
+      "subject": "fix: synthesized generator classes skip the first-class constructor wiring"
+    },
+    {
+      "hash": "9d49d171",
+      "subject": "feat: class objects are first-class function values at the register wire"
+    },
+    {
+      "hash": "29cf4d74",
+      "subject": "chore: hardev dashboard snapshot at rotation 134 close"
+    },
+    {
       "hash": "14e0031a",
       "subject": "chore: archive the test262 sweep at 46428061"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "c1872df5",
       "subject": "feat: member reads and method dispatch walk the user proto chain"
-    },
-    {
-      "hash": "3b3bc522",
-      "subject": "feat: object.create links the user proto through the proto simulation slot"
-    },
-    {
-      "hash": "7a344e74",
-      "subject": "chore: hardev dashboard snapshot at rotation 133 close (final)"
-    },
-    {
-      "hash": "9986569a",
-      "subject": "chore: archive the test262 sweep at b105ffdd"
-    },
-    {
-      "hash": "9a4d5df8",
-      "subject": "chore: hardev dashboard snapshot at rotation 133 close (uninit-let order leg)"
-    },
-    {
-      "hash": "b105ffdd",
-      "subject": "fix: uninit-let splice moves the declaration down instead of hoisting the effect"
-    },
-    {
-      "hash": "59d3947f",
-      "subject": "chore: hardev dashboard snapshot at rotation 133 close"
     }
   ],
-  "headSha": "14e0031a",
+  "headSha": "dd7f9087",
   "autorun": {
-    "total": 439,
+    "total": 440,
     "baselineTarget": 10,
-    "bySelf": 434,
+    "bySelf": 435,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784291519-4060",
-      "at": "2026-07-17T12:31:59Z",
-      "ts": 1784291519,
+      "rotationId": "r-1784296956-2e0e",
+      "at": "2026-07-17T14:02:36Z",
+      "ts": 1784296956,
       "trigger": "self",
-      "prevHead": "7a344e74",
-      "handoffSha": "sha256:9b8948069bdfffe81cecb74cedf4fdf9cd90f4d7d3b244042a89cf389aa958ce",
-      "handoffAgeSec": 0,
+      "prevHead": "29cf4d74",
+      "handoffSha": "sha256:962152a01c6e0dbc4ea21a3a11a1707c5729960a5a68b4802307a4b305ae8c7b",
+      "handoffAgeSec": 192,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784296956-2e0e",
+        "at": "2026-07-17T14:02:36Z",
+        "ts": 1784296956,
+        "trigger": "self",
+        "prevHead": "29cf4d74",
+        "handoffSha": "sha256:962152a01c6e0dbc4ea21a3a11a1707c5729960a5a68b4802307a4b305ae8c7b",
+        "handoffAgeSec": 192,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784291519-4060",
         "at": "2026-07-17T12:31:59Z",
@@ -876,17 +887,6 @@
         "prevHead": "c84ad0b6",
         "handoffSha": "sha256:4850e9cc40cfd2120cb625dcb0d159985dd5cb33d8744bc899b0f6cad247e5d8",
         "handoffAgeSec": 201,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784227084-5149",
-        "at": "2026-07-16T18:38:04Z",
-        "ts": 1784227084,
-        "trigger": "self",
-        "prevHead": "7dd67618",
-        "handoffSha": "sha256:461a4e8457bef3e8d63e0b130b5ea1af4f835e49e151461bc979dd389cf98fa3",
-        "handoffAgeSec": 33,
         "conformanceBefore": null,
         "commitsInSession": null
       }
