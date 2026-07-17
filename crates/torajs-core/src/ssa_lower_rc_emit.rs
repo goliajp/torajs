@@ -180,7 +180,7 @@ impl<'a> LowerCtx<'a> {
     /// answers `Type::Closure` with a heap env block the consumer
     /// owns. A user `let`-bound closure Ident is a local slot
     /// borrow and stays off this predicate.
-    fn expr_minted_closure(&self, eid: ExprId, op: &Operand) -> bool {
+    pub(crate) fn expr_minted_closure(&self, eid: ExprId, op: &Operand) -> bool {
         matches!(
             self.ast.get_expr(eid),
             Expr::Ident(n) if !self.locals.contains_key(n)

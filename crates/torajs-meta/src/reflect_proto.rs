@@ -26,6 +26,47 @@ unsafe extern "C" {
     // the reverse pointer→tag probe (compared, never dereferenced).
     fn __torajs_get_builtin_prototype(tag: i64) -> *mut c_void;
     fn __torajs_builtin_proto_tag_of(p: *const c_void) -> i64;
+    // torajs-dynobj — keyed store (resize relocates through the slot;
+    // the create-link insert is the fresh dict's first entry, so the
+    // block cannot grow) + the Object.create(null) header bit.
+    fn __torajs_dynobj_set(obj_slot: *mut *mut c_void, key: *const u8, tag: u64, value: u64);
+    fn __torajs_dynobj_mark_null_proto(obj: *mut c_void);
+}
+
+/// `Object.create(proto)` §20.1.2.2 step 2 — link the validated proto
+/// onto the fresh dynobj (RFC 20260717-user-proto-chain knife 1):
+/// a heap-cell proto lands in the own `__proto__` simulation slot
+/// (the entry takes an owned +1, keeping the parent alive; identity-
+/// preserving so `Object.getPrototypeOf(child) === parent`); a null
+/// proto — static literal or a runtime-Any null, closing the
+/// recorded residual — sets the null-prototype header bit instead.
+/// Every other shape was rejected by
+/// `__torajs_object_create_check_proto` before this runs (primitives
+/// and undefined throw), so the fall-through is unreachable by
+/// construction and deliberately a no-op.
+///
+/// # Safety
+/// `obj` is the freshly allocated dynobj (live, zero entries);
+/// `proto` carries a valid AnyValue bit pattern.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_object_create_link_proto(obj: *mut c_void, proto: u64) {
+    if proto == VALUE_NULL_IMM {
+        unsafe { __torajs_dynobj_mark_null_proto(obj) };
+        return;
+    }
+    if !is_cell_imm(proto) {
+        return;
+    }
+    unsafe {
+        let cell = proto as *mut c_void;
+        // The entry owns its reference; dynobj_set transfers the
+        // value (fresh insert incs only the key).
+        __torajs_rc_inc(cell);
+        let k = alloc_str_key(b"__proto__");
+        let mut slot = obj;
+        __torajs_dynobj_set(&mut slot, k, ANY_HEAP as u64, cell as u64);
+        __torajs_str_drop(k);
+    }
 }
 
 /// A builtin prototype singleton as an owned AnyValue cell, or null
