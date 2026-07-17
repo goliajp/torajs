@@ -42,7 +42,7 @@ pub(crate) fn try_lower_define_properties(
         // shape (incl. non-Ident / non-ObjectLit) so a primitive receiver
         // throws even when the prior fall-through to the Object no-op arm
         // would have silently eval-dropped the args.
-        let obj_raw = ctx.lower_expr(args[0]);
+        let obj_raw = crate::ssa_lower_object_define::lower_define_receiver(ctx, args[0]);
         let obj_ty = ctx.operand_ty(&obj_raw);
         emit_receiver_typecheck(ctx, args[0], &obj_raw, obj_ty);
 

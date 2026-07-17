@@ -136,6 +136,22 @@ pub(crate) fn lower_key(ctx: &mut LowerCtx, key: &DefineKey) -> (Operand, bool) 
     }
 }
 
+/// Lower a define-family receiver. An inline ObjectLit receiver
+/// promotes to the dynobj lane and answers an ANY_HEAP face (twin of
+/// the direct-ObjectLit call-arg route in `ssa_lower_call_terminal`
+/// and the `{} as any` promote in `ssa_lower_any_cast`): the struct
+/// lane has no dynobj backing store, so `Object.defineProperty({},
+/// k, { get })` silently no-opped the accessor install and every
+/// subsequent read answered undefined (test262 dstr poisoned-getter
+/// cluster, exposed once §20.1.2.5 started returning O).
+pub(crate) fn lower_define_receiver(ctx: &mut LowerCtx, obj_eid: ExprId) -> Operand {
+    if matches!(ctx.ast.get_expr(obj_eid), Expr::ObjectLit { .. }) {
+        let dynobj = ctx.lower_dynobj_init(obj_eid);
+        return ctx.box_to_any(dynobj);
+    }
+    ctx.lower_expr(obj_eid)
+}
+
 /// Emit one `Object.defineProperty(obj, key, desc)`-equivalent. `obj` is
 /// re-lowered from `obj_eid` (so `defineProperties` can re-read the
 /// receiver variable after a prior field resized it). Returns
@@ -159,7 +175,7 @@ pub(crate) fn emit_define_one(
     } else {
         None
     };
-    let obj_op = ctx.lower_expr(obj_eid);
+    let obj_op = lower_define_receiver(ctx, obj_eid);
     let obj_ty = ctx.operand_ty(&obj_op);
 
     emit_receiver_typecheck(ctx, obj_eid, &obj_op, obj_ty.clone());
@@ -424,6 +440,12 @@ fn try_lower_define_property(
         // carries its own ref through the dedicated path, bypassing
         // integrity's lower_noop).
         ctx.emit_owned_result_inc(obj_op.clone(), obj_ty);
+        // An owned-temp receiver (inline-ObjectLit dynobj promote /
+        // fresh Call result) hands its mint stake off here — the
+        // result inc above is the consumer's stake (mirror of
+        // `defineProperties`' release; Ident receivers self-gate as
+        // borrows).
+        ctx.release_owned_temp(args[0], &obj_op);
         return Some(obj_op);
     }
     None
