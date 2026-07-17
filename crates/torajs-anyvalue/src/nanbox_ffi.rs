@@ -275,20 +275,34 @@ pub unsafe extern "C" fn __torajs_anyv_to_bool(v: AnyValue) -> bool {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_same_value(l: AnyValue, r: AnyValue) -> bool {
     unsafe {
-        if is_double(l) && is_double(r) {
-            let (a, b) = (as_double(l), as_double(r));
+        // BOTH numeric representations join the numeric row — an
+        // integer literal packs as int32 while -0 packs as a
+        // double, and the mixed pair must still discriminate ±0
+        // (SameValue(-0, +0) is false; the first cut fell through
+        // to strict-eq's cross-type row and answered true —
+        // test262 defineProperty 4-64/65/86 appeared).
+        let l_num = is_double(l) || is_int32(l);
+        let r_num = is_double(r) || is_int32(r);
+        if l_num && r_num {
+            let a = if is_double(l) {
+                as_double(l)
+            } else {
+                as_int32(l) as f64
+            };
+            let b = if is_double(r) {
+                as_double(r)
+            } else {
+                as_int32(r) as f64
+            };
             if a.is_nan() && b.is_nan() {
                 return true;
             }
-            // ±0 discriminate by bits; everything else numeric ==.
             if a == 0.0 && b == 0.0 {
-                return l == r;
+                return a.is_sign_negative() == b.is_sign_negative();
             }
             return a == b;
         }
-        // NaN vs NaN across representations is covered above (both
-        // NaN forms are doubles); the cross-type numeric rows and
-        // the Str byte-equality row match strict-eq exactly.
+        // The Str byte-equality and identity rows match strict-eq.
         __torajs_anyv_strict_eq(l, r)
     }
 }
