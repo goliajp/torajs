@@ -87,15 +87,12 @@ pub(crate) unsafe fn wrapper_props(ptr: *mut c_void) -> *const c_void {
 }
 
 #[inline]
-fn is_wrapper_tag(t: u16) -> bool {
+pub(crate) fn is_wrapper_tag(t: u16) -> bool {
     t == Tag::NumberWrapper as u16
         || t == Tag::StringWrapper as u16
         || t == Tag::BooleanWrapper as u16
 }
 
-/// `class_tag` u32 offset inside a `Tag::Obj` instance / Str-cell
-/// layout — mirrors `method_call_dynobj`'s constants.
-const OBJ_CLASS_TAG_OFF: usize = 8;
 pub(crate) const STR_LEN_OFF: usize = 8;
 pub(crate) const STR_DATA_OFF: usize = 16;
 
@@ -123,6 +120,15 @@ pub(crate) unsafe fn header_flag_set(ptr: *mut c_void, bit: u16) {
         let p = ptr.cast::<u8>().add(6) as *mut u16;
         p.write(p.read() | bit);
     }
+}
+
+/// `Function.prototype`'s expando dynobj (builtin-proto registry
+/// tag 13) — the inheritance table a closure receiver reads through
+/// after its own expando and virtual pair miss (`Function.prototype
+/// .writable = true; funObj.writable` answers true). NULL until the
+/// singleton is first materialized.
+pub(crate) fn function_proto_props() -> *const c_void {
+    unsafe { torajs_rc::builtin_proto::__torajs_get_builtin_prototype(13) as *const c_void }
 }
 
 /// Cell tag of a dispatchable receiver, `None` for everything the
@@ -210,6 +216,18 @@ pub unsafe extern "C" fn __torajs_any_member_get_tag(recv: AnyValue, key: *const
             if let Some((tag, _)) = closure_virtual_pair(ptr, key) {
                 return tag;
             }
+            // Inherited Function.prototype expando (monkey-patches
+            // land in the tag-13 singleton dynobj).
+            let fp = function_proto_props();
+            if !fp.is_null() {
+                let tag = __torajs_dynobj_get_tag(fp, key);
+                if tag != 5 {
+                    return tag;
+                }
+                if __torajs_dynobj_has(fp, key) != 0 {
+                    return 5;
+                }
+            }
             reify_tag(recv, key)
         },
         // RFC 20260716 刀 5 (rotation 121 chunk 4) — wrapper cell
@@ -270,111 +288,6 @@ unsafe fn reify_tag(recv: AnyValue, key: *const c_void) -> u64 {
     }
 }
 
-/// `o.m?.(…)` GetV-existence probe (chunk 709) — decides whether the
-/// optional call's arguments evaluate. Returns 1 = the callee slot
-/// resolves to a non-nullish value (or a plausibly-existing builtin
-/// method): enter the call step; 0 = nullish / absent: short-circuit
-/// to undefined (args never evaluate, per ES §13.3.9).
-///
-/// - null / undefined receiver → catchable TypeError (`o.m` itself
-///   throws; the caller's throw-check propagates before branching).
-/// - DynObj → own-property probe: present non-nullish (accessor
-///   sentinel included) → 1; absent/nullish → 0 (a dynobj has no
-///   builtin methods, so this is exact).
-/// - Arr / Closure expandos → present non-nullish → 1; absent falls
-///   through to the builtin test (an Arr's `push` is not an expando).
-/// - struct cell (`Tag::Obj`) → class-layout field probe; found → 1;
-///   miss falls through to the support table (a struct has no
-///   builtin methods, so the miss short-circuits to undefined).
-/// - everything else → the exact per-receiver-shape support table
-///   (chunk 711's `builtin_method_supported`): a supported id
-///   enters the call step; a wrong-arm id short-circuits to
-///   undefined without evaluating the arguments (chunk 713 —
-///   closes 709's recorded residual where `(42 as any).slice?.(f())`
-///   ran `f`).
-///
-/// # Safety
-/// Cell receivers are valid heap pointers; `key` is a live Str cell.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_any_method_probe(
-    recv: AnyValue,
-    mid: i64,
-    key: *const c_void,
-) -> i64 {
-    if is_null(recv) || is_undefined(recv) {
-        unsafe {
-            __torajs_throw_type_error(c"cannot call a method of null or undefined".as_ptr());
-        }
-        return 0;
-    }
-    let non_nullish = |tag: u64| (tag != 0 && tag != 5) as i64;
-    match recv_cell(recv) {
-        Some((ptr, t)) if t == Tag::DynObj as u16 => {
-            return non_nullish(unsafe { __torajs_dynobj_get_tag(ptr, key) });
-        }
-        Some((ptr, t)) if t == Tag::Arr as u16 => {
-            let tag = unsafe { __torajs_arrprops_get_tag(ptr, key) };
-            if non_nullish(tag) == 1 {
-                return 1;
-            }
-            // Stored-undefined expando shadows the builtin — the
-            // optional call short-circuits (`arr.join = undefined;
-            // arr.join?.()` is undefined, not a reified join).
-            if tag == 5 && unsafe { __torajs_arrprops_has(ptr, key) } != 0 {
-                return 0;
-            }
-        }
-        Some((ptr, t)) if t == Tag::Closure as u16 => {
-            let props = unsafe { closure_props(ptr) };
-            if !props.is_null() {
-                if non_nullish(unsafe { __torajs_dynobj_get_tag(props, key) }) == 1 {
-                    return 1;
-                }
-                // Stored-undefined shadow — see the Arr arm.
-                if unsafe { __torajs_dynobj_has(props, key) } != 0 {
-                    return 0;
-                }
-            }
-        }
-        // RFC 20260716 刀 5 (rotation 121 chunk 4) — wrapper own-
-        // property expando probe. Miss falls through to the shared
-        // `builtin_method_supported` table below (mirror of the
-        // Arr / Closure fall-through — a wrapper's inherited
-        // `.toString` / `.valueOf` etc. surface reifies there).
-        Some((ptr, t)) if is_wrapper_tag(t) => {
-            let props = unsafe { wrapper_props(ptr) };
-            if !props.is_null() {
-                if non_nullish(unsafe { __torajs_dynobj_get_tag(props, key) }) == 1 {
-                    return 1;
-                }
-                // Stored-undefined shadow — see the Arr arm.
-                if unsafe { __torajs_dynobj_has(props, key) } != 0 {
-                    return 0;
-                }
-            }
-        }
-        Some((ptr, t)) if t == Tag::Obj as u16 => {
-            let class_tag =
-                unsafe { (ptr.cast::<u8>().add(OBJ_CLASS_TAG_OFF) as *const u32).read() };
-            let layout = unsafe { __torajs_struct_layout_lookup(class_tag) };
-            if !layout.is_null() {
-                let name_len = unsafe { (key.cast::<u8>().add(STR_LEN_OFF) as *const u32).read() };
-                let name_bytes = unsafe { key.cast::<u8>().add(STR_DATA_OFF) };
-                if unsafe { __torajs_struct_field_find(layout, name_bytes, name_len) } != u32::MAX {
-                    return 1;
-                }
-            }
-        }
-        _ => {}
-    }
-    // chunk 713 — exact per-receiver-shape support table (chunk
-    // 711's reification table) instead of the optimistic known-id
-    // test: a wrong-arm name short-circuits to undefined WITHOUT
-    // evaluating the arguments (`(42 as any).slice?.(f())` no
-    // longer runs `f`, closing chunk 709's recorded residual).
-    crate::method_value::builtin_method_supported(recv, mid) as i64
-}
-
 /// See module doc.
 ///
 /// # Safety
@@ -429,6 +342,16 @@ pub unsafe extern "C" fn __torajs_any_member_get_value(recv: AnyValue, key: *con
             }
             if let Some((_, val)) = closure_virtual_pair(ptr, key) {
                 return val;
+            }
+            // Inherited Function.prototype expando — tag twin above.
+            let fp = function_proto_props();
+            if !fp.is_null() {
+                if __torajs_dynobj_get_tag(fp, key) != 5 {
+                    return __torajs_dynobj_get_value(fp, key);
+                }
+                if __torajs_dynobj_has(fp, key) != 0 {
+                    return 0;
+                }
             }
             reify_value(recv, key)
         },

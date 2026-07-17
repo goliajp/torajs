@@ -24,6 +24,13 @@ use crate::probe::{entries, probe};
 const WRAPPER_PROPS_OFF: usize = 16;
 
 unsafe extern "C" {
+    /// torajs-rc builtin-proto registry — the `<Ctor>.prototype`
+    /// singleton dynobj for a builtin tag (13 = Function); NULL
+    /// until first materialized.
+    fn __torajs_get_builtin_prototype(tag: i64) -> *mut c_void;
+}
+
+unsafe extern "C" {
     fn __torajs_rc_inc(p: *mut c_void);
     fn __torajs_throw_type_error(msg: *const u8);
     fn __torajs_value_drop_heap(child: *mut c_void);
@@ -59,7 +66,13 @@ unsafe extern "C" {
 /// `{ value: undefined, all-false }`.
 #[derive(Clone, Copy)]
 enum DescStore {
-    Dyn(*const c_void),
+    /// `(own entry table, proto entry table)` — either may be NULL.
+    /// §6.2.6.5 reads every field through [[Get]], so a miss on the
+    /// descriptor's own store falls to its prototype's expando
+    /// (test262's `Function.prototype.writable = true; defineProperty
+    /// (obj, k, funObj)` inherits writable through a fresh closure
+    /// with no expando of its own).
+    Dyn(*const c_void, *const c_void),
     Struct(*const c_void),
 }
 
@@ -97,13 +110,25 @@ impl FakeStrKey {
 #[inline]
 unsafe fn desc_field(desc: DescStore, name: &str) -> Option<u64> {
     match desc {
-        DescStore::Dyn(d) => {
+        DescStore::Dyn(d, proto) => {
             let probe_key = FakeStrKey::new(name);
-            let pr = unsafe { probe(d, &probe_key as *const FakeStrKey as *const c_void) };
+            if !d.is_null() {
+                let pr = unsafe { probe(d, &probe_key as *const FakeStrKey as *const c_void) };
+                if pr.found {
+                    let ent = unsafe { entries(d) };
+                    return Some(unsafe { (*ent.add(pr.entry as usize)).value_anyv });
+                }
+            }
+            // Own miss — [[Get]] continues up the prototype's
+            // expando table (NULL = chain end).
+            if proto.is_null() {
+                return None;
+            }
+            let pr = unsafe { probe(proto, &probe_key as *const FakeStrKey as *const c_void) };
             if !pr.found {
                 return None;
             }
-            let ent = unsafe { entries(d) };
+            let ent = unsafe { entries(proto) };
             Some(unsafe { (*ent.add(pr.entry as usize)).value_anyv })
         }
         DescStore::Struct(s) => {
@@ -136,7 +161,7 @@ unsafe fn desc_field_get(desc: DescStore, name: &str) -> Option<(u64, bool)> {
     if unsafe { crate::accessor::value_is_accessor(raw) } {
         let pair = unsafe { __torajs_anyv_cell_ptr(raw) } as *const c_void;
         // §6.2.6.5 [[Get]] receiver = the descriptor object itself.
-        let (DescStore::Dyn(d) | DescStore::Struct(d)) = desc;
+        let (DescStore::Dyn(d, _) | DescStore::Struct(d)) = desc;
         let recv = unsafe { __torajs_anyv_box_from_pair(4, d as i64) };
         let v = unsafe { crate::accessor::__torajs_accessor_invoke_getter(pair, recv) };
         return Some((v, true));
@@ -235,8 +260,26 @@ pub unsafe extern "C" fn __torajs_dynobj_define_from_desc(
     // expando domain) is an empty descriptor: all-absent flags still
     // create / validate the property.
     let desc = match unsafe { (desc.cast::<u8>().add(4) as *const u16).read() } {
-        TAG_DYNOBJ => Some(DescStore::Dyn(desc)),
-        TAG_CLOSURE_HDR | TAG_ARR_HDR => {
+        TAG_DYNOBJ => Some(DescStore::Dyn(desc, core::ptr::null())),
+        TAG_CLOSURE_HDR => {
+            // A closure descriptor inherits through
+            // Function.prototype's expando dynobj (tag 13 in the
+            // builtin-proto registry) — even with no expando of its
+            // own.
+            let expando = unsafe {
+                desc.cast::<u8>()
+                    .add(CELL_PROPS_OFF)
+                    .cast::<*const c_void>()
+                    .read()
+            };
+            let fp = unsafe { __torajs_get_builtin_prototype(13) };
+            if expando.is_null() && fp.is_null() {
+                None
+            } else {
+                Some(DescStore::Dyn(expando, fp))
+            }
+        }
+        TAG_ARR_HDR => {
             let expando = unsafe {
                 desc.cast::<u8>()
                     .add(CELL_PROPS_OFF)
@@ -246,7 +289,7 @@ pub unsafe extern "C" fn __torajs_dynobj_define_from_desc(
             if expando.is_null() {
                 None
             } else {
-                Some(DescStore::Dyn(expando))
+                Some(DescStore::Dyn(expando, core::ptr::null()))
             }
         }
         TAG_OBJ => Some(DescStore::Struct(desc)),
@@ -268,7 +311,7 @@ pub unsafe extern "C" fn __torajs_dynobj_define_from_desc(
             if expando.is_null() {
                 None
             } else {
-                Some(DescStore::Dyn(expando))
+                Some(DescStore::Dyn(expando, core::ptr::null()))
             }
         }
         _ => None,

@@ -97,6 +97,7 @@ mod len_get;
 mod locale_list;
 pub(crate) mod member_get;
 pub(crate) mod member_get_own;
+pub(crate) mod member_get_probe;
 mod member_props_regexp;
 mod member_set;
 mod method_bind;
