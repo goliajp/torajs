@@ -35,6 +35,8 @@
 
 mod body_passes;
 
+pub(crate) use body_passes::strip_static_method_name;
+
 use std::collections::HashMap;
 
 use crate::ast::{Ast, Stmt};

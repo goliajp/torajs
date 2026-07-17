@@ -96,7 +96,11 @@ fn try_top_level_fn_decl(ctx: &mut LowerCtx<'_>, fn_name_ref: &str, name: &str) 
     let visible_name = if fn_name_owned.starts_with("__closure_") {
         String::new()
     } else {
-        fn_name_owned
+        // ES SetFunctionName — a static-method mangled ident answers
+        // the property key (same strip as the fn-addr registry rows).
+        crate::ssa_lower_inner::strip_static_method_name(&fn_name_owned, &ctx.ast.class_parents)
+            .unwrap_or(&fn_name_owned)
+            .to_string()
     };
     let s = ctx.intern_string_literal(&visible_name);
     Some(Operand::Value(s))
@@ -124,7 +128,9 @@ fn try_closure_local_binding(
     let visible_name = if fn_name_ref.starts_with("__closure_") {
         String::new()
     } else {
-        fn_name_ref.to_string()
+        crate::ssa_lower_inner::strip_static_method_name(fn_name_ref, &ctx.ast.class_parents)
+            .unwrap_or(fn_name_ref)
+            .to_string()
     };
     let s = ctx.intern_string_literal(&visible_name);
     Some(Operand::Value(s))

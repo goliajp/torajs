@@ -93,7 +93,7 @@ pub(crate) fn run(
             for s in new_strings {
                 module.strings.push(s);
             }
-            register_fn_name(module, name, params, fid);
+            register_fn_name(module, name, params, fid, &ast.class_parents);
         }
     }
 
@@ -192,7 +192,13 @@ pub(crate) fn run(
 /// (`__closure_*`) are anonymous from the user's point of view;
 /// runtime falls back to `[Function (anonymous)]` if no entry is
 /// found.
-fn register_fn_name(module: &mut Module, name: &str, params: &[crate::ast::Param], fid: FuncId) {
+fn register_fn_name(
+    module: &mut Module,
+    name: &str,
+    params: &[crate::ast::Param],
+    fid: FuncId,
+    class_parents: &HashMap<String, Option<String>>,
+) {
     if name.starts_with("__cm_")
         || name.starts_with("__dispatch_")
         || name.starts_with("__new_")
@@ -215,9 +221,15 @@ fn register_fn_name(module: &mut Module, name: &str, params: &[crate::ast::Param
         .strip_prefix("__bound_")
         .and_then(|rest| rest.rsplit_once('_'))
         .map(|(target, _id)| format!("bound {target}"));
-    let visible = bound_form
-        .as_deref()
-        .unwrap_or_else(|| name.strip_prefix("__forward_").unwrap_or(name));
+    let visible = bound_form.as_deref().unwrap_or_else(|| {
+        let base = name.strip_prefix("__forward_").unwrap_or(name);
+        // `__sm_<C>__<M>` static-method bodies carry the ES
+        // SetFunctionName form — the property key `<M>` (`K.sf.name`
+        // answered the mangled name). `<C>` is matched against the
+        // known class set (longest first) since both a class name and
+        // a method name may themselves contain `__`.
+        strip_static_method_name(base, class_parents).unwrap_or(base)
+    });
     // Intern the name as a Module-level string literal so the link
     // layer can resolve `__user_string_<sid>` to the rodata cstring
     // entry. encode_from_str picks Latin-1 / UTF-16 to match the
@@ -239,4 +251,26 @@ fn register_fn_name(module: &mut Module, name: &str, params: &[crate::ast::Param
         name_sid,
         arity,
     });
+}
+
+/// `__sm_<C>__<M>` → `<M>` when `<C>` is a declared class name.
+/// Longest class-name match wins — `class A__B { static f() {} }`
+/// desugars to `__sm_A__B__f`, where a shortest-match would answer
+/// `B__f`. Shared with the static `.name` member fold
+/// (`ssa_lower_member_fn_intro`), which sees the same mangled ident
+/// after the checker rewrites `K.sf` to `Ident("__sm_K__sf")`.
+pub(crate) fn strip_static_method_name<'a>(
+    name: &'a str,
+    class_parents: &HashMap<String, Option<String>>,
+) -> Option<&'a str> {
+    let rest = name.strip_prefix("__sm_")?;
+    class_parents
+        .keys()
+        .filter_map(|c| {
+            rest.strip_prefix(c.as_str())
+                .and_then(|r| r.strip_prefix("__"))
+                .map(|m| (c.len(), m))
+        })
+        .max_by_key(|(clen, _)| *clen)
+        .map(|(_, m)| m)
 }
