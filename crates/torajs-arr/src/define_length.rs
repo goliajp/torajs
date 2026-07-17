@@ -92,6 +92,34 @@ pub(crate) unsafe fn define_length(arr: *mut c_void, tag: u64, value: u64, flags
         return;
     }
     if let Some(n) = converted {
+        // §10.4.2.4 steps 15-19 — shrinking deletes down from
+        // oldLen-1; a NON-CONFIGURABLE index stops the walk, length
+        // lands at that index + 1, and the whole define throws
+        // TypeError. Zero cost for ordinary arrays: the walk only
+        // runs when the exotic-index header bit says a shadow
+        // attribute table exists.
+        let cur_len =
+            unsafe { (arr.cast::<u8>().add(crate::layout::ARR_LEN_OFF) as *const u64).read() };
+        if (n as u64) < cur_len
+            && unsafe { crate::define::header_flags(arr) } & torajs_rc::FLAG_ARR_EXOTIC_INDEX != 0
+        {
+            let mut i = cur_len;
+            while i > n as u64 {
+                i -= 1;
+                let f = unsafe { crate::define::__torajs_arr_index_flags(arr, i) };
+                if f & crate::define::F_HOLE == 0 && f & F_CONFIGURABLE == 0 {
+                    unsafe { __torajs_arr_set_length_any(arr, 2, (i + 1) as i64) };
+                    // Step 19.b-c — a requested writable:false still
+                    // applies before the throw.
+                    if flags_byte & P_WRITABLE != 0 && flags_byte & F_WRITABLE == 0 {
+                        let p = unsafe { (arr as *mut u8).add(6) as *mut u16 };
+                        unsafe { p.write(p.read() | FLAG_ARR_LENGTH_RO) };
+                    }
+                    unsafe { __torajs_throw_type_error(c"Unable to delete property.".as_ptr()) };
+                    return;
+                }
+            }
+        }
         // The resize helper carries the lock (rejects a changed
         // value, admits the same one) — pending throw short-circuits
         // the writable drop below per the spec's fail-fast order.
