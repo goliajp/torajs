@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-16T23:04:46.898Z",
+  "generatedAt": "2026-07-17T00:32:15.893Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 92.45
   },
   "torajs": {
-    "commit": "08304a8a",
-    "commitSubject": "feat: any-annotated empty array literal promotes to Arr<Any>",
+    "commit": "db85d9df",
+    "commitSubject": "fix: accessor pair teardown releases closure refs through the gated dispatcher",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "db85d9df",
+      "subject": "fix: accessor pair teardown releases closure refs through the gated dispatcher"
+    },
+    {
+      "hash": "b4a41394",
+      "subject": "feat: named-fn value sites answer one canonical singleton cell"
+    },
+    {
+      "hash": "4e49bc83",
+      "subject": "feat: empty object literal cast to any promotes to the dynobj lane"
+    },
+    {
+      "hash": "d79e410d",
+      "subject": "fix: trivial env drop releases the expando props dynobj"
+    },
+    {
+      "hash": "ccf930f4",
+      "subject": "feat: pthunk wrap env stores the shared cap0 trace for the cycle collector"
+    },
+    {
+      "hash": "7e6780fb",
+      "subject": "chore: hardev dashboard snapshot at rotation 126 close"
+    },
+    {
       "hash": "08304a8a",
       "subject": "feat: any-annotated empty array literal promotes to Arr<Any>"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "c84ad0b6",
       "subject": "chore: hardev dashboard snapshot at rotation 125 close"
-    },
-    {
-      "hash": "428f1d3c",
-      "subject": "fix: defineProperties eval-dropped an as-any cast struct props container"
-    },
-    {
-      "hash": "ced6204c",
-      "subject": "chore: hardev dashboard snapshot at rotation 125 close"
-    },
-    {
-      "hash": "9935a660",
-      "subject": "feat: defineProperties / Object.create accept a struct props container"
-    },
-    {
-      "hash": "62b3c1ba",
-      "subject": "feat: Object.assign accepts an any target via runtime walk"
-    },
-    {
-      "hash": "62b31a46",
-      "subject": "fix: defineProperty stranded runtime-minted desc values on both sides"
-    },
-    {
-      "hash": "4691bbe9",
-      "subject": "fix: throw path stranded owned call results at any dispatch sites"
     }
   ],
-  "headSha": "08304a8a",
+  "headSha": "db85d9df",
   "autorun": {
-    "total": 431,
+    "total": 432,
     "baselineTarget": 10,
-    "bySelf": 426,
+    "bySelf": 427,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784232515-5b45",
-      "at": "2026-07-16T20:08:35Z",
-      "ts": 1784232515,
+      "rotationId": "r-1784243147-34de",
+      "at": "2026-07-16T23:05:47Z",
+      "ts": 1784243147,
       "trigger": "self",
-      "prevHead": "c84ad0b6",
-      "handoffSha": "sha256:4850e9cc40cfd2120cb625dcb0d159985dd5cb33d8744bc899b0f6cad247e5d8",
-      "handoffAgeSec": 201,
+      "prevHead": "7e6780fb",
+      "handoffSha": "sha256:97262a486fe11b997384c47aa69f2b63bc03d2b972a2d79b511abb806ec92bd0",
+      "handoffAgeSec": 4,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784243147-34de",
+        "at": "2026-07-16T23:05:47Z",
+        "ts": 1784243147,
+        "trigger": "self",
+        "prevHead": "7e6780fb",
+        "handoffSha": "sha256:97262a486fe11b997384c47aa69f2b63bc03d2b972a2d79b511abb806ec92bd0",
+        "handoffAgeSec": 4,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784232515-5b45",
         "at": "2026-07-16T20:08:35Z",
@@ -876,17 +887,6 @@
         "prevHead": "5f1af774",
         "handoffSha": "sha256:95a8f3232843292824d7e71ecb07f02246739d5cc0f17db862453cdb5530bb8d",
         "handoffAgeSec": 52,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784168690-6002",
-        "at": "2026-07-16T02:24:50Z",
-        "ts": 1784168690,
-        "trigger": "self",
-        "prevHead": "354334a7",
-        "handoffSha": "sha256:3cc70e6339e54d5653d60083877b95bca2f50dc46e234d96e40d59568e26e133",
-        "handoffAgeSec": 13,
         "conformanceBefore": null,
         "commitsInSession": null
       }
