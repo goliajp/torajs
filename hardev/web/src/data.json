@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-17T10:47:13.294Z",
+  "generatedAt": "2026-07-17T11:51:02.551Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-17T10:28:05Z",
-    "headSha": "f0782b5c",
-    "elapsedSec": 650.82,
+    "ranAt": "2026-07-17T11:41:08Z",
+    "headSha": "098dfb9d",
+    "elapsedSec": 711.26,
     "workers": 8,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 7626,
+    "pass": 7651,
     "passNoOracle": 111,
     "passNegative": 4447,
-    "passTotal": 12184,
-    "bug": 816,
-    "incompatible": 40174,
+    "passTotal": 12209,
+    "bug": 779,
+    "incompatible": 40186,
     "bunSkip": 11908,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 13000,
-    "passRateInScope": 22.91,
-    "passRateTrAccepted": 93.72
+    "trAccepted": 12988,
+    "passRateInScope": 22.96,
+    "passRateTrAccepted": 94
   },
   "torajs": {
-    "commit": "56e42c6a",
-    "commitSubject": "feat: arr.toLocaleString invokes each element's own hook",
+    "commit": "29849e21",
+    "commitSubject": "chore: archive the test262 sweep at 098dfb9d",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "29849e21",
+      "subject": "chore: archive the test262 sweep at 098dfb9d"
+    },
+    {
+      "hash": "c9b5b15b",
+      "subject": "fix: hole HasProperty walks to Array.prototype's index entries"
+    },
+    {
+      "hash": "098dfb9d",
+      "subject": "fix: struct accessor members answer hasOwnProperty under their public key"
+    },
+    {
+      "hash": "2a9929a0",
+      "subject": "refactor: split wrapper_expando_method to a sibling (file-size cap)"
+    },
+    {
+      "hash": "ecd3460b",
+      "subject": "fix: wrapper expando methods win over the view-through surface"
+    },
+    {
+      "hash": "1fe1f319",
+      "subject": "fix: inline-receiver Any-element searches take the hole-aware kernels"
+    },
+    {
+      "hash": "09b3a0bd",
+      "subject": "chore: hardev dashboard snapshot at rotation 132 close (final)"
+    },
+    {
       "hash": "56e42c6a",
       "subject": "feat: arr.toLocaleString invokes each element's own hook"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "f0782b5c",
       "subject": "fix: non-configurable redefines judge the value by SameValue, not bits"
-    },
-    {
-      "hash": "8c0948cf",
-      "subject": "fix: literal descriptor values keep the undefined tag"
-    },
-    {
-      "hash": "e696f774",
-      "subject": "fix: wrapper prototypes' expandos reach wrapper receivers and descriptors"
-    },
-    {
-      "hash": "06ff0801",
-      "subject": "feat: array-literal elisions are real holes"
-    },
-    {
-      "hash": "716d63db",
-      "subject": "chore: archive the test262 sweep at 52523c57"
-    },
-    {
-      "hash": "7b4ecf7f",
-      "subject": "chore: hardev dashboard snapshot at rotation 131 close (bare-t262err family cleared)"
-    },
-    {
-      "hash": "52523c57",
-      "subject": "fix: ArraySetLength stops the shrink at a non-configurable index and throws"
-    },
-    {
-      "hash": "566694e4",
-      "subject": "chore: hardev dashboard snapshot at rotation 131 close (final)"
     }
   ],
-  "headSha": "56e42c6a",
+  "headSha": "29849e21",
   "autorun": {
-    "total": 437,
+    "total": 438,
     "baselineTarget": 10,
-    "bySelf": 432,
+    "bySelf": 433,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784280068-0a3d",
-      "at": "2026-07-17T09:21:08Z",
-      "ts": 1784280068,
+      "rotationId": "r-1784285470-7d58",
+      "at": "2026-07-17T10:51:10Z",
+      "ts": 1784285470,
       "trigger": "self",
-      "prevHead": "7b4ecf7f",
-      "handoffSha": "sha256:5cf4405acc7793f3b6aa5fc36dba5a1af4c977abddb22a1a62c75a52e7c4e9c9",
-      "handoffAgeSec": 0,
+      "prevHead": "09b3a0bd",
+      "handoffSha": "sha256:6fa186e9ddb0da5e8a048c108722790083e725f5790f4996a514e01466c7b4f8",
+      "handoffAgeSec": 160,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784285470-7d58",
+        "at": "2026-07-17T10:51:10Z",
+        "ts": 1784285470,
+        "trigger": "self",
+        "prevHead": "09b3a0bd",
+        "handoffSha": "sha256:6fa186e9ddb0da5e8a048c108722790083e725f5790f4996a514e01466c7b4f8",
+        "handoffAgeSec": 160,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784280068-0a3d",
         "at": "2026-07-17T09:21:08Z",
@@ -876,17 +887,6 @@
         "prevHead": "ac641923",
         "handoffSha": "sha256:7c0642d20c3900a312c2f6fcb1dc478b98616881f604f497b2da19b5bcb6c480",
         "handoffAgeSec": 101,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784216137-5b67",
-        "at": "2026-07-16T15:35:37Z",
-        "ts": 1784216137,
-        "trigger": "self",
-        "prevHead": "10f27c91",
-        "handoffSha": "sha256:7b3c23d1abb349205f3b59afb528d57e15e7675f06eaf389938f6f4b7b644194",
-        "handoffAgeSec": 20,
         "conformanceBefore": null,
         "commitsInSession": null
       }
