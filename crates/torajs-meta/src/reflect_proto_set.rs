@@ -41,6 +41,13 @@ unsafe extern "C" {
     fn __torajs_throw_type_error(msg: *const c_char);
 }
 
+/// The two null encodings that reach these faces: the canonical
+/// `VALUE_NULL_IMM` NaN-box and the SSA typed-Null pack (tag 0,
+/// value 0 → raw 0 — the same pair `get_proto_of_any` accepts).
+fn is_null_any(v: u64) -> bool {
+    v == VALUE_NULL_IMM || v == 0
+}
+
 /// `DYNOBJ_HDR_FLAG_NON_EXTENSIBLE` mirror (torajs-dynobj layout).
 const HDR_FLAG_NON_EXTENSIBLE: u16 = 1 << 8;
 
@@ -68,6 +75,11 @@ unsafe fn current_proto(dynobj: *const c_void, key: *const u8) -> u64 {
 /// value) and on a chain cycle; write otherwise. `true` = done.
 unsafe fn ordinary_set_prototype_of(obj: *mut c_void, proto: u64) -> bool {
     unsafe {
+        let proto = if is_null_any(proto) {
+            VALUE_NULL_IMM
+        } else {
+            proto
+        };
         let key = alloc_str_key(b"__proto__");
         let cur = current_proto(obj, key);
         // Step 3 — SameValue(V, current) succeeds untouched, even on
@@ -99,7 +111,7 @@ unsafe fn ordinary_set_prototype_of(obj: *mut c_void, proto: u64) -> bool {
             }
             cur_p = current_proto(cell, key);
         }
-        if proto == VALUE_NULL_IMM {
+        if is_null_any(proto) {
             __torajs_dynobj_delete(obj, key as *const c_void);
             __torajs_dynobj_mark_null_proto(obj);
         } else {
@@ -125,7 +137,7 @@ unsafe fn ordinary_set_prototype_of(obj: *mut c_void, proto: u64) -> bool {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_set_prototype_of(obj: u64, proto: u64) {
     unsafe {
-        if proto != VALUE_NULL_IMM && !is_cell_imm(proto) {
+        if !is_null_any(proto) && !is_cell_imm(proto) {
             __torajs_throw_type_error(c"Prototype must be an object or null".as_ptr());
             return;
         }
@@ -153,7 +165,7 @@ pub unsafe extern "C" fn __torajs_anyv_set_prototype_of(obj: u64, proto: u64) {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_proto_member_set(obj: u64, proto: u64) {
     unsafe {
-        if proto != VALUE_NULL_IMM && !is_cell_imm(proto) {
+        if !is_null_any(proto) && !is_cell_imm(proto) {
             return;
         }
         if !is_cell_imm(obj) {

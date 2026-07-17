@@ -116,6 +116,7 @@ pub(crate) struct ObjectIds {
     pub object_create_check_proto: FuncId,
     pub object_create_link_proto: FuncId,
     pub anyv_set_prototype_of: FuncId,
+    pub anyv_proto_member_set: FuncId,
     pub dynobj_define_properties_from: FuncId,
 }
 
@@ -198,6 +199,7 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
         object_create_check_proto: decl!("__torajs_object_create_check_proto", [Any], Void),
         object_create_link_proto: decl!("__torajs_object_create_link_proto", [Ptr, Any], Void),
         anyv_set_prototype_of: decl!("__torajs_anyv_set_prototype_of", [Any, Any], Void),
+        anyv_proto_member_set: decl!("__torajs_anyv_proto_member_set", [Any, Any], Void),
         dynobj_define_properties_from: decl!(
             "__torajs_dynobj_define_properties_from",
             [Ptr, Ptr],

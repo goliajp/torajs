@@ -66,6 +66,61 @@ impl<'a> LowerCtx<'a> {
         // For each (name, value), set into the dynobj. Box value
         // first using the same scheme as box_to_any but inlined.
         for (fname, fval_eid) in fields {
+            // §13.2.5.5 — the literal `__proto__: v` member sets
+            // [[Prototype]], never an own entry (RFC
+            // 20260717-user-proto-chain): a cell lands in the
+            // simulation slot, null marks the null-proto bit, any
+            // other value is silently ignored — exactly the Annex B
+            // setter core's contract (the fresh literal cannot be
+            // non-extensible or form a cycle, so its refusal path
+            // is unreachable). The value box is a borrow (the core
+            // takes its own stake).
+            if fname == "__proto__" {
+                // A statically-null proto marks the header bit
+                // directly (the `Object.create(null)` face) — the
+                // boxed-setter path below covers runtime values.
+                if matches!(self.ast.get_expr(fval_eid), Expr::Null)
+                    || matches!(
+                        self.expr_types.get(&fval_eid),
+                        Some(crate::check::Type::Null)
+                    )
+                {
+                    let _ = self.lower_expr(fval_eid);
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Call(
+                            self.intrinsics.dynobj_mark_null_proto,
+                            vec![Operand::Value(dynobj)],
+                        ),
+                    );
+                    continue;
+                }
+                let v_op = self.lower_expr(fval_eid);
+                let v_ty = self.operand_ty(&v_op);
+                let v_boxed = if matches!(v_ty, Type::Any) {
+                    v_op.clone()
+                } else {
+                    self.box_to_any_from_expr(fval_eid, v_op.clone())
+                };
+                let obj_boxed = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(
+                        self.intrinsics.any_box,
+                        vec![Operand::ConstI64(4 /* ANY_HEAP */), Operand::Value(dynobj)],
+                    ),
+                    Type::Any,
+                    None,
+                );
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Call(
+                        self.intrinsics.anyv_proto_member_set,
+                        vec![Operand::Value(obj_boxed), v_boxed],
+                    ),
+                );
+                self.release_owned_temp(fval_eid, &v_op);
+                continue;
+            }
             // RFC 20260717-objlit-anylane-recv knife 1 — accessor
             // shorthand members (`{ get baz() {} }` parses to a
             // `__getter_baz` field) install a REAL AccessorPair entry
