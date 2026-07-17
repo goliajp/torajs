@@ -131,6 +131,20 @@ pub(crate) fn function_proto_props() -> *const c_void {
     unsafe { torajs_rc::builtin_proto::__torajs_get_builtin_prototype(13) as *const c_void }
 }
 
+/// A primitive wrapper's prototype expando dynobj — the tag-0/3/4
+/// singleton (Number/String/Boolean); wrapper receivers inherit
+/// through it after their own expando misses.
+fn wrapper_proto_props(t: u16) -> *const c_void {
+    let tag = if t == Tag::StringWrapper as u16 {
+        3
+    } else if t == Tag::BooleanWrapper as u16 {
+        4
+    } else {
+        0
+    };
+    unsafe { torajs_rc::builtin_proto::__torajs_get_builtin_prototype(tag) as *const c_void }
+}
+
 /// `Array.prototype`'s expando dynobj — the tag-2 singleton is an
 /// Arr cell (§23.1.3 array exotic) whose monkey-patches land in ITS
 /// props table; an Arr receiver inherits through it after its own
@@ -282,6 +296,17 @@ pub unsafe extern "C" fn __torajs_any_member_get_tag(recv: AnyValue, key: *const
                     return 5;
                 }
             }
+            // Inherited <Wrapper>.prototype expando.
+            let wp = wrapper_proto_props(t);
+            if !wp.is_null() {
+                let tag = __torajs_dynobj_get_tag(wp, key);
+                if tag != 5 {
+                    return tag;
+                }
+                if __torajs_dynobj_has(wp, key) != 0 {
+                    return 5;
+                }
+            }
             reify_tag(recv, key)
         },
         // Chunk 744 — struct cell: class-layout field probe before
@@ -415,6 +440,16 @@ pub unsafe extern "C" fn __torajs_any_member_get_value(recv: AnyValue, key: *con
                 }
                 // Stored-undefined shadow — see the tag twin.
                 if __torajs_dynobj_has(props, key) != 0 {
+                    return 0;
+                }
+            }
+            // Inherited <Wrapper>.prototype expando — tag twin above.
+            let wp = wrapper_proto_props(t);
+            if !wp.is_null() {
+                if __torajs_dynobj_get_tag(wp, key) != 5 {
+                    return __torajs_dynobj_get_value(wp, key);
+                }
+                if __torajs_dynobj_has(wp, key) != 0 {
                     return 0;
                 }
             }

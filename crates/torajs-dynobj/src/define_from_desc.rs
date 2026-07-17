@@ -316,16 +316,29 @@ pub unsafe extern "C" fn __torajs_dynobj_define_from_desc(
             || t == crate::define_wrapper::TAG_STRING_WRAPPER
             || t == crate::define_wrapper::TAG_BOOLEAN_WRAPPER =>
         {
+            // A wrapper descriptor inherits through ITS prototype's
+            // expando (test262: `String.prototype.value = "String";
+            // defineProperty(obj, k, new String("abc"))` — §6.2.6.5
+            // [[Get]] climbs the chain). Registry tags: Number=0,
+            // String=3, Boolean=4.
             let expando = unsafe {
                 desc.cast::<u8>()
                     .add(WRAPPER_PROPS_OFF)
                     .cast::<*const c_void>()
                     .read()
             };
-            if expando.is_null() {
+            let proto_tag = if t == crate::define_wrapper::TAG_STRING_WRAPPER {
+                3
+            } else if t == crate::define_wrapper::TAG_BOOLEAN_WRAPPER {
+                4
+            } else {
+                0
+            };
+            let wp = unsafe { __torajs_get_builtin_prototype(proto_tag) };
+            if expando.is_null() && wp.is_null() {
                 None
             } else {
-                Some(DescStore::Dyn(expando, core::ptr::null()))
+                Some(DescStore::Dyn(expando, wp))
             }
         }
         _ => None,
