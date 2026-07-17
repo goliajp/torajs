@@ -404,6 +404,22 @@ fn register_toplevel_globals(
             ty: *ty,
         })
         .collect();
+    // RFC 20260717-namedfn-canonical-cell chunk 1 — one hidden
+    // zero-init slot per forwarder fn; `ssa_lower_closure`'s
+    // canonical arm lazily mints THE fn-object cell into it so every
+    // named-fn value site answers the same singleton (ES identity).
+    // Deliberately NOT in `globals`: no user-name resolution and no
+    // exit drop — the fn object lives for the program, bun-equal.
+    for stmt in &ast.stmts {
+        if let crate::ast::Stmt::FnDecl { name, .. } = stmt
+            && name.starts_with("__forward_")
+        {
+            data_globals_out.push(ssa::DataGlobal {
+                name: format!("__fncell_{name}"),
+                ty: Type::Ptr,
+            });
+        }
+    }
     data_globals_out.sort_by(|a, b| a.name.cmp(&b.name));
     module.data_globals = data_globals_out;
     globals

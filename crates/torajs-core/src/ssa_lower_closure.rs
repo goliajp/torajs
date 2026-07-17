@@ -43,7 +43,7 @@
 //!      outer slot holding a stale ptr — capture-box indirection is
 //!      the orthodox fix.
 
-use crate::ssa::{InstKind, Operand, Type};
+use crate::ssa::{IPred, InstKind, Operand, Terminator, Type};
 use crate::ssa_lower::{
     CLOSURE_CAP_BASE_OFF, CLOSURE_DROP_FN_OFF, CLOSURE_FN_ADDR_OFF, CLOSURE_PROPS_OFF, LowerCtx,
     intern_fn_sig,
@@ -120,6 +120,75 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, fn_name: String, captures: Vec<Strin
         })
         .collect();
     ctx.closure_captures.insert(fn_name.clone(), cap_meta);
+
+    // RFC 20260717-namedfn-canonical-cell chunk 1 — a `__forward_*`
+    // Closure expr denotes a top-level named fn used as a value, and
+    // the ES fn object is a SINGLETON (declaration instantiation
+    // creates it once): mint THE cell lazily into the hidden
+    // `__fncell_*` slot and answer it from every site, +1 per use
+    // (the slot keeps a permanent stake so the cell never hits
+    // rc 0). Pre-fix each site minted a fresh env, so `t === u` on
+    // two reads of the same fn name answered false and expando
+    // writes landed on throwaway cells. Plain arrow / fn-expr
+    // evaluations keep the fresh-mint path below (each evaluation
+    // is a NEW object per spec).
+    if fn_name.starts_with("__forward_") && eff_captures.is_empty() {
+        let slot_name = format!("__fncell_{fn_name}");
+        let gref = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::GlobalRef(slot_name),
+            Type::Ptr,
+            None,
+        );
+        let cached = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Load(closure_ty, Operand::Value(gref), 0),
+            closure_ty,
+            None,
+        );
+        let res_slot = ctx.alloca(closure_ty, Some("__fncell_res"));
+        ctx.f.append_void(
+            ctx.cur_block,
+            InstKind::Store(Operand::Value(cached), Operand::Value(res_slot), 0),
+        );
+        let is_null = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::ICmp(IPred::Eq, Operand::Value(cached), Operand::ConstPtrNull),
+            Type::Bool,
+            None,
+        );
+        let mint_blk = ctx.f.add_block();
+        let join_blk = ctx.f.add_block();
+        ctx.f.set_term(
+            ctx.cur_block,
+            Terminator::CondBr {
+                cond: Operand::Value(is_null),
+                then_blk: mint_blk,
+                else_blk: join_blk,
+            },
+        );
+        ctx.cur_block = mint_blk;
+        let env_v = alloc_env(ctx, closure_ty, 0);
+        init_env_header(ctx, env_v, fid, &fn_name);
+        ctx.f.append_void(
+            ctx.cur_block,
+            InstKind::Store(Operand::Value(env_v), Operand::Value(gref), 0),
+        );
+        ctx.f.append_void(
+            ctx.cur_block,
+            InstKind::Store(Operand::Value(env_v), Operand::Value(res_slot), 0),
+        );
+        ctx.f.set_term(ctx.cur_block, Terminator::Br(join_blk));
+        ctx.cur_block = join_blk;
+        let v = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Load(closure_ty, Operand::Value(res_slot), 0),
+            closure_ty,
+            None,
+        );
+        ctx.emit_rc_inc(Operand::Value(v));
+        return Operand::Value(v);
+    }
 
     let env_v = alloc_env(ctx, closure_ty, eff_captures.len());
     init_env_header(ctx, env_v, fid, &fn_name);
