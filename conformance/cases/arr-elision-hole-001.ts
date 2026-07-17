@@ -23,6 +23,14 @@ console.log([0, , 2].indexOf(undefined)); // -1
 console.log([0, , 2].lastIndexOf(undefined)); // -1
 console.log([5, 6, 7].indexOf(6)); // 1 (typed lanes keep the inline loop)
 
+// §23.1.3.17 step 9.a — HasProperty walks the CHAIN: an index
+// defined on Array.prototype makes the hole visible (a getter-less
+// proto entry Gets undefined, which matches)
+Object.defineProperty(Array.prototype, "0", { set: function () {}, configurable: true });
+console.log(([,] as any).indexOf(undefined)); // 0
+delete (Array.prototype as any)["0"];
+console.log(([,] as any).indexOf(undefined)); // -1
+
 // a real undefined element still matches
 const b: any = [0, undefined, 2];
 console.log(b.indexOf(undefined)); // 1

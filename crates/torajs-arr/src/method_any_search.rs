@@ -34,6 +34,13 @@ unsafe extern "C" {
     /// Cross-tier — universal NaN-box-safe heap dropper (releases
     /// the +1 each `arr_index_get` read takes for cells).
     fn __torajs_value_drop_heap(p: *mut c_void);
+    /// torajs-rc — builtin `<Ctor>.prototype` singleton (2 = Array).
+    fn __torajs_get_builtin_prototype(tag: i64) -> *mut c_void;
+    /// torajs-dynobj — own-entry presence + hole tombstone probe.
+    fn __torajs_dynobj_has(obj: *const c_void, key: *const c_void) -> i32;
+    fn __torajs_dynobj_entry_is_hole(obj: *const c_void, key: *const c_void) -> i32;
+    /// torajs-str — release an owned Str.
+    fn __torajs_str_drop(s: *mut c_void);
 }
 
 /// `from`-argument normalization per ES §23.1.3.17 step 4-6:
@@ -50,6 +57,34 @@ unsafe fn is_nan_boxed(v: u64) -> bool {
     unsafe {
         __torajs_anyv_unbox_tag(v) == 3
             && f64::from_bits(__torajs_anyv_unbox_value(v) as u64).is_nan()
+    }
+}
+
+/// §23.1.3.17 step 9.a — HasProperty walks the CHAIN: a hole whose
+/// index exists on Array.prototype (a defineProperty'd shadow /
+/// accessor on the tag-2 singleton) is NOT skipped; the dense slot
+/// read (undefined) approximates Get through a getter-less proto
+/// entry (a value-bearing proto getter is the recorded
+/// proto-index-accessor face). Cold: only consulted when the
+/// receiver is exotic AND the slot is a hole.
+unsafe fn proto_index_present(idx: u64) -> bool {
+    unsafe {
+        let ap = __torajs_get_builtin_prototype(2);
+        if ap.is_null() {
+            return false;
+        }
+        let props =
+            (ap.cast::<u8>().add(crate::layout::ARR_PROPS_OFF) as *const *const c_void).read();
+        if props.is_null() {
+            return false;
+        }
+        let key = crate::define::mint_index_key(idx);
+        // A deleted proto index leaves a hole tombstone — raw
+        // presence alone would resurrect it.
+        let r = __torajs_dynobj_has(props, key as *const c_void) != 0
+            && __torajs_dynobj_entry_is_hole(props, key as *const c_void) == 0;
+        __torajs_str_drop(key as *mut c_void);
+        r
     }
 }
 
@@ -71,6 +106,7 @@ unsafe fn search(arr: *const c_void, needle: u64, from: i64, same_value_zero: bo
             if skip_holes
                 && crate::define::__torajs_arr_index_flags(arr, i as u64) & crate::define::F_HOLE
                     != 0
+                && !proto_index_present(i as u64)
             {
                 i += 1;
                 continue;
@@ -131,6 +167,7 @@ pub unsafe extern "C" fn __torajs_arr_any_last_index_of(
             if skip_holes
                 && crate::define::__torajs_arr_index_flags(arr, i as u64) & crate::define::F_HOLE
                     != 0
+                && !proto_index_present(i as u64)
             {
                 i -= 1;
                 continue;
