@@ -77,7 +77,7 @@ pub(crate) fn check(checker: &Checker, name: &str) -> Result<Type, String> {
             Box::new(Type::Void),
         )),
         "__torajs_class_register" => Ok(Type::Function(
-            vec![Type::Any, Type::String],
+            vec![Type::Any, Type::String, Type::Number],
             Box::new(Type::Void),
         )),
         "__torajs_register_native_error" => {

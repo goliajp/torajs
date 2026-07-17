@@ -279,13 +279,25 @@ fn emit_chain_and_registration_stmts(ast: &mut Ast, meta: &ClassMetadata, out: &
     // in the classes-by-tag side table. Read inside `__new_<C>`
     // factory bodies via `__torajs_my_class_ref("<C>")` (intercepted
     // at ssa_lower → emits `__torajs_class_get(<tag_const>)`).
+    //
+    // The third argument flags desugar-synthesized generator classes
+    // (`__Gen_<f>` — their `__proto_<C>` IS the generator fn's
+    // `.prototype` object, which per §27.3.3.2 carries NO own
+    // `constructor`, and the class object itself is unreachable from
+    // user code): the runtime skips the first-class MakeConstructor
+    // wiring for them (RFC 20260717-class-first-class-value knife A
+    // fix-up).
+    let gen_class_set: HashSet<String> = ast.generator_factory_classes.values().cloned().collect();
     for cname in &meta.class_names {
         let class_ident = ast.add_expr(Expr::Ident(format!("__class_{cname}")));
         let name_str = ast.add_expr(Expr::String(cname.clone()));
+        let is_gen = ast.add_expr(Expr::Number(f64::from(u8::from(
+            gen_class_set.contains(cname),
+        ))));
         let callee = ast.add_expr(Expr::Ident("__torajs_class_register".to_string()));
         let call = ast.add_expr(Expr::Call {
             callee,
-            args: vec![class_ident, name_str],
+            args: vec![class_ident, name_str, is_gen],
         });
         out.push(Stmt::Expr(call));
     }

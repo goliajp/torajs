@@ -172,7 +172,7 @@ pub(crate) fn declare(
         proto_register: decl!("__torajs_anyv_proto_register", [I64, Any], Void),
         register_native_error: decl!("__torajs_register_native_error", [I64, Ptr], Void),
         proto_get: decl!("__torajs_anyv_proto_get", [I64], Any),
-        class_register: decl!("__torajs_anyv_class_register", [I64, Any], Void),
+        class_register: decl!("__torajs_anyv_class_register", [I64, Any, I64], Void),
         class_get: decl!("__torajs_anyv_class_get", [I64], Any),
         get_proto_of_any: decl!("__torajs_anyv_get_proto_of_any", [Any], Any),
         proto_member_get: decl!("__torajs_anyv_proto_member_get", [Any], Any),

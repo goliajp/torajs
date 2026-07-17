@@ -149,12 +149,20 @@ fn try_lower_proto_register(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<O
 }
 
 fn try_lower_class_register(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Operand> {
-    if args.len() != 2 {
+    if args.len() != 3 {
         return None;
     }
     let Expr::String(cname) = ctx.ast.get_expr(args[1]) else {
         return None;
     };
+    // Compile-time constant flagging a desugar-synthesized generator
+    // class — the runtime skips the first-class MakeConstructor
+    // wiring for those (§27.3.3.2: a generator fn's `.prototype`
+    // object carries no own `constructor`).
+    let Expr::Number(is_gen) = ctx.ast.get_expr(args[2]) else {
+        return None;
+    };
+    let is_gen = *is_gen as i64;
     let cname = cname.clone();
     let class_op = ctx.lower_expr(args[0]);
     let cur_block = ctx.cur_block;
@@ -164,7 +172,11 @@ fn try_lower_class_register(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<O
             cur_block,
             InstKind::Call(
                 class_register,
-                vec![Operand::ConstI64(tag as i64), class_op],
+                vec![
+                    Operand::ConstI64(tag as i64),
+                    class_op,
+                    Operand::ConstI64(is_gen),
+                ],
             ),
         );
     } else {

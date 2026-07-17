@@ -103,8 +103,14 @@ pub extern "C" fn __torajs_anyv_proto_register(tag: i64, proto_anyv: u64) {
 /// MakeConstructor mandates the same attribute set on user classes.
 /// Non-cell / non-dynobj slots (e.g. `class_anyv` set to a sentinel by
 /// tests) are silently ignored by the helper.
+///
+/// `is_synth_gen != 0` flags a desugar-synthesized generator class
+/// (`__Gen_<f>`): its `__proto_<C>` IS the generator fn's `.prototype`
+/// object, which per §27.3.3.2 carries no own `constructor`, and the
+/// class object itself is unreachable from user code — the
+/// first-class MakeConstructor wiring is skipped.
 #[unsafe(no_mangle)]
-pub extern "C" fn __torajs_anyv_class_register(tag: i64, class_anyv: u64) {
+pub extern "C" fn __torajs_anyv_class_register(tag: i64, class_anyv: u64, is_synth_gen: i64) {
     if !in_range(tag) {
         return;
     }
@@ -117,8 +123,10 @@ pub extern "C" fn __torajs_anyv_class_register(tag: i64, class_anyv: u64) {
         // valid heap object; the helper self-guards against non-dynobj
         // shape via its own header tag check.
         unsafe { __torajs_dynobj_lock_builtin_fn_class_slots(class_anyv as *mut c_void) };
-        // SAFETY: same cell; each wiring step re-guards shape itself.
-        unsafe { wire_first_class_links(tag, class_anyv) };
+        if is_synth_gen == 0 {
+            // SAFETY: same cell; each wiring step re-guards shape itself.
+            unsafe { wire_first_class_links(tag, class_anyv) };
+        }
     }
 }
 
