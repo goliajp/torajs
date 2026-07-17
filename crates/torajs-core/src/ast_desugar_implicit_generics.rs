@@ -243,7 +243,14 @@ pub(crate) fn run(ast: &mut Ast) {
 
         let first_kind = params.first().map(|p| p.name.clone());
         if matches!(first_kind.as_deref(), Some("__env") | Some("__this")) {
-            if first_kind.as_deref() == Some("__env") && name.starts_with("__closure_") {
+            // Both synth closure namespaces (`__closure_*` lifted
+            // arrows AND `__forward_*` fn-to-closure shims) are
+            // `__env`-first closure shapes; the forwarder clones its
+            // target's params verbatim, so an untyped-param user fn
+            // (`function g(n) {}`) taken as a value used to reach
+            // build_fn_type with `n` unannotated and reject the
+            // whole program.
+            if first_kind.as_deref() == Some("__env") && is_synth_closure_name(name) {
                 for p in params.iter_mut().skip(1) {
                     if p.type_ann.is_none() {
                         p.type_ann = Some("any".to_string());
@@ -258,7 +265,7 @@ pub(crate) fn run(ast: &mut Ast) {
                     infer_return_ann_seeded(ast_exprs_view, body, params, &outer_binds, &fn_sigs)
                 {
                     *return_type = Some(inferred);
-                } else if name.starts_with("__closure_") {
+                } else if is_synth_closure_name(name) {
                     // RC-4 — a value return the static sniff can't
                     // type (any-param method call / any arith) must
                     // not silently become Void: the callee then
