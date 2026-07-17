@@ -40,7 +40,7 @@ use core::ffi::c_void;
 
 use torajs_rc::Tag;
 
-use crate::method_call::{MAX_BOXED_ARGS, closure_cell_entry, invoke_boxed, not_callable};
+use crate::method_call::{MAX_BOXED_ARGS, closure_cell_entry, invoke_with_this, not_callable};
 use crate::method_value::{builtin_method_mid, native_entry};
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED};
 use crate::nanbox_encode::__torajs_anyv_box_pointer;
@@ -165,7 +165,11 @@ unsafe extern "C" fn bound_entry(env: *mut c_void, argv: *const u64, argc: i64) 
                 let Some((env2, entry2)) = closure_cell_entry(target as *mut c_void) else {
                     return not_callable();
                 };
-                invoke_boxed(env2, entry2, buf, n)
+                // The bound this rides the receiver channel — a
+                // recv-first target takes it in argv[0] (RFC
+                // 20260717-objlit-anylane-recv knife 2d), a plain
+                // closure drops it.
+                invoke_with_this(env2, entry2, bound_this, buf, n)
             }
         };
 

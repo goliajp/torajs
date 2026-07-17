@@ -85,6 +85,7 @@ use crate::nanbox_ffi_materialize::materialize_short_str;
 // keep importing from `crate::method_call::{...}` unchanged.
 pub(crate) use crate::method_call_closure_dispatch::{
     MAX_BOXED_ARGS, closure_boxed_entry, closure_cell_entry, invoke_boxed, invoke_boxed_recv_first,
+    invoke_with_this,
 };
 
 unsafe extern "C" {

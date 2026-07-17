@@ -2,13 +2,14 @@
 //! (chunk 710) — `Function.prototype.call` / `apply` on closure
 //! values that travel through the `any` world.
 //!
-//! A torajs closure body cannot reference `this` (class methods
-//! dispatch through the vtable tier, never as bare closure cells),
-//! so the ES thisArg has no observable binding to project — both
-//! methods drop it and invoke the boxed dual entry with the
-//! remaining arguments:
+//! The thisArg rides the closure's receiver channel: a recv-first
+//! closure (RFC 20260717-objlit-anylane-recv — an any-lane literal
+//! method whose body says `this`) takes it in argv[0], every other
+//! closure body cannot reference `this` (class methods dispatch
+//! through the vtable tier, never as bare closure cells) so the
+//! thisArg drops:
 //!
-//! - `f.call(thisArg, a, b)` → `invoke_boxed(env, entry, argv[1..])`.
+//! - `f.call(thisArg, a, b)` → `invoke_with_this(env, entry, thisArg, argv[1..])`.
 //! - `f.apply(thisArg, list)` → the list unpacks per
 //!   CreateListFromArrayLike (ES §7.3.19): `undefined` / `null` is
 //!   an empty list; an `Arr` cell reads element-by-element through
@@ -42,7 +43,7 @@ use torajs_rc::{
 };
 
 use crate::method_call::{
-    MAX_BOXED_ARGS, closure_cell_entry, invoke_boxed, method_no_such, not_callable,
+    MAX_BOXED_ARGS, closure_cell_entry, invoke_with_this, method_no_such, not_callable,
 };
 use crate::nanbox::{
     AnyValue, VALUE_UNDEFINED, as_void_ptr, is_cell, is_null, is_short_str, is_undefined,
@@ -127,10 +128,12 @@ pub(crate) unsafe fn closure_method(
     }
 }
 
-/// What `.call` / `.apply` re-invokes — a plain closure's boxed
-/// dual entry (the thisArg drops), or a reified builtin method's
-/// original id re-dispatched with the thisArg as the receiver
-/// (chunk 711).
+/// What `.call` / `.apply` re-invokes — a closure's boxed dual
+/// entry (the thisArg rides the receiver channel: a recv-first
+/// closure takes it in argv[0], a plain closure drops it — RFC
+/// 20260717-objlit-anylane-recv knife 2d), or a reified builtin
+/// method's original id re-dispatched with the thisArg as the
+/// receiver (chunk 711).
 enum CallTarget {
     Boxed(*mut c_void, u64),
     Builtin(i64),
@@ -158,7 +161,7 @@ unsafe fn dispatch(
 ) -> AnyValue {
     unsafe {
         match target {
-            CallTarget::Boxed(env, entry) => invoke_boxed(*env, *entry, argv, argc),
+            CallTarget::Boxed(env, entry) => invoke_with_this(*env, *entry, this_arg, argv, argc),
             CallTarget::Builtin(mid) => {
                 if let Some(out) = generic_str_this(*mid, this_arg, argv, argc) {
                     return out;
