@@ -120,6 +120,7 @@ mod method_call_object_proto;
 mod method_call_regexp;
 mod method_call_str;
 mod method_call_weak;
+pub(crate) mod method_call_wrapper_expando;
 mod method_support;
 mod method_support_proto;
 mod method_value;
