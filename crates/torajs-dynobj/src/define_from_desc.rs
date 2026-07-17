@@ -18,6 +18,11 @@ use crate::layout::{
 };
 use crate::probe::{entries, probe};
 
+/// Wrapper-cell lazy expando slot — mirror of
+/// `torajs-wrapper::WRAPPER_PROPS_OFF` (layout
+/// `[header:8][value:8][props:8]`).
+const WRAPPER_PROPS_OFF: usize = 16;
+
 unsafe extern "C" {
     fn __torajs_rc_inc(p: *mut c_void);
     fn __torajs_throw_type_error(msg: *const u8);
@@ -245,6 +250,27 @@ pub unsafe extern "C" fn __torajs_dynobj_define_from_desc(
             }
         }
         TAG_OBJ => Some(DescStore::Struct(desc)),
+        // Rotation 131 — a primitive-wrapper descriptor
+        // (`new String()` with expando desc fields) is a true
+        // object per §6.2.6.5; its own fields live on the +16 lazy
+        // expando (same shape as the Closure/Arr arm above; a NULL
+        // expando is the all-absent empty descriptor).
+        t if t == crate::define_wrapper::TAG_NUMBER_WRAPPER
+            || t == crate::define_wrapper::TAG_STRING_WRAPPER
+            || t == crate::define_wrapper::TAG_BOOLEAN_WRAPPER =>
+        {
+            let expando = unsafe {
+                desc.cast::<u8>()
+                    .add(WRAPPER_PROPS_OFF)
+                    .cast::<*const c_void>()
+                    .read()
+            };
+            if expando.is_null() {
+                None
+            } else {
+                Some(DescStore::Dyn(expando))
+            }
+        }
         _ => None,
     };
     let Some(desc) = desc else {

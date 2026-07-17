@@ -214,7 +214,11 @@ pub unsafe extern "C" fn __torajs_dynobj_define_properties_from(
         // descObj.configurable = true`) reads its expando fields —
         // `define_from_desc` already dispatches per desc-cell shape,
         // so the gate here matches its accept set instead of
-        // dynobj-only.
+        // dynobj-only. Rotation 131 — primitive WRAPPER cells
+        // (`new String()` as a descriptor, Object/create 15.2.3.5-4
+        // family) are true objects per §6.2.6.5 and join the set;
+        // their fields read off the +16 expando. Primitive Str /
+        // Symbol / BigInt / AccessorPair stay out.
         //
         // RFC 20260716 刀 22 — extend accept to include `TAG_OBJ`
         // (static-layout ObjectLit cells) so a desc value like
@@ -234,7 +238,13 @@ pub unsafe extern "C" fn __torajs_dynobj_define_properties_from(
             && d_val != 0
             && matches!(
                 unsafe { type_tag(d_val as *const c_void) },
-                TAG_DYNOBJ | TAG_CLOSURE_HDR | TAG_ARR_HDR | TAG_OBJ
+                TAG_DYNOBJ
+                    | TAG_CLOSURE_HDR
+                    | TAG_ARR_HDR
+                    | TAG_OBJ
+                    | TAG_NUMBER_WRAPPER
+                    | TAG_STRING_WRAPPER
+                    | TAG_BOOLEAN_WRAPPER
             );
         if !desc_ok {
             // Reject path — if the accessor getter returned a heap
@@ -330,7 +340,13 @@ unsafe fn define_all_from_struct(obj_slot: *mut *mut c_void, props: *const c_voi
             && d_val != 0
             && matches!(
                 unsafe { type_tag(d_val as *const c_void) },
-                TAG_DYNOBJ | TAG_CLOSURE_HDR | TAG_ARR_HDR | TAG_OBJ
+                TAG_DYNOBJ
+                    | TAG_CLOSURE_HDR
+                    | TAG_ARR_HDR
+                    | TAG_OBJ
+                    | TAG_NUMBER_WRAPPER
+                    | TAG_STRING_WRAPPER
+                    | TAG_BOOLEAN_WRAPPER
             );
         if !desc_ok {
             if owned && d_tag == ANY_HEAP && d_val != 0 {
