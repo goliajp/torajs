@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-17T09:13:24.740Z",
+  "generatedAt": "2026-07-17T09:21:05.944Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 92.93
   },
   "torajs": {
-    "commit": "c254c0c7",
-    "commitSubject": "fix: defineProperty over a function receiver routes to the closure expando",
+    "commit": "52523c57",
+    "commitSubject": "fix: ArraySetLength stops the shrink at a non-configurable index and throws",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "52523c57",
+      "subject": "fix: ArraySetLength stops the shrink at a non-configurable index and throws"
+    },
+    {
+      "hash": "566694e4",
+      "subject": "chore: hardev dashboard snapshot at rotation 131 close (final)"
+    },
+    {
       "hash": "c254c0c7",
       "subject": "fix: defineProperty over a function receiver routes to the closure expando"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "a9145cdf",
       "subject": "fix: primitive-wrapper cells are legal property descriptors"
-    },
-    {
-      "hash": "4cd012d2",
-      "subject": "fix: five ToString lanes propagate a throwing user hook"
-    },
-    {
-      "hash": "20ebd7ee",
-      "subject": "chore: archive the test262 sweep at d1071dd0"
     }
   ],
-  "headSha": "c254c0c7",
+  "headSha": "52523c57",
   "autorun": {
     "total": 436,
     "baselineTarget": 10,
