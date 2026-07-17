@@ -302,6 +302,27 @@ fn emit_chain_and_registration_stmts(ast: &mut Ast, meta: &ClassMetadata, out: &
         out.push(Stmt::Expr(call));
     }
 
+    // RFC 20260718-builtin-error-ctor-first-class 刀 1 — the
+    // synthesized Error family carries the §20.5.6.3/6.4 own `name` /
+    // `message` data properties on its prototype. Emitted as
+    // `__torajs_error_proto_install("<C>")`, intercepted at
+    // ssa_lower → (tag, name Str) → runtime define on
+    // `PROTOS_BY_TAG_IMM[tag]` (filled by the proto_register emits
+    // above). User error subclasses inherit instead (spec shape) —
+    // the side table holds injected names only.
+    for cname in &meta.class_names {
+        if !ast.injected_error_classes.contains(cname) {
+            continue;
+        }
+        let name_str = ast.add_expr(Expr::String(cname.clone()));
+        let callee = ast.add_expr(Expr::Ident("__torajs_error_proto_install".to_string()));
+        let call = ast.add_expr(Expr::Call {
+            callee,
+            args: vec![name_str],
+        });
+        out.push(Stmt::Expr(call));
+    }
+
     // Knife B cut 2 (RFC 20260717-class-first-class-value) — static
     // method reification: `C.staticMethod` must be an own function
     // object of the class object with the §10.2.10 method attribute

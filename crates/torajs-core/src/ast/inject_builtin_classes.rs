@@ -342,8 +342,10 @@ pub fn inject_builtin_classes(ast: &mut Ast) {
     // all user references (forward + downstream) resolve here.
     let mut injected: Vec<Stmt> = Vec::with_capacity(1 + want_sub.len());
     injected.push(build_error_class(ast));
+    ast.injected_error_classes.insert("Error".to_string());
     for n in &want_sub {
         injected.push(build_error_subclass(ast, n));
+        ast.injected_error_classes.insert((*n).to_string());
     }
     ast.stmts.splice(0..0, injected);
 }

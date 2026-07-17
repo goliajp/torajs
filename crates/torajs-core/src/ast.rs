@@ -244,6 +244,13 @@ pub struct Ast {
     /// so the parser records the shorthand's value expr here and the
     /// dynobj-init lane skips the proto special-case for it.
     pub objlit_shorthand_proto_exprs: std::collections::HashSet<ExprId>,
+    /// RFC 20260718-builtin-error-ctor-first-class 刀 1 — the class
+    /// names `inject_builtin_classes` synthesized (Error + the
+    /// NativeError subclasses). class_globals emits the
+    /// `__torajs_error_proto_install` magic only for these, so a
+    /// USER `class MyErr extends Error` keeps its spec prototype
+    /// shape (no own `name` / `message` — it inherits them).
+    pub injected_error_classes: std::collections::HashSet<String>,
     /// RFC 20260714-objlit-accessor blade 1 — `__ObjLit_<n>` (the synth
     /// nominal alias minted for a method-bearing object literal) → its
     /// method field names. `ssa_lower` resolves the alias to a

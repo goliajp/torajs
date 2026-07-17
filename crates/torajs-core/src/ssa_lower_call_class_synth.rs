@@ -54,6 +54,7 @@ pub(crate) fn try_lower(
     match name.as_str() {
         "__torajs_proto_register" => try_lower_proto_register(ctx, args),
         "__torajs_class_register" => try_lower_class_register(ctx, args),
+        "__torajs_error_proto_install" => try_lower_error_proto_install(ctx, args),
         "__torajs_static_method_reify" => try_lower_static_method_reify(ctx, args),
         "__torajs_register_native_error" => try_lower_register_native_error(ctx, args),
         "__torajs_my_class_ref" => try_lower_my_class_ref(ctx, args),
@@ -156,6 +157,39 @@ fn try_lower_proto_register(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<O
 /// its own `<M>` function entry. An adapter-synthesis dropout
 /// (unboxable signature) skips the define — the member read keeps
 /// its current answer instead of minting an uncallable cell.
+/// `__torajs_error_proto_install("<C>")` (RFC 20260718 刀 1) —
+/// resolve the injected error class's tag and hand runtime the
+/// (tag, name Str) pair; it defines the §20.5.6.3/6.4 own `name` /
+/// `message` data properties on `__proto_<C>`. Dropout (no tag)
+/// lowers to nothing.
+fn try_lower_error_proto_install(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Operand> {
+    if args.len() != 1 {
+        return None;
+    }
+    let Expr::String(cname) = ctx.ast.get_expr(args[0]) else {
+        return None;
+    };
+    let cname = cname.clone();
+    let Some(tag) = ctx.class_name_to_tag.get(&cname).copied() else {
+        return Some(Operand::ConstI64(0));
+    };
+    let name_op = ctx.lower_expr(args[0]);
+    let cur_block = ctx.cur_block;
+    let install = ctx.intrinsics.error_proto_install;
+    ctx.f.append_void(
+        cur_block,
+        InstKind::Call(
+            install,
+            vec![Operand::ConstI64(tag as i64), name_op.clone()],
+        ),
+    );
+    // The lowered Str literal is a caller-owned temp — the runtime
+    // entries take their own stakes (rc_inc on the name value).
+    let ty = ctx.operand_ty(&name_op);
+    ctx.emit_drop_value(name_op, ty);
+    Some(Operand::ConstI64(0))
+}
+
 fn try_lower_static_method_reify(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Operand> {
     if args.len() != 2 {
         return None;
@@ -221,6 +255,18 @@ fn try_lower_class_register(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<O
     };
     let is_gen = *is_gen as i64;
     let cname = cname.clone();
+    // §15.7.14 class heritage (RFC 20260718 刀 1) — resolve the
+    // parent class's tag at compile time so the runtime wire can
+    // link `[[Prototype]](Sub) = Super` (a root class, or a parent
+    // with no tag, passes -1 → %Function.prototype%).
+    let parent_tag = ctx
+        .ast
+        .class_parents
+        .get(&cname)
+        .cloned()
+        .flatten()
+        .and_then(|p| ctx.class_name_to_tag.get(&p).copied())
+        .map_or(-1, |t| t as i64);
     let class_op = ctx.lower_expr(args[0]);
     let cur_block = ctx.cur_block;
     if let Some(tag) = ctx.class_name_to_tag.get(&cname).copied() {
@@ -233,6 +279,7 @@ fn try_lower_class_register(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<O
                     Operand::ConstI64(tag as i64),
                     class_op,
                     Operand::ConstI64(is_gen),
+                    Operand::ConstI64(parent_tag),
                 ],
             ),
         );

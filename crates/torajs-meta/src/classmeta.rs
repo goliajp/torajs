@@ -119,7 +119,12 @@ pub extern "C" fn __torajs_anyv_proto_register(tag: i64, proto_anyv: u64) {
 /// class object itself is unreachable from user code — the
 /// first-class MakeConstructor wiring is skipped.
 #[unsafe(no_mangle)]
-pub extern "C" fn __torajs_anyv_class_register(tag: i64, class_anyv: u64, is_synth_gen: i64) {
+pub extern "C" fn __torajs_anyv_class_register(
+    tag: i64,
+    class_anyv: u64,
+    is_synth_gen: i64,
+    parent_tag: i64,
+) {
     if !in_range(tag) {
         return;
     }
@@ -134,7 +139,7 @@ pub extern "C" fn __torajs_anyv_class_register(tag: i64, class_anyv: u64, is_syn
         unsafe { __torajs_dynobj_lock_builtin_fn_class_slots(class_anyv as *mut c_void) };
         if is_synth_gen == 0 {
             // SAFETY: same cell; each wiring step re-guards shape itself.
-            unsafe { wire_first_class_links(tag, class_anyv) };
+            unsafe { wire_first_class_links(tag, class_anyv, parent_tag) };
         }
     }
 }
@@ -160,15 +165,33 @@ pub extern "C" fn __torajs_anyv_class_register(tag: i64, class_anyv: u64, is_syn
 /// `class_anyv` is a cell-encoded AnyValue pointing at a live heap
 /// object; `PROTOS_BY_TAG_IMM[tag]` was registered by the emit
 /// sequence just before this call (class_globals.rs emit order).
-unsafe fn wire_first_class_links(tag: i64, class_anyv: u64) {
+unsafe fn wire_first_class_links(tag: i64, class_anyv: u64, parent_tag: i64) {
     unsafe {
         let class_cell = class_anyv as *mut c_void;
         __torajs_dynobj_mark_class_ctor(class_cell);
-        // Step 2 — the singleton is process-lifetime (borrowed here);
-        // ordinary_set_prototype_of rc_incs the stored link itself.
-        let func_proto = __torajs_get_builtin_prototype(FUNCTION_PROTO_TAG);
-        if !func_proto.is_null() {
-            crate::reflect_proto_set::ordinary_set_prototype_of(class_cell, func_proto as u64);
+        // Step 2 — §15.7.14 class heritage: a derived class ctor's
+        // [[Prototype]] IS the parent ctor (`getPrototypeOf(Sub) ===
+        // Super`; §20.5.6.2 NativeError.[[Prototype]] = Error is the
+        // same rule). A root class — or a parent that never
+        // registered (dropout) — links %Function.prototype% per
+        // §10.2.3. Registration runs in source order, so the parent
+        // slot is filled before any subclass wires (extends is
+        // TDZ-gated upstream). Both link targets outlive the entry
+        // (registry slots are process-lifetime, the singleton is
+        // immortal); ordinary_set_prototype_of rc_incs the stored
+        // link itself.
+        let parent = if in_range(parent_tag) {
+            CLASSES_BY_TAG_IMM[parent_tag as usize]
+        } else {
+            0
+        };
+        if is_cell_imm(parent) && heap_type_tag(parent as *const c_void) == TAG_DYNOBJ {
+            crate::reflect_proto_set::ordinary_set_prototype_of(class_cell, parent);
+        } else {
+            let func_proto = __torajs_get_builtin_prototype(FUNCTION_PROTO_TAG);
+            if !func_proto.is_null() {
+                crate::reflect_proto_set::ordinary_set_prototype_of(class_cell, func_proto as u64);
+            }
         }
         // Step 3 — define transfers the value stake, so the entry owns
         // one reference to the class object.
@@ -284,6 +307,54 @@ pub unsafe extern "C" fn __torajs_class_static_method_define(
             cell as u64,
             DEFINE_CTOR_FLAGS,
         );
+    }
+}
+
+/// Installs the §20.5.3.2/3.3 + §20.5.6.3/6.4 own data properties
+/// on an INJECTED error class's `__proto_<C>` — `name = "<C>"` and
+/// `message = ""`, both `{W:1, E:0, C:1}` (RFC
+/// 20260718-builtin-error-ctor-first-class 刀 1). Only the
+/// synthesized Error family runs this (a user subclass's prototype
+/// carries neither per spec — it inherits them). `name` is a
+/// BORROWED Str cell (the caller drops its temp); the entries take
+/// their own stakes (rc_inc on the name value, a fresh mint for the
+/// empty message).
+///
+/// # Safety
+/// `name` is NULL or a live Str cell.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_error_proto_install(tag: i64, name: *const c_void) {
+    if !in_range(tag) || name.is_null() {
+        return;
+    }
+    // SAFETY: single-threaded JS; proto_register filled the slot
+    // before this runs (class_globals.rs emit order).
+    let proto = unsafe { PROTOS_BY_TAG_IMM[tag as usize] };
+    if !is_cell_imm(proto) || unsafe { heap_type_tag(proto as *const c_void) } != TAG_DYNOBJ {
+        return;
+    }
+    unsafe {
+        let mut slot = proto as *mut c_void;
+        let name_key = alloc_str_key(b"name");
+        __torajs_rc_inc(name as *mut c_void);
+        __torajs_dynobj_define(
+            &mut slot,
+            name_key,
+            ANY_HEAP as u64,
+            name as u64,
+            DEFINE_CTOR_FLAGS,
+        );
+        __torajs_str_drop(name_key);
+        let msg_key = alloc_str_key(b"message");
+        let empty = alloc_str_key(b"");
+        __torajs_dynobj_define(
+            &mut slot,
+            msg_key,
+            ANY_HEAP as u64,
+            empty as u64,
+            DEFINE_CTOR_FLAGS,
+        );
+        __torajs_str_drop(msg_key);
     }
 }
 
