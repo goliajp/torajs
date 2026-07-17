@@ -85,7 +85,8 @@ pub(crate) fn try_lower(
         "isExtensible" => Some(lower_is_extensible(ctx, args)),
         "seal" => Some(lower_seal(ctx, args)),
         "isSealed" => Some(lower_is_sealed(ctx, args)),
-        "setPrototypeOf" | "defineProperties" | "assign" => Some(lower_noop(ctx, args)),
+        "setPrototypeOf" => Some(lower_set_prototype_of(ctx, args)),
+        "defineProperties" | "assign" => Some(lower_noop(ctx, args)),
         _ => None,
     }
 }
@@ -311,6 +312,66 @@ fn lower_is_sealed(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
 /// The chunk-20 `ssa_lower_call_object_assign` arm runs first and
 /// claims the structural-copy `Object.assign` path; this is the
 /// fallback when that sibling falls through.
+/// `Object.setPrototypeOf(O, proto)` — §20.1.2.21 (RFC
+/// 20260717-user-proto-chain knife 3). Routes both args through the
+/// Any-boxed runtime core (invalid proto / cycle / non-extensible
+/// throw there); answers the receiver pass-through per spec.
+fn lower_set_prototype_of(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
+    let obj_op = ctx.lower_expr(args[0]);
+    let obj_ty = ctx.operand_ty(&obj_op);
+    let obj_boxed = if matches!(obj_ty, Type::Any) {
+        obj_op.clone()
+    } else {
+        ctx.box_to_any_from_expr(args[0], obj_op.clone())
+    };
+    // A missing proto arg is `undefined` — the runtime core answers
+    // the spec TypeError for it.
+    let (proto_eid, proto_op, proto_boxed) = match args.get(1) {
+        Some(&p_eid) => {
+            let p_op = ctx.lower_expr(p_eid);
+            let p_ty = ctx.operand_ty(&p_op);
+            let boxed = if matches!(p_ty, Type::Any) {
+                p_op.clone()
+            } else {
+                ctx.box_to_any_from_expr(p_eid, p_op.clone())
+            };
+            (Some(p_eid), Some(p_op), boxed)
+        }
+        None => {
+            let undef = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(
+                    ctx.intrinsics.any_box,
+                    vec![Operand::ConstI64(1 /* ANY_UNDEF */), Operand::ConstI64(0)],
+                ),
+                Type::Any,
+                None,
+            );
+            (None, None, Operand::Value(undef))
+        }
+    };
+    for &a in args.iter().skip(2) {
+        let op = ctx.lower_expr(a);
+        ctx.release_owned_temp(a, &op);
+    }
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Call(
+            ctx.intrinsics.anyv_set_prototype_of,
+            vec![obj_boxed, proto_boxed],
+        ),
+    );
+    if let (Some(p_eid), Some(p_op)) = (proto_eid, proto_op) {
+        ctx.release_owned_temp(p_eid, &p_op);
+    }
+    ctx.emit_throw_check(None);
+    // ES answers the receiver; the pass-through result carries its
+    // own ref (RFC 20260705 owned-result invariant).
+    let obj_ty = ctx.operand_ty(&obj_op);
+    ctx.emit_owned_result_inc(obj_op.clone(), obj_ty);
+    obj_op
+}
+
 fn lower_noop(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
     let obj_op = ctx.lower_expr(args[0]);
     for a in args.iter().skip(1) {

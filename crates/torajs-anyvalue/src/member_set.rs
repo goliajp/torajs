@@ -33,7 +33,12 @@ use crate::nanbox::{AnyValue, as_void_ptr, is_cell};
 use crate::nanbox_encode::__torajs_anyv_box_from_pair;
 use crate::nanbox_ffi::__torajs_anyv_rc_dec;
 
+/// `DYNOBJ_HDR_FLAG_NULL_PROTO` mirror (torajs-dynobj layout).
+const DYNOBJ_HDR_FLAG_NULL_PROTO: u16 = 1 << 6;
+
 unsafe extern "C" {
+    /// torajs-meta — the Annex B `__proto__` setter core (knife 3).
+    fn __torajs_anyv_proto_member_set(obj: u64, proto: u64);
     /// torajs-dynobj — realloc-on-grow set; the slot receives the
     /// possibly-relocated block pointer.
     fn __torajs_dynobj_set(obj_slot: *mut *mut c_void, key: *mut c_void, tag: u64, value: u64);
@@ -161,6 +166,23 @@ pub unsafe extern "C" fn __torajs_any_member_set(
         let ptr = as_void_ptr(recv);
         let cell_tag = (ptr.cast::<u8>().add(4) as *const u16).read();
         if cell_tag == Tag::DynObj as u16 {
+            // Annex B §B.2.2.1 — `o.__proto__ = v` runs the
+            // inherited setter, not an ordinary entry write (RFC
+            // 20260717-user-proto-chain knife 3): [[SetPrototypeOf]]
+            // with the cycle walk; an invalid v is silently ignored.
+            // The null-proto shape has no inherited setter — its
+            // write IS an ordinary own entry (the dynobj_set below).
+            let hdr_flags = (ptr.cast::<u8>().add(6) as *const u16).read();
+            if hdr_flags & DYNOBJ_HDR_FLAG_NULL_PROTO == 0
+                && crate::prop_has::key_is(key, b"__proto__")
+            {
+                let boxed = __torajs_anyv_box_from_pair(tag as i64, value as i64);
+                __torajs_anyv_proto_member_set(recv, boxed);
+                // The setter takes its own stake on the stored cell;
+                // the caller's transferred reference dies here.
+                drop_payload(tag, value);
+                return;
+            }
             let mut obj = ptr;
             __torajs_dynobj_set(&mut obj, key, tag, value);
             if obj != ptr {

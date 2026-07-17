@@ -79,6 +79,23 @@ pub unsafe extern "C" fn __torajs_dynobj_mark_null_proto(obj: *mut c_void) {
     }
 }
 
+/// `__torajs_dynobj_clear_null_proto(obj)` — clear the null-prototype
+/// bit (the `Object.setPrototypeOf(o, cell)` re-parent face — RFC
+/// 20260717-user-proto-chain knife 3).
+///
+/// # Safety
+/// `obj` is null (no-op) or a live dynobj heap pointer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_dynobj_clear_null_proto(obj: *mut c_void) {
+    if obj.is_null() {
+        return;
+    }
+    unsafe {
+        let flags = (obj as *mut u8).add(6) as *mut u16;
+        *flags &= !crate::layout::DYNOBJ_HDR_FLAG_NULL_PROTO;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

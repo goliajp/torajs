@@ -299,6 +299,7 @@ pub(crate) fn build(
         throw_typeerror_if_props_null_only: init_b.object.throw_typeerror_if_props_null_only,
         object_create_check_proto: init_b.object.object_create_check_proto,
         object_create_link_proto: init_b.object.object_create_link_proto,
+        anyv_set_prototype_of: init_b.object.anyv_set_prototype_of,
         dynobj_define_properties_from: init_b.object.dynobj_define_properties_from,
         arr_throw_reduce_empty: init_b.object.arr_throw_reduce_empty,
         arr_throw_reduce_right_empty: init_b.object.arr_throw_reduce_right_empty,
