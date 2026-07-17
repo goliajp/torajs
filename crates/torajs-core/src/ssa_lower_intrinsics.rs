@@ -384,6 +384,7 @@ pub(crate) struct Intrinsics {
     pub(crate) proto_get: FuncId,
     pub(crate) class_register: FuncId,
     pub(crate) error_proto_install: FuncId,
+    pub(crate) error_is_error: FuncId,
     pub(crate) static_method_define: FuncId,
     pub(crate) class_get: FuncId,
     pub(crate) get_proto_of_any: FuncId,
