@@ -53,6 +53,11 @@ unsafe extern "C" {
     /// torajs-dynobj — own-property probe pair ((5, 0) = absent).
     fn __torajs_dynobj_get_tag(obj: *const c_void, key: *const c_void) -> u64;
     fn __torajs_dynobj_get_value(obj: *const c_void, key: *const c_void) -> u64;
+    /// torajs-dynobj — own-entry existence (disambiguates a stored
+    /// `undefined` from absent: `get_tag` answers 5 for both).
+    fn __torajs_dynobj_has(obj: *const c_void, key: *const c_void) -> i32;
+    /// torajs-arr — expando twin of the dynobj_has probe.
+    fn __torajs_arrprops_has(arr: *mut c_void, key: *const c_void) -> i32;
     /// torajs-arr — expando probe through the props slot.
     fn __torajs_arrprops_get_tag(arr: *mut c_void, key: *const c_void) -> u64;
     fn __torajs_arrprops_get_value(arr: *mut c_void, key: *const c_void) -> u64;
@@ -156,6 +161,13 @@ pub unsafe extern "C" fn __torajs_any_member_get_tag(recv: AnyValue, key: *const
             if tag != 5 {
                 return tag;
             }
+            // An own entry STORING undefined shadows the proto
+            // surface (`o.toString = undefined` must not reify the
+            // builtin) — `get_tag` answers 5 for both shapes, the
+            // has probe disambiguates (777e756c's read-side leg).
+            if __torajs_dynobj_has(ptr, key) != 0 {
+                return 5;
+            }
             if crate::method_support::__torajs_builtin_proto_own_method_cell(ptr, key) != 0 {
                 4
             } else {
@@ -174,6 +186,12 @@ pub unsafe extern "C" fn __torajs_any_member_get_tag(recv: AnyValue, key: *const
             if tag != 5 {
                 return tag;
             }
+            // Stored-undefined expando shadows the builtin surface
+            // (`arr.join = undefined` reads undefined, not the
+            // reified join cell).
+            if __torajs_arrprops_has(ptr, key) != 0 {
+                return 5;
+            }
             reify_tag(recv, key)
         },
         Some((ptr, t)) if t == Tag::Closure as u16 => unsafe {
@@ -182,6 +200,11 @@ pub unsafe extern "C" fn __torajs_any_member_get_tag(recv: AnyValue, key: *const
                 let tag = __torajs_dynobj_get_tag(props, key);
                 if tag != 5 {
                     return tag;
+                }
+                // Stored-undefined expando shadows the virtual
+                // name/length pair and the builtin reify.
+                if __torajs_dynobj_has(props, key) != 0 {
+                    return 5;
                 }
             }
             if let Some((tag, _)) = closure_virtual_pair(ptr, key) {
@@ -204,6 +227,11 @@ pub unsafe extern "C" fn __torajs_any_member_get_tag(recv: AnyValue, key: *const
                 let tag = __torajs_dynobj_get_tag(props, key);
                 if tag != 5 {
                     return tag;
+                }
+                // Stored-undefined expando shadows the built-in
+                // wrapper surface.
+                if __torajs_dynobj_has(props, key) != 0 {
+                    return 5;
                 }
             }
             reify_tag(recv, key)
@@ -289,12 +317,23 @@ pub unsafe extern "C" fn __torajs_any_method_probe(
             if non_nullish(tag) == 1 {
                 return 1;
             }
+            // Stored-undefined expando shadows the builtin — the
+            // optional call short-circuits (`arr.join = undefined;
+            // arr.join?.()` is undefined, not a reified join).
+            if tag == 5 && unsafe { __torajs_arrprops_has(ptr, key) } != 0 {
+                return 0;
+            }
         }
         Some((ptr, t)) if t == Tag::Closure as u16 => {
             let props = unsafe { closure_props(ptr) };
-            if !props.is_null() && non_nullish(unsafe { __torajs_dynobj_get_tag(props, key) }) == 1
-            {
-                return 1;
+            if !props.is_null() {
+                if non_nullish(unsafe { __torajs_dynobj_get_tag(props, key) }) == 1 {
+                    return 1;
+                }
+                // Stored-undefined shadow — see the Arr arm.
+                if unsafe { __torajs_dynobj_has(props, key) } != 0 {
+                    return 0;
+                }
             }
         }
         // RFC 20260716 刀 5 (rotation 121 chunk 4) — wrapper own-
@@ -304,9 +343,14 @@ pub unsafe extern "C" fn __torajs_any_method_probe(
         // `.toString` / `.valueOf` etc. surface reifies there).
         Some((ptr, t)) if is_wrapper_tag(t) => {
             let props = unsafe { wrapper_props(ptr) };
-            if !props.is_null() && non_nullish(unsafe { __torajs_dynobj_get_tag(props, key) }) == 1
-            {
-                return 1;
+            if !props.is_null() {
+                if non_nullish(unsafe { __torajs_dynobj_get_tag(props, key) }) == 1 {
+                    return 1;
+                }
+                // Stored-undefined shadow — see the Arr arm.
+                if unsafe { __torajs_dynobj_has(props, key) } != 0 {
+                    return 0;
+                }
             }
         }
         Some((ptr, t)) if t == Tag::Obj as u16 => {
@@ -346,6 +390,10 @@ pub unsafe extern "C" fn __torajs_any_member_get_value(recv: AnyValue, key: *con
         Some((ptr, t)) if t == Tag::DynObj as u16 => unsafe {
             let v = __torajs_dynobj_get_value(ptr, key);
             if v == 0 && __torajs_dynobj_get_tag(ptr, key) == 5 {
+                // Stored-undefined shadow — see the tag twin.
+                if __torajs_dynobj_has(ptr, key) != 0 {
+                    return 0;
+                }
                 let cell = crate::method_support::__torajs_builtin_proto_own_method_cell(ptr, key);
                 if cell != 0 {
                     return cell;
@@ -362,12 +410,22 @@ pub unsafe extern "C" fn __torajs_any_member_get_value(recv: AnyValue, key: *con
             if __torajs_arrprops_get_tag(ptr, key) != 5 {
                 return __torajs_arrprops_get_value(ptr, key);
             }
+            // Stored-undefined shadow — see the tag twin.
+            if __torajs_arrprops_has(ptr, key) != 0 {
+                return 0;
+            }
             reify_value(recv, key)
         },
         Some((ptr, t)) if t == Tag::Closure as u16 => unsafe {
             let props = closure_props(ptr);
-            if !props.is_null() && __torajs_dynobj_get_tag(props, key) != 5 {
-                return __torajs_dynobj_get_value(props, key);
+            if !props.is_null() {
+                if __torajs_dynobj_get_tag(props, key) != 5 {
+                    return __torajs_dynobj_get_value(props, key);
+                }
+                // Stored-undefined shadow — see the tag twin.
+                if __torajs_dynobj_has(props, key) != 0 {
+                    return 0;
+                }
             }
             if let Some((_, val)) = closure_virtual_pair(ptr, key) {
                 return val;
@@ -383,8 +441,14 @@ pub unsafe extern "C" fn __torajs_any_member_get_value(recv: AnyValue, key: *con
                 return len;
             }
             let props = wrapper_props(ptr);
-            if !props.is_null() && __torajs_dynobj_get_tag(props, key) != 5 {
-                return __torajs_dynobj_get_value(props, key);
+            if !props.is_null() {
+                if __torajs_dynobj_get_tag(props, key) != 5 {
+                    return __torajs_dynobj_get_value(props, key);
+                }
+                // Stored-undefined shadow — see the tag twin.
+                if __torajs_dynobj_has(props, key) != 0 {
+                    return 0;
+                }
             }
             reify_value(recv, key)
         },
