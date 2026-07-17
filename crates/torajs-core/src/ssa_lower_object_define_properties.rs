@@ -148,6 +148,12 @@ pub(crate) fn try_lower_define_properties(
         // path bypasses integrity's lower_noop — the 545 gate caught
         // the blanket discard over-releasing the un-inc'd receiver).
         ctx.emit_owned_result_inc(obj_raw.clone(), obj_ty);
+        // An owned-temp receiver (`{} as any` dynobj promote / plain
+        // ObjectLit) hands its mint stake off here — the result inc
+        // above is the consumer's stake, so without this release the
+        // mint's +1 stranded (~258B/iter churn leak; Ident receivers
+        // self-gate as borrows).
+        ctx.release_owned_temp(args[0], &obj_raw);
         return Some(obj_raw);
     }
     None

@@ -14,6 +14,23 @@ use crate::ssa::{Operand, Type};
 
 impl crate::ssa_lower::LowerCtx<'_> {
     pub(crate) fn lower_as_cast(&mut self, inner: ExprId, ty_ann: &str) -> Operand {
+        // An EMPTY object literal cast to `any` promotes to the
+        // dynobj lane (rotation 125 L3b; twin of the empty-[] →
+        // Arr<Any> promote and of the direct-ObjectLit call-arg
+        // route in `ssa_lower_call_terminal`): the struct lane would
+        // pass a zero-field anon struct through the cast, and
+        // runtime descriptor walks (`Object.defineProperties({} as
+        // any, props)`) silently eval-drop on the tag-gate miss.
+        if ty_ann == "any"
+            && let crate::ast::Expr::ObjectLit { fields } = self.ast.get_expr(inner)
+            && fields.is_empty()
+        {
+            let dynobj = self.lower_dynobj_init(inner);
+            // ANY_HEAP encode so downstream gates see a true Any face
+            // (the raw Ptr face missed `defineProperties`' obj_ty gate
+            // and kept the eval-drop leg).
+            return self.box_to_any(dynobj);
+        }
         let inner_op = self.lower_expr(inner);
         let inner_ty = self.operand_ty(&inner_op);
         if ty_ann == "any" {
