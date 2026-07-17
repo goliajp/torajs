@@ -98,7 +98,14 @@ fn collect_class_metadata(ast: &Ast) -> ClassMetadata {
         if let Stmt::FnDecl { name, params, .. } = s
             && let Some(c) = name.strip_prefix("__new_")
         {
-            let len = if ast.derived_default_ctor_classes.contains(c) {
+            let len = if ast.injected_error_classes.contains(c) {
+                // §20.5.1 / §20.5.6.2 — every Error-family ctor's
+                // `length` is spec-pinned to 1, even though `message`
+                // is optional (the injected ctor models that with a
+                // `message = ""` default, which the expected-arg
+                // count below would read as 0).
+                1
+            } else if ast.derived_default_ctor_classes.contains(c) {
                 0
             } else {
                 params

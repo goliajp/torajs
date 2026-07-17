@@ -142,6 +142,16 @@ pub(crate) fn builtin_method_cell(mid: i64) -> *mut u8 {
     }
 }
 
+/// Extern face of [`builtin_method_cell`] for the staticlib boundary —
+/// torajs-meta's error-proto install consumes it to define
+/// `Error.prototype.toString` as an own function entry (RFC
+/// 20260718-builtin-error-ctor-first-class 刀 4). Immortal cell; the
+/// dynobj define's rc stake no-ops on the static flag.
+#[unsafe(no_mangle)]
+pub extern "C" fn __torajs_builtin_method_cell(mid: i64) -> *mut u8 {
+    builtin_method_cell(mid)
+}
+
 /// Per-proto-tag interned `constructor` cells (rotation 131 —
 /// the gOPD 15.2.3.3-4 constructor family). `<Ctor>.prototype
 /// .constructor` must answer ONE identity per builtin so

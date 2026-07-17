@@ -52,6 +52,7 @@ unsafe extern "C" {
         out_len: *mut u32,
     ) -> *const c_void;
     fn __torajs_class_method_cell_new(adapter: u64) -> *mut u8;
+    fn __torajs_builtin_method_cell(mid: i64) -> *mut u8;
 }
 
 const MAX_CLASSES: usize = 256;
@@ -355,6 +356,47 @@ pub unsafe extern "C" fn __torajs_error_proto_install(tag: i64, name: *const c_v
             DEFINE_CTOR_FLAGS,
         );
         __torajs_str_drop(msg_key);
+        // §20.5.3.4 — `Error.prototype.toString` own function entry
+        // (刀 4), on the ROOT prototype only: subclass prototypes
+        // inherit it (`gOPD(RangeError.prototype, "toString")` is
+        // undefined per spec). The cell carries ANY_METHOD_TO_STRING;
+        // calling it re-dispatches through the any-method switch whose
+        // FLAG_ERROR fallback already routes to
+        // `__torajs_error_to_string`, so the own entry, `e.toString()`
+        // and `Error.prototype.toString.call(e)` all agree. name /
+        // length answer from the mid's meta row ("toString", 0).
+        if str_is(name, b"Error") {
+            let cell = __torajs_builtin_method_cell(ANY_METHOD_TO_STRING_MID);
+            let ts_key = alloc_str_key(b"toString");
+            __torajs_dynobj_define(
+                &mut slot,
+                ts_key,
+                ANY_HEAP as u64,
+                cell as u64,
+                DEFINE_CTOR_FLAGS,
+            );
+            __torajs_str_drop(ts_key);
+        }
+    }
+}
+
+/// Mirror of `torajs-rc/src/any_method.rs` `ANY_METHOD_TO_STRING`
+/// (append-only ABI table; same mirror discipline as the error
+/// instance layout offsets in `error_to_string.rs`).
+const ANY_METHOD_TO_STRING_MID: i64 = 62;
+
+/// Content equality of a Str cell against an ASCII literal — Str
+/// length u32 @+8, data @+16 (Latin-1 for ASCII payloads).
+///
+/// # Safety-free: read-only; `s` was validated non-null by the caller.
+fn str_is(s: *const c_void, lit: &[u8]) -> bool {
+    unsafe {
+        let p = s as *const u8;
+        let len = (p.add(8) as *const u32).read() as usize;
+        if len != lit.len() {
+            return false;
+        }
+        core::slice::from_raw_parts(p.add(16), len) == lit
     }
 }
 

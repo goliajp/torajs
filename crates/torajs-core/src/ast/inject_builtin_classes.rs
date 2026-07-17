@@ -123,11 +123,16 @@ fn build_error_class(ast: &mut Ast) -> Stmt {
         value: stack_expr,
     });
 
+    // §20.5.1.1 — `message` is optional (`new Error()` is legal); tr
+    // models message as an always-present struct field, so the spec's
+    // "undefined → no own message property" face maps to the same ""
+    // the empty-message special cases already handle.
+    let msg_default = ast.add_expr(Expr::String(String::new()));
     let ctor = ClassCtor {
         params: vec![Param {
             name: "message".to_string(),
             type_ann: Some("string".to_string()),
-            default: None,
+            default: Some(msg_default),
             is_rest: false,
         }],
         body: vec![
@@ -219,11 +224,13 @@ fn build_error_subclass(ast: &mut Ast, sub_name: &str) -> Stmt {
         value: stack_expr,
     });
 
+    // Same §20.5.1.1 optional-message face as the Error root ctor.
+    let msg_default = ast.add_expr(Expr::String(String::new()));
     let ctor = ClassCtor {
         params: vec![Param {
             name: "message".to_string(),
             type_ann: Some("string".to_string()),
-            default: None,
+            default: Some(msg_default),
             is_rest: false,
         }],
         body: vec![
