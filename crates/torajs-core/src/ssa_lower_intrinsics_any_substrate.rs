@@ -92,6 +92,10 @@ pub(crate) struct AnySubstrateIds {
     /// the per-generator-proto → %GeneratorPrototype% chain writer.
     pub genfn_proto: FuncId,
     pub genfn_chain: FuncId,
+    /// Knife B cut 2 (RFC 20260717-class-first-class-value) — static
+    /// method reification: define one reified adapter cell onto the
+    /// class object (`tag, name Str, adapter vaddr`).
+    pub static_method_define: FuncId,
     pub any_index_get: FuncId,
     pub any_index_set: FuncId,
     pub any_length_get: FuncId,
@@ -173,6 +177,7 @@ pub(crate) fn declare(
         register_native_error: decl!("__torajs_register_native_error", [I64, Ptr], Void),
         proto_get: decl!("__torajs_anyv_proto_get", [I64], Any),
         class_register: decl!("__torajs_anyv_class_register", [I64, Any, I64], Void),
+        static_method_define: decl!("__torajs_class_static_method_define", [I64, Str, I64], Void),
         class_get: decl!("__torajs_anyv_class_get", [I64], Any),
         get_proto_of_any: decl!("__torajs_anyv_get_proto_of_any", [Any], Any),
         proto_member_get: decl!("__torajs_anyv_proto_member_get", [Any], Any),

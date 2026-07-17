@@ -302,6 +302,39 @@ fn emit_chain_and_registration_stmts(ast: &mut Ast, meta: &ClassMetadata, out: &
         out.push(Stmt::Expr(call));
     }
 
+    // Knife B cut 2 (RFC 20260717-class-first-class-value) — static
+    // method reification: `C.staticMethod` must be an own function
+    // object of the class object with the §10.2.10 method attribute
+    // set. Emitted as `__torajs_static_method_reify("<C>", "<M>")`,
+    // intercepted at ssa_lower → resolves `__sm_<C>__<M>`'s boxed
+    // adapter and hands runtime the (tag, name, adapter) triple.
+    // Call-site dispatch is untouched (static calls were already
+    // desugared to bare `__sm_` idents).
+    for cname in &meta.class_names {
+        if gen_class_set.contains(cname) {
+            continue;
+        }
+        let prefix = format!("__sm_{cname}__");
+        let mnames: Vec<String> = ast
+            .stmts
+            .iter()
+            .filter_map(|s| match s {
+                Stmt::FnDecl { name, .. } => name.strip_prefix(&prefix).map(str::to_string),
+                _ => None,
+            })
+            .collect();
+        for m in mnames {
+            let cname_str = ast.add_expr(Expr::String(cname.clone()));
+            let mname_str = ast.add_expr(Expr::String(m));
+            let callee = ast.add_expr(Expr::Ident("__torajs_static_method_reify".to_string()));
+            let call = ast.add_expr(Expr::Call {
+                callee,
+                args: vec![cname_str, mname_str],
+            });
+            out.push(Stmt::Expr(call));
+        }
+    }
+
     // P7.4-a-2 — register each present Error-family class's
     // `__new_<C>` factory into the runtime native-error registry so a
     // runtime native-error throw (bigint RangeError, readonly-prop /

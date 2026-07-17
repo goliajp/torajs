@@ -348,6 +348,7 @@ pub(crate) fn build(
         error_to_string: init_c.any_substrate.error_to_string,
         genfn_proto: init_c.any_substrate.genfn_proto,
         genfn_chain: init_c.any_substrate.genfn_chain,
+        static_method_define: init_c.any_substrate.static_method_define,
         any_typeof: init_c.any_substrate.any_typeof,
         any_to_bool: init_c.any_substrate.any_to_bool,
         any_to_number: init_c.any_substrate.any_to_number,

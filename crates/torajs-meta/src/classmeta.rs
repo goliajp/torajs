@@ -241,6 +241,52 @@ unsafe fn reify_prototype_methods(tag: i64, proto: *mut c_void) {
     }
 }
 
+/// Knife B cut 2 — one static-method own entry on the class object.
+/// ssa_lower hands the resolved triple (`tag`, the method-name Str
+/// cell, the `__sm_<C>__<M>` boxed adapter's vaddr); the minted cell
+/// is the same reified-method shape the prototype entries use, and
+/// the define applies the §10.2.10 `{writable: true, enumerable:
+/// false, configurable: true}` attribute set. A `name` / `length`
+/// static method redefines the reflection slot the register lock
+/// shaped (both are configurable, so the redefine is legal — and the
+/// function-valued entry is the spec answer for a static method
+/// shadow).
+///
+/// # Safety
+/// `name_str` is a live Str cell (caller-owned; the define takes its
+/// own key reference); `adapter` is a live boxed-adapter code
+/// address.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_class_static_method_define(
+    tag: i64,
+    name_str: *const u8,
+    adapter: u64,
+) {
+    if !in_range(tag) || name_str.is_null() || adapter == 0 {
+        return;
+    }
+    // SAFETY: single-threaded JS; the register sequence filled the
+    // slot before any reify call (class_globals.rs emit order).
+    let class_anyv = unsafe { CLASSES_BY_TAG_IMM[tag as usize] };
+    if !is_cell_imm(class_anyv) {
+        return;
+    }
+    if unsafe { heap_type_tag(class_anyv as *const c_void) } != TAG_DYNOBJ {
+        return;
+    }
+    unsafe {
+        let cell = __torajs_class_method_cell_new(adapter);
+        let mut slot = class_anyv as *mut c_void;
+        __torajs_dynobj_define(
+            &mut slot,
+            name_str,
+            ANY_HEAP as u64,
+            cell as u64,
+            DEFINE_CTOR_FLAGS,
+        );
+    }
+}
+
 /// `Object.getPrototypeOf(instance)` → owned AnyValue immediate.
 /// Returns `VALUE_NULL_IMM` (the NaN-box `null` sentinel) on
 /// out-of-range tag or unregistered class. rc_inc's the heap

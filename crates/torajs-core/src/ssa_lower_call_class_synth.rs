@@ -54,6 +54,7 @@ pub(crate) fn try_lower(
     match name.as_str() {
         "__torajs_proto_register" => try_lower_proto_register(ctx, args),
         "__torajs_class_register" => try_lower_class_register(ctx, args),
+        "__torajs_static_method_reify" => try_lower_static_method_reify(ctx, args),
         "__torajs_register_native_error" => try_lower_register_native_error(ctx, args),
         "__torajs_my_class_ref" => try_lower_my_class_ref(ctx, args),
         "__torajs_arguments_materialize" => try_lower_arguments_materialize(ctx, args),
@@ -145,6 +146,62 @@ fn try_lower_proto_register(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<O
         let proto_ty = ctx.operand_ty(&proto_op);
         ctx.emit_drop_value(proto_op, proto_ty);
     }
+    Some(Operand::ConstI64(0))
+}
+
+/// Knife B cut 2 (RFC 20260717-class-first-class-value) —
+/// `__torajs_static_method_reify("<C>", "<M>")`: resolve
+/// `__sm_<C>__<M>`'s boxed adapter and hand the runtime the
+/// `(tag, name-Str, adapter-vaddr)` triple so the class object gets
+/// its own `<M>` function entry. An adapter-synthesis dropout
+/// (unboxable signature) skips the define — the member read keeps
+/// its current answer instead of minting an uncallable cell.
+fn try_lower_static_method_reify(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Operand> {
+    if args.len() != 2 {
+        return None;
+    }
+    let Expr::String(cname) = ctx.ast.get_expr(args[0]) else {
+        return None;
+    };
+    let Expr::String(mname) = ctx.ast.get_expr(args[1]) else {
+        return None;
+    };
+    let cname = cname.clone();
+    let mname = mname.clone();
+    let Some(tag) = ctx.class_name_to_tag.get(&cname).copied() else {
+        return Some(Operand::ConstI64(0));
+    };
+    let body = format!("__sm_{cname}__{mname}");
+    let Some(&body_fid) = ctx.fn_table.get(body.as_str()) else {
+        return Some(Operand::ConstI64(0));
+    };
+    let Some(&(adapter_fid, adapter_sig)) = ctx.boxed_entries.get(&body_fid) else {
+        return Some(Operand::ConstI64(0));
+    };
+    let name_op = ctx.lower_expr(args[1]);
+    let cur_block = ctx.cur_block;
+    let adapter = ctx.f.append_inst(
+        cur_block,
+        InstKind::FnAddr(adapter_fid),
+        Type::FnSig(adapter_sig),
+        None,
+    );
+    let define = ctx.intrinsics.static_method_define;
+    ctx.f.append_void(
+        cur_block,
+        InstKind::Call(
+            define,
+            vec![
+                Operand::ConstI64(tag as i64),
+                name_op.clone(),
+                Operand::Value(adapter),
+            ],
+        ),
+    );
+    // The lowered Str literal is a caller-owned temp — the runtime
+    // key copy is the define's own (dynobj_define rc_incs the key).
+    let ty = ctx.operand_ty(&name_op);
+    ctx.emit_drop_value(name_op, ty);
     Some(Operand::ConstI64(0))
 }
 

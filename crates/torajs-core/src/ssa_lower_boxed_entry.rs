@@ -79,7 +79,7 @@ pub(crate) fn synthesize_boxed_entries(
     fn_sig_ids: &mut HashMap<FuncId, ssa::SigId>,
     intr: &BoxedEntryIntrinsics,
 ) -> HashMap<FuncId, (FuncId, ssa::SigId)> {
-    let mut targets: Vec<(String, FuncId, Vec<Type>, Type, bool, bool)> = Vec::new();
+    let mut targets: Vec<(String, FuncId, Vec<Type>, Type, bool, bool, bool)> = Vec::new();
     for stmt in &ast.stmts {
         let Stmt::FnDecl { name, params, .. } = stmt else {
             continue;
@@ -93,9 +93,16 @@ pub(crate) fn synthesize_boxed_entries(
         let first_is_env = params.first().is_some_and(|p| p.name == "__env");
         let first_is_this =
             params.first().is_some_and(|p| p.name == "__this") && name.starts_with("__cm_");
-        if !first_is_env && !first_is_this {
+        // RFC 20260717-class-first-class-value knife B cut 2 — static
+        // method bodies (`__sm_<C>__<m>`) have NO env/this head param;
+        // their adapter maps argv straight onto the user params and
+        // drops its env argument (static dispatch carries no
+        // receiver).
+        let is_static = name.starts_with("__sm_");
+        if !first_is_env && !first_is_this && !is_static {
             continue;
         }
+        let feeds_env = first_is_env || first_is_this;
         let Some(&fid) = fn_table.get(name.as_str()) else {
             continue;
         };
@@ -103,6 +110,7 @@ pub(crate) fn synthesize_boxed_entries(
             continue;
         };
         let (param_tys, ret_ty) = fn_sigs[sig_id.0 as usize].clone();
+        let env_count = usize::from(feeds_env);
         // RFC 20260708-variadic — a body carrying the synthetic
         // `__torajs_real_argc` param (661/663 injection) takes the
         // adapter's argc VALUE in that slot; argv slots map to the
@@ -110,16 +118,18 @@ pub(crate) fn synthesize_boxed_entries(
         // the argc slot (latent mis-bind, unreachable while the 661
         // kill rules kept argc closures out of any-world).
         let has_real_argc = params
-            .get(1)
+            .get(env_count)
             .is_some_and(|p| p.name == "__torajs_real_argc");
         // RFC 20260708-closure-argv-face — a full-arguments body
         // also carries the raw argv pointer right after the argc
         // slot; the adapter feeds its own argv argument there.
-        let has_argv = params.get(2).is_some_and(|p| p.name == "__torajs_argv");
-        // param 0 is the env Ptr; the boxed surface covers the rest
-        // (minus the argc/argv slots, which never consume argv
-        // positions).
-        let skip = 1 + usize::from(has_real_argc) + usize::from(has_argv);
+        let has_argv = params
+            .get(env_count + 1)
+            .is_some_and(|p| p.name == "__torajs_argv");
+        // param 0 is the env Ptr (when the body carries one); the
+        // boxed surface covers the rest (minus the argc/argv slots,
+        // which never consume argv positions).
+        let skip = env_count + usize::from(has_real_argc) + usize::from(has_argv);
         let user_tys = param_tys[skip..].to_vec();
         if user_tys.len() > MAX_BOXED_PARAMS {
             continue;
@@ -127,7 +137,15 @@ pub(crate) fn synthesize_boxed_entries(
         if !user_tys.iter().all(boxable) || !(ret_ty == Type::Void || boxable(&ret_ty)) {
             continue;
         }
-        targets.push((name.clone(), fid, user_tys, ret_ty, has_real_argc, has_argv));
+        targets.push((
+            name.clone(),
+            fid,
+            user_tys,
+            ret_ty,
+            has_real_argc,
+            has_argv,
+            feeds_env,
+        ));
     }
     let mut entries = HashMap::new();
     if targets.is_empty() {
@@ -142,7 +160,7 @@ pub(crate) fn synthesize_boxed_entries(
         &[Type::Any],
         Type::Ptr,
     );
-    for (name, fid, user_tys, ret_ty, has_real_argc, has_argv) in targets {
+    for (name, fid, user_tys, ret_ty, has_real_argc, has_argv, feeds_env) in targets {
         let pair = build_boxed_entry(
             module,
             fn_table,
@@ -156,6 +174,7 @@ pub(crate) fn synthesize_boxed_entries(
             ret_ty,
             has_real_argc,
             has_argv,
+            feeds_env,
         );
         entries.insert(fid, pair);
     }
@@ -177,6 +196,7 @@ fn build_boxed_entry(
     ret_ty: Type,
     has_real_argc: bool,
     has_argv: bool,
+    feeds_env: bool,
 ) -> (FuncId, ssa::SigId) {
     let name = format!("__boxed_{body_name}");
     let fid = FuncId(module.funcs.len() as u32);
@@ -193,7 +213,11 @@ fn build_boxed_entry(
     // Str-param temps (owned via ToString — a ShortStr argument
     // materializes) released after the body call.
     let mut str_temps: Vec<ssa::ValueId> = Vec::new();
-    args.push(Operand::Value(env));
+    // A static-method body (`__sm_`) has no env slot — the adapter
+    // drops its env argument (knife B cut 2).
+    if feeds_env {
+        args.push(Operand::Value(env));
+    }
     // RFC 20260708-variadic — feed the dispatcher's real argc into
     // the body's synthetic `__torajs_real_argc` slot; the argv-face
     // body additionally takes the raw argv pointer.
