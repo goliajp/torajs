@@ -77,6 +77,11 @@ fn decode_any_to_str(ctx: &mut LowerCtx<'_>, raw: Operand) -> Operand {
             vec![raw, Operand::Value(val)],
         ),
     );
+    // OrdinaryToPrimitive can record a catchable TypeError (a user
+    // toString threw / both hooks answered objects) — propagate to
+    // the caller's try/catch instead of leaking the pending throw
+    // (0-check audit, rotation 130 L3b).
+    ctx.emit_throw_check(None);
     Operand::Value(s_val)
 }
 

@@ -70,6 +70,9 @@ pub(crate) fn try_dispatch(
                     Type::Str,
                     None,
                 );
+                // Pending-throw propagation — see stmt_return's twin
+                // (0-check audit, rotation 130 L3b).
+                ctx.emit_throw_check(None);
                 temp = Some(Operand::Value(s));
                 argv.push(Operand::Value(s));
             } else {

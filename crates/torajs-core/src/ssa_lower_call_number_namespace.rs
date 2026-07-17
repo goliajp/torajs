@@ -173,6 +173,9 @@ fn lower_parse_float(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
                 vec![raw, Operand::Value(val)],
             ),
         );
+        // Pending-throw propagation — see the bare-globals twin
+        // (0-check audit, rotation 130 L3b).
+        ctx.emit_throw_check(None);
         Operand::Value(s_val)
     } else {
         raw

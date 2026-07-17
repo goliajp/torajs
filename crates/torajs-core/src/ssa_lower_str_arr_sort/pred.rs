@@ -111,6 +111,12 @@ pub(super) fn emit_sort_pred(
             };
             let prev_s = to_str(ctx, prev, elem_ty);
             let cur_s = to_str(ctx, cur, elem_ty);
+            // The Any arm's ToString runs OrdinaryToPrimitive — a
+            // throwing user hook aborts the sort (0-check audit,
+            // rotation 130 L3b).
+            if matches!(elem_ty, Type::Any) {
+                ctx.emit_throw_check(None);
+            }
             if let (Some((ps, ps_minted)), Some((cs, cs_minted))) = (prev_s, cur_s) {
                 let r = ctx.f.append_inst(
                     ctx.cur_block,

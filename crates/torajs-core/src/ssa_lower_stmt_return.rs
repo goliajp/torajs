@@ -170,6 +170,9 @@ pub(crate) fn lower(ctx: &mut LowerCtx, maybe: Option<crate::ast::ExprId>) {
                 None,
             );
             ctx.emit_drop_value(op, Type::Any);
+            // Pending-throw propagation — a user toString can throw
+            // (0-check audit, rotation 130 L3b).
+            ctx.emit_throw_check(None);
             return Operand::Value(v);
         }
         if ctx.f.ret == Type::F64 && actual == Type::I64 {
