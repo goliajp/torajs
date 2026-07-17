@@ -44,6 +44,14 @@ unsafe extern "C" {
     /// (5 = absent) / per-tag payload.
     fn __torajs_dynobj_get_tag(obj: *const c_void, key: *const c_void) -> u64;
     fn __torajs_dynobj_get_value(obj: *const c_void, key: *const c_void) -> u64;
+    /// torajs-dynobj — own-key membership probe (1 = present).
+    /// Disambiguates `get_tag`'s ANY_UNDEF answer: absent key vs an
+    /// own entry storing undefined.
+    fn __torajs_dynobj_has(obj: *const c_void, key: *const c_void) -> i32;
+    /// torajs-throw — pending-throw probe (non-zero = pending); the
+    /// getter-as-callee arm aborts before the callee probe so
+    /// `not_callable` can't clobber the user throw.
+    fn __torajs_throw_check() -> i64;
     /// torajs-dynobj — run an accessor entry's getter; the answer is
     /// an owned AnyValue per the boxed-value convention.
     fn __torajs_accessor_invoke_getter(pair: *const c_void, recv_anyv: u64) -> u64;
@@ -130,6 +138,14 @@ pub(crate) unsafe fn dynobj_method(
             // monkey-patch (`o.valueOf = fn`) always wins; a
             // resolved-but-not-callable entry keeps the TypeError.
             if dtag == 5 {
+                // `get_tag` conflates absent with an own entry
+                // STORING undefined; the latter shadows the
+                // prototype, so `{toString: undefined}.toString()`
+                // is the resolved-not-callable TypeError, not the
+                // inherited "[object Object]".
+                if __torajs_dynobj_has(obj, key) != 0 {
+                    return not_callable();
+                }
                 return object_proto_fallback(obj, mid, false, argv);
             }
             // ANY_HEAP = 4 — a plain closure-cell property.
@@ -177,6 +193,13 @@ pub(crate) unsafe fn dynobj_method(
                     pair,
                     crate::nanbox_encode::__torajs_anyv_box_from_pair(4, obj as i64),
                 );
+                // A throwing getter aborts the call (§13.3.6.1 Get
+                // ReturnIfAbrupt) — propagate before the callee
+                // probe, or `not_callable` below would clobber the
+                // user's pending throw with its own TypeError.
+                if __torajs_throw_check() != 0 {
+                    return got;
+                }
                 if let Some((env, entry)) = closure_boxed_entry(got) {
                     let r = crate::method_call::invoke_boxed(env, entry, argv, argc);
                     crate::nanbox_ffi::__torajs_anyv_rc_dec(got);
@@ -293,6 +316,16 @@ pub(crate) unsafe fn own_entry_not_callable(
             let key = name_str as *const c_void;
             let dtag = __torajs_dynobj_get_tag(obj, key);
             if dtag == 5 {
+                // `get_tag` answers ANY_UNDEF both for an absent key
+                // and for an own entry STORING undefined — but the
+                // own entry shadows the prototype (§7.1.1.1 skips a
+                // non-callable method name: `{toString: undefined,
+                // valueOf}` coerces through valueOf, not through the
+                // inherited "[object Object]"). Disambiguate with the
+                // own-key probe.
+                if __torajs_dynobj_has(obj, key) != 0 {
+                    return true;
+                }
                 // Absent own key: an ordinary dict inherits the
                 // builtin Object.prototype method surface, so the
                 // dispatch proceeds — unless this is a null-
