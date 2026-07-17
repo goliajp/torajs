@@ -99,6 +99,24 @@ pub(crate) fn lower_accessor_face(ctx: &mut LowerCtx, eid: ExprId, is_get: bool)
     {
         return (op, 5 | 0x40);
     }
+    // An Any-typed face (`const g: any = function(){..}`) is a
+    // NaN-box — storing its bits in the pair verbatim transmuted
+    // them as a cell on invoke (SIGSEGV). Unbox through the runtime
+    // §6.2.6.5 IsCallable check: a closure cell answers an owned
+    // pointer (pair takes ownership), undefined/null clear the
+    // face, everything else leaves a catchable TypeError.
+    if matches!(ctx.operand_ty(&op), Type::Any) {
+        let p = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.accessor_face_from_any, vec![op]),
+            Type::Ptr,
+            None,
+        );
+        ctx.emit_throw_check(None);
+        // ACC_KIND_BOXED — any-world closures invoke through the
+        // boxed dual entry.
+        return (Operand::Value(p), 5);
+    }
     // An Ident face is a BORROW of the binding's closure ref, but
     // `accessor_pair_new` takes its faces by ownership transfer —
     // without a stake of its own the pair aliases the binding, and a

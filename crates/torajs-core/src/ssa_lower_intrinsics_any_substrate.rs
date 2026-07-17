@@ -105,6 +105,8 @@ pub(crate) struct AnySubstrateIds {
     pub any_iter_next: FuncId,
     pub any_iter_close: FuncId,
     pub any_call: FuncId,
+    /// §6.2.6.5 IsCallable unbox for an Any-typed accessor face.
+    pub accessor_face_from_any: FuncId,
     pub closure_call_variadic: FuncId,
     pub any_method_call: FuncId,
     pub any_method_call_opt: FuncId,
@@ -223,6 +225,7 @@ pub(crate) fn declare(
         // RFC C4+ — bare any-call `f(args…)`: (callee, argv, argc)
         // → Any; non-closures raise a catchable TypeError.
         any_call: decl!("__torajs_any_call", [Any, Ptr, I64], Any),
+        accessor_face_from_any: decl!("__torajs_accessor_face_from_any", [Any], Ptr),
         // RFC 20260708-variadic — closure-slot variadic call through
         // a `(...args: E[]) => R`-typed binding: (env cell, argv,
         // argc) → Any via the boxed dual entry; a missing adapter

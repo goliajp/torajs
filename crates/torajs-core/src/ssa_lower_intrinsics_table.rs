@@ -366,6 +366,7 @@ pub(crate) fn build(
         any_iter_next: init_c.any_substrate.any_iter_next,
         any_iter_close: init_c.any_substrate.any_iter_close,
         any_call: init_c.any_substrate.any_call,
+        accessor_face_from_any: init_c.any_substrate.accessor_face_from_any,
         closure_call_variadic: init_c.any_substrate.closure_call_variadic,
         any_method_call: init_c.any_substrate.any_method_call,
         any_method_call_opt: init_c.any_substrate.any_method_call_opt,

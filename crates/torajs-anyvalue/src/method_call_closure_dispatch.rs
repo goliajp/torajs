@@ -158,6 +158,35 @@ pub unsafe extern "C" fn __torajs_any_call(
     }
 }
 
+/// §6.2.6.5 steps 7-8 IsCallable over an Any-typed accessor face —
+/// `defineProperty(o, k, {get: g})` where `g`'s static type erased
+/// to `any`. A closure cell answers its pointer with a fresh stake
+/// (the AccessorPair takes faces by ownership transfer); undefined
+/// / null clear the face (NULL); anything else records the
+/// catchable TypeError and answers NULL for the caller's throw
+/// check. Pre-fix the face slot stored the NaN-box BITS verbatim
+/// and the property access transmuted them as a cell — SIGSEGV.
+///
+/// # Safety
+/// `v` is a valid AnyValue; a Heap payload points at a live cell.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_accessor_face_from_any(v: AnyValue) -> *mut c_void {
+    unsafe {
+        if crate::nanbox::is_undefined(v) || crate::nanbox::is_null(v) {
+            return core::ptr::null_mut();
+        }
+        if is_cell(v) {
+            let p = as_void_ptr(v);
+            if (p.cast::<u8>().add(4) as *const u16).read() == Tag::Closure as u16 {
+                crate::nanbox_ffi::__torajs_anyv_rc_inc(v);
+                return p;
+            }
+        }
+        crate::method_call::not_callable();
+        core::ptr::null_mut()
+    }
+}
+
 /// Invoke honoring the closure's receiver channel. A receiver-first
 /// closure (RFC 20260717-objlit-anylane-recv: an any-lane literal
 /// method whose body says `this`) declares `__this` as its first

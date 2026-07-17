@@ -409,6 +409,7 @@ pub(crate) struct Intrinsics {
     pub(crate) any_iter_next: FuncId,
     pub(crate) any_iter_close: FuncId,
     pub(crate) any_call: FuncId,
+    pub(crate) accessor_face_from_any: FuncId,
     pub(crate) closure_call_variadic: FuncId,
     pub(crate) any_method_call: FuncId,
     pub(crate) any_method_call_opt: FuncId,
