@@ -30,6 +30,7 @@
 use core::ffi::c_void;
 
 use crate::method_call::{closure_boxed_entry, closure_cell_entry, not_callable};
+use crate::method_call_dynobj_chain::proto_chain_method;
 use crate::method_call_dynobj_proto::object_proto_fallback;
 use crate::nanbox::AnyValue;
 use crate::nanbox_encode::__torajs_anyv_box_pointer;
@@ -148,6 +149,10 @@ pub(crate) unsafe fn dynobj_method(
                 // inherited "[object Object]".
                 if __torajs_dynobj_has(obj, key) != 0 {
                     return not_callable();
+                }
+                // knife 2 — user chain first; this = receiver.
+                if let Some(r) = proto_chain_method(obj, name_str, recv_slot, argv, argc) {
+                    return r;
                 }
                 return object_proto_fallback(obj, mid, false, argv);
             }

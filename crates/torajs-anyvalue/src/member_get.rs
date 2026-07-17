@@ -45,7 +45,7 @@ use core::ffi::c_void;
 
 use torajs_rc::{AnySlotTag, Tag};
 
-use crate::member_get_own::{arr_own_pair, closure_virtual_pair};
+use crate::member_get_own::{arr_own_pair, closure_virtual_pair, user_proto_cell};
 pub(crate) use crate::member_get_own::{canonical_index, strwrapper_length};
 use crate::nanbox::{AnyValue, as_void_ptr, is_cell, is_null, is_undefined};
 
@@ -199,6 +199,12 @@ pub unsafe extern "C" fn __torajs_any_member_get_tag(recv: AnyValue, key: *const
             // has probe disambiguates (777e756c's read-side leg).
             if __torajs_dynobj_has(ptr, key) != 0 {
                 return 5;
+            }
+            // Knife 2 — the user [[Prototype]] chain answers before
+            // the builtin surface reifies (§10.1.8.1 OrdinaryGet
+            // walks the chain; the recursion covers grandparents).
+            if let Some(parent) = user_proto_cell(ptr) {
+                return __torajs_any_member_get_tag(parent, key);
             }
             if crate::method_support::__torajs_builtin_proto_own_method_cell(ptr, key) != 0 {
                 4
@@ -361,6 +367,11 @@ pub unsafe extern "C" fn __torajs_any_member_get_value(recv: AnyValue, key: *con
                 // Stored-undefined shadow — see the tag twin.
                 if __torajs_dynobj_has(ptr, key) != 0 {
                     return 0;
+                }
+                // Knife 2 — user chain before builtin reify
+                // (tag twin above).
+                if let Some(parent) = user_proto_cell(ptr) {
+                    return __torajs_any_member_get_value(parent, key);
                 }
                 let cell = crate::method_support::__torajs_builtin_proto_own_method_cell(ptr, key);
                 if cell != 0 {

@@ -15,6 +15,46 @@ unsafe extern "C" {
     /// 20260712-arr-exotic-define chunk A dynamic-key arm).
     fn __torajs_arr_get_any_tag(arr: *const c_void, i: u64) -> u64;
     fn __torajs_arr_get_any_value(arr: *const c_void, i: u64) -> u64;
+    /// torajs-str / torajs-dynobj — the `__proto__` simulation-slot
+    /// probe behind [`user_proto_cell`].
+    fn __torajs_str_alloc(p: *const u8, len: i64) -> *mut u8;
+    fn __torajs_str_drop(s: *mut c_void);
+    fn __torajs_dynobj_get_tag(obj: *const c_void, key: *const c_void) -> u64;
+    fn __torajs_dynobj_get_value(obj: *const c_void, key: *const c_void) -> u64;
+}
+
+/// `DYNOBJ_HDR_FLAG_NULL_PROTO` mirror (torajs-dynobj layout, header
+/// +6 u16 bit 6) — an `Object.create(null)` dict inherits nothing
+/// and its `__proto__` entry (if any) is plain data.
+const DYNOBJ_HDR_FLAG_NULL_PROTO: u16 = 1 << 6;
+
+/// The receiver dynobj's user [[Prototype]] as a borrowed cell box
+/// (RFC 20260717-user-proto-chain knife 2). Reads the own
+/// `__proto__` simulation entry: a heap-cell payload IS the parent
+/// (`Object.create(parent)` / class `__proto_<C>` chains store it
+/// there); `None` for the null-proto shape, an absent entry (the
+/// implicit %Object.prototype% chain — the builtin reify
+/// fallthrough owns that), or a non-cell payload.
+///
+/// # Safety
+/// `ptr` is a live `Tag::DynObj` heap pointer.
+pub(crate) unsafe fn user_proto_cell(ptr: *const c_void) -> Option<u64> {
+    let flags = unsafe { ptr.cast::<u8>().add(6).cast::<u16>().read() };
+    if flags & DYNOBJ_HDR_FLAG_NULL_PROTO != 0 {
+        return None;
+    }
+    unsafe {
+        let k = __torajs_str_alloc(b"__proto__".as_ptr(), 9);
+        let tag = __torajs_dynobj_get_tag(ptr, k as *const c_void);
+        let val = __torajs_dynobj_get_value(ptr, k as *const c_void);
+        __torajs_str_drop(k as *mut c_void);
+        // ANY_HEAP = 4; the entry's NaN-box IS the cell pointer bits.
+        if tag == 4 && val != 0 {
+            Some(val)
+        } else {
+            None
+        }
+    }
 }
 
 /// Arr cell length slot — torajs-arr `layout::ARR_LEN_OFF` mirror.
