@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-17T00:49:25.950Z",
+  "generatedAt": "2026-07-17T04:07:19.386Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-16T09:22:00Z",
-    "headSha": "9d46b88b",
-    "elapsedSec": 494.4,
+    "ranAt": "2026-07-17T03:17:18Z",
+    "headSha": "1e48c2a3",
+    "elapsedSec": 529.26,
     "workers": 8,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 7406,
-    "passNoOracle": 112,
+    "pass": 7404,
+    "passNoOracle": 110,
     "passNegative": 4447,
-    "passTotal": 11965,
-    "bug": 977,
-    "incompatible": 40232,
+    "passTotal": 11961,
+    "bug": 962,
+    "incompatible": 40251,
     "bunSkip": 11908,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 12942,
-    "passRateInScope": 22.5,
-    "passRateTrAccepted": 92.45
+    "trAccepted": 12923,
+    "passRateInScope": 22.49,
+    "passRateTrAccepted": 92.56
   },
   "torajs": {
-    "commit": "94648f53",
-    "commitSubject": "feat: eq-operand named-fn idents join the canonical-cell lane",
+    "commit": "8ba374ca",
+    "commitSubject": "refactor: extract walk_expr to ast_collect_fn_closure_expr (file-size debt)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "8ba374ca",
+      "subject": "refactor: extract walk_expr to ast_collect_fn_closure_expr (file-size debt)"
+    },
+    {
+      "hash": "2fb7873d",
+      "subject": "fix: the forwarder collector respects local shadowing of top-level fn names"
+    },
+    {
+      "hash": "bf094d85",
+      "subject": "fix: an Ident accessor face takes its own stake into the AccessorPair"
+    },
+    {
+      "hash": "12048a16",
+      "subject": "chore: archive the test262 sweep at 1e48c2a3"
+    },
+    {
+      "hash": "1e48c2a3",
+      "subject": "fix: array index accessor invoke carries the receiver through the new ABI"
+    },
+    {
+      "hash": "324948bc",
+      "subject": "feat: function-expression accessor faces bind call-site this"
+    },
+    {
+      "hash": "64166171",
+      "subject": "chore: hardev dashboard snapshot at rotation 127 close"
+    },
+    {
       "hash": "94648f53",
       "subject": "feat: eq-operand named-fn idents join the canonical-cell lane"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "4e49bc83",
       "subject": "feat: empty object literal cast to any promotes to the dynobj lane"
-    },
-    {
-      "hash": "d79e410d",
-      "subject": "fix: trivial env drop releases the expando props dynobj"
-    },
-    {
-      "hash": "ccf930f4",
-      "subject": "feat: pthunk wrap env stores the shared cap0 trace for the cycle collector"
-    },
-    {
-      "hash": "7e6780fb",
-      "subject": "chore: hardev dashboard snapshot at rotation 126 close"
-    },
-    {
-      "hash": "08304a8a",
-      "subject": "feat: any-annotated empty array literal promotes to Arr<Any>"
-    },
-    {
-      "hash": "a607b17a",
-      "subject": "test: closure cycle fixtures across the three capture shapes"
-    },
-    {
-      "hash": "e087bb31",
-      "subject": "feat: cycle collector walks closure envs through the trace_fn"
-    },
-    {
-      "hash": "1e000801",
-      "subject": "feat: synthesize per-closure __env_trace_<fn> for the cycle collector"
     }
   ],
-  "headSha": "94648f53",
+  "headSha": "8ba374ca",
   "autorun": {
-    "total": 432,
+    "total": 433,
     "baselineTarget": 10,
-    "bySelf": 427,
+    "bySelf": 428,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784243147-34de",
-      "at": "2026-07-16T23:05:47Z",
-      "ts": 1784243147,
+      "rotationId": "r-1784249431-148f",
+      "at": "2026-07-17T00:50:31Z",
+      "ts": 1784249431,
       "trigger": "self",
-      "prevHead": "7e6780fb",
-      "handoffSha": "sha256:97262a486fe11b997384c47aa69f2b63bc03d2b972a2d79b511abb806ec92bd0",
-      "handoffAgeSec": 4,
+      "prevHead": "64166171",
+      "handoffSha": "sha256:68acd890613edb040dce466b5ca9d20482295131cf7f5927ea52b5cd3aebe699",
+      "handoffAgeSec": 9,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784249431-148f",
+        "at": "2026-07-17T00:50:31Z",
+        "ts": 1784249431,
+        "trigger": "self",
+        "prevHead": "64166171",
+        "handoffSha": "sha256:68acd890613edb040dce466b5ca9d20482295131cf7f5927ea52b5cd3aebe699",
+        "handoffAgeSec": 9,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784243147-34de",
         "at": "2026-07-16T23:05:47Z",
@@ -876,17 +887,6 @@
         "prevHead": "c3bc8aaa",
         "handoffSha": "sha256:a321e93aa474473b458d8e51c1b912b702e0a2919ad82506280389a737b3421c",
         "handoffAgeSec": 3,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784174092-0ac0",
-        "at": "2026-07-16T03:54:52Z",
-        "ts": 1784174092,
-        "trigger": "self",
-        "prevHead": "5f1af774",
-        "handoffSha": "sha256:95a8f3232843292824d7e71ecb07f02246739d5cc0f17db862453cdb5530bb8d",
-        "handoffAgeSec": 52,
         "conformanceBefore": null,
         "commitsInSession": null
       }
