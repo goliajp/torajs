@@ -459,8 +459,7 @@ pub(crate) unsafe fn struct_method(
                     if let Some((env, entry)) = pair {
                         // Recv-first field value binds the struct
                         // instance as `this` (knife 2f).
-                        let recv =
-                            crate::nanbox_encode::__torajs_anyv_box_from_pair(4, obj as i64);
+                        let recv = crate::nanbox_encode::__torajs_anyv_box_from_pair(4, obj as i64);
                         return crate::method_call::invoke_with_this(env, entry, recv, argv, argc);
                     }
                     // A resolved field that isn't callable keeps the
