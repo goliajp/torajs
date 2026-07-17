@@ -49,6 +49,21 @@ use crate::{
 /// HeapHeader`. The returned pointer is valid until the caller
 /// `drop`s it (matches the pre-rewrite C contract).
 pub(crate) unsafe fn any_to_str(tag: i64, value: i64) -> *mut c_void {
+    unsafe { any_to_str_hint(tag, value, true) }
+}
+
+/// [`any_to_str`] for the STRING-CONCAT position (§13.15.3 steps
+/// 1-2) — an object operand runs ToPrimitive with the DEFAULT hint
+/// (valueOf → toString for ordinary objects; a Date maps default to
+/// string order), then the primitive stringifies. The hint-string
+/// face is what template literals / String() want; using it in `+`
+/// ran toString ahead of valueOf (`"" + {valueOf: …}` observable
+/// order vs bun).
+pub(crate) unsafe fn any_to_str_prim(tag: i64, value: i64) -> *mut c_void {
+    unsafe { any_to_str_hint(tag, value, false) }
+}
+
+unsafe fn any_to_str_hint(tag: i64, value: i64, hint_string: bool) -> *mut c_void {
     if tag == AnySlotTag::Null as i64 {
         return unsafe { __torajs_null_to_str() };
     }
@@ -125,7 +140,12 @@ pub(crate) unsafe fn any_to_str(tag: i64, value: i64) -> *mut c_void {
         // static "[object]" placeholder without ever calling a
         // user toString).
         unsafe {
-            match crate::to_primitive::heap_to_primitive(child as *mut c_void, true) {
+            let prim = if hint_string {
+                crate::to_primitive::heap_to_primitive(child as *mut c_void, true)
+            } else {
+                crate::to_primitive::heap_to_primitive_default(child as *mut c_void)
+            };
+            match prim {
                 Some(prim) => {
                     let s = crate::nanbox_ffi::__torajs_anyv_to_str(prim);
                     crate::nanbox_ffi::__torajs_anyv_rc_dec(prim);

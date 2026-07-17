@@ -99,7 +99,23 @@ impl<'a> Parser<'a> {
                     // P13-S5 — propagate dynamic-import counter so
                     // the next minted name doesn't collide.
                     self.dyn_import_counter = sub.dyn_import_counter;
-                    result
+                    // §13.2.8.5 — a substitution stringifies with the
+                    // STRING hint (ToString → toString before
+                    // valueOf). The desugared `+` chain can't carry
+                    // that: `+`'s object operands run
+                    // ToPrimitive(default) — valueOf first — so
+                    // `${objWithBothHooks}` observably diverged from
+                    // bun once the concat lanes took the spec order.
+                    // Wrapping in `String(...)` makes the hint
+                    // explicit; the String() lowering is a typed
+                    // dispatch (identity on Str, the same
+                    // *_to_str intrinsics elsewhere), not a real
+                    // call, so primitive substitutions cost nothing.
+                    let callee = self.ast.add_expr(Expr::Ident("String".to_string()));
+                    self.ast.add_expr(Expr::Call {
+                        callee,
+                        args: vec![result],
+                    })
                 }
             };
             acc = Some(match acc {

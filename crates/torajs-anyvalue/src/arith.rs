@@ -160,6 +160,29 @@ fn box_i64(value: i64) -> AnyValue {
 /// Str-path (where C-side `__torajs_str_concat` reads the Str
 /// layout) and the numeric path (via [`any_to_number`]).
 pub(crate) unsafe fn any_add(lt: i64, lv: i64, rt: i64, rv: i64) -> AnyValue {
+    // §13.15.3 steps 1-2 — BOTH operands run ToPrimitive (default
+    // hint) BEFORE the string/number split: an object operand's
+    // valueOf decides the path (`"" + {valueOf: () => 1}` concats
+    // "1", two valueOf-objects add numerically). Pre-fix the split
+    // keyed off the RAW operands, so an object next to a string ran
+    // hint-string ToString (toString ahead of valueOf). The
+    // primitive replaces the pair; its owned box releases at the
+    // end (primitives are immediates except Str, whose stake the
+    // concat path's ToString covers with its own inc).
+    let (lt, lv, l_prim) = unsafe { add_operand_to_primitive(lt, lv) };
+    let (rt, rv, r_prim) = unsafe { add_operand_to_primitive(rt, rv) };
+    let release = |p: Option<AnyValue>| {
+        if let Some(b) = p {
+            unsafe { crate::nanbox_ffi::__torajs_anyv_rc_dec(b) };
+        }
+    };
+    // A double-object ToPrimitive failure recorded the TypeError —
+    // answer undefined for the caller's throw check.
+    if lt == i64::MIN || rt == i64::MIN {
+        release(l_prim);
+        release(r_prim);
+        return crate::nanbox::VALUE_UNDEFINED;
+    }
     // SAFETY: caller invariant — propagated.
     let l_is_str = unsafe { is_heap_str(lt, lv) };
     let r_is_str = unsafe { is_heap_str(rt, rv) };
@@ -187,6 +210,8 @@ pub(crate) unsafe fn any_add(lt: i64, lv: i64, rt: i64, rv: i64) -> AnyValue {
                 __torajs_str_drop(l_str);
                 __torajs_str_drop(r_str);
             }
+            release(l_prim);
+            release(r_prim);
             return short;
         }
         // SAFETY: both pointers are freshly-owned Strs whose layout
@@ -199,6 +224,8 @@ pub(crate) unsafe fn any_add(lt: i64, lv: i64, rt: i64, rv: i64) -> AnyValue {
             __torajs_str_drop(l_str);
             __torajs_str_drop(r_str);
         }
+        release(l_prim);
+        release(r_prim);
         // concat is a freshly-owned heap pointer (rc=1);
         // box_void_ptr stores it in the AnyValue cell slot.
         // Caller owns the rc.
@@ -212,6 +239,8 @@ pub(crate) unsafe fn any_add(lt: i64, lv: i64, rt: i64, rv: i64) -> AnyValue {
     // SAFETY: caller invariant — propagated.
     let l = unsafe { any_to_number(lt, lv) };
     let r = unsafe { any_to_number(rt, rv) };
+    release(l_prim);
+    release(r_prim);
     let sum = l + r;
 
     if tag_is_i64_shaped(lt)
@@ -225,6 +254,30 @@ pub(crate) unsafe fn any_add(lt: i64, lv: i64, rt: i64, rv: i64) -> AnyValue {
         }
     }
     box_double(sum)
+}
+
+/// §13.15.3 step 1/2 for one `any_add` operand — a Heap non-Str
+/// cell replaces itself with its ToPrimitive(default) `(tag,
+/// value)`; the owned prim box rides back so the caller releases
+/// it after use (`None` = the operand was already primitive /
+/// Str). A ToPrimitive failure (both hooks object) answers
+/// `(i64::MIN, 0, None)` with the TypeError pending.
+unsafe fn add_operand_to_primitive(tag: i64, value: i64) -> (i64, i64, Option<AnyValue>) {
+    if tag != AnySlotTag::Heap as i64 || value == 0 {
+        return (tag, value, None);
+    }
+    let h = unsafe { &*(value as *const torajs_rc::HeapHeader) };
+    if matches!(h.tag(), torajs_rc::Tag::Str) {
+        return (tag, value, None);
+    }
+    match unsafe { crate::to_primitive::heap_to_primitive_default(value as *mut c_void) } {
+        Some(prim) => {
+            let pt = crate::nanbox_encode::__torajs_anyv_unbox_tag(prim);
+            let pv = crate::nanbox_encode::__torajs_anyv_unbox_value(prim);
+            (pt, pv, Some(prim))
+        }
+        None => (i64::MIN, 0, None),
+    }
 }
 
 /// Step 8c — try the ShortStr fast-path for the `any_add` string-

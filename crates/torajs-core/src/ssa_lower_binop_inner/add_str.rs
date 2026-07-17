@@ -339,7 +339,7 @@ pub(crate) fn coerce_to_str(ctx: &mut LowerCtx, v: Operand, undefable: bool) -> 
                 let s = ctx.f.append_inst(
                     ctx.cur_block,
                     InstKind::Call(
-                        ctx.intrinsics.any_to_str,
+                        ctx.intrinsics.any_to_str_prim,
                         vec![Operand::ConstI64(4), Operand::Value(raw)],
                     ),
                     Type::Str,

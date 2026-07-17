@@ -496,6 +496,25 @@ pub unsafe extern "C" fn __torajs_anyv_to_str_pair(tag: i64, value: i64) -> *mut
     unsafe { any_to_str(tag, value) }
 }
 
+/// Pair-arg ToString for the STRING-CONCAT position (§13.15.3
+/// steps 1-2): an object operand runs ToPrimitive with the DEFAULT
+/// hint first (valueOf → toString for ordinary objects; a Date maps
+/// default to string order), and the primitive result stringifies.
+/// The plain [`__torajs_anyv_to_str_pair`] is hint-string ToString
+/// (template literals, String()) — using it in `+` ran toString
+/// ahead of valueOf (`"" + {valueOf: …}` observable order). A
+/// double-object ToPrimitive failure records the catchable
+/// TypeError and answers an empty Str placeholder for the caller's
+/// throw check to unwind.
+///
+/// # Safety
+/// For `tag == Heap`, `value` is null or a valid `*mut HeapHeader`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_to_str_pair_prim(tag: i64, value: i64) -> *mut c_void {
+    // SAFETY: caller invariant on (tag, value) pair.
+    unsafe { crate::coerce::any_to_str_prim(tag, value) }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
