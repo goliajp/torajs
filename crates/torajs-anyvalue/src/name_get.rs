@@ -114,6 +114,12 @@ pub(crate) unsafe fn closure_virtual_name_cell(ptr: *mut c_void) -> Option<*mut 
         if let Some(cell) = crate::method_value::builtin_method_name_cell_of(ptr) {
             return Some(cell);
         }
+        // Reified class-accessor face (RFC 20260718-accessor-reify
+        // 刀 2) — the carried "get <p>" / "set <p>" Str, owned out.
+        if let Some((name, _)) = crate::method_value_class::class_accessor_meta(ptr) {
+            torajs_rc::__torajs_rc_inc(name as *mut core::ffi::c_void);
+            return Some(name);
+        }
         if crate::method_bind::bound_cell_meta(ptr).is_some() {
             return None;
         }
@@ -231,6 +237,11 @@ unsafe fn closure_name_str(ptr: *mut c_void) -> *mut u8 {
     unsafe {
         if let Some(cell) = crate::method_value::builtin_method_name_cell_of(ptr) {
             return cell;
+        }
+        // Class-accessor face — see the virtual-name twin above.
+        if let Some((name, _)) = crate::method_value_class::class_accessor_meta(ptr) {
+            torajs_rc::__torajs_rc_inc(name as *mut core::ffi::c_void);
+            return name;
         }
         if let Some((kind, target, _)) = crate::method_bind::bound_cell_meta(ptr) {
             let tname: *mut u8 = if kind == 0 {

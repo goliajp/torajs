@@ -103,6 +103,10 @@ pub(crate) struct AnySubstrateIds {
     /// method reification: define one reified adapter cell onto the
     /// class object (`tag, name Str, adapter vaddr`).
     pub static_method_define: FuncId,
+    /// RFC 20260718-accessor-reify 刀 2 — class-accessor
+    /// reification: define one AccessorPair own entry onto the class
+    /// prototype (`tag, name Str, get vaddr, set vaddr`).
+    pub class_accessor_define: FuncId,
     pub any_index_get: FuncId,
     pub any_index_set: FuncId,
     pub any_length_get: FuncId,
@@ -187,6 +191,7 @@ pub(crate) fn declare(
         error_proto_install: decl!("__torajs_error_proto_install", [I64, Str], Void),
         error_is_error: decl!("__torajs_error_is_error", [Any], Bool),
         static_method_define: decl!("__torajs_class_static_method_define", [I64, Str, I64], Void),
+        class_accessor_define: decl!("__torajs_class_accessor_define", [I64, Str, I64, I64], Void),
         class_get: decl!("__torajs_anyv_class_get", [I64], Any),
         get_proto_of_any: decl!("__torajs_anyv_get_proto_of_any", [Any], Any),
         proto_member_get: decl!("__torajs_anyv_proto_member_get", [Any], Any),

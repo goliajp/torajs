@@ -363,6 +363,38 @@ fn emit_chain_and_registration_stmts(ast: &mut Ast, meta: &ClassMetadata, out: &
         }
     }
 
+    // RFC 20260718-accessor-reify 刀 2 — one reify magic per
+    // (class, accessor-prop) pair so the prototype carries a real
+    // AccessorPair own entry (`gOPD(C.prototype, "x")` answers the
+    // reified faces). Emitted as
+    // `__torajs_class_accessor_reify("<C>", "<p>")`, intercepted at
+    // ssa_lower → resolves the `__cm_<C>__<p>_get` / `_set` boxed
+    // adapters and hands runtime the (tag, name, get, set) quad.
+    // Compile-time accessor dispatch is untouched.
+    {
+        let mut pairs: Vec<(String, String)> = ast
+            .accessor_getters
+            .keys()
+            .chain(ast.accessor_setters.keys())
+            .cloned()
+            .collect();
+        pairs.sort();
+        pairs.dedup();
+        for (cname, prop) in pairs {
+            if gen_class_set.contains(&cname) {
+                continue;
+            }
+            let cname_str = ast.add_expr(Expr::String(cname));
+            let pname_str = ast.add_expr(Expr::String(prop));
+            let callee = ast.add_expr(Expr::Ident("__torajs_class_accessor_reify".to_string()));
+            let call = ast.add_expr(Expr::Call {
+                callee,
+                args: vec![cname_str, pname_str],
+            });
+            out.push(Stmt::Expr(call));
+        }
+    }
+
     // P7.4-a-2 — register each present Error-family class's
     // `__new_<C>` factory into the runtime native-error registry so a
     // runtime native-error throw (bigint RangeError, readonly-prop /

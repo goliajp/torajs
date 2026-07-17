@@ -84,6 +84,10 @@ pub(crate) fn check(checker: &Checker, name: &str) -> Result<Type, String> {
             vec![Type::String, Type::String],
             Box::new(Type::Void),
         )),
+        "__torajs_class_accessor_reify" => Ok(Type::Function(
+            vec![Type::String, Type::String],
+            Box::new(Type::Void),
+        )),
         "__torajs_error_proto_install" => {
             Ok(Type::Function(vec![Type::String], Box::new(Type::Void)))
         }

@@ -53,6 +53,11 @@ unsafe extern "C" {
     ) -> *const c_void;
     fn __torajs_class_method_cell_new(adapter: u64) -> *mut u8;
     fn __torajs_builtin_method_cell(mid: i64) -> *mut u8;
+    /// torajs-anyvalue — reified class-accessor face (RFC
+    /// 20260718-accessor-reify 刀 2; name transfers).
+    fn __torajs_class_accessor_cell_new(adapter: u64, name: *mut u8, length: u64) -> *mut u8;
+    /// torajs-dynobj — fresh `+1`-rc AccessorPair (faces transfer).
+    fn __torajs_accessor_pair_new(get: *mut c_void, set: *mut c_void, kinds: u64) -> *mut c_void;
 }
 
 const MAX_CLASSES: usize = 256;
@@ -67,6 +72,18 @@ const FUNCTION_PROTO_TAG: i64 = 13;
 /// {VALUE, WRITABLE, ENUMERABLE, CONFIGURABLE} + DEFINE_FLAG_
 /// {WRITABLE, CONFIGURABLE} (torajs-dynobj layout mirror).
 const DEFINE_CTOR_FLAGS: u64 = (1 << 6) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 0) | (1 << 2);
+
+/// `flags_byte` for an accessor own entry `{enumerable: false,
+/// configurable: true}` with both faces present — DEFINE_PRESENT_
+/// {VALUE, GET, SET, ENUMERABLE, CONFIGURABLE} + DEFINE_FLAG_
+/// CONFIGURABLE (the pair rides the value channel; RFC
+/// 20260718-accessor-reify 刀 2, mirror of the 刀 1 install flags).
+const DEFINE_ACCESSOR_FLAGS: u64 = (1 << 6) | (1 << 7) | (1 << 8) | (1 << 4) | (1 << 5) | (1 << 2);
+
+/// Kinds mirror of `torajs_dynobj::accessor::ACC_KIND_BOXED` on both
+/// faces (the invoke path probes the class-face sentinel before the
+/// kinds dispatch, so the value is nominal).
+const ACC_KINDS_BOXED_BOTH: u64 = 5 | (5 << 8);
 
 // NaN-box constants mirrored from torajs-anyvalue::nanbox —
 // re-declared here to keep deps tree narrow.
@@ -308,6 +325,57 @@ pub unsafe extern "C" fn __torajs_class_static_method_define(
             cell as u64,
             DEFINE_CTOR_FLAGS,
         );
+    }
+}
+
+/// RFC 20260718-accessor-reify 刀 2 — one accessor own entry on the
+/// class prototype. ssa_lower hands the resolved quad (`tag`, the
+/// property-name Str cell, the `__cm_<C>__<M>_get` / `_set` boxed
+/// adapters' vaddrs — either may be 0 for a get-/set-only pair).
+/// The minted faces carry their §17 "get <p>" / "set <p>" names and
+/// spec lengths (getter 0, setter 1); the pair defines under
+/// `{enumerable: false, configurable: true}` (§10.2.10).
+///
+/// # Safety
+/// `name_str` is NULL or a live Str cell.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_class_accessor_define(
+    tag: i64,
+    name_str: *const u8,
+    get_adapter: u64,
+    set_adapter: u64,
+) {
+    if !in_range(tag) || name_str.is_null() || (get_adapter == 0 && set_adapter == 0) {
+        return;
+    }
+    // SAFETY: single-threaded JS; the register sequence filled the
+    // slot before any reify call (class_globals.rs emit order).
+    let proto_anyv = unsafe { PROTOS_BY_TAG_IMM[tag as usize] };
+    if !is_cell_imm(proto_anyv) {
+        return;
+    }
+    if unsafe { heap_type_tag(proto_anyv as *const c_void) } != TAG_DYNOBJ {
+        return;
+    }
+    unsafe {
+        let prop_len = (name_str.add(8) as *const u32).read() as usize;
+        let prop = core::slice::from_raw_parts(name_str.add(16), prop_len);
+        let mint_face = |adapter: u64, prefix: &[u8], length: u64| -> *mut c_void {
+            if adapter == 0 {
+                return core::ptr::null_mut();
+            }
+            let mut full = Vec::with_capacity(prefix.len() + prop.len());
+            full.extend_from_slice(prefix);
+            full.extend_from_slice(prop);
+            let face_name = alloc_str_key(&full);
+            __torajs_class_accessor_cell_new(adapter, face_name, length) as *mut c_void
+        };
+        let get_cell = mint_face(get_adapter, b"get ", 0);
+        let set_cell = mint_face(set_adapter, b"set ", 1);
+        let pair = __torajs_accessor_pair_new(get_cell, set_cell, ACC_KINDS_BOXED_BOTH);
+        let flags = DEFINE_ACCESSOR_FLAGS;
+        let mut slot = proto_anyv as *mut c_void;
+        __torajs_dynobj_define(&mut slot, name_str, ANY_HEAP as u64, pair as u64, flags);
     }
 }
 

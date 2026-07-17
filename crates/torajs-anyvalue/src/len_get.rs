@@ -203,6 +203,11 @@ unsafe fn closure_length_of(ptr: *mut c_void) -> Option<i64> {
         if let Some(arity) = crate::method_value::builtin_method_arity(ptr) {
             return Some(arity as i64);
         }
+        // Reified class-accessor face (RFC 20260718-accessor-reify
+        // 刀 2) — spec lengths ride the extended cell slot.
+        if let Some((_, len)) = crate::method_value_class::class_accessor_meta(ptr) {
+            return Some(len as i64);
+        }
         if let Some((kind, target, bargc)) = crate::method_bind::bound_cell_meta(ptr) {
             let tlen = if kind == 0 {
                 torajs_rc::any_method_meta(target as i64).map(|(_, a)| a as i64)

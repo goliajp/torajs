@@ -57,6 +57,7 @@ pub(crate) fn try_lower(
         "__torajs_error_proto_install" => try_lower_error_proto_install(ctx, args),
         "__torajs_error_is_error" => try_lower_error_is_error(ctx, args),
         "__torajs_static_method_reify" => try_lower_static_method_reify(ctx, args),
+        "__torajs_class_accessor_reify" => try_lower_class_accessor_reify(ctx, args),
         "__torajs_register_native_error" => try_lower_register_native_error(ctx, args),
         "__torajs_my_class_ref" => try_lower_my_class_ref(ctx, args),
         "__torajs_arguments_materialize" => try_lower_arguments_materialize(ctx, args),
@@ -250,6 +251,70 @@ fn try_lower_static_method_reify(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Opt
                 Operand::ConstI64(tag as i64),
                 name_op.clone(),
                 Operand::Value(adapter),
+            ],
+        ),
+    );
+    // The lowered Str literal is a caller-owned temp — the runtime
+    // key copy is the define's own (dynobj_define rc_incs the key).
+    let ty = ctx.operand_ty(&name_op);
+    ctx.emit_drop_value(name_op, ty);
+    Some(Operand::ConstI64(0))
+}
+
+/// RFC 20260718-accessor-reify 刀 2 —
+/// `__torajs_class_accessor_reify("<C>", "<p>")`: resolves the
+/// `__cm_<C>__<p>_get` / `_set` bodies' boxed adapters (either may
+/// be absent for a get-/set-only accessor) and hands runtime the
+/// `(tag, name-Str, get-vaddr, set-vaddr)` quad. Both-adapters
+/// dropout skips the define entirely.
+fn try_lower_class_accessor_reify(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Operand> {
+    if args.len() != 2 {
+        return None;
+    }
+    let Expr::String(cname) = ctx.ast.get_expr(args[0]) else {
+        return None;
+    };
+    let Expr::String(pname) = ctx.ast.get_expr(args[1]) else {
+        return None;
+    };
+    let cname = cname.clone();
+    let pname = pname.clone();
+    let Some(tag) = ctx.class_name_to_tag.get(&cname).copied() else {
+        return Some(Operand::ConstI64(0));
+    };
+    let face = |suffix: &str| -> Option<(crate::ssa::FuncId, crate::ssa::SigId)> {
+        let body = format!("__cm_{cname}__{pname}{suffix}");
+        let body_fid = ctx.fn_table.get(body.as_str()).copied()?;
+        ctx.boxed_entries.get(&body_fid).copied()
+    };
+    let get = face("_get");
+    let set = face("_set");
+    if get.is_none() && set.is_none() {
+        return Some(Operand::ConstI64(0));
+    }
+    let cur_block = ctx.cur_block;
+    let mut vaddr = |f: Option<(crate::ssa::FuncId, crate::ssa::SigId)>| match f {
+        Some((fid, sig)) => Operand::Value(ctx.f.append_inst(
+            cur_block,
+            InstKind::FnAddr(fid),
+            Type::FnSig(sig),
+            None,
+        )),
+        None => Operand::ConstI64(0),
+    };
+    let get_op = vaddr(get);
+    let set_op = vaddr(set);
+    let name_op = ctx.lower_expr(args[1]);
+    let define = ctx.intrinsics.class_accessor_define;
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Call(
+            define,
+            vec![
+                Operand::ConstI64(tag as i64),
+                name_op.clone(),
+                get_op,
+                set_op,
             ],
         ),
     );

@@ -35,6 +35,12 @@ unsafe extern "C" {
         argv: *const u64,
         argc: i64,
     ) -> u64;
+    /// torajs-anyvalue — the adapter a reified class face carries
+    /// (`0` = not a class face; RFC 20260718-accessor-reify 刀 2).
+    fn __torajs_class_face_adapter(p: *const c_void) -> u64;
+    /// torajs-anyvalue — invoke a class-face adapter with the
+    /// receiver in the env slot.
+    fn __torajs_class_face_invoke(adapter: u64, recv: u64, argv: *const u64, argc: i64) -> u64;
 }
 
 /// `__torajs_accessor_invoke_getter(pair, recv_anyv)` — call the
@@ -77,6 +83,13 @@ pub unsafe extern "C" fn __torajs_accessor_invoke_getter(
         return unsafe {
             __torajs_builtin_method_face_dispatch(recv_anyv, mid, core::ptr::null(), 0)
         };
+    }
+    // A reified class-accessor face (RFC 20260718-accessor-reify
+    // 刀 2) — invoke its boxed adapter with the receiver in the env
+    // slot (the class-method dispatch shape).
+    let cls_adapter = unsafe { __torajs_class_face_adapter(getter) };
+    if cls_adapter != 0 {
+        return unsafe { __torajs_class_face_invoke(cls_adapter, recv_anyv, core::ptr::null(), 0) };
     }
     let kinds = unsafe { *((pair as *const u8).add(ACC_KINDS_OFF) as *const u64) };
     let raw_ret = (kinds & 0xff) as u8;
@@ -179,6 +192,13 @@ pub unsafe extern "C" fn __torajs_accessor_invoke_setter(
     if mid >= 0 {
         let buf = [value_anyv];
         unsafe { __torajs_builtin_method_face_dispatch(recv_anyv, mid, buf.as_ptr(), 1) };
+        return 1;
+    }
+    // Class-accessor face — see the getter twin above.
+    let cls_adapter = unsafe { __torajs_class_face_adapter(setter) };
+    if cls_adapter != 0 {
+        let buf = [value_anyv];
+        unsafe { __torajs_class_face_invoke(cls_adapter, recv_anyv, buf.as_ptr(), 1) };
         return 1;
     }
     let kinds = unsafe { *((pair as *const u8).add(ACC_KINDS_OFF) as *const u64) };

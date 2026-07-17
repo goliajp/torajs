@@ -183,3 +183,20 @@ pub unsafe extern "C" fn __torajs_builtin_method_face_dispatch(
 ) -> u64 {
     panic!("torajs-dynobj unit-test stub: builtin-face dispatch should not run under cargo test")
 }
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_class_face_adapter(_p: *const core::ffi::c_void) -> u64 {
+    0
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_class_face_invoke(
+    _adapter: u64,
+    _recv: u64,
+    _argv: *const u64,
+    _argc: i64,
+) -> u64 {
+    panic!("torajs-dynobj unit-test stub: class-face invoke should not run under cargo test")
+}

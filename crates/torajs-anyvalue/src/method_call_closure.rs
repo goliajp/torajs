@@ -137,6 +137,10 @@ pub(crate) unsafe fn closure_method(
 enum CallTarget {
     Boxed(*mut c_void, u64),
     Builtin(i64),
+    /// A reified class method / accessor face (RFC
+    /// 20260718-accessor-reify 刀 2) — the carried adapter invokes
+    /// with the thisArg in the env slot.
+    ClassAdapter(u64),
 }
 
 /// Classify the receiver closure cell.
@@ -144,6 +148,9 @@ unsafe fn call_target(ptr: *mut c_void) -> Option<CallTarget> {
     unsafe {
         if let Some(target_mid) = crate::method_value::builtin_method_mid(ptr) {
             return Some(CallTarget::Builtin(target_mid));
+        }
+        if let Some(adapter) = crate::method_value_class::class_method_adapter(ptr) {
+            return Some(CallTarget::ClassAdapter(adapter));
         }
         closure_cell_entry(ptr).map(|(env, entry)| CallTarget::Boxed(env, entry))
     }
@@ -162,6 +169,11 @@ unsafe fn dispatch(
     unsafe {
         match target {
             CallTarget::Boxed(env, entry) => invoke_with_this(*env, *entry, this_arg, argv, argc),
+            CallTarget::ClassAdapter(adapter) => {
+                crate::method_value_class::__torajs_class_face_invoke(
+                    *adapter, this_arg, argv, argc,
+                )
+            }
             CallTarget::Builtin(mid) => {
                 if let Some(out) = generic_str_this(*mid, this_arg, argv, argc) {
                     return out;
