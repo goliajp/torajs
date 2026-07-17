@@ -53,6 +53,14 @@ pub(super) fn emit_define_literal(
         if !face_statically_callable(ctx, get_eid) || !face_statically_callable(ctx, set_eid) {
             return false;
         }
+        // §6.2.6.5 steps 9/10 — a literal mixing an accessor face
+        // with `value` / `writable` is the spec TypeError; decline
+        // so the runtime ToPropertyDescriptor's mix rejection
+        // throws it (pre-fix the fast path stored the AccessorPair
+        // and silently DROPPED the value field).
+        if value_eid.is_some() || descriptor_field(ctx, desc_eid, "writable").is_some() {
+            return false;
+        }
         let acc_enum = lookup_bool_field(ctx, desc_eid, "enumerable");
         let acc_config = lookup_bool_field(ctx, desc_eid, "configurable");
         return crate::ssa_lower_accessor::emit_accessor_define(
