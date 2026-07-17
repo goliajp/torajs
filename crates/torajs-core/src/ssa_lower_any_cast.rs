@@ -14,16 +14,22 @@ use crate::ssa::{Operand, Type};
 
 impl crate::ssa_lower::LowerCtx<'_> {
     pub(crate) fn lower_as_cast(&mut self, inner: ExprId, ty_ann: &str) -> Operand {
-        // An EMPTY object literal cast to `any` promotes to the
-        // dynobj lane (rotation 125 L3b; twin of the empty-[] →
-        // Arr<Any> promote and of the direct-ObjectLit call-arg
-        // route in `ssa_lower_call_terminal`): the struct lane would
-        // pass a zero-field anon struct through the cast, and
-        // runtime descriptor walks (`Object.defineProperties({} as
-        // any, props)`) silently eval-drop on the tag-gate miss.
+        // An object literal cast to `any` promotes to the dynobj
+        // lane (twin of the empty-[] → Arr<Any> promote and of the
+        // direct-ObjectLit call-arg route in
+        // `ssa_lower_call_terminal`): the struct lane would pass an
+        // anon struct through the cast, and every downstream
+        // consumer of the `any` face — descriptor walks
+        // (`Object.defineProperties({} as any, props)` eval-dropped
+        // on the tag-gate miss), any-member dispatch (a this-using
+        // method's nominal `__this` read struct offsets off the
+        // boxed face = SIGSEGV) — needs the dynobj shape. Was
+        // empty-literal-only (rotation 125); RFC
+        // 20260717-objlit-anylane-recv knife 2 widened it to every
+        // literal, paired with the AST-side anylane predicate's (c)
+        // leg so recv members get the `__this: any` shape.
         if ty_ann == "any"
-            && let crate::ast::Expr::ObjectLit { fields } = self.ast.get_expr(inner)
-            && fields.is_empty()
+            && let crate::ast::Expr::ObjectLit { .. } = self.ast.get_expr(inner)
         {
             let dynobj = self.lower_dynobj_init(inner);
             // ANY_HEAP encode so downstream gates see a true Any face

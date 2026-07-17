@@ -210,15 +210,21 @@ pub(crate) fn run(
 ///   `lower_dynobj_init` shortcut (`ssa_lower_stmt_let_decl`);
 /// - (b) a literal `undefined` field — the checker's
 ///   `struct_has_undef_field` widen forces the binding to Any;
+/// - (c) `{ ... } as any` — knife 2 widened the `lower_as_cast`
+///   promote from empty-literal-only to every ObjectLit, so the
+///   cast IS the dynobj route now (synthesized `As`-any wrappers —
+///   default-any async returns, generator yields — ride the same
+///   leg, and their dynobj face is the sound one: every consumer
+///   dispatches through the any lane);
 /// - (d) an ObjectLit nested in a marked literal —
 ///   `lower_dynobj_init` recurses nested literals;
 /// - (e) the receiver argument of `Object.defineProperty` /
 ///   `defineProperties` — the `lower_define_receiver` promote.
 ///
-/// Deliberately NOT covered: `{...} as any` (the as-cast promote is
-/// empty-literal-only) and ObjectLit args into user any params (not
-/// decidable here) — those keep the nominal stamp and the dynobj-init
-/// guard rejects their recv members loudly (knife 2 widens).
+/// Deliberately NOT covered: ObjectLit args into user any params
+/// (`ssa_lower_call_terminal`'s any-param route; the param type is
+/// not decidable here) — those keep the nominal stamp and the
+/// dynobj-init guard rejects their recv members loudly (knife 2b).
 fn collect_anylane_objlits(stmts: &[Stmt], exprs: &[Expr]) -> std::collections::HashSet<u32> {
     let mut marked: std::collections::HashSet<u32> = std::collections::HashSet::new();
     let mut roots: Vec<ExprId> = Vec::new();
@@ -232,6 +238,11 @@ fn collect_anylane_objlits(stmts: &[Stmt], exprs: &[Expr]) -> std::collections::
                 ) =>
             {
                 roots.push(ExprId(i as u32));
+            }
+            // (c) — `as any` cast (user-written or synthesized); the
+            // strip loop below unwraps the `As` chain to the literal.
+            Expr::As { expr, ty_ann } if ty_ann == "any" => {
+                roots.push(*expr);
             }
             // (e) — define-family receiver argument.
             Expr::Call { callee, args } => {
