@@ -43,6 +43,15 @@ unsafe extern "C" {
         flags_byte: u64,
     );
     fn __torajs_str_drop(s: *mut u8);
+    fn __torajs_struct_layout_lookup(class_tag: u32) -> *const c_void;
+    fn __torajs_struct_method_count(layout: *const c_void) -> u32;
+    fn __torajs_struct_method_at(
+        layout: *const c_void,
+        idx: u32,
+        out_name: *mut *const u8,
+        out_len: *mut u32,
+    ) -> *const c_void;
+    fn __torajs_class_method_cell_new(adapter: u64) -> *mut u8;
 }
 
 const MAX_CLASSES: usize = 256;
@@ -173,6 +182,58 @@ unsafe fn wire_first_class_links(tag: i64, class_anyv: u64) {
                 key,
                 ANY_HEAP as u64,
                 class_anyv,
+                DEFINE_CTOR_FLAGS,
+            );
+            __torajs_str_drop(key);
+            reify_prototype_methods(tag, proto as *mut c_void);
+        }
+    }
+}
+
+/// Knife B cut 1 — the prototype's own method entries. Walks the
+/// class's `.__class_methods_<i>` boxed-adapter table (the same
+/// records `struct_method` dispatch resolves) and defines one
+/// reified function object per method onto `__proto_<C>`, with the
+/// §10.2.10 method attribute set `{writable: true, enumerable:
+/// false, configurable: true}` — the same flags_byte the
+/// `constructor` link uses. Accessor slots (`__getter_<p>` /
+/// `__setter_<p>` synthetic names) are skipped — their surface is
+/// the AccessorPair face, not an own method entry.
+///
+/// The table merges parent chains, so a subclass prototype lists
+/// inherited methods too — a recorded boundary vs bun (spec lists
+/// only own methods per prototype level).
+///
+/// # Safety
+/// `proto` is a live dynobj heap pointer.
+unsafe fn reify_prototype_methods(tag: i64, proto: *mut c_void) {
+    unsafe {
+        let layout = __torajs_struct_layout_lookup(tag as u32);
+        if layout.is_null() {
+            return;
+        }
+        let n = __torajs_struct_method_count(layout);
+        for i in 0..n {
+            let mut name_ptr: *const u8 = core::ptr::null();
+            let mut name_len: u32 = 0;
+            let adapter = __torajs_struct_method_at(layout, i, &mut name_ptr, &mut name_len);
+            if adapter.is_null() || name_ptr.is_null() || name_len == 0 {
+                continue;
+            }
+            let name = core::slice::from_raw_parts(name_ptr, name_len as usize);
+            if name.starts_with(b"__getter_") || name.starts_with(b"__setter_") {
+                continue;
+            }
+            let cell = __torajs_class_method_cell_new(adapter as u64);
+            let key = alloc_str_key(name);
+            let mut slot = proto;
+            // The minted cell is FLAG_STATIC_LITERAL (rc no-op) — the
+            // define's transferred stake is the entry's sole handle.
+            __torajs_dynobj_define(
+                &mut slot,
+                key,
+                ANY_HEAP as u64,
+                cell as u64,
                 DEFINE_CTOR_FLAGS,
             );
             __torajs_str_drop(key);

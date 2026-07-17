@@ -100,6 +100,17 @@ pub(crate) unsafe fn proto_chain_method(
                     argc,
                 ));
             }
+            // A reified class-method cell resolved through the chain
+            // (knife B cut 1) — the child rides the env slot.
+            if crate::nanbox::is_cell(cell)
+                && let Some(adapter) = crate::method_value_class::class_method_adapter(
+                    crate::nanbox::as_void_ptr(cell),
+                )
+            {
+                return Some(crate::method_call_closure_dispatch::invoke_boxed(
+                    obj, adapter, argv, argc,
+                ));
+            }
             if let Some((env, entry)) = closure_boxed_entry(cell) {
                 // Receiver-first closures bind the child as `this`
                 // (RFC 20260717-objlit-anylane-recv knife 1 flag).

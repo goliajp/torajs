@@ -211,6 +211,50 @@ pub unsafe extern "C" fn __torajs_struct_accessor_method_find(
         .unwrap_or(core::ptr::null())
 }
 
+/// Enumerate side — the record count for the register-time method
+/// reification walk (`__torajs_anyv_class_register`, RFC
+/// 20260717-class-first-class-value knife B). NULL layout answers 0.
+///
+/// # Safety
+/// `layout` must be NULL or a live result of
+/// `__torajs_struct_layout_lookup`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_struct_method_count(layout: *const StructLayoutEntry) -> u32 {
+    if layout.is_null() {
+        return 0;
+    }
+    // SAFETY: caller contract above.
+    unsafe { &*layout }.n_methods()
+}
+
+/// The `idx`-th record's name span + adapter — the enumerate pair of
+/// [`__torajs_struct_method_count`]. Returns NULL past the end;
+/// `out_name` / `out_len` are written only on a hit.
+///
+/// # Safety
+/// `layout` as above; `out_name` / `out_len` point at writable slots.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_struct_method_at(
+    layout: *const StructLayoutEntry,
+    idx: u32,
+    out_name: *mut *const u8,
+    out_len: *mut u32,
+) -> *const core::ffi::c_void {
+    if layout.is_null() {
+        return core::ptr::null();
+    }
+    // SAFETY: caller contract above.
+    let Some(m) = (unsafe { &*layout }).method(idx) else {
+        return core::ptr::null();
+    };
+    // SAFETY: caller passes writable out-slots.
+    unsafe {
+        *out_name = m.name_ptr;
+        *out_len = m.name_len;
+    }
+    m.adapter
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

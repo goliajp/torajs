@@ -186,6 +186,18 @@ pub(crate) unsafe fn dynobj_method(
                         argc,
                     );
                 }
+                // A reified class-method cell (knife B cut 1) — e.g.
+                // `C.prototype.m()` — invokes its carried boxed
+                // adapter with this receiver in the env slot.
+                if crate::nanbox::is_cell(cell)
+                    && let Some(adapter) = crate::method_value_class::class_method_adapter(
+                        crate::nanbox::as_void_ptr(cell),
+                    )
+                {
+                    return crate::method_call_closure_dispatch::invoke_boxed(
+                        obj, adapter, argv, argc,
+                    );
+                }
                 // The cell's NaN-box encoding is its pointer bits.
                 if let Some((env, entry)) = closure_boxed_entry(cell) {
                     // RFC 20260717-objlit-anylane-recv knife 1 — a
