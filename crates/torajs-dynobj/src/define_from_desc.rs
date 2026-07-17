@@ -280,16 +280,30 @@ pub unsafe extern "C" fn __torajs_dynobj_define_from_desc(
             }
         }
         TAG_ARR_HDR => {
+            // An array descriptor inherits through Array.prototype's
+            // expando (tag 2 — an Arr cell whose monkey-patches land
+            // in ITS props dynobj at the same +24 slot).
             let expando = unsafe {
                 desc.cast::<u8>()
                     .add(CELL_PROPS_OFF)
                     .cast::<*const c_void>()
                     .read()
             };
-            if expando.is_null() {
+            let ap = unsafe { __torajs_get_builtin_prototype(2) };
+            let ap_props = if ap.is_null() {
+                core::ptr::null()
+            } else {
+                unsafe {
+                    ap.cast::<u8>()
+                        .add(CELL_PROPS_OFF)
+                        .cast::<*const c_void>()
+                        .read()
+                }
+            };
+            if expando.is_null() && ap_props.is_null() {
                 None
             } else {
-                Some(DescStore::Dyn(expando, core::ptr::null()))
+                Some(DescStore::Dyn(expando, ap_props))
             }
         }
         TAG_OBJ => Some(DescStore::Struct(desc)),

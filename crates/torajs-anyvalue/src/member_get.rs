@@ -131,6 +131,18 @@ pub(crate) fn function_proto_props() -> *const c_void {
     unsafe { torajs_rc::builtin_proto::__torajs_get_builtin_prototype(13) as *const c_void }
 }
 
+/// `Array.prototype`'s expando dynobj — the tag-2 singleton is an
+/// Arr cell (§23.1.3 array exotic) whose monkey-patches land in ITS
+/// props table; an Arr receiver inherits through it after its own
+/// expando misses.
+fn array_proto_props() -> *const c_void {
+    let ap = unsafe { torajs_rc::builtin_proto::__torajs_get_builtin_prototype(2) };
+    if ap.is_null() {
+        return core::ptr::null();
+    }
+    unsafe { (ap.cast::<u8>().add(CLOSURE_PROPS_OFF) as *const *const c_void).read() }
+}
+
 /// Cell tag of a dispatchable receiver, `None` for everything the
 /// gate answers `(ANY_UNDEF, 0)` for.
 pub(crate) fn recv_cell(recv: AnyValue) -> Option<(*mut c_void, u16)> {
@@ -197,6 +209,17 @@ pub unsafe extern "C" fn __torajs_any_member_get_tag(recv: AnyValue, key: *const
             // reified join cell).
             if __torajs_arrprops_has(ptr, key) != 0 {
                 return 5;
+            }
+            // Inherited Array.prototype expando (tag-2 singleton).
+            let ap = array_proto_props();
+            if !ap.is_null() {
+                let tag = __torajs_dynobj_get_tag(ap, key);
+                if tag != 5 {
+                    return tag;
+                }
+                if __torajs_dynobj_has(ap, key) != 0 {
+                    return 5;
+                }
             }
             reify_tag(recv, key)
         },
@@ -326,6 +349,16 @@ pub unsafe extern "C" fn __torajs_any_member_get_value(recv: AnyValue, key: *con
             // Stored-undefined shadow — see the tag twin.
             if __torajs_arrprops_has(ptr, key) != 0 {
                 return 0;
+            }
+            // Inherited Array.prototype expando — tag twin above.
+            let ap = array_proto_props();
+            if !ap.is_null() {
+                if __torajs_dynobj_get_tag(ap, key) != 5 {
+                    return __torajs_dynobj_get_value(ap, key);
+                }
+                if __torajs_dynobj_has(ap, key) != 0 {
+                    return 0;
+                }
             }
             reify_value(recv, key)
         },
