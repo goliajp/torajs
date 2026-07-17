@@ -24,8 +24,8 @@
 use core::ffi::{c_char, c_void};
 
 use crate::reflect::{
-    ANY_HEAP, DYNOBJ_HDR_FLAG_NULL_PROTO, PROTO_SLOT_ATTRS, PROTO_SLOT_KEY, TAG_DYNOBJ,
-    VALUE_NULL_IMM, alloc_str_key, heap_type_tag, is_cell_imm,
+    ANY_HEAP, DYNOBJ_HDR_FLAG_NULL_PROTO, OBJECT_PROTO_TAG, PROTO_SLOT_ATTRS, PROTO_SLOT_KEY,
+    TAG_DYNOBJ, VALUE_NULL_IMM, alloc_str_key, heap_type_tag, is_cell_imm,
 };
 
 unsafe extern "C" {
@@ -45,6 +45,7 @@ unsafe extern "C" {
     fn __torajs_dynobj_mark_null_proto(obj: *mut c_void);
     fn __torajs_dynobj_clear_null_proto(obj: *mut c_void);
     fn __torajs_throw_type_error(msg: *const c_char);
+    fn __torajs_builtin_proto_tag_of(p: *const c_void) -> i64;
 }
 
 /// The two null encodings that reach these faces: the canonical
@@ -95,6 +96,15 @@ pub(crate) unsafe fn ordinary_set_prototype_of(obj: *mut c_void, proto: u64) -> 
         if proto == cur {
             __torajs_str_drop(key);
             return true;
+        }
+        // §10.4.7.1 — %Object.prototype% is an immutable-prototype
+        // exotic object: any non-same-value write refuses (the
+        // same-value short-circuit above already admitted null →
+        // null). Ordered after step 3 so `set.call(Object.prototype,
+        // null)` stays silent per spec.
+        if __torajs_builtin_proto_tag_of(obj) == OBJECT_PROTO_TAG {
+            __torajs_str_drop(key);
+            return false;
         }
         let flags = obj.cast::<u8>().add(6).cast::<u16>().read();
         if flags & HDR_FLAG_NON_EXTENSIBLE != 0 {

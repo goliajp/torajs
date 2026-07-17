@@ -32,6 +32,7 @@ use core::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 unsafe extern "C" {
     fn __torajs_dynobj_alloc() -> *mut c_void;
     fn __torajs_arr_alloc_any(cap: u64) -> *mut u8;
+    fn __torajs_object_proto_install(proto: *mut c_void);
 }
 
 /// Number of builtin prototypes ssa_lower can request. Order is
@@ -49,6 +50,10 @@ pub const NUM_BUILTIN_PROTOS: usize = 14;
 /// properties branch on the cell shape (`method_support_proto`,
 /// `prop_has`).
 pub const ARRAY_PROTO_TAG: usize = 2;
+
+/// `Object.prototype`'s slot — its mint additionally installs the
+/// Annex B `__proto__` accessor own entry (see the mint site).
+pub const OBJECT_PROTO_TAG: usize = 1;
 
 // One AtomicUsize slot per builtin tag. Initialized to 0 (= "not yet
 // allocated"); `__torajs_get_builtin_prototype` CAS-installs the
@@ -95,6 +100,26 @@ pub unsafe extern "C" fn __torajs_get_builtin_prototype(tag: i64) -> *mut c_void
     } else {
         unsafe { __torajs_dynobj_alloc() }
     };
+    // Process-lifetime singleton — immortal, rc traffic no-ops
+    // (RFC 20260718-accessor-reify 刀 1). The `<Ctor>.prototype`
+    // lowering hands out BORROW boxes of this cell; consumer sites
+    // drop args under the owned convention, so a mortal singleton
+    // bleeds refcount until it frees and a later allocation reuses
+    // the address — at which point `__torajs_builtin_proto_tag_of`
+    // misclassifies the newcomer as the prototype (diag: a fresh
+    // `{}` answered null for its own [[Prototype]]).
+    unsafe {
+        let flags = fresh.cast::<u8>().add(6).cast::<u16>();
+        flags.write(flags.read() | crate::FLAG_STATIC_LITERAL);
+    }
+    // %Object.prototype% carries the Annex B §B.2.2.1 `__proto__`
+    // accessor as a real own entry (RFC 20260718-accessor-reify
+    // 刀 1) — installed on the fresh cell before the CAS so a
+    // race loser leaks a fully-formed dynobj (same benign posture
+    // as the allocation itself).
+    if idx == OBJECT_PROTO_TAG {
+        unsafe { __torajs_object_proto_install(fresh) };
+    }
     let fresh_addr = fresh as usize;
     match slot.compare_exchange(0, fresh_addr, Ordering::AcqRel, Ordering::Acquire) {
         Ok(_) => fresh,
@@ -176,8 +201,10 @@ pub unsafe extern "C" fn __torajs_builtin_proto_is_deleted(tag: i64, mid: i64) -
 // stub at link time.
 #[cfg(test)]
 unsafe fn __torajs_dynobj_alloc() -> *mut c_void {
-    static NEXT_ADDR: AtomicUsize = AtomicUsize::new(0x1000);
-    NEXT_ADDR.fetch_add(0x10, Ordering::SeqCst) as *mut c_void
+    // Real (leaked) allocation — the mint path writes the header's
+    // static-literal flag, so the address must be dereferenceable
+    // (the old monotonic-counter fake address SIGSEGV'd there).
+    Box::into_raw(Box::new([0u8; 64])) as *mut c_void
 }
 
 // Same for the Array-prototype cell — the singleton logic under
@@ -186,6 +213,11 @@ unsafe fn __torajs_dynobj_alloc() -> *mut c_void {
 unsafe fn __torajs_arr_alloc_any(_cap: u64) -> *mut u8 {
     unsafe { __torajs_dynobj_alloc() as *mut u8 }
 }
+
+// The `__proto__` accessor install lives in torajs-meta (linked
+// into `tr`); the singleton logic under test doesn't observe it.
+#[cfg(test)]
+unsafe fn __torajs_object_proto_install(_proto: *mut c_void) {}
 
 #[cfg(test)]
 mod tests {

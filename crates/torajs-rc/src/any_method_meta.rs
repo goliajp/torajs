@@ -174,6 +174,11 @@ pub fn any_method_meta(mid: i64) -> Option<(&'static str, u32)> {
         // NOT intern back (excluded from the round-trip test).
         ANY_METHOD_GET_SIZE => ("get size", 0),
         ANY_METHOD_OBJECT_TO_STRING => ("toString", 0),
+        // §17 built-in accessor functions carry "get " / "set "
+        // prepended to the property name (the `get size` precedent
+        // above); lengths follow bun — both 0 for the Annex B pair.
+        ANY_METHOD_PROTO_GET => ("get __proto__", 0),
+        ANY_METHOD_PROTO_SET => ("set __proto__", 0),
         _ => return None,
     })
 }
@@ -197,7 +202,7 @@ mod tests {
     #[test]
     fn meta_rejects_unknown_and_out_of_table() {
         assert!(any_method_meta(ANY_METHOD_UNKNOWN).is_none());
-        assert!(any_method_meta(ANY_METHOD_IS_PROTOTYPE_OF + 1).is_none());
+        assert!(any_method_meta(ANY_METHOD_PROTO_SET + 1).is_none());
         assert!(any_method_meta(-1).is_none());
     }
 

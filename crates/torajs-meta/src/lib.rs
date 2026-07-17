@@ -34,6 +34,7 @@ pub mod genfn;
 pub mod obj_assign;
 pub mod obj_own_keys;
 pub mod obj_own_values;
+pub mod object_proto_install;
 pub mod own_names;
 pub mod reflect;
 pub mod reflect_descriptors;
@@ -105,6 +106,26 @@ pub unsafe extern "C" fn __torajs_dynobj_set(
     _value: u64,
 ) {
     panic!("torajs-meta test stub: __torajs_dynobj_set should not be called from cargo test");
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_builtin_method_cell(_mid: i64) -> *mut u8 {
+    panic!(
+        "torajs-meta test stub: __torajs_builtin_method_cell should not be called from cargo test"
+    );
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_accessor_pair_new(
+    _get: *mut core::ffi::c_void,
+    _set: *mut core::ffi::c_void,
+    _kinds: u64,
+) -> *mut core::ffi::c_void {
+    panic!(
+        "torajs-meta test stub: __torajs_accessor_pair_new should not be called from cargo test"
+    );
 }
 
 #[cfg(test)]

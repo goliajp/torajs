@@ -233,8 +233,28 @@ unsafe fn lookup_face(obj: *mut c_void, key: *mut c_void, wants_getter: bool) ->
                 break;
             }
             depth += 1;
-            if depth > PROTO_WALK_CAP || __torajs_dynobj_has(cur, proto_key as *const c_void) == 0 {
+            if depth > PROTO_WALK_CAP {
                 break;
+            }
+            if __torajs_dynobj_has(cur, proto_key as *const c_void) == 0 {
+                // Implicit-chain hop (RFC 20260718-accessor-reify
+                // 刀 1) — a dynobj with no explicit link and no
+                // null-proto bit inherits from %Object.prototype%,
+                // which now carries the Annex B `__proto__` pair as
+                // a real own entry; without this hop the walk
+                // stopped one short of the root.
+                let flags = (cur.cast::<u8>().add(6) as *const u16).read();
+                if flags & crate::member_get_own::DYNOBJ_HDR_FLAG_NULL_PROTO != 0 {
+                    break;
+                }
+                let root = torajs_rc::builtin_proto::__torajs_get_builtin_prototype(
+                    crate::member_get_own::OBJECT_PROTO_TAG,
+                );
+                if root.is_null() || core::ptr::eq(root as *const c_void, cur) {
+                    break;
+                }
+                cur = root;
+                continue;
             }
             let ptag = __torajs_dynobj_get_tag(cur, proto_key as *const c_void);
             let pval = __torajs_dynobj_get_value(cur, proto_key as *const c_void);

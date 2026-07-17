@@ -88,7 +88,7 @@ const ANY_BOOL: i64 = 1;
 pub(crate) const ANY_HEAP: i64 = 4;
 const ANY_UNDEF: i64 = 5;
 /// `get_tag` accessor sentinel (mirrors `torajs_dynobj::layout::ANY_ACCESSOR`).
-const ANY_ACCESSOR: u64 = 6;
+pub(crate) const ANY_ACCESSOR: u64 = 6;
 
 // Tag::DynObj from torajs-rc — universal heap header at offset 0.
 pub(crate) const TAG_DYNOBJ: u16 = 14;

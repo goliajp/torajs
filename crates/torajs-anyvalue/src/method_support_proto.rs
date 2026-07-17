@@ -28,7 +28,14 @@ unsafe extern "C" {
     /// there instead of in a dynobj).
     fn __torajs_arrprops_get_tag(arr: *mut c_void, key: *const c_void) -> u64;
     fn __torajs_arrprops_get_value(arr: *mut c_void, key: *const c_void) -> u64;
+    /// torajs-dynobj — invoke an accessor pair's getter face
+    /// against a receiver (owned AnyValue return).
+    fn __torajs_accessor_invoke_getter(pair: *const c_void, recv_anyv: u64) -> u64;
 }
+
+/// Accessor-entry sentinel in the dynobj probe's tag channel —
+/// mirror of `method_call_dynobj.rs::ANY_ACCESSOR_TAG`.
+const ANY_ACCESSOR_TAG: u64 = 6;
 
 /// Offset of the `len` slot in an Array heap block
 /// (`torajs_arr::layout::ARR_LEN_OFF`).
@@ -287,6 +294,13 @@ pub unsafe extern "C" fn __torajs_builtin_proto_method_value(
             // its own reference.
             crate::payload_rc_inc(dtag, dval);
             return unsafe { crate::nanbox_encode::__torajs_anyv_box_from_pair(dtag, dval) };
+        }
+        // Accessor own entry (RFC 20260718-accessor-reify 刀 1 —
+        // e.g. `Object.prototype.__proto__`): §10.1.8.1 [[Get]]
+        // invokes the getter with the singleton itself as receiver.
+        if dtag == ANY_ACCESSOR_TAG as i64 {
+            let recv = unsafe { crate::nanbox_encode::__torajs_anyv_box_pointer(proto) };
+            return unsafe { __torajs_accessor_invoke_getter(dval as u64 as *const c_void, recv) };
         }
         // `Array.prototype.length` is the Arr cell's own length, not a
         // method name — and it moves (`Array.prototype[0] = false`

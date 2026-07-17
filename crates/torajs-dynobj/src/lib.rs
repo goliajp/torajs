@@ -23,6 +23,7 @@
 extern crate torajs_mmalloc as _;
 
 pub mod accessor;
+pub mod accessor_invoke;
 pub mod alloc;
 pub mod attach_exec;
 pub mod define;
@@ -161,4 +162,24 @@ pub unsafe extern "C" fn __torajs_anyv_unbox_tag(v: u64) -> i64 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_unbox_value(v: u64) -> i64 {
     (v & 0x0000_FFFF_FFFF_FFFF) as i64
+}
+
+// Accessor-pair builtin-face probe stubs — unit tests exercise
+// ordinary-closure faces only, so the probe always answers "not a
+// builtin cell" and the dispatch is unreachable.
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_builtin_method_face_mid(_p: *const core::ffi::c_void) -> i64 {
+    -1
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_builtin_method_face_dispatch(
+    _recv: u64,
+    _mid: i64,
+    _argv: *const u64,
+    _argc: i64,
+) -> u64 {
+    panic!("torajs-dynobj unit-test stub: builtin-face dispatch should not run under cargo test")
 }

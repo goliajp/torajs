@@ -98,6 +98,10 @@ unsafe extern "C" {
     fn __torajs_str_drop(s: *mut c_void);
     /// torajs-throw — record a pending catchable TypeError.
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
+    /// torajs-meta — [[GetPrototypeOf]] over any receiver (owned).
+    fn __torajs_anyv_get_proto_of_any(v: u64) -> u64;
+    /// torajs-meta — Annex B §B.2.2.1.2 setter kernel.
+    fn __torajs_anyv_proto_member_set(obj: u64, proto: u64);
 }
 
 /// `ToIntegerOrInfinity`-shaped argument decode: `undefined` (or a
@@ -195,6 +199,26 @@ pub(crate) unsafe fn any_method_call_inner(
     // §20.1.3.3 — universal chain-walk probe (knife 4).
     if mid == torajs_rc::ANY_METHOD_IS_PROTOTYPE_OF {
         return unsafe { crate::method_call_object_proto::is_prototype_of(recv, argv, argc) };
+    }
+    // Annex B §B.2.2.1 — the reified `get __proto__` / `set
+    // __proto__` faces (RFC 20260718-accessor-reify 刀 1). The
+    // nullish guard above IS the abrupt case (get-to-obj-abrupt /
+    // set-non-obj-coercible); every remaining receiver routes to
+    // the meta substrate — get answers the [[Prototype]] (owned,
+    // primitives answer their wrapper prototype), set runs the
+    // silent-invalid / refusal-throws Annex B semantics and
+    // answers undefined.
+    if mid == torajs_rc::ANY_METHOD_PROTO_GET {
+        return unsafe { __torajs_anyv_get_proto_of_any(recv) };
+    }
+    if mid == torajs_rc::ANY_METHOD_PROTO_SET {
+        let v = if argc >= 1 {
+            unsafe { *argv }
+        } else {
+            VALUE_UNDEFINED
+        };
+        unsafe { __torajs_anyv_proto_member_set(recv, v) };
+        return VALUE_UNDEFINED;
     }
     // Annex B §B.2.2.2-5 legacy accessor surface — universal like the
     // own-property probes (ToObject semantics per receiver shape live

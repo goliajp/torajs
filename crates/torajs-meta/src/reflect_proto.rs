@@ -10,9 +10,9 @@
 use core::ffi::c_void;
 
 use crate::reflect::{
-    ANY_HEAP, BOOLEAN_PROTO_TAG, DYNOBJ_HDR_FLAG_NULL_PROTO, NUMBER_PROTO_TAG, OBJECT_PROTO_TAG,
-    PROTO_SLOT_ATTRS, PROTO_SLOT_KEY, SHORT_STR_TOP16, STRING_PROTO_TAG, TAG_ARR, TAG_CLOSURE,
-    TAG_DYNOBJ, TAG_OBJ, TOP_16_MASK, VALUE_FALSE_IMM, VALUE_NULL_IMM, VALUE_TRUE_IMM,
+    ANY_ACCESSOR, ANY_HEAP, BOOLEAN_PROTO_TAG, DYNOBJ_HDR_FLAG_NULL_PROTO, NUMBER_PROTO_TAG,
+    OBJECT_PROTO_TAG, PROTO_SLOT_ATTRS, PROTO_SLOT_KEY, SHORT_STR_TOP16, STRING_PROTO_TAG, TAG_ARR,
+    TAG_CLOSURE, TAG_DYNOBJ, TAG_OBJ, TOP_16_MASK, VALUE_FALSE_IMM, VALUE_NULL_IMM, VALUE_TRUE_IMM,
     VALUE_UNDEFINED_IMM, alloc_str_key, box_pair_imm, heap_type_tag, is_cell_imm,
 };
 
@@ -121,6 +121,16 @@ unsafe fn dynobj_entry(dynobj: *const c_void, key_bytes: &[u8]) -> Option<u64> {
     let v_tag = unsafe { __torajs_dynobj_get_tag(dynobj, k) } as i64;
     let v_val = unsafe { __torajs_dynobj_get_value(dynobj, k) } as i64;
     unsafe { __torajs_str_drop(k) };
+    // An ACCESSOR entry is not a data shadow — the `__proto__`
+    // member-read caller falls through to `get_proto_of_any`, which
+    // IS the injected root getter's semantics (RFC
+    // 20260718-accessor-reify 刀 1: %Object.prototype% now carries
+    // the Annex B pair as a real own entry). A user-defined accessor
+    // shadow keeps the same fallthrough (recorded boundary — its own
+    // getter is not invoked here).
+    if v_tag == ANY_ACCESSOR as i64 {
+        return None;
+    }
     // rc_inc heap payload — caller owns the returned reference.
     if v_tag == ANY_HEAP && v_val != 0 {
         // SAFETY: ANY_HEAP slot holds a valid heap pointer.
@@ -231,7 +241,17 @@ pub unsafe extern "C" fn __torajs_anyv_get_proto_of_any(v: u64) -> u64 {
         // blade 5: `Object.getPrototypeOf(g()) === g.prototype`).
         if tag == TAG_OBJ {
             let class_tag = unsafe { dynobj.cast::<u8>().add(8).cast::<i64>().read() };
-            return unsafe { crate::classmeta::__torajs_anyv_proto_get(class_tag) };
+            let r = unsafe { crate::classmeta::__torajs_anyv_proto_get(class_tag) };
+            if r != VALUE_NULL_IMM {
+                return r;
+            }
+            // §10.1.1 — a plain struct-typed literal (class_tag 0 /
+            // unregistered) is an ordinary object; its [[Prototype]]
+            // is %Object.prototype%, not null (RFC
+            // 20260718-accessor-reify 刀 1: `get.call({a: 1})` must
+            // answer the root, matching the dynobj-lane implicit
+            // chain).
+            return unsafe { proto_singleton(OBJECT_PROTO_TAG) };
         }
         // RFC 20260713-array-proto-residual blade 3 — builtin-tagged
         // cells answer their `<Ctor>.prototype` singleton per

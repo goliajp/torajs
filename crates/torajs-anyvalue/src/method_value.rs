@@ -309,6 +309,60 @@ pub(crate) unsafe fn builtin_method_mid(ptr: *mut c_void) -> Option<i64> {
     }
 }
 
+/// Staticlib face of [`builtin_method_mid`] — `-1` for anything
+/// that is not an interned builtin-method cell. torajs-dynobj's
+/// accessor-pair invoke probes its faces here (RFC
+/// 20260718-accessor-reify 刀 1): a builtin cell's boxed dual entry
+/// is the bare-receiver throw, so the pair invoke must re-route
+/// through the mid dispatcher instead of jumping into it.
+///
+/// # Safety
+/// `p` is null or a live heap cell.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_builtin_method_face_mid(p: *const c_void) -> i64 {
+    if p.is_null() {
+        return -1;
+    }
+    unsafe {
+        if (p.cast::<u8>().add(4) as *const u16).read() != Tag::Closure as u16 {
+            return -1;
+        }
+        builtin_method_mid(p as *mut c_void).unwrap_or(-1)
+    }
+}
+
+/// Invoke a builtin-method mid against `recv` — the accessor-pair
+/// twin of the `.call` re-dispatch (same inner, no name bytes / no
+/// receiver write-back). A mid the receiver's arm doesn't know
+/// throws the not-callable TypeError (never reached for the
+/// universal accessor mids the pairs carry today).
+///
+/// # Safety
+/// `recv` / `argv` carry valid AnyValue bit patterns; `argv` has
+/// `argc` readable slots (null iff `argc == 0`).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_builtin_method_face_dispatch(
+    recv: u64,
+    mid: i64,
+    argv: *const u64,
+    argc: i64,
+) -> u64 {
+    let r = unsafe {
+        crate::method_call::any_method_call_inner(
+            recv,
+            mid,
+            core::ptr::null(),
+            core::ptr::null_mut(),
+            argv,
+            argc,
+        )
+    };
+    if r == crate::method_call::ANY_METHOD_NO_SUCH {
+        return unsafe { crate::method_call::not_callable() };
+    }
+    r
+}
+
 /// Member-name → interned method cell, `None` when the name is not
 /// a method the receiver's dispatch arm supports (the member read
 /// stays undefined, matching bun's wrong-arm answer).

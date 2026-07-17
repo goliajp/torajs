@@ -29,6 +29,13 @@
 
 use core::ffi::c_void;
 
+// Invoke paths live in `accessor_invoke` (file-size split, RFC
+// 20260718-accessor-reify 刀 1); re-export so callers keep importing
+// from `crate::accessor::{...}` unchanged.
+pub use crate::accessor_invoke::{
+    __torajs_accessor_invoke_getter, __torajs_accessor_invoke_setter,
+};
+
 unsafe extern "C" {
     /// torajs-mmalloc libc-compat calloc — zero-init alloc.
     #[link_name = "__torajs_calloc"]
@@ -39,12 +46,6 @@ unsafe extern "C" {
     /// Cross-tier — refcount dec. Returns 1 iff the caller should free
     /// + release children; 0 otherwise.
     fn __torajs_rc_dec(p: *mut c_void) -> i32;
-    /// torajs-anyvalue — NaN-box a `(tag, value)` pair into an
-    /// `AnyValue`. `tag`: 0=Null 1=Bool 2=I64 3=F64(bits) 4=Heap(ptr).
-    fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64;
-    /// torajs-anyvalue — extract the payload (per-tag value) from a
-    /// NaN-box `AnyValue` (F64 returns the bits, Heap the pointer).
-    fn __torajs_anyv_unbox_value(v: u64) -> i64;
     /// torajs-anyvalue — borrow-shaped cell-pointer read: a heap cell
     /// answers its pointer bits, every immediate (ShortStr included)
     /// answers 0 with zero materialization.
@@ -86,7 +87,7 @@ pub const TAG_ACCESSOR_PAIR: u16 = 18;
 /// Closure layout — mirrored from `ssa_lower`'s `CLOSURE_*_OFF`
 /// constants (the env-first closure ABI is a shared cross-tier
 /// contract; same mirror pattern dynobj uses for the Str layout).
-const CLOSURE_FN_ADDR_OFF: usize = 8;
+pub(crate) const CLOSURE_FN_ADDR_OFF: usize = 8;
 
 // Accessor closure value-ABI kinds — the low byte of `kinds` records
 // the getter's native SSA return type so the invoke path reads the
@@ -137,12 +138,12 @@ pub const ACC_KIND_RECV: u8 = 0x40;
 
 /// Closure-cell boxed dual entry offset — ABI mirror of
 /// `torajs_anyvalue`'s `CLOSURE_BOXED_ENTRY_OFF`.
-const CLOSURE_BOXED_ENTRY_OFF: usize = 32;
+pub(crate) const CLOSURE_BOXED_ENTRY_OFF: usize = 32;
 
 /// `undefined` NaN-box sentinel (mirrors
 /// `torajs_anyvalue::nanbox::VALUE_UNDEFINED` = 0x0A). Returned when an
 /// accessor has no getter (`get` omitted).
-const VALUE_UNDEFINED: u64 = 0x0A;
+pub(crate) const VALUE_UNDEFINED: u64 = 0x0A;
 
 /// `__torajs_accessor_pair_new(get_closure, set_closure, kinds)` —
 /// allocate a fresh `+1`-rc `AccessorPair`. `get_closure` /
@@ -210,222 +211,6 @@ pub unsafe extern "C" fn __torajs_accessor_get_kinds(pair: *const c_void) -> u64
         return 0;
     }
     unsafe { *((pair as *const u8).add(ACC_KINDS_OFF) as *const u64) }
-}
-
-/// `__torajs_accessor_invoke_getter(pair, recv_anyv)` — call the
-/// getter closure and return its result as an `AnyValue`. The getter
-/// is invoked with the env-first closure ABI and **no** user argument
-/// (a getter takes none). Its raw return lands in the register bank
-/// dictated by its native SSA return type, so the packed getter ret
-/// kind selects the matching fn-pointer transmute (an `F64` getter
-/// leaves its value in `d0`, an `I64` one in `x0`) and the matching
-/// box. A pair with no getter yields `undefined`.
-///
-/// `this` binding: `recv_anyv` is the NaN-boxed property-read
-/// receiver, BORROWED into the call. An [`ACC_KIND_RECV`] face (a
-/// fn-expr accessor whose body says `this`) rides the boxed dual
-/// entry with the receiver in argv[0]; every other face ignores it
-/// (the closure-capture accessor idiom carries no `this`).
-///
-/// # Safety
-/// `pair` is null or a live `AccessorPair`; its `get_closure` (when
-/// present) is a live closure whose fn at `+8` has the env-first ABI
-/// and the return type encoded by the getter ret kind; `recv_anyv` is
-/// a live receiver or `undefined`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_accessor_invoke_getter(
-    pair: *const c_void,
-    recv_anyv: u64,
-) -> u64 {
-    if pair.is_null() {
-        return VALUE_UNDEFINED;
-    }
-    let getter = unsafe { *((pair as *const u8).add(ACC_GET_OFF) as *const u64) } as *mut c_void;
-    if getter.is_null() {
-        return VALUE_UNDEFINED;
-    }
-    let kinds = unsafe { *((pair as *const u8).add(ACC_KINDS_OFF) as *const u64) };
-    let raw_ret = (kinds & 0xff) as u8;
-    if raw_ret & ACC_KIND_RECV != 0 {
-        // Receiver-first fn-expr face — boxed dual entry, argv[0] is
-        // the receiver the body reads as `this`.
-        let entry = unsafe { *((getter as *const u8).add(CLOSURE_BOXED_ENTRY_OFF) as *const u64) };
-        if entry == 0 {
-            return VALUE_UNDEFINED;
-        }
-        let call: unsafe extern "C" fn(*mut c_void, *const u64, i64) -> u64 =
-            unsafe { core::mem::transmute(entry as usize) };
-        let mut buf = [VALUE_UNDEFINED; 8];
-        buf[0] = recv_anyv;
-        return unsafe { call(getter, buf.as_ptr(), 1) };
-    }
-    let ret_kind = raw_ret & !ACC_KIND_NAKED;
-    // A NAKED getter's env argument is spurious either way (the fn
-    // reads no params) — the env-first transmutes below stay correct
-    // for both shapes, so the flag only matters for the setter.
-    if ret_kind == ACC_KIND_BOXED {
-        let entry = unsafe { *((getter as *const u8).add(CLOSURE_BOXED_ENTRY_OFF) as *const u64) };
-        if entry == 0 {
-            return VALUE_UNDEFINED;
-        }
-        let call: unsafe extern "C" fn(*mut c_void, *const u64, i64) -> u64 =
-            unsafe { core::mem::transmute(entry as usize) };
-        // Zero-arg call still hands the adapter a live argv buffer —
-        // it reads its declared param slots unconditionally.
-        let buf = [VALUE_UNDEFINED; 8];
-        return unsafe { call(getter, buf.as_ptr(), 0) };
-    }
-    let fn_addr = unsafe { *((getter as *const u8).add(CLOSURE_FN_ADDR_OFF) as *const usize) };
-    unsafe {
-        match ret_kind {
-            ACC_KIND_F64 => {
-                let f: unsafe extern "C" fn(*mut c_void) -> f64 = core::mem::transmute(fn_addr);
-                __torajs_anyv_box_from_pair(3, f(getter).to_bits() as i64)
-            }
-            ACC_KIND_BOOL => {
-                let f: unsafe extern "C" fn(*mut c_void) -> i64 = core::mem::transmute(fn_addr);
-                __torajs_anyv_box_from_pair(1, i64::from(f(getter) != 0))
-            }
-            ACC_KIND_I64 => {
-                let f: unsafe extern "C" fn(*mut c_void) -> i64 = core::mem::transmute(fn_addr);
-                __torajs_anyv_box_from_pair(2, f(getter))
-            }
-            ACC_KIND_PTR => {
-                let f: unsafe extern "C" fn(*mut c_void) -> u64 = core::mem::transmute(fn_addr);
-                __torajs_anyv_box_from_pair(4, f(getter) as i64)
-            }
-            ACC_KIND_VOID => {
-                let f: unsafe extern "C" fn(*mut c_void) = core::mem::transmute(fn_addr);
-                f(getter);
-                VALUE_UNDEFINED
-            }
-            // ACC_KIND_ANY (and any unknown): the getter already
-            // returns a NaN-box AnyValue — pass it through verbatim.
-            _ => {
-                let f: unsafe extern "C" fn(*mut c_void) -> u64 = core::mem::transmute(fn_addr);
-                f(getter)
-            }
-        }
-    }
-}
-
-/// `__torajs_accessor_invoke_setter(pair, recv_anyv, value_anyv)` —
-/// call the setter closure with the assigned value, returning `1` when
-/// a setter ran and `0` when the accessor has no setter (the caller
-/// raises the "only a getter" assignment error). The setter is invoked
-/// env-first with the value unboxed per the stored setter param kind
-/// (an `F64` setter takes its argument in `d0`, an `I64` one in `x0`);
-/// an `Any` setter receives the NaN-box `AnyValue` verbatim.
-///
-/// `this` binding: `recv_anyv` is the NaN-boxed assignment receiver,
-/// BORROWED into the call. An [`ACC_KIND_RECV`] face rides the boxed
-/// dual entry with the receiver in argv[0] and the value at argv[1];
-/// every other face ignores it.
-///
-/// # Safety
-/// `pair` is null or a live `AccessorPair`; its `set_closure` (when
-/// present) is a live closure whose fn at `+8` has the env-first ABI
-/// and the param type encoded by the setter param kind; `recv_anyv` is
-/// a live receiver or `undefined`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_accessor_invoke_setter(
-    pair: *const c_void,
-    recv_anyv: u64,
-    value_anyv: u64,
-) -> i32 {
-    if pair.is_null() {
-        return 0;
-    }
-    let setter = unsafe { *((pair as *const u8).add(ACC_SET_OFF) as *const u64) } as *mut c_void;
-    if setter.is_null() {
-        return 0;
-    }
-    let kinds = unsafe { *((pair as *const u8).add(ACC_KINDS_OFF) as *const u64) };
-    let raw_kind = ((kinds >> 8) & 0xff) as u8;
-    if raw_kind & ACC_KIND_RECV != 0 {
-        // Receiver-first fn-expr face — boxed dual entry, argv[0] is
-        // the receiver the body reads as `this`, argv[1] the value.
-        let entry = unsafe { *((setter as *const u8).add(CLOSURE_BOXED_ENTRY_OFF) as *const u64) };
-        if entry == 0 {
-            return 1;
-        }
-        let call: unsafe extern "C" fn(*mut c_void, *const u64, i64) -> u64 =
-            unsafe { core::mem::transmute(entry as usize) };
-        let mut buf = [VALUE_UNDEFINED; 8];
-        buf[0] = recv_anyv;
-        buf[1] = value_anyv;
-        unsafe { call(setter, buf.as_ptr(), 2) };
-        return 1;
-    }
-    let naked = raw_kind & ACC_KIND_NAKED != 0;
-    let param_kind = raw_kind & !ACC_KIND_NAKED;
-    if naked {
-        // Named top-level fn — no leading env param; the value is
-        // its FIRST argument.
-        let fn_addr = unsafe { *((setter as *const u8).add(CLOSURE_FN_ADDR_OFF) as *const usize) };
-        unsafe {
-            match param_kind {
-                ACC_KIND_F64 => {
-                    let v = f64::from_bits(__torajs_anyv_unbox_value(value_anyv) as u64);
-                    let f: unsafe extern "C" fn(f64) = core::mem::transmute(fn_addr);
-                    f(v);
-                }
-                ACC_KIND_BOOL | ACC_KIND_I64 => {
-                    let f: unsafe extern "C" fn(i64) = core::mem::transmute(fn_addr);
-                    f(__torajs_anyv_unbox_value(value_anyv));
-                }
-                ACC_KIND_PTR => {
-                    let f: unsafe extern "C" fn(*mut c_void) = core::mem::transmute(fn_addr);
-                    f(__torajs_anyv_unbox_value(value_anyv) as *mut c_void);
-                }
-                _ => {
-                    let f: unsafe extern "C" fn(u64) = core::mem::transmute(fn_addr);
-                    f(value_anyv);
-                }
-            }
-        }
-        return 1;
-    }
-    if param_kind == ACC_KIND_BOXED {
-        let entry = unsafe { *((setter as *const u8).add(CLOSURE_BOXED_ENTRY_OFF) as *const u64) };
-        if entry == 0 {
-            return 1;
-        }
-        let call: unsafe extern "C" fn(*mut c_void, *const u64, i64) -> u64 =
-            unsafe { core::mem::transmute(entry as usize) };
-        let mut buf = [VALUE_UNDEFINED; 8];
-        buf[0] = value_anyv;
-        unsafe { call(setter, buf.as_ptr(), 1) };
-        return 1;
-    }
-    let fn_addr = unsafe { *((setter as *const u8).add(CLOSURE_FN_ADDR_OFF) as *const usize) };
-    unsafe {
-        match param_kind {
-            ACC_KIND_F64 => {
-                let v = f64::from_bits(__torajs_anyv_unbox_value(value_anyv) as u64);
-                let f: unsafe extern "C" fn(*mut c_void, f64) = core::mem::transmute(fn_addr);
-                f(setter, v);
-            }
-            ACC_KIND_BOOL | ACC_KIND_I64 => {
-                let v = __torajs_anyv_unbox_value(value_anyv);
-                let f: unsafe extern "C" fn(*mut c_void, i64) = core::mem::transmute(fn_addr);
-                f(setter, v);
-            }
-            ACC_KIND_PTR => {
-                let v = __torajs_anyv_unbox_value(value_anyv) as *mut c_void;
-                let f: unsafe extern "C" fn(*mut c_void, *mut c_void) =
-                    core::mem::transmute(fn_addr);
-                f(setter, v);
-            }
-            // ACC_KIND_ANY (and any unknown): the setter takes an
-            // AnyValue — pass the NaN-box through verbatim.
-            _ => {
-                let f: unsafe extern "C" fn(*mut c_void, u64) = core::mem::transmute(fn_addr);
-                f(setter, value_anyv);
-            }
-        }
-    }
-    1
 }
 
 /// Release ONE held closure ref through the rc-gated universal drop

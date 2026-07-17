@@ -362,6 +362,15 @@ pub const ANY_METHOD_LOOKUP_SETTER: i64 = 151;
 /// receiver (RFC 20260717-user-proto-chain knife 4). Universal like
 /// the own-property probes.
 pub const ANY_METHOD_IS_PROTOTYPE_OF: i64 = 152;
+/// Annex B §B.2.2.1 `get __proto__` — the reified getter face of
+/// the `Object.prototype.__proto__` accessor (RFC
+/// 20260718-accessor-reify 刀 1). Deliberately absent from the
+/// intern table (the name carries a space, no member read ever
+/// resolves to it); handed out only through the accessor pair the
+/// proto-singleton install defines.
+pub const ANY_METHOD_PROTO_GET: i64 = 153;
+/// Annex B §B.2.2.1 `set __proto__` — see [`ANY_METHOD_PROTO_GET`].
+pub const ANY_METHOD_PROTO_SET: i64 = 154;
 
 /// RegExp property-read ids (Any-method-call RFC 20260704 C4-3c-2)
 /// — `r.source` / `r.lastIndex` / flag booleans through an `any`

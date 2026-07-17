@@ -25,7 +25,7 @@ unsafe extern "C" {
 
 /// `DYNOBJ_HDR_FLAG_NULL_PROTO` mirror (torajs-dynobj layout, header
 /// +6 u16 bit 6) — an `Object.create(null)` dict inherits nothing.
-const DYNOBJ_HDR_FLAG_NULL_PROTO: u16 = 1 << 6;
+pub(crate) const DYNOBJ_HDR_FLAG_NULL_PROTO: u16 = 1 << 6;
 
 /// The internal [[Prototype]] simulation-slot key — cross-crate twin
 /// of `torajs_meta::reflect::PROTO_SLOT_KEY` (simulation-slot key
@@ -36,7 +36,7 @@ pub(crate) const PROTO_SLOT_KEY: &[u8] = b"\x00proto";
 
 /// `Object.prototype`'s builtin tag (torajs-rc `builtin_proto.rs`
 /// order) — the implicit-chain root every ordinary dynobj inherits.
-const OBJECT_PROTO_TAG: i64 = 1;
+pub(crate) const OBJECT_PROTO_TAG: i64 = 1;
 
 /// The receiver dynobj's user [[Prototype]] as a borrowed cell box
 /// (RFC 20260717-user-proto-chain knife 2). Reads the internal
