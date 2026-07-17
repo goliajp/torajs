@@ -393,9 +393,44 @@ impl<'a> FnToClosureCollector<'a> {
                 self.walk_expr(*target);
                 self.walk_expr(*value);
             }
-            Expr::BinOp { left, right, .. } => {
-                self.walk_expr(*left);
-                self.walk_expr(*right);
+            Expr::BinOp { op, left, right } => {
+                // Eq-operand axis (RFC 20260717-namedfn-canonical-cell
+                // chunk 2) — a bare top-FnDecl Ident compared with
+                // ==/===/!=/!== is a VALUE use of the fn object, so it
+                // must answer the canonical singleton cell (pre-fix it
+                // lowered to the raw FnSig code address and
+                // `t === getX` was always false against the cell every
+                // other value site answers). Non-eq operators keep the
+                // plain recursion — no fn belongs in arithmetic.
+                if matches!(
+                    op,
+                    crate::ast::BinOp::Eq
+                        | crate::ast::BinOp::Neq
+                        | crate::ast::BinOp::LooseEq
+                        | crate::ast::BinOp::LooseNeq
+                ) {
+                    // `as` layers are value pass-throughs — strip so
+                    // `(getX as any) === getX` marks the inner Ident
+                    // (the rewrite lands there; the As then forwards
+                    // the canonical cell unchanged).
+                    let strip_as = |ast: &Ast, mut e: ExprId| {
+                        while let Expr::As { expr, .. } = ast.get_expr(e) {
+                            e = *expr;
+                        }
+                        e
+                    };
+                    let l = strip_as(self.ast, *left);
+                    if !self.try_mark(l) {
+                        self.walk_expr(*left);
+                    }
+                    let r = strip_as(self.ast, *right);
+                    if !self.try_mark(r) {
+                        self.walk_expr(*right);
+                    }
+                } else {
+                    self.walk_expr(*left);
+                    self.walk_expr(*right);
+                }
             }
             Expr::Unary { expr, .. }
             | Expr::TypeOf { expr }
