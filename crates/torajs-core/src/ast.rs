@@ -235,6 +235,15 @@ pub struct Ast {
     /// survives `lift_arrow_fns` (it replaces the arena slot in place
     /// with the `Expr::Closure`).
     pub objlit_method_exprs: std::collections::HashSet<ExprId>,
+    /// RFC 20260717-class-first-class-value fix-up — value ExprIds of
+    /// `{ __proto__ }` PROPERTY-SHORTHAND fields. §B.3.1 scopes the
+    /// `__proto__: v` [[Prototype]]-set special case to the
+    /// `PropertyName : AssignmentExpression` production only — a
+    /// shorthand `__proto__` is an ordinary own data property. The
+    /// AST flattens both to the same `(String, ExprId)` field shape,
+    /// so the parser records the shorthand's value expr here and the
+    /// dynobj-init lane skips the proto special-case for it.
+    pub objlit_shorthand_proto_exprs: std::collections::HashSet<ExprId>,
     /// RFC 20260714-objlit-accessor blade 1 — `__ObjLit_<n>` (the synth
     /// nominal alias minted for a method-bearing object literal) → its
     /// method field names. `ssa_lower` resolves the alias to a

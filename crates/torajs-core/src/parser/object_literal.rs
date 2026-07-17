@@ -472,6 +472,13 @@ impl<'a> Parser<'a> {
         // by `(` (the method shorthand path above).
         if matches!(self.peek(), Token::Comma | Token::RBrace) {
             let value = self.ast.add_expr(Expr::Ident(name.clone()));
+            // §B.3.1 — a shorthand `__proto__` is an ordinary own
+            // property; only the `__proto__: v` production sets
+            // [[Prototype]]. Mark it so the dynobj-init lane skips
+            // the proto special-case.
+            if name == "__proto__" {
+                self.ast.objlit_shorthand_proto_exprs.insert(value);
+            }
             return Ok((name, value));
         }
         match self.peek() {

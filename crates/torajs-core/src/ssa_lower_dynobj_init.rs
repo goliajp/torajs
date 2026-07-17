@@ -75,7 +75,7 @@ impl<'a> LowerCtx<'a> {
             // non-extensible or form a cycle, so its refusal path
             // is unreachable). The value box is a borrow (the core
             // takes its own stake).
-            if fname == "__proto__" {
+            if fname == "__proto__" && !self.ast.objlit_shorthand_proto_exprs.contains(&fval_eid) {
                 // A statically-null proto marks the header bit
                 // directly (the `Object.create(null)` face) — the
                 // boxed-setter path below covers runtime values.
