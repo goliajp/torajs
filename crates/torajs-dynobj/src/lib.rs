@@ -85,12 +85,30 @@ pub unsafe extern "C" fn __torajs_throw_type_error(_msg: *const u8) {
     );
 }
 
+// Faithful Closure-arm double for unit tests (mirrors the faithful
+// rc_dec stub below): `accessor::tests` legitimately exercises the
+// pair teardown, which routes each held closure ref through this
+// dispatcher (rc-gated dec, drop_fn at +16 on the zero transition).
+// Only the Closure shape is emulated — the accessor tests are the
+// sole unit-test caller; anything else reaching here is still a
+// contract break worth failing loudly on, which the drop_fn == 0
+// fall-through below surfaces as a no-op the asserting test catches.
 #[cfg(test)]
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_value_drop_heap(_child: *mut core::ffi::c_void) {
-    panic!(
-        "torajs-dynobj unit-test stub: __torajs_value_drop_heap should not be called from cargo test paths"
-    );
+pub unsafe extern "C" fn __torajs_value_drop_heap(child: *mut core::ffi::c_void) {
+    if child.is_null() {
+        return;
+    }
+    let rc = child as *mut u32;
+    unsafe { *rc -= 1 };
+    if unsafe { *rc } == 0 {
+        let drop_fn = unsafe { *((child as *const u8).add(16) as *const usize) };
+        if drop_fn != 0 {
+            let f: unsafe extern "C" fn(*mut core::ffi::c_void) =
+                unsafe { core::mem::transmute(drop_fn) };
+            unsafe { f(child) };
+        }
+    }
 }
 
 // Faithful refcount-dec stub for unit tests: the real torajs-rc dec

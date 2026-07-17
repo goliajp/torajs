@@ -87,7 +87,6 @@ pub const TAG_ACCESSOR_PAIR: u16 = 18;
 /// constants (the env-first closure ABI is a shared cross-tier
 /// contract; same mirror pattern dynobj uses for the Str layout).
 const CLOSURE_FN_ADDR_OFF: usize = 8;
-const CLOSURE_DROP_FN_OFF: usize = 16;
 
 // Accessor closure value-ABI kinds — the low byte of `kinds` records
 // the getter's native SSA return type so the invoke path reads the
@@ -380,24 +379,27 @@ pub unsafe extern "C" fn __torajs_accessor_invoke_setter(
     1
 }
 
-/// Release one held closure ref via its per-closure env-drop hook
-/// (`drop_fn` at `+16`, synthesized in ssa_lower Pass 2.5). The drop
-/// fn walks the env's captures, releases each, then frees the env
-/// block — the canonical closure-value drop (mirrors ssa_lower's
-/// `Type::Closure` arm). Null closure / null drop_fn are no-ops.
+/// Release ONE held closure ref through the rc-gated universal drop
+/// dispatcher (its `Tag::Closure` arm decs and only invokes the
+/// env's `drop_fn` on hit-zero). The pre-fix body called `drop_fn`
+/// directly — correct while the pair was provably the cell's sole
+/// owner, but a canonical named-fn singleton (RFC 20260717-namedfn-
+/// canonical-cell) sits in pairs at rc ≥ 2 (hidden-slot stake +
+/// pair stake) and the ungated call freed it out from under the
+/// slot: every later use read freed memory and every later pair
+/// teardown re-freed the block (diag: teardown rc climbed 2/3/4
+/// across iterations on the same freed cell). Null is a no-op
+/// inside the dispatcher.
 ///
 /// # Safety
-/// `closure` is null or a live closure heap pointer.
+/// `closure` is null or a closure heap pointer holding a ref the
+/// pair owns.
 #[inline]
 unsafe fn drop_closure_value(closure: *mut c_void) {
-    if closure.is_null() {
-        return;
+    unsafe extern "C" {
+        fn __torajs_value_drop_heap(p: *mut c_void);
     }
-    let drop_fn = unsafe { *((closure as *const u8).add(CLOSURE_DROP_FN_OFF) as *const usize) };
-    if drop_fn != 0 {
-        let f: unsafe extern "C" fn(*mut c_void) = unsafe { core::mem::transmute(drop_fn) };
-        unsafe { f(closure) };
-    }
+    unsafe { __torajs_value_drop_heap(closure) };
 }
 
 /// `__torajs_accessor_drop(pair)` — refcount dec; on hit-zero release
@@ -488,12 +490,16 @@ mod tests {
     fn drop_releases_both_closures() {
         DROP_HITS.store(0, Ordering::Relaxed);
         let mut getter = FakeClosure {
-            header: 0,
+            // rc = 1 (u32 at +0) — the pair holds the sole test ref;
+            // the gated teardown decs it to zero then fires drop_fn.
+            header: 1,
             fn_ptr: 0,
             drop_fn: record_drop_ptr(),
         };
         let mut setter = FakeClosure {
-            header: 0,
+            // rc = 1 (u32 at +0) — the pair holds the sole test ref;
+            // the gated teardown decs it to zero then fires drop_fn.
+            header: 1,
             fn_ptr: 0,
             drop_fn: record_drop_ptr(),
         };
@@ -519,7 +525,9 @@ mod tests {
     fn drop_skips_absent_accessor() {
         DROP_HITS.store(0, Ordering::Relaxed);
         let mut getter = FakeClosure {
-            header: 0,
+            // rc = 1 (u32 at +0) — the pair holds the sole test ref;
+            // the gated teardown decs it to zero then fires drop_fn.
+            header: 1,
             fn_ptr: 0,
             drop_fn: record_drop_ptr(),
         };
