@@ -249,6 +249,7 @@ fn scan_expr(
     expr_types: &HashMap<ExprId, crate::check::Type>,
 ) {
     match ast.get_expr(eid) {
+        Expr::Elision => {}
         Expr::Call { callee, args } => {
             scan_call(ast, *callee, args, out, direct, fn_values, expr_types);
         }

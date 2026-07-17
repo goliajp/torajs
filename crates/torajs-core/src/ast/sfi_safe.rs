@@ -115,6 +115,7 @@ fn sfi_stmt_x_safe(ast: &Ast, s: &Stmt, x_name: &str, i_name: &str) -> bool {
 /// shape we can't analyze cleanly returns false.
 fn sfi_expr_x_safe(ast: &Ast, eid: ExprId, x_name: &str, i_name: &str) -> bool {
     match ast.get_expr(eid) {
+        Expr::Elision => true,
         Expr::Ident(n) => n != x_name,
         Expr::Index { obj, index } => {
             if let Expr::Ident(n) = ast.get_expr(*obj)

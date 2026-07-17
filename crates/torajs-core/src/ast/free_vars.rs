@@ -265,6 +265,7 @@ fn is_global_name(name: &str) -> bool {
 
 fn walk_expr(ast: &Ast, eid: ExprId, bound: &mut Vec<String>, out: &mut Vec<String>) {
     match ast.get_expr(eid) {
+        Expr::Elision => {}
         Expr::Ident(name) => {
             if is_global_name(name) {
                 return;

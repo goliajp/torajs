@@ -34,6 +34,9 @@ unsafe extern "C" {
     fn __torajs_anyv_unbox_tag(v: i64) -> i64;
     fn __torajs_anyv_unbox_value(v: i64) -> i64;
     fn __torajs_dynobj_has(obj: *const c_void, key: *const u8) -> i32;
+    // torajs-dynobj — hole-tombstone probe (an elision / deleted
+    // index reads undefined but is NOT an own property).
+    fn __torajs_dynobj_entry_is_hole(obj: *const c_void, key: *const u8) -> i32;
     // torajs-num runtime symbol — resolved at `tr build` link time;
     // torajs-rc keeps 0 Cargo deps (vision §2). Same pattern as
     // dynobj_has / anyv_unbox above.
@@ -153,7 +156,27 @@ pub unsafe extern "C" fn __torajs_in_op_any_num(v: i64, key: i64) -> bool {
     let type_tag = unsafe { *((ptr as *const u8).add(4) as *const u16) };
     if type_tag == TAG_ARR {
         let len = unsafe { *((ptr as *const u8).add(ARR_LEN_OFF) as *const i64) };
-        return key >= 0 && key < len;
+        if !(key >= 0 && key < len) {
+            return false;
+        }
+        // §13.10.1 HasProperty — a hole (elision / deleted index)
+        // is absent. Exotic-index header bit gates the probe.
+        if unsafe { *((ptr as *const u8).add(6) as *const u16) } & crate::FLAG_ARR_EXOTIC_INDEX != 0
+        {
+            let key_str = unsafe { __torajs_num_to_string_radix_i(key, 10) };
+            if !key_str.is_null() {
+                let props =
+                    unsafe { *((ptr as *const u8).add(ARR_PROPS_OFF) as *const *const c_void) };
+                let hole = !props.is_null()
+                    && unsafe { __torajs_dynobj_has(props, key_str) } != 0
+                    && unsafe { __torajs_dynobj_entry_is_hole(props, key_str) } != 0;
+                unsafe { rc_dec_temp_str(key_str) };
+                if hole {
+                    return false;
+                }
+            }
+        }
+        return true;
     }
     if type_tag == TAG_DYNOBJ {
         // Spec: dynamic property lookup ToString(key) — `0 in obj`
@@ -215,7 +238,23 @@ pub unsafe extern "C" fn __torajs_in_op_any_str(v: i64, key: *const u8) -> bool 
     if type_tag == TAG_ARR {
         if let Some(idx) = unsafe { parse_canonical_array_index(key) } {
             let len = unsafe { *((ptr as *const u8).add(ARR_LEN_OFF) as *const i64) };
-            return idx >= 0 && idx < len;
+            if !(idx >= 0 && idx < len) {
+                return false;
+            }
+            // Hole probe — see the num-keyed arm.
+            if unsafe { *((ptr as *const u8).add(6) as *const u16) } & crate::FLAG_ARR_EXOTIC_INDEX
+                != 0
+            {
+                let props =
+                    unsafe { *((ptr as *const u8).add(ARR_PROPS_OFF) as *const *const c_void) };
+                if !props.is_null()
+                    && unsafe { __torajs_dynobj_has(props, key) } != 0
+                    && unsafe { __torajs_dynobj_entry_is_hole(props, key) } != 0
+                {
+                    return false;
+                }
+            }
+            return true;
         }
         // §10.4.2 — `length` is an own property of every array…
         let (bytes, len) = unsafe { str_view(key) };
@@ -292,6 +331,13 @@ unsafe fn __torajs_dynobj_has(_obj: *const c_void, _key: *const u8) -> i32 {
     // Tests that exercise the DynObj path set this thread-local
     // ahead of the call.
     DYNOBJ_HAS_RESULT.with(|r| r.get())
+}
+
+#[cfg(test)]
+unsafe fn __torajs_dynobj_entry_is_hole(_obj: *const c_void, _key: *const u8) -> i32 {
+    // Tests never construct a hole shadow entry; the exotic-index
+    // gate keeps this unreached. Conformance covers the real probe.
+    0
 }
 
 #[cfg(test)]

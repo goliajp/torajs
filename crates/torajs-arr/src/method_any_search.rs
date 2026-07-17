@@ -59,8 +59,22 @@ unsafe fn search(arr: *const c_void, needle: u64, from: i64, same_value_zero: bo
     unsafe {
         let len = *((arr as *const u8).add(ARR_LEN_OFF) as *const u64) as i64;
         let needle_nan = same_value_zero && is_nan_boxed(needle);
+        // §23.1.3.17 step 9.a — indexOf gates each slot on
+        // HasProperty (a hole never matches, even against
+        // undefined); includes (§23.1.3.16, same_value_zero) has no
+        // such step and DOES find undefined in a hole. Zero cost
+        // for ordinary arrays via the exotic-index header bit.
+        let skip_holes = !same_value_zero
+            && crate::define::header_flags(arr) & torajs_rc::FLAG_ARR_EXOTIC_INDEX != 0;
         let mut i = norm_from(from, len);
         while i < len {
+            if skip_holes
+                && crate::define::__torajs_arr_index_flags(arr, i as u64) & crate::define::F_HOLE
+                    != 0
+            {
+                i += 1;
+                continue;
+            }
             let v = crate::index_any::__torajs_arr_index_get(arr, i);
             let hit = __torajs_anyv_strict_eq(v, needle) || (needle_nan && is_nan_boxed(v));
             __torajs_value_drop_heap(v as *mut c_void);
@@ -104,6 +118,8 @@ pub unsafe extern "C" fn __torajs_arr_any_last_index_of(
 ) -> i64 {
     unsafe {
         let len = *((arr as *const u8).add(ARR_LEN_OFF) as *const u64) as i64;
+        // §23.1.3.20 step 8.a — HasProperty gate, see `search`.
+        let skip_holes = crate::define::header_flags(arr) & torajs_rc::FLAG_ARR_EXOTIC_INDEX != 0;
         let mut i = if from >= len {
             len - 1
         } else if from < 0 {
@@ -112,6 +128,13 @@ pub unsafe extern "C" fn __torajs_arr_any_last_index_of(
             from
         };
         while i >= 0 {
+            if skip_holes
+                && crate::define::__torajs_arr_index_flags(arr, i as u64) & crate::define::F_HOLE
+                    != 0
+            {
+                i -= 1;
+                continue;
+            }
             let v = crate::index_any::__torajs_arr_index_get(arr, i);
             let hit = __torajs_anyv_strict_eq(v, needle);
             __torajs_value_drop_heap(v as *mut c_void);

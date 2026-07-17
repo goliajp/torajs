@@ -71,6 +71,29 @@ pub(crate) unsafe fn revive_index_if_hole(arr: *mut c_void, idx: u64) {
     unsafe { __torajs_str_drop(key as *mut c_void) };
 }
 
+/// Mark the LAST pushed slot of a freshly-built array literal a
+/// HOLE (§13.2.4 elision — the slot reads undefined but is not an
+/// own property: `1 in [0,,2]` is false, indexOf skips it). Called
+/// by the array-literal lowering right after the elision slot's
+/// push, so `len - 1` is the elision index; the fresh slot carries
+/// default attributes, so the delete below cannot refuse.
+///
+/// # Safety
+/// `arr` is a live `Tag::Arr` heap pointer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_mark_last_hole(arr: *mut c_void) {
+    let len = unsafe { (arr.cast::<u8>().add(ARR_LEN_OFF) as *const u64).read() };
+    if len == 0 {
+        return;
+    }
+    let idx = len - 1;
+    let key = unsafe { crate::define::mint_index_key(idx) };
+    unsafe {
+        __torajs_arr_delete_index(arr, key as *mut c_void, idx);
+        __torajs_str_drop(key as *mut c_void);
+    }
+}
+
 /// §10.4.2 [[Delete]] on a canonical index — `delete arr[i]`.
 /// Answers 1 (deleted / already absent) or 0 (refused: the index is
 /// non-configurable — caller throws per §13.5.1.2 strict semantics).

@@ -37,6 +37,8 @@ use crate::ssa_lower::declare_intrinsic;
 pub(crate) struct ArrAnyIds {
     pub arr_alloc_any: FuncId,
     pub arr_push_any: FuncId,
+    /// Elision hole marking — see `__torajs_arr_mark_last_hole`.
+    pub arr_mark_last_hole: FuncId,
     pub arr_unshift_any: FuncId,
     pub arr_fill_any: FuncId,
     pub arr_extend_any: FuncId,
@@ -101,6 +103,13 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             "__torajs_arr_push_any",
             &[Type::Ptr, Type::I64, Type::I64],
             Type::Ptr,
+        ),
+        arr_mark_last_hole: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_arr_mark_last_hole",
+            &[Type::Ptr],
+            Type::Void,
         ),
         arr_unshift_any: declare_intrinsic(
             module,

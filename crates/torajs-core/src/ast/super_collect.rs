@@ -353,6 +353,7 @@ pub(super) fn collect_super_in_stmt(ast: &Ast, s: &Stmt, out: &mut Vec<(ExprId, 
 
 fn collect_super_in_expr(ast: &Ast, eid: ExprId, out: &mut Vec<(ExprId, Vec<ExprId>)>) {
     match ast.get_expr(eid) {
+        Expr::Elision => {}
         Expr::Super { args } => {
             // Record the site, then descend into args (super itself
             // probably doesn't nest super(args), but be safe).

@@ -10,6 +10,7 @@ use super::{fmt_params, print_stmt};
 pub(crate) fn print_expr(ast: &Ast, id: ExprId, indent: usize) {
     let pad = "  ".repeat(indent);
     match ast.get_expr(id) {
+        Expr::Elision => println!("{pad}Elision"),
         Expr::Ident(n) => println!("{pad}Ident({n:?})"),
         Expr::String(s) => println!("{pad}String({s:?})"),
         Expr::Number(n) => println!("{pad}Number({n})"),

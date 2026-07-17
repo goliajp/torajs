@@ -277,6 +277,9 @@ fn literal_type_of(e: &Expr) -> Type {
         Expr::Bool(_) => Type::Boolean,
         Expr::Null => Type::Null,
         Expr::Uninit => Type::Undefined,
+        // An array-literal elision reads as undefined (§13.2.4);
+        // the hole marking is lower_array's business.
+        Expr::Elision => Type::Undefined,
         Expr::Regex { .. } => Type::RegExp,
         other => {
             panic!("type_of_inner: composite variant fell through to literal_type_of: {other:?}")

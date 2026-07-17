@@ -139,7 +139,11 @@ impl<'a> Parser<'a> {
         // (`f([,])` must fire `x = 23`; null must not) and hole reads.
         let parse_elem_or_elision = |this: &mut Self| -> Result<ExprId, String> {
             if matches!(this.peek(), Token::Comma | Token::RBracket) {
-                return Ok(this.ast.add_expr(Expr::Ident("undefined".to_string())));
+                // A dedicated Elision node — it reads as undefined
+                // but lower_array marks the slot a HOLE (not an own
+                // property: `1 in [0,,2]` is false and indexOf skips
+                // it per §23.1.3.30 HasProperty gating).
+                return Ok(this.ast.add_expr(Expr::Elision));
             }
             this.parse_array_element()
         };

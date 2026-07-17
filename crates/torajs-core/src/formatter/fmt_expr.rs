@@ -13,6 +13,9 @@ impl<'a> Formatter<'a> {
     pub(super) fn fmt_expr(&mut self, eid: ExprId) {
         let e = self.ast.get_expr(eid);
         match e {
+            // An elision prints as its bare slot — the Array arm's
+            // comma-join renders `[0, , 2]`.
+            Expr::Elision => {}
             Expr::Ident(n) => self.write(n),
             Expr::NewTarget => self.write("new.target"),
             Expr::Number(n) => {

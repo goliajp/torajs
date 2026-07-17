@@ -164,6 +164,7 @@ pub(super) fn count_refs_stmt(ast: &Ast, s: &Stmt, refs: &mut HashMap<String, us
 
 pub(super) fn count_refs_expr(ast: &Ast, eid: ExprId, refs: &mut HashMap<String, usize>) {
     match ast.get_expr(eid) {
+        Expr::Elision => {}
         Expr::Ident(name) => {
             *refs.entry(name.clone()).or_insert(0) += 1;
         }

@@ -230,6 +230,7 @@ fn eal_stmt_safe(ast: &Ast, s: &Stmt, x_name: &str) -> bool {
 
 fn eal_expr_safe(ast: &Ast, eid: ExprId, x_name: &str) -> bool {
     match ast.get_expr(eid) {
+        Expr::Elision => true,
         Expr::Ident(n) => n != x_name, // bare X is escape
         Expr::Member { obj, name } => {
             // X.length is the only allowed Member shape on X.

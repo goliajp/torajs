@@ -353,6 +353,9 @@ pub(crate) fn lower(ctx: &mut LowerCtx, eid: ExprId) -> Operand {
         // check.rs's Uninit arm already returns Type::Null so
         // downstream ops see a consistent Null/Nullable shape.
         Expr::Uninit => Operand::ConstPtrNull,
+        // An elision reads as undefined; the hole marking happens in
+        // the Array lowering (this arm only fires if one escapes).
+        Expr::Elision => Operand::ConstPtrNull,
         other => panic!("ssa-lower: unsupported expr: {other:?}"),
     }
 }

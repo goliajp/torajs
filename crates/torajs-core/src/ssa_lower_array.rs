@@ -62,6 +62,15 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, elements: &[ExprId], eid: ExprId) ->
     let has_spread = element_ids
         .iter()
         .any(|eid| matches!(ctx.ast.get_expr(*eid), Expr::Spread { .. }));
+    // §13.2.4 — an elision slot needs the Arr<Any> lane: the hole
+    // marking (shadow entry + exotic flag) only exists there, and a
+    // typed lane would store ConstPtrNull into a numeric slot.
+    if element_ids
+        .iter()
+        .any(|eid| matches!(ctx.ast.get_expr(*eid), Expr::Elision))
+    {
+        return ctx.lower_array_any_literal(&element_ids);
+    }
     if !has_spread && ctx.array_literal_is_heterogeneous(&element_ids) {
         return ctx.lower_array_any_literal(&element_ids);
     }

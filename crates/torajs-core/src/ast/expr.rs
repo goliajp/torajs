@@ -200,6 +200,12 @@ pub enum Expr {
         expr: ExprId,
         ty_ann: String,
     },
+    /// An array-literal elision slot (`[0, , 2]` — §13.2.4). Values
+    /// like `undefined` (reads through the hole answer undefined),
+    /// but the slot is NOT an own property: `lower_array` marks it a
+    /// hole after the dense store. Only ever appears as an
+    /// `Expr::Array` element.
+    Elision,
     /// `typeof x` — produces a string literal at runtime.
     /// Lowered to a fresh Type::Str whose contents are determined by
     /// the operand's static type ("number" / "string" / "boolean" /

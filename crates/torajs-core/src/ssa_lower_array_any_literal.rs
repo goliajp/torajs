@@ -134,6 +134,34 @@ impl<'a> LowerCtx<'a> {
                 self.release_owned_temp(eid, &inner_arr);
                 continue;
             }
+            // §13.2.4 elision — the slot pushes as undefined and
+            // immediately marks itself a HOLE (not an own property:
+            // `1 in [0,,2]` false, indexOf skips). The runtime
+            // helper reads len-1, which IS this slot since pushes
+            // are sequential.
+            if matches!(self.ast.get_expr(eid), Expr::Elision) {
+                arr = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(
+                        self.intrinsics.arr_push_any,
+                        vec![
+                            Operand::Value(arr),
+                            Operand::ConstI64(5),
+                            Operand::ConstI64(0),
+                        ],
+                    ),
+                    Type::Arr(arr_id),
+                    None,
+                );
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Call(
+                        self.intrinsics.arr_mark_last_hole,
+                        vec![Operand::Value(arr)],
+                    ),
+                );
+                continue;
+            }
             let val = self.lower_expr(eid);
             let val_ty = self.operand_ty(&val);
             let (tag_op, value_op) = self.pack_any_elem(val.clone(), val_ty, Some(eid));
