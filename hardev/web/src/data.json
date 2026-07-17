@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-17T05:53:26.099Z",
+  "generatedAt": "2026-07-17T06:57:47.524Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 92.9
   },
   "torajs": {
-    "commit": "777e756c",
-    "commitSubject": "fix: arr expando own-undefined shadows the builtin surface and binop coercion throws propagate",
+    "commit": "dbaed3ab",
+    "commitSubject": "style: fmt-drift fix on method_call_dynobj (mini rustfmt line join)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,38 @@
   },
   "commits": [
     {
+      "hash": "dbaed3ab",
+      "subject": "style: fmt-drift fix on method_call_dynobj (mini rustfmt line join)"
+    },
+    {
+      "hash": "8c8572af",
+      "subject": "fix: indirect attached callees bind the holder as this through the receiver channel"
+    },
+    {
+      "hash": "405c508e",
+      "subject": "fix: HOF callbacks route recv-first closures through the receiver channel"
+    },
+    {
+      "hash": "eedd89ec",
+      "subject": "fix: call/apply/bind thisArg rides the recv-first receiver channel"
+    },
+    {
+      "hash": "4bb16fbc",
+      "subject": "fix: detached recv-first closures bind this=undefined through the bare call lanes"
+    },
+    {
+      "hash": "959cb308",
+      "subject": "feat: any-param call args join the any-lane recv predicate and the route boxes its cell"
+    },
+    {
+      "hash": "cc4f91b4",
+      "subject": "feat: as-any cast object literals join the any-lane recv predicate"
+    },
+    {
+      "hash": "62f26d9e",
+      "subject": "chore: hardev dashboard snapshot at rotation 129 close (post arr-shadow leg)"
+    },
+    {
       "hash": "777e756c",
       "subject": "fix: arr expando own-undefined shadows the builtin surface and binop coercion throws propagate"
     },
@@ -727,59 +759,38 @@
     {
       "hash": "bac76a4c",
       "subject": "feat: any-lane object-literal recv members bind this through the receiver-first channel"
-    },
-    {
-      "hash": "7155fd96",
-      "subject": "fix: __forward_* shims get the closure-shape any-default for untyped params"
-    },
-    {
-      "hash": "d1a84e7c",
-      "subject": "fix: an own undefined entry shadows the prototype in ToPrimitive and method dispatch"
-    },
-    {
-      "hash": "798aa219",
-      "subject": "fix: inline ObjectLit define-family receiver promotes to the dynobj lane"
-    },
-    {
-      "hash": "8a232424",
-      "subject": "chore: hardev dashboard snapshot at rotation 128 close"
-    },
-    {
-      "hash": "8ba374ca",
-      "subject": "refactor: extract walk_expr to ast_collect_fn_closure_expr (file-size debt)"
-    },
-    {
-      "hash": "2fb7873d",
-      "subject": "fix: the forwarder collector respects local shadowing of top-level fn names"
-    },
-    {
-      "hash": "bf094d85",
-      "subject": "fix: an Ident accessor face takes its own stake into the AccessorPair"
-    },
-    {
-      "hash": "12048a16",
-      "subject": "chore: archive the test262 sweep at 1e48c2a3"
     }
   ],
-  "headSha": "777e756c",
+  "headSha": "dbaed3ab",
   "autorun": {
-    "total": 434,
+    "total": 435,
     "baselineTarget": 10,
-    "bySelf": 429,
+    "bySelf": 430,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784261305-6624",
-      "at": "2026-07-17T04:08:25Z",
-      "ts": 1784261305,
+      "rotationId": "r-1784267632-7bbd",
+      "at": "2026-07-17T05:53:52Z",
+      "ts": 1784267632,
       "trigger": "self",
-      "prevHead": "8a232424",
-      "handoffSha": "sha256:020544a1bdc5e67966bf609592b9f749c10389ab2f7615147b215488fb7b6d91",
-      "handoffAgeSec": 7,
+      "prevHead": "62f26d9e",
+      "handoffSha": "sha256:a390b1eda9499fcb07f748cc677540c7b810fc064600f0a8a147b53bfef7173e",
+      "handoffAgeSec": 13,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784267632-7bbd",
+        "at": "2026-07-17T05:53:52Z",
+        "ts": 1784267632,
+        "trigger": "self",
+        "prevHead": "62f26d9e",
+        "handoffSha": "sha256:a390b1eda9499fcb07f748cc677540c7b810fc064600f0a8a147b53bfef7173e",
+        "handoffAgeSec": 13,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784261305-6624",
         "at": "2026-07-17T04:08:25Z",
@@ -876,17 +887,6 @@
         "prevHead": "7308ee2a",
         "handoffSha": "sha256:b9fb31924bb419983dbb7c15aeddb3bd0895f56b44ec871cab53447f34d3dcf7",
         "handoffAgeSec": 1681,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784185158-6284",
-        "at": "2026-07-16T06:59:18Z",
-        "ts": 1784185158,
-        "trigger": "self",
-        "prevHead": "4257114b",
-        "handoffSha": "sha256:34678621a16dc5c7429c279ddc4b7aba7213e67e94ea7a5b3d82f29635c545dc",
-        "handoffAgeSec": 265,
         "conformanceBefore": null,
         "commitsInSession": null
       }
