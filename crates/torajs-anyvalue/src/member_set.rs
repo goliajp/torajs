@@ -85,6 +85,32 @@ unsafe fn reject(tag: u64, value: u64) {
     }
 }
 
+/// True when `key` names a `Tag::StringWrapper` inherent own
+/// property — `"length"` or a canonical code-unit index in
+/// `[0, len)` (§10.4.3 StringGetOwnProperty). Both are
+/// non-writable: the caller refuses the store instead of letting
+/// it shadow through the expando dynobj.
+unsafe fn strwrapper_own_domain_key(ptr: *mut c_void, key: *const c_void) -> bool {
+    unsafe {
+        let k = key as *const u8;
+        let key_len = (k.add(STR_LEN_OFF) as *const u32).read();
+        let bytes = core::slice::from_raw_parts(k.add(STR_DATA_OFF), key_len as usize);
+        if bytes == b"length" {
+            return true;
+        }
+        let Some(idx) = crate::member_get::canonical_index(bytes) else {
+            return false;
+        };
+        let inner = (ptr.cast::<u8>().add(8) as *const *const c_void).read();
+        let len = if inner.is_null() {
+            0
+        } else {
+            inner.cast::<u8>().add(STR_LEN_OFF).cast::<u32>().read() as u64
+        };
+        idx < len
+    }
+}
+
 /// Wrapper-cell `[[Set]]` rejection when the receiver has
 /// `[[Extensible]] = false` and the key is fresh — mirror of
 /// `__torajs_dynobj_set`'s new-key gate wording.
@@ -271,6 +297,18 @@ pub unsafe extern "C" fn __torajs_any_member_set(
             || cell_tag == Tag::StringWrapper as u16
             || cell_tag == Tag::BooleanWrapper as u16
         {
+            // §10.4.3 String Exotic — `"length"` and the in-range
+            // code-unit indices are non-writable own properties:
+            // [[Set]] answers false and strict assignment turns
+            // that into a TypeError (§13.15.2; bun throws). The
+            // pre-fix store landed in the expando dynobj, so the
+            // dynamic-key read handed back the shadow value and
+            // test262's isWritable probe saw a writable length.
+            if cell_tag == Tag::StringWrapper as u16 && strwrapper_own_domain_key(ptr, key) {
+                drop_payload(tag, value);
+                __torajs_throw_type_error(c"Attempted to assign to readonly property.".as_ptr());
+                return;
+            }
             let props_slot = ptr.cast::<u8>().add(MEMBER_SET_WRAPPER_PROPS_OFF) as *mut u64;
             let mut props = *props_slot as *mut c_void;
             // §10.1.5.1 [[Set]] on a non-extensible wrapper rejects new

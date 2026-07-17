@@ -45,6 +45,8 @@ use core::ffi::c_void;
 
 use torajs_rc::{AnySlotTag, Tag};
 
+use crate::member_get_own::{arr_own_pair, closure_virtual_pair};
+pub(crate) use crate::member_get_own::{canonical_index, strwrapper_length};
 use crate::nanbox::{AnyValue, as_void_ptr, is_cell, is_null, is_undefined};
 
 unsafe extern "C" {
@@ -54,10 +56,6 @@ unsafe extern "C" {
     /// torajs-arr — expando probe through the props slot.
     fn __torajs_arrprops_get_tag(arr: *mut c_void, key: *const c_void) -> u64;
     fn __torajs_arrprops_get_value(arr: *mut c_void, key: *const c_void) -> u64;
-    /// torajs-arr — kind-aware slot reads, borrow contract (RFC
-    /// 20260712-arr-exotic-define chunk A dynamic-key arm).
-    fn __torajs_arr_get_any_tag(arr: *const c_void, i: u64) -> u64;
-    fn __torajs_arr_get_any_value(arr: *const c_void, i: u64) -> u64;
     /// torajs-structmeta — read side over `__torajs_class_layouts`
     /// (mirror of `method_call_dynobj`'s declares). The field/accessor
     /// PROBE over a struct cell lives in `struct_probe.rs`; the method
@@ -93,8 +91,8 @@ fn is_wrapper_tag(t: u16) -> bool {
 /// `class_tag` u32 offset inside a `Tag::Obj` instance / Str-cell
 /// layout — mirrors `method_call_dynobj`'s constants.
 const OBJ_CLASS_TAG_OFF: usize = 8;
-const STR_LEN_OFF: usize = 8;
-const STR_DATA_OFF: usize = 16;
+pub(crate) const STR_LEN_OFF: usize = 8;
+pub(crate) const STR_DATA_OFF: usize = 16;
 
 /// The closure's `props_dynobj` pointer, NULL when no expando was
 /// ever written.
@@ -120,62 +118,6 @@ pub(crate) unsafe fn header_flag_set(ptr: *mut c_void, bit: u16) {
         let p = ptr.cast::<u8>().add(6) as *mut u16;
         p.write(p.read() | bit);
     }
-}
-
-/// Array `len` u64 offset — mirrors `torajs-arr::layout::ARR_LEN_OFF`.
-const ARR_LEN_OFF: usize = 8;
-
-/// Canonical array-index parse — ES §10.4.2 array index shape
-/// (`"0"`, or nonzero-leading all-digits, value `< 2^32 - 1`).
-/// `arr_reflect.rs` (torajs-meta) twin.
-fn canonical_index(bytes: &[u8]) -> Option<u64> {
-    if bytes.is_empty() || bytes.len() > 10 {
-        return None;
-    }
-    if bytes == b"0" {
-        return Some(0);
-    }
-    if bytes[0] == b'0' || !bytes.iter().all(|b| b.is_ascii_digit()) {
-        return None;
-    }
-    let mut v: u64 = 0;
-    for &b in bytes {
-        v = v * 10 + (b - b'0') as u64;
-    }
-    if v < u32::MAX as u64 { Some(v) } else { None }
-}
-
-/// `Tag::Arr` own-property probe for a dynamic string key (RFC
-/// 20260712-arr-exotic-define chunk A) — `"length"` answers the len
-/// as I64; a canonical index answers the element via the kind-aware
-/// slot read (in-range) or a definite `(ANY_UNDEF, 0)` (out-of-range
-/// — the index domain is owned by element storage, never by the
-/// expando dynobj). `None` = not an own-domain key, fall through to
-/// the expando probe / builtin reify. Borrow-shaped like every
-/// other probe answer. Pre-fix `o[k]` with a runtime `"length"` /
-/// index key answered `undefined` for every Array receiver (the
-/// literal-key form lowers to the static member read and was fine).
-///
-/// # Safety
-/// `ptr` is a live `Tag::Arr` heap pointer; `key` is a live Str cell.
-unsafe fn arr_own_pair(ptr: *mut c_void, key: *const c_void) -> Option<(u64, u64)> {
-    let k = key as *const u8;
-    let key_len = unsafe { k.add(STR_LEN_OFF).cast::<u32>().read() };
-    let bytes = unsafe { core::slice::from_raw_parts(k.add(STR_DATA_OFF), key_len as usize) };
-    let len = unsafe { ptr.cast::<u8>().add(ARR_LEN_OFF).cast::<u64>().read() };
-    if bytes == b"length" {
-        return Some((AnySlotTag::I64 as u64, len));
-    }
-    let idx = canonical_index(bytes)?;
-    if idx >= len {
-        return Some((5, 0));
-    }
-    Some(unsafe {
-        (
-            __torajs_arr_get_any_tag(ptr, idx),
-            __torajs_arr_get_any_value(ptr, idx),
-        )
-    })
 }
 
 /// Cell tag of a dispatchable receiver, `None` for everything the
@@ -254,6 +196,9 @@ pub unsafe extern "C" fn __torajs_any_member_get_tag(recv: AnyValue, key: *const
         // (`.valueOf` / `.toString` / `.length` on StringWrapper etc.)
         // via the per-wrapper method tables.
         Some((ptr, t)) if is_wrapper_tag(t) => unsafe {
+            if t == Tag::StringWrapper as u16 && strwrapper_length(ptr, key).is_some() {
+                return AnySlotTag::I64 as u64;
+            }
             let props = wrapper_props(ptr);
             if !props.is_null() {
                 let tag = __torajs_dynobj_get_tag(props, key);
@@ -280,36 +225,6 @@ pub unsafe extern "C" fn __torajs_any_member_get_tag(recv: AnyValue, key: *const
             reify_tag(recv, key)
         },
         _ => unsafe { reify_tag(recv, key) },
-    }
-}
-
-/// Virtual §20.2.4 `name` / `length` pair for the borrow-shaped
-/// dynamic-key probe (chunk D, RFC 20260711-closure-reflection) —
-/// `f[k]` with k == "name"/"length" answers the same metadata the
-/// static member read does, tombstone-gated (chunk C). `name` hands
-/// out an IMMORTAL interned cell (`closure_virtual_name_cell`;
-/// bound cells stay None — recorded boundary), `length` is an i64
-/// immediate. `None` falls to the builtin reify probe.
-///
-/// # Safety
-/// `ptr` is a live `Tag::Closure` cell; `key` a live Str cell.
-unsafe fn closure_virtual_pair(ptr: *mut c_void, key: *const c_void) -> Option<(u64, u64)> {
-    unsafe {
-        if crate::prop_has::key_is(key, b"name")
-            && !header_flag(ptr, torajs_rc::FLAG_FN_NAME_DELETED)
-            && let Some(cell) = crate::name_get::closure_virtual_name_cell(ptr)
-        {
-            return Some((AnySlotTag::Heap as u64, cell as u64));
-        }
-        if crate::prop_has::key_is(key, b"length")
-            && !header_flag(ptr, torajs_rc::FLAG_FN_LENGTH_DELETED)
-        {
-            let l = crate::len_get::__torajs_closure_length(ptr);
-            if l >= 0 {
-                return Some((AnySlotTag::I64 as u64, l as u64));
-            }
-        }
-        None
     }
 }
 
@@ -462,6 +377,11 @@ pub unsafe extern "C" fn __torajs_any_member_get_value(recv: AnyValue, key: *con
         // RFC 20260716 刀 5 (rotation 121 chunk 4) — wrapper own-
         // property expando value probe (mirror of the closure arm).
         Some((ptr, t)) if is_wrapper_tag(t) => unsafe {
+            if t == Tag::StringWrapper as u16
+                && let Some(len) = strwrapper_length(ptr, key)
+            {
+                return len;
+            }
             let props = wrapper_props(ptr);
             if !props.is_null() && __torajs_dynobj_get_tag(props, key) != 5 {
                 return __torajs_dynobj_get_value(props, key);
