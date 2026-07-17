@@ -357,6 +357,11 @@ pub const ANY_METHOD_DEFINE_SETTER: i64 = 149;
 pub const ANY_METHOD_LOOKUP_GETTER: i64 = 150;
 /// See [`ANY_METHOD_DEFINE_GETTER`].
 pub const ANY_METHOD_LOOKUP_SETTER: i64 = 151;
+/// `Object.prototype.isPrototypeOf` (§20.1.3.3) — walks the
+/// argument's [[Prototype]] chain comparing identity with the
+/// receiver (RFC 20260717-user-proto-chain knife 4). Universal like
+/// the own-property probes.
+pub const ANY_METHOD_IS_PROTOTYPE_OF: i64 = 152;
 
 /// RegExp property-read ids (Any-method-call RFC 20260704 C4-3c-2)
 /// — `r.source` / `r.lastIndex` / flag booleans through an `any`

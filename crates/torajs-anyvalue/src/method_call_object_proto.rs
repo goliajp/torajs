@@ -14,6 +14,9 @@ use crate::nanbox::{
 use crate::nanbox_encode::__torajs_anyv_box_pointer;
 
 unsafe extern "C" {
+    /// torajs-meta — the [[Prototype]] answer for any AnyValue
+    /// (owned cell / null immediate) — knife 4's chain step.
+    fn __torajs_anyv_get_proto_of_any(v: u64) -> u64;
     /// torajs-str — allocate a fresh Str from raw bytes.
     fn __torajs_str_alloc(src: *const u8, len: i64) -> *mut u8;
     /// torajs-str — release a heap Str/Substr reference.
@@ -193,5 +196,43 @@ unsafe fn badge_string(badge: &'static [u8]) -> AnyValue {
     unsafe {
         let p = __torajs_str_alloc(buf.as_ptr(), len as i64);
         __torajs_anyv_box_pointer(p as *mut c_void)
+    }
+}
+
+/// `Object.prototype.isPrototypeOf(V)` — §20.1.3.3 (RFC
+/// 20260717-user-proto-chain knife 4): a primitive V is `false`
+/// (step 1); otherwise walk V's [[Prototype]] chain comparing cell
+/// identity with the receiver. A primitive receiver is `false` too —
+/// its ToObject wrapper is minted fresh and can never sit on a
+/// chain. Each chain step's answer is owned (the getter incs) and
+/// released as the walk moves past it.
+///
+/// # Safety
+/// `recv` carries a valid AnyValue bit pattern; `argv` points at
+/// `argc` live AnyValue slots.
+pub(crate) unsafe fn is_prototype_of(recv: AnyValue, argv: *const u64, argc: i64) -> AnyValue {
+    let v = if argc >= 1 {
+        unsafe { *argv }
+    } else {
+        VALUE_UNDEFINED
+    };
+    if !crate::nanbox::is_cell(v) || !crate::nanbox::is_cell(recv) {
+        return crate::nanbox::VALUE_FALSE;
+    }
+    let target = crate::nanbox::as_void_ptr(recv);
+    unsafe {
+        let mut cur = __torajs_anyv_get_proto_of_any(v);
+        loop {
+            if !crate::nanbox::is_cell(cur) {
+                return crate::nanbox::VALUE_FALSE;
+            }
+            if core::ptr::eq(crate::nanbox::as_void_ptr(cur), target) {
+                crate::nanbox_ffi::__torajs_anyv_rc_dec(cur);
+                return crate::nanbox::VALUE_TRUE;
+            }
+            let next = __torajs_anyv_get_proto_of_any(cur);
+            crate::nanbox_ffi::__torajs_anyv_rc_dec(cur);
+            cur = next;
+        }
     }
 }

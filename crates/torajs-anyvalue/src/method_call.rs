@@ -192,6 +192,10 @@ pub(crate) unsafe fn any_method_call_inner(
     if mid == ANY_METHOD_HAS_OWN_PROPERTY || mid == ANY_METHOD_PROPERTY_IS_ENUMERABLE {
         return unsafe { crate::method_call_object_proto::own_prop_probe(recv, mid, argv, argc) };
     }
+    // §20.1.3.3 — universal chain-walk probe (knife 4).
+    if mid == torajs_rc::ANY_METHOD_IS_PROTOTYPE_OF {
+        return unsafe { crate::method_call_object_proto::is_prototype_of(recv, argv, argc) };
+    }
     // Annex B §B.2.2.2-5 legacy accessor surface — universal like the
     // own-property probes (ToObject semantics per receiver shape live
     // in the arm).

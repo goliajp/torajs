@@ -107,6 +107,7 @@ pub fn any_method_meta(mid: i64) -> Option<(&'static str, u32)> {
         ANY_METHOD_APPLY => ("apply", 2),
         ANY_METHOD_BIND => ("bind", 1),
         ANY_METHOD_HAS_OWN_PROPERTY => ("hasOwnProperty", 1),
+        ANY_METHOD_IS_PROTOTYPE_OF => ("isPrototypeOf", 1),
         ANY_METHOD_PROPERTY_IS_ENUMERABLE => ("propertyIsEnumerable", 1),
         ANY_METHOD_DEFINE_GETTER => ("__defineGetter__", 2),
         ANY_METHOD_DEFINE_SETTER => ("__defineSetter__", 2),
@@ -196,7 +197,7 @@ mod tests {
     #[test]
     fn meta_rejects_unknown_and_out_of_table() {
         assert!(any_method_meta(ANY_METHOD_UNKNOWN).is_none());
-        assert!(any_method_meta(ANY_METHOD_LOOKUP_SETTER + 1).is_none());
+        assert!(any_method_meta(ANY_METHOD_IS_PROTOTYPE_OF + 1).is_none());
         assert!(any_method_meta(-1).is_none());
     }
 

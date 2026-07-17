@@ -99,6 +99,7 @@ pub fn any_method_id(name: &str) -> i64 {
         "apply" => ANY_METHOD_APPLY,
         "bind" => ANY_METHOD_BIND,
         "hasOwnProperty" => ANY_METHOD_HAS_OWN_PROPERTY,
+        "isPrototypeOf" => ANY_METHOD_IS_PROTOTYPE_OF,
         "propertyIsEnumerable" => ANY_METHOD_PROPERTY_IS_ENUMERABLE,
         "__defineGetter__" => ANY_METHOD_DEFINE_GETTER,
         "__defineSetter__" => ANY_METHOD_DEFINE_SETTER,
