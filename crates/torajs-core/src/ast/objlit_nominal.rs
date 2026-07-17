@@ -65,12 +65,15 @@ pub(crate) fn run(
     objlit_method_fields: &mut HashMap<String, Vec<String>>,
     outer_binds: &HashMap<String, String>,
     fn_sigs: &mut HashMap<String, String>,
+    fnexpr_recv_fns: &mut std::collections::HashSet<String>,
 ) {
     if objlit_method_exprs.is_empty() {
         return;
     }
+    let anylane = collect_anylane_objlits(stmts, exprs);
     let mut type_decls: Vec<Stmt> = Vec::new();
     let mut patches: Vec<MethodPatch> = Vec::new();
+    let mut any_patches: Vec<(ExprId, String)> = Vec::new();
 
     {
         let view: AstExprsView = &*exprs;
@@ -115,6 +118,28 @@ pub(crate) fn run(
                         || fname.starts_with("__getter_")
                         || fname.starts_with("__setter_"))
             };
+            // RFC 20260717-objlit-anylane-recv knife 1 — a literal the
+            // dynobj lane will consume gets NO nominal identity: its
+            // receiver is a dynobj cell at runtime, so a `__this:
+            // __ObjLit_n` body's struct-offset reads are garbage
+            // (this-using method through any = SIGSEGV probe). Promote
+            // this-USING members to the `__this: any` receiver-first
+            // shape instead (the fn-expr face mechanics — body reads
+            // dispatch through the any lane, `FLAG_CLOSURE_RECV_FIRST`
+            // routes the receiver into argv[0]). A this-free member —
+            // accessor included — keeps the plain closure ABI; the
+            // dynobj-init accessor install picks generic kinds for it.
+            if anylane.contains(&(i as u32)) {
+                for (_, feid) in fields {
+                    if objlit_method_exprs.contains(feid)
+                        && uses_this(feid)
+                        && let Expr::Closure { fn_name, .. } = &view[feid.0 as usize]
+                    {
+                        any_patches.push((*feid, fn_name.clone()));
+                    }
+                }
+                continue;
+            }
             if !fields.iter().any(|(n, e)| needs_recv(n, e)) {
                 continue;
             }
@@ -167,11 +192,115 @@ pub(crate) fn run(
         }
     }
 
+    if !any_patches.is_empty() {
+        super::fnexpr_this::promote_recv_any(stmts, exprs, &any_patches, fnexpr_recv_fns);
+    }
     if patches.is_empty() {
         return;
     }
     apply_patches(stmts, exprs, &patches, &mut type_decls, fn_sigs);
     stmts.extend(type_decls);
+}
+
+/// RFC 20260717-objlit-anylane-recv knife 1 — the syntactically
+/// decidable set of object literals that will lower through the
+/// dynobj lane, mirroring the SSA-side routes:
+///
+/// - (a) `let x: any = { ... }` init at any nesting depth — the P3.2
+///   `lower_dynobj_init` shortcut (`ssa_lower_stmt_let_decl`);
+/// - (b) a literal `undefined` field — the checker's
+///   `struct_has_undef_field` widen forces the binding to Any;
+/// - (d) an ObjectLit nested in a marked literal —
+///   `lower_dynobj_init` recurses nested literals;
+/// - (e) the receiver argument of `Object.defineProperty` /
+///   `defineProperties` — the `lower_define_receiver` promote.
+///
+/// Deliberately NOT covered: `{...} as any` (the as-cast promote is
+/// empty-literal-only) and ObjectLit args into user any params (not
+/// decidable here) — those keep the nominal stamp and the dynobj-init
+/// guard rejects their recv members loudly (knife 2 widens).
+fn collect_anylane_objlits(stmts: &[Stmt], exprs: &[Expr]) -> std::collections::HashSet<u32> {
+    let mut marked: std::collections::HashSet<u32> = std::collections::HashSet::new();
+    let mut roots: Vec<ExprId> = Vec::new();
+    collect_any_let_inits(stmts, &mut roots);
+    for (i, e) in exprs.iter().enumerate() {
+        match e {
+            // (b) — literal `undefined` field value.
+            Expr::ObjectLit { fields }
+                if fields.iter().any(
+                    |(_, fe)| matches!(&exprs[fe.0 as usize], Expr::Ident(n) if n == "undefined"),
+                ) =>
+            {
+                roots.push(ExprId(i as u32));
+            }
+            // (e) — define-family receiver argument.
+            Expr::Call { callee, args } => {
+                if let Expr::Member { obj, name } = &exprs[callee.0 as usize]
+                    && (name == "defineProperty" || name == "defineProperties")
+                    && matches!(&exprs[obj.0 as usize], Expr::Ident(n) if n == "Object")
+                    && let Some(recv) = args.first()
+                {
+                    roots.push(*recv);
+                }
+            }
+            _ => {}
+        }
+    }
+    // (d) — nested literals of a marked literal join the set (strip
+    // `as` chains the way `lower_dynobj_init` does).
+    while let Some(eid) = roots.pop() {
+        let mut cur = eid;
+        while let Expr::As { expr, .. } = &exprs[cur.0 as usize] {
+            cur = *expr;
+        }
+        let Expr::ObjectLit { fields } = &exprs[cur.0 as usize] else {
+            continue;
+        };
+        if !marked.insert(cur.0) {
+            continue;
+        }
+        for (_, fe) in fields {
+            roots.push(*fe);
+        }
+    }
+    marked
+}
+
+/// (a) leg of [`collect_anylane_objlits`] — `let x: any = <init>`
+/// at any statement nesting depth (same recursion shape as
+/// `infer_closure_params::collect_let_anns`).
+fn collect_any_let_inits(stmts: &[Stmt], out: &mut Vec<ExprId>) {
+    for s in stmts {
+        match s {
+            Stmt::LetDecl {
+                type_ann: Some(t),
+                init,
+                ..
+            } if t == "any" => out.push(*init),
+            Stmt::FnDecl { body, .. } => collect_any_let_inits(body, out),
+            Stmt::Block(inner) | Stmt::Multi(inner) => collect_any_let_inits(inner, out),
+            Stmt::If {
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                collect_any_let_inits(std::slice::from_ref(then_branch.as_ref()), out);
+                if let Some(eb) = else_branch {
+                    collect_any_let_inits(std::slice::from_ref(eb.as_ref()), out);
+                }
+            }
+            Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
+                collect_any_let_inits(std::slice::from_ref(body.as_ref()), out);
+            }
+            Stmt::For { init, body, .. } => {
+                if let Some(i) = init {
+                    collect_any_let_inits(std::slice::from_ref(i.as_ref()), out);
+                }
+                collect_any_let_inits(std::slice::from_ref(body.as_ref()), out);
+            }
+            _ => {}
+        }
+    }
 }
 
 /// Phase 2 — for each collected `MethodPatch`, drop `__this` from the

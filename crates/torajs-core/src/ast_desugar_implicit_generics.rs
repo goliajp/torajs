@@ -200,6 +200,7 @@ pub(crate) fn run(ast: &mut Ast) {
         objlit_method_fields,
         &outer_binds,
         &mut fn_sigs,
+        fnexpr_recv_fns,
     );
     // RFC 20260717-fnexpr-this-channel knife 1 — same slot rationale as
     // objlit_nominal above: the lifted closures exist and

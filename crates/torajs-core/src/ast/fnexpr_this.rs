@@ -100,16 +100,32 @@ pub(crate) fn run(
     if patches.is_empty() {
         return;
     }
-    // `__this` is a receiver, not a capture — mirror
-    // `objlit_nominal::apply_patches` exactly: retain the capture list,
-    // then rewrite the lifted FnDecl's params + `__env(...)` ann.
-    for p in &patches {
-        if let Expr::Closure { captures, .. } = &mut exprs[p.eid.0 as usize] {
+    let pairs: Vec<(ExprId, String)> = patches.into_iter().map(|p| (p.eid, p.fn_name)).collect();
+    promote_recv_any(stmts, exprs, &pairs, fnexpr_recv_fns);
+}
+
+/// Promote each `(closure eid, lifted fn name)` to the receiver-first
+/// any shape: `__this` leaves the capture list (it is a receiver, not
+/// a capture — mirror of `objlit_nominal::apply_patches`), the lifted
+/// FnDecl gains a `__this: any` param right after `__env`, and the fn
+/// name joins `fnexpr_recv_fns` so the construction site stamps
+/// `FLAG_CLOSURE_RECV_FIRST` and receiver-aware invokers put the
+/// receiver in argv[0]. Shared by this pass's fn-expr faces and
+/// `objlit_nominal`'s any-lane literal members (RFC
+/// 20260717-objlit-anylane-recv knife 1).
+pub(crate) fn promote_recv_any(
+    stmts: &mut [Stmt],
+    exprs: &mut [Expr],
+    patches: &[(ExprId, String)],
+    fnexpr_recv_fns: &mut std::collections::HashSet<String>,
+) {
+    for (eid, _) in patches {
+        if let Expr::Closure { captures, .. } = &mut exprs[eid.0 as usize] {
             captures.retain(|c| c != "__this");
         }
     }
-    for p in &patches {
-        let caps: Vec<String> = match &exprs[p.eid.0 as usize] {
+    for (eid, fn_name) in patches {
+        let caps: Vec<String> = match &exprs[eid.0 as usize] {
             Expr::Closure { captures, .. } => captures.clone(),
             _ => continue,
         };
@@ -117,7 +133,7 @@ pub(crate) fn run(
             let Stmt::FnDecl { name, params, .. } = s else {
                 continue;
             };
-            if *name != p.fn_name {
+            if name != fn_name {
                 continue;
             }
             if let Some(env) = params.first_mut()
@@ -137,7 +153,7 @@ pub(crate) fn run(
                     },
                 );
             }
-            fnexpr_recv_fns.insert(p.fn_name.clone());
+            fnexpr_recv_fns.insert(fn_name.clone());
             break;
         }
     }

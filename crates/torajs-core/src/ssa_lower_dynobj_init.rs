@@ -66,6 +66,27 @@ impl<'a> LowerCtx<'a> {
         // For each (name, value), set into the dynobj. Box value
         // first using the same scheme as box_to_any but inlined.
         for (fname, fval_eid) in fields {
+            // RFC 20260717-objlit-anylane-recv knife 1 — accessor
+            // shorthand members (`{ get baz() {} }` parses to a
+            // `__getter_baz` field) install a REAL AccessorPair entry
+            // instead of a data field (which read back undefined and
+            // answered no descriptor — the test262
+            // verifyProperty-undefined-desc face). A this-using face
+            // was promoted to the `__this: any` receiver-first shape
+            // by `objlit_nominal`; a face still carrying a nominal
+            // `__this` reached this lane through a route the AST
+            // predicate can't see — reject loudly, the struct-typed
+            // body would read garbage off the dynobj receiver.
+            if let Some(prop) = fname.strip_prefix("__getter_").map(str::to_string) {
+                self.guard_anylane_recv_face(fval_eid, "accessor getter");
+                self.emit_dynobj_accessor_field(dynobj, &prop, fval_eid, true);
+                continue;
+            }
+            if let Some(prop) = fname.strip_prefix("__setter_").map(str::to_string) {
+                self.guard_anylane_recv_face(fval_eid, "accessor setter");
+                self.emit_dynobj_accessor_field(dynobj, &prop, fval_eid, false);
+                continue;
+            }
             // RFC 20260712-object-create-define-props — a nested
             // ObjectLit recurses through the dynobj lane (mirror of
             // lower_array_any_literal's nested-array recursion): the
@@ -217,5 +238,68 @@ impl<'a> LowerCtx<'a> {
             }
         }
         Operand::Value(dynobj)
+    }
+
+    /// RFC 20260717-objlit-anylane-recv knife 1 — install one accessor
+    /// shorthand face as a live AccessorPair entry on the fresh
+    /// dynobj. Rides `emit_accessor_define` wholesale (the dynobj
+    /// boxes to an Any face for its receiver arm; object-literal
+    /// accessors are enumerable + configurable per §13.2.5.5, and the
+    /// define kernel's redefine merge folds a get + set on the same
+    /// prop into one entry). `lower_accessor_face` answers the
+    /// receiver-first BOXED|RECV kind for promoted this-using faces
+    /// and generic kinds for this-free ones.
+    fn emit_dynobj_accessor_field(
+        &mut self,
+        dynobj: ValueId,
+        prop: &str,
+        face_eid: ExprId,
+        is_get: bool,
+    ) {
+        let obj_any = self.box_to_any(Operand::Value(dynobj));
+        crate::ssa_lower_accessor::emit_accessor_define(
+            self,
+            obj_any,
+            &crate::ssa_lower_object_define::DefineKey::Name(prop),
+            &None,
+            if is_get { Some(face_eid) } else { None },
+            if is_get { None } else { Some(face_eid) },
+            Some(true),
+            Some(true),
+        );
+    }
+
+    /// Loud-reject guard for an accessor face whose `__this` kept the
+    /// struct-typed nominal stamp — a route the AST any-lane predicate
+    /// can't see (`{...} as any` non-empty / ObjectLit into a user any
+    /// param). Its body reads struct offsets off a dynobj receiver;
+    /// silently installing it trades a checkable reject for garbage
+    /// reads (knife 2 widens the predicate instead).
+    fn guard_anylane_recv_face(&self, face_eid: ExprId, what: &str) {
+        if let Expr::Closure { fn_name, .. } = self.ast.get_expr(face_eid)
+            && let Some(ann) = self.closure_this_ann(fn_name)
+            && ann != "any"
+        {
+            panic!(
+                "ssa-lower: object-literal {what} with a struct-typed receiver \
+                 (`{fn_name}`, this: {ann}) reached the any lane — not yet supported"
+            );
+        }
+    }
+
+    /// The `__this` param ann of a lifted closure's FnDecl — `None`
+    /// when the fn has no receiver param (this-free face).
+    fn closure_this_ann(&self, fn_name: &str) -> Option<String> {
+        for s in &self.ast.stmts {
+            if let crate::ast::Stmt::FnDecl { name, params, .. } = s
+                && name == fn_name
+            {
+                return params
+                    .iter()
+                    .find(|p| p.name == "__this")
+                    .map(|p| p.type_ann.clone().unwrap_or_default());
+            }
+        }
+        None
     }
 }

@@ -100,6 +100,40 @@ pub(crate) unsafe fn invoke_boxed(
     }
 }
 
+/// [`invoke_boxed`] with the receiver prepended in argv[0] — the
+/// dispatch shape for a `FLAG_CLOSURE_RECV_FIRST` closure stored as
+/// an own property (an any-lane object-literal method whose body
+/// says `this`; RFC 20260717-objlit-anylane-recv knife 1). The
+/// promoted body's first declared param is `__this: any`, so the
+/// adapter maps argv[0] onto it and the user args shift up by one.
+pub(crate) unsafe fn invoke_boxed_recv_first(
+    env: *mut c_void,
+    entry: u64,
+    recv: u64,
+    argv: *const u64,
+    argc: i64,
+) -> AnyValue {
+    unsafe {
+        let n = argc.max(0) as usize;
+        let call: unsafe extern "C" fn(*mut c_void, *const u64, i64) -> u64 =
+            core::mem::transmute(entry as usize);
+        if n + 1 > MAX_BOXED_ARGS {
+            let mut big = vec![VALUE_UNDEFINED; n + 1];
+            big[0] = recv;
+            for (i, slot) in big.iter_mut().skip(1).enumerate() {
+                *slot = *argv.add(i);
+            }
+            return call(env, big.as_ptr(), argc + 1);
+        }
+        let mut buf = [VALUE_UNDEFINED; MAX_BOXED_ARGS];
+        buf[0] = recv;
+        for (i, slot) in buf.iter_mut().skip(1).enumerate().take(n) {
+            *slot = *argv.add(i);
+        }
+        call(env, buf.as_ptr(), argc + 1)
+    }
+}
+
 /// `f(args…)` where the callee itself is an `any` value (RFC C4+
 /// bare any-call). A `Tag::Closure` cell with a non-zero boxed dual
 /// entry invokes through the uniform ABI; every other shape —

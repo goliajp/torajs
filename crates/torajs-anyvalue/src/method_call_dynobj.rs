@@ -180,6 +180,20 @@ pub(crate) unsafe fn dynobj_method(
                 }
                 // The cell's NaN-box encoding is its pointer bits.
                 if let Some((env, entry)) = closure_boxed_entry(cell) {
+                    // RFC 20260717-objlit-anylane-recv knife 1 — a
+                    // receiver-first closure (an any-lane object-
+                    // literal method whose body says `this`) carries
+                    // FLAG_CLOSURE_RECV_FIRST on its env header; its
+                    // first declared param is `__this: any`, so the
+                    // receiver rides argv[0] and the user args shift
+                    // up (pre-fix the body read garbage — SIGSEGV).
+                    let flags = (env as *const u8).add(6).cast::<u16>().read();
+                    if flags & torajs_rc::FLAG_CLOSURE_RECV_FIRST != 0 {
+                        let recv = __torajs_anyv_box_pointer(obj);
+                        return crate::method_call::invoke_boxed_recv_first(
+                            env, entry, recv, argv, argc,
+                        );
+                    }
                     return crate::method_call::invoke_boxed(env, entry, argv, argc);
                 }
             }
