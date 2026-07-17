@@ -233,6 +233,8 @@ fn is_global_name(name: &str) -> bool {
             | "RangeError"
             | "SyntaxError"
             | "ReferenceError"
+            | "EvalError"
+            | "URIError"
             | "Promise"
             | "Map"
             | "Set"

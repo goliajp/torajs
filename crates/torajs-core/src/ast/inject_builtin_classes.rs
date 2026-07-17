@@ -262,9 +262,17 @@ pub fn inject_builtin_classes(ast: &mut Ast) {
         return;
     }
 
-    // The four standard NativeError subclasses (spec §20.5.5).
-    const ERROR_SUBCLASSES: [&str; 4] =
-        ["TypeError", "RangeError", "SyntaxError", "ReferenceError"];
+    // The standard NativeError subclasses (spec §20.5.5; AggregateError
+    // is excluded — its ctor takes (errors, message), a different
+    // shape, recorded RFC 20260718 boundary).
+    const ERROR_SUBCLASSES: [&str; 6] = [
+        "TypeError",
+        "RangeError",
+        "SyntaxError",
+        "ReferenceError",
+        "EvalError",
+        "URIError",
+    ];
 
     // A name is "referenced" if it appears as a bare Ident, a
     // `new <N>(...)`, a `.<N>` member, or an `extends <N>` parent.

@@ -103,8 +103,10 @@ fn try_ident_global_typeof(ctx: &LowerCtx<'_>, expr: ExprId) -> Option<&'static 
         "Number" | "String" | "Boolean" | "Symbol" | "Date" | "Array" | "Object" | "RegExp"
         | "Error" | "Function" | "Promise" | "Map" | "Set" | "WeakMap" | "WeakSet" | "Proxy"
         | "BigInt" | "ArrayBuffer" | "DataView" | "TypeError" | "RangeError" | "SyntaxError"
-        | "ReferenceError" | "parseInt" | "parseFloat" | "isNaN" | "isFinite" | "encodeURI"
-        | "decodeURI" | "encodeURIComponent" | "decodeURIComponent" => Some("function"),
+        | "ReferenceError" | "EvalError" | "URIError" | "parseInt" | "parseFloat" | "isNaN"
+        | "isFinite" | "encodeURI" | "decodeURI" | "encodeURIComponent" | "decodeURIComponent" => {
+            Some("function")
+        }
         n if n.starts_with("__class_") => Some("function"),
         _ => None,
     }

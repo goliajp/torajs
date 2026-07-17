@@ -65,6 +65,8 @@ pub(crate) fn is_known_builtin_global(name: &str) -> bool {
             | "RangeError"
             | "ReferenceError"
             | "SyntaxError"
+            | "EvalError"
+            | "URIError"
             | "Bun"
             | "Promise"
             | "RegExp"
