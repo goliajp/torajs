@@ -39,6 +39,8 @@ pub(crate) struct ArrAnyIds {
     pub arr_push_any: FuncId,
     /// Elision hole marking — see `__torajs_arr_mark_last_hole`.
     pub arr_mark_last_hole: FuncId,
+    /// §23.1.3.32 per-element toLocaleString join.
+    pub arr_any_to_locale_string: FuncId,
     pub arr_unshift_any: FuncId,
     pub arr_fill_any: FuncId,
     pub arr_extend_any: FuncId,
@@ -110,6 +112,13 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             "__torajs_arr_mark_last_hole",
             &[Type::Ptr],
             Type::Void,
+        ),
+        arr_any_to_locale_string: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_arr_any_to_locale_string",
+            &[Type::Ptr],
+            Type::Str,
         ),
         arr_unshift_any: declare_intrinsic(
             module,

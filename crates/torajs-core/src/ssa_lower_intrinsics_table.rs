@@ -252,6 +252,7 @@ pub(crate) fn build(
         arr_any_push: init_b.arr_any.arr_any_push,
         arr_push_any: init_b.arr_any.arr_push_any,
         arr_mark_last_hole: init_b.arr_any.arr_mark_last_hole,
+        arr_any_to_locale_string: init_b.arr_any.arr_any_to_locale_string,
         arr_unshift_any: init_b.arr_any.arr_unshift_any,
         arr_fill_any: init_b.arr_any.arr_fill_any,
         arr_extend_any: init_b.arr_any.arr_extend_any,

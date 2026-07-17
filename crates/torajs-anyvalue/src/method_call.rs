@@ -66,9 +66,8 @@
 use core::ffi::c_void;
 
 use torajs_rc::{
-    __torajs_rc_inc, ANY_METHOD_HAS_OWN_PROPERTY, ANY_METHOD_JOIN,
-    ANY_METHOD_PROPERTY_IS_ENUMERABLE, ANY_METHOD_TO_LOCALE_STRING, ANY_METHOD_TO_STRING,
-    ANY_METHOD_VALUE_OF, Tag,
+    __torajs_rc_inc, ANY_METHOD_HAS_OWN_PROPERTY, ANY_METHOD_PROPERTY_IS_ENUMERABLE,
+    ANY_METHOD_TO_LOCALE_STRING, ANY_METHOD_TO_STRING, ANY_METHOD_VALUE_OF, Tag,
 };
 
 use crate::nanbox::{
@@ -265,9 +264,9 @@ pub(crate) unsafe fn any_method_call_inner(
                 return recv;
             }
             if tag == Tag::Arr as u16 {
-                return unsafe {
-                    crate::method_call_arr::arr_method(ptr, ANY_METHOD_JOIN, recv_slot, argv, 0)
-                };
+                // §23.1.3.32 — per-element toLocaleString invoke
+                // (a plain join never dispatched the element hook).
+                return unsafe { crate::arr_locale_string::arr_to_locale_string(ptr) };
             }
         }
         if tag == Tag::Str as u16 {

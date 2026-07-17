@@ -61,6 +61,20 @@ fn try_join(
         // because their .toLocaleString returns the same
         // value (no Intl substrate engaged).
         let is_locale = method == "toLocaleString";
+        // §23.1.3.32 — an Arr<Any> receiver invokes each element's
+        // OWN toLocaleString (observable hook; the join helper only
+        // stringifies). Separate lane: unary, fresh owned Str, may
+        // leave a pending element-hook throw.
+        if is_locale && matches!(elem_ty, Type::Any) {
+            let s = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.arr_any_to_locale_string, vec![recv_op]),
+                Type::Str,
+                None,
+            );
+            ctx.emit_throw_check(None);
+            return Some(Operand::Value(s));
+        }
         let join_fid = match elem_ty {
             Type::Substr => ctx.intrinsics.arr_join_substr,
             Type::I64 => {
