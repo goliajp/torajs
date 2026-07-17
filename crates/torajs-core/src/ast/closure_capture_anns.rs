@@ -27,7 +27,7 @@
 //! worse than pre-pass behavior.
 
 use super::{AstExprsView, Expr, ExprId, Param, Stmt, binds_to_params, infer_expr_ann_with};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 type Binds = HashMap<String, String>;
 
@@ -130,18 +130,34 @@ pub(crate) fn collect_outer_binds(
     }
 }
 
-/// closure fn_name → (capture name → ann at the construction site).
-pub(crate) type CaptureAnns = HashMap<String, Binds>;
+/// Construction-site annotation snapshots, keyed two ways:
+/// - `closures`: closure fn_name → (capture name → ann at the site).
+/// - `objlits`: method-carrying ObjectLit ExprId → the full binds map
+///   at its site. `objlit_nominal` types the literal's DATA fields to
+///   mint the `__ObjLit_n` layout; resolving a field-value ident
+///   through the by-name fallback picked the wrong scope's ann just
+///   like the closure ret sniff did (`{ px: x }` under `x: number`
+///   laid the slot out as `any` when a later fn spelled `x: any` —
+///   struct fill then wrote raw bits the any-lane reader crashed on).
+pub(crate) struct SiteAnns {
+    pub(crate) closures: HashMap<String, Binds>,
+    pub(crate) objlits: HashMap<u32, Binds>,
+}
 
 pub(crate) fn collect_closure_capture_anns(
     stmts: &[Stmt],
     exprs: AstExprsView,
     fn_sigs: &HashMap<String, String>,
-) -> CaptureAnns {
+    objlit_method_exprs: &HashSet<ExprId>,
+) -> SiteAnns {
     let mut ctx = Ctx {
         exprs,
         fn_sigs,
-        snapshots: HashMap::new(),
+        objlit_method_exprs,
+        snapshots: SiteAnns {
+            closures: HashMap::new(),
+            objlits: HashMap::new(),
+        },
     };
 
     // Top-level walk: in-order binds over top-level lets; construction
@@ -182,13 +198,13 @@ pub(crate) fn collect_closure_capture_anns(
     loop {
         let mut progressed = false;
         for (i, (name, params, body)) in env_first.iter().enumerate() {
-            if walked[i] || !ctx.snapshots.contains_key(*name) {
+            if walked[i] || !ctx.snapshots.closures.contains_key(*name) {
                 continue;
             }
             walked[i] = true;
             progressed = true;
             let mut binds = top_binds.clone();
-            if let Some(snap) = ctx.snapshots.get(*name) {
+            if let Some(snap) = ctx.snapshots.closures.get(*name) {
                 binds.extend(snap.clone());
             }
             seed_param_anns(&mut binds, params);
@@ -230,7 +246,8 @@ fn seed_param_anns(binds: &mut Binds, params: &[Param]) {
 struct Ctx<'a> {
     exprs: AstExprsView<'a>,
     fn_sigs: &'a HashMap<String, String>,
-    snapshots: CaptureAnns,
+    objlit_method_exprs: &'a HashSet<ExprId>,
+    snapshots: SiteAnns,
 }
 
 impl<'a> Ctx<'a> {
@@ -388,7 +405,10 @@ impl<'a> Ctx<'a> {
                     .collect();
                 // First construction site wins (one placeholder per
                 // lifted arrow; guards a hypothetical duplicate).
-                self.snapshots.entry(fn_name.clone()).or_insert(snap);
+                self.snapshots
+                    .closures
+                    .entry(fn_name.clone())
+                    .or_insert(snap);
             }
             Expr::BinOp { left, right, .. }
             | Expr::Sequence { left, right }
@@ -426,6 +446,19 @@ impl<'a> Ctx<'a> {
                 }
             }
             Expr::ObjectLit { fields } => {
+                // A method-carrying literal gets a full binds snapshot:
+                // `objlit_nominal` sniffs its data-field anns to mint
+                // the `__ObjLit_n` layout and must resolve field-value
+                // idents in THIS scope, not the by-name fallback.
+                if fields
+                    .iter()
+                    .any(|(_, e)| self.objlit_method_exprs.contains(e))
+                {
+                    self.snapshots
+                        .objlits
+                        .entry(eid.0)
+                        .or_insert_with(|| binds.clone());
+                }
                 for (_, e) in fields {
                     self.walk_expr(*e, binds);
                 }

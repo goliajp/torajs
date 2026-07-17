@@ -64,26 +64,38 @@ pub(crate) fn run(
     objlit_method_exprs: &std::collections::HashSet<ExprId>,
     objlit_method_fields: &mut HashMap<String, Vec<String>>,
     outer_binds: &HashMap<String, String>,
+    objlit_site_binds: &HashMap<u32, HashMap<String, String>>,
     fn_sigs: &mut HashMap<String, String>,
     fnexpr_recv_fns: &mut std::collections::HashSet<String>,
 ) {
     if objlit_method_exprs.is_empty() {
         return;
     }
-    let anylane = collect_anylane_objlits(stmts, exprs);
+    let anylane = super::objlit_nominal_anylane::collect_anylane_objlits(stmts, exprs);
     let mut type_decls: Vec<Stmt> = Vec::new();
     let mut patches: Vec<MethodPatch> = Vec::new();
     let mut any_patches: Vec<(ExprId, String)> = Vec::new();
 
     {
         let view: AstExprsView = &*exprs;
-        let bind_params = binds_to_params(outer_binds);
         let mut next = 0usize;
         for i in 0..view.len() {
             let Expr::ObjectLit { fields } = &view[i] else {
                 continue;
             };
             if !fields.iter().any(|(_, e)| objlit_method_exprs.contains(e)) {
+                continue;
+            }
+            // Dead-arena guard — rewrite passes (the arguments-object
+            // rewrite among them) re-add composite exprs and leave the
+            // original node in the arena, sharing the method Closure
+            // ExprIds. This flat scan then minted a SECOND TypeDecl
+            // from the stale copy, and its patch (first writer wins)
+            // pinned the method's `__this` to the stale layout. The
+            // construction-site walk in `closure_capture_anns` only
+            // reaches live nodes, so its snapshot keys are the live
+            // set; a stale copy misses and is skipped.
+            if !objlit_site_binds.contains_key(&(i as u32)) {
                 continue;
             }
             // Only a method that actually REFERENCES `this` changes
@@ -146,6 +158,21 @@ pub(crate) fn run(
             let objlit_ty = format!("__ObjLit_{next}");
             next += 1;
 
+            // Field-value idents resolve against the literal's own
+            // construction-site binds (closure_capture_anns snapshot)
+            // first; the program-wide by-name map is only the
+            // fallback. Without the overlay, `{ px: x }` under a
+            // `x: number` param took a LATER fn's `x: any` ann and
+            // laid the slot out as any while the fill wrote raw bits.
+            let site_binds: HashMap<String, String> = {
+                let mut m = outer_binds.clone();
+                if let Some(s) = objlit_site_binds.get(&(i as u32)) {
+                    m.extend(s.iter().map(|(k, v)| (k.clone(), v.clone())));
+                }
+                m
+            };
+            let site_params = binds_to_params(&site_binds);
+
             // METHODS ARE LAYOUT FIELDS — they are own enumerable
             // properties, and `this.other()` has to resolve against the
             // receiver's own type. That is safe only because a `__mth(`
@@ -179,7 +206,7 @@ pub(crate) fn run(
                 // Data field, or a `this`-free method — the latter keeps
                 // the plain closure-slot ABI, so its ann comes from the
                 // same sniffer as any other fn-valued field.
-                let ann = infer_expr_ann_with(view, *feid, &bind_params, outer_binds, fn_sigs)
+                let ann = infer_expr_ann_with(view, *feid, &site_params, &site_binds, fn_sigs)
                     .unwrap_or_else(|| "any".to_string());
                 td_fields.push((fname.clone(), super::retag_field_fn_ann(&ann)));
             }
@@ -200,186 +227,6 @@ pub(crate) fn run(
     }
     apply_patches(stmts, exprs, &patches, &mut type_decls, fn_sigs);
     stmts.extend(type_decls);
-}
-
-/// RFC 20260717-objlit-anylane-recv knife 1 — the syntactically
-/// decidable set of object literals that will lower through the
-/// dynobj lane, mirroring the SSA-side routes:
-///
-/// - (a) `let x: any = { ... }` init at any nesting depth — the P3.2
-///   `lower_dynobj_init` shortcut (`ssa_lower_stmt_let_decl`);
-/// - (b) a literal `undefined` field — the checker's
-///   `struct_has_undef_field` widen forces the binding to Any;
-/// - (c) `{ ... } as any` — knife 2 widened the `lower_as_cast`
-///   promote from empty-literal-only to every ObjectLit, so the
-///   cast IS the dynobj route now (synthesized `As`-any wrappers —
-///   default-any async returns, generator yields — ride the same
-///   leg, and their dynobj face is the sound one: every consumer
-///   dispatches through the any lane);
-/// - (d) an ObjectLit nested in a marked literal —
-///   `lower_dynobj_init` recurses nested literals;
-/// - (e) the receiver argument of `Object.defineProperty` /
-///   `defineProperties` — the `lower_define_receiver` promote;
-/// - (f) a direct-call arg into an explicitly `any`-annotated
-///   FnDecl param — `ssa_lower_call_terminal`'s any-param route
-///   (`expected == Type::Any && ObjectLit → lower_dynobj_init`).
-///   Only the syntactically certain subset: a bare `Ident` callee
-///   naming a non-generic FnDecl whose param says `: any` verbatim
-///   (an untyped param turns into an implicit generic — its mono
-///   instance is NOT Any — and a shadowed/duplicated fn name drops
-///   out of the map, both directions keeping (f) ⊆ the SSA route).
-///
-/// Still NOT covered: closure-valued callees and method-shape calls
-/// whose any params the SSA route serves — those keep the nominal
-/// stamp and the dynobj-init guard rejects their recv members
-/// loudly.
-fn collect_anylane_objlits(stmts: &[Stmt], exprs: &[Expr]) -> std::collections::HashSet<u32> {
-    let mut marked: std::collections::HashSet<u32> = std::collections::HashSet::new();
-    let mut roots: Vec<ExprId> = Vec::new();
-    collect_any_let_inits(stmts, &mut roots);
-    let fn_any_params = collect_fn_any_params(stmts);
-    for (i, e) in exprs.iter().enumerate() {
-        match e {
-            // (b) — literal `undefined` field value.
-            Expr::ObjectLit { fields }
-                if fields.iter().any(
-                    |(_, fe)| matches!(&exprs[fe.0 as usize], Expr::Ident(n) if n == "undefined"),
-                ) =>
-            {
-                roots.push(ExprId(i as u32));
-            }
-            // (c) — `as any` cast (user-written or synthesized); the
-            // strip loop below unwraps the `As` chain to the literal.
-            Expr::As { expr, ty_ann } if ty_ann == "any" => {
-                roots.push(*expr);
-            }
-            // (e) — define-family receiver argument.
-            Expr::Call { callee, args } => {
-                if let Expr::Member { obj, name } = &exprs[callee.0 as usize]
-                    && (name == "defineProperty" || name == "defineProperties")
-                    && matches!(&exprs[obj.0 as usize], Expr::Ident(n) if n == "Object")
-                    && let Some(recv) = args.first()
-                {
-                    roots.push(*recv);
-                }
-                // (f) — arg into an explicitly-any FnDecl param.
-                if let Expr::Ident(f) = &exprs[callee.0 as usize]
-                    && let Some(mask) = fn_any_params.get(f)
-                {
-                    for (i, a) in args.iter().enumerate() {
-                        if mask.get(i).copied().unwrap_or(false) {
-                            roots.push(*a);
-                        }
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-    // (d) — nested literals of a marked literal join the set (strip
-    // `as` chains the way `lower_dynobj_init` does).
-    while let Some(eid) = roots.pop() {
-        let mut cur = eid;
-        while let Expr::As { expr, .. } = &exprs[cur.0 as usize] {
-            cur = *expr;
-        }
-        let Expr::ObjectLit { fields } = &exprs[cur.0 as usize] else {
-            continue;
-        };
-        if !marked.insert(cur.0) {
-            continue;
-        }
-        for (_, fe) in fields {
-            roots.push(*fe);
-        }
-    }
-    marked
-}
-
-/// (f) leg of [`collect_anylane_objlits`] — per-FnDecl mask of the
-/// params annotated `: any` verbatim. Generic fns are out (a mono
-/// instance's param is not Any) and so are synthesized closure
-/// shapes (`__closure_*` / `__forward_*` are never Ident-called). A
-/// duplicated fn name drops out entirely: the mask is name-keyed
-/// while the SSA route resolves per scope, so an ambiguous name
-/// could pair the wrong mask with a call site.
-fn collect_fn_any_params(stmts: &[Stmt]) -> HashMap<String, Vec<bool>> {
-    let mut map: HashMap<String, Vec<bool>> = HashMap::new();
-    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
-    collect_fn_any_params_inner(stmts, &mut map, &mut seen);
-    map
-}
-
-fn collect_fn_any_params_inner(
-    stmts: &[Stmt],
-    map: &mut HashMap<String, Vec<bool>>,
-    seen: &mut std::collections::HashSet<String>,
-) {
-    for s in stmts {
-        if let Stmt::FnDecl {
-            name,
-            params,
-            type_params,
-            body,
-            ..
-        } = s
-        {
-            if type_params.is_empty()
-                && !crate::ast_desugar_implicit_generics::is_synth_closure_name(name)
-            {
-                if !seen.insert(name.clone()) {
-                    // Second decl under this name — ambiguous, drop it.
-                    map.remove(name);
-                } else {
-                    let mask: Vec<bool> = params
-                        .iter()
-                        .map(|p| p.type_ann.as_deref() == Some("any"))
-                        .collect();
-                    if mask.iter().any(|b| *b) {
-                        map.insert(name.clone(), mask);
-                    }
-                }
-            }
-            collect_fn_any_params_inner(body, map, seen);
-        }
-    }
-}
-
-/// (a) leg of [`collect_anylane_objlits`] — `let x: any = <init>`
-/// at any statement nesting depth (same recursion shape as
-/// `infer_closure_params::collect_let_anns`).
-fn collect_any_let_inits(stmts: &[Stmt], out: &mut Vec<ExprId>) {
-    for s in stmts {
-        match s {
-            Stmt::LetDecl {
-                type_ann: Some(t),
-                init,
-                ..
-            } if t == "any" => out.push(*init),
-            Stmt::FnDecl { body, .. } => collect_any_let_inits(body, out),
-            Stmt::Block(inner) | Stmt::Multi(inner) => collect_any_let_inits(inner, out),
-            Stmt::If {
-                then_branch,
-                else_branch,
-                ..
-            } => {
-                collect_any_let_inits(std::slice::from_ref(then_branch.as_ref()), out);
-                if let Some(eb) = else_branch {
-                    collect_any_let_inits(std::slice::from_ref(eb.as_ref()), out);
-                }
-            }
-            Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
-                collect_any_let_inits(std::slice::from_ref(body.as_ref()), out);
-            }
-            Stmt::For { init, body, .. } => {
-                if let Some(i) = init {
-                    collect_any_let_inits(std::slice::from_ref(i.as_ref()), out);
-                }
-                collect_any_let_inits(std::slice::from_ref(body.as_ref()), out);
-            }
-            _ => {}
-        }
-    }
 }
 
 /// Phase 2 — for each collected `MethodPatch`, drop `__this` from the

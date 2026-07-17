@@ -50,6 +50,7 @@ mod lift_arrow_fns;
 mod module_passes;
 mod nested_fns;
 pub(crate) mod objlit_nominal;
+mod objlit_nominal_anylane;
 mod prop_key;
 mod prototype_call;
 mod sfi_pass;
@@ -65,7 +66,7 @@ pub use arguments_object::desugar_arguments_object;
 pub use array_isarray_value::desugar_array_isarray_value;
 pub use class_globals::synthesize_class_globals;
 pub(crate) use closure_capture_anns::{
-    CaptureAnns, collect_closure_capture_anns, collect_outer_binds,
+    SiteAnns, collect_closure_capture_anns, collect_outer_binds,
 };
 pub use desugar_async::desugar_async;
 use desugar_async::{body_ends_in_return, rewrite_returns_for_async};

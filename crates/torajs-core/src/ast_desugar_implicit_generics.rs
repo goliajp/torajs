@@ -72,16 +72,23 @@ pub(crate) fn run(ast: &mut Ast) {
         std::collections::HashMap::new();
     collect_outer_binds(stmts, ast_exprs_view, &fn_sigs, &mut outer_binds);
 
-    // Construction-site capture-ann snapshots (closure_capture_anns) —
-    // the return-ann sniff resolves a closure's captured idents against
-    // the scope that actually captured them, falling back to the
+    // Construction-site annotation snapshots (closure_capture_anns) —
+    // the return-ann sniff resolves a closure's captured idents (and
+    // objlit_nominal a method-carrying literal's data-field idents)
+    // against the scope of the construction site, falling back to the
     // program-wide by-name `outer_binds` only on snapshot misses. Two
     // same-named params in unrelated fns used to race on last-seen
-    // insertion order and flip the sniffed ret ann (`any` / `string`),
-    // drifting the closure ABI away from a pinned fn-type annotation
-    // (tasks/2026-07-18 num-width Captured-broadcast poison).
-    let cap_anns: crate::ast::CaptureAnns =
-        crate::ast::collect_closure_capture_anns(stmts, ast_exprs_view, &fn_sigs);
+    // insertion order and flip the sniffed ann (`any` / `string`),
+    // drifting the closure ABI / `__ObjLit_n` layout away from the
+    // real value repr (tasks/2026-07-18 num-width Captured-broadcast
+    // poison).
+    let site_anns: crate::ast::SiteAnns = crate::ast::collect_closure_capture_anns(
+        stmts,
+        ast_exprs_view,
+        &fn_sigs,
+        objlit_method_exprs,
+    );
+    let cap_anns = &site_anns.closures;
 
     // RFC 20260704 C4+ (chunk 522) — pre-infer the lifted-closure
     // signatures so a closure-typed local can bubble out of a fn as
@@ -96,7 +103,7 @@ pub(crate) fn run(ast: &mut Ast) {
     // `infer_expr_ann_with`'s Expr::Closure arm answer fn-shaped
     // anns; `parse_type` maps `__fn` to FnSig and `effective_ret_ty`
     // upgrades to Closure where the body returns closure values.
-    preinfer_closure_sigs(stmts, ast_exprs_view, &outer_binds, &cap_anns, &mut fn_sigs);
+    preinfer_closure_sigs(stmts, ast_exprs_view, &outer_binds, cap_anns, &mut fn_sigs);
     // RFC 20260714-objlit-accessor blade 1 — must sit between the
     // pre-infer above and the main loop below: the lifted closures and
     // `fn_sigs` exist by now (so a method's FnDecl can take `__this` and
@@ -109,6 +116,7 @@ pub(crate) fn run(ast: &mut Ast) {
         objlit_method_exprs,
         objlit_method_fields,
         &outer_binds,
+        &site_anns.objlits,
         &mut fn_sigs,
         fnexpr_recv_fns,
     );
@@ -330,7 +338,7 @@ pub(crate) fn is_synth_closure_name(name: &str) -> bool {
 fn seeded_binds_for(
     name: &str,
     outer_binds: &std::collections::HashMap<String, String>,
-    cap_anns: &crate::ast::CaptureAnns,
+    cap_anns: &std::collections::HashMap<String, std::collections::HashMap<String, String>>,
 ) -> std::collections::HashMap<String, String> {
     let mut merged = outer_binds.clone();
     if let Some(snap) = cap_anns.get(name) {
@@ -343,7 +351,7 @@ fn preinfer_closure_sigs(
     stmts: &mut [Stmt],
     exprs: AstExprsView,
     outer_binds: &std::collections::HashMap<String, String>,
-    cap_anns: &crate::ast::CaptureAnns,
+    cap_anns: &std::collections::HashMap<String, std::collections::HashMap<String, String>>,
     fn_sigs: &mut std::collections::HashMap<String, String>,
 ) {
     for stmt in stmts.iter_mut() {
