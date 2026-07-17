@@ -151,7 +151,7 @@ pub(crate) fn try_lower(
 /// and answer the interned "undefined" literal vs `f64_to_str`.
 /// Answers minted=true for both arms — dropping the STATIC_LITERAL
 /// "undefined" is a no-op, the fresh `f64_to_str` Str needs it.
-fn coerce_undefable_f64(ctx: &mut LowerCtx, v: Operand) -> (Operand, bool) {
+pub(crate) fn coerce_undefable_f64(ctx: &mut LowerCtx, v: Operand) -> (Operand, bool) {
     use crate::ssa::{IPred, Terminator};
     let bits = ctx.f.append_inst(
         ctx.cur_block,

@@ -63,6 +63,14 @@ pub(crate) fn try_lower(
         Some(crate::check::Type::Undefined)
     ) || matches!(ctx.ast.get_expr(args[0]), Expr::Ident(n) if n == "undefined")
     {
+        // The arg still evaluates for effect (§7.1.17 evaluates its
+        // operand): `String(v("x"))` with a void `v` must run the
+        // call — the fold only replaces the RESULT. An
+        // Undefined-typed value's payload is ConstPtrNull, so there
+        // is no owned temp to release. (Pre-fix the fold skipped
+        // the lower and the side effect vanished — surfaced by the
+        // template-substitution String() wrap.)
+        let _ = ctx.lower_expr(args[0]);
         return Some(match n_kind.as_str() {
             "Number" => Operand::ConstF64(f64::NAN),
             "String" => Operand::Value(ctx.intern_string_literal("undefined")),
@@ -207,12 +215,22 @@ pub(crate) fn emit_to_string(
             Type::Str,
             None,
         )),
-        Type::F64 => Operand::Value(ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Call(ctx.intrinsics.f64_to_str, vec![arg_op]),
-            Type::Str,
-            None,
-        )),
+        Type::F64 => {
+            // RFC 20260708-typed-arr-oob-read chunk 3 — an
+            // undefined-infected F64 source (number[] OOB read /
+            // its aliases) stringifies the sentinel as "undefined",
+            // not "NaN" (same branch the concat lane takes; the
+            // template String(...) wrap routes substitutions here).
+            if crate::ssa_lower_nullable_guard::is_undef_f64_source(ctx, arg_eid) {
+                return crate::ssa_lower_binop_inner::add_str::coerce_undefable_f64(ctx, arg_op).0;
+            }
+            Operand::Value(ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.f64_to_str, vec![arg_op]),
+                Type::Str,
+                None,
+            ))
+        }
         Type::Bool => Operand::Value(ctx.f.append_inst(
             ctx.cur_block,
             InstKind::Call(ctx.intrinsics.bool_to_str, vec![arg_op]),
