@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-17T08:31:22.558Z",
+  "generatedAt": "2026-07-17T08:49:01.018Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 92.93
   },
   "torajs": {
-    "commit": "364a645f",
-    "commitSubject": "fix: Array.prototype expandos reach arrays and array descriptors",
+    "commit": "92877c11",
+    "commitSubject": "feat: builtin prototypes own an interned constructor identity",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "92877c11",
+      "subject": "feat: builtin prototypes own an interned constructor identity"
+    },
+    {
+      "hash": "b6731c6a",
+      "subject": "chore: hardev dashboard snapshot at rotation 131 close"
+    },
+    {
       "hash": "364a645f",
       "subject": "fix: Array.prototype expandos reach arrays and array descriptors"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "982228a8",
       "subject": "fix: string wrapper length is a real own property through dynamic keys"
-    },
-    {
-      "hash": "4d382b04",
-      "subject": "chore: hardev dashboard snapshot at rotation 130 close"
-    },
-    {
-      "hash": "dbaed3ab",
-      "subject": "style: fmt-drift fix on method_call_dynobj (mini rustfmt line join)"
     }
   ],
-  "headSha": "364a645f",
+  "headSha": "92877c11",
   "autorun": {
     "total": 436,
     "baselineTarget": 10,
