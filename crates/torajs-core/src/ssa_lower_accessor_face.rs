@@ -99,6 +99,20 @@ pub(crate) fn lower_accessor_face(ctx: &mut LowerCtx, eid: ExprId, is_get: bool)
     {
         return (op, 5 | 0x40);
     }
+    // An Ident face is a BORROW of the binding's closure ref, but
+    // `accessor_pair_new` takes its faces by ownership transfer —
+    // without a stake of its own the pair aliases the binding, and a
+    // later reassignment / scope close frees the closure under the
+    // live pair (rotation 128 diag: `let s = function(v){..};
+    // defineProperty(o, k, {set: s}); s = ...;` left the pair's face
+    // at rc 0 — the property write invoked freed memory). A fresh
+    // `Expr::Closure` face already arrives owned (mint / canonical
+    // cell +1), so only the Ident shape takes the extra stake.
+    if matches!(ctx.ast.get_expr(eid), crate::ast::Expr::Ident(_))
+        && matches!(ctx.operand_ty(&op), Type::Closure(_))
+    {
+        ctx.emit_rc_inc(op.clone());
+    }
     let k = if is_get {
         accessor_ret_kind(ctx, &op)
     } else {
