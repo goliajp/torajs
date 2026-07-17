@@ -17,6 +17,12 @@ console.log(a.lastIndexOf(undefined)); // -1
 // match undefined there
 console.log(a.includes(undefined)); // true
 
+// the INLINE-receiver form takes the typed lane; its Any-element
+// search now routes through the hole-aware kernels too
+console.log([0, , 2].indexOf(undefined)); // -1
+console.log([0, , 2].lastIndexOf(undefined)); // -1
+console.log([5, 6, 7].indexOf(6)); // 1 (typed lanes keep the inline loop)
+
 // a real undefined element still matches
 const b: any = [0, undefined, 2];
 console.log(b.indexOf(undefined)); // 1
