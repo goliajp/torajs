@@ -131,6 +131,24 @@ pub(crate) unsafe fn define_apply(
         unsafe { crate::define_wrapper::wrapper_define(obj, key, tag, value, flags_byte) };
         return;
     }
+    // Closure receiver (T-27 Function-as-Object) — its own
+    // properties live in the lazy expando dynobj at +24; recurse
+    // with the expando slot so the full §10.1.6.3 validate/apply
+    // (non-configurable redefine rejection included) runs against
+    // the entry table. Pre-fix the closure layout was walked as a
+    // dynobj header (fn_addr read as count/cap) — SIGSEGV on the
+    // first defineProperty against an any-typed function.
+    if htag == crate::layout::TAG_CLOSURE_HDR {
+        let props_slot =
+            unsafe { obj.cast::<u8>().add(crate::layout::CELL_PROPS_OFF) } as *mut *mut c_void;
+        unsafe {
+            if (*props_slot).is_null() {
+                *props_slot = crate::alloc::__torajs_dynobj_alloc();
+            }
+            define_apply(props_slot, key, tag, value, flags_byte);
+        }
+        return;
+    }
     // Dense-array-full guard — same shape as set.rs.
     if unsafe { entries_len(obj) } == unsafe { entries_cap(obj) } {
         unsafe {
