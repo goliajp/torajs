@@ -125,6 +125,15 @@ pub const ACC_KIND_VOID: u8 = 6;
 /// spurious env argument either way, a setter's value would land in
 /// the wrong register without this).
 pub const ACC_KIND_NAKED: u8 = 0x80;
+/// Kind-byte flag bit (OR'd onto a base kind, disjoint from
+/// [`ACC_KIND_NAKED`] and the 0-6 kind values): the face closure's
+/// lifted body takes the call-site `this` as its first declared param
+/// (`FLAG_CLOSURE_RECV_FIRST` fn-expr faces, RFC
+/// 20260717-fnexpr-this-channel knife 1). Invoke rides the boxed dual
+/// entry with the receiver in argv[0] (getter argc 1; setter argc 2,
+/// value at argv[1]). Faces without the bit are invoked exactly as
+/// before — the receiver argument is ignored.
+pub const ACC_KIND_RECV: u8 = 0x40;
 
 /// Closure-cell boxed dual entry offset — ABI mirror of
 /// `torajs_anyvalue`'s `CLOSURE_BOXED_ENTRY_OFF`.
@@ -203,27 +212,31 @@ pub unsafe extern "C" fn __torajs_accessor_get_kinds(pair: *const c_void) -> u64
     unsafe { *((pair as *const u8).add(ACC_KINDS_OFF) as *const u64) }
 }
 
-/// `__torajs_accessor_invoke_getter(pair)` — call the getter closure
-/// and return its result as an `AnyValue`. The getter is invoked with
-/// the env-first closure ABI and **no** user argument (a getter takes
-/// none). Its raw return lands in the register bank dictated by its
-/// native SSA return type, so the packed getter ret kind selects the
-/// matching fn-pointer transmute (an `F64` getter leaves its value in
-/// `d0`, an `I64` one in `x0`) and the matching box. A pair with no
-/// getter yields `undefined`.
+/// `__torajs_accessor_invoke_getter(pair, recv_anyv)` — call the
+/// getter closure and return its result as an `AnyValue`. The getter
+/// is invoked with the env-first closure ABI and **no** user argument
+/// (a getter takes none). Its raw return lands in the register bank
+/// dictated by its native SSA return type, so the packed getter ret
+/// kind selects the matching fn-pointer transmute (an `F64` getter
+/// leaves its value in `d0`, an `I64` one in `x0`) and the matching
+/// box. A pair with no getter yields `undefined`.
 ///
-/// `this` binding: tora's non-class functions carry no `this`, so the
-/// getter is called env-only — sufficient for the closure-capture
-/// accessor idiom (`get() { accessed = true; return v }`). A getter
-/// that references `this` is a separate substrate gap (general
-/// non-class `this`), tracked in the RFC.
+/// `this` binding: `recv_anyv` is the NaN-boxed property-read
+/// receiver, BORROWED into the call. An [`ACC_KIND_RECV`] face (a
+/// fn-expr accessor whose body says `this`) rides the boxed dual
+/// entry with the receiver in argv[0]; every other face ignores it
+/// (the closure-capture accessor idiom carries no `this`).
 ///
 /// # Safety
 /// `pair` is null or a live `AccessorPair`; its `get_closure` (when
 /// present) is a live closure whose fn at `+8` has the env-first ABI
-/// and the return type encoded by the getter ret kind.
+/// and the return type encoded by the getter ret kind; `recv_anyv` is
+/// a live receiver or `undefined`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_accessor_invoke_getter(pair: *const c_void) -> u64 {
+pub unsafe extern "C" fn __torajs_accessor_invoke_getter(
+    pair: *const c_void,
+    recv_anyv: u64,
+) -> u64 {
     if pair.is_null() {
         return VALUE_UNDEFINED;
     }
@@ -232,7 +245,21 @@ pub unsafe extern "C" fn __torajs_accessor_invoke_getter(pair: *const c_void) ->
         return VALUE_UNDEFINED;
     }
     let kinds = unsafe { *((pair as *const u8).add(ACC_KINDS_OFF) as *const u64) };
-    let ret_kind = (kinds & 0xff) as u8 & !ACC_KIND_NAKED;
+    let raw_ret = (kinds & 0xff) as u8;
+    if raw_ret & ACC_KIND_RECV != 0 {
+        // Receiver-first fn-expr face — boxed dual entry, argv[0] is
+        // the receiver the body reads as `this`.
+        let entry = unsafe { *((getter as *const u8).add(CLOSURE_BOXED_ENTRY_OFF) as *const u64) };
+        if entry == 0 {
+            return VALUE_UNDEFINED;
+        }
+        let call: unsafe extern "C" fn(*mut c_void, *const u64, i64) -> u64 =
+            unsafe { core::mem::transmute(entry as usize) };
+        let mut buf = [VALUE_UNDEFINED; 8];
+        buf[0] = recv_anyv;
+        return unsafe { call(getter, buf.as_ptr(), 1) };
+    }
+    let ret_kind = raw_ret & !ACC_KIND_NAKED;
     // A NAKED getter's env argument is spurious either way (the fn
     // reads no params) — the env-first transmutes below stay correct
     // for both shapes, so the flag only matters for the setter.
@@ -282,21 +309,28 @@ pub unsafe extern "C" fn __torajs_accessor_invoke_getter(pair: *const c_void) ->
     }
 }
 
-/// `__torajs_accessor_invoke_setter(pair, value_anyv)` — call the
-/// setter closure with the assigned value, returning `1` when a setter
-/// ran and `0` when the accessor has no setter (the caller raises the
-/// "only a getter" assignment error). The setter is invoked env-first
-/// with the value unboxed per the stored setter param kind (an `F64`
-/// setter takes its argument in `d0`, an `I64` one in `x0`); an `Any`
-/// setter receives the NaN-box `AnyValue` verbatim.
+/// `__torajs_accessor_invoke_setter(pair, recv_anyv, value_anyv)` —
+/// call the setter closure with the assigned value, returning `1` when
+/// a setter ran and `0` when the accessor has no setter (the caller
+/// raises the "only a getter" assignment error). The setter is invoked
+/// env-first with the value unboxed per the stored setter param kind
+/// (an `F64` setter takes its argument in `d0`, an `I64` one in `x0`);
+/// an `Any` setter receives the NaN-box `AnyValue` verbatim.
+///
+/// `this` binding: `recv_anyv` is the NaN-boxed assignment receiver,
+/// BORROWED into the call. An [`ACC_KIND_RECV`] face rides the boxed
+/// dual entry with the receiver in argv[0] and the value at argv[1];
+/// every other face ignores it.
 ///
 /// # Safety
 /// `pair` is null or a live `AccessorPair`; its `set_closure` (when
 /// present) is a live closure whose fn at `+8` has the env-first ABI
-/// and the param type encoded by the setter param kind.
+/// and the param type encoded by the setter param kind; `recv_anyv` is
+/// a live receiver or `undefined`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_accessor_invoke_setter(
     pair: *const c_void,
+    recv_anyv: u64,
     value_anyv: u64,
 ) -> i32 {
     if pair.is_null() {
@@ -308,6 +342,21 @@ pub unsafe extern "C" fn __torajs_accessor_invoke_setter(
     }
     let kinds = unsafe { *((pair as *const u8).add(ACC_KINDS_OFF) as *const u64) };
     let raw_kind = ((kinds >> 8) & 0xff) as u8;
+    if raw_kind & ACC_KIND_RECV != 0 {
+        // Receiver-first fn-expr face — boxed dual entry, argv[0] is
+        // the receiver the body reads as `this`, argv[1] the value.
+        let entry = unsafe { *((setter as *const u8).add(CLOSURE_BOXED_ENTRY_OFF) as *const u64) };
+        if entry == 0 {
+            return 1;
+        }
+        let call: unsafe extern "C" fn(*mut c_void, *const u64, i64) -> u64 =
+            unsafe { core::mem::transmute(entry as usize) };
+        let mut buf = [VALUE_UNDEFINED; 8];
+        buf[0] = recv_anyv;
+        buf[1] = value_anyv;
+        unsafe { call(setter, buf.as_ptr(), 2) };
+        return 1;
+    }
     let naked = raw_kind & ACC_KIND_NAKED != 0;
     let param_kind = raw_kind & !ACC_KIND_NAKED;
     if naked {

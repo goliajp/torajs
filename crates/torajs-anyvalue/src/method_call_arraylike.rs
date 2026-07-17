@@ -57,7 +57,7 @@ unsafe extern "C" {
     fn __torajs_dynobj_get_tag(obj: *const c_void, key: *const c_void) -> u64;
     fn __torajs_dynobj_get_value(obj: *const c_void, key: *const c_void) -> u64;
     /// torajs-dynobj — run an accessor entry's getter (owned answer).
-    fn __torajs_accessor_invoke_getter(pair: *const c_void) -> u64;
+    fn __torajs_accessor_invoke_getter(pair: *const c_void, recv_anyv: u64) -> u64;
     /// torajs-throw — pending-throw flag (1 = a throw is recorded).
     fn __torajs_throw_check() -> i64;
     /// torajs-arr — fresh Array<Any> (the slice / map products).
@@ -128,7 +128,10 @@ pub(crate) unsafe fn arraylike_len(obj: *mut c_void) -> Option<i64> {
         };
         __torajs_str_drop(key as *mut c_void);
         let av = if dtag == ANY_ACCESSOR_TAG {
-            let got = __torajs_accessor_invoke_getter(dval as *const c_void);
+            let got = __torajs_accessor_invoke_getter(
+                dval as *const c_void,
+                crate::nanbox_encode::__torajs_anyv_box_from_pair(4, obj as i64),
+            );
             if __torajs_throw_check() != 0 {
                 __torajs_value_drop_heap(got as *mut c_void);
                 return None;

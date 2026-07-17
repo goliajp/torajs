@@ -87,8 +87,15 @@ pub unsafe extern "C" fn __torajs_dynobj_set(
             let value_anyv = unsafe {
                 __torajs_anyv_box_from_pair((tag & BUCKET_TAG_MASK) as i64, value as i64)
             };
+            // Receiver = the dynobj itself, boxed — an ACC_KIND_RECV
+            // fn-expr face reads it as `this`; other faces ignore it.
+            let recv_anyv = unsafe { __torajs_anyv_box_from_pair(4, obj as i64) };
             if unsafe {
-                __torajs_accessor_invoke_setter(cur_value_anyv as *const c_void, value_anyv)
+                __torajs_accessor_invoke_setter(
+                    cur_value_anyv as *const c_void,
+                    recv_anyv,
+                    value_anyv,
+                )
             } == 0
             {
                 unsafe {

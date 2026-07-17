@@ -54,7 +54,8 @@ unsafe extern "C" {
     fn __torajs_throw_type_error(msg: *const c_char);
     fn __torajs_dynobj_alloc() -> *mut c_void;
     fn __torajs_dynobj_set(dst: *mut *mut c_void, key: *const u8, tag: u64, value: u64);
-    fn __torajs_accessor_invoke_getter(pair: *const c_void) -> u64;
+    fn __torajs_accessor_invoke_getter(pair: *const c_void, recv_anyv: u64) -> u64;
+    fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64;
     fn __torajs_anyv_unbox_tag(v: u64) -> i64;
     fn __torajs_anyv_unbox_value(v: u64) -> i64;
     fn __torajs_value_drop_heap(p: *mut c_void);
@@ -134,7 +135,8 @@ unsafe fn dynobj_entry_get(entry: *const c_void, k: *const u8) -> (u64, u64, boo
     let t = unsafe { __torajs_dynobj_get_tag(entry, k) };
     if t == ANY_ACCESSOR {
         let p = unsafe { __torajs_dynobj_get_value(entry, k) } as *const c_void;
-        let g = unsafe { __torajs_accessor_invoke_getter(p) };
+        let recv = unsafe { __torajs_anyv_box_from_pair(4, entry as i64) };
+        let g = unsafe { __torajs_accessor_invoke_getter(p, recv) };
         return (
             unsafe { __torajs_anyv_unbox_tag(g) } as u64,
             unsafe { __torajs_anyv_unbox_value(g) } as u64,

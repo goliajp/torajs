@@ -81,6 +81,16 @@ pub const FLAG_SEALED: u16 = 1 << 9;
 pub const FLAG_FN_NAME_DELETED: u16 = 1 << 10;
 /// `delete fn.length` tombstone — see [`FLAG_FN_NAME_DELETED`].
 pub const FLAG_FN_LENGTH_DELETED: u16 = 1 << 11;
+/// Tag::Closure cell whose lifted body takes the call-site `this` as
+/// its first declared param (`(__env, __this, ...user)`) — a
+/// function-expression accessor face (RFC 20260717-fnexpr-this-channel
+/// knife 1). Receiver-aware invokers (the AccessorPair boxed channel)
+/// read the bit to put the receiver in argv[0]; the closure never
+/// reaches a receiver-unaware call path (the AST pass promotes only
+/// zero-alias inline face positions). Bit 12 is Tag::Closure-private
+/// (disjoint-by-tag reuse of Tag::Arr's element-kind field, bits
+/// 10-12); 13-14 stay off-limits per the module-doc occupancy map.
+pub const FLAG_CLOSURE_RECV_FIRST: u16 = 1 << 12;
 /// `Tag::Arr` cell carries at least one array index with non-default
 /// property attributes (RFC 20260712-arr-exotic-define chunk B) — set
 /// by `Object.defineProperty(arr, index, desc)` when the resulting

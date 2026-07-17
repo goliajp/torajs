@@ -27,7 +27,7 @@ unsafe extern "C" {
     /// `.length` arm reads the arity out param off a fn-decl entry.
     fn __torajs_fn_name_lookup(fn_addr: u64, out_len: *mut u32, out_arity: *mut u32) -> *const u8;
     /// torajs-dynobj — run an accessor entry's getter (owned answer).
-    fn __torajs_accessor_invoke_getter(pair: *const c_void) -> u64;
+    fn __torajs_accessor_invoke_getter(pair: *const c_void, recv_anyv: u64) -> u64;
     /// torajs-throw — pending-throw flag (1 = a throw is recorded).
     fn __torajs_throw_check() -> i64;
     /// torajs-str — release a heap Str/Substr reference.
@@ -62,10 +62,10 @@ const ANY_ACCESSOR_TAG: u64 = 6;
 /// OWNED (RFC 20260713-accessor-void-kind blade 2; pre-fix the
 /// `.length` / `.size` special-prop reads boxed the raw accessor pair
 /// as data: the getter never ran).
-unsafe fn box_probe_pair(dtag: u64, dval: u64) -> AnyValue {
+unsafe fn box_probe_pair(dtag: u64, dval: u64, recv: AnyValue) -> AnyValue {
     unsafe {
         if dtag == ANY_ACCESSOR_TAG {
-            let got = __torajs_accessor_invoke_getter(dval as *const c_void);
+            let got = __torajs_accessor_invoke_getter(dval as *const c_void, recv);
             if __torajs_throw_check() != 0 {
                 return VALUE_UNDEFINED;
             }
@@ -144,7 +144,7 @@ pub unsafe extern "C" fn __torajs_any_length_get(recv: AnyValue) -> AnyValue {
             let dtag = __torajs_dynobj_get_tag(ptr, key as *const c_void);
             let dval = __torajs_dynobj_get_value(ptr, key as *const c_void);
             __torajs_str_drop(key as *mut c_void);
-            return box_probe_pair(dtag, dval);
+            return box_probe_pair(dtag, dval, recv);
         }
         if tag == Tag::Closure as u16 {
             // chunk C (RFC 20260711) — a tombstoned virtual `length`
@@ -156,7 +156,7 @@ pub unsafe extern "C" fn __torajs_any_length_get(recv: AnyValue) -> AnyValue {
                     let dtag = __torajs_dynobj_get_tag(props, key as *const c_void);
                     let dval = __torajs_dynobj_get_value(props, key as *const c_void);
                     __torajs_str_drop(key as *mut c_void);
-                    return box_probe_pair(dtag, dval);
+                    return box_probe_pair(dtag, dval, recv);
                 }
                 return VALUE_UNDEFINED;
             }
@@ -260,7 +260,7 @@ pub unsafe extern "C" fn __torajs_any_size_get(recv: AnyValue) -> AnyValue {
             let dtag = __torajs_dynobj_get_tag(ptr, key as *const c_void);
             let dval = __torajs_dynobj_get_value(ptr, key as *const c_void);
             __torajs_str_drop(key as *mut c_void);
-            return box_probe_pair(dtag, dval);
+            return box_probe_pair(dtag, dval, recv);
         }
     }
     VALUE_UNDEFINED

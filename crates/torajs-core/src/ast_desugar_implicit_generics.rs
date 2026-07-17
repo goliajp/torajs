@@ -148,6 +148,8 @@ pub(crate) fn run(ast: &mut Ast) {
         exprs,
         objlit_method_exprs,
         objlit_method_fields,
+        fn_expr_exprs,
+        fnexpr_recv_fns,
         ..
     } = ast;
     let ast_exprs_view: AstExprsView = &*exprs;
@@ -199,6 +201,12 @@ pub(crate) fn run(ast: &mut Ast) {
         &outer_binds,
         &mut fn_sigs,
     );
+    // RFC 20260717-fnexpr-this-channel knife 1 — same slot rationale as
+    // objlit_nominal above: the lifted closures exist and
+    // `preinfer_closure_sigs` has published the user-facing (and
+    // deliberately `__this`-free) `__fn(` anns, so inserting the
+    // receiver param here is invisible to every sig consumer.
+    crate::ast::fnexpr_this::run(stmts, exprs, fn_expr_exprs, fnexpr_recv_fns);
     let ast_exprs_view: AstExprsView = &*exprs;
     // Second pass over top-level lets — a `const h = <closure>`
     // binding could not resolve before the closure sigs existed.

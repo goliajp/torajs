@@ -52,7 +52,8 @@ unsafe extern "C" {
     /// accessor (RFC 20260713 chunk C).
     fn __torajs_arr_index_accessor(arr: *const c_void, idx: u64) -> *mut c_void;
     /// torajs-dynobj — setter dispatch; `0` = getter-only accessor.
-    fn __torajs_accessor_invoke_setter(pair: *const c_void, value_anyv: u64) -> i32;
+    fn __torajs_accessor_invoke_setter(pair: *const c_void, recv_anyv: u64, value_anyv: u64)
+    -> i32;
     /// torajs-arr — re-create a deleted index as a default data
     /// property (hole revive, RFC 20260713 chunk C).
     fn __torajs_arr_index_revive(arr: *mut c_void, key: *mut c_void);
@@ -227,7 +228,8 @@ pub unsafe extern "C" fn __torajs_any_member_set(
                 let pair = __torajs_arr_index_accessor(ptr, idx);
                 if !pair.is_null() {
                     let value_anyv = __torajs_anyv_box_from_pair(tag as i64, value as i64);
-                    if __torajs_accessor_invoke_setter(pair, value_anyv) == 0 {
+                    let recv_anyv = __torajs_anyv_box_from_pair(4, ptr as i64);
+                    if __torajs_accessor_invoke_setter(pair, recv_anyv, value_anyv) == 0 {
                         __torajs_throw_type_error(
                             c"Attempted to assign to readonly property.".as_ptr(),
                         );

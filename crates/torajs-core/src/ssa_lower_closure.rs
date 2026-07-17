@@ -320,6 +320,25 @@ fn init_env_header(
             crate::ssa_lower::CLOSURE_BOXED_ENTRY_OFF,
         ),
     );
+    // RFC 20260717-fnexpr-this-channel knife 1 — a fn-expr accessor
+    // face's body takes the call-site `this` as its first declared
+    // param. Stamp FLAG_CLOSURE_RECV_FIRST (bit 12) in the header's
+    // flags half-word so receiver-aware invokers (the AccessorPair
+    // boxed channel / the runtime legacy-define kernel) put the
+    // receiver in argv[0]. The +4 word packs `tag | flags << 16`
+    // little-endian; alloc stored the plain tag, this overwrites the
+    // whole word (definition-time cold path — no flag is live yet).
+    if ctx.ast.fnexpr_recv_fns.contains(fn_name) {
+        let cur_block = ctx.cur_block;
+        ctx.f.append_void(
+            cur_block,
+            InstKind::Store(
+                Operand::ConstI32(3 | (1 << 12) << 16),
+                Operand::Value(env_v),
+                4,
+            ),
+        );
+    }
     let drop_fn_name = format!("__env_drop_{fn_name}");
     let drop_fid = *ctx.fn_table.get(&drop_fn_name).unwrap_or_else(|| {
         panic!(

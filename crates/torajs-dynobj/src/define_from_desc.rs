@@ -32,6 +32,7 @@ unsafe extern "C" {
     /// bits, every immediate (ShortStr included) → 0, zero
     /// materialization.
     fn __torajs_anyv_cell_ptr(v: u64) -> i64;
+    fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64;
     fn __torajs_anyv_to_bool(v: u64) -> bool;
     /// torajs-anyvalue — class-layout struct field read as a
     /// borrowed NaN-box (the §6.2.6.5 struct-desc lane).
@@ -129,7 +130,10 @@ unsafe fn desc_field_get(desc: DescStore, name: &str) -> Option<(u64, bool)> {
     let raw = unsafe { desc_field(desc, name) }?;
     if unsafe { crate::accessor::value_is_accessor(raw) } {
         let pair = unsafe { __torajs_anyv_cell_ptr(raw) } as *const c_void;
-        let v = unsafe { crate::accessor::__torajs_accessor_invoke_getter(pair) };
+        // §6.2.6.5 [[Get]] receiver = the descriptor object itself.
+        let (DescStore::Dyn(d) | DescStore::Struct(d)) = desc;
+        let recv = unsafe { __torajs_anyv_box_from_pair(4, d as i64) };
+        let v = unsafe { crate::accessor::__torajs_accessor_invoke_getter(pair, recv) };
         return Some((v, true));
     }
     Some((raw, false))

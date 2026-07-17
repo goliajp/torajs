@@ -69,7 +69,8 @@ unsafe extern "C" {
     fn __torajs_anyv_unbox_value(v: u64) -> i64;
     fn __torajs_anyv_unbox_value_owned(v: u64) -> i64;
     /// torajs-dynobj accessor — runs the getter, answers an OWNED box.
-    fn __torajs_accessor_invoke_getter(pair: *const c_void) -> u64;
+    fn __torajs_accessor_invoke_getter(pair: *const c_void, recv_anyv: u64) -> u64;
+    fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64;
 }
 
 /// Str payload length: u32 code units at +8 (`torajs-str` layout).
@@ -90,7 +91,8 @@ unsafe fn entry_value_pair(obj: *const c_void, i: u64) -> (u64, u64) {
             && unsafe { *((p as *const u8).add(HDR_TYPE_TAG_OFF) as *const u16) }
                 == TAG_ACCESSOR_PAIR
         {
-            let g = unsafe { __torajs_accessor_invoke_getter(p) };
+            let recv = unsafe { __torajs_anyv_box_from_pair(4, obj as i64) };
+            let g = unsafe { __torajs_accessor_invoke_getter(p, recv) };
             let gt = unsafe { __torajs_anyv_unbox_tag(g) };
             return (gt as u64, unsafe { __torajs_anyv_unbox_value(g) } as u64);
         }

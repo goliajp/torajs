@@ -63,7 +63,7 @@ unsafe extern "C" {
     /// (`__getter_v`)? 255 = a plain property name.
     fn __torajs_accessor_name_kind(name: *const u8, name_len: u32) -> u8;
     /// torajs-dynobj — the AccessorPair lane (unchanged).
-    fn __torajs_accessor_invoke_getter(pair: *const c_void) -> u64;
+    fn __torajs_accessor_invoke_getter(pair: *const c_void, recv_anyv: u64) -> u64;
     /// torajs-throw — record a pending catchable TypeError.
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
 }
@@ -315,7 +315,7 @@ pub unsafe extern "C" fn __torajs_any_accessor_get(
 ) -> AnyValue {
     unsafe {
         if pair_bits != 0 {
-            return __torajs_accessor_invoke_getter(pair_bits as *const c_void);
+            return __torajs_accessor_invoke_getter(pair_bits as *const c_void, recv);
         }
         if !is_cell(recv) {
             return VALUE_UNDEFINED;

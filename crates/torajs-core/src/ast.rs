@@ -34,10 +34,12 @@ mod desugar_variadic_push;
 mod escape_analyze;
 mod expr;
 mod fill_optional_fields;
+pub(crate) mod fnexpr_this;
 mod fold_fromentries;
 mod forwarders;
 mod forwarders_object;
 mod free_vars;
+mod gen_fn_expr;
 mod hoist_gen_fn_exprs;
 mod implicit_generics_infer;
 mod infer_closure_params;
@@ -73,6 +75,7 @@ pub use fill_optional_fields::fill_optional_fields;
 pub use fold_fromentries::fold_fromentries;
 pub use forwarders::synthesize_forwarders;
 pub use forwarders_object::{synthesize_fn_to_closure_forwarders, tag_struct_field_closure_types};
+pub use gen_fn_expr::{GenFnExprInfo, GenFnExprKind};
 pub use hoist_gen_fn_exprs::hoist_gen_fn_exprs;
 pub(crate) use implicit_generics_infer::{
     AstExprsView, binds_to_params, body_has_value_return, infer_expr_ann_with, infer_return_ann,
@@ -95,28 +98,6 @@ pub use stmt::{
 };
 pub use uninit_let::desugar_uninit_let;
 pub use var_hoist::desugar_var_hoist;
-
-/// Which function-value expression form a `gen_fn_exprs` entry came
-/// from. Only the two generator shapes hoist: plain `async
-/// function(){}` expressions stay `Expr::ArrowFn` and ride the
-/// closure lift (marked in `async_fn_value_exprs` instead), so no
-/// `Async` variant exists here.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum GenFnExprKind {
-    Generator,
-    AsyncGenerator,
-}
-
-/// Per-expression payload for `Ast::gen_fn_exprs`: the form kind plus
-/// how many parser-synthesized destructuring lets prefix the body
-/// (mirrors `gen_param_destr_prefix` for decl-form generators —
-/// `hoist_gen_fn_exprs` re-registers the count under the hoisted name
-/// so the __Gen ctor gets the eager destructure).
-#[derive(Debug, Clone, Copy)]
-pub struct GenFnExprInfo {
-    pub kind: GenFnExprKind,
-    pub destr_prefix: usize,
-}
 
 #[derive(Debug, Clone, Default)]
 pub struct Ast {
@@ -266,6 +247,25 @@ pub struct Ast {
     /// a same-layout class's accessor — see the RFC); this table must not
     /// repeat that.
     pub objlit_method_fields: std::collections::HashMap<String, Vec<String>>,
+    /// RFC 20260717-fnexpr-this-channel knife 1 — ExprIds of
+    /// non-generator function EXPRESSIONS (`function (v) { ... }` in
+    /// expression position). The parser desugars them to `Expr::ArrowFn`
+    /// like arrows, which erases the one semantic that separates them: a
+    /// function expression binds `this` at the call site, an arrow takes
+    /// the lexical `this`. `desugar_fnexpr_this` reads this set to give
+    /// exactly the ones sitting in inline accessor-face positions a
+    /// `__this` receiver param. Keyed by ExprId, which survives
+    /// `lift_arrow_fns` (it replaces the arena slot in place with the
+    /// `Expr::Closure`).
+    pub fn_expr_exprs: std::collections::HashSet<ExprId>,
+    /// RFC 20260717-fnexpr-this-channel knife 1 — lifted fn names
+    /// (`__closure_N`) whose body takes the call-site `this` as its
+    /// first declared param after `__env`. `ssa_lower` stamps
+    /// `FLAG_CLOSURE_RECV_FIRST` on the env header at the construction
+    /// site and the accessor-face lowering marks the AccessorPair kinds
+    /// byte `ACC_KIND_RECV`, so receiver-aware invokers put the
+    /// receiver in argv[0].
+    pub fnexpr_recv_fns: std::collections::HashSet<String>,
     /// RFC 20260708-closure-argv-face — lifted closures whose body
     /// reads `arguments[i]` (the full-arguments tier) and whose
     /// value passed the direct-call-or-alias safety walk. These

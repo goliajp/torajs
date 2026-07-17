@@ -65,7 +65,7 @@ unsafe extern "C" {
     fn __torajs_dynobj_set(obj_slot: *mut *mut c_void, key: *mut c_void, tag: u64, value: u64);
     /// torajs-dynobj — run an accessor entry's getter; the answer is
     /// an owned AnyValue per the boxed-value convention.
-    fn __torajs_accessor_invoke_getter(pair: *const c_void) -> u64;
+    fn __torajs_accessor_invoke_getter(pair: *const c_void, recv_anyv: u64) -> u64;
 }
 
 /// See module doc.
@@ -207,7 +207,10 @@ unsafe fn dynobj_index_get(obj: *mut c_void, idx: i64) -> AnyValue {
         // Accessor sentinel (tag 6) — run the getter; its answer is
         // owned per the boxed-value convention.
         if dtag == INDEX_ANY_ACCESSOR_TAG {
-            return __torajs_accessor_invoke_getter(dval as *const c_void);
+            return __torajs_accessor_invoke_getter(
+                dval as *const c_void,
+                crate::nanbox_encode::__torajs_anyv_box_from_pair(4, obj as i64),
+            );
         }
         // The probe pair is a borrow — the returned box owns its own
         // reference.

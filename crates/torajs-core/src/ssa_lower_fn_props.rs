@@ -173,7 +173,8 @@ impl<'a> LowerCtx<'a> {
             Type::I64,
             None,
         );
-        let box_v = crate::ssa_lower_accessor::emit_dynobj_get_result(self, tag, value);
+        let box_v =
+            crate::ssa_lower_accessor::emit_dynobj_get_result(self, tag, value, &closure_op);
         self.f.append_void(
             self.cur_block,
             InstKind::Store(box_v.clone(), Operand::Value(res_slot), 0),

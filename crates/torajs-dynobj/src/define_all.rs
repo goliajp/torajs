@@ -43,7 +43,7 @@ unsafe extern "C" {
     fn __torajs_anyv_unbox_tag(v: u64) -> i64;
     fn __torajs_anyv_unbox_value(v: u64) -> i64;
     fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64;
-    fn __torajs_accessor_invoke_getter(pair: *const c_void) -> u64;
+    fn __torajs_accessor_invoke_getter(pair: *const c_void, recv_anyv: u64) -> u64;
     fn __torajs_value_drop_heap(p: *mut c_void);
     /// torajs-meta struct_enum — own enumerable layout keys of a
     /// `TAG_OBJ` struct cell as a fresh `Arr<Str>` (minted keys).
@@ -122,6 +122,10 @@ pub unsafe extern "C" fn __torajs_dynobj_define_properties_from(
     // returns `obj` untouched. TAG_OBJ (static-layout struct) walks
     // its layout via `define_all_from_struct`.
     let source_tag = unsafe { type_tag(props) };
+    // The §20.1.2.3.1 step 3.b [[Get]] receiver stays the ORIGINAL
+    // `props` object (the shadow below narrows to its entry storage —
+    // a wrapper's expando table is not the `this` a getter sees).
+    let props_recv = unsafe { __torajs_anyv_box_from_pair(ANY_HEAP as i64, props as i64) };
     let props: *const c_void = match source_tag {
         TAG_DYNOBJ => props,
         TAG_CLOSURE_HDR | TAG_ARR_HDR => {
@@ -186,7 +190,8 @@ pub unsafe extern "C" fn __torajs_dynobj_define_properties_from(
             && raw_val != 0
             && unsafe { type_tag(raw_val as *const c_void) } == TAG_ACCESSOR_PAIR
         {
-            let g = unsafe { __torajs_accessor_invoke_getter(raw_val as *const c_void) };
+            let g =
+                unsafe { __torajs_accessor_invoke_getter(raw_val as *const c_void, props_recv) };
             if unsafe { __torajs_throw_check() } != 0 {
                 // Getter threw — invoke-getter never plants a live ref
                 // on the throw exit, nothing new to drop; release the

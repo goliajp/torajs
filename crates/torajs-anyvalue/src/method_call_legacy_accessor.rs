@@ -65,6 +65,10 @@ const DEFINE_PRESENT_SET: u64 = 1 << 8;
 /// posture as the runtime-descriptor defineProperty path).
 const ACC_KINDS_BOXED_BOTH: u64 = 5 | (5 << 8);
 
+/// Kinds flag bit mirror of `torajs_dynobj::accessor::ACC_KIND_RECV` —
+/// the face closure takes the call-site `this` in argv[0].
+const ACC_KIND_RECV: u8 = 0x40;
+
 /// Accessor-entry sentinel in the dynobj probe's tag channel —
 /// mirror of `method_call_dynobj.rs::ANY_ACCESSOR_TAG`.
 const ANY_ACCESSOR_TAG: u64 = 6;
@@ -162,7 +166,20 @@ unsafe fn define_face(
         } else {
             (core::ptr::null_mut(), face)
         };
-        let pair = __torajs_accessor_pair_new(g, s, ACC_KINDS_BOXED_BOTH);
+        // RFC 20260717-fnexpr-this-channel knife 1 — a fn-expr face
+        // whose body says `this` carries FLAG_CLOSURE_RECV_FIRST on
+        // its env header; mark the face's kinds byte ACC_KIND_RECV so
+        // the pair invoke puts the receiver in argv[0].
+        let face_flags = (face as *const u8).add(6).cast::<u16>().read();
+        let mut kinds = ACC_KINDS_BOXED_BOTH;
+        if face_flags & torajs_rc::FLAG_CLOSURE_RECV_FIRST != 0 {
+            kinds |= if is_getter {
+                ACC_KIND_RECV as u64
+            } else {
+                (ACC_KIND_RECV as u64) << 8
+            };
+        }
+        let pair = __torajs_accessor_pair_new(g, s, kinds);
         let flags = DEFINE_PRESENT_VALUE
             | if is_getter {
                 DEFINE_PRESENT_GET

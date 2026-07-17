@@ -46,7 +46,7 @@ unsafe extern "C" {
     fn __torajs_dynobj_get_value(obj: *const c_void, key: *const c_void) -> u64;
     /// torajs-dynobj — run an accessor entry's getter; the answer is
     /// an owned AnyValue per the boxed-value convention.
-    fn __torajs_accessor_invoke_getter(pair: *const c_void) -> u64;
+    fn __torajs_accessor_invoke_getter(pair: *const c_void, recv_anyv: u64) -> u64;
     /// torajs-arr — arr-props expando probe (NULL props answers 5 =
     /// absent internally); same ANY_TAG channel as the dynobj pair.
     fn __torajs_arrprops_get_tag(arr: *mut c_void, key: *const c_void) -> u64;
@@ -173,7 +173,10 @@ pub(crate) unsafe fn dynobj_method(
             // (the invoke keeps the cell alive across it).
             if dtag == ANY_ACCESSOR_TAG {
                 let pair = __torajs_dynobj_get_value(obj, key) as *const c_void;
-                let got = __torajs_accessor_invoke_getter(pair);
+                let got = __torajs_accessor_invoke_getter(
+                    pair,
+                    crate::nanbox_encode::__torajs_anyv_box_from_pair(4, obj as i64),
+                );
                 if let Some((env, entry)) = closure_boxed_entry(got) {
                     let r = crate::method_call::invoke_boxed(env, entry, argv, argc);
                     crate::nanbox_ffi::__torajs_anyv_rc_dec(got);
@@ -235,7 +238,10 @@ pub(crate) unsafe fn arr_expando_method(
         // dispatches as the callee (mirror of the dynobj arm).
         if dtag == ANY_ACCESSOR_TAG {
             let pair = __torajs_arrprops_get_value(arr, key) as *const c_void;
-            let got = __torajs_accessor_invoke_getter(pair);
+            let got = __torajs_accessor_invoke_getter(
+                pair,
+                crate::nanbox_encode::__torajs_anyv_box_from_pair(4, arr as i64),
+            );
             if let Some((env, entry)) = closure_boxed_entry(got) {
                 let r = crate::method_call::invoke_boxed(env, entry, argv, argc);
                 crate::nanbox_ffi::__torajs_anyv_rc_dec(got);

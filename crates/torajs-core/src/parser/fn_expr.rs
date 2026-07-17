@@ -205,6 +205,15 @@ impl<'a> Parser<'a> {
                     destr_prefix,
                 },
             );
+        } else {
+            // RFC 20260717-fnexpr-this-channel knife 1 — the ArrowFn node
+            // is a lossy encoding of a function expression: an arrow
+            // takes the lexical `this`, a fn-expr binds it at the call
+            // site. Record the position so `desugar_fnexpr_this` can give
+            // the ones sitting in inline accessor-face positions a
+            // `__this` receiver param. (Generator fn-exprs hoist through
+            // `hoist_gen_fn_exprs` into decl form instead.)
+            self.ast.fn_expr_exprs.insert(eid);
         }
         if let Some(n) = self_name {
             self.ast.fn_expr_self_names.insert(eid, n);

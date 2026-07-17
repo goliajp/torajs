@@ -141,7 +141,7 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
         dynobj_define: decl!("__torajs_dynobj_define", [Ptr, Ptr, I64, I64, I64], Void),
         dynobj_define_from_desc: decl!("__torajs_dynobj_define_from_desc", [Ptr, Ptr, Ptr], Void),
         accessor_pair_new: decl!("__torajs_accessor_pair_new", [Ptr, Ptr, I64], Ptr),
-        accessor_invoke_getter: decl!("__torajs_accessor_invoke_getter", [Ptr], Any),
+        accessor_invoke_getter: decl!("__torajs_accessor_invoke_getter", [Ptr, Any], Any),
         get_property_descriptor: decl!("__torajs_anyv_get_property_descriptor", [Any, Ptr], Any),
         throw_typeerror_if_not_object: decl!(
             "__torajs_anyv_throw_typeerror_if_not_object",
