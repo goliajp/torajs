@@ -218,7 +218,11 @@ pub(crate) unsafe fn dynobj_method(
                     return got;
                 }
                 if let Some((env, entry)) = closure_boxed_entry(got) {
-                    let r = crate::method_call::invoke_boxed(env, entry, argv, argc);
+                    // A recv-first callee binds the holder as `this`
+                    // (§13.3.6 EvaluateCall — the Reference base;
+                    // RFC 20260717-objlit-anylane-recv knife 2f).
+                    let recv = crate::nanbox_encode::__torajs_anyv_box_from_pair(4, obj as i64);
+                    let r = crate::method_call::invoke_with_this(env, entry, recv, argv, argc);
                     crate::nanbox_ffi::__torajs_anyv_rc_dec(got);
                     return r;
                 }
@@ -278,7 +282,12 @@ pub(crate) unsafe fn arr_expando_method(
                 ));
             }
             if let Some((env, entry)) = closure_boxed_entry(cell) {
-                return Some(crate::method_call::invoke_boxed(env, entry, argv, argc));
+                // Recv-first expando method binds the array as
+                // `this` (knife 2f).
+                let recv = crate::nanbox_encode::__torajs_anyv_box_from_pair(4, arr as i64);
+                return Some(crate::method_call::invoke_with_this(
+                    env, entry, recv, argv, argc,
+                ));
             }
         }
         // Accessor entry — getter runs first, its (owned) answer
@@ -290,7 +299,10 @@ pub(crate) unsafe fn arr_expando_method(
                 crate::nanbox_encode::__torajs_anyv_box_from_pair(4, arr as i64),
             );
             if let Some((env, entry)) = closure_boxed_entry(got) {
-                let r = crate::method_call::invoke_boxed(env, entry, argv, argc);
+                // Recv-first callee binds the array as `this`
+                // (knife 2f, mirror of the dynobj getter arm).
+                let recv = crate::nanbox_encode::__torajs_anyv_box_from_pair(4, arr as i64);
+                let r = crate::method_call::invoke_with_this(env, entry, recv, argv, argc);
                 crate::nanbox_ffi::__torajs_anyv_rc_dec(got);
                 return Some(r);
             }
@@ -445,7 +457,11 @@ pub(crate) unsafe fn struct_method(
                         _ => None,
                     };
                     if let Some((env, entry)) = pair {
-                        return crate::method_call::invoke_boxed(env, entry, argv, argc);
+                        // Recv-first field value binds the struct
+                        // instance as `this` (knife 2f).
+                        let recv =
+                            crate::nanbox_encode::__torajs_anyv_box_from_pair(4, obj as i64);
+                        return crate::method_call::invoke_with_this(env, entry, recv, argv, argc);
                     }
                     // A resolved field that isn't callable keeps the
                     // TypeError — never shadowed by the fallback.
