@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-17T20:25:06.814Z",
+  "generatedAt": "2026-07-17T22:21:18.874Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 94.34
   },
   "torajs": {
-    "commit": "7e3f396d",
-    "commitSubject": "Revert \"feat: error.iserror probes the errordata flag through an injected static method\"",
+    "commit": "0c412f61",
+    "commitSubject": "fix: a static method's .name answers the property key, not the mangled form",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "0c412f61",
+      "subject": "fix: a static method's .name answers the property key, not the mangled form"
+    },
+    {
+      "hash": "c92ea1c3",
+      "subject": "feat: error.prototype.tostring is an own function entry and the error ctor message is optional"
+    },
+    {
+      "hash": "b67a533b",
+      "subject": "fix: objlit data-field anns resolve at the construction site and stale arena copies stop minting layouts"
+    },
+    {
+      "hash": "a8ec213f",
+      "subject": "feat: error.iserror probes the errordata flag through an injected static method"
+    },
+    {
+      "hash": "024ebc25",
+      "subject": "fix: closure ret-ann sniff resolves captures at the construction site scope"
+    },
+    {
+      "hash": "e13f7827",
+      "subject": "chore: hardev dashboard snapshot at rotation 136 close"
+    },
+    {
       "hash": "7e3f396d",
       "subject": "Revert \"feat: error.iserror probes the errordata flag through an injected static method\""
     },
@@ -735,51 +759,38 @@
     {
       "hash": "49c6b293",
       "subject": "chore: hardev dashboard snapshot at rotation 135 close"
-    },
-    {
-      "hash": "dd7f9087",
-      "subject": "fix: a shorthand proto member stays an ordinary own property"
-    },
-    {
-      "hash": "7ea6753b",
-      "subject": "feat: static class methods reify as own function objects on the class"
-    },
-    {
-      "hash": "0d2e9835",
-      "subject": "feat: class methods reify as own function objects on the prototype"
-    },
-    {
-      "hash": "1701ed8c",
-      "subject": "fix: synthesized generator classes skip the first-class constructor wiring"
-    },
-    {
-      "hash": "9d49d171",
-      "subject": "feat: class objects are first-class function values at the register wire"
-    },
-    {
-      "hash": "29cf4d74",
-      "subject": "chore: hardev dashboard snapshot at rotation 134 close"
     }
   ],
-  "headSha": "7e3f396d",
+  "headSha": "0c412f61",
   "autorun": {
-    "total": 441,
+    "total": 442,
     "baselineTarget": 10,
-    "bySelf": 436,
+    "bySelf": 437,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784302769-281b",
-      "at": "2026-07-17T15:39:29Z",
-      "ts": 1784302769,
+      "rotationId": "r-1784319960-3b4d",
+      "at": "2026-07-17T20:26:00Z",
+      "ts": 1784319960,
       "trigger": "self",
-      "prevHead": "49c6b293",
-      "handoffSha": "sha256:0a2503acdb6dbe4b19b3e886d67f61cb654902a9c01b26a284d27194ac26c6b9",
-      "handoffAgeSec": 7,
+      "prevHead": "e13f7827",
+      "handoffSha": "sha256:007b484c7a69a30cc7d12c6df9c9fa4831c3f7215c1f7c1b5bf6dab908809b50",
+      "handoffAgeSec": 7787,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784319960-3b4d",
+        "at": "2026-07-17T20:26:00Z",
+        "ts": 1784319960,
+        "trigger": "self",
+        "prevHead": "e13f7827",
+        "handoffSha": "sha256:007b484c7a69a30cc7d12c6df9c9fa4831c3f7215c1f7c1b5bf6dab908809b50",
+        "handoffAgeSec": 7787,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784302769-281b",
         "at": "2026-07-17T15:39:29Z",
@@ -876,17 +887,6 @@
         "prevHead": "64166171",
         "handoffSha": "sha256:68acd890613edb040dce466b5ca9d20482295131cf7f5927ea52b5cd3aebe699",
         "handoffAgeSec": 9,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784243147-34de",
-        "at": "2026-07-16T23:05:47Z",
-        "ts": 1784243147,
-        "trigger": "self",
-        "prevHead": "7e6780fb",
-        "handoffSha": "sha256:97262a486fe11b997384c47aa69f2b63bc03d2b972a2d79b511abb806ec92bd0",
-        "handoffAgeSec": 4,
         "conformanceBefore": null,
         "commitsInSession": null
       }
