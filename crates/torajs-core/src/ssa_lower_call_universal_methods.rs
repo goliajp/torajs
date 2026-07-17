@@ -317,7 +317,15 @@ fn emit_obj_has_own_property(
         // Literal key — compile-time fold. The lowered literal is a
         // static cell (rc no-op); nothing to release.
         let layout = &ctx.struct_layouts[sid.0 as usize];
-        let result = layout.iter().any(|(fname, _)| fname == key);
+        // An accessor member rides the layout under its synthetic
+        // `__getter_<k>` / `__setter_<k>` name — it IS the own
+        // property `<k>` (test262 8.12.1-1_20: `{get foo(){}}`
+        // hasOwnProperty("foo") is true).
+        let getter = format!("__getter_{key}");
+        let setter = format!("__setter_{key}");
+        let result = layout
+            .iter()
+            .any(|(fname, _)| fname == key || *fname == getter || *fname == setter);
         let arg_val = ctx.lower_expr(arg_eid);
         ctx.release_owned_temp(arg_eid, &arg_val);
         // S304 — lower-and-drop trailing args per S272 idiom
@@ -333,7 +341,12 @@ fn emit_obj_has_own_property(
     let key_ty = ctx.operand_ty(&key_op);
     let mut acc: Operand = Operand::ConstBool(false);
     for (fname, _) in &layout {
-        let lit = ctx.intern_string_literal(fname);
+        // Accessor synthetic names compare under their public key.
+        let public = fname
+            .strip_prefix("__getter_")
+            .or_else(|| fname.strip_prefix("__setter_"))
+            .unwrap_or(fname);
+        let lit = ctx.intern_string_literal(public);
         let cmp_target = if key_ty == Type::Substr {
             ctx.intrinsics.substr_eq_str
         } else {
