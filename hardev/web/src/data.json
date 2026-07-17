@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-17T12:31:26.358Z",
+  "generatedAt": "2026-07-17T14:01:50.726Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-17T12:30:54Z",
-    "headSha": "b105ffdd",
-    "elapsedSec": 1185.68,
+    "ranAt": "2026-07-17T13:31:17Z",
+    "headSha": "46428061",
+    "elapsedSec": 578.3,
     "workers": 8,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 7661,
+    "pass": 7681,
     "passNoOracle": 111,
     "passNegative": 4447,
-    "passTotal": 12219,
-    "bug": 771,
-    "incompatible": 40184,
+    "passTotal": 12239,
+    "bug": 754,
+    "incompatible": 40181,
     "bunSkip": 11908,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 12990,
-    "passRateInScope": 22.98,
-    "passRateTrAccepted": 94.06
+    "trAccepted": 12993,
+    "passRateInScope": 23.02,
+    "passRateTrAccepted": 94.2
   },
   "torajs": {
-    "commit": "9986569a",
-    "commitSubject": "chore: archive the test262 sweep at b105ffdd",
+    "commit": "14e0031a",
+    "commitSubject": "chore: archive the test262 sweep at 46428061",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,38 @@
   },
   "commits": [
     {
+      "hash": "14e0031a",
+      "subject": "chore: archive the test262 sweep at 46428061"
+    },
+    {
+      "hash": "5a76af1f",
+      "subject": "feat: the object-literal proto member sets the prototype instead of an own entry"
+    },
+    {
+      "hash": "307217e2",
+      "subject": "fix: any-lane tostring flattens substr views before the concat kernels"
+    },
+    {
+      "hash": "46428061",
+      "subject": "feat: object.prototype.isPrototypeOf walks the proto chain by identity"
+    },
+    {
+      "hash": "4dc7cc69",
+      "subject": "feat: object.setPrototypeOf and the annex-b proto setter with cycle refusal"
+    },
+    {
+      "hash": "c1872df5",
+      "subject": "feat: member reads and method dispatch walk the user proto chain"
+    },
+    {
+      "hash": "3b3bc522",
+      "subject": "feat: object.create links the user proto through the proto simulation slot"
+    },
+    {
+      "hash": "7a344e74",
+      "subject": "chore: hardev dashboard snapshot at rotation 133 close (final)"
+    },
+    {
       "hash": "9986569a",
       "subject": "chore: archive the test262 sweep at b105ffdd"
     },
@@ -727,59 +759,38 @@
     {
       "hash": "59d3947f",
       "subject": "chore: hardev dashboard snapshot at rotation 133 close"
-    },
-    {
-      "hash": "29849e21",
-      "subject": "chore: archive the test262 sweep at 098dfb9d"
-    },
-    {
-      "hash": "c9b5b15b",
-      "subject": "fix: hole HasProperty walks to Array.prototype's index entries"
-    },
-    {
-      "hash": "098dfb9d",
-      "subject": "fix: struct accessor members answer hasOwnProperty under their public key"
-    },
-    {
-      "hash": "2a9929a0",
-      "subject": "refactor: split wrapper_expando_method to a sibling (file-size cap)"
-    },
-    {
-      "hash": "ecd3460b",
-      "subject": "fix: wrapper expando methods win over the view-through surface"
-    },
-    {
-      "hash": "1fe1f319",
-      "subject": "fix: inline-receiver Any-element searches take the hole-aware kernels"
-    },
-    {
-      "hash": "09b3a0bd",
-      "subject": "chore: hardev dashboard snapshot at rotation 132 close (final)"
-    },
-    {
-      "hash": "56e42c6a",
-      "subject": "feat: arr.toLocaleString invokes each element's own hook"
     }
   ],
-  "headSha": "9986569a",
+  "headSha": "14e0031a",
   "autorun": {
-    "total": 438,
+    "total": 439,
     "baselineTarget": 10,
-    "bySelf": 433,
+    "bySelf": 434,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784285470-7d58",
-      "at": "2026-07-17T10:51:10Z",
-      "ts": 1784285470,
+      "rotationId": "r-1784291519-4060",
+      "at": "2026-07-17T12:31:59Z",
+      "ts": 1784291519,
       "trigger": "self",
-      "prevHead": "09b3a0bd",
-      "handoffSha": "sha256:6fa186e9ddb0da5e8a048c108722790083e725f5790f4996a514e01466c7b4f8",
-      "handoffAgeSec": 160,
+      "prevHead": "7a344e74",
+      "handoffSha": "sha256:9b8948069bdfffe81cecb74cedf4fdf9cd90f4d7d3b244042a89cf389aa958ce",
+      "handoffAgeSec": 0,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784291519-4060",
+        "at": "2026-07-17T12:31:59Z",
+        "ts": 1784291519,
+        "trigger": "self",
+        "prevHead": "7a344e74",
+        "handoffSha": "sha256:9b8948069bdfffe81cecb74cedf4fdf9cd90f4d7d3b244042a89cf389aa958ce",
+        "handoffAgeSec": 0,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784285470-7d58",
         "at": "2026-07-17T10:51:10Z",
@@ -876,17 +887,6 @@
         "prevHead": "7dd67618",
         "handoffSha": "sha256:461a4e8457bef3e8d63e0b130b5ea1af4f835e49e151461bc979dd389cf98fa3",
         "handoffAgeSec": 33,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784221678-011e",
-        "at": "2026-07-16T17:07:58Z",
-        "ts": 1784221678,
-        "trigger": "self",
-        "prevHead": "ac641923",
-        "handoffSha": "sha256:7c0642d20c3900a312c2f6fcb1dc478b98616881f604f497b2da19b5bcb6c480",
-        "handoffAgeSec": 101,
         "conformanceBefore": null,
         "commitsInSession": null
       }
