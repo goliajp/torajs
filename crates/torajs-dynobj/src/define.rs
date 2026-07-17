@@ -42,6 +42,8 @@ unsafe extern "C" {
     fn __torajs_anyv_unbox_tag(v: u64) -> i64;
     fn __torajs_anyv_unbox_value(v: u64) -> i64;
     fn __torajs_anyv_to_bool(v: u64) -> bool;
+    /// torajs-anyvalue — §7.2.10 SameValue over two boxed values.
+    fn __torajs_anyv_same_value(l: u64, r: u64) -> bool;
     /// torajs-arr — Array DefineOwnProperty kernel (RFC
     /// 20260712-arr-exotic-define chunk B receiver dispatch).
     fn __torajs_arr_define(
@@ -307,9 +309,14 @@ unsafe fn redefine_entry(e: *mut Entry, tag: u64, value: u64, flags_byte: u64) {
                 return;
             }
             if has_value {
-                // SameValue approximated by exact (tag, value) match.
-                let cur_unboxed_value = unsafe { __torajs_anyv_unbox_value(cur_value_anyv) } as u64;
-                let same = (tag & BUCKET_TAG_MASK) == cur_value_tag && value == cur_unboxed_value;
+                // §10.1.6.3 step 6.b — true SameValue (a fresh Str
+                // cell with equal bytes IS the same value; the old
+                // exact-pointer approximation rejected `{value:
+                // "abcd"}` redefined with another "abcd").
+                let incoming = unsafe {
+                    __torajs_anyv_box_from_pair((tag & BUCKET_TAG_MASK) as i64, value as i64)
+                };
+                let same = unsafe { __torajs_anyv_same_value(incoming, cur_value_anyv) };
                 if !same {
                     unsafe {
                         __torajs_throw_type_error(

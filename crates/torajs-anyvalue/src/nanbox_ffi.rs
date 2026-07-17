@@ -264,6 +264,35 @@ pub unsafe extern "C" fn __torajs_anyv_to_bool(v: AnyValue) -> bool {
 /// # Safety
 ///
 /// Cell-case operands must point to valid heap objects.
+/// §7.2.10 SameValue — strict-eq with the two numeric corrections:
+/// `SameValue(NaN, NaN)` is true and `SameValue(+0, -0)` is false.
+/// The §10.1.6.3 non-configurable redefine gate is the consumer
+/// (an exact-bits approximation wrongly rejected a same-VALUE Str
+/// redefine — two "abcd" cells have different pointers).
+///
+/// # Safety
+/// Cell-case operands must point to valid heap objects.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_same_value(l: AnyValue, r: AnyValue) -> bool {
+    unsafe {
+        if is_double(l) && is_double(r) {
+            let (a, b) = (as_double(l), as_double(r));
+            if a.is_nan() && b.is_nan() {
+                return true;
+            }
+            // ±0 discriminate by bits; everything else numeric ==.
+            if a == 0.0 && b == 0.0 {
+                return l == r;
+            }
+            return a == b;
+        }
+        // NaN vs NaN across representations is covered above (both
+        // NaN forms are doubles); the cross-type numeric rows and
+        // the Str byte-equality row match strict-eq exactly.
+        __torajs_anyv_strict_eq(l, r)
+    }
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_strict_eq(l: AnyValue, r: AnyValue) -> bool {
     // Identity fast path — bit-equal values are usually equal.
