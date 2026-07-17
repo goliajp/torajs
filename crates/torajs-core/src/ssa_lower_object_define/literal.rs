@@ -194,7 +194,12 @@ fn compute_flags_byte(ctx: &LowerCtx, desc_eid: ExprId, value_present: bool) -> 
 
 /// Tag-pack helper — same table the BinOp Any===concrete arm uses for
 /// runtime tag values.
-fn pack_tagged_value(ctx: &mut LowerCtx, v_raw: Operand, v_ty: Type) -> (i64, Operand) {
+fn pack_tagged_value(
+    ctx: &mut LowerCtx,
+    v_eid: ExprId,
+    v_raw: Operand,
+    v_ty: Type,
+) -> (i64, Operand) {
     match v_ty {
         Type::I64 | Type::I32 => (2, v_raw),
         Type::F64 => {
@@ -222,7 +227,21 @@ fn pack_tagged_value(ctx: &mut LowerCtx, v_raw: Operand, v_ty: Type) -> (i64, Op
             );
             (4, v_raw)
         }
-        Type::Ptr if matches!(v_raw, Operand::ConstPtrNull) => (0, Operand::ConstI64(0)),
+        // S127-1 twin — undefined and null both collapse to
+        // ConstPtrNull at the value layer; the checker's static type
+        // picks the tag (ToUint32(undefined)=0 vs ToNumber=NaN makes
+        // `defineProperty(arr, "length", {value: undefined})` a
+        // RangeError, which a null-tagged pack silently passed).
+        Type::Ptr if matches!(v_raw, Operand::ConstPtrNull) => {
+            if matches!(
+                ctx.expr_types.get(&v_eid),
+                Some(crate::check::Type::Undefined)
+            ) {
+                (5, Operand::ConstI64(0))
+            } else {
+                (0, Operand::ConstI64(0))
+            }
+        }
         _ => (0, Operand::ConstI64(0)),
     }
 }
@@ -254,7 +273,7 @@ fn emit_define_arr_prop(
         if v_ty.is_refcounted() {
             owned_val = Some((val_eid, v_raw.clone()));
         }
-        pack_tagged_value(ctx, v_raw, v_ty)
+        pack_tagged_value(ctx, val_eid, v_raw, v_ty)
     } else {
         (0, Operand::ConstI64(0))
     };
@@ -306,7 +325,7 @@ fn emit_define_dynobj(
         if v_ty.is_refcounted() {
             owned_val = Some((val_eid, v_raw.clone()));
         }
-        pack_tagged_value(ctx, v_raw, v_ty)
+        pack_tagged_value(ctx, val_eid, v_raw, v_ty)
     } else {
         (0, Operand::ConstI64(0))
     };
