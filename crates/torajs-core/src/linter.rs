@@ -21,7 +21,7 @@
 //! `Diagnostic{ span, severity, message }` substrate. Output flows
 //! through both `tr lint` (CLI) and `tr lsp` (LSP `WARNING` severity).
 
-mod refs;
+pub(crate) mod refs;
 
 use std::collections::{HashMap, HashSet};
 

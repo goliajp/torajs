@@ -12,7 +12,7 @@ use std::collections::HashMap;
 
 use crate::ast::{Ast, Expr, ExprId, StaticInit, Stmt};
 
-pub(super) fn count_refs_stmt(ast: &Ast, s: &Stmt, refs: &mut HashMap<String, usize>) {
+pub(crate) fn count_refs_stmt(ast: &Ast, s: &Stmt, refs: &mut HashMap<String, usize>) {
     match s {
         Stmt::Expr(eid) | Stmt::Throw(eid) | Stmt::Yield(eid) => count_refs_expr(ast, *eid, refs),
         Stmt::Return(opt) => {

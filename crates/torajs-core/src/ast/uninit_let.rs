@@ -8,6 +8,8 @@
 //! assigned" error. Private helper `rewrite_uninit_in_stmts` walks
 //! each declaring scope (FnDecl body, block, if/while/for/try body).
 
+use std::collections::HashMap;
+
 use super::{Ast, Expr, ExprId, Stmt};
 
 /// `let x;` (the `var x;` shape after the test262 runner's `var → let`
@@ -31,22 +33,26 @@ use super::{Ast, Expr, ExprId, Stmt};
 ///     control-flow children don't bubble assignments across their
 ///     boundary (we only splice within the same `Vec<Stmt>`)
 pub fn desugar_uninit_let(ast: &mut Ast) {
-    rewrite_uninit_in_stmts(&mut ast.stmts, &ast.exprs.clone());
-    // FnDecl bodies live inside `ast.stmts` already; the recursive
+    // mem::take so the statement vec can be mutated while the arena
+    // stays readable for the reference walker (get_expr only).
+    let mut stmts = std::mem::take(&mut ast.stmts);
+    rewrite_uninit_in_stmts(&mut stmts, ast);
+    ast.stmts = stmts;
+    // FnDecl bodies live inside the vec already; the recursive
     // walk handles them when it descends into Stmt::FnDecl variants.
 }
 
-fn rewrite_uninit_in_stmts(stmts: &mut Vec<Stmt>, exprs: &[Expr]) {
+fn rewrite_uninit_in_stmts(stmts: &mut Vec<Stmt>, ast: &Ast) {
     let mut i = 0;
     while i < stmts.len() {
         // Recurse into nested scopes first so each scope's lets see
         // their own follow-up assignments.
         match &mut stmts[i] {
             Stmt::FnDecl { body, .. } => {
-                rewrite_uninit_in_stmts(body, exprs);
+                rewrite_uninit_in_stmts(body, ast);
             }
             Stmt::Block(inner) | Stmt::Multi(inner) => {
-                rewrite_uninit_in_stmts(inner, exprs);
+                rewrite_uninit_in_stmts(inner, ast);
             }
             Stmt::If {
                 then_branch,
@@ -54,22 +60,22 @@ fn rewrite_uninit_in_stmts(stmts: &mut Vec<Stmt>, exprs: &[Expr]) {
                 ..
             } => {
                 if let Stmt::Block(b) | Stmt::Multi(b) = then_branch.as_mut() {
-                    rewrite_uninit_in_stmts(b, exprs);
+                    rewrite_uninit_in_stmts(b, ast);
                 }
                 if let Some(eb) = else_branch
                     && let Stmt::Block(b) | Stmt::Multi(b) = eb.as_mut()
                 {
-                    rewrite_uninit_in_stmts(b, exprs);
+                    rewrite_uninit_in_stmts(b, ast);
                 }
             }
             Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
                 if let Stmt::Block(b) | Stmt::Multi(b) = body.as_mut() {
-                    rewrite_uninit_in_stmts(b, exprs);
+                    rewrite_uninit_in_stmts(b, ast);
                 }
             }
             Stmt::For { body, .. } => {
                 if let Stmt::Block(b) | Stmt::Multi(b) = body.as_mut() {
-                    rewrite_uninit_in_stmts(b, exprs);
+                    rewrite_uninit_in_stmts(b, ast);
                 }
             }
             Stmt::Try {
@@ -78,10 +84,10 @@ fn rewrite_uninit_in_stmts(stmts: &mut Vec<Stmt>, exprs: &[Expr]) {
                 finally_body,
                 ..
             } => {
-                rewrite_uninit_in_stmts(body, exprs);
-                rewrite_uninit_in_stmts(catch_body, exprs);
+                rewrite_uninit_in_stmts(body, ast);
+                rewrite_uninit_in_stmts(catch_body, ast);
                 if let Some(fb) = finally_body {
-                    rewrite_uninit_in_stmts(fb, exprs);
+                    rewrite_uninit_in_stmts(fb, ast);
                 }
             }
             _ => {}
@@ -95,7 +101,7 @@ fn rewrite_uninit_in_stmts(stmts: &mut Vec<Stmt>, exprs: &[Expr]) {
                 continue;
             }
         };
-        let is_uninit = matches!(exprs.get(init_eid.0 as usize), Some(Expr::Uninit));
+        let is_uninit = matches!(ast.get_expr(init_eid), Expr::Uninit);
         if !is_uninit {
             i += 1;
             continue;
@@ -104,8 +110,8 @@ fn rewrite_uninit_in_stmts(stmts: &mut Vec<Stmt>, exprs: &[Expr]) {
         let mut found: Option<(usize, ExprId)> = None;
         while j < stmts.len() {
             if let Stmt::Expr(eid) = &stmts[j]
-                && let Some(Expr::Assign { target, value }) = exprs.get(eid.0 as usize)
-                && let Some(Expr::Ident(n)) = exprs.get(target.0 as usize)
+                && let Expr::Assign { target, value } = ast.get_expr(*eid)
+                && let Expr::Ident(n) = ast.get_expr(*target)
                 && n == &name
             {
                 found = Some((j, *value));
@@ -118,11 +124,34 @@ fn rewrite_uninit_in_stmts(stmts: &mut Vec<Stmt>, exprs: &[Expr]) {
             j += 1;
         }
         if let Some((stmt_idx, value)) = found {
-            // Splice value into the let's init, drop the assignment.
-            if let Stmt::LetDecl { init, .. } = &mut stmts[i] {
-                *init = value;
+            // Execution-order fix (rotation 133): splicing the
+            // assignment's VALUE into the earlier let REORDERED its
+            // side effects across every intermediate statement —
+            // `let r; log(d.getTime()); r = d.setDate(28);` ran the
+            // setter before the log (test262 Date time-clip family
+            // read post-mutation state). Instead MOVE THE
+            // DECLARATION DOWN to the assignment site: same
+            // spliced-init typing, effects stay in program order. A
+            // TDZ-ish intermediate reference of the name keeps the
+            // Uninit sentinel (loud checker reject beats the silent
+            // reorder).
+            let referenced = {
+                let mut refs: HashMap<String, usize> = HashMap::new();
+                for s in &stmts[i + 1..stmt_idx] {
+                    crate::linter::refs::count_refs_stmt(ast, s, &mut refs);
+                }
+                refs.get(&name).copied().unwrap_or(0) > 0
+            };
+            if !referenced {
+                let mut decl = stmts.remove(i);
+                if let Stmt::LetDecl { init, .. } = &mut decl {
+                    *init = value;
+                }
+                // stmt_idx shifted down by the remove above.
+                stmts[stmt_idx - 1] = decl;
+                // Re-examine the slot that slid into position i.
+                continue;
             }
-            stmts.remove(stmt_idx);
         }
         i += 1;
     }
