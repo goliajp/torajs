@@ -27,6 +27,18 @@ use crate::{
     __torajs_str_alloc_pooled, __torajs_str_to_number, __torajs_undefined_to_str, AnyView,
 };
 
+unsafe extern "C" {
+    /// torajs-str — flatten a Substr view into a fresh owned Str.
+    fn __torajs_substr_to_owned(s: *const u8) -> *mut c_void;
+}
+
+/// `FLAG_SUBSTR_INLINE | FLAG_SUBSTR_VIEW` mirror (torajs-str
+/// `substr.rs`, header flags bits 0 and 10) — both Substr shapes
+/// share `Tag::Str` but their bytes live behind a parent+offset
+/// indirection (INLINE = split-block tail, VIEW = standalone
+/// charAt/slice view).
+const FLAG_SUBSTR_ANY: u16 = (1 << 0) | (1 << 10);
+
 /// Tag-dispatch ToString for a packed `(tag, value)` pair.
 /// Always returns a freshly owned `*mut Str` (refcount = 1)
 /// that the caller is responsible for dropping.
@@ -88,8 +100,18 @@ unsafe fn any_to_str_hint(tag: i64, value: i64, hint_string: bool) -> *mut c_voi
         // invariant says it points to a valid header.
         let h = unsafe { &*child };
         if matches!(h.tag(), Tag::Str) {
-            // Tag::Str case: just rc_inc + return; the caller now
-            // owns one (additional) reference.
+            // A Substr VIEW flattens to a fresh owned Str first —
+            // the concat consumers downstream (`try_concat_short` /
+            // `__torajs_str_concat`) read the plain Str layout only,
+            // so handing the view through read the parent-pointer
+            // bytes as payload (garbage char) or ran off the block
+            // (SIGSEGV) — test262 charAt S15.5.4.4_A1_T2's
+            // three-way concat crash.
+            if h.flags & FLAG_SUBSTR_ANY != 0 {
+                return unsafe { __torajs_substr_to_owned(child as *const u8) };
+            }
+            // Plain Str: just rc_inc + return; the caller now owns
+            // one (additional) reference.
             unsafe { __torajs_rc_inc(child as *mut c_void) };
             return child as *mut c_void;
         }
