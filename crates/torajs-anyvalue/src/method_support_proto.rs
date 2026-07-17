@@ -167,6 +167,13 @@ pub unsafe extern "C" fn __torajs_builtin_proto_own_method_cell(
     if tag < 0 {
         return 0;
     }
+    // `constructor` is an own property of every builtin prototype
+    // (§20.x.3.1 family) — one interned identity per tag, so gOPD's
+    // desc.value and a member read answer the SAME cell. Probed
+    // before the method-id intern (constructor has no mid).
+    if unsafe { crate::prop_has::key_is(key, b"constructor") } {
+        return crate::method_value::builtin_ctor_cell(tag) as u64;
+    }
     let mid = unsafe { crate::method_value::key_method_id(key) };
     if mid == ANY_METHOD_UNKNOWN
         || (mid as usize) >= crate::method_value::TABLE_SIZE

@@ -221,6 +221,13 @@ pub unsafe extern "C" fn __torajs_any_member_get_tag(recv: AnyValue, key: *const
                     return 5;
                 }
             }
+            // The Array.prototype singleton is an Arr CELL, so a
+            // read of its own interned surface (`constructor`, the
+            // family methods) lands in this arm, not the dynobj one
+            // — same synthesis probe (rotation 131).
+            if crate::method_support::__torajs_builtin_proto_own_method_cell(ptr, key) != 0 {
+                return 4;
+            }
             reify_tag(recv, key)
         },
         Some((ptr, t)) if t == Tag::Closure as u16 => unsafe {
@@ -359,6 +366,11 @@ pub unsafe extern "C" fn __torajs_any_member_get_value(recv: AnyValue, key: *con
                 if __torajs_dynobj_has(ap, key) != 0 {
                     return 0;
                 }
+            }
+            // Arr-cell singleton own surface — tag twin above.
+            let cell = crate::method_support::__torajs_builtin_proto_own_method_cell(ptr, key);
+            if cell != 0 {
+                return cell;
             }
             reify_value(recv, key)
         },

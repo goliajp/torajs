@@ -142,6 +142,42 @@ pub(crate) fn builtin_method_cell(mid: i64) -> *mut u8 {
     }
 }
 
+/// Per-proto-tag interned `constructor` cells (rotation 131 —
+/// the gOPD 15.2.3.3-4 constructor family). `<Ctor>.prototype
+/// .constructor` must answer ONE identity per builtin so
+/// `desc.value === Date.prototype.constructor` holds; the cell is
+/// the same immortal closure shape as [`builtin_method_cell`]
+/// (calling it is the bare-receiver TypeError — constructing
+/// through a first-class ctor value is a recorded follow-up).
+static CTOR_CELLS: [AtomicU64; torajs_rc::builtin_proto::NUM_BUILTIN_PROTOS] =
+    [const { AtomicU64::new(0) }; torajs_rc::builtin_proto::NUM_BUILTIN_PROTOS];
+
+/// The interned `constructor` cell for a builtin proto tag —
+/// lazily allocated, immortal.
+pub(crate) fn builtin_ctor_cell(proto_tag: i64) -> *mut u8 {
+    let slot = &CTOR_CELLS[proto_tag as usize];
+    let p = slot.load(Ordering::Relaxed);
+    if p != 0 {
+        return p as *mut u8;
+    }
+    // SAFETY: fresh CELL_SIZE allocation, fully initialized below —
+    // same layout as builtin_method_cell.
+    unsafe {
+        let layout = core::alloc::Layout::from_size_align(CELL_SIZE, 8).unwrap();
+        let cell = std::alloc::alloc_zeroed(layout);
+        *(cell as *mut u32) = 1;
+        *(cell.add(4) as *mut u16) = Tag::Closure as u16;
+        *(cell.add(6) as *mut u16) = FLAG_STATIC_LITERAL;
+        *(cell.add(CLOSURE_FN_ADDR_OFF) as *mut u64) = native_entry as *const () as u64;
+        *(cell.add(CLOSURE_DROP_FN_OFF) as *mut u64) = 0;
+        *(cell.add(CLOSURE_PROPS_OFF) as *mut u64) = 0;
+        *(cell.add(CLOSURE_BOXED_ENTRY_OFF) as *mut u64) = bare_entry as *const () as u64;
+        *(cell.add(CLOSURE_CAP_BASE_OFF) as *mut u64) = torajs_rc::ANY_METHOD_UNKNOWN as u64;
+        slot.store(cell as u64, Ordering::Relaxed);
+        cell
+    }
+}
+
 /// The reified `get size` getter cells — one per proto family
 /// (index 0 = Map proto tag 11, 1 = Set proto tag 12) because the
 /// spec getters are DISTINCT function objects per prototype. Same
