@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-17T07:47:38.302Z",
+  "generatedAt": "2026-07-17T08:31:22.558Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-17T05:28:08Z",
-    "headSha": "bac76a4c",
-    "elapsedSec": 645.92,
+    "ranAt": "2026-07-17T07:59:05Z",
+    "headSha": "3a32abe4",
+    "elapsedSec": 495.64,
     "workers": 8,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 7519,
+    "pass": 7523,
     "passNoOracle": 111,
     "passNegative": 4447,
-    "passTotal": 12077,
-    "bug": 923,
+    "passTotal": 12081,
+    "bug": 919,
     "incompatible": 40174,
     "bunSkip": 11908,
     "harnessError": 0,
     "inScope": 53174,
     "trAccepted": 13000,
-    "passRateInScope": 22.71,
-    "passRateTrAccepted": 92.9
+    "passRateInScope": 22.72,
+    "passRateTrAccepted": 92.93
   },
   "torajs": {
-    "commit": "d1071dd0",
-    "commitSubject": "fix: String() undefined fold keeps the arg's effects and the F64 undefined sentinel",
+    "commit": "364a645f",
+    "commitSubject": "fix: Array.prototype expandos reach arrays and array descriptors",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "364a645f",
+      "subject": "fix: Array.prototype expandos reach arrays and array descriptors"
+    },
+    {
+      "hash": "8c88c140",
+      "subject": "fix: Function.prototype expandos reach closures and function descriptors"
+    },
+    {
+      "hash": "a9145cdf",
+      "subject": "fix: primitive-wrapper cells are legal property descriptors"
+    },
+    {
+      "hash": "4cd012d2",
+      "subject": "fix: five ToString lanes propagate a throwing user hook"
+    },
+    {
+      "hash": "20ebd7ee",
+      "subject": "chore: archive the test262 sweep at d1071dd0"
+    },
+    {
+      "hash": "3a32abe4",
+      "subject": "chore: hardev dashboard snapshot at rotation 130 close"
+    },
+    {
       "hash": "d1071dd0",
       "subject": "fix: String() undefined fold keeps the arg's effects and the F64 undefined sentinel"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "dbaed3ab",
       "subject": "style: fmt-drift fix on method_call_dynobj (mini rustfmt line join)"
-    },
-    {
-      "hash": "8c8572af",
-      "subject": "fix: indirect attached callees bind the holder as this through the receiver channel"
-    },
-    {
-      "hash": "405c508e",
-      "subject": "fix: HOF callbacks route recv-first closures through the receiver channel"
-    },
-    {
-      "hash": "eedd89ec",
-      "subject": "fix: call/apply/bind thisArg rides the recv-first receiver channel"
-    },
-    {
-      "hash": "4bb16fbc",
-      "subject": "fix: detached recv-first closures bind this=undefined through the bare call lanes"
-    },
-    {
-      "hash": "959cb308",
-      "subject": "feat: any-param call args join the any-lane recv predicate and the route boxes its cell"
-    },
-    {
-      "hash": "cc4f91b4",
-      "subject": "feat: as-any cast object literals join the any-lane recv predicate"
     }
   ],
-  "headSha": "d1071dd0",
+  "headSha": "364a645f",
   "autorun": {
-    "total": 435,
+    "total": 436,
     "baselineTarget": 10,
-    "bySelf": 430,
+    "bySelf": 431,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784267632-7bbd",
-      "at": "2026-07-17T05:53:52Z",
-      "ts": 1784267632,
+      "rotationId": "r-1784274516-34c5",
+      "at": "2026-07-17T07:48:36Z",
+      "ts": 1784274516,
       "trigger": "self",
-      "prevHead": "62f26d9e",
-      "handoffSha": "sha256:a390b1eda9499fcb07f748cc677540c7b810fc064600f0a8a147b53bfef7173e",
-      "handoffAgeSec": 13,
+      "prevHead": "3a32abe4",
+      "handoffSha": "sha256:cb36e1ea5491c132c2f2a7cd0306dfaa6ba09fe3d2f2c84b9bbba4036b6a1b37",
+      "handoffAgeSec": 8,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784274516-34c5",
+        "at": "2026-07-17T07:48:36Z",
+        "ts": 1784274516,
+        "trigger": "self",
+        "prevHead": "3a32abe4",
+        "handoffSha": "sha256:cb36e1ea5491c132c2f2a7cd0306dfaa6ba09fe3d2f2c84b9bbba4036b6a1b37",
+        "handoffAgeSec": 8,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784267632-7bbd",
         "at": "2026-07-17T05:53:52Z",
@@ -876,17 +887,6 @@
         "prevHead": "c444aad8",
         "handoffSha": "sha256:057bcd3fe49c8f8fb8b6d7e75341d98522fe999092ed3473e6349d40b7ce8797",
         "handoffAgeSec": 22,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784190835-7346",
-        "at": "2026-07-16T08:33:55Z",
-        "ts": 1784190835,
-        "trigger": "self",
-        "prevHead": "7308ee2a",
-        "handoffSha": "sha256:b9fb31924bb419983dbb7c15aeddb3bd0895f56b44ec871cab53447f34d3dcf7",
-        "handoffAgeSec": 1681,
         "conformanceBefore": null,
         "commitsInSession": null
       }
