@@ -59,6 +59,9 @@ unsafe extern "C" {
     /// absent internally); same ANY_TAG channel as the dynobj pair.
     fn __torajs_arrprops_get_tag(arr: *mut c_void, key: *const c_void) -> u64;
     fn __torajs_arrprops_get_value(arr: *mut c_void, key: *const c_void) -> u64;
+    /// torajs-arr — own-key membership over the side props (1 =
+    /// present); the get_tag ANY_UNDEF disambiguator.
+    fn __torajs_arrprops_has(arr: *mut c_void, key: *const c_void) -> i32;
     /// torajs-structmeta — read side over `__torajs_class_layouts`
     /// (NULL for class_tag 0 / past the table).
     fn __torajs_struct_layout_lookup(class_tag: u32) -> *const c_void;
@@ -246,6 +249,13 @@ pub(crate) unsafe fn arr_expando_method(
         let key = name_str as *const c_void;
         let dtag = __torajs_arrprops_get_tag(arr, key);
         if dtag == 5 {
+            // Same absent/stored-undefined conflation as the dynobj
+            // arm: an own entry storing undefined SHADOWS the builtin
+            // (`a.join = undefined; a.join()` is the resolved-not-
+            // callable TypeError, not the builtin join).
+            if __torajs_arrprops_has(arr, key) != 0 {
+                return Some(not_callable());
+            }
             return None;
         }
         // ANY_HEAP = 4 — a closure-cell property.
@@ -358,6 +368,32 @@ pub(crate) unsafe fn own_entry_not_callable(
             }
             true
         }
+    }
+}
+
+/// Arr twin of [`own_entry_not_callable`] — probes the side-props
+/// expando so OrdinaryToPrimitive skips a shadowing non-callable
+/// (`arr.toString = undefined` coerces through valueOf / the both-
+/// exhausted TypeError, not through the builtin join). The only
+/// consumer is `to_primitive::skip_not_callable`, whose real body is
+/// `cfg(not(test))` (the dispatch graph doesn't link in the unit-test
+/// binary) — hence the test-profile dead-code allowance.
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) unsafe fn arr_own_entry_not_callable(arr: *mut c_void, name_str: *const u8) -> bool {
+    unsafe {
+        let key = name_str as *const c_void;
+        let dtag = __torajs_arrprops_get_tag(arr, key);
+        if dtag == 5 {
+            return __torajs_arrprops_has(arr, key) != 0;
+        }
+        if dtag == ANY_ACCESSOR_TAG {
+            return false;
+        }
+        if dtag == 4 {
+            let cell = __torajs_arrprops_get_value(arr, key);
+            return closure_boxed_entry(cell).is_none();
+        }
+        true
     }
 }
 

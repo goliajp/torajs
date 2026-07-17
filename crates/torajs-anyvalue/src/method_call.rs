@@ -246,6 +246,7 @@ pub(crate) unsafe fn any_method_call_inner(
             && tag != Tag::Date as u16
             && tag != Tag::DynObj as u16
             && tag != Tag::Obj as u16
+            && tag != Tag::Arr as u16
         {
             unsafe { __torajs_rc_inc(ptr) };
             return recv;
@@ -291,6 +292,14 @@ pub(crate) unsafe fn any_method_call_inner(
                 }
             {
                 return r;
+            }
+            // §20.1.4.7 Object.prototype.valueOf identity — moved
+            // after the expando probe so a patched `arr.valueOf`
+            // wins (the early cell-wide identity arm excludes Arr
+            // for exactly this monkey-patch order).
+            if mid == ANY_METHOD_VALUE_OF {
+                unsafe { __torajs_rc_inc(ptr) };
+                return recv;
             }
             return unsafe { crate::method_call_arr::arr_method(ptr, mid, recv_slot, argv, argc) };
         }

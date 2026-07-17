@@ -72,6 +72,12 @@ unsafe fn skip_not_callable(cell: *mut c_void, name_str: *const u8) -> bool {
         Tag::DynObj => unsafe {
             crate::method_call_dynobj::own_entry_not_callable(cell, false, name_str)
         },
+        // An Arr's monkey-patches land in the side-props expando —
+        // `arr.toString = undefined` shadows the builtin the same way
+        // (RFC 20260717 own-undefined-shadow family, arr leg).
+        Tag::Arr => unsafe {
+            crate::method_call_dynobj::arr_own_entry_not_callable(cell, name_str)
+        },
         _ => false,
     }
 }

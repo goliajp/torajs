@@ -39,6 +39,9 @@ unsafe extern "C" {
     /// Cross-tier — read the tag (or ANY_UNDEF=5 on miss).
     fn __torajs_dynobj_get_tag(dynobj: *mut c_void, key: *const c_void) -> u64;
 
+    /// Cross-tier — own-key membership (1 = present).
+    fn __torajs_dynobj_has(dynobj: *const c_void, key: *const c_void) -> i32;
+
     /// Cross-tier — OrdinaryDelete on the props dynobj (1 = removed).
     fn __torajs_dynobj_delete(dynobj: *mut c_void, key: *const c_void) -> i32;
 
@@ -167,6 +170,25 @@ pub unsafe extern "C" fn __torajs_arrprops_get_tag(
             return 5; // ANY_UNDEF
         }
         __torajs_dynobj_get_tag(dynobj, key)
+    }
+}
+
+/// Own-key membership probe over the side-props dynobj (1 =
+/// present). Disambiguates `__torajs_arrprops_get_tag`'s ANY_UNDEF
+/// answer: absent key vs an own entry storing undefined — the
+/// latter shadows the builtin method surface (§10.1.8.1
+/// OrdinaryGet; RFC 20260717 own-undefined-shadow family).
+///
+/// # Safety
+/// `arr_ptr` is a live array heap block; `key` is a Str pointer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arrprops_has(arr_ptr: *mut c_void, key: *const c_void) -> i32 {
+    unsafe {
+        let dynobj = *props_slot_ptr(arr_ptr);
+        if dynobj.is_null() {
+            return 0;
+        }
+        __torajs_dynobj_has(dynobj, key)
     }
 }
 

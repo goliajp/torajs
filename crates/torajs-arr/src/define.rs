@@ -44,7 +44,7 @@ unsafe extern "C" {
         flags_byte: u64,
     );
     fn __torajs_dynobj_alloc() -> *mut c_void;
-    fn __torajs_dynobj_has(dynobj: *const c_void, key: *const c_void) -> bool;
+    fn __torajs_dynobj_has(dynobj: *const c_void, key: *const c_void) -> i32;
     fn __torajs_dynobj_get_flags(dynobj: *const c_void, key: *const c_void) -> u64;
     /// torajs-dynobj — raw flags upsert for shadow entries (no
     /// §10.1.6.3 validation; this kernel already validated). A hit
@@ -151,7 +151,7 @@ pub(crate) unsafe fn index_flags_with_key(arr: *const c_void, key: *const c_void
         return FLAGS_DEFAULT;
     }
     let props = unsafe { *props_slot(arr as *mut c_void) };
-    if props.is_null() || !unsafe { __torajs_dynobj_has(props, key) } {
+    if props.is_null() || unsafe { __torajs_dynobj_has(props, key) } == 0 {
         return FLAGS_DEFAULT;
     }
     if unsafe { __torajs_dynobj_entry_is_hole(props, key) } != 0 {

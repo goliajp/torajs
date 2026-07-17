@@ -21,7 +21,7 @@ use crate::layout::ARR_LEN_OFF;
 
 unsafe extern "C" {
     fn __torajs_dynobj_alloc() -> *mut c_void;
-    fn __torajs_dynobj_has(dynobj: *const c_void, key: *const c_void) -> bool;
+    fn __torajs_dynobj_has(dynobj: *const c_void, key: *const c_void) -> i32;
     /// torajs-dynobj — HOLE sentinel upsert / probe (chunk C).
     fn __torajs_dynobj_set_entry_hole(obj_slot: *mut *mut c_void, key: *mut c_void);
     fn __torajs_dynobj_entry_is_hole(dynobj: *const c_void, key: *const c_void) -> i32;
@@ -63,7 +63,7 @@ pub(crate) unsafe fn revive_index_if_hole(arr: *mut c_void, idx: u64) {
     unsafe { core::ptr::copy_nonoverlapping(digits.as_ptr(), key.add(STR_DATA_OFF), digits.len()) };
     let props = unsafe { *props_slot(arr) };
     if !props.is_null()
-        && unsafe { __torajs_dynobj_has(props, key as *const c_void) }
+        && unsafe { __torajs_dynobj_has(props, key as *const c_void) } != 0
         && unsafe { __torajs_dynobj_entry_is_hole(props, key as *const c_void) } != 0
     {
         unsafe { store_shadow(arr, key as *mut c_void, FLAGS_DEFAULT) };

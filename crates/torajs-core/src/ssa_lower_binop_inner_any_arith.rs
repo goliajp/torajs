@@ -211,5 +211,12 @@ pub(crate) fn try_lower(
             );
         }
     }
+    // The runtime kernels run OrdinaryToPrimitive on object operands
+    // (any_add's ToString / the arith-compare ToNumber walks) and can
+    // record a catchable TypeError — propagate to the user's
+    // try/catch instead of leaking the pending throw past the binop
+    // (`"" + objWithShadowedToString` printed the placeholder and
+    // the throw surfaced uncaught statements later).
+    ctx.emit_throw_check(None);
     Some(Operand::Value(r))
 }

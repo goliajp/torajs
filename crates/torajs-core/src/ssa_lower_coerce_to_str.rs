@@ -145,6 +145,13 @@ impl<'a> LowerCtx<'a> {
                         vec![val, Operand::Value(raw)],
                     ),
                 );
+                // OrdinaryToPrimitive can record a catchable
+                // TypeError (both methods exhausted / a user method
+                // threw) — propagate to the user's try/catch instead
+                // of leaking the pending throw past the concat
+                // (`"" + objWithShadowedToString` printed the
+                // placeholder and unwound as uncaught later).
+                self.emit_throw_check(None);
                 Operand::Value(s)
             }
             // RFC 20260712 chunk B — a struct operand mirrors the
