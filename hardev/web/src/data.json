@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-17T04:07:19.386Z",
+  "generatedAt": "2026-07-17T05:30:56.481Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-17T03:17:18Z",
-    "headSha": "1e48c2a3",
-    "elapsedSec": 529.26,
+    "ranAt": "2026-07-17T05:28:08Z",
+    "headSha": "bac76a4c",
+    "elapsedSec": 645.92,
     "workers": 8,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 7404,
-    "passNoOracle": 110,
+    "pass": 7519,
+    "passNoOracle": 111,
     "passNegative": 4447,
-    "passTotal": 11961,
-    "bug": 962,
-    "incompatible": 40251,
+    "passTotal": 12077,
+    "bug": 923,
+    "incompatible": 40174,
     "bunSkip": 11908,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 12923,
-    "passRateInScope": 22.49,
-    "passRateTrAccepted": 92.56
+    "trAccepted": 13000,
+    "passRateInScope": 22.71,
+    "passRateTrAccepted": 92.9
   },
   "torajs": {
-    "commit": "8ba374ca",
-    "commitSubject": "refactor: extract walk_expr to ast_collect_fn_closure_expr (file-size debt)",
+    "commit": "8ca029c8",
+    "commitSubject": "chore: archive the test262 sweep at bac76a4c",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "8ca029c8",
+      "subject": "chore: archive the test262 sweep at bac76a4c"
+    },
+    {
+      "hash": "bac76a4c",
+      "subject": "feat: any-lane object-literal recv members bind this through the receiver-first channel"
+    },
+    {
+      "hash": "7155fd96",
+      "subject": "fix: __forward_* shims get the closure-shape any-default for untyped params"
+    },
+    {
+      "hash": "d1a84e7c",
+      "subject": "fix: an own undefined entry shadows the prototype in ToPrimitive and method dispatch"
+    },
+    {
+      "hash": "798aa219",
+      "subject": "fix: inline ObjectLit define-family receiver promotes to the dynobj lane"
+    },
+    {
+      "hash": "8a232424",
+      "subject": "chore: hardev dashboard snapshot at rotation 128 close"
+    },
+    {
       "hash": "8ba374ca",
       "subject": "refactor: extract walk_expr to ast_collect_fn_closure_expr (file-size debt)"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "324948bc",
       "subject": "feat: function-expression accessor faces bind call-site this"
-    },
-    {
-      "hash": "64166171",
-      "subject": "chore: hardev dashboard snapshot at rotation 127 close"
-    },
-    {
-      "hash": "94648f53",
-      "subject": "feat: eq-operand named-fn idents join the canonical-cell lane"
-    },
-    {
-      "hash": "e2205dfa",
-      "subject": "chore: hardev dashboard snapshot at rotation 127 close"
-    },
-    {
-      "hash": "db85d9df",
-      "subject": "fix: accessor pair teardown releases closure refs through the gated dispatcher"
-    },
-    {
-      "hash": "b4a41394",
-      "subject": "feat: named-fn value sites answer one canonical singleton cell"
-    },
-    {
-      "hash": "4e49bc83",
-      "subject": "feat: empty object literal cast to any promotes to the dynobj lane"
     }
   ],
-  "headSha": "8ba374ca",
+  "headSha": "8ca029c8",
   "autorun": {
-    "total": 433,
+    "total": 434,
     "baselineTarget": 10,
-    "bySelf": 428,
+    "bySelf": 429,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784249431-148f",
-      "at": "2026-07-17T00:50:31Z",
-      "ts": 1784249431,
+      "rotationId": "r-1784261305-6624",
+      "at": "2026-07-17T04:08:25Z",
+      "ts": 1784261305,
       "trigger": "self",
-      "prevHead": "64166171",
-      "handoffSha": "sha256:68acd890613edb040dce466b5ca9d20482295131cf7f5927ea52b5cd3aebe699",
-      "handoffAgeSec": 9,
+      "prevHead": "8a232424",
+      "handoffSha": "sha256:020544a1bdc5e67966bf609592b9f749c10389ab2f7615147b215488fb7b6d91",
+      "handoffAgeSec": 7,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784261305-6624",
+        "at": "2026-07-17T04:08:25Z",
+        "ts": 1784261305,
+        "trigger": "self",
+        "prevHead": "8a232424",
+        "handoffSha": "sha256:020544a1bdc5e67966bf609592b9f749c10389ab2f7615147b215488fb7b6d91",
+        "handoffAgeSec": 7,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784249431-148f",
         "at": "2026-07-17T00:50:31Z",
@@ -876,17 +887,6 @@
         "prevHead": "4257114b",
         "handoffSha": "sha256:34678621a16dc5c7429c279ddc4b7aba7213e67e94ea7a5b3d82f29635c545dc",
         "handoffAgeSec": 265,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784179754-6985",
-        "at": "2026-07-16T05:29:14Z",
-        "ts": 1784179754,
-        "trigger": "self",
-        "prevHead": "c3bc8aaa",
-        "handoffSha": "sha256:a321e93aa474473b458d8e51c1b912b702e0a2919ad82506280389a737b3421c",
-        "handoffAgeSec": 3,
         "conformanceBefore": null,
         "commitsInSession": null
       }
