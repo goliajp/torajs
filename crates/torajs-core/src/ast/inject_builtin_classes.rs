@@ -18,7 +18,7 @@
 //!   * `build_error_subclass` — synth `class <N> extends Error` for
 //!     each requested NativeError subclass.
 
-use super::{Ast, BinOp, ClassCtor, ClassMethod, Expr, ExprId, Param, Stmt, Visibility};
+use super::{Ast, BinOp, ClassCtor, Expr, ExprId, Param, Stmt};
 
 /// Synthetic root `class Error { message: string; name: string;
 /// constructor(message: string) { this.message = message;
@@ -137,32 +137,6 @@ fn build_error_class(ast: &mut Ast) -> Stmt {
         ],
     };
 
-    // RFC 20260718 刀 3 — `static isError(x)` (ES2025 §20.5.2.1)
-    // rides the ordinary static-method pipeline (desugar emits
-    // `__sm_Error__isError`, class_globals reifies the own function
-    // entry on `__class_Error`); the body is the runtime
-    // [[ErrorData]] probe (`FLAG_ERROR` header bit).
-    let probe_arg = ast.add_expr(Expr::Ident("x".to_string()));
-    let probe_callee = ast.add_expr(Expr::Ident("__torajs_error_is_error".to_string()));
-    let probe_call = ast.add_expr(Expr::Call {
-        callee: probe_callee,
-        args: vec![probe_arg],
-    });
-    let is_error = ClassMethod {
-        name: "isError".to_string(),
-        params: vec![Param {
-            name: "x".to_string(),
-            type_ann: Some("any".to_string()),
-            default: None,
-            is_rest: false,
-        }],
-        return_type: Some("boolean".to_string()),
-        body: vec![Stmt::Return(Some(probe_call))],
-        is_abstract: false,
-        visibility: Visibility::Public,
-        accessor_kind: None,
-    };
-
     Stmt::ClassDecl {
         name: "Error".to_string(),
         type_params: Vec::new(),
@@ -176,7 +150,7 @@ fn build_error_class(ast: &mut Ast) -> Stmt {
         static_init: Vec::new(),
         ctor: Some(ctor),
         methods: Vec::new(),
-        static_methods: vec![is_error],
+        static_methods: Vec::new(),
     }
 }
 

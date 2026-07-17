@@ -87,7 +87,6 @@ pub(crate) fn check(checker: &Checker, name: &str) -> Result<Type, String> {
         "__torajs_error_proto_install" => {
             Ok(Type::Function(vec![Type::String], Box::new(Type::Void)))
         }
-        "__torajs_error_is_error" => Ok(Type::Function(vec![Type::Any], Box::new(Type::Boolean))),
         "__torajs_register_native_error" => {
             Ok(Type::Function(vec![Type::String], Box::new(Type::Void)))
         }

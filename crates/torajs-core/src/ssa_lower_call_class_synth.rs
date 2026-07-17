@@ -55,7 +55,6 @@ pub(crate) fn try_lower(
         "__torajs_proto_register" => try_lower_proto_register(ctx, args),
         "__torajs_class_register" => try_lower_class_register(ctx, args),
         "__torajs_error_proto_install" => try_lower_error_proto_install(ctx, args),
-        "__torajs_error_is_error" => try_lower_error_is_error(ctx, args),
         "__torajs_static_method_reify" => try_lower_static_method_reify(ctx, args),
         "__torajs_register_native_error" => try_lower_register_native_error(ctx, args),
         "__torajs_my_class_ref" => try_lower_my_class_ref(ctx, args),
@@ -151,6 +150,13 @@ fn try_lower_proto_register(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<O
     Some(Operand::ConstI64(0))
 }
 
+/// Knife B cut 2 (RFC 20260717-class-first-class-value) —
+/// `__torajs_static_method_reify("<C>", "<M>")`: resolve
+/// `__sm_<C>__<M>`'s boxed adapter and hand the runtime the
+/// `(tag, name-Str, adapter-vaddr)` triple so the class object gets
+/// its own `<M>` function entry. An adapter-synthesis dropout
+/// (unboxable signature) skips the define — the member read keeps
+/// its current answer instead of minting an uncallable cell.
 /// `__torajs_error_proto_install("<C>")` (RFC 20260718 刀 1) —
 /// resolve the injected error class's tag and hand runtime the
 /// (tag, name Str) pair; it defines the §20.5.6.3/6.4 own `name` /
@@ -184,33 +190,6 @@ fn try_lower_error_proto_install(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Opt
     Some(Operand::ConstI64(0))
 }
 
-/// `__torajs_error_is_error(x)` (RFC 20260718 刀 3) — the injected
-/// `Error.isError` static-method body: one Any operand in, Bool out.
-/// The operand is borrowed by the runtime probe (a flag read), so no
-/// ownership traffic — mirror of the genfn_chain arm's shape.
-fn try_lower_error_is_error(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Operand> {
-    if args.len() != 1 {
-        return None;
-    }
-    let v_op = ctx.lower_expr(args[0]);
-    let cur_block = ctx.cur_block;
-    let probe = ctx.intrinsics.error_is_error;
-    let v = ctx.f.append_inst(
-        cur_block,
-        InstKind::Call(probe, vec![v_op]),
-        Type::Bool,
-        None,
-    );
-    Some(Operand::Value(v))
-}
-
-/// Knife B cut 2 (RFC 20260717-class-first-class-value) —
-/// `__torajs_static_method_reify("<C>", "<M>")`: resolve
-/// `__sm_<C>__<M>`'s boxed adapter and hand the runtime the
-/// `(tag, name-Str, adapter-vaddr)` triple so the class object gets
-/// its own `<M>` function entry. An adapter-synthesis dropout
-/// (unboxable signature) skips the define — the member read keeps
-/// its current answer instead of minting an uncallable cell.
 fn try_lower_static_method_reify(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Operand> {
     if args.len() != 2 {
         return None;

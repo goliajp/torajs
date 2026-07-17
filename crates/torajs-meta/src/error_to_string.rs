@@ -81,30 +81,3 @@ pub unsafe extern "C" fn __torajs_error_to_string(p: *const u8) -> *mut u8 {
     unsafe { __torajs_str_drop(name_colon) };
     result
 }
-
-/// `Error.isError(x)` (ES2025 §20.5.2.1) — the [[ErrorData]] probe.
-/// tr's [[ErrorData]] IS the `FLAG_ERROR` header bit (bit 7) every
-/// injected-error-class factory stamps on its `Tag::Obj` instances,
-/// so the answer is a cell check + one flag read (RFC
-/// 20260718-builtin-error-ctor-first-class 刀 3). `v` is borrowed.
-///
-/// # Safety
-/// `v` carries a valid AnyValue bit pattern; cell case points to a
-/// live heap object.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_error_is_error(v: u64) -> bool {
-    // NaN-box cell test (mirror classmeta::is_cell_imm — top16 clear,
-    // type-other bit clear, nonzero).
-    if (v & 0xFFFF_0000_0000_0000) != 0 || (v & 0x02) != 0 || v == 0 {
-        return false;
-    }
-    let p = v as *const u8;
-    // Universal header: type_tag u16 @+4 (Tag::Obj = 1), flags u16
-    // @+6 (FLAG_ERROR = 1 << 7).
-    let tag = unsafe { (p.add(4) as *const u16).read() };
-    if tag != 1 {
-        return false;
-    }
-    let flags = unsafe { (p.add(6) as *const u16).read() };
-    flags & (1 << 7) != 0
-}

@@ -343,7 +343,6 @@ pub(crate) fn build(
         proto_get: init_c.any_substrate.proto_get,
         class_register: init_c.any_substrate.class_register,
         error_proto_install: init_c.any_substrate.error_proto_install,
-        error_is_error: init_c.any_substrate.error_is_error,
         class_get: init_c.any_substrate.class_get,
         get_proto_of_any: init_c.any_substrate.get_proto_of_any,
         proto_member_get: init_c.any_substrate.proto_member_get,
