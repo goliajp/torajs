@@ -77,7 +77,7 @@ pub unsafe extern "C" fn __torajs_arr_index_get(arr: *const c_void, idx: i64) ->
         if header.flags & torajs_rc::FLAG_ARR_EXOTIC_INDEX != 0 {
             let pair = crate::define_accessor::__torajs_arr_index_accessor(arr, idx as u64);
             if !pair.is_null() {
-                return crate::define_accessor::read_via_getter(pair);
+                return crate::define_accessor::read_via_getter(pair, arr);
             }
         }
         let head = *(p.add(ARR_HEAD_OFF) as *const u32) as u64;

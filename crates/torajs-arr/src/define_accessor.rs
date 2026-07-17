@@ -45,8 +45,9 @@ unsafe extern "C" {
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
     fn __torajs_value_drop_heap(p: *mut c_void);
     fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64;
-    fn __torajs_accessor_invoke_getter(pair: *const c_void) -> u64;
-    fn __torajs_accessor_invoke_setter(pair: *const c_void, value_anyv: u64) -> i32;
+    fn __torajs_accessor_invoke_getter(pair: *const c_void, recv_anyv: u64) -> u64;
+    fn __torajs_accessor_invoke_setter(pair: *const c_void, recv_anyv: u64, value_anyv: u64)
+    -> i32;
 }
 
 /// `dynobj_get_tag` accessor sentinel (`torajs_dynobj::layout::ANY_ACCESSOR`).
@@ -230,11 +231,15 @@ pub unsafe extern "C" fn __torajs_arr_index_accessor(arr: *const c_void, idx: u6
 
 /// `arr[i]` read through an accessor index — invoke the getter
 /// (undefined when getter-less). Answers the NaN-box AnyValue.
+/// `arr` is the addressed array cell — an `ACC_KIND_RECV` fn-expr
+/// getter reads it as `this` (RFC 20260717-fnexpr-this-channel).
 ///
 /// # Safety
-/// `pair` is a live `AccessorPair` cell.
-pub(crate) unsafe fn read_via_getter(pair: *const c_void) -> u64 {
-    unsafe { __torajs_accessor_invoke_getter(pair) }
+/// `pair` is a live `AccessorPair` cell; `arr` the live array it
+/// sits on.
+pub(crate) unsafe fn read_via_getter(pair: *const c_void, arr: *const c_void) -> u64 {
+    let recv = unsafe { __torajs_anyv_box_from_pair(4, arr as i64) };
+    unsafe { __torajs_accessor_invoke_getter(pair, recv) }
 }
 
 /// `arr[i] = (tag, value)` write through an accessor index — invoke
@@ -243,9 +248,15 @@ pub(crate) unsafe fn read_via_getter(pair: *const c_void) -> u64 {
 ///
 /// # Safety
 /// `pair` is a live `AccessorPair` cell.
-pub(crate) unsafe fn write_via_setter(pair: *const c_void, tag: u64, value: u64) {
+pub(crate) unsafe fn write_via_setter(
+    pair: *const c_void,
+    arr: *const c_void,
+    tag: u64,
+    value: u64,
+) {
     let value_anyv = unsafe { __torajs_anyv_box_from_pair(tag as i64, value as i64) };
-    if unsafe { __torajs_accessor_invoke_setter(pair, value_anyv) } == 0 {
+    let recv = unsafe { __torajs_anyv_box_from_pair(4, arr as i64) };
+    if unsafe { __torajs_accessor_invoke_setter(pair, recv, value_anyv) } == 0 {
         unsafe { __torajs_throw_type_error(c"Attempted to assign to readonly property.".as_ptr()) };
     }
 }

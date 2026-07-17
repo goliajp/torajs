@@ -213,7 +213,7 @@ pub unsafe extern "C" fn __torajs_arr_get_any_tag(arr: *const c_void, i: u64) ->
         {
             let pair = crate::define_accessor::__torajs_arr_index_accessor(arr, i);
             if !pair.is_null() {
-                let product = crate::define_accessor::read_via_getter(pair);
+                let product = crate::define_accessor::read_via_getter(pair, arr);
                 let slot = slot_anyvalue_ptr(arr_u8 as *mut u8, i);
                 __torajs_value_drop_heap((*slot) as *mut c_void);
                 *slot = product;
@@ -325,7 +325,12 @@ pub unsafe extern "C" fn __torajs_arr_set_any_grow(
                 let pair =
                     crate::define_accessor::__torajs_arr_index_accessor(arr as *const c_void, i);
                 if !pair.is_null() {
-                    crate::define_accessor::write_via_setter(pair, tag, value);
+                    crate::define_accessor::write_via_setter(
+                        pair,
+                        arr as *const c_void,
+                        tag,
+                        value,
+                    );
                     return arr;
                 }
             }
