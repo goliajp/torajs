@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-17T00:32:15.893Z",
+  "generatedAt": "2026-07-17T00:49:25.950Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 92.45
   },
   "torajs": {
-    "commit": "db85d9df",
-    "commitSubject": "fix: accessor pair teardown releases closure refs through the gated dispatcher",
+    "commit": "94648f53",
+    "commitSubject": "feat: eq-operand named-fn idents join the canonical-cell lane",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "94648f53",
+      "subject": "feat: eq-operand named-fn idents join the canonical-cell lane"
+    },
+    {
+      "hash": "e2205dfa",
+      "subject": "chore: hardev dashboard snapshot at rotation 127 close"
+    },
+    {
       "hash": "db85d9df",
       "subject": "fix: accessor pair teardown releases closure refs through the gated dispatcher"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "1e000801",
       "subject": "feat: synthesize per-closure __env_trace_<fn> for the cycle collector"
-    },
-    {
-      "hash": "754b3a38",
-      "subject": "feat: closure env grows a zeroed trace_fn slot at offset 40"
-    },
-    {
-      "hash": "c84ad0b6",
-      "subject": "chore: hardev dashboard snapshot at rotation 125 close"
     }
   ],
-  "headSha": "db85d9df",
+  "headSha": "94648f53",
   "autorun": {
     "total": 432,
     "baselineTarget": 10,
