@@ -22,6 +22,7 @@ pub mod block_layout;
 pub mod branch_fold;
 pub mod cost;
 pub mod ctpop_idiom;
+pub mod ctpop_range_sum;
 pub mod devirt;
 pub mod dominator;
 pub mod egraph;
@@ -253,6 +254,17 @@ pub fn transform_module(mut module: Module) -> Module {
     // (folded diamonds must not be select-formed).
     // `TORAJS_BRANCH_FOLD_OFF=1` skips (bisect gate).
     gated_pass("BRANCH_FOLD", &mut module, branch_fold::fold_branches);
+    // Ctpop-range-sum reduction recognition — collapse a counted
+    // `acc += ctpop(i)` loop into one `CtpopRangeSum` super-inst that
+    // codegen expands to an 8-wide SIMD reduction (RFC
+    // 20260719-ctpop-range-sum blade 2). After branch_fold, which is
+    // what flattens the body to the straight-line chain matched here;
+    // before block_layout, which lays out the collapsed result.
+    gated_pass(
+        "CTPOP_RANGESUM",
+        &mut module,
+        ctpop_range_sum::form_ctpop_range_sums,
+    );
     // Select formation — if-convert pure CondBr diamonds into csel-
     // shaped `Select` defs (RFC 20260719-select-formation blade 2).
     // After ctpop so every arm-shaping rewrite (float_demote /
