@@ -20,6 +20,19 @@ pub fn emit_icmp(
 ) {
     let result_vid = inst.result.expect("ICmp must have a result");
     let (dst, spill_off) = alloc.def_gpr(result_vid, OP_SCRATCH_RESULT_GPR);
+    emit_compare_nzcv(bytes, lhs, rhs, alloc);
+    write_u32(bytes, cset_cond(dst, ipred_to_cond(pred)));
+    write_def_spill_gpr(bytes, spill_off, dst);
+}
+
+/// The CMP half of an integer compare — set NZCV, no CSET. Shared by
+/// `emit_icmp` and the branch-fuse CondBr path (compile/brfuse.rs).
+pub(crate) fn emit_compare_nzcv(
+    bytes: &mut Vec<u8>,
+    lhs: &Operand,
+    rhs: &Operand,
+    alloc: &Assignment,
+) {
     let rn = materialize_operand_gpr(bytes, lhs, OP_SCRATCH_LHS, alloc);
     // Round 5 popcount branch/const attack — `icmp x, #imm12` uses
     // the CMP-immediate alias, skipping the MOVZ rematerialization
@@ -29,8 +42,6 @@ pub fn emit_icmp(
         && (0..4096).contains(c)
     {
         write_u32(bytes, cmp_imm(rn, *c as u16));
-        write_u32(bytes, cset_cond(dst, ipred_to_cond(pred)));
-        write_def_spill_gpr(bytes, spill_off, dst);
         return;
     }
     let rm = materialize_operand_gpr(bytes, rhs, OP_SCRATCH_RHS, alloc);
@@ -47,8 +58,6 @@ pub fn emit_icmp(
     } else {
         write_u32(bytes, cmp_reg(rn, rm));
     }
-    write_u32(bytes, cset_cond(dst, ipred_to_cond(pred)));
-    write_def_spill_gpr(bytes, spill_off, dst);
 }
 
 pub fn emit_fcmp(

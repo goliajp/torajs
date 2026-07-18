@@ -31,6 +31,7 @@
 //! and FPred::One (CCMP fold or NE+VC+AND).
 
 mod binop;
+mod brfuse;
 mod call;
 mod cast;
 mod cmp;
@@ -160,25 +161,33 @@ pub fn compile_function_with(
     // now that the prologue has saved those registers' prior contents.
     emit_param_entry_moves(&mut bytes, &alloc);
 
+    // Block-tail single-use ICmp + CondBr pairs fuse into cmp+b.cond
+    // (or cbz/cbnz) — the inst loop skips the compare, the terminator
+    // emits it. See compile/brfuse.rs.
+    let fused_cmps = brfuse::fusible_cmps(func);
+
     for block in &func.blocks {
         block_byte_starts.insert(block.id.0, bytes.len() as u32);
-        for inst in &block.insts {
+        let fused = fused_cmps.get(&block.id.0);
+        for (ii, inst) in block.insts.iter().enumerate() {
+            if fused.is_some() && ii == block.insts.len() - 1 {
+                continue; // the CondBr emits this compare fused
+            }
             emit_inst(&mut bytes, &mut relocs, inst, &alloc, fn_sigs);
         }
-        emit_terminator(&mut bytes, &mut fixups, &block.term, &frame, &alloc);
+        emit_terminator(&mut bytes, &mut fixups, &block.term, &frame, &alloc, fused);
     }
 
-    // Patch every branch fixup with its real displacement.
+    // Patch every branch fixup with its real displacement. Empty
+    // forwarder blocks (no insts, unconditional Br) redirect the
+    // branch to their final destination first.
+    let blocks_by_id: HashMap<u32, &torajs_core::ssa::Block> =
+        func.blocks.iter().map(|b| (b.id.0, b)).collect();
     for fixup in &fixups {
-        let target_byte_offset =
-            *block_byte_starts
-                .get(&fixup.target_block.0)
-                .unwrap_or_else(|| {
-                    panic!(
-                        "Branch target BlockId({}) not in function",
-                        fixup.target_block.0
-                    )
-                });
+        let final_target = brfuse::resolve_forwarded_target(&blocks_by_id, fixup.target_block);
+        let target_byte_offset = *block_byte_starts
+            .get(&final_target.0)
+            .unwrap_or_else(|| panic!("Branch target BlockId({}) not in function", final_target.0));
         let displacement = target_byte_offset as i32 - fixup.site_byte_offset as i32;
         patch_branch(&mut bytes, fixup, displacement);
     }
@@ -290,6 +299,7 @@ fn emit_terminator(
     term: &Terminator,
     frame: &FrameLayout,
     alloc: &Assignment,
+    fused: Option<&brfuse::FusedCmp>,
 ) {
     match term {
         Terminator::Ret(ret_op) => {
@@ -339,6 +349,10 @@ fn emit_terminator(
             then_blk,
             else_blk,
         } => {
+            if let Some(fc) = fused {
+                brfuse::emit_fused_condbr(bytes, fixups, fc, *then_blk, *else_blk, alloc);
+                return;
+            }
             // Materialize the Bool cond into a GPR scratch. If the
             // cond is a Value, the allocator already placed it in a
             // register and materialize_operand_gpr is a fast lookup.
