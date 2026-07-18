@@ -273,6 +273,20 @@ pub(crate) fn emit_to_string(
             ctx.release_owned_temp(arg_eid, &arg_op);
             Operand::Value(v)
         }
+        // rotation 141 — `String(symbol)` typed spelling: §22.1.1
+        // step 1.a SymbolDescriptiveString (the same kernel
+        // `sym.toString()` rides; the Any lane's display variant
+        // answers this shape already — this is its typed twin).
+        Type::Symbol => {
+            let v = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.symbol_to_str, vec![arg_op.clone()]),
+                Type::Str,
+                None,
+            );
+            ctx.release_owned_temp(arg_eid, &arg_op);
+            Operand::Value(v)
+        }
         // S137 — `String(arr)` per ES §22.1.3.30 ToString of Array =
         // `arr.join(",")`. Element type picks the matching arr_join
         // intrinsic (same dispatch table as `arr.toString()` in

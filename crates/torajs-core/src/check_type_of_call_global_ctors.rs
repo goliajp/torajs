@@ -119,6 +119,9 @@ pub(crate) fn try_match(
                 // `[object Object]` per §20.1.4.4. Generic
                 // dynobj branch lands when the dynobj-toString
                 // substrate ships.
+                // rotation 141 — Symbol admitted: §22.1.1 step 1.a,
+                // the explicit String() call is the one legal Symbol
+                // stringify position (SymbolDescriptiveString).
                 "String" => matches!(
                     arg_ty,
                     Type::Number
@@ -129,6 +132,7 @@ pub(crate) fn try_match(
                         | Type::Any
                         | Type::Array(_)
                         | Type::Struct(_)
+                        | Type::Symbol
                 ),
                 _ => false,
             };
