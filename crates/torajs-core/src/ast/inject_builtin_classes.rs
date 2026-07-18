@@ -336,7 +336,7 @@ pub fn inject_builtin_classes(ast: &mut Ast) {
                 .iter()
                 .any(|s| matches!(s, Stmt::ClassDecl { name, .. } if name == *n));
             let implied = *n == "RangeError" && uses_bigint;
-            let runtime_thrown = matches!(*n, "TypeError" | "RangeError");
+            let runtime_thrown = matches!(*n, "TypeError" | "RangeError" | "ReferenceError");
             !shadowed && (runtime_thrown || referenced(n) || implied)
         })
         .collect();

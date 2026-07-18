@@ -445,7 +445,10 @@ fn emit_chain_and_registration_stmts(ast: &mut Ast, meta: &ClassMetadata, out: &
     // rewrite below leaves it untouched. Only the three
     // runtime-throwable classes are wired.
     for cname in &meta.class_names {
-        if matches!(cname.as_str(), "Error" | "TypeError" | "RangeError") {
+        if matches!(
+            cname.as_str(),
+            "Error" | "TypeError" | "RangeError" | "ReferenceError"
+        ) {
             let name_str = ast.add_expr(Expr::String(cname.clone()));
             let callee = ast.add_expr(Expr::Ident("__torajs_register_native_error".to_string()));
             let call = ast.add_expr(Expr::Call {

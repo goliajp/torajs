@@ -61,6 +61,7 @@ pub(crate) fn try_lower(
         "__torajs_class_static_accessor_reify" => try_lower_class_accessor_reify(ctx, args, true),
         "__torajs_register_native_error" => try_lower_register_native_error(ctx, args),
         "__torajs_undef_str" => try_lower_undef_str(ctx, args),
+        "__torajs_ctor_no_super_throw" => try_lower_ctor_no_super_throw(ctx, args),
         "__torajs_error_stack" => try_lower_error_stack(ctx, args),
         "__torajs_my_class_ref" => try_lower_my_class_ref(ctx, args),
         "__torajs_arguments_materialize" => try_lower_arguments_materialize(ctx, args),
@@ -86,6 +87,22 @@ fn try_lower_undef_str(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Operan
         None,
     );
     Some(Operand::Value(v))
+}
+
+/// 刀 3 — `__torajs_ctor_no_super_throw()` at the tail of a
+/// super-less derived user ctor (§9.2.2 [[Construct]] this-TDZ):
+/// records the pending catchable ReferenceError; the emitted
+/// throw-check propagates it through the factory to the `new` site.
+fn try_lower_ctor_no_super_throw(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Operand> {
+    if !args.is_empty() {
+        return None;
+    }
+    let cur_block = ctx.cur_block;
+    let raiser = ctx.intrinsics.ctor_no_super_throw;
+    ctx.f
+        .append_void(cur_block, InstKind::Call(raiser, Vec::new()));
+    ctx.emit_throw_check(None);
+    Some(Operand::ConstI64(0))
 }
 
 /// 刀 2 — `__torajs_error_stack(this)` in the injected error ctors:
@@ -442,6 +459,9 @@ fn try_lower_register_native_error(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> O
         "Error" => 0,
         "TypeError" => 1,
         "RangeError" => 2,
+        // RFC 20260718-error-message-own-prop 刀 3 — the
+        // derived-ctor no-super ReferenceError factory.
+        "ReferenceError" => 3,
         _ => return Some(Operand::ConstI64(0)),
     };
     let factory = format!("__new_{cname}");

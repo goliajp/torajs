@@ -350,6 +350,7 @@ pub(crate) fn build(
         error_to_string: init_c.any_substrate.error_to_string,
         error_message_present: init_c.any_substrate.error_message_present,
         error_message_get: init_c.any_substrate.error_message_get,
+        ctor_no_super_throw: init_c.any_substrate.ctor_no_super_throw,
         genfn_proto: init_c.any_substrate.genfn_proto,
         genfn_chain: init_c.any_substrate.genfn_chain,
         static_method_define: init_c.any_substrate.static_method_define,

@@ -74,7 +74,10 @@ use std::sync::atomic::{AtomicI64, AtomicPtr, Ordering};
 pub const SLOT_ERROR: usize = 0;
 pub const SLOT_TYPE_ERROR: usize = 1;
 pub const SLOT_RANGE_ERROR: usize = 2;
-const SLOT_COUNT: usize = 3;
+/// RFC 20260718-error-message-own-prop 刀 3 — the derived-ctor
+/// no-super ReferenceError (§9.2.2 [[Construct]] this-TDZ).
+pub const SLOT_REFERENCE_ERROR: usize = 3;
+const SLOT_COUNT: usize = 4;
 
 /// Factory fn-ptr type: takes a `*mut Str` (borrowed — the codegen'd
 /// TS-level `__new_<C>` fn's ctor field store retains its own
@@ -89,6 +92,7 @@ pub type NativeErrorFactory = unsafe extern "C" fn(message_str: *mut c_void) -> 
 /// of padding on 32-bit systems, but Rust pointer width matches
 /// host so no layout issue.
 static REGISTRY: [AtomicPtr<()>; SLOT_COUNT] = [
+    AtomicPtr::new(ptr::null_mut()),
     AtomicPtr::new(ptr::null_mut()),
     AtomicPtr::new(ptr::null_mut()),
     AtomicPtr::new(ptr::null_mut()),
@@ -337,6 +341,37 @@ pub unsafe extern "C" fn __torajs_throw_range_error(msg: *const c_char) {
 pub unsafe extern "C" fn __torajs_throw_type_error(msg: *const c_char) {
     // SAFETY: caller invariant — propagated.
     unsafe { throw_native(SLOT_TYPE_ERROR as i64, msg) };
+}
+
+/// Cross-TU wrapper for `ReferenceError` — RFC
+/// 20260718-error-message-own-prop 刀 3 (derived-ctor no-super).
+///
+/// # Safety
+///
+/// `msg` must be a valid pointer to a NUL-terminated C string. The
+/// caller retains ownership.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_throw_reference_error(msg: *const c_char) {
+    // SAFETY: caller invariant — propagated.
+    unsafe { throw_native(SLOT_REFERENCE_ERROR as i64, msg) };
+}
+
+/// §9.2.2 [[Construct]] step 15 — a derived constructor whose body
+/// never called `super()` reaches its implicit `return this` with an
+/// uninitialized this-binding: ReferenceError. Emitted by the class
+/// desugar at the tail of every super-less derived user ctor; the
+/// message spelling matches bun/JSC.
+///
+/// # Safety
+/// `extern "C"` ABI; no arguments, records a pending throw only.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_ctor_no_super_throw() {
+    unsafe {
+        throw_native(
+            SLOT_REFERENCE_ERROR as i64,
+            c"'super()' must be called in derived constructor before accessing |this| or returning non-object.".as_ptr(),
+        )
+    };
 }
 
 // ============================================================

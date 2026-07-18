@@ -95,6 +95,9 @@ pub(crate) fn check(checker: &Checker, name: &str) -> Result<Type, String> {
         // ctor internals: the own-absence Str sentinel mint and the
         // §20.5.3.4 stack-header formatter over `this`.
         "__torajs_undef_str" => Ok(Type::Function(Vec::new(), Box::new(Type::String))),
+        // 刀 3 — the derived-ctor no-super ReferenceError raiser the
+        // class desugar appends to super-less derived ctors.
+        "__torajs_ctor_no_super_throw" => Ok(Type::Function(Vec::new(), Box::new(Type::Void))),
         "__torajs_error_stack" => Ok(Type::Function(vec![Type::Any], Box::new(Type::String))),
         "__torajs_register_native_error" => {
             Ok(Type::Function(vec![Type::String], Box::new(Type::Void)))

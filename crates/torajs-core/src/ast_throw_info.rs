@@ -415,6 +415,15 @@ fn scan_call(
             if name == "BigInt" {
                 *direct = true;
             }
+            // RFC 20260718-error-message-own-prop 刀 3 — the
+            // no-super ReferenceError raiser the class desugar
+            // appends to super-less derived ctors records a pending
+            // throw; without this bit the ctor (and its factory /
+            // `new` site) is judged never-throwing and the pending
+            // throw is silently stranded.
+            if name == "__torajs_ctor_no_super_throw" {
+                *direct = true;
+            }
             // bug-327 C2.5 — indirect call through a fn-valued
             // binding: the target is statically unknown, so the
             // fn must conservatively count as may-throw.

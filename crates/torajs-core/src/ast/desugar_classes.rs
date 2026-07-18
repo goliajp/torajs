@@ -52,6 +52,11 @@ pub fn desugar_classes(ast: &mut Ast) {
         return;
     }
     synthesize_derived_default_ctors(ast, &mut class_index);
+    // 刀 3 (RFC 20260718-error-message-own-prop) — super-less derived
+    // USER ctors get the no-super ReferenceError raiser appended
+    // (§9.2.2 this-TDZ); must run after the default-ctor synthesis
+    // (those carry a super() and are skipped) and before the freeze.
+    super::desugar_classes_super::append_no_super_throw(ast, &mut class_index);
     let class_index = class_index;
 
     // M-OO.6 — abstract-class collection + validation extracted to

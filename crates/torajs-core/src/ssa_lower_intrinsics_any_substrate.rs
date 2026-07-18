@@ -101,6 +101,9 @@ pub(crate) struct AnySubstrateIds {
     /// 刀 2 — typed `err.message` read: own slot or prototype-chain
     /// walk; BORROWED Str return (Load-equivalent).
     pub error_message_get: FuncId,
+    /// 刀 3 — derived-ctor no-super ReferenceError raiser (§9.2.2
+    /// this-TDZ; records the pending throw, message baked in).
+    pub ctor_no_super_throw: FuncId,
     /// RFC 20260713 blade 5 cut 4 — %GeneratorFunction.prototype% /
     /// %AsyncGeneratorFunction.prototype% singleton (kind 0/1) and
     /// the per-generator-proto → %GeneratorPrototype% chain writer.
@@ -212,6 +215,7 @@ pub(crate) fn declare(
         error_to_string: decl!("__torajs_error_to_string", [Ptr], Str),
         error_message_present: decl!("__torajs_error_message_present", [Ptr], Bool),
         error_message_get: decl!("__torajs_error_message_get", [Ptr], Str),
+        ctor_no_super_throw: decl!("__torajs_ctor_no_super_throw", [], Void),
         genfn_proto: decl!("__torajs_genfn_proto", [I64], Any),
         genfn_chain: decl!("__torajs_genfn_chain", [Any, I64], I64),
         // RFC 20260704 S3 — recv[idx] on an `any` receiver (Arr

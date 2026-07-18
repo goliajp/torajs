@@ -35,6 +35,40 @@ pub(super) type ClassIndexEntry = (
     Vec<ClassMethod>,      // static_methods
 );
 
+/// RFC 20260718-error-message-own-prop 刀 3 — §9.2.2 [[Construct]]
+/// this-TDZ: a derived class whose USER ctor never calls `super()`
+/// must throw a ReferenceError when its implicit `return this` is
+/// reached (test262 `NativeError/*-super.js`). Statically decidable
+/// here: the deep super-site walk finding zero sites in the whole
+/// body means no path can initialize `this`, so the desugar appends
+/// the `__torajs_ctor_no_super_throw()` raiser at the body tail —
+/// side effects before it still run, matching the runtime order.
+/// (A ctor with a CONDITIONAL super() has ≥1 site and is left
+/// untouched — the true runtime-flag TDZ is a recorded boundary.)
+/// Runs on the mutable class_index BEFORE it freezes; the synthetic
+/// derived default ctors just synthesized carry a super() and skip.
+pub(super) fn append_no_super_throw(ast: &mut Ast, class_index: &mut [ClassIndexEntry]) {
+    for (_, _cname, _tp, parent, _, _, ctor, _, _) in class_index.iter_mut() {
+        if parent.is_none() {
+            continue;
+        }
+        let Some(c) = ctor.as_mut() else { continue };
+        let mut sites: Vec<(ExprId, Vec<ExprId>)> = Vec::new();
+        for s in &c.body {
+            collect_super_in_stmt(ast, s, &mut sites);
+        }
+        if !sites.is_empty() {
+            continue;
+        }
+        let callee = ast.add_expr(Expr::Ident("__torajs_ctor_no_super_throw".to_string()));
+        let call = ast.add_expr(Expr::Call {
+            callee,
+            args: Vec::new(),
+        });
+        c.body.push(Stmt::Expr(call));
+    }
+}
+
 pub(super) fn rewrite_super_ctor_calls(ast: &mut Ast, class_index: &[ClassIndexEntry]) {
     // Pass 1.5 — rewrite `super(args)` inside each subclass's ctor body
     // into a Call to `__cm_<Parent>__ctor(__this, args)`. Must run before

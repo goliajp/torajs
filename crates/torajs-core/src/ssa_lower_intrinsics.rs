@@ -394,6 +394,7 @@ pub(crate) struct Intrinsics {
     pub(crate) error_to_string: FuncId,
     pub(crate) error_message_present: FuncId,
     pub(crate) error_message_get: FuncId,
+    pub(crate) ctor_no_super_throw: FuncId,
     pub(crate) genfn_proto: FuncId,
     pub(crate) genfn_chain: FuncId,
     pub(crate) any_typeof: FuncId,
