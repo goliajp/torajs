@@ -13,7 +13,10 @@
 //!    ExprId reused — downstream sees plain `Expr::Array`.
 //! 2. **`Array(...)`** without `new` → `new Array(...)` (ES
 //!    §23.1.1.1 — same internal `Construct` slot; S136 lets P0.10 /
-//!    ssa_lower paths cover both spellings).
+//!    ssa_lower paths cover both spellings). The Error family
+//!    (`Error(...)` / `TypeError(...)` / ... — ES §20.5.1.1, same
+//!    called-as-function = construct rule) rides the same rewrite;
+//!    AggregateError stays out (recorded RFC 20260718 boundary).
 //! 3. **`new Array(...)` P0.10 MVP** — 0 args → `[]`; ≥2 args →
 //!    `[a, b, ...]`; 1-arg numeric stays as `Expr::New` (ssa_lower
 //!    routes to `__torajs_arr_alloc_any_filled(n)`).
@@ -74,6 +77,38 @@ pub(crate) fn run(ast: &mut Ast) {
                 class_name: "Array".into(),
                 args,
             };
+        }
+    }
+    // `Error(...)` / `TypeError(...)` / ... without `new` → the
+    // construct form (ES §20.5.1.1: the Error constructor performs
+    // the same steps when called as a function). Same rewrite shape
+    // as `Array(...)` above; AggregateError stays out (its ctor
+    // shape is the recorded RFC 20260718 injection boundary).
+    let n_exprs = ast.exprs.len();
+    for i in 0..n_exprs {
+        let error_call: Option<(String, Vec<crate::ast::ExprId>)> = match &ast.exprs[i] {
+            Expr::Call { callee, args } => {
+                if let Expr::Ident(name) = &ast.exprs[callee.0 as usize]
+                    && matches!(
+                        name.as_str(),
+                        "Error"
+                            | "TypeError"
+                            | "RangeError"
+                            | "SyntaxError"
+                            | "ReferenceError"
+                            | "EvalError"
+                            | "URIError"
+                    )
+                {
+                    Some((name.clone(), args.clone()))
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        };
+        if let Some((class_name, args)) = error_call {
+            ast.exprs[i] = Expr::New { class_name, args };
         }
     }
     let n = ast.exprs.len();
