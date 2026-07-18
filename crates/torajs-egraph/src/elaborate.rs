@@ -330,6 +330,10 @@ fn canonicalize_operands(kind: &InstKind, egraph: &mut Egraph) -> InstKind {
             "InstKind::Copy reached the egraph elaborator — mem2reg's φ \
              destruction introduces Copy only after the egraph pass"
         ),
+        InstKind::Select(_, _, _, _) => unreachable!(
+            "InstKind::Select reached the egraph elaborator — select \
+             formation introduces Select only after the egraph pass"
+        ),
         InstKind::BitCastF64ToI64(v) => InstKind::BitCastF64ToI64(map_operand(v, egraph)),
         InstKind::BitCastI64ToF64(v) => InstKind::BitCastI64ToF64(map_operand(v, egraph)),
         InstKind::IntToPtr(v) => InstKind::IntToPtr(map_operand(v, egraph)),

@@ -360,6 +360,11 @@ pub(crate) fn visit_inst_operands(kind: &InstKind, mut f: impl FnMut(ValueId)) {
         InstKind::Neg(a) => visit(a),
         InstKind::Ctpop(a) => visit(a),
         InstKind::Copy(_, a) => visit(a),
+        InstKind::Select(_, c, t, e) => {
+            visit(c);
+            visit(t);
+            visit(e);
+        }
         InstKind::Alloca(_) | InstKind::AllocaBytes(_) => {}
         InstKind::Load(_, ptr, _) => visit(ptr),
         InstKind::Store(val, ptr, _) => {

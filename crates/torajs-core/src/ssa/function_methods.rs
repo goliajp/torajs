@@ -293,6 +293,14 @@ impl Function {
                 write!(w, "copy {} ", ty.as_str())?;
                 self.write_operand(w, op)?;
             }
+            InstKind::Select(ty, cond, t, e) => {
+                write!(w, "select {} ", ty.as_str())?;
+                self.write_operand(w, cond)?;
+                write!(w, ", ")?;
+                self.write_operand(w, t)?;
+                write!(w, ", ")?;
+                self.write_operand(w, e)?;
+            }
         }
         writeln!(w)
     }

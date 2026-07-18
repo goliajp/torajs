@@ -154,6 +154,11 @@ pub fn cost_of_kind(kind: &InstKind) -> Cost {
         // trip (`fmov; cnt; addv; fmov`).
         InstKind::Ctpop(_) => Cost::new(4),
 
+        // `Select` lowers to `cmp #0; csel` — csel itself is a
+        // single-cycle ALU op (the cmp is often fused away when the
+        // cond is a block-local single-use ICmp).
+        InstKind::Select(_, _, _, _) => ALU_COST,
+
         // Anything not enumerated above defaults to ALU cost. Adding a
         // new `InstKind` variant without updating this match is fine
         // (defensive default), but the variant author should add an

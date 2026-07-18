@@ -95,6 +95,13 @@ pub fn cset_cond(rd: Gpr, cond: u8) -> u32 {
     0x9A9F_07E0 | (inverted << 12) | rd.idx()
 }
 
+/// CSEL Xd, Xn, Xm, <cond> — Xd = cond ? Xn : Xm. ARM ARM C6.2.53.
+/// Branchless conditional move; the `InstKind::Select` lowering.
+pub fn csel_cond(rd: Gpr, rn: Gpr, rm: Gpr, cond: u8) -> u32 {
+    debug_assert!(cond < 16, "cond must fit in 4 bits");
+    0x9A80_0000 | (rm.idx() << 16) | ((cond as u32) << 12) | (rn.idx() << 5) | rd.idx()
+}
+
 /// ADRP Xd, label — PC-relative 4 KiB-aligned page address.
 /// ARM ARM C6.2.10. 21-bit signed immediate split into `immlo`
 /// (bits 30-29) and `immhi` (bits 23-5). Callers pass 0 and pair
@@ -176,6 +183,24 @@ mod tests {
     fn cset_lt_to_x9() {
         // CSET x9, LT = CSINC x9, XZR, XZR, GE → 0x9A9F_A7E9
         assert_eq!(cset_cond(Gpr::X9, cond::LT), 0x9A9F_A7E9);
+    }
+
+    // csel golden bytes cross-checked against clang -arch arm64
+    // (objdump of `csel x3,x1,x2,ne` / `csel x0,x0,x1,eq` /
+    // `csel x5,x4,x9,gt`).
+    #[test]
+    fn csel_ne_matches_clang() {
+        assert_eq!(csel_cond(Gpr::X3, Gpr::X1, Gpr::X2, cond::NE), 0x9A82_1023);
+    }
+
+    #[test]
+    fn csel_eq_same_dst_matches_clang() {
+        assert_eq!(csel_cond(Gpr::X0, Gpr::X0, Gpr::X1, cond::EQ), 0x9A81_0000);
+    }
+
+    #[test]
+    fn csel_gt_matches_clang() {
+        assert_eq!(csel_cond(Gpr::X5, Gpr::X4, Gpr::X9, cond::GT), 0x9A89_C085);
     }
 
     #[test]

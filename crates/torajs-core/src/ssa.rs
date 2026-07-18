@@ -277,6 +277,20 @@ pub enum InstKind {
     /// exactly like a classic virtual register. `ty` picks the GPR vs
     /// FPR move at emit.
     Copy(Type, Operand),
+    /// `%v = select <ty> <cond>, <then>, <else>` — branchless conditional
+    /// move: yields `then` when `cond` (Bool/i1) is true, `else`
+    /// otherwise. Produced only by the egraph select-formation pass
+    /// (if-conversion of CondBr diamonds whose arms are pure; LLVM
+    /// SimplifyCFG's FoldTwoEntryPHINode analogue) — never lowered
+    /// directly from source, and introduced after the egraph pass so
+    /// GVN / elaborate never see it. Both value arms are ALWAYS
+    /// evaluated (speculation) — formation must only hoist trap-free,
+    /// side-effect-free defs. `ty` is the result type and picks the
+    /// csel (GPR) vs fcsel (FPR) form at emit; formation currently
+    /// gates to non-F64 so only the GPR form is implemented.
+    /// Codegen: aarch64 `cmp cond, #0; csel Xd, Xn, Xm, NE`
+    /// (ARM ARM C6.2.53).
+    Select(Type, Operand, Operand, Operand),
 }
 
 #[derive(Debug, Clone)]

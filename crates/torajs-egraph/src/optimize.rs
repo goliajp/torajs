@@ -442,6 +442,13 @@ fn is_pure(kind: &InstKind) -> bool {
         InstKind::Neg(_) => true,
         // `Ctpop(op)` — pure single-operand bit count, deterministic.
         InstKind::Ctpop(_) => true,
+        // `Select(ty, c, t, e)` — pure conditional move, deterministic
+        // in its three operands, no memory effect. GVN never actually
+        // sees it (select formation runs after the egraph pass), but
+        // `classify_pure` feeds rc_peephole's `rc_transparent`, and a
+        // Select between an inc/drop pair must not break the elision
+        // window.
+        InstKind::Select(_, _, _, _) => true,
         // `Load` / `LoadDyn` are NOT pure without alias analysis —
         // a syntactically identical `load %p+off` may yield a
         // DIFFERENT value if an intervening `Store` to %p+off

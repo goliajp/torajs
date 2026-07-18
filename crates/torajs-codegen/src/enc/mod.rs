@@ -31,7 +31,8 @@ mod int;
 mod mem;
 
 pub use ctrl::{
-    adrp, b_cond_imm19, b_imm26, bl_imm26, blr_reg, brk_imm16, cbnz_x, cbz_x, cond, cset_cond, ret,
+    adrp, b_cond_imm19, b_imm26, bl_imm26, blr_reg, brk_imm16, cbnz_x, cbz_x, cond, csel_cond,
+    cset_cond, ret,
 };
 pub use fp::{
     addv_b_v8b, cnt_v8b, fadd_d, fcmp_d, fcvtzs_x_d, fdiv_d, fmov_d_from_x, fmov_d_to_d,

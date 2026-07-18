@@ -1,13 +1,13 @@
 //! ICmp + FCmp lowering — CMP/FCMP set NZCV, CSET converts to 0/1.
 
-use torajs_core::ssa::{FPred, IPred, Inst, Operand};
+use torajs_core::ssa::{FPred, IPred, Inst, Operand, Type};
 
 use super::operand::{materialize_operand_fpr, materialize_operand_gpr};
 use super::{
     FP_SCRATCH_LHS, FP_SCRATCH_RHS, OP_SCRATCH_LHS, OP_SCRATCH_RESULT_GPR, OP_SCRATCH_RHS,
     OP_SCRATCH_TMP, write_def_spill_gpr, write_u32,
 };
-use crate::enc::{cmp_imm, cmp_reg, cmp_w_reg, cond, cset_cond, fcmp_d, orr_reg};
+use crate::enc::{cmp_imm, cmp_reg, cmp_w_reg, cond, csel_cond, cset_cond, fcmp_d, orr_reg};
 use crate::regalloc::Assignment;
 
 pub fn emit_icmp(
@@ -58,6 +58,36 @@ pub(crate) fn emit_compare_nzcv(
     } else {
         write_u32(bytes, cmp_reg(rn, rm));
     }
+}
+
+/// `InstKind::Select(ty, cond, then, else)` — branchless conditional
+/// move. Materialize all three operands first (mov/movz/ldr reloads
+/// never touch NZCV), then `cmp cond, #0; csel dst, then, else, NE`.
+/// The select-formation pass gates to non-F64 result types, so only
+/// the GPR csel form exists; an F64 Select reaching here is a
+/// formation bug, not a lowering gap.
+pub fn emit_select(
+    bytes: &mut Vec<u8>,
+    inst: &Inst,
+    ty: &Type,
+    cond_op: &Operand,
+    then_op: &Operand,
+    else_op: &Operand,
+    alloc: &Assignment,
+) {
+    assert!(
+        *ty != Type::F64,
+        "InstKind::Select with F64 result reached emit — the select \
+         formation pass gates to non-F64 types (FCSEL not implemented)"
+    );
+    let result_vid = inst.result.expect("Select must have a result");
+    let (dst, spill_off) = alloc.def_gpr(result_vid, OP_SCRATCH_RESULT_GPR);
+    let rn = materialize_operand_gpr(bytes, then_op, OP_SCRATCH_LHS, alloc);
+    let rm = materialize_operand_gpr(bytes, else_op, OP_SCRATCH_RHS, alloc);
+    let rc = materialize_operand_gpr(bytes, cond_op, OP_SCRATCH_TMP, alloc);
+    write_u32(bytes, cmp_imm(rc, 0));
+    write_u32(bytes, csel_cond(dst, rn, rm, cond::NE));
+    write_def_spill_gpr(bytes, spill_off, dst);
 }
 
 pub fn emit_fcmp(
@@ -361,6 +391,67 @@ mod tests {
             compiled.bytes, expected,
             "fcmp_one_2_3: expected {expected:02X?}, got {:02X?}",
             compiled.bytes
+        );
+    }
+
+    /// `%0 = icmp sgt 7, 5 ; %1 = select i64 %0, 7, 5 ; ret %1` —
+    /// the max-shape select-formation output. Verifies the full
+    /// liveness → regalloc → emit chain produces `cmp <cond>, #0`
+    /// immediately followed by a CSEL (op2 bits 11:10 == 00, which
+    /// distinguishes CSEL from CSINC and its CSET alias).
+    #[test]
+    fn select_lowers_to_cmp_zero_plus_csel() {
+        use torajs_core::ssa::{
+            Block, BlockId, Function, InstKind, Terminator, ValueId, ValueInfo,
+        };
+        let mk = |result: u32, kind: InstKind| Inst {
+            result: Some(ValueId(result)),
+            kind,
+            origin: None,
+        };
+        let vi = |ty: Type| ValueInfo { ty, name: None };
+        let func = Function {
+            name: "select_max".into(),
+            params: Vec::new(),
+            ret: Type::I64,
+            values: vec![vi(Type::Bool), vi(Type::I64)],
+            blocks: vec![Block {
+                id: BlockId(0),
+                insts: vec![
+                    mk(
+                        0,
+                        InstKind::ICmp(IPred::Sgt, Operand::ConstI64(7), Operand::ConstI64(5)),
+                    ),
+                    mk(
+                        1,
+                        InstKind::Select(
+                            Type::I64,
+                            Operand::Value(ValueId(0)),
+                            Operand::ConstI64(7),
+                            Operand::ConstI64(5),
+                        ),
+                    ),
+                ],
+                term: Terminator::Ret(Some(Operand::Value(ValueId(1)))),
+            }],
+            current_origin: None,
+        };
+        let bytes = compile_function(&func).bytes;
+        let words: Vec<u32> = bytes
+            .chunks_exact(4)
+            .map(|c| u32::from_le_bytes(c.try_into().unwrap()))
+            .collect();
+        let csel_at = words
+            .iter()
+            .position(|w| (w >> 24) == 0x9A && (w >> 10) & 0b11 == 0)
+            .expect("csel word emitted");
+        // preceding word is `cmp <rc>, #0` = SUBS XZR, Xn, #0
+        // (0xF100_001F | rn<<5): imm12 zero, rd == XZR.
+        let prev = words[csel_at - 1];
+        assert_eq!(
+            prev & 0xFFFF_FC1F,
+            0xF100_001F,
+            "cmp #0 must immediately precede csel, got {prev:08X}"
         );
     }
 }

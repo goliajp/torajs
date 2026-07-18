@@ -61,7 +61,7 @@ pub use cast::{
     emit_ptr_to_int, emit_si_to_fp, emit_trunc_i64_to_bool, emit_zext_bool_to_i64,
     emit_zext_i32_to_i64,
 };
-pub use cmp::{emit_fcmp, emit_icmp};
+pub use cmp::{emit_fcmp, emit_icmp, emit_select};
 pub use mem::{emit_alloca, emit_load, emit_load_dyn, emit_store, emit_store_dyn};
 pub use operand::{
     emit_copy, materialize_const_i64, materialize_operand_fpr, materialize_operand_gpr,
@@ -290,6 +290,9 @@ fn emit_inst(
         InstKind::Neg(op) => emit_neg(bytes, inst, op, alloc),
         InstKind::Ctpop(op) => emit_ctpop(bytes, inst, op, alloc),
         InstKind::Copy(ty, op) => emit_copy(bytes, inst, *ty, op, alloc),
+        InstKind::Select(ty, cond, then_op, else_op) => {
+            emit_select(bytes, inst, ty, cond, then_op, else_op, alloc)
+        }
     }
 }
 

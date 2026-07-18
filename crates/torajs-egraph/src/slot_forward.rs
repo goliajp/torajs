@@ -184,6 +184,11 @@ pub(crate) fn rewrite_operands(kind: &mut InstKind, replace: &HashMap<ValueId, O
             r(p);
             r(o);
         }
+        InstKind::Select(_, c, t, e) => {
+            r(c);
+            r(t);
+            r(e);
+        }
         InstKind::SiToFp(a)
         | InstKind::FpToSi(a)
         | InstKind::ZExtBoolToI64(a)

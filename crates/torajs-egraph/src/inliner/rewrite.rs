@@ -66,5 +66,10 @@ pub(super) fn rewrite_inst_kind(kind: &InstKind, map: &HashMap<ValueId, Operand>
              introduces Copy only after the egraph pass, which runs after \
              all inline rounds"
         ),
+        InstKind::Select(_, _, _, _) => unreachable!(
+            "InstKind::Select reached the inliner — select formation \
+             introduces Select only after the egraph pass, which runs \
+             after all inline rounds"
+        ),
     }
 }

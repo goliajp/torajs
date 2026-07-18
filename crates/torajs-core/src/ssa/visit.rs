@@ -36,6 +36,11 @@ pub fn visit_value_operands(kind: &InstKind, mut f: impl FnMut(ValueId)) {
             v(ptr);
             v(off);
         }
+        InstKind::Select(_, cond, t, e) => {
+            v(cond);
+            v(t);
+            v(e);
+        }
         InstKind::SiToFp(o)
         | InstKind::FpToSi(o)
         | InstKind::ZExtBoolToI64(o)
