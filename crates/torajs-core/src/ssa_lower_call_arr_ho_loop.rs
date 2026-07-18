@@ -406,10 +406,16 @@ fn emit_do_call(
             *a = ctx.coerce_to_f64(a.clone());
         }
     }
-    match known_fid {
+    let r = match known_fid {
         Some(fid) => ctx.call_fn_value_devirt(fid, fn_val.clone(), fn_ty, args),
         None => ctx.call_fn_value(fn_val.clone(), fn_ty, args),
-    }
+    };
+    // §23.1.3.15 step 5.c ReturnIfAbrupt — a throwing callback ends
+    // the iteration; without this the loop ran every remaining
+    // element and swallowed the throw. Devirt'd callbacks ride the
+    // may-throw gate (verified-non-throwing fns skip the check).
+    ctx.emit_throw_check(known_fid);
+    r
 }
 
 /// Step (`i = i ± 1`, Br back to header) + after-block produce

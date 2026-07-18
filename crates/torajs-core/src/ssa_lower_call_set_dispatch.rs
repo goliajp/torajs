@@ -391,6 +391,9 @@ fn emit_set_for_each(ctx: &mut LowerCtx<'_>, recv_op: Operand, args: &[ExprId]) 
         Some(fid) => ctx.call_fn_value_devirt(fid, fn_val.clone(), fn_ty, cb_args),
         None => ctx.call_fn_value(fn_val, fn_ty, cb_args),
     };
+    // §24.2.3.6 step 8.a.iii ReturnIfAbrupt — a throwing callback
+    // ends the walk (previously the loop swallowed it).
+    ctx.emit_throw_check(known_fid);
     ctx.f.set_term(ctx.cur_block, Terminator::Br(header_blk));
 
     ctx.cur_block = after_blk;
