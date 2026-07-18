@@ -14,11 +14,19 @@
 //! same-HEAD baseline).
 //!
 //! This module computes the textbook antidote: per-value **spill
-//! weight** = Σ over each static use `4^min(loop_depth, 4)`. The
+//! weight** = Σ over each static use `16^min(loop_depth, 4)`. The
 //! allocator's victim scan then prefers the *lowest* weight (fewest
 //! dynamic uses lost to memory), tie-breaking on the original
 //! furthest-end rule so weight-flat functions keep the exact
 //! Poletto & Sarkar behaviour.
+//!
+//! The per-level factor is 16, not 4: a loop level stands for ≥10×
+//! dynamic frequency (the classic block-frequency assumption), and a
+//! flat factor-4 let a chatty depth-0 prelude value (one static use
+//! per Error-class registration call, ~10+ mentions) outweigh a
+//! depth-1 loop accumulator with two mentions (2×4=8 < 10) — the
+//! popcount `total` spill, collatz decomposition A4: the accumulator
+//! lost the victim scan to values that run once per process.
 //!
 //! Loop detection is the standard reducible-CFG backedge scan over
 //! the lowered block order: a terminator edge from block `i` to a
@@ -35,9 +43,10 @@ use torajs_core::ssa::{Function, Terminator};
 
 use crate::liveness::{visit_inst_operands, visit_terminator_operands};
 
-/// Depth cap — 4^4 = 256 per use keeps the weight far away from u32
-/// overflow even for pathological use counts, while still separating
-/// quadruply-nested hot code from anything colder.
+/// Depth cap — 16^4 = 65536 per use stays far from u32 saturation
+/// for realistic use counts (saturating_add bounds the pathological
+/// rest), while separating quadruply-nested hot code from anything
+/// colder.
 const DEPTH_CAP: u32 = 4;
 
 /// Compute `ValueId.0 → spill weight` for `func` over the same
@@ -97,7 +106,7 @@ pub fn compute_spill_weights(func: &Function) -> HashMap<u32, u32> {
     for b in &func.blocks {
         for inst in &b.insts {
             let d = depth[idx as usize].min(DEPTH_CAP);
-            let unit = 1u32 << (2 * d);
+            let unit = 1u32 << (4 * d);
             visit_inst_operands(&inst.kind, |v| {
                 let w = weights.entry(v.0).or_insert(0);
                 *w = w.saturating_add(unit);
@@ -109,7 +118,7 @@ pub fn compute_spill_weights(func: &Function) -> HashMap<u32, u32> {
             idx += 1;
         }
         let d = depth[idx as usize].min(DEPTH_CAP);
-        let unit = 1u32 << (2 * d);
+        let unit = 1u32 << (4 * d);
         visit_terminator_operands(&b.term, |v| {
             let w = weights.entry(v.0).or_insert(0);
             *w = w.saturating_add(unit);
@@ -170,7 +179,7 @@ mod tests {
         assert_eq!(w[&1], 2);
     }
 
-    /// Loop-body uses weigh 4^1; a value only touched outside stays
+    /// Loop-body uses weigh 16^1; a value only touched outside stays
     /// at 1/use — the loop-carried value outweighs the cold one even
     /// with fewer static mentions.
     #[test]
@@ -207,13 +216,13 @@ mod tests {
             2,
         );
         let w = compute_spill_weights(&f);
-        // v0: cold def (1) + 2 loop uses (4+4) + cold ret use (1) = 10.
-        assert_eq!(w[&0], 10);
-        // v1: loop def (4) + loop condbr use (4) = 8.
-        assert_eq!(w[&1], 8);
+        // v0: cold def (1) + 2 loop uses (16+16) + cold ret use (1) = 34.
+        assert_eq!(w[&0], 34);
+        // v1: loop def (16) + loop condbr use (16) = 32.
+        assert_eq!(w[&1], 32);
     }
 
-    /// Nested loops multiply: depth-2 uses weigh 16.
+    /// Nested loops multiply: depth-2 uses weigh 256.
     #[test]
     fn nested_loop_depth_compounds() {
         // bb0: br bb1
@@ -265,10 +274,10 @@ mod tests {
         );
         let w = compute_spill_weights(&f);
         // v1 def + condbr use both at depth 2 (inner self-loop inside
-        // outer bb1..bb3 loop): 16 + 16 = 32.
-        assert_eq!(w[&1], 32);
-        // v0: def at depth 1 (4) + 2 uses at depth 2 (16+16) + condbr
-        // use at depth 1 (4) = 40.
-        assert_eq!(w[&0], 40);
+        // outer bb1..bb3 loop): 256 + 256 = 512.
+        assert_eq!(w[&1], 512);
+        // v0: def at depth 1 (16) + 2 uses at depth 2 (256+256) +
+        // condbr use at depth 1 (16) = 544.
+        assert_eq!(w[&0], 544);
     }
 }
