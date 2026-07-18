@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-18T02:29:54.182Z",
+  "generatedAt": "2026-07-18T08:08:47.301Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 94.41
   },
   "torajs": {
-    "commit": "6223048f",
-    "commitSubject": "fix: the no-super raiser keys on user-spelled ctors only",
+    "commit": "fce053b7",
+    "commitSubject": "fix: throwing callbacks abort the typed-tier ho loops",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "fce053b7",
+      "subject": "fix: throwing callbacks abort the typed-tier ho loops"
+    },
+    {
+      "hash": "0ec19a94",
+      "subject": "feat: error.prototype.tostring runs the generic spec steps"
+    },
+    {
+      "hash": "3787febb",
+      "subject": "feat: error family called as a function constructs per spec"
+    },
+    {
+      "hash": "d6533031",
+      "subject": "fix: indexOf family scans abort on a pending throw"
+    },
+    {
+      "hash": "38283c1d",
+      "subject": "fix: instanceof resolves class-expression binding aliases"
+    },
+    {
+      "hash": "3ec1b8a9",
+      "subject": "chore: hardev dashboard snapshot at rotation 139 close"
+    },
+    {
       "hash": "6223048f",
       "subject": "fix: the no-super raiser keys on user-spelled ctors only"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "379f5dff",
       "subject": "feat: error instance message is a real own property face"
-    },
-    {
-      "hash": "55609d2b",
-      "subject": "chore: hardev dashboard snapshot at rotation 138 close"
-    },
-    {
-      "hash": "e510d685",
-      "subject": "fix: the ctor.prototype lowering boxes an owned singleton reference"
-    },
-    {
-      "hash": "c33c69d4",
-      "subject": "feat: function.prototype caller/arguments are the %throwtypeerror% accessors"
-    },
-    {
-      "hash": "e7710e70",
-      "subject": "feat: static accessors desugar as suffixed faces and reify on the class object"
-    },
-    {
-      "hash": "71f6d934",
-      "subject": "feat: a class accessor is a real accessorpair own entry on the prototype"
-    },
-    {
-      "hash": "0f0855b9",
-      "subject": "feat: object.prototype.__proto__ is a real accessor own entry"
     }
   ],
-  "headSha": "6223048f",
+  "headSha": "fce053b7",
   "autorun": {
-    "total": 444,
+    "total": 445,
     "baselineTarget": 10,
-    "bySelf": 439,
+    "bySelf": 440,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784334665-2ee1",
-      "at": "2026-07-18T00:31:05Z",
-      "ts": 1784334665,
+      "rotationId": "r-1784341897-3564",
+      "at": "2026-07-18T02:31:37Z",
+      "ts": 1784341897,
       "trigger": "self",
-      "prevHead": "55609d2b",
-      "handoffSha": "sha256:9a7fe242df0b8b412e34df30ba3c1b6e4e2910ba4407632bf4407aadfd563e23",
-      "handoffAgeSec": 8,
+      "prevHead": "3ec1b8a9",
+      "handoffSha": "sha256:bd77ab39eae81c57133b6116af2238c7ab447c36cf0f18e93ef4cba4fb52cc28",
+      "handoffAgeSec": 112,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784341897-3564",
+        "at": "2026-07-18T02:31:37Z",
+        "ts": 1784341897,
+        "trigger": "self",
+        "prevHead": "3ec1b8a9",
+        "handoffSha": "sha256:bd77ab39eae81c57133b6116af2238c7ab447c36cf0f18e93ef4cba4fb52cc28",
+        "handoffAgeSec": 112,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784334665-2ee1",
         "at": "2026-07-18T00:31:05Z",
@@ -876,17 +887,6 @@
         "prevHead": "3a32abe4",
         "handoffSha": "sha256:cb36e1ea5491c132c2f2a7cd0306dfaa6ba09fe3d2f2c84b9bbba4036b6a1b37",
         "handoffAgeSec": 8,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784267632-7bbd",
-        "at": "2026-07-17T05:53:52Z",
-        "ts": 1784267632,
-        "trigger": "self",
-        "prevHead": "62f26d9e",
-        "handoffSha": "sha256:a390b1eda9499fcb07f748cc677540c7b810fc064600f0a8a147b53bfef7173e",
-        "handoffAgeSec": 13,
         "conformanceBefore": null,
         "commitsInSession": null
       }
