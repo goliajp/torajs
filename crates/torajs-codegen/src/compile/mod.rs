@@ -47,7 +47,7 @@ use std::collections::HashMap;
 use torajs_core::ssa::{BlockId, Function, InstKind, Terminator, Type};
 
 use crate::enc::{
-    b_imm26, brk_imm16, cbnz_x, fmov_d_to_d, mov_x_reg, ret, str_d_imm12, str_x_imm12,
+    b_imm26, brk_imm16, cbnz_x, cbz_x, fmov_d_to_d, mov_x_reg, ret, str_d_imm12, str_x_imm12,
 };
 use crate::frame::FrameLayout;
 use crate::reg::{Fpr, Gpr, Reg};
@@ -167,7 +167,13 @@ pub fn compile_function_with(
     let fused_cmps = brfuse::fusible_cmps(func);
     let select_fused = brfuse::fusible_select_cmps(func);
 
-    for block in &func.blocks {
+    // Forwarder-resolved block map, shared by the terminator emit
+    // (fall-through elision needs the next block's final identity)
+    // and the branch-fixup pass below.
+    let blocks_by_id: HashMap<u32, &torajs_core::ssa::Block> =
+        func.blocks.iter().map(|b| (b.id.0, b)).collect();
+
+    for (bi, block) in func.blocks.iter().enumerate() {
         block_byte_starts.insert(block.id.0, bytes.len() as u32);
         let fused = fused_cmps.get(&block.id.0);
         for (ii, inst) in block.insts.iter().enumerate() {
@@ -186,14 +192,28 @@ pub fn compile_function_with(
             }
             emit_inst(&mut bytes, &mut relocs, inst, &alloc, fn_sigs);
         }
-        emit_terminator(&mut bytes, &mut fixups, &block.term, &frame, &alloc, fused);
+        // The layout successor's final identity — a branch resolving
+        // there is a fall-through and needs no B (the next block, or
+        // the empty-forwarder chain it heads, is about to emit).
+        let next_resolved = func
+            .blocks
+            .get(bi + 1)
+            .map(|nb| brfuse::resolve_forwarded_target(&blocks_by_id, nb.id));
+        emit_terminator(
+            &mut bytes,
+            &mut fixups,
+            &block.term,
+            &frame,
+            &alloc,
+            fused,
+            &blocks_by_id,
+            next_resolved,
+        );
     }
 
     // Patch every branch fixup with its real displacement. Empty
     // forwarder blocks (no insts, unconditional Br) redirect the
     // branch to their final destination first.
-    let blocks_by_id: HashMap<u32, &torajs_core::ssa::Block> =
-        func.blocks.iter().map(|b| (b.id.0, b)).collect();
     for fixup in &fixups {
         let final_target = brfuse::resolve_forwarded_target(&blocks_by_id, fixup.target_block);
         let target_byte_offset = *block_byte_starts
@@ -307,6 +327,7 @@ fn emit_inst(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn emit_terminator(
     bytes: &mut Vec<u8>,
     fixups: &mut Vec<BranchFixup>,
@@ -314,7 +335,10 @@ fn emit_terminator(
     frame: &FrameLayout,
     alloc: &Assignment,
     fused: Option<&brfuse::FusedCmp>,
+    blocks_by_id: &HashMap<u32, &torajs_core::ssa::Block>,
+    next_resolved: Option<BlockId>,
 ) {
+    let resolve = |t: BlockId| brfuse::resolve_forwarded_target(blocks_by_id, t);
     match term {
         Terminator::Ret(ret_op) => {
             // AAPCS64: int/ptr/bool return lands in X0, f64 in D0. The
@@ -349,6 +373,13 @@ fn emit_terminator(
             write_u32(bytes, ret(Gpr::X30));
         }
         Terminator::Br(target_block) => {
+            // Fall-through elision: a B whose (forwarder-resolved)
+            // target is where execution lands anyway is dead weight —
+            // the popcount/collatz loop bodies string 4-5 of these
+            // per iteration through pass-split blocks.
+            if Some(resolve(*target_block)) == next_resolved {
+                return;
+            }
             let site = bytes.len() as u32;
             fixups.push(BranchFixup {
                 site_byte_offset: site,
@@ -363,30 +394,66 @@ fn emit_terminator(
             then_blk,
             else_blk,
         } => {
+            let else_falls = Some(resolve(*else_blk)) == next_resolved;
+            // Layout-driven flip: when the then-target is the fall-
+            // through block, branch on the inverted predicate to the
+            // else-target instead — the hot successor (loop bodies
+            // sit right after their header) runs on the not-taken
+            // path and the trailing B disappears.
+            let then_falls = !else_falls && Some(resolve(*then_blk)) == next_resolved;
             if let Some(fc) = fused {
-                brfuse::emit_fused_condbr(bytes, fixups, fc, *then_blk, *else_blk, alloc);
+                let (fc, br_target) = if then_falls {
+                    (
+                        brfuse::FusedCmp {
+                            pred: brfuse::invert_ipred(fc.pred),
+                            lhs: fc.lhs,
+                            rhs: fc.rhs,
+                        },
+                        *else_blk,
+                    )
+                } else {
+                    (
+                        brfuse::FusedCmp {
+                            pred: fc.pred,
+                            lhs: fc.lhs,
+                            rhs: fc.rhs,
+                        },
+                        *then_blk,
+                    )
+                };
+                let trailing = (!then_falls && !else_falls).then_some(*else_blk);
+                brfuse::emit_fused_condbr(bytes, fixups, &fc, br_target, trailing, alloc);
                 return;
             }
             // Materialize the Bool cond into a GPR scratch. If the
             // cond is a Value, the allocator already placed it in a
             // register and materialize_operand_gpr is a fast lookup.
             let cond_reg = operand::materialize_operand_gpr(bytes, cond, OP_SCRATCH_LHS, alloc);
-            // CBNZ cond, then_blk — branch when cond != 0 (i.e. true).
-            let cbnz_site = bytes.len() as u32;
+            // CBNZ cond, then_blk — branch when cond != 0 (i.e. true);
+            // flipped to CBZ cond, else_blk when then falls through.
+            let cb_site = bytes.len() as u32;
             fixups.push(BranchFixup {
-                site_byte_offset: cbnz_site,
-                target_block: *then_blk,
+                site_byte_offset: cb_site,
+                target_block: if then_falls { *else_blk } else { *then_blk },
                 kind: BranchKind::Imm19,
             });
-            write_u32(bytes, cbnz_x(cond_reg, 0));
-            // Fall-through to else_blk via unconditional B.
-            let b_site = bytes.len() as u32;
-            fixups.push(BranchFixup {
-                site_byte_offset: b_site,
-                target_block: *else_blk,
-                kind: BranchKind::Imm26,
-            });
-            write_u32(bytes, b_imm26(0));
+            write_u32(
+                bytes,
+                if then_falls {
+                    cbz_x(cond_reg, 0)
+                } else {
+                    cbnz_x(cond_reg, 0)
+                },
+            );
+            if !then_falls && !else_falls {
+                let b_site = bytes.len() as u32;
+                fixups.push(BranchFixup {
+                    site_byte_offset: b_site,
+                    target_block: *else_blk,
+                    kind: BranchKind::Imm26,
+                });
+                write_u32(bytes, b_imm26(0));
+            }
         }
         Terminator::Unreachable => {
             // Clang/LLVM convention for `unreachable`.
@@ -535,12 +602,11 @@ mod tests {
         };
         let compiled = compile_function(&func);
 
-        // block 0 @ 0:  B  +4  (target = block 1 @ 4)
-        // block 1 @ 4:  MOVZ x9, #1
+        // block 0 @ 0:  (B elided — block 1 is the fall-through)
+        // block 1 @ 0:  MOVZ x9, #1
         //               AND  x0, x9, #1
         //               RET
         let expected = words_to_le_bytes(&[
-            crate::enc::b_imm26(4),
             crate::enc::movz_imm(Gpr::X9, 1, 0),
             crate::enc::and_imm_one(Gpr::X0, Gpr::X9),
             crate::enc::ret(Gpr::X30),
@@ -611,18 +677,19 @@ mod tests {
         let compiled = compile_function(&func);
 
         // block 0 @ 0:  MOVZ x9, #1            (materialize cond=true)
-        //               CBNZ x9, +8            (then=block1 @ 12)
-        //               B    +16               (else=block2 @ 24)
-        // block 1 @ 12: MOVZ x9, #1
+        //               CBZ  x9, +16           (layout flip: then is
+        //                                       the fall-through, so
+        //                                       branch the inverse to
+        //                                       else=block2 @ 20)
+        // block 1 @ 8:  MOVZ x9, #1
         //               AND  x0, x9, #1
         //               RET
-        // block 2 @ 24: MOVZ x9, #0
+        // block 2 @ 20: MOVZ x9, #0
         //               AND  x0, x9, #1
         //               RET
         let expected = words_to_le_bytes(&[
             crate::enc::movz_imm(Gpr::X9, 1, 0),
-            crate::enc::cbnz_x(Gpr::X9, 8),
-            crate::enc::b_imm26(16),
+            crate::enc::cbz_x(Gpr::X9, 16),
             crate::enc::movz_imm(Gpr::X9, 1, 0),
             crate::enc::and_imm_one(Gpr::X0, Gpr::X9),
             crate::enc::ret(Gpr::X30),

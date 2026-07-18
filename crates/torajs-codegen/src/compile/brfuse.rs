@@ -122,18 +122,36 @@ pub(crate) fn fusible_select_cmps(func: &Function) -> HashMap<(u32, u32), FusedC
     fused
 }
 
+/// Predicate inversion for the layout-driven branch flip: when the
+/// then-target is the fall-through block, `cmp; b.<pred> then; b
+/// else` becomes `cmp; b.<!pred> else` and the hot successor runs on
+/// the not-taken path. Exact for integer predicates (no NaN cases).
+pub(crate) fn invert_ipred(pred: IPred) -> IPred {
+    match pred {
+        IPred::Eq => IPred::Ne,
+        IPred::Ne => IPred::Eq,
+        IPred::Slt => IPred::Sge,
+        IPred::Sge => IPred::Slt,
+        IPred::Sgt => IPred::Sle,
+        IPred::Sle => IPred::Sgt,
+    }
+}
+
 /// Emit the fused form of `CondBr { cond: <tail icmp>, .. }`.
 ///
 /// `cbz`/`cbnz` fold applies only to an eq/ne against `ConstI64(0)`
 /// with a Value on the other side — a ConstI32 zero keeps the CMP
 /// path (its W-form compare masks the high half that an X-reg CBZ
 /// would read, see `emit_compare_nzcv`).
+///
+/// `else_blk: None` = the else-target is the fall-through block; the
+/// trailing unconditional B is skipped.
 pub(crate) fn emit_fused_condbr(
     bytes: &mut Vec<u8>,
     fixups: &mut Vec<BranchFixup>,
     fc: &FusedCmp,
     then_blk: BlockId,
-    else_blk: BlockId,
+    else_blk: Option<BlockId>,
     alloc: &Assignment,
 ) {
     let zero_test = match (fc.pred, &fc.lhs, &fc.rhs) {
@@ -168,13 +186,15 @@ pub(crate) fn emit_fused_condbr(
         });
         write_u32(bytes, b_cond_imm19(ipred_to_cond(fc.pred), 0));
     }
-    let b_site = bytes.len() as u32;
-    fixups.push(BranchFixup {
-        site_byte_offset: b_site,
-        target_block: else_blk,
-        kind: BranchKind::Imm26,
-    });
-    write_u32(bytes, b_imm26(0));
+    if let Some(else_blk) = else_blk {
+        let b_site = bytes.len() as u32;
+        fixups.push(BranchFixup {
+            site_byte_offset: b_site,
+            target_block: else_blk,
+            kind: BranchKind::Imm26,
+        });
+        write_u32(bytes, b_imm26(0));
+    }
 }
 
 /// Follow chains of empty forwarder blocks (`insts: [], term: Br(t)`)
@@ -296,11 +316,50 @@ mod tests {
         assert_eq!(fusible_cmps(&func).len(), 1);
         let words = words_of(&compile_function(&func).bytes);
         assert!(!words.iter().any(|w| is_cset(*w)));
-        // no CMP-immediate either — the value branches directly
-        assert!(words.iter().any(|w| (*w >> 24) == 0xB4), "cbz present");
+        // no CMP-immediate either — the value branches directly. The
+        // then-target is the fall-through block, so the layout flip
+        // inverts eq → ne and the CBZ emits as CBNZ to the else.
+        assert!(words.iter().any(|w| (*w >> 24) == 0xB5), "cbnz present");
         assert!(
             !words.iter().any(|w| (*w >> 24) == 0x54),
             "no b.cond needed"
+        );
+    }
+
+    #[test]
+    fn br_to_next_block_elides() {
+        // b0: [inst] br b1 ; b1: ret — the B is a fall-through.
+        let vi = ValueInfo {
+            ty: Type::I64,
+            name: Some("v".into()),
+        };
+        let func = Function {
+            name: "f".into(),
+            params: vec![],
+            ret: Type::I64,
+            values: vec![vi],
+            blocks: vec![
+                Block {
+                    id: BlockId(0),
+                    insts: vec![Inst {
+                        result: Some(ValueId(0)),
+                        kind: InstKind::ZExtBoolToI64(Operand::ConstBool(true)),
+                        origin: None,
+                    }],
+                    term: Terminator::Br(BlockId(1)),
+                },
+                Block {
+                    id: BlockId(1),
+                    insts: vec![],
+                    term: Terminator::Ret(Some(Operand::Value(ValueId(0)))),
+                },
+            ],
+            current_origin: None,
+        };
+        let words = words_of(&compile_function(&func).bytes);
+        assert!(
+            !words.iter().any(|w| (*w >> 26) == 0b000101),
+            "unconditional B must be elided"
         );
     }
 
