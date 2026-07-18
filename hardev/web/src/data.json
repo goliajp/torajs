@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-18T11:50:08.307Z",
+  "generatedAt": "2026-07-18T14:16:21.606Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 94.78
   },
   "torajs": {
-    "commit": "545b7c8f",
-    "commitSubject": "feat: typed-tier string(symbol) renders the descriptive string",
+    "commit": "5376ec0b",
+    "commitSubject": "perf: spill-weight loop factor 16 outranks chatty cold prelude values",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "5376ec0b",
+      "subject": "perf: spill-weight loop factor 16 outranks chatty cold prelude values"
+    },
+    {
+      "hash": "9ce31c07",
+      "subject": "perf: block-tail icmp fuses into its condbr; empty br chains fold"
+    },
+    {
+      "hash": "f0b2e354",
+      "subject": "refactor: hoist visit_value_operands into torajs-core ssa"
+    },
+    {
+      "hash": "1203d301",
+      "subject": "perf: parity srem-by-2^k compares reduce to and-by-mask"
+    },
+    {
+      "hash": "7fd93817",
+      "subject": "perf: certified fdiv-by-2 demotes to arithmetic shift, not sdiv"
+    },
+    {
+      "hash": "ebcddda7",
+      "subject": "chore: hardev dashboard snapshot at rotation 141 close"
+    },
+    {
       "hash": "545b7c8f",
       "subject": "feat: typed-tier string(symbol) renders the descriptive string"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "af49f7f8",
       "subject": "chore: hardev dashboard snapshot refresh at rotation 140 close"
-    },
-    {
-      "hash": "8cc0213e",
-      "subject": "fix: error tostring rejects primitive cells; string() shows symbols"
-    },
-    {
-      "hash": "2d3dda04",
-      "subject": "chore: hardev dashboard snapshot at rotation 140 close"
-    },
-    {
-      "hash": "fce053b7",
-      "subject": "fix: throwing callbacks abort the typed-tier ho loops"
-    },
-    {
-      "hash": "0ec19a94",
-      "subject": "feat: error.prototype.tostring runs the generic spec steps"
-    },
-    {
-      "hash": "3787febb",
-      "subject": "feat: error family called as a function constructs per spec"
-    },
-    {
-      "hash": "d6533031",
-      "subject": "fix: indexOf family scans abort on a pending throw"
     }
   ],
-  "headSha": "545b7c8f",
+  "headSha": "5376ec0b",
   "autorun": {
-    "total": 446,
+    "total": 447,
     "baselineTarget": 10,
-    "bySelf": 441,
+    "bySelf": 442,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784369203-5bbf",
-      "at": "2026-07-18T10:06:43Z",
-      "ts": 1784369203,
+      "rotationId": "r-1784375464-200d",
+      "at": "2026-07-18T11:51:04Z",
+      "ts": 1784375464,
       "trigger": "self",
-      "prevHead": "af49f7f8",
-      "handoffSha": "sha256:45d6e877ea9d794e6d2abb4e22b000834decdebd6d5d3eea1ed9017a466164b5",
-      "handoffAgeSec": 24,
+      "prevHead": "ebcddda7",
+      "handoffSha": "sha256:d6cf1989b354bca4fb72e85e146ba03d24ec6fb3b99cef76d42a906429228384",
+      "handoffAgeSec": 4,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784375464-200d",
+        "at": "2026-07-18T11:51:04Z",
+        "ts": 1784375464,
+        "trigger": "self",
+        "prevHead": "ebcddda7",
+        "handoffSha": "sha256:d6cf1989b354bca4fb72e85e146ba03d24ec6fb3b99cef76d42a906429228384",
+        "handoffAgeSec": 4,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784369203-5bbf",
         "at": "2026-07-18T10:06:43Z",
@@ -876,17 +887,6 @@
         "prevHead": "09b3a0bd",
         "handoffSha": "sha256:6fa186e9ddb0da5e8a048c108722790083e725f5790f4996a514e01466c7b4f8",
         "handoffAgeSec": 160,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784280068-0a3d",
-        "at": "2026-07-17T09:21:08Z",
-        "ts": 1784280068,
-        "trigger": "self",
-        "prevHead": "7b4ecf7f",
-        "handoffSha": "sha256:5cf4405acc7793f3b6aa5fc36dba5a1af4c977abddb22a1a62c75a52e7c4e9c9",
-        "handoffAgeSec": 0,
         "conformanceBefore": null,
         "commitsInSession": null
       }
