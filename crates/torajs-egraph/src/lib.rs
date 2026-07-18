@@ -18,6 +18,7 @@
 //! is identity (round-trip-equivalent) until Phase 1 lands the first
 //! rule cluster.
 
+pub mod branch_fold;
 pub mod cost;
 pub mod ctpop_idiom;
 pub mod devirt;
@@ -256,6 +257,20 @@ pub fn transform_module(mut module: Module) -> Module {
         let cp_stats = ctpop_idiom::recognize_ctpop_loops(&mut module);
         if std::env::var("TORAJS_CTPOP_STATS").as_deref() == Ok("1") {
             eprintln!("torajs-ctpop-stats: {cp_stats:?}");
+        }
+    }
+    // Constant-branch folding over interval evidence — the ctpop
+    // collapse just made the float_demote growth guards provably
+    // false (count is a ctpop ≤ 64, the accumulator is trip-bounded),
+    // which the flow-insensitive lattice cannot see through cell
+    // joins; branch_fold's demand-driven point/recurrence evaluators
+    // can. After ctpop (the evidence source), before select_form
+    // (folded diamonds must not be select-formed).
+    // `TORAJS_BRANCH_FOLD_OFF=1` skips (bisect gate).
+    if std::env::var("TORAJS_BRANCH_FOLD_OFF").as_deref() != Ok("1") {
+        let bf_stats = branch_fold::fold_branches(&mut module);
+        if std::env::var("TORAJS_BRANCH_FOLD_STATS").as_deref() == Ok("1") {
+            eprintln!("torajs-branch-fold-stats: {bf_stats:?}");
         }
     }
     // Select formation — if-convert pure CondBr diamonds into csel-

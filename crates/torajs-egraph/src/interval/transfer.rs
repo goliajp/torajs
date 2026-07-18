@@ -323,6 +323,11 @@ pub fn eval_inst(
         },
         InstKind::ZExtBoolToI64(_) => AbsVal::Fact(NumFact::new(0, 1)),
         InstKind::ZExtI32ToI64(_) => AbsVal::Fact(NumFact::new(0, u32::MAX as i128)),
+        // i64 population count — at most 64 set bits regardless of
+        // the operand (branch_fold uses this to prove the count-cell
+        // growth guards float_demote inserted always-false once
+        // ctpop_idiom has collapsed the Kernighan loop).
+        InstKind::Ctpop(_) => AbsVal::Fact(NumFact::new(0, 64)),
         _ => opaque(),
     }
 }
