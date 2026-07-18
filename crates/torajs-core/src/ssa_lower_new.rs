@@ -34,7 +34,9 @@
 //!       `box_to_tag_value` per elem, `map_set` write. Drop src
 //!       post-loop.
 //! - **Array(n)** 1-arg numeric form — `__torajs_arr_alloc_any_filled(n)`
-//!   via fn_table lookup (intrinsic not in Intrinsics struct).
+//!   via fn_table lookup (intrinsic not in Intrinsics struct);
+//!   F64 operands route to `__torajs_arr_alloc_any_filled_f64` so the
+//!   §23.1.2.1 ToUint32(len) != len RangeError sees the raw bits.
 //!   Allocates `Array<Any>` of length n with ANY_NULL slots.
 //!   0-arg + ≥2-arg forms are rewritten to array literals by
 //!   `desugar_builtin_new` and never reach here.
@@ -339,16 +341,25 @@ fn lower_set_clone(ctx: &mut LowerCtx<'_>, set_op: Operand, arg_op: Operand) -> 
 
 fn lower_array_n(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
     let arg_val = ctx.lower_expr(args[0]);
-    let arg_i64 = ctx.coerce_to_i64(arg_val);
+    // §23.1.2.1 step 4.b — a Number len with ToUint32(len) != len is
+    // a RangeError. F64 operands go to the f64 alloc entry with the
+    // fractional/NaN/Infinity bits intact (the i64 coercion folds
+    // NaN → 0 / 4.5 → 4 and the check becomes unfireable);
+    // integer-provable operands stay on the hot i64 lane.
+    let (alloc_name, alloc_arg) = if matches!(ctx.operand_ty(&arg_val), Type::F64) {
+        ("__torajs_arr_alloc_any_filled_f64", arg_val)
+    } else {
+        ("__torajs_arr_alloc_any_filled", ctx.coerce_to_i64(arg_val))
+    };
     let arr_id = intern_arr_layout(ctx.arr_layouts, Type::Any);
     let fid = *ctx
         .fn_table
-        .get("__torajs_arr_alloc_any_filled")
-        .expect("__torajs_arr_alloc_any_filled intrinsic missing");
+        .get(alloc_name)
+        .expect("arr alloc intrinsic missing");
     let cur_block = ctx.cur_block;
     let v = ctx.f.append_inst(
         cur_block,
-        InstKind::Call(fid, vec![arg_i64]),
+        InstKind::Call(fid, vec![alloc_arg]),
         Type::Arr(arr_id),
         None,
     );

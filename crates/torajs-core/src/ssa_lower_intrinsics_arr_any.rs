@@ -84,6 +84,16 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
         &[Type::I64],
         Type::Ptr,
     );
+    // §23.1.2.1 step 4.b — f64 entry for non-integer-provable Number
+    // operands; keeps the fractional/NaN/Infinity bits the i64
+    // coercion erases so the ToUint32(len) != len RangeError fires.
+    let _ = declare_intrinsic(
+        module,
+        fn_table,
+        "__torajs_arr_alloc_any_filled_f64",
+        &[Type::F64],
+        Type::Ptr,
+    );
     // Chunk 698 `__torajs_arr_any_to_typed` — fn_table-only (the
     // let-decl assign-boundary conversion resolves it by name).
     let _ = declare_intrinsic(

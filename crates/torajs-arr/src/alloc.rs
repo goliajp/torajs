@@ -237,3 +237,28 @@ pub unsafe extern "C" fn __torajs_arr_alloc_any_filled(n: u64) -> *mut u8 {
         p
     }
 }
+
+/// `__torajs_arr_alloc_any_filled_f64(len)` — `new Array(len)` for a
+/// Number operand that is not provably an integer at compile time.
+/// §23.1.2.1 step 4.b: a len with ToUint32(len) != len (NaN /
+/// ±Infinity / fractional / negative / > 2^32-1) is a RangeError.
+/// The f64 entry exists because the SSA i64 coercion (FpToSi / const
+/// fold) erases exactly the bits this check needs; integer-provable
+/// operands stay on the u64 entry above. The round-trip cast check
+/// avoids libm (`trunc`) — `as u64` saturates NaN/negative to 0 and
+/// overflow to u64::MAX, all of which fail the equality or the range
+/// guards. `-0.0` passes (`-0.0 >= 0.0`, round-trips to `0.0`) per
+/// the spec's numeric (not SameValue) comparison.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_alloc_any_filled_f64(len: f64) -> *mut u8 {
+    const MAX_ARRAY_LEN: f64 = u32::MAX as f64;
+    if !(len >= 0.0 && len <= MAX_ARRAY_LEN && (len as u64) as f64 == len) {
+        unsafe {
+            __torajs_throw_range_error(
+                b"Array length must be a positive integer of safe magnitude.\0".as_ptr(),
+            );
+        }
+        return core::ptr::null_mut();
+    }
+    unsafe { __torajs_arr_alloc_any_filled(len as u64) }
+}

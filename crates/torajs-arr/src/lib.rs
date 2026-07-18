@@ -78,7 +78,7 @@ pub mod transform;
 
 pub use alloc::{
     __torajs_arr_alloc, __torajs_arr_alloc_any, __torajs_arr_alloc_any_filled,
-    __torajs_arr_alloc_pooled, __torajs_arr_free,
+    __torajs_arr_alloc_any_filled_f64, __torajs_arr_alloc_pooled, __torajs_arr_free,
 };
 pub use any::{
     __torajs_arr_extend_any, __torajs_arr_flat_any, __torajs_arr_get_any_boxed,
