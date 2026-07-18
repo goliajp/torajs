@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-18T00:30:28.571Z",
+  "generatedAt": "2026-07-18T02:29:54.182Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 94.41
   },
   "torajs": {
-    "commit": "e510d685",
-    "commitSubject": "fix: the ctor.prototype lowering boxes an owned singleton reference",
+    "commit": "6223048f",
+    "commitSubject": "fix: the no-super raiser keys on user-spelled ctors only",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "6223048f",
+      "subject": "fix: the no-super raiser keys on user-spelled ctors only"
+    },
+    {
+      "hash": "bde100ed",
+      "subject": "style: fmt-drift fix on the error-magic mod declaration order"
+    },
+    {
+      "hash": "d0ce3f53",
+      "subject": "refactor: split the error-ctor magic lowerings into a sibling"
+    },
+    {
+      "hash": "62b5e939",
+      "subject": "feat: a super-less derived constructor throws referenceerror on new"
+    },
+    {
+      "hash": "7044bcd5",
+      "subject": "feat: absent error message reads through the prototype chain"
+    },
+    {
+      "hash": "379f5dff",
+      "subject": "feat: error instance message is a real own property face"
+    },
+    {
+      "hash": "55609d2b",
+      "subject": "chore: hardev dashboard snapshot at rotation 138 close"
+    },
+    {
       "hash": "e510d685",
       "subject": "fix: the ctor.prototype lowering boxes an owned singleton reference"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "0f0855b9",
       "subject": "feat: object.prototype.__proto__ is a real accessor own entry"
-    },
-    {
-      "hash": "45ef86cc",
-      "subject": "chore: hardev dashboard snapshot at rotation 137 close"
-    },
-    {
-      "hash": "0c412f61",
-      "subject": "fix: a static method's .name answers the property key, not the mangled form"
-    },
-    {
-      "hash": "c92ea1c3",
-      "subject": "feat: error.prototype.tostring is an own function entry and the error ctor message is optional"
-    },
-    {
-      "hash": "b67a533b",
-      "subject": "fix: objlit data-field anns resolve at the construction site and stale arena copies stop minting layouts"
-    },
-    {
-      "hash": "a8ec213f",
-      "subject": "feat: error.iserror probes the errordata flag through an injected static method"
-    },
-    {
-      "hash": "024ebc25",
-      "subject": "fix: closure ret-ann sniff resolves captures at the construction site scope"
-    },
-    {
-      "hash": "e13f7827",
-      "subject": "chore: hardev dashboard snapshot at rotation 136 close"
     }
   ],
-  "headSha": "e510d685",
+  "headSha": "6223048f",
   "autorun": {
-    "total": 443,
+    "total": 444,
     "baselineTarget": 10,
-    "bySelf": 438,
+    "bySelf": 439,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784326917-2f8b",
-      "at": "2026-07-17T22:21:57Z",
-      "ts": 1784326917,
+      "rotationId": "r-1784334665-2ee1",
+      "at": "2026-07-18T00:31:05Z",
+      "ts": 1784334665,
       "trigger": "self",
-      "prevHead": "45ef86cc",
-      "handoffSha": "sha256:d4feaf270e93730b41d3f2052118010606b52c351454c069f50ec511c66f4dbf",
-      "handoffAgeSec": 5,
+      "prevHead": "55609d2b",
+      "handoffSha": "sha256:9a7fe242df0b8b412e34df30ba3c1b6e4e2910ba4407632bf4407aadfd563e23",
+      "handoffAgeSec": 8,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784334665-2ee1",
+        "at": "2026-07-18T00:31:05Z",
+        "ts": 1784334665,
+        "trigger": "self",
+        "prevHead": "55609d2b",
+        "handoffSha": "sha256:9a7fe242df0b8b412e34df30ba3c1b6e4e2910ba4407632bf4407aadfd563e23",
+        "handoffAgeSec": 8,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784326917-2f8b",
         "at": "2026-07-17T22:21:57Z",
@@ -876,17 +887,6 @@
         "prevHead": "62f26d9e",
         "handoffSha": "sha256:a390b1eda9499fcb07f748cc677540c7b810fc064600f0a8a147b53bfef7173e",
         "handoffAgeSec": 13,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784261305-6624",
-        "at": "2026-07-17T04:08:25Z",
-        "ts": 1784261305,
-        "trigger": "self",
-        "prevHead": "8a232424",
-        "handoffSha": "sha256:020544a1bdc5e67966bf609592b9f749c10389ab2f7615147b215488fb7b6d91",
-        "handoffAgeSec": 7,
         "conformanceBefore": null,
         "commitsInSession": null
       }
