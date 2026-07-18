@@ -201,6 +201,19 @@ impl<'a> Parser<'a> {
                     }
                 };
                 self.pos += 1;
+                // `x instanceof F` where F binds a class expression
+                // (`const F = class ... {}`) — resolve through the
+                // parse-order alias map to the synth class name
+                // (`__ClassExpr_<id>`), same consumption as `new F()`
+                // (primary_new_super) and `F.method()` (parse_postfix).
+                // The lowering's descendant-tag set is keyed on real
+                // class names; the raw binding name would miss and
+                // constant-fold to false.
+                let class_name = self
+                    .class_value_aliases
+                    .get(&class_name)
+                    .cloned()
+                    .unwrap_or(class_name);
                 left = self.ast.add_expr(Expr::InstanceOf {
                     expr: left,
                     class_name,
