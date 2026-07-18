@@ -172,8 +172,20 @@ pub(crate) unsafe fn str_method(s: *mut u8, mid: i64, argv: *const u64, argc: i6
             m if m == ANY_METHOD_TO_LOWER_CASE => __torajs_str_any_case(s, 0),
             m if m == ANY_METHOD_INDEX_OF || m == ANY_METHOD_INCLUDES => {
                 // ToString the needle (owned temp), scan, drop.
+                // §22.1.3.8 steps 3-4 — each coercion aborts
+                // (ReturnIfAbrupt, 刀 21 posture): without the checks
+                // the position coercion's throw clobbers the
+                // needle's (test262 S15.5.4.7_A4 family ordering).
                 let needle = __torajs_anyv_to_str(arg_at(0));
+                if __torajs_throw_check() != 0 {
+                    __torajs_str_drop(needle);
+                    return VALUE_UNDEFINED;
+                }
                 let from = to_index(arg_at(1), 0);
+                if __torajs_throw_check() != 0 {
+                    __torajs_str_drop(needle);
+                    return VALUE_UNDEFINED;
+                }
                 let idx = __torajs_str_any_index_of(s, needle as *const u8, from);
                 __torajs_str_drop(needle);
                 if m == ANY_METHOD_INDEX_OF {
@@ -183,18 +195,44 @@ pub(crate) unsafe fn str_method(s: *mut u8, mid: i64, argv: *const u64, argc: i6
                 }
             }
             m if m == ANY_METHOD_SLICE => {
+                // §22.1.3.21 steps 4-5 — ?ToIntegerOrInfinity(start)
+                // aborts before end's coercion runs (its throw would
+                // clobber start's; test262 S15.5.4.13_A1_T12 expects
+                // "instart").
                 let start = to_index(arg_at(0), 0);
+                if __torajs_throw_check() != 0 {
+                    return VALUE_UNDEFINED;
+                }
                 let end = to_index(arg_at(1), i64::MAX);
+                if __torajs_throw_check() != 0 {
+                    return VALUE_UNDEFINED;
+                }
                 __torajs_str_any_slice(s, start, end)
             }
             m if m == ANY_METHOD_SUBSTRING => {
+                // §22.1.3.24 steps 4-5 — same ReturnIfAbrupt pair as
+                // slice (test262 S15.5.4.15_A1_T12).
                 let start = to_index(arg_at(0), 0);
+                if __torajs_throw_check() != 0 {
+                    return VALUE_UNDEFINED;
+                }
                 let end = to_index(arg_at(1), i64::MAX);
+                if __torajs_throw_check() != 0 {
+                    return VALUE_UNDEFINED;
+                }
                 __torajs_str_any_substring(s, start, end)
             }
             m if m == ANY_METHOD_SUBSTR => {
+                // Annex B §B.2.2.1 steps 3-4 — same ReturnIfAbrupt
+                // pair as slice.
                 let start = to_index(arg_at(0), 0);
+                if __torajs_throw_check() != 0 {
+                    return VALUE_UNDEFINED;
+                }
                 let length = to_index(arg_at(1), i64::MAX);
+                if __torajs_throw_check() != 0 {
+                    return VALUE_UNDEFINED;
+                }
                 __torajs_str_any_substr(s, start, length)
             }
             m if m == ANY_METHOD_AT => __torajs_str_any_at(s, to_index(arg_at(0), 0)),
@@ -211,13 +249,30 @@ pub(crate) unsafe fn str_method(s: *mut u8, mid: i64, argv: *const u64, argc: i6
                 // ToString the needle (owned temp), test, drop.
                 // startsWith defaults pos to 0; endsWith's missing
                 // end rides as i64::MAX (kernel clamps to length).
+                // §22.1.3.23/.7 — ?ToString(search) then
+                // ?ToIntegerOrInfinity(pos), each aborting
+                // (ReturnIfAbrupt, 刀 21 posture).
                 let needle = __torajs_anyv_to_str(arg_at(0));
+                if __torajs_throw_check() != 0 {
+                    __torajs_str_drop(needle);
+                    return VALUE_UNDEFINED;
+                }
+                let pos = to_index(
+                    arg_at(1),
+                    if m == ANY_METHOD_STARTS_WITH {
+                        0
+                    } else {
+                        i64::MAX
+                    },
+                );
+                if __torajs_throw_check() != 0 {
+                    __torajs_str_drop(needle);
+                    return VALUE_UNDEFINED;
+                }
                 let hit = if m == ANY_METHOD_STARTS_WITH {
-                    let pos = to_index(arg_at(1), 0);
                     __torajs_str_any_starts_with(s, needle as *const u8, pos)
                 } else {
-                    let end = to_index(arg_at(1), i64::MAX);
-                    __torajs_str_any_ends_with(s, needle as *const u8, end)
+                    __torajs_str_any_ends_with(s, needle as *const u8, pos)
                 };
                 __torajs_str_drop(needle);
                 __torajs_anyv_box_from_pair(1, hit)
@@ -288,13 +343,23 @@ pub(crate) unsafe fn str_method(s: *mut u8, mid: i64, argv: *const u64, argc: i6
                 }
             }
             m if m == ANY_METHOD_PAD_START || m == ANY_METHOD_PAD_END => {
+                // §22.1.3.17 steps 2/4 — ?ToLength(maxLength) aborts
+                // before ?ToString(fillString) runs (ReturnIfAbrupt,
+                // 刀 21 posture).
                 let target = to_index(arg_at(0), 0);
+                if __torajs_throw_check() != 0 {
+                    return VALUE_UNDEFINED;
+                }
                 let end = (m == ANY_METHOD_PAD_END) as i64;
                 let pad_av = arg_at(1);
                 if is_undefined(pad_av) {
                     __torajs_str_any_pad(s, target, core::ptr::null(), end)
                 } else {
                     let pad = __torajs_anyv_to_str(pad_av);
+                    if __torajs_throw_check() != 0 {
+                        __torajs_str_drop(pad);
+                        return VALUE_UNDEFINED;
+                    }
                     let out = __torajs_str_any_pad(s, target, pad as *const u8, end);
                     __torajs_str_drop(pad);
                     out
