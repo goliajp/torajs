@@ -18,6 +18,7 @@
 //! is identity (round-trip-equivalent) until Phase 1 lands the first
 //! rule cluster.
 
+pub mod block_layout;
 pub mod branch_fold;
 pub mod cost;
 pub mod ctpop_idiom;
@@ -299,6 +300,17 @@ pub fn transform_module(mut module: Module) -> Module {
         let rc_stats = rc_peephole::elide_rc_pairs(&mut module);
         if std::env::var("TORAJS_RC_PEEPHOLE_STATS").as_deref() == Ok("1") {
             eprintln!("torajs-rc-peephole-stats: {rc_stats:?}");
+        }
+    }
+    // Loop-body contiguity layout — last, so the block order codegen
+    // sees (fall-through chains, positional liveness/spill weights)
+    // is the final one. Sinks cold blocks out of loop position
+    // ranges; no inst-level rewrites. `TORAJS_BLOCK_LAYOUT_OFF=1`
+    // skips (bisect gate).
+    if std::env::var("TORAJS_BLOCK_LAYOUT_OFF").as_deref() != Ok("1") {
+        let bl_stats = block_layout::layout_module(&mut module);
+        if std::env::var("TORAJS_BLOCK_LAYOUT_STATS").as_deref() == Ok("1") {
+            eprintln!("torajs-block-layout-stats: {bl_stats:?}");
         }
     }
     module
