@@ -102,6 +102,16 @@ pub fn csel_cond(rd: Gpr, rn: Gpr, rm: Gpr, cond: u8) -> u32 {
     0x9A80_0000 | (rm.idx() << 16) | ((cond as u32) << 12) | (rn.idx() << 5) | rd.idx()
 }
 
+/// CSINC Xd, Xn, Xm, <cond> — Xd = cond ? Xn : Xm + 1. ARM ARM
+/// C6.2.54. Collapses the conditional-increment shape
+/// `select c, (x+1), x` into a single instruction, dropping the ADD
+/// the select would otherwise consume. `cset_cond` above is the
+/// XZR/XZR alias of this same encoding.
+pub fn csinc_cond(rd: Gpr, rn: Gpr, rm: Gpr, cond: u8) -> u32 {
+    debug_assert!(cond < 16, "cond must fit in 4 bits");
+    0x9A80_0400 | (rm.idx() << 16) | ((cond as u32) << 12) | (rn.idx() << 5) | rd.idx()
+}
+
 /// ADRP Xd, label — PC-relative 4 KiB-aligned page address.
 /// ARM ARM C6.2.10. 21-bit signed immediate split into `immlo`
 /// (bits 30-29) and `immhi` (bits 23-5). Callers pass 0 and pair
@@ -201,6 +211,44 @@ mod tests {
     #[test]
     fn csel_gt_matches_clang() {
         assert_eq!(csel_cond(Gpr::X5, Gpr::X4, Gpr::X9, cond::GT), 0x9A89_C085);
+    }
+
+    // CSINC golden bytes — clang -target aarch64-apple-darwin:
+    //   csinc x3,  x1,  x2,  ne  ->  9a821423
+    //   csinc x0,  x0,  x1,  eq  ->  9a810400
+    //   csinc x5,  x4,  x9,  gt  ->  9a89c485
+    //   csinc x12, x16, x17, lt  ->  9a91b60c
+    #[test]
+    fn csinc_x3_x1_x2_ne_matches_clang() {
+        assert_eq!(csinc_cond(Gpr::X3, Gpr::X1, Gpr::X2, cond::NE), 0x9A82_1423);
+    }
+
+    #[test]
+    fn csinc_x0_x0_x1_eq_matches_clang() {
+        assert_eq!(csinc_cond(Gpr::X0, Gpr::X0, Gpr::X1, cond::EQ), 0x9A81_0400);
+    }
+
+    #[test]
+    fn csinc_x5_x4_x9_gt_matches_clang() {
+        assert_eq!(csinc_cond(Gpr::X5, Gpr::X4, Gpr::X9, cond::GT), 0x9A89_C485);
+    }
+
+    #[test]
+    fn csinc_x12_x16_x17_lt_matches_clang() {
+        assert_eq!(
+            csinc_cond(Gpr::X12, Gpr::X16, Gpr::X17, cond::LT),
+            0x9A91_B60C
+        );
+    }
+
+    #[test]
+    fn cset_is_the_xzr_alias_of_csinc() {
+        // CSET Xd, <cond> == CSINC Xd, XZR, XZR, invert(<cond>) —
+        // the two encoders must agree bit for bit.
+        assert_eq!(
+            cset_cond(Gpr::X9, cond::LT),
+            csinc_cond(Gpr::X9, Gpr::XZR, Gpr::XZR, cond::GE)
+        );
     }
 
     #[test]

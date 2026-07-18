@@ -8,7 +8,7 @@ use super::{
     OP_SCRATCH_RHS, OP_SCRATCH_TMP, write_def_spill_fpr, write_def_spill_gpr, write_u32,
 };
 use crate::enc::{
-    cmp_imm, cmp_reg, cmp_w_reg, cond, csel_cond, cset_cond, fcmp_d, fcsel_d, orr_reg,
+    cmp_imm, cmp_reg, cmp_w_reg, cond, csel_cond, cset_cond, csinc_cond, fcmp_d, fcsel_d, orr_reg,
 };
 use crate::regalloc::Assignment;
 
@@ -132,6 +132,30 @@ pub(crate) fn emit_select_fused(
     let rm = materialize_operand_gpr(bytes, else_op, OP_SCRATCH_RESULT_GPR, alloc);
     emit_compare_nzcv(bytes, &fc.lhs, &fc.rhs, alloc);
     write_u32(bytes, csel_cond(dst, rn, rm, ipred_to_cond(fc.pred)));
+    write_def_spill_gpr(bytes, spill_off, dst);
+}
+
+/// `select c, (x+1), x` fused into one CSINC (see compile/selinc.rs).
+/// CSINC increments its *false* arm, so both sources are `x` and the
+/// plan's cond code already carries the right polarity. The base
+/// materializes before the compare — reloads never touch NZCV.
+pub(crate) fn emit_select_inc(
+    bytes: &mut Vec<u8>,
+    inst: &Inst,
+    plan: &super::selinc::SelectIncPlan,
+    alloc: &Assignment,
+) {
+    let result_vid = inst.result.expect("Select must have a result");
+    let (dst, spill_off) = alloc.def_gpr(result_vid, OP_SCRATCH_RESULT_GPR);
+    let base = materialize_operand_gpr(bytes, &plan.base, OP_SCRATCH_TMP, alloc);
+    match &plan.cmp {
+        Some(fc) => emit_compare_nzcv(bytes, &fc.lhs, &fc.rhs, alloc),
+        None => {
+            let rc = materialize_operand_gpr(bytes, &plan.cond, OP_SCRATCH_LHS, alloc);
+            write_u32(bytes, cmp_imm(rc, 0));
+        }
+    }
+    write_u32(bytes, csinc_cond(dst, base, base, plan.cc));
     write_def_spill_gpr(bytes, spill_off, dst);
 }
 

@@ -39,6 +39,7 @@ mod ctpop_range_sum;
 mod mem;
 mod operand;
 mod refs;
+mod selinc;
 mod terminator;
 
 #[cfg(test)]
@@ -168,6 +169,10 @@ pub fn compile_function_with(
     // emits it. See compile/brfuse.rs.
     let fused_cmps = brfuse::fusible_cmps(func);
     let select_fused = brfuse::fusible_select_cmps(func);
+    // `select c, (x+1), x` collapses into one CSINC, absorbing the ADD
+    // (and the ICmp behind it, which the ADD used to keep out of
+    // fusible_select_cmps' adjacency window). See compile/selinc.rs.
+    let select_incs = selinc::fusible_select_incs(func);
 
     // Forwarder-resolved block map, shared by the terminator emit
     // (fall-through elision needs the next block's final identity)
@@ -184,6 +189,13 @@ pub fn compile_function_with(
             }
             if select_fused.contains_key(&(block.id.0, ii as u32)) {
                 continue; // the next Select emits this compare fused
+            }
+            if select_incs.absorbed(block.id.0, ii as u32) {
+                continue; // the CSINC downstream emits this add / compare
+            }
+            if let Some(plan) = select_incs.plan(block.id.0, ii as u32) {
+                cmp::emit_select_inc(&mut bytes, inst, plan, &alloc);
+                continue;
             }
             if let InstKind::Select(ty, _, then_op, else_op) = &inst.kind
                 && ii > 0

@@ -37,7 +37,7 @@ pub(crate) struct FusedCmp {
 
 /// Use counts over every inst operand + terminator operand — shared by
 /// the CondBr and Select fuse pickers (single-use gates).
-fn count_uses(func: &Function) -> HashMap<ValueId, u32> {
+pub(super) fn count_uses(func: &Function) -> HashMap<ValueId, u32> {
     let mut uses: HashMap<ValueId, u32> = HashMap::new();
     let mut bump = |v: ValueId| *uses.entry(v).or_insert(0) += 1;
     for block in &func.blocks {
