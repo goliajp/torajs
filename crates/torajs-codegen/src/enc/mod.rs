@@ -35,9 +35,9 @@ pub use ctrl::{
     cset_cond, ret,
 };
 pub use fp::{
-    add_v2d, addp_d_v2d, addv_b_v8b, cnt_v8b, cnt_v16b, dup_2d_x, fadd_d, fcmp_d, fcvtzs_x_d,
-    fdiv_d, fmov_d_from_x, fmov_d_to_d, fmov_x_from_d, fmul_d, fsub_d, ins_d1_x, ldr_d_imm12,
-    ldr_d_reg, movi_2d_zero, scvtf_d_x, str_d_imm12, str_d_reg, uadalp_2d, udot_4s,
+    add_v2d, addp_d_v2d, addv_b_v8b, cnt_v8b, cnt_v16b, dup_2d_x, fadd_d, fcmp_d, fcsel_d,
+    fcvtzs_x_d, fdiv_d, fmov_d_from_x, fmov_d_to_d, fmov_x_from_d, fmul_d, fsub_d, ins_d1_x,
+    ldr_d_imm12, ldr_d_reg, movi_2d_zero, scvtf_d_x, str_d_imm12, str_d_reg, uadalp_2d, udot_4s,
 };
 pub use int::{
     add_imm, add_imm_lsl12, add_reg, add_reg_lsl, and_imm_one, and_reg, asrv_reg, cmp_imm, cmp_reg,

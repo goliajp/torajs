@@ -47,6 +47,14 @@ pub fn fcmp_d(rn: Fpr, rm: Fpr) -> u32 {
     0x1E60_2000 | (rm.idx() << 16) | (rn.idx() << 5)
 }
 
+/// FCSEL Dd, Dn, Dm, <cond> — Dd = cond ? Dn : Dm. ARM ARM C6.2.100.
+/// The FPR twin of `csel_cond`; the f64 `InstKind::Select` lowering.
+/// Base = 0x1E60_0C00 (ftype=01 double, bit21=1, bits 11-10 = 11).
+pub fn fcsel_d(rd: Fpr, rn: Fpr, rm: Fpr, cond: u8) -> u32 {
+    debug_assert!(cond < 16, "cond must fit in 4 bits");
+    0x1E60_0C00 | (rm.idx() << 16) | ((cond as u32) << 12) | (rn.idx() << 5) | rd.idx()
+}
+
 /// CNT Vd.8B, Vn.8B — per-byte population count over the low 64 bits.
 /// Advanced SIMD two-register misc, Q=0 size=00. ARM ARM C7.2.35.
 /// Base = 0x0E20_5800.
@@ -180,10 +188,43 @@ pub fn str_d_reg(rt: Fpr, rn: Gpr, rm: Gpr) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::enc::ctrl::cond;
 
     #[test]
     fn fadd_d0_d1_d2_matches_arm_arm() {
         assert_eq!(fadd_d(Fpr::V0, Fpr::V1, Fpr::V2), 0x1E62_2820);
+    }
+
+    // FCSEL golden bytes — clang -target aarch64-apple-darwin, five
+    // points spanning cond, rd/rn/rm and the high register file:
+    //   fcsel d0,  d1,  d2,  ne  →  1e621c20
+    //   fcsel d3,  d4,  d9,  eq  →  1e690c83
+    //   fcsel d5,  d0,  d1,  gt  →  1e61cc05
+    //   fcsel d18, d16, d17, lt  →  1e71be12
+    //   fcsel d31, d31, d31, al  →  1e7fefff
+    #[test]
+    fn fcsel_d0_d1_d2_ne_matches_clang() {
+        assert_eq!(fcsel_d(Fpr::V0, Fpr::V1, Fpr::V2, cond::NE), 0x1E62_1C20);
+    }
+
+    #[test]
+    fn fcsel_d3_d4_d9_eq_matches_clang() {
+        assert_eq!(fcsel_d(Fpr::V3, Fpr::V4, Fpr::V9, cond::EQ), 0x1E69_0C83);
+    }
+
+    #[test]
+    fn fcsel_d5_d0_d1_gt_matches_clang() {
+        assert_eq!(fcsel_d(Fpr::V5, Fpr::V0, Fpr::V1, cond::GT), 0x1E61_CC05);
+    }
+
+    #[test]
+    fn fcsel_d18_d16_d17_lt_matches_clang() {
+        assert_eq!(fcsel_d(Fpr::V18, Fpr::V16, Fpr::V17, cond::LT), 0x1E71_BE12);
+    }
+
+    #[test]
+    fn fcsel_d31_d31_d31_al_matches_clang() {
+        assert_eq!(fcsel_d(Fpr::V31, Fpr::V31, Fpr::V31, cond::AL), 0x1E7F_EFFF);
     }
 
     #[test]
