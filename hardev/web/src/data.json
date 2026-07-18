@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-18T08:08:47.301Z",
+  "generatedAt": "2026-07-18T10:06:26.859Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 94.41
   },
   "torajs": {
-    "commit": "fce053b7",
-    "commitSubject": "fix: throwing callbacks abort the typed-tier ho loops",
+    "commit": "8cc0213e",
+    "commitSubject": "fix: error tostring rejects primitive cells; string() shows symbols",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "8cc0213e",
+      "subject": "fix: error tostring rejects primitive cells; string() shows symbols"
+    },
+    {
+      "hash": "2d3dda04",
+      "subject": "chore: hardev dashboard snapshot at rotation 140 close"
+    },
+    {
       "hash": "fce053b7",
       "subject": "fix: throwing callbacks abort the typed-tier ho loops"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "62b5e939",
       "subject": "feat: a super-less derived constructor throws referenceerror on new"
-    },
-    {
-      "hash": "7044bcd5",
-      "subject": "feat: absent error message reads through the prototype chain"
-    },
-    {
-      "hash": "379f5dff",
-      "subject": "feat: error instance message is a real own property face"
     }
   ],
-  "headSha": "fce053b7",
+  "headSha": "8cc0213e",
   "autorun": {
     "total": 445,
     "baselineTarget": 10,
