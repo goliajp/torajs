@@ -63,6 +63,7 @@ pub(crate) struct PrintFreezeIds {
     /// §13.15.3 concat-position twin — ToPrimitive(default) first.
     pub any_to_str_prim: FuncId,
     pub any_to_str_box: FuncId,
+    pub any_to_display_str: FuncId,
     pub obj_freeze: FuncId,
     pub obj_freeze_any: FuncId,
     pub obj_is_frozen: FuncId,
@@ -191,6 +192,13 @@ pub(crate) fn declare(
             module,
             fn_table,
             "__torajs_anyv_to_str",
+            &[Type::Any],
+            Type::Str,
+        ),
+        any_to_display_str: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_anyv_to_display_str",
             &[Type::Any],
             Type::Str,
         ),

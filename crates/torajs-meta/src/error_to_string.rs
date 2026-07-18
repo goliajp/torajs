@@ -198,6 +198,17 @@ pub unsafe extern "C" fn __torajs_error_proto_to_string(recv: u64) -> *mut u8 {
     }
     let p = recv as *const u8;
     let tag = unsafe { (p.add(4) as *const u16).read() };
+    // Primitive-shaped cells (heap Str 0 / Symbol 7 / BigInt 10) are
+    // not Objects either — same step 2 TypeError (a ShortStr is an
+    // immediate and already rejected above).
+    if matches!(tag, 0 | 7 | 10) {
+        unsafe {
+            __torajs_throw_type_error(
+                c"Error.prototype.toString requires that |this| be an Object".as_ptr(),
+            );
+        }
+        return core::ptr::null_mut();
+    }
     let flags = unsafe { (p.add(6) as *const u16).read() };
     // FLAG_ERROR Tag::Obj instance — the fixed-offset fast lane.
     if tag == 1 && flags & (1 << 7) != 0 {

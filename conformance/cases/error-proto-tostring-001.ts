@@ -40,12 +40,25 @@ try {
   console.log("toprim-throw:", e instanceof RangeError, e.message);
 }
 
-// Non-object receiver throws TypeError (step 2).
-try {
-  (Error.prototype.toString as any).call(5);
-} catch (e: any) {
-  console.log("non-obj:", e instanceof TypeError);
-}
+// Non-object receivers throw TypeError (step 2) — including
+// primitive-shaped CELLS (a heap string / symbol is not an Object).
+let rejects = 0;
+[undefined, null, 1, true, "a long heap string payload", Symbol("d")].forEach((v: any) => {
+  try {
+    (Error.prototype.toString as any).call(v);
+  } catch (e: any) {
+    if (e instanceof TypeError) { rejects++; }
+  }
+});
+console.log("non-obj rejects:", rejects);
+
+// §22.1.1 step 1.a — the explicit String() call answers a Symbol's
+// descriptive string instead of the implicit-coercion TypeError.
+// (Any-typed bindings: the direct `String(Symbol())` spelling is the
+// recorded typed-tier String(Symbol) checker gap.)
+const syT: any = Symbol("tagged");
+const syA: any = Symbol();
+console.log("sym-str:", String(syT), String(syA));
 
 // Reified through a variable — same cell identity both read paths.
 const f: any = (Error.prototype as any).toString;

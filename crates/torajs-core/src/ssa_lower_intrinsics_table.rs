@@ -413,6 +413,7 @@ pub(crate) fn build(
         any_to_str: init_c.print_freeze.any_to_str,
         any_to_str_prim: init_c.print_freeze.any_to_str_prim,
         any_to_str_box: init_c.print_freeze.any_to_str_box,
+        any_to_display_str: init_c.print_freeze.any_to_display_str,
         obj_freeze: init_c.print_freeze.obj_freeze,
         obj_freeze_any: init_c.print_freeze.obj_freeze_any,
         obj_is_frozen: init_c.print_freeze.obj_is_frozen,

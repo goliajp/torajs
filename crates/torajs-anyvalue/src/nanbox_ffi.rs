@@ -154,6 +154,28 @@ pub unsafe extern "C" fn __torajs_anyv_to_number(v: AnyValue) -> f64 {
     f64::NAN
 }
 
+/// `String(v)` per ES §22.1.1 — like [`__torajs_anyv_to_str`] except
+/// a Symbol answers its SymbolDescriptiveString instead of the
+/// §7.1.17 implicit-coercion TypeError (step 1.a: the explicit
+/// String() call is the ONE place a symbol stringifies).
+///
+/// # Safety
+/// Cell case: encoded pointer must be valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_to_display_str(v: AnyValue) -> *mut c_void {
+    if is_cell(v) {
+        let ptr = as_void_ptr(v);
+        let tag = unsafe { (ptr.cast::<u8>().add(4) as *const u16).read() };
+        if tag == Tag::Symbol as u16 {
+            unsafe extern "C" {
+                fn __torajs_symbol_to_str(p: *const c_void) -> *mut u8;
+            }
+            return unsafe { __torajs_symbol_to_str(ptr) as *mut c_void };
+        }
+    }
+    unsafe { __torajs_anyv_to_str(v) }
+}
+
 /// `ToString(v)` per ES §7.1.17. Returns a freshly-owned
 /// `*mut Str` the caller must drop.
 ///

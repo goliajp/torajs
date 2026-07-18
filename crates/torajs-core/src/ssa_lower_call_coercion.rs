@@ -257,14 +257,21 @@ pub(crate) fn emit_to_string(
                 None,
             ))
         }
-        // S133-2 — `String(Any)`: tag-dispatched ToString via runtime
-        // helper (reuses the existing `coerce_to_str(_, Type::Any)`
-        // path used by console.log multi-arg). Borrows the Any box;
-        // release an owned temp arg after the read.
+        // S133-2 — `String(Any)`: tag-dispatched ToString via the
+        // display variant (§22.1.1 step 1.a — the explicit String()
+        // call answers a Symbol's SymbolDescriptiveString instead of
+        // the §7.1.17 implicit-coercion TypeError; every other tag
+        // matches anyv_to_str). Borrows the Any box; release an owned
+        // temp arg after the read.
         Type::Any => {
-            let v = ctx.coerce_to_str(arg_op.clone(), Type::Any);
+            let v = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.any_to_display_str, vec![arg_op.clone()]),
+                Type::Str,
+                None,
+            );
             ctx.release_owned_temp(arg_eid, &arg_op);
-            v
+            Operand::Value(v)
         }
         // S137 — `String(arr)` per ES §22.1.3.30 ToString of Array =
         // `arr.join(",")`. Element type picks the matching arr_join
