@@ -261,6 +261,14 @@ pub unsafe extern "C" fn __torajs_any_member_set(
                 drop_payload(tag, value);
                 return;
             }
+            // RFC 20260718-error-message-own-prop — a class-layout
+            // DATA field takes the store when the payload matches the
+            // slot's type (Any / Str / I64 / F64 / Bool; frozen gate
+            // inside). A mismatch falls through to the loud reject —
+            // a typed slot never silently coerces.
+            if crate::struct_error_msg::struct_data_field_set(ptr, key, tag, value) {
+                return;
+            }
         }
         if cell_tag == Tag::Arr as u16 {
             // RFC 20260712-arr-exotic-define chunk C — own-domain

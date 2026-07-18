@@ -86,7 +86,9 @@ pub(crate) fn try_lower(
         && matches!(m_name.as_str(), "hasOwnProperty" | "propertyIsEnumerable")
         && let Some(arg_eid) = args.first()
     {
-        return Some(emit_obj_has_own_property(ctx, recv_ty, *arg_eid, args));
+        return Some(emit_obj_has_own_property(
+            ctx, recv_id, &recv_op, recv_ty, &m_name, *arg_eid, args,
+        ));
     }
     if matches!(recv_ty, Type::Str | Type::Substr)
         && matches!(m_name.as_str(), "hasOwnProperty" | "propertyIsEnumerable")
@@ -304,18 +306,41 @@ fn try_str_prop_check(
 /// struct_layouts. Runtime key (V3-18 m2.g) → inline str_eq chain over
 /// the struct's field names (zero-alloc — each name interned as
 /// literal Str).
+///
+/// RFC 20260718-error-message-own-prop — an Error-derived receiver's
+/// `message` attributes are runtime state (§20.5.6.1.1):
+/// propertyIsEnumerable("message") is constantly false
+/// ([[Enumerable]]: false), hasOwnProperty("message") reads the
+/// own-absence sentinel through `__torajs_error_message_present`.
 fn emit_obj_has_own_property(
     ctx: &mut LowerCtx<'_>,
+    recv_id: ExprId,
+    recv_op: &Operand,
     recv_ty: Type,
+    m_name: &str,
     arg_eid: ExprId,
     args: &[ExprId],
 ) -> Operand {
     let Type::Obj(sid) = recv_ty else {
         unreachable!("emit_obj_has_own_property called with non-Obj receiver");
     };
+    let is_err_recv = crate::ssa_lower_member_obj_field::class_name_of_expr(ctx, recv_id)
+        .is_some_and(|c| ctx.class_is_error_derived(&c));
+    let is_enumerable_probe = m_name == "propertyIsEnumerable";
+    let emit_message_present = |ctx: &mut LowerCtx<'_>| {
+        let cur_block = ctx.cur_block;
+        let v = ctx.f.append_inst(
+            cur_block,
+            InstKind::Call(ctx.intrinsics.error_message_present, vec![recv_op.clone()]),
+            Type::Bool,
+            None,
+        );
+        Operand::Value(v)
+    };
     if let Expr::String(key) = ctx.ast.get_expr(arg_eid) {
         // Literal key — compile-time fold. The lowered literal is a
         // static cell (rc no-op); nothing to release.
+        let key = key.clone();
         let layout = &ctx.struct_layouts[sid.0 as usize];
         // An accessor member rides the layout under its synthetic
         // `__getter_<k>` / `__setter_<k>` name — it IS the own
@@ -325,13 +350,19 @@ fn emit_obj_has_own_property(
         let setter = format!("__setter_{key}");
         let result = layout
             .iter()
-            .any(|(fname, _)| fname == key || *fname == getter || *fname == setter);
+            .any(|(fname, _)| *fname == key || *fname == getter || *fname == setter);
         let arg_val = ctx.lower_expr(arg_eid);
         ctx.release_owned_temp(arg_eid, &arg_val);
         // S304 — lower-and-drop trailing args per S272 idiom
         // (hasOwnProperty / propertyIsEnumerable useful arity 1).
         for &a in args.iter().skip(1) {
             let _ = ctx.lower_expr(a);
+        }
+        if result && is_err_recv && key == "message" {
+            if is_enumerable_probe {
+                return Operand::ConstBool(false);
+            }
+            return emit_message_present(ctx);
         }
         return Operand::ConstBool(result);
     }
@@ -346,6 +377,12 @@ fn emit_obj_has_own_property(
             .strip_prefix("__getter_")
             .or_else(|| fname.strip_prefix("__setter_"))
             .unwrap_or(fname);
+        // Error-derived `message` runtime attributes (see fn doc):
+        // the enumerable probe never matches it; the hasOwnProperty
+        // chain gates its eq on the own-presence probe.
+        if is_err_recv && public == "message" && is_enumerable_probe {
+            continue;
+        }
         let lit = ctx.intern_string_literal(public);
         let cmp_target = if key_ty == Type::Substr {
             ctx.intrinsics.substr_eq_str
@@ -358,7 +395,17 @@ fn emit_obj_has_own_property(
             Type::Bool,
             None,
         );
-        let eq_op = Operand::Value(eq);
+        let mut eq_op = Operand::Value(eq);
+        if is_err_recv && public == "message" {
+            let present = emit_message_present(ctx);
+            let and = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::BinOp(SsaBinOp::And, eq_op, present),
+                Type::Bool,
+                None,
+            );
+            eq_op = Operand::Value(and);
+        }
         if matches!(acc, Operand::ConstBool(false)) {
             acc = eq_op;
         } else {

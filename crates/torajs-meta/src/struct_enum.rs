@@ -176,7 +176,7 @@ unsafe fn alloc_str_from_raw(ptr: *const u8, len: usize) -> *mut u8 {
 /// transfers the returned array's ownership into the SSA value flow and
 /// runs a `throw_check` so the non-struct throw propagates.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_anyv_struct_keys(v: u64) -> *mut c_void {
+pub unsafe extern "C" fn __torajs_anyv_struct_keys(v: u64, include_nonenum: i64) -> *mut c_void {
     // Narrow surface: only a live `Tag::Obj` struct cell is claimed.
     if !is_cell_imm(v) || unsafe { heap_type_tag(v as *const c_void) } != TAG_OBJ {
         unsafe { __torajs_throw_type_error(NON_STRUCT_MSG.as_ptr() as *const c_char) };
@@ -198,6 +198,10 @@ pub unsafe extern "C" fn __torajs_anyv_struct_keys(v: u64) -> *mut c_void {
     while i < n {
         let name = unsafe { __torajs_struct_field_name(layout, i) };
         let (kp, klen) = unsafe { slot_key(name.ptr, name.len) };
+        if unsafe { error_message_skip(cell, layout, i, (kp, klen), include_nonenum) } {
+            i += 1;
+            continue;
+        }
         if unsafe { !key_already_emitted(layout, i, (kp, klen)) } {
             let s = unsafe { alloc_str_from_raw(kp, klen) };
             out = unsafe { __torajs_arr_push(out, s as i64) };
@@ -205,6 +209,80 @@ pub unsafe extern "C" fn __torajs_anyv_struct_keys(v: u64) -> *mut c_void {
         i += 1;
     }
     out as *mut c_void
+}
+
+/// RFC 20260718-error-message-own-prop — whether the enumeration
+/// walk skips this slot as the error-instance `message` property:
+/// the enumerable-only surfaces (`Object.keys` / for-in / values /
+/// entries, `include_nonenum = 0`) always skip it
+/// (§20.5.6.1.1 msgDesc [[Enumerable]]: false); the gOPN surface
+/// (`include_nonenum = 1`) skips only the own-ABSENT state (the
+/// undefined sentinel in the slot — no ctor message / deleted).
+unsafe fn error_message_skip(
+    cell: *const c_void,
+    layout: *const c_void,
+    idx: u32,
+    key: (*const u8, usize),
+    include_nonenum: i64,
+) -> bool {
+    let (kp, klen) = key;
+    if klen != 7 || unsafe { core::slice::from_raw_parts(kp, 7) } != b"message" {
+        return false;
+    }
+    let hdr_flags = unsafe { cell.cast::<u8>().add(6).cast::<u16>().read() };
+    if hdr_flags & crate::struct_reflect::FLAG_ERROR == 0 {
+        return false;
+    }
+    if include_nonenum == 0 {
+        return true;
+    }
+    let info = unsafe { __torajs_struct_field_info(layout, idx) };
+    let raw = unsafe {
+        cell.cast::<u8>()
+            .add(info.field_byte_offset as usize)
+            .cast::<u64>()
+            .read()
+    };
+    raw != 0 && unsafe { __torajs_str_is_undef(raw as *const u8) } != 0
+}
+
+unsafe extern "C" {
+    /// torajs-str — undefined sentinel identity probe (RFC 20260710
+    /// C1); the own-absence read of the error `message` slot.
+    fn __torajs_str_is_undef(p: *const u8) -> i64;
+    fn __torajs_struct_field_find(layout: *const c_void, name: *const u8, name_len: u32) -> u32;
+}
+
+/// Whether `cell` is a `FLAG_ERROR` struct whose `message` slot holds
+/// the own-absence sentinel (layout self-resolved) — the
+/// static-key-list filter's probe (`obj_own_keys` typed chooser).
+pub(crate) unsafe fn error_message_absent(cell: *const c_void) -> bool {
+    let hdr_flags = unsafe { cell.cast::<u8>().add(6).cast::<u16>().read() };
+    if hdr_flags & crate::struct_reflect::FLAG_ERROR == 0 {
+        return false;
+    }
+    let class_tag = unsafe {
+        cell.cast::<u8>()
+            .add(OBJ_CLASS_TAG_OFF)
+            .cast::<u32>()
+            .read()
+    };
+    let layout = unsafe { __torajs_struct_layout_lookup(class_tag) };
+    if layout.is_null() {
+        return false;
+    }
+    let idx = unsafe { __torajs_struct_field_find(layout, b"message".as_ptr(), 7) };
+    if idx == u32::MAX {
+        return false;
+    }
+    let info = unsafe { __torajs_struct_field_info(layout, idx) };
+    let raw = unsafe {
+        cell.cast::<u8>()
+            .add(info.field_byte_offset as usize)
+            .cast::<u64>()
+            .read()
+    };
+    raw != 0 && unsafe { __torajs_str_is_undef(raw as *const u8) } != 0
 }
 
 /// `Object.values(v)` arm for a `Tag::Obj` struct cell. Returns an
@@ -247,7 +325,9 @@ pub unsafe extern "C" fn __torajs_anyv_struct_values(v: u64) -> *mut c_void {
         // same dedup the keys walk does (pre-blade-6 the values walk had
         // none, so a paired accessor contributed its value twice).
         let key = unsafe { slot_key(name.ptr, name.len) };
-        if unsafe { key_already_emitted(layout, i, key) } {
+        if unsafe { key_already_emitted(layout, i, key) }
+            || unsafe { error_message_skip(cell, layout, i, key, 0) }
+        {
             i += 1;
             continue;
         }
@@ -298,7 +378,9 @@ pub unsafe extern "C" fn __torajs_anyv_struct_entries(v: u64) -> *mut c_void {
         let (kp, klen) = unsafe { slot_key(name.ptr, name.len) };
         // A get/set pair is ONE own property (the keys walk dedups the
         // same way).
-        if unsafe { key_already_emitted(layout, i, (kp, klen)) } {
+        if unsafe { key_already_emitted(layout, i, (kp, klen)) }
+            || unsafe { error_message_skip(cell, layout, i, (kp, klen), 0) }
+        {
             i += 1;
             continue;
         }

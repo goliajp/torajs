@@ -370,8 +370,30 @@ pub(crate) unsafe fn struct_field_pair_bytes(ptr: *mut c_void, name: &[u8]) -> O
         1 => (AnySlotTag::I64 as u64, raw),
         2 => (AnySlotTag::F64 as u64, raw),
         3 => (AnySlotTag::Bool as u64, raw),
-        _ => (AnySlotTag::Heap as u64, raw),
+        // Heap slot — undefined sentinels normalize to JS
+        // `undefined` (RFC 20260710 C1/C2b; the meta twin
+        // `field_slot_to_anyv_borrowed` already does), so a
+        // detached error `message` never leaks the 9-char cell.
+        _ => {
+            if raw != 0
+                && (unsafe { __torajs_str_is_undef(raw as *const u8) } != 0
+                    || unsafe { __torajs_is_undef_cell(raw as *const u8) } != 0)
+            {
+                (AnySlotTag::Undef as u64, 0)
+            } else {
+                (AnySlotTag::Heap as u64, raw)
+            }
+        }
     })
+}
+
+unsafe extern "C" {
+    /// torajs-str — undefined sentinel identity probe (RFC 20260710
+    /// C1).
+    fn __torajs_str_is_undef(p: *const u8) -> i64;
+    /// torajs-rc — generic undefined oddball probe (RFC 20260710
+    /// C2b).
+    fn __torajs_is_undef_cell(p: *const u8) -> i64;
 }
 
 /// Layout-resolved raw slot read shared by the pair / anyv decode

@@ -66,6 +66,8 @@ pub(crate) const WRAPPER_INNER_OFF: usize = 8;
 /// slot at +24 (`torajs_arr::layout::ARR_PROPS_OFF`).
 pub(crate) const ARR_LEN_OFF: usize = 8;
 pub(crate) const ARR_PROPS_OFF: usize = 24;
+/// Element storage pointer (`torajs_arr::layout::ARR_DATA_PTR_OFF`).
+const ARR_DATA_PTR_OFF: usize = 32;
 /// Closure env-cell props-dynobj slot (T-27 Function-as-Object,
 /// mirror `torajs_anyvalue::member_get::CLOSURE_PROPS_OFF`).
 pub(crate) const CLOSURE_PROPS_OFF: usize = 24;
@@ -166,10 +168,63 @@ pub unsafe extern "C" fn __torajs_obj_own_keys(
     include_nonenum: i64,
 ) -> *mut c_void {
     if obj.is_null() || !unsafe { is_dynobj(obj) } {
+        // RFC 20260718-error-message-own-prop — the typed tier's
+        // compile-time field list can't see the error `message`
+        // attributes (§20.5.6.1.1 [[Enumerable]]: false; own-absent
+        // sentinel): filter it here, the one site every typed keys /
+        // for-in / gOPN emit routes through.
+        if !obj.is_null() && unsafe { heap_type_tag_local(obj) } == TAG_OBJ_CELL {
+            let hdr_flags = unsafe { obj.cast::<u8>().add(6).cast::<u16>().read() };
+            let strip = if include_nonenum == 0 {
+                hdr_flags & crate::struct_reflect::FLAG_ERROR != 0
+            } else {
+                unsafe { crate::struct_enum::error_message_absent(obj) }
+            };
+            if strip {
+                unsafe { strip_key(static_names, b"message") };
+            }
+        }
         return static_names;
     }
     unsafe { __torajs_value_drop_heap(static_names) };
     unsafe { dynobj_keys_walk(obj, include_nonenum) }
+}
+
+/// Remove the first `name`-spelling Str from an owned freshly-minted
+/// `Arr<Str>` in place (shift-down + len decrement, dropping the
+/// removed cell). The static key lists this filters are the typed
+/// keys emit's private mint — never a shared array.
+unsafe fn strip_key(arr: *mut c_void, name: &[u8]) {
+    let len_slot = unsafe { arr.cast::<u8>().add(ARR_LEN_OFF) } as *mut u64;
+    let len = unsafe { len_slot.read() };
+    let data = unsafe {
+        arr.cast::<u8>()
+            .add(ARR_DATA_PTR_OFF)
+            .cast::<*mut u64>()
+            .read()
+    };
+    if data.is_null() {
+        return;
+    }
+    for i in 0..len {
+        let s = unsafe { data.add(i as usize).read() } as *const c_void;
+        if s.is_null() {
+            continue;
+        }
+        let slen = unsafe { s.cast::<u8>().add(8).cast::<u32>().read() } as usize;
+        if slen != name.len()
+            || unsafe { core::slice::from_raw_parts(s.cast::<u8>().add(16), slen) } != name
+        {
+            continue;
+        }
+        unsafe { __torajs_value_drop_heap(s as *mut c_void) };
+        for j in i..len - 1 {
+            let next = unsafe { data.add(j as usize + 1).read() };
+            unsafe { data.add(j as usize).write(next) };
+        }
+        unsafe { len_slot.write(len - 1) };
+        return;
+    }
 }
 
 /// Index-key list `["0", ..., "<len-1>"]`, plus a trailing
@@ -289,7 +344,9 @@ pub unsafe extern "C" fn __torajs_anyv_own_keys(v: u64, include_nonenum: i64) ->
                     unsafe { dynobj_keys_append(props, include_nonenum, out, false) as *mut c_void }
                 }
             }
-            TAG_OBJ_CELL => unsafe { crate::struct_enum::__torajs_anyv_struct_keys(v) },
+            TAG_OBJ_CELL => unsafe {
+                crate::struct_enum::__torajs_anyv_struct_keys(v, include_nonenum)
+            },
             // §10.4.3.3 String exotic OwnPropertyKeys — the
             // [[StringData]] integer indices come first (+ "length"
             // for gOPN, like the bare Str arm), then the expando

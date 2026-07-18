@@ -183,7 +183,7 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
         str_to_char_arr: decl!("__torajs_str_to_char_arr", [Ptr], Ptr),
         arr_entries_by_tag: decl!("__torajs_arr_entries_by_tag", [Ptr, I64], Ptr),
         str_entries: decl!("__torajs_str_entries", [Ptr], Ptr),
-        anyv_struct_keys: decl!("__torajs_anyv_struct_keys", [Any], Ptr),
+        anyv_struct_keys: decl!("__torajs_anyv_struct_keys", [Any, I64], Ptr),
         anyv_own_values: decl!("__torajs_anyv_own_values", [Any], Ptr),
         anyv_own_entries: decl!("__torajs_anyv_own_entries", [Any], Ptr),
         anyv_from_entries: decl!("__torajs_anyv_from_entries", [Any], Any),

@@ -1,0 +1,248 @@
+//! RFC 20260718-error-message-own-prop 刀 1 — `FLAG_ERROR` struct
+//! cell `message` own-property semantics + the struct data-field
+//! write arm.
+//!
+//! tr models an error instance's `message` as an always-present
+//! class-layout Str field; ES §20.5.6.1.1 makes it an ordinary
+//! `{ [[Writable]]: true, [[Enumerable]]: false, [[Configurable]]:
+//! true }` data property that only exists when the constructor got a
+//! non-undefined message. Own-ABSENCE is carried by the immortal
+//! `undefined` sentinel Str cell in the slot (RFC 20260707 — every
+//! reflection reader already normalizes the sentinel to JS
+//! `undefined`), so:
+//!
+//! - `delete err.message` detaches by swapping the sentinel in
+//!   (drops the old Str) and answers true — the [[Configurable]]
+//!   face `prop_delete`'s struct arm previously refused wholesale.
+//! - `hasOwnProperty` / gOPD answer absent when the slot holds the
+//!   sentinel.
+//! - `propertyIsEnumerable` answers false even when present.
+//!
+//! The data-field write arm ([`struct_data_field_set`]) is the
+//! [[Writable]] face: `any`-receiver assignment into a class-layout
+//! DATA field, gated on slot-type compatibility (Any / Str / I64 /
+//! F64 / Bool). A mismatched payload falls back to the caller's loud
+//! reject — a typed slot never silently coerces (shape transition is
+//! a recorded follow-up, `.claude/rfcs/20260718-error-message-own-prop`).
+
+use core::ffi::c_void;
+
+use torajs_rc::{AnySlotTag, Tag};
+
+unsafe extern "C" {
+    // torajs-structmeta — class-layout read side (struct_probe twins).
+    fn __torajs_struct_layout_lookup(class_tag: u32) -> *const c_void;
+    fn __torajs_struct_field_find(layout: *const c_void, name: *const u8, name_len: u32) -> u32;
+    fn __torajs_struct_field_info(layout: *const c_void, idx: u32) -> FieldInfo;
+    // torajs-str — the immortal `undefined` sentinel cell: address
+    // mint + identity probe (RFC 20260707 chunk 2/3).
+    fn __torajs_str_undef() -> *mut u8;
+    fn __torajs_str_is_undef(p: *const u8) -> i64;
+    fn __torajs_str_drop(s: *mut c_void);
+    // torajs-rc — frozen header bit (ES §7.3.14: frozen ⇒ every data
+    // property [[Writable]] = false).
+    fn __torajs_obj_is_frozen(p: *const c_void) -> bool;
+    // torajs-throw — record a pending catchable TypeError.
+    fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
+}
+
+use crate::nanbox_ffi::__torajs_anyv_rc_dec;
+
+/// Mirror of `torajs-structmeta::FieldInfo` (`struct_probe.rs` twin).
+#[repr(C)]
+struct FieldInfo {
+    field_byte_offset: u32,
+    type_tag: u8,
+}
+
+/// Layout mirrors (`struct_probe.rs` twins).
+const OBJ_CLASS_TAG_OFF: usize = 8;
+const STR_LEN_OFF: usize = 8;
+const STR_DATA_OFF: usize = 16;
+
+/// Resolve the `message` field slot of a `FLAG_ERROR` struct cell.
+/// `None` when the cell is not an error instance or its layout has
+/// no `message` field (a user subclass that shadowed the walk —
+/// desugar field-flattening makes that unreachable today, but the
+/// probe stays total).
+///
+/// # Safety
+/// `ptr` is a live `Tag::Obj` heap pointer.
+unsafe fn error_message_slot(ptr: *const c_void) -> Option<*mut u64> {
+    if !unsafe { crate::member_get::header_flag(ptr, torajs_rc::FLAG_ERROR) } {
+        return None;
+    }
+    let class_tag = unsafe { ptr.cast::<u8>().add(OBJ_CLASS_TAG_OFF).cast::<u32>().read() };
+    let layout = unsafe { __torajs_struct_layout_lookup(class_tag) };
+    if layout.is_null() {
+        return None;
+    }
+    let idx = unsafe { __torajs_struct_field_find(layout, b"message".as_ptr(), 7) };
+    if idx == u32::MAX {
+        return None;
+    }
+    let info = unsafe { __torajs_struct_field_info(layout, idx) };
+    Some(unsafe { ptr.cast::<u8>().add(info.field_byte_offset as usize) } as *mut u64)
+}
+
+/// Whether `ptr` is a `FLAG_ERROR` cell whose `message` slot holds
+/// the own-absence sentinel.
+///
+/// # Safety
+/// `ptr` is a live `Tag::Obj` heap pointer.
+pub(crate) unsafe fn error_message_is_absent(ptr: *const c_void) -> bool {
+    match unsafe { error_message_slot(ptr) } {
+        Some(slot) => {
+            let raw = unsafe { slot.read() };
+            raw != 0 && unsafe { __torajs_str_is_undef(raw as *const u8) } != 0
+        }
+        None => false,
+    }
+}
+
+/// `delete err.message` — §20.5.6.1.1 msgDesc [[Configurable]]:
+/// true. Swaps the own-absence sentinel into the slot (dropping the
+/// old Str; a re-delete is an idempotent spec success). Answers 1
+/// on the error-message slot, 0 for anything else (the caller keeps
+/// the fixed-layout refusal for ordinary struct fields).
+///
+/// # Safety
+/// `ptr` is a live `Tag::Obj` heap pointer; `key` is a live Str cell.
+pub(crate) unsafe fn error_message_delete(ptr: *mut c_void, key: *const c_void) -> i64 {
+    if !unsafe { crate::prop_has::key_is(key, b"message") } {
+        return 0;
+    }
+    let Some(slot) = (unsafe { error_message_slot(ptr) }) else {
+        return 0;
+    };
+    let old = unsafe { slot.read() };
+    if old != 0 && unsafe { __torajs_str_is_undef(old as *const u8) } == 0 {
+        unsafe { __torajs_str_drop(old as *mut c_void) };
+    }
+    unsafe { slot.write(__torajs_str_undef() as u64) };
+    1
+}
+
+/// Whether `key` names the error-message own property in its ABSENT
+/// state (`FLAG_ERROR` cell + `"message"` + sentinel slot) — the
+/// hasOwnProperty / gOPD miss gate.
+///
+/// # Safety
+/// `ptr` is a live `Tag::Obj` heap pointer; `key` is a live Str cell.
+pub(crate) unsafe fn error_message_absent_key(ptr: *const c_void, key: *const c_void) -> bool {
+    unsafe { crate::prop_has::key_is(key, b"message") && error_message_is_absent(ptr) }
+}
+
+/// C ABI own-presence probe — the typed tier's
+/// `err.hasOwnProperty("message")` emit (a compile-time fold can't
+/// see the runtime absent state).
+///
+/// # Safety
+/// `obj` is a live `Tag::Obj` heap pointer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_error_message_present(obj: *const c_void) -> i64 {
+    (!unsafe { error_message_is_absent(obj) }) as i64
+}
+
+/// `any`-receiver assignment into a class-layout DATA field — the
+/// §10.1.9 [[Set]] face `member_set`'s struct arm previously
+/// rejected wholesale. Consumes the `(tag, value)` payload on
+/// success (true); an absent field / accessor spelling / mismatched
+/// payload type answers false with the payload untouched so the
+/// caller's reject stays loud.
+///
+/// # Safety
+/// `ptr` is a live `Tag::Obj` heap pointer; `key` is a live Str
+/// cell; the payload follows the lowering's consume convention
+/// (heap tag carries a transferred +1).
+pub(crate) unsafe fn struct_data_field_set(
+    ptr: *mut c_void,
+    key: *const c_void,
+    tag: u64,
+    value: u64,
+) -> bool {
+    let class_tag = unsafe { ptr.cast::<u8>().add(OBJ_CLASS_TAG_OFF).cast::<u32>().read() };
+    let layout = unsafe { __torajs_struct_layout_lookup(class_tag) };
+    if layout.is_null() {
+        return false;
+    }
+    let k = key as *const u8;
+    let key_len = unsafe { k.add(STR_LEN_OFF).cast::<u32>().read() };
+    let key_bytes = unsafe { k.add(STR_DATA_OFF) };
+    let idx = unsafe { __torajs_struct_field_find(layout, key_bytes, key_len) };
+    if idx == u32::MAX {
+        return false;
+    }
+    let info = unsafe { __torajs_struct_field_info(layout, idx) };
+    let slot = unsafe { ptr.cast::<u8>().add(info.field_byte_offset as usize) } as *mut u64;
+    // ES §7.3.14 — a frozen struct's data properties are all
+    // non-writable; module code is strict so the refused [[Set]]
+    // throws. Checked only after the field resolves: a miss stays
+    // the caller's (different) reject.
+    if unsafe { __torajs_obj_is_frozen(ptr) } {
+        unsafe {
+            if tag == AnySlotTag::Heap as u64 {
+                __torajs_anyv_rc_dec(crate::nanbox_encode::__torajs_anyv_box_from_pair(
+                    tag as i64,
+                    value as i64,
+                ));
+            }
+            __torajs_throw_type_error(c"Attempted to assign to readonly property.".as_ptr());
+        }
+        return true;
+    }
+    match info.type_tag {
+        // Any slot — the NaN-box stores verbatim; the old box's
+        // stake is released, the payload's transferred +1 becomes
+        // the slot's.
+        0 => unsafe {
+            let old = slot.read();
+            slot.write(crate::nanbox_encode::__torajs_anyv_box_from_pair(
+                tag as i64,
+                value as i64,
+            ));
+            __torajs_anyv_rc_dec(old);
+            true
+        },
+        // Str slot — accepts a heap Str cell (the sentinel included:
+        // it IS a Str cell whose rc traffic no-ops). Any other heap
+        // shape / a non-heap payload falls back to the loud reject.
+        4 => unsafe {
+            if tag != AnySlotTag::Heap as u64 || value == 0 {
+                return false;
+            }
+            let cell_tag = (value as *const u8).add(4).cast::<u16>().read();
+            if cell_tag != Tag::Str as u16 {
+                return false;
+            }
+            let old = slot.read();
+            slot.write(value);
+            if old != 0 {
+                __torajs_str_drop(old as *mut c_void);
+            }
+            true
+        },
+        // I64 slot ← I64 payload.
+        1 if tag == AnySlotTag::I64 as u64 => unsafe {
+            slot.write(value);
+            true
+        },
+        // F64 slot ← F64 bits, or an I64 payload converted.
+        2 if tag == AnySlotTag::F64 as u64 => unsafe {
+            slot.write(value);
+            true
+        },
+        2 if tag == AnySlotTag::I64 as u64 => unsafe {
+            slot.write((value as i64 as f64).to_bits());
+            true
+        },
+        // Bool slot ← Bool payload.
+        3 if tag == AnySlotTag::Bool as u64 => unsafe {
+            slot.write(value);
+            true
+        },
+        // Mismatched payload for a typed slot — loud reject upstream
+        // (recorded follow-up: shape transition).
+        _ => false,
+    }
+}

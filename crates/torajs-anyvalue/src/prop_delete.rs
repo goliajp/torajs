@@ -132,7 +132,13 @@ pub unsafe extern "C" fn __torajs_any_prop_delete(recv: AnyValue, key: *const c_
             }
             1
         }
-        Some((_, t)) if t == Tag::Obj as u16 => 0,
+        // RFC 20260718-error-message-own-prop — the error-instance
+        // `message` own property is [[Configurable]]: true
+        // (§20.5.6.1.1); its delete detaches by sentinel swap. Every
+        // other struct field keeps the fixed-layout refusal.
+        Some((ptr, t)) if t == Tag::Obj as u16 => unsafe {
+            crate::struct_error_msg::error_message_delete(ptr, key)
+        },
         // RFC 20260716 刀 5 (rotation 121 chunk 5) — wrapper expando
         // delete (mirror of the closure arm). A NULL props slot
         // (never any assign) answers 1 idempotently: `delete <expr>`

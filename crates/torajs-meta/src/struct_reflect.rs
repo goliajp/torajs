@@ -336,6 +336,20 @@ pub(crate) unsafe fn struct_cell_descriptor(cell: *const c_void, key: *const c_v
             .cast::<u64>()
             .read()
     };
+    // RFC 20260718-error-message-own-prop — the error-instance
+    // `message` own property (§20.5.6.1.1): the own-absence sentinel
+    // in the slot means the property does not exist (undefined ctor
+    // message / a delete detach), and a present one is
+    // `{ [[Writable]]: true, [[Enumerable]]: FALSE, [[Configurable]]:
+    // true }` — the only struct field whose enumerable is not true.
+    let hdr_flags = unsafe { cell.cast::<u8>().add(6).cast::<u16>().read() };
+    let is_error_message = hdr_flags & FLAG_ERROR != 0
+        && key_len == 7
+        && unsafe { core::slice::from_raw_parts(key_bytes, 7) } == b"message";
+    if is_error_message && raw != 0 && unsafe { __torajs_str_is_undef(raw as *const u8) } != 0 {
+        return VALUE_UNDEFINED_IMM;
+    }
+
     // The descriptor owns its own ref to a heap value — the owned
     // pair decode carries exactly one stake (cell +1 / ShortStr
     // materialization; no separate inc, see field_slot_to_pair_owned).
@@ -355,5 +369,12 @@ pub(crate) unsafe fn struct_cell_descriptor(cell: *const c_void, key: *const c_v
     let sealed = frozen || unsafe { __torajs_obj_is_sealed_marked(cell) };
     let writable = if frozen { 0 } else { 1 };
     let configurable = if sealed { 0 } else { 1 };
-    unsafe { crate::reflect::build_data_descriptor(v_tag, v_val, writable, 1, configurable) }
+    let enumerable = if is_error_message { 0 } else { 1 };
+    unsafe {
+        crate::reflect::build_data_descriptor(v_tag, v_val, writable, enumerable, configurable)
+    }
 }
+
+/// `HeapHeader::flags` bit 7 on a `Tag::Obj` cell — [[ErrorData]]
+/// (`torajs_rc::FLAG_ERROR` mirror; `error_to_string.rs` twin).
+pub(crate) const FLAG_ERROR: u16 = 1 << 7;

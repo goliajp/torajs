@@ -123,6 +123,13 @@ unsafe fn struct_has_own(ptr: *const c_void, key: *const c_void) -> i64 {
     }
     let (name_bytes, name_len) = unsafe { key_bytes(key) };
     if unsafe { __torajs_struct_field_find(layout, name_bytes, name_len) } != u32::MAX {
+        // RFC 20260718-error-message-own-prop — an error instance's
+        // `message` slot holding the own-absence sentinel means the
+        // property does not exist (§20.5.6.1.1: an undefined ctor
+        // message defines no own `message`; a delete detaches it).
+        if unsafe { crate::struct_error_msg::error_message_absent_key(ptr, key) } {
+            return 0;
+        }
         return 1;
     }
     const ACC_GETTER: u8 = 0;
@@ -388,7 +395,17 @@ pub unsafe extern "C" fn __torajs_any_prop_enumerable(recv: AnyValue, key: *cons
                 ((unsafe { __torajs_dynobj_get_flags(props, key) } & 0x2) != 0) as i64
             }
         }
-        Some((ptr, t)) if t == Tag::Obj as u16 => unsafe { struct_has_own(ptr, key) },
+        Some((ptr, t)) if t == Tag::Obj as u16 => unsafe {
+            // RFC 20260718-error-message-own-prop — §20.5.6.1.1
+            // msgDesc [[Enumerable]]: false; every other struct
+            // field keeps the ordinary all-true attributes.
+            if crate::member_get::header_flag(ptr, torajs_rc::FLAG_ERROR) && key_is(key, b"message")
+            {
+                0
+            } else {
+                struct_has_own(ptr, key)
+            }
+        },
         Some((ptr, t)) if t == Tag::Str as u16 => {
             let len = unsafe { ptr.cast::<u8>().add(STR_LEN_OFF).cast::<u32>().read() } as u64;
             unsafe { str_index_enumerable(len, key) }
