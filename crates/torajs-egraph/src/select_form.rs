@@ -185,9 +185,10 @@ fn form_once(func: &mut Function, stats: &mut SelectFormStats) -> bool {
         if tp.copies.len() != ep.copies.len() {
             continue;
         }
-        let paired = tp.copies.iter().all(|(v, _, _)| {
-            ep.copies.iter().any(|(w, _, _)| w == v) && defs.get(v) == Some(&2)
-        });
+        let paired = tp
+            .copies
+            .iter()
+            .all(|(v, _, _)| ep.copies.iter().any(|(w, _, _)| w == v) && defs.get(v) == Some(&2));
         let self_ref = tp
             .copies
             .iter()
