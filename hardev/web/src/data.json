@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-18T15:34:08.411Z",
+  "generatedAt": "2026-07-18T15:49:29.762Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 94.78
   },
   "torajs": {
-    "commit": "3eecda81",
-    "commitSubject": "perf: fuse adjacent single-use icmp into csel predicate",
+    "commit": "366176fd",
+    "commitSubject": "chore: hardev dashboard snapshot at rotation 143 close (final)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,10 @@
   },
   "commits": [
     {
+      "hash": "366176fd",
+      "subject": "chore: hardev dashboard snapshot at rotation 143 close (final)"
+    },
+    {
       "hash": "3eecda81",
       "subject": "perf: fuse adjacent single-use icmp into csel predicate"
     },
@@ -755,13 +759,9 @@
     {
       "hash": "9ce31c07",
       "subject": "perf: block-tail icmp fuses into its condbr; empty br chains fold"
-    },
-    {
-      "hash": "f0b2e354",
-      "subject": "refactor: hoist visit_value_operands into torajs-core ssa"
     }
   ],
-  "headSha": "3eecda81",
+  "headSha": "366176fd",
   "autorun": {
     "total": 448,
     "baselineTarget": 10,
