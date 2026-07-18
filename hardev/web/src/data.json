@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-18T20:28:34.208Z",
+  "generatedAt": "2026-07-18T21:00:27.448Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 94.78
   },
   "torajs": {
-    "commit": "1c03c68f",
-    "commitSubject": "refactor: third id-switch slice for str_method",
+    "commit": "3f663535",
+    "commitSubject": "refactor: split callable probes and struct arm out of method_call_dynobj",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,26 @@
   },
   "commits": [
     {
+      "hash": "3f663535",
+      "subject": "refactor: split callable probes and struct arm out of method_call_dynobj"
+    },
+    {
+      "hash": "84f59da9",
+      "subject": "refactor: split pair-arg shims out of nanbox_encode"
+    },
+    {
+      "hash": "8bcbd6bd",
+      "subject": "refactor: ast.rs keeps the module tree, Ast type moves to a child"
+    },
+    {
+      "hash": "4d26af63",
+      "subject": "refactor: split anyvalue equality and arithmetic shims out of nanbox_ffi"
+    },
+    {
+      "hash": "dd18afdd",
+      "subject": "chore: hardev dashboard snapshot at rotation 146 close"
+    },
+    {
       "hash": "1c03c68f",
       "subject": "refactor: third id-switch slice for str_method"
     },
@@ -739,47 +759,38 @@
     {
       "hash": "5e4a98d3",
       "subject": "chore: full 44-cell bench results at f6918487"
-    },
-    {
-      "hash": "d4dc0e83",
-      "subject": "refactor: split terminator emit out of the compile driver"
-    },
-    {
-      "hash": "f6918487",
-      "subject": "perf: collapse counted ctpop reductions to the simd super-inst"
-    },
-    {
-      "hash": "a198c46e",
-      "subject": "refactor: gated_pass helper for the egraph pass driver"
-    },
-    {
-      "hash": "1b6fd949",
-      "subject": "feat: instkind ctpop-range-sum substrate + canned 8-wide simd emit"
-    },
-    {
-      "hash": "efda278f",
-      "subject": "chore: hardev dashboard snapshot at rotation 144 close"
     }
   ],
-  "headSha": "1c03c68f",
+  "headSha": "3f663535",
   "autorun": {
-    "total": 451,
+    "total": 452,
     "baselineTarget": 10,
-    "bySelf": 446,
+    "bySelf": 447,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784402598-1316",
-      "at": "2026-07-18T19:23:18Z",
-      "ts": 1784402598,
+      "rotationId": "r-1784408414-36b0",
+      "at": "2026-07-18T21:00:14Z",
+      "ts": 1784408414,
       "trigger": "self",
-      "prevHead": "a2cd4574",
-      "handoffSha": "sha256:7131e85fd9b6b46df8aa27ac4b8b736a5de8ef7654681a9ac33b27ec2732ef62",
-      "handoffAgeSec": 3,
+      "prevHead": "3f663535",
+      "handoffSha": "sha256:e2e4c44a8ca129b536df42778670d6adb84ce63a03fac5ddcf14faf867e46dc1",
+      "handoffAgeSec": 1844,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784408414-36b0",
+        "at": "2026-07-18T21:00:14Z",
+        "ts": 1784408414,
+        "trigger": "self",
+        "prevHead": "3f663535",
+        "handoffSha": "sha256:e2e4c44a8ca129b536df42778670d6adb84ce63a03fac5ddcf14faf867e46dc1",
+        "handoffAgeSec": 1844,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784402598-1316",
         "at": "2026-07-18T19:23:18Z",
@@ -876,17 +887,6 @@
         "prevHead": "45ef86cc",
         "handoffSha": "sha256:d4feaf270e93730b41d3f2052118010606b52c351454c069f50ec511c66f4dbf",
         "handoffAgeSec": 5,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784319960-3b4d",
-        "at": "2026-07-17T20:26:00Z",
-        "ts": 1784319960,
-        "trigger": "self",
-        "prevHead": "e13f7827",
-        "handoffSha": "sha256:007b484c7a69a30cc7d12c6df9c9fa4831c3f7215c1f7c1b5bf6dab908809b50",
-        "handoffAgeSec": 7787,
         "conformanceBefore": null,
         "commitsInSession": null
       }
