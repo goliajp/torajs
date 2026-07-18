@@ -35,6 +35,7 @@ pub mod phi_promote;
 pub mod rc_peephole;
 pub mod rewrite;
 pub mod scope_map;
+pub mod select_form;
 pub mod sext_elide;
 pub mod slot_forward;
 pub mod srem_parity;
@@ -255,6 +256,18 @@ pub fn transform_module(mut module: Module) -> Module {
         let cp_stats = ctpop_idiom::recognize_ctpop_loops(&mut module);
         if std::env::var("TORAJS_CTPOP_STATS").as_deref() == Ok("1") {
             eprintln!("torajs-ctpop-stats: {cp_stats:?}");
+        }
+    }
+    // Select formation — if-convert pure CondBr diamonds into csel-
+    // shaped `Select` defs (RFC 20260719-select-formation blade 2).
+    // After ctpop so every arm-shaping rewrite (float_demote /
+    // srem_parity) is done; before rc_peephole, which treats Select
+    // as rc-transparent. `TORAJS_SELECT_FORM_OFF=1` skips (bisect
+    // gate, mirrors the sibling passes).
+    if std::env::var("TORAJS_SELECT_FORM_OFF").as_deref() != Ok("1") {
+        let sf_stats = select_form::form_selects(&mut module);
+        if std::env::var("TORAJS_SELECT_FORM_STATS").as_deref() == Ok("1") {
+            eprintln!("torajs-select-form-stats: {sf_stats:?}");
         }
     }
     // TORAJS_SSA_DUMP=1 — pretty-print the post-egraph pre-peephole
