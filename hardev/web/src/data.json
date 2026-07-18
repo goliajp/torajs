@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-17T22:21:18.874Z",
+  "generatedAt": "2026-07-18T00:30:28.571Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-17T15:24:39Z",
-    "headSha": "7ea6753b",
-    "elapsedSec": 874.28,
+    "ranAt": "2026-07-18T00:09:50Z",
+    "headSha": "c33c69d4",
+    "elapsedSec": 579.58,
     "workers": 8,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 7697,
-    "passNoOracle": 111,
+    "pass": 7826,
+    "passNoOracle": 112,
     "passNegative": 4447,
-    "passTotal": 12255,
-    "bug": 735,
-    "incompatible": 40184,
+    "passTotal": 12385,
+    "bug": 734,
+    "incompatible": 40055,
     "bunSkip": 11908,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 12990,
-    "passRateInScope": 23.05,
-    "passRateTrAccepted": 94.34
+    "trAccepted": 13119,
+    "passRateInScope": 23.29,
+    "passRateTrAccepted": 94.41
   },
   "torajs": {
-    "commit": "0c412f61",
-    "commitSubject": "fix: a static method's .name answers the property key, not the mangled form",
+    "commit": "e510d685",
+    "commitSubject": "fix: the ctor.prototype lowering boxes an owned singleton reference",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "e510d685",
+      "subject": "fix: the ctor.prototype lowering boxes an owned singleton reference"
+    },
+    {
+      "hash": "c33c69d4",
+      "subject": "feat: function.prototype caller/arguments are the %throwtypeerror% accessors"
+    },
+    {
+      "hash": "e7710e70",
+      "subject": "feat: static accessors desugar as suffixed faces and reify on the class object"
+    },
+    {
+      "hash": "71f6d934",
+      "subject": "feat: a class accessor is a real accessorpair own entry on the prototype"
+    },
+    {
+      "hash": "0f0855b9",
+      "subject": "feat: object.prototype.__proto__ is a real accessor own entry"
+    },
+    {
+      "hash": "45ef86cc",
+      "subject": "chore: hardev dashboard snapshot at rotation 137 close"
+    },
+    {
       "hash": "0c412f61",
       "subject": "fix: a static method's .name answers the property key, not the mangled form"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "e13f7827",
       "subject": "chore: hardev dashboard snapshot at rotation 136 close"
-    },
-    {
-      "hash": "7e3f396d",
-      "subject": "Revert \"feat: error.iserror probes the errordata flag through an injected static method\""
-    },
-    {
-      "hash": "1ddd3d28",
-      "subject": "feat: error.iserror probes the errordata flag through an injected static method"
-    },
-    {
-      "hash": "646ec311",
-      "subject": "feat: evalerror and urierror join the injected nativeerror family"
-    },
-    {
-      "hash": "94bd0d30",
-      "subject": "feat: derived class ctors chain to the parent ctor and error prototypes carry own name/message"
-    },
-    {
-      "hash": "08a9895f",
-      "subject": "feat: internal proto link moves to a user-unspellable simulation-slot key"
-    },
-    {
-      "hash": "49c6b293",
-      "subject": "chore: hardev dashboard snapshot at rotation 135 close"
     }
   ],
-  "headSha": "0c412f61",
+  "headSha": "e510d685",
   "autorun": {
-    "total": 442,
+    "total": 443,
     "baselineTarget": 10,
-    "bySelf": 437,
+    "bySelf": 438,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784319960-3b4d",
-      "at": "2026-07-17T20:26:00Z",
-      "ts": 1784319960,
+      "rotationId": "r-1784326917-2f8b",
+      "at": "2026-07-17T22:21:57Z",
+      "ts": 1784326917,
       "trigger": "self",
-      "prevHead": "e13f7827",
-      "handoffSha": "sha256:007b484c7a69a30cc7d12c6df9c9fa4831c3f7215c1f7c1b5bf6dab908809b50",
-      "handoffAgeSec": 7787,
+      "prevHead": "45ef86cc",
+      "handoffSha": "sha256:d4feaf270e93730b41d3f2052118010606b52c351454c069f50ec511c66f4dbf",
+      "handoffAgeSec": 5,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784326917-2f8b",
+        "at": "2026-07-17T22:21:57Z",
+        "ts": 1784326917,
+        "trigger": "self",
+        "prevHead": "45ef86cc",
+        "handoffSha": "sha256:d4feaf270e93730b41d3f2052118010606b52c351454c069f50ec511c66f4dbf",
+        "handoffAgeSec": 5,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784319960-3b4d",
         "at": "2026-07-17T20:26:00Z",
@@ -876,17 +887,6 @@
         "prevHead": "8a232424",
         "handoffSha": "sha256:020544a1bdc5e67966bf609592b9f749c10389ab2f7615147b215488fb7b6d91",
         "handoffAgeSec": 7,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784249431-148f",
-        "at": "2026-07-17T00:50:31Z",
-        "ts": 1784249431,
-        "trigger": "self",
-        "prevHead": "64166171",
-        "handoffSha": "sha256:68acd890613edb040dce466b5ca9d20482295131cf7f5927ea52b5cd3aebe699",
-        "handoffAgeSec": 9,
         "conformanceBefore": null,
         "commitsInSession": null
       }
