@@ -56,6 +56,24 @@ pub(crate) fn try_lower(
     if let Some(op) = try_objlit_getter(ctx, obj_val, sid, name) {
         return op;
     }
+    // RFC 20260718-error-message-own-prop 刀 2 — an Error-derived
+    // receiver's `message` is runtime own-state: own-present reads
+    // the slot, own-absent walks the prototype chain
+    // (`Err.prototype.message` shadow → `__proto_Error`'s spec "").
+    // The helper answers a BORROWED Str, exactly like the field
+    // `Load` it replaces.
+    if name == "message"
+        && class_name_of_expr(ctx, obj).is_some_and(|c| ctx.class_is_error_derived(&c))
+    {
+        let cur_block = ctx.cur_block;
+        let v = ctx.f.append_inst(
+            cur_block,
+            InstKind::Call(ctx.intrinsics.error_message_get, vec![obj_val]),
+            Type::Str,
+            None,
+        );
+        return Operand::Value(v);
+    }
     lower_struct_field(ctx, obj_val, sid, name)
 }
 

@@ -11,14 +11,14 @@
 //! on reference/implied/runtime-thrown minus user-shadowing).
 //!
 //! Three private helpers cooperate:
-//!   * `build_stack_concat` — synth `.stack` init Ternary expr per
-//!     ECMAScript §20.5.3.4 (empty-message → name only; else
-//!     `name + ": " + message`).
+//!   * `build_stack_concat` — synth `.stack` init
+//!     (`__torajs_error_stack(this)` → the §20.5.3.4 runtime
+//!     formatter; empty/absent message → name only).
 //!   * `build_error_class` — synth root `class Error`.
 //!   * `build_error_subclass` — synth `class <N> extends Error` for
 //!     each requested NativeError subclass.
 
-use super::{Ast, BinOp, ClassCtor, ClassMethod, Expr, ExprId, Param, Stmt, Visibility};
+use super::{Ast, ClassCtor, ClassMethod, Expr, ExprId, Param, Stmt, Visibility};
 
 /// Synthetic root `class Error { message: string; name: string;
 /// constructor(message: string) { this.message = message;
@@ -26,60 +26,33 @@ use super::{Ast, BinOp, ClassCtor, ClassMethod, Expr, ExprId, Param, Stmt, Visib
 /// it must match the ctor-body assignment order since check.rs's
 /// affine-flow analysis walks declarations in order.
 /// P7.3 — build the header expression shared by Error / subclass
-/// ctors as the minimal `.stack` value. Follows ECMAScript
-/// §20.5.3.4 `Error.prototype.toString` (the stack's first line uses
-/// the same format in every engine): an empty `message` yields just
-/// the name — `new Error("").stack` is "Error", not "Error: " (bun /
-/// V8 / JSC all do this). The §20.5.3.4 empty-`name` branch is
-/// unreachable for the injected classes (name is always a non-empty
-/// literal), so only the empty-message case is special-cased:
-///
-///   this.message === "" ? this.name : this.name + ": " + this.message
+/// ctors as the minimal `.stack` value: `__torajs_error_stack(this)`,
+/// lowered to the `__torajs_error_to_string` runtime helper
+/// (ECMAScript §20.5.3.4 — the stack's first line uses the same
+/// format in every engine; an empty OR absent `message` yields just
+/// the name, which the old AST-level `=== ""` ternary couldn't see
+/// once absence became the sentinel — RFC
+/// 20260718-error-message-own-prop 刀 2).
 fn build_stack_concat(ast: &mut Ast) -> ExprId {
-    // cond: this.message === ""
-    let cm_obj = ast.add_expr(Expr::This);
-    let cm = ast.add_expr(Expr::Member {
-        obj: cm_obj,
-        name: "message".to_string(),
-    });
-    let empty = ast.add_expr(Expr::String(String::new()));
-    let cond = ast.add_expr(Expr::BinOp {
-        op: BinOp::Eq,
-        left: cm,
-        right: empty,
-    });
-    // then: this.name
-    let tn_obj = ast.add_expr(Expr::This);
-    let then_branch = ast.add_expr(Expr::Member {
-        obj: tn_obj,
-        name: "name".to_string(),
-    });
-    // else: this.name + ": " + this.message
-    let n_obj = ast.add_expr(Expr::This);
-    let n = ast.add_expr(Expr::Member {
-        obj: n_obj,
-        name: "name".to_string(),
-    });
-    let colon = ast.add_expr(Expr::String(": ".to_string()));
-    let n_colon = ast.add_expr(Expr::BinOp {
-        op: BinOp::Add,
-        left: n,
-        right: colon,
-    });
-    let m_obj = ast.add_expr(Expr::This);
-    let m = ast.add_expr(Expr::Member {
-        obj: m_obj,
-        name: "message".to_string(),
-    });
-    let else_branch = ast.add_expr(Expr::BinOp {
-        op: BinOp::Add,
-        left: n_colon,
-        right: m,
-    });
-    ast.add_expr(Expr::Ternary {
-        cond,
-        then_branch,
-        else_branch,
+    let this = ast.add_expr(Expr::This);
+    let callee = ast.add_expr(Expr::Ident("__torajs_error_stack".to_string()));
+    ast.add_expr(Expr::Call {
+        callee,
+        args: vec![this],
+    })
+}
+
+/// §20.5.1.1 — the ctor `message` param's default: the own-absence
+/// Str sentinel (`__torajs_undef_str()`, GlobalRef mint). A missing
+/// message stores the sentinel into the field slot = no own
+/// `message` property (RFC 20260718-error-message-own-prop 刀 2;
+/// pre-fix the default was `""`, which owned the property on every
+/// no-arg construction).
+fn build_msg_default(ast: &mut Ast) -> ExprId {
+    let callee = ast.add_expr(Expr::Ident("__torajs_undef_str".to_string()));
+    ast.add_expr(Expr::Call {
+        callee,
+        args: Vec::new(),
     })
 }
 
@@ -123,11 +96,9 @@ fn build_error_class(ast: &mut Ast) -> Stmt {
         value: stack_expr,
     });
 
-    // §20.5.1.1 — `message` is optional (`new Error()` is legal); tr
-    // models message as an always-present struct field, so the spec's
-    // "undefined → no own message property" face maps to the same ""
-    // the empty-message special cases already handle.
-    let msg_default = ast.add_expr(Expr::String(String::new()));
+    // §20.5.1.1 — `message` is optional (`new Error()` is legal);
+    // a missing one stores the own-absence sentinel (刀 2).
+    let msg_default = build_msg_default(ast);
     let ctor = ClassCtor {
         params: vec![Param {
             name: "message".to_string(),
@@ -225,7 +196,7 @@ fn build_error_subclass(ast: &mut Ast, sub_name: &str) -> Stmt {
     });
 
     // Same §20.5.1.1 optional-message face as the Error root ctor.
-    let msg_default = ast.add_expr(Expr::String(String::new()));
+    let msg_default = build_msg_default(ast);
     let ctor = ClassCtor {
         params: vec![Param {
             name: "message".to_string(),

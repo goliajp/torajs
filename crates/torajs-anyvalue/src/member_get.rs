@@ -298,6 +298,13 @@ pub unsafe extern "C" fn __torajs_any_member_get_tag(recv: AnyValue, key: *const
         // field miss falling through is exact).
         Some((ptr, t)) if t == Tag::Obj as u16 => unsafe {
             if let Some((tag, _)) = crate::struct_probe::struct_field_pair(ptr, key) {
+                // RFC 20260718-error-message-own-prop — an absent
+                // error `message` reads through the prototype chain
+                // (§10.1.8.1 step 3; `__proto_Error` carries the
+                // spec `""`).
+                if crate::struct_error_msg::error_message_absent_key(ptr, key) {
+                    return crate::struct_error_msg::error_message_proto_pair(ptr).0;
+                }
                 return tag;
             }
             // Blade 5 — an accessor property answers the sentinel; the
@@ -452,6 +459,11 @@ pub unsafe extern "C" fn __torajs_any_member_get_value(recv: AnyValue, key: *con
         // Chunk 744 — struct cell field probe (see the tag channel).
         Some((ptr, t)) if t == Tag::Obj as u16 => unsafe {
             if let Some((_, val)) = crate::struct_probe::struct_field_pair(ptr, key) {
+                // Absent error `message` — prototype-chain read
+                // (mirror of the tag channel).
+                if crate::struct_error_msg::error_message_absent_key(ptr, key) {
+                    return crate::struct_error_msg::error_message_proto_pair(ptr).1;
+                }
                 return val;
             }
             // Blade 5 — a struct accessor has no AccessorPair cell to

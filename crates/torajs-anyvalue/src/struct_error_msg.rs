@@ -144,6 +144,93 @@ pub unsafe extern "C" fn __torajs_error_message_present(obj: *const c_void) -> i
     (!unsafe { error_message_is_absent(obj) }) as i64
 }
 
+unsafe extern "C" {
+    // torajs-meta classmeta — per-class-tag `__proto_<C>` lookup
+    // (OWNED AnyValue: a cell payload arrives +1).
+    fn __torajs_anyv_proto_get(tag: i64) -> u64;
+    // torajs-dynobj — prototype-object entry probes (borrow reads).
+    fn __torajs_dynobj_has(obj: *const c_void, key: *const c_void) -> i32;
+    fn __torajs_dynobj_get_tag(obj: *const c_void, key: *const c_void) -> u64;
+    fn __torajs_dynobj_get_value(obj: *const c_void, key: *const c_void) -> u64;
+    // torajs-str — key mint for the walk.
+    fn __torajs_str_alloc(bytes: *const u8, len: i64) -> *mut u8;
+}
+
+/// `message` through the [[Prototype]] chain of an error instance
+/// whose OWN message is absent — `__proto_<C>` per-tag lookup, then
+/// the `PROTO_SLOT_KEY` chain upward (`Err.prototype.message = v`
+/// shadows; the root `__proto_Error` carries the spec `""` installed
+/// by `__torajs_error_proto_install`). Borrow-shaped `(tag, value)`
+/// pair (the member-get contract); `(ANY_UNDEF, 0)` on a fully
+/// missing chain.
+///
+/// # Safety
+/// `ptr` is a live `Tag::Obj` heap pointer.
+pub(crate) unsafe fn error_message_proto_pair(ptr: *const c_void) -> (u64, u64) {
+    let class_tag = unsafe { ptr.cast::<u8>().add(OBJ_CLASS_TAG_OFF).cast::<u32>().read() };
+    let root = unsafe { __torajs_anyv_proto_get(class_tag as i64) };
+    // Non-cell (null / unregistered) → no chain. Cell test mirrors
+    // `nanbox::is_cell` consumers: top16 clear + low type bit clear.
+    if root & 0xFFFF_0000_0000_0000 != 0 || root & 0x2 != 0 || root == 0 {
+        return (AnySlotTag::Undef as u64, 0);
+    }
+    let key = unsafe { __torajs_str_alloc(b"message".as_ptr(), 7) } as *const c_void;
+    let mut cur = root as *const c_void;
+    let mut out = (AnySlotTag::Undef as u64, 0);
+    loop {
+        if unsafe { __torajs_dynobj_has(cur, key) } != 0 {
+            out = (unsafe { __torajs_dynobj_get_tag(cur, key) }, unsafe {
+                __torajs_dynobj_get_value(cur, key)
+            });
+            break;
+        }
+        match unsafe { crate::member_get_own::user_proto_cell(cur) } {
+            Some(next) => cur = next as *const c_void,
+            None => break,
+        }
+    }
+    unsafe { __torajs_str_drop(key as *mut c_void) };
+    // Release proto_get's +1 — the pair stays a borrow of the value
+    // the (still-registered, immortal-for-program-life) prototype
+    // object owns.
+    unsafe {
+        __torajs_anyv_rc_dec(crate::nanbox_encode::__torajs_anyv_box_from_pair(
+            AnySlotTag::Heap as i64,
+            root as i64,
+        ))
+    };
+    out
+}
+
+/// Typed-tier `err.message` read — BORROWED Str pointer, mirroring
+/// the struct-field `Load` this emit replaces (the struct / the
+/// prototype object keeps the stake; consumers take their own share
+/// as usual). Own-present answers the slot; own-absent walks the
+/// prototype chain; a chain miss or a non-Str chain value answers
+/// the undefined sentinel (a non-Str prototype `message` through the
+/// typed Str surface is a recorded boundary — the any tier reads it
+/// exactly).
+///
+/// # Safety
+/// `obj` is a live `Tag::Obj` heap pointer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_error_message_get(obj: *const c_void) -> *mut u8 {
+    if let Some(slot) = unsafe { error_message_slot(obj) } {
+        let raw = unsafe { slot.read() };
+        if raw != 0 && unsafe { __torajs_str_is_undef(raw as *const u8) } == 0 {
+            return raw as *mut u8;
+        }
+    }
+    let (tag, val) = unsafe { error_message_proto_pair(obj) };
+    if tag == AnySlotTag::Heap as u64 && val != 0 {
+        let cell_tag = unsafe { (val as *const u8).add(4).cast::<u16>().read() };
+        if cell_tag == Tag::Str as u16 {
+            return val as *mut u8;
+        }
+    }
+    unsafe { __torajs_str_undef() }
+}
+
 /// `any`-receiver assignment into a class-layout DATA field — the
 /// §10.1.9 [[Set]] face `member_set`'s struct arm previously
 /// rejected wholesale. Consumes the `(tag, value)` payload on

@@ -84,7 +84,7 @@ pub(crate) fn lower_any_member_read(
     let dynobj = ctx.any_cell_ptr_as_ptr(obj_val.clone());
 
     // Sort by class_tag for deterministic dispatch order.
-    candidates.sort_by_key(|(t, _, _)| *t);
+    candidates.sort_by_key(|(t, _, _, _)| *t);
 
     let res_slot = ctx.alloca_in_entry(Type::Any, Some("__any_member_res"));
     let dynobj_blk = ctx.f.add_block();
@@ -154,7 +154,7 @@ pub(crate) fn lower_any_member_read(
         None,
     );
     let mut current = cls_dispatch;
-    for (ctag, offset, field_ty) in &candidates {
+    for (ctag, offset, field_ty, is_err_msg) in &candidates {
         ctx.cur_block = current;
         let eq = ctx.f.append_inst(
             ctx.cur_block,
@@ -177,12 +177,28 @@ pub(crate) fn lower_any_member_read(
             },
         );
         ctx.cur_block = match_blk;
-        let field_v = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Load(*field_ty, Operand::Value(dynobj), *offset),
-            *field_ty,
-            None,
-        );
+        // RFC 20260718-error-message-own-prop 刀 2 — an Error-derived
+        // candidate's `message` is runtime own-state: the helper reads
+        // the own slot or walks the prototype chain (BORROWED Str,
+        // Load-equivalent). Every other field keeps the direct load.
+        let field_v = if *is_err_msg {
+            ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(
+                    ctx.intrinsics.error_message_get,
+                    vec![Operand::Value(dynobj)],
+                ),
+                Type::Str,
+                None,
+            )
+        } else {
+            ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Load(*field_ty, Operand::Value(dynobj), *offset),
+                *field_ty,
+                None,
+            )
+        };
         let boxed = ctx.box_to_any(Operand::Value(field_v));
         ctx.f.append_void(
             ctx.cur_block,
@@ -226,8 +242,8 @@ pub(crate) fn lower_any_member_read(
 /// second walk `const da: any = {x:1,y:2}; da.x` falls through to the
 /// dynobj path returning ANY_UNDEF for struct-cell receivers). AOT —
 /// both maps are stable by this point.
-fn collect_class_field_candidates(ctx: &LowerCtx, name: &str) -> Vec<(u32, u64, Type)> {
-    let mut candidates: Vec<(u32, u64, Type)> = Vec::new();
+fn collect_class_field_candidates(ctx: &LowerCtx, name: &str) -> Vec<(u32, u64, Type, bool)> {
+    let mut candidates: Vec<(u32, u64, Type, bool)> = Vec::new();
     for (cname, ctag) in ctx.class_name_to_tag.iter() {
         let Some(Type::Obj(sid)) = ctx.aliases.get(cname) else {
             continue;
@@ -235,7 +251,11 @@ fn collect_class_field_candidates(ctx: &LowerCtx, name: &str) -> Vec<(u32, u64, 
         let layout = &ctx.struct_layouts[sid.0 as usize];
         if let Some((idx, (_, fty))) = layout.iter().enumerate().find(|(_, (n, _))| n == name) {
             let offset = OBJ_HEADER_SIZE + (idx as u64) * 8;
-            candidates.push((*ctag, offset, *fty));
+            // RFC 20260718-error-message-own-prop 刀 2 — the error
+            // `message` candidate routes through the own-or-proto
+            // read helper instead of the direct load.
+            let is_err_msg = name == "message" && ctx.class_is_error_derived(cname);
+            candidates.push((*ctag, offset, *fty, is_err_msg));
         }
     }
     let pool = ctx.anon_stamp_pool.borrow();
@@ -247,7 +267,7 @@ fn collect_class_field_candidates(ctx: &LowerCtx, name: &str) -> Vec<(u32, u64, 
         let layout = &ctx.struct_layouts[layout_idx];
         if let Some((idx, (_, fty))) = layout.iter().enumerate().find(|(_, (n, _))| n == name) {
             let offset = OBJ_HEADER_SIZE + (idx as u64) * 8;
-            candidates.push((atag, offset, *fty));
+            candidates.push((atag, offset, *fty, false));
         }
     }
     candidates

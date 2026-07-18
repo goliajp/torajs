@@ -60,11 +60,54 @@ pub(crate) fn try_lower(
         "__torajs_class_accessor_reify" => try_lower_class_accessor_reify(ctx, args, false),
         "__torajs_class_static_accessor_reify" => try_lower_class_accessor_reify(ctx, args, true),
         "__torajs_register_native_error" => try_lower_register_native_error(ctx, args),
+        "__torajs_undef_str" => try_lower_undef_str(ctx, args),
+        "__torajs_error_stack" => try_lower_error_stack(ctx, args),
         "__torajs_my_class_ref" => try_lower_my_class_ref(ctx, args),
         "__torajs_arguments_materialize" => try_lower_arguments_materialize(ctx, args),
         "__torajs_genfn_chain" => try_lower_genfn_chain(ctx, args),
         _ => None,
     }
+}
+
+/// RFC 20260718-error-message-own-prop 刀 2 —
+/// `__torajs_undef_str()` in the injected error ctors: the
+/// own-absence Str sentinel address (GlobalRef mint, zero calls).
+/// A missing ctor `message` stores this into the field slot, which
+/// every reflection surface reads as "no own message property".
+fn try_lower_undef_str(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Operand> {
+    if !args.is_empty() {
+        return None;
+    }
+    let cur_block = ctx.cur_block;
+    let v = ctx.f.append_inst(
+        cur_block,
+        InstKind::GlobalRef(crate::ssa_lower_intrinsics_str_b::STR_UNDEF_CELL_SYM.to_string()),
+        crate::ssa::Type::Str,
+        None,
+    );
+    Some(Operand::Value(v))
+}
+
+/// 刀 2 — `__torajs_error_stack(this)` in the injected error ctors:
+/// the §20.5.3.4 stack header (`name` / `name + ": " + message`,
+/// undefined-or-empty message → bare name) via the
+/// `__torajs_error_to_string` runtime helper, replacing the old
+/// AST-level ternary concat that couldn't see the sentinel. Owned
+/// Str result (the `this.stack = ...` store consumes it).
+fn try_lower_error_stack(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Operand> {
+    if args.len() != 1 {
+        return None;
+    }
+    let this_op = ctx.lower_expr(args[0]);
+    let cur_block = ctx.cur_block;
+    let error_to_string = ctx.intrinsics.error_to_string;
+    let v = ctx.f.append_inst(
+        cur_block,
+        InstKind::Call(error_to_string, vec![this_op]),
+        crate::ssa::Type::Str,
+        None,
+    );
+    Some(Operand::Value(v))
 }
 
 /// RFC 20260713 blade 5 cut 4 —

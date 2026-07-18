@@ -28,6 +28,9 @@ unsafe extern "C" {
     fn __torajs_str_alloc(src: *const u8, len: i64) -> *mut u8;
     fn __torajs_str_drop(s: *mut u8);
     fn __torajs_rc_inc(p: *mut c_void);
+    // torajs-str — undefined sentinel identity probe (RFC 20260710
+    // C1); the own-absence read of the `message` slot (刀 2).
+    fn __torajs_str_is_undef(p: *const u8) -> i64;
 }
 
 /// Str code-unit count, or 0 for a NULL pointer (an empty / absent
@@ -60,16 +63,21 @@ pub unsafe extern "C" fn __torajs_error_to_string(p: *const u8) -> *mut u8 {
     let msg_ptr = unsafe { (p.add(OBJ_MESSAGE_OFF) as *const *const u8).read() };
     let name_len = unsafe { str_len(name_ptr) };
     let msg_len = unsafe { str_len(msg_ptr) };
+    // RFC 20260718-error-message-own-prop 刀 2 — an own-ABSENT
+    // message (the undefined sentinel in the slot; no ctor message /
+    // deleted) reads as `""` here per §20.5.3.4 step 8 (msg is ""
+    // when the Get is undefined).
+    let msg_absent = msg_ptr.is_null() || unsafe { __torajs_str_is_undef(msg_ptr) } != 0;
     // §20.5.3.4 step: an empty name yields the bare message.
     if name_len == 0 {
-        if msg_ptr.is_null() {
+        if msg_absent {
             return unsafe { __torajs_str_alloc(b"".as_ptr(), 0) };
         }
         unsafe { __torajs_rc_inc(msg_ptr as *mut c_void) };
         return msg_ptr as *mut u8;
     }
     // An empty message yields the bare name (name is non-empty here).
-    if msg_len == 0 {
+    if msg_len == 0 || msg_absent {
         unsafe { __torajs_rc_inc(name_ptr as *mut c_void) };
         return name_ptr as *mut u8;
     }
