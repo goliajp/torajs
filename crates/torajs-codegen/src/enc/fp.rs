@@ -62,6 +62,65 @@ pub fn addv_b_v8b(rd: Fpr, rn: Fpr) -> u32 {
     0x0E31_B800 | (rn.idx() << 5) | rd.idx()
 }
 
+/// CNT Vd.16B, Vn.16B — per-byte population count over the full
+/// 128-bit register (Q=1 form of `cnt_v8b`). ARM ARM C7.2.35.
+/// Base = 0x4E20_5800. clang golden: `cnt v16.16b, v17.16b` =
+/// 0x4E20_5A30.
+pub fn cnt_v16b(rd: Fpr, rn: Fpr) -> u32 {
+    0x4E20_5800 | (rn.idx() << 5) | rd.idx()
+}
+
+/// UDOT Vd.4S, Vn.16B, Vm.16B — unsigned dot product: each of the 4
+/// S lanes accumulates the dot of a 4-byte group of Vn with the
+/// matching group of Vm (ARMv8.4 DotProd; all Apple M-series).
+/// Against an all-ones weight vector this is a horizontal 4-byte-sum
+/// into 4×u32 — the LLVM popcount-reduction idiom. ARM ARM C7.2.365.
+/// Base = 0x6E80_9400. clang golden: `udot v22.4s, v5.16b, v21.16b`
+/// = 0x6E95_94B6.
+pub fn udot_4s(rd: Fpr, rn: Fpr, rm: Fpr) -> u32 {
+    0x6E80_9400 | (rm.idx() << 16) | (rn.idx() << 5) | rd.idx()
+}
+
+/// UADALP Vd.2D, Vn.4S — unsigned add-accumulate long pairwise:
+/// each D lane += the sum of its two source S lanes. Widens the
+/// 4×u32 dot-product partials into 2×u64 accumulators without a
+/// carried dependency on the multiply chain. ARM ARM C7.2.361.
+/// Base = 0x6EA0_6800. clang golden: `uadalp v0.2d, v22.4s` =
+/// 0x6EA0_6AC0.
+pub fn uadalp_2d(rd: Fpr, rn: Fpr) -> u32 {
+    0x6EA0_6800 | (rn.idx() << 5) | rd.idx()
+}
+
+/// ADD Vd.2D, Vn.2D, Vm.2D — vector 64-bit lane add (vector-domain
+/// IV step / accumulator merge). ARM ARM C7.2.4. Base = 0x4EE0_8400.
+/// clang golden: `add v1.2d, v2.2d, v3.2d` = 0x4EE3_8441.
+pub fn add_v2d(rd: Fpr, rn: Fpr, rm: Fpr) -> u32 {
+    0x4EE0_8400 | (rm.idx() << 16) | (rn.idx() << 5) | rd.idx()
+}
+
+/// ADDP Dd, Vn.2D — scalar pairwise add of the two D lanes into Dd
+/// (final reduction step; the scalar write zeroes the rest of Vd so
+/// a following `FMOV Xd, Dn` reads the clean sum). ARM ARM C7.2.6.
+/// Base = 0x5EF1_B800. clang golden: `addp d0, v1.2d` = 0x5EF1_B820.
+pub fn addp_d_v2d(rd: Fpr, rn: Fpr) -> u32 {
+    0x5EF1_B800 | (rn.idx() << 5) | rd.idx()
+}
+
+/// DUP Vd.2D, Xn — broadcast a 64-bit GPR into both D lanes (splat;
+/// IV seed / step vectors). ARM ARM C7.2.39. Base = 0x4E08_0C00.
+/// clang golden: `dup v6.2d, x9` = 0x4E08_0D26.
+pub fn dup_2d_x(rd: Fpr, rn: Gpr) -> u32 {
+    0x4E08_0C00 | (rn.idx() << 5) | rd.idx()
+}
+
+/// MOVI Vd.2D, #0 — zero the full vector register (accumulator
+/// init; rename-stage zero idiom on Apple cores). ARM ARM C7.2.204
+/// (64-bit variant, imm8 = 0). Base = 0x6F00_E400. clang golden:
+/// `movi v22.2d, #0` = 0x6F00_E416.
+pub fn movi_2d_zero(rd: Fpr) -> u32 {
+    0x6F00_E400 | rd.idx()
+}
+
 /// SCVTF Dd, Xn — signed int64 → f64. ARM ARM C6.2.353. Base = 0x9E62_0000.
 pub fn scvtf_d_x(rd: Fpr, rn: Gpr) -> u32 {
     0x9E62_0000 | (rn.idx() << 5) | rd.idx()
@@ -165,6 +224,27 @@ mod tests {
     fn cnt_v0_v0_matches_clang() {
         // clang -arch arm64: `cnt v0.8b, v0.8b` → 0x0E20_5800.
         assert_eq!(cnt_v8b(Fpr::V0, Fpr::V0), 0x0E20_5800);
+    }
+
+    /// ctpop-range-sum canned-loop encoders vs clang golden bytes
+    /// (`clang -c -march=armv8.4-a+dotprod`, assembled on mini
+    /// 2026-07-19; RFC 20260719-ctpop-range-sum blade 1a).
+    #[test]
+    fn ctpop_reduction_simd_encoders_match_clang() {
+        // cnt v16.16b, v17.16b
+        assert_eq!(cnt_v16b(Fpr::V16, Fpr::V17), 0x4E20_5A30);
+        // udot v22.4s, v5.16b, v21.16b
+        assert_eq!(udot_4s(Fpr::V22, Fpr::V5, Fpr::V21), 0x6E95_94B6);
+        // uadalp v0.2d, v22.4s
+        assert_eq!(uadalp_2d(Fpr::V0, Fpr::V22), 0x6EA0_6AC0);
+        // add v1.2d, v2.2d, v3.2d
+        assert_eq!(add_v2d(Fpr::V1, Fpr::V2, Fpr::V3), 0x4EE3_8441);
+        // addp d0, v1.2d
+        assert_eq!(addp_d_v2d(Fpr::V0, Fpr::V1), 0x5EF1_B820);
+        // dup v6.2d, x9
+        assert_eq!(dup_2d_x(Fpr::V6, Gpr::X9), 0x4E08_0D26);
+        // movi v22.2d, #0
+        assert_eq!(movi_2d_zero(Fpr::V22), 0x6F00_E416);
     }
 
     #[test]

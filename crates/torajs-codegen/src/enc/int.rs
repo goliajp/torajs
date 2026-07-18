@@ -66,6 +66,14 @@ pub fn sub_imm_lsl12(rd: Gpr, rn: Gpr, imm12: u16) -> u32 {
     0xD140_0000 | ((imm12 as u32) << 10) | (rn.idx() << 5) | rd.idx()
 }
 
+/// SUBS Xd, Xn, #imm12 — subtract immediate, set NZCV (canned-loop
+/// down-counter; `cmp_imm` is this with Rd = XZR). ARM ARM C6.2.385.
+/// clang golden: `subs x8, x8, #8` = 0xF100_2108.
+pub fn subs_imm(rd: Gpr, rn: Gpr, imm12: u16) -> u32 {
+    debug_assert!(imm12 < 4096, "imm12 must fit in 12 bits");
+    0xF100_0000 | ((imm12 as u32) << 10) | (rn.idx() << 5) | rd.idx()
+}
+
 /// MUL Xd, Xn, Xm — alias for MADD Xd, Xn, Xm, XZR. ARM ARM C6.2.222.
 pub fn mul_reg(rd: Gpr, rn: Gpr, rm: Gpr) -> u32 {
     0x9B00_7C00 | (rm.idx() << 16) | (rn.idx() << 5) | rd.idx()
@@ -279,6 +287,13 @@ mod tests {
     fn cmp_x9_imm5_matches_arm_arm() {
         // CMP X9, #5 = SUBS XZR, X9, #5
         assert_eq!(cmp_imm(Gpr::X9, 5), 0xF100_153F);
+    }
+
+    #[test]
+    fn subs_x8_x8_imm8_matches_clang() {
+        // clang golden (2026-07-19): `subs x8, x8, #8` = 0xF100_2108
+        // (RFC 20260719-ctpop-range-sum blade 1a down-counter).
+        assert_eq!(subs_imm(Gpr::X8, Gpr::X8, 8), 0xF100_2108);
     }
 
     #[test]
