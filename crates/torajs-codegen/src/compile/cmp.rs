@@ -90,6 +90,37 @@ pub fn emit_select(
     write_def_spill_gpr(bytes, spill_off, dst);
 }
 
+/// Fused `icmp; select` — the compare re-emits directly before the
+/// CSEL so the predicate rides NZCV instead of a CSET'd register
+/// (drops cset + cmp #0, two instructions per pair). Value operands
+/// materialize first; mov/movz/ldr reloads never touch NZCV.
+pub(crate) fn emit_select_fused(
+    bytes: &mut Vec<u8>,
+    inst: &Inst,
+    ty: &Type,
+    fc: &super::brfuse::FusedCmp,
+    then_op: &Operand,
+    else_op: &Operand,
+    alloc: &Assignment,
+) {
+    assert!(
+        *ty != Type::F64,
+        "InstKind::Select with F64 result reached emit — the select \
+         formation pass gates to non-F64 types (FCSEL not implemented)"
+    );
+    let result_vid = inst.result.expect("Select must have a result");
+    let (dst, spill_off) = alloc.def_gpr(result_vid, OP_SCRATCH_RESULT_GPR);
+    // value arms take TMP / RESULT scratches — emit_compare_nzcv owns
+    // LHS/RHS for the compare operands and would clobber them. A
+    // spilled dst aliasing rm's scratch is fine: CSEL reads its
+    // sources before writing Rd.
+    let rn = materialize_operand_gpr(bytes, then_op, OP_SCRATCH_TMP, alloc);
+    let rm = materialize_operand_gpr(bytes, else_op, OP_SCRATCH_RESULT_GPR, alloc);
+    emit_compare_nzcv(bytes, &fc.lhs, &fc.rhs, alloc);
+    write_u32(bytes, csel_cond(dst, rn, rm, ipred_to_cond(fc.pred)));
+    write_def_spill_gpr(bytes, spill_off, dst);
+}
+
 pub fn emit_fcmp(
     bytes: &mut Vec<u8>,
     inst: &Inst,
@@ -395,12 +426,53 @@ mod tests {
     }
 
     /// `%0 = icmp sgt 7, 5 ; %1 = select i64 %0, 7, 5 ; ret %1` —
-    /// the max-shape select-formation output. Verifies the full
-    /// liveness → regalloc → emit chain produces `cmp <cond>, #0`
-    /// immediately followed by a CSEL (op2 bits 11:10 == 00, which
-    /// distinguishes CSEL from CSINC and its CSET alias).
+    /// max-shape `icmp; select` with a single-use cond fuses: the
+    /// compare re-emits before the CSEL on its own predicate, and the
+    /// CSET + cmp #0 detour disappears.
     #[test]
-    fn select_lowers_to_cmp_zero_plus_csel() {
+    fn adjacent_single_use_select_fuses_cmp_csel() {
+        let func = select_max_func(false);
+        let words = select_words(&func);
+        let csel_at = words
+            .iter()
+            .position(|w| (w >> 24) == 0x9A && (w >> 10) & 0b11 == 0)
+            .expect("csel word emitted");
+        // no CSET anywhere (0x9A9F prefix = CSINC Xd, XZR, XZR alias)
+        assert!(
+            !words.iter().any(|w| (w >> 16) == 0x9A9F),
+            "cset must be absorbed by the fuse"
+        );
+        // preceding word is the re-emitted `cmp x, #5` (SUBS XZR
+        // imm12 form on the original operands), not `cmp cond, #0`.
+        let prev = words[csel_at - 1];
+        assert_eq!(
+            prev & 0xFFFF_FC1F,
+            0xF100_141F,
+            "cmp #5 must immediately precede csel, got {prev:08X}"
+        );
+    }
+
+    /// a second consumer of the cond kills the fuse — the ICmp keeps
+    /// its CSET and the Select falls back to `cmp cond, #0; csel ne`.
+    #[test]
+    fn multi_use_cond_keeps_cmp_zero_path() {
+        let func = select_max_func(true);
+        let words = select_words(&func);
+        let csel_at = words
+            .iter()
+            .position(|w| (w >> 24) == 0x9A && (w >> 10) & 0b11 == 0)
+            .expect("csel word emitted");
+        let prev = words[csel_at - 1];
+        assert_eq!(
+            prev & 0xFFFF_FC1F,
+            0xF100_001F,
+            "cmp #0 must immediately precede csel, got {prev:08X}"
+        );
+    }
+
+    /// `%0 = icmp sgt 7, 5 ; %1 = select i64 %0, 7, 5` (+ optional
+    /// second use of %0) returning %1.
+    fn select_max_func(extra_use: bool) -> torajs_core::ssa::Function {
         use torajs_core::ssa::{
             Block, BlockId, Function, InstKind, Terminator, ValueId, ValueInfo,
         };
@@ -410,48 +482,45 @@ mod tests {
             origin: None,
         };
         let vi = |ty: Type| ValueInfo { ty, name: None };
-        let func = Function {
+        let mut insts = vec![
+            mk(
+                0,
+                InstKind::ICmp(IPred::Sgt, Operand::ConstI64(7), Operand::ConstI64(5)),
+            ),
+            mk(
+                1,
+                InstKind::Select(
+                    Type::I64,
+                    Operand::Value(ValueId(0)),
+                    Operand::ConstI64(7),
+                    Operand::ConstI64(5),
+                ),
+            ),
+        ];
+        let mut values = vec![vi(Type::Bool), vi(Type::I64)];
+        if extra_use {
+            insts.push(mk(2, InstKind::ZExtBoolToI64(Operand::Value(ValueId(0)))));
+            values.push(vi(Type::I64));
+        }
+        Function {
             name: "select_max".into(),
             params: Vec::new(),
             ret: Type::I64,
-            values: vec![vi(Type::Bool), vi(Type::I64)],
+            values,
             blocks: vec![Block {
                 id: BlockId(0),
-                insts: vec![
-                    mk(
-                        0,
-                        InstKind::ICmp(IPred::Sgt, Operand::ConstI64(7), Operand::ConstI64(5)),
-                    ),
-                    mk(
-                        1,
-                        InstKind::Select(
-                            Type::I64,
-                            Operand::Value(ValueId(0)),
-                            Operand::ConstI64(7),
-                            Operand::ConstI64(5),
-                        ),
-                    ),
-                ],
+                insts,
                 term: Terminator::Ret(Some(Operand::Value(ValueId(1)))),
             }],
             current_origin: None,
-        };
-        let bytes = compile_function(&func).bytes;
-        let words: Vec<u32> = bytes
+        }
+    }
+
+    fn select_words(func: &torajs_core::ssa::Function) -> Vec<u32> {
+        compile_function(func)
+            .bytes
             .chunks_exact(4)
             .map(|c| u32::from_le_bytes(c.try_into().unwrap()))
-            .collect();
-        let csel_at = words
-            .iter()
-            .position(|w| (w >> 24) == 0x9A && (w >> 10) & 0b11 == 0)
-            .expect("csel word emitted");
-        // preceding word is `cmp <rc>, #0` = SUBS XZR, Xn, #0
-        // (0xF100_001F | rn<<5): imm12 zero, rd == XZR.
-        let prev = words[csel_at - 1];
-        assert_eq!(
-            prev & 0xFFFF_FC1F,
-            0xF100_001F,
-            "cmp #0 must immediately precede csel, got {prev:08X}"
-        );
+            .collect()
     }
 }

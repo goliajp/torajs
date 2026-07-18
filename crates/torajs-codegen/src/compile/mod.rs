@@ -165,6 +165,7 @@ pub fn compile_function_with(
     // (or cbz/cbnz) — the inst loop skips the compare, the terminator
     // emits it. See compile/brfuse.rs.
     let fused_cmps = brfuse::fusible_cmps(func);
+    let select_fused = brfuse::fusible_select_cmps(func);
 
     for block in &func.blocks {
         block_byte_starts.insert(block.id.0, bytes.len() as u32);
@@ -172,6 +173,16 @@ pub fn compile_function_with(
         for (ii, inst) in block.insts.iter().enumerate() {
             if fused.is_some() && ii == block.insts.len() - 1 {
                 continue; // the CondBr emits this compare fused
+            }
+            if select_fused.contains_key(&(block.id.0, ii as u32)) {
+                continue; // the next Select emits this compare fused
+            }
+            if let InstKind::Select(ty, _, then_op, else_op) = &inst.kind
+                && ii > 0
+                && let Some(fc) = select_fused.get(&(block.id.0, ii as u32 - 1))
+            {
+                cmp::emit_select_fused(&mut bytes, inst, ty, fc, then_op, else_op, &alloc);
+                continue;
             }
             emit_inst(&mut bytes, &mut relocs, inst, &alloc, fn_sigs);
         }

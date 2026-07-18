@@ -35,10 +35,9 @@ pub(crate) struct FusedCmp {
     pub rhs: Operand,
 }
 
-/// Map of block id → the tail ICmp its CondBr absorbs. The inst-emit
-/// loop skips these compares; `emit_fused_condbr` re-emits them fused.
-pub(crate) fn fusible_cmps(func: &Function) -> HashMap<u32, FusedCmp> {
-    // use counts over every inst operand + terminator operand
+/// Use counts over every inst operand + terminator operand — shared by
+/// the CondBr and Select fuse pickers (single-use gates).
+fn count_uses(func: &Function) -> HashMap<ValueId, u32> {
     let mut uses: HashMap<ValueId, u32> = HashMap::new();
     let mut bump = |v: ValueId| *uses.entry(v).or_insert(0) += 1;
     for block in &func.blocks {
@@ -54,6 +53,13 @@ pub(crate) fn fusible_cmps(func: &Function) -> HashMap<u32, FusedCmp> {
             _ => {}
         }
     }
+    uses
+}
+
+/// Map of block id → the tail ICmp its CondBr absorbs. The inst-emit
+/// loop skips these compares; `emit_fused_condbr` re-emits them fused.
+pub(crate) fn fusible_cmps(func: &Function) -> HashMap<u32, FusedCmp> {
+    let uses = count_uses(func);
     let mut fused = HashMap::new();
     for block in &func.blocks {
         let Terminator::CondBr {
@@ -78,6 +84,39 @@ pub(crate) fn fusible_cmps(func: &Function) -> HashMap<u32, FusedCmp> {
                     rhs: *rhs,
                 },
             );
+        }
+    }
+    fused
+}
+
+/// Map of `(block id, icmp inst index)` → the compare absorbed by the
+/// Select immediately after it. Same NZCV story as the CondBr fuse:
+/// the compare re-emits right before the CSEL (zero intervening
+/// instructions), and the single-use gate keeps the skipped CSET's
+/// 0/1 result unobservable. Collatz's outer max-update select and
+/// every blade-2 formed `icmp; select` pair carry this shape; the
+/// parity selects share their cond (use count 2) and keep the
+/// cset + cmp #0 path.
+pub(crate) fn fusible_select_cmps(func: &Function) -> HashMap<(u32, u32), FusedCmp> {
+    let uses = count_uses(func);
+    let mut fused = HashMap::new();
+    for block in &func.blocks {
+        for (ii, pair) in block.insts.windows(2).enumerate() {
+            let (InstKind::ICmp(pred, lhs, rhs), InstKind::Select(_, Operand::Value(c), _, _)) =
+                (&pair[0].kind, &pair[1].kind)
+            else {
+                continue;
+            };
+            if pair[0].result == Some(*c) && uses.get(c) == Some(&1) {
+                fused.insert(
+                    (block.id.0, ii as u32),
+                    FusedCmp {
+                        pred: *pred,
+                        lhs: *lhs,
+                        rhs: *rhs,
+                    },
+                );
+            }
         }
     }
     fused
