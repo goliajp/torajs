@@ -477,14 +477,16 @@ pub unsafe extern "C" fn __torajs_error_proto_install(tag: i64, name: *const c_v
         // §20.5.3.4 — `Error.prototype.toString` own function entry
         // (刀 4), on the ROOT prototype only: subclass prototypes
         // inherit it (`gOPD(RangeError.prototype, "toString")` is
-        // undefined per spec). The cell carries ANY_METHOD_TO_STRING;
-        // calling it re-dispatches through the any-method switch whose
-        // FLAG_ERROR fallback already routes to
-        // `__torajs_error_to_string`, so the own entry, `e.toString()`
-        // and `Error.prototype.toString.call(e)` all agree. name /
-        // length answer from the mid's meta row ("toString", 0).
+        // undefined per spec). The cell carries the dedicated
+        // ANY_METHOD_ERROR_TO_STRING mid: its dispatch arm runs the
+        // §20.5.3.4 generic steps (Get name/message + abrupt) over
+        // any object receiver, with a FLAG_ERROR fast lane through
+        // `__torajs_error_to_string` — so the own entry,
+        // `e.toString()` and `Error.prototype.toString.call({...})`
+        // all agree. name / length answer from the mid's meta row
+        // ("toString", 0).
         if str_is(name, b"Error") {
-            let cell = __torajs_builtin_method_cell(ANY_METHOD_TO_STRING_MID);
+            let cell = __torajs_builtin_method_cell(ANY_METHOD_ERROR_TO_STRING_MID);
             let ts_key = alloc_str_key(b"toString");
             __torajs_dynobj_define(
                 &mut slot,
@@ -498,10 +500,11 @@ pub unsafe extern "C" fn __torajs_error_proto_install(tag: i64, name: *const c_v
     }
 }
 
-/// Mirror of `torajs-rc/src/any_method.rs` `ANY_METHOD_TO_STRING`
-/// (append-only ABI table; same mirror discipline as the error
-/// instance layout offsets in `error_to_string.rs`).
-const ANY_METHOD_TO_STRING_MID: i64 = 62;
+/// Mirror of `torajs-rc/src/any_method.rs`
+/// `ANY_METHOD_ERROR_TO_STRING` (append-only ABI table; same mirror
+/// discipline as the error instance layout offsets in
+/// `error_to_string.rs`).
+const ANY_METHOD_ERROR_TO_STRING_MID: i64 = 156;
 
 /// Content equality of a Str cell against an ASCII literal — Str
 /// length u32 @+8, data @+16 (Latin-1 for ASCII payloads).

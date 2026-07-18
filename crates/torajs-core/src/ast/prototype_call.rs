@@ -80,6 +80,16 @@ pub fn desugar_prototype_call(ast: &mut Ast) {
         if ns == "Object" && method_name == "toString" {
             continue;
         }
+        // §20.5.3.4 — `Error.prototype.toString.call(x)` SKIPS the
+        // rewrite for the same reason: `x.toString()` is the
+        // receiver's OWN toString (a plain object answers the badge),
+        // not the generic Get(name)/Get(message) error formatter. The
+        // runtime path reads Error.prototype's own `toString` entry
+        // (the dedicated ANY_METHOD_ERROR_TO_STRING cell) and the
+        // `.call` short-circuit re-dispatches its carried mid.
+        if ns == "Error" && method_name == "toString" {
+            continue;
+        }
         // RFC 20260713-string-proto-residual blade 6 — the String
         // generic family SKIPS the rewrite: §22.1.3 methods accept
         // any this and coerce via ToString (observable

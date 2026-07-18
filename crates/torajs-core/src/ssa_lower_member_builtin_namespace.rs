@@ -58,6 +58,7 @@ pub(crate) fn try_lower(ctx: &mut LowerCtx<'_>, obj: ExprId, name: &str) -> Opti
     };
     if let Some(inner) = proto_inner
         && let Expr::Ident(ns) = ctx.ast.get_expr(inner)
+        && !ctx.ast.class_parents.contains_key(ns)
         && let Some(tag) = proto_method_tag(ns)
     {
         return Some(lower_proto_method_value(ctx, tag, name));
@@ -65,6 +66,14 @@ pub(crate) fn try_lower(ctx: &mut LowerCtx<'_>, obj: ExprId, name: &str) -> Opti
     let Expr::Ident(ns_name) = ctx.ast.get_expr(obj) else {
         return None;
     };
+    // A DECLARED class (user or injected — the Error family) owns a
+    // real synthesized prototype (`__proto_<C>`, carrying its own
+    // entries like Error.prototype's dedicated `toString`); the
+    // class-value chain must resolve it, not the rc lazy singleton —
+    // the two are different objects.
+    if ctx.ast.class_parents.contains_key(ns_name) {
+        return None;
+    }
     match ns_name.as_str() {
         "Math" => Some(lower_math_const(name)),
         "Number" => Some(lower_number(ctx, name)),

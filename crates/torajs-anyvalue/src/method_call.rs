@@ -98,6 +98,9 @@ unsafe extern "C" {
     fn __torajs_str_drop(s: *mut c_void);
     /// torajs-throw — record a pending catchable TypeError.
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
+    /// torajs-meta — §20.5.3.4 generic Error.prototype.toString
+    /// (owned Str out; NULL = pending throw recorded).
+    fn __torajs_error_proto_to_string(recv: u64) -> *mut u8;
     /// torajs-meta — [[GetPrototypeOf]] over any receiver (owned).
     fn __torajs_anyv_get_proto_of_any(v: u64) -> u64;
     /// torajs-meta — Annex B §B.2.2.1.2 setter kernel.
@@ -211,6 +214,18 @@ pub(crate) unsafe fn any_method_call_inner(
     // §20.1.3.3 — universal chain-walk probe (knife 4).
     if mid == torajs_rc::ANY_METHOD_IS_PROTOTYPE_OF {
         return unsafe { crate::method_call_object_proto::is_prototype_of(recv, argv, argc) };
+    }
+    // §20.5.3.4 — the dedicated Error.prototype.toString cell:
+    // generic Get(name)/Get(message) steps over any object receiver
+    // (FLAG_ERROR instances ride the fixed-offset fast lane inside).
+    // NULL answer = the helper recorded a pending throw (non-object
+    // receiver / abrupt Get / abrupt ToString).
+    if mid == torajs_rc::ANY_METHOD_ERROR_TO_STRING {
+        let s = unsafe { __torajs_error_proto_to_string(recv) };
+        if s.is_null() {
+            return VALUE_UNDEFINED;
+        }
+        return unsafe { __torajs_anyv_box_pointer(s as *mut c_void) };
     }
     // Annex B §B.2.2.1 — the reified `get __proto__` / `set
     // __proto__` faces (RFC 20260718-accessor-reify 刀 1). The

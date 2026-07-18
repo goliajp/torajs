@@ -376,6 +376,17 @@ pub const ANY_METHOD_PROTO_SET: i64 = 154;
 /// (both faces of both pairs are this one interned cell, so the
 /// four-way identity holds). Any invocation throws TypeError.
 pub const ANY_METHOD_THROW_TYPE_ERROR: i64 = 155;
+/// `Error.prototype.toString` (§20.5.3.4) as its own function object
+/// — distinct from the per-receiver `toString` surface: it runs the
+/// spec's generic steps (`Get(O, "name")` / `Get(O, "message")` with
+/// abrupt propagation, undefined defaults "Error" / "") over ANY
+/// object receiver, so `Error.prototype.toString.call({name: "24"})`
+/// answers "24". Deliberately absent from the intern table (a plain
+/// `toString` member read keeps resolving to the receiver's own
+/// surface); handed out only by the `Error.prototype` own entry that
+/// `__torajs_error_proto_install` defines (same posture as
+/// [`ANY_METHOD_OBJECT_TO_STRING`]).
+pub const ANY_METHOD_ERROR_TO_STRING: i64 = 156;
 
 /// RegExp property-read ids (Any-method-call RFC 20260704 C4-3c-2)
 /// — `r.source` / `r.lastIndex` / flag booleans through an `any`
