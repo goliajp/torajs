@@ -161,8 +161,9 @@ fn try_value_of(
 }
 
 /// `<recv>.toString(...)` — Type::Obj arm dispatches Error-derived
-/// class instances through the `error_to_string` runtime helper
-/// (kept a helper, not an injected class method, so `toString` never
+/// class instances through the `error_tostring_dispatch` runtime
+/// entry (monkey-patch probe + §20.5.3.4 formatter; kept a runtime
+/// helper, not an injected class method, so `toString` never
 /// enters `method_owners` and pollutes the checker's resolution of
 /// a plain `x.toString()` on a primitive / any / unrelated class);
 /// non-Error Obj folds to `"[object Object]"` per ES §19.1.3.6.
@@ -185,12 +186,17 @@ fn try_to_string(
                 let _ = ctx.lower_expr(a);
             }
             let cur_block = ctx.cur_block;
+            // rotation 141 — the dispatch entry (not the formatter
+            // direct): a monkey-patched `Error.prototype.toString`
+            // wins on typed receivers too; NULL = pending throw
+            // (override threw / non-string boundary), divert.
             let v = ctx.f.append_inst(
                 cur_block,
-                InstKind::Call(ctx.intrinsics.error_to_string, vec![recv_op]),
+                InstKind::Call(ctx.intrinsics.error_tostring_dispatch, vec![recv_op]),
                 Type::Str,
                 None,
             );
+            ctx.emit_throw_check(None);
             return Some(Operand::Value(v));
         }
         // S304 — lower-and-drop trailing args per S272 idiom so

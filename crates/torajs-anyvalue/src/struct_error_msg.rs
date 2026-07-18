@@ -167,6 +167,19 @@ unsafe extern "C" {
 /// # Safety
 /// `ptr` is a live `Tag::Obj` heap pointer.
 pub(crate) unsafe fn error_message_proto_pair(ptr: *const c_void) -> (u64, u64) {
+    unsafe { error_proto_chain_pair(ptr, b"message") }
+}
+
+/// The generalized walk behind [`error_message_proto_pair`] — any
+/// literal key through the error instance's class prototype chain
+/// (rotation 141: the `toString` monkey-patch probe shares it).
+/// Same borrow-shaped `(tag, value)` contract; `(ANY_UNDEF, 0)` on
+/// a fully missing chain — indistinguishable from a chain entry
+/// that literally stores `undefined` (both read as absent).
+///
+/// # Safety
+/// `ptr` is a live `Tag::Obj` heap pointer.
+pub(crate) unsafe fn error_proto_chain_pair(ptr: *const c_void, key_lit: &[u8]) -> (u64, u64) {
     let class_tag = unsafe { ptr.cast::<u8>().add(OBJ_CLASS_TAG_OFF).cast::<u32>().read() };
     let root = unsafe { __torajs_anyv_proto_get(class_tag as i64) };
     // Non-cell (null / unregistered) → no chain. Cell test mirrors
@@ -174,7 +187,8 @@ pub(crate) unsafe fn error_message_proto_pair(ptr: *const c_void) -> (u64, u64) 
     if root & 0xFFFF_0000_0000_0000 != 0 || root & 0x2 != 0 || root == 0 {
         return (AnySlotTag::Undef as u64, 0);
     }
-    let key = unsafe { __torajs_str_alloc(b"message".as_ptr(), 7) } as *const c_void;
+    let key =
+        unsafe { __torajs_str_alloc(key_lit.as_ptr(), key_lit.len() as i64) } as *const c_void;
     let mut cur = root as *const c_void;
     let mut out = (AnySlotTag::Undef as u64, 0);
     loop {
