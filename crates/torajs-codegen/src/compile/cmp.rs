@@ -4,10 +4,12 @@ use torajs_core::ssa::{FPred, IPred, Inst, Operand, Type};
 
 use super::operand::{materialize_operand_fpr, materialize_operand_gpr};
 use super::{
-    FP_SCRATCH_LHS, FP_SCRATCH_RHS, OP_SCRATCH_LHS, OP_SCRATCH_RESULT_GPR, OP_SCRATCH_RHS,
-    OP_SCRATCH_TMP, write_def_spill_gpr, write_u32,
+    FP_SCRATCH_LHS, FP_SCRATCH_RESULT, FP_SCRATCH_RHS, OP_SCRATCH_LHS, OP_SCRATCH_RESULT_GPR,
+    OP_SCRATCH_RHS, OP_SCRATCH_TMP, write_def_spill_fpr, write_def_spill_gpr, write_u32,
 };
-use crate::enc::{cmp_imm, cmp_reg, cmp_w_reg, cond, csel_cond, cset_cond, fcmp_d, orr_reg};
+use crate::enc::{
+    cmp_imm, cmp_reg, cmp_w_reg, cond, csel_cond, cset_cond, fcmp_d, fcsel_d, orr_reg,
+};
 use crate::regalloc::Assignment;
 
 pub fn emit_icmp(
@@ -63,9 +65,9 @@ pub(crate) fn emit_compare_nzcv(
 /// `InstKind::Select(ty, cond, then, else)` — branchless conditional
 /// move. Materialize all three operands first (mov/movz/ldr reloads
 /// never touch NZCV), then `cmp cond, #0; csel dst, then, else, NE`.
-/// The select-formation pass gates to non-F64 result types, so only
-/// the GPR csel form exists; an F64 Select reaching here is a
-/// formation bug, not a lowering gap.
+/// An F64 result takes the FCSEL twin: register class follows the
+/// *value's* declared type (regalloc.rs:256), so the condition still
+/// rides a GPR and only the value arms live in FPRs.
 pub fn emit_select(
     bytes: &mut Vec<u8>,
     inst: &Inst,
@@ -75,12 +77,17 @@ pub fn emit_select(
     else_op: &Operand,
     alloc: &Assignment,
 ) {
-    assert!(
-        *ty != Type::F64,
-        "InstKind::Select with F64 result reached emit — the select \
-         formation pass gates to non-F64 types (FCSEL not implemented)"
-    );
     let result_vid = inst.result.expect("Select must have a result");
+    if *ty == Type::F64 {
+        let (dst, spill_off) = alloc.def_fpr(result_vid, FP_SCRATCH_RESULT);
+        let rn = materialize_operand_fpr(bytes, then_op, FP_SCRATCH_LHS, OP_SCRATCH_LHS, alloc);
+        let rm = materialize_operand_fpr(bytes, else_op, FP_SCRATCH_RHS, OP_SCRATCH_RHS, alloc);
+        let rc = materialize_operand_gpr(bytes, cond_op, OP_SCRATCH_TMP, alloc);
+        write_u32(bytes, cmp_imm(rc, 0));
+        write_u32(bytes, fcsel_d(dst, rn, rm, cond::NE));
+        write_def_spill_fpr(bytes, spill_off, dst);
+        return;
+    }
     let (dst, spill_off) = alloc.def_gpr(result_vid, OP_SCRATCH_RESULT_GPR);
     let rn = materialize_operand_gpr(bytes, then_op, OP_SCRATCH_LHS, alloc);
     let rm = materialize_operand_gpr(bytes, else_op, OP_SCRATCH_RHS, alloc);
@@ -103,12 +110,19 @@ pub(crate) fn emit_select_fused(
     else_op: &Operand,
     alloc: &Assignment,
 ) {
-    assert!(
-        *ty != Type::F64,
-        "InstKind::Select with F64 result reached emit — the select \
-         formation pass gates to non-F64 types (FCSEL not implemented)"
-    );
     let result_vid = inst.result.expect("Select must have a result");
+    if *ty == Type::F64 {
+        // FPR value arms never collide with emit_compare_nzcv, which
+        // only touches GPR scratches. The GPR carrier a ConstF64 rides
+        // into its FPR is dead by the time the compare reuses it.
+        let (dst, spill_off) = alloc.def_fpr(result_vid, FP_SCRATCH_RESULT);
+        let rn = materialize_operand_fpr(bytes, then_op, FP_SCRATCH_LHS, OP_SCRATCH_TMP, alloc);
+        let rm = materialize_operand_fpr(bytes, else_op, FP_SCRATCH_RHS, OP_SCRATCH_TMP, alloc);
+        emit_compare_nzcv(bytes, &fc.lhs, &fc.rhs, alloc);
+        write_u32(bytes, fcsel_d(dst, rn, rm, ipred_to_cond(fc.pred)));
+        write_def_spill_fpr(bytes, spill_off, dst);
+        return;
+    }
     let (dst, spill_off) = alloc.def_gpr(result_vid, OP_SCRATCH_RESULT_GPR);
     // value arms take TMP / RESULT scratches — emit_compare_nzcv owns
     // LHS/RHS for the compare operands and would clobber them. A

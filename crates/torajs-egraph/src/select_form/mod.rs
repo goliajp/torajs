@@ -109,9 +109,6 @@ pub(super) fn plan_arm(func: &Function, blk: usize) -> Option<ArmPlan> {
         match &inst.kind {
             InstKind::Copy(ty, src) => {
                 let vid = inst.result.expect("Copy always defines a value");
-                if *ty == Type::F64 {
-                    return None; // GPR csel only (FCSEL not emitted)
-                }
                 if copies.iter().any(|(v, _, _)| *v == vid) {
                     return None; // duplicate def in one arm — not our shape
                 }
@@ -291,6 +288,10 @@ mod tests {
         Operand::ConstI64(n)
     }
 
+    fn cf(n: f64) -> Operand {
+        Operand::ConstF64(n)
+    }
+
     fn inst(result: u32, kind: InstKind) -> Inst {
         Inst {
             result: Some(ValueId(result)),
@@ -432,13 +433,21 @@ mod tests {
     }
 
     #[test]
-    fn f64_join_value_bails() {
+    fn f64_join_value_forms_fcsel_select() {
+        // f64 arms convert like any other type — register class comes
+        // from the value's declared type, so the emitter picks FCSEL
+        // while the condition stays on a GPR.
         let mut f = max_diamond();
-        f.blocks[1].insts[0] = inst(1, InstKind::Copy(Type::F64, c(7)));
-        f.blocks[2].insts[0] = inst(1, InstKind::Copy(Type::F64, c(5)));
+        f.blocks[1].insts[0] = inst(1, InstKind::Copy(Type::F64, cf(7.0)));
+        f.blocks[2].insts[0] = inst(1, InstKind::Copy(Type::F64, cf(5.0)));
         let mut stats = SelectFormStats::default();
         while form_once(&mut f, &mut stats) {}
-        assert_eq!(stats.diamonds_converted, 0);
+        assert_eq!(stats.diamonds_converted, 1);
+        let h = &f.blocks[0].insts;
+        assert_eq!(
+            h[h.len() - 1].kind,
+            InstKind::Select(Type::F64, v(0), cf(7.0), cf(5.0))
+        );
     }
 
     #[test]
