@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-18T19:22:24.254Z",
+  "generatedAt": "2026-07-18T20:28:34.208Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 94.78
   },
   "torajs": {
-    "commit": "5e4a98d3",
-    "commitSubject": "chore: full 44-cell bench results at f6918487",
+    "commit": "1c03c68f",
+    "commitSubject": "refactor: third id-switch slice for str_method",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "1c03c68f",
+      "subject": "refactor: third id-switch slice for str_method"
+    },
+    {
+      "hash": "e503969c",
+      "subject": "refactor: split class-object defines out of classmeta"
+    },
+    {
+      "hash": "dce17fee",
+      "subject": "perf: conditional increment collapses into one csinc"
+    },
+    {
+      "hash": "f40826e9",
+      "subject": "perf: f64 diamonds if-convert through fcsel"
+    },
+    {
+      "hash": "27292515",
+      "subject": "feat: aarch64 fcsel_d encoder for f64 select lowering"
+    },
+    {
+      "hash": "a2cd4574",
+      "subject": "chore: hardev dashboard snapshot at rotation 145 close"
+    },
+    {
       "hash": "5e4a98d3",
       "subject": "chore: full 44-cell bench results at f6918487"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "efda278f",
       "subject": "chore: hardev dashboard snapshot at rotation 144 close"
-    },
-    {
-      "hash": "5584de31",
-      "subject": "feat: simd reduction encoders for the ctpop-range-sum canned loop"
-    },
-    {
-      "hash": "80d847c3",
-      "subject": "test(bench): full 44-case run at aa4eb23d — popcount 12.2 to 7.3ms, collatz 184.8 to 175.6, broad -5~-20% wins, zero true regressions"
-    },
-    {
-      "hash": "aa4eb23d",
-      "subject": "perf: sink cold blocks out of loop position ranges"
-    },
-    {
-      "hash": "fbeb6de0",
-      "subject": "perf: elide fall-through branches and flip condbrs to layout"
-    },
-    {
-      "hash": "d1f18e19",
-      "subject": "perf: fold provably-constant condbrs after ctpop collapse"
-    },
-    {
-      "hash": "a620505b",
-      "subject": "chore: hardev dashboard snapshot at rotation 143 close"
     }
   ],
-  "headSha": "5e4a98d3",
+  "headSha": "1c03c68f",
   "autorun": {
-    "total": 450,
+    "total": 451,
     "baselineTarget": 10,
-    "bySelf": 445,
+    "bySelf": 446,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784396667-70ef",
-      "at": "2026-07-18T17:44:27Z",
-      "ts": 1784396667,
+      "rotationId": "r-1784402598-1316",
+      "at": "2026-07-18T19:23:18Z",
+      "ts": 1784402598,
       "trigger": "self",
-      "prevHead": "efda278f",
-      "handoffSha": "sha256:1c7322fd1e9d8ffae38f10a73d5b4ed35a5f6f781e36a881d7191b13547d41b4",
-      "handoffAgeSec": 78,
+      "prevHead": "a2cd4574",
+      "handoffSha": "sha256:7131e85fd9b6b46df8aa27ac4b8b736a5de8ef7654681a9ac33b27ec2732ef62",
+      "handoffAgeSec": 3,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784402598-1316",
+        "at": "2026-07-18T19:23:18Z",
+        "ts": 1784402598,
+        "trigger": "self",
+        "prevHead": "a2cd4574",
+        "handoffSha": "sha256:7131e85fd9b6b46df8aa27ac4b8b736a5de8ef7654681a9ac33b27ec2732ef62",
+        "handoffAgeSec": 3,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784396667-70ef",
         "at": "2026-07-18T17:44:27Z",
@@ -876,17 +887,6 @@
         "prevHead": "e13f7827",
         "handoffSha": "sha256:007b484c7a69a30cc7d12c6df9c9fa4831c3f7215c1f7c1b5bf6dab908809b50",
         "handoffAgeSec": 7787,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784302769-281b",
-        "at": "2026-07-17T15:39:29Z",
-        "ts": 1784302769,
-        "trigger": "self",
-        "prevHead": "49c6b293",
-        "handoffSha": "sha256:0a2503acdb6dbe4b19b3e886d67f61cb654902a9c01b26a284d27194ac26c6b9",
-        "handoffAgeSec": 7,
         "conformanceBefore": null,
         "commitsInSession": null
       }
