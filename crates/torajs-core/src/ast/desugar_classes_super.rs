@@ -48,8 +48,15 @@ pub(super) type ClassIndexEntry = (
 /// Runs on the mutable class_index BEFORE it freezes; the synthetic
 /// derived default ctors just synthesized carry a super() and skip.
 pub(super) fn append_no_super_throw(ast: &mut Ast, class_index: &mut [ClassIndexEntry]) {
-    for (_, _cname, _tp, parent, _, _, ctor, _, _) in class_index.iter_mut() {
+    for (_, cname, _tp, parent, _, _, ctor, _, _) in class_index.iter_mut() {
         if parent.is_none() {
+            continue;
+        }
+        // Only a ctor the USER spelled out counts — a parser-synth
+        // field-init ctor (`class D extends A { f = 1 }`) has no
+        // super() either, but per §15.7.14 the class simply has the
+        // implicit default ctor which DOES call super.
+        if !ast.explicit_ctor_classes.contains(cname) {
             continue;
         }
         let Some(c) = ctor.as_mut() else { continue };

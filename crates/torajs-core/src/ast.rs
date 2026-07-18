@@ -173,6 +173,12 @@ pub struct Ast {
     /// `synthesize_class_globals` consults this to avoid reporting
     /// the forwarded param count.
     pub derived_default_ctor_classes: std::collections::HashSet<String>,
+    /// RFC 20260718-error-message-own-prop 刀 3 — classes whose ctor
+    /// the USER spelled out (`constructor(...) {...}` parsed). The
+    /// no-super ReferenceError append keys on this: a parser-synth
+    /// field-init ctor / a desugar default ctor is not a user ctor
+    /// and never gets the raiser.
+    pub explicit_ctor_classes: std::collections::HashSet<String>,
     /// Phase H.3.b — method name → declaring classes in source order
     /// (deepest sub last). Used by ssa_lower's `__dispatch_<M>` Call
     /// interception to emit the runtime tag-switch and call the right

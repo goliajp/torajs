@@ -158,6 +158,7 @@ impl<'a> Parser<'a> {
                 prefix.extend(body);
                 body = prefix;
             }
+            self.ast.explicit_ctor_classes.insert(name.to_string());
             *ctor = Some(ClassCtor { params, body });
         } else {
             self.finalize_class_method(
