@@ -23,6 +23,17 @@ pub fn add_reg(rd: Gpr, rn: Gpr, rm: Gpr) -> u32 {
     0x8B00_0000 | (rm.idx() << 16) | (rn.idx() << 5) | rd.idx()
 }
 
+/// ADD Xd, Xn, Xm, LSL #sh — shifted-register add. ARM ARM C6.2.4.
+/// One-instruction strength reduction for `mul by 2^sh + 1`
+/// (3/5/9 → x + (x << 1/2/3)), keeping small-constant multiplies off
+/// the 3-cycle multiplier (RFC 20260719-select-formation blade 4:
+/// csel-formed parity chains put the odd-arm `3n+1` on the loop's
+/// critical path, where mul latency is the whole regression).
+pub fn add_reg_lsl(rd: Gpr, rn: Gpr, rm: Gpr, shift: u32) -> u32 {
+    debug_assert!(shift < 64, "shift amount must fit in imm6");
+    0x8B00_0000 | (rm.idx() << 16) | (shift << 10) | (rn.idx() << 5) | rd.idx()
+}
+
 /// ADD Xd, Xn, #imm12. ARM ARM C6.2.4. `imm12 < 4096`.
 pub fn add_imm(rd: Gpr, rn: Gpr, imm12: u16) -> u32 {
     debug_assert!(imm12 < 4096, "imm12 must fit in 12 bits");
@@ -160,6 +171,16 @@ mod tests {
     #[test]
     fn movz_x0_one_matches_arm_arm() {
         assert_eq!(movz_imm(Gpr::X0, 1, 0), 0xD280_0020);
+    }
+
+    // add-shifted golden bytes cross-checked against clang -arch arm64
+    // (objdump of `add x3,x1,x1,lsl #1` / `add x0,x2,x2,lsl #2` /
+    // `add x5,x4,x4,lsl #3`).
+    #[test]
+    fn add_reg_lsl_matches_clang() {
+        assert_eq!(add_reg_lsl(Gpr::X3, Gpr::X1, Gpr::X1, 1), 0x8B01_0423);
+        assert_eq!(add_reg_lsl(Gpr::X0, Gpr::X2, Gpr::X2, 2), 0x8B02_0840);
+        assert_eq!(add_reg_lsl(Gpr::X5, Gpr::X4, Gpr::X4, 3), 0x8B04_0C85);
     }
 
     #[test]

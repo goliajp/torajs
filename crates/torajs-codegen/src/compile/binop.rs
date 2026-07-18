@@ -8,9 +8,9 @@ use super::{
     OP_SCRATCH_RHS, OP_SCRATCH_TMP, write_def_spill_fpr, write_def_spill_gpr, write_u32,
 };
 use crate::enc::{
-    add_imm, add_reg, addv_b_v8b, and_reg, asrv_reg, bl_imm26, cnt_v8b, eor_reg, fadd_d, fdiv_d,
-    fmov_d_from_x, fmov_d_to_d, fmov_x_from_d, fmul_d, fsub_d, lslv_reg, lsrv_reg, msub_reg,
-    mul_reg, orr_reg, sdiv_reg, sub_imm, sub_reg,
+    add_imm, add_reg, add_reg_lsl, addv_b_v8b, and_reg, asrv_reg, bl_imm26, cnt_v8b, eor_reg,
+    fadd_d, fdiv_d, fmov_d_from_x, fmov_d_to_d, fmov_x_from_d, fmul_d, fsub_d, lslv_reg, lsrv_reg,
+    msub_reg, mul_reg, orr_reg, sdiv_reg, sub_imm, sub_reg,
 };
 use crate::reg::aapcs64;
 use crate::regalloc::Assignment;
@@ -74,6 +74,18 @@ pub fn emit_binop(
         | BinOp::LShr => {
             let result_vid = inst.result.expect("int BinOp must have a result ValueId");
             let (dst, spill_off) = alloc.def_gpr(result_vid, OP_SCRATCH_RESULT_GPR);
+            // mul by 3/5/9 → one shifted-register add (x + x<<1/2/3):
+            // 1-cycle ALU vs the 3-cycle multiplier. Matters most for
+            // select-formed parity chains where `3n+1` sits on the
+            // loop-carried critical path (RFC 20260719 blade 4).
+            if matches!(op, BinOp::Mul)
+                && let Some((x, sh)) = mul_add_shift_operand(lhs, rhs)
+            {
+                let rx = materialize_operand_gpr(bytes, x, OP_SCRATCH_LHS, alloc);
+                write_u32(bytes, add_reg_lsl(dst, rx, rx, sh));
+                write_def_spill_gpr(bytes, spill_off, dst);
+                return;
+            }
             let rn = materialize_operand_gpr(bytes, lhs, OP_SCRATCH_LHS, alloc);
             // Round 5 popcount branch/const attack — ADD/SUB with a
             // small constant RHS use the imm12 form, skipping the
@@ -174,6 +186,21 @@ pub fn emit_binop(
             }
             write_def_spill_fpr(bytes, spill_off, dst);
         }
+    }
+}
+
+/// `mul` operand pair matching `x * (2^sh + 1)` on either side —
+/// returns the value operand and the shift for the add-shifted form.
+fn mul_add_shift_operand<'a>(lhs: &'a Operand, rhs: &'a Operand) -> Option<(&'a Operand, u32)> {
+    let (c, x) = match (lhs, rhs) {
+        (Operand::ConstI64(c), x) | (x, Operand::ConstI64(c)) => (*c, x),
+        _ => return None,
+    };
+    match c {
+        3 => Some((x, 1)),
+        5 => Some((x, 2)),
+        9 => Some((x, 3)),
+        _ => None,
     }
 }
 

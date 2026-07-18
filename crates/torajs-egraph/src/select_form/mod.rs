@@ -24,6 +24,8 @@
 //! as rc-transparent via `classify_pure`. `TORAJS_SELECT_FORM_OFF=1`
 //! skips, `TORAJS_SELECT_FORM_STATS=1` dumps counters.
 
+mod guard;
+
 use std::collections::HashMap;
 
 use torajs_core::ssa::{BinOp, BlockId, Function, Inst, InstKind, Module, Operand, Terminator};
@@ -31,9 +33,12 @@ use torajs_core::ssa::{Type, ValueId};
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct SelectFormStats {
-    /// diamonds fully converted (CondBr → Br + selects).
+    /// pure diamonds fully converted (CondBr → Br + selects).
     pub diamonds_converted: u32,
-    /// Select instructions formed (one per φ-merged join value).
+    /// guarded diamonds converted (blade 3: pure arm + guard chain).
+    pub guarded_converted: u32,
+    /// Select instructions formed (one per φ-merged join value; the
+    /// guard-reduction Selects are plumbing and not counted here).
     pub selects_formed: u32,
     /// non-Copy arm instructions hoisted into the header.
     pub insts_hoisted: u32,
@@ -65,7 +70,7 @@ pub fn form_selects(module: &mut Module) -> SelectFormStats {
 /// `inst_emits_bl`) and is the wrong question for Load (GVN-impure yet
 /// also unsafe to hoist past its guard). SDiv/SRem are trap-free on
 /// aarch64 but occupy the divider for ~10 cyc — outside the budget.
-fn can_speculate(kind: &InstKind) -> bool {
+pub(super) fn can_speculate(kind: &InstKind) -> bool {
     match kind {
         InstKind::BinOp(op, _, _) => !matches!(op, BinOp::FRem | BinOp::SDiv | BinOp::SRem),
         InstKind::ICmp(_, _, _)
@@ -91,13 +96,13 @@ fn can_speculate(kind: &InstKind) -> bool {
 
 /// One arm's dissection: hoistable defs in order, plus the join Copys
 /// in order as `(vid, ty, src)`.
-struct ArmPlan {
-    hoisted: Vec<Inst>,
-    copies: Vec<(ValueId, Type, Operand)>,
+pub(super) struct ArmPlan {
+    pub(super) hoisted: Vec<Inst>,
+    pub(super) copies: Vec<(ValueId, Type, Operand)>,
 }
 
 /// Dissect one arm block. `None` = arm not convertible.
-fn plan_arm(func: &Function, blk: usize) -> Option<ArmPlan> {
+pub(super) fn plan_arm(func: &Function, blk: usize) -> Option<ArmPlan> {
     let mut hoisted = Vec::new();
     let mut copies: Vec<(ValueId, Type, Operand)> = Vec::new();
     for inst in &func.blocks[blk].insts {
@@ -124,8 +129,8 @@ fn plan_arm(func: &Function, blk: usize) -> Option<ArmPlan> {
     Some(ArmPlan { hoisted, copies })
 }
 
-/// Scan for one convertible diamond; convert it and report `true`, or
-/// return `false` when none is left.
+/// Scan for one convertible diamond (pure, then guarded); convert it
+/// and report `true`, or return `false` when none is left.
 fn form_once(func: &mut Function, stats: &mut SelectFormStats) -> bool {
     // predecessor counts + global def counts (multi-def Copy check)
     let mut preds: HashMap<BlockId, u32> = HashMap::new();
@@ -147,6 +152,8 @@ fn form_once(func: &mut Function, stats: &mut SelectFormStats) -> bool {
             }
         }
     }
+    let pred_count = |b: BlockId| preds.get(&b).copied().unwrap_or(0);
+    let def_count = |v: ValueId| defs.get(&v).copied().unwrap_or(0);
 
     for h in 0..func.blocks.len() {
         let Terminator::CondBr {
@@ -161,71 +168,114 @@ fn form_once(func: &mut Function, stats: &mut SelectFormStats) -> bool {
         if t_id == e_id || t_id == func.blocks[h].id || e_id == func.blocks[h].id {
             continue;
         }
-        // BlockId.0 == position invariant (phi_promote destruct upholds)
-        let (t, e) = (t_id.0 as usize, e_id.0 as usize);
-        if preds.get(&t_id) != Some(&1) || preds.get(&e_id) != Some(&1) {
-            continue;
+        if try_form_pure(func, h, &cond, t_id, e_id, &pred_count, &def_count, stats)
+            || guard::try_form_guarded(
+                func,
+                h,
+                &cond,
+                t_id,
+                e_id,
+                true,
+                &pred_count,
+                &def_count,
+                stats,
+            )
+            || guard::try_form_guarded(
+                func,
+                h,
+                &cond,
+                e_id,
+                t_id,
+                false,
+                &pred_count,
+                &def_count,
+                stats,
+            )
+        {
+            return true;
         }
-        let (Terminator::Br(t_join), Terminator::Br(e_join)) =
-            (&func.blocks[t].term, &func.blocks[e].term)
-        else {
-            continue;
-        };
-        if t_join != e_join || *t_join == t_id || *t_join == e_id {
-            continue;
-        }
-        let join = *t_join;
-        let (Some(tp), Some(ep)) = (plan_arm(func, t), plan_arm(func, e)) else {
-            continue;
-        };
-        // join values must pair up exactly: same vid set, two defs
-        // globally (one per arm), and no copy source feeding on
-        // another join value of this same diamond (parallel-copy
-        // sequencing across arms is not reconstructed here).
-        if tp.copies.len() != ep.copies.len() {
-            continue;
-        }
-        let paired = tp
-            .copies
-            .iter()
-            .all(|(v, _, _)| ep.copies.iter().any(|(w, _, _)| w == v) && defs.get(v) == Some(&2));
-        let self_ref = tp
-            .copies
-            .iter()
-            .chain(ep.copies.iter())
-            .any(|(_, _, src)| {
-                matches!(src, Operand::Value(x) if tp.copies.iter().any(|(v, _, _)| v == x))
-            });
-        if !paired || self_ref {
-            continue;
-        }
-
-        // convert: hoist arms, form selects, collapse the branch
-        let mut appended: Vec<Inst> = Vec::new();
-        stats.insts_hoisted += (tp.hoisted.len() + ep.hoisted.len()) as u32;
-        appended.extend(tp.hoisted);
-        appended.extend(ep.hoisted);
-        for (vid, ty, t_src) in &tp.copies {
-            let (_, _, e_src) = ep
-                .copies
-                .iter()
-                .find(|(w, _, _)| w == vid)
-                .expect("pairing verified above");
-            appended.push(Inst {
-                result: Some(*vid),
-                kind: InstKind::Select(*ty, cond.clone(), t_src.clone(), e_src.clone()),
-                origin: None,
-            });
-            stats.selects_formed += 1;
-        }
-        func.blocks[h].insts.extend(appended);
-        func.blocks[h].term = Terminator::Br(join);
-        func.blocks[t].insts.clear();
-        func.blocks[e].insts.clear();
-        stats.diamonds_converted += 1;
-        return true;
     }
     false
+}
+
+/// Blade-2 pure diamond: both arms single-pred, all-pure, same join.
+#[allow(clippy::too_many_arguments)]
+fn try_form_pure(
+    func: &mut Function,
+    h: usize,
+    cond: &Operand,
+    t_id: BlockId,
+    e_id: BlockId,
+    pred_count: impl Fn(BlockId) -> u32,
+    def_count: impl Fn(ValueId) -> u32,
+    stats: &mut SelectFormStats,
+) -> bool {
+    // BlockId.0 == position invariant (phi_promote destruct upholds)
+    let (t, e) = (t_id.0 as usize, e_id.0 as usize);
+    if pred_count(t_id) != 1 || pred_count(e_id) != 1 {
+        return false;
+    }
+    let (Terminator::Br(t_join), Terminator::Br(e_join)) =
+        (&func.blocks[t].term, &func.blocks[e].term)
+    else {
+        return false;
+    };
+    if t_join != e_join || *t_join == t_id || *t_join == e_id {
+        return false;
+    }
+    let join = *t_join;
+    let (Some(tp), Some(ep)) = (plan_arm(func, t), plan_arm(func, e)) else {
+        return false;
+    };
+    // join values must pair up exactly: same vid set, two defs
+    // globally (one per arm), and no copy source feeding on
+    // another join value of this same diamond (parallel-copy
+    // sequencing across arms is not reconstructed here).
+    if tp.copies.len() != ep.copies.len() {
+        return false;
+    }
+    let paired = tp
+        .copies
+        .iter()
+        .all(|(v, _, _)| ep.copies.iter().any(|(w, _, _)| w == v) && def_count(*v) == 2);
+    let self_ref = tp.copies.iter().chain(ep.copies.iter()).any(
+        |(_, _, src)| matches!(src, Operand::Value(x) if tp.copies.iter().any(|(v, _, _)| v == x)),
+    );
+    if !paired || self_ref {
+        return false;
+    }
+
+    // convert: hoist arms, form selects, collapse the branch
+    let mut appended: Vec<Inst> = Vec::new();
+    stats.insts_hoisted += (tp.hoisted.len() + ep.hoisted.len()) as u32;
+    appended.extend(tp.hoisted);
+    appended.extend(ep.hoisted);
+    for (vid, ty, t_src) in &tp.copies {
+        let (_, _, e_src) = ep
+            .copies
+            .iter()
+            .find(|(w, _, _)| w == vid)
+            .expect("pairing verified above");
+        appended.push(Inst {
+            result: Some(*vid),
+            kind: InstKind::Select(*ty, cond.clone(), t_src.clone(), e_src.clone()),
+            origin: None,
+        });
+        stats.selects_formed += 1;
+    }
+    func.blocks[h].insts.extend(appended);
+    func.blocks[h].term = Terminator::Br(join);
+    func.blocks[t].insts.clear();
+    func.blocks[e].insts.clear();
+    stats.diamonds_converted += 1;
+    true
+}
+
+/// Test-only driver: run the fixpoint on one function (guard.rs unit
+/// tests exercise the whole matcher through this).
+#[cfg(test)]
+pub(super) fn form_selects_in_function_for_tests(func: &mut Function, stats: &mut SelectFormStats) {
+    while form_once(func, stats) {}
 }
 
 #[cfg(test)]
