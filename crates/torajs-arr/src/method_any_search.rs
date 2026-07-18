@@ -41,6 +41,11 @@ unsafe extern "C" {
     fn __torajs_dynobj_entry_is_hole(obj: *const c_void, key: *const c_void) -> i32;
     /// torajs-str — release an owned Str.
     fn __torajs_str_drop(s: *mut c_void);
+    /// torajs-throw — pending-throw probe. An index read through an
+    /// accessor getter may throw; the scan must abort at that slot
+    /// (§23.1.3.17 step 9.b.ii ReturnIfAbrupt — later getters are
+    /// observable side effects).
+    fn __torajs_throw_check() -> i64;
 }
 
 /// `from`-argument normalization per ES §23.1.3.17 step 4-6:
@@ -112,6 +117,10 @@ unsafe fn search(arr: *const c_void, needle: u64, from: i64, same_value_zero: bo
                 continue;
             }
             let v = crate::index_any::__torajs_arr_index_get(arr, i);
+            if __torajs_throw_check() != 0 {
+                __torajs_value_drop_heap(v as *mut c_void);
+                return -1;
+            }
             let hit = __torajs_anyv_strict_eq(v, needle) || (needle_nan && is_nan_boxed(v));
             __torajs_value_drop_heap(v as *mut c_void);
             if hit {
@@ -173,6 +182,10 @@ pub unsafe extern "C" fn __torajs_arr_any_last_index_of(
                 continue;
             }
             let v = crate::index_any::__torajs_arr_index_get(arr, i);
+            if __torajs_throw_check() != 0 {
+                __torajs_value_drop_heap(v as *mut c_void);
+                return -1;
+            }
             let hit = __torajs_anyv_strict_eq(v, needle);
             __torajs_value_drop_heap(v as *mut c_void);
             if hit {

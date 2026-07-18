@@ -145,6 +145,12 @@ pub(crate) unsafe fn arraylike_len(obj: *mut c_void) -> Option<i64> {
         if dtag == ANY_ACCESSOR_TAG {
             __torajs_value_drop_heap(av as *mut c_void);
         }
+        // §7.1.20 ToLength runs ToNumber — an object length's valueOf
+        // may throw (15.4.4.14-5-30: that abrupt completion must
+        // precede the fromIndex ToInteger side effects).
+        if __torajs_throw_check() != 0 {
+            return None;
+        }
         // §7.1.20 ToLength — NaN/negative clamp 0, cap 2^53-1.
         let len = if n.is_nan() || n <= 0.0 {
             0
@@ -221,11 +227,20 @@ pub(crate) unsafe fn arraylike_method(
             m if m == ANY_METHOD_INDEX_OF || m == ANY_METHOD_INCLUDES => {
                 let needle = arg_at(0);
                 let from = to_index(arg_at(1), 0);
+                // ToIntegerOrInfinity(fromIndex) valueOf may throw —
+                // abort before any per-index Get side effects.
+                if __torajs_throw_check() != 0 {
+                    return VALUE_UNDEFINED;
+                }
                 let mut k = if from < 0 { (from + len).max(0) } else { from };
                 let has_gated = m == ANY_METHOD_INDEX_OF;
                 while k < len {
                     if !has_gated || arraylike_has(obj, k) {
                         let v = arraylike_get(obj, k);
+                        if __torajs_throw_check() != 0 {
+                            __torajs_value_drop_heap(v as *mut c_void);
+                            return VALUE_UNDEFINED;
+                        }
                         let hit = if has_gated {
                             __torajs_anyv_strict_eq(needle, v)
                         } else {
@@ -257,6 +272,9 @@ pub(crate) unsafe fn arraylike_method(
                 } else {
                     len - 1
                 };
+                if __torajs_throw_check() != 0 {
+                    return VALUE_UNDEFINED;
+                }
                 let mut k = if from < 0 {
                     from + len
                 } else {
@@ -265,6 +283,10 @@ pub(crate) unsafe fn arraylike_method(
                 while k >= 0 {
                     if arraylike_has(obj, k) {
                         let v = arraylike_get(obj, k);
+                        if __torajs_throw_check() != 0 {
+                            __torajs_value_drop_heap(v as *mut c_void);
+                            return VALUE_UNDEFINED;
+                        }
                         let hit = __torajs_anyv_strict_eq(needle, v);
                         __torajs_value_drop_heap(v as *mut c_void);
                         if hit {

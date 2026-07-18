@@ -53,6 +53,9 @@ unsafe extern "C" {
         argc: i64,
         recv_slot: *mut u64,
     ) -> u64;
+    /// torajs-throw — pending-throw probe (fromIndex valueOf may
+    /// throw; the scan must not run its getter side effects then).
+    fn __torajs_throw_check() -> i64;
     /// torajs-arr — strict-eq index scan (found index or -1).
     fn __torajs_arr_any_index_of(arr: *const c_void, needle: u64, from: i64) -> i64;
     /// torajs-arr — backwards strict-eq scan (§23.1.3.20).
@@ -189,6 +192,11 @@ pub(crate) unsafe fn arr_method(
             }
             m if m == ANY_METHOD_INDEX_OF => {
                 let from = to_index(arg_at(1), 0);
+                // ToIntegerOrInfinity(fromIndex) valueOf may throw —
+                // the scan's getter side effects must not run then.
+                if __torajs_throw_check() != 0 {
+                    return VALUE_UNDEFINED;
+                }
                 __torajs_anyv_box_i64(__torajs_arr_any_index_of(arr, arg_at(0), from))
             }
             m if m == ANY_METHOD_LAST_INDEX_OF => {
@@ -201,6 +209,9 @@ pub(crate) unsafe fn arr_method(
                 } else {
                     i64::MAX
                 };
+                if __torajs_throw_check() != 0 {
+                    return VALUE_UNDEFINED;
+                }
                 __torajs_anyv_box_i64(__torajs_arr_any_last_index_of(arr, arg_at(0), from))
             }
             m if m == ANY_METHOD_REVERSE => {
