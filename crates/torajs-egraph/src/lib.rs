@@ -37,6 +37,7 @@ pub mod rewrite;
 pub mod scope_map;
 pub mod sext_elide;
 pub mod slot_forward;
+pub mod srem_parity;
 
 use std::collections::HashSet;
 
@@ -209,6 +210,17 @@ pub fn transform_module(mut module: Module) -> Module {
             if std::env::var("TORAJS_FLOAT_DEMOTE_STATS").as_deref() == Ok("1") {
                 eprintln!("torajs-float-demote-stats: {fd_stats:?}");
             }
+        }
+    }
+    // Parity-compare strength reduction — a srem-by-2^k whose every
+    // use is an eq/ne-vs-0 compare rewrites to and-by-mask (codegen
+    // expands SRem to sdiv+msub; the divider trip is invisible to
+    // GVN). After float_demote (its FRem→SRem output is the feeder).
+    // `TORAJS_SREM_PARITY_OFF=1` skips (bisect gate).
+    if std::env::var("TORAJS_SREM_PARITY_OFF").as_deref() != Ok("1") {
+        let sp_stats = srem_parity::reduce_parity_srems(&mut module);
+        if std::env::var("TORAJS_SREM_PARITY_STATS").as_deref() == Ok("1") {
+            eprintln!("torajs-srem-parity-stats: {sp_stats:?}");
         }
     }
     let sext_seeds: Vec<HashSet<ValueId>> = interval_facts
