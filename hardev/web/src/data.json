@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-18T10:06:26.859Z",
+  "generatedAt": "2026-07-18T11:50:08.307Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-18T00:09:50Z",
-    "headSha": "c33c69d4",
-    "elapsedSec": 579.58,
+    "ranAt": "2026-07-18T11:39:00Z",
+    "headSha": "545b7c8f",
+    "elapsedSec": 582.3,
     "workers": 8,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 7826,
+    "pass": 7876,
     "passNoOracle": 112,
     "passNegative": 4447,
-    "passTotal": 12385,
-    "bug": 734,
-    "incompatible": 40055,
+    "passTotal": 12435,
+    "bug": 685,
+    "incompatible": 40054,
     "bunSkip": 11908,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 13119,
-    "passRateInScope": 23.29,
-    "passRateTrAccepted": 94.41
+    "trAccepted": 13120,
+    "passRateInScope": 23.39,
+    "passRateTrAccepted": 94.78
   },
   "torajs": {
-    "commit": "8cc0213e",
-    "commitSubject": "fix: error tostring rejects primitive cells; string() shows symbols",
+    "commit": "545b7c8f",
+    "commitSubject": "feat: typed-tier string(symbol) renders the descriptive string",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "545b7c8f",
+      "subject": "feat: typed-tier string(symbol) renders the descriptive string"
+    },
+    {
+      "hash": "f630e968",
+      "subject": "fix: lastindexof arg coercions abort on abrupt completion"
+    },
+    {
+      "hash": "dc43aaf3",
+      "subject": "fix: string method arg coercions abort on abrupt completion"
+    },
+    {
+      "hash": "97222a8a",
+      "subject": "fix: error.prototype.tostring monkey-patch wins on instance dispatch"
+    },
+    {
+      "hash": "d9d19a27",
+      "subject": "fix: new array(len) rejects fractional/nan/infinity lengths"
+    },
+    {
+      "hash": "af49f7f8",
+      "subject": "chore: hardev dashboard snapshot refresh at rotation 140 close"
+    },
+    {
       "hash": "8cc0213e",
       "subject": "fix: error tostring rejects primitive cells; string() shows symbols"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "d6533031",
       "subject": "fix: indexOf family scans abort on a pending throw"
-    },
-    {
-      "hash": "38283c1d",
-      "subject": "fix: instanceof resolves class-expression binding aliases"
-    },
-    {
-      "hash": "3ec1b8a9",
-      "subject": "chore: hardev dashboard snapshot at rotation 139 close"
-    },
-    {
-      "hash": "6223048f",
-      "subject": "fix: the no-super raiser keys on user-spelled ctors only"
-    },
-    {
-      "hash": "bde100ed",
-      "subject": "style: fmt-drift fix on the error-magic mod declaration order"
-    },
-    {
-      "hash": "d0ce3f53",
-      "subject": "refactor: split the error-ctor magic lowerings into a sibling"
-    },
-    {
-      "hash": "62b5e939",
-      "subject": "feat: a super-less derived constructor throws referenceerror on new"
     }
   ],
-  "headSha": "8cc0213e",
+  "headSha": "545b7c8f",
   "autorun": {
-    "total": 445,
+    "total": 446,
     "baselineTarget": 10,
-    "bySelf": 440,
+    "bySelf": 441,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784341897-3564",
-      "at": "2026-07-18T02:31:37Z",
-      "ts": 1784341897,
+      "rotationId": "r-1784369203-5bbf",
+      "at": "2026-07-18T10:06:43Z",
+      "ts": 1784369203,
       "trigger": "self",
-      "prevHead": "3ec1b8a9",
-      "handoffSha": "sha256:bd77ab39eae81c57133b6116af2238c7ab447c36cf0f18e93ef4cba4fb52cc28",
-      "handoffAgeSec": 112,
+      "prevHead": "af49f7f8",
+      "handoffSha": "sha256:45d6e877ea9d794e6d2abb4e22b000834decdebd6d5d3eea1ed9017a466164b5",
+      "handoffAgeSec": 24,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784369203-5bbf",
+        "at": "2026-07-18T10:06:43Z",
+        "ts": 1784369203,
+        "trigger": "self",
+        "prevHead": "af49f7f8",
+        "handoffSha": "sha256:45d6e877ea9d794e6d2abb4e22b000834decdebd6d5d3eea1ed9017a466164b5",
+        "handoffAgeSec": 24,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784341897-3564",
         "at": "2026-07-18T02:31:37Z",
@@ -876,17 +887,6 @@
         "prevHead": "7b4ecf7f",
         "handoffSha": "sha256:5cf4405acc7793f3b6aa5fc36dba5a1af4c977abddb22a1a62c75a52e7c4e9c9",
         "handoffAgeSec": 0,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784274516-34c5",
-        "at": "2026-07-17T07:48:36Z",
-        "ts": 1784274516,
-        "trigger": "self",
-        "prevHead": "3a32abe4",
-        "handoffSha": "sha256:cb36e1ea5491c132c2f2a7cd0306dfaa6ba09fe3d2f2c84b9bbba4036b6a1b37",
-        "handoffAgeSec": 8,
         "conformanceBefore": null,
         "commitsInSession": null
       }
