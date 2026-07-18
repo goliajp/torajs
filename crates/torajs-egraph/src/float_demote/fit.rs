@@ -163,6 +163,14 @@ pub(crate) fn rewrite_def(d: &InstKind) -> InstKind {
     match d {
         InstKind::SiToFp(x) => InstKind::Copy(Type::I64, int_op(x)),
         InstKind::BinOp(BinOp::FRem, a, b) => InstKind::BinOp(BinOp::SRem, int_op(a), int_op(b)),
+        // fits_int only admits FDiv under the by-2 evenness
+        // certificate, where an arithmetic shift halves exactly
+        // (negative evens included; sdiv-by-2 and asr-1 disagree only
+        // on negative odds, excluded by the certificate) — sdiv is
+        // ~8x the latency of asr on the carried chain
+        InstKind::BinOp(BinOp::FDiv, a, b) if op_const_int(b) == Some(2) => {
+            InstKind::BinOp(BinOp::AShr, int_op(a), Operand::ConstI64(1))
+        }
         InstKind::BinOp(BinOp::FDiv, a, b) => InstKind::BinOp(BinOp::SDiv, int_op(a), int_op(b)),
         InstKind::BinOp(BinOp::FAdd, a, b) => InstKind::BinOp(BinOp::Add, int_op(a), int_op(b)),
         InstKind::BinOp(BinOp::FSub, a, b) => InstKind::BinOp(BinOp::Sub, int_op(a), int_op(b)),

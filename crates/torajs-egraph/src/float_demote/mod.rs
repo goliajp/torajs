@@ -541,7 +541,7 @@ mod tests {
         ));
         assert!(matches!(
             f.blocks[2].insts[0].kind,
-            InstKind::BinOp(BinOp::SDiv, _, Operand::ConstI64(2))
+            InstKind::BinOp(BinOp::AShr, _, Operand::ConstI64(1))
         ));
         // sitofp entry became a copy of the i64 source
         assert!(matches!(
@@ -839,7 +839,7 @@ mod tests {
         ));
         assert!(matches!(
             f.blocks[5].insts[0].kind,
-            InstKind::BinOp(BinOp::SDiv, _, Operand::ConstI64(2))
+            InstKind::BinOp(BinOp::AShr, _, Operand::ConstI64(1))
         ));
         // the fmul guard checks n > (2^53-1)/3 (lower side proven by
         // the non-negative fact)
