@@ -121,6 +121,15 @@ pub fn movi_2d_zero(rd: Fpr) -> u32 {
     0x6F00_E400 | rd.idx()
 }
 
+/// INS Vd.D[1], Xn — write a 64-bit GPR into the high D lane,
+/// keeping lane 0 (IV lane pair `{i, i+1}` build: DUP then INS).
+/// ARM ARM C7.2.175 (INS general, imm5 = 0b11000 for D[1]).
+/// Base = 0x4E18_1C00. clang golden: `ins v4.d[1], x12` =
+/// 0x4E18_1D84.
+pub fn ins_d1_x(rd: Fpr, rn: Gpr) -> u32 {
+    0x4E18_1C00 | (rn.idx() << 5) | rd.idx()
+}
+
 /// SCVTF Dd, Xn — signed int64 → f64. ARM ARM C6.2.353. Base = 0x9E62_0000.
 pub fn scvtf_d_x(rd: Fpr, rn: Gpr) -> u32 {
     0x9E62_0000 | (rn.idx() << 5) | rd.idx()
@@ -245,6 +254,10 @@ mod tests {
         assert_eq!(dup_2d_x(Fpr::V6, Gpr::X9), 0x4E08_0D26);
         // movi v22.2d, #0
         assert_eq!(movi_2d_zero(Fpr::V22), 0x6F00_E416);
+        // ins v4.d[1], x12 / ins v1.d[1], x9 (clang-assembled on
+        // mini 2026-07-19; blade 1b IV lane-pair build)
+        assert_eq!(ins_d1_x(Fpr::V4, Gpr::X12), 0x4E18_1D84);
+        assert_eq!(ins_d1_x(Fpr::V1, Gpr::X9), 0x4E18_1D21);
     }
 
     #[test]

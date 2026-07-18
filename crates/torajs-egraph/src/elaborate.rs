@@ -334,6 +334,11 @@ fn canonicalize_operands(kind: &InstKind, egraph: &mut Egraph) -> InstKind {
             "InstKind::Select reached the egraph elaborator — select \
              formation introduces Select only after the egraph pass"
         ),
+        InstKind::CtpopRangeSum(_, _, _) => unreachable!(
+            "InstKind::CtpopRangeSum reached the egraph elaborator — \
+             ctpop-range-sum formation introduces it only after the \
+             egraph pass"
+        ),
         InstKind::BitCastF64ToI64(v) => InstKind::BitCastF64ToI64(map_operand(v, egraph)),
         InstKind::BitCastI64ToF64(v) => InstKind::BitCastI64ToF64(map_operand(v, egraph)),
         InstKind::IntToPtr(v) => InstKind::IntToPtr(map_operand(v, egraph)),

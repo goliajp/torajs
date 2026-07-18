@@ -71,5 +71,10 @@ pub(super) fn rewrite_inst_kind(kind: &InstKind, map: &HashMap<ValueId, Operand>
              introduces Select only after the egraph pass, which runs \
              after all inline rounds"
         ),
+        InstKind::CtpopRangeSum(_, _, _) => unreachable!(
+            "InstKind::CtpopRangeSum reached the inliner — ctpop-range-sum \
+             formation introduces it only after the egraph pass, which \
+             runs after all inline rounds"
+        ),
     }
 }

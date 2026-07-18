@@ -159,6 +159,13 @@ pub fn cost_of_kind(kind: &InstKind) -> Cost {
         // cond is a block-local single-use ICmp).
         InstKind::Select(_, _, _, _) => ALU_COST,
 
+        // `CtpopRangeSum` emits an entire canned SIMD reduction loop
+        // (~60 instructions, trip-dependent runtime). Elaboration
+        // never scores it (formation runs after the egraph pass);
+        // the explicit arm documents the order-of-magnitude so a
+        // future cost consumer doesn't treat it as one ALU op.
+        InstKind::CtpopRangeSum(_, _, _) => Cost::new(64),
+
         // Anything not enumerated above defaults to ALU cost. Adding a
         // new `InstKind` variant without updating this match is fine
         // (defensive default), but the variant author should add an

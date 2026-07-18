@@ -35,6 +35,7 @@ mod brfuse;
 mod call;
 mod cast;
 mod cmp;
+mod ctpop_range_sum;
 mod mem;
 mod operand;
 mod refs;
@@ -62,6 +63,7 @@ pub use cast::{
     emit_zext_i32_to_i64,
 };
 pub use cmp::{emit_fcmp, emit_icmp, emit_select};
+pub use ctpop_range_sum::emit_ctpop_range_sum;
 pub use mem::{emit_alloca, emit_load, emit_load_dyn, emit_store, emit_store_dyn};
 pub use operand::{
     emit_copy, materialize_const_i64, materialize_operand_fpr, materialize_operand_gpr,
@@ -323,6 +325,9 @@ fn emit_inst(
         InstKind::Copy(ty, op) => emit_copy(bytes, inst, *ty, op, alloc),
         InstKind::Select(ty, cond, then_op, else_op) => {
             emit_select(bytes, inst, ty, cond, then_op, else_op, alloc)
+        }
+        InstKind::CtpopRangeSum(start, bound, acc_init) => {
+            emit_ctpop_range_sum(bytes, inst, start, bound, acc_init, alloc)
         }
     }
 }

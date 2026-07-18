@@ -182,9 +182,16 @@ impl Assignment {
 ///   - `BinOp(FRem, _, _)` — lowered to a libm `_fmod` BL by
 ///     `compile::binop` (S2-D).
 pub(crate) fn inst_emits_bl(kind: &InstKind) -> bool {
+    // CtpopRangeSum emits no BL, but its canned SIMD loop clobbers
+    // V0-V7 + V16-V18 and X9-X12 — a subset of a call's caller-saved
+    // clobber set — so it needs the same treatment FRem gets: mark
+    // the site so live-across values relocate to callee-saved homes.
     matches!(
         kind,
-        InstKind::Call(_, _) | InstKind::CallIndirect(_, _, _) | InstKind::BinOp(BinOp::FRem, _, _)
+        InstKind::Call(_, _)
+            | InstKind::CallIndirect(_, _, _)
+            | InstKind::BinOp(BinOp::FRem, _, _)
+            | InstKind::CtpopRangeSum(_, _, _)
     )
 }
 

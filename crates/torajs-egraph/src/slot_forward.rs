@@ -189,6 +189,11 @@ pub(crate) fn rewrite_operands(kind: &mut InstKind, replace: &HashMap<ValueId, O
             r(t);
             r(e);
         }
+        InstKind::CtpopRangeSum(s, b, a) => {
+            r(s);
+            r(b);
+            r(a);
+        }
         InstKind::SiToFp(a)
         | InstKind::FpToSi(a)
         | InstKind::ZExtBoolToI64(a)

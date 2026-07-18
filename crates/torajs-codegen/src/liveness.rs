@@ -365,6 +365,11 @@ pub(crate) fn visit_inst_operands(kind: &InstKind, mut f: impl FnMut(ValueId)) {
             visit(t);
             visit(e);
         }
+        InstKind::CtpopRangeSum(s, b, a) => {
+            visit(s);
+            visit(b);
+            visit(a);
+        }
         InstKind::Alloca(_) | InstKind::AllocaBytes(_) => {}
         InstKind::Load(_, ptr, _) => visit(ptr),
         InstKind::Store(val, ptr, _) => {

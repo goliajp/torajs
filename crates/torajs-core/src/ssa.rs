@@ -291,6 +291,24 @@ pub enum InstKind {
     /// Codegen: aarch64 `cmp cond, #0; csel Xd, Xn, Xm, NE`
     /// (ARM ARM C6.2.53).
     Select(Type, Operand, Operand, Operand),
+    /// `%sum = ctpop.range.sum <start>, <bound>, <acc_init>` — canned
+    /// popcount-reduction super-instruction:
+    /// `acc_init + Σ ctpop(i) for i in [start, bound)` over i64 bit
+    /// patterns (empty sum when start ≥ bound). Produced only by the
+    /// egraph ctpop-range-sum formation pass (the counted
+    /// `total += ctpop(i)` loop collapses to this one inst — LLVM
+    /// LoopIdiomRecognize's canned-replacement approach applied to a
+    /// reduction; RFC 20260719-ctpop-range-sum) — never lowered
+    /// directly from source, and introduced after the egraph pass so
+    /// GVN / elaborate never see it. Codegen emits a self-contained
+    /// 8-wide SIMD reduction loop (cnt.16b + udot.4s + uadalp.2d,
+    /// 4 accumulators) plus a scalar tail — see
+    /// compile/ctpop_range_sum.rs. Register contract: the emitter
+    /// clobbers V0-V7 + V16-V18 and X9-X12, so the inst is an
+    /// `inst_emits_bl` clobber site — the allocator relocates
+    /// live-across values to callee-saved homes exactly as for a
+    /// Call (the clobber set is a subset of a call's).
+    CtpopRangeSum(Operand, Operand, Operand),
 }
 
 #[derive(Debug, Clone)]

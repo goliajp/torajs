@@ -449,6 +449,14 @@ fn is_pure(kind: &InstKind) -> bool {
         // Select between an inc/drop pair must not break the elision
         // window.
         InstKind::Select(_, _, _, _) => true,
+        // `CtpopRangeSum(start, bound, acc)` — deterministic in its
+        // three operands and free of memory effects, but control-
+        // equivalent to a whole counted loop (the emit is a canned
+        // SIMD reduction loop). Treated like Call: not a GVN/LICM
+        // candidate, opaque to rc_peephole windows, and an
+        // `inst_emits_bl` clobber site for the allocator. GVN never
+        // actually sees it (formation runs after the egraph pass).
+        InstKind::CtpopRangeSum(_, _, _) => false,
         // `Load` / `LoadDyn` are NOT pure without alias analysis —
         // a syntactically identical `load %p+off` may yield a
         // DIFFERENT value if an intervening `Store` to %p+off

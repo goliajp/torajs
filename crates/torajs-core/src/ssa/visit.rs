@@ -41,6 +41,11 @@ pub fn visit_value_operands(kind: &InstKind, mut f: impl FnMut(ValueId)) {
             v(t);
             v(e);
         }
+        InstKind::CtpopRangeSum(start, bound, acc) => {
+            v(start);
+            v(bound);
+            v(acc);
+        }
         InstKind::SiToFp(o)
         | InstKind::FpToSi(o)
         | InstKind::ZExtBoolToI64(o)

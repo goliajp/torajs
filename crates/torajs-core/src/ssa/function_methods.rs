@@ -301,6 +301,14 @@ impl Function {
                 write!(w, ", ")?;
                 self.write_operand(w, e)?;
             }
+            InstKind::CtpopRangeSum(start, bound, acc) => {
+                write!(w, "ctpop.range.sum ")?;
+                self.write_operand(w, start)?;
+                write!(w, ", ")?;
+                self.write_operand(w, bound)?;
+                write!(w, ", ")?;
+                self.write_operand(w, acc)?;
+            }
         }
         writeln!(w)
     }
