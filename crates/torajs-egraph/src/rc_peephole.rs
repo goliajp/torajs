@@ -208,57 +208,11 @@ pub(crate) fn collect_unescaped_slots(func: &Function) -> HashSet<ValueId> {
 /// exhaustive operand enumeration of `inliner/rewrite.rs`; `Load` /
 /// `Store` callers special-case their address positions before
 /// reaching this.
-pub(crate) fn visit_value_operands(kind: &InstKind, mut f: impl FnMut(ValueId)) {
-    let mut v = |op: &Operand| {
-        if let Operand::Value(x) = op {
-            f(*x);
-        }
-    };
-    match kind {
-        InstKind::BinOp(_, a, b) | InstKind::ICmp(_, a, b) | InstKind::FCmp(_, a, b) => {
-            v(a);
-            v(b);
-        }
-        InstKind::Call(_, args) => args.iter().for_each(v),
-        InstKind::CallIndirect(_, ptr, args) => {
-            v(ptr);
-            args.iter().for_each(v);
-        }
-        InstKind::Load(_, ptr, _) => v(ptr),
-        InstKind::Store(val, ptr, _) => {
-            v(val);
-            v(ptr);
-        }
-        InstKind::LoadDyn(_, ptr, off) => {
-            v(ptr);
-            v(off);
-        }
-        InstKind::StoreDyn(val, ptr, off) => {
-            v(val);
-            v(ptr);
-            v(off);
-        }
-        InstKind::SiToFp(o)
-        | InstKind::FpToSi(o)
-        | InstKind::ZExtBoolToI64(o)
-        | InstKind::ZExtI32ToI64(o)
-        | InstKind::BitCastF64ToI64(o)
-        | InstKind::BitCastI64ToF64(o)
-        | InstKind::IntToPtr(o)
-        | InstKind::PtrToInt(o)
-        | InstKind::TruncI64ToBool(o)
-        | InstKind::Identity(o)
-        | InstKind::Neg(o)
-        | InstKind::Ctpop(o)
-        | InstKind::Copy(_, o) => v(o),
-        InstKind::Alloca(_)
-        | InstKind::AllocaBytes(_)
-        | InstKind::StringRef(_)
-        | InstKind::StaticStrRef(_)
-        | InstKind::GlobalRef(_)
-        | InstKind::FnAddr(_) => {}
-    }
-}
+// Hoisted to torajs-core (ssa/visit.rs) so codegen's branch-fuse
+// use-count shares the one exhaustive walker; re-exported here to
+// keep the long-standing `crate::rc_peephole::visit_value_operands`
+// import path of the sibling passes working.
+pub(crate) use torajs_core::ssa::visit_value_operands;
 
 /// One scan pass over a block's instruction list. Removes every
 /// provable pair found in this pass and returns the count; callers
