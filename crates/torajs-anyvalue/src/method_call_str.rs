@@ -490,13 +490,23 @@ unsafe fn str_method_ext(s: *mut u8, mid: i64, argv: *const u64, argc: i64) -> A
             m if m == ANY_METHOD_LAST_INDEX_OF => {
                 // §22.1.3.11 — a NaN fromIndex means +Infinity
                 // (search the whole string), unlike indexOf's 0, so
-                // this arm can't ride to_index's NaN→0.
+                // this arm can't ride to_index's NaN→0. Steps 3-4:
+                // each coercion aborts (ReturnIfAbrupt, 刀 21
+                // posture — the indexOf twin's pair).
                 let needle = __torajs_anyv_to_str(arg_at(0));
+                if __torajs_throw_check() != 0 {
+                    __torajs_str_drop(needle);
+                    return VALUE_UNDEFINED;
+                }
                 let from_av = arg_at(1);
                 let from = if is_undefined(from_av) {
                     i64::MAX
                 } else {
                     let n = crate::nanbox_ffi::__torajs_anyv_to_number(from_av);
+                    if __torajs_throw_check() != 0 {
+                        __torajs_str_drop(needle);
+                        return VALUE_UNDEFINED;
+                    }
                     if n.is_nan() { i64::MAX } else { n as i64 }
                 };
                 let idx = __torajs_str_any_last_index_of(s, needle as *const u8, from);

@@ -22,6 +22,7 @@ probe("substring", () => s.substring(throwStr("instart"), throwNum("inend")));
 probe("substr", () => s.substr(throwStr("instart"), throwNum("inend")));
 probe("indexOf", () => s.indexOf(throwStr("intostr"), throwNum("intoint")));
 probe("includes", () => s.includes(throwStr("intostr"), throwNum("intoint")));
+probe("lastIndexOf", () => s.lastIndexOf(throwStr("intostr"), throwNum("intoint")));
 probe("startsWith", () => s.startsWith(throwStr("intostr"), throwNum("intoint")));
 probe("endsWith", () => s.endsWith(throwStr("intostr"), throwNum("intoint")));
 probe("padStart", () => s.padStart(throwNum("inlen"), throwStr("infill")));
