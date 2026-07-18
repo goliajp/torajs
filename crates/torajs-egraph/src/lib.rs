@@ -109,6 +109,30 @@ impl<'a> EgraphPass<'a> {
 /// This is the canonical integration entry point for the `tr build` /
 /// `tr run` new-pipeline drivers; they call this between
 /// `ssa_lower::lower_with_arity` and `torajs_codegen::compile_function`.
+/// Run one module pass behind the pair of environment gates every
+/// pass in the pipeline carries: `TORAJS_<KEY>_OFF=1` skips it
+/// (bisect gate) and `TORAJS_<KEY>_STATS=1` dumps its counters as
+/// `torajs-<key>-stats:`. Returns the counters when the pass ran.
+///
+/// `key` is the screaming-snake pass name (`"BRANCH_FOLD"`); both
+/// variable names and the stats label derive from it, so a new pass
+/// can't drift into a mismatched gate/label triple.
+fn gated_pass<S: std::fmt::Debug>(
+    key: &str,
+    module: &mut Module,
+    pass: impl FnOnce(&mut Module) -> S,
+) -> Option<S> {
+    if std::env::var(format!("TORAJS_{key}_OFF")).as_deref() == Ok("1") {
+        return None;
+    }
+    let stats = pass(module);
+    if std::env::var(format!("TORAJS_{key}_STATS")).as_deref() == Ok("1") {
+        let label = key.to_lowercase().replace('_', "-");
+        eprintln!("torajs-{label}-stats: {stats:?}");
+    }
+    Some(stats)
+}
+
 pub fn transform_module(mut module: Module) -> Module {
     if std::env::var("TORAJS_EGRAPH_OFF").as_deref() == Ok("1") {
         return module;
@@ -124,16 +148,12 @@ pub fn transform_module(mut module: Module) -> Module {
     // exposes fn-pointer slots by splicing fn-typed params into
     // callers), before a second round that inlines the promoted
     // direct calls. `TORAJS_DEVIRT_OFF=1` skips (bisect gate).
-    if std::env::var("TORAJS_DEVIRT_OFF").as_deref() != Ok("1") {
-        let devirt_stats = devirt::devirtualize_module(&mut module);
-        if std::env::var("TORAJS_DEVIRT_STATS").as_deref() == Ok("1") {
-            eprintln!("torajs-devirt-stats: {devirt_stats:?}");
-        }
-        if devirt_stats.rewritten > 0 {
-            let round2 = inliner::inline_module(&mut module);
-            if std::env::var("TORAJS_INLINER_STATS").as_deref() == Ok("1") {
-                eprintln!("torajs-inliner-stats-round2: {round2:?}");
-            }
+    if let Some(devirt_stats) = gated_pass("DEVIRT", &mut module, devirt::devirtualize_module)
+        && devirt_stats.rewritten > 0
+    {
+        let round2 = inliner::inline_module(&mut module);
+        if std::env::var("TORAJS_INLINER_STATS").as_deref() == Ok("1") {
+            eprintln!("torajs-inliner-stats-round2: {round2:?}");
         }
     }
     // Block-local store→load forwarding — clears the alloca+store+load
@@ -141,23 +161,13 @@ pub fn transform_module(mut module: Module) -> Module {
     // degenerate in-block case). After inlining/devirt (the food),
     // before the egraph pass (forwarded constants feed const-fold /
     // GVN). `TORAJS_SLOTFWD_OFF=1` skips (bisect gate).
-    if std::env::var("TORAJS_SLOTFWD_OFF").as_deref() != Ok("1") {
-        let fwd_stats = slot_forward::forward_slot_loads(&mut module);
-        if std::env::var("TORAJS_SLOTFWD_STATS").as_deref() == Ok("1") {
-            eprintln!("torajs-slotfwd-stats: {fwd_stats:?}");
-        }
-    }
+    gated_pass("SLOTFWD", &mut module, slot_forward::forward_slot_loads);
     // Cross-block single-def-block slot promotion — the dominance
     // fast path of LLVM mem2reg (param spills whose loads live in
     // branch arms). After slot_forward (in-block round-trips already
     // cleared, slots possibly DSE'd), before the egraph pass.
     // `TORAJS_MEM2REG_OFF=1` skips (bisect gate).
-    if std::env::var("TORAJS_MEM2REG_OFF").as_deref() != Ok("1") {
-        let m2r_stats = mem2reg::promote_slots(&mut module);
-        if std::env::var("TORAJS_MEM2REG_STATS").as_deref() == Ok("1") {
-            eprintln!("torajs-mem2reg-stats: {m2r_stats:?}");
-        }
-    }
+    gated_pass("MEM2REG", &mut module, mem2reg::promote_slots);
     for func in module.funcs.iter_mut() {
         let new_func = EgraphPass::new(func).run();
         *func = new_func;
@@ -167,23 +177,13 @@ pub fn transform_module(mut module: Module) -> Module {
     // elaborate never see the multi-def Copy it emits), before
     // rc_peephole (which treats Copy as rc-transparent).
     // `TORAJS_MEM2REG_PHI_OFF=1` skips (bisect gate).
-    if std::env::var("TORAJS_MEM2REG_PHI_OFF").as_deref() != Ok("1") {
-        let phi_stats = phi_promote::promote_phi_slots(&mut module);
-        if std::env::var("TORAJS_MEM2REG_PHI_STATS").as_deref() == Ok("1") {
-            eprintln!("torajs-mem2reg-phi-stats: {phi_stats:?}");
-        }
-    }
+    gated_pass("MEM2REG_PHI", &mut module, phi_promote::promote_phi_slots);
     // frem truncation recovery (W3 C2, ann-width RFC §5.3) — narrows
     // the -0-insensitive float `%` shapes C1 minted (single-use frem
     // into an integral fcmp or an fptosi sink) back to srem, so the
     // interval analysis / float_demote below see the recovered int
     // loops directly. `TORAJS_FREM_NARROW_OFF=1` skips (bisect gate).
-    if std::env::var("TORAJS_FREM_NARROW_OFF").as_deref() != Ok("1") {
-        let fn_stats = frem_narrow::narrow_frems(&mut module);
-        if std::env::var("TORAJS_FREM_NARROW_STATS").as_deref() == Ok("1") {
-            eprintln!("torajs-frem-narrow-stats: {fn_stats:?}");
-        }
-    }
+    gated_pass("FREM_NARROW", &mut module, frem_narrow::narrow_frems);
     // Integer range analysis (analysis-only, RFC 20260611) — interval
     // lattice with branch refinement + loop widening over the post-φ
     // canonical shape. Feeds float demotion below and seeds sext_elide
@@ -208,24 +208,16 @@ pub fn transform_module(mut module: Module) -> Module {
     // so demoted in-i32-range cells seed sext_elide below for free.
     // `TORAJS_FLOAT_DEMOTE_OFF=1` skips (bisect gate).
     if let Some(facts) = &interval_facts {
-        if std::env::var("TORAJS_FLOAT_DEMOTE_OFF").as_deref() != Ok("1") {
-            let fd_stats = float_demote::demote_floats(&mut module, facts);
-            if std::env::var("TORAJS_FLOAT_DEMOTE_STATS").as_deref() == Ok("1") {
-                eprintln!("torajs-float-demote-stats: {fd_stats:?}");
-            }
-        }
+        gated_pass("FLOAT_DEMOTE", &mut module, |m| {
+            float_demote::demote_floats(m, facts)
+        });
     }
     // Parity-compare strength reduction — a srem-by-2^k whose every
     // use is an eq/ne-vs-0 compare rewrites to and-by-mask (codegen
     // expands SRem to sdiv+msub; the divider trip is invisible to
     // GVN). After float_demote (its FRem→SRem output is the feeder).
     // `TORAJS_SREM_PARITY_OFF=1` skips (bisect gate).
-    if std::env::var("TORAJS_SREM_PARITY_OFF").as_deref() != Ok("1") {
-        let sp_stats = srem_parity::reduce_parity_srems(&mut module);
-        if std::env::var("TORAJS_SREM_PARITY_STATS").as_deref() == Ok("1") {
-            eprintln!("torajs-srem-parity-stats: {sp_stats:?}");
-        }
-    }
+    gated_pass("SREM_PARITY", &mut module, srem_parity::reduce_parity_srems);
     let sext_seeds: Vec<HashSet<ValueId>> = interval_facts
         .map(|facts| {
             module
@@ -243,23 +235,15 @@ pub fn transform_module(mut module: Module) -> Module {
     // Transposes operand-side `shl 32`+`ashr 32` pairs on And/Or/Xor
     // into one result-side pair and collapses pairs over provably-
     // sext-32 sources. `TORAJS_SEXT_ELIDE_OFF=1` skips (bisect gate).
-    if std::env::var("TORAJS_SEXT_ELIDE_OFF").as_deref() != Ok("1") {
-        let sx_stats = sext_elide::elide_sext_pairs(&mut module, &sext_seeds);
-        if std::env::var("TORAJS_SEXT_ELIDE_STATS").as_deref() == Ok("1") {
-            eprintln!("torajs-sext-elide-stats: {sx_stats:?}");
-        }
-    }
+    gated_pass("SEXT_ELIDE", &mut module, |m| {
+        sext_elide::elide_sext_pairs(m, &sext_seeds)
+    });
     // Kernighan popcount loop-idiom recognition (LLVM
     // LoopIdiomRecognize analogue) — after sext_elide, whose
     // interval-seeded pair elision produces the pair-free 5-inst loop
     // body this pass matches. Replaces the whole 2-block loop with a
     // single `ctpop` + add. `TORAJS_CTPOP_OFF=1` skips (bisect gate).
-    if std::env::var("TORAJS_CTPOP_OFF").as_deref() != Ok("1") {
-        let cp_stats = ctpop_idiom::recognize_ctpop_loops(&mut module);
-        if std::env::var("TORAJS_CTPOP_STATS").as_deref() == Ok("1") {
-            eprintln!("torajs-ctpop-stats: {cp_stats:?}");
-        }
-    }
+    gated_pass("CTPOP", &mut module, ctpop_idiom::recognize_ctpop_loops);
     // Constant-branch folding over interval evidence — the ctpop
     // collapse just made the float_demote growth guards provably
     // false (count is a ctpop ≤ 64, the accumulator is trip-bounded),
@@ -268,24 +252,14 @@ pub fn transform_module(mut module: Module) -> Module {
     // can. After ctpop (the evidence source), before select_form
     // (folded diamonds must not be select-formed).
     // `TORAJS_BRANCH_FOLD_OFF=1` skips (bisect gate).
-    if std::env::var("TORAJS_BRANCH_FOLD_OFF").as_deref() != Ok("1") {
-        let bf_stats = branch_fold::fold_branches(&mut module);
-        if std::env::var("TORAJS_BRANCH_FOLD_STATS").as_deref() == Ok("1") {
-            eprintln!("torajs-branch-fold-stats: {bf_stats:?}");
-        }
-    }
+    gated_pass("BRANCH_FOLD", &mut module, branch_fold::fold_branches);
     // Select formation — if-convert pure CondBr diamonds into csel-
     // shaped `Select` defs (RFC 20260719-select-formation blade 2).
     // After ctpop so every arm-shaping rewrite (float_demote /
     // srem_parity) is done; before rc_peephole, which treats Select
     // as rc-transparent. `TORAJS_SELECT_FORM_OFF=1` skips (bisect
     // gate, mirrors the sibling passes).
-    if std::env::var("TORAJS_SELECT_FORM_OFF").as_deref() != Ok("1") {
-        let sf_stats = select_form::form_selects(&mut module);
-        if std::env::var("TORAJS_SELECT_FORM_STATS").as_deref() == Ok("1") {
-            eprintln!("torajs-select-form-stats: {sf_stats:?}");
-        }
-    }
+    gated_pass("SELECT_FORM", &mut module, select_form::form_selects);
     // TORAJS_SSA_DUMP=1 — pretty-print the post-egraph pre-peephole
     // SSA to stdout. Debug surface for attributing which pass shaped
     // a given inst stream (mirrors TORAJS_INLINER_STATS).
@@ -296,23 +270,13 @@ pub fn transform_module(mut module: Module) -> Module {
     // identity collapse has already tightened the windows between
     // retain/release pairs. `TORAJS_RC_PEEPHOLE_OFF=1` skips (bisect
     // gate, mirrors TORAJS_INLINER_OFF).
-    if std::env::var("TORAJS_RC_PEEPHOLE_OFF").as_deref() != Ok("1") {
-        let rc_stats = rc_peephole::elide_rc_pairs(&mut module);
-        if std::env::var("TORAJS_RC_PEEPHOLE_STATS").as_deref() == Ok("1") {
-            eprintln!("torajs-rc-peephole-stats: {rc_stats:?}");
-        }
-    }
+    gated_pass("RC_PEEPHOLE", &mut module, rc_peephole::elide_rc_pairs);
     // Loop-body contiguity layout — last, so the block order codegen
     // sees (fall-through chains, positional liveness/spill weights)
     // is the final one. Sinks cold blocks out of loop position
     // ranges; no inst-level rewrites. `TORAJS_BLOCK_LAYOUT_OFF=1`
     // skips (bisect gate).
-    if std::env::var("TORAJS_BLOCK_LAYOUT_OFF").as_deref() != Ok("1") {
-        let bl_stats = block_layout::layout_module(&mut module);
-        if std::env::var("TORAJS_BLOCK_LAYOUT_STATS").as_deref() == Ok("1") {
-            eprintln!("torajs-block-layout-stats: {bl_stats:?}");
-        }
-    }
+    gated_pass("BLOCK_LAYOUT", &mut module, block_layout::layout_module);
     module
 }
 
