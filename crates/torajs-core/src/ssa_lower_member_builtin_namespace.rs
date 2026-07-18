@@ -177,6 +177,13 @@ fn any_boxed_builtin_proto(ctx: &mut LowerCtx<'_>, tag: i64) -> Operand {
         Type::Ptr,
         None,
     );
+    // The singleton slot's pointer is a BORROW — box it out under
+    // the owned Any convention (+1 here, the consumer's drop
+    // balances). Pre-fix the borrow box leaked into owned drops and
+    // bled the singleton's refcount until it freed; a later `{}`
+    // reused the address and misclassified as the prototype (RFC
+    // 20260718-accessor-reify 刀 1 diag).
+    ctx.emit_rc_inc(Operand::Value(proto));
     let cur_block = ctx.cur_block;
     let v = ctx.f.append_inst(
         cur_block,

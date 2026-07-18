@@ -105,18 +105,15 @@ pub unsafe extern "C" fn __torajs_get_builtin_prototype(tag: i64) -> *mut c_void
     } else {
         unsafe { __torajs_dynobj_alloc() }
     };
-    // Process-lifetime singleton — immortal, rc traffic no-ops
-    // (RFC 20260718-accessor-reify 刀 1). The `<Ctor>.prototype`
-    // lowering hands out BORROW boxes of this cell; consumer sites
-    // drop args under the owned convention, so a mortal singleton
-    // bleeds refcount until it frees and a later allocation reuses
-    // the address — at which point `__torajs_builtin_proto_tag_of`
-    // misclassifies the newcomer as the prototype (diag: a fresh
-    // `{}` answered null for its own [[Prototype]]).
-    unsafe {
-        let flags = fresh.cast::<u8>().add(6).cast::<u16>();
-        flags.write(flags.read() | crate::FLAG_STATIC_LITERAL);
-    }
+    // NOTE the singleton stays a plain mortal cell — an earlier fix
+    // marked it FLAG_STATIC_LITERAL for rc-immortality, but that
+    // flag also carries the `.rodata` conceptual-immutability
+    // semantics (freeze no-op / isFrozen true / preventExtensions
+    // no-op), which broke `Object.preventExtensions(Object.prototype)`
+    // and the isFrozen built-ins suite. The refcount bleed the flag
+    // papered over is fixed at its source instead: the
+    // `<Ctor>.prototype` lowering now rc_incs the borrowed slot
+    // pointer before boxing (owned Any convention).
     // %Object.prototype% carries the Annex B §B.2.2.1 `__proto__`
     // accessor as a real own entry (RFC 20260718-accessor-reify
     // 刀 1) — installed on the fresh cell before the CAS so a

@@ -107,6 +107,9 @@ pub(crate) fn try_lower(
             Type::Ptr,
             None,
         );
+        // Owned box off the borrowed singleton slot — the consumer's
+        // drop balances (see any_boxed_builtin_proto's twin note).
+        ctx.emit_rc_inc(Operand::Value(proto));
         let v = ctx.f.append_inst(
             ctx.cur_block,
             InstKind::Call(
