@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-18T15:22:31.472Z",
+  "generatedAt": "2026-07-18T15:34:08.411Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 94.78
   },
   "torajs": {
-    "commit": "d58768d6",
-    "commitSubject": "test(bench): full 44-case run at cd90be8f — collatz 234.9 to 184.8ms, rfc select-formation close, zero true regressions",
+    "commit": "3eecda81",
+    "commitSubject": "perf: fuse adjacent single-use icmp into csel predicate",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "3eecda81",
+      "subject": "perf: fuse adjacent single-use icmp into csel predicate"
+    },
+    {
+      "hash": "e26e5ace",
+      "subject": "chore: hardev dashboard snapshot at rotation 143 close"
+    },
+    {
       "hash": "d58768d6",
       "subject": "test(bench): full 44-case run at cd90be8f — collatz 234.9 to 184.8ms, rfc select-formation close, zero true regressions"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "f0b2e354",
       "subject": "refactor: hoist visit_value_operands into torajs-core ssa"
-    },
-    {
-      "hash": "1203d301",
-      "subject": "perf: parity srem-by-2^k compares reduce to and-by-mask"
-    },
-    {
-      "hash": "7fd93817",
-      "subject": "perf: certified fdiv-by-2 demotes to arithmetic shift, not sdiv"
     }
   ],
-  "headSha": "d58768d6",
+  "headSha": "3eecda81",
   "autorun": {
     "total": 448,
     "baselineTarget": 10,
