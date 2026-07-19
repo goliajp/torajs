@@ -88,6 +88,64 @@ fn collect_arraylit_names_inner(
     }
 }
 
+/// Immutable bindings that are syntactically-certain Map / Set
+/// receivers: the init is `new Map(...)` / `new Set(...)` (any
+/// instantiation spelling), or the declaration carries an explicit
+/// Map / Set annotation. Same over-removal posture as the collectors
+/// above — a same-name re-declaration anywhere keeps the face loud.
+pub(super) fn collect_mapset_binding_names(
+    stmts: &[Stmt],
+    exprs: &[Expr],
+) -> std::collections::HashSet<String> {
+    let mut names = std::collections::HashSet::new();
+    let mut other = std::collections::HashSet::new();
+    collect_mapset_names_inner(stmts, exprs, &mut names, &mut other);
+    names.retain(|n| !other.contains(n));
+    names
+}
+
+fn is_mapset_ann(ann: &str) -> bool {
+    matches!(ann, "Map" | "Set")
+        || ann.strip_prefix("Map<").is_some_and(|r| r.ends_with('>'))
+        || ann.strip_prefix("Set<").is_some_and(|r| r.ends_with('>'))
+}
+
+fn collect_mapset_names_inner(
+    stmts: &[Stmt],
+    exprs: &[Expr],
+    names: &mut std::collections::HashSet<String>,
+    other: &mut std::collections::HashSet<String>,
+) {
+    for s in stmts {
+        match s {
+            Stmt::LetDecl {
+                mutable: false,
+                name,
+                type_ann,
+                init,
+                ..
+            } if match type_ann {
+                Some(t) => is_mapset_ann(t),
+                None => matches!(&exprs[init.0 as usize],
+                    Expr::New { class_name, .. } if class_name == "Map" || class_name == "Set"),
+            } =>
+            {
+                names.insert(name.clone());
+            }
+            Stmt::LetDecl { name, .. } => {
+                other.insert(name.clone());
+            }
+            Stmt::FnDecl { body, .. } => {
+                collect_mapset_names_inner(body, exprs, names, other);
+            }
+            Stmt::Block(inner) | Stmt::Multi(inner) => {
+                collect_mapset_names_inner(inner, exprs, names, other);
+            }
+            _ => {}
+        }
+    }
+}
+
 /// Does the lifted FnDecl named `fn_name` declare a rest param
 /// (`...args`)? Rest-tail closures dispatch through the boxed
 /// variadic entry, which materializes params off argv — cut 2's

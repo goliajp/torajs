@@ -92,11 +92,18 @@ fn lower_higher_order(
     let promoted = matches!(ctx.ast.get_expr(args[0]),
         Expr::Closure { fn_name, .. } if ctx.ast.fnexpr_recv_fns.contains(fn_name))
         && matches!(method.as_str(), "map" | "filter" | "forEach");
+    let mut this_temp: Option<(ExprId, Operand)> = None;
     let this_arg: Option<Operand> = if promoted {
         if let Some(&t) = args.get(1) {
             let op = ctx.lower_expr(t);
+            // box_to_any is a pure encoding (chunk 753) — an
+            // owned-shape thisArg temp (inline object literal) keeps
+            // its single stake in `op`, and the box borrows it every
+            // iteration. Releasing here freed the payload after the
+            // first iteration (`this.mul` read garbage); the release
+            // rides the after-loop settlement below instead.
             let boxed = ctx.box_to_any_from_expr(t, op.clone());
-            ctx.release_owned_temp(t, &op);
+            this_temp = Some((t, op));
             Some(boxed)
         } else {
             Some(Operand::Value(
@@ -175,6 +182,9 @@ fn lower_higher_order(
     // slot and a Call/New-shaped receiver.
     ctx.release_owned_temp(args[0], &fn_val);
     ctx.release_owned_temp(obj, &recv_op);
+    if let Some((t, op)) = this_temp {
+        ctx.release_owned_temp(t, &op);
+    }
     out
 }
 

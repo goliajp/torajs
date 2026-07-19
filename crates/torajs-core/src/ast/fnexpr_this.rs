@@ -49,7 +49,8 @@
 //! stay `__this`-free, like `__mth(`'s receiver-less spelling).
 
 use super::fnexpr_this_recvs::{
-    collect_any_binding_names, collect_arraylit_binding_names, fn_has_rest_param,
+    collect_any_binding_names, collect_arraylit_binding_names, collect_mapset_binding_names,
+    fn_has_rest_param,
 };
 use super::{Expr, ExprId, Param, Stmt};
 
@@ -76,6 +77,7 @@ pub(crate) fn run(
     let mut ident_cands: Vec<(String, ExprId)> = Vec::new();
     let any_recvs = collect_any_binding_names(stmts);
     let arraylit_recvs = collect_arraylit_binding_names(stmts, exprs);
+    let mapset_recvs = collect_mapset_binding_names(stmts, exprs);
     for i in 0..exprs.len() {
         let Expr::Call { callee, args } = &exprs[i] else {
             continue;
@@ -138,8 +140,14 @@ pub(crate) fn run(
             // through); other receivers keep today's loud reject.
             Expr::Member { obj, name } if is_hof_method(name) => {
                 let typed_ok = matches!(name.as_str(), "forEach" | "map" | "filter");
+                // Typed Map / Set receivers ride the same channel for
+                // forEach only (their sole callback-bearing method —
+                // the mapset kernels thread the thisArg box).
+                let mapset_ok = name == "forEach";
                 if !matches!(&exprs[obj.0 as usize], Expr::Ident(n)
-                    if any_recvs.contains(n) || (typed_ok && arraylit_recvs.contains(n)))
+                    if any_recvs.contains(n)
+                        || (typed_ok && arraylit_recvs.contains(n))
+                        || (mapset_ok && mapset_recvs.contains(n)))
                 {
                     continue;
                 }

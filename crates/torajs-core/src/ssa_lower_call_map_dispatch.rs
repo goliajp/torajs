@@ -295,9 +295,34 @@ fn emit_map_for_each(ctx: &mut LowerCtx<'_>, recv_op: Operand, args: &[ExprId]) 
     };
     let fn_val = ctx.lower_expr(args[0]);
     let fn_ty = ctx.operand_ty(&fn_val);
+    // Knife 4 mapset mirror (arr_ho shape) — a promoted fn-expr
+    // callback takes the §23.1.3.5 thisArg as its leading boxed
+    // `__this` arg (undefined box when absent); the call aligns sig
+    // params past it via sig_skip.
+    let promoted = matches!(ctx.ast.get_expr(args[0]),
+        Expr::Closure { fn_name, .. } if ctx.ast.fnexpr_recv_fns.contains(fn_name));
+    let mut this_temp: Option<(ExprId, Operand)> = None;
+    let this_arg: Option<Operand> = if promoted {
+        if let Some(&t) = args.get(1) {
+            let op = ctx.lower_expr(t);
+            // box_to_any is a pure encoding — an owned-shape thisArg
+            // temp keeps its stake in `op`; release after the loop
+            // (arr_ho mirror), else iteration 2 reads freed memory.
+            let boxed = ctx.box_to_any_from_expr(t, op.clone());
+            this_temp = Some((t, op));
+            Some(boxed)
+        } else {
+            Some(Operand::Value(
+                crate::ssa_lower_call_arr_ho_loop::emit_undef_any_box(ctx),
+            ))
+        }
+    } else {
+        None
+    };
     // S316 — trailing args lower after cb-lower so eval order is
-    // cb → trailing → loop.
-    for &a in args.iter().skip(1) {
+    // cb → trailing → loop. A promoted callback's thisArg lowered
+    // above.
+    for &a in args.iter().skip(if promoted { 2 } else { 1 }) {
         let _ = ctx.lower_expr(a);
     }
 
@@ -364,10 +389,14 @@ fn emit_map_for_each(ctx: &mut LowerCtx<'_>, recv_op: Operand, args: &[ExprId]) 
     // The Map receiver is passed as the 3rd callback arg per spec.
     // rc_inc since each iteration transfers a fresh ref into the closure.
     ctx.emit_rc_inc(recv_op);
-    let cb_args = vec![Operand::Value(v_box), Operand::Value(k_box), recv_op];
+    let mut cb_args = vec![Operand::Value(v_box), Operand::Value(k_box), recv_op];
+    if let Some(t) = &this_arg {
+        cb_args.insert(0, t.clone());
+    }
+    let sig_skip = usize::from(this_arg.is_some());
     let _ = match known_fid {
-        Some(fid) => ctx.call_fn_value_devirt(fid, fn_val.clone(), fn_ty, cb_args, 0),
-        None => ctx.call_fn_value(fn_val, fn_ty, cb_args, 0),
+        Some(fid) => ctx.call_fn_value_devirt(fid, fn_val.clone(), fn_ty, cb_args, sig_skip),
+        None => ctx.call_fn_value(fn_val, fn_ty, cb_args, sig_skip),
     };
     // §24.1.3.9 / §24.2.3.6 step 8.a.iii ReturnIfAbrupt — a throwing
     // callback ends the walk (previously the loop swallowed it).
@@ -378,6 +407,9 @@ fn emit_map_for_each(ctx: &mut LowerCtx<'_>, recv_op: Operand, args: &[ExprId]) 
     // RFC 20260705 chunk 552 — release an inline arrow's minted env
     // after the loop consumed it.
     ctx.release_owned_temp(args[0], &fn_val);
+    if let Some((t, op)) = this_temp {
+        ctx.release_owned_temp(t, &op);
+    }
     Operand::ConstI64(0)
 }
 
