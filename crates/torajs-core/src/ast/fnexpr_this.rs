@@ -33,9 +33,12 @@
 //! * `Object.defineProperty(o, k, { get: <fn-expr>, set: <fn-expr> })`
 //!   — the literal descriptor's face fields.
 //!
-//! Everything else (variable-routed faces, direct calls, callback
-//! `thisArg`, `defineProperties` / `Object.create` nesting) keeps
-//! today's loud checker reject; RFC knives 2-5.
+//! Knives 2-5 widened the surface under the same zero-alias bar:
+//! single-use variable-routed faces (knife 2, including decls nested
+//! in fn bodies), HOF callback `thisArg` (knife 4), and
+//! `defineProperties` / `Object.create` nesting (knife 5). Everything
+//! else (multi-use faces, face + direct-call mixes, async fn-expr
+//! faces) keeps today's loud reject.
 //!
 //! Runs inside `desugar_implicit_generics` right after
 //! `objlit_nominal::run` — `lift_arrow_fns` has produced the
@@ -144,9 +147,16 @@ pub(crate) fn run(
     // (any other read — a direct call, a second face, a reassignment
     // target — would see the shifted-args closure ABI, the exact
     // silent-wrong the zero-alias bar forbids) and the const init is a
-    // marked fn-expr whose body says `this`. The face ExprId lands in
-    // `fnexpr_recv_faces` for the compile-time literal-descriptor
-    // lowering; runtime paths read the closure header flag instead.
+    // marked fn-expr whose body says `this`. The decl lookup recurses
+    // through fn bodies (a face inside a function scope resolves its
+    // local const — the nested-scope profile), but only a name DECLARED
+    // EXACTLY ONCE program-wide promotes: with a same-name decl in
+    // another scope the single face read cannot be paired to its
+    // binding syntactically, and a mispair would stamp RECV on a face
+    // whose runtime value is the other binding. Over-removal keeps
+    // those loud. The face ExprId lands in `fnexpr_recv_faces` for the
+    // compile-time literal-descriptor lowering; runtime paths read the
+    // closure header flag instead.
     for (name, face_eid) in &ident_cands {
         let uses = exprs
             .iter()
@@ -155,25 +165,22 @@ pub(crate) fn run(
         if uses != 1 {
             continue;
         }
-        for s in stmts.iter() {
-            if let Stmt::LetDecl {
-                mutable: false,
-                name: dn,
-                init,
-                ..
-            } = s
-                && dn == name
-                && fn_expr_exprs.contains(init)
-                && let Expr::Closure { fn_name, captures } = &exprs[init.0 as usize]
-                && captures.iter().any(|c| c == "__this")
-            {
-                patches.push(FacePatch {
-                    eid: *init,
-                    fn_name: fn_name.clone(),
-                });
-                fnexpr_recv_faces.insert(*face_eid);
-                break;
-            }
+        let mut decls: Vec<(bool, ExprId)> = Vec::new();
+        collect_decls_by_name(stmts, name, &mut decls);
+        if decls.len() != 1 {
+            continue;
+        }
+        let (mutable, init) = decls[0];
+        if !mutable
+            && fn_expr_exprs.contains(&init)
+            && let Expr::Closure { fn_name, captures } = &exprs[init.0 as usize]
+            && captures.iter().any(|c| c == "__this")
+        {
+            patches.push(FacePatch {
+                eid: init,
+                fn_name: fn_name.clone(),
+            });
+            fnexpr_recv_faces.insert(*face_eid);
         }
     }
     if patches.is_empty() {
@@ -280,6 +287,28 @@ fn collect_arraylit_names_inner(
             Stmt::Block(inner) | Stmt::Multi(inner) => {
                 collect_arraylit_names_inner(inner, exprs, names, other);
             }
+            _ => {}
+        }
+    }
+}
+
+/// Every `LetDecl` matching `name`, walking fn bodies and blocks (the
+/// same recursion set as [`collect_binding_names_inner`]) — knife 2's
+/// uniqueness guard needs the full program-wide count, not just the
+/// first hit.
+fn collect_decls_by_name(stmts: &[Stmt], name: &str, out: &mut Vec<(bool, ExprId)>) {
+    for s in stmts {
+        match s {
+            Stmt::LetDecl {
+                mutable,
+                name: dn,
+                init,
+                ..
+            } if dn == name => {
+                out.push((*mutable, *init));
+            }
+            Stmt::FnDecl { body, .. } => collect_decls_by_name(body, name, out),
+            Stmt::Block(inner) | Stmt::Multi(inner) => collect_decls_by_name(inner, name, out),
             _ => {}
         }
     }
