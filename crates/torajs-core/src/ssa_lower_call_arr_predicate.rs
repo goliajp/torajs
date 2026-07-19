@@ -298,10 +298,10 @@ fn emit_body_and_step(
     // only — consuming the void call's value is the SIGTRAP lane.
     let cb_ret_void = ctx.callback_ret_ty(fn_ty) == Some(Type::Void);
     let pred_op: Operand = if cb_ret_void {
-        let _ = ctx.call_fn_value(fn_val, fn_ty, vec![Operand::Value(elem)]);
+        let _ = ctx.call_fn_value(fn_val, fn_ty, vec![Operand::Value(elem)], 0);
         Operand::ConstBool(false)
     } else {
-        let pred_v = ctx.call_fn_value(fn_val, fn_ty, vec![Operand::Value(elem)]);
+        let pred_v = ctx.call_fn_value(fn_val, fn_ty, vec![Operand::Value(elem)], 0);
         Operand::Value(pred_v)
     };
     // some + findIndex break on `pred == true`; every breaks on

@@ -311,8 +311,8 @@ fn emit_map_loop(ctx: &mut LowerCtx<'_>, src_arr_op: Operand, args: &[ExprId]) -
         }
     }
     let mapped = match known_fid {
-        Some(fid) => ctx.call_fn_value_devirt(fid, fn_val.clone(), fn_ty, call_args),
-        None => ctx.call_fn_value(fn_val.clone(), fn_ty, call_args),
+        Some(fid) => ctx.call_fn_value_devirt(fid, fn_val.clone(), fn_ty, call_args, 0),
+        None => ctx.call_fn_value(fn_val.clone(), fn_ty, call_args, 0),
     };
     let cur_dst = ctx.f.append_inst(
         ctx.cur_block,

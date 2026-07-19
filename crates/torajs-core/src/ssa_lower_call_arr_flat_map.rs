@@ -163,7 +163,7 @@ pub(crate) fn try_lower(
             None,
         )
     };
-    let inner_arr = ctx.call_fn_value(fn_val, fn_ty, vec![Operand::Value(elem)]);
+    let inner_arr = ctx.call_fn_value(fn_val, fn_ty, vec![Operand::Value(elem)], 0);
 
     emit_inner_walk(ctx, inner_arr, dst_slot, dst_arr_ty, dst_elem_ty);
     let final_dst = emit_close_and_load(

@@ -207,6 +207,7 @@ pub(crate) fn emit_per_method_body(
                 fn_val,
                 fn_ty,
                 cb_args(this_arg, elem),
+                usize::from(this_arg.is_some()),
             );
         }
         _ => unreachable!(),
@@ -237,6 +238,7 @@ fn emit_map(
             fn_val,
             fn_ty,
             cb_args(this_arg, elem),
+            usize::from(this_arg.is_some()),
         );
         Operand::Value(emit_undef_any_box(ctx))
     } else {
@@ -247,6 +249,7 @@ fn emit_map(
             fn_val,
             fn_ty,
             cb_args(this_arg, elem),
+            usize::from(this_arg.is_some()),
         );
         ctx.raw_slot_arg(Operand::Value(mapped))
     };
@@ -289,6 +292,7 @@ fn emit_filter(
             fn_val,
             fn_ty,
             cb_args(this_arg, elem),
+            usize::from(this_arg.is_some()),
         );
         return;
     }
@@ -299,6 +303,7 @@ fn emit_filter(
         fn_val,
         fn_ty,
         cb_args(this_arg, elem),
+        usize::from(this_arg.is_some()),
     );
     let push_blk = ctx.f.add_block();
     let next_blk = ctx.f.add_block();
@@ -357,6 +362,7 @@ fn emit_reduce(
             fn_val,
             fn_ty,
             vec![Operand::Value(acc_now), Operand::Value(elem)],
+            0,
         );
         emit_undef_any_box(ctx)
     } else {
@@ -367,6 +373,7 @@ fn emit_reduce(
             fn_val,
             fn_ty,
             vec![Operand::Value(acc_now), Operand::Value(elem)],
+            0,
         )
     };
     ctx.f.append_void(
@@ -414,15 +421,20 @@ fn emit_do_call(
     fn_val: &Operand,
     fn_ty: Type,
     mut args: Vec<Operand>,
+    sig_skip: usize,
 ) -> ValueId {
+    // `sig_skip` — a promoted receiver-first callback's leading boxed
+    // `__this` argv entry is not in the sig (knife 4); positional
+    // alignment against sig_params starts after it.
     for (i, a) in args.iter_mut().enumerate() {
-        if sig_params.get(i) == Some(&Type::F64) && ctx.operand_ty(a) == Type::I64 {
+        let expected = i.checked_sub(sig_skip).and_then(|pi| sig_params.get(pi));
+        if expected == Some(&Type::F64) && ctx.operand_ty(a) == Type::I64 {
             *a = ctx.coerce_to_f64(a.clone());
         }
     }
     let r = match known_fid {
-        Some(fid) => ctx.call_fn_value_devirt(fid, fn_val.clone(), fn_ty, args),
-        None => ctx.call_fn_value(fn_val.clone(), fn_ty, args),
+        Some(fid) => ctx.call_fn_value_devirt(fid, fn_val.clone(), fn_ty, args, sig_skip),
+        None => ctx.call_fn_value(fn_val.clone(), fn_ty, args, sig_skip),
     };
     // §23.1.3.15 step 5.c ReturnIfAbrupt — a throwing callback ends
     // the iteration; without this the loop ran every remaining

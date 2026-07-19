@@ -164,6 +164,7 @@ fn emit_user_cmp_pred(
         cv.clone(),
         *ct,
         vec![Operand::Value(prev), Operand::Value(cur)],
+        0,
     );
     let cmp_ret_ty = ctx.f.value_type(cmp_ret);
     match cmp_ret_ty {

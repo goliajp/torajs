@@ -5,9 +5,9 @@
 //! dispatch layer used inside `Array.map/filter/reduce/forEach` and
 //! peer higher-order fn bodies. Public methods:
 //!
-//! - `call_fn_value(fn_val, fn_ty, args)` — indirect dispatch, walks
+//! - `call_fn_value(fn_val, fn_ty, args, sig_skip)` — indirect dispatch, walks
 //!   the FnSig for Substr → Str boundary materialization + drops.
-//! - `call_fn_value_devirt(known_fid, fn_val, fn_ty, args)` — v0.6+1
+//! - `call_fn_value_devirt(known_fid, fn_val, fn_ty, args, sig_skip)` — v0.6+1
 //!   perf checkpoint direct-Call variant when the callee FuncId is
 //!   statically known so LLVM value-prop can inline through
 //!   `xs.map(cb)` loops.
@@ -16,7 +16,7 @@
 //!
 //! - `sig_param_tys(fn_ty)` — pull the param-type vec from a
 //!   FnSig / Closure type; None for non-callable.
-//! - `materialize_call_args(fn_ty, args)` — Phase Substr.B boundary
+//! - `materialize_call_args(fn_ty, args, sig_skip)` — Phase Substr.B boundary
 //!   materialization: allocate an owned Str via `substr_to_owned`
 //!   when the callee expects `Type::Str` but the operand is
 //!   `Type::Substr`. Returns `(materialized_args, drops)`.
@@ -69,10 +69,17 @@ impl<'a> LowerCtx<'a> {
     /// Other type pairs pass through unchanged. Returns the
     /// (possibly-rewritten) args plus the (value, type) drops to emit
     /// after the call returns.
+    ///
+    /// `sig_skip` — count of leading argv entries that are NOT in the
+    /// callable's sig: a promoted receiver-first callback (fnexpr-this
+    /// knife 4) prepends the boxed `__this` while the SSA sig sheds it
+    /// (ssa_lower_closure), so positional alignment starts after those.
+    /// Skipped args pass through untouched.
     fn materialize_call_args(
         &mut self,
         fn_ty: Type,
         args: Vec<Operand>,
+        sig_skip: usize,
     ) -> (Vec<Operand>, Vec<(Operand, Type)>) {
         let Some(param_tys) = self.sig_param_tys(fn_ty) else {
             return (args, Vec::new());
@@ -81,7 +88,9 @@ impl<'a> LowerCtx<'a> {
         let mut drops = Vec::new();
         for (i, a) in args.into_iter().enumerate() {
             let actual = self.operand_ty(&a);
-            let expected = param_tys.get(i).copied();
+            let expected = i
+                .checked_sub(sig_skip)
+                .and_then(|pi| param_tys.get(pi).copied());
             // RFC 20260707 chunk 626 — typed array into an Arr<Any>
             // param marks the block's elem kind (self-gating).
             if let Some(exp) = expected {
@@ -100,6 +109,28 @@ impl<'a> LowerCtx<'a> {
                 let boxed = self.box_to_any(a);
                 out.push(boxed);
                 drops.push((boxed, Type::Any));
+            } else if actual == Type::Any
+                && matches!(
+                    expected,
+                    Some(Type::F64 | Type::I64 | Type::Bool | Type::Str)
+                )
+            {
+                // Any arg into a scalar / Str param — unbox at the call
+                // boundary (fn-indirect chunk-2a mirror). Without this the
+                // CallIndirect passes the NaN-box bits raw into the typed
+                // lane: `Map<string, number>.forEach((v: number) => ...)`
+                // re-boxes entries as Any, and the typed callback read the
+                // box bits as an i64 (silent-wrong arithmetic).
+                match expected.unwrap() {
+                    t @ (Type::F64 | Type::I64) => out.push(self.coerce_any_to_number(a, t)),
+                    Type::Bool => out.push(self.coerce_to_bool(a)),
+                    Type::Str => {
+                        let s = self.coerce_to_str(a, Type::Any);
+                        out.push(s);
+                        drops.push((s, Type::Str));
+                    }
+                    _ => unreachable!(),
+                }
             } else {
                 out.push(a);
             }
@@ -112,8 +143,9 @@ impl<'a> LowerCtx<'a> {
         fn_val: Operand,
         fn_ty: Type,
         args: Vec<Operand>,
+        sig_skip: usize,
     ) -> ValueId {
-        let (args, drops) = self.materialize_call_args(fn_ty, args);
+        let (args, drops) = self.materialize_call_args(fn_ty, args, sig_skip);
         let ret = self.call_fn_value_raw(fn_val, fn_ty, args);
         for (d, ty) in drops {
             self.emit_drop_value(d, ty);
@@ -139,8 +171,9 @@ impl<'a> LowerCtx<'a> {
         fn_val: Operand,
         fn_ty: Type,
         args: Vec<Operand>,
+        sig_skip: usize,
     ) -> ValueId {
-        let (args, drops) = self.materialize_call_args(fn_ty, args);
+        let (args, drops) = self.materialize_call_args(fn_ty, args, sig_skip);
         let ret_ty = match fn_ty {
             Type::Closure(sig_id) | Type::FnSig(sig_id) => self.fn_sigs[sig_id.0 as usize].1,
             other => panic!("call_fn_value_devirt: expected Closure/FnSig, got {other:?}"),

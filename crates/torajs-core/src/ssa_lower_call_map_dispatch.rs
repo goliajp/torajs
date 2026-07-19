@@ -366,8 +366,8 @@ fn emit_map_for_each(ctx: &mut LowerCtx<'_>, recv_op: Operand, args: &[ExprId]) 
     ctx.emit_rc_inc(recv_op);
     let cb_args = vec![Operand::Value(v_box), Operand::Value(k_box), recv_op];
     let _ = match known_fid {
-        Some(fid) => ctx.call_fn_value_devirt(fid, fn_val.clone(), fn_ty, cb_args),
-        None => ctx.call_fn_value(fn_val, fn_ty, cb_args),
+        Some(fid) => ctx.call_fn_value_devirt(fid, fn_val.clone(), fn_ty, cb_args, 0),
+        None => ctx.call_fn_value(fn_val, fn_ty, cb_args, 0),
     };
     // §24.1.3.9 / §24.2.3.6 step 8.a.iii ReturnIfAbrupt — a throwing
     // callback ends the walk (previously the loop swallowed it).
