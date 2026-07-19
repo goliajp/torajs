@@ -24,6 +24,7 @@
 //! as rc-transparent via `classify_pure`. `TORAJS_SELECT_FORM_OFF=1`
 //! skips, `TORAJS_SELECT_FORM_STATS=1` dumps counters.
 
+pub mod cmp_sink;
 mod guard;
 
 use std::collections::HashMap;

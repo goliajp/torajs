@@ -272,6 +272,13 @@ pub fn transform_module(mut module: Module) -> Module {
     // as rc-transparent. `TORAJS_SELECT_FORM_OFF=1` skips (bisect
     // gate, mirrors the sibling passes).
     gated_pass("SELECT_FORM", &mut module, select_form::form_selects);
+    // Compare sink — restore ICmp/Select adjacency that the hoisted
+    // speculated arms just broke, so codegen's adjacency-gated NZCV
+    // fuse fires (RFC 20260719-select-formation route ③). Right after
+    // select_form: the Selects exist, and liveness is computed later
+    // on the sunk order, which is what makes the delayed compare's
+    // operands readable by construction.
+    gated_pass("CMP_SINK", &mut module, select_form::cmp_sink::sink_cmps);
     // TORAJS_SSA_DUMP=1 — pretty-print the post-egraph pre-peephole
     // SSA to stdout. Debug surface for attributing which pass shaped
     // a given inst stream (mirrors TORAJS_INLINER_STATS).
