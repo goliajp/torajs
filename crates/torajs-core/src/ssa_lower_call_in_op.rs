@@ -101,6 +101,11 @@ pub(crate) fn try_lower(
                 Type::Bool,
                 None,
             );
+            // The kernel arms a TypeError for a non-Object rhs
+            // (§13.10.1 step 5) and still returns a bool, so without
+            // this the throw would sit pending and `"q" in undefined`
+            // would answer false instead of throwing.
+            ctx.emit_throw_check(None);
             return Some(Operand::Value(r));
         }
         if matches!(key_ty, Type::Str) {
@@ -110,6 +115,8 @@ pub(crate) fn try_lower(
                 Type::Bool,
                 None,
             );
+            // See the num arm — same pending-throw contract.
+            ctx.emit_throw_check(None);
             return Some(Operand::Value(r));
         }
         panic!("ssa-lower: `<key> in <obj:any>` unsupported key type {key_ty:?}");

@@ -62,15 +62,23 @@ pub(crate) fn try_match(obj_ty: &Type, name: &str) -> Option<Result<Type, String
         // without runtime dispatch.
         (Type::Function(_, _), "length") => Type::Number,
         (Type::Function(..), "name") => Type::String,
-        // Type::Any single-type members. These four explicit
-        // arms (valueOf / toString / isPrototypeOf /
-        // constructor) carry richer shape than the P3.2
-        // catch-all `(Type::Any, _) → Type::Any` and so live
-        // above it. ssa_lower handles dispatch via
-        // dynobj_get_tag/value at runtime; the type-table
-        // shape here keeps the typechecker honest.
-        (Type::Any, "valueOf") => Type::Function(Vec::new(), Box::new(Type::Any)),
-        (Type::Any, "toString") => Type::Function(Vec::new(), Box::new(Type::String)),
+        // Type::Any single-type members. These explicit arms
+        // carry richer shape than the P3.2 catch-all
+        // `(Type::Any, _) → Type::Any` and so live above it.
+        // ssa_lower handles dispatch via dynobj_get_tag/value
+        // at runtime.
+        //
+        // valueOf and toString are deliberately NOT here. On an
+        // Any receiver nothing is known about them statically:
+        // an own entry can shadow the prototype with a
+        // non-callable (`{ toString: undefined }`), so promising
+        // Function is a claim the checker cannot back. It also
+        // cost bun parity — a Function-typed member read binds
+        // to a value ssa_lower cannot materialise, so
+        // `const m = o.toString; m()` failed to lower, and
+        // `o.toString[0]` was rejected outright. Both run under
+        // bun. They fall to the Any catch-all below, which is
+        // the same path every other Any member already takes.
         (Type::Any, "isPrototypeOf") => Type::Function(vec![Type::Any], Box::new(Type::Boolean)),
         (Type::Any, "constructor") => Type::Any,
         // P3.2 — Member access on Type::Any returns Type::Any.

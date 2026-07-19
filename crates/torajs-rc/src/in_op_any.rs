@@ -26,6 +26,12 @@
 //!
 //! Both helpers mirror `instanceof_any` discipline: NaN-box unbox →
 //! tag-gate (ANY_HEAP) → NULL-gate → `HeapHeader::type_tag@+4` read.
+//!
+//! That walk is shared by `require_object_rhs`, which also enforces
+//! §13.10.1 step 5: a non-Object rhs is a TypeError, not a `false`
+//! answer. The "else → false" arms sketched above therefore only
+//! cover object receivers the key is absent from; `"q" in undefined`
+//! throws, as it does under bun.
 
 use core::ffi::c_void;
 
@@ -52,6 +58,11 @@ unsafe extern "C" {
     // table, yet is an own property per spec). -1/0 for every other
     // receiver.
     fn __torajs_builtin_proto_own_method_cell(proto: *const c_void, key: *const c_void) -> u64;
+    // torajs-throw — arms a pending TypeError and returns; the
+    // caller must return on its own (see the C→Rust port playbook
+    // B-2: a `-> !` signature here would let LLVM DCE the resume
+    // path).
+    fn __torajs_throw_type_error(msg: *const u8);
 }
 
 // Offset of the i64 `len` slot inside the Array heap block — matches
@@ -73,6 +84,12 @@ const ANY_TAG_HEAP: i64 = 4;
 const TAG_ARR: u16 = 2;
 const TAG_OBJ: u16 = 1;
 const TAG_DYNOBJ: u16 = 14;
+// The three primitives that live in heap cells. They carry a value,
+// not an object, so `in` rejects them the same way it rejects the
+// immediate primitives (see `require_object_rhs`).
+const TAG_STR: u16 = 0;
+const TAG_SYMBOL: u16 = 7;
+const TAG_BIGINT: u16 = 10;
 
 // Str heap layout (mirrors `torajs_str::layout`):
 //   plain Str:   [hdr@0..8][len:u32@+8][pad@+12..16][data@+16]
@@ -143,17 +160,49 @@ unsafe fn parse_canonical_array_index(str_ptr: *const u8) -> Option<i64> {
 ///
 /// # Safety
 /// `v` is an unconstrained i64; helper is defensive on every step.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_in_op_any_num(v: i64, key: i64) -> bool {
-    let tag = unsafe { __torajs_anyv_unbox_tag(v) };
-    if tag != ANY_TAG_HEAP {
-        return false;
+/// ES §13.10.1 step 5 — `in` demands an Object on the right; every
+/// other rhs is a TypeError, not a `false` answer.
+///
+/// Returns the object cell and its `type_tag@+4` on success. On a
+/// non-Object rhs it arms a pending TypeError and returns `None`,
+/// leaving the caller to return (playbook B-2 — the throw helper is
+/// void, so the caller owns the control flow).
+///
+/// Non-Objects come in two shapes: the immediates (undefined, null,
+/// number, boolean, short string), which fail the ANY_HEAP tag gate,
+/// and the three heap-resident primitives (string, symbol, bigint),
+/// which pass the tag gate and have to be rejected on `type_tag`.
+/// Everything else that reaches a heap cell — dynobj, array, struct,
+/// closure, the primitive wrappers — is an object and gets through.
+///
+/// # Safety
+/// `v` is an unconstrained i64; defensive on every step.
+unsafe fn require_object_rhs(v: i64) -> Option<(*const c_void, u16)> {
+    let reject = || {
+        unsafe {
+            __torajs_throw_type_error(b"Right hand side of 'in' should be an object\0".as_ptr());
+        }
+        None
+    };
+    if unsafe { __torajs_anyv_unbox_tag(v) } != ANY_TAG_HEAP {
+        return reject();
     }
     let ptr = unsafe { __torajs_anyv_unbox_value(v) } as *const c_void;
     if ptr.is_null() {
-        return false;
+        return reject();
     }
     let type_tag = unsafe { *((ptr as *const u8).add(4) as *const u16) };
+    if matches!(type_tag, TAG_STR | TAG_SYMBOL | TAG_BIGINT) {
+        return reject();
+    }
+    Some((ptr, type_tag))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_in_op_any_num(v: i64, key: i64) -> bool {
+    let Some((ptr, type_tag)) = (unsafe { require_object_rhs(v) }) else {
+        return false;
+    };
     if type_tag == TAG_ARR {
         let len = unsafe { *((ptr as *const u8).add(ARR_LEN_OFF) as *const i64) };
         if !(key >= 0 && key < len) {
@@ -222,15 +271,9 @@ unsafe fn rc_dec_temp_str(_p: *mut u8) {
 /// `__torajs_dynobj_has`).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_in_op_any_str(v: i64, key: *const u8) -> bool {
-    let tag = unsafe { __torajs_anyv_unbox_tag(v) };
-    if tag != ANY_TAG_HEAP {
+    let Some((ptr, type_tag)) = (unsafe { require_object_rhs(v) }) else {
         return false;
-    }
-    let ptr = unsafe { __torajs_anyv_unbox_value(v) } as *const c_void;
-    if ptr.is_null() {
-        return false;
-    }
-    let type_tag = unsafe { *((ptr as *const u8).add(4) as *const u16) };
+    };
     if type_tag == TAG_DYNOBJ {
         let r = unsafe { __torajs_dynobj_has(ptr, key) };
         return r != 0;
@@ -363,6 +406,27 @@ unsafe fn __torajs_any_prop_has(_recv: u64, _key: *const c_void) -> i64 {
 }
 
 #[cfg(test)]
+unsafe fn __torajs_throw_type_error(_msg: *const u8) {
+    // The real symbol records a pending throw in TLS for ssa_lower's
+    // emit_throw_check to propagate; here we only need to observe
+    // that the rhs gate fired, since the return value alone cannot
+    // tell "not an own property" from "not an object".
+    THROWN.with(|c| c.set(c.get() + 1));
+}
+
+#[cfg(test)]
+thread_local! {
+    static THROWN: core::cell::Cell<u32> = const { core::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+fn thrown_by(f: impl FnOnce() -> bool) -> (bool, bool) {
+    THROWN.with(|c| c.set(0));
+    let r = f();
+    (r, THROWN.with(|c| c.get()) > 0)
+}
+
+#[cfg(test)]
 thread_local! {
     static STRUCT_PROP_HAS_RESULT: core::cell::Cell<i64> = const { core::cell::Cell::new(0) };
 }
@@ -441,15 +505,24 @@ mod tests {
     }
 
     #[test]
-    fn num_non_heap_tag_returns_false() {
+    fn num_non_heap_tag_throws() {
+        // §13.10.1 step 5 — a number / boolean / undefined rhs is a
+        // TypeError, not a false answer.
         let boxed = nan_box(2, 0x1234_5678);
-        assert!(!unsafe { __torajs_in_op_any_num(boxed, 0) });
+        assert_eq!(
+            thrown_by(|| unsafe { __torajs_in_op_any_num(boxed, 0) }),
+            (false, true)
+        );
     }
 
     #[test]
-    fn num_null_ptr_returns_false() {
+    fn num_null_ptr_throws() {
+        // A null cell is the `null` rhs, which §13.10.1 rejects too.
         let boxed = nan_box(ANY_TAG_HEAP, 0);
-        assert!(!unsafe { __torajs_in_op_any_num(boxed, 0) });
+        assert_eq!(
+            thrown_by(|| unsafe { __torajs_in_op_any_num(boxed, 0) }),
+            (false, true)
+        );
     }
 
     #[test]
@@ -482,17 +555,57 @@ mod tests {
     }
 
     #[test]
-    fn str_non_heap_tag_returns_false() {
+    fn str_non_heap_tag_throws() {
         let boxed = nan_box(2, 0x1234_5678);
         let key = b"foo\0".as_ptr();
-        assert!(!unsafe { __torajs_in_op_any_str(boxed, key) });
+        assert_eq!(
+            thrown_by(|| unsafe { __torajs_in_op_any_str(boxed, key) }),
+            (false, true)
+        );
     }
 
     #[test]
-    fn str_null_ptr_returns_false() {
+    fn str_null_ptr_throws() {
         let boxed = nan_box(ANY_TAG_HEAP, 0);
         let key = b"foo\0".as_ptr();
-        assert!(!unsafe { __torajs_in_op_any_str(boxed, key) });
+        assert_eq!(
+            thrown_by(|| unsafe { __torajs_in_op_any_str(boxed, key) }),
+            (false, true)
+        );
+    }
+
+    #[test]
+    fn str_heap_primitive_cell_throws() {
+        // A string / symbol / bigint passes the ANY_HEAP tag gate but
+        // is still a primitive, so the rejection has to key off
+        // type_tag rather than the NaN-box tag alone.
+        for tag in [TAG_STR, TAG_SYMBOL, TAG_BIGINT] {
+            let mut block = vec![0u8; 16];
+            block[4..6].copy_from_slice(&tag.to_ne_bytes());
+            let ptr = block.as_ptr() as i64 & 0x0000_FFFF_FFFF_FFFF;
+            let boxed = nan_box(ANY_TAG_HEAP, ptr);
+            let key = b"foo\0".as_ptr();
+            assert_eq!(
+                thrown_by(|| unsafe { __torajs_in_op_any_str(boxed, key) }),
+                (false, true),
+                "type_tag {tag}"
+            );
+        }
+    }
+
+    #[test]
+    fn str_dynobj_rhs_does_not_throw() {
+        // The object path must stay clean — a plain "absent property"
+        // answer is false with no pending TypeError.
+        DYNOBJ_HAS_RESULT.with(|r| r.set(0));
+        let block = make_dynobj_heap_block();
+        let ptr = block.as_ptr() as i64 & 0x0000_FFFF_FFFF_FFFF;
+        let boxed = nan_box(ANY_TAG_HEAP, ptr);
+        let key = b"foo\0".as_ptr();
+        assert_eq!(
+            thrown_by(|| unsafe { __torajs_in_op_any_str(boxed, key) }),
+            (false, false)
+        );
     }
 
     #[test]
