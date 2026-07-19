@@ -353,6 +353,14 @@ mod tests {
     #[unsafe(no_mangle)]
     pub unsafe extern "C" fn __torajs_arr_mark_kind(_arr: *mut c_void, _chain: u64) {}
     #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_symbol_for(_key: *mut c_void) -> *mut c_void {
+        core::ptr::null_mut()
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_symbol_key_for(_sym: *mut c_void) -> *mut c_void {
+        core::ptr::null_mut()
+    }
+    #[unsafe(no_mangle)]
     pub unsafe extern "C" fn __torajs_anyv_freeze(obj_any: u64) -> u64 {
         obj_any
     }

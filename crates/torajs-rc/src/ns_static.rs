@@ -102,6 +102,12 @@ pub static NS_STATIC_TABLE: &[NsStaticRow] = &[
     row("Object", "getPrototypeOf", 1),
     row("Object", "setPrototypeOf", 2),
     row("Object", "fromEntries", 1),
+    // Symbol registry pair (chunk B3c-2) — §20.4.2.2/.6. The other
+    // Symbol statics are well-known-symbol DATA properties
+    // (`Symbol.iterator` etc.), not functions, so this table — a
+    // function-cell intern — is not their surface.
+    row("Symbol", "for", 1),
+    row("Symbol", "keyFor", 1),
 ];
 
 /// Compile-time `(namespace, member)` → id. Linear scan — lower-time

@@ -33,8 +33,8 @@ use super::ns_static_table::{
     __torajs_anyv_get_proto_of_any, __torajs_anyv_own_entries, __torajs_anyv_own_keys,
     __torajs_anyv_own_values, __torajs_anyv_set_prototype_of, __torajs_arr_mark_kind,
     __torajs_math_max, __torajs_math_min, __torajs_num_parse_float, __torajs_num_parse_int,
-    __torajs_obj_is_frozen_any, __torajs_str_drop, __torajs_throw_check, __torajs_throw_type_error,
-    DISPATCH, Disp, NumPred, OwnKind,
+    __torajs_obj_is_frozen_any, __torajs_str_drop, __torajs_symbol_for, __torajs_symbol_key_for,
+    __torajs_throw_check, __torajs_throw_type_error, DISPATCH, Disp, NumPred, OwnKind,
 };
 
 use super::{
@@ -216,58 +216,8 @@ unsafe fn dispatch(id: i64, argv: *const u64, argc: i64) -> u64 {
                 arg_at(argv, argc, 0),
                 arg_at(argv, argc, 1),
             )),
-            // The kernel answers a fresh Arr cell (rc 1) — that IS
-            // the owned result, so no inc. A null/undefined receiver
-            // records its ToObject TypeError inside the kernel and
-            // still answers a well-formed empty Arr; the caller's
-            // throw check makes it unobservable, exactly as on the
-            // typed tier (`ssa_lower_call_object_keys.rs`).
-            Disp::OwnEnum(kind) => {
-                let recv = arg_at(argv, argc, 0);
-                let arr = match kind {
-                    OwnKind::Keys => {
-                        let a = __torajs_anyv_own_keys(recv, 0);
-                        // Slots are Str heap pointers, and this call
-                        // IS the typed→Any boundary: without the
-                        // stamp the any-lane drop frees the block
-                        // and strands every key cell. Literal-keyed
-                        // objects hide it (static Str skips its
-                        // drop), runtime-added keys do not.
-                        __torajs_arr_mark_kind(a, KIND_HEAP_CHAIN);
-                        a
-                    }
-                    // Already self-describing: `own_values` answers a
-                    // real Array<Any>, `own_entries` stamps its outer
-                    // block. Stamping the values array HEAP would be
-                    // actively wrong — its slots hold immediates too,
-                    // and a walker would deref a small int.
-                    OwnKind::Values => __torajs_anyv_own_values(recv),
-                    OwnKind::Entries => __torajs_anyv_own_entries(recv),
-                };
-                arr as u64
-            }
-            Disp::ObjectAssign => {
-                let target = arg_at(argv, argc, 0);
-                if argc < 2 {
-                    // §20.1.2.1 step 1 ToObject(target) runs even with
-                    // no sources. Call once with an undefined source:
-                    // the kernel guards the target itself and treats
-                    // an undefined source as a no-op, so step 1 stays
-                    // single-sourced instead of re-derived here.
-                    __torajs_anyv_assign(target, VALUE_UNDEFINED);
-                    if __torajs_throw_check() != 0 {
-                        return VALUE_UNDEFINED;
-                    }
-                } else {
-                    for i in 1..argc {
-                        __torajs_anyv_assign(target, *argv.add(i as usize));
-                        if __torajs_throw_check() != 0 {
-                            return VALUE_UNDEFINED;
-                        }
-                    }
-                }
-                own(target)
-            }
+            Disp::OwnEnum(kind) => own_enum(kind, arg_at(argv, argc, 0)),
+            Disp::ObjectAssign => object_assign(argv, argc),
             Disp::ObjectFreeze => own(__torajs_anyv_freeze(arg_at(argv, argc, 0))),
             Disp::ObjectIsFrozen => {
                 box_bool(__torajs_obj_is_frozen_any(arg_at(argv, argc, 0) as i64))
@@ -284,7 +234,101 @@ unsafe fn dispatch(id: i64, argv: *const u64, argc: i64) -> u64 {
                 own(obj)
             }
             Disp::ObjectFromEntries => __torajs_anyv_from_entries(arg_at(argv, argc, 0)),
+            Disp::SymbolFor => symbol_for_value(arg_at(argv, argc, 0)),
+            Disp::SymbolKeyFor => symbol_key_for_value(arg_at(argv, argc, 0)),
         }
+    }
+}
+
+/// §20.1.2.{17,23,5} — the kernel answers a fresh Arr cell (rc 1),
+/// which IS the owned result (no inc). A null/undefined receiver
+/// records its ToObject TypeError inside the kernel and still answers
+/// a well-formed empty Arr; the caller's throw check makes it
+/// unobservable, exactly as on the typed tier
+/// (`ssa_lower_call_object_keys.rs`).
+unsafe fn own_enum(kind: &OwnKind, recv: u64) -> u64 {
+    unsafe {
+        let arr = match kind {
+            OwnKind::Keys => {
+                let a = __torajs_anyv_own_keys(recv, 0);
+                // Slots are Str heap pointers, and this call IS the
+                // typed→Any boundary: without the stamp the any-lane
+                // drop frees the block and strands every key cell.
+                // Literal-keyed objects hide it (static Str skips
+                // its drop), runtime-added keys do not.
+                __torajs_arr_mark_kind(a, KIND_HEAP_CHAIN);
+                a
+            }
+            // Already self-describing: `own_values` answers a real
+            // Array<Any>, `own_entries` stamps its outer block.
+            // Stamping the values array HEAP would be actively
+            // wrong — its slots hold immediates too, and a walker
+            // would deref a small int.
+            OwnKind::Values => __torajs_anyv_own_values(recv),
+            OwnKind::Entries => __torajs_anyv_own_entries(recv),
+        };
+        arr as u64
+    }
+}
+
+/// §20.1.2.1 — variadic fold over the sources; the target answers as
+/// an owned reference. With no sources, one undefined-source call
+/// still runs so the kernel's own step-1 ToObject guard fires
+/// (single-sourced instead of re-derived here).
+unsafe fn object_assign(argv: *const u64, argc: i64) -> u64 {
+    unsafe {
+        let target = arg_at(argv, argc, 0);
+        if argc < 2 {
+            __torajs_anyv_assign(target, VALUE_UNDEFINED);
+            if __torajs_throw_check() != 0 {
+                return VALUE_UNDEFINED;
+            }
+        } else {
+            for i in 1..argc {
+                __torajs_anyv_assign(target, *argv.add(i as usize));
+                if __torajs_throw_check() != 0 {
+                    return VALUE_UNDEFINED;
+                }
+            }
+        }
+        own(target)
+    }
+}
+
+/// §20.4.2.2 step 1 ToString(key) — missing arg coerces undefined →
+/// "undefined" (bun agrees). The kernel SHARES the key (a registry
+/// miss incs the desc itself), so the minted temp stays ours to
+/// release; the returned Symbol is owned.
+unsafe fn symbol_for_value(key_any: u64) -> u64 {
+    unsafe {
+        let key = crate::nanbox_ffi::__torajs_anyv_to_str(key_any);
+        if __torajs_throw_check() != 0 {
+            return VALUE_UNDEFINED;
+        }
+        let sym = __torajs_symbol_for(key);
+        __torajs_str_drop(key);
+        sym as u64
+    }
+}
+
+/// §20.4.2.6 — step 1 rejects a non-Symbol loudly (no coercion); an
+/// unregistered symbol answers undefined, never a raw null Str slot
+/// (the §25.5.2 sentinel lesson).
+unsafe fn symbol_key_for_value(v: u64) -> u64 {
+    unsafe {
+        let is_sym = crate::nanbox::is_cell(v) && {
+            let ptr = crate::nanbox::as_void_ptr(v);
+            (ptr.cast::<u8>().add(4) as *const u16).read() == Tag::Symbol as u16
+        };
+        if !is_sym {
+            __torajs_throw_type_error(c"Symbol.keyFor requires a symbol".as_ptr());
+            return VALUE_UNDEFINED;
+        }
+        let key = __torajs_symbol_key_for(crate::nanbox::as_void_ptr(v));
+        if key.is_null() {
+            return VALUE_UNDEFINED;
+        }
+        key as u64
     }
 }
 

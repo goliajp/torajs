@@ -98,6 +98,15 @@ unsafe extern "C" {
     /// torajs-meta — §20.1.2.7. Answers a FRESH dynobj (owned); the
     /// reject paths answer an immediate, so nothing leaks there.
     pub(super) fn __torajs_anyv_from_entries(entries: u64) -> u64;
+    /// torajs-str — §20.4.2.2 registry lookup-or-create. SHARES the
+    /// key on a miss (`symbol_alloc` incs the desc itself), so the
+    /// arm still drops its minted coercion temp; the returned Symbol
+    /// is rc'd for the caller (owned).
+    pub(super) fn __torajs_symbol_for(key: *mut c_void) -> *mut c_void;
+    /// torajs-str — §20.4.2.6. Answers the registered key Str (rc'd,
+    /// owned) or NULL for an unregistered symbol — NULL maps to
+    /// undefined, never to a raw null Str slot.
+    pub(super) fn __torajs_symbol_key_for(sym: *mut c_void) -> *mut c_void;
 }
 
 /// Per-id dispatch shape. Index-lockstep with
@@ -149,6 +158,12 @@ pub(super) enum Disp {
     ObjectSetProtoOf,
     /// §20.1.2.7 Object.fromEntries — kernel answers a fresh dynobj.
     ObjectFromEntries,
+    /// §20.4.2.2 Symbol.for — ToString(key) into the registry kernel
+    /// (owned Symbol out).
+    SymbolFor,
+    /// §20.4.2.6 Symbol.keyFor — Symbol-cell receiver check, then
+    /// the registry scan (owned Str out, NULL → undefined).
+    SymbolKeyFor,
 }
 
 /// The three own-enumeration surfaces (shared dispatch shape).
@@ -222,4 +237,6 @@ pub(super) static DISPATCH: &[Disp] = &[
     Disp::ObjectGetProtoOf,
     Disp::ObjectSetProtoOf,
     Disp::ObjectFromEntries,
+    Disp::SymbolFor,
+    Disp::SymbolKeyFor,
 ];
