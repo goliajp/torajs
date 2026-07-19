@@ -186,6 +186,7 @@ fn lower_one_plus(ctx: &mut LowerCtx<'_>, eid: ExprId, method: &str, args: &[Exp
             && ctx
                 .num_f64_slots
                 .field_is_f64(&crate::num_width::SlotKey::Anon(eid.0), "value"));
+    mark_arr_value(ctx, &arg_op, &arg_ty);
     let arg_i64 = if matches!(arg_ty, Type::Bool) {
         ctx.coerce_bool_to_i64(arg_op)
     } else if matches!(arg_ty, Type::F64) {
@@ -226,4 +227,14 @@ fn lower_one_plus(ctx: &mut LowerCtx<'_>, eid: ExprId, method: &str, args: &[Exp
         ctx.emit_promise_stamp_repr(&out, repr);
     }
     out
+}
+
+/// The repr stamp makes the cell any-consumable, so a typed-Arr
+/// value settles as an any-readable cell too: mark its elem kind
+/// (RFC 20260704 S1 self-describing posture — the bridge's boxed
+/// hand-off is exactly the typed→any crossing the mark exists for).
+fn mark_arr_value(ctx: &mut LowerCtx<'_>, arg_op: &Operand, arg_ty: &Type) {
+    if matches!(arg_ty, Type::Arr(_)) {
+        ctx.emit_arr_mark_kind(arg_op);
+    }
 }

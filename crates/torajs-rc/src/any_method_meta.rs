@@ -94,6 +94,8 @@ pub fn any_method_meta(mid: i64) -> Option<(&'static str, u32)> {
         ANY_METHOD_TO_PRECISION => ("toPrecision", 1),
         ANY_METHOD_TEST => ("test", 1),
         ANY_METHOD_EXEC => ("exec", 1),
+        ANY_METHOD_THEN => ("then", 2),
+        ANY_METHOD_CATCH => ("catch", 1),
         ANY_METHOD_KEYS => ("keys", 0),
         ANY_METHOD_VALUES => ("values", 0),
         ANY_METHOD_ENTRIES => ("entries", 0),
@@ -207,7 +209,7 @@ mod tests {
     #[test]
     fn meta_rejects_unknown_and_out_of_table() {
         assert!(any_method_meta(ANY_METHOD_UNKNOWN).is_none());
-        assert!(any_method_meta(ANY_METHOD_ERROR_TO_STRING + 1).is_none());
+        assert!(any_method_meta(ANY_METHOD_CATCH + 1).is_none());
         assert!(any_method_meta(-1).is_none());
     }
 

@@ -95,6 +95,8 @@ pub fn any_method_id(name: &str) -> i64 {
         "endsWith" => ANY_METHOD_ENDS_WITH,
         "test" => ANY_METHOD_TEST,
         "exec" => ANY_METHOD_EXEC,
+        "then" => ANY_METHOD_THEN,
+        "catch" => ANY_METHOD_CATCH,
         "call" => ANY_METHOD_CALL,
         "apply" => ANY_METHOD_APPLY,
         "bind" => ANY_METHOD_BIND,

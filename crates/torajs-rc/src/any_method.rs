@@ -387,6 +387,13 @@ pub const ANY_METHOD_THROW_TYPE_ERROR: i64 = 155;
 /// `__torajs_error_proto_install` defines (same posture as
 /// [`ANY_METHOD_OBJECT_TO_STRING`]).
 pub const ANY_METHOD_ERROR_TO_STRING: i64 = 156;
+/// `Promise.prototype.then` / `.catch` through an `any` receiver
+/// (RFC 20260720-anylane-promise-methods knife 2) — the cell arm's
+/// bridge boxes the settled value per the cell's `value_repr` stamp
+/// and runs the boxed-adapter callback over the typed promise
+/// kernel's attach machinery.
+pub const ANY_METHOD_THEN: i64 = 157;
+pub const ANY_METHOD_CATCH: i64 = 158;
 
 /// RegExp property-read ids (Any-method-call RFC 20260704 C4-3c-2)
 /// — `r.source` / `r.lastIndex` / flag booleans through an `any`

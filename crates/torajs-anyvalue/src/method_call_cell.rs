@@ -148,6 +148,15 @@ pub(crate) unsafe fn cell_method(
     if tag == Tag::Date as u16 {
         return Some(unsafe { crate::method_call_date::date_method(ptr, mid, argv, argc) });
     }
+    // RFC 20260720-anylane-promise-methods knife 2 — `.then` /
+    // `.catch` bridge; a mid the arm doesn't own falls through to
+    // the shared no-such exit (valueOf identity answered above).
+    if tag == Tag::Promise as u16
+        && let Some(out) =
+            unsafe { crate::method_call_promise::promise_method(ptr, mid, argv, argc) }
+    {
+        return Some(out);
+    }
     if tag == Tag::RegExp as u16 {
         return Some(unsafe { crate::method_call_regexp::regexp_method(ptr, mid, argv, argc) });
     }
