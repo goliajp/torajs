@@ -136,6 +136,28 @@ pub const ACC_KIND_NAKED: u8 = 0x80;
 /// before — the receiver argument is ignored.
 pub const ACC_KIND_RECV: u8 = 0x40;
 
+/// `FLAG_CLOSURE_RECV_FIRST` mirror (torajs-rc `flags.rs`) — the
+/// header bit a promoted fn-expr closure carries.
+pub(crate) const FLAG_CLOSURE_RECV_FIRST: u16 = 1 << 12;
+
+/// Does this face closure's env header carry
+/// [`FLAG_CLOSURE_RECV_FIRST`]? The invoke paths OR this onto the
+/// pair's `ACC_KIND_RECV` kind bit: a promoted closure can reach a
+/// pair through a route that never stamped the kind byte (an alias
+/// binding, an any-boxed face), and the header flag is the
+/// value-carried truth (RFC 20260717-fnexpr-this-channel knife 2W).
+///
+/// # Safety
+/// `face` is null or a live closure heap cell (both invoke paths
+/// have already re-routed builtin-mid / class-adapter faces).
+pub(crate) unsafe fn closure_recv_first(face: *const c_void) -> bool {
+    if face.is_null() {
+        return false;
+    }
+    let flags = unsafe { (face.cast::<u8>().add(6) as *const u16).read() };
+    flags & FLAG_CLOSURE_RECV_FIRST != 0
+}
+
 /// Closure-cell boxed dual entry offset — ABI mirror of
 /// `torajs_anyvalue`'s `CLOSURE_BOXED_ENTRY_OFF`.
 pub(crate) const CLOSURE_BOXED_ENTRY_OFF: usize = 32;

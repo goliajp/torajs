@@ -93,9 +93,11 @@ pub unsafe extern "C" fn __torajs_accessor_invoke_getter(
     }
     let kinds = unsafe { *((pair as *const u8).add(ACC_KINDS_OFF) as *const u64) };
     let raw_ret = (kinds & 0xff) as u8;
-    if raw_ret & ACC_KIND_RECV != 0 {
+    if raw_ret & ACC_KIND_RECV != 0 || unsafe { crate::accessor::closure_recv_first(getter) } {
         // Receiver-first fn-expr face — boxed dual entry, argv[0] is
-        // the receiver the body reads as `this`.
+        // the receiver the body reads as `this`. The header-flag OR
+        // covers routes that never stamped the kind byte (alias /
+        // any-boxed faces, knife 2W).
         let entry = unsafe { *((getter as *const u8).add(CLOSURE_BOXED_ENTRY_OFF) as *const u64) };
         if entry == 0 {
             return VALUE_UNDEFINED;
@@ -203,9 +205,10 @@ pub unsafe extern "C" fn __torajs_accessor_invoke_setter(
     }
     let kinds = unsafe { *((pair as *const u8).add(ACC_KINDS_OFF) as *const u64) };
     let raw_kind = ((kinds >> 8) & 0xff) as u8;
-    if raw_kind & ACC_KIND_RECV != 0 {
+    if raw_kind & ACC_KIND_RECV != 0 || unsafe { crate::accessor::closure_recv_first(setter) } {
         // Receiver-first fn-expr face — boxed dual entry, argv[0] is
         // the receiver the body reads as `this`, argv[1] the value.
+        // Header-flag OR: see the getter twin.
         let entry = unsafe { *((setter as *const u8).add(CLOSURE_BOXED_ENTRY_OFF) as *const u64) };
         if entry == 0 {
             return 1;

@@ -17,18 +17,11 @@ use crate::layout::{
     DEFINE_PRESENT_CONFIGURABLE, DEFINE_PRESENT_ENUMERABLE, DEFINE_PRESENT_VALUE,
 };
 
-/// `FLAG_CLOSURE_RECV_FIRST` mirror (torajs-rc `flags.rs`) — the
-/// header bit a promoted fn-expr face carries.
-const FLAG_CLOSURE_RECV_FIRST: u16 = 1 << 12;
-
 /// The `ACC_KIND_RECV` bit for a face closure that wants the
-/// receiver in argv[0]; 0 for NULL / flag-less faces.
+/// receiver in argv[0]; 0 for NULL / flag-less faces (header-flag
+/// probe shared with the invoke paths in `crate::accessor`).
 unsafe fn recv_kind_bit(face: *mut c_void) -> u64 {
-    if face.is_null() {
-        return 0;
-    }
-    let flags = unsafe { (face.cast::<u8>().add(6) as *const u16).read() };
-    if flags & FLAG_CLOSURE_RECV_FIRST != 0 {
+    if unsafe { crate::accessor::closure_recv_first(face) } {
         crate::accessor::ACC_KIND_RECV as u64
     } else {
         0
