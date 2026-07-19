@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-19T12:12:18.019Z",
+  "generatedAt": "2026-07-19T13:53:30.358Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 94.78
   },
   "torajs": {
-    "commit": "0c871ed6",
-    "commitSubject": "feat: builtin constructor identity through .constructor reads and bare ident values",
+    "commit": "5f4763ee",
+    "commitSubject": "feat: JSON.stringify serializes any-lane values at runtime",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "5f4763ee",
+      "subject": "feat: JSON.stringify serializes any-lane values at runtime"
+    },
+    {
+      "hash": "92f45bd5",
+      "subject": "refactor: split the ns-static dispatch table into a sibling module"
+    },
+    {
+      "hash": "5dbb6b03",
+      "subject": "feat: Number/Array/Object statics reify as values, retiring the isArray stub"
+    },
+    {
+      "hash": "7343d528",
+      "subject": "feat: console stdout-family statics reify as values with spec length fold"
+    },
+    {
+      "hash": "e16127ab",
+      "subject": "feat: namespace-static builtin methods reify as callable values (Math family)"
+    },
+    {
+      "hash": "ccdbee65",
+      "subject": "chore: hardev dashboard snapshot at rotation 151 close"
+    },
+    {
       "hash": "0c871ed6",
       "subject": "feat: builtin constructor identity through .constructor reads and bare ident values"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "911a90a6",
       "subject": "feat: namespace-static builtin methods answer the JSC named native form"
-    },
-    {
-      "hash": "e0db83e6",
-      "subject": "chore: hardev dashboard snapshot at rotation 150 close"
-    },
-    {
-      "hash": "bd8f8cba",
-      "subject": "feat: fn-typed value receivers answer toString through runtime kernels"
-    },
-    {
-      "hash": "bd759f81",
-      "subject": "feat: string coercion of fn values answers erased source"
-    },
-    {
-      "hash": "c07fd328",
-      "subject": "feat: static-tier fn toString folds erased source at compile time"
-    },
-    {
-      "hash": "cad347b9",
-      "subject": "feat: closure toString answers type-erased fn source through the any lane"
-    },
-    {
-      "hash": "c846f94a",
-      "subject": "feat: anonymous lifted closures land fn_name_table rows"
     }
   ],
-  "headSha": "0c871ed6",
+  "headSha": "5f4763ee",
   "autorun": {
-    "total": 456,
+    "total": 457,
     "baselineTarget": 10,
-    "bySelf": 451,
+    "bySelf": 452,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784457411-18ad",
-      "at": "2026-07-19T10:36:51Z",
-      "ts": 1784457411,
+      "rotationId": "r-1784463203-02dd",
+      "at": "2026-07-19T12:13:23Z",
+      "ts": 1784463203,
       "trigger": "self",
-      "prevHead": "e0db83e6",
-      "handoffSha": "sha256:81845abb95009742ca8258f4e951ded6ceb3c964be2014cd8240bc7f89b30f3a",
-      "handoffAgeSec": 4,
+      "prevHead": "ccdbee65",
+      "handoffSha": "sha256:04480667225c59c5af5a5238487edd5973ada198f923dc89ec6bb49c741decb5",
+      "handoffAgeSec": 8,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784463203-02dd",
+        "at": "2026-07-19T12:13:23Z",
+        "ts": 1784463203,
+        "trigger": "self",
+        "prevHead": "ccdbee65",
+        "handoffSha": "sha256:04480667225c59c5af5a5238487edd5973ada198f923dc89ec6bb49c741decb5",
+        "handoffAgeSec": 8,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784457411-18ad",
         "at": "2026-07-19T10:36:51Z",
@@ -876,17 +887,6 @@
         "prevHead": "9ad75edc",
         "handoffSha": "sha256:a60f4df4249dacbdb46d8d28b815fc1762d256291bc505ac8014f75326499d20",
         "handoffAgeSec": 5,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784375464-200d",
-        "at": "2026-07-18T11:51:04Z",
-        "ts": 1784375464,
-        "trigger": "self",
-        "prevHead": "ebcddda7",
-        "handoffSha": "sha256:d6cf1989b354bca4fb72e85e146ba03d24ec6fb3b99cef76d42a906429228384",
-        "handoffAgeSec": 4,
         "conformanceBefore": null,
         "commitsInSession": null
       }
