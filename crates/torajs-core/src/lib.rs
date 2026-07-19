@@ -265,6 +265,7 @@ pub(crate) mod ssa_lower_call_date_parse_undef_fold;
 pub(crate) mod ssa_lower_call_date_utc_pad;
 pub(crate) mod ssa_lower_call_error_magic;
 pub(crate) mod ssa_lower_call_fn_indirect;
+pub(crate) mod ssa_lower_call_fn_tostring;
 pub(crate) mod ssa_lower_call_fn_value;
 pub(crate) mod ssa_lower_call_fs_promises;
 pub(crate) mod ssa_lower_call_has_own;

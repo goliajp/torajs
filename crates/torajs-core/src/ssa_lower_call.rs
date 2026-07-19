@@ -110,6 +110,11 @@ fn try_dispatch_a(ctx: &mut LowerCtx<'_>, callee: ExprId, args: &[ExprId]) -> Op
     if let Some(op) = crate::ssa_lower_call_number_methods::try_lower(ctx, callee, args) {
         return Some(op);
     }
+    // RFC 20260719-fn-tostring-source B4b — `f.toString()` on a top-level fn ident
+    // folds to the type-erased source text (checker route_early wedge mirror).
+    if let Some(op) = crate::ssa_lower_call_fn_tostring::try_lower(ctx, callee, args) {
+        return Some(op);
+    }
     // `Array.isArray(value)` — compile-time static check (ES §23.1.2.2).
     if let Some(op) = crate::ssa_lower_call_array_is_array::try_lower(ctx, callee, args) {
         return Some(op);

@@ -61,6 +61,24 @@ pub(crate) fn try_route(
         }
         return Some(Ok(Type::Any));
     }
+    // RFC 20260719-fn-tostring-source B4b — `f.toString()` on a
+    // top-level fn ident answers String; lowering
+    // (`ssa_lower_call_fn_tostring`) folds the type-erased source
+    // text at compile time. Gate mirrors the lowering wedge exactly
+    // (Ident + top-level FnDecl by name + zero args) so the checker
+    // never admits a shape the fold can't resolve. AFTER the
+    // any-receiver arm: an any-held fn keeps the runtime dispatch.
+    if let Expr::Member { obj, name } = ast.get_expr(*callee)
+        && name == "toString"
+        && args.is_empty()
+        && let Expr::Ident(f) = ast.get_expr(*obj)
+        && ast
+            .stmts
+            .iter()
+            .any(|s| matches!(s, crate::ast::Stmt::FnDecl { name: n, .. } if n == f))
+    {
+        return Some(Ok(Type::String));
+    }
     // RFC C4+ — a bare call whose callee itself types as `any`
     // (`f(1)` on an any-held closure) is legal per TS and answers
     // `any`; lowering routes it to the runtime closure dispatch.
