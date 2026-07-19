@@ -32,13 +32,15 @@
 //! fail the ANY_HEAP tag gate, the three heap-resident primitives
 //! (string, symbol, bigint) are rejected on `type_tag`.
 //!
-//! Recorded boundaries: a class instance's own-class prototype
-//! methods (`"m" in inst` for a class method) are not on the chain
-//! face yet — `proto_family_of` maps a struct to the Object root
-//! only (L3b, needs the class-layout method-name probe). After
-//! `delete fn.name`, `"name" in fn` answers false where bun walks
-//! to `Function.prototype`'s own `name` (same boundary as the
-//! member_set readonly walk).
+//! A `Tag::Obj` receiver gets one extra link before the Object
+//! root: `__torajs_struct_proto_member_has`, the class-prototype
+//! face (methods + accessor halves — prototype properties per
+//! class semantics, which is why they are chain answers while the
+//! own face keeps saying false to `hasOwnProperty`).
+//!
+//! Recorded boundary: after `delete fn.name`, `"name" in fn`
+//! answers false where bun walks to `Function.prototype`'s own
+//! `name` (same boundary as the member_set readonly walk).
 
 use core::ffi::c_void;
 
@@ -61,6 +63,10 @@ unsafe extern "C" {
     // interned family tables (`<Ctor>.prototype` link + the
     // `Object.prototype` root; delete tombstones consulted inside).
     fn __torajs_proto_chain_key_owned(family_tag: i64, key: *const c_void) -> i64;
+    // torajs-anyvalue — class-prototype membership (methods +
+    // accessor halves) for a `Tag::Obj` receiver, the chain link
+    // between the instance's own face and the Object root.
+    fn __torajs_struct_proto_member_has(ptr: *const c_void, key: *const c_void) -> i64;
     // torajs-throw — arms a pending TypeError and returns; the
     // caller must return on its own (see the C→Rust port playbook
     // B-2: a `-> !` signature here would let LLVM DCE the resume
@@ -239,10 +245,19 @@ unsafe fn rc_dec_temp_str(_p: *mut u8) {
 /// `__torajs_dynobj_has`).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_in_op_any_str(v: i64, key: *const u8) -> bool {
-    let Some((_ptr, type_tag)) = (unsafe { require_object_rhs(v) }) else {
+    let Some((ptr, type_tag)) = (unsafe { require_object_rhs(v) }) else {
         return false;
     };
     if unsafe { __torajs_any_prop_has(v as u64, key as *const c_void) } != 0 {
+        return true;
+    }
+    // Class-prototype link — a struct receiver's methods / accessor
+    // halves live on its class prototype, not on the instance
+    // (`hasOwnProperty` answers false, `in` answers true), one hop
+    // before the Object root.
+    if type_tag == crate::Tag::Obj as u16
+        && (unsafe { __torajs_struct_proto_member_has(ptr, key as *const c_void) }) != 0
+    {
         return true;
     }
     match proto_family_of(type_tag) {
@@ -319,6 +334,11 @@ unsafe fn __torajs_proto_chain_key_owned(family_tag: i64, _key: *const c_void) -
 }
 
 #[cfg(test)]
+unsafe fn __torajs_struct_proto_member_has(_ptr: *const c_void, _key: *const c_void) -> i64 {
+    STRUCT_PROTO_RESULT.with(|r| r.get())
+}
+
+#[cfg(test)]
 unsafe fn __torajs_throw_type_error(_msg: *const u8) {
     // The real symbol records a pending throw in TLS for ssa_lower's
     // emit_throw_check to propagate; here we only need to observe
@@ -333,6 +353,7 @@ thread_local! {
     static PROP_HAS_RESULT: core::cell::Cell<i64> = const { core::cell::Cell::new(0) };
     static CHAIN_RESULT: core::cell::Cell<i64> = const { core::cell::Cell::new(0) };
     static CHAIN_SEEN_FAMILY: core::cell::Cell<i64> = const { core::cell::Cell::new(-1) };
+    static STRUCT_PROTO_RESULT: core::cell::Cell<i64> = const { core::cell::Cell::new(0) };
 }
 
 #[cfg(test)]
@@ -384,6 +405,29 @@ mod tests {
         PROP_HAS_RESULT.with(|r| r.set(own));
         CHAIN_RESULT.with(|r| r.set(chain));
         CHAIN_SEEN_FAMILY.with(|f| f.set(-1));
+        STRUCT_PROTO_RESULT.with(|r| r.set(0));
+    }
+
+    #[test]
+    fn str_struct_class_proto_link_answers_between_own_and_root() {
+        set_faces(0, 0);
+        STRUCT_PROTO_RESULT.with(|r| r.set(1));
+        let block = make_heap_block(Tag::Obj as u16);
+        let boxed = boxed_cell(&block);
+        assert!(unsafe { __torajs_in_op_any_str(boxed, b"m\0".as_ptr()) });
+        // The class link answered before the Object-root probe ran.
+        assert_eq!(CHAIN_SEEN_FAMILY.with(|f| f.get()), -1);
+    }
+
+    #[test]
+    fn str_class_proto_link_is_struct_only() {
+        // A primed struct-proto stub must not leak into non-Obj
+        // receivers — a dynobj miss still walks to the Object root.
+        set_faces(0, 0);
+        STRUCT_PROTO_RESULT.with(|r| r.set(1));
+        let block = make_heap_block(Tag::DynObj as u16);
+        let boxed = boxed_cell(&block);
+        assert!(!unsafe { __torajs_in_op_any_str(boxed, b"m\0".as_ptr()) });
     }
 
     #[test]

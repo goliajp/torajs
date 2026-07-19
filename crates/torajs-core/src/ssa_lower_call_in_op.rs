@@ -50,7 +50,7 @@ pub(crate) fn try_lower(
     // kernels' full own + prototype-chain face. The fn-as-value
     // collector already wrapped a bare top-FnDecl Ident rhs into its
     // forwarder closure, so a Closure operand is what reaches here.
-    let (obj_op, obj_ty) = if matches!(obj_ty, Type::Closure(_)) {
+    let (mut obj_op, mut obj_ty) = if matches!(obj_ty, Type::Closure(_)) {
         (ctx.box_to_any(obj_op), Type::Any)
     } else {
         (obj_op, obj_ty)
@@ -84,7 +84,12 @@ pub(crate) fn try_lower(
         );
         return Some(Operand::Value(r));
     }
-    if let Type::Obj(sid) = obj_ty {
+    let obj_sid = if let Type::Obj(sid) = &obj_ty {
+        Some(*sid)
+    } else {
+        None
+    };
+    if let Some(sid) = obj_sid {
         let layout = ctx.struct_layouts[sid.0 as usize].clone();
         if let Expr::String(s) = ctx.ast.get_expr(args[0]) {
             // An accessor is an own property (§10.4) but sits in the
@@ -95,11 +100,18 @@ pub(crate) fn try_lower(
                     || crate::check_type_of_object_lit::accessor_slot(n)
                         .is_some_and(|(_, prop)| prop == s)
             });
-            return Some(Operand::ConstBool(present));
+            if present {
+                return Some(Operand::ConstBool(true));
+            }
         }
-        panic!(
-            "ssa-lower: `<key> in <obj:Struct>` requires a literal-string key (fields are statically known); got non-literal key expr"
-        );
+        // The layout scan can only prove PRESENCE. Absence is not a
+        // constant: `in` is HasProperty (§7.3.12), and class-prototype
+        // members plus the Object.prototype root answer through the
+        // runtime chain — box the struct (borrow'd NaN-box) and take
+        // the Any kernels' face. Non-literal keys route the same way,
+        // which retires the old literal-key-only panic.
+        obj_op = ctx.box_to_any(obj_op);
+        obj_ty = Type::Any;
     }
     if matches!(obj_ty, Type::Any) {
         let key_ty = ctx.operand_ty(&key_op);

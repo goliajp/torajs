@@ -76,7 +76,7 @@ pub(crate) const ARR_F_HOLE: u64 = 1 << 3;
 
 /// Decode the key Str cell to `(bytes, len)`.
 #[inline]
-unsafe fn key_bytes(key: *const c_void) -> (*const u8, u32) {
+pub(crate) unsafe fn key_bytes(key: *const c_void) -> (*const u8, u32) {
     let len = unsafe { key.cast::<u8>().add(STR_LEN_OFF).cast::<u32>().read() };
     (unsafe { key.cast::<u8>().add(STR_DATA_OFF) }, len)
 }
