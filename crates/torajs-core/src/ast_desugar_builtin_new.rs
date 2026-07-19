@@ -36,7 +36,7 @@
 
 use crate::ast::{Ast, Expr};
 
-pub(crate) fn run(ast: &mut Ast) {
+fn rewrite_array_of(ast: &mut Ast) {
     let n_exprs = ast.exprs.len();
     for i in 0..n_exprs {
         let array_of_args = match &ast.exprs[i] {
@@ -58,6 +58,9 @@ pub(crate) fn run(ast: &mut Ast) {
             ast.exprs[i] = Expr::Array(args);
         }
     }
+}
+
+fn rewrite_array_call(ast: &mut Ast) {
     let n_exprs = ast.exprs.len();
     for i in 0..n_exprs {
         let array_call_args = match &ast.exprs[i] {
@@ -84,6 +87,9 @@ pub(crate) fn run(ast: &mut Ast) {
     // the same steps when called as a function). Same rewrite shape
     // as `Array(...)` above; AggregateError stays out (its ctor
     // shape is the recorded RFC 20260718 injection boundary).
+}
+
+fn rewrite_error_call(ast: &mut Ast) {
     let n_exprs = ast.exprs.len();
     for i in 0..n_exprs {
         let error_call: Option<(String, Vec<crate::ast::ExprId>)> = match &ast.exprs[i] {
@@ -111,6 +117,9 @@ pub(crate) fn run(ast: &mut Ast) {
             ast.exprs[i] = Expr::New { class_name, args };
         }
     }
+}
+
+fn rewrite_array_args(ast: &mut Ast) {
     let n = ast.exprs.len();
     for i in 0..n {
         let array_args = match &ast.exprs[i] {
@@ -127,6 +136,9 @@ pub(crate) fn run(ast: &mut Ast) {
             ast.exprs[i] = Expr::Array(args);
         }
     }
+}
+
+fn rewrite_zero_arg_object(ast: &mut Ast) {
     let n = ast.exprs.len();
     for i in 0..n {
         let zero_arg_object = matches!(
@@ -138,6 +150,9 @@ pub(crate) fn run(ast: &mut Ast) {
             ast.exprs[i] = Expr::ObjectLit { fields: Vec::new() };
         }
     }
+}
+
+fn rewrite_regexp_new(ast: &mut Ast) {
     let n = ast.exprs.len();
     for i in 0..n {
         let regex_plan: Option<(String, String)> = match &ast.exprs[i] {
@@ -187,6 +202,9 @@ pub(crate) fn run(ast: &mut Ast) {
     // test262 impact: unblocks the "cannot assign to a property of
     // this any value" cluster's coercion cases like case 60
     // (`enumerable: new String()` — expected ToBoolean → true).
+}
+
+fn rewrite_zero_arg_wrapper_new(ast: &mut Ast) {
     let n = ast.exprs.len();
     for i in 0..n {
         let (is_number_zero, is_string_zero, is_boolean_zero) = match &ast.exprs[i] {
@@ -214,6 +232,9 @@ pub(crate) fn run(ast: &mut Ast) {
             }
         }
     }
+}
+
+fn rewrite_date_new(ast: &mut Ast) {
     let n = ast.exprs.len();
     for i in 0..n {
         let plan = match &ast.exprs[i] {
@@ -252,4 +273,15 @@ pub(crate) fn run(ast: &mut Ast) {
             ast.exprs[i] = Expr::Call { callee, args };
         }
     }
+}
+
+pub(crate) fn run(ast: &mut Ast) {
+    rewrite_array_of(ast);
+    rewrite_array_call(ast);
+    rewrite_error_call(ast);
+    rewrite_array_args(ast);
+    rewrite_zero_arg_object(ast);
+    rewrite_regexp_new(ast);
+    rewrite_zero_arg_wrapper_new(ast);
+    rewrite_date_new(ast);
 }
