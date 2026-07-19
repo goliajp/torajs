@@ -11,6 +11,7 @@ mod arguments_object_rewrite;
 mod arguments_object_walkers;
 mod array_isarray_value;
 mod class_globals;
+mod class_globals_register;
 mod closure_capture_anns;
 mod desugar_async;
 mod desugar_classes;
