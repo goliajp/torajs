@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-19T17:04:53.800Z",
+  "generatedAt": "2026-07-19T18:15:10.429Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 94.78
   },
   "torajs": {
-    "commit": "48c9c5d2",
-    "commitSubject": "fix: typeof member reads answer the runtime shadow on any receivers",
+    "commit": "8612108e",
+    "commitSubject": "feat: fn-expr this binds through array hof callbacks with thisarg on any receivers",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,73 +713,84 @@
   },
   "commits": [
     {
+      "hash": "8612108e",
+      "subject": "feat: fn-expr this binds through array hof callbacks with thisarg on any receivers"
+    },
+    {
+      "hash": "7b60296a",
+      "subject": "test: lock escaped fn-expr face direct-call this and argv semantics"
+    },
+    {
+      "hash": "07853b38",
+      "subject": "feat: fn-expr this binds through single-use variable-routed accessor faces"
+    },
+    {
+      "hash": "3893fe24",
+      "subject": "feat: fn-expr this binds in defineproperties and object.create nested descriptors"
+    },
+    {
+      "hash": "8e2387b8",
+      "subject": "fix: setprototypeof on fixed-layout struct receivers throws instead of silent no-op"
+    },
+    {
+      "hash": "40968ba5",
+      "subject": "fix: symbol keyfor answers undefined for unregistered symbols on every arg shape"
+    },
+    {
+      "hash": "9023ff26",
+      "subject": "feat: symbol receivers answer tostring and description on the any lane"
+    },
+    {
+      "hash": "164e9091",
+      "subject": "test: lock toprimitive hint order on string concat and numeric contexts"
+    },
+    {
+      "hash": "ba27d937",
+      "subject": "test: lock arr expando method-call shadow behavior on any receivers"
+    },
+    {
+      "hash": "1ccb2928",
+      "subject": "chore: hardev dashboard snapshot at rotation 154 close"
+    },
+    {
       "hash": "48c9c5d2",
       "subject": "fix: typeof member reads answer the runtime shadow on any receivers"
     },
     {
       "hash": "ce539fdf",
       "subject": "chore: hardev dashboard snapshot at rotation 154 close"
-    },
-    {
-      "hash": "56bbfa42",
-      "subject": "fix: nested-fn lift runs before the fn-to-closure collector"
-    },
-    {
-      "hash": "668ad101",
-      "subject": "chore: hardev dashboard snapshot at rotation 154 close"
-    },
-    {
-      "hash": "605bb307",
-      "subject": "feat: naked accessor faces answer one canonical cell per named fn"
-    },
-    {
-      "hash": "6d8bd367",
-      "subject": "test: lock the any-annotated empty array literal faces"
-    },
-    {
-      "hash": "d4562fe4",
-      "subject": "chore: hardev dashboard snapshot at rotation 154 close"
-    },
-    {
-      "hash": "bb449de7",
-      "subject": "fix: setPrototypeOf null over an implicit chain is a real transition"
-    },
-    {
-      "hash": "688b6290",
-      "subject": "style: fmt-drift fix for the objlit promotion gate"
-    },
-    {
-      "hash": "4f2675ad",
-      "subject": "fix: gate the objlit argv promotion on any-face members only"
-    },
-    {
-      "hash": "808464e1",
-      "subject": "fix: inline objlit args at any-lane call sites ride the dynobj lane"
-    },
-    {
-      "hash": "1d7e7a19",
-      "subject": "feat: symbol.for and keyFor accept any-typed direct-call arguments"
     }
   ],
-  "headSha": "48c9c5d2",
+  "headSha": "8612108e",
   "autorun": {
-    "total": 459,
+    "total": 460,
     "baselineTarget": 10,
-    "bySelf": 454,
+    "bySelf": 455,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784475359-79b9",
-      "at": "2026-07-19T15:35:59Z",
-      "ts": 1784475359,
+      "rotationId": "r-1784480769-15f1",
+      "at": "2026-07-19T17:06:09Z",
+      "ts": 1784480769,
       "trigger": "self",
-      "prevHead": "2f487279",
-      "handoffSha": "sha256:25efcef26c76d8949a95513b1609e7f4e513103368f455c2192501219de1e6bc",
-      "handoffAgeSec": 10,
+      "prevHead": "1ccb2928",
+      "handoffSha": "sha256:abb3ebb4af29c5cc700c08749466d34710835ccaca3402cedbfd45da261ed78d",
+      "handoffAgeSec": 82,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784480769-15f1",
+        "at": "2026-07-19T17:06:09Z",
+        "ts": 1784480769,
+        "trigger": "self",
+        "prevHead": "1ccb2928",
+        "handoffSha": "sha256:abb3ebb4af29c5cc700c08749466d34710835ccaca3402cedbfd45da261ed78d",
+        "handoffAgeSec": 82,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784475359-79b9",
         "at": "2026-07-19T15:35:59Z",
@@ -876,17 +887,6 @@
         "prevHead": "a2cd4574",
         "handoffSha": "sha256:7131e85fd9b6b46df8aa27ac4b8b736a5de8ef7654681a9ac33b27ec2732ef62",
         "handoffAgeSec": 3,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784396667-70ef",
-        "at": "2026-07-18T17:44:27Z",
-        "ts": 1784396667,
-        "trigger": "self",
-        "prevHead": "efda278f",
-        "handoffSha": "sha256:1c7322fd1e9d8ffae38f10a73d5b4ed35a5f6f781e36a881d7191b13547d41b4",
-        "handoffAgeSec": 78,
         "conformanceBefore": null,
         "commitsInSession": null
       }
