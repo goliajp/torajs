@@ -61,21 +61,24 @@ pub(crate) fn try_route(
         }
         return Some(Ok(Type::Any));
     }
-    // RFC 20260719-fn-tostring-source B4b — `f.toString()` on a
-    // top-level fn ident answers String; lowering
-    // (`ssa_lower_call_fn_tostring`) folds the type-erased source
-    // text at compile time. Gate mirrors the lowering wedge exactly
-    // (Ident + top-level FnDecl by name + zero args) so the checker
-    // never admits a shape the fold can't resolve. AFTER the
-    // any-receiver arm: an any-held fn keeps the runtime dispatch.
+    // RFC 20260719-fn-tostring-source B4b/B6a — `f.toString()` on a
+    // fn-typed receiver answers String; lowering
+    // (`ssa_lower_call_fn_tostring`) folds the type-erased source at
+    // compile time for a top-level fn ident, and routes every other
+    // Function-typed value (closure binding / fn param / fn-typed
+    // field) through the runtime erased-source kernels by SSA repr.
+    // The two gates key on the same truths (top-level FnDecl walk /
+    // this Function typing recorded in expr_types) so admitted and
+    // lowered shapes can't drift. AFTER the any-receiver arm: an
+    // any-held fn keeps the runtime dispatch.
     if let Expr::Member { obj, name } = ast.get_expr(*callee)
         && name == "toString"
         && args.is_empty()
-        && let Expr::Ident(f) = ast.get_expr(*obj)
-        && ast
-            .stmts
-            .iter()
-            .any(|s| matches!(s, crate::ast::Stmt::FnDecl { name: n, .. } if n == f))
+        && (matches!(checker.type_of(ast, *obj), Ok(Type::Function(..)))
+            || (matches!(ast.get_expr(*obj), Expr::Ident(f) if ast
+                .stmts
+                .iter()
+                .any(|s| matches!(s, crate::ast::Stmt::FnDecl { name: n, .. } if n == f)))))
     {
         return Some(Ok(Type::String));
     }
