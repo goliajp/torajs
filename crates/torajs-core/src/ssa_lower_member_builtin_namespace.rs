@@ -45,7 +45,12 @@ use crate::ast::{Expr, ExprId};
 use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 
-pub(crate) fn try_lower(ctx: &mut LowerCtx<'_>, obj: ExprId, name: &str) -> Option<Operand> {
+pub(crate) fn try_lower(
+    ctx: &mut LowerCtx<'_>,
+    eid: ExprId,
+    obj: ExprId,
+    name: &str,
+) -> Option<Operand> {
     // `<Ctor>.prototype.<m>` — obj is itself a Member on a builtin
     // namespace ident. Handled here (before the Ident gate) so the
     // outer member never falls to the generic any-member walk.
@@ -74,6 +79,15 @@ pub(crate) fn try_lower(ctx: &mut LowerCtx<'_>, obj: ExprId, name: &str) -> Opti
     if ctx.ast.class_parents.contains_key(ns_name) {
         return None;
     }
+    // RFC 20260719-ns-static-value-reify — a namespace STATIC read
+    // as a value (`Math.max` outside a call position) resolves the
+    // interned dispatcher cell; the constant arms below keep every
+    // non-static name. Gated on the checker's own truth (obj typed
+    // `Type::Object`, member typed `Function`) so a user binding
+    // shadowing `Math` never mints.
+    if let Some(op) = try_lower_ns_static_value(ctx, eid, obj, ns_name.as_str(), name) {
+        return Some(op);
+    }
     match ns_name.as_str() {
         "Math" => Some(lower_math_const(name)),
         "Number" => Some(lower_number(ctx, name)),
@@ -81,6 +95,60 @@ pub(crate) fn try_lower(ctx: &mut LowerCtx<'_>, obj: ExprId, name: &str) -> Opti
             let tag = builtin_proto_tag(other)?;
             lower_ctor_namespace(ctx, other, tag, name)
         }
+    }
+}
+
+/// `Call(__torajs_ns_static_cell, [id])` typed as the checker
+/// signature's Closure repr — the cell is an immortal borrow (rc
+/// no-ops), calls route through the variadic boxed lane (the
+/// let-decl shape recorder registers ns-static-init bindings in
+/// `variadic_locals`), and every reflection face resolves off the
+/// carried id (print / `.name` / `.length` / toString source /
+/// `.call`+`.apply` / any-lane calls).
+fn try_lower_ns_static_value(
+    ctx: &mut LowerCtx<'_>,
+    eid: ExprId,
+    obj: ExprId,
+    ns_name: &str,
+    name: &str,
+) -> Option<Operand> {
+    let id = torajs_rc::ns_static_id(ns_name, name);
+    if id == torajs_rc::NS_STATIC_UNKNOWN {
+        return None;
+    }
+    if !matches!(
+        ctx.expr_types.get(&obj),
+        Some(crate::check::Type::Object(_))
+    ) {
+        return None;
+    }
+    let Some(crate::check::Type::Function(ps, ret)) = ctx.expr_types.get(&eid) else {
+        return None;
+    };
+    let params: Vec<Type> = ps.iter().map(check_ty_to_ssa).collect();
+    let ret = check_ty_to_ssa(ret.as_ref());
+    let sig = crate::ssa_lower::intern_fn_sig(ctx.fn_sigs, params, ret);
+    let cur_block = ctx.cur_block;
+    let v = ctx.f.append_inst(
+        cur_block,
+        InstKind::Call(ctx.intrinsics.ns_static_cell, vec![Operand::ConstI64(id)]),
+        Type::Closure(sig),
+        None,
+    );
+    Some(Operand::Value(v))
+}
+
+/// Checker-type → SSA repr for an ns-static signature. `Number`
+/// maps F64 (the boxed lane re-coerces returns through
+/// `any_to_number`, so width never routes a call); unknown shapes
+/// collapse to Any — the boxed lane boxes every arg anyway.
+fn check_ty_to_ssa(t: &crate::check::Type) -> Type {
+    match t {
+        crate::check::Type::Number => Type::F64,
+        crate::check::Type::String => Type::Str,
+        crate::check::Type::Boolean => Type::Bool,
+        crate::check::Type::Void => Type::Void,
+        _ => Type::Any,
     }
 }
 

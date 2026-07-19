@@ -342,6 +342,7 @@ pub(crate) fn build(
         register_native_error: init_c.any_substrate.register_native_error,
         proto_get: init_c.any_substrate.proto_get,
         builtin_ctor_value: init_c.any_substrate.builtin_ctor_value,
+        ns_static_cell: init_c.any_substrate.ns_static_cell,
         class_register: init_c.any_substrate.class_register,
         error_proto_install: init_c.any_substrate.error_proto_install,
         error_is_error: init_c.any_substrate.error_is_error,

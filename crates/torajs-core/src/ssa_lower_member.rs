@@ -61,7 +61,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, eid: ExprId, obj: ExprId, name: &str
     if let Some(op) = crate::ssa_lower_member_process::try_lower(ctx, obj, name) {
         return op;
     }
-    if let Some(op) = crate::ssa_lower_member_builtin_namespace::try_lower(ctx, obj, name) {
+    if let Some(op) = crate::ssa_lower_member_builtin_namespace::try_lower(ctx, eid, obj, name) {
         return op;
     }
     let obj_val = ctx.lower_expr(obj);

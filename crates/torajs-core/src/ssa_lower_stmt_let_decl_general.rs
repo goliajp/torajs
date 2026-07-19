@@ -135,6 +135,15 @@ pub(crate) fn record_binding_flags(
     {
         ctx.variadic_locals.insert(name.to_string());
     }
+    // RFC 20260719-ns-static-value-reify — a binding initialized
+    // from a namespace-static VALUE read (`const m = Math.max`)
+    // routes its calls through the boxed dual entry: the minted
+    // cell's fn_addr is the typed-slot boundary throw, its boxed
+    // entry the real receiver-less dispatcher (and the dispatcher
+    // gives min/max-style variadic spec semantics for free).
+    if is_ns_static_member_init(ctx, init) {
+        ctx.variadic_locals.insert(name.to_string());
+    }
     // RFC 20260707 residual chunk — record string-index let-inits
     // (`const c = s[i]`) and their aliases: the Substr slot may
     // hold the undefined sentinel (OOB read), so the inline
@@ -143,6 +152,25 @@ pub(crate) fn record_binding_flags(
     if crate::ssa_lower_nullable_guard::is_undefable_substr_source(ctx, init) {
         ctx.undefable_substr_lets.insert(name.to_string());
     }
+}
+
+/// True when `init` is a namespace-static VALUE read (`Math.max`) —
+/// the same three-part gate the member lowering mints under: table
+/// hit + obj typed `Type::Object` (a user binding shadowing `Math`
+/// never matches) + member typed `Function`.
+fn is_ns_static_member_init(ctx: &LowerCtx, init: ExprId) -> bool {
+    let Expr::Member { obj, name } = ctx.ast.get_expr(init) else {
+        return false;
+    };
+    let Expr::Ident(ns) = ctx.ast.get_expr(*obj) else {
+        return false;
+    };
+    torajs_rc::ns_static_id(ns, name) != torajs_rc::NS_STATIC_UNKNOWN
+        && matches!(ctx.expr_types.get(obj), Some(crate::check::Type::Object(_)))
+        && matches!(
+            ctx.expr_types.get(&init),
+            Some(crate::check::Type::Function(..))
+        )
 }
 
 /// Stage 3 — materialize the binding's slot (capture box for

@@ -158,6 +158,7 @@ pub mod any_method_meta;
 pub mod arr_kind;
 pub mod color;
 pub mod flags;
+pub mod ns_static;
 pub mod undef_cell;
 pub use any_method::{
     ANY_METHOD_ADD, ANY_METHOD_ANCHOR, ANY_METHOD_APPLY, ANY_METHOD_AT, ANY_METHOD_BIG,
@@ -218,6 +219,7 @@ pub use flags::{
     FLAG_FN_NAME_DELETED, FLAG_FROZEN, FLAG_NON_EXTENSIBLE, FLAG_SEALED, FLAG_SPLIT_BLOCK,
     FLAG_STATIC_LITERAL,
 };
+pub use ns_static::{NS_STATIC_UNKNOWN, NsStaticRow, ns_static_id, ns_static_meta};
 
 // Type tags (`Tag` enum) live in `tag.rs`; re-exported at crate
 // root just below, same shape as `color` / `arr_kind`.

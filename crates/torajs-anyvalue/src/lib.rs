@@ -407,6 +407,71 @@ mod tests {
     }
     #[unsafe(no_mangle)]
     pub unsafe extern "C" fn __torajs_throw_type_error(_msg: *const core::ffi::c_char) {}
+    /// RFC 20260719-ns-static-value-reify — the ns-static dispatch
+    /// table references the `__torajs_math_*` kernels by address
+    /// (shipped binary resolves libtorajs_num.a); identity/zero
+    /// stubs satisfy the test linker — unit tests exercise cell
+    /// shape and probes, never the math semantics (fixture-gated).
+    macro_rules! math_stub_f {
+        ($($n:ident),* $(,)?) => { $(
+            #[unsafe(no_mangle)]
+            pub unsafe extern "C" fn $n(x: f64) -> f64 { x }
+        )* };
+    }
+    math_stub_f!(
+        __torajs_math_sqrt,
+        __torajs_math_abs,
+        __torajs_math_floor,
+        __torajs_math_ceil,
+        __torajs_math_log,
+        __torajs_math_exp,
+        __torajs_math_sign,
+        __torajs_math_round,
+        __torajs_math_trunc,
+        __torajs_math_sin,
+        __torajs_math_cos,
+        __torajs_math_tan,
+        __torajs_math_asin,
+        __torajs_math_acos,
+        __torajs_math_atan,
+        __torajs_math_log2,
+        __torajs_math_log10,
+        __torajs_math_cbrt,
+        __torajs_math_sinh,
+        __torajs_math_cosh,
+        __torajs_math_tanh,
+        __torajs_math_asinh,
+        __torajs_math_acosh,
+        __torajs_math_atanh,
+        __torajs_math_expm1,
+        __torajs_math_log1p,
+        __torajs_math_fround,
+        __torajs_math_f16round,
+    );
+    macro_rules! math_stub_ff {
+        ($($n:ident),* $(,)?) => { $(
+            #[unsafe(no_mangle)]
+            pub unsafe extern "C" fn $n(x: f64, _y: f64) -> f64 { x }
+        )* };
+    }
+    math_stub_ff!(
+        __torajs_math_pow,
+        __torajs_math_min,
+        __torajs_math_max,
+        __torajs_math_atan2,
+    );
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_math_imul(a: i64, _b: i64) -> i64 {
+        a
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_math_clz32(x: i64) -> i64 {
+        x
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_math_random() -> f64 {
+        0.0
+    }
     /// RFC 20260707 chunk 3 — the shipped binary resolves the
     /// undefined sentinel cell from libtorajs_str.a; tests get a
     /// stable dummy address (identity compares still behave).

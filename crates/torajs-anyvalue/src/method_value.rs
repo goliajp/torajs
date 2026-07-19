@@ -74,6 +74,11 @@ const CELL_SIZE: usize = 56;
 mod ctor;
 pub(crate) use ctor::{builtin_ctor_cell, ctor_cell_for_recv};
 
+// Namespace-static value family (RFC 20260719-ns-static-value-reify)
+// — `Math.max` as a VALUE: interned dispatcher cells keyed by the
+// shared torajs-rc ns-static table.
+mod ns_static;
+
 /// Interned name Str layout — mirror of torajs-str
 /// `layout::{STR_LEN_OFF, STR_DATA_OFF}` + the `IS_LATIN1` flags
 /// bit (`layout::STR_FLAG_IS_LATIN1`; method names are ASCII).
@@ -238,6 +243,9 @@ pub(crate) fn mint_immortal_str(name: &[u8]) -> *mut u8 {
 /// # Safety
 /// `ptr` is a live `Tag::Closure` cell.
 pub(crate) unsafe fn builtin_method_name(ptr: *mut c_void) -> Option<&'static str> {
+    if let Some(name) = unsafe { ns_static::ns_static_name(ptr) } {
+        return Some(name);
+    }
     let mid = unsafe { builtin_method_mid(ptr) }?;
     torajs_rc::any_method_meta(mid).map(|(name, _)| name)
 }
@@ -250,6 +258,9 @@ pub(crate) unsafe fn builtin_method_name(ptr: *mut c_void) -> Option<&'static st
 /// # Safety
 /// `ptr` is a live `Tag::Closure` cell.
 pub(crate) unsafe fn builtin_method_name_cell_of(ptr: *mut c_void) -> Option<*mut u8> {
+    if let Some(cell) = unsafe { ns_static::ns_static_name_cell_of(ptr) } {
+        return Some(cell);
+    }
     let mid = unsafe { builtin_method_mid(ptr) }?;
     let (name, _) = torajs_rc::any_method_meta(mid)?;
     Some(builtin_method_name_cell(mid, name))
@@ -262,6 +273,9 @@ pub(crate) unsafe fn builtin_method_name_cell_of(ptr: *mut c_void) -> Option<*mu
 /// # Safety
 /// `ptr` is a live `Tag::Closure` cell.
 pub(crate) unsafe fn builtin_method_arity(ptr: *mut c_void) -> Option<u32> {
+    if let Some(arity) = unsafe { ns_static::ns_static_arity(ptr) } {
+        return Some(arity);
+    }
     let mid = unsafe { builtin_method_mid(ptr) }?;
     torajs_rc::any_method_meta(mid).map(|(_, arity)| arity)
 }
