@@ -240,32 +240,38 @@ pub(crate) fn run(
             // mirroring the Pass 2 fn-decl rows in `body_passes`.
             // The link layer sorts the table by fn_addr, so the
             // late push order is immaterial.
-            if let Some(binding) = named_eval.get(name) {
-                let lit = ssa::StringLiteral::encode_from_str(binding);
-                let name_sid = ssa::StringId(module.strings.len() as u32);
-                module.strings.push(lit);
-                // ES-spec `Function.length` — leading params before
-                // the first default / rest (§10.2.10), synthetic
-                // `__env` excluded (chunk 716 contract).
-                let arity = params
-                    .iter()
-                    .filter(|p| p.name != "__env")
-                    .take_while(|p| p.default.is_none() && !p.is_rest)
-                    .count() as u32;
-                // B3b — lifted closure decls carry the user arrow /
-                // fn-expr span (B1b), so the same erased-source
-                // intern the Pass 2 rows get applies here.
-                let (src_sid, src_len) =
-                    crate::ssa_lower_inner::intern_fn_source(module, ast, *span);
-                module.fn_name_globals.push(FnNameEntry {
-                    fn_id: fid,
-                    name: binding.clone(),
-                    name_sid,
-                    arity,
-                    src_sid,
-                    src_len,
-                });
-            }
+            //
+            // B3c — closures WITHOUT a NamedEvaluation binding
+            // (anonymous arrows / fn exprs in argument or element
+            // position) now land a row too, with an empty name: the
+            // runtime print faces read `name_len == 0` as the
+            // `[Function]` anonymous form (unchanged behavior) while
+            // `src_ptr` carries the erased source for toString (B4)
+            // and `.length` answers the true arity.
+            let binding = named_eval.get(name).map(String::as_str).unwrap_or("");
+            let lit = ssa::StringLiteral::encode_from_str(binding);
+            let name_sid = ssa::StringId(module.strings.len() as u32);
+            module.strings.push(lit);
+            // ES-spec `Function.length` — leading params before
+            // the first default / rest (§10.2.10), synthetic
+            // `__env` excluded (chunk 716 contract).
+            let arity = params
+                .iter()
+                .filter(|p| p.name != "__env")
+                .take_while(|p| p.default.is_none() && !p.is_rest)
+                .count() as u32;
+            // B3b — lifted closure decls carry the user arrow /
+            // fn-expr span (B1b), so the same erased-source
+            // intern the Pass 2 rows get applies here.
+            let (src_sid, src_len) = crate::ssa_lower_inner::intern_fn_source(module, ast, *span);
+            module.fn_name_globals.push(FnNameEntry {
+                fn_id: fid,
+                name: binding.to_string(),
+                name_sid,
+                arity,
+                src_sid,
+                src_len,
+            });
         }
     }
 }

@@ -213,7 +213,9 @@ pub unsafe extern "C" fn __torajs_fn_print_inline(fn_addr: u64) {
     let mut name_len: u32 = 0;
     let mut arity: u32 = 0;
     let name_ptr = unsafe { __torajs_fn_name_lookup(fn_addr, &mut name_len, &mut arity) };
-    let hit = if name_ptr.is_null() {
+    // B3c — anonymous rows (empty name, registered so `src_ptr` /
+    // arity can answer) print the same `[Function]` form as a miss.
+    let hit = if name_ptr.is_null() || name_len == 0 {
         None
     } else {
         Some((name_ptr, name_len))
@@ -263,7 +265,8 @@ pub unsafe extern "C" fn __torajs_fnsig_to_str(fn_addr: u64) -> *mut u8 {
     let mut name_len: u32 = 0;
     let mut arity: u32 = 0;
     let name_ptr = unsafe { __torajs_fn_name_lookup(fn_addr, &mut name_len, &mut arity) };
-    if name_ptr.is_null() {
+    // B3c — empty-name rows keep the anonymous ToString form.
+    if name_ptr.is_null() || name_len == 0 {
         return unsafe { alloc_str(ANON) };
     }
     let (name_ptr, name_len) = unsafe { print_face_name(name_ptr, name_len) };
