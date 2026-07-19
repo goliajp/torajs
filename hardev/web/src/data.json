@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-19T04:37:06.113Z",
+  "generatedAt": "2026-07-19T04:51:43.003Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 94.78
   },
   "torajs": {
-    "commit": "61a91de1",
-    "commitSubject": "feat: fn-like expressions record their source byte span",
+    "commit": "660814a2",
+    "commitSubject": "feat: fn declarations record their source byte span",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "660814a2",
+      "subject": "feat: fn declarations record their source byte span"
+    },
+    {
+      "hash": "59eec9de",
+      "subject": "chore: hardev dashboard snapshot at rotation 149 close"
+    },
+    {
       "hash": "61a91de1",
       "subject": "feat: fn-like expressions record their source byte span"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "f0d91063",
       "subject": "fix: Object.prototype methods an Any receiver can call, it can read"
-    },
-    {
-      "hash": "c4410ae1",
-      "subject": "fix: an Any receiver does not promise a callable toString"
-    },
-    {
-      "hash": "7cbfe7e0",
-      "subject": "chore: hardev dashboard snapshot at rotation 147 close"
     }
   ],
-  "headSha": "61a91de1",
+  "headSha": "660814a2",
   "autorun": {
     "total": 454,
     "baselineTarget": 10,
