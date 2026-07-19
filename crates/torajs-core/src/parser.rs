@@ -99,6 +99,7 @@ pub fn parse_into(source: &str, tokens: &[Spanned], target: &mut Ast) -> Result<
         tokens,
         pos: 0,
         type_close_peel: 0,
+        type_ann_depth: 0,
         ast: taken,
         desugar_id: id_offset,
         generator_fns: std::collections::HashMap::new(),
@@ -132,6 +133,10 @@ struct Parser<'a> {
     // peeled for `>>>`). `peek()` consults it so the second `>` shows
     // up as `Gt` for the outer caller. Reset by any non-Gt advance.
     type_close_peel: u8,
+    // RFC 20260719-fn-tostring-source B2 -- recursion depth inside
+    // parse_type_ann; only the OUTERMOST annotation records its span
+    // into `ast.type_ann_spans` (inner ranges nest inside it).
+    type_ann_depth: u32,
     ast: Ast,
     /// Monotone counter used by parse-time desugars (for-of, destructuring,
     /// template literal interpolation) to mint collision-free temp names.

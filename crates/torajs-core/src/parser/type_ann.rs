@@ -17,7 +17,27 @@
 use super::*;
 
 impl<'a> Parser<'a> {
+    /// Recording wrapper (RFC 20260719-fn-tostring-source B2) — the
+    /// outermost annotation pushes its byte range into
+    /// `ast.type_ann_spans`; recursive inner calls (generic args,
+    /// union halves, fn-typed param anns) nest inside that range and
+    /// stay unrecorded. `fn_source_erase` splices the recorded
+    /// ranges (plus each one's leading `:` / `?` / `as`) out of a fn
+    /// span to produce the type-erased source toString answers.
     pub(super) fn parse_type_ann(&mut self) -> Result<String, String> {
+        let record = self.type_ann_depth == 0;
+        let start_pos = self.pos;
+        self.type_ann_depth += 1;
+        let r = self.parse_type_ann_inner();
+        self.type_ann_depth -= 1;
+        if record && r.is_ok() {
+            let span = self.span_from(start_pos);
+            self.ast.type_ann_spans.push(span);
+        }
+        r
+    }
+
+    fn parse_type_ann_inner(&mut self) -> Result<String, String> {
         // V3-18 wedge — TS type-predicate return type:
         //   function isT(v: any): v is T { ... }
         // Per TS spec §3.6.5 the return type is `boolean` at the

@@ -66,6 +66,7 @@ impl<'a> Parser<'a> {
                         tokens,
                         pos: 0,
                         type_close_peel: 0,
+                        type_ann_depth: 0,
                         ast: std::mem::take(&mut self.ast),
                         desugar_id: self.desugar_id,
                         generator_fns: std::mem::take(&mut self.generator_fns),

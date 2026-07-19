@@ -290,6 +290,12 @@ pub struct Ast {
     /// a leaf has none). Source-buffer `source` lets the byte-range
     /// translate to (line, col) on demand.
     pub expr_spans: Vec<crate::lexer::Span>,
+    /// RFC 20260719-fn-tostring-source B2 -- byte ranges of every
+    /// outermost type annotation / fn type-param list the parser
+    /// consumed, in source order. `fn_source_erase` splices these
+    /// (plus their leading `:` / `?` / `as`) out of a recorded fn
+    /// span to produce the type-erased source text toString answers.
+    pub type_ann_spans: Vec<crate::lexer::Span>,
     /// Original source text for the file this Ast was parsed from.
     /// Empty before the parser fills it. Used by `byte_to_line_col`
     /// to derive DWARF DILocation values without re-reading files.

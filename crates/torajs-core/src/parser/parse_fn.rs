@@ -148,6 +148,9 @@ impl<'a> Parser<'a> {
     fn parse_fn_type_params(&mut self) -> Result<Vec<String>, String> {
         let mut type_params: Vec<String> = Vec::new();
         if matches!(self.peek(), Token::Lt) {
+            // B2 — the whole `<T, U>` list is type-side syntax; record
+            // it for the erase splice (see parse_type_ann's wrapper).
+            let start_pos = self.pos;
             self.pos += 1;
             if !matches!(self.peek(), Token::Gt) {
                 loop {
@@ -176,7 +179,11 @@ impl<'a> Parser<'a> {
                 }
             }
             match self.peek() {
-                Token::Gt => self.pos += 1,
+                Token::Gt => {
+                    self.pos += 1;
+                    let span = self.span_from(start_pos);
+                    self.ast.type_ann_spans.push(span);
+                }
                 t => {
                     return Err(format!(
                         "expected `>` to close type parameters, got {t:?} at {}",
