@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-19T18:36:06.733Z",
+  "generatedAt": "2026-07-19T20:07:29.851Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 94.78
   },
   "torajs": {
-    "commit": "2795af56",
-    "commitSubject": "feat: fn-expr this binds through typed-array hof callbacks with thisarg",
+    "commit": "05905924",
+    "commitSubject": "feat: promise finally and settled-form stamps for chain and combinator mints",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,26 @@
   },
   "commits": [
     {
+      "hash": "05905924",
+      "subject": "feat: promise finally and settled-form stamps for chain and combinator mints"
+    },
+    {
+      "hash": "2967c27d",
+      "subject": "feat: promise then and catch dispatch through the any lane"
+    },
+    {
+      "hash": "f461b4a3",
+      "subject": "feat: promise cells record their value storage form for the any lane"
+    },
+    {
+      "hash": "4fc720ee",
+      "subject": "feat: fn-expr this binds through nested-scope variable faces"
+    },
+    {
+      "hash": "a8273618",
+      "subject": "chore: hardev dashboard snapshot at rotation 155 close"
+    },
+    {
       "hash": "2795af56",
       "subject": "feat: fn-expr this binds through typed-array hof callbacks with thisarg"
     },
@@ -739,47 +759,38 @@
     {
       "hash": "07853b38",
       "subject": "feat: fn-expr this binds through single-use variable-routed accessor faces"
-    },
-    {
-      "hash": "3893fe24",
-      "subject": "feat: fn-expr this binds in defineproperties and object.create nested descriptors"
-    },
-    {
-      "hash": "8e2387b8",
-      "subject": "fix: setprototypeof on fixed-layout struct receivers throws instead of silent no-op"
-    },
-    {
-      "hash": "40968ba5",
-      "subject": "fix: symbol keyfor answers undefined for unregistered symbols on every arg shape"
-    },
-    {
-      "hash": "9023ff26",
-      "subject": "feat: symbol receivers answer tostring and description on the any lane"
-    },
-    {
-      "hash": "164e9091",
-      "subject": "test: lock toprimitive hint order on string concat and numeric contexts"
     }
   ],
-  "headSha": "2795af56",
+  "headSha": "05905924",
   "autorun": {
-    "total": 460,
+    "total": 461,
     "baselineTarget": 10,
-    "bySelf": 455,
+    "bySelf": 456,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784480769-15f1",
-      "at": "2026-07-19T17:06:09Z",
-      "ts": 1784480769,
+      "rotationId": "r-1784486171-13a5",
+      "at": "2026-07-19T18:36:11Z",
+      "ts": 1784486171,
       "trigger": "self",
-      "prevHead": "1ccb2928",
-      "handoffSha": "sha256:abb3ebb4af29c5cc700c08749466d34710835ccaca3402cedbfd45da261ed78d",
-      "handoffAgeSec": 82,
+      "prevHead": "a8273618",
+      "handoffSha": "sha256:036a820701ef9c12e534f01acbc62287e3c80d4166d398a4b77891e3881bb128",
+      "handoffAgeSec": 71,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784486171-13a5",
+        "at": "2026-07-19T18:36:11Z",
+        "ts": 1784486171,
+        "trigger": "self",
+        "prevHead": "a8273618",
+        "handoffSha": "sha256:036a820701ef9c12e534f01acbc62287e3c80d4166d398a4b77891e3881bb128",
+        "handoffAgeSec": 71,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784480769-15f1",
         "at": "2026-07-19T17:06:09Z",
@@ -876,17 +887,6 @@
         "prevHead": "3f663535",
         "handoffSha": "sha256:e2e4c44a8ca129b536df42778670d6adb84ce63a03fac5ddcf14faf867e46dc1",
         "handoffAgeSec": 1844,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784402598-1316",
-        "at": "2026-07-18T19:23:18Z",
-        "ts": 1784402598,
-        "trigger": "self",
-        "prevHead": "a2cd4574",
-        "handoffSha": "sha256:7131e85fd9b6b46df8aa27ac4b8b736a5de8ef7654681a9ac33b27ec2732ef62",
-        "handoffAgeSec": 3,
         "conformanceBefore": null,
         "commitsInSession": null
       }
