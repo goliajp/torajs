@@ -34,11 +34,13 @@
 //!   — the literal descriptor's face fields.
 //!
 //! Knives 2-5 widened the surface under the same zero-alias bar:
-//! single-use variable-routed faces (knife 2, including decls nested
-//! in fn bodies), HOF callback `thisArg` (knife 4), and
+//! variable-routed faces (knife 2 — single-use, decls nested in fn
+//! bodies, and the 2W multi-face widening where EVERY use of the
+//! binding is a face read), HOF callback `thisArg` (knife 4), and
 //! `defineProperties` / `Object.create` nesting (knife 5). Everything
-//! else (multi-use faces, face + direct-call mixes, async fn-expr
-//! faces) keeps today's loud reject.
+//! else (face + direct-call mixes, async fn-expr faces) keeps today's
+//! loud reject — the mixed profile is knife 2W cut 2 (`__fnx(` marker
+//! family, design in the RFC).
 //!
 //! Runs inside `desugar_implicit_generics` right after
 //! `objlit_nominal::run` — `lift_arrow_fns` has produced the
@@ -143,26 +145,45 @@ pub(crate) fn run(
         }
     }
     // Knife 2 — variable-routed faces: a face-position Ident promotes
-    // only when the face read is the binding's SINGLE use program-wide
-    // (any other read — a direct call, a second face, a reassignment
-    // target — would see the shifted-args closure ABI, the exact
-    // silent-wrong the zero-alias bar forbids) and the const init is a
-    // marked fn-expr whose body says `this`. The decl lookup recurses
-    // through fn bodies (a face inside a function scope resolves its
-    // local const — the nested-scope profile), but only a name DECLARED
-    // EXACTLY ONCE program-wide promotes: with a same-name decl in
-    // another scope the single face read cannot be paired to its
-    // binding syntactically, and a mispair would stamp RECV on a face
-    // whose runtime value is the other binding. Over-removal keeps
-    // those loud. The face ExprId lands in `fnexpr_recv_faces` for the
-    // compile-time literal-descriptor lowering; runtime paths read the
-    // closure header flag instead.
-    for (name, face_eid) in &ident_cands {
+    // only when EVERY use of the binding program-wide is a face read
+    // (a single face — the original knife-2 profile — or several
+    // faces sharing one closure, the knife-2W multi-face widening;
+    // any OTHER read — a direct call, a reassignment target, an alias
+    // init — would see the shifted-args closure ABI, the exact
+    // silent-wrong the zero-alias bar forbids, so those keep today's
+    // loud reject) and the const init is a marked fn-expr whose body
+    // says `this`. The decl lookup recurses through fn bodies (a face
+    // inside a function scope resolves its local const — the
+    // nested-scope profile), but only a name DECLARED EXACTLY ONCE
+    // program-wide promotes: with a same-name decl in another scope a
+    // face read cannot be paired to its binding syntactically, and a
+    // mispair would stamp RECV on a face whose runtime value is the
+    // other binding. Over-removal keeps those loud. Every face ExprId
+    // lands in `fnexpr_recv_faces` for the compile-time
+    // literal-descriptor lowering; runtime paths read the closure
+    // header flag instead.
+    // Face candidates dedup by ExprId: the position walk can hit the
+    // SAME face node more than once — a pre-pass clones a
+    // face-position Call (fresh Call + descriptor nodes, leaf arg
+    // ExprIds shared), so `{ get: g }`'s single Ident lands in
+    // `ident_cands` once per clone. The use-vs-face parity below
+    // compares against the arena's UNIQUE Ident nodes, so the face
+    // list must be unique too (the pre-2W per-entry `uses == 1` check
+    // tolerated duplicates implicitly).
+    let mut faces_by_name: std::collections::HashMap<String, Vec<ExprId>> =
+        std::collections::HashMap::new();
+    for (name, face_eid) in ident_cands {
+        let v = faces_by_name.entry(name).or_default();
+        if !v.contains(&face_eid) {
+            v.push(face_eid);
+        }
+    }
+    for (name, face_eids) in &faces_by_name {
         let uses = exprs
             .iter()
             .filter(|e| matches!(e, Expr::Ident(n) if n == name))
             .count();
-        if uses != 1 {
+        if uses != face_eids.len() {
             continue;
         }
         let mut decls: Vec<(bool, ExprId)> = Vec::new();
@@ -180,7 +201,7 @@ pub(crate) fn run(
                 eid: init,
                 fn_name: fn_name.clone(),
             });
-            fnexpr_recv_faces.insert(*face_eid);
+            fnexpr_recv_faces.extend(face_eids.iter().copied());
         }
     }
     if patches.is_empty() {
