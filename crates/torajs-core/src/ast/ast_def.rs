@@ -205,6 +205,14 @@ pub struct Ast {
     /// byte `ACC_KIND_RECV`, so receiver-aware invokers put the
     /// receiver in argv[0].
     pub fnexpr_recv_fns: std::collections::HashSet<String>,
+    /// RFC 20260717-fnexpr-this-channel knife 2 — exact face ExprIds
+    /// (the `Expr::Ident` in an accessor-face position) whose
+    /// SINGLE-USE const binding routes a promoted fn-expr. Keyed by
+    /// ExprId — a name set would mis-mark shadowed same-name faces.
+    /// The compile-time literal-descriptor lowering reads this to
+    /// mark the face's kinds byte `ACC_KIND_RECV`; the runtime paths
+    /// need nothing (they read the closure header flag).
+    pub fnexpr_recv_faces: std::collections::HashSet<ExprId>,
     /// RFC 20260708-closure-argv-face — lifted closures whose body
     /// reads `arguments[i]` (the full-arguments tier) and whose
     /// value passed the direct-call-or-alias safety walk. These

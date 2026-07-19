@@ -56,11 +56,13 @@ pub(crate) fn run(
     exprs: &mut [Expr],
     fn_expr_exprs: &std::collections::HashSet<ExprId>,
     fnexpr_recv_fns: &mut std::collections::HashSet<String>,
+    fnexpr_recv_faces: &mut std::collections::HashSet<ExprId>,
 ) {
     if fn_expr_exprs.is_empty() {
         return;
     }
     let mut patches: Vec<FacePatch> = Vec::new();
+    let mut ident_cands: Vec<(String, ExprId)> = Vec::new();
     for i in 0..exprs.len() {
         let Expr::Call { callee, args } = &exprs[i] else {
             continue;
@@ -72,6 +74,7 @@ pub(crate) fn run(
             {
                 if let Some(face) = args.get(1) {
                     collect_face(exprs, *face, fn_expr_exprs, &mut patches);
+                    collect_ident_face(exprs, *face, &mut ident_cands);
                 }
             }
             // `Object.defineProperty(o, k, { get: face, set: face })` —
@@ -84,6 +87,7 @@ pub(crate) fn run(
                 let Some(desc) = args.get(2) else { continue };
                 for face in literal_desc_faces(exprs, *desc) {
                     collect_face(exprs, face, fn_expr_exprs, &mut patches);
+                    collect_ident_face(exprs, face, &mut ident_cands);
                 }
             }
             // Knife 5 — `Object.defineProperties(o, { k: { get: face } })`
@@ -103,10 +107,48 @@ pub(crate) fn run(
                 for desc in descs {
                     for face in literal_desc_faces(exprs, desc) {
                         collect_face(exprs, face, fn_expr_exprs, &mut patches);
+                        collect_ident_face(exprs, face, &mut ident_cands);
                     }
                 }
             }
             _ => {}
+        }
+    }
+    // Knife 2 — variable-routed faces: a face-position Ident promotes
+    // only when the face read is the binding's SINGLE use program-wide
+    // (any other read — a direct call, a second face, a reassignment
+    // target — would see the shifted-args closure ABI, the exact
+    // silent-wrong the zero-alias bar forbids) and the const init is a
+    // marked fn-expr whose body says `this`. The face ExprId lands in
+    // `fnexpr_recv_faces` for the compile-time literal-descriptor
+    // lowering; runtime paths read the closure header flag instead.
+    for (name, face_eid) in &ident_cands {
+        let uses = exprs
+            .iter()
+            .filter(|e| matches!(e, Expr::Ident(n) if n == name))
+            .count();
+        if uses != 1 {
+            continue;
+        }
+        for s in stmts.iter() {
+            if let Stmt::LetDecl {
+                mutable: false,
+                name: dn,
+                init,
+                ..
+            } = s
+                && dn == name
+                && fn_expr_exprs.contains(init)
+                && let Expr::Closure { fn_name, captures } = &exprs[init.0 as usize]
+                && captures.iter().any(|c| c == "__this")
+            {
+                patches.push(FacePatch {
+                    eid: *init,
+                    fn_name: fn_name.clone(),
+                });
+                fnexpr_recv_faces.insert(*face_eid);
+                break;
+            }
         }
     }
     if patches.is_empty() {
@@ -114,6 +156,15 @@ pub(crate) fn run(
     }
     let pairs: Vec<(ExprId, String)> = patches.into_iter().map(|p| (p.eid, p.fn_name)).collect();
     promote_recv_any(stmts, exprs, &pairs, fnexpr_recv_fns);
+}
+
+/// Record a face-position `Expr::Ident` as a knife-2 candidate —
+/// resolution (single-use + const fn-expr init) happens after the
+/// position walk.
+fn collect_ident_face(exprs: &[Expr], face: ExprId, cands: &mut Vec<(String, ExprId)>) {
+    if let Expr::Ident(n) = &exprs[face.0 as usize] {
+        cands.push((n.clone(), face));
+    }
 }
 
 /// Promote each `(closure eid, lifted fn name)` to the receiver-first

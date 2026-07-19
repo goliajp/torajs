@@ -49,6 +49,7 @@ pub(crate) fn run(ast: &mut Ast) {
         objlit_method_fields,
         fn_expr_exprs,
         fnexpr_recv_fns,
+        fnexpr_recv_faces,
         ..
     } = ast;
     let ast_exprs_view: AstExprsView = &*exprs;
@@ -125,7 +126,13 @@ pub(crate) fn run(ast: &mut Ast) {
     // `preinfer_closure_sigs` has published the user-facing (and
     // deliberately `__this`-free) `__fn(` anns, so inserting the
     // receiver param here is invisible to every sig consumer.
-    crate::ast::fnexpr_this::run(stmts, exprs, fn_expr_exprs, fnexpr_recv_fns);
+    crate::ast::fnexpr_this::run(
+        stmts,
+        exprs,
+        fn_expr_exprs,
+        fnexpr_recv_fns,
+        fnexpr_recv_faces,
+    );
     let ast_exprs_view: AstExprsView = &*exprs;
     // Second pass over top-level lets — a `const h = <closure>`
     // binding could not resolve before the closure sigs existed.

@@ -100,6 +100,17 @@ pub(crate) fn lower_accessor_face(ctx: &mut LowerCtx, eid: ExprId, is_get: bool)
     {
         return (op, 5 | 0x40);
     }
+    // Knife 2 — a variable-routed fn-expr face: the AST pass recorded
+    // the exact face ExprId (single-use const binding, so no other
+    // call path exists). The Ident borrow still takes its own stake
+    // (same rationale as the plain-Ident arm below — the pair owns
+    // its faces).
+    if ctx.ast.fnexpr_recv_faces.contains(&eid) {
+        if matches!(ctx.operand_ty(&op), Type::Closure(_)) {
+            ctx.emit_rc_inc(op.clone());
+        }
+        return (op, 5 | 0x40);
+    }
     // An Any-typed face (`const g: any = function(){..}`) is a
     // NaN-box — storing its bits in the pair verbatim transmuted
     // them as a cell on invoke (SIGSEGV). Unbox through the runtime
