@@ -31,3 +31,15 @@ const arr: any = [1, 2];
 console.log(typeof arr.valueOf, typeof arr.hasOwnProperty, typeof arr.isPrototypeOf);
 const str: any = "ab";
 console.log(typeof str.valueOf, typeof str.hasOwnProperty);
+// A typed receiver keeps the by-name answer: a struct instance has
+// no runtime member-read path (`.name` lowers to a field access), so
+// the shortcut is what stops `typeof inst.hasOwnProperty` from
+// becoming a lowering error. Same for a class instance.
+class P {
+  x: number = 1;
+}
+const inst = new P();
+console.log(typeof inst.hasOwnProperty, typeof inst.valueOf);
+console.log(typeof inst.toString, typeof inst.isPrototypeOf);
+const lit = { x: 1, y: "s" };
+console.log(typeof lit.hasOwnProperty, typeof lit.propertyIsEnumerable);

@@ -13,36 +13,51 @@ use crate::ast::{Expr, ExprId};
 use crate::ssa_lower::LowerCtx;
 
 pub(crate) fn try_member_typeof(ctx: &LowerCtx<'_>, expr: ExprId) -> Option<&'static str> {
-    // Layer 3: the Object-prototype names whose value read still
-    // cannot be trusted, answered by name alone.
+    // Layer 3: Object-prototype method names answered by name alone.
     //
-    // This list used to carry seven names, which made `typeof` lie
-    // about any object that shadows one of them
-    // (`{ toString: undefined }` answered "function"). Four of them
-    // now resolve correctly at runtime and have been dropped:
-    // hasOwnProperty, propertyIsEnumerable, valueOf and
-    // isPrototypeOf all read back as real callables on every
-    // receiver shape tested, shadowed or not.
+    // All seven used to take this path on every receiver, which made
+    // `typeof` lie about an object that shadows one of them
+    // (`{ toString: undefined }` answered "function", and so did
+    // `{ toString: 42 }`).
     //
-    // The three that stay are the ones a runtime answer would get
-    // wrong, both tracked in plan-state L3b:
-    //   - constructor is not a method at all and has no value-read
-    //     support, so runtime says "undefined" everywhere.
-    //   - toString / toLocaleString read back on plain objects now,
-    //     but not on closures — and there the call itself throws, so
-    //     declaring them readable would hand out a value that cannot
-    //     be called. Keeping the shortcut preserves bun's answer for
-    //     the closure receiver at the cost of still lying about a
-    //     shadowed toString.
+    // Four of them now read back as real callables at runtime, so an
+    // Any receiver is better served by the runtime answer and skips
+    // the shortcut. The condition is deliberately narrow: only a
+    // statically-Any receiver. A typed receiver has no runtime
+    // member-read path at all — a struct instance lowers `.name` as
+    // a field access, so skipping the shortcut there turns
+    // `typeof inst.hasOwnProperty` into a hard "struct has no field
+    // hasOwnProperty" lowering error (conformance
+    // m2d-001-class-instance-prototype).
+    //
+    // Three names stay on every receiver, both gaps in plan-state
+    // L3b: constructor has no value-read support at all, and
+    // toString / toLocaleString read back on plain objects but not
+    // on closures — where the call itself throws, so declaring them
+    // readable would hand out a value that cannot be called.
     if let Expr::Member {
-        name: member_name, ..
+        obj,
+        name: member_name,
     } = ctx.ast.get_expr(expr)
-        && matches!(
-            member_name.as_str(),
-            "constructor" | "toString" | "toLocaleString"
-        )
     {
-        return Some("function");
+        let runtime_answers = matches!(
+            member_name.as_str(),
+            "hasOwnProperty" | "propertyIsEnumerable" | "isPrototypeOf" | "valueOf"
+        ) && matches!(ctx.expr_types.get(obj), Some(crate::check::Type::Any));
+        if !runtime_answers
+            && matches!(
+                member_name.as_str(),
+                "constructor"
+                    | "hasOwnProperty"
+                    | "propertyIsEnumerable"
+                    | "isPrototypeOf"
+                    | "valueOf"
+                    | "toString"
+                    | "toLocaleString"
+            )
+        {
+            return Some("function");
+        }
     }
     // Layer 4: namespace member dispatch.
     let Expr::Member {
