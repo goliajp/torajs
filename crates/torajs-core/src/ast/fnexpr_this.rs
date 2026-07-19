@@ -82,16 +82,28 @@ pub(crate) fn run(
                     continue;
                 }
                 let Some(desc) = args.get(2) else { continue };
-                let Expr::ObjectLit { fields } = &exprs[desc.0 as usize] else {
+                for face in literal_desc_faces(exprs, *desc) {
+                    collect_face(exprs, face, fn_expr_exprs, &mut patches);
+                }
+            }
+            // Knife 5 — `Object.defineProperties(o, { k: { get: face } })`
+            // / `Object.create(proto, { k: { get: face } })`: the nested
+            // descriptor-of-descriptors form. Both layers must be INLINE
+            // object literals so every face keeps zero aliases (same
+            // narrow-surface bar as the flat descriptor above).
+            Expr::Member { obj, name } if name == "defineProperties" || name == "create" => {
+                if !matches!(&exprs[obj.0 as usize], Expr::Ident(n) if n == "Object") {
+                    continue;
+                }
+                let Some(props) = args.get(1) else { continue };
+                let Expr::ObjectLit { fields } = &exprs[props.0 as usize] else {
                     continue;
                 };
-                let faces: Vec<ExprId> = fields
-                    .iter()
-                    .filter(|(fname, _)| fname == "get" || fname == "set")
-                    .map(|(_, feid)| *feid)
-                    .collect();
-                for face in faces {
-                    collect_face(exprs, face, fn_expr_exprs, &mut patches);
+                let descs: Vec<ExprId> = fields.iter().map(|(_, deid)| *deid).collect();
+                for desc in descs {
+                    for face in literal_desc_faces(exprs, desc) {
+                        collect_face(exprs, face, fn_expr_exprs, &mut patches);
+                    }
                 }
             }
             _ => {}
@@ -157,6 +169,20 @@ pub(crate) fn promote_recv_any(
             break;
         }
     }
+}
+
+/// The `get:` / `set:` field values of an INLINE literal descriptor;
+/// empty for any non-ObjectLit descriptor expression (variable-routed
+/// descriptors alias their faces — knife 2).
+fn literal_desc_faces(exprs: &[Expr], desc: ExprId) -> Vec<ExprId> {
+    let Expr::ObjectLit { fields } = &exprs[desc.0 as usize] else {
+        return Vec::new();
+    };
+    fields
+        .iter()
+        .filter(|(fname, _)| fname == "get" || fname == "set")
+        .map(|(_, feid)| *feid)
+        .collect()
 }
 
 /// A face candidate promotes when it is a marked fn-expr Closure whose
