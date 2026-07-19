@@ -79,6 +79,22 @@ pub(crate) fn run(
     let arraylit_recvs = collect_arraylit_binding_names(stmts, exprs);
     let mapset_recvs = collect_mapset_binding_names(stmts, exprs);
     for i in 0..exprs.len() {
+        // Member-store face — `anyRecv.m = <fn-expr>` (expando method
+        // on a wrapper / dynobj receiver). The stored closure is only
+        // reachable back through the receiver's props, so every call
+        // rides the runtime any-method dispatch, which reads the
+        // FLAG_CLOSURE_n header bit and seeds the receiver —
+        // zero-alias by construction for a literal fn-expr RHS.
+        // (An Ident RHS keeps knife-2's use-shape analysis, where a
+        // member-store position stays a non-face use — loud.)
+        if let Expr::Assign { target, value } = &exprs[i] {
+            if let Expr::Member { obj, .. } = &exprs[target.0 as usize]
+                && matches!(&exprs[obj.0 as usize], Expr::Ident(n) if any_recvs.contains(n))
+            {
+                collect_face(exprs, *value, fn_expr_exprs, &mut patches);
+            }
+            continue;
+        }
         let Expr::Call { callee, args } = &exprs[i] else {
             continue;
         };
