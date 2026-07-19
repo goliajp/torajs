@@ -82,6 +82,9 @@ pub(crate) fn try_route(
     {
         return Some(Ok(Type::String));
     }
+    if let Some(r) = try_fn_value_call(checker, ast, eid, callee, args) {
+        return Some(r);
+    }
     // RFC C4+ — a bare call whose callee itself types as `any`
     // (`f(1)` on an any-held closure) is legal per TS and answers
     // `any`; lowering routes it to the runtime closure dispatch.
@@ -202,4 +205,37 @@ pub(crate) fn try_route(
         return Some(r);
     }
     None
+}
+
+/// L3b ⑥ — `Function.prototype.call` on a statically fn-typed VALUE
+/// (`const f = add; f.call(u, 2, 3)`): the named-fn form never
+/// reaches here (the chunk-138 AST desugar rewrote it), and an
+/// any-held fn keeps the runtime dispatch (the any-receiver arm runs
+/// first). The thisArg types for effect then drops (the desugar's
+/// no-this subset rule); the remaining args forward to the general
+/// fn-call admit AGAINST THE ORIGINAL eid, so its arity gate /
+/// per-arg subtype loop / arity-pad recording all key exactly like
+/// the lowering wedge's replayed value-callee call
+/// (`ssa_lower_call_fn_call_value`, same eid + rest args).
+fn try_fn_value_call(
+    checker: &mut Checker,
+    ast: &Ast,
+    eid: ExprId,
+    callee: &ExprId,
+    args: &[ExprId],
+) -> Option<Result<Type, String>> {
+    let Expr::Member { obj, name } = ast.get_expr(*callee) else {
+        return None;
+    };
+    if name != "call" || args.is_empty() {
+        return None;
+    }
+    if !matches!(checker.type_of(ast, *obj), Ok(Type::Function(..))) {
+        return None;
+    }
+    if let Err(e) = checker.type_of(ast, args[0]) {
+        return Some(Err(e));
+    }
+    let rest: Vec<ExprId> = args[1..].to_vec();
+    Some(super::general::general_call(checker, ast, eid, obj, &rest))
 }

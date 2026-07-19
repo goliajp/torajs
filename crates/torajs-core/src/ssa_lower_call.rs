@@ -329,6 +329,10 @@ fn try_dispatch_d(
     if let Some(op) = crate::ssa_lower_call_arr_ho::try_lower(ctx, callee, args) {
         return Some(op);
     }
+    // L3b ⑥ — `f.call(thisArg, ...)` on a fn-typed VALUE: thisArg drops, rest replays the value-callee arms.
+    if let Some(op) = crate::ssa_lower_call_fn_call_value::try_lower(ctx, eid, callee, args) {
+        return Some(op);
+    }
     // M2 — call a Closure-typed local. Load env_ptr + fn_ptr, indirect-call with env prepended.
     if let Some(op) = crate::ssa_lower_call_closure_local::try_lower(ctx, eid, callee, args) {
         return Some(op);
