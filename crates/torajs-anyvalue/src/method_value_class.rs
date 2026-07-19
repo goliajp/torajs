@@ -96,6 +96,26 @@ pub extern "C" fn __torajs_class_method_cell_new(adapter: u64) -> *mut u8 {
     }
 }
 
+/// The fn-addr-registry lookup key of a closure cell (RFC
+/// 20260719-fn-tostring-source B6c) — a class-method face keys on
+/// its carried adapter vaddr (the compiler bakes one registry row
+/// per dispatchable class method against the boxed adapter fn; the
+/// face's own fn_addr is the throwing native entry, never in the
+/// registry), every other cell on its own fn_addr. An accessor
+/// face also answers its adapter here — no registry row exists for
+/// accessor adapters, so lookups keep their miss behavior.
+///
+/// # Safety
+/// `ptr` points at a live `Tag::Closure` heap cell.
+pub(crate) unsafe fn registry_addr(ptr: *mut c_void) -> u64 {
+    unsafe {
+        if let Some(adapter) = class_method_adapter(ptr) {
+            return adapter;
+        }
+        *(ptr.cast::<u8>().add(CLOSURE_FN_ADDR_OFF) as *const u64)
+    }
+}
+
 /// The carried adapter vaddr when `ptr` is a reified class-method
 /// cell (its boxed_entry is the [`class_bare_entry`] sentinel) or a
 /// reified class-accessor face ([`class_accessor_bare_entry`]);

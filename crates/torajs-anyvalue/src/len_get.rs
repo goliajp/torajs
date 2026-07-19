@@ -47,10 +47,6 @@ unsafe extern "C" {
     fn __torajs_map_size(p: *const c_void) -> i64;
 }
 
-/// Closure fn body vaddr slot — mirror of `member_get.rs` /
-/// torajs-core `ssa_lower.rs` closure-env constants.
-const MIRROR_CLOSURE_FN_ADDR_OFF: usize = 8;
-
 /// Accessor-entry sentinel in the dynobj probe's tag channel —
 /// mirror of `method_call_dynobj.rs::ANY_ACCESSOR_TAG`.
 const ANY_ACCESSOR_TAG: u64 = 6;
@@ -216,7 +212,9 @@ unsafe fn closure_length_of(ptr: *mut c_void) -> Option<i64> {
             };
             return tlen.map(|l| (l - bargc as i64).max(0));
         }
-        let fn_addr = *(ptr.cast::<u8>().add(MIRROR_CLOSURE_FN_ADDR_OFF) as *const u64);
+        // B6c — a class-method face resolves its adapter's registry
+        // row (the ES method arity).
+        let fn_addr = crate::method_value_class::registry_addr(ptr);
         let mut name_len: u32 = 0;
         let mut arity: u32 = 0;
         let name_ptr = __torajs_fn_name_lookup(fn_addr, &mut name_len, &mut arity);

@@ -46,9 +46,8 @@ unsafe extern "C" {
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
 }
 
-/// Closure-cell layout mirrors (`member_get.rs` / torajs-core
+/// Closure-cell layout mirror (`member_get.rs` / torajs-core
 /// `ssa_lower.rs` constants).
-const CLOSURE_FN_ADDR_OFF: usize = 8;
 const CLOSURE_PROPS_OFF: usize = 24;
 
 /// Per-fn-addr interned immortal name cells (chunk D, RFC
@@ -126,7 +125,9 @@ pub(crate) unsafe fn closure_virtual_name_cell(ptr: *mut c_void) -> Option<*mut 
         if crate::method_bind::bound_cell_meta(ptr).is_some() {
             return None;
         }
-        let fn_addr = *(ptr.cast::<u8>().add(CLOSURE_FN_ADDR_OFF) as *const u64);
+        // B6c — a class-method face resolves its adapter's registry
+        // row (the user-visible method name).
+        let fn_addr = crate::method_value_class::registry_addr(ptr);
         let mut name_len: u32 = 0;
         let mut arity: u32 = 0;
         let name_ptr = __torajs_fn_name_lookup(fn_addr, &mut name_len, &mut arity);
@@ -241,8 +242,9 @@ pub unsafe extern "C" fn __torajs_closure_source_str(ptr: *mut c_void) -> *mut u
         if let Some(name) = crate::method_value::builtin_method_name(ptr) {
             return __torajs_fn_native_form_str(name.as_ptr(), name.len() as u32);
         }
-        let fn_addr = *(ptr.cast::<u8>().add(CLOSURE_FN_ADDR_OFF) as *const u64);
-        __torajs_fn_source_str(fn_addr)
+        // B6c — a class-method face resolves its adapter's registry
+        // row (the erased method-shorthand source).
+        __torajs_fn_source_str(crate::method_value_class::registry_addr(ptr))
     }
 }
 
@@ -282,7 +284,9 @@ unsafe fn closure_name_str(ptr: *mut c_void) -> *mut u8 {
             __torajs_str_drop(tname as *mut c_void);
             return joined as *mut u8;
         }
-        let fn_addr = *(ptr.cast::<u8>().add(CLOSURE_FN_ADDR_OFF) as *const u64);
+        // B6c — a class-method face resolves its adapter's registry
+        // row (the user-visible method name).
+        let fn_addr = crate::method_value_class::registry_addr(ptr);
         let mut name_len: u32 = 0;
         let mut arity: u32 = 0;
         let name_ptr = __torajs_fn_name_lookup(fn_addr, &mut name_len, &mut arity);

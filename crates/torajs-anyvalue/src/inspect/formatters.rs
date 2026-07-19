@@ -84,14 +84,6 @@ pub(super) const SUBSTR_OFFSET_OFF: usize = 24;
 /// (see torajs-rc + torajs-str flag tables).
 pub(super) const SUBSTR_VIEW_FLAG: u16 = 1 << 10;
 
-/// Closure heap layout: `HeapHeader` at offset 0, fn body vaddr at
-/// offset 8, drop_fn vaddr at offset 16, then per-captured-env
-/// payload. Mirrors
-/// `crates/torajs-dynobj/src/accessor.rs::CLOSURE_FN_ADDR_OFF` —
-/// the closure ABI is shared substrate, so the two `8`s must move
-/// together if either ever changes.
-pub(super) const CLOSURE_FN_ADDR_OFF: usize = 8;
-
 unsafe extern "C" {
     pub(super) fn __torajs_str_alloc_pooled(len: u64) -> *mut u8;
     pub(super) fn __torajs_str_print(s: *const u8);
@@ -171,14 +163,6 @@ unsafe extern "C" {
     pub(super) fn __torajs_bigint_print_inline(b_ptr: *const c_void);
 }
 
-/// Read the fn body vaddr out of a closure heap cell at
-/// `closure + CLOSURE_FN_ADDR_OFF`. Same pattern the
-/// accessor-pair drop path uses; both are reading the same word.
-#[inline]
-pub(super) unsafe fn closure_fn_addr(closure: *const c_void) -> u64 {
-    unsafe { *((closure as *const u8).add(CLOSURE_FN_ADDR_OFF) as *const u64) }
-}
-
 /// Emit a closure cell's `[Function: <name>]` form, no trailing
 /// newline. A reified builtin method cell (chunk 715) prints its
 /// interned method name directly — its `fn_addr` is the throwing
@@ -218,7 +202,9 @@ pub(super) unsafe fn put_closure_fn_name(closure: *const c_void) {
             put_bytes(b"]");
         }
     } else {
-        let fn_addr = unsafe { closure_fn_addr(closure) };
+        // B6c — a class-method face prints its adapter's registry
+        // row (the user-visible method name).
+        let fn_addr = unsafe { crate::method_value_class::registry_addr(closure as *mut c_void) };
         unsafe { __torajs_fn_print_inline(fn_addr) };
     }
 }

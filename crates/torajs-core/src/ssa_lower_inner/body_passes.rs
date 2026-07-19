@@ -94,7 +94,7 @@ pub(crate) fn run(
             for s in new_strings {
                 module.strings.push(s);
             }
-            register_fn_name(module, name, params, fid, ast, *span);
+            register_fn_name(module, name, params, fid, ast, *span, boxed_entries);
         }
     }
 
@@ -183,16 +183,23 @@ pub(crate) fn run(
 /// Fn-name registry Step 2 — record the (FuncId, name, name_sid)
 /// triple for the link-time __torajs_fn_name_table emit (Step 3) +
 /// the runtime __torajs_fn_print_inline binary search (Step 4).
-/// Skip the desugared class-method mangled forms (`__cm_<C>__<m>`,
-/// `__dispatch_<m>`, `__new_<C>`) — bun reports the user-visible
-/// method name on those, not the mangled name, and we get there in
-/// Step 5's wire by stripping the prefix when emitting. Skip
-/// generic-mono specialized names too (`<fn>__<typeargs>__<idx>`) —
-/// they share the source fn's user-visible name; the entry already
-/// exists for the generic form. Closure-lifted bodies
-/// (`__closure_*`) are anonymous from the user's point of view;
-/// runtime falls back to `[Function (anonymous)]` if no entry is
-/// found.
+/// Skip the desugared mangled forms (`__dispatch_<m>`, `__new_<C>`)
+/// — bun reports the user-visible method name on those, not the
+/// mangled name, and we get there in Step 5's wire by stripping the
+/// prefix when emitting. Skip generic-mono specialized names too
+/// (`<fn>__<typeargs>__<idx>`) — they share the source fn's
+/// user-visible name; the entry already exists for the generic form.
+/// Closure-lifted bodies (`__closure_*`) are anonymous from the
+/// user's point of view; runtime falls back to
+/// `[Function (anonymous)]` if no entry is found.
+///
+/// RFC 20260719-fn-tostring-source B6c — a dispatchable class-method
+/// body (`__cm_<C>__<m>` with a synthesized boxed adapter) registers
+/// against its ADAPTER's fn id: the reified `C.prototype.<m>` face
+/// cell carries the adapter vaddr (its own fn_addr is the throwing
+/// native entry), so toString/name/length resolve the user-visible
+/// row through it. Ctor bodies, accessor bodies (their face carries
+/// its own name/length meta), and adapter-less dropouts stay out.
 fn register_fn_name(
     module: &mut Module,
     name: &str,
@@ -200,10 +207,44 @@ fn register_fn_name(
     fid: FuncId,
     ast: &Ast,
     span: crate::lexer::Span,
+    boxed_entries: &HashMap<FuncId, (FuncId, ssa::SigId)>,
 ) {
     let class_parents = &ast.class_parents;
-    if name.starts_with("__cm_")
-        || name.starts_with("__dispatch_")
+    if name.starts_with("__cm_") {
+        let Some(mname) = strip_mangled_method_name(name, "__cm_", class_parents) else {
+            return;
+        };
+        if mname == "ctor" || mname.is_empty() {
+            return;
+        }
+        let Some(&(adapter_fid, _)) = boxed_entries.get(&fid) else {
+            return;
+        };
+        if ast.accessor_getters.values().any(|f| f == name)
+            || ast.accessor_setters.values().any(|f| f == name)
+        {
+            return;
+        }
+        let lit = ssa::StringLiteral::encode_from_str(mname);
+        let name_sid = ssa::StringId(module.strings.len() as u32);
+        module.strings.push(lit);
+        let arity = params
+            .iter()
+            .filter(|p| p.name != "__env" && p.name != "__this")
+            .take_while(|p| p.default.is_none() && !p.is_rest)
+            .count() as u32;
+        let (src_sid, src_len) = intern_fn_source(module, ast, span);
+        module.fn_name_globals.push(FnNameEntry {
+            fn_id: adapter_fid,
+            name: mname.to_string(),
+            name_sid,
+            arity,
+            src_sid,
+            src_len,
+        });
+        return;
+    }
+    if name.starts_with("__dispatch_")
         || name.starts_with("__new_")
         || name.starts_with("__closure_")
         || name.starts_with("__bind_create_")
@@ -289,7 +330,19 @@ pub(crate) fn strip_static_method_name<'a>(
     name: &'a str,
     class_parents: &HashMap<String, Option<String>>,
 ) -> Option<&'a str> {
-    let rest = name.strip_prefix("__sm_")?;
+    strip_mangled_method_name(name, "__sm_", class_parents)
+}
+
+/// `<prefix><C>__<M>` → `<M>` when `<C>` is a declared class name,
+/// longest class-name match winning (see
+/// [`strip_static_method_name`]). B6c generalization — the `__cm_`
+/// instance-method registry rows strip the same mangled shape.
+pub(crate) fn strip_mangled_method_name<'a>(
+    name: &'a str,
+    prefix: &str,
+    class_parents: &HashMap<String, Option<String>>,
+) -> Option<&'a str> {
+    let rest = name.strip_prefix(prefix)?;
     class_parents
         .keys()
         .filter_map(|c| {

@@ -73,10 +73,6 @@ unsafe extern "C" {
 /// `ssa_lower.rs::CLOSURE_PROPS_OFF`.
 const CLOSURE_PROPS_OFF: usize = 24;
 
-/// Closure-cell fn body vaddr slot — same word `name_get.rs` /
-/// `inspect::formatters::closure_fn_addr` read.
-const CLOSURE_FN_ADDR_OFF: usize = 8;
-
 /// Arr cell length slot — mirror of torajs-arr `layout::ARR_LEN_OFF`.
 const ARR_LEN_OFF: usize = 8;
 
@@ -150,7 +146,9 @@ pub(crate) unsafe fn closure_method(
                         name.len() as u32,
                     ) as *mut c_void);
                 }
-                let fn_addr = *(ptr.cast::<u8>().add(CLOSURE_FN_ADDR_OFF) as *const u64);
+                // B6c — a class-method face resolves its adapter's
+                // registry row (the erased method-shorthand source).
+                let fn_addr = crate::method_value_class::registry_addr(ptr);
                 crate::nanbox::box_void_ptr(__torajs_fn_source_str(fn_addr) as *mut c_void)
             }
             _ => method_no_such(),
