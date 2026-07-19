@@ -93,8 +93,12 @@ unsafe fn promise_alloc_(state: u8, value: i64, is_heap: u8) -> *mut Promise {
         // attach_then / get_value set this to 1 as cb is hooked up;
         // unhandled::hprt_check_dispatch reads it.
         (*p).has_handler = 0;
+        // Fresh cell has not crossed into the any world — the
+        // box_to_any choke point stamps the real repr (RFC
+        // 20260720-anylane-promise-methods knife 1).
+        (*p).value_repr = crate::layout::REPR_UNSTAMPED;
         // Zero `_pad` so memcmp on the whole struct is well-defined.
-        (*p)._pad = [0; 5];
+        (*p)._pad = [0; 4];
         (*p).value = value;
         (*p).callbacks = ptr::null_mut();
     }
@@ -177,19 +181,29 @@ pub unsafe extern "C" fn __torajs_promise_resolve_thenable(p: *mut c_void) -> *m
     let state = unsafe { (*pp).state };
     let value_is_heap = unsafe { (*pp).value_is_heap };
     let value = unsafe { (*pp).value };
+    // The fresh cell shares the source's value verbatim, so its
+    // storage form travels along (RFC 20260720-anylane-promise-methods
+    // knife 1; UNSTAMPED source → UNSTAMPED result, still loud).
+    let value_repr = unsafe { (*pp).value_repr };
     if state == STATE_FULFILLED {
-        if value_is_heap != 0 && value != 0 {
+        let out = if value_is_heap != 0 && value != 0 {
             unsafe { __torajs_rc_inc(value as *mut c_void) };
-            return unsafe { __torajs_promise_alloc_fulfilled_heap(value) };
-        }
-        return unsafe { __torajs_promise_alloc_fulfilled(value) };
+            unsafe { __torajs_promise_alloc_fulfilled_heap(value) }
+        } else {
+            unsafe { __torajs_promise_alloc_fulfilled(value) }
+        };
+        unsafe { (*as_promise(out)).value_repr = value_repr };
+        return out;
     }
     if state == STATE_REJECTED {
-        if value_is_heap != 0 && value != 0 {
+        let out = if value_is_heap != 0 && value != 0 {
             unsafe { __torajs_rc_inc(value as *mut c_void) };
-            return unsafe { __torajs_promise_alloc_rejected_heap(value) };
-        }
-        return unsafe { __torajs_promise_alloc_rejected(value) };
+            unsafe { __torajs_promise_alloc_rejected_heap(value) }
+        } else {
+            unsafe { __torajs_promise_alloc_rejected(value) }
+        };
+        unsafe { (*as_promise(out)).value_repr = value_repr };
+        return out;
     }
     // PENDING inner — sync MVP can't represent suspension. Reject
     // with placeholder reason so user sees clear test failure rather

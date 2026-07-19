@@ -51,6 +51,33 @@ pub const STATE_REJECTED: u8 = 2;
 /// `sizeof(Promise)` — 32 bytes. Matches `__TORAJS_PROMISE_SIZE`.
 pub const PROMISE_SIZE: usize = 32;
 
+/// `value_repr` codes (RFC 20260720-anylane-promise-methods knife 1)
+/// — the storage form the typed tier put (or will put, for a pending
+/// cell) into the `value` slot, keyed off the boxing site's static
+/// `Promise<T>` inner type. Lockstep mirror: torajs-core
+/// `ssa_lower_promise_repr_mark.rs::repr_of_inner`.
+pub const REPR_UNSTAMPED: u8 = 0;
+/// Raw integer bits (inner I64/I32).
+pub const REPR_I64: u8 = 1;
+/// f64 bits stored via bitcast (inner F64).
+pub const REPR_F64: u8 = 2;
+/// 0/1 bool (inner Bool).
+pub const REPR_BOOL: u8 = 3;
+/// Str slot — three shapes (NULL = null / sentinel = undefined /
+/// heap Str ptr), boxed via the str-slot boxer.
+pub const REPR_STR: u8 = 4;
+/// Generic refcounted cell ptr (Obj/Arr/Closure/RegExp/Date/…) —
+/// ANY_HEAP encode + rc share.
+pub const REPR_HEAP: u8 = 5;
+/// Bits are already an AnyValue NaN-box (inner Any) — pass through.
+pub const REPR_ANY: u8 = 6;
+/// Inner Void — the slot holds the 0 filler; the bridge answers
+/// undefined (async `Promise<void>` resolve shape).
+pub const REPR_VOID: u8 = 7;
+/// `Promise.resolve(null)` — the slot holds 0, the bridge answers
+/// null (distinct from REPR_I64's honest integer 0).
+pub const REPR_NULL: u8 = 8;
+
 /// `__torajs_str_alloc_pooled` returns a pointer offset HDR_SIZE
 /// past the Str header; allsettled's status field copy uses this
 /// offset to memcpy the literal into the data segment. Mirrors
@@ -106,7 +133,18 @@ pub struct Promise {
     /// yet" — a rejected promise reaching the HPRT microtask in that
     /// state IS the spec-defined unhandled-rejection event source.
     pub has_handler: u8,
-    pub _pad: [u8; 5],
+    /// RFC 20260720-anylane-promise-methods knife 1 — the `value`
+    /// slot's storage form, stamped when the cell crosses into the
+    /// `any` world (`box_to_any` family; the box site statically
+    /// holds `Promise<T>`). The typed tier never reads it; the
+    /// any-lane `.then`/`.catch` bridge boxes the settled value per
+    /// this code. `REPR_UNSTAMPED` (the alloc default) means "never
+    /// crossed" — the bridge keeps the loud TypeError for it.
+    /// Constants: [`REPR_UNSTAMPED`] .. [`REPR_VOID`]; the emit-side
+    /// mapping lives in torajs-core `ssa_lower_promise_repr_mark.rs`
+    /// (must move in lockstep).
+    pub value_repr: u8,
+    pub _pad: [u8; 4],
     pub value: i64,
     pub callbacks: *mut PromiseCb,
 }
@@ -149,7 +187,8 @@ mod tests {
         assert_eq!(core::mem::offset_of!(Promise, state), 8);
         assert_eq!(core::mem::offset_of!(Promise, value_is_heap), 9);
         assert_eq!(core::mem::offset_of!(Promise, has_handler), 10);
-        assert_eq!(core::mem::offset_of!(Promise, _pad), 11);
+        assert_eq!(core::mem::offset_of!(Promise, value_repr), 11);
+        assert_eq!(core::mem::offset_of!(Promise, _pad), 12);
         assert_eq!(core::mem::offset_of!(Promise, value), 16);
         assert_eq!(core::mem::offset_of!(Promise, callbacks), 24);
     }

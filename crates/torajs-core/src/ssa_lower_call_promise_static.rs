@@ -114,7 +114,12 @@ fn lower_zero_arg(ctx: &mut LowerCtx<'_>, method: &str) -> Operand {
         Type::Promise,
         None,
     );
-    Operand::Value(v)
+    // RFC 20260720-anylane-promise-methods knife 1 — the zero-arg
+    // form settles with undefined; the any-lane bridge answers it
+    // as such.
+    let out = Operand::Value(v);
+    ctx.emit_promise_stamp_repr(&out, crate::ssa_lower_promise_repr_mark::REPR_VOID);
+    out
 }
 
 /// `Promise.{resolve,reject}(v, ...)` — thenable absorption + heap /
@@ -171,6 +176,16 @@ fn lower_one_plus(ctx: &mut LowerCtx<'_>, eid: ExprId, method: &str, args: &[Exp
     if is_heap && !ctx.expr_transfers_ownership(args[0]) {
         ctx.emit_owned_result_inc(arg_op.clone(), arg_ty);
     }
+    // RFC 20260720-anylane-promise-methods knife 1 — the repr stamp
+    // mirrors the STORED form this site emits (the I64→f64-slot
+    // widening below changes it), so capture the predicates the
+    // coercion chain is about to consume.
+    let is_null = matches!(arg_op, Operand::ConstPtrNull);
+    let stored_as_f64 = matches!(arg_ty, Type::F64)
+        || (matches!(arg_ty, Type::I64)
+            && ctx
+                .num_f64_slots
+                .field_is_f64(&crate::num_width::SlotKey::Anon(eid.0), "value"));
     let arg_i64 = if matches!(arg_ty, Type::Bool) {
         ctx.coerce_bool_to_i64(arg_op)
     } else if matches!(arg_ty, Type::F64) {
@@ -204,5 +219,11 @@ fn lower_one_plus(ctx: &mut LowerCtx<'_>, eid: ExprId, method: &str, args: &[Exp
         Type::Promise,
         None,
     );
-    Operand::Value(v)
+    let out = Operand::Value(v);
+    if let Some(repr) =
+        crate::ssa_lower_promise_repr_mark::promise_value_repr(&arg_ty, stored_as_f64, is_null)
+    {
+        ctx.emit_promise_stamp_repr(&out, repr);
+    }
+    out
 }

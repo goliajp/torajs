@@ -496,6 +496,10 @@ pub(crate) struct Intrinsics {
     pub(crate) promise_alloc_rejected: FuncId,
     pub(crate) promise_alloc_fulfilled_heap: FuncId,
     pub(crate) promise_alloc_rejected_heap: FuncId,
+    /// RFC 20260720-anylane-promise-methods knife 1 — stamp the
+    /// cell's `value_repr` at a mint site whose static arg type
+    /// fixes the storage form.
+    pub(crate) promise_stamp_repr: FuncId,
     pub(crate) promise_drop: FuncId,
     pub(crate) promise_get_value: FuncId,
     pub(crate) promise_then_simple: FuncId,

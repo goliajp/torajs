@@ -59,6 +59,7 @@ pub(crate) struct PromiseIds {
     pub promise_resolve_thenable: FuncId,
     pub promise_alloc_fulfilled_heap: FuncId,
     pub promise_alloc_rejected_heap: FuncId,
+    pub promise_stamp_repr: FuncId,
     pub promise_drop: FuncId,
     pub promise_get_value: FuncId,
     pub promise_then_simple: FuncId,
@@ -106,6 +107,13 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             "__torajs_promise_alloc_rejected",
             i641,
             Type::Promise,
+        ),
+        promise_stamp_repr: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_promise_stamp_repr",
+            &[Type::Promise, Type::I64][..],
+            Type::Void,
         ),
         promise_resolve_thenable: declare_intrinsic(
             module,

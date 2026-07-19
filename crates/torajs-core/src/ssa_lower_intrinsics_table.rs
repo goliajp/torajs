@@ -433,6 +433,7 @@ pub(crate) fn build(
         promise_alloc_rejected: init_d.promise.promise_alloc_rejected,
         promise_alloc_fulfilled_heap: init_d.promise.promise_alloc_fulfilled_heap,
         promise_alloc_rejected_heap: init_d.promise.promise_alloc_rejected_heap,
+        promise_stamp_repr: init_d.promise.promise_stamp_repr,
         promise_drop: init_d.promise.promise_drop,
         promise_get_value: init_d.promise.promise_get_value,
         promise_then_simple: init_d.promise.promise_then_simple,

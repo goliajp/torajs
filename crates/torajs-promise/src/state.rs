@@ -181,3 +181,17 @@ pub unsafe extern "C" fn __torajs_promise_attach_then(
         (*pp).callbacks = node;
     }
 }
+
+/// Stamp the cell's `value_repr` (RFC 20260720-anylane-promise-methods
+/// knife 1). Emitted by the `box_to_any` family when a typed
+/// `Promise<T>` crosses into the `any` world — the box site statically
+/// knows T, the cell keeps the storage form for the any-lane
+/// `.then`/`.catch` bridge. Idempotent: T is fixed per cell, so a
+/// re-stamp writes the same code.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_promise_stamp_repr(p: *mut c_void, repr: i64) {
+    if p.is_null() {
+        return;
+    }
+    unsafe { (*as_promise(p)).value_repr = repr as u8 };
+}
