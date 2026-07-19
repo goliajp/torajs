@@ -195,8 +195,21 @@ pub unsafe extern "C" fn __torajs_anyv_set_prototype_of(obj: u64, proto: u64) {
         }
         let cell = obj as *mut c_void;
         if heap_type_tag(cell) != TAG_DYNOBJ {
-            // Recorded boundary — exotic receivers keep their
-            // builtin [[Prototype]].
+            // A static-layout struct has no __proto__ simulation
+            // slot — the write CANNOT take effect, and the silent
+            // return read as success (rotation 154 probe:
+            // getPrototypeOf(child) === base stayed false). Loud
+            // TypeError, aligned with the Object.assign
+            // struct-target boundary; real re-parenting needs the
+            // variable-position any-promotion family (L3b).
+            if heap_type_tag(cell) == crate::reflect::TAG_OBJ {
+                __torajs_throw_type_error(
+                    c"Cannot set prototype of a fixed-layout object".as_ptr(),
+                );
+                return;
+            }
+            // Recorded boundary — exotic receivers (Arr / Closure /
+            // wrapper) keep their builtin [[Prototype]].
             return;
         }
         if !ordinary_set_prototype_of(cell, proto) {
