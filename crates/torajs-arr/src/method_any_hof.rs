@@ -78,7 +78,13 @@ pub(crate) unsafe fn recv_first_shift(cb_env: *mut c_void) -> usize {
 
 /// Shared HO loop. `mode`: 0 = forEach (result `undefined`),
 /// 1 = map, 2 = filter.
-unsafe fn hof_loop(arr: *const c_void, cb_env: *mut c_void, cb_entry: u64, mode: i64) -> u64 {
+unsafe fn hof_loop(
+    arr: *const c_void,
+    cb_env: *mut c_void,
+    cb_entry: u64,
+    mode: i64,
+    this_arg: u64,
+) -> u64 {
     unsafe {
         let cb: BoxedFn = core::mem::transmute(cb_entry as usize);
         let s = recv_first_shift(cb_env);
@@ -96,6 +102,11 @@ unsafe fn hof_loop(arr: *const c_void, cb_env: *mut c_void, cb_entry: u64, mode:
             // Kind-aware boxed read — +1-owned for cells.
             let v = crate::index_any::__torajs_arr_index_get(arr, i as i64);
             let mut argv = [undef(); ARGV_SLOTS];
+            if s == 1 {
+                // knife 4 — the thisArg (or undefined) rides argv[0]
+                // for a receiver-first callback.
+                argv[0] = this_arg;
+            }
             argv[s] = v;
             argv[s + 1] = __torajs_anyv_box_from_pair(2, i as i64);
             argv[s + 2] = arr_boxed;
@@ -157,8 +168,9 @@ pub unsafe extern "C" fn __torajs_arr_any_map(
     arr: *const c_void,
     cb_env: *mut c_void,
     cb_entry: u64,
+    this_arg: u64,
 ) -> u64 {
-    unsafe { hof_loop(arr, cb_env, cb_entry, 1) }
+    unsafe { hof_loop(arr, cb_env, cb_entry, 1, this_arg) }
 }
 
 /// `a.filter(cb)` per ES §23.1.3.8 — fresh `Arr<Any>` of the
@@ -171,8 +183,9 @@ pub unsafe extern "C" fn __torajs_arr_any_filter(
     arr: *const c_void,
     cb_env: *mut c_void,
     cb_entry: u64,
+    this_arg: u64,
 ) -> u64 {
-    unsafe { hof_loop(arr, cb_env, cb_entry, 2) }
+    unsafe { hof_loop(arr, cb_env, cb_entry, 2, this_arg) }
 }
 
 /// `a.forEach(cb)` per ES §23.1.3.15 — side effects only, returns
@@ -185,8 +198,9 @@ pub unsafe extern "C" fn __torajs_arr_any_for_each(
     arr: *const c_void,
     cb_env: *mut c_void,
     cb_entry: u64,
+    this_arg: u64,
 ) -> u64 {
-    unsafe { hof_loop(arr, cb_env, cb_entry, 0) }
+    unsafe { hof_loop(arr, cb_env, cb_entry, 0, this_arg) }
 }
 
 /// Shared early-exit predicate loop (any-dispatch backfill chunk 3).
@@ -195,7 +209,13 @@ pub unsafe extern "C" fn __torajs_arr_any_for_each(
 /// §23.1.3.11 / §23.1.3.12). Same ledger as [`hof_loop`]; on the
 /// exit hit `find` / `findLast` transfer the owned element read as
 /// the return, the others release it.
-unsafe fn find_loop(arr: *const c_void, cb_env: *mut c_void, cb_entry: u64, mode: i64) -> u64 {
+unsafe fn find_loop(
+    arr: *const c_void,
+    cb_env: *mut c_void,
+    cb_entry: u64,
+    mode: i64,
+    this_arg: u64,
+) -> u64 {
     unsafe {
         let cb: BoxedFn = core::mem::transmute(cb_entry as usize);
         let s = recv_first_shift(cb_env);
@@ -207,6 +227,11 @@ unsafe fn find_loop(arr: *const c_void, cb_env: *mut c_void, cb_entry: u64, mode
             let i = if right { len - 1 - step } else { step };
             let v = crate::index_any::__torajs_arr_index_get(arr, i as i64);
             let mut argv = [undef(); ARGV_SLOTS];
+            if s == 1 {
+                // knife 4 — the thisArg (or undefined) rides argv[0]
+                // for a receiver-first callback.
+                argv[0] = this_arg;
+            }
             argv[s] = v;
             argv[s + 1] = __torajs_anyv_box_from_pair(2, i as i64);
             argv[s + 2] = arr_boxed;
@@ -270,8 +295,9 @@ pub unsafe extern "C" fn __torajs_arr_any_every(
     arr: *const c_void,
     cb_env: *mut c_void,
     cb_entry: u64,
+    this_arg: u64,
 ) -> u64 {
-    unsafe { find_loop(arr, cb_env, cb_entry, 0) }
+    unsafe { find_loop(arr, cb_env, cb_entry, 0, this_arg) }
 }
 
 /// `a.some(cb)` per ES §23.1.3.29.
@@ -283,8 +309,9 @@ pub unsafe extern "C" fn __torajs_arr_any_some(
     arr: *const c_void,
     cb_env: *mut c_void,
     cb_entry: u64,
+    this_arg: u64,
 ) -> u64 {
-    unsafe { find_loop(arr, cb_env, cb_entry, 1) }
+    unsafe { find_loop(arr, cb_env, cb_entry, 1, this_arg) }
 }
 
 /// `a.find(cb)` per ES §23.1.3.9 — the matching element (owned) or
@@ -297,8 +324,9 @@ pub unsafe extern "C" fn __torajs_arr_any_find(
     arr: *const c_void,
     cb_env: *mut c_void,
     cb_entry: u64,
+    this_arg: u64,
 ) -> u64 {
-    unsafe { find_loop(arr, cb_env, cb_entry, 2) }
+    unsafe { find_loop(arr, cb_env, cb_entry, 2, this_arg) }
 }
 
 /// `a.findIndex(cb)` per ES §23.1.3.10 — the matching index or -1.
@@ -310,8 +338,9 @@ pub unsafe extern "C" fn __torajs_arr_any_find_index(
     arr: *const c_void,
     cb_env: *mut c_void,
     cb_entry: u64,
+    this_arg: u64,
 ) -> u64 {
-    unsafe { find_loop(arr, cb_env, cb_entry, 3) }
+    unsafe { find_loop(arr, cb_env, cb_entry, 3, this_arg) }
 }
 
 /// `a.findLast(cb)` per ES §23.1.3.11 — backwards walk, the
@@ -324,8 +353,9 @@ pub unsafe extern "C" fn __torajs_arr_any_find_last(
     arr: *const c_void,
     cb_env: *mut c_void,
     cb_entry: u64,
+    this_arg: u64,
 ) -> u64 {
-    unsafe { find_loop(arr, cb_env, cb_entry, 4) }
+    unsafe { find_loop(arr, cb_env, cb_entry, 4, this_arg) }
 }
 
 /// `a.findLastIndex(cb)` per ES §23.1.3.12 — backwards walk, the
@@ -338,8 +368,9 @@ pub unsafe extern "C" fn __torajs_arr_any_find_last_index(
     arr: *const c_void,
     cb_env: *mut c_void,
     cb_entry: u64,
+    this_arg: u64,
 ) -> u64 {
-    unsafe { find_loop(arr, cb_env, cb_entry, 5) }
+    unsafe { find_loop(arr, cb_env, cb_entry, 5, this_arg) }
 }
 
 /// `a.reduce(cb, init?)` / `a.reduceRight(cb, init?)` per ES

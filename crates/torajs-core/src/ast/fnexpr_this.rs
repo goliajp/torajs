@@ -63,6 +63,7 @@ pub(crate) fn run(
     }
     let mut patches: Vec<FacePatch> = Vec::new();
     let mut ident_cands: Vec<(String, ExprId)> = Vec::new();
+    let any_recvs = collect_any_binding_names(stmts);
     for i in 0..exprs.len() {
         let Expr::Call { callee, args } = &exprs[i] else {
             continue;
@@ -111,6 +112,22 @@ pub(crate) fn run(
                     }
                 }
             }
+            // Knife 4 — array HOF callback position over a
+            // syntactically-certain `any` receiver
+            // (`recv.forEach(<fn-expr>, thisArg?)`): the any-lane HOF
+            // kernels read the closure flag and seed argv[0] with the
+            // thisArg (or the buffer's undefined padding), so the
+            // promoted body's `__this` is exactly §23.1.3's T. A
+            // typed receiver keeps today's loud reject — its inlined
+            // HOF loop has no receiver channel yet.
+            Expr::Member { obj, name } if is_hof_method(name) => {
+                if !matches!(&exprs[obj.0 as usize], Expr::Ident(n) if any_recvs.contains(n)) {
+                    continue;
+                }
+                if let Some(cb) = args.first() {
+                    collect_face(exprs, *cb, fn_expr_exprs, &mut patches);
+                }
+            }
             _ => {}
         }
     }
@@ -156,6 +173,62 @@ pub(crate) fn run(
     }
     let pairs: Vec<(ExprId, String)> = patches.into_iter().map(|p| (p.eid, p.fn_name)).collect();
     promote_recv_any(stmts, exprs, &pairs, fnexpr_recv_fns);
+}
+
+/// The array HOF methods whose any-lane kernels carry the
+/// receiver-first channel (knife 4). `reduce` / `reduceRight` take
+/// no thisArg per §23.1.3.24 and stay out.
+fn is_hof_method(name: &str) -> bool {
+    matches!(
+        name,
+        "forEach"
+            | "map"
+            | "filter"
+            | "every"
+            | "some"
+            | "find"
+            | "findIndex"
+            | "findLast"
+            | "findLastIndex"
+            | "flatMap"
+    )
+}
+
+/// Binding names that are `: any` at EVERY declaration in the
+/// program (top-level walk; a same-name non-any declaration anywhere
+/// removes the name — over-removal only keeps a face loud, never
+/// mis-promotes a typed receiver).
+fn collect_any_binding_names(stmts: &[Stmt]) -> std::collections::HashSet<String> {
+    let mut any_names = std::collections::HashSet::new();
+    let mut other_names = std::collections::HashSet::new();
+    collect_binding_names_inner(stmts, &mut any_names, &mut other_names);
+    any_names.retain(|n| !other_names.contains(n));
+    any_names
+}
+
+fn collect_binding_names_inner(
+    stmts: &[Stmt],
+    any_names: &mut std::collections::HashSet<String>,
+    other_names: &mut std::collections::HashSet<String>,
+) {
+    for s in stmts {
+        match s {
+            Stmt::LetDecl { name, type_ann, .. } => {
+                if type_ann.as_deref() == Some("any") {
+                    any_names.insert(name.clone());
+                } else {
+                    other_names.insert(name.clone());
+                }
+            }
+            Stmt::FnDecl { body, .. } => {
+                collect_binding_names_inner(body, any_names, other_names);
+            }
+            Stmt::Block(inner) | Stmt::Multi(inner) => {
+                collect_binding_names_inner(inner, any_names, other_names);
+            }
+            _ => {}
+        }
+    }
 }
 
 /// Record a face-position `Expr::Ident` as a knife-2 candidate —

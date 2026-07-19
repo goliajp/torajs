@@ -51,15 +51,26 @@ unsafe extern "C" {
     /// torajs-arr — change-by-copy with (NULL after the RangeError).
     fn __torajs_arr_any_with(arr: *const u8, i: i64, v: u64) -> *mut u8;
     /// torajs-arr — backwards predicate walks (find_loop modes 4/5).
-    fn __torajs_arr_any_find_last(arr: *const c_void, cb_env: *mut c_void, cb_entry: u64) -> u64;
+    fn __torajs_arr_any_find_last(
+        arr: *const c_void,
+        cb_env: *mut c_void,
+        cb_entry: u64,
+        this_arg: u64,
+    ) -> u64;
     fn __torajs_arr_any_find_last_index(
         arr: *const c_void,
         cb_env: *mut c_void,
         cb_entry: u64,
+        this_arg: u64,
     ) -> u64;
     /// torajs-arr — HOF map (boxed fresh Arr<Any>, undefined on the
     /// callback throw).
-    fn __torajs_arr_any_map(arr: *const c_void, cb_env: *mut c_void, cb_entry: u64) -> u64;
+    fn __torajs_arr_any_map(
+        arr: *const c_void,
+        cb_env: *mut c_void,
+        cb_entry: u64,
+        this_arg: u64,
+    ) -> u64;
     /// torajs-arr — borrowed whole-box slot read (kind-aware).
     fn __torajs_arr_get_any_boxed(arr: *const c_void, i: u64) -> u64;
     /// torajs-arr — element-kind-dispatched join (fresh Str).
@@ -125,7 +136,7 @@ pub(crate) unsafe fn arr_method_ext(
                 let Some((cb_env, cb_entry)) = closure_boxed_entry(arg_at(0)) else {
                     return not_callable();
                 };
-                let mapped = __torajs_arr_any_map(arr, cb_env, cb_entry);
+                let mapped = __torajs_arr_any_map(arr, cb_env, cb_entry, arg_at(1));
                 if !is_cell(mapped) {
                     // Callback threw — the pending throw propagates.
                     return mapped;
@@ -140,9 +151,9 @@ pub(crate) unsafe fn arr_method_ext(
                     return not_callable();
                 };
                 if m == ANY_METHOD_FIND_LAST {
-                    __torajs_arr_any_find_last(arr, cb_env, cb_entry)
+                    __torajs_arr_any_find_last(arr, cb_env, cb_entry, arg_at(1))
                 } else {
-                    __torajs_arr_any_find_last_index(arr, cb_env, cb_entry)
+                    __torajs_arr_any_find_last_index(arr, cb_env, cb_entry, arg_at(1))
                 }
             }
             m if m == ANY_METHOD_TO_REVERSED => {

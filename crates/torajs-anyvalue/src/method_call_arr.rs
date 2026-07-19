@@ -95,14 +95,49 @@ unsafe extern "C" {
         item_count: i64,
     ) -> *mut u8;
     /// torajs-arr — HO loops over the boxed dual-entry callback ABI.
-    fn __torajs_arr_any_map(arr: *const c_void, cb_env: *mut c_void, cb_entry: u64) -> u64;
-    fn __torajs_arr_any_filter(arr: *const c_void, cb_env: *mut c_void, cb_entry: u64) -> u64;
-    fn __torajs_arr_any_for_each(arr: *const c_void, cb_env: *mut c_void, cb_entry: u64) -> u64;
+    fn __torajs_arr_any_map(
+        arr: *const c_void,
+        cb_env: *mut c_void,
+        cb_entry: u64,
+        this_arg: u64,
+    ) -> u64;
+    fn __torajs_arr_any_filter(
+        arr: *const c_void,
+        cb_env: *mut c_void,
+        cb_entry: u64,
+        this_arg: u64,
+    ) -> u64;
+    fn __torajs_arr_any_for_each(
+        arr: *const c_void,
+        cb_env: *mut c_void,
+        cb_entry: u64,
+        this_arg: u64,
+    ) -> u64;
     /// torajs-arr — early-exit predicate loops (chunk 3).
-    fn __torajs_arr_any_every(arr: *const c_void, cb_env: *mut c_void, cb_entry: u64) -> u64;
-    fn __torajs_arr_any_some(arr: *const c_void, cb_env: *mut c_void, cb_entry: u64) -> u64;
-    fn __torajs_arr_any_find(arr: *const c_void, cb_env: *mut c_void, cb_entry: u64) -> u64;
-    fn __torajs_arr_any_find_index(arr: *const c_void, cb_env: *mut c_void, cb_entry: u64) -> u64;
+    fn __torajs_arr_any_every(
+        arr: *const c_void,
+        cb_env: *mut c_void,
+        cb_entry: u64,
+        this_arg: u64,
+    ) -> u64;
+    fn __torajs_arr_any_some(
+        arr: *const c_void,
+        cb_env: *mut c_void,
+        cb_entry: u64,
+        this_arg: u64,
+    ) -> u64;
+    fn __torajs_arr_any_find(
+        arr: *const c_void,
+        cb_env: *mut c_void,
+        cb_entry: u64,
+        this_arg: u64,
+    ) -> u64;
+    fn __torajs_arr_any_find_index(
+        arr: *const c_void,
+        cb_env: *mut c_void,
+        cb_entry: u64,
+        this_arg: u64,
+    ) -> u64;
     /// torajs-arr — accumulator fold; `init` is borrowed when
     /// `has_init != 0`, the returned accumulator is owned.
     fn __torajs_arr_any_reduce(
@@ -397,19 +432,19 @@ unsafe fn arr_method_callback(
         }
         let (cb_env, cb_entry) = closure_boxed_entry(arg_at(0))?;
         let raw = if mid == ANY_METHOD_MAP {
-            __torajs_arr_any_map(arr, cb_env, cb_entry)
+            __torajs_arr_any_map(arr, cb_env, cb_entry, arg_at(1))
         } else if mid == ANY_METHOD_FILTER {
-            __torajs_arr_any_filter(arr, cb_env, cb_entry)
+            __torajs_arr_any_filter(arr, cb_env, cb_entry, arg_at(1))
         } else if mid == ANY_METHOD_FOR_EACH {
-            __torajs_arr_any_for_each(arr, cb_env, cb_entry)
+            __torajs_arr_any_for_each(arr, cb_env, cb_entry, arg_at(1))
         } else if mid == ANY_METHOD_EVERY {
-            __torajs_arr_any_every(arr, cb_env, cb_entry)
+            __torajs_arr_any_every(arr, cb_env, cb_entry, arg_at(1))
         } else if mid == ANY_METHOD_SOME {
-            __torajs_arr_any_some(arr, cb_env, cb_entry)
+            __torajs_arr_any_some(arr, cb_env, cb_entry, arg_at(1))
         } else if mid == ANY_METHOD_FIND {
-            __torajs_arr_any_find(arr, cb_env, cb_entry)
+            __torajs_arr_any_find(arr, cb_env, cb_entry, arg_at(1))
         } else if mid == ANY_METHOD_FIND_INDEX {
-            __torajs_arr_any_find_index(arr, cb_env, cb_entry)
+            __torajs_arr_any_find_index(arr, cb_env, cb_entry, arg_at(1))
         } else {
             // §23.1.3.24 step 4 — initialValue presence is an
             // argc question, not an undefined question.
