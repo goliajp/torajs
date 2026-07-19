@@ -425,6 +425,7 @@ pub(crate) mod ssa_lower_pass_3;
 pub(crate) mod ssa_lower_post_incr;
 pub mod ssa_lower_process_on;
 pub(crate) mod ssa_lower_promise_chain;
+pub(crate) mod ssa_lower_promise_chain_two_arg;
 pub(crate) mod ssa_lower_promise_repr_mark;
 pub(crate) mod ssa_lower_promise_thunk;
 pub mod ssa_lower_push_loop_detect;

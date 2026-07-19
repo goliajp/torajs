@@ -394,6 +394,11 @@ pub const ANY_METHOD_ERROR_TO_STRING: i64 = 156;
 /// kernel's attach machinery.
 pub const ANY_METHOD_THEN: i64 = 157;
 pub const ANY_METHOD_CATCH: i64 = 158;
+/// `Promise.prototype.finally` (§27.2.5.3) through an `any`
+/// receiver — the callback runs argument-free, its return value is
+/// ignored (thenable-wait matches the typed kernel's posture), a
+/// callback throw wins over the forwarded settlement.
+pub const ANY_METHOD_FINALLY: i64 = 159;
 
 /// RegExp property-read ids (Any-method-call RFC 20260704 C4-3c-2)
 /// — `r.source` / `r.lastIndex` / flag booleans through an `any`

@@ -349,45 +349,8 @@ impl crate::ssa_lower::LowerCtx<'_> {
         }
     }
 
-    /// T-19.l — 2-arg `.then(onOk, onErr)` form is spec equivalent
-    /// of `.then(onOk).catch(onErr)`. Lower as a chained pair of
-    /// helper calls; the intermediate Promise is the bridge between
-    /// the two stages and gets dropped after the catch attaches
-    /// (`.catch` inc's its source's rc, so the drop balances the
-    /// chain's natural ref).
-    fn lower_then_two_arg(&mut self, src_op: Operand, args: &[ExprId]) -> ValueId {
-        let on_ok = self.lower_expr(args[0]);
-        let on_ok = self.maybe_wrap_promise_cb(on_ok);
-        let on_err = self.lower_expr(args[1]);
-        let on_err = self.maybe_wrap_promise_cb(on_err);
-        let on_ok_ty = self.operand_ty(&on_ok);
-        let then_fid = if matches!(on_ok_ty, Type::Closure(_)) {
-            self.intrinsics.promise_then_closure
-        } else {
-            self.intrinsics.promise_then_simple
-        };
-        let mid = self.f.append_inst(
-            self.cur_block,
-            InstKind::Call(then_fid, vec![src_op.clone(), on_ok]),
-            Type::Promise,
-            None,
-        );
-        // ②.6b — pick the catch dispatcher by the (possibly
-        // wrapped) handler's shape.
-        let catch_fid = if matches!(self.operand_ty(&on_err), Type::Closure(_)) {
-            self.intrinsics.promise_catch_closure
-        } else {
-            self.intrinsics.promise_catch_simple
-        };
-        let v = self.f.append_inst(
-            self.cur_block,
-            InstKind::Call(catch_fid, vec![Operand::Value(mid), on_err]),
-            Type::Promise,
-            None,
-        );
-        self.emit_drop_value(Operand::Value(mid), Type::Promise);
-        v
-    }
+    // lower_then_two_arg + chain_cb_ret_repr live in the sibling
+    // `ssa_lower_promise_chain_two_arg.rs` (knife 3 file-size split).
 
     /// 1-arg `.then` / `.catch` / `.finally` — pick the right
     /// runtime helper (T-15.g.5 / T-19.k / T-19.n). All three
@@ -414,9 +377,15 @@ impl crate::ssa_lower::LowerCtx<'_> {
             ("finally", false) => self.intrinsics.promise_finally,
             _ => unreachable!(),
         };
+        // knife 3 — then/catch carry the cb-return repr for the
+        // kernel's result stamp; finally forwards only (no param).
+        let mut call_args = vec![src_op.clone(), cb_op];
+        if m_name != "finally" {
+            call_args.push(Operand::ConstI64(self.chain_cb_ret_repr(&cb_ty)));
+        }
         self.f.append_inst(
             self.cur_block,
-            InstKind::Call(then_intrinsic, vec![src_op.clone(), cb_op]),
+            InstKind::Call(then_intrinsic, call_args),
             Type::Promise,
             None,
         )

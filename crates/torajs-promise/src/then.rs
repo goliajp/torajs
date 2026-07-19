@@ -48,6 +48,15 @@ unsafe extern "C" {
     fn __torajs_value_drop_heap(p: *mut c_void);
 }
 
+/// RFC 20260720-anylane-promise-methods knife 3 — the settle path
+/// fixes the result cell's value form for the any-lane bridge: a
+/// callback leg stamps the call site's static return repr, a
+/// forward leg copies the source's stamp (UNSTAMPED propagates as
+/// UNSTAMPED — still loud, never a mis-box).
+unsafe fn stamp_result_repr(result: *mut c_void, repr: u8) {
+    unsafe { (*as_promise(result)).value_repr = repr };
+}
+
 /// User-fn signature for the i64→i64 simple variants
 /// (`.then(cb)` / `.catch(cb)`).
 pub type ThenCbI64 = unsafe extern "C" fn(i64) -> i64;
@@ -72,6 +81,7 @@ struct ThenSimpleArg {
     source: *mut c_void,
     cb: ThenCbI64,
     result: *mut c_void,
+    ret_repr: u8,
 }
 
 unsafe extern "C" fn then_simple_dispatch(arg: i64) {
@@ -81,9 +91,11 @@ unsafe extern "C" fn then_simple_dispatch(arg: i64) {
         // T-19.l — `.then(onOk)` is FULFILLED-only. REJECTED forwards
         // the rejection so a downstream `.catch` picks it up.
         if (*src).state == STATE_REJECTED {
+            stamp_result_repr((*a).result, (*src).value_repr);
             __torajs_promise_reject((*a).result, (*src).value);
         } else {
             let result = ((*a).cb)((*src).value);
+            stamp_result_repr((*a).result, (*a).ret_repr);
             __torajs_promise_resolve((*a).result, result);
         }
         __torajs_promise_drop((*a).source);
@@ -95,17 +107,23 @@ unsafe extern "C" fn then_simple_dispatch(arg: i64) {
 pub unsafe extern "C" fn __torajs_promise_then_simple(
     source: *mut c_void,
     cb: Option<ThenCbI64>,
+    ret_repr: i64,
 ) -> *mut c_void {
     if source.is_null() {
         return ptr::null_mut();
     }
     let Some(cb) = cb else { return ptr::null_mut() };
     let result = unsafe { __torajs_promise_alloc_pending() };
+    // Pre-stamp with the cb-leg form — a chained attach lands before
+    // this cell settles and its any-lane gate must see a known form;
+    // the dispatcher overwrites on the forward leg.
+    unsafe { stamp_result_repr(result, ret_repr as u8) };
     let a = unsafe { malloc(core::mem::size_of::<ThenSimpleArg>()) } as *mut ThenSimpleArg;
     unsafe {
         (*a).source = source;
         (*a).cb = cb;
         (*a).result = result;
+        (*a).ret_repr = ret_repr as u8;
         __torajs_rc_inc(source);
         __torajs_promise_attach_then(source, Some(then_simple_dispatch), a as i64);
     }
@@ -121,6 +139,7 @@ struct ThenClosureArg {
     source: *mut c_void,
     env: *mut c_void,
     result: *mut c_void,
+    ret_repr: u8,
 }
 
 unsafe extern "C" fn then_closure_dispatch(arg: i64) {
@@ -128,6 +147,7 @@ unsafe extern "C" fn then_closure_dispatch(arg: i64) {
     unsafe {
         let src = as_promise((*a).source);
         if (*src).state == STATE_REJECTED {
+            stamp_result_repr((*a).result, (*src).value_repr);
             __torajs_promise_reject((*a).result, (*src).value);
             __torajs_promise_drop((*a).source);
             __torajs_value_drop_heap((*a).env);
@@ -139,6 +159,7 @@ unsafe extern "C" fn then_closure_dispatch(arg: i64) {
         let fn_ptr = *(((*a).env as *mut u8).add(8) as *const *mut c_void);
         let cb: ThenClosureFn = core::mem::transmute(fn_ptr);
         let result = cb((*a).env, value);
+        stamp_result_repr((*a).result, (*a).ret_repr);
         __torajs_promise_resolve((*a).result, result);
         __torajs_promise_drop((*a).source);
         // Release the closure env ref inc'd at attach_then time.
@@ -151,16 +172,22 @@ unsafe extern "C" fn then_closure_dispatch(arg: i64) {
 pub unsafe extern "C" fn __torajs_promise_then_closure(
     source: *mut c_void,
     env: *mut c_void,
+    ret_repr: i64,
 ) -> *mut c_void {
     if source.is_null() || env.is_null() {
         return ptr::null_mut();
     }
     let result = unsafe { __torajs_promise_alloc_pending() };
+    // Pre-stamp with the cb-leg form — a chained attach lands before
+    // this cell settles and its any-lane gate must see a known form;
+    // the dispatcher overwrites on the forward leg.
+    unsafe { stamp_result_repr(result, ret_repr as u8) };
     let a = unsafe { malloc(core::mem::size_of::<ThenClosureArg>()) } as *mut ThenClosureArg;
     unsafe {
         (*a).source = source;
         (*a).env = env;
         (*a).result = result;
+        (*a).ret_repr = ret_repr as u8;
         __torajs_rc_inc(source);
         __torajs_rc_inc(env);
         __torajs_promise_attach_then(source, Some(then_closure_dispatch), a as i64);
@@ -177,6 +204,7 @@ struct CatchSimpleArg {
     source: *mut c_void,
     cb: ThenCbI64,
     result: *mut c_void,
+    ret_repr: u8,
 }
 
 unsafe extern "C" fn catch_simple_dispatch(arg: i64) {
@@ -185,8 +213,10 @@ unsafe extern "C" fn catch_simple_dispatch(arg: i64) {
         let src = as_promise((*a).source);
         if (*src).state == STATE_REJECTED {
             let result = ((*a).cb)((*src).value);
+            stamp_result_repr((*a).result, (*a).ret_repr);
             __torajs_promise_resolve((*a).result, result);
         } else {
+            stamp_result_repr((*a).result, (*src).value_repr);
             __torajs_promise_resolve((*a).result, (*src).value);
         }
         __torajs_promise_drop((*a).source);
@@ -198,17 +228,23 @@ unsafe extern "C" fn catch_simple_dispatch(arg: i64) {
 pub unsafe extern "C" fn __torajs_promise_catch_simple(
     source: *mut c_void,
     cb: Option<ThenCbI64>,
+    ret_repr: i64,
 ) -> *mut c_void {
     if source.is_null() {
         return ptr::null_mut();
     }
     let Some(cb) = cb else { return ptr::null_mut() };
     let result = unsafe { __torajs_promise_alloc_pending() };
+    // Pre-stamp with the cb-leg form — a chained attach lands before
+    // this cell settles and its any-lane gate must see a known form;
+    // the dispatcher overwrites on the forward leg.
+    unsafe { stamp_result_repr(result, ret_repr as u8) };
     let a = unsafe { malloc(core::mem::size_of::<CatchSimpleArg>()) } as *mut CatchSimpleArg;
     unsafe {
         (*a).source = source;
         (*a).cb = cb;
         (*a).result = result;
+        (*a).ret_repr = ret_repr as u8;
         __torajs_rc_inc(source);
         __torajs_promise_attach_then(source, Some(catch_simple_dispatch), a as i64);
     }
@@ -224,6 +260,7 @@ struct CatchClosureArg {
     source: *mut c_void,
     env: *mut c_void,
     result: *mut c_void,
+    ret_repr: u8,
 }
 
 unsafe extern "C" fn catch_closure_dispatch(arg: i64) {
@@ -234,8 +271,10 @@ unsafe extern "C" fn catch_closure_dispatch(arg: i64) {
             let fn_ptr = *(((*a).env as *mut u8).add(8) as *const *mut c_void);
             let cb: ThenClosureFn = core::mem::transmute(fn_ptr);
             let result = cb((*a).env, (*src).value);
+            stamp_result_repr((*a).result, (*a).ret_repr);
             __torajs_promise_resolve((*a).result, result);
         } else {
+            stamp_result_repr((*a).result, (*src).value_repr);
             __torajs_promise_resolve((*a).result, (*src).value);
         }
         __torajs_promise_drop((*a).source);
@@ -248,16 +287,22 @@ unsafe extern "C" fn catch_closure_dispatch(arg: i64) {
 pub unsafe extern "C" fn __torajs_promise_catch_closure(
     source: *mut c_void,
     env: *mut c_void,
+    ret_repr: i64,
 ) -> *mut c_void {
     if source.is_null() || env.is_null() {
         return ptr::null_mut();
     }
     let result = unsafe { __torajs_promise_alloc_pending() };
+    // Pre-stamp with the cb-leg form — a chained attach lands before
+    // this cell settles and its any-lane gate must see a known form;
+    // the dispatcher overwrites on the forward leg.
+    unsafe { stamp_result_repr(result, ret_repr as u8) };
     let a = unsafe { malloc(core::mem::size_of::<CatchClosureArg>()) } as *mut CatchClosureArg;
     unsafe {
         (*a).source = source;
         (*a).env = env;
         (*a).result = result;
+        (*a).ret_repr = ret_repr as u8;
         __torajs_rc_inc(source);
         __torajs_rc_inc(env);
         __torajs_promise_attach_then(source, Some(catch_closure_dispatch), a as i64);
@@ -281,6 +326,7 @@ unsafe extern "C" fn finally_dispatch(arg: i64) {
     unsafe {
         let src = as_promise((*a).source);
         ((*a).cb)();
+        stamp_result_repr((*a).result, (*src).value_repr);
         if (*src).state == STATE_FULFILLED {
             __torajs_promise_resolve((*a).result, (*src).value);
         } else {
@@ -303,6 +349,10 @@ pub unsafe extern "C" fn __torajs_promise_finally(
     }
     let Some(cb) = cb else { return ptr::null_mut() };
     let result = unsafe { __torajs_promise_alloc_pending() };
+    // Pre-stamp from the source — finally forwards the settlement,
+    // so the source's current form is the best attach-time answer
+    // (the dispatcher re-copies after the source settles).
+    unsafe { stamp_result_repr(result, (*as_promise(source)).value_repr) };
     let a = unsafe { malloc(core::mem::size_of::<FinallyArg>()) } as *mut FinallyArg;
     unsafe {
         (*a).source = source;
@@ -332,6 +382,7 @@ unsafe extern "C" fn finally_closure_dispatch(arg: i64) {
         let fn_ptr = *(((*a).env as *mut u8).add(8) as *const *mut c_void);
         let cb: FinallyClosureFn = core::mem::transmute(fn_ptr);
         cb((*a).env);
+        stamp_result_repr((*a).result, (*src).value_repr);
         if (*src).state == STATE_FULFILLED {
             __torajs_promise_resolve((*a).result, (*src).value);
         } else {
@@ -352,6 +403,10 @@ pub unsafe extern "C" fn __torajs_promise_finally_closure(
         return ptr::null_mut();
     }
     let result = unsafe { __torajs_promise_alloc_pending() };
+    // Pre-stamp from the source — finally forwards the settlement,
+    // so the source's current form is the best attach-time answer
+    // (the dispatcher re-copies after the source settles).
+    unsafe { stamp_result_repr(result, (*as_promise(source)).value_repr) };
     let a = unsafe { malloc(core::mem::size_of::<FinallyClosureArg>()) } as *mut FinallyClosureArg;
     unsafe {
         (*a).source = source;

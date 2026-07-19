@@ -77,6 +77,9 @@ pub(crate) struct PromiseIds {
 
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) -> PromiseIds {
     let p_ptr = &[Type::Promise, Type::Ptr][..];
+    // knife 3 — then/catch entries carry the callback-return repr
+    // (RFC 20260720-anylane-promise-methods; finally forwards only).
+    let p_ptr_repr = &[Type::Promise, Type::Ptr, Type::I64][..];
     let ptr1 = &[Type::Ptr][..];
     let i641 = &[Type::I64][..];
     PromiseIds {
@@ -154,21 +157,21 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             module,
             fn_table,
             "__torajs_promise_then_simple",
-            p_ptr,
+            p_ptr_repr,
             Type::Promise,
         ),
         promise_then_closure: declare_intrinsic(
             module,
             fn_table,
             "__torajs_promise_then_closure",
-            p_ptr,
+            p_ptr_repr,
             Type::Promise,
         ),
         promise_catch_simple: declare_intrinsic(
             module,
             fn_table,
             "__torajs_promise_catch_simple",
-            p_ptr,
+            p_ptr_repr,
             Type::Promise,
         ),
         promise_finally: declare_intrinsic(
@@ -189,7 +192,7 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             module,
             fn_table,
             "__torajs_promise_catch_closure",
-            p_ptr,
+            p_ptr_repr,
             Type::Promise,
         ),
         promise_finally_closure: declare_intrinsic(

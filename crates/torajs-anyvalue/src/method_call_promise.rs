@@ -23,7 +23,7 @@
 
 use core::ffi::c_void;
 
-use torajs_rc::{__torajs_rc_inc, ANY_METHOD_CATCH, ANY_METHOD_THEN};
+use torajs_rc::{__torajs_rc_inc, ANY_METHOD_CATCH, ANY_METHOD_FINALLY, ANY_METHOD_THEN};
 
 use crate::method_call_closure_dispatch::{closure_boxed_entry, invoke_boxed};
 use crate::nanbox::{AnyValue, VALUE_NULL, VALUE_UNDEFINED};
@@ -70,7 +70,10 @@ unsafe extern "C" {
 /// closure ptr in here holds its own +1 stake (taken at attach,
 /// released by the dispatcher) — including `result`: the attach
 /// site's caller may discard the returned promise before the
-/// microtask fires, so the arg keeps it alive.
+/// microtask fires, so the arg keeps it alive. `is_finally`
+/// switches the dispatcher to the §27.2.5.3 shape: `on_ok` runs on
+/// EITHER settlement, argument-free, return ignored, settlement
+/// forwarded (a callback throw still wins as the rejection).
 #[repr(C)]
 struct ThenAnyArg {
     source: *mut c_void,
@@ -79,6 +82,7 @@ struct ThenAnyArg {
     on_err: *mut c_void,
     on_err_entry: u64,
     result: *mut c_void,
+    is_finally: i64,
 }
 
 /// `.then` / `.catch` on a Promise-tagged cell. `None` = a mid this
@@ -91,7 +95,7 @@ pub(crate) unsafe fn promise_method(
     argv: *const u64,
     argc: i64,
 ) -> Option<AnyValue> {
-    if mid != ANY_METHOD_THEN && mid != ANY_METHOD_CATCH {
+    if mid != ANY_METHOD_THEN && mid != ANY_METHOD_CATCH && mid != ANY_METHOD_FINALLY {
         return None;
     }
     unsafe {
@@ -110,10 +114,13 @@ pub(crate) unsafe fn promise_method(
         } else {
             VALUE_UNDEFINED
         };
-        let (ok_av, err_av) = if mid == ANY_METHOD_THEN {
-            (a0, a1)
-        } else {
-            (VALUE_UNDEFINED, a0)
+        // `finally(cb)` rides the on_ok slot (the dispatcher's
+        // is_finally mode runs it on either settlement); its extra
+        // args are ignored per §27.2.5.3.
+        let (ok_av, err_av) = match mid {
+            m if m == ANY_METHOD_CATCH => (VALUE_UNDEFINED, a0),
+            m if m == ANY_METHOD_FINALLY => (a0, VALUE_UNDEFINED),
+            _ => (a0, a1),
         };
         // §27.2.5.4 step 3/4 — non-callable handler slot is EMPTY.
         let (ok_env, ok_entry) = closure_boxed_entry(ok_av).unwrap_or((core::ptr::null_mut(), 0));
@@ -133,6 +140,7 @@ pub(crate) unsafe fn promise_method(
         (*a).on_err = err_env;
         (*a).on_err_entry = err_entry;
         (*a).result = result;
+        (*a).is_finally = (mid == ANY_METHOD_FINALLY) as i64;
         __torajs_rc_inc(ptr);
         __torajs_rc_inc(result);
         if !ok_env.is_null() {
@@ -207,7 +215,25 @@ unsafe extern "C" fn then_any_dispatch(arg: i64) {
             ((*a).on_ok, (*a).on_ok_entry)
         };
         let result = (*a).result;
-        if env.is_null() {
+        if (*a).is_finally != 0 {
+            // §27.2.5.3 — the callback runs argument-free on either
+            // settlement, its return is ignored (thenable-wait
+            // matches the typed kernel's posture), the settlement
+            // forwards; a callback throw wins as the rejection.
+            let cb = (*a).on_ok;
+            if !cb.is_null() {
+                let _ = invoke_boxed(cb, (*a).on_ok_entry, core::ptr::null(), 0);
+            }
+            if __torajs_throw_check() != 0 {
+                let ttag = __torajs_throw_take_tag();
+                let tval = __torajs_throw_take();
+                let reason = __torajs_anyv_box_from_pair(ttag, tval);
+                stamp_result(result, REPR_ANY, 1);
+                __torajs_promise_reject(result, reason as i64);
+            } else {
+                forward_settle(result, rejected, repr, is_heap, value);
+            }
+        } else if env.is_null() {
             forward_settle(result, rejected, repr, is_heap, value);
         } else {
             let cb_argv = [box_settled(repr, value)];
