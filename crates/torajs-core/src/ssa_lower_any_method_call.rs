@@ -166,6 +166,29 @@ pub(crate) fn pack_any_argv(
             ctx.ast.get_expr(aid),
             Expr::Ident(_) | Expr::Member { .. } | Expr::Regex { .. }
         );
+        // RFC 20260717-objlit-anylane-recv knife 2g — an inline
+        // ObjectLit argument at an any-lane call site rides the
+        // dynobj lane (mirror of the direct-call promotions:
+        // stmt_let_decl / call_terminal 62b46f13 / setPrototypeOf
+        // fa05bb71). Lowered as a struct it reaches the dispatcher
+        // as a TAG_OBJ cell the Any-gated kernels misdecode
+        // (`f = Object.entries; f({x:5})` answered `[null]`). The
+        // fresh dynobj is owned and its one stake rides the box
+        // (box_to_any's Ptr arm is a pure encode), so the slot goes
+        // through boxed_slots and the caller's post-call drop
+        // releases it. A literal carrying a nominal-`this` member
+        // hits lower_dynobj_init's loud-reject guard — a checkable
+        // error where the struct route was silent-wrong.
+        if matches!(ctx.ast.get_expr(aid), Expr::ObjectLit { .. }) {
+            let dynobj = ctx.lower_dynobj_init(aid);
+            let slot_val = ctx.box_to_any(dynobj);
+            ctx.f.append_void(
+                ctx.cur_block,
+                InstKind::Store(slot_val.clone(), Operand::Value(argv), (i * 8) as u64),
+            );
+            boxed_slots.push(Some(slot_val));
+            continue;
+        }
         let raw = ctx.lower_expr(aid);
         let raw_ty = ctx.operand_ty(&raw);
         let (slot_val, we_boxed) = if raw_ty == Type::Any {
