@@ -219,6 +219,11 @@ pub(crate) fn lower(ctx: &mut LowerCtx, val_op: Operand, ty: Type) -> Operand {
                 Type::Str,
                 None,
             );
+            // The runtime walk can leave a pending throw (an accessor
+            // entry's getter, the depth-cap cycle TypeError) — route
+            // it into the caller's catch machinery like every other
+            // throwing kernel call.
+            ctx.emit_throw_check(None);
             Operand::Value(v)
         }
         other => panic!("ssa-lower: JSON.stringify on type {other:?} not yet supported"),

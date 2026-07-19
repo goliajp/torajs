@@ -59,6 +59,10 @@ unsafe extern "C" {
     fn __torajs_f64_to_str(n: f64) -> *mut c_void;
     fn __torajs_str_drop(s: *mut c_void);
 
+    // torajs-dynobj — run an accessor entry's getter (§25.5.2.2's
+    // ? Get(holder, key); receiver borrowed, result owned).
+    fn __torajs_accessor_invoke_getter(pair: *const c_void, recv_anyv: u64) -> u64;
+
     // torajs-dynobj own-entry enumeration (the print walker's API).
     fn __torajs_dynobj_iter_len(obj: *const c_void) -> u64;
     fn __torajs_dynobj_iter_key(obj: *const c_void, i: u64) -> *mut c_void;
@@ -233,13 +237,33 @@ unsafe fn write_object(sb: *mut c_void, ptr: *mut c_void, depth: u32) {
             if __torajs_dynobj_iter_flags(ptr, i) & BUCKET_FLAG_ENUMERABLE == 0 {
                 continue;
             }
-            let value = __torajs_dynobj_iter_value(ptr, i);
+            let mut value = __torajs_dynobj_iter_value(ptr, i);
+            // §25.5.2.2 step 1 — the serialized value is ? Get(holder,
+            // key): an accessor entry stores its AccessorPair cell, so
+            // run the getter (receiver = the holder, borrowed into the
+            // invoke) instead of serializing the pair as an empty
+            // object. The result is OWNED (len_get's box_probe_pair
+            // convention); a pending throw aborts the walk and
+            // propagates through the caller's throw-check.
+            let owned = accessor_pair_of(value).is_some();
+            if let Some(pair) = accessor_pair_of(value) {
+                value = __torajs_accessor_invoke_getter(
+                    pair,
+                    crate::nanbox_encode::__torajs_anyv_box_from_pair(4, ptr as i64),
+                );
+                if __torajs_throw_check() != 0 {
+                    break;
+                }
+            }
             // Probe the value FIRST: an undefined / callable field
             // drops its key, so the separator and key bytes must not
             // be emitted speculatively. Serializing into a scratch
             // builder would cost an alloc per field — instead take
             // the cheap pre-check the split allows.
             if serializes_to_nothing(value) {
+                if owned {
+                    crate::nanbox_ffi::__torajs_anyv_rc_dec(value);
+                }
                 continue;
             }
             if emitted {
@@ -249,6 +273,9 @@ unsafe fn write_object(sb: *mut c_void, ptr: *mut c_void, depth: u32) {
             __torajs_jsb_push_str_quoted(sb, __torajs_dynobj_iter_key(ptr, i) as *const u8);
             __torajs_jsb_push_byte(sb, b':');
             write_value(sb, value, depth + 1);
+            if owned {
+                crate::nanbox_ffi::__torajs_anyv_rc_dec(value);
+            }
             if __torajs_throw_check() != 0 {
                 break;
             }
@@ -257,6 +284,24 @@ unsafe fn write_object(sb: *mut c_void, ptr: *mut c_void, depth: u32) {
             std::alloc::dealloc(order as *mut u8, order_layout);
         }
         __torajs_jsb_push_byte(sb, b'}');
+    }
+}
+
+/// The `AccessorPair` cell an entry's stored value points at, `None`
+/// for every data shape — the `write_object` walk's accessor-entry
+/// probe (heap-tag twin of dynobj `get_tag`'s `ANY_ACCESSOR`
+/// sentinel).
+unsafe fn accessor_pair_of(v: AnyValue) -> Option<*const c_void> {
+    unsafe {
+        if !is_cell(v) {
+            return None;
+        }
+        let ptr = as_void_ptr(v);
+        if (ptr.cast::<u8>().add(4) as *const u16).read() == Tag::AccessorPair as u16 {
+            Some(ptr as *const c_void)
+        } else {
+            None
+        }
     }
 }
 
