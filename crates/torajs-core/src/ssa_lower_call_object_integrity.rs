@@ -317,12 +317,27 @@ fn lower_is_sealed(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
 /// Any-boxed runtime core (invalid proto / cycle / non-extensible
 /// throw there); answers the receiver pass-through per spec.
 fn lower_set_prototype_of(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
-    let obj_op = ctx.lower_expr(args[0]);
-    let obj_ty = ctx.operand_ty(&obj_op);
-    let obj_boxed = if matches!(obj_ty, Type::Any) {
-        obj_op.clone()
+    // An ObjectLit receiver promotes to the dynobj lane (the
+    // defineProperty precedent at `lower_define_receiver`): the
+    // struct lane has no proto slot, so the runtime core's
+    // TAG_DYNOBJ gate silently no-opped the link — neither wrote
+    // nor threw (tr answered false where bun answers true). The
+    // fresh dynobj is already the owned result, so this shape skips
+    // the pass-through inc at the bottom.
+    let promoted = matches!(ctx.ast.get_expr(args[0]), Expr::ObjectLit { .. });
+    let (obj_op, obj_boxed) = if promoted {
+        let dynobj = ctx.lower_dynobj_init(args[0]);
+        let boxed = ctx.box_to_any(dynobj);
+        (boxed.clone(), boxed)
     } else {
-        ctx.box_to_any_from_expr(args[0], obj_op.clone())
+        let op = ctx.lower_expr(args[0]);
+        let ty = ctx.operand_ty(&op);
+        let boxed = if matches!(ty, Type::Any) {
+            op.clone()
+        } else {
+            ctx.box_to_any_from_expr(args[0], op.clone())
+        };
+        (op, boxed)
     };
     // A missing proto arg is `undefined` — the runtime core answers
     // the spec TypeError for it.
@@ -366,9 +381,13 @@ fn lower_set_prototype_of(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
     }
     ctx.emit_throw_check(None);
     // ES answers the receiver; the pass-through result carries its
-    // own ref (RFC 20260705 owned-result invariant).
-    let obj_ty = ctx.operand_ty(&obj_op);
-    ctx.emit_owned_result_inc(obj_op.clone(), obj_ty);
+    // own ref (RFC 20260705 owned-result invariant). The promoted
+    // literal is ALREADY that ref — inc'ing it too would strand the
+    // fresh dynobj one count above its owners.
+    if !promoted {
+        let obj_ty = ctx.operand_ty(&obj_op);
+        ctx.emit_owned_result_inc(obj_op.clone(), obj_ty);
+    }
     obj_op
 }
 
