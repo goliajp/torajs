@@ -194,7 +194,7 @@ pub(crate) unsafe fn map_set_method(
                 let Some((cb_env, cb_entry)) = closure_boxed_entry(arg_at(0)) else {
                     return not_callable();
                 };
-                map_set_for_each(m, is_set, cb_env, cb_entry)
+                map_set_for_each(m, is_set, cb_env, cb_entry, arg_at(1))
             }
             m2 if is_set
                 && matches!(
@@ -301,6 +301,7 @@ unsafe fn map_set_for_each(
     is_set: bool,
     cb_env: *mut c_void,
     cb_entry: u64,
+    this_arg: u64,
 ) -> AnyValue {
     unsafe {
         let cb: BoxedFn = core::mem::transmute(cb_entry as usize);
@@ -330,6 +331,11 @@ unsafe fn map_set_for_each(
                 __torajs_anyv_box_from_pair(vt, vp)
             };
             let mut argv = [VALUE_UNDEFINED; MAX_BOXED_ARGS];
+            if s == 1 {
+                // knife 4 — the thisArg (or undefined) rides argv[0]
+                // for a receiver-first callback (§24.1.3.5 step 5).
+                argv[0] = this_arg;
+            }
             argv[s] = v_boxed;
             argv[s + 1] = k_boxed;
             argv[s + 2] = m_boxed;
