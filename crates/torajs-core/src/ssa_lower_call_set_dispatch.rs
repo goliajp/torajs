@@ -70,7 +70,7 @@ pub(crate) fn try_lower(
     // receivers (Expr::Member / Index / Call) fall back to the checked type.
     let recv_ty_hint = match ctx.ast.get_expr(obj) {
         Expr::Ident(n) => ctx.locals.get(n).map(|info| info.ty),
-        Expr::Member { .. } | Expr::Index { .. } | Expr::Call { .. } => {
+        Expr::Member { .. } | Expr::Index { .. } | Expr::Call { .. } | Expr::New { .. } => {
             match ctx.expr_types.get(&obj) {
                 Some(check_mod::Type::Map) => Some(Type::Map),
                 Some(check_mod::Type::Set) => Some(Type::Set),
