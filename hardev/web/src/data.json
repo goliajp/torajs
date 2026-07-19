@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-19T15:34:16.930Z",
+  "generatedAt": "2026-07-19T16:21:53.445Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 94.78
   },
   "torajs": {
-    "commit": "fa05bb71",
-    "commitSubject": "fix: setPrototypeOf promotes an ObjectLit receiver to the dynobj lane",
+    "commit": "bb449de7",
+    "commitSubject": "fix: setPrototypeOf null over an implicit chain is a real transition",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "bb449de7",
+      "subject": "fix: setPrototypeOf null over an implicit chain is a real transition"
+    },
+    {
+      "hash": "688b6290",
+      "subject": "style: fmt-drift fix for the objlit promotion gate"
+    },
+    {
+      "hash": "4f2675ad",
+      "subject": "fix: gate the objlit argv promotion on any-face members only"
+    },
+    {
+      "hash": "808464e1",
+      "subject": "fix: inline objlit args at any-lane call sites ride the dynobj lane"
+    },
+    {
+      "hash": "1d7e7a19",
+      "subject": "feat: symbol.for and keyFor accept any-typed direct-call arguments"
+    },
+    {
+      "hash": "2f487279",
+      "subject": "chore: hardev dashboard snapshot at rotation 153 close"
+    },
+    {
       "hash": "fa05bb71",
       "subject": "fix: setPrototypeOf promotes an ObjectLit receiver to the dynobj lane"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "9e8eeea8",
       "subject": "chore: hardev dashboard snapshot at rotation 152 close"
-    },
-    {
-      "hash": "5f4763ee",
-      "subject": "feat: JSON.stringify serializes any-lane values at runtime"
-    },
-    {
-      "hash": "92f45bd5",
-      "subject": "refactor: split the ns-static dispatch table into a sibling module"
-    },
-    {
-      "hash": "5dbb6b03",
-      "subject": "feat: Number/Array/Object statics reify as values, retiring the isArray stub"
-    },
-    {
-      "hash": "7343d528",
-      "subject": "feat: console stdout-family statics reify as values with spec length fold"
-    },
-    {
-      "hash": "e16127ab",
-      "subject": "feat: namespace-static builtin methods reify as callable values (Math family)"
-    },
-    {
-      "hash": "ccdbee65",
-      "subject": "chore: hardev dashboard snapshot at rotation 151 close"
     }
   ],
-  "headSha": "fa05bb71",
+  "headSha": "bb449de7",
   "autorun": {
-    "total": 458,
+    "total": 459,
     "baselineTarget": 10,
-    "bySelf": 453,
+    "bySelf": 454,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784469229-12ca",
-      "at": "2026-07-19T13:53:49Z",
-      "ts": 1784469229,
+      "rotationId": "r-1784475359-79b9",
+      "at": "2026-07-19T15:35:59Z",
+      "ts": 1784475359,
       "trigger": "self",
-      "prevHead": "9e8eeea8",
-      "handoffSha": "sha256:56c1289167223c6163f1606a99599495591a0dde7eaef7e47e026540ae38f86e",
-      "handoffAgeSec": 7,
+      "prevHead": "2f487279",
+      "handoffSha": "sha256:25efcef26c76d8949a95513b1609e7f4e513103368f455c2192501219de1e6bc",
+      "handoffAgeSec": 10,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784475359-79b9",
+        "at": "2026-07-19T15:35:59Z",
+        "ts": 1784475359,
+        "trigger": "self",
+        "prevHead": "2f487279",
+        "handoffSha": "sha256:25efcef26c76d8949a95513b1609e7f4e513103368f455c2192501219de1e6bc",
+        "handoffAgeSec": 10,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784469229-12ca",
         "at": "2026-07-19T13:53:49Z",
@@ -876,17 +887,6 @@
         "prevHead": "efda278f",
         "handoffSha": "sha256:1c7322fd1e9d8ffae38f10a73d5b4ed35a5f6f781e36a881d7191b13547d41b4",
         "handoffAgeSec": 78,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784389772-15e4",
-        "at": "2026-07-18T15:49:32Z",
-        "ts": 1784389772,
-        "trigger": "self",
-        "prevHead": "a620505b",
-        "handoffSha": "sha256:ad885be961d3890663ad3ae5a61af317e061a22a7693834699bfb299181063ec",
-        "handoffAgeSec": 9,
         "conformanceBefore": null,
         "commitsInSession": null
       }
