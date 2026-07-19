@@ -142,6 +142,103 @@ const MEMBER_SET_CLOSURE_PROPS_OFF: usize = 24;
 /// `torajs-wrapper::WRAPPER_PROPS_OFF` (RFC 20260716 刀 5, rotation
 /// 121). Every wrapper cell layout is `[header:8][value:8][props:8]`.
 const MEMBER_SET_WRAPPER_PROPS_OFF: usize = 16;
+/// `Tag::DynObj` receiver — the ordinary own-entry write, plus the
+/// Annex B §B.2.2.1 `__proto__` setter route.
+unsafe fn set_dynobj_member(
+    recv_slot: *mut AnyValue,
+    recv: AnyValue,
+    ptr: *mut c_void,
+    key: *mut c_void,
+    tag: u64,
+    value: u64,
+) {
+    unsafe {
+        // Annex B §B.2.2.1 — `o.__proto__ = v` runs the
+        // inherited setter, not an ordinary entry write (RFC
+        // 20260717-user-proto-chain knife 3): [[SetPrototypeOf]]
+        // with the cycle walk; an invalid v is silently ignored.
+        // The null-proto shape has no inherited setter — its
+        // write IS an ordinary own entry (the dynobj_set below).
+        // An own `__proto__` DATA entry (shorthand `{__proto__}`
+        // / defineProperty) shadows the setter the same way
+        // (§10.1.9.2 OrdinarySet finds the own data property
+        // first) — its write stays ordinary too.
+        let hdr_flags = (ptr.cast::<u8>().add(6) as *const u16).read();
+        if hdr_flags & DYNOBJ_HDR_FLAG_NULL_PROTO == 0
+            && crate::prop_has::key_is(key, b"__proto__")
+            && __torajs_dynobj_has(ptr, key as *const c_void) == 0
+        {
+            let boxed = __torajs_anyv_box_from_pair(tag as i64, value as i64);
+            __torajs_anyv_proto_member_set(recv, boxed);
+            // The setter takes its own stake on the stored cell;
+            // the caller's transferred reference dies here.
+            drop_payload(tag, value);
+            return;
+        }
+        let mut obj = ptr;
+        __torajs_dynobj_set(&mut obj, key, tag, value);
+        if obj != ptr {
+            // Relocated block — the NaN-box cell encoding is the
+            // pointer bits; transfer, no rc traffic (same object
+            // identity, moved storage).
+            *recv_slot = __torajs_anyv_box_from_pair(4, obj as i64);
+        }
+        return;
+    }
+}
+
+/// `Tag::Arr` receiver — RFC 20260712-arr-exotic-define chunk C
+/// own-domain routing, so an index key reaches element storage
+/// instead of landing in the expando dynobj.
+unsafe fn set_arr_member(ptr: *mut c_void, key: *mut c_void, tag: u64, value: u64, hint: i64) {
+    unsafe {
+        // RFC 20260712-arr-exotic-define chunk C — own-domain
+        // routing for the dynamic string key. Pre-fix every
+        // `o[k] = v` landed in the expando dynobj: an index key
+        // never reached element storage (the write "succeeded"
+        // but reads answered the old element), and a "length"
+        // key missed the resize path.
+        if hint == ANY_WPROP_ARR_LENGTH || crate::prop_has::key_is(key, b"length") {
+            __torajs_arr_set_length_any(ptr, tag as i64, value as i64);
+            return;
+        }
+        if let Some(idx) = crate::prop_has::canonical_index(key) {
+            // An accessor index writes through its setter (RFC
+            // 20260713 chunk C) — checked before the writable
+            // gate, which would misread the pair entry's dead w
+            // bit as a readonly data property.
+            let pair = __torajs_arr_index_accessor(ptr, idx);
+            if !pair.is_null() {
+                let value_anyv = __torajs_anyv_box_from_pair(tag as i64, value as i64);
+                let recv_anyv = __torajs_anyv_box_from_pair(4, ptr as i64);
+                if __torajs_accessor_invoke_setter(pair, recv_anyv, value_anyv) == 0 {
+                    __torajs_throw_type_error(
+                        c"Attempted to assign to readonly property.".as_ptr(),
+                    );
+                }
+                return;
+            }
+            let flags = __torajs_arr_index_flags(ptr, idx);
+            if flags & crate::prop_has::ARR_F_HOLE != 0 {
+                // A deleted index is absent — the set re-creates
+                // it as a fresh default data property (chunk C;
+                // the shadow upsert clears the hole sentinel).
+                __torajs_arr_index_set(ptr, idx as i64, tag, value);
+                __torajs_arr_index_revive(ptr, key as *mut c_void);
+                return;
+            }
+            if flags & 0x1 == 0 {
+                drop_payload(tag, value);
+                __torajs_throw_type_error(c"Attempted to assign to readonly property.".as_ptr());
+                return;
+            }
+            __torajs_arr_index_set(ptr, idx as i64, tag, value);
+            return;
+        }
+        __torajs_arrprops_set(ptr, key, tag as i64, value as i64);
+        return;
+    }
+}
 
 /// intern: `ANY_RPROP_LAST_INDEX` for `lastIndex`,
 /// `ANY_WPROP_ARR_LENGTH` for `length`, −1 otherwise.
@@ -166,36 +263,7 @@ pub unsafe extern "C" fn __torajs_any_member_set(
         let ptr = as_void_ptr(recv);
         let cell_tag = (ptr.cast::<u8>().add(4) as *const u16).read();
         if cell_tag == Tag::DynObj as u16 {
-            // Annex B §B.2.2.1 — `o.__proto__ = v` runs the
-            // inherited setter, not an ordinary entry write (RFC
-            // 20260717-user-proto-chain knife 3): [[SetPrototypeOf]]
-            // with the cycle walk; an invalid v is silently ignored.
-            // The null-proto shape has no inherited setter — its
-            // write IS an ordinary own entry (the dynobj_set below).
-            // An own `__proto__` DATA entry (shorthand `{__proto__}`
-            // / defineProperty) shadows the setter the same way
-            // (§10.1.9.2 OrdinarySet finds the own data property
-            // first) — its write stays ordinary too.
-            let hdr_flags = (ptr.cast::<u8>().add(6) as *const u16).read();
-            if hdr_flags & DYNOBJ_HDR_FLAG_NULL_PROTO == 0
-                && crate::prop_has::key_is(key, b"__proto__")
-                && __torajs_dynobj_has(ptr, key as *const c_void) == 0
-            {
-                let boxed = __torajs_anyv_box_from_pair(tag as i64, value as i64);
-                __torajs_anyv_proto_member_set(recv, boxed);
-                // The setter takes its own stake on the stored cell;
-                // the caller's transferred reference dies here.
-                drop_payload(tag, value);
-                return;
-            }
-            let mut obj = ptr;
-            __torajs_dynobj_set(&mut obj, key, tag, value);
-            if obj != ptr {
-                // Relocated block — the NaN-box cell encoding is the
-                // pointer bits; transfer, no rc traffic (same object
-                // identity, moved storage).
-                *recv_slot = __torajs_anyv_box_from_pair(4, obj as i64);
-            }
+            set_dynobj_member(recv_slot, recv, ptr, key, tag, value);
             return;
         }
         if cell_tag == Tag::RegExp as u16 && hint == ANY_RPROP_LAST_INDEX {
@@ -271,52 +339,7 @@ pub unsafe extern "C" fn __torajs_any_member_set(
             }
         }
         if cell_tag == Tag::Arr as u16 {
-            // RFC 20260712-arr-exotic-define chunk C — own-domain
-            // routing for the dynamic string key. Pre-fix every
-            // `o[k] = v` landed in the expando dynobj: an index key
-            // never reached element storage (the write "succeeded"
-            // but reads answered the old element), and a "length"
-            // key missed the resize path.
-            if hint == ANY_WPROP_ARR_LENGTH || crate::prop_has::key_is(key, b"length") {
-                __torajs_arr_set_length_any(ptr, tag as i64, value as i64);
-                return;
-            }
-            if let Some(idx) = crate::prop_has::canonical_index(key) {
-                // An accessor index writes through its setter (RFC
-                // 20260713 chunk C) — checked before the writable
-                // gate, which would misread the pair entry's dead w
-                // bit as a readonly data property.
-                let pair = __torajs_arr_index_accessor(ptr, idx);
-                if !pair.is_null() {
-                    let value_anyv = __torajs_anyv_box_from_pair(tag as i64, value as i64);
-                    let recv_anyv = __torajs_anyv_box_from_pair(4, ptr as i64);
-                    if __torajs_accessor_invoke_setter(pair, recv_anyv, value_anyv) == 0 {
-                        __torajs_throw_type_error(
-                            c"Attempted to assign to readonly property.".as_ptr(),
-                        );
-                    }
-                    return;
-                }
-                let flags = __torajs_arr_index_flags(ptr, idx);
-                if flags & crate::prop_has::ARR_F_HOLE != 0 {
-                    // A deleted index is absent — the set re-creates
-                    // it as a fresh default data property (chunk C;
-                    // the shadow upsert clears the hole sentinel).
-                    __torajs_arr_index_set(ptr, idx as i64, tag, value);
-                    __torajs_arr_index_revive(ptr, key as *mut c_void);
-                    return;
-                }
-                if flags & 0x1 == 0 {
-                    drop_payload(tag, value);
-                    __torajs_throw_type_error(
-                        c"Attempted to assign to readonly property.".as_ptr(),
-                    );
-                    return;
-                }
-                __torajs_arr_index_set(ptr, idx as i64, tag, value);
-                return;
-            }
-            __torajs_arrprops_set(ptr, key, tag as i64, value as i64);
+            set_arr_member(ptr, key, tag, value, hint);
             return;
         }
         // RFC 20260716 刀 5 (rotation 121 chunk 4) — a primitive-
