@@ -193,7 +193,7 @@ fn try_lower_call_or_closure_callee(
 /// Emit env-first ABI CallIndirect for a `Type::Closure` callee:
 /// load fn_ptr from `CLOSURE_FN_ADDR_OFF`, prepend env_ptr to argv,
 /// intern an env-first signature for the indirect call.
-fn emit_closure_callee(
+pub(crate) fn emit_closure_callee(
     ctx: &mut LowerCtx<'_>,
     eid: ExprId,
     callee_op: Operand,
@@ -276,7 +276,7 @@ fn emit_closure_callee(
 }
 
 /// Emit direct CallIndirect for a `Type::FnSig` callee (no env prefix).
-fn emit_fnsig_callee(
+pub(crate) fn emit_fnsig_callee(
     ctx: &mut LowerCtx<'_>,
     eid: ExprId,
     callee_op: Operand,

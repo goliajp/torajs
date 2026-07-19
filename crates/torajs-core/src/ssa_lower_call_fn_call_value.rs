@@ -58,5 +58,44 @@ pub(crate) fn try_lower(
     if let Some(op) = crate::ssa_lower_call_closure_local::try_lower(ctx, eid, obj, &rest) {
         return Some(op);
     }
-    crate::ssa_lower_call_fn_indirect::try_lower(ctx, eid, obj, &rest)
+    if let Some(op) = crate::ssa_lower_call_fn_indirect::try_lower(ctx, eid, obj, &rest) {
+        return Some(op);
+    }
+    // Direct member form (`Math.max.call(...)` — the value was never
+    // bound to a local): neither replay arm admits a Member obj, but
+    // the member VALUE read itself lowers (the ns-static mint /
+    // fn-typed field arms), so lower it and dispatch on the SSA
+    // repr. An ns-static cell must take the BOXED dual entry — its
+    // fn_addr is the typed-slot boundary throw, the real dispatcher
+    // lives behind CLOSURE_BOXED_ENTRY_OFF (the same lane
+    // variadic_locals routes an alias call through); every other
+    // Closure/FnSig repr keeps the env-first / direct emitters the
+    // generalized-indirect arm uses. A non-callable repr falls
+    // through to the resolve_callee panic exactly as before.
+    if matches!(ctx.ast.get_expr(obj), Expr::Member { .. }) {
+        let is_ns_static =
+            crate::ssa_lower_stmt_let_decl_general::ns_static_member_init_id(ctx, obj).is_some();
+        let callee_op = ctx.lower_expr(obj);
+        match ctx.operand_ty(&callee_op) {
+            crate::ssa::Type::Closure(sig) if is_ns_static => {
+                return Some(
+                    crate::ssa_lower_call_closure_local::emit_variadic_boxed_call(
+                        ctx, callee_op, sig, &rest,
+                    ),
+                );
+            }
+            crate::ssa::Type::Closure(sig) => {
+                return Some(crate::ssa_lower_call_fn_indirect::emit_closure_callee(
+                    ctx, eid, callee_op, sig, &rest,
+                ));
+            }
+            crate::ssa::Type::FnSig(sig) => {
+                return Some(crate::ssa_lower_call_fn_indirect::emit_fnsig_callee(
+                    ctx, eid, callee_op, sig, &rest,
+                ));
+            }
+            _ => {}
+        }
+    }
+    None
 }

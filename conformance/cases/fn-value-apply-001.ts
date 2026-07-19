@@ -5,11 +5,12 @@
 // them rejected as `not callable: type Any` while `.call` worked,
 // and the shipped fixtures only ever exercised `.call`.
 //
-// Two recorded boundaries, both shared with `.call` (probed): the
-// DIRECT member form `Math.max.apply(...)` / `Math.max.call(...)`
-// panics in ssa-lower (the wedge admits Ident-held values only) —
-// L3b; a runtime (non-literal) argsArray keeps the loud reject
-// until a variadic spread substrate exists.
+// One recorded boundary: a runtime (non-literal) argsArray keeps
+// the loud reject until a variadic spread substrate exists. The
+// DIRECT member form (`Math.max.apply(...)`) works too — an
+// ns-static member callee takes the boxed dual entry (its fn_addr
+// is the typed-slot boundary throw), any other fn-typed member the
+// env-first / direct emitters.
 function add(a: number, b: number): number {
   return a + b;
 }
@@ -42,3 +43,11 @@ console.log(sf.apply(null, ["ap.key"]) === Symbol.for("ap.key"));
 
 // call/apply parity on the same value
 console.log(f.call(null, 8, 9), f.apply(null, [8, 9]));
+
+// direct member forms — ns-static cells ride the boxed dual entry,
+// a struct-field closure the env-first ABI
+console.log(Math.max.apply(null, [3, 9]), Math.max.call(null, 3, 9));
+console.log(Object.keys.apply(null, [{ p: 1, q: 2 }]));
+console.log(Symbol.for.call(null, "d.d") === Symbol.for("d.d"));
+const o = { g: (a: number, b: number): number => a * b };
+console.log(o.g.call(null, 2, 3), o.g.apply(null, [4, 5]));
