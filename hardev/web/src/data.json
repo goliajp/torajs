@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-19T13:53:30.358Z",
+  "generatedAt": "2026-07-19T15:34:16.930Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 94.78
   },
   "torajs": {
-    "commit": "5f4763ee",
-    "commitSubject": "feat: JSON.stringify serializes any-lane values at runtime",
+    "commit": "fa05bb71",
+    "commitSubject": "fix: setPrototypeOf promotes an ObjectLit receiver to the dynobj lane",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "fa05bb71",
+      "subject": "fix: setPrototypeOf promotes an ObjectLit receiver to the dynobj lane"
+    },
+    {
+      "hash": "c85b04e8",
+      "subject": "feat: direct-member call/apply dispatches by callee repr"
+    },
+    {
+      "hash": "a0c2fa7f",
+      "subject": "feat: Function.prototype.apply on statically fn-typed values"
+    },
+    {
+      "hash": "a5496bbf",
+      "subject": "feat: Symbol.for and keyFor reify as values through the registry kernels"
+    },
+    {
+      "hash": "114e1e08",
+      "subject": "feat: Object statics reify as values, stamping the own-keys element kind"
+    },
+    {
+      "hash": "9e8eeea8",
+      "subject": "chore: hardev dashboard snapshot at rotation 152 close"
+    },
+    {
       "hash": "5f4763ee",
       "subject": "feat: JSON.stringify serializes any-lane values at runtime"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "ccdbee65",
       "subject": "chore: hardev dashboard snapshot at rotation 151 close"
-    },
-    {
-      "hash": "0c871ed6",
-      "subject": "feat: builtin constructor identity through .constructor reads and bare ident values"
-    },
-    {
-      "hash": "974984c5",
-      "subject": "feat: fn toLocaleString answers the toString source on both tiers"
-    },
-    {
-      "hash": "6544ff66",
-      "subject": "feat: Function.prototype.call on statically fn-typed values"
-    },
-    {
-      "hash": "f8aaea2b",
-      "subject": "feat: any-lane struct member miss reads through the class prototype chain"
-    },
-    {
-      "hash": "29ad1cf1",
-      "subject": "feat: class-method faces answer toString source through their adapter registry row"
-    },
-    {
-      "hash": "911a90a6",
-      "subject": "feat: namespace-static builtin methods answer the JSC named native form"
     }
   ],
-  "headSha": "5f4763ee",
+  "headSha": "fa05bb71",
   "autorun": {
-    "total": 457,
+    "total": 458,
     "baselineTarget": 10,
-    "bySelf": 452,
+    "bySelf": 453,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784463203-02dd",
-      "at": "2026-07-19T12:13:23Z",
-      "ts": 1784463203,
+      "rotationId": "r-1784469229-12ca",
+      "at": "2026-07-19T13:53:49Z",
+      "ts": 1784469229,
       "trigger": "self",
-      "prevHead": "ccdbee65",
-      "handoffSha": "sha256:04480667225c59c5af5a5238487edd5973ada198f923dc89ec6bb49c741decb5",
-      "handoffAgeSec": 8,
+      "prevHead": "9e8eeea8",
+      "handoffSha": "sha256:56c1289167223c6163f1606a99599495591a0dde7eaef7e47e026540ae38f86e",
+      "handoffAgeSec": 7,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784469229-12ca",
+        "at": "2026-07-19T13:53:49Z",
+        "ts": 1784469229,
+        "trigger": "self",
+        "prevHead": "9e8eeea8",
+        "handoffSha": "sha256:56c1289167223c6163f1606a99599495591a0dde7eaef7e47e026540ae38f86e",
+        "handoffAgeSec": 7,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784463203-02dd",
         "at": "2026-07-19T12:13:23Z",
@@ -876,17 +887,6 @@
         "prevHead": "a620505b",
         "handoffSha": "sha256:ad885be961d3890663ad3ae5a61af317e061a22a7693834699bfb299181063ec",
         "handoffAgeSec": 9,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784384215-5a39",
-        "at": "2026-07-18T14:16:55Z",
-        "ts": 1784384215,
-        "trigger": "self",
-        "prevHead": "9ad75edc",
-        "handoffSha": "sha256:a60f4df4249dacbdb46d8d28b815fc1762d256291bc505ac8014f75326499d20",
-        "handoffAgeSec": 5,
         "conformanceBefore": null,
         "commitsInSession": null
       }
