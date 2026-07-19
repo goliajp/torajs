@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-19T18:25:49.214Z",
+  "generatedAt": "2026-07-19T18:36:06.733Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 94.78
   },
   "torajs": {
-    "commit": "61c59943",
-    "commitSubject": "fix: mapset foreach seeds the thisarg for receiver-first callbacks",
+    "commit": "2795af56",
+    "commitSubject": "feat: fn-expr this binds through typed-array hof callbacks with thisarg",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "2795af56",
+      "subject": "feat: fn-expr this binds through typed-array hof callbacks with thisarg"
+    },
+    {
+      "hash": "9be7aa34",
+      "subject": "chore: hardev dashboard snapshot at rotation 155 close"
+    },
+    {
       "hash": "61c59943",
       "subject": "fix: mapset foreach seeds the thisarg for receiver-first callbacks"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "164e9091",
       "subject": "test: lock toprimitive hint order on string concat and numeric contexts"
-    },
-    {
-      "hash": "ba27d937",
-      "subject": "test: lock arr expando method-call shadow behavior on any receivers"
-    },
-    {
-      "hash": "1ccb2928",
-      "subject": "chore: hardev dashboard snapshot at rotation 154 close"
     }
   ],
-  "headSha": "61c59943",
+  "headSha": "2795af56",
   "autorun": {
     "total": 460,
     "baselineTarget": 10,
