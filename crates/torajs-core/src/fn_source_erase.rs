@@ -35,7 +35,12 @@ pub(crate) fn erase_types(src: &str, ann_spans: &[Span], fn_span: Span) -> Strin
     let mut cuts: Vec<(usize, usize)> = ann_spans
         .iter()
         .filter(|s| (s.start as usize) >= lo && (s.end as usize) <= hi)
-        .map(|s| (extend_over_introducer(bytes, s.start as usize, lo), s.end as usize))
+        .map(|s| {
+            (
+                extend_over_introducer(bytes, s.start as usize, lo),
+                s.end as usize,
+            )
+        })
         .collect();
     cuts.sort_unstable();
     let mut out = String::with_capacity(hi - lo);
@@ -99,19 +104,19 @@ mod tests {
     fn erased_first_fn(src: &str) -> String {
         let tokens = tokenize(src).expect("tokenize");
         let ast = parse(src, &tokens).expect("parse");
-        let span = ast
-            .stmts
-            .iter()
-            .find_map(|s| match s {
-                Stmt::FnDecl { span, .. } if span.start != 0 || span.end != 0 => Some(*span),
-                _ => None,
-            })
-            .or_else(|| {
-                ast.exprs.iter().enumerate().find_map(|(i, e)| {
-                    matches!(e, Expr::ArrowFn { .. }).then(|| ast.expr_spans[i])
+        let span =
+            ast.stmts
+                .iter()
+                .find_map(|s| match s {
+                    Stmt::FnDecl { span, .. } if span.start != 0 || span.end != 0 => Some(*span),
+                    _ => None,
                 })
-            })
-            .expect("a spanned fn-like node");
+                .or_else(|| {
+                    ast.exprs.iter().enumerate().find_map(|(i, e)| {
+                        matches!(e, Expr::ArrowFn { .. }).then(|| ast.expr_spans[i])
+                    })
+                })
+                .expect("a spanned fn-like node");
         erase_types(src, &ast.type_ann_spans, span)
     }
 
@@ -119,7 +124,10 @@ mod tests {
     fn fn_decl_params_and_return_erase() {
         // bun ground truth from the 2026-07-19 probe.
         let src = "function f(a: number, b: number): number {\n  return a + b;\n}\n";
-        assert_eq!(erased_first_fn(src), "function f(a, b) {\n  return a + b;\n}");
+        assert_eq!(
+            erased_first_fn(src),
+            "function f(a, b) {\n  return a + b;\n}"
+        );
     }
 
     #[test]
@@ -164,6 +172,9 @@ mod tests {
     #[test]
     fn untyped_source_is_identity() {
         let src = "function plain(a, b) {\n  return a + b;\n}\n";
-        assert_eq!(erased_first_fn(src), "function plain(a, b) {\n  return a + b;\n}");
+        assert_eq!(
+            erased_first_fn(src),
+            "function plain(a, b) {\n  return a + b;\n}"
+        );
     }
 }
