@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-19T16:56:03.121Z",
+  "generatedAt": "2026-07-19T17:04:53.800Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 94.78
   },
   "torajs": {
-    "commit": "56bbfa42",
-    "commitSubject": "fix: nested-fn lift runs before the fn-to-closure collector",
+    "commit": "48c9c5d2",
+    "commitSubject": "fix: typeof member reads answer the runtime shadow on any receivers",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "48c9c5d2",
+      "subject": "fix: typeof member reads answer the runtime shadow on any receivers"
+    },
+    {
+      "hash": "ce539fdf",
+      "subject": "chore: hardev dashboard snapshot at rotation 154 close"
+    },
+    {
       "hash": "56bbfa42",
       "subject": "fix: nested-fn lift runs before the fn-to-closure collector"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "1d7e7a19",
       "subject": "feat: symbol.for and keyFor accept any-typed direct-call arguments"
-    },
-    {
-      "hash": "2f487279",
-      "subject": "chore: hardev dashboard snapshot at rotation 153 close"
-    },
-    {
-      "hash": "fa05bb71",
-      "subject": "fix: setPrototypeOf promotes an ObjectLit receiver to the dynobj lane"
     }
   ],
-  "headSha": "56bbfa42",
+  "headSha": "48c9c5d2",
   "autorun": {
     "total": 459,
     "baselineTarget": 10,
