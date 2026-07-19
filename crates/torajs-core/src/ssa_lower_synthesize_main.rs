@@ -100,6 +100,7 @@ pub(crate) fn synthesize_main(
             locals: HashMap::new(),
             argc_locals: std::collections::HashSet::new(),
             variadic_locals: std::collections::HashSet::new(),
+            ns_static_locals: HashMap::new(),
             scope_stack: vec![Vec::new()],
             shadow_stack: vec![Vec::new()],
             loop_stack: Vec::new(),

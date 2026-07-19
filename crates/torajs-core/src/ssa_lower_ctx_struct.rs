@@ -170,6 +170,12 @@ pub(crate) struct LowerCtx<'a> {
     /// declared-pair ABI — one binding serves closures of any
     /// declared arity.
     pub(crate) variadic_locals: std::collections::HashSet<String>,
+    /// RFC 20260719-ns-static-value-reify — bindings initialized
+    /// from a namespace-static VALUE read, name → table id. The
+    /// `.length` member fold reads the spec length off the shared
+    /// table row instead of the checker-sig param count (which is a
+    /// coincidence for Math and wrong for console's rest-shaped 0).
+    pub(crate) ns_static_locals: std::collections::HashMap<String, i64>,
     /// Stack of names declared in each enclosing lexical scope, with the
     /// fn-root scope as `scope_stack[0]`. M1.3 — at `}` close we pop the
     /// top frame and emit drops for owners declared at that depth, then

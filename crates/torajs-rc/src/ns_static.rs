@@ -63,6 +63,14 @@ pub static NS_STATIC_TABLE: &[NsStaticRow] = &[
     row("Math", "imul", 2),
     row("Math", "clz32", 1),
     row("Math", "random", 0),
+    // console stdout family (chunk B2) — WHATWG console §1.1: the
+    // methods are rest-param shaped, ES length 0 (bun agrees).
+    // error / warn stay OFF the table until an any-print stderr
+    // kernel exists (RFC records the face) — their value reads keep
+    // the loud unknown-ident reject.
+    row("console", "log", 0),
+    row("console", "info", 0),
+    row("console", "debug", 0),
 ];
 
 /// Compile-time `(namespace, member)` → id. Linear scan — lower-time

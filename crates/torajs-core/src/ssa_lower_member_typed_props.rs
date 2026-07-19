@@ -87,9 +87,32 @@ pub(crate) fn try_lower(
     if (matches!(obj_ty, Type::Closure(_)) || matches!(obj_ty, Type::FnSig(_)))
         && (name == "length" || name == "name")
     {
+        // RFC 20260719-ns-static-value-reify — an ns-static value's
+        // `.length` folds the shared table's spec length (`console
+        // .log.length` is 0; the sig param count below would say 1).
+        // `.name` stays on the runtime chain — the cell probe already
+        // answers it.
+        if name == "length"
+            && let Some(id) = ns_static_id_of_obj(ctx, obj)
+            && let Some(row) = torajs_rc::ns_static_meta(id)
+        {
+            return Some(Operand::ConstI64(i64::from(row.length)));
+        }
         return Some(lower_fn_length_or_name(ctx, obj_val, obj_ty, name));
     }
     None
+}
+
+/// The ns-static table id of a member READ receiver: a binding
+/// registered at its let-decl (`const f = console.log; f.length`) or
+/// the direct nested member form (`Math.max.length`).
+fn ns_static_id_of_obj(ctx: &LowerCtx<'_>, obj: ExprId) -> Option<i64> {
+    if let crate::ast::Expr::Ident(n) = ctx.ast.get_expr(obj)
+        && let Some(id) = ctx.ns_static_locals.get(n)
+    {
+        return Some(*id);
+    }
+    crate::ssa_lower_stmt_let_decl_general::ns_static_member_init_id(ctx, obj)
 }
 
 fn is_prim_for_constructor(obj_ty: Type) -> bool {

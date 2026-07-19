@@ -140,9 +140,12 @@ pub(crate) fn record_binding_flags(
     // routes its calls through the boxed dual entry: the minted
     // cell's fn_addr is the typed-slot boundary throw, its boxed
     // entry the real receiver-less dispatcher (and the dispatcher
-    // gives min/max-style variadic spec semantics for free).
-    if is_ns_static_member_init(ctx, init) {
+    // gives min/max-style variadic spec semantics for free). The id
+    // registers alongside so the `.length` member fold answers the
+    // table's spec length, not the checker-sig param count.
+    if let Some(id) = ns_static_member_init_id(ctx, init) {
         ctx.variadic_locals.insert(name.to_string());
+        ctx.ns_static_locals.insert(name.to_string(), id);
     }
     // RFC 20260707 residual chunk — record string-index let-inits
     // (`const c = s[i]`) and their aliases: the Substr slot may
@@ -154,23 +157,29 @@ pub(crate) fn record_binding_flags(
     }
 }
 
-/// True when `init` is a namespace-static VALUE read (`Math.max`) —
-/// the same three-part gate the member lowering mints under: table
-/// hit + obj typed `Type::Object` (a user binding shadowing `Math`
-/// never matches) + member typed `Function`.
-fn is_ns_static_member_init(ctx: &LowerCtx, init: ExprId) -> bool {
+/// The table id when `init` is a namespace-static VALUE read
+/// (`Math.max`) — the same three-part gate the member lowering mints
+/// under: table hit + obj typed `Type::Object` (a user binding
+/// shadowing `Math` never matches) + member typed `Function`.
+pub(crate) fn ns_static_member_init_id(ctx: &LowerCtx, init: ExprId) -> Option<i64> {
     let Expr::Member { obj, name } = ctx.ast.get_expr(init) else {
-        return false;
+        return None;
     };
     let Expr::Ident(ns) = ctx.ast.get_expr(*obj) else {
-        return false;
+        return None;
     };
-    torajs_rc::ns_static_id(ns, name) != torajs_rc::NS_STATIC_UNKNOWN
+    let id = torajs_rc::ns_static_id(ns, name);
+    if id != torajs_rc::NS_STATIC_UNKNOWN
         && matches!(ctx.expr_types.get(obj), Some(crate::check::Type::Object(_)))
         && matches!(
             ctx.expr_types.get(&init),
             Some(crate::check::Type::Function(..))
         )
+    {
+        Some(id)
+    } else {
+        None
+    }
 }
 
 /// Stage 3 — materialize the binding's slot (capture box for

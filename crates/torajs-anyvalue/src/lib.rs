@@ -472,6 +472,64 @@ mod tests {
     pub unsafe extern "C" fn __torajs_math_random() -> f64 {
         0.0
     }
+    /// The ns-static ConsoleLog dispatch arm makes
+    /// `__torajs_print_anyv_inline_top` reachable from the test
+    /// binary (the DISPATCH table is referenced by the lockstep
+    /// test), so `-dead_strip` no longer drops the inspect print
+    /// chain — its cross-staticlib print kernels need no-op stubs
+    /// (shipped binary resolves libtorajs_{arr,str,fmt,...}.a).
+    macro_rules! print_stub_ptr {
+        ($($n:ident),* $(,)?) => { $(
+            #[unsafe(no_mangle)]
+            pub unsafe extern "C" fn $n(_p: *const c_void) {}
+        )* };
+    }
+    print_stub_ptr!(
+        __torajs_bigint_print_inline,
+        __torajs_map_print,
+        __torajs_set_print,
+        __torajs_promise_print,
+        __torajs_regex_print_inline,
+        __torajs_symbol_print_inline,
+    );
+    macro_rules! print_stub_ptr_at {
+        ($($n:ident),* $(,)?) => { $(
+            #[unsafe(no_mangle)]
+            pub unsafe extern "C" fn $n(_p: *const c_void, _indent: u32) {}
+        )* };
+    }
+    print_stub_ptr_at!(
+        __torajs_arr_print_any_at,
+        __torajs_map_print_at,
+        __torajs_obj_print_any_at,
+        __torajs_set_print_at,
+    );
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_arr_print_any(_p: *const c_void) {}
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_obj_print_any(_p: *const c_void) {}
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_anyv_struct_print_inline(_v: u64) {}
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_anyv_struct_print_inline_at(_v: u64, _indent: u32) {}
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_fn_print_inline(_fn_addr: u64) {}
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_date_to_iso_string(_d: *const c_void) -> *mut u8 {
+        core::ptr::null_mut()
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_fmt_dtoa(_d: f64, _out: *mut u8, _cap: usize) -> i32 {
+        0
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_fmt_itoa(_n: i64, _out: *mut u8, _cap: usize) -> i32 {
+        0
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_str_print(_s: *const u8) {}
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_substr_print(_v: *const u8) {}
     /// RFC 20260707 chunk 3 — the shipped binary resolves the
     /// undefined sentinel cell from libtorajs_str.a; tests get a
     /// stable dummy address (identity compares still behave).

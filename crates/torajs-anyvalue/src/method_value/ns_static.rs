@@ -70,6 +70,14 @@ unsafe extern "C" {
     fn __torajs_math_random() -> f64;
 }
 
+/// Separator/newline byte between the tag-aware per-arg prints —
+/// the Rust-path call (torajs-io is a real Cargo dep) keeps the
+/// symbol linked in test binaries, where an extern-only reference
+/// leaves the rlib member dead-stripped.
+fn putc_stdout(c: u8) {
+    torajs_io::__torajs_io_putc_stdout(i32::from(c));
+}
+
 /// Per-id dispatch shape. Index-lockstep with
 /// [`torajs_rc::ns_static::NS_STATIC_TABLE`].
 enum Disp {
@@ -85,6 +93,10 @@ enum Disp {
     I32One(unsafe extern "C" fn(i64) -> i64),
     /// () → f64 (random).
     Nullary(unsafe extern "C" fn() -> f64),
+    /// WHATWG console stdout logger — per-arg tag-aware inline
+    /// print + `' '` separators + `'\n'` (the chunk-808 multiarg
+    /// phase-2 sequence; args are already evaluated in argv).
+    ConsoleLog,
 }
 
 static DISPATCH: &[Disp] = &[
@@ -123,6 +135,9 @@ static DISPATCH: &[Disp] = &[
     Disp::I32Pair(__torajs_math_imul),
     Disp::I32One(__torajs_math_clz32),
     Disp::Nullary(__torajs_math_random),
+    Disp::ConsoleLog, // console.log
+    Disp::ConsoleLog, // console.info — same stream per §1.1.2/.4
+    Disp::ConsoleLog, // console.debug
 ];
 
 /// Per-id interned cells + `.name` Str cells — same immortal
@@ -241,6 +256,16 @@ unsafe fn dispatch(id: i64, argv: *const u64, argc: i64) -> u64 {
                 Err(()) => VALUE_UNDEFINED,
             },
             Disp::Nullary(f) => box_double(f()),
+            Disp::ConsoleLog => {
+                for i in 0..argc {
+                    if i > 0 {
+                        putc_stdout(b' ');
+                    }
+                    crate::inspect::any::__torajs_print_anyv_inline_top(*argv.add(i as usize));
+                }
+                putc_stdout(b'\n');
+                VALUE_UNDEFINED
+            }
         }
     }
 }
