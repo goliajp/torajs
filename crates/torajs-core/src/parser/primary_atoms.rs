@@ -185,16 +185,19 @@ impl<'a> Parser<'a> {
                     let e = self.parse_expr()?;
                     vec![Stmt::Return(Some(e))]
                 };
-                return Ok(Some(self.ast.add_expr(Expr::ArrowFn {
-                    params: vec![Param {
-                        name: pname,
-                        type_ann: None,
-                        default: None,
-                        is_rest: false,
-                    }],
-                    return_type: None,
-                    body,
-                })));
+                return Ok(Some(self.add_expr_at(
+                    pos,
+                    Expr::ArrowFn {
+                        params: vec![Param {
+                            name: pname,
+                            type_ann: None,
+                            default: None,
+                            is_rest: false,
+                        }],
+                        return_type: None,
+                        body,
+                    },
+                )));
             }
         }
         Ok(None)

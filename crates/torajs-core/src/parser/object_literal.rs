@@ -303,6 +303,11 @@ impl<'a> Parser<'a> {
             }
         };
         self.pos += 1;
+        // Span anchor for the accessor / method-shorthand ArrowFns
+        // below — the member-name token (`get` / `set` / the method
+        // name), which is where their source text starts (RFC
+        // 20260719-fn-tostring-source B1).
+        let member_start_pos = self.pos - 1;
         // P-PARSE.4 — getter / setter shorthand `{ get NAME() {...} }`
         // / `{ set NAME(v) {...} }` per ES spec §12.7.6. Pre-fix the
         // parser saw `get` as a regular field name and bailed at the
@@ -394,11 +399,14 @@ impl<'a> Parser<'a> {
                     full.extend(body);
                     full
                 };
-                let value = self.ast.add_expr(Expr::ArrowFn {
-                    params,
-                    return_type,
-                    body,
-                });
+                let value = self.add_expr_at(
+                    member_start_pos,
+                    Expr::ArrowFn {
+                        params,
+                        return_type,
+                        body,
+                    },
+                );
                 self.ast.objlit_method_exprs.insert(value);
                 let synth = format!("__{kind}ter_{prop_name}");
                 return Ok((synth, value));
@@ -452,11 +460,14 @@ impl<'a> Parser<'a> {
                 full.extend(body);
                 full
             };
-            let value = self.ast.add_expr(Expr::ArrowFn {
-                params,
-                return_type,
-                body,
-            });
+            let value = self.add_expr_at(
+                member_start_pos,
+                Expr::ArrowFn {
+                    params,
+                    return_type,
+                    body,
+                },
+            );
             // RFC 20260714-objlit-accessor blade 1 — the ArrowFn node is
             // a lossy encoding of a method: an arrow takes the LEXICAL
             // `this`, a method binds it to the receiver. Record the

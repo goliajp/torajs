@@ -292,6 +292,30 @@ impl Parser<'_> {
         id
     }
 
+    /// Re-anchor an already-added expr's span to begin at
+    /// `start_pos`'s token (same byte formula as [`Self::add_expr_at`]).
+    /// For wrapper syntax parsed before the node's own parser ran —
+    /// `async (x) => …` delegates to `parse_arrow_fn`, whose anchor
+    /// sits on `(` and would drop the `async ` prefix from the
+    /// recorded source range (RFC 20260719-fn-tostring-source B1).
+    pub(super) fn respan_expr(&mut self, eid: ExprId, start_pos: usize) {
+        let start = self
+            .tokens
+            .get(start_pos)
+            .map(|t| t.span.start)
+            .unwrap_or(0);
+        let end = if self.pos > 0 {
+            self.tokens
+                .get(self.pos - 1)
+                .map(|t| t.span.end)
+                .unwrap_or(start)
+        } else {
+            start
+        };
+        self.ast
+            .set_expr_span(eid, crate::lexer::Span { start, end });
+    }
+
     fn parse_program(&mut self) -> Result<(), String> {
         while !matches!(self.peek(), Token::Eof) {
             let stmt = self.parse_stmt()?;

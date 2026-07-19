@@ -47,6 +47,10 @@ impl<'a> Parser<'a> {
                 r
             };
             if is_arrow {
+                // Span anchor — the `async` token (B1; the paren form
+                // delegates to parse_arrow_fn whose own anchor sits on
+                // `(`, so both sub-branches re-anchor below).
+                let start_pos = self.pos;
                 self.pos += 1; // consume `async`
                 let eid = if let Token::Ident(pname) = self.peek() {
                     // Single-param shorthand: `async x => body`.
@@ -89,6 +93,7 @@ impl<'a> Parser<'a> {
                     // `=>` / body.
                     self.parse_arrow_fn()?
                 };
+                self.respan_expr(eid, start_pos);
                 self.ast.async_fn_value_exprs.insert(eid);
                 return Ok(Some(eid));
             }
@@ -101,8 +106,12 @@ impl<'a> Parser<'a> {
             && let Some(next) = self.tokens.get(self.pos + 1)
             && matches!(next.token, Token::Function)
         {
+            let start_pos = self.pos;
             self.pos += 1; // consume `async` only
             let eid = self.parse_fn_expr()?;
+            // parse_fn_expr anchored at `function`; pull the span back
+            // to cover the `async ` prefix (B1).
+            self.respan_expr(eid, start_pos);
             if let Some(info) = self.ast.gen_fn_exprs.get_mut(&eid) {
                 // `async function*` — flip Generator → AsyncGenerator
                 // so the hoist pass wires blade 4's decl machinery.

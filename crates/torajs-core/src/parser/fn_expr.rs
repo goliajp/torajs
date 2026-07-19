@@ -119,7 +119,10 @@ impl<'a> Parser<'a> {
     /// expression names bind only inside the body, a feature out-of-
     /// scope for the subset).
     pub(super) fn parse_fn_expr(&mut self) -> Result<ExprId, String> {
-        // current token is `function`
+        // current token is `function` — the span anchor (RFC
+        // 20260719-fn-tostring-source B1: toString hands back the
+        // source slice, so every fn-like node records its byte range).
+        let start_pos = self.pos;
         self.pos += 1;
         // P-PARSE.5 → RFC 20260713-generator-fn-value-substrate blade 2:
         // `function*() {...}` generator function expressions parse for
@@ -192,11 +195,14 @@ impl<'a> Parser<'a> {
             full.extend(stmts);
             full
         };
-        let eid = self.ast.add_expr(Expr::ArrowFn {
-            params,
-            return_type,
-            body: stmts,
-        });
+        let eid = self.add_expr_at(
+            start_pos,
+            Expr::ArrowFn {
+                params,
+                return_type,
+                body: stmts,
+            },
+        );
         if is_generator {
             self.ast.gen_fn_exprs.insert(
                 eid,
@@ -222,7 +228,9 @@ impl<'a> Parser<'a> {
     }
 
     pub(super) fn parse_arrow_fn(&mut self) -> Result<ExprId, String> {
-        // assumes current token is `(`
+        // assumes current token is `(` — span anchor (B1, see
+        // parse_fn_expr).
+        let start_pos = self.pos;
         self.pos += 1;
         let mut params = Vec::new();
         // V3-18 wedge — destructuring patterns in arrow-fn params,
@@ -389,10 +397,99 @@ impl<'a> Parser<'a> {
             full.extend(body);
             full
         };
-        Ok(self.ast.add_expr(Expr::ArrowFn {
-            params,
-            return_type,
-            body,
-        }))
+        Ok(self.add_expr_at(
+            start_pos,
+            Expr::ArrowFn {
+                params,
+                return_type,
+                body,
+            },
+        ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::ast::Expr;
+    use crate::lexer::tokenize;
+    use crate::parser::parse;
+
+    /// Slice `src` by the span of the first `Expr::ArrowFn` the parse
+    /// produced (RFC 20260719-fn-tostring-source B1 — toString hands
+    /// back this exact byte range, so the span must cover the full
+    /// fn-like form).
+    fn first_arrow_span_text(src: &str) -> String {
+        let tokens = tokenize(src).expect("tokenize");
+        let ast = parse(src, &tokens).expect("parse");
+        let (eid, _) = ast
+            .exprs
+            .iter()
+            .enumerate()
+            .find(|(_, e)| matches!(e, Expr::ArrowFn { .. }))
+            .expect("an ArrowFn node");
+        let span = &ast.expr_spans[eid];
+        assert!(
+            span.start != 0 || span.end != 0,
+            "ArrowFn span left at the (0,0) sentinel"
+        );
+        src[span.start as usize..span.end as usize].to_string()
+    }
+
+    #[test]
+    fn fn_expr_span_covers_keyword_to_body_brace() {
+        let text = first_arrow_span_text("const f = function (a: number) { return a; };");
+        assert_eq!(text, "function (a: number) { return a; }");
+    }
+
+    #[test]
+    fn named_fn_expr_span_includes_self_name() {
+        let text = first_arrow_span_text("const f = function me(a: number) { return a; };");
+        assert_eq!(text, "function me(a: number) { return a; }");
+    }
+
+    #[test]
+    fn paren_arrow_span_covers_params_to_body() {
+        let text = first_arrow_span_text("const g = (x: number) => x * 2;");
+        assert_eq!(text, "(x: number) => x * 2");
+    }
+
+    #[test]
+    fn bare_arrow_span_starts_at_param_ident() {
+        let text = first_arrow_span_text("const h = x => x + 1;");
+        assert_eq!(text, "x => x + 1");
+    }
+
+    #[test]
+    fn async_paren_arrow_span_includes_async_prefix() {
+        let text = first_arrow_span_text("const i = async (x: number) => x;");
+        assert_eq!(text, "async (x: number) => x");
+    }
+
+    #[test]
+    fn async_bare_arrow_span_includes_async_prefix() {
+        let text = first_arrow_span_text("const j = async x => x;");
+        assert_eq!(text, "async x => x");
+    }
+
+    #[test]
+    fn objlit_method_shorthand_span_starts_at_name() {
+        let text = first_arrow_span_text("const o = { m(a: number): number { return a; } };");
+        assert_eq!(text, "m(a: number): number { return a; }");
+    }
+
+    #[test]
+    fn objlit_getter_span_starts_at_get_keyword() {
+        let text = first_arrow_span_text("const p = { get v(): number { return 1; } };");
+        assert_eq!(text, "get v(): number { return 1; }");
+    }
+
+    #[test]
+    fn multiline_fn_expr_span_preserves_inner_whitespace() {
+        let src = "const f = function (a: number, b: number): number {\n  return a + b;\n};\n";
+        let text = first_arrow_span_text(src);
+        assert_eq!(
+            text,
+            "function (a: number, b: number): number {\n  return a + b;\n}"
+        );
     }
 }
