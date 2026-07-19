@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-19T18:15:10.429Z",
+  "generatedAt": "2026-07-19T18:25:49.214Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 94.78
   },
   "torajs": {
-    "commit": "8612108e",
-    "commitSubject": "feat: fn-expr this binds through array hof callbacks with thisarg on any receivers",
+    "commit": "61c59943",
+    "commitSubject": "fix: mapset foreach seeds the thisarg for receiver-first callbacks",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "61c59943",
+      "subject": "fix: mapset foreach seeds the thisarg for receiver-first callbacks"
+    },
+    {
+      "hash": "1cc2eea1",
+      "subject": "chore: hardev dashboard snapshot at rotation 155 close"
+    },
+    {
       "hash": "8612108e",
       "subject": "feat: fn-expr this binds through array hof callbacks with thisarg on any receivers"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "1ccb2928",
       "subject": "chore: hardev dashboard snapshot at rotation 154 close"
-    },
-    {
-      "hash": "48c9c5d2",
-      "subject": "fix: typeof member reads answer the runtime shadow on any receivers"
-    },
-    {
-      "hash": "ce539fdf",
-      "subject": "chore: hardev dashboard snapshot at rotation 154 close"
     }
   ],
-  "headSha": "8612108e",
+  "headSha": "61c59943",
   "autorun": {
     "total": 460,
     "baselineTarget": 10,
