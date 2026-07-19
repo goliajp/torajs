@@ -36,6 +36,7 @@ mod escape_analyze;
 mod expr;
 mod fill_optional_fields;
 pub(crate) mod fnexpr_this;
+pub(crate) mod fnexpr_this_recvs;
 mod fold_fromentries;
 mod forwarders;
 mod forwarders_object;
