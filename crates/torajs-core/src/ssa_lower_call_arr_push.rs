@@ -334,16 +334,12 @@ fn try_lower_field(ctx: &mut LowerCtx<'_>, recv_id: ExprId, args: &[ExprId]) -> 
         field_ty,
         None,
     );
-    let mut val = ctx.lower_expr(args[0]);
-    // Chunk 575 — see coerce_push_value: stored arrays chain-mark.
-    ctx.emit_arr_mark_kind(&val);
-    // W4 — align with the elem width. (Field path doesn't include the
-    // Substr→Str owned path; receiver-field arrays don't get for-of-str
-    // bound-substrs pushed into them in practice.)
-    if elem_ty == Type::F64 && ctx.operand_ty(&val) == Type::I64 {
-        val = ctx.coerce_to_f64(val);
-    }
-    let push_arg = ctx.raw_slot_arg(val);
+    // The shared push coercion (chain-mark, bool → i64, W4 width
+    // align, Substr / Any materialize) — the field path's historical
+    // inline copy lacked the Substr and Any arms, so an admitted Any
+    // arg would have raw-written box bits into the typed slot.
+    let (val, val_owned_from_substr) = coerce_push_value(ctx, args[0], elem_ty);
+    let push_arg = ctx.raw_slot_arg(val.clone());
     let new_arr = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Call(
@@ -353,8 +349,8 @@ fn try_lower_field(ctx: &mut LowerCtx<'_>, recv_id: ExprId, args: &[ExprId]) -> 
         field_ty,
         None,
     );
-    if elem_ty.is_refcounted() {
-        ctx.emit_rc_inc(val);
+    if elem_ty.is_refcounted() && !val_owned_from_substr {
+        ctx.emit_rc_inc(val.clone());
         // Chunk 733 — owned-shape arg hand-off (see try_lower_index).
         ctx.release_owned_temp(args[0], &val);
     }
@@ -395,6 +391,28 @@ pub(crate) fn coerce_push_value(
     let mut val_owned_from_substr = false;
     val = match (elem_ty, ctx.operand_ty(&val)) {
         (Type::F64, Type::I64) => ctx.coerce_to_f64(val),
+        // Any arg into a scalar/Str elem slot — unbox at the store
+        // boundary (checker push/unshift 1-arg Any admit pairing).
+        // The coerced Str is fresh rc=1, so it rides the same
+        // skip-inc hand-off flag as the substr lane; the original
+        // box's stake settles when the arg was an owned temp
+        // (any-arith result), while borrow shapes stay with their
+        // binding.
+        (t @ (Type::F64 | Type::I64), Type::Any) => {
+            let n = ctx.coerce_any_to_number(val.clone(), t);
+            if ctx.expr_transfers_ownership(arg_eid) {
+                ctx.emit_drop_value(val, Type::Any);
+            }
+            n
+        }
+        (Type::Str, Type::Any) => {
+            let s = ctx.coerce_to_str(val.clone(), Type::Any);
+            if ctx.expr_transfers_ownership(arg_eid) {
+                ctx.emit_drop_value(val, Type::Any);
+            }
+            val_owned_from_substr = true;
+            s
+        }
         (Type::I64, Type::F64) => panic!(
             "ssa-lower: f64 value into i64 array elem via push — \
              container width analysis missed this write"

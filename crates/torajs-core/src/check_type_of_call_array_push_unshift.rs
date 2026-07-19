@@ -31,7 +31,7 @@ pub(crate) fn try_match(
     else {
         return None;
     };
-    if !matches!(m_name.as_str(), "push" | "unshift") || args.len() == 1 {
+    if !matches!(m_name.as_str(), "push" | "unshift") {
         return None;
     }
     let src_ty = match checker.type_of(ast, *src_id) {
@@ -42,6 +42,28 @@ pub(crate) fn try_match(
         return None;
     };
     let inner = (*elem).clone();
+    if args.len() == 1 {
+        // TS any-assignability at the 1-arg boundary: an Any arg into
+        // a Number/String elem array admits (`out.push(a * 2)` with
+        // a: any — bun accepts), paired with `coerce_push_value`'s
+        // Any→scalar/Str arm on the lowering side. Every OTHER 1-arg
+        // shape keeps the generic arg-unify path and its admit stack
+        // (Nullable match / empty-[] contextual / container widen),
+        // so only the Any-arg form is intercepted; the ret is the
+        // member-table's Number (new length), unlike the variadic
+        // arm's unsurfaced Void below.
+        if !matches!(inner, Type::Number | Type::String) {
+            return None;
+        }
+        let aty = match checker.type_of(ast, args[0]) {
+            Ok(t) => t,
+            Err(e) => return Some(Err(e)),
+        };
+        if aty != Type::Any {
+            return None;
+        }
+        return Some(Ok(Type::Number));
+    }
     for (i, aid) in args.iter().enumerate() {
         let aty = match checker.type_of(ast, *aid) {
             Ok(t) => t,
