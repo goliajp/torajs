@@ -424,9 +424,15 @@ pub(crate) fn builtin_method_supported(recv: AnyValue, mid: i64) -> bool {
     // valueOf joins them (§20.1.4.7 — identity on every cell, the
     // immediate itself on primitives; the dispatcher's universal
     // arm makes it callable everywhere).
+    // isPrototypeOf joins them for the same reason (§20.1.3.3 — an
+    // Object.prototype method the dispatcher already answers on every
+    // receiver); it was callable but not readable, so `typeof
+    // o.isPrototypeOf` needed a name-based shortcut in ssa_lower to
+    // avoid saying "undefined".
     if mid == torajs_rc::ANY_METHOD_HAS_OWN_PROPERTY
         || mid == torajs_rc::ANY_METHOD_PROPERTY_IS_ENUMERABLE
         || mid == torajs_rc::ANY_METHOD_VALUE_OF
+        || mid == torajs_rc::ANY_METHOD_IS_PROTOTYPE_OF
     {
         return true;
     }
@@ -466,7 +472,14 @@ pub(crate) fn builtin_method_supported(recv: AnyValue, mid: i64) -> bool {
         // here and said undefined. Their remaining methods resolve by
         // name probe, not by mid.
         t if t == Tag::DynObj as u16 || t == Tag::Obj as u16 => {
-            mid == torajs_rc::ANY_METHOD_TO_LOCALE_STRING
+            // toString sits beside toLocaleString: both are inherited
+            // from Object.prototype and the dispatcher has always
+            // answered the call (`({}).toString()` is
+            // "[object Object]"), but only toLocaleString was
+            // declared here, so reading the same method as a value
+            // (`const m = o.toString`) came back undefined.
+            mid == ANY_METHOD_TO_STRING
+                || mid == torajs_rc::ANY_METHOD_TO_LOCALE_STRING
                 || (torajs_rc::ANY_METHOD_DEFINE_GETTER..=torajs_rc::ANY_METHOD_LOOKUP_SETTER)
                     .contains(&mid)
         }

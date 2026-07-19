@@ -13,19 +13,33 @@ use crate::ast::{Expr, ExprId};
 use crate::ssa_lower::LowerCtx;
 
 pub(crate) fn try_member_typeof(ctx: &LowerCtx<'_>, expr: ExprId) -> Option<&'static str> {
-    // Layer 3: Object-prototype-method on any receiver → "function".
+    // Layer 3: the Object-prototype names whose value read still
+    // cannot be trusted, answered by name alone.
+    //
+    // This list used to carry seven names, which made `typeof` lie
+    // about any object that shadows one of them
+    // (`{ toString: undefined }` answered "function"). Four of them
+    // now resolve correctly at runtime and have been dropped:
+    // hasOwnProperty, propertyIsEnumerable, valueOf and
+    // isPrototypeOf all read back as real callables on every
+    // receiver shape tested, shadowed or not.
+    //
+    // The three that stay are the ones a runtime answer would get
+    // wrong, both tracked in plan-state L3b:
+    //   - constructor is not a method at all and has no value-read
+    //     support, so runtime says "undefined" everywhere.
+    //   - toString / toLocaleString read back on plain objects now,
+    //     but not on closures — and there the call itself throws, so
+    //     declaring them readable would hand out a value that cannot
+    //     be called. Keeping the shortcut preserves bun's answer for
+    //     the closure receiver at the cost of still lying about a
+    //     shadowed toString.
     if let Expr::Member {
         name: member_name, ..
     } = ctx.ast.get_expr(expr)
         && matches!(
             member_name.as_str(),
-            "constructor"
-                | "hasOwnProperty"
-                | "propertyIsEnumerable"
-                | "isPrototypeOf"
-                | "valueOf"
-                | "toString"
-                | "toLocaleString"
+            "constructor" | "toString" | "toLocaleString"
         )
     {
         return Some("function");
