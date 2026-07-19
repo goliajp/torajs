@@ -83,7 +83,11 @@ pub(crate) fn try_match(
     }
     Some(Ok(match m_name.as_str() {
         "for" => Type::Symbol,
-        "keyFor" => Type::Nullable(Box::new(Type::String)),
+        // §20.4.2.6 answers string | undefined — a Nullable<String>
+        // slot cannot spell undefined (NULL printed "null", static
+        // typeof said "string"), so the call types Any and rides the
+        // any-lane kernel (rotation 155, mirrors the Any-arg route).
+        "keyFor" => Type::Any,
         _ => unreachable!(),
     }))
 }

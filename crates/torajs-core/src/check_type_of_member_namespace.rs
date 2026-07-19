@@ -220,11 +220,13 @@ pub(crate) fn try_match(obj_ty: &Type, name: &str) -> Option<Result<Type, String
         }
         /* Symbol.keyFor(s) — inverse: returns the key
          * Symbol.for() registered the symbol under, or
-         * null for unregistered (Symbol(...)) symbols. */
-        (Type::Object("Symbol"), "keyFor") => Type::Function(
-            vec![Type::Symbol],
-            Box::new(Type::Nullable(Box::new(Type::String))),
-        ),
+         * undefined for unregistered (Symbol(...)) symbols.
+         * Types Any (not Nullable<String>): the typed tier
+         * cannot spell undefined in a Nullable slot, so the
+         * call rides the any-lane kernel (rotation 155). */
+        (Type::Object("Symbol"), "keyFor") => {
+            Type::Function(vec![Type::Symbol], Box::new(Type::Any))
+        }
         _ => return None,
     };
     let _ = obj_ty;
