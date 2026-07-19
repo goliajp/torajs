@@ -353,6 +353,30 @@ impl<'a> LowerCtx<'a> {
         }
     }
 
+    /// RFC 20260717 knife 2g promotion gate — an ObjectLit at an
+    /// any-lane argv slot is safe to promote to the dynobj lane only
+    /// when every closure-valued field (method or accessor face,
+    /// recursively through nested literals) carries an any-face
+    /// `__this` or none: a nominal-this face would hit
+    /// `guard_anylane_recv_face`'s reject and turn a working
+    /// struct-lane shape into a compile error (gate regression
+    /// error-proto-tostring-001's `.call({ get name() {...} })`),
+    /// and a promoted nominal method reads struct offsets off a
+    /// dynobj receiver if invoked. Non-promotable literals keep the
+    /// pre-existing struct route.
+    pub(crate) fn objlit_promotable(&self, eid: ExprId) -> bool {
+        let Expr::ObjectLit { fields } = self.ast.get_expr(eid) else {
+            return false;
+        };
+        fields.iter().all(|(_, feid)| match self.ast.get_expr(*feid) {
+            Expr::Closure { fn_name, .. } => {
+                matches!(self.closure_this_ann(fn_name).as_deref(), None | Some("any"))
+            }
+            Expr::ObjectLit { .. } => self.objlit_promotable(*feid),
+            _ => true,
+        })
+    }
+
     /// The `__this` param ann of a lifted closure's FnDecl — `None`
     /// when the fn has no receiver param (this-free face).
     fn closure_this_ann(&self, fn_name: &str) -> Option<String> {

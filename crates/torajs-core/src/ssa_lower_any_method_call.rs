@@ -176,10 +176,13 @@ pub(crate) fn pack_any_argv(
         // fresh dynobj is owned and its one stake rides the box
         // (box_to_any's Ptr arm is a pure encode), so the slot goes
         // through boxed_slots and the caller's post-call drop
-        // releases it. A literal carrying a nominal-`this` member
-        // hits lower_dynobj_init's loud-reject guard — a checkable
-        // error where the struct route was silent-wrong.
-        if matches!(ctx.ast.get_expr(aid), Expr::ObjectLit { .. }) {
+        // releases it. Gated on `objlit_promotable`: a literal
+        // carrying a nominal-`this` face (method or accessor) keeps
+        // the pre-existing struct route — promoting it would hit
+        // lower_dynobj_init's loud-reject guard and turn working
+        // struct-lane shapes into compile errors (gate regression
+        // error-proto-tostring-001).
+        if matches!(ctx.ast.get_expr(aid), Expr::ObjectLit { .. }) && ctx.objlit_promotable(aid) {
             let dynobj = ctx.lower_dynobj_init(aid);
             let slot_val = ctx.box_to_any(dynobj);
             ctx.f.append_void(
