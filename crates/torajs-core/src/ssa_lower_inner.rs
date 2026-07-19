@@ -412,14 +412,24 @@ fn register_toplevel_globals(
     // named-fn value site answers the same singleton (ES identity).
     // Deliberately NOT in `globals`: no user-name resolution and no
     // exit drop — the fn object lives for the program, bun-equal.
+    // Chunk 2 extends the same singleton scheme to the naked
+    // accessor-face mint (fns the forwarder collector doesn't
+    // rewrite — nested `__nested___top_*` lifts): one
+    // `__fncell_naked_*` slot per FnDecl, 8 zero-init bytes each,
+    // lazily minted only if a face ever evaluates.
     for stmt in &ast.stmts {
-        if let crate::ast::Stmt::FnDecl { name, .. } = stmt
-            && name.starts_with("__forward_")
-        {
-            data_globals_out.push(ssa::DataGlobal {
-                name: format!("__fncell_{name}"),
-                ty: Type::Ptr,
-            });
+        if let crate::ast::Stmt::FnDecl { name, .. } = stmt {
+            if name.starts_with("__forward_") {
+                data_globals_out.push(ssa::DataGlobal {
+                    name: format!("__fncell_{name}"),
+                    ty: Type::Ptr,
+                });
+            } else {
+                data_globals_out.push(ssa::DataGlobal {
+                    name: format!("__fncell_naked_{name}"),
+                    ty: Type::Ptr,
+                });
+            }
         }
     }
     data_globals_out.sort_by(|a, b| a.name.cmp(&b.name));

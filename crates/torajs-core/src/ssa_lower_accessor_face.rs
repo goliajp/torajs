@@ -8,7 +8,7 @@
 //! [`crate::ssa_lower_accessor`].
 
 use crate::ast::ExprId;
-use crate::ssa::{InstKind, Operand, Type};
+use crate::ssa::{IPred, InstKind, Operand, Terminator, Type};
 use crate::ssa_lower::LowerCtx;
 
 /// Map an SSA value type to the accessor value-ABI kind the runtime
@@ -87,7 +87,8 @@ pub(crate) fn lower_accessor_face(ctx: &mut LowerCtx, eid: ExprId, is_get: bool)
                 .first()
                 .map_or(0, accessor_kind_of)
         };
-        return (mint_named_fn_env(ctx, fid), k | 0x80);
+        let fn_name = name.clone();
+        return (canonical_named_fn_cell(ctx, fid, &fn_name), k | 0x80);
     }
     // RFC 20260717-fnexpr-this-channel knife 1 — a fn-expr face whose
     // body says `this` was given a `__this` first param by
@@ -137,6 +138,74 @@ pub(crate) fn lower_accessor_face(ctx: &mut LowerCtx, eid: ExprId, is_get: bool)
         accessor_param_kind(ctx, &op)
     };
     (op, k)
+}
+
+/// RFC 20260717-namedfn-canonical-cell chunk 2 — the naked-face
+/// mint rides a per-fn hidden `__fncell_naked_*` slot (the chunk-1
+/// `__forward_*` lazy-once mirror): an ES fn object is a SINGLETON,
+/// so two accessor faces over the same named fn must compare equal
+/// (`gOPD(o).get === gOPD(p).get`). This lane only sees fns the
+/// forwarder collector didn't rewrite (nested `__nested___top_*`
+/// lifts — a rewritten face arrives as a Closure and never reaches
+/// the FnSig arm). The slot keeps a permanent stake; each use
+/// answers the cell +1, so the caller's owned-face contract
+/// (`bf094d85`) is unchanged.
+fn canonical_named_fn_cell(ctx: &mut LowerCtx, fid: crate::ssa::FuncId, name: &str) -> Operand {
+    let sig = *ctx.fn_sig_ids.get(&fid).expect("named fn has a signature");
+    let closure_ty = Type::Closure(sig);
+    let gref = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::GlobalRef(format!("__fncell_naked_{name}")),
+        Type::Ptr,
+        None,
+    );
+    let cached = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(closure_ty, Operand::Value(gref), 0),
+        closure_ty,
+        None,
+    );
+    let res_slot = ctx.alloca(closure_ty, Some("__fncell_naked_res"));
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Store(Operand::Value(cached), Operand::Value(res_slot), 0),
+    );
+    let is_null = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::ICmp(IPred::Eq, Operand::Value(cached), Operand::ConstPtrNull),
+        Type::Bool,
+        None,
+    );
+    let mint_blk = ctx.f.add_block();
+    let join_blk = ctx.f.add_block();
+    ctx.f.set_term(
+        ctx.cur_block,
+        Terminator::CondBr {
+            cond: Operand::Value(is_null),
+            then_blk: mint_blk,
+            else_blk: join_blk,
+        },
+    );
+    ctx.cur_block = mint_blk;
+    let minted = mint_named_fn_env(ctx, fid);
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Store(minted.clone(), Operand::Value(gref), 0),
+    );
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Store(minted, Operand::Value(res_slot), 0),
+    );
+    ctx.f.set_term(ctx.cur_block, Terminator::Br(join_blk));
+    ctx.cur_block = join_blk;
+    let v = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(closure_ty, Operand::Value(res_slot), 0),
+        closure_ty,
+        None,
+    );
+    ctx.emit_rc_inc(Operand::Value(v));
+    Operand::Value(v)
 }
 
 /// Zero-capture env cell for a named top-level fn used as an
