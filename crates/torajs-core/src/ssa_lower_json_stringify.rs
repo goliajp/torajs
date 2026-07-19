@@ -205,6 +205,22 @@ pub(crate) fn lower(ctx: &mut LowerCtx, val_op: Operand, ty: Type) -> Operand {
             let p = ctx.intern_string_literal("null");
             Operand::Value(p)
         }
+        // RFC 20260719-ns-static-value-reify B3b — an any-lane
+        // argument has no static shape to unfold, so the walk happens
+        // at runtime (same JsonBuilder output path, so a shape both
+        // tiers can express serializes byte-identically). A NULL
+        // answer is the §25.5.2 `undefined` result (a top-level
+        // undefined / callable argument); the undefined Str sentinel
+        // carries that through the Str-typed slot.
+        Type::Any => {
+            let v = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.anyv_json_stringify, vec![val_op]),
+                Type::Str,
+                None,
+            );
+            Operand::Value(v)
+        }
         other => panic!("ssa-lower: JSON.stringify on type {other:?} not yet supported"),
     }
 }

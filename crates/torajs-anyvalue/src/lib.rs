@@ -92,7 +92,7 @@ mod arith;
 pub(crate) mod arr_locale_string;
 mod coerce;
 mod compare;
-mod index_any;
+pub(crate) mod index_any;
 mod iter_any;
 mod len_get;
 mod locale_list;
@@ -139,6 +139,7 @@ mod to_primitive;
 mod wrapper_view_through;
 
 pub mod inspect;
+pub mod json_stringify;
 pub mod loose_eq;
 
 pub mod nanbox;
@@ -483,6 +484,50 @@ mod tests {
     #[unsafe(no_mangle)]
     pub unsafe extern "C" fn __torajs_substr_to_owned(_s: *const u8) -> *mut c_void {
         core::ptr::null_mut()
+    }
+    /// RFC 20260719 B3b — the any-lane JSON serializer's builder /
+    /// dynobj-enumeration kernels (shipped binary resolves
+    /// libtorajs_str.a / libtorajs_dynobj.a). Same dead-strip
+    /// reasoning as the print chain above.
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_jsb_new(_cap: u32) -> *mut c_void {
+        core::ptr::null_mut()
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_jsb_push_byte(_sb: *mut c_void, _b: u8) {}
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_jsb_push_str_raw(_sb: *mut c_void, _s: *const u8) {}
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_jsb_push_str_quoted(_sb: *mut c_void, _s: *const u8) {}
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_jsb_push_i64(_sb: *mut c_void, _n: i64) {}
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_jsb_finalize(_sb: *mut c_void) -> *mut u8 {
+        core::ptr::null_mut()
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_dynobj_iter_len(_o: *const c_void) -> u64 {
+        0
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_dynobj_iter_key(_o: *const c_void, _i: u64) -> *mut c_void {
+        core::ptr::null_mut()
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_dynobj_iter_value(_o: *const c_void, _i: u64) -> u64 {
+        0
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_dynobj_iter_flags(_o: *const c_void, _i: u64) -> u64 {
+        0
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_dynobj_iter_order(
+        _o: *const c_void,
+        _out: *mut u64,
+        _cap: u64,
+    ) -> u64 {
+        0
     }
     /// The ns-static ConsoleLog dispatch arm makes
     /// `__torajs_print_anyv_inline_top` reachable from the test

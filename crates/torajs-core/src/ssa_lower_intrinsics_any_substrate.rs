@@ -86,6 +86,10 @@ pub(crate) struct AnySubstrateIds {
     /// cell for a namespace static read as a VALUE (`Math.max`);
     /// Closure-repr borrow of an immortal cell.
     pub ns_static_cell: FuncId,
+    /// RFC 20260719-ns-static-value-reify B3b — `JSON.stringify` over
+    /// an any-lane value (the typed tier unfolds a per-shape walk;
+    /// this is the runtime twin). NULL answer = `undefined` result.
+    pub anyv_json_stringify: FuncId,
     pub class_register: FuncId,
     /// RFC 20260718-builtin-error-ctor-first-class 刀 1 — installs
     /// the §20.5.6.3/6.4 own `name` / `message` data properties on
@@ -213,6 +217,7 @@ pub(crate) fn declare(
         proto_get: decl!("__torajs_anyv_proto_get", [I64], Any),
         builtin_ctor_value: decl!("__torajs_builtin_ctor_value", [I64], Any),
         ns_static_cell: decl!("__torajs_ns_static_cell", [I64], Ptr),
+        anyv_json_stringify: decl!("__torajs_anyv_json_stringify", [Any], Str),
         class_register: decl!("__torajs_anyv_class_register", [I64, Any, I64, I64], Void),
         error_proto_install: decl!("__torajs_error_proto_install", [I64, Str], Void),
         error_is_error: decl!("__torajs_error_is_error", [Any], Bool),
