@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-19T16:21:53.445Z",
+  "generatedAt": "2026-07-19T16:36:03.426Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 94.78
   },
   "torajs": {
-    "commit": "bb449de7",
-    "commitSubject": "fix: setPrototypeOf null over an implicit chain is a real transition",
+    "commit": "605bb307",
+    "commitSubject": "feat: naked accessor faces answer one canonical cell per named fn",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,18 @@
   },
   "commits": [
     {
+      "hash": "605bb307",
+      "subject": "feat: naked accessor faces answer one canonical cell per named fn"
+    },
+    {
+      "hash": "6d8bd367",
+      "subject": "test: lock the any-annotated empty array literal faces"
+    },
+    {
+      "hash": "d4562fe4",
+      "subject": "chore: hardev dashboard snapshot at rotation 154 close"
+    },
+    {
       "hash": "bb449de7",
       "subject": "fix: setPrototypeOf null over an implicit chain is a real transition"
     },
@@ -747,21 +759,9 @@
     {
       "hash": "a0c2fa7f",
       "subject": "feat: Function.prototype.apply on statically fn-typed values"
-    },
-    {
-      "hash": "a5496bbf",
-      "subject": "feat: Symbol.for and keyFor reify as values through the registry kernels"
-    },
-    {
-      "hash": "114e1e08",
-      "subject": "feat: Object statics reify as values, stamping the own-keys element kind"
-    },
-    {
-      "hash": "9e8eeea8",
-      "subject": "chore: hardev dashboard snapshot at rotation 152 close"
     }
   ],
-  "headSha": "bb449de7",
+  "headSha": "605bb307",
   "autorun": {
     "total": 459,
     "baselineTarget": 10,
