@@ -67,49 +67,7 @@ pub(crate) fn try_dispatch(
         // typed element lanes cannot hold holes — both keep the
         // inline loop.
         if elem_ty == Type::Any && !want_bool {
-            let needle_raw = ctx.lower_expr(args[0]);
-            let needle_box = ctx.box_to_any_from_expr(args[0], needle_raw.clone());
-            let from = if args.len() > 1 {
-                let f_raw = ctx.lower_expr(args[1]);
-                match ctx.operand_ty(&f_raw) {
-                    Type::I64 => f_raw,
-                    Type::F64 => ctx.coerce_to_i64(f_raw),
-                    Type::Any => {
-                        let n = ctx.coerce_any_to_number(f_raw, Type::F64);
-                        ctx.coerce_to_i64(n)
-                    }
-                    // Undefined and exotic shapes take the spec
-                    // defaults (indexOf 0 / lastIndexOf end).
-                    _ => {
-                        if want_last {
-                            Operand::ConstI64(i64::MAX)
-                        } else {
-                            Operand::ConstI64(0)
-                        }
-                    }
-                }
-            } else if want_last {
-                Operand::ConstI64(i64::MAX)
-            } else {
-                Operand::ConstI64(0)
-            };
-            let fid = if want_last {
-                ctx.intrinsics.arr_any_last_index_of
-            } else {
-                ctx.intrinsics.arr_any_index_of
-            };
-            let r = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Call(fid, vec![recv_op, needle_box, from]),
-                Type::I64,
-                None,
-            );
-            // The kernel borrows the needle box (a pure bit-encode
-            // over the raw value — no stake of its own to release);
-            // an owned-temp needle releases through its raw operand.
-            let _ = needle_box;
-            ctx.release_owned_temp(args[0], &needle_raw);
-            return Some(Operand::Value(r));
+            return Some(lower_any_index_of(ctx, args, recv_op, want_last));
         }
         let needle_raw = ctx.lower_expr(args[0]);
         let needle_ty = ctx.operand_ty(&needle_raw);
@@ -259,6 +217,59 @@ pub(crate) fn try_dispatch(
         return Some(Operand::Value(r));
     }
     None
+}
+/// §23.1.3.17/.20 on an `Arr<Any>` receiver — the HasProperty gate
+/// means a hole must not answer a match, so the scan runs in the
+/// runtime kernel rather than the inline loop below.
+fn lower_any_index_of(
+    ctx: &mut LowerCtx,
+    args: &[ExprId],
+    recv_op: Operand,
+    want_last: bool,
+) -> Operand {
+    let needle_raw = ctx.lower_expr(args[0]);
+    let needle_box = ctx.box_to_any_from_expr(args[0], needle_raw.clone());
+    let from = if args.len() > 1 {
+        let f_raw = ctx.lower_expr(args[1]);
+        match ctx.operand_ty(&f_raw) {
+            Type::I64 => f_raw,
+            Type::F64 => ctx.coerce_to_i64(f_raw),
+            Type::Any => {
+                let n = ctx.coerce_any_to_number(f_raw, Type::F64);
+                ctx.coerce_to_i64(n)
+            }
+            // Undefined and exotic shapes take the spec
+            // defaults (indexOf 0 / lastIndexOf end).
+            _ => {
+                if want_last {
+                    Operand::ConstI64(i64::MAX)
+                } else {
+                    Operand::ConstI64(0)
+                }
+            }
+        }
+    } else if want_last {
+        Operand::ConstI64(i64::MAX)
+    } else {
+        Operand::ConstI64(0)
+    };
+    let fid = if want_last {
+        ctx.intrinsics.arr_any_last_index_of
+    } else {
+        ctx.intrinsics.arr_any_index_of
+    };
+    let r = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(fid, vec![recv_op, needle_box, from]),
+        Type::I64,
+        None,
+    );
+    // The kernel borrows the needle box (a pure bit-encode
+    // over the raw value — no stake of its own to release);
+    // an owned-temp needle releases through its raw operand.
+    let _ = needle_box;
+    ctx.release_owned_temp(args[0], &needle_raw);
+    Operand::Value(r)
 }
 
 /// fromIndex normalization — S217 explicit-undefined → 0, S331 Any
