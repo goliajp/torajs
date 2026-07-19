@@ -43,6 +43,7 @@ unsafe extern "C" {
     );
     fn __torajs_dynobj_delete(obj: *mut c_void, key: *const c_void) -> i32;
     fn __torajs_dynobj_mark_null_proto(obj: *mut c_void);
+    fn __torajs_get_builtin_prototype(tag: i64) -> *mut c_void;
     fn __torajs_dynobj_clear_null_proto(obj: *mut c_void);
     fn __torajs_throw_type_error(msg: *const c_char);
     fn __torajs_builtin_proto_tag_of(p: *const c_void) -> i64;
@@ -90,9 +91,33 @@ pub(crate) unsafe fn ordinary_set_prototype_of(obj: *mut c_void, proto: u64) -> 
         let key = alloc_str_key(PROTO_SLOT_KEY);
         let cur = current_proto(obj, key);
         // Step 3 — SameValue(V, current) succeeds untouched, even on
-        // a non-extensible receiver. The absent-entry implicit
-        // %Object.prototype% chain reads as null here; re-linking an
-        // implicit chain to an explicit cell is still a write.
+        // a non-extensible receiver. `current_proto` reads an
+        // absent-entry implicit chain as null, but its TRUE
+        // [[Prototype]] is %Object.prototype% — comparing the raw
+        // null made `setPrototypeOf(o, null)` on an implicit-chain
+        // receiver a same-value no-op, so the null-proto bit was
+        // never set and getPrototypeOf answered `{}` instead of
+        // null. Map implicit → the %Object.prototype% cell for this
+        // comparison only (the cycle walk keeps the raw read — an
+        // implicit chain is all-builtin and can't reach a user
+        // dynobj). %Object.prototype% itself is exempt: its real
+        // [[Prototype]] IS null, and the same-value short-circuit is
+        // what keeps `set.call(Object.prototype, null)` silent per
+        // §10.4.7.1.
+        let hdr_flags = obj.cast::<u8>().add(6).cast::<u16>().read();
+        let cur = if cur == VALUE_NULL_IMM
+            && hdr_flags & DYNOBJ_HDR_FLAG_NULL_PROTO == 0
+            && __torajs_builtin_proto_tag_of(obj) != OBJECT_PROTO_TAG
+        {
+            let op = __torajs_get_builtin_prototype(OBJECT_PROTO_TAG);
+            if op.is_null() {
+                VALUE_NULL_IMM
+            } else {
+                op as u64
+            }
+        } else {
+            cur
+        };
         if proto == cur {
             __torajs_str_drop(key);
             return true;
