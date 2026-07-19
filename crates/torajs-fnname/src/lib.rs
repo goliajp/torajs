@@ -318,6 +318,104 @@ pub unsafe extern "C" fn __torajs_fn_name_str(fn_addr: u64) -> *mut u8 {
     unsafe { alloc_str(core::slice::from_raw_parts(name_ptr, name_len as usize)) }
 }
 
+// RFC 20260719-fn-tostring-source B4 — the native-form fallback for
+// registry rows with no recorded source (synthesized forwarders /
+// bound wrappers) and for unregistered addresses. Matches bun's
+// JSC form: 4-space indent, no name on the anonymous shape.
+const NATIVE_PREFIX: &[u8] = b"function ";
+const NATIVE_SUFFIX: &[u8] = b"() {\n    [native code]\n}";
+
+/// Walk `__torajs_fn_name_table[]` for `fn_addr`'s row and answer
+/// the raw erased-source bytes pointer (storing the code-unit length
+/// through `out_len`), or NULL when the row is absent or carries no
+/// recorded source.
+///
+/// # Safety
+/// `fn_addr` is compared, never dereferenced; `out_len` is a valid
+/// writable slot. Reads from immutable rodata only.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_fn_source_lookup(fn_addr: u64, out_len: *mut u32) -> *const u8 {
+    let count = unsafe { __torajs_fn_name_table_count };
+    let entries_base: *const FnNameTableEntry = &raw const __torajs_fn_name_table;
+    let mut i: u64 = 0;
+    while i < count {
+        // Safety: entries[0..count] live back-to-back in __DATA_CONST
+        // per `compute_fn_name_table_layout` so `.add(i)` stays in-bounds.
+        let entry = unsafe { &*entries_base.add(i as usize) };
+        if entry.fn_addr == fn_addr {
+            if entry.src_ptr.is_null() {
+                return core::ptr::null();
+            }
+            unsafe { *out_len = entry.src_len };
+            return entry.src_ptr;
+        }
+        i += 1;
+    }
+    core::ptr::null()
+}
+
+/// `Function.prototype.toString` kernel — mint an owned Str holding
+/// the row's type-erased source text, or the JSC native form
+/// `function <name>() {\n    [native code]\n}` when no source is
+/// recorded (name comes from the same row; anonymous/absent rows
+/// leave it empty per bun's anonymous native shape).
+///
+/// # Safety
+/// `fn_addr` is compared, never dereferenced.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_fn_source_str(fn_addr: u64) -> *mut u8 {
+    let mut src_len: u32 = 0;
+    let src_ptr = unsafe { __torajs_fn_source_lookup(fn_addr, &mut src_len) };
+    if !src_ptr.is_null() {
+        // Safety: hit rows point at `src_len` readable rodata bytes
+        // (ASCII byte count; non-ASCII UTF-16 sources share the
+        // fn-print helper's recorded TODO).
+        return unsafe { alloc_str(core::slice::from_raw_parts(src_ptr, src_len as usize)) };
+    }
+    // Native form — pull the name from the name face, stripping the
+    // `bound ` SetFunctionName marker like the print faces: bun
+    // (JSC) spells a bound fn's toString with the TARGET name
+    // (`function add() {\n    [native code]\n}` — probe 2026-07-19).
+    let mut name_len: u32 = 0;
+    let mut arity: u32 = 0;
+    let name_ptr = unsafe { __torajs_fn_name_lookup(fn_addr, &mut name_len, &mut arity) };
+    let (name_ptr, name_len) = if name_ptr.is_null() {
+        (core::ptr::null(), 0)
+    } else {
+        unsafe { print_face_name(name_ptr, name_len) }
+    };
+    unsafe { __torajs_fn_native_form_str(name_ptr, name_len) }
+}
+
+/// Mint the JSC native ToString form
+/// `function <name>() {\n    [native code]\n}` (anonymous when
+/// `name_ptr` is NULL / `name_len` is 0). Shared by the registry
+/// fallback above and the anyvalue reified-builtin-method-cell
+/// toString arm, which carries its own interned name.
+///
+/// # Safety
+/// `name_ptr` is NULL or points at `name_len` readable ASCII bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_fn_native_form_str(
+    name_ptr: *const u8,
+    name_len: u32,
+) -> *mut u8 {
+    let name_len = if name_ptr.is_null() { 0 } else { name_len };
+    let total = NATIVE_PREFIX.len() + name_len as usize + NATIVE_SUFFIX.len();
+    let s = unsafe { __torajs_str_alloc_pooled(total as u64) };
+    let mut dst = unsafe { s.add(STR_DATA_OFF) };
+    unsafe {
+        core::ptr::copy_nonoverlapping(NATIVE_PREFIX.as_ptr(), dst, NATIVE_PREFIX.len());
+        dst = dst.add(NATIVE_PREFIX.len());
+        if name_len > 0 {
+            core::ptr::copy_nonoverlapping(name_ptr, dst, name_len as usize);
+            dst = dst.add(name_len as usize);
+        }
+        core::ptr::copy_nonoverlapping(NATIVE_SUFFIX.as_ptr(), dst, NATIVE_SUFFIX.len());
+    }
+    s
+}
+
 /// Fresh pooled Str holding `bytes` (Latin-1/ASCII payloads only).
 unsafe fn alloc_str(bytes: &[u8]) -> *mut u8 {
     let s = unsafe { __torajs_str_alloc_pooled(bytes.len() as u64) };

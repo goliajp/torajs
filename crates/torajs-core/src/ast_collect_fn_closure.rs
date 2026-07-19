@@ -60,7 +60,7 @@ use crate::ast::{Ast, Expr, ExprId, Param, Stmt, is_fn_like_ann};
 /// ExprIds to replace with `Closure { __forward_<name> }`.
 pub(crate) struct FnToClosureCollector<'a> {
     pub(crate) ast: &'a Ast,
-    pub(crate) fn_sigs: &'a HashMap<String, (Vec<Param>, Option<String>)>,
+    pub(crate) fn_sigs: &'a HashMap<String, (Vec<Param>, Option<String>, crate::lexer::Span)>,
     pub(crate) struct_field_anns: &'a HashMap<String, HashMap<String, String>>,
     /// Generic TypeDecl snapshots (name → (type params, fields with
     /// the params still spelled inside)) — chunk 795: the wrap axes

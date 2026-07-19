@@ -214,8 +214,14 @@ pub(crate) fn weakset_supports(mid: i64) -> bool {
 }
 
 /// `method_call_closure` arm ids — `Function.prototype`'s surface.
+/// TO_STRING paired with the B4 source-text arm (RFC
+/// 20260719-fn-tostring-source; supported table and dispatcher move
+/// in the same commit — rotation-148 drift lesson).
 pub(crate) fn closure_supports(mid: i64) -> bool {
-    matches!(mid, ANY_METHOD_CALL | ANY_METHOD_APPLY | ANY_METHOD_BIND)
+    matches!(
+        mid,
+        ANY_METHOD_CALL | ANY_METHOD_APPLY | ANY_METHOD_BIND | ANY_METHOD_TO_STRING
+    )
 }
 
 /// `method_call_date` arm ids — the getter / setter / to*String

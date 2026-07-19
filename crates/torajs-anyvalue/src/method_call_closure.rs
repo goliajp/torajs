@@ -27,8 +27,10 @@
 //! - `bind` (chunk 714) mints a bound-function cell (`method_bind`).
 //! - A closure without a boxed dual entry cannot dispatch
 //!   dynamically ([`not_callable`], same as the bare any-call lane).
-//! - Every other method id floats the no-such sentinel (`toString`
-//!   source text is a recorded boundary).
+//! - `toString` (RFC 20260719-fn-tostring-source B4) answers the
+//!   type-erased source text from the fn-addr registry; reified
+//!   builtin cells and source-less rows mint the JSC native form.
+//! - Every other method id floats the no-such sentinel.
 //!
 //! Argument ledger: identical to the dispatcher — argv slots are
 //! BORROWED; the apply unpacking's element boxes are this arm's own
@@ -50,6 +52,12 @@ use crate::nanbox::{
 };
 
 unsafe extern "C" {
+    /// torajs-fnname — Function.prototype.toString kernels (RFC
+    /// 20260719-fn-tostring-source B4): erased-source mint keyed on
+    /// the registry fn_addr, and the named JSC native form for
+    /// out-of-registry entries (reified builtin method cells).
+    fn __torajs_fn_source_str(fn_addr: u64) -> *mut u8;
+    fn __torajs_fn_native_form_str(name_ptr: *const u8, name_len: u32) -> *mut u8;
     /// torajs-dynobj — own-property probe (5 = absent).
     fn __torajs_dynobj_get_tag(obj: *const c_void, key: *const c_void) -> u64;
     /// torajs-arr — kind-aware boxed element read (owned +1 for
@@ -64,6 +72,10 @@ unsafe extern "C" {
 /// Closure-cell lazy props slot — mirror of torajs-core
 /// `ssa_lower.rs::CLOSURE_PROPS_OFF`.
 const CLOSURE_PROPS_OFF: usize = 24;
+
+/// Closure-cell fn body vaddr slot — same word `name_get.rs` /
+/// `inspect::formatters::closure_fn_addr` read.
+const CLOSURE_FN_ADDR_OFF: usize = 8;
 
 /// Arr cell length slot — mirror of torajs-arr `layout::ARR_LEN_OFF`.
 const ARR_LEN_OFF: usize = 8;
@@ -123,6 +135,24 @@ pub(crate) unsafe fn closure_method(
                 apply_list(&target, this_arg, list)
             }
             m if m == ANY_METHOD_BIND => crate::method_bind::bind_cell(ptr, argv, argc),
+            // RFC 20260719-fn-tostring-source B4 —
+            // Function.prototype.toString answers the type-erased
+            // source text from the fn-addr registry; rows with no
+            // recorded source (bound wrappers / reified builtin
+            // cells whose fn_addr is the throwing native entry)
+            // fall to the JSC native form inside the kernel.
+            m if m == ANY_METHOD_TO_STRING => {
+                if let Some(name) = crate::method_value::builtin_method_name(ptr) {
+                    // A reified builtin method cell is never in the
+                    // registry — mint the named native form directly.
+                    return crate::nanbox::box_void_ptr(__torajs_fn_native_form_str(
+                        name.as_ptr(),
+                        name.len() as u32,
+                    ) as *mut c_void);
+                }
+                let fn_addr = *(ptr.cast::<u8>().add(CLOSURE_FN_ADDR_OFF) as *const u64);
+                crate::nanbox::box_void_ptr(__torajs_fn_source_str(fn_addr) as *mut c_void)
+            }
             _ => method_no_such(),
         }
     }

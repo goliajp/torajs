@@ -120,7 +120,7 @@ pub(crate) fn wrap_named_fn_values(
     ast: &mut Ast,
     fn_params: &HashMap<String, Vec<(usize, String)>>,
     fn_returns: &HashMap<String, Vec<ExprId>>,
-    fn_sigs: &HashMap<String, (Vec<Param>, Option<String>)>,
+    fn_sigs: &HashMap<String, (Vec<Param>, Option<String>, crate::lexer::Span)>,
     marked: &HashSet<(String, usize)>,
     ret_marked: &HashSet<String>,
     closure_idents: &HashSet<String>,
@@ -171,7 +171,7 @@ pub(crate) fn wrap_named_fn_values(
         }
         let forward_name = format!("__forward_{target}");
         if !existing_forwarders.contains(&forward_name) {
-            let (params, return_type) = fn_sigs.get(target).unwrap().clone();
+            let (params, return_type, target_span) = fn_sigs.get(target).unwrap().clone();
             let mut fwd_params: Vec<Param> = Vec::with_capacity(params.len() + 1);
             fwd_params.push(Param {
                 name: "__env".into(),
@@ -196,7 +196,9 @@ pub(crate) fn wrap_named_fn_values(
                 return_type,
                 body: vec![Stmt::Return(Some(call_id))],
                 is_generator: false,
-                span: crate::lexer::Span { start: 0, end: 0 },
+                // B4 — carry the TARGET's span (toString answers the
+                // wrapped user fn's source).
+                span: target_span,
             });
             existing_forwarders.insert(forward_name.clone());
         }

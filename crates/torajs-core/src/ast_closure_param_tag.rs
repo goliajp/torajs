@@ -62,7 +62,8 @@ pub fn tag_closure_arg_params(ast: &mut Ast) {
     let mut fn_params: HashMap<String, Vec<(usize, String)>> = HashMap::new();
     // Signatures of plain (non-closure-shaped, non-forwarder) decls
     // for forwarder synthesis.
-    let mut fn_sigs: HashMap<String, (Vec<Param>, Option<String>)> = HashMap::new();
+    let mut fn_sigs: HashMap<String, (Vec<Param>, Option<String>, crate::lexer::Span)> =
+        HashMap::new();
     let mut existing_forwarders: HashSet<String> = HashSet::new();
     collect_fn_decls(
         &ast.stmts,
@@ -262,7 +263,7 @@ fn retag_fn_return_types(stmts: &mut [Stmt], ret_marked: &HashSet<String>) {
 fn collect_fn_decls(
     stmts: &[Stmt],
     fn_params: &mut HashMap<String, Vec<(usize, String)>>,
-    fn_sigs: &mut HashMap<String, (Vec<Param>, Option<String>)>,
+    fn_sigs: &mut HashMap<String, (Vec<Param>, Option<String>, crate::lexer::Span)>,
     existing_forwarders: &mut HashSet<String>,
 ) {
     let mut stack: Vec<&Stmt> = stmts.iter().collect();
@@ -271,6 +272,7 @@ fn collect_fn_decls(
             name,
             params,
             return_type,
+            span,
             ..
         } = s
         {
@@ -288,7 +290,7 @@ fn collect_fn_decls(
                     fn_params.insert(name.clone(), fnsig_params);
                 }
                 if !is_closure_shaped {
-                    fn_sigs.insert(name.clone(), (params.clone(), return_type.clone()));
+                    fn_sigs.insert(name.clone(), (params.clone(), return_type.clone(), *span));
                 }
             }
         }

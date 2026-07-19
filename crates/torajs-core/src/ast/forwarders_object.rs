@@ -90,13 +90,15 @@ pub fn synthesize_fn_to_closure_forwarders(ast: &mut Ast) {
     // Snapshot non-closure-shaped FnDecls' signatures (for forwarder
     // body synthesis). Skip forwarders themselves (`__forward_*`) and
     // closure-shaped fns (first param `__env`).
-    let mut fn_sigs: HashMap<String, (Vec<Param>, Option<String>)> = HashMap::new();
+    let mut fn_sigs: HashMap<String, (Vec<Param>, Option<String>, crate::lexer::Span)> =
+        HashMap::new();
     let mut existing_forwarders: HashSet<String> = HashSet::new();
     for s in &ast.stmts {
         if let Stmt::FnDecl {
             name,
             params,
             return_type,
+            span,
             ..
         } = s
         {
@@ -106,7 +108,7 @@ pub fn synthesize_fn_to_closure_forwarders(ast: &mut Ast) {
             }
             let is_closure_shaped = params.first().is_some_and(|p| p.name == "__env");
             if !is_closure_shaped {
-                fn_sigs.insert(name.clone(), (params.clone(), return_type.clone()));
+                fn_sigs.insert(name.clone(), (params.clone(), return_type.clone(), *span));
             }
         }
     }
@@ -284,7 +286,7 @@ fn collect_let_init_axis_rewrites(
     ast: &super::Ast,
     stmts_snapshot: &[Stmt],
     binding_refs: &crate::ast_refs::ToplevelBindingRefs,
-    fn_sigs: &std::collections::HashMap<String, (Vec<Param>, Option<String>)>,
+    fn_sigs: &std::collections::HashMap<String, (Vec<Param>, Option<String>, crate::lexer::Span)>,
     targets: &mut std::collections::HashSet<String>,
     rewrites: &mut Vec<(ExprId, String)>,
 ) {
@@ -334,7 +336,7 @@ fn collect_let_init_axis_rewrites(
 fn synthesize_forwarder_decls(
     ast: &mut Ast,
     targets: &std::collections::HashSet<String>,
-    fn_sigs: &std::collections::HashMap<String, (Vec<Param>, Option<String>)>,
+    fn_sigs: &std::collections::HashMap<String, (Vec<Param>, Option<String>, crate::lexer::Span)>,
     existing_forwarders: &std::collections::HashSet<String>,
 ) -> (Vec<Stmt>, std::collections::HashMap<String, String>) {
     let mut new_decls: Vec<Stmt> = Vec::new();
@@ -345,7 +347,7 @@ fn synthesize_forwarder_decls(
             renames.insert(target.clone(), forward_name);
             continue;
         }
-        let (params, return_type) = fn_sigs.get(target).unwrap().clone();
+        let (params, return_type, target_span) = fn_sigs.get(target).unwrap().clone();
         let mut fwd_params: Vec<Param> = Vec::with_capacity(params.len() + 1);
         fwd_params.push(Param {
             name: "__env".into(),
@@ -371,7 +373,9 @@ fn synthesize_forwarder_decls(
             return_type,
             body,
             is_generator: false,
-            span: crate::lexer::Span { start: 0, end: 0 },
+            // B4 — carry the TARGET's source span (toString answers
+            // the wrapped user fn's source).
+            span: target_span,
         });
         renames.insert(target.clone(), forward_name);
     }

@@ -26,7 +26,7 @@ impl<'a> FnToClosureCollector<'a> {
         // FnSig there has neither env cell nor adapter, so
         // it wraps the same way.
         if let Expr::Ident(cname) = self.ast.get_expr(*callee)
-            && let Some((params, _)) = self.fn_sigs.get(cname)
+            && let Some((params, _, _)) = self.fn_sigs.get(cname)
         {
             for (i, arg) in args.iter().enumerate() {
                 if params.get(i).is_some_and(|p| {
@@ -73,7 +73,7 @@ impl<'a> FnToClosureCollector<'a> {
         // declared param carries a fn-typed array ann:
         // `takeOps([top_fn])`.
         if let Expr::Ident(cname) = self.ast.get_expr(*callee)
-            && let Some((params, _)) = self.fn_sigs.get(cname)
+            && let Some((params, _, _)) = self.fn_sigs.get(cname)
         {
             for (i, arg) in args.iter().enumerate() {
                 if params
@@ -92,7 +92,7 @@ impl<'a> FnToClosureCollector<'a> {
         // value wraps (the raw FnSig would be CallIndirect'd
         // as an env block — SIGBUS).
         if let Expr::Ident(cname) = self.ast.get_expr(*callee)
-            && let Some((params, _)) = self.fn_sigs.get(cname)
+            && let Some((params, _, _)) = self.fn_sigs.get(cname)
         {
             for (i, arg) in args.iter().enumerate() {
                 if let Some(field_anns) = params

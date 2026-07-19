@@ -39,18 +39,20 @@ pub fn synthesize_forwarders(ast: &mut Ast) {
     // Snapshot all FnDecls' (params, return type) for forwarder body
     // synthesis. Filter out "closure-shaped" fns (first param `__env`):
     // those are already closures and shouldn't be wrapped.
-    let mut fn_sigs: HashMap<String, (Vec<Param>, Option<String>)> = HashMap::new();
+    let mut fn_sigs: HashMap<String, (Vec<Param>, Option<String>, crate::lexer::Span)> =
+        HashMap::new();
     for s in &ast.stmts {
         if let Stmt::FnDecl {
             name,
             params,
             return_type,
+            span,
             ..
         } = s
         {
             let is_closure_shaped = params.first().is_some_and(|p| p.name == "__env");
             if !is_closure_shaped {
-                fn_sigs.insert(name.clone(), (params.clone(), return_type.clone()));
+                fn_sigs.insert(name.clone(), (params.clone(), return_type.clone(), *span));
             }
         }
     }
@@ -102,7 +104,7 @@ pub fn synthesize_forwarders(ast: &mut Ast) {
     let mut new_decls: Vec<Stmt> = Vec::new();
     let mut renames: HashMap<String, String> = HashMap::new();
     for target in &targets {
-        let (params, return_type) = fn_sigs.get(target).unwrap().clone();
+        let (params, return_type, target_span) = fn_sigs.get(target).unwrap().clone();
         let forward_name = format!("__forward_{target}");
         // params: __env: ptr, ...orig params
         let mut fwd_params: Vec<Param> = Vec::with_capacity(params.len() + 1);
@@ -131,7 +133,9 @@ pub fn synthesize_forwarders(ast: &mut Ast) {
             return_type,
             body,
             is_generator: false,
-            span: crate::lexer::Span { start: 0, end: 0 },
+            // B4 — carry the TARGET's source span: the forwarder IS
+            // the user fn as far as toString is concerned.
+            span: target_span,
         });
         renames.insert(target.clone(), forward_name);
     }
@@ -207,7 +211,7 @@ fn stmt_has_closure_return(ast: &Ast, s: &Stmt) -> bool {
 fn collect_fnsig_ident_returns(
     ast: &Ast,
     body: &[Stmt],
-    fn_sigs: &std::collections::HashMap<String, (Vec<Param>, Option<String>)>,
+    fn_sigs: &std::collections::HashMap<String, (Vec<Param>, Option<String>, crate::lexer::Span)>,
     out: &mut std::collections::HashSet<String>,
 ) {
     for s in body {
@@ -218,7 +222,7 @@ fn collect_fnsig_ident_returns(
 fn collect_fnsig_ident_returns_stmt(
     ast: &Ast,
     s: &Stmt,
-    fn_sigs: &std::collections::HashMap<String, (Vec<Param>, Option<String>)>,
+    fn_sigs: &std::collections::HashMap<String, (Vec<Param>, Option<String>, crate::lexer::Span)>,
     out: &mut std::collections::HashSet<String>,
 ) {
     match s {
