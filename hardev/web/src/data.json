@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-19T16:36:03.426Z",
+  "generatedAt": "2026-07-19T16:56:03.121Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 94.78
   },
   "torajs": {
-    "commit": "605bb307",
-    "commitSubject": "feat: naked accessor faces answer one canonical cell per named fn",
+    "commit": "56bbfa42",
+    "commitSubject": "fix: nested-fn lift runs before the fn-to-closure collector",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "56bbfa42",
+      "subject": "fix: nested-fn lift runs before the fn-to-closure collector"
+    },
+    {
+      "hash": "668ad101",
+      "subject": "chore: hardev dashboard snapshot at rotation 154 close"
+    },
+    {
       "hash": "605bb307",
       "subject": "feat: naked accessor faces answer one canonical cell per named fn"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "fa05bb71",
       "subject": "fix: setPrototypeOf promotes an ObjectLit receiver to the dynobj lane"
-    },
-    {
-      "hash": "c85b04e8",
-      "subject": "feat: direct-member call/apply dispatches by callee repr"
-    },
-    {
-      "hash": "a0c2fa7f",
-      "subject": "feat: Function.prototype.apply on statically fn-typed values"
     }
   ],
-  "headSha": "605bb307",
+  "headSha": "56bbfa42",
   "autorun": {
     "total": 459,
     "baselineTarget": 10,
