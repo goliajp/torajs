@@ -455,6 +455,8 @@ pub(crate) struct Intrinsics {
     /// Chunk 798 — typed-tier `.name` registry rewire: FnSig
     /// receiver (raw fn body vaddr → registry name Str, miss `""`).
     pub(crate) fn_name_str: FuncId,
+    pub(crate) fn_source_str: FuncId,
+    pub(crate) closure_source_str: FuncId,
     /// Chunk 798 — typed-tier `.name` registry rewire: Closure
     /// receiver (cell → method/bound/registry name chain).
     pub(crate) closure_name_str: FuncId,

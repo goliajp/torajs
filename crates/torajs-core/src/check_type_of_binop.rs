@@ -82,6 +82,10 @@ fn check_add(l: Type, r: Type) -> Result<Type, String> {
         || (matches!(l, Type::Array(_) | Type::Struct(_)) && r == Type::String)
         || (l == Type::String && matches!(r, Type::Any))
         || (matches!(l, Type::Any) && r == Type::String)
+        // RFC 20260719-fn-tostring-source B5 — Str + fn concat:
+        // ToPrimitive(fn) → toString() → the erased source text.
+        || (l == Type::String && matches!(r, Type::Function(..)))
+        || (matches!(l, Type::Function(..)) && r == Type::String)
     {
         return Ok(Type::String);
     }

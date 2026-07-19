@@ -122,6 +122,10 @@ pub(crate) fn try_match(
                 // rotation 141 — Symbol admitted: §22.1.1 step 1.a,
                 // the explicit String() call is the one legal Symbol
                 // stringify position (SymbolDescriptiveString).
+                // RFC 20260719-fn-tostring-source B5 — Function
+                // admitted: ToString(fn) = its toString() = the
+                // type-erased source (fn_source_str kernel; the
+                // template-substitution String() wrap rides this).
                 "String" => matches!(
                     arg_ty,
                     Type::Number
@@ -133,6 +137,7 @@ pub(crate) fn try_match(
                         | Type::Array(_)
                         | Type::Struct(_)
                         | Type::Symbol
+                        | Type::Function(..)
                 ),
                 _ => false,
             };

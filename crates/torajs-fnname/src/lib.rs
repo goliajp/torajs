@@ -364,6 +364,14 @@ pub unsafe extern "C" fn __torajs_fn_source_lookup(fn_addr: u64, out_len: *mut u
 /// `fn_addr` is compared, never dereferenced.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_fn_source_str(fn_addr: u64) -> *mut u8 {
+    // RFC 20260710 C2a mirror (fnsig_to_str) — a Nullable fn-typed
+    // slot's nullish reprs stringify as their JS values.
+    if fn_addr == 0 {
+        return unsafe { alloc_str(b"null") };
+    }
+    if unsafe { __torajs_str_is_undef(fn_addr as *const u8) } != 0 {
+        return unsafe { __torajs_str_undef() };
+    }
     let mut src_len: u32 = 0;
     let src_ptr = unsafe { __torajs_fn_source_lookup(fn_addr, &mut src_len) };
     if !src_ptr.is_null() {

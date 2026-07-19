@@ -346,6 +346,26 @@ pub(crate) fn emit_to_string(
                 Operand::Value(ctx.intern_string_literal("[object Object]"))
             }
         }
+        // RFC 20260719-fn-tostring-source B5 — ToString(fn) is its
+        // toString(): the registry erased-source kernel keyed on the
+        // raw fn_addr (FnSig slot) or the closure cell (env-first
+        // repr). The template-substitution String() wrap rides this.
+        Type::FnSig(_) => Operand::Value(ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.fn_source_str, vec![arg_op]),
+            Type::Str,
+            None,
+        )),
+        Type::Closure(_) => {
+            let s = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.closure_source_str, vec![arg_op.clone()]),
+                Type::Str,
+                None,
+            );
+            ctx.release_owned_temp(arg_eid, &arg_op);
+            Operand::Value(s)
+        }
         _ => panic!("ssa-lower: String() with arg type {arg_ty:?} not yet supported"),
     }
 }

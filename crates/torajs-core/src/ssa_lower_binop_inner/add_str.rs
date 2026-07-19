@@ -76,6 +76,9 @@ pub(crate) fn try_lower(
     // S137 coerce — routes Arr through arr_join(",") and Obj
     // through the `"[object Object]"` literal.
     let arr_or_obj = |t: Type| matches!(t, Type::Arr(_) | Type::Obj(_));
+    // RFC 20260719-fn-tostring-source B5 — Str + fn concat routes
+    // the fn side through the erased-source toString kernels.
+    let fn_like = |t: Type| matches!(t, Type::FnSig(_) | Type::Closure(_));
     let mixed_string = matches!(
         (a_ty, b_ty),
         (Type::Str, Type::I64)
@@ -93,7 +96,9 @@ pub(crate) fn try_lower(
     ) || (str_or_substr(a_ty) && bool_or_null(b_ty, &b))
         || (str_or_substr(b_ty) && bool_or_null(a_ty, &a))
         || (str_or_substr(a_ty) && arr_or_obj(b_ty))
-        || (str_or_substr(b_ty) && arr_or_obj(a_ty));
+        || (str_or_substr(b_ty) && arr_or_obj(a_ty))
+        || (str_or_substr(a_ty) && fn_like(b_ty))
+        || (str_or_substr(b_ty) && fn_like(a_ty));
     // Any Substr operand: route through view-aware concat
     // helpers. One alloc + two memcpys (vs. 2 allocs + 3
     // memcpys via substr_to_owned + str_concat).
@@ -295,6 +300,27 @@ pub(crate) fn coerce_to_str(ctx: &mut LowerCtx, v: Operand, undefable: bool) -> 
             let r = ctx.f.append_inst(
                 ctx.cur_block,
                 InstKind::Call(ctx.intrinsics.null_to_str, vec![]),
+                Type::Str,
+                None,
+            );
+            (Operand::Value(r), true)
+        }
+        // RFC 20260719-fn-tostring-source B5 — fn side of a Str
+        // concat: the erased-source toString kernels (mirror of the
+        // String() lane's emit_to_string arms).
+        Type::FnSig(_) => {
+            let r = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.fn_source_str, vec![v]),
+                Type::Str,
+                None,
+            );
+            (Operand::Value(r), true)
+        }
+        Type::Closure(_) => {
+            let r = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.closure_source_str, vec![v]),
                 Type::Str,
                 None,
             );

@@ -58,7 +58,12 @@ pub(crate) struct PrintFreezeIds {
     pub fn_print_outer: FuncId,
     pub fnsig_to_str: FuncId,
     pub fn_name_str: FuncId,
+    /// RFC 20260719-fn-tostring-source B5 — erased-source ToString
+    /// kernel keyed on a raw fn_addr (`String(f)` / template lane).
+    pub fn_source_str: FuncId,
     pub closure_name_str: FuncId,
+    /// B5 — Closure-cell twin of `fn_source_str` (String(c) lane).
+    pub closure_source_str: FuncId,
     pub any_to_str: FuncId,
     /// §13.15.3 concat-position twin — ToPrimitive(default) first.
     pub any_to_str_prim: FuncId,
@@ -167,10 +172,24 @@ pub(crate) fn declare(
             &[Type::I64],
             Type::Str,
         ),
+        fn_source_str: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_fn_source_str",
+            &[Type::I64],
+            Type::Str,
+        ),
         closure_name_str: declare_intrinsic(
             module,
             fn_table,
             "__torajs_closure_name_str",
+            &[Type::Ptr],
+            Type::Str,
+        ),
+        closure_source_str: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_closure_source_str",
             &[Type::Ptr],
             Type::Str,
         ),

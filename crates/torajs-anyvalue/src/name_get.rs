@@ -39,6 +39,9 @@ unsafe extern "C" {
     fn __torajs_dynobj_get_value(obj: *const c_void, key: *const c_void) -> u64;
     /// torajs-fnname — registry walk (chunk 716); NULL = miss.
     fn __torajs_fn_name_lookup(fn_addr: u64, out_len: *mut u32, out_arity: *mut u32) -> *const u8;
+    /// torajs-fnname — toString kernels (RFC 20260719 B5).
+    fn __torajs_fn_source_str(fn_addr: u64) -> *mut u8;
+    fn __torajs_fn_native_form_str(name_ptr: *const u8, name_len: u32) -> *mut u8;
     /// torajs-throw — record a pending catchable TypeError.
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
 }
@@ -220,6 +223,27 @@ unsafe fn closure_name(ptr: *mut c_void) -> AnyValue {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_closure_name_str(ptr: *mut c_void) -> *mut u8 {
     unsafe { closure_name_str(ptr) }
+}
+
+/// `toString` source of a closure-tagged cell (RFC
+/// 20260719-fn-tostring-source B5) — the typed-tier `String(c)` /
+/// template lane twin of the any-lane method arm: a reified builtin
+/// method cell mints the named JSC native form, everything else
+/// routes the cell's fn_addr through the registry erased-source
+/// kernel (bound wrappers land there on their `bound `-marked row
+/// and answer the target-named native form).
+///
+/// # Safety
+/// `ptr` is a live `Tag::Closure` cell.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_closure_source_str(ptr: *mut c_void) -> *mut u8 {
+    unsafe {
+        if let Some(name) = crate::method_value::builtin_method_name(ptr) {
+            return __torajs_fn_native_form_str(name.as_ptr(), name.len() as u32);
+        }
+        let fn_addr = *(ptr.cast::<u8>().add(CLOSURE_FN_ADDR_OFF) as *const u64);
+        __torajs_fn_source_str(fn_addr)
+    }
 }
 
 /// The name Str cell of a closure-tagged cell, owned protocol:
