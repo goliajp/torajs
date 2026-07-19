@@ -221,12 +221,20 @@ fn pipeline(src: &str, base_dir: &Path, stage: Stage) -> ExitCode {
     ast::infer_anonymous_closure_params(&mut ast);
     ast_closure_param_tag::tag_closure_arg_params(&mut ast);
     ast::synthesize_forwarders(&mut ast);
+    // Nested-fn lift runs BEFORE the fn-to-closure collector (RFC
+    // 20260717-namedfn-canonical-cell O3): a body-local fn name is
+    // shadow-rejected by the collector, so lifting first hands it
+    // the mangled top-level `__nested___top_*` decls and their
+    // rewritten references — nested fn VALUE reads then join the
+    // forwarder canonical-cell lane like any top-level fn (pre-fix
+    // they lowered to raw FnSig addresses and face === bare-name
+    // diverged).
+    ast::desugar_nested_fns(&mut ast);
     ast::synthesize_fn_to_closure_forwarders(&mut ast);
     ast::desugar_function_prototype_methods(&mut ast);
     // P2.1 — see embed/lib.rs for ordering rationale.
     ast::desugar_uninit_let(&mut ast);
     ast::desugar_var_hoist(&mut ast);
-    ast::desugar_nested_fns(&mut ast);
     ast::desugar_variadic_push(&mut ast);
     ast::desugar_arguments_object(&mut ast);
     ast::rewrite_split_for_i_to_iter(&mut ast);
