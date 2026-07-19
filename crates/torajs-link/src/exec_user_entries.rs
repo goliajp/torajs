@@ -41,6 +41,15 @@ pub struct UserFnNameEntry {
     /// ES-spec `Function.length` (chunk 716) — emitted into the
     /// entry's former `_pad: u32` slot.
     pub arity: u32,
+    /// RFC 20260719-fn-tostring-source B3b — `__torajs_str_dyn_<sid>`
+    /// alias for the type-erased fn source text (RawBytes flavour,
+    /// same channel as `name_ptr_sym`). `None` emits a NULL
+    /// `src_ptr` slot (no chain fixup) — synthesized decls with no
+    /// user-written source.
+    pub src_ptr_sym: Option<String>,
+    /// ES `String.length` of the erased source; 0 when
+    /// `src_ptr_sym` is `None`.
+    pub src_len: u32,
 }
 
 /// W-J Phase A3c — one row of the `__torajs_class_name_table[]`

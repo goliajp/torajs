@@ -54,6 +54,7 @@ pub(crate) fn run(
             params,
             return_type,
             body,
+            span,
             ..
         } = &ast.stmts[stmt_idx]
         {
@@ -93,7 +94,7 @@ pub(crate) fn run(
             for s in new_strings {
                 module.strings.push(s);
             }
-            register_fn_name(module, name, params, fid, &ast.class_parents);
+            register_fn_name(module, name, params, fid, ast, *span);
         }
     }
 
@@ -197,8 +198,10 @@ fn register_fn_name(
     name: &str,
     params: &[crate::ast::Param],
     fid: FuncId,
-    class_parents: &HashMap<String, Option<String>>,
+    ast: &Ast,
+    span: crate::lexer::Span,
 ) {
+    let class_parents = &ast.class_parents;
     if name.starts_with("__cm_")
         || name.starts_with("__dispatch_")
         || name.starts_with("__new_")
@@ -245,12 +248,35 @@ fn register_fn_name(
         .filter(|p| p.name != "__env")
         .take_while(|p| p.default.is_none() && !p.is_rest)
         .count() as u32;
+    let (src_sid, src_len) = intern_fn_source(module, ast, span);
     module.fn_name_globals.push(FnNameEntry {
         fn_id: fid,
         name: visible.to_string(),
         name_sid,
         arity,
+        src_sid,
+        src_len,
     });
+}
+
+/// RFC 20260719-fn-tostring-source B3b — intern the type-erased
+/// source slice for a registry row. Sentinel (0,0) spans (synthesized
+/// decls with no user-written source) answer `(None, 0)`, which the
+/// link layer bakes as a NULL `src_ptr`.
+pub(crate) fn intern_fn_source(
+    module: &mut Module,
+    ast: &Ast,
+    span: crate::lexer::Span,
+) -> (Option<ssa::StringId>, u32) {
+    if span.start == 0 && span.end == 0 {
+        return (None, 0);
+    }
+    let erased = crate::fn_source_erase::erase_types(&ast.source, &ast.type_ann_spans, span);
+    let lit = ssa::StringLiteral::encode_from_str(&erased);
+    let src_len = lit.length;
+    let src_sid = ssa::StringId(module.strings.len() as u32);
+    module.strings.push(lit);
+    (Some(src_sid), src_len)
 }
 
 /// `__sm_<C>__<M>` → `<M>` when `<C>` is a declared class name.

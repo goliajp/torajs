@@ -113,6 +113,18 @@ pub struct FnNameEntry {
     /// rodata entry's former `_pad: u32` slot so the runtime
     /// `.length` read answers it without an ABI size change.
     pub arity: u32,
+    /// RFC 20260719-fn-tostring-source B3b — string table id of the
+    /// type-erased source text (`fn_source_erase::erase_types` over
+    /// the recorded decl span), or `None` when the decl carries the
+    /// (0,0) sentinel span (synthesized forwarders / bound wrappers).
+    /// The link layer bakes it as the entry's `src_ptr` chain-fixup
+    /// target; `None` emits a NULL src_ptr the runtime treats as
+    /// "no source recorded".
+    pub src_sid: Option<StringId>,
+    /// ES `String.length` of the erased source (code units — same
+    /// contract as the interned literal's `length`). 0 when
+    /// `src_sid` is `None`.
+    pub src_len: u32,
 }
 
 #[derive(Debug, Clone)]

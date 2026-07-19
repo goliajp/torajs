@@ -171,6 +171,8 @@ pub fn compute_data_const_layout(
             name_ptr_sym: e.name_ptr_sym.clone(),
             name_len: e.name_len,
             arity: e.arity,
+            src_ptr_sym: e.src_ptr_sym.clone(),
+            src_len: e.src_len,
         })
         .collect();
     let fn_name_table_layout = compute_fn_name_table_layout(
@@ -296,6 +298,8 @@ mod tests {
             name_ptr_sym: format!("__user_string_{sid}"),
             name_len,
             arity: 0,
+            src_ptr_sym: None,
+            src_len: 0,
         }
     }
 
@@ -415,8 +419,8 @@ mod tests {
         );
         assert!(layout.has_data_const);
         assert_eq!(layout.fn_name_table_layout.entries.len(), 2);
-        // 2 × 24 entries + 8 count = 56; page-aligned to 0x4000.
-        assert_eq!(layout.fn_name_table_layout.total_size, 56);
+        // 2 × 40 entries + 8 count = 88; page-aligned to 0x4000.
+        assert_eq!(layout.fn_name_table_layout.total_size, 88);
         assert_eq!(layout.segment_vmsize, 0x4000);
         // fn_name_table lands at segment base (no preceding vtable /
         // class_layouts bytes).
@@ -445,7 +449,7 @@ mod tests {
         // vtable 8 bytes, no class_layouts → fn_name_table at base + 8.
         assert_eq!(layout.vtable_layout.total_size, 8);
         assert_eq!(layout.fn_name_table_layout.table_vaddr, 0x1_0000_4008);
-        // segment still fits in one page (8 + 24 + 8 = 40 < 0x4000).
+        // segment still fits in one page (8 + 40 + 8 = 56 < 0x4000).
         assert_eq!(layout.segment_vmsize, 0x4000);
     }
 

@@ -8,13 +8,19 @@
 //! per-symbol grouping), keyed on fn_addr ascending so the runtime
 //! can binary-search. Two adjacent globals:
 //!
-//! - `__torajs_fn_name_table`       — N × 24-byte entries:
+//! - `__torajs_fn_name_table`       — N × 40-byte entries:
 //!     ```text
 //!       +0..7   : fn_addr   u64 (link-time chain-fixup target)
 //!       +8..15  : name_ptr  *const u8 (link-time chain-fixup target
 //!                                       to __TEXT,__cstring entry)
 //!       +16..19 : name_len  u32
 //!       +20..23 : arity     u32 (ES-spec Function.length, chunk 716)
+//!       +24..31 : src_ptr   *const u8 (chain-fixup target to the
+//!                                       type-erased fn source text,
+//!                                       or literal NULL — RFC
+//!                                       20260719-fn-tostring-source B3b)
+//!       +32..35 : src_len   u32
+//!       +36..39 : _pad      u32
 //!     ```
 //! - `__torajs_fn_name_table_count` — u64 entry count.
 //!
@@ -53,8 +59,17 @@ pub struct FnNameTableEntryLayout {
     pub name_len: u32,
     /// ES-spec `Function.length` (chunk 716) — written into the
     /// entry's former `_pad: u32` slot (literal value, no chain
-    /// fixup; entry stays 24 bytes).
+    /// fixup).
     pub arity: u32,
+    /// RFC 20260719-fn-tostring-source B3b — `__torajs_str_dyn_<sid>`
+    /// alias for the type-erased source text (RawBytes flavour, same
+    /// substrate as `name_ptr_sym`). `None` writes a literal NULL
+    /// `src_ptr` slot with NO chain-fixup link value consumed and no
+    /// rebase target emitted.
+    pub src_ptr_sym: Option<String>,
+    /// ES `String.length` of the erased source; 0 when
+    /// `src_ptr_sym` is `None`.
+    pub src_len: u32,
 }
 
 /// Aggregated layout for the single `__torajs_fn_name_table[]` +
@@ -81,7 +96,7 @@ pub struct FnNameTableLayout {
 }
 
 /// Per-entry byte size.
-pub const ENTRY_SIZE: u32 = 24;
+pub const ENTRY_SIZE: u32 = 40;
 /// `__torajs_fn_name_table_count: u64` size.
 pub const COUNT_SIZE: u32 = 8;
 
@@ -162,6 +177,8 @@ mod tests {
             name_ptr_sym: format!("__user_string_{sid}"),
             name_len,
             arity: 0,
+            src_ptr_sym: None,
+            src_len: 0,
         }
     }
 
@@ -179,11 +196,11 @@ mod tests {
         assert_eq!(layout.entries.len(), 1);
         assert_eq!(layout.table_vaddr, 0x1_0000_4000);
         assert_eq!(layout.table_file_offset, 0x4000);
-        // count is placed right after the single 24-byte entry.
-        assert_eq!(layout.count_vaddr, 0x1_0000_4018);
-        assert_eq!(layout.count_file_offset, 0x4018);
-        // total = 24 entry + 8 count = 32 bytes.
-        assert_eq!(layout.total_size, 32);
+        // count is placed right after the single 40-byte entry.
+        assert_eq!(layout.count_vaddr, 0x1_0000_4028);
+        assert_eq!(layout.count_file_offset, 0x4028);
+        // total = 40 entry + 8 count = 48 bytes.
+        assert_eq!(layout.total_size, 48);
     }
 
     #[test]
@@ -192,11 +209,11 @@ mod tests {
         let layout = compute_fn_name_table_layout(entries, 0x4000, 0x1_0000_4000, false);
         assert_eq!(layout.entries.len(), 3);
         assert_eq!(layout.table_vaddr, 0x1_0000_4000);
-        // count placed right after 3 × 24 = 72 byte entries.
-        assert_eq!(layout.count_vaddr, 0x1_0000_4048);
-        assert_eq!(layout.count_file_offset, 0x4048);
-        // total = 72 entries + 8 count = 80 bytes.
-        assert_eq!(layout.total_size, 80);
+        // count placed right after 3 × 40 = 120 byte entries.
+        assert_eq!(layout.count_vaddr, 0x1_0000_4078);
+        assert_eq!(layout.count_file_offset, 0x4078);
+        // total = 120 entries + 8 count = 128 bytes.
+        assert_eq!(layout.total_size, 128);
     }
 
     #[test]
@@ -206,9 +223,64 @@ mod tests {
             compute_fn_name_table_layout(vec![entry(0, 0, 3)], 0x4001, 0x1_0000_4001, false);
         assert_eq!(layout.table_vaddr, 0x1_0000_4008);
         assert_eq!(layout.table_file_offset, 0x4008);
-        assert_eq!(layout.count_vaddr, 0x1_0000_4020);
-        // total includes the 7-byte pad + 24 entry + 8 count = 39.
-        assert_eq!(layout.total_size, 39);
+        assert_eq!(layout.count_vaddr, 0x1_0000_4030);
+        // total includes the 7-byte pad + 40 entry + 8 count = 55.
+        assert_eq!(layout.total_size, 55);
+    }
+
+    #[test]
+    fn payload_writes_null_src_slot_without_link_value() {
+        // One src-less + one src-carrying entry: the src-less row
+        // consumes 2 link values and writes a literal 0 src_ptr; the
+        // src row consumes 3.
+        let mut with_src = entry(1, 1, 5);
+        with_src.src_ptr_sym = Some("__user_string_9".into());
+        with_src.src_len = 21;
+        let layout = compute_fn_name_table_layout(
+            vec![entry(0, 0, 3), with_src],
+            0x4000,
+            0x1_0000_4000,
+            false,
+        );
+        let payload = build_fn_name_table_payload(&layout, &[0xA1, 0xA2, 0xB1, 0xB2, 0xB3]);
+        // Entry 0: fn_addr=A1, name_ptr=A2, src_ptr=NULL, src_len=0.
+        assert_eq!(payload[0..8], 0xA1u64.to_le_bytes());
+        assert_eq!(payload[8..16], 0xA2u64.to_le_bytes());
+        assert_eq!(payload[24..32], 0u64.to_le_bytes());
+        assert_eq!(payload[32..36], 0u32.to_le_bytes());
+        // Entry 1: fn_addr=B1, name_ptr=B2, src_ptr=B3, src_len=21.
+        assert_eq!(payload[40..48], 0xB1u64.to_le_bytes());
+        assert_eq!(payload[48..56], 0xB2u64.to_le_bytes());
+        assert_eq!(payload[64..72], 0xB3u64.to_le_bytes());
+        assert_eq!(payload[72..76], 21u32.to_le_bytes());
+        // Trailing count global.
+        assert_eq!(payload[80..88], 2u64.to_le_bytes());
+    }
+
+    #[test]
+    fn rebase_targets_skip_null_src_slot() {
+        let mut with_src = entry(1, 1, 5);
+        with_src.src_ptr_sym = Some("__user_string_9".into());
+        with_src.src_len = 21;
+        let layout = compute_fn_name_table_layout(
+            vec![entry(0, 0, 3), with_src],
+            0x4000,
+            0x1_0000_4000,
+            false,
+        );
+        let mut sym_table = SymTable::new();
+        sym_table.insert("__torajs_fn_0".into(), 0x1_0000_1000);
+        sym_table.insert("__torajs_fn_1".into(), 0x1_0000_1100);
+        sym_table.insert("__user_string_0".into(), 0x1_0000_2000);
+        sym_table.insert("__user_string_1".into(), 0x1_0000_2100);
+        sym_table.insert("__user_string_9".into(), 0x1_0000_2900);
+        let targets =
+            compute_fn_name_table_rebase_targets(&layout, &sym_table, 0x1_0000_0000, 0x1_0000_0000);
+        // 2 slots for the src-less entry + 3 for the src entry.
+        assert_eq!(targets.len(), 5);
+        // The 5th target is the src slot at entry1 + 24 = 0x4028 + 24.
+        assert_eq!(targets[4].0, 0x4040);
+        assert_eq!(targets[4].1, 0x2900);
     }
 }
 
@@ -216,11 +288,13 @@ mod tests {
 /// consuming the chain-fixup link values pre-computed for the
 /// fn_addr + name_ptr slots. Layout per `compute_fn_name_table_layout`.
 ///
-/// Each entry contributes two chain-fixup link values in flat
-/// `entries[*]` walk order — `fn_addr` first, then `name_ptr`.
-/// `name_len: u32` is written directly (no chain fixup needed since
-/// it's a literal value, not a pointer), and so is `arity: u32`
-/// (the entry's former `_pad` slot, chunk 716).
+/// Each entry contributes two or three chain-fixup link values in
+/// flat `entries[*]` walk order — `fn_addr` first, then `name_ptr`,
+/// then `src_ptr` IF `src_ptr_sym` is `Some` (a `None` src slot is a
+/// literal NULL: no link value consumed — the walk order must stay
+/// in lockstep with `compute_fn_name_table_rebase_targets`).
+/// `name_len` / `arity` / `src_len` are written directly (literal
+/// values, no chain fixup).
 ///
 /// The trailing `__torajs_fn_name_table_count: u64` global gets the
 /// raw entry count as a little-endian u64.
@@ -247,24 +321,41 @@ pub fn build_fn_name_table_payload(
     let entries_total = (layout.entries.len() as u32) * ENTRY_SIZE;
     let leading_pad = layout.total_size as usize - entries_total as usize - COUNT_SIZE as usize;
     buf.resize(leading_pad, 0);
-    // Each entry: 2 chain-fixup-encoded u64s (fn_addr, name_ptr) +
-    // 1 u32 name_len + 1 u32 pad.
-    let expected_link_count = layout.entries.len() * 2;
+    // Each entry: 2-3 chain-fixup-encoded u64s (fn_addr, name_ptr,
+    // src_ptr when present) + literal name_len / arity / src_len /
+    // pad. Link-value count varies per entry, so walk with a cursor.
+    let expected_link_count: usize = layout
+        .entries
+        .iter()
+        .map(|e| 2 + usize::from(e.src_ptr_sym.is_some()))
+        .sum();
     debug_assert_eq!(
         slot_link_values.len(),
         expected_link_count,
-        "slot_link_values mismatch — expected {} (2 per entry × {} entries), got {}",
+        "slot_link_values mismatch — expected {} (2-3 per entry × {} entries), got {}",
         expected_link_count,
         layout.entries.len(),
         slot_link_values.len(),
     );
-    for (i, entry) in layout.entries.iter().enumerate() {
-        let fn_addr_lv = slot_link_values[i * 2];
-        let name_ptr_lv = slot_link_values[i * 2 + 1];
+    let mut lv_cursor = 0usize;
+    for entry in layout.entries.iter() {
+        let fn_addr_lv = slot_link_values[lv_cursor];
+        let name_ptr_lv = slot_link_values[lv_cursor + 1];
+        lv_cursor += 2;
+        let src_ptr_lv = if entry.src_ptr_sym.is_some() {
+            let lv = slot_link_values[lv_cursor];
+            lv_cursor += 1;
+            lv
+        } else {
+            0
+        };
         buf.extend_from_slice(&fn_addr_lv.to_le_bytes());
         buf.extend_from_slice(&name_ptr_lv.to_le_bytes());
         buf.extend_from_slice(&entry.name_len.to_le_bytes());
         buf.extend_from_slice(&entry.arity.to_le_bytes());
+        buf.extend_from_slice(&src_ptr_lv.to_le_bytes());
+        buf.extend_from_slice(&entry.src_len.to_le_bytes());
+        buf.extend_from_slice(&0u32.to_le_bytes());
     }
     // Trailing count global — raw u64 entry count, no chain fixup
     // (the count is a plain immediate, not a pointer).
@@ -338,7 +429,7 @@ pub fn compute_fn_name_table_rebase_targets(
     seg_vmaddr_base: u64,
     image_vmaddr_base: u64,
 ) -> Vec<RebaseTarget> {
-    let mut targets = Vec::with_capacity(layout.entries.len() * 2);
+    let mut targets = Vec::with_capacity(layout.entries.len() * 3);
     if layout.entries.is_empty() {
         return targets;
     }
@@ -364,6 +455,20 @@ pub fn compute_fn_name_table_rebase_targets(
             )
         });
         targets.push((name_slot_off, name_target_vaddr - image_vmaddr_base));
+        // Slot 2 — src_ptr at entry_vaddr + 24, ONLY when a source
+        // string is recorded (B3b). A `None` src slot stays a
+        // literal NULL: no rebase target, matching the payload
+        // builder's no-link-value contract.
+        if let Some(src_sym) = &entry.src_ptr_sym {
+            let src_slot_off = ((entry_vaddr + 24) - seg_vmaddr_base) as u32 as u64;
+            let src_target_vaddr = *sym_table.get(src_sym).unwrap_or_else(|| {
+                panic!(
+                    "fn_name_table entry {i:?} src_ptr_sym {src_sym:?} missing from sym table — \
+                     apply user_string overrides before computing rebase targets",
+                )
+            });
+            targets.push((src_slot_off, src_target_vaddr - image_vmaddr_base));
+        }
     }
     targets
 }

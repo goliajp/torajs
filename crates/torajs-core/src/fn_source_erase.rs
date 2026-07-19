@@ -22,10 +22,6 @@ use crate::lexer::Span;
 /// `src`, answering the type-erased source slice. `ann_spans` is the
 /// whole program's table (source order); ranges outside `fn_span`
 /// are ignored.
-// dead_code: consumer lands with B3 (fn_name_table src bake) --
-// this module ships first so the parser-recording half and the
-// splice contract are locked by unit tests before the ABI change.
-#[allow(dead_code)]
 pub(crate) fn erase_types(src: &str, ann_spans: &[Span], fn_span: Span) -> String {
     let bytes = src.as_bytes();
     let (lo, hi) = (fn_span.start as usize, fn_span.end as usize);

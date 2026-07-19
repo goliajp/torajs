@@ -35,7 +35,7 @@
 
 mod body_passes;
 
-pub(crate) use body_passes::strip_static_method_name;
+pub(crate) use body_passes::{intern_fn_source, strip_static_method_name};
 
 use std::collections::HashMap;
 

@@ -68,6 +68,18 @@ pub struct FnNameTableEntry {
     /// SSA fn-decl walk computed (leading params before the first
     /// default / rest).
     pub arity: u32,
+    /// RFC 20260719-fn-tostring-source B3b — final vaddr of the
+    /// type-erased fn source text (RawBytes flavour, same channel
+    /// as `name_ptr`), or NULL when no user-written source was
+    /// recorded for this row (synthesized forwarders / bound
+    /// wrappers). Chain-fixup target when non-NULL.
+    pub src_ptr: *const u8,
+    /// ES `String.length` of the erased source; 0 when `src_ptr`
+    /// is NULL.
+    pub src_len: u32,
+    /// Alignment pad — keeps the entry at 40 bytes (8-aligned so
+    /// the array stride matches the emit side's ENTRY_SIZE).
+    pub _pad: u32,
 }
 
 // `*const u8` makes the entry struct non-`Send`/`Sync`, but the

@@ -194,6 +194,7 @@ pub(crate) fn run(
             params,
             return_type,
             body,
+            span,
             ..
         } = &ast.stmts[stmt_idx]
         {
@@ -251,11 +252,18 @@ pub(crate) fn run(
                     .filter(|p| p.name != "__env")
                     .take_while(|p| p.default.is_none() && !p.is_rest)
                     .count() as u32;
+                // B3b — lifted closure decls carry the user arrow /
+                // fn-expr span (B1b), so the same erased-source
+                // intern the Pass 2 rows get applies here.
+                let (src_sid, src_len) =
+                    crate::ssa_lower_inner::intern_fn_source(module, ast, *span);
                 module.fn_name_globals.push(FnNameEntry {
                     fn_id: fid,
                     name: binding.clone(),
                     name_sid,
                     arity,
+                    src_sid,
+                    src_len,
                 });
             }
         }
