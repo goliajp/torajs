@@ -60,6 +60,44 @@ unsafe extern "C" {
     pub(super) fn __torajs_num_parse_float(s: *const u8) -> f64;
     /// torajs-str — release the owned coercion temp.
     pub(super) fn __torajs_str_drop(s: *mut c_void);
+    /// torajs-meta — §20.1.2.17/.23/.5 own-enumeration. Each answers
+    /// a FRESH Arr cell (rc 1); `include_nonenum` picks the
+    /// `getOwnPropertyNames` surface over the `keys` one.
+    ///
+    /// `own_keys` is the one of the three that hands back an
+    /// UNSTAMPED block: `own_values` allocates a real `Array<Any>`
+    /// (`FLAG_ARR_ANY`) and `own_entries` stamps its outer array
+    /// itself, but the keys walk just pushes raw Str pointers. The
+    /// typed tier never noticed — its static `Arr<Str>` result type
+    /// drives the element drops — so the arm has to stamp the kind
+    /// at the typed→Any boundary or every heap key leaks.
+    pub(super) fn __torajs_anyv_own_keys(v: u64, include_nonenum: i64) -> *mut c_void;
+    /// torajs-arr — stamp the element-kind field on a typed array
+    /// crossing into the any world (the `exec` / `split` precedent).
+    pub(super) fn __torajs_arr_mark_kind(arr: *mut c_void, chain: u64);
+    pub(super) fn __torajs_anyv_own_values(v: u64) -> *mut c_void;
+    pub(super) fn __torajs_anyv_own_entries(v: u64) -> *mut c_void;
+    /// torajs-meta — §20.1.2.1 single-source copy. Guards a
+    /// null/undefined TARGET itself (the arm leans on that instead
+    /// of re-deriving step 1); a null/undefined SOURCE is a no-op.
+    pub(super) fn __torajs_anyv_assign(target: u64, source: u64);
+    /// torajs-meta — §20.1.2.6. Returns the receiver bit pattern
+    /// UNCHANGED and does NOT rc_inc: a borrow, so the arm owns it
+    /// before handing it back.
+    pub(super) fn __torajs_anyv_freeze(obj_any: u64) -> u64;
+    /// torajs-rc — §20.1.2.13 NaN-box-aware probe (non-object reads
+    /// `true` by definition). Answers a plain bool: no ownership.
+    pub(super) fn __torajs_obj_is_frozen_any(v: i64) -> bool;
+    /// torajs-meta — §20.1.2.12. Already OWNED on return (the
+    /// builtin-prototype singletons and the dynobj slot read both
+    /// rc_inc before answering), so the arm must NOT inc again.
+    pub(super) fn __torajs_anyv_get_proto_of_any(v: u64) -> u64;
+    /// torajs-meta — §20.1.2.21. Void; the static answers its
+    /// receiver, so the arm owns the borrow before handing it back.
+    pub(super) fn __torajs_anyv_set_prototype_of(obj: u64, proto: u64);
+    /// torajs-meta — §20.1.2.7. Answers a FRESH dynobj (owned); the
+    /// reject paths answer an immediate, so nothing leaks there.
+    pub(super) fn __torajs_anyv_from_entries(entries: u64) -> u64;
 }
 
 /// Per-id dispatch shape. Index-lockstep with
@@ -93,6 +131,31 @@ pub(super) enum Disp {
     ArrayIsArray,
     /// §20.1.2.14 Object.is — the §7.2.10 same-value kernel.
     ObjectIs,
+    /// §20.1.2.{17,23,5} own-enumeration — the kernel answers a
+    /// fresh Arr, which IS the owned result (no inc).
+    OwnEnum(OwnKind),
+    /// §20.1.2.1 Object.assign — variadic fold over the sources,
+    /// answering the target as an owned reference.
+    ObjectAssign,
+    /// §20.1.2.6 Object.freeze — kernel answers a borrow.
+    ObjectFreeze,
+    /// §20.1.2.13 Object.isFrozen — bool immediate.
+    ObjectIsFrozen,
+    /// §20.1.2.12 Object.getPrototypeOf — kernel answers an OWNED
+    /// reference already.
+    ObjectGetProtoOf,
+    /// §20.1.2.21 Object.setPrototypeOf — void kernel; the static
+    /// answers its receiver.
+    ObjectSetProtoOf,
+    /// §20.1.2.7 Object.fromEntries — kernel answers a fresh dynobj.
+    ObjectFromEntries,
+}
+
+/// The three own-enumeration surfaces (shared dispatch shape).
+pub(super) enum OwnKind {
+    Keys,
+    Values,
+    Entries,
 }
 
 /// The four `Number.is*` predicates (shared dispatch shape).
@@ -150,4 +213,13 @@ pub(super) static DISPATCH: &[Disp] = &[
     Disp::NumPredicate(NumPred::SafeInteger),
     Disp::ArrayIsArray,
     Disp::ObjectIs,
+    Disp::OwnEnum(OwnKind::Keys),
+    Disp::OwnEnum(OwnKind::Values),
+    Disp::OwnEnum(OwnKind::Entries),
+    Disp::ObjectAssign,
+    Disp::ObjectFreeze,
+    Disp::ObjectIsFrozen,
+    Disp::ObjectGetProtoOf,
+    Disp::ObjectSetProtoOf,
+    Disp::ObjectFromEntries,
 ];

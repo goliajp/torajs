@@ -332,6 +332,47 @@ mod tests {
     pub unsafe extern "C" fn __torajs_weakref_target_dying(_target: *mut c_void) {}
     #[unsafe(no_mangle)]
     pub unsafe extern "C" fn __torajs_value_drop_heap(_child: *mut c_void) {}
+    // chunk B3c-1 — the Object statics the ns-static DISPATCH table
+    // delegates to (torajs-meta / torajs-rc in the shipped binary).
+    // The table is test-reachable, so `-dead_strip` keeps the module
+    // and the test binary fails to link on any unstubbed symbol.
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_anyv_own_keys(_v: u64, _nonenum: i64) -> *mut c_void {
+        core::ptr::null_mut()
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_anyv_own_values(_v: u64) -> *mut c_void {
+        core::ptr::null_mut()
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_anyv_own_entries(_v: u64) -> *mut c_void {
+        core::ptr::null_mut()
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_anyv_assign(_target: u64, _source: u64) {}
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_arr_mark_kind(_arr: *mut c_void, _chain: u64) {}
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_anyv_freeze(obj_any: u64) -> u64 {
+        obj_any
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_obj_is_frozen_any(_v: i64) -> bool {
+        true
+    }
+    // Declared in `method_call.rs` too, but only reachable there
+    // through paths Rust DCE strips in the test binary — the
+    // DISPATCH table is what pulls it in, so the stub lands here.
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_anyv_get_proto_of_any(_v: u64) -> u64 {
+        0
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_anyv_set_prototype_of(_obj: u64, _proto: u64) {}
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_anyv_from_entries(_entries: u64) -> u64 {
+        0
+    }
     /// P2.3-b — payload_eq's Heap path delegates to str_eq when
     /// both sides are Tag::Str. The shipped binary resolves this
     /// from runtime_str.c; tests provide a pointer-identity stub

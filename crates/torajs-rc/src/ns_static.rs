@@ -85,6 +85,23 @@ pub static NS_STATIC_TABLE: &[NsStaticRow] = &[
     row("Number", "isSafeInteger", 1),
     row("Array", "isArray", 1),
     row("Object", "is", 2),
+    // Object statics (chunk B3c-1) — the family whose semantics
+    // already exist as AnyValue-tier runtime kernels, so every arm
+    // delegates rather than re-deriving §20.1.2. Lengths per
+    // §20.1.2.{17,23,5,1,6,13,12,21,7}. `create` /
+    // `defineProperty` / `defineProperties` stay OFF the table:
+    // their kernels are dynobj-slot shaped (ptr-to-ptr receiver, no
+    // AnyValue entry), so a value read keeps the loud reject until
+    // an any-tier kernel exists (RFC records the face).
+    row("Object", "keys", 1),
+    row("Object", "values", 1),
+    row("Object", "entries", 1),
+    row("Object", "assign", 2),
+    row("Object", "freeze", 1),
+    row("Object", "isFrozen", 1),
+    row("Object", "getPrototypeOf", 1),
+    row("Object", "setPrototypeOf", 2),
+    row("Object", "fromEntries", 1),
 ];
 
 /// Compile-time `(namespace, member)` → id. Linear scan — lower-time

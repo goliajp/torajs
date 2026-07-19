@@ -29,14 +29,22 @@ use torajs_rc::{FLAG_STATIC_LITERAL, Tag};
 use crate::nanbox::{VALUE_UNDEFINED, box_double, box_int32};
 
 use super::ns_static_table::{
+    __torajs_anyv_assign, __torajs_anyv_freeze, __torajs_anyv_from_entries,
+    __torajs_anyv_get_proto_of_any, __torajs_anyv_own_entries, __torajs_anyv_own_keys,
+    __torajs_anyv_own_values, __torajs_anyv_set_prototype_of, __torajs_arr_mark_kind,
     __torajs_math_max, __torajs_math_min, __torajs_num_parse_float, __torajs_num_parse_int,
-    __torajs_str_drop, __torajs_throw_check, __torajs_throw_type_error, DISPATCH, Disp, NumPred,
+    __torajs_obj_is_frozen_any, __torajs_str_drop, __torajs_throw_check, __torajs_throw_type_error,
+    DISPATCH, Disp, NumPred, OwnKind,
 };
 
 use super::{
     CELL_SIZE, CLOSURE_BOXED_ENTRY_OFF, CLOSURE_CAP_BASE_OFF, CLOSURE_DROP_FN_OFF,
     CLOSURE_FN_ADDR_OFF, CLOSURE_PROPS_OFF, TABLE_SIZE, mint_immortal_str,
 };
+
+/// `ARR_KIND_HEAP` mirror (torajs-rc) — the one kind an own-keys
+/// block ever holds.
+const KIND_HEAP_CHAIN: u64 = 4;
 
 /// Separator/newline byte between the tag-aware per-arg prints —
 /// the Rust-path call (torajs-io is a real Cargo dep) keeps the
@@ -208,8 +216,89 @@ unsafe fn dispatch(id: i64, argv: *const u64, argc: i64) -> u64 {
                 arg_at(argv, argc, 0),
                 arg_at(argv, argc, 1),
             )),
+            // The kernel answers a fresh Arr cell (rc 1) — that IS
+            // the owned result, so no inc. A null/undefined receiver
+            // records its ToObject TypeError inside the kernel and
+            // still answers a well-formed empty Arr; the caller's
+            // throw check makes it unobservable, exactly as on the
+            // typed tier (`ssa_lower_call_object_keys.rs`).
+            Disp::OwnEnum(kind) => {
+                let recv = arg_at(argv, argc, 0);
+                let arr = match kind {
+                    OwnKind::Keys => {
+                        let a = __torajs_anyv_own_keys(recv, 0);
+                        // Slots are Str heap pointers, and this call
+                        // IS the typed→Any boundary: without the
+                        // stamp the any-lane drop frees the block
+                        // and strands every key cell. Literal-keyed
+                        // objects hide it (static Str skips its
+                        // drop), runtime-added keys do not.
+                        __torajs_arr_mark_kind(a, KIND_HEAP_CHAIN);
+                        a
+                    }
+                    // Already self-describing: `own_values` answers a
+                    // real Array<Any>, `own_entries` stamps its outer
+                    // block. Stamping the values array HEAP would be
+                    // actively wrong — its slots hold immediates too,
+                    // and a walker would deref a small int.
+                    OwnKind::Values => __torajs_anyv_own_values(recv),
+                    OwnKind::Entries => __torajs_anyv_own_entries(recv),
+                };
+                arr as u64
+            }
+            Disp::ObjectAssign => {
+                let target = arg_at(argv, argc, 0);
+                if argc < 2 {
+                    // §20.1.2.1 step 1 ToObject(target) runs even with
+                    // no sources. Call once with an undefined source:
+                    // the kernel guards the target itself and treats
+                    // an undefined source as a no-op, so step 1 stays
+                    // single-sourced instead of re-derived here.
+                    __torajs_anyv_assign(target, VALUE_UNDEFINED);
+                    if __torajs_throw_check() != 0 {
+                        return VALUE_UNDEFINED;
+                    }
+                } else {
+                    for i in 1..argc {
+                        __torajs_anyv_assign(target, *argv.add(i as usize));
+                        if __torajs_throw_check() != 0 {
+                            return VALUE_UNDEFINED;
+                        }
+                    }
+                }
+                own(target)
+            }
+            Disp::ObjectFreeze => own(__torajs_anyv_freeze(arg_at(argv, argc, 0))),
+            Disp::ObjectIsFrozen => {
+                box_bool(__torajs_obj_is_frozen_any(arg_at(argv, argc, 0) as i64))
+            }
+            // Already owned on return — inc'ing again would strand the
+            // prototype cell at a refcount its owners never drop.
+            Disp::ObjectGetProtoOf => __torajs_anyv_get_proto_of_any(arg_at(argv, argc, 0)),
+            Disp::ObjectSetProtoOf => {
+                let obj = arg_at(argv, argc, 0);
+                __torajs_anyv_set_prototype_of(obj, arg_at(argv, argc, 1));
+                if __torajs_throw_check() != 0 {
+                    return VALUE_UNDEFINED;
+                }
+                own(obj)
+            }
+            Disp::ObjectFromEntries => __torajs_anyv_from_entries(arg_at(argv, argc, 0)),
         }
     }
+}
+
+/// Hand an argv borrow back as the OWNED result the boxed entry's
+/// contract promises: every consumer of an any-lane call result drops
+/// it, so a static that answers one of its own arguments has to raise
+/// the count first (the typed tier does the same at
+/// `ssa_lower_call_object_get_prototype_of.rs:112`). Immediates carry
+/// no refcount, so only cells inc.
+unsafe fn own(v: u64) -> u64 {
+    if crate::nanbox::is_cell(v) {
+        unsafe { torajs_rc::__torajs_rc_inc(crate::nanbox::as_void_ptr(v)) };
+    }
+    v
 }
 
 /// argv[i], missing → undefined.
