@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-18T21:00:27.448Z",
+  "generatedAt": "2026-07-19T01:26:38.012Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 94.78
   },
   "torajs": {
-    "commit": "3f663535",
-    "commitSubject": "refactor: split callable probes and struct arm out of method_call_dynobj",
+    "commit": "a549dc2d",
+    "commitSubject": "refactor: move fromIndex normalization to its own module",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,55 +713,55 @@
   },
   "commits": [
     {
-      "hash": "3f663535",
-      "subject": "refactor: split callable probes and struct arm out of method_call_dynobj"
+      "hash": "a549dc2d",
+      "subject": "refactor: move fromIndex normalization to its own module"
     },
     {
-      "hash": "84f59da9",
-      "subject": "refactor: split pair-arg shims out of nanbox_encode"
+      "hash": "d336e3d2",
+      "subject": "refactor: split the catch emit out of try lowering"
     },
     {
-      "hash": "8bcbd6bd",
-      "subject": "refactor: ast.rs keeps the module tree, Ast type moves to a child"
+      "hash": "60501ebb",
+      "subject": "refactor: split the resolve steps out of Object.create lowering"
     },
     {
-      "hash": "4d26af63",
-      "subject": "refactor: split anyvalue equality and arithmetic shims out of nanbox_ffi"
+      "hash": "006940e6",
+      "subject": "refactor: split builtin-new desugar into one fn per rewrite pass"
     },
     {
-      "hash": "dd18afdd",
+      "hash": "d391740c",
+      "subject": "refactor: split the fat arms out of any_member_set"
+    },
+    {
+      "hash": "d8b3ae2b",
+      "subject": "refactor: split the Arr<Any> kernel route out of index-search dispatch"
+    },
+    {
+      "hash": "19d52d3c",
+      "subject": "refactor: split the accessor half out of define_from_desc"
+    },
+    {
+      "hash": "364e0b0c",
+      "subject": "refactor: split the fat arms out of the fn-to-closure walk_expr"
+    },
+    {
+      "hash": "d397e1c1",
+      "subject": "refactor: split the per-field emits out of lower_dynobj_init"
+    },
+    {
+      "hash": "c5a6cfb3",
+      "subject": "refactor: split the Phase C registration emits into a sibling"
+    },
+    {
+      "hash": "1a6f4d92",
+      "subject": "refactor: split the cell-tag ladder out of any_method_call_inner"
+    },
+    {
+      "hash": "da426dde",
       "subject": "chore: hardev dashboard snapshot at rotation 146 close"
-    },
-    {
-      "hash": "1c03c68f",
-      "subject": "refactor: third id-switch slice for str_method"
-    },
-    {
-      "hash": "e503969c",
-      "subject": "refactor: split class-object defines out of classmeta"
-    },
-    {
-      "hash": "dce17fee",
-      "subject": "perf: conditional increment collapses into one csinc"
-    },
-    {
-      "hash": "f40826e9",
-      "subject": "perf: f64 diamonds if-convert through fcsel"
-    },
-    {
-      "hash": "27292515",
-      "subject": "feat: aarch64 fcsel_d encoder for f64 select lowering"
-    },
-    {
-      "hash": "a2cd4574",
-      "subject": "chore: hardev dashboard snapshot at rotation 145 close"
-    },
-    {
-      "hash": "5e4a98d3",
-      "subject": "chore: full 44-cell bench results at f6918487"
     }
   ],
-  "headSha": "3f663535",
+  "headSha": "a549dc2d",
   "autorun": {
     "total": 452,
     "baselineTarget": 10,
