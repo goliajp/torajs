@@ -610,6 +610,8 @@ pub(crate) struct Intrinsics {
     pub(crate) symbol_print: FuncId,
     pub(crate) symbol_for: FuncId,
     pub(crate) symbol_key_for: FuncId,
+    pub(crate) symbol_for_any: FuncId,
+    pub(crate) symbol_key_for_any: FuncId,
     pub(crate) symbol_iterator: FuncId,
     pub(crate) symbol_async_iterator: FuncId,
     pub(crate) symbol_to_primitive: FuncId,

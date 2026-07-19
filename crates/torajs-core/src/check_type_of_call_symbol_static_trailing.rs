@@ -14,9 +14,12 @@
 //!
 //! Receiver / m_name / arity matrix:
 //! - `Expr::Ident("Symbol")` + m_name ∈ {"for", "keyFor"}
-//!   + args.len() >= 2:
+//!   + args.len() >= 1:
 //!     - typecheck-drop all args
-//!     - returns:
+//!     - `args[0]` typed Any → `Some(Ok(Type::Any))` (RFC
+//!       20260720-symbol-any-call-boundary: routes to the
+//!       any-lane kernels, result is NaN-box bits)
+//!     - otherwise, args.len() >= 2 returns:
 //!       - `Some(Ok(Type::Symbol))` for `for`
 //!       - `Some(Ok(Type::Nullable(Box::new(Type::String))))`
 //!         for `keyFor`
@@ -25,9 +28,9 @@
 //! - `Some(Ok(_))` on success
 //! - `Some(Err(_))` on arg type_of failure
 //! - `None` otherwise (non-Member callee, non-`Symbol`
-//!   namespace, m_name not in the pair, or args.len() < 2 —
-//!   cascade falls through to the S248 Set.add/Map.set
-//!   sibling and beyond)
+//!   namespace, m_name not in the pair, or the typed 1-arg
+//!   form — cascade falls through to the S248 Set.add/Map.set
+//!   sibling, the general_call tail types the 1-arg form)
 
 use crate::ast::{Ast, Expr, ExprId};
 use crate::check::{Checker, Type};
@@ -54,16 +57,29 @@ pub(crate) fn try_match(
     if !matches!(m_name.as_str(), "for" | "keyFor") {
         return None;
     }
-    if args.len() < 2 {
+    if args.is_empty() {
         return None;
     }
-    if let Err(e) = checker.type_of(ast, args[0]) {
-        return Some(Err(e));
-    }
+    let arg0_ty = match checker.type_of(ast, args[0]) {
+        Ok(t) => t,
+        Err(e) => return Some(Err(e)),
+    };
     for &arg in args.iter().skip(1) {
         if let Err(e) = checker.type_of(ast, arg) {
             return Some(Err(e));
         }
+    }
+    // RFC 20260720-symbol-any-call-boundary — an Any arg routes to
+    // the any-lane kernels (ToString / brand-check semantics live
+    // there) and answers NaN-box bits, so the call types Any rather
+    // than Symbol / Nullable<String>: a typed Nullable consumer
+    // would deref VALUE_UNDEFINED as a pointer.
+    if arg0_ty == Type::Any {
+        return Some(Ok(Type::Any));
+    }
+    if args.len() < 2 {
+        // Typed 1-arg form keeps its pre-existing general_call route.
+        return None;
     }
     Some(Ok(match m_name.as_str() {
         "for" => Type::Symbol,

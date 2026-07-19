@@ -528,6 +528,8 @@ pub(crate) fn build(
         symbol_print: init_c.runtime_misc.symbol_print,
         symbol_for: init_c.runtime_misc.symbol_for,
         symbol_key_for: init_c.runtime_misc.symbol_key_for,
+        symbol_for_any: init_c.runtime_misc.symbol_for_any,
+        symbol_key_for_any: init_c.runtime_misc.symbol_key_for_any,
         symbol_iterator: init_c.runtime_misc.symbol_iterator,
         symbol_async_iterator: init_c.runtime_misc.symbol_async_iterator,
         symbol_to_primitive: init_c.runtime_misc.symbol_to_primitive,

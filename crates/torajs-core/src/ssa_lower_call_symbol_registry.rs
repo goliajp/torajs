@@ -50,6 +50,30 @@ pub(crate) fn try_lower(
     for &a in args.iter().skip(1) {
         let _ = ctx.lower_expr(a);
     }
+    // RFC 20260720-symbol-any-call-boundary — an Any arg routes to
+    // the any-lane kernels: `symbol_for_any` carries the ToString
+    // coercion (and its throw face), `symbol_key_for_any` the
+    // §20.4.2.6 brand check (non-Symbol throws) and the
+    // unregistered→undefined mapping. The kernel borrows the arg
+    // and answers owned NaN-box bits; a throw path returns
+    // VALUE_UNDEFINED (immediate, no ledger residue).
+    if ctx.operand_ty(&arg_op) == Type::Any {
+        let fid = if m_name == "for" {
+            ctx.intrinsics.symbol_for_any
+        } else {
+            ctx.intrinsics.symbol_key_for_any
+        };
+        let cur_block = ctx.cur_block;
+        let v = ctx.f.append_inst(
+            cur_block,
+            InstKind::Call(fid, vec![arg_op.clone()]),
+            Type::Any,
+            None,
+        );
+        ctx.emit_throw_check(None);
+        ctx.release_owned_temp(args[0], &arg_op);
+        return Some(Operand::Value(v));
+    }
     let (fid, ret_ty) = if m_name == "for" {
         (ctx.intrinsics.symbol_for, Type::Symbol)
     } else {

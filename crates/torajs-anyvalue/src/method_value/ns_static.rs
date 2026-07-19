@@ -332,6 +332,23 @@ unsafe fn symbol_key_for_value(v: u64) -> u64 {
     }
 }
 
+/// Compiler face for the any-arg direct-call lane (RFC
+/// 20260720-symbol-any-call-boundary) — same kernel the dispatcher
+/// arm uses, so ToString coercion and its throw face never drift.
+/// Arg is a borrow; the returned Symbol is owned.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_symbol_for_any(key_any: u64) -> u64 {
+    unsafe { symbol_for_value(key_any) }
+}
+
+/// Compiler face for `Symbol.keyFor(x: any)` — §20.4.2.6 brand check
+/// (non-Symbol throws), unregistered answers VALUE_UNDEFINED. Arg is
+/// a borrow; a hit's key Str comes back owned.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_symbol_key_for_any(v: u64) -> u64 {
+    unsafe { symbol_key_for_value(v) }
+}
+
 /// Hand an argv borrow back as the OWNED result the boxed entry's
 /// contract promises: every consumer of an any-lane call result drops
 /// it, so a static that answers one of its own arguments has to raise
