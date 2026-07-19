@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-19T10:35:10.323Z",
+  "generatedAt": "2026-07-19T12:12:18.019Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 94.78
   },
   "torajs": {
-    "commit": "bd8f8cba",
-    "commitSubject": "feat: fn-typed value receivers answer toString through runtime kernels",
+    "commit": "0c871ed6",
+    "commitSubject": "feat: builtin constructor identity through .constructor reads and bare ident values",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "0c871ed6",
+      "subject": "feat: builtin constructor identity through .constructor reads and bare ident values"
+    },
+    {
+      "hash": "974984c5",
+      "subject": "feat: fn toLocaleString answers the toString source on both tiers"
+    },
+    {
+      "hash": "6544ff66",
+      "subject": "feat: Function.prototype.call on statically fn-typed values"
+    },
+    {
+      "hash": "f8aaea2b",
+      "subject": "feat: any-lane struct member miss reads through the class prototype chain"
+    },
+    {
+      "hash": "29ad1cf1",
+      "subject": "feat: class-method faces answer toString source through their adapter registry row"
+    },
+    {
+      "hash": "911a90a6",
+      "subject": "feat: namespace-static builtin methods answer the JSC named native form"
+    },
+    {
+      "hash": "e0db83e6",
+      "subject": "chore: hardev dashboard snapshot at rotation 150 close"
+    },
+    {
       "hash": "bd8f8cba",
       "subject": "feat: fn-typed value receivers answer toString through runtime kernels"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "c846f94a",
       "subject": "feat: anonymous lifted closures land fn_name_table rows"
-    },
-    {
-      "hash": "69d4e7d8",
-      "subject": "feat: fn_name_table bakes type-erased fn source (entry 24 -> 40 bytes)"
-    },
-    {
-      "hash": "4528f2fe",
-      "subject": "feat: class methods record their source byte span"
-    },
-    {
-      "hash": "2e884e98",
-      "subject": "chore: hardev dashboard snapshot at rotation 149 close"
-    },
-    {
-      "hash": "0a9e26c0",
-      "subject": "style: rustfmt fn_source_erase (mini-side fmt not pulled back before commit)"
-    },
-    {
-      "hash": "ea98339e",
-      "subject": "feat: parser records type-annotation spans; erase_types splices them"
-    },
-    {
-      "hash": "afd7e7a1",
-      "subject": "chore: hardev dashboard snapshot at rotation 149 close"
-    },
-    {
-      "hash": "660814a2",
-      "subject": "feat: fn declarations record their source byte span"
     }
   ],
-  "headSha": "bd8f8cba",
+  "headSha": "0c871ed6",
   "autorun": {
-    "total": 455,
+    "total": 456,
     "baselineTarget": 10,
-    "bySelf": 450,
+    "bySelf": 451,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784437474-2950",
-      "at": "2026-07-19T05:04:34Z",
-      "ts": 1784437474,
+      "rotationId": "r-1784457411-18ad",
+      "at": "2026-07-19T10:36:51Z",
+      "ts": 1784457411,
       "trigger": "self",
-      "prevHead": "2e884e98",
-      "handoffSha": "sha256:c243e71ffe1f04f1aae5f5f9d907a79efe3313084ac4daa79272c28ebaead5fc",
-      "handoffAgeSec": 8,
+      "prevHead": "e0db83e6",
+      "handoffSha": "sha256:81845abb95009742ca8258f4e951ded6ceb3c964be2014cd8240bc7f89b30f3a",
+      "handoffAgeSec": 4,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784457411-18ad",
+        "at": "2026-07-19T10:36:51Z",
+        "ts": 1784457411,
+        "trigger": "self",
+        "prevHead": "e0db83e6",
+        "handoffSha": "sha256:81845abb95009742ca8258f4e951ded6ceb3c964be2014cd8240bc7f89b30f3a",
+        "handoffAgeSec": 4,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784437474-2950",
         "at": "2026-07-19T05:04:34Z",
@@ -876,17 +887,6 @@
         "prevHead": "ebcddda7",
         "handoffSha": "sha256:d6cf1989b354bca4fb72e85e146ba03d24ec6fb3b99cef76d42a906429228384",
         "handoffAgeSec": 4,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784369203-5bbf",
-        "at": "2026-07-18T10:06:43Z",
-        "ts": 1784369203,
-        "trigger": "self",
-        "prevHead": "af49f7f8",
-        "handoffSha": "sha256:45d6e877ea9d794e6d2abb4e22b000834decdebd6d5d3eea1ed9017a466164b5",
-        "handoffAgeSec": 24,
         "conformanceBefore": null,
         "commitsInSession": null
       }
