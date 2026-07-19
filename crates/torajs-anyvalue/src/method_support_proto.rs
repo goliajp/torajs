@@ -323,6 +323,45 @@ pub unsafe extern "C" fn __torajs_builtin_proto_method_value(
     crate::method_value::builtin_method_cell(set_keys_alias(tag, mid)) as AnyValue
 }
 
+/// `in` is HasProperty (§7.3.12): after the receiver's own face
+/// misses, the answer comes from its prototype chain. For a builtin
+/// family receiver that chain is `<Ctor>.prototype` →
+/// `Object.prototype` → null, and both links resolve against the
+/// same interned-method family tables every read consumer uses —
+/// consistency by construction with the member-read dispatcher
+/// (rotation 148: a supported-table drifting from its dispatcher is
+/// the recorded failure mode).
+///
+/// `family_tag` is the receiver's builtin-proto tag
+/// (`torajs-rc/builtin_proto.rs` order; Function=13 covers closure
+/// receivers, Object=1 plain dynobjs). `constructor` is an own
+/// property of every builtin prototype (§20.x.3.1 family). Delete
+/// tombstones are consulted through `proto_tag_owns`, so
+/// `delete Array.prototype.map; "map" in xs` stays false.
+///
+/// # Safety
+/// `key` is NULL or a live Str cell.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_proto_chain_key_owned(
+    family_tag: i64,
+    key: *const c_void,
+) -> i64 {
+    if unsafe { crate::prop_has::key_is(key, b"constructor") } {
+        return 1;
+    }
+    let mid = unsafe { crate::method_value::key_method_id(key) };
+    if mid == ANY_METHOD_UNKNOWN || (mid as usize) >= crate::method_value::TABLE_SIZE {
+        return 0;
+    }
+    if proto_tag_owns(family_tag, mid) {
+        return 1;
+    }
+    // Chain root — every builtin prototype's [[Prototype]] is
+    // Object.prototype; skip the re-probe when it was the immediate
+    // link already.
+    (family_tag != 1 && proto_tag_owns(1, mid)) as i64
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
