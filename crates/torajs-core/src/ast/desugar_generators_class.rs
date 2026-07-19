@@ -151,6 +151,13 @@ pub(super) fn assemble_generator_class_and_factory(
     // substrate via this map.
     ast.generator_factory_classes
         .insert(gen_name.clone(), class_name.clone());
+    // the factory replaces the user's `function*` declaration in
+    // place -- keep its source range so toString answers the
+    // generator text the user wrote (B1b)
+    let orig_span = match &ast.stmts[idx] {
+        Stmt::FnDecl { span, .. } => *span,
+        _ => crate::lexer::Span { start: 0, end: 0 },
+    };
     ast.stmts[idx] = Stmt::FnDecl {
         name: gen_name,
         type_params: Vec::new(),
@@ -158,5 +165,6 @@ pub(super) fn assemble_generator_class_and_factory(
         return_type: Some(class_name),
         body: factory_body,
         is_generator: false,
+        span: orig_span,
     };
 }

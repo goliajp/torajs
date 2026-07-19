@@ -163,6 +163,15 @@ pub enum Stmt {
         /// a fresh state-machine instance. Plain (non-generator) FnDecls
         /// stay false; rewritten factories also stay false.
         is_generator: bool,
+        /// RFC 20260719-fn-tostring-source B1b — source byte range of
+        /// the whole declaration (`function` keyword — or its `async `
+        /// prefix — through the body's closing brace). (0,0) sentinel
+        /// = "no user source": every synthesized FnDecl (forwarders,
+        /// desugar products, monomorph clones) writes it, while the
+        /// in-place rewrite passes (generators / async) carry the
+        /// original declaration's span so toString answers the source
+        /// text the user wrote.
+        span: crate::lexer::Span,
     },
     /// `type Foo = { x: number, y: number };` — structural type alias.
     /// Field types are stored as raw annotation strings; `check.rs` is

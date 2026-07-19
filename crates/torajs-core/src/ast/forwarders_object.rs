@@ -371,6 +371,7 @@ fn synthesize_forwarder_decls(
             return_type,
             body,
             is_generator: false,
+            span: crate::lexer::Span { start: 0, end: 0 },
         });
         renames.insert(target.clone(), forward_name);
     }

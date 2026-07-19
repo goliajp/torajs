@@ -163,6 +163,7 @@ impl<'a> Formatter<'a> {
                 return_type,
                 body,
                 is_generator,
+                span: _,
             } => self.fmt_fn_decl(
                 name,
                 type_params,

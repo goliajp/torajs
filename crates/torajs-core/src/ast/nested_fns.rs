@@ -129,6 +129,7 @@ fn collect_nested_fns_in_stmt(
                 return_type,
                 body,
                 is_generator,
+                span,
                 ..
             } = taken
             {
@@ -139,6 +140,8 @@ fn collect_nested_fns_in_stmt(
                     return_type,
                     body,
                     is_generator,
+                    // lift keeps the user's declaration text (B1b)
+                    span,
                 });
             }
             return;
@@ -215,6 +218,7 @@ fn collect_nested_fns_to_lift(
                         return_type,
                         body: fbody,
                         is_generator,
+                        span,
                         ..
                     } => Stmt::FnDecl {
                         name: mangled,
@@ -223,6 +227,8 @@ fn collect_nested_fns_to_lift(
                         return_type,
                         body: fbody,
                         is_generator,
+                        // lift keeps the user's declaration text (B1b)
+                        span,
                     },
                     _ => unreachable!(),
                 };

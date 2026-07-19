@@ -299,6 +299,14 @@ impl Parser<'_> {
     /// sits on `(` and would drop the `async ` prefix from the
     /// recorded source range (RFC 20260719-fn-tostring-source B1).
     pub(super) fn respan_expr(&mut self, eid: ExprId, start_pos: usize) {
+        let span = self.span_from(start_pos);
+        self.ast.set_expr_span(eid, span);
+    }
+
+    /// Byte span from `start_pos`'s token through the token just
+    /// consumed — the [`Self::add_expr_at`] formula as a value, for
+    /// nodes that carry their span inline (`Stmt::FnDecl`, B1b).
+    pub(super) fn span_from(&self, start_pos: usize) -> crate::lexer::Span {
         let start = self
             .tokens
             .get(start_pos)
@@ -312,8 +320,7 @@ impl Parser<'_> {
         } else {
             start
         };
-        self.ast
-            .set_expr_span(eid, crate::lexer::Span { start, end });
+        crate::lexer::Span { start, end }
     }
 
     fn parse_program(&mut self) -> Result<(), String> {

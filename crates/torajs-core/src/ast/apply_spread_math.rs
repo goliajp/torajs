@@ -191,5 +191,6 @@ fn synthesize_math_reducer(ast: &mut Ast, is_min: bool) {
         return_type: Some("number".into()),
         body: vec![r_decl, for_stmt, Stmt::Return(Some(r_ret))],
         is_generator: false,
+        span: crate::lexer::Span { start: 0, end: 0 },
     });
 }

@@ -17,6 +17,10 @@ use super::*;
 
 impl<'a> Parser<'a> {
     pub(super) fn parse_fn(&mut self, is_async: bool) -> Result<Stmt, String> {
+        // Span anchor (B1b) — the `function` keyword, or the `async`
+        // the caller consumed one token earlier (parse_stmt's L.2 arm
+        // is the only is_async caller and sits right on that contract).
+        let start_pos = if is_async { self.pos - 1 } else { self.pos };
         self.pos += 1; // consume `function`
         // Phase J — `function*` generator declaration. Optional `*` token
         // sandwiched between `function` and the name marks this fn as a
@@ -137,6 +141,7 @@ impl<'a> Parser<'a> {
             return_type,
             body,
             is_generator,
+            span: self.span_from(start_pos),
         })
     }
 
@@ -334,5 +339,59 @@ impl<'a> Parser<'a> {
             t => return Err(format!("expected `)`, got {t:?} at {}", self.at())),
         }
         Ok((params, param_destr_lets))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::ast::Stmt;
+    use crate::lexer::tokenize;
+    use crate::parser::parse;
+
+    /// Slice `src` by the span of the first `Stmt::FnDecl` (B1b —
+    /// the fn_name_table bake hands this exact range to toString).
+    fn first_fn_decl_span_text(src: &str) -> String {
+        let tokens = tokenize(src).expect("tokenize");
+        let ast = parse(src, &tokens).expect("parse");
+        let span = ast
+            .stmts
+            .iter()
+            .find_map(|s| match s {
+                Stmt::FnDecl { span, .. } => Some(*span),
+                _ => None,
+            })
+            .expect("a FnDecl stmt");
+        assert!(
+            span.start != 0 || span.end != 0,
+            "FnDecl span left at the (0,0) sentinel"
+        );
+        src[span.start as usize..span.end as usize].to_string()
+    }
+
+    #[test]
+    fn fn_decl_span_covers_keyword_to_body_brace() {
+        let src = "function f(a: number, b: number): number {\n  return a + b;\n}\nf(1, 2);\n";
+        assert_eq!(
+            first_fn_decl_span_text(src),
+            "function f(a: number, b: number): number {\n  return a + b;\n}"
+        );
+    }
+
+    #[test]
+    fn async_fn_decl_span_includes_async_prefix() {
+        let src = "async function g(x: number): Promise<number> { return x; }\n";
+        assert_eq!(
+            first_fn_decl_span_text(src),
+            "async function g(x: number): Promise<number> { return x; }"
+        );
+    }
+
+    #[test]
+    fn generator_fn_decl_span_covers_star_form() {
+        let src = "function* gen(): Generator<number> {\n  yield 1;\n}\n";
+        assert_eq!(
+            first_fn_decl_span_text(src),
+            "function* gen(): Generator<number> {\n  yield 1;\n}"
+        );
     }
 }

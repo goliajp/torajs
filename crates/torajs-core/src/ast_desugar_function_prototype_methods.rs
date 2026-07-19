@@ -165,6 +165,7 @@ pub(crate) fn run(ast: &mut Ast) {
                     return_type: fn_ret.clone(),
                     body: bound_body,
                     is_generator: false,
+                    span: crate::lexer::Span { start: 0, end: 0 },
                 };
 
                 let mut factory_params: Vec<Param> = Vec::with_capacity(partial_count);
@@ -199,6 +200,7 @@ pub(crate) fn run(ast: &mut Ast) {
                     return_type: Some(factory_ret),
                     body: factory_body,
                     is_generator: false,
+                    span: crate::lexer::Span { start: 0, end: 0 },
                 });
                 new_decls.push(bound_decl);
 

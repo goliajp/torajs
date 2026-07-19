@@ -351,6 +351,7 @@ pub fn apply_rest_args(ast: &mut Ast) {
             return_type: Some(rest_ann.clone()),
             body,
             is_generator: false,
+            span: crate::lexer::Span { start: 0, end: 0 },
         });
     }
     let n = ast.exprs.len();

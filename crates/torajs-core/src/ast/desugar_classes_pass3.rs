@@ -85,6 +85,7 @@ fn emit_ctor_fn(
         return_type: Some("void".into()),
         body: ctor_body,
         is_generator: false,
+        span: crate::lexer::Span { start: 0, end: 0 },
     });
     ctor_params_for_factory
 }
@@ -153,6 +154,7 @@ fn emit_static_inits(
                     return_type: Some("void".into()),
                     body: stmts.clone(),
                     is_generator: false,
+                    span: crate::lexer::Span { start: 0, end: 0 },
                 });
                 let callee_id = ast.add_expr(Expr::Ident(fn_name));
                 let call_id = ast.add_expr(Expr::Call {
@@ -246,6 +248,7 @@ pub(super) fn rewrite_classdecls_pass3(
             return_type: Some(this_ann.clone()),
             body: factory_body,
             is_generator: false,
+            span: crate::lexer::Span { start: 0, end: 0 },
         });
 
         // M-OO.4 / P8.3-A3 — static fields + `static { ... }` blocks

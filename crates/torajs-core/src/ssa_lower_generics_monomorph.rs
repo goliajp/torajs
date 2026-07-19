@@ -219,6 +219,7 @@ pub(crate) fn collect_generics(ast: &Ast) -> Generics {
                 return_type,
                 body,
                 is_generator: _,
+                span: _,
             } if !type_params.is_empty() => Some((
                 name.clone(),
                 (

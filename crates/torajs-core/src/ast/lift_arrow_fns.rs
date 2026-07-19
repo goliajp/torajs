@@ -348,6 +348,9 @@ pub fn lift_arrow_fns(ast: &mut Ast) {
                 return_type,
                 body,
                 is_generator: false,
+                // the lifted decl compiles the user's arrow / fn
+                // expression -- carry its recorded source range (B1b)
+                span: ast.expr_spans[i],
             });
         }
     }

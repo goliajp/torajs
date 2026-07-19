@@ -98,6 +98,9 @@ pub fn hoist_gen_fn_exprs(ast: &mut Ast) {
             return_type,
             body,
             is_generator: true,
+            // the hoisted decl IS the user's generator expression --
+            // carry its recorded source range (B1b)
+            span: ast.expr_spans[i],
         });
     }
 }

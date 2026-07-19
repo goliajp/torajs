@@ -83,5 +83,6 @@ pub fn desugar_array_isarray_value(ast: &mut Ast) {
         return_type: Some("boolean".into()),
         body: vec![Stmt::Return(Some(false_lit))],
         is_generator: false,
+        span: crate::lexer::Span { start: 0, end: 0 },
     });
 }

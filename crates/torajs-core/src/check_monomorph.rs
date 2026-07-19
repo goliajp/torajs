@@ -180,6 +180,10 @@ pub(crate) fn monomorphize_and_check(c: &mut Checker, ast: &Ast) -> MonoOutput {
             return_type: new_return_type,
             body: new_body,
             is_generator: false,
+            // checker-internal inference clone -- no own source text
+            // (specialized-fn toString via the generic decl's span is
+            // an RFC 20260719 B3 refinement)
+            span: crate::lexer::Span { start: 0, end: 0 },
         };
         // Check the concrete body — INFERENCE-ONLY. Swap-capture the
         // per-ExprId tables so the inner generic calls this body

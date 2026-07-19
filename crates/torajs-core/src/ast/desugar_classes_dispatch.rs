@@ -94,6 +94,7 @@ pub(super) fn emit_dispatch_method_stubs(
             return_type: base_method.return_type.clone(),
             body,
             is_generator: false,
+            span: crate::lexer::Span { start: 0, end: 0 },
         });
     }
 }

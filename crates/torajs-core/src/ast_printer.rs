@@ -182,6 +182,7 @@ pub(crate) fn print_stmt(ast: &Ast, s: &Stmt, indent: usize) {
             return_type,
             body,
             is_generator: _,
+            span: _,
         } => print_fn_decl(
             ast,
             &pad,

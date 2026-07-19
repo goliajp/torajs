@@ -316,5 +316,6 @@ fn synthesize_guard(ast: &mut Ast) {
         return_type: Some("number".into()),
         body,
         is_generator: false,
+        span: crate::lexer::Span { start: 0, end: 0 },
     });
 }

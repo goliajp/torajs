@@ -40,13 +40,14 @@ pub fn desugar_async(ast: &mut Ast) {
 
     for idx in async_indices {
         // Snapshot the FnDecl pieces so we can rebuild it in place.
-        let (name, type_params, params, return_type, body) = match &ast.stmts[idx] {
+        let (name, type_params, params, return_type, body, span) = match &ast.stmts[idx] {
             Stmt::FnDecl {
                 name,
                 type_params,
                 params,
                 return_type,
                 body,
+                span,
                 ..
             } => (
                 name.clone(),
@@ -54,6 +55,7 @@ pub fn desugar_async(ast: &mut Ast) {
                 params.clone(),
                 return_type.clone(),
                 body.clone(),
+                *span,
             ),
             _ => unreachable!(),
         };
@@ -75,6 +77,9 @@ pub fn desugar_async(ast: &mut Ast) {
             return_type: Some(promise_ty),
             body: wrapped_body,
             is_generator: false,
+            // in-place rewrite of the user's declaration -- toString
+            // answers the source text they wrote (B1b)
+            span,
         };
     }
 }

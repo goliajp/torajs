@@ -44,6 +44,10 @@ impl<'a> Parser<'a> {
         if !matches!(self.peek(), Token::Async) {
             return Ok(None);
         }
+        // Span anchor -- the `async` token (B1b); nothing is consumed
+        // before the lookahead guards return None, so capturing here
+        // is safe.
+        let start_pos = self.pos;
         let Some(t1) = self.tokens.get(self.pos + 1) else {
             return Ok(None);
         };
@@ -124,6 +128,9 @@ impl<'a> Parser<'a> {
             return_type,
             body,
             is_generator: false,
+            // the synth decl compiles the user's method shorthand --
+            // record its source range (B1b)
+            span: self.span_from(start_pos),
         });
 
         // Field value = `Expr::Ident(synth_name)` referencing the

@@ -196,6 +196,7 @@ pub(crate) fn wrap_named_fn_values(
                 return_type,
                 body: vec![Stmt::Return(Some(call_id))],
                 is_generator: false,
+                span: crate::lexer::Span { start: 0, end: 0 },
             });
             existing_forwarders.insert(forward_name.clone());
         }

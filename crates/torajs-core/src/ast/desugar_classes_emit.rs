@@ -217,6 +217,7 @@ pub(in crate::ast) fn emit_class_instance_methods(
                 return_type: rewrite_this_in_ann(&m.return_type, this_ann),
                 body: trap_body,
                 is_generator: false,
+                span: crate::lexer::Span { start: 0, end: 0 },
             });
             continue;
         }
@@ -266,6 +267,7 @@ pub(in crate::ast) fn emit_class_instance_methods(
             return_type,
             body,
             is_generator: false,
+            span: crate::lexer::Span { start: 0, end: 0 },
         });
     }
 }
@@ -313,6 +315,7 @@ pub(in crate::ast) fn emit_class_static_methods(
             return_type,
             body,
             is_generator: false,
+            span: crate::lexer::Span { start: 0, end: 0 },
         });
     }
 }
