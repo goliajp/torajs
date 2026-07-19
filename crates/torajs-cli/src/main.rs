@@ -228,7 +228,6 @@ fn pipeline(src: &str, base_dir: &Path, stage: Stage) -> ExitCode {
     ast::desugar_var_hoist(&mut ast);
     ast::desugar_nested_fns(&mut ast);
     ast::desugar_variadic_push(&mut ast);
-    ast::desugar_array_isarray_value(&mut ast);
     ast::desugar_arguments_object(&mut ast);
     ast::rewrite_split_for_i_to_iter(&mut ast);
     ast::escape_analyze_array_literals(&mut ast);

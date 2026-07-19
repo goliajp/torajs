@@ -71,6 +71,20 @@ pub static NS_STATIC_TABLE: &[NsStaticRow] = &[
     row("console", "log", 0),
     row("console", "info", 0),
     row("console", "debug", 0),
+    // Number / Array / Object statics (chunk B3a) — the predicate
+    // family computes inline on the NaN-box (spec: no coercion),
+    // parseInt/parseFloat delegate to the typed tier's
+    // __torajs_num_parse_* kernels, Object.is to the §7.2.10
+    // same-value kernel. Lengths per §21.1.2.13/.12 / §23.1.2.2 /
+    // §20.1.2.14.
+    row("Number", "parseInt", 2),
+    row("Number", "parseFloat", 1),
+    row("Number", "isInteger", 1),
+    row("Number", "isNaN", 1),
+    row("Number", "isFinite", 1),
+    row("Number", "isSafeInteger", 1),
+    row("Array", "isArray", 1),
+    row("Object", "is", 2),
 ];
 
 /// Compile-time `(namespace, member)` → id. Linear scan — lower-time

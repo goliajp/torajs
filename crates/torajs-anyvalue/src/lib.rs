@@ -472,6 +472,18 @@ mod tests {
     pub unsafe extern "C" fn __torajs_math_random() -> f64 {
         0.0
     }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_num_parse_int(_s: *const u8, _radix: i64) -> f64 {
+        0.0
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_num_parse_float(_s: *const u8) -> f64 {
+        0.0
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_substr_to_owned(_s: *const u8) -> *mut c_void {
+        core::ptr::null_mut()
+    }
     /// The ns-static ConsoleLog dispatch arm makes
     /// `__torajs_print_anyv_inline_top` reachable from the test
     /// binary (the DISPATCH table is referenced by the lockstep

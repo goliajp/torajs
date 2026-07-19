@@ -14,6 +14,13 @@
 //! below is index-lockstep with it (unit-tested). Math semantics
 //! delegate to the SAME `__torajs_math_*` kernels the typed tier
 //! calls — single source, zero drift.
+//!
+//! MAINTENANCE: every extern symbol added to the block below needs a
+//! matching no-op stub in `lib.rs`'s `#[cfg(test)] mod tests` — the
+//! DISPATCH table is test-reachable, so `-dead_strip` keeps this
+//! whole module and the test binary link fails on any unstubbed
+//! cross-staticlib symbol (bitten twice: the inspect print chain,
+//! then the num parse pair).
 
 use core::ffi::c_void;
 use core::sync::atomic::{AtomicU64, Ordering};
@@ -68,6 +75,12 @@ unsafe extern "C" {
     fn __torajs_math_imul(a: i64, b: i64) -> i64;
     fn __torajs_math_clz32(x: i64) -> i64;
     fn __torajs_math_random() -> f64;
+    /// torajs-num — the typed tier's §19.2.5/.4 parse kernels
+    /// (Str cell in, auto-detect radix on 0).
+    fn __torajs_num_parse_int(s: *const u8, radix: i64) -> f64;
+    fn __torajs_num_parse_float(s: *const u8) -> f64;
+    /// torajs-str — release the owned coercion temp.
+    fn __torajs_str_drop(s: *mut c_void);
 }
 
 /// Separator/newline byte between the tag-aware per-arg prints —
@@ -97,6 +110,26 @@ enum Disp {
     /// print + `' '` separators + `'\n'` (the chunk-808 multiarg
     /// phase-2 sequence; args are already evaluated in argv).
     ConsoleLog,
+    /// §19.2.5 parseInt — ToString(arg0) + ToInt32(radix) into the
+    /// typed tier's parse kernel.
+    ParseInt,
+    /// §19.2.4 parseFloat — ToString(arg0) into the parse kernel.
+    ParseFloat,
+    /// §21.1.2 Number predicate family — computed inline on the
+    /// NaN-box (spec: non-number input answers false, NO coercion).
+    NumPredicate(NumPred),
+    /// §23.1.2.2 Array.isArray — heap-tag probe.
+    ArrayIsArray,
+    /// §20.1.2.14 Object.is — the §7.2.10 same-value kernel.
+    ObjectIs,
+}
+
+/// The four `Number.is*` predicates (shared dispatch shape).
+enum NumPred {
+    Integer,
+    Nan,
+    Finite,
+    SafeInteger,
 }
 
 static DISPATCH: &[Disp] = &[
@@ -138,6 +171,14 @@ static DISPATCH: &[Disp] = &[
     Disp::ConsoleLog, // console.log
     Disp::ConsoleLog, // console.info — same stream per §1.1.2/.4
     Disp::ConsoleLog, // console.debug
+    Disp::ParseInt,
+    Disp::ParseFloat,
+    Disp::NumPredicate(NumPred::Integer),
+    Disp::NumPredicate(NumPred::Nan),
+    Disp::NumPredicate(NumPred::Finite),
+    Disp::NumPredicate(NumPred::SafeInteger),
+    Disp::ArrayIsArray,
+    Disp::ObjectIs,
 ];
 
 /// Per-id interned cells + `.name` Str cells — same immortal
@@ -266,7 +307,82 @@ unsafe fn dispatch(id: i64, argv: *const u64, argc: i64) -> u64 {
                 putc_stdout(b'\n');
                 VALUE_UNDEFINED
             }
+            Disp::ParseInt => {
+                let v = arg_at(argv, argc, 0);
+                let s = crate::nanbox_ffi::__torajs_anyv_to_str(v);
+                if __torajs_throw_check() != 0 {
+                    return VALUE_UNDEFINED;
+                }
+                let Ok(radix) = arg_num(argv, argc, 1) else {
+                    __torajs_str_drop(s);
+                    return VALUE_UNDEFINED;
+                };
+                let n = __torajs_num_parse_int(s as *const u8, to_i64_mod32(radix));
+                __torajs_str_drop(s);
+                box_double(n)
+            }
+            Disp::ParseFloat => {
+                let s = crate::nanbox_ffi::__torajs_anyv_to_str(arg_at(argv, argc, 0));
+                if __torajs_throw_check() != 0 {
+                    return VALUE_UNDEFINED;
+                }
+                let n = __torajs_num_parse_float(s as *const u8);
+                __torajs_str_drop(s);
+                box_double(n)
+            }
+            Disp::NumPredicate(p) => box_bool(num_predicate(p, arg_at(argv, argc, 0))),
+            Disp::ArrayIsArray => {
+                let v = arg_at(argv, argc, 0);
+                let hit = crate::nanbox::is_cell(v) && {
+                    let ptr = crate::nanbox::as_void_ptr(v);
+                    (ptr.cast::<u8>().add(4) as *const u16).read() == Tag::Arr as u16
+                };
+                box_bool(hit)
+            }
+            Disp::ObjectIs => box_bool(crate::nanbox_ffi::__torajs_anyv_same_value(
+                arg_at(argv, argc, 0),
+                arg_at(argv, argc, 1),
+            )),
         }
+    }
+}
+
+/// argv[i], missing → undefined.
+unsafe fn arg_at(argv: *const u64, argc: i64, i: i64) -> u64 {
+    if i < argc {
+        unsafe { *argv.add(i as usize) }
+    } else {
+        VALUE_UNDEFINED
+    }
+}
+
+fn box_bool(b: bool) -> u64 {
+    if b {
+        crate::nanbox::VALUE_TRUE
+    } else {
+        crate::nanbox::VALUE_FALSE
+    }
+}
+
+/// §21.1.2 `Number.is*` — non-number input answers false (no
+/// coercion); int32 immediates are integral by construction.
+fn num_predicate(p: &NumPred, v: u64) -> bool {
+    use crate::nanbox::{as_double, is_double, is_int32};
+    if is_int32(v) {
+        return match p {
+            NumPred::Nan => false,
+            _ => true,
+        };
+    }
+    if !is_double(v) {
+        return false;
+    }
+    let x = as_double(v);
+    match p {
+        NumPred::Integer => x.is_finite() && x.trunc() == x,
+        NumPred::Nan => x.is_nan(),
+        NumPred::Finite => x.is_finite(),
+        NumPred::SafeInteger => x.is_finite() && x.trunc() == x && x.abs() <= 9007199254740991.0,
     }
 }
 
