@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-19T04:51:43.003Z",
+  "generatedAt": "2026-07-19T05:03:42.966Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 94.78
   },
   "torajs": {
-    "commit": "660814a2",
-    "commitSubject": "feat: fn declarations record their source byte span",
+    "commit": "0a9e26c0",
+    "commitSubject": "style: rustfmt fn_source_erase (mini-side fmt not pulled back before commit)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,18 @@
   },
   "commits": [
     {
+      "hash": "0a9e26c0",
+      "subject": "style: rustfmt fn_source_erase (mini-side fmt not pulled back before commit)"
+    },
+    {
+      "hash": "ea98339e",
+      "subject": "feat: parser records type-annotation spans; erase_types splices them"
+    },
+    {
+      "hash": "afd7e7a1",
+      "subject": "chore: hardev dashboard snapshot at rotation 149 close"
+    },
+    {
       "hash": "660814a2",
       "subject": "feat: fn declarations record their source byte span"
     },
@@ -747,21 +759,9 @@
     {
       "hash": "80fb884f",
       "subject": "perf: a float compare can feed its select through NZCV too"
-    },
-    {
-      "hash": "e19736a8",
-      "subject": "perf: sink a single-use ICmp down to its Select so the NZCV fuse fires"
-    },
-    {
-      "hash": "0c4c707a",
-      "subject": "fix: typeof shortcut skips only a statically-Any receiver"
-    },
-    {
-      "hash": "f0d91063",
-      "subject": "fix: Object.prototype methods an Any receiver can call, it can read"
     }
   ],
-  "headSha": "660814a2",
+  "headSha": "0a9e26c0",
   "autorun": {
     "total": 454,
     "baselineTarget": 10,
