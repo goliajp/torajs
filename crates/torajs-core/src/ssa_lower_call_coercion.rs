@@ -78,6 +78,16 @@ pub(crate) fn try_lower(
             _ => unreachable!(),
         });
     }
+    // RFC 20260719-fn-tostring-source B6 — `String(Math.max)` (and
+    // the template-substitution String() wrap): a namespace-static
+    // builtin fn member has no value form to lower; fold the JSC
+    // named native form before the operand lower would reject it.
+    if n_kind == "String"
+        && let Some(text) =
+            crate::ssa_lower_call_fn_tostring::namespace_static_native_form(ctx, args[0])
+    {
+        return Some(Operand::Value(ctx.intern_string_literal(&text)));
+    }
     let arg_op = ctx.lower_expr(args[0]);
     let arg_ty = ctx.operand_ty(&arg_op);
     // RFC 20260705 ledger #3 — every coerce helper below borrows its

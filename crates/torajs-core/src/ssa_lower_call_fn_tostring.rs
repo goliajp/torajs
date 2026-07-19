@@ -18,6 +18,36 @@ use crate::ast::{Expr, ExprId, Stmt};
 use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 
+/// RFC 20260719-fn-tostring-source B6 — a member read on a builtin
+/// namespace stand-in (`Math.max` / `console.log` / `JSON.stringify`:
+/// the object types as `Type::Object` and the member as `Function`)
+/// has no runtime value form — namespace statics lower at their call
+/// sites. Every string-consuming face (`.toString()` / `String()` /
+/// template substitution / `+` concat) folds the JSC named native
+/// form at compile time instead of lowering the value. Returns the
+/// text; callers intern. Both gates read `ctx.expr_types` — the
+/// checker's own truth — so a user binding shadowing `Math` (typed
+/// as anything but `Object`) never folds.
+pub(crate) fn namespace_static_native_form(ctx: &LowerCtx<'_>, eid: ExprId) -> Option<String> {
+    let Expr::Member {
+        obj: ns,
+        name: method,
+    } = ctx.ast.get_expr(eid)
+    else {
+        return None;
+    };
+    if !matches!(ctx.expr_types.get(ns), Some(crate::check::Type::Object(_))) {
+        return None;
+    }
+    if !matches!(
+        ctx.expr_types.get(&eid),
+        Some(crate::check::Type::Function(..))
+    ) {
+        return None;
+    }
+    Some(format!("function {method}() {{\n    [native code]\n}}"))
+}
+
 pub(crate) fn try_lower(
     ctx: &mut LowerCtx<'_>,
     callee: ExprId,
@@ -49,6 +79,13 @@ pub(crate) fn try_lower(
             let s = ctx.intern_string_literal(&text);
             return Some(Operand::Value(s));
         }
+    }
+    // B6 — namespace-static builtin method (`Math.max.toString()`):
+    // no value form to hand the runtime kernels; fold the JSC named
+    // native form here, before the value leg tries to lower it.
+    if let Some(text) = namespace_static_native_form(ctx, obj) {
+        let s = ctx.intern_string_literal(&text);
+        return Some(Operand::Value(s));
     }
     // B6a — fn-typed VALUE receiver: runtime kernel by SSA repr.
     if !matches!(

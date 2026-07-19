@@ -61,8 +61,24 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, op: AstBinOp, left: ExprId, right: E
             return r;
         }
     }
-    let a = ctx.lower_expr(left);
-    let b = ctx.lower_expr(right);
+    // RFC 20260719-fn-tostring-source B6 — `"" + Math.max`: a
+    // namespace-static builtin fn member has no value form to lower;
+    // in the Add-concat face fold that side to the JSC named native
+    // form (§13.15.3 ToPrimitive on a fn is its toString), mirroring
+    // the `.toString()` / `String()` folds. Non-Add ops fall through
+    // to the operand lower's loud reject.
+    let lower_operand = |ctx: &mut LowerCtx<'_>, eid: ExprId| {
+        if matches!(op, AstBinOp::Add)
+            && let Some(text) =
+                crate::ssa_lower_call_fn_tostring::namespace_static_native_form(ctx, eid)
+        {
+            let s = ctx.intern_string_literal(&text);
+            return Operand::Value(s);
+        }
+        ctx.lower_expr(eid)
+    };
+    let a = lower_operand(ctx, left);
+    let b = lower_operand(ctx, right);
     // TS-shape: `a + b` (string concat) does NOT consume the
     // operands — both `a` and `b` keep their heaps and remain
     // readable + droppable afterwards. The concat runtime produces

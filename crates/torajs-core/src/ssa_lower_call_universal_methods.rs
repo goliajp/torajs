@@ -55,6 +55,14 @@ pub(crate) fn try_lower(
     ) {
         return None;
     }
+    // RFC 20260719-fn-tostring-source B6 — `Math.max.toString()`:
+    // the namespace-static builtin fn member has no value form, so
+    // the eager receiver lower below would reject it. Bail first;
+    // the fn-tostring wedge downstream folds the JSC named native
+    // form.
+    if crate::ssa_lower_call_fn_tostring::namespace_static_native_form(ctx, recv_id).is_some() {
+        return None;
+    }
     let recv_op = ctx.lower_expr(recv_id);
     let recv_ty = ctx.operand_ty(&recv_op);
     let is_prim = matches!(
