@@ -131,76 +131,53 @@ pub(crate) fn lower(
     }
 
     if let Some(catch_blk) = catch_blk {
-        ctx.cur_block = catch_blk;
-        ctx.scope_stack.push(Vec::new());
-        ctx.shadow_stack.push(Vec::new());
-        if let Some(p) = catch_param {
-            let e_ty = match catch_type {
-                Some(ann) => parse_type(
-                    Some(ann.as_str()),
-                    ctx.aliases,
-                    ctx.arr_layouts,
-                    ctx.fn_sigs,
-                    ctx.generic_struct_decls,
-                    ctx.struct_layouts,
-                    ctx.inst_memo,
-                ),
-                None => Type::Any,
-            };
-            let slot_v = if matches!(e_ty, Type::Any) {
-                let tag_v = ctx.f.append_inst(
-                    ctx.cur_block,
-                    InstKind::Call(ctx.intrinsics.throw_take_tag, vec![]),
-                    Type::I64,
-                    None,
-                );
-                let val_v = ctx.f.append_inst(
-                    ctx.cur_block,
-                    InstKind::Call(ctx.intrinsics.throw_take, vec![]),
-                    Type::I64,
-                    Some(p),
-                );
-                let boxed = ctx.f.append_inst(
-                    ctx.cur_block,
-                    InstKind::Call(
-                        ctx.intrinsics.any_box,
-                        vec![Operand::Value(tag_v), Operand::Value(val_v)],
-                    ),
-                    Type::Any,
-                    None,
-                );
-                Operand::Value(boxed)
-            } else {
-                let v = ctx.f.append_inst(
-                    ctx.cur_block,
-                    InstKind::Call(ctx.intrinsics.throw_take, vec![]),
-                    Type::I64,
-                    Some(p),
-                );
-                Operand::Value(v)
-            };
-            let slot = ctx.alloca(e_ty, Some(p));
-            ctx.f.append_void(
-                ctx.cur_block,
-                InstKind::Store(slot_v, Operand::Value(slot), 0),
-            );
-            ctx.locals.insert(
-                p.clone(),
-                LocalInfo {
-                    slot,
-                    ty: e_ty,
-                    moved: false,
-                    borrowed: false,
-                    scope_depth: ctx.scope_stack.len() - 1,
-                },
-            );
-            ctx.scope_stack.last_mut().unwrap().push(p.clone());
-        } else {
-            // Unbound `catch {}` still owns the taken value — take
-            // (tag, value), box, and drop it. Pre-fix this arm only
-            // cleared the active flag via a discarded throw_take,
-            // stranding the whole thrown heap payload (Error inst +
-            // message + stack) per catch.
+        lower_catch(
+            ctx,
+            catch_blk,
+            catch_param,
+            catch_type,
+            catch_body,
+            finally_blk,
+            post_target,
+        );
+    }
+
+    if let (Some(fb), Some(fbody)) = (finally_blk, finally_body) {
+        crate::ssa_lower_stmt_try_finally::lower(ctx, fb, fbody, after_blk);
+    }
+    ctx.cur_block = after_blk;
+}
+
+/// Emit the catch block: bind the catch parameter to the pending
+/// throw value, run the handler, then hand control to the finally
+/// block (or straight past the statement when there is none).
+#[allow(clippy::too_many_arguments)]
+fn lower_catch(
+    ctx: &mut LowerCtx,
+    catch_blk: BlockId,
+    catch_param: Option<&String>,
+    catch_type: Option<&String>,
+    catch_body: &[Stmt],
+    finally_blk: Option<BlockId>,
+    post_target: BlockId,
+) {
+    ctx.cur_block = catch_blk;
+    ctx.scope_stack.push(Vec::new());
+    ctx.shadow_stack.push(Vec::new());
+    if let Some(p) = catch_param {
+        let e_ty = match catch_type {
+            Some(ann) => parse_type(
+                Some(ann.as_str()),
+                ctx.aliases,
+                ctx.arr_layouts,
+                ctx.fn_sigs,
+                ctx.generic_struct_decls,
+                ctx.struct_layouts,
+                ctx.inst_memo,
+            ),
+            None => Type::Any,
+        };
+        let slot_v = if matches!(e_ty, Type::Any) {
             let tag_v = ctx.f.append_inst(
                 ctx.cur_block,
                 InstKind::Call(ctx.intrinsics.throw_take_tag, vec![]),
@@ -211,7 +188,7 @@ pub(crate) fn lower(
                 ctx.cur_block,
                 InstKind::Call(ctx.intrinsics.throw_take, vec![]),
                 Type::I64,
-                None,
+                Some(p),
             );
             let boxed = ctx.f.append_inst(
                 ctx.cur_block,
@@ -222,57 +199,104 @@ pub(crate) fn lower(
                 Type::Any,
                 None,
             );
-            ctx.emit_drop_value(Operand::Value(boxed), Type::Any);
-        }
-        if let Some(fb) = finally_blk {
-            ctx.try_stack.push(fb);
-        }
-        for s in catch_body {
-            ctx.lower_stmt(s);
-            if !ctx.cur_open() {
-                break;
-            }
-        }
-        if finally_blk.is_some() {
-            ctx.try_stack.pop();
-        }
-        if ctx.cur_open() {
-            let frame_names: Vec<String> = ctx
-                .scope_stack
-                .last()
-                .map(|f| f.clone())
-                .unwrap_or_default();
-            for name in &frame_names {
-                let info = match ctx.locals.get(name) {
-                    Some(i) => *i,
-                    None => continue,
-                };
-                if info.moved || info.ty.is_copy() || ctx.stack_alloced_locals.contains(name) {
-                    continue;
-                }
-                let val = ctx.f.append_inst(
-                    ctx.cur_block,
-                    InstKind::Load(info.ty, Operand::Value(info.slot), 0),
-                    info.ty,
-                    None,
-                );
-                ctx.emit_drop_value(Operand::Value(val), info.ty);
-            }
-            let cb = ctx.cur_block;
-            ctx.f.set_term(cb, Terminator::Br(post_target));
-        }
-        let catch_frame = ctx.scope_stack.pop().unwrap_or_default();
-        let catch_shadows = ctx.shadow_stack.pop().unwrap_or_default();
-        for name in catch_frame {
-            ctx.locals.remove(&name);
-        }
-        for (name, prev) in catch_shadows {
-            ctx.locals.insert(name, prev);
+            Operand::Value(boxed)
+        } else {
+            let v = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.throw_take, vec![]),
+                Type::I64,
+                Some(p),
+            );
+            Operand::Value(v)
+        };
+        let slot = ctx.alloca(e_ty, Some(p));
+        ctx.f.append_void(
+            ctx.cur_block,
+            InstKind::Store(slot_v, Operand::Value(slot), 0),
+        );
+        ctx.locals.insert(
+            p.clone(),
+            LocalInfo {
+                slot,
+                ty: e_ty,
+                moved: false,
+                borrowed: false,
+                scope_depth: ctx.scope_stack.len() - 1,
+            },
+        );
+        ctx.scope_stack.last_mut().unwrap().push(p.clone());
+    } else {
+        // Unbound `catch {}` still owns the taken value — take
+        // (tag, value), box, and drop it. Pre-fix this arm only
+        // cleared the active flag via a discarded throw_take,
+        // stranding the whole thrown heap payload (Error inst +
+        // message + stack) per catch.
+        let tag_v = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.throw_take_tag, vec![]),
+            Type::I64,
+            None,
+        );
+        let val_v = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.throw_take, vec![]),
+            Type::I64,
+            None,
+        );
+        let boxed = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(
+                ctx.intrinsics.any_box,
+                vec![Operand::Value(tag_v), Operand::Value(val_v)],
+            ),
+            Type::Any,
+            None,
+        );
+        ctx.emit_drop_value(Operand::Value(boxed), Type::Any);
+    }
+    if let Some(fb) = finally_blk {
+        ctx.try_stack.push(fb);
+    }
+    for s in catch_body {
+        ctx.lower_stmt(s);
+        if !ctx.cur_open() {
+            break;
         }
     }
-
-    if let (Some(fb), Some(fbody)) = (finally_blk, finally_body) {
-        crate::ssa_lower_stmt_try_finally::lower(ctx, fb, fbody, after_blk);
+    if finally_blk.is_some() {
+        ctx.try_stack.pop();
     }
-    ctx.cur_block = after_blk;
+    if ctx.cur_open() {
+        let frame_names: Vec<String> = ctx
+            .scope_stack
+            .last()
+            .map(|f| f.clone())
+            .unwrap_or_default();
+        for name in &frame_names {
+            let info = match ctx.locals.get(name) {
+                Some(i) => *i,
+                None => continue,
+            };
+            if info.moved || info.ty.is_copy() || ctx.stack_alloced_locals.contains(name) {
+                continue;
+            }
+            let val = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Load(info.ty, Operand::Value(info.slot), 0),
+                info.ty,
+                None,
+            );
+            ctx.emit_drop_value(Operand::Value(val), info.ty);
+        }
+        let cb = ctx.cur_block;
+        ctx.f.set_term(cb, Terminator::Br(post_target));
+    }
+    let catch_frame = ctx.scope_stack.pop().unwrap_or_default();
+    let catch_shadows = ctx.shadow_stack.pop().unwrap_or_default();
+    for name in catch_frame {
+        ctx.locals.remove(&name);
+    }
+    for (name, prev) in catch_shadows {
+        ctx.locals.insert(name, prev);
+    }
 }
