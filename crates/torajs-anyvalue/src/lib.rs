@@ -108,6 +108,7 @@ mod method_call_arr_copy;
 mod method_call_arraylike;
 mod method_call_arraylike_hof;
 mod method_call_arraylike_mut;
+mod method_call_cell;
 mod method_call_closure;
 mod method_call_closure_dispatch;
 mod method_call_date;

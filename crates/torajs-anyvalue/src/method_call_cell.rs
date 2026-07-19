@@ -1,0 +1,160 @@
+//! Cell-receiver arm of the `any` method dispatcher — the tag
+//! ladder split out of [`crate::method_call::any_method_call_inner`]
+//! (rotation 147, file-size fn debt).
+//!
+//! Returns `None` when no tag matched, so the caller keeps the
+//! shared no-such-method TypeError exit: that throw is also the
+//! landing spot for non-cell receivers, so the fall-through must
+//! stay in the caller rather than be duplicated here.
+
+use torajs_rc::{
+    __torajs_rc_inc, ANY_METHOD_TO_LOCALE_STRING, ANY_METHOD_TO_STRING, ANY_METHOD_VALUE_OF, Tag,
+};
+
+use crate::method_call::any_method_call_inner;
+use crate::nanbox::{AnyValue, as_void_ptr};
+
+/// Dispatch a cell receiver by its heap tag. `None` = no arm
+/// matched; the caller raises the no-such-method TypeError.
+pub(crate) unsafe fn cell_method(
+    recv: AnyValue,
+    mid: i64,
+    name_str: *const u8,
+    recv_slot: *mut u64,
+    argv: *const u64,
+    argc: i64,
+) -> Option<AnyValue> {
+    let ptr = as_void_ptr(recv);
+    let tag = unsafe { (ptr.cast::<u8>().add(4) as *const u16).read() };
+    // ES own-property order — a wrapper EXPANDO entry wins over
+    // the view-through surface (`__instance.charAt =
+    // String.prototype.charAt` stores the reified cell; the call
+    // must run it against the wrapper receiver — the §22.1.3
+    // generic ToString(this) coerce — not fall to the inner
+    // primitive's arm, which knows no such method).
+    if crate::member_get::is_wrapper_tag(tag)
+        && let Some(out) = unsafe {
+            crate::method_call_wrapper_expando::wrapper_expando_method(
+                recv, ptr, mid, name_str, argv, argc,
+            )
+        }
+    {
+        return Some(out);
+    }
+    // RFC 20260716 刀 3 view-through (`wrapper_view_through`).
+    if let Some(inner) = unsafe { crate::wrapper_view_through::resolve_inner_recv(ptr, tag) } {
+        return Some(unsafe { any_method_call_inner(inner, mid, name_str, recv_slot, argv, argc) });
+    }
+    // §20.1.4.7 Object.prototype.valueOf is ToObject(this) —
+    // identity on every cell receiver. Date keeps its own
+    // valueOf (the getTime alias in its per-tag arm), the
+    // Number/Boolean immediates answered above, and the
+    // property-carrying shapes (dynobj / struct) resolve their
+    // OWN entry first — their arms fall back here-equivalent
+    // via `object_proto_fallback` so a monkey-patch wins.
+    if mid == ANY_METHOD_VALUE_OF
+        && tag != Tag::Date as u16
+        && tag != Tag::DynObj as u16
+        && tag != Tag::Obj as u16
+        && tag != Tag::Arr as u16
+    {
+        unsafe { __torajs_rc_inc(ptr) };
+        return Some(recv);
+    }
+    // §20.1.4.6 Object.prototype.toLocaleString invokes
+    // this.toString — Str is identity, Arr delegates to the
+    // §23.1.3.32 join-with-"," shape; plain objects answer
+    // through their arm's own-probe-then-fallback (monkey-patch
+    // order). Date / Number keep their own per-arm
+    // specializations; other tags fall through to their arm (a
+    // miss stays the no-such TypeError).
+    if mid == ANY_METHOD_TO_LOCALE_STRING {
+        if tag == Tag::Str as u16 {
+            unsafe { __torajs_rc_inc(ptr) };
+            return Some(recv);
+        }
+        if tag == Tag::Arr as u16 {
+            // §23.1.3.32 — per-element toLocaleString invoke
+            // (a plain join never dispatched the element hook).
+            return Some(unsafe { crate::arr_locale_string::arr_to_locale_string(ptr) });
+        }
+    }
+    if tag == Tag::Str as u16 {
+        // toString is identity — hand the caller its own +1 on
+        // the same cell per the boxed-value convention.
+        if mid == ANY_METHOD_TO_STRING {
+            unsafe { __torajs_rc_inc(ptr) };
+            return Some(recv);
+        }
+        return Some(unsafe {
+            crate::method_call_str::str_method(ptr as *mut u8, mid, argv, argc)
+        });
+    }
+    if tag == Tag::Arr as u16 {
+        // §10.1.8.1 OrdinaryGet — an own arr-props expando entry
+        // shadows the built-in method surface (`arr.getClass =
+        // Object.prototype.toString; arr.getClass()` / a user
+        // closure stored on the array). One props-NULL check on
+        // the no-expando fast path (RFC 20260713 blade 2).
+        if !name_str.is_null()
+            && let Some(r) = unsafe {
+                crate::method_call_dynobj::arr_expando_method(
+                    ptr, recv, name_str, recv_slot, argv, argc,
+                )
+            }
+        {
+            return Some(r);
+        }
+        // §20.1.4.7 Object.prototype.valueOf identity — moved
+        // after the expando probe so a patched `arr.valueOf`
+        // wins (the early cell-wide identity arm excludes Arr
+        // for exactly this monkey-patch order).
+        if mid == ANY_METHOD_VALUE_OF {
+            unsafe { __torajs_rc_inc(ptr) };
+            return Some(recv);
+        }
+        return Some(unsafe {
+            crate::method_call_arr::arr_method(ptr, mid, recv_slot, argv, argc)
+        });
+    }
+    if tag == Tag::DynObj as u16 {
+        return Some(unsafe {
+            crate::method_call_dynobj::dynobj_method(ptr, mid, name_str, recv_slot, argv, argc)
+        });
+    }
+    // L3b #9 (chunk 524) — static-layout struct receivers probe
+    // the class-layouts field metadata instead of a dynobj table.
+    if tag == Tag::Obj as u16 {
+        return Some(unsafe {
+            crate::method_call_dynobj::struct_method(ptr, mid, name_str, argv, argc)
+        });
+    }
+    if tag == Tag::Map as u16 || tag == Tag::Set as u16 {
+        return Some(unsafe {
+            crate::method_call_mapset::map_set_method(ptr, tag == Tag::Set as u16, mid, argv, argc)
+        });
+    }
+    if tag == Tag::MapIter as u16 {
+        return Some(unsafe { crate::method_call_mapset::map_iter_method(ptr, mid) });
+    }
+    if tag == Tag::Date as u16 {
+        return Some(unsafe { crate::method_call_date::date_method(ptr, mid, argv, argc) });
+    }
+    if tag == Tag::RegExp as u16 {
+        return Some(unsafe { crate::method_call_regexp::regexp_method(ptr, mid, argv, argc) });
+    }
+    // chunk 710 — Function.prototype.call / apply on closure
+    // values (expando shadowing included).
+    if tag == Tag::Closure as u16 {
+        return Some(unsafe {
+            crate::method_call_closure::closure_method(ptr, mid, name_str, argv, argc)
+        });
+    }
+    // RC-2b (RFC 20260706-test262-bug-corpus) — WeakMap / WeakSet.
+    if tag == Tag::WeakMap as u16 || tag == Tag::WeakSet as u16 {
+        return Some(unsafe {
+            crate::method_call_weak::weak_method(ptr, tag == Tag::WeakSet as u16, mid, argv, argc)
+        });
+    }
+    None
+}
