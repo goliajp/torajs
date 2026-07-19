@@ -151,6 +151,7 @@ pub(crate) fn emit_per_method_body(
     fn_val: &Operand,
     fn_ty: Type,
     sig_params: &[Type],
+    this_arg: Option<&Operand>,
 ) {
     let i_now2 = ctx.f.append_inst(
         ctx.cur_block,
@@ -190,10 +191,10 @@ pub(crate) fn emit_per_method_body(
     };
     match method {
         "map" => emit_map(
-            ctx, dst_slot, dst_arr_ty, elem, known_fid, fn_val, fn_ty, sig_params,
+            ctx, dst_slot, dst_arr_ty, elem, known_fid, fn_val, fn_ty, sig_params, this_arg,
         ),
         "filter" => emit_filter(
-            ctx, dst_slot, dst_arr_ty, elem, known_fid, fn_val, fn_ty, sig_params,
+            ctx, dst_slot, dst_arr_ty, elem, known_fid, fn_val, fn_ty, sig_params, this_arg,
         ),
         "reduce" | "reduceRight" => emit_reduce(
             ctx, acc_slot, acc_ty, elem, known_fid, fn_val, fn_ty, sig_params,
@@ -205,7 +206,7 @@ pub(crate) fn emit_per_method_body(
                 known_fid,
                 fn_val,
                 fn_ty,
-                vec![Operand::Value(elem)],
+                cb_args(this_arg, elem),
             );
         }
         _ => unreachable!(),
@@ -222,6 +223,7 @@ fn emit_map(
     fn_val: &Operand,
     fn_ty: Type,
     sig_params: &[Type],
+    this_arg: Option<&Operand>,
 ) {
     // RC-1 (RFC 20260706-test262-bug-corpus) — a Void-ret callback
     // returns `undefined`: emit the call for side effects, push a
@@ -234,7 +236,7 @@ fn emit_map(
             known_fid,
             fn_val,
             fn_ty,
-            vec![Operand::Value(elem)],
+            cb_args(this_arg, elem),
         );
         Operand::Value(emit_undef_any_box(ctx))
     } else {
@@ -244,7 +246,7 @@ fn emit_map(
             known_fid,
             fn_val,
             fn_ty,
-            vec![Operand::Value(elem)],
+            cb_args(this_arg, elem),
         );
         ctx.raw_slot_arg(Operand::Value(mapped))
     };
@@ -275,6 +277,7 @@ fn emit_filter(
     fn_val: &Operand,
     fn_ty: Type,
     sig_params: &[Type],
+    this_arg: Option<&Operand>,
 ) {
     // RC-1 — Void-ret predicate: ToBoolean(undefined) = false, so no
     // element is ever kept. Emit the call for side effects only.
@@ -285,7 +288,7 @@ fn emit_filter(
             known_fid,
             fn_val,
             fn_ty,
-            vec![Operand::Value(elem)],
+            cb_args(this_arg, elem),
         );
         return;
     }
@@ -295,7 +298,7 @@ fn emit_filter(
         known_fid,
         fn_val,
         fn_ty,
-        vec![Operand::Value(elem)],
+        cb_args(this_arg, elem),
     );
     let push_blk = ctx.f.add_block();
     let next_blk = ctx.f.add_block();
@@ -378,7 +381,7 @@ fn emit_reduce(
 
 /// RC-1 — a boxed `undefined` AnyValue (`any_box(ANY_UNDEF=5, 0)`),
 /// the JS result of calling a callback that never returns a value.
-fn emit_undef_any_box(ctx: &mut LowerCtx<'_>) -> ValueId {
+pub(crate) fn emit_undef_any_box(ctx: &mut LowerCtx<'_>) -> ValueId {
     ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Call(
@@ -393,6 +396,17 @@ fn emit_undef_any_box(ctx: &mut LowerCtx<'_>) -> ValueId {
 /// W4 / devirt dispatch — align arg widths with callback sig (f64-param
 /// must not get raw i64 elem bits) then route through devirt direct call
 /// when `known_fid` is set, else the indirect env+8 fn_ptr path.
+
+/// Callback arg list — a promoted receiver-first callback takes the
+/// boxed thisArg (knife 4) as its leading `__this` arg; a plain
+/// callback keeps `(elem, …)`.
+fn cb_args(this_arg: Option<&Operand>, elem: ValueId) -> Vec<Operand> {
+    match this_arg {
+        Some(t) => vec![t.clone(), Operand::Value(elem)],
+        None => vec![Operand::Value(elem)],
+    }
+}
+
 fn emit_do_call(
     ctx: &mut LowerCtx<'_>,
     sig_params: &[Type],

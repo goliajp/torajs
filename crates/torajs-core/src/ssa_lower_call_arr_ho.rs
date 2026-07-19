@@ -84,12 +84,34 @@ fn lower_higher_order(
     };
     let fn_val = ctx.lower_expr(args[0]);
     let fn_ty = ctx.operand_ty(&fn_val);
+    // Knife 4 (RFC 20260717-fnexpr-this-channel) — a promoted fn-expr
+    // callback takes the §23.1.3 thisArg (T) as its leading `__this`
+    // arg: args[1] lowers into an Any box (undefined when absent).
+    // Only map / filter / forEach carry a thisArg — reduce's args[1]
+    // is the initialValue.
+    let promoted = matches!(ctx.ast.get_expr(args[0]),
+        Expr::Closure { fn_name, .. } if ctx.ast.fnexpr_recv_fns.contains(fn_name))
+        && matches!(method.as_str(), "map" | "filter" | "forEach");
+    let this_arg: Option<Operand> = if promoted {
+        if let Some(&t) = args.get(1) {
+            let op = ctx.lower_expr(t);
+            let boxed = ctx.box_to_any_from_expr(t, op.clone());
+            ctx.release_owned_temp(t, &op);
+            Some(boxed)
+        } else {
+            Some(Operand::Value(
+                crate::ssa_lower_call_arr_ho_loop::emit_undef_any_box(ctx),
+            ))
+        }
+    } else {
+        None
+    };
     // S270 — eval-and-drop trailing args (thisArg + extras) so
     // side-effect expressions fire per ES §23.1.3.X trailing-arg ignore.
     // SSA-emit reads only args[0] (cb) for map/filter/forEach; for
     // reduce/reduceRight args[1] is initialValue and lowered later, so
-    // skip it here.
-    let skip_n = if matches!(method.as_str(), "reduce" | "reduceRight") {
+    // skip it here. A promoted callback's thisArg lowered above.
+    let skip_n = if matches!(method.as_str(), "reduce" | "reduceRight") || promoted {
         2
     } else {
         1
@@ -145,6 +167,7 @@ fn lower_higher_order(
         &fn_val,
         fn_ty,
         &sig_params,
+        this_arg.as_ref(),
     );
     let out = end_loop_and_produce(ctx, frame, &method, dst_slot, acc_slot, dst_arr_ty, acc_ty);
     // RFC 20260705 chunk 550 — release owned-shape temps after the

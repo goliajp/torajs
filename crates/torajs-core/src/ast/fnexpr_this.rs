@@ -64,6 +64,7 @@ pub(crate) fn run(
     let mut patches: Vec<FacePatch> = Vec::new();
     let mut ident_cands: Vec<(String, ExprId)> = Vec::new();
     let any_recvs = collect_any_binding_names(stmts);
+    let arraylit_recvs = collect_arraylit_binding_names(stmts, exprs);
     for i in 0..exprs.len() {
         let Expr::Call { callee, args } = &exprs[i] else {
             continue;
@@ -117,11 +118,18 @@ pub(crate) fn run(
             // (`recv.forEach(<fn-expr>, thisArg?)`): the any-lane HOF
             // kernels read the closure flag and seed argv[0] with the
             // thisArg (or the buffer's undefined padding), so the
-            // promoted body's `__this` is exactly §23.1.3's T. A
-            // typed receiver keeps today's loud reject — its inlined
-            // HOF loop has no receiver channel yet.
+            // promoted body's `__this` is exactly §23.1.3's T.
+            //
+            // A syntactically-certain TYPED array receiver (const
+            // ArrayLit init) promotes for the inlined-loop trio only
+            // (`forEach` / `map` / `filter` — the shapes
+            // `ssa_lower_call_arr_ho` owns and threads a thisArg
+            // through); other receivers keep today's loud reject.
             Expr::Member { obj, name } if is_hof_method(name) => {
-                if !matches!(&exprs[obj.0 as usize], Expr::Ident(n) if any_recvs.contains(n)) {
+                let typed_ok = matches!(name.as_str(), "forEach" | "map" | "filter");
+                if !matches!(&exprs[obj.0 as usize], Expr::Ident(n)
+                    if any_recvs.contains(n) || (typed_ok && arraylit_recvs.contains(n)))
+                {
                     continue;
                 }
                 if let Some(cb) = args.first() {
@@ -225,6 +233,52 @@ fn collect_binding_names_inner(
             }
             Stmt::Block(inner) | Stmt::Multi(inner) => {
                 collect_binding_names_inner(inner, any_names, other_names);
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Immutable bindings whose init is a literal array (and whose name
+/// is never re-declared) — the syntactically-certain typed-Arr
+/// receivers for the knife-4 typed HOF trio. Same over-removal
+/// posture as [`collect_any_binding_names`].
+fn collect_arraylit_binding_names(
+    stmts: &[Stmt],
+    exprs: &[Expr],
+) -> std::collections::HashSet<String> {
+    let mut names = std::collections::HashSet::new();
+    let mut other = std::collections::HashSet::new();
+    collect_arraylit_names_inner(stmts, exprs, &mut names, &mut other);
+    names.retain(|n| !other.contains(n));
+    names
+}
+
+fn collect_arraylit_names_inner(
+    stmts: &[Stmt],
+    exprs: &[Expr],
+    names: &mut std::collections::HashSet<String>,
+    other: &mut std::collections::HashSet<String>,
+) {
+    for s in stmts {
+        match s {
+            Stmt::LetDecl {
+                mutable: false,
+                name,
+                type_ann: None,
+                init,
+                ..
+            } if matches!(&exprs[init.0 as usize], Expr::Array(_)) => {
+                names.insert(name.clone());
+            }
+            Stmt::LetDecl { name, .. } => {
+                other.insert(name.clone());
+            }
+            Stmt::FnDecl { body, .. } => {
+                collect_arraylit_names_inner(body, exprs, names, other);
+            }
+            Stmt::Block(inner) | Stmt::Multi(inner) => {
+                collect_arraylit_names_inner(inner, exprs, names, other);
             }
             _ => {}
         }
