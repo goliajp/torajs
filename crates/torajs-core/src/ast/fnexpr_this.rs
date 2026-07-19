@@ -34,13 +34,13 @@
 //!   — the literal descriptor's face fields.
 //!
 //! Knives 2-5 widened the surface under the same zero-alias bar:
-//! variable-routed faces (knife 2 — single-use, decls nested in fn
-//! bodies, and the 2W multi-face widening where EVERY use of the
-//! binding is a face read), HOF callback `thisArg` (knife 4), and
-//! `defineProperties` / `Object.create` nesting (knife 5). Everything
-//! else (face + direct-call mixes, async fn-expr faces) keeps today's
-//! loud reject — the mixed profile is knife 2W cut 2 (`__fnx(` marker
-//! family, design in the RFC).
+//! variable-routed faces (knife 2 — single-use, nested decls, the 2W
+//! multi-face widening, and the 2W cut-2 mixed profile where the
+//! only other use shape is a bare-name direct call — seeded
+//! `undefined` via `ast.fnexpr_recv_locals`), HOF callback `thisArg`
+//! (knife 4), and `defineProperties` / `Object.create` nesting
+//! (knife 5). Everything else (alias inits, argument positions,
+//! async fn-expr faces) keeps today's loud reject.
 //!
 //! Runs inside `desugar_implicit_generics` right after
 //! `objlit_nominal::run` — `lift_arrow_fns` has produced the
@@ -60,8 +60,11 @@ pub(crate) fn run(
     stmts: &mut [Stmt],
     exprs: &mut [Expr],
     fn_expr_exprs: &std::collections::HashSet<ExprId>,
+    closure_argc_locals: &std::collections::HashSet<String>,
+    closure_argv_locals: &std::collections::HashSet<String>,
     fnexpr_recv_fns: &mut std::collections::HashSet<String>,
     fnexpr_recv_faces: &mut std::collections::HashSet<ExprId>,
+    fnexpr_recv_locals: &mut std::collections::HashSet<String>,
 ) {
     if fn_expr_exprs.is_empty() {
         return;
@@ -178,12 +181,37 @@ pub(crate) fn run(
             v.push(face_eid);
         }
     }
+    // Knife 2W cut 2 — every Ident node standing in direct-call
+    // callee position (`h(args)`). A mixed binding's non-face uses
+    // must ALL be members of this set: a direct call of a promoted
+    // closure seeds `undefined` into the `__this` argv slot (the
+    // closure-local call arm, driven by `fnexpr_recv_locals`), so it
+    // is the second — and last — use shape with a receiver-correct
+    // call path. Any other use (an alias init, an argument position,
+    // a container store, a comparison) has no such path and keeps
+    // the whole binding unpromoted (loud).
+    let callee_idents: std::collections::HashSet<ExprId> = exprs
+        .iter()
+        .filter_map(|e| match e {
+            Expr::Call { callee, .. } if matches!(&exprs[callee.0 as usize], Expr::Ident(_)) => {
+                Some(*callee)
+            }
+            _ => None,
+        })
+        .collect();
     for (name, face_eids) in &faces_by_name {
-        let uses = exprs
+        let use_eids: Vec<ExprId> = exprs
             .iter()
-            .filter(|e| matches!(e, Expr::Ident(n) if n == name))
-            .count();
-        if uses != face_eids.len() {
+            .enumerate()
+            .filter(|(_, e)| matches!(e, Expr::Ident(n) if n == name))
+            .map(|(i, _)| ExprId(i as u32))
+            .collect();
+        let mixed_calls: Vec<ExprId> = use_eids
+            .iter()
+            .filter(|e| !face_eids.contains(e))
+            .copied()
+            .collect();
+        if !mixed_calls.iter().all(|e| callee_idents.contains(e)) {
             continue;
         }
         let mut decls: Vec<(bool, ExprId)> = Vec::new();
@@ -197,11 +225,27 @@ pub(crate) fn run(
             && let Expr::Closure { fn_name, captures } = &exprs[init.0 as usize]
             && captures.iter().any(|c| c == "__this")
         {
+            // A mixed binding must not also ride a boxed-argv call
+            // lane: the real-argc prepend contends for the same
+            // leading argv slot, and the variadic / full-arguments
+            // adapters (rest param, `arguments[i]` tier) materialize
+            // params straight off argv — a `__this` param would eat
+            // argv[0]. All stay loud.
+            if !mixed_calls.is_empty()
+                && (closure_argc_locals.contains(name)
+                    || closure_argv_locals.contains(name)
+                    || fn_has_rest_param(stmts, fn_name))
+            {
+                continue;
+            }
             patches.push(FacePatch {
                 eid: init,
                 fn_name: fn_name.clone(),
             });
             fnexpr_recv_faces.extend(face_eids.iter().copied());
+            if !mixed_calls.is_empty() {
+                fnexpr_recv_locals.insert(name.clone());
+            }
         }
     }
     if patches.is_empty() {
@@ -311,6 +355,17 @@ fn collect_arraylit_names_inner(
             _ => {}
         }
     }
+}
+
+/// Does the lifted FnDecl named `fn_name` declare a rest param
+/// (`...args`)? Rest-tail closures dispatch through the boxed
+/// variadic entry, which materializes params off argv — cut 2's
+/// mixed promotion excludes them.
+fn fn_has_rest_param(stmts: &[Stmt], fn_name: &str) -> bool {
+    stmts.iter().any(|s| {
+        matches!(s, Stmt::FnDecl { name, params, .. }
+            if name == fn_name && params.iter().any(|p| p.is_rest))
+    })
 }
 
 /// Every `LetDecl` matching `name`, walking fn bodies and blocks (the

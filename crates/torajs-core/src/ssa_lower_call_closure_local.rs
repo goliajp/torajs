@@ -94,9 +94,20 @@ pub(crate) fn try_lower(
     );
     // Prepend Type::Ptr to the user-facing param list to get the
     // underlying signature with the env first.
+    // RFC 20260717-fnexpr-this-channel knife 2W cut 2 — a promoted
+    // mixed-profile fn-expr binding (face reads + direct calls) has
+    // the `__this: any` param after `__env` in its native ABI; the
+    // binding's Type::Closure sig sheds it (ssa_lower_closure hidden
+    // skip), so a direct call re-inserts the slot with a boxed
+    // `undefined` (strict-mode call-site `this`, §10.2.1.2).
+    let needs_this = ctx.ast.fnexpr_recv_locals.contains(callee_name);
+
     let (user_params, ret_ty) = ctx.fn_sigs[user_sig_id.0 as usize].clone();
-    let mut env_first_params = Vec::with_capacity(user_params.len() + 1);
+    let mut env_first_params = Vec::with_capacity(user_params.len() + 2);
     env_first_params.push(Type::Ptr);
+    if needs_this {
+        env_first_params.push(Type::Any);
+    }
     env_first_params.extend(user_params.iter().copied());
     let env_first_sig = intern_fn_sig(ctx.fn_sigs, env_first_params, ret_ty);
 
@@ -113,8 +124,23 @@ pub(crate) fn try_lower(
 
     // P0.5 mirror — Type::Any param boxes the concrete arg.
     // S126-3 see direct fn-call P0.9 in ssa_lower.
-    let mut argv: Vec<Operand> = Vec::with_capacity(args.len() + 2);
+    let mut argv: Vec<Operand> = Vec::with_capacity(args.len() + 3);
     argv.push(Operand::Value(env_ptr));
+    if needs_this {
+        // `undefined` NaN-box into the `__this` slot (an argc
+        // binding never promotes — the AST pass keeps the two
+        // leading-slot prepends from coexisting).
+        let undef_box = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(
+                ctx.intrinsics.any_box,
+                vec![Operand::ConstI64(5), Operand::ConstI64(0)],
+            ),
+            Type::Any,
+            None,
+        );
+        argv.push(Operand::Value(undef_box));
+    }
     if needs_argc {
         argv.push(Operand::ConstI64(args.len() as i64));
     }

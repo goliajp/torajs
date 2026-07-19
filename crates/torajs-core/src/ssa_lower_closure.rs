@@ -168,7 +168,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, fn_name: String, captures: Vec<Strin
             },
         );
         ctx.cur_block = mint_blk;
-        let env_v = alloc_env(ctx, closure_ty, 0);
+        let env_v = alloc_env(ctx, closure_ty, 0, &fn_name);
         init_env_header(ctx, env_v, fid, &fn_name);
         ctx.f.append_void(
             ctx.cur_block,
@@ -190,13 +190,18 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, fn_name: String, captures: Vec<Strin
         return Operand::Value(v);
     }
 
-    let env_v = alloc_env(ctx, closure_ty, eff_captures.len());
+    let env_v = alloc_env(ctx, closure_ty, eff_captures.len(), &fn_name);
     init_env_header(ctx, env_v, fid, &fn_name);
     write_captures(ctx, env_v, &eff_captures);
     Operand::Value(env_v)
 }
 
-fn alloc_env(ctx: &mut LowerCtx<'_>, closure_ty: Type, captures_len: usize) -> crate::ssa::ValueId {
+fn alloc_env(
+    ctx: &mut LowerCtx<'_>,
+    closure_ty: Type,
+    captures_len: usize,
+    fn_name: &str,
+) -> crate::ssa::ValueId {
     let alloc_size = CLOSURE_CAP_BASE_OFF as i64 + 8 * (captures_len as i64);
     let cur_block = ctx.cur_block;
     let env_v = ctx.f.append_inst(
@@ -209,14 +214,30 @@ fn alloc_env(ctx: &mut LowerCtx<'_>, closure_ty: Type, captures_len: usize) -> c
         None,
     );
     let cur_block = ctx.cur_block;
-    // Universal heap header: refcount=1 at +0, type_tag=CLOSURE=3 at +4.
+    // Universal heap header: refcount=1 at +0, type_tag=CLOSURE=3 at
+    // +4 — with FLAG_CLOSURE_RECV_FIRST (bit 12) packed into the
+    // flags half-word for a promoted fn-expr face (RFC
+    // 20260717-fnexpr-this-channel), so receiver-aware invokers put
+    // the receiver in argv[0]. The flag MUST ride this tag-word
+    // store: codegen's `emit_store` writes 64 bits regardless of
+    // operand width, so every header field write clobbers the next 4
+    // bytes and the init sequence stays correct only while offsets
+    // ascend. Knife 1 stamped the flag with a second `+4` store
+    // AFTER `+8` — silently zeroing `fn_addr`'s low half (latent
+    // while faces only rode the boxed entry at +32; knife 2W's
+    // direct calls read +8 and jumped to the image base).
+    let tag_word: i32 = if ctx.ast.fnexpr_recv_fns.contains(fn_name) {
+        3 | (1 << 12) << 16
+    } else {
+        3
+    };
     ctx.f.append_void(
         cur_block,
         InstKind::Store(Operand::ConstI32(1), Operand::Value(env_v), 0),
     );
     ctx.f.append_void(
         cur_block,
-        InstKind::Store(Operand::ConstI32(3), Operand::Value(env_v), 4),
+        InstKind::Store(Operand::ConstI32(tag_word), Operand::Value(env_v), 4),
     );
     env_v
 }
@@ -320,25 +341,6 @@ fn init_env_header(
             crate::ssa_lower::CLOSURE_BOXED_ENTRY_OFF,
         ),
     );
-    // RFC 20260717-fnexpr-this-channel knife 1 — a fn-expr accessor
-    // face's body takes the call-site `this` as its first declared
-    // param. Stamp FLAG_CLOSURE_RECV_FIRST (bit 12) in the header's
-    // flags half-word so receiver-aware invokers (the AccessorPair
-    // boxed channel / the runtime legacy-define kernel) put the
-    // receiver in argv[0]. The +4 word packs `tag | flags << 16`
-    // little-endian; alloc stored the plain tag, this overwrites the
-    // whole word (definition-time cold path — no flag is live yet).
-    if ctx.ast.fnexpr_recv_fns.contains(fn_name) {
-        let cur_block = ctx.cur_block;
-        ctx.f.append_void(
-            cur_block,
-            InstKind::Store(
-                Operand::ConstI32(3 | (1 << 12) << 16),
-                Operand::Value(env_v),
-                4,
-            ),
-        );
-    }
     let drop_fn_name = format!("__env_drop_{fn_name}");
     let drop_fid = *ctx.fn_table.get(&drop_fn_name).unwrap_or_else(|| {
         panic!(

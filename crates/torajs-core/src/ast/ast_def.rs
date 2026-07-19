@@ -213,6 +213,16 @@ pub struct Ast {
     /// mark the face's kinds byte `ACC_KIND_RECV`; the runtime paths
     /// need nothing (they read the closure header flag).
     pub fnexpr_recv_faces: std::collections::HashSet<ExprId>,
+    /// RFC 20260717-fnexpr-this-channel knife 2W cut 2 — const
+    /// binding names whose promoted fn-expr closure is ALSO called
+    /// directly by its bare name (the face + direct-call mixed
+    /// profile). Promotion requires every use of the name to be a
+    /// face read or a direct-call callee, so the set drives exactly
+    /// one consumer: the closure-local call arm seeds a boxed
+    /// `undefined` into the `__this` argv slot (strict-mode
+    /// call-site `this`). Name-keyed like `closure_argc_locals` —
+    /// safe because only program-wide-unique decls promote.
+    pub fnexpr_recv_locals: std::collections::HashSet<String>,
     /// RFC 20260708-closure-argv-face — lifted closures whose body
     /// reads `arguments[i]` (the full-arguments tier) and whose
     /// value passed the direct-call-or-alias safety walk. These

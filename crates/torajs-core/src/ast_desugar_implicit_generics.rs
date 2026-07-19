@@ -48,8 +48,11 @@ pub(crate) fn run(ast: &mut Ast) {
         objlit_method_exprs,
         objlit_method_fields,
         fn_expr_exprs,
+        closure_argc_locals,
+        closure_argv_locals,
         fnexpr_recv_fns,
         fnexpr_recv_faces,
+        fnexpr_recv_locals,
         ..
     } = ast;
     let ast_exprs_view: AstExprsView = &*exprs;
@@ -130,8 +133,11 @@ pub(crate) fn run(ast: &mut Ast) {
         stmts,
         exprs,
         fn_expr_exprs,
+        closure_argc_locals,
+        closure_argv_locals,
         fnexpr_recv_fns,
         fnexpr_recv_faces,
+        fnexpr_recv_locals,
     );
     let ast_exprs_view: AstExprsView = &*exprs;
     // Second pass over top-level lets — a `const h = <closure>`
