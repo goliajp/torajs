@@ -86,7 +86,7 @@ pub(crate) fn try_lower(ctx: &mut LowerCtx<'_>, obj: ExprId, name: &str) -> Opti
 
 /// Builtin-proto tag for the proto-method form — `Number` (tag 0)
 /// plus the [`builtin_proto_tag`] ctor set (tags 1..14).
-fn proto_method_tag(ns: &str) -> Option<i64> {
+pub(crate) fn proto_method_tag(ns: &str) -> Option<i64> {
     if ns == "Number" {
         return Some(0);
     }

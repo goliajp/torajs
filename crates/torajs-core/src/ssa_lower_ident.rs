@@ -71,8 +71,36 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, name: &str) -> Operand {
         if name == "undefined" {
             return Operand::ConstPtrNull;
         }
+        if let Some(op) = try_builtin_ctor_ident(ctx, name) {
+            return op;
+        }
     }
     lower_local_binding(ctx, name)
+}
+
+/// L3b ④ — a bare builtin-constructor namespace ident read as a
+/// VALUE (`o.constructor === Object` / `x === Array`) boxes the
+/// family's interned constructor cell — the same identity the
+/// prototype's own `constructor` entry and the `.constructor`
+/// reify answer. Locals shadow (outer gate); a user class of the
+/// same name resolves its class value through the P4.5 sentinel
+/// rewrite instead.
+fn try_builtin_ctor_ident(ctx: &mut LowerCtx<'_>, name: &str) -> Option<Operand> {
+    if ctx.ast.class_parents.contains_key(name) {
+        return None;
+    }
+    let tag = crate::ssa_lower_member_builtin_namespace::proto_method_tag(name)?;
+    let cur_block = ctx.cur_block;
+    let v = ctx.f.append_inst(
+        cur_block,
+        InstKind::Call(
+            ctx.intrinsics.builtin_ctor_value,
+            vec![Operand::ConstI64(tag)],
+        ),
+        Type::Any,
+        None,
+    );
+    Some(Operand::Value(v))
 }
 
 fn try_global_fn_addr(ctx: &mut LowerCtx<'_>, name: &str) -> Option<Operand> {

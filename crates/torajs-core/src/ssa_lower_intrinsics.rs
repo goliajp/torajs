@@ -382,6 +382,7 @@ pub(crate) struct Intrinsics {
     pub(crate) proto_register: FuncId,
     pub(crate) register_native_error: FuncId,
     pub(crate) proto_get: FuncId,
+    pub(crate) builtin_ctor_value: FuncId,
     pub(crate) class_register: FuncId,
     pub(crate) error_proto_install: FuncId,
     pub(crate) error_is_error: FuncId,

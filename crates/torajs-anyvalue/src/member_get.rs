@@ -279,6 +279,11 @@ pub unsafe extern "C" fn __torajs_any_member_get_tag(recv: AnyValue, key: *const
 /// # Safety
 /// `key` is NULL or a live Str cell.
 unsafe fn reify_tag(recv: AnyValue, key: *const c_void) -> u64 {
+    // L3b ④ — `.constructor` answers the receiver family's interned
+    // builtin-constructor cell (own-face shadows already probed).
+    if unsafe { crate::method_value::ctor_cell_for_recv(recv, key) }.is_some() {
+        return 4;
+    }
     if unsafe { crate::method_value::builtin_method_lookup(recv, key) }.is_some() {
         4
     } else {
@@ -442,6 +447,10 @@ pub unsafe extern "C" fn __torajs_any_member_get_value(recv: AnyValue, key: *con
 /// # Safety
 /// `key` is NULL or a live Str cell.
 unsafe fn reify_value(recv: AnyValue, key: *const c_void) -> u64 {
+    // L3b ④ — `.constructor` (mirror of the tag channel).
+    if let Some(cell) = unsafe { crate::method_value::ctor_cell_for_recv(recv, key) } {
+        return cell as u64;
+    }
     unsafe { crate::method_value::builtin_method_lookup(recv, key) }
         .map(|c| c as u64)
         .unwrap_or(0)
