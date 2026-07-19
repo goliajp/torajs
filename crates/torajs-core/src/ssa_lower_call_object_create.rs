@@ -7,20 +7,12 @@
 use crate::ast::{Expr, ExprId};
 use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
-
-/// `Object.create(proto[, descriptors])` — §20.1.2.2. Validates the
-/// proto argument (Object or null, else TypeError) then allocates a
-/// fresh dynobj-backed Any-box. The proto value itself is not yet
-/// wired to the new object (no per-object proto slot — RFC
-/// 20260712-object-create-define-props backlog); the descriptors arg
-/// is evaluated for side effects (props processing is RFC chunk 2).
-pub(crate) fn lower_create(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
-    // §20.1.2.2 steps 1-2 — validate the proto and keep its Any box
-    // alive across the props evaluation so the fresh dynobj can link
-    // it (RFC 20260717-user-proto-chain knife 1). The raw operand is
-    // released only AFTER the link call below; throw paths in between
-    // carry the owned temp through `emit_throw_check_owned` so the
-    // deferred release cannot strand a reference.
+/// §20.1.2.2 steps 1-2 — validate the proto argument and keep its
+/// Any box for the OrdinaryObjectCreate wire below.
+fn resolve_proto_link(
+    ctx: &mut LowerCtx<'_>,
+    args: &[ExprId],
+) -> Option<(ExprId, Operand, Operand, bool)> {
     let mut proto_link: Option<(ExprId, Operand, Operand, bool)> = None;
     if let Some(&proto_eid) = args.first() {
         let proto_op = ctx.lower_expr(proto_eid);
@@ -57,6 +49,22 @@ pub(crate) fn lower_create(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
             proto_link = Some((proto_eid, proto_op, boxed, proto_owned));
         }
     }
+    proto_link
+}
+
+/// §20.1.2.2 step 3 — evaluate the props argument. `None` skips
+/// ObjectDefineProperties entirely.
+///
+/// Takes `proto_link` because the always-throwing props path has to
+/// drop an owned proto temp that is still live there: the proto link
+/// happens after the alloc below, so this runs while the temp has no
+/// other owner. That ordering makes the two resolve steps
+/// non-commutable.
+fn resolve_props(
+    ctx: &mut LowerCtx<'_>,
+    args: &[ExprId],
+    proto_link: &Option<(ExprId, Operand, Operand, bool)>,
+) -> Option<(ExprId, Operand, bool)> {
     // §20.1.2.2 step 3 — evaluate the props arg. A literal ObjectLit
     // forces the dynobj lane (the desc-of-descs tree must be
     // dynobj-backed for the runtime walk; the fresh tree is an owned
@@ -75,7 +83,7 @@ pub(crate) fn lower_create(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
     // runtime nullish gate (would need a spec-Object.create-shape
     // helper that only throws on null, since dyn-undefined must
     // fall through to skip step 3).
-    let props: Option<(ExprId, Operand, bool)> = match args.get(1) {
+    match args.get(1) {
         Some(&p_eid)
             if matches!(ctx.ast.get_expr(p_eid), Expr::Null)
                 || matches!(ctx.expr_types.get(&p_eid), Some(crate::check::Type::Null)) =>
@@ -100,7 +108,7 @@ pub(crate) fn lower_create(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
             // The deferred proto release (link happens after the
             // alloc below) means an owned proto temp is still live on
             // this always-throwing path — drop it in the throw block.
-            if let Some((_, ref p_raw, _, true)) = proto_link {
+            if let Some((_, ref p_raw, _, true)) = *proto_link {
                 let p_ty = ctx.operand_ty(p_raw);
                 let p_raw = p_raw.clone();
                 ctx.emit_throw_check_owned(None, p_raw, p_ty);
@@ -124,7 +132,24 @@ pub(crate) fn lower_create(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
         }
         Some(&p_eid) => Some((p_eid, ctx.lower_expr(p_eid), false)),
         None => None,
-    };
+    }
+}
+
+/// `Object.create(proto[, descriptors])` — §20.1.2.2. Validates the
+/// proto argument (Object or null, else TypeError) then allocates a
+/// fresh dynobj-backed Any-box. The proto value itself is not yet
+/// wired to the new object (no per-object proto slot — RFC
+/// 20260712-object-create-define-props backlog); the descriptors arg
+/// is evaluated for side effects (props processing is RFC chunk 2).
+pub(crate) fn lower_create(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
+    // §20.1.2.2 steps 1-2 — validate the proto and keep its Any box
+    // alive across the props evaluation so the fresh dynobj can link
+    // it (RFC 20260717-user-proto-chain knife 1). The raw operand is
+    // released only AFTER the link call below; throw paths in between
+    // carry the owned temp through `emit_throw_check_owned` so the
+    // deferred release cannot strand a reference.
+    let mut proto_link = resolve_proto_link(ctx, args);
+    let props = resolve_props(ctx, args, &proto_link);
     for &a in args.iter().skip(2) {
         let op = ctx.lower_expr(a);
         ctx.release_owned_temp(a, &op);
