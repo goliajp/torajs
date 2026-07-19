@@ -19,8 +19,11 @@
 use std::collections::HashMap;
 
 use torajs_core::ssa::{
-    BlockId, Function, IPred, InstKind, Operand, Terminator, ValueId, visit_value_operands,
+    BlockId, FPred, Function, IPred, InstKind, Operand, Terminator, Type, ValueId,
+    visit_value_operands,
 };
+
+use crate::reg::Reg;
 
 use super::cmp::{emit_compare_nzcv, ipred_to_cond};
 use super::operand::materialize_operand_gpr;
@@ -89,7 +92,21 @@ pub(crate) fn fusible_cmps(func: &Function) -> HashMap<u32, FusedCmp> {
     fused
 }
 
-/// Map of `(block id, icmp inst index)` → the compare absorbed by the
+/// The compare a Select absorbs — integer or float. Kept separate
+/// from `FusedCmp` (CondBr / CSINC fuses, integer-only surfaces) so
+/// the float arm exists exactly where floats can appear.
+pub(crate) enum FusedSelPred {
+    Int(IPred),
+    Float(FPred),
+}
+
+pub(crate) struct FusedSelCmp {
+    pub pred: FusedSelPred,
+    pub lhs: Operand,
+    pub rhs: Operand,
+}
+
+/// Map of `(block id, cmp inst index)` → the compare absorbed by the
 /// Select immediately after it. Same NZCV story as the CondBr fuse:
 /// the compare re-emits right before the CSEL (zero intervening
 /// instructions), and the single-use gate keeps the skipped CSET's
@@ -97,26 +114,59 @@ pub(crate) fn fusible_cmps(func: &Function) -> HashMap<u32, FusedCmp> {
 /// every blade-2 formed `icmp; select` pair carry this shape; the
 /// parity selects share their cond (use count 2) and keep the
 /// cset + cmp #0 path.
-pub(crate) fn fusible_select_cmps(func: &Function) -> HashMap<(u32, u32), FusedCmp> {
+///
+/// An FCmp cond fuses under two extra gates:
+///   - `FPred::One` never fuses — ordered ≠ is a 3-inst
+///     CSET MI / CSET GT / ORR sequence with no single cond code
+///     (`fpred_to_cond` rejects it).
+///   - When the Select's value type is F64, both compare operands
+///     must sit in allocated FPRs (`Reg::Fpr`, never V16-V18 — the
+///     allocator reserves those out of the pool). The FPR value arms
+///     occupy FP_SCRATCH_LHS/RHS, so a compare operand that needed an
+///     FPR materialize would clobber a value arm before the FCSEL
+///     reads it. Non-F64 selects need no gate: their value arms ride
+///     GPR scratches, a different register file.
+pub(crate) fn fusible_select_cmps(
+    func: &Function,
+    alloc: &Assignment,
+) -> HashMap<(u32, u32), FusedSelCmp> {
     let uses = count_uses(func);
     let mut fused = HashMap::new();
     for block in &func.blocks {
         for (ii, pair) in block.insts.windows(2).enumerate() {
-            let (InstKind::ICmp(pred, lhs, rhs), InstKind::Select(_, Operand::Value(c), _, _)) =
-                (&pair[0].kind, &pair[1].kind)
-            else {
+            let InstKind::Select(sel_ty, Operand::Value(c), _, _) = &pair[1].kind else {
                 continue;
             };
-            if pair[0].result == Some(*c) && uses.get(c) == Some(&1) {
-                fused.insert(
-                    (block.id.0, ii as u32),
-                    FusedCmp {
-                        pred: *pred,
-                        lhs: *lhs,
-                        rhs: *rhs,
-                    },
-                );
+            if pair[0].result != Some(*c) || uses.get(c) != Some(&1) {
+                continue;
             }
+            let (pred, lhs, rhs) = match &pair[0].kind {
+                InstKind::ICmp(pred, lhs, rhs) => (FusedSelPred::Int(*pred), lhs, rhs),
+                InstKind::FCmp(pred, lhs, rhs) => {
+                    if *pred == FPred::One {
+                        continue;
+                    }
+                    if *sel_ty == Type::F64 {
+                        let in_fpr = |op: &Operand| {
+                            matches!(op, Operand::Value(v)
+                                if matches!(alloc.of(*v), Reg::Fpr(_)))
+                        };
+                        if !(in_fpr(lhs) && in_fpr(rhs)) {
+                            continue;
+                        }
+                    }
+                    (FusedSelPred::Float(*pred), lhs, rhs)
+                }
+                _ => continue,
+            };
+            fused.insert(
+                (block.id.0, ii as u32),
+                FusedSelCmp {
+                    pred,
+                    lhs: *lhs,
+                    rhs: *rhs,
+                },
+            );
         }
     }
     fused

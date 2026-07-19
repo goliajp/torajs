@@ -1,6 +1,6 @@
-//! Compare sink — move a single-use ICmp down to sit immediately
-//! before the Select that consumes it (RFC 20260719-select-formation,
-//! "加宽 ICmp 融合窗口" route ③).
+//! Compare sink — move a single-use compare (ICmp or FCmp) down to
+//! sit immediately before the Select that consumes it (RFC
+//! 20260719-select-formation, "加宽 ICmp 融合窗口" route ③).
 //!
 //! Codegen's NZCV fuse (`brfuse::fusible_select_cmps`) is adjacency-
 //! gated: it re-emits the compare right before the CSEL, which is only
@@ -89,12 +89,15 @@ fn sink_one(func: &mut Function, b: usize, uses: &HashMap<ValueId, u32>) -> bool
         if uses.get(c) != Some(&1) {
             continue;
         }
-        // The defining ICmp, in this block. A non-ICmp def or a def in
-        // another block is not fusible and not worth moving.
-        let Some(ci) = insts[..si]
-            .iter()
-            .position(|i| i.result == Some(*c) && matches!(i.kind, InstKind::ICmp(..)))
-        else {
+        // The defining compare, in this block. A non-compare def or a
+        // def in another block is not fusible and not worth moving.
+        // FCmp sinks on the same terms — it is equally pure, and the
+        // fuse's own gates (FPred::One, the F64 FPR-residency check)
+        // decide fusibility after the fact; an unfused-but-adjacent
+        // compare emits exactly as it did before.
+        let Some(ci) = insts[..si].iter().position(|i| {
+            i.result == Some(*c) && matches!(i.kind, InstKind::ICmp(..) | InstKind::FCmp(..))
+        }) else {
             continue;
         };
         if ci + 1 == si {
@@ -104,10 +107,10 @@ fn sink_one(func: &mut Function, b: usize, uses: &HashMap<ValueId, u32>) -> bool
             continue;
         }
         // Redefinition hazard: φ-destructed multi-def Copys may
-        // redefine an ICmp operand (or the cond itself) inside the
+        // redefine a compare operand (or the cond itself) inside the
         // gap; the delayed compare would read the wrong generation.
-        let InstKind::ICmp(_, lhs, rhs) = &insts[ci].kind else {
-            unreachable!("position() matched an ICmp");
+        let (InstKind::ICmp(_, lhs, rhs) | InstKind::FCmp(_, lhs, rhs)) = &insts[ci].kind else {
+            unreachable!("position() matched a compare");
         };
         let mut pinned: Vec<ValueId> = vec![*c];
         for op in [lhs, rhs] {
@@ -301,6 +304,24 @@ mod tests {
         );
         let mut m = module_of(f);
         assert_eq!(sink_cmps(&mut m).sunk, 0);
+    }
+
+    #[test]
+    fn fcmp_sinks_like_icmp() {
+        use torajs_core::ssa::FPred;
+        let f = func_with(
+            vec![
+                inst(10, InstKind::FCmp(FPred::Olt, v(1), v(2))),
+                add(11, v(3), v(4)),
+                select(13, 10, v(11), v(3)),
+            ],
+            Terminator::Ret(Some(v(13))),
+        );
+        let mut m = module_of(f);
+        assert_eq!(sink_cmps(&mut m).sunk, 1);
+        let insts = &m.funcs[0].blocks[0].insts;
+        assert!(matches!(insts[1].kind, InstKind::FCmp(..)));
+        assert!(matches!(insts[2].kind, InstKind::Select(..)));
     }
 
     #[test]

@@ -168,7 +168,7 @@ pub fn compile_function_with(
     // (or cbz/cbnz) — the inst loop skips the compare, the terminator
     // emits it. See compile/brfuse.rs.
     let fused_cmps = brfuse::fusible_cmps(func);
-    let select_fused = brfuse::fusible_select_cmps(func);
+    let select_fused = brfuse::fusible_select_cmps(func, &alloc);
     // `select c, (x+1), x` collapses into one CSINC, absorbing the ADD
     // (and the ICmp behind it, which the ADD used to keep out of
     // fusible_select_cmps' adjacency window). See compile/selinc.rs.

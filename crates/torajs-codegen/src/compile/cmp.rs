@@ -97,41 +97,73 @@ pub fn emit_select(
     write_def_spill_gpr(bytes, spill_off, dst);
 }
 
-/// Fused `icmp; select` — the compare re-emits directly before the
-/// CSEL so the predicate rides NZCV instead of a CSET'd register
+/// Fused `icmp/fcmp; select` — the compare re-emits directly before
+/// the CSEL so the predicate rides NZCV instead of a CSET'd register
 /// (drops cset + cmp #0, two instructions per pair). Value operands
-/// materialize first; mov/movz/ldr reloads never touch NZCV.
+/// materialize first; mov/movz/ldr reloads never touch NZCV, and an
+/// FCMP re-emit is fenced by `fusible_select_cmps`' gates (never
+/// `FPred::One`; on an F64 select both its operands are in allocated
+/// FPRs, so it touches no FP scratch).
 pub(crate) fn emit_select_fused(
     bytes: &mut Vec<u8>,
     inst: &Inst,
     ty: &Type,
-    fc: &super::brfuse::FusedCmp,
+    fc: &super::brfuse::FusedSelCmp,
     then_op: &Operand,
     else_op: &Operand,
     alloc: &Assignment,
 ) {
+    use super::brfuse::FusedSelPred;
     let result_vid = inst.result.expect("Select must have a result");
+    let emit_compare = |bytes: &mut Vec<u8>| -> u8 {
+        match &fc.pred {
+            FusedSelPred::Int(p) => {
+                emit_compare_nzcv(bytes, &fc.lhs, &fc.rhs, alloc);
+                ipred_to_cond(*p)
+            }
+            FusedSelPred::Float(p) => {
+                let rn =
+                    materialize_operand_fpr(bytes, &fc.lhs, FP_SCRATCH_LHS, OP_SCRATCH_LHS, alloc);
+                let rm =
+                    materialize_operand_fpr(bytes, &fc.rhs, FP_SCRATCH_RHS, OP_SCRATCH_RHS, alloc);
+                write_u32(bytes, fcmp_d(rn, rm));
+                fpred_to_cond(*p)
+            }
+        }
+    };
     if *ty == Type::F64 {
-        // FPR value arms never collide with emit_compare_nzcv, which
-        // only touches GPR scratches. The GPR carrier a ConstF64 rides
-        // into its FPR is dead by the time the compare reuses it.
+        // FPR value arms never collide with the compare re-emit: an
+        // integer compare only touches GPR scratches, and a float
+        // compare is gated to operands already in allocated FPRs
+        // (V16-V18 are reserved out of the pool), so the scratch args
+        // passed above are never written. The GPR carrier a ConstF64
+        // rides into its FPR is dead by the time the compare reuses it.
+        if let FusedSelPred::Float(_) = fc.pred {
+            for op in [&fc.lhs, &fc.rhs] {
+                debug_assert!(
+                    matches!(op, Operand::Value(v)
+                        if matches!(alloc.of(*v), crate::reg::Reg::Fpr(_))),
+                    "F64-select FCmp fuse requires in-FPR compare operands (fusible gate)"
+                );
+            }
+        }
         let (dst, spill_off) = alloc.def_fpr(result_vid, FP_SCRATCH_RESULT);
         let rn = materialize_operand_fpr(bytes, then_op, FP_SCRATCH_LHS, OP_SCRATCH_TMP, alloc);
         let rm = materialize_operand_fpr(bytes, else_op, FP_SCRATCH_RHS, OP_SCRATCH_TMP, alloc);
-        emit_compare_nzcv(bytes, &fc.lhs, &fc.rhs, alloc);
-        write_u32(bytes, fcsel_d(dst, rn, rm, ipred_to_cond(fc.pred)));
+        let cc = emit_compare(bytes);
+        write_u32(bytes, fcsel_d(dst, rn, rm, cc));
         write_def_spill_fpr(bytes, spill_off, dst);
         return;
     }
     let (dst, spill_off) = alloc.def_gpr(result_vid, OP_SCRATCH_RESULT_GPR);
-    // value arms take TMP / RESULT scratches — emit_compare_nzcv owns
-    // LHS/RHS for the compare operands and would clobber them. A
-    // spilled dst aliasing rm's scratch is fine: CSEL reads its
-    // sources before writing Rd.
+    // value arms take TMP / RESULT scratches — the compare re-emit
+    // owns LHS/RHS (GPR for cmp, FPR + GPR carrier for fcmp) and
+    // would clobber them. A spilled dst aliasing rm's scratch is
+    // fine: CSEL reads its sources before writing Rd.
     let rn = materialize_operand_gpr(bytes, then_op, OP_SCRATCH_TMP, alloc);
     let rm = materialize_operand_gpr(bytes, else_op, OP_SCRATCH_RESULT_GPR, alloc);
-    emit_compare_nzcv(bytes, &fc.lhs, &fc.rhs, alloc);
-    write_u32(bytes, csel_cond(dst, rn, rm, ipred_to_cond(fc.pred)));
+    let cc = emit_compare(bytes);
+    write_u32(bytes, csel_cond(dst, rn, rm, cc));
     write_def_spill_gpr(bytes, spill_off, dst);
 }
 
