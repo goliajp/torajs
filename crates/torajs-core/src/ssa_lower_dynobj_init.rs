@@ -51,6 +51,175 @@ impl<'a> LowerCtx<'a> {
     /// `x.foo` reads/writes route through the dynobj substrate.
     /// Empty `{}` produces a zero-entry dynobj (allocates the header
     /// + initial bucket array but no entries).
+    /// Lower one non-special field's value and store it into the
+    /// dynobj bucket. The `Any` and `Str` arms complete the store
+    /// themselves (their owned-unbox fuses the payload inc into the
+    /// decode), so they return early rather than yielding a
+    /// `(tag, slot)` pair to the shared tail.
+    /// §13.2.5.5 — the literal `__proto__: v` member sets
+    /// [[Prototype]], never an own entry (RFC
+    /// 20260717-user-proto-chain): a cell lands in the simulation
+    /// slot, null marks the null-proto bit, any other value is
+    /// silently ignored — exactly the Annex B setter core's contract
+    /// (the fresh literal cannot be non-extensible or form a cycle,
+    /// so its refusal path is unreachable). The value box is a
+    /// borrow (the core takes its own stake).
+    fn emit_dynobj_proto_field(&mut self, dynobj: ValueId, fval_eid: ExprId) {
+        // A statically-null proto marks the header bit
+        // directly (the `Object.create(null)` face) — the
+        // boxed-setter path below covers runtime values.
+        if matches!(self.ast.get_expr(fval_eid), Expr::Null)
+            || matches!(
+                self.expr_types.get(&fval_eid),
+                Some(crate::check::Type::Null)
+            )
+        {
+            let _ = self.lower_expr(fval_eid);
+            self.f.append_void(
+                self.cur_block,
+                InstKind::Call(
+                    self.intrinsics.dynobj_mark_null_proto,
+                    vec![Operand::Value(dynobj)],
+                ),
+            );
+            return;
+        }
+        let v_op = self.lower_expr(fval_eid);
+        let v_ty = self.operand_ty(&v_op);
+        let v_boxed = if matches!(v_ty, Type::Any) {
+            v_op.clone()
+        } else {
+            self.box_to_any_from_expr(fval_eid, v_op.clone())
+        };
+        let obj_boxed = self.f.append_inst(
+            self.cur_block,
+            InstKind::Call(
+                self.intrinsics.any_box,
+                vec![Operand::ConstI64(4 /* ANY_HEAP */), Operand::Value(dynobj)],
+            ),
+            Type::Any,
+            None,
+        );
+        self.f.append_void(
+            self.cur_block,
+            InstKind::Call(
+                self.intrinsics.anyv_proto_member_set,
+                vec![Operand::Value(obj_boxed), v_boxed],
+            ),
+        );
+        self.release_owned_temp(fval_eid, &v_op);
+    }
+
+    fn emit_dynobj_field_value(&mut self, dynobj: ValueId, fname: &str, fval_eid: ExprId) {
+        let v_raw = self.lower_expr(fval_eid);
+        // Chunk 570 — SHARE: the bucket takes its own +1 (the
+        // refcounted arm's rc_inc / the Any arm's payload inc);
+        // no consume, so a borrow-shape value keeps the source
+        // binding's stake and an owned temp releases its
+        // surplus reference after the set (was a 32B/iter
+        // orphan leak, probe-proven).
+        let transfers = self.expr_transfers_ownership(fval_eid);
+        let v_ty = self.operand_ty(&v_raw);
+        let v_keep = v_raw.clone();
+        let (tag, val_op): (i64, Operand) = match v_ty {
+            Type::I64 | Type::I32 => (2, v_raw),
+            Type::F64 => {
+                let bits = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::BitCastF64ToI64(v_raw),
+                    Type::I64,
+                    None,
+                );
+                (3, Operand::Value(bits))
+            }
+            Type::Bool => {
+                let zext = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::ZExtBoolToI64(v_raw),
+                    Type::I64,
+                    None,
+                );
+                (1, Operand::Value(zext))
+            }
+            // P4.0 — Type::Any must be unboxed BEFORE the
+            // is_refcounted catch-all (Type::Any is itself
+            // refcounted, so the `_ if v_ty.is_refcounted()`
+            // arm would otherwise grab the any-box wrapper
+            // ptr and store *that* as the bucket value with
+            // tag=ANY_HEAP. Reads then return the wrapper ptr
+            // instead of the underlying heap object, breaking
+            // identity (`{p: inner}.p === inner`) and recursive
+            // field access (`outer.p.x`). Forward (tag, val) via
+            // any_unbox_tag/_value shims (Step 7c — was inline
+            // `Load i64 +8/+16` direct-offset); bucket owns the
+            // +1 on val via any_payload_rc_inc when tag == HEAP.
+            Type::Any => {
+                // Chunk 610 — owned unbox fuses unbox_value +
+                // payload_rc_inc (ShortStr materialize was
+                // double-counted by the separate inc and leaked).
+                let tag_v = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(self.intrinsics.any_unbox_tag, vec![v_raw.clone()]),
+                    Type::I64,
+                    None,
+                );
+                let val_v = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(self.intrinsics.any_unbox_value_owned, vec![v_raw.clone()]),
+                    Type::I64,
+                    None,
+                );
+                self.emit_dynobj_set(dynobj, fname, Operand::Value(tag_v), Operand::Value(val_v));
+                if transfers {
+                    self.emit_drop_value(v_keep, Type::Any);
+                }
+                return;
+            }
+            // RFC 20260707 chunk 3 — a Str slot decodes its
+            // three shapes at runtime (NULL = null / undefined
+            // sentinel / heap Str), so the tag is not static;
+            // same continue shape as the Any arm. The value
+            // half takes the bucket's +1 (heap case only).
+            Type::Str => {
+                let tag_v = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(self.intrinsics.anyv_str_slot_tag, vec![v_raw.clone()]),
+                    Type::I64,
+                    None,
+                );
+                let val_v = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(self.intrinsics.anyv_str_slot_value, vec![v_raw.clone()]),
+                    Type::I64,
+                    None,
+                );
+                self.emit_dynobj_set(dynobj, fname, Operand::Value(tag_v), Operand::Value(val_v));
+                if transfers {
+                    self.emit_drop_value(v_keep, Type::Str);
+                }
+                return;
+            }
+            _ if v_ty.is_refcounted() => {
+                // A typed Array stored into a dynobj bucket is read
+                // back through the `any` world (`o.items[1]`), where
+                // the elem-kind header picks the slot interpretation
+                // — same boundary as the object_lit field store; a
+                // raw-i64 array without the mark decodes its cells
+                // as NaN-boxes and reads undefined. No-op for
+                // non-Arr values.
+                self.emit_arr_mark_kind(&v_raw);
+                self.emit_rc_inc(v_raw.clone());
+                (4, v_raw)
+            }
+            Type::Ptr if matches!(v_raw, Operand::ConstPtrNull) => (0, Operand::ConstI64(0)),
+            _ => panic!("ssa-lower: dynobj init unsupported field type {v_ty:?}"),
+        };
+        self.emit_dynobj_set(dynobj, fname, Operand::ConstI64(tag), val_op);
+        if transfers && v_ty.is_refcounted() {
+            self.emit_drop_value(v_keep, v_ty);
+        }
+    }
+
     pub(crate) fn lower_dynobj_init(&mut self, eid: ExprId) -> Operand {
         let fields = match self.ast.get_expr(eid).clone() {
             Expr::ObjectLit { fields } => fields,
@@ -76,49 +245,7 @@ impl<'a> LowerCtx<'a> {
             // is unreachable). The value box is a borrow (the core
             // takes its own stake).
             if fname == "__proto__" && !self.ast.objlit_shorthand_proto_exprs.contains(&fval_eid) {
-                // A statically-null proto marks the header bit
-                // directly (the `Object.create(null)` face) — the
-                // boxed-setter path below covers runtime values.
-                if matches!(self.ast.get_expr(fval_eid), Expr::Null)
-                    || matches!(
-                        self.expr_types.get(&fval_eid),
-                        Some(crate::check::Type::Null)
-                    )
-                {
-                    let _ = self.lower_expr(fval_eid);
-                    self.f.append_void(
-                        self.cur_block,
-                        InstKind::Call(
-                            self.intrinsics.dynobj_mark_null_proto,
-                            vec![Operand::Value(dynobj)],
-                        ),
-                    );
-                    continue;
-                }
-                let v_op = self.lower_expr(fval_eid);
-                let v_ty = self.operand_ty(&v_op);
-                let v_boxed = if matches!(v_ty, Type::Any) {
-                    v_op.clone()
-                } else {
-                    self.box_to_any_from_expr(fval_eid, v_op.clone())
-                };
-                let obj_boxed = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::Call(
-                        self.intrinsics.any_box,
-                        vec![Operand::ConstI64(4 /* ANY_HEAP */), Operand::Value(dynobj)],
-                    ),
-                    Type::Any,
-                    None,
-                );
-                self.f.append_void(
-                    self.cur_block,
-                    InstKind::Call(
-                        self.intrinsics.anyv_proto_member_set,
-                        vec![Operand::Value(obj_boxed), v_boxed],
-                    ),
-                );
-                self.release_owned_temp(fval_eid, &v_op);
+                self.emit_dynobj_proto_field(dynobj, fval_eid);
                 continue;
             }
             // RFC 20260717-objlit-anylane-recv knife 1 — accessor
@@ -174,123 +301,7 @@ impl<'a> LowerCtx<'a> {
                 self.emit_dynobj_set(dynobj, &fname, Operand::ConstI64(4), nested);
                 continue;
             }
-            let v_raw = self.lower_expr(fval_eid);
-            // Chunk 570 — SHARE: the bucket takes its own +1 (the
-            // refcounted arm's rc_inc / the Any arm's payload inc);
-            // no consume, so a borrow-shape value keeps the source
-            // binding's stake and an owned temp releases its
-            // surplus reference after the set (was a 32B/iter
-            // orphan leak, probe-proven).
-            let transfers = self.expr_transfers_ownership(fval_eid);
-            let v_ty = self.operand_ty(&v_raw);
-            let v_keep = v_raw.clone();
-            let (tag, val_op): (i64, Operand) = match v_ty {
-                Type::I64 | Type::I32 => (2, v_raw),
-                Type::F64 => {
-                    let bits = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::BitCastF64ToI64(v_raw),
-                        Type::I64,
-                        None,
-                    );
-                    (3, Operand::Value(bits))
-                }
-                Type::Bool => {
-                    let zext = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::ZExtBoolToI64(v_raw),
-                        Type::I64,
-                        None,
-                    );
-                    (1, Operand::Value(zext))
-                }
-                // P4.0 — Type::Any must be unboxed BEFORE the
-                // is_refcounted catch-all (Type::Any is itself
-                // refcounted, so the `_ if v_ty.is_refcounted()`
-                // arm would otherwise grab the any-box wrapper
-                // ptr and store *that* as the bucket value with
-                // tag=ANY_HEAP. Reads then return the wrapper ptr
-                // instead of the underlying heap object, breaking
-                // identity (`{p: inner}.p === inner`) and recursive
-                // field access (`outer.p.x`). Forward (tag, val) via
-                // any_unbox_tag/_value shims (Step 7c — was inline
-                // `Load i64 +8/+16` direct-offset); bucket owns the
-                // +1 on val via any_payload_rc_inc when tag == HEAP.
-                Type::Any => {
-                    // Chunk 610 — owned unbox fuses unbox_value +
-                    // payload_rc_inc (ShortStr materialize was
-                    // double-counted by the separate inc and leaked).
-                    let tag_v = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Call(self.intrinsics.any_unbox_tag, vec![v_raw.clone()]),
-                        Type::I64,
-                        None,
-                    );
-                    let val_v = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Call(self.intrinsics.any_unbox_value_owned, vec![v_raw.clone()]),
-                        Type::I64,
-                        None,
-                    );
-                    self.emit_dynobj_set(
-                        dynobj,
-                        &fname,
-                        Operand::Value(tag_v),
-                        Operand::Value(val_v),
-                    );
-                    if transfers {
-                        self.emit_drop_value(v_keep, Type::Any);
-                    }
-                    continue;
-                }
-                // RFC 20260707 chunk 3 — a Str slot decodes its
-                // three shapes at runtime (NULL = null / undefined
-                // sentinel / heap Str), so the tag is not static;
-                // same continue shape as the Any arm. The value
-                // half takes the bucket's +1 (heap case only).
-                Type::Str => {
-                    let tag_v = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Call(self.intrinsics.anyv_str_slot_tag, vec![v_raw.clone()]),
-                        Type::I64,
-                        None,
-                    );
-                    let val_v = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Call(self.intrinsics.anyv_str_slot_value, vec![v_raw.clone()]),
-                        Type::I64,
-                        None,
-                    );
-                    self.emit_dynobj_set(
-                        dynobj,
-                        &fname,
-                        Operand::Value(tag_v),
-                        Operand::Value(val_v),
-                    );
-                    if transfers {
-                        self.emit_drop_value(v_keep, Type::Str);
-                    }
-                    continue;
-                }
-                _ if v_ty.is_refcounted() => {
-                    // A typed Array stored into a dynobj bucket is read
-                    // back through the `any` world (`o.items[1]`), where
-                    // the elem-kind header picks the slot interpretation
-                    // — same boundary as the object_lit field store; a
-                    // raw-i64 array without the mark decodes its cells
-                    // as NaN-boxes and reads undefined. No-op for
-                    // non-Arr values.
-                    self.emit_arr_mark_kind(&v_raw);
-                    self.emit_rc_inc(v_raw.clone());
-                    (4, v_raw)
-                }
-                Type::Ptr if matches!(v_raw, Operand::ConstPtrNull) => (0, Operand::ConstI64(0)),
-                _ => panic!("ssa-lower: dynobj init unsupported field type {v_ty:?}"),
-            };
-            self.emit_dynobj_set(dynobj, &fname, Operand::ConstI64(tag), val_op);
-            if transfers && v_ty.is_refcounted() {
-                self.emit_drop_value(v_keep, v_ty);
-            }
+            self.emit_dynobj_field_value(dynobj, &fname, fval_eid);
         }
         Operand::Value(dynobj)
     }
