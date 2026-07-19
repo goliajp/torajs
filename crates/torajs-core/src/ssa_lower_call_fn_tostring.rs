@@ -56,7 +56,8 @@ pub(crate) fn try_lower(
     let Expr::Member { obj, name } = ctx.ast.get_expr(callee) else {
         return None;
     };
-    if name != "toString" || !args.is_empty() {
+    // §20.2.3.5 — toLocaleString folds toString's answer.
+    if (name != "toString" && name != "toLocaleString") || !args.is_empty() {
         return None;
     }
     let obj = *obj;

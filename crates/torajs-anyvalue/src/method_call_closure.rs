@@ -137,7 +137,8 @@ pub(crate) unsafe fn closure_method(
             // recorded source (bound wrappers / reified builtin
             // cells whose fn_addr is the throwing native entry)
             // fall to the JSC native form inside the kernel.
-            m if m == ANY_METHOD_TO_STRING => {
+            // §20.2.3.5 — toLocaleString is toString's answer.
+            m if m == ANY_METHOD_TO_STRING || m == ANY_METHOD_TO_LOCALE_STRING => {
                 if let Some(name) = crate::method_value::builtin_method_name(ptr) {
                     // A reified builtin method cell is never in the
                     // registry — mint the named native form directly.

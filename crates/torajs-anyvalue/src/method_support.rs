@@ -220,7 +220,11 @@ pub(crate) fn weakset_supports(mid: i64) -> bool {
 pub(crate) fn closure_supports(mid: i64) -> bool {
     matches!(
         mid,
-        ANY_METHOD_CALL | ANY_METHOD_APPLY | ANY_METHOD_BIND | ANY_METHOD_TO_STRING
+        ANY_METHOD_CALL
+            | ANY_METHOD_APPLY
+            | ANY_METHOD_BIND
+            | ANY_METHOD_TO_STRING
+            | ANY_METHOD_TO_LOCALE_STRING
     )
 }
 

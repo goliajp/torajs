@@ -71,8 +71,10 @@ pub(crate) fn try_route(
     // this Function typing recorded in expr_types) so admitted and
     // lowered shapes can't drift. AFTER the any-receiver arm: an
     // any-held fn keeps the runtime dispatch.
+    // (`toLocaleString` rides the same arm — §20.2.3.5 makes it
+    // toString's answer.)
     if let Expr::Member { obj, name } = ast.get_expr(*callee)
-        && name == "toString"
+        && (name == "toString" || name == "toLocaleString")
         && args.is_empty()
         && (matches!(checker.type_of(ast, *obj), Ok(Type::Function(..)))
             || (matches!(ast.get_expr(*obj), Expr::Ident(f) if ast
