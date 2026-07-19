@@ -78,6 +78,7 @@ pub(crate) use ctor::{builtin_ctor_cell, ctor_cell_for_recv};
 // — `Math.max` as a VALUE: interned dispatcher cells keyed by the
 // shared torajs-rc ns-static table.
 mod ns_static;
+mod ns_static_table;
 
 /// Interned name Str layout — mirror of torajs-str
 /// `layout::{STR_LEN_OFF, STR_DATA_OFF}` + the `IS_LATIN1` flags
