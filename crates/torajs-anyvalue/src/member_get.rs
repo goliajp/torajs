@@ -50,7 +50,7 @@ use crate::member_get_own::{
     user_proto_cell, wrapper_proto_props,
 };
 pub(crate) use crate::member_get_own::{canonical_index, strwrapper_length};
-use crate::nanbox::{AnyValue, as_void_ptr, is_cell, is_null, is_undefined};
+use crate::nanbox::{AnyValue, is_null, is_undefined};
 
 unsafe extern "C" {
     /// torajs-dynobj — own-property probe pair ((5, 0) = absent).
@@ -74,69 +74,13 @@ unsafe extern "C" {
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
 }
 
-/// Closure-cell lazy props slot — mirror of torajs-core
-/// `ssa_lower.rs::CLOSURE_PROPS_OFF`.
-pub(crate) const CLOSURE_PROPS_OFF: usize = 24;
-
-/// Wrapper-cell lazy props slot — mirror of
-/// `torajs-wrapper::WRAPPER_PROPS_OFF` (RFC 20260716 刀 5, rotation
-/// 121). Every wrapper cell layout is `[header:8][value:8][props:8]`.
-const WRAPPER_PROPS_OFF: usize = 16;
-
-/// The wrapper's `props_dynobj` pointer, NULL when no expando was
-/// ever written. Same read shape as `closure_props`.
-pub(crate) unsafe fn wrapper_props(ptr: *mut c_void) -> *const c_void {
-    unsafe { *(ptr.cast::<u8>().add(WRAPPER_PROPS_OFF) as *const u64) as *const c_void }
-}
-
-#[inline]
-pub(crate) fn is_wrapper_tag(t: u16) -> bool {
-    t == Tag::NumberWrapper as u16
-        || t == Tag::StringWrapper as u16
-        || t == Tag::BooleanWrapper as u16
-}
-
-pub(crate) const STR_LEN_OFF: usize = 8;
-pub(crate) const STR_DATA_OFF: usize = 16;
-
-/// The closure's `props_dynobj` pointer, NULL when no expando was
-/// ever written.
-pub(crate) unsafe fn closure_props(ptr: *mut c_void) -> *const c_void {
-    unsafe { *(ptr.cast::<u8>().add(CLOSURE_PROPS_OFF) as *const u64) as *const c_void }
-}
-
-/// Universal heap-header flags probe — u16 at +6 (RFC 20260711
-/// chunk C consumers test the `FLAG_FN_*_DELETED` tombstones).
-///
-/// # Safety
-/// `ptr` is a live heap cell.
-pub(crate) unsafe fn header_flag(ptr: *const c_void, bit: u16) -> bool {
-    unsafe { (ptr.cast::<u8>().add(6) as *const u16).read() & bit != 0 }
-}
-
-/// Set a heap-header flag bit (read-or-write, u16 at +6).
-///
-/// # Safety
-/// `ptr` is a live heap cell.
-pub(crate) unsafe fn header_flag_set(ptr: *mut c_void, bit: u16) {
-    unsafe {
-        let p = ptr.cast::<u8>().add(6) as *mut u16;
-        p.write(p.read() | bit);
-    }
-}
-
-/// Cell tag of a dispatchable receiver, `None` for everything the
-/// gate answers `(ANY_UNDEF, 0)` for.
-pub(crate) fn recv_cell(recv: AnyValue) -> Option<(*mut c_void, u16)> {
-    if !is_cell(recv) {
-        return None;
-    }
-    let ptr = as_void_ptr(recv);
-    // SAFETY: is_cell guarantees a non-null encoded pointer; the
-    // caller invariant says it points to a live heap object.
-    let tag = unsafe { (ptr.cast::<u8>().add(4) as *const u16).read() };
-    Some((ptr, tag))
-}
+// Cell-layout mirrors + tag/flag probes — split to
+// `member_get_layout.rs` (file-size HARD RULE); the re-export keeps
+// every `crate::member_get::` consumer face unchanged.
+pub(crate) use crate::member_get_layout::{
+    CLOSURE_PROPS_OFF, STR_DATA_OFF, STR_LEN_OFF, closure_props, header_flag, header_flag_set,
+    is_wrapper_tag, recv_cell, wrapper_props,
+};
 
 /// See module doc.
 ///
@@ -314,6 +258,14 @@ pub unsafe extern "C" fn __torajs_any_member_get_tag(recv: AnyValue, key: *const
             if crate::struct_probe::struct_accessor_key(ptr, key) {
                 return crate::struct_probe::ANY_ACCESSOR_TAG;
             }
+            // L3b ⑧ — an own-face miss reads through the class
+            // prototype chain (§10.1.8.1 step 3): the reified method
+            // face, the wired `constructor`, a prototype expando. A
+            // fully missing chain keeps the undefined answer.
+            let (ptag, pval) = crate::struct_error_msg::struct_proto_chain_pair(ptr, key);
+            if ptag != AnySlotTag::Undef as u64 || pval != 0 {
+                return ptag;
+            }
             reify_tag(recv, key)
         },
         _ => unsafe { reify_tag(recv, key) },
@@ -471,6 +423,12 @@ pub unsafe extern "C" fn __torajs_any_member_get_value(recv: AnyValue, key: *con
             // `__torajs_any_accessor_get` to take the struct lane.
             if crate::struct_probe::struct_accessor_key(ptr, key) {
                 return 0;
+            }
+            // L3b ⑧ — class prototype chain (mirror of the tag
+            // channel).
+            let (ptag, pval) = crate::struct_error_msg::struct_proto_chain_pair(ptr, key);
+            if ptag != AnySlotTag::Undef as u64 || pval != 0 {
+                return pval;
             }
             reify_value(recv, key)
         },

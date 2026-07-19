@@ -180,6 +180,24 @@ pub(crate) unsafe fn error_message_proto_pair(ptr: *const c_void) -> (u64, u64) 
 /// # Safety
 /// `ptr` is a live `Tag::Obj` heap pointer.
 pub(crate) unsafe fn error_proto_chain_pair(ptr: *const c_void, key_lit: &[u8]) -> (u64, u64) {
+    let key =
+        unsafe { __torajs_str_alloc(key_lit.as_ptr(), key_lit.len() as i64) } as *const c_void;
+    let out = unsafe { struct_proto_chain_pair(ptr, key) };
+    unsafe { __torajs_str_drop(key as *mut c_void) };
+    out
+}
+
+/// Key-cell twin of [`error_proto_chain_pair`] — the member-get
+/// struct-miss arm walks the class prototype chain with the caller's
+/// live key (L3b ⑧: an instance `ca.m` / `ca.constructor` read
+/// resolves the prototype's own entry — the reified method face, the
+/// wired `constructor` — instead of answering undefined). Same
+/// borrow-shaped `(tag, value)` contract; `(ANY_UNDEF, 0)` on a
+/// fully missing chain.
+///
+/// # Safety
+/// `ptr` is a live `Tag::Obj` heap pointer; `key` is a live Str cell.
+pub(crate) unsafe fn struct_proto_chain_pair(ptr: *const c_void, key: *const c_void) -> (u64, u64) {
     let class_tag = unsafe { ptr.cast::<u8>().add(OBJ_CLASS_TAG_OFF).cast::<u32>().read() };
     let root = unsafe { __torajs_anyv_proto_get(class_tag as i64) };
     // Non-cell (null / unregistered) → no chain. Cell test mirrors
@@ -187,8 +205,6 @@ pub(crate) unsafe fn error_proto_chain_pair(ptr: *const c_void, key_lit: &[u8]) 
     if root & 0xFFFF_0000_0000_0000 != 0 || root & 0x2 != 0 || root == 0 {
         return (AnySlotTag::Undef as u64, 0);
     }
-    let key =
-        unsafe { __torajs_str_alloc(key_lit.as_ptr(), key_lit.len() as i64) } as *const c_void;
     let mut cur = root as *const c_void;
     let mut out = (AnySlotTag::Undef as u64, 0);
     loop {
@@ -203,7 +219,6 @@ pub(crate) unsafe fn error_proto_chain_pair(ptr: *const c_void, key_lit: &[u8]) 
             None => break,
         }
     }
-    unsafe { __torajs_str_drop(key as *mut c_void) };
     // Release proto_get's +1 — the pair stays a borrow of the value
     // the (still-registered, immortal-for-program-life) prototype
     // object owns.
