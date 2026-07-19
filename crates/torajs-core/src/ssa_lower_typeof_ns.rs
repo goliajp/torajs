@@ -20,21 +20,24 @@ pub(crate) fn try_member_typeof(ctx: &LowerCtx<'_>, expr: ExprId) -> Option<&'st
     // (`{ toString: undefined }` answered "function", and so did
     // `{ toString: 42 }`).
     //
-    // Four of them now read back as real callables at runtime, so an
+    // Six of them now read back as real callables at runtime, so an
     // Any receiver is better served by the runtime answer and skips
-    // the shortcut. The condition is deliberately narrow: only a
-    // statically-Any receiver. A typed receiver has no runtime
-    // member-read path at all — a struct instance lowers `.name` as
-    // a field access, so skipping the shortcut there turns
+    // the shortcut (toString / toLocaleString joined rotation 154 —
+    // the closure-receiver value read the old note called
+    // unsupported reads back fine, and the static shortcut made
+    // `typeof { toString: undefined }.toString` answer "function"
+    // where bun answers "undefined" and `{ toString: 42 }` "number").
+    // The condition is deliberately narrow: only a statically-Any
+    // receiver. A typed receiver has no runtime member-read path at
+    // all — a struct instance lowers `.name` as a field access, so
+    // skipping the shortcut there turns
     // `typeof inst.hasOwnProperty` into a hard "struct has no field
     // hasOwnProperty" lowering error (conformance
     // m2d-001-class-instance-prototype).
     //
-    // Three names stay on every receiver, both gaps in plan-state
-    // L3b: constructor has no value-read support at all, and
-    // toString / toLocaleString read back on plain objects but not
-    // on closures — where the call itself throws, so declaring them
-    // readable would hand out a value that cannot be called.
+    // `constructor` stays on every receiver: it has no value-read
+    // support at all (plan-state L3b), so the runtime read would
+    // answer undefined where "function" is right.
     if let Expr::Member {
         obj,
         name: member_name,
@@ -42,7 +45,12 @@ pub(crate) fn try_member_typeof(ctx: &LowerCtx<'_>, expr: ExprId) -> Option<&'st
     {
         let runtime_answers = matches!(
             member_name.as_str(),
-            "hasOwnProperty" | "propertyIsEnumerable" | "isPrototypeOf" | "valueOf"
+            "hasOwnProperty"
+                | "propertyIsEnumerable"
+                | "isPrototypeOf"
+                | "valueOf"
+                | "toString"
+                | "toLocaleString"
         ) && matches!(ctx.expr_types.get(obj), Some(crate::check::Type::Any));
         if !runtime_answers
             && matches!(
