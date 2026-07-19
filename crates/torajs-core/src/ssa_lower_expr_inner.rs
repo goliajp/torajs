@@ -33,17 +33,21 @@ pub(crate) fn lower(ctx: &mut LowerCtx, eid: ExprId) -> Operand {
          * binding still drops normally on scope exit, and that
          * drop fires `weakref_target_dying` to clear any live
          * WeakRefs pointing at it. */
-        Expr::New { class_name, args }
-            if matches!(class_name.as_str(), "WeakRef" | "WeakMap" | "WeakSet") =>
-        {
+        Expr::New {
+            class_name, args, ..
+        } if matches!(class_name.as_str(), "WeakRef" | "WeakMap" | "WeakSet") => {
             return crate::ssa_lower_new::try_lower(ctx, class_name, args)
                 .expect("ssa-lower: weakref/weakmap/weakset sibling miss");
         }
-        Expr::New { class_name, args } if class_name == "Map" => {
+        Expr::New {
+            class_name, args, ..
+        } if class_name == "Map" => {
             return crate::ssa_lower_new::try_lower(ctx, class_name, args)
                 .expect("ssa-lower: Map sibling miss");
         }
-        Expr::New { class_name, args } if class_name == "Set" => {
+        Expr::New {
+            class_name, args, ..
+        } if class_name == "Set" => {
             return crate::ssa_lower_new::try_lower(ctx, class_name, args)
                 .expect("ssa-lower: Set sibling miss");
         }
@@ -55,22 +59,30 @@ pub(crate) fn lower(ctx: &mut LowerCtx, eid: ExprId) -> Operand {
         // Number; we lower it, coerce to i64 (the runtime helper
         // expects u64-shaped i64), and intern the Array<Any>
         // layout to type the call's return.
-        Expr::New { class_name, args } if class_name == "Array" && args.len() == 1 => {
+        Expr::New {
+            class_name, args, ..
+        } if class_name == "Array" && args.len() == 1 => {
             return crate::ssa_lower_new::try_lower(ctx, class_name, args)
                 .expect("ssa-lower: Array sibling miss");
         }
         // RFC 20260716 刀 2 — `new Number(x)` / `new String(x)` wrapper
         // substrate. 0-arg forms are pre-desugared to primitive
         // literals, so any Expr::New reaching these arms has ≥1 arg.
-        Expr::New { class_name, args } if class_name == "Number" && !args.is_empty() => {
+        Expr::New {
+            class_name, args, ..
+        } if class_name == "Number" && !args.is_empty() => {
             return crate::ssa_lower_new::try_lower(ctx, class_name, args)
                 .expect("ssa-lower: Number wrapper sibling miss");
         }
-        Expr::New { class_name, args } if class_name == "String" && !args.is_empty() => {
+        Expr::New {
+            class_name, args, ..
+        } if class_name == "String" && !args.is_empty() => {
             return crate::ssa_lower_new::try_lower(ctx, class_name, args)
                 .expect("ssa-lower: String wrapper sibling miss");
         }
-        Expr::New { class_name, args } if class_name == "Boolean" && !args.is_empty() => {
+        Expr::New {
+            class_name, args, ..
+        } if class_name == "Boolean" && !args.is_empty() => {
             return crate::ssa_lower_new::try_lower(ctx, class_name, args)
                 .expect("ssa-lower: Boolean wrapper sibling miss");
         }
@@ -135,7 +147,9 @@ pub(crate) fn lower(ctx: &mut LowerCtx, eid: ExprId) -> Operand {
         // the literal arm uses. 1-arg form synthesises an interned
         // empty flag string. check.rs already validated 1 ≤ args ≤ 2
         // and arg types.
-        Expr::New { class_name, args } if class_name == "RegExp" => {
+        Expr::New {
+            class_name, args, ..
+        } if class_name == "RegExp" => {
             return crate::ssa_lower_new::try_lower(ctx, class_name, args)
                 .expect("ssa-lower: RegExp sibling miss");
         }

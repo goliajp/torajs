@@ -222,15 +222,21 @@ pub(crate) fn deep_clone_expr(
                 index: deep_clone_expr(ast, map, i),
             }
         }
-        Expr::New { class_name, args } => {
+        Expr::New {
+            class_name,
+            args,
+            type_args,
+        } => {
             let class_name = class_name.clone();
             let args = args.clone();
+            let type_args = type_args.clone();
             Expr::New {
                 class_name,
                 args: args
                     .into_iter()
                     .map(|a| deep_clone_expr(ast, map, a))
                     .collect(),
+                type_args,
             }
         }
         Expr::Super { args } => {

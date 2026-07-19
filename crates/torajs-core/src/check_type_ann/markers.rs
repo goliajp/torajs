@@ -19,7 +19,7 @@ use crate::check::{GenericAliasMap, Type};
 /// and the depth-0 `|` between the type args went unseen (chunk-794
 /// splitter-family mirror; `-` only precedes `>` in the
 /// return-arrow spelling).
-pub(super) fn split_top_pipe(s: &str, angle: bool) -> Vec<&str> {
+pub(crate) fn split_top_pipe(s: &str, angle: bool) -> Vec<&str> {
     let mut parts: Vec<&str> = Vec::new();
     let mut depth: i32 = 0;
     let mut last = 0usize;

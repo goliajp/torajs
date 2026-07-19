@@ -145,6 +145,7 @@ pub(super) fn assemble_generator_class_and_factory(
     let new_expr = ast.add_expr(Expr::New {
         class_name: class_name.clone(),
         args: factory_args,
+        type_args: vec![],
     });
     let factory_body = vec![Stmt::Return(Some(new_expr))];
     // Reflection link (RFC 20260713 blade 5): `g.prototype` /

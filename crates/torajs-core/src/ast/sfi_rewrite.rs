@@ -306,7 +306,11 @@ fn sfi_rewrite_expr(
             let r = sfi_rewrite_expr(ast, rhs, x_name, i_name, v_name);
             ast.add_expr(Expr::Nullish { lhs: l, rhs: r })
         }
-        Expr::New { class_name, args } => {
+        Expr::New {
+            class_name,
+            args,
+            type_args,
+        } => {
             let new_args: Vec<ExprId> = args
                 .iter()
                 .map(|a| sfi_rewrite_expr(ast, *a, x_name, i_name, v_name))
@@ -314,6 +318,7 @@ fn sfi_rewrite_expr(
             ast.add_expr(Expr::New {
                 class_name,
                 args: new_args,
+                type_args,
             })
         }
         // Leaves and shapes that don't carry X-referencing children

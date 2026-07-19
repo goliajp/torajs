@@ -263,67 +263,77 @@ impl<'a> Parser<'a> {
         // ssa_lower can share parsers with the existing fn-type reader.
         if matches!(self.peek(), Token::Lt) {
             self.pos += 1;
-            let mut args: Vec<String> = Vec::new();
-            if !matches!(self.peek(), Token::Gt) {
-                loop {
-                    args.push(self.parse_type_ann()?);
-                    // S155 — ShrShr/ShrShrShr at the close position
-                    // signals a nested-generic `>>` / `>>>`; treat it
-                    // as a close marker so the outer close arm can peel
-                    // the next virtual `>`.
-                    match self.peek() {
-                        Token::Comma => self.pos += 1,
-                        Token::Gt => break,
-                        _ if matches!(
-                            &self.tokens[self.pos].token,
-                            Token::ShrShr | Token::ShrShrShr
-                        ) =>
-                        {
-                            break;
-                        }
-                        t => {
-                            return Err(format!(
-                                "expected `,` or `>` in type args, got {t:?} at {}",
-                                self.at()
-                            ));
-                        }
-                    }
-                }
-            }
-            // S155 — close consumes one virtual `>`. If we're inside
-            // `Foo<Bar<X>>` the real token is ShrShr; peel it once and
-            // advance pos when fully consumed (peel == 2 for ShrShr,
-            // peel == 3 for ShrShrShr).
-            match &self.tokens[self.pos].token {
-                Token::Gt => {
-                    self.pos += 1;
-                    self.type_close_peel = 0;
-                }
-                Token::ShrShr => {
-                    self.type_close_peel += 1;
-                    if self.type_close_peel >= 2 {
-                        self.pos += 1;
-                        self.type_close_peel = 0;
-                    }
-                }
-                Token::ShrShrShr => {
-                    self.type_close_peel += 1;
-                    if self.type_close_peel >= 3 {
-                        self.pos += 1;
-                        self.type_close_peel = 0;
-                    }
-                }
-                _ => {
-                    return Err(format!(
-                        "expected `>` to close type args, got {:?} at {}",
-                        self.peek(),
-                        self.at()
-                    ));
-                }
-            }
+            let args = self.parse_type_args_list()?;
             name = format!("{name}<{}>", args.join("|"));
         }
         self.read_type_postfix(name)
+    }
+
+    /// Comma-separated type-arg list after an already-consumed `<`,
+    /// consuming through the closing `>` (with S155 ShrShr/ShrShrShr
+    /// peeling for nested generics). Shared between the generic
+    /// type-ann arm above and `parse_primary_new`'s explicit
+    /// instantiation (`new Map<string, number>()`).
+    pub(super) fn parse_type_args_list(&mut self) -> Result<Vec<String>, String> {
+        let mut args: Vec<String> = Vec::new();
+        if !matches!(self.peek(), Token::Gt) {
+            loop {
+                args.push(self.parse_type_ann()?);
+                // S155 — ShrShr/ShrShrShr at the close position
+                // signals a nested-generic `>>` / `>>>`; treat it
+                // as a close marker so the outer close arm can peel
+                // the next virtual `>`.
+                match self.peek() {
+                    Token::Comma => self.pos += 1,
+                    Token::Gt => break,
+                    _ if matches!(
+                        &self.tokens[self.pos].token,
+                        Token::ShrShr | Token::ShrShrShr
+                    ) =>
+                    {
+                        break;
+                    }
+                    t => {
+                        return Err(format!(
+                            "expected `,` or `>` in type args, got {t:?} at {}",
+                            self.at()
+                        ));
+                    }
+                }
+            }
+        }
+        // S155 — close consumes one virtual `>`. If we're inside
+        // `Foo<Bar<X>>` the real token is ShrShr; peel it once and
+        // advance pos when fully consumed (peel == 2 for ShrShr,
+        // peel == 3 for ShrShrShr).
+        match &self.tokens[self.pos].token {
+            Token::Gt => {
+                self.pos += 1;
+                self.type_close_peel = 0;
+            }
+            Token::ShrShr => {
+                self.type_close_peel += 1;
+                if self.type_close_peel >= 2 {
+                    self.pos += 1;
+                    self.type_close_peel = 0;
+                }
+            }
+            Token::ShrShrShr => {
+                self.type_close_peel += 1;
+                if self.type_close_peel >= 3 {
+                    self.pos += 1;
+                    self.type_close_peel = 0;
+                }
+            }
+            _ => {
+                return Err(format!(
+                    "expected `>` to close type args, got {:?} at {}",
+                    self.peek(),
+                    self.at()
+                ));
+            }
+        }
+        Ok(args)
     }
 
     /// Shared postfix readers on a just-parsed type: `[]` array

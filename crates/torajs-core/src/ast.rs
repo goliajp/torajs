@@ -44,6 +44,7 @@ mod free_vars;
 mod gen_fn_expr;
 mod hoist_gen_fn_exprs;
 mod implicit_generics_infer;
+mod infer_closure_lets;
 mod infer_closure_params;
 mod infer_closure_typevars;
 mod inject_builtin_classes;

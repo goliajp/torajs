@@ -18,103 +18,10 @@
 //!   `__fn(P|..)->R`-annotated param at a closure arg position
 //!   projects its spellings onto the lifted closure's params/ret.
 
+use super::infer_closure_lets::{collect_let_anns, collect_let_init_anns};
 use super::infer_closure_typevars::{mentions_any_word, resolve_call_site_typevars};
 use super::{Ast, Expr, ExprId, Stmt};
 use crate::num_width::{fn_type_canon, split_fn_type};
-
-/// Walk `body` collecting `let name = <init>` shapes where the init is a
-/// literal whose type can be inferred (number / string / boolean / array
-/// of any of those). Populates `out` with `name → "T[]" / "T"` strings,
-/// matching the format used by `infer_anonymous_closure_params`'s
-/// `infer_lit_ann` helper. Used so unannotated top-level lets still feed
-/// the closure-param inference pass.
-fn collect_let_init_anns(
-    ast: &Ast,
-    body: &[Stmt],
-    out: &mut std::collections::HashMap<String, String>,
-) {
-    fn ann_of(ast: &Ast, eid: ExprId) -> Option<String> {
-        match ast.get_expr(eid) {
-            Expr::Number(_) => Some("number".into()),
-            Expr::String(_) => Some("string".into()),
-            Expr::Bool(_) => Some("boolean".into()),
-            Expr::Array(els) if !els.is_empty() => {
-                ann_of(ast, els[0]).map(|inner| format!("{inner}[]"))
-            }
-            _ => None,
-        }
-    }
-    for s in body {
-        match s {
-            Stmt::LetDecl {
-                name,
-                type_ann: None,
-                init,
-                ..
-            } => {
-                if let Some(ann) = ann_of(ast, *init) {
-                    out.insert(name.clone(), ann);
-                }
-            }
-            Stmt::Block(stmts) | Stmt::Multi(stmts) => collect_let_init_anns(ast, stmts, out),
-            Stmt::If {
-                then_branch,
-                else_branch,
-                ..
-            } => {
-                collect_let_init_anns(ast, std::slice::from_ref(then_branch.as_ref()), out);
-                if let Some(eb) = else_branch {
-                    collect_let_init_anns(ast, std::slice::from_ref(eb.as_ref()), out);
-                }
-            }
-            Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
-                collect_let_init_anns(ast, std::slice::from_ref(body.as_ref()), out);
-            }
-            Stmt::For { init, body, .. } => {
-                if let Some(i) = init {
-                    collect_let_init_anns(ast, std::slice::from_ref(i.as_ref()), out);
-                }
-                collect_let_init_anns(ast, std::slice::from_ref(body.as_ref()), out);
-            }
-            _ => {}
-        }
-    }
-}
-
-fn collect_let_anns(body: &[Stmt], out: &mut std::collections::HashMap<String, String>) {
-    for s in body {
-        match s {
-            Stmt::LetDecl {
-                name,
-                type_ann: Some(ann),
-                ..
-            } => {
-                out.insert(name.clone(), ann.clone());
-            }
-            Stmt::Block(stmts) | Stmt::Multi(stmts) => collect_let_anns(stmts, out),
-            Stmt::If {
-                then_branch,
-                else_branch,
-                ..
-            } => {
-                collect_let_anns(std::slice::from_ref(then_branch.as_ref()), out);
-                if let Some(eb) = else_branch {
-                    collect_let_anns(std::slice::from_ref(eb.as_ref()), out);
-                }
-            }
-            Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
-                collect_let_anns(std::slice::from_ref(body.as_ref()), out);
-            }
-            Stmt::For { init, body, .. } => {
-                if let Some(i) = init {
-                    collect_let_anns(std::slice::from_ref(i.as_ref()), out);
-                }
-                collect_let_anns(std::slice::from_ref(body.as_ref()), out);
-            }
-            _ => {}
-        }
-    }
-}
 
 /* Resolve a literal expression's type ann string.
  * - `Array(els)`      → infer `T[]` from els[0]'s shape (literal
@@ -321,6 +228,15 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
         };
         let obj_ann = resolve_receiver_ann(ast, obj, &all_anns);
         let Some(ann) = obj_ann else { continue };
+        // Map<K, V> / Set<T> receivers — forEach is the only
+        // callback-bearing method (§23.1.3.5 / §24.2.3.6); cb
+        // positional types are (V, K, Map) / (T, T, Set).
+        if let Some(expected) = mapset_foreach_expected(&ann, &name) {
+            for (_arg_idx, fn_name) in &closure_args {
+                updates.insert(fn_name.clone(), expected.clone());
+            }
+            continue;
+        }
         // Only handle T[] receivers for the known Array methods.
         let Some(elem_ann) = ann.strip_suffix("[]") else {
             continue;
@@ -354,6 +270,37 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
     }
 
     apply_closure_ann_updates(ast, &updates);
+}
+
+/// Callback param/return annotations for `forEach` on a `Map<K|V>` /
+/// `Set<T>` receiver ann (the flat generic spelling). None for any
+/// other method or receiver shape — Map/Set carry no other
+/// callback-bearing methods.
+fn mapset_foreach_expected(ann: &str, method: &str) -> Option<(Vec<String>, String)> {
+    if method != "forEach" {
+        return None;
+    }
+    if let Some(inner) = ann.strip_prefix("Map<").and_then(|r| r.strip_suffix('>')) {
+        let parts = crate::check_type_ann::split_top_pipe(inner, true);
+        let [k, v] = parts.as_slice() else {
+            return None;
+        };
+        return Some((
+            vec![v.to_string(), k.to_string(), ann.to_string()],
+            "void".into(),
+        ));
+    }
+    if let Some(inner) = ann.strip_prefix("Set<").and_then(|r| r.strip_suffix('>')) {
+        let parts = crate::check_type_ann::split_top_pipe(inner, true);
+        let [t] = parts.as_slice() else {
+            return None;
+        };
+        return Some((
+            vec![t.to_string(), t.to_string(), ann.to_string()],
+            "void".into(),
+        ));
+    }
+    None
 }
 
 /// Per-name → type-annotation table feeding receiver resolution.

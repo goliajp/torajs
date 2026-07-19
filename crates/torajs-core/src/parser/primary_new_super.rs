@@ -177,29 +177,21 @@ impl<'a> Parser<'a> {
                 ));
             }
         };
-        // V3-18 wedge — accept-and-skip TS type args on built-in
-        // generics: `new Set<number>()`. Subset doesn't mono-
-        // instantiate built-ins by type-arg yet, so we just
-        // discard the `<...>` portion. Depth-aware match in case
-        // of nested generics like `Map<string, Array<number>>`.
+        // Explicit TS instantiation on built-in generics:
+        // `new Set<number>()` / `new Map<string, number>()`. Parsed
+        // into flat ann spellings and carried on `Expr::New.type_args`
+        // (callback-param seeding reads the container's element types
+        // from here); no mono-instantiation happens downstream yet.
+        // The `type_ann_depth` guard keeps the spellings out of
+        // `type_ann_spans` — fn_source_erase never spliced the old
+        // skip form either, so toString output stays unchanged.
+        let mut type_args: Vec<String> = Vec::new();
         if matches!(self.peek(), Token::Lt) {
             self.pos += 1;
-            let mut depth = 1;
-            while depth > 0 {
-                match self.peek() {
-                    Token::Lt => depth += 1,
-                    Token::Gt => depth -= 1,
-                    Token::ShrShr => depth -= 2,
-                    Token::Eof => {
-                        return Err(format!(
-                            "unterminated type args after `new {class_name}` at {}",
-                            self.at()
-                        ));
-                    }
-                    _ => {}
-                }
-                self.pos += 1;
-            }
+            self.type_ann_depth += 1;
+            let parsed = self.parse_type_args_list();
+            self.type_ann_depth -= 1;
+            type_args = parsed?;
         }
         // V3-18 m1.h.22 — JS spec §13.3.5 NewExpression
         // permits `new Foo` (no parens), equivalent to
@@ -229,6 +221,10 @@ impl<'a> Parser<'a> {
             }
         }
         let args = self.fold_static_spread(args);
-        Ok(self.ast.add_expr(Expr::New { class_name, args }))
+        Ok(self.ast.add_expr(Expr::New {
+            class_name,
+            args,
+            type_args,
+        }))
     }
 }

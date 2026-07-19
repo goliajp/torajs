@@ -79,6 +79,7 @@ fn rewrite_array_call(ast: &mut Ast) {
             ast.exprs[i] = Expr::New {
                 class_name: "Array".into(),
                 args,
+                type_args: vec![],
             };
         }
     }
@@ -114,7 +115,11 @@ fn rewrite_error_call(ast: &mut Ast) {
             _ => None,
         };
         if let Some((class_name, args)) = error_call {
-            ast.exprs[i] = Expr::New { class_name, args };
+            ast.exprs[i] = Expr::New {
+                class_name,
+                args,
+                type_args: vec![],
+            };
         }
     }
 }
@@ -123,7 +128,9 @@ fn rewrite_array_args(ast: &mut Ast) {
     let n = ast.exprs.len();
     for i in 0..n {
         let array_args = match &ast.exprs[i] {
-            Expr::New { class_name, args } if class_name == "Array" => {
+            Expr::New {
+                class_name, args, ..
+            } if class_name == "Array" => {
                 if args.is_empty() || args.len() >= 2 {
                     Some(args.clone())
                 } else {
@@ -143,7 +150,7 @@ fn rewrite_zero_arg_object(ast: &mut Ast) {
     for i in 0..n {
         let zero_arg_object = matches!(
             &ast.exprs[i],
-            Expr::New { class_name, args }
+            Expr::New { class_name, args, .. }
                 if class_name == "Object" && args.is_empty()
         );
         if zero_arg_object {
@@ -156,7 +163,9 @@ fn rewrite_regexp_new(ast: &mut Ast) {
     let n = ast.exprs.len();
     for i in 0..n {
         let regex_plan: Option<(String, String)> = match &ast.exprs[i] {
-            Expr::New { class_name, args } if class_name == "RegExp" => match args.len() {
+            Expr::New {
+                class_name, args, ..
+            } if class_name == "RegExp" => match args.len() {
                 0 => Some(("(?:)".to_string(), String::new())),
                 1 => {
                     if let Expr::String(s) = &ast.exprs[args[0].0 as usize] {
@@ -208,7 +217,9 @@ fn rewrite_zero_arg_wrapper_new(ast: &mut Ast) {
     let n = ast.exprs.len();
     for i in 0..n {
         let (is_number_zero, is_string_zero, is_boolean_zero) = match &ast.exprs[i] {
-            Expr::New { class_name, args } if args.is_empty() => (
+            Expr::New {
+                class_name, args, ..
+            } if args.is_empty() => (
                 class_name == "Number",
                 class_name == "String",
                 class_name == "Boolean",
@@ -238,7 +249,9 @@ fn rewrite_date_new(ast: &mut Ast) {
     let n = ast.exprs.len();
     for i in 0..n {
         let plan = match &ast.exprs[i] {
-            Expr::New { class_name, args } if class_name == "Date" => match args.len() {
+            Expr::New {
+                class_name, args, ..
+            } if class_name == "Date" => match args.len() {
                 0 => Some(("__torajs_date_now".to_string(), false, args.clone())),
                 1 => {
                     let is_str = matches!(ast.exprs[args[0].0 as usize], Expr::String(_));

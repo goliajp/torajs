@@ -137,7 +137,7 @@ pub(crate) fn default_init_for_field(
 
 pub(crate) fn default_init_for_type(ann: &str) -> Expr {
     #[rustfmt::skip]
-    fn ctor(name: &str) -> Expr { Expr::New { class_name: name.into(), args: vec![] } }
+    fn ctor(name: &str) -> Expr { Expr::New { class_name: name.into(), args: vec![], type_args: vec![] } }
     match ann {
         "number" => Expr::Number(0.0),
         "string" => Expr::String(String::new()),

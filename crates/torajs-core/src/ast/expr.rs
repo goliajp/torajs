@@ -162,9 +162,15 @@ pub enum Expr {
     NewTarget,
     /// M5.1 — `new ClassName(args)`. Rewritten by `desugar_classes` into
     /// a Call to the synthesized `__new_ClassName` factory FnDecl.
+    /// `type_args` carries the explicit instantiation spellings of
+    /// `new Map<string, number>()` (flat ann strings, same format as
+    /// `parse_type_ann`); empty when the source wrote none. Consumed by
+    /// `infer_anonymous_closure_params` to give container receivers an
+    /// element type for callback-param seeding.
     New {
         class_name: String,
         args: Vec<ExprId>,
+        type_args: Vec<String>,
     },
     /// M5.2 — `super(args)` inside a subclass constructor. Rewritten by
     /// `desugar_classes` into `__cm_<Parent>__ctor(__this, args)` once

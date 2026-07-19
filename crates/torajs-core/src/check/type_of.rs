@@ -104,7 +104,9 @@ impl Checker {
             // M5.1 — desugar_classes flattens these out before check runs.
             // Reaching here is an internal compiler error, not a user error.
             Expr::This => panic!("internal: bare `this` reached check.rs (desugar didn't run?)"),
-            Expr::New { class_name, args } => {
+            Expr::New {
+                class_name, args, ..
+            } => {
                 // 7 built-in classes (WeakRef / WeakMap / WeakSet /
                 // Map / Set / Array / RegExp) with their constructor
                 // arg shape rules — user classes are pre-rewritten

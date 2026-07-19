@@ -39,6 +39,7 @@ impl<'a> Parser<'a> {
         let err = self.ast.add_expr(Expr::New {
             class_name: "TypeError".to_string(),
             args: vec![msg],
+            type_args: vec![],
         });
         Stmt::If {
             cond,

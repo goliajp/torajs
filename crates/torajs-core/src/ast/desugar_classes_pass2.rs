@@ -54,7 +54,9 @@ pub(super) fn rewrite_expr_arena_pass2(
             // Instead ssa_lower handles Expr::NewTarget directly:
             // if `__new_target` is a local (ctor body), load it;
             // otherwise emit ANY_UNDEF box.
-            Expr::New { class_name, args } => {
+            Expr::New {
+                class_name, args, ..
+            } => {
                 /* Builtin News (Date, ...) are rewritten by
                  * `desugar_builtin_new` BEFORE this pass, so any
                  * remaining Expr::New here is a user class. */

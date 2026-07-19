@@ -86,7 +86,9 @@ pub(crate) fn print_expr(ast: &Ast, id: ExprId, indent: usize) {
         }
         Expr::This => println!("{pad}This"),
         Expr::NewTarget => println!("{pad}NewTarget"),
-        Expr::New { class_name, args } => {
+        Expr::New {
+            class_name, args, ..
+        } => {
             println!("{pad}New {class_name}");
             for a in args {
                 print_expr(ast, *a, indent + 1);

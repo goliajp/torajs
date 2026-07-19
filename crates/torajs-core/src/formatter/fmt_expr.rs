@@ -116,7 +116,9 @@ impl<'a> Formatter<'a> {
             }
             Expr::Closure { fn_name, captures } => self.fmt_closure_hint(fn_name, captures),
             Expr::This => self.write("this"),
-            Expr::New { class_name, args } => {
+            Expr::New {
+                class_name, args, ..
+            } => {
                 self.write("new ");
                 self.write(class_name);
                 self.write("(");
