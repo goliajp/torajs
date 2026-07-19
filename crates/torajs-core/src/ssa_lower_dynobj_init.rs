@@ -368,13 +368,18 @@ impl<'a> LowerCtx<'a> {
         let Expr::ObjectLit { fields } = self.ast.get_expr(eid) else {
             return false;
         };
-        fields.iter().all(|(_, feid)| match self.ast.get_expr(*feid) {
-            Expr::Closure { fn_name, .. } => {
-                matches!(self.closure_this_ann(fn_name).as_deref(), None | Some("any"))
-            }
-            Expr::ObjectLit { .. } => self.objlit_promotable(*feid),
-            _ => true,
-        })
+        fields
+            .iter()
+            .all(|(_, feid)| match self.ast.get_expr(*feid) {
+                Expr::Closure { fn_name, .. } => {
+                    matches!(
+                        self.closure_this_ann(fn_name).as_deref(),
+                        None | Some("any")
+                    )
+                }
+                Expr::ObjectLit { .. } => self.objlit_promotable(*feid),
+                _ => true,
+            })
     }
 
     /// The `__this` param ann of a lifted closure's FnDecl — `None`
