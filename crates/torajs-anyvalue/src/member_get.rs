@@ -268,6 +268,18 @@ pub unsafe extern "C" fn __torajs_any_member_get_tag(recv: AnyValue, key: *const
             }
             reify_tag(recv, key)
         },
+        // §20.4.3.2 get Symbol.prototype.description — the desc Str
+        // (borrow-shaped like every probe answer; the stake lives on
+        // the symbol cell), undefined for `Symbol()`.
+        Some((ptr, t)) if t == Tag::Symbol as u16 => unsafe {
+            if crate::prop_has::key_is(key, b"description") {
+                if crate::member_get_layout::symbol_desc(ptr).is_null() {
+                    return AnySlotTag::Undef as u64;
+                }
+                return AnySlotTag::Heap as u64;
+            }
+            reify_tag(recv, key)
+        },
         _ => unsafe { reify_tag(recv, key) },
     }
 }
@@ -434,6 +446,15 @@ pub unsafe extern "C" fn __torajs_any_member_get_value(recv: AnyValue, key: *con
             let (ptag, pval) = crate::struct_error_msg::struct_proto_chain_pair(ptr, key);
             if ptag != AnySlotTag::Undef as u64 || pval != 0 {
                 return pval;
+            }
+            reify_value(recv, key)
+        },
+        // §20.4.3.2 description — value channel (mirror of the tag
+        // twin; NULL desc pairs with the Undef tag as absent-shaped
+        // undefined).
+        Some((ptr, t)) if t == Tag::Symbol as u16 => unsafe {
+            if crate::prop_has::key_is(key, b"description") {
+                return crate::member_get_layout::symbol_desc(ptr) as u64;
             }
             reify_value(recv, key)
         },

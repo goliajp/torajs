@@ -456,6 +456,14 @@ pub(crate) fn builtin_method_supported(recv: AnyValue, mid: i64) -> bool {
         // (`typeof o.__defineGetter__`, `f.call(o, …)`) went through
         // here and said undefined. Their remaining methods resolve by
         // name probe, not by mid.
+        // §20.4.3 Symbol.prototype — toString (the
+        // SymbolDescriptiveString arm) plus the inherited
+        // Object.prototype toLocaleString; valueOf answered by the
+        // universal arm above. Reading either as a value hands out
+        // the interned cell so `typeof s.toString` says "function".
+        t if t == Tag::Symbol as u16 => {
+            mid == ANY_METHOD_TO_STRING || mid == torajs_rc::ANY_METHOD_TO_LOCALE_STRING
+        }
         t if t == Tag::DynObj as u16 || t == Tag::Obj as u16 => {
             // toString sits beside toLocaleString: both are inherited
             // from Object.prototype and the dispatcher has always

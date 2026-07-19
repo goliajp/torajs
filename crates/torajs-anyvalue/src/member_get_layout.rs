@@ -36,6 +36,17 @@ pub(crate) fn is_wrapper_tag(t: u16) -> bool {
 pub(crate) const STR_LEN_OFF: usize = 8;
 pub(crate) const STR_DATA_OFF: usize = 16;
 
+/// Symbol-cell description Str slot — mirror of
+/// `torajs-str::symbol::SYMBOL_DESC_OFF`.
+const SYMBOL_DESC_OFF: usize = 8;
+
+/// The symbol's description Str pointer, NULL for `Symbol()`.
+/// Borrow-shaped like every member-get probe answer — the desc's
+/// stake lives on the symbol cell.
+pub(crate) unsafe fn symbol_desc(ptr: *const c_void) -> *mut c_void {
+    unsafe { *(ptr.cast::<u8>().add(SYMBOL_DESC_OFF) as *const *mut c_void) }
+}
+
 /// The closure's `props_dynobj` pointer, NULL when no expando was
 /// ever written.
 pub(crate) unsafe fn closure_props(ptr: *mut c_void) -> *const c_void {

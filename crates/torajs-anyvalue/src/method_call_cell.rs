@@ -11,8 +11,16 @@ use torajs_rc::{
     __torajs_rc_inc, ANY_METHOD_TO_LOCALE_STRING, ANY_METHOD_TO_STRING, ANY_METHOD_VALUE_OF, Tag,
 };
 
+use core::ffi::c_void;
+
 use crate::method_call::any_method_call_inner;
 use crate::nanbox::{AnyValue, as_void_ptr};
+
+unsafe extern "C" {
+    /// torajs-str — §20.4.3.3 SymbolDescriptiveString (owned Str
+    /// out, rc=1).
+    fn __torajs_symbol_to_str(p: *const c_void) -> *mut u8;
+}
 
 /// Dispatch a cell receiver by its heap tag. `None` = no arm
 /// matched; the caller raises the no-such-method TypeError.
@@ -142,6 +150,20 @@ pub(crate) unsafe fn cell_method(
     }
     if tag == Tag::RegExp as u16 {
         return Some(unsafe { crate::method_call_regexp::regexp_method(ptr, mid, argv, argc) });
+    }
+    // §20.4.3.3 Symbol.prototype.toString — the
+    // SymbolDescriptiveString ("Symbol(<desc>)"); toLocaleString is
+    // the inherited §20.1.4.6 invoke-this.toString. valueOf
+    // (§20.4.3.4 thisSymbolValue) already answered identity through
+    // the cell-wide arm above. Every other name is a miss.
+    if tag == Tag::Symbol as u16 {
+        if mid == ANY_METHOD_TO_STRING || mid == ANY_METHOD_TO_LOCALE_STRING {
+            let s = unsafe { __torajs_symbol_to_str(ptr) };
+            return Some(unsafe {
+                crate::nanbox_encode::__torajs_anyv_box_pointer(s as *mut c_void)
+            });
+        }
+        return Some(unsafe { crate::method_call::method_no_such() });
     }
     // chunk 710 — Function.prototype.call / apply on closure
     // values (expando shadowing included).
