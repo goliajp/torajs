@@ -267,7 +267,9 @@ pub(in crate::ast) fn emit_class_instance_methods(
             return_type,
             body,
             is_generator: false,
-            span: crate::lexer::Span { start: 0, end: 0 },
+            // B3a — carry the user-written MethodDefinition span so
+            // the fn-source registry can answer `c.m.toString()`.
+            span: m.span,
         });
     }
 }
@@ -315,7 +317,9 @@ pub(in crate::ast) fn emit_class_static_methods(
             return_type,
             body,
             is_generator: false,
-            span: crate::lexer::Span { start: 0, end: 0 },
+            // B3a — carry the user-written MethodDefinition span
+            // (mirror of the instance emit above).
+            span: sm.span,
         });
     }
 }

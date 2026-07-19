@@ -34,6 +34,12 @@ pub(super) struct ClassMemberModifierPrefix {
     /// `__cm_<C>__<M>` / `__sm_<C>__<M>` fn name into `ast.async_fns`
     /// so `desugar_async` picks it up.
     pub is_async: bool,
+    /// RFC 20260719-fn-tostring-source B3a — byte offset of the
+    /// consumed `async` / `get` / `set` modifier token when one was
+    /// eaten by the prefix parse. The MethodDefinition source span
+    /// starts there (ES §20.2.3.5); `None` means the span starts at
+    /// the member name, which the caller still holds.
+    pub member_span_start: Option<u32>,
 }
 
 /// Tokens that may legally start a class member name. Used by the
@@ -197,12 +203,14 @@ impl<'a> Parser<'a> {
         // lookahead after the keyword. `abstract async` is a TS
         // error ("'async' modifier cannot be used with 'abstract'");
         // call site rejects the same combo for consistency.
+        let mut member_span_start: Option<u32> = None;
         let is_async = if matches!(self.peek(), Token::Async)
             && let Some(t1) = self.tokens.get(self.pos + 1)
             && matches!(t1.token, Token::Ident(_))
             && let Some(t2) = self.tokens.get(self.pos + 2)
             && matches!(t2.token, Token::LParen)
         {
+            member_span_start = self.tokens.get(self.pos).map(|t| t.span.start);
             self.pos += 1;
             true
         } else {
@@ -238,6 +246,9 @@ impl<'a> Parser<'a> {
                     "get" => AccessorKind::Getter,
                     _ => AccessorKind::Setter,
                 });
+                if member_span_start.is_none() {
+                    member_span_start = self.tokens.get(self.pos).map(|t| t.span.start);
+                }
                 self.pos += 1; // consume `get` / `set`
             }
         }
@@ -249,6 +260,7 @@ impl<'a> Parser<'a> {
             is_static,
             accessor_kind,
             is_async,
+            member_span_start,
         })
     }
 
@@ -261,6 +273,7 @@ impl<'a> Parser<'a> {
     /// static_methods vector. Centralised so the god-fn doesn't grow
     /// when new modifier-driven side-effects (async / generator /
     /// override / ...) are added later.
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn finalize_class_method(
         &mut self,
         class_name: &str,
@@ -274,6 +287,7 @@ impl<'a> Parser<'a> {
         is_abstract_method: bool,
         is_static: bool,
         is_async: bool,
+        span: crate::lexer::Span,
         methods: &mut Vec<ClassMethod>,
         static_methods: &mut Vec<ClassMethod>,
     ) -> Result<(), String> {
@@ -305,6 +319,7 @@ impl<'a> Parser<'a> {
             is_abstract: is_abstract_method,
             visibility,
             accessor_kind,
+            span,
         };
         if is_static {
             static_methods.push(m);

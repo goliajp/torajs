@@ -325,6 +325,15 @@ pub struct ClassMethod {
     /// type; ssa_lower emits a Call to `__cm_<Class>__<X>_get` /
     /// `_set` instead of a Load / Store at the member offset.
     pub accessor_kind: Option<AccessorKind>,
+    /// RFC 20260719-fn-tostring-source B3a — source byte span of the
+    /// MethodDefinition per ES §20.2.3.5: starts at the `async` /
+    /// `get` / `set` modifier (when present) or the member name, ends
+    /// after the body `}`. TS-only modifiers (visibility / `static` /
+    /// `readonly` / `abstract`) stay outside the span, matching bun's
+    /// transpiled-JS toString ground truth. `(0, 0)` sentinel on
+    /// synthesized methods (generator protocol methods, builtin
+    /// classes) and abstract methods (no body, never a fn value).
+    pub span: crate::lexer::Span,
 }
 
 /// P8.2 — accessor descriptor kind (ES §10.1.7). Stored on

@@ -31,6 +31,7 @@ impl<'a> Parser<'a> {
         is_static: bool,
         is_async: bool,
         accessor_kind: Option<ast::AccessorKind>,
+        member_span_start: u32,
         fields: &mut Vec<(String, String)>,
         ctor: &mut Option<ClassCtor>,
         methods: &mut Vec<ClassMethod>,
@@ -65,6 +66,10 @@ impl<'a> Parser<'a> {
             self.pos += 1;
             return Ok(true);
         }
+        // RFC 20260719-fn-tostring-source B3a — span end lands after
+        // the body `}` (recorded below once it's consumed). Abstract
+        // methods have no body and never exist as fn values → sentinel.
+        let mut member_span_end: u32 = 0;
         let body = if is_abstract_method {
             // M-OO.6 — abstract method has no body. ASI per
             // ES spec: `;` is optional when the next token
@@ -90,7 +95,10 @@ impl<'a> Parser<'a> {
                 body.push(self.parse_stmt()?);
             }
             match self.peek() {
-                Token::RBrace => self.pos += 1,
+                Token::RBrace => {
+                    member_span_end = self.tokens.get(self.pos).map(|t| t.span.end).unwrap_or(0);
+                    self.pos += 1;
+                }
                 t => {
                     return Err(format!(
                         "expected `}}` to end {member_name} body, got {t:?} at {}",
@@ -161,6 +169,16 @@ impl<'a> Parser<'a> {
             self.ast.explicit_ctor_classes.insert(name.to_string());
             *ctor = Some(ClassCtor { params, body });
         } else {
+            // Abstract methods keep the (0, 0) sentinel (member_span_end
+            // stays 0 and the pair must read as "no source recorded").
+            let span = if member_span_end == 0 {
+                crate::lexer::Span { start: 0, end: 0 }
+            } else {
+                crate::lexer::Span {
+                    start: member_span_start,
+                    end: member_span_end,
+                }
+            };
             self.finalize_class_method(
                 name,
                 member_name,
@@ -173,10 +191,103 @@ impl<'a> Parser<'a> {
                 is_abstract_method,
                 is_static,
                 is_async,
+                span,
                 methods,
                 static_methods,
             )?;
         }
         Ok(false)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::ast::Stmt;
+    use crate::lexer::tokenize;
+    use crate::parser::parse;
+
+    /// Parse `src`, return the recorded span text of the method named
+    /// `method` on the first ClassDecl (searching both instance and
+    /// static member lists).
+    fn class_method_span_text(src: &str, method: &str) -> String {
+        let tokens = tokenize(src).expect("tokenize");
+        let ast = parse(src, &tokens).expect("parse");
+        let span = ast
+            .stmts
+            .iter()
+            .find_map(|s| match s {
+                Stmt::ClassDecl {
+                    methods,
+                    static_methods,
+                    ..
+                } => methods
+                    .iter()
+                    .chain(static_methods.iter())
+                    .find(|m| m.name == method)
+                    .map(|m| m.span),
+                _ => None,
+            })
+            .expect("a ClassDecl with the method");
+        assert!(
+            span.start != 0 || span.end != 0,
+            "ClassMethod span left at the (0,0) sentinel"
+        );
+        src[span.start as usize..span.end as usize].to_string()
+    }
+
+    #[test]
+    fn method_span_covers_name_to_body_brace() {
+        let src = "class C {\n  m(a: number): number {\n    return a;\n  }\n}\nnew C();\n";
+        assert_eq!(
+            class_method_span_text(src, "m"),
+            "m(a: number): number {\n    return a;\n  }"
+        );
+    }
+
+    #[test]
+    fn static_method_span_excludes_static_keyword() {
+        let src = "class C {\n  static s(): number { return 2; }\n}\nC.s();\n";
+        assert_eq!(
+            class_method_span_text(src, "s"),
+            "s(): number { return 2; }"
+        );
+    }
+
+    #[test]
+    fn getter_span_includes_get_keyword() {
+        let src = "class C {\n  get x(): number { return 1; }\n}\nnew C();\n";
+        assert_eq!(
+            class_method_span_text(src, "x"),
+            "get x(): number { return 1; }"
+        );
+    }
+
+    #[test]
+    fn async_method_span_includes_async_keyword() {
+        let src = "class C {\n  async go(): Promise<number> { return 1; }\n}\nnew C();\n";
+        assert_eq!(
+            class_method_span_text(src, "go"),
+            "async go(): Promise<number> { return 1; }"
+        );
+    }
+
+    #[test]
+    fn desugared_cm_fndecl_carries_method_span() {
+        let src = "class C {\n  m(a: number): number {\n    return a;\n  }\n}\nnew C();\n";
+        let tokens = tokenize(src).expect("tokenize");
+        let mut ast = parse(src, &tokens).expect("parse");
+        crate::ast::desugar_classes(&mut ast);
+        let span = ast
+            .stmts
+            .iter()
+            .find_map(|s| match s {
+                Stmt::FnDecl { name, span, .. } if name == "__cm_C__m" => Some(*span),
+                _ => None,
+            })
+            .expect("desugared __cm_C__m FnDecl");
+        assert_eq!(
+            &src[span.start as usize..span.end as usize],
+            "m(a: number): number {\n    return a;\n  }"
+        );
     }
 }

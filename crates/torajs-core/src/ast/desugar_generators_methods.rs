@@ -63,6 +63,7 @@ pub(super) fn build_return_method(ast: &mut Ast, yield_ty: &str, step_ann: &str)
         is_abstract: false,
         visibility: Visibility::Public,
         accessor_kind: None,
+        span: crate::lexer::Span { start: 0, end: 0 },
     }
 }
 
@@ -98,6 +99,7 @@ pub(super) fn build_throw_method(ast: &mut Ast, step_ann: &str) -> ClassMethod {
         is_abstract: false,
         visibility: Visibility::Public,
         accessor_kind: None,
+        span: crate::lexer::Span { start: 0, end: 0 },
     }
 }
 
@@ -148,5 +150,6 @@ pub(super) fn build_next_method(
         is_abstract: false,
         visibility: Visibility::Public,
         accessor_kind: None,
+        span: crate::lexer::Span { start: 0, end: 0 },
     }
 }

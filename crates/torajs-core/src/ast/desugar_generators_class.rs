@@ -121,6 +121,7 @@ pub(super) fn assemble_generator_class_and_factory(
         is_abstract: false,
         visibility: Visibility::Public,
         accessor_kind: None,
+        span: crate::lexer::Span { start: 0, end: 0 },
     };
 
     appended.push(Stmt::ClassDecl {

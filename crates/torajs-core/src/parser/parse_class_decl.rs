@@ -94,7 +94,15 @@ impl<'a> Parser<'a> {
                 is_static,
                 accessor_kind,
                 is_async,
+                member_span_start,
             } = self.parse_class_member_modifier_prefix(&name, is_abstract)?;
+            // RFC 20260719-fn-tostring-source B3a — the MethodDefinition
+            // span starts at the consumed `async`/`get`/`set` modifier
+            // or, failing that, the member-name token now under `pos`
+            // (captured before `parse_class_member_name` consumes it).
+            let member_span_start = member_span_start
+                .or_else(|| self.tokens.get(self.pos).map(|t| t.span.start))
+                .unwrap_or(0);
             // Computed / private / reserved-word member-name parsing
             // — split to `parse_class_decl_member.rs`.
             let (member_name, consumed_computed_name) =
@@ -122,6 +130,7 @@ impl<'a> Parser<'a> {
                         is_static,
                         is_async,
                         accessor_kind,
+                        member_span_start,
                         &mut fields,
                         &mut ctor,
                         &mut methods,

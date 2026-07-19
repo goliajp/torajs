@@ -137,6 +137,7 @@ fn build_error_class(ast: &mut Ast) -> Stmt {
         is_abstract: false,
         visibility: Visibility::Public,
         accessor_kind: None,
+        span: crate::lexer::Span { start: 0, end: 0 },
     };
 
     Stmt::ClassDecl {
