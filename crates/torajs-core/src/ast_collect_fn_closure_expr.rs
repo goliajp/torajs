@@ -38,6 +38,16 @@ impl<'a> FnToClosureCollector<'a> {
                 }
             }
         }
+        // `<key> in <fn>` — the parser rewrites the binary op to a
+        // synthetic `__torajs_in_op(key, obj)` call; a top-FnDecl
+        // Ident on the rhs is a value use (the lowering boxes the
+        // closure cell into the Any kernels), so it wraps.
+        if let Expr::Ident(cname) = self.ast.get_expr(*callee)
+            && cname == "__torajs_in_op"
+            && args.len() == 2
+        {
+            self.try_mark(args[1]);
+        }
         // Chunk 617 — replace-cb argument site (see module
         // doc): the runtime's functional-replaceValue lane
         // needs a closure cell, so a named top fn wraps.

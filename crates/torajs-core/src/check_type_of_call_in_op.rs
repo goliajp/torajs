@@ -53,9 +53,15 @@ pub(crate) fn try_match(
         ),
         Err(e) => return Some(Err(e)),
     };
-    if !matches!(obj_ty, Type::Array(_) | Type::Any | Type::Struct(_)) {
+    // A function value is an Object per §13.10.1 ("call" in f runs
+    // under bun); the lowering boxes the closure cell and takes the
+    // Any kernels' full own + prototype-chain face.
+    if !matches!(
+        obj_ty,
+        Type::Array(_) | Type::Any | Type::Struct(_) | Type::Function(..)
+    ) {
         return Some(Err(format!(
-            "`in` rhs must be Array, Struct, or any (subset stub); got {obj_ty:?}"
+            "`in` rhs must be Array, Struct, Function, or any (subset stub); got {obj_ty:?}"
         )));
     }
     Some(Ok(Type::Boolean))

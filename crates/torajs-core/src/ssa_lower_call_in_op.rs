@@ -45,6 +45,16 @@ pub(crate) fn try_lower(
     let key_op = ctx.lower_expr(args[0]);
     let obj_op = ctx.lower_expr(args[1]);
     let obj_ty = ctx.operand_ty(&obj_op);
+    // A function value is an Object per §13.10.1 — box the closure
+    // cell (borrow'd NaN-box, no rc traffic) and take the Any
+    // kernels' full own + prototype-chain face. The fn-as-value
+    // collector already wrapped a bare top-FnDecl Ident rhs into its
+    // forwarder closure, so a Closure operand is what reaches here.
+    let (obj_op, obj_ty) = if matches!(obj_ty, Type::Closure(_)) {
+        (ctx.box_to_any(obj_op), Type::Any)
+    } else {
+        (obj_op, obj_ty)
+    };
     let cur_block = ctx.cur_block;
     if matches!(obj_ty, Type::Arr(_)) {
         let key_i64 = ctx.coerce_to_i64(key_op);
