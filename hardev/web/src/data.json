@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-20T22:25:52.769Z",
+  "generatedAt": "2026-07-20T22:38:53.465Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 94.5
   },
   "torajs": {
-    "commit": "3c1638e6",
-    "commitSubject": "style: fmt-drift fix on any-method re-export wrap",
+    "commit": "3f40234a",
+    "commitSubject": "feat: map prototype getorinsert single-probe kernel on typed and any lanes",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "3f40234a",
+      "subject": "feat: map prototype getorinsert single-probe kernel on typed and any lanes"
+    },
+    {
+      "hash": "e7d32aeb",
+      "subject": "chore: hardev dashboard snapshot at rotation 170 close"
+    },
+    {
       "hash": "3c1638e6",
       "subject": "style: fmt-drift fix on any-method re-export wrap"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "4f0d0cdb",
       "subject": "fix: nullable exec result named-prop read guards before the arr props intrinsics"
-    },
-    {
-      "hash": "3707a0ce",
-      "subject": "chore: test262 sweep snapshot at 5993555b (12998 pass / 757 bug)"
-    },
-    {
-      "hash": "5cb5a0b8",
-      "subject": "fix: inherited object proto methods reify to the shared object-row cell identity"
     }
   ],
-  "headSha": "3c1638e6",
+  "headSha": "3f40234a",
   "autorun": {
     "total": 475,
     "baselineTarget": 10,
