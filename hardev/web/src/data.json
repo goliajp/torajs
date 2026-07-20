@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-20T19:19:16.514Z",
+  "generatedAt": "2026-07-20T21:05:31.318Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-20T17:22:58Z",
-    "headSha": "89ec623e",
-    "elapsedSec": 672.14,
+    "ranAt": "2026-07-20T20:31:36Z",
+    "headSha": "5993555b",
+    "elapsedSec": 680.61,
     "workers": 8,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 8385,
+    "pass": 8439,
     "passNoOracle": 112,
     "passNegative": 4447,
-    "passTotal": 12944,
-    "bug": 811,
+    "passTotal": 12998,
+    "bug": 757,
     "incompatible": 39419,
     "bunSkip": 11908,
     "harnessError": 0,
     "inScope": 53174,
     "trAccepted": 13755,
-    "passRateInScope": 24.34,
-    "passRateTrAccepted": 94.1
+    "passRateInScope": 24.44,
+    "passRateTrAccepted": 94.5
   },
   "torajs": {
-    "commit": "7ddba39f",
-    "commitSubject": "fix: string proto thisstringvalue brand check and primitive wrapper inspect forms",
+    "commit": "d5bdef4d",
+    "commitSubject": "feat: promise bigint symbol prototype own methods reify on static and any lanes",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "d5bdef4d",
+      "subject": "feat: promise bigint symbol prototype own methods reify on static and any lanes"
+    },
+    {
+      "hash": "4f0d0cdb",
+      "subject": "fix: nullable exec result named-prop read guards before the arr props intrinsics"
+    },
+    {
+      "hash": "3707a0ce",
+      "subject": "chore: test262 sweep snapshot at 5993555b (12998 pass / 757 bug)"
+    },
+    {
+      "hash": "5cb5a0b8",
+      "subject": "fix: inherited object proto methods reify to the shared object-row cell identity"
+    },
+    {
+      "hash": "5993555b",
+      "subject": "fix: backref span-keyed pike vm dedup keeps shorter-capture fallback threads"
+    },
+    {
+      "hash": "a3328038",
+      "subject": "chore: hardev dashboard snapshot at rotation 168 close"
+    },
+    {
       "hash": "7ddba39f",
       "subject": "fix: string proto thisstringvalue brand check and primitive wrapper inspect forms"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "7a413ce3",
       "subject": "fix: typed receiver constructor member reifies to interned builtin ctor value"
-    },
-    {
-      "hash": "fd121bb3",
-      "subject": "feat: per-family builtin method cells with proto-patch consult on dispatch miss"
-    },
-    {
-      "hash": "6e16b85e",
-      "subject": "fix: any-lane split honors the limit argument with touint32 coercion order"
-    },
-    {
-      "hash": "e78020c4",
-      "subject": "fix: typed split(null) separator coerces to \"null\" string instead of sigsegv"
-    },
-    {
-      "hash": "deae7f76",
-      "subject": "chore: hardev dashboard snapshot and bench archive at rotation 167 close"
-    },
-    {
-      "hash": "1ffaf02d",
-      "subject": "feat: ordinaryset consults the user prototype chain with interned proto slot key"
-    },
-    {
-      "hash": "dfa32cd2",
-      "subject": "chore: test262 sweep archive at 89ec623e (passTotal 12944, bug 811, appeared 0)"
     }
   ],
-  "headSha": "7ddba39f",
+  "headSha": "d5bdef4d",
   "autorun": {
-    "total": 473,
+    "total": 474,
     "baselineTarget": 10,
-    "bySelf": 468,
+    "bySelf": 469,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784569052-0cad",
-      "at": "2026-07-20T17:37:32Z",
-      "ts": 1784569052,
+      "rotationId": "r-1784575166-3ba1",
+      "at": "2026-07-20T19:19:26Z",
+      "ts": 1784575166,
       "trigger": "self",
-      "prevHead": "deae7f76",
-      "handoffSha": "sha256:20932ee75cd9d0459c280cd42bb8594041b6219b1b8ccfb5f2ee3f19387b1736",
-      "handoffAgeSec": 5,
+      "prevHead": "a3328038",
+      "handoffSha": "sha256:05f4f5ec00226b0de987ffceac374cad63cfbc402bfbdeaf6fa553ffefd0b5fe",
+      "handoffAgeSec": 10,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784575166-3ba1",
+        "at": "2026-07-20T19:19:26Z",
+        "ts": 1784575166,
+        "trigger": "self",
+        "prevHead": "a3328038",
+        "handoffSha": "sha256:05f4f5ec00226b0de987ffceac374cad63cfbc402bfbdeaf6fa553ffefd0b5fe",
+        "handoffAgeSec": 10,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784569052-0cad",
         "at": "2026-07-20T17:37:32Z",
@@ -876,17 +887,6 @@
         "prevHead": "78f77ac7",
         "handoffSha": "sha256:65125be62b3eaf04eaa65dd9ac5f718a6abc1716c2f4c0ed6030d90902be491c",
         "handoffAgeSec": 0,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784510624-7d92",
-        "at": "2026-07-20T01:23:44Z",
-        "ts": 1784510624,
-        "trigger": "self",
-        "prevHead": "2607aec2",
-        "handoffSha": "sha256:1c2846312929e1da70777d6034e3441731d95689f96854cf3dd15696583d4887",
-        "handoffAgeSec": 8,
         "conformanceBefore": null,
         "commitsInSession": null
       }
