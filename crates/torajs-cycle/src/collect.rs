@@ -28,18 +28,15 @@
 
 use core::ffi::c_void;
 
-use crate::arr::{ARR_PROPS_OFF, arr_child_at, arr_len_of, arr_slot_clear, arr_spilled_data};
+use crate::arr::{ARR_PROPS_OFF, arr_child_at, arr_len_of, arr_slot_clear};
 use crate::buffer;
 use crate::closure_walk::{closure_trace_fn, trace_clear_tramp, trace_visit_tramp};
-use crate::dynobj::{
-    dynobj_block_bytes, dynobj_child_at, dynobj_entries_len, dynobj_key_at, dynobj_value_slot_clear,
-};
+use crate::dynobj::{dynobj_child_at, dynobj_entries_len, dynobj_value_slot_clear};
 use crate::layout::{
-    CLASS_LAYOUT_FLAG_NAMED, CLOSURE_DROP_FN_OFF, CLOSURE_PROPS_OFF, COLOR_BLACK, COLOR_GRAY,
-    COLOR_PURPLE, COLOR_WHITE, FLAG_BUFFERED, FLAG_STATIC_LITERAL, HeapHeader,
-    STRING_WRAPPER_CELL_OFF, TAG_BOOLEAN_WRAPPER, TAG_CLOSURE, TAG_DYNOBJ, TAG_NUMBER_WRAPPER,
-    TAG_STRING_WRAPPER, WRAPPER_PROPS_OFF, arr_elems_walkable, color_of, has_walkable_children,
-    is_class_obj, layout_for_class_obj, set_color,
+    CLASS_LAYOUT_FLAG_NAMED, CLOSURE_PROPS_OFF, COLOR_BLACK, COLOR_GRAY, COLOR_PURPLE, COLOR_WHITE,
+    FLAG_BUFFERED, FLAG_STATIC_LITERAL, HeapHeader, TAG_BOOLEAN_WRAPPER, TAG_CLOSURE, TAG_DYNOBJ,
+    TAG_NUMBER_WRAPPER, TAG_STRING_WRAPPER, WRAPPER_PROPS_OFF, arr_elems_walkable, color_of,
+    has_walkable_children, is_class_obj, layout_for_class_obj, set_color,
 };
 
 /// Sentinel child index for a cell's out-of-band expando / props
@@ -48,14 +45,6 @@ use crate::layout::{
 const PROPS_SLOT_INDEX: u64 = u64::MAX;
 
 unsafe extern "C" {
-    /// torajs-mmalloc libc-compat free — v0.7-A2 step 6b finale. This
-    /// free releases cross-crate heap (Arr / Map / Obj / DynObj — any
-    /// cyclic-shape heap caught by the trial-deletion walk). Every
-    /// allocating crate must already be on mmalloc before this cut
-    /// fires; otherwise the free routes to the wrong allocator.
-    #[link_name = "__torajs_libc_free"]
-    fn free(p: *mut c_void);
-
     /// Universal-drop dispatcher in runtime_str.c — type-tag-keyed
     /// per-flavor cleanup (Str / Arr / Obj / Map / WeakRef / ...).
     /// Called by `collect_white` to drop surviving (non-cycle)
@@ -67,17 +56,6 @@ unsafe extern "C" {
     /// cycle-collected obj previously left its WeakRefs dangling —
     /// deref after the collect returned freed memory).
     fn __torajs_weakref_target_dying(target: *mut c_void);
-
-    /// torajs-str — release a dynobj entry's key Str during the
-    /// collect_white dict teardown (RFC 20260717 blade 2).
-    fn __torajs_str_drop(s: *mut c_void);
-
-    /// torajs-mmalloc sized free — the DynObj block is a sized
-    /// `__torajs_calloc` allocation with NO libc-shim size header,
-    /// so the unsized `__torajs_libc_free` above must not touch it
-    /// (it reads a size word at `p - 8` that was never written).
-    #[link_name = "__torajs_free"]
-    fn free_sized(p: *mut c_void, size: usize);
 }
 
 /// Per-shape walkable-child slot enumeration — the ONLY place that
@@ -91,7 +69,7 @@ unsafe extern "C" {
 /// `p` must satisfy `has_walkable_children`. The walk reads class
 /// layouts / arr slots — caller must guarantee the heap is
 /// well-formed.
-unsafe fn for_each_child(p: *mut c_void, mut f: impl FnMut(u64, *mut c_void)) {
+pub(crate) unsafe fn for_each_child(p: *mut c_void, mut f: impl FnMut(u64, *mut c_void)) {
     if unsafe { is_class_obj(p) } {
         let lay = unsafe { layout_for_class_obj(p) };
         let n_children = unsafe { (*lay).n_children };
@@ -168,7 +146,7 @@ unsafe fn for_each_child(p: *mut c_void, mut f: impl FnMut(u64, *mut c_void)) {
 /// # Safety
 /// Same as [`for_each_child`]; `i` must be an index `for_each_child`
 /// yielded for this `p`.
-unsafe fn clear_child_slot(p: *mut c_void, i: u64) {
+pub(crate) unsafe fn clear_child_slot(p: *mut c_void, i: u64) {
     if unsafe { is_class_obj(p) } {
         let lay = unsafe { layout_for_class_obj(p) };
         let off = unsafe { *(*lay).child_offsets.add(i as usize) };
@@ -326,99 +304,34 @@ unsafe fn collect_white(p: *mut c_void) {
             }
         });
     }
-    // Closure teardown (RFC 20260717 knife 3) delegates to the
-    // synthesized drop_fn instead of the generic second sweep: only
-    // the drop body knows the per-slot release semantics (capture-box
-    // rc vs owned cell vs Any NaN-box vs Substr view), and every
-    // release helper it calls is NULL/NaN gated so the first sweep's
-    // cleared cycle edges no-op. drop_fn also frees the env block
-    // (obj_drop_sized), so no tail free either. Before delegating,
-    // zero every slot whose child is mid-collect (rc == 0 — a cycle
-    // member recolored BLACK by its own frame up the recursion, the
-    // exact case the generic second sweep's rc > 0 gate protects):
-    // drop_fn has no such gate and would re-drop a block that's
-    // about to be freed.
-    if unsafe { (*(p as *const HeapHeader)).type_tag } == TAG_CLOSURE {
-        unsafe {
-            for_each_child(p, |i, child| {
-                if (*(child as *const HeapHeader)).refcount == 0 {
-                    clear_child_slot(p, i);
-                }
-            });
-            let drop_raw = *((p as *const u8).add(CLOSURE_DROP_FN_OFF) as *const u64);
-            if drop_raw != 0 {
-                let drop_fn =
-                    core::mem::transmute::<u64, unsafe extern "C" fn(*mut c_void)>(drop_raw);
-                drop_fn(p);
-            }
-        }
-        return;
-    }
-    // Second sweep: drop surviving (non-cycle) children via the
-    // universal drop dispatch. rc == 0 marks a cycle member being
-    // freed by its own collect_white frame up the recursion (its
-    // slot stayed set because it recolored BLACK on entry, so the
-    // first sweep didn't clear it) — re-dropping it underflows
-    // the rc and re-buffers a block that's about to be freed
+    // Second sweep (non-closure shapes): drop surviving (non-cycle)
+    // children via the universal drop dispatch. rc == 0 marks a
+    // fellow cycle member (its slot stayed set because it recolored
+    // BLACK on entry, so the first sweep didn't clear it) —
+    // re-dropping it underflows the rc and re-buffers a corpse
     // (chunk 614: the l8 obj↔arr probe crashed here). Surviving
     // children always carry rc ≥ 1: non-walkable types are never
     // trial-decremented and externally-reachable walkables had
-    // their rc restored by scan_black.
-    unsafe {
-        for_each_child(p, |_, child| {
-            if (*(child as *const HeapHeader)).refcount > 0 {
-                __torajs_value_drop_heap(child);
-            }
-        });
-    }
-    let tag = unsafe { (*(p as *const HeapHeader)).type_tag };
-    if tag == TAG_DYNOBJ {
-        // Dict teardown extras — every live entry still owns its key
-        // Str (the sweeps only touched value slots); values were
-        // either collected (slot cleared) or dropped by the second
-        // sweep. Mirror __torajs_dynobj_drop's key walk, then free
-        // the single block (index + entries are inline) through the
-        // SIZED free — see the `free_sized` extern doc.
-        let n = unsafe { dynobj_entries_len(p) };
-        for i in 0..n {
-            let key = unsafe { dynobj_key_at(p, i) };
-            if !key.is_null() {
-                unsafe { __torajs_str_drop(key) };
-            }
-        }
-        unsafe { free_sized(p, dynobj_block_bytes(p)) };
-        return;
-    }
-    if matches!(
-        tag,
-        TAG_NUMBER_WRAPPER | TAG_STRING_WRAPPER | TAG_BOOLEAN_WRAPPER
-    ) {
-        // Wrapper teardown extras — the StringWrapper's inner
-        // [[StringData]] Str cell is a leaf the walk never touched;
-        // release it like __torajs_string_wrapper_drop does. The
-        // expando props slot was handled by the sweeps (blade 3).
-        if tag == TAG_STRING_WRAPPER {
-            let cell =
-                unsafe { *((p as *const u8).add(STRING_WRAPPER_CELL_OFF) as *const *mut c_void) };
-            if !cell.is_null() {
-                unsafe { __torajs_value_drop_heap(cell) };
-            }
-        }
-    } else if !unsafe { is_class_obj(p) } {
-        // TAG_ARR teardown extras. The +24 expando props dict joined
-        // the walk in blade 3 — the sweeps now clear (cycle member)
-        // or drop (survivor) it, so the pre-blade-3 unconditional
-        // props drop here is gone (it would double-drop).
-        // B1 — a grown array spilled its slots to an independent
-        // buffer; release it alongside the cell (mirror of
-        // torajs-arr __torajs_arr_free's spill branch — pre-fix
-        // every cycle-collected grown array leaked its buffer).
-        let spill = unsafe { arr_spilled_data(p) };
-        if !spill.is_null() {
-            unsafe { free(spill as *mut c_void) };
+    // their rc restored by scan_black. Closures skip this — their
+    // synthesized drop_fn owns the per-slot release semantics
+    // (capture-box rc vs owned cell vs Any NaN-box vs Substr view)
+    // and runs in the deferred Free step.
+    if unsafe { (*(p as *const HeapHeader)).type_tag } != TAG_CLOSURE {
+        unsafe {
+            for_each_child(p, |_, child| {
+                if (*(child as *const HeapHeader)).refcount > 0 {
+                    __torajs_value_drop_heap(child);
+                }
+            });
         }
     }
-    unsafe { free(p) };
+    // The free itself is DEFERRED to `defer::finalize_all` after the
+    // collect pass (Bacon-Rajan's separate Free step). Freeing here
+    // let a later WHITE parent's sweep read this block's freed
+    // header — mmalloc's free-list pointer overwrites the refcount
+    // word, faking rc > 0, so the corpse got re-dropped and
+    // re-buffered as a stale root (rotation-165 setops SIGSEGV).
+    crate::defer::defer_push(p);
 }
 
 /// Public `gc()` user trigger. Runs the three phases over the
@@ -450,7 +363,7 @@ pub unsafe extern "C" fn __torajs_cycle_collect() {
     // Scan phase: distinguish WHITE garbage from BLACK-restore.
     buffer::for_each(|p| unsafe { scan(p) });
 
-    // Collect phase: free every WHITE node + its children.
+    // Collect phase: sweep every WHITE node + defer its free.
     buffer::for_each_with_index(|_i, p| {
         if p.is_null() {
             return;
@@ -461,6 +374,10 @@ pub unsafe extern "C" fn __torajs_cycle_collect() {
             unsafe { collect_white(p) };
         }
     });
+
+    // Free step — before the compact so re-buffer pushes from
+    // closure drop_fns land in the kept region.
+    unsafe { crate::defer::finalize_all() };
 
     buffer::compact_from(processed);
 }

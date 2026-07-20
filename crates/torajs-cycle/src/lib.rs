@@ -63,6 +63,7 @@ pub mod arr;
 pub mod buffer;
 pub(crate) mod closure_walk;
 pub mod collect;
+pub(crate) mod defer;
 pub mod dynobj;
 pub mod layout;
 pub mod obj_drop;
