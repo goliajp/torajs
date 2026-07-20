@@ -175,66 +175,21 @@ pub(crate) fn run(ast: &mut Ast) {
 
         let first_kind = params.first().map(|p| p.name.clone());
         if matches!(first_kind.as_deref(), Some("__env") | Some("__this")) {
-            // Both synth closure namespaces (`__closure_*` lifted
-            // arrows AND `__forward_*` fn-to-closure shims) are
-            // `__env`-first closure shapes; the forwarder clones its
-            // target's params verbatim, so an untyped-param user fn
-            // (`function g(n) {}`) taken as a value used to reach
-            // build_fn_type with `n` unannotated and reject the
-            // whole program.
-            if first_kind.as_deref() == Some("__env") && is_synth_closure_name(name) {
-                for p in params.iter_mut().skip(1) {
-                    if p.type_ann.is_none() {
-                        p.type_ann = Some("any".to_string());
-                    }
-                }
-            }
-            if first_kind.as_deref() == Some("__env")
-                && return_type.is_none()
-                && body_has_value_return(body)
-            {
-                let seeded = seeded_binds_for(name, &outer_binds, &cap_anns);
-                if let Some(inferred) =
-                    infer_return_ann_seeded(ast_exprs_view, body, params, &seeded, &fn_sigs)
-                {
-                    *return_type = Some(inferred);
-                } else if is_synth_closure_name(name) {
-                    // RC-4 — a value return the static sniff can't
-                    // type (any-param method call / any arith) must
-                    // not silently become Void: the callee then
-                    // DROPPED its return value and every call read 0.
-                    // Fall back to `any`, mirroring the param default.
-                    *return_type = Some("any".to_string());
-                }
-            }
-            if first_kind.as_deref() == Some("__this")
-                && return_type.is_none()
-                && body_has_value_return(body)
-            {
-                let seeded = seeded_binds_for(name, &outer_binds, &cap_anns);
-                if let Some(inferred) =
-                    infer_return_ann_seeded(ast_exprs_view, body, params, &seeded, &fn_sigs)
-                {
-                    *return_type = Some(inferred);
-                }
-            }
+            desugar_closure_shape_fn(
+                first_kind.as_deref(),
+                name,
+                params,
+                return_type,
+                body,
+                ast_exprs_view,
+                &outer_binds,
+                cap_anns,
+                &fn_sigs,
+            );
             continue;
         }
         if name.starts_with("__closure_") {
-            for p in params.iter_mut() {
-                if p.type_ann.is_none() && p.name != "__env" && p.name != "__this" {
-                    p.type_ann = Some("any".to_string());
-                }
-            }
-            if return_type.is_none() && body_has_value_return(body) {
-                if let Some(inferred) = infer_return_ann(ast_exprs_view, body, params, &fn_sigs) {
-                    *return_type = Some(inferred);
-                } else {
-                    // RC-4 — un-typeable value return falls back to
-                    // `any` instead of Void (see the __env arm above).
-                    *return_type = Some("any".to_string());
-                }
-            }
+            desugar_lifted_closure_fn(params, return_type, body, ast_exprs_view, &fn_sigs);
             continue;
         }
 
@@ -247,6 +202,84 @@ pub(crate) fn run(ast: &mut Ast) {
             ast_exprs_view,
             &mut fn_sigs,
         );
+    }
+}
+
+/// Main-loop closure-shape arm — a fn whose first param is `__env` /
+/// `__this`. Both synth closure namespaces (`__closure_*` lifted
+/// arrows AND `__forward_*` fn-to-closure shims) are `__env`-first
+/// closure shapes; the forwarder clones its target's params verbatim,
+/// so an untyped-param user fn (`function g(n) {}`) taken as a value
+/// used to reach build_fn_type with `n` unannotated and reject the
+/// whole program. Return-type inference seeds from the construction
+/// site's capture snapshot (`seeded_binds_for`).
+#[allow(clippy::too_many_arguments)]
+fn desugar_closure_shape_fn(
+    first_kind: Option<&str>,
+    name: &str,
+    params: &mut Vec<Param>,
+    return_type: &mut Option<String>,
+    body: &[Stmt],
+    ast_exprs_view: AstExprsView,
+    outer_binds: &std::collections::HashMap<String, String>,
+    cap_anns: &std::collections::HashMap<String, std::collections::HashMap<String, String>>,
+    fn_sigs: &std::collections::HashMap<String, String>,
+) {
+    if first_kind == Some("__env") && is_synth_closure_name(name) {
+        for p in params.iter_mut().skip(1) {
+            if p.type_ann.is_none() {
+                p.type_ann = Some("any".to_string());
+            }
+        }
+    }
+    if first_kind == Some("__env") && return_type.is_none() && body_has_value_return(body) {
+        let seeded = seeded_binds_for(name, outer_binds, cap_anns);
+        if let Some(inferred) =
+            infer_return_ann_seeded(ast_exprs_view, body, params, &seeded, fn_sigs)
+        {
+            *return_type = Some(inferred);
+        } else if is_synth_closure_name(name) {
+            // RC-4 — a value return the static sniff can't
+            // type (any-param method call / any arith) must
+            // not silently become Void: the callee then
+            // DROPPED its return value and every call read 0.
+            // Fall back to `any`, mirroring the param default.
+            *return_type = Some("any".to_string());
+        }
+    }
+    if first_kind == Some("__this") && return_type.is_none() && body_has_value_return(body) {
+        let seeded = seeded_binds_for(name, outer_binds, cap_anns);
+        if let Some(inferred) =
+            infer_return_ann_seeded(ast_exprs_view, body, params, &seeded, fn_sigs)
+        {
+            *return_type = Some(inferred);
+        }
+    }
+}
+
+/// Main-loop lifted-closure arm (`__closure_*` name without the
+/// `__env`-first shape) — default un-annotated params to `any` and
+/// infer / `any`-fallback the return type.
+fn desugar_lifted_closure_fn(
+    params: &mut Vec<Param>,
+    return_type: &mut Option<String>,
+    body: &[Stmt],
+    ast_exprs_view: AstExprsView,
+    fn_sigs: &std::collections::HashMap<String, String>,
+) {
+    for p in params.iter_mut() {
+        if p.type_ann.is_none() && p.name != "__env" && p.name != "__this" {
+            p.type_ann = Some("any".to_string());
+        }
+    }
+    if return_type.is_none() && body_has_value_return(body) {
+        if let Some(inferred) = infer_return_ann(ast_exprs_view, body, params, fn_sigs) {
+            *return_type = Some(inferred);
+        } else {
+            // RC-4 — un-typeable value return falls back to
+            // `any` instead of Void (see the __env arm above).
+            *return_type = Some("any".to_string());
+        }
     }
 }
 
