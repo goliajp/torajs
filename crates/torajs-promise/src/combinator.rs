@@ -69,6 +69,24 @@ unsafe fn arr_len(arr: *mut c_void) -> u64 {
     unsafe { *((arr as *mut u8).add(ARR_LEN_OFF) as *const u64) }
 }
 
+/// Mark every input promise as handled — the spec equivalent of the
+/// per-input resolve/reject-element handler attach every combinator
+/// performs (§27.2.4.1.2 etc.). Without this an input the combinator
+/// absorbed (e.g. a REJECTED slot `Promise.any` skips past) still
+/// carried `has_handler = 0` and the HPRT-check microtask reported a
+/// spurious unhandled rejection (exit 1 where bun exits 0). Pending
+/// inputs are marked too — a real attach would land before their
+/// later settlement.
+unsafe fn absorb_inputs(promises_arr: *mut c_void) {
+    let len = unsafe { arr_len(promises_arr) };
+    for i in 0..len {
+        let pp = unsafe { arr_slot_ptr(promises_arr, i) };
+        if !pp.is_null() {
+            unsafe { (*pp).has_handler = 1 };
+        }
+    }
+}
+
 // ============================================================
 // Promise.all<T>(Promise<T>[]) → Promise<T[]>
 // ============================================================
@@ -107,6 +125,7 @@ pub unsafe extern "C" fn __torajs_promise_all_sync(promises_arr: *mut c_void) ->
     if promises_arr.is_null() {
         return unsafe { stamped(__torajs_promise_alloc_rejected(0), REPR_VOID) };
     }
+    unsafe { absorb_inputs(promises_arr) };
     let len = unsafe { arr_len(promises_arr) };
     // Pre-scan: first rejected → reject outer with that reason; first
     // pending → reject with placeholder (MVP — no fan-in yet).
@@ -218,6 +237,7 @@ pub unsafe extern "C" fn __torajs_promise_allsettled_sync(
     if promises_arr.is_null() {
         return unsafe { stamped(__torajs_promise_alloc_rejected(0), REPR_VOID) };
     }
+    unsafe { absorb_inputs(promises_arr) };
     let len = unsafe { arr_len(promises_arr) };
     for i in 0..len {
         let pp = unsafe { arr_slot_ptr(promises_arr, i) };
@@ -265,6 +285,7 @@ pub unsafe extern "C" fn __torajs_promise_race_sync(promises_arr: *mut c_void) -
     if promises_arr.is_null() {
         return unsafe { stamped(__torajs_promise_alloc_rejected(0), REPR_VOID) };
     }
+    unsafe { absorb_inputs(promises_arr) };
     let len = unsafe { arr_len(promises_arr) };
     for i in 0..len {
         let pp = unsafe { arr_slot_ptr(promises_arr, i) };
@@ -316,6 +337,7 @@ pub unsafe extern "C" fn __torajs_promise_any_sync(promises_arr: *mut c_void) ->
     if promises_arr.is_null() {
         return unsafe { stamped(__torajs_promise_alloc_rejected(0), REPR_VOID) };
     }
+    unsafe { absorb_inputs(promises_arr) };
     let len = unsafe { arr_len(promises_arr) };
     let mut last_rejection: i64 = 0;
     let mut last_rejection_repr: u8 = REPR_VOID;
