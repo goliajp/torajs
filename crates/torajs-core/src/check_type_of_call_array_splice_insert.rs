@@ -11,12 +11,13 @@
 //! push and fill lanes; a Boolean elem has no Any-coerce arm, so Any
 //! items stay rejected there rather than storing box bits).
 //!
-//! `toSpliced` is NOT admitted here — its lowering has no items
-//! route yet (knife 3).
+//! `toSpliced` (knife 3) shares the arm — same item admit, and the
+//! member-table result type is the same `Array<T>` for both (the
+//! removed slice for splice, the spliced clone for toSpliced).
 //!
-//! Returns `Some(Ok(Array<T>))` (the removed slice) on match;
-//! `Some(Err(_))` on start/deleteCount/item type mismatch; `None`
-//! otherwise (non-splice, < 3 args, non-Array or Array<Any>
+//! Returns `Some(Ok(Array<T>))` on match; `Some(Err(_))` on
+//! start/deleteCount/item type mismatch; `None` otherwise
+//! (non-splice/toSpliced, < 3 args, non-Array or Array<Any>
 //! receiver — the latter keeps its own any-lane kernel route).
 
 use crate::ast::{Ast, Expr, ExprId};
@@ -35,7 +36,7 @@ pub(crate) fn try_match(
     else {
         return None;
     };
-    if m_name != "splice" || args.len() < 3 {
+    if !matches!(m_name.as_str(), "splice" | "toSpliced") || args.len() < 3 {
         return None;
     }
     let src_ty = match checker.type_of(ast, *src_id) {
@@ -56,7 +57,7 @@ pub(crate) fn try_match(
         };
         if aty != Type::Number {
             return Some(Err(format!(
-                "Array.splice arg {i}: expected Number, got {aty:?}"
+                "Array.{m_name} arg {i}: expected Number, got {aty:?}"
             )));
         }
     }
@@ -68,7 +69,7 @@ pub(crate) fn try_match(
         };
         if aty != inner && !(any_ok && aty == Type::Any) {
             return Some(Err(format!(
-                "Array.splice item {i}: expected element type {:?}, got {aty:?}",
+                "Array.{m_name} item {i}: expected element type {:?}, got {aty:?}",
                 inner
             )));
         }

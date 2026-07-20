@@ -203,7 +203,7 @@ fn emit_splice_return(
 /// receiver's stake here; owned mints hand their +1 off, substr/Any
 /// coerce lanes are fresh rc=1 hand-offs). The coerced raw slots pack
 /// into an entry-block stack argv; the kernel moves bits only.
-fn emit_splice_items(
+pub(crate) fn emit_splice_items(
     ctx: &mut LowerCtx,
     arr_ty: Type,
     cur_arr: crate::ssa::ValueId,

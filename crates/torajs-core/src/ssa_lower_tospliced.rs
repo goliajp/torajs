@@ -10,10 +10,12 @@
 //! range), and the returned removed sub-array is dropped via
 //! `emit_drop_value`. Source array stays untouched (unlike `splice`).
 //!
-//! Subset matches `splice`'s fixed 2-arg shape; the variadic
-//! `...items` insert form is a follow-up. Receiver dispatch mirrors
-//! `splice`: (a) Ident bound to a `Type::Arr` local, (b) Ident bound
-//! to a K.8 top-level refcount global.
+//! 0-2 args splice the clone shrink-only; 3+ args (RFC
+//! 20260720-splice-insert knife 3) route the `...items` tail through
+//! the mutating sibling's [`crate::ssa_lower_splice::emit_splice_items`]
+//! on the clone. Receiver dispatch mirrors `splice`: (a) Ident bound
+//! to a `Type::Arr` local, (b) Ident bound to a K.8 top-level
+//! refcount global.
 //!
 //! Returning `Some` here short-circuits the generic member-call
 //! dispatch in `ssa_lower.rs`; `None` falls through to the
@@ -47,7 +49,7 @@ fn try_lower_generic(ctx: &mut LowerCtx, callee_eid: ExprId, args: &[ExprId]) ->
     let Expr::Member { obj: recv_id, name } = ctx.ast.get_expr(callee_eid) else {
         return None;
     };
-    if name != "toSpliced" || args.len() > 2 {
+    if name != "toSpliced" {
         return None;
     }
     let recv_eid = *recv_id;
@@ -78,7 +80,7 @@ fn try_lower_local(ctx: &mut LowerCtx, callee_eid: ExprId, args: &[ExprId]) -> O
     let Expr::Member { obj: recv_id, name } = ctx.ast.get_expr(callee_eid) else {
         return None;
     };
-    if name != "toSpliced" || args.len() > 2 {
+    if name != "toSpliced" {
         return None;
     }
     let Expr::Ident(recv_name) = ctx.ast.get_expr(*recv_id) else {
@@ -105,7 +107,7 @@ fn try_lower_global(ctx: &mut LowerCtx, callee_eid: ExprId, args: &[ExprId]) -> 
     let Expr::Member { obj: recv_id, name } = ctx.ast.get_expr(callee_eid) else {
         return None;
     };
-    if name != "toSpliced" || args.len() > 2 {
+    if name != "toSpliced" {
         return None;
     }
     let Expr::Ident(recv_name) = ctx.ast.get_expr(*recv_id) else {
@@ -205,15 +207,33 @@ fn emit_clone_splice_return(
             }
         }
     };
-    let removed = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::Call(
-            ctx.intrinsics.arr_splice,
-            vec![Operand::Value(clone), start, delete_count],
-        ),
-        arr_ty,
-        None,
-    );
+    // RFC 20260720-splice-insert knife 3 — 3+ args splice the
+    // `...items` tail into the clone (same emit as the mutating
+    // sibling); the removed product is dropped either way.
+    let removed = if args.len() > 2 {
+        let r = crate::ssa_lower_splice::emit_splice_items(
+            ctx,
+            arr_ty,
+            clone,
+            start,
+            delete_count,
+            &args[2..],
+        );
+        match r {
+            Operand::Value(v) => v,
+            _ => unreachable!("emit_splice_items answers a Value"),
+        }
+    } else {
+        ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(
+                ctx.intrinsics.arr_splice,
+                vec![Operand::Value(clone), start, delete_count],
+            ),
+            arr_ty,
+            None,
+        )
+    };
     ctx.emit_drop_value(Operand::Value(removed), arr_ty);
     Operand::Value(clone)
 }
