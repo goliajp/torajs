@@ -304,6 +304,18 @@ pub fn lift_arrow_fns(ast: &mut Ast) {
             let bn = bn.clone();
             ast.closure_dstr_names.insert(name.clone(), bn);
         }
+        // RFC 20260721-builtin-method-reflection 刀 4+9 — fn-flavor
+        // side-channel onto the lifted name. An async form (arrow or
+        // fn-expr; `async_fn_value_exprs` marks both) reflects
+        // %AsyncFunction%; a plain fn-expr owns a `.prototype`
+        // (generator fn-exprs never reach this walk — hoisted to decl
+        // form before lifting).
+        let eid = crate::ast::ExprId(i as u32);
+        if ast.async_fn_value_exprs.contains(&eid) {
+            ast.fn_async_value_fns.insert(name.clone());
+        } else if ast.fn_expr_exprs.contains(&eid) {
+            ast.fn_proto_fns.insert(name.clone());
+        }
         // Compute captures BEFORE moving the arrow body out — collect free
         // vars (idents referenced inside the body that are neither one of
         // the arrow's params nor declared by an inner let, and not a

@@ -90,6 +90,7 @@ use torajs_rc::{__torajs_rc_inc, AnySlotTag, HeapHeader, Tag};
 
 mod arith;
 pub(crate) mod arr_locale_string;
+pub(crate) mod closure_proto;
 mod coerce;
 mod compare;
 pub(crate) mod index_any;
@@ -100,6 +101,7 @@ pub(crate) mod member_get;
 pub(crate) mod member_get_layout;
 pub(crate) mod member_get_own;
 pub(crate) mod member_get_probe;
+pub(crate) mod member_get_value;
 mod member_props_regexp;
 mod member_set;
 mod method_bind;
@@ -637,6 +639,18 @@ mod tests {
     #[unsafe(no_mangle)]
     pub unsafe extern "C" fn __torajs_dynobj_has(_obj: *const c_void, _key: *const c_void) -> i32 {
         0
+    }
+    // RFC 20260721 刀 9 — closure_proto's materialization makes the
+    // dynobj define kernel test-reachable (shipped binary resolves
+    // libtorajs_dynobj.a).
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_dynobj_define(
+        _obj_slot: *mut *mut c_void,
+        _key: *mut c_void,
+        _tag: u64,
+        _value: u64,
+        _flags_byte: u64,
+    ) {
     }
     #[unsafe(no_mangle)]
     pub unsafe extern "C" fn __torajs_arr_index_flags(_arr: *const c_void, _idx: u64) -> u64 {

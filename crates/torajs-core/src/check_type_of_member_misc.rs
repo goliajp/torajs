@@ -62,6 +62,11 @@ pub(crate) fn try_match(obj_ty: &Type, name: &str) -> Option<Result<Type, String
         // without runtime dispatch.
         (Type::Function(_, _), "length") => Type::Number,
         (Type::Function(..), "name") => Type::String,
+        // RFC 20260721 刀 9 — `fun.prototype` on a fn-typed binding:
+        // Any (plain fns materialize the §10.2.5 object at runtime,
+        // arrows / async forms read undefined — the static type
+        // can't distinguish the flavors).
+        (Type::Function(..), "prototype") => Type::Any,
         // Type::Any single-type members. These explicit arms
         // carry richer shape than the P3.2 catch-all
         // `(Type::Any, _) → Type::Any` and so live above it.

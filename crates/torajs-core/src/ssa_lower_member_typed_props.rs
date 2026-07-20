@@ -117,6 +117,21 @@ pub(crate) fn try_lower(
         }
         return Some(lower_fn_length_or_name(ctx, obj_val, obj_ty, name));
     }
+    // RFC 20260721 刀 9 — `fun.prototype` on a Closure-typed
+    // receiver: the runtime kernel materializes the §10.2.5 object
+    // for a plain-fn cell (FLAG_FN_PROTO) and answers undefined for
+    // arrows / async forms / builtin cells, so the lowering stays
+    // flavor-blind. Owned Any out (the consumer drops it).
+    if matches!(obj_ty, Type::Closure(_)) && name == "prototype" {
+        let cur_block = ctx.cur_block;
+        let v = ctx.f.append_inst(
+            cur_block,
+            InstKind::Call(ctx.intrinsics.closure_prototype_any, vec![obj_val]),
+            Type::Any,
+            None,
+        );
+        return Some(Operand::Value(v));
+    }
     None
 }
 

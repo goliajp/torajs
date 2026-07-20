@@ -285,6 +285,19 @@ pub struct Ast {
     /// capture channel works unchanged (unlike the hoist path, which
     /// is capture-free by construction).
     pub async_fn_value_exprs: std::collections::HashSet<ExprId>,
+    /// Lifted-closure names minted from a PLAIN `function` expression
+    /// (RFC 20260721-builtin-method-reflection 刀 4+9) — recorded by
+    /// `lift_arrow_fns` off `fn_expr_exprs` minus the async set. The
+    /// closure-env alloc stamps `FLAG_FN_PROTO` so the runtime
+    /// materializes the §10.2.5 `.prototype` object; arrows and async
+    /// forms stay off (no `prototype` own property per spec).
+    pub fn_proto_fns: std::collections::HashSet<String>,
+    /// Lifted-closure names minted from an ASYNC function form
+    /// (async arrow / `async function(){}` expression) — recorded by
+    /// `lift_arrow_fns` off `async_fn_value_exprs`. The closure-env
+    /// alloc stamps `FLAG_FN_ASYNC` so `.constructor` reflects
+    /// %AsyncFunction% (刀 4 consumes the bit).
+    pub fn_async_value_fns: std::collections::HashSet<String>,
     /// Generator factory fn name → desugared `__Gen_<name>` class
     /// name, recorded by `desugar_generators` when it replaces the
     /// `function*` decl with its thin factory (RFC 20260713 blade 5).

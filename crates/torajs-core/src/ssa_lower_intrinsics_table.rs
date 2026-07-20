@@ -421,6 +421,7 @@ pub(crate) fn build(
         fn_name_str: init_c.print_freeze.fn_name_str,
         fn_source_str: init_c.print_freeze.fn_source_str,
         closure_source_str: init_c.print_freeze.closure_source_str,
+        closure_prototype_any: init_c.print_freeze.closure_prototype_any,
         closure_name_str: init_c.print_freeze.closure_name_str,
         any_to_str: init_c.print_freeze.any_to_str,
         any_to_str_prim: init_c.print_freeze.any_to_str_prim,

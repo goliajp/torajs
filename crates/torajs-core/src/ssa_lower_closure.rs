@@ -226,11 +226,33 @@ fn alloc_env(
     // AFTER `+8` — silently zeroing `fn_addr`'s low half (latent
     // while faces only rode the boxed entry at +32; knife 2W's
     // direct calls read +8 and jumped to the image base).
-    let tag_word: i32 = if ctx.ast.fnexpr_recv_fns.contains(fn_name) {
-        3 | (1 << 12) << 16
+    let mut flags: i32 = if ctx.ast.fnexpr_recv_fns.contains(fn_name) {
+        1 << 12
     } else {
-        3
+        0
     };
+    // RFC 20260721-builtin-method-reflection 刀 4+9 — fn-flavor bits
+    // (torajs-rc FLAG_FN_ASYNC = bit 7 / FLAG_FN_PROTO = bit 15,
+    // Tag::Closure-private). Async forms reflect %AsyncFunction% and
+    // own no `prototype`; a plain `function` form (expression via the
+    // lift side-channel, decl via the `__forward_` singleton) owns
+    // the lazily materialized §10.2.5 `.prototype`. Generator
+    // factories and async-generator steps keep both bits clear
+    // (their reflection surface is the G2 substrate).
+    let decl_name = fn_name.strip_prefix("__forward_");
+    if ctx.ast.fn_async_value_fns.contains(fn_name)
+        || decl_name.is_some_and(|n| ctx.ast.async_fns.contains(n))
+    {
+        flags |= 1 << 7;
+    } else if ctx.ast.fn_proto_fns.contains(fn_name)
+        || decl_name.is_some_and(|n| {
+            !ctx.ast.generator_factory_classes.contains_key(n)
+                && !ctx.ast.async_generator_fns.contains(n)
+        })
+    {
+        flags |= 1 << 15;
+    }
+    let tag_word: i32 = 3 | flags << 16;
     ctx.f.append_void(
         cur_block,
         InstKind::Store(Operand::ConstI32(1), Operand::Value(env_v), 0),

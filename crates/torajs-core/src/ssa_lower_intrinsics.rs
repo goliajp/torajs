@@ -467,6 +467,8 @@ pub(crate) struct Intrinsics {
     pub(crate) fn_name_str: FuncId,
     pub(crate) fn_source_str: FuncId,
     pub(crate) closure_source_str: FuncId,
+    /// RFC 20260721 刀 9 — plain-fn `.prototype` materialization.
+    pub(crate) closure_prototype_any: FuncId,
     /// Chunk 798 — typed-tier `.name` registry rewire: Closure
     /// receiver (cell → method/bound/registry name chain).
     pub(crate) closure_name_str: FuncId,

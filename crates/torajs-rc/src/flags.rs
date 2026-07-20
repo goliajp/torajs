@@ -15,14 +15,14 @@
 //! | 4     | [`FLAG_FROZEN`] | universal |
 //! | 5     | [`FLAG_BUFFERED`] | universal (cycle collector) |
 //! | 6     | NULL_PROTO (torajs-dynobj private) | DynObj |
-//! | 7     | [`FLAG_ERROR`] (Obj) / [`FLAG_ARR_LENGTH_RO`] (Arr) | disjoint-by-tag |
+//! | 7     | [`FLAG_ERROR`] (Obj) / [`FLAG_ARR_LENGTH_RO`] (Arr) / [`FLAG_FN_ASYNC`] (Closure) | disjoint-by-tag |
 //! | 8     | [`FLAG_NON_EXTENSIBLE`] | universal |
 //! | 9     | [`FLAG_SEALED`] | universal |
 //! | 10-12 | element-kind field (`arr_kind.rs`) | Arr |
 //! | 10-11 | [`FLAG_FN_NAME_DELETED`] / [`FLAG_FN_LENGTH_DELETED`] | Closure (disjoint-by-tag with Arr kind) |
 //! | 10    | [`FLAG_DYNOBJ_CLASS_CTOR`] | DynObj (disjoint-by-tag with Closure / Arr) |
 //! | 13-14 | cycle-collector color field (`color.rs`) | **universal — never place a flag here** |
-//! | 15    | [`FLAG_ARR_EXOTIC_INDEX`] | Arr |
+//! | 15    | [`FLAG_ARR_EXOTIC_INDEX`] (Arr) / [`FLAG_FN_PROTO`] (Closure) | disjoint-by-tag |
 //!
 //! Bits 13-14 look free in a flag-constants-only read but are painted
 //! by the cycle collector on EVERY tag: buffering a candidate sets
@@ -119,3 +119,18 @@ pub const FLAG_ARR_EXOTIC_INDEX: u16 = 1 << 15;
 /// writability). Bit 7 is Tag::Arr-private (disjoint-by-tag reuse of
 /// Tag::Obj's [`FLAG_ERROR`]).
 pub const FLAG_ARR_LENGTH_RO: u16 = 1 << 7;
+/// `Tag::Closure` cell minted from an `async` function form (RFC
+/// 20260721-builtin-method-reflection 刀 4+9) — its `.constructor`
+/// reflects %AsyncFunction% and the fn owns NO `prototype` property
+/// (§27.7.2.2: async functions are not constructors). Stamped by the
+/// compiler's closure-env alloc off the parser's async side-channels.
+/// Bit 7 is Tag::Closure-private (disjoint-by-tag reuse of
+/// [`FLAG_ERROR`] / [`FLAG_ARR_LENGTH_RO`]).
+pub const FLAG_FN_ASYNC: u16 = 1 << 7;
+/// `Tag::Closure` cell minted from a PLAIN `function` form (decl or
+/// expression — not arrow / async / generator) — it owns a lazily
+/// materialized `.prototype` object per §10.2.5 MakeConstructor
+/// (writable, non-enumerable, with a `constructor` back-reference).
+/// Bit 15 is Tag::Closure-private (disjoint-by-tag reuse of
+/// [`FLAG_ARR_EXOTIC_INDEX`]).
+pub const FLAG_FN_PROTO: u16 = 1 << 15;

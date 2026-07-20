@@ -64,6 +64,9 @@ pub(crate) struct PrintFreezeIds {
     pub closure_name_str: FuncId,
     /// B5 — Closure-cell twin of `fn_source_str` (String(c) lane).
     pub closure_source_str: FuncId,
+    /// RFC 20260721 刀 9 — plain-fn `.prototype` materialization
+    /// (cell → owned AnyValue; undefined without `FLAG_FN_PROTO`).
+    pub closure_prototype_any: FuncId,
     pub any_to_str: FuncId,
     /// §13.15.3 concat-position twin — ToPrimitive(default) first.
     pub any_to_str_prim: FuncId,
@@ -192,6 +195,13 @@ pub(crate) fn declare(
             "__torajs_closure_source_str",
             &[Type::Ptr],
             Type::Str,
+        ),
+        closure_prototype_any: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_closure_prototype_any",
+            &[Type::Ptr],
+            Type::Any,
         ),
         any_to_str: declare_intrinsic(
             module,
