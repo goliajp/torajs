@@ -30,6 +30,9 @@ use crate::{
 unsafe extern "C" {
     /// torajs-str — flatten a Substr view into a fresh owned Str.
     fn __torajs_substr_to_owned(s: *const u8) -> *mut c_void;
+    /// torajs-throw — record a pending TypeError (caller's throw
+    /// check unwinds).
+    fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
 }
 
 /// `FLAG_SUBSTR_INLINE | FLAG_SUBSTR_VIEW` mirror (torajs-str
@@ -156,6 +159,23 @@ unsafe fn any_to_str_hint(tag: i64, value: i64, hint_string: bool) -> *mut c_voi
             let n = unsafe { ((child as *const u8).add(8) as *const f64).read() };
             return unsafe { __torajs_f64_to_str(n) };
         }
+        // §7.1.17 step 2 — ToString(Symbol) throws: a Symbol is a
+        // primitive, so ToPrimitive answers it unchanged and the
+        // implicit coercion must reject HERE, before the
+        // OrdinaryToPrimitive fallback below. The explicit lanes
+        // bypass this arm — `String(sym)` intercepts in
+        // `anyv_to_display_str` and `sym.toString()` rides the
+        // method-mid dispatch (§20.4.3.3 SymbolDescriptiveString).
+        // Pre-fix, the rotation-141 Symbol toString wiring made the
+        // fallback FIND the Symbol's toString and answer
+        // "Symbol(...)" silently — the 12 String.prototype
+        // this-as-symbol abrupt test262 cases regressed.
+        if matches!(h.tag(), Tag::Symbol) {
+            unsafe {
+                __torajs_throw_type_error(c"Cannot convert a symbol to a string".as_ptr());
+            }
+            return unsafe { __torajs_str_alloc_pooled(0) as *mut c_void };
+        }
         // Non-Str heap object — OrdinaryToPrimitive (hint string):
         // run the receiver's toString / valueOf and ToString the
         // first primitive result (chunk C; pre-C this answered a
@@ -268,6 +288,17 @@ pub(crate) unsafe fn any_to_number(tag: i64, value: i64) -> f64 {
         if matches!(h.tag(), Tag::BooleanWrapper) {
             let val = unsafe { *((child as *const u8).add(8)) };
             return if val != 0 { 1.0 } else { 0.0 };
+        }
+        // §7.1.4 step 5 — ToNumber(Symbol) throws (twin of the
+        // ToString arm above: a Symbol is a primitive, so it must
+        // reject here rather than let OrdinaryToPrimitive stringify
+        // it into NaN silently). NaN placeholder; the caller's
+        // throw check unwinds.
+        if matches!(h.tag(), Tag::Symbol) {
+            unsafe {
+                __torajs_throw_type_error(c"Cannot convert a symbol to a number".as_ptr());
+            }
+            return f64::NAN;
         }
         // Non-Str heap object — OrdinaryToPrimitive (hint number):
         // valueOf → toString, ToNumber of the first primitive

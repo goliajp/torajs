@@ -267,7 +267,14 @@ unsafe fn add_operand_to_primitive(tag: i64, value: i64) -> (i64, i64, Option<An
         return (tag, value, None);
     }
     let h = unsafe { &*(value as *const torajs_rc::HeapHeader) };
-    if matches!(h.tag(), torajs_rc::Tag::Str) {
+    // §7.1.1 step 3 — a Str cell IS the string primitive and a
+    // Symbol cell IS the symbol primitive: ToPrimitive answers both
+    // unchanged. The downstream ToString / ToNumber then records the
+    // §7.1.17 / §7.1.4 TypeError for a symbol. Pre-fix a Symbol fell
+    // into OrdinaryToPrimitive, whose toString probe answered the
+    // descriptive string — `sym + ""` concatenated instead of
+    // throwing.
+    if matches!(h.tag(), torajs_rc::Tag::Str | torajs_rc::Tag::Symbol) {
         return (tag, value, None);
     }
     match unsafe { crate::to_primitive::heap_to_primitive_default(value as *mut c_void) } {
