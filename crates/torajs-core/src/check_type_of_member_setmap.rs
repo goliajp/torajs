@@ -39,6 +39,11 @@ pub(crate) fn try_match(obj_ty: &Type, name: &str) -> Option<Result<Type, String
             vec![Type::Any],
             Box::new(Type::Nullable(Box::new(Type::Any))),
         ),
+        // Stage-3 upsert (RFC 20260721 刀 6) — answers the present
+        // value or the freshly inserted default.
+        (Type::Map, "getOrInsert") => {
+            Type::Function(vec![Type::Any, Type::Any], Box::new(Type::Any))
+        }
         (Type::Map, "has") => Type::Function(vec![Type::Any], Box::new(Type::Boolean)),
         (Type::Map, "delete") => Type::Function(vec![Type::Any], Box::new(Type::Boolean)),
         (Type::Map, "clear") => Type::Function(Vec::new(), Box::new(Type::Void)),

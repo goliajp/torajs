@@ -21,6 +21,7 @@ use crate::probe::{map_lookup_slot, map_rehash, map_slot_insert, slot_load_excee
 
 unsafe extern "C" {
     fn __torajs_value_drop_heap(p: *mut c_void);
+    fn __torajs_rc_inc(p: *mut c_void);
     /// torajs-anyvalue — NaN-box AnyValue pair encoder / tag decoder.
     fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64;
     fn __torajs_anyv_unbox_tag(v: u64) -> i64;
@@ -121,5 +122,82 @@ pub unsafe extern "C" fn __torajs_map_set(
         // robin-hood-swapped correctly. Tombstones compact at the
         // next rehash trigger.
         map_slot_insert((*m).slots, (*m).slots_count, hash, new_idx);
+    }
+}
+
+/// `map.getOrInsert(key, default)` per the stage-3 upsert proposal
+/// (bun ships it — RFC 20260721-builtin-method-reflection 刀 6):
+/// a present key answers its CURRENT value untouched; a missing key
+/// inserts `default` and answers it. The hit path is a single
+/// robin-hood lookup; the miss path delegates to
+/// [`__torajs_map_set`] so both grow/rehash legs stay single-source.
+///
+/// ## Ownership
+///
+/// Caller hands ONE owned stake per heap `key` / `default` (the
+/// `pair_consumed` contract). Hit: both stakes are released here
+/// (bucket already owns its key; `default` is unused). Miss: both
+/// transfer into the bucket through `map_set`. The value written to
+/// `out_*` is rc-bumped for the caller either way.
+///
+/// # Safety
+/// `m` is null (answers undefined) or a live Map; `out_*` are
+/// writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_map_get_or_insert(
+    p: *mut c_void,
+    key_tag: i64,
+    key_payload: i64,
+    default_tag: i64,
+    default_payload: i64,
+    out_tag: *mut i64,
+    out_payload: *mut i64,
+) {
+    let release = |tag: i64, payload: i64| {
+        if tag as u8 == ANY_HEAP && payload != 0 {
+            unsafe { __torajs_value_drop_heap(payload as *mut c_void) };
+        }
+    };
+    if p.is_null() {
+        release(key_tag, key_payload);
+        release(default_tag, default_payload);
+        unsafe {
+            *out_tag = 5;
+            *out_payload = 0;
+        }
+        return;
+    }
+    let m = p as *mut Map;
+    let mut kp = key_payload as u64;
+    // §24.1.3.9 -0 → +0 key normalization (matches map_set).
+    if key_tag as u8 == ANY_F64 && kp == (-0.0f64).to_bits() {
+        kp = 0;
+    }
+    let lr = unsafe { map_lookup_slot(m, key_tag as u8, kp) };
+    if lr.found {
+        unsafe {
+            let e = (*m).entries.add(lr.entry_idx as usize);
+            let v_anyv = (*e).value_anyv;
+            let vt = __torajs_anyv_unbox_tag(v_anyv);
+            let vp = __torajs_anyv_unbox_value(v_anyv);
+            if vt as u8 == ANY_HEAP && vp != 0 {
+                __torajs_rc_inc(vp as *mut c_void);
+            }
+            *out_tag = vt;
+            *out_payload = vp;
+        }
+        release(key_tag, kp as i64);
+        release(default_tag, default_payload);
+        return;
+    }
+    // Miss — insert the default (both stakes transfer), then answer
+    // it (+1 for the caller).
+    unsafe {
+        __torajs_map_set(p, key_tag, kp as i64, default_tag, default_payload);
+        if default_tag as u8 == ANY_HEAP && default_payload != 0 {
+            __torajs_rc_inc(default_payload as *mut c_void);
+        }
+        *out_tag = default_tag;
+        *out_payload = default_payload;
     }
 }

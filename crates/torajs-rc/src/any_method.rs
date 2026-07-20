@@ -401,6 +401,8 @@ pub const ANY_METHOD_CATCH: i64 = 158;
 pub const ANY_METHOD_FINALLY: i64 = 159;
 /// `Date.prototype.toTimeString` (§21.4.4.42 — RFC 20260721 刀 5).
 pub const ANY_METHOD_TO_TIME_STRING: i64 = 160;
+/// `Map.prototype.getOrInsert` (stage-3 upsert — RFC 20260721 刀 6).
+pub const ANY_METHOD_GET_OR_INSERT: i64 = 161;
 
 /// RegExp property-read ids (Any-method-call RFC 20260704 C4-3c-2)
 /// — `r.source` / `r.lastIndex` / flag booleans through an `any`

@@ -596,6 +596,7 @@ pub(crate) struct Intrinsics {
     pub(crate) map_clone: FuncId,
     pub(crate) map_set: FuncId,
     pub(crate) map_get: FuncId,
+    pub(crate) map_get_or_insert: FuncId,
     pub(crate) map_has: FuncId,
     pub(crate) map_delete: FuncId,
     pub(crate) map_clear: FuncId,

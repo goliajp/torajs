@@ -508,6 +508,7 @@ pub(crate) fn build(
         map_clone: init_c.map_set.map_clone,
         map_set: init_c.map_set.map_set,
         map_get: init_c.map_set.map_get,
+        map_get_or_insert: init_c.map_set.map_get_or_insert,
         map_has: init_c.map_set.map_has,
         map_delete: init_c.map_set.map_delete,
         map_clear: init_c.map_set.map_clear,

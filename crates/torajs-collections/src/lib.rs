@@ -74,7 +74,7 @@ pub use iter::{
     __torajs_map_iter_create_set_entries, __torajs_map_iter_create_values, __torajs_map_iter_drop,
     __torajs_map_iter_next, __torajs_map_iter_step,
 };
-pub use mutate::__torajs_map_set;
+pub use mutate::{__torajs_map_get_or_insert, __torajs_map_set};
 pub use query::{__torajs_map_get, __torajs_map_has, __torajs_map_size};
 
 // Cross-tier extern stubs for cargo unit tests — the real symbols

@@ -31,8 +31,8 @@ use core::ffi::c_void;
 
 use torajs_rc::{
     ANY_METHOD_ADD, ANY_METHOD_CLEAR, ANY_METHOD_DELETE, ANY_METHOD_DIFFERENCE, ANY_METHOD_ENTRIES,
-    ANY_METHOD_FOR_EACH, ANY_METHOD_GET, ANY_METHOD_GET_SIZE, ANY_METHOD_HAS,
-    ANY_METHOD_INTERSECTION, ANY_METHOD_IS_DISJOINT_FROM, ANY_METHOD_IS_SUBSET_OF,
+    ANY_METHOD_FOR_EACH, ANY_METHOD_GET, ANY_METHOD_GET_OR_INSERT, ANY_METHOD_GET_SIZE,
+    ANY_METHOD_HAS, ANY_METHOD_INTERSECTION, ANY_METHOD_IS_DISJOINT_FROM, ANY_METHOD_IS_SUBSET_OF,
     ANY_METHOD_IS_SUPERSET_OF, ANY_METHOD_KEYS, ANY_METHOD_NEXT, ANY_METHOD_SET,
     ANY_METHOD_SYMMETRIC_DIFFERENCE, ANY_METHOD_UNION, ANY_METHOD_VALUES, Tag,
 };
@@ -44,6 +44,15 @@ use crate::nanbox_encode::__torajs_anyv_box_from_pair;
 unsafe extern "C" {
     /// torajs-collections — Map/Set kernels (pair ABI; heap keys /
     /// values are consumed — the caller rc-bumps before the call).
+    fn __torajs_map_get_or_insert(
+        p: *mut c_void,
+        key_tag: i64,
+        key_payload: i64,
+        default_tag: i64,
+        default_payload: i64,
+        out_tag: *mut i64,
+        out_payload: *mut i64,
+    );
     fn __torajs_map_get(
         p: *const c_void,
         key_tag: i64,
@@ -155,6 +164,15 @@ pub(crate) unsafe fn map_set_method(
                 __torajs_map_get(m, kt, kp, &mut vt, &mut vp);
                 // The kernel rc-bumped a heap value for us — the box
                 // transfers that ownership out.
+                __torajs_anyv_box_from_pair(vt, vp)
+            }
+            m2 if m2 == ANY_METHOD_GET_OR_INSERT && !is_set => {
+                // Stage-3 upsert (RFC 20260721 刀 6) — the kernel
+                // owns both stakes and rc-bumps the answered value.
+                let (kt, kp) = pair_consumed(arg_at(0));
+                let (dt, dp) = pair_consumed(arg_at(1));
+                let (mut vt, mut vp): (i64, i64) = (5, 0);
+                __torajs_map_get_or_insert(m, kt, kp, dt, dp, &mut vt, &mut vp);
                 __torajs_anyv_box_from_pair(vt, vp)
             }
             m2 if m2 == ANY_METHOD_SET && !is_set => {
