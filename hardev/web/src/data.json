@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-20T11:03:05.756Z",
+  "generatedAt": "2026-07-20T12:02:27.375Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 93.09
   },
   "torajs": {
-    "commit": "67edbfc4",
-    "commitSubject": "fix: walk a typed struct props through Object.create's define phase",
+    "commit": "14c100bc",
+    "commitSubject": "style: fmt-drift fix for the knife-4 dispatch table",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "14c100bc",
+      "subject": "style: fmt-drift fix for the knife-4 dispatch table"
+    },
+    {
+      "hash": "d240a21b",
+      "subject": "feat: reify the object integrity family as ns-static value cells"
+    },
+    {
+      "hash": "ccca3d77",
+      "subject": "fix: answer builtin ctor name/length through a single-source meta table"
+    },
+    {
+      "hash": "f2a8b2af",
+      "subject": "feat: answer ctor-static own descriptors through the closure gOPD arm"
+    },
+    {
+      "hash": "1a18a237",
+      "subject": "feat: reify the first ctor-static batch as ns-static value cells"
+    },
+    {
+      "hash": "bfe68b87",
+      "subject": "fix: skip the wrapper expando re-probe when invoking a reified builtin cell"
+    },
+    {
+      "hash": "8142b78f",
+      "subject": "chore: hardev dashboard snapshot at rotation 163 close"
+    },
+    {
       "hash": "67edbfc4",
       "subject": "fix: walk a typed struct props through Object.create's define phase"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "c8e5bd62",
       "subject": "fix: route an any separator through runtime dispatch on typed split"
-    },
-    {
-      "hash": "75a6b34b",
-      "subject": "fix: route a RegExp separator through @@split on the any lane"
-    },
-    {
-      "hash": "0dac4889",
-      "subject": "fix: gate typed primitive props through the define-props source gate"
-    },
-    {
-      "hash": "99982fe5",
-      "subject": "chore: hardev dashboard snapshot at rotation 162 close"
-    },
-    {
-      "hash": "88af131a",
-      "subject": "fix: a template substitution's implicit ToString throws on a Symbol"
-    },
-    {
-      "hash": "b154857a",
-      "subject": "fix: require homogeneous elements before inferring a literal T[]"
-    },
-    {
-      "hash": "b38d5777",
-      "subject": "fix: gate primitive Properties values before the define-props walk"
-    },
-    {
-      "hash": "c426b882",
-      "subject": "chore: archive the test262 sweep at 75f93de5"
     }
   ],
-  "headSha": "67edbfc4",
+  "headSha": "14c100bc",
   "autorun": {
-    "total": 468,
+    "total": 469,
     "baselineTarget": 10,
-    "bySelf": 463,
+    "bySelf": 464,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784540120-66d3",
-      "at": "2026-07-20T09:35:20Z",
-      "ts": 1784540120,
+      "rotationId": "r-1784545523-1602",
+      "at": "2026-07-20T11:05:23Z",
+      "ts": 1784545523,
       "trigger": "self",
-      "prevHead": "99982fe5",
-      "handoffSha": "sha256:94e3468ab45ddc763df1ef426c486605d9e27f487a928fd4d96dc09b70137c8f",
-      "handoffAgeSec": 44,
+      "prevHead": "8142b78f",
+      "handoffSha": "sha256:8ed65c5d22a515ed2cad554d10303882d11acc4b2e59f4955576004fc78fc5ad",
+      "handoffAgeSec": 65,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784545523-1602",
+        "at": "2026-07-20T11:05:23Z",
+        "ts": 1784545523,
+        "trigger": "self",
+        "prevHead": "8142b78f",
+        "handoffSha": "sha256:8ed65c5d22a515ed2cad554d10303882d11acc4b2e59f4955576004fc78fc5ad",
+        "handoffAgeSec": 65,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784540120-66d3",
         "at": "2026-07-20T09:35:20Z",
@@ -876,17 +887,6 @@
         "prevHead": "1ccb2928",
         "handoffSha": "sha256:abb3ebb4af29c5cc700c08749466d34710835ccaca3402cedbfd45da261ed78d",
         "handoffAgeSec": 82,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784475359-79b9",
-        "at": "2026-07-19T15:35:59Z",
-        "ts": 1784475359,
-        "trigger": "self",
-        "prevHead": "2f487279",
-        "handoffSha": "sha256:25efcef26c76d8949a95513b1609e7f4e513103368f455c2192501219de1e6bc",
-        "handoffAgeSec": 10,
         "conformanceBefore": null,
         "commitsInSession": null
       }
