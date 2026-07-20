@@ -125,6 +125,10 @@ fn clamp_range(ilen: i64, start: i64, end: i64) -> (i64, i64) {
 /// - `FLAG_ARR_ANY` (NaN-box u64 slots) → per-slot copy +
 ///   NaN-box-safe `rc_inc` (each new slot takes an independent ref,
 ///   the source keeps its own; same ledger as `arr_extend_any`).
+///   An exotic receiver (`FLAG_ARR_EXOTIC_INDEX`) reads per index
+///   through `arr_index_get` instead — [[Get]] semantics for
+///   accessor indexes and holes (one predictable branch for plain
+///   arrays).
 /// - typed 8-byte slots → single memcpy (deque head folded), then
 ///   copy the 3-bit elem-kind field onto the fresh header so the
 ///   product stays self-describing; `ARR_KIND_HEAP` slots rc_inc
@@ -153,9 +157,22 @@ pub unsafe extern "C" fn __torajs_arr_any_slice(arr: *const u8, start: i64, end:
             *(p.add(ARR_HEAD_OFF) as *mut u32) = 0;
             *(p.add(ARR_PROPS_OFF) as *mut u64) = 0;
             *(p.add(ARR_DATA_PTR_OFF) as *mut *mut u8) = p.add(ARR_CELL_SIZE);
+            let exotic = flags & torajs_rc::FLAG_ARR_EXOTIC_INDEX != 0;
             for i in 0..out_len as usize {
-                let av = *(arr_data(arr).add((lo as usize + i) * ANY_SLOT_BYTES) as *const u64);
-                __torajs_rc_inc(av as *mut c_void);
+                let av = if exotic {
+                    // §23.1.3.25 / §23.1.3.34 ride [[Get]] — an
+                    // accessor index reads through its getter and a
+                    // hole answers undefined (RFC 20260721 刀 5
+                    // follow-up: the raw slot of an accessor index
+                    // is dead undefined). Owned +1 — the fresh slot
+                    // adopts it. The getter may mutate the receiver;
+                    // out_len stays the §23.1.3.34 length snapshot.
+                    crate::index_any::__torajs_arr_index_get(arr as *const c_void, lo + i as i64)
+                } else {
+                    let av = *(arr_data(arr).add((lo as usize + i) * ANY_SLOT_BYTES) as *const u64);
+                    __torajs_rc_inc(av as *mut c_void);
+                    av
+                };
                 *(arr_data(p).add(i * ANY_SLOT_BYTES) as *mut u64) = av;
             }
             return p;

@@ -61,27 +61,46 @@ pub(crate) fn try_dispatch(
                 Type::I64,
                 None,
             );
-            let v = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Call(
-                    ctx.intrinsics.arr_slice,
-                    vec![recv_op, Operand::ConstI64(0), Operand::Value(len)],
-                ),
-                Type::Arr(arr_id),
-                None,
-            );
-            // Phase B refcount: arr_slice memcpys the slots without
-            // touching element refcounts — inc each shared slot so the
-            // clone owns its refs (mirrors arr.slice; without this the
-            // clone's drop per-elem dec is unmatched = over-release).
-            if elem_ty.is_refcounted() {
-                ctx.emit_arr_rc_inc_range(
-                    Operand::Value(v),
-                    Operand::ConstI64(0),
-                    Operand::Value(len),
+            // An Any-elem receiver clones through the exotic-aware
+            // `arr_any_slice` (RFC 20260721 刀 5 follow-up): an
+            // accessor index reads through its getter per §23.1.3.34
+            // [[Get]], and the kernel incs each slot itself. Typed
+            // receivers keep the raw `arr_slice` memcpy + inc range.
+            if elem_ty == Type::Any {
+                let v = ctx.f.append_inst(
+                    ctx.cur_block,
+                    InstKind::Call(
+                        ctx.intrinsics.arr_any_slice,
+                        vec![recv_op, Operand::ConstI64(0), Operand::Value(len)],
+                    ),
+                    Type::Arr(arr_id),
+                    None,
                 );
+                ctx.emit_throw_check(None);
+                Operand::Value(v)
+            } else {
+                let v = ctx.f.append_inst(
+                    ctx.cur_block,
+                    InstKind::Call(
+                        ctx.intrinsics.arr_slice,
+                        vec![recv_op, Operand::ConstI64(0), Operand::Value(len)],
+                    ),
+                    Type::Arr(arr_id),
+                    None,
+                );
+                // Phase B refcount: arr_slice memcpys the slots without
+                // touching element refcounts — inc each shared slot so the
+                // clone owns its refs (mirrors arr.slice; without this the
+                // clone's drop per-elem dec is unmatched = over-release).
+                if elem_ty.is_refcounted() {
+                    ctx.emit_arr_rc_inc_range(
+                        Operand::Value(v),
+                        Operand::ConstI64(0),
+                        Operand::Value(len),
+                    );
+                }
+                Operand::Value(v)
             }
-            Operand::Value(v)
         } else {
             recv_op
         };
