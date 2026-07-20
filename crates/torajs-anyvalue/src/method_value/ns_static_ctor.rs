@@ -194,6 +194,19 @@ pub(super) unsafe fn bigint_as_n(signed: bool, argv: *const u64, argc: i64) -> u
     }
 }
 
+/// §27.2.4.7/.6 Promise.resolve / reject (RFC 20260720 刀 6) — both
+/// statics read |this| as the species constructor (step 1) and a
+/// bare reified-cell call has an undefined this (the ns-static
+/// dispatcher is receiver-less by design), so the call ALWAYS raises
+/// the catchable TypeError bun/JSC does for `const r =
+/// Promise.resolve; r(42)`. The cell still serves the reflection
+/// surface (name / length / print / gOPD identity); a this-aware
+/// cell entry is the recorded follow-up face (RFC 刀 6 note).
+pub(super) unsafe fn promise_settle() -> u64 {
+    unsafe { __torajs_throw_type_error(c"|this| is not an object".as_ptr()) };
+    VALUE_UNDEFINED
+}
+
 /// §20.1.2.11 Object.hasOwn — step 1 ToObject throws on a nullish
 /// target; every other receiver routes through the same prop_has
 /// probe the `hasOwnProperty` dispatcher arm uses (single source).

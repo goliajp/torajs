@@ -201,17 +201,17 @@ pub(crate) fn try_match(obj_ty: &Type, name: &str) -> Option<Result<Type, String
         (Type::Object("Object"), "isFrozen") => {
             Type::Function(vec![Type::Any], Box::new(Type::Boolean))
         }
-        /* T-15.g.1 — Promise.resolve(v) / Promise.reject(v).
-         * MVP only Number arg (Type::Promise<Number>);
-         * heap types (Promise<string>, etc.) land in
-         * T-15.g.4 via direct call-arm handling that
-         * inspects the inferred arg type at the call site
-         * (the static-method table's TypeVar isn't
-         * instantiated automatically). */
-        (Type::Object("Promise"), "resolve" | "reject") => Type::Function(
-            vec![Type::Number],
-            Box::new(Type::Promise(Box::new(Type::Number))),
-        ),
+        /* Promise.resolve / reject as a VALUE (RFC 20260720 刀 6).
+         * Direct member calls never reach this arm (the call
+         * checker's T-15.g.4 promise-static handling intercepts
+         * first); a detached value's bare call has an undefined
+         * |this| and both statics require an object this (§27.2.4.7
+         * step 1) — the reified cell's dispatch arm raises the same
+         * catchable TypeError bun/JSC does, so the signature only
+         * needs to admit any call shape. */
+        (Type::Object("Promise"), "resolve" | "reject") => {
+            Type::Function(vec![Type::Any], Box::new(Type::Any))
+        }
         /* T-13.b (v0.4.0) — Symbol.for(key) returns the
          * registered Symbol for the key (creates one on
          * first call). Identity preserved across calls. */

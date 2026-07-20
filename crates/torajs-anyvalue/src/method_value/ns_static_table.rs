@@ -236,6 +236,11 @@ pub(super) enum Disp {
     BigIntAsN {
         signed: bool,
     },
+    /// §27.2.4.7/.6 Promise.resolve / reject — a bare cell call has
+    /// an undefined |this| and both statics require an object this
+    /// (species ctor, step 1), so the arm always raises the bun/JSC
+    /// TypeError; the cell exists for the reflection surface.
+    PromiseSettle,
 }
 
 /// The own-enumeration surfaces (shared dispatch shape) — `Names`
@@ -326,4 +331,6 @@ pub(super) static DISPATCH: &[Disp] = &[
     Disp::ObjectIsSealed,
     Disp::BigIntAsN { signed: true },
     Disp::BigIntAsN { signed: false },
+    Disp::PromiseSettle,
+    Disp::PromiseSettle,
 ];

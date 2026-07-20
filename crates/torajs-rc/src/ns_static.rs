@@ -138,6 +138,12 @@ pub static NS_STATIC_TABLE: &[NsStaticRow] = &[
     // Lengths per §21.2.2.{1,2}.
     row("BigInt", "asIntN", 2),
     row("BigInt", "asUintN", 2),
+    // Ctor statics batch 4 (RFC 20260720 刀 6) — the Promise settle
+    // pair: thenable absorption via the existing resolve_thenable
+    // kernel, everything else through the REPR_ANY-stamped any
+    // allocs. Lengths per §27.2.4.{7,6}.
+    row("Promise", "resolve", 1),
+    row("Promise", "reject", 1),
 ];
 
 /// Compile-time `(namespace, member)` → id. Linear scan — lower-time
