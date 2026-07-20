@@ -28,10 +28,11 @@
 //! ctor.__proto__ (%Function%) is unwired for the same reason.
 
 //! Capacity invariant: every dynobj minted or written here stays at
-//! ≤ 3 entries, under DYNOBJ_INITIAL_CAP's 7-entry dense capacity —
-//! no insert below ever relocates a cell, so the raw pointers held
-//! in `CELLS` (and the circular cross-links) stay valid without the
-//! obj_slot writeback dance.
+//! ≤ 4 entries (gen_proto: constructor + next/return/throw), under
+//! DYNOBJ_INITIAL_CAP's 7-entry dense capacity — no insert below
+//! ever relocates a cell, so the raw pointers held in `CELLS` (and
+//! the circular cross-links) stay valid without the obj_slot
+//! writeback dance.
 
 use core::ffi::c_void;
 
@@ -49,6 +50,10 @@ unsafe extern "C" {
         flags_byte: u64,
     );
     fn __torajs_get_builtin_prototype(tag: i64) -> *mut c_void;
+    /// torajs-anyvalue — the interned `%GeneratorPrototype%` step
+    /// method cell (`which`: 0 next / 1 return / 2 throw), a
+    /// reflection-surface function (RFC 20260721 刀 2).
+    fn __torajs_gen_step_method_cell(kind: i64, which: i64) -> *mut u8;
 }
 
 const ANY_I64: u64 = 2;
@@ -63,6 +68,9 @@ const FLAG_CONFIGURABLE: u64 = 1 << 2;
 const ATTRS_WEC_001: u64 = PRESENT_ALL_VALUE | FLAG_CONFIGURABLE;
 /// {writable:false, enumerable:false, configurable:false}
 const ATTRS_WEC_000: u64 = PRESENT_ALL_VALUE;
+/// {writable:true, enumerable:false, configurable:true} — the
+/// §27.5.1 step-method attribute set.
+const ATTRS_WEC_101: u64 = PRESENT_ALL_VALUE | FLAG_CONFIGURABLE | 1;
 
 /// Builtin-proto singleton tag for Function.prototype
 /// (`builtin_proto.rs` tag space).
@@ -143,6 +151,14 @@ unsafe fn mint_kind(kind: usize) {
 
     // gen_proto: constructor back-link (§27.5.1.1 / §27.6.1.1).
     unsafe { define_heap(gen_proto, b"constructor", fn_proto, ATTRS_WEC_001) };
+    // gen_proto: next / return / throw step methods (§27.5.1.2-4 /
+    // §27.6.1.2-4, {W:1, E:0, C:1}) — interned reflection cells
+    // (RFC 20260721 刀 2; the call face records a loud reject, live
+    // stepping rides the generator instance's class methods).
+    for (which, name) in [(0i64, b"next" as &[u8]), (1, b"return"), (2, b"throw")] {
+        let cell = unsafe { __torajs_gen_step_method_cell(kind as i64, which) };
+        unsafe { define_heap(gen_proto, name, cell as *mut c_void, ATTRS_WEC_101) };
+    }
 
     use core::sync::atomic::Ordering;
     CELLS[kind][1].store(ctor as usize, Ordering::Release);

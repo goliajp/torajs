@@ -173,6 +173,30 @@ pub(crate) fn builtin_method_cell(family: i64, mid: i64) -> *mut u8 {
     }
 }
 
+/// A fresh immortal Closure cell whose boxed dual entry is the given
+/// reject dispatcher (RFC 20260721 刀 2 — the %GeneratorPrototype%
+/// step-method reflection cells). The caller wires its own props /
+/// capture slots; `fn_addr` takes the same typed-slot loud reject
+/// every interned cell carries.
+pub(crate) fn mint_reject_closure_cell(
+    boxed_entry: unsafe extern "C" fn(*mut core::ffi::c_void, *const u64, i64) -> u64,
+) -> *mut u8 {
+    // SAFETY: fresh CELL_SIZE allocation, fully initialized below.
+    unsafe {
+        let layout = core::alloc::Layout::from_size_align(CELL_SIZE, 8).unwrap();
+        let cell = std::alloc::alloc_zeroed(layout);
+        *(cell as *mut u32) = 1;
+        *(cell.add(4) as *mut u16) = Tag::Closure as u16;
+        *(cell.add(6) as *mut u16) = FLAG_STATIC_LITERAL;
+        *(cell.add(CLOSURE_FN_ADDR_OFF) as *mut u64) = native_entry as *const () as u64;
+        *(cell.add(CLOSURE_DROP_FN_OFF) as *mut u64) = 0;
+        *(cell.add(CLOSURE_PROPS_OFF) as *mut u64) = 0;
+        *(cell.add(CLOSURE_BOXED_ENTRY_OFF) as *mut u64) = boxed_entry as *const () as u64;
+        *(cell.add(CLOSURE_CAP_BASE_OFF) as *mut u64) = 0;
+        cell
+    }
+}
+
 /// Extern face of [`builtin_method_cell`] for the staticlib boundary —
 /// torajs-meta's error-proto install consumes it to define
 /// `Error.prototype.toString` as an own function entry (RFC

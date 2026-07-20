@@ -240,15 +240,19 @@ fn alloc_env(
     // factories and async-generator steps keep both bits clear
     // (their reflection surface is the G2 substrate).
     let decl_name = fn_name.strip_prefix("__forward_");
-    if ctx.ast.fn_async_value_fns.contains(fn_name)
+    if decl_name.is_some_and(|n| ctx.ast.generator_factory_classes.contains_key(n)) {
+        // Generator factory — [[Prototype]] routes to the genfn trio
+        // (RFC 20260721 刀 2); its `.prototype` rides the class-proto
+        // channel, so FLAG_FN_PROTO stays off. Async generators keep
+        // both flavor bits clear until their reflection lands (G2
+        // async half).
+        flags |= 1 << 3;
+    } else if ctx.ast.fn_async_value_fns.contains(fn_name)
         || decl_name.is_some_and(|n| ctx.ast.async_fns.contains(n))
     {
         flags |= 1 << 7;
     } else if ctx.ast.fn_proto_fns.contains(fn_name)
-        || decl_name.is_some_and(|n| {
-            !ctx.ast.generator_factory_classes.contains_key(n)
-                && !ctx.ast.async_generator_fns.contains(n)
-        })
+        || decl_name.is_some_and(|n| !ctx.ast.async_generator_fns.contains(n))
     {
         flags |= 1 << 15;
     }

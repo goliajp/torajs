@@ -16,6 +16,10 @@ use crate::reflect::{
     VALUE_UNDEFINED_IMM, alloc_str_key, box_pair_imm, heap_type_tag, is_cell_imm,
 };
 
+/// `torajs_rc::FLAG_FN_GENERATOR` mirror (Tag::Closure-private
+/// header-flags bit 3, RFC 20260721 刀 2).
+const FLAG_FN_GENERATOR_BIT: u16 = 1 << 3;
+
 unsafe extern "C" {
     fn __torajs_rc_inc(p: *mut c_void);
     fn __torajs_str_drop(s: *mut u8);
@@ -259,6 +263,16 @@ pub unsafe extern "C" fn __torajs_anyv_get_proto_of_any(v: u64) -> u64 {
         // `getPrototypeOf(xs) === Array.prototype` holds). Tags with
         // no proto singleton (struct / iterator internals) keep the
         // null answer (recorded boundary).
+        // RFC 20260721 刀 2 — a generator-factory cell's
+        // [[Prototype]] is %GeneratorFunction.prototype% (§27.3.2),
+        // the genfn trio singleton (already owned on return); every
+        // other closure keeps %Function.prototype% below.
+        if tag == TAG_CLOSURE {
+            let flags = unsafe { dynobj.cast::<u8>().add(6).cast::<u16>().read() };
+            if flags & FLAG_FN_GENERATOR_BIT != 0 {
+                return unsafe { crate::genfn::__torajs_genfn_proto(0) };
+            }
+        }
         let proto_tag = match tag {
             TAG_ARR => 2,
             0 => 3, // Str / Substr view

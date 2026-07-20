@@ -42,6 +42,8 @@ unsafe extern "C" {
     /// torajs-dynobj — entry probes (tag 5 = absent).
     fn __torajs_dynobj_get_tag(obj: *const c_void, key: *const c_void) -> u64;
     fn __torajs_dynobj_get_value(obj: *const c_void, key: *const c_void) -> u64;
+    /// torajs-throw — record a pending catchable TypeError.
+    fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
 }
 
 /// `ANY_HEAP` slot tag (torajs-dynobj `layout.rs` mirror).
@@ -155,6 +157,85 @@ unsafe fn own_pair(tag: u64, v: u64) -> u64 {
     }
     unsafe { crate::nanbox_encode::__torajs_anyv_box_from_pair(tag as i64, v as i64) }
 }
+
+/// `%GeneratorPrototype%` step-method cells (RFC 20260721 刀 2) —
+/// `next` / `return` / `throw` reified for the REFLECTION surface
+/// (typeof / name / length / gOPD): interned per (kind, which),
+/// `name` / `length` carried as own W0/E0/C1 props entries so the
+/// existing closure member/gOPD chains answer them with zero new
+/// plumbing. A detached CALL raises the recorded loud TypeError —
+/// live stepping rides the generator instance's class methods, and
+/// a receiver-generic re-dispatch is the recorded face.
+static GEN_STEP_CELLS: [[AtomicU64; 3]; 2] = [
+    [const { AtomicU64::new(0) }; 3],
+    [const { AtomicU64::new(0) }; 3],
+];
+static GEN_STEP_NAMES: [&[u8]; 3] = [b"next", b"return", b"throw"];
+
+unsafe extern "C" fn gen_step_reject_entry(
+    _env: *mut c_void,
+    _argv: *const u64,
+    _argc: i64,
+) -> u64 {
+    unsafe {
+        __torajs_throw_type_error(
+            c"generator prototype step method called through a detached value is not supported"
+                .as_ptr(),
+        );
+    }
+    crate::nanbox::VALUE_UNDEFINED
+}
+
+/// The interned `%GeneratorPrototype%.next/return/throw` cell —
+/// torajs-meta's genfn trio mint defines these into the shared
+/// gen_proto. `kind` 0 = generator / 1 = async generator; `which`
+/// indexes [`GEN_STEP_NAMES`]. Answers an immortal cell (borrow).
+///
+/// # Safety
+/// FFI face; indices are clamped by the callers (genfn mint).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_gen_step_method_cell(kind: i64, which: i64) -> *mut u8 {
+    let k = if kind == 1 { 1usize } else { 0usize };
+    let w = (which as usize).min(2);
+    let slot = &GEN_STEP_CELLS[k][w];
+    let p = slot.load(Ordering::Relaxed);
+    if p != 0 {
+        return p as *mut u8;
+    }
+    let cell = crate::method_value::mint_reject_closure_cell(gen_step_reject_entry);
+    unsafe {
+        // name / length as own props entries ({W:0, E:0, C:1},
+        // §27.5.1.2-4: every step method's length is 1).
+        let props_slot = cell.add(24) as *mut *mut c_void;
+        *props_slot = __torajs_dynobj_alloc();
+        let name_cell = mint_immortal_str(GEN_STEP_NAMES[w]);
+        __torajs_dynobj_define(
+            props_slot,
+            interned_key(&NAME_KEY_CELL, b"name"),
+            ANY_HEAP,
+            name_cell as u64,
+            REFLECT_ENTRY_FLAGS,
+        );
+        __torajs_dynobj_define(
+            props_slot,
+            interned_key(&LENGTH_KEY_CELL, b"length"),
+            ANY_I64,
+            1,
+            REFLECT_ENTRY_FLAGS,
+        );
+    }
+    slot.store(cell as u64, Ordering::Relaxed);
+    cell
+}
+
+/// `ANY_I64` slot tag (torajs-dynobj `layout.rs` mirror).
+const ANY_I64: u64 = 2;
+/// Reflection entry: value present + all three present, writable
+/// false / enumerable false / configurable true.
+const REFLECT_ENTRY_FLAGS: u64 = (1 << 6) | (1 << 5) | (1 << 4) | (1 << 3) | (1 << 2);
+
+static NAME_KEY_CELL: AtomicU64 = AtomicU64::new(0);
+static LENGTH_KEY_CELL: AtomicU64 = AtomicU64::new(0);
 
 /// Compiler face for the typed lane (`fun.constructor` on a
 /// closure-typed receiver, RFC 20260721 刀 4) — an own `constructor`

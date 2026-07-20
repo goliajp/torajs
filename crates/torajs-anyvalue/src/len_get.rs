@@ -170,6 +170,20 @@ pub unsafe extern "C" fn __torajs_any_length_get(recv: AnyValue) -> AnyValue {
             if let Some(l) = closure_length_of(ptr) {
                 return crate::nanbox_encode::__torajs_anyv_box_i64(l);
             }
+            // RFC 20260721 刀 2 — a reflection-surface cell (the
+            // %GeneratorPrototype% step methods) carries `length` as
+            // an own props entry and never joins the fn-addr
+            // registry; probe before the undefined fallthrough.
+            let props = crate::member_get::closure_props(ptr);
+            if !props.is_null() {
+                let key = __torajs_str_alloc(c"length".as_ptr() as *const u8, 6);
+                let dtag = __torajs_dynobj_get_tag(props, key as *const c_void);
+                let dval = __torajs_dynobj_get_value(props, key as *const c_void);
+                __torajs_str_drop(key as *mut c_void);
+                if dtag != 5 {
+                    return box_probe_pair(dtag, dval, recv);
+                }
+            }
         }
     }
     VALUE_UNDEFINED

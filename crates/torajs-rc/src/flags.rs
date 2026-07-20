@@ -11,7 +11,7 @@
 //! |-------|------|-------|
 //! | 1     | [`FLAG_SPLIT_BLOCK`] | Str |
 //! | 2     | [`FLAG_STATIC_LITERAL`] | universal |
-//! | 3     | [`FLAG_ARR_ANY`] | Arr |
+//! | 3     | [`FLAG_ARR_ANY`] (Arr) / [`FLAG_FN_GENERATOR`] (Closure) | disjoint-by-tag |
 //! | 4     | [`FLAG_FROZEN`] | universal |
 //! | 5     | [`FLAG_BUFFERED`] | universal (cycle collector) |
 //! | 6     | NULL_PROTO (torajs-dynobj private) | DynObj |
@@ -134,3 +134,10 @@ pub const FLAG_FN_ASYNC: u16 = 1 << 7;
 /// Bit 15 is Tag::Closure-private (disjoint-by-tag reuse of
 /// [`FLAG_ARR_EXOTIC_INDEX`]).
 pub const FLAG_FN_PROTO: u16 = 1 << 15;
+/// `Tag::Closure` cell that is a GENERATOR factory (RFC 20260721
+/// 刀 2) — its [[Prototype]] is `%GeneratorFunction.prototype%`
+/// (§27.3; the torajs-meta genfn trio), not %Function.prototype%;
+/// combined with [`FLAG_FN_ASYNC`] it marks an async generator
+/// (§27.4). Bit 3 is Tag::Closure-private (disjoint-by-tag reuse of
+/// [`FLAG_ARR_ANY`]).
+pub const FLAG_FN_GENERATOR: u16 = 1 << 3;
