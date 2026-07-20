@@ -90,6 +90,32 @@ pub(super) fn ctor_tag_of_cell(cell: *const c_void) -> Option<i64> {
         .map(|i| i as i64)
 }
 
+/// ES `name` / `length` of a builtin constructor (刀 3) — the
+/// torajs-rc single-source table (the lowering's ctor-namespace
+/// member fold reads the same rows).
+pub(super) fn ctor_meta(proto_tag: i64) -> Option<(&'static str, u32)> {
+    torajs_rc::builtin_proto::builtin_ctor_meta(proto_tag)
+}
+
+/// Per-proto-tag interned `.name` Str cells (刀 3) — same immortal
+/// shape as the method-name intern table.
+static CTOR_NAME_CELLS: [AtomicU64; torajs_rc::builtin_proto::NUM_BUILTIN_PROTOS] =
+    [const { AtomicU64::new(0) }; torajs_rc::builtin_proto::NUM_BUILTIN_PROTOS];
+
+/// The interned `.name` Str cell of a ctor cell — lazily minted,
+/// immortal.
+pub(super) fn ctor_name_cell(proto_tag: i64) -> Option<*mut u8> {
+    let (name, _) = ctor_meta(proto_tag)?;
+    let slot = &CTOR_NAME_CELLS[proto_tag as usize];
+    let p = slot.load(Ordering::Relaxed);
+    if p != 0 {
+        return Some(p as *mut u8);
+    }
+    let cell = super::mint_immortal_str(name.as_bytes());
+    slot.store(cell as u64, Ordering::Relaxed);
+    Some(cell)
+}
+
 /// The builtin-prototype family tag of a receiver (`torajs-rc
 /// builtin_proto` order: Number 0 / Object 1 / Array 2 / String 3 /
 /// Boolean 4 / Symbol 5 / BigInt 6 / RegExp 7 / Date 8 / Error 9 /

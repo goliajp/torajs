@@ -40,6 +40,34 @@ unsafe extern "C" {
 /// fixed by the tag constants ssa_lower emits — never reorder.
 pub const NUM_BUILTIN_PROTOS: usize = 14;
 
+/// ES `name` / ctor-clause `length` of the builtin constructor
+/// owning each proto tag (RFC 20260720-ctor-static-reflection 刀 3)
+/// — the single source both the lowering's ctor-namespace member
+/// fold and the runtime reflection probes read (bun-verified
+/// 14/14). Lengths per the ctor clauses: §21.1.1 / §20.1.1 /
+/// §23.1.1 / §22.1.1 / §20.3.1 / §20.4.1 (Symbol 0) / §21.2.1 /
+/// §22.2.4 (RegExp 2) / §21.4.2 (Date 7) / §20.5.1 / §27.2.3 /
+/// §24.1.1 (Map 0) / §24.2.2 (Set 0) / §20.2.1.
+pub fn builtin_ctor_meta(tag: i64) -> Option<(&'static str, u32)> {
+    Some(match tag {
+        0 => ("Number", 1),
+        1 => ("Object", 1),
+        2 => ("Array", 1),
+        3 => ("String", 1),
+        4 => ("Boolean", 1),
+        5 => ("Symbol", 0),
+        6 => ("BigInt", 1),
+        7 => ("RegExp", 2),
+        8 => ("Date", 7),
+        9 => ("Error", 1),
+        10 => ("Promise", 1),
+        11 => ("Map", 0),
+        12 => ("Set", 0),
+        13 => ("Function", 1),
+        _ => return None,
+    })
+}
+
 /// `Array.prototype`'s slot. ES §23.1.3 makes it an *Array exotic
 /// object* (an empty one) rather than an ordinary object, so its
 /// singleton is a real `Arr` cell — that is what makes

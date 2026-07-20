@@ -238,7 +238,13 @@ fn lower_ctor_namespace(
     match name {
         "prototype" => Some(any_boxed_builtin_proto(ctx, tag)),
         "name" => Some(Operand::Value(ctx.intern_string_literal(ns_name))),
-        "length" => Some(Operand::ConstI64(1)),
+        // Ctor-clause length off the torajs-rc single source (RFC
+        // 20260720 刀 3) — the previous constant 1 was wrong for
+        // Date (7) / RegExp (2) / Symbol / Map / Set (0).
+        "length" => {
+            let (_, l) = torajs_rc::builtin_proto::builtin_ctor_meta(tag)?;
+            Some(Operand::ConstI64(l as i64))
+        }
         _ => None,
     }
 }

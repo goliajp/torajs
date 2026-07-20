@@ -249,6 +249,11 @@ pub(crate) unsafe fn builtin_method_name(ptr: *mut c_void) -> Option<&'static st
     if let Some(name) = unsafe { ns_static::ns_static_name(ptr) } {
         return Some(name);
     }
+    // 刀 3 (RFC 20260720) — a ctor cell's mid slot is the UNKNOWN
+    // sentinel, so it must answer BEFORE the mid chain misses.
+    if let Some(tag) = ctor::ctor_tag_of_cell(ptr) {
+        return ctor::ctor_meta(tag).map(|(name, _)| name);
+    }
     let mid = unsafe { builtin_method_mid(ptr) }?;
     torajs_rc::any_method_meta(mid).map(|(name, _)| name)
 }
@@ -264,6 +269,10 @@ pub(crate) unsafe fn builtin_method_name_cell_of(ptr: *mut c_void) -> Option<*mu
     if let Some(cell) = unsafe { ns_static::ns_static_name_cell_of(ptr) } {
         return Some(cell);
     }
+    // 刀 3 — ctor cells intern their own name row (mid is UNKNOWN).
+    if let Some(tag) = ctor::ctor_tag_of_cell(ptr) {
+        return ctor::ctor_name_cell(tag);
+    }
     let mid = unsafe { builtin_method_mid(ptr) }?;
     let (name, _) = torajs_rc::any_method_meta(mid)?;
     Some(builtin_method_name_cell(mid, name))
@@ -278,6 +287,10 @@ pub(crate) unsafe fn builtin_method_name_cell_of(ptr: *mut c_void) -> Option<*mu
 pub(crate) unsafe fn builtin_method_arity(ptr: *mut c_void) -> Option<u32> {
     if let Some(arity) = unsafe { ns_static::ns_static_arity(ptr) } {
         return Some(arity);
+    }
+    // 刀 3 — ctor cells carry their ES ctor-clause length.
+    if let Some(tag) = ctor::ctor_tag_of_cell(ptr) {
+        return ctor::ctor_meta(tag).map(|(_, l)| l);
     }
     let mid = unsafe { builtin_method_mid(ptr) }?;
     torajs_rc::any_method_meta(mid).map(|(_, arity)| arity)
