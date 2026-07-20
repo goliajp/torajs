@@ -84,14 +84,19 @@ pub(crate) fn run(
         // reachable back through the receiver's props, so every call
         // rides the runtime any-method dispatch, which reads the
         // FLAG_CLOSURE_n header bit and seeds the receiver —
-        // zero-alias by construction for a literal fn-expr RHS.
-        // (An Ident RHS keeps knife-2's use-shape analysis, where a
-        // member-store position stays a non-face use — loud.)
+        // zero-alias by construction for a literal fn-expr RHS. An
+        // Ident RHS (`o.m = f`) is a face POSITION for knife-2's
+        // use-shape analysis: the binding promotes only when its
+        // remaining uses are all face reads / direct calls, same bar
+        // as every other variable-routed face. (The Index-target
+        // twin `o["k"] = fn` already rides this arm through the
+        // parser's Member desugar.)
         if let Expr::Assign { target, value } = &exprs[i] {
             if let Expr::Member { obj, .. } = &exprs[target.0 as usize]
                 && matches!(&exprs[obj.0 as usize], Expr::Ident(n) if any_recvs.contains(n))
             {
                 collect_face(exprs, *value, fn_expr_exprs, &mut patches);
+                collect_ident_face(exprs, *value, &mut ident_cands);
             }
             continue;
         }
