@@ -189,14 +189,13 @@ pub(crate) fn try_dispatch(
         if matches!(fill_elem, Type::Any) {
             return Some(ctx.emit_arr_any_fill_at(recv_op, args, recv_ty));
         }
-        let mut value = ctx.lower_expr(args[0]);
-        // Chunk 575 — stored arrays chain-mark (push twin).
-        ctx.emit_arr_mark_kind(&value);
-        // W4 — align with the elem width, then cross the i64-param
-        // intrinsic boundary as raw bits.
-        if fill_elem == Type::F64 && ctx.operand_ty(&value) == Type::I64 {
-            value = ctx.coerce_to_f64(value);
-        }
+        // Shared store-boundary coercion (push twin): chain-mark,
+        // bool→i64, W4 f64 widen, Any→scalar/Str unbox (checker
+        // fill Any admit pairing), Substr→owned Str. The owned flag
+        // marks a fresh rc=1 value with no caller binding — fill
+        // inc's per slot, so that fresh ref settles after the loop.
+        let (value, val_owned) =
+            crate::ssa_lower_call_arr_push::coerce_push_value(ctx, args[0], fill_elem.clone());
         let value = ctx.raw_slot_arg(value);
         // V3-18 m1.h.53 — start defaults to 0, end
         // defaults to arr.length per JS spec §22.1.3.6.
@@ -239,7 +238,14 @@ pub(crate) fn try_dispatch(
             ctx.emit_rc_inc(Operand::Value(v));
             return Some(Operand::Value(v));
         }
-        let out = emit_fill_rc_loop(ctx, recv_op, value, start, end, elem_ty);
+        let out = emit_fill_rc_loop(ctx, recv_op, value.clone(), start, end, elem_ty.clone());
+        // The coerce minted a fresh rc=1 value with no caller
+        // binding (Substr→owned / Any→Str); the loop inc'd one ref
+        // per slot, so the mint's own ref settles here. (Owned
+        // values only arise for Str elems — never the Copy path.)
+        if val_owned {
+            ctx.emit_drop_value(value, elem_ty);
+        }
         ctx.emit_rc_inc(out.clone());
         return Some(out);
     }

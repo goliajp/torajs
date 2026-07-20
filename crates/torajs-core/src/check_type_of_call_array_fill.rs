@@ -60,7 +60,13 @@ pub(crate) fn try_match(
         Ok(t) => t,
         Err(e) => return Some(Err(e)),
     };
-    if v_ty != **elem && !matches!(**elem, Type::Any) {
+    // An Any fill value into a Number/String elem admits (TS
+    // any-assignability), paired with the lowering's shared
+    // `coerce_push_value` unbox at the store boundary — the same
+    // admit/coerce pairing as the push/unshift lane (rotation 158).
+    let any_into_scalar =
+        matches!(v_ty, Type::Any) && matches!(**elem, Type::Number | Type::String);
+    if v_ty != **elem && !matches!(**elem, Type::Any) && !any_into_scalar {
         return Some(Err(format!(
             "Array.fill arg 0 must match elem type {:?}, got {v_ty:?}",
             **elem
