@@ -32,10 +32,11 @@ use super::ns_static_table::{
     __torajs_anyv_assign, __torajs_anyv_freeze, __torajs_anyv_from_entries,
     __torajs_anyv_get_proto_of_any, __torajs_anyv_own_entries, __torajs_anyv_own_keys,
     __torajs_anyv_own_values, __torajs_anyv_set_prototype_of, __torajs_arr_mark_kind,
-    __torajs_date_now_static, __torajs_math_max, __torajs_math_min, __torajs_num_parse_float,
-    __torajs_num_parse_int, __torajs_obj_is_frozen_any, __torajs_str_drop, __torajs_symbol_for,
-    __torajs_symbol_key_for, __torajs_throw_check, __torajs_throw_type_error, DISPATCH, Disp,
-    NumPred, OwnKind,
+    __torajs_anyv_is_extensible, __torajs_anyv_is_sealed, __torajs_anyv_prevent_extensions,
+    __torajs_anyv_seal, __torajs_date_now_static, __torajs_math_max, __torajs_math_min,
+    __torajs_num_parse_float, __torajs_num_parse_int, __torajs_obj_is_frozen_any,
+    __torajs_str_drop, __torajs_symbol_for, __torajs_symbol_key_for, __torajs_throw_check,
+    __torajs_throw_type_error, DISPATCH, Disp, NumPred, OwnKind,
 };
 
 use super::{
@@ -245,6 +246,14 @@ unsafe fn dispatch(id: i64, argv: *const u64, argc: i64) -> u64 {
                 super::ns_static_ctor::str_from_codes(*code_point, argv, argc)
             }
             Disp::ObjectHasOwn => super::ns_static_ctor::object_has_own(argv, argc),
+            Disp::ObjectPreventExtensions => {
+                own(__torajs_anyv_prevent_extensions(arg_at(argv, argc, 0)))
+            }
+            Disp::ObjectIsExtensible => {
+                box_bool(__torajs_anyv_is_extensible(arg_at(argv, argc, 0)))
+            }
+            Disp::ObjectSeal => own(__torajs_anyv_seal(arg_at(argv, argc, 0))),
+            Disp::ObjectIsSealed => box_bool(__torajs_anyv_is_sealed(arg_at(argv, argc, 0))),
         }
     }
 }
@@ -258,8 +267,11 @@ unsafe fn dispatch(id: i64, argv: *const u64, argc: i64) -> u64 {
 unsafe fn own_enum(kind: &OwnKind, recv: u64) -> u64 {
     unsafe {
         let arr = match kind {
-            OwnKind::Keys => {
-                let a = __torajs_anyv_own_keys(recv, 0);
+            OwnKind::Keys | OwnKind::Names => {
+                let a = __torajs_anyv_own_keys(
+                    recv,
+                    if matches!(kind, OwnKind::Names) { 1 } else { 0 },
+                );
                 // Slots are Str heap pointers, and this call IS the
                 // typed→Any boundary: without the stamp the any-lane
                 // drop frees the block and strands every key cell.

@@ -129,6 +129,14 @@ unsafe extern "C" {
     /// torajs-str — §22.1.2.2 one-code-point mint; out-of-range
     /// records a catchable RangeError and answers an empty sentinel.
     pub(super) fn __torajs_str_from_code_point(n: i64) -> *mut u8;
+    /// torajs-meta — §20.1.2.16/.13/.20/.15 integrity family (RFC
+    /// C5b). The setters answer the receiver as a BORROW (the arm
+    /// owns it before handing it back); the readers answer plain
+    /// bools.
+    pub(super) fn __torajs_anyv_prevent_extensions(obj_any: u64) -> u64;
+    pub(super) fn __torajs_anyv_is_extensible(obj_any: u64) -> bool;
+    pub(super) fn __torajs_anyv_seal(obj_any: u64) -> u64;
+    pub(super) fn __torajs_anyv_is_sealed(obj_any: u64) -> bool;
 }
 
 /// Per-id dispatch shape. Index-lockstep with
@@ -199,13 +207,23 @@ pub(super) enum Disp {
     StrFromCodes { code_point: bool },
     /// §20.1.2.11 Object.hasOwn — HasOwnProperty(ToObject(O), P).
     ObjectHasOwn,
+    /// §20.1.2.16/.13 preventExtensions / isExtensible — header-flag
+    /// setter (answers the receiver, owned by the arm) / reader.
+    ObjectPreventExtensions,
+    ObjectIsExtensible,
+    /// §20.1.2.20/.15 seal / isSealed — header markers + the DynObj
+    /// per-entry configurable walk / reader.
+    ObjectSeal,
+    ObjectIsSealed,
 }
 
-/// The three own-enumeration surfaces (shared dispatch shape).
+/// The own-enumeration surfaces (shared dispatch shape) — `Names`
+/// is the §20.1.2.10 include-nonenum flavor of the keys walk.
 pub(super) enum OwnKind {
     Keys,
     Values,
     Entries,
+    Names,
 }
 
 /// The four `Number.is*` predicates (shared dispatch shape).
@@ -280,4 +298,9 @@ pub(super) static DISPATCH: &[Disp] = &[
     Disp::StrFromCodes { code_point: false },
     Disp::StrFromCodes { code_point: true },
     Disp::ObjectHasOwn,
+    Disp::OwnEnum(OwnKind::Names),
+    Disp::ObjectPreventExtensions,
+    Disp::ObjectIsExtensible,
+    Disp::ObjectSeal,
+    Disp::ObjectIsSealed,
 ];

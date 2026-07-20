@@ -369,6 +369,25 @@ mod tests {
     pub unsafe extern "C" fn __torajs_obj_is_frozen_any(_v: i64) -> bool {
         true
     }
+    /// RFC 20260720 刀 4 — the integrity-family kernels the batch-2
+    /// dispatch arms reference (shipped binary resolves
+    /// libtorajs_meta.a).
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_anyv_prevent_extensions(obj_any: u64) -> u64 {
+        obj_any
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_anyv_is_extensible(_obj_any: u64) -> bool {
+        true
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_anyv_seal(obj_any: u64) -> u64 {
+        obj_any
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_anyv_is_sealed(_obj_any: u64) -> bool {
+        false
+    }
     // Declared in `method_call.rs` too, but only reachable there
     // through paths Rust DCE strips in the test binary — the
     // DISPATCH table is what pulls it in, so the stub lands here.

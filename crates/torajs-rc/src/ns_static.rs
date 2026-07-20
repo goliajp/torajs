@@ -122,6 +122,16 @@ pub static NS_STATIC_TABLE: &[NsStaticRow] = &[
     row("String", "fromCharCode", 1),
     row("String", "fromCodePoint", 1),
     row("Object", "hasOwn", 2),
+    // Ctor statics batch 2 (RFC 20260720 刀 4) — the Object
+    // integrity family whose AnyValue kernels shipped with RFC C5b
+    // (`__torajs_anyv_{prevent_extensions,is_extensible,seal,
+    // is_sealed}`) plus the own-keys nonenum surface. Lengths per
+    // §20.1.2.{10,16,13,20,15}.
+    row("Object", "getOwnPropertyNames", 1),
+    row("Object", "preventExtensions", 1),
+    row("Object", "isExtensible", 1),
+    row("Object", "seal", 1),
+    row("Object", "isSealed", 1),
 ];
 
 /// Compile-time `(namespace, member)` → id. Linear scan — lower-time
