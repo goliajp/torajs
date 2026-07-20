@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-20T19:05:59.056Z",
+  "generatedAt": "2026-07-20T19:19:16.514Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 94.1
   },
   "torajs": {
-    "commit": "115e5442",
-    "commitSubject": "test: lock proto singleton any-assignment and tostring-primitive coerce faces",
+    "commit": "7ddba39f",
+    "commitSubject": "fix: string proto thisstringvalue brand check and primitive wrapper inspect forms",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "7ddba39f",
+      "subject": "fix: string proto thisstringvalue brand check and primitive wrapper inspect forms"
+    },
+    {
+      "hash": "283d6576",
+      "subject": "chore: hardev dashboard snapshot at rotation 168 close"
+    },
+    {
       "hash": "115e5442",
       "subject": "test: lock proto singleton any-assignment and tostring-primitive coerce faces"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "dfa32cd2",
       "subject": "chore: test262 sweep archive at 89ec623e (passTotal 12944, bug 811, appeared 0)"
-    },
-    {
-      "hash": "89ec623e",
-      "subject": "fix: exotic-index get semantics for arr any slice and tosorted clone"
-    },
-    {
-      "hash": "16b8a95c",
-      "subject": "feat: proto-chain name read with forin chain enumeration and hasproperty kernel"
     }
   ],
-  "headSha": "115e5442",
+  "headSha": "7ddba39f",
   "autorun": {
     "total": 473,
     "baselineTarget": 10,
