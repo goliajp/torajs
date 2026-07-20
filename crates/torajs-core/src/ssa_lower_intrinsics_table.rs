@@ -58,6 +58,7 @@ pub(crate) fn build(
         arr_shift: init_a.arr.arr_shift,
         arr_unshift: init_a.arr.arr_unshift,
         arr_splice: init_a.arr.arr_splice,
+        arr_splice_items: init_a.arr.arr_splice_items,
         arr_species_guard: init_a.arr.arr_species_guard,
         arr_len_write_guard: init_a.arr.arr_len_write_guard,
         arr_drop: init_a.arr.arr_drop,

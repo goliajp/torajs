@@ -22,8 +22,11 @@
 //!   bun. The fresh-owned source array is dropped after the splice
 //!   so its ARC balances.
 //!
-//! Subset matches the historic inline form: 2-arg only (no
-//! `...items` insert form yet). Returning `Some` short-circuits the
+//! 0-2 args route to the shrink-only `__torajs_arr_splice`; 3+ args
+//! (RFC 20260720-splice-insert knife 2) pack the `...items` tail
+//! into a stack argv of raw elem-repr slots (each item through the
+//! push-lane `coerce_push_value` + rc contract) and call
+//! `__torajs_arr_splice_items`. Returning `Some` short-circuits the
 //! generic member-call dispatch in `ssa_lower.rs`; `None` falls
 //! through to the "unsupported member call shape" panic site.
 
@@ -49,7 +52,7 @@ fn try_lower_local(ctx: &mut LowerCtx, callee_eid: ExprId, args: &[ExprId]) -> O
     let Expr::Member { obj: recv_id, name } = ctx.ast.get_expr(callee_eid) else {
         return None;
     };
-    if name != "splice" || args.len() > 2 {
+    if name != "splice" {
         return None;
     }
     let Expr::Ident(recv_name) = ctx.ast.get_expr(*recv_id) else {
@@ -73,7 +76,7 @@ fn try_lower_global(ctx: &mut LowerCtx, callee_eid: ExprId, args: &[ExprId]) -> 
     let Expr::Member { obj: recv_id, name } = ctx.ast.get_expr(callee_eid) else {
         return None;
     };
-    if name != "splice" || args.len() > 2 {
+    if name != "splice" {
         return None;
     }
     let Expr::Ident(recv_name) = ctx.ast.get_expr(*recv_id) else {
@@ -111,7 +114,7 @@ fn try_lower_generic(ctx: &mut LowerCtx, callee_eid: ExprId, args: &[ExprId]) ->
     let Expr::Member { obj: recv_id, name } = ctx.ast.get_expr(callee_eid) else {
         return None;
     };
-    if name != "splice" || args.len() > 2 {
+    if name != "splice" {
         return None;
     }
     let recv_eid = *recv_id;
@@ -178,11 +181,70 @@ fn emit_splice_return(
             }
         }
     };
+    if args.len() > 2 {
+        return emit_splice_items(ctx, arr_ty, cur_arr, start, delete_count, &args[2..]);
+    }
     let removed = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Call(
             ctx.intrinsics.arr_splice,
             vec![Operand::Value(cur_arr), start, delete_count],
+        ),
+        arr_ty,
+        None,
+    );
+    Operand::Value(removed)
+}
+
+/// RFC 20260720-splice-insert knife 2 — the `...items` insert form.
+/// Each item runs the push-lane `coerce_push_value` (elem-repr
+/// coercion incl. the Any→scalar/Str unbox the checker wedge admits)
+/// and the push rc contract (borrowed refcounted values take the
+/// receiver's stake here; owned mints hand their +1 off, substr/Any
+/// coerce lanes are fresh rc=1 hand-offs). The coerced raw slots pack
+/// into an entry-block stack argv; the kernel moves bits only.
+fn emit_splice_items(
+    ctx: &mut LowerCtx,
+    arr_ty: Type,
+    cur_arr: crate::ssa::ValueId,
+    start: Operand,
+    delete_count: Operand,
+    items: &[ExprId],
+) -> Operand {
+    let Type::Arr(arr_id) = arr_ty else {
+        unreachable!("splice items on non-Arr receiver");
+    };
+    let elem_ty = ctx.arr_layouts[arr_id.0 as usize];
+    let argv = ctx.f.append_inst(
+        crate::ssa::BlockId(0),
+        InstKind::AllocaBytes((items.len() * 8) as u64),
+        Type::Ptr,
+        Some("__splice_items"),
+    );
+    for (k, &item_eid) in items.iter().enumerate() {
+        let (val, owned_from_coerce) =
+            crate::ssa_lower_call_arr_push::coerce_push_value(ctx, item_eid, elem_ty);
+        if elem_ty.is_refcounted() && !owned_from_coerce {
+            ctx.emit_rc_inc(val.clone());
+            ctx.release_owned_temp(item_eid, &val);
+        }
+        let raw = ctx.raw_slot_arg(val);
+        ctx.f.append_void(
+            ctx.cur_block,
+            InstKind::Store(raw, Operand::Value(argv), (k * 8) as u64),
+        );
+    }
+    let removed = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(
+            ctx.intrinsics.arr_splice_items,
+            vec![
+                Operand::Value(cur_arr),
+                start,
+                delete_count,
+                Operand::Value(argv),
+                Operand::ConstI64(items.len() as i64),
+            ],
         ),
         arr_ty,
         None,

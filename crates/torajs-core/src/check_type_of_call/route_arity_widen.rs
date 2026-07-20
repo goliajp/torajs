@@ -82,6 +82,17 @@ pub(crate) fn try_route(
     {
         return Some(r);
     }
+    // RFC 20260720-splice-insert knife 2 — `xs.splice(start, dc,
+    // ...items)` 3+-arg insert arm — see
+    // [`crate::check_type_of_call_array_splice_insert`]. Items match
+    // the elem type (Any admits into Number/String elems, paired
+    // with coerce_push_value's unbox); result is the removed
+    // Array<T>.
+    if let Some(r) =
+        crate::check_type_of_call_array_splice_insert::try_match(checker, ast, callee, args)
+    {
+        return Some(r);
+    }
     // V3-18 wedge — `xs.{push,unshift}(...vals)` variadic
     // Array-receiver arm — see
     // [`crate::check_type_of_call_array_push_unshift`] (chunk

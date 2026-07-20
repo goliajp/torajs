@@ -35,6 +35,7 @@ pub(crate) struct ArrIds {
     pub arr_shift: FuncId,
     pub arr_unshift: FuncId,
     pub arr_splice: FuncId,
+    pub arr_splice_items: FuncId,
     pub arr_drop: FuncId,
     pub arr_species_guard: FuncId,
     pub arr_len_write_guard: FuncId,
@@ -97,6 +98,15 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             fn_table,
             "__torajs_arr_splice",
             &[Type::Ptr, Type::I64, Type::I64],
+            Type::Ptr,
+        ),
+        // RFC 20260720-splice-insert knife 2 — the `...items` insert
+        // form (items = stack argv of raw elem-repr slots).
+        arr_splice_items: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_arr_splice_items",
+            &[Type::Ptr, Type::I64, Type::I64, Type::Ptr, Type::I64],
             Type::Ptr,
         ),
         arr_drop: declare_intrinsic(

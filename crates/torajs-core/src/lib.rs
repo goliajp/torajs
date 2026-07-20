@@ -80,6 +80,7 @@ pub(crate) mod check_type_of_call_array_reverse_join;
 pub(crate) mod check_type_of_call_array_slice;
 pub(crate) mod check_type_of_call_array_sort;
 pub(crate) mod check_type_of_call_array_splice_2arg_undef;
+pub(crate) mod check_type_of_call_array_splice_insert;
 pub(crate) mod check_type_of_call_array_splice_narrow;
 pub(crate) mod check_type_of_call_array_with_any;
 pub(crate) mod check_type_of_call_array_with_trailing;
