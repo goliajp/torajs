@@ -29,7 +29,7 @@
 
 use core::ffi::c_void;
 
-use torajs_rc::{FLAG_ARR_EXOTIC_INDEX, FLAG_ARR_LENGTH_RO, FLAG_NON_EXTENSIBLE};
+use torajs_rc::{FLAG_ARR_EXOTIC_INDEX, FLAG_ARR_LENGTH_RO, FLAG_NON_EXTENSIBLE, HeapHeader, Tag};
 
 use crate::layout::ARR_LEN_OFF;
 
@@ -59,6 +59,8 @@ unsafe extern "C" {
     /// torajs-str — canonical index key mint for the flags probe.
     fn __torajs_str_alloc_pooled(len: u64) -> *mut u8;
     fn __torajs_str_drop(s: *mut c_void);
+    /// torajs-str — view-aware content equality (SameValue on Str).
+    fn __torajs_str_eq(a: *const u8, b: *const u8) -> i64;
     fn __torajs_arr_set_length_any(arr: *mut c_void, tag: i64, value: i64);
     /// torajs-anyvalue — NaN-box + spec ToNumber (the §10.4.2.4
     /// convert-once step; a heap operand's valueOf runs here).
@@ -248,10 +250,40 @@ pub unsafe extern "C" fn __torajs_arr_define(
     unsafe { __torajs_dynobj_define(slot, key, tag, value, flags_byte) };
 }
 
+/// §7.2.10 SameValue on unboxed `(tag, value)` pairs. Bit equality
+/// covers immediates (F64 bits distinguish ±0 and unify NaN) and
+/// heap identity; equal-content Str cells at different addresses
+/// compare by content (view-aware `str_eq`), and a mixed-width
+/// number pair (I64 5 vs F64 5.0) is the same Number value.
+unsafe fn same_value_pair(a_tag: u64, a_val: u64, b_tag: u64, b_val: u64) -> bool {
+    if a_tag == b_tag && a_val == b_val {
+        return true;
+    }
+    const ANY_I64: u64 = 2;
+    const ANY_F64: u64 = 3;
+    if a_tag == ANY_I64 && b_tag == ANY_F64 {
+        // bits-equal keeps ±0 apart (i as f64 is always +0); the
+        // round-trip check rejects a lossy i64 → f64 conversion.
+        let (i, d) = (a_val as i64, f64::from_bits(b_val));
+        return d.to_bits() == (i as f64).to_bits() && d as i64 == i;
+    }
+    if a_tag == ANY_F64 && b_tag == ANY_I64 {
+        return unsafe { same_value_pair(b_tag, b_val, a_tag, a_val) };
+    }
+    if a_tag != ANY_HEAP || b_tag != ANY_HEAP || a_val == 0 || b_val == 0 {
+        return false;
+    }
+    let a_tt = unsafe { (*(a_val as *const HeapHeader)).type_tag };
+    let b_tt = unsafe { (*(b_val as *const HeapHeader)).type_tag };
+    if a_tt != Tag::Str as u16 || b_tt != Tag::Str as u16 {
+        return false;
+    }
+    unsafe { __torajs_str_eq(a_val as *const u8, b_val as *const u8) != 0 }
+}
+
 /// Validate + apply for a canonical index per §10.1.6.3 (data
-/// subset; SameValue approximated by exact `(tag, value)` match —
-/// F64 bit equality distinguishes ±0 and unifies NaN, the same
-/// heuristic `dynobj_define` uses).
+/// subset; the readonly value check runs §7.2.10 SameValue via
+/// [`same_value_pair`]).
 unsafe fn define_index(
     arr: *mut c_void,
     key: *mut c_void,
@@ -372,7 +404,7 @@ unsafe fn define_index(
                 if has_value {
                     let cur_tag = unsafe { crate::any::__torajs_arr_get_any_tag(arr, idx) };
                     let cur_val = unsafe { crate::any::__torajs_arr_get_any_value(arr, idx) };
-                    if tag != cur_tag || value != cur_val {
+                    if !unsafe { same_value_pair(tag, value, cur_tag, cur_val) } {
                         unsafe { drop_owned(tag, value) };
                         unsafe {
                             __torajs_throw_type_error(

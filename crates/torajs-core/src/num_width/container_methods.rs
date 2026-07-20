@@ -204,6 +204,26 @@ impl<'a> Analysis<'a> {
             self.promise_static_wiring(eid, &name, args, scope);
             return;
         }
+        // W-ESC (RFC 20260721-object-descriptor-cluster 刀 5) — the
+        // Object.defineProperty / defineProperties receiver escapes to
+        // the any world: the define family's exotic semantics
+        // (attribute shadows, accessor indexes, cross-kind values)
+        // exist only on the NaN-box lane, and a typed receiver's
+        // raw-slot loads could not observe them. The runtime typed arm
+        // keeps its loud reject as the fallback for receiver shapes
+        // this analysis can't see.
+        if let Expr::Ident(ns) = self.ast.get_expr(obj)
+            && ns == "Object"
+            && self.resolve(ns, scope).is_none()
+            && matches!(name.as_str(), "defineProperty" | "defineProperties")
+        {
+            if let Some(a0) = args.first()
+                && let Some(rk) = self.container_key_of(*a0, scope)
+            {
+                self.any_seeds.push(rk);
+            }
+            return;
+        }
         let Some(recv) = self.container_key_of(obj, scope) else {
             return;
         };

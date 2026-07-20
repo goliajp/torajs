@@ -37,6 +37,7 @@ unsafe extern "C" {
         flags_byte: u64,
     );
     fn __torajs_dynobj_delete(dynobj: *mut c_void, key: *const c_void) -> i32;
+    fn __torajs_dynobj_has(dynobj: *const c_void, key: *const c_void) -> i32;
     // Signature shape mirrors props.rs's prior declarations (same
     // crate — extern redeclarations must agree).
     fn __torajs_dynobj_get_tag(obj: *mut c_void, key: *const c_void) -> u64;
@@ -140,13 +141,35 @@ pub(crate) unsafe fn define_index_accessor(
         return;
     }
 
-    // Existing index. When no shadow entry exists yet the index is an
-    // implicit data property {w:1, e:1, c:1} — a redefine to accessor
-    // keeps the CURRENT e/c for absent descriptor fields (§10.1.6.3),
-    // so inject them as present bits before the fresh create.
+    // Existing index. §10.1.6.3 step 5 — a data → accessor transition
+    // needs the current property configurable, and the gate must run
+    // BEFORE the element slot is cleared (a late reject must not lose
+    // the data). A data shadow entry stores flags only (its value slot
+    // is dead undefined), so the tag probe cannot distinguish it from
+    // "no entry" — the flags probe already answered for both, and key
+    // PRESENCE (`dynobj_has`) decides whether `dynobj_define` sees a
+    // current entry to merge absent fields from.
     let props = unsafe { *props_slot(arr) };
+    let entry_tag = if props.is_null() {
+        ANY_UNDEF
+    } else {
+        unsafe { __torajs_dynobj_get_tag(props, key as *const c_void) }
+    };
+    if entry_tag != ANY_ACCESSOR && cur_flags & F_CONFIGURABLE == 0 {
+        unsafe { drop_owned_pair(tag, value) };
+        unsafe {
+            __torajs_throw_type_error(
+                c"Attempting to change configurable attribute of unconfigurable property.".as_ptr(),
+            )
+        };
+        return;
+    }
+    // When no shadow entry exists the index is an implicit data
+    // property {w:1, e:1, c:1} — a redefine to accessor keeps the
+    // CURRENT e/c for absent descriptor fields (§10.1.6.3), so inject
+    // them as present bits before the fresh create.
     let has_entry = !props.is_null()
-        && unsafe { __torajs_dynobj_get_tag(props, key as *const c_void) } != ANY_UNDEF;
+        && unsafe { __torajs_dynobj_has(props as *const c_void, key as *const c_void) } != 0;
     let mut flags = flags_byte;
     if !has_entry {
         if flags & P_ENUMERABLE == 0 {
