@@ -108,6 +108,20 @@ pub static NS_STATIC_TABLE: &[NsStaticRow] = &[
     // function-cell intern — is not their surface.
     row("Symbol", "for", 1),
     row("Symbol", "keyFor", 1),
+    // Ctor statics batch 1 (RFC 20260720-ctor-static-reflection 刀 1)
+    // — the family whose AnyValue-tier kernels already exist (Date
+    // wall-clock/parse/UTC, the per-code Str mints, the prop_has
+    // probe). Lengths per §21.4.3.{1,2,4} / §22.1.2.{1,2} /
+    // §20.1.2.11. `Array.from` stays OFF the table: full §23.1.2.1
+    // needs the iterator protocol + mapFn over any source — no
+    // AnyValue kernel yet, so its value read keeps the loud reject
+    // (RFC records the face).
+    row("Date", "now", 0),
+    row("Date", "parse", 1),
+    row("Date", "UTC", 7),
+    row("String", "fromCharCode", 1),
+    row("String", "fromCodePoint", 1),
+    row("Object", "hasOwn", 2),
 ];
 
 /// Compile-time `(namespace, member)` → id. Linear scan — lower-time

@@ -107,6 +107,28 @@ unsafe extern "C" {
     /// owned) or NULL for an unregistered symbol — NULL maps to
     /// undefined, never to a raw null Str slot.
     pub(super) fn __torajs_symbol_key_for(sym: *mut c_void) -> *mut c_void;
+    /// torajs-date — §21.4.3.1 Date.now (ms since epoch, no alloc).
+    pub(super) fn __torajs_date_now_static() -> i64;
+    /// torajs-date — §21.4.3.2 Date.parse (ISO 8601 → ms; NaN on
+    /// parse failure). `s` is a live Str cell.
+    pub(super) fn __torajs_date_parse_iso(s: *const c_void) -> f64;
+    /// torajs-date — §21.4.3.4 Date.UTC MakeTime over 7 components
+    /// (TimeClip'd; NaN when any component is NaN / out of range).
+    pub(super) fn __torajs_date_utc_components(
+        year: f64,
+        month: f64,
+        day: f64,
+        hour: f64,
+        minute: f64,
+        second: f64,
+        milli: f64,
+    ) -> f64;
+    /// torajs-str — §22.1.2.1 one-code-unit mint (truncates
+    /// `n & 0xFFFF` itself, never throws).
+    pub(super) fn __torajs_str_from_char_code(n: i64) -> *mut u8;
+    /// torajs-str — §22.1.2.2 one-code-point mint; out-of-range
+    /// records a catchable RangeError and answers an empty sentinel.
+    pub(super) fn __torajs_str_from_code_point(n: i64) -> *mut u8;
 }
 
 /// Per-id dispatch shape. Index-lockstep with
@@ -164,6 +186,19 @@ pub(super) enum Disp {
     /// §20.4.2.6 Symbol.keyFor — Symbol-cell receiver check, then
     /// the registry scan (owned Str out, NULL → undefined).
     SymbolKeyFor,
+    /// §21.4.3.1 Date.now — ms since epoch as a spec number.
+    DateNow,
+    /// §21.4.3.2 Date.parse — ToString(arg0) into the ISO kernel.
+    DateParse,
+    /// §21.4.3.4 Date.UTC — up to 7 ToNumber components in source
+    /// order; absent trailing args take the spec defaults (year NaN,
+    /// month 0, day 1, rest 0).
+    DateUtc,
+    /// §22.1.2.1/.2 String.fromCharCode / fromCodePoint — variadic
+    /// per-code mint + pairwise concat (the typed lowering's chain).
+    StrFromCodes { code_point: bool },
+    /// §20.1.2.11 Object.hasOwn — HasOwnProperty(ToObject(O), P).
+    ObjectHasOwn,
 }
 
 /// The three own-enumeration surfaces (shared dispatch shape).
@@ -239,4 +274,10 @@ pub(super) static DISPATCH: &[Disp] = &[
     Disp::ObjectFromEntries,
     Disp::SymbolFor,
     Disp::SymbolKeyFor,
+    Disp::DateNow,
+    Disp::DateParse,
+    Disp::DateUtc,
+    Disp::StrFromCodes { code_point: false },
+    Disp::StrFromCodes { code_point: true },
+    Disp::ObjectHasOwn,
 ];

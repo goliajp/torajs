@@ -32,9 +32,10 @@ use super::ns_static_table::{
     __torajs_anyv_assign, __torajs_anyv_freeze, __torajs_anyv_from_entries,
     __torajs_anyv_get_proto_of_any, __torajs_anyv_own_entries, __torajs_anyv_own_keys,
     __torajs_anyv_own_values, __torajs_anyv_set_prototype_of, __torajs_arr_mark_kind,
-    __torajs_math_max, __torajs_math_min, __torajs_num_parse_float, __torajs_num_parse_int,
-    __torajs_obj_is_frozen_any, __torajs_str_drop, __torajs_symbol_for, __torajs_symbol_key_for,
-    __torajs_throw_check, __torajs_throw_type_error, DISPATCH, Disp, NumPred, OwnKind,
+    __torajs_date_now_static, __torajs_math_max, __torajs_math_min, __torajs_num_parse_float,
+    __torajs_num_parse_int, __torajs_obj_is_frozen_any, __torajs_str_drop, __torajs_symbol_for,
+    __torajs_symbol_key_for, __torajs_throw_check, __torajs_throw_type_error, DISPATCH, Disp,
+    NumPred, OwnKind,
 };
 
 use super::{
@@ -83,7 +84,7 @@ unsafe extern "C" fn ns_native_entry() -> u64 {
 /// ToNumber(argv[i]) with the spec's abrupt-completion contract: a
 /// pending throw recorded during coercion (poisoned valueOf) aborts
 /// the caller's remaining coercions. Missing args coerce undefined.
-unsafe fn arg_num(argv: *const u64, argc: i64, i: i64) -> Result<f64, ()> {
+pub(super) unsafe fn arg_num(argv: *const u64, argc: i64, i: i64) -> Result<f64, ()> {
     let v = if i < argc {
         unsafe { *argv.add(i as usize) }
     } else {
@@ -100,7 +101,7 @@ unsafe fn arg_num(argv: *const u64, argc: i64, i: i64) -> Result<f64, ()> {
 /// wrap — the math kernels truncate to 32 bits themselves, so the
 /// only job here is keeping huge doubles out of Rust's saturating
 /// `as i64` cast.
-fn to_i64_mod32(x: f64) -> i64 {
+pub(super) fn to_i64_mod32(x: f64) -> i64 {
     if !x.is_finite() {
         return 0;
     }
@@ -236,6 +237,14 @@ unsafe fn dispatch(id: i64, argv: *const u64, argc: i64) -> u64 {
             Disp::ObjectFromEntries => __torajs_anyv_from_entries(arg_at(argv, argc, 0)),
             Disp::SymbolFor => symbol_for_value(arg_at(argv, argc, 0)),
             Disp::SymbolKeyFor => symbol_key_for_value(arg_at(argv, argc, 0)),
+            // Ctor-static arms (RFC 20260720 刀 1) — sibling module.
+            Disp::DateNow => box_double(__torajs_date_now_static() as f64),
+            Disp::DateParse => super::ns_static_ctor::date_parse(argv, argc),
+            Disp::DateUtc => super::ns_static_ctor::date_utc(argv, argc),
+            Disp::StrFromCodes { code_point } => {
+                super::ns_static_ctor::str_from_codes(*code_point, argv, argc)
+            }
+            Disp::ObjectHasOwn => super::ns_static_ctor::object_has_own(argv, argc),
         }
     }
 }
@@ -363,7 +372,7 @@ unsafe fn own(v: u64) -> u64 {
 }
 
 /// argv[i], missing → undefined.
-unsafe fn arg_at(argv: *const u64, argc: i64, i: i64) -> u64 {
+pub(super) unsafe fn arg_at(argv: *const u64, argc: i64, i: i64) -> u64 {
     if i < argc {
         unsafe { *argv.add(i as usize) }
     } else {

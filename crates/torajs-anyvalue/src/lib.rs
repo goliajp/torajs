@@ -531,6 +531,106 @@ mod tests {
     pub unsafe extern "C" fn __torajs_num_parse_float(_s: *const u8) -> f64 {
         0.0
     }
+    /// RFC 20260720-ctor-static-reflection 刀 1 — the ctor-static
+    /// dispatch arms' Date / String kernels (shipped binary resolves
+    /// libtorajs_date.a / libtorajs_str.a); unit tests exercise cell
+    /// shape and probes, never the semantics (fixture-gated).
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_date_now_static() -> i64 {
+        0
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_date_parse_iso(_s: *const c_void) -> f64 {
+        0.0
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_date_utc_components(
+        _y: f64,
+        _mo: f64,
+        _d: f64,
+        _h: f64,
+        _mi: f64,
+        _s: f64,
+        _ms: f64,
+    ) -> f64 {
+        0.0
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_str_from_char_code(_n: i64) -> *mut u8 {
+        core::ptr::null_mut()
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_str_from_code_point(_n: i64) -> *mut u8 {
+        core::ptr::null_mut()
+    }
+    /// 刀 1's ObjectHasOwn arm makes prop_has (and its
+    /// struct_has_own / struct_error_msg callees) table-reachable,
+    /// so -dead_strip keeps the whole probe chain and every extern
+    /// in it needs a stub (shipped binary resolves
+    /// libtorajs_dynobj.a / libtorajs_arr.a / libtorajs_structmeta.a).
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_dynobj_has(_obj: *const c_void, _key: *const c_void) -> i32 {
+        0
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_arr_index_flags(_arr: *const c_void, _idx: u64) -> u64 {
+        0
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_dynobj_get_flags(
+        _obj: *const c_void,
+        _key: *const c_void,
+    ) -> u64 {
+        0
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_struct_layout_lookup(_class_tag: u32) -> *const c_void {
+        core::ptr::null()
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_struct_field_find(
+        _layout: *const c_void,
+        _name: *const u8,
+        _name_len: u32,
+    ) -> u32 {
+        u32::MAX
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_struct_accessor_find(
+        _layout: *const c_void,
+        _name: *const u8,
+        _name_len: u32,
+        _kind: u8,
+    ) -> u32 {
+        u32::MAX
+    }
+    #[repr(C)]
+    pub struct StubFieldInfo {
+        field_byte_offset: u32,
+        type_tag: u8,
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_struct_field_info(
+        _layout: *const c_void,
+        _idx: u32,
+    ) -> StubFieldInfo {
+        StubFieldInfo {
+            field_byte_offset: 0,
+            type_tag: 0,
+        }
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_str_is_undef(_p: *const u8) -> i64 {
+        0
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_obj_is_frozen(_p: *const c_void) -> bool {
+        false
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_anyv_proto_get(_tag: i64) -> u64 {
+        0
+    }
     #[unsafe(no_mangle)]
     pub unsafe extern "C" fn __torajs_substr_to_owned(_s: *const u8) -> *mut c_void {
         core::ptr::null_mut()

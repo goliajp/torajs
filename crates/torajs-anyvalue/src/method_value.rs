@@ -78,6 +78,8 @@ pub(crate) use ctor::{builtin_ctor_cell, ctor_cell_for_recv};
 // — `Math.max` as a VALUE: interned dispatcher cells keyed by the
 // shared torajs-rc ns-static table.
 mod ns_static;
+// Ctor-static arms (RFC 20260720-ctor-static-reflection 刀 1).
+mod ns_static_ctor;
 mod ns_static_table;
 
 /// Interned name Str layout — mirror of torajs-str
