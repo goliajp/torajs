@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-20T10:54:09.029Z",
+  "generatedAt": "2026-07-20T11:03:05.756Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 93.09
   },
   "torajs": {
-    "commit": "5dcc18e0",
-    "commitSubject": "chore: archive the test262 sweep at 37b30aab",
+    "commit": "67edbfc4",
+    "commitSubject": "fix: walk a typed struct props through Object.create's define phase",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "67edbfc4",
+      "subject": "fix: walk a typed struct props through Object.create's define phase"
+    },
+    {
+      "hash": "91ed883c",
+      "subject": "chore: hardev dashboard snapshot at rotation 163 close"
+    },
+    {
       "hash": "5dcc18e0",
       "subject": "chore: archive the test262 sweep at 37b30aab"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "c426b882",
       "subject": "chore: archive the test262 sweep at 75f93de5"
-    },
-    {
-      "hash": "75f93de5",
-      "subject": "fix: never release a borrowed capture box at closure-body exit"
-    },
-    {
-      "hash": "71f07477",
-      "subject": "chore: hardev dashboard snapshot at rotation 161 close"
     }
   ],
-  "headSha": "5dcc18e0",
+  "headSha": "67edbfc4",
   "autorun": {
     "total": 468,
     "baselineTarget": 10,
