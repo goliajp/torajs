@@ -85,12 +85,36 @@ pub(super) fn emit_define_literal(
         emit_define_arr_prop(ctx, obj_op, key, value_eid, flags_byte);
         return true;
     }
-    // Non-Any/non-Arr obj (typed Struct etc.) — no dynobj backing
-    // store, attribute tracking is N/A. Handled (no-op).
+    // Typed Closure receiver (T-27 Function-as-Object, RFC 20260721
+    // 刀 2) — the operand is the cell ptr; the kernel's closure arm
+    // defines onto the +24 expando dynobj.
+    if matches!(obj_ty, Type::Closure(_) | Type::FnSig(_)) {
+        emit_define_dynobj(
+            ctx,
+            obj_op,
+            &obj_ty,
+            key,
+            receiver_ident,
+            value_eid,
+            flags_byte,
+        );
+        return true;
+    }
+    // Non-Any/non-Arr obj (typed Struct / Date / RegExp / Error) —
+    // no expando define storage yet (RFC 20260721 刀 2b backlog).
+    // Handled (no-op).
     if !matches!(obj_ty, Type::Any) {
         return true;
     }
-    emit_define_dynobj(ctx, obj_op, key, receiver_ident, value_eid, flags_byte);
+    emit_define_dynobj(
+        ctx,
+        obj_op,
+        &Type::Any,
+        key,
+        receiver_ident,
+        value_eid,
+        flags_byte,
+    );
     true
 }
 
@@ -307,11 +331,13 @@ fn emit_define_arr_prop(
     ctx.emit_throw_check(None);
 }
 
-/// Dynobj-backed Any obj — route through dynobj_define so spec
-/// §10.1.6.3 validates the transitions.
+/// Dynobj-backed Any obj (or a typed Closure cell — the kernel's
+/// closure arm targets its expando) — route through dynobj_define so
+/// spec §10.1.6.3 validates the transitions.
 fn emit_define_dynobj(
     ctx: &mut LowerCtx,
     obj_op: Operand,
+    obj_ty: &Type,
     key: &DefineKey,
     receiver_ident: &Option<String>,
     value_eid: Option<ExprId>,
@@ -329,7 +355,15 @@ fn emit_define_dynobj(
     } else {
         (0, Operand::ConstI64(0))
     };
-    let dynobj = ctx.any_unbox_value_as_ptr(obj_op);
+    let dynobj = match obj_ty {
+        Type::Any => ctx.any_unbox_value_as_ptr(obj_op),
+        // Typed heap receiver — the operand IS the cell ptr (the
+        // closure cell never relocates; no Any writeback below).
+        _ => match obj_op {
+            Operand::Value(v) => v,
+            _ => ctx.any_unbox_value_as_ptr(obj_op),
+        },
+    };
     let slot = ctx.alloca(Type::Ptr, Some("__dynobj_slot"));
     ctx.f.append_void(
         ctx.cur_block,
@@ -363,5 +397,7 @@ fn emit_define_dynobj(
         ctx.release_owned_temp(val_eid, &v_raw);
     }
     ctx.emit_throw_check(None);
-    ctx.emit_any_dynobj_writeback(receiver_ident, slot);
+    if matches!(obj_ty, Type::Any) {
+        ctx.emit_any_dynobj_writeback(receiver_ident, slot);
+    }
 }

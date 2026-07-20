@@ -106,11 +106,28 @@ pub unsafe extern "C" fn __torajs_dynobj_define_properties_from(
     if props.is_null() {
         return;
     }
-    // Only dynobj-backed receivers carry define storage (Arr /
-    // typed receivers are the RFC backlog) — a foreign cell in the
-    // slot must not be probed as a dynobj dense array.
+    // Dynobj-backed receivers carry define storage directly; a
+    // Closure receiver (T-27 Function-as-Object, RFC 20260721 刀 2)
+    // defines onto its lazy expando dynobj at +24 — recurse with the
+    // expando slot (same shape as `define_apply`'s closure arm; the
+    // closure cell itself never relocates). Any other foreign cell
+    // in the slot must not be probed as a dynobj dense array (Arr /
+    // Date / RegExp / Error receivers are the RFC backlog).
     let obj = unsafe { *obj_slot };
-    if obj.is_null() || unsafe { type_tag(obj) } != TAG_DYNOBJ {
+    if obj.is_null() {
+        return;
+    }
+    if unsafe { type_tag(obj) } == TAG_CLOSURE_HDR {
+        let props_slot = unsafe { obj.cast::<u8>().add(CELL_PROPS_OFF) } as *mut *mut c_void;
+        unsafe {
+            if (*props_slot).is_null() {
+                *props_slot = crate::alloc::__torajs_dynobj_alloc();
+            }
+            __torajs_dynobj_define_properties_from(props_slot, props);
+        }
+        return;
+    }
+    if unsafe { type_tag(obj) } != TAG_DYNOBJ {
         return;
     }
     // Spec §20.1.2.3.1 ObjectDefineProperties walks `props`'s

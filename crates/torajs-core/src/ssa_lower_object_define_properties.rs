@@ -127,11 +127,23 @@ pub(crate) fn try_lower_define_properties(
             // values — the operand keeps its Obj(struct) type, so the
             // Any/Any gate alone missed it and the walk eval-dropped
             // (`defineProperties(o, {bad: 5} as any)` never reached
-            // the non-object-desc TypeError). A struct operand IS the
-            // cell ptr; the kernel's TAG_OBJ arm walks its layout.
-            let props_is_struct = matches!(props_ty, Type::Obj(_));
-            if matches!(obj_ty, Type::Any) && (matches!(props_ty, Type::Any) || props_is_struct) {
-                let props_ptr = if props_is_struct {
+            // the non-object-desc TypeError). A typed heap props
+            // operand IS the cell ptr — struct layout / Closure-Arr
+            // descriptor expandos all resolve at the kernel's
+            // walkable-source dispatch (RFC 20260721 刀 2 widened the
+            // struct-only gate).
+            let props_is_typed_cell = matches!(
+                props_ty,
+                Type::Obj(_) | Type::Closure(_) | Type::FnSig(_) | Type::Arr(_)
+            );
+            // A typed Closure receiver defines onto its +24 expando
+            // via the kernel's closure arm (RFC 20260721 刀 2); the
+            // cell never relocates, so the Any writeback is gated.
+            let recv_is_closure = matches!(obj_ty, Type::Closure(_) | Type::FnSig(_));
+            if (matches!(obj_ty, Type::Any) || recv_is_closure)
+                && (matches!(props_ty, Type::Any) || props_is_typed_cell)
+            {
+                let props_ptr = if props_is_typed_cell {
                     match props_op.clone() {
                         Operand::Value(v) => v,
                         _ => ctx.any_unbox_value_as_ptr(props_op.clone()),
@@ -155,7 +167,14 @@ pub(crate) fn try_lower_define_properties(
                     ctx.emit_throw_check(None);
                     gated
                 };
-                let dynobj = ctx.any_unbox_value_as_ptr(obj_raw.clone());
+                let dynobj = if recv_is_closure {
+                    match obj_raw.clone() {
+                        Operand::Value(v) => v,
+                        _ => ctx.any_unbox_value_as_ptr(obj_raw.clone()),
+                    }
+                } else {
+                    ctx.any_unbox_value_as_ptr(obj_raw.clone())
+                };
                 let slot = ctx.alloca(Type::Ptr, Some("__dynobj_slot"));
                 ctx.f.append_void(
                     ctx.cur_block,
@@ -170,7 +189,9 @@ pub(crate) fn try_lower_define_properties(
                 );
                 ctx.release_owned_temp(args[1], &props_op);
                 ctx.emit_throw_check(None);
-                ctx.emit_any_dynobj_writeback(&receiver_ident, slot);
+                if !recv_is_closure {
+                    ctx.emit_any_dynobj_writeback(&receiver_ident, slot);
+                }
             } else {
                 ctx.release_owned_temp(args[1], &props_op);
             }

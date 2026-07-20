@@ -247,9 +247,12 @@ fn emit_define_objlit_runtime(
             ctx.emit_arr_mark_kind(&obj_op);
             obj_op
         }
-        // Typed Struct etc. — no dynobj backing store, attribute
-        // tracking N/A (same handled-no-op contract as the literal
-        // arm).
+        // Typed Closure receiver (RFC 20260721 刀 2) — the operand
+        // is the cell ptr; the kernel's closure arm targets the +24
+        // expando (cell never relocates, no writeback below).
+        Type::Closure(_) | Type::FnSig(_) => obj_op,
+        // Typed Struct / Date / RegExp / Error — no expando define
+        // storage yet (RFC 20260721 刀 2b backlog). Handled (no-op).
         _ => return true,
     };
     let (key_op, key_owned) = lower_key(ctx, key);
@@ -320,11 +323,10 @@ fn emit_define_runtime_desc(
             Operand::Value(ctx.any_unbox_value_as_ptr(desc_op.clone()))
         }
         // Heap cells whose shape the define_from_desc entry resolves
-        // (Closure / Arr expando props dynobj at +24). Typed structs
-        // stay declined — no dynobj-backed own domain (recorded
-        // divergence, same reflection boundary as prop_delete's
-        // Tag::Obj arm).
-        Type::Closure(_) | Type::Arr(_) => desc_op.clone(),
+        // (Closure / Arr expando props dynobj at +24; a typed struct
+        // reads through the kernel's `DescStore::Struct` layout walk
+        // — RFC 20260721 刀 2 closed the old declined divergence).
+        Type::Closure(_) | Type::Arr(_) | Type::Obj(_) => desc_op.clone(),
         _ if is_typed_object(desc_ty) => return false,
         // Statically-known primitive descriptor (`defineProperty(o,
         // "k", 5)` / `null` literal) — box once and let the helper
@@ -347,20 +349,26 @@ fn emit_define_runtime_desc(
             return true;
         }
     };
-    // Receiver storage gate — only Any (dynobj-backed) and typed Arr
+    // Receiver storage gate — Any (dynobj-backed), typed Arr, and
+    // typed Closure (kernel expando arm, RFC 20260721 刀 2)
     // receivers carry a define surface here; other shapes keep the
     // caller's fall-through.
-    if !matches!(obj_ty, Type::Any | Type::Arr(_)) {
+    if !matches!(
+        obj_ty,
+        Type::Any | Type::Arr(_) | Type::Closure(_) | Type::FnSig(_)
+    ) {
         return false;
     }
     let obj_ptr: Operand = match &obj_ty {
         Type::Any => Operand::Value(ctx.any_unbox_value_as_ptr(obj_op)),
-        _ => {
+        Type::Arr(_) => {
             // Kernel element writes are kind-aware — mark at the
             // reflection boundary (mirror of the literal Arr arm).
             ctx.emit_arr_mark_kind(&obj_op);
             obj_op
         }
+        // Typed Closure — the operand is the cell ptr.
+        _ => obj_op,
     };
     let slot = ctx.alloca(Type::Ptr, Some("__dynobj_slot"));
     ctx.f.append_void(

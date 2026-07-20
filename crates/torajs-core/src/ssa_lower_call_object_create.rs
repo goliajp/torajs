@@ -214,13 +214,18 @@ pub(crate) fn lower_create(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
     // the dense array, so the post-walk pointer reloads from the slot.
     if let Some((p_eid, p_op, is_literal)) = props {
         let p_ty = ctx.operand_ty(&p_op);
-        if matches!(p_ty, Type::Obj(_)) {
-            // An As-cast / typed struct props (`Object.create(null,
-            // p)` with a desc-of-descs binding) is an SSA
-            // pass-through — the Any arm below never fires and the
-            // walk was skipped (silent no-define). A struct operand
-            // IS the cell ptr; the kernel's TAG_OBJ arm walks its
-            // layout (mirror of defineProperties' struct lane).
+        if matches!(
+            p_ty,
+            Type::Obj(_) | Type::Closure(_) | Type::FnSig(_) | Type::Arr(_)
+        ) {
+            // An As-cast / typed heap props (`Object.create(null,
+            // p)` with a desc-of-descs binding, or a Closure / Arr
+            // carrying descriptor expandos — RFC 20260721 刀 2) is an
+            // SSA pass-through — the Any arm below never fires and
+            // the walk was skipped (silent no-define). The typed
+            // operand IS the cell ptr; the kernel's walkable-source
+            // dispatch owns the per-tag walk (mirror of
+            // defineProperties' widened lane).
             let props_ptr = match p_op.clone() {
                 Operand::Value(v) => v,
                 _ => ctx.any_unbox_value_as_ptr(p_op.clone()),
