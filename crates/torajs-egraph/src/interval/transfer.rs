@@ -171,6 +171,22 @@ fn shl_iv(a: NumFact, k: i128) -> NumFact {
     if !(0..64).contains(&k) {
         return NumFact::full_i64();
     }
+    if k == 0 {
+        return a;
+    }
+    // SSA Shl WRAPS at i64 — the ToInt32 sign-extend idiom
+    // `ashr(shl(v, 32), 32)` relies on the high bits falling off.
+    // The exact-multiplication model below is only sound when
+    // neither shifted endpoint leaves the i64 range; otherwise the
+    // wrapped machine value diverges from the arithmetic product
+    // (branch_fold folded `-2147483648 << 1 !== 0` to taken — the
+    // test262 left-shift S11.7.1 A4/A5 appeared cluster) and the
+    // only sound answer is the full range. The containment check
+    // compares against right-shifted i64 bounds so sentinel
+    // endpoints (±2^70) can't overflow i128.
+    if a.lo < (i64::MIN as i128 >> k) || a.hi > (i64::MAX as i128 >> k) {
+        return NumFact::full_i64();
+    }
     mul_iv(a, NumFact::point(1i128 << k))
 }
 
