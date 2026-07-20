@@ -37,6 +37,9 @@ unsafe extern "C" {
     /// torajs-dynobj — own-property probe pair ((5, 0) = absent).
     fn __torajs_dynobj_get_tag(obj: *const c_void, key: *const c_void) -> u64;
     fn __torajs_dynobj_get_value(obj: *const c_void, key: *const c_void) -> u64;
+    /// torajs-dynobj — key-presence probe (disambiguates a stored
+    /// undefined from an absent entry).
+    fn __torajs_dynobj_has(obj: *const c_void, key: *const c_void) -> i32;
     /// torajs-fnname — registry walk (chunk 716); NULL = miss.
     fn __torajs_fn_name_lookup(fn_addr: u64, out_len: *mut u32, out_arity: *mut u32) -> *const u8;
     /// torajs-fnname — toString kernels (RFC 20260719 B5).
@@ -172,11 +175,27 @@ pub unsafe extern "C" fn __torajs_any_name_get(recv: AnyValue) -> AnyValue {
             let key = __torajs_str_alloc(c"name".as_ptr() as *const u8, 4);
             let dtag = __torajs_dynobj_get_tag(ptr, key as *const c_void);
             let dval = __torajs_dynobj_get_value(ptr, key as *const c_void);
+            let has_own = __torajs_dynobj_has(ptr, key as *const c_void);
             __torajs_str_drop(key as *mut c_void);
-            // The probe pair is a borrow — the returned box owns its
-            // own reference.
-            crate::payload_rc_inc(dtag as i64, dval as i64);
-            return crate::nanbox_encode::__torajs_anyv_box_from_pair(dtag as i64, dval as i64);
+            if dtag != 5 || has_own != 0 {
+                // Present entry (a stored undefined shadows the
+                // chain). The probe pair is a borrow — the returned
+                // box owns its own reference.
+                crate::payload_rc_inc(dtag as i64, dval as i64);
+                return crate::nanbox_encode::__torajs_anyv_box_from_pair(dtag as i64, dval as i64);
+            }
+            // §10.1.8.1 OrdinaryGet — the user [[Prototype]] chain
+            // answers before undefined (RFC 20260721 刀 5 R-F:
+            // `Object.create(parent)` shapes inherit a defined
+            // `name`). The chain root (implicit %Object.prototype%)
+            // carries no `name` — plain undefined below.
+            if let Some(parent) = crate::member_get_own::user_proto_cell(ptr) {
+                return __torajs_any_name_get(crate::nanbox_encode::__torajs_anyv_box_from_pair(
+                    4,
+                    parent as i64,
+                ));
+            }
+            return VALUE_UNDEFINED;
         }
     }
     VALUE_UNDEFINED

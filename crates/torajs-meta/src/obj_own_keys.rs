@@ -40,7 +40,7 @@ unsafe extern "C" {
 /// `HeapHeader::type_tag` mirror of `torajs_rc::Tag::DynObj` (locked
 /// there); header field lives at byte offset 4. Shared with the
 /// values/entries chooser twin (`obj_own_values.rs`).
-const TAG_DYNOBJ: u16 = 14;
+pub(crate) const TAG_DYNOBJ: u16 = 14;
 pub(crate) const HDR_TYPE_TAG_OFF: usize = 4;
 
 /// `torajs_rc::Tag` mirrors for the ToObject dispatch arms
@@ -67,7 +67,7 @@ pub(crate) const WRAPPER_INNER_OFF: usize = 8;
 pub(crate) const ARR_LEN_OFF: usize = 8;
 pub(crate) const ARR_PROPS_OFF: usize = 24;
 /// Element storage pointer (`torajs_arr::layout::ARR_DATA_PTR_OFF`).
-const ARR_DATA_PTR_OFF: usize = 32;
+pub(crate) const ARR_DATA_PTR_OFF: usize = 32;
 /// Closure env-cell props-dynobj slot (T-27 Function-as-Object,
 /// mirror `torajs_anyvalue::member_get::CLOSURE_PROPS_OFF`).
 pub(crate) const CLOSURE_PROPS_OFF: usize = 24;
@@ -263,7 +263,7 @@ unsafe fn arr_cell_keys(cell: *const c_void, include_nonenum: i64) -> *mut c_voi
 /// `true` iff the live Str key spells exactly [`PROTO_SLOT_KEY`]
 /// (the [[Prototype]]-slot simulation key hidden from own-keys
 /// walks).
-unsafe fn key_is_proto_slot(key: *const c_void) -> bool {
+pub(crate) unsafe fn key_is_proto_slot(key: *const c_void) -> bool {
     let len = unsafe { key.cast::<u8>().add(8).cast::<u32>().read() } as usize;
     len == PROTO_SLOT_KEY.len()
         && unsafe { core::slice::from_raw_parts(key.cast::<u8>().add(16), len) } == PROTO_SLOT_KEY
@@ -405,22 +405,6 @@ pub unsafe extern "C" fn __torajs_anyv_own_keys(v: u64, include_nonenum: i64) ->
 #[inline]
 pub(crate) unsafe fn heap_type_tag_local(cell: *const c_void) -> u16 {
     unsafe { *((cell as *const u8).add(HDR_TYPE_TAG_OFF) as *const u16) }
-}
-
-/// for-in keys source (chunk B2, RFC 20260711): the `Object.keys`
-/// enumerable-own surface, except a null / undefined receiver
-/// enumerates nothing — ES §14.7.5 ForIn/OfHeadEvaluation step 3
-/// short-circuits before ToObject can throw.
-///
-/// # Safety
-/// `v` carries a valid AnyValue bit pattern; the caller owns the
-/// returned `+1`-rc `Arr<Str>`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_anyv_forin_keys(v: u64) -> *mut c_void {
-    if v == crate::reflect::VALUE_NULL_IMM || v == crate::reflect::VALUE_UNDEFINED_IMM {
-        return unsafe { __torajs_arr_alloc(0) as *mut c_void };
-    }
-    unsafe { __torajs_anyv_own_keys(v, 0) }
 }
 
 /// Cell-imm + DynObj tag test on a raw NaN-box value (mirrors

@@ -67,6 +67,18 @@ pub(crate) unsafe fn user_proto_cell(ptr: *const c_void) -> Option<u64> {
     }
 }
 
+/// C face of [`user_proto_cell`] for sibling runtime crates (the
+/// for-in chain walk in torajs-meta, the `in` HasProperty chain in
+/// torajs-rc) — NULL when the receiver carries no user
+/// [[Prototype]] link (null-proto shape / implicit chain).
+///
+/// # Safety
+/// `ptr` is a live `Tag::DynObj` heap pointer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_dynobj_user_proto(ptr: *const c_void) -> *mut c_void {
+    unsafe { user_proto_cell(ptr) }.map_or(core::ptr::null_mut(), |v| v as *mut c_void)
+}
+
 /// Annex B §B.2.2.1 answer for the dynamic-key read `o[k]` where `k`
 /// spells `__proto__`, as a borrow-shaped `(tag, value)` pair (the
 /// member-get pair contract). The own DATA probe already ran (and

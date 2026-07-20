@@ -216,10 +216,12 @@ pub(crate) fn lower(
 /// walks the key snapshot `Object.__forinKeys` took at entry, but ES
 /// §14.7.5 EnumerateObjectProperties forbids visiting a property
 /// deleted during enumeration. Re-check the key against the live
-/// object (`any_prop_has`) and skip straight to the step block when
-/// it's gone. Only an `any` receiver can mutate mid-loop (`delete`
-/// pins any receivers at typecheck), so typed sources skip the guard
-/// entirely — their key set is fixed.
+/// object (`any_has_property` — §7.3.11, own + user [[Prototype]]
+/// chain, so an inherited key from the chain walk stays live) and
+/// skip straight to the step block when it's gone. Only an `any`
+/// receiver can mutate mid-loop (`delete` pins any receivers at
+/// typecheck), so typed sources skip the guard entirely — their key
+/// set is fixed.
 fn emit_forin_guard(
     ctx: &mut LowerCtx,
     obj_eid: crate::ast::ExprId,
@@ -232,7 +234,10 @@ fn emit_forin_guard(
     }
     let has = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::Call(ctx.intrinsics.any_prop_has, vec![obj_op, key_val.clone()]),
+        InstKind::Call(
+            ctx.intrinsics.any_has_property,
+            vec![obj_op, key_val.clone()],
+        ),
         Type::I64,
         None,
     );

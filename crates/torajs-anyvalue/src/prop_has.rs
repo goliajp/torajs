@@ -141,6 +141,38 @@ unsafe fn struct_has_own(ptr: *const c_void, key: *const c_void) -> i64 {
     (has_half(ACC_GETTER) || has_half(ACC_SETTER)) as i64
 }
 
+/// §7.3.11 HasProperty — the own-property probe plus the user
+/// [[Prototype]] chain walk (RFC 20260721 刀 5 R-F). No receiver
+/// object-gate: the for-in mid-loop-delete guard consumes this on
+/// snapshot receivers (§14.7.5.9 re-checks keys against the LIVE
+/// object each iteration, and an inherited key is still present);
+/// the `in` operator's rhs typecheck lives in its own kernel
+/// (torajs-rc `in_op_any`, which also rides this chain).
+///
+/// # Safety
+/// Same contract as [`__torajs_any_prop_has`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_any_has_property(recv: AnyValue, key: *const c_void) -> i64 {
+    if unsafe { __torajs_any_prop_has(recv, key) } != 0 {
+        return 1;
+    }
+    let Some((ptr, tag)) = recv_cell(recv) else {
+        return 0;
+    };
+    if tag != Tag::DynObj as u16 {
+        return 0;
+    }
+    match unsafe { crate::member_get_own::user_proto_cell(ptr) } {
+        Some(parent) => unsafe {
+            __torajs_any_has_property(
+                crate::nanbox_encode::__torajs_anyv_box_from_pair(4, parent as i64),
+                key,
+            )
+        },
+        None => 0,
+    }
+}
+
 /// See module doc. `key` is a live Str cell (the lowering interns
 /// static names and materializes dynamic string keys before the
 /// call).

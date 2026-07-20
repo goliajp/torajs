@@ -59,6 +59,9 @@ unsafe extern "C" {
     // torajs-anyvalue — the shared own-property predicate (see
     // module doc). Link-time-resolved, zero-Cargo-dep pattern.
     fn __torajs_any_prop_has(recv: u64, key: *const c_void) -> i64;
+    // torajs-anyvalue — borrowed user-[[Prototype]] cell of a DynObj
+    // (NULL = null-proto / implicit chain / non-cell).
+    fn __torajs_dynobj_user_proto(dynobj: *const c_void) -> *mut c_void;
     // torajs-anyvalue — prototype-chain membership against the
     // interned family tables (`<Ctor>.prototype` link + the
     // `Object.prototype` root; delete tombstones consulted inside).
@@ -251,6 +254,16 @@ pub unsafe extern "C" fn __torajs_in_op_any_str(v: i64, key: *const u8) -> bool 
     if unsafe { __torajs_any_prop_has(v as u64, key as *const c_void) } != 0 {
         return true;
     }
+    // §7.3.11 HasProperty walks the user [[Prototype]] chain — an
+    // `Object.create(parent)` receiver answers its inherited keys
+    // (RFC 20260721 刀 5 R-F). Recursion covers grandparents and
+    // ends at the parent's own builtin-family chain face.
+    if type_tag == crate::Tag::DynObj as u16 {
+        let parent = unsafe { __torajs_dynobj_user_proto(ptr) };
+        if !parent.is_null() {
+            return unsafe { __torajs_in_op_any_str(parent as i64, key) };
+        }
+    }
     // Class-prototype link — a struct receiver's methods / accessor
     // halves live on its class prototype, not on the instance
     // (`hasOwnProperty` answers false, `in` answers true), one hop
@@ -325,6 +338,13 @@ unsafe fn __torajs_dynobj_entry_is_hole(_obj: *const c_void, _key: *const u8) ->
 #[cfg(test)]
 unsafe fn __torajs_any_prop_has(_recv: u64, _key: *const c_void) -> i64 {
     PROP_HAS_RESULT.with(|r| r.get())
+}
+
+#[cfg(test)]
+unsafe fn __torajs_dynobj_user_proto(_dynobj: *const c_void) -> *mut c_void {
+    // Unit tests never build a user [[Prototype]] chain — the chain
+    // hop is covered by the conformance fixtures.
+    core::ptr::null_mut()
 }
 
 #[cfg(test)]

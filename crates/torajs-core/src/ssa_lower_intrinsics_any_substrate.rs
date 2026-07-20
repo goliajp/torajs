@@ -162,6 +162,9 @@ pub(crate) struct AnySubstrateIds {
     pub any_method_probe: FuncId,
     pub any_prop_delete: FuncId,
     pub any_prop_has: FuncId,
+    /// §7.3.11 HasProperty — own probe + user [[Prototype]] chain
+    /// (RFC 20260721 刀 5 R-F; the for-in mid-loop guard's probe).
+    pub any_has_property: FuncId,
     /// RFC 20260711-closure-reflection chunk A — static
     /// `<Ctor>.prototype.<m>` method-value read (monkey-patch probe
     /// + interned method cell + undefined).
@@ -317,6 +320,7 @@ pub(crate) fn declare(
         any_method_probe: decl!("__torajs_any_method_probe", [Any, I64, Ptr], I64),
         any_prop_delete: decl!("__torajs_any_prop_delete", [Any, Ptr], I64),
         any_prop_has: decl!("__torajs_any_prop_has", [Any, Ptr], I64),
+        any_has_property: decl!("__torajs_any_has_property", [Any, Ptr], I64),
         // RFC 20260711-closure-reflection chunk A — static
         // `<Ctor>.prototype.<m>` read (builtin-proto tag + key Str).
         builtin_proto_method_value: decl!("__torajs_builtin_proto_method_value", [I64, Ptr], Any),
