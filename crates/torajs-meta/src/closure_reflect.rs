@@ -34,6 +34,19 @@ unsafe extern "C" {
     /// Immortal cell — the descriptor's value slot takes it without
     /// a ledger.
     fn __torajs_ctor_static_value_cell(cell: *const c_void, key: *const c_void) -> *mut u8;
+    /// torajs-anyvalue — ctor `prototype` probe (RFC 20260721 刀 1):
+    /// the builtin `<Ctor>.prototype` singleton, owned +1 (the
+    /// descriptor's value slot takes the reference). NULL on miss.
+    fn __torajs_ctor_prototype_cell(cell: *const c_void, key: *const c_void) -> *mut u8;
+    /// torajs-anyvalue — §21.1.2 Number data-constant probe (RFC
+    /// 20260721 刀 1): writes the (slot-tag, payload) immediate pair,
+    /// answers 1 on hit / 0 on miss.
+    fn __torajs_ctor_number_constant(
+        cell: *const c_void,
+        key: *const c_void,
+        out_tag: *mut u64,
+        out_val: *mut u64,
+    ) -> i64;
 }
 
 const ANY_I64: u64 = 2;
@@ -104,6 +117,21 @@ pub(crate) unsafe fn closure_cell_descriptor(cell: *const c_void, key: *const c_
     let v = unsafe { __torajs_ctor_static_value_cell(cell, key) };
     if !v.is_null() {
         return unsafe { build_data_descriptor(ANY_HEAP, v as u64, 1, 0, 1) };
+    }
+    // 4. ctor `prototype` own descriptor (RFC 20260721 刀 1) —
+    //    §20.x.2.x on every builtin family: `{ writable: false,
+    //    enumerable: false, configurable: false }`, value = the
+    //    builtin prototype singleton (owned +1 from the probe).
+    let p = unsafe { __torajs_ctor_prototype_cell(cell, key) };
+    if !p.is_null() {
+        return unsafe { build_data_descriptor(ANY_HEAP, p as u64, 0, 0, 0) };
+    }
+    // 5. Number data constants (RFC 20260721 刀 1) — §21.1.2 value
+    //    properties, all `{ writable: false, enumerable: false,
+    //    configurable: false }`; immediates carry no ledger.
+    let (mut c_tag, mut c_val) = (0u64, 0u64);
+    if unsafe { __torajs_ctor_number_constant(cell, key, &mut c_tag, &mut c_val) } != 0 {
+        return unsafe { build_data_descriptor(c_tag, c_val, 0, 0, 0) };
     }
     VALUE_UNDEFINED_IMM
 }

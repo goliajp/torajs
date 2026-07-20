@@ -140,22 +140,101 @@ pub unsafe extern "C" fn __torajs_ctor_static_value_cell(
     let Some(tag) = super::ctor::ctor_tag_of_cell(cell) else {
         return core::ptr::null_mut();
     };
-    if key.is_null() {
+    let Some(name) = (unsafe { key_utf8(key) }) else {
         return core::ptr::null_mut();
-    }
-    let name = unsafe {
-        let len = (key.cast::<u8>().add(super::STR_LEN_OFF) as *const u32).read() as usize;
-        let bytes = core::slice::from_raw_parts(key.cast::<u8>().add(super::STR_DATA_OFF), len);
-        match core::str::from_utf8(bytes) {
-            Ok(s) => s,
-            Err(_) => return core::ptr::null_mut(),
-        }
     };
     let id = torajs_rc::ns_static_id(ctor_ns_name(tag), name);
     if id == torajs_rc::NS_STATIC_UNKNOWN {
         return core::ptr::null_mut();
     }
     super::ns_static::ns_static_cell(id)
+}
+
+/// The key Str's UTF-8 view — `None` on NULL / non-UTF-8 payload.
+///
+/// # Safety
+/// `key` is NULL or a live Str cell; the view borrows its payload.
+unsafe fn key_utf8<'a>(key: *const c_void) -> Option<&'a str> {
+    if key.is_null() {
+        return None;
+    }
+    unsafe {
+        let len = (key.cast::<u8>().add(super::STR_LEN_OFF) as *const u32).read() as usize;
+        let bytes = core::slice::from_raw_parts(key.cast::<u8>().add(super::STR_DATA_OFF), len);
+        core::str::from_utf8(bytes).ok()
+    }
+}
+
+/// gOPD's ctor `prototype` probe (RFC 20260721 刀 1) — when `cell`
+/// is an interned builtin ctor cell and `key` is `"prototype"`,
+/// answers the builtin `<Ctor>.prototype` singleton (owned +1; the
+/// descriptor takes the reference). §20.x.2.x: the property itself
+/// is `{ writable: false, enumerable: false, configurable: false }`
+/// — torajs-meta's arm carries the attrs. NULL on every miss.
+///
+/// # Safety
+/// `cell` is null or a live `Tag::Closure` cell; `key` is null or a
+/// live Str cell.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_ctor_prototype_cell(
+    cell: *const c_void,
+    key: *const c_void,
+) -> *mut u8 {
+    if key.is_null() || !unsafe { crate::prop_has::key_is(key, b"prototype") } {
+        return core::ptr::null_mut();
+    }
+    let Some(tag) = super::ctor::ctor_tag_of_cell(cell) else {
+        return core::ptr::null_mut();
+    };
+    let proto = unsafe { torajs_rc::builtin_proto::__torajs_get_builtin_prototype(tag) };
+    if proto.is_null() {
+        return core::ptr::null_mut();
+    }
+    // Registry borrow → owned answer.
+    crate::payload_rc_inc(4, proto as i64);
+    proto as *mut u8
+}
+
+/// gOPD's Number data-constant probe (RFC 20260721 刀 1) — §21.1.2
+/// value properties on the `Number` ctor, all `{ writable: false,
+/// enumerable: false, configurable: false }`. Values mirror the SSA
+/// const-fold table (`ssa_lower_member_builtin_namespace.rs
+/// lower_number`) — MAX_SAFE_INTEGER / MIN_SAFE_INTEGER are I64
+/// there, the rest F64. Writes the (slot-tag, payload) pair and
+/// answers 1 on hit, 0 on every miss.
+///
+/// # Safety
+/// `cell` is null or a live `Tag::Closure` cell; `key` is null or a
+/// live Str cell; `out_tag` / `out_val` are valid writes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_ctor_number_constant(
+    cell: *const c_void,
+    key: *const c_void,
+    out_tag: *mut u64,
+    out_val: *mut u64,
+) -> i64 {
+    if super::ctor::ctor_tag_of_cell(cell) != Some(0) {
+        return 0;
+    }
+    let Some(name) = (unsafe { key_utf8(key) }) else {
+        return 0;
+    };
+    let (tag, val) = match name {
+        "NaN" => (3u64, f64::NAN.to_bits()),
+        "POSITIVE_INFINITY" => (3, f64::INFINITY.to_bits()),
+        "NEGATIVE_INFINITY" => (3, f64::NEG_INFINITY.to_bits()),
+        "EPSILON" => (3, f64::EPSILON.to_bits()),
+        "MAX_VALUE" => (3, f64::MAX.to_bits()),
+        "MIN_VALUE" => (3, 5e-324f64.to_bits()),
+        "MAX_SAFE_INTEGER" => (2, 9007199254740991u64),
+        "MIN_SAFE_INTEGER" => (2, (-9007199254740991i64) as u64),
+        _ => return 0,
+    };
+    unsafe {
+        out_tag.write(tag);
+        out_val.write(val);
+    }
+    1
 }
 
 /// §21.2.2.1/.2 BigInt.asIntN / asUintN — ToIndex(bits) per §7.1.22

@@ -8,9 +8,9 @@
 use core::ffi::c_void;
 
 use torajs_rc::{
-    ANY_METHOD_HAS_OWN_PROPERTY, ANY_METHOD_KEYS, ANY_METHOD_PROPERTY_IS_ENUMERABLE,
-    ANY_METHOD_TO_LOCALE_STRING, ANY_METHOD_TO_STRING, ANY_METHOD_UNKNOWN, ANY_METHOD_VALUE_OF,
-    ANY_METHOD_VALUES,
+    ANY_METHOD_HAS_OWN_PROPERTY, ANY_METHOD_IS_PROTOTYPE_OF, ANY_METHOD_KEYS,
+    ANY_METHOD_PROPERTY_IS_ENUMERABLE, ANY_METHOD_TO_LOCALE_STRING, ANY_METHOD_TO_STRING,
+    ANY_METHOD_UNKNOWN, ANY_METHOD_VALUE_OF, ANY_METHOD_VALUES,
 };
 
 use crate::method_support::{
@@ -90,6 +90,7 @@ fn proto_tag_supports(tag: i64, mid: i64) -> bool {
     if mid == ANY_METHOD_HAS_OWN_PROPERTY
         || mid == ANY_METHOD_PROPERTY_IS_ENUMERABLE
         || mid == ANY_METHOD_VALUE_OF
+        || mid == ANY_METHOD_IS_PROTOTYPE_OF
     {
         return true;
     }
@@ -136,7 +137,10 @@ pub(crate) fn proto_tag_family_owns(tag: i64, mid: i64) -> bool {
         1 => {
             matches!(
                 mid,
-                ANY_METHOD_VALUE_OF | ANY_METHOD_TO_LOCALE_STRING | ANY_METHOD_TO_STRING
+                ANY_METHOD_VALUE_OF
+                    | ANY_METHOD_TO_LOCALE_STRING
+                    | ANY_METHOD_TO_STRING
+                    | ANY_METHOD_IS_PROTOTYPE_OF
             ) || (torajs_rc::ANY_METHOD_DEFINE_GETTER..=torajs_rc::ANY_METHOD_LOOKUP_SETTER)
                 .contains(&mid)
         }
@@ -311,6 +315,17 @@ pub unsafe extern "C" fn __torajs_builtin_proto_method_value(
             let len = unsafe { proto.cast::<u8>().add(ARR_LEN_OFF).cast::<u64>().read() };
             return crate::nanbox_encode::__torajs_anyv_box_i64(len as i64);
         }
+    }
+    // `constructor` is an own property of every builtin prototype
+    // (§20.x.3.1 family) — the same interned identity the gOPD
+    // own-cell probe hands out, so `X.prototype.constructor === X`
+    // holds. Probed before the method-id intern (constructor has no
+    // mid).
+    if unsafe { crate::prop_has::key_is(key, b"constructor") }
+        && (0..torajs_rc::builtin_proto::NUM_BUILTIN_PROTOS as i64).contains(&tag)
+    {
+        let cell = crate::method_value::builtin_ctor_cell(tag);
+        return unsafe { crate::nanbox_encode::__torajs_anyv_box_pointer(cell.cast()) };
     }
     let mid = unsafe { crate::method_value::key_method_id(key) };
     if mid == ANY_METHOD_UNKNOWN
