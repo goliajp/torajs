@@ -272,6 +272,9 @@ pub unsafe extern "C" fn __torajs_print_anyv(v: AnyValue) {
             // appends `n` and rc_decs the Str.
             unsafe { __torajs_bigint_print_inline(child) };
             unsafe { __torajs_io_putc_stdout(b'\n' as i32) };
+        } else if unsafe { crate::inspect::formatters::put_wrapper_inline(child, tag) } {
+            // Primitive wrapper — `[String: "…"]` form + '\n'.
+            unsafe { __torajs_io_putc_stdout(b'\n' as i32) };
         } else {
             write_line(b"[object]\n");
         }
@@ -370,6 +373,8 @@ pub unsafe extern "C" fn __torajs_print_anyv_inline_top(v: AnyValue) {
             unsafe { __torajs_symbol_print_inline(child) };
         } else if tag == Tag::BigInt as u16 {
             unsafe { __torajs_bigint_print_inline(child) };
+        } else if unsafe { crate::inspect::formatters::put_wrapper_inline(child, tag) } {
+            // Primitive wrapper — bytes emitted by the helper.
         } else {
             unsafe { put_bytes(b"[object]") };
         }

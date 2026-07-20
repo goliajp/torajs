@@ -110,6 +110,12 @@ unsafe fn slot_is_composite(v: u64) -> bool {
     tag != torajs_rc::Tag::Str as u16
         && tag != torajs_rc::Tag::Symbol as u16
         && tag != torajs_rc::Tag::BigInt as u16
+        // Primitive wrappers print inline (`"a"` / `[Number: 1]`)
+        // and never force the full-break open (bun single-lines
+        // `[ [Number: 1], 2 ]` — RFC 20260721 G5 tail).
+        && tag != torajs_rc::Tag::NumberWrapper as u16
+        && tag != torajs_rc::Tag::StringWrapper as u16
+        && tag != torajs_rc::Tag::BooleanWrapper as u16
 }
 
 /// Indent-aware body of [`__torajs_arr_print_any`].

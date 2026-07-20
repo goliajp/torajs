@@ -199,6 +199,21 @@ pub unsafe extern "C" fn __torajs_print_anyv_inline_at(v: AnyValue, indent: u32)
             // appends the literal `n` suffix per JS BigInt
             // notation.
             unsafe { __torajs_bigint_print_inline(child) };
+        } else if tag == Tag::StringWrapper as u16 {
+            // Nested-context String wrapper — bun prints just the
+            // quoted [[StringData]] (`[ "a" ]`), unlike the
+            // top-level `[String: "a"]` form. Inner Str cell @ +8;
+            // NULL is the empty-string sentinel.
+            unsafe {
+                put_byte(b'"');
+                let inner = ((child as *const u8).add(8) as *const *const c_void).read();
+                if !inner.is_null() {
+                    put_str_cell_inline_esc(inner, true);
+                }
+                put_byte(b'"');
+            }
+        } else if unsafe { crate::inspect::formatters::put_wrapper_inline(child, tag) } {
+            // Primitive wrapper — bytes emitted by the helper.
         } else {
             // All other composite / typed-receiver tags
             // (Tag::Symbol / Tag::BigInt / Tag::Response /

@@ -252,6 +252,20 @@ unsafe fn dispatch(
 ///   reach the array-like generic arm;
 /// - string-shaped and nullish receivers (identity fast paths /
 ///   RequireObjectCoercible throw).
+/// §6.1.4-shape probe for the thisStringValue gate — a ShortStr
+/// immediate, a Str cell, or a String wrapper object (whose
+/// thisStringValue is its [[StringData]]).
+fn is_string_shaped(v: AnyValue) -> bool {
+    if is_short_str(v) {
+        return true;
+    }
+    if !is_cell(v) {
+        return false;
+    }
+    let tag = unsafe { (as_void_ptr(v).cast::<u8>().add(4) as *const u16).read() };
+    tag == Tag::Str as u16 || tag == Tag::StringWrapper as u16
+}
+
 pub(crate) unsafe fn generic_str_this(
     mid: i64,
     this_arg: AnyValue,
@@ -259,21 +273,38 @@ pub(crate) unsafe fn generic_str_this(
     argc: i64,
     str_family: bool,
 ) -> Option<AnyValue> {
-    if !crate::method_support::str_supports(mid)
-        || matches!(
+    if !crate::method_support::str_supports(mid) {
+        return None;
+    }
+    if matches!(
+        mid,
+        ANY_METHOD_TO_STRING | ANY_METHOD_VALUE_OF | ANY_METHOD_TO_LOCALE_STRING
+    ) {
+        // §22.1.3.28/.35 thisStringValue — a String-prototype-minted
+        // toString / valueOf borrowed onto a non-string receiver is
+        // a TypeError (RFC 20260721 G5); string shapes ride the
+        // ordinary re-dispatch identity lane. toLocaleString is the
+        // inherited generic (§20.1.4.6), never brand-checked here.
+        if str_family && mid != ANY_METHOD_TO_LOCALE_STRING && !is_string_shaped(this_arg) {
+            unsafe {
+                __torajs_throw_type_error(
+                    c"String.prototype method requires that |this| be a String".as_ptr(),
+                );
+            }
+            return Some(VALUE_UNDEFINED);
+        }
+        return None;
+    }
+    if !str_family
+        && matches!(
             mid,
-            ANY_METHOD_TO_STRING | ANY_METHOD_VALUE_OF | ANY_METHOD_TO_LOCALE_STRING
+            ANY_METHOD_AT
+                | ANY_METHOD_CONCAT
+                | ANY_METHOD_INCLUDES
+                | ANY_METHOD_INDEX_OF
+                | ANY_METHOD_LAST_INDEX_OF
+                | ANY_METHOD_SLICE
         )
-        || (!str_family
-            && matches!(
-                mid,
-                ANY_METHOD_AT
-                    | ANY_METHOD_CONCAT
-                    | ANY_METHOD_INCLUDES
-                    | ANY_METHOD_INDEX_OF
-                    | ANY_METHOD_LAST_INDEX_OF
-                    | ANY_METHOD_SLICE
-            ))
     {
         return None;
     }

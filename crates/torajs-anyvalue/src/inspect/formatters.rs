@@ -480,3 +480,43 @@ pub(super) unsafe fn put_substr_cell_inline_esc(child: *const c_void, escape: bo
         put_str_payload_utf8_esc(bytes, is_latin1, escape);
     }
 }
+
+/// Primitive-wrapper inspect form — `[String: "<data>"]` /
+/// `[Number: <n>]` / `[Boolean: <b>]` (bun's shape; RFC 20260721
+/// G5 tail). Answers true iff `tag` named a wrapper cell and the
+/// bytes were emitted; the two dispatchers keep their `[object]`
+/// fallback on false.
+pub(super) unsafe fn put_wrapper_inline(child: *const c_void, tag: u16) -> bool {
+    use torajs_rc::Tag;
+    if tag == Tag::StringWrapper as u16 {
+        unsafe {
+            put_bytes(b"[String: \"");
+            let inner = ((child as *const u8).add(8) as *const *const c_void).read();
+            if !inner.is_null() {
+                put_str_cell_inline_esc(inner, true);
+            }
+            put_bytes(b"\"]");
+        }
+        return true;
+    }
+    if tag == Tag::NumberWrapper as u16 {
+        unsafe {
+            put_bytes(b"[Number: ");
+            let n = ((child as *const u8).add(8) as *const f64).read();
+            put_f64_inline(n);
+            put_bytes(b"]");
+        }
+        return true;
+    }
+    if tag == Tag::BooleanWrapper as u16 {
+        unsafe {
+            put_bytes(if (child as *const u8).add(8).read() != 0 {
+                b"[Boolean: true]"
+            } else {
+                b"[Boolean: false]"
+            });
+        }
+        return true;
+    }
+    false
+}
