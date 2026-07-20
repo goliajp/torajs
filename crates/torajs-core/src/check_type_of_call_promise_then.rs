@@ -84,11 +84,29 @@ fn try_then_two_arg(
         {
             let inner_ty = (**inner).clone();
             let expected_cb = Type::Function(vec![inner_ty.clone()], Box::new(inner_ty.clone()));
+            /* RFC 20260720-promise-any-cb knife 3 — either handler
+             * may also be `(v: any) => R` (the knife-2 admit,
+             * per-slot): the lowering's two-arg station marks each
+             * PARAM_ANY independently. The result inner follows the
+             * fulfilled leg: onOk `(any) => R` → Promise<R>, onOk
+             * `(T) => T` → Promise<T> (onErr's return joins the
+             * union in full TS; the single-value type here keeps
+             * the fulfilled leg's answer). */
+            let mut result_inner = inner_ty.clone();
             for (i, a) in args.iter().enumerate() {
                 let aty = match checker.type_of(ast, *a) {
                     Ok(t) => t,
                     Err(e) => return Some(Err(e)),
                 };
+                if let Type::Function(params, ret) = &aty
+                    && params.len() == 1
+                    && matches!(params[0], Type::Any)
+                {
+                    if i == 0 {
+                        result_inner = (**ret).clone();
+                    }
+                    continue;
+                }
                 if aty != expected_cb {
                     return Some(Err(format!(
                         "Promise.then arg {i}: expected {:?}, got {aty:?}",
@@ -96,7 +114,7 @@ fn try_then_two_arg(
                     )));
                 }
             }
-            return Some(Ok(Type::Promise(Box::new(inner_ty))));
+            return Some(Ok(Type::Promise(Box::new(result_inner))));
         }
     }
     None
