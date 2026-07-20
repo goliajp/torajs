@@ -197,6 +197,15 @@ pub struct Ast {
     /// `lift_arrow_fns` (it replaces the arena slot in place with the
     /// `Expr::Closure`).
     pub fn_expr_exprs: std::collections::HashSet<ExprId>,
+    /// Template-substitution `String(...)` wrappers the parser
+    /// synthesizes (§13.2.8.5 hint-string order) — keyed by the
+    /// synthesized CALLEE Ident's ExprId (fresh per substitution, so
+    /// no user-written `String(...)` can collide). The String-call
+    /// lowering branches on this: a keyed call runs the §7.1.17
+    /// implicit ToString (a Symbol substitution throws TypeError per
+    /// §13.2.8.6), while a real `String(sym)` keeps the §22.1.1
+    /// SymbolDescriptiveString.
+    pub template_str_calls: std::collections::HashSet<ExprId>,
     /// RFC 20260717-fnexpr-this-channel knife 1 — lifted fn names
     /// (`__closure_N`) whose body takes the call-site `this` as its
     /// first declared param after `__env`. `ssa_lower` stamps

@@ -113,6 +113,13 @@ impl<'a> Parser<'a> {
                     // *_to_str intrinsics elsewhere), not a real
                     // call, so primitive substitutions cost nothing.
                     let callee = self.ast.add_expr(Expr::Ident("String".to_string()));
+                    // §13.2.8.6 — a substitution runs the IMPLICIT
+                    // ToString (a Symbol throws TypeError), while the
+                    // `String(...)` spelling below is the one explicit
+                    // lane that stringifies a Symbol. Key the
+                    // synthesized callee so the lowering can keep both
+                    // faces apart.
+                    self.ast.template_str_calls.insert(callee);
                     self.ast.add_expr(Expr::Call {
                         callee,
                         args: vec![result],

@@ -144,7 +144,7 @@ fn lower_haystack(ctx: &mut LowerCtx<'_>, arg: ExprId) -> (Operand, bool) {
             (Operand::Value(owned), true)
         }
         _ => {
-            let coerced = crate::ssa_lower_call_coercion::emit_to_string(ctx, arg, s, ty);
+            let coerced = crate::ssa_lower_call_coercion::emit_to_string(ctx, arg, s, ty, false);
             (coerced, true)
         }
     }

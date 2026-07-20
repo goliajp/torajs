@@ -127,8 +127,9 @@ pub(crate) fn try_lower(
     let (key_op, key_owned) = match key_ty {
         Type::Str => (key_raw, false),
         _ => {
-            let coerced =
-                crate::ssa_lower_call_coercion::emit_to_string(ctx, args[1], key_raw, key_ty);
+            let coerced = crate::ssa_lower_call_coercion::emit_to_string(
+                ctx, args[1], key_raw, key_ty, false,
+            );
             (coerced, true)
         }
     };

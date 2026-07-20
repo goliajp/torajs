@@ -114,7 +114,7 @@ pub(crate) fn try_lower(
             let empty_lit = ctx.intern_string_literal("");
             Operand::Value(empty_lit)
         } else {
-            crate::ssa_lower_call_coercion::emit_to_string(ctx, args[0], raw_arg, arg_ty)
+            crate::ssa_lower_call_coercion::emit_to_string(ctx, args[0], raw_arg, arg_ty, false)
         };
         let flags_bytes = if name == "matchAll" { "g" } else { "" };
         let flags_v = ctx.intern_string_literal(flags_bytes);

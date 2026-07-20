@@ -102,7 +102,13 @@ pub(crate) fn try_lower(
             ctx.release_owned_temp(args[0], &arg_op);
             v
         }
-        "String" => emit_to_string(ctx, args[0], arg_op, arg_ty),
+        "String" => emit_to_string(
+            ctx,
+            args[0],
+            arg_op,
+            arg_ty,
+            ctx.ast.template_str_calls.contains(&callee),
+        ),
         _ => unreachable!(),
     })
 }
@@ -199,11 +205,18 @@ pub(crate) fn emit_to_number(
 /// null_to_str; Any → coerce_to_str (tag-dispatched); Arr → join(",")
 /// (same dispatch as `arr.toString()`); Obj → "[object Object]" per
 /// §20.1.4.4 generic Object toString.
+///
+/// `implicit_tostring` — true for a parser-synthesized template
+/// wrapper (§13.2.8.6 substitution: a Symbol throws TypeError);
+/// false for the explicit `String(...)` display face (a Symbol
+/// answers its SymbolDescriptiveString per §22.1.1 step 1.a). The
+/// two only diverge on Symbol.
 pub(crate) fn emit_to_string(
     ctx: &mut LowerCtx<'_>,
     arg_eid: ExprId,
     arg_op: Operand,
     arg_ty: Type,
+    implicit_tostring: bool,
 ) -> Operand {
     match arg_ty {
         Type::Str | Type::Substr => {
@@ -271,23 +284,51 @@ pub(crate) fn emit_to_string(
         // display variant (§22.1.1 step 1.a — the explicit String()
         // call answers a Symbol's SymbolDescriptiveString instead of
         // the §7.1.17 implicit-coercion TypeError; every other tag
-        // matches anyv_to_str). Borrows the Any box; release an owned
-        // temp arg after the read.
+        // matches anyv_to_str). A parser-synthesized TEMPLATE
+        // wrapper (`ast.template_str_calls`) takes the implicit
+        // kernel instead — §13.2.8.6 substitution ToString throws on
+        // a Symbol; the two kernels agree on every other tag (both
+        // hint-string). Borrows the Any box; release an owned temp
+        // arg after the read.
         Type::Any => {
+            let fid = if implicit_tostring {
+                ctx.intrinsics.any_to_str_box
+            } else {
+                ctx.intrinsics.any_to_display_str
+            };
             let v = ctx.f.append_inst(
                 ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.any_to_display_str, vec![arg_op.clone()]),
+                InstKind::Call(fid, vec![arg_op.clone()]),
                 Type::Str,
                 None,
             );
             ctx.release_owned_temp(arg_eid, &arg_op);
+            if implicit_tostring {
+                ctx.emit_throw_check(None);
+            }
             Operand::Value(v)
         }
         // rotation 141 — `String(symbol)` typed spelling: §22.1.1
         // step 1.a SymbolDescriptiveString (the same kernel
         // `sym.toString()` rides; the Any lane's display variant
-        // answers this shape already — this is its typed twin).
+        // answers this shape already — this is its typed twin). A
+        // template wrapper over a statically-typed Symbol takes the
+        // implicit kernel through a tag-4 box instead — §13.2.8.6
+        // ToString(Symbol) throws (the box is a pure encode; the
+        // kernel only reads the borrow).
         Type::Symbol => {
+            if implicit_tostring {
+                let boxed = ctx.box_to_any(arg_op.clone());
+                let v = ctx.f.append_inst(
+                    ctx.cur_block,
+                    InstKind::Call(ctx.intrinsics.any_to_str_box, vec![boxed]),
+                    Type::Str,
+                    None,
+                );
+                ctx.release_owned_temp(arg_eid, &arg_op);
+                ctx.emit_throw_check(None);
+                return Operand::Value(v);
+            }
             let v = ctx.f.append_inst(
                 ctx.cur_block,
                 InstKind::Call(ctx.intrinsics.symbol_to_str, vec![arg_op.clone()]),

@@ -134,7 +134,8 @@ fn lower_string_wrapper(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
     let arg_eid = args[0];
     let arg_op = ctx.lower_expr(arg_eid);
     let arg_ty = ctx.operand_ty(&arg_op);
-    let str_op = crate::ssa_lower_call_coercion::emit_to_string(ctx, arg_eid, arg_op, arg_ty);
+    let str_op =
+        crate::ssa_lower_call_coercion::emit_to_string(ctx, arg_eid, arg_op, arg_ty, false);
     let cur_block = ctx.cur_block;
     let ptr_v = ctx.f.append_inst(
         cur_block,

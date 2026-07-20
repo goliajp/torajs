@@ -127,7 +127,7 @@ pub(crate) fn lower_key(ctx: &mut LowerCtx, key: &DefineKey) -> (Operand, bool) 
                 // callers drop after the helper borrow read.
                 _ => {
                     let coerced =
-                        crate::ssa_lower_call_coercion::emit_to_string(ctx, *eid, raw, ty);
+                        crate::ssa_lower_call_coercion::emit_to_string(ctx, *eid, raw, ty, false);
                     (coerced, true)
                 }
             }
