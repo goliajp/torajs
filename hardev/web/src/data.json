@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-20T12:30:57.542Z",
+  "generatedAt": "2026-07-20T12:39:56.670Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 93.53
   },
   "torajs": {
-    "commit": "602c6c8b",
-    "commitSubject": "chore: archive the test262 sweep at 6fbdd93a",
+    "commit": "64ffadd5",
+    "commitSubject": "fix: tostring a scalar split separator through the runtime dispatch",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "64ffadd5",
+      "subject": "fix: tostring a scalar split separator through the runtime dispatch"
+    },
+    {
+      "hash": "ee52813b",
+      "subject": "chore: hardev dashboard snapshot at rotation 164 close"
+    },
+    {
       "hash": "602c6c8b",
       "subject": "chore: archive the test262 sweep at 6fbdd93a"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "67edbfc4",
       "subject": "fix: walk a typed struct props through Object.create's define phase"
-    },
-    {
-      "hash": "91ed883c",
-      "subject": "chore: hardev dashboard snapshot at rotation 163 close"
-    },
-    {
-      "hash": "5dcc18e0",
-      "subject": "chore: archive the test262 sweep at 37b30aab"
     }
   ],
-  "headSha": "602c6c8b",
+  "headSha": "64ffadd5",
   "autorun": {
     "total": 469,
     "baselineTarget": 10,
