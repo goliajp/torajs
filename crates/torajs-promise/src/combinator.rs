@@ -20,10 +20,6 @@ use crate::layout::{
     Promise, REPR_BOOL, REPR_F64, REPR_HEAP, REPR_I64, REPR_STR, REPR_UNSTAMPED, REPR_VOID,
     STATE_FULFILLED, STATE_PENDING, STATE_REJECTED, STR_HDR_SIZE, as_promise,
 };
-use crate::pool::{
-    __torajs_promise_alloc_fulfilled, __torajs_promise_alloc_fulfilled_heap,
-    __torajs_promise_alloc_rejected, __torajs_promise_alloc_rejected_heap,
-};
 
 unsafe extern "C" {
     /// torajs-mmalloc libc-compat — v0.7-A2 step 6b cutover.
@@ -31,6 +27,10 @@ unsafe extern "C" {
     fn malloc(n: usize) -> *mut c_void;
 
     fn __torajs_rc_inc(p: *mut c_void);
+    /// Universal heap drop — releases the deferred-settle queue
+    /// stake after the dispatcher fires.
+    fn __torajs_value_drop_heap(p: *mut c_void);
+    fn __torajs_microtask_enqueue(fn_: crate::layout::MicrotaskFn, arg: i64);
 
     /// Array<i64> alloc + push, defined in libtorajs_arr.a. Used by
     /// Promise.all / allSettled to build the result Array.
@@ -107,23 +107,64 @@ fn repr_arr_kind_chain(repr: u8) -> Option<u64> {
     }
 }
 
-/// knife 3 (RFC 20260720-anylane-promise-methods) — write the fresh
-/// result cell's value form for the any-lane bridge. Combinator
-/// results are runtime-minted, so the stamp happens here: an Arr
-/// result is REPR_HEAP, a forwarded settlement copies its source's
-/// stamp, the MVP placeholder reject(0) legs answer undefined
-/// (REPR_VOID).
-unsafe fn stamped(p: *mut c_void, repr: u8) -> *mut c_void {
-    if !p.is_null() {
-        unsafe { (*as_promise(p)).value_repr = repr };
+/// Deferred-settle microtask (L3b combinator residual face ② fix).
+/// Reads the target state the mint parked in `_pad[0]`, clears it,
+/// and routes through the regular resolve/reject kernels — reject
+/// keeps its PENDING→REJECTED HPRT-check enqueue, and both drain any
+/// callbacks attached during the deferral round. The queue's stake
+/// (inc'd at enqueue) releases on exit.
+unsafe extern "C" fn deferred_settle_dispatch(arg: i64) {
+    let p = arg as *mut c_void;
+    let pp = as_promise(p);
+    unsafe {
+        let target = (*pp)._pad[0];
+        (*pp)._pad[0] = 0;
+        let v = (*pp).value;
+        if target == STATE_REJECTED {
+            crate::state::__torajs_promise_reject(p, v);
+        } else {
+            crate::state::__torajs_promise_resolve(p, v);
+        }
+        __torajs_value_drop_heap(p);
     }
-    p
+}
+
+/// Mint the combinator's result promise: PENDING now, settled one
+/// microtask later. The spec shape settles combinator results
+/// through their resolve functions' absorption round — the sync
+/// fast path used to mint them already-settled, which put their
+/// `.then` callbacks one microtask EARLY relative to bun (output-
+/// order divergence, L3b combinator residual face ②). The final
+/// (state, value, is_heap) rides pre-written on the pending cell
+/// (`_pad[0]` carries the target state; resolve/reject never touch
+/// `value_is_heap`/`value_repr`, so the pre-writes survive), and
+/// `await` still observes the settled value because its lowering
+/// drains the microtask queue before `promise_get_value`.
+///
+/// Also carries the knife-3 (RFC 20260720-anylane-promise-methods)
+/// value-form stamp: an Arr result is REPR_HEAP, a forwarded
+/// settlement copies its source's stamp, the MVP placeholder
+/// reject(0) legs answer undefined (REPR_VOID).
+unsafe fn defer_settle(state: u8, value: i64, is_heap: u8, repr: u8) -> *mut c_void {
+    unsafe {
+        let p = crate::pool::__torajs_promise_alloc_pending();
+        let pp = as_promise(p);
+        (*pp).value = value;
+        (*pp).value_is_heap = is_heap;
+        (*pp).value_repr = repr;
+        (*pp)._pad[0] = state;
+        // Queue stake — the cell must outlive the deferral even if
+        // the caller discards the result; the dispatcher drops it.
+        __torajs_rc_inc(p);
+        __torajs_microtask_enqueue(deferred_settle_dispatch, p as i64);
+        p
+    }
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_promise_all_sync(promises_arr: *mut c_void) -> *mut c_void {
     if promises_arr.is_null() {
-        return unsafe { stamped(__torajs_promise_alloc_rejected(0), REPR_VOID) };
+        return unsafe { defer_settle(STATE_REJECTED, 0, 0, REPR_VOID) };
     }
     unsafe { absorb_inputs(promises_arr) };
     let len = unsafe { arr_len(promises_arr) };
@@ -136,15 +177,10 @@ pub unsafe extern "C" fn __torajs_promise_all_sync(promises_arr: *mut c_void) ->
         }
         let state = unsafe { (*pp).state };
         if state == STATE_REJECTED {
-            return unsafe {
-                stamped(
-                    __torajs_promise_alloc_rejected((*pp).value),
-                    (*pp).value_repr,
-                )
-            };
+            return unsafe { defer_settle(STATE_REJECTED, (*pp).value, 0, (*pp).value_repr) };
         }
         if state == STATE_PENDING {
-            return unsafe { stamped(__torajs_promise_alloc_rejected(0), REPR_VOID) };
+            return unsafe { defer_settle(STATE_REJECTED, 0, 0, REPR_VOID) };
         }
     }
     // All fulfilled — build result Array. The elem kind comes from
@@ -173,12 +209,7 @@ pub unsafe extern "C" fn __torajs_promise_all_sync(promises_arr: *mut c_void) ->
         // hand the any lane a misdecoding array.
         None => REPR_UNSTAMPED,
     };
-    unsafe {
-        stamped(
-            __torajs_promise_alloc_fulfilled_heap(result_arr as i64),
-            out_repr,
-        )
-    }
+    unsafe { defer_settle(STATE_FULFILLED, result_arr as i64, 1, out_repr) }
 }
 
 // ============================================================
@@ -235,7 +266,7 @@ pub unsafe extern "C" fn __torajs_promise_allsettled_sync(
     promises_arr: *mut c_void,
 ) -> *mut c_void {
     if promises_arr.is_null() {
-        return unsafe { stamped(__torajs_promise_alloc_rejected(0), REPR_VOID) };
+        return unsafe { defer_settle(STATE_REJECTED, 0, 0, REPR_VOID) };
     }
     unsafe { absorb_inputs(promises_arr) };
     let len = unsafe { arr_len(promises_arr) };
@@ -245,7 +276,7 @@ pub unsafe extern "C" fn __torajs_promise_allsettled_sync(
             continue;
         }
         if unsafe { (*pp).state } == STATE_PENDING {
-            return unsafe { stamped(__torajs_promise_alloc_rejected(0), REPR_VOID) };
+            return unsafe { defer_settle(STATE_REJECTED, 0, 0, REPR_VOID) };
         }
     }
     let mut result_arr = unsafe { __torajs_arr_alloc(len) };
@@ -269,10 +300,7 @@ pub unsafe extern "C" fn __torajs_promise_allsettled_sync(
     unsafe {
         // {status, value} obj cells — heap-ptr slots (chain 4).
         __torajs_arr_mark_kind(result_arr, 4);
-        stamped(
-            __torajs_promise_alloc_fulfilled_heap(result_arr as i64),
-            REPR_HEAP,
-        )
+        defer_settle(STATE_FULFILLED, result_arr as i64, 1, REPR_HEAP)
     }
 }
 
@@ -283,7 +311,7 @@ pub unsafe extern "C" fn __torajs_promise_allsettled_sync(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_promise_race_sync(promises_arr: *mut c_void) -> *mut c_void {
     if promises_arr.is_null() {
-        return unsafe { stamped(__torajs_promise_alloc_rejected(0), REPR_VOID) };
+        return unsafe { defer_settle(STATE_REJECTED, 0, 0, REPR_VOID) };
     }
     unsafe { absorb_inputs(promises_arr) };
     let len = unsafe { arr_len(promises_arr) };
@@ -300,32 +328,22 @@ pub unsafe extern "C" fn __torajs_promise_race_sync(promises_arr: *mut c_void) -
                 if value != 0 {
                     unsafe { __torajs_rc_inc(value as *mut c_void) };
                 }
-                return unsafe {
-                    stamped(
-                        __torajs_promise_alloc_fulfilled_heap(value),
-                        (*pp).value_repr,
-                    )
-                };
+                return unsafe { defer_settle(STATE_FULFILLED, value, 1, (*pp).value_repr) };
             }
-            return unsafe { stamped(__torajs_promise_alloc_fulfilled(value), (*pp).value_repr) };
+            return unsafe { defer_settle(STATE_FULFILLED, value, 0, (*pp).value_repr) };
         }
         if state == STATE_REJECTED {
             if value_is_heap != 0 {
                 if value != 0 {
                     unsafe { __torajs_rc_inc(value as *mut c_void) };
                 }
-                return unsafe {
-                    stamped(
-                        __torajs_promise_alloc_rejected_heap(value),
-                        (*pp).value_repr,
-                    )
-                };
+                return unsafe { defer_settle(STATE_REJECTED, value, 1, (*pp).value_repr) };
             }
-            return unsafe { stamped(__torajs_promise_alloc_rejected(value), (*pp).value_repr) };
+            return unsafe { defer_settle(STATE_REJECTED, value, 0, (*pp).value_repr) };
         }
     }
     // Empty or all-pending — placeholder reject.
-    unsafe { stamped(__torajs_promise_alloc_rejected(0), REPR_VOID) }
+    unsafe { defer_settle(STATE_REJECTED, 0, 0, REPR_VOID) }
 }
 
 // ============================================================
@@ -335,7 +353,7 @@ pub unsafe extern "C" fn __torajs_promise_race_sync(promises_arr: *mut c_void) -
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_promise_any_sync(promises_arr: *mut c_void) -> *mut c_void {
     if promises_arr.is_null() {
-        return unsafe { stamped(__torajs_promise_alloc_rejected(0), REPR_VOID) };
+        return unsafe { defer_settle(STATE_REJECTED, 0, 0, REPR_VOID) };
     }
     unsafe { absorb_inputs(promises_arr) };
     let len = unsafe { arr_len(promises_arr) };
@@ -354,24 +372,14 @@ pub unsafe extern "C" fn __torajs_promise_any_sync(promises_arr: *mut c_void) ->
                 if value != 0 {
                     unsafe { __torajs_rc_inc(value as *mut c_void) };
                 }
-                return unsafe {
-                    stamped(
-                        __torajs_promise_alloc_fulfilled_heap(value),
-                        (*pp).value_repr,
-                    )
-                };
+                return unsafe { defer_settle(STATE_FULFILLED, value, 1, (*pp).value_repr) };
             }
-            return unsafe { stamped(__torajs_promise_alloc_fulfilled(value), (*pp).value_repr) };
+            return unsafe { defer_settle(STATE_FULFILLED, value, 0, (*pp).value_repr) };
         }
         if state == STATE_REJECTED {
             last_rejection = value;
             last_rejection_repr = unsafe { (*pp).value_repr };
         }
     }
-    unsafe {
-        stamped(
-            __torajs_promise_alloc_rejected(last_rejection),
-            last_rejection_repr,
-        )
-    }
+    unsafe { defer_settle(STATE_REJECTED, last_rejection, 0, last_rejection_repr) }
 }
