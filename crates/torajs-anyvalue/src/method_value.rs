@@ -467,6 +467,20 @@ pub(crate) fn builtin_method_supported(recv: AnyValue, mid: i64) -> bool {
         t if t == Tag::Symbol as u16 => {
             mid == ANY_METHOD_TO_STRING || mid == torajs_rc::ANY_METHOD_TO_LOCALE_STRING
         }
+        // §27.2.5 Promise.prototype — then / catch / finally own
+        // methods; the dispatcher has always answered the calls, but
+        // reading one as a value (`const t = p.then`) said undefined.
+        // Universal Object.prototype probes answer above.
+        t if t == Tag::Promise as u16 => {
+            mid == torajs_rc::ANY_METHOD_THEN
+                || mid == torajs_rc::ANY_METHOD_CATCH
+                || mid == torajs_rc::ANY_METHOD_FINALLY
+        }
+        // §21.2.3 BigInt.prototype — toString / toLocaleString own;
+        // valueOf answered by the universal arm above.
+        t if t == Tag::BigInt as u16 => {
+            mid == ANY_METHOD_TO_STRING || mid == torajs_rc::ANY_METHOD_TO_LOCALE_STRING
+        }
         t if t == Tag::DynObj as u16 || t == Tag::Obj as u16 => {
             // toString sits beside toLocaleString: both are inherited
             // from Object.prototype and the dispatcher has always

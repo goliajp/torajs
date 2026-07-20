@@ -149,8 +149,24 @@ pub(crate) fn proto_tag_family_owns(tag: i64, mid: i64) -> bool {
         // Boolean.prototype owns toString + valueOf (§20.3.3);
         // toLocaleString is inherited.
         4 => matches!(mid, ANY_METHOD_TO_STRING | ANY_METHOD_VALUE_OF),
+        // Symbol.prototype owns toString + valueOf (§20.4.3);
+        // description is an accessor, not a method.
+        5 => matches!(mid, ANY_METHOD_TO_STRING | ANY_METHOD_VALUE_OF),
+        // BigInt.prototype owns toString + toLocaleString + valueOf
+        // (§21.2.3).
+        6 => matches!(
+            mid,
+            ANY_METHOD_TO_STRING | ANY_METHOD_TO_LOCALE_STRING | ANY_METHOD_VALUE_OF
+        ),
         7 => regexp_supports(mid),
         8 => date_supports(mid),
+        // Promise.prototype owns then / catch / finally (§27.2.5).
+        10 => matches!(
+            mid,
+            torajs_rc::ANY_METHOD_THEN
+                | torajs_rc::ANY_METHOD_CATCH
+                | torajs_rc::ANY_METHOD_FINALLY
+        ),
         11 => map_supports(mid),
         12 => set_supports(mid),
         13 => closure_supports(mid),
