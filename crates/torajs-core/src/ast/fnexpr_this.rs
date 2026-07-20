@@ -75,6 +75,38 @@ pub(crate) fn run(
     }
     let mut patches: Vec<FacePatch> = Vec::new();
     let mut ident_cands: Vec<(String, ExprId)> = Vec::new();
+    collect_position_faces(stmts, exprs, fn_expr_exprs, &mut patches, &mut ident_cands);
+    promote_variable_routed(
+        stmts,
+        exprs,
+        fn_expr_exprs,
+        closure_argc_locals,
+        closure_argv_locals,
+        ident_cands,
+        &mut patches,
+        fnexpr_recv_faces,
+        fnexpr_recv_locals,
+    );
+    if patches.is_empty() {
+        return;
+    }
+    let pairs: Vec<(ExprId, String)> = patches.into_iter().map(|p| (p.eid, p.fn_name)).collect();
+    promote_recv_any(stmts, exprs, &pairs, fnexpr_recv_fns);
+}
+
+/// Position walk — collect literal fn-expr faces (and Ident face
+/// candidates for knife 2) from every face POSITION in the arena:
+/// member-store on an any receiver, `__defineGetter__` /
+/// `__defineSetter__`, `Object.defineProperty` inline descriptors,
+/// knife-5 `defineProperties` / `Object.create` nested descriptors,
+/// and knife-4 HOF callback slots.
+fn collect_position_faces(
+    stmts: &[Stmt],
+    exprs: &[Expr],
+    fn_expr_exprs: &std::collections::HashSet<ExprId>,
+    patches: &mut Vec<FacePatch>,
+    ident_cands: &mut Vec<(String, ExprId)>,
+) {
     let any_recvs = collect_any_binding_names(stmts);
     let arraylit_recvs = collect_arraylit_binding_names(stmts, exprs);
     let mapset_recvs = collect_mapset_binding_names(stmts, exprs);
@@ -95,8 +127,8 @@ pub(crate) fn run(
             if let Expr::Member { obj, .. } = &exprs[target.0 as usize]
                 && matches!(&exprs[obj.0 as usize], Expr::Ident(n) if any_recvs.contains(n))
             {
-                collect_face(exprs, *value, fn_expr_exprs, &mut patches);
-                collect_ident_face(exprs, *value, &mut ident_cands);
+                collect_face(exprs, *value, fn_expr_exprs, patches);
+                collect_ident_face(exprs, *value, ident_cands);
             }
             continue;
         }
@@ -109,8 +141,8 @@ pub(crate) fn run(
                 if name == "__defineGetter__" || name == "__defineSetter__" =>
             {
                 if let Some(face) = args.get(1) {
-                    collect_face(exprs, *face, fn_expr_exprs, &mut patches);
-                    collect_ident_face(exprs, *face, &mut ident_cands);
+                    collect_face(exprs, *face, fn_expr_exprs, patches);
+                    collect_ident_face(exprs, *face, ident_cands);
                 }
             }
             // `Object.defineProperty(o, k, { get: face, set: face })` —
@@ -122,8 +154,8 @@ pub(crate) fn run(
                 }
                 let Some(desc) = args.get(2) else { continue };
                 for face in literal_desc_faces(exprs, *desc) {
-                    collect_face(exprs, face, fn_expr_exprs, &mut patches);
-                    collect_ident_face(exprs, face, &mut ident_cands);
+                    collect_face(exprs, face, fn_expr_exprs, patches);
+                    collect_ident_face(exprs, face, ident_cands);
                 }
             }
             // Knife 5 — `Object.defineProperties(o, { k: { get: face } })`
@@ -142,8 +174,8 @@ pub(crate) fn run(
                 let descs: Vec<ExprId> = fields.iter().map(|(_, deid)| *deid).collect();
                 for desc in descs {
                     for face in literal_desc_faces(exprs, desc) {
-                        collect_face(exprs, face, fn_expr_exprs, &mut patches);
-                        collect_ident_face(exprs, face, &mut ident_cands);
+                        collect_face(exprs, face, fn_expr_exprs, patches);
+                        collect_ident_face(exprs, face, ident_cands);
                     }
                 }
             }
@@ -173,38 +205,53 @@ pub(crate) fn run(
                     continue;
                 }
                 if let Some(cb) = args.first() {
-                    collect_face(exprs, *cb, fn_expr_exprs, &mut patches);
+                    collect_face(exprs, *cb, fn_expr_exprs, patches);
                 }
             }
             _ => {}
         }
     }
-    // Knife 2 — variable-routed faces: a face-position Ident promotes
-    // only when EVERY use of the binding program-wide is a face read
-    // (a single face — the original knife-2 profile — or several
-    // faces sharing one closure, the knife-2W multi-face widening;
-    // any OTHER read — a direct call, a reassignment target, an alias
-    // init — would see the shifted-args closure ABI, the exact
-    // silent-wrong the zero-alias bar forbids, so those keep today's
-    // loud reject) and the const init is a marked fn-expr whose body
-    // says `this`. The decl lookup recurses through fn bodies (a face
-    // inside a function scope resolves its local const — the
-    // nested-scope profile), but only a name DECLARED EXACTLY ONCE
-    // program-wide promotes: with a same-name decl in another scope a
-    // face read cannot be paired to its binding syntactically, and a
-    // mispair would stamp RECV on a face whose runtime value is the
-    // other binding. Over-removal keeps those loud. Every face ExprId
-    // lands in `fnexpr_recv_faces` for the compile-time
-    // literal-descriptor lowering; runtime paths read the closure
-    // header flag instead.
-    // Face candidates dedup by ExprId: the position walk can hit the
-    // SAME face node more than once — a pre-pass clones a
-    // face-position Call (fresh Call + descriptor nodes, leaf arg
-    // ExprIds shared), so `{ get: g }`'s single Ident lands in
-    // `ident_cands` once per clone. The use-vs-face parity below
-    // compares against the arena's UNIQUE Ident nodes, so the face
-    // list must be unique too (the pre-2W per-entry `uses == 1` check
-    // tolerated duplicates implicitly).
+}
+
+/// Knife 2 — variable-routed faces: a face-position Ident promotes
+/// only when EVERY use of the binding program-wide is a face read
+/// (a single face — the original knife-2 profile — or several
+/// faces sharing one closure, the knife-2W multi-face widening;
+/// any OTHER read — a direct call, a reassignment target, an alias
+/// init — would see the shifted-args closure ABI, the exact
+/// silent-wrong the zero-alias bar forbids, so those keep today's
+/// loud reject) and the const init is a marked fn-expr whose body
+/// says `this`. The decl lookup recurses through fn bodies (a face
+/// inside a function scope resolves its local const — the
+/// nested-scope profile), but only a name DECLARED EXACTLY ONCE
+/// program-wide promotes: with a same-name decl in another scope a
+/// face read cannot be paired to its binding syntactically, and a
+/// mispair would stamp RECV on a face whose runtime value is the
+/// other binding. Over-removal keeps those loud. Every face ExprId
+/// lands in `fnexpr_recv_faces` for the compile-time
+/// literal-descriptor lowering; runtime paths read the closure
+/// header flag instead.
+///
+/// Face candidates dedup by ExprId: the position walk can hit the
+/// SAME face node more than once — a pre-pass clones a
+/// face-position Call (fresh Call + descriptor nodes, leaf arg
+/// ExprIds shared), so `{ get: g }`'s single Ident lands in
+/// `ident_cands` once per clone. The use-vs-face parity below
+/// compares against the arena's UNIQUE Ident nodes, so the face
+/// list must be unique too (the pre-2W per-entry `uses == 1` check
+/// tolerated duplicates implicitly).
+#[allow(clippy::too_many_arguments)]
+fn promote_variable_routed(
+    stmts: &[Stmt],
+    exprs: &[Expr],
+    fn_expr_exprs: &std::collections::HashSet<ExprId>,
+    closure_argc_locals: &std::collections::HashSet<String>,
+    closure_argv_locals: &std::collections::HashSet<String>,
+    ident_cands: Vec<(String, ExprId)>,
+    patches: &mut Vec<FacePatch>,
+    fnexpr_recv_faces: &mut std::collections::HashSet<ExprId>,
+    fnexpr_recv_locals: &mut std::collections::HashSet<String>,
+) {
     let mut faces_by_name: std::collections::HashMap<String, Vec<ExprId>> =
         std::collections::HashMap::new();
     for (name, face_eid) in ident_cands {
@@ -280,11 +327,6 @@ pub(crate) fn run(
             }
         }
     }
-    if patches.is_empty() {
-        return;
-    }
-    let pairs: Vec<(ExprId, String)> = patches.into_iter().map(|p| (p.eid, p.fn_name)).collect();
-    promote_recv_any(stmts, exprs, &pairs, fnexpr_recv_fns);
 }
 
 /// The array HOF methods whose any-lane kernels carry the
