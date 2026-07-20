@@ -41,6 +41,7 @@ pub fn vm_match_at_rev(
 ) -> i64 {
     ws.cur.clear();
     ws.cur.step_id = ws.next_step_id();
+    ws.vc.begin_step();
     ws.arena.reset();
     let seed_saves_id = ws.arena.alloc_empty();
     add_thread(
@@ -61,6 +62,7 @@ pub fn vm_match_at_rev(
     while pos >= 0 {
         ws.nxt.clear();
         ws.nxt.step_id = ws.next_step_id();
+        ws.vn.begin_step();
         let mut saw_match_this_step = false;
         let mut ti = 0;
         // Iterate cur via index — body may push into cur (BACKREF
@@ -317,6 +319,7 @@ mod tests {
         compile_rev(&mut prog, &root, flags);
         prog.emit(Inst::match_accept());
         prog.has_save = prog.any_save();
+        prog.finalize_backref_caps();
         prog
     }
 

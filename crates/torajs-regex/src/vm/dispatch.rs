@@ -21,6 +21,7 @@ use crate::vm::Thread;
 use crate::vm::match_at::vm_match_at;
 use crate::vm::match_at_rev::vm_match_at_rev;
 use alloc::vec;
+use alloc::vec::Vec;
 
 /// Transitively expand epsilon ops reachable from `pc` and enqueue
 /// the resulting waiting threads into `tl`. Visited-table dedup
@@ -46,10 +47,30 @@ pub(super) fn add_thread(
         return;
     }
     let upc = pc as usize;
-    if vt.visited[upc] == tl.step_id {
-        return;
+    if prog.backref_caps.is_empty() {
+        if vt.visited[upc] == tl.step_id {
+            return;
+        }
+        vt.visited[upc] = tl.step_id;
+    } else {
+        // Backref-carrying program — dedup on (pc, spans of every
+        // backref-referenced group). PC-only first-write-wins would
+        // swallow viable lower-priority capture candidates whose
+        // greedy sibling dies later (`/^(a+)\1*,\1+$/`). Epsilon
+        // cycles still terminate: `Op::Save` writes the fixed
+        // current `pos`, so the key domain at one position is
+        // finite and a second lap collides here.
+        let row = arena.get(saves_id);
+        let mut key = Vec::with_capacity(2 * prog.backref_caps.len());
+        for &g in &prog.backref_caps {
+            let s_slot = (2 * g) as usize;
+            key.push(row.get(s_slot).copied().unwrap_or(-1));
+            key.push(row.get(s_slot + 1).copied().unwrap_or(-1));
+        }
+        if !vt.seen.insert((upc, key)) {
+            return;
+        }
     }
-    vt.visited[upc] = tl.step_id;
     let ins = prog.insts[upc];
     let op = match Op::from_u8(ins.op) {
         Some(o) => o,

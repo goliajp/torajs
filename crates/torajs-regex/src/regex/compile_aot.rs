@@ -112,6 +112,7 @@ pub unsafe extern "C" fn __torajs_regex_compile_from_static_dfa(
         compile(&mut prog, &root, flag_bits);
         prog.emit(Inst::match_accept());
         prog.has_save = prog.any_save();
+        prog.finalize_backref_caps();
         // regexp-modifiers — mirror compile.rs: uniform-ml drives the
         // wire's line-start entry selection; mixed m-bits gate the
         // DFA off (the text-start-entry fold can't represent them).

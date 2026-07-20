@@ -37,6 +37,7 @@ pub fn vm_match_at(
 
     ws.cur.clear();
     ws.cur.step_id = ws.next_step_id();
+    ws.vc.begin_step();
     ws.arena.reset();
     let seed_saves_id = ws.arena.alloc_empty();
     // Seed PC=0 through the epsilon expander.
@@ -61,6 +62,7 @@ pub fn vm_match_at(
         }
         ws.nxt.clear();
         ws.nxt.step_id = ws.next_step_id();
+        ws.vn.begin_step();
         let mut saw_match_this_step = false;
         let mut ti = 0;
         // Iterate cur via index — body may push into cur (BACKREF
@@ -432,6 +434,7 @@ mod tests {
             .insts
             .iter()
             .any(|ins| ins.op == crate::program::Op::Save as u8);
+        prog.finalize_backref_caps();
         prog
     }
 
@@ -529,5 +532,30 @@ mod tests {
         let r = matches("(a?)\\1b", "b", 0).expect("hit");
         assert_eq!(r.start, 0);
         assert_eq!(r.end, 1);
+    }
+
+    #[test]
+    fn backref_shorter_capture_fallback_survives_dedup() {
+        // RFC 20260721-string-proto-cluster knife 9 (G7) —
+        // `/^(a+)\1*,\1+$/` on "10 a's , 15 a's" needs group 1 to
+        // fall back to 5 a's: the greedy 10-capture thread dies at
+        // `\1+` over 15 a's (15 % 10 != 0), and PC-only visited
+        // dedup used to swallow the shorter-capture candidates at
+        // the shared post-group PCs → whole-pattern no-match.
+        let r = matches("^(a+)\\1*,\\1+$", "aaaaaaaaaa,aaaaaaaaaaaaaaa", 0).expect("hit");
+        assert_eq!(r.start, 0);
+        assert_eq!(r.end, 26);
+        // Group 1 committed the longest viable prefix: "aaaaa".
+        assert_eq!(r.saves()[2], 0);
+        assert_eq!(r.saves()[3], 5);
+    }
+
+    #[test]
+    fn backref_greedy_priority_kept_under_span_dedup() {
+        // Span-keyed dedup must not disturb leftmost-first greed:
+        // `(a+)\1` on "aaaa" still commits the longest split (2+2).
+        let r = matches("(a+)\\1$", "aaaa", 0).expect("hit");
+        assert_eq!(r.saves()[2], 0);
+        assert_eq!(r.saves()[3], 2);
     }
 }

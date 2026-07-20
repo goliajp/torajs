@@ -231,6 +231,19 @@ pub struct Program {
     /// gate `can_dfa` off entirely (`regex/compile.rs`) — the fold
     /// of line-start onto the text-start entry can't represent them.
     pub has_ml_anchor_b: bool,
+    /// Capture indices referenced by any [`Op::Backref`] in this
+    /// program (deduped, ascending). Non-empty switches the Pike VM's
+    /// `add_thread` dedup from the per-PC visited stamp to a
+    /// `(pc, referenced-spans)` key: two threads at the same (pc,
+    /// pos) only behave identically going forward when every span a
+    /// backref can read is identical, so first-write-wins dedup on
+    /// PC alone drops viable lower-priority capture candidates
+    /// (`/^(a+)\1*,\1+$/` — the greedy group-1 thread dies later and
+    /// the shorter-capture fallback was already swallowed). Set at
+    /// compile time next to `has_save` via
+    /// [`Program::finalize_backref_caps`]; sub-programs get their own
+    /// (lookaround bodies run `add_thread` against the sub-Program).
+    pub backref_caps: Vec<i32>,
 }
 
 impl Program {
@@ -272,6 +285,24 @@ impl Program {
     pub fn any_save(&self) -> bool {
         self.insts.iter().any(|ins| ins.op == Op::Save as u8)
             || self.sub_progs.iter().any(|sub| sub.any_save())
+    }
+
+    /// Populate [`Program::backref_caps`] on this program and every
+    /// sub-program (recursively): the deduped, ascending list of
+    /// capture indices any `Op::Backref` instruction references.
+    pub fn finalize_backref_caps(&mut self) {
+        let mut caps: Vec<i32> = self
+            .insts
+            .iter()
+            .filter(|ins| ins.op == Op::Backref as u8)
+            .map(|ins| ins.a)
+            .collect();
+        caps.sort_unstable();
+        caps.dedup();
+        self.backref_caps = caps;
+        for sub in &mut self.sub_progs {
+            sub.finalize_backref_caps();
+        }
     }
 
     /// Index of the next instruction that `emit` will produce — used

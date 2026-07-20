@@ -104,6 +104,7 @@ pub unsafe extern "C" fn __torajs_regex_compile(
         compile(&mut prog, &root, flag_bits);
         prog.emit(Inst::match_accept());
         prog.has_save = prog.any_save();
+        prog.finalize_backref_caps();
         // regexp-modifiers — classify the emitted `^` anchors' m-bits.
         // Uniform multiline drives the wire's line-start entry
         // selection (`has_ml_anchor_b`); MIXED m-bits gate the DFA

@@ -114,16 +114,33 @@ impl ThreadList {
 /// Per-PC visited stamp. `visited[pc] == step_id` ⇒ that PC was
 /// already enqueued *this* step; skip the duplicate (first-write-
 /// wins matches Pike-NFA leftmost-priority).
+///
+/// Backref-carrying programs (`Program::backref_caps` non-empty)
+/// use `seen` instead: a `(pc, referenced-spans)` key set, because
+/// two threads at the same PC only behave identically going forward
+/// when every capture span a backref reads is identical. `seen` has
+/// no step_id auto-reset — callers clear it via [`Self::begin_step`]
+/// at the same points a fresh `step_id` is stamped (after the
+/// cur/nxt swap the old `vn` set travels with `vc`, which is exactly
+/// the key set of the threads now sitting in `cur`).
 #[derive(Debug)]
 pub struct VisitedTable {
     pub visited: Vec<u32>,
+    pub seen: alloc::collections::BTreeSet<(usize, Vec<i64>)>,
 }
 
 impl VisitedTable {
     pub fn with_size(n: usize) -> Self {
         Self {
             visited: vec![0u32; n],
+            seen: alloc::collections::BTreeSet::new(),
         }
+    }
+
+    /// Reset the backref-mode key set for a new step. The `visited`
+    /// stamp array needs no reset (step_id mismatch self-invalidates).
+    pub fn begin_step(&mut self) {
+        self.seen.clear();
     }
 }
 
@@ -215,6 +232,7 @@ mod tests {
         // Program manually must set it too so `prog_has_save` reflects
         // truth (attack #J reads this field, not the live insts).
         prog.has_save = prog.any_save();
+        prog.finalize_backref_caps();
         prog
     }
 
