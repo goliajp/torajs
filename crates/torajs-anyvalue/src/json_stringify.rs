@@ -58,6 +58,7 @@ unsafe extern "C" {
     // torajs-str / torajs-num conversions.
     fn __torajs_f64_to_str(n: f64) -> *mut c_void;
     fn __torajs_str_drop(s: *mut c_void);
+    fn __torajs_substr_to_owned(v: *const u8) -> *mut c_void;
 
     // torajs-dynobj — run an accessor entry's getter (§25.5.2.2's
     // ? Get(holder, key); receiver borrowed, result owned).
@@ -161,7 +162,21 @@ unsafe fn write_cell(sb: *mut c_void, ptr: *mut c_void, depth: u32) -> Wrote {
         let tag = (ptr.cast::<u8>().add(4) as *const u16).read();
         match tag {
             t if t == Tag::Str as u16 => {
-                __torajs_jsb_push_str_quoted(sb, ptr as *const u8);
+                // A Substr view (a split-product slot) keeps its
+                // bytes behind parent+offset; the quoting path reads
+                // the owned layout, so materialize first — the raw
+                // cell printed its own view-struct fields as garbage
+                // characters. Flag bits mirror torajs-str substr.rs
+                // (FLAG_SUBSTR_INLINE = 1<<0, FLAG_SUBSTR_VIEW =
+                // 1<<10); flags live at header +6 (index_any idiom).
+                let flags = (ptr.cast::<u8>().add(6) as *const u16).read();
+                if flags & ((1 << 0) | (1 << 10)) != 0 {
+                    let owned = __torajs_substr_to_owned(ptr as *const u8);
+                    __torajs_jsb_push_str_quoted(sb, owned as *const u8);
+                    __torajs_str_drop(owned);
+                } else {
+                    __torajs_jsb_push_str_quoted(sb, ptr as *const u8);
+                }
                 Wrote::Value
             }
             t if t == Tag::Arr as u16 => {
