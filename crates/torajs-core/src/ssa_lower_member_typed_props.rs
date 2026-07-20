@@ -47,9 +47,26 @@ pub(crate) fn try_lower(
     obj_ty: Type,
     name: &str,
 ) -> Option<Operand> {
-    if name == "constructor" && is_prim_for_constructor(obj_ty) {
+    if name == "constructor"
+        && let Some(tag) = ctor_proto_tag_of(&obj_ty)
+    {
+        // RFC 20260721 G3 — the receiver's builtin constructor as
+        // the interned ctor VALUE (same identity the bare `Array` /
+        // `String` ident read answers), so `xs.constructor` compared
+        // through a generic slot holds. Was ConstPtrNull, which
+        // only the AST-level `try_fold_constructor_eq` could rescue.
         let _ = obj_val;
-        return Some(Operand::ConstPtrNull);
+        let cur_block = ctx.cur_block;
+        let v = ctx.f.append_inst(
+            cur_block,
+            InstKind::Call(
+                ctx.intrinsics.builtin_ctor_value,
+                vec![Operand::ConstI64(tag)],
+            ),
+            Type::Any,
+            None,
+        );
+        return Some(Operand::Value(v));
     }
     if obj_ty == Type::Symbol && name == "description" {
         let cur_block = ctx.cur_block;
@@ -115,18 +132,20 @@ fn ns_static_id_of_obj(ctx: &LowerCtx<'_>, obj: ExprId) -> Option<i64> {
     crate::ssa_lower_stmt_let_decl_general::ns_static_member_init_id(ctx, obj)
 }
 
-fn is_prim_for_constructor(obj_ty: Type) -> bool {
-    matches!(
-        obj_ty,
-        Type::I64
-            | Type::F64
-            | Type::I32
-            | Type::Bool
-            | Type::Str
-            | Type::Substr
-            | Type::BigInt
-            | Type::Symbol
-    )
+/// The builtin-proto tag whose interned ctor cell a typed
+/// receiver's `.constructor` read answers (torajs-rc
+/// `builtin_proto.rs` order). Struct instances stay `None` — their
+/// constructor rides the class prototype chain.
+fn ctor_proto_tag_of(obj_ty: &Type) -> Option<i64> {
+    match obj_ty {
+        Type::I64 | Type::F64 | Type::I32 => Some(0),
+        Type::Arr(_) => Some(2),
+        Type::Str | Type::Substr => Some(3),
+        Type::Bool => Some(4),
+        Type::Symbol => Some(5),
+        Type::BigInt => Some(6),
+        _ => None,
+    }
 }
 
 fn lower_fn_length_or_name(
