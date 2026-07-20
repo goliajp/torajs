@@ -137,6 +137,18 @@ unsafe extern "C" {
     pub(super) fn __torajs_anyv_is_extensible(obj_any: u64) -> bool;
     pub(super) fn __torajs_anyv_seal(obj_any: u64) -> u64;
     pub(super) fn __torajs_anyv_is_sealed(obj_any: u64) -> bool;
+    /// torajs-throw — catchable RangeError for the §7.1.22 ToIndex
+    /// rejects in the BigInt.asN arm.
+    pub(super) fn __torajs_throw_range_error(msg: *const core::ffi::c_char);
+    /// torajs-bigint — §21.2.2.{1,2} fixed-width views (arbitrary
+    /// bits, 刀 5a). Fresh owned BigInt out; bits < 0 and the
+    /// asUintN negative-input size cap record a RangeError and
+    /// answer a `0n` sentinel.
+    pub(super) fn __torajs_bigint_as_int_n(bits: i64, value: *const c_void) -> *mut u8;
+    pub(super) fn __torajs_bigint_as_uint_n(bits: i64, value: *const c_void) -> *mut u8;
+    /// torajs-bigint — release an owned BigInt stake (coercion temp
+    /// / kernel result on the throw-unwind path).
+    pub(super) fn __torajs_bigint_drop_rc(p: *mut c_void);
 }
 
 /// Per-id dispatch shape. Index-lockstep with
@@ -219,6 +231,11 @@ pub(super) enum Disp {
     /// per-entry configurable walk / reader.
     ObjectSeal,
     ObjectIsSealed,
+    /// §21.2.2.1/.2 BigInt.asIntN / asUintN — ToIndex(bits) +
+    /// ToBigInt(value) into the fixed-width view kernels.
+    BigIntAsN {
+        signed: bool,
+    },
 }
 
 /// The own-enumeration surfaces (shared dispatch shape) — `Names`
@@ -307,4 +324,6 @@ pub(super) static DISPATCH: &[Disp] = &[
     Disp::ObjectIsExtensible,
     Disp::ObjectSeal,
     Disp::ObjectIsSealed,
+    Disp::BigIntAsN { signed: true },
+    Disp::BigIntAsN { signed: false },
 ];

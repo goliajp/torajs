@@ -281,7 +281,10 @@ fn arg_admitted(
     // also stay loud: there is no caller-side Any→heap unbox
     // helper (mirrors the let-decl lane's wrong-repr stance).
     if matches!(arg_ty, Type::Any)
-        && matches!(param_ty, Type::Number | Type::String | Type::Boolean)
+        && matches!(
+            param_ty,
+            Type::Number | Type::String | Type::Boolean | Type::BigInt
+        )
         && matches!(
             ast.get_expr(*callee),
             crate::ast::Expr::Ident(n) if !crate::check::is_class_method_name(n)

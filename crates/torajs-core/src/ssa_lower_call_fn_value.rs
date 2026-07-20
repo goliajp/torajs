@@ -112,15 +112,15 @@ impl<'a> LowerCtx<'a> {
             } else if actual == Type::Any
                 && matches!(
                     expected,
-                    Some(Type::F64 | Type::I64 | Type::Bool | Type::Str)
+                    Some(Type::F64 | Type::I64 | Type::Bool | Type::Str | Type::BigInt)
                 )
             {
-                // Any arg into a scalar / Str param — unbox at the call
-                // boundary (fn-indirect chunk-2a mirror). Without this the
-                // CallIndirect passes the NaN-box bits raw into the typed
-                // lane: `Map<string, number>.forEach((v: number) => ...)`
-                // re-boxes entries as Any, and the typed callback read the
-                // box bits as an i64 (silent-wrong arithmetic).
+                // Any arg into a scalar / Str / BigInt param — unbox at the
+                // call boundary (fn-indirect chunk-2a mirror). Without this
+                // the CallIndirect passes the NaN-box bits raw into the
+                // typed lane: `Map<string, number>.forEach((v: number) =>
+                // ...)` re-boxes entries as Any, and the typed callback read
+                // the box bits as an i64 (silent-wrong arithmetic).
                 match expected.unwrap() {
                     t @ (Type::F64 | Type::I64) => out.push(self.coerce_any_to_number(a, t)),
                     Type::Bool => out.push(self.coerce_to_bool(a)),
@@ -128,6 +128,11 @@ impl<'a> LowerCtx<'a> {
                         let s = self.coerce_to_str(a, Type::Any);
                         out.push(s);
                         drops.push((s, Type::Str));
+                    }
+                    Type::BigInt => {
+                        let b = self.coerce_any_to_bigint(a);
+                        out.push(b);
+                        drops.push((b, Type::BigInt));
                     }
                     _ => unreachable!(),
                 }

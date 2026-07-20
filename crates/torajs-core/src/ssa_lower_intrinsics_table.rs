@@ -366,6 +366,7 @@ pub(crate) fn build(
         any_typeof: init_c.any_substrate.any_typeof,
         any_to_bool: init_c.any_substrate.any_to_bool,
         any_to_number: init_c.any_substrate.any_to_number,
+        any_to_bigint: init_c.any_substrate.any_to_bigint,
         any_to_object: init_c.any_substrate.any_to_object,
         any_add: init_c.any_substrate.any_add,
         any_arith: init_c.any_substrate.any_arith,

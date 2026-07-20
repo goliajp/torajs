@@ -144,7 +144,7 @@ pub unsafe extern "C" fn __torajs_bigint_as_uint_n(bits: i64, value: *const c_vo
     unsafe {
         let p = value as *const u8;
         if bits < 0 {
-            __torajs_throw_range_error(b"BigInt.asUintN: bits must be non-negative\0".as_ptr());
+            __torajs_throw_range_error(b"number of bits cannot be negative\0".as_ptr());
             return alloc_raw(0);
         }
         if bits == 0 {
@@ -183,7 +183,7 @@ pub unsafe extern "C" fn __torajs_bigint_as_int_n(bits: i64, value: *const c_voi
     unsafe {
         let p = value as *const u8;
         if bits < 0 {
-            __torajs_throw_range_error(b"BigInt.asIntN: bits must be non-negative\0".as_ptr());
+            __torajs_throw_range_error(b"number of bits cannot be negative\0".as_ptr());
             return alloc_raw(0);
         }
         if bits == 0 {

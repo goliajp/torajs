@@ -132,6 +132,12 @@ pub static NS_STATIC_TABLE: &[NsStaticRow] = &[
     row("Object", "isExtensible", 1),
     row("Object", "seal", 1),
     row("Object", "isSealed", 1),
+    // Ctor statics batch 3 (RFC 20260720 刀 5b-2) — the fixed-width
+    // BigInt views, backed by the arbitrary-bits kernels (刀 5a) +
+    // the any-lane ToBigInt coercion (torajs-anyvalue to_bigint.rs).
+    // Lengths per §21.2.2.{1,2}.
+    row("BigInt", "asIntN", 2),
+    row("BigInt", "asUintN", 2),
 ];
 
 /// Compile-time `(namespace, member)` → id. Linear scan — lower-time

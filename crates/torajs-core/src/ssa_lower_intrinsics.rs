@@ -407,6 +407,7 @@ pub(crate) struct Intrinsics {
     pub(crate) any_typeof: FuncId,
     pub(crate) any_to_bool: FuncId,
     pub(crate) any_to_number: FuncId,
+    pub(crate) any_to_bigint: FuncId,
     pub(crate) any_to_object: FuncId,
     pub(crate) any_add: FuncId,
     pub(crate) any_arith: FuncId,

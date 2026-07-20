@@ -254,6 +254,7 @@ unsafe fn dispatch(id: i64, argv: *const u64, argc: i64) -> u64 {
             }
             Disp::ObjectSeal => own(__torajs_anyv_seal(arg_at(argv, argc, 0))),
             Disp::ObjectIsSealed => box_bool(__torajs_anyv_is_sealed(arg_at(argv, argc, 0))),
+            Disp::BigIntAsN { signed } => super::ns_static_ctor::bigint_as_n(*signed, argv, argc),
         }
     }
 }

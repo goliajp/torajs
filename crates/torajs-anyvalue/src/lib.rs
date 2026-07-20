@@ -135,6 +135,7 @@ mod prop_has;
 mod struct_error_msg;
 mod struct_probe;
 mod struct_proto_has;
+mod to_bigint;
 mod to_object;
 mod to_primitive;
 mod wrapper_view_through;
@@ -550,6 +551,20 @@ mod tests {
     pub unsafe extern "C" fn __torajs_num_parse_float(_s: *const u8) -> f64 {
         0.0
     }
+    /// RFC 20260720 刀 5b-2 — the BigIntAsN dispatch arm's kernels
+    /// (shipped binary resolves libtorajs_{bigint,throw}.a).
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_throw_range_error(_msg: *const core::ffi::c_char) {}
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_bigint_as_int_n(_bits: i64, _v: *const c_void) -> *mut u8 {
+        core::ptr::null_mut()
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_bigint_as_uint_n(_bits: i64, _v: *const c_void) -> *mut u8 {
+        core::ptr::null_mut()
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_bigint_drop_rc(_p: *mut c_void) {}
     /// RFC 20260720-ctor-static-reflection 刀 1 — the ctor-static
     /// dispatch arms' Date / String kernels (shipped binary resolves
     /// libtorajs_date.a / libtorajs_str.a); unit tests exercise cell

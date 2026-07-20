@@ -81,7 +81,7 @@ fn try_lower_local_fnsig(
     // call, probe-proven), no consume; owned-shape temps release
     // after the call (call_terminal mirror).
     let mut owned_temps: Vec<(ExprId, Operand)> = Vec::new();
-    let mut coerce_owned: Vec<Operand> = Vec::new();
+    let mut coerce_owned: Vec<(Operand, Type)> = Vec::new();
     let mut argv: Vec<Operand> = args
         .iter()
         .enumerate()
@@ -104,15 +104,20 @@ fn try_lower_local_fnsig(
                 ctx.box_to_any_from_expr(*a, raw)
             } else if matches!(raw_ty, Type::Any) && i < target_params.len() {
                 // RFC 20260708-spread-call chunk 2a — Any arg into a
-                // scalar / Str param (checker `any_into_scalar` admit
-                // pairing, terminal-lane mirror).
+                // scalar / Str / BigInt param (checker `any_into_scalar`
+                // admit pairing, terminal-lane mirror).
                 match target_params[i] {
                     Type::F64 | Type::I64 => ctx.coerce_any_to_number(raw, target_params[i]),
                     Type::Bool => ctx.coerce_to_bool(raw),
                     Type::Str => {
                         let s = ctx.coerce_to_str(raw, Type::Any);
-                        coerce_owned.push(s);
+                        coerce_owned.push((s, Type::Str));
                         s
+                    }
+                    Type::BigInt => {
+                        let b = ctx.coerce_any_to_bigint(raw);
+                        coerce_owned.push((b, Type::BigInt));
+                        b
                     }
                     _ => raw,
                 }
@@ -134,8 +139,8 @@ fn try_lower_local_fnsig(
         for (a, op) in owned_temps {
             ctx.release_owned_temp(a, &op);
         }
-        for op in coerce_owned {
-            ctx.emit_drop_value(op, Type::Str);
+        for (op, ty) in coerce_owned {
+            ctx.emit_drop_value(op, ty);
         }
         return Some(Operand::ConstPtrNull);
     }
@@ -149,8 +154,8 @@ fn try_lower_local_fnsig(
     for (a, op) in owned_temps {
         ctx.release_owned_temp(a, &op);
     }
-    for op in coerce_owned {
-        ctx.emit_drop_value(op, Type::Str);
+    for (op, ty) in coerce_owned {
+        ctx.emit_drop_value(op, ty);
     }
     Some(Operand::Value(v))
 }

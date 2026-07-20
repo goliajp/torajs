@@ -88,16 +88,19 @@ unsafe fn skip_not_callable(_cell: *mut c_void, _name_str: *const u8) -> bool {
 }
 
 /// A NaN-boxed value is an "object" for ToPrimitive purposes iff it
-/// is a heap cell whose tag is not `Str` (Str cells and ShortStr
-/// immediates are the string primitive; every other immediate is a
-/// primitive by construction).
+/// is a heap cell whose tag is not a primitive flavor — Str cells /
+/// ShortStr immediates are the string primitive, and BigInt / Symbol
+/// cells are primitives too (§7.1.1.1 step 6.b accepts them; pre-fix
+/// a `valueOf() { return 255n }` answer was discarded as "still an
+/// object" and the walk fell through to toString). Every other
+/// immediate is a primitive by construction.
 #[inline]
 fn is_object_value(v: AnyValue) -> bool {
     if !is_cell(v) {
         return false;
     }
     let h = unsafe { &*(as_void_ptr(v) as *const HeapHeader) };
-    !matches!(h.tag(), Tag::Str)
+    !matches!(h.tag(), Tag::Str | Tag::BigInt | Tag::Symbol)
 }
 
 /// `ToPrimitive(cell)` with the DEFAULT hint (§7.1.1 step 1.c):

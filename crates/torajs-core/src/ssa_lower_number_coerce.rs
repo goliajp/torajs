@@ -65,4 +65,21 @@ impl<'a> LowerCtx<'a> {
             self.coerce_to_i64(num)
         }
     }
+
+    /// Any → BigInt at a call boundary (§7.1.13 ToBigInt via the
+    /// any-lane kernel; RFC 20260720 刀 5b-2). The result is a fresh
+    /// OWNED BigInt the caller must release after the consuming call;
+    /// a coercion reject records a pending throw (TypeError /
+    /// SyntaxError) and the emitted throw check unwinds before the
+    /// NULL sentinel is ever read.
+    pub(crate) fn coerce_any_to_bigint(&mut self, op: Operand) -> Operand {
+        let b = Operand::Value(self.f.append_inst(
+            self.cur_block,
+            InstKind::Call(self.intrinsics.any_to_bigint, vec![op]),
+            Type::BigInt,
+            None,
+        ));
+        self.emit_throw_check(None);
+        b
+    }
 }

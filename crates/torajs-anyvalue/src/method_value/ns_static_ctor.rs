@@ -5,12 +5,14 @@
 
 use core::ffi::c_void;
 
-use crate::nanbox::{VALUE_UNDEFINED, box_double, is_null, is_undefined};
+use crate::nanbox::{VALUE_UNDEFINED, box_double, box_void_ptr, is_null, is_undefined};
 
 use super::ns_static::{arg_at, arg_num};
 use super::ns_static_table::{
+    __torajs_bigint_as_int_n, __torajs_bigint_as_uint_n, __torajs_bigint_drop_rc,
     __torajs_date_parse_iso, __torajs_date_utc_components, __torajs_str_from_char_code,
-    __torajs_str_from_code_point, __torajs_throw_check, __torajs_throw_type_error,
+    __torajs_str_from_code_point, __torajs_throw_check, __torajs_throw_range_error,
+    __torajs_throw_type_error,
 };
 
 /// §21.4.3.2 — ToString(arg0) into the ISO parse kernel (NaN on
@@ -154,6 +156,42 @@ pub unsafe extern "C" fn __torajs_ctor_static_value_cell(
         return core::ptr::null_mut();
     }
     super::ns_static::ns_static_cell(id)
+}
+
+/// §21.2.2.1/.2 BigInt.asIntN / asUintN — ToIndex(bits) per §7.1.22
+/// (NaN → 0, negative / past 2^53-1 → RangeError, messages match
+/// bun/JSC), ToBigInt(value) per §7.1.13, then the 刀-5a fixed-width
+/// kernel. Every temp is owned here and released before boxing.
+pub(super) unsafe fn bigint_as_n(signed: bool, argv: *const u64, argc: i64) -> u64 {
+    unsafe {
+        let Ok(x) = arg_num(argv, argc, 0) else {
+            return VALUE_UNDEFINED;
+        };
+        let x = if x.is_nan() { 0.0 } else { x.trunc() };
+        if x < 0.0 {
+            __torajs_throw_range_error(c"number of bits cannot be negative".as_ptr());
+            return VALUE_UNDEFINED;
+        }
+        if x > 9007199254740991.0 {
+            __torajs_throw_range_error(c"number of bits larger than (2 ** 53) - 1".as_ptr());
+            return VALUE_UNDEFINED;
+        }
+        let bits = x as i64;
+        let Some(b) = crate::to_bigint::any_to_bigint(arg_at(argv, argc, 1)) else {
+            return VALUE_UNDEFINED;
+        };
+        let r = if signed {
+            __torajs_bigint_as_int_n(bits, b as *const c_void)
+        } else {
+            __torajs_bigint_as_uint_n(bits, b as *const c_void)
+        };
+        __torajs_bigint_drop_rc(b as *mut c_void);
+        if __torajs_throw_check() != 0 {
+            __torajs_bigint_drop_rc(r as *mut c_void);
+            return VALUE_UNDEFINED;
+        }
+        box_void_ptr(r as *mut c_void)
+    }
 }
 
 /// §20.1.2.11 Object.hasOwn — step 1 ToObject throws on a nullish
