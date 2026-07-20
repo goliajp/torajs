@@ -379,16 +379,29 @@ impl crate::ssa_lower::LowerCtx<'_> {
         };
         // knife 3 — then/catch carry the cb-return repr for the
         // kernel's result stamp; finally forwards only (no param).
+        // RFC 20260720-promise-any-cb knife 1 — bit 8 marks an
+        // any-param handler (kernel boxes per the source's repr
+        // stamp; an UNSTAMPED source throws at attach, so the call
+        // gets a throw-check).
+        let repr_word = if m_name == "finally" {
+            0
+        } else {
+            self.chain_cb_repr_word(&cb_ty)
+        };
         let mut call_args = vec![src_op.clone(), cb_op];
         if m_name != "finally" {
-            call_args.push(Operand::ConstI64(self.chain_cb_ret_repr(&cb_ty)));
+            call_args.push(Operand::ConstI64(repr_word));
         }
-        self.f.append_inst(
+        let v = self.f.append_inst(
             self.cur_block,
             InstKind::Call(then_intrinsic, call_args),
             Type::Promise,
             None,
-        )
+        );
+        if repr_word & crate::ssa_lower_promise_repr_mark::PARAM_ANY_FLAG != 0 {
+            self.emit_throw_check(None);
+        }
+        v
     }
 
     /* T-15.g.3 (v0.5.0) — `p.then(cb)` for built-in Promise.

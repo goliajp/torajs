@@ -23,6 +23,15 @@
 use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 
+/// RFC 20260720-promise-any-cb knife 1 — bit 8 of the then/catch
+/// kernels' `ret_repr` parameter: set when the handler's first
+/// parameter is `any`, so the kernel boxes the settled value per the
+/// source cell's repr stamp before invoking. Low byte stays the
+/// return-repr code. Mirrors
+/// `torajs-promise/src/then_box.rs::PARAM_ANY_FLAG` — must move in
+/// lockstep.
+pub(crate) const PARAM_ANY_FLAG: i64 = 256;
+
 pub(crate) const REPR_I64: i64 = 1;
 pub(crate) const REPR_F64: i64 = 2;
 pub(crate) const REPR_BOOL: i64 = 3;

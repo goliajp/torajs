@@ -39,6 +39,7 @@ pub mod pool;
 pub mod print;
 pub mod state;
 pub mod then;
+pub mod then_box;
 pub mod unhandled;
 
 pub use combinator::{
@@ -98,6 +99,24 @@ pub unsafe extern "C" fn __torajs_microtask_enqueue(_fn_: layout::MicrotaskFn, _
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_throw_set(_tag: i64, _value: i64) {
     panic!("torajs-promise test stub: throw_set should not be called from cargo test");
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_throw_type_error(_msg: *const core::ffi::c_char) {
+    panic!("torajs-promise test stub: throw_type_error should not be called from cargo test");
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_box_from_pair(_tag: i64, _value: i64) -> u64 {
+    panic!("torajs-promise test stub: anyv_box_from_pair should not be called from cargo test");
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_box_str_slot(_s: *mut core::ffi::c_void) -> u64 {
+    panic!("torajs-promise test stub: anyv_box_str_slot should not be called from cargo test");
 }
 
 #[cfg(test)]
