@@ -398,6 +398,23 @@ mod tests {
     }
     #[unsafe(no_mangle)]
     pub unsafe extern "C" fn __torajs_anyv_set_prototype_of(_obj: u64, _proto: u64) {}
+    // RFC 20260721 刀 3 — `ctor_own_read_cell`'s `prototype` arm
+    // makes torajs-rc's `__torajs_get_builtin_prototype` test-
+    // reachable, pulling in its singleton-mint externs (shipped
+    // binary resolves libtorajs_dynobj.a / libtorajs_arr.a /
+    // libtorajs_meta.a).
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_dynobj_alloc() -> *mut c_void {
+        core::ptr::null_mut()
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_arr_alloc_any(_cap: u64) -> *mut u8 {
+        core::ptr::null_mut()
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_object_proto_install(_proto: *mut c_void) {}
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_function_proto_install(_proto: *mut c_void) {}
     #[unsafe(no_mangle)]
     pub unsafe extern "C" fn __torajs_anyv_from_entries(_entries: u64) -> u64 {
         0

@@ -73,6 +73,7 @@ const CELL_SIZE: usize = 56;
 // re-export keeps every `crate::method_value::` consumer face.
 mod ctor;
 pub(crate) use ctor::{builtin_ctor_cell, ctor_cell_for_recv};
+pub(crate) use ns_static_ctor::{ctor_own_read_cell, ctor_static_cell};
 
 // Namespace-static value family (RFC 20260719-ns-static-value-reify)
 // — `Math.max` as a VALUE: interned dispatcher cells keyed by the

@@ -137,17 +137,24 @@ pub unsafe extern "C" fn __torajs_ctor_static_value_cell(
     cell: *const c_void,
     key: *const c_void,
 ) -> *mut u8 {
-    let Some(tag) = super::ctor::ctor_tag_of_cell(cell) else {
-        return core::ptr::null_mut();
-    };
-    let Some(name) = (unsafe { key_utf8(key) }) else {
-        return core::ptr::null_mut();
-    };
+    unsafe { ctor_static_cell(cell, key) }.unwrap_or(core::ptr::null_mut())
+}
+
+/// Rust-side twin of [`__torajs_ctor_static_value_cell`] — the
+/// interned ns-static cell a builtin ctor cell owns under `key`
+/// (immortal; callers hand it out without a ledger). `None` on
+/// every miss.
+///
+/// # Safety
+/// Same contract as the extern face.
+pub(crate) unsafe fn ctor_static_cell(cell: *const c_void, key: *const c_void) -> Option<*mut u8> {
+    let tag = super::ctor::ctor_tag_of_cell(cell)?;
+    let name = unsafe { key_utf8(key) }?;
     let id = torajs_rc::ns_static_id(ctor_ns_name(tag), name);
     if id == torajs_rc::NS_STATIC_UNKNOWN {
-        return core::ptr::null_mut();
+        return None;
     }
-    super::ns_static::ns_static_cell(id)
+    Some(super::ns_static::ns_static_cell(id))
 }
 
 /// The key Str's UTF-8 view — `None` on NULL / non-UTF-8 payload.
@@ -219,7 +226,21 @@ pub unsafe extern "C" fn __torajs_ctor_number_constant(
     let Some(name) = (unsafe { key_utf8(key) }) else {
         return 0;
     };
-    let (tag, val) = match name {
+    let Some((tag, val)) = number_constant(name) else {
+        return 0;
+    };
+    unsafe {
+        out_tag.write(tag);
+        out_val.write(val);
+    }
+    1
+}
+
+/// §21.1.2 Number data constants as `(slot-tag, payload)` immediates
+/// — values mirror the SSA const-fold table (see
+/// [`__torajs_ctor_number_constant`]).
+fn number_constant(name: &str) -> Option<(u64, u64)> {
+    Some(match name {
         "NaN" => (3u64, f64::NAN.to_bits()),
         "POSITIVE_INFINITY" => (3, f64::INFINITY.to_bits()),
         "NEGATIVE_INFINITY" => (3, f64::NEG_INFINITY.to_bits()),
@@ -228,13 +249,45 @@ pub unsafe extern "C" fn __torajs_ctor_number_constant(
         "MIN_VALUE" => (3, 5e-324f64.to_bits()),
         "MAX_SAFE_INTEGER" => (2, 9007199254740991u64),
         "MIN_SAFE_INTEGER" => (2, (-9007199254740991i64) as u64),
-        _ => return 0,
-    };
-    unsafe {
-        out_tag.write(tag);
-        out_val.write(val);
+        _ => return None,
+    })
+}
+
+/// Own-property read probe over a builtin ctor cell (RFC 20260721
+/// 刀 3) — the read/HasProperty twin of the gOPD arms: table statics
+/// answer `(4, interned ns-static cell)`, `prototype` answers
+/// `(4, builtin prototype singleton)`, Number's data constants
+/// answer their immediate pair. BORROW-shaped: every cell answer is
+/// immortal / registry-held, so the member-get pair protocol boxes
+/// without an inc. `None` when `cell` is not an interned ctor cell
+/// or `key` misses its surface.
+///
+/// # Safety
+/// `cell` is null or a live heap cell; `key` is null or a live Str
+/// cell.
+pub(crate) unsafe fn ctor_own_read_cell(
+    cell: *const c_void,
+    key: *const c_void,
+) -> Option<(u64, u64)> {
+    let tag = super::ctor::ctor_tag_of_cell(cell)?;
+    let name = unsafe { key_utf8(key) }?;
+    if name == "prototype" {
+        let proto = unsafe { torajs_rc::builtin_proto::__torajs_get_builtin_prototype(tag) };
+        if proto.is_null() {
+            return None;
+        }
+        return Some((4, proto as u64));
     }
-    1
+    if tag == 0
+        && let Some(pair) = number_constant(name)
+    {
+        return Some(pair);
+    }
+    let id = torajs_rc::ns_static_id(ctor_ns_name(tag), name);
+    if id != torajs_rc::NS_STATIC_UNKNOWN {
+        return Some((4, super::ns_static::ns_static_cell(id) as u64));
+    }
+    None
 }
 
 /// §21.2.2.1/.2 BigInt.asIntN / asUintN — ToIndex(bits) per §7.1.22

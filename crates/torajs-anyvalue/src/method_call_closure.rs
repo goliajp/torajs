@@ -152,7 +152,23 @@ pub(crate) unsafe fn closure_method(
                 let fn_addr = crate::method_value_class::registry_addr(ptr);
                 crate::nanbox::box_void_ptr(__torajs_fn_source_str(fn_addr) as *mut c_void)
             }
-            _ => method_no_such(),
+            _ => {
+                // RFC 20260721 刀 3 — dynamic-key invoke of a ctor
+                // table static (`(Date as any)["now"]()`): resolve
+                // the interned ns-static cell and call through its
+                // dispatcher entry (this-insensitive statics;
+                // this-sensitive arms throw inside the dispatcher).
+                if !name_str.is_null()
+                    && let Some(cell) = crate::method_value::ctor_static_cell(
+                        ptr as *const c_void,
+                        name_str as *const c_void,
+                    )
+                    && let Some(target) = call_target(cell as *mut c_void)
+                {
+                    return dispatch(&target, VALUE_UNDEFINED, argv, argc);
+                }
+                method_no_such()
+            }
         }
     }
 }

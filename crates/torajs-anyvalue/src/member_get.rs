@@ -296,6 +296,15 @@ unsafe fn reify_tag(recv: AnyValue, key: *const c_void) -> u64 {
     if unsafe { crate::method_value::ctor_cell_for_recv(recv, key) }.is_some() {
         return 4;
     }
+    // RFC 20260721 刀 3 — a builtin ctor cell answers its table
+    // statics / `prototype` / Number data constants as own reads
+    // (borrow-shaped, matching the pair protocol).
+    if let Some((ptr, t)) = recv_cell(recv)
+        && t == Tag::Closure as u16
+        && let Some((tag, _)) = unsafe { crate::method_value::ctor_own_read_cell(ptr, key) }
+    {
+        return tag;
+    }
     if unsafe { crate::method_value::builtin_method_lookup(recv, key) }.is_some() {
         4
     } else {
@@ -471,6 +480,14 @@ unsafe fn reify_value(recv: AnyValue, key: *const c_void) -> u64 {
     // L3b ④ — `.constructor` (mirror of the tag channel).
     if let Some(cell) = unsafe { crate::method_value::ctor_cell_for_recv(recv, key) } {
         return cell as u64;
+    }
+    // RFC 20260721 刀 3 — ctor-static / `prototype` / Number
+    // constants (mirror of the tag channel).
+    if let Some((ptr, t)) = recv_cell(recv)
+        && t == Tag::Closure as u16
+        && let Some((_, val)) = unsafe { crate::method_value::ctor_own_read_cell(ptr, key) }
+    {
+        return val;
     }
     unsafe { crate::method_value::builtin_method_lookup(recv, key) }
         .map(|c| c as u64)

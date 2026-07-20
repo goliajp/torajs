@@ -214,11 +214,14 @@ pub unsafe extern "C" fn __torajs_any_prop_has(recv: AnyValue, key: *const c_voi
                 return 1;
             }
             let props = unsafe { closure_props(ptr) };
-            if props.is_null() {
-                0
-            } else {
-                unsafe { __torajs_dynobj_has(props, key) as i64 }
+            if !props.is_null() && unsafe { __torajs_dynobj_has(props, key) } != 0 {
+                return 1;
             }
+            // RFC 20260721 刀 3 — a builtin ctor cell owns its table
+            // statics, `prototype`, and (Number) data constants; the
+            // gOPD arm already answers them, so HasOwnProperty must
+            // agree.
+            (unsafe { crate::method_value::ctor_own_read_cell(ptr, key) }.is_some()) as i64
         }
         Some((ptr, t)) if t == Tag::Obj as u16 => unsafe { struct_has_own(ptr, key) },
         Some((ptr, t)) if t == Tag::Str as u16 => {
