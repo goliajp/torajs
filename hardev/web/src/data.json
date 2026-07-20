@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-20T12:39:56.670Z",
+  "generatedAt": "2026-07-20T14:25:27.052Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 93.53
   },
   "torajs": {
-    "commit": "64ffadd5",
-    "commitSubject": "fix: tostring a scalar split separator through the runtime dispatch",
+    "commit": "e8295efe",
+    "commitSubject": "feat: reify promise resolve and reject as ns statics with this-sensitive reject",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "e8295efe",
+      "subject": "feat: reify promise resolve and reject as ns statics with this-sensitive reject"
+    },
+    {
+      "hash": "91b054c3",
+      "subject": "feat: reify bigint asintn and asuintn as ns statics with any-lane tobigint coercion"
+    },
+    {
+      "hash": "b38f0b3a",
+      "subject": "fix: defer cycle collector frees until after the collect pass"
+    },
+    {
+      "hash": "cef9b4ce",
+      "subject": "feat: add syntaxerror runtime slot and strict bigint string parse"
+    },
+    {
+      "hash": "8320c1e0",
+      "subject": "feat: support arbitrary bits in bigint asintn and asuintn via multi-limb masking"
+    },
+    {
+      "hash": "b8034609",
+      "subject": "chore: hardev dashboard snapshot at rotation 164 close"
+    },
+    {
       "hash": "64ffadd5",
       "subject": "fix: tostring a scalar split separator through the runtime dispatch"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "d240a21b",
       "subject": "feat: reify the object integrity family as ns-static value cells"
-    },
-    {
-      "hash": "ccca3d77",
-      "subject": "fix: answer builtin ctor name/length through a single-source meta table"
-    },
-    {
-      "hash": "f2a8b2af",
-      "subject": "feat: answer ctor-static own descriptors through the closure gOPD arm"
-    },
-    {
-      "hash": "1a18a237",
-      "subject": "feat: reify the first ctor-static batch as ns-static value cells"
-    },
-    {
-      "hash": "bfe68b87",
-      "subject": "fix: skip the wrapper expando re-probe when invoking a reified builtin cell"
-    },
-    {
-      "hash": "8142b78f",
-      "subject": "chore: hardev dashboard snapshot at rotation 163 close"
-    },
-    {
-      "hash": "67edbfc4",
-      "subject": "fix: walk a typed struct props through Object.create's define phase"
     }
   ],
-  "headSha": "64ffadd5",
+  "headSha": "e8295efe",
   "autorun": {
-    "total": 469,
+    "total": 470,
     "baselineTarget": 10,
-    "bySelf": 464,
+    "bySelf": 465,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784545523-1602",
-      "at": "2026-07-20T11:05:23Z",
-      "ts": 1784545523,
+      "rotationId": "r-1784551199-6807",
+      "at": "2026-07-20T12:39:59Z",
+      "ts": 1784551199,
       "trigger": "self",
-      "prevHead": "8142b78f",
-      "handoffSha": "sha256:8ed65c5d22a515ed2cad554d10303882d11acc4b2e59f4955576004fc78fc5ad",
-      "handoffAgeSec": 65,
+      "prevHead": "b8034609",
+      "handoffSha": "sha256:46c176644c8bb6f84b1d0b5608c82b2d4869fbbdcbde3943a18166d63fb87ce7",
+      "handoffAgeSec": 9,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784551199-6807",
+        "at": "2026-07-20T12:39:59Z",
+        "ts": 1784551199,
+        "trigger": "self",
+        "prevHead": "b8034609",
+        "handoffSha": "sha256:46c176644c8bb6f84b1d0b5608c82b2d4869fbbdcbde3943a18166d63fb87ce7",
+        "handoffAgeSec": 9,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784545523-1602",
         "at": "2026-07-20T11:05:23Z",
@@ -876,17 +887,6 @@
         "prevHead": "a8273618",
         "handoffSha": "sha256:036a820701ef9c12e534f01acbc62287e3c80d4166d398a4b77891e3881bb128",
         "handoffAgeSec": 71,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784480769-15f1",
-        "at": "2026-07-19T17:06:09Z",
-        "ts": 1784480769,
-        "trigger": "self",
-        "prevHead": "1ccb2928",
-        "handoffSha": "sha256:abb3ebb4af29c5cc700c08749466d34710835ccaca3402cedbfd45da261ed78d",
-        "handoffAgeSec": 82,
         "conformanceBefore": null,
         "commitsInSession": null
       }
