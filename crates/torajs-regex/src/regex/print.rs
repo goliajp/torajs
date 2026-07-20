@@ -10,7 +10,9 @@
 
 use core::ffi::c_void;
 
-use crate::parser::{RE_FLAG_G, RE_FLAG_I, RE_FLAG_M, RE_FLAG_S, RE_FLAG_U, RE_FLAG_V, RE_FLAG_Y};
+use crate::parser::{
+    RE_FLAG_D, RE_FLAG_G, RE_FLAG_I, RE_FLAG_M, RE_FLAG_S, RE_FLAG_U, RE_FLAG_V, RE_FLAG_Y,
+};
 
 use super::as_regex;
 
@@ -45,10 +47,13 @@ pub unsafe extern "C" fn __torajs_regex_print_inline(re_ptr: *const c_void) {
             put_byte(b);
         }
         put_byte(b'/');
-        // Spec emission order: g, i, m, s, u, y (alphabetical).
+        // Spec emission order: d, g, i, m, s, u, v, y (alphabetical).
         // Bun matches this; node v8 too (per ECMA-262 §22.2.6 flag
         // accessor order).
         let f = re.flags;
+        if f & RE_FLAG_D != 0 {
+            put_byte(b'd');
+        }
         if f & RE_FLAG_G != 0 {
             put_byte(b'g');
         }

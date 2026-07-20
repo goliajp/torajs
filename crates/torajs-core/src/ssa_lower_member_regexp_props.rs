@@ -98,6 +98,7 @@ fn bool_flag_bit(name: &str) -> Option<i64> {
         "unicode" => Some(0x10),
         "sticky" => Some(0x20),
         "unicodeSets" => Some(0x40),
+        "hasIndices" => Some(0x80),
         _ => None,
     }
 }

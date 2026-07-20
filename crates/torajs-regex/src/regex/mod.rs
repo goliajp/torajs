@@ -24,6 +24,7 @@ pub mod compile;
 pub mod compile_aot;
 pub mod lifecycle;
 pub mod match_all;
+pub mod match_indices;
 pub mod match_op;
 pub mod offset_map;
 pub mod print;
@@ -31,6 +32,7 @@ pub mod replace;
 pub mod replace_fn;
 pub mod replace_fn_dispatch;
 pub mod split;
+pub mod static_keys;
 pub mod test_find;
 
 use core::ffi::c_void;
@@ -203,6 +205,12 @@ unsafe extern "C" {
     pub fn __torajs_str_drop(s: *mut c_void);
     pub fn __torajs_arr_alloc(initial_cap: u64) -> *mut c_void;
     pub fn __torajs_arr_push(arr: *mut c_void, val: i64) -> *mut c_void;
+    /// `/d` match-indices — the `.indices` result and its `[start,
+    /// end]` pairs are self-describing Array<Any> cells (NaN-box
+    /// slots) so the Any lanes print / index them without an
+    /// external elem-kind mark.
+    pub fn __torajs_arr_alloc_any(cap: u64) -> *mut c_void;
+    pub fn __torajs_arr_push_any(arr: *mut c_void, tag: u64, value: u64) -> *mut c_void;
     pub fn __torajs_dynobj_alloc() -> *mut c_void;
     pub fn __torajs_dynobj_mark_null_proto(obj: *mut c_void);
     pub fn __torajs_dynobj_set(obj_slot: *mut *mut c_void, key: *mut c_void, tag: u64, value: u64);

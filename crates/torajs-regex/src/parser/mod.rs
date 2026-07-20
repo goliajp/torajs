@@ -56,6 +56,10 @@ pub const RE_FLAG_S: u8 = 0x08;
 pub const RE_FLAG_U: u8 = 0x10;
 pub const RE_FLAG_Y: u8 = 0x20;
 pub const RE_FLAG_V: u8 = 0x40;
+/// `d` (hasIndices, §22.2.7.8 MakeIndicesArray) — pure match-time
+/// surface flag: gates the `.indices` property on exec-shape match
+/// results, never observed by parser or compiler.
+pub const RE_FLAG_D: u8 = 0x80;
 
 /// True iff the pattern is in Unicode mode — the `u` OR `v`
 /// (unicodeSets) flag. Every parse / match decision that used to gate

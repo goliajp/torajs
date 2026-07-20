@@ -87,9 +87,9 @@ pub unsafe extern "C" fn __torajs_regex_set_last_index(re_ptr: *mut c_void, idx:
 }
 
 /// `re.flags` — returns the spec-ordered flag string ("g" / "im" /
-/// "gimsuy" / etc.) per ES §22.2.6.4. Order is fixed: g, i, m, s, u, y
-/// (we don't support the `d` hasIndices flag). NULL receiver returns
-/// an empty string.
+/// "dgimsuy" / etc.) per ES §22.2.6.4. Order is fixed: d, g, i, m,
+/// s, u, v, y (hasIndices first). NULL receiver returns an empty
+/// string.
 ///
 /// # Safety
 ///
@@ -101,12 +101,13 @@ pub unsafe extern "C" fn __torajs_regex_get_flags(re_ptr: *const c_void) -> *mut
         return unsafe { __torajs_str_alloc_pooled(0) as *mut c_void };
     }
     let f = unsafe { as_regex(re_ptr) }.flags;
-    // Build the canonical 7-byte buffer at most, ordered
-    // g, i, m, s, u, v, y (ES §22.2.6.4 flag order).
+    // Build the canonical 8-byte buffer at most, ordered
+    // d, g, i, m, s, u, v, y (ES §22.2.6.4 flag order).
     // Mirrors `flags::parse_flags` source of truth.
-    let mut buf = [0u8; 7];
+    let mut buf = [0u8; 8];
     let mut n = 0usize;
-    let bits: [(u8, u8); 7] = [
+    let bits: [(u8, u8); 8] = [
+        (crate::parser::RE_FLAG_D, b'd'),
         (crate::parser::RE_FLAG_G, b'g'),
         (crate::parser::RE_FLAG_I, b'i'),
         (crate::parser::RE_FLAG_M, b'm'),
@@ -131,8 +132,9 @@ pub unsafe extern "C" fn __torajs_regex_get_flags(re_ptr: *const c_void) -> *mut
 }
 
 /// `re.toString()` — per ES §22.2.6.13 returns `/` + source + `/` +
-/// flags. Spec-ordered flags (g, i, m, s, u, y) match `__torajs_regex_
-/// get_flags`. NULL receiver returns `/(?:)/` (matches V8/JSC fallback).
+/// flags. Spec-ordered flags (d, g, i, m, s, u, v, y) match
+/// `__torajs_regex_get_flags`. NULL receiver returns `/(?:)/`
+/// (matches V8/JSC fallback).
 ///
 /// # Safety
 ///
@@ -151,14 +153,16 @@ pub unsafe extern "C" fn __torajs_regex_to_string(re_ptr: *const c_void) -> *mut
     }
     let re = unsafe { as_regex(re_ptr) };
     // Build the canonical flag bytes (matches __torajs_regex_get_flags).
-    let mut flag_buf = [0u8; 6];
+    let mut flag_buf = [0u8; 8];
     let mut nflag = 0usize;
-    let bits: [(u8, u8); 6] = [
+    let bits: [(u8, u8); 8] = [
+        (crate::parser::RE_FLAG_D, b'd'),
         (crate::parser::RE_FLAG_G, b'g'),
         (crate::parser::RE_FLAG_I, b'i'),
         (crate::parser::RE_FLAG_M, b'm'),
         (crate::parser::RE_FLAG_S, b's'),
         (crate::parser::RE_FLAG_U, b'u'),
+        (crate::parser::RE_FLAG_V, b'v'),
         (crate::parser::RE_FLAG_Y, b'y'),
     ];
     for (bit, ch) in bits {

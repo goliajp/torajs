@@ -11,7 +11,7 @@ use core::ffi::c_void;
 use super::match_op::attach_exec_all;
 use super::{
     __torajs_arr_alloc, __torajs_arr_push, __torajs_throw_type_error, abort_unsupported, as_regex,
-    byte_to_utf16_units, str_from_bytes, str_slice,
+    str_from_bytes, str_slice,
 };
 use crate::node::REGEX_MAX_CAPTURES;
 use crate::parser::{RE_FLAG_G, RE_FLAG_Y};
@@ -109,18 +109,13 @@ unsafe fn append_inner(
             inner = unsafe { __torajs_arr_push(inner, grp as i64) };
         }
     }
-    // `.index` is spec'd in UTF-16 code units; `st` is a byte offset
-    // in the transcoded haystack (this path always owns a str_slice
-    // transcode, so no ascii-view discrimination is available).
+    // `st` / `en` are byte offsets in the transcoded haystack (this
+    // path always owns a str_slice transcode, so no ascii-view
+    // discrimination is available — `false` routes the byte→UTF-16
+    // mapping down the slow correct path for `.index` and `/d`
+    // `.indices` alike).
     unsafe {
-        attach_exec_all(
-            inner,
-            re,
-            s,
-            str_ptr,
-            byte_to_utf16_units(s, st, false),
-            saves,
-        );
+        attach_exec_all(inner, re, s, str_ptr, st, en, saves, false);
     }
     unsafe { __torajs_arr_push(outer, inner as i64) }
 }

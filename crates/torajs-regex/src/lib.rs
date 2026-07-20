@@ -128,6 +128,22 @@ pub unsafe extern "C" fn __torajs_arr_push(
 
 #[cfg(test)]
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_alloc_any(_cap: u64) -> *mut core::ffi::c_void {
+    panic!("torajs-regex test stub: __torajs_arr_alloc_any should not be called from cargo test");
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_push_any(
+    _arr: *mut core::ffi::c_void,
+    _tag: u64,
+    _value: u64,
+) -> *mut core::ffi::c_void {
+    panic!("torajs-regex test stub: __torajs_arr_push_any should not be called from cargo test");
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_dynobj_alloc() -> *mut core::ffi::c_void {
     panic!("torajs-regex test stub: __torajs_dynobj_alloc should not be called from cargo test");
 }

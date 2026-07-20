@@ -1,14 +1,15 @@
 //! `RegExp` flag-string parsing — port of `runtime_regex.c`
 //! L1389-1403.
 //!
-//! ECMA-262 §22.2.4.1.1 enumerates `i / g / m / s / u / y / d` as
-//! valid flag letters; this port covers the first six (matching the
-//! C source). Unknown bytes are silently skipped — JS would
-//! SyntaxError, but the C port deferred that to Phase 1a stub-compat
-//! behavior. L3b follow-up: strict mode that rejects unknowns at
-//! `RegExp.compile` time.
+//! ECMA-262 §22.2.4.1.1 enumerates `d / g / i / m / s / u / v / y`
+//! as valid flag letters; all eight are covered. Unknown bytes are
+//! silently skipped — JS would SyntaxError, but the C port deferred
+//! that to Phase 1a stub-compat behavior. L3b follow-up: strict mode
+//! that rejects unknowns at `RegExp.compile` time.
 
-use crate::parser::{RE_FLAG_G, RE_FLAG_I, RE_FLAG_M, RE_FLAG_S, RE_FLAG_U, RE_FLAG_V, RE_FLAG_Y};
+use crate::parser::{
+    RE_FLAG_D, RE_FLAG_G, RE_FLAG_I, RE_FLAG_M, RE_FLAG_S, RE_FLAG_U, RE_FLAG_V, RE_FLAG_Y,
+};
 
 pub fn parse_flags(s: &[u8]) -> u8 {
     let mut out = 0u8;
@@ -21,6 +22,7 @@ pub fn parse_flags(s: &[u8]) -> u8 {
             b'u' => out |= RE_FLAG_U,
             b'y' => out |= RE_FLAG_Y,
             b'v' => out |= RE_FLAG_V,
+            b'd' => out |= RE_FLAG_D,
             _ => {} // unknown — silently skip (matches C port)
         }
     }
@@ -44,6 +46,7 @@ mod tests {
         assert_eq!(parse_flags(b"s"), RE_FLAG_S);
         assert_eq!(parse_flags(b"u"), RE_FLAG_U);
         assert_eq!(parse_flags(b"y"), RE_FLAG_Y);
+        assert_eq!(parse_flags(b"d"), RE_FLAG_D);
     }
 
     #[test]
@@ -70,9 +73,8 @@ mod tests {
 
     #[test]
     fn unknown_letters_silently_skipped() {
-        // `d` is in spec but not implemented; `z` doesn't exist.
-        assert_eq!(parse_flags(b"d"), 0);
+        // `z` / `q` don't exist as flag letters.
         assert_eq!(parse_flags(b"z"), 0);
-        assert_eq!(parse_flags(b"izd"), RE_FLAG_I);
+        assert_eq!(parse_flags(b"izq"), RE_FLAG_I);
     }
 }

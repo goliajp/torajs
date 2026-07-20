@@ -3,8 +3,9 @@
 
 use alloc::vec::Vec;
 use core::ffi::c_void;
-use core::sync::atomic::{AtomicPtr, Ordering};
 
+use super::match_indices::attach_indices;
+use super::static_keys::{K_GROUPS, K_INDEX, K_INPUT, cached_static_key};
 use super::{
     __torajs_arr_alloc, __torajs_arr_push, __torajs_arrprops_attach_exec3, __torajs_arrprops_set,
     __torajs_dynobj_alloc, __torajs_dynobj_mark_null_proto, __torajs_dynobj_set, __torajs_rc_inc,
@@ -15,83 +16,6 @@ use super::{
 use crate::node::REGEX_MAX_CAPTURES;
 use crate::parser::{RE_FLAG_G, RE_FLAG_Y};
 use crate::vm::{Workspace, match_anchor, save_slot, search_from, search_from_with_ws};
-
-/// `torajs_rc::FLAG_STATIC_LITERAL` — `1 << 2 = 4`. Mirrored as a
-/// local const so torajs-regex doesn't need a torajs-rc cargo dep
-/// for one flag bit. When set on a `HeapHeader.flags` field (offset
-/// 6 on the universal layout), `__torajs_rc_inc` / `__torajs_rc_dec`
-/// / `__torajs_str_drop` all no-op — the heap block is immortal
-/// for the program's lifetime. Unit test
-/// `torajs_rc::tests::flag_static_literal_value_locked` (lib.rs:657)
-/// asserts the value stays `4`.
-const FLAG_STATIC_LITERAL: u16 = 1 << 2;
-
-/// Round 4 wire-back Phase B chunk 1 attacks #R-K1 + #R-K3 — cached
-/// `"index"` / `"input"` / `"groups"` key Str slots. First call into
-/// each `attach_*` allocates the Str via `str_from_bytes`, stamps
-/// `FLAG_STATIC_LITERAL` on the header, and CASes the result into
-/// the static slot; subsequent calls fast-path the atomic-load
-/// (~1 ns vs ~32 ns alloc). `__torajs_str_drop` after `arrprops_set`
-/// also no-ops on the flag, saving an additional ~3 ns per key.
-/// Per-call gain: ~35 ns/key × 3 keys = ~105 ns/iter on the
-/// `regex-wireback-minlit-100k` fixture; aligns the decomp
-/// (`.claude/rfcs/20260625-perf-wire-back-decomp/decomposition.md`)
-/// Top-N estimate.
-///
-/// **Race semantics**: under v0.2 single-mutator the CAS always
-/// succeeds first time; once the multi-threaded substrate lands
-/// (v1.0 biased-ARC, design-principles.md §6.2), a losing-CAS
-/// thread cleans up its fresh alloc and adopts the winner. The
-/// only observable cost of a race loss is the cleanup `str_drop`
-/// path (~30 ns); bounded by thread count, occurs once per slot.
-static K_INDEX: AtomicPtr<c_void> = AtomicPtr::new(core::ptr::null_mut());
-static K_INPUT: AtomicPtr<c_void> = AtomicPtr::new(core::ptr::null_mut());
-static K_GROUPS: AtomicPtr<c_void> = AtomicPtr::new(core::ptr::null_mut());
-
-/// Returns the cached immortal Str for `bytes`, allocating on first
-/// call. Subsequent calls hit the atomic-load fast path. See
-/// `K_INDEX` doc for race semantics + perf framing.
-///
-/// # Safety
-///
-/// `bytes` must be a stable literal (the first call's content seeds
-/// the cache forever); all wireback call sites pass `b"..."` byte
-/// literals.
-unsafe fn cached_static_key(slot: &AtomicPtr<c_void>, bytes: &[u8]) -> *const c_void {
-    let cached = slot.load(Ordering::Relaxed);
-    if !cached.is_null() {
-        return cached as *const c_void;
-    }
-    let fresh = unsafe { str_from_bytes(bytes) } as *mut c_void;
-    // Stamp FLAG_STATIC_LITERAL so rc_inc / rc_dec / str_drop all
-    // no-op on this header — the slot becomes immortal. HeapHeader
-    // layout: refcount u32 @0, type_tag u16 @4, flags u16 @6
-    // (see torajs_rc::lib.rs `pub struct HeapHeader`).
-    unsafe {
-        let flags_ptr = (fresh as *mut u8).add(6) as *mut u16;
-        *flags_ptr |= FLAG_STATIC_LITERAL;
-    }
-    match slot.compare_exchange(
-        core::ptr::null_mut(),
-        fresh,
-        Ordering::AcqRel,
-        Ordering::Relaxed,
-    ) {
-        Ok(_) => fresh as *const c_void,
-        Err(other) => {
-            // CAS race lost — clear our immortal flag so str_drop
-            // can genuinely free the fresh alloc (otherwise the
-            // STATIC_LITERAL gate would short-circuit drop and leak
-            // ~16 bytes per losing race).
-            unsafe {
-                let flags_ptr = (fresh as *mut u8).add(6) as *mut u16;
-                *flags_ptr &= !FLAG_STATIC_LITERAL;
-                __torajs_str_drop(fresh as *mut c_void);
-            }
-            other as *const c_void
-        }
-    }
-}
 
 /// Attach the spec §22.2.7.8 match-result properties `index` (match
 /// start; UTF-8 byte domain — same domain note as lastIndex) and
@@ -114,7 +38,9 @@ unsafe fn cached_static_key(slot: &AtomicPtr<c_void>, bytes: &[u8]) -> *const c_
 /// (one cross-tier call, no probe, no per-key rc_inc; the dynobj
 /// side computes the three hash slots from compile-time FNV
 /// constants). Named-capture regexes keep the generic
-/// [`attach_exec_props`] + [`attach_groups`] pair.
+/// [`attach_exec_props`] + [`attach_groups`] pair. `/d` regexes grow
+/// the fourth prop `indices` (§22.2.7.8 MakeIndicesArray) via the
+/// trailing [`attach_indices`] call — a no-op without the flag.
 ///
 /// # Safety
 ///
@@ -125,9 +51,16 @@ pub unsafe fn attach_exec_all(
     re: &RegExp,
     s: &[u8],
     str_ptr: *const c_void,
-    index: i64,
+    m_start: i64,
+    m_end: i64,
     saves: &[i64],
+    haystack_is_ascii: bool,
 ) {
+    // `.index` is spec'd in UTF-16 code units; `m_start` / `m_end`
+    // are byte offsets in the transcoded haystack (`attach_indices`
+    // needs the byte span for slot 0's pair, so the mapping happens
+    // here instead of at the call sites).
+    let index = byte_to_utf16_units(s, m_start, haystack_is_ascii);
     if re.n_named_captures == 0 || re.capture_names.is_empty() {
         unsafe {
             let k_index = cached_static_key(&K_INDEX, b"index");
@@ -150,6 +83,9 @@ pub unsafe fn attach_exec_all(
             attach_exec_props(arr, str_ptr, index);
             attach_groups(arr, re, s, saves);
         }
+    }
+    unsafe {
+        attach_indices(arr, re, s, m_start, m_end, saves, haystack_is_ascii);
     }
 }
 
@@ -371,16 +307,18 @@ pub unsafe extern "C" fn __torajs_str_match_regex(
                 }
             }
             // Non-global match = exec shape (spec §22.2.7.8):
-            // index / input / groups attach in print order. `.index`
-            // is spec'd in UTF-16 code units — map the byte offset.
+            // index / input / groups (+ `/d` indices) attach in
+            // print order; byte→UTF-16 mapping happens inside.
             unsafe {
                 attach_exec_all(
                     out,
                     re,
                     &s,
                     str_ptr,
-                    byte_to_utf16_units(&s, m.start, haystack_is_ascii),
+                    m.start,
+                    m.end,
                     m.saves(),
+                    haystack_is_ascii,
                 );
             }
             break;
@@ -488,8 +426,10 @@ pub unsafe extern "C" fn __torajs_regex_exec(
             re,
             s,
             str_ptr,
-            byte_to_utf16_units(s, m.start, haystack_is_ascii),
+            m.start,
+            m.end,
             m.saves(),
+            haystack_is_ascii,
         );
     }
     out
