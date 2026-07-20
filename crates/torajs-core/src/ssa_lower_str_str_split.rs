@@ -81,6 +81,19 @@ pub(crate) fn lower_split(
     } else {
         ctx.intrinsics.str_split
     };
+    // separator === null — §22.1.3.23 step 15: null is NOT undefined,
+    // so it splits by ToString(null) = "null". The Null literal lowers
+    // to ConstPtrNull, which the (Str, Str) kernel dereferences (same
+    // SIGSEGV family as the undefined guards below). Substitute an
+    // interned "null" literal so every downstream branch (limit clamp
+    // included) sees a plain Str separator.
+    if !sep_is_any
+        && args
+            .first()
+            .is_some_and(|a| matches!(ctx.expr_types.get(a), Some(crate::check::Type::Null)))
+    {
+        argv[1] = Operand::Value(ctx.intern_string_literal("null"));
+    }
     // S233 — `s.split(undefined)` per ES §22.1.3.21 step 2: separator
     // === undefined skips splitting altogether (step 3 returns `[S]`).
     // Without this carve-out the 1-arg-undef path falls through to
