@@ -37,8 +37,9 @@ unsafe extern "C" {
 }
 
 /// Number of builtin prototypes ssa_lower can request. Order is
-/// fixed by the tag constants ssa_lower emits — never reorder.
-pub const NUM_BUILTIN_PROTOS: usize = 14;
+/// fixed by the tag constants ssa_lower emits — never reorder
+/// (append-only; AsyncFunction joined as 14, RFC 20260721 刀 4).
+pub const NUM_BUILTIN_PROTOS: usize = 15;
 
 /// ES `name` / ctor-clause `length` of the builtin constructor
 /// owning each proto tag (RFC 20260720-ctor-static-reflection 刀 3)
@@ -47,7 +48,8 @@ pub const NUM_BUILTIN_PROTOS: usize = 14;
 /// 14/14). Lengths per the ctor clauses: §21.1.1 / §20.1.1 /
 /// §23.1.1 / §22.1.1 / §20.3.1 / §20.4.1 (Symbol 0) / §21.2.1 /
 /// §22.2.4 (RegExp 2) / §21.4.2 (Date 7) / §20.5.1 / §27.2.3 /
-/// §24.1.1 (Map 0) / §24.2.2 (Set 0) / §20.2.1.
+/// §24.1.1 (Map 0) / §24.2.2 (Set 0) / §20.2.1 / §27.7.1
+/// (AsyncFunction 1).
 pub fn builtin_ctor_meta(tag: i64) -> Option<(&'static str, u32)> {
     Some(match tag {
         0 => ("Number", 1),
@@ -64,6 +66,7 @@ pub fn builtin_ctor_meta(tag: i64) -> Option<(&'static str, u32)> {
         11 => ("Map", 0),
         12 => ("Set", 0),
         13 => ("Function", 1),
+        14 => ("AsyncFunction", 1),
         _ => return None,
     })
 }
@@ -102,11 +105,12 @@ static SLOTS: [AtomicUsize; NUM_BUILTIN_PROTOS] = [SLOT_INIT; NUM_BUILTIN_PROTOS
 
 /// Lazy-init singleton for a builtin's `.prototype`.
 ///
-/// `tag` ∈ \[0, 14): Number=0, Object=1, Array=2, String=3,
+/// `tag` ∈ \[0, 15): Number=0, Object=1, Array=2, String=3,
 /// Boolean=4, Symbol=5, BigInt=6, RegExp=7, Date=8, Error=9,
-/// Promise=10, Map=11, Set=12, Function=13. ssa_lower must emit one
-/// of these via `Operand::ConstI64(<tag>)`. Out-of-range `tag`
-/// returns NULL (defensive — ssa_lower should never emit it).
+/// Promise=10, Map=11, Set=12, Function=13, AsyncFunction=14.
+/// ssa_lower must emit one of these via `Operand::ConstI64(<tag>)`.
+/// Out-of-range `tag` returns NULL (defensive — ssa_lower should
+/// never emit it).
 ///
 /// First call per tag allocates the cell the spec asks for —
 /// an empty `Arr` for [`ARRAY_PROTO_TAG`], a dynobj for the rest —

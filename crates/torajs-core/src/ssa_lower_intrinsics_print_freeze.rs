@@ -67,6 +67,9 @@ pub(crate) struct PrintFreezeIds {
     /// RFC 20260721 刀 9 — plain-fn `.prototype` materialization
     /// (cell → owned AnyValue; undefined without `FLAG_FN_PROTO`).
     pub closure_prototype_any: FuncId,
+    /// RFC 20260721 刀 4 — flavor-keyed `.constructor` reflection
+    /// (async cell → %AsyncFunction%, else %Function%).
+    pub closure_ctor_value: FuncId,
     pub any_to_str: FuncId,
     /// §13.15.3 concat-position twin — ToPrimitive(default) first.
     pub any_to_str_prim: FuncId,
@@ -200,6 +203,13 @@ pub(crate) fn declare(
             module,
             fn_table,
             "__torajs_closure_prototype_any",
+            &[Type::Ptr],
+            Type::Any,
+        ),
+        closure_ctor_value: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_closure_ctor_value",
             &[Type::Ptr],
             Type::Any,
         ),

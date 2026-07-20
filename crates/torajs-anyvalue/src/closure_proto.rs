@@ -155,3 +155,33 @@ unsafe fn own_pair(tag: u64, v: u64) -> u64 {
     }
     unsafe { crate::nanbox_encode::__torajs_anyv_box_from_pair(tag as i64, v as i64) }
 }
+
+/// Compiler face for the typed lane (`fun.constructor` on a
+/// closure-typed receiver, RFC 20260721 刀 4) — an own `constructor`
+/// expando shadows; otherwise the flavor-keyed interned ctor cell:
+/// %AsyncFunction% for an async-form cell (`FLAG_FN_ASYNC`),
+/// %Function% for every other closure. The cells are immortal
+/// (static-flagged), so the box carries no rc traffic.
+///
+/// # Safety
+/// `env` is a live closure cell pointer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_closure_ctor_value(env: *mut c_void) -> u64 {
+    unsafe {
+        let props = closure_props(env);
+        if !props.is_null() {
+            let ctor_key = interned_key(&CTOR_KEY_CELL, b"constructor");
+            let tag = __torajs_dynobj_get_tag(props, ctor_key);
+            if tag != 5 {
+                return own_pair(tag, __torajs_dynobj_get_value(props, ctor_key));
+            }
+        }
+        let flags = (env.cast::<u8>().add(6) as *const u16).read();
+        let tag = if flags & torajs_rc::FLAG_FN_ASYNC != 0 {
+            14
+        } else {
+            13
+        };
+        crate::nanbox::box_void_ptr(crate::method_value::builtin_ctor_cell(tag) as *mut c_void)
+    }
+}

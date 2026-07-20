@@ -143,7 +143,17 @@ fn ctor_family_tag(recv: AnyValue) -> Option<i64> {
         t if t == Tag::Str as u16 => Some(3),
         t if t == Tag::Arr as u16 => Some(2),
         t if t == Tag::DynObj as u16 => Some(1),
-        t if t == Tag::Closure as u16 => Some(13),
+        // RFC 20260721 刀 4 — an async-form cell (FLAG_FN_ASYNC,
+        // bit 7 Closure-private) reflects %AsyncFunction% (§27.7.1);
+        // every other closure keeps the Function ctor.
+        t if t == Tag::Closure as u16 => {
+            let flags = unsafe { (ptr.cast::<u8>().add(6) as *const u16).read() };
+            if flags & torajs_rc::FLAG_FN_ASYNC != 0 {
+                Some(14)
+            } else {
+                Some(13)
+            }
+        }
         t if t == Tag::BigInt as u16 => Some(6),
         t if t == Tag::Symbol as u16 => Some(5),
         t if t == Tag::RegExp as u16 => Some(7),

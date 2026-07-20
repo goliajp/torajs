@@ -132,6 +132,20 @@ pub(crate) fn try_lower(
         );
         return Some(Operand::Value(v));
     }
+    // RFC 20260721 刀 4 — `fun.constructor` on a Closure-typed
+    // receiver: flavor-keyed at runtime (async cell →
+    // %AsyncFunction%, else %Function%; own expando shadows inside
+    // the kernel). The interned cells are immortal, box is rc-free.
+    if matches!(obj_ty, Type::Closure(_)) && name == "constructor" {
+        let cur_block = ctx.cur_block;
+        let v = ctx.f.append_inst(
+            cur_block,
+            InstKind::Call(ctx.intrinsics.closure_ctor_value, vec![obj_val]),
+            Type::Any,
+            None,
+        );
+        return Some(Operand::Value(v));
+    }
     None
 }
 

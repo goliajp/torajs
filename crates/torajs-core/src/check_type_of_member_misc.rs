@@ -67,6 +67,10 @@ pub(crate) fn try_match(obj_ty: &Type, name: &str) -> Option<Result<Type, String
         // arrows / async forms read undefined — the static type
         // can't distinguish the flavors).
         (Type::Function(..), "prototype") => Type::Any,
+        // RFC 20260721 刀 4 — `fun.constructor`: Any (the runtime
+        // kernel keys %Function% vs %AsyncFunction% off the cell's
+        // flavor bit).
+        (Type::Function(..), "constructor") => Type::Any,
         // Type::Any single-type members. These explicit arms
         // carry richer shape than the P3.2 catch-all
         // `(Type::Any, _) → Type::Any` and so live above it.
