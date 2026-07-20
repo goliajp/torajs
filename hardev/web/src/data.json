@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-20T21:05:31.318Z",
+  "generatedAt": "2026-07-20T22:25:52.769Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 94.5
   },
   "torajs": {
-    "commit": "d5bdef4d",
-    "commitSubject": "feat: promise bigint symbol prototype own methods reify on static and any lanes",
+    "commit": "3c1638e6",
+    "commitSubject": "style: fmt-drift fix on any-method re-export wrap",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,38 @@
   },
   "commits": [
     {
+      "hash": "3c1638e6",
+      "subject": "style: fmt-drift fix on any-method re-export wrap"
+    },
+    {
+      "hash": "6f5147e6",
+      "subject": "feat: date prototype totimestring full chain on typed and any lanes"
+    },
+    {
+      "hash": "21c5678d",
+      "subject": "feat: generator fn proto chain routes to genfn trio with step-method reflection cells"
+    },
+    {
+      "hash": "6feaa0ac",
+      "subject": "feat: asyncfunction ctor cell reflection keyed on the closure async flavor bit"
+    },
+    {
+      "hash": "a22943df",
+      "subject": "style: fmt-drift fix on flags re-export wrap"
+    },
+    {
+      "hash": "207d6ba7",
+      "subject": "feat: plain-fn prototype object lazy materialization with fn-flavor header flags"
+    },
+    {
+      "hash": "35978d11",
+      "subject": "feat: object getownpropertysymbols and array.from reify as ns-static value cells"
+    },
+    {
+      "hash": "83c966a2",
+      "subject": "chore: hardev dashboard snapshot at rotation 169 close"
+    },
+    {
       "hash": "d5bdef4d",
       "subject": "feat: promise bigint symbol prototype own methods reify on static and any lanes"
     },
@@ -727,59 +759,38 @@
     {
       "hash": "5cb5a0b8",
       "subject": "fix: inherited object proto methods reify to the shared object-row cell identity"
-    },
-    {
-      "hash": "5993555b",
-      "subject": "fix: backref span-keyed pike vm dedup keeps shorter-capture fallback threads"
-    },
-    {
-      "hash": "a3328038",
-      "subject": "chore: hardev dashboard snapshot at rotation 168 close"
-    },
-    {
-      "hash": "7ddba39f",
-      "subject": "fix: string proto thisstringvalue brand check and primitive wrapper inspect forms"
-    },
-    {
-      "hash": "283d6576",
-      "subject": "chore: hardev dashboard snapshot at rotation 168 close"
-    },
-    {
-      "hash": "115e5442",
-      "subject": "test: lock proto singleton any-assignment and tostring-primitive coerce faces"
-    },
-    {
-      "hash": "ec94e9f3",
-      "subject": "fix: duplicate named group twin does not clobber the participating capture"
-    },
-    {
-      "hash": "da578f6e",
-      "subject": "fix: deleted builtin proto tostring falls back to object badge classifier"
-    },
-    {
-      "hash": "7a413ce3",
-      "subject": "fix: typed receiver constructor member reifies to interned builtin ctor value"
     }
   ],
-  "headSha": "d5bdef4d",
+  "headSha": "3c1638e6",
   "autorun": {
-    "total": 474,
+    "total": 475,
     "baselineTarget": 10,
-    "bySelf": 469,
+    "bySelf": 470,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784575166-3ba1",
-      "at": "2026-07-20T19:19:26Z",
-      "ts": 1784575166,
+      "rotationId": "r-1784581543-4116",
+      "at": "2026-07-20T21:05:43Z",
+      "ts": 1784581543,
       "trigger": "self",
-      "prevHead": "a3328038",
-      "handoffSha": "sha256:05f4f5ec00226b0de987ffceac374cad63cfbc402bfbdeaf6fa553ffefd0b5fe",
-      "handoffAgeSec": 10,
+      "prevHead": "83c966a2",
+      "handoffSha": "sha256:d6360ddea43e44b0508088dac3694d2abc6968a5638cbcd0eec23b97a1f7f990",
+      "handoffAgeSec": 17,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784581543-4116",
+        "at": "2026-07-20T21:05:43Z",
+        "ts": 1784581543,
+        "trigger": "self",
+        "prevHead": "83c966a2",
+        "handoffSha": "sha256:d6360ddea43e44b0508088dac3694d2abc6968a5638cbcd0eec23b97a1f7f990",
+        "handoffAgeSec": 17,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784575166-3ba1",
         "at": "2026-07-20T19:19:26Z",
@@ -876,17 +887,6 @@
         "prevHead": "7bdee92d",
         "handoffSha": "sha256:d4e4891c0e303787ff886d3bdddf9821f5b9c1b19ba7271215847fe49ba4a691",
         "handoffAgeSec": 138,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784516541-7afb",
-        "at": "2026-07-20T03:02:21Z",
-        "ts": 1784516541,
-        "trigger": "self",
-        "prevHead": "78f77ac7",
-        "handoffSha": "sha256:65125be62b3eaf04eaa65dd9ac5f718a6abc1716c2f4c0ed6030d90902be491c",
-        "handoffAgeSec": 0,
         "conformanceBefore": null,
         "commitsInSession": null
       }
