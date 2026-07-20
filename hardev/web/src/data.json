@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-20T04:29:56.595Z",
+  "generatedAt": "2026-07-20T05:58:47.286Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-18T11:39:00Z",
-    "headSha": "545b7c8f",
-    "elapsedSec": 582.3,
+    "ranAt": "2026-07-20T05:30:39Z",
+    "headSha": "092f769f",
+    "elapsedSec": 697.46,
     "workers": 8,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 7876,
+    "pass": 8131,
     "passNoOracle": 112,
     "passNegative": 4447,
-    "passTotal": 12435,
-    "bug": 685,
-    "incompatible": 40054,
+    "passTotal": 12690,
+    "bug": 981,
+    "incompatible": 39503,
     "bunSkip": 11908,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 13120,
-    "passRateInScope": 23.39,
-    "passRateTrAccepted": 94.78
+    "trAccepted": 13671,
+    "passRateInScope": 23.87,
+    "passRateTrAccepted": 92.82
   },
   "torajs": {
-    "commit": "78de58a7",
-    "commitSubject": "refactor: extract the any-needle compare arm from emit_compare",
+    "commit": "001ee613",
+    "commitSubject": "fix: widen the interval Shl model when the shift leaves i64 range",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,38 @@
   },
   "commits": [
     {
+      "hash": "001ee613",
+      "subject": "fix: widen the interval Shl model when the shift leaves i64 range"
+    },
+    {
+      "hash": "285b8a5f",
+      "subject": "fix: implicit ToString/ToNumber of a Symbol throws TypeError"
+    },
+    {
+      "hash": "16bd5bcd",
+      "subject": "chore: archive the test262 sweep at 092f769f"
+    },
+    {
+      "hash": "092f769f",
+      "subject": "refactor: extract the closure-shape arms from the implicit-generics loop"
+    },
+    {
+      "hash": "dc4ed537",
+      "subject": "refactor: split the fnexpr-this run fn into per-stage helpers"
+    },
+    {
+      "hash": "448e3c8b",
+      "subject": "refactor: move the ho-loop per-method emitters to a child module"
+    },
+    {
+      "hash": "714365e2",
+      "subject": "feat: admit splice/toSpliced insert items on Arr<Any> receivers"
+    },
+    {
+      "hash": "7bdee92d",
+      "subject": "chore: hardev dashboard snapshot at rotation 160 close"
+    },
+    {
       "hash": "78de58a7",
       "subject": "refactor: extract the any-needle compare arm from emit_compare"
     },
@@ -727,59 +759,38 @@
     {
       "hash": "ca137399",
       "subject": "fix: mark combinator inputs handled to stop spurious unhandled reports"
-    },
-    {
-      "hash": "a55e10e6",
-      "subject": "feat: admit any-param handlers on the promise array-inner lane"
-    },
-    {
-      "hash": "cdae8581",
-      "subject": "feat: extend the splice insert form to tospliced"
-    },
-    {
-      "hash": "addc0b40",
-      "subject": "feat: wire the array splice insert form through checker and lowering"
-    },
-    {
-      "hash": "f8f8f9dd",
-      "subject": "feat: add typed array splice insert kernel"
-    },
-    {
-      "hash": "f2322d09",
-      "subject": "feat: admit typed void-return handlers on promise then and catch"
-    },
-    {
-      "hash": "78f77ac7",
-      "subject": "feat: admit any needles into typed array index search by tag"
-    },
-    {
-      "hash": "39f94ff0",
-      "subject": "chore: hardev dashboard snapshot at rotation 159 close"
-    },
-    {
-      "hash": "79966112",
-      "subject": "feat: admit any fill values into typed arrays with store unbox"
     }
   ],
-  "headSha": "78de58a7",
+  "headSha": "001ee613",
   "autorun": {
-    "total": 465,
+    "total": 466,
     "baselineTarget": 10,
-    "bySelf": 460,
+    "bySelf": 461,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784516541-7afb",
-      "at": "2026-07-20T03:02:21Z",
-      "ts": 1784516541,
+      "rotationId": "r-1784521976-548f",
+      "at": "2026-07-20T04:32:56Z",
+      "ts": 1784521976,
       "trigger": "self",
-      "prevHead": "78f77ac7",
-      "handoffSha": "sha256:65125be62b3eaf04eaa65dd9ac5f718a6abc1716c2f4c0ed6030d90902be491c",
-      "handoffAgeSec": 0,
+      "prevHead": "7bdee92d",
+      "handoffSha": "sha256:d4e4891c0e303787ff886d3bdddf9821f5b9c1b19ba7271215847fe49ba4a691",
+      "handoffAgeSec": 138,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784521976-548f",
+        "at": "2026-07-20T04:32:56Z",
+        "ts": 1784521976,
+        "trigger": "self",
+        "prevHead": "7bdee92d",
+        "handoffSha": "sha256:d4e4891c0e303787ff886d3bdddf9821f5b9c1b19ba7271215847fe49ba4a691",
+        "handoffAgeSec": 138,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784516541-7afb",
         "at": "2026-07-20T03:02:21Z",
@@ -876,17 +887,6 @@
         "prevHead": "ccdbee65",
         "handoffSha": "sha256:04480667225c59c5af5a5238487edd5973ada198f923dc89ec6bb49c741decb5",
         "handoffAgeSec": 8,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784457411-18ad",
-        "at": "2026-07-19T10:36:51Z",
-        "ts": 1784457411,
-        "trigger": "self",
-        "prevHead": "e0db83e6",
-        "handoffSha": "sha256:81845abb95009742ca8258f4e951ded6ceb3c964be2014cd8240bc7f89b30f3a",
-        "handoffAgeSec": 4,
         "conformanceBefore": null,
         "commitsInSession": null
       }
