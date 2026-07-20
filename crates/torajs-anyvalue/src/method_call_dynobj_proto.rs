@@ -57,8 +57,14 @@ pub(crate) unsafe fn object_proto_fallback(
         // where the spec says "0" — which is the FIRST assertion of most
         // Number/prototype/toString cases, so the whole family died on it.
         // Ordered after the own probe like the rest of this fallback: a
-        // monkey-patched `Number.prototype.toString` still wins.
-        if !is_struct && let Some(v) = builtin_proto_primitive(obj, mid) {
+        // monkey-patched `Number.prototype.toString` still wins. A
+        // `delete String.prototype.toString` tombstone (RFC 20260721
+        // G9) retires the primitive-identity face too — the call then
+        // inherits the §20.1.3.6 badge below ("[object String]").
+        if !is_struct
+            && !proto_family_mid_deleted(obj, mid)
+            && let Some(v) = builtin_proto_primitive(obj, mid)
+        {
             return v;
         }
         if mid == ANY_METHOD_VALUE_OF {
@@ -101,6 +107,17 @@ pub(crate) unsafe fn object_proto_fallback(
         }
         not_callable()
     }
+}
+
+/// True iff the receiver is a builtin prototype singleton whose
+/// family method under `mid` has been `delete`d (the torajs-rc
+/// deleted-mid tombstone) — the caller then skips the
+/// primitive-identity face and inherits the ordinary
+/// `Object.prototype` surface.
+unsafe fn proto_family_mid_deleted(obj: *mut c_void, mid: i64) -> bool {
+    let ptag = unsafe { torajs_rc::builtin_proto::__torajs_builtin_proto_tag_of(obj) };
+    ptag >= 0
+        && unsafe { torajs_rc::builtin_proto::__torajs_builtin_proto_is_deleted(ptag, mid) } != 0
 }
 
 /// The primitive a builtin prototype carries as its internal slot, for
