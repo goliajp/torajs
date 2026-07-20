@@ -256,6 +256,8 @@ unsafe fn dispatch(id: i64, argv: *const u64, argc: i64) -> u64 {
             Disp::ObjectIsSealed => box_bool(__torajs_anyv_is_sealed(arg_at(argv, argc, 0))),
             Disp::BigIntAsN { signed } => super::ns_static_ctor::bigint_as_n(*signed, argv, argc),
             Disp::PromiseSettle => super::ns_static_ctor::promise_settle(),
+            Disp::Gopd => super::ns_static_ctor::gopd_static(argv, argc),
+            Disp::DefineFace => super::ns_static_ctor::define_face_reject(),
         }
     }
 }

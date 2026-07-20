@@ -339,6 +339,46 @@ pub(super) unsafe fn promise_settle() -> u64 {
     VALUE_UNDEFINED
 }
 
+unsafe extern "C" {
+    /// torajs-meta — the §20.1.2.8 descriptor kernel (owned fresh
+    /// descriptor dynobj / undefined; nullish receiver throws inside).
+    fn __torajs_anyv_get_property_descriptor(obj_any: u64, key: *const c_void) -> u64;
+}
+
+/// §20.1.2.8 Object.getOwnPropertyDescriptor as a detached call —
+/// ToString(P) into the meta descriptor kernel (the same face every
+/// gOPD lowering consumes). The coerced key temp stays ours to
+/// release.
+pub(super) unsafe fn gopd_static(argv: *const u64, argc: i64) -> u64 {
+    unsafe {
+        let o = arg_at(argv, argc, 0);
+        let key = crate::nanbox_ffi::__torajs_anyv_to_str(arg_at(argv, argc, 1));
+        if __torajs_throw_check() != 0 {
+            return VALUE_UNDEFINED;
+        }
+        let d = __torajs_anyv_get_property_descriptor(o, key as *const c_void);
+        crate::__torajs_str_drop(key as *mut c_void);
+        d
+    }
+}
+
+/// §20.1.2.{9,2,4,3} getOwnPropertyDescriptors / create /
+/// defineProperty / defineProperties as detached calls — the define
+/// family's kernels are dynobj-slot shaped (a resize relocates the
+/// receiver and a receiver-less cell call has no writeback target),
+/// so the arm stays a loud reject until the any-tier define kernel
+/// lands (RFC 20260721 records the face). The cells exist for the
+/// reflection surface.
+pub(super) unsafe fn define_face_reject() -> u64 {
+    unsafe {
+        __torajs_throw_type_error(
+            c"builtin namespace static called through a detached value is not supported for the define family"
+                .as_ptr(),
+        )
+    };
+    VALUE_UNDEFINED
+}
+
 /// §20.1.2.11 Object.hasOwn — step 1 ToObject throws on a nullish
 /// target; every other receiver routes through the same prop_has
 /// probe the `hasOwnProperty` dispatcher arm uses (single source).

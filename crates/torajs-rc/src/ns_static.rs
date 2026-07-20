@@ -144,6 +144,18 @@ pub static NS_STATIC_TABLE: &[NsStaticRow] = &[
     // allocs. Lengths per §27.2.4.{7,6}.
     row("Promise", "resolve", 1),
     row("Promise", "reject", 1),
+    // Ctor statics batch 5 (RFC 20260721 刀 4) — the descriptor
+    // family reified for the REFLECTION surface (typeof / name /
+    // length / gOPD identity). gOPD settles through the meta
+    // descriptor kernel; create / defineProperty / defineProperties
+    // / gOPDs raise the recorded dynobj-slot-writeback TypeError on
+    // a detached call (any-tier define kernel is the RFC face).
+    // Lengths per §20.1.2.{8,9,2,4,3}.
+    row("Object", "getOwnPropertyDescriptor", 2),
+    row("Object", "getOwnPropertyDescriptors", 1),
+    row("Object", "create", 2),
+    row("Object", "defineProperty", 3),
+    row("Object", "defineProperties", 2),
 ];
 
 /// Compile-time `(namespace, member)` → id. Linear scan — lower-time

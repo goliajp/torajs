@@ -92,6 +92,11 @@ pub(crate) fn try_match(name: &str) -> Option<Result<Type, String>> {
         "getOwnPropertyDescriptor" => {
             Type::Function(vec![Type::Any, Type::Any], Box::new(Type::Any))
         }
+        // RFC 20260721 刀 4 — §20.1.2.9: the per-key descriptor-map
+        // flavor; admitted so the ns-static value read mints the
+        // reflection cell (the detached-call arm stays the recorded
+        // loud reject).
+        "getOwnPropertyDescriptors" => Type::Function(vec![Type::Any], Box::new(Type::Any)),
         // 2026-05-18 — accept these as permissive Any
         // typecheck-only stubs (no real substrate yet).
         // ssa_lower has no special intercept either: the

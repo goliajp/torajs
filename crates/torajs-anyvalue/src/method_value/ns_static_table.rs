@@ -241,6 +241,17 @@ pub(super) enum Disp {
     /// (species ctor, step 1), so the arm always raises the bun/JSC
     /// TypeError; the cell exists for the reflection surface.
     PromiseSettle,
+    /// §20.1.2.8 Object.getOwnPropertyDescriptor — ToString(P) into
+    /// the meta descriptor kernel (fresh descriptor dynobj /
+    /// undefined; kernel gates the nullish receiver).
+    Gopd,
+    /// §20.1.2.{9,2,4,3} getOwnPropertyDescriptors / create /
+    /// defineProperty / defineProperties — reflection-surface cells
+    /// (typeof / name / length / gOPD identity); the call face
+    /// needs the any-tier define kernel (dynobj-slot writeback,
+    /// RFC 20260721 records the face), so the arm raises a loud
+    /// TypeError.
+    DefineFace,
 }
 
 /// The own-enumeration surfaces (shared dispatch shape) — `Names`
@@ -333,4 +344,9 @@ pub(super) static DISPATCH: &[Disp] = &[
     Disp::BigIntAsN { signed: false },
     Disp::PromiseSettle,
     Disp::PromiseSettle,
+    Disp::Gopd,
+    Disp::DefineFace, // getOwnPropertyDescriptors
+    Disp::DefineFace, // create
+    Disp::DefineFace, // defineProperty
+    Disp::DefineFace, // defineProperties
 ];
