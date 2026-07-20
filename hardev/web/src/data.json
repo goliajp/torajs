@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-19T23:10:34.639Z",
+  "generatedAt": "2026-07-20T01:22:41.448Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 94.78
   },
   "torajs": {
-    "commit": "3b4a45b0",
-    "commitSubject": "fix: mapset dispatch recognizes new-shaped method-call receivers",
+    "commit": "62c3d257",
+    "commitSubject": "feat: admit any args into typed array push/unshift with store unbox",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "62c3d257",
+      "subject": "feat: admit any args into typed array push/unshift with store unbox"
+    },
+    {
+      "hash": "3b84aac7",
+      "subject": "chore: hardev dashboard snapshot at rotation 158 close"
+    },
+    {
       "hash": "3b4a45b0",
       "subject": "fix: mapset dispatch recognizes new-shaped method-call receivers"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "6c886385",
       "subject": "feat: accessor invoke honors closure recv-first header flag"
-    },
-    {
-      "hash": "334c48ff",
-      "subject": "feat: fn-expr this promotes shared multi-face bindings"
-    },
-    {
-      "hash": "3b609353",
-      "subject": "chore: hardev dashboard snapshot at rotation 156 close"
     }
   ],
-  "headSha": "3b4a45b0",
+  "headSha": "62c3d257",
   "autorun": {
     "total": 463,
     "baselineTarget": 10,
