@@ -71,6 +71,7 @@ pub fn any_method_meta(mid: i64) -> Option<(&'static str, u32)> {
         ANY_METHOD_TO_GMT_STRING => ("toGMTString", 0),
         ANY_METHOD_TO_UTC_STRING => ("toUTCString", 0),
         ANY_METHOD_TO_DATE_STRING => ("toDateString", 0),
+        ANY_METHOD_TO_TIME_STRING => ("toTimeString", 0),
         ANY_METHOD_TO_LOCALE_STRING => ("toLocaleString", 0),
         ANY_METHOD_TO_LOCALE_DATE_STRING => ("toLocaleDateString", 0),
         ANY_METHOD_TO_LOCALE_TIME_STRING => ("toLocaleTimeString", 0),
@@ -210,7 +211,7 @@ mod tests {
     #[test]
     fn meta_rejects_unknown_and_out_of_table() {
         assert!(any_method_meta(ANY_METHOD_UNKNOWN).is_none());
-        assert!(any_method_meta(ANY_METHOD_FINALLY + 1).is_none());
+        assert!(any_method_meta(ANY_METHOD_TO_TIME_STRING + 1).is_none());
         assert!(any_method_meta(-1).is_none());
     }
 

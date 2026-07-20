@@ -195,6 +195,7 @@ pub(crate) fn build(
         date_set_year: init_b.date.date_set_year,
         date_to_gmt_string: init_b.date.date_to_gmt_string,
         date_to_date_string: init_b.date.date_to_date_string,
+        date_to_time_string: init_b.date.date_to_time_string,
         date_to_string: init_b.date.date_to_string,
         date_to_locale_string: init_b.date.date_to_locale_string,
         date_to_locale_date_string: init_b.date.date_to_locale_date_string,

@@ -87,7 +87,7 @@ pub(crate) fn try_match(name: &str) -> Option<Result<Type, String>> {
         "setUTCSeconds" => Type::Function(vec![Type::Number, Type::Number], Box::new(Type::Number)),
         "setUTCMilliseconds" => Type::Function(vec![Type::Number], Box::new(Type::Number)),
         "getYear" => Type::Function(Vec::new(), Box::new(Type::Number)),
-        "toGMTString" | "toUTCString" | "toDateString" | "toLocaleString"
+        "toGMTString" | "toUTCString" | "toDateString" | "toTimeString" | "toLocaleString"
         | "toLocaleDateString" | "toLocaleTimeString" | "toString" => {
             Type::Function(Vec::new(), Box::new(Type::String))
         }

@@ -141,6 +141,39 @@ pub unsafe extern "C" fn __torajs_date_to_date_string(d_ptr: *const c_void) -> *
     p
 }
 
+/// `.toTimeString()` per ES §21.4.4.42 TimeString + TimeZoneString —
+/// the time half of `.toString()`: `"09:00:00 GMT+0900 (Japan
+/// Standard Time)"`. Same TZif offset + CLDR long-name chain,
+/// degrading to `(GMT±HHMM)` when the host zone is untabled.
+///
+/// # Safety
+///
+/// `d_ptr` is null or a live `*Date`. Returned pointer is a pooled
+/// Str (rc=1; caller takes ownership).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_date_to_time_string(d_ptr: *const c_void) -> *mut u8 {
+    let Some(ms) = valid_ms(d_ptr) else {
+        return alloc_str("Invalid Date");
+    };
+    let tm = localtime_decompose(ms);
+    let utc_secs = ms.div_euclid(1000);
+    let offs = crate::tz::local_utoff(utc_secs);
+    let sign = if offs < 0 { '-' } else { '+' };
+    let abs = offs.unsigned_abs();
+    let (oh, om) = (abs / 3600, abs / 60 % 60);
+    let gmt = format!("GMT{}{:02}{:02}", sign, oh, om);
+    let name = crate::tz::zone_long_name(utc_secs);
+    let s = format!(
+        "{:02}:{:02}:{:02} {} ({})",
+        tm.tm_hour,
+        tm.tm_min,
+        tm.tm_sec,
+        gmt,
+        name.unwrap_or(&gmt),
+    );
+    alloc_str(&s)
+}
+
 /// `.toString()` per ES §21.4.4.41 / §21.4.4.41.2 ToDateString —
 /// `"Thu Jan 01 1970 09:00:00 GMT+0900 (Japan Standard Time)"`.
 /// Local-time decomposition + the TZif UT offset; the parenthesized
