@@ -24,6 +24,10 @@ unsafe extern "C" {
 
 /// Dispatch a cell receiver by its heap tag. `None` = no arm
 /// matched; the caller raises the no-such-method TypeError.
+/// `skip_wrapper_expando` = the call is a reified-builtin cell's
+/// re-dispatch (method body execution) — own-property probing is
+/// over, so the expando surface must not resolve again (a same-mid
+/// same-name entry would recurse forever).
 pub(crate) unsafe fn cell_method(
     recv: AnyValue,
     mid: i64,
@@ -31,6 +35,7 @@ pub(crate) unsafe fn cell_method(
     recv_slot: *mut u64,
     argv: *const u64,
     argc: i64,
+    skip_wrapper_expando: bool,
 ) -> Option<AnyValue> {
     let ptr = as_void_ptr(recv);
     let tag = unsafe { (ptr.cast::<u8>().add(4) as *const u16).read() };
@@ -40,7 +45,8 @@ pub(crate) unsafe fn cell_method(
     // must run it against the wrapper receiver — the §22.1.3
     // generic ToString(this) coerce — not fall to the inner
     // primitive's arm, which knows no such method).
-    if crate::member_get::is_wrapper_tag(tag)
+    if !skip_wrapper_expando
+        && crate::member_get::is_wrapper_tag(tag)
         && let Some(out) = unsafe {
             crate::method_call_wrapper_expando::wrapper_expando_method(
                 recv, ptr, mid, name_str, argv, argc,

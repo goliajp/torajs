@@ -207,14 +207,7 @@ unsafe fn dispatch(
                 if let Some(out) = generic_str_this(*mid, this_arg, argv, argc) {
                     return out;
                 }
-                crate::method_call::any_method_call_inner(
-                    this_arg,
-                    *mid,
-                    core::ptr::null(),
-                    core::ptr::null_mut(),
-                    argv,
-                    argc,
-                )
+                crate::method_call::any_method_redispatch(this_arg, *mid, argv, argc)
             }
         }
     }

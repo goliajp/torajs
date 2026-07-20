@@ -176,6 +176,46 @@ pub(crate) unsafe fn any_method_call_inner(
     argv: *const u64,
     argc: i64,
 ) -> AnyValue {
+    unsafe { any_method_call_dispatch(recv, mid, name_str, recv_slot, argv, argc, false) }
+}
+
+/// Re-dispatch entry for an invoked reified-builtin cell — the
+/// cell's [[Call]] IS the prototype method body, and the ordinary
+/// method lookup already resolved to it, so the body must NOT
+/// consult the receiver's own properties again: a wrapper expando
+/// storing the same-mid cell under the same name would re-resolve
+/// to itself forever (the S15.6.4.2_A2 stack-overflow family).
+pub(crate) unsafe fn any_method_redispatch(
+    recv: AnyValue,
+    mid: i64,
+    argv: *const u64,
+    argc: i64,
+) -> AnyValue {
+    unsafe {
+        any_method_call_dispatch(
+            recv,
+            mid,
+            core::ptr::null(),
+            core::ptr::null_mut(),
+            argv,
+            argc,
+            true,
+        )
+    }
+}
+
+/// The dispatch body behind the two entries above —
+/// `skip_wrapper_expando` marks a reified-builtin re-dispatch
+/// (method body execution; own-property probing is over).
+unsafe fn any_method_call_dispatch(
+    recv: AnyValue,
+    mid: i64,
+    name_str: *const u8,
+    recv_slot: *mut u64,
+    argv: *const u64,
+    argc: i64,
+    skip_wrapper_expando: bool,
+) -> AnyValue {
     // §20.1.3.6 Object.prototype.toString — the badge classifier
     // dispatches on EVERY this-value including undefined / null
     // (steps 1-2 answer their badges, no ToObject throw), so the
@@ -288,7 +328,15 @@ pub(crate) unsafe fn any_method_call_inner(
     }
     if is_cell(recv)
         && let Some(out) = unsafe {
-            crate::method_call_cell::cell_method(recv, mid, name_str, recv_slot, argv, argc)
+            crate::method_call_cell::cell_method(
+                recv,
+                mid,
+                name_str,
+                recv_slot,
+                argv,
+                argc,
+                skip_wrapper_expando,
+            )
         }
     {
         return out;

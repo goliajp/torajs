@@ -70,13 +70,8 @@ pub(crate) unsafe fn wrapper_expando_method(
             {
                 return Some(out);
             }
-            return Some(crate::method_call::any_method_call_inner(
-                recv,
-                orig_mid,
-                core::ptr::null(),
-                core::ptr::null_mut(),
-                argv,
-                argc,
+            return Some(crate::method_call::any_method_redispatch(
+                recv, orig_mid, argv, argc,
             ));
         }
         if let Some((env, entry)) = closure_cell_entry(cell) {
