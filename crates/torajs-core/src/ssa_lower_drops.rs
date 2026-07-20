@@ -70,10 +70,23 @@ impl LowerCtx<'_> {
         // own stake so the box frees once the last capturing env
         // drops; without the env-temp release of chunk 550 the envs
         // never dropped and the box leaked instead.
+        //
+        // `!info.borrowed` mirrors the non-Copy arm below: a
+        // closure-body preamble byref binding BORROWS its box (the
+        // env owns that stake). A body that mints a nested closure
+        // over the same name lands it in this fn's
+        // `escape_captured_lets` too, and the missing filter emitted
+        // a spurious release — the box freed while the outer frame
+        // and env still held stakes, so every top-level read after
+        // the call answered freed-memory garbage (rotation 162
+        // capture-box UAF; test262 defineProperty toStringAccessed
+        // appeared pair).
         let mut boxed: Vec<ValueId> = self
             .locals
             .iter()
-            .filter(|(name, info)| info.ty.is_copy() && self.escape_captured_lets.contains(*name))
+            .filter(|(name, info)| {
+                info.ty.is_copy() && !info.borrowed && self.escape_captured_lets.contains(*name)
+            })
             .map(|(_, info)| info.slot)
             .collect();
         boxed.sort_by_key(|slot| std::cmp::Reverse(slot.0));
