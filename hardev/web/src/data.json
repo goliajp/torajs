@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-20T01:22:41.448Z",
+  "generatedAt": "2026-07-20T02:47:48.882Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 94.78
   },
   "torajs": {
-    "commit": "62c3d257",
-    "commitSubject": "feat: admit any args into typed array push/unshift with store unbox",
+    "commit": "79966112",
+    "commitSubject": "feat: admit any fill values into typed arrays with store unbox",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "79966112",
+      "subject": "feat: admit any fill values into typed arrays with store unbox"
+    },
+    {
+      "hash": "8d413c2f",
+      "subject": "feat: ident-rhs member-store joins the fn-expr face use-shape channel"
+    },
+    {
+      "hash": "d15011a5",
+      "subject": "feat: admit any-param handlers in two-arg promise then"
+    },
+    {
+      "hash": "d0e01131",
+      "subject": "feat: admit any-param handlers on typed promise then and catch"
+    },
+    {
+      "hash": "a9db0b14",
+      "subject": "feat: promise then and catch kernels box any-param handler values by repr stamp"
+    },
+    {
+      "hash": "2607aec2",
+      "subject": "chore: hardev dashboard snapshot at rotation 158 close"
+    },
+    {
       "hash": "62c3d257",
       "subject": "feat: admit any args into typed array push/unshift with store unbox"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "cf6ae693",
       "subject": "feat: seed mapset forEach callback params from receiver instantiation"
-    },
-    {
-      "hash": "2b8c7031",
-      "subject": "fix: unbox any args into scalar params at fn-value call boundary"
-    },
-    {
-      "hash": "da3e2d06",
-      "subject": "chore: hardev dashboard snapshot at rotation 157 close"
-    },
-    {
-      "hash": "7eb295f6",
-      "subject": "refactor: split fnexpr_this receiver collectors into sibling module"
-    },
-    {
-      "hash": "54b990cd",
-      "subject": "fix: json stringify runs accessor getters and propagates their throws"
-    },
-    {
-      "hash": "d1a2f2ef",
-      "subject": "feat: fn-expr this mixed face and direct-call profile"
-    },
-    {
-      "hash": "6c886385",
-      "subject": "feat: accessor invoke honors closure recv-first header flag"
     }
   ],
-  "headSha": "62c3d257",
+  "headSha": "79966112",
   "autorun": {
-    "total": 463,
+    "total": 464,
     "baselineTarget": 10,
-    "bySelf": 458,
+    "bySelf": 459,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784498209-0704",
-      "at": "2026-07-19T21:56:49Z",
-      "ts": 1784498209,
+      "rotationId": "r-1784510624-7d92",
+      "at": "2026-07-20T01:23:44Z",
+      "ts": 1784510624,
       "trigger": "self",
-      "prevHead": "da3e2d06",
-      "handoffSha": "sha256:cd2839b981bafaedd712ccd7ec4af4ed6b734252e14d1f85ee37b300accd6f25",
-      "handoffAgeSec": 200,
+      "prevHead": "2607aec2",
+      "handoffSha": "sha256:1c2846312929e1da70777d6034e3441731d95689f96854cf3dd15696583d4887",
+      "handoffAgeSec": 8,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784510624-7d92",
+        "at": "2026-07-20T01:23:44Z",
+        "ts": 1784510624,
+        "trigger": "self",
+        "prevHead": "2607aec2",
+        "handoffSha": "sha256:1c2846312929e1da70777d6034e3441731d95689f96854cf3dd15696583d4887",
+        "handoffAgeSec": 8,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784498209-0704",
         "at": "2026-07-19T21:56:49Z",
@@ -876,17 +887,6 @@
         "prevHead": "2e884e98",
         "handoffSha": "sha256:c243e71ffe1f04f1aae5f5f9d907a79efe3313084ac4daa79272c28ebaead5fc",
         "handoffAgeSec": 8,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784431742-7ca9",
-        "at": "2026-07-19T03:29:02Z",
-        "ts": 1784431742,
-        "trigger": "self",
-        "prevHead": "aa8e9002",
-        "handoffSha": "sha256:1679041e158aba9642dce35806c65fb5d4ec4c1156d2546ff54b85eb33ae19af",
-        "handoffAgeSec": 3,
         "conformanceBefore": null,
         "commitsInSession": null
       }
