@@ -30,10 +30,10 @@ use crate::nanbox::{VALUE_UNDEFINED, box_double, box_int32};
 
 use super::ns_static_table::{
     __torajs_anyv_assign, __torajs_anyv_freeze, __torajs_anyv_from_entries,
-    __torajs_anyv_get_proto_of_any, __torajs_anyv_own_entries, __torajs_anyv_own_keys,
-    __torajs_anyv_own_values, __torajs_anyv_set_prototype_of, __torajs_arr_mark_kind,
-    __torajs_anyv_is_extensible, __torajs_anyv_is_sealed, __torajs_anyv_prevent_extensions,
-    __torajs_anyv_seal, __torajs_date_now_static, __torajs_math_max, __torajs_math_min,
+    __torajs_anyv_get_proto_of_any, __torajs_anyv_is_extensible, __torajs_anyv_is_sealed,
+    __torajs_anyv_own_entries, __torajs_anyv_own_keys, __torajs_anyv_own_values,
+    __torajs_anyv_prevent_extensions, __torajs_anyv_seal, __torajs_anyv_set_prototype_of,
+    __torajs_arr_mark_kind, __torajs_date_now_static, __torajs_math_max, __torajs_math_min,
     __torajs_num_parse_float, __torajs_num_parse_int, __torajs_obj_is_frozen_any,
     __torajs_str_drop, __torajs_symbol_for, __torajs_symbol_key_for, __torajs_throw_check,
     __torajs_throw_type_error, DISPATCH, Disp, NumPred, OwnKind,

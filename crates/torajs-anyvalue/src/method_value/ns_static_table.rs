@@ -147,7 +147,9 @@ pub(super) enum Disp {
     /// f64 × f64 → f64 binary (missing args coerce to NaN).
     Ff(unsafe extern "C" fn(f64, f64) -> f64),
     /// §21.3.2.24/25 variadic reduction (empty → ±Infinity).
-    MinMax { is_max: bool },
+    MinMax {
+        is_max: bool,
+    },
     /// ToInt32 pair → i32 result (imul).
     I32Pair(unsafe extern "C" fn(i64, i64) -> i64),
     /// ToUint32 unary → i32-ranged result (clz32).
@@ -204,7 +206,9 @@ pub(super) enum Disp {
     DateUtc,
     /// §22.1.2.1/.2 String.fromCharCode / fromCodePoint — variadic
     /// per-code mint + pairwise concat (the typed lowering's chain).
-    StrFromCodes { code_point: bool },
+    StrFromCodes {
+        code_point: bool,
+    },
     /// §20.1.2.11 Object.hasOwn — HasOwnProperty(ToObject(O), P).
     ObjectHasOwn,
     /// §20.1.2.16/.13 preventExtensions / isExtensible — header-flag
