@@ -37,7 +37,11 @@ use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx, intern_arr_layout};
 /// Lower a `<Str>.split(...)` call. The caller (`ssa_lower_str_str_dispatch::try_dispatch`)
 /// has already produced `argv = [recv, ...lowered_args]` with all
 /// undef-substitution / trailing-arg-drop carve-outs applied.
-pub(crate) fn lower_split(ctx: &mut LowerCtx<'_>, args: &[ExprId], argv: Vec<Operand>) -> Operand {
+pub(crate) fn lower_split(
+    ctx: &mut LowerCtx<'_>,
+    args: &[ExprId],
+    mut argv: Vec<Operand>,
+) -> Operand {
     // An `any` separator (`s.split(x)` with `x: any`, or an As-cast
     // like `split(undefined as any)`) defeats every static guard
     // below — the (Str, Str) kernel would receive raw AnyValue bits
@@ -50,6 +54,20 @@ pub(crate) fn lower_split(ctx: &mut LowerCtx<'_>, args: &[ExprId], argv: Vec<Ope
     // `Any` — the kernel stamps KIND_HEAP_CHAIN and the kind-aware
     // readers decode either slot; a static `Substr`/`Str` pick reads
     // the other shape's layout as garbage (r[0] SIGSEGV'd).
+    //
+    // A statically SCALAR separator (`s.split(123)` — §22.1.3.23
+    // step 15 ToString(separator)) rides the same runtime dispatch:
+    // box the scalar and let the kernel's else-arm ToString it.
+    // Feeding the raw i64/f64 to the (Str, Str) kernel was the
+    // S15.5.4.14_A2 exit-139 family.
+    if let Some(op) = argv.get(1)
+        && matches!(
+            ctx.operand_ty(op),
+            Type::I64 | Type::I32 | Type::F64 | Type::Bool
+        )
+    {
+        argv[1] = ctx.box_to_any(argv[1].clone());
+    }
     let sep_is_any = argv
         .get(1)
         .is_some_and(|op| matches!(ctx.operand_ty(op), Type::Any));
