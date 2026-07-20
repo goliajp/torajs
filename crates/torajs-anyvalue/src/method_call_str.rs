@@ -159,6 +159,49 @@ unsafe fn regexp_drop_if_coerced(orig: AnyValue, re: *mut c_void) {
     }
 }
 
+/// §22.1.3.23 step 2 — the three-way separator dispatch shared by
+/// the ANY_METHOD_SPLIT arm and the typed-receiver `Any`-separator
+/// lane: undefined skips splitting ([S]), a RegExp cell hands off
+/// to `@@split`, everything else ToStrings.
+///
+/// # Safety
+/// `s` is a live Str/Substr cell; `sep_av` carries a valid AnyValue
+/// bit pattern.
+unsafe fn split_with_any_sep(s: *mut u8, sep_av: u64) -> AnyValue {
+    unsafe {
+        if is_undefined(sep_av) {
+            __torajs_str_any_split(s, core::ptr::null())
+        } else if let Some(re) = regexp_cell(sep_av) {
+            // The prior ToString lane matched the literal "/pat/"
+            // spelling instead (test262 15.5.4.14 A4 family — every
+            // `new String(s).split(regexp)` answered one unsplit
+            // token).
+            __torajs_str_any_split_regex(s, re)
+        } else {
+            let sep = __torajs_anyv_to_str(sep_av);
+            let out = __torajs_str_any_split(s, sep as *const u8);
+            __torajs_str_drop(sep);
+            out
+        }
+    }
+}
+
+/// Typed-receiver `s.split(sep)` with an `any` separator — the SSA
+/// lowering's static undefined guards cannot see through an As-cast
+/// or an `any` binding, so the (Str, Str) kernel used to receive
+/// raw AnyValue bits as a pointer (SIGSEGV). One runtime entry runs
+/// the same three-way dispatch the any lane uses; the product is an
+/// Arr cell pointer either way, so the typed limit-clamp slice
+/// downstream applies unchanged.
+///
+/// # Safety
+/// `s` is a live Str/Substr cell; `sep_av` carries a valid AnyValue
+/// bit pattern.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_split_any_sep(s: *mut u8, sep_av: u64) -> u64 {
+    unsafe { split_with_any_sep(s, sep_av) }
+}
+
 /// `Tag::Str` arm — id-switch onto the torajs-str glue.
 pub(crate) unsafe fn str_method(s: *mut u8, mid: i64, argv: *const u64, argc: i64) -> AnyValue {
     let arg_at = |i: i64| -> u64 {
@@ -280,25 +323,7 @@ pub(crate) unsafe fn str_method(s: *mut u8, mid: i64, argv: *const u64, argc: i6
                 __torajs_str_drop(needle);
                 __torajs_anyv_box_from_pair(1, hit)
             }
-            m if m == ANY_METHOD_SPLIT => {
-                let sep_av = arg_at(0);
-                if is_undefined(sep_av) {
-                    __torajs_str_any_split(s, core::ptr::null())
-                } else if let Some(re) = regexp_cell(sep_av) {
-                    // §22.1.3.23 step 2 — a RegExp separator hands
-                    // off to `@@split`. The prior ToString lane
-                    // matched the literal "/pat/" spelling instead
-                    // (test262 15.5.4.14 A4 family — every
-                    // `new String(s).split(regexp)` answered one
-                    // unsplit token).
-                    __torajs_str_any_split_regex(s, re)
-                } else {
-                    let sep = __torajs_anyv_to_str(sep_av);
-                    let out = __torajs_str_any_split(s, sep as *const u8);
-                    __torajs_str_drop(sep);
-                    out
-                }
-            }
+            m if m == ANY_METHOD_SPLIT => split_with_any_sep(s, arg_at(0)),
             m if m == ANY_METHOD_MATCH => {
                 // RFC 20260716 刀 8 — ES §22.1.3.11: non-RegExp arg
                 // coerces via `RegExpCreate(ToString(arg), undefined)`.

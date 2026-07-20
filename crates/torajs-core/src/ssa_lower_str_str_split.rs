@@ -38,13 +38,38 @@ use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx, intern_arr_layout};
 /// has already produced `argv = [recv, ...lowered_args]` with all
 /// undef-substitution / trailing-arg-drop carve-outs applied.
 pub(crate) fn lower_split(ctx: &mut LowerCtx<'_>, args: &[ExprId], argv: Vec<Operand>) -> Operand {
-    let arr_id = intern_arr_layout(ctx.arr_layouts, Type::Substr);
+    // An `any` separator (`s.split(x)` with `x: any`, or an As-cast
+    // like `split(undefined as any)`) defeats every static guard
+    // below — the (Str, Str) kernel would receive raw AnyValue bits
+    // as a pointer (SIGSEGV). Route through the runtime three-way
+    // dispatch (undefined → [S] / RegExp cell → @@split / else
+    // ToString); the product is an Arr cell either way, so the
+    // limit-clamp slice in the 2+-arg branch applies unchanged. The
+    // dispatch's product mixes slot shapes (string sep → Substr
+    // views, RegExp sep → fresh Strs), so the static element type is
+    // `Any` — the kernel stamps KIND_HEAP_CHAIN and the kind-aware
+    // readers decode either slot; a static `Substr`/`Str` pick reads
+    // the other shape's layout as garbage (r[0] SIGSEGV'd).
+    let sep_is_any = argv
+        .get(1)
+        .is_some_and(|op| matches!(ctx.operand_ty(op), Type::Any));
+    let arr_id = if sep_is_any {
+        intern_arr_layout(ctx.arr_layouts, Type::Any)
+    } else {
+        intern_arr_layout(ctx.arr_layouts, Type::Substr)
+    };
+    let split_fid = if sep_is_any {
+        ctx.intrinsics.str_split_any_sep
+    } else {
+        ctx.intrinsics.str_split
+    };
     // S233 — `s.split(undefined)` per ES §22.1.3.21 step 2: separator
     // === undefined skips splitting altogether (step 3 returns `[S]`).
     // Without this carve-out the 1-arg-undef path falls through to
     // `str_split` with a ConstPtrNull sep slot, which SIGSEGV's the
     // helper's (Str, Str) ABI. Reroute to the same 0-arg helper.
-    let split_1arg_undef = args.len() == 1
+    let split_1arg_undef = !sep_is_any
+        && args.len() == 1
         && matches!(
             ctx.expr_types.get(&args[0]),
             Some(crate::check::Type::Undefined)
@@ -134,81 +159,90 @@ pub(crate) fn lower_split(ctx: &mut LowerCtx<'_>, args: &[ExprId], argv: Vec<Ope
     if args.len() >= 2 {
         let split_v = ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::Call(ctx.intrinsics.str_split, argv[..2].to_vec()),
+            InstKind::Call(split_fid, argv[..2].to_vec()),
             Type::Arr(arr_id),
             None,
         );
-        let len = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Load(Type::I64, Operand::Value(split_v), ARR_LEN_OFF),
-            Type::I64,
-            None,
-        );
-        // ES §22.1.3.21 step 6 — limit goes through ToUint32, which
-        // truncates toward 0 for finite numbers. Without this coerce
-        // a fractional / NaN / ±∞ literal stays f64 and the signed-int
-        // ICmp/Store below panics backend GPR materialization.
-        // `coerce_to_i64` const-folds NaN→0 / ±∞→i64::{MAX,MIN}
-        // (downstream clamp picks len), trunc for finite f64.
-        let limit_op = ctx.coerce_to_i64(argv[2].clone());
-        let take_slot = ctx.alloca(Type::I64, Some("__split_take"));
-        let lt = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::ICmp(IPred::Slt, limit_op.clone(), Operand::Value(len)),
-            Type::Bool,
-            None,
-        );
-        let then_blk = ctx.f.add_block();
-        let else_blk = ctx.f.add_block();
-        let after_blk = ctx.f.add_block();
-        ctx.f.set_term(
-            ctx.cur_block,
-            Terminator::CondBr {
-                cond: Operand::Value(lt),
-                then_blk,
-                else_blk,
-            },
-        );
-        ctx.cur_block = then_blk;
-        ctx.f.append_void(
-            ctx.cur_block,
-            InstKind::Store(limit_op, Operand::Value(take_slot), 0),
-        );
-        ctx.f.set_term(ctx.cur_block, Terminator::Br(after_blk));
-        ctx.cur_block = else_blk;
-        ctx.f.append_void(
-            ctx.cur_block,
-            InstKind::Store(Operand::Value(len), Operand::Value(take_slot), 0),
-        );
-        ctx.f.set_term(ctx.cur_block, Terminator::Br(after_blk));
-        ctx.cur_block = after_blk;
-        let take = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Load(Type::I64, Operand::Value(take_slot), 0),
-            Type::I64,
-            None,
-        );
-        let v = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Call(
-                ctx.intrinsics.arr_slice,
-                vec![
-                    Operand::Value(split_v),
-                    Operand::ConstI64(0),
-                    Operand::Value(take),
-                ],
-            ),
-            Type::Arr(arr_id),
-            None,
-        );
-        return Operand::Value(v);
+        return emit_limit_clamp_slice(ctx, split_v, argv[2].clone(), arr_id);
     }
     // 1-arg `s.split(sep)` with non-undef sep — standard 2-arg call.
     // This is the original arm's fall-through into the post-match Call
     // site (`(ctx.intrinsics.str_split, Type::Arr(arr_id))`).
     let v = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::Call(ctx.intrinsics.str_split, argv),
+        InstKind::Call(split_fid, argv),
+        Type::Arr(arr_id),
+        None,
+    );
+    Operand::Value(v)
+}
+
+/// ES §22.1.3.21 step 6 — `arr.slice(0, min(ToUint32(limit), len))`
+/// on the split product (S282 shape). Limit goes through
+/// `coerce_to_i64`: without it a fractional / NaN / ±∞ literal stays
+/// f64 and the signed-int ICmp/Store panics backend GPR
+/// materialization (`coerce_to_i64` const-folds NaN→0 /
+/// ±∞→i64::{MAX,MIN} — the clamp picks `len` — trunc for finite f64).
+fn emit_limit_clamp_slice(
+    ctx: &mut LowerCtx<'_>,
+    split_v: crate::ssa::ValueId,
+    limit_raw: Operand,
+    arr_id: crate::ssa::ArrId,
+) -> Operand {
+    let len = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(Type::I64, Operand::Value(split_v), ARR_LEN_OFF),
+        Type::I64,
+        None,
+    );
+    let limit_op = ctx.coerce_to_i64(limit_raw);
+    let take_slot = ctx.alloca(Type::I64, Some("__split_take"));
+    let lt = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::ICmp(IPred::Slt, limit_op.clone(), Operand::Value(len)),
+        Type::Bool,
+        None,
+    );
+    let then_blk = ctx.f.add_block();
+    let else_blk = ctx.f.add_block();
+    let after_blk = ctx.f.add_block();
+    ctx.f.set_term(
+        ctx.cur_block,
+        Terminator::CondBr {
+            cond: Operand::Value(lt),
+            then_blk,
+            else_blk,
+        },
+    );
+    ctx.cur_block = then_blk;
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Store(limit_op, Operand::Value(take_slot), 0),
+    );
+    ctx.f.set_term(ctx.cur_block, Terminator::Br(after_blk));
+    ctx.cur_block = else_blk;
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Store(Operand::Value(len), Operand::Value(take_slot), 0),
+    );
+    ctx.f.set_term(ctx.cur_block, Terminator::Br(after_blk));
+    ctx.cur_block = after_blk;
+    let take = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(Type::I64, Operand::Value(take_slot), 0),
+        Type::I64,
+        None,
+    );
+    let v = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(
+            ctx.intrinsics.arr_slice,
+            vec![
+                Operand::Value(split_v),
+                Operand::ConstI64(0),
+                Operand::Value(take),
+            ],
+        ),
         Type::Arr(arr_id),
         None,
     );

@@ -69,6 +69,7 @@ pub(crate) struct StrBIds {
     pub is_undef_cell: FuncId,
     pub str_split: FuncId,
     pub str_split_no_sep: FuncId,
+    pub str_split_any_sep: FuncId,
 }
 
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) -> StrBIds {
@@ -223,6 +224,13 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             fn_table,
             "__torajs_str_split_no_sep",
             &[Type::Str],
+            Type::Ptr,
+        ),
+        str_split_any_sep: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_str_split_any_sep",
+            &[Type::Str, Type::Any],
             Type::Ptr,
         ),
     }

@@ -157,6 +157,7 @@ pub(crate) struct Intrinsics {
     pub(crate) str_sort_undef_pre: FuncId,
     pub(crate) str_split: FuncId,
     pub(crate) str_split_no_sep: FuncId,
+    pub(crate) str_split_any_sep: FuncId,
     /// Phase Substr.A — substring view runtime helpers.
     pub(crate) substr_create: FuncId,
     pub(crate) substr_drop: FuncId,
