@@ -40,10 +40,22 @@ pub(super) fn infer_lit_ann(ast: &Ast, eid: ExprId) -> Option<String> {
         Expr::String(_) => Some("string".into()),
         Expr::Bool(_) => Some("boolean".into()),
         Expr::Array(els) if !els.is_empty() => {
-            /* Recurse on first element to get its inferred ann,
-             * then suffix with []. Fails (returns None) if the
-             * first element isn't a recognized literal shape. */
-            infer_lit_ann(ast, els[0]).map(|inner| format!("{inner}[]"))
+            /* Recurse on EVERY element — the `T[]` claim is only
+             * sound for a homogeneous literal (the header comment
+             * always said so, but the code sampled els[0] only, so
+             * `[1, Symbol()].forEach(props => ...)` typed the
+             * callback param "number" and the Any elem coerce threw
+             * ToNumber(Symbol) at the use site — rotation 162
+             * staging appeared case). A mixed or unrecognized
+             * literal answers None and the callback params stay
+             * `any`. */
+            let first = infer_lit_ann(ast, els[0])?;
+            for &e in &els[1..] {
+                if infer_lit_ann(ast, e).as_deref() != Some(first.as_str()) {
+                    return None;
+                }
+            }
+            Some(format!("{first}[]"))
         }
         _ => None,
     }
