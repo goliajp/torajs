@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-20T17:36:25.973Z",
+  "generatedAt": "2026-07-20T19:05:59.056Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 94.1
   },
   "torajs": {
-    "commit": "1ffaf02d",
-    "commitSubject": "feat: ordinaryset consults the user prototype chain with interned proto slot key",
+    "commit": "115e5442",
+    "commitSubject": "test: lock proto singleton any-assignment and tostring-primitive coerce faces",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,38 @@
   },
   "commits": [
     {
+      "hash": "115e5442",
+      "subject": "test: lock proto singleton any-assignment and tostring-primitive coerce faces"
+    },
+    {
+      "hash": "ec94e9f3",
+      "subject": "fix: duplicate named group twin does not clobber the participating capture"
+    },
+    {
+      "hash": "da578f6e",
+      "subject": "fix: deleted builtin proto tostring falls back to object badge classifier"
+    },
+    {
+      "hash": "7a413ce3",
+      "subject": "fix: typed receiver constructor member reifies to interned builtin ctor value"
+    },
+    {
+      "hash": "fd121bb3",
+      "subject": "feat: per-family builtin method cells with proto-patch consult on dispatch miss"
+    },
+    {
+      "hash": "6e16b85e",
+      "subject": "fix: any-lane split honors the limit argument with touint32 coercion order"
+    },
+    {
+      "hash": "e78020c4",
+      "subject": "fix: typed split(null) separator coerces to \"null\" string instead of sigsegv"
+    },
+    {
+      "hash": "deae7f76",
+      "subject": "chore: hardev dashboard snapshot and bench archive at rotation 167 close"
+    },
+    {
       "hash": "1ffaf02d",
       "subject": "feat: ordinaryset consults the user prototype chain with interned proto slot key"
     },
@@ -727,59 +759,38 @@
     {
       "hash": "16b8a95c",
       "subject": "feat: proto-chain name read with forin chain enumeration and hasproperty kernel"
-    },
-    {
-      "hash": "543441e6",
-      "subject": "feat: arr define kernel samevalue and accessor pre-gate with define-receiver any-escape"
-    },
-    {
-      "hash": "ec7a8078",
-      "subject": "chore: hardev dashboard snapshot at rotation 166 close"
-    },
-    {
-      "hash": "11580013",
-      "subject": "feat: reify descriptor family statics with gopd detached-call settle"
-    },
-    {
-      "hash": "772fa420",
-      "subject": "feat: wire ctor static surface into own-property probes and dynamic-key reads"
-    },
-    {
-      "hash": "46217596",
-      "subject": "feat: route typed closure and array lanes through the define family kernels"
-    },
-    {
-      "hash": "fac68bac",
-      "subject": "feat: reify ctor prototype and number constant gopd with proto constructor value lane"
-    },
-    {
-      "hash": "f9ee234c",
-      "subject": "chore: test262 sweep archive at e8295efe (passTotal 12805, bug 871, appeared 0)"
-    },
-    {
-      "hash": "87cbcbf2",
-      "subject": "chore: hardev dashboard snapshot at rotation 165 close"
     }
   ],
-  "headSha": "1ffaf02d",
+  "headSha": "115e5442",
   "autorun": {
-    "total": 472,
+    "total": 473,
     "baselineTarget": 10,
-    "bySelf": 467,
+    "bySelf": 468,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784563231-537a",
-      "at": "2026-07-20T16:00:31Z",
-      "ts": 1784563231,
+      "rotationId": "r-1784569052-0cad",
+      "at": "2026-07-20T17:37:32Z",
+      "ts": 1784569052,
       "trigger": "self",
-      "prevHead": "ec7a8078",
-      "handoffSha": "sha256:f80478579cadeece4bf6f67ae82fbde24af197d9b185eef57fe3d492895064d2",
-      "handoffAgeSec": 4,
+      "prevHead": "deae7f76",
+      "handoffSha": "sha256:20932ee75cd9d0459c280cd42bb8594041b6219b1b8ccfb5f2ee3f19387b1736",
+      "handoffAgeSec": 5,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784569052-0cad",
+        "at": "2026-07-20T17:37:32Z",
+        "ts": 1784569052,
+        "trigger": "self",
+        "prevHead": "deae7f76",
+        "handoffSha": "sha256:20932ee75cd9d0459c280cd42bb8594041b6219b1b8ccfb5f2ee3f19387b1736",
+        "handoffAgeSec": 5,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784563231-537a",
         "at": "2026-07-20T16:00:31Z",
@@ -876,17 +887,6 @@
         "prevHead": "2607aec2",
         "handoffSha": "sha256:1c2846312929e1da70777d6034e3441731d95689f96854cf3dd15696583d4887",
         "handoffAgeSec": 8,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784498209-0704",
-        "at": "2026-07-19T21:56:49Z",
-        "ts": 1784498209,
-        "trigger": "self",
-        "prevHead": "da3e2d06",
-        "handoffSha": "sha256:cd2839b981bafaedd712ccd7ec4af4ed6b734252e14d1f85ee37b300accd6f25",
-        "handoffAgeSec": 200,
         "conformanceBefore": null,
         "commitsInSession": null
       }
