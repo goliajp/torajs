@@ -4,9 +4,10 @@
 //! chunk-51 of the decomp (chunks 1-50 = ... + Math.min/max
 //! variadic).
 //!
-//! The runtime path supports `bits in [0, 64]`; larger bits route
-//! through `__torajs_throw_range_error` inside the intrinsic and
-//! the `emit_throw_check(None)` post-call propagates the pending
+//! The runtime path supports arbitrary `bits >= 0` (multi-limb
+//! masking); negative bits and the asUintN negative-input size cap
+//! route through `__torajs_throw_range_error` inside the intrinsic
+//! and the `emit_throw_check(None)` post-call propagates the pending
 //! throw to user-visible `try/catch`.
 //!
 //! - bits arg coerced to `Type::I64`: F64 → `FpToSi`; other types

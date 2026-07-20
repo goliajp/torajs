@@ -4,10 +4,8 @@
 // - SSA static dispatch for `BigInt.<m>(bits, value)`
 // - check.rs typecheck arm for the static signature
 //
-// Coverage: bits in [0, 64]. bits > 64 deliberately throws RangeError
-// (tracked as L3b — no real-world case needs it; tora's Number is
-// integer-typed and the spec bound `bits <= 2^53-1` is wider than ever
-// useful for fixed-width bitfield truncation).
+// Coverage: arbitrary bits >= 0 (multi-limb masking shipped with RFC
+// 20260720-ctor-static-reflection 刀 5a; the old [0, 64] cap is gone).
 
 // ---- asIntN: in-range positive ----
 console.log(BigInt.asIntN(8, 0n));               // 0n
@@ -61,6 +59,14 @@ console.log(BigInt.asUintN(0, 100n));            // 0n
 console.log(BigInt.asIntN(0, -1n));              // 0n
 console.log(BigInt.asUintN(0, -1n));             // 0n
 
-// bits > 64 is L3b backlog: tora throws RangeError; bun handles arbitrary
-// bits via word-level masking. Not covered by this fixture to keep
-// bun-byte-equal — see plan-state P12.4 L3b note.
+// ---- bits > 64: multi-limb masking ----
+console.log(BigInt.asUintN(65, -1n));            // 36893488147419103231n (2^65 - 1)
+console.log(BigInt.asUintN(128, -1n));           // 340282366920938463463374607431768211455n
+console.log(BigInt.asUintN(100, 2n ** 100n + 5n)); // 5n
+console.log(BigInt.asIntN(65, 2n ** 64n));       // -18446744073709551616n
+console.log(BigInt.asIntN(128, 2n ** 127n));     // -170141183460469231731687303715884105728n
+console.log(BigInt.asIntN(128, 2n ** 127n - 1n)); // 170141183460469231731687303715884105727n
+
+// ---- huge bits: identity fast path (no huge allocation) ----
+console.log(BigInt.asUintN(1000000, 123n));      // 123n
+console.log(BigInt.asIntN(1000000, -123n));      // -123n
