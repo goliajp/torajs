@@ -189,6 +189,14 @@ pub unsafe fn attach_groups(arr: *mut c_void, re: &RegExp, s: &[u8], saves: &[i6
     let mut groups = unsafe { __torajs_dynobj_alloc() };
     unsafe { __torajs_dynobj_mark_null_proto(groups) };
     let n_cap_lim = (re.n_captures as usize).min(REGEX_MAX_CAPTURES - 1);
+    // Duplicate named groups (`(?:(?<z>c)|(?<z>d))`) — §22.2.7.8:
+    // the groups object carries the PARTICIPATING twin's value, but
+    // key order follows the FIRST occurrence in source order. So a
+    // non-participating slot still writes its undefined placeholder
+    // (a later participating twin's dynobj set updates in place,
+    // keeping the slot), unless a participating twin already wrote
+    // a defined value — that must not be clobbered back.
+    let mut defined_names: Vec<&[u8]> = Vec::new();
     for i in 1..=n_cap_lim {
         let name = match re.capture_names.get(i) {
             Some(n) if !n.is_empty() => n,
@@ -198,11 +206,16 @@ pub unsafe fn attach_groups(arr: *mut c_void, re: &RegExp, s: &[u8], saves: &[i6
         let gs = save_slot(saves, 2 * i);
         let ge = save_slot(saves, 2 * i + 1);
         if gs < 0 || ge < 0 {
+            if defined_names.iter().any(|n| *n == name.as_slice()) {
+                unsafe { __torajs_str_drop(name_key as *mut c_void) };
+                continue;
+            }
             // Non-participating named group → undefined.
             unsafe {
                 __torajs_dynobj_set(&mut groups, name_key as *mut c_void, ANY_UNDEF, 0);
             }
         } else {
+            defined_names.push(name.as_slice());
             let val_str = unsafe { str_from_bytes(&s[gs as usize..ge as usize]) };
             unsafe {
                 __torajs_dynobj_set(
