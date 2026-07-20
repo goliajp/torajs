@@ -159,6 +159,21 @@ fn try_then_heterogeneous(
                 Ok(t) => t,
                 Err(e) => return Some(Err(e)),
             };
+            /* RFC 20260720-promise-any-cb knife 2 — `(v: any) => R`
+             * over a typed Promise<T>: TS any-parameter
+             * contravariance admits the handler against any T; the
+             * lowering marks it PARAM_ANY so the kernel boxes the
+             * settled value per the source's repr stamp (knife 1).
+             * Result mirrors the P10.7 Any-inner lane:
+             * `Promise<R>` from the cb's actual return type
+             * (including Void — aligns with the kernel's REPR_VOID
+             * ret handling). */
+            if let Type::Function(params, ret) = &cb_ty
+                && params.len() == 1
+                && matches!(params[0], Type::Any)
+            {
+                return Some(Ok(Type::Promise(ret.clone())));
+            }
             if let Type::Function(params, ret) = &cb_ty
                 && params.len() == 1
                 && params[0] == inner_ty

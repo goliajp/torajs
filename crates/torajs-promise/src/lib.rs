@@ -19,9 +19,10 @@
 //! - [`state`] — resolve/reject + drain_callbacks + get_value/
 //!   get_state + attach_then. Hot path: drain enqueues each cb
 //!   onto the microtask queue.
-//! - [`then`] — .then/.catch/.finally (6 variants: simple +
-//!   closure × 3 handler kinds). Each variant allocs a small heap
-//!   arg struct + a dispatcher, then `attach_then`s the dispatcher.
+//! - [`then`] — .then/.catch (simple + closure × 2 handler kinds).
+//!   Each variant allocs a small heap arg struct + a dispatcher,
+//!   then `attach_then`s the dispatcher. Any-param boxing support
+//!   in [`then_box`]; the `.finally` pair in [`then_finally`].
 //! - [`combinator`] — .all/.allSettled/.race/.any sync combinators.
 //!   MVP fast path: all-already-settled inputs build result Array;
 //!   pending input → reject with placeholder reason (real fan-in
@@ -40,6 +41,7 @@ pub mod print;
 pub mod state;
 pub mod then;
 pub mod then_box;
+pub mod then_finally;
 pub mod unhandled;
 
 pub use combinator::{
@@ -57,9 +59,10 @@ pub use state::{
     __torajs_promise_reject, __torajs_promise_resolve,
 };
 pub use then::{
-    __torajs_promise_catch_closure, __torajs_promise_catch_simple, __torajs_promise_finally,
-    __torajs_promise_finally_closure, __torajs_promise_then_closure, __torajs_promise_then_simple,
+    __torajs_promise_catch_closure, __torajs_promise_catch_simple, __torajs_promise_then_closure,
+    __torajs_promise_then_simple,
 };
+pub use then_finally::{__torajs_promise_finally, __torajs_promise_finally_closure};
 pub use unhandled::{
     __torajs_main_exit_code, __torajs_process_on_unhandled_rejection_register_closure,
     __torajs_process_on_unhandled_rejection_register_simple,

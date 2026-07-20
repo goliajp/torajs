@@ -1,5 +1,6 @@
-//! `.then` / `.catch` / `.finally` runtime helpers — 6 variants
-//! covering the simple-fn vs capturing-closure split per handler kind.
+//! `.then` / `.catch` runtime helpers — 4 variants covering the
+//! simple-fn vs capturing-closure split per handler kind (the
+//! `.finally` pair lives in the sibling [`crate::then_finally`]).
 //!
 //! Port of `runtime_promise.c` T-15.g.3, T-15.g.5, T-19.k, T-19.l,
 //! T-19.n sections (P6.1, 2026-05-24). Each variant:
@@ -9,7 +10,14 @@
 //!    result}`.
 //! 3. Inc's source rc (and env rc for closure variants) so the
 //!    dispatcher's `source->value` read is safe across the microtask
-//!    delay.
+//!    delay — and the RESULT rc too (RFC 20260720-promise-any-cb):
+//!    a discarding call site (`p.then(cb);` as a statement) drops
+//!    the returned promise before the microtask fires, and without
+//!    its own stake the dispatcher would settle a pool-recycled
+//!    cell (the repr pre-stamp corrupted whatever promise the pool
+//!    handed out next; state/value only survived by the settled
+//!    guard). The dispatcher releases the stake after settling —
+//!    the same contract the any-lane bridge's ThenAnyArg carries.
 //! 4. Calls `attach_then(source, dispatcher, &arg)`.
 //! 5. Returns the result Promise.
 //!
@@ -32,7 +40,7 @@
 use core::ffi::c_void;
 use core::ptr;
 
-use crate::layout::{REPR_VOID, STATE_FULFILLED, STATE_REJECTED, as_promise};
+use crate::layout::{REPR_VOID, STATE_REJECTED, as_promise};
 use crate::pool::{__torajs_promise_alloc_pending, __torajs_promise_drop};
 use crate::state::{
     __torajs_promise_attach_then, __torajs_promise_reject, __torajs_promise_resolve,
@@ -54,7 +62,7 @@ unsafe extern "C" {
 /// callback leg stamps the call site's static return repr, a
 /// forward leg copies the source's stamp (UNSTAMPED propagates as
 /// UNSTAMPED — still loud, never a mis-box).
-unsafe fn stamp_result_repr(result: *mut c_void, repr: u8) {
+pub(crate) unsafe fn stamp_result_repr(result: *mut c_void, repr: u8) {
     unsafe { (*as_promise(result)).value_repr = repr };
 }
 
@@ -113,6 +121,7 @@ unsafe extern "C" fn then_simple_dispatch(arg: i64) {
             __torajs_promise_resolve((*a).result, result);
         }
         __torajs_promise_drop((*a).source);
+        __torajs_promise_drop((*a).result);
         free(a as *mut c_void);
     }
 }
@@ -145,6 +154,7 @@ pub unsafe extern "C" fn __torajs_promise_then_simple(
         (*a).ret_repr = ret_repr;
         (*a).param_any = param_any as u8;
         __torajs_rc_inc(source);
+        __torajs_rc_inc(result);
         __torajs_promise_attach_then(source, Some(then_simple_dispatch), a as i64);
     }
     result
@@ -172,6 +182,7 @@ unsafe extern "C" fn then_closure_dispatch(arg: i64) {
             __torajs_promise_reject((*a).result, (*src).value);
             __torajs_promise_drop((*a).source);
             __torajs_value_drop_heap((*a).env);
+            __torajs_promise_drop((*a).result);
             free(a as *mut c_void);
             return;
         }
@@ -196,6 +207,7 @@ unsafe extern "C" fn then_closure_dispatch(arg: i64) {
         __torajs_promise_drop((*a).source);
         // Release the closure env ref inc'd at attach_then time.
         __torajs_value_drop_heap((*a).env);
+        __torajs_promise_drop((*a).result);
         free(a as *mut c_void);
     }
 }
@@ -227,6 +239,7 @@ pub unsafe extern "C" fn __torajs_promise_then_closure(
         (*a).ret_repr = ret_repr;
         (*a).param_any = param_any as u8;
         __torajs_rc_inc(source);
+        __torajs_rc_inc(result);
         __torajs_rc_inc(env);
         __torajs_promise_attach_then(source, Some(then_closure_dispatch), a as i64);
     }
@@ -271,6 +284,7 @@ unsafe extern "C" fn catch_simple_dispatch(arg: i64) {
             __torajs_promise_resolve((*a).result, (*src).value);
         }
         __torajs_promise_drop((*a).source);
+        __torajs_promise_drop((*a).result);
         free(a as *mut c_void);
     }
 }
@@ -303,6 +317,7 @@ pub unsafe extern "C" fn __torajs_promise_catch_simple(
         (*a).ret_repr = ret_repr;
         (*a).param_any = param_any as u8;
         __torajs_rc_inc(source);
+        __torajs_rc_inc(result);
         __torajs_promise_attach_then(source, Some(catch_simple_dispatch), a as i64);
     }
     result
@@ -349,6 +364,7 @@ unsafe extern "C" fn catch_closure_dispatch(arg: i64) {
         }
         __torajs_promise_drop((*a).source);
         __torajs_value_drop_heap((*a).env);
+        __torajs_promise_drop((*a).result);
         free(a as *mut c_void);
     }
 }
@@ -380,117 +396,12 @@ pub unsafe extern "C" fn __torajs_promise_catch_closure(
         (*a).ret_repr = ret_repr;
         (*a).param_any = param_any as u8;
         __torajs_rc_inc(source);
+        __torajs_rc_inc(result);
         __torajs_rc_inc(env);
         __torajs_promise_attach_then(source, Some(catch_closure_dispatch), a as i64);
     }
     result
 }
 
-// ============================================================
-// .finally simple — cb: () -> void; fires on both fulfilled & rejected
-// ============================================================
-
-#[repr(C)]
-struct FinallyArg {
-    source: *mut c_void,
-    cb: FinallyCb,
-    result: *mut c_void,
-}
-
-unsafe extern "C" fn finally_dispatch(arg: i64) {
-    let a = arg as *mut FinallyArg;
-    unsafe {
-        let src = as_promise((*a).source);
-        ((*a).cb)();
-        stamp_result_repr((*a).result, (*src).value_repr);
-        if (*src).state == STATE_FULFILLED {
-            __torajs_promise_resolve((*a).result, (*src).value);
-        } else {
-            // REJECTED — finally re-rejects with same reason via the
-            // proper reject path so any .catch on `result` drains.
-            __torajs_promise_reject((*a).result, (*src).value);
-        }
-        __torajs_promise_drop((*a).source);
-        free(a as *mut c_void);
-    }
-}
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_promise_finally(
-    source: *mut c_void,
-    cb: Option<FinallyCb>,
-) -> *mut c_void {
-    if source.is_null() {
-        return ptr::null_mut();
-    }
-    let Some(cb) = cb else { return ptr::null_mut() };
-    let result = unsafe { __torajs_promise_alloc_pending() };
-    // Pre-stamp from the source — finally forwards the settlement,
-    // so the source's current form is the best attach-time answer
-    // (the dispatcher re-copies after the source settles).
-    unsafe { stamp_result_repr(result, (*as_promise(source)).value_repr) };
-    let a = unsafe { malloc(core::mem::size_of::<FinallyArg>()) } as *mut FinallyArg;
-    unsafe {
-        (*a).source = source;
-        (*a).cb = cb;
-        (*a).result = result;
-        __torajs_rc_inc(source);
-        __torajs_promise_attach_then(source, Some(finally_dispatch), a as i64);
-    }
-    result
-}
-
-// ============================================================
-// .finally closure
-// ============================================================
-
-#[repr(C)]
-struct FinallyClosureArg {
-    source: *mut c_void,
-    env: *mut c_void,
-    result: *mut c_void,
-}
-
-unsafe extern "C" fn finally_closure_dispatch(arg: i64) {
-    let a = arg as *mut FinallyClosureArg;
-    unsafe {
-        let src = as_promise((*a).source);
-        let fn_ptr = *(((*a).env as *mut u8).add(8) as *const *mut c_void);
-        let cb: FinallyClosureFn = core::mem::transmute(fn_ptr);
-        cb((*a).env);
-        stamp_result_repr((*a).result, (*src).value_repr);
-        if (*src).state == STATE_FULFILLED {
-            __torajs_promise_resolve((*a).result, (*src).value);
-        } else {
-            __torajs_promise_reject((*a).result, (*src).value);
-        }
-        __torajs_promise_drop((*a).source);
-        __torajs_value_drop_heap((*a).env);
-        free(a as *mut c_void);
-    }
-}
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_promise_finally_closure(
-    source: *mut c_void,
-    env: *mut c_void,
-) -> *mut c_void {
-    if source.is_null() || env.is_null() {
-        return ptr::null_mut();
-    }
-    let result = unsafe { __torajs_promise_alloc_pending() };
-    // Pre-stamp from the source — finally forwards the settlement,
-    // so the source's current form is the best attach-time answer
-    // (the dispatcher re-copies after the source settles).
-    unsafe { stamp_result_repr(result, (*as_promise(source)).value_repr) };
-    let a = unsafe { malloc(core::mem::size_of::<FinallyClosureArg>()) } as *mut FinallyClosureArg;
-    unsafe {
-        (*a).source = source;
-        (*a).env = env;
-        (*a).result = result;
-        __torajs_rc_inc(source);
-        __torajs_rc_inc(env);
-        __torajs_promise_attach_then(source, Some(finally_closure_dispatch), a as i64);
-    }
-    result
-}
+// `.finally` simple + closure variants live in the sibling
+// `then_finally.rs` (file-size split, RFC 20260720-promise-any-cb).
