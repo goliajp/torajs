@@ -298,6 +298,7 @@ pub(crate) fn build(
         throw_typeerror_if_not_desc_object: init_b.object.throw_typeerror_if_not_desc_object,
         throw_typeerror_if_props_nullish: init_b.object.throw_typeerror_if_props_nullish,
         throw_typeerror_if_props_null_only: init_b.object.throw_typeerror_if_props_null_only,
+        define_props_source_gate: init_b.object.define_props_source_gate,
         object_create_check_proto: init_b.object.object_create_check_proto,
         object_create_link_proto: init_b.object.object_create_link_proto,
         anyv_set_prototype_of: init_b.object.anyv_set_prototype_of,

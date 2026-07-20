@@ -15,8 +15,8 @@
 use core::ffi::c_void;
 
 use crate::reflect::{
-    TAG_BIGINT, TAG_STR, TAG_SYMBOL, VALUE_NULL_IMM, VALUE_UNDEFINED_IMM, build_data_descriptor,
-    heap_type_tag, is_cell_imm,
+    SHORT_STR_TOP16, TAG_BIGINT, TAG_STR, TAG_SYMBOL, TOP_16_MASK, VALUE_NULL_IMM,
+    VALUE_UNDEFINED_IMM, build_data_descriptor, heap_type_tag, is_cell_imm,
 };
 
 unsafe extern "C" {
@@ -144,6 +144,55 @@ pub unsafe extern "C" fn __torajs_anyv_throw_typeerror_if_props_null_only(props_
             __torajs_throw_type_error(c"Cannot convert undefined or null to object.".as_ptr())
         };
     }
+}
+
+/// §20.1.2.2 step 3 / §20.1.2.3.1 step 1 — resolve a non-nullish
+/// ObjectDefineProperties `Properties` value to the walkable cell
+/// pointer, or NULL for a spec no-op. `ToObject(primitive)` wraps
+/// into a key-less object, so a primitive Properties value no-ops —
+/// EXCEPT a non-empty string, whose wrapper owns enumerable index
+/// properties valued by 1-char strings, so the walk's
+/// ToPropertyDescriptor throws on the first one (§6.2.6.5, same
+/// message the descriptor validator uses). Symbol / BigInt cells are
+/// primitives too — the dynobj kernel's catch-all mistook them for
+/// invalid descriptors. Pre-fix the SSA lane unboxed raw immediate
+/// bits into the kernel's pointer param, so `Object.create(null, 1)`
+/// dereferenced address 1 (SIGSEGV) — rotation 162 appeared case
+/// staging/sm object-create-with-primitive-second-arg.
+///
+/// # Safety
+/// `props_any` carries a valid AnyValue bit pattern; a cell payload
+/// points at a live heap object.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_define_props_source_gate(props_any: u64) -> *mut c_void {
+    if is_cell_imm(props_any) {
+        let p = props_any as *mut c_void;
+        let tag = unsafe { heap_type_tag(p) };
+        if tag == TAG_SYMBOL || tag == TAG_BIGINT {
+            return core::ptr::null_mut();
+        }
+        if tag == TAG_STR {
+            // torajs-str layout: u32 length at STR_LEN_OFF = 8.
+            let len = unsafe { (p.cast::<u8>().add(8) as *const u32).read() };
+            if len > 0 {
+                // SAFETY: NUL-terminated static C string.
+                unsafe {
+                    __torajs_throw_type_error(c"Property description must be an object.".as_ptr());
+                }
+            }
+            return core::ptr::null_mut();
+        }
+        return p;
+    }
+    // ShortStr immediate — the non-empty face throws like the
+    // heap-Str arm; bits 47..40 carry the byte length.
+    if props_any & TOP_16_MASK == SHORT_STR_TOP16 && (props_any >> 40) & 0xFF != 0 {
+        // SAFETY: NUL-terminated static C string.
+        unsafe {
+            __torajs_throw_type_error(c"Property description must be an object.".as_ptr());
+        }
+    }
+    core::ptr::null_mut()
 }
 
 /// §6.2.6.5 ToPropertyDescriptor step 1 — `If Type(Obj) is not

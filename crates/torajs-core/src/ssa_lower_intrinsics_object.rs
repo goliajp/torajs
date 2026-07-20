@@ -68,6 +68,7 @@ pub(crate) struct ObjectIds {
     /// clause). Sibling of `throw_typeerror_if_props_nullish` which
     /// throws on both.
     pub throw_typeerror_if_props_null_only: FuncId,
+    pub define_props_source_gate: FuncId,
     pub arr_throw_reduce_empty: FuncId,
     pub arr_throw_reduce_right_empty: FuncId,
     pub throw_readonly_assign: FuncId,
@@ -166,6 +167,7 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             [Any],
             Void
         ),
+        define_props_source_gate: decl!("__torajs_anyv_define_props_source_gate", [Any], Ptr),
         arr_throw_reduce_empty: decl!("__torajs_arr_throw_reduce_empty", [], Void),
         arr_throw_reduce_right_empty: decl!("__torajs_arr_throw_reduce_right_empty", [], Void),
         throw_readonly_assign: decl!("__torajs_throw_readonly_assign", [], Void),

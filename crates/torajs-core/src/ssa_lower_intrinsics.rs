@@ -333,6 +333,7 @@ pub(crate) struct Intrinsics {
     pub(crate) throw_typeerror_if_not_desc_object: FuncId,
     pub(crate) throw_typeerror_if_props_nullish: FuncId,
     pub(crate) throw_typeerror_if_props_null_only: FuncId,
+    pub(crate) define_props_source_gate: FuncId,
     pub(crate) object_create_check_proto: FuncId,
     pub(crate) object_create_link_proto: FuncId,
     pub(crate) anyv_set_prototype_of: FuncId,

@@ -121,7 +121,23 @@ pub(crate) fn try_lower_define_properties(
                         _ => ctx.any_unbox_value_as_ptr(props_op.clone()),
                     }
                 } else {
-                    ctx.any_unbox_value_as_ptr(props_op.clone())
+                    // §20.1.2.3.1 step 1 ToObject — the gate answers
+                    // the walkable cell, or NULL for the primitive
+                    // no-op faces (kernel no-ops on NULL; non-empty
+                    // strings record the TypeError inside). Pre-fix
+                    // the raw unbox handed immediate bits to the
+                    // kernel as a pointer (SIGSEGV on numbers).
+                    let gated = ctx.f.append_inst(
+                        ctx.cur_block,
+                        InstKind::Call(
+                            ctx.intrinsics.define_props_source_gate,
+                            vec![props_op.clone()],
+                        ),
+                        Type::Ptr,
+                        None,
+                    );
+                    ctx.emit_throw_check(None);
+                    gated
                 };
                 let dynobj = ctx.any_unbox_value_as_ptr(obj_raw.clone());
                 let slot = ctx.alloca(Type::Ptr, Some("__dynobj_slot"));

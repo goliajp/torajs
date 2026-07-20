@@ -202,7 +202,20 @@ pub(crate) fn lower_create(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
                 ),
             );
             ctx.emit_throw_check(None);
-            let props_ptr = ctx.any_unbox_value_as_ptr(p_op.clone());
+            // §20.1.2.2 step 3 → ObjectDefineProperties step 1
+            // ToObject: the gate answers the walkable cell, or NULL
+            // for the primitive no-op faces (the kernel no-ops on
+            // NULL); the non-empty-string face records its TypeError
+            // inside. Pre-fix the raw unbox handed immediate bits to
+            // the kernel as a pointer (`Object.create(null, 1)`
+            // SIGSEGV'd).
+            let props_ptr = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.define_props_source_gate, vec![p_op.clone()]),
+                Type::Ptr,
+                None,
+            );
+            ctx.emit_throw_check(None);
             let slot = ctx.alloca(Type::Ptr, Some("__dynobj_slot"));
             ctx.f.append_void(
                 ctx.cur_block,
