@@ -149,6 +149,11 @@ unsafe extern "C" {
     /// torajs-bigint — release an owned BigInt stake (coercion temp
     /// / kernel result on the throw-unwind path).
     pub(super) fn __torajs_bigint_drop_rc(p: *mut c_void);
+    /// torajs-meta — §20.1.2.10 W-N-c truth: tr has no symbol-keyed
+    /// props, so the kernel answers a FRESH empty `Arr<Str>` (owned)
+    /// for every object; a nullish receiver records its ToObject
+    /// TypeError and still answers the well-formed empty Arr.
+    pub(super) fn __torajs_anyv_own_symbols(obj_any: u64) -> *mut c_void;
 }
 
 /// Per-id dispatch shape. Index-lockstep with
@@ -252,6 +257,14 @@ pub(super) enum Disp {
     /// RFC 20260721 records the face), so the arm raises a loud
     /// TypeError.
     DefineFace,
+    /// §20.1.2.10 Object.getOwnPropertySymbols — the W-N-c
+    /// empty-list kernel (same truth the typed call lane bakes).
+    OwnSymbols,
+    /// §23.1.2.1 Array.from — reflection-surface cell; the call
+    /// face needs the iterator protocol + mapFn over any source
+    /// (RFC 20260721 records the face), so the arm raises a loud
+    /// TypeError.
+    ArrayFromFace,
 }
 
 /// The own-enumeration surfaces (shared dispatch shape) — `Names`
@@ -349,4 +362,6 @@ pub(super) static DISPATCH: &[Disp] = &[
     Disp::DefineFace, // create
     Disp::DefineFace, // defineProperty
     Disp::DefineFace, // defineProperties
+    Disp::OwnSymbols,
+    Disp::ArrayFromFace,
 ];

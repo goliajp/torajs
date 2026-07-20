@@ -81,6 +81,8 @@ pub(crate) use ns_static_ctor::{ctor_own_read_cell, ctor_static_cell};
 mod ns_static;
 // Ctor-static arms (RFC 20260720-ctor-static-reflection 刀 1).
 mod ns_static_ctor;
+// Object / Symbol arm bodies (file-size split, batch 6).
+mod ns_static_obj;
 mod ns_static_table;
 
 /// Interned name Str layout — mirror of torajs-str

@@ -379,6 +379,21 @@ pub(super) unsafe fn define_face_reject() -> u64 {
     VALUE_UNDEFINED
 }
 
+/// §23.1.2.1 Array.from as a call — the full semantics need the
+/// iterator protocol + an optional mapFn over any source, and no
+/// AnyValue-tier kernel exists yet, so the arm stays a loud reject
+/// (RFC 20260721 records the face). The cell exists for the
+/// reflection surface (typeof / name / length / gOPD identity).
+pub(super) unsafe fn array_from_face_reject() -> u64 {
+    unsafe {
+        __torajs_throw_type_error(
+            c"builtin namespace static called through a detached value is not supported for Array.from"
+                .as_ptr(),
+        )
+    };
+    VALUE_UNDEFINED
+}
+
 /// §20.1.2.11 Object.hasOwn — step 1 ToObject throws on a nullish
 /// target; every other receiver routes through the same prop_has
 /// probe the `hasOwnProperty` dispatcher arm uses (single source).

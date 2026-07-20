@@ -112,10 +112,8 @@ pub static NS_STATIC_TABLE: &[NsStaticRow] = &[
     // — the family whose AnyValue-tier kernels already exist (Date
     // wall-clock/parse/UTC, the per-code Str mints, the prop_has
     // probe). Lengths per §21.4.3.{1,2,4} / §22.1.2.{1,2} /
-    // §20.1.2.11. `Array.from` stays OFF the table: full §23.1.2.1
-    // needs the iterator protocol + mapFn over any source — no
-    // AnyValue kernel yet, so its value read keeps the loud reject
-    // (RFC records the face).
+    // §20.1.2.11. (`Array.from` joined the table in batch 6 for the
+    // REFLECTION surface only — see that batch's note.)
     row("Date", "now", 0),
     row("Date", "parse", 1),
     row("Date", "UTC", 7),
@@ -156,6 +154,18 @@ pub static NS_STATIC_TABLE: &[NsStaticRow] = &[
     row("Object", "create", 2),
     row("Object", "defineProperty", 3),
     row("Object", "defineProperties", 2),
+    // Ctor statics batch 6 (RFC 20260721-builtin-method-reflection
+    // 刀 3). gOPS delegates the W-N-c truth (tr has no symbol-keyed
+    // props → every own-symbol list is empty; nullish ToObject still
+    // throws) to the same kernel the typed call lane uses.
+    // `Array.from` is reified for the REFLECTION surface only
+    // (typeof / name / length / gOPD identity): full §23.1.2.1 needs
+    // the iterator protocol + mapFn over any source — no AnyValue
+    // kernel yet, so a detached CALL raises the recorded loud
+    // TypeError (the batch-5 define-family posture). Lengths per
+    // §20.1.2.10 / §23.1.2.1.
+    row("Object", "getOwnPropertySymbols", 1),
+    row("Array", "from", 1),
 ];
 
 /// Compile-time `(namespace, member)` → id. Linear scan — lower-time
