@@ -28,6 +28,12 @@ unsafe extern "C" {
     /// torajs-anyvalue — metadata-chain arity, `-1` = miss.
     fn __torajs_closure_length(ptr: *mut c_void) -> i64;
     fn __torajs_dynobj_has(dynobj: *const c_void, key: *const u8) -> bool;
+    /// torajs-anyvalue — ctor-static probe (RFC 20260720 刀 2): the
+    /// interned ns-static value cell when `cell` is a builtin ctor
+    /// cell and `key` names one of its table statics, NULL on miss.
+    /// Immortal cell — the descriptor's value slot takes it without
+    /// a ledger.
+    fn __torajs_ctor_static_value_cell(cell: *const c_void, key: *const c_void) -> *mut u8;
 }
 
 const ANY_I64: u64 = 2;
@@ -89,6 +95,15 @@ pub(crate) unsafe fn closure_cell_descriptor(cell: *const c_void, key: *const c_
         if l >= 0 {
             return unsafe { build_data_descriptor(ANY_I64, l as u64, 0, 0, 1) };
         }
+    }
+    // 3. ctor-static own descriptor (RFC 20260720 刀 2) — a builtin
+    //    ctor cell answers its table statics as the ES §19/§20
+    //    builtin-static shape `{ writable: true, enumerable: false,
+    //    configurable: true }`, value = the interned ns-static cell
+    //    (the same identity a value read mints).
+    let v = unsafe { __torajs_ctor_static_value_cell(cell, key) };
+    if !v.is_null() {
+        return unsafe { build_data_descriptor(ANY_HEAP, v as u64, 1, 0, 1) };
     }
     VALUE_UNDEFINED_IMM
 }

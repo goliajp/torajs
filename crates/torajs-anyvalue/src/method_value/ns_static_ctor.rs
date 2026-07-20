@@ -97,6 +97,65 @@ pub(super) unsafe fn str_from_codes(code_point: bool, argv: *const u64, argc: i6
     }
 }
 
+/// The ns-static namespace name a builtin proto tag keys —
+/// `torajs-rc builtin_proto` order; families with no table statics
+/// answer through `ns_static_id`'s natural miss.
+fn ctor_ns_name(proto_tag: i64) -> &'static str {
+    match proto_tag {
+        0 => "Number",
+        1 => "Object",
+        2 => "Array",
+        3 => "String",
+        4 => "Boolean",
+        5 => "Symbol",
+        6 => "BigInt",
+        7 => "RegExp",
+        8 => "Date",
+        9 => "Error",
+        10 => "Promise",
+        11 => "Map",
+        12 => "Set",
+        13 => "Function",
+        _ => "",
+    }
+}
+
+/// gOPD's ctor-static probe (RFC 20260720 刀 2) — when `cell` is an
+/// interned builtin ctor cell and `key` names one of that ctor's
+/// table statics, answers the interned ns-static value cell (the
+/// SAME identity a value read mints, so
+/// `gOPD(Date, "parse").value === Date.parse` holds). NULL on every
+/// miss; torajs-meta's Closure descriptor arm consumes it.
+///
+/// # Safety
+/// `cell` is null or a live `Tag::Closure` cell; `key` is null or a
+/// live Str cell.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_ctor_static_value_cell(
+    cell: *const c_void,
+    key: *const c_void,
+) -> *mut u8 {
+    let Some(tag) = super::ctor::ctor_tag_of_cell(cell) else {
+        return core::ptr::null_mut();
+    };
+    if key.is_null() {
+        return core::ptr::null_mut();
+    }
+    let name = unsafe {
+        let len = (key.cast::<u8>().add(super::STR_LEN_OFF) as *const u32).read() as usize;
+        let bytes = core::slice::from_raw_parts(key.cast::<u8>().add(super::STR_DATA_OFF), len);
+        match core::str::from_utf8(bytes) {
+            Ok(s) => s,
+            Err(_) => return core::ptr::null_mut(),
+        }
+    };
+    let id = torajs_rc::ns_static_id(ctor_ns_name(tag), name);
+    if id == torajs_rc::NS_STATIC_UNKNOWN {
+        return core::ptr::null_mut();
+    }
+    super::ns_static::ns_static_cell(id)
+}
+
 /// §20.1.2.11 Object.hasOwn — step 1 ToObject throws on a nullish
 /// target; every other receiver routes through the same prop_has
 /// probe the `hasOwnProperty` dispatcher arm uses (single source).

@@ -79,6 +79,17 @@ pub(crate) unsafe fn ctor_cell_for_recv(recv: AnyValue, key: *const c_void) -> O
     Some(builtin_ctor_cell(tag))
 }
 
+/// Reverse lookup: the proto tag whose interned ctor cell is `cell`,
+/// `None` for every other pointer. Linear over ≤16 slots — gOPD /
+/// reflection cold path only (RFC 20260720-ctor-static-reflection
+/// 刀 2).
+pub(super) fn ctor_tag_of_cell(cell: *const c_void) -> Option<i64> {
+    CTOR_CELLS
+        .iter()
+        .position(|slot| slot.load(Ordering::Relaxed) == cell as u64 && !cell.is_null())
+        .map(|i| i as i64)
+}
+
 /// The builtin-prototype family tag of a receiver (`torajs-rc
 /// builtin_proto` order: Number 0 / Object 1 / Array 2 / String 3 /
 /// Boolean 4 / Symbol 5 / BigInt 6 / RegExp 7 / Date 8 / Error 9 /
