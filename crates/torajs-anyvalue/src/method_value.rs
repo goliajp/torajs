@@ -142,6 +142,10 @@ pub(crate) unsafe extern "C" fn native_entry() -> u64 {
 /// packs `mid | (family + 1) << 32` so the `.call` / borrow
 /// re-dispatch can pick the family-correct generic lane.
 pub(crate) fn builtin_method_cell(family: i64, mid: i64) -> *mut u8 {
+    // Inherited mids answer the Object row's cell — the identity of
+    // the ONE `Object.prototype` function every family without its
+    // own implementation shares (`family::intern_family`).
+    let family = family::intern_family(family, mid);
     let slot = &METHOD_CELLS[(family + 1) as usize][mid as usize];
     let p = slot.load(Ordering::Relaxed);
     if p != 0 {

@@ -7,6 +7,10 @@
 use core::ffi::c_void;
 
 use torajs_rc::Tag;
+use torajs_rc::{
+    ANY_METHOD_HAS_OWN_PROPERTY, ANY_METHOD_IS_PROTOTYPE_OF, ANY_METHOD_PROPERTY_IS_ENUMERABLE,
+    ANY_METHOD_TO_LOCALE_STRING, ANY_METHOD_TO_STRING, ANY_METHOD_VALUE_OF,
+};
 
 use super::CLOSURE_CAP_BASE_OFF;
 use crate::nanbox::{AnyValue, as_void_ptr, is_bool, is_cell, is_double, is_int32, is_short_str};
@@ -24,6 +28,46 @@ pub(crate) const FAMILY_ROWS: usize = torajs_rc::builtin_proto::NUM_BUILTIN_PROT
 /// methods run the §22.1.3 generic ToString(this) coerce on `.call`
 /// / borrow re-dispatch.
 pub(crate) const STR_PROTO_FAMILY: i64 = 3;
+
+/// The Object-proto family row — the intern target for mids whose
+/// implementation a family INHERITS from `Object.prototype`.
+const OBJ_PROTO_FAMILY: i64 = 1;
+
+/// Normalize a (family, mid) pair to the family whose cell identity
+/// the reify answers. ES: a prototype without its OWN `valueOf` /
+/// `toString` / `toLocaleString` / `hasOwnProperty` /
+/// `isPrototypeOf` / `propertyIsEnumerable` inherits the ONE
+/// function object on `Object.prototype`, so
+/// `Function.prototype.valueOf === Object.prototype.valueOf` must
+/// hold (test262 S15.3.4_A4). Per-family mint (the 刀 3 shape)
+/// broke that identity for inherited reads — delegate those to the
+/// Object row. The own table below is bun-verified
+/// (`Object.prototype.hasOwnProperty.call(proto, mid)` per family):
+/// families keep their own cells only where the spec gives the
+/// prototype its own implementation.
+pub(crate) fn intern_family(family: i64, mid: i64) -> i64 {
+    if family < 0 {
+        return family;
+    }
+    let owns = if mid == ANY_METHOD_VALUE_OF {
+        // Number / Object / String / Boolean / Symbol / BigInt / Date
+        matches!(family, 0 | 1 | 3 | 4 | 5 | 6 | 8)
+    } else if mid == ANY_METHOD_TO_STRING {
+        // Every family except Promise / Map / Set has its own.
+        !matches!(family, 10 | 11 | 12)
+    } else if mid == ANY_METHOD_TO_LOCALE_STRING {
+        // Number / Object / Array / BigInt / Date
+        matches!(family, 0 | 1 | 2 | 6 | 8)
+    } else if mid == ANY_METHOD_HAS_OWN_PROPERTY
+        || mid == ANY_METHOD_IS_PROTOTYPE_OF
+        || mid == ANY_METHOD_PROPERTY_IS_ENUMERABLE
+    {
+        family == OBJ_PROTO_FAMILY
+    } else {
+        true
+    };
+    if owns { family } else { OBJ_PROTO_FAMILY }
+}
 
 /// The builtin-proto family a reified cell was minted for — -1 for
 /// a family-less mint. Callers gate on
