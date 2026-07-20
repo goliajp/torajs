@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-20T09:35:10.480Z",
+  "generatedAt": "2026-07-20T10:54:09.029Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-20T06:39:49Z",
-    "headSha": "75f93de5",
-    "elapsedSec": 689.36,
+    "ranAt": "2026-07-20T10:52:27Z",
+    "headSha": "37b30aab",
+    "elapsedSec": 690.52,
     "workers": 8,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 8150,
+    "pass": 8167,
     "passNoOracle": 112,
     "passNegative": 4447,
-    "passTotal": 12709,
-    "bug": 962,
+    "passTotal": 12726,
+    "bug": 945,
     "incompatible": 39503,
     "bunSkip": 11908,
     "harnessError": 0,
     "inScope": 53174,
     "trAccepted": 13671,
-    "passRateInScope": 23.9,
-    "passRateTrAccepted": 92.96
+    "passRateInScope": 23.93,
+    "passRateTrAccepted": 93.09
   },
   "torajs": {
-    "commit": "88af131a",
-    "commitSubject": "fix: a template substitution's implicit ToString throws on a Symbol",
+    "commit": "5dcc18e0",
+    "commitSubject": "chore: archive the test262 sweep at 37b30aab",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "5dcc18e0",
+      "subject": "chore: archive the test262 sweep at 37b30aab"
+    },
+    {
+      "hash": "37b30aab",
+      "subject": "fix: materialize a Substr view before quoting in the any-lane json serializer"
+    },
+    {
+      "hash": "c8e5bd62",
+      "subject": "fix: route an any separator through runtime dispatch on typed split"
+    },
+    {
+      "hash": "75a6b34b",
+      "subject": "fix: route a RegExp separator through @@split on the any lane"
+    },
+    {
+      "hash": "0dac4889",
+      "subject": "fix: gate typed primitive props through the define-props source gate"
+    },
+    {
+      "hash": "99982fe5",
+      "subject": "chore: hardev dashboard snapshot at rotation 162 close"
+    },
+    {
       "hash": "88af131a",
       "subject": "fix: a template substitution's implicit ToString throws on a Symbol"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "71f07477",
       "subject": "chore: hardev dashboard snapshot at rotation 161 close"
-    },
-    {
-      "hash": "001ee613",
-      "subject": "fix: widen the interval Shl model when the shift leaves i64 range"
-    },
-    {
-      "hash": "285b8a5f",
-      "subject": "fix: implicit ToString/ToNumber of a Symbol throws TypeError"
-    },
-    {
-      "hash": "16bd5bcd",
-      "subject": "chore: archive the test262 sweep at 092f769f"
-    },
-    {
-      "hash": "092f769f",
-      "subject": "refactor: extract the closure-shape arms from the implicit-generics loop"
-    },
-    {
-      "hash": "dc4ed537",
-      "subject": "refactor: split the fnexpr-this run fn into per-stage helpers"
-    },
-    {
-      "hash": "448e3c8b",
-      "subject": "refactor: move the ho-loop per-method emitters to a child module"
     }
   ],
-  "headSha": "88af131a",
+  "headSha": "5dcc18e0",
   "autorun": {
-    "total": 467,
+    "total": 468,
     "baselineTarget": 10,
-    "bySelf": 462,
+    "bySelf": 463,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784527450-3fc1",
-      "at": "2026-07-20T06:04:10Z",
-      "ts": 1784527450,
+      "rotationId": "r-1784540120-66d3",
+      "at": "2026-07-20T09:35:20Z",
+      "ts": 1784540120,
       "trigger": "self",
-      "prevHead": "71f07477",
-      "handoffSha": "sha256:1fde840195312053b81d9edc2fb8c62479df5c06ca950aa2633d8a5d41e147c7",
-      "handoffAgeSec": 5,
+      "prevHead": "99982fe5",
+      "handoffSha": "sha256:94e3468ab45ddc763df1ef426c486605d9e27f487a928fd4d96dc09b70137c8f",
+      "handoffAgeSec": 44,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784540120-66d3",
+        "at": "2026-07-20T09:35:20Z",
+        "ts": 1784540120,
+        "trigger": "self",
+        "prevHead": "99982fe5",
+        "handoffSha": "sha256:94e3468ab45ddc763df1ef426c486605d9e27f487a928fd4d96dc09b70137c8f",
+        "handoffAgeSec": 44,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784527450-3fc1",
         "at": "2026-07-20T06:04:10Z",
@@ -876,17 +887,6 @@
         "prevHead": "2f487279",
         "handoffSha": "sha256:25efcef26c76d8949a95513b1609e7f4e513103368f455c2192501219de1e6bc",
         "handoffAgeSec": 10,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784469229-12ca",
-        "at": "2026-07-19T13:53:49Z",
-        "ts": 1784469229,
-        "trigger": "self",
-        "prevHead": "9e8eeea8",
-        "handoffSha": "sha256:56c1289167223c6163f1606a99599495591a0dde7eaef7e47e026540ae38f86e",
-        "handoffAgeSec": 7,
         "conformanceBefore": null,
         "commitsInSession": null
       }
