@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-20T14:25:27.052Z",
+  "generatedAt": "2026-07-20T15:59:25.461Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-20T12:29:22Z",
-    "headSha": "14c100bc",
-    "elapsedSec": 676.45,
+    "ranAt": "2026-07-20T14:46:28Z",
+    "headSha": "e8295efe",
+    "elapsedSec": 553.1,
     "workers": 8,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 8227,
+    "pass": 8246,
     "passNoOracle": 112,
     "passNegative": 4447,
-    "passTotal": 12786,
-    "bug": 885,
-    "incompatible": 39503,
+    "passTotal": 12805,
+    "bug": 871,
+    "incompatible": 39498,
     "bunSkip": 11908,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 13671,
-    "passRateInScope": 24.05,
-    "passRateTrAccepted": 93.53
+    "trAccepted": 13676,
+    "passRateInScope": 24.08,
+    "passRateTrAccepted": 93.63
   },
   "torajs": {
-    "commit": "e8295efe",
-    "commitSubject": "feat: reify promise resolve and reject as ns statics with this-sensitive reject",
+    "commit": "11580013",
+    "commitSubject": "feat: reify descriptor family statics with gopd detached-call settle",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "11580013",
+      "subject": "feat: reify descriptor family statics with gopd detached-call settle"
+    },
+    {
+      "hash": "772fa420",
+      "subject": "feat: wire ctor static surface into own-property probes and dynamic-key reads"
+    },
+    {
+      "hash": "46217596",
+      "subject": "feat: route typed closure and array lanes through the define family kernels"
+    },
+    {
+      "hash": "fac68bac",
+      "subject": "feat: reify ctor prototype and number constant gopd with proto constructor value lane"
+    },
+    {
+      "hash": "f9ee234c",
+      "subject": "chore: test262 sweep archive at e8295efe (passTotal 12805, bug 871, appeared 0)"
+    },
+    {
+      "hash": "87cbcbf2",
+      "subject": "chore: hardev dashboard snapshot at rotation 165 close"
+    },
+    {
       "hash": "e8295efe",
       "subject": "feat: reify promise resolve and reject as ns statics with this-sensitive reject"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "b8034609",
       "subject": "chore: hardev dashboard snapshot at rotation 164 close"
-    },
-    {
-      "hash": "64ffadd5",
-      "subject": "fix: tostring a scalar split separator through the runtime dispatch"
-    },
-    {
-      "hash": "ee52813b",
-      "subject": "chore: hardev dashboard snapshot at rotation 164 close"
-    },
-    {
-      "hash": "602c6c8b",
-      "subject": "chore: archive the test262 sweep at 6fbdd93a"
-    },
-    {
-      "hash": "6fbdd93a",
-      "subject": "chore: hardev dashboard snapshot at rotation 164 close"
-    },
-    {
-      "hash": "14c100bc",
-      "subject": "style: fmt-drift fix for the knife-4 dispatch table"
-    },
-    {
-      "hash": "d240a21b",
-      "subject": "feat: reify the object integrity family as ns-static value cells"
     }
   ],
-  "headSha": "e8295efe",
+  "headSha": "11580013",
   "autorun": {
-    "total": 470,
+    "total": 471,
     "baselineTarget": 10,
-    "bySelf": 465,
+    "bySelf": 466,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784551199-6807",
-      "at": "2026-07-20T12:39:59Z",
-      "ts": 1784551199,
+      "rotationId": "r-1784557586-4547",
+      "at": "2026-07-20T14:26:26Z",
+      "ts": 1784557586,
       "trigger": "self",
-      "prevHead": "b8034609",
-      "handoffSha": "sha256:46c176644c8bb6f84b1d0b5608c82b2d4869fbbdcbde3943a18166d63fb87ce7",
-      "handoffAgeSec": 9,
+      "prevHead": "87cbcbf2",
+      "handoffSha": "sha256:6b57609e5cc64b7d63a2ef852786c7c9e832d52850fe548a9494376a5f29ef42",
+      "handoffAgeSec": 7,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784557586-4547",
+        "at": "2026-07-20T14:26:26Z",
+        "ts": 1784557586,
+        "trigger": "self",
+        "prevHead": "87cbcbf2",
+        "handoffSha": "sha256:6b57609e5cc64b7d63a2ef852786c7c9e832d52850fe548a9494376a5f29ef42",
+        "handoffAgeSec": 7,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784551199-6807",
         "at": "2026-07-20T12:39:59Z",
@@ -876,17 +887,6 @@
         "prevHead": "3b609353",
         "handoffSha": "sha256:a088e0415e57d5376b82a816565274198911d67885984dd34a7fcd1c580ea1c8",
         "handoffAgeSec": 1060,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784486171-13a5",
-        "at": "2026-07-19T18:36:11Z",
-        "ts": 1784486171,
-        "trigger": "self",
-        "prevHead": "a8273618",
-        "handoffSha": "sha256:036a820701ef9c12e534f01acbc62287e3c80d4166d398a4b77891e3881bb128",
-        "handoffAgeSec": 71,
         "conformanceBefore": null,
         "commitsInSession": null
       }
