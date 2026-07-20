@@ -54,6 +54,10 @@ unsafe extern "C" {
         s: *const core::ffi::c_void,
         re: *const core::ffi::c_void,
     ) -> *mut core::ffi::c_void;
+    fn __torajs_str_split_regex(
+        s: *const core::ffi::c_void,
+        re: *const core::ffi::c_void,
+    ) -> *mut core::ffi::c_void;
     fn __torajs_str_replace_regex(
         s: *const core::ffi::c_void,
         re: *const core::ffi::c_void,
@@ -196,6 +200,27 @@ pub unsafe extern "C" fn __torajs_str_any_split(s: *const u8, sep: *const u8) ->
         };
         __torajs_arr_mark_kind(out as *mut core::ffi::c_void, KIND_HEAP_CHAIN);
         drop_tmp(s_tmp);
+        out as u64
+    }
+}
+
+/// `s.split(re)` glue for a RegExp separator — ES §22.1.3.23 step 2
+/// hands a RegExp separator to `@@split`. The regex kernel answers
+/// fresh Str slots (capture groups splice per step 14.c.iii), so the
+/// product only needs the heap-chain mark for any-world reads.
+///
+/// # Safety
+/// `s` is a live Str/Substr cell; `re` is a live RegExp cell.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_any_split_regex(
+    s: *const u8,
+    re: *const core::ffi::c_void,
+) -> u64 {
+    unsafe {
+        let (src, tmp) = owned_src(s);
+        let out = __torajs_str_split_regex(src as *const core::ffi::c_void, re);
+        drop_tmp(tmp);
+        __torajs_arr_mark_kind(out, KIND_HEAP_CHAIN);
         out as u64
     }
 }

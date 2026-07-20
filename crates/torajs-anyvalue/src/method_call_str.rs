@@ -48,6 +48,9 @@ unsafe extern "C" {
     fn __torajs_str_any_ends_with(s: *const u8, needle: *const u8, end: i64) -> i64;
     /// torajs-str — split glue (NULL sep = no separator argument).
     fn __torajs_str_any_split(s: *const u8, sep: *const u8) -> u64;
+    /// torajs-str — split glue, RegExp-separator lane (§22.1.3.23
+    /// step 2 @@split hand-off).
+    fn __torajs_str_any_split_regex(s: *const u8, re: *const c_void) -> u64;
     /// torajs-str — trim glue (mode: 0 both, 1 start, 2 end).
     fn __torajs_str_any_trim(s: *const u8, mode: i64) -> u64;
     /// torajs-str — match glue (owned_src materialize + heap-chain
@@ -281,6 +284,14 @@ pub(crate) unsafe fn str_method(s: *mut u8, mid: i64, argv: *const u64, argc: i6
                 let sep_av = arg_at(0);
                 if is_undefined(sep_av) {
                     __torajs_str_any_split(s, core::ptr::null())
+                } else if let Some(re) = regexp_cell(sep_av) {
+                    // §22.1.3.23 step 2 — a RegExp separator hands
+                    // off to `@@split`. The prior ToString lane
+                    // matched the literal "/pat/" spelling instead
+                    // (test262 15.5.4.14 A4 family — every
+                    // `new String(s).split(regexp)` answered one
+                    // unsplit token).
+                    __torajs_str_any_split_regex(s, re)
                 } else {
                     let sep = __torajs_anyv_to_str(sep_av);
                     let out = __torajs_str_any_split(s, sep as *const u8);
