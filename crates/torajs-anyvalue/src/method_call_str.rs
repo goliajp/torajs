@@ -22,8 +22,10 @@ use torajs_rc::{
 
 use crate::method_call::{method_no_such, to_index};
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED, as_void_ptr, is_cell, is_undefined};
-use crate::nanbox_encode::{__torajs_anyv_box_from_pair, __torajs_anyv_box_i64};
-use crate::nanbox_ffi::__torajs_anyv_to_str;
+use crate::nanbox_encode::{
+    __torajs_anyv_box_from_pair, __torajs_anyv_box_i64, __torajs_anyv_box_pointer,
+};
+use crate::nanbox_ffi::{__torajs_anyv_to_number, __torajs_anyv_to_str};
 
 unsafe extern "C" {
     /// torajs-str — charAt glue (empty string for OOB).
@@ -115,6 +117,14 @@ unsafe extern "C" {
     /// replaceValue ToString so a searchValue user-toString throw is
     /// not clobbered by a second `__torajs_throw_set`.
     fn __torajs_throw_check() -> i64;
+    /// torajs-arr — kind-aware `[start, end)` copy of an Any-elem
+    /// array (end clamps to len). The split-limit truncation lane.
+    fn __torajs_arr_any_slice(arr: *const u8, start: i64, end: i64) -> *mut u8;
+    /// torajs-arr — fresh empty Any-elem array (the lim == 0 `[]`).
+    fn __torajs_arr_alloc_any(cap: u64) -> *mut u8;
+    /// Cross-tier — universal NaN-box-safe heap-value release (the
+    /// full split product after truncation).
+    fn __torajs_value_drop_heap(p: *mut c_void);
 }
 
 /// RFC 20260716 刀 8 — ES §22.1.3.{11,12,13} match/search/matchAll
@@ -183,6 +193,45 @@ unsafe fn split_with_any_sep(s: *mut u8, sep_av: u64) -> AnyValue {
             __torajs_str_drop(sep);
             out
         }
+    }
+}
+
+/// §7.1.6 ToUint32 for the split limit — undefined never reaches
+/// here (the caller rides the no-limit path); NaN / ±∞ answer 0,
+/// finite values truncate toward zero then wrap mod 2^32.
+unsafe fn split_lim(limit_av: AnyValue) -> i64 {
+    let n = unsafe { __torajs_anyv_to_number(limit_av) };
+    if !n.is_finite() {
+        return 0;
+    }
+    n.trunc().rem_euclid(4294967296.0) as i64
+}
+
+/// §22.1.3.23 steps 4-9 for the any-receiver lane with a present
+/// limit argument — lim's ToUint32 runs BEFORE any separator
+/// coercion (step 4 precedes steps 5-7: lim == 0 answers `[]`
+/// without ToString-ing the separator, which the
+/// separator-override-tostring test262 family pins), then the split
+/// product truncates to its first `lim` tokens. A RegExp separator's
+/// `@@split` collector stops at lim per RegExpSplit steps 13-19, so
+/// prefix-truncating the full product is observationally equal.
+///
+/// # Safety
+/// `s` is a live Str/Substr cell; `sep_av` / `limit_av` carry valid
+/// AnyValue bit patterns.
+unsafe fn split_any_with_limit(s: *mut u8, sep_av: u64, limit_av: u64) -> AnyValue {
+    unsafe {
+        let lim = split_lim(limit_av);
+        if __torajs_throw_check() != 0 {
+            return VALUE_UNDEFINED;
+        }
+        if lim == 0 {
+            return __torajs_anyv_box_pointer(__torajs_arr_alloc_any(0) as *mut c_void);
+        }
+        let full = split_with_any_sep(s, sep_av);
+        let sliced = __torajs_arr_any_slice(full as *const u8, 0, lim);
+        __torajs_value_drop_heap(full as *mut c_void);
+        sliced as u64
     }
 }
 
@@ -323,7 +372,16 @@ pub(crate) unsafe fn str_method(s: *mut u8, mid: i64, argv: *const u64, argc: i6
                 __torajs_str_drop(needle);
                 __torajs_anyv_box_from_pair(1, hit)
             }
-            m if m == ANY_METHOD_SPLIT => split_with_any_sep(s, arg_at(0)),
+            m if m == ANY_METHOD_SPLIT => {
+                // §22.1.3.23 — a present limit argument routes
+                // through the ToUint32 + truncation lane; absent /
+                // undefined keeps the zero-cost three-way dispatch.
+                if is_undefined(arg_at(1)) {
+                    split_with_any_sep(s, arg_at(0))
+                } else {
+                    split_any_with_limit(s, arg_at(0), arg_at(1))
+                }
+            }
             m if m == ANY_METHOD_MATCH => {
                 // RFC 20260716 刀 8 — ES §22.1.3.11: non-RegExp arg
                 // coerces via `RegExpCreate(ToString(arg), undefined)`.
