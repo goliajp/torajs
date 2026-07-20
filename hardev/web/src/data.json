@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-20T04:17:49.792Z",
+  "generatedAt": "2026-07-20T04:29:56.595Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 94.78
   },
   "torajs": {
-    "commit": "fe351ffd",
-    "commitSubject": "fix: settle combinator results one microtask after mint",
+    "commit": "78de58a7",
+    "commitSubject": "refactor: extract the any-needle compare arm from emit_compare",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "78de58a7",
+      "subject": "refactor: extract the any-needle compare arm from emit_compare"
+    },
+    {
+      "hash": "c271573f",
+      "subject": "chore: hardev dashboard snapshot at rotation 160 close"
+    },
+    {
       "hash": "fe351ffd",
       "subject": "fix: settle combinator results one microtask after mint"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "79966112",
       "subject": "feat: admit any fill values into typed arrays with store unbox"
-    },
-    {
-      "hash": "8d413c2f",
-      "subject": "feat: ident-rhs member-store joins the fn-expr face use-shape channel"
-    },
-    {
-      "hash": "d15011a5",
-      "subject": "feat: admit any-param handlers in two-arg promise then"
     }
   ],
-  "headSha": "fe351ffd",
+  "headSha": "78de58a7",
   "autorun": {
     "total": 465,
     "baselineTarget": 10,
