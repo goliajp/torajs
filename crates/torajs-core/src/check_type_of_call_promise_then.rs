@@ -195,13 +195,21 @@ fn try_then_heterogeneous(
             if let Type::Function(params, ret) = &cb_ty
                 && params.len() == 1
                 && params[0] == inner_ty
-                && matches!(**ret, Type::Number | Type::String | Type::Boolean)
+                && matches!(
+                    **ret,
+                    Type::Number | Type::String | Type::Boolean | Type::Void
+                )
                 && **ret != inner_ty
             {
                 /* Heterogeneous T → U accepted; result is
                  * Promise<U>. Same-T case falls through to
                  * the method-table arm below (which still
-                 * handles the common `(T) => T` shape). */
+                 * handles the common `(T) => T` shape).
+                 * Void is TS callback-return variance —
+                 * `(v: T) => void` is the plain side-effect
+                 * handler (bun runs it); the kernel's
+                 * REPR_VOID ret stamp zeroes the result leg
+                 * (knife 1), same as the any-param lane. */
                 return Some(Ok(Type::Promise(ret.clone())));
             }
         }
