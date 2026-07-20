@@ -11,14 +11,19 @@
 //! push and fill lanes; a Boolean elem has no Any-coerce arm, so Any
 //! items stay rejected there rather than storing box bits).
 //!
+//! An `Array<Any>` receiver admits every item type except `Void`
+//! (not a value type — the chunk-618 precedent): each item NaN-box
+//! encodes into the 8-byte slot on the lowering side
+//! (`emit_splice_items`' elem-Any arm), so there is no element type
+//! to mismatch against.
+//!
 //! `toSpliced` (knife 3) shares the arm — same item admit, and the
 //! member-table result type is the same `Array<T>` for both (the
 //! removed slice for splice, the spliced clone for toSpliced).
 //!
 //! Returns `Some(Ok(Array<T>))` on match; `Some(Err(_))` on
 //! start/deleteCount/item type mismatch; `None` otherwise
-//! (non-splice/toSpliced, < 3 args, non-Array or Array<Any>
-//! receiver — the latter keeps its own any-lane kernel route).
+//! (non-splice/toSpliced, < 3 args, non-Array receiver).
 
 use crate::ast::{Ast, Expr, ExprId};
 use crate::check::{Checker, Type};
@@ -47,9 +52,6 @@ pub(crate) fn try_match(
         return None;
     };
     let inner = (*elem).clone();
-    if matches!(inner, Type::Any) {
-        return None;
-    }
     for i in 0..2 {
         let aty = match checker.type_of(ast, args[i]) {
             Ok(t) => t,
@@ -67,6 +69,14 @@ pub(crate) fn try_match(
             Ok(t) => t,
             Err(e) => return Some(Err(e)),
         };
+        if matches!(inner, Type::Any) {
+            if aty == Type::Void {
+                return Some(Err(format!(
+                    "Array.{m_name} item {i}: Void is not a value type"
+                )));
+            }
+            continue;
+        }
         if aty != inner && !(any_ok && aty == Type::Any) {
             return Some(Err(format!(
                 "Array.{m_name} item {i}: expected element type {:?}, got {aty:?}",

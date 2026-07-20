@@ -25,8 +25,9 @@
 //! 0-2 args route to the shrink-only `__torajs_arr_splice`; 3+ args
 //! (RFC 20260720-splice-insert knife 2) pack the `...items` tail
 //! into a stack argv of raw elem-repr slots (each item through the
-//! push-lane `coerce_push_value` + rc contract) and call
-//! `__torajs_arr_splice_items`. Returning `Some` short-circuits the
+//! push-lane `coerce_push_value` + rc contract; an `Array<Any>`
+//! receiver takes the `emit_any_item_bits` NaN-box lane instead) and
+//! call `__torajs_arr_splice_items`. Returning `Some` short-circuits the
 //! generic member-call dispatch in `ssa_lower.rs`; `None` falls
 //! through to the "unsupported member call shape" panic site.
 
@@ -203,6 +204,12 @@ fn emit_splice_return(
 /// receiver's stake here; owned mints hand their +1 off, substr/Any
 /// coerce lanes are fresh rc=1 hand-offs). The coerced raw slots pack
 /// into an entry-block stack argv; the kernel moves bits only.
+///
+/// An `Array<Any>` receiver (8-byte NaN-box slots) takes the
+/// [`emit_any_item_bits`] lane instead: each item arrives as
+/// already-encoded box bits carrying the slot's stake, matching the
+/// kernel's raw-bit-store contract — unlike push_any / index-assign,
+/// which hand (tag, value) pairs to re-encoding helpers.
 pub(crate) fn emit_splice_items(
     ctx: &mut LowerCtx,
     arr_ty: Type,
@@ -222,12 +229,17 @@ pub(crate) fn emit_splice_items(
         Some("__splice_items"),
     );
     for (k, &item_eid) in items.iter().enumerate() {
-        let (val, owned_from_coerce) =
-            crate::ssa_lower_call_arr_push::coerce_push_value(ctx, item_eid, elem_ty);
-        if elem_ty.is_refcounted() && !owned_from_coerce {
-            ctx.emit_rc_inc(val.clone());
-            ctx.release_owned_temp(item_eid, &val);
-        }
+        let val = if matches!(elem_ty, Type::Any) {
+            emit_any_item_bits(ctx, item_eid)
+        } else {
+            let (val, owned_from_coerce) =
+                crate::ssa_lower_call_arr_push::coerce_push_value(ctx, item_eid, elem_ty);
+            if elem_ty.is_refcounted() && !owned_from_coerce {
+                ctx.emit_rc_inc(val.clone());
+                ctx.release_owned_temp(item_eid, &val);
+            }
+            val
+        };
         let raw = ctx.raw_slot_arg(val);
         ctx.f.append_void(
             ctx.cur_block,
@@ -250,4 +262,52 @@ pub(crate) fn emit_splice_items(
         None,
     );
     Operand::Value(removed)
+}
+
+/// `Array<Any>` receiver — encode one `...items` item into NaN-box
+/// bits carrying the slot's stake (the kernel stores the bits raw,
+/// so each slot must arrive stake-balanced). Ledger per item shape
+/// (the chunk-733 inc + release idiom, uniform with the typed branch
+/// above; `release_owned_temp` also catches lifted-arrow minted
+/// closures that the chunk-565 `transfers` predicate misses):
+/// - `Any` item: bits pass through; the slot's +1 goes through the
+///   NaN-box-gated `any_box_rc_inc` (immediates no-op), then owned
+///   temps release their own ref — net transfer.
+/// - `Str` item: `box_to_any`'s `anyv_box_str_slot` helper bumps a
+///   heap Str inside the box — that +1 IS the slot's stake; owned
+///   temps release theirs after. (A short string literal takes the
+///   `box_to_any_from_expr` compile-time ShortStr encode instead —
+///   an immediate, zero rc traffic.)
+/// - other refcounted: the tag-4 box is a pure encode with zero rc
+///   traffic (chunk 753), so the slot's +1 is an explicit header
+///   inc; owned / minted temps release — net transfer.
+/// - scalars / null / undefined / dynobj Ptr: pure encode, no rc
+///   traffic (a fresh dynobj literal's +1 rides the box, same as
+///   push_any's Ptr arm).
+///
+/// Boxing goes through the expr-aware `box_to_any_from_expr` — an
+/// `undefined` literal lowers to the same `ConstPtrNull` as `null`
+/// and only the frontend type picks ANY_UNDEF=5 over ANY_NULL=0.
+fn emit_any_item_bits(ctx: &mut LowerCtx, item_eid: ExprId) -> Operand {
+    let v_raw = ctx.lower_expr(item_eid);
+    let v_ty = ctx.operand_ty(&v_raw);
+    match v_ty {
+        Type::Any => {
+            ctx.emit_owned_result_inc(v_raw.clone(), Type::Any);
+            ctx.release_owned_temp(item_eid, &v_raw);
+            v_raw
+        }
+        Type::Str => {
+            let bits = ctx.box_to_any_from_expr(item_eid, v_raw.clone());
+            ctx.release_owned_temp(item_eid, &v_raw);
+            bits
+        }
+        _ if v_ty.is_refcounted() => {
+            ctx.emit_rc_inc(v_raw.clone());
+            let bits = ctx.box_to_any_from_expr(item_eid, v_raw.clone());
+            ctx.release_owned_temp(item_eid, &v_raw);
+            bits
+        }
+        _ => ctx.box_to_any_from_expr(item_eid, v_raw),
+    }
 }
