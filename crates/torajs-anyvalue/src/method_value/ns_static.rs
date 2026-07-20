@@ -535,7 +535,7 @@ mod tests {
             assert_eq!(ns_static_arity(cell as *const c_void), Some(2));
             // A mid-keyed method cell never answers the ns probe.
             let mid_cell =
-                crate::method_value::builtin_method_cell(torajs_rc::ANY_METHOD_TO_STRING);
+                crate::method_value::builtin_method_cell(-1, torajs_rc::ANY_METHOD_TO_STRING);
             assert_eq!(ns_static_id_of(mid_cell as *const c_void), None);
         }
     }

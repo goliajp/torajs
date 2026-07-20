@@ -65,8 +65,10 @@ pub(crate) unsafe fn wrapper_expando_method(
         // with the wrapper as receiver (the closure_method .call
         // path's CallTarget::Builtin arm, generic coerce included).
         if let Some(orig_mid) = crate::method_value::builtin_method_mid(cell) {
+            let str_family = crate::method_value::builtin_method_family(cell)
+                == crate::method_value::STR_PROTO_FAMILY;
             if let Some(out) =
-                crate::method_call_closure::generic_str_this(orig_mid, recv, argv, argc)
+                crate::method_call_closure::generic_str_this(orig_mid, recv, argv, argc, str_family)
             {
                 return Some(out);
             }

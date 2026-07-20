@@ -113,6 +113,20 @@ static SLOTS: [AtomicUsize; NUM_BUILTIN_PROTOS] = [SLOT_INIT; NUM_BUILTIN_PROTOS
 /// and CAS-installs its address into the slot; subsequent calls
 /// return the cached pointer so `<Ctor>.prototype ===
 /// <Ctor>.prototype` is `true` (spec singleton identity).
+/// Read-only probe of an already-minted prototype singleton — NULL
+/// when nothing has forced the mint yet. A monkey-patch write
+/// (`Number.prototype.split = …`) necessarily minted the singleton
+/// first, so NULL ⇔ the prototype cannot carry a patch; the
+/// dispatch-miss consult uses this to stay alloc-free.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_peek_builtin_prototype(tag: i64) -> *mut c_void {
+    let idx = tag as usize;
+    if idx >= NUM_BUILTIN_PROTOS {
+        return core::ptr::null_mut();
+    }
+    SLOTS[idx].load(Ordering::Acquire) as *mut c_void
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_get_builtin_prototype(tag: i64) -> *mut c_void {
     let idx = tag as usize;

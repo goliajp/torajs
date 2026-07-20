@@ -94,13 +94,19 @@ const STR_FLAG_IS_LATIN1: u16 = 0x0002;
 /// beyond the current max keeps future ids table-hits).
 pub(crate) const TABLE_SIZE: usize = 256;
 
+// Family axis (RFC 20260721-string-proto-cluster 刀 3) — split to
+// the `family.rs` sibling; re-exported to keep the consumer face.
+mod family;
+pub(crate) use family::{FAMILY_ROWS, STR_PROTO_FAMILY, builtin_method_family, recv_proto_family};
+
 /// Per-mid interned cells. Atomic-static, NOT `thread_local!` —
 /// std's lazy TLS machinery is unavailable inside the baked
 /// staticlib runtime (same constraint as torajs-cycle / torajs-weak,
 /// which use the AtomicPtr-static pattern). Relaxed is exact today
 /// (single-threaded runtime) and a benign double-alloc race later —
 /// both winners are immortal.
-static METHOD_CELLS: [AtomicU64; TABLE_SIZE] = [const { AtomicU64::new(0) }; TABLE_SIZE];
+static METHOD_CELLS: [[AtomicU64; TABLE_SIZE]; FAMILY_ROWS] =
+    [const { [const { AtomicU64::new(0) }; TABLE_SIZE] }; FAMILY_ROWS];
 
 /// Per-mid interned `.name` Str cells (chunk 715) — same
 /// immortal-static shape as [`METHOD_CELLS`].
@@ -130,9 +136,13 @@ pub(crate) unsafe extern "C" fn native_entry() -> u64 {
     0
 }
 
-/// The interned cell for a method id — lazily allocated, immortal.
-pub(crate) fn builtin_method_cell(mid: i64) -> *mut u8 {
-    let slot = &METHOD_CELLS[mid as usize];
+/// The interned cell for a (family, method id) pair — lazily
+/// allocated, immortal. `family` is a builtin-proto tag (Number=0 …
+/// Function=13) or -1 for a family-less mint; the capture slot
+/// packs `mid | (family + 1) << 32` so the `.call` / borrow
+/// re-dispatch can pick the family-correct generic lane.
+pub(crate) fn builtin_method_cell(family: i64, mid: i64) -> *mut u8 {
+    let slot = &METHOD_CELLS[(family + 1) as usize][mid as usize];
     let p = slot.load(Ordering::Relaxed);
     if p != 0 {
         return p as *mut u8;
@@ -151,7 +161,7 @@ pub(crate) fn builtin_method_cell(mid: i64) -> *mut u8 {
         *(cell.add(CLOSURE_DROP_FN_OFF) as *mut u64) = 0;
         *(cell.add(CLOSURE_PROPS_OFF) as *mut u64) = 0;
         *(cell.add(CLOSURE_BOXED_ENTRY_OFF) as *mut u64) = bare_entry as *const () as u64;
-        *(cell.add(CLOSURE_CAP_BASE_OFF) as *mut u64) = mid as u64;
+        *(cell.add(CLOSURE_CAP_BASE_OFF) as *mut u64) = mid as u64 | (((family + 1) as u64) << 32);
         slot.store(cell as u64, Ordering::Relaxed);
         cell
     }
@@ -164,44 +174,15 @@ pub(crate) fn builtin_method_cell(mid: i64) -> *mut u8 {
 /// dynobj define's rc stake no-ops on the static flag.
 #[unsafe(no_mangle)]
 pub extern "C" fn __torajs_builtin_method_cell(mid: i64) -> *mut u8 {
-    builtin_method_cell(mid)
+    // Family-less mint — the one consumer installs the dedicated
+    // `ANY_METHOD_ERROR_TO_STRING` id, which no family shares.
+    builtin_method_cell(-1, mid)
 }
 
-/// The reified `get size` getter cells — one per proto family
-/// (index 0 = Map proto tag 11, 1 = Set proto tag 12) because the
-/// spec getters are DISTINCT function objects per prototype. Same
-/// immortal closure shape as [`builtin_method_cell`]; the carried
-/// id [`torajs_rc::ANY_METHOD_GET_SIZE`] routes a `.call(recv)`
-/// through the mapset dispatcher's size arm, and `.name`/`.length`
-/// reads resolve "get size"/0 off the meta row.
-static SIZE_GETTER_CELLS: [AtomicU64; 2] = [const { AtomicU64::new(0) }; 2];
-
-/// The getter cell for a Map (proto tag 11) or Set (proto tag 12)
-/// `size` accessor — lazily allocated, immortal. Callers guarantee
-/// `proto_tag` is 11 or 12.
-pub(crate) fn size_getter_cell(proto_tag: i64) -> *mut u8 {
-    let slot = &SIZE_GETTER_CELLS[(proto_tag - 11) as usize];
-    let p = slot.load(Ordering::Relaxed);
-    if p != 0 {
-        return p as *mut u8;
-    }
-    // SAFETY: fresh CELL_SIZE allocation, fully initialized below —
-    // same layout as builtin_method_cell.
-    unsafe {
-        let layout = core::alloc::Layout::from_size_align(CELL_SIZE, 8).unwrap();
-        let cell = std::alloc::alloc_zeroed(layout);
-        *(cell as *mut u32) = 1;
-        *(cell.add(4) as *mut u16) = Tag::Closure as u16;
-        *(cell.add(6) as *mut u16) = FLAG_STATIC_LITERAL;
-        *(cell.add(CLOSURE_FN_ADDR_OFF) as *mut u64) = native_entry as *const () as u64;
-        *(cell.add(CLOSURE_DROP_FN_OFF) as *mut u64) = 0;
-        *(cell.add(CLOSURE_PROPS_OFF) as *mut u64) = 0;
-        *(cell.add(CLOSURE_BOXED_ENTRY_OFF) as *mut u64) = bare_entry as *const () as u64;
-        *(cell.add(CLOSURE_CAP_BASE_OFF) as *mut u64) = torajs_rc::ANY_METHOD_GET_SIZE as u64;
-        slot.store(cell as u64, Ordering::Relaxed);
-        cell
-    }
-}
+// `get size` getter cells (Map / Set) — split to the
+// `size_getter.rs` sibling; re-exported to keep the consumer face.
+mod size_getter;
+pub(crate) use size_getter::size_getter_cell;
 
 /// The interned `.name` Str cell for a method id — lazily
 /// allocated, immortal (`FLAG_STATIC_LITERAL`), Latin-1 payload
@@ -298,12 +279,14 @@ pub(crate) unsafe fn builtin_method_arity(ptr: *mut c_void) -> Option<u32> {
 }
 
 /// The method id a reified cell carries — `None` for ordinary
-/// closures (discriminated by the boxed entry's address).
+/// closures (discriminated by the boxed entry's address). The
+/// capture slot packs `mid | (family + 1) << 32`; this reads the
+/// mid half.
 pub(crate) unsafe fn builtin_method_mid(ptr: *mut c_void) -> Option<i64> {
     unsafe {
         let entry = *(ptr.cast::<u8>().add(CLOSURE_BOXED_ENTRY_OFF) as *const u64);
         if entry == bare_entry as *const () as u64 {
-            Some(*(ptr.cast::<u8>().add(CLOSURE_CAP_BASE_OFF) as *const u64) as i64)
+            Some((*(ptr.cast::<u8>().add(CLOSURE_CAP_BASE_OFF) as *const u64) as u32) as i64)
         } else {
             None
         }
@@ -386,7 +369,7 @@ pub(crate) unsafe fn builtin_method_lookup(recv: AnyValue, key: *const c_void) -
     } else {
         mid
     };
-    Some(builtin_method_cell(mid))
+    Some(builtin_method_cell(recv_proto_family(recv), mid))
 }
 
 /// True iff the boxed value is a live `Tag::Set` heap cell.

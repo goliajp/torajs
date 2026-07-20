@@ -136,6 +136,16 @@ pub unsafe extern "C" fn __torajs_any_method_call(
 ) -> AnyValue {
     let r = unsafe { any_method_call_inner(recv, mid, name_str, recv_slot, argv, argc) };
     if r == ANY_METHOD_NO_SUCH {
+        // A per-arm mid-miss skipped the dispatch tail — give the
+        // builtin-proto patch consult its §10.1.9.2 chain step
+        // before the TypeError (RFC 20260721 刀 3).
+        if let Some(out) = unsafe {
+            crate::method_call_proto_patch::builtin_proto_patch_method(
+                recv, mid, name_str, argv, argc,
+            )
+        } {
+            return out;
+        }
         return unsafe { not_callable() };
     }
     r
@@ -159,6 +169,15 @@ pub unsafe extern "C" fn __torajs_any_method_call_opt(
 ) -> AnyValue {
     let r = unsafe { any_method_call_inner(recv, mid, name_str, recv_slot, argv, argc) };
     if r == ANY_METHOD_NO_SUCH {
+        // Same chain step as the throwing flavor — a live patch
+        // resolves; only a true miss keeps the `?.()` undefined.
+        if let Some(out) = unsafe {
+            crate::method_call_proto_patch::builtin_proto_patch_method(
+                recv, mid, name_str, argv, argc,
+            )
+        } {
+            return out;
+        }
         return VALUE_UNDEFINED;
     }
     r
@@ -336,6 +355,18 @@ unsafe fn any_method_call_dispatch(
                 argv,
                 argc,
                 skip_wrapper_expando,
+            )
+        }
+    {
+        return out;
+    }
+    // Builtin-prototype monkey-patch consult (RFC 20260721 刀 3) —
+    // gated off re-dispatch: a reified-builtin body execution must
+    // not re-resolve (cycle posture, see the module).
+    if !skip_wrapper_expando
+        && let Some(out) = unsafe {
+            crate::method_call_proto_patch::builtin_proto_patch_method(
+                recv, mid, name_str, argv, argc,
             )
         }
     {

@@ -181,7 +181,9 @@ pub(crate) unsafe fn closure_method(
 /// receiver (chunk 711).
 enum CallTarget {
     Boxed(*mut c_void, u64),
-    Builtin(i64),
+    /// (mid, str_family) — the family bit picks the §22.1.3 generic
+    /// ToString(this) lane for a String-prototype-minted cell.
+    Builtin(i64, bool),
     /// A reified class method / accessor face (RFC
     /// 20260718-accessor-reify 刀 2) — the carried adapter invokes
     /// with the thisArg in the env slot.
@@ -192,7 +194,11 @@ enum CallTarget {
 unsafe fn call_target(ptr: *mut c_void) -> Option<CallTarget> {
     unsafe {
         if let Some(target_mid) = crate::method_value::builtin_method_mid(ptr) {
-            return Some(CallTarget::Builtin(target_mid));
+            let fam = crate::method_value::builtin_method_family(ptr);
+            return Some(CallTarget::Builtin(
+                target_mid,
+                fam == crate::method_value::STR_PROTO_FAMILY,
+            ));
         }
         if let Some(adapter) = crate::method_value_class::class_method_adapter(ptr) {
             return Some(CallTarget::ClassAdapter(adapter));
@@ -219,8 +225,8 @@ unsafe fn dispatch(
                     *adapter, this_arg, argv, argc,
                 )
             }
-            CallTarget::Builtin(mid) => {
-                if let Some(out) = generic_str_this(*mid, this_arg, argv, argc) {
+            CallTarget::Builtin(mid, str_family) => {
+                if let Some(out) = generic_str_this(*mid, this_arg, argv, argc, *str_family) {
                     return out;
                 }
                 crate::method_call::any_method_redispatch(this_arg, *mid, argv, argc)
@@ -238,11 +244,12 @@ unsafe fn dispatch(
 /// coerce, staying on the ordinary lane:
 /// - `toString` / `valueOf` (thisStringValue §22.1.3.28/.35) and
 ///   `toLocaleString` — a non-String receiver is a TypeError there;
-/// - mids SHARED with the Array surface (at / concat / includes /
-///   indexOf / lastIndexOf / slice) — a reified cell carries only
-///   its mid, no family, so `Array.prototype.indexOf.call(arrayLike)`
-///   re-dispatches the same id and must reach the array-like generic
-///   arm (per-family cells are the recorded fix for the String half);
+/// - unless `str_family` (the cell was minted for the String
+///   prototype — RFC 20260721 G4 per-family cells), mids SHARED
+///   with the Array surface (at / concat / includes / indexOf /
+///   lastIndexOf / slice): a family-less cell's
+///   `Array.prototype.indexOf.call(arrayLike)` re-dispatch must
+///   reach the array-like generic arm;
 /// - string-shaped and nullish receivers (identity fast paths /
 ///   RequireObjectCoercible throw).
 pub(crate) unsafe fn generic_str_this(
@@ -250,20 +257,23 @@ pub(crate) unsafe fn generic_str_this(
     this_arg: AnyValue,
     argv: *const u64,
     argc: i64,
+    str_family: bool,
 ) -> Option<AnyValue> {
     if !crate::method_support::str_supports(mid)
         || matches!(
             mid,
-            ANY_METHOD_TO_STRING
-                | ANY_METHOD_VALUE_OF
-                | ANY_METHOD_TO_LOCALE_STRING
-                | ANY_METHOD_AT
-                | ANY_METHOD_CONCAT
-                | ANY_METHOD_INCLUDES
-                | ANY_METHOD_INDEX_OF
-                | ANY_METHOD_LAST_INDEX_OF
-                | ANY_METHOD_SLICE
+            ANY_METHOD_TO_STRING | ANY_METHOD_VALUE_OF | ANY_METHOD_TO_LOCALE_STRING
         )
+        || (!str_family
+            && matches!(
+                mid,
+                ANY_METHOD_AT
+                    | ANY_METHOD_CONCAT
+                    | ANY_METHOD_INCLUDES
+                    | ANY_METHOD_INDEX_OF
+                    | ANY_METHOD_LAST_INDEX_OF
+                    | ANY_METHOD_SLICE
+            ))
     {
         return None;
     }

@@ -56,7 +56,7 @@ unsafe fn proto_is_arr(proto: *mut c_void) -> bool {
 /// cell shape backs it — `Array.prototype` is an Arr (ES §23.1.3),
 /// the rest are dynobjs. Reading an Arr through the dynobj probe
 /// would walk an entry table that isn't there.
-unsafe fn proto_own_probe(proto: *mut c_void, key: *const c_void) -> (i64, i64) {
+pub(crate) unsafe fn proto_own_probe(proto: *mut c_void, key: *const c_void) -> (i64, i64) {
     let is_arr = unsafe { proto_is_arr(proto) };
     let (tag, value) = if is_arr {
         unsafe {
@@ -193,7 +193,7 @@ pub unsafe extern "C" fn __torajs_builtin_proto_own_method_cell(
         return 0;
     }
     // Immortal interned cell — rc traffic no-ops.
-    crate::method_value::builtin_method_cell(set_keys_alias(tag, mid)) as u64
+    crate::method_value::builtin_method_cell(tag, set_keys_alias(tag, mid)) as u64
 }
 
 /// Per-prototype cell aliases — a name-interned mid that a given
@@ -335,7 +335,7 @@ pub unsafe extern "C" fn __torajs_builtin_proto_method_value(
         return VALUE_UNDEFINED;
     }
     // Immortal interned cell — rc traffic no-ops, hand out as-is.
-    crate::method_value::builtin_method_cell(set_keys_alias(tag, mid)) as AnyValue
+    crate::method_value::builtin_method_cell(tag, set_keys_alias(tag, mid)) as AnyValue
 }
 
 /// `in` is HasProperty (§7.3.12): after the receiver's own face
