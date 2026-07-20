@@ -26,11 +26,13 @@
 //! Returns `Some(op)` on hit; `None` on miss (receiver type not
 //! `FnSig` or `Arr`).
 
+use crate::ast::ExprId;
 use crate::ssa::{FuncId, InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 
 pub(crate) fn try_lower(
     ctx: &mut LowerCtx<'_>,
+    obj: ExprId,
     obj_val: Operand,
     obj_ty: Type,
     name: &str,
@@ -40,10 +42,17 @@ pub(crate) fn try_lower(
             ctx.intrinsics.fnprops_get_tag,
             ctx.intrinsics.fnprops_get_value,
         ),
-        Type::Arr(_) => (
-            ctx.intrinsics.arrprops_get_tag,
-            ctx.intrinsics.arrprops_get_value,
-        ),
+        Type::Arr(_) => {
+            // A nullable-arr receiver (un-narrowed exec/match miss)
+            // reaches the props intrinsics as NULL — guard arms a
+            // catchable TypeError first (`m.groups` on a miss; RC-4
+            // F1a shape, same as the `.length` short-circuit).
+            crate::ssa_lower_nullable_guard::emit_nullable_arr_guard(ctx, obj, &obj_val);
+            (
+                ctx.intrinsics.arrprops_get_tag,
+                ctx.intrinsics.arrprops_get_value,
+            )
+        }
         _ => return None,
     };
     Some(lower_props_read(ctx, obj_val, name, tag_fid, val_fid))
