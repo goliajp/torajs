@@ -77,7 +77,10 @@ pub const SLOT_RANGE_ERROR: usize = 2;
 /// RFC 20260718-error-message-own-prop 刀 3 — the derived-ctor
 /// no-super ReferenceError (§9.2.2 [[Construct]] this-TDZ).
 pub const SLOT_REFERENCE_ERROR: usize = 3;
-const SLOT_COUNT: usize = 4;
+/// RFC 20260720-ctor-static-reflection 刀 5b — the §7.1.14
+/// StringToBigInt parse-failure SyntaxError (`BigInt("abc")`).
+pub const SLOT_SYNTAX_ERROR: usize = 4;
+const SLOT_COUNT: usize = 5;
 
 /// Factory fn-ptr type: takes a `*mut Str` (borrowed — the codegen'd
 /// TS-level `__new_<C>` fn's ctor field store retains its own
@@ -92,6 +95,7 @@ pub type NativeErrorFactory = unsafe extern "C" fn(message_str: *mut c_void) -> 
 /// of padding on 32-bit systems, but Rust pointer width matches
 /// host so no layout issue.
 static REGISTRY: [AtomicPtr<()>; SLOT_COUNT] = [
+    AtomicPtr::new(ptr::null_mut()),
     AtomicPtr::new(ptr::null_mut()),
     AtomicPtr::new(ptr::null_mut()),
     AtomicPtr::new(ptr::null_mut()),
@@ -354,6 +358,19 @@ pub unsafe extern "C" fn __torajs_throw_type_error(msg: *const c_char) {
 pub unsafe extern "C" fn __torajs_throw_reference_error(msg: *const c_char) {
     // SAFETY: caller invariant — propagated.
     unsafe { throw_native(SLOT_REFERENCE_ERROR as i64, msg) };
+}
+
+/// Cross-TU wrapper for `SyntaxError` — RFC 20260720 刀 5b (the
+/// §7.1.14 StringToBigInt parse-failure raise in torajs-bigint).
+///
+/// # Safety
+///
+/// `msg` must be a valid pointer to a NUL-terminated C string. The
+/// caller retains ownership.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_throw_syntax_error(msg: *const c_char) {
+    // SAFETY: caller invariant — propagated.
+    unsafe { throw_native(SLOT_SYNTAX_ERROR as i64, msg) };
 }
 
 /// §9.2.2 [[Construct]] step 15 — a derived constructor whose body

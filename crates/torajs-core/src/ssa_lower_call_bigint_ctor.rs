@@ -84,5 +84,9 @@ pub(crate) fn try_lower(
     // scope drop — the old consume path orphaned that stake (RFC
     // 20260705 ledger #3, 32B/iter probe). Owned temps release here.
     ctx.release_owned_temp(args[0], &arg_op);
+    // from_str's parse-failure SyntaxError (RFC 20260720 刀 5b) and
+    // from_number's non-integer RangeError propagate to user
+    // try/catch here.
+    ctx.emit_throw_check(None);
     Some(Operand::Value(v))
 }

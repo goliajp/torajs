@@ -325,9 +325,10 @@ pub fn inject_builtin_classes(ast: &mut Ast) {
     // workaround "add `const _t = TypeError;` to the program"
     // (check-throw-msg-001.ts, ba8f4ef4) is the same gap surfaced
     // case-by-case; force-inject closes it module-wide. SyntaxError
-    // / ReferenceError are never emitted by runtime helpers (parse-
-    // time / type-check-time only), so their reference-gated path
-    // stays — programs that never mention them pay no cost.
+    // joined the runtime-thrown set with RFC 20260720 刀 5b (the
+    // StringToBigInt parse-failure raise); EvalError / URIError are
+    // never emitted by runtime helpers, so their reference-gated
+    // path stays — programs that never mention them pay no cost.
     let want_sub: Vec<&str> = ERROR_SUBCLASSES
         .iter()
         .copied()
@@ -337,7 +338,10 @@ pub fn inject_builtin_classes(ast: &mut Ast) {
                 .iter()
                 .any(|s| matches!(s, Stmt::ClassDecl { name, .. } if name == *n));
             let implied = *n == "RangeError" && uses_bigint;
-            let runtime_thrown = matches!(*n, "TypeError" | "RangeError" | "ReferenceError");
+            let runtime_thrown = matches!(
+                *n,
+                "TypeError" | "RangeError" | "ReferenceError" | "SyntaxError"
+            );
             !shadowed && (runtime_thrown || referenced(n) || implied)
         })
         .collect();

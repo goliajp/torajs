@@ -17,11 +17,12 @@ use crate::internal::{
     add_u32_inplace, alloc_raw, free, mul_u32_inplace, normalize, read_len, words_mut, words_ptr,
     write_sign,
 };
-use crate::layout::{STR_HDR_SIZE, STR_LEN_OFF};
+use crate::layout::STR_HDR_SIZE;
 use crate::shift::{mag_shl, mag_shr};
 
 unsafe extern "C" {
     fn __torajs_throw_range_error(msg: *const u8);
+    fn __torajs_throw_syntax_error(msg: *const u8);
 }
 
 // ============================================================
@@ -94,111 +95,24 @@ pub unsafe extern "C" fn __torajs_bigint_from_hex(s: *const c_void, n: u64) -> *
 }
 
 // ============================================================
-// from_str — runtime `BigInt(<string>)` callable form. Auto-
-// detects radix from the body's prefix; strips leading sign;
-// returns 0n on parse errors (lenient subset of JS spec —
-// SyntaxError matching is a follow-up alongside the test262 push).
+// from_str — runtime `BigInt(<string>)` callable form. §21.2.1.1
+// ToBigInt(string) = §7.1.14 StringToBigInt (strict grammar);
+// parse failure raises the catchable SyntaxError (RFC 20260720
+// 刀 5b closed the old lenient 0n-on-error debt).
 // ============================================================
 
-/// Helper — parse a single hex digit, returning None for non-hex bytes.
-#[inline]
-fn hex_digit(c: u8) -> Option<u32> {
-    if (b'0'..=b'9').contains(&c) {
-        Some((c - b'0') as u32)
-    } else if (b'a'..=b'f').contains(&c) {
-        Some(10 + (c - b'a') as u32)
-    } else if (b'A'..=b'F').contains(&c) {
-        Some(10 + (c - b'A') as u32)
-    } else {
-        None
-    }
-}
-
-/// `BigInt(<runtime string value>)`. Reads the Str's len from
-/// offset 8, body bytes from offset 16. Recognized prefixes
-/// (with optional leading `+` / `-` sign):
-/// - `0x` / `0X` → hex
-/// - `0o` / `0O` → octal
-/// - `0b` / `0B` → binary
-/// - otherwise → decimal
+/// `BigInt(<runtime string value>)` — delegates to the strict
+/// §7.1.14 parser; a grammar reject records a pending SyntaxError
+/// (message matches bun/JSC) and answers a `0n` sentinel for the
+/// caller's throw check to unwind past.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_bigint_from_str(s: *const c_void) -> *mut u8 {
-    if s.is_null() {
-        return unsafe { __torajs_bigint_from_decimal(core::ptr::null(), 0) };
-    }
-    let len = unsafe { *((s as *const u8).add(STR_LEN_OFF) as *const u64) };
-    let bytes = unsafe { (s as *const u8).add(STR_HDR_SIZE) };
-
-    // Strip a leading sign so radix prefixes that follow ("- 0x...")
-    // are still recognized.
-    let mut negative = 0u32;
-    let mut off: u64 = 0;
-    if len > 0 {
-        let c = unsafe { *bytes };
-        if c == b'-' {
-            negative = 1;
-            off = 1;
-        } else if c == b'+' {
-            off = 1;
+    let r = unsafe { crate::from_str_strict::__torajs_bigint_from_str_strict(s) };
+    if r.is_null() {
+        unsafe {
+            __torajs_throw_syntax_error(b"Failed to parse String to BigInt\0".as_ptr());
         }
-    }
-
-    let mut r = unsafe { alloc_raw(0) };
-
-    // Helper closure to consume the rest as the given radix's digits.
-    // (Cannot factor across radixes cleanly because each prefix has
-    // its own digit filter — mirror C's per-prefix loop.)
-    let prefix_check = |c0: u8, c1_lower: u8, c1_upper: u8| -> bool {
-        len - off >= 2 && unsafe { *bytes.add(off as usize) } == c0 && {
-            let c = unsafe { *bytes.add(off as usize + 1) };
-            c == c1_lower || c == c1_upper
-        }
-    };
-
-    if prefix_check(b'0', b'x', b'X') {
-        for i in (off + 2)..len {
-            let c = unsafe { *bytes.add(i as usize) };
-            if let Some(d) = hex_digit(c) {
-                unsafe {
-                    mul_u32_inplace(&mut r, 16);
-                    add_u32_inplace(&mut r, d);
-                }
-            }
-        }
-    } else if prefix_check(b'0', b'o', b'O') {
-        for i in (off + 2)..len {
-            let c = unsafe { *bytes.add(i as usize) };
-            if (b'0'..=b'7').contains(&c) {
-                unsafe {
-                    mul_u32_inplace(&mut r, 8);
-                    add_u32_inplace(&mut r, (c - b'0') as u32);
-                }
-            }
-        }
-    } else if prefix_check(b'0', b'b', b'B') {
-        for i in (off + 2)..len {
-            let c = unsafe { *bytes.add(i as usize) };
-            if c == b'0' || c == b'1' {
-                unsafe {
-                    mul_u32_inplace(&mut r, 2);
-                    add_u32_inplace(&mut r, (c - b'0') as u32);
-                }
-            }
-        }
-    } else {
-        for i in off..len {
-            let c = unsafe { *bytes.add(i as usize) };
-            if (b'0'..=b'9').contains(&c) {
-                unsafe {
-                    mul_u32_inplace(&mut r, 10);
-                    add_u32_inplace(&mut r, (c - b'0') as u32);
-                }
-            }
-        }
-    }
-    unsafe { normalize(r) };
-    if negative == 1 && unsafe { read_len(r) } > 0 {
-        unsafe { write_sign(r, 1) };
+        return unsafe { alloc_raw(0) };
     }
     r
 }

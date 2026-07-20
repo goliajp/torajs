@@ -409,6 +409,9 @@ fn try_lower_register_native_error(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> O
         // RFC 20260718-error-message-own-prop 刀 3 — the
         // derived-ctor no-super ReferenceError factory.
         "ReferenceError" => 3,
+        // RFC 20260720 刀 5b — the StringToBigInt parse-failure
+        // SyntaxError factory.
+        "SyntaxError" => 4,
         _ => return Some(Operand::ConstI64(0)),
     };
     let factory = format!("__new_{cname}");

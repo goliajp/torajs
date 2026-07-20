@@ -273,12 +273,12 @@ pub(super) fn emit_native_error_register(ast: &mut Ast, meta: &ClassMetadata, ou
     // of the bare-string fallback. ssa_lower intercepts this magic
     // call → maps name to its fixed slot + FnAddr(__new_<C>). The
     // arg is a String literal (not an Ident) so the `__class_<C>`
-    // rewrite below leaves it untouched. Only the three
-    // runtime-throwable classes are wired.
+    // rewrite below leaves it untouched. Only the runtime-throwable
+    // classes are wired.
     for cname in &meta.class_names {
         if matches!(
             cname.as_str(),
-            "Error" | "TypeError" | "RangeError" | "ReferenceError"
+            "Error" | "TypeError" | "RangeError" | "ReferenceError" | "SyntaxError"
         ) {
             let name_str = ast.add_expr(Expr::String(cname.clone()));
             let callee = ast.add_expr(Expr::Ident("__torajs_register_native_error".to_string()));
