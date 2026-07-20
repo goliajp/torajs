@@ -135,6 +135,37 @@ fn resolve_props(
     }
 }
 
+/// §20.1.2.2 step 3 — ObjectDefineProperties(obj, props) via the
+/// two-phase runtime walk. Defines can resize the dense array, so the
+/// dynobj rides a slot and the post-walk pointer reloads from it;
+/// returns the reloaded pointer. Shared by the Any lane (gated cell)
+/// and the typed-struct lane (the struct operand is the cell).
+fn emit_props_walk(
+    ctx: &mut LowerCtx<'_>,
+    dynobj: crate::ssa::ValueId,
+    props_ptr: crate::ssa::ValueId,
+) -> crate::ssa::ValueId {
+    let slot = ctx.alloca(Type::Ptr, Some("__dynobj_slot"));
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Store(Operand::Value(dynobj), Operand::Value(slot), 0),
+    );
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Call(
+            ctx.intrinsics.dynobj_define_properties_from,
+            vec![Operand::Value(slot), Operand::Value(props_ptr)],
+        ),
+    );
+    let cur_block = ctx.cur_block;
+    ctx.f.append_inst(
+        cur_block,
+        InstKind::Load(Type::Ptr, Operand::Value(slot), 0),
+        Type::Ptr,
+        None,
+    )
+}
+
 /// `Object.create(proto[, descriptors])` — §20.1.2.2. Validates the
 /// proto argument (Object or null, else TypeError) then allocates a
 /// fresh dynobj-backed Any-box. The proto value itself is not yet
@@ -183,7 +214,21 @@ pub(crate) fn lower_create(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
     // the dense array, so the post-walk pointer reloads from the slot.
     if let Some((p_eid, p_op, is_literal)) = props {
         let p_ty = ctx.operand_ty(&p_op);
-        if matches!(p_ty, Type::Any) {
+        if matches!(p_ty, Type::Obj(_)) {
+            // An As-cast / typed struct props (`Object.create(null,
+            // p)` with a desc-of-descs binding) is an SSA
+            // pass-through — the Any arm below never fires and the
+            // walk was skipped (silent no-define). A struct operand
+            // IS the cell ptr; the kernel's TAG_OBJ arm walks its
+            // layout (mirror of defineProperties' struct lane).
+            let props_ptr = match p_op.clone() {
+                Operand::Value(v) => v,
+                _ => ctx.any_unbox_value_as_ptr(p_op.clone()),
+            };
+            dynobj = emit_props_walk(ctx, dynobj, props_ptr);
+            ctx.release_owned_temp(p_eid, &p_op);
+            ctx.emit_throw_check(None);
+        } else if matches!(p_ty, Type::Any) {
             // §20.1.2.2 step 3 — `null` fails ToObject; `undefined`
             // skips the whole clause. The static-null literal is
             // already stripped above; a dyn `Any` variable (e.g.
@@ -216,31 +261,13 @@ pub(crate) fn lower_create(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
                 None,
             );
             ctx.emit_throw_check(None);
-            let slot = ctx.alloca(Type::Ptr, Some("__dynobj_slot"));
-            ctx.f.append_void(
-                ctx.cur_block,
-                InstKind::Store(Operand::Value(dynobj), Operand::Value(slot), 0),
-            );
-            ctx.f.append_void(
-                ctx.cur_block,
-                InstKind::Call(
-                    ctx.intrinsics.dynobj_define_properties_from,
-                    vec![Operand::Value(slot), Operand::Value(props_ptr)],
-                ),
-            );
+            dynobj = emit_props_walk(ctx, dynobj, props_ptr);
             if is_literal {
                 ctx.emit_drop_value(p_op, Type::Any);
             } else {
                 ctx.release_owned_temp(p_eid, &p_op);
             }
             ctx.emit_throw_check(None);
-            let cur_block = ctx.cur_block;
-            dynobj = ctx.f.append_inst(
-                cur_block,
-                InstKind::Load(Type::Ptr, Operand::Value(slot), 0),
-                Type::Ptr,
-                None,
-            );
         } else {
             // A typed non-object props (`"ab" as any` — the As cast is
             // an SSA pass-through, so the operand keeps Type::Str and
