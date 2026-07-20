@@ -72,9 +72,19 @@ unsafe extern "C" {
     /// `[[Extensible]] = false` gate to distinguish new-key writes
     /// (throw) from updates (allowed).
     fn __torajs_dynobj_has(obj: *const c_void, key: *const c_void) -> i32;
+    /// torajs-dynobj — chain-entry probes for the §10.1.9.2 walk
+    /// (tag distinguishes an AccessorPair entry; flags carry the
+    /// packed W/E/C bits, bit 0 = writable).
+    fn __torajs_dynobj_get_tag(obj: *const c_void, key: *const c_void) -> u64;
+    fn __torajs_dynobj_get_value(obj: *const c_void, key: *const c_void) -> u64;
+    fn __torajs_dynobj_get_flags(obj: *const c_void, key: *const c_void) -> u64;
     /// torajs-throw — record a pending catchable TypeError.
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
 }
+
+/// `dynobj_get_tag` accessor sentinel
+/// (`torajs_dynobj::layout::ANY_ACCESSOR` mirror).
+const MEMBER_SET_ANY_ACCESSOR: u64 = 6;
 
 /// Release the lowering's +1 on a heap payload that no arm consumed.
 unsafe fn drop_payload(tag: u64, value: u64) {
@@ -164,9 +174,10 @@ unsafe fn set_dynobj_member(
         // (§10.1.9.2 OrdinarySet finds the own data property
         // first) — its write stays ordinary too.
         let hdr_flags = (ptr.cast::<u8>().add(6) as *const u16).read();
+        let has_own = __torajs_dynobj_has(ptr, key as *const c_void) != 0;
         if hdr_flags & DYNOBJ_HDR_FLAG_NULL_PROTO == 0
+            && !has_own
             && crate::prop_has::key_is(key, b"__proto__")
-            && __torajs_dynobj_has(ptr, key as *const c_void) == 0
         {
             let boxed = __torajs_anyv_box_from_pair(tag as i64, value as i64);
             __torajs_anyv_proto_member_set(recv, boxed);
@@ -174,6 +185,58 @@ unsafe fn set_dynobj_member(
             // the caller's transferred reference dies here.
             drop_payload(tag, value);
             return;
+        }
+        // §10.1.9.2 OrdinarySet — an own miss consults the user
+        // [[Prototype]] chain (RFC 20260721 候补刀): an inherited
+        // accessor writes through its setter with the ORIGINAL
+        // receiver; an inherited non-writable data property
+        // rejects; a writable (or absent) chain answer falls
+        // through to the ordinary own create. The common fresh
+        // create on an implicit-chain dynobj pays one own-has probe
+        // plus one interned proto-slot lookup.
+        if !has_own {
+            let mut level = crate::member_get_own::user_proto_cell(ptr);
+            let mut depth = 0usize;
+            while let Some(cell) = level {
+                // Simulated-slot cycle guard (obj_forin_keys mirror).
+                depth += 1;
+                if depth > 64 {
+                    break;
+                }
+                let cptr = cell as *const c_void;
+                if (cptr.cast::<u8>().add(4) as *const u16).read() != Tag::DynObj as u16 {
+                    // A struct parent keeps the own-create
+                    // fall-through (its accessor face is a
+                    // recorded boundary).
+                    break;
+                }
+                if __torajs_dynobj_has(cptr, key as *const c_void) != 0 {
+                    let etag = __torajs_dynobj_get_tag(cptr, key as *const c_void);
+                    if etag == MEMBER_SET_ANY_ACCESSOR {
+                        let pair =
+                            __torajs_dynobj_get_value(cptr, key as *const c_void) as *const c_void;
+                        let value_anyv = __torajs_anyv_box_from_pair(tag as i64, value as i64);
+                        // The setter consumes the value stake (the
+                        // arr accessor arm's ledger); a getter-only
+                        // pair refuses the strict assignment.
+                        if __torajs_accessor_invoke_setter(pair, recv, value_anyv) == 0 {
+                            __torajs_throw_type_error(
+                                c"Attempted to assign to readonly property.".as_ptr(),
+                            );
+                        }
+                        return;
+                    }
+                    if __torajs_dynobj_get_flags(cptr, key as *const c_void) & 0x1 == 0 {
+                        drop_payload(tag, value);
+                        __torajs_throw_type_error(
+                            c"Attempted to assign to readonly property.".as_ptr(),
+                        );
+                        return;
+                    }
+                    break;
+                }
+                level = crate::member_get_own::user_proto_cell(cptr);
+            }
         }
         let mut obj = ptr;
         __torajs_dynobj_set(&mut obj, key, tag, value);

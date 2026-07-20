@@ -54,10 +54,9 @@ pub(crate) unsafe fn user_proto_cell(ptr: *const c_void) -> Option<u64> {
         return None;
     }
     unsafe {
-        let k = __torajs_str_alloc(PROTO_SLOT_KEY.as_ptr(), PROTO_SLOT_KEY.len() as i64);
+        let k = proto_slot_key_cell();
         let tag = __torajs_dynobj_get_tag(ptr, k as *const c_void);
         let val = __torajs_dynobj_get_value(ptr, k as *const c_void);
-        __torajs_str_drop(k as *mut c_void);
         // ANY_HEAP = 4; the entry's NaN-box IS the cell pointer bits.
         if tag == 4 && val != 0 {
             Some(val)
@@ -65,6 +64,23 @@ pub(crate) unsafe fn user_proto_cell(ptr: *const c_void) -> Option<u64> {
             None
         }
     }
+}
+
+/// Interned immortal [`PROTO_SLOT_KEY`] Str cell — the chain walks
+/// (member_get / has_property / for-in / OrdinarySet) probe it on
+/// every hop, so the per-call mint+drop pair became measurable
+/// traffic. Lock-free lazy init; a CAS-race double-mint leaks one
+/// immortal cell, benign (`name_get`'s EMPTY_NAME_CELL pattern).
+unsafe fn proto_slot_key_cell() -> *mut u8 {
+    use core::sync::atomic::{AtomicU64, Ordering};
+    static CELL: AtomicU64 = AtomicU64::new(0);
+    let p = CELL.load(Ordering::Relaxed);
+    if p != 0 {
+        return p as *mut u8;
+    }
+    let cell = crate::method_value::mint_immortal_str(PROTO_SLOT_KEY);
+    CELL.store(cell as u64, Ordering::Relaxed);
+    cell
 }
 
 /// C face of [`user_proto_cell`] for sibling runtime crates (the
