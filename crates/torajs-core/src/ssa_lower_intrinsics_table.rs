@@ -370,6 +370,7 @@ pub(crate) fn build(
         any_bitnot: init_c.any_substrate.any_bitnot,
         any_compare: init_c.any_substrate.any_compare,
         any_strict_eq: init_c.any_substrate.any_strict_eq,
+        any_svz: init_c.any_substrate.any_svz,
         any_any_strict_eq: init_c.any_substrate.any_any_strict_eq,
         any_any_loose_eq: init_c.any_substrate.any_any_loose_eq,
         any_index_get: init_c.any_substrate.any_index_get,

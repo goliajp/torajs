@@ -413,6 +413,8 @@ pub(crate) struct Intrinsics {
     pub(crate) any_bitnot: FuncId,
     pub(crate) any_compare: FuncId,
     pub(crate) any_strict_eq: FuncId,
+    /// SameValueZero pair variant (§7.2.9) — includes-with-any-needle.
+    pub(crate) any_svz: FuncId,
     pub(crate) any_any_strict_eq: FuncId,
     pub(crate) any_any_loose_eq: FuncId,
     pub(crate) any_index_get: FuncId,

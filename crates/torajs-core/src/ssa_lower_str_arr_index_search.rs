@@ -200,6 +200,12 @@ pub(crate) fn try_dispatch(
         ctx.f.set_term(cb, Terminator::Br(header));
         ctx.cur_block = after;
         let _ = arr_id;
+        // An owned-temp `any` needle (any-arith box) settles after
+        // the scan — the boxed compare borrowed it per iteration
+        // (mirror of `lower_any_index_of`'s release).
+        if matches!(needle_ty, Type::Any) {
+            ctx.release_owned_temp(args[0], &needle);
+        }
         let r = ctx.f.append_inst(
             ctx.cur_block,
             InstKind::Load(Type::I64, Operand::Value(result_slot), 0),

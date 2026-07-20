@@ -55,6 +55,51 @@ pub(crate) fn emit_compare(
     want_bool: bool,
     needle_eid: ExprId,
 ) -> ValueId {
+    // An `any` needle over a typed-element receiver (checker
+    // index-search Any admit) — strict equality is by-tag, NOT a
+    // ToNumber coercion (`[1,2,3].indexOf("2" as any)` is -1), so
+    // the ELEMENT packs as the `(tag, value)` pair and the boxed
+    // needle stays whole: the reverse of the Any-elem arm below.
+    // `includes` rides the SameValueZero entry (§23.1.3.16 — NaN
+    // equals NaN); indexOf / lastIndexOf keep strict (§7.2.15).
+    if matches!(needle_ty, Type::Any) && !matches!(elem_ty, Type::Any) {
+        let (tag, value): (i64, Operand) = match elem_ty {
+            Type::I64 => (2, Operand::Value(elem)),
+            Type::F64 => {
+                let bits = ctx.f.append_inst(
+                    ctx.cur_block,
+                    InstKind::BitCastF64ToI64(Operand::Value(elem)),
+                    Type::I64,
+                    None,
+                );
+                (3, Operand::Value(bits))
+            }
+            Type::Bool => {
+                let zext = ctx.f.append_inst(
+                    ctx.cur_block,
+                    InstKind::ZExtBoolToI64(Operand::Value(elem)),
+                    Type::I64,
+                    None,
+                );
+                (1, Operand::Value(zext))
+            }
+            // Str and every other refcounted elem: the kernel's
+            // cell row does byte-equality for Str (ShortStr-box ×
+            // heap-Str crossings included) and identity otherwise.
+            _ => (4, Operand::Value(elem)),
+        };
+        let fid = if want_bool {
+            ctx.intrinsics.any_svz
+        } else {
+            ctx.intrinsics.any_strict_eq
+        };
+        return ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(fid, vec![needle, Operand::ConstI64(tag), value]),
+            Type::Bool,
+            None,
+        );
+    }
     match elem_ty {
         // ES §23.1.3.16: `includes` uses SameValueZero, which
         // treats NaN as equal to NaN. IEEE 754 `fcmp oeq` is

@@ -64,6 +64,12 @@ pub(crate) fn coerce_needle(
             }
         }
         (Type::F64, Type::I64) => Ok(ctx.coerce_to_f64(needle_raw)),
+        // An `any` needle stays boxed — strict equality is by-tag,
+        // not a ToNumber coercion, so the compare axis packs the
+        // ELEMENT as the pair instead (`emit_compare`'s needle-Any
+        // arm). Coercing here would make `indexOf("2" as any)`
+        // match 2.
+        (_, Type::Any) => Ok(needle_raw),
         _ => Ok(needle_raw),
     }
 }

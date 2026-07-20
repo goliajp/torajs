@@ -72,6 +72,16 @@ pub(crate) fn try_route(
     {
         return Some(r);
     }
+    // Rotation 159 — `xs.{indexOf,lastIndexOf,includes}(anyNeedle,
+    // from?)` Any-needle admit over typed-element receivers — see
+    // [`crate::check_type_of_call_index_search_any`]. Paired with
+    // `emit_compare`'s needle-Any arm (element packs as the pair
+    // against the boxed needle; includes rides SameValueZero).
+    if let Some(r) =
+        crate::check_type_of_call_index_search_any::try_match(checker, ast, callee, args)
+    {
+        return Some(r);
+    }
     // V3-18 wedge — `xs.{push,unshift}(...vals)` variadic
     // Array-receiver arm — see
     // [`crate::check_type_of_call_array_push_unshift`] (chunk

@@ -103,7 +103,37 @@ pub unsafe extern "C" fn __torajs_anyv_bitnot_pair(tag: i64, value: i64) -> AnyV
 /// `rv` matches the SSA-layer packing.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_strict_eq_imm_pair(l: AnyValue, rt: i64, rv: i64) -> bool {
-    let r = match rt {
+    let r = rebuild_imm(rt, rv);
+    // SAFETY: anyv_strict_eq's contract — cell-case operands valid.
+    unsafe { __torajs_anyv_strict_eq(l, r) }
+}
+
+/// SameValueZero variant of [`__torajs_anyv_strict_eq_imm_pair`] —
+/// ES §7.2.9: strict equality except `NaN` equals `NaN` (±0 already
+/// equal under strict-eq). `Array.prototype.includes` (§23.1.3.16)
+/// with an `any` needle over a typed-element receiver is the
+/// consumer; indexOf / lastIndexOf keep the strict entry.
+///
+/// # Safety
+///
+/// Same as [`__torajs_anyv_strict_eq_imm_pair`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_svz_imm_pair(l: AnyValue, rt: i64, rv: i64) -> bool {
+    let r = rebuild_imm(rt, rv);
+    let l_nan = is_double(l) && as_double(l).is_nan();
+    let r_nan = is_double(r) && as_double(r).is_nan();
+    if l_nan && r_nan {
+        return true;
+    }
+    // SAFETY: anyv_strict_eq's contract — cell-case operands valid.
+    unsafe { __torajs_anyv_strict_eq(l, r) }
+}
+
+/// Reconstruct the SSA layer's statically-decoded `(tag, value)`
+/// pair as an AnyValue immediate — shared by the strict-eq and
+/// SameValueZero pair entries.
+fn rebuild_imm(rt: i64, rv: i64) -> AnyValue {
+    match rt {
         0 => VALUE_NULL,
         1 => {
             if rv != 0 {
@@ -129,9 +159,7 @@ pub unsafe extern "C" fn __torajs_anyv_strict_eq_imm_pair(l: AnyValue, rt: i64, 
         }
         5 => VALUE_UNDEFINED,
         _ => VALUE_NULL,
-    };
-    // SAFETY: anyv_strict_eq's contract — cell-case operands valid.
-    unsafe { __torajs_anyv_strict_eq(l, r) }
+    }
 }
 
 /// Pair-arg relational compare per ES §7.2.13. Takes ssa_lower's

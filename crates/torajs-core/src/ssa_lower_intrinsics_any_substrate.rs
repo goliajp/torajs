@@ -64,6 +64,9 @@ pub(crate) struct AnySubstrateIds {
     pub any_bitnot: FuncId,
     pub any_compare: FuncId,
     pub any_strict_eq: FuncId,
+    /// SameValueZero pair variant (§7.2.9) — `includes` with an
+    /// `any` needle over a typed-element receiver (NaN equals NaN).
+    pub any_svz: FuncId,
     pub any_any_strict_eq: FuncId,
     /// RFC 20260713-loose-eq-substrate blade 1 — IsLooselyEqual
     /// (§7.2.14) full coercion ladder over two AnyValues.
@@ -204,6 +207,7 @@ pub(crate) fn declare(
             Bool
         ),
         any_strict_eq: decl!("__torajs_anyv_strict_eq_imm_pair", [Any, I64, I64], Bool),
+        any_svz: decl!("__torajs_anyv_svz_imm_pair", [Any, I64, I64], Bool),
         any_any_strict_eq: decl!("__torajs_anyv_strict_eq", [Any, Any], Bool),
         any_any_loose_eq: decl!("__torajs_anyv_loose_eq", [Any, Any], Bool),
         any_box: decl!("__torajs_anyv_box_from_pair", [I64, I64], Any),
