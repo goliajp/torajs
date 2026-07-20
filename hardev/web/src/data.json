@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-20T12:02:27.375Z",
+  "generatedAt": "2026-07-20T12:30:57.542Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-20T10:52:27Z",
-    "headSha": "37b30aab",
-    "elapsedSec": 690.52,
+    "ranAt": "2026-07-20T12:29:22Z",
+    "headSha": "14c100bc",
+    "elapsedSec": 676.45,
     "workers": 8,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 8167,
+    "pass": 8227,
     "passNoOracle": 112,
     "passNegative": 4447,
-    "passTotal": 12726,
-    "bug": 945,
+    "passTotal": 12786,
+    "bug": 885,
     "incompatible": 39503,
     "bunSkip": 11908,
     "harnessError": 0,
     "inScope": 53174,
     "trAccepted": 13671,
-    "passRateInScope": 23.93,
-    "passRateTrAccepted": 93.09
+    "passRateInScope": 24.05,
+    "passRateTrAccepted": 93.53
   },
   "torajs": {
-    "commit": "14c100bc",
-    "commitSubject": "style: fmt-drift fix for the knife-4 dispatch table",
+    "commit": "602c6c8b",
+    "commitSubject": "chore: archive the test262 sweep at 6fbdd93a",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "602c6c8b",
+      "subject": "chore: archive the test262 sweep at 6fbdd93a"
+    },
+    {
+      "hash": "6fbdd93a",
+      "subject": "chore: hardev dashboard snapshot at rotation 164 close"
+    },
+    {
       "hash": "14c100bc",
       "subject": "style: fmt-drift fix for the knife-4 dispatch table"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "5dcc18e0",
       "subject": "chore: archive the test262 sweep at 37b30aab"
-    },
-    {
-      "hash": "37b30aab",
-      "subject": "fix: materialize a Substr view before quoting in the any-lane json serializer"
-    },
-    {
-      "hash": "c8e5bd62",
-      "subject": "fix: route an any separator through runtime dispatch on typed split"
     }
   ],
-  "headSha": "14c100bc",
+  "headSha": "602c6c8b",
   "autorun": {
     "total": 469,
     "baselineTarget": 10,
