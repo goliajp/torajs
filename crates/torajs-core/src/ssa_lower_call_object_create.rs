@@ -242,6 +242,25 @@ pub(crate) fn lower_create(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
                 None,
             );
         } else {
+            // A typed non-object props (`"ab" as any` — the As cast is
+            // an SSA pass-through, so the operand keeps Type::Str and
+            // the Any arm above never fires) must still hit the
+            // §20.1.2.3.1 step 1 ToObject faces: the non-empty-string
+            // face throws inside the gate; every other primitive
+            // answers NULL, so no walk is emitted. Static null is
+            // already stripped in `resolve_props`, and a typed
+            // `undefined` boxes to ANY_UNDEF which the gate no-ops —
+            // both spec-correct without a nullish pre-gate.
+            if !crate::ssa_lower_object_define::is_typed_object(p_ty.clone()) {
+                let boxed = ctx.box_to_any_from_expr(p_eid, p_op.clone());
+                ctx.f.append_inst(
+                    ctx.cur_block,
+                    InstKind::Call(ctx.intrinsics.define_props_source_gate, vec![boxed]),
+                    Type::Ptr,
+                    None,
+                );
+                ctx.emit_throw_check(None);
+            }
             ctx.release_owned_temp(p_eid, &p_op);
         }
     }

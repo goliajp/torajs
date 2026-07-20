@@ -94,7 +94,23 @@ pub(crate) fn try_lower_define_properties(
                 let boxed = ctx.box_to_any_from_expr(args[1], props_op.clone());
                 ctx.f.append_void(
                     ctx.cur_block,
-                    InstKind::Call(ctx.intrinsics.throw_typeerror_if_props_nullish, vec![boxed]),
+                    InstKind::Call(
+                        ctx.intrinsics.throw_typeerror_if_props_nullish,
+                        vec![boxed.clone()],
+                    ),
+                );
+                ctx.emit_throw_check(None);
+                // §20.1.2.3.1 step 1 ToObject — the nullish gate alone
+                // let a typed non-empty string (`"xy" as any` keeps
+                // Type::Str through the As pass-through) fall through
+                // to the eval-drop below; the source gate's non-empty-
+                // string face throws, every other primitive answers
+                // NULL (walk no-op, so none is emitted).
+                ctx.f.append_inst(
+                    ctx.cur_block,
+                    InstKind::Call(ctx.intrinsics.define_props_source_gate, vec![boxed]),
+                    Type::Ptr,
+                    None,
                 );
                 ctx.emit_throw_check(None);
             } else if matches!(props_ty, Type::Any) {
