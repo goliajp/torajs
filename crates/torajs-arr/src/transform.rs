@@ -31,33 +31,33 @@ unsafe extern "C" {
 }
 
 #[inline]
-unsafe fn arr_len(arr: *const u8) -> u64 {
+pub(crate) unsafe fn arr_len(arr: *const u8) -> u64 {
     unsafe { (arr.add(ARR_LEN_OFF) as *const u64).read() }
 }
 
 #[inline]
-unsafe fn set_arr_len(arr: *mut u8, v: u64) {
+pub(crate) unsafe fn set_arr_len(arr: *mut u8, v: u64) {
     unsafe { (arr.add(ARR_LEN_OFF) as *mut u64).write(v) };
 }
 
 #[inline]
-unsafe fn arr_cap(arr: *const u8) -> u32 {
+pub(crate) unsafe fn arr_cap(arr: *const u8) -> u32 {
     unsafe { (arr.add(ARR_CAP_OFF) as *const u32).read() }
 }
 
 #[inline]
-unsafe fn arr_head(arr: *const u8) -> u32 {
+pub(crate) unsafe fn arr_head(arr: *const u8) -> u32 {
     unsafe { (arr.add(ARR_HEAD_OFF) as *const u32).read() }
 }
 
 #[inline]
-unsafe fn set_arr_head(arr: *mut u8, v: u32) {
+pub(crate) unsafe fn set_arr_head(arr: *mut u8, v: u32) {
     unsafe { (arr.add(ARR_HEAD_OFF) as *mut u32).write(v) };
 }
 
 /// Pointer to logical slot 0 — folds `head_offset` into the math.
 #[inline]
-unsafe fn data_ptr(arr: *const u8) -> *mut u8 {
+pub(crate) unsafe fn data_ptr(arr: *const u8) -> *mut u8 {
     let head = unsafe { arr_head(arr) } as usize;
     unsafe { arr_data(arr).add(head * 8) }
 }
@@ -65,7 +65,7 @@ unsafe fn data_ptr(arr: *const u8) -> *mut u8 {
 /// Pointer to physical slot `i` — bypasses `head_offset` so the
 /// caller writes into the slack region (e.g. unshift's grow path).
 #[inline]
-unsafe fn data_ptr_raw(arr: *const u8, i: usize) -> *mut u8 {
+pub(crate) unsafe fn data_ptr_raw(arr: *const u8, i: usize) -> *mut u8 {
     unsafe { arr_data(arr).add(i * 8) }
 }
 
@@ -73,7 +73,7 @@ unsafe fn data_ptr_raw(arr: *const u8, i: usize) -> *mut u8 {
 /// with explicit len + cap. The public [`crate::__torajs_arr_alloc`]
 /// sets len=0; this internal helper preserves the "alloc + write
 /// len in one go" pattern from `runtime_str.c::arr_alloc_`.
-unsafe fn arr_alloc_with(len: u64, cap: u64) -> *mut u8 {
+pub(crate) unsafe fn arr_alloc_with(len: u64, cap: u64) -> *mut u8 {
     let block_size = ARR_CELL_SIZE + (cap as usize) * 8;
     let p = unsafe { malloc(block_size) } as *mut u8;
     if p.is_null() {
@@ -294,72 +294,10 @@ pub unsafe extern "C" fn __torajs_arr_copy_within(
     arr
 }
 
-/// `arr.splice(start, delete_count)` — remove `delete_count` slots
-/// starting at logical `start`, returning the removed slice as a
-/// fresh `Array<T>`. Trailing slots compact left into the gap; the
-/// receiver's `len` shrinks by the actual delete count. Subset:
-/// no `...items` insert args (ES rest-arg surface deferred).
-///
-/// Per ES spec §23.1.3.31:
-///   - `start < 0`        → `max(len + start, 0)`
-///   - `start > len`      → `len`
-///   - `delete_count < 0` → `0`
-///   - `delete_count > len - actual_start` → `len - actual_start`
-///
-/// Receiver pointer is unchanged (no realloc — splice only shrinks
-/// the live range), so the SSA dispatch can skip the slot-writeback
-/// that push / unshift need.
-///
-/// # Safety
-/// `arr` must be a valid Array<T> heap block (8-byte slots).
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_arr_splice(
-    arr: *mut u8,
-    start: i64,
-    delete_count: i64,
-) -> *mut u8 {
-    let len = unsafe { arr_len(arr) } as i64;
-    let actual_start = if start < 0 {
-        let s = start + len;
-        if s < 0 { 0 } else { s }
-    } else if start > len {
-        len
-    } else {
-        start
-    };
-    let actual_delete = if delete_count < 0 {
-        0
-    } else if delete_count > len - actual_start {
-        len - actual_start
-    } else {
-        delete_count
-    };
-    let removed = unsafe { arr_alloc_with(actual_delete as u64, actual_delete as u64) };
-    unsafe { crate::layout::copy_elem_desc_bits(arr, removed) };
-    if actual_delete > 0 {
-        unsafe {
-            core::ptr::copy_nonoverlapping(
-                data_ptr(arr).add(actual_start as usize * 8),
-                data_ptr_raw(removed, 0),
-                actual_delete as usize * 8,
-            );
-        }
-    }
-    let trailing = len - actual_start - actual_delete;
-    if trailing > 0 && actual_delete > 0 {
-        unsafe {
-            core::ptr::copy(
-                data_ptr(arr).add((actual_start + actual_delete) as usize * 8),
-                data_ptr(arr).add(actual_start as usize * 8),
-                trailing as usize * 8,
-            );
-        }
-    }
-    unsafe {
-        set_arr_len(arr, (len - actual_delete) as u64);
-    }
-    removed
-}
+// `__torajs_arr_splice` + the `...items` insert sibling live in
+// `transform_splice.rs` (RFC 20260720-splice-insert knife 1 — this
+// file sat at 474 LOC and the insert kernel would cross the 500
+// hard limit).
 
 /// `arr.fill(value, start, end)` — write `value` into `[start, end)`.
 /// Indices clamped to `[0, len]`. Element-type-agnostic — value is
