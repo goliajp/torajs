@@ -338,6 +338,18 @@ fn try_then_array(
                 Ok(t) => t,
                 Err(e) => return Some(Err(e)),
             };
+            /* RFC 20260720-promise-any-cb residual — `(v: any) => R`
+             * over the Array-inner lane too (the combinator-result
+             * shape: `Promise.allSettled(...).then((r: any) => ...)`).
+             * Same knife-2 admit: the lowering marks PARAM_ANY off
+             * the SSA sig and the kernel boxes per the source's
+             * REPR_HEAP stamp; result is Promise<R>. */
+            if let Type::Function(params, ret) = &cb_ty
+                && params.len() == 1
+                && matches!(params[0], Type::Any)
+            {
+                return Some(Ok(Type::Promise(ret.clone())));
+            }
             if let Type::Function(params, ret) = &cb_ty
                 && params.len() == 1
                 && params[0] == inner_arr_ty
