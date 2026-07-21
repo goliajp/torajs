@@ -27,6 +27,10 @@ unsafe extern "C" {
     /// torajs-arr — expando probe through the props slot.
     fn __torajs_arrprops_get_tag(arr: *mut c_void, key: *const c_void) -> u64;
     fn __torajs_arrprops_get_value(arr: *mut c_void, key: *const c_void) -> u64;
+    /// torajs-regex — boxed-form lastIndex peek (BORROW; 0 = numeric
+    /// form) + the numeric f64 getter.
+    fn __torajs_regex_last_index_raw(re: *const c_void) -> u64;
+    fn __torajs_regex_get_last_index(re: *const c_void) -> f64;
 }
 
 /// See `member_get.rs`'s module doc.
@@ -194,6 +198,19 @@ pub unsafe extern "C" fn __torajs_any_member_get_value(recv: AnyValue, key: *con
         Some((ptr, t)) if t == Tag::Symbol as u16 => unsafe {
             if crate::prop_has::key_is(key, b"description") {
                 return crate::member_get_layout::symbol_desc(ptr) as u64;
+            }
+            reify_value(recv, key)
+        },
+        // §22.2.4.1 lastIndex — value channel (mirror of the tag
+        // twin in member_get.rs; borrow-shaped like the dynobj
+        // bucket).
+        Some((ptr, t)) if t == Tag::RegExp as u16 => unsafe {
+            if crate::prop_has::key_is(key, b"lastIndex") {
+                let raw = __torajs_regex_last_index_raw(ptr);
+                if raw != 0 {
+                    return crate::__torajs_anyv_unbox_value(raw) as u64;
+                }
+                return __torajs_regex_get_last_index(ptr).to_bits();
             }
             reify_value(recv, key)
         },

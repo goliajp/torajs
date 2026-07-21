@@ -72,6 +72,10 @@ unsafe extern "C" {
     fn __torajs_struct_field_find(layout: *const c_void, name: *const u8, name_len: u32) -> u32;
     /// torajs-throw — record a pending catchable TypeError.
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
+    /// torajs-regex — boxed-form lastIndex peek (BORROW; 0 = numeric
+    /// form) + the numeric f64 getter.
+    fn __torajs_regex_last_index_raw(re: *const c_void) -> u64;
+    fn __torajs_regex_get_last_index(re: *const c_void) -> f64;
 }
 
 // Cell-layout mirrors + tag/flag probes — split to
@@ -234,6 +238,23 @@ pub unsafe extern "C" fn __torajs_any_member_get_tag(recv: AnyValue, key: *const
                 if __torajs_dynobj_has(wp, key) != 0 {
                     return 5;
                 }
+            }
+            reify_tag(recv, key)
+        },
+        // §22.2.4.1 — a RegExp instance owns exactly `lastIndex`; a
+        // DYNAMIC key spelling it must answer like the static hint
+        // lane (`any_regexp_prop`). Boxed verbatim form (non-numeric
+        // any-lane store) unboxes to the pair (borrow — the cell's
+        // slot keeps the stake, same convention as the dynobj
+        // bucket); numeric form is an F64 pair. Any other key falls
+        // to the builtin-method reify probe.
+        Some((ptr, t)) if t == Tag::RegExp as u16 => unsafe {
+            if crate::prop_has::key_is(key, b"lastIndex") {
+                let raw = __torajs_regex_last_index_raw(ptr);
+                if raw != 0 {
+                    return crate::__torajs_anyv_unbox_tag(raw) as u64;
+                }
+                return AnySlotTag::F64 as u64;
             }
             reify_tag(recv, key)
         },

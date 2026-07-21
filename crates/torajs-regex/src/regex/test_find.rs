@@ -31,7 +31,7 @@ pub unsafe extern "C" fn __torajs_regex_test(re_ptr: *const c_void, str_ptr: *co
     // `str_slice` owns the transcode; the walk is identity-valued on
     // pure-ASCII bytes and dominated by that O(n) transcode.
     let start = if track {
-        utf16_units_to_byte(&s, re.last_index.max(0.0) as i64, false)
+        utf16_units_to_byte(&s, re.last_index_i64(), false)
     } else {
         0
     };
@@ -55,13 +55,13 @@ pub unsafe extern "C" fn __torajs_regex_test(re_ptr: *const c_void, str_ptr: *co
     match hit_end {
         None => {
             if track {
-                re.last_index = 0.0;
+                re.set_last_index_num(0.0);
             }
             0
         }
         Some(end) => {
             if track {
-                re.last_index = byte_to_utf16_units(&s, end, false) as f64;
+                re.set_last_index_num(byte_to_utf16_units(&s, end, false) as f64);
             }
             1
         }

@@ -177,3 +177,19 @@ pub unsafe extern "C" fn __torajs_throw_type_error(_msg: *const u8) {
         "torajs-regex test stub: __torajs_throw_type_error should not be called from cargo test"
     );
 }
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_to_number(_v: u64) -> f64 {
+    panic!(
+        "torajs-regex test stub: __torajs_anyv_to_number should not be called from cargo test (lastIndex stays in numeric form there)"
+    );
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_value_drop_heap(_child: *mut core::ffi::c_void) {
+    panic!(
+        "torajs-regex test stub: __torajs_value_drop_heap should not be called from cargo test (lastIndex stays in numeric form there)"
+    );
+}

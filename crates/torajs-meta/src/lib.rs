@@ -222,6 +222,14 @@ pub unsafe extern "C" fn __torajs_regex_get_last_index(_re: *const core::ffi::c_
 
 #[cfg(test)]
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_regex_last_index_raw(_re: *const core::ffi::c_void) -> u64 {
+    panic!(
+        "torajs-meta test stub: __torajs_regex_last_index_raw should not be called from cargo test"
+    );
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_builtin_proto_own_accessor_getter(
     _dynobj: *const core::ffi::c_void,
     _key: *const core::ffi::c_void,

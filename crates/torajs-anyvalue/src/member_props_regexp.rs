@@ -35,7 +35,13 @@ unsafe extern "C" {
     fn __torajs_regex_get_source(re: *const c_void) -> *mut c_void;
     fn __torajs_regex_get_flags(re: *const c_void) -> *mut c_void;
     fn __torajs_regex_get_last_index(re: *const c_void) -> f64;
+    /// torajs-regex — boxed-form lastIndex peek (BORROW; 0 = numeric
+    /// form). The reader incs a heap cell per the boxed-value
+    /// convention.
+    fn __torajs_regex_last_index_raw(re: *const c_void) -> u64;
     fn __torajs_regex_has_flag(re: *const c_void, bit: i64) -> i64;
+    /// torajs-rc — mint the reader's stake on a boxed-form heap cell.
+    fn __torajs_rc_inc(p: *mut c_void);
     /// torajs-dynobj — own-property probe pair ((5, 0) = absent).
     fn __torajs_dynobj_get_tag(obj: *const c_void, key: *const c_void) -> u64;
     fn __torajs_dynobj_get_value(obj: *const c_void, key: *const c_void) -> u64;
@@ -84,6 +90,16 @@ pub unsafe extern "C" fn __torajs_any_regexp_prop(
                     __torajs_anyv_box_from_pair(4, __torajs_regex_get_flags(ptr) as i64)
                 }
                 p if p == ANY_RPROP_LAST_INDEX => {
+                    // §22.2.4.1 — a non-numeric any-lane store reads
+                    // back VERBATIM (boxed overflow slot); numeric
+                    // form boxes the f64 field as before.
+                    let raw = __torajs_regex_last_index_raw(ptr);
+                    if raw != 0 {
+                        if is_cell(raw) {
+                            __torajs_rc_inc(as_void_ptr(raw));
+                        }
+                        return raw;
+                    }
                     let li = __torajs_regex_get_last_index(ptr);
                     __torajs_anyv_box_from_pair(3, li.to_bits() as i64)
                 }

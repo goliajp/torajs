@@ -47,6 +47,13 @@ unsafe extern "C" {
     // torajs-regex — a RegExp instance's `lastIndex` slot (RFC
     // 20260722 刀 4).
     fn __torajs_regex_get_last_index(re: *const c_void) -> f64;
+    /// torajs-regex — boxed-form lastIndex peek (BORROW; 0 = numeric
+    /// form).
+    fn __torajs_regex_last_index_raw(re: *const c_void) -> u64;
+    /// torajs-anyvalue — NaN-box → (tag, value) pair decode for the
+    /// descriptor builder.
+    fn __torajs_anyv_unbox_tag(v: u64) -> i64;
+    fn __torajs_anyv_unbox_value(v: u64) -> i64;
     // torajs-rc — lazy `<Ctor>.prototype` singleton by builtin tag
     // (Array=2 / String=3 / RegExp=7 / Date=8 / Map=11 / Set=12 /
     // Function=13; `builtin_proto.rs` order).
@@ -319,6 +326,18 @@ pub unsafe extern "C" fn __torajs_anyv_get_property_descriptor(
     // prototype surface, absent as own.
     if htag == TAG_REGEXP {
         if unsafe { crate::closure_reflect::key_is(key, b"lastIndex") } {
+            // §22.2.4.1 — a non-numeric any-lane store reads back
+            // VERBATIM (boxed overflow slot; the descriptor takes its
+            // own stake on a heap cell); numeric form boxes the f64.
+            let raw = unsafe { __torajs_regex_last_index_raw(dynobj) };
+            if raw != 0 {
+                if is_cell_imm(raw) {
+                    unsafe { __torajs_rc_inc(raw as *mut c_void) };
+                }
+                let t = unsafe { __torajs_anyv_unbox_tag(raw) } as u64;
+                let v = unsafe { __torajs_anyv_unbox_value(raw) } as u64;
+                return unsafe { build_data_descriptor(t, v, 1, 0, 0) };
+            }
             let li = unsafe { __torajs_regex_get_last_index(dynobj) };
             return unsafe { build_data_descriptor(3, li.to_bits(), 1, 0, 0) };
         }

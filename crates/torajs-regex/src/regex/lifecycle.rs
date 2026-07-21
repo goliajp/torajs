@@ -23,10 +23,16 @@ pub unsafe extern "C" fn __torajs_regex_drop(re_ptr: *mut c_void) {
     if unsafe { __torajs_rc_dec(re_ptr) } == 0 {
         return;
     }
-    // Last ref — reclaim the Box and let Rust recursively Drop the
-    // Program (Vec<Inst> + Vec<CharClass> + Vec<Box<Program>>),
+    // Last ref — release a boxed-form lastIndex's heap stake (any-
+    // lane stores keep the assigned value verbatim, one owned rc for
+    // a cell), then reclaim the Box and let Rust recursively Drop
+    // the Program (Vec<Inst> + Vec<CharClass> + Vec<Box<Program>>),
     // src_bytes (Vec<u8>), capture_names (Vec<Vec<u8>>).
     unsafe {
+        let boxed = as_regex(re_ptr).last_index_boxed;
+        if boxed != 0 {
+            super::__torajs_value_drop_heap(boxed as *mut c_void);
+        }
         let _ = Box::from_raw(re_ptr as *mut RegExp);
     }
 }
@@ -59,7 +65,10 @@ pub unsafe extern "C" fn __torajs_regex_get_source(re_ptr: *const c_void) -> *mu
     s as *mut c_void
 }
 
-/// `re.lastIndex` getter. Port of `__torajs_regex_get_last_index`.
+/// `re.lastIndex` numeric getter — the typed-tier lane
+/// (`re.lastIndex` under the static `number` type). Boxed form
+/// (a non-numeric value stored by the any lane) coerces through
+/// ToNumber, matching what the typed reader can represent.
 ///
 /// # Safety
 ///
@@ -69,11 +78,15 @@ pub unsafe extern "C" fn __torajs_regex_get_last_index(re_ptr: *const c_void) ->
     if re_ptr.is_null() {
         return 0.0;
     }
-    unsafe { as_regex(re_ptr) }.last_index
+    let re = unsafe { as_regex(re_ptr) };
+    if re.last_index_boxed != 0 {
+        return unsafe { super::__torajs_anyv_to_number(re.last_index_boxed) };
+    }
+    re.last_index
 }
 
-/// `re.lastIndex = idx` setter. Port of
-/// `__torajs_regex_set_last_index`.
+/// `re.lastIndex = idx` numeric setter (typed-tier lane) — resets a
+/// boxed-form value back to numeric form (dropping its heap stake).
 ///
 /// # Safety
 ///
@@ -83,7 +96,45 @@ pub unsafe extern "C" fn __torajs_regex_set_last_index(re_ptr: *mut c_void, idx:
     if re_ptr.is_null() {
         return;
     }
-    unsafe { as_regex_mut(re_ptr) }.last_index = idx;
+    unsafe { as_regex_mut(re_ptr) }.set_last_index_num(idx);
+}
+
+/// Boxed-form `lastIndex` peek (RFC 20260722 any-slot 刀) — the raw
+/// NaN-box bits a non-numeric any-lane store left, or 0 for numeric
+/// form (the caller then reads the f64 getter and boxes it). BORROW
+/// semantics: no rc transfer — the any-lane reader incs per the
+/// boxed-value convention.
+///
+/// # Safety
+///
+/// `re_ptr` is null or a live `*RegExp`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_regex_last_index_raw(re_ptr: *const c_void) -> u64 {
+    if re_ptr.is_null() {
+        return 0;
+    }
+    unsafe { as_regex(re_ptr) }.last_index_boxed
+}
+
+/// Boxed-form `lastIndex` store (any-lane non-numeric assignment,
+/// §22.2.4.1 — the value stores verbatim; ToLength happens at the
+/// exec-entry consumption). TRANSFER semantics: the caller minted /
+/// inc'd one rc for a heap cell; a previously boxed value releases.
+///
+/// # Safety
+///
+/// `re_ptr` is null or a live `*RegExp`; `v` is a valid NaN-box
+/// AnyValue whose heap stake (if any) transfers to the cell.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_regex_last_index_store_boxed(re_ptr: *mut c_void, v: u64) {
+    if re_ptr.is_null() {
+        return;
+    }
+    let re = unsafe { as_regex_mut(re_ptr) };
+    if re.last_index_boxed != 0 {
+        unsafe { super::__torajs_value_drop_heap(re.last_index_boxed as *mut c_void) };
+    }
+    re.last_index_boxed = v;
 }
 
 /// `re.flags` — returns the spec-ordered flag string ("g" / "im" /

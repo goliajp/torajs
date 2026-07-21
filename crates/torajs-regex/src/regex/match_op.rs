@@ -230,6 +230,19 @@ pub unsafe extern "C" fn __torajs_str_match_regex(
     // branch. Sticky-only callers (typical `r.exec` / `str.match(r)`
     // with /y/) skip this ~50KB allocation entirely.
     let mut ws: Option<Workspace> = None;
+    // A boxed-form lastIndex (non-numeric any-lane store) normalizes
+    // to numeric ONLY on the shapes that consume it (§22.2.7.2 reads
+    // + always re-Sets lastIndex under global/sticky, so the verbatim
+    // value is dead either way); a plain non-global non-sticky match
+    // never touches lastIndex and must leave the stored value intact.
+    // Done before the dfa_view borrow so the sticky arm below can
+    // keep its disjoint field writes.
+    if (global || sticky) && re.last_index_boxed != 0 {
+        let n = unsafe { super::__torajs_anyv_to_number(re.last_index_boxed) };
+        unsafe { super::__torajs_value_drop_heap(re.last_index_boxed as *mut c_void) };
+        re.last_index_boxed = 0;
+        re.last_index = n;
+    }
     // Phase C-3 — bind the AOT-baked DFA view once outside the loop;
     // see match_all.rs for the rationale.
     // Round 3 Phase B sub-batch 7.2 — runtime-baked DFA fallback.
@@ -241,12 +254,14 @@ pub unsafe extern "C" fn __torajs_str_match_regex(
         let hit = if !global && sticky {
             // lastIndex is spec'd in UTF-16 code units; the engine
             // works in transcoded UTF-8 bytes — map on read + write.
-            let start = utf16_units_to_byte(&s, re.last_index.max(0.0) as i64, haystack_is_ascii);
+            let start = utf16_units_to_byte(&s, re.last_index_i64(), haystack_is_ascii);
             let h = if start > slen {
                 None
             } else {
                 match_anchor(&re.prog, &s, start, re.flags)
             };
+            // Disjoint field write (the boxed form was normalized
+            // above the dfa_view borrow, so no drop is needed here).
             re.last_index = h
                 .as_ref()
                 .map(|m| byte_to_utf16_units(&s, m.end, haystack_is_ascii) as f64)
@@ -331,7 +346,7 @@ pub unsafe extern "C" fn __torajs_str_match_regex(
         // the exec loop, and the loop only terminates on an exec miss
         // which itself stores 0 — so the observable post-state is
         // always 0, even when the caller pre-set a nonzero value.
-        re.last_index = 0.0;
+        re.set_last_index_num(0.0);
     }
     out
 }
@@ -377,7 +392,7 @@ pub unsafe extern "C" fn __torajs_regex_exec(
     // map to a byte offset in the transcoded haystack. Out-of-range
     // maps to slen + 1 so the `start > slen` guard below fires.
     let start = if track {
-        utf16_units_to_byte(s, re.last_index.max(0.0) as i64, haystack_is_ascii)
+        utf16_units_to_byte(s, re.last_index_i64(), haystack_is_ascii)
     } else {
         0
     };
@@ -395,12 +410,12 @@ pub unsafe extern "C" fn __torajs_regex_exec(
     };
     let Some(m) = m else {
         if track {
-            re.last_index = 0.0;
+            re.set_last_index_num(0.0);
         }
         return core::ptr::null_mut();
     };
     if track {
-        re.last_index = byte_to_utf16_units(s, m.end, haystack_is_ascii) as f64;
+        re.set_last_index_num(byte_to_utf16_units(s, m.end, haystack_is_ascii) as f64);
     }
     // Round 5 attack #6 — pre-size to the exec shape (see match loop
     // above); the pushes below fill exactly 1 + n_cap_lim slots.

@@ -64,6 +64,10 @@ unsafe extern "C" {
     fn __torajs_arr_index_revive(arr: *mut c_void, key: *mut c_void);
     /// torajs-regex — `re.lastIndex` setter.
     fn __torajs_regex_set_last_index(re: *mut c_void, idx: f64);
+    /// torajs-regex — verbatim non-numeric lastIndex store (§22.2.4.1
+    /// any-slot; TRANSFER — the boxed value's heap stake moves to the
+    /// cell).
+    fn __torajs_regex_last_index_store_boxed(re: *mut c_void, v: u64);
     /// torajs-dynobj — fresh empty table for the first closure
     /// expando write.
     fn __torajs_dynobj_alloc() -> *mut c_void;
@@ -340,7 +344,12 @@ pub unsafe extern "C" fn __torajs_any_member_set(
             set_dynobj_member(recv_slot, recv, ptr, key, tag, value);
             return;
         }
-        if cell_tag == Tag::RegExp as u16 && hint == ANY_RPROP_LAST_INDEX {
+        // The hint is the compile-time interned fast path; a DYNAMIC
+        // key spelling `lastIndex` (`re[k] = v`) misses it, so the
+        // byte probe backstops (§22.2.4.1 — same property either way).
+        if cell_tag == Tag::RegExp as u16
+            && (hint == ANY_RPROP_LAST_INDEX || crate::prop_has::key_is(key, b"lastIndex"))
+        {
             let idx = match tag {
                 2 => value as i64 as f64,
                 // The f64 slot stores fractional values uncoerced
@@ -348,10 +357,15 @@ pub unsafe extern "C" fn __torajs_any_member_set(
                 // happens at the regex kernels' consumption sites.
                 3 => f64::from_bits(value),
                 _ => {
-                    // Non-numeric lastIndex payloads are a recorded
-                    // boundary (ES stores any value; the cell field
-                    // is f64) — loud, not a silent 0.
-                    reject(tag, value);
+                    // §22.2.4.1 — lastIndex is an ordinary
+                    // {writable: true} data property: a non-numeric
+                    // value stores VERBATIM in the cell's boxed
+                    // overflow slot (ToLength happens at the
+                    // exec-entry consumption). The pair's +1 heap
+                    // stake transfers to the cell.
+                    let v =
+                        crate::nanbox_encode::__torajs_anyv_box_from_pair(tag as i64, value as i64);
+                    __torajs_regex_last_index_store_boxed(ptr, v);
                     return;
                 }
             };

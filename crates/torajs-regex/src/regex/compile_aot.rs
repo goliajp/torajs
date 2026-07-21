@@ -181,6 +181,7 @@ pub unsafe extern "C" fn __torajs_regex_compile_from_static_dfa(
         capture_names,
         n_named_captures,
         last_index: 0.0,
+        last_index_boxed: 0,
         workspace_cache: core::cell::UnsafeCell::new(None),
         replace_out_cache: core::cell::UnsafeCell::new(alloc::vec::Vec::new()),
         baked_dfa,

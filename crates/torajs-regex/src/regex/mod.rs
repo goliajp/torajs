@@ -99,8 +99,24 @@ pub struct RegExp {
     /// 0 in `compile`. An f64 because lastIndex is an ordinary data
     /// property — assignment stores the value uncoerced (`r.lastIndex
     /// = 2.9` reads back 2.9); ToLength happens at the consumption
-    /// sites (`.max(0.0) as i64`, NaN → 0 via max).
+    /// sites (`.max(0.0) as i64`, NaN → 0 via max). The numeric fast
+    /// slot of the pair — valid only while [`Self::last_index_boxed`]
+    /// is 0.
     pub last_index: f64,
+    /// Non-numeric `lastIndex` overflow slot (RFC 20260722 L3b
+    /// any-slot 刀) — §22.2.4.1 makes lastIndex an ordinary
+    /// `{writable: true}` data property, so `re.lastIndex = "abc"`
+    /// must store the string UNCOERCED and read it back identically
+    /// (ToLength happens only at the §22.2.7.2 exec entry). 0 =
+    /// numeric form (read [`Self::last_index`]); non-0 = a NaN-box
+    /// AnyValue holding the assigned value verbatim (one owned rc
+    /// for a heap cell — released by the numeric-write reset, the
+    /// boxed re-store, and the RegExp drop). Every internal
+    /// consumption site reads through [`Self::last_index_i64`] and
+    /// every internal advance/reset writes through
+    /// [`Self::set_last_index_num`], so the numeric-only fast path
+    /// never touches the box externs (cargo-test stubs stay cold).
+    pub last_index_boxed: u64,
     /// V0.2 P14-S8 — per-RegExp Pike VM workspace cache. The
     /// pre-S8 `__torajs_str_replace_regex` (and matchAll / split-
     /// regex / etc) called `Workspace::for_program(&prog)` on
@@ -232,6 +248,42 @@ unsafe extern "C" {
     /// it instead of NULL so downstream print / eq / typeof can tell
     /// JS undefined from JS null.
     pub fn __torajs_str_undef() -> *mut u8;
+    /// torajs-anyvalue — §7.1.4 ToNumber over a NaN-box AnyValue
+    /// (lastIndex boxed-form consumption; numeric fast path never
+    /// calls it).
+    pub fn __torajs_anyv_to_number(v: u64) -> f64;
+    /// torajs-value-drop — universal heap-value release (NaN-box-safe:
+    /// the cell gate inside filters immediates, so callers pass the
+    /// raw box bits unconditionally).
+    pub fn __torajs_value_drop_heap(child: *mut c_void);
+}
+
+impl RegExp {
+    /// §22.2.7.2-shaped `lastIndex` consumption — ToLength'd to a
+    /// non-negative i64 (NaN → 0 via the max). Numeric form reads the
+    /// f64 slot directly; the boxed form (a non-numeric value stored
+    /// verbatim by the any-lane setter) coerces through ToNumber.
+    pub fn last_index_i64(&self) -> i64 {
+        if self.last_index_boxed != 0 {
+            let n = unsafe { __torajs_anyv_to_number(self.last_index_boxed) };
+            if n.is_nan() {
+                return 0;
+            }
+            return n.max(0.0) as i64;
+        }
+        self.last_index.max(0.0) as i64
+    }
+
+    /// Internal numeric `lastIndex` write (exec/test advance +
+    /// global/sticky miss reset) — releases any boxed-form value and
+    /// returns the pair to numeric form.
+    pub fn set_last_index_num(&mut self, n: f64) {
+        if self.last_index_boxed != 0 {
+            unsafe { __torajs_value_drop_heap(self.last_index_boxed as *mut c_void) };
+            self.last_index_boxed = 0;
+        }
+        self.last_index = n;
+    }
 }
 
 // ---- Shared helpers ----
