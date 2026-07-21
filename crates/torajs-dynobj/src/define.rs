@@ -155,6 +155,20 @@ pub(crate) unsafe fn define_apply(
         }
         return;
     }
+    // Any other non-dynobj cell (typed Struct / Date / RegExp / Map /
+    // ...) — same family as the three arms above: walking a foreign
+    // layout as a dynobj header (count/cap read off arbitrary field
+    // bytes) is silent corruption. These receivers have no expando
+    // define storage yet (RFC 20260721 刀 2b backlog — mirrored by the
+    // lowering's typed-receiver no-op in ssa_lower_object_define);
+    // release the transferred [[Value]] stake and leave the cell
+    // intact.
+    if htag != crate::layout::TAG_DYNOBJ {
+        if flags_byte & DEFINE_PRESENT_VALUE != 0 {
+            unsafe { drop_rejected_value(tag, value) };
+        }
+        return;
+    }
     // A define landing on a builtin `<Ctor>.prototype` singleton is
     // a monkey-patch — note it for the fast-arm pre-gate (RFC
     // 20260721 刀 11 G13; one relaxed load when no singleton exists).

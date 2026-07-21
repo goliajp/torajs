@@ -68,7 +68,7 @@ fn lower_global_assign(
             "ssa-lower: assignment to refcount global `{name}` is not yet supported (K.6 — mutable Arr/Obj globals need method-mutation writeback)"
         );
     }
-    let v = ctx.lower_expr(value);
+    let v = lower_assign_rhs(ctx, slot_ty, value);
     // Chunk 558 — mutable Str globals; chunk 730 (RFC
     // 20260709-closure-global) — mutable Closure globals ride the
     // same sequence (a fresh `(x) => ...` rhs is an owned env mint
@@ -161,7 +161,7 @@ fn lower_local_assign(ctx: &mut LowerCtx<'_>, name: String, value: ExprId) -> Op
         Some(i) => *i,
         None => panic!("ssa-lower: assign to unknown ident `{name}`"),
     };
-    let v = ctx.lower_expr(value);
+    let v = lower_assign_rhs(ctx, snapshot.ty, value);
     apply_borrow_rc_inc(ctx, &v, value);
     let v_ty = ctx.operand_ty(&v);
     check_local_coercion(ctx, &name, snapshot.ty, v_ty);
@@ -194,6 +194,23 @@ fn lower_local_assign(ctx: &mut LowerCtx<'_>, name: String, value: ExprId) -> Op
         info.moved = false;
     }
     v
+}
+
+/// RHS lowering for an ident assignment — an ObjectLit entering an
+/// `any` slot promotes to the dynobj lane (mirror of `lower_as_cast`'s
+/// RFC 20260717-objlit-anylane-recv knife 2 promote and the let-decl
+/// P3.2 `let x: any = {...}` route): the struct lane would box an anon
+/// static-layout cell into the Any face, and every downstream Any
+/// consumer — defineProperty's kernel dynobj walk (silent corruption
+/// on the foreign layout), descriptor walks, any-member dispatch —
+/// needs the dynobj shape. The init and reassign forms of the same
+/// expression must land in the same lane.
+fn lower_assign_rhs(ctx: &mut LowerCtx<'_>, slot_ty: Type, value: ExprId) -> Operand {
+    if slot_ty == Type::Any && matches!(ctx.ast.get_expr(value), Expr::ObjectLit { .. }) {
+        let dynobj = ctx.lower_dynobj_init(value);
+        return ctx.box_to_any(dynobj);
+    }
+    ctx.lower_expr(value)
 }
 
 fn apply_borrow_rc_inc(ctx: &mut LowerCtx<'_>, v: &Operand, value: ExprId) {
