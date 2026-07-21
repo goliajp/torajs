@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-21T16:51:23.179Z",
+  "generatedAt": "2026-07-21T18:28:31.293Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-21T00:10:58Z",
-    "headSha": "7c9b03e1",
-    "elapsedSec": 695.36,
+    "ranAt": "2026-07-21T18:12:12Z",
+    "headSha": "3f70aa85",
+    "elapsedSec": 933.96,
     "workers": 8,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 8511,
-    "passNoOracle": 113,
+    "pass": 8613,
+    "passNoOracle": 115,
     "passNegative": 4447,
-    "passTotal": 13071,
-    "bug": 687,
-    "incompatible": 39416,
-    "bunSkip": 11908,
+    "passTotal": 13175,
+    "bug": 611,
+    "incompatible": 39388,
+    "bunSkip": 11907,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 13758,
-    "passRateInScope": 24.58,
-    "passRateTrAccepted": 95.01
+    "trAccepted": 13786,
+    "passRateInScope": 24.78,
+    "passRateTrAccepted": 95.57
   },
   "torajs": {
-    "commit": "6420fb21",
-    "commitSubject": "feat: generator factory prototype face rides the gen class proto",
+    "commit": "5fb9f5d2",
+    "commitSubject": "fix: hasOwn compile-time fold recognizes struct accessor half-slots",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,38 @@
   },
   "commits": [
     {
+      "hash": "5fb9f5d2",
+      "subject": "fix: hasOwn compile-time fold recognizes struct accessor half-slots"
+    },
+    {
+      "hash": "c2f0ac14",
+      "subject": "chore: test262 sweep at 3f70aa85 — passTotal 13175 (+104), bug 611 (-76)"
+    },
+    {
+      "hash": "3f70aa85",
+      "subject": "test: lock elem-width and object-rest shapes verified fixed"
+    },
+    {
+      "hash": "e6bfd52f",
+      "subject": "fix: toReversed on exotic receiver reads descending through the call lane"
+    },
+    {
+      "hash": "76ba4362",
+      "subject": "feat: struct any-index read resolves numeric-key accessors"
+    },
+    {
+      "hash": "1acb2fb2",
+      "subject": "fix: exempt generic-class instance shapes from cm-demote shape-steal gate"
+    },
+    {
+      "hash": "18c2d05f",
+      "subject": "fix: arguments rewriter is copy-on-write, eids stable for untouched subtrees"
+    },
+    {
+      "hash": "f9b6b016",
+      "subject": "chore: hardev dashboard snapshot at rotation 178 close"
+    },
+    {
       "hash": "6420fb21",
       "subject": "feat: generator factory prototype face rides the gen class proto"
     },
@@ -727,59 +759,38 @@
     {
       "hash": "04c82d64",
       "subject": "feat: fn-decl prototype member rides the fncell singleton"
-    },
-    {
-      "hash": "39dff654",
-      "subject": "feat: toreversed rides the generic array-like arm"
-    },
-    {
-      "hash": "45a91c1f",
-      "subject": "fix: mutator family borrowed onto a primitive receiver runs the len-0 shape"
-    },
-    {
-      "hash": "e00b42b0",
-      "subject": "fix: array concat borrowed onto a primitive receiver seeds the toobject wrapper"
-    },
-    {
-      "hash": "4ff08013",
-      "subject": "chore(bench): uflag-cprange single-cell run at HEAD for drift attribution"
-    },
-    {
-      "hash": "29428771",
-      "subject": "chore: hardev dashboard snapshot at rotation 177 close"
-    },
-    {
-      "hash": "50243560",
-      "subject": "refactor: decl! table collapse for arr-any intrinsic declarations"
-    },
-    {
-      "hash": "2aa554a4",
-      "subject": "fix: any-lane concat seeds an any-kind product"
-    },
-    {
-      "hash": "fa92ef83",
-      "subject": "fix: toSpliced and with items feed the container width lattice"
     }
   ],
-  "headSha": "6420fb21",
+  "headSha": "5fb9f5d2",
   "autorun": {
-    "total": 483,
+    "total": 484,
     "baselineTarget": 10,
-    "bySelf": 478,
+    "bySelf": 479,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784648101-1cb1",
-      "at": "2026-07-21T15:35:01Z",
-      "ts": 1784648101,
+      "rotationId": "r-1784653518-5316",
+      "at": "2026-07-21T17:05:18Z",
+      "ts": 1784653518,
       "trigger": "self",
-      "prevHead": "29428771",
-      "handoffSha": "sha256:02f27ae0bbe9a8a7866f5efcbf71d0df3248b6230d4e94e35891a30e310dde6c",
-      "handoffAgeSec": 5,
+      "prevHead": "f9b6b016",
+      "handoffSha": "sha256:ef59887bd95e09448de7758e7982826033916eaa11d6d04fb2ce54392b313ef6",
+      "handoffAgeSec": 271,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784653518-5316",
+        "at": "2026-07-21T17:05:18Z",
+        "ts": 1784653518,
+        "trigger": "self",
+        "prevHead": "f9b6b016",
+        "handoffSha": "sha256:ef59887bd95e09448de7758e7982826033916eaa11d6d04fb2ce54392b313ef6",
+        "handoffAgeSec": 271,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784648101-1cb1",
         "at": "2026-07-21T15:35:01Z",
@@ -876,17 +887,6 @@
         "prevHead": "83c966a2",
         "handoffSha": "sha256:d6360ddea43e44b0508088dac3694d2abc6968a5638cbcd0eec23b97a1f7f990",
         "handoffAgeSec": 17,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784575166-3ba1",
-        "at": "2026-07-20T19:19:26Z",
-        "ts": 1784575166,
-        "trigger": "self",
-        "prevHead": "a3328038",
-        "handoffSha": "sha256:05f4f5ec00226b0de987ffceac374cad63cfbc402bfbdeaf6fa553ffefd0b5fe",
-        "handoffAgeSec": 10,
         "conformanceBefore": null,
         "commitsInSession": null
       }
