@@ -221,3 +221,25 @@ pub(crate) unsafe fn any_compare(op: i64, lt: i64, lv: i64, rt: i64, rv: i64) ->
     };
     op.apply(cmp)
 }
+
+/// ES §23.1.3.30.2 SortCompare steps 5-8 pre-probe for the USER-
+/// comparator lane over `Arr<Any>` elements — the NaN-box twin of
+/// torajs-str's `__torajs_str_sort_undef_pre` (RFC 20260721 刀 7
+/// G8a): an undefined element never reaches the comparator, it
+/// sorts last unconditionally. Answers the SortCompare result
+/// (`1` / `-1` / `0`) when either side is undefined, or `2` (no
+/// undefined — proceed to the comparator call). `null` is an
+/// ordinary comparator argument.
+#[unsafe(no_mangle)]
+pub extern "C" fn __torajs_any_sort_undef_pre(
+    a: crate::nanbox::AnyValue,
+    b: crate::nanbox::AnyValue,
+) -> i64 {
+    let a_undef = crate::nanbox::is_undefined(a);
+    let b_undef = crate::nanbox::is_undefined(b);
+    if a_undef || b_undef {
+        (a_undef as i64) - (b_undef as i64)
+    } else {
+        2
+    }
+}

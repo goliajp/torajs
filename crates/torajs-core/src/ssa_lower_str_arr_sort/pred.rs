@@ -22,11 +22,16 @@ pub(super) fn emit_sort_pred(
     match (cmp_val, cmp_ty) {
         (Some(cv), Some(ct)) => {
             // §23.1.3.30.2 steps 5-8 fire BEFORE the comparator — an
-            // undefined element in a Str slot (either sentinel repr)
-            // sorts last without ever reaching the callback. Only
-            // the Str slot shape can hold the sentinel.
+            // undefined element sorts last without ever reaching the
+            // callback. The Str slot shapes carry the sentinel repr;
+            // an Any slot carries the tag-5 immediate (刀 7 G8a).
             if matches!(elem_ty, Type::Str | Type::Substr) {
-                return emit_user_cmp_undef_pre(ctx, cv, ct, prev, cur);
+                let pre_fid = ctx.intrinsics.str_sort_undef_pre;
+                return emit_user_cmp_undef_pre(ctx, cv, ct, prev, cur, pre_fid);
+            }
+            if matches!(elem_ty, Type::Any) {
+                let pre_fid = ctx.intrinsics.any_sort_undef_pre;
+                return emit_user_cmp_undef_pre(ctx, cv, ct, prev, cur, pre_fid);
             }
             emit_user_cmp_pred(ctx, cv, ct, prev, cur)
         }
@@ -38,11 +43,10 @@ pub(super) fn emit_sort_pred(
             // For each numeric / bool element, route through the
             // existing `*_to_str` intrinsics so the resulting Str
             // operands feed the same `str_locale_compare`
-            // (bytewise; see runtime doc) the Str arm uses. Obj /
-            // Arr / etc fall back to the legacy pointer ICmp —
-            // no `*_to_str` exists for them yet and the spec
-            // result (`"[object Object]"`-tied tie-break) is
-            // niche enough to leave behind a follow-up.
+            // (bytewise; see runtime doc) the Str arm uses; Obj /
+            // Arr elements tag-4 box through the runtime ToString
+            // (刀 7 G8b). Remaining exotic element types fall back
+            // to the legacy pointer ICmp.
             // The second bool marks a minted temp the compare must
             // release (RFC 20260705 chunk 551) — the Str/Substr arm
             // answers the element borrow itself and is not dropped.
@@ -107,14 +111,31 @@ pub(super) fn emit_sort_pred(
                         true,
                     ))
                 }
+                // Obj / Arr elements (typed `Array<Struct>` default
+                // sort — 刀 7 G8b): tag-4 box the cell and route the
+                // same runtime tag-dispatched ToString, so the user's
+                // ToPrimitive hooks fire per §23.1.3.30. Pre-fix these
+                // fell to the legacy pointer ICmp and never ToString'd.
+                Type::Obj(_) | Type::Arr(_) => {
+                    let (tag, value) = ctx.heap_slot_tag_value(Operand::Value(v));
+                    Some((
+                        ctx.f.append_inst(
+                            ctx.cur_block,
+                            InstKind::Call(ctx.intrinsics.any_to_str, vec![tag, value]),
+                            Type::Str,
+                            None,
+                        ),
+                        true,
+                    ))
+                }
                 _ => None,
             };
             let prev_s = to_str(ctx, prev, elem_ty);
             let cur_s = to_str(ctx, cur, elem_ty);
-            // The Any arm's ToString runs OrdinaryToPrimitive — a
-            // throwing user hook aborts the sort (0-check audit,
-            // rotation 130 L3b).
-            if matches!(elem_ty, Type::Any) {
+            // The Any / Obj / Arr arms' ToString runs
+            // OrdinaryToPrimitive — a throwing user hook aborts the
+            // sort (0-check audit, rotation 130 L3b).
+            if matches!(elem_ty, Type::Any | Type::Obj(_) | Type::Arr(_)) {
                 ctx.emit_throw_check(None);
             }
             if let (Some((ps, ps_minted)), Some((cs, cs_minted))) = (prev_s, cur_s) {
@@ -184,23 +205,22 @@ fn emit_user_cmp_pred(
 }
 
 /// User-comparator predicate wrapped in the §23.1.3.30.2 undefined
-/// pre-probe: `str_sort_undef_pre` answers `1`/`-1`/`0` (SortCompare
-/// result — an undefined side sorts last, the comparator is NOT
-/// called) or `2` (no undefined — fall through to the call).
+/// pre-probe: `pre_fid` (the Str-sentinel or Any-tag-5 probe) answers
+/// `1`/`-1`/`0` (SortCompare result — an undefined side sorts last,
+/// the comparator is NOT called) or `2` (no undefined — fall through
+/// to the call).
 fn emit_user_cmp_undef_pre(
     ctx: &mut LowerCtx<'_>,
     cv: &Operand,
     ct: &Type,
     prev: ValueId,
     cur: ValueId,
+    pre_fid: crate::ssa::FuncId,
 ) -> ValueId {
     let slot = ctx.alloca_in_entry(Type::Bool, Some("__sort_pred"));
     let pre = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::Call(
-            ctx.intrinsics.str_sort_undef_pre,
-            vec![Operand::Value(prev), Operand::Value(cur)],
-        ),
+        InstKind::Call(pre_fid, vec![Operand::Value(prev), Operand::Value(cur)]),
         Type::I64,
         None,
     );

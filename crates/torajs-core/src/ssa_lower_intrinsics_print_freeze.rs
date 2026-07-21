@@ -71,6 +71,8 @@ pub(crate) struct PrintFreezeIds {
     /// (async cell → %AsyncFunction%, else %Function%).
     pub closure_ctor_value: FuncId,
     pub any_to_str: FuncId,
+    /// §23.1.3.30.2 steps 5-8 pre-probe for Any elements (刀 7 G8a).
+    pub any_sort_undef_pre: FuncId,
     /// §13.15.3 concat-position twin — ToPrimitive(default) first.
     pub any_to_str_prim: FuncId,
     pub any_to_str_box: FuncId,
@@ -219,6 +221,13 @@ pub(crate) fn declare(
             "__torajs_anyv_to_str_pair",
             &[Type::I64, Type::I64],
             Type::Str,
+        ),
+        any_sort_undef_pre: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_any_sort_undef_pre",
+            &[Type::Any, Type::Any],
+            Type::I64,
         ),
         any_to_str_prim: declare_intrinsic(
             module,
