@@ -159,7 +159,13 @@ pub unsafe extern "C" fn __torajs_arr_iter_step(
     let len = unsafe { *((arr as *const u8).add(8) as *const u64) };
     let i = unsafe { (*it).cursor } as u32;
     if i as u64 >= len {
+        // §23.1.5.2.1 — exhaustion latches: [[IteratedObject]] is set
+        // to undefined, so a later `push` never revives the iterator.
+        // Dropping the strong ref here doubles as the latch; the
+        // arr.is_null() arm above answers every subsequent step.
         unsafe {
+            (*it).arr = core::ptr::null_mut();
+            __torajs_value_drop_heap(arr);
             *out_tag = ANY_UNDEF as i64;
             *out_payload = 0;
         }
