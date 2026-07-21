@@ -11,6 +11,9 @@
 //! - `Tag::Str` cell → fresh `StringWrapper([[StringData]] = recv +1)`
 //!   (wrapper adopts a fresh reference on the inner cell; the input
 //!   AnyValue's +1 keeps ownership so the caller still drops it)
+//! - `Tag::Symbol` cell → fresh `SymbolWrapper([[SymbolData]] =
+//!   recv +1)` — Symbol is a primitive per §7.1.18, so `typeof
+//!   Object(sym)` answers "object" with disjoint identity
 //! - any other heap cell (Arr / Obj / DynObj / Closure / Map / Set /
 //!   Date / RegExp / Promise / Wrapper / ...) → identity per ToObject
 //!   step-3 (`rc_inc(recv)`, return recv)
@@ -37,6 +40,8 @@ unsafe extern "C" {
     fn __torajs_string_wrapper_new(cell: *mut u8) -> *mut u8;
     /// torajs-wrapper — Boolean wrapper alloc (rc=1; `[[BooleanData]]`).
     fn __torajs_boolean_wrapper_new(val: u8) -> *mut u8;
+    /// torajs-wrapper — Symbol wrapper alloc (transfer +1 on cell).
+    fn __torajs_symbol_wrapper_new(cell: *mut u8) -> *mut u8;
     /// torajs-dynobj — fresh empty dynobj (rc=1) — the null/undef arm.
     fn __torajs_dynobj_alloc() -> *mut c_void;
 }
@@ -80,6 +85,14 @@ pub unsafe extern "C" fn __torajs_any_to_object(v: AnyValue) -> AnyValue {
             // keeps its own +1 on the input.
             unsafe { __torajs_rc_inc(ptr) };
             let w = unsafe { __torajs_string_wrapper_new(ptr as *mut u8) };
+            return box_void_ptr(w as *mut c_void);
+        }
+        // Symbol is a primitive too (§7.1.18 step for Symbol) —
+        // `Object(sym)` mints a fresh SymbolWrapper so `typeof`
+        // answers "object" and identity is disjoint from `sym`.
+        if tag == Tag::Symbol as u16 {
+            unsafe { __torajs_rc_inc(ptr) };
+            let w = unsafe { __torajs_symbol_wrapper_new(ptr as *mut u8) };
             return box_void_ptr(w as *mut c_void);
         }
         // Identity — hand the caller a fresh +1 on the same cell.

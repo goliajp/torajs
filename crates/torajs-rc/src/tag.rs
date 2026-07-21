@@ -89,4 +89,11 @@ pub enum Tag {
     /// for `new Boolean(x)` (spec §20.3.1.1). `[[BooleanData]]` is
     /// 0 (false) or 1 (true).
     BooleanWrapper = 23,
+    /// `SymbolWrapper` — `[header:8][sym_cell_ptr:8][props_slot:8]`
+    /// block for `Object(sym)` (spec §7.1.18 ToObject step for
+    /// Symbol). Holds an owning `+1` reference to a Tag::Symbol cell
+    /// as `[[SymbolData]]`. No constructor form exists (`new
+    /// Symbol()` throws per §20.4.1.1) — only the callable-coercion
+    /// mint path allocates it.
+    SymbolWrapper = 24,
 }

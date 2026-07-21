@@ -1,13 +1,16 @@
 //! Primitive-wrapper heap objects — `new Number(x)` / `new String(x)` /
-//! `new Boolean(x)` (RFC 20260716-primitive-wrapper-substrate 刀 1).
+//! `new Boolean(x)` (RFC 20260716-primitive-wrapper-substrate 刀 1)
+//! plus the `Object(sym)` SymbolWrapper (no constructor form — `new
+//! Symbol()` throws per §20.4.1.1).
 //!
-//! Three fixed-size (16B) heap blocks, each carrying the universal
+//! Four fixed-size (24B) heap blocks, each carrying the universal
 //! [`torajs_rc::HeapHeader`] plus one payload word:
 //!
 //! ```text
 //! NumberWrapper  = [header:8][num:8]          [props_slot:8]  (f64)
 //! StringWrapper  = [header:8][str_cell:8]     [props_slot:8]  (*mut u8 borrow of Tag::Str cell, rc_inc'd)
 //! BooleanWrapper = [header:8][val:1 + pad:7]  [props_slot:8]  (0 = false, 1 = true)
+//! SymbolWrapper  = [header:8][sym_cell:8]     [props_slot:8]  (*mut u8 borrow of Tag::Symbol cell, rc_inc'd)
 //! ```
 //!
 //! **Lazy expando props slot** (RFC 20260716 刀 5, rotation 121) — the
@@ -96,6 +99,10 @@ pub const STRING_WRAPPER_CELL_OFF: usize = 8;
 /// BooleanWrapper — `[header:8][val:1 + pad:7][props_slot:8]`.
 pub const BOOLEAN_WRAPPER_SIZE: usize = 24;
 pub const BOOLEAN_WRAPPER_VALUE_OFF: usize = 8;
+
+/// SymbolWrapper — `[header:8][sym_cell_ptr:8][props_slot:8]`.
+pub const SYMBOL_WRAPPER_SIZE: usize = 24;
+pub const SYMBOL_WRAPPER_CELL_OFF: usize = 8;
 
 // ============================================================
 // Header init
@@ -348,6 +355,82 @@ pub unsafe extern "C" fn __torajs_boolean_wrapper_drop_rc(p: *mut c_void) {
 }
 
 // ============================================================
+// SymbolWrapper — Object(sym), [[SymbolData]] = symbol cell (borrow +1)
+// ============================================================
+
+/// Allocate a fresh Symbol wrapper adopting an existing owning
+/// reference on `cell` (a Tag::Symbol block). **Transfer semantics —
+/// the caller's `+1` is consumed** (no rc_inc here), matching
+/// [`__torajs_string_wrapper_new`]. Caller must not `rc_dec` `cell`
+/// after the call; the wrapper's drop path releases it. `cell` must
+/// not be NULL — every mint site holds a live Symbol (there is no
+/// no-arg constructor form; `new Symbol()` throws per §20.4.1.1).
+///
+/// # Safety
+/// `cell` is a live Tag::Symbol block with the universal HeapHeader
+/// layout whose refcount the caller intends to transfer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_symbol_wrapper_new(cell: *mut u8) -> *mut u8 {
+    let ptr = unsafe { libc_malloc(SYMBOL_WRAPPER_SIZE) } as *mut u8;
+    unsafe {
+        init_wrapper_header(ptr, Tag::SymbolWrapper);
+        (ptr.add(SYMBOL_WRAPPER_CELL_OFF) as *mut *mut u8).write(cell);
+    }
+    ptr
+}
+
+/// Read the inner Symbol cell pointer. Borrow — caller does not own.
+///
+/// # Safety
+/// `ptr` must be a live SymbolWrapper cell.
+#[inline]
+pub unsafe fn symbol_wrapper_cell(ptr: *mut u8) -> *mut u8 {
+    unsafe { (ptr.add(SYMBOL_WRAPPER_CELL_OFF) as *const *mut u8).read() }
+}
+
+/// Direct free of a SymbolWrapper block. Releases the wrapper's own
+/// reference on the inner Symbol cell (routed through the universal
+/// dispatcher), then frees the wrapper block itself. Called by the
+/// dispatcher AFTER `__torajs_rc_dec` returned 1 on the wrapper.
+///
+/// # Safety
+/// `p` must be either NULL or a valid SymbolWrapper block whose
+/// refcount just reached zero.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_symbol_wrapper_drop(p: *mut c_void) {
+    if p.is_null() {
+        return;
+    }
+    unsafe { __torajs_cycle_unbuffer(p) };
+    let cell = unsafe { symbol_wrapper_cell(p as *mut u8) };
+    if !cell.is_null() {
+        unsafe { __torajs_value_drop_heap(cell as *mut c_void) };
+    }
+    unsafe {
+        release_wrapper_props(p as *mut u8);
+        libc_free(p);
+    };
+}
+
+/// Rc-aware drop. Decrements; frees + inner-cell-releases iff this
+/// was the last owner.
+///
+/// # Safety
+/// `p` must be either NULL or a valid pointer to a SymbolWrapper
+/// block with a live refcount header.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_symbol_wrapper_drop_rc(p: *mut c_void) {
+    if p.is_null() {
+        return;
+    }
+    if unsafe { __torajs_rc_dec(p) } != 0 {
+        unsafe { __torajs_symbol_wrapper_drop(p) };
+    } else {
+        unsafe { __torajs_cycle_buffer(p) };
+    }
+}
+
+// ============================================================
 // Unit tests — verify header init + read helpers + rc balance
 // ============================================================
 
@@ -429,6 +512,24 @@ mod tests {
             let p = __torajs_boolean_wrapper_new(255);
             assert_eq!(boolean_wrapper_value(p), 1);
             __torajs_boolean_wrapper_drop_rc(p as *mut c_void);
+        }
+    }
+
+    #[test]
+    fn symbol_wrapper_new_and_read() {
+        unsafe {
+            // A fake 16B "Symbol cell" — the wrapper only stores /
+            // reads the pointer; the tag walk happens in the (stubbed)
+            // universal dispatcher.
+            let fake = __torajs_libc_malloc(16) as *mut u8;
+            let p = __torajs_symbol_wrapper_new(fake);
+            assert!(!p.is_null());
+            let hdr = &*(p as *const HeapHeader);
+            assert_eq!(hdr.refcount, 1);
+            assert_eq!(hdr.type_tag, Tag::SymbolWrapper as u16);
+            assert_eq!(symbol_wrapper_cell(p), fake);
+            __torajs_symbol_wrapper_drop_rc(p as *mut c_void);
+            __torajs_libc_free(fake as *mut c_void);
         }
     }
 

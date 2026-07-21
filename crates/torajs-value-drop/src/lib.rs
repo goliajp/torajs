@@ -45,6 +45,7 @@
 //! | `NumberWrapper` | `__torajs_number_wrapper_drop`  | torajs-wrapper    |
 //! | `StringWrapper` | `__torajs_string_wrapper_drop`  | torajs-wrapper    |
 //! | `BooleanWrapper`| `__torajs_boolean_wrapper_drop` | torajs-wrapper    |
+//! | `SymbolWrapper` | `__torajs_symbol_wrapper_drop`  | torajs-wrapper    |
 //! | (other)         | `__torajs_rc_dec` + libc `free` | torajs-rc + libc  |
 //!
 //! `Closure` has no fixed extern: each closure env carries the
@@ -112,6 +113,7 @@ unsafe extern "C" {
     fn __torajs_number_wrapper_drop(p: *mut c_void);
     fn __torajs_string_wrapper_drop(p: *mut c_void);
     fn __torajs_boolean_wrapper_drop(p: *mut c_void);
+    fn __torajs_symbol_wrapper_drop(p: *mut c_void);
 }
 
 #[cfg(not(target_os = "wasi"))]
@@ -197,6 +199,15 @@ pub unsafe extern "C" fn __torajs_value_drop_heap(child: *mut c_void) {
         t if t == Tag::BooleanWrapper as u16 => unsafe {
             if __torajs_rc_dec(child) != 0 {
                 __torajs_boolean_wrapper_drop(child);
+            } else {
+                __torajs_cycle_buffer(child);
+            }
+        },
+        // SymbolWrapper mirrors StringWrapper — one +1 on a
+        // Tag::Symbol cell released through this dispatcher.
+        t if t == Tag::SymbolWrapper as u16 => unsafe {
+            if __torajs_rc_dec(child) != 0 {
+                __torajs_symbol_wrapper_drop(child);
             } else {
                 __torajs_cycle_buffer(child);
             }

@@ -239,6 +239,16 @@ pub unsafe extern "C" fn __torajs_any_member_get_tag(recv: AnyValue, key: *const
                     return 5;
                 }
             }
+            // §20.4.3.2 — the proto `description` accessor over a
+            // SymbolWrapper receiver reads the inner cell's
+            // [[Description]] (thisSymbolValue unwraps the wrapper).
+            if t == Tag::SymbolWrapper as u16 && crate::prop_has::key_is(key, b"description") {
+                let inner = (ptr.cast::<u8>().add(8) as *const *const c_void).read();
+                if crate::member_get_layout::symbol_desc(inner).is_null() {
+                    return AnySlotTag::Undef as u64;
+                }
+                return AnySlotTag::Heap as u64;
+            }
             reify_tag(recv, key)
         },
         // §22.2.4.1 — a RegExp instance owns exactly `lastIndex`; a

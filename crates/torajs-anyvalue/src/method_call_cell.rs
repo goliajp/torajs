@@ -26,25 +26,44 @@ unsafe extern "C" {
 
 /// §20.4.3.3 / §20.4.3.4 — the reified `Symbol.prototype.toString` /
 /// `valueOf` body: thisSymbolValue over the receiver. A Symbol cell
-/// answers its descriptive string / itself (fresh +1 per the
-/// boxed-value convention); every other receiver — number, string,
-/// plain object, `Symbol.prototype` itself (an ordinary object with
-/// no [[SymbolData]]) — is the spec TypeError.
+/// (or a SymbolWrapper, unwrapped to its [[SymbolData]]) answers its
+/// descriptive string / the symbol (fresh +1 per the boxed-value
+/// convention); every other receiver — number, string, plain object,
+/// `Symbol.prototype` itself (an ordinary object with no
+/// [[SymbolData]]) — is the spec TypeError.
 pub(crate) unsafe fn symbol_proto_method(recv: AnyValue, mid: i64) -> AnyValue {
     unsafe {
-        if crate::nanbox::is_cell(recv) {
-            let ptr = as_void_ptr(recv);
-            if (ptr.cast::<u8>().add(4) as *const u16).read() == Tag::Symbol as u16 {
-                if mid == torajs_rc::ANY_METHOD_SYMBOL_VALUE_OF {
-                    __torajs_rc_inc(ptr);
-                    return recv;
-                }
-                let s = __torajs_symbol_to_str(ptr);
-                return crate::nanbox_encode::__torajs_anyv_box_pointer(s as *mut c_void);
+        if let Some(ptr) = this_symbol_value(recv) {
+            if mid == torajs_rc::ANY_METHOD_SYMBOL_VALUE_OF {
+                __torajs_rc_inc(ptr);
+                return crate::nanbox_encode::__torajs_anyv_box_pointer(ptr as *mut c_void);
             }
+            let s = __torajs_symbol_to_str(ptr);
+            return crate::nanbox_encode::__torajs_anyv_box_pointer(s as *mut c_void);
         }
         __torajs_throw_type_error(c"Symbol.prototype requires that |this| be a Symbol".as_ptr());
         crate::nanbox::VALUE_UNDEFINED
+    }
+}
+
+/// §20.4.3 thisSymbolValue — a Symbol cell answers itself; a
+/// SymbolWrapper answers its `[[SymbolData]]` inner cell; every other
+/// receiver is `None` (the caller throws the spec TypeError). The
+/// returned pointer is a borrow.
+pub(crate) unsafe fn this_symbol_value(recv: AnyValue) -> Option<*mut c_void> {
+    unsafe {
+        if !crate::nanbox::is_cell(recv) {
+            return None;
+        }
+        let ptr = as_void_ptr(recv);
+        let tag = (ptr.cast::<u8>().add(4) as *const u16).read();
+        if tag == Tag::Symbol as u16 {
+            return Some(ptr);
+        }
+        if tag == Tag::SymbolWrapper as u16 {
+            return Some((ptr.cast::<u8>().add(8) as *const *mut c_void).read());
+        }
+        None
     }
 }
 
@@ -54,16 +73,13 @@ pub(crate) unsafe fn symbol_proto_method(recv: AnyValue, mid: i64) -> AnyValue {
 /// undefined). Every non-Symbol receiver is the spec TypeError.
 pub(crate) unsafe fn symbol_description_getter(recv: AnyValue) -> AnyValue {
     unsafe {
-        if crate::nanbox::is_cell(recv) {
-            let ptr = as_void_ptr(recv);
-            if (ptr.cast::<u8>().add(4) as *const u16).read() == Tag::Symbol as u16 {
-                let desc = crate::member_get_layout::symbol_desc(ptr);
-                if desc.is_null() {
-                    return crate::nanbox::VALUE_UNDEFINED;
-                }
-                __torajs_rc_inc(desc);
-                return crate::nanbox_encode::__torajs_anyv_box_pointer(desc);
+        if let Some(ptr) = this_symbol_value(recv) {
+            let desc = crate::member_get_layout::symbol_desc(ptr);
+            if desc.is_null() {
+                return crate::nanbox::VALUE_UNDEFINED;
             }
+            __torajs_rc_inc(desc);
+            return crate::nanbox_encode::__torajs_anyv_box_pointer(desc);
         }
         __torajs_throw_type_error(c"Symbol.prototype requires that |this| be a Symbol".as_ptr());
         crate::nanbox::VALUE_UNDEFINED

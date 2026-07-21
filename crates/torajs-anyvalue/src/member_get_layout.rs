@@ -31,6 +31,7 @@ pub(crate) fn is_wrapper_tag(t: u16) -> bool {
     t == Tag::NumberWrapper as u16
         || t == Tag::StringWrapper as u16
         || t == Tag::BooleanWrapper as u16
+        || t == Tag::SymbolWrapper as u16
 }
 
 pub(crate) const STR_LEN_OFF: usize = 8;

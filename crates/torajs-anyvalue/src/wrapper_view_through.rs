@@ -47,5 +47,13 @@ pub(crate) unsafe fn resolve_inner_recv(ptr: *mut c_void, tag: u16) -> Option<An
             box_void_ptr(inner_ptr)
         });
     }
+    // SymbolWrapper — thisSymbolValue over a wrapper receiver reads
+    // `[[SymbolData]]` (§20.4.3), so `Object(sym).toString()` runs
+    // the Symbol arm against the inner cell. Never NULL (the mint
+    // path always holds a live Symbol).
+    if tag == Tag::SymbolWrapper as u16 {
+        let inner_ptr = unsafe { (ptr.cast::<u8>().add(8) as *const *mut c_void).read() };
+        return Some(box_void_ptr(inner_ptr));
+    }
     None
 }

@@ -166,6 +166,12 @@ pub unsafe extern "C" fn __torajs_any_member_get_value(recv: AnyValue, key: *con
                     return 0;
                 }
             }
+            // §20.4.3.2 description over a SymbolWrapper — value
+            // channel twin of the tag arm (inner [[Description]]).
+            if t == Tag::SymbolWrapper as u16 && crate::prop_has::key_is(key, b"description") {
+                let inner = (ptr.cast::<u8>().add(8) as *const *const c_void).read();
+                return crate::member_get_layout::symbol_desc(inner) as u64;
+            }
             reify_value(recv, key)
         },
         // Chunk 744 — struct cell field probe (see the tag channel).
