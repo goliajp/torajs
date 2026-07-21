@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-21T15:33:57.931Z",
+  "generatedAt": "2026-07-21T16:38:39.753Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 95.01
   },
   "torajs": {
-    "commit": "50243560",
-    "commitSubject": "refactor: decl! table collapse for arr-any intrinsic declarations",
+    "commit": "0f1adbd6",
+    "commitSubject": "fix: prototype member-base axis excludes generator and async fns",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "0f1adbd6",
+      "subject": "fix: prototype member-base axis excludes generator and async fns"
+    },
+    {
+      "hash": "04c82d64",
+      "subject": "feat: fn-decl prototype member rides the fncell singleton"
+    },
+    {
+      "hash": "39dff654",
+      "subject": "feat: toreversed rides the generic array-like arm"
+    },
+    {
+      "hash": "45a91c1f",
+      "subject": "fix: mutator family borrowed onto a primitive receiver runs the len-0 shape"
+    },
+    {
+      "hash": "e00b42b0",
+      "subject": "fix: array concat borrowed onto a primitive receiver seeds the toobject wrapper"
+    },
+    {
+      "hash": "4ff08013",
+      "subject": "chore(bench): uflag-cprange single-cell run at HEAD for drift attribution"
+    },
+    {
+      "hash": "29428771",
+      "subject": "chore: hardev dashboard snapshot at rotation 177 close"
+    },
+    {
       "hash": "50243560",
       "subject": "refactor: decl! table collapse for arr-any intrinsic declarations"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "ace1bb30",
       "subject": "fix: in-bounds typed index write revives the hole it fills"
-    },
-    {
-      "hash": "ea8d3267",
-      "subject": "feat: typed block index write past the end grows as holes"
-    },
-    {
-      "hash": "87c97b42",
-      "subject": "chore: hardev dashboard snapshot at rotation 176 close"
-    },
-    {
-      "hash": "aaaf648c",
-      "subject": "fix: fill revives the holes it writes"
-    },
-    {
-      "hash": "d647be26",
-      "subject": "feat: reverse mop pair loop, shrink purges shadows, numeric in walks holes"
-    },
-    {
-      "hash": "c861ed4c",
-      "subject": "feat: copy-family rides per-index get on exotic receivers, reverse-order kernel"
-    },
-    {
-      "hash": "32284319",
-      "subject": "fix: generic typevar unification widens to any on later any-repr argument"
-    },
-    {
-      "hash": "a2449bb8",
-      "subject": "chore: full 44-cell bench at 1e8cab07, median-of-3 verify on drift cells"
     }
   ],
-  "headSha": "50243560",
+  "headSha": "0f1adbd6",
   "autorun": {
-    "total": 482,
+    "total": 483,
     "baselineTarget": 10,
-    "bySelf": 477,
+    "bySelf": 478,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784642623-1af6",
-      "at": "2026-07-21T14:03:43Z",
-      "ts": 1784642623,
+      "rotationId": "r-1784648101-1cb1",
+      "at": "2026-07-21T15:35:01Z",
+      "ts": 1784648101,
       "trigger": "self",
-      "prevHead": "87c97b42",
-      "handoffSha": "sha256:d2733029283ef01504159a770907566c8e6a47cc568b10f43e718d0c45c63401",
+      "prevHead": "29428771",
+      "handoffSha": "sha256:02f27ae0bbe9a8a7866f5efcbf71d0df3248b6230d4e94e35891a30e310dde6c",
       "handoffAgeSec": 5,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784648101-1cb1",
+        "at": "2026-07-21T15:35:01Z",
+        "ts": 1784648101,
+        "trigger": "self",
+        "prevHead": "29428771",
+        "handoffSha": "sha256:02f27ae0bbe9a8a7866f5efcbf71d0df3248b6230d4e94e35891a30e310dde6c",
+        "handoffAgeSec": 5,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784642623-1af6",
         "at": "2026-07-21T14:03:43Z",
@@ -876,17 +887,6 @@
         "prevHead": "a3328038",
         "handoffSha": "sha256:05f4f5ec00226b0de987ffceac374cad63cfbc402bfbdeaf6fa553ffefd0b5fe",
         "handoffAgeSec": 10,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784569052-0cad",
-        "at": "2026-07-20T17:37:32Z",
-        "ts": 1784569052,
-        "trigger": "self",
-        "prevHead": "deae7f76",
-        "handoffSha": "sha256:20932ee75cd9d0459c280cd42bb8594041b6219b1b8ccfb5f2ee3f19387b1736",
-        "handoffAgeSec": 5,
         "conformanceBefore": null,
         "commitsInSession": null
       }
