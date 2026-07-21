@@ -26,6 +26,9 @@ unsafe extern "C" {
     fn __torajs_arr_any_slice(arr: *const u8, start: i64, end: i64) -> *mut u8;
     /// torajs-arr — in-place 8-byte-slot swap (element-type-agnostic).
     fn __torajs_arr_reverse(arr: *mut u8) -> *mut u8;
+    /// torajs-arr — §23.1.3.33 descending per-[[Get]] product (fresh
+    /// +1 rc; exotic receivers observe the spec read order).
+    fn __torajs_arr_any_to_reversed(arr: *const u8) -> *mut u8;
     /// torajs-arr — in-place stable merge sort (boxed comparator or
     /// the §23.1.3.30.2 ToString default). Answers the receiver.
     fn __torajs_arr_any_sort(
@@ -157,8 +160,21 @@ pub(crate) unsafe fn arr_method_ext(
                 }
             }
             m if m == ANY_METHOD_TO_REVERSED => {
-                let p = __torajs_arr_any_slice(arr as *const u8, 0, i64::MAX);
-                __torajs_arr_reverse(p);
+                // §23.1.3.33 step 5 reads the source high→low — the
+                // order is observable through accessor indexes, so an
+                // exotic receiver rides the descending per-[[Get]]
+                // kernel (slice would gather ascending and reverse
+                // after, firing getters in the wrong order). Plain
+                // receivers keep the copy + in-place swap (no
+                // observable reads).
+                let flags = (*(arr as *const torajs_rc::HeapHeader)).flags;
+                let p = if flags & torajs_rc::FLAG_ARR_EXOTIC_INDEX != 0 {
+                    __torajs_arr_any_to_reversed(arr as *const u8)
+                } else {
+                    let p = __torajs_arr_any_slice(arr as *const u8, 0, i64::MAX);
+                    __torajs_arr_reverse(p);
+                    p
+                };
                 __torajs_anyv_box_pointer(p as *mut c_void)
             }
             m if m == ANY_METHOD_TO_SORTED => {
