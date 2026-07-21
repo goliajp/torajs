@@ -158,6 +158,40 @@ unsafe fn own_pair(tag: u64, v: u64) -> u64 {
     unsafe { crate::nanbox_encode::__torajs_anyv_box_from_pair(tag as i64, v as i64) }
 }
 
+/// Install a generator factory's `.prototype` face at fncell mint
+/// (G2, rotation 178) — the factory's prototype IS the `__Gen_<name>`
+/// class proto (identical to `Object.getPrototypeOf(g())`), so the
+/// mint defines that object into the fresh cell's props dynobj and
+/// every member-get channel answers it from the ordinary props probe
+/// (no flag-gated lazy path — the class proto already exists).
+/// `proto` is a BORROWED boxed Any holding the proto dynobj; the
+/// entry takes its own stake.
+///
+/// # Safety
+/// `env` is a live closure cell fresh from the mint (props empty);
+/// `proto` holds a live heap pointer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_closure_install_gen_proto(env: *mut c_void, proto: u64) {
+    unsafe {
+        let ptr = crate::nanbox::as_void_ptr(proto);
+        if ptr.is_null() {
+            return;
+        }
+        torajs_rc::__torajs_rc_inc(ptr);
+        let props_slot = env.cast::<u8>().add(24) as *mut *mut c_void;
+        if (*props_slot).is_null() {
+            *props_slot = __torajs_dynobj_alloc();
+        }
+        __torajs_dynobj_define(
+            props_slot,
+            interned_key(&PROTO_KEY_CELL, b"prototype"),
+            ANY_HEAP,
+            ptr as u64,
+            PROTO_ENTRY_FLAGS,
+        );
+    }
+}
+
 /// `%GeneratorPrototype%` step-method cells (RFC 20260721 刀 2) —
 /// `next` / `return` / `throw` reified for the REFLECTION surface
 /// (typeof / name / length / gOPD): interned per (kind, which),

@@ -350,6 +350,7 @@ pub(crate) fn build(
         proto_register: init_c.any_substrate.proto_register,
         register_native_error: init_c.any_substrate.register_native_error,
         proto_get: init_c.any_substrate.proto_get,
+        closure_install_gen_proto: init_c.any_substrate.closure_install_gen_proto,
         builtin_ctor_value: init_c.any_substrate.builtin_ctor_value,
         ns_static_cell: init_c.any_substrate.ns_static_cell,
         anyv_json_stringify: init_c.any_substrate.anyv_json_stringify,

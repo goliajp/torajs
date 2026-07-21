@@ -391,6 +391,7 @@ pub(crate) struct Intrinsics {
     pub(crate) proto_register: FuncId,
     pub(crate) register_native_error: FuncId,
     pub(crate) proto_get: FuncId,
+    pub(crate) closure_install_gen_proto: FuncId,
     pub(crate) builtin_ctor_value: FuncId,
     pub(crate) ns_static_cell: FuncId,
     pub(crate) anyv_json_stringify: FuncId,

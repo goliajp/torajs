@@ -86,6 +86,9 @@ pub(crate) struct AnySubstrateIds {
     pub proto_register: FuncId,
     pub register_native_error: FuncId,
     pub proto_get: FuncId,
+    /// G2 (rotation 178) — generator-factory fncell mint installs
+    /// the `__Gen_<name>` class proto as the cell's `.prototype`.
+    pub closure_install_gen_proto: FuncId,
     /// L3b ④ — boxed builtin-constructor value for the bare
     /// namespace ident read (`Object` as a VALUE).
     pub builtin_ctor_value: FuncId,
@@ -230,6 +233,7 @@ pub(crate) fn declare(
         proto_register: decl!("__torajs_anyv_proto_register", [I64, Any], Void),
         register_native_error: decl!("__torajs_register_native_error", [I64, Ptr], Void),
         proto_get: decl!("__torajs_anyv_proto_get", [I64], Any),
+        closure_install_gen_proto: decl!("__torajs_closure_install_gen_proto", [Ptr, Any], Void),
         builtin_ctor_value: decl!("__torajs_builtin_ctor_value", [I64], Any),
         ns_static_cell: decl!("__torajs_ns_static_cell", [I64], Ptr),
         anyv_json_stringify: decl!("__torajs_anyv_json_stringify", [Any], Str),

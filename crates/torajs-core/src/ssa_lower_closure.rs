@@ -170,6 +170,33 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, fn_name: String, captures: Vec<Strin
         ctx.cur_block = mint_blk;
         let env_v = alloc_env(ctx, closure_ty, 0, &fn_name);
         init_env_header(ctx, env_v, fid, &fn_name);
+        // G2 (rotation 178) — a generator factory's `.prototype` IS
+        // its `__Gen_<name>` class proto (what getPrototypeOf(g())
+        // answers); define it into the fresh cell's props so every
+        // member-get channel hits the ordinary props probe.
+        if let Some(tag) = fn_name
+            .strip_prefix("__forward_")
+            .and_then(|n| ctx.ast.generator_factory_classes.get(n))
+            .and_then(|cls| ctx.class_name_to_tag.get(cls))
+            .copied()
+        {
+            let proto_v = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(
+                    ctx.intrinsics.proto_get,
+                    vec![Operand::ConstI64(tag as i64)],
+                ),
+                Type::Any,
+                None,
+            );
+            ctx.f.append_void(
+                ctx.cur_block,
+                InstKind::Call(
+                    ctx.intrinsics.closure_install_gen_proto,
+                    vec![Operand::Value(env_v), Operand::Value(proto_v)],
+                ),
+            );
+        }
         ctx.f.append_void(
             ctx.cur_block,
             InstKind::Store(Operand::Value(env_v), Operand::Value(gref), 0),
