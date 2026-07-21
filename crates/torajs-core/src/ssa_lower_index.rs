@@ -112,6 +112,13 @@ pub(crate) fn lower_from_value(
             None,
         );
         ctx.emit_throw_check(None);
+        // `__torajs_arr_index_get` answers cells with an explicit +1
+        // ("the returned copy takes another") — record the read as
+        // owned so the consumer releases it (chunk 717 convention);
+        // pre-record the +1 was stranded (~128B/iter on the
+        // any-index churn probe). The boxed receiver itself is a
+        // borrow (chunk 753 pure-encoding note above), no release.
+        ctx.owned_member_reads.insert(eid);
         return Operand::Value(v);
     }
     // Any-dynamic-access RFC (20260704) S3 — `recv[i]` where recv is
@@ -138,11 +145,19 @@ pub(crate) fn lower_from_value(
         let cur_block = ctx.cur_block;
         let v = ctx.f.append_inst(
             cur_block,
-            InstKind::Call(ctx.intrinsics.any_index_get, vec![arr_val, idx_val]),
+            InstKind::Call(ctx.intrinsics.any_index_get, vec![arr_val.clone(), idx_val]),
             Type::Any,
             None,
         );
         ctx.emit_throw_check(None);
+        // Kernel cells answer +1 (`__torajs_arr_index_get` doc) —
+        // record the read as owned so consumers release it, and
+        // release an owned-shape receiver temp (`o.a[0]` /
+        // `f()[0]`: the any-member read / call result had no other
+        // consumer). Pre-record both stakes stranded (~128B/iter
+        // element + ~64B/iter receiver on the churn probes).
+        ctx.owned_member_reads.insert(eid);
+        ctx.release_owned_temp(obj, &arr_val);
         return Operand::Value(v);
     }
     // RC-4 F1a — a nullable-arr receiver (exec/match result) may be
