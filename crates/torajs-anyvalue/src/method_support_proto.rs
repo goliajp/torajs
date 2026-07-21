@@ -416,13 +416,13 @@ unsafe fn chain_expando_owns(family_tag: i64, key: *const c_void) -> bool {
         return false;
     }
     if unsafe { proto_is_arr(proto) } {
-        if unsafe { __torajs_arrprops_has(proto, key) } != 0 {
-            return true;
-        }
-        // 刀 5 G3 — the singleton's digit-key DATA lives in its own
-        // element storage (`Array.prototype[1] = v` grows it), so a
+        // 刀 5 G3 — the index domain is owned by the singleton's
+        // element storage (`Array.prototype[1] = v` grows it): a
         // canonical in-bounds index is present unless its slot is a
-        // hole tombstone.
+        // hole tombstone. The side-props table only holds SHADOW
+        // entries for indices (attributes / tombstones), so a
+        // canonical key never consults `arrprops_has` — a deleted
+        // index's tombstone entry would read as present.
         if let Some(i) = unsafe { crate::prop_has::canonical_index(key) } {
             let len = unsafe { proto.cast::<u8>().add(ARR_LEN_OFF).cast::<u64>().read() };
             return i < len
@@ -430,7 +430,7 @@ unsafe fn chain_expando_owns(family_tag: i64, key: *const c_void) -> bool {
                     & crate::prop_has::ARR_F_HOLE
                     == 0;
         }
-        return false;
+        return unsafe { __torajs_arrprops_has(proto, key) } != 0;
     }
     unsafe { __torajs_dynobj_has(proto, key) != 0 }
 }
