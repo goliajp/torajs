@@ -47,12 +47,64 @@ unsafe extern "C" {
     /// `throw_empty.rs`).
     fn __torajs_throw_range_error(msg: *const u8);
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
+    /// Cross-tier — the builtin-prototype singleton registry
+    /// (torajs-rc/-core; link-time-resolved, `method_any_search`'s
+    /// established pattern). Tag 2 = Array.prototype.
+    fn __torajs_get_builtin_prototype(tag: i64) -> *mut c_void;
+    /// Cross-tier — torajs-anyvalue %Object.prototype% digit-key
+    /// probe, the chain tail of [`__torajs_arr_proto_index_get`].
+    fn __torajs_object_proto_index_get(recv: *const c_void, idx: i64) -> u64;
 }
 
 /// NaN-box `undefined` sentinel via the pair packer (tag 5).
 #[inline]
 unsafe fn undef() -> u64 {
     unsafe { __torajs_anyv_box_from_pair(5, 0) }
+}
+
+/// Prototype digit-key probe for an element read that found no own
+/// property (RFC 20260721 刀 5 G3) — §10.1.8.1 OrdinaryGet step 3.
+///
+/// The Array.prototype leg reads the tag-2 singleton's OWN element
+/// face (`Array.prototype[1] = v` GROWS its element storage — see
+/// `method_support_proto`'s length note): an accessor index runs its
+/// getter against the ORIGINAL receiver, a hole falls through, and a
+/// plain in-bounds slot answers through the kind-aware read (which
+/// cannot re-enter this probe — its probe exits only fire on OOB /
+/// hole). The %Object.prototype% tail lives in torajs-anyvalue.
+/// `recv == singleton` (reading Array.prototype's own OOB index)
+/// skips straight to the tail — no self-probe.
+///
+/// # Safety
+/// `recv` is a live `Tag::Arr` heap pointer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_proto_index_get(recv: *const c_void, idx: i64) -> u64 {
+    unsafe {
+        let ap = __torajs_get_builtin_prototype(2);
+        if !ap.is_null() && !core::ptr::eq(ap as *const c_void, recv) && idx >= 0 {
+            let len = *((ap as *const u8).add(ARR_LEN_OFF) as *const u64);
+            if (idx as u64) < len {
+                let hdr = &*(ap as *const HeapHeader);
+                if hdr.flags & torajs_rc::FLAG_ARR_EXOTIC_INDEX != 0 {
+                    let pair = crate::define_accessor::__torajs_arr_index_accessor(
+                        ap as *const c_void,
+                        idx as u64,
+                    );
+                    if !pair.is_null() {
+                        return crate::define_accessor::read_via_getter(pair, recv);
+                    }
+                    if crate::define::__torajs_arr_index_flags(ap as *const c_void, idx as u64)
+                        & crate::define::F_HOLE
+                        != 0
+                    {
+                        return __torajs_object_proto_index_get(recv, idx);
+                    }
+                }
+                return __torajs_arr_index_get(ap as *const c_void, idx);
+            }
+        }
+        __torajs_object_proto_index_get(recv, idx)
+    }
 }
 
 /// Kind-aware `arr[idx]` read. See module doc for the contract.
@@ -62,13 +114,16 @@ unsafe fn undef() -> u64 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_index_get(arr: *const c_void, idx: i64) -> u64 {
     unsafe {
-        if arr.is_null() || idx < 0 {
+        if arr.is_null() {
             return undef();
         }
         let p = arr as *const u8;
         let len = *(p.add(ARR_LEN_OFF) as *const u64);
-        if idx as u64 >= len {
-            return undef();
+        if idx < 0 || idx as u64 >= len {
+            // §10.1.8.1 step 3 — no own element: [[Get]] continues to
+            // the Array.prototype / %Object.prototype% digit keys
+            // (RFC 20260721 刀 5 G3).
+            return __torajs_arr_proto_index_get(arr, idx);
         }
         let header = &*(arr as *const HeapHeader);
         // Exotic slow path (chunk C accessor) — an accessor index
@@ -78,6 +133,12 @@ pub unsafe extern "C" fn __torajs_arr_index_get(arr: *const c_void, idx: i64) ->
             let pair = crate::define_accessor::__torajs_arr_index_accessor(arr, idx as u64);
             if !pair.is_null() {
                 return crate::define_accessor::read_via_getter(pair, arr);
+            }
+            // A hole (elision / delete / length-grow) is not an own
+            // property — same prototype continuation as OOB.
+            if crate::define::__torajs_arr_index_flags(arr, idx as u64) & crate::define::F_HOLE != 0
+            {
+                return __torajs_arr_proto_index_get(arr, idx);
             }
         }
         let head = *(p.add(ARR_HEAD_OFF) as *const u32) as u64;

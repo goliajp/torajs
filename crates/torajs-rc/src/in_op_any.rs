@@ -56,6 +56,11 @@ unsafe extern "C" {
     // torajs-rc keeps 0 Cargo deps (vision §2). Same pattern as
     // dynobj_has / anyv_unbox above.
     fn __torajs_num_to_string_radix_i(n: i64, radix: i64) -> *mut u8;
+    // torajs-str — full Str release (dec + free at rc 0); the bare
+    // `__torajs_rc_dec` only decrements and answers DropPolicy.
+    // Link-time-resolved, zero-Cargo-dep pattern (same as above).
+    #[cfg(not(test))]
+    fn __torajs_str_drop(s: *mut c_void);
     // torajs-anyvalue — the shared own-property predicate (see
     // module doc). Link-time-resolved, zero-Cargo-dep pattern.
     fn __torajs_any_prop_has(recv: u64, key: *const c_void) -> i64;
@@ -192,8 +197,13 @@ pub unsafe extern "C" fn __torajs_in_op_any_num(v: i64, key: i64) -> bool {
     if type_tag == TAG_ARR {
         let len = unsafe { *((ptr as *const u8).add(ARR_LEN_OFF) as *const i64) };
         if key >= 0 && key < len {
-            // §13.10.1 HasProperty — a hole (elision / deleted index)
-            // is absent. Exotic-index header bit gates the probe.
+            // §13.10.1 HasProperty — a hole (elision / delete /
+            // length-grow) is absent as an OWN property, but the walk
+            // continues along the chain (刀 5 G3): a holed index falls
+            // to the string face below, whose chain walk consults the
+            // Array.prototype / %Object.prototype% digit keys.
+            // Exotic-index header bit gates the probe.
+            let mut hole = false;
             if unsafe { *((ptr as *const u8).add(6) as *const u16) } & crate::FLAG_ARR_EXOTIC_INDEX
                 != 0
             {
@@ -201,21 +211,20 @@ pub unsafe extern "C" fn __torajs_in_op_any_num(v: i64, key: i64) -> bool {
                 if !key_str.is_null() {
                     let props =
                         unsafe { *((ptr as *const u8).add(ARR_PROPS_OFF) as *const *const c_void) };
-                    let hole = !props.is_null()
+                    hole = !props.is_null()
                         && unsafe { __torajs_dynobj_has(props, key_str) } != 0
                         && unsafe { __torajs_dynobj_entry_is_hole(props, key_str) } != 0;
                     unsafe { rc_dec_temp_str(key_str) };
-                    if hole {
-                        return false;
-                    }
                 }
             }
-            return true;
+            if !hole {
+                return true;
+            }
         }
-        // Out-of-bounds falls through: `arr[9] = x` on a len-3 array
-        // lands a side-props entry the string face still owns, and
-        // `"constructor" in arr`-style chain names never take the
-        // numeric path anyway (a decimal key interns no mid).
+        // Out-of-bounds (and holes) fall through: `arr[9] = x` on a
+        // len-3 array lands a side-props entry the string face still
+        // owns, and `"constructor" in arr`-style chain names never
+        // take the numeric path anyway (a decimal key interns no mid).
     }
     // Every other receiver (and the Arr out-of-bounds tail): mint the
     // canonical decimal string once and take the full string-keyed
@@ -232,8 +241,12 @@ pub unsafe extern "C" fn __torajs_in_op_any_num(v: i64, key: i64) -> bool {
 
 #[cfg(not(test))]
 unsafe fn rc_dec_temp_str(p: *mut u8) {
+    // Full Str release, not a bare `__torajs_rc_dec` — that helper
+    // only decrements and ANSWERS DropPolicy; swallowing the answer
+    // leaked every minted decimal key (刀 5 G3 churn probe, ~32B per
+    // numeric `in` miss).
     unsafe {
-        crate::__torajs_rc_dec(p as *mut c_void);
+        __torajs_str_drop(p as *mut c_void);
     }
 }
 

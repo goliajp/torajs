@@ -219,6 +219,18 @@ pub unsafe extern "C" fn __torajs_arr_get_any_tag(arr: *const c_void, i: u64) ->
                 *slot = product;
                 return __torajs_anyv_unbox_tag(product) as u64;
             }
+            // 刀 5 G3 — a hole's [[Get]] continues to the prototype
+            // digit keys; the owned answer caches into the element
+            // slot (same pairing trick as the accessor product — the
+            // shadow HOLE entry stays, so has/enumeration still see
+            // the index as absent and the next tag read re-probes).
+            if crate::define::__torajs_arr_index_flags(arr, i) & crate::define::F_HOLE != 0 {
+                let product = crate::index_any::__torajs_arr_proto_index_get(arr, i as i64);
+                let slot = slot_anyvalue_ptr(arr_u8 as *mut u8, i);
+                __torajs_value_drop_heap((*slot) as *mut c_void);
+                *slot = product;
+                return __torajs_anyv_unbox_tag(product) as u64;
+            }
         }
         if (*(arr as *const HeapHeader)).flags & FLAG_ARR_ANY == 0 {
             return __torajs_anyv_unbox_tag(crate::any_typed_bridge::typed_slot_anyvalue_borrowed(
@@ -294,7 +306,8 @@ const ARR_DENSE_LIMIT: u64 = 32 * 1024 * 1024;
 /// write-back slot (`a[i] = v` on an Ident binding). `i < len`
 /// behaves like [`__torajs_arr_set_any`]; `i >= len` grows per ES
 /// spec (§10.4.2.1 OrdinarySet on an array index): reserve `i+1`
-/// slots (2× amortized), fill the `len..i` gap with undefined, set
+/// slots (2× amortized), fill the `len..i` gap as HOLES (刀 5 G3 —
+/// undefined-reading slots that are not own properties), set
 /// `len = i+1`. Returns the (possibly-realloc'd) array pointer; the
 /// caller MUST store it back, mirroring the `arr_push_any` contract.
 ///
@@ -364,6 +377,13 @@ pub unsafe extern "C" fn __torajs_arr_set_any_grow(
         }
         *slot_anyvalue_ptr(arr, i) = __torajs_anyv_box_from_pair(tag as i64, value as i64);
         *(arr.add(ARR_LEN_OFF) as *mut u64) = i + 1;
+        // 刀 5 G3 — a past-the-end write's GAP indices `[len, i)` are
+        // holes, not own undefineds (§10.4.2.1). The plain append
+        // (`i == len`, the hot array-build shape) has no gap and
+        // never pays the call.
+        if i > len {
+            crate::define_hole::mark_hole_range(arr as *mut c_void, len, i);
+        }
         arr
     }
 }

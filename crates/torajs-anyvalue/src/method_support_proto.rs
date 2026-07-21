@@ -36,6 +36,9 @@ unsafe extern "C" {
     /// non-mid-named singleton entries).
     fn __torajs_dynobj_has(obj: *const c_void, key: *const c_void) -> i32;
     fn __torajs_arrprops_has(arr: *mut c_void, key: *const c_void) -> i32;
+    /// torajs-arr — index attribute probe (bit 3 = hole tombstone);
+    /// the 刀 5 G3 element-face leg of the chain expando check.
+    fn __torajs_arr_index_flags(arr: *const c_void, idx: u64) -> u64;
 }
 
 /// Accessor-entry sentinel in the dynobj probe's tag channel —
@@ -413,7 +416,21 @@ unsafe fn chain_expando_owns(family_tag: i64, key: *const c_void) -> bool {
         return false;
     }
     if unsafe { proto_is_arr(proto) } {
-        return unsafe { __torajs_arrprops_has(proto, key) } != 0;
+        if unsafe { __torajs_arrprops_has(proto, key) } != 0 {
+            return true;
+        }
+        // 刀 5 G3 — the singleton's digit-key DATA lives in its own
+        // element storage (`Array.prototype[1] = v` grows it), so a
+        // canonical in-bounds index is present unless its slot is a
+        // hole tombstone.
+        if let Some(i) = unsafe { crate::prop_has::canonical_index(key) } {
+            let len = unsafe { proto.cast::<u8>().add(ARR_LEN_OFF).cast::<u64>().read() };
+            return i < len
+                && unsafe { __torajs_arr_index_flags(proto as *const c_void, i) }
+                    & crate::prop_has::ARR_F_HOLE
+                    == 0;
+        }
+        return false;
     }
     unsafe { __torajs_dynobj_has(proto, key) != 0 }
 }

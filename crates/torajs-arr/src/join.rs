@@ -45,6 +45,9 @@ unsafe extern "C" {
     /// `torajs-str::drop` (Layer-2 sibling).
     #[link_name = "__torajs_str_drop"]
     fn str_drop(s: *mut c_void);
+    /// Cross-tier — universal NaN-box-safe heap dropper (releases the
+    /// owned exotic-lane element reads).
+    fn __torajs_value_drop_heap(p: *mut c_void);
 }
 
 // AnyValue NaN-box constants — match `torajs-anyvalue::nanbox`
@@ -75,6 +78,17 @@ unsafe fn slot_addr(arr: *const u8, i: u64) -> *const u8 {
     unsafe {
         let head = arr_head(arr) as usize;
         arr_data(arr).add((head + i as usize) * 8)
+    }
+}
+
+/// RFC 20260721 刀 5 G3 — exotic-index receivers (accessor / hole /
+/// length-grow indices) leave the raw fast lanes: the any kernel
+/// reads kind-aware per element (getters run, holes consult the
+/// prototype digit keys). One predictable bit test on the fast path.
+#[inline]
+unsafe fn is_exotic(arr: *const u8) -> bool {
+    unsafe {
+        (*(arr as *const torajs_rc::HeapHeader)).flags & torajs_rc::FLAG_ARR_EXOTIC_INDEX != 0
     }
 }
 
@@ -178,6 +192,13 @@ pub unsafe extern "C" fn __torajs_arr_join(arr: *const u8, sep: *const u8) -> *m
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_join_i64(arr: *const u8, sep: *const u8) -> *mut u8 {
     unsafe {
+        if is_exotic(arr) {
+            crate::mark_kind::__torajs_arr_mark_kind(
+                arr as *mut u8 as *mut c_void,
+                torajs_rc::ARR_KIND_I64 as u64,
+            );
+            return __torajs_arr_join_any(arr, sep);
+        }
         let len = arr_len(arr);
         let sep_units = str_units(sep);
         let sep_data = str_data(sep);
@@ -220,6 +241,13 @@ pub unsafe extern "C" fn __torajs_arr_join_i64(arr: *const u8, sep: *const u8) -
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_join_f64(arr: *const u8, sep: *const u8) -> *mut u8 {
     unsafe {
+        if is_exotic(arr) {
+            crate::mark_kind::__torajs_arr_mark_kind(
+                arr as *mut u8 as *mut c_void,
+                torajs_rc::ARR_KIND_F64 as u64,
+            );
+            return __torajs_arr_join_any(arr, sep);
+        }
         let len = arr_len(arr);
         let sep_units = str_units(sep);
         let sep_data = str_data(sep);
@@ -278,6 +306,13 @@ pub unsafe extern "C" fn __torajs_arr_join_f64(arr: *const u8, sep: *const u8) -
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_join_bool(arr: *const u8, sep: *const u8) -> *mut u8 {
     unsafe {
+        if is_exotic(arr) {
+            crate::mark_kind::__torajs_arr_mark_kind(
+                arr as *mut u8 as *mut c_void,
+                torajs_rc::ARR_KIND_BOOL as u64,
+            );
+            return __torajs_arr_join_any(arr, sep);
+        }
         let len = arr_len(arr);
         let sep_units = str_units(sep);
         let sep_data = str_data(sep);
@@ -313,146 +348,5 @@ pub unsafe extern "C" fn __torajs_arr_join_bool(arr: *const u8, sep: *const u8) 
     }
 }
 
-// ============================================================
-// arr_join_any — Array<Any>
-// ============================================================
-
-/// `Array<Any>.join(sep)`. Each slot is a NaN-box `AnyValue` u64
-/// (Step 7e-A — 8-byte stride matches the typed-tier helpers, so
-/// `slot_addr` reuses without a custom stride helper).
-///
-/// Spec §22.1.3.15.5: per-element ToString is delegated to
-/// `__torajs_anyv_to_str` (`torajs-anyvalue::nanbox_ffi`), which
-/// honors ES §7.1.17 — but Array.join overrides ToString for
-/// undefined / null to the empty string, so this layer special-
-/// cases the two sentinels before the helper call to skip the
-/// "undefined" / "null" literal that `anyv_to_str` would produce
-/// and to elide the alloc+drop round-trip.
-///
-/// Per-element Str alloc must be dropped after copy — the joined
-/// result owns the final bytes; the temporaries are transient.
-/// Holds the temp ptrs in a heap Vec (rather than a second pass
-/// recomputing each ToString) so each slot's ToString runs once.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_arr_join_any(arr: *const u8, sep: *const u8) -> *mut u8 {
-    unsafe {
-        let len = arr_len(arr);
-        let sep_units = str_units(sep);
-        let sep_data = str_data(sep);
-        if len == 0 {
-            return alloc_join_out(0, true);
-        }
-        // RFC 20260707 chunk 624 — a typed block behind the static
-        // Arr<Any> view reboxes per elem kind (a raw bit-1-clear i64
-        // passed anyv_to_str's cell predicate: deref'd, SIGSEGV).
-        let is_any = (*(arr as *const torajs_rc::HeapHeader)).flags & torajs_rc::FLAG_ARR_ANY != 0;
-        // pass 1: ToString each slot, cache the resulting Str ptrs
-        // (NULL for undefined/null which contribute the empty string).
-        let tmp_bytes = (len as usize) * core::mem::size_of::<*mut c_void>();
-        let tmp = malloc(tmp_bytes) as *mut *mut c_void;
-        let mut total: u64 = 0;
-        let mut out_latin1 = sep_latin1_folded(sep, sep_units, len);
-        for i in 0..len {
-            let av = if is_any {
-                *(slot_addr(arr, i) as *const u64)
-            } else {
-                crate::any_typed_bridge::typed_slot_anyvalue_borrowed(arr, i)
-            };
-            if av == VALUE_NULL_IMM || av == VALUE_UNDEFINED_IMM {
-                *tmp.add(i as usize) = core::ptr::null_mut();
-            } else {
-                let s = __torajs_anyv_to_str(av);
-                *tmp.add(i as usize) = s;
-                let units = str_units(s as *const u8);
-                total += units;
-                if units > 0 {
-                    out_latin1 &= str_is_latin1(s as *const u8);
-                }
-            }
-        }
-        total += sep_units * (len - 1);
-        let p = alloc_join_out(total, out_latin1);
-        let p_data = p.add(STR_DATA_OFF);
-        let sep_latin1 = str_is_latin1(sep);
-        let mut cursor: u64 = 0;
-        for i in 0..len {
-            if i > 0 && sep_units > 0 {
-                emit_units(p_data, out_latin1, cursor, sep_data, sep_units, sep_latin1);
-                cursor += sep_units;
-            }
-            let s = *tmp.add(i as usize);
-            if !s.is_null() {
-                let s_u8 = s as *const u8;
-                let units = str_units(s_u8);
-                if units > 0 {
-                    emit_units(
-                        p_data,
-                        out_latin1,
-                        cursor,
-                        str_data(s_u8),
-                        units,
-                        str_is_latin1(s_u8),
-                    );
-                    cursor += units;
-                }
-                str_drop(s);
-            }
-        }
-        free(tmp as *mut c_void);
-        p
-    }
-}
-
-// ============================================================
-// arr_join_substr — Array<Substr>
-// ============================================================
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_arr_join_substr(arr: *const u8, sep: *const u8) -> *mut u8 {
-    unsafe {
-        let len = arr_len(arr);
-        let sep_units = str_units(sep);
-        let sep_data = str_data(sep);
-        if len == 0 {
-            return alloc_join_out(0, true);
-        }
-        // pass 1: total units + fold the parents' encodings.
-        let mut total: u64 = 0;
-        let mut out_latin1 = sep_latin1_folded(sep, sep_units, len);
-        for i in 0..len {
-            let v = *(slot_addr(arr, i) as *const *const u8);
-            let units = *(v.add(SUBSTR_LEN_OFF) as *const u64);
-            total += units;
-            if units > 0 {
-                let parent = *(v.add(SUBSTR_PARENT_OFF) as *const *const u8);
-                out_latin1 &= str_is_latin1(parent);
-            }
-        }
-        total += sep_units * (len - 1);
-        let p = alloc_join_out(total, out_latin1);
-        let p_data = p.add(STR_DATA_OFF);
-        let sep_latin1 = str_is_latin1(sep);
-        let mut cursor: u64 = 0;
-        for i in 0..len {
-            if i > 0 && sep_units > 0 {
-                emit_units(p_data, out_latin1, cursor, sep_data, sep_units, sep_latin1);
-                cursor += sep_units;
-            }
-            let v = *(slot_addr(arr, i) as *const *const u8);
-            let units = *(v.add(SUBSTR_LEN_OFF) as *const u64);
-            if units > 0 {
-                let parent = *(v.add(SUBSTR_PARENT_OFF) as *const *const u8);
-                let cu_off = *(v.add(SUBSTR_OFFSET_OFF) as *const u64) as usize;
-                let parent_latin1 = str_is_latin1(parent);
-                // Byte position of the view start recovers through
-                // the PARENT's stride (Substr offset/len are
-                // code-unit values, P11.1-S5).
-                let stride = if parent_latin1 { 1 } else { 2 };
-                let src = parent.add(STR_DATA_OFF + cu_off * stride);
-                emit_units(p_data, out_latin1, cursor, src, units, parent_latin1);
-                cursor += units;
-            }
-        }
-        p
-    }
-}
+mod any_substr;
+pub use any_substr::{__torajs_arr_join_any, __torajs_arr_join_substr};

@@ -176,7 +176,7 @@ unsafe fn struct_index_get(obj: *mut c_void, idx: i64) -> AnyValue {
 /// (in-house — metal-level crates take no external deps). Fills the
 /// 20-byte buffer backward; answers `(start, len)` into it. 20 bytes
 /// covers i64::MIN (`-9223372036854775808`).
-fn i64_dec(buf: &mut [u8; 20], v: i64) -> (usize, usize) {
+pub(crate) fn i64_dec(buf: &mut [u8; 20], v: i64) -> (usize, usize) {
     let neg = v < 0;
     // Two's-complement magnitude — safe for i64::MIN.
     let mut m = (v as i128).unsigned_abs() as u64;
@@ -251,7 +251,7 @@ unsafe fn dynobj_index_get(obj: *mut c_void, idx: i64) -> AnyValue {
 /// has probe disambiguates an own entry STORING undefined, which
 /// shadows the chain per the own-undefined-shadow family). Accessor
 /// entries invoke with the ORIGINAL receiver per §10.1.8.1 [[Get]].
-unsafe fn dynobj_index_entry(
+pub(crate) unsafe fn dynobj_index_entry(
     host: *const c_void,
     key: *const c_void,
     recv: *mut c_void,

@@ -67,31 +67,52 @@ unsafe fn is_nan_boxed(v: u64) -> bool {
 
 /// §23.1.3.17 step 9.a — HasProperty walks the CHAIN: a hole whose
 /// index exists on Array.prototype (a defineProperty'd shadow /
-/// accessor on the tag-2 singleton) is NOT skipped; the dense slot
-/// read (undefined) approximates Get through a getter-less proto
-/// entry (a value-bearing proto getter is the recorded
-/// proto-index-accessor face). Cold: only consulted when the
-/// receiver is exotic AND the slot is a hole.
+/// accessor on the tag-2 singleton) is NOT skipped; the element
+/// read then answers the proto entry for real (刀 5 G3 —
+/// `__torajs_arr_index_get`'s hole exit probes the singleton digit
+/// keys, getters included). Cold: only consulted when the receiver
+/// is exotic AND the slot is a hole.
 unsafe fn proto_index_present(idx: u64) -> bool {
     unsafe {
         let ap = __torajs_get_builtin_prototype(2);
-        if ap.is_null() {
-            return false;
+        if !ap.is_null() {
+            // The singleton's digit-key data lives in its OWN element
+            // storage (`Array.prototype[1] = v` grows it; an accessor
+            // define gap-fills to in-bounds). In-bounds is present
+            // unless the singleton's own slot is a hole tombstone —
+            // and HasProperty never runs a getter, so presence alone
+            // suffices for accessor entries.
+            let len = (ap.cast::<u8>().add(crate::layout::ARR_LEN_OFF) as *const u64).read();
+            if idx < len
+                && (crate::define::header_flags(ap as *const c_void)
+                    & torajs_rc::FLAG_ARR_EXOTIC_INDEX
+                    == 0
+                    || crate::define::__torajs_arr_index_flags(ap as *const c_void, idx)
+                        & crate::define::F_HOLE
+                        == 0)
+            {
+                return true;
+            }
         }
-        let props =
-            (ap.cast::<u8>().add(crate::layout::ARR_PROPS_OFF) as *const *const c_void).read();
-        if props.is_null() {
+        // %Object.prototype% chain tail — a plain dynobj host.
+        let op = __torajs_get_builtin_prototype(OBJECT_PROTO_TAG_I64);
+        if op.is_null() {
             return false;
         }
         let key = crate::define::mint_index_key(idx);
         // A deleted proto index leaves a hole tombstone — raw
         // presence alone would resurrect it.
-        let r = __torajs_dynobj_has(props, key as *const c_void) != 0
-            && __torajs_dynobj_entry_is_hole(props, key as *const c_void) == 0;
+        let r = __torajs_dynobj_has(op as *const c_void, key as *const c_void) != 0
+            && __torajs_dynobj_entry_is_hole(op as *const c_void, key as *const c_void) == 0;
         __torajs_str_drop(key as *mut c_void);
         r
     }
 }
+
+/// `torajs_rc::builtin_proto::OBJECT_PROTO_TAG` mirror (the crate
+/// resolves the registry through the link-time extern, so the tag
+/// constant mirrors inline).
+const OBJECT_PROTO_TAG_I64: i64 = 1;
 
 /// Shared search loop — answers the first index `>= from` whose
 /// slot matches, or -1. `same_value_zero` adds the NaN row.

@@ -71,6 +71,30 @@ pub(crate) unsafe fn revive_index_if_hole(arr: *mut c_void, idx: u64) {
     unsafe { __torajs_str_drop(key as *mut c_void) };
 }
 
+/// Mark every index in `[from, to)` a HOLE — the §10.4.2.5
+/// length-grow tail (RFC 20260721 刀 5 G3: grown slots are not own
+/// properties). Same shadow-entry representation as `delete`, so
+/// every existing consumer (has / gOPD / enumeration / reads)
+/// answers absent for free.
+pub(crate) unsafe fn mark_hole_range(arr: *mut c_void, from: u64, to: u64) {
+    if from >= to {
+        return;
+    }
+    unsafe {
+        let slot = props_slot(arr);
+        if (*slot).is_null() {
+            *slot = __torajs_dynobj_alloc();
+        }
+        for i in from..to {
+            let key = crate::define::mint_index_key(i);
+            __torajs_dynobj_set_entry_hole(slot, key as *mut c_void);
+            __torajs_str_drop(key as *mut c_void);
+        }
+        let p = (arr as *mut u8).add(6) as *mut u16;
+        p.write(p.read() | FLAG_ARR_EXOTIC_INDEX);
+    }
+}
+
 /// Mark the LAST pushed slot of a freshly-built array literal a
 /// HOLE (§13.2.4 elision — the slot reads undefined but is not an
 /// own property: `1 in [0,,2]` is false, indexOf skips it). Called

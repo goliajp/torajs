@@ -30,6 +30,20 @@ unsafe extern "C" {
     fn str_drop(s: *mut c_void);
     fn __torajs_num_to_locale_i(n: i64) -> *mut u8;
     fn __torajs_num_to_locale_f(n: f64) -> *mut u8;
+    /// torajs-anyvalue — per-element Invoke("toLocaleString") walk
+    /// (§23.1.3.32); the exotic-receiver delegate (刀 5 G3).
+    fn __torajs_arr_any_to_locale_string(arr: *mut c_void) -> *mut u8;
+}
+
+/// RFC 20260721 刀 5 G3 — exotic-index receivers (accessor / hole /
+/// length-grow indices) leave the raw fast lanes for the per-element
+/// Invoke walk, which reads kind-aware (getters run, holes consult
+/// the prototype digit keys).
+#[inline]
+unsafe fn is_exotic(arr: *const u8) -> bool {
+    unsafe {
+        (*(arr as *const torajs_rc::HeapHeader)).flags & torajs_rc::FLAG_ARR_EXOTIC_INDEX != 0
+    }
 }
 
 #[inline]
@@ -50,6 +64,9 @@ unsafe fn slot_addr(arr: *const u8, i: u64) -> *const u8 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_join_i64_locale(arr: *const u8, sep: *const u8) -> *mut u8 {
     unsafe {
+        if is_exotic(arr) {
+            return __torajs_arr_any_to_locale_string(arr as *mut u8 as *mut c_void);
+        }
         let len = arr_len(arr);
         let sep_units = str_units(sep);
         let sep_data = str_data(sep);
@@ -105,6 +122,9 @@ pub unsafe extern "C" fn __torajs_arr_join_i64_locale(arr: *const u8, sep: *cons
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_join_f64_locale(arr: *const u8, sep: *const u8) -> *mut u8 {
     unsafe {
+        if is_exotic(arr) {
+            return __torajs_arr_any_to_locale_string(arr as *mut u8 as *mut c_void);
+        }
         let len = arr_len(arr);
         let sep_units = str_units(sep);
         let sep_data = str_data(sep);
