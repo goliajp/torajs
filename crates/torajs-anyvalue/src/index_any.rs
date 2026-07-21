@@ -149,7 +149,11 @@ pub unsafe extern "C" fn __torajs_any_index_get(recv: AnyValue, idx: i64) -> Any
 /// `Tag::Obj` get arm — decimal-stringify the key and probe the class
 /// layout through [`crate::member_get::struct_field_pair`]; the probe
 /// is a borrow, the returned box owns its own reference (the
-/// `dynobj_index_get` shape).
+/// `dynobj_index_get` shape). A field miss falls to the accessor lane
+/// (`get 0() {…}` parses into a `__getter_0` layout slot — the same
+/// spelling the named-getter member lane resolves; ES §7.1.19
+/// ToPropertyKey makes `o[0]` ≡ `o["0"]`), which also answers
+/// `undefined` for a genuinely absent key.
 unsafe fn struct_index_get(obj: *mut c_void, idx: i64) -> AnyValue {
     let mut buf = [0u8; 20];
     let (start, len) = i64_dec(&mut buf, idx);
@@ -158,7 +162,11 @@ unsafe fn struct_index_get(obj: *mut c_void, idx: i64) -> AnyValue {
         let pair = crate::struct_probe::struct_field_pair(obj, key as *const c_void);
         __torajs_str_drop(key as *mut c_void);
         let Some((ftag, fval)) = pair else {
-            return VALUE_UNDEFINED;
+            return crate::struct_probe::__torajs_struct_accessor_get(
+                obj,
+                buf[start..].as_ptr(),
+                len as u32,
+            );
         };
         crate::payload_rc_inc(ftag as i64, fval as i64);
         crate::nanbox_encode::__torajs_anyv_box_from_pair(ftag as i64, fval as i64)
