@@ -189,6 +189,6 @@ pub(crate) unsafe fn struct_method(
         }
         // No layout / absent field → the inherited Object.prototype
         // surface, mirroring the dynobj arm's absent branch.
-        object_proto_fallback(obj, mid, true, argv)
+        object_proto_fallback(obj, mid, true, argv, argc)
     }
 }

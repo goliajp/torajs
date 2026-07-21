@@ -12,8 +12,13 @@
 //!   `toString` (§20.1.3.6 / Error §20.5.3.4 / badge cell),
 //!   `toLocaleString` (§20.1.4.6 re-dispatch as toString).
 //! - `builtin_proto_primitive` — Number.prototype / String.prototype
-//!   / Boolean.prototype answers per §21.1.3 / §22.1.3 / §20.3.3.
-//! - `str_any` — allocate a fresh Str cell and box it as AnyValue.
+//!   / Boolean.prototype ARE wrapper objects carrying a spec initial
+//!   value (§21.1.3 [[NumberData]] = +0 / §22.1.3 [[StringData]] =
+//!   "" / §20.3.3 [[BooleanData]] = false), so a direct method call
+//!   re-dispatches into the matching primitive arm with that value
+//!   as the receiver (RFC 20260722 刀 5) — the whole family
+//!   (`Number.prototype.toFixed(0)`, `String.prototype.charAt(0)`,
+//!   …) answers wrapper semantics, not just toString/valueOf.
 
 use core::ffi::c_void;
 
@@ -47,6 +52,7 @@ pub(crate) unsafe fn object_proto_fallback(
     mid: i64,
     is_struct: bool,
     argv: *const u64,
+    argc: i64,
 ) -> AnyValue {
     unsafe {
         // ES §21.1.3 / §20.3.3 / §22.1.3 — `Number.prototype` IS a Number
@@ -63,7 +69,7 @@ pub(crate) unsafe fn object_proto_fallback(
         // inherits the §20.1.3.6 badge below ("[object String]").
         if !is_struct
             && !proto_family_mid_deleted(obj, mid)
-            && let Some(v) = builtin_proto_primitive(obj, mid)
+            && let Some(v) = builtin_proto_primitive(obj, mid, argv, argc)
         {
             return v;
         }
@@ -120,40 +126,46 @@ unsafe fn proto_family_mid_deleted(obj: *mut c_void, mid: i64) -> bool {
         && unsafe { torajs_rc::builtin_proto::__torajs_builtin_proto_is_deleted(ptag, mid) } != 0
 }
 
-/// The primitive a builtin prototype carries as its internal slot, for
-/// the two methods that read it. `None` for every other receiver (and
-/// for the prototypes with no primitive data — `Object.prototype`,
-/// `Map.prototype`, ... — which keep the ordinary Object.prototype
-/// surface), so the caller falls through unchanged.
+/// Wrapper semantics for a direct method call on a primitive-wrapper
+/// prototype singleton (RFC 20260722 刀 5) — the spec initial value
+/// the prototype carries as its internal slot (§21.1.3 +0 / §22.1.3
+/// "" / §20.3.3 false) re-dispatches as the receiver into the
+/// matching primitive arm, so every family mid (`toFixed`,
+/// `toExponential`, `charAt`, …) answers exactly what the same call
+/// on the bare initial value would. `None` for every other receiver
+/// (and for the prototypes with no primitive data —
+/// `Object.prototype`, `Map.prototype`, ... — which keep the
+/// ordinary Object.prototype surface) AND for a family-arm mid miss,
+/// so the caller falls through unchanged (`Number.prototype
+/// .getDate()` keeps the honest TypeError).
+///
+/// The re-dispatch entry skips the wrapper-expando / patch consults:
+/// a monkey-patch lives as an own dynobj entry on this very
+/// prototype, so the own probe upstream already resolved it — by the
+/// time this runs, own-property resolution is over.
 ///
 /// `Array.prototype` is deliberately absent: the spec makes it an ARRAY
 /// (an empty one), not a primitive wrapper, so `Array.prototype
 /// .toString()` answering "" has to come from the array lane, not here.
-unsafe fn builtin_proto_primitive(obj: *mut c_void, mid: i64) -> Option<AnyValue> {
+unsafe fn builtin_proto_primitive(
+    obj: *mut c_void,
+    mid: i64,
+    argv: *const u64,
+    argc: i64,
+) -> Option<AnyValue> {
     // Tags are ssa_lower's, fixed by `torajs_rc::builtin_proto`:
     // Number=0, String=3, Boolean=4.
     let tag = unsafe { torajs_rc::builtin_proto::__torajs_builtin_proto_tag_of(obj) };
-    let is_to_string = mid == ANY_METHOD_TO_STRING;
-    if !is_to_string && mid != ANY_METHOD_VALUE_OF {
+    let recv: AnyValue = match tag {
+        0 => crate::nanbox_encode::__torajs_anyv_box_f64(0.0),
+        // "" always fits the short-str immediate encoding.
+        3 => crate::nanbox::try_box_short_str(b"")?,
+        4 => crate::nanbox_encode::__torajs_anyv_box_bool(0),
+        _ => return None,
+    };
+    let out = unsafe { crate::method_call::any_method_redispatch(recv, mid, argv, argc) };
+    if out == crate::method_call::ANY_METHOD_NO_SUCH {
         return None;
     }
-    match tag {
-        // §21.1.3.6 — `Number.prototype.toString(radix)` on +0 is "0" in
-        // every radix, so the arg needs no inspection.
-        0 if is_to_string => Some(unsafe { str_any(b"0") }),
-        0 => Some(crate::nanbox_encode::__torajs_anyv_box_f64(0.0)),
-        3 if is_to_string => Some(unsafe { str_any(b"") }),
-        3 => Some(unsafe { str_any(b"") }),
-        4 if is_to_string => Some(unsafe { str_any(b"false") }),
-        4 => Some(crate::nanbox_encode::__torajs_anyv_box_bool(0)),
-        _ => None,
-    }
-}
-
-/// A fresh owned Str cell boxed as an AnyValue.
-unsafe fn str_any(bytes: &[u8]) -> AnyValue {
-    unsafe {
-        let p = __torajs_str_alloc(bytes.as_ptr(), bytes.len() as i64);
-        __torajs_anyv_box_pointer(p as *mut c_void)
-    }
+    Some(out)
 }
