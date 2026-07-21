@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-21T11:06:29.288Z",
+  "generatedAt": "2026-07-21T14:02:47.044Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 95.01
   },
   "torajs": {
-    "commit": "9c909661",
-    "commitSubject": "fix: array literal typecheck walks every element past the widening verdict",
+    "commit": "aaaf648c",
+    "commitSubject": "fix: fill revives the holes it writes",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -347,371 +347,395 @@
     "rows": [
       {
         "case": "popcount",
-        "bunAot": 53.894541999999994,
+        "bunAot": 51.402958000000005,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 3.5517499999999997,
-        "speedup": 15.174080946012529
+        "torajs": 3.3844580000000004,
+        "speedup": 15.187943830297199
       },
       {
         "case": "throw-catch-100k",
-        "bunAot": 17.044834,
+        "bunAot": 16.926709000000002,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 2.6375,
-        "speedup": 6.462496303317535
-      },
-      {
-        "case": "async-fn-call-100k",
-        "bunAot": 10.80625,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 2.925542,
-        "speedup": 3.6937599938746395
+        "torajs": 2.99475,
+        "speedup": 5.65212755655731
       },
       {
         "case": "promise-await-100k",
-        "bunAot": 10.472333,
+        "bunAot": 10.684125,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 2.840875,
-        "speedup": 3.68630545166542
+        "torajs": 2.8175000000000003,
+        "speedup": 3.7920585625554564
+      },
+      {
+        "case": "async-fn-call-100k",
+        "bunAot": 10.494542000000001,
+        "bunJsc": null,
+        "nodeV8": null,
+        "torajs": 2.863417,
+        "speedup": 3.665041452222991
       },
       {
         "case": "generic-pair-1m",
-        "bunAot": 10.035374999999998,
+        "bunAot": 9.785874999999999,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 2.9261250000000003,
-        "speedup": 3.429578367294629
-      },
-      {
-        "case": "fifo-queue-100k",
-        "bunAot": 8.182958000000001,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 2.585792,
-        "speedup": 3.164584777120511
-      },
-      {
-        "case": "stack-pop-1m",
-        "bunAot": 13.058,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 4.140375,
-        "speedup": 3.1538206080367117
+        "torajs": 2.876542,
+        "speedup": 3.401957975930822
       },
       {
         "case": "array-any-indexed-100k",
-        "bunAot": 7.379396,
+        "bunAot": 7.727374999999999,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 2.3540625000000004,
-        "speedup": 3.1347493959909727
+        "torajs": 2.2805834999999997,
+        "speedup": 3.3883324158049906
+      },
+      {
+        "case": "fifo-queue-100k",
+        "bunAot": 8.181125000000002,
+        "bunJsc": null,
+        "nodeV8": null,
+        "torajs": 2.454958,
+        "speedup": 3.332490820616891
+      },
+      {
+        "case": "stack-pop-1m",
+        "bunAot": 12.920582999999999,
+        "bunJsc": null,
+        "nodeV8": null,
+        "torajs": 4.055292000000001,
+        "speedup": 3.1861042312119565
       },
       {
         "case": "startup",
-        "bunAot": 6.765958500000001,
+        "bunAot": 6.622771,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 2.1864580000000005,
-        "speedup": 3.0944836351761613
-      },
-      {
-        "case": "promise-all-1k",
-        "bunAot": 6.993542000000001,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 2.2887910000000002,
-        "speedup": 3.055561648049123
-      },
-      {
-        "case": "promise-chain-1k",
-        "bunAot": 6.915625,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 2.2704999999999997,
-        "speedup": 3.0458599427438897
+        "torajs": 2.1041455,
+        "speedup": 3.147487186603778
       },
       {
         "case": "promise-then-100k",
-        "bunAot": 13.199417,
+        "bunAot": 13.248584000000001,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 4.335125,
-        "speedup": 3.0447604163663105
+        "torajs": 4.237417000000001,
+        "speedup": 3.1265707387306936
       },
       {
         "case": "generator-yield-100k",
-        "bunAot": 9.8786245,
+        "bunAot": 10.274791500000001,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 3.4730000000000003,
-        "speedup": 2.844406708897207
+        "torajs": 3.3160835,
+        "speedup": 3.0984718870921077
+      },
+      {
+        "case": "promise-chain-1k",
+        "bunAot": 6.840166000000001,
+        "bunJsc": null,
+        "nodeV8": null,
+        "torajs": 2.229375,
+        "speedup": 3.0681989346790024
+      },
+      {
+        "case": "promise-all-1k",
+        "bunAot": 7.518834,
+        "bunJsc": null,
+        "nodeV8": null,
+        "torajs": 2.491,
+        "speedup": 3.0183998394219187
       },
       {
         "case": "array-sort-100k",
-        "bunAot": 14.8704375,
+        "bunAot": 15.452333000000001,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 5.327770500000001,
-        "speedup": 2.791118254812214
+        "torajs": 5.1230835,
+        "speedup": 3.016217283985319
       },
       {
         "case": "i64-to-str-100k",
-        "bunAot": 8.819895500000001,
+        "bunAot": 8.687458,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 3.5133959999999997,
-        "speedup": 2.5103619119507172
+        "torajs": 3.3284785,
+        "speedup": 2.6100387909971476
       },
       {
         "case": "str-concat-ascii-100k",
-        "bunAot": 7.641750000000001,
+        "bunAot": 7.494583,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 3.1443125000000003,
-        "speedup": 2.4303404957363495
+        "torajs": 3.097333,
+        "speedup": 2.4196891325537164
       },
       {
         "case": "multibyte-concat-100k",
-        "bunAot": 7.651229000000001,
+        "bunAot": 7.398874500000001,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 3.394958,
-        "speedup": 2.25370358042721
-      },
-      {
-        "case": "csv-trim-100k",
-        "bunAot": 18.49375,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 8.763375,
-        "speedup": 2.1103456145606
+        "torajs": 3.2947080000000004,
+        "speedup": 2.245684443052313
       },
       {
         "case": "rpn-eval-100k",
-        "bunAot": 13.661207999999998,
+        "bunAot": 13.762875000000001,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 6.484666,
-        "speedup": 2.1066941612721455
+        "torajs": 6.372666000000001,
+        "speedup": 2.1596730473556907
       },
       {
-        "case": "generic-id-1m",
-        "bunAot": 42.254124999999995,
+        "case": "csv-trim-100k",
+        "bunAot": 18.427167,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 20.740833,
-        "speedup": 2.0372433932619773
-      },
-      {
-        "case": "closure-pipeline-1m",
-        "bunAot": 42.497916,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 20.970084,
-        "speedup": 2.0265973183512282
+        "torajs": 8.533292000000001,
+        "speedup": 2.1594440926198235
       },
       {
         "case": "array-sum-1m",
-        "bunAot": 42.067750000000004,
+        "bunAot": 40.87475,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 20.874375,
-        "speedup": 2.0152818946675053
+        "torajs": 19.912333,
+        "speedup": 2.0527353575294267
       },
       {
-        "case": "class-method-100k",
-        "bunAot": 9.444750000000003,
+        "case": "closure-pipeline-1m",
+        "bunAot": 41.898250000000004,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 4.758687500000001,
-        "speedup": 1.9847384389077873
-      },
-      {
-        "case": "closure-counter",
-        "bunAot": 42.291209,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 21.422792000000005,
-        "speedup": 1.9741221872480483
+        "torajs": 20.458582999999997,
+        "speedup": 2.0479546408468274
       },
       {
         "case": "csv-rebuild-100k",
-        "bunAot": 18.781083,
+        "bunAot": 18.524583,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 9.554125,
-        "speedup": 1.9657564664477383
+        "torajs": 9.289459,
+        "speedup": 1.9941508972696902
+      },
+      {
+        "case": "generic-id-1m",
+        "bunAot": 39.99958300000001,
+        "bunJsc": null,
+        "nodeV8": null,
+        "torajs": 20.140291,
+        "speedup": 1.9860479175797414
+      },
+      {
+        "case": "closure-counter",
+        "bunAot": 42.018459,
+        "bunJsc": null,
+        "nodeV8": null,
+        "torajs": 21.282875,
+        "speedup": 1.9742849121652972
+      },
+      {
+        "case": "class-method-100k",
+        "bunAot": 9.2427915,
+        "bunJsc": null,
+        "nodeV8": null,
+        "torajs": 4.796792,
+        "speedup": 1.9268693535179344
       },
       {
         "case": "ackermann",
-        "bunAot": 13.910625,
+        "bunAot": 13.279292000000002,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 7.410125,
-        "speedup": 1.8772456604983048
+        "torajs": 6.964667,
+        "speedup": 1.9066657458281926
       },
       {
         "case": "regex-wireback-minlit-100k",
-        "bunAot": 10.658833,
+        "bunAot": 10.688166500000001,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 5.936625000000001,
-        "speedup": 1.7954364643210574
+        "torajs": 5.8884795,
+        "speedup": 1.8150978533592588
       },
       {
         "case": "collatz",
-        "bunAot": 315.19650000000007,
+        "bunAot": 305.431208,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 180.43625,
-        "speedup": 1.7468579622997045
-      },
-      {
-        "case": "fib40",
-        "bunAot": 364.48724999999996,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 227.240375,
-        "speedup": 1.603972225446292
-      },
-      {
-        "case": "str-replace-100k",
-        "bunAot": 13.385270499999999,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 8.910479500000001,
-        "speedup": 1.5021941860704575
-      },
-      {
-        "case": "regex-dfa-anchored-100k",
-        "bunAot": 14.35575,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 9.628542,
-        "speedup": 1.4909578210283552
-      },
-      {
-        "case": "split-only-100k",
-        "bunAot": 8.484708000000001,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 5.7319580000000006,
-        "speedup": 1.4802460171550456
+        "torajs": 178.393209,
+        "speedup": 1.7121235147465732
       },
       {
         "case": "regex-dfa-wbound-100k",
-        "bunAot": 14.322645999999999,
+        "bunAot": 16.090375000000005,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 9.764125000000002,
-        "speedup": 1.466864260750451
+        "torajs": 10.059125000000002,
+        "speedup": 1.5995799833484525
       },
       {
-        "case": "regex-dfa-mflag-100k",
-        "bunAot": 14.117021000000001,
+        "case": "fib40",
+        "bunAot": 363.96220800000003,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 9.775521000000001,
-        "speedup": 1.4441195512750675
+        "torajs": 230.14399999999998,
+        "speedup": 1.5814542547274753
+      },
+      {
+        "case": "str-replace-100k",
+        "bunAot": 13.414291500000001,
+        "bunJsc": null,
+        "nodeV8": null,
+        "torajs": 8.589625,
+        "speedup": 1.5616853471484495
+      },
+      {
+        "case": "regex-dfa-anchored-100k",
+        "bunAot": 14.472249499999998,
+        "bunJsc": null,
+        "nodeV8": null,
+        "torajs": 9.651958,
+        "speedup": 1.4994107413231592
+      },
+      {
+        "case": "split-only-100k",
+        "bunAot": 8.320084,
+        "bunJsc": null,
+        "nodeV8": null,
+        "torajs": 5.586208,
+        "speedup": 1.4893974588844525
       },
       {
         "case": "array-map-1m",
-        "bunAot": 49.479375000000005,
+        "bunAot": 48.669583,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 34.399541,
-        "speedup": 1.438373116664551
+        "torajs": 33.662333000000004,
+        "speedup": 1.4458172878273172
       },
       {
         "case": "regex-dfa-uflag-cprange-100k",
-        "bunAot": 14.3785,
+        "bunAot": 16.07775,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 10.211167,
-        "speedup": 1.4081152526444825
+        "torajs": 11.332542,
+        "speedup": 1.418724060321153
       },
       {
-        "case": "regex-dfa-safeclass-100k",
-        "bunAot": 14.393791499999999,
+        "case": "regex-dfa-mflag-100k",
+        "bunAot": 13.95275,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 10.517083,
-        "speedup": 1.3686106214051939
+        "torajs": 9.9541665,
+        "speedup": 1.4016994793084887
       },
       {
         "case": "regex-dfa-uflag-100k",
-        "bunAot": 14.389458000000001,
+        "bunAot": 16.168583,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 10.976334000000001,
-        "speedup": 1.3109530012479576
-      },
-      {
-        "case": "regex-dfa-iflag-100k",
-        "bunAot": 14.207209000000002,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 11.858832999999999,
-        "speedup": 1.1980275799482127
-      },
-      {
-        "case": "json-stringify-100k",
-        "bunAot": 13.4650625,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 11.337083499999999,
-        "speedup": 1.187700743317274
+        "torajs": 11.901208,
+        "speedup": 1.3585665421526958
       },
       {
         "case": "gcd1m",
-        "bunAot": 44.19808400000001,
+        "bunAot": 44.99225,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 38.165583000000005,
-        "speedup": 1.158061282595893
+        "torajs": 36.312416999999996,
+        "speedup": 1.239032091970083
       },
       {
-        "case": "regex-dfa-dotall-100k",
-        "bunAot": 15.3985415,
+        "case": "regex-dfa-safeclass-100k",
+        "bunAot": 14.371458,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 13.8001045,
-        "speedup": 1.115827891013434
+        "torajs": 11.9923965,
+        "speedup": 1.1983808240496385
+      },
+      {
+        "case": "json-stringify-100k",
+        "bunAot": 13.257896000000002,
+        "bunJsc": null,
+        "nodeV8": null,
+        "torajs": 11.0955835,
+        "speedup": 1.1948804675301665
+      },
+      {
+        "case": "regex-dfa-iflag-100k",
+        "bunAot": 14.281333,
+        "bunJsc": null,
+        "nodeV8": null,
+        "torajs": 12.0681665,
+        "speedup": 1.1833887939812564
       },
       {
         "case": "prime_count",
-        "bunAot": 51.266459,
+        "bunAot": 56.057667,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 47.460459,
-        "speedup": 1.0801930718790562
+        "torajs": 47.64112500000001,
+        "speedup": 1.1766654754689356
+      },
+      {
+        "case": "regex-dfa-dotall-100k",
+        "bunAot": 15.665937500000002,
+        "bunJsc": null,
+        "nodeV8": null,
+        "torajs": 13.8046875,
+        "speedup": 1.1348273910582911
       },
       {
         "case": "mandelbrot",
-        "bunAot": 45.48966600000001,
+        "bunAot": 43.183959,
         "bunJsc": null,
         "nodeV8": null,
-        "torajs": 42.818375,
-        "speedup": 1.0623865571731763
+        "torajs": 41.07425,
+        "speedup": 1.0513632993907376
       }
     ],
-    "geomeanBunAot": 2.113290859596364,
+    "geomeanBunAot": 2.135319824721278,
     "geomeanNodeV8": null,
-    "peak": 15.174080946012529,
+    "peak": 15.187943830297199,
     "peakCase": "popcount",
-    "min": 1.0623865571731763,
+    "min": 1.0513632993907376,
     "minCase": "mandelbrot",
     "caseCount": 44,
     "wonCount": 44,
-    "sourceFile": "bench/results/2026-07-20-mini-89ec623.json",
-    "gitSha": "89ec623ed7f9a617684be3a400feb2f40a3bdcc0",
-    "startedAt": "2026-07-20T17:29:13Z",
+    "sourceFile": "bench/results/2026-07-21-mini-1e8cab0.json",
+    "gitSha": "1e8cab07a4eb9e29fe7102e876efc21ad6dfc97e",
+    "startedAt": "2026-07-21T11:15:14Z",
     "host": "mini"
   },
   "commits": [
+    {
+      "hash": "aaaf648c",
+      "subject": "fix: fill revives the holes it writes"
+    },
+    {
+      "hash": "d647be26",
+      "subject": "feat: reverse mop pair loop, shrink purges shadows, numeric in walks holes"
+    },
+    {
+      "hash": "c861ed4c",
+      "subject": "feat: copy-family rides per-index get on exotic receivers, reverse-order kernel"
+    },
+    {
+      "hash": "32284319",
+      "subject": "fix: generic typevar unification widens to any on later any-repr argument"
+    },
+    {
+      "hash": "a2449bb8",
+      "subject": "chore: full 44-cell bench at 1e8cab07, median-of-3 verify on drift cells"
+    },
+    {
+      "hash": "1e8cab07",
+      "subject": "chore: hardev dashboard snapshot at rotation 175 close"
+    },
     {
       "hash": "9c909661",
       "subject": "fix: array literal typecheck walks every element past the widening verdict"
@@ -735,51 +759,38 @@
     {
       "hash": "47ad5c10",
       "subject": "feat: proto-patch consult pre-gates the primitive fast arms"
-    },
-    {
-      "hash": "cbe18216",
-      "subject": "chore: hardev dashboard snapshot at rotation 174 close"
-    },
-    {
-      "hash": "76260c45",
-      "subject": "feat: object-typed array-literal elements route the any pack lane"
-    },
-    {
-      "hash": "32de64e2",
-      "subject": "feat: species guard runs accessor constructor getter, narrow wrapper gate"
-    },
-    {
-      "hash": "c4c05b50",
-      "subject": "feat: primitive-wrapper indexed write and generic array-like own face"
-    },
-    {
-      "hash": "99b1cb44",
-      "subject": "fix: dynobj literal init loses fields past the resize boundary"
-    },
-    {
-      "hash": "c96902cf",
-      "subject": "feat: array proto direct .call routes any lane, concat generic arm"
     }
   ],
-  "headSha": "9c909661",
+  "headSha": "aaaf648c",
   "autorun": {
-    "total": 480,
+    "total": 481,
     "baselineTarget": 10,
-    "bySelf": 475,
+    "bySelf": 476,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784622362-05ef",
-      "at": "2026-07-21T08:26:02Z",
-      "ts": 1784622362,
+      "rotationId": "r-1784632013-47be",
+      "at": "2026-07-21T11:06:53Z",
+      "ts": 1784632013,
       "trigger": "self",
-      "prevHead": "cbe18216",
-      "handoffSha": "sha256:f3bf0ef5212128d910ee7997cd7f2372582d1d1ed761a915c4f3cd5e3109c4d8",
-      "handoffAgeSec": 3,
+      "prevHead": "1e8cab07",
+      "handoffSha": "sha256:870923687d51439cd4988aa696eb6fefffc21539d8e834ee9c1e392cbdc9ee74",
+      "handoffAgeSec": 115,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784632013-47be",
+        "at": "2026-07-21T11:06:53Z",
+        "ts": 1784632013,
+        "trigger": "self",
+        "prevHead": "1e8cab07",
+        "handoffSha": "sha256:870923687d51439cd4988aa696eb6fefffc21539d8e834ee9c1e392cbdc9ee74",
+        "handoffAgeSec": 115,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784622362-05ef",
         "at": "2026-07-21T08:26:02Z",
@@ -876,17 +887,6 @@
         "prevHead": "ec7a8078",
         "handoffSha": "sha256:f80478579cadeece4bf6f67ae82fbde24af197d9b185eef57fe3d492895064d2",
         "handoffAgeSec": 4,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784557586-4547",
-        "at": "2026-07-20T14:26:26Z",
-        "ts": 1784557586,
-        "trigger": "self",
-        "prevHead": "87cbcbf2",
-        "handoffSha": "sha256:6b57609e5cc64b7d63a2ef852786c7c9e832d52850fe548a9494376a5f29ef42",
-        "handoffAgeSec": 7,
         "conformanceBefore": null,
         "commitsInSession": null
       }
