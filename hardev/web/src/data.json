@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-21T14:02:47.044Z",
+  "generatedAt": "2026-07-21T15:33:57.931Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 95.01
   },
   "torajs": {
-    "commit": "aaaf648c",
-    "commitSubject": "fix: fill revives the holes it writes",
+    "commit": "50243560",
+    "commitSubject": "refactor: decl! table collapse for arr-any intrinsic declarations",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "50243560",
+      "subject": "refactor: decl! table collapse for arr-any intrinsic declarations"
+    },
+    {
+      "hash": "2aa554a4",
+      "subject": "fix: any-lane concat seeds an any-kind product"
+    },
+    {
+      "hash": "fa92ef83",
+      "subject": "fix: toSpliced and with items feed the container width lattice"
+    },
+    {
+      "hash": "82c4782e",
+      "subject": "test: lock loop-push shapes against silent no-op regression"
+    },
+    {
+      "hash": "ace1bb30",
+      "subject": "fix: in-bounds typed index write revives the hole it fills"
+    },
+    {
+      "hash": "ea8d3267",
+      "subject": "feat: typed block index write past the end grows as holes"
+    },
+    {
+      "hash": "87c97b42",
+      "subject": "chore: hardev dashboard snapshot at rotation 176 close"
+    },
+    {
       "hash": "aaaf648c",
       "subject": "fix: fill revives the holes it writes"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "a2449bb8",
       "subject": "chore: full 44-cell bench at 1e8cab07, median-of-3 verify on drift cells"
-    },
-    {
-      "hash": "1e8cab07",
-      "subject": "chore: hardev dashboard snapshot at rotation 175 close"
-    },
-    {
-      "hash": "9c909661",
-      "subject": "fix: array literal typecheck walks every element past the widening verdict"
-    },
-    {
-      "hash": "b3923cf9",
-      "subject": "feat: for-in typed-array liveness re-check, splice moves hole shadows"
-    },
-    {
-      "hash": "8f1510b7",
-      "subject": "feat: builtin-proto constructor own face and ctor prototype ro guards"
-    },
-    {
-      "hash": "85800c47",
-      "subject": "feat: reified array toString carries its own id, badge fallback off-array"
-    },
-    {
-      "hash": "fb44d5b8",
-      "subject": "test: proto-patch pregate fixture (G13 faces)"
-    },
-    {
-      "hash": "47ad5c10",
-      "subject": "feat: proto-patch consult pre-gates the primitive fast arms"
     }
   ],
-  "headSha": "aaaf648c",
+  "headSha": "50243560",
   "autorun": {
-    "total": 481,
+    "total": 482,
     "baselineTarget": 10,
-    "bySelf": 476,
+    "bySelf": 477,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784632013-47be",
-      "at": "2026-07-21T11:06:53Z",
-      "ts": 1784632013,
+      "rotationId": "r-1784642623-1af6",
+      "at": "2026-07-21T14:03:43Z",
+      "ts": 1784642623,
       "trigger": "self",
-      "prevHead": "1e8cab07",
-      "handoffSha": "sha256:870923687d51439cd4988aa696eb6fefffc21539d8e834ee9c1e392cbdc9ee74",
-      "handoffAgeSec": 115,
+      "prevHead": "87c97b42",
+      "handoffSha": "sha256:d2733029283ef01504159a770907566c8e6a47cc568b10f43e718d0c45c63401",
+      "handoffAgeSec": 5,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784642623-1af6",
+        "at": "2026-07-21T14:03:43Z",
+        "ts": 1784642623,
+        "trigger": "self",
+        "prevHead": "87c97b42",
+        "handoffSha": "sha256:d2733029283ef01504159a770907566c8e6a47cc568b10f43e718d0c45c63401",
+        "handoffAgeSec": 5,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784632013-47be",
         "at": "2026-07-21T11:06:53Z",
@@ -876,17 +887,6 @@
         "prevHead": "deae7f76",
         "handoffSha": "sha256:20932ee75cd9d0459c280cd42bb8594041b6219b1b8ccfb5f2ee3f19387b1736",
         "handoffAgeSec": 5,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784563231-537a",
-        "at": "2026-07-20T16:00:31Z",
-        "ts": 1784563231,
-        "trigger": "self",
-        "prevHead": "ec7a8078",
-        "handoffSha": "sha256:f80478579cadeece4bf6f67ae82fbde24af197d9b185eef57fe3d492895064d2",
-        "handoffAgeSec": 4,
         "conformanceBefore": null,
         "commitsInSession": null
       }
