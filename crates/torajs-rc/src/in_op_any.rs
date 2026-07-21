@@ -91,6 +91,11 @@ const ARR_PROPS_OFF: usize = 24;
 // `ANY_TAG_HEAP = 4` from torajs-anyvalue / ssa_lower).
 const ANY_TAG_HEAP: i64 = 4;
 
+// DynObj header-flags bit for a `Object.create(null)` receiver
+// (mirror of `torajs-anyvalue::member_get_own::
+// DYNOBJ_HDR_FLAG_NULL_PROTO`; header flags half-word at offset 6).
+const DYNOBJ_HDR_FLAG_NULL_PROTO: u16 = 1 << 6;
+
 // `torajs_rc::Tag` numeric values (stable ABI per assert_eq! suite
 // in `lib.rs`):
 const TAG_ARR: u16 = 2;
@@ -262,6 +267,15 @@ pub unsafe extern "C" fn __torajs_in_op_any_str(v: i64, key: *const u8) -> bool 
         let parent = unsafe { __torajs_dynobj_user_proto(ptr) };
         if !parent.is_null() {
             return unsafe { __torajs_in_op_any_str(parent as i64, key) };
+        }
+        // A NULL parent is ambiguous: `Object.create(null)` has no
+        // chain AT ALL (its face check must stop here — the expando
+        // probe below would wrongly surface Object.prototype's
+        // `__proto__` accessor), while an implicit-chain receiver
+        // falls to the family face. Header flag disambiguates
+        // (`member_get_own::DYNOBJ_HDR_FLAG_NULL_PROTO` mirror).
+        if unsafe { *((ptr as *const u8).add(6) as *const u16) } & DYNOBJ_HDR_FLAG_NULL_PROTO != 0 {
+            return false;
         }
     }
     // Class-prototype link — a struct receiver's methods / accessor
