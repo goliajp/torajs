@@ -90,6 +90,16 @@ pub fn desugar_prototype_call(ast: &mut Ast) {
         if ns == "Error" && method_name == "toString" {
             continue;
         }
+        // §20.4.3 — the WHOLE Symbol namespace SKIPS the rewrite:
+        // toString / valueOf run thisSymbolValue, which throws a
+        // TypeError on every non-Symbol receiver — `recv.m()` would
+        // run the receiver's OWN m instead ("not-ok".toString()
+        // answers itself, [] joins). The runtime path reifies the
+        // tag-5 alias cells (ANY_METHOD_SYMBOL_TO_STRING/_VALUE_OF)
+        // and the `.call` short-circuit re-dispatches the gate.
+        if ns == "Symbol" {
+            continue;
+        }
         // RFC 20260713-string-proto-residual blade 6 — the String
         // generic family SKIPS the rewrite: §22.1.3 methods accept
         // any this and coerce via ToString (observable
