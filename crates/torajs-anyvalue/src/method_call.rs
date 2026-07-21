@@ -400,7 +400,11 @@ unsafe fn bool_method(recv: AnyValue, mid: i64, argv: *const u64, argc: i64) -> 
     if crate::method_call_arraylike::arraylike_supported(mid)
         && !crate::method_call_arraylike_mut::arraylike_mut_supported(mid)
     {
-        return unsafe { crate::method_call_arraylike::arraylike_empty(mid, argv, argc) };
+        // Boolean.prototype expando `length` + digit keys are the
+        // inherited surface ToObject(bool) sees (RFC 20260721 G2d).
+        return unsafe {
+            crate::method_call_arraylike::arraylike_on_wrapper_proto(4, mid, argv, argc)
+        };
     }
     unsafe { method_no_such() }
 }

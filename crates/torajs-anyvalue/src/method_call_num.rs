@@ -123,6 +123,14 @@ pub(crate) unsafe fn number_method(
                     boxed(__torajs_num_to_locale_i(n as i64))
                 }
             }
+            m if crate::method_call_arraylike::arraylike_supported(m)
+                && !crate::method_call_arraylike_mut::arraylike_mut_supported(m) =>
+            {
+                // Number.prototype expando `length` + digit keys are
+                // the inherited surface ToObject(num) sees — the bool
+                // arm's gate, wrapper proto tag 0 (RFC 20260721 G2b).
+                crate::method_call_arraylike::arraylike_on_wrapper_proto(0, m, argv, argc)
+            }
             _ => method_no_such(),
         }
     }

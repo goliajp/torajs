@@ -56,6 +56,8 @@ unsafe extern "C" {
     /// torajs-dynobj — own-property probe pair ((5, 0) = absent).
     fn __torajs_dynobj_get_tag(obj: *const c_void, key: *const c_void) -> u64;
     fn __torajs_dynobj_get_value(obj: *const c_void, key: *const c_void) -> u64;
+    /// torajs-dynobj — own-key membership probe.
+    fn __torajs_dynobj_has(obj: *const c_void, key: *const c_void) -> i32;
     /// torajs-dynobj — run an accessor entry's getter (owned answer).
     fn __torajs_accessor_invoke_getter(pair: *const c_void, recv_anyv: u64) -> u64;
     /// torajs-throw — pending-throw flag (1 = a throw is recorded).
@@ -168,6 +170,35 @@ pub(crate) unsafe fn arraylike_get(obj: *mut c_void, k: i64) -> AnyValue {
     unsafe { __torajs_any_index_get(__torajs_anyv_box_pointer(obj), k) }
 }
 
+/// A primitive receiver's array-like face (RFC 20260721 G2b/G2d
+/// bool half) — ToObject(prim) owns no indexed surface, but its
+/// wrapper prototype singleton may carry a user-installed `length`
+/// plus digit keys (`Boolean.prototype[1] = x; Boolean.prototype
+/// .length = 2`). When the singleton owns a `length`, the generic
+/// scan runs over IT as the host (its own face is exactly the
+/// inherited surface ToObject(prim) sees); otherwise the
+/// empty-receiver semantics. Callers exclude the mutator family, so
+/// the null recv_slot is never dereferenced.
+pub(crate) unsafe fn arraylike_on_wrapper_proto(
+    proto_tag: i64,
+    mid: i64,
+    argv: *const u64,
+    argc: i64,
+) -> AnyValue {
+    unsafe {
+        let proto = torajs_rc::builtin_proto::__torajs_get_builtin_prototype(proto_tag);
+        if !proto.is_null() {
+            let key = __torajs_str_alloc(b"length".as_ptr(), 6);
+            let has_len = __torajs_dynobj_has(proto, key as *const c_void) != 0;
+            __torajs_str_drop(key as *mut c_void);
+            if has_len {
+                return arraylike_method(proto, mid, core::ptr::null_mut(), argv, argc);
+            }
+        }
+        arraylike_empty(mid, argv, argc)
+    }
+}
+
 /// `HasProperty(O, ToString(k))` — the hole gate for the has-gated
 /// families (§23.1.3.17 step 9.a etc.).
 pub(crate) unsafe fn arraylike_has(obj: *mut c_void, k: i64) -> bool {
@@ -184,7 +215,10 @@ pub(crate) unsafe fn arraylike_has(obj: *mut c_void, k: i64) -> bool {
             }
         }
         let key = __torajs_str_alloc(buf[i..].as_ptr(), (buf.len() - i) as i64);
-        let hit = crate::prop_has::__torajs_any_prop_has(
+        // §7.3.11 HasProperty — the chain-walking kernel (an
+        // inherited index prop is present; RFC 20260721 G2d), not the
+        // own-only probe.
+        let hit = crate::prop_has::__torajs_any_has_property(
             __torajs_anyv_box_pointer(obj),
             key as *const c_void,
         );

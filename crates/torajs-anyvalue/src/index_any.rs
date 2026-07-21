@@ -55,6 +55,9 @@ unsafe extern "C" {
     /// torajs-str — heap Str constructor (rc=1), used to build the
     /// literal "length" probe key for DynObj receivers.
     fn __torajs_str_alloc(src: *const u8, len: i64) -> *mut u8;
+    /// torajs-dynobj — own-key membership probe (disambiguates the
+    /// (5, 0) absent answer from an own entry storing undefined).
+    fn __torajs_dynobj_has(obj: *const c_void, key: *const c_void) -> i32;
     /// torajs-dynobj — own-property probe pair ((5, 0) = absent →
     /// undefined by construction).
     fn __torajs_dynobj_get_tag(obj: *const c_void, key: *const c_void) -> u64;
@@ -195,27 +198,84 @@ fn i64_dec(buf: &mut [u8; 20], v: i64) -> (usize, usize) {
 
 /// `Tag::DynObj` get arm — decimal-stringify the key and probe own
 /// properties (same borrow-then-own shape as the `"length"` probe
-/// below); an accessor entry's getter answers its owned result.
+/// below); an accessor entry's getter answers its owned result. An
+/// own miss continues per §10.1.8.1 OrdinaryGet step 3 (RFC 20260721
+/// G2d): the user [[Prototype]] chain first (dynobj parents, the
+/// member_get knife-2 shape), then the %Object.prototype% singleton
+/// digit-key face — which is how test262 installs inherited index
+/// props for the array-like generics.
 unsafe fn dynobj_index_get(obj: *mut c_void, idx: i64) -> AnyValue {
     let mut buf = [0u8; 20];
     let (start, len) = i64_dec(&mut buf, idx);
     unsafe {
         let key = __torajs_str_alloc(buf[start..].as_ptr(), len as i64);
-        let dtag = __torajs_dynobj_get_tag(obj, key as *const c_void);
-        let dval = __torajs_dynobj_get_value(obj, key as *const c_void);
+        let mut host = obj as *const c_void;
+        let r = loop {
+            if let Some(v) = dynobj_index_entry(host, key as *const c_void, obj) {
+                break v;
+            }
+            // Walk to the parent; a null-proto host ends the chain,
+            // an implicit-chain root falls to %Object.prototype%.
+            // Non-dynobj parents (Object.create(arr)) stay on the
+            // absent answer — their inherent faces are the recorded
+            // G9d follow-up.
+            match crate::member_get_own::user_proto_cell(host) {
+                Some(parent)
+                    if (parent as *const u8).add(4).cast::<u16>().read() == Tag::DynObj as u16 =>
+                {
+                    host = parent as *const c_void;
+                }
+                Some(_) => break VALUE_UNDEFINED,
+                None => {
+                    let flags = host.cast::<u8>().add(6).cast::<u16>().read();
+                    if flags & crate::member_get_own::DYNOBJ_HDR_FLAG_NULL_PROTO != 0 {
+                        break VALUE_UNDEFINED;
+                    }
+                    let proto = torajs_rc::builtin_proto::__torajs_get_builtin_prototype(
+                        torajs_rc::builtin_proto::OBJECT_PROTO_TAG as i64,
+                    );
+                    if proto.is_null() || core::ptr::eq(proto.cast(), host) {
+                        break VALUE_UNDEFINED;
+                    }
+                    break dynobj_index_entry(proto as *const c_void, key as *const c_void, obj)
+                        .unwrap_or(VALUE_UNDEFINED);
+                }
+            }
+        };
         __torajs_str_drop(key as *mut c_void);
-        // Accessor sentinel (tag 6) — run the getter; its answer is
-        // owned per the boxed-value convention.
+        r
+    }
+}
+
+/// One-host own probe for the digit key: `None` = truly absent (the
+/// has probe disambiguates an own entry STORING undefined, which
+/// shadows the chain per the own-undefined-shadow family). Accessor
+/// entries invoke with the ORIGINAL receiver per §10.1.8.1 [[Get]].
+unsafe fn dynobj_index_entry(
+    host: *const c_void,
+    key: *const c_void,
+    recv: *mut c_void,
+) -> Option<AnyValue> {
+    unsafe {
+        let dtag = __torajs_dynobj_get_tag(host, key);
         if dtag == INDEX_ANY_ACCESSOR_TAG {
-            return __torajs_accessor_invoke_getter(
+            let dval = __torajs_dynobj_get_value(host, key);
+            return Some(__torajs_accessor_invoke_getter(
                 dval as *const c_void,
-                crate::nanbox_encode::__torajs_anyv_box_from_pair(4, obj as i64),
-            );
+                crate::nanbox_encode::__torajs_anyv_box_from_pair(4, recv as i64),
+            ));
         }
+        if dtag == 5 && __torajs_dynobj_has(host, key) == 0 {
+            return None;
+        }
+        let dval = __torajs_dynobj_get_value(host, key);
         // The probe pair is a borrow — the returned box owns its own
         // reference.
         crate::payload_rc_inc(dtag as i64, dval as i64);
-        crate::nanbox_encode::__torajs_anyv_box_from_pair(dtag as i64, dval as i64)
+        Some(crate::nanbox_encode::__torajs_anyv_box_from_pair(
+            dtag as i64,
+            dval as i64,
+        ))
     }
 }
 

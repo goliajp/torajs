@@ -31,6 +31,11 @@ unsafe extern "C" {
     /// torajs-dynobj — invoke an accessor pair's getter face
     /// against a receiver (owned AnyValue return).
     fn __torajs_accessor_invoke_getter(pair: *const c_void, recv_anyv: u64) -> u64;
+    /// torajs-dynobj / torajs-arr — own-key membership probes for
+    /// the chain-face expando check (digit keys and other
+    /// non-mid-named singleton entries).
+    fn __torajs_dynobj_has(obj: *const c_void, key: *const c_void) -> i32;
+    fn __torajs_arrprops_has(arr: *mut c_void, key: *const c_void) -> i32;
 }
 
 /// Accessor-entry sentinel in the dynobj probe's tag channel —
@@ -382,7 +387,11 @@ pub unsafe extern "C" fn __torajs_proto_chain_key_owned(
     }
     let mid = unsafe { crate::method_value::key_method_id(key) };
     if mid == ANY_METHOD_UNKNOWN || (mid as usize) >= crate::method_value::TABLE_SIZE {
-        return 0;
+        // Not a method name — the singleton's expando dynobj face
+        // still owns user-installed keys (`Object.prototype[1] = …`,
+        // RFC 20260721 G2d digit keys ride HasProperty through here).
+        return (unsafe { chain_expando_owns(family_tag, key) }
+            || (family_tag != 1 && unsafe { chain_expando_owns(1, key) })) as i64;
     }
     if proto_tag_owns(family_tag, mid) {
         return 1;
@@ -391,6 +400,22 @@ pub unsafe extern "C" fn __torajs_proto_chain_key_owned(
     // Object.prototype; skip the re-probe when it was the immediate
     // link already.
     (family_tag != 1 && proto_tag_owns(1, mid)) as i64
+}
+
+/// Singleton expando own-key probe for the chain face — the interned
+/// method tables only cover mid-named entries; anything else a user
+/// installed on `<Ctor>.prototype` lives in the singleton's expando
+/// storage (the side-props table for the Arr-backed
+/// `Array.prototype`, the dynobj itself everywhere else).
+unsafe fn chain_expando_owns(family_tag: i64, key: *const c_void) -> bool {
+    let proto = unsafe { torajs_rc::builtin_proto::__torajs_get_builtin_prototype(family_tag) };
+    if proto.is_null() {
+        return false;
+    }
+    if unsafe { proto_is_arr(proto) } {
+        return unsafe { __torajs_arrprops_has(proto, key) } != 0;
+    }
+    unsafe { __torajs_dynobj_has(proto, key) != 0 }
 }
 
 #[cfg(test)]
