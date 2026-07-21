@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-20T22:38:53.465Z",
+  "generatedAt": "2026-07-21T00:38:21.935Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-20T20:31:36Z",
-    "headSha": "5993555b",
-    "elapsedSec": 680.61,
+    "ranAt": "2026-07-21T00:10:58Z",
+    "headSha": "7c9b03e1",
+    "elapsedSec": 695.36,
     "workers": 8,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 8439,
-    "passNoOracle": 112,
+    "pass": 8511,
+    "passNoOracle": 113,
     "passNegative": 4447,
-    "passTotal": 12998,
-    "bug": 757,
-    "incompatible": 39419,
+    "passTotal": 13071,
+    "bug": 687,
+    "incompatible": 39416,
     "bunSkip": 11908,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 13755,
-    "passRateInScope": 24.44,
-    "passRateTrAccepted": 94.5
+    "trAccepted": 13758,
+    "passRateInScope": 24.58,
+    "passRateTrAccepted": 95.01
   },
   "torajs": {
-    "commit": "3f40234a",
-    "commitSubject": "feat: map prototype getorinsert single-probe kernel on typed and any lanes",
+    "commit": "8e96dab8",
+    "commitSubject": "refactor: move getorinsert lowering to sibling for map-dispatch file-size headroom",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "8e96dab8",
+      "subject": "refactor: move getorinsert lowering to sibling for map-dispatch file-size headroom"
+    },
+    {
+      "hash": "805332af",
+      "subject": "fix: map and set pack sites stranded owned-temp mint refs on typed lane"
+    },
+    {
+      "hash": "a61edd05",
+      "subject": "fix: dynamic string-key any-index read stranded its owned box on plain index"
+    },
+    {
+      "hash": "d33d73cc",
+      "subject": "fix: any-index-get owned result and receiver temp stranded on numeric any lane"
+    },
+    {
+      "hash": "c2a27e72",
+      "subject": "chore: test262 sweep snapshot at 7c9b03e1 (passtotal 13071, bug 687, fixed 70, appeared 0)"
+    },
+    {
+      "hash": "7c9b03e1",
+      "subject": "feat: regexp hasindices d flag with match-indices on exec-shape results"
+    },
+    {
+      "hash": "5fbe2b2e",
+      "subject": "chore: hardev dashboard snapshot at rotation 170 close"
+    },
+    {
       "hash": "3f40234a",
       "subject": "feat: map prototype getorinsert single-probe kernel on typed and any lanes"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "21c5678d",
       "subject": "feat: generator fn proto chain routes to genfn trio with step-method reflection cells"
-    },
-    {
-      "hash": "6feaa0ac",
-      "subject": "feat: asyncfunction ctor cell reflection keyed on the closure async flavor bit"
-    },
-    {
-      "hash": "a22943df",
-      "subject": "style: fmt-drift fix on flags re-export wrap"
-    },
-    {
-      "hash": "207d6ba7",
-      "subject": "feat: plain-fn prototype object lazy materialization with fn-flavor header flags"
-    },
-    {
-      "hash": "35978d11",
-      "subject": "feat: object getownpropertysymbols and array.from reify as ns-static value cells"
-    },
-    {
-      "hash": "83c966a2",
-      "subject": "chore: hardev dashboard snapshot at rotation 169 close"
-    },
-    {
-      "hash": "d5bdef4d",
-      "subject": "feat: promise bigint symbol prototype own methods reify on static and any lanes"
-    },
-    {
-      "hash": "4f0d0cdb",
-      "subject": "fix: nullable exec result named-prop read guards before the arr props intrinsics"
     }
   ],
-  "headSha": "3f40234a",
+  "headSha": "8e96dab8",
   "autorun": {
-    "total": 475,
+    "total": 476,
     "baselineTarget": 10,
-    "bySelf": 470,
+    "bySelf": 471,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784581543-4116",
-      "at": "2026-07-20T21:05:43Z",
-      "ts": 1784581543,
+      "rotationId": "r-1784587140-6629",
+      "at": "2026-07-20T22:39:00Z",
+      "ts": 1784587140,
       "trigger": "self",
-      "prevHead": "83c966a2",
-      "handoffSha": "sha256:d6360ddea43e44b0508088dac3694d2abc6968a5638cbcd0eec23b97a1f7f990",
-      "handoffAgeSec": 17,
+      "prevHead": "5fbe2b2e",
+      "handoffSha": "sha256:65f7585389e041836ecfbc7a18737944332520da23d2f12e628e39d5986c27d5",
+      "handoffAgeSec": 43,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784587140-6629",
+        "at": "2026-07-20T22:39:00Z",
+        "ts": 1784587140,
+        "trigger": "self",
+        "prevHead": "5fbe2b2e",
+        "handoffSha": "sha256:65f7585389e041836ecfbc7a18737944332520da23d2f12e628e39d5986c27d5",
+        "handoffAgeSec": 43,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784581543-4116",
         "at": "2026-07-20T21:05:43Z",
@@ -876,17 +887,6 @@
         "prevHead": "71f07477",
         "handoffSha": "sha256:1fde840195312053b81d9edc2fb8c62479df5c06ca950aa2633d8a5d41e147c7",
         "handoffAgeSec": 5,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784521976-548f",
-        "at": "2026-07-20T04:32:56Z",
-        "ts": 1784521976,
-        "trigger": "self",
-        "prevHead": "7bdee92d",
-        "handoffSha": "sha256:d4e4891c0e303787ff886d3bdddf9821f5b9c1b19ba7271215847fe49ba4a691",
-        "handoffAgeSec": 138,
         "conformanceBefore": null,
         "commitsInSession": null
       }
