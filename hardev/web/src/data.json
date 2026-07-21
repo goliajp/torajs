@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-21T08:25:11.129Z",
+  "generatedAt": "2026-07-21T11:06:29.288Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 95.01
   },
   "torajs": {
-    "commit": "76260c45",
-    "commitSubject": "feat: object-typed array-literal elements route the any pack lane",
+    "commit": "9c909661",
+    "commitSubject": "fix: array literal typecheck walks every element past the widening verdict",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "9c909661",
+      "subject": "fix: array literal typecheck walks every element past the widening verdict"
+    },
+    {
+      "hash": "b3923cf9",
+      "subject": "feat: for-in typed-array liveness re-check, splice moves hole shadows"
+    },
+    {
+      "hash": "8f1510b7",
+      "subject": "feat: builtin-proto constructor own face and ctor prototype ro guards"
+    },
+    {
+      "hash": "85800c47",
+      "subject": "feat: reified array toString carries its own id, badge fallback off-array"
+    },
+    {
+      "hash": "fb44d5b8",
+      "subject": "test: proto-patch pregate fixture (G13 faces)"
+    },
+    {
+      "hash": "47ad5c10",
+      "subject": "feat: proto-patch consult pre-gates the primitive fast arms"
+    },
+    {
+      "hash": "cbe18216",
+      "subject": "chore: hardev dashboard snapshot at rotation 174 close"
+    },
+    {
       "hash": "76260c45",
       "subject": "feat: object-typed array-literal elements route the any pack lane"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "c96902cf",
       "subject": "feat: array proto direct .call routes any lane, concat generic arm"
-    },
-    {
-      "hash": "9a8646bb",
-      "subject": "chore: hardev dashboard snapshot at rotation 173 close"
-    },
-    {
-      "hash": "ce6a4319",
-      "subject": "docs: carve-out marker on the print-freeze intrinsic declare table"
-    },
-    {
-      "hash": "2c8b1e07",
-      "subject": "feat: struct receivers route through the generic array-like arm"
-    },
-    {
-      "hash": "93f4effd",
-      "subject": "feat: sort undefined-last pre-probe for any elements and tostring for struct elements"
-    },
-    {
-      "hash": "2d7b09b0",
-      "subject": "feat: length-write protocol — splice lock ordering, double tonumber, arr-parent length"
-    },
-    {
-      "hash": "a41b6118",
-      "subject": "fix: canonical index presence on the array singleton ignores the shadow-entry table"
-    },
-    {
-      "hash": "13a7cf63",
-      "subject": "feat: array hole reads consult the prototype digit keys"
     }
   ],
-  "headSha": "76260c45",
+  "headSha": "9c909661",
   "autorun": {
-    "total": 479,
+    "total": 480,
     "baselineTarget": 10,
-    "bySelf": 474,
+    "bySelf": 475,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784614080-73de",
-      "at": "2026-07-21T06:08:00Z",
-      "ts": 1784614080,
+      "rotationId": "r-1784622362-05ef",
+      "at": "2026-07-21T08:26:02Z",
+      "ts": 1784622362,
       "trigger": "self",
-      "prevHead": "9a8646bb",
-      "handoffSha": "sha256:96748ef7c76c383c371631a129a1933d28ce5223c41f15821f3c258d1055c55f",
-      "handoffAgeSec": 8,
+      "prevHead": "cbe18216",
+      "handoffSha": "sha256:f3bf0ef5212128d910ee7997cd7f2372582d1d1ed761a915c4f3cd5e3109c4d8",
+      "handoffAgeSec": 3,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784622362-05ef",
+        "at": "2026-07-21T08:26:02Z",
+        "ts": 1784622362,
+        "trigger": "self",
+        "prevHead": "cbe18216",
+        "handoffSha": "sha256:f3bf0ef5212128d910ee7997cd7f2372582d1d1ed761a915c4f3cd5e3109c4d8",
+        "handoffAgeSec": 3,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784614080-73de",
         "at": "2026-07-21T06:08:00Z",
@@ -876,17 +887,6 @@
         "prevHead": "87cbcbf2",
         "handoffSha": "sha256:6b57609e5cc64b7d63a2ef852786c7c9e832d52850fe548a9494376a5f29ef42",
         "handoffAgeSec": 7,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784551199-6807",
-        "at": "2026-07-20T12:39:59Z",
-        "ts": 1784551199,
-        "trigger": "self",
-        "prevHead": "b8034609",
-        "handoffSha": "sha256:46c176644c8bb6f84b1d0b5608c82b2d4869fbbdcbde3943a18166d63fb87ce7",
-        "handoffAgeSec": 9,
         "conformanceBefore": null,
         "commitsInSession": null
       }
