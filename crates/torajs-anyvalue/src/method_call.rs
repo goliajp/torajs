@@ -425,6 +425,13 @@ unsafe fn bool_method(recv: AnyValue, mid: i64, argv: *const u64, argc: i64) -> 
             crate::method_call_arraylike::arraylike_on_wrapper_proto(4, mid, argv, argc)
         };
     }
+    if crate::method_call_arraylike_mut::arraylike_mut_supported(mid)
+        && let Some(out) = unsafe {
+            crate::method_call_arraylike_mut_prim::prim_mut_method(4, recv, mid, argv, argc)
+        }
+    {
+        return out;
+    }
     unsafe { method_no_such() }
 }
 

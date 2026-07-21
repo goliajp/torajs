@@ -131,6 +131,13 @@ pub(crate) unsafe fn number_method(
                 // arm's gate, wrapper proto tag 0 (RFC 20260721 G2b).
                 crate::method_call_arraylike::arraylike_on_wrapper_proto(0, m, argv, argc)
             }
+            m if crate::method_call_arraylike_mut::arraylike_mut_supported(m) => {
+                match crate::method_call_arraylike_mut_prim::prim_mut_method(0, recv, m, argv, argc)
+                {
+                    Some(out) => out,
+                    None => method_no_such(),
+                }
+            }
             _ => method_no_such(),
         }
     }
