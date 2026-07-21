@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-21T20:09:17.587Z",
+  "generatedAt": "2026-07-21T21:38:43.276Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-21T18:12:12Z",
-    "headSha": "3f70aa85",
-    "elapsedSec": 933.96,
+    "ranAt": "2026-07-21T20:58:54Z",
+    "headSha": "0734ea7d",
+    "elapsedSec": 645.83,
     "workers": 8,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 8613,
+    "pass": 8707,
     "passNoOracle": 115,
     "passNegative": 4447,
-    "passTotal": 13175,
-    "bug": 611,
-    "incompatible": 39388,
+    "passTotal": 13269,
+    "bug": 581,
+    "incompatible": 39324,
     "bunSkip": 11907,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 13786,
-    "passRateInScope": 24.78,
-    "passRateTrAccepted": 95.57
+    "trAccepted": 13850,
+    "passRateInScope": 24.95,
+    "passRateTrAccepted": 95.81
   },
   "torajs": {
-    "commit": "6ac4020e",
-    "commitSubject": "feat: regexp instance lastIndex reflection faces",
+    "commit": "6306a943",
+    "commitSubject": "fix: meta rows for the symbol prototype dedicated mids",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "6306a943",
+      "subject": "fix: meta rows for the symbol prototype dedicated mids"
+    },
+    {
+      "hash": "0ad9ab8a",
+      "subject": "feat: symbol prototype tostring valueof this-symbol-value gate"
+    },
+    {
+      "hash": "52b122de",
+      "subject": "feat: regexp lastindex any-slot verbatim storage"
+    },
+    {
+      "hash": "fc7ae74f",
+      "subject": "chore: test262 sweep at 0734ea7d — passTotal 13269 (+94), bug 581 (-30)"
+    },
+    {
+      "hash": "0734ea7d",
+      "subject": "fix: objlit reassign into any slot promotes to dynobj lane"
+    },
+    {
+      "hash": "c5ad9ad2",
+      "subject": "feat: builtin proto singleton direct call wrapper semantics"
+    },
+    {
+      "hash": "c679ea73",
+      "subject": "chore: hardev dashboard snapshot at rotation 180 close"
+    },
+    {
       "hash": "6ac4020e",
       "subject": "feat: regexp instance lastIndex reflection faces"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "0ec88152",
       "subject": "feat: promise combinator statics reflection with ns-static delete tombstone"
-    },
-    {
-      "hash": "130c186c",
-      "subject": "feat: arraylike receiver toSpliced and with arms with exact read sets"
-    },
-    {
-      "hash": "6f2592ff",
-      "subject": "feat: arraylike receiver toSorted arm with spec read order"
-    },
-    {
-      "hash": "ad894303",
-      "subject": "chore: hardev dashboard snapshot at rotation 179 close"
-    },
-    {
-      "hash": "5fb9f5d2",
-      "subject": "fix: hasOwn compile-time fold recognizes struct accessor half-slots"
-    },
-    {
-      "hash": "c2f0ac14",
-      "subject": "chore: test262 sweep at 3f70aa85 — passTotal 13175 (+104), bug 611 (-76)"
-    },
-    {
-      "hash": "3f70aa85",
-      "subject": "test: lock elem-width and object-rest shapes verified fixed"
-    },
-    {
-      "hash": "e6bfd52f",
-      "subject": "fix: toReversed on exotic receiver reads descending through the call lane"
     }
   ],
-  "headSha": "6ac4020e",
+  "headSha": "6306a943",
   "autorun": {
-    "total": 485,
+    "total": 486,
     "baselineTarget": 10,
-    "bySelf": 480,
+    "bySelf": 481,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784658928-5c5e",
-      "at": "2026-07-21T18:35:28Z",
-      "ts": 1784658928,
+      "rotationId": "r-1784664573-2f36",
+      "at": "2026-07-21T20:09:33Z",
+      "ts": 1784664573,
       "trigger": "self",
-      "prevHead": "ad894303",
-      "handoffSha": "sha256:94f153e3df68016710f4ec65c1b31bf15f656d6d4fa9e0d2a3e6fc36c057257a",
-      "handoffAgeSec": 242,
+      "prevHead": "c679ea73",
+      "handoffSha": "sha256:47f1bad8ced3f975abf14a810dbf5f500195114fff25497d3fb19486cc47a0ca",
+      "handoffAgeSec": 3,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784664573-2f36",
+        "at": "2026-07-21T20:09:33Z",
+        "ts": 1784664573,
+        "trigger": "self",
+        "prevHead": "c679ea73",
+        "handoffSha": "sha256:47f1bad8ced3f975abf14a810dbf5f500195114fff25497d3fb19486cc47a0ca",
+        "handoffAgeSec": 3,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784658928-5c5e",
         "at": "2026-07-21T18:35:28Z",
@@ -876,17 +887,6 @@
         "prevHead": "d098e052",
         "handoffSha": "sha256:6dba133523d0482a00ac5b0dcf20ed0d7b6e97eb6a47652751de707519a7123e",
         "handoffAgeSec": 10,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784587140-6629",
-        "at": "2026-07-20T22:39:00Z",
-        "ts": 1784587140,
-        "trigger": "self",
-        "prevHead": "5fbe2b2e",
-        "handoffSha": "sha256:65f7585389e041836ecfbc7a18737944332520da23d2f12e628e39d5986c27d5",
-        "handoffAgeSec": 43,
         "conformanceBefore": null,
         "commitsInSession": null
       }
