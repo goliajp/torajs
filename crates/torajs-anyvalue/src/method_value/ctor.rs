@@ -83,7 +83,7 @@ pub(crate) unsafe fn ctor_cell_for_recv(recv: AnyValue, key: *const c_void) -> O
 /// `None` for every other pointer. Linear over ≤16 slots — gOPD /
 /// reflection cold path only (RFC 20260720-ctor-static-reflection
 /// 刀 2).
-pub(super) fn ctor_tag_of_cell(cell: *const c_void) -> Option<i64> {
+pub(crate) fn ctor_tag_of_cell(cell: *const c_void) -> Option<i64> {
     CTOR_CELLS
         .iter()
         .position(|slot| slot.load(Ordering::Relaxed) == cell as u64 && !cell.is_null())

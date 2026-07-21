@@ -84,6 +84,20 @@ pub(crate) unsafe fn proto_own_probe(proto: *mut c_void, key: *const c_void) -> 
     (tag as i64, value as i64)
 }
 
+/// 1 = `<proto tag>`'s virtual `constructor` own face has not been
+/// delete-tombstoned (RFC 20260721 刀 11 G11 — the slot bit shades
+/// every consumer: prop_has / gOPD / member read / HasProperty
+/// chain; a defineProperty / set restore lands in the singleton's
+/// expando, which every path probes first).
+pub(crate) fn constructor_live(tag: i64) -> bool {
+    unsafe {
+        torajs_rc::builtin_proto::__torajs_builtin_proto_is_deleted(
+            tag,
+            torajs_rc::ANY_METHOD_CONSTRUCTOR_SLOT,
+        ) == 0
+    }
+}
+
 /// The builtin-proto tag's method surface — tag order is locked to
 /// `torajs-rc/builtin_proto.rs` (Number=0 … Function=13). Tags with
 /// no any-dispatch method arm today (Object beyond the universal
@@ -205,8 +219,9 @@ pub unsafe extern "C" fn __torajs_builtin_proto_own_method_cell(
     // `constructor` is an own property of every builtin prototype
     // (§20.x.3.1 family) — one interned identity per tag, so gOPD's
     // desc.value and a member read answer the SAME cell. Probed
-    // before the method-id intern (constructor has no mid).
-    if unsafe { crate::prop_has::key_is(key, b"constructor") } {
+    // before the method-id intern (constructor has no mid);
+    // tombstoned through its slot bit (RFC 20260721 刀 11 G11).
+    if unsafe { crate::prop_has::key_is(key, b"constructor") } && constructor_live(tag) {
         return crate::method_value::builtin_ctor_cell(tag) as u64;
     }
     let mid = unsafe { crate::method_value::key_method_id(key) };
@@ -351,9 +366,10 @@ pub unsafe extern "C" fn __torajs_builtin_proto_method_value(
     // (§20.x.3.1 family) — the same interned identity the gOPD
     // own-cell probe hands out, so `X.prototype.constructor === X`
     // holds. Probed before the method-id intern (constructor has no
-    // mid).
+    // mid); tombstoned through its slot bit (刀 11 G11).
     if unsafe { crate::prop_has::key_is(key, b"constructor") }
         && (0..torajs_rc::builtin_proto::NUM_BUILTIN_PROTOS as i64).contains(&tag)
+        && constructor_live(tag)
     {
         let cell = crate::method_value::builtin_ctor_cell(tag);
         return unsafe { crate::nanbox_encode::__torajs_anyv_box_pointer(cell.cast()) };
@@ -392,7 +408,7 @@ pub unsafe extern "C" fn __torajs_proto_chain_key_owned(
     family_tag: i64,
     key: *const c_void,
 ) -> i64 {
-    if unsafe { crate::prop_has::key_is(key, b"constructor") } {
+    if unsafe { crate::prop_has::key_is(key, b"constructor") } && constructor_live(family_tag) {
         return 1;
     }
     let mid = unsafe { crate::method_value::key_method_id(key) };

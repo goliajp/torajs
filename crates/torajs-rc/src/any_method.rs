@@ -411,6 +411,13 @@ pub const ANY_METHOD_GET_OR_INSERT: i64 = 161;
 /// Minted only through the tag-2 prototype alias — a plain
 /// `.toString()` name never interns to this id.
 pub const ANY_METHOD_ARR_TO_STRING: i64 = 162;
+/// Tombstone slot for a builtin prototype's `constructor` own data
+/// property (§20.x.3.1 family — RFC 20260721 刀 11 G11). NOT a
+/// method id: `constructor` has no intern row and no meta row; the
+/// slot only indexes the per-tag deleted bitmask so `delete
+/// <Ctor>.prototype.constructor` shades the virtual own face (same
+/// posture as the non-interning `get size` accessor id).
+pub const ANY_METHOD_CONSTRUCTOR_SLOT: i64 = 163;
 
 /// RegExp property-read ids (Any-method-call RFC 20260704 C4-3c-2)
 /// — `r.source` / `r.lastIndex` / flag booleans through an `any`

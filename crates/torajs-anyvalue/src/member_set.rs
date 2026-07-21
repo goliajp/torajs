@@ -361,6 +361,16 @@ pub unsafe extern "C" fn __torajs_any_member_set(
                 __torajs_throw_type_error(c"Attempted to assign to readonly property.".as_ptr());
                 return;
             }
+            // §22.1.2.4 family — a builtin ctor cell's `prototype`
+            // is {[[Writable]]: false} (RFC 20260721 刀 11 G11); an
+            // ordinary closure keeps its writable prototype expando.
+            if crate::prop_has::key_is(key, b"prototype")
+                && crate::method_value::ctor::ctor_tag_of_cell(ptr).is_some()
+            {
+                drop_payload(tag, value);
+                __torajs_throw_type_error(c"Attempted to assign to readonly property.".as_ptr());
+                return;
+            }
             let props_slot = ptr.cast::<u8>().add(MEMBER_SET_CLOSURE_PROPS_OFF) as *mut u64;
             let mut props = *props_slot as *mut c_void;
             if props.is_null() {

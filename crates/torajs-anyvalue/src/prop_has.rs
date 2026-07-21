@@ -322,29 +322,9 @@ pub unsafe extern "C" fn __torajs_any_prop_has(recv: AnyValue, key: *const c_voi
     }
 }
 
-/// Own-property probe for a dynobj that turns out to be a builtin
-/// `<Ctor>.prototype` singleton: the interned method families count
-/// as own entries (`proto_tag_owns` — the universal probes stay
-/// Object.prototype-only). Answers 0 for every ordinary dynobj.
-unsafe fn builtin_proto_method_own(ptr: *const c_void, key: *const c_void) -> i64 {
-    let tag = unsafe { torajs_rc::builtin_proto::__torajs_builtin_proto_tag_of(ptr) };
-    if tag < 0 {
-        return 0;
-    }
-    let mid = unsafe { crate::method_value::key_method_id(key) };
-    if mid == torajs_rc::ANY_METHOD_UNKNOWN {
-        // The Map/Set `size` accessor is an own property too — it
-        // deliberately doesn't intern (C2-size), so probe it here
-        // behind the same tombstone gate.
-        if let Some(amid) = unsafe { crate::method_support::proto_tag_accessor_mid(tag, key) } {
-            let deleted =
-                unsafe { torajs_rc::builtin_proto::__torajs_builtin_proto_is_deleted(tag, amid) };
-            return (deleted == 0) as i64;
-        }
-        return 0;
-    }
-    crate::method_support::proto_tag_owns(tag, mid) as i64
-}
+// Builtin-proto singleton own-face probe — moved to
+// `prop_has_proto.rs` (file-size hard limit, RFC 20260721 刀 11).
+use crate::prop_has_proto::builtin_proto_method_own;
 
 /// Shared Str-receiver arm: index in `[0, len)` or `"length"` → 1.
 unsafe fn str_index_has(len: u64, key: *const c_void) -> i64 {

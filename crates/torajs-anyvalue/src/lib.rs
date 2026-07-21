@@ -140,6 +140,7 @@ mod method_value_class;
 mod name_get;
 mod prop_delete;
 mod prop_has;
+mod prop_has_proto;
 mod struct_error_msg;
 mod struct_probe;
 mod struct_proto_has;

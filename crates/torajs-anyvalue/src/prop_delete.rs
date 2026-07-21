@@ -113,6 +113,19 @@ pub unsafe extern "C" fn __torajs_any_prop_delete(recv: AnyValue, key: *const c_
             1
         }
         Some((ptr, t)) if t == Tag::Closure as u16 => {
+            // §22.1.2.4 family — a builtin ctor cell's `prototype`
+            // is {[[Configurable]]: false}: the delete refuses with
+            // the strict TypeError (RFC 20260721 刀 11 G11).
+            if unsafe { crate::prop_has::key_is(key, b"prototype") }
+                && crate::method_value::ctor::ctor_tag_of_cell(ptr).is_some()
+            {
+                unsafe {
+                    __torajs_throw_type_error(
+                        c"cannot delete a non-configurable property".as_ptr(),
+                    );
+                }
+                return 0;
+            }
             let props = unsafe { closure_props(ptr) };
             if !props.is_null() {
                 if unsafe { refuse_non_configurable(props as *mut c_void, key) } {
@@ -182,6 +195,15 @@ unsafe fn tombstone_proto_method(ptr: *mut c_void, key: *const c_void) {
         && crate::method_support::proto_tag_family_owns(proto_tag, mid)
     {
         unsafe { torajs_rc::builtin_proto::__torajs_builtin_proto_mark_deleted(proto_tag, mid) };
+    } else if unsafe { crate::prop_has::key_is(key, b"constructor") } {
+        // The virtual `constructor` own face tombstones through its
+        // non-interning slot (RFC 20260721 刀 11 G11).
+        unsafe {
+            torajs_rc::builtin_proto::__torajs_builtin_proto_mark_deleted(
+                proto_tag,
+                torajs_rc::ANY_METHOD_CONSTRUCTOR_SLOT,
+            )
+        };
     } else if let Some(amid) =
         unsafe { crate::method_support::proto_tag_accessor_mid(proto_tag, key) }
     {
