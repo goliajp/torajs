@@ -16,11 +16,15 @@ pub(crate) fn unify_typevar(
     match (pattern, actual) {
         (Type::TypeVar(name), concrete) => {
             if let Some(existing) = subst.get(name) {
-                // `any` absorbs in inference (TS semantics): an Any
-                // binding is compatible with every later actual (T
-                // stays any), and an Any actual is compatible with
-                // any earlier concrete binding. Only two distinct
-                // concrete types conflict.
+                // `any` absorbs in inference, in BOTH directions (TS
+                // semantics): an Any binding is compatible with every
+                // later actual (T stays any), and an Any actual WIDENS
+                // an earlier concrete binding to any — keeping the
+                // concrete binding would monomorphize the clone to raw
+                // typed slot loads over an Any-repr argument, reading
+                // NaN-box bits as scalars (RFC
+                // 20260721-array-proto-cluster 刀 13a). Only two
+                // distinct concrete types conflict.
                 if existing != concrete
                     && !matches!(existing, Type::Any)
                     && !matches!(concrete, Type::Any)
@@ -28,6 +32,9 @@ pub(crate) fn unify_typevar(
                     return Err(format!(
                         "type parameter `{name}` was inferred as {existing:?} earlier but here is {concrete:?}"
                     ));
+                }
+                if matches!(concrete, Type::Any) && !matches!(existing, Type::Any) {
+                    subst.insert(name.clone(), Type::Any);
                 }
             } else {
                 subst.insert(name.clone(), concrete.clone());
