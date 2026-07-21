@@ -125,8 +125,18 @@ pub(crate) fn try_lower(
         // Non-struct target: deferred substrate — caller falls through.
         return None;
     };
-    let has = ctx.struct_layouts[sid.0 as usize]
-        .iter()
-        .any(|(n, _)| n == &key);
+    // An accessor property (RFC 20260714-objlit-accessor) lives in the
+    // layout under its synthetic half-slot spelling — either half makes
+    // the name an own property (§10.4). The synthetic spellings
+    // themselves are NOT properties (the runtime lane guards them via
+    // accessor_name_kind; mirror that here so the internal name never
+    // leaks onto the user-visible surface).
+    let is_internal_spelling = key.starts_with("__getter_") || key.starts_with("__setter_");
+    let has = !is_internal_spelling
+        && ctx.struct_layouts[sid.0 as usize].iter().any(|(n, _)| {
+            n == &key
+                || n.strip_prefix("__getter_") == Some(key.as_str())
+                || n.strip_prefix("__setter_") == Some(key.as_str())
+        });
     Some(Operand::ConstBool(has))
 }
