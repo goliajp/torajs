@@ -113,6 +113,7 @@ mod method_call_arr;
 mod method_call_arr_copy;
 mod method_call_arraylike;
 mod method_call_arraylike_concat;
+mod method_call_arraylike_copy;
 mod method_call_arraylike_hof;
 mod method_call_arraylike_host;
 mod method_call_arraylike_mut;

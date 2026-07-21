@@ -38,14 +38,15 @@ use torajs_rc::{
     ANY_METHOD_FIND_LAST, ANY_METHOD_FIND_LAST_INDEX, ANY_METHOD_FOR_EACH, ANY_METHOD_INCLUDES,
     ANY_METHOD_INDEX_OF, ANY_METHOD_JOIN, ANY_METHOD_LAST_INDEX_OF, ANY_METHOD_MAP,
     ANY_METHOD_REDUCE, ANY_METHOD_REDUCE_RIGHT, ANY_METHOD_SLICE, ANY_METHOD_SOME,
-    ANY_METHOD_TO_REVERSED, ANY_METHOD_TO_SORTED, ANY_METHOD_TO_STRING,
+    ANY_METHOD_TO_REVERSED, ANY_METHOD_TO_SORTED, ANY_METHOD_TO_SPLICED, ANY_METHOD_TO_STRING,
+    ANY_METHOD_WITH,
 };
 
 use crate::method_call::to_index;
+use crate::method_call_arraylike_copy::{materialize_range, materialize_range_rev};
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED, is_double, is_undefined};
 use crate::nanbox_encode::{
     __torajs_anyv_box_from_pair, __torajs_anyv_box_i64, __torajs_anyv_box_pointer,
-    __torajs_anyv_unbox_tag, __torajs_anyv_unbox_value,
 };
 use crate::nanbox_ffi::{__torajs_anyv_strict_eq, __torajs_anyv_to_number};
 
@@ -60,9 +61,6 @@ unsafe extern "C" {
     fn __torajs_throw_check() -> i64;
     /// torajs-arr — fresh Array<Any> (the slice / map products).
     fn __torajs_arr_alloc_any(cap: u64) -> *mut u8;
-    /// torajs-arr — append one (tag, value) pair; ANY_HEAP transfers
-    /// ownership. Caller must capture the (possibly moved) return.
-    fn __torajs_arr_push_any(arr: *mut c_void, tag: u64, value: u64) -> *mut u8;
     /// torajs-arr — element-kind-dispatched join (fresh Str).
     fn __torajs_arr_any_join(arr: *const u8, sep: *const u8) -> u64;
     /// torajs-arr — in-place stable merge sort (boxed comparator or
@@ -98,6 +96,8 @@ pub(crate) fn arraylike_supported(mid: i64) -> bool {
             | ANY_METHOD_SLICE
             | ANY_METHOD_TO_REVERSED
             | ANY_METHOD_TO_SORTED
+            | ANY_METHOD_TO_SPLICED
+            | ANY_METHOD_WITH
             | ANY_METHOD_EVERY
             | ANY_METHOD_SOME
             | ANY_METHOD_FOR_EACH
@@ -305,6 +305,16 @@ pub(crate) unsafe fn arraylike_method(
             m if m == ANY_METHOD_TO_REVERSED => {
                 __torajs_anyv_box_pointer(materialize_range_rev(obj, len) as *mut c_void)
             }
+            // §23.1.3.35 / §23.1.3.39 — the exact-read-set copy arms
+            // (the sibling): the spliced-out range / substituted
+            // index never fire their getters, and with's RangeError
+            // precedes any element Get.
+            m if m == ANY_METHOD_TO_SPLICED => {
+                crate::method_call_arraylike_copy::arraylike_to_spliced(obj, len, argv, argc)
+            }
+            m if m == ANY_METHOD_WITH => {
+                crate::method_call_arraylike_copy::arraylike_with(obj, len, argv, argc)
+            }
             // §23.1.3.34 — ascending per-[[Get]] materialize (every
             // element read fires before the first comparefn call —
             // the order is observable), then the shared stable-sort
@@ -331,55 +341,6 @@ pub(crate) unsafe fn arraylike_method(
             // ordered after the length read above, per spec).
             _ => crate::method_call_arraylike_hof::arraylike_hof(obj, mid, len, argv, argc),
         }
-    }
-}
-
-/// `[Get(O, lo) … Get(O, hi-1)]` as a fresh owned Array<Any> —
-/// slice's product and join's temp (each Get's stake transfers into
-/// the slot).
-unsafe fn materialize_range(obj: *mut c_void, lo: i64, hi: i64) -> *mut u8 {
-    unsafe {
-        // Cap hint only (push grows on demand) — a ToLength-sized
-        // range must not size the malloc.
-        let mut dst = __torajs_arr_alloc_any((hi - lo).clamp(0, 4096) as u64);
-        let mut k = lo;
-        while k < hi {
-            let v = arraylike_get(obj, k);
-            if __torajs_throw_check() != 0 {
-                // Abrupt getter completion — Get propagates (§7.3.2),
-                // so later indexes must not fire; the caller sees the
-                // pending throw and owns the partial product.
-                __torajs_value_drop_heap(v as *mut c_void);
-                return dst;
-            }
-            dst = __torajs_arr_push_any(
-                dst as *mut c_void,
-                __torajs_anyv_unbox_tag(v) as u64,
-                __torajs_anyv_unbox_value(v) as u64,
-            );
-            k += 1;
-        }
-        dst
-    }
-}
-
-/// `[Get(O, len-1) … Get(O, 0)]` as a fresh owned Array<Any> —
-/// toReversed's product ([`materialize_range`]'s descending twin;
-/// the §23.1.3.33 read order is observable through getters).
-unsafe fn materialize_range_rev(obj: *mut c_void, len: i64) -> *mut u8 {
-    unsafe {
-        let mut dst = __torajs_arr_alloc_any(len.clamp(0, 4096) as u64);
-        let mut k = 0;
-        while k < len {
-            let v = arraylike_get(obj, len - k - 1);
-            dst = __torajs_arr_push_any(
-                dst as *mut c_void,
-                __torajs_anyv_unbox_tag(v) as u64,
-                __torajs_anyv_unbox_value(v) as u64,
-            );
-            k += 1;
-        }
-        dst
     }
 }
 
@@ -455,6 +416,22 @@ pub(crate) unsafe fn arraylike_empty(mid: i64, argv: *const u64, argc: i64) -> A
                 }
                 __torajs_anyv_box_pointer(__torajs_arr_alloc_any(0) as *mut c_void)
             }
+            // NULL host is never dereferenced at len 0 — toSpliced's
+            // product is just the items; with always RangeErrors.
+            m if m == ANY_METHOD_TO_SPLICED => {
+                crate::method_call_arraylike_copy::arraylike_to_spliced(
+                    core::ptr::null_mut(),
+                    0,
+                    argv,
+                    argc,
+                )
+            }
+            m if m == ANY_METHOD_WITH => crate::method_call_arraylike_copy::arraylike_with(
+                core::ptr::null_mut(),
+                0,
+                argv,
+                argc,
+            ),
             m if m == ANY_METHOD_JOIN || m == ANY_METHOD_TO_STRING => {
                 __torajs_anyv_box_pointer(__torajs_str_alloc(b"".as_ptr(), 0) as *mut c_void)
             }
