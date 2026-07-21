@@ -72,6 +72,18 @@ pub unsafe extern "C" fn __torajs_arr_fill_any(
             // the wrapped heap pointer's refcount for ANY_HEAP cells.
             __torajs_rc_inc(av as *mut c_void);
         }
+        // 刀 13d follow-up (RFC 20260721-array-proto-cluster) — the
+        // §23.1.3.7 write is a Set: a filled hole becomes a live
+        // default data property again. Pre-fix the stale F_HOLE
+        // shadow made every hole-aware consumer (`in` /
+        // hasOwnProperty / [[Get]]) treat the freshly written index
+        // as still absent (test262
+        // fill/fill-values-custom-start-and-end).
+        if (*(arr as *const HeapHeader)).flags & torajs_rc::FLAG_ARR_EXOTIC_INDEX != 0 {
+            for i in lo..hi {
+                crate::define_hole::revive_index_if_hole(arr as *mut c_void, i as u64);
+            }
+        }
         arr
     }
 }
