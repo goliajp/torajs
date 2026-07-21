@@ -55,6 +55,29 @@ pub(crate) unsafe fn cell_method(
     {
         return Some(out);
     }
+    // 刀 9 G2c — a reified-cell re-dispatch (NULL name) of a
+    // non-mutating array-family mid over a wrapper receiver runs the
+    // ES generic array-like semantics on the wrapper's OWN face
+    // (`obj.length = 2; obj[1] = true` on `new Boolean(false)` lives
+    // in the `+16` expando; the view-through below would only reach
+    // the inner primitive's wrapper-PROTO surface). Mutators stay on
+    // the primitive arm's exclusion (recorded boundary — the mut
+    // family's set_at writes raw dynobj layout).
+    if name_str.is_null()
+        && crate::member_get::is_wrapper_tag(tag)
+        && crate::method_call_arraylike_concat::obj_supported(mid)
+        && !crate::method_call_arraylike_mut::arraylike_mut_supported(mid)
+    {
+        return Some(unsafe {
+            crate::method_call_arraylike_concat::obj_method(
+                ptr,
+                mid,
+                core::ptr::null_mut(),
+                argv,
+                argc,
+            )
+        });
+    }
     // RFC 20260716 刀 3 view-through (`wrapper_view_through`).
     if let Some(inner) = unsafe { crate::wrapper_view_through::resolve_inner_recv(ptr, tag) } {
         return Some(unsafe { any_method_call_inner(inner, mid, name_str, recv_slot, argv, argc) });

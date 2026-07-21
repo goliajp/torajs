@@ -41,9 +41,6 @@ unsafe extern "C" {
     /// torajs-arr — kind-aware `arr[idx]`; returns a balanced
     /// AnyValue (+1 for cells).
     fn __torajs_arr_index_get(arr: *const c_void, idx: i64) -> u64;
-    /// torajs-arr — kind-aware `arr[idx] = (tag, value)` (pair ABI,
-    /// tag 4 transfers one rc).
-    fn __torajs_arr_index_set(arr: *mut c_void, idx: i64, tag: u64, value: u64);
     /// Universal NaN-box-safe heap dropper (torajs-value-drop).
     fn __torajs_value_drop_heap(p: *mut c_void);
     /// torajs-str — release a heap Str/Substr reference. Signature
@@ -62,10 +59,6 @@ unsafe extern "C" {
     /// undefined by construction).
     fn __torajs_dynobj_get_tag(obj: *const c_void, key: *const c_void) -> u64;
     fn __torajs_dynobj_get_value(obj: *const c_void, key: *const c_void) -> u64;
-    /// torajs-dynobj — keyed store; resize relocates through the
-    /// slot (signature mirrors the crate's method_call_mapset
-    /// declaration).
-    fn __torajs_dynobj_set(obj_slot: *mut *mut c_void, key: *mut c_void, tag: u64, value: u64);
     /// torajs-dynobj — run an accessor entry's getter; the answer is
     /// an owned AnyValue per the boxed-value convention.
     fn __torajs_accessor_invoke_getter(pair: *const c_void, recv_anyv: u64) -> u64;
@@ -289,93 +282,6 @@ unsafe fn index_str_cell(s: *mut u8, idx: i64) -> AnyValue {
         } else {
             box_void_ptr(sub as *mut c_void)
         }
-    }
-}
-
-/// `recv[idx] = (tag, value)` where the receiver is an `any` value
-/// (RFC 20260704 S3-set). Pair ABI mirrors ssa-lower's
-/// `pack_any_slot_value` — for `tag == 4` the caller transfers
-/// ownership of one rc; every path that doesn't store the pair
-/// releases it.
-///
-/// - `null` / `undefined` receiver → catchable TypeError.
-/// - primitive receivers (numbers / bools / strings — including
-///   heap Str/Substr cells) → silent no-op, matching non-strict JS
-///   assignment-to-primitive-property semantics (§13.15.2 PutValue on
-///   a primitive base discards in sloppy mode; strings are immutable
-///   either way).
-/// - `Tag::Arr` cell → `__torajs_arr_index_set` (kind-aware; OOB →
-///   catchable RangeError, kind mismatch → catchable TypeError).
-/// - `Tag::DynObj` (L3b #3, chunk 527) → the numeric key
-///   stringifies to its decimal form and stores through
-///   `__torajs_dynobj_set` (the pair transfers into the bucket); a
-///   resize-relocated block writes the fresh cell back through
-///   `recv_slot` (NULL for non-Ident receivers — same canonical-slot
-///   shape as the member-set gate).
-/// - any other heap tag → explicit TypeError.
-///
-/// # Safety
-/// Cell receivers must be valid heap pointers matching their header
-/// tag layout; a `tag == 4` `value` must be 0 or a valid owned heap
-/// pointer.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_any_index_set(
-    recv: AnyValue,
-    idx: i64,
-    tag: u64,
-    value: u64,
-    recv_slot: *mut u64,
-) {
-    if is_null(recv) || is_undefined(recv) {
-        unsafe {
-            drop_transferred_pair(tag, value);
-            __torajs_throw_type_error(c"cannot set properties of null or undefined".as_ptr());
-        }
-        return;
-    }
-    if !is_cell(recv) {
-        unsafe { drop_transferred_pair(tag, value) };
-        return;
-    }
-    let ptr = as_void_ptr(recv);
-    let hdr_tag = unsafe { (ptr.cast::<u8>().add(4) as *const u16).read() };
-    if hdr_tag == Tag::Arr as u16 {
-        unsafe { __torajs_arr_index_set(ptr, idx, tag, value) };
-        return;
-    }
-    if hdr_tag == Tag::Str as u16 {
-        unsafe { drop_transferred_pair(tag, value) };
-        return;
-    }
-    if hdr_tag == Tag::DynObj as u16 {
-        let mut buf = [0u8; 20];
-        let (start, len) = i64_dec(&mut buf, idx);
-        unsafe {
-            let key = __torajs_str_alloc(buf[start..].as_ptr(), len as i64);
-            let mut obj = ptr;
-            __torajs_dynobj_set(&mut obj, key as *mut c_void, tag, value);
-            __torajs_str_drop(key as *mut c_void);
-            if obj != ptr && !recv_slot.is_null() {
-                // Resize relocated the block — the NaN-box cell
-                // encoding is the pointer bits; transfer, no rc
-                // traffic (same identity, moved storage).
-                *recv_slot = crate::nanbox_encode::__torajs_anyv_box_from_pair(4, obj as i64);
-            }
-        }
-        return;
-    }
-    unsafe {
-        drop_transferred_pair(tag, value);
-        __torajs_throw_type_error(
-            c"indexed write on this receiver through any is not yet implemented".as_ptr(),
-        );
-    }
-}
-
-/// Release a transferred `tag == 4` rc (no-op for immediates).
-unsafe fn drop_transferred_pair(tag: u64, value: u64) {
-    if tag == 4 {
-        unsafe { __torajs_value_drop_heap(value as *mut c_void) };
     }
 }
 

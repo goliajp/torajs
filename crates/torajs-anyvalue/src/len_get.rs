@@ -115,9 +115,26 @@ pub unsafe extern "C" fn __torajs_any_length_get(recv: AnyValue) -> AnyValue {
     unsafe {
         let tag = (ptr.cast::<u8>().add(4) as *const u16).read();
         // RFC 20260716 刀 3 — primitive-wrapper view-through
-        // (see `wrapper_view_through`). Number/Boolean fall to
-        // primitive immediates (undefined for `.length`);
-        // StringWrapper hands its inner cell to the Str arm below.
+        // (see `wrapper_view_through`). Number/Boolean consult their
+        // own expando `length` first (刀 9 G2c — `obj.length = 2` on
+        // `new Boolean(false)` is an own data property, §10.1.8.1
+        // own-before-proto), then fall to primitive immediates
+        // (undefined for `.length`); StringWrapper's inherent
+        // non-writable length wins over any expando — its inner Str
+        // cell routes to the Str arm below.
+        if crate::member_get::is_wrapper_tag(tag) && tag != Tag::StringWrapper as u16 {
+            let props = crate::member_get::wrapper_props(ptr);
+            if !props.is_null() {
+                let key = __torajs_str_alloc(c"length".as_ptr() as *const u8, 6);
+                let dtag = __torajs_dynobj_get_tag(props, key as *const c_void);
+                let dval = __torajs_dynobj_get_value(props, key as *const c_void);
+                let present = dtag != 5 || __torajs_dynobj_has(props, key as *const c_void) != 0;
+                __torajs_str_drop(key as *mut c_void);
+                if present {
+                    return box_probe_pair(dtag, dval, recv);
+                }
+            }
+        }
         if let Some(inner) = crate::wrapper_view_through::resolve_inner_recv(ptr, tag) {
             return __torajs_any_length_get(inner);
         }
