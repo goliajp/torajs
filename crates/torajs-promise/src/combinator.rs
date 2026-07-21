@@ -145,7 +145,7 @@ unsafe extern "C" fn deferred_settle_dispatch(arg: i64) {
 /// value-form stamp: an Arr result is REPR_HEAP, a forwarded
 /// settlement copies its source's stamp, the MVP placeholder
 /// reject(0) legs answer undefined (REPR_VOID).
-unsafe fn defer_settle(state: u8, value: i64, is_heap: u8, repr: u8) -> *mut c_void {
+pub(crate) unsafe fn defer_settle(state: u8, value: i64, is_heap: u8, repr: u8) -> *mut c_void {
     unsafe {
         let p = crate::pool::__torajs_promise_alloc_pending();
         let pp = as_promise(p);
@@ -165,6 +165,12 @@ unsafe fn defer_settle(state: u8, value: i64, is_heap: u8, repr: u8) -> *mut c_v
 pub unsafe extern "C" fn __torajs_promise_all_sync(promises_arr: *mut c_void) -> *mut c_void {
     if promises_arr.is_null() {
         return unsafe { defer_settle(STATE_REJECTED, 0, 0, REPR_VOID) };
+    }
+    // An `Array<Any>` input carries NaN-box slots (mixed promise /
+    // plain-value elements) — the raw-pointer walk below would
+    // dereference immediates; route to the any-lane sibling.
+    if unsafe { crate::combinator_any::arr_is_any(promises_arr) } {
+        return unsafe { crate::combinator_any::all_sync_any(promises_arr) };
     }
     unsafe { absorb_inputs(promises_arr) };
     let len = unsafe { arr_len(promises_arr) };

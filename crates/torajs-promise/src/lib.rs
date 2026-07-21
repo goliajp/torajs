@@ -34,6 +34,7 @@
 extern crate torajs_mmalloc as _;
 
 pub mod combinator;
+pub(crate) mod combinator_any;
 pub mod layout;
 pub mod micro;
 pub mod pool;

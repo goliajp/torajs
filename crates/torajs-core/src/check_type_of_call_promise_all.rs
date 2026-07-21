@@ -71,6 +71,15 @@ pub(crate) fn try_match(
         let inner = match &arg_ty {
             Type::Array(boxed) => match &**boxed {
                 Type::Promise(t_box) => (**t_box).clone(),
+                // §27.2.4.1 — a mixed literal (`[Promise.resolve(1),
+                // 2]`) infers Array<Any>; spec resolve-wraps
+                // non-thenable elements, so the shape is legal.
+                // `all` only: the runtime kernel's any-lane sibling
+                // (combinator_any) decodes NaN-box slots; race /
+                // any / allSettled kernels still walk raw promise
+                // pointers and stay rejected here (recorded L3b
+                // follow-up).
+                Type::Any if m_name == "all" => Type::Any,
                 other => {
                     return Some(Err(format!(
                         "Promise.{m_name}: arg must be Array<Promise<T>>, got Array<{other:?}>"
