@@ -47,8 +47,15 @@ pub(crate) fn check(checker: &mut Checker, ast: &Ast, elements: &[ExprId]) -> Re
     };
     let mut heterogeneous = false;
     for &eid in ids.iter() {
+        // No early break — every element must be WALKED even after
+        // the widening verdict is settled: `type_of` records the
+        // element's type in `expr_types`, which the Any-slot pack
+        // reads to keep `undefined` and `null` apart (both lower to
+        // ConstPtrNull — RFC 20260721 刀 12 G15: `[1, null, u]`
+        // packed the unwalked `u` as null).
         let ty = elem_value_ty(checker, ast, eid)?;
         if let Some(ty) = ty
+            && !heterogeneous
             && !is_assignable_to_resolved(
                 &first_ty,
                 &ty,
@@ -58,7 +65,6 @@ pub(crate) fn check(checker: &mut Checker, ast: &Ast, elements: &[ExprId]) -> Re
             )
         {
             heterogeneous = true;
-            break;
         }
     }
     if heterogeneous {
