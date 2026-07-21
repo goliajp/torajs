@@ -188,6 +188,20 @@ pub unsafe extern "C" fn __torajs_any_prop_delete(recv: AnyValue, key: *const c_
             }
             1
         }
+        // RFC 20260722 刀 4 — a RegExp instance's `lastIndex` is
+        // {configurable: false} (§22.2.4.1); the module-strict
+        // delete throws. Every other key owns nothing → success.
+        Some((_, t)) if t == Tag::RegExp as u16 => {
+            if unsafe { crate::prop_has::key_is(key, b"lastIndex") } {
+                unsafe {
+                    __torajs_throw_type_error(
+                        c"cannot delete a non-configurable property".as_ptr(),
+                    );
+                }
+                return 0;
+            }
+            1
+        }
         _ => 1,
     }
 }

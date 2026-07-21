@@ -72,7 +72,7 @@ const STR_LEN_OFF: usize = 8;
 const STR_DATA_OFF: usize = 16;
 
 /// `true` iff the key Str spells exactly `name`.
-unsafe fn key_is(key: *const c_void, name: &[u8]) -> bool {
+pub(crate) unsafe fn key_is(key: *const c_void, name: &[u8]) -> bool {
     let len = unsafe { key.cast::<u8>().add(STR_LEN_OFF).cast::<u32>().read() };
     len as usize == name.len()
         && unsafe { core::slice::from_raw_parts(key.cast::<u8>().add(STR_DATA_OFF), len as usize) }

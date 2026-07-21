@@ -307,6 +307,10 @@ pub unsafe extern "C" fn __torajs_any_prop_has(recv: AnyValue, key: *const c_voi
                 unsafe { __torajs_dynobj_has(props, key) as i64 }
             }
         }
+        // RFC 20260722 刀 4 — a RegExp instance owns exactly its
+        // `lastIndex` (§22.2.4.1 RegExpAlloc); the rest of the
+        // surface is prototype accessors, absent as own.
+        Some((_, t)) if t == Tag::RegExp as u16 => unsafe { key_is(key, b"lastIndex") as i64 },
         // RFC 20260716 刀 5 (rotation 121 chunk 5) — Number/Boolean
         // wrappers carry no inherent own string keys (§21.1 / §20.3),
         // so the expando dynobj is the whole answer.

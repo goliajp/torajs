@@ -44,6 +44,9 @@ unsafe extern "C" {
         out_tag: *mut u64,
         out_val: *mut u64,
     ) -> i64;
+    // torajs-regex — a RegExp instance's `lastIndex` slot (RFC
+    // 20260722 刀 4).
+    fn __torajs_regex_get_last_index(re: *const c_void) -> f64;
     // torajs-rc — lazy `<Ctor>.prototype` singleton by builtin tag
     // (Array=2 / String=3 / RegExp=7 / Date=8 / Map=11 / Set=12 /
     // Function=13; `builtin_proto.rs` order).
@@ -111,6 +114,8 @@ pub(crate) const TAG_ARR: u16 = 2;
 // Tag::Closure — fn cell; gOPD routes to the virtual name/length
 // descriptor arm in `closure_reflect.rs` (RFC 20260711 chunk B).
 pub(crate) const TAG_CLOSURE: u16 = 3;
+/// `Tag::RegExp` (torajs-rc `tag.rs`).
+pub(crate) const TAG_REGEXP: u16 = 4;
 // Primitive-wrapper cells (RFC 20260716 刀 2b / 刀 5). All three
 // share the `[header:8][value:8][props:8]` layout — chunks 4+5
 // (rotation 121) landed the +16 lazy expando dynobj on write and
@@ -307,6 +312,17 @@ pub unsafe extern "C" fn __torajs_anyv_get_property_descriptor(
     // `dynobj` is a live Tag::Closure cell; `key` non-NULL (above).
     if htag == TAG_CLOSURE {
         return unsafe { crate::closure_reflect::closure_cell_descriptor(dynobj, key) };
+    }
+    // RFC 20260722 刀 4 — a RegExp instance owns exactly its
+    // `lastIndex` (§22.2.4.1 RegExpAlloc: {writable: true,
+    // enumerable: false, configurable: false}); every other key is
+    // prototype surface, absent as own.
+    if htag == TAG_REGEXP {
+        if unsafe { crate::closure_reflect::key_is(key, b"lastIndex") } {
+            let li = unsafe { __torajs_regex_get_last_index(dynobj) };
+            return unsafe { build_data_descriptor(3, li.to_bits(), 1, 0, 0) };
+        }
+        return VALUE_UNDEFINED_IMM;
     }
     // RFC 20260712-arr-exotic-define chunk A — Array cell answers the
     // §10.4.2 length / canonical-index / expando descriptors. SAFETY:
