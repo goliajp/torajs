@@ -21,10 +21,10 @@
 //!
 //! - **T-15.g.1 / T-15.g.5** — 1+arg `Promise.resolve(v)` /
 //!   `Promise.reject(e)`. S322 lower-and-drop trailing `args[1..]` per
-//!   S272 idiom. T-19.f thenable absorption: `Promise.resolve(p)` on
-//!   `Type::Promise` arg routes through `promise_resolve_thenable`
-//!   (unwrap inner) instead of wrapping the pointer — reject side
-//!   keeps simple-heap path per spec. Heap-vs-primitive dispatch by
+//!   S272 idiom. §27.2.4.7 step 2: `Promise.resolve(p)` on a
+//!   `Type::Promise` arg passes the SAME object through (identity,
+//!   no mint) — reject side keeps the simple-heap path per spec
+//!   (§27.2.4.6 always mints). Heap-vs-primitive dispatch by
 //!   `arg_ty`; `Bool` → `coerce_bool_to_i64`; `F64` → `BitCastF64ToI64`
 //!   so the value slot uniformly holds 8 bytes the receiver decodes
 //!   per the promise's value class (②.6b). When `arg_ty == I64` but
@@ -130,22 +130,18 @@ fn lower_one_plus(ctx: &mut LowerCtx<'_>, eid: ExprId, method: &str, args: &[Exp
         let _ = ctx.lower_expr(a);
     }
     let arg_ty = ctx.operand_ty(&arg_op);
-    // T-19.f — thenable absorption. `promise_resolve_thenable` borrows
-    // the promise (shares its inner value into the fresh one), so an
-    // Ident arg keeps its stake; owned temps release post-call.
+    // §27.2.4.7 step 2 — PromiseResolve on a promise whose
+    // constructor is %Promise% answers the SAME object
+    // (`Promise.resolve(p) === p`; tr has no Promise subclassing, so
+    // the pass-through is unconditional). Replaces the pre-spec
+    // T-19.f absorption mint (`promise_resolve_thenable` — kernel
+    // kept for future any-lane use). Owned-result convention: a
+    // borrow-shaped arg shares (+1); an owned temp transfers as-is.
     if matches!(arg_ty, Type::Promise) && method == "resolve" {
-        let cur_block = ctx.cur_block;
-        let v = ctx.f.append_inst(
-            cur_block,
-            InstKind::Call(
-                ctx.intrinsics.promise_resolve_thenable,
-                vec![arg_op.clone()],
-            ),
-            Type::Promise,
-            None,
-        );
-        ctx.release_owned_temp(args[0], &arg_op);
-        return Operand::Value(v);
+        if !ctx.expr_transfers_ownership(args[0]) {
+            ctx.emit_owned_result_inc(arg_op.clone(), arg_ty);
+        }
+        return arg_op;
     }
     let is_heap = matches!(
         arg_ty,
