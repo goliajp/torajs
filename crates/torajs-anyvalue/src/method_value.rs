@@ -98,7 +98,7 @@ pub(crate) const TABLE_SIZE: usize = 256;
 
 // Family axis (RFC 20260721-string-proto-cluster 刀 3) — split to
 // the `family.rs` sibling; re-exported to keep the consumer face.
-mod family;
+pub(crate) mod family;
 pub(crate) use family::{FAMILY_ROWS, STR_PROTO_FAMILY, builtin_method_family, recv_proto_family};
 
 /// Per-mid interned cells. Atomic-static, NOT `thread_local!` —

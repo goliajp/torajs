@@ -29,6 +29,12 @@ pub(crate) const FAMILY_ROWS: usize = torajs_rc::builtin_proto::NUM_BUILTIN_PROT
 /// / borrow re-dispatch.
 pub(crate) const STR_PROTO_FAMILY: i64 = 3;
 
+/// The Array family's proto tag — its reified `concat` borrowed
+/// onto a primitive receiver seeds `ToObject(this)` per §23.1.3.1
+/// (the wrapper-object lane, see `method_call_closure::
+/// generic_builtin_this`).
+pub(crate) const ARR_PROTO_FAMILY: i64 = 2;
+
 /// The Object-proto family row — the intern target for mids whose
 /// implementation a family INHERITS from `Object.prototype`.
 const OBJ_PROTO_FAMILY: i64 = 1;

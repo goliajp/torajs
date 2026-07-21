@@ -48,7 +48,8 @@ use crate::method_call::{
     MAX_BOXED_ARGS, closure_cell_entry, invoke_with_this, method_no_such, not_callable,
 };
 use crate::nanbox::{
-    AnyValue, VALUE_UNDEFINED, as_void_ptr, is_cell, is_null, is_short_str, is_undefined,
+    AnyValue, VALUE_UNDEFINED, as_void_ptr, is_bool, is_cell, is_double, is_int32, is_null,
+    is_short_str, is_undefined,
 };
 
 unsafe extern "C" {
@@ -181,9 +182,11 @@ pub(crate) unsafe fn closure_method(
 /// receiver (chunk 711).
 enum CallTarget {
     Boxed(*mut c_void, u64),
-    /// (mid, str_family) — the family bit picks the §22.1.3 generic
-    /// ToString(this) lane for a String-prototype-minted cell.
-    Builtin(i64, bool),
+    /// (mid, family) — the mint family picks the family-generic
+    /// lane: §22.1.3 ToString(this) for a String-prototype cell,
+    /// the §23.1.3.1 wrapper-seed concat for an Array-prototype
+    /// cell on a primitive receiver.
+    Builtin(i64, i64),
     /// A reified class method / accessor face (RFC
     /// 20260718-accessor-reify 刀 2) — the carried adapter invokes
     /// with the thisArg in the env slot.
@@ -195,10 +198,7 @@ unsafe fn call_target(ptr: *mut c_void) -> Option<CallTarget> {
     unsafe {
         if let Some(target_mid) = crate::method_value::builtin_method_mid(ptr) {
             let fam = crate::method_value::builtin_method_family(ptr);
-            return Some(CallTarget::Builtin(
-                target_mid,
-                fam == crate::method_value::STR_PROTO_FAMILY,
-            ));
+            return Some(CallTarget::Builtin(target_mid, fam));
         }
         if let Some(adapter) = crate::method_value_class::class_method_adapter(ptr) {
             return Some(CallTarget::ClassAdapter(adapter));
@@ -225,8 +225,8 @@ unsafe fn dispatch(
                     *adapter, this_arg, argv, argc,
                 )
             }
-            CallTarget::Builtin(mid, str_family) => {
-                if let Some(out) = generic_str_this(*mid, this_arg, argv, argc, *str_family) {
+            CallTarget::Builtin(mid, fam) => {
+                if let Some(out) = generic_builtin_this(*mid, this_arg, argv, argc, *fam) {
                     return out;
                 }
                 crate::method_call::any_method_redispatch(this_arg, *mid, argv, argc)
@@ -252,6 +252,56 @@ unsafe fn dispatch(
 ///   reach the array-like generic arm;
 /// - string-shaped and nullish receivers (identity fast paths /
 ///   RequireObjectCoercible throw).
+/// The family-generic re-dispatch gate every borrowed-builtin
+/// station runs before the ordinary receiver-arm redispatch:
+///
+/// - An Array-prototype-minted `concat` on a primitive receiver
+///   seeds `ToObject(this)` per §23.1.3.1 (the receiver arms only
+///   know their own-family concat — string concat / no-such);
+/// - a String-prototype-minted cell runs the §22.1.3 generic
+///   ToString(this) lane ([`generic_str_this`]).
+pub(crate) unsafe fn generic_builtin_this(
+    mid: i64,
+    this_arg: AnyValue,
+    argv: *const u64,
+    argc: i64,
+    fam: i64,
+) -> Option<AnyValue> {
+    if fam == crate::method_value::family::ARR_PROTO_FAMILY
+        && mid == ANY_METHOD_CONCAT
+        && is_prim_shaped(this_arg)
+    {
+        return Some(unsafe {
+            crate::method_call_arraylike_concat::prim_method(this_arg, argv, argc)
+        });
+    }
+    unsafe {
+        generic_str_this(
+            mid,
+            this_arg,
+            argv,
+            argc,
+            fam == crate::method_value::STR_PROTO_FAMILY,
+        )
+    }
+}
+
+/// A primitive shape whose ToObject mints a fresh wrapper — the
+/// receivers whose own dispatch arm would answer the WRONG concat
+/// (string concat on Str shapes, no-such on bool/number). Heap
+/// receivers (wrapper objects included) already ride the cell arm's
+/// seeded concat gate.
+fn is_prim_shaped(v: AnyValue) -> bool {
+    if is_bool(v) || is_int32(v) || is_double(v) || is_short_str(v) {
+        return true;
+    }
+    if !is_cell(v) {
+        return false;
+    }
+    let tag = unsafe { (as_void_ptr(v).cast::<u8>().add(4) as *const u16).read() };
+    tag == Tag::Str as u16
+}
+
 /// §6.1.4-shape probe for the thisStringValue gate — a ShortStr
 /// immediate, a Str cell, or a String wrapper object (whose
 /// thisStringValue is its [[StringData]]).

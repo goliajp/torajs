@@ -13,21 +13,26 @@
 //! [`crate::method_call_arraylike::arraylike_method`]'s observable
 //! length-getter step.
 //!
-//! Cell receivers only: the primitive wrapper-proto route
+//! Primitive receivers ride [`prim_method`]: §23.1.3.1 step 1
+//! `ToObject(this)` mints the Number/Boolean/String wrapper object
+//! (RFC 20260716 刀 4) as the non-spreadable seed —
+//! `Array.prototype.concat.call(true)[0] instanceof Boolean`. The
+//! wrapper-proto route
 //! ([`crate::method_call_arraylike::arraylike_on_wrapper_proto`])
-//! keeps concat excluded — tr has no Boolean/Number wrapper object
-//! to seed, and answering the proto singleton would be
-//! silent-wrong; the not-callable TypeError stays loud there.
+//! still excludes concat: its host is the proto singleton, never a
+//! receiver identity to seed.
 
 use core::ffi::c_void;
 
-use crate::nanbox::AnyValue;
+use crate::nanbox::{AnyValue, as_void_ptr};
 use crate::nanbox_encode::__torajs_anyv_box_pointer;
 
 unsafe extern "C" {
     /// Cross-tier — torajs-arr seeded concat kernel (receiver as
     /// the single non-spreadable seed element; fresh +1 return).
     fn __torajs_arr_any_concat_generic(recv: u64, argv: *const u64, argc: i64) -> *mut u8;
+    /// Cross-tier — universal NaN-box-safe heap-value release.
+    fn __torajs_value_drop_heap(p: *mut c_void);
 }
 
 /// The array-family mids a CELL receiver's re-dispatch gate admits:
@@ -57,5 +62,22 @@ pub(crate) unsafe fn obj_method(
             return __torajs_anyv_box_pointer(p as *mut c_void);
         }
         crate::method_call_arraylike::arraylike_method(obj, mid, recv_slot, argv, argc)
+    }
+}
+
+/// `Array.prototype.concat.call(prim, ...items)` — §23.1.3.1 step 1
+/// ToObject(this) mints the wrapper object, then the seeded kernel
+/// runs the same shape as the cell arm. The wrapper is this frame's
+/// temp: the seed slot takes its own stake, ours releases after.
+///
+/// # Safety
+/// `recv` is a BORROWED primitive-shaped AnyValue (never nullish —
+/// callers gate); `argv` holds `argc` BORROWED NaN-box AnyValues.
+pub(crate) unsafe fn prim_method(recv: AnyValue, argv: *const u64, argc: i64) -> AnyValue {
+    unsafe {
+        let w = crate::to_object::__torajs_any_to_object(recv);
+        let p = __torajs_arr_any_concat_generic(w, argv, argc);
+        __torajs_value_drop_heap(as_void_ptr(w));
+        __torajs_anyv_box_pointer(p as *mut c_void)
     }
 }

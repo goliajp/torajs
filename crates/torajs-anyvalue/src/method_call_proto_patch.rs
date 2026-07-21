@@ -172,9 +172,9 @@ pub(crate) unsafe fn builtin_proto_patch_method(
         // §22.1.3 generic ToString(this) coerce; any other family
         // stays on the miss exit (see module doc).
         if let Some(patch_mid) = builtin_method_mid(cell) {
-            let str_family = builtin_method_family(cell) == STR_PROTO_FAMILY;
-            return crate::method_call_closure::generic_str_this(
-                patch_mid, recv, argv, argc, str_family,
+            let fam = builtin_method_family(cell);
+            return crate::method_call_closure::generic_builtin_this(
+                patch_mid, recv, argv, argc, fam,
             );
         }
         if let Some((env, entry)) = closure_cell_entry(cell) {
