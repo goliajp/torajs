@@ -74,6 +74,13 @@ pub unsafe extern "C" fn __torajs_arr_splice(
     }
     unsafe {
         splice_finish_len(arr, len as u64, (len - actual_delete) as u64);
+        crate::define_hole::splice_remap_holes(
+            arr as *mut core::ffi::c_void,
+            actual_start,
+            actual_delete,
+            0,
+            len,
+        );
     }
     removed
 }
@@ -242,6 +249,15 @@ pub unsafe extern "C" fn __torajs_arr_splice_items(
         }
     }
     unsafe { splice_finish_len(arr, len as u64, new_len as u64) };
+    unsafe {
+        crate::define_hole::splice_remap_holes(
+            arr as *mut core::ffi::c_void,
+            actual_start,
+            actual_delete,
+            n_items,
+            len,
+        );
+    }
     removed
 }
 

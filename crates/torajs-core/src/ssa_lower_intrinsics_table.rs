@@ -401,6 +401,7 @@ pub(crate) fn build(
         any_prop_delete: init_c.any_substrate.any_prop_delete,
         any_prop_has: init_c.any_substrate.any_prop_has,
         any_has_property: init_c.any_substrate.any_has_property,
+        arr_forin_key_live: init_c.any_substrate.arr_forin_key_live,
         builtin_proto_method_value: init_c.any_substrate.builtin_proto_method_value,
         any_unbox_tag: init_c.any_substrate.any_unbox_tag,
         any_unbox_value: init_c.any_substrate.any_unbox_value,

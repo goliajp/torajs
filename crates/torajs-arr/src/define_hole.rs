@@ -118,6 +118,58 @@ pub unsafe extern "C" fn __torajs_arr_mark_last_hole(arr: *mut c_void) {
     }
 }
 
+/// RFC 20260721 刀 12 G16 — splice moved the tail elements but the
+/// exotic-index HOLE shadows are keyed by index string, so a hole
+/// must travel with its slot (ES §14.7.5: an unvisited deleted index
+/// is never enumerated — sm/splice-suppresses-unvisited-indexes).
+/// Snapshot the affected range's holes, revive every stale shadow,
+/// re-mark each tail hole at its shifted position (dropped when it
+/// lands outside the new length). Non-hole attribute shadows stay
+/// put (recorded boundary — the G7/G14 exotic-flag design owns full
+/// attribute motion).
+pub(crate) unsafe fn splice_remap_holes(
+    arr: *mut c_void,
+    start: i64,
+    deleted: i64,
+    inserted: i64,
+    old_len: i64,
+) {
+    if unsafe { crate::define::header_flags(arr) } & FLAG_ARR_EXOTIC_INDEX == 0 {
+        return;
+    }
+    let delta = inserted - deleted;
+    let new_len = old_len + delta;
+    let mut moved: Vec<i64> = Vec::new();
+    for idx in start.max(0)..old_len {
+        let key = unsafe { crate::define::mint_index_key(idx as u64) };
+        let is_hole = unsafe { index_flags_with_key(arr, key as *const c_void) } & F_HOLE != 0;
+        if is_hole {
+            // Revive the stale shadow — the kernel already moved /
+            // overwrote the slot itself.
+            unsafe { store_shadow(arr, key as *mut c_void, FLAGS_DEFAULT) };
+            let nidx = idx + delta;
+            if idx >= start + deleted && (0..new_len).contains(&nidx) {
+                moved.push(nidx);
+            }
+        }
+        unsafe { __torajs_str_drop(key as *mut c_void) };
+    }
+    if moved.is_empty() {
+        return;
+    }
+    unsafe {
+        let slot = props_slot(arr);
+        if (*slot).is_null() {
+            *slot = __torajs_dynobj_alloc();
+        }
+        for nidx in moved {
+            let key = crate::define::mint_index_key(nidx as u64);
+            __torajs_dynobj_set_entry_hole(slot, key as *mut c_void);
+            __torajs_str_drop(key as *mut c_void);
+        }
+    }
+}
+
 /// §10.4.2 [[Delete]] on a canonical index — `delete arr[i]`.
 /// Answers 1 (deleted / already absent) or 0 (refused: the index is
 /// non-configurable — caller throws per §13.5.1.2 strict semantics).

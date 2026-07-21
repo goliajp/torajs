@@ -348,6 +348,13 @@ pub unsafe extern "C" fn __torajs_arr_any_splice(
             }
         }
         crate::transform_splice::splice_finish_len(arr, len as u64, new_len as u64);
+        crate::define_hole::splice_remap_holes(
+            arr as *mut core::ffi::c_void,
+            actual_start,
+            actual_delete,
+            item_count,
+            len as i64,
+        );
         removed
     }
 }
