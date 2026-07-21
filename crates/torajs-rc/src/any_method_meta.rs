@@ -192,6 +192,10 @@ pub fn any_method_meta(mid: i64) -> Option<(&'static str, u32)> {
         // §23.1.3.36 — Array.prototype.toString, name "toString"
         // length 0 (same posture; RFC 20260721 刀 11 G12).
         ANY_METHOD_ARR_TO_STRING => ("toString", 0),
+        // §20.4.3.3/.4 — Symbol.prototype.toString / valueOf (the
+        // tag-5 thisSymbolValue cells; same posture).
+        ANY_METHOD_SYMBOL_TO_STRING => ("toString", 0),
+        ANY_METHOD_SYMBOL_VALUE_OF => ("valueOf", 0),
         _ => return None,
     })
 }
@@ -215,7 +219,7 @@ mod tests {
     #[test]
     fn meta_rejects_unknown_and_out_of_table() {
         assert!(any_method_meta(ANY_METHOD_UNKNOWN).is_none());
-        assert!(any_method_meta(ANY_METHOD_ARR_TO_STRING + 1).is_none());
+        assert!(any_method_meta(ANY_METHOD_SYMBOL_VALUE_OF + 1).is_none());
         assert!(any_method_meta(-1).is_none());
     }
 
