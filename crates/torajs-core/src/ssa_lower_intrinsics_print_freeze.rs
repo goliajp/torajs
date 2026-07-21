@@ -84,6 +84,9 @@ pub(crate) struct PrintFreezeIds {
     pub obj_check_not_frozen: FuncId,
 }
 
+// CARVE-OUT: dispatch table — a flat declare_intrinsic list (one
+// entry per runtime symbol, no logic branches); grows with the
+// intrinsic surface, same posture as ssa_lower_intrinsics_table.
 pub(crate) fn declare(
     module: &mut Module,
     fn_table: &mut HashMap<String, FuncId>,
