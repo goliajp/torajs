@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-21T21:38:43.276Z",
+  "generatedAt": "2026-07-21T23:19:59.806Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 95.81
   },
   "torajs": {
-    "commit": "6306a943",
-    "commitSubject": "fix: meta rows for the symbol prototype dedicated mids",
+    "commit": "59e8c027",
+    "commitSubject": "fix: promise resolve passes a promise through by identity",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "59e8c027",
+      "subject": "fix: promise resolve passes a promise through by identity"
+    },
+    {
+      "hash": "58a11cd7",
+      "subject": "feat: gopn surfaces virtual length name pair on functions and function prototype"
+    },
+    {
+      "hash": "c29166ee",
+      "subject": "fix: any-lane struct field borrow-box stake steal and symbol prototype call rewrite"
+    },
+    {
+      "hash": "6b51425d",
+      "subject": "feat: symbol wrapper mint for object symbol coercion"
+    },
+    {
+      "hash": "82738d1d",
+      "subject": "feat: symbol prototype description accessor gopd materialization"
+    },
+    {
+      "hash": "3cba6954",
+      "subject": "chore: hardev dashboard snapshot at rotation 181 close"
+    },
+    {
       "hash": "6306a943",
       "subject": "fix: meta rows for the symbol prototype dedicated mids"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "c5ad9ad2",
       "subject": "feat: builtin proto singleton direct call wrapper semantics"
-    },
-    {
-      "hash": "c679ea73",
-      "subject": "chore: hardev dashboard snapshot at rotation 180 close"
-    },
-    {
-      "hash": "6ac4020e",
-      "subject": "feat: regexp instance lastIndex reflection faces"
-    },
-    {
-      "hash": "03b0c742",
-      "subject": "chore: hardev dashboard snapshot at rotation 180 close"
-    },
-    {
-      "hash": "5a470ab3",
-      "subject": "feat: function.prototype own name and length reflection"
-    },
-    {
-      "hash": "353e8ed4",
-      "subject": "feat: symbol well-known data statics reflection across all faces"
-    },
-    {
-      "hash": "0ec88152",
-      "subject": "feat: promise combinator statics reflection with ns-static delete tombstone"
     }
   ],
-  "headSha": "6306a943",
+  "headSha": "59e8c027",
   "autorun": {
-    "total": 486,
+    "total": 487,
     "baselineTarget": 10,
-    "bySelf": 481,
+    "bySelf": 482,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784664573-2f36",
-      "at": "2026-07-21T20:09:33Z",
-      "ts": 1784664573,
+      "rotationId": "r-1784669997-6bbb",
+      "at": "2026-07-21T21:39:57Z",
+      "ts": 1784669997,
       "trigger": "self",
-      "prevHead": "c679ea73",
-      "handoffSha": "sha256:47f1bad8ced3f975abf14a810dbf5f500195114fff25497d3fb19486cc47a0ca",
-      "handoffAgeSec": 3,
+      "prevHead": "3cba6954",
+      "handoffSha": "sha256:35dd1b456884f61b8c6d69e1ecc51e10bbf384a3305e78e365af1825ac4bbfec",
+      "handoffAgeSec": 5,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784669997-6bbb",
+        "at": "2026-07-21T21:39:57Z",
+        "ts": 1784669997,
+        "trigger": "self",
+        "prevHead": "3cba6954",
+        "handoffSha": "sha256:35dd1b456884f61b8c6d69e1ecc51e10bbf384a3305e78e365af1825ac4bbfec",
+        "handoffAgeSec": 5,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784664573-2f36",
         "at": "2026-07-21T20:09:33Z",
@@ -876,17 +887,6 @@
         "prevHead": "b4b21c78",
         "handoffSha": "sha256:62e900f227de8932e14d5668bcc93f5340a1c449a939f79d24af37ee440f70a3",
         "handoffAgeSec": 29,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784594307-66fe",
-        "at": "2026-07-21T00:38:27Z",
-        "ts": 1784594307,
-        "trigger": "self",
-        "prevHead": "d098e052",
-        "handoffSha": "sha256:6dba133523d0482a00ac5b0dcf20ed0d7b6e97eb6a47652751de707519a7123e",
-        "handoffAgeSec": 10,
         "conformanceBefore": null,
         "commitsInSession": null
       }
