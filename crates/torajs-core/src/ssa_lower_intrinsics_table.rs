@@ -288,6 +288,7 @@ pub(crate) fn build(
         arr_keys_only_of: init_b.object.arr_keys_only_of,
         arrprops_get_tag: init_c.any_substrate.arrprops_get_tag,
         arrprops_get_value: init_c.any_substrate.arrprops_get_value,
+        arr_member_value: init_c.any_substrate.arr_member_value,
         dynobj_get_tag: init_b.object.dynobj_get_tag,
         dynobj_get_value: init_b.object.dynobj_get_value,
         dynobj_set: init_b.object.dynobj_set,

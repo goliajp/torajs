@@ -90,6 +90,7 @@ use torajs_rc::{__torajs_rc_inc, AnySlotTag, HeapHeader, Tag};
 
 mod arith;
 pub(crate) mod arr_locale_string;
+mod arr_member_value;
 pub(crate) mod closure_proto;
 mod coerce;
 mod compare;

@@ -151,7 +151,8 @@ pub(crate) fn lower_with_val(
         ctx.owned_member_reads.insert(eid);
         return ctx.fn_props_get(obj_val, name);
     }
-    if let Some(op) = crate::ssa_lower_member_props_read::try_lower(ctx, obj, obj_val, obj_ty, name)
+    if let Some(op) =
+        crate::ssa_lower_member_props_read::try_lower(ctx, eid, obj, obj_val, obj_ty, name)
     {
         return op;
     }

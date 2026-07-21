@@ -32,6 +32,7 @@ use crate::ssa_lower::LowerCtx;
 
 pub(crate) fn try_lower(
     ctx: &mut LowerCtx<'_>,
+    eid: ExprId,
     obj: ExprId,
     obj_val: Operand,
     obj_ty: Type,
@@ -48,10 +49,25 @@ pub(crate) fn try_lower(
             // catchable TypeError first (`m.groups` on a miss; RC-4
             // F1a shape, same as the `.length` short-circuit).
             crate::ssa_lower_nullable_guard::emit_nullable_arr_guard(ctx, obj, &obj_val);
-            (
-                ctx.intrinsics.arrprops_get_tag,
-                ctx.intrinsics.arrprops_get_value,
-            )
+            // RFC 20260721 G5c — the own-expando probe alone answered
+            // undefined for every builtin method NAME (`xs.toString`
+            // read as a value); §10.1.8.1 OrdinaryGet continues to the
+            // prototype, so the read rides a kernel that falls through
+            // to the Array.prototype face on the own miss. Owned on
+            // every arm — record the eid so consumers release it.
+            let key_str = ctx.intern_string_literal(name);
+            let cur_block = ctx.cur_block;
+            let v = ctx.f.append_inst(
+                cur_block,
+                InstKind::Call(
+                    ctx.intrinsics.arr_member_value,
+                    vec![obj_val, Operand::Value(key_str)],
+                ),
+                Type::Any,
+                None,
+            );
+            ctx.owned_member_reads.insert(eid);
+            return Some(Operand::Value(v));
         }
         _ => return None,
     };
