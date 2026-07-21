@@ -257,6 +257,16 @@ fn set_keys_alias(tag: i64, mid: i64) -> i64 {
     if tag == 2 && mid == ANY_METHOD_TO_STRING {
         return torajs_rc::ANY_METHOD_ARR_TO_STRING;
     }
+    // §20.4.3.3/.4 — `Symbol.prototype`'s (tag 5) toString / valueOf
+    // run thisSymbolValue: a non-Symbol receiver throws, so the
+    // reified cells carry dedicated ids (the generic ids would
+    // re-dispatch `.call(0)` into the number arm and answer 0).
+    if tag == 5 && mid == ANY_METHOD_TO_STRING {
+        return torajs_rc::ANY_METHOD_SYMBOL_TO_STRING;
+    }
+    if tag == 5 && mid == ANY_METHOD_VALUE_OF {
+        return torajs_rc::ANY_METHOD_SYMBOL_VALUE_OF;
+    }
     mid
 }
 

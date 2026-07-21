@@ -426,6 +426,15 @@ pub const ANY_METHOD_CONSTRUCTOR_SLOT: i64 = 163;
 /// shades the virtual own face.
 pub const ANY_METHOD_FN_PROTO_NAME_SLOT: i64 = 164;
 pub const ANY_METHOD_FN_PROTO_LENGTH_SLOT: i64 = 165;
+/// The reified `Symbol.prototype.toString` / `valueOf` cells' OWN
+/// ids (§20.4.3.3 / §20.4.3.4 — thisSymbolValue throws a TypeError
+/// on every non-Symbol receiver, which the shared TO_STRING /
+/// VALUE_OF ids cannot express: the primitive fast arms answer
+/// those natively, so `Symbol.prototype.valueOf.call(0)` would
+/// answer 0). Minted only through the tag-5 prototype alias — a
+/// plain `.toString()` / `.valueOf()` name never interns to these.
+pub const ANY_METHOD_SYMBOL_TO_STRING: i64 = 166;
+pub const ANY_METHOD_SYMBOL_VALUE_OF: i64 = 167;
 
 /// RegExp property-read ids (Any-method-call RFC 20260704 C4-3c-2)
 /// — `r.source` / `r.lastIndex` / flag booleans through an `any`

@@ -281,6 +281,15 @@ unsafe fn any_method_call_dispatch(
     if mid == torajs_rc::ANY_METHOD_IS_PROTOTYPE_OF {
         return unsafe { crate::method_call_object_proto::is_prototype_of(recv, argv, argc) };
     }
+    // §20.4.3.3 / §20.4.3.4 — the reified Symbol.prototype.toString
+    // / valueOf cells: thisSymbolValue throws a TypeError on every
+    // non-Symbol receiver (`Symbol.prototype.valueOf.call(0)` must
+    // not answer 0 through the number arm). Sits after the nullish
+    // guard — its TypeError covers the null/undefined legs.
+    if mid == torajs_rc::ANY_METHOD_SYMBOL_TO_STRING || mid == torajs_rc::ANY_METHOD_SYMBOL_VALUE_OF
+    {
+        return unsafe { crate::method_call_cell::symbol_proto_method(recv, mid) };
+    }
     // §20.5.3.4 — the dedicated Error.prototype.toString cell:
     // generic Get(name)/Get(message) steps over any object receiver
     // (FLAG_ERROR instances ride the fixed-offset fast lane inside).

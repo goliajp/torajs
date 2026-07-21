@@ -20,6 +20,32 @@ unsafe extern "C" {
     /// torajs-str — §20.4.3.3 SymbolDescriptiveString (owned Str
     /// out, rc=1).
     fn __torajs_symbol_to_str(p: *const c_void) -> *mut u8;
+    /// torajs-throw — record a pending catchable TypeError.
+    fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
+}
+
+/// §20.4.3.3 / §20.4.3.4 — the reified `Symbol.prototype.toString` /
+/// `valueOf` body: thisSymbolValue over the receiver. A Symbol cell
+/// answers its descriptive string / itself (fresh +1 per the
+/// boxed-value convention); every other receiver — number, string,
+/// plain object, `Symbol.prototype` itself (an ordinary object with
+/// no [[SymbolData]]) — is the spec TypeError.
+pub(crate) unsafe fn symbol_proto_method(recv: AnyValue, mid: i64) -> AnyValue {
+    unsafe {
+        if crate::nanbox::is_cell(recv) {
+            let ptr = as_void_ptr(recv);
+            if (ptr.cast::<u8>().add(4) as *const u16).read() == Tag::Symbol as u16 {
+                if mid == torajs_rc::ANY_METHOD_SYMBOL_VALUE_OF {
+                    __torajs_rc_inc(ptr);
+                    return recv;
+                }
+                let s = __torajs_symbol_to_str(ptr);
+                return crate::nanbox_encode::__torajs_anyv_box_pointer(s as *mut c_void);
+            }
+        }
+        __torajs_throw_type_error(c"Symbol.prototype requires that |this| be a Symbol".as_ptr());
+        crate::nanbox::VALUE_UNDEFINED
+    }
 }
 
 /// Dispatch a cell receiver by its heap tag. `None` = no arm
