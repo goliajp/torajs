@@ -197,7 +197,20 @@ impl<'a> FnToClosureCollector<'a> {
                 let (callee, args) = (*callee, args.clone());
                 self.walk_call(&callee, &args);
             }
-            Expr::Member { obj, .. } | Expr::OptChain { obj, .. } => self.walk_expr(*obj),
+            Expr::Member { obj, name } => {
+                // G9 (rotation 178) — the member-BASE axis, prototype
+                // face only: `decl.prototype` on the FnSig lane is a
+                // raw vaddr with no cell identity, so the read must
+                // ride the canonical `__fncell_` closure singleton
+                // (expando writes on it survive; `a.prototype` through
+                // an any binding sees the same cell). name/length keep
+                // their static reflection arms — the base stays raw.
+                let (obj, name) = (*obj, name.clone());
+                if name != "prototype" || !self.try_mark(obj) {
+                    self.walk_expr(obj);
+                }
+            }
+            Expr::OptChain { obj, .. } => self.walk_expr(*obj),
             Expr::OptIndex { obj, index } => {
                 self.walk_expr(*obj);
                 self.walk_expr(*index);
