@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-21T18:28:31.293Z",
+  "generatedAt": "2026-07-21T19:57:43.509Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 95.57
   },
   "torajs": {
-    "commit": "5fb9f5d2",
-    "commitSubject": "fix: hasOwn compile-time fold recognizes struct accessor half-slots",
+    "commit": "5a470ab3",
+    "commitSubject": "feat: function.prototype own name and length reflection",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "5a470ab3",
+      "subject": "feat: function.prototype own name and length reflection"
+    },
+    {
+      "hash": "353e8ed4",
+      "subject": "feat: symbol well-known data statics reflection across all faces"
+    },
+    {
+      "hash": "0ec88152",
+      "subject": "feat: promise combinator statics reflection with ns-static delete tombstone"
+    },
+    {
+      "hash": "130c186c",
+      "subject": "feat: arraylike receiver toSpliced and with arms with exact read sets"
+    },
+    {
+      "hash": "6f2592ff",
+      "subject": "feat: arraylike receiver toSorted arm with spec read order"
+    },
+    {
+      "hash": "ad894303",
+      "subject": "chore: hardev dashboard snapshot at rotation 179 close"
+    },
+    {
       "hash": "5fb9f5d2",
       "subject": "fix: hasOwn compile-time fold recognizes struct accessor half-slots"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "1acb2fb2",
       "subject": "fix: exempt generic-class instance shapes from cm-demote shape-steal gate"
-    },
-    {
-      "hash": "18c2d05f",
-      "subject": "fix: arguments rewriter is copy-on-write, eids stable for untouched subtrees"
-    },
-    {
-      "hash": "f9b6b016",
-      "subject": "chore: hardev dashboard snapshot at rotation 178 close"
-    },
-    {
-      "hash": "6420fb21",
-      "subject": "feat: generator factory prototype face rides the gen class proto"
-    },
-    {
-      "hash": "22088ace",
-      "subject": "chore: hardev dashboard snapshot at rotation 178 close"
-    },
-    {
-      "hash": "0f1adbd6",
-      "subject": "fix: prototype member-base axis excludes generator and async fns"
-    },
-    {
-      "hash": "04c82d64",
-      "subject": "feat: fn-decl prototype member rides the fncell singleton"
     }
   ],
-  "headSha": "5fb9f5d2",
+  "headSha": "5a470ab3",
   "autorun": {
-    "total": 484,
+    "total": 485,
     "baselineTarget": 10,
-    "bySelf": 479,
+    "bySelf": 480,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784653518-5316",
-      "at": "2026-07-21T17:05:18Z",
-      "ts": 1784653518,
+      "rotationId": "r-1784658928-5c5e",
+      "at": "2026-07-21T18:35:28Z",
+      "ts": 1784658928,
       "trigger": "self",
-      "prevHead": "f9b6b016",
-      "handoffSha": "sha256:ef59887bd95e09448de7758e7982826033916eaa11d6d04fb2ce54392b313ef6",
-      "handoffAgeSec": 271,
+      "prevHead": "ad894303",
+      "handoffSha": "sha256:94f153e3df68016710f4ec65c1b31bf15f656d6d4fa9e0d2a3e6fc36c057257a",
+      "handoffAgeSec": 242,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784658928-5c5e",
+        "at": "2026-07-21T18:35:28Z",
+        "ts": 1784658928,
+        "trigger": "self",
+        "prevHead": "ad894303",
+        "handoffSha": "sha256:94f153e3df68016710f4ec65c1b31bf15f656d6d4fa9e0d2a3e6fc36c057257a",
+        "handoffAgeSec": 242,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784653518-5316",
         "at": "2026-07-21T17:05:18Z",
@@ -876,17 +887,6 @@
         "prevHead": "5fbe2b2e",
         "handoffSha": "sha256:65f7585389e041836ecfbc7a18737944332520da23d2f12e628e39d5986c27d5",
         "handoffAgeSec": 43,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784581543-4116",
-        "at": "2026-07-20T21:05:43Z",
-        "ts": 1784581543,
-        "trigger": "self",
-        "prevHead": "83c966a2",
-        "handoffSha": "sha256:d6360ddea43e44b0508088dac3694d2abc6968a5638cbcd0eec23b97a1f7f990",
-        "handoffAgeSec": 17,
         "conformanceBefore": null,
         "commitsInSession": null
       }
