@@ -24,7 +24,8 @@ unsafe extern "C" {
 
 /// Spec §7.1.7 ToUint32 over an already-ToNumber'd f64 — NaN / ±inf
 /// map to 0, everything else truncates and wraps modulo 2^32.
-fn to_uint32(n: f64) -> u32 {
+/// Shared with the assignment-path twin in `grow.rs` (刀 6 G9c).
+pub(crate) fn to_uint32(n: f64) -> u32 {
     if n.is_nan() || n.is_infinite() {
         return 0;
     }

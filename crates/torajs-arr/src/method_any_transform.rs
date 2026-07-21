@@ -194,6 +194,17 @@ pub unsafe extern "C" fn __torajs_arr_any_splice(
         let is_any = header.flags & FLAG_ARR_ANY != 0;
         let kind = header.arr_elem_kind();
 
+        // 刀 6 G9a — frozen rejects before any mutation; a net-growth
+        // shape with a locked length rejects early too (§10.4.2.1
+        // step 2.c). The shrink shape mutates first and throws at the
+        // step-24 length write (`splice_finish_len`), spec order.
+        if header.flags & torajs_rc::FLAG_FROZEN != 0
+            || (item_count > actual_delete && header.flags & torajs_rc::FLAG_ARR_LENGTH_RO != 0)
+        {
+            crate::define_length::__torajs_arr_len_write_guard(arr as *const _);
+            return crate::alloc::__torajs_arr_alloc_any(0);
+        }
+
         // Typed pre-scan: every item must be storable without
         // changing the elem kind (loud TypeError, receiver + rc
         // ledger untouched — same admit as typed_push_pair).
@@ -295,7 +306,7 @@ pub unsafe extern "C" fn __torajs_arr_any_splice(
                 .unwrap();
             }
         }
-        *(arr.add(ARR_LEN_OFF) as *mut u64) = new_len as u64;
+        crate::transform_splice::splice_finish_len(arr, len as u64, new_len as u64);
         removed
     }
 }

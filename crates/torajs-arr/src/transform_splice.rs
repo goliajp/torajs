@@ -42,6 +42,13 @@ pub unsafe extern "C" fn __torajs_arr_splice(
     start: i64,
     delete_count: i64,
 ) -> *mut u8 {
+    // 刀 6 G9a — a FROZEN receiver throws before any mutation (the
+    // spec's first element Set/Delete rejects); a merely
+    // length-locked one mutates first and throws at the step-24
+    // length write ([`splice_finish_len`]).
+    if let Some(removed) = unsafe { splice_frozen_reject(arr) } {
+        return removed;
+    }
     let len = unsafe { arr_len(arr) } as i64;
     let (actual_start, actual_delete) = normalize_splice_range(start, delete_count, len);
     let removed = unsafe { arr_alloc_with(actual_delete as u64, actual_delete as u64) };
@@ -66,9 +73,50 @@ pub unsafe extern "C" fn __torajs_arr_splice(
         }
     }
     unsafe {
-        set_arr_len(arr, (len - actual_delete) as u64);
+        splice_finish_len(arr, len as u64, (len - actual_delete) as u64);
     }
     removed
+}
+
+/// 刀 6 G9a — the FROZEN entry reject shared by the splice kernels:
+/// `Some(empty removed)` with the TypeError recorded, `None` to
+/// proceed. Frozen elements reject the spec's first element move, so
+/// nothing may mutate; the length-lock-only shape instead falls to
+/// [`splice_finish_len`]'s post-mutation throw.
+pub(crate) unsafe fn splice_frozen_reject(arr: *mut u8) -> Option<*mut u8> {
+    let flags = unsafe { ((arr as *const u8).add(6) as *const u16).read() };
+    if flags & torajs_rc::FLAG_FROZEN == 0 {
+        return None;
+    }
+    unsafe { crate::define_length::__torajs_arr_len_write_guard(arr as *const _) };
+    let removed = unsafe { arr_alloc_with(0, 0) };
+    unsafe { crate::layout::copy_elem_desc_bits(arr, removed) };
+    Some(removed)
+}
+
+/// §23.1.3.31 step 24 — the final length write, shared by the three
+/// splice kernels. A locked length throws AFTER the element moves
+/// (spec order — the trailing deletes have already landed), so the
+/// range `[new_len, old_len)` becomes holes over the stale
+/// moved-left duplicates (overwrite only, their references
+/// transferred left) and `len` keeps its old value. Net-GROWTH
+/// callers guard at entry instead: §10.4.2.1 step 2.c rejects the
+/// first element write past the old length before any mutation.
+pub(crate) unsafe fn splice_finish_len(arr: *mut u8, old_len: u64, new_len: u64) {
+    unsafe {
+        if crate::define_length::__torajs_arr_len_write_guard(arr as *const _) == 0 {
+            set_arr_len(arr, new_len);
+            return;
+        }
+        debug_assert!(new_len <= old_len, "growth callers guard at entry");
+        let is_any =
+            ((arr as *const u8).add(6) as *const u16).read() & torajs_rc::FLAG_ARR_ANY != 0;
+        let fill: u64 = if is_any { 0x0A } else { 0 };
+        for k in new_len..old_len {
+            *(data_ptr(arr).add(k as usize * 8) as *mut u64) = fill;
+        }
+        crate::define_hole::mark_hole_range(arr as *mut core::ffi::c_void, new_len, old_len);
+    }
 }
 
 /// §23.1.3.31 steps 5-7 — clamp `start` / `delete_count` to the
@@ -122,8 +170,25 @@ pub unsafe extern "C" fn __torajs_arr_splice_items(
     items: *const i64,
     n_items: i64,
 ) -> *mut u8 {
+    // 刀 6 G9a — frozen rejects at entry; a net-growth shape with a
+    // locked length rejects before mutation too (§10.4.2.1 step 2.c:
+    // the first element write past the old length needs the implicit
+    // length bump a read-only length refuses). Items are raw
+    // transferred bits; the throw paths leave them to the emit
+    // site's ledger, same as the any-lane kernel's TypeError
+    // rejections.
+    if let Some(removed) = unsafe { splice_frozen_reject(arr) } {
+        return removed;
+    }
     let len = unsafe { arr_len(arr) } as i64;
     let (actual_start, actual_delete) = normalize_splice_range(start, delete_count, len);
+    if n_items > actual_delete
+        && unsafe { crate::define_length::__torajs_arr_len_write_guard(arr as *const _) } != 0
+    {
+        let removed = unsafe { arr_alloc_with(0, 0) };
+        unsafe { crate::layout::copy_elem_desc_bits(arr, removed) };
+        return removed;
+    }
 
     // Fold a deque head down to 0 so the gap math below works on
     // physical slot 0 (typed receivers can have shifted).
@@ -176,7 +241,7 @@ pub unsafe extern "C" fn __torajs_arr_splice_items(
             *slot = *items.add(k as usize);
         }
     }
-    unsafe { set_arr_len(arr, new_len as u64) };
+    unsafe { splice_finish_len(arr, len as u64, new_len as u64) };
     removed
 }
 

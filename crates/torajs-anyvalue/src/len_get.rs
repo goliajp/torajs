@@ -38,6 +38,9 @@ unsafe extern "C" {
     /// torajs-str — heap Str constructor (rc=1), used to build the
     /// literal "length" / "size" probe keys for DynObj receivers.
     fn __torajs_str_alloc(src: *const u8, len: i64) -> *mut u8;
+    /// torajs-dynobj — own-entry existence (disambiguates a stored
+    /// undefined from absent; the G9d chain walk keys off absent).
+    fn __torajs_dynobj_has(obj: *const c_void, key: *const c_void) -> i32;
     /// torajs-dynobj — own-property probe pair ((5, 0) = absent →
     /// undefined by construction).
     fn __torajs_dynobj_get_tag(obj: *const c_void, key: *const c_void) -> u64;
@@ -139,6 +142,18 @@ pub unsafe extern "C" fn __torajs_any_length_get(recv: AnyValue) -> AnyValue {
             let key = __torajs_str_alloc(c"length".as_ptr() as *const u8, 6);
             let dtag = __torajs_dynobj_get_tag(ptr, key as *const c_void);
             let dval = __torajs_dynobj_get_value(ptr, key as *const c_void);
+            // 刀 6 G9d — a truly absent own entry continues along the
+            // user [[Prototype]] chain (§10.1.8.1 OrdinaryGet):
+            // `Object.create(arr).length` answers the Arr parent's
+            // inherent length. The recursion covers grandparents
+            // (member_get knife-2 shape — a heap cell's pointer bits
+            // ARE its box encoding).
+            if dtag == 5 && __torajs_dynobj_has(ptr, key as *const c_void) == 0 {
+                if let Some(parent) = crate::member_get_own::user_proto_cell(ptr) {
+                    __torajs_str_drop(key as *mut c_void);
+                    return __torajs_any_length_get(parent);
+                }
+            }
             __torajs_str_drop(key as *mut c_void);
             return box_probe_pair(dtag, dval, recv);
         }

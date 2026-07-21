@@ -41,6 +41,10 @@ unsafe extern "C" {
     /// 20260712-arr-exotic-define chunk D length lock).
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
 
+    /// Cross-tier — torajs-throw pending-throw probe (刀 6 G9c: a
+    /// throwing valueOf aborts between the spec's two conversions).
+    fn __torajs_throw_check() -> i64;
+
     /// torajs-mmalloc libc-compat realloc — v0.7-A2 step 6b cutover.
     #[link_name = "__torajs_libc_realloc"]
     fn realloc(p: *mut c_void, n: usize) -> *mut c_void;
@@ -151,10 +155,27 @@ pub unsafe extern "C" fn __torajs_arr_set_length_truncate_scalar(
         2 => value as f64,
         3 => f64::from_bits(value as u64),
         _ => {
-            unsafe {
-                __torajs_throw_range_error(b"Invalid array length\0".as_ptr());
+            // 刀 6 G9c — a heap operand runs the spec's §10.4.2.4
+            // ToUint32 + ToNumber pair (valueOf observably twice,
+            // RangeError on disagreement), same as the any-lane twin
+            // below.
+            let anyv = unsafe { __torajs_anyv_box_from_pair(tag, value) };
+            let n1 = unsafe { __torajs_anyv_to_number(anyv) };
+            if unsafe { __torajs_throw_check() } != 0 {
+                return;
             }
-            return;
+            let n2 = unsafe { __torajs_anyv_to_number(anyv) };
+            if unsafe { __torajs_throw_check() } != 0 {
+                return;
+            }
+            let nl = crate::define_length::to_uint32(n1);
+            if nl as f64 != n2 {
+                unsafe {
+                    __torajs_throw_range_error(b"Invalid array length\0".as_ptr());
+                }
+                return;
+            }
+            nl as f64
         }
     };
     if n.is_nan() || n < 0.0 || n > 4_294_967_295.0 || n != (n as i64) as f64 {
@@ -363,15 +384,28 @@ pub unsafe extern "C" fn __torajs_arr_reserve(arr: *mut u8, new_cap: i64) -> *mu
 /// AnySlotTag pair. Caller must check for pending throw after return.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_set_length_any(arr: *mut u8, tag: i64, value: i64) {
+    // §10.4.2.4 steps 3-5 (刀 6 G9c, `define_length` twin) —
+    // `newLen = ToUint32(v)` then `numberLen = ToNumber(v)`: the spec
+    // really runs a side-effecting valueOf TWICE (observable hook
+    // count), RangeError when the two disagree. A throwing valueOf
+    // wins outright; the caller's throw check propagates.
     let anyv = unsafe { __torajs_anyv_box_from_pair(tag, value) };
-    let n = unsafe { __torajs_anyv_to_number(anyv) };
-    if n.is_nan() || n < 0.0 || n > 4_294_967_295.0 || n != (n as i64) as f64 {
+    let n1 = unsafe { __torajs_anyv_to_number(anyv) };
+    if unsafe { __torajs_throw_check() } != 0 {
+        return;
+    }
+    let n2 = unsafe { __torajs_anyv_to_number(anyv) };
+    if unsafe { __torajs_throw_check() } != 0 {
+        return;
+    }
+    let new_len = crate::define_length::to_uint32(n1);
+    if new_len as f64 != n2 {
         unsafe {
             __torajs_throw_range_error(b"Invalid array length\0".as_ptr());
         }
         return;
     }
-    let new_n = n as u64;
+    let new_n = new_len as u64;
     let len_ptr = unsafe { arr.add(ARR_HDR_LEN_OFF) as *mut u64 };
     let old = unsafe { *len_ptr };
     if new_n == old {

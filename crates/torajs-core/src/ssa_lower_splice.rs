@@ -194,6 +194,9 @@ fn emit_splice_return(
         arr_ty,
         None,
     );
+    // 刀 6 G9a — the kernel's length-lock entry guard records a
+    // catchable TypeError (§23.1.3.31 step 24).
+    ctx.emit_throw_check(None);
     Operand::Value(removed)
 }
 
@@ -261,6 +264,9 @@ pub(crate) fn emit_splice_items(
         arr_ty,
         None,
     );
+    // 刀 6 G9a — the kernel's length-lock entry guard records a
+    // catchable TypeError (§23.1.3.31 step 24).
+    ctx.emit_throw_check(None);
     Operand::Value(removed)
 }
 
