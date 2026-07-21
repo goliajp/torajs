@@ -205,8 +205,16 @@ impl<'a> FnToClosureCollector<'a> {
                 // (expando writes on it survive; `a.prototype` through
                 // an any binding sees the same cell). name/length keep
                 // their static reflection arms — the base stays raw.
+                // Generator factories and async forms stay raw too:
+                // their `.prototype` rides dedicated static arms
+                // (`__proto___Gen_<name>` / no own prototype) that
+                // only fire on a bare Ident base.
                 let (obj, name) = (*obj, name.clone());
-                if name != "prototype" || !self.try_mark(obj) {
+                let plain_fn_base = matches!(self.ast.get_expr(obj), Expr::Ident(n)
+                    if !self.ast.generator_factory_classes.contains_key(n)
+                        && !self.ast.async_fns.contains(n)
+                        && !self.ast.async_generator_fns.contains(n));
+                if name != "prototype" || !plain_fn_base || !self.try_mark(obj) {
                     self.walk_expr(obj);
                 }
             }
