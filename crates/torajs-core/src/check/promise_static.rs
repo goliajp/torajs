@@ -33,7 +33,7 @@ impl Checker {
         else {
             return None;
         };
-        if m_name != "resolve" && m_name != "reject" {
+        if m_name != "resolve" && m_name != "reject" && m_name != "withResolvers" {
             return None;
         }
         let Expr::Ident(ns) = ast.get_expr(*ns_id) else {
@@ -41,6 +41,18 @@ impl Checker {
         };
         if ns != "Promise" {
             return None;
+        }
+        // §27.2.4.8 (ES2024) — `Promise.withResolvers()` reads no
+        // arguments (trailing exprs typecheck-and-drop, S273 idiom).
+        // The result `{promise, resolve, reject}` is a runtime-minted
+        // dynobj — surfaces as `any`, every member rides the any lane.
+        if m_name == "withResolvers" {
+            for &arg in args {
+                if let Err(e) = self.type_of(ast, arg) {
+                    return Some(Err(e));
+                }
+            }
+            return Some(Ok(Type::Any));
         }
         // P10.2-A1 — 0-arg form: `Promise.resolve()` ≡
         // `Promise.resolve(undefined)` per ES spec

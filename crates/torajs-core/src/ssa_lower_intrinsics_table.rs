@@ -464,6 +464,7 @@ pub(crate) fn build(
         promise_race_sync: init_d.promise.promise_race_sync,
         promise_any_sync: init_d.promise.promise_any_sync,
         promise_allsettled_sync: init_d.promise.promise_allsettled_sync,
+        promise_with_resolvers: init_d.promise.promise_with_resolvers,
         bigint_from_decimal: init_c.bigint.bigint_from_decimal,
         bigint_from_hex: init_c.bigint.bigint_from_hex,
         bigint_add: init_c.bigint.bigint_add,

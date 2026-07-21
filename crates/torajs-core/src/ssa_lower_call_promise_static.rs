@@ -31,6 +31,12 @@
 //!   the field width table says this anon-ExprId slot is f64-shaped,
 //!   `coerce_to_f64` + `BitCastF64ToI64` first.
 //!
+//! - **§27.2.4.8 (ES2024)** — `Promise.withResolvers()`. 0-arg
+//!   kernel call; the runtime mints the pending promise + the two
+//!   settle-function cells and answers the boxed `{promise, resolve,
+//!   reject}` dynobj (`Type::Any` — every member read/call rides the
+//!   any lane).
+//!
 //! Returns `Some(op)` on hit; `None` on miss so the caller falls
 //! through to subsequent arms or the generic call lowering.
 
@@ -66,8 +72,25 @@ pub(crate) fn try_lower(
         }
         "resolve" | "reject" if args.is_empty() => Some(lower_zero_arg(ctx, m)),
         "resolve" | "reject" => Some(lower_one_plus(ctx, eid, m, args)),
+        "withResolvers" => Some(lower_with_resolvers(ctx, args)),
         _ => None,
     }
+}
+
+/// `Promise.withResolvers(...)` — §27.2.4.8 reads no arguments;
+/// eval-and-drop them for side effects (the S273 idiom), then call
+/// the 0-arg kernel. The result is the boxed `{promise, resolve,
+/// reject}` dynobj (owned AnyValue).
+fn lower_with_resolvers(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
+    for &a in args {
+        let _ = ctx.lower_expr(a);
+    }
+    let fid = ctx.intrinsics.promise_with_resolvers;
+    let cur_block = ctx.cur_block;
+    let v = ctx
+        .f
+        .append_inst(cur_block, InstKind::Call(fid, vec![]), Type::Any, None);
+    Operand::Value(v)
 }
 
 /// `Promise.all/race/any/allSettled(xs, ...)` — lower `args[0]` and

@@ -70,6 +70,7 @@ pub(crate) struct PromiseIds {
     pub promise_catch_closure: FuncId,
     pub promise_finally_closure: FuncId,
     pub promise_all_sync: FuncId,
+    pub promise_with_resolvers: FuncId,
     pub promise_race_sync: FuncId,
     pub promise_any_sync: FuncId,
     pub promise_allsettled_sync: FuncId,
@@ -229,6 +230,13 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             "__torajs_promise_allsettled_sync",
             ptr1,
             Type::Promise,
+        ),
+        promise_with_resolvers: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_promise_with_resolvers",
+            &[],
+            Type::Any,
         ),
     }
 }

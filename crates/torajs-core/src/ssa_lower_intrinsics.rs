@@ -533,6 +533,7 @@ pub(crate) struct Intrinsics {
     pub(crate) promise_race_sync: FuncId,
     pub(crate) promise_any_sync: FuncId,
     pub(crate) promise_allsettled_sync: FuncId,
+    pub(crate) promise_with_resolvers: FuncId,
     pub(crate) bigint_from_decimal: FuncId,
     pub(crate) bigint_from_hex: FuncId,
     pub(crate) bigint_add: FuncId,
