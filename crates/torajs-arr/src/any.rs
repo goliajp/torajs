@@ -300,7 +300,7 @@ pub unsafe extern "C" fn __torajs_arr_set_any(arr: *mut c_void, i: u64, tag: u64
 /// (no dictionary-mode fallback yet), so `x[4294967295] = 1`-style
 /// sparse writes would otherwise demand a 32GB realloc. Matches V8's
 /// fast-elements order of magnitude (32M slots).
-const ARR_DENSE_LIMIT: u64 = 32 * 1024 * 1024;
+pub(crate) const ARR_DENSE_LIMIT: u64 = 32 * 1024 * 1024;
 
 /// bug-327 C3 — bounds-honoring indexed write for receivers with a
 /// write-back slot (`a[i] = v` on an Ident binding). `i < len`

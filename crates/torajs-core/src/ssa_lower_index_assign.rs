@@ -17,10 +17,10 @@
 //!    plain `__torajs_arr_set_any` entry, which now raises a
 //!    catchable RangeError on OOB instead of corrupting.
 //!  - **Typed tier**: the inline StoreDyn is guarded by an `i < len`
-//!    branch; OOB calls `__torajs_arr_oob_write_reject` (RangeError).
-//!    Typed grow-on-write semantics are a tracked roadmap item (RFC
-//!    20260613-test262-bug327-root-causes) — the loud reject replaces
-//!    the silent corruption, not the spec behavior.
+//!    branch; OOB calls `__torajs_arr_typed_set_grow` (RFC
+//!    20260721-typed-grow-on-write — grow-as-holes + store, closing
+//!    the bug-327 C3 loud-reject placeholder; negative and
+//!    beyond-dense-limit indexes stay catchable RangeErrors).
 
 use crate::ast::{Expr, ExprId};
 use crate::ssa::{BlockId, IPred, InstKind, Operand, Terminator, Type};
@@ -201,7 +201,7 @@ impl<'a> LowerCtx<'a> {
             ),
             _ => v,
         };
-        let join_blk = self.emit_index_bounds_guard(&arr_val, &idx_val);
+        let join_blk = self.emit_index_bounds_guard(&arr_val, &idx_val, &v, elem_ty, transfers);
         // The slot's +1 lands inside the in-bounds write block — the
         // OOB path stores nothing and must not mint a stake.
         if !transfers && !elem_ty.is_copy() {
@@ -230,98 +230,6 @@ impl<'a> LowerCtx<'a> {
         self.f.set_term(wb, Terminator::Br(join_blk));
         self.cur_block = join_blk;
         v
-    }
-
-    /// Share-aware wrapper around [`Self::pack_any_slot_value`]
-    /// (chunk 567): the Any-slot runtimes store the pair raw (the
-    /// slot takes ownership of the passed reference), so a
-    /// borrow-shape rhs takes +1 here — refcounted values via
-    /// rc_inc, boxed Any through the owned unbox (chunk 610 — fuses
-    /// the old separate payload inc, which double-counted a
-    /// ShortStr's materialized rc=1 Str and leaked) — keeping the
-    /// source binding's stake; owned temps transfer their fresh
-    /// reference (a ShortStr materialization IS that fresh ref).
-    fn pack_any_slot_value_shared(
-        &mut self,
-        value: ExprId,
-        v_raw: &Operand,
-        v_ty: Type,
-    ) -> (Operand, Operand) {
-        let transfers = self.expr_transfers_ownership(value);
-        let (tag_op, value_op) = self.pack_any_slot_value(v_raw, v_ty, !transfers);
-        if !transfers && !matches!(v_ty, Type::Any) && v_ty.is_refcounted() {
-            self.emit_rc_inc(v_raw.clone());
-        }
-        (tag_op, value_op)
-    }
-
-    /// Pack the value into a (tag, value) operand pair using the same
-    /// scheme as box_to_any but without the heap allocation.
-    /// `any_owned` selects the owned unbox for an Any input (the
-    /// pair carries the slot's +1; see pack_any_slot_value_shared).
-    pub(crate) fn pack_any_slot_value(
-        &mut self,
-        v_raw: &Operand,
-        v_ty: Type,
-        any_owned: bool,
-    ) -> (Operand, Operand) {
-        match v_ty {
-            Type::I64 | Type::I32 => (Operand::ConstI64(2), v_raw.clone()),
-            Type::F64 => {
-                let bits = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::BitCastF64ToI64(v_raw.clone()),
-                    Type::I64,
-                    None,
-                );
-                (Operand::ConstI64(3), Operand::Value(bits))
-            }
-            Type::Bool => {
-                let zext = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::ZExtBoolToI64(v_raw.clone()),
-                    Type::I64,
-                    None,
-                );
-                (Operand::ConstI64(1), Operand::Value(zext))
-            }
-            Type::Any => {
-                // Already boxed — extract tag/value via the
-                // NaN-box decoders (Step 7e-A). Owned variant
-                // hands the pair the slot's +1 (chunk 610).
-                let tag_v = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::Call(self.intrinsics.any_unbox_tag, vec![v_raw.clone()]),
-                    Type::I64,
-                    None,
-                );
-                let unbox_fid = if any_owned {
-                    self.intrinsics.any_unbox_value_owned
-                } else {
-                    self.intrinsics.any_unbox_value
-                };
-                let val_v = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::Call(unbox_fid, vec![v_raw.clone()]),
-                    Type::I64,
-                    None,
-                );
-                (Operand::Value(tag_v), Operand::Value(val_v))
-            }
-            _ if v_ty.is_refcounted() => (Operand::ConstI64(4), v_raw.clone()),
-            Type::Ptr => {
-                // Frontend `null` lowers to Type::Ptr
-                // ConstPtrNull. Detect that constant shape and
-                // emit ANY_NULL (tag=0); any other Ptr value is a
-                // generic heap pointer (ANY_HEAP).
-                if matches!(v_raw, Operand::ConstPtrNull) {
-                    (Operand::ConstI64(0), Operand::ConstI64(0))
-                } else {
-                    (Operand::ConstI64(4), v_raw.clone())
-                }
-            }
-            _ => panic!("ssa-lower: Array<Any>[i] = unsupported value type {v_ty:?}"),
-        }
     }
 
     /// Route the Any-slot write to the growable helper (write-back
@@ -365,10 +273,22 @@ impl<'a> LowerCtx<'a> {
 
     /// bug-327 C3: guard the inline slot store with
     /// `0 <= idx && idx < len` (IPred has no unsigned compare, so
-    /// the negative-index shape gets its own arm). Emits the OOB
-    /// reject block; leaves `cur_block` on the in-bounds write block
-    /// and returns the join block both paths branch to.
-    fn emit_index_bounds_guard(&mut self, arr_val: &Operand, idx_val: &Operand) -> BlockId {
+    /// the negative-index shape gets its own arm). The OOB block
+    /// grows-as-holes through `__torajs_arr_typed_set_grow` (RFC
+    /// 20260721-typed-grow-on-write — the kernel owns the negative /
+    /// dense-limit RangeErrors and stores `v` at `idx` otherwise);
+    /// leaves `cur_block` on the in-bounds write block and returns
+    /// the join block both paths branch to. `v` is the W4-coerced
+    /// value — the grow arm mints its own slot stake (mirror of the
+    /// in-bounds arm's) and hands the kernel the raw 8-byte form.
+    fn emit_index_bounds_guard(
+        &mut self,
+        arr_val: &Operand,
+        idx_val: &Operand,
+        v: &Operand,
+        elem_ty: Type,
+        transfers: bool,
+    ) -> BlockId {
         let len = self.f.append_inst(
             self.cur_block,
             InstKind::Load(Type::I64, arr_val.clone(), ARR_LEN_OFF),
@@ -410,9 +330,30 @@ impl<'a> LowerCtx<'a> {
             },
         );
         self.cur_block = oob_blk;
+        // The grow arm stores for real — it mints the slot's +1 the
+        // same way the in-bounds arm does (the kernel's reject arms
+        // drop the transferred stake so it never leaks).
+        if !transfers && !elem_ty.is_copy() {
+            self.emit_rc_inc(v.clone());
+        }
+        let raw_v = match elem_ty {
+            Type::Bool => {
+                let z = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::ZExtBoolToI64(v.clone()),
+                    Type::I64,
+                    None,
+                );
+                Operand::Value(z)
+            }
+            _ => self.raw_slot_arg(v.clone()),
+        };
         self.f.append_void(
             self.cur_block,
-            InstKind::Call(self.intrinsics.arr_oob_write_reject, vec![idx_val.clone()]),
+            InstKind::Call(
+                self.intrinsics.arr_typed_set_grow,
+                vec![arr_val.clone(), idx_val.clone(), raw_v],
+            ),
         );
         self.emit_throw_check(None);
         let ob = self.cur_block;

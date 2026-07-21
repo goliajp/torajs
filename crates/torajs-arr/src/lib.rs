@@ -47,6 +47,7 @@ pub mod define_length;
 pub mod drop;
 pub mod from_string;
 pub mod grow;
+pub mod grow_store;
 pub mod index_any;
 pub mod iter;
 pub mod join;

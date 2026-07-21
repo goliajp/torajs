@@ -305,25 +305,6 @@ pub unsafe extern "C" fn __torajs_arr_push(arr: *mut u8, val: i64) -> *mut u8 {
 /// libtorajs_arr.a should still inline when fat-LTO is enabled at
 /// `tr build` time; thin-LTO will leave the call.
 ///
-/// bug-327 C3 — out-of-bounds typed indexed write rejector. The
-/// typed-tier `arr[i] = v` emit guards the inline slot store with an
-/// `i < len` branch; the OOB path calls this to raise a catchable
-/// RangeError (pre-fix the unchecked StoreDyn silently corrupted
-/// adjacent heap for small `i` and SIGSEGV'd past the page). Typed
-/// OOB-grow semantics (length extension + zero fill) stay a roadmap
-/// item — RFC 20260613-test262-bug327-root-causes tracks it; the
-/// untyped Array<Any> path grows for real via
-/// `__torajs_arr_set_any_grow`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_arr_oob_write_reject(_i: i64) {
-    unsafe {
-        __torajs_throw_range_error(
-            b"out-of-bounds typed-array index write (typed grow-on-write is not yet supported)\0"
-                .as_ptr(),
-        );
-    }
-}
-
 /// # Safety
 /// `extern "C"` ABI. `arr` must be a non-empty Array<T> heap block
 /// (8-byte slot stride). Caller's SSA-level shift dispatch guarantees

@@ -267,7 +267,7 @@ pub(crate) fn build(
         arr_has_index: init_b.arr_any.arr_has_index,
         arr_set_any: init_b.arr_any.arr_set_any,
         arr_set_any_grow: init_b.arr_any.arr_set_any_grow,
-        arr_oob_write_reject: init_b.arr_any.arr_oob_write_reject,
+        arr_typed_set_grow: init_b.arr_any.arr_typed_set_grow,
         arr_null_check: init_b.arr_any.arr_null_check,
         arr_get_any_tag: init_b.arr_any.arr_get_any_tag,
         arr_get_any_boxed: init_b.arr_any.arr_get_any_boxed,

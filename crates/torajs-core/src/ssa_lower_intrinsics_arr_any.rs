@@ -23,8 +23,8 @@
 //! - Indexed write: `arr_set_any(arr, idx, tag, val)` (P0.10 — drops
 //!   old slot if ANY_HEAP; caller must rc-bump heap values).
 //!   `arr_set_any_grow` (bug-327 C3 — growable variant returning
-//!   possibly-realloc'd ptr). `arr_oob_write_reject` (typed-tier
-//!   OOB).
+//!   possibly-realloc'd ptr). `arr_typed_set_grow` (typed-tier
+//!   OOB grow-as-holes — RFC 20260721-typed-grow-on-write).
 //! - Indexed read: `arr_get_any_tag` / `_value` (P1.4 — bounds-
 //!   checking, returns ANY_UNDEF=5 / value=0 for OOB per ES
 //!   §10.4.2.1).
@@ -54,7 +54,7 @@ pub(crate) struct ArrAnyIds {
     pub arr_has_index: FuncId,
     pub arr_set_any: FuncId,
     pub arr_set_any_grow: FuncId,
-    pub arr_oob_write_reject: FuncId,
+    pub arr_typed_set_grow: FuncId,
     pub arr_null_check: FuncId,
     pub arr_get_any_tag: FuncId,
     pub arr_get_any_value: FuncId,
@@ -223,11 +223,11 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             &[Type::Ptr, Type::I64, Type::I64, Type::I64],
             Type::Ptr,
         ),
-        arr_oob_write_reject: declare_intrinsic(
+        arr_typed_set_grow: declare_intrinsic(
             module,
             fn_table,
-            "__torajs_arr_oob_write_reject",
-            &[Type::I64],
+            "__torajs_arr_typed_set_grow",
+            &[Type::Ptr, Type::I64, Type::I64],
             Type::Void,
         ),
         arr_null_check: declare_intrinsic(

@@ -208,8 +208,10 @@ pub(crate) unsafe fn typed_unshift_pair(arr: *mut u8, tag: u64, value: u64) -> *
 /// Chunk 622 — `set_any_grow`'s typed arm. In-bounds writes delegate
 /// to the kind-aware `arr_index_set` (same transfer ABI); `i == len`
 /// is an append (`a[a.length] = v`) through [`typed_push_pair`]; a
-/// past-the-end write would need an undefined gap fill, which raw
-/// slots can't express — catchable RangeError, never a silent hole.
+/// past-the-end write kind-coerces the pair then grows-as-holes
+/// (RFC 20260721-typed-grow-on-write — `typed_grow_store` zero-fills
+/// the gap and HOLE-marks it; a cross-kind pair still throws, and a
+/// beyond-dense-limit index raises the shared sparse RangeError).
 ///
 /// # Safety
 /// Same contract as [`typed_push_pair`].
@@ -223,11 +225,31 @@ pub(crate) unsafe fn typed_set_grow(arr: *mut u8, i: u64, tag: u64, value: u64) 
         if i == len {
             return typed_push_pair(arr, tag, value);
         }
-        drop_pair(tag, value);
-        __torajs_throw_range_error(
-            b"index write past the end of a typed array through an any[] view is not yet supported\0"
-                .as_ptr(),
-        );
+        if i >= crate::any::ARR_DENSE_LIMIT {
+            drop_pair(tag, value);
+            __torajs_throw_range_error(
+                b"array index beyond the dense-storage limit (sparse arrays are not yet supported)\0"
+                    .as_ptr(),
+            );
+            return arr;
+        }
+        let kind = (*(arr as *const HeapHeader)).arr_elem_kind();
+        let raw = if kind == ARR_KIND_HEAP && tag == 4 {
+            value // ownership transfers straight into the raw slot
+        } else {
+            match coerce_raw_scalar(kind, tag, value) {
+                Some(r) => r,
+                None => {
+                    drop_pair(tag, value);
+                    __torajs_throw_type_error(
+                        c"index write through an any[] view would change the typed array's element kind"
+                            .as_ptr(),
+                    );
+                    return arr;
+                }
+            }
+        };
+        crate::grow_store::typed_grow_store(arr, i, raw);
         arr
     }
 }
