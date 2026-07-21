@@ -105,6 +105,23 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, elements: &[ExprId], eid: ExprId) ->
     {
         return ctx.lower_array_any_literal(&element_ids);
     }
+    // 刀 10 G5b (RFC 20260721-array-proto-cluster) — a builtin-
+    // namespace Object-typed element (`[Number]` / `[Object, Array]`)
+    // has no typed 8-byte slot repr either; the FLAG_ARR_ANY pack
+    // lane reifies the ctor ident through the interned cell
+    // (lower_ident's try_builtin_ctor_ident answers Type::Any), so
+    // `[Number].lastIndexOf(Number)` compares the same identity the
+    // bound `const a: any = [Number]` shape already does. The typed
+    // lane stored the box bits behind a kind-less block — element
+    // reads answered undefined (chunk-739's shape keyed off
+    // Type::Object instead of Type::Any).
+    if !has_spread
+        && element_ids
+            .iter()
+            .any(|id| matches!(ctx.expr_types.get(id), Some(crate::check::Type::Object(_))))
+    {
+        return ctx.lower_array_any_literal(&element_ids);
+    }
     // Chunk 807 — undefined / null elements have no typed 8-byte
     // slot repr outside the Str sentinel lane: `[undefined]` /
     // `[null]` stored ConstPtrNull behind a kind-less typed block
