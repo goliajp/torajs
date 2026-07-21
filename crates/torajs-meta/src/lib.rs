@@ -269,6 +269,14 @@ pub unsafe extern "C" fn __torajs_closure_length(_p: *mut core::ffi::c_void) -> 
 
 #[cfg(test)]
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_builtin_proto_is_deleted(_tag: i64, _mid: i64) -> i64 {
+    panic!(
+        "torajs-meta test stub: __torajs_builtin_proto_is_deleted should not be called from cargo test"
+    );
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_any_member_get_tag(
     _recv: u64,
     _key: *const core::ffi::c_void,

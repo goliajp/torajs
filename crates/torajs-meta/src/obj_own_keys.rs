@@ -35,7 +35,23 @@ unsafe extern "C" {
     fn __torajs_dynobj_iter_flags(obj: *const c_void, i: u64) -> u64;
     /// torajs-throw — ToObject on null / undefined (§20.1.2.17 step 1).
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
+    /// torajs-rc — builtin `<Ctor>.prototype` singleton tag probe
+    /// (Function.prototype's virtual own name/length pair, §20.2.3).
+    fn __torajs_builtin_proto_tag_of(p: *const c_void) -> i64;
+    /// torajs-rc — `delete`-tombstone probe for the virtual slots.
+    fn __torajs_builtin_proto_is_deleted(tag: i64, mid: i64) -> i64;
 }
+
+/// `torajs_rc::flags` mirrors — `delete fn.name` / `delete fn.length`
+/// tombstones on a Closure header (bits 10/11).
+const FLAG_FN_NAME_DELETED: u16 = 1 << 10;
+const FLAG_FN_LENGTH_DELETED: u16 = 1 << 11;
+/// `torajs_rc::any_method` mirrors — Function.prototype's virtual
+/// own name/length tombstone slots (RFC 20260722 刀 3).
+const FN_PROTO_NAME_SLOT: i64 = 164;
+const FN_PROTO_LENGTH_SLOT: i64 = 165;
+/// `Function.prototype`'s builtin-proto family tag.
+const FUNCTION_PROTO_TAG: i64 = 13;
 
 /// `HeapHeader::type_tag` mirror of `torajs_rc::Tag::DynObj` (locked
 /// there); header field lives at byte offset 4. Shared with the
@@ -155,9 +171,24 @@ unsafe fn dynobj_keys_append(
 
 /// Build the key `Arr<Str>` from a live DynObj walk in ES
 /// §10.1.11.1 order. `include_nonenum = 0` filters enumerable-only.
+/// On the gOPN surface a `Function.prototype` singleton leads with
+/// its virtual own `length` / `name` pair (§20.2.3 — CreateBuiltin-
+/// Function sets length before name; tombstone slots gate deletes).
 unsafe fn dynobj_keys_walk(obj: *const c_void, include_nonenum: i64) -> *mut c_void {
     let len = unsafe { __torajs_dynobj_iter_len(obj) };
-    let arr = unsafe { __torajs_arr_alloc(len) };
+    let mut arr = unsafe { __torajs_arr_alloc(len) };
+    if include_nonenum != 0 && unsafe { __torajs_builtin_proto_tag_of(obj) } == FUNCTION_PROTO_TAG {
+        for (name, slot) in [
+            (&b"length"[..], FN_PROTO_LENGTH_SLOT),
+            (&b"name"[..], FN_PROTO_NAME_SLOT),
+        ] {
+            if unsafe { __torajs_builtin_proto_is_deleted(FUNCTION_PROTO_TAG, slot) } == 0 {
+                // alloc_str_key mints rc=1 — the array slot adopts it.
+                let k = unsafe { crate::reflect::alloc_str_key(name) };
+                arr = unsafe { __torajs_arr_push(arr, k as i64) };
+            }
+        }
+    }
     unsafe { dynobj_keys_append(obj, include_nonenum, arr, false) as *mut c_void }
 }
 
@@ -337,7 +368,25 @@ pub unsafe extern "C" fn __torajs_anyv_own_keys(v: u64, include_nonenum: i64) ->
                 let props =
                     unsafe { (cell.cast::<u8>().add(CLOSURE_PROPS_OFF) as *const u64).read() }
                         as *const c_void;
-                let out = unsafe { __torajs_arr_alloc(0) };
+                let mut out = unsafe { __torajs_arr_alloc(0) };
+                // §10.2.9/§10.2.10 (via §20.2.4) — every function's
+                // virtual own `length` / `name` pair surfaces on gOPN
+                // in creation order (length first; test262
+                // property-order family asserts the adjacency).
+                // Non-enumerable, so `Object.keys` stays exact.
+                // Delete tombstones live on the header flags.
+                if include_nonenum != 0 {
+                    let flags = unsafe { (cell.cast::<u8>().add(6) as *const u16).read() };
+                    for (name, deleted) in [
+                        (&b"length"[..], flags & FLAG_FN_LENGTH_DELETED != 0),
+                        (&b"name"[..], flags & FLAG_FN_NAME_DELETED != 0),
+                    ] {
+                        if !deleted {
+                            let k = unsafe { crate::reflect::alloc_str_key(name) };
+                            out = unsafe { __torajs_arr_push(out, k as i64) };
+                        }
+                    }
+                }
                 if props.is_null() {
                     out as *mut c_void
                 } else {
