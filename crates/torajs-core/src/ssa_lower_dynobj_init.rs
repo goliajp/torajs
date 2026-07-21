@@ -23,18 +23,22 @@ use crate::ssa::{InstKind, Operand, Type, ValueId};
 use crate::ssa_lower::LowerCtx;
 
 impl<'a> LowerCtx<'a> {
-    /// Emit the shared `dynobj_set` shape: intern the field name, alloc
-    /// the ptr-slot, store the dynobj header ptr into it, then call
-    /// `__torajs_dynobj_set(slot, key, tag, val)`. Every field path
-    /// (undefined, nested object, plain box, Any/Str runtime tag) ends
-    /// here — chunk 819 consolidated the 5 repeated call sites.
-    fn emit_dynobj_set(&mut self, dynobj: ValueId, fname: &str, tag: Operand, val: Operand) {
+    /// Emit the shared `dynobj_set` shape: intern the field name and
+    /// call `__torajs_dynobj_set(slot, key, tag, val)`. Every field
+    /// path (undefined, nested object, plain box, Any/Str runtime tag)
+    /// ends here — chunk 819 consolidated the 5 repeated call sites.
+    ///
+    /// `slot` is the
+    /// single relocation slot `lower_dynobj_init` owns — the kernel's
+    /// resize (fresh block + FREE of the old one, CPython dictresize
+    /// shape) writes the live pointer back through it, so every
+    /// subsequent set and the literal's result see the relocated
+    /// block. A per-set throwaway slot here made every field from
+    /// the 8th on (entries_cap_for(DYNOBJ_INITIAL_CAP) = 7) land in
+    /// a freed orphan while the result kept the dangling pre-resize
+    /// pointer (rotation 174 chunk 3, probe /tmp/p8b-21.ts).
+    fn emit_dynobj_set(&mut self, slot: ValueId, fname: &str, tag: Operand, val: Operand) {
         let key_str = self.intern_string_literal(fname);
-        let slot = self.alloca(Type::Ptr, Some("__dynobj_init_slot"));
-        self.f.append_void(
-            self.cur_block,
-            InstKind::Store(Operand::Value(dynobj), Operand::Value(slot), 0),
-        );
         self.f.append_void(
             self.cur_block,
             InstKind::Call(
@@ -42,6 +46,18 @@ impl<'a> LowerCtx<'a> {
                 vec![Operand::Value(slot), Operand::Value(key_str), tag, val],
             ),
         );
+    }
+
+    /// The live dynobj pointer — a fresh Load off the shared init
+    /// slot (never cache a pre-set pointer across a set: resize
+    /// frees the old block).
+    fn load_dynobj(&mut self, slot: ValueId) -> ValueId {
+        self.f.append_inst(
+            self.cur_block,
+            InstKind::Load(Type::Ptr, Operand::Value(slot), 0),
+            Type::Ptr,
+            None,
+        )
     }
 
     /// P3.2 — `let x: any = { f1: v1, f2: v2 }` lowering. Allocate
@@ -64,7 +80,7 @@ impl<'a> LowerCtx<'a> {
     /// (the fresh literal cannot be non-extensible or form a cycle,
     /// so its refusal path is unreachable). The value box is a
     /// borrow (the core takes its own stake).
-    fn emit_dynobj_proto_field(&mut self, dynobj: ValueId, fval_eid: ExprId) {
+    fn emit_dynobj_proto_field(&mut self, slot: ValueId, fval_eid: ExprId) {
         // A statically-null proto marks the header bit
         // directly (the `Object.create(null)` face) — the
         // boxed-setter path below covers runtime values.
@@ -75,6 +91,7 @@ impl<'a> LowerCtx<'a> {
             )
         {
             let _ = self.lower_expr(fval_eid);
+            let dynobj = self.load_dynobj(slot);
             self.f.append_void(
                 self.cur_block,
                 InstKind::Call(
@@ -91,6 +108,7 @@ impl<'a> LowerCtx<'a> {
         } else {
             self.box_to_any_from_expr(fval_eid, v_op.clone())
         };
+        let dynobj = self.load_dynobj(slot);
         let obj_boxed = self.f.append_inst(
             self.cur_block,
             InstKind::Call(
@@ -110,7 +128,7 @@ impl<'a> LowerCtx<'a> {
         self.release_owned_temp(fval_eid, &v_op);
     }
 
-    fn emit_dynobj_field_value(&mut self, dynobj: ValueId, fname: &str, fval_eid: ExprId) {
+    fn emit_dynobj_field_value(&mut self, slot: ValueId, fname: &str, fval_eid: ExprId) {
         let v_raw = self.lower_expr(fval_eid);
         // Chunk 570 — SHARE: the bucket takes its own +1 (the
         // refcounted arm's rc_inc / the Any arm's payload inc);
@@ -169,7 +187,7 @@ impl<'a> LowerCtx<'a> {
                     Type::I64,
                     None,
                 );
-                self.emit_dynobj_set(dynobj, fname, Operand::Value(tag_v), Operand::Value(val_v));
+                self.emit_dynobj_set(slot, fname, Operand::Value(tag_v), Operand::Value(val_v));
                 if transfers {
                     self.emit_drop_value(v_keep, Type::Any);
                 }
@@ -193,7 +211,7 @@ impl<'a> LowerCtx<'a> {
                     Type::I64,
                     None,
                 );
-                self.emit_dynobj_set(dynobj, fname, Operand::Value(tag_v), Operand::Value(val_v));
+                self.emit_dynobj_set(slot, fname, Operand::Value(tag_v), Operand::Value(val_v));
                 if transfers {
                     self.emit_drop_value(v_keep, Type::Str);
                 }
@@ -214,7 +232,7 @@ impl<'a> LowerCtx<'a> {
             Type::Ptr if matches!(v_raw, Operand::ConstPtrNull) => (0, Operand::ConstI64(0)),
             _ => panic!("ssa-lower: dynobj init unsupported field type {v_ty:?}"),
         };
-        self.emit_dynobj_set(dynobj, fname, Operand::ConstI64(tag), val_op);
+        self.emit_dynobj_set(slot, fname, Operand::ConstI64(tag), val_op);
         if transfers && v_ty.is_refcounted() {
             self.emit_drop_value(v_keep, v_ty);
         }
@@ -225,12 +243,18 @@ impl<'a> LowerCtx<'a> {
             Expr::ObjectLit { fields } => fields,
             _ => panic!("lower_dynobj_init called on non-ObjectLit"),
         };
-        // Allocate the dynobj.
+        // Allocate the dynobj + the single relocation slot every
+        // per-field set shares (see `emit_dynobj_set`).
         let dynobj = self.f.append_inst(
             self.cur_block,
             InstKind::Call(self.intrinsics.dynobj_alloc, Vec::new()),
             Type::Ptr,
             None,
+        );
+        let slot = self.alloca(Type::Ptr, Some("__dynobj_init_slot"));
+        self.f.append_void(
+            self.cur_block,
+            InstKind::Store(Operand::Value(dynobj), Operand::Value(slot), 0),
         );
         // For each (name, value), set into the dynobj. Box value
         // first using the same scheme as box_to_any but inlined.
@@ -245,7 +269,7 @@ impl<'a> LowerCtx<'a> {
             // is unreachable). The value box is a borrow (the core
             // takes its own stake).
             if fname == "__proto__" && !self.ast.objlit_shorthand_proto_exprs.contains(&fval_eid) {
-                self.emit_dynobj_proto_field(dynobj, fval_eid);
+                self.emit_dynobj_proto_field(slot, fval_eid);
                 continue;
             }
             // RFC 20260717-objlit-anylane-recv knife 1 — accessor
@@ -261,12 +285,12 @@ impl<'a> LowerCtx<'a> {
             // body would read garbage off the dynobj receiver.
             if let Some(prop) = fname.strip_prefix("__getter_").map(str::to_string) {
                 self.guard_anylane_recv_face(fval_eid, "accessor getter");
-                self.emit_dynobj_accessor_field(dynobj, &prop, fval_eid, true);
+                self.emit_dynobj_accessor_field(slot, &prop, fval_eid, true);
                 continue;
             }
             if let Some(prop) = fname.strip_prefix("__setter_").map(str::to_string) {
                 self.guard_anylane_recv_face(fval_eid, "accessor setter");
-                self.emit_dynobj_accessor_field(dynobj, &prop, fval_eid, false);
+                self.emit_dynobj_accessor_field(slot, &prop, fval_eid, false);
                 continue;
             }
             // RFC 20260712-object-create-define-props — a nested
@@ -286,7 +310,7 @@ impl<'a> LowerCtx<'a> {
             if matches!(self.ast.get_expr(fval_eid), Expr::Ident(n) if n == "undefined")
                 && !self.locals.contains_key("undefined")
             {
-                self.emit_dynobj_set(dynobj, &fname, Operand::ConstI64(5), Operand::ConstI64(0));
+                self.emit_dynobj_set(slot, &fname, Operand::ConstI64(5), Operand::ConstI64(0));
                 continue;
             }
             // `as` casts are value-layer pass-throughs — strip them so
@@ -298,12 +322,14 @@ impl<'a> LowerCtx<'a> {
             if fname != "__spread__" && matches!(self.ast.get_expr(lit_eid), Expr::ObjectLit { .. })
             {
                 let nested = self.lower_dynobj_init(lit_eid);
-                self.emit_dynobj_set(dynobj, &fname, Operand::ConstI64(4), nested);
+                self.emit_dynobj_set(slot, &fname, Operand::ConstI64(4), nested);
                 continue;
             }
-            self.emit_dynobj_field_value(dynobj, &fname, fval_eid);
+            self.emit_dynobj_field_value(slot, &fname, fval_eid);
         }
-        Operand::Value(dynobj)
+        // The live pointer — a set may have relocated the block.
+        let out = self.load_dynobj(slot);
+        Operand::Value(out)
     }
 
     /// RFC 20260717-objlit-anylane-recv knife 1 — install one accessor
@@ -317,17 +343,15 @@ impl<'a> LowerCtx<'a> {
     /// and generic kinds for this-free ones.
     fn emit_dynobj_accessor_field(
         &mut self,
-        dynobj: ValueId,
+        slot: ValueId,
         prop: &str,
         face_eid: ExprId,
         is_get: bool,
     ) {
-        let obj_any = self.box_to_any(Operand::Value(dynobj));
-        crate::ssa_lower_accessor::emit_accessor_define(
+        crate::ssa_lower_accessor::emit_accessor_define_into(
             self,
-            obj_any,
+            slot,
             &crate::ssa_lower_object_define::DefineKey::Name(prop),
-            &None,
             if is_get { Some(face_eid) } else { None },
             if is_get { None } else { Some(face_eid) },
             Some(true),
