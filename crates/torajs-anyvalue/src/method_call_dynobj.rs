@@ -131,8 +131,10 @@ pub(crate) unsafe fn dynobj_method(
         // name bytes): the mid is authoritative, so an array-family
         // mid runs the ES generic array-like semantics over this
         // receiver instead of falling to the not-callable exit.
-        if name_str.is_null() && crate::method_call_arraylike::arraylike_supported(mid) {
-            return crate::method_call_arraylike::arraylike_method(obj, mid, recv_slot, argv, argc);
+        if name_str.is_null() && crate::method_call_arraylike_concat::obj_supported(mid) {
+            return crate::method_call_arraylike_concat::obj_method(
+                obj, mid, recv_slot, argv, argc,
+            );
         }
         if !name_str.is_null() {
             let key = name_str as *const c_void;

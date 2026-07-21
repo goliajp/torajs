@@ -109,42 +109,19 @@ pub fn desugar_prototype_call(ast: &mut Ast) {
         {
             continue;
         }
-        // RFC 20260712-array-generic-receiver chunks 2+3a — the
-        // Array read family SKIPS the rewrite: `recv.m(args)` is
+        // RFC 20260712-array-generic-receiver chunks 2+3a + RFC
+        // 20260721-array-proto-cluster 刀 8-B — the WHOLE Array
+        // namespace SKIPS the rewrite: `recv.m(args)` is
         // semantically wrong for it (a receiver's own `m` would
         // shadow the explicitly-called Array.prototype.m, and a
         // plain-object receiver needs the runtime's ES generic
         // array-like arm, which dispatches the reified cell's
-        // carried mid with NULL name bytes). Mutators (push / pop /
-        // splice …) keep the rewrite until the generic write family
-        // lands — their runtime `.call` re-dispatch cannot write a
-        // grow-relocated Arr receiver back (recorded boundary).
-        // Name list mirrors torajs-anyvalue
-        // `method_call_arraylike::arraylike_supported` — extend
-        // together.
-        if ns == "Array"
-            && matches!(
-                method_name.as_str(),
-                "indexOf"
-                    | "lastIndexOf"
-                    | "includes"
-                    | "at"
-                    | "join"
-                    | "toString"
-                    | "slice"
-                    | "every"
-                    | "some"
-                    | "forEach"
-                    | "map"
-                    | "filter"
-                    | "find"
-                    | "findIndex"
-                    | "findLast"
-                    | "findLastIndex"
-                    | "reduce"
-                    | "reduceRight"
-            )
-        {
+        // carried mid with NULL name bytes). The mutator boundary
+        // this skip used to carve out (grow-relocated Arr receiver
+        // writeback through an argv re-dispatch) no longer exists —
+        // push 1→9 and splice 2→10 growth through the reified
+        // cell's `.call` short-circuit read back bun-equal.
+        if ns == "Array" {
             continue;
         }
         let recv = args[0];

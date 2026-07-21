@@ -126,10 +126,10 @@ pub(crate) unsafe fn struct_method(
         // struct arms). Mutators stay excluded: a static-layout
         // struct has no growable props bag to relocate.
         if name_str.is_null()
-            && crate::method_call_arraylike::arraylike_supported(mid)
+            && crate::method_call_arraylike_concat::obj_supported(mid)
             && !crate::method_call_arraylike_mut::arraylike_mut_supported(mid)
         {
-            return crate::method_call_arraylike::arraylike_method(
+            return crate::method_call_arraylike_concat::obj_method(
                 obj,
                 mid,
                 core::ptr::null_mut(),

@@ -145,9 +145,9 @@ pub(crate) unsafe fn cell_method(
         // arm, same gate as the dynobj arm; interior writes go
         // through the member-set dispatcher, where growth rejects
         // loud (the G10 struct-dynamic-props posture).
-        if name_str.is_null() && crate::method_call_arraylike::arraylike_supported(mid) {
+        if name_str.is_null() && crate::method_call_arraylike_concat::obj_supported(mid) {
             return Some(unsafe {
-                crate::method_call_arraylike::arraylike_method(ptr, mid, recv_slot, argv, argc)
+                crate::method_call_arraylike_concat::obj_method(ptr, mid, recv_slot, argv, argc)
             });
         }
         return Some(unsafe {

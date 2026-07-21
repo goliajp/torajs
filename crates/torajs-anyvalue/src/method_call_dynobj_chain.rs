@@ -86,8 +86,8 @@ pub(crate) unsafe fn proto_chain_method(
                 && let Some(mid2) =
                     crate::method_value::builtin_method_mid(crate::nanbox::as_void_ptr(cell))
             {
-                if crate::method_call_arraylike::arraylike_supported(mid2) {
-                    return Some(crate::method_call_arraylike::arraylike_method(
+                if crate::method_call_arraylike_concat::obj_supported(mid2) {
+                    return Some(crate::method_call_arraylike_concat::obj_method(
                         obj, mid2, recv_slot, argv, argc,
                     ));
                 }

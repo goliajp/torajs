@@ -81,7 +81,16 @@ pub unsafe extern "C" fn __torajs_arr_any_concat(
     argc: i64,
 ) -> *mut u8 {
     unsafe {
-        let mut dst = crate::slice::__torajs_arr_any_slice(arr, 0, i64::MAX);
+        let dst = crate::slice::__torajs_arr_any_slice(arr, 0, i64::MAX);
+        concat_extend_args(dst, argv, argc)
+    }
+}
+
+/// The §23.1.3.1 per-argument loop shared by both concat entries:
+/// a `Tag::Arr` heap argument spreads, everything else appends as
+/// one element.
+unsafe fn concat_extend_args(mut dst: *mut u8, argv: *const u64, argc: i64) -> *mut u8 {
+    unsafe {
         for k in 0..argc {
             let av = *argv.add(k as usize);
             let tag = __torajs_anyv_unbox_tag(av) as u64;
@@ -103,6 +112,38 @@ pub unsafe extern "C" fn __torajs_arr_any_concat(
             );
         }
         dst
+    }
+}
+
+/// `Array.prototype.concat.call(obj, ...items)` for a NON-array
+/// object receiver (RFC 20260721 刀 8-B) — §23.1.3.1 steps 1-2:
+/// `ArraySpeciesCreate(O, 0)` answers a plain `ArrayCreate` because
+/// `IsArray(O)` is false (the receiver's `constructor` is never
+/// consulted), then O itself appends as the single seed element
+/// (not spreadable — no `@@isConcatSpreadable` surface, so only
+/// real Arrays spread). `Get(O, "length")` never runs — concat has
+/// no length read, an accessor `length` must not fire.
+///
+/// # Safety
+/// `recv` is a BORROWED NaN-box AnyValue holding a heap cell;
+/// `argv` holds `argc` BORROWED NaN-box AnyValues. Returned pointer
+/// is fresh (+1 rc).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_any_concat_generic(
+    recv: u64,
+    argv: *const u64,
+    argc: i64,
+) -> *mut u8 {
+    unsafe {
+        let mut dst = crate::__torajs_arr_alloc_any(argc as u64 + 1);
+        // The seed slot takes its own stake — recv is borrowed.
+        __torajs_rc_inc(recv as *mut c_void);
+        dst = crate::any::__torajs_arr_push_any(
+            dst as *mut c_void,
+            __torajs_anyv_unbox_tag(recv) as u64,
+            __torajs_anyv_unbox_value(recv) as u64,
+        );
+        concat_extend_args(dst, argv, argc)
     }
 }
 
