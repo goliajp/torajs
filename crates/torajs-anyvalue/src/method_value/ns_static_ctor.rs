@@ -148,13 +148,27 @@ pub unsafe extern "C" fn __torajs_ctor_static_value_cell(
 /// # Safety
 /// Same contract as the extern face.
 pub(crate) unsafe fn ctor_static_cell(cell: *const c_void, key: *const c_void) -> Option<*mut u8> {
+    let id = unsafe { ctor_static_table_id(cell, key) }?;
+    Some(super::ns_static::ns_static_cell(id))
+}
+
+/// The ns-static table id a builtin ctor cell owns under `key` —
+/// `None` on a non-ctor cell, a non-table key, or a delete-
+/// tombstoned id (readers treat a tombstoned static as absent; a
+/// defineProperty restore lands in the expando, which every reader
+/// probes first).
+///
+/// # Safety
+/// `cell` is null or a live heap cell; `key` is null or a live Str
+/// cell.
+pub(crate) unsafe fn ctor_static_table_id(cell: *const c_void, key: *const c_void) -> Option<i64> {
     let tag = super::ctor::ctor_tag_of_cell(cell)?;
     let name = unsafe { key_utf8(key) }?;
     let id = torajs_rc::ns_static_id(ctor_ns_name(tag), name);
-    if id == torajs_rc::NS_STATIC_UNKNOWN {
+    if id == torajs_rc::NS_STATIC_UNKNOWN || torajs_rc::ns_static_is_deleted(id) {
         return None;
     }
-    Some(super::ns_static::ns_static_cell(id))
+    Some(id)
 }
 
 /// The key Str's UTF-8 view — `None` on NULL / non-UTF-8 payload.
@@ -284,7 +298,7 @@ pub(crate) unsafe fn ctor_own_read_cell(
         return Some(pair);
     }
     let id = torajs_rc::ns_static_id(ctor_ns_name(tag), name);
-    if id != torajs_rc::NS_STATIC_UNKNOWN {
+    if id != torajs_rc::NS_STATIC_UNKNOWN && !torajs_rc::ns_static_is_deleted(id) {
         return Some((4, super::ns_static::ns_static_cell(id) as u64));
     }
     None

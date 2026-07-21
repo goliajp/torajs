@@ -222,7 +222,10 @@ pub use flags::{
     FLAG_FN_LENGTH_DELETED, FLAG_FN_NAME_DELETED, FLAG_FN_PROTO, FLAG_FROZEN, FLAG_NON_EXTENSIBLE,
     FLAG_SEALED, FLAG_SPLIT_BLOCK, FLAG_STATIC_LITERAL,
 };
-pub use ns_static::{NS_STATIC_UNKNOWN, NsStaticRow, ns_static_id, ns_static_meta};
+pub use ns_static::{
+    NS_STATIC_UNKNOWN, NsStaticRow, ns_static_id, ns_static_is_deleted, ns_static_mark_deleted,
+    ns_static_meta,
+};
 
 // Type tags (`Tag` enum) live in `tag.rs`; re-exported at crate
 // root just below, same shape as `color` / `arr_kind`.

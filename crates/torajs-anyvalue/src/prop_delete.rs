@@ -143,6 +143,13 @@ pub unsafe extern "C" fn __torajs_any_prop_delete(recv: AnyValue, key: *const c_
             if unsafe { crate::prop_has::key_is(key, b"length") } {
                 unsafe { header_flag_set(ptr, torajs_rc::FLAG_FN_LENGTH_DELETED) };
             }
+            // RFC 20260722-builtin-proto-reflection 刀 1 — a table
+            // static (`delete Promise.all`) is {configurable: true}:
+            // tombstone its id so every table-backed reader answers
+            // absent (an expando restore shadows the bit).
+            if let Some(id) = unsafe { crate::method_value::ctor_static_table_id(ptr, key) } {
+                torajs_rc::ns_static_mark_deleted(id);
+            }
             1
         }
         // RFC 20260718-error-message-own-prop — the error-instance

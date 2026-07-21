@@ -166,6 +166,15 @@ pub static NS_STATIC_TABLE: &[NsStaticRow] = &[
     // §20.1.2.10 / §23.1.2.1.
     row("Object", "getOwnPropertySymbols", 1),
     row("Array", "from", 1),
+    // §27.2.4.{1,3,5,6} Promise combinator statics — reflection rows
+    // (RFC 20260722-builtin-proto-reflection 刀 1). The direct call
+    // form lowers through promise_*_sync intrinsics; a bare cell
+    // call raises the spec step-2 "|this| is not an object"
+    // TypeError, same as resolve / reject (Disp::PromiseSettle).
+    row("Promise", "all", 1),
+    row("Promise", "allSettled", 1),
+    row("Promise", "any", 1),
+    row("Promise", "race", 1),
 ];
 
 /// Compile-time `(namespace, member)` → id. Linear scan — lower-time
@@ -186,6 +195,40 @@ pub fn ns_static_meta(id: i64) -> Option<&'static NsStaticRow> {
     }
     NS_STATIC_TABLE.get(id as usize)
 }
+
+/// Delete tombstones for table statics (`delete Promise.all` — the
+/// spec {configurable: true} descriptor's delete leg): one bit per
+/// id, mirror of `builtin_proto`'s DELETED_MIDS posture. Readers
+/// probe the ctor cell's expando BEFORE the table, so a
+/// defineProperty restore shadows the tombstone with no bit clear.
+/// Atomic per the multi-thread-ready substrate rule.
+static NS_STATIC_DELETED: [core::sync::atomic::AtomicU64; 4] = [
+    core::sync::atomic::AtomicU64::new(0),
+    core::sync::atomic::AtomicU64::new(0),
+    core::sync::atomic::AtomicU64::new(0),
+    core::sync::atomic::AtomicU64::new(0),
+];
+
+/// Record `delete <Ctor>.<static>` for a table id. Out-of-range ids
+/// (table growth past 256 would be a build-time extension bug — see
+/// the const assert below) are ignored.
+pub fn ns_static_mark_deleted(id: i64) {
+    if (0..(NS_STATIC_DELETED.len() as i64 * 64)).contains(&id) {
+        NS_STATIC_DELETED[(id / 64) as usize]
+            .fetch_or(1u64 << (id % 64), core::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+/// True when the table static has been tombstoned by a delete.
+pub fn ns_static_is_deleted(id: i64) -> bool {
+    (0..(NS_STATIC_DELETED.len() as i64 * 64)).contains(&id)
+        && NS_STATIC_DELETED[(id / 64) as usize].load(core::sync::atomic::Ordering::Relaxed)
+            & (1u64 << (id % 64))
+            != 0
+}
+
+// Bitmask capacity must cover every table row.
+const _: () = assert!(NS_STATIC_TABLE.len() <= 256);
 
 #[cfg(test)]
 mod tests {

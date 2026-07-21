@@ -364,4 +364,8 @@ pub(super) static DISPATCH: &[Disp] = &[
     Disp::DefineFace, // defineProperties
     Disp::OwnSymbols,
     Disp::ArrayFromFace,
+    Disp::PromiseSettle, // Promise.all
+    Disp::PromiseSettle, // Promise.allSettled
+    Disp::PromiseSettle, // Promise.any
+    Disp::PromiseSettle, // Promise.race
 ];
