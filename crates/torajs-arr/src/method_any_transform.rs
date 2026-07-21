@@ -71,6 +71,14 @@ fn wrap_clamp(v: i64, len: i64) -> i64 {
 /// `Arr<Any>` concat lowering; `extend_any` / `push_any` then handle
 /// per-shape coercion and the per-cell rc ledger.
 ///
+/// A typed-kind seed transitions to `FLAG_ARR_ANY` before use (the
+/// slice product is fresh, rc=1, unaliased — the exact legality
+/// window `transition_fresh_to_any` documents): the product lives in
+/// the any world where spec arrays are heterogeneous, and a raw-kind
+/// product raised the element-kind guard on a later string write
+/// (`Array.prototype.concat.call([101])` then `p["0"] = "s"` — the
+/// rotation-176 sweep regression this closes).
+///
 /// # Safety
 /// `arr` is a valid `Tag::Arr` heap pointer; `argv` holds `argc`
 /// BORROWED NaN-box AnyValues. Returned pointer is fresh (+1 rc).
@@ -82,6 +90,9 @@ pub unsafe extern "C" fn __torajs_arr_any_concat(
 ) -> *mut u8 {
     unsafe {
         let dst = crate::slice::__torajs_arr_any_slice(arr, 0, i64::MAX);
+        if (*(dst as *const torajs_rc::HeapHeader)).flags & torajs_rc::FLAG_ARR_ANY == 0 {
+            crate::any_typed_bridge::transition_fresh_to_any(dst);
+        }
         concat_extend_args(dst, argv, argc)
     }
 }
