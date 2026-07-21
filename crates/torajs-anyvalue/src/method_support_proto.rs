@@ -272,36 +272,31 @@ fn set_keys_alias(tag: i64, mid: i64) -> i64 {
 
 /// The per-family accessor probe: `Map.prototype` (tag 11) and
 /// `Set.prototype` (tag 12) own a `size` accessor (§24.1.3.10 /
-/// §24.2.3.9). Answers the carried accessor id for the tombstone
-/// bitmask; `None` for every other (tag, key) pair.
+/// §24.2.3.9); `Symbol.prototype` (tag 5) owns a `description`
+/// accessor (§20.4.3.2). Answers the carried accessor id for the
+/// tombstone bitmask; `None` for every other (tag, key) pair.
 ///
 /// # Safety
 /// `key` is NULL or a live Str cell.
 pub(crate) unsafe fn proto_tag_accessor_mid(tag: i64, key: *const c_void) -> Option<i64> {
-    if tag != 11 && tag != 12 {
-        return None;
-    }
     if key.is_null() {
         return None;
     }
-    // Same read shape as key_method_id — ASCII name, Latin-1 payload.
-    use crate::method_value::{STR_DATA_OFF, STR_LEN_OFF};
-    let len = unsafe { (key.cast::<u8>().add(STR_LEN_OFF) as *const u32).read() } as usize;
-    if len != 4 {
-        return None;
-    }
-    let bytes = unsafe { core::slice::from_raw_parts(key.cast::<u8>().add(STR_DATA_OFF), 4) };
-    if bytes == b"size" {
-        Some(torajs_rc::ANY_METHOD_GET_SIZE)
-    } else {
-        None
+    match tag {
+        11 | 12 if unsafe { crate::prop_has::key_is(key, b"size") } => {
+            Some(torajs_rc::ANY_METHOD_GET_SIZE)
+        }
+        5 if unsafe { crate::prop_has::key_is(key, b"description") } => {
+            Some(torajs_rc::ANY_METHOD_GET_DESCRIPTION)
+        }
+        _ => None,
     }
 }
 
 /// gOPD accessor-entry synthesis probe (set-proto-cluster C2-size)
-/// — when a dynobj is a builtin `Map.prototype` / `Set.prototype`
-/// singleton and `key` is the `size` accessor its family owns (and
-/// no `delete` tombstone hides it), hand out the immortal getter
+/// — when a dynobj is a builtin proto singleton and `key` is an
+/// accessor its family owns (Map/Set `size`, Symbol `description`)
+/// and no `delete` tombstone hides it, hand out the immortal getter
 /// cell so torajs-meta can synthesize the spec accessor descriptor
 /// `{get: cell, set: undefined, enumerable: false, configurable:
 /// true}`. 0 = not applicable (the caller keeps its answer).
@@ -324,7 +319,7 @@ pub unsafe extern "C" fn __torajs_builtin_proto_own_accessor_getter(
     if unsafe { torajs_rc::builtin_proto::__torajs_builtin_proto_is_deleted(tag, mid) } != 0 {
         return 0;
     }
-    crate::method_value::size_getter_cell(tag) as u64
+    crate::method_value::proto_accessor_getter_cell(tag) as u64
 }
 
 /// `<Ctor>.prototype.<m>` static member read (chunk A). Own-entry

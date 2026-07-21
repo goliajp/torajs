@@ -435,6 +435,13 @@ pub const ANY_METHOD_FN_PROTO_LENGTH_SLOT: i64 = 165;
 /// plain `.toString()` / `.valueOf()` name never interns to these.
 pub const ANY_METHOD_SYMBOL_TO_STRING: i64 = 166;
 pub const ANY_METHOD_SYMBOL_VALUE_OF: i64 = 167;
+/// The reified `get Symbol.prototype.description` getter cell's id
+/// (§20.4.3.2 — an accessor own property of `Symbol.prototype`,
+/// same non-interning posture as [`ANY_METHOD_GET_SIZE`]): only
+/// reachable through the carried-mid re-dispatch of the getter cell
+/// gOPD hands out; thisSymbolValue throws a TypeError on every
+/// non-Symbol receiver.
+pub const ANY_METHOD_GET_DESCRIPTION: i64 = 168;
 
 /// RegExp property-read ids (Any-method-call RFC 20260704 C4-3c-2)
 /// — `r.source` / `r.lastIndex` / flag booleans through an `any`

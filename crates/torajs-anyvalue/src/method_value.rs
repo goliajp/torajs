@@ -210,10 +210,10 @@ pub extern "C" fn __torajs_builtin_method_cell(mid: i64) -> *mut u8 {
     builtin_method_cell(-1, mid)
 }
 
-// `get size` getter cells (Map / Set) — split to the
-// `size_getter.rs` sibling; re-exported to keep the consumer face.
-mod size_getter;
-pub(crate) use size_getter::size_getter_cell;
+// Builtin-proto accessor getter cells (Map/Set `get size`, Symbol
+// `get description`) — `accessor_getter.rs` sibling; re-exported.
+mod accessor_getter;
+pub(crate) use accessor_getter::proto_accessor_getter_cell;
 
 /// The interned `.name` Str cell for a method id — lazily
 /// allocated, immortal (`FLAG_STATIC_LITERAL`), Latin-1 payload

@@ -48,6 +48,28 @@ pub(crate) unsafe fn symbol_proto_method(recv: AnyValue, mid: i64) -> AnyValue {
     }
 }
 
+/// §20.4.3.2 — the reified `get Symbol.prototype.description` body:
+/// thisSymbolValue over the receiver, then the [[Description]] Str
+/// (fresh +1 per the boxed-value convention; `Symbol()` answers
+/// undefined). Every non-Symbol receiver is the spec TypeError.
+pub(crate) unsafe fn symbol_description_getter(recv: AnyValue) -> AnyValue {
+    unsafe {
+        if crate::nanbox::is_cell(recv) {
+            let ptr = as_void_ptr(recv);
+            if (ptr.cast::<u8>().add(4) as *const u16).read() == Tag::Symbol as u16 {
+                let desc = crate::member_get_layout::symbol_desc(ptr);
+                if desc.is_null() {
+                    return crate::nanbox::VALUE_UNDEFINED;
+                }
+                __torajs_rc_inc(desc);
+                return crate::nanbox_encode::__torajs_anyv_box_pointer(desc);
+            }
+        }
+        __torajs_throw_type_error(c"Symbol.prototype requires that |this| be a Symbol".as_ptr());
+        crate::nanbox::VALUE_UNDEFINED
+    }
+}
+
 /// Dispatch a cell receiver by its heap tag. `None` = no arm
 /// matched; the caller raises the no-such-method TypeError.
 /// `skip_wrapper_expando` = the call is a reified-builtin cell's

@@ -290,6 +290,13 @@ unsafe fn any_method_call_dispatch(
     {
         return unsafe { crate::method_call_cell::symbol_proto_method(recv, mid) };
     }
+    // §20.4.3.2 — the reified `get Symbol.prototype.description`
+    // getter cell: thisSymbolValue gate, then the [[Description]]
+    // Str (undefined for `Symbol()`). Only reachable through the
+    // carried-mid re-dispatch (the id never interns).
+    if mid == torajs_rc::ANY_METHOD_GET_DESCRIPTION {
+        return unsafe { crate::method_call_cell::symbol_description_getter(recv) };
+    }
     // §20.5.3.4 — the dedicated Error.prototype.toString cell:
     // generic Get(name)/Get(message) steps over any object receiver
     // (FLAG_ERROR instances ride the fixed-offset fast lane inside).
