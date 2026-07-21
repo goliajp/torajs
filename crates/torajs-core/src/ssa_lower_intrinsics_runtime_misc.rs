@@ -58,6 +58,7 @@ pub(crate) struct RuntimeMiscIds {
     pub symbol_iterator: FuncId,
     pub symbol_async_iterator: FuncId,
     pub symbol_to_primitive: FuncId,
+    pub symbol_well_known: FuncId,
     pub process_stdout_write: FuncId,
     pub process_stderr_write: FuncId,
     pub microtask_drain: FuncId,
@@ -157,6 +158,13 @@ pub(crate) fn declare(
             fn_table,
             "__torajs_symbol_to_primitive",
             &[],
+            Type::Symbol,
+        ),
+        symbol_well_known: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_symbol_well_known",
+            &[Type::I64],
             Type::Symbol,
         ),
         process_stdout_write: declare_intrinsic(

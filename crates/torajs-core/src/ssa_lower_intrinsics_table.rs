@@ -552,6 +552,7 @@ pub(crate) fn build(
         symbol_iterator: init_c.runtime_misc.symbol_iterator,
         symbol_async_iterator: init_c.runtime_misc.symbol_async_iterator,
         symbol_to_primitive: init_c.runtime_misc.symbol_to_primitive,
+        symbol_well_known: init_c.runtime_misc.symbol_well_known,
         object_is_f64: init_d.substr.object_is_f64,
         split_iter_init: init_d.substr.split_iter_init,
         split_iter_next: init_d.substr.split_iter_next,

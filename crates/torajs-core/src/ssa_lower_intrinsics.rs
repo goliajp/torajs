@@ -640,6 +640,7 @@ pub(crate) struct Intrinsics {
     pub(crate) symbol_iterator: FuncId,
     pub(crate) symbol_async_iterator: FuncId,
     pub(crate) symbol_to_primitive: FuncId,
+    pub(crate) symbol_well_known: FuncId,
     pub(crate) object_is_f64: FuncId,
     pub(crate) split_iter_init: FuncId,
     pub(crate) split_iter_next: FuncId,

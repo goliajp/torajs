@@ -378,6 +378,10 @@ mod tests {
         core::ptr::null_mut()
     }
     #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_symbol_well_known(_idx: i64) -> *mut c_void {
+        core::ptr::null_mut()
+    }
+    #[unsafe(no_mangle)]
     pub unsafe extern "C" fn __torajs_anyv_freeze(obj_any: u64) -> u64 {
         obj_any
     }

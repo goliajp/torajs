@@ -318,11 +318,54 @@ pub unsafe extern "C" fn __torajs_symbol_key_for(sym: *mut c_void) -> *mut c_voi
 }
 
 // ---- Well-known Symbol singletons ----
-// Process-lifetime — lazy init via AtomicPtr CAS.
+// Process-lifetime — lazy init via AtomicPtr CAS. One slot per
+// §6.1.5.1 well-known symbol, ALPHABETICAL by property name —
+// torajs-anyvalue's reflection name table indexes in lockstep
+// (RFC 20260722-builtin-proto-reflection 刀 2).
 
-static WELL_KNOWN_ITERATOR: AtomicPtr<c_void> = AtomicPtr::new(core::ptr::null_mut());
-static WELL_KNOWN_ASYNC_ITERATOR: AtomicPtr<c_void> = AtomicPtr::new(core::ptr::null_mut());
-static WELL_KNOWN_TO_PRIMITIVE: AtomicPtr<c_void> = AtomicPtr::new(core::ptr::null_mut());
+static WELL_KNOWN_SLOTS: [AtomicPtr<c_void>; 15] =
+    [const { AtomicPtr::new(core::ptr::null_mut()) }; 15];
+
+/// Descriptive strings, index-lockstep with [`WELL_KNOWN_SLOTS`].
+/// Includes the explicit-resource-management pair (asyncDispose /
+/// dispose) — §6.1.5.1 as extended by that proposal (bun ships it).
+static WELL_KNOWN_DESCS: [&[u8]; 15] = [
+    b"Symbol.asyncDispose",
+    b"Symbol.asyncIterator",
+    b"Symbol.dispose",
+    b"Symbol.hasInstance",
+    b"Symbol.isConcatSpreadable",
+    b"Symbol.iterator",
+    b"Symbol.match",
+    b"Symbol.matchAll",
+    b"Symbol.replace",
+    b"Symbol.search",
+    b"Symbol.species",
+    b"Symbol.split",
+    b"Symbol.toPrimitive",
+    b"Symbol.toStringTag",
+    b"Symbol.unscopables",
+];
+
+/// The idx-th §6.1.5.1 well-known symbol singleton (owned +1),
+/// NULL on an out-of-range idx. Index order is the alphabetical
+/// property-name order above.
+///
+/// # Safety
+///
+/// Cross-tier extern allocators must be linkable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_symbol_well_known(idx: i64) -> *mut c_void {
+    if !(0..WELL_KNOWN_SLOTS.len() as i64).contains(&idx) {
+        return core::ptr::null_mut();
+    }
+    unsafe {
+        ensure_well_known(
+            &WELL_KNOWN_SLOTS[idx as usize],
+            WELL_KNOWN_DESCS[idx as usize],
+        )
+    }
+}
 
 unsafe fn ensure_well_known(slot: &AtomicPtr<c_void>, desc_bytes: &[u8]) -> *mut c_void {
     let existing = slot.load(Ordering::Acquire);
@@ -352,34 +395,34 @@ unsafe fn ensure_well_known(slot: &AtomicPtr<c_void>, desc_bytes: &[u8]) -> *mut
     }
 }
 
-/// `Symbol.iterator` — lazy-init singleton.
+/// `Symbol.iterator` — lazy-init singleton (table idx 5).
 ///
 /// # Safety
 ///
 /// Cross-tier extern allocators must be linkable.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_symbol_iterator() -> *mut c_void {
-    unsafe { ensure_well_known(&WELL_KNOWN_ITERATOR, b"Symbol.iterator") }
+    unsafe { __torajs_symbol_well_known(5) }
 }
 
-/// `Symbol.asyncIterator` — lazy-init singleton.
+/// `Symbol.asyncIterator` — lazy-init singleton (table idx 1).
 ///
 /// # Safety
 ///
 /// Cross-tier extern allocators must be linkable.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_symbol_async_iterator() -> *mut c_void {
-    unsafe { ensure_well_known(&WELL_KNOWN_ASYNC_ITERATOR, b"Symbol.asyncIterator") }
+    unsafe { __torajs_symbol_well_known(1) }
 }
 
-/// `Symbol.toPrimitive` — lazy-init singleton.
+/// `Symbol.toPrimitive` — lazy-init singleton (table idx 12).
 ///
 /// # Safety
 ///
 /// Cross-tier extern allocators must be linkable.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_symbol_to_primitive() -> *mut c_void {
-    unsafe { ensure_well_known(&WELL_KNOWN_TO_PRIMITIVE, b"Symbol.toPrimitive") }
+    unsafe { __torajs_symbol_well_known(12) }
 }
 
 // Suppress unused warning on the atomic helper since it lives only

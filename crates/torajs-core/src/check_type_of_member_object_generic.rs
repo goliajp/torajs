@@ -57,7 +57,12 @@ pub(crate) fn try_match(obj_ty: &Type, name: &str) -> Option<Result<Type, String
         (Type::Object(_), "prototype") => Type::Any,
         (Type::Object(_), "name") => Type::String,
         (Type::Object(_), "length") => Type::Number,
-        (Type::Object("Symbol"), "iterator" | "asyncIterator" | "toPrimitive") => Type::Symbol,
+        (
+            Type::Object("Symbol"),
+            "iterator" | "asyncIterator" | "toPrimitive" | "hasInstance" | "isConcatSpreadable"
+            | "match" | "matchAll" | "replace" | "search" | "species" | "split" | "toStringTag"
+            | "unscopables" | "dispose" | "asyncDispose",
+        ) => Type::Symbol,
         _ => return None,
     };
     Some(Ok(ty))

@@ -371,6 +371,14 @@ pub unsafe extern "C" fn __torajs_any_member_set(
                 __torajs_throw_type_error(c"Attempted to assign to readonly property.".as_ptr());
                 return;
             }
+            // §6.1.5.1 — the Symbol ctor's well-known data statics
+            // are {writable: false}; module-strict assign throws
+            // (RFC 20260722 刀 2).
+            if crate::method_value::symbol_static::is_wellknown_on_symbol_ctor(ptr, key) {
+                drop_payload(tag, value);
+                __torajs_throw_type_error(c"Attempted to assign to readonly property.".as_ptr());
+                return;
+            }
             let props_slot = ptr.cast::<u8>().add(MEMBER_SET_CLOSURE_PROPS_OFF) as *mut u64;
             let mut props = *props_slot as *mut c_void;
             if props.is_null() {

@@ -126,6 +126,17 @@ pub unsafe extern "C" fn __torajs_any_prop_delete(recv: AnyValue, key: *const c_
                 }
                 return 0;
             }
+            // §6.1.5.1 — the Symbol ctor's well-known data statics
+            // are {configurable: false} (RFC 20260722 刀 2).
+            if unsafe { crate::method_value::symbol_static::is_wellknown_on_symbol_ctor(ptr, key) }
+            {
+                unsafe {
+                    __torajs_throw_type_error(
+                        c"cannot delete a non-configurable property".as_ptr(),
+                    );
+                }
+                return 0;
+            }
             let props = unsafe { closure_props(ptr) };
             if !props.is_null() {
                 if unsafe { refuse_non_configurable(props as *mut c_void, key) } {

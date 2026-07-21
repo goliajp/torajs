@@ -14,6 +14,26 @@ use crate::ast::{Expr, ExprId};
 use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 
+/// §6.1.5.1 well-known property names, ALPHABETICAL — index feeds
+/// the runtime slot table (torajs-str `WELL_KNOWN_SLOTS`, lockstep).
+pub(crate) const WELL_KNOWN_SYMBOL_NAMES: [&str; 15] = [
+    "asyncDispose",
+    "asyncIterator",
+    "dispose",
+    "hasInstance",
+    "isConcatSpreadable",
+    "iterator",
+    "match",
+    "matchAll",
+    "replace",
+    "search",
+    "species",
+    "split",
+    "toPrimitive",
+    "toStringTag",
+    "unscopables",
+];
+
 pub(crate) fn try_lower(ctx: &mut LowerCtx<'_>, obj: ExprId, name: &str) -> Option<Operand> {
     let Expr::Ident(n) = ctx.ast.get_expr(obj) else {
         return None;
@@ -21,18 +41,25 @@ pub(crate) fn try_lower(ctx: &mut LowerCtx<'_>, obj: ExprId, name: &str) -> Opti
     if n != "Symbol" {
         return None;
     }
-    let fid = match name {
-        "iterator" => ctx.intrinsics.symbol_iterator,
-        "asyncIterator" => ctx.intrinsics.symbol_async_iterator,
-        "toPrimitive" => ctx.intrinsics.symbol_to_primitive,
-        _ => return None,
+    // The original trio keeps its dedicated zero-arg intrinsics
+    // (same slot-table identity — the runtime externs delegate);
+    // the rest ride the indexed `__torajs_symbol_well_known`
+    // (RFC 20260722-builtin-proto-reflection 刀 2).
+    let (fid, args) = match name {
+        "iterator" => (ctx.intrinsics.symbol_iterator, Vec::new()),
+        "asyncIterator" => (ctx.intrinsics.symbol_async_iterator, Vec::new()),
+        "toPrimitive" => (ctx.intrinsics.symbol_to_primitive, Vec::new()),
+        _ => {
+            let idx = WELL_KNOWN_SYMBOL_NAMES.iter().position(|w| *w == name)?;
+            (
+                ctx.intrinsics.symbol_well_known,
+                vec![Operand::ConstI64(idx as i64)],
+            )
+        }
     };
     let cur_block = ctx.cur_block;
-    let v = ctx.f.append_inst(
-        cur_block,
-        InstKind::Call(fid, Vec::new()),
-        Type::Symbol,
-        None,
-    );
+    let v = ctx
+        .f
+        .append_inst(cur_block, InstKind::Call(fid, args), Type::Symbol, None);
     Some(Operand::Value(v))
 }

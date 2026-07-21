@@ -175,7 +175,7 @@ pub(crate) unsafe fn ctor_static_table_id(cell: *const c_void, key: *const c_voi
 ///
 /// # Safety
 /// `key` is NULL or a live Str cell; the view borrows its payload.
-unsafe fn key_utf8<'a>(key: *const c_void) -> Option<&'a str> {
+pub(super) unsafe fn key_utf8<'a>(key: *const c_void) -> Option<&'a str> {
     if key.is_null() {
         return None;
     }
@@ -296,6 +296,13 @@ pub(crate) unsafe fn ctor_own_read_cell(
         && let Some(pair) = number_constant(name)
     {
         return Some(pair);
+    }
+    // §6.1.5.1 — the Symbol ctor's well-known data statics (RFC
+    // 20260722 刀 2; immortal singleton, ledger-free hand-out).
+    if tag == 5
+        && let Some(sym) = unsafe { super::symbol_static::ctor_wellknown_symbol(cell, key) }
+    {
+        return Some((4, sym as u64));
     }
     let id = torajs_rc::ns_static_id(ctor_ns_name(tag), name);
     if id != torajs_rc::NS_STATIC_UNKNOWN && !torajs_rc::ns_static_is_deleted(id) {

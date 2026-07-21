@@ -38,6 +38,9 @@ unsafe extern "C" {
     /// the builtin `<Ctor>.prototype` singleton, owned +1 (the
     /// descriptor's value slot takes the reference). NULL on miss.
     fn __torajs_ctor_prototype_cell(cell: *const c_void, key: *const c_void) -> *mut u8;
+    /// torajs-anyvalue — the §6.1.5.1 well-known symbol a `Symbol`
+    /// ctor cell owns under `key` (owned +1; immortal singleton).
+    fn __torajs_ctor_wellknown_symbol(cell: *const c_void, key: *const c_void) -> *mut c_void;
     /// torajs-anyvalue — §21.1.2 Number data-constant probe (RFC
     /// 20260721 刀 1): writes the (slot-tag, payload) immediate pair,
     /// answers 1 on hit / 0 on miss.
@@ -132,6 +135,14 @@ pub(crate) unsafe fn closure_cell_descriptor(cell: *const c_void, key: *const c_
     let (mut c_tag, mut c_val) = (0u64, 0u64);
     if unsafe { __torajs_ctor_number_constant(cell, key, &mut c_tag, &mut c_val) } != 0 {
         return unsafe { build_data_descriptor(c_tag, c_val, 0, 0, 0) };
+    }
+    // 6. Symbol well-known data statics (RFC 20260722 刀 2) —
+    //    §6.1.5.1: `{ writable: false, enumerable: false,
+    //    configurable: false }`, value = the singleton (owned +1
+    //    from the probe, transfers into the descriptor).
+    let s = unsafe { __torajs_ctor_wellknown_symbol(cell, key) };
+    if !s.is_null() {
+        return unsafe { build_data_descriptor(ANY_HEAP, s as u64, 0, 0, 0) };
     }
     VALUE_UNDEFINED_IMM
 }
