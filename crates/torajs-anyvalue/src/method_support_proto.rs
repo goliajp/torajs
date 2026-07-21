@@ -235,6 +235,13 @@ fn set_keys_alias(tag: i64, mid: i64) -> i64 {
     if tag == 1 && mid == ANY_METHOD_TO_STRING {
         return torajs_rc::ANY_METHOD_OBJECT_TO_STRING;
     }
+    // §23.1.3.36 — `Array.prototype.toString` (tag 2) is the
+    // join-or-badge function, distinct from the shared per-receiver
+    // TO_STRING the primitive fast arms answer natively (RFC
+    // 20260721 刀 11 G12).
+    if tag == 2 && mid == ANY_METHOD_TO_STRING {
+        return torajs_rc::ANY_METHOD_ARR_TO_STRING;
+    }
     mid
 }
 

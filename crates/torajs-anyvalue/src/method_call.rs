@@ -263,6 +263,13 @@ unsafe fn any_method_call_dispatch(
         }
         return VALUE_UNDEFINED;
     }
+    // §23.1.3.36 — the reified `Array.prototype.toString` cell
+    // borrowed across receivers (RFC 20260721 刀 11 G12): join for
+    // an Array, `Get(this, "join")` else, badge fallback. Sits after
+    // the nullish guard (step 1 is ToObject).
+    if mid == torajs_rc::ANY_METHOD_ARR_TO_STRING {
+        return unsafe { crate::method_call_object_proto::arr_to_string_borrowed(recv) };
+    }
     // chunk D-1 (RFC 20260711) — universal own-property probes
     // (§20.1.4.3 / §20.1.4.5): every receiver shape answers through
     // the prop_has substrate, so these dispatch BEFORE the per-tag

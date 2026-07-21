@@ -403,6 +403,14 @@ pub const ANY_METHOD_FINALLY: i64 = 159;
 pub const ANY_METHOD_TO_TIME_STRING: i64 = 160;
 /// `Map.prototype.getOrInsert` (stage-3 upsert — RFC 20260721 刀 6).
 pub const ANY_METHOD_GET_OR_INSERT: i64 = 161;
+/// The reified `Array.prototype.toString` cell's OWN id (§23.1.3.36
+/// — RFC 20260721 刀 11 G12): borrowed onto a non-Array receiver it
+/// falls back to the %Object.prototype.toString% badge when the
+/// receiver has no callable `join`, which the shared TO_STRING id
+/// cannot express (the primitive fast arms answer that id natively).
+/// Minted only through the tag-2 prototype alias — a plain
+/// `.toString()` name never interns to this id.
+pub const ANY_METHOD_ARR_TO_STRING: i64 = 162;
 
 /// RegExp property-read ids (Any-method-call RFC 20260704 C4-3c-2)
 /// — `r.source` / `r.lastIndex` / flag booleans through an `any`

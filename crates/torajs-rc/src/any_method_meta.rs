@@ -189,6 +189,9 @@ pub fn any_method_meta(mid: i64) -> Option<(&'static str, u32)> {
         // §20.5.3.4 — Error.prototype.toString, name "toString"
         // length 0 (same posture as the OBJECT_TO_STRING badge row).
         ANY_METHOD_ERROR_TO_STRING => ("toString", 0),
+        // §23.1.3.36 — Array.prototype.toString, name "toString"
+        // length 0 (same posture; RFC 20260721 刀 11 G12).
+        ANY_METHOD_ARR_TO_STRING => ("toString", 0),
         _ => return None,
     })
 }
@@ -212,7 +215,7 @@ mod tests {
     #[test]
     fn meta_rejects_unknown_and_out_of_table() {
         assert!(any_method_meta(ANY_METHOD_UNKNOWN).is_none());
-        assert!(any_method_meta(ANY_METHOD_GET_OR_INSERT + 1).is_none());
+        assert!(any_method_meta(ANY_METHOD_ARR_TO_STRING + 1).is_none());
         assert!(any_method_meta(-1).is_none());
     }
 

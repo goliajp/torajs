@@ -17,6 +17,10 @@ unsafe extern "C" {
     /// torajs-meta — the [[Prototype]] answer for any AnyValue
     /// (owned cell / null immediate) — knife 4's chain step.
     fn __torajs_anyv_get_proto_of_any(v: u64) -> u64;
+    /// torajs-dynobj — own-property probe pair ((5, 0) = absent);
+    /// the borrowed Array-toString `Get(this, "join")` step.
+    fn __torajs_dynobj_get_tag(obj: *const c_void, key: *const c_void) -> u64;
+    fn __torajs_dynobj_get_value(obj: *const c_void, key: *const c_void) -> u64;
     /// torajs-str — allocate a fresh Str from raw bytes.
     fn __torajs_str_alloc(src: *const u8, len: i64) -> *mut u8;
     /// torajs-str — release a heap Str/Substr reference.
@@ -193,6 +197,53 @@ pub(crate) unsafe fn own_prop_probe(
 /// `Symbol.toStringTag` surfaces bun answers for the container
 /// tags (Map / Set / Promise / Symbol / BigInt / WeakMap /
 /// WeakSet / WeakRef). Everything else is "Object".
+/// §23.1.3.36 — the reified `Array.prototype.toString` cell invoked
+/// with an arbitrary receiver (RFC 20260721 刀 11 G12). An Array
+/// receiver runs the ordinary join route (a re-dispatch under the
+/// shared TO_STRING id — the method body never re-resolves own
+/// shadows); any other receiver runs step 2's `Get(this, "join")` —
+/// a dynobj's own callable `join` is invoked with the receiver,
+/// everything else (no join / non-callable join) falls back to the
+/// %Object.prototype.toString% badge below.
+pub(crate) unsafe fn arr_to_string_borrowed(recv: AnyValue) -> AnyValue {
+    unsafe {
+        if let Some((ptr, tag)) = crate::member_get::recv_cell(recv) {
+            if tag == Tag::Arr as u16 {
+                return crate::method_call::any_method_redispatch(
+                    recv,
+                    torajs_rc::ANY_METHOD_TO_STRING,
+                    core::ptr::null(),
+                    0,
+                );
+            }
+            if tag == Tag::DynObj as u16 {
+                let key = {
+                    let bytes = b"join";
+                    let s = crate::__torajs_str_alloc_pooled(bytes.len() as u64);
+                    core::ptr::copy_nonoverlapping(bytes.as_ptr(), s.add(16), bytes.len());
+                    s
+                };
+                let jtag = __torajs_dynobj_get_tag(ptr, key as *const c_void);
+                let jval = __torajs_dynobj_get_value(ptr, key as *const c_void);
+                __torajs_str_drop(key as *mut c_void);
+                if jtag != 5
+                    && let Some((env, entry)) =
+                        crate::method_call::closure_cell_entry(jval as *mut c_void)
+                {
+                    return crate::method_call::invoke_with_this(
+                        env,
+                        entry,
+                        recv,
+                        core::ptr::null(),
+                        0,
+                    );
+                }
+            }
+        }
+        object_proto_to_string(recv)
+    }
+}
+
 pub(crate) unsafe fn object_proto_to_string(recv: AnyValue) -> AnyValue {
     let badge: &'static [u8] = if is_undefined(recv) {
         b"Undefined"
