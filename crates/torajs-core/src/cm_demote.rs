@@ -145,14 +145,48 @@ impl Checker {
         // answering C's method body. A bare `Struct` is an object
         // literal or a `type P = {...}` alias: it is an instance of NO
         // class, however closely its shape matches one. Demote, and the
-        // member checker rejects the call loudly (a class instance types
-        // as `ClassRef`, so it never lands here).
-        let steals_by_shape = matches!(recv_ty, Type::Struct(_));
+        // member checker rejects the call loudly.
+        //
+        // Exemption (rotation 179): "a class instance types as
+        // `ClassRef`" holds for NON-generic classes only — a generic
+        // class instantiation resolves structurally (check_type_ann
+        // generic.rs substitutes `C<args>` field-by-field into a
+        // `Type::Struct`; ClassRef is minted only for the recursive
+        // back-edge). A Struct receiver whose field-name sequence
+        // matches a generic CLASS declaration is that class's instance
+        // shape — demoting it rejects every method call on generic
+        // class instances. A plain literal that spells out a generic
+        // class's exact field list still slips through to the
+        // struct-prefix rule (narrow known face; the real fix is
+        // nominal identity for generic instantiations, recorded L3b).
+        let steals_by_shape = match &recv_ty {
+            Type::Struct(fields) => !self.struct_is_generic_class_shape(ast, fields),
+            _ => false,
+        };
         if !is_builtin_container_ty(&recv_ty) && !matches!(recv_ty, Type::Any) && !steals_by_shape {
             return None;
         }
         self.demoted_cm_rewrites.insert(eid, alt_id);
         Some(self.type_of(ast, alt_id))
+    }
+
+    /// True iff the receiver's field-name sequence equals some generic
+    /// CLASS declaration's field list (`generic_alias_decls` holds both
+    /// generic classes and generic `type` aliases; `ast.class_parents`
+    /// keeps only real classes). Field TYPES are ignored — each
+    /// instantiation substitutes its own args. Order-sensitive by
+    /// construction: the factory builds instances in declaration order.
+    fn struct_is_generic_class_shape(&self, ast: &Ast, fields: &[(String, Type)]) -> bool {
+        self.generic_alias_decls
+            .iter()
+            .any(|(name, (_tps, decl_fields))| {
+                ast.class_parents.contains_key(name)
+                    && decl_fields.len() == fields.len()
+                    && decl_fields
+                        .iter()
+                        .zip(fields)
+                        .all(|((dn, _), (rn, _))| dn == rn)
+            })
     }
 }
 
