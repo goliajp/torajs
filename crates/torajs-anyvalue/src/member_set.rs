@@ -175,6 +175,17 @@ unsafe fn set_dynobj_member(
         // first) — its write stays ordinary too.
         let hdr_flags = (ptr.cast::<u8>().add(6) as *const u16).read();
         let has_own = __torajs_dynobj_has(ptr, key as *const c_void) != 0;
+        // Function.prototype's virtual own name/length pair is
+        // {writable: false} (§20.2.3, RFC 20260722 刀 3) — while no
+        // own entry shadows it (a defineProperty recreate may), the
+        // module-strict assign throws. Tombstoned = absent, so the
+        // write walks on and creates an ordinary entry.
+        if !has_own && crate::method_support_proto_meta::builtin_proto_own_meta(ptr, key).is_some()
+        {
+            drop_payload(tag, value);
+            __torajs_throw_type_error(c"Attempted to assign to readonly property.".as_ptr());
+            return;
+        }
         if hdr_flags & DYNOBJ_HDR_FLAG_NULL_PROTO == 0
             && !has_own
             && crate::prop_has::key_is(key, b"__proto__")

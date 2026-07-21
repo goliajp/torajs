@@ -195,6 +195,15 @@ pub unsafe extern "C" fn __torajs_any_name_get(recv: AnyValue) -> AnyValue {
                     parent as i64,
                 ));
             }
+            // Function.prototype's virtual own `name` (§20.2.3,
+            // RFC 20260722 刀 3) — immortal "" Str, ledger-free.
+            let key = __torajs_str_alloc(c"name".as_ptr() as *const u8, 4);
+            let meta =
+                crate::method_support_proto_meta::builtin_proto_own_meta(ptr, key as *const c_void);
+            __torajs_str_drop(key as *mut c_void);
+            if let Some((mtag, mval)) = meta {
+                return crate::nanbox_encode::__torajs_anyv_box_from_pair(mtag as i64, mval as i64);
+            }
             return VALUE_UNDEFINED;
         }
     }

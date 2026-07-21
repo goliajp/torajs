@@ -222,6 +222,12 @@ unsafe fn tombstone_proto_method(ptr: *mut c_void, key: *const c_void) {
                 torajs_rc::ANY_METHOD_CONSTRUCTOR_SLOT,
             )
         };
+    } else if let Some(slot) =
+        unsafe { crate::method_support_proto_meta::fn_proto_meta_slot(ptr, key) }
+    {
+        // Function.prototype's virtual own name/length pair is
+        // {configurable: true} (§20.2.3, RFC 20260722 刀 3).
+        unsafe { torajs_rc::builtin_proto::__torajs_builtin_proto_mark_deleted(proto_tag, slot) };
     } else if let Some(amid) =
         unsafe { crate::method_support::proto_tag_accessor_mid(proto_tag, key) }
     {

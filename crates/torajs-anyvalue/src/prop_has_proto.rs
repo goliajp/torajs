@@ -58,6 +58,12 @@ pub(crate) unsafe fn builtin_proto_method_own(ptr: *const c_void, key: *const c_
                 unsafe { torajs_rc::builtin_proto::__torajs_builtin_proto_is_deleted(tag, amid) };
             return (deleted == 0) as i64;
         }
+        // Function.prototype's virtual own name/length pair
+        // (§20.2.3, RFC 20260722 刀 3) — tombstone-gated inside the
+        // meta probe.
+        if unsafe { crate::method_support_proto_meta::builtin_proto_own_meta(ptr, key) }.is_some() {
+            return 1;
+        }
         return 0;
     }
     crate::method_support::proto_tag_owns(tag, mid) as i64

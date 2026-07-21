@@ -35,6 +35,15 @@ unsafe extern "C" {
     // probe (same crate). Non-zero = the immortal getter cell.
     fn __torajs_builtin_proto_own_accessor_getter(dynobj: *const c_void, key: *const c_void)
     -> u64;
+    // RFC 20260722 刀 3 — Function.prototype's virtual own
+    // name/length member pair (same crate). 1 = hit, pair written
+    // through the out params (immortal name Str).
+    fn __torajs_builtin_proto_own_meta(
+        dynobj: *const c_void,
+        key: *const c_void,
+        out_tag: *mut u64,
+        out_val: *mut u64,
+    ) -> i64;
     // torajs-rc — lazy `<Ctor>.prototype` singleton by builtin tag
     // (Array=2 / String=3 / RegExp=7 / Date=8 / Map=11 / Set=12 /
     // Function=13; `builtin_proto.rs` order).
@@ -444,6 +453,13 @@ unsafe fn builtin_proto_descriptor(proto: *const c_void, key: *const c_void) -> 
     let cell = unsafe { __torajs_builtin_proto_own_method_cell(proto, key) };
     if cell != 0 {
         return unsafe { build_data_descriptor(ANY_HEAP as u64, cell, 1, 0, 1) };
+    }
+    // Function.prototype's virtual own name/length pair (§20.2.3,
+    // RFC 20260722 刀 3) → {writable: false, enumerable: false,
+    // configurable: true}; the name Str is immortal.
+    let (mut m_tag, mut m_val) = (0u64, 0u64);
+    if unsafe { __torajs_builtin_proto_own_meta(proto, key, &mut m_tag, &mut m_val) } != 0 {
+        return unsafe { build_data_descriptor(m_tag, m_val, 0, 0, 1) };
     }
     // C2-size — the Map/Set `size` own accessor → {get, set:
     // undefined, enumerable: false, configurable: true}. The getter

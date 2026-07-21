@@ -201,6 +201,19 @@ pub unsafe extern "C" fn __torajs_ctor_wellknown_symbol(
 
 #[cfg(test)]
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_builtin_proto_own_meta(
+    _dynobj: *const core::ffi::c_void,
+    _key: *const core::ffi::c_void,
+    _out_tag: *mut u64,
+    _out_val: *mut u64,
+) -> i64 {
+    panic!(
+        "torajs-meta test stub: __torajs_builtin_proto_own_meta should not be called from cargo test"
+    );
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_builtin_proto_own_accessor_getter(
     _dynobj: *const core::ffi::c_void,
     _key: *const core::ffi::c_void,

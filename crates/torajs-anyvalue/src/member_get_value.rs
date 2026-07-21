@@ -62,6 +62,13 @@ pub unsafe extern "C" fn __torajs_any_member_get_value(recv: AnyValue, key: *con
                 if cell != 0 {
                     return cell;
                 }
+                // Function.prototype's virtual own name/length pair
+                // (§20.2.3, RFC 20260722 刀 3) — tag twin above.
+                if let Some((_, mval)) =
+                    crate::method_support_proto_meta::builtin_proto_own_meta(ptr, key)
+                {
+                    return mval;
+                }
                 // Inherited Object.prototype reify (tag twin above).
                 return reify_value(recv, key);
             }

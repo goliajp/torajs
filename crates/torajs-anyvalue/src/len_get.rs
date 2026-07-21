@@ -170,6 +170,18 @@ pub unsafe extern "C" fn __torajs_any_length_get(recv: AnyValue) -> AnyValue {
                     __torajs_str_drop(key as *mut c_void);
                     return __torajs_any_length_get(parent);
                 }
+                // Function.prototype's virtual own `length` 0
+                // (§20.2.3, RFC 20260722 刀 3).
+                if let Some((mtag, mval)) = crate::method_support_proto_meta::builtin_proto_own_meta(
+                    ptr,
+                    key as *const c_void,
+                ) {
+                    __torajs_str_drop(key as *mut c_void);
+                    return crate::nanbox_encode::__torajs_anyv_box_from_pair(
+                        mtag as i64,
+                        mval as i64,
+                    );
+                }
             }
             __torajs_str_drop(key as *mut c_void);
             return box_probe_pair(dtag, dval, recv);

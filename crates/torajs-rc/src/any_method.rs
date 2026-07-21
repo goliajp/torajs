@@ -418,6 +418,14 @@ pub const ANY_METHOD_ARR_TO_STRING: i64 = 162;
 /// <Ctor>.prototype.constructor` shades the virtual own face (same
 /// posture as the non-interning `get size` accessor id).
 pub const ANY_METHOD_CONSTRUCTOR_SLOT: i64 = 163;
+/// Tombstone slots for `Function.prototype`'s virtual own `name` /
+/// `length` data properties (§20.2.3 — RFC 20260722-builtin-proto-
+/// reflection 刀 3). NOT method ids — same non-interning posture as
+/// [`ANY_METHOD_CONSTRUCTOR_SLOT`]: the slots only index the
+/// per-tag deleted bitmask so `delete Function.prototype.name`
+/// shades the virtual own face.
+pub const ANY_METHOD_FN_PROTO_NAME_SLOT: i64 = 164;
+pub const ANY_METHOD_FN_PROTO_LENGTH_SLOT: i64 = 165;
 
 /// RegExp property-read ids (Any-method-call RFC 20260704 C4-3c-2)
 /// — `r.source` / `r.lastIndex` / flag booleans through an `any`

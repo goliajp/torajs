@@ -128,15 +128,7 @@ pub unsafe extern "C" fn __torajs_any_member_get_tag(recv: AnyValue, key: *const
             if let Some(parent) = user_proto_cell(ptr) {
                 return __torajs_any_member_get_tag(parent, key);
             }
-            if crate::method_support::__torajs_builtin_proto_own_method_cell(ptr, key) != 0 {
-                4
-            } else {
-                // Ordinary dynobj — the inherited Object.prototype
-                // surface still reifies (valueOf / toLocaleString /
-                // the universal probes), same fallthrough as the
-                // Arr / Closure / struct arms.
-                reify_tag(recv, key)
-            }
+            dynobj_builtin_tail_tag(ptr, recv, key)
         },
         Some((ptr, t)) if t == Tag::Arr as u16 => unsafe {
             if let Some((tag, _)) = arr_own_pair(ptr, key) {
@@ -317,6 +309,24 @@ unsafe fn reify_tag(recv: AnyValue, key: *const c_void) -> u64 {
         4
     } else {
         5
+    }
+}
+
+/// DynObj-arm builtin tail (tag channel) — the own-method reify,
+/// Function.prototype's virtual meta pair (§20.2.3, RFC 20260722
+/// 刀 3), then the inherited Object.prototype reify (valueOf /
+/// toLocaleString / the universal probes), same fallthrough as the
+/// Arr / Closure / struct arms.
+unsafe fn dynobj_builtin_tail_tag(ptr: *mut c_void, recv: AnyValue, key: *const c_void) -> u64 {
+    unsafe {
+        if crate::method_support::__torajs_builtin_proto_own_method_cell(ptr, key) != 0 {
+            return 4;
+        }
+        if let Some((mtag, _)) = crate::method_support_proto_meta::builtin_proto_own_meta(ptr, key)
+        {
+            return mtag;
+        }
+        reify_tag(recv, key)
     }
 }
 

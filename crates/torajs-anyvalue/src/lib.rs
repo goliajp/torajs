@@ -137,6 +137,7 @@ mod method_call_weak;
 pub(crate) mod method_call_wrapper_expando;
 mod method_support;
 mod method_support_proto;
+mod method_support_proto_meta;
 mod method_value;
 mod method_value_class;
 mod name_get;
