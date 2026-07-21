@@ -209,7 +209,7 @@ impl<'a> LowerCtx<'a> {
         }
         // T-13.5: head-aware byte offset for indexed assign.
         let (offset_base, offset) =
-            self.emit_arr_slot_byte_offset(arr_val.clone(), idx_val, 3, is_non_deque);
+            self.emit_arr_slot_byte_offset(arr_val.clone(), idx_val.clone(), 3, is_non_deque);
         // Drop old elem if non-Copy. M1.2 MVP only ships i64
         // elements (Copy), so this branch currently never fires; lays
         // groundwork for non-Copy element types in a follow-up.
@@ -226,10 +226,62 @@ impl<'a> LowerCtx<'a> {
             self.cur_block,
             InstKind::StoreDyn(v.clone(), offset_base.clone(), offset),
         );
-        let wb = self.cur_block;
-        self.f.set_term(wb, Terminator::Br(join_blk));
-        self.cur_block = join_blk;
+        self.emit_hole_revive_branch(&arr_val, &idx_val, join_blk);
         v
+    }
+
+    /// Chunk B (RFC 20260721-typed-grow-on-write) — an in-bounds
+    /// store into a HOLE index revives it as a default data
+    /// property (§10.1.5.1). One header-word test keeps the
+    /// plain-array hot path call-free: FLAG_ARR_EXOTIC_INDEX is
+    /// bit 15 of the u16 flags at byte 6, i.e. bit 63 of the LE
+    /// header word — the load shares the len load's cache line.
+    /// Terminates the current (write) block and leaves `cur_block`
+    /// on `join_blk`.
+    fn emit_hole_revive_branch(&mut self, arr_val: &Operand, idx_val: &Operand, join_blk: BlockId) {
+        let hdr = self.f.append_inst(
+            self.cur_block,
+            InstKind::Load(Type::I64, arr_val.clone(), 0),
+            Type::I64,
+            None,
+        );
+        let exotic_bit = self.f.append_inst(
+            self.cur_block,
+            InstKind::BinOp(
+                crate::ssa::BinOp::And,
+                Operand::Value(hdr),
+                Operand::ConstI64(i64::MIN),
+            ),
+            Type::I64,
+            None,
+        );
+        let is_exotic = self.f.append_inst(
+            self.cur_block,
+            InstKind::ICmp(IPred::Ne, Operand::Value(exotic_bit), Operand::ConstI64(0)),
+            Type::Bool,
+            None,
+        );
+        let revive_blk = self.f.add_block();
+        let wb = self.cur_block;
+        self.f.set_term(
+            wb,
+            Terminator::CondBr {
+                cond: Operand::Value(is_exotic),
+                then_blk: revive_blk,
+                else_blk: join_blk,
+            },
+        );
+        self.cur_block = revive_blk;
+        self.f.append_void(
+            self.cur_block,
+            InstKind::Call(
+                self.intrinsics.arr_index_revive_idx,
+                vec![arr_val.clone(), idx_val.clone()],
+            ),
+        );
+        let rb = self.cur_block;
+        self.f.set_term(rb, Terminator::Br(join_blk));
+        self.cur_block = join_blk;
     }
 
     /// Route the Any-slot write to the growable helper (write-back

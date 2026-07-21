@@ -44,6 +44,21 @@ pub unsafe extern "C" fn __torajs_arr_index_revive(arr: *mut c_void, key: *mut c
     unsafe { store_shadow(arr, key, FLAGS_DEFAULT) };
 }
 
+/// Cross-tier entry over [`revive_index_if_hole`] — the static
+/// typed lane's post-store revive (RFC 20260721-typed-grow-on-write
+/// chunk B: an in-bounds `a[i] = v` into a HOLE index re-creates it
+/// as a default data property, §10.1.5.1). The emit gates on
+/// `FLAG_ARR_EXOTIC_INDEX` inline, so the plain-array hot path
+/// never pays the call.
+///
+/// # Safety
+/// `arr` is a live `Tag::Arr` heap pointer; `idx` was bounds-checked
+/// by the caller's guard (negative never reaches the store arm).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_index_revive_idx(arr: *mut c_void, idx: i64) {
+    unsafe { revive_index_if_hole(arr, idx as u64) };
+}
+
 /// Numeric-index twin of [`__torajs_arr_index_revive`] for the
 /// any-tier element write lanes (`arr[i] = v` with a number index
 /// never mints a key Str) — mint, revive iff the index is currently

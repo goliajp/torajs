@@ -55,6 +55,8 @@ pub(crate) struct ArrAnyIds {
     pub arr_set_any: FuncId,
     pub arr_set_any_grow: FuncId,
     pub arr_typed_set_grow: FuncId,
+    /// Chunk B — static typed lane post-store hole revive.
+    pub arr_index_revive_idx: FuncId,
     pub arr_null_check: FuncId,
     pub arr_get_any_tag: FuncId,
     pub arr_get_any_value: FuncId,
@@ -228,6 +230,13 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             fn_table,
             "__torajs_arr_typed_set_grow",
             &[Type::Ptr, Type::I64, Type::I64],
+            Type::Void,
+        ),
+        arr_index_revive_idx: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_arr_index_revive_idx",
+            &[Type::Ptr, Type::I64],
             Type::Void,
         ),
         arr_null_check: declare_intrinsic(

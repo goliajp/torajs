@@ -303,6 +303,7 @@ pub(crate) struct Intrinsics {
     pub(crate) arr_set_any: FuncId,
     pub(crate) arr_set_any_grow: FuncId,
     pub(crate) arr_typed_set_grow: FuncId,
+    pub(crate) arr_index_revive_idx: FuncId,
     pub(crate) arr_null_check: FuncId,
     pub(crate) arr_get_any_tag: FuncId,
     pub(crate) arr_get_any_boxed: FuncId,
