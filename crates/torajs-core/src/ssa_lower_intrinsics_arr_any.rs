@@ -50,6 +50,7 @@ pub(crate) struct ArrAnyIds {
     pub arr_fill_any: FuncId,
     pub arr_extend_any: FuncId,
     pub arr_any_slice: FuncId,
+    pub arr_any_to_reversed: FuncId,
     pub arr_set_any: FuncId,
     pub arr_set_any_grow: FuncId,
     pub arr_oob_write_reject: FuncId,
@@ -186,6 +187,15 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             fn_table,
             "__torajs_arr_any_slice",
             &[Type::Ptr, Type::I64, Type::I64],
+            Type::Ptr,
+        ),
+        // 刀 13b — §23.1.3.33 high→low [[Get]]-order reverse copy
+        // (getter side effects observed by later lower-index reads).
+        arr_any_to_reversed: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_arr_any_to_reversed",
+            &[Type::Ptr],
             Type::Ptr,
         ),
         arr_set_any: declare_intrinsic(

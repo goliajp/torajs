@@ -153,32 +153,61 @@ fn emit_clone_splice_return(
         Type::I64,
         None,
     );
-    let clone = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::Call(
-            ctx.intrinsics.arr_slice,
-            vec![
-                Operand::Value(cur_arr),
-                Operand::ConstI64(0),
-                Operand::Value(len),
-            ],
-        ),
-        arr_ty,
-        None,
-    );
-    if elem_ty.is_refcounted() {
-        let clone_len = ctx.f.append_inst(
+    // 刀 13c (RFC 20260721-array-proto-cluster) — an Any-elem
+    // receiver gathers through the exotic-aware `arr_any_slice` per
+    // §23.1.3.42 steps 16/18 [[Get]] order (accessor indexes run
+    // their getter, holes continue to the prototype digit keys, a
+    // mid-gather length mutation reads through per live index); the
+    // splice below then operates on the clean dense clone — slot ops
+    // there are equivalent to the spec's per-index
+    // CreateDataProperty. The kernel incs each slot itself (owned
+    // contract) — no rc_inc range. Typed receivers keep the raw
+    // `arr_slice` memcpy + inc range.
+    let clone = if elem_ty == Type::Any {
+        let v = ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::Load(Type::I64, Operand::Value(clone), ARR_LEN_OFF),
-            Type::I64,
+            InstKind::Call(
+                ctx.intrinsics.arr_any_slice,
+                vec![
+                    Operand::Value(cur_arr),
+                    Operand::ConstI64(0),
+                    Operand::Value(len),
+                ],
+            ),
+            arr_ty,
             None,
         );
-        ctx.emit_arr_rc_inc_range(
-            Operand::Value(clone),
-            Operand::ConstI64(0),
-            Operand::Value(clone_len),
+        ctx.emit_throw_check(None);
+        v
+    } else {
+        let v = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(
+                ctx.intrinsics.arr_slice,
+                vec![
+                    Operand::Value(cur_arr),
+                    Operand::ConstI64(0),
+                    Operand::Value(len),
+                ],
+            ),
+            arr_ty,
+            None,
         );
-    }
+        if elem_ty.is_refcounted() {
+            let clone_len = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Load(Type::I64, Operand::Value(v), ARR_LEN_OFF),
+                Type::I64,
+                None,
+            );
+            ctx.emit_arr_rc_inc_range(
+                Operand::Value(v),
+                Operand::ConstI64(0),
+                Operand::Value(clone_len),
+            );
+        }
+        v
+    };
     // Arity defaults mirror `ssa_lower_splice::emit_splice_return`:
     // 0-arg → `start = 0` / `deleteCount = 0` (clone is returned
     // unchanged); 1-arg → `deleteCount = i64::MAX` sentinel that the

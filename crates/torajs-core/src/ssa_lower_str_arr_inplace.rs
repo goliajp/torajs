@@ -64,13 +64,34 @@ pub(crate) fn try_dispatch(
         for &a in args.iter() {
             let _ = ctx.lower_expr(a);
         }
+        // 刀 13b (RFC 20260721-array-proto-cluster) — an Any-elem
+        // receiver rides the §23.1.3.33 step 5 [[Get]] order through
+        // `arr_any_to_reversed`: the SOURCE reads high→low
+        // (`result[i] = Get(O, len-1-i)`), so an accessor getter's
+        // mid-iteration mutations (length shrink, element writes)
+        // are observed by the later lower-index reads, holes/OOB
+        // continue to the prototype digit keys. A forward gather +
+        // raw swap is NOT order-equivalent under getter side effects
+        // (design.md 刀 13b 实测翻盘). The kernel incs each slot
+        // itself (owned contract) — no rc_inc range. Typed receivers
+        // keep the raw `arr_to_reversed` copy below.
+        let elem_ty = ctx.arr_layouts[arr_id.0 as usize];
+        if elem_ty == Type::Any {
+            let v = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.arr_any_to_reversed, vec![recv_op]),
+                Type::Arr(arr_id),
+                None,
+            );
+            ctx.emit_throw_check(None);
+            return Some(Operand::Value(v));
+        }
         let v = ctx.f.append_inst(
             ctx.cur_block,
             InstKind::Call(ctx.intrinsics.arr_to_reversed, vec![recv_op]),
             Type::Arr(arr_id),
             None,
         );
-        let elem_ty = ctx.arr_layouts[arr_id.0 as usize];
         if elem_ty.is_refcounted() {
             let len = ctx.f.append_inst(
                 ctx.cur_block,
