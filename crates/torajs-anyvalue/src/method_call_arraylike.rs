@@ -38,7 +38,7 @@ use torajs_rc::{
     ANY_METHOD_FIND_LAST, ANY_METHOD_FIND_LAST_INDEX, ANY_METHOD_FOR_EACH, ANY_METHOD_INCLUDES,
     ANY_METHOD_INDEX_OF, ANY_METHOD_JOIN, ANY_METHOD_LAST_INDEX_OF, ANY_METHOD_MAP,
     ANY_METHOD_REDUCE, ANY_METHOD_REDUCE_RIGHT, ANY_METHOD_SLICE, ANY_METHOD_SOME,
-    ANY_METHOD_TO_STRING,
+    ANY_METHOD_TO_REVERSED, ANY_METHOD_TO_STRING,
 };
 
 use crate::method_call::to_index;
@@ -88,6 +88,7 @@ pub(crate) fn arraylike_supported(mid: i64) -> bool {
             | ANY_METHOD_JOIN
             | ANY_METHOD_TO_STRING
             | ANY_METHOD_SLICE
+            | ANY_METHOD_TO_REVERSED
             | ANY_METHOD_EVERY
             | ANY_METHOD_SOME
             | ANY_METHOD_FOR_EACH
@@ -273,6 +274,11 @@ pub(crate) unsafe fn arraylike_method(
                 };
                 __torajs_anyv_box_pointer(materialize_range(obj, lo, hi.max(lo)) as *mut c_void)
             }
+            // §23.1.3.33 — Get(O, len-k-1) descending, product is a
+            // fresh dense Array (holes read as undefined, no gaps).
+            m if m == ANY_METHOD_TO_REVERSED => {
+                __torajs_anyv_box_pointer(materialize_range_rev(obj, len) as *mut c_void)
+            }
             // Callback family — the hof sibling (callability check
             // ordered after the length read above, per spec).
             _ => crate::method_call_arraylike_hof::arraylike_hof(obj, mid, len, argv, argc),
@@ -291,6 +297,26 @@ unsafe fn materialize_range(obj: *mut c_void, lo: i64, hi: i64) -> *mut u8 {
         let mut k = lo;
         while k < hi {
             let v = arraylike_get(obj, k);
+            dst = __torajs_arr_push_any(
+                dst as *mut c_void,
+                __torajs_anyv_unbox_tag(v) as u64,
+                __torajs_anyv_unbox_value(v) as u64,
+            );
+            k += 1;
+        }
+        dst
+    }
+}
+
+/// `[Get(O, len-1) … Get(O, 0)]` as a fresh owned Array<Any> —
+/// toReversed's product ([`materialize_range`]'s descending twin;
+/// the §23.1.3.33 read order is observable through getters).
+unsafe fn materialize_range_rev(obj: *mut c_void, len: i64) -> *mut u8 {
+    unsafe {
+        let mut dst = __torajs_arr_alloc_any(len.clamp(0, 4096) as u64);
+        let mut k = 0;
+        while k < len {
+            let v = arraylike_get(obj, len - k - 1);
             dst = __torajs_arr_push_any(
                 dst as *mut c_void,
                 __torajs_anyv_unbox_tag(v) as u64,
@@ -363,7 +389,7 @@ pub(crate) unsafe fn arraylike_empty(mid: i64, argv: *const u64, argc: i64) -> A
                 }
                 __torajs_anyv_box_pointer(__torajs_arr_alloc_any(0) as *mut c_void)
             }
-            m if m == ANY_METHOD_SLICE || m == ANY_METHOD_FLAT => {
+            m if m == ANY_METHOD_SLICE || m == ANY_METHOD_FLAT || m == ANY_METHOD_TO_REVERSED => {
                 __torajs_anyv_box_pointer(__torajs_arr_alloc_any(0) as *mut c_void)
             }
             m if m == ANY_METHOD_JOIN || m == ANY_METHOD_TO_STRING => {
