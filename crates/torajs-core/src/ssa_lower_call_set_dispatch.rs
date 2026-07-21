@@ -173,7 +173,7 @@ fn emit_set_add(ctx: &mut LowerCtx<'_>, recv_op: Operand, args: &[ExprId]) -> Op
     // S248 — trailing slots type-checked + dropped here (widen `== 1` →
     // `>= 1`; args[1..] silent-ignored at lower-time).
     debug_assert!(!args.is_empty());
-    let (k_tag, k_val) = ctx.lower_to_tag_value(args[0]);
+    let (k_tag, k_val, k_raw, _) = ctx.lower_to_tag_value_raw(args[0]);
     // S312 — ES §24.2.3.1 evaluates trailing args left-to-right; mirror
     // S272 idiom by lowering each trailing arg for side effects.
     for &a in args.iter().skip(1) {
@@ -195,6 +195,10 @@ fn emit_set_add(ctx: &mut LowerCtx<'_>, recv_op: Operand, args: &[ExprId]) -> Op
             ],
         ),
     );
+    // Chunk 566 share — settle an owned-temp value's mint ref
+    // (`s.add([1,2])`: the pack's +1 is the kernel's, the literal's
+    // own stake had no consumer).
+    ctx.release_owned_temp(args[0], &k_raw);
     ctx.emit_rc_inc(recv_op);
     recv_op
 }
@@ -210,7 +214,7 @@ fn emit_key_predicate(
 ) -> Operand {
     // S264 — trailing args ignored per spec.
     debug_assert!(!args.is_empty());
-    let (k_tag, k_val) = ctx.lower_to_tag_value(args[0]);
+    let (k_tag, k_val, k_raw, _) = ctx.lower_to_tag_value_raw(args[0]);
     // S296 — lower-and-drop trailing args (S272 idiom).
     for &a in args.iter().skip(1) {
         let _ = ctx.lower_expr(a);
@@ -221,6 +225,8 @@ fn emit_key_predicate(
         Type::I64,
         None,
     );
+    // Chunk 566 share — settle an owned-temp value's mint ref.
+    ctx.release_owned_temp(args[0], &k_raw);
     let b = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::ICmp(IPred::Ne, Operand::Value(r), Operand::ConstI64(0)),

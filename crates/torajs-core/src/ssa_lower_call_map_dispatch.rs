@@ -141,8 +141,8 @@ fn emit_map_set(ctx: &mut LowerCtx<'_>, recv_op: Operand, args: &[ExprId]) -> Op
     // S248 — trailing slots type-checked + dropped here (widen `== 2` →
     // `>= 2`; args[2..] silent-ignored at lower-time).
     debug_assert!(args.len() >= 2);
-    let (k_tag, k_val) = ctx.lower_to_tag_value(args[0]);
-    let (v_tag, v_val) = ctx.lower_to_tag_value(args[1]);
+    let (k_tag, k_val, k_raw, _) = ctx.lower_to_tag_value_raw(args[0]);
+    let (v_tag, v_val, v_raw, _) = ctx.lower_to_tag_value_raw(args[1]);
     // S312 — ES §23.1.3.9 evaluates trailing args left-to-right; pre-S312
     // skipped the lower entirely → step()-style side-effect exprs dropped
     // at lower-time. Mirror S272 idiom by lowering each trailing arg for
@@ -157,6 +157,12 @@ fn emit_map_set(ctx: &mut LowerCtx<'_>, recv_op: Operand, args: &[ExprId]) -> Op
             vec![recv_op, k_tag, k_val, v_tag, v_val],
         ),
     );
+    // Chunk 566 share — the pack's +1 is the kernel's transfer
+    // stake; an owned-shape temp (`m.set("a", {n:i})` object
+    // literal / concat key) still held its mint ref with no
+    // consumer (~64B/iter on the mapset churn probe).
+    ctx.release_owned_temp(args[0], &k_raw);
+    ctx.release_owned_temp(args[1], &v_raw);
     ctx.emit_rc_inc(recv_op);
     recv_op
 }
@@ -171,7 +177,7 @@ fn emit_predicate_call(
 ) -> Operand {
     // S264 — trailing args ignored per spec.
     debug_assert!(!args.is_empty());
-    let (k_tag, k_val) = ctx.lower_to_tag_value(args[0]);
+    let (k_tag, k_val, k_raw, _) = ctx.lower_to_tag_value_raw(args[0]);
     // S296 — lower-and-drop trailing args past the 1 useful key slot
     // per ES trailing-arg ignore (S272 idiom).
     for &a in args.iter().skip(1) {
@@ -183,6 +189,8 @@ fn emit_predicate_call(
         Type::I64,
         None,
     );
+    // Chunk 566 share — settle an owned-temp key's mint ref.
+    ctx.release_owned_temp(args[0], &k_raw);
     let b = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::ICmp(IPred::Ne, Operand::Value(r), Operand::ConstI64(0)),
@@ -214,7 +222,7 @@ fn emit_map_get(ctx: &mut LowerCtx<'_>, recv_op: Operand, args: &[ExprId]) -> Op
     }
     // S264 — trailing args ignored per spec.
     debug_assert!(!args.is_empty());
-    let (k_tag, k_val) = ctx.lower_to_tag_value(args[0]);
+    let (k_tag, k_val, k_raw, _) = ctx.lower_to_tag_value_raw(args[0]);
     // S296 — lower-and-drop trailing args past the 1 useful key slot per
     // ES §24.1.3.6 trailing-arg ignore (S272 idiom).
     for &a in args.iter().skip(1) {
@@ -236,6 +244,8 @@ fn emit_map_get(ctx: &mut LowerCtx<'_>, recv_op: Operand, args: &[ExprId]) -> Op
             ],
         ),
     );
+    // Chunk 566 share — settle an owned-temp key's mint ref.
+    ctx.release_owned_temp(args[0], &k_raw);
     let tag_v = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Load(Type::I64, Operand::Value(tag_slot), 0),
@@ -450,8 +460,8 @@ fn box_pair(ctx: &mut LowerCtx<'_>, tag: ValueId, val: ValueId) -> ValueId {
 /// and rc-bumps the answered value).
 fn emit_map_get_or_insert(ctx: &mut LowerCtx<'_>, recv_op: Operand, args: &[ExprId]) -> Operand {
     debug_assert!(args.len() >= 2);
-    let (k_tag, k_val) = ctx.lower_to_tag_value(args[0]);
-    let (d_tag, d_val) = ctx.lower_to_tag_value(args[1]);
+    let (k_tag, k_val, k_raw, _) = ctx.lower_to_tag_value_raw(args[0]);
+    let (d_tag, d_val, d_raw, _) = ctx.lower_to_tag_value_raw(args[1]);
     for &a in args.iter().skip(2) {
         let _ = ctx.lower_expr(a);
     }
@@ -472,6 +482,11 @@ fn emit_map_get_or_insert(ctx: &mut LowerCtx<'_>, recv_op: Operand, args: &[Expr
             ],
         ),
     );
+    // Chunk 566 share — settle owned-temp key/default mint refs
+    // (the kernel owns the packed +1s; the hit path double-stakes
+    // the default and releases its own, this is the lower's copy).
+    ctx.release_owned_temp(args[0], &k_raw);
+    ctx.release_owned_temp(args[1], &d_raw);
     let tag_v = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Load(Type::I64, Operand::Value(tag_slot), 0),
