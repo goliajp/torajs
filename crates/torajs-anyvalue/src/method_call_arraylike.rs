@@ -38,7 +38,7 @@ use torajs_rc::{
     ANY_METHOD_FIND_LAST, ANY_METHOD_FIND_LAST_INDEX, ANY_METHOD_FOR_EACH, ANY_METHOD_INCLUDES,
     ANY_METHOD_INDEX_OF, ANY_METHOD_JOIN, ANY_METHOD_LAST_INDEX_OF, ANY_METHOD_MAP,
     ANY_METHOD_REDUCE, ANY_METHOD_REDUCE_RIGHT, ANY_METHOD_SLICE, ANY_METHOD_SOME,
-    ANY_METHOD_TO_REVERSED, ANY_METHOD_TO_STRING,
+    ANY_METHOD_TO_REVERSED, ANY_METHOD_TO_SORTED, ANY_METHOD_TO_STRING,
 };
 
 use crate::method_call::to_index;
@@ -65,6 +65,14 @@ unsafe extern "C" {
     fn __torajs_arr_push_any(arr: *mut c_void, tag: u64, value: u64) -> *mut u8;
     /// torajs-arr — element-kind-dispatched join (fresh Str).
     fn __torajs_arr_any_join(arr: *const u8, sep: *const u8) -> u64;
+    /// torajs-arr — in-place stable merge sort (boxed comparator or
+    /// the §23.1.3.30.2 ToString default). Answers the receiver.
+    fn __torajs_arr_any_sort(
+        arr: *mut u8,
+        cb_env: *mut c_void,
+        cb_entry: u64,
+        has_cb: i64,
+    ) -> *mut u8;
     /// Cross-tier — universal NaN-box-safe heap-value release.
     fn __torajs_value_drop_heap(p: *mut c_void);
 }
@@ -89,6 +97,7 @@ pub(crate) fn arraylike_supported(mid: i64) -> bool {
             | ANY_METHOD_TO_STRING
             | ANY_METHOD_SLICE
             | ANY_METHOD_TO_REVERSED
+            | ANY_METHOD_TO_SORTED
             | ANY_METHOD_EVERY
             | ANY_METHOD_SOME
             | ANY_METHOD_FOR_EACH
@@ -151,6 +160,23 @@ pub(crate) unsafe fn arraylike_method(
         }
     };
     unsafe {
+        // §23.1.3.34 step 1 — toSorted admits its comparator BEFORE
+        // even the length Get (unlike the HOF family, whose
+        // IsCallable check is ordered after len): a non-callable
+        // comparefn must throw before the length getter's side
+        // effects fire.
+        let sorted_cb = if mid == ANY_METHOD_TO_SORTED {
+            if is_undefined(arg_at(0)) {
+                Some((core::ptr::null_mut(), 0u64, 0i64))
+            } else {
+                match crate::method_call::closure_boxed_entry(arg_at(0)) {
+                    Some((env, entry)) => Some((env, entry, 1i64)),
+                    None => return crate::method_call::not_callable(),
+                }
+            }
+        } else {
+            None
+        };
         // §23.1.3 step 1-2 of every generic method: length first —
         // its getter side effects are observable even when a later
         // step throws.
@@ -279,6 +305,28 @@ pub(crate) unsafe fn arraylike_method(
             m if m == ANY_METHOD_TO_REVERSED => {
                 __torajs_anyv_box_pointer(materialize_range_rev(obj, len) as *mut c_void)
             }
+            // §23.1.3.34 — ascending per-[[Get]] materialize (every
+            // element read fires before the first comparefn call —
+            // the order is observable), then the shared stable-sort
+            // kernel over the fresh copy.
+            m if m == ANY_METHOD_TO_SORTED => {
+                let (cb_env, cb_entry, has_cb) = sorted_cb.unwrap();
+                let tmp = materialize_range(obj, 0, len);
+                if __torajs_throw_check() != 0 {
+                    // An index getter threw mid-read — release the
+                    // partial product's stake.
+                    __torajs_value_drop_heap(tmp as *mut c_void);
+                    return VALUE_UNDEFINED;
+                }
+                let sorted = __torajs_arr_any_sort(tmp, cb_env, cb_entry, has_cb);
+                if __torajs_throw_check() != 0 {
+                    // comparefn threw — the fresh copy's stake drops
+                    // before the throw propagates.
+                    __torajs_value_drop_heap(sorted as *mut c_void);
+                    return VALUE_UNDEFINED;
+                }
+                __torajs_anyv_box_pointer(sorted as *mut c_void)
+            }
             // Callback family — the hof sibling (callability check
             // ordered after the length read above, per spec).
             _ => crate::method_call_arraylike_hof::arraylike_hof(obj, mid, len, argv, argc),
@@ -297,6 +345,13 @@ unsafe fn materialize_range(obj: *mut c_void, lo: i64, hi: i64) -> *mut u8 {
         let mut k = lo;
         while k < hi {
             let v = arraylike_get(obj, k);
+            if __torajs_throw_check() != 0 {
+                // Abrupt getter completion — Get propagates (§7.3.2),
+                // so later indexes must not fire; the caller sees the
+                // pending throw and owns the partial product.
+                __torajs_value_drop_heap(v as *mut c_void);
+                return dst;
+            }
             dst = __torajs_arr_push_any(
                 dst as *mut c_void,
                 __torajs_anyv_unbox_tag(v) as u64,
@@ -390,6 +445,14 @@ pub(crate) unsafe fn arraylike_empty(mid: i64, argv: *const u64, argc: i64) -> A
                 __torajs_anyv_box_pointer(__torajs_arr_alloc_any(0) as *mut c_void)
             }
             m if m == ANY_METHOD_SLICE || m == ANY_METHOD_FLAT || m == ANY_METHOD_TO_REVERSED => {
+                __torajs_anyv_box_pointer(__torajs_arr_alloc_any(0) as *mut c_void)
+            }
+            m if m == ANY_METHOD_TO_SORTED => {
+                // §23.1.3.34 step 1 — the comparator admit still
+                // precedes the (empty) product.
+                if !is_undefined(arg0) && crate::method_call::closure_boxed_entry(arg0).is_none() {
+                    return crate::method_call::not_callable();
+                }
                 __torajs_anyv_box_pointer(__torajs_arr_alloc_any(0) as *mut c_void)
             }
             m if m == ANY_METHOD_JOIN || m == ANY_METHOD_TO_STRING => {
