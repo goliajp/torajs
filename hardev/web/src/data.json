@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-21T00:38:21.935Z",
+  "generatedAt": "2026-07-21T02:32:06.869Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 95.01
   },
   "torajs": {
-    "commit": "8e96dab8",
-    "commitSubject": "refactor: move getorinsert lowering to sibling for map-dispatch file-size headroom",
+    "commit": "dd1639aa",
+    "commitSubject": "fix: in operator stops at a null-prototype receiver instead of probing the object root",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "dd1639aa",
+      "subject": "fix: in operator stops at a null-prototype receiver instead of probing the object root"
+    },
+    {
+      "hash": "8c3a9b5f",
+      "subject": "feat: digit-key reads and hasproperty walk the prototype chain to the singleton faces"
+    },
+    {
+      "hash": "2cf80202",
+      "subject": "feat: typed array member value read falls through to the array prototype face"
+    },
+    {
+      "hash": "030d6f9b",
+      "subject": "fix: array at() bounds-checks the wrapped index instead of UB garbage read"
+    },
+    {
+      "hash": "35b5eb35",
+      "subject": "fix: array iterator latches done on exhaustion instead of reviving on push"
+    },
+    {
+      "hash": "d098e052",
+      "subject": "chore: hardev dashboard snapshot at rotation 171 close"
+    },
+    {
       "hash": "8e96dab8",
       "subject": "refactor: move getorinsert lowering to sibling for map-dispatch file-size headroom"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "7c9b03e1",
       "subject": "feat: regexp hasindices d flag with match-indices on exec-shape results"
-    },
-    {
-      "hash": "5fbe2b2e",
-      "subject": "chore: hardev dashboard snapshot at rotation 170 close"
-    },
-    {
-      "hash": "3f40234a",
-      "subject": "feat: map prototype getorinsert single-probe kernel on typed and any lanes"
-    },
-    {
-      "hash": "e7d32aeb",
-      "subject": "chore: hardev dashboard snapshot at rotation 170 close"
-    },
-    {
-      "hash": "3c1638e6",
-      "subject": "style: fmt-drift fix on any-method re-export wrap"
-    },
-    {
-      "hash": "6f5147e6",
-      "subject": "feat: date prototype totimestring full chain on typed and any lanes"
-    },
-    {
-      "hash": "21c5678d",
-      "subject": "feat: generator fn proto chain routes to genfn trio with step-method reflection cells"
     }
   ],
-  "headSha": "8e96dab8",
+  "headSha": "dd1639aa",
   "autorun": {
-    "total": 476,
+    "total": 477,
     "baselineTarget": 10,
-    "bySelf": 471,
+    "bySelf": 472,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784587140-6629",
-      "at": "2026-07-20T22:39:00Z",
-      "ts": 1784587140,
+      "rotationId": "r-1784594307-66fe",
+      "at": "2026-07-21T00:38:27Z",
+      "ts": 1784594307,
       "trigger": "self",
-      "prevHead": "5fbe2b2e",
-      "handoffSha": "sha256:65f7585389e041836ecfbc7a18737944332520da23d2f12e628e39d5986c27d5",
-      "handoffAgeSec": 43,
+      "prevHead": "d098e052",
+      "handoffSha": "sha256:6dba133523d0482a00ac5b0dcf20ed0d7b6e97eb6a47652751de707519a7123e",
+      "handoffAgeSec": 10,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784594307-66fe",
+        "at": "2026-07-21T00:38:27Z",
+        "ts": 1784594307,
+        "trigger": "self",
+        "prevHead": "d098e052",
+        "handoffSha": "sha256:6dba133523d0482a00ac5b0dcf20ed0d7b6e97eb6a47652751de707519a7123e",
+        "handoffAgeSec": 10,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784587140-6629",
         "at": "2026-07-20T22:39:00Z",
@@ -876,17 +887,6 @@
         "prevHead": "99982fe5",
         "handoffSha": "sha256:94e3468ab45ddc763df1ef426c486605d9e27f487a928fd4d96dc09b70137c8f",
         "handoffAgeSec": 44,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784527450-3fc1",
-        "at": "2026-07-20T06:04:10Z",
-        "ts": 1784527450,
-        "trigger": "self",
-        "prevHead": "71f07477",
-        "handoffSha": "sha256:1fde840195312053b81d9edc2fb8c62479df5c06ca950aa2633d8a5d41e147c7",
-        "handoffAgeSec": 5,
         "conformanceBefore": null,
         "commitsInSession": null
       }
