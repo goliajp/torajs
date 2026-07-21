@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-21T19:57:43.509Z",
+  "generatedAt": "2026-07-21T20:09:17.587Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 95.57
   },
   "torajs": {
-    "commit": "5a470ab3",
-    "commitSubject": "feat: function.prototype own name and length reflection",
+    "commit": "6ac4020e",
+    "commitSubject": "feat: regexp instance lastIndex reflection faces",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "6ac4020e",
+      "subject": "feat: regexp instance lastIndex reflection faces"
+    },
+    {
+      "hash": "03b0c742",
+      "subject": "chore: hardev dashboard snapshot at rotation 180 close"
+    },
+    {
       "hash": "5a470ab3",
       "subject": "feat: function.prototype own name and length reflection"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "e6bfd52f",
       "subject": "fix: toReversed on exotic receiver reads descending through the call lane"
-    },
-    {
-      "hash": "76ba4362",
-      "subject": "feat: struct any-index read resolves numeric-key accessors"
-    },
-    {
-      "hash": "1acb2fb2",
-      "subject": "fix: exempt generic-class instance shapes from cm-demote shape-steal gate"
     }
   ],
-  "headSha": "5a470ab3",
+  "headSha": "6ac4020e",
   "autorun": {
     "total": 485,
     "baselineTarget": 10,
