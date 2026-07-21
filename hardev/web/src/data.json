@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-21T16:38:39.753Z",
+  "generatedAt": "2026-07-21T16:51:23.179Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 95.01
   },
   "torajs": {
-    "commit": "0f1adbd6",
-    "commitSubject": "fix: prototype member-base axis excludes generator and async fns",
+    "commit": "6420fb21",
+    "commitSubject": "feat: generator factory prototype face rides the gen class proto",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "6420fb21",
+      "subject": "feat: generator factory prototype face rides the gen class proto"
+    },
+    {
+      "hash": "22088ace",
+      "subject": "chore: hardev dashboard snapshot at rotation 178 close"
+    },
+    {
       "hash": "0f1adbd6",
       "subject": "fix: prototype member-base axis excludes generator and async fns"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "fa92ef83",
       "subject": "fix: toSpliced and with items feed the container width lattice"
-    },
-    {
-      "hash": "82c4782e",
-      "subject": "test: lock loop-push shapes against silent no-op regression"
-    },
-    {
-      "hash": "ace1bb30",
-      "subject": "fix: in-bounds typed index write revives the hole it fills"
     }
   ],
-  "headSha": "0f1adbd6",
+  "headSha": "6420fb21",
   "autorun": {
     "total": 483,
     "baselineTarget": 10,
