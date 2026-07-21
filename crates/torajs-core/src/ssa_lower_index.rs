@@ -101,7 +101,12 @@ pub(crate) fn lower_from_value(
             return crate::ssa_lower_any_member::lower_any_member_read(ctx, eid, boxed, &lit);
         }
         if matches!(ctx.expr_types.get(&index), Some(crate::check::Type::String)) {
-            return lower_any_index_str_key(ctx, boxed, index);
+            // Chunk 726 convention (OptIndex already does this) —
+            // the dynamic-key probe answers a fresh owned box; the
+            // eid joins the owned track so the consumer releases.
+            let v = lower_any_index_str_key(ctx, boxed, index);
+            ctx.owned_member_reads.insert(eid);
+            return v;
         }
         let idx_val = ctx.lower_index_operand(index);
         let cur_block = ctx.cur_block;
@@ -139,7 +144,13 @@ pub(crate) fn lower_from_value(
             return crate::ssa_lower_any_member::lower_any_member_read(ctx, eid, arr_val, &lit);
         }
         if matches!(ctx.expr_types.get(&index), Some(crate::check::Type::String)) {
-            return lower_any_index_str_key(ctx, arr_val, index);
+            // Chunk 726 convention (OptIndex already does this) —
+            // owned track + release an owned-shape receiver temp,
+            // mirroring the numeric lane below.
+            let v = lower_any_index_str_key(ctx, arr_val.clone(), index);
+            ctx.owned_member_reads.insert(eid);
+            ctx.release_owned_temp(obj, &arr_val);
+            return v;
         }
         let idx_val = ctx.lower_index_operand(index);
         let cur_block = ctx.cur_block;
