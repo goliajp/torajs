@@ -276,6 +276,7 @@ pub(crate) mod ssa_lower_call_in_op;
 pub(crate) mod ssa_lower_call_iter_next;
 pub(crate) mod ssa_lower_call_json_stringify;
 pub(crate) mod ssa_lower_call_map_dispatch;
+pub(crate) mod ssa_lower_call_map_goi;
 pub(crate) mod ssa_lower_call_math_binary_undef_fold;
 pub(crate) mod ssa_lower_call_math_hypot;
 pub(crate) mod ssa_lower_call_math_min_max;
