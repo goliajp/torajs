@@ -235,7 +235,14 @@ impl<'a> Analysis<'a> {
         let write_args: Vec<ExprId> = match name.as_str() {
             "push" | "unshift" => args.to_vec(),
             "fill" => args.iter().take(1).copied().collect(),
-            "splice" => args.iter().skip(2).copied().collect(),
+            // toSpliced's items are Elem writes on the product, whose
+            // class unions with the receiver's (result-key B1b) — so
+            // feeding `ek` covers both. Missing pre-fix: a promoted
+            // (W-ESC any-demoted) receiver's product materializes at
+            // a generic call boundary by the class width, and the
+            // un-fed 0.5 item truncated to 0 (L3b arg-pack entry).
+            "splice" | "toSpliced" => args.iter().skip(2).copied().collect(),
+            "with" => args.iter().skip(1).take(1).copied().collect(),
             // Map value slot (b1) — `m.set(k, v)` writes v into the
             // receiver's Elem class (read back by `get`'s result
             // key); `s.add(v)` is Set's single-value form. On a
