@@ -48,17 +48,12 @@
 //! published the user-facing `__fn(P)->R` anns (which deliberately
 //! stay `__this`-free, like `__mth(`'s receiver-less spelling).
 
+use super::fnexpr_this_faces::{FacePatch, collect_face, collect_ident_face, literal_desc_faces};
 use super::fnexpr_this_recvs::{
     collect_any_binding_names, collect_arraylit_binding_names, collect_mapset_binding_names,
     fn_has_rest_param,
 };
 use super::{Expr, ExprId, Param, Stmt};
-
-/// A closure to patch: the lifted FnDecl gains a `__this: any` param.
-struct FacePatch {
-    eid: ExprId,
-    fn_name: String,
-}
 
 pub(crate) fn run(
     stmts: &mut [Stmt],
@@ -127,7 +122,7 @@ fn collect_position_faces(
             if let Expr::Member { obj, .. } = &exprs[target.0 as usize]
                 && matches!(&exprs[obj.0 as usize], Expr::Ident(n) if any_recvs.contains(n))
             {
-                collect_face(exprs, *value, fn_expr_exprs, patches);
+                collect_face(stmts, exprs, *value, fn_expr_exprs, patches);
                 collect_ident_face(exprs, *value, ident_cands);
             }
             continue;
@@ -141,7 +136,7 @@ fn collect_position_faces(
                 if name == "__defineGetter__" || name == "__defineSetter__" =>
             {
                 if let Some(face) = args.get(1) {
-                    collect_face(exprs, *face, fn_expr_exprs, patches);
+                    collect_face(stmts, exprs, *face, fn_expr_exprs, patches);
                     collect_ident_face(exprs, *face, ident_cands);
                 }
             }
@@ -154,7 +149,7 @@ fn collect_position_faces(
                 }
                 let Some(desc) = args.get(2) else { continue };
                 for face in literal_desc_faces(exprs, *desc) {
-                    collect_face(exprs, face, fn_expr_exprs, patches);
+                    collect_face(stmts, exprs, face, fn_expr_exprs, patches);
                     collect_ident_face(exprs, face, ident_cands);
                 }
             }
@@ -174,7 +169,7 @@ fn collect_position_faces(
                 let descs: Vec<ExprId> = fields.iter().map(|(_, deid)| *deid).collect();
                 for desc in descs {
                     for face in literal_desc_faces(exprs, desc) {
-                        collect_face(exprs, face, fn_expr_exprs, patches);
+                        collect_face(stmts, exprs, face, fn_expr_exprs, patches);
                         collect_ident_face(exprs, face, ident_cands);
                     }
                 }
@@ -205,7 +200,7 @@ fn collect_position_faces(
                     continue;
                 }
                 if let Some(cb) = args.first() {
-                    collect_face(exprs, *cb, fn_expr_exprs, patches);
+                    collect_face(stmts, exprs, *cb, fn_expr_exprs, patches);
                 }
             }
             _ => {}
@@ -370,15 +365,6 @@ fn collect_decls_by_name(stmts: &[Stmt], name: &str, out: &mut Vec<(bool, ExprId
     }
 }
 
-/// Record a face-position `Expr::Ident` as a knife-2 candidate —
-/// resolution (single-use + const fn-expr init) happens after the
-/// position walk.
-fn collect_ident_face(exprs: &[Expr], face: ExprId, cands: &mut Vec<(String, ExprId)>) {
-    if let Expr::Ident(n) = &exprs[face.0 as usize] {
-        cands.push((n.clone(), face));
-    }
-}
-
 /// Promote each `(closure eid, lifted fn name)` to the receiver-first
 /// any shape: `__this` leaves the capture list (it is a receiver, not
 /// a capture — mirror of `objlit_nominal::apply_patches`), the lifted
@@ -416,7 +402,13 @@ pub(crate) fn promote_recv_any(
             {
                 env.type_ann = Some(format!("__env({})", caps.join("|")));
             }
-            if !params.iter().any(|q| q.name == "__this") {
+            if let Some(t) = params.iter_mut().find(|q| q.name == "__this") {
+                // Knife 6 — a method-shorthand face arrives with a
+                // nominal-typed `__this` (objlit_nominal's receiver);
+                // the accessor invoke hands a NaN-box, so the param
+                // re-anns to `any` (typeof / member reads go dynamic).
+                t.type_ann = Some("any".to_string());
+            } else {
                 let at = usize::from(params.first().is_some_and(|q| q.name == "__env"));
                 params.insert(
                     at,
@@ -432,43 +424,4 @@ pub(crate) fn promote_recv_any(
             break;
         }
     }
-}
-
-/// The `get:` / `set:` field values of an INLINE literal descriptor;
-/// empty for any non-ObjectLit descriptor expression (variable-routed
-/// descriptors alias their faces — knife 2).
-fn literal_desc_faces(exprs: &[Expr], desc: ExprId) -> Vec<ExprId> {
-    let Expr::ObjectLit { fields } = &exprs[desc.0 as usize] else {
-        return Vec::new();
-    };
-    fields
-        .iter()
-        .filter(|(fname, _)| fname == "get" || fname == "set")
-        .map(|(_, feid)| *feid)
-        .collect()
-}
-
-/// A face candidate promotes when it is a marked fn-expr Closure whose
-/// body actually says `this` (pass-2 left it in the capture list). A
-/// `this`-free fn-expr face keeps the plain closure ABI — receiverless
-/// invoke stays byte-identical.
-fn collect_face(
-    exprs: &[Expr],
-    face: ExprId,
-    fn_expr_exprs: &std::collections::HashSet<ExprId>,
-    patches: &mut Vec<FacePatch>,
-) {
-    if !fn_expr_exprs.contains(&face) {
-        return;
-    }
-    let Expr::Closure { fn_name, captures } = &exprs[face.0 as usize] else {
-        return;
-    };
-    if !captures.iter().any(|c| c == "__this") {
-        return;
-    }
-    patches.push(FacePatch {
-        eid: face,
-        fn_name: fn_name.clone(),
-    });
 }

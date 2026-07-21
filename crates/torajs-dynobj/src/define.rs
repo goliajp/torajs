@@ -53,6 +53,10 @@ unsafe extern "C" {
         value: u64,
         flags_byte: u64,
     );
+    /// torajs-rc — builtin-prototype-singleton own-write note (RFC
+    /// 20260721 刀 11 G13): marks the (proto tag, mid) patch bit the
+    /// any-method dispatcher's primitive fast arms pre-gate on.
+    fn __torajs_builtin_proto_note_own_write(obj: *const c_void, name: *const u8, len: i64);
 }
 
 /// `__torajs_dynobj_define(obj_slot, key, tag, value, flags_byte)`.
@@ -150,6 +154,16 @@ pub(crate) unsafe fn define_apply(
             define_apply(props_slot, key, tag, value, flags_byte);
         }
         return;
+    }
+    // A define landing on a builtin `<Ctor>.prototype` singleton is
+    // a monkey-patch — note it for the fast-arm pre-gate (RFC
+    // 20260721 刀 11 G13; one relaxed load when no singleton exists).
+    unsafe {
+        __torajs_builtin_proto_note_own_write(
+            obj,
+            (key as *const u8).add(crate::layout::STR_DATA_OFF),
+            *((key as *const u8).add(crate::layout::STR_LEN_OFF) as *const u64) as i64,
+        );
     }
     // Dense-array-full guard — same shape as set.rs.
     if unsafe { entries_len(obj) } == unsafe { entries_cap(obj) } {

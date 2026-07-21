@@ -18,11 +18,87 @@
 
 use core::ffi::c_void;
 
+use torajs_rc::{ANY_METHOD_TO_LOCALE_STRING, ANY_METHOD_TO_STRING, Tag};
+
 use crate::method_call::{closure_cell_entry, invoke_with_this, not_callable};
 use crate::method_value::{
     STR_PROTO_FAMILY, builtin_method_family, builtin_method_mid, recv_proto_family,
 };
-use crate::nanbox::AnyValue;
+use crate::nanbox::{
+    AnyValue, VALUE_UNDEFINED, as_void_ptr, is_bool, is_cell, is_double, is_int32, is_short_str,
+};
+
+unsafe extern "C" {
+    /// torajs-dynobj — invoke an accessor pair's getter face against
+    /// a receiver (owned AnyValue return; a throw inside records
+    /// pending).
+    fn __torajs_accessor_invoke_getter(pair: *const c_void, recv_anyv: u64) -> u64;
+    /// torajs-throw — pending-throw probe (non-consuming).
+    fn __torajs_throw_check() -> i64;
+    /// Universal NaN-box-safe heap dropper (getter answer release).
+    fn __torajs_value_drop_heap(p: *mut c_void);
+}
+
+/// Accessor-entry sentinel in the dynobj probe's tag channel —
+/// mirror of `method_support_proto.rs::ANY_ACCESSOR_TAG`.
+const ANY_ACCESSOR_TAG: i64 = 6;
+
+/// Primitive fast-arm pre-gate (RFC 20260721 刀 11 G13) — the
+/// short-str / bool / num arms and the heap-Str cell arm answer
+/// their mids natively, so a monkey-patch installed on the
+/// receiver's builtin prototype (data or accessor shape) must
+/// consult BEFORE they run. The (tag, mid) patch bitmap keeps the
+/// no-patch program at one relaxed load per primitive method call.
+///
+/// The §20.1.3.5 leg: bool / num have no own `toLocaleString` — the
+/// inherited `Object.prototype.toLocaleString` is `Invoke(this,
+/// "toString")`, so their toLocaleString call also consults a
+/// TO_STRING patch (String has its own §22.1.3.26 and skips the leg).
+pub(crate) unsafe fn primitive_patch_pregate(
+    recv: AnyValue,
+    mid: i64,
+    name_str: *const u8,
+    argv: *const u64,
+    argc: i64,
+) -> Option<AnyValue> {
+    let fam = if is_short_str(recv) {
+        STR_PROTO_FAMILY
+    } else if is_bool(recv) {
+        4
+    } else if is_int32(recv) || is_double(recv) {
+        0
+    } else if is_cell(recv)
+        && unsafe {
+            (as_void_ptr(recv).cast::<u8>().add(4) as *const u16).read() == Tag::Str as u16
+        }
+    {
+        STR_PROTO_FAMILY
+    } else {
+        return None;
+    };
+    unsafe {
+        if torajs_rc::builtin_proto::__torajs_builtin_proto_has_patch(fam, mid) != 0
+            && let Some(out) = builtin_proto_patch_method(recv, mid, name_str, argv, argc)
+        {
+            return Some(out);
+        }
+        if mid == ANY_METHOD_TO_LOCALE_STRING
+            && fam != STR_PROTO_FAMILY
+            && torajs_rc::builtin_proto::__torajs_builtin_proto_has_patch(fam, ANY_METHOD_TO_STRING)
+                != 0
+        {
+            // §20.1.3.5 step 2 Invoke takes no arguments.
+            return builtin_proto_patch_method(
+                recv,
+                ANY_METHOD_TO_STRING,
+                core::ptr::null(),
+                core::ptr::null(),
+                0,
+            );
+        }
+    }
+    None
+}
 
 /// Probe the receiver's builtin prototype singleton for a live own
 /// entry under the method name — `Some(result)` when a patch
@@ -67,6 +143,28 @@ pub(crate) unsafe fn builtin_proto_patch_method(
         }
         if tag == 5 {
             return None;
+        }
+        // Accessor-shaped patch (`defineProperty(proto, m, {get})`) —
+        // §10.1.9.2 step 3: the getter runs with the ORIGINAL
+        // receiver as `this`, and its answer is the callee.
+        if tag == ANY_ACCESSOR_TAG {
+            let f = __torajs_accessor_invoke_getter(value as *const c_void, recv);
+            if __torajs_throw_check() != 0 {
+                if is_cell(f) {
+                    __torajs_value_drop_heap(as_void_ptr(f));
+                }
+                return Some(VALUE_UNDEFINED);
+            }
+            if is_cell(f) {
+                let fptr = as_void_ptr(f);
+                if let Some((env, entry)) = closure_cell_entry(fptr) {
+                    let out = invoke_with_this(env, entry, recv, argv, argc);
+                    __torajs_value_drop_heap(fptr);
+                    return Some(out);
+                }
+                __torajs_value_drop_heap(fptr);
+            }
+            return Some(not_callable());
         }
         let cell = value as *mut c_void;
         // A borrowed builtin cell (`Number.prototype.split =

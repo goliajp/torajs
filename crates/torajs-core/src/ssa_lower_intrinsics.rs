@@ -291,6 +291,7 @@ pub(crate) struct Intrinsics {
     pub(crate) arr_push_any: FuncId,
     pub(crate) arr_mark_last_hole: FuncId,
     pub(crate) arr_any_to_locale_string: FuncId,
+    pub(crate) arr_typed_to_locale_string: FuncId,
     pub(crate) arr_any_index_of: FuncId,
     pub(crate) arr_any_last_index_of: FuncId,
     pub(crate) arr_unshift_any: FuncId,

@@ -22,6 +22,14 @@ unsafe extern "C" {
     fn __torajs_str_drop(s: *mut c_void);
     /// torajs-throw — pending-throw flag.
     fn __torajs_throw_check() -> i64;
+    /// torajs-arr — the typed-lane no-patch fallback join kernels
+    /// (RFC 20260721 刀 11 G13, see
+    /// [`__torajs_arr_typed_to_locale_string`]).
+    fn __torajs_arr_join(arr: *const u8, sep: *const u8) -> *mut u8;
+    fn __torajs_arr_join_substr(arr: *const u8, sep: *const u8) -> *mut u8;
+    fn __torajs_arr_join_bool(arr: *const u8, sep: *const u8) -> *mut u8;
+    fn __torajs_arr_join_i64_locale(arr: *const u8, sep: *const u8) -> *mut u8;
+    fn __torajs_arr_join_f64_locale(arr: *const u8, sep: *const u8) -> *mut u8;
 }
 
 /// Arr cell `len` slot mirror.
@@ -128,5 +136,57 @@ pub unsafe extern "C" fn __torajs_arr_any_to_locale_string(arr: *mut c_void) -> 
             return __torajs_str_alloc_pooled(0);
         }
         s
+    }
+}
+
+/// Typed-lane `xs.toLocaleString()` gate (RFC 20260721 刀 11 G13) —
+/// `prim` is the compile-time element type (0=bool, 1=str,
+/// 2=substr, 3=i64, 4=f64). No live patch on the element family's
+/// observable §23.1.3.32 Invoke face (the common case, one bitmap
+/// load) falls back to the direct join kernel the lane always used;
+/// a live patch runs the per-element Invoke walk so the hook fires
+/// (bool consults the TO_STRING leg too — no own `toLocaleString`,
+/// the inherited §20.1.3.5 one is `Invoke(this, "toString")`).
+///
+/// # Safety
+/// `arr` is a live `Tag::Arr` heap pointer with a stamped element
+/// kind (the lowering marks it at this call's boundary).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_typed_to_locale_string(
+    arr: *mut c_void,
+    prim: i64,
+) -> *mut u8 {
+    use torajs_rc::ANY_METHOD_TO_STRING;
+    use torajs_rc::builtin_proto::__torajs_builtin_proto_has_patch;
+
+    use crate::method_value::STR_PROTO_FAMILY;
+    unsafe {
+        let patched = match prim {
+            0 => {
+                __torajs_builtin_proto_has_patch(4, ANY_METHOD_TO_LOCALE_STRING) != 0
+                    || __torajs_builtin_proto_has_patch(4, ANY_METHOD_TO_STRING) != 0
+            }
+            1 | 2 => {
+                __torajs_builtin_proto_has_patch(STR_PROTO_FAMILY, ANY_METHOD_TO_LOCALE_STRING) != 0
+            }
+            _ => __torajs_builtin_proto_has_patch(0, ANY_METHOD_TO_LOCALE_STRING) != 0,
+        };
+        if patched {
+            let s = arr_to_locale_str(arr);
+            if s.is_null() {
+                return __torajs_str_alloc_pooled(0);
+            }
+            return s;
+        }
+        let sep = comma();
+        let out = match prim {
+            0 => __torajs_arr_join_bool(arr as *const u8, sep),
+            1 => __torajs_arr_join(arr as *const u8, sep),
+            2 => __torajs_arr_join_substr(arr as *const u8, sep),
+            3 => __torajs_arr_join_i64_locale(arr as *const u8, sep),
+            _ => __torajs_arr_join_f64_locale(arr as *const u8, sep),
+        };
+        __torajs_str_drop(sep as *mut c_void);
+        out
     }
 }

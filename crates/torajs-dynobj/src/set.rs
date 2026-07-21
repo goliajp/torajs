@@ -46,6 +46,11 @@ unsafe extern "C" {
 
     /// torajs-anyvalue — NaN-box AnyValue tag decoder.
     fn __torajs_anyv_unbox_tag(v: u64) -> i64;
+
+    /// torajs-rc — builtin-prototype-singleton own-write note (RFC
+    /// 20260721 刀 11 G13): marks the (proto tag, mid) patch bit the
+    /// any-method dispatcher's primitive fast arms pre-gate on.
+    fn __torajs_builtin_proto_note_own_write(obj: *const c_void, name: *const u8, len: i64);
 }
 
 /// `__torajs_dynobj_set(obj_slot, key, tag, value)` — implicit-set entry.
@@ -64,6 +69,16 @@ pub unsafe extern "C" fn __torajs_dynobj_set(
     let mut obj = unsafe { *obj_slot };
     if obj.is_null() {
         return;
+    }
+    // A write landing on a builtin `<Ctor>.prototype` singleton is a
+    // monkey-patch — note it for the fast-arm pre-gate (RFC 20260721
+    // 刀 11 G13; one relaxed load when no singleton exists).
+    unsafe {
+        __torajs_builtin_proto_note_own_write(
+            obj,
+            (key as *const u8).add(crate::layout::STR_DATA_OFF),
+            *((key as *const u8).add(crate::layout::STR_LEN_OFF) as *const u64) as i64,
+        );
     }
     // Dense-array-full guard: compact (and grow if genuinely full)
     // before probing so a fresh insert always has an append slot.

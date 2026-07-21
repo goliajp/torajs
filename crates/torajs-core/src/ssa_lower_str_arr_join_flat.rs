@@ -75,6 +75,40 @@ fn try_join(
             ctx.emit_throw_check(None);
             return Some(Operand::Value(s));
         }
+        // RFC 20260721 刀 11 G13 — the primitive-element lanes take
+        // a runtime patch gate: a builtin-prototype monkey-patch on
+        // the element family's Invoke face must fire per element
+        // (§23.1.3.32 step 4.b), while the no-patch program keeps
+        // the direct join kernel behind one bitmap load. Trailing
+        // args lower-and-drop (S287 idiom — toLocaleString is
+        // 0-useful).
+        if is_locale {
+            let prim = match elem_ty {
+                Type::Bool => Some(0i64),
+                Type::Str => Some(1),
+                Type::Substr => Some(2),
+                Type::I64 => Some(3),
+                Type::F64 => Some(4),
+                _ => None,
+            };
+            if let Some(p) = prim {
+                ctx.emit_arr_mark_kind(&recv_op);
+                for &a in args.iter() {
+                    let _ = ctx.lower_expr(a);
+                }
+                let s = ctx.f.append_inst(
+                    ctx.cur_block,
+                    InstKind::Call(
+                        ctx.intrinsics.arr_typed_to_locale_string,
+                        vec![recv_op, Operand::ConstI64(p)],
+                    ),
+                    Type::Str,
+                    None,
+                );
+                ctx.emit_throw_check(None);
+                return Some(Operand::Value(s));
+            }
+        }
         let join_fid = match elem_ty {
             Type::Substr => ctx.intrinsics.arr_join_substr,
             Type::I64 => {

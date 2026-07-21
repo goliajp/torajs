@@ -316,6 +316,18 @@ unsafe fn any_method_call_dispatch(
             )
         };
     }
+    // RFC 20260721 刀 11 G13 — the primitive fast arms below answer
+    // their mids natively, so a builtin-prototype monkey-patch must
+    // consult FIRST; the (tag, mid) patch bitmap keeps the no-patch
+    // program at one relaxed load. Gated off re-dispatch like the
+    // tail consult (reified-builtin body execution never re-resolves).
+    if !skip_wrapper_expando
+        && let Some(out) = unsafe {
+            crate::method_call_proto_patch::primitive_patch_pregate(recv, mid, name_str, argv, argc)
+        }
+    {
+        return out;
+    }
     if is_short_str(recv) {
         // toString on a string is identity; a ShortStr is an
         // immediate (copy semantics, no rc), so the bits return

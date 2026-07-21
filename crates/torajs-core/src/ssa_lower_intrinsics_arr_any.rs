@@ -41,6 +41,8 @@ pub(crate) struct ArrAnyIds {
     pub arr_mark_last_hole: FuncId,
     /// §23.1.3.32 per-element toLocaleString join.
     pub arr_any_to_locale_string: FuncId,
+    /// Typed-lane toLocaleString patch gate (RFC 20260721 刀 11 G13).
+    pub arr_typed_to_locale_string: FuncId,
     /// Hole-aware §23.1.3.17/.20 search kernels (HasProperty gate).
     pub arr_any_index_of: FuncId,
     pub arr_any_last_index_of: FuncId,
@@ -131,6 +133,13 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             fn_table,
             "__torajs_arr_any_to_locale_string",
             &[Type::Ptr],
+            Type::Str,
+        ),
+        arr_typed_to_locale_string: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_arr_typed_to_locale_string",
+            &[Type::Ptr, Type::I64],
             Type::Str,
         ),
         arr_any_index_of: declare_intrinsic(

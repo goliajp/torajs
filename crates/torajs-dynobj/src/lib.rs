@@ -88,6 +88,17 @@ pub unsafe extern "C" fn __torajs_throw_type_error(_msg: *const u8) {
     );
 }
 
+// Faithful no-op double (the real note is a no-op too until some
+// `<Ctor>.prototype` singleton is minted, which no unit test does).
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_builtin_proto_note_own_write(
+    _obj: *const core::ffi::c_void,
+    _name: *const u8,
+    _len: i64,
+) {
+}
+
 // Faithful Closure-arm double for unit tests (mirrors the faithful
 // rc_dec stub below): `accessor::tests` legitimately exercises the
 // pair teardown, which routes each held closure ref through this
