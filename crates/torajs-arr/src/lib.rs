@@ -68,6 +68,7 @@ pub mod print_inline;
 mod print_props;
 mod print_typed;
 pub mod props;
+pub mod reverse_mop;
 pub mod slice;
 pub mod sort;
 pub mod species;

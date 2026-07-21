@@ -25,6 +25,9 @@ unsafe extern "C" {
     /// torajs-dynobj — HOLE sentinel upsert / probe (chunk C).
     fn __torajs_dynobj_set_entry_hole(obj_slot: *mut *mut c_void, key: *mut c_void);
     fn __torajs_dynobj_entry_is_hole(dynobj: *const c_void, key: *const c_void) -> i32;
+    /// torajs-dynobj — entry removal (drops key + value, incl. an
+    /// accessor pair cell).
+    fn __torajs_dynobj_delete(dynobj: *mut c_void, key: *const c_void) -> i32;
     fn __torajs_str_alloc_pooled(len: u64) -> *mut u8;
     fn __torajs_str_drop(s: *mut c_void);
 }
@@ -206,4 +209,76 @@ pub unsafe extern "C" fn __torajs_arr_delete_index(
     let p = unsafe { (arr as *mut u8).add(6) as *mut u16 };
     unsafe { p.write(p.read() | FLAG_ARR_EXOTIC_INDEX) };
     1
+}
+
+/// §10.4.2.4 steps 15-19 shadow sweep (RFC 20260721 刀 13d) — a
+/// length shrink walks DOWN from `old_len-1` deleting each truncated
+/// index's shadow entry (accessor pair / hole sentinel / attribute
+/// shadow) alongside the element storage the caller drops; without
+/// this the stale accessor shadow survives the shrink and a later
+/// grow-back answers `i in arr` true for an index the spec deleted
+/// (test262 reverse/get_if_present_with_delete). A live
+/// NON-CONFIGURABLE entry stops the walk and the shrink lands at
+/// `stop + 1` (the silent assignment-path semantics; the
+/// defineProperty path pre-validates and throws before reaching
+/// here). Returns the landed length.
+///
+/// # Safety
+/// `arr` is a live `Tag::Arr` heap pointer with a shrink in
+/// progress (`new_len < old_len`).
+pub(crate) unsafe fn shrink_purge_shadows(arr: *mut c_void, new_len: u64, old_len: u64) -> u64 {
+    let slot = unsafe { props_slot(arr) };
+    if unsafe { (*slot).is_null() } {
+        return new_len;
+    }
+    let props = unsafe { *slot };
+    let mut i = old_len;
+    while i > new_len {
+        i -= 1;
+        let key = unsafe { crate::define::mint_index_key(i) };
+        if unsafe { __torajs_dynobj_has(props, key as *const c_void) } != 0 {
+            let f = unsafe { index_flags_with_key(arr, key as *const c_void) };
+            if f & F_HOLE == 0 && f & F_CONFIGURABLE == 0 {
+                unsafe { __torajs_str_drop(key as *mut c_void) };
+                return i + 1;
+            }
+            unsafe { __torajs_dynobj_delete(props, key as *const c_void) };
+        }
+        unsafe { __torajs_str_drop(key as *mut c_void) };
+    }
+    new_len
+}
+
+unsafe extern "C" {
+    /// torajs-anyvalue — §7.3.11 HasProperty walk (live index + hole
+    /// shadows + expando + prototype chain).
+    fn __torajs_arr_forin_key_live(arr: *mut c_void, key: *const c_void) -> i64;
+}
+
+/// §7.3.11 HasProperty for a numeric key on an Array receiver — the
+/// static `in` lane's kernel (RFC 20260721 刀 13d). Pre-fix the lane
+/// was a raw `0 <= key < len` bounds check, blind to hole shadows
+/// (`delete` / length-grow / elision) and to prototype digit keys —
+/// `i in arr` answered true for a hole and false for an
+/// Array.prototype-supplied index. A clean in-bounds index answers 1
+/// with one flag test; everything else continues through the full
+/// walk.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_has_index(arr: *mut c_void, idx: i64) -> i64 {
+    unsafe {
+        if arr.is_null() || idx < 0 {
+            return 0;
+        }
+        let len = (arr.cast::<u8>().add(ARR_LEN_OFF) as *const u64).read();
+        let exotic = crate::define::header_flags(arr) & FLAG_ARR_EXOTIC_INDEX != 0;
+        if (idx as u64) < len && !exotic {
+            return 1;
+        }
+        // Exotic (hole shadows possible) or OOB (prototype digit
+        // keys) — mint the canonical key and walk.
+        let key = crate::define::mint_index_key(idx as u64);
+        let live = __torajs_arr_forin_key_live(arr, key as *const c_void);
+        __torajs_str_drop(key as *mut c_void);
+        live
+    }
 }

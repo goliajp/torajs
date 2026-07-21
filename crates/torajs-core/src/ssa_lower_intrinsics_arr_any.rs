@@ -51,6 +51,7 @@ pub(crate) struct ArrAnyIds {
     pub arr_extend_any: FuncId,
     pub arr_any_slice: FuncId,
     pub arr_any_to_reversed: FuncId,
+    pub arr_has_index: FuncId,
     pub arr_set_any: FuncId,
     pub arr_set_any_grow: FuncId,
     pub arr_oob_write_reject: FuncId,
@@ -197,6 +198,16 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             "__torajs_arr_any_to_reversed",
             &[Type::Ptr],
             Type::Ptr,
+        ),
+        // 刀 13d — §7.3.11 numeric-key `in` on an Array receiver
+        // (hole shadows + prototype digit keys; clean in-bounds
+        // stays one flag test).
+        arr_has_index: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_arr_has_index",
+            &[Type::Ptr, Type::I64],
+            Type::I64,
         ),
         arr_set_any: declare_intrinsic(
             module,

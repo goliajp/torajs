@@ -422,17 +422,28 @@ pub unsafe extern "C" fn __torajs_arr_set_length_any(arr: *mut u8, tag: i64, val
     let is_any = header.flags & torajs_rc::FLAG_ARR_ANY != 0;
     let head = unsafe { *(arr.add(ARR_HDR_HEAD_OFF) as *const u32) } as usize;
     if new_n < old {
+        // §10.4.2.4 steps 15-19 shadow sweep (刀 13d) — truncated
+        // indexes' shadow entries (accessor pairs / hole sentinels)
+        // die with the elements; a live non-configurable entry stops
+        // the walk and the shrink lands at stop+1 (silent
+        // assignment-path semantics; `define_length` pre-validates
+        // the throwing define path).
+        let land = if header.flags & torajs_rc::FLAG_ARR_EXOTIC_INDEX != 0 {
+            unsafe { crate::define_hole::shrink_purge_shadows(arr as *mut c_void, new_n, old) }
+        } else {
+            new_n
+        };
         // §10.4.2.5 step 4 — the removed slots' refs die here (this
         // is the only owner walk; value_drop_heap's cell gate skips
         // immediates / raw scalars stay unwalked).
         if is_any || header.arr_elem_kind() == torajs_rc::ARR_KIND_HEAP {
             let slots = unsafe { arr_data(arr) };
-            for i in new_n..old {
+            for i in land..old {
                 let av = unsafe { *(slots.add((head + i as usize) * 8) as *const u64) };
                 unsafe { __torajs_value_drop_heap(av as *mut c_void) };
             }
         }
-        unsafe { *len_ptr = new_n };
+        unsafe { *len_ptr = land };
         return;
     }
     // Grow — every kind grows now (RFC 20260721 刀 5 G3): NaN-box

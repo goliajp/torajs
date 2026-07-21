@@ -173,6 +173,17 @@ pub unsafe extern "C" fn __torajs_arr_concat(a: *const u8, b: *const u8) -> *mut
 /// `arr` must be a valid Array<T> heap block (8-byte slots).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_reverse(arr: *mut u8) -> *mut u8 {
+    // 刀 13d (RFC 20260721-array-proto-cluster) — an exotic
+    // `Array<Any>` receiver (accessor indexes / hole shadows) rides
+    // the §23.1.3.26 four-step MOP pair loop; the raw swap below
+    // stays the clean-receiver fast path (one predictable branch,
+    // header shares the len cache line).
+    unsafe {
+        let flags = (*(arr as *const torajs_rc::HeapHeader)).flags;
+        if flags & torajs_rc::FLAG_ARR_ANY != 0 && flags & torajs_rc::FLAG_ARR_EXOTIC_INDEX != 0 {
+            return crate::reverse_mop::reverse_mop(arr);
+        }
+    }
     let len = unsafe { arr_len(arr) };
     if len < 2 {
         return arr;

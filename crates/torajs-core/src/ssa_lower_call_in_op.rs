@@ -28,8 +28,8 @@
 //! a compiler bug.
 
 use crate::ast::{Expr, ExprId};
-use crate::ssa::{BinOp as SsaBinOp, IPred, InstKind, Operand, Type};
-use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx};
+use crate::ssa::{IPred, InstKind, Operand, Type};
+use crate::ssa_lower::LowerCtx;
 
 pub(crate) fn try_lower(
     ctx: &mut LowerCtx<'_>,
@@ -57,28 +57,21 @@ pub(crate) fn try_lower(
     };
     let cur_block = ctx.cur_block;
     if matches!(obj_ty, Type::Arr(_)) {
+        // 刀 13d (RFC 20260721-array-proto-cluster) — was a raw
+        // `0 <= key < len` bounds check, blind to hole shadows
+        // (delete / length-grow / elision) and to prototype digit
+        // keys. The kernel keeps the clean in-bounds answer at one
+        // flag test and walks §7.3.11 for everything else.
         let key_i64 = ctx.coerce_to_i64(key_op);
-        let len = ctx.f.append_inst(
+        let live = ctx.f.append_inst(
             cur_block,
-            InstKind::Load(Type::I64, obj_op, ARR_LEN_OFF),
+            InstKind::Call(ctx.intrinsics.arr_has_index, vec![obj_op, key_i64]),
             Type::I64,
-            None,
-        );
-        let ge0 = ctx.f.append_inst(
-            cur_block,
-            InstKind::ICmp(IPred::Sge, key_i64.clone(), Operand::ConstI64(0)),
-            Type::Bool,
-            None,
-        );
-        let lt = ctx.f.append_inst(
-            cur_block,
-            InstKind::ICmp(IPred::Slt, key_i64, Operand::Value(len)),
-            Type::Bool,
             None,
         );
         let r = ctx.f.append_inst(
             cur_block,
-            InstKind::BinOp(SsaBinOp::And, Operand::Value(ge0), Operand::Value(lt)),
+            InstKind::ICmp(IPred::Ne, Operand::Value(live), Operand::ConstI64(0)),
             Type::Bool,
             None,
         );
