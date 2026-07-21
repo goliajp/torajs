@@ -126,6 +126,18 @@ pub(crate) fn is_undef_f64_source(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
                 Some(crate::check::Type::Array(elem)) if **elem == crate::check::Type::Number
             )
         }
+        // `xs.at(i)` on a number[] rides the same OOB exit as `xs[i]`
+        // (RFC 20260721 G1 routes at() through the checked index
+        // branch), so its result may hold the sentinel too.
+        Expr::Call { callee, .. } => {
+            matches!(
+                ctx.ast.get_expr(*callee),
+                Expr::Member { obj, name } if name == "at" && matches!(
+                    ctx.expr_types.get(obj),
+                    Some(crate::check::Type::Array(elem)) if **elem == crate::check::Type::Number
+                )
+            )
+        }
         Expr::As { expr, .. } => is_undef_f64_source(ctx, *expr),
         _ => false,
     }

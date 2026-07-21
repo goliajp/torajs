@@ -117,23 +117,35 @@ pub(crate) fn try_dispatch(
             Type::I64,
             None,
         );
-        // T-13.5 deque: head-aware offset for arr.at(i).
-        let (off_base, off) =
-            ctx.emit_arr_slot_byte_offset(recv_op.clone(), Operand::Value(adj), 3, false);
-        let v = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::LoadDyn(elem_ty, off_base.clone(), off),
-            elem_ty,
-            None,
-        );
+        // ES §23.1.3.1 step 5-6 — `adj` outside [0, len) answers
+        // undefined, never a garbage slot read (RFC 20260721 G1: the
+        // old unchecked LoadDyn made `[].at(-2)` print a garbage tag
+        // and SIGSEGV on the follow-up rc traffic). Mirrors the plain
+        // `xs[i]` read split: Any elems ride the bounds-checked
+        // kernel pair (OOB boxes undefined), typed elems reuse the
+        // RFC 20260708 bounds branch — Str / F64 answer their
+        // undefined sentinels, other elem types record a catchable
+        // RangeError (no undefined representation in the slot type).
+        let v = if elem_ty == Type::Any {
+            crate::ssa_lower_index::lower_array_any_index(ctx, recv_op.clone(), Operand::Value(adj))
+        } else {
+            crate::ssa_lower_index::lower_typed_index_checked(
+                ctx,
+                recv_op.clone(),
+                Operand::Value(adj),
+                false,
+                elem_ty,
+            )
+        };
         // RFC 20260705 owned-result invariant: the answered element
         // shares ownership with the array slot (mirrors find/findLast,
         // ssa_lower_call_arr_predicate); without the inc a let-binding
-        // of `arr.at(i)` scope-drops a ref the slot still holds.
+        // of `arr.at(i)` scope-drops a ref the slot still holds. The
+        // OOB sentinels are FLAG_STATIC_LITERAL — inc is a no-op there.
         if elem_ty.is_refcounted() {
-            ctx.emit_rc_inc(Operand::Value(v));
+            ctx.emit_rc_inc(v.clone());
         }
-        return Some(Operand::Value(v));
+        return Some(v);
     }
     None
 }

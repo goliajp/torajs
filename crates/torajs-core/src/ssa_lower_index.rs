@@ -220,7 +220,7 @@ pub(crate) fn lower_from_value(
 ///
 /// In-bounds reads keep the direct LoadDyn; the two dominated
 /// compares are loop-eliminable under `i < arr.length` guards.
-fn lower_typed_index_checked(
+pub(crate) fn lower_typed_index_checked(
     ctx: &mut LowerCtx<'_>,
     arr_val: Operand,
     idx_val: Operand,
@@ -348,7 +348,11 @@ fn lower_string_index(
     Operand::Value(v)
 }
 
-fn lower_array_any_index(ctx: &mut LowerCtx<'_>, arr_val: Operand, idx_val: Operand) -> Operand {
+pub(crate) fn lower_array_any_index(
+    ctx: &mut LowerCtx<'_>,
+    arr_val: Operand,
+    idx_val: Operand,
+) -> Operand {
     let cur_block = ctx.cur_block;
     let tag = ctx.f.append_inst(
         cur_block,
