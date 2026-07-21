@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-21T02:32:06.869Z",
+  "generatedAt": "2026-07-21T06:06:46.860Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 95.01
   },
   "torajs": {
-    "commit": "dd1639aa",
-    "commitSubject": "fix: in operator stops at a null-prototype receiver instead of probing the object root",
+    "commit": "ce6a4319",
+    "commitSubject": "docs: carve-out marker on the print-freeze intrinsic declare table",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "ce6a4319",
+      "subject": "docs: carve-out marker on the print-freeze intrinsic declare table"
+    },
+    {
+      "hash": "2c8b1e07",
+      "subject": "feat: struct receivers route through the generic array-like arm"
+    },
+    {
+      "hash": "93f4effd",
+      "subject": "feat: sort undefined-last pre-probe for any elements and tostring for struct elements"
+    },
+    {
+      "hash": "2d7b09b0",
+      "subject": "feat: length-write protocol — splice lock ordering, double tonumber, arr-parent length"
+    },
+    {
+      "hash": "a41b6118",
+      "subject": "fix: canonical index presence on the array singleton ignores the shadow-entry table"
+    },
+    {
+      "hash": "13a7cf63",
+      "subject": "feat: array hole reads consult the prototype digit keys"
+    },
+    {
+      "hash": "b4b21c78",
+      "subject": "chore: hardev dashboard snapshot at rotation 172 close"
+    },
+    {
       "hash": "dd1639aa",
       "subject": "fix: in operator stops at a null-prototype receiver instead of probing the object root"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "35b5eb35",
       "subject": "fix: array iterator latches done on exhaustion instead of reviving on push"
-    },
-    {
-      "hash": "d098e052",
-      "subject": "chore: hardev dashboard snapshot at rotation 171 close"
-    },
-    {
-      "hash": "8e96dab8",
-      "subject": "refactor: move getorinsert lowering to sibling for map-dispatch file-size headroom"
-    },
-    {
-      "hash": "805332af",
-      "subject": "fix: map and set pack sites stranded owned-temp mint refs on typed lane"
-    },
-    {
-      "hash": "a61edd05",
-      "subject": "fix: dynamic string-key any-index read stranded its owned box on plain index"
-    },
-    {
-      "hash": "d33d73cc",
-      "subject": "fix: any-index-get owned result and receiver temp stranded on numeric any lane"
-    },
-    {
-      "hash": "c2a27e72",
-      "subject": "chore: test262 sweep snapshot at 7c9b03e1 (passtotal 13071, bug 687, fixed 70, appeared 0)"
-    },
-    {
-      "hash": "7c9b03e1",
-      "subject": "feat: regexp hasindices d flag with match-indices on exec-shape results"
     }
   ],
-  "headSha": "dd1639aa",
+  "headSha": "ce6a4319",
   "autorun": {
-    "total": 477,
+    "total": 478,
     "baselineTarget": 10,
-    "bySelf": 472,
+    "bySelf": 473,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784594307-66fe",
-      "at": "2026-07-21T00:38:27Z",
-      "ts": 1784594307,
+      "rotationId": "r-1784601140-1fb4",
+      "at": "2026-07-21T02:32:20Z",
+      "ts": 1784601140,
       "trigger": "self",
-      "prevHead": "d098e052",
-      "handoffSha": "sha256:6dba133523d0482a00ac5b0dcf20ed0d7b6e97eb6a47652751de707519a7123e",
-      "handoffAgeSec": 10,
+      "prevHead": "b4b21c78",
+      "handoffSha": "sha256:62e900f227de8932e14d5668bcc93f5340a1c449a939f79d24af37ee440f70a3",
+      "handoffAgeSec": 29,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784601140-1fb4",
+        "at": "2026-07-21T02:32:20Z",
+        "ts": 1784601140,
+        "trigger": "self",
+        "prevHead": "b4b21c78",
+        "handoffSha": "sha256:62e900f227de8932e14d5668bcc93f5340a1c449a939f79d24af37ee440f70a3",
+        "handoffAgeSec": 29,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784594307-66fe",
         "at": "2026-07-21T00:38:27Z",
@@ -876,17 +887,6 @@
         "prevHead": "8142b78f",
         "handoffSha": "sha256:8ed65c5d22a515ed2cad554d10303882d11acc4b2e59f4955576004fc78fc5ad",
         "handoffAgeSec": 65,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784540120-66d3",
-        "at": "2026-07-20T09:35:20Z",
-        "ts": 1784540120,
-        "trigger": "self",
-        "prevHead": "99982fe5",
-        "handoffSha": "sha256:94e3468ab45ddc763df1ef426c486605d9e27f487a928fd4d96dc09b70137c8f",
-        "handoffAgeSec": 44,
         "conformanceBefore": null,
         "commitsInSession": null
       }
