@@ -22,8 +22,10 @@
 //! recorded no-valueOf-dispatch boundary).
 //!
 //! Scope (3a): read family only — mutators (push / pop / splice /
-//! sort …) are chunk 3b; `Tag::Obj` struct receivers stay on the
-//! plain TypeError (RFC backlog).
+//! sort …) are chunk 3b. `Tag::Obj` struct receivers route in via
+//! the same call/apply re-dispatch gate (RFC 20260721 刀 8 G2a);
+//! their interior writes go through the member-set dispatcher,
+//! where growth rejects loud (the G10 posture).
 //!
 //! Argument ledger: argv slots are BORROWED; per-index Gets are
 //! OWNED (dropped here or transferred into products); returns

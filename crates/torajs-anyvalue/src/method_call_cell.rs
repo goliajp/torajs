@@ -139,6 +139,17 @@ pub(crate) unsafe fn cell_method(
     // L3b #9 (chunk 524) — static-layout struct receivers probe
     // the class-layouts field metadata instead of a dynobj table.
     if tag == Tag::Obj as u16 {
+        // 刀 8 G2a — the reified-cell call/apply re-dispatch (NULL
+        // name: the mid is authoritative) routes an array-family mid
+        // over a struct receiver through the ES generic array-like
+        // arm, same gate as the dynobj arm; interior writes go
+        // through the member-set dispatcher, where growth rejects
+        // loud (the G10 struct-dynamic-props posture).
+        if name_str.is_null() && crate::method_call_arraylike::arraylike_supported(mid) {
+            return Some(unsafe {
+                crate::method_call_arraylike::arraylike_method(ptr, mid, recv_slot, argv, argc)
+            });
+        }
         return Some(unsafe {
             crate::method_call_dynobj::struct_method(ptr, mid, name_str, argv, argc)
         });

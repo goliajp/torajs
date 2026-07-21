@@ -102,8 +102,8 @@ unsafe fn mint_key(k: i64) -> *mut u8 {
 unsafe fn set_at(obj: &mut *mut c_void, k: i64, v: AnyValue) {
     unsafe {
         let key = mint_key(k);
-        __torajs_dynobj_set(
-            obj as *mut *mut c_void,
+        set_prop(
+            obj,
             key as *mut c_void,
             __torajs_anyv_unbox_tag(v) as u64,
             __torajs_anyv_unbox_value(v) as u64,
@@ -116,8 +116,27 @@ unsafe fn set_at(obj: &mut *mut c_void, k: i64, v: AnyValue) {
 unsafe fn set_len(obj: &mut *mut c_void, n: i64) {
     unsafe {
         let key = __torajs_str_alloc(c"length".as_ptr() as *const u8, 6);
-        __torajs_dynobj_set(obj as *mut *mut c_void, key as *mut c_void, 2, n as u64);
+        set_prop(obj, key as *mut c_void, 2, n as u64);
         __torajs_str_drop(key as *mut c_void);
+    }
+}
+
+/// Receiver-dispatched `Set` (刀 8 G2a) — a DynObj receiver takes
+/// the raw bucket store (resize relocation threads through `obj`);
+/// anything else (a struct receiver reached via the call/apply
+/// re-dispatch) goes through the member-set dispatcher, where a
+/// same-typed field write lands and growth rejects loud (the G10
+/// posture) instead of corrupting a non-dynobj layout with a raw
+/// bucket store. The pair transfers either way.
+unsafe fn set_prop(obj: &mut *mut c_void, key: *mut c_void, tag: u64, value: u64) {
+    unsafe {
+        let hdr = ((*obj).cast::<u8>().add(4) as *const u16).read();
+        if hdr == torajs_rc::Tag::DynObj as u16 {
+            __torajs_dynobj_set(obj as *mut *mut c_void, key, tag, value);
+            return;
+        }
+        let mut slot: AnyValue = __torajs_anyv_box_pointer(*obj);
+        crate::member_set::__torajs_any_member_set(&mut slot, key, tag, value, -1);
     }
 }
 
