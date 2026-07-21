@@ -71,219 +71,65 @@ pub(crate) struct ArrAnyIds {
 }
 
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) -> ArrAnyIds {
-    let arr_alloc_any = declare_intrinsic(
-        module,
-        fn_table,
-        "__torajs_arr_alloc_any",
-        &[Type::I64],
-        Type::Ptr,
-    );
+    // Single-line declaration table (chunk 457 idiom — macro_rules
+    // locals are hygienic, so `module` / `fn_table` resolve at the
+    // definition site).
+    macro_rules! decl {
+        ($name:literal, [$($param:ident),*], $ret:ident) => {
+            declare_intrinsic(module, fn_table, $name, &[$(Type::$param),*], Type::$ret)
+        };
+    }
+    let arr_alloc_any = decl!("__torajs_arr_alloc_any", [I64], Ptr);
     // P0.10 `__torajs_arr_alloc_any_filled` — fn_table-only
     // registration. Its FuncId isn't held by the caller (resolved at
     // ssa_lower time via desugar Ident lookup), so it stays
     // anonymous; keep it inside `declare` so the registration order
     // mirrors the pre-extract inline source.
-    let _ = declare_intrinsic(
-        module,
-        fn_table,
-        "__torajs_arr_alloc_any_filled",
-        &[Type::I64],
-        Type::Ptr,
-    );
+    let _ = decl!("__torajs_arr_alloc_any_filled", [I64], Ptr);
     // §23.1.2.1 step 4.b — f64 entry for non-integer-provable Number
     // operands; keeps the fractional/NaN/Infinity bits the i64
     // coercion erases so the ToUint32(len) != len RangeError fires.
-    let _ = declare_intrinsic(
-        module,
-        fn_table,
-        "__torajs_arr_alloc_any_filled_f64",
-        &[Type::F64],
-        Type::Ptr,
-    );
+    let _ = decl!("__torajs_arr_alloc_any_filled_f64", [F64], Ptr);
     // Chunk 698 `__torajs_arr_any_to_typed` — fn_table-only (the
     // let-decl assign-boundary conversion resolves it by name).
-    let _ = declare_intrinsic(
-        module,
-        fn_table,
-        "__torajs_arr_any_to_typed",
-        &[Type::Ptr, Type::I64],
-        Type::Ptr,
-    );
+    let _ = decl!("__torajs_arr_any_to_typed", [Ptr, I64], Ptr);
     ArrAnyIds {
         arr_alloc_any,
-        arr_any_push: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_arr_any_push",
-            &[Type::Ptr, Type::Ptr, Type::I64, Type::Ptr],
-            Type::I64,
-        ),
-        arr_push_any: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_arr_push_any",
-            &[Type::Ptr, Type::I64, Type::I64],
-            Type::Ptr,
-        ),
-        arr_mark_last_hole: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_arr_mark_last_hole",
-            &[Type::Ptr],
-            Type::Void,
-        ),
-        arr_any_to_locale_string: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_arr_any_to_locale_string",
-            &[Type::Ptr],
-            Type::Str,
-        ),
-        arr_typed_to_locale_string: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_arr_typed_to_locale_string",
-            &[Type::Ptr, Type::I64],
-            Type::Str,
-        ),
-        arr_any_index_of: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_arr_any_index_of",
-            &[Type::Ptr, Type::Any, Type::I64],
-            Type::I64,
-        ),
-        arr_any_last_index_of: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_arr_any_last_index_of",
-            &[Type::Ptr, Type::Any, Type::I64],
-            Type::I64,
-        ),
-        arr_unshift_any: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_arr_unshift_any",
-            &[Type::Ptr, Type::I64, Type::I64],
-            Type::Ptr,
-        ),
-        arr_fill_any: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_arr_fill_any",
-            &[Type::Ptr, Type::I64, Type::I64, Type::I64, Type::I64],
-            Type::Ptr,
-        ),
-        arr_extend_any: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_arr_extend_any",
-            &[Type::Ptr, Type::Ptr],
-            Type::Ptr,
-        ),
+        arr_any_push: decl!("__torajs_arr_any_push", [Ptr, Ptr, I64, Ptr], I64),
+        arr_push_any: decl!("__torajs_arr_push_any", [Ptr, I64, I64], Ptr),
+        arr_mark_last_hole: decl!("__torajs_arr_mark_last_hole", [Ptr], Void),
+        arr_any_to_locale_string: decl!("__torajs_arr_any_to_locale_string", [Ptr], Str),
+        arr_typed_to_locale_string: decl!("__torajs_arr_typed_to_locale_string", [Ptr, I64], Str),
+        arr_any_index_of: decl!("__torajs_arr_any_index_of", [Ptr, Any, I64], I64),
+        arr_any_last_index_of: decl!("__torajs_arr_any_last_index_of", [Ptr, Any, I64], I64),
+        arr_unshift_any: decl!("__torajs_arr_unshift_any", [Ptr, I64, I64], Ptr),
+        arr_fill_any: decl!("__torajs_arr_fill_any", [Ptr, I64, I64, I64, I64], Ptr),
+        arr_extend_any: decl!("__torajs_arr_extend_any", [Ptr, Ptr], Ptr),
         // Flag-aware slice (concat's fresh-copy seed): FLAG_ARR_ANY
         // propagates onto the fresh header + per-slot NaN-box-safe
         // rc_inc — unlike raw arr_slice, whose product is flag-blind
         // (the drop walker then never decs the elements).
-        arr_any_slice: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_arr_any_slice",
-            &[Type::Ptr, Type::I64, Type::I64],
-            Type::Ptr,
-        ),
+        arr_any_slice: decl!("__torajs_arr_any_slice", [Ptr, I64, I64], Ptr),
         // 刀 13b — §23.1.3.33 high→low [[Get]]-order reverse copy
         // (getter side effects observed by later lower-index reads).
-        arr_any_to_reversed: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_arr_any_to_reversed",
-            &[Type::Ptr],
-            Type::Ptr,
-        ),
+        arr_any_to_reversed: decl!("__torajs_arr_any_to_reversed", [Ptr], Ptr),
         // 刀 13d — §7.3.11 numeric-key `in` on an Array receiver
         // (hole shadows + prototype digit keys; clean in-bounds
         // stays one flag test).
-        arr_has_index: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_arr_has_index",
-            &[Type::Ptr, Type::I64],
-            Type::I64,
-        ),
-        arr_set_any: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_arr_set_any",
-            &[Type::Ptr, Type::I64, Type::I64, Type::I64],
-            Type::Void,
-        ),
-        arr_set_any_grow: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_arr_set_any_grow",
-            &[Type::Ptr, Type::I64, Type::I64, Type::I64],
-            Type::Ptr,
-        ),
-        arr_typed_set_grow: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_arr_typed_set_grow",
-            &[Type::Ptr, Type::I64, Type::I64],
-            Type::Void,
-        ),
-        arr_index_revive_idx: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_arr_index_revive_idx",
-            &[Type::Ptr, Type::I64],
-            Type::Void,
-        ),
-        arr_null_check: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_arr_null_check",
-            &[Type::Ptr],
-            Type::Void,
-        ),
-        arr_get_any_tag: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_arr_get_any_tag",
-            &[Type::Ptr, Type::I64],
-            Type::I64,
-        ),
-        arr_get_any_value: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_arr_get_any_value",
-            &[Type::Ptr, Type::I64],
-            Type::I64,
-        ),
-        arr_get_any_boxed: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_arr_get_any_boxed",
-            &[Type::Ptr, Type::I64],
-            Type::Any,
-        ),
+        arr_has_index: decl!("__torajs_arr_has_index", [Ptr, I64], I64),
+        arr_set_any: decl!("__torajs_arr_set_any", [Ptr, I64, I64, I64], Void),
+        arr_set_any_grow: decl!("__torajs_arr_set_any_grow", [Ptr, I64, I64, I64], Ptr),
+        arr_typed_set_grow: decl!("__torajs_arr_typed_set_grow", [Ptr, I64, I64], Void),
+        arr_index_revive_idx: decl!("__torajs_arr_index_revive_idx", [Ptr, I64], Void),
+        arr_null_check: decl!("__torajs_arr_null_check", [Ptr], Void),
+        arr_get_any_tag: decl!("__torajs_arr_get_any_tag", [Ptr, I64], I64),
+        arr_get_any_value: decl!("__torajs_arr_get_any_value", [Ptr, I64], I64),
+        arr_get_any_boxed: decl!("__torajs_arr_get_any_boxed", [Ptr, I64], Any),
         // Chunk 628 — kind-aware pop/shift for static Arr<Any>
         // receivers (boxed result, empty → undefined, typed-behind-
         // any blocks rebox per elem kind; the any-method-call RFC's
         // runtime pair).
-        arr_any_pop: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_arr_any_pop",
-            &[Type::Ptr],
-            Type::Any,
-        ),
-        arr_any_shift: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_arr_any_shift",
-            &[Type::Ptr],
-            Type::Any,
-        ),
+        arr_any_pop: decl!("__torajs_arr_any_pop", [Ptr], Any),
+        arr_any_shift: decl!("__torajs_arr_any_shift", [Ptr], Any),
     }
 }
