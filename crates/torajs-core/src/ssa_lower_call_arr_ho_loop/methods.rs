@@ -70,6 +70,7 @@ pub(super) fn emit_filter(
     dst_slot: Option<ValueId>,
     dst_arr_ty: Type,
     elem: ValueId,
+    elem_ty: Type,
     known_fid: Option<FuncId>,
     fn_val: &Operand,
     fn_ty: Type,
@@ -116,6 +117,18 @@ pub(super) fn emit_filter(
         dst_arr_ty,
         None,
     );
+    // P0 chained-Array<Any>-temp bug fix (2026-07-23): the outer walker
+    // loads `elem` via a borrowed read — `arr_get_any_boxed` for
+    // Type::Any or a raw LoadDyn for typed heap kinds. Pushing that
+    // borrow directly into dst leaves dst's slot non-owning; when the
+    // src (typically a chain temp like `.map()`'s return) drops after
+    // the filter, dst's payload dangles. `arr.map(n=>n.toString())
+    // .filter(...)` inline chained: `"1-2-3"` decayed to `"1-2-1"`
+    // (repro m4.ts); `.slice()` was fine because its runtime kernel
+    // rc-incs. Emit an owned-result inc only for heap element kinds
+    // (Copy scalars keep the raw copy) and only inside push_blk so
+    // filtered-out elements don't inflate anyone's rc.
+    ctx.emit_owned_result_inc(Operand::Value(elem), elem_ty);
     let elem_arg = ctx.raw_slot_arg(Operand::Value(elem));
     ctx.f.append_void(
         ctx.cur_block,

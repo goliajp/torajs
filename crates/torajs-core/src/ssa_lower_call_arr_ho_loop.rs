@@ -198,7 +198,8 @@ pub(crate) fn emit_per_method_body(
             ctx, dst_slot, dst_arr_ty, elem, known_fid, fn_val, fn_ty, sig_params, this_arg,
         ),
         "filter" => emit_filter(
-            ctx, dst_slot, dst_arr_ty, elem, known_fid, fn_val, fn_ty, sig_params, this_arg,
+            ctx, dst_slot, dst_arr_ty, elem, elem_ty, known_fid, fn_val, fn_ty, sig_params,
+            this_arg,
         ),
         "reduce" | "reduceRight" => emit_reduce(
             ctx, acc_slot, acc_ty, elem, known_fid, fn_val, fn_ty, sig_params,
