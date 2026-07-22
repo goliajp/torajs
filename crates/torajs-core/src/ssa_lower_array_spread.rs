@@ -138,6 +138,24 @@ fn lower_spread_source(ctx: &mut LowerCtx<'_>, inner: ExprId) -> (Operand, Type,
         v = crate::ssa_lower_arr_from_set::emit(ctx, v);
         v_ty = Type::Arr(arr_any_id);
     }
+    // `[...map]` / `[...m.keys()/.values()/.entries()]` /
+    // `[...set.values()]` — a statically-typed Map or iterator cell.
+    // The unified runtime iteration protocol (`arr_from_any::emit`)
+    // already drives these behind the erased `any` tag, so box the
+    // heap source (tag-4 ANY_HEAP, an rc-neutral pure encode) and
+    // route it through the same materializer. Mirrors the `any` arm
+    // below (`was_any = true`): `emit` yields an owned `Arr<Any>`,
+    // and `release_owned_temp` settles the source temp's own stake
+    // (owned `m.keys()` call → dropped; borrowed Ident/Member → not).
+    if matches!(v_ty, Type::Map | Type::MapIter | Type::ArrIter) {
+        let arr_any_id = intern_arr_layout(ctx.arr_layouts, Type::Any);
+        let boxed = ctx.box_to_any(v.clone());
+        let materialized = crate::ssa_lower_arr_from_any::emit(ctx, boxed);
+        ctx.release_owned_temp(inner, &v);
+        v = materialized;
+        v_ty = Type::Arr(arr_any_id);
+        return (v, v_ty, true);
+    }
     // RFC 20260704 S5+ — `any` spread source: materialize through the
     // unified runtime iteration protocol into an owned Arr<Any> temp
     // (the assembler drops it after the extend).

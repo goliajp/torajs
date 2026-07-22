@@ -81,6 +81,14 @@ fn elem_value_ty(checker: &mut Checker, ast: &Ast, eid: ExprId) -> Result<Option
             Type::Array(inner) => Ok(Some(*inner)),
             Type::String => Ok(Some(Type::String)),
             Type::Set => Ok(Some(Type::Any)),
+            // `[...map]` (entry pairs) / `[...m.keys()/.values()/
+            // .entries()]` / `[...set.values()]` — the collection and
+            // its iterator cells drive the same unified runtime
+            // iteration protocol as the `any` arm below, so the
+            // materialized product is `Array<Any>` (type-erased,
+            // mirroring the Set arm). Lowering boxes the source and
+            // routes it through `ssa_lower_arr_from_any::emit`.
+            Type::Map | Type::MapIter | Type::ArrIter => Ok(Some(Type::Any)),
             // RFC 20260704 S5+ — `[...anyval]` iterates at runtime
             // through the unified protocol; elements are type-erased.
             Type::Any => Ok(Some(Type::Any)),
