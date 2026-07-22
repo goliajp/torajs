@@ -234,7 +234,10 @@ pub fn to_precision_f(n: f64, digits: i64) -> Vec<u8> {
     let exp_str = &e_form[e_pos + 1..];
     let x: i64 = exp_str.parse().unwrap_or(0);
 
-    let formatted = if x >= -4 && x < precision {
+    // ES §21.1.3.5 step 11 — fixed form for e ∈ [−6, p); C `%g`'s
+    // `-4` lower bound is NOT the JS rule ((0.000001).toPrecision(1)
+    // is "0.000001", not "1e-6").
+    let formatted = if x >= -6 && x < precision {
         // %f form: precision - 1 - X digits after the decimal.
         // Pre-round half-away-from-zero (matches `to_fixed_f` lines
         // 116-121): Rust `format!("{:.*}", _, _)` rounds half-to-even
@@ -607,11 +610,19 @@ mod tests {
 
     #[test]
     fn to_precision_uses_e_form_out_of_range() {
-        // X = 6, precision = 3, 6 NOT in [-4, 3) → %e form.
+        // X = 6, precision = 3, 6 NOT in [-6, 3) → %e form.
         assert_eq!(to_precision_f(1234567.0, 3), b"1.23e+6".to_vec());
-        // X = -5, precision = 6, -5 NOT in [-4, 6) → %e form.
-        // 0.00001234 = 1.234e-5 → mantissa 6 digits = "1.23400".
-        assert_eq!(to_precision_f(0.00001234, 6), b"1.23400e-5".to_vec());
+        // X = -7, precision = 2, -7 NOT in [-6, 2) → %e form (the
+        // JS lower bound is -6, not C %g's -4 — ES §21.1.3.5).
+        assert_eq!(to_precision_f(0.00000012, 2), b"1.2e-7".to_vec());
+    }
+
+    #[test]
+    fn to_precision_f_form_at_js_lower_bound() {
+        // X ∈ {-5, -6} sits INSIDE the JS fixed-form window [-6, p)
+        // — C %g would flip to %e at -5 (bun: "0.0000123400").
+        assert_eq!(to_precision_f(0.00001234, 6), b"0.0000123400".to_vec());
+        assert_eq!(to_precision_f(0.000001, 1), b"0.000001".to_vec());
     }
 
     #[test]
