@@ -193,6 +193,15 @@ pub(crate) fn lower_inner(
         &aliases,
         &struct_layouts,
     );
+    // W-J Phase A1 fix (P1 rc bug 2026-07-23) — record the Pass-1.5
+    // snapshot boundary so populate_class_layouts stays in sync with
+    // pool tag assignments. Every sid appended past this index is
+    // Pass-2 territory: either fresh (pool-assigned tag via append) or
+    // pool-agnostic (e.g. iter_next's IteratorResult hardcodes
+    // class_tag=0, never looked up in class_layouts). Emitting either
+    // shape in populate shifts anon indices and breaks the pool's
+    // `next_tag_start = n_named + snapshot.len() + 1` invariant.
+    let struct_layouts_pass15_len = struct_layouts.len();
 
     body_passes::run(
         decl_indices,
@@ -238,6 +247,7 @@ pub(crate) fn lower_inner(
         &class_name_to_tag,
         &aliases,
         &anon_stamp_pool,
+        struct_layouts_pass15_len,
     );
 
     module
@@ -452,6 +462,7 @@ fn finalize_module(
     class_name_to_tag: &HashMap<String, u32>,
     aliases: &HashMap<String, Type>,
     anon_stamp_pool: &crate::ssa_lower_anon_stamp::AnonStampPoolCell,
+    struct_layouts_pass15_len: usize,
 ) {
     module.arr_layouts = arr_layouts;
     module.signatures = fn_sigs;
@@ -470,6 +481,7 @@ fn finalize_module(
         class_name_to_tag,
         aliases,
         module,
+        struct_layouts_pass15_len,
     );
 
     // W-J Phase A1 follow-up — append `ClassLayoutMeta` rows for

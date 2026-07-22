@@ -182,6 +182,7 @@ pub(crate) fn populate_class_layouts(
     class_name_to_tag: &HashMap<String, u32>,
     aliases: &HashMap<String, Type>,
     module: &mut Module,
+    struct_layouts_pass15_len: usize,
 ) {
     // T-26.C — named-class metadata, walked in `class_name_to_tag`
     // order so the resulting Vec lines up with the runtime's index
@@ -255,8 +256,20 @@ pub(crate) fn populate_class_layouts(
             _ => None,
         })
         .collect();
+    // W-J Phase A1 fix (P1 rc bug 2026-07-23) — only walk struct_layouts
+    // up to the Pass-1.5 snapshot boundary. Every sid appended past
+    // this index is Pass-2 territory: pool-assigned fresh anons get
+    // emitted by `append_fresh_class_layouts` (matching the pool's
+    // `next_tag_start = n_named + snapshot.len() + 1` invariant), and
+    // pool-agnostic Pass-2 sids (e.g. iter_next's IteratorResult with
+    // hardcoded class_tag=0) are never looked up in class_layouts.
+    // Emitting either shape here shifts populate's implicit tag =
+    // index+1, causing pool-vs-populate mismatch — for the crash
+    // trigger `const t = xs.values(); t.next(); const objs = [{id:1}]`,
+    // populate would emit IteratorResult at {id:1}'s pool tag → cycle
+    // walker reads {id:1}'s scalar `1` as a heap child → SIGSEGV.
     let layouts = module.struct_layouts.clone();
-    for (sid_idx, layout) in layouts.iter().enumerate() {
+    for (sid_idx, layout) in layouts.iter().enumerate().take(struct_layouts_pass15_len) {
         let sid = ssa::StructId(sid_idx as u32);
         if named_sids.contains(&sid) {
             continue;
