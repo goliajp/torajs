@@ -68,6 +68,19 @@ pub(crate) fn try_lower(
     if recv_ty == Type::BigInt && m_name == "toString" {
         return Some(emit_bigint_to_string(ctx, recv_op, args));
     }
+    // §Intl fallback — default-locale grouped decimal (the
+    // `num_to_locale_i` posture); the checker admits the 0-arg form
+    // only, so no locales/options lowering here.
+    if recv_ty == Type::BigInt && m_name == "toLocaleString" {
+        let cur_block = ctx.cur_block;
+        let v = ctx.f.append_inst(
+            cur_block,
+            InstKind::Call(ctx.intrinsics.bigint_to_locale_string, vec![recv_op]),
+            Type::Str,
+            None,
+        );
+        return Some(Operand::Value(v));
+    }
     if recv_ty == Type::Symbol && (m_name == "toString" || m_name == "toLocaleString") {
         return Some(emit_str_intrinsic(
             ctx,

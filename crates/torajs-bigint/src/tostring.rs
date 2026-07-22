@@ -97,6 +97,16 @@ unsafe fn to_string_radix(a_: *const c_void, radix: u32) -> *mut u8 {
         if a_len == 0 {
             return alloc_str(b"0");
         }
+        let (buf, pos) = radix_bytes(a, a_len, radix);
+        alloc_str(&buf[pos..])
+    }
+}
+
+/// The digit-emission body of [`to_string_radix`] — split so the
+/// locale kernel below can post-process the same byte run (sign +
+/// digits live in `buf[pos..]`) before the Str alloc.
+unsafe fn radix_bytes(a: *const u8, a_len: u32, radix: u32) -> (Vec<u8>, usize) {
+    unsafe {
         let (chunk, chunk_digits) = if radix == 10 {
             (DEC_CHUNK, DEC_CHUNK_DIGITS)
         } else {
@@ -149,7 +159,7 @@ unsafe fn to_string_radix(a_: *const c_void, radix: u32) -> *mut u8 {
             pos -= 1;
             buf[pos] = b'-';
         }
-        alloc_str(&buf[pos..])
+        (buf, pos)
     }
 }
 
@@ -160,6 +170,39 @@ unsafe fn to_string_radix(a_: *const c_void, radix: u32) -> *mut u8 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_bigint_to_string(a_: *const c_void) -> *mut u8 {
     unsafe { to_string_radix(a_, 10) }
+}
+
+/// `a.toLocaleString()` for BigInt — the default-locale grouped
+/// decimal form (§6.1.6.2 via Intl fallback): en-US-style comma
+/// groups of three from the right, sign passed through. Mirrors
+/// `__torajs_num_to_locale_i`'s posture — locales/options arguments
+/// are not consumed (the full Intl.NumberFormat surface is a
+/// recorded substrate item); the checker admits the 0-arg form.
+///
+/// # Safety
+/// `a_` must be a valid BigInt heap pointer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_bigint_to_locale_string(a_: *const c_void) -> *mut u8 {
+    let a = a_ as *const u8;
+    unsafe {
+        let a_len = read_len(a);
+        if a_len == 0 {
+            return alloc_str(b"0");
+        }
+        let (buf, pos) = radix_bytes(a, a_len, 10);
+        let digits = &buf[pos..];
+        let sign = usize::from(digits[0] == b'-');
+        let ndigits = digits.len() - sign;
+        let mut out = Vec::with_capacity(digits.len() + ndigits / 3);
+        out.extend_from_slice(&digits[..sign]);
+        for (i, &d) in digits[sign..].iter().enumerate() {
+            if i > 0 && (ndigits - i) % 3 == 0 {
+                out.push(b',');
+            }
+            out.push(d);
+        }
+        alloc_str(&out)
+    }
 }
 
 /// `a.toString(radix)` for BigInt per ES §6.1.6.2.13. `radix` is

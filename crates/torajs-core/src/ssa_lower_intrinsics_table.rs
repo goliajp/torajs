@@ -490,6 +490,7 @@ pub(crate) fn build(
         bigint_is_nonzero: init_c.bigint.bigint_is_nonzero,
         bigint_to_string: init_c.bigint.bigint_to_string,
         bigint_to_string_radix: init_c.bigint.bigint_to_string_radix,
+        bigint_to_locale_string: init_c.bigint.bigint_to_locale_string,
         bigint_as_int_n: init_c.bigint.bigint_as_int_n,
         bigint_as_uint_n: init_c.bigint.bigint_as_uint_n,
         bigint_drop_rc: init_c.bigint.bigint_drop_rc,

@@ -556,6 +556,7 @@ pub(crate) struct Intrinsics {
     pub(crate) bigint_is_nonzero: FuncId,
     pub(crate) bigint_to_string: FuncId,
     pub(crate) bigint_to_string_radix: FuncId,
+    pub(crate) bigint_to_locale_string: FuncId,
     pub(crate) bigint_as_int_n: FuncId,
     pub(crate) bigint_as_uint_n: FuncId,
     pub(crate) bigint_drop_rc: FuncId,

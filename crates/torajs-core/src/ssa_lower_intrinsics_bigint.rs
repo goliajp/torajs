@@ -48,6 +48,7 @@ pub(crate) struct BigIntIds {
     pub bigint_is_nonzero: FuncId,
     pub bigint_to_string: FuncId,
     pub bigint_to_string_radix: FuncId,
+    pub bigint_to_locale_string: FuncId,
     pub bigint_as_int_n: FuncId,
     pub bigint_as_uint_n: FuncId,
     pub bigint_drop_rc: FuncId,
@@ -145,6 +146,13 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             fn_table,
             "__torajs_bigint_to_string_radix",
             &[Type::BigInt, Type::I64],
+            Type::Str,
+        ),
+        bigint_to_locale_string: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_bigint_to_locale_string",
+            &[Type::BigInt],
             Type::Str,
         ),
         bigint_as_int_n: declare_intrinsic(
