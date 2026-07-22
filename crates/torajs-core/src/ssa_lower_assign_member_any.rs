@@ -26,21 +26,60 @@ pub(crate) fn lower_dynobj_assign(
     let transfers = ctx.expr_transfers_ownership(value);
     let v_ty = ctx.operand_ty(&v_raw);
     let v_keep = v_raw.clone();
-    let (tag, val_op): (i64, Operand) = match v_ty {
-        Type::I64 | Type::I32 => (2, v_raw),
+    let (tag_op, val_op): (Operand, Operand) = match v_ty {
+        Type::I64 | Type::I32 => (Operand::ConstI64(2), v_raw),
         Type::F64 => {
             let cur_block = ctx.cur_block;
             let bits =
                 ctx.f
                     .append_inst(cur_block, InstKind::BitCastF64ToI64(v_raw), Type::I64, None);
-            (3, Operand::Value(bits))
+            (Operand::ConstI64(3), Operand::Value(bits))
         }
         Type::Bool => {
             let cur_block = ctx.cur_block;
             let zext =
                 ctx.f
                     .append_inst(cur_block, InstKind::ZExtBoolToI64(v_raw), Type::I64, None);
-            (1, Operand::Value(zext))
+            (Operand::ConstI64(1), Operand::Value(zext))
+        }
+        // Rotation 185 — a Str / Substr slot may hold a nullish repr
+        // (NULL = JS null, the undefined sentinel cell / view); the
+        // static tag-4 pack encoded the sentinel as a heap cell, so
+        // `o.a = m[1]` (missed capture) read back as the string
+        // "undefined". Same pair decode as box_to_tag_value; the
+        // value half takes the bucket's +1 for a heap cell (chunk
+        // 566 SHARE contract — rc/drop no-op on the sentinels).
+        Type::Str => {
+            let cur_block = ctx.cur_block;
+            let tag_v = ctx.f.append_inst(
+                cur_block,
+                InstKind::Call(ctx.intrinsics.anyv_str_slot_tag, vec![v_raw]),
+                Type::I64,
+                None,
+            );
+            let val_v = ctx.f.append_inst(
+                cur_block,
+                InstKind::Call(ctx.intrinsics.anyv_str_slot_value, vec![v_raw]),
+                Type::I64,
+                None,
+            );
+            (Operand::Value(tag_v), Operand::Value(val_v))
+        }
+        Type::Substr => {
+            let cur_block = ctx.cur_block;
+            let tag_v = ctx.f.append_inst(
+                cur_block,
+                InstKind::Call(ctx.intrinsics.anyv_substr_slot_tag, vec![v_raw]),
+                Type::I64,
+                None,
+            );
+            let val_v = ctx.f.append_inst(
+                cur_block,
+                InstKind::Call(ctx.intrinsics.anyv_substr_slot_value, vec![v_raw]),
+                Type::I64,
+                None,
+            );
+            (Operand::Value(tag_v), Operand::Value(val_v))
         }
         // P4.0 — Type::Any must be unboxed BEFORE the is_refcounted
         // catch-all (see matching arm-order fix in
@@ -58,7 +97,7 @@ pub(crate) fn lower_dynobj_assign(
         }
         _ if v_ty.is_refcounted() => {
             ctx.emit_rc_inc(v_raw);
-            (4, v_raw)
+            (Operand::ConstI64(4), v_raw)
         }
         // 2026-07-16 — an `undefined` literal RHS (`obj.k = undefined`)
         // reaches here as ConstPtrNull; the checker still tagged
@@ -72,21 +111,14 @@ pub(crate) fn lower_dynobj_assign(
                 ctx.expr_types.get(&value),
                 Some(crate::check::Type::Undefined)
             ) {
-                (5, Operand::ConstI64(0))
+                (Operand::ConstI64(5), Operand::ConstI64(0))
             } else {
-                (0, Operand::ConstI64(0))
+                (Operand::ConstI64(0), Operand::ConstI64(0))
             }
         }
         _ => panic!("ssa-lower: dynobj assign unsupported value type {v_ty:?}"),
     };
-    emit_any_member_set(
-        ctx,
-        obj_val,
-        field,
-        Operand::ConstI64(tag),
-        val_op,
-        obj_ident,
-    );
+    emit_any_member_set(ctx, obj_val, field, tag_op, val_op, obj_ident);
     if transfers && v_ty.is_refcounted() {
         ctx.emit_drop_value(v_keep, v_ty);
     }

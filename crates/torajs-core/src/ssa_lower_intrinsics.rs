@@ -388,6 +388,8 @@ pub(crate) struct Intrinsics {
     pub(crate) anyv_box_substr_slot: FuncId,
     pub(crate) anyv_str_slot_tag: FuncId,
     pub(crate) anyv_str_slot_value: FuncId,
+    pub(crate) anyv_substr_slot_tag: FuncId,
+    pub(crate) anyv_substr_slot_value: FuncId,
     pub(crate) any_payload_rc_inc: FuncId,
     pub(crate) anyv_retain: FuncId,
     pub(crate) proto_register: FuncId,

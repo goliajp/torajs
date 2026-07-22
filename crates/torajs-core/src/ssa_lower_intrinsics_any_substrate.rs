@@ -83,6 +83,10 @@ pub(crate) struct AnySubstrateIds {
     pub anyv_box_substr_slot: FuncId,
     pub anyv_str_slot_tag: FuncId,
     pub anyv_str_slot_value: FuncId,
+    /// Rotation 185 — Substr mirrors of the Str-slot pair decode
+    /// (the (tag, value) boundary twin of `anyv_box_substr_slot`).
+    pub anyv_substr_slot_tag: FuncId,
+    pub anyv_substr_slot_value: FuncId,
     pub any_payload_rc_inc: FuncId,
     /// RFC 20260708-closure-argv-face — whole-box heap-payload
     /// retain (`__torajs_anyv_retain`); immediates no-op.
@@ -233,6 +237,8 @@ pub(crate) fn declare(
         anyv_box_substr_slot: decl!("__torajs_anyv_box_substr_slot", [Substr], Any),
         anyv_str_slot_tag: decl!("__torajs_anyv_str_slot_tag", [Str], I64),
         anyv_str_slot_value: decl!("__torajs_anyv_str_slot_value", [Str], I64),
+        anyv_substr_slot_tag: decl!("__torajs_anyv_substr_slot_tag", [Substr], I64),
+        anyv_substr_slot_value: decl!("__torajs_anyv_substr_slot_value", [Substr], I64),
         any_payload_rc_inc: decl!("__torajs_anyv_payload_rc_inc_pair", [I64, I64], Void),
         anyv_retain: decl!("__torajs_anyv_retain", [Any], Any),
         proto_register: decl!("__torajs_anyv_proto_register", [I64, Any], Void),

@@ -132,6 +132,35 @@ pub unsafe extern "C" fn __torajs_anyv_str_slot_tag(p: *mut c_void) -> i64 {
     }
 }
 
+/// `(tag, …)` half of the Substr-slot pair decode (rotation 185 —
+/// Substr mirror of [`__torajs_anyv_str_slot_tag`], identity
+/// compared against the Substr-shaped sentinel view).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_substr_slot_tag(p: *mut c_void) -> i64 {
+    if p.is_null() {
+        AnySlotTag::Null as i64
+    } else if p == unsafe { __torajs_substr_undef() } as *mut c_void {
+        AnySlotTag::Undef as i64
+    } else {
+        AnySlotTag::Heap as i64
+    }
+}
+
+/// `(…, value)` half of the Substr-slot pair decode (rotation 185 —
+/// mirror of [`__torajs_anyv_str_slot_value`]): 0 for both nullish
+/// shapes, the pointer + rc_inc for a heap Substr view (the slot
+/// takes its +1; the sentinel's FLAG_STATIC_LITERAL makes the inc a
+/// no-op path it never reaches anyway).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_substr_slot_value(p: *mut c_void) -> i64 {
+    if p.is_null() || p == unsafe { __torajs_substr_undef() } as *mut c_void {
+        0
+    } else {
+        payload_rc_inc(AnySlotTag::Heap as i64, p as i64);
+        p as i64
+    }
+}
+
 /// `(…, value)` half of the Str-slot pair decode: 0 for both
 /// nullish shapes (an Undef/Null pair's value MUST be 0 — strict-eq
 /// compares the reconstructed box bit-for-bit), the pointer +

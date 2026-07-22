@@ -255,6 +255,28 @@ impl<'a> LowerCtx<'a> {
                 );
                 (Operand::Value(tag_v), Operand::Value(val_v))
             }
+            // Rotation 185 — the (tag, value) twin of box_to_any's
+            // Substr arm: a Substr slot may hold the Substr-shaped
+            // undefined sentinel (string index OOB read), which the
+            // refcounted catch-all would encode as a tag-4 heap cell
+            // (Map.set / member-assign consumers then misread it as
+            // a string). The pair helpers decode at runtime; the
+            // value half takes the slot's +1 for a heap view.
+            Type::Substr => {
+                let tag_v = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(self.intrinsics.anyv_substr_slot_tag, vec![val.clone()]),
+                    Type::I64,
+                    None,
+                );
+                let val_v = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(self.intrinsics.anyv_substr_slot_value, vec![val]),
+                    Type::I64,
+                    None,
+                );
+                (Operand::Value(tag_v), Operand::Value(val_v))
+            }
             _ if val_ty.is_refcounted() => {
                 self.emit_rc_inc(val.clone());
                 // RFC 20260704 S1 — typed arr crossing into `any`

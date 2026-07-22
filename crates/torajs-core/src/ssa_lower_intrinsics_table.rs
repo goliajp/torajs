@@ -347,6 +347,8 @@ pub(crate) fn build(
         anyv_box_substr_slot: init_c.any_substrate.anyv_box_substr_slot,
         anyv_str_slot_tag: init_c.any_substrate.anyv_str_slot_tag,
         anyv_str_slot_value: init_c.any_substrate.anyv_str_slot_value,
+        anyv_substr_slot_tag: init_c.any_substrate.anyv_substr_slot_tag,
+        anyv_substr_slot_value: init_c.any_substrate.anyv_substr_slot_value,
         any_payload_rc_inc: init_c.any_substrate.any_payload_rc_inc,
         anyv_retain: init_c.any_substrate.anyv_retain,
         proto_register: init_c.any_substrate.proto_register,
