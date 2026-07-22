@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-21T23:19:59.806Z",
+  "generatedAt": "2026-07-22T01:48:54.571Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 95.81
   },
   "torajs": {
-    "commit": "59e8c027",
-    "commitSubject": "fix: promise resolve passes a promise through by identity",
+    "commit": "8142705e",
+    "commitSubject": "fix: toprecision fixed-form window uses js e >= -6 bound not c %g -4",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "8142705e",
+      "subject": "fix: toprecision fixed-form window uses js e >= -6 bound not c %g -4"
+    },
+    {
+      "hash": "01e18db4",
+      "subject": "feat: date tojson runs receiver-generic spec body on reified cell call"
+    },
+    {
+      "hash": "b0a4e1d6",
+      "subject": "feat: bigint tolocalestring emits default-locale grouped decimal"
+    },
+    {
+      "hash": "7ff6ffc8",
+      "subject": "feat: promise all accepts mixed any-array input via nan-box slot walk"
+    },
+    {
+      "hash": "20342655",
+      "subject": "feat: promise withresolvers mints pending promise with settle function pair"
+    },
+    {
+      "hash": "9ddf09b3",
+      "subject": "chore: hardev dashboard snapshot at rotation 182 close"
+    },
+    {
       "hash": "59e8c027",
       "subject": "fix: promise resolve passes a promise through by identity"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "3cba6954",
       "subject": "chore: hardev dashboard snapshot at rotation 181 close"
-    },
-    {
-      "hash": "6306a943",
-      "subject": "fix: meta rows for the symbol prototype dedicated mids"
-    },
-    {
-      "hash": "0ad9ab8a",
-      "subject": "feat: symbol prototype tostring valueof this-symbol-value gate"
-    },
-    {
-      "hash": "52b122de",
-      "subject": "feat: regexp lastindex any-slot verbatim storage"
-    },
-    {
-      "hash": "fc7ae74f",
-      "subject": "chore: test262 sweep at 0734ea7d — passTotal 13269 (+94), bug 581 (-30)"
-    },
-    {
-      "hash": "0734ea7d",
-      "subject": "fix: objlit reassign into any slot promotes to dynobj lane"
-    },
-    {
-      "hash": "c5ad9ad2",
-      "subject": "feat: builtin proto singleton direct call wrapper semantics"
     }
   ],
-  "headSha": "59e8c027",
+  "headSha": "8142705e",
   "autorun": {
-    "total": 487,
+    "total": 488,
     "baselineTarget": 10,
-    "bySelf": 482,
+    "bySelf": 483,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784669997-6bbb",
-      "at": "2026-07-21T21:39:57Z",
-      "ts": 1784669997,
+      "rotationId": "r-1784676049-25be",
+      "at": "2026-07-21T23:20:49Z",
+      "ts": 1784676049,
       "trigger": "self",
-      "prevHead": "3cba6954",
-      "handoffSha": "sha256:35dd1b456884f61b8c6d69e1ecc51e10bbf384a3305e78e365af1825ac4bbfec",
-      "handoffAgeSec": 5,
+      "prevHead": "9ddf09b3",
+      "handoffSha": "sha256:38ef05baa24c745ac88e08da5dce361571877bee5cac1845d4258783c1c96f57",
+      "handoffAgeSec": 7,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784676049-25be",
+        "at": "2026-07-21T23:20:49Z",
+        "ts": 1784676049,
+        "trigger": "self",
+        "prevHead": "9ddf09b3",
+        "handoffSha": "sha256:38ef05baa24c745ac88e08da5dce361571877bee5cac1845d4258783c1c96f57",
+        "handoffAgeSec": 7,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784669997-6bbb",
         "at": "2026-07-21T21:39:57Z",
@@ -876,17 +887,6 @@
         "prevHead": "9a8646bb",
         "handoffSha": "sha256:96748ef7c76c383c371631a129a1933d28ce5223c41f15821f3c258d1055c55f",
         "handoffAgeSec": 8,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784601140-1fb4",
-        "at": "2026-07-21T02:32:20Z",
-        "ts": 1784601140,
-        "trigger": "self",
-        "prevHead": "b4b21c78",
-        "handoffSha": "sha256:62e900f227de8932e14d5668bcc93f5340a1c449a939f79d24af37ee440f70a3",
-        "handoffAgeSec": 29,
         "conformanceBefore": null,
         "commitsInSession": null
       }
