@@ -199,6 +199,28 @@ pub(crate) fn lower(ctx: &mut LowerCtx, val_op: Operand, ty: Type) -> Operand {
             ctx.emit_drop_value(Operand::Value(owned), Type::Str);
             Operand::Value(v)
         }
+        // Rotation 185 — Date stringifies through its toJSON
+        // (§25.5.2.4 step 2): valid → quoted ISO string, invalid →
+        // Str-slot NULL (JS null), which json_quote_str's nullish
+        // arm turns into the "null" text. Same answer at top level
+        // and inside composites, so one arm covers all three shapes
+        // (direct call / struct field / typed arr element).
+        Type::Date => {
+            let iso = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.date_to_json, vec![val_op]),
+                Type::Str,
+                None,
+            );
+            let v = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.json_quote_str, vec![Operand::Value(iso)]),
+                Type::Str,
+                None,
+            );
+            ctx.emit_drop_value(Operand::Value(iso), Type::Str);
+            Operand::Value(v)
+        }
         Type::Arr(arr_id) => composite::lower_arr(ctx, val_op, arr_id),
         Type::Obj(sid) => composite_obj::lower_obj(ctx, val_op, sid),
         Type::Ptr => {
