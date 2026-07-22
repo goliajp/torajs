@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-22T05:38:25.148Z",
+  "generatedAt": "2026-07-22T05:54:53.281Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 95.81
   },
   "torajs": {
-    "commit": "4af9acd8",
-    "commitSubject": "fix: overwritten reduce accumulator releases its stake",
+    "commit": "b418f835",
+    "commitSubject": "feat: string array find miss answers the undefined sentinel",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,18 @@
   },
   "commits": [
     {
+      "hash": "b418f835",
+      "subject": "feat: string array find miss answers the undefined sentinel"
+    },
+    {
+      "hash": "a7ec2644",
+      "subject": "fix: regexp source and flags reads record their owned result"
+    },
+    {
+      "hash": "c24e73bb",
+      "subject": "chore: hardev dashboard snapshot at rotation 185 close"
+    },
+    {
       "hash": "4af9acd8",
       "subject": "fix: overwritten reduce accumulator releases its stake"
     },
@@ -747,21 +759,9 @@
     {
       "hash": "3903643f",
       "subject": "fix: integer literals beyond 2^53 stay f64-tier for double print semantics"
-    },
-    {
-      "hash": "9bfe7795",
-      "subject": "feat: typed date tojson answers null for invalid date via str-slot null kernel"
-    },
-    {
-      "hash": "24f16333",
-      "subject": "fix: any-box call args take explicit stake and optindex view stake moves into box"
-    },
-    {
-      "hash": "59d52ddc",
-      "subject": "feat: two-arg then admits any-inner and array-inner promise receivers"
     }
   ],
-  "headSha": "4af9acd8",
+  "headSha": "b418f835",
   "autorun": {
     "total": 490,
     "baselineTarget": 10,
