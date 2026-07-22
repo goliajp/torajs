@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-22T04:33:32.859Z",
+  "generatedAt": "2026-07-22T05:38:25.148Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 95.81
   },
   "torajs": {
-    "commit": "08787543",
-    "commitSubject": "feat: native two-arg then kernel attaches both handlers in one microtask registration",
+    "commit": "4af9acd8",
+    "commitSubject": "fix: overwritten reduce accumulator releases its stake",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "4af9acd8",
+      "subject": "fix: overwritten reduce accumulator releases its stake"
+    },
+    {
+      "hash": "8366895c",
+      "subject": "fix: four borrowed-source box sites steal their slot's stake after the rc-neutral box switch"
+    },
+    {
+      "hash": "583ec207",
+      "subject": "fix: str and substr sentinels decode at the tag-value boundary"
+    },
+    {
+      "hash": "e1cd5642",
+      "subject": "feat: typed json.stringify gains a date arm via the tojson kernel"
+    },
+    {
+      "hash": "4df87878",
+      "subject": "feat: substr undefined sentinel decodes to real undefined at the any boundary"
+    },
+    {
+      "hash": "4508edfe",
+      "subject": "chore: hardev dashboard snapshot at rotation 184 close"
+    },
+    {
       "hash": "08787543",
       "subject": "feat: native two-arg then kernel attaches both handlers in one microtask registration"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "59d52ddc",
       "subject": "feat: two-arg then admits any-inner and array-inner promise receivers"
-    },
-    {
-      "hash": "613b60b3",
-      "subject": "fix: no-desc symbol description answers undefined sentinel not null"
-    },
-    {
-      "hash": "b5fdd06c",
-      "subject": "chore: hardev dashboard snapshot at rotation 183 close"
-    },
-    {
-      "hash": "8142705e",
-      "subject": "fix: toprecision fixed-form window uses js e >= -6 bound not c %g -4"
-    },
-    {
-      "hash": "01e18db4",
-      "subject": "feat: date tojson runs receiver-generic spec body on reified cell call"
-    },
-    {
-      "hash": "b0a4e1d6",
-      "subject": "feat: bigint tolocalestring emits default-locale grouped decimal"
-    },
-    {
-      "hash": "7ff6ffc8",
-      "subject": "feat: promise all accepts mixed any-array input via nan-box slot walk"
     }
   ],
-  "headSha": "08787543",
+  "headSha": "4af9acd8",
   "autorun": {
-    "total": 489,
+    "total": 490,
     "baselineTarget": 10,
-    "bySelf": 484,
+    "bySelf": 485,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784685002-3eeb",
-      "at": "2026-07-22T01:50:02Z",
-      "ts": 1784685002,
+      "rotationId": "r-1784694821-606f",
+      "at": "2026-07-22T04:33:41Z",
+      "ts": 1784694821,
       "trigger": "self",
-      "prevHead": "b5fdd06c",
-      "handoffSha": "sha256:b5b88116febee8143a173735af58f4ab901a82f0b4bc5ec0e6c27f24b5434c83",
-      "handoffAgeSec": 4,
+      "prevHead": "4508edfe",
+      "handoffSha": "sha256:ec0bab071bec1f6138242410badd7aa1d716cccabcb5f2cc93567e78c24b03b0",
+      "handoffAgeSec": 15,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784694821-606f",
+        "at": "2026-07-22T04:33:41Z",
+        "ts": 1784694821,
+        "trigger": "self",
+        "prevHead": "4508edfe",
+        "handoffSha": "sha256:ec0bab071bec1f6138242410badd7aa1d716cccabcb5f2cc93567e78c24b03b0",
+        "handoffAgeSec": 15,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784685002-3eeb",
         "at": "2026-07-22T01:50:02Z",
@@ -876,17 +887,6 @@
         "prevHead": "1e8cab07",
         "handoffSha": "sha256:870923687d51439cd4988aa696eb6fefffc21539d8e834ee9c1e392cbdc9ee74",
         "handoffAgeSec": 115,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784622362-05ef",
-        "at": "2026-07-21T08:26:02Z",
-        "ts": 1784622362,
-        "trigger": "self",
-        "prevHead": "cbe18216",
-        "handoffSha": "sha256:f3bf0ef5212128d910ee7997cd7f2372582d1d1ed761a915c4f3cd5e3109c4d8",
-        "handoffAgeSec": 3,
         "conformanceBefore": null,
         "commitsInSession": null
       }
