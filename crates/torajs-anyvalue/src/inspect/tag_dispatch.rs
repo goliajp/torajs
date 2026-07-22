@@ -212,6 +212,10 @@ pub unsafe extern "C" fn __torajs_print_anyv_inline_at(v: AnyValue, indent: u32)
                 }
                 put_byte(b'"');
             }
+        } else if tag == Tag::SymbolWrapper as u16 {
+            // Object(sym) — fixed four-field multi-line block
+            // (rotation 184; fields at indent + 2).
+            unsafe { crate::inspect::wrapper_block::put_symbol_wrapper_at(child, indent) };
         } else if unsafe { crate::inspect::formatters::put_wrapper_inline(child, tag) } {
             // Primitive wrapper — bytes emitted by the helper.
         } else {
