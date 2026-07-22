@@ -22,6 +22,30 @@ use super::infer_closure_lets::{collect_let_anns, collect_let_init_anns};
 use super::infer_closure_typevars::{mentions_any_word, resolve_call_site_typevars};
 use super::{Ast, Expr, ExprId, Stmt};
 use crate::num_width::{fn_type_canon, split_fn_type};
+use crate::ssa_lower_free_helpers::count_capture_groups;
+
+/// Annotations for a `<string>.replace(re, cb)` callback's user params,
+/// shaped by the callback's user-param count `p` and the regex's static
+/// capture count `n_caps` (`None` when the regex isn't a literal). The
+/// match + captures are Strings; an optional trailing pair is
+/// `(offset: number, input: string)`. A shape fitting neither accepted
+/// lane form (`[Str; C+1]` or `[Str; C+1, number, string]`) annotates
+/// only the match (param 0) — always a String — and leaves the rest for
+/// the regex lane to loud-reject (never mis-typed).
+fn replace_cb_param_anns(p: usize, n_caps: Option<usize>) -> Vec<String> {
+    if let Some(c) = n_caps {
+        if p == c + 1 {
+            return vec!["string".to_string(); p];
+        }
+        if p == c + 3 {
+            let mut v = vec!["string".to_string(); c + 1];
+            v.push("number".to_string());
+            v.push("string".to_string());
+            return v;
+        }
+    }
+    vec!["string".to_string()]
+}
 
 /* Resolve a literal expression's type ann string.
  * - `Array(els)`      → infer `T[]` from els[0]'s shape (literal
@@ -139,6 +163,9 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
     // a call-site typevar resolution pass before projection.
     let mut fn_param_pos_anns: HashMap<String, Vec<Option<String>>> = HashMap::new();
     let mut fn_type_params: HashMap<String, Vec<String>> = HashMap::new();
+    // Lifted-closure user-param count (params minus the leading `__env`).
+    // Used to shape `<string>.replace(re, cb)` callback annotations.
+    let mut fn_user_param_count: HashMap<String, usize> = HashMap::new();
     for s in &ast.stmts {
         if let Stmt::FnDecl {
             name,
@@ -150,6 +177,10 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
             fn_param_pos_anns.insert(
                 name.clone(),
                 params.iter().map(|p| p.type_ann.clone()).collect(),
+            );
+            fn_user_param_count.insert(
+                name.clone(),
+                params.iter().filter(|p| p.name != "__env").count(),
             );
             if !type_params.is_empty() {
                 fn_type_params.insert(name.clone(), type_params.clone());
@@ -242,17 +273,24 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
         let Some(ann) = obj_ann else { continue };
         // `<string>.replace(re, cb)` / `replaceAll(re, cb)` — the
         // replacer receives `(match, ...captures, offset, input)`
-        // (§22.1.3.19 GetSubstitution). The match (user param 0) is
-        // always a String, so infer it — that lets the regex-lane
-        // cb-sig check (`[Str; N+1] -> Str`) accept an otherwise-untyped
-        // (Any) arrow's common `(m) => …` shape. Only the first user
-        // param is annotated (a single-element ann list), so a
-        // multi-param callback's trailing offset (number) / input
-        // (string) stay untyped and that shape keeps hitting the lane's
-        // reject (never mis-typed) — arity-aware inference is a follow-up.
+        // (§22.1.3.19 GetSubstitution). The regex-lane cb-sig check
+        // accepts exactly `[Str; C+1] -> Str` (match + C captures) or
+        // `[Str; C+1, number, string] -> Str` (…+ offset + input), so
+        // shape the annotations by the literal's capture count `C`
+        // (same counter the lane uses). A non-literal (variable) regex
+        // has an unknown C — annotate only the match (user param 0),
+        // which is always a String; the lane then accepts the common
+        // `(m) => …` shape and loud-rejects anything else (never
+        // mis-typed).
         if ann == "string" && matches!(name.as_str(), "replace" | "replaceAll") {
+            let n_caps = match args.first().map(|a| ast.get_expr(*a)) {
+                Some(Expr::Regex { pattern, .. }) => Some(count_capture_groups(pattern)),
+                _ => None,
+            };
             for (_arg_idx, fn_name) in &closure_args {
-                updates.insert(fn_name.clone(), (vec!["string".into()], "string".into()));
+                let p = fn_user_param_count.get(fn_name).copied().unwrap_or(1);
+                let param_anns = replace_cb_param_anns(p, n_caps);
+                updates.insert(fn_name.clone(), (param_anns, "string".into()));
             }
             continue;
         }
