@@ -319,6 +319,9 @@ pub unsafe extern "C" fn __torajs_promise_race_sync(promises_arr: *mut c_void) -
     if promises_arr.is_null() {
         return unsafe { defer_settle(STATE_REJECTED, 0, 0, REPR_VOID) };
     }
+    if unsafe { crate::combinator_any::arr_is_any(promises_arr) } {
+        return unsafe { crate::combinator_any::race_sync_any(promises_arr) };
+    }
     unsafe { absorb_inputs(promises_arr) };
     let len = unsafe { arr_len(promises_arr) };
     for i in 0..len {
@@ -360,6 +363,9 @@ pub unsafe extern "C" fn __torajs_promise_race_sync(promises_arr: *mut c_void) -
 pub unsafe extern "C" fn __torajs_promise_any_sync(promises_arr: *mut c_void) -> *mut c_void {
     if promises_arr.is_null() {
         return unsafe { defer_settle(STATE_REJECTED, 0, 0, REPR_VOID) };
+    }
+    if unsafe { crate::combinator_any::arr_is_any(promises_arr) } {
+        return unsafe { crate::combinator_any::any_sync_any(promises_arr) };
     }
     unsafe { absorb_inputs(promises_arr) };
     let len = unsafe { arr_len(promises_arr) };

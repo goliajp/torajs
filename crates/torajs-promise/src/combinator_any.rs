@@ -164,3 +164,100 @@ pub(crate) unsafe fn all_sync_any(promises_arr: *mut c_void) -> *mut c_void {
         crate::combinator::defer_settle(STATE_FULFILLED, out as i64, 1, REPR_HEAP)
     }
 }
+
+/// Mark every promise element handled (the typed path's
+/// `absorb_inputs` shape) — race / any settle on the first winner and
+/// return early, so without an up-front pass a later rejected element
+/// would reach the HPRT-check microtask with `has_handler = 0` and
+/// spuriously report an unhandled rejection (§27.2.4.{2,5} attach a
+/// reject-element handler to every input).
+unsafe fn absorb_any_inputs(promises_arr: *mut c_void) {
+    unsafe {
+        let len = *((promises_arr as *mut u8).add(ARR_LEN_OFF) as *const u64);
+        for i in 0..len {
+            if let Some(pp) = slot_promise(any_slot(promises_arr, i)) {
+                (*pp).has_handler = 1;
+            }
+        }
+    }
+}
+
+/// `Promise.race` over an `Array<Any>` (§27.2.4.5). First settled
+/// element in array order wins (the typed `race_sync` MVP posture —
+/// no real-time fan-in); a non-promise element is an already-fulfilled
+/// value and wins on sight. The winning value rides a `REPR_ANY`
+/// result cell (single boxed AnyValue, is_heap=1 so `value_drop_heap`'s
+/// NaN-box gate drops it correctly whether immediate or heap).
+pub(crate) unsafe fn race_sync_any(promises_arr: *mut c_void) -> *mut c_void {
+    unsafe {
+        let len = *((promises_arr as *mut u8).add(ARR_LEN_OFF) as *const u64);
+        absorb_any_inputs(promises_arr);
+        for i in 0..len {
+            let bits = any_slot(promises_arr, i);
+            let Some(pp) = slot_promise(bits) else {
+                // Plain value — already fulfilled, first one wins.
+                __torajs_anyv_rc_inc(bits);
+                return crate::combinator::defer_settle(STATE_FULFILLED, bits as i64, 1, REPR_ANY);
+            };
+            (*pp).has_handler = 1;
+            let state = (*pp).state;
+            if state == STATE_FULFILLED || state == STATE_REJECTED {
+                let Some(v) = box_settled_owned((*pp).value_repr, (*pp).value) else {
+                    return crate::combinator::defer_settle(STATE_REJECTED, 0, 0, REPR_VOID);
+                };
+                return crate::combinator::defer_settle(state, v as i64, 1, REPR_ANY);
+            }
+            // PENDING — skip (MVP: array-order first-settled).
+        }
+        // Empty or all-pending — placeholder reject (typed parity).
+        crate::combinator::defer_settle(STATE_REJECTED, 0, 0, REPR_VOID)
+    }
+}
+
+/// `Promise.any` over an `Array<Any>` (§27.2.4.2). First FULFILLED
+/// element wins; all-rejected falls back to the last rejection reason
+/// (the typed `any_sync` MVP posture — spec's AggregateError ships
+/// with real fan-in). A rejected element's `(repr, value)` is borrowed
+/// off the still-live input array and boxed only if it ends up the
+/// winner, so no owned rejection is stranded when a later element
+/// fulfills.
+pub(crate) unsafe fn any_sync_any(promises_arr: *mut c_void) -> *mut c_void {
+    unsafe {
+        let len = *((promises_arr as *mut u8).add(ARR_LEN_OFF) as *const u64);
+        absorb_any_inputs(promises_arr);
+        let mut have_rej = false;
+        let mut last_rej_repr: u8 = REPR_VOID;
+        let mut last_rej_value: i64 = 0;
+        for i in 0..len {
+            let bits = any_slot(promises_arr, i);
+            let Some(pp) = slot_promise(bits) else {
+                // Plain value — already fulfilled, first fulfilled wins.
+                __torajs_anyv_rc_inc(bits);
+                return crate::combinator::defer_settle(STATE_FULFILLED, bits as i64, 1, REPR_ANY);
+            };
+            (*pp).has_handler = 1;
+            match (*pp).state {
+                STATE_FULFILLED => {
+                    let Some(v) = box_settled_owned((*pp).value_repr, (*pp).value) else {
+                        return crate::combinator::defer_settle(STATE_REJECTED, 0, 0, REPR_VOID);
+                    };
+                    return crate::combinator::defer_settle(STATE_FULFILLED, v as i64, 1, REPR_ANY);
+                }
+                STATE_REJECTED => {
+                    have_rej = true;
+                    last_rej_repr = (*pp).value_repr;
+                    last_rej_value = (*pp).value;
+                }
+                _ => {} // PENDING — skip.
+            }
+        }
+        if have_rej {
+            let Some(v) = box_settled_owned(last_rej_repr, last_rej_value) else {
+                return crate::combinator::defer_settle(STATE_REJECTED, 0, 0, REPR_VOID);
+            };
+            return crate::combinator::defer_settle(STATE_REJECTED, v as i64, 1, REPR_ANY);
+        }
+        // Empty or all-pending — placeholder reject.
+        crate::combinator::defer_settle(STATE_REJECTED, 0, 0, REPR_VOID)
+    }
+}
