@@ -30,6 +30,7 @@ use crate::ssa_lower::LowerCtx;
 
 pub(crate) fn try_lower(
     ctx: &mut LowerCtx<'_>,
+    eid: crate::ast::ExprId,
     obj_val: Operand,
     obj_ty: Type,
     name: &str,
@@ -38,16 +39,26 @@ pub(crate) fn try_lower(
         return None;
     }
     match name {
-        "source" => Some(call_string_helper(
-            ctx,
-            ctx.intrinsics.regex_get_source,
-            obj_val,
-        )),
-        "flags" => Some(call_string_helper(
-            ctx,
-            ctx.intrinsics.regex_get_flags,
-            obj_val,
-        )),
+        // `source` / `flags` materialize a FRESH owned Str per read
+        // (rotation 185 — without the owned record no consumer
+        // released it: `re.source` discard churned 25.9MB over
+        // 300k×2 vs 6.4MB flat).
+        "source" => {
+            ctx.owned_member_reads.insert(eid);
+            Some(call_string_helper(
+                ctx,
+                ctx.intrinsics.regex_get_source,
+                obj_val,
+            ))
+        }
+        "flags" => {
+            ctx.owned_member_reads.insert(eid);
+            Some(call_string_helper(
+                ctx,
+                ctx.intrinsics.regex_get_flags,
+                obj_val,
+            ))
+        }
         "lastIndex" => {
             let cur_block = ctx.cur_block;
             let v = ctx.f.append_inst(

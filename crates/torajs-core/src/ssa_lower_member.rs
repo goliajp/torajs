@@ -129,7 +129,9 @@ pub(crate) fn lower_with_val(
     {
         return op;
     }
-    if let Some(op) = crate::ssa_lower_member_regexp_props::try_lower(ctx, obj_val, obj_ty, name) {
+    if let Some(op) =
+        crate::ssa_lower_member_regexp_props::try_lower(ctx, eid, obj_val, obj_ty, name)
+    {
         return op;
     }
     if (obj_ty == Type::Str || obj_ty == Type::Substr) && name == "length" {
