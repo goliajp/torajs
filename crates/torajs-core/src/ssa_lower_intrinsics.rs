@@ -153,6 +153,7 @@ pub(crate) struct Intrinsics {
     pub(crate) str_is_nullish: FuncId,
     pub(crate) str_is_undef: FuncId,
     pub(crate) is_undef_cell: FuncId,
+    pub(crate) heap_nullish_check: FuncId,
     pub(crate) str_sort_cmp: FuncId,
     pub(crate) str_sort_undef_pre: FuncId,
     pub(crate) str_split: FuncId,

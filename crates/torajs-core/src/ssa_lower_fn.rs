@@ -182,6 +182,7 @@ pub(crate) fn lower_fn(
         binop_right_f64_undefable: false,
         bounds_proven: Vec::new(),
         undefable_substr_lets: std::collections::HashSet::new(),
+        undefable_heap_lets: std::collections::HashSet::new(),
         stack_alloced_locals: std::collections::HashSet::new(),
         let_stack_alloc_hint: None,
         let_declared_obj_layout: None,

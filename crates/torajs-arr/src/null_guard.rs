@@ -20,13 +20,21 @@ unsafe extern "C" {
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
 }
 
-/// Arm a TypeError when `p` is NULL (bun/JSC wording prefix).
-/// Non-null passes through untouched.
+/// Arm a TypeError when `p` is nullish — NULL, or the generic
+/// undefined sentinel cell (RFC 20260722-find-miss chunk B: an
+/// `Arr[]` `find`/`findLast` miss answers the cell, so a `.length`
+/// / element load through it must throw like bun instead of
+/// dereferencing past the bare static header; bun/JSC wording per
+/// shape). Any live cell passes through untouched.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_null_check(p: *const c_void) {
     if p.is_null() {
         unsafe {
             __torajs_throw_type_error(b"null is not an object\0".as_ptr() as *const _);
+        }
+    } else if torajs_rc::undef_cell::is_undef_cell(p as *const u8) {
+        unsafe {
+            __torajs_throw_type_error(b"undefined is not an object\0".as_ptr() as *const _);
         }
     }
 }

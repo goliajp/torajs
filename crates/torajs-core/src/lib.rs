@@ -492,6 +492,7 @@ pub mod ssa_lower_toplevel_globals;
 pub(crate) mod ssa_lower_tospliced;
 pub(crate) mod ssa_lower_typeof;
 pub(crate) mod ssa_lower_typeof_ns;
+pub(crate) mod ssa_lower_typeof_runtime;
 pub(crate) mod ssa_lower_unary;
 pub mod ssa_lower_while_push_fast;
 pub mod staticlibs;

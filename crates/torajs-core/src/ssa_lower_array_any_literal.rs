@@ -336,6 +336,18 @@ impl<'a> LowerCtx<'a> {
                 // NaN-box-walk raw scalar slots. No-op for non-Arr.
                 self.emit_arr_mark_kind(&val);
                 self.emit_rc_inc(val.clone());
+                // RFC 20260722 chunk B — a possibly-undef-cell heap
+                // elem (Nullable field read / find miss, `[u]` into
+                // an any[] slot) packs ANY_UNDEF via the runtime tag
+                // cmp instead of a raw tag-4 pointing at the oddball
+                // header (which printed [object]). The inc above
+                // no-ops on the static cell.
+                if matches!(val_ty, Type::Obj(_) | Type::Arr(_) | Type::Closure(_))
+                    && let Some(e) = eid
+                    && crate::ssa_lower_nullable_guard::is_undefable_heap_source(self, e)
+                {
+                    return self.heap_slot_tag_value(val);
+                }
                 (Operand::ConstI64(4), val)
             }
             Type::Ptr => {

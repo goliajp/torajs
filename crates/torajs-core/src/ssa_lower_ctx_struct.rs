@@ -401,6 +401,12 @@ pub(crate) struct LowerCtx<'a> {
     /// str-eq-with-literal fast path declines to the
     /// identity-aware `substr_eq_str` runtime call for these.
     pub(crate) undefable_substr_lets: std::collections::HashSet<String>,
+    /// RFC 20260722-find-miss chunk B — binding names whose let-init
+    /// is a heap-elem `find`/`findLast` call (miss answers the
+    /// generic undefined cell) or an alias of a Nullable heap
+    /// source. Member reads / typeof / strict-eq / box consumers on
+    /// these bindings take the undef-cell-aware lanes.
+    pub(crate) undefable_heap_lets: std::collections::HashSet<String>,
     /// 11-A2-a — set of binding names whose backing storage was
     /// allocated on the stack (`AllocaBytes`) instead of the heap.
     /// `emit_drops_for_owned_locals` and sibling drop emitters skip

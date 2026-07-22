@@ -67,6 +67,11 @@ pub(crate) struct StrBIds {
     pub str_is_nullish: FuncId,
     pub str_is_undef: FuncId,
     pub is_undef_cell: FuncId,
+    /// RFC 20260722-find-miss chunk B — nullish guard for pointer-
+    /// shaped heap slots (torajs-rc null_guard.rs): arms a catchable
+    /// TypeError on NULL or the generic undefined cell before a
+    /// member read dereferences a find/findLast miss.
+    pub heap_nullish_check: FuncId,
     pub str_split: FuncId,
     pub str_split_no_sep: FuncId,
     pub str_split_any_sep: FuncId,
@@ -211,6 +216,13 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             "__torajs_is_undef_cell",
             &[Type::Ptr],
             Type::Bool,
+        ),
+        heap_nullish_check: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_heap_nullish_check",
+            &[Type::Ptr],
+            Type::Void,
         ),
         str_split: declare_intrinsic(
             module,

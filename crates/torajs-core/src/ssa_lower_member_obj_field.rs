@@ -50,6 +50,12 @@ pub(crate) fn try_lower(
     sid: StructId,
     name: &str,
 ) -> Operand {
+    // RFC 20260722-find-miss chunk B — a find/findLast miss (or a
+    // Nullable optional-field read) answers the generic undefined
+    // cell; a field read through it must be a catchable TypeError
+    // (bun/JSC wording), not a deref past the bare static header.
+    // No-op for plain receivers.
+    crate::ssa_lower_nullable_guard::emit_undefable_heap_guard(ctx, obj, &obj_val);
     if let Some(op) = try_accessor_getter(ctx, obj, obj_val, sid, name) {
         return op;
     }

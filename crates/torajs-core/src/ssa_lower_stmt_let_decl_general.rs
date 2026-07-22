@@ -155,6 +155,13 @@ pub(crate) fn record_binding_flags(
     if crate::ssa_lower_nullable_guard::is_undefable_substr_source(ctx, init) {
         ctx.undefable_substr_lets.insert(name.to_string());
     }
+    // RFC 20260722-find-miss chunk B — record heap-elem
+    // find/findLast let-inits (and Nullable heap-source aliases) so
+    // member reads / typeof / strict-eq / box consumers on the
+    // binding take the undef-cell-aware lanes.
+    if crate::ssa_lower_nullable_guard::is_undefable_heap_source(ctx, init) {
+        ctx.undefable_heap_lets.insert(name.to_string());
+    }
 }
 
 /// The table id when `init` is a namespace-static VALUE read

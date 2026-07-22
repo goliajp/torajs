@@ -43,10 +43,13 @@ pub(crate) fn is_nullable_arr_source(ctx: &LowerCtx<'_>, obj: ExprId) -> bool {
     }
 }
 
-/// Emit the null guard when `obj` is a nullable-arr source; no-op
-/// otherwise. `arr_val` must be the already-lowered receiver.
+/// Emit the null guard when `obj` is a nullable-arr source or an
+/// undefable-heap source (RFC 20260722 chunk B — an `Arr[]`
+/// find/findLast miss answers the generic undefined cell, and the
+/// kernel throws on it too); no-op otherwise. `arr_val` must be the
+/// already-lowered receiver.
 pub(crate) fn emit_nullable_arr_guard(ctx: &mut LowerCtx<'_>, obj: ExprId, arr_val: &Operand) {
-    if !is_nullable_arr_source(ctx, obj) {
+    if !is_nullable_arr_source(ctx, obj) && !is_undefable_heap_source(ctx, obj) {
         return;
     }
     let cur_block = ctx.cur_block;
@@ -167,6 +170,60 @@ pub(crate) fn is_undef_f64_source(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
         Expr::As { expr, .. } => is_undef_f64_source(ctx, *expr),
         _ => false,
     }
+}
+
+/// RFC 20260722-find-miss-undefined-sentinel chunk B — true when a
+/// pointer-shaped heap expression (Obj / Arr / Closure slot) may
+/// hold the generic immortal undefined cell: the checker's
+/// `Nullable` typing (the C2b optional-field producer), a
+/// `find`/`findLast` call on an array of heap elems (miss answers
+/// the cell), or a binding recorded in `ctx.undefable_heap_lets`
+/// (let-init of those shapes, alias-propagated). Over-broad for
+/// hit-path reads — one well-predicted cmp, never wrong.
+pub(crate) fn is_undefable_heap_source(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
+    if matches!(
+        ctx.expr_types.get(&eid),
+        Some(crate::check::Type::Nullable(_))
+    ) {
+        return true;
+    }
+    match ctx.ast.get_expr(eid) {
+        Expr::Ident(n) => ctx.undefable_heap_lets.contains(n),
+        Expr::Call { callee, .. } => matches!(
+            ctx.ast.get_expr(*callee),
+            Expr::Member { obj, name } if matches!(name.as_str(), "find" | "findLast")
+                && matches!(
+                    ctx.expr_types.get(obj),
+                    Some(crate::check::Type::Array(elem)) if matches!(
+                        &**elem,
+                        crate::check::Type::Struct(_)
+                            | crate::check::Type::ClassRef(_)
+                            | crate::check::Type::Array(_)
+                            | crate::check::Type::Function(..)
+                    )
+                )
+        ),
+        Expr::As { expr, .. } => is_undefable_heap_source(ctx, *expr),
+        _ => false,
+    }
+}
+
+/// Emit the heap nullish guard when `obj` is an undefable-heap
+/// source; no-op otherwise. `obj_val` must be the already-lowered
+/// receiver. Same shape as [`emit_nullable_str_guard`]:
+/// `heap_nullish_check` arms a catchable TypeError on NULL or the
+/// generic undefined cell, the throw-check right after diverts
+/// before the member read dereferences.
+pub(crate) fn emit_undefable_heap_guard(ctx: &mut LowerCtx<'_>, obj: ExprId, obj_val: &Operand) {
+    if !is_undefable_heap_source(ctx, obj) {
+        return;
+    }
+    let cur_block = ctx.cur_block;
+    ctx.f.append_void(
+        cur_block,
+        InstKind::Call(ctx.intrinsics.heap_nullish_check, vec![obj_val.clone()]),
+    );
+    ctx.emit_throw_check(None);
 }
 
 /// RFC 20260707 residual chunk — true when a Substr-typed
