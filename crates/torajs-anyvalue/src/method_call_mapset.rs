@@ -103,6 +103,7 @@ unsafe extern "C" {
     fn __torajs_map_iter_create_entries(p: *mut c_void) -> *mut c_void;
     fn __torajs_map_iter_create_set_entries(p: *mut c_void) -> *mut c_void;
     fn __torajs_map_iter_step(p: *mut c_void, out_tag: *mut i64, out_payload: *mut i64) -> i64;
+    fn __torajs_arr_iter_step(p: *mut c_void, out_tag: *mut i64, out_payload: *mut i64) -> i64;
     /// torajs-dynobj — the IteratorResult `{ value, done }` shell.
     /// `set` rc-incs the key (caller keeps its own ref) and CONSUMES
     /// the heap value; the obj slot rides by reference (resize may
@@ -299,6 +300,34 @@ pub(crate) unsafe fn map_iter_method(it: *mut c_void, mid: i64) -> AnyValue {
     unsafe {
         let (mut tag, mut payload): (i64, i64) = (5, 0);
         let hit = __torajs_map_iter_step(it, &mut tag, &mut payload);
+        if hit != 0 {
+            crate::payload_rc_inc(tag, payload);
+        }
+        let mut obj = __torajs_dynobj_alloc();
+        let k_value = __torajs_str_alloc(c"value".as_ptr() as *const u8, 5);
+        __torajs_dynobj_set(&mut obj, k_value as *mut c_void, tag as u64, payload as u64);
+        __torajs_str_drop(k_value as *mut c_void);
+        let k_done = __torajs_str_alloc(c"done".as_ptr() as *const u8, 4);
+        __torajs_dynobj_set(&mut obj, k_done as *mut c_void, 1, (hit == 0) as u64);
+        __torajs_str_drop(k_done as *mut c_void);
+        obj as u64
+    }
+}
+
+/// `Tag::ArrIter` arm — mirror of `map_iter_method` for
+/// `Array.prototype.{keys,values,entries}` iterators reached through
+/// the any-lane dispatch. Same `{ value, done }` IteratorResult shape;
+/// `__torajs_arr_iter_step` returns borrowed payloads that need
+/// `payload_rc_inc` before entering the dynobj slot (ENTRIES pair
+/// arrives pre-decremented to land at 1 after the inc — same contract
+/// as MapIter's ENTRIES).
+pub(crate) unsafe fn arr_iter_method(it: *mut c_void, mid: i64) -> AnyValue {
+    if mid != ANY_METHOD_NEXT {
+        return unsafe { method_no_such() };
+    }
+    unsafe {
+        let (mut tag, mut payload): (i64, i64) = (5, 0);
+        let hit = __torajs_arr_iter_step(it, &mut tag, &mut payload);
         if hit != 0 {
             crate::payload_rc_inc(tag, payload);
         }

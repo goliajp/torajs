@@ -274,6 +274,9 @@ pub(crate) unsafe fn cell_method(
     if tag == Tag::MapIter as u16 {
         return Some(unsafe { crate::method_call_mapset::map_iter_method(ptr, mid) });
     }
+    if tag == Tag::ArrIter as u16 {
+        return Some(unsafe { crate::method_call_mapset::arr_iter_method(ptr, mid) });
+    }
     if tag == Tag::Date as u16 {
         return Some(unsafe { crate::method_call_date::date_method(ptr, mid, argv, argc) });
     }
