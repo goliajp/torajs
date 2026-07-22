@@ -59,6 +59,7 @@ pub(crate) mod check_type_of_assign;
 pub(crate) mod check_type_of_binop;
 pub(crate) mod check_type_of_call;
 pub(crate) mod check_type_of_call_arr_flat;
+pub(crate) mod check_type_of_call_arr_map_hetero;
 pub(crate) mod check_type_of_call_arr_pred_void_cb;
 pub(crate) mod check_type_of_call_array_at_1arg;
 pub(crate) mod check_type_of_call_array_at_narrow;

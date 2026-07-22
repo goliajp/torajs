@@ -351,10 +351,27 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
             continue;
         };
         let elem_ann = elem_ann.to_string();
+        // `.map(cb)` — seed only the cb's param (elem), leave the
+        // return annotation to the body sniff. Heterogeneous returns
+        // like `numbers.map(n => n.toString())` are accepted at the
+        // call-site by
+        // [`crate::check_type_of_call_arr_map_hetero`]; strapping
+        // `return_type = elem_ann` here would trip
+        // `check_stmt_return` on the arrow body's Str return before
+        // the call-site arm gets a chance to answer `Array<String>`.
+        if name == "map" {
+            for (_arg_idx, fn_name) in &closure_args {
+                let p = fn_user_param_count.get(fn_name).copied().unwrap_or(1);
+                if p >= 1 {
+                    param_only_updates.insert(fn_name.clone(), vec![elem_ann.clone(); p]);
+                }
+            }
+            continue;
+        }
         // Per-method expected (param annotations, return annotation).
         let expected: Option<(Vec<String>, String)> = match name.as_str() {
             "sort" => Some((vec![elem_ann.clone(), elem_ann.clone()], "number".into())),
-            "map" => Some((vec![elem_ann.clone()], elem_ann.clone())),
+            "map" => unreachable!("map handled by param-only arm above"),
             "filter" => Some((vec![elem_ann.clone()], "boolean".into())),
             "forEach" => Some((vec![elem_ann.clone()], "void".into())),
             "find" | "findLast" => Some((vec![elem_ann.clone()], "boolean".into())),

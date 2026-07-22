@@ -172,5 +172,14 @@ pub(crate) fn try_route(
     {
         return Some(r);
     }
+    // `Array<T>.map(cb)` heterogeneous return — `(T) => U` for
+    // primitive `U` (Number / String / Boolean / Any) answers
+    // `Array<U>`. Homogeneous and Void-ret keep the two earlier
+    // arms; see [`crate::check_type_of_call_arr_map_hetero`].
+    if let Some(r) =
+        crate::check_type_of_call_arr_map_hetero::try_match(checker, ast, callee, args)
+    {
+        return Some(r);
+    }
     None
 }
