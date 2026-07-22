@@ -279,14 +279,15 @@ pub(crate) fn emit_splice_items(
 /// - `Any` item: bits pass through; the slot's +1 goes through the
 ///   NaN-box-gated `any_box_rc_inc` (immediates no-op), then owned
 ///   temps release their own ref — net transfer.
-/// - `Str` item: `box_to_any`'s `anyv_box_str_slot` helper bumps a
-///   heap Str inside the box — that +1 IS the slot's stake; owned
-///   temps release theirs after. (A short string literal takes the
-///   `box_to_any_from_expr` compile-time ShortStr encode instead —
-///   an immediate, zero rc traffic.)
-/// - other refcounted: the tag-4 box is a pure encode with zero rc
-///   traffic (chunk 753), so the slot's +1 is an explicit header
-///   inc; owned / minted temps release — net transfer.
+/// - refcounted (Str included): every box arm is a pure encode with
+///   zero rc traffic (chunk 753 tag-4; rotation 184 made the
+///   Str-slot helper rc-neutral, retiring the "+1 rides the box"
+///   claim this doc used to carry — rotation 185 stake audit), so
+///   the slot's +1 is an explicit header inc (no-op on NULL / the
+///   sentinels); owned / minted temps release — net transfer. (A
+///   short string literal takes the `box_to_any_from_expr`
+///   compile-time ShortStr encode instead — an immediate, zero rc
+///   traffic; the inc no-ops on the interned static cell.)
 /// - scalars / null / undefined / dynobj Ptr: pure encode, no rc
 ///   traffic (a fresh dynobj literal's +1 rides the box, same as
 ///   push_any's Ptr arm).
@@ -302,11 +303,6 @@ fn emit_any_item_bits(ctx: &mut LowerCtx, item_eid: ExprId) -> Operand {
             ctx.emit_owned_result_inc(v_raw.clone(), Type::Any);
             ctx.release_owned_temp(item_eid, &v_raw);
             v_raw
-        }
-        Type::Str => {
-            let bits = ctx.box_to_any_from_expr(item_eid, v_raw.clone());
-            ctx.release_owned_temp(item_eid, &v_raw);
-            bits
         }
         _ if v_ty.is_refcounted() => {
             ctx.emit_rc_inc(v_raw.clone());

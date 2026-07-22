@@ -345,7 +345,25 @@ fn prepare_acc_slot(
         // acc_ty = Type::Any, but the user's literal init lowers raw bits.
         // Pre-fix wrote raw 100 into the 8-byte AnyValue slot → next
         // `Load any, slot` decoded garbage NaN-box → SIGSEGV.
-        (Type::Any, src) if src != Type::Any => ctx.box_to_any(init_v),
+        //
+        // Rotation 185 stake audit — a refcounted EXPLICIT init
+        // (`arr.reduce(cb, someObjVar)`) boxes rc-neutral into the
+        // owned acc slot (post-loop drop / returned), so a borrow
+        // source needs the same compensating inc the seed branch
+        // already emits; an owned temp init then releases its own
+        // ref (chunk-733 inc + release idiom — net transfer). The
+        // seed branch inc'd before this match, so it must not take
+        // the extra inc again.
+        (Type::Any, src) if src != Type::Any => {
+            if !reduce_no_init && init_ty.is_refcounted() {
+                ctx.emit_rc_inc(init_v);
+                let boxed = ctx.box_to_any(init_v);
+                ctx.release_owned_temp(args[1], &init_v);
+                boxed
+            } else {
+                ctx.box_to_any(init_v)
+            }
+        }
         _ => init_v,
     };
     let slot = ctx.alloca(acc_ty, Some("__iter_acc"));

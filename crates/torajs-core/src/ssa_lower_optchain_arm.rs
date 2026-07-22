@@ -102,7 +102,7 @@ pub(crate) fn lower(
     );
     emit_miss_path(ctx, null_blk, res_slot, after);
     if let Type::Obj(sid) = obj_ty {
-        emit_hit_path(ctx, mem_blk, obj_op, sid, name, res_slot, after);
+        emit_hit_path(ctx, mem_blk, eid, obj_op, sid, name, res_slot, after);
     } else {
         emit_hit_path_member(ctx, mem_blk, eid, obj, obj_op, name, res_slot, after);
     }
@@ -141,9 +141,11 @@ fn emit_miss_path(
     ctx.f.set_term(null_blk, Terminator::Br(after));
 }
 
+#[allow(clippy::too_many_arguments)]
 fn emit_hit_path(
     ctx: &mut LowerCtx<'_>,
     mem_blk: crate::ssa::BlockId,
+    eid: crate::ast::ExprId,
     obj_op: Operand,
     sid: crate::ssa::StructId,
     name: &str,
@@ -168,6 +170,17 @@ fn emit_hit_path(
         field_ty,
         None,
     );
+    // Rotation 185 stake audit — the Load is a BORROW off the struct
+    // slot and every box_to_any arm is a pure encode, yet the
+    // OptChain result is consumed as an OWNED Any (let-decl slot
+    // drop / discard release via owned_member_reads below): without
+    // a compensating inc the release stole the slot's stake (the
+    // Any-receiver twin `lower_any_member_read` incs + records; this
+    // typed path did neither). Inc no-ops on NULL / the sentinels.
+    if field_ty.is_refcounted() && !matches!(field_ty, Type::Any) {
+        ctx.emit_rc_inc(Operand::Value(v));
+        ctx.owned_member_reads.insert(eid);
+    }
     let boxed = ctx.box_to_any(Operand::Value(v));
     let cur_block = ctx.cur_block;
     ctx.f.append_void(

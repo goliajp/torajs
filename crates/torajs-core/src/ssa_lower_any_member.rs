@@ -200,14 +200,17 @@ pub(crate) fn lower_any_member_read(
             )
         };
         // Chunk 717's owned contract vs chunk 753's borrow box — the
-        // direct Load is a BORROW off the struct slot and
-        // `box_to_any`'s refcounted arm is a pure encoding, so the
-        // owned-member-read release would steal the slot's stake
-        // (for-of `test.sym.toString()` twice → second read is a
-        // dangling Symbol). Str boxes through the Str-slot helper
-        // (rc_inc inside) and the err_msg helper feeds that same
-        // arm; Any slots keep their existing story.
-        if !*is_err_msg && field_ty.is_refcounted() && !matches!(field_ty, Type::Str | Type::Any) {
+        // direct Load is a BORROW off the struct slot and every
+        // box_to_any arm is a pure encoding (rotation 184 made the
+        // Str-slot helper rc-neutral too), so the owned-member-read
+        // release would steal the slot's stake without a
+        // compensating inc. Str is no longer excluded (the old "Str
+        // boxes through the Str-slot helper (rc_inc inside)" claim
+        // is stale — rotation 185 stake audit); the err_msg helper
+        // answers a BORROWED Str, so it incs the same way. The inc
+        // no-ops on NULL / the sentinels through the kernel gates.
+        // Any slots keep their existing story.
+        if field_ty.is_refcounted() && !matches!(field_ty, Type::Any) {
             ctx.emit_rc_inc(Operand::Value(field_v));
         }
         let boxed = ctx.box_to_any(Operand::Value(field_v));
