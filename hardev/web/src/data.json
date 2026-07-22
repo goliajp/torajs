@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-22T06:56:03.695Z",
+  "generatedAt": "2026-07-22T07:28:05.944Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 95.81
   },
   "torajs": {
-    "commit": "5b2c4b8c",
-    "commitSubject": "style: fmt-drift fix on loose-eq-num call sites",
+    "commit": "80716d1a",
+    "commitSubject": "fix: class and proto dynobj defines publish the resized cell",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,22 @@
   },
   "commits": [
     {
+      "hash": "80716d1a",
+      "subject": "fix: class and proto dynobj defines publish the resized cell"
+    },
+    {
+      "hash": "e4a325a5",
+      "subject": "style: fmt-drift fix on static_field_define decl"
+    },
+    {
+      "hash": "ba0b4002",
+      "subject": "feat: class static fields reify as own entries on the class object"
+    },
+    {
+      "hash": "41cc8ef4",
+      "subject": "chore: hardev dashboard snapshot at rotation 186 close"
+    },
+    {
       "hash": "5b2c4b8c",
       "subject": "style: fmt-drift fix on loose-eq-num call sites"
     },
@@ -743,25 +759,9 @@
     {
       "hash": "a7ec2644",
       "subject": "fix: regexp source and flags reads record their owned result"
-    },
-    {
-      "hash": "c24e73bb",
-      "subject": "chore: hardev dashboard snapshot at rotation 185 close"
-    },
-    {
-      "hash": "4af9acd8",
-      "subject": "fix: overwritten reduce accumulator releases its stake"
-    },
-    {
-      "hash": "8366895c",
-      "subject": "fix: four borrowed-source box sites steal their slot's stake after the rc-neutral box switch"
-    },
-    {
-      "hash": "583ec207",
-      "subject": "fix: str and substr sentinels decode at the tag-value boundary"
     }
   ],
-  "headSha": "5b2c4b8c",
+  "headSha": "80716d1a",
   "autorun": {
     "total": 491,
     "baselineTarget": 10,
