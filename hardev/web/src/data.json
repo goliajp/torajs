@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-22T07:28:05.944Z",
+  "generatedAt": "2026-07-22T09:39:55.334Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 95.81
   },
   "torajs": {
-    "commit": "80716d1a",
-    "commitSubject": "fix: class and proto dynobj defines publish the resized cell",
+    "commit": "aded66b1",
+    "commitSubject": "feat: undefined as a first-class type annotation",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "aded66b1",
+      "subject": "feat: undefined as a first-class type annotation"
+    },
+    {
+      "hash": "09db097d",
+      "subject": "feat: Symbol(undefined) is a descriptionless symbol"
+    },
+    {
+      "hash": "3e9360e3",
+      "subject": "feat: BigInt methods on an any-typed receiver"
+    },
+    {
+      "hash": "e08d7e0b",
+      "subject": "feat: Promise.race / Promise.any accept Array<Any>"
+    },
+    {
+      "hash": "fc3473eb",
+      "subject": "feat: Promise.withResolvers resolve(promise) adopts inner state"
+    },
+    {
+      "hash": "2fc753cc",
+      "subject": "chore: hardev dashboard snapshot at rotation 186 close"
+    },
+    {
       "hash": "80716d1a",
       "subject": "fix: class and proto dynobj defines publish the resized cell"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "c1d48fa6",
       "subject": "feat: number array find miss answers the undefined sentinel"
-    },
-    {
-      "hash": "ab3a3b9c",
-      "subject": "feat: heap slot nullish consumers learn the undefined sentinel"
-    },
-    {
-      "hash": "1d79bc26",
-      "subject": "style: fmt-drift fix on emit_heap_typeof_runtime signature"
-    },
-    {
-      "hash": "a83aaf63",
-      "subject": "feat: heap elem find miss answers the undefined sentinel"
-    },
-    {
-      "hash": "56feae1d",
-      "subject": "chore: hardev dashboard snapshot at rotation 185 close"
-    },
-    {
-      "hash": "b418f835",
-      "subject": "feat: string array find miss answers the undefined sentinel"
-    },
-    {
-      "hash": "a7ec2644",
-      "subject": "fix: regexp source and flags reads record their owned result"
     }
   ],
-  "headSha": "80716d1a",
+  "headSha": "aded66b1",
   "autorun": {
-    "total": 491,
+    "total": 492,
     "baselineTarget": 10,
-    "bySelf": 486,
+    "bySelf": 487,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784700234-1c9a",
-      "at": "2026-07-22T06:03:54Z",
-      "ts": 1784700234,
+      "rotationId": "r-1784705671-3eb7",
+      "at": "2026-07-22T07:34:31Z",
+      "ts": 1784705671,
       "trigger": "self",
-      "prevHead": "56feae1d",
-      "handoffSha": "sha256:469d5778a7a3f900853390b067c8b0a78e929cf2c945aa7294f1ae2512834aa3",
-      "handoffAgeSec": 394,
+      "prevHead": "2fc753cc",
+      "handoffSha": "sha256:df0440b1d8d059718f694f01dfeab24d58f0f833d3ba5bb799f8a9dbe8148407",
+      "handoffAgeSec": 242,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784705671-3eb7",
+        "at": "2026-07-22T07:34:31Z",
+        "ts": 1784705671,
+        "trigger": "self",
+        "prevHead": "2fc753cc",
+        "handoffSha": "sha256:df0440b1d8d059718f694f01dfeab24d58f0f833d3ba5bb799f8a9dbe8148407",
+        "handoffAgeSec": 242,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784700234-1c9a",
         "at": "2026-07-22T06:03:54Z",
@@ -875,17 +886,6 @@
         "trigger": "self",
         "prevHead": "29428771",
         "handoffSha": "sha256:02f27ae0bbe9a8a7866f5efcbf71d0df3248b6230d4e94e35891a30e310dde6c",
-        "handoffAgeSec": 5,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784642623-1af6",
-        "at": "2026-07-21T14:03:43Z",
-        "ts": 1784642623,
-        "trigger": "self",
-        "prevHead": "87c97b42",
-        "handoffSha": "sha256:d2733029283ef01504159a770907566c8e6a47cc568b10f43e718d0c45c63401",
         "handoffAgeSec": 5,
         "conformanceBefore": null,
         "commitsInSession": null
