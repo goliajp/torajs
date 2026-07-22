@@ -455,6 +455,7 @@ pub(crate) fn build(
         promise_drop: init_d.promise.promise_drop,
         promise_get_value: init_d.promise.promise_get_value,
         promise_then_simple: init_d.promise.promise_then_simple,
+        promise_then2: init_d.promise.promise_then2,
         promise_then_closure: init_d.promise.promise_then_closure,
         promise_catch_simple: init_d.promise.promise_catch_simple,
         promise_finally: init_d.promise.promise_finally,

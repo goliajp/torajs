@@ -32,6 +32,12 @@ use crate::ssa_lower::LowerCtx;
 /// lockstep.
 pub(crate) const PARAM_ANY_FLAG: i64 = 256;
 
+/// Bit 9 of a then2 handler word — the handler operand is a closure
+/// env block (not a bare fn address). Mirror:
+/// `torajs-promise/src/then_two.rs::THEN2_CLOSURE_FLAG` — must move
+/// in lockstep.
+pub(crate) const THEN2_CLOSURE_FLAG: i64 = 512;
+
 pub(crate) const REPR_I64: i64 = 1;
 pub(crate) const REPR_F64: i64 = 2;
 pub(crate) const REPR_BOOL: i64 = 3;

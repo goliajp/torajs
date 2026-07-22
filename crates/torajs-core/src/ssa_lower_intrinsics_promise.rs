@@ -63,6 +63,7 @@ pub(crate) struct PromiseIds {
     pub promise_drop: FuncId,
     pub promise_get_value: FuncId,
     pub promise_then_simple: FuncId,
+    pub promise_then2: FuncId,
     pub promise_then_closure: FuncId,
     pub promise_catch_simple: FuncId,
     pub promise_finally: FuncId,
@@ -159,6 +160,13 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             fn_table,
             "__torajs_promise_then_simple",
             p_ptr_repr,
+            Type::Promise,
+        ),
+        promise_then2: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_promise_then2",
+            &[Type::Promise, Type::Ptr, Type::I64, Type::Ptr, Type::I64][..],
             Type::Promise,
         ),
         promise_then_closure: declare_intrinsic(

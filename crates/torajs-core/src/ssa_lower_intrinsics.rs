@@ -524,6 +524,7 @@ pub(crate) struct Intrinsics {
     pub(crate) promise_drop: FuncId,
     pub(crate) promise_get_value: FuncId,
     pub(crate) promise_then_simple: FuncId,
+    pub(crate) promise_then2: FuncId,
     pub(crate) promise_then_closure: FuncId,
     pub(crate) promise_catch_simple: FuncId,
     pub(crate) promise_finally: FuncId,

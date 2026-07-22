@@ -43,6 +43,7 @@ pub mod state;
 pub mod then;
 pub mod then_box;
 pub mod then_finally;
+pub mod then_two;
 pub mod unhandled;
 
 pub use combinator::{
