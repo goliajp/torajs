@@ -58,6 +58,7 @@ unsafe extern "C" {
     // torajs-str / torajs-num conversions.
     fn __torajs_f64_to_str(n: f64) -> *mut c_void;
     fn __torajs_str_drop(s: *mut c_void);
+    fn __torajs_str_alloc(src: *const u8, len: i64) -> *mut u8;
     fn __torajs_substr_to_owned(v: *const u8) -> *mut c_void;
 
     // torajs-dynobj — run an accessor entry's getter (§25.5.2.2's
@@ -74,12 +75,37 @@ unsafe extern "C" {
     // torajs-date §25.5.2 toJSON leg.
     fn __torajs_date_to_json(d: *const c_void) -> *mut u8;
 
+    // torajs-structmeta — walk a Tag::Obj struct cell's fields via the
+    // toolchain-emitted `__torajs_class_layouts` table. Same helpers
+    // the `Object.keys/values/entries` any-lane arms use
+    // (`torajs-meta::struct_enum`).
+    fn __torajs_struct_layout_lookup(class_tag: u32) -> *const c_void;
+    fn __torajs_struct_field_count(layout: *const c_void) -> u32;
+    fn __torajs_struct_field_name(layout: *const c_void, idx: u32) -> StructFieldName;
+    // Fill `out_anyv` with the field's value as a BORROWED NaN-box;
+    // returns 1 on hit, 0 for missing layout / absent field.
+    fn __torajs_struct_field_read_anyv(
+        obj: *mut c_void,
+        name: *const u8,
+        name_len: u32,
+        out_anyv: *mut u64,
+    ) -> i64;
+
     /// torajs-str — the shared undefined-Str sentinel. A `undefined`
     /// RESULT (top-level undefined / callable argument) has to travel
     /// through the Str-typed call slot as something the consumers
     /// (print / typeof / strict-eq) read back as undefined; a raw
     /// NULL would print "null" and lose the §25.5.2 distinction.
     fn __torajs_str_undef() -> *mut u8;
+}
+
+/// `(ptr, len)` field-name slice returned by
+/// `__torajs_struct_field_name` — mirrors
+/// `torajs-structmeta::StrSlice`.
+#[repr(C)]
+struct StructFieldName {
+    ptr: *const u8,
+    len: usize,
 }
 
 /// Whether a value contributed text — the §25.5.2 three-way split
@@ -185,6 +211,10 @@ unsafe fn write_cell(sb: *mut c_void, ptr: *mut c_void, depth: u32) -> Wrote {
             }
             t if t == Tag::DynObj as u16 => {
                 write_object(sb, ptr, depth);
+                Wrote::Value
+            }
+            t if t == Tag::Obj as u16 => {
+                write_struct(sb, ptr, depth);
                 Wrote::Value
             }
             t if t == Tag::Date as u16 => {
@@ -305,6 +335,60 @@ unsafe fn write_object(sb: *mut c_void, ptr: *mut c_void, depth: u32) {
             std::alloc::dealloc(order as *mut u8, order_layout);
         }
         __torajs_jsb_push_byte(sb, b'}');
+    }
+}
+
+/// `{...}` — the Tag::Obj struct-cell twin of [`write_object`]. Reads
+/// the instance's `class_tag` (`u32` at `+8`), looks the layout up in
+/// the toolchain-emitted `__torajs_class_layouts` table, and walks
+/// the fields in declaration order. Undefined / callable field values
+/// drop their key (§25.5.2), same three-way split as dynobj. An
+/// anonymous struct interned too late to receive a `class_tag`
+/// (`class_tag == 0` → NULL layout) serializes as `{}` — matches the
+/// same coverage gap `Object.keys(anonAny)` documents.
+unsafe fn write_struct(sb: *mut c_void, ptr: *mut c_void, depth: u32) {
+    unsafe {
+        __torajs_jsb_push_byte(sb, b'{');
+        let class_tag = (ptr.cast::<u8>().add(8) as *const u32).read();
+        let layout = __torajs_struct_layout_lookup(class_tag);
+        if !layout.is_null() {
+            let n = __torajs_struct_field_count(layout);
+            let mut emitted = false;
+            for i in 0..n {
+                let name = __torajs_struct_field_name(layout, i);
+                let mut value: u64 = 0;
+                if __torajs_struct_field_read_anyv(ptr, name.ptr, name.len as u32, &mut value) == 0
+                {
+                    continue;
+                }
+                if serializes_to_nothing(value) {
+                    continue;
+                }
+                if emitted {
+                    __torajs_jsb_push_byte(sb, b',');
+                }
+                emitted = true;
+                quote_bytes(sb, name.ptr, name.len);
+                __torajs_jsb_push_byte(sb, b':');
+                write_value(sb, value, depth + 1);
+                if __torajs_throw_check() != 0 {
+                    break;
+                }
+            }
+        }
+        __torajs_jsb_push_byte(sb, b'}');
+    }
+}
+
+/// JSON-quote `len` bytes at `ptr` into `sb` by materializing a
+/// pooled Str cell and going through the builder's normal quoted
+/// path — the raw-name slice returned by
+/// `__torajs_struct_field_name` isn't itself a Str cell.
+unsafe fn quote_bytes(sb: *mut c_void, ptr: *const u8, len: usize) {
+    unsafe {
+        let cell = __torajs_str_alloc(ptr, len as i64);
+        __torajs_jsb_push_str_quoted(sb, cell as *const u8);
+        __torajs_str_drop(cell as *mut c_void);
     }
 }
 
