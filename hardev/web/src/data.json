@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-22T05:54:53.281Z",
+  "generatedAt": "2026-07-22T06:56:03.695Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 95.81
   },
   "torajs": {
-    "commit": "b418f835",
-    "commitSubject": "feat: string array find miss answers the undefined sentinel",
+    "commit": "5b2c4b8c",
+    "commitSubject": "style: fmt-drift fix on loose-eq-num call sites",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "5b2c4b8c",
+      "subject": "style: fmt-drift fix on loose-eq-num call sites"
+    },
+    {
+      "hash": "c1d48fa6",
+      "subject": "feat: number array find miss answers the undefined sentinel"
+    },
+    {
+      "hash": "ab3a3b9c",
+      "subject": "feat: heap slot nullish consumers learn the undefined sentinel"
+    },
+    {
+      "hash": "1d79bc26",
+      "subject": "style: fmt-drift fix on emit_heap_typeof_runtime signature"
+    },
+    {
+      "hash": "a83aaf63",
+      "subject": "feat: heap elem find miss answers the undefined sentinel"
+    },
+    {
+      "hash": "56feae1d",
+      "subject": "chore: hardev dashboard snapshot at rotation 185 close"
+    },
+    {
       "hash": "b418f835",
       "subject": "feat: string array find miss answers the undefined sentinel"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "583ec207",
       "subject": "fix: str and substr sentinels decode at the tag-value boundary"
-    },
-    {
-      "hash": "e1cd5642",
-      "subject": "feat: typed json.stringify gains a date arm via the tojson kernel"
-    },
-    {
-      "hash": "4df87878",
-      "subject": "feat: substr undefined sentinel decodes to real undefined at the any boundary"
-    },
-    {
-      "hash": "4508edfe",
-      "subject": "chore: hardev dashboard snapshot at rotation 184 close"
-    },
-    {
-      "hash": "08787543",
-      "subject": "feat: native two-arg then kernel attaches both handlers in one microtask registration"
-    },
-    {
-      "hash": "77d5f591",
-      "subject": "feat: object-wrapped symbol inspects as bun multi-line block"
-    },
-    {
-      "hash": "3903643f",
-      "subject": "fix: integer literals beyond 2^53 stay f64-tier for double print semantics"
     }
   ],
-  "headSha": "b418f835",
+  "headSha": "5b2c4b8c",
   "autorun": {
-    "total": 490,
+    "total": 491,
     "baselineTarget": 10,
-    "bySelf": 485,
+    "bySelf": 486,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784694821-606f",
-      "at": "2026-07-22T04:33:41Z",
-      "ts": 1784694821,
+      "rotationId": "r-1784700234-1c9a",
+      "at": "2026-07-22T06:03:54Z",
+      "ts": 1784700234,
       "trigger": "self",
-      "prevHead": "4508edfe",
-      "handoffSha": "sha256:ec0bab071bec1f6138242410badd7aa1d716cccabcb5f2cc93567e78c24b03b0",
-      "handoffAgeSec": 15,
+      "prevHead": "56feae1d",
+      "handoffSha": "sha256:469d5778a7a3f900853390b067c8b0a78e929cf2c945aa7294f1ae2512834aa3",
+      "handoffAgeSec": 394,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784700234-1c9a",
+        "at": "2026-07-22T06:03:54Z",
+        "ts": 1784700234,
+        "trigger": "self",
+        "prevHead": "56feae1d",
+        "handoffSha": "sha256:469d5778a7a3f900853390b067c8b0a78e929cf2c945aa7294f1ae2512834aa3",
+        "handoffAgeSec": 394,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784694821-606f",
         "at": "2026-07-22T04:33:41Z",
@@ -876,17 +887,6 @@
         "prevHead": "87c97b42",
         "handoffSha": "sha256:d2733029283ef01504159a770907566c8e6a47cc568b10f43e718d0c45c63401",
         "handoffAgeSec": 5,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784632013-47be",
-        "at": "2026-07-21T11:06:53Z",
-        "ts": 1784632013,
-        "trigger": "self",
-        "prevHead": "1e8cab07",
-        "handoffSha": "sha256:870923687d51439cd4988aa696eb6fefffc21539d8e834ee9c1e392cbdc9ee74",
-        "handoffAgeSec": 115,
         "conformanceBefore": null,
         "commitsInSession": null
       }
