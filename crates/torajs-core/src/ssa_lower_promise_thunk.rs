@@ -87,6 +87,7 @@ pub(crate) fn synthesize_promise_thunks(
             name,
             params,
             return_type,
+            body,
             ..
         } = stmt
         {
@@ -96,7 +97,19 @@ pub(crate) fn synthesize_promise_thunks(
             let p_num = user
                 .first()
                 .is_none_or(|p0| matches!(p0.type_ann.as_deref(), None | Some("number")));
-            let r_num = matches!(return_type.as_deref(), None | Some("number"));
+            // Ret gate — the None branch means "annotation absent"
+            // which the effective-ret-ty pass reads as Void when the
+            // body doesn't value-return. Wrapping such a cb with an
+            // F64 ret face lets the thunk's I64-ret CallIndirect
+            // disagree with the cb's Void sig — the result register
+            // is undefined and downstream `.then` chains see NaN /
+            // raw i64 garbage. So require the body actually produce a
+            // return value when the ann says number-face-by-default.
+            let r_num = match return_type.as_deref() {
+                Some("number") => true,
+                None => crate::ast::body_has_value_return(body),
+                _ => false,
+            };
             fn_user_params.insert(name, names);
             fn_is_closure.insert(name, lifted);
             fn_num_faces.insert(name, (p_num, r_num));

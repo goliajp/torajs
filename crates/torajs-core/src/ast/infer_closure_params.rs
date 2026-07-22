@@ -19,8 +19,10 @@
 //!   projects its spellings onto the lifted closure's params/ret.
 
 use super::infer_closure_lets::{collect_let_anns, collect_let_init_anns};
+use super::infer_closure_params_apply::{apply_closure_ann_updates, body_returns_value};
+use super::infer_closure_params_promise::resolve_promise_inner_ann;
 use super::infer_closure_typevars::{mentions_any_word, resolve_call_site_typevars};
-use super::{Ast, Expr, ExprId, Stmt};
+use super::{Ast, Expr, ExprId, Stmt, infer_return_ann};
 use crate::num_width::{fn_type_canon, split_fn_type};
 use crate::ssa_lower_free_helpers::count_capture_groups;
 
@@ -157,6 +159,13 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
     // (deferred so we don't mutate ast.stmts mid-walk).
     let mut updates: HashMap<String, (Vec<String>, String)> = HashMap::new();
 
+    // Promise `.then(cb)` / `.catch(cb)` arm — updates only the cb's
+    // user params from the source promise inner type. Ret ann stays
+    // for the sniff / desugar_lifted_closure_fn fallback (avoids
+    // clobbering the cb's actual return face with a promise-inner
+    // guess that only fits the param position).
+    let mut param_only_updates: HashMap<String, Vec<String>> = HashMap::new();
+
     // fn name → positional param annotations, for the user-fn callee
     // hint arm (RFC 20260705 chunk 554 — `apply((n) => n + 1, 41)`).
     // fn name → type params, so a generic callee's hint spellings get
@@ -166,11 +175,17 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
     // Lifted-closure user-param count (params minus the leading `__env`).
     // Used to shape `<string>.replace(re, cb)` callback annotations.
     let mut fn_user_param_count: HashMap<String, usize> = HashMap::new();
+    // Promise chain propagation — resolved (or sniffed) return ann per
+    // FnDecl, so `.then(prev_cb).then(next_cb)` can hand `next_cb`
+    // param the result of `prev_cb`'s return.
+    let mut fn_ret_anns: HashMap<String, Option<String>> = HashMap::new();
     for s in &ast.stmts {
         if let Stmt::FnDecl {
             name,
             params,
             type_params,
+            return_type,
+            body,
             ..
         } = s
         {
@@ -185,6 +200,14 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
             if !type_params.is_empty() {
                 fn_type_params.insert(name.clone(), type_params.clone());
             }
+            let ret = return_type.clone().or_else(|| {
+                if body_returns_value(body) {
+                    infer_return_ann(&ast.exprs, body, params, &HashMap::new())
+                } else {
+                    None
+                }
+            });
+            fn_ret_anns.insert(name.clone(), ret);
         }
     }
 
@@ -269,6 +292,26 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
         let Expr::Member { obj, name } = ast.get_expr(callee).clone() else {
             continue;
         };
+        // Promise<T>.then(cb) / .catch(cb) — infer cb's first param
+        // from the source promise inner type (Promise.resolve/reject
+        // of a literal, or a chained cb's return ann). Without this
+        // the cb's un-annotated param would default to `any` in
+        // `desugar_lifted_closure_fn`; the pthunk pre-scan then skips
+        // it (its param-face gate accepts only `None | Some("number")`)
+        // and the runtime dispatcher hands the raw i64 slot to a cb
+        // whose Any param can't decode an F64 bit pattern — the user
+        // sees the raw bits as a huge integer.
+        if matches!(name.as_str(), "then" | "catch") {
+            if let Some(inner_ann) = resolve_promise_inner_ann(ast, obj, &all_anns, &fn_ret_anns) {
+                for (_arg_idx, fn_name) in &closure_args {
+                    let p = fn_user_param_count.get(fn_name).copied().unwrap_or(1);
+                    if p >= 1 {
+                        param_only_updates.insert(fn_name.clone(), vec![inner_ann.clone(); p]);
+                    }
+                }
+            }
+            continue;
+        }
         let obj_ann = resolve_receiver_ann(ast, obj, &all_anns);
         let Some(ann) = obj_ann else { continue };
         // `<string>.replace(re, cb)` / `replaceAll(re, cb)` — the
@@ -335,8 +378,13 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
         }
     }
 
-    apply_closure_ann_updates(ast, &updates);
+    apply_closure_ann_updates(ast, &updates, &param_only_updates);
 }
+
+// Promise `.then(cb)` / `.catch(cb)` cb-param inference lives in
+// the sibling [`crate::ast::infer_closure_params_promise`] module
+// (file-size hard limit — the main call-site loop plus the promise
+// helpers didn't fit in one file).
 
 /// Callback param/return annotations for `forEach` on a `Map<K|V>` /
 /// `Set<T>` receiver ann (the flat generic spelling). None for any
@@ -403,94 +451,7 @@ fn build_ann_table(ast: &Ast) -> std::collections::HashMap<String, String> {
     all_anns
 }
 
-/// Apply the deferred updates: mutate each lifted FnDecl's params +
-/// return type (deferred so the call-site walk doesn't mutate
-/// ast.stmts mid-walk).
-fn apply_closure_ann_updates(
-    ast: &mut Ast,
-    updates: &std::collections::HashMap<String, (Vec<String>, String)>,
-) {
-    if updates.is_empty() {
-        return;
-    }
-    for stmt in &mut ast.stmts {
-        if let Stmt::FnDecl {
-            name,
-            params,
-            return_type,
-            body,
-            ..
-        } = stmt
-            && let Some((new_param_anns, new_ret_ann)) = updates.get(name)
-        {
-            // First param of a lifted closure is `__env`; user params
-            // start at index 1.
-            let user_start = if params.first().is_some_and(|p| p.name == "__env") {
-                1
-            } else {
-                0
-            };
-            for (i, ann) in new_param_anns.iter().enumerate() {
-                let pidx = user_start + i;
-                if let Some(p) = params.get_mut(pidx)
-                    && p.type_ann.is_none()
-                {
-                    p.type_ann = Some(ann.clone());
-                }
-            }
-            if return_type.is_none() && body_returns_value(body) {
-                *return_type = Some(new_ret_ann.clone());
-            }
-        }
-    }
-}
-
-/// True when any statement in `body` (recursing through control-flow
-/// constructs) is a `return <expr>;`. A closure whose body never
-/// produces a value must keep its `Void` return type — seeding a value
-/// ret ann onto it makes the lowered fn fall off the end of a value-
-/// returning signature, which codegen terminates with `unreachable`
-/// (SIGTRAP at the first call). JS-wise such a callback returns
-/// `undefined`; the Void-ret callback arms in check / ssa_lower carry
-/// that semantic instead.
-fn body_returns_value(body: &[Stmt]) -> bool {
-    body.iter().any(|s| match s {
-        Stmt::Return(ret) => ret.is_some(),
-        Stmt::Block(inner) | Stmt::Multi(inner) => body_returns_value(inner),
-        Stmt::If {
-            then_branch,
-            else_branch,
-            ..
-        } => {
-            body_returns_value(std::slice::from_ref(then_branch.as_ref()))
-                || else_branch
-                    .as_ref()
-                    .is_some_and(|eb| body_returns_value(std::slice::from_ref(eb.as_ref())))
-        }
-        Stmt::While { body, .. }
-        | Stmt::DoWhile { body, .. }
-        | Stmt::ForOfSplitIter { body, .. }
-        | Stmt::ForOf { body, .. }
-        | Stmt::Labeled { body, .. } => body_returns_value(std::slice::from_ref(body.as_ref())),
-        Stmt::For { init, body, .. } => {
-            init.as_ref()
-                .is_some_and(|i| body_returns_value(std::slice::from_ref(i.as_ref())))
-                || body_returns_value(std::slice::from_ref(body.as_ref()))
-        }
-        Stmt::Switch { cases, default, .. } => {
-            cases.iter().any(|c| body_returns_value(&c.body))
-                || default.as_ref().is_some_and(|d| body_returns_value(d))
-        }
-        Stmt::Try {
-            body,
-            catch_body,
-            finally_body,
-            ..
-        } => {
-            body_returns_value(body)
-                || body_returns_value(catch_body)
-                || finally_body.as_ref().is_some_and(|f| body_returns_value(f))
-        }
-        _ => false,
-    })
-}
+// `apply_closure_ann_updates` + `body_returns_value` live in the
+// sibling [`crate::ast::infer_closure_params_apply`] module — the
+// mutation half was extracted so the main call-site walker stays
+// within the file-size hard limit.
