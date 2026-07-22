@@ -270,6 +270,14 @@ unsafe fn any_method_call_dispatch(
     if mid == torajs_rc::ANY_METHOD_ARR_TO_STRING {
         return unsafe { crate::method_call_object_proto::arr_to_string_borrowed(recv) };
     }
+    // §21.4.4.37 — the reified `Date.prototype.toJSON` cell's
+    // [[Call]] body is receiver-generic (ToPrimitive number
+    // non-finite → null, else Invoke toISOString). Redispatch-only:
+    // a plain-named `obj.toJSON()` keeps ordinary own-property
+    // routing (a user object's own `toJSON` must win).
+    if mid == torajs_rc::ANY_METHOD_TO_JSON && skip_wrapper_expando {
+        return unsafe { crate::method_call_date::date_to_json_generic(recv) };
+    }
     // chunk D-1 (RFC 20260711) — universal own-property probes
     // (§20.1.4.3 / §20.1.4.5): every receiver shape answers through
     // the prop_has substrate, so these dispatch BEFORE the per-tag

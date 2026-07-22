@@ -159,8 +159,16 @@ pub(crate) unsafe fn date_method(
             m if m == ANY_METHOD_GET_TIME || m == ANY_METHOD_VALUE_OF => {
                 n(__torajs_date_get_time(d))
             }
-            m if m == ANY_METHOD_TO_ISO_STRING || m == ANY_METHOD_TO_JSON => {
-                s(__torajs_date_to_iso_string(d))
+            m if m == ANY_METHOD_TO_ISO_STRING => s(__torajs_date_to_iso_string(d)),
+            // §21.4.4.37 steps 2-3 — an invalid date answers null
+            // (toISOString would record the RangeError; toJSON's
+            // non-finite gate fires first).
+            m if m == ANY_METHOD_TO_JSON => {
+                if __torajs_date_get_time(d).is_finite() {
+                    s(__torajs_date_to_iso_string(d))
+                } else {
+                    crate::nanbox::VALUE_NULL
+                }
             }
             m if m == ANY_METHOD_GET_FULL_YEAR => n(__torajs_date_get_full_year(d)),
             m if m == ANY_METHOD_GET_UTC_FULL_YEAR => n(__torajs_date_get_utc_full_year(d)),
@@ -267,5 +275,55 @@ pub(crate) unsafe fn date_method(
             }
             _ => method_no_such(),
         }
+    }
+}
+
+unsafe extern "C" {
+    /// torajs-throw — pending-throw probe for the ToPrimitive leg
+    /// of the generic toJSON body below.
+    fn __torajs_throw_check() -> i64;
+}
+
+/// §21.4.4.37 Date.prototype.toJSON through a `.call`-re-dispatched
+/// reified cell — receiver-generic: `tv = ToPrimitive(O, number)`;
+/// a non-finite Number tv answers null WITHOUT touching
+/// `toISOString` (the t262 non-finite family plants a throwing
+/// getter there); otherwise Invoke(O, "toISOString") re-enters the
+/// dispatcher by mid. Recorded edge: the re-entry passes no name
+/// Str, so a non-Date receiver's OWN `toISOString` property is not
+/// consulted — mid-routed builtin arms only (the t262 non-finite
+/// cases never reach the invoke leg).
+pub(crate) unsafe fn date_to_json_generic(recv: AnyValue) -> AnyValue {
+    unsafe {
+        let is_obj = crate::nanbox::is_cell(recv) && crate::to_primitive::is_object_value(recv);
+        let (tv, owned) = if is_obj {
+            match crate::to_primitive::heap_to_primitive(crate::nanbox::as_void_ptr(recv), false) {
+                Some(v) => (v, true),
+                // Both ToPrimitive methods answered objects — the
+                // TypeError is already recorded.
+                None => return crate::nanbox::VALUE_UNDEFINED,
+            }
+        } else {
+            (recv, false)
+        };
+        if __torajs_throw_check() != 0 {
+            if owned {
+                crate::nanbox_ffi::__torajs_anyv_rc_dec(tv);
+            }
+            return crate::nanbox::VALUE_UNDEFINED;
+        }
+        let non_finite = crate::nanbox::is_double(tv) && !crate::nanbox::as_double(tv).is_finite();
+        if owned {
+            crate::nanbox_ffi::__torajs_anyv_rc_dec(tv);
+        }
+        if non_finite {
+            return crate::nanbox::VALUE_NULL;
+        }
+        crate::method_call::any_method_redispatch(
+            recv,
+            ANY_METHOD_TO_ISO_STRING,
+            core::ptr::null(),
+            0,
+        )
     }
 }

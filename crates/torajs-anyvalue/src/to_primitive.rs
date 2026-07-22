@@ -95,7 +95,7 @@ unsafe fn skip_not_callable(_cell: *mut c_void, _name_str: *const u8) -> bool {
 /// object" and the walk fell through to toString). Every other
 /// immediate is a primitive by construction.
 #[inline]
-fn is_object_value(v: AnyValue) -> bool {
+pub(crate) fn is_object_value(v: AnyValue) -> bool {
     if !is_cell(v) {
         return false;
     }
