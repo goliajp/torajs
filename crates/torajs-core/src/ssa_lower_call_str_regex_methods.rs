@@ -428,5 +428,11 @@ fn emit_replace(
     // in the replacement slot after the runtime call consumed it
     // (the Str-repl shape is a borrow and stays untouched).
     ctx.release_owned_temp(args[1], &repl);
+    // §22.1.5 — replaceAll throws a TypeError on a non-global RegExp; the
+    // kernel records the pending throw, so propagate it here (mirrors the
+    // matchAll §22.1.3.13 post-call check). `replace` accepts any regex.
+    if method == "replaceAll" {
+        ctx.emit_throw_check(None);
+    }
     Operand::Value(v)
 }

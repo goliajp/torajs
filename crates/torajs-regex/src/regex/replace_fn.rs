@@ -13,7 +13,8 @@ use core::ffi::c_void;
 
 use super::replace_fn_dispatch::invoke_replace_cb;
 use super::{
-    __torajs_str_drop, abort_unsupported, as_regex, byte_to_utf16_units, str_from_bytes, str_slice,
+    __torajs_str_drop, __torajs_throw_type_error, abort_unsupported, as_regex, byte_to_utf16_units,
+    str_from_bytes, str_slice,
 };
 use crate::parser::{RE_FLAG_G, RE_FLAG_Y};
 use crate::vm::{Workspace, match_anchor, save_slot, search_from_with_ws};
@@ -177,6 +178,17 @@ pub unsafe extern "C" fn __torajs_str_replace_all_regex_fn(
     has_off_input: i64,
 ) -> *mut c_void {
     unsafe {
+        // §22.1.5 — replaceAll throws a TypeError on a non-global RegExp
+        // (same as the Str-replacement kernel). Record the pending throw
+        // and answer the original string for the caller's throw check to
+        // discard; the closure env is released by the caller's temp drop.
+        if !re_ptr.is_null() && as_regex(re_ptr).flags & RE_FLAG_G == 0 {
+            __torajs_throw_type_error(
+                b"String.prototype.replaceAll called with a non-global RegExp argument\0".as_ptr(),
+            );
+            let s = str_slice(str_ptr);
+            return str_from_bytes(&s) as *mut c_void;
+        }
         replace_fn_inner(
             str_ptr,
             re_ptr,

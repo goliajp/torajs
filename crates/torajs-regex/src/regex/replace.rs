@@ -14,8 +14,8 @@ use alloc::vec::Vec;
 use core::ffi::c_void;
 
 use super::{
-    RegExp, abort_unsupported, as_regex, str_from_bytes, str_from_bytes_ascii, str_slice,
-    str_slice_ascii_view,
+    __torajs_throw_type_error, RegExp, abort_unsupported, as_regex, str_from_bytes,
+    str_from_bytes_ascii, str_slice, str_slice_ascii_view,
 };
 use crate::node::REGEX_MAX_CAPTURES;
 use crate::parser::{RE_FLAG_G, RE_FLAG_Y};
@@ -287,6 +287,19 @@ pub unsafe extern "C" fn __torajs_str_replace_all_regex(
     let re = unsafe { as_regex(re_ptr) };
     if re.rejected != 0 {
         abort_unsupported(re);
+    }
+    // §22.1.5 — String.prototype.replaceAll throws a TypeError when the
+    // RegExp searchValue lacks the `g` flag (mirrors matchAll §22.1.3.13).
+    // The kernel records the pending throw; the caller's post-call
+    // emit_throw_check propagates it and discards this returned string.
+    if re.flags & RE_FLAG_G == 0 {
+        unsafe {
+            __torajs_throw_type_error(
+                b"String.prototype.replaceAll called with a non-global RegExp argument\0".as_ptr(),
+            );
+        }
+        let s = unsafe { str_slice(str_ptr) };
+        return unsafe { str_from_bytes(&s) as *mut c_void };
     }
     // Round 5 attacks str-replace #2/#4 — same ASCII borrow shape as
     // `__torajs_str_replace_regex` above.
