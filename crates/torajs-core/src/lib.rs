@@ -240,6 +240,7 @@ pub(crate) mod ssa_lower_binop_inner_i64;
 pub(crate) mod ssa_lower_binop_inner_str_cmp;
 pub(crate) mod ssa_lower_binop_inner_strict_eq;
 pub(crate) mod ssa_lower_binop_loose_eq;
+pub(crate) mod ssa_lower_binop_loose_eq_num;
 pub(crate) mod ssa_lower_binop_null_undef;
 pub(crate) mod ssa_lower_binop_with_ids;
 pub mod ssa_lower_body_returns_closure;

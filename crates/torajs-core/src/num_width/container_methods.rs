@@ -262,6 +262,14 @@ impl<'a> Analysis<'a> {
                 self.nested_unions.push((ek.clone(), ak));
             }
         }
+        // RFC 20260722-find-miss chunk D — find/findLast can answer
+        // `undefined`, and the F64 undefined-NaN sentinel is its only
+        // numeric repr: an I64-narrowed elem slot cannot hold it, so
+        // the receiver's element class seeds F64. Non-numeric element
+        // classes never consume width seeds — no repr change there.
+        if matches!(name.as_str(), "find" | "findLast") {
+            self.add_container_constraint(ek.clone(), super::W::F64);
+        }
         // Callback-taking iteration — the element param sees the
         // receiver's elems (value flow + nested-reference alias).
         match name.as_str() {

@@ -109,8 +109,19 @@ fn setup_result_slot(ctx: &mut LowerCtx<'_>, method: &str, elem_ty: Type) -> (Ty
         "some" => Operand::ConstBool(false),
         "every" => Operand::ConstBool(true),
         "find" | "findLast" => match elem_ty {
+            // RFC 20260722 chunk D — an I64 elem slot cannot hold the
+            // F64 sentinel; the width analysis seeds F64 on every
+            // find/findLast receiver's element class, so this arm is
+            // only reachable through un-keyed receivers (opaque
+            // aliasing) and keeps the historical zero default there.
             Type::I64 => Operand::ConstI64(0),
-            Type::F64 => Operand::ConstF64(0.0),
+            // RFC 20260722 chunk D — a number[] miss answers the
+            // undefined-NaN sentinel (was 0.0, a silent-wrong hit
+            // value); typeof / eq / print / box consumers route
+            // through `is_undef_f64_source`'s find arm.
+            Type::F64 => Operand::ConstF64(f64::from_bits(
+                crate::ssa_lower_nullable_guard::F64_UNDEF_SENTINEL_BITS,
+            )),
             Type::Bool => Operand::ConstBool(false),
             // RC-1 — an Any slot must default to the boxed `undefined`
             // (ES no-match result); raw null-ptr bits are not a valid
