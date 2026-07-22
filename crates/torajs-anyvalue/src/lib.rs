@@ -118,6 +118,7 @@ mod method_call_arraylike_hof;
 mod method_call_arraylike_host;
 mod method_call_arraylike_mut;
 mod method_call_arraylike_mut_prim;
+mod method_call_bigint;
 mod method_call_cell;
 mod method_call_closure;
 mod method_call_closure_dispatch;

@@ -46,6 +46,24 @@ pub(crate) unsafe fn symbol_proto_method(recv: AnyValue, mid: i64) -> AnyValue {
     }
 }
 
+/// §20.4.3.3 Symbol.prototype.toString — the SymbolDescriptiveString
+/// ("Symbol(<desc>)"); toLocaleString is the inherited §20.1.4.6
+/// invoke-this.toString. valueOf (§20.4.3.4 thisSymbolValue) already
+/// answered identity through `cell_method`'s cell-wide arm. Every
+/// other name is a miss.
+///
+/// # Safety
+/// `ptr` must be a valid Symbol heap cell.
+unsafe fn symbol_string_method(ptr: *mut c_void, mid: i64) -> AnyValue {
+    unsafe {
+        if mid == ANY_METHOD_TO_STRING || mid == ANY_METHOD_TO_LOCALE_STRING {
+            let s = __torajs_symbol_to_str(ptr);
+            return crate::nanbox_encode::__torajs_anyv_box_pointer(s as *mut c_void);
+        }
+        crate::method_call::method_no_such()
+    }
+}
+
 /// §20.4.3 thisSymbolValue — a Symbol cell answers itself; a
 /// SymbolWrapper answers its `[[SymbolData]]` inner cell; every other
 /// receiver is `None` (the caller throws the spec TypeError). The
@@ -271,19 +289,13 @@ pub(crate) unsafe fn cell_method(
     if tag == Tag::RegExp as u16 {
         return Some(unsafe { crate::method_call_regexp::regexp_method(ptr, mid, argv, argc) });
     }
-    // §20.4.3.3 Symbol.prototype.toString — the
-    // SymbolDescriptiveString ("Symbol(<desc>)"); toLocaleString is
-    // the inherited §20.1.4.6 invoke-this.toString. valueOf
-    // (§20.4.3.4 thisSymbolValue) already answered identity through
-    // the cell-wide arm above. Every other name is a miss.
+    // §21.2.3 BigInt.prototype — toString / toLocaleString (valueOf is
+    // the cell-wide identity above).
+    if tag == Tag::BigInt as u16 {
+        return Some(unsafe { crate::method_call_bigint::bigint_method(ptr, mid, argv, argc) });
+    }
     if tag == Tag::Symbol as u16 {
-        if mid == ANY_METHOD_TO_STRING || mid == ANY_METHOD_TO_LOCALE_STRING {
-            let s = unsafe { __torajs_symbol_to_str(ptr) };
-            return Some(unsafe {
-                crate::nanbox_encode::__torajs_anyv_box_pointer(s as *mut c_void)
-            });
-        }
-        return Some(unsafe { crate::method_call::method_no_such() });
+        return Some(unsafe { symbol_string_method(ptr, mid) });
     }
     // chunk 710 — Function.prototype.call / apply on closure
     // values (expando shadowing included).
