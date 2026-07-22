@@ -330,6 +330,7 @@ fn push_child_stmts<'a>(s: &'a Stmt, stack: &mut Vec<&'a Stmt>) {
             }
         }
         Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => stack.push(body),
+        Stmt::Labeled { body, .. } => stack.push(body),
         Stmt::For { init, body, .. } => {
             if let Some(i) = init {
                 stack.push(i);
@@ -382,6 +383,7 @@ fn push_child_stmts_mut<'a>(s: &'a mut Stmt, stack: &mut Vec<&'a mut Stmt>) {
             }
         }
         Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => stack.push(body),
+        Stmt::Labeled { body, .. } => stack.push(body),
         Stmt::For { init, body, .. } => {
             if let Some(i) = init {
                 stack.push(i);

@@ -51,6 +51,9 @@ fn rewrite_params_in_stmt(
                 rewrite_params_in_stmt(ast, e, pset, visited);
             }
         }
+        Stmt::Labeled { body, .. } => {
+            rewrite_params_in_stmt(ast, body, pset, visited);
+        }
         Stmt::While { cond, body } => {
             rewrite_params_in_expr(ast, *cond, pset, visited);
             rewrite_params_in_stmt(ast, body, pset, visited);

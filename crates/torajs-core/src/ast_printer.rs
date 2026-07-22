@@ -42,6 +42,28 @@ fn fmt_type_params(type_params: &[String]) -> String {
     }
 }
 
+/// `Stmt::Break` / `Stmt::Continue` / `Stmt::Labeled` debug-print arms,
+/// split out of `print_stmt` to keep that dispatcher within the function
+/// size limit.
+fn print_jump(ast: &Ast, s: &Stmt, indent: usize) {
+    let pad = "  ".repeat(indent);
+    match s {
+        Stmt::Break(label) => match label {
+            Some(l) => println!("{pad}Break {l}"),
+            None => println!("{pad}Break"),
+        },
+        Stmt::Continue(label) => match label {
+            Some(l) => println!("{pad}Continue {l}"),
+            None => println!("{pad}Continue"),
+        },
+        Stmt::Labeled { label, body } => {
+            println!("{pad}Labeled {label}");
+            print_stmt(ast, body, indent + 1);
+        }
+        _ => {}
+    }
+}
+
 pub(crate) fn print_stmt(ast: &Ast, s: &Stmt, indent: usize) {
     let pad = "  ".repeat(indent);
     match s {
@@ -114,8 +136,7 @@ pub(crate) fn print_stmt(ast: &Ast, s: &Stmt, indent: usize) {
             step,
             body,
         } => print_for(ast, &pad, init.as_deref(), *cond, *step, body, indent),
-        Stmt::Break => println!("{pad}Break"),
-        Stmt::Continue => println!("{pad}Continue"),
+        Stmt::Break(_) | Stmt::Continue(_) | Stmt::Labeled { .. } => print_jump(ast, s, indent),
         Stmt::ForOfSplitIter {
             var_name,
             parent,

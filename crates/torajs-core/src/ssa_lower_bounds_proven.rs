@@ -123,7 +123,10 @@ fn stmt_taints(ast: &Ast, s: &Stmt, i: &str, xs: &str) -> bool {
                 || step.is_some_and(|e| expr_taints(ast, e, i, xs))
                 || stmt_taints(ast, body, i, xs)
         }
-        Stmt::Break | Stmt::Continue => false,
+        Stmt::Break(_) | Stmt::Continue(_) => false,
+        // A `label: stmt` taints iff its body does — the label is
+        // control-flow only, orthogonal to index/array mutation.
+        Stmt::Labeled { body, .. } => stmt_taints(ast, body, i, xs),
         // Anything else (try / switch / for-of / yield-into / …) —
         // conservative taint.
         _ => true,

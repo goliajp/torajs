@@ -96,6 +96,9 @@ pub(crate) fn collect_outer_binds(
             Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
                 collect_outer_binds(std::slice::from_ref(body), ast_exprs_view, fn_sigs, binds);
             }
+            Stmt::Labeled { body, .. } => {
+                collect_outer_binds(std::slice::from_ref(body), ast_exprs_view, fn_sigs, binds);
+            }
             Stmt::For { init, body, .. } => {
                 if let Some(i) = init {
                     collect_outer_binds(std::slice::from_ref(i), ast_exprs_view, fn_sigs, binds);
@@ -287,6 +290,9 @@ impl<'a> Ctx<'a> {
                 if let Some(eb) = else_branch {
                     self.walk_stmt(eb, binds);
                 }
+            }
+            Stmt::Labeled { body, .. } => {
+                self.walk_stmt(body, binds);
             }
             Stmt::While { cond, body } => {
                 self.walk_expr(*cond, binds);

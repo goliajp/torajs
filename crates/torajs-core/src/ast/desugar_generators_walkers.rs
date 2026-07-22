@@ -57,6 +57,9 @@ pub(crate) fn expand_yield_into_in_stmt(ast: &mut Ast, s: &mut Stmt, yield_ty: &
         Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
             expand_yield_into_in_stmt(ast, body, yield_ty);
         }
+        Stmt::Labeled { body, .. } => {
+            expand_yield_into_in_stmt(ast, body, yield_ty);
+        }
         Stmt::For { init, body, .. } => {
             if let Some(i) = init.as_deref_mut() {
                 expand_yield_into_in_stmt(ast, i, yield_ty);
@@ -111,6 +114,9 @@ pub(crate) fn lift_lets_in_stmt(ast: &mut Ast, s: &mut Stmt, lifted: &mut Vec<(S
             }
         }
         Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
+            lift_lets_in_stmt(ast, body, lifted);
+        }
+        Stmt::Labeled { body, .. } => {
             lift_lets_in_stmt(ast, body, lifted);
         }
         Stmt::For { init, body, .. } => {

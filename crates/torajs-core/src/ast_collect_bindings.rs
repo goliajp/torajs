@@ -102,6 +102,7 @@ fn walk_bindings_stmt(s: &Stmt, f: &mut dyn FnMut(&str, &str)) {
             }
         }
         Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => walk_bindings_stmt(body, f),
+        Stmt::Labeled { body, .. } => walk_bindings_stmt(body, f),
         Stmt::For { init, body, .. } => {
             if let Some(init) = init {
                 walk_bindings_stmt(init, f);
@@ -188,6 +189,9 @@ pub(crate) fn collect_local_binding_names(body: &[Stmt], out: &mut HashSet<Strin
                 }
             }
             Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
+                collect_local_binding_names(core::slice::from_ref(body), out);
+            }
+            Stmt::Labeled { body, .. } => {
                 collect_local_binding_names(core::slice::from_ref(body), out);
             }
             Stmt::For { init, body, .. } => {

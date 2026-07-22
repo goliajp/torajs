@@ -275,6 +275,9 @@ pub(super) fn rewrite_returns_for_async(ast: &mut Ast, s: &mut Stmt, inner_ty: &
         Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
             rewrite_returns_for_async(ast, body, inner_ty);
         }
+        Stmt::Labeled { body, .. } => {
+            rewrite_returns_for_async(ast, body, inner_ty);
+        }
         Stmt::For { body, init, .. } => {
             if let Some(i) = init.as_deref_mut() {
                 rewrite_returns_for_async(ast, i, inner_ty);

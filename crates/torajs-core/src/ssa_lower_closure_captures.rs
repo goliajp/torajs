@@ -31,6 +31,9 @@ pub(crate) fn collect_closure_captures_in_stmt(ast: &Ast, s: &Stmt, out: &mut Ha
                 collect_closure_captures_in_stmt(ast, eb, out);
             }
         }
+        Stmt::Labeled { body, .. } => {
+            collect_closure_captures_in_stmt(ast, body, out);
+        }
         Stmt::While { cond, body } => {
             collect_closure_captures_in_expr(ast, *cond, out);
             collect_closure_captures_in_stmt(ast, body, out);
@@ -139,6 +142,9 @@ fn collect_assigned_in_stmt(ast: &Ast, s: &Stmt, out: &mut HashSet<String>) {
             if let Some(eb) = else_branch {
                 collect_assigned_in_stmt(ast, eb, out);
             }
+        }
+        Stmt::Labeled { body, .. } => {
+            collect_assigned_in_stmt(ast, body, out);
         }
         Stmt::While { cond, body } | Stmt::DoWhile { body, cond } => {
             collect_assigned_in_expr(ast, *cond, out);

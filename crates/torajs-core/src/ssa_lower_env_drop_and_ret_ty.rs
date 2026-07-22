@@ -215,6 +215,7 @@ fn stmt_has_ident_return(ast: &Ast, s: &Stmt, globals: &std::collections::HashSe
         Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
             stmt_has_ident_return(ast, body, globals)
         }
+        Stmt::Labeled { body, .. } => stmt_has_ident_return(ast, body, globals),
         Stmt::For { body, .. } => stmt_has_ident_return(ast, body, globals),
         Stmt::Block(stmts) | Stmt::Multi(stmts) => {
             stmts.iter().any(|s| stmt_has_ident_return(ast, s, globals))

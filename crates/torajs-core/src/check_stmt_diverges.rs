@@ -15,7 +15,7 @@
 pub(crate) fn stmt_diverges(s: &crate::ast::Stmt) -> bool {
     use crate::ast::Stmt;
     match s {
-        Stmt::Return(_) | Stmt::Throw(_) | Stmt::Break | Stmt::Continue => true,
+        Stmt::Return(_) | Stmt::Throw(_) | Stmt::Break(_) | Stmt::Continue(_) => true,
         Stmt::Block(stmts) | Stmt::Multi(stmts) => stmts.last().is_some_and(stmt_diverges),
         Stmt::If {
             then_branch,

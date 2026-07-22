@@ -357,7 +357,7 @@ impl<'a> Parser<'a> {
         });
         let done_check = Stmt::If {
             cond: done_member,
-            then_branch: Box::new(Stmt::Break),
+            then_branch: Box::new(Stmt::Break(None)),
             else_branch: None,
         };
 

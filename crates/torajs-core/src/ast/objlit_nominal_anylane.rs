@@ -180,6 +180,9 @@ fn collect_any_let_inits(stmts: &[Stmt], out: &mut Vec<ExprId>) {
             Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
                 collect_any_let_inits(std::slice::from_ref(body.as_ref()), out);
             }
+            Stmt::Labeled { body, .. } => {
+                collect_any_let_inits(std::slice::from_ref(body.as_ref()), out);
+            }
             Stmt::For { init, body, .. } => {
                 if let Some(i) = init {
                     collect_any_let_inits(std::slice::from_ref(i.as_ref()), out);

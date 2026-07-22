@@ -52,6 +52,10 @@ pub(crate) fn deep_clone_stmt(ast: &mut Ast, map: &mut Vec<(ExprId, ExprId)>, s:
                 .as_ref()
                 .map(|e| Box::new(deep_clone_stmt(ast, map, e))),
         },
+        Stmt::Labeled { label, body } => Stmt::Labeled {
+            label: label.clone(),
+            body: Box::new(deep_clone_stmt(ast, map, body)),
+        },
         Stmt::While { cond, body } => Stmt::While {
             cond: deep_clone_expr(ast, map, *cond),
             body: Box::new(deep_clone_stmt(ast, map, body)),

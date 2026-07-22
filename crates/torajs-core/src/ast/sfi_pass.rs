@@ -255,6 +255,9 @@ fn rewrite_sfi_walk_stmt(ast: &mut Ast, s: &mut Stmt, ctx: &mut SplitForICtx) {
         Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
             rewrite_sfi_walk_stmt(ast, body, ctx);
         }
+        Stmt::Labeled { body, .. } => {
+            rewrite_sfi_walk_stmt(ast, body, ctx);
+        }
         Stmt::For { init, body, .. } => {
             if let Some(i) = init {
                 rewrite_sfi_walk_stmt(ast, i, ctx);

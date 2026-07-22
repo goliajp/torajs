@@ -102,7 +102,7 @@ pub(super) fn collect_jobs(
                     jobs,
                 );
             }
-            Stmt::ForOf { body, .. } => {
+            Stmt::ForOf { body, .. } | Stmt::Labeled { body, .. } => {
                 collect_jobs(
                     ast,
                     core::slice::from_ref(body.as_ref()),

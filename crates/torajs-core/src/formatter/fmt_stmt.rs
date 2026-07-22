@@ -8,7 +8,7 @@
 //!
 //! Extracted from `formatter.rs` (2026-05-25, god-file decomp batch 18).
 
-use crate::ast::{ClassMethod, Expr, ExprId, Param, Stmt, SwitchCase, Visibility};
+use crate::ast::{ClassMethod, Expr, ExprId, Param, Stmt, Visibility};
 
 use super::Formatter;
 
@@ -62,13 +62,13 @@ impl<'a> Formatter<'a> {
                 self.write("throw ");
                 self.fmt_expr(*eid);
             }
-            Stmt::Break => {
+            Stmt::Break(label) => self.fmt_break_or_continue("break", label),
+            Stmt::Continue(label) => self.fmt_break_or_continue("continue", label),
+            Stmt::Labeled { label, body } => {
                 self.write_indent();
-                self.write("break");
-            }
-            Stmt::Continue => {
-                self.write_indent();
-                self.write("continue");
+                self.write(&format!("{label}:"));
+                self.newline();
+                self.fmt_stmt(body);
             }
             Stmt::Block(stmts) => {
                 self.write_indent();
@@ -210,6 +210,15 @@ impl<'a> Formatter<'a> {
                 default_expr,
                 source,
             } => self.fmt_export_decl(inner.as_deref(), named, *default_expr, source.as_deref()),
+        }
+    }
+
+    /// `break` / `continue`, with an optional label (ES §14.8/§14.9).
+    fn fmt_break_or_continue(&mut self, kw: &str, label: &Option<String>) {
+        self.write_indent();
+        match label {
+            Some(l) => self.write(&format!("{kw} {l}")),
+            None => self.write(kw),
         }
     }
 
@@ -356,41 +365,6 @@ impl<'a> Formatter<'a> {
 
     /// `Stmt::Switch` arm body — case bodies are indented one level
     /// under their `case x:` label, no braces.
-    fn fmt_switch(&mut self, scrutinee: ExprId, cases: &[SwitchCase], default: Option<&[Stmt]>) {
-        self.write_indent();
-        self.write("switch (");
-        self.fmt_expr(scrutinee);
-        self.write(") {");
-        self.newline();
-        self.indent += 1;
-        for case in cases {
-            self.write_indent();
-            self.write("case ");
-            self.fmt_expr(case.value);
-            self.write(":");
-            self.newline();
-            self.indent += 1;
-            for s in &case.body {
-                self.fmt_stmt(s);
-                self.newline();
-            }
-            self.indent -= 1;
-        }
-        if let Some(d) = default {
-            self.write_indent();
-            self.write("default:");
-            self.newline();
-            self.indent += 1;
-            for s in d {
-                self.fmt_stmt(s);
-                self.newline();
-            }
-            self.indent -= 1;
-        }
-        self.indent -= 1;
-        self.write_indent();
-        self.write("}");
-    }
 
     fn fmt_for_init(&mut self, s: &Stmt) {
         // `for (init; ...)` accepts a LetDecl or an ExprStmt as init.

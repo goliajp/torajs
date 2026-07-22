@@ -78,6 +78,14 @@ fn rewrite_uninit_in_stmts(stmts: &mut Vec<Stmt>, ast: &Ast) {
                     rewrite_uninit_in_stmts(b, ast);
                 }
             }
+            Stmt::Labeled { body, .. } => {
+                // Process the labeled statement as a one-element scope so
+                // nested lets inside a labeled loop / block are rewritten
+                // like any other (the wrapped stmt re-enters this walker).
+                let mut tmp = vec![std::mem::replace(body.as_mut(), Stmt::Break(None))];
+                rewrite_uninit_in_stmts(&mut tmp, ast);
+                *body = Box::new(tmp.pop().unwrap());
+            }
             Stmt::Try {
                 body,
                 catch_body,

@@ -124,6 +124,7 @@ fn eal_recurse_into(ast: &Ast, s: &Stmt, found: &mut std::collections::HashSet<E
                 eal_recurse_into(ast, inner, found);
             }
         }
+        Stmt::Labeled { body, .. } => eal_recurse_into(ast, body, found),
         _ => {}
     }
 }
@@ -143,7 +144,8 @@ fn eal_stmt_safe(ast: &Ast, s: &Stmt, x_name: &str) -> bool {
             // eal_expr_safe handles both: bare X = false, X[i] = true.
             eal_expr_safe(ast, *eid, x_name)
         }
-        Stmt::Return(None) | Stmt::Break | Stmt::Continue => true,
+        Stmt::Return(None) | Stmt::Break(_) | Stmt::Continue(_) => true,
+        Stmt::Labeled { body, .. } => eal_stmt_safe(ast, body, x_name),
         Stmt::LetDecl { name, init, .. } => {
             // `let Y = X[i]` is fine (Y holds an element value);
             // `let Y = X` would be escape (caught by eal_expr_safe).

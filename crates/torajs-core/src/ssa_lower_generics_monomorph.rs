@@ -97,6 +97,7 @@ pub(crate) fn substitute_in_stmt(stmt: &mut Stmt, subst: &[(String, String)]) {
             }
         }
         Stmt::While { body, .. } => substitute_in_stmt(body, subst),
+        Stmt::Labeled { body, .. } => substitute_in_stmt(body, subst),
         Stmt::For { init, body, .. } => {
             if let Some(i) = init {
                 substitute_in_stmt(i, subst);

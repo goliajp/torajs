@@ -145,6 +145,9 @@ fn collect_let_binding_anns_stmt(
         Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
             collect_let_binding_anns_stmt(exprs, body, binds, fn_sigs);
         }
+        Stmt::Labeled { body, .. } => {
+            collect_let_binding_anns_stmt(exprs, body, binds, fn_sigs);
+        }
         Stmt::For { init, body, .. } => {
             if let Some(i) = init {
                 collect_let_binding_anns_stmt(exprs, i, binds, fn_sigs);
@@ -238,6 +241,7 @@ fn collect_return_anns_stmt(
         Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
             collect_return_anns_stmt(exprs, body, binds, fn_sigs, acc)
         }
+        Stmt::Labeled { body, .. } => collect_return_anns_stmt(exprs, body, binds, fn_sigs, acc),
         Stmt::For { init, body, .. } => {
             if let Some(i) = init
                 && !collect_return_anns_stmt(exprs, i, binds, fn_sigs, acc)
@@ -446,6 +450,7 @@ fn stmt_has_value_return(s: &Stmt) -> bool {
                 || else_branch.as_deref().is_some_and(stmt_has_value_return)
         }
         Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => stmt_has_value_return(body),
+        Stmt::Labeled { body, .. } => stmt_has_value_return(body),
         Stmt::For { init, body, .. } => {
             init.as_deref().is_some_and(stmt_has_value_return) || stmt_has_value_return(body)
         }

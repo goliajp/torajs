@@ -89,6 +89,9 @@ pub(crate) fn collect_escape_obj_let_names_in_stmt(ast: &Ast, s: &Stmt, out: &mu
                 collect_escape_obj_let_names_in_stmt(ast, eb, out);
             }
         }
+        Stmt::Labeled { body, .. } => {
+            collect_escape_obj_let_names_in_stmt(ast, body, out);
+        }
         Stmt::While { cond, body } => {
             collect_escape_obj_let_names_in_expr(ast, *cond, out);
             collect_escape_obj_let_names_in_stmt(ast, body, out);

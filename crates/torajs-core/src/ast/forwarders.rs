@@ -180,6 +180,7 @@ fn stmt_has_closure_return(ast: &Ast, s: &Stmt) -> bool {
                     .is_some_and(|s| stmt_has_closure_return(ast, s))
         }
         Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => stmt_has_closure_return(ast, body),
+        Stmt::Labeled { body, .. } => stmt_has_closure_return(ast, body),
         Stmt::For { body, .. } => stmt_has_closure_return(ast, body),
         Stmt::Block(stmts) | Stmt::Multi(stmts) => {
             stmts.iter().any(|s| stmt_has_closure_return(ast, s))
@@ -244,6 +245,9 @@ fn collect_fnsig_ident_returns_stmt(
             }
         }
         Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
+            collect_fnsig_ident_returns_stmt(ast, body, fn_sigs, out);
+        }
+        Stmt::Labeled { body, .. } => {
             collect_fnsig_ident_returns_stmt(ast, body, fn_sigs, out);
         }
         Stmt::For { body, .. } => {
@@ -354,6 +358,9 @@ fn collect_return_replacements(
             }
         }
         Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
+            collect_return_replacements(ast, body, renames, out);
+        }
+        Stmt::Labeled { body, .. } => {
             collect_return_replacements(ast, body, renames, out);
         }
         Stmt::For { body, .. } => {

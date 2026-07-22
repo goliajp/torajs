@@ -69,9 +69,10 @@ pub(super) fn body_has_unsafe_return_arguments(ast: &Ast, body: &[Stmt]) -> bool
                 stmt_walk(ast, then_branch)
                     || else_branch.as_ref().is_some_and(|e| stmt_walk(ast, e))
             }
-            Stmt::While { body, .. } | Stmt::DoWhile { body, .. } | Stmt::For { body, .. } => {
-                stmt_walk(ast, body)
-            }
+            Stmt::While { body, .. }
+            | Stmt::DoWhile { body, .. }
+            | Stmt::For { body, .. }
+            | Stmt::Labeled { body, .. } => stmt_walk(ast, body),
             Stmt::Block(stmts) | Stmt::Multi(stmts) => stmts.iter().any(|s| stmt_walk(ast, s)),
             Stmt::Try {
                 body, catch_body, ..

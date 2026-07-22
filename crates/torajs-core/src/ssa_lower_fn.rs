@@ -152,6 +152,7 @@ pub(crate) fn lower_fn(
         scope_stack: vec![Vec::new()],
         shadow_stack: vec![Vec::new()],
         loop_stack: Vec::new(),
+        label_stack: Vec::new(),
         cur_block: entry,
         new_strings: &mut new_strings,
         string_id_base,

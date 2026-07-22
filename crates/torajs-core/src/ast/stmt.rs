@@ -113,11 +113,23 @@ pub enum Stmt {
         /// properties deleted mid-loop are not visited (ES §14.7.5).
         forin_obj: Option<ExprId>,
     },
-    /// `break;` — exits the innermost enclosing loop. M1.7.
-    Break,
-    /// `continue;` — jumps to the innermost loop's step (for) or
-    /// header (while). M1.7.
-    Continue,
+    /// `break;` / `break label;` — exits the innermost enclosing loop
+    /// or switch when unlabeled; with a label, exits the enclosing
+    /// statement carrying that label (ES §14.9). M1.7.
+    Break(Option<String>),
+    /// `continue;` / `continue label;` — jumps to the innermost loop's
+    /// step (for) or header (while) when unlabeled; with a label, to
+    /// the labeled enclosing *iteration* statement's continuation
+    /// point (ES §14.8). M1.7.
+    Continue(Option<String>),
+    /// `label: stmt` — ES §13.13 labeled statement. The label is
+    /// retained (rather than stripped at parse time) so `break label`
+    /// / `continue label` inside `body` can target it. Stacked labels
+    /// (`a: b: stmt`) nest as `Labeled { a, Labeled { b, stmt } }`.
+    Labeled {
+        label: String,
+        body: Box<Stmt>,
+    },
     /// `throw <expr>;` — M4. The thrown value's type is whatever
     /// `<expr>` resolves to (currently number-only at the SSA layer).
     /// Lowered to a write into `__torajs_throw_value` + an immediate

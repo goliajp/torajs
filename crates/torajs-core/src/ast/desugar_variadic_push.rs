@@ -176,6 +176,9 @@ fn rewrite_variadic_push_in_stmts(
             Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
                 rewrite_variadic_push_in_stmt_box(body, snapshot, out_exprs);
             }
+            Stmt::Labeled { body, .. } => {
+                rewrite_variadic_push_in_stmt_box(body, snapshot, out_exprs);
+            }
             Stmt::For { init, body, .. } => {
                 if let Some(b) = init {
                     rewrite_variadic_push_in_stmt_box(b, snapshot, out_exprs);
@@ -232,7 +235,7 @@ fn rewrite_variadic_push_in_stmt_box(
     snapshot: &[Expr],
     out_exprs: &mut Vec<Expr>,
 ) {
-    let mut owned = std::mem::replace(s.as_mut(), Stmt::Break);
+    let mut owned = std::mem::replace(s.as_mut(), Stmt::Break(None));
     let mut wrapper = vec![owned];
     rewrite_variadic_push_in_stmts(&mut wrapper, snapshot, out_exprs);
     owned = wrapper.into_iter().next().unwrap();

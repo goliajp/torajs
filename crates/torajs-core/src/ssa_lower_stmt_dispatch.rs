@@ -112,11 +112,14 @@ impl<'a> LowerCtx<'a> {
             } => {
                 crate::ssa_lower_stmt_for::lower(self, init.as_deref(), *cond, *step, body);
             }
-            Stmt::Break => {
-                crate::ssa_lower_stmt_break_continue::lower_break(self);
+            Stmt::Break(label) => {
+                crate::ssa_lower_stmt_break_continue::lower_break(self, label.as_deref());
             }
-            Stmt::Continue => {
-                crate::ssa_lower_stmt_break_continue::lower_continue(self);
+            Stmt::Continue(label) => {
+                crate::ssa_lower_stmt_break_continue::lower_continue(self, label.as_deref());
+            }
+            Stmt::Labeled { label, body } => {
+                crate::ssa_lower_stmt_break_continue::lower_labeled(self, label, body);
             }
             Stmt::Throw(eid) => {
                 crate::ssa_lower_stmt_throw::lower(self, *eid);

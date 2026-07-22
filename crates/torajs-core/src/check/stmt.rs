@@ -99,9 +99,15 @@ impl Checker {
                 );
                 self.flush_assign_narrows();
             }
-            Stmt::Break | Stmt::Continue => {
+            Stmt::Break(_) | Stmt::Continue(_) => {
                 // No type-side state to track; the lowerer enforces that
-                // these only appear inside loops.
+                // these only appear inside loops (and that a label, if
+                // present, names an enclosing statement).
+            }
+            Stmt::Labeled { body, .. } => {
+                // ES §13.13 — the label is a control-flow name with no
+                // type-side meaning; typecheck the labeled statement.
+                self.check_stmt(ast, body);
             }
             Stmt::ForOfSplitIter {
                 var_name,

@@ -67,6 +67,9 @@ pub(crate) fn collect_deque_arr_names_in_stmt(ast: &Ast, s: &Stmt, out: &mut Has
                 collect_deque_arr_names_in_stmt(ast, eb, out);
             }
         }
+        Stmt::Labeled { body, .. } => {
+            collect_deque_arr_names_in_stmt(ast, body, out);
+        }
         Stmt::While { cond, body } => {
             collect_deque_arr_names_in_expr(ast, *cond, out);
             collect_deque_arr_names_in_stmt(ast, body, out);

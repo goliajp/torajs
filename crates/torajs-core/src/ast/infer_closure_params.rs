@@ -416,7 +416,8 @@ fn body_returns_value(body: &[Stmt]) -> bool {
         Stmt::While { body, .. }
         | Stmt::DoWhile { body, .. }
         | Stmt::ForOfSplitIter { body, .. }
-        | Stmt::ForOf { body, .. } => body_returns_value(std::slice::from_ref(body.as_ref())),
+        | Stmt::ForOf { body, .. }
+        | Stmt::Labeled { body, .. } => body_returns_value(std::slice::from_ref(body.as_ref())),
         Stmt::For { init, body, .. } => {
             init.as_ref()
                 .is_some_and(|i| body_returns_value(std::slice::from_ref(i.as_ref())))

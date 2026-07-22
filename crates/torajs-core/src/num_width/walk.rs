@@ -34,6 +34,7 @@ pub(super) fn collect_let_names(s: &Stmt, out: &mut HashSet<String>) {
             }
         }
         Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => collect_let_names(body, out),
+        Stmt::Labeled { body, .. } => collect_let_names(body, out),
         Stmt::For { init, body, .. } => {
             if let Some(i) = init {
                 collect_let_names(i, out);
@@ -148,6 +149,9 @@ impl<'a> Analysis<'a> {
                 if let Some(eb) = else_branch {
                     self.walk_stmt(eb, scope);
                 }
+            }
+            Stmt::Labeled { body, .. } => {
+                self.walk_stmt(body, scope);
             }
             Stmt::While { cond, body } | Stmt::DoWhile { body, cond } => {
                 self.walk_expr(*cond, scope);

@@ -32,6 +32,9 @@ pub(crate) fn rewrite_tvdefault_in_stmt(ast: &mut Ast, s: &Stmt, subst: &[(Strin
                 rewrite_tvdefault_in_stmt(ast, eb, subst);
             }
         }
+        Stmt::Labeled { body, .. } => {
+            rewrite_tvdefault_in_stmt(ast, body, subst);
+        }
         Stmt::While { cond, body } => {
             rewrite_tvdefault_in_expr(ast, *cond, subst);
             rewrite_tvdefault_in_stmt(ast, body, subst);

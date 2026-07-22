@@ -158,7 +158,8 @@ pub(crate) fn count_refs_stmt(ast: &Ast, s: &Stmt, refs: &mut HashMap<String, us
                 count_refs_expr(ast, *e, refs);
             }
         }
-        Stmt::TypeDecl { .. } | Stmt::ImportDecl { .. } | Stmt::Break | Stmt::Continue => {}
+        Stmt::TypeDecl { .. } | Stmt::ImportDecl { .. } | Stmt::Break(_) | Stmt::Continue(_) => {}
+        Stmt::Labeled { body, .. } => count_refs_stmt(ast, body, refs),
     }
 }
 

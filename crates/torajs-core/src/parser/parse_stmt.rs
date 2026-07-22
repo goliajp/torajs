@@ -58,17 +58,19 @@ impl<'a> Parser<'a> {
         }
         if matches!(self.peek(), Token::Break) {
             self.pos += 1;
+            let label = self.parse_opt_break_continue_label();
             if matches!(self.peek(), Token::Semi) {
                 self.pos += 1;
             }
-            return Ok(Stmt::Break);
+            return Ok(Stmt::Break(label));
         }
         if matches!(self.peek(), Token::Continue) {
             self.pos += 1;
+            let label = self.parse_opt_break_continue_label();
             if matches!(self.peek(), Token::Semi) {
                 self.pos += 1;
             }
-            return Ok(Stmt::Continue);
+            return Ok(Stmt::Continue(label));
         }
         if matches!(self.peek(), Token::Function) {
             return self.parse_fn(false);
@@ -145,27 +147,44 @@ impl<'a> Parser<'a> {
             return self.parse_let_decl_stmt(mutable, is_var);
         }
         // T-46 — labeled statement (`label: stmt`). JS spec §13.13.
-        // tora doesn't track labels for `break label` / `continue label`
-        // (those are still parsed as bare Break / Continue), so the
-        // minimal handling here is to strip the leading `Ident COLON`
-        // chain and parse the inner stmt. Stacked labels
-        // (`L1: L2: stmt`) are flattened by the recursive call.
+        // The label is retained (as a `Stmt::Labeled` wrapper) so
+        // `break label` / `continue label` inside `body` can target it.
+        // Stacked labels (`L1: L2: stmt`) nest via the recursive call.
         // Detection: stmt-level `Ident COLON` is unambiguous — the
         // only conflicting expression-level shape (`obj: type` in an
         // object literal / interface) only appears as an Expr context,
         // not as the first two tokens of a Stmt.
-        if let Token::Ident(_) = self.peek()
+        if let Token::Ident(name) = self.peek()
             && let Some(next) = self.tokens.get(self.pos + 1)
             && matches!(next.token, Token::Colon)
         {
+            let label = name.clone();
             self.pos += 2; // consume label ident + ':'
-            return self.parse_stmt();
+            let body = Box::new(self.parse_stmt()?);
+            return Ok(Stmt::Labeled { label, body });
         }
         let expr = self.parse_expr()?;
         if matches!(self.peek(), Token::Semi) {
             self.pos += 1;
         }
         Ok(Stmt::Expr(expr))
+    }
+
+    /// `break`/`continue` optional label — ES §14.9/§14.8 restricted
+    /// production `break [no LineTerminator here] LabelIdentifier? ;`.
+    /// A newline between the keyword and an identifier triggers ASI, so
+    /// `break\n foo` is a bare `break;` followed by the expr-stmt `foo`,
+    /// not a labeled break. Caller has already consumed the keyword.
+    fn parse_opt_break_continue_label(&mut self) -> Option<String> {
+        if let Token::Ident(name) = self.peek()
+            && !self.has_newline_before(self.pos)
+        {
+            let label = name.clone();
+            self.pos += 1;
+            Some(label)
+        } else {
+            None
+        }
     }
 
     /// `yield e ;` / `yield * gen(args) ;` statement — split from
@@ -256,7 +275,7 @@ impl<'a> Parser<'a> {
             });
             let done_check = Stmt::If {
                 cond: done_member,
-                then_branch: Box::new(Stmt::Break),
+                then_branch: Box::new(Stmt::Break(None)),
                 else_branch: None,
             };
 

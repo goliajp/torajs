@@ -276,7 +276,7 @@ impl<'a> Linter<'a> {
             self.lint_stmt(s, refs, scopes);
             if matches!(
                 s,
-                Stmt::Return(_) | Stmt::Throw(_) | Stmt::Break | Stmt::Continue
+                Stmt::Return(_) | Stmt::Throw(_) | Stmt::Break(_) | Stmt::Continue(_)
             ) {
                 diverged = true;
             }
@@ -382,13 +382,14 @@ fn stmt_can_throw(ast: &Ast, s: &Stmt) -> bool {
                 .unwrap_or(false)
         }
         Stmt::Block(stmts) | Stmt::Multi(stmts) => block_can_throw(ast, stmts),
+        Stmt::Labeled { body, .. } => stmt_can_throw(ast, body),
         Stmt::ExportDecl { inner, .. } => inner
             .as_ref()
             .map(|s| stmt_can_throw(ast, s))
             .unwrap_or(false),
         Stmt::Return(None)
-        | Stmt::Break
-        | Stmt::Continue
+        | Stmt::Break(_)
+        | Stmt::Continue(_)
         | Stmt::FnDecl { .. }
         | Stmt::TypeDecl { .. }
         | Stmt::ClassDecl { .. }

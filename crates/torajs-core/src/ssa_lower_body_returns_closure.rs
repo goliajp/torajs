@@ -61,6 +61,9 @@ fn collect_closure_locals(ast: &Ast, body: &[Stmt], out: &mut HashSet<String>) {
             Stmt::While { body, .. } | Stmt::For { body, .. } => {
                 collect_closure_locals(ast, std::slice::from_ref(body), out);
             }
+            Stmt::Labeled { body, .. } => {
+                collect_closure_locals(ast, std::slice::from_ref(body), out);
+            }
             Stmt::DoWhile { body, .. } => {
                 collect_closure_locals(ast, std::slice::from_ref(body), out);
             }
@@ -113,6 +116,7 @@ fn stmt_returns_closure(ast: &Ast, s: &Stmt, closure_locals: &HashSet<String>) -
         Stmt::While { body, .. } | Stmt::For { body, .. } => {
             stmt_returns_closure(ast, body, closure_locals)
         }
+        Stmt::Labeled { body, .. } => stmt_returns_closure(ast, body, closure_locals),
         Stmt::Block(stmts) | Stmt::Multi(stmts) => stmts
             .iter()
             .any(|s| stmt_returns_closure(ast, s, closure_locals)),

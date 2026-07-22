@@ -131,7 +131,10 @@ fn scan_stmt(
         Stmt::YieldInto { value, .. } => {
             scan_expr(ast, *value, called, direct, fn_values, expr_types)
         }
-        Stmt::Return(None) | Stmt::Break | Stmt::Continue => {}
+        Stmt::Return(None) | Stmt::Break(_) | Stmt::Continue(_) => {}
+        Stmt::Labeled { body, .. } => {
+            scan_stmt(ast, body, direct, called, fn_values, expr_types);
+        }
         Stmt::LetDecl { name, init, .. } => {
             scan_expr(ast, *init, called, direct, fn_values, expr_types);
             fn_values.insert(name.clone());

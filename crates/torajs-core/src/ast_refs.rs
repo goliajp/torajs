@@ -209,6 +209,9 @@ fn idents_in_stmt(ast: &Ast, s: &Stmt, shadow: &HashSet<String>, out: &mut HashS
                 idents_in_stmt(ast, eb, shadow, out);
             }
         }
+        Stmt::Labeled { body, .. } => {
+            idents_in_stmt(ast, body, shadow, out);
+        }
         Stmt::While { cond, body } | Stmt::DoWhile { body, cond } => {
             idents_in_expr(ast, *cond, shadow, out);
             idents_in_stmt(ast, body, shadow, out);

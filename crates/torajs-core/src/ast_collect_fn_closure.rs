@@ -207,6 +207,9 @@ impl<'a> FnToClosureCollector<'a> {
                     self.walk_stmt(eb, ret_is_any);
                 }
             }
+            Stmt::Labeled { body, .. } => {
+                self.walk_stmt(body, ret_is_any);
+            }
             Stmt::While { cond, body } | Stmt::DoWhile { body, cond } => {
                 self.walk_expr(*cond);
                 self.walk_stmt(body, ret_is_any);

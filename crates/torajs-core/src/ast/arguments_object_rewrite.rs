@@ -76,6 +76,12 @@ pub(super) fn rewrite_arguments_in_stmt(
                 ))
             }),
         },
+        Stmt::Labeled { label, body } => Stmt::Labeled {
+            label: label.clone(),
+            body: Box::new(rewrite_arguments_in_stmt(
+                ast, body, params, argc_mode, is_argv_fn,
+            )),
+        },
         Stmt::While { cond, body } => Stmt::While {
             cond: rewrite_arguments_in_expr(ast, *cond, params, argc_mode, is_argv_fn),
             body: Box::new(rewrite_arguments_in_stmt(

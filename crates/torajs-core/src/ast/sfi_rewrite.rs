@@ -174,7 +174,11 @@ fn sfi_rewrite_stmt(ast: &mut Ast, s: &Stmt, x_name: &str, i_name: &str, v_name:
                 .map(|s| sfi_rewrite_stmt(ast, s, x_name, i_name, v_name))
                 .collect(),
         ),
-        Stmt::Break | Stmt::Continue => s.clone(),
+        Stmt::Break(_) | Stmt::Continue(_) => s.clone(),
+        Stmt::Labeled { label, body } => Stmt::Labeled {
+            label: label.clone(),
+            body: Box::new(sfi_rewrite_stmt(ast, body, x_name, i_name, v_name)),
+        },
         Stmt::FnDecl { .. }
         | Stmt::TypeDecl { .. }
         | Stmt::ClassDecl { .. }

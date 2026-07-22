@@ -66,6 +66,9 @@ pub(super) fn collect_let_init_anns(
             Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
                 collect_let_init_anns(ast, std::slice::from_ref(body.as_ref()), out);
             }
+            Stmt::Labeled { body, .. } => {
+                collect_let_init_anns(ast, std::slice::from_ref(body.as_ref()), out);
+            }
             Stmt::For { init, body, .. } => {
                 if let Some(i) = init {
                     collect_let_init_anns(ast, std::slice::from_ref(i.as_ref()), out);
@@ -99,6 +102,9 @@ pub(super) fn collect_let_anns(body: &[Stmt], out: &mut std::collections::HashMa
                 }
             }
             Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
+                collect_let_anns(std::slice::from_ref(body.as_ref()), out);
+            }
+            Stmt::Labeled { body, .. } => {
                 collect_let_anns(std::slice::from_ref(body.as_ref()), out);
             }
             Stmt::For { init, body, .. } => {

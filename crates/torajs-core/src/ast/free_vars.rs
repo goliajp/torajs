@@ -161,7 +161,8 @@ fn walk_stmt(ast: &Ast, s: &Stmt, bound: &mut Vec<String>, out: &mut Vec<String>
             walk_stmt(ast, body, bound, out);
             bound.truncate(saved);
         }
-        Stmt::Break | Stmt::Continue => {}
+        Stmt::Break(_) | Stmt::Continue(_) => {}
+        Stmt::Labeled { body, .. } => walk_stmt(ast, body, bound, out),
         Stmt::Throw(eid) => walk_expr(ast, *eid, bound, out),
         Stmt::Try {
             body,

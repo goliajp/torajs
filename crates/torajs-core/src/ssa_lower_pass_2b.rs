@@ -73,7 +73,8 @@ fn collect_named_eval(ast: &Ast) -> HashMap<String, String> {
             Stmt::While { body, .. }
             | Stmt::DoWhile { body, .. }
             | Stmt::ForOfSplitIter { body, .. }
-            | Stmt::ForOf { body, .. } => walk(ast, body, map),
+            | Stmt::ForOf { body, .. }
+            | Stmt::Labeled { body, .. } => walk(ast, body, map),
             Stmt::For { init, body, .. } => {
                 if let Some(i) = init {
                     walk(ast, i, map);

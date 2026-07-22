@@ -24,7 +24,8 @@ fn sfi_stmt_x_safe(ast: &Ast, s: &Stmt, x_name: &str, i_name: &str) -> bool {
             sfi_expr_x_safe(ast, *eid, x_name, i_name)
         }
         Stmt::Return(Some(eid)) => sfi_expr_x_safe(ast, *eid, x_name, i_name),
-        Stmt::Return(None) | Stmt::Break | Stmt::Continue => true,
+        Stmt::Return(None) | Stmt::Break(_) | Stmt::Continue(_) => true,
+        Stmt::Labeled { body, .. } => sfi_stmt_x_safe(ast, body, x_name, i_name),
         Stmt::LetDecl { init, .. } => sfi_expr_x_safe(ast, *init, x_name, i_name),
         Stmt::If {
             cond,

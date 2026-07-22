@@ -7,7 +7,7 @@
 //!
 //! Extracted from `fmt_stmt.rs` (2026-05-25, god-file decomp batch 19).
 
-use crate::ast::{ClassCtor, ClassMethod, ExprId, Param, StaticInit, Stmt};
+use crate::ast::{ClassCtor, ClassMethod, ExprId, Param, StaticInit, Stmt, SwitchCase};
 
 use super::Formatter;
 
@@ -252,5 +252,46 @@ impl<'a> Formatter<'a> {
             self.fmt_stmt(s);
             self.indent = saved;
         }
+    }
+
+    pub(super) fn fmt_switch(
+        &mut self,
+        scrutinee: ExprId,
+        cases: &[SwitchCase],
+        default: Option<&[Stmt]>,
+    ) {
+        self.write_indent();
+        self.write("switch (");
+        self.fmt_expr(scrutinee);
+        self.write(") {");
+        self.newline();
+        self.indent += 1;
+        for case in cases {
+            self.write_indent();
+            self.write("case ");
+            self.fmt_expr(case.value);
+            self.write(":");
+            self.newline();
+            self.indent += 1;
+            for s in &case.body {
+                self.fmt_stmt(s);
+                self.newline();
+            }
+            self.indent -= 1;
+        }
+        if let Some(d) = default {
+            self.write_indent();
+            self.write("default:");
+            self.newline();
+            self.indent += 1;
+            for s in d {
+                self.fmt_stmt(s);
+                self.newline();
+            }
+            self.indent -= 1;
+        }
+        self.indent -= 1;
+        self.write_indent();
+        self.write("}");
     }
 }

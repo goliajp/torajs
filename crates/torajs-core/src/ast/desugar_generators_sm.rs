@@ -17,6 +17,7 @@
 //! - All other items (alloc_state, emit_*, lower, the two helpers)
 //!   stay file-private to this sibling.
 
+use super::desugar_generators_sm_rewrite::{rewrite_break_continue_for_outer, stmt_contains_yield};
 use super::{Ast, Expr, ExprId, Stmt};
 
 /// The local `next()` dispatches on, seeded from `this.__state` at
@@ -34,103 +35,6 @@ use super::{Ast, Expr, ExprId, Stmt};
 /// this ("Iterator is closed following abrupt completion").
 pub(super) const RESUME_LOCAL: &str = "__gen_st";
 
-/// Returns true if `s` (or any nested stmt) contains a `yield`. Used
-/// by `GenSm` to decide whether a control-flow construct must be
-/// expanded into separate state arms (yields present) or can be
-/// emitted inline as a regular Stmt::If / While / For.
-fn stmt_contains_yield(s: &Stmt) -> bool {
-    match s {
-        Stmt::Yield(_) | Stmt::YieldInto { .. } => true,
-        Stmt::If {
-            then_branch,
-            else_branch,
-            ..
-        } => {
-            stmt_contains_yield(then_branch)
-                || else_branch.as_deref().is_some_and(stmt_contains_yield)
-        }
-        Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => stmt_contains_yield(body),
-        Stmt::For { init, body, .. } => {
-            init.as_deref().is_some_and(stmt_contains_yield) || stmt_contains_yield(body)
-        }
-        Stmt::Block(stmts) | Stmt::Multi(stmts) => stmts.iter().any(stmt_contains_yield),
-        Stmt::Switch { cases, default, .. } => {
-            cases.iter().any(|c| c.body.iter().any(stmt_contains_yield))
-                || default
-                    .as_ref()
-                    .is_some_and(|d| d.iter().any(stmt_contains_yield))
-        }
-        Stmt::Try {
-            body,
-            catch_body,
-            finally_body,
-            ..
-        } => {
-            body.iter().any(stmt_contains_yield)
-                || catch_body.iter().any(stmt_contains_yield)
-                || finally_body
-                    .as_ref()
-                    .is_some_and(|f| f.iter().any(stmt_contains_yield))
-        }
-        _ => false,
-    }
-}
-
-/// Rewrite `continue;` / `break;` inside `s` into `state = <target>;
-/// continue;` gotos that re-enter the enclosing `while (true)` state
-/// machine at the loop's continue / break target. Stops at inner loop
-/// boundaries — break/continue inside a nested yield-free
-/// `while` / `for` belong to that inner loop and stay literal.
-fn rewrite_break_continue_for_outer(
-    ast: &mut Ast,
-    s: &mut Stmt,
-    cont_target: usize,
-    brk_target: usize,
-) {
-    /// A rewritten `break` / `continue` is a goto, so it moves the local
-    /// resume cursor — same as [`GenSm::emit_goto`], and for the same
-    /// reason (see [`RESUME_LOCAL`]). Writing `this.__state` here while
-    /// the dispatch reads the local would re-enter the SAME arm on every
-    /// turn of the `while (true)`: an infinite loop in any generator
-    /// whose yield-bearing loop breaks or continues.
-    fn make_goto(ast: &mut Ast, target: usize) -> Stmt {
-        let st = ast.add_expr(Expr::Ident(RESUME_LOCAL.into()));
-        let lit = ast.add_expr(Expr::Number(target as f64));
-        let assign = ast.add_expr(Expr::Assign {
-            target: st,
-            value: lit,
-        });
-        Stmt::Block(vec![Stmt::Expr(assign), Stmt::Continue])
-    }
-    match s {
-        Stmt::Continue => *s = make_goto(ast, cont_target),
-        Stmt::Break => *s = make_goto(ast, brk_target),
-        // Inner loops own their break/continue — don't descend.
-        Stmt::While { .. } | Stmt::DoWhile { .. } | Stmt::For { .. } => {}
-        // Switch swallows `break` (it targets the switch). `continue`
-        // inside a switch belongs to the enclosing loop, but yields
-        // inside switch aren't in J.2.b scope so we don't touch this.
-        Stmt::Switch { .. } => {}
-        Stmt::Try { .. } => {}
-        Stmt::If {
-            then_branch,
-            else_branch,
-            ..
-        } => {
-            rewrite_break_continue_for_outer(ast, then_branch, cont_target, brk_target);
-            if let Some(eb) = else_branch.as_deref_mut() {
-                rewrite_break_continue_for_outer(ast, eb, cont_target, brk_target);
-            }
-        }
-        Stmt::Block(stmts) | Stmt::Multi(stmts) => {
-            for s in stmts {
-                rewrite_break_continue_for_outer(ast, s, cont_target, brk_target);
-            }
-        }
-        _ => {}
-    }
-}
-
 /// State-machine emitter for generator bodies. Each state's body is
 /// accumulated into `cur_buf` and flushed into `arms[cur_state]` when
 /// the state ends (via yield, goto, or descent into a nested state).
@@ -143,11 +47,17 @@ pub(super) struct GenSm<'a> {
     pub(super) arms: Vec<Vec<Stmt>>,
     cur_state: usize,
     pub(super) cur_buf: Vec<Stmt>,
-    /// (continue_target, break_target) for each enclosing yield-loop.
-    /// Yield-FREE inner loops emit inline — their break/continue keep
-    /// their normal Stmt::Break / Stmt::Continue meaning, never enter
-    /// this stack.
-    loop_stack: Vec<(usize, usize)>,
+    /// (continue_target, break_target, label) for each enclosing
+    /// yield-loop. Yield-FREE inner loops emit inline — their
+    /// break/continue keep their normal Stmt::Break / Stmt::Continue
+    /// meaning, never enter this stack. `label` is `Some` when the
+    /// yield-loop was wrapped in a `Stmt::Labeled`, so `break label` /
+    /// `continue label` naming it resolve to its state (ES §13.13).
+    loop_stack: Vec<(usize, usize, Option<String>)>,
+    /// Set by the `Stmt::Labeled` arm just before lowering a
+    /// yield-bearing labeled loop; the loop's arm `take`s it into its
+    /// `loop_stack` entry. `None` outside that hand-off.
+    pending_label: Option<String>,
     /// P10.7 — the generator's yield type ann. When `"any"`,
     /// `emit_yield_return` wraps the yielded value in `Expr::As { ...,
     /// ty_ann: "any" }` so the step's `value` field write goes through
@@ -166,6 +76,7 @@ impl<'a> GenSm<'a> {
             cur_state: 0,
             cur_buf: Vec::new(),
             loop_stack: Vec::new(),
+            pending_label: None,
             yield_ty,
         }
     }
@@ -174,6 +85,27 @@ impl<'a> GenSm<'a> {
         let s = self.arms.len();
         self.arms.push(Vec::new());
         s
+    }
+
+    /// State to `goto` for a `break` / `continue` (`want_break` picks
+    /// break vs continue target). `None` label → innermost yield-loop;
+    /// `Some(l)` → the enclosing yield-loop labeled `l` (ES §13.13).
+    /// Returns `None` when no matching yield-loop is on the stack — the
+    /// jump then stays literal (it belongs to a yield-free inner loop
+    /// or is resolved later by ssa_lower).
+    fn sm_loop_target(&self, label: &Option<String>, want_break: bool) -> Option<usize> {
+        let pick = |&(cont, brk, _): &(usize, usize, Option<String>)| {
+            if want_break { brk } else { cont }
+        };
+        match label {
+            None => self.loop_stack.last().map(pick),
+            Some(l) => self
+                .loop_stack
+                .iter()
+                .rev()
+                .find(|(_, _, lbl)| lbl.as_deref() == Some(l.as_str()))
+                .map(pick),
+        }
     }
 
     pub(super) fn flush_cur(&mut self) {
@@ -209,7 +141,7 @@ impl<'a> GenSm<'a> {
             target: st,
             value: lit,
         });
-        vec![Stmt::Expr(assign), Stmt::Continue]
+        vec![Stmt::Expr(assign), Stmt::Continue(None)]
     }
 
     fn emit_yield_return(&mut self, val: ExprId, next: usize) -> Vec<Stmt> {
@@ -268,8 +200,9 @@ impl<'a> GenSm<'a> {
                         then_branch,
                         else_branch,
                     };
-                    if let Some(&(cont, brk)) = self.loop_stack.last() {
-                        rewrite_break_continue_for_outer(self.ast, &mut s, cont, brk);
+                    if !self.loop_stack.is_empty() {
+                        let stack = self.loop_stack.clone();
+                        rewrite_break_continue_for_outer(self.ast, &mut s, &stack);
                     }
                     self.cur_buf.push(s);
                     return;
@@ -330,7 +263,8 @@ impl<'a> GenSm<'a> {
                 self.flush_cur();
 
                 self.cur_state = body_entry;
-                self.loop_stack.push((head, post));
+                self.loop_stack
+                    .push((head, post, self.pending_label.take()));
                 self.lower(*body);
                 self.loop_stack.pop();
                 let mut back = self.emit_goto(head);
@@ -383,7 +317,8 @@ impl<'a> GenSm<'a> {
                 self.flush_cur();
 
                 self.cur_state = body_entry;
-                self.loop_stack.push((step_state, post));
+                self.loop_stack
+                    .push((step_state, post, self.pending_label.take()));
                 self.lower(*body);
                 self.loop_stack.pop();
                 let mut to_step = self.emit_goto(step_state);
@@ -400,29 +335,52 @@ impl<'a> GenSm<'a> {
 
                 self.cur_state = post;
             }
-            Stmt::Continue => {
-                if let Some(&(cont, _)) = self.loop_stack.last() {
+            Stmt::Continue(label) => {
+                if let Some(cont) = self.sm_loop_target(&label, false) {
                     let mut g = self.emit_goto(cont);
                     self.cur_buf.append(&mut g);
                     self.flush_cur();
                     let dead = self.alloc_state();
                     self.cur_state = dead;
                 } else {
-                    self.cur_buf.push(Stmt::Continue);
+                    self.cur_buf.push(Stmt::Continue(label));
                 }
             }
-            Stmt::Break => {
-                if let Some(&(_, brk)) = self.loop_stack.last() {
+            Stmt::Break(label) => {
+                if let Some(brk) = self.sm_loop_target(&label, true) {
                     let mut g = self.emit_goto(brk);
                     self.cur_buf.append(&mut g);
                     self.flush_cur();
                     let dead = self.alloc_state();
                     self.cur_state = dead;
                 } else {
-                    self.cur_buf.push(Stmt::Break);
+                    self.cur_buf.push(Stmt::Break(label));
                 }
             }
+            Stmt::Labeled { label, body } => self.lower_labeled(label, body),
             other => self.cur_buf.push(other),
+        }
+    }
+
+    /// `label: stmt` inside a generator body — ES §13.13. A yield-bearing
+    /// labeled loop hands its label to the loop's arm (recorded on
+    /// `loop_stack` so `break label` / `continue label` naming it resolve
+    /// to its state); a yield-free labeled statement is emitted inline
+    /// with its label preserved so ssa_lower resolves the jumps, while
+    /// bare / this-loop labeled jumps targeting an enclosing SM loop still
+    /// rewrite to gotos.
+    fn lower_labeled(&mut self, label: String, body: Box<Stmt>) {
+        if stmt_contains_yield(&body) {
+            self.pending_label = Some(label);
+            self.lower(*body);
+            self.pending_label = None;
+        } else {
+            let mut s = Stmt::Labeled { label, body };
+            if !self.loop_stack.is_empty() {
+                let stack = self.loop_stack.clone();
+                rewrite_break_continue_for_outer(self.ast, &mut s, &stack);
+            }
+            self.cur_buf.push(s);
         }
     }
 }

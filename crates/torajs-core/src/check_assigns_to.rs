@@ -159,7 +159,8 @@ fn stmt_assigns_matching(ast: &Ast, s: &Stmt, hit: HitFn) -> bool {
                     .as_ref()
                     .is_some_and(|fb| fb.iter().any(|s| stmt_assigns_matching(ast, s, hit)))
         }
-        Stmt::Break | Stmt::Continue => false,
+        Stmt::Break(_) | Stmt::Continue(_) => false,
+        Stmt::Labeled { body, .. } => stmt_assigns_matching(ast, body, hit),
         Stmt::ForOfSplitIter {
             parent, sep, body, ..
         } => {

@@ -196,6 +196,9 @@ fn hoist_recurse_stmt(
         Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
             hoist_recurse_stmt(body, hoisted, exprs);
         }
+        Stmt::Labeled { body, .. } => {
+            hoist_recurse_stmt(body, hoisted, exprs);
+        }
         Stmt::For { body, init, .. } => {
             // Special-case: a single `var i = 0` in the for-init slot
             // hoists `i` to the enclosing fn-body. Replace the

@@ -13,6 +13,7 @@ use std::collections::HashMap;
 use crate::ast::{Ast, ExprId};
 use crate::ssa::{self, BakedRegexEntry, BlockId, FuncId, Operand, Type, ValueId};
 use crate::ssa_lower::{CallRetargets, Intrinsics, LocalInfo, PreReserveState};
+use crate::ssa_lower_stmt_break_continue::LabelFrame;
 
 pub(crate) struct LowerCtx<'a> {
     pub(crate) f: &'a mut ssa::Function,
@@ -214,6 +215,11 @@ pub(crate) struct LowerCtx<'a> {
     /// (re-evaluates cond). For for-loops, continue_target = step block
     /// (so the step still runs on continue, then back to header).
     pub(crate) loop_stack: Vec<(BlockId, BlockId)>,
+    /// Active labeled statements — innermost on top (ES §13.13). A
+    /// `break label` / `continue label` inside the labeled statement's
+    /// body resolves its target through this stack. See
+    /// [`crate::ssa_lower_ctx_struct::LabelTarget`] for the two kinds.
+    pub(crate) label_stack: Vec<(String, LabelFrame)>,
     pub(crate) cur_block: BlockId,
     /// New string literals encountered during this lowering pass (currently
     /// only main collects them). Caller appends these to the module's

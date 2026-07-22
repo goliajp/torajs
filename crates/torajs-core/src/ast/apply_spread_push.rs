@@ -60,6 +60,9 @@ fn rewrite_stmt(ast: &mut Ast, s: &mut Stmt, counter: &mut usize) {
         Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
             rewrite_stmt(ast, body, counter);
         }
+        Stmt::Labeled { body, .. } => {
+            rewrite_stmt(ast, body, counter);
+        }
         Stmt::For { init, body, .. } => {
             if let Some(i) = init {
                 rewrite_stmt(ast, i, counter);

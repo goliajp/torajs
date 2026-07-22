@@ -118,7 +118,8 @@ pub(super) fn collect_supercall_in_stmt(
                 }
             }
         }
-        Stmt::Break | Stmt::Continue => {}
+        Stmt::Break(_) | Stmt::Continue(_) => {}
+        Stmt::Labeled { body, .. } => collect_supercall_in_stmt(ast, body, out),
         Stmt::ForOfSplitIter {
             parent, sep, body, ..
         } => {
@@ -327,7 +328,8 @@ pub(super) fn collect_super_in_stmt(ast: &Ast, s: &Stmt, out: &mut Vec<(ExprId, 
                 }
             }
         }
-        Stmt::Break | Stmt::Continue => {}
+        Stmt::Break(_) | Stmt::Continue(_) => {}
+        Stmt::Labeled { body, .. } => collect_super_in_stmt(ast, body, out),
         Stmt::ForOfSplitIter {
             parent, sep, body, ..
         } => {
