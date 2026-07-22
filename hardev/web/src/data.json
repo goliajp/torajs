@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-22T01:48:54.571Z",
+  "generatedAt": "2026-07-22T04:33:32.859Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 95.81
   },
   "torajs": {
-    "commit": "8142705e",
-    "commitSubject": "fix: toprecision fixed-form window uses js e >= -6 bound not c %g -4",
+    "commit": "08787543",
+    "commitSubject": "feat: native two-arg then kernel attaches both handlers in one microtask registration",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,38 @@
   },
   "commits": [
     {
+      "hash": "08787543",
+      "subject": "feat: native two-arg then kernel attaches both handlers in one microtask registration"
+    },
+    {
+      "hash": "77d5f591",
+      "subject": "feat: object-wrapped symbol inspects as bun multi-line block"
+    },
+    {
+      "hash": "3903643f",
+      "subject": "fix: integer literals beyond 2^53 stay f64-tier for double print semantics"
+    },
+    {
+      "hash": "9bfe7795",
+      "subject": "feat: typed date tojson answers null for invalid date via str-slot null kernel"
+    },
+    {
+      "hash": "24f16333",
+      "subject": "fix: any-box call args take explicit stake and optindex view stake moves into box"
+    },
+    {
+      "hash": "59d52ddc",
+      "subject": "feat: two-arg then admits any-inner and array-inner promise receivers"
+    },
+    {
+      "hash": "613b60b3",
+      "subject": "fix: no-desc symbol description answers undefined sentinel not null"
+    },
+    {
+      "hash": "b5fdd06c",
+      "subject": "chore: hardev dashboard snapshot at rotation 183 close"
+    },
+    {
       "hash": "8142705e",
       "subject": "fix: toprecision fixed-form window uses js e >= -6 bound not c %g -4"
     },
@@ -727,59 +759,38 @@
     {
       "hash": "7ff6ffc8",
       "subject": "feat: promise all accepts mixed any-array input via nan-box slot walk"
-    },
-    {
-      "hash": "20342655",
-      "subject": "feat: promise withresolvers mints pending promise with settle function pair"
-    },
-    {
-      "hash": "9ddf09b3",
-      "subject": "chore: hardev dashboard snapshot at rotation 182 close"
-    },
-    {
-      "hash": "59e8c027",
-      "subject": "fix: promise resolve passes a promise through by identity"
-    },
-    {
-      "hash": "58a11cd7",
-      "subject": "feat: gopn surfaces virtual length name pair on functions and function prototype"
-    },
-    {
-      "hash": "c29166ee",
-      "subject": "fix: any-lane struct field borrow-box stake steal and symbol prototype call rewrite"
-    },
-    {
-      "hash": "6b51425d",
-      "subject": "feat: symbol wrapper mint for object symbol coercion"
-    },
-    {
-      "hash": "82738d1d",
-      "subject": "feat: symbol prototype description accessor gopd materialization"
-    },
-    {
-      "hash": "3cba6954",
-      "subject": "chore: hardev dashboard snapshot at rotation 181 close"
     }
   ],
-  "headSha": "8142705e",
+  "headSha": "08787543",
   "autorun": {
-    "total": 488,
+    "total": 489,
     "baselineTarget": 10,
-    "bySelf": 483,
+    "bySelf": 484,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784676049-25be",
-      "at": "2026-07-21T23:20:49Z",
-      "ts": 1784676049,
+      "rotationId": "r-1784685002-3eeb",
+      "at": "2026-07-22T01:50:02Z",
+      "ts": 1784685002,
       "trigger": "self",
-      "prevHead": "9ddf09b3",
-      "handoffSha": "sha256:38ef05baa24c745ac88e08da5dce361571877bee5cac1845d4258783c1c96f57",
-      "handoffAgeSec": 7,
+      "prevHead": "b5fdd06c",
+      "handoffSha": "sha256:b5b88116febee8143a173735af58f4ab901a82f0b4bc5ec0e6c27f24b5434c83",
+      "handoffAgeSec": 4,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784685002-3eeb",
+        "at": "2026-07-22T01:50:02Z",
+        "ts": 1784685002,
+        "trigger": "self",
+        "prevHead": "b5fdd06c",
+        "handoffSha": "sha256:b5b88116febee8143a173735af58f4ab901a82f0b4bc5ec0e6c27f24b5434c83",
+        "handoffAgeSec": 4,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784676049-25be",
         "at": "2026-07-21T23:20:49Z",
@@ -876,17 +887,6 @@
         "prevHead": "cbe18216",
         "handoffSha": "sha256:f3bf0ef5212128d910ee7997cd7f2372582d1d1ed761a915c4f3cd5e3109c4d8",
         "handoffAgeSec": 3,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784614080-73de",
-        "at": "2026-07-21T06:08:00Z",
-        "ts": 1784614080,
-        "trigger": "self",
-        "prevHead": "9a8646bb",
-        "handoffSha": "sha256:96748ef7c76c383c371631a129a1933d28ce5223c41f15821f3c258d1055c55f",
-        "handoffAgeSec": 8,
         "conformanceBefore": null,
         "commitsInSession": null
       }
