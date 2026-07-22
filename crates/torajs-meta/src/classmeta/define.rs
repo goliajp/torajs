@@ -58,6 +58,45 @@ pub unsafe extern "C" fn __torajs_class_static_method_define(
     }
 }
 
+/// RFC L3b static-field-reflect (2026-07-22) — one static-FIELD own
+/// entry on the class object. ssa_lower hands the resolved
+/// `(tag, name-Str, value-tag, value)` quad: the value pair comes
+/// from `box_to_tag_value` over the `__sf_<C>__<f>` global slot's
+/// current value (the heap arm's rc_inc is the entry's stake — the
+/// define takes it). Attribute set is the §7.3.6 data-field triple
+/// `{writable: true, enumerable: true, configurable: true}`.
+/// Reflection-only: the compile-time `C.<f>` fold keeps reading the
+/// global slot (the static-method reify precedent's split).
+///
+/// # Safety
+/// `name_str` is a live Str cell (caller-owned; the define takes its
+/// own key reference); `vtag`/`vvalue` follow the dynobj_define pair
+/// contract.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_class_static_field_define(
+    tag: i64,
+    name_str: *const u8,
+    vtag: u64,
+    vvalue: u64,
+) {
+    if !in_range(tag) || name_str.is_null() {
+        return;
+    }
+    // SAFETY: single-threaded JS; the register sequence filled the
+    // slot before any reify call (class_globals.rs emit order).
+    let class_anyv = unsafe { CLASSES_BY_TAG_IMM[tag as usize] };
+    if !is_cell_imm(class_anyv) {
+        return;
+    }
+    if unsafe { heap_type_tag(class_anyv as *const c_void) } != TAG_DYNOBJ {
+        return;
+    }
+    unsafe {
+        let mut slot = class_anyv as *mut c_void;
+        __torajs_dynobj_define(&mut slot, name_str, vtag, vvalue, DEFINE_FIELD_FLAGS);
+    }
+}
+
 /// RFC 20260718-accessor-reify 刀 2 — one accessor own entry on the
 /// class prototype. ssa_lower hands the resolved quad (`tag`, the
 /// property-name Str cell, the `__cm_<C>__<M>_get` / `_set` boxed

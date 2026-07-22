@@ -84,6 +84,12 @@ pub(crate) fn check(checker: &Checker, name: &str) -> Result<Type, String> {
             vec![Type::String, Type::String],
             Box::new(Type::Void),
         )),
+        // L3b static-field-reflect (2026-07-22) — third arg is the
+        // `__sf_<C>__<f>` global's current value (any field type).
+        "__torajs_static_field_reify" => Ok(Type::Function(
+            vec![Type::String, Type::String, Type::Any],
+            Box::new(Type::Void),
+        )),
         "__torajs_class_accessor_reify" | "__torajs_class_static_accessor_reify" => Ok(
             Type::Function(vec![Type::String, Type::String], Box::new(Type::Void)),
         ),

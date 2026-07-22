@@ -144,6 +144,24 @@ fn emit_static_inits(
                     init: sf.init,
                     is_var: false,
                 });
+                // L3b static-field-reflect (2026-07-22) — mirror the
+                // static-METHOD reify: the class object gets a real
+                // own data entry so gOPD / any-lane member reads
+                // answer (`verifyProperty(C, "<f>", ...)`). Emitted
+                // right after the slot's LetDecl (value ready), and
+                // the class registration ran earlier (class_globals
+                // stmts prepend ahead of static_field_inits). The
+                // value rides as the `__sf_` Ident so lowering reuses
+                // the plain global-read path.
+                let cname_str = ast.add_expr(Expr::String(cname.to_string()));
+                let fname_str = ast.add_expr(Expr::String(sf.name.clone()));
+                let val_ident = ast.add_expr(Expr::Ident(format!("__sf_{cname}__{}", sf.name)));
+                let callee = ast.add_expr(Expr::Ident("__torajs_static_field_reify".to_string()));
+                let call = ast.add_expr(Expr::Call {
+                    callee,
+                    args: vec![cname_str, fname_str, val_ident],
+                });
+                static_field_inits.push(Stmt::Expr(call));
             }
             StaticInit::Block(stmts) => {
                 let fn_name = format!("__sb_{cname}__{block_idx}");

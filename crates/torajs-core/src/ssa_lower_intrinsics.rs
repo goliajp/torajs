@@ -404,6 +404,7 @@ pub(crate) struct Intrinsics {
     pub(crate) error_proto_install: FuncId,
     pub(crate) error_is_error: FuncId,
     pub(crate) static_method_define: FuncId,
+    pub(crate) static_field_define: FuncId,
     pub(crate) class_accessor_define: FuncId,
     pub(crate) class_static_accessor_define: FuncId,
     pub(crate) class_get: FuncId,

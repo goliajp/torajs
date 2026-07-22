@@ -75,6 +75,12 @@ const FUNCTION_PROTO_TAG: i64 = 13;
 /// {WRITABLE, CONFIGURABLE} (torajs-dynobj layout mirror).
 const DEFINE_CTOR_FLAGS: u64 = (1 << 6) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 0) | (1 << 2);
 
+/// `flags_byte` for a static-FIELD own entry — ClassFieldDefinition
+/// data properties are `{writable: true, enumerable: true,
+/// configurable: true}` (CreateDataPropertyOrThrow §7.3.6), so the
+/// ctor set plus the enumerable flag bit.
+const DEFINE_FIELD_FLAGS: u64 = DEFINE_CTOR_FLAGS | (1 << 1);
+
 /// `flags_byte` for an accessor own entry `{enumerable: false,
 /// configurable: true}` with both faces present — DEFINE_PRESENT_
 /// {VALUE, GET, SET, ENUMERABLE, CONFIGURABLE} + DEFINE_FLAG_
