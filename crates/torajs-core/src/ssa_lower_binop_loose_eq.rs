@@ -192,10 +192,14 @@ pub(crate) fn try_lower(
     }
     let a_ty = ctx.operand_ty(&a);
     let b_ty = ctx.operand_ty(&b);
-    if let Some(v) = crate::ssa_lower_binop_loose_eq_num::try_lower_str_num(ctx, op, a, b, a_ty, b_ty) {
+    if let Some(v) =
+        crate::ssa_lower_binop_loose_eq_num::try_lower_str_num(ctx, op, a, b, a_ty, b_ty)
+    {
         return Some(v);
     }
-    if let Some(v) = crate::ssa_lower_binop_loose_eq_num::try_lower_bool_str(ctx, op, a, b, a_ty, b_ty) {
+    if let Some(v) =
+        crate::ssa_lower_binop_loose_eq_num::try_lower_bool_str(ctx, op, a, b, a_ty, b_ty)
+    {
         return Some(v);
     }
     if let Some(v) = try_lower_any_ladder(ctx, op, a, b) {
