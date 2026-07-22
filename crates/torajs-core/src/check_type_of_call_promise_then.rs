@@ -79,8 +79,20 @@ fn try_then_two_arg(
             Ok(t) => t,
             Err(e) => return Some(Err(e)),
         };
+        /* rotation 184 — the two-arg station also admits Any-inner
+         * (`Promise<any>` from a bare-any source) and Array-inner
+         * (the `Promise.all(...)` result) receivers, mirroring the
+         * 1-arg lanes (P10.7 / P10.2-A4): the lowering's two-arg
+         * station is receiver-generic (per-slot PARAM_ANY, kernel
+         * boxes by the source's repr stamp), so the checker was the
+         * only gate. Non-any-param handlers over Any/Array inner
+         * still need the exact `(T) => T` shape — same posture as
+         * the 1-arg Any lane. */
         if let Type::Promise(inner) = &src_ty
-            && matches!(**inner, Type::Number | Type::String | Type::Boolean)
+            && matches!(
+                **inner,
+                Type::Number | Type::String | Type::Boolean | Type::Any | Type::Array(_)
+            )
         {
             let inner_ty = (**inner).clone();
             let expected_cb = Type::Function(vec![inner_ty.clone()], Box::new(inner_ty.clone()));
