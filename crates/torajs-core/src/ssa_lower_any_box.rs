@@ -340,7 +340,11 @@ impl<'a> LowerCtx<'a> {
             }
             // RFC 20260707 chunk 3 — a Str slot decodes its three
             // shapes (NULL = null / sentinel = undefined / heap Str)
-            // inside the box helper; heap rc_inc happens there too.
+            // inside the box helper. RC-NEUTRAL like every other arm
+            // (rotation 184 — the "heap rc_inc happens there too"
+            // claim that used to sit here was stale and seeded two
+            // use-after-free sites): anyv_box_str_slot is a pure
+            // encode; the caller owns the stake story.
             Type::Str => {
                 let v = self.f.append_inst(
                     self.cur_block,

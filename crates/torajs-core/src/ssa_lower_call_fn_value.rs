@@ -64,8 +64,14 @@ impl<'a> LowerCtx<'a> {
     /// `box_to_any` — the CallIndirect otherwise passes the raw slot
     /// bits into a box-shaped ABI lane (SIGSEGV when an
     /// inference-defaulted `(x: any, y: any)` comparator derefs a raw
-    /// i64; RFC 20260705 chunk 549). Heap payloads are inc'd by the
-    /// any_box helper, so boxed args join the post-call drop list.
+    /// i64; RFC 20260705 chunk 549). Heap payloads take an explicit
+    /// rc_inc before boxing — chunk 753 made `box_to_any` a pure
+    /// encode for non-Str heap values (only the Str-slot helper still
+    /// incs), and every caller here hands a BORROWED elem (HO-loop
+    /// LoadDyn slot); the boxed +1 joins the post-call drop list so
+    /// the pair self-balances (rotation 184 — the stale "the box
+    /// helper incs" premise here was a use-after-free: the drop
+    /// stole the array's own element stake).
     /// Other type pairs pass through unchanged. Returns the
     /// (possibly-rewritten) args plus the (value, type) drops to emit
     /// after the call returns.
@@ -106,6 +112,12 @@ impl<'a> LowerCtx<'a> {
                 out.push(Operand::Value(v));
                 drops.push((Operand::Value(v), Type::Str));
             } else if expected == Some(Type::Any) && actual != Type::Any {
+                // Str included: anyv_box_str_slot is rc-neutral too
+                // (box_void_ptr is a pure encode; the sentinel/null
+                // shapes carry no rc at all).
+                if actual.is_refcounted() {
+                    self.emit_rc_inc(a.clone());
+                }
                 let boxed = self.box_to_any(a);
                 out.push(boxed);
                 drops.push((boxed, Type::Any));

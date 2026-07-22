@@ -78,15 +78,18 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, eid: ExprId, obj: ExprId, index: Exp
             vt => {
                 let boxed = ctx.box_to_any(v.clone());
                 // Chunk 726 — a Str/Substr receiver's index read is
-                // a FRESH view (owned, rc=1) and the box helper adds
-                // its own +1: release the original stake so the box
-                // holds the only one, and record the eid owned so
+                // a FRESH view (owned, rc=1): record the eid owned so
                 // the consumer's release balances (probe q726b:
                 // discarded `s?.[i]` churn 15.2MB vs 6.2MB flat).
-                // The typed-array element arm measures flat as a
-                // borrow (q726e) and stays off the owned track.
+                // Rotation 184 — box_to_any is a pure encode for
+                // every heap shape (anyv_box_str_slot included:
+                // box_void_ptr never incs), so the fresh view's only
+                // stake transfers INTO the box. The old drop here
+                // freed the view under the live box (use-after-free
+                // + a second consumer release). The typed-array
+                // element arm measures flat as a borrow (q726e) and
+                // stays off the owned track.
                 if matches!(obj_ty, Type::Str | Type::Substr) && vt.is_refcounted() {
-                    ctx.emit_drop_value(v, vt);
                     ctx.owned_member_reads.insert(eid);
                 }
                 boxed
