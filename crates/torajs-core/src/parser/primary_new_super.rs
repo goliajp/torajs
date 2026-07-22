@@ -161,6 +161,20 @@ impl<'a> Parser<'a> {
                 }
                 match self.ast.get_expr(inner) {
                     Expr::Ident(n) => n.clone(),
+                    // `new (E as SomeType)(args)` — the TS `as` cast is a
+                    // static-only assertion; the runtime callee is still
+                    // the inner Ident. Peel it here so the downstream
+                    // class-registry lookup (P8.5 `new C(args)`) sees `E`.
+                    Expr::As { expr, .. } => match self.ast.get_expr(*expr) {
+                        Expr::Ident(n) => n.clone(),
+                        other => {
+                            return Err(format!(
+                                "new ((expr) as T) callee must resolve to a class \
+                                     ident (got {other:?}) at {}",
+                                self.at()
+                            ));
+                        }
+                    },
                     other => {
                         return Err(format!(
                             "new (expr) callee must resolve to a class ident (got \
