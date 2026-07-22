@@ -43,6 +43,7 @@ const COMPILER_SOURCE_FILES: &[&str] = &[
     "src/ssa_lower.rs",
     "src/ssa_lower_call_map_goi.rs",
     "src/ssa_lower_any_box.rs",
+    "src/ssa_lower_any_box_call_arg.rs",
     "src/ssa_lower_assign_member.rs",
     "src/ssa_lower_assign_member_any.rs",
     "src/ssa_lower_index.rs",

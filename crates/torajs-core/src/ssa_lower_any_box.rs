@@ -174,53 +174,6 @@ impl<'a> LowerCtx<'a> {
     /// layout, and the slot-typed chain (Any → 0) skipped the mark
     /// the kind-aware readers rely on.
 
-    /// RFC 20260707 chunk 626 — call-arg admit station. When the
-    /// callee's param slot is `Arr<Any>` and the arg's own SSA type
-    /// is a typed array (T-11 container widen at the call boundary),
-    /// mark the block's elem kind so the callee's kind-aware
-    /// `Arr<Any>` readers can decode the raw layout. No-op when the
-    /// arg is already `Arr<Any>` (chain 0), boxed `Any`, or not an
-    /// array — `emit_arr_mark_kind` self-gates on the value's type.
-
-    /// Chunk 641 — contextual empty-array-literal call arg. An empty
-    /// `[]` has no element to infer from; when the callee's param is
-    /// a typed `Arr(T)`, alloc the empty block with the PARAM's
-    /// layout (mirror of `lower_let_init_val`'s V3-06 empty-literal
-    /// annotation arm) instead of the default `Arr<Any>` — the
-    /// checker's `empty_lit_into_arr` admit pairs with this so a
-    /// FLAG_ARR_ANY block never lands behind a typed param slot
-    /// (raw typed writes into NaN-box slots misdecode, chunk 614
-    /// family). Returns None for non-empty / non-array-param shapes;
-    /// the caller falls through to the plain `lower_expr`.
-    pub(crate) fn try_lower_empty_array_arg(
-        &mut self,
-        arg: crate::ast::ExprId,
-        expected: Option<&Type>,
-    ) -> Option<Operand> {
-        let Some(Type::Arr(aid)) = expected else {
-            return None;
-        };
-        if !matches!(
-            self.ast.get_expr(arg),
-            crate::ast::Expr::Array(els) if els.is_empty()
-        ) {
-            return None;
-        }
-        let ty = Type::Arr(*aid);
-        let alloc_fn = if self.arr_layouts[aid.0 as usize] == Type::Any {
-            self.intrinsics.arr_alloc_any
-        } else {
-            self.intrinsics.arr_alloc
-        };
-        let v = self.f.append_inst(
-            self.cur_block,
-            InstKind::Call(alloc_fn, vec![Operand::ConstI64(0)]),
-            ty,
-            None,
-        );
-        Some(Operand::Value(v))
-    }
-
     /// Kind values mirror `torajs_rc::ARR_KIND_*` (1=I64 raw, 2=F64
     /// raw, 3=Bool raw, 4=heap cell ptr; 0=UNSET/no-mark). Depth is
     /// capped at 21 levels (u64 / 3 bits) — deeper nests leave the
@@ -349,6 +302,23 @@ impl<'a> LowerCtx<'a> {
                 let v = self.f.append_inst(
                     self.cur_block,
                     InstKind::Call(self.intrinsics.anyv_box_str_slot, vec![val]),
+                    Type::Any,
+                    None,
+                );
+                return Operand::Value(v);
+            }
+            // Rotation 185 — a Substr slot may hold the Substr-shaped
+            // undefined sentinel (string index OOB read, optindex
+            // route included); the box helper decodes it to a real
+            // ANY_UNDEF so the any world's typeof / strict-eq / print
+            // all agree. RC-NEUTRAL like every box-family kernel —
+            // the caller owns the stake story. Heap views stay a pure
+            // tag-4 encode (any-world readers dispatch on the header's
+            // Tag::Str + FLAG_SUBSTR_VIEW).
+            Type::Substr => {
+                let v = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(self.intrinsics.anyv_box_substr_slot, vec![val]),
                     Type::Any,
                     None,
                 );

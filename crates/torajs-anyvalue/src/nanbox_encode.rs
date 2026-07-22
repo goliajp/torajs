@@ -77,6 +77,10 @@ unsafe extern "C" {
     /// cell (torajs-str undef_sentinel.rs). A Str slot crossing into
     /// the Any world decodes against its address.
     fn __torajs_str_undef() -> *mut u8;
+    /// Rotation 185 — the immortal `undefined` sentinel Substr view
+    /// (string index OOB read). A Substr slot crossing into the Any
+    /// world decodes against its address the same way.
+    fn __torajs_substr_undef() -> *mut u8;
 }
 
 /// Encode a Str-typed slot value as an [`AnyValue`] (RFC 20260707
@@ -91,6 +95,23 @@ pub unsafe extern "C" fn __torajs_anyv_box_str_slot(p: *mut c_void) -> AnyValue 
         return VALUE_NULL;
     }
     if p == unsafe { __torajs_str_undef() } as *mut c_void {
+        return VALUE_UNDEFINED;
+    }
+    box_void_ptr(p)
+}
+
+/// Encode a Substr-typed slot value as an [`AnyValue`] (rotation
+/// 185 — Substr mirror of [`__torajs_anyv_box_str_slot`]). A Substr
+/// slot carries three shapes: NULL, the Substr-shaped undefined
+/// sentinel view (string index OOB read), or a real heap Substr.
+/// Rc-neutral like every box-family kernel — the caller owns the
+/// stake story.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_box_substr_slot(p: *mut c_void) -> AnyValue {
+    if p.is_null() {
+        return VALUE_NULL;
+    }
+    if p == unsafe { __torajs_substr_undef() } as *mut c_void {
         return VALUE_UNDEFINED;
     }
     box_void_ptr(p)

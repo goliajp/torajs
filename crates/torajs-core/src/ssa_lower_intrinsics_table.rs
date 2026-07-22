@@ -344,6 +344,7 @@ pub(crate) fn build(
         arr_drop_any: init_c.any_substrate.arr_drop_any,
         any_box: init_c.any_substrate.any_box,
         anyv_box_str_slot: init_c.any_substrate.anyv_box_str_slot,
+        anyv_box_substr_slot: init_c.any_substrate.anyv_box_substr_slot,
         anyv_str_slot_tag: init_c.any_substrate.anyv_str_slot_tag,
         anyv_str_slot_value: init_c.any_substrate.anyv_str_slot_value,
         any_payload_rc_inc: init_c.any_substrate.any_payload_rc_inc,

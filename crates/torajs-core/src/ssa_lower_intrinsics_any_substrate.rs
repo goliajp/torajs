@@ -77,6 +77,10 @@ pub(crate) struct AnySubstrateIds {
     pub any_any_loose_eq: FuncId,
     pub any_box: FuncId,
     pub anyv_box_str_slot: FuncId,
+    /// Rotation 185 — Substr mirror of `anyv_box_str_slot`: the
+    /// undefined sentinel VIEW decodes to VALUE_UNDEFINED at the
+    /// any boundary; heap views stay a pure tag-4 encode.
+    pub anyv_box_substr_slot: FuncId,
     pub anyv_str_slot_tag: FuncId,
     pub anyv_str_slot_value: FuncId,
     pub any_payload_rc_inc: FuncId,
@@ -226,6 +230,7 @@ pub(crate) fn declare(
         any_any_loose_eq: decl!("__torajs_anyv_loose_eq", [Any, Any], Bool),
         any_box: decl!("__torajs_anyv_box_from_pair", [I64, I64], Any),
         anyv_box_str_slot: decl!("__torajs_anyv_box_str_slot", [Str], Any),
+        anyv_box_substr_slot: decl!("__torajs_anyv_box_substr_slot", [Substr], Any),
         anyv_str_slot_tag: decl!("__torajs_anyv_str_slot_tag", [Str], I64),
         anyv_str_slot_value: decl!("__torajs_anyv_str_slot_value", [Str], I64),
         any_payload_rc_inc: decl!("__torajs_anyv_payload_rc_inc_pair", [I64, I64], Void),

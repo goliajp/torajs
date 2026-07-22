@@ -210,6 +210,7 @@ pub(crate) mod ssa_lower_accessor_face;
 pub(crate) mod ssa_lower_alloca;
 pub(crate) mod ssa_lower_anon_stamp;
 pub(crate) mod ssa_lower_any_box;
+pub(crate) mod ssa_lower_any_box_call_arg;
 pub(crate) mod ssa_lower_any_box_f64_undef;
 pub(crate) mod ssa_lower_any_box_undef;
 pub(crate) mod ssa_lower_any_call;
