@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-22T09:39:55.334Z",
+  "generatedAt": "2026-07-22T14:49:25.780Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 95.81
   },
   "torajs": {
-    "commit": "aded66b1",
-    "commitSubject": "feat: undefined as a first-class type annotation",
+    "commit": "ba6ed123",
+    "commitSubject": "fix: replaceAll throws TypeError on a non-global RegExp (ES §22.1.5)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,38 @@
   },
   "commits": [
     {
+      "hash": "ba6ed123",
+      "subject": "fix: replaceAll throws TypeError on a non-global RegExp (ES §22.1.5)"
+    },
+    {
+      "hash": "f014a2d5",
+      "subject": "feat: arity-aware inference for multi-param <string>.replace(re, cb)"
+    },
+    {
+      "hash": "608c3cb3",
+      "subject": "feat: infer (string) for single-param <string>.replace(re, cb) callbacks"
+    },
+    {
+      "hash": "f04d252e",
+      "subject": "feat: typed Array<T>.values() / .entries() (mark elem-kind at the iter site)"
+    },
+    {
+      "hash": "534ba9c2",
+      "subject": "feat: labeled break/continue (ES §13.13/§14.8/§14.9)"
+    },
+    {
+      "hash": "985a7466",
+      "subject": "feat: Array.from over statically-typed Map / iterator sources"
+    },
+    {
+      "hash": "83c646dd",
+      "subject": "feat: array spread over statically-typed Map / iterator sources"
+    },
+    {
+      "hash": "1297e7e3",
+      "subject": "chore: hardev dashboard snapshot at rotation 187 close"
+    },
+    {
       "hash": "aded66b1",
       "subject": "feat: undefined as a first-class type annotation"
     },
@@ -727,59 +759,38 @@
     {
       "hash": "e08d7e0b",
       "subject": "feat: Promise.race / Promise.any accept Array<Any>"
-    },
-    {
-      "hash": "fc3473eb",
-      "subject": "feat: Promise.withResolvers resolve(promise) adopts inner state"
-    },
-    {
-      "hash": "2fc753cc",
-      "subject": "chore: hardev dashboard snapshot at rotation 186 close"
-    },
-    {
-      "hash": "80716d1a",
-      "subject": "fix: class and proto dynobj defines publish the resized cell"
-    },
-    {
-      "hash": "e4a325a5",
-      "subject": "style: fmt-drift fix on static_field_define decl"
-    },
-    {
-      "hash": "ba0b4002",
-      "subject": "feat: class static fields reify as own entries on the class object"
-    },
-    {
-      "hash": "41cc8ef4",
-      "subject": "chore: hardev dashboard snapshot at rotation 186 close"
-    },
-    {
-      "hash": "5b2c4b8c",
-      "subject": "style: fmt-drift fix on loose-eq-num call sites"
-    },
-    {
-      "hash": "c1d48fa6",
-      "subject": "feat: number array find miss answers the undefined sentinel"
     }
   ],
-  "headSha": "aded66b1",
+  "headSha": "ba6ed123",
   "autorun": {
-    "total": 492,
+    "total": 493,
     "baselineTarget": 10,
-    "bySelf": 487,
+    "bySelf": 488,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784705671-3eb7",
-      "at": "2026-07-22T07:34:31Z",
-      "ts": 1784705671,
+      "rotationId": "r-1784713287-5689",
+      "at": "2026-07-22T09:41:27Z",
+      "ts": 1784713287,
       "trigger": "self",
-      "prevHead": "2fc753cc",
-      "handoffSha": "sha256:df0440b1d8d059718f694f01dfeab24d58f0f833d3ba5bb799f8a9dbe8148407",
-      "handoffAgeSec": 242,
+      "prevHead": "1297e7e3",
+      "handoffSha": "sha256:1420b25341461903b485106f3aa4698ad7eff2f3094442d844ecefe17dd253c3",
+      "handoffAgeSec": 32,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784713287-5689",
+        "at": "2026-07-22T09:41:27Z",
+        "ts": 1784713287,
+        "trigger": "self",
+        "prevHead": "1297e7e3",
+        "handoffSha": "sha256:1420b25341461903b485106f3aa4698ad7eff2f3094442d844ecefe17dd253c3",
+        "handoffAgeSec": 32,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784705671-3eb7",
         "at": "2026-07-22T07:34:31Z",
@@ -876,17 +887,6 @@
         "prevHead": "f9b6b016",
         "handoffSha": "sha256:ef59887bd95e09448de7758e7982826033916eaa11d6d04fb2ce54392b313ef6",
         "handoffAgeSec": 271,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784648101-1cb1",
-        "at": "2026-07-21T15:35:01Z",
-        "ts": 1784648101,
-        "trigger": "self",
-        "prevHead": "29428771",
-        "handoffSha": "sha256:02f27ae0bbe9a8a7866f5efcbf71d0df3248b6230d4e94e35891a30e310dde6c",
-        "handoffAgeSec": 5,
         "conformanceBefore": null,
         "commitsInSession": null
       }
