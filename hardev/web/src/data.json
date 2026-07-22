@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-22T14:49:25.780Z",
+  "generatedAt": "2026-07-22T20:28:30.788Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 95.81
   },
   "torajs": {
-    "commit": "ba6ed123",
-    "commitSubject": "fix: replaceAll throws TypeError on a non-global RegExp (ES §22.1.5)",
+    "commit": "95d7d22b",
+    "commitSubject": "feat: chained xs.values().next() — checker-inferred receiver type",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,26 @@
   },
   "commits": [
     {
+      "hash": "95d7d22b",
+      "subject": "feat: chained xs.values().next() — checker-inferred receiver type"
+    },
+    {
+      "hash": "b68b9d06",
+      "subject": "fix: chained .filter() lost heap-element ownership from temp src"
+    },
+    {
+      "hash": "25804474",
+      "subject": "feat: arr_iter_method dispatch — any-held ArrIter .next()"
+    },
+    {
+      "hash": "a3c080c4",
+      "subject": "fix: anon-struct class_tag mismatch under Pass-2 struct_layouts growth"
+    },
+    {
+      "hash": "2f4e11fc",
+      "subject": "chore: hardev dashboard snapshot at rotation 189 close"
+    },
+    {
       "hash": "ba6ed123",
       "subject": "fix: replaceAll throws TypeError on a non-global RegExp (ES §22.1.5)"
     },
@@ -739,47 +759,49 @@
     {
       "hash": "83c646dd",
       "subject": "feat: array spread over statically-typed Map / iterator sources"
-    },
-    {
-      "hash": "1297e7e3",
-      "subject": "chore: hardev dashboard snapshot at rotation 187 close"
-    },
-    {
-      "hash": "aded66b1",
-      "subject": "feat: undefined as a first-class type annotation"
-    },
-    {
-      "hash": "09db097d",
-      "subject": "feat: Symbol(undefined) is a descriptionless symbol"
-    },
-    {
-      "hash": "3e9360e3",
-      "subject": "feat: BigInt methods on an any-typed receiver"
-    },
-    {
-      "hash": "e08d7e0b",
-      "subject": "feat: Promise.race / Promise.any accept Array<Any>"
     }
   ],
-  "headSha": "ba6ed123",
+  "headSha": "95d7d22b",
   "autorun": {
-    "total": 493,
+    "total": 495,
     "baselineTarget": 10,
-    "bySelf": 488,
+    "bySelf": 490,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784713287-5689",
-      "at": "2026-07-22T09:41:27Z",
-      "ts": 1784713287,
+      "rotationId": "r-1784752089-404a",
+      "at": "2026-07-22T20:28:09Z",
+      "ts": 1784752089,
       "trigger": "self",
-      "prevHead": "1297e7e3",
-      "handoffSha": "sha256:1420b25341461903b485106f3aa4698ad7eff2f3094442d844ecefe17dd253c3",
-      "handoffAgeSec": 32,
+      "prevHead": "95d7d22b",
+      "handoffSha": "sha256:e3b9b18a67fa86852538ff6149f88bebd15aa0c13b52f117cd49ae3a7b657f2c",
+      "handoffAgeSec": 20332,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784752089-404a",
+        "at": "2026-07-22T20:28:09Z",
+        "ts": 1784752089,
+        "trigger": "self",
+        "prevHead": "95d7d22b",
+        "handoffSha": "sha256:e3b9b18a67fa86852538ff6149f88bebd15aa0c13b52f117cd49ae3a7b657f2c",
+        "handoffAgeSec": 20332,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
+      {
+        "rotationId": "r-1784731765-59ff",
+        "at": "2026-07-22T14:49:25Z",
+        "ts": 1784731765,
+        "trigger": "self",
+        "prevHead": "ba6ed123",
+        "handoffSha": "sha256:e3b9b18a67fa86852538ff6149f88bebd15aa0c13b52f117cd49ae3a7b657f2c",
+        "handoffAgeSec": 8,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784713287-5689",
         "at": "2026-07-22T09:41:27Z",
@@ -865,28 +887,6 @@
         "prevHead": "c679ea73",
         "handoffSha": "sha256:47f1bad8ced3f975abf14a810dbf5f500195114fff25497d3fb19486cc47a0ca",
         "handoffAgeSec": 3,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784658928-5c5e",
-        "at": "2026-07-21T18:35:28Z",
-        "ts": 1784658928,
-        "trigger": "self",
-        "prevHead": "ad894303",
-        "handoffSha": "sha256:94f153e3df68016710f4ec65c1b31bf15f656d6d4fa9e0d2a3e6fc36c057257a",
-        "handoffAgeSec": 242,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784653518-5316",
-        "at": "2026-07-21T17:05:18Z",
-        "ts": 1784653518,
-        "trigger": "self",
-        "prevHead": "f9b6b016",
-        "handoffSha": "sha256:ef59887bd95e09448de7758e7982826033916eaa11d6d04fb2ce54392b313ef6",
-        "handoffAgeSec": 271,
         "conformanceBefore": null,
         "commitsInSession": null
       }
