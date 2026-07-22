@@ -178,4 +178,16 @@ pub(super) fn emit_reduce(
             0,
         ),
     );
+    // Rotation 185 — the overwritten accumulator's stake was never
+    // released while the callback's return carries its own +1
+    // (owned-result invariant: `return acc` retains at the return
+    // root), so a pass-through callback grew the acc cell's rc by
+    // one per iteration and a unique-per-iteration seed never freed
+    // (`xs.reduce(cb, {t:i})` churn 25.8MB vs 6.4MB flat). Dropping
+    // the OLD bits after the store balances both shapes: same-box
+    // return pairs retain/drop, fresh return releases the retired
+    // accumulator. Non-refcounted acc slots have no stake to settle.
+    if acc_ty.is_refcounted() {
+        ctx.emit_drop_value(Operand::Value(acc_now), acc_ty);
+    }
 }
