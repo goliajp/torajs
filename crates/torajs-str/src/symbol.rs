@@ -169,8 +169,10 @@ unsafe fn alloc_str(bytes: &[u8]) -> *mut u8 {
 }
 
 /// `Symbol.prototype.description` — returns the rc'd desc Str, or
-/// NULL for `Symbol()` (caller's `Nullable<String>` slot maps to JS
-/// `undefined`).
+/// the immortal undefined sentinel for `Symbol()` (§20.4.3.2 step 4
+/// answers `undefined`; in a Str slot NULL means JS `null` per RFC
+/// 20260707-undefined-sentinel-repr, so the no-desc branch must
+/// hand out the sentinel cell, not NULL).
 ///
 /// # Safety
 ///
@@ -178,12 +180,13 @@ unsafe fn alloc_str(bytes: &[u8]) -> *mut u8 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_symbol_description(p: *const c_void) -> *mut c_void {
     if p.is_null() {
-        return core::ptr::null_mut();
+        return crate::undef_sentinel::undef_ptr() as *mut c_void;
     }
     let desc = unsafe { symbol_desc(p) };
-    if !desc.is_null() {
-        unsafe { __torajs_rc_inc(desc) };
+    if desc.is_null() {
+        return crate::undef_sentinel::undef_ptr() as *mut c_void;
     }
+    unsafe { __torajs_rc_inc(desc) };
     desc
 }
 

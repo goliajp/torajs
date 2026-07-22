@@ -83,8 +83,16 @@ pub(crate) fn is_nullable_str_source(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
         // RFC 20260707 residual chunk — `process.env.X` answers the
         // undefined sentinel on a missing var (chunk 644 producer),
         // so a `.length` load on it (direct or via a let alias)
-        // must guard.
-        Expr::Member { obj, .. } => {
+        // must guard. Same for `sym.description` on the static
+        // Symbol lane — `Symbol()` answers the sentinel (§20.4.3.2),
+        // so typeof / eq / `.length` consumers take the identity-
+        // aware branch.
+        Expr::Member { obj, name } => {
+            if name == "description"
+                && matches!(ctx.expr_types.get(obj), Some(crate::check::Type::Symbol))
+            {
+                return true;
+            }
             if let Expr::Member { obj: inner, name } = ctx.ast.get_expr(*obj) {
                 name == "env"
                     && matches!(ctx.ast.get_expr(*inner), Expr::Ident(n) if n == "process")
