@@ -253,7 +253,11 @@ pub(crate) fn declare(
         error_proto_install: decl!("__torajs_error_proto_install", [I64, Str], Void),
         error_is_error: decl!("__torajs_error_is_error", [Any], Bool),
         static_method_define: decl!("__torajs_class_static_method_define", [I64, Str, I64], Void),
-        static_field_define: decl!("__torajs_class_static_field_define", [I64, Str, I64, I64], Void),
+        static_field_define: decl!(
+            "__torajs_class_static_field_define",
+            [I64, Str, I64, I64],
+            Void
+        ),
         class_accessor_define: decl!("__torajs_class_accessor_define", [I64, Str, I64, I64], Void),
         class_static_accessor_define: decl!(
             "__torajs_class_static_accessor_define",
