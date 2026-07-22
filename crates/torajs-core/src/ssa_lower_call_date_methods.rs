@@ -112,9 +112,11 @@ pub(crate) fn try_lower(
     let v = ctx
         .f
         .append_inst(cur_block, InstKind::Call(target, arg_ops), ret_ty, None);
-    if matches!(method.as_str(), "toISOString" | "toJSON") {
+    if method == "toISOString" {
         // RFC 20260713-date-invalid-time — invalid time value records
         // a pending RangeError (§21.4.4.36 step 3); propagate it.
+        // toJSON is NOT here: §21.4.4.37 steps 2-3 answer null for a
+        // non-finite time value (the kernel returns Str-slot NULL).
         ctx.emit_throw_check(None);
     }
     Some(Operand::Value(v))
@@ -205,7 +207,8 @@ fn build_arg_ops(
 fn resolve_intrinsic(ctx: &LowerCtx<'_>, method: &str) -> (FuncId, Type) {
     match method {
         "getTime" | "valueOf" => (ctx.intrinsics.date_get_time, Type::F64),
-        "toISOString" | "toJSON" => (ctx.intrinsics.date_to_iso_string, Type::Str),
+        "toISOString" => (ctx.intrinsics.date_to_iso_string, Type::Str),
+        "toJSON" => (ctx.intrinsics.date_to_json, Type::Str),
         "getFullYear" => (ctx.intrinsics.date_get_full_year, Type::F64),
         "getUTCFullYear" => (ctx.intrinsics.date_get_utc_full_year, Type::F64),
         "getMonth" => (ctx.intrinsics.date_get_month, Type::F64),

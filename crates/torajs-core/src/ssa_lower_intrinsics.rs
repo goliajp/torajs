@@ -223,6 +223,7 @@ pub(crate) struct Intrinsics {
     pub(crate) date_now_static: FuncId,
     pub(crate) date_get_time: FuncId,
     pub(crate) date_to_iso_string: FuncId,
+    pub(crate) date_to_json: FuncId,
     pub(crate) date_set_time: FuncId,
     pub(crate) date_get_year: FuncId,
     pub(crate) date_set_year: FuncId,

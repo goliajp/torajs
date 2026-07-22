@@ -72,7 +72,7 @@ unsafe extern "C" {
     fn __torajs_dynobj_iter_order(obj: *const c_void, out: *mut u64, cap: u64) -> u64;
 
     // torajs-date §25.5.2 toJSON leg.
-    fn __torajs_date_to_iso_string(d: *const c_void) -> *mut u8;
+    fn __torajs_date_to_json(d: *const c_void) -> *mut u8;
 
     /// torajs-str — the shared undefined-Str sentinel. A `undefined`
     /// RESULT (top-level undefined / callable argument) has to travel
@@ -189,10 +189,16 @@ unsafe fn write_cell(sb: *mut c_void, ptr: *mut c_void, depth: u32) -> Wrote {
             }
             t if t == Tag::Date as u16 => {
                 // §25.5.2 step 3 — Date.prototype.toJSON answers the
-                // ISO string, which then serializes as a string.
-                let iso = __torajs_date_to_iso_string(ptr);
-                __torajs_jsb_push_str_quoted(sb, iso as *const u8);
-                __torajs_str_drop(iso as *mut c_void);
+                // ISO string, which then serializes as a string; an
+                // invalid date's toJSON is JS null (§21.4.4.37
+                // steps 2-3, kernel NULL) and serializes bare.
+                let iso = __torajs_date_to_json(ptr);
+                if iso.is_null() {
+                    push_bytes(sb, b"null");
+                } else {
+                    __torajs_jsb_push_str_quoted(sb, iso as *const u8);
+                    __torajs_str_drop(iso as *mut c_void);
+                }
                 Wrote::Value
             }
             // A callable serializes to nothing, like undefined.

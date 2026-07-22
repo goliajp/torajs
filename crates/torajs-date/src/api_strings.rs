@@ -108,6 +108,23 @@ pub unsafe extern "C" fn __torajs_date_to_iso_string(d_ptr: *const c_void) -> *m
     p
 }
 
+/// `.toJSON()` per ES §21.4.4.37 — a non-finite time value answers
+/// JS null (steps 2-3; NULL in the Str slot's three-shape
+/// convention), never toISOString's RangeError; otherwise the ISO
+/// string.
+///
+/// # Safety
+///
+/// `d_ptr` is null or a live `*Date`. Returned pointer is NULL
+/// (JS null) or a pooled Str (rc=1; caller takes ownership).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_date_to_json(d_ptr: *const c_void) -> *mut u8 {
+    if valid_ms(d_ptr).is_none() {
+        return core::ptr::null_mut();
+    }
+    unsafe { __torajs_date_to_iso_string(d_ptr) }
+}
+
 /// `.toDateString()` per ES §21.4.4.35 — date-only summary like
 /// `"Thu Jan 01 1970"`. Uses the local-time decomposition (same
 /// helper as `getFullYear` / `getMonth` / `getDate` / `getDay`)

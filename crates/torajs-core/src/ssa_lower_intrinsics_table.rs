@@ -190,6 +190,7 @@ pub(crate) fn build(
         date_now_static: init_b.date.date_now_static,
         date_get_time: init_b.date.date_get_time,
         date_to_iso_string: init_b.date.date_to_iso_string,
+        date_to_json: init_b.date.date_to_json,
         date_set_time: init_b.date.date_set_time,
         date_get_year: init_b.date.date_get_year,
         date_set_year: init_b.date.date_set_year,

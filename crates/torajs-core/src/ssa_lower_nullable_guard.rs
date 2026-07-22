@@ -104,6 +104,17 @@ pub(crate) fn is_nullable_str_source(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
         // `As { ty_ann: "__nonnull__" }`) — the runtime value flows
         // through unchanged, so nullability does too.
         Expr::As { expr, .. } => is_nullable_str_source(ctx, *expr),
+        // rotation 184 — `d.toJSON()` on a Date answers Str-slot
+        // NULL (JS null) for an invalid date (§21.4.4.37 steps 2-3),
+        // so typeof / eq / `.length` consumers take the identity-
+        // aware branch.
+        Expr::Call { callee, .. } => {
+            matches!(
+                ctx.ast.get_expr(*callee),
+                Expr::Member { obj, name } if name == "toJSON"
+                    && matches!(ctx.expr_types.get(obj), Some(crate::check::Type::Date))
+            )
+        }
         _ => false,
     }
 }
