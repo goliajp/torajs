@@ -43,6 +43,12 @@ fn resolve_type_ann_inner(
     if name == "null" {
         return Some(Type::Null);
     }
+    // The `undefined` type (the type whose only value is `undefined`).
+    // Represented like undefined values themselves (a null-shaped slot,
+    // per the SSA `parse_type` "undefined" arm).
+    if name == "undefined" {
+        return Some(Type::Undefined);
+    }
     // Rest-param marker produced by the parser for `...args: E[]`
     // inside a fn-type annotation (RFC 20260708-variadic). The inner
     // ann is the ARRAY spelling; the sentinel holds the element.

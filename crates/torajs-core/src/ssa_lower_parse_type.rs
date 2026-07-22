@@ -83,6 +83,12 @@ pub(crate) fn parse_type(
         // Bare `null` annotation (rare). Pointer-shaped, value is null.
         return Type::Ptr;
     }
+    if s == "undefined" {
+        // The `undefined` type — undefined values lower to
+        // `Operand::ConstPtrNull` (Type::Ptr), so an `undefined`-typed
+        // slot is the same null-shaped pointer (mirror of `null`).
+        return Type::Ptr;
+    }
     // `T[]` array suffix — recurse on the element type, intern,
     // return Arr (body in `parse_arr_suffix` below).
     if let Some(rest) = s.strip_suffix("[]") {
