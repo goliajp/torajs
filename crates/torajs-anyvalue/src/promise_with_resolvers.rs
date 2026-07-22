@@ -26,23 +26,44 @@
 //! `value_is_heap=1` (the cell is pre-stamped at mint so the
 //! any-lane `.then` bridge accepts attaches before settlement).
 //!
-//! Recorded edge: `resolve(thenable)` stores the thenable itself
-//! instead of adopting its state (§27.2.1.3.2 PromiseResolveFunctions
-//! step 9 adoption) — the adoption wire is a plan-state follow-up.
+//! `[[AlreadyResolved]]` (§27.2.1.3 CreateResolvingFunctions — one
+//! shared record between the resolve & reject functions) rides the
+//! promise's spare `_pad[1]` byte. The promise `state` alone can't
+//! carry it: resolving with a Promise ADOPTS its state and leaves the
+//! withResolvers promise PENDING until the inner settles, so a second
+//! `resolve` / `reject` racing that window must still no-op.
+//!
+//! Adoption (§27.2.1.3.2 PromiseResolveFunctions step 8-13): resolving
+//! with a native Promise attaches a forwarding reaction on it — the
+//! withResolvers promise settles when the inner does (immediately as a
+//! microtask when the inner is already settled, or on the inner's
+//! later settlement). Mirrors the any-lane bridge's empty-handler
+//! `forward_settle`. Recorded edge: a plain user thenable (an object
+//! with a callable `.then` that is not a native Promise) is still
+//! stored verbatim rather than invoked — the PromiseResolveThenableJob
+//! machinery is a codebase-wide gap (no `Promise.resolve(thenable)`
+//! support either), tracked as a separate plan-state follow-up.
 
 use core::ffi::c_void;
 
 use torajs_rc::Tag;
 
-use crate::nanbox::VALUE_UNDEFINED;
+use crate::nanbox::{VALUE_UNDEFINED, as_void_ptr, is_cell};
 use crate::nanbox_encode::__torajs_anyv_box_pointer;
 
 // ---- torajs-promise layout mirror (lockstep layout.rs) ----
 const P_STATE_OFF: usize = 8;
 const P_IS_HEAP_OFF: usize = 9;
 const P_REPR_OFF: usize = 11;
+/// `_pad[1]` — the `[[AlreadyResolved]]` lock (see module doc).
+const P_RESOLVED_LOCK_OFF: usize = 13;
+const P_VALUE_OFF: usize = 16;
 const STATE_PENDING: u8 = 0;
+const STATE_REJECTED: u8 = 2;
 const REPR_ANY: u8 = 6;
+/// Universal heap header `type_tag` for a Promise cell (torajs-promise
+/// `layout.rs::TAG_PROMISE`).
+const TAG_PROMISE: u16 = 8;
 
 // ---- closure cell layout (ssa_lower closure-env mirror) ----
 const CLOSURE_FN_ADDR_OFF: usize = 8;
@@ -66,6 +87,15 @@ unsafe extern "C" {
     fn __torajs_promise_alloc_pending() -> *mut c_void;
     fn __torajs_promise_resolve(p: *mut c_void, value: i64);
     fn __torajs_promise_reject(p: *mut c_void, reason: i64);
+    /// Append a native reaction to a source promise's chain — fires
+    /// immediately (microtask) when the source is already settled,
+    /// else on its later settlement (torajs-promise `state.rs`). Used
+    /// by the adoption forward.
+    fn __torajs_promise_attach_then(
+        source_p: *mut c_void,
+        invoke: Option<unsafe extern "C" fn(i64)>,
+        arg: i64,
+    );
     fn __torajs_dynobj_alloc() -> *mut c_void;
     fn __torajs_dynobj_set(obj_slot: *mut *mut c_void, key: *mut c_void, tag: u64, value: u64);
     fn __torajs_dynobj_define(
@@ -170,16 +200,94 @@ unsafe fn mint_resolver(
     }
 }
 
+/// Forwarding-reaction arg — the inner (adopted) promise and the
+/// withResolvers promise the reaction settles.
+#[repr(C)]
+struct ForwardArg {
+    inner: *mut c_void,
+    target: *mut c_void,
+}
+
+/// `true` iff `v` decodes to a native Promise cell.
+unsafe fn is_native_promise(v: u64) -> bool {
+    if !is_cell(v) {
+        return false;
+    }
+    let ptr = as_void_ptr(v);
+    // universal heap header `type_tag` (u16 @ +4).
+    unsafe { *(ptr.cast::<u8>().add(4) as *const u16) == TAG_PROMISE }
+}
+
+/// §27.2.1.3.2 step 8-13 — attach a forwarding reaction on `inner`
+/// so `target` settles when `inner` does. Both cells get a stake to
+/// survive the microtask delay; the dispatch releases them.
+unsafe fn adopt_promise(target: *mut c_void, inner: *mut c_void) {
+    unsafe {
+        let layout = core::alloc::Layout::from_size_align(16, 8).unwrap();
+        let a = std::alloc::alloc(layout) as *mut ForwardArg;
+        (*a).inner = inner;
+        (*a).target = target;
+        torajs_rc::__torajs_rc_inc(inner);
+        torajs_rc::__torajs_rc_inc(target);
+        __torajs_promise_attach_then(inner, Some(adopt_forward_dispatch), a as i64);
+    }
+}
+
+/// Reaction body — the inner promise is settled by now (attach_then's
+/// contract). Copy its storage form onto `target` and settle it, then
+/// release both attach stakes. Mirrors the any-lane bridge's
+/// `forward_settle` (raw repr/is_heap/value copy + one owner for the
+/// droppable value; stamp before settle so drained callbacks read the
+/// right repr).
+unsafe extern "C" fn adopt_forward_dispatch(arg: i64) {
+    unsafe {
+        let a = arg as *mut ForwardArg;
+        let inner = (*a).inner;
+        let target = (*a).target;
+        let state = inner.cast::<u8>().add(P_STATE_OFF).read();
+        let repr = inner.cast::<u8>().add(P_REPR_OFF).read();
+        let is_heap = inner.cast::<u8>().add(P_IS_HEAP_OFF).read();
+        let value = (inner.cast::<u8>().add(P_VALUE_OFF) as *const i64).read();
+        if is_heap != 0 && value != 0 {
+            torajs_rc::__torajs_rc_inc(value as *mut c_void);
+        }
+        target.cast::<u8>().add(P_REPR_OFF).write(repr);
+        target.cast::<u8>().add(P_IS_HEAP_OFF).write(is_heap);
+        if state == STATE_REJECTED {
+            __torajs_promise_reject(target, value);
+        } else {
+            __torajs_promise_resolve(target, value);
+        }
+        __torajs_value_drop_heap(inner);
+        __torajs_value_drop_heap(target);
+        std::alloc::dealloc(
+            a as *mut u8,
+            core::alloc::Layout::from_size_align(16, 8).unwrap(),
+        );
+    }
+}
+
 /// Shared settle body — first settle wins; the stored value takes
 /// its own stake off the BORROWED argv slot (NaN-box-aware inc,
-/// immediates no-op).
+/// immediates no-op). Resolving with a native Promise adopts its
+/// state instead of storing it (§27.2.1.3.2); reject never adopts.
 unsafe fn settle(env: *mut c_void, argv: *const u64, argc: i64, rejected: bool) -> u64 {
     unsafe {
         let p = *(env.cast::<u8>().add(RESOLVER_PROMISE_OFF) as *const u64) as *mut c_void;
-        if p.cast::<u8>().add(P_STATE_OFF).read() != STATE_PENDING {
+        // [[AlreadyResolved]] gate — `state` misses the adoption window
+        // where `p` stays PENDING after resolve(promise), so also lock
+        // on the spare byte.
+        if p.cast::<u8>().add(P_STATE_OFF).read() != STATE_PENDING
+            || p.cast::<u8>().add(P_RESOLVED_LOCK_OFF).read() != 0
+        {
             return VALUE_UNDEFINED;
         }
+        p.cast::<u8>().add(P_RESOLVED_LOCK_OFF).write(1);
         let v = if argc >= 1 { *argv } else { VALUE_UNDEFINED };
+        if !rejected && is_native_promise(v) {
+            adopt_promise(p, as_void_ptr(v));
+            return VALUE_UNDEFINED;
+        }
         crate::nanbox_ffi::__torajs_anyv_rc_inc(v);
         if rejected {
             __torajs_promise_reject(p, v as i64);
