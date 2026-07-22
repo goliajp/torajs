@@ -64,6 +64,13 @@ pub(crate) fn try_match(
             if matches!(arg_ty, Type::Set) {
                 return Some(Ok(Type::Array(Box::new(Type::Any))));
             }
+            // `Array.from(map / m.keys() / m.values() / m.entries() /
+            // set.values())` — the collection and its iterator cells
+            // drive the same unified runtime iteration protocol as
+            // `[...x]` spread; the materialized product is `Array<Any>`.
+            if matches!(arg_ty, Type::Map | Type::MapIter | Type::ArrIter) {
+                return Some(Ok(Type::Array(Box::new(Type::Any))));
+            }
             // Array-like `{length: n}` (ES §23.1.2.1 non-iterable
             // branch) — every index read answers undefined, so the
             // result is a dense undefined-filled `Array<Any>`.
@@ -93,6 +100,7 @@ pub(crate) fn try_match(
             };
             match &arg_ty {
                 Type::String | Type::Array(_) | Type::Set => {}
+                Type::Map | Type::MapIter | Type::ArrIter => {}
                 t if is_arraylike_struct(t) => {}
                 _ => {
                     return Some(Err(format!(

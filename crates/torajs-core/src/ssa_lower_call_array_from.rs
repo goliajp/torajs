@@ -157,6 +157,19 @@ fn materialize_src(
         ctx.release_owned_temp(arg_eid, &arg_op);
         return Operand::Value(v);
     }
+    if matches!(arg_ty, Type::Map | Type::MapIter | Type::ArrIter) {
+        // `Array.from(map / iterator)` — box the heap source (tag-4
+        // ANY_HEAP, rc-neutral encode) and drive the unified runtime
+        // iteration protocol into a fresh `Array<Any>`, sharing the
+        // materializer with `[...x]` spread's iterator arm. Ownership
+        // mirrors the spread arm: `emit` borrows the boxed source and
+        // yields an owned rc=1 array; `release_owned_temp` settles an
+        // owned-temp source (`m.keys()` call) and no-ops a borrow.
+        let boxed = ctx.box_to_any(arg_op.clone());
+        let materialized = crate::ssa_lower_arr_from_any::emit(ctx, boxed);
+        ctx.release_owned_temp(arg_eid, &arg_op);
+        return materialized;
+    }
     panic!(
         "ssa-lower: Array.from requires a string, Array<T>, Set, or array-like arg, got {arg_ty:?}"
     )
