@@ -150,7 +150,11 @@ pub(crate) fn emit_substr_typeof_runtime(ctx: &mut LowerCtx<'_>, v: Operand) -> 
 /// "object" (JS null), the generic undefined cell → "undefined",
 /// a live cell → `base_lit` ("object" for Obj/Arr, "function" for
 /// Closure). Same alloca/merge shape as the Str three-state chain.
-pub(crate) fn emit_heap_typeof_runtime(ctx: &mut LowerCtx<'_>, v: Operand, base_lit: &str) -> Operand {
+pub(crate) fn emit_heap_typeof_runtime(
+    ctx: &mut LowerCtx<'_>,
+    v: Operand,
+    base_lit: &str,
+) -> Operand {
     let result_slot = ctx.alloca_in_entry(Type::Str, Some("__typeof_r"));
     let null_blk = ctx.f.add_block();
     let chk_undef_blk = ctx.f.add_block();
