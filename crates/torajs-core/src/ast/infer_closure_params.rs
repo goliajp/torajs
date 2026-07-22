@@ -240,6 +240,22 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
         };
         let obj_ann = resolve_receiver_ann(ast, obj, &all_anns);
         let Some(ann) = obj_ann else { continue };
+        // `<string>.replace(re, cb)` / `replaceAll(re, cb)` — the
+        // replacer receives `(match, ...captures, offset, input)`
+        // (§22.1.3.19 GetSubstitution). The match (user param 0) is
+        // always a String, so infer it — that lets the regex-lane
+        // cb-sig check (`[Str; N+1] -> Str`) accept an otherwise-untyped
+        // (Any) arrow's common `(m) => …` shape. Only the first user
+        // param is annotated (a single-element ann list), so a
+        // multi-param callback's trailing offset (number) / input
+        // (string) stay untyped and that shape keeps hitting the lane's
+        // reject (never mis-typed) — arity-aware inference is a follow-up.
+        if ann == "string" && matches!(name.as_str(), "replace" | "replaceAll") {
+            for (_arg_idx, fn_name) in &closure_args {
+                updates.insert(fn_name.clone(), (vec!["string".into()], "string".into()));
+            }
+            continue;
+        }
         // Map<K, V> / Set<T> receivers — forEach is the only
         // callback-bearing method (§23.1.3.5 / §24.2.3.6); cb
         // positional types are (V, K, Map) / (T, T, Set).
