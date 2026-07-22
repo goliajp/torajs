@@ -195,7 +195,7 @@ pub(crate) fn try_match(
                 Ok(t) => t,
                 Err(e) => return Some(Err(e)),
             };
-            if !matches!(arg_ty, Type::String) {
+            if !matches!(arg_ty, Type::String | Type::Undefined) {
                 return Some(Err(format!(
                     "Symbol(desc) — desc must be string, got {arg_ty:?}"
                 )));

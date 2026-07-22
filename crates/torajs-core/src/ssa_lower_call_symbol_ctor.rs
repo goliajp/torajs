@@ -18,6 +18,7 @@
 //! registry path (that one routes through namespace dispatch).
 
 use crate::ast::{Expr, ExprId};
+use crate::check::Type as CheckType;
 use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 
@@ -32,7 +33,15 @@ pub(crate) fn try_lower(
     if n != "Symbol" {
         return None;
     }
+    // §20.4.1.1 step 2 — an `undefined` description means no
+    // description. Evaluate the arg for its side effects, then feed
+    // NULL (the no-desc form) instead of the undefined value.
+    let arg0_undef =
+        !args.is_empty() && matches!(ctx.expr_types.get(&args[0]), Some(CheckType::Undefined));
     let desc_op: Operand = if args.is_empty() {
+        Operand::ConstPtrNull
+    } else if arg0_undef {
+        let _ = ctx.lower_expr(args[0]);
         Operand::ConstPtrNull
     } else {
         ctx.lower_expr(args[0])
@@ -54,7 +63,7 @@ pub(crate) fn try_lower(
     // drop dec's it), so an Ident desc keeps its stake and its scope
     // drop — the old consume path orphaned that stake (RFC 20260705
     // ledger #3, 32B/iter probe). An owned temp desc releases here.
-    if !args.is_empty() {
+    if !args.is_empty() && !arg0_undef {
         ctx.release_owned_temp(args[0], &desc_op);
     }
     Some(Operand::Value(v))
