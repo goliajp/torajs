@@ -107,14 +107,21 @@ pub(crate) fn is_nullable_str_source(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
         // rotation 184 — `d.toJSON()` on a Date answers Str-slot
         // NULL (JS null) for an invalid date (§21.4.4.37 steps 2-3),
         // so typeof / eq / `.length` consumers take the identity-
-        // aware branch.
-        Expr::Call { callee, .. } => {
-            matches!(
-                ctx.ast.get_expr(*callee),
-                Expr::Member { obj, name } if name == "toJSON"
-                    && matches!(ctx.expr_types.get(obj), Some(crate::check::Type::Date))
-            )
-        }
+        // aware branch. RFC 20260722-find-miss chunk A — a
+        // `string[].find/findLast` miss answers the undefined
+        // sentinel, so the same consumers route identity-aware.
+        Expr::Call { callee, .. } => match ctx.ast.get_expr(*callee) {
+            Expr::Member { obj, name } if name == "toJSON" => {
+                matches!(ctx.expr_types.get(obj), Some(crate::check::Type::Date))
+            }
+            Expr::Member { obj, name } if matches!(name.as_str(), "find" | "findLast") => {
+                matches!(
+                    ctx.expr_types.get(obj),
+                    Some(crate::check::Type::Array(elem)) if **elem == crate::check::Type::String
+                )
+            }
+            _ => false,
+        },
         _ => false,
     }
 }

@@ -127,6 +127,15 @@ fn setup_result_slot(ctx: &mut LowerCtx<'_>, method: &str, elem_ty: Type) -> (Ty
                 );
                 Operand::Value(undef)
             }
+            // RFC 20260722-find-miss-undefined-sentinel chunk A — a
+            // string[] miss answers the immortal undefined sentinel
+            // (§23.1.3.8 no-match = undefined) instead of NULL (which
+            // printed "null"); typeof / eq / .length-guard consumers
+            // route through `is_nullable_str_source`'s find arm.
+            // Static cell: the result slot's scope drop no-ops.
+            Type::Str => ctx
+                .str_undef_sentinel_for(Type::Str)
+                .expect("Str always has a sentinel mapping"),
             _ => Operand::ConstPtrNull,
         },
         _ => unreachable!(),
