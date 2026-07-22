@@ -4,8 +4,8 @@
 //! constant or single-intrinsic-call value with minimal control
 //! flow:
 //!
-//! - `Expr::Number(n)` → `ConstI64` (integer in [-2^63, 2^63)) /
-//!   `ConstF64` (fractional, NaN, ±Inf, magnitude ≥ 2^63 — without
+//! - `Expr::Number(n)` → `ConstI64` (integer in [-2^53, 2^53]) /
+//!   `ConstF64` (fractional, NaN, ±Inf, magnitude > 2^53 — without
 //!   the magnitude check `1e21 as i64` saturates to `i64::MAX`,
 //!   printing 9223372036854775807 instead of `1e+21`).
 //! - `Expr::String(s)` — intern as `Type::Str` ptr via
@@ -49,7 +49,14 @@ use crate::ssa::{self, InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 
 pub(crate) fn lower_number(n: f64) -> Operand {
-    if n.fract() != 0.0 || n.abs() >= 9.223372036854776e18 || !n.is_finite() {
+    // Integer-valued literals within the double-exact window
+    // (|n| ≤ 2^53) stay i64 — both tiers print those identically.
+    // Beyond 2^53 the JS value IS a rounded double and Number
+    // printing is shortest-roundtrip (`1000000000000000128` prints
+    // "1000000000000000100"), so the literal must stay F64-tier;
+    // the old 2^63 bound only guarded the as-cast saturation and
+    // let the I64 tier print the exact decimal (rotation 184).
+    if n.fract() != 0.0 || n.abs() > 9.007199254740992e15 || !n.is_finite() {
         Operand::ConstF64(n)
     } else {
         Operand::ConstI64(n as i64)
