@@ -104,6 +104,11 @@ pub(crate) fn try_lower(
     if (matches!(obj_ty, Type::Closure(_)) || matches!(obj_ty, Type::FnSig(_)))
         && (name == "length" || name == "name")
     {
+        // RFC 20260722-find-miss chunk C — a Closure find/findLast
+        // miss holds the undefined cell; `.length` / `.name` on it
+        // must throw like bun before the static fold / cell probe
+        // answers. No-op for plain receivers.
+        crate::ssa_lower_nullable_guard::emit_undefable_heap_guard(ctx, obj, &obj_val);
         // RFC 20260719-ns-static-value-reify — an ns-static value's
         // `.length` folds the shared table's spec length (`console
         // .log.length` is 0; the sig param count below would say 1).

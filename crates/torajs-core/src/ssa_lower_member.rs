@@ -146,6 +146,10 @@ pub(crate) fn lower_with_val(
         return crate::ssa_lower_any_member::lower_any_member_read(ctx, eid, obj_val, name);
     }
     if matches!(obj_ty, Type::Closure(_)) {
+        // RFC 20260722-find-miss chunk C — an expando read through a
+        // find/findLast miss must throw like bun, not read past the
+        // sentinel header. No-op for plain receivers.
+        crate::ssa_lower_nullable_guard::emit_undefable_heap_guard(ctx, obj, &obj_val);
         // Chunk 717 — the expando read answers owned on every arm
         // (`emit_dynobj_get_result`'s data arm takes the payload inc;
         // the NULL-props arm boxes an immediate undef). Record the

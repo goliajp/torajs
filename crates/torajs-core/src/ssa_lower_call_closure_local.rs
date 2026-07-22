@@ -39,35 +39,7 @@ pub(crate) fn try_lower(
     let Expr::Ident(callee_name) = ctx.ast.get_expr(callee) else {
         return None;
     };
-    let info = match ctx.locals.get(callee_name).copied() {
-        Some(i) => i,
-        None => {
-            // RFC 20260709-closure-global chunk 1 — module-level
-            // closure binding (`const add = (a, b) => a + b` read
-            // from a named-fn body): materialize the slot from the
-            // global ref; the rest of the lane (env load / argc /
-            // arg boxing / CallIndirect) is shape-identical to a
-            // local slot. Variadic globals never promote (collect
-            // gate), so the variadic_locals check below stays
-            // local-only by construction.
-            let Some(&Type::Closure(sig)) = ctx.globals.get(callee_name) else {
-                return None;
-            };
-            let g = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::GlobalRef(callee_name.clone()),
-                Type::Ptr,
-                None,
-            );
-            crate::ssa_lower::LocalInfo {
-                slot: g,
-                ty: Type::Closure(sig),
-                moved: false,
-                borrowed: true,
-                scope_depth: 0,
-            }
-        }
-    };
+    let info = resolve_closure_binding(ctx, callee_name)?;
     let Type::Closure(user_sig_id) = info.ty else {
         return None;
     };
@@ -85,6 +57,15 @@ pub(crate) fn try_lower(
         InstKind::Load(info.ty, Operand::Value(info.slot), 0),
         info.ty,
         None,
+    );
+    // RFC 20260722-find-miss chunk C — calling a find/findLast miss
+    // binding must be a catchable TypeError (bun: not a function),
+    // not a jump through bytes past the sentinel header. No-op for
+    // plain bindings.
+    crate::ssa_lower_nullable_guard::emit_undefable_heap_guard(
+        ctx,
+        callee,
+        &Operand::Value(env_ptr),
     );
     let fn_ptr = ctx.f.append_inst(
         ctx.cur_block,
@@ -236,6 +217,39 @@ pub(crate) fn try_lower(
 /// (a missing adapter answers a catchable TypeError). The Any
 /// result coerces to the sig's fixed-prefix return type; heap-typed
 /// returns transfer the box's +1 owned cell out via pointer unbox.
+/// Resolve the callee Ident to its Closure-typed slot info — a
+/// local, or (RFC 20260709-closure-global chunk 1) a module-level
+/// closure binding (`const add = (a, b) => a + b` read from a
+/// named-fn body) materialized from the global ref; the rest of the
+/// lane (env load / argc / arg boxing / CallIndirect) is
+/// shape-identical for both. Variadic globals never promote
+/// (collect gate), so the caller's variadic_locals check stays
+/// local-only by construction.
+fn resolve_closure_binding(
+    ctx: &mut LowerCtx<'_>,
+    callee_name: &str,
+) -> Option<crate::ssa_lower::LocalInfo> {
+    if let Some(i) = ctx.locals.get(callee_name).copied() {
+        return Some(i);
+    }
+    let Some(&Type::Closure(sig)) = ctx.globals.get(callee_name) else {
+        return None;
+    };
+    let g = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::GlobalRef(callee_name.to_string()),
+        Type::Ptr,
+        None,
+    );
+    Some(crate::ssa_lower::LocalInfo {
+        slot: g,
+        ty: Type::Closure(sig),
+        moved: false,
+        borrowed: true,
+        scope_depth: 0,
+    })
+}
+
 fn lower_variadic_call(
     ctx: &mut LowerCtx<'_>,
     info: &crate::ssa_lower::LocalInfo,

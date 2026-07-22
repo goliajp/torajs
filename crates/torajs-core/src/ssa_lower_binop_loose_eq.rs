@@ -86,19 +86,53 @@ pub(crate) fn try_lower(
             return Some(Operand::Value(v));
         }
         if is_heap_ref(&ptr_ty) {
-            let pred = if matches!(op, AstBinOp::LooseEq) {
-                IPred::Eq
-            } else {
-                IPred::Ne
-            };
+            // RFC 20260722 chunk C — a sentinel-capable slot
+            // (Obj/Arr/Closure/FnSig) has TWO nullish reprs: NULL
+            // (JS null) and the generic undefined cell (Nullable
+            // field read / find miss); `x == null` / `== undefined`
+            // is true for both (§7.2.13 steps 2-3). Two inline cmps
+            // + or, zero calls; sentinel-less types keep the plain
+            // NULL cmp.
             let cur_block = ctx.cur_block;
-            let v = ctx.f.append_inst(
+            let eq_null = ctx.f.append_inst(
                 cur_block,
-                InstKind::ICmp(pred, ptr_op, Operand::ConstPtrNull),
+                InstKind::ICmp(IPred::Eq, ptr_op.clone(), Operand::ConstPtrNull),
                 Type::Bool,
                 None,
             );
-            return Some(Operand::Value(v));
+            let nullish = if let Some(sentinel) = ctx.str_undef_sentinel_for(ptr_ty) {
+                let cur_block = ctx.cur_block;
+                let eq_undef = ctx.f.append_inst(
+                    cur_block,
+                    InstKind::ICmp(IPred::Eq, ptr_op, sentinel),
+                    Type::Bool,
+                    None,
+                );
+                let v = ctx.f.append_inst(
+                    cur_block,
+                    InstKind::BinOp(
+                        SsaBinOp::Or,
+                        Operand::Value(eq_null),
+                        Operand::Value(eq_undef),
+                    ),
+                    Type::Bool,
+                    None,
+                );
+                Operand::Value(v)
+            } else {
+                Operand::Value(eq_null)
+            };
+            if matches!(op, AstBinOp::LooseNeq) {
+                let cur_block = ctx.cur_block;
+                let r = ctx.f.append_inst(
+                    cur_block,
+                    InstKind::BinOp(SsaBinOp::Xor, nullish, Operand::ConstBool(true)),
+                    Type::Bool,
+                    None,
+                );
+                return Some(Operand::Value(r));
+            }
+            return Some(nullish);
         }
     }
     if a_nullish || b_nullish {

@@ -111,7 +111,14 @@ pub unsafe extern "C" fn __torajs_print_anyv_inline_at(v: AnyValue, indent: u32)
         let child = as_void_ptr(v) as *const c_void;
         // SAFETY: live heap ptr per caller invariant.
         let tag = unsafe { heap_type_tag(child) };
-        if tag == Tag::Str as u16 {
+        if tag == Tag::Undefined as u16 {
+            // RFC 20260722 chunk C — the generic undefined sentinel
+            // cell (typed-lane composite slot: `[find-miss]` /
+            // optional struct field) prints as the value it
+            // encodes, not the [object] fallback.
+            unsafe { put_bytes(b"undefined") };
+            __torajs_inspect_line_add(9);
+        } else if tag == Tag::Str as u16 {
             // Substr vs real Str — flag bit 10 disambiguates same as
             // the standalone print_anyv path above. Nested context
             // → `"..."` quotes (see ShortStr arm above for rationale

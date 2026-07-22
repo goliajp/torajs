@@ -110,6 +110,11 @@ unsafe fn slot_is_composite(v: u64) -> bool {
     tag != torajs_rc::Tag::Str as u16
         && tag != torajs_rc::Tag::Symbol as u16
         && tag != torajs_rc::Tag::BigInt as u16
+        // RFC 20260722 chunk C — the generic undefined sentinel
+        // cell IS the primitive `undefined` (bun single-lines
+        // `[ undefined ]`); without this it read as composite and
+        // forced the full-break open.
+        && tag != torajs_rc::Tag::Undefined as u16
         // Primitive wrappers print inline (`"a"` / `[Number: 1]`)
         // and never force the full-break open (bun single-lines
         // `[ [Number: 1], 2 ]` — RFC 20260721 G5 tail).
