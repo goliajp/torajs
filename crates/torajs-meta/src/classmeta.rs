@@ -116,6 +116,31 @@ fn in_range(tag: i64) -> bool {
 static mut PROTOS_BY_TAG_IMM: [u64; MAX_CLASSES] = [0u64; MAX_CLASSES];
 static mut CLASSES_BY_TAG_IMM: [u64; MAX_CLASSES] = [0u64; MAX_CLASSES];
 
+/// rotation 186 — borrow read of the class object's CURRENT cell
+/// bits (a define may have resized/moved it). ssa_lower emits this
+/// after every reify/register call to refresh the `__class_<C>`
+/// module binding; 0 = unregistered tag (caller leaves the slot).
+/// Pure read: no rc traffic, the table keeps its stake.
+#[unsafe(no_mangle)]
+pub extern "C" fn __torajs_class_cell_raw(tag: i64) -> u64 {
+    if !in_range(tag) {
+        return 0;
+    }
+    // SAFETY: single-threaded JS runtime, no aliased writes.
+    unsafe { CLASSES_BY_TAG_IMM[tag as usize] }
+}
+
+/// rotation 186 — proto twin of [`__torajs_class_cell_raw`] for the
+/// `__proto_<C>` module binding.
+#[unsafe(no_mangle)]
+pub extern "C" fn __torajs_proto_cell_raw(tag: i64) -> u64 {
+    if !in_range(tag) {
+        return 0;
+    }
+    // SAFETY: single-threaded JS runtime, no aliased writes.
+    unsafe { PROTOS_BY_TAG_IMM[tag as usize] }
+}
+
 /// Register the class's `__proto_<C>` AnyValue immediate at
 /// module init.
 #[unsafe(no_mangle)]
@@ -234,7 +259,12 @@ unsafe fn wire_first_class_links(tag: i64, class_anyv: u64, parent_tag: i64) {
                 DEFINE_CTOR_FLAGS,
             );
             __torajs_str_drop(key);
-            reify_prototype_methods(tag, proto as *mut c_void);
+            // rotation 186 — dynobj define may RESIZE (fresh block +
+            // free old); every table read after a define must see
+            // the moved cell or it dereferences freed memory. Same
+            // writeback on every class/proto define site below.
+            PROTOS_BY_TAG_IMM[tag as usize] = slot as u64;
+            reify_prototype_methods(tag, slot);
         }
     }
 }
@@ -262,6 +292,11 @@ unsafe fn reify_prototype_methods(tag: i64, proto: *mut c_void) {
             return;
         }
         let n = __torajs_struct_method_count(layout);
+        // rotation 186 — thread ONE slot through the whole define
+        // loop and write the table back at the end: any define may
+        // resize (fresh block + free old), and both the next
+        // iteration and every later table read must see the move.
+        let mut slot = proto;
         for i in 0..n {
             let mut name_ptr: *const u8 = core::ptr::null();
             let mut name_len: u32 = 0;
@@ -275,7 +310,6 @@ unsafe fn reify_prototype_methods(tag: i64, proto: *mut c_void) {
             }
             let cell = __torajs_class_method_cell_new(adapter as u64);
             let key = alloc_str_key(name);
-            let mut slot = proto;
             // The minted cell is FLAG_STATIC_LITERAL (rc no-op) — the
             // define's transferred stake is the entry's sole handle.
             __torajs_dynobj_define(
@@ -287,6 +321,7 @@ unsafe fn reify_prototype_methods(tag: i64, proto: *mut c_void) {
             );
             __torajs_str_drop(key);
         }
+        PROTOS_BY_TAG_IMM[tag as usize] = slot as u64;
     }
 }
 
@@ -358,6 +393,9 @@ pub unsafe extern "C" fn __torajs_error_proto_install(tag: i64, name: *const c_v
             );
             __torajs_str_drop(ts_key);
         }
+        // rotation 186 — see wire_first_class_links: a define may
+        // resize; publish the moved cell.
+        PROTOS_BY_TAG_IMM[tag as usize] = slot as u64;
     }
 }
 

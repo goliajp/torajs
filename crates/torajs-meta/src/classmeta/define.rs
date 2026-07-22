@@ -55,6 +55,10 @@ pub unsafe extern "C" fn __torajs_class_static_method_define(
             cell as u64,
             DEFINE_CTOR_FLAGS,
         );
+        // rotation 186 — a define may resize (fresh block + free
+        // old); publish the moved cell so later table reads don't
+        // dereference freed memory. Same on every sibling below.
+        CLASSES_BY_TAG_IMM[tag as usize] = slot as u64;
     }
 }
 
@@ -94,6 +98,7 @@ pub unsafe extern "C" fn __torajs_class_static_field_define(
     unsafe {
         let mut slot = class_anyv as *mut c_void;
         __torajs_dynobj_define(&mut slot, name_str, vtag, vvalue, DEFINE_FIELD_FLAGS);
+        CLASSES_BY_TAG_IMM[tag as usize] = slot as u64;
     }
 }
 
@@ -145,6 +150,7 @@ pub unsafe extern "C" fn __torajs_class_accessor_define(
         let flags = DEFINE_ACCESSOR_FLAGS;
         let mut slot = proto_anyv as *mut c_void;
         __torajs_dynobj_define(&mut slot, name_str, ANY_HEAP as u64, pair as u64, flags);
+        PROTOS_BY_TAG_IMM[tag as usize] = slot as u64;
     }
 }
 
@@ -195,5 +201,6 @@ pub unsafe extern "C" fn __torajs_class_static_accessor_define(
             pair as u64,
             DEFINE_ACCESSOR_FLAGS,
         );
+        CLASSES_BY_TAG_IMM[tag as usize] = slot as u64;
     }
 }

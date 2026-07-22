@@ -194,6 +194,10 @@ fn try_lower_error_proto_install(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Opt
     // entries take their own stakes (rc_inc on the name value).
     let ty = ctx.operand_ty(&name_op);
     ctx.emit_drop_value(name_op, ty);
+    // rotation 186 — the install defines name/message/toString onto
+    // the prototype dynobj (may resize); refresh the module binding
+    // from the written-back table.
+    reify::emit_class_binding_writeback(ctx, &cname, tag, true);
     Some(Operand::ConstI64(0))
 }
 
@@ -261,6 +265,11 @@ fn try_lower_class_register(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<O
                 ],
             ),
         );
+        // rotation 186 — the register kernel defines `constructor`
+        // + reified methods onto the PROTOTYPE dynobj, which may
+        // resize (fresh block + free old); refresh the module
+        // binding from the written-back table.
+        reify::emit_class_binding_writeback(ctx, &cname, tag, true);
     } else {
         let ty = ctx.operand_ty(&class_op);
         ctx.emit_drop_value(class_op, ty);

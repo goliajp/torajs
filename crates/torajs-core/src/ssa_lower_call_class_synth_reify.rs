@@ -9,6 +9,55 @@ use crate::ast::{Expr, ExprId};
 use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 
+/// rotation 186 — refresh the `__class_<C>` / `__proto_<C>`
+/// top-level binding after a define call: a dynobj define may
+/// RESIZE (fresh block + free old), and while the kernel writes the
+/// by-tag table back, the module binding's slot still holds the old
+/// pointer — a later top-level read would dereference freed memory.
+/// Reads the table's current bits (borrow, no rc traffic) and
+/// stores them over the slot. No-op when the binding isn't a local
+/// in the current lowering context (fn bodies read the class
+/// through `class_get`, which consults the table directly).
+pub(crate) fn emit_class_binding_writeback(
+    ctx: &mut LowerCtx<'_>,
+    cname: &str,
+    tag: u32,
+    is_proto: bool,
+) {
+    let gname = if is_proto {
+        format!("__proto_{cname}")
+    } else {
+        format!("__class_{cname}")
+    };
+    let Some(info) = ctx.locals.get(&gname).copied() else {
+        return;
+    };
+    if !matches!(info.ty, Type::Any) {
+        return;
+    }
+    let raw_fid = if is_proto {
+        ctx.intrinsics.proto_cell_raw
+    } else {
+        ctx.intrinsics.class_cell_raw
+    };
+    let raw = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(raw_fid, vec![Operand::ConstI64(tag as i64)]),
+        Type::I64,
+        None,
+    );
+    let p = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::IntToPtr(Operand::Value(raw)),
+        Type::Any,
+        None,
+    );
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Store(Operand::Value(p), Operand::Value(info.slot), 0),
+    );
+}
+
 /// Knife B cut 2 (RFC 20260717-class-first-class-value) —
 /// `__torajs_static_method_reify("<C>", "<M>")`: resolve
 /// `__sm_<C>__<M>`'s boxed adapter and hand the runtime the
@@ -65,6 +114,7 @@ pub(super) fn try_lower_static_method_reify(
     // key copy is the define's own (dynobj_define rc_incs the key).
     let ty = ctx.operand_ty(&name_op);
     ctx.emit_drop_value(name_op, ty);
+    emit_class_binding_writeback(ctx, &cname, tag, false);
     Some(Operand::ConstI64(0))
 }
 
@@ -84,6 +134,7 @@ pub(super) fn try_lower_static_field_reify(
     let Expr::String(cname) = ctx.ast.get_expr(args[0]) else {
         return None;
     };
+    let cname = cname.clone();
     let Some(tag) = ctx.class_name_to_tag.get(cname.as_str()).copied() else {
         return Some(Operand::ConstI64(0));
     };
@@ -103,6 +154,7 @@ pub(super) fn try_lower_static_field_reify(
     // key copy is the define's own (dynobj_define rc_incs the key).
     let ty = ctx.operand_ty(&name_op);
     ctx.emit_drop_value(name_op, ty);
+    emit_class_binding_writeback(ctx, &cname, tag, false);
     Some(Operand::ConstI64(0))
 }
 
@@ -177,5 +229,6 @@ pub(super) fn try_lower_class_accessor_reify(
     // key copy is the define's own (dynobj_define rc_incs the key).
     let ty = ctx.operand_ty(&name_op);
     ctx.emit_drop_value(name_op, ty);
+    emit_class_binding_writeback(ctx, &cname, tag, !is_static);
     Some(Operand::ConstI64(0))
 }

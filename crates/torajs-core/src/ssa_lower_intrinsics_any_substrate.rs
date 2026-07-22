@@ -148,6 +148,8 @@ pub(crate) struct AnySubstrateIds {
     /// class object (`tag, name Str, adapter vaddr`).
     pub static_method_define: FuncId,
     pub static_field_define: FuncId,
+    pub class_cell_raw: FuncId,
+    pub proto_cell_raw: FuncId,
     /// RFC 20260718-accessor-reify 刀 2 — class-accessor
     /// reification: define one AccessorPair own entry onto the class
     /// prototype (`tag, name Str, get vaddr, set vaddr`).
@@ -258,6 +260,8 @@ pub(crate) fn declare(
             [I64, Str, I64, I64],
             Void
         ),
+        class_cell_raw: decl!("__torajs_class_cell_raw", [I64], I64),
+        proto_cell_raw: decl!("__torajs_proto_cell_raw", [I64], I64),
         class_accessor_define: decl!("__torajs_class_accessor_define", [I64, Str, I64, I64], Void),
         class_static_accessor_define: decl!(
             "__torajs_class_static_accessor_define",
