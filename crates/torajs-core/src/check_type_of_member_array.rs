@@ -287,18 +287,17 @@ fn try_match_iter(obj_ty: &Type, name: &str) -> Option<Type> {
             Box::new(Type::Void),
         ),
         /* P6.4c-C3 / P5.4 — Array.keys / .values / .entries
-         * returning ArrIter. Array<Any> walks its 16B
-         * tagged-slot layout directly; typed Array<T> for
-         * non-Any T uses an 8B-per-slot layout the runtime
-         * step helper can't unbox. S132 narrow: typed-T
-         * .keys() yields 0..length-1 indices independent
-         * of the slot encoding, so runtime
-         * `arr_iter_create_keys` works uniformly — accept
-         * any typed Array<T> for `.keys()`. .values() /
-         * .entries() still need a box-the-slot walker
-         * follow-up (independent trunk). */
-        (Type::Array(_), "keys") => Type::Function(Vec::new(), Box::new(Type::ArrIter)),
-        (Type::Array(elem), "values" | "entries") if matches!(**elem, Type::Any) => {
+         * returning ArrIter, for ANY element type. `.keys()`
+         * yields 0..length-1 independent of the slot encoding;
+         * `.values()` / `.entries()` route through the ArrIter
+         * step's kind-aware `__torajs_arr_get_any_boxed`, which
+         * reboxes a typed (8B-slot) Array<T> per its recorded
+         * elem kind. The `.values()` / `.entries()` lowering
+         * (`ssa_lower_call_arr_iter_ctor`) emits
+         * `__torajs_arr_mark_kind` on the receiver first so the
+         * kind is recorded (a typed literal is otherwise
+         * ARR_KIND_UNSET → the rebox would answer undefined). */
+        (Type::Array(_), "keys" | "values" | "entries") => {
             Type::Function(Vec::new(), Box::new(Type::ArrIter))
         }
         // `xs.includes(needle)` — boolean variant of indexOf.

@@ -52,6 +52,16 @@ pub(crate) fn try_lower(
     for &a in args.iter() {
         let _ = ctx.lower_expr(a);
     }
+    // `.values()` / `.entries()` read each slot through the ArrIter
+    // step's kind-aware `__torajs_arr_get_any_boxed`, which reboxes a
+    // typed (8B-slot) Array<T> per its recorded elem kind. A typed
+    // literal is ARR_KIND_UNSET until a coercion site marks it, so this
+    // Arr<T> → Arr<Any> read site marks it here (idempotent; a no-op on
+    // Array<Any> and on already-marked blocks). `.keys()` yields indices
+    // only and never reads a slot, so it needs no mark.
+    if matches!(method.as_str(), "values" | "entries") {
+        ctx.emit_arr_mark_kind(&recv_op);
+    }
     let target = match method.as_str() {
         "keys" => ctx.intrinsics.arr_iter_create_keys,
         "values" => ctx.intrinsics.arr_iter_create_values,
