@@ -1,0 +1,113 @@
+//! Per-receiver-shape support table — the mid dispatch a receiver
+//! arm resolves for VALUE reads (`typeof s.slice`,
+//! `Object.getOwnPropertyDescriptor(s, "slice")`). One arm per
+//! `method_call_*` dispatch module; extend together when an arm
+//! grows a method.
+//!
+//! rotation-197 file-size sweep — extracted verbatim from
+//! `method_value.rs`; the parent had drifted to 525 prod LOC on top
+//! of the wrap of `Symbol` / `BigInt` / `Promise` / `DynObj/Obj`
+//! method-value reads (rotations 141-159 wedges).
+
+use torajs_rc::{ANY_METHOD_NEXT, ANY_METHOD_TO_STRING, Tag};
+
+use crate::method_support::{
+    arr_supports, closure_supports, date_supports, map_supports, num_supports, regexp_supports,
+    set_supports, str_supports, weakmap_supports, weakset_supports,
+};
+use crate::nanbox::{AnyValue, as_void_ptr, is_bool, is_cell, is_double, is_int32, is_short_str};
+
+/// Exact per-receiver-shape support table — one arm per
+/// `method_call_*` dispatch module, listing the ids that arm
+/// resolves (extend together when an arm grows a method).
+pub(crate) fn builtin_method_supported(recv: AnyValue, mid: i64) -> bool {
+    // chunk D-1 — the universal own-property probes resolve on every
+    // receiver shape (Object.prototype methods; primitives coerce
+    // through ToObject and simply answer false-valued Bools).
+    // valueOf joins them (§20.1.4.7 — identity on every cell, the
+    // immediate itself on primitives; the dispatcher's universal
+    // arm makes it callable everywhere).
+    // isPrototypeOf joins them for the same reason (§20.1.3.3 — an
+    // Object.prototype method the dispatcher already answers on every
+    // receiver); it was callable but not readable, so `typeof
+    // o.isPrototypeOf` needed a name-based shortcut in ssa_lower to
+    // avoid saying "undefined".
+    if mid == torajs_rc::ANY_METHOD_HAS_OWN_PROPERTY
+        || mid == torajs_rc::ANY_METHOD_PROPERTY_IS_ENUMERABLE
+        || mid == torajs_rc::ANY_METHOD_VALUE_OF
+        || mid == torajs_rc::ANY_METHOD_IS_PROTOTYPE_OF
+    {
+        return true;
+    }
+    if is_short_str(recv) {
+        return str_supports(mid);
+    }
+    if is_int32(recv) || is_double(recv) {
+        return num_supports(mid);
+    }
+    if is_bool(recv) {
+        return mid == ANY_METHOD_TO_STRING || mid == torajs_rc::ANY_METHOD_TO_LOCALE_STRING;
+    }
+    if !is_cell(recv) {
+        return false;
+    }
+    let ptr = as_void_ptr(recv);
+    // SAFETY: is_cell guarantees a live heap pointer.
+    let tag = unsafe { (ptr.cast::<u8>().add(4) as *const u16).read() };
+    match tag {
+        t if t == Tag::Str as u16 => str_supports(mid),
+        t if t == Tag::Arr as u16 => arr_supports(mid),
+        t if t == Tag::Map as u16 => map_supports(mid),
+        t if t == Tag::Set as u16 => set_supports(mid),
+        t if t == Tag::MapIter as u16 => mid == ANY_METHOD_NEXT,
+        t if t == Tag::Date as u16 => date_supports(mid),
+        t if t == Tag::RegExp as u16 => regexp_supports(mid),
+        t if t == Tag::WeakMap as u16 => weakmap_supports(mid),
+        t if t == Tag::WeakSet as u16 => weakset_supports(mid),
+        t if t == Tag::Closure as u16 => closure_supports(mid),
+        // Plain objects (dynobj / static-layout struct) reach the
+        // dispatcher's Object.prototype toLocaleString arm plus the
+        // Annex B §B.2.2.2-5 legacy accessor four, which they inherit
+        // from Object.prototype like any other object — the dispatcher
+        // has answered those calls since RFC
+        // 20260713-annexb-legacy-accessor, but reading one as a value
+        // (`typeof o.__defineGetter__`, `f.call(o, …)`) went through
+        // here and said undefined. Their remaining methods resolve by
+        // name probe, not by mid.
+        // §20.4.3 Symbol.prototype — toString (the
+        // SymbolDescriptiveString arm) plus the inherited
+        // Object.prototype toLocaleString; valueOf answered by the
+        // universal arm above. Reading either as a value hands out
+        // the interned cell so `typeof s.toString` says "function".
+        t if t == Tag::Symbol as u16 => {
+            mid == ANY_METHOD_TO_STRING || mid == torajs_rc::ANY_METHOD_TO_LOCALE_STRING
+        }
+        // §27.2.5 Promise.prototype — then / catch / finally own
+        // methods; the dispatcher has always answered the calls, but
+        // reading one as a value (`const t = p.then`) said undefined.
+        // Universal Object.prototype probes answer above.
+        t if t == Tag::Promise as u16 => {
+            mid == torajs_rc::ANY_METHOD_THEN
+                || mid == torajs_rc::ANY_METHOD_CATCH
+                || mid == torajs_rc::ANY_METHOD_FINALLY
+        }
+        // §21.2.3 BigInt.prototype — toString / toLocaleString own;
+        // valueOf answered by the universal arm above.
+        t if t == Tag::BigInt as u16 => {
+            mid == ANY_METHOD_TO_STRING || mid == torajs_rc::ANY_METHOD_TO_LOCALE_STRING
+        }
+        t if t == Tag::DynObj as u16 || t == Tag::Obj as u16 => {
+            // toString sits beside toLocaleString: both are inherited
+            // from Object.prototype and the dispatcher has always
+            // answered the call (`({}).toString()` is
+            // "[object Object]"), but only toLocaleString was
+            // declared here, so reading the same method as a value
+            // (`const m = o.toString`) came back undefined.
+            mid == ANY_METHOD_TO_STRING
+                || mid == torajs_rc::ANY_METHOD_TO_LOCALE_STRING
+                || (torajs_rc::ANY_METHOD_DEFINE_GETTER..=torajs_rc::ANY_METHOD_LOOKUP_SETTER)
+                    .contains(&mid)
+        }
+        _ => false,
+    }
+}
