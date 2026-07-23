@@ -13,6 +13,13 @@
 use crate::ast::{Ast, ExprId};
 use crate::check::{Checker, Type};
 
+// CARVE-OUT: dispatch table — 21 mechanically-ordered `try_match` wedges
+// (arm order preserved verbatim from chunk 433 pre-split cascade + rotation
+// 159 Any-needle admit + splice-insert knife 2 + groupBy Array-items lane
+// wedges appended). Refactor blocked by wedge order being semantically
+// load-bearing — an earlier wedge pre-empts a later, more general shape;
+// arms cannot be regrouped without perturbing acceptance. Grows one line
+// per new wedge.
 pub(crate) fn try_route(
     checker: &mut Checker,
     ast: &Ast,
