@@ -212,45 +212,7 @@ pub unsafe extern "C" fn __torajs_any_member_get_tag(recv: AnyValue, key: *const
         // which handles the wrapper's inherited built-in surface
         // (`.valueOf` / `.toString` / `.length` on StringWrapper etc.)
         // via the per-wrapper method tables.
-        Some((ptr, t)) if is_wrapper_tag(t) => unsafe {
-            if t == Tag::StringWrapper as u16 && strwrapper_length(ptr, key).is_some() {
-                return AnySlotTag::I64 as u64;
-            }
-            let props = wrapper_props(ptr);
-            if !props.is_null() {
-                let tag = __torajs_dynobj_get_tag(props, key);
-                if tag != 5 {
-                    return tag;
-                }
-                // Stored-undefined expando shadows the built-in
-                // wrapper surface.
-                if __torajs_dynobj_has(props, key) != 0 {
-                    return 5;
-                }
-            }
-            // Inherited <Wrapper>.prototype expando.
-            let wp = wrapper_proto_props(t);
-            if !wp.is_null() {
-                let tag = __torajs_dynobj_get_tag(wp, key);
-                if tag != 5 {
-                    return tag;
-                }
-                if __torajs_dynobj_has(wp, key) != 0 {
-                    return 5;
-                }
-            }
-            // §20.4.3.2 — the proto `description` accessor over a
-            // SymbolWrapper receiver reads the inner cell's
-            // [[Description]] (thisSymbolValue unwraps the wrapper).
-            if t == Tag::SymbolWrapper as u16 && crate::prop_has::key_is(key, b"description") {
-                let inner = (ptr.cast::<u8>().add(8) as *const *const c_void).read();
-                if crate::member_get_layout::symbol_desc(inner).is_null() {
-                    return AnySlotTag::Undef as u64;
-                }
-                return AnySlotTag::Heap as u64;
-            }
-            reify_tag(recv, key)
-        },
+        Some((ptr, t)) if is_wrapper_tag(t) => unsafe { wrapper_arm_tag(ptr, key, t, recv) },
         // §22.2.4.1 — a RegExp instance owns exactly `lastIndex`; a
         // DYNAMIC key spelling it must answer like the static hint
         // lane (`any_regexp_prop`). Boxed verbatim form (non-numeric
@@ -312,6 +274,58 @@ pub unsafe extern "C" fn __torajs_any_member_get_tag(recv: AnyValue, key: *const
             reify_tag(recv, key)
         },
         _ => unsafe { reify_tag(recv, key) },
+    }
+}
+
+/// Primitive-wrapper cell `[[GetOwnProperty]]` tag probe (extracted
+/// from `__torajs_any_member_get_tag`'s Number / String / Boolean /
+/// Symbol Wrapper arm as the rotation-196 file-size sweep). Own-face
+/// order: StringWrapper `length` inherent → expando dynobj →
+/// inherited `<Wrapper>.prototype` expando → SymbolWrapper
+/// `description` accessor (§20.4.3.2) → builtin-method reify tail.
+///
+/// # Safety
+/// `ptr` is a live wrapper cell (`is_wrapper_tag(t)`); `key` is NULL
+/// or a live Str cell; `recv` NaN-boxes the wrapper.
+unsafe fn wrapper_arm_tag(ptr: *mut c_void, key: *const c_void, t: u16, recv: AnyValue) -> u64 {
+    unsafe {
+        if t == Tag::StringWrapper as u16 && strwrapper_length(ptr, key).is_some() {
+            return AnySlotTag::I64 as u64;
+        }
+        let props = wrapper_props(ptr);
+        if !props.is_null() {
+            let tag = __torajs_dynobj_get_tag(props, key);
+            if tag != 5 {
+                return tag;
+            }
+            // Stored-undefined expando shadows the built-in
+            // wrapper surface.
+            if __torajs_dynobj_has(props, key) != 0 {
+                return 5;
+            }
+        }
+        // Inherited <Wrapper>.prototype expando.
+        let wp = wrapper_proto_props(t);
+        if !wp.is_null() {
+            let tag = __torajs_dynobj_get_tag(wp, key);
+            if tag != 5 {
+                return tag;
+            }
+            if __torajs_dynobj_has(wp, key) != 0 {
+                return 5;
+            }
+        }
+        // §20.4.3.2 — the proto `description` accessor over a
+        // SymbolWrapper receiver reads the inner cell's
+        // [[Description]] (thisSymbolValue unwraps the wrapper).
+        if t == Tag::SymbolWrapper as u16 && crate::prop_has::key_is(key, b"description") {
+            let inner = (ptr.cast::<u8>().add(8) as *const *const c_void).read();
+            if crate::member_get_layout::symbol_desc(inner).is_null() {
+                return AnySlotTag::Undef as u64;
+            }
+            return AnySlotTag::Heap as u64;
+        }
+        reify_tag(recv, key)
     }
 }
 
