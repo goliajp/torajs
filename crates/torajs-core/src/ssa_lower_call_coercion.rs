@@ -362,41 +362,7 @@ pub(crate) fn emit_to_string(
             ctx.release_owned_temp(arg_eid, &arg_op);
             Operand::Value(s)
         }
-        // S137 — `String(struct)`: a struct whose layout carries a
-        // `toString` / `valueOf` field must run OrdinaryToPrimitive
-        // (RFC 20260712-string-proto-cluster chunk C — the runtime
-        // any_to_str dispatches the user hook and accepts any
-        // primitive result, undefined included). A hook-free layout
-        // keeps the static §20.1.4.4 "[object Object]" emit.
-        Type::Obj(sid) => {
-            let layout = &ctx.struct_layouts[sid.0 as usize];
-            let has_hook = layout
-                .iter()
-                .any(|(n, _)| n == "toString" || n == "valueOf");
-            if has_hook {
-                let raw = ctx.f.append_inst(
-                    ctx.cur_block,
-                    InstKind::PtrToInt(arg_op.clone()),
-                    Type::I64,
-                    None,
-                );
-                let s = ctx.f.append_inst(
-                    ctx.cur_block,
-                    InstKind::Call(
-                        ctx.intrinsics.any_to_str,
-                        vec![Operand::ConstI64(4), Operand::Value(raw)],
-                    ),
-                    Type::Str,
-                    None,
-                );
-                ctx.emit_throw_check(None);
-                ctx.release_owned_temp(arg_eid, &arg_op);
-                Operand::Value(s)
-            } else {
-                ctx.release_owned_temp(arg_eid, &arg_op);
-                Operand::Value(ctx.intern_string_literal("[object Object]"))
-            }
-        }
+        Type::Obj(sid) => emit_struct_to_string(ctx, arg_eid, arg_op, sid),
         // RFC 20260719-fn-tostring-source B5 — ToString(fn) is its
         // toString(): the registry erased-source kernel keyed on the
         // raw fn_addr (FnSig slot) or the closure cell (env-first
@@ -418,5 +384,46 @@ pub(crate) fn emit_to_string(
             Operand::Value(s)
         }
         _ => panic!("ssa-lower: String() with arg type {arg_ty:?} not yet supported"),
+    }
+}
+
+/// S137 — `String(struct)`: a struct whose layout carries a `toString` /
+/// `valueOf` field must run OrdinaryToPrimitive (RFC
+/// 20260712-string-proto-cluster chunk C — the runtime `any_to_str`
+/// dispatches the user hook and accepts any primitive result, undefined
+/// included). A hook-free layout keeps the static §20.1.4.4
+/// "[object Object]" emit.
+fn emit_struct_to_string(
+    ctx: &mut LowerCtx<'_>,
+    arg_eid: ExprId,
+    arg_op: Operand,
+    sid: crate::ssa::StructId,
+) -> Operand {
+    let layout = &ctx.struct_layouts[sid.0 as usize];
+    let has_hook = layout
+        .iter()
+        .any(|(n, _)| n == "toString" || n == "valueOf");
+    if has_hook {
+        let raw = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::PtrToInt(arg_op.clone()),
+            Type::I64,
+            None,
+        );
+        let s = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(
+                ctx.intrinsics.any_to_str,
+                vec![Operand::ConstI64(4), Operand::Value(raw)],
+            ),
+            Type::Str,
+            None,
+        );
+        ctx.emit_throw_check(None);
+        ctx.release_owned_temp(arg_eid, &arg_op);
+        Operand::Value(s)
+    } else {
+        ctx.release_owned_temp(arg_eid, &arg_op);
+        Operand::Value(ctx.intern_string_literal("[object Object]"))
     }
 }
