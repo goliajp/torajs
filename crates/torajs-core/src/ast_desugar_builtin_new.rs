@@ -188,7 +188,31 @@ fn rewrite_regexp_new(ast: &mut Ast) {
             _ => None,
         };
         if let Some((pattern, flags)) = regex_plan {
-            ast.exprs[i] = Expr::Regex { pattern, flags };
+            // Only rewrite when the pattern parses cleanly. A
+            // malformed constant-string `new RegExp("[", "u")` /
+            // `new RegExp("\\u{ZZZ}", "u")` must stay as `Expr::New`
+            // so `ssa_lower_new::lower_regexp` handles it — that
+            // path calls `__torajs_regex_compile_or_throw` +
+            // `emit_throw_check_owned` to raise a catchable
+            // `SyntaxError` per ES §22.2.3.1. The literal-lowering
+            // `Expr::Regex` arm intentionally skips the throw check
+            // (its call is hoisted to `BlockId(0)` for LICM and needs
+            // an entry-block-safe throw-check shape — L3b), so
+            // rewriting a malformed constant would silently return a
+            // never-match stub.
+            let flag_bits = torajs_regex::flags::parse_flags(flags.as_bytes());
+            let uv_conflict = flag_bits & torajs_regex::parser::RE_FLAG_U != 0
+                && flag_bits & torajs_regex::parser::RE_FLAG_V != 0;
+            let parse_ok = if uv_conflict {
+                false
+            } else {
+                let mut parser = torajs_regex::parser::Parser::new(pattern.as_bytes(), flag_bits);
+                let root_opt = parser.parse();
+                root_opt.is_some() && !parser.err()
+            };
+            if parse_ok {
+                ast.exprs[i] = Expr::Regex { pattern, flags };
+            }
         }
     }
     // RFC 20260716 刀 2 — Number / String / Boolean all get the

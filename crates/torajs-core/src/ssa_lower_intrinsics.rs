@@ -189,6 +189,13 @@ pub(crate) struct Intrinsics {
     /// methods (`s.match`, `s.replace`, `re.exec`, ...) land in
     /// follow-up sub-phases as more `__torajs_regex_*` helpers.
     pub(crate) regex_compile: FuncId,
+    /// `new RegExp(pattern, flags)` entry — wraps `regex_compile` and
+    /// records a catchable `SyntaxError` on the TLS pending-throw
+    /// slot when the parser rejects the pattern. See the declare site
+    /// for the full contract (`emit_throw_check_owned` in
+    /// `lower_regexp` follows the call). Literal `/pat/flags` still
+    /// calls the plain `regex_compile` — literal-time throw is L3b.
+    pub(crate) regex_compile_or_throw: FuncId,
     /// V0.2 P14 chunk 7.7 v2 step 12 C2 Phase C-4 — AOT-baked DFA
     /// variant. See the declare site for the contract.
     pub(crate) regex_compile_from_static_dfa: FuncId,

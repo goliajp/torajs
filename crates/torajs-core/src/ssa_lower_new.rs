@@ -379,11 +379,23 @@ fn lower_regexp(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
         Operand::Value(flag_v)
     };
     let cur_block = ctx.cur_block;
+    // `new RegExp(pat, flags)` goes through the throw-aware entry:
+    // when the parser rejects the pattern (`[` / `(unbalanced` /
+    // `\u{ZZZ}` under `u` / etc.), `__torajs_regex_compile_or_throw`
+    // records a `SyntaxError` on the TLS pending-throw slot before
+    // returning the never-match stub. `emit_throw_check_owned` then
+    // propagates that pending throw as a catchable JS exception,
+    // dropping the stub RegExp on both catch and propagate branches
+    // so the ref never leaks. Literal `/pat/flags` in
+    // `ssa_lower_lit.rs` intentionally keeps calling plain
+    // `regex_compile` (its call is hoisted to `BlockId(0)` for LICM
+    // and needs an entry-block-safe throw-check shape — L3b).
     let v = ctx.f.append_inst(
         cur_block,
-        InstKind::Call(ctx.intrinsics.regex_compile, vec![pat_op, flag_op]),
+        InstKind::Call(ctx.intrinsics.regex_compile_or_throw, vec![pat_op, flag_op]),
         Type::RegExp,
         None,
     );
+    ctx.emit_throw_check_owned(None, Operand::Value(v), Type::RegExp);
     Operand::Value(v)
 }

@@ -37,6 +37,16 @@ use crate::ssa_lower::declare_intrinsic;
 
 pub(crate) struct RegexIds {
     pub regex_compile: FuncId,
+    /// `new RegExp(pattern, flags)` entry — wraps
+    /// `__torajs_regex_compile` and records a catchable `SyntaxError`
+    /// on the TLS pending-throw slot when the parser rejects the
+    /// pattern. `lower_regexp` emits an `emit_throw_check_owned`
+    /// right after so the throw propagates as a real JS exception
+    /// (spec §22.2.3.1 CompilePattern) rather than the pre-existing
+    /// silent never-match stub. Literal `/pat/flags` keeps calling
+    /// the plain `regex_compile` — literal-time throw needs an
+    /// entry-block-safe check shape (L3b).
+    pub regex_compile_or_throw: FuncId,
     pub regex_compile_from_static_dfa: FuncId,
     pub regex_test: FuncId,
     pub regex_drop: FuncId,
@@ -63,6 +73,13 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             module,
             fn_table,
             "__torajs_regex_compile",
+            &[Type::Str, Type::Str],
+            Type::RegExp,
+        ),
+        regex_compile_or_throw: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_regex_compile_or_throw",
             &[Type::Str, Type::Str],
             Type::RegExp,
         ),

@@ -21,10 +21,12 @@
 use alloc::{boxed::Box, vec::Vec};
 use core::ffi::c_void;
 
-use super::{HeapHeader, RegExp, TAG_REGEX, str_slice};
+use super::{__torajs_throw_syntax_error, HeapHeader, RegExp, TAG_REGEX, str_slice};
 use crate::compiler::compile;
 use crate::flags::parse_flags;
-use crate::parser::Parser;
+use crate::parser::{
+    Parser, RE_FLAG_D, RE_FLAG_G, RE_FLAG_I, RE_FLAG_M, RE_FLAG_S, RE_FLAG_U, RE_FLAG_V, RE_FLAG_Y,
+};
 use crate::program::{Inst, Program};
 use crate::resolve::resolve_backrefs;
 
@@ -213,4 +215,85 @@ pub unsafe extern "C" fn __torajs_regex_compile(
         dfa_runtime,
     });
     Box::into_raw(re) as *mut c_void
+}
+
+/// `new RegExp(pattern, flags)` entry — wraps [`__torajs_regex_compile`]
+/// and records a catchable `SyntaxError` on the TLS pending-throw
+/// slot when the parser rejects the pattern. The lowering caller
+/// (`lower_regexp` in `ssa_lower_new.rs`) emits an
+/// `emit_throw_check_owned` right after so the throw propagates as a
+/// real JS exception rather than the pre-existing silent never-match
+/// stub.
+///
+/// Literal regex `/pat/flags` in `ssa_lower_lit.rs` intentionally
+/// keeps calling the plain [`__torajs_regex_compile`] (silent stub);
+/// literal-time SyntaxError propagation needs an entry-block-safe
+/// throw-check shape (the literal call is hoisted to `BlockId(0)` for
+/// LICM) and is deferred to L3b.
+///
+/// # Safety
+///
+/// Same contract as [`__torajs_regex_compile`]: `pattern_str` and
+/// `flags_str` must point at live `Str *` heap objects with valid
+/// headers. The returned pointer is heap-allocated refcount=1 with
+/// `type_tag = TAG_REGEX`; release with `__torajs_regex_drop`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_regex_compile_or_throw(
+    pattern_str: *const c_void,
+    flags_str: *const c_void,
+) -> *mut c_void {
+    let raw = unsafe { __torajs_regex_compile(pattern_str, flags_str) };
+    // `regex_compile` always returns a non-null RegExp (stub or
+    // valid). Peek at the rejected byte + src/flags to format a
+    // spec-shaped message when the parser rejected the pattern.
+    if raw.is_null() {
+        return raw;
+    }
+    let re = unsafe { &*(raw as *const RegExp) };
+    if re.rejected == 0 {
+        return raw;
+    }
+    // Message shape mirrors bun/JSC: `Invalid regular expression:
+    // /<pattern>/<flags>`. The parser tracks a bool err flag only
+    // (no per-site reason), so tr's message omits the ": <reason>"
+    // trailer — sufficient to distinguish from other error kinds
+    // in user `try/catch` blocks. Flag-byte → letter mapping mirrors
+    // `parse_flags` (bit-to-char inverse); iteration order is fixed
+    // to match ES §22.2.6.4 (`d g i m s u v y`), giving a
+    // deterministic canonical spelling for tests.
+    let mut buf: Vec<u8> = Vec::with_capacity(32 + re.src_bytes.len() + 8);
+    buf.extend_from_slice(b"Invalid regular expression: /");
+    buf.extend_from_slice(&re.src_bytes);
+    buf.push(b'/');
+    let f = re.flags;
+    if f & RE_FLAG_D != 0 {
+        buf.push(b'd');
+    }
+    if f & RE_FLAG_G != 0 {
+        buf.push(b'g');
+    }
+    if f & RE_FLAG_I != 0 {
+        buf.push(b'i');
+    }
+    if f & RE_FLAG_M != 0 {
+        buf.push(b'm');
+    }
+    if f & RE_FLAG_S != 0 {
+        buf.push(b's');
+    }
+    if f & RE_FLAG_U != 0 {
+        buf.push(b'u');
+    }
+    if f & RE_FLAG_V != 0 {
+        buf.push(b'v');
+    }
+    if f & RE_FLAG_Y != 0 {
+        buf.push(b'y');
+    }
+    buf.push(0);
+    unsafe {
+        __torajs_throw_syntax_error(buf.as_ptr());
+    }
+    drop(buf);
+    raw
 }

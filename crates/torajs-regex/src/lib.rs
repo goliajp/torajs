@@ -180,6 +180,14 @@ pub unsafe extern "C" fn __torajs_throw_type_error(_msg: *const u8) {
 
 #[cfg(test)]
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_throw_syntax_error(_msg: *const u8) {
+    panic!(
+        "torajs-regex test stub: __torajs_throw_syntax_error should not be called from cargo test"
+    );
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_to_number(_v: u64) -> f64 {
     panic!(
         "torajs-regex test stub: __torajs_anyv_to_number should not be called from cargo test (lastIndex stays in numeric form there)"

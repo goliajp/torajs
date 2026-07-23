@@ -243,6 +243,7 @@ unsafe extern "C" {
         k_groups: *mut c_void,
     );
     pub fn __torajs_throw_type_error(msg: *const u8);
+    pub fn __torajs_throw_syntax_error(msg: *const u8);
     /// RFC 20260707 chunk 2 — the immortal `undefined` sentinel Str
     /// cell (torajs-str undef_sentinel.rs). Miss-capture slots push
     /// it instead of NULL so downstream print / eq / typeof can tell
