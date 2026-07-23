@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-23T17:47:26.721Z",
+  "generatedAt": "2026-07-23T18:27:31.420Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 95.85
   },
   "torajs": {
-    "commit": "2d4fd80c",
-    "commitSubject": "refactor(method_call_cell): extract 刀 9 G2c wrapper arraylike arm",
+    "commit": "411ee0e5",
+    "commitSubject": "refactor(ssa_lower_inner): move setup helpers to sibling dir module",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,38 @@
   },
   "commits": [
     {
+      "hash": "411ee0e5",
+      "subject": "refactor(ssa_lower_inner): move setup helpers to sibling dir module"
+    },
+    {
+      "hash": "7244b19d",
+      "subject": "refactor(method_value): extract builtin_method_supported to sibling"
+    },
+    {
+      "hash": "a47b91c1",
+      "subject": "refactor(parser): extract object literal computed-property arm to sibling"
+    },
+    {
+      "hash": "535c24f5",
+      "subject": "docs(intrinsics_map_set): mark declare as CARVE-OUT #2"
+    },
+    {
+      "hash": "37afc4a2",
+      "subject": "refactor(ssa_lower_call_coercion): extract Type::Obj String() arm"
+    },
+    {
+      "hash": "696172d2",
+      "subject": "refactor(dynobj): extract accessor-getter descriptor arm from define_properties"
+    },
+    {
+      "hash": "707ddfe1",
+      "subject": "refactor(check_type_of_call_global_ctors): extract Number/String/Boolean coercion"
+    },
+    {
+      "hash": "4cfd48ce",
+      "subject": "chore: hardev dashboard refresh after rotation 197 close"
+    },
+    {
       "hash": "2d4fd80c",
       "subject": "refactor(method_call_cell): extract 刀 9 G2c wrapper arraylike arm"
     },
@@ -727,41 +759,9 @@
     {
       "hash": "25910518",
       "subject": "docs(check_type_of_call): mark route_arity_widen as CARVE-OUT #2"
-    },
-    {
-      "hash": "8cec0e87",
-      "subject": "chore: hardev dashboard refresh after rotation 196 chunks 6-9 close"
-    },
-    {
-      "hash": "ce25236c",
-      "subject": "refactor(inspect): extract line-width estimate into sibling"
-    },
-    {
-      "hash": "850cc440",
-      "subject": "refactor(throw): extract bug-327 C2.5 uncaught path into sibling"
-    },
-    {
-      "hash": "b8e80a99",
-      "subject": "refactor(infer_closure_params): extract mapset + ann-table helpers"
-    },
-    {
-      "hash": "08cf57f6",
-      "subject": "refactor(regex-parser): extract shared helpers into sibling module"
-    },
-    {
-      "hash": "49496c62",
-      "subject": "chore: hardev dashboard refresh after rotation 196 close"
-    },
-    {
-      "hash": "6f769425",
-      "subject": "refactor(member_get): extract wrapper arm from __torajs_any_member_get_tag"
-    },
-    {
-      "hash": "fe515182",
-      "subject": "refactor(member_set): extract wrapper-cell [[Set]] guards into sibling"
     }
   ],
-  "headSha": "2d4fd80c",
+  "headSha": "411ee0e5",
   "autorun": {
     "total": 501,
     "baselineTarget": 10,
