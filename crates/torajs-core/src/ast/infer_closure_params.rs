@@ -18,8 +18,8 @@
 //!   `__fn(P|..)->R`-annotated param at a closure arg position
 //!   projects its spellings onto the lifted closure's params/ret.
 
-use super::infer_closure_lets::{collect_let_anns, collect_let_init_anns};
 use super::infer_closure_params_apply::{apply_closure_ann_updates, body_returns_value};
+use super::infer_closure_params_helpers::{build_ann_table, mapset_foreach_expected};
 use super::infer_closure_params_promise::resolve_promise_inner_ann;
 use super::infer_closure_typevars::{mentions_any_word, resolve_call_site_typevars};
 use super::{Ast, Expr, ExprId, Stmt, infer_return_ann};
@@ -437,71 +437,8 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
 // (file-size hard limit — the main call-site loop plus the promise
 // helpers didn't fit in one file).
 
-/// Callback param/return annotations for `forEach` on a `Map<K|V>` /
-/// `Set<T>` receiver ann (the flat generic spelling). None for any
-/// other method or receiver shape — Map/Set carry no other
-/// callback-bearing methods.
-fn mapset_foreach_expected(ann: &str, method: &str) -> Option<(Vec<String>, String)> {
-    if method != "forEach" {
-        return None;
-    }
-    if let Some(inner) = ann.strip_prefix("Map<").and_then(|r| r.strip_suffix('>')) {
-        let parts = crate::check_type_ann::split_top_pipe(inner, true);
-        let [k, v] = parts.as_slice() else {
-            return None;
-        };
-        return Some((
-            vec![v.to_string(), k.to_string(), ann.to_string()],
-            "void".into(),
-        ));
-    }
-    if let Some(inner) = ann.strip_prefix("Set<").and_then(|r| r.strip_suffix('>')) {
-        let parts = crate::check_type_ann::split_top_pipe(inner, true);
-        let [t] = parts.as_slice() else {
-            return None;
-        };
-        return Some((
-            vec![t.to_string(), t.to_string(), ann.to_string()],
-            "void".into(),
-        ));
-    }
-    None
-}
-
-/// Per-name → type-annotation table feeding receiver resolution.
-/// Walk all top-level FnDecl bodies gathering param + let-decl
-/// annotations (the same name may appear in multiple fns; call-site
-/// inference resolves the right binding via the enclosing fn), plus:
-///
-/// - V3-18 m1.h.23 — top-level let decls (the synthetic `main`
-///   wraps these at ssa_lower time, but at this AST pass they sit at
-///   ast.stmts level, so the FnDecl-only walk misses them; without
-///   this `let arr = [1,2,3]; arr.find(x => ...)` can't infer x).
-/// - Inferred-from-init shape: `let arr = [<lit>, ...]` infers
-///   arr's annotation as `<lit_ty>[]` so .map / .filter on
-///   unannotated lets still get param inference.
-fn build_ann_table(ast: &Ast) -> std::collections::HashMap<String, String> {
-    use std::collections::HashMap;
-    let mut all_anns: HashMap<String, String> = HashMap::new();
-    for s in &ast.stmts {
-        if let Stmt::FnDecl { params, body, .. } = s {
-            for p in params {
-                if let Some(ann) = &p.type_ann {
-                    all_anns.insert(p.name.clone(), ann.clone());
-                }
-            }
-            collect_let_anns(body, &mut all_anns);
-        }
-    }
-    collect_let_anns(&ast.stmts, &mut all_anns);
-    let mut inferred_inits: HashMap<String, String> = HashMap::new();
-    collect_let_init_anns(ast, &ast.stmts, &mut inferred_inits);
-    for (k, v) in inferred_inits {
-        all_anns.entry(k).or_insert(v);
-    }
-    all_anns
-}
-
+// `mapset_foreach_expected` + `build_ann_table` moved to
+// [`crate::ast::infer_closure_params_helpers`] (rotation-196 sweep);
 // `apply_closure_ann_updates` + `body_returns_value` live in the
 // sibling [`crate::ast::infer_closure_params_apply`] module — the
 // mutation half was extracted so the main call-site walker stays

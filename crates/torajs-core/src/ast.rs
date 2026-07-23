@@ -49,6 +49,7 @@ mod implicit_generics_infer;
 mod infer_closure_lets;
 mod infer_closure_params;
 mod infer_closure_params_apply;
+mod infer_closure_params_helpers;
 mod infer_closure_params_promise;
 mod infer_closure_typevars;
 mod inject_builtin_classes;
