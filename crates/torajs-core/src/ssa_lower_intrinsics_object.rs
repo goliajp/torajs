@@ -100,6 +100,9 @@ pub(crate) struct ObjectIds {
     /// `Object.groupBy(items, cb)` per ES §20.1.2.10 — Array items
     /// lane walker + kb dispatch through the uniform any-call ABI.
     pub object_group_by: FuncId,
+    /// `Map.groupBy(items, cb)` per ES §24.2.2.4 — sister to
+    /// object_group_by; accumulator is a Map (SameValueZero keys).
+    pub map_group_by: FuncId,
     /// `Object.assign` any-target runtime walk (§20.1.2.1 [[Get]]/
     /// [[Set]] per own enumerable key; one source per call).
     pub anyv_assign: FuncId,
@@ -193,6 +196,7 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
         anyv_own_entries: decl!("__torajs_anyv_own_entries", [Any], Ptr),
         anyv_from_entries: decl!("__torajs_anyv_from_entries", [Any], Any),
         object_group_by: decl!("__torajs_object_group_by", [Any, Any], Any),
+        map_group_by: decl!("__torajs_map_group_by", [Any, Any], Any),
         anyv_assign: decl!("__torajs_anyv_assign", [Any, Any], Void),
         str_index_descriptor: decl!("__torajs_anyv_str_index_descriptor", [Ptr, I64], Any),
         anyv_prevent_extensions: decl!("__torajs_anyv_prevent_extensions", [Any], Any),

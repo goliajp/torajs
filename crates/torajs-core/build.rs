@@ -70,6 +70,7 @@ const COMPILER_SOURCE_FILES: &[&str] = &[
     "src/ssa_lower_call_object_assign.rs",
     "src/ssa_lower_call_object_fromentries.rs",
     "src/ssa_lower_call_object_group_by.rs",
+    "src/ssa_lower_call_map_group_by.rs",
     "src/ssa_lower_struct_own_props.rs",
     "src/ssa_lower_intrinsics_str_a.rs",
     "src/ssa_lower_intrinsics_str_b.rs",

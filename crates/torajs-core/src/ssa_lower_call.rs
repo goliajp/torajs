@@ -137,6 +137,11 @@ fn try_dispatch_a(ctx: &mut LowerCtx<'_>, callee: ExprId, args: &[ExprId]) -> Op
     if let Some(op) = crate::ssa_lower_call_object_group_by::try_lower(ctx, callee, args) {
         return Some(op);
     }
+    // `Map.groupBy(items, cb)` — sister to Object.groupBy;
+    // accumulator is a Map with SameValueZero keys.
+    if let Some(op) = crate::ssa_lower_call_map_group_by::try_lower(ctx, callee, args) {
+        return Some(op);
+    }
     // Bare-name JS globals: parseInt / parseFloat / isNaN / isFinite / queueMicrotask.
     if let Some(op) = crate::ssa_lower_call_bare_globals::try_lower(ctx, callee, args) {
         return Some(op);

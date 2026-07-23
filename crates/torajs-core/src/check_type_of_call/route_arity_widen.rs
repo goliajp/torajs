@@ -229,5 +229,12 @@ pub(crate) fn try_route(
     {
         return Some(r);
     }
+    // `Map.groupBy(items, callbackFn)` per ES §24.2.2.4 — sister
+    // wedge to Object.groupBy; accumulator is a Map with
+    // SameValueZero keys (no ToPropertyKey coercion).
+    // See [`crate::check_type_of_call_map_group_by`].
+    if let Some(r) = crate::check_type_of_call_map_group_by::try_match(checker, ast, callee, args) {
+        return Some(r);
+    }
     None
 }
