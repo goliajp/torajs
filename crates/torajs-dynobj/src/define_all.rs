@@ -193,37 +193,15 @@ pub unsafe extern "C" fn __torajs_dynobj_define_properties_from(
         if bucket_flags(kp_tagged) & BUCKET_FLAG_ENUMERABLE == 0 {
             continue;
         }
-        let desc_anyv = unsafe { (*e).value_anyv };
-        let raw_tag = unsafe { __torajs_anyv_unbox_tag(desc_anyv) } as u64;
-        let raw_val = unsafe { __torajs_anyv_unbox_value(desc_anyv) } as u64;
-        // RFC 20260716 刀 23 — spec §20.1.2.3.1 step 3.b [[Get]](props,
-        // key): an accessor own entry (raw value is `AccessorPair`)
-        // invokes its getter (spec §10.1.8.1) and routes the OWNED
-        // result through the accept gate. A pair with no getter
-        // yields `undefined`; a throwing getter surfaces as a pending
-        // throw here — both propagate correctly through the standard
-        // (tag != HEAP) reject path and pending-throw exit below.
-        let (d_tag, d_val, owned) = if raw_tag == ANY_HEAP
-            && raw_val != 0
-            && unsafe { type_tag(raw_val as *const c_void) } == TAG_ACCESSOR_PAIR
+        let (d_tag, d_val, owned) = match unsafe { resolve_desc_value((*e).value_anyv, props_recv) }
         {
-            let g =
-                unsafe { __torajs_accessor_invoke_getter(raw_val as *const c_void, props_recv) };
-            if unsafe { __torajs_throw_check() } != 0 {
-                // Getter threw — invoke-getter never plants a live ref
-                // on the throw exit, nothing new to drop; release the
-                // already-collected buffer (owned entries drop) and
-                // propagate.
+            Some(triple) => triple,
+            None => {
+                // Getter threw — release the already-collected buffer
+                // (owned entries drop) and propagate the pending throw.
                 unsafe { release_buf(buf, buf_bytes, n) };
                 return;
             }
-            (
-                unsafe { __torajs_anyv_unbox_tag(g) } as u64,
-                unsafe { __torajs_anyv_unbox_value(g) } as u64,
-                true,
-            )
-        } else {
-            (raw_tag, raw_val, false)
         };
         // 刀 3 (RFC 20260714-t262-top-clusters) — §8.10.5
         // ToPropertyDescriptor accepts ANY object: a Closure / Arr
@@ -300,6 +278,39 @@ pub unsafe extern "C" fn __torajs_dynobj_define_properties_from(
         }
     }
     unsafe { release_buf(buf, buf_bytes, n) };
+}
+
+/// RFC 20260716 刀 23 — spec §20.1.2.3.1 step 3.b [[Get]](props, key).
+/// An accessor own entry (raw value is `AccessorPair`) invokes its getter
+/// (spec §10.1.8.1) and routes the OWNED result to the caller. A pair
+/// with no getter yields `undefined`; a throwing getter surfaces as a
+/// pending throw. Returns `None` iff the getter threw — caller must
+/// release its buffer and propagate the pending throw; the invoke-getter
+/// never plants a live ref on the throw exit, so nothing new to drop.
+///
+/// # Safety
+/// `desc_anyv` is a valid AnyValue (unbox arms fed by tagged unions);
+/// `props_recv` is a live boxed heap receiver; caller must check for
+/// pending throw before consuming the returned triple.
+unsafe fn resolve_desc_value(desc_anyv: u64, props_recv: u64) -> Option<(u64, u64, bool)> {
+    let raw_tag = unsafe { __torajs_anyv_unbox_tag(desc_anyv) } as u64;
+    let raw_val = unsafe { __torajs_anyv_unbox_value(desc_anyv) } as u64;
+    if raw_tag == ANY_HEAP
+        && raw_val != 0
+        && unsafe { type_tag(raw_val as *const c_void) } == TAG_ACCESSOR_PAIR
+    {
+        let g = unsafe { __torajs_accessor_invoke_getter(raw_val as *const c_void, props_recv) };
+        if unsafe { __torajs_throw_check() } != 0 {
+            return None;
+        }
+        Some((
+            unsafe { __torajs_anyv_unbox_tag(g) } as u64,
+            unsafe { __torajs_anyv_unbox_value(g) } as u64,
+            true,
+        ))
+    } else {
+        Some((raw_tag, raw_val, false))
+    }
 }
 
 /// Release the minted layout-keys array (owned Str elements; the arr
