@@ -59,95 +59,10 @@ pub(crate) fn try_match(
         }
         return Some(Ok(Type::Promise(Box::new(Type::Object("Response")))));
     }
-    // V3-18 m1.h.8 — `Number(x)` / `String(x)` / `Boolean(x)`
-    // callable coercion (NOT `new` — that's the wrapper-
-    // object form, deferred). Spec §21.1.1 Number(value),
-    // §22.1.1 String(value), §20.3.1 Boolean(value):
-    // unconditionally coerce to the named primitive type.
-    // ssa_lower's per-input dispatch covers Number+Bool+
-    // Null (and String for the String() case); other arg
-    // types panic — String/Object → Number ToString-then-
-    // parse path lands with the m1.h.9 wedge.
     if let Expr::Ident(n) = ast.get_expr(*callee)
         && (n == "Number" || n == "String" || n == "Boolean")
     {
-        let result_ty = match n.as_str() {
-            "Number" => Type::Number,
-            "String" => Type::String,
-            "Boolean" => Type::Boolean,
-            _ => unreachable!(),
-        };
-        // S251 — Number/String/Boolean(value, ...trailing)
-        // per ES §21.1.1 / §22.1.1 / §20.3.1 trailing-arg
-        // ignore. Spec coerces only args[0]; tora silent-
-        // drops trailing per generic trailing-arg-ignore
-        // policy. SSA-emit reads args[0] (or empty), so
-        // args[1..] dropped at lower-time without further
-        // change.
-        for &arg in args.iter().skip(1) {
-            if let Err(e) = checker.type_of(ast, arg) {
-                return Some(Err(e));
-            }
-        }
-        if let Some(a) = args.first() {
-            let arg_ty = match checker.type_of(ast, *a) {
-                Ok(t) => t,
-                Err(e) => return Some(Err(e)),
-            };
-            let ok = match n.as_str() {
-                "Boolean" => true,
-                // P1.5 — Number(undefined) === NaN per spec §7.1.4.
-                // String(undefined) === "undefined" per §7.1.17.
-                // S172 — Number(Array<T>) routes through
-                // ToPrimitive("string") = arr.join(",")
-                // then ToNumber(String) (bun parity:
-                // Number([]) === 0, Number([1]) === 1,
-                // Number([1,2]) === NaN).
-                "Number" => matches!(
-                    arg_ty,
-                    Type::Number
-                        | Type::Boolean
-                        | Type::Null
-                        | Type::Undefined
-                        | Type::String
-                        | Type::Any
-                        | Type::Array(_)
-                ),
-                // S137 — `String(arr)` routes to arr_join
-                // (ES §22.1.3.30 same path as `arr.toString`);
-                // `String(struct)` is the generic Object
-                // `[object Object]` per §20.1.4.4. Generic
-                // dynobj branch lands when the dynobj-toString
-                // substrate ships.
-                // rotation 141 — Symbol admitted: §22.1.1 step 1.a,
-                // the explicit String() call is the one legal Symbol
-                // stringify position (SymbolDescriptiveString).
-                // RFC 20260719-fn-tostring-source B5 — Function
-                // admitted: ToString(fn) = its toString() = the
-                // type-erased source (fn_source_str kernel; the
-                // template-substitution String() wrap rides this).
-                "String" => matches!(
-                    arg_ty,
-                    Type::Number
-                        | Type::Boolean
-                        | Type::Null
-                        | Type::Undefined
-                        | Type::String
-                        | Type::Any
-                        | Type::Array(_)
-                        | Type::Struct(_)
-                        | Type::Symbol
-                        | Type::Function(..)
-                ),
-                _ => false,
-            };
-            if !ok {
-                return Some(Err(format!(
-                    "{n}({arg_ty:?}) coercion not yet supported (V3-18 m1.h.9 follow-up)"
-                )));
-            }
-        }
-        return Some(Ok(result_ty));
+        return try_primitive_coercion_ctor(checker, ast, n, args);
     }
     /* V3-03 — `BigInt(value)` callable ctor. One required
      * arg, type-dispatched by ssa_lower:
@@ -229,4 +144,91 @@ pub(crate) fn try_match(
         return Some(Ok(Type::Any));
     }
     None
+}
+
+/// V3-18 m1.h.8 — `Number(x)` / `String(x)` / `Boolean(x)` callable
+/// coercion (NOT `new` — that's the wrapper-object form, deferred).
+/// Spec §21.1.1 Number(value), §22.1.1 String(value), §20.3.1
+/// Boolean(value): unconditionally coerce to the named primitive type.
+/// ssa_lower's per-input dispatch covers Number+Bool+Null (and String
+/// for the String() case); other arg types panic — String/Object →
+/// Number ToString-then-parse path lands with the m1.h.9 wedge.
+///
+/// S251 — Number/String/Boolean(value, ...trailing) per ES §21.1.1 /
+/// §22.1.1 / §20.3.1 trailing-arg ignore. Spec coerces only args[0];
+/// tora silent-drops trailing per generic trailing-arg-ignore policy.
+/// SSA-emit reads args[0] (or empty), so args[1..] dropped at
+/// lower-time without further change.
+fn try_primitive_coercion_ctor(
+    checker: &mut Checker,
+    ast: &Ast,
+    n: &str,
+    args: &[ExprId],
+) -> Option<Result<Type, String>> {
+    let result_ty = match n {
+        "Number" => Type::Number,
+        "String" => Type::String,
+        "Boolean" => Type::Boolean,
+        _ => unreachable!(),
+    };
+    for &arg in args.iter().skip(1) {
+        if let Err(e) = checker.type_of(ast, arg) {
+            return Some(Err(e));
+        }
+    }
+    if let Some(a) = args.first() {
+        let arg_ty = match checker.type_of(ast, *a) {
+            Ok(t) => t,
+            Err(e) => return Some(Err(e)),
+        };
+        let ok = match n {
+            "Boolean" => true,
+            // P1.5 — Number(undefined) === NaN per spec §7.1.4.
+            // String(undefined) === "undefined" per §7.1.17.
+            // S172 — Number(Array<T>) routes through ToPrimitive("string") =
+            // arr.join(",") then ToNumber(String) (bun parity: Number([]) === 0,
+            // Number([1]) === 1, Number([1,2]) === NaN).
+            "Number" => matches!(
+                arg_ty,
+                Type::Number
+                    | Type::Boolean
+                    | Type::Null
+                    | Type::Undefined
+                    | Type::String
+                    | Type::Any
+                    | Type::Array(_)
+            ),
+            // S137 — `String(arr)` routes to arr_join (ES §22.1.3.30 same path
+            // as `arr.toString`); `String(struct)` is the generic Object
+            // `[object Object]` per §20.1.4.4. Generic dynobj branch lands when
+            // the dynobj-toString substrate ships.
+            // rotation 141 — Symbol admitted: §22.1.1 step 1.a, the explicit
+            // String() call is the one legal Symbol stringify position
+            // (SymbolDescriptiveString).
+            // RFC 20260719-fn-tostring-source B5 — Function admitted:
+            // ToString(fn) = its toString() = the type-erased source
+            // (fn_source_str kernel; the template-substitution String() wrap
+            // rides this).
+            "String" => matches!(
+                arg_ty,
+                Type::Number
+                    | Type::Boolean
+                    | Type::Null
+                    | Type::Undefined
+                    | Type::String
+                    | Type::Any
+                    | Type::Array(_)
+                    | Type::Struct(_)
+                    | Type::Symbol
+                    | Type::Function(..)
+            ),
+            _ => false,
+        };
+        if !ok {
+            return Some(Err(format!(
+                "{n}({arg_ty:?}) coercion not yet supported (V3-18 m1.h.9 follow-up)"
+            )));
+        }
+    }
+    Some(Ok(result_ty))
 }
