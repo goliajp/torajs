@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-23T01:35:55.675Z",
+  "generatedAt": "2026-07-23T02:42:29.647Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 95.8
   },
   "torajs": {
-    "commit": "3ffe1f44",
-    "commitSubject": "fix: regex `\\xHH` malformed hex escape falls back to identity per annexB §B.1.4",
+    "commit": "3186416e",
+    "commitSubject": "fix: regex `\\k<name>` annexB identity fallback for pattern with no named groups",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "3186416e",
+      "subject": "fix: regex `\\k<name>` annexB identity fallback for pattern with no named groups"
+    },
+    {
+      "hash": "8aa128a6",
+      "subject": "feat: Array<T>.flatMap(cb) scalar cb return (ES §23.1.3.11 step 8.d)"
+    },
+    {
+      "hash": "147df90f",
+      "subject": "style: fmt-drift fix — sort map_group_by mod alphabetically"
+    },
+    {
+      "hash": "7b87793b",
+      "subject": "feat: Map.groupBy(items, cb) Array items lane (ES §24.2.2.4)"
+    },
+    {
+      "hash": "f8cf6a6d",
+      "subject": "feat: Object.groupBy(items, cb) Array items lane (ES §20.1.2.10)"
+    },
+    {
+      "hash": "bdbb45f8",
+      "subject": "chore: hardev dashboard snapshot at rotation 192 close"
+    },
+    {
       "hash": "3ffe1f44",
       "subject": "fix: regex `\\xHH` malformed hex escape falls back to identity per annexB §B.1.4"
     },
@@ -735,33 +759,9 @@
     {
       "hash": "81f61db6",
       "subject": "chore: hardev dashboard snapshot at rotation 191 close"
-    },
-    {
-      "hash": "1e8c3ee8",
-      "subject": "fix: Array<T>.reduce(cb, seed) heterogeneous acc"
-    },
-    {
-      "hash": "e9ff9325",
-      "subject": "fix: Array<T>.map(cb) heterogeneous (T)=>U cb return"
-    },
-    {
-      "hash": "4c13fb3d",
-      "subject": "feat: parser accepts `new (E as T)(args)` computed-ident callee"
-    },
-    {
-      "hash": "d4962a4f",
-      "subject": "fix: JSON.stringify walks any-lane Tag::Obj struct cells"
-    },
-    {
-      "hash": "28ea14f7",
-      "subject": "fix: Promise .then chain propagates cb1 f64 return to cb2 param"
-    },
-    {
-      "hash": "587f4192",
-      "subject": "chore: hardev dashboard snapshot at rotation 190 close"
     }
   ],
-  "headSha": "3ffe1f44",
+  "headSha": "3186416e",
   "autorun": {
     "total": 497,
     "baselineTarget": 10,
