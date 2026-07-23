@@ -137,35 +137,8 @@ pub(crate) unsafe fn cell_method(
     {
         return Some(out);
     }
-    // 刀 9 G2c — a reified-cell re-dispatch (NULL name) of a
-    // non-mutating array-family mid over a Number/Boolean wrapper
-    // receiver runs the ES generic array-like semantics on the
-    // wrapper's OWN face (`obj.length = 2; obj[1] = true` on
-    // `new Boolean(false)` lives in the `+16` expando; the
-    // view-through below would only reach the inner primitive's
-    // wrapper-PROTO surface). StringWrapper stays on view-through
-    // wholesale (its inner Str face owns the shared mids — slice /
-    // indexOf / toString are STRING semantics there), and toString
-    // keeps the primitive arm (a stored builtin toString cell must
-    // answer the inner value, not an array join — the
-    // wrapper-expando-builtin-cell family). Mutators stay on the
-    // primitive arm's exclusion (recorded boundary — the mut
-    // family's set_at writes raw dynobj layout).
-    if name_str.is_null()
-        && (tag == Tag::NumberWrapper as u16 || tag == Tag::BooleanWrapper as u16)
-        && mid != ANY_METHOD_TO_STRING
-        && crate::method_call_arraylike_concat::obj_supported(mid)
-        && !crate::method_call_arraylike_mut::arraylike_mut_supported(mid)
-    {
-        return Some(unsafe {
-            crate::method_call_arraylike_concat::obj_method(
-                ptr,
-                mid,
-                core::ptr::null_mut(),
-                argv,
-                argc,
-            )
-        });
+    if let Some(out) = unsafe { try_wrapper_arraylike_arm(ptr, tag, mid, name_str, argv, argc) } {
+        return Some(out);
     }
     // RFC 20260716 刀 3 view-through (`wrapper_view_through`).
     if let Some(inner) = unsafe { crate::wrapper_view_through::resolve_inner_recv(ptr, tag) } {
@@ -311,6 +284,49 @@ pub(crate) unsafe fn cell_method(
     if tag == Tag::WeakMap as u16 || tag == Tag::WeakSet as u16 {
         return Some(unsafe {
             crate::method_call_weak::weak_method(ptr, tag == Tag::WeakSet as u16, mid, argv, argc)
+        });
+    }
+    None
+}
+
+/// 刀 9 G2c — a reified-cell re-dispatch (NULL name) of a non-mutating
+/// array-family mid over a Number/Boolean wrapper receiver runs the ES
+/// generic array-like semantics on the wrapper's OWN face
+/// (`obj.length = 2; obj[1] = true` on `new Boolean(false)` lives in the
+/// `+16` expando; the view-through below would only reach the inner
+/// primitive's wrapper-PROTO surface). StringWrapper stays on
+/// view-through wholesale (its inner Str face owns the shared mids —
+/// slice / indexOf / toString are STRING semantics there), and toString
+/// keeps the primitive arm (a stored builtin toString cell must answer
+/// the inner value, not an array join — the wrapper-expando-builtin-cell
+/// family). Mutators stay on the primitive arm's exclusion (recorded
+/// boundary — the mut family's set_at writes raw dynobj layout).
+///
+/// # Safety
+/// Same contract as `cell_method`: `ptr` is a live cell whose tag equals
+/// the `tag` argument; `argv`/`argc` describe a valid arg slot span.
+unsafe fn try_wrapper_arraylike_arm(
+    ptr: *mut c_void,
+    tag: u16,
+    mid: i64,
+    name_str: *const u8,
+    argv: *const u64,
+    argc: i64,
+) -> Option<AnyValue> {
+    if name_str.is_null()
+        && (tag == Tag::NumberWrapper as u16 || tag == Tag::BooleanWrapper as u16)
+        && mid != ANY_METHOD_TO_STRING
+        && crate::method_call_arraylike_concat::obj_supported(mid)
+        && !crate::method_call_arraylike_mut::arraylike_mut_supported(mid)
+    {
+        return Some(unsafe {
+            crate::method_call_arraylike_concat::obj_method(
+                ptr,
+                mid,
+                core::ptr::null_mut(),
+                argv,
+                argc,
+            )
         });
     }
     None
