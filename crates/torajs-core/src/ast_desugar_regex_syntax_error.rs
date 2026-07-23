@@ -1,37 +1,95 @@
-//! RFC 20260724-regex-literal-syntax-error — chunk 1
-//! (`Stmt::LetDecl` init arm, full nested walk).
+//! RFC 20260724-regex-literal-syntax-error — chunks 1 (stmt-position
+//! `Stmt::LetDecl` init arm, full nested walk) + 2 (expression-
+//! position IIFE wrapper for `f(/bad/)` / `return /bad/` / element
+//! init / etc.).
 //!
-//! Rewrites malformed regex literals bound to a `let` into a
-//! `throw new SyntaxError(...)` statement, so that a source like
+//! Rewrites malformed regex literals into a `throw new
+//! SyntaxError(...)` control-flow effect, so that sources like
 //!
-//!     try { const r = /[a-\d]/u; } catch (e) { … }
+//!     try { const r = /[a-\d]/u; } catch (e) { … }        // chunk 1
+//!     try { f(/[a-\d]/u); } catch (e) { … }               // chunk 2
 //!
-//! stops behaving as silent-wrong (previous: `r.test("a")` returned
-//! `true`) and instead matches bun's `SyntaxError` throw at reach
-//! time. The pass walks every `Stmt::LetDecl` in the program — top
-//! level, block-nested, fn-body-nested, `try`/`catch`/`finally` body,
-//! loop body, labeled, `Multi`, `Switch` cases, `FnDecl` body — for
-//! each `LetDecl { init: Expr::Regex(pat, flags) }` whose regex
-//! pattern or flags string is malformed per ES §22.2.3.1, records
-//! `ast.regex_parse_errors[init_id] = <msg>` and REWRITES the whole
-//! statement into `Stmt::Throw(new SyntaxError(msg))`.
+//! stop behaving as silent-wrong (previous: matcher returned wrong
+//! result at runtime) and instead match bun's `SyntaxError` throw
+//! semantics.
 //!
-//! Non-let-init positions (`f(/bad/)`, `return /bad/`, `arr.push(
-//! /bad/)`, …) are unaffected in chunk 1 — chunk 2 will add
-//! expression-position IIFE wrapping.
+//! Chunk 1 (stmt LetDecl) — walks every `Stmt::LetDecl` in the
+//! program — top level, block-nested, fn-body-nested, `try` /
+//! `catch` / `finally` body, loop body, labeled, `Switch` cases,
+//! `Multi`, `FnDecl` body — for each `LetDecl { init: Expr::Regex
+//! (pat, flags) }` whose regex is malformed per ES §22.2.3.1,
+//! records `ast.regex_parse_errors[init_id] = <msg>` and REPLACES
+//! the whole statement with `Stmt::Multi([original LetDecl,
+//! Stmt::Throw(new SyntaxError(msg))])`. LetDecl-first order lets
+//! ssa-lower emit an SSA slot for the binding; the Throw fires
+//! before any reference reads it. Re-entry into the wrapper Multi
+//! is gated so the walker doesn't rewrite the same LetDecl
+//! recursively.
+//!
+//! Chunk 2 (expression-position) — walks the `ast.exprs` arena, and
+//! for each `Expr::Regex(pat, flags)` NOT already handled by chunk 1
+//! (side-table dedup) that is malformed, REPLACES the arena slot
+//! in place with an IIFE
+//!
+//!     (() : any => { throw new SyntaxError(msg) })()
+//!
+//! The IIFE has zero params, `return_type = Some("any")` so
+//! consumers expecting any target type accept it, and a single
+//! `Stmt::Throw(new SyntaxError(msg))` body. Because the arrow's
+//! ExprId is fresh but the Call replaces the original Regex ExprId
+//! in place, every parent statement / expression that referenced the
+//! Regex now sees the IIFE Call transparently. The freshly emitted
+//! `ArrowFn` still flows through the downstream `lift_arrow_fns` pass
+//! (this pass runs before it in the pipeline order).
 
-use crate::ast::{Ast, Expr, Stmt};
+use crate::ast::{Ast, Expr, ExprId, Stmt};
 
 pub fn run(ast: &mut Ast) {
-    // Collect malformed sites first (avoid borrow issues while
-    // recursing into stmts). Each entry is (stmt-path, init_id, msg).
-    // We use in-place index-walk + replace loop instead of building
-    // paths — see `walk_and_rewrite`.
+    // Chunk 1 — stmt-position walker.
     let mut stmts = std::mem::take(&mut ast.stmts);
     walk_and_rewrite(&mut stmts, ast);
     ast.stmts = stmts;
-    // FnDecl bodies live inside Stmt::FnDecl; the walker above
-    // covers them the same way.
+    // Chunk 2 — expression-position IIFE wrapper.
+    wrap_expression_position(ast);
+}
+
+fn wrap_expression_position(ast: &mut Ast) {
+    let n = ast.exprs.len();
+    for i in 0..n {
+        let expr_id = ExprId(i as u32);
+        // Skip regexes already handled by chunk 1 (their arena slot
+        // is still `Expr::Regex`, but they now live inside a Multi
+        // whose first stmt is the original LetDecl — the Throw is
+        // already emitted at stmt level, no IIFE needed).
+        if ast.regex_parse_errors.contains_key(&expr_id) {
+            continue;
+        }
+        let (pattern, flags) = match &ast.exprs[i] {
+            Expr::Regex { pattern, flags } => (pattern.clone(), flags.clone()),
+            _ => continue,
+        };
+        let Some(msg) = try_regex_parse_error(&pattern, &flags) else {
+            continue;
+        };
+        ast.regex_parse_errors.insert(expr_id, msg.clone());
+        let msg_id = ast.add_expr(Expr::String(msg));
+        let new_id = ast.add_expr(Expr::New {
+            class_name: "SyntaxError".into(),
+            args: vec![msg_id],
+            type_args: Vec::new(),
+        });
+        let arrow_id = ast.add_expr(Expr::ArrowFn {
+            params: Vec::new(),
+            return_type: Some("any".into()),
+            body: vec![Stmt::Throw(new_id)],
+        });
+        // Replace the Regex arena slot in place — parents keep the
+        // same ExprId and now transparently see the IIFE Call.
+        ast.exprs[i] = Expr::Call {
+            callee: arrow_id,
+            args: Vec::new(),
+        };
+    }
 }
 
 fn walk_and_rewrite(stmts: &mut Vec<Stmt>, ast: &mut Ast) {
