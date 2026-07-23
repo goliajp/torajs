@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-23T00:03:56.350Z",
+  "generatedAt": "2026-07-23T01:11:34.089Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-21T20:58:54Z",
-    "headSha": "0734ea7d",
-    "elapsedSec": 645.83,
+    "ranAt": "2026-07-23T01:07:55Z",
+    "headSha": "23d6d5e1",
+    "elapsedSec": 619.42,
     "workers": 8,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 8707,
-    "passNoOracle": 115,
+    "pass": 8787,
+    "passNoOracle": 116,
     "passNegative": 4447,
-    "passTotal": 13269,
-    "bug": 581,
-    "incompatible": 39324,
+    "passTotal": 13350,
+    "bug": 585,
+    "incompatible": 39239,
     "bunSkip": 11907,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 13850,
-    "passRateInScope": 24.95,
-    "passRateTrAccepted": 95.81
+    "trAccepted": 13935,
+    "passRateInScope": 25.11,
+    "passRateTrAccepted": 95.8
   },
   "torajs": {
-    "commit": "1e8c3ee8",
-    "commitSubject": "fix: Array<T>.reduce(cb, seed) heterogeneous acc",
+    "commit": "23d6d5e1",
+    "commitSubject": "feat: String.raw(template, ...subs) direct-fn call (ES §22.1.2.4)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,22 @@
   },
   "commits": [
     {
+      "hash": "23d6d5e1",
+      "subject": "feat: String.raw(template, ...subs) direct-fn call (ES §22.1.2.4)"
+    },
+    {
+      "hash": "08417164",
+      "subject": "feat: Array<T>.flatMap(cb) heterogeneous cb return Array<U>"
+    },
+    {
+      "hash": "522b5412",
+      "subject": "fix: Object.assign({}, ...sources) empty struct target routes to Any lane"
+    },
+    {
+      "hash": "81f61db6",
+      "subject": "chore: hardev dashboard snapshot at rotation 191 close"
+    },
+    {
       "hash": "1e8c3ee8",
       "subject": "fix: Array<T>.reduce(cb, seed) heterogeneous acc"
     },
@@ -743,43 +759,38 @@
     {
       "hash": "b68b9d06",
       "subject": "fix: chained .filter() lost heap-element ownership from temp src"
-    },
-    {
-      "hash": "25804474",
-      "subject": "feat: arr_iter_method dispatch — any-held ArrIter .next()"
-    },
-    {
-      "hash": "a3c080c4",
-      "subject": "fix: anon-struct class_tag mismatch under Pass-2 struct_layouts growth"
-    },
-    {
-      "hash": "2f4e11fc",
-      "subject": "chore: hardev dashboard snapshot at rotation 189 close"
-    },
-    {
-      "hash": "ba6ed123",
-      "subject": "fix: replaceAll throws TypeError on a non-global RegExp (ES §22.1.5)"
     }
   ],
-  "headSha": "1e8c3ee8",
+  "headSha": "23d6d5e1",
   "autorun": {
-    "total": 495,
+    "total": 496,
     "baselineTarget": 10,
-    "bySelf": 490,
+    "bySelf": 491,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784752089-404a",
-      "at": "2026-07-22T20:28:09Z",
-      "ts": 1784752089,
+      "rotationId": "r-1784765096-2400",
+      "at": "2026-07-23T00:04:56Z",
+      "ts": 1784765096,
       "trigger": "self",
-      "prevHead": "95d7d22b",
-      "handoffSha": "sha256:e3b9b18a67fa86852538ff6149f88bebd15aa0c13b52f117cd49ae3a7b657f2c",
-      "handoffAgeSec": 20332,
+      "prevHead": "81f61db6",
+      "handoffSha": "sha256:7e1bd0670d740aebbd381653da2e23fd49f798c6adbe08bbf86b7d0c563a12ee",
+      "handoffAgeSec": 5,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784765096-2400",
+        "at": "2026-07-23T00:04:56Z",
+        "ts": 1784765096,
+        "trigger": "self",
+        "prevHead": "81f61db6",
+        "handoffSha": "sha256:7e1bd0670d740aebbd381653da2e23fd49f798c6adbe08bbf86b7d0c563a12ee",
+        "handoffAgeSec": 5,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784752089-404a",
         "at": "2026-07-22T20:28:09Z",
@@ -876,17 +887,6 @@
         "prevHead": "3cba6954",
         "handoffSha": "sha256:35dd1b456884f61b8c6d69e1ecc51e10bbf384a3305e78e365af1825ac4bbfec",
         "handoffAgeSec": 5,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784664573-2f36",
-        "at": "2026-07-21T20:09:33Z",
-        "ts": 1784664573,
-        "trigger": "self",
-        "prevHead": "c679ea73",
-        "handoffSha": "sha256:47f1bad8ced3f975abf14a810dbf5f500195114fff25497d3fb19486cc47a0ca",
-        "handoffAgeSec": 3,
         "conformanceBefore": null,
         "commitsInSession": null
       }
