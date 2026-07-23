@@ -49,11 +49,18 @@ impl<'p> Parser<'p> {
                 self.set_err();
                 None
             }
+            b'{' if lookahead_valid_brace_quantifier(self.p, self.i) => {
+                // §22.2.1.1 Term / Quantifier Early Error: a
+                // well-formed `{n}` / `{n,}` / `{n,m}` here has no
+                // preceding Atom to bind to → "Nothing to repeat"
+                // SyntaxError, every mode (bun/JSC reject both non-u
+                // and u). A malformed brace body (`{}`, `{a}`,
+                // `{,3}`, `{` at EOF) still falls through to the
+                // annexB literal `{` path below.
+                self.set_err();
+                None
+            }
             _ => {
-                // Bare `{` is left to parse_repeat's lookahead — its
-                // rollback handles `x{o}` / `x{` style invalid
-                // quantifiers by treating `{` as literal. So here we
-                // just emit the literal char.
                 self.get();
                 Some(super::char_node(c))
             }
@@ -209,6 +216,36 @@ impl<'p> Parser<'p> {
         }
         Some(idx)
     }
+}
+
+/// Peek at `p[i..]` (where `p[i]` is `{`) and return true iff it
+/// forms a well-formed `{n}` / `{n,}` / `{n,m}` quantifier. Used
+/// by `parse_atom` to distinguish "Quantifier with no preceding
+/// Atom" SyntaxError (well-formed brace) from annexB literal-`{`
+/// fallback (malformed body).
+fn lookahead_valid_brace_quantifier(p: &[u8], mut i: usize) -> bool {
+    if i >= p.len() || p[i] != b'{' {
+        return false;
+    }
+    i += 1;
+    let digits_start = i;
+    while i < p.len() && p[i].is_ascii_digit() {
+        i += 1;
+    }
+    if i == digits_start {
+        return false;
+    }
+    if i < p.len() && p[i] == b'}' {
+        return true;
+    }
+    if i >= p.len() || p[i] != b',' {
+        return false;
+    }
+    i += 1;
+    while i < p.len() && p[i].is_ascii_digit() {
+        i += 1;
+    }
+    i < p.len() && p[i] == b'}'
 }
 
 #[cfg(test)]
