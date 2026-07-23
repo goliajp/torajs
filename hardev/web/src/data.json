@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-23T01:11:34.089Z",
+  "generatedAt": "2026-07-23T01:35:55.675Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 95.8
   },
   "torajs": {
-    "commit": "23d6d5e1",
-    "commitSubject": "feat: String.raw(template, ...subs) direct-fn call (ES §22.1.2.4)",
+    "commit": "3ffe1f44",
+    "commitSubject": "fix: regex `\\xHH` malformed hex escape falls back to identity per annexB §B.1.4",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "3ffe1f44",
+      "subject": "fix: regex `\\xHH` malformed hex escape falls back to identity per annexB §B.1.4"
+    },
+    {
+      "hash": "7a5c2ef8",
+      "subject": "chore: test262 sweep at 23d6d5e1 — passTotal 13350 (+81), bug 585 (-30)"
+    },
+    {
       "hash": "23d6d5e1",
       "subject": "feat: String.raw(template, ...subs) direct-fn call (ES §22.1.2.4)"
     },
@@ -751,35 +759,38 @@
     {
       "hash": "587f4192",
       "subject": "chore: hardev dashboard snapshot at rotation 190 close"
-    },
-    {
-      "hash": "95d7d22b",
-      "subject": "feat: chained xs.values().next() — checker-inferred receiver type"
-    },
-    {
-      "hash": "b68b9d06",
-      "subject": "fix: chained .filter() lost heap-element ownership from temp src"
     }
   ],
-  "headSha": "23d6d5e1",
+  "headSha": "3ffe1f44",
   "autorun": {
-    "total": 496,
+    "total": 497,
     "baselineTarget": 10,
-    "bySelf": 491,
+    "bySelf": 492,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784765096-2400",
-      "at": "2026-07-23T00:04:56Z",
-      "ts": 1784765096,
+      "rotationId": "r-1784770534-2b68",
+      "at": "2026-07-23T01:35:34Z",
+      "ts": 1784770534,
       "trigger": "self",
-      "prevHead": "81f61db6",
-      "handoffSha": "sha256:7e1bd0670d740aebbd381653da2e23fd49f798c6adbe08bbf86b7d0c563a12ee",
-      "handoffAgeSec": 5,
+      "prevHead": "3ffe1f44",
+      "handoffSha": "sha256:f05ea5c49fced41249748ccf8669aac864f1aff8404ad333ed173319dbb4c0d4",
+      "handoffAgeSec": 8,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784770534-2b68",
+        "at": "2026-07-23T01:35:34Z",
+        "ts": 1784770534,
+        "trigger": "self",
+        "prevHead": "3ffe1f44",
+        "handoffSha": "sha256:f05ea5c49fced41249748ccf8669aac864f1aff8404ad333ed173319dbb4c0d4",
+        "handoffAgeSec": 8,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784765096-2400",
         "at": "2026-07-23T00:04:56Z",
@@ -876,17 +887,6 @@
         "prevHead": "9ddf09b3",
         "handoffSha": "sha256:38ef05baa24c745ac88e08da5dce361571877bee5cac1845d4258783c1c96f57",
         "handoffAgeSec": 7,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784669997-6bbb",
-        "at": "2026-07-21T21:39:57Z",
-        "ts": 1784669997,
-        "trigger": "self",
-        "prevHead": "3cba6954",
-        "handoffSha": "sha256:35dd1b456884f61b8c6d69e1ecc51e10bbf384a3305e78e365af1825ac4bbfec",
-        "handoffAgeSec": 5,
         "conformanceBefore": null,
         "commitsInSession": null
       }
