@@ -26,12 +26,14 @@
 //!
 //! Exit code: 0 if all pass, 1 if any fail.
 
-use std::io::Read;
+mod exec;
+
+use exec::exec;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Command;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 /// Default worker count. 8 measured as the sweet spot on 10-perf-core
 /// + 4-efficiency-core M-series — going wider (e.g. 14) reproducibly
@@ -39,16 +41,6 @@ use std::time::{Duration, Instant};
 /// contend on the limited high-perf cores. Override with `--workers N`
 /// when running on a chip with different core layout.
 const DEFAULT_WORKERS: usize = 8;
-
-// Hard ceiling per child process invocation. Any single `bun run`,
-// `tr run`, `tr build`, or AOT-binary exec must finish within this
-// budget; otherwise we SIGKILL the child and mark the case Failed
-// with a timeout reason. Real fixtures complete in tens to a few
-// hundred ms; 60 s is conservative even for cold-cache LLVM AOT
-// builds. Without this gate any single hung fixture (e.g. the
-// known throw-010-bigint-rangeerror macOS arm64 malloc-lock case)
-// would block the entire conformance run.
-const PER_EXEC_TIMEOUT: Duration = Duration::from_secs(60);
 
 #[derive(Debug, Clone)]
 struct Case {
@@ -435,10 +427,6 @@ fn run_case(c: &Case, tr_bin: &Path, slot: usize, no_aot: bool) -> Outcome {
     Outcome::Pass
 }
 
-fn exec(cmd: &str, args: &[&str]) -> Result<(String, String), String> {
-    exec_with_timeout(cmd, args, PER_EXEC_TIMEOUT)
-}
-
 /// Return bun's stdout for `src`. On cache hit (content-hash match)
 /// reads the cached bytes directly; on miss runs `bun run` once and
 /// writes the result into `conformance/.oracle-cache/<hash>.out`.
@@ -481,119 +469,7 @@ fn repo_root_oracle_cache_dir() -> PathBuf {
         .unwrap_or_else(|_| PathBuf::from("conformance/.oracle-cache"))
 }
 
-fn exec_with_timeout(
-    cmd: &str,
-    args: &[&str],
-    timeout: Duration,
-) -> Result<(String, String), String> {
-    // Spawn with piped stdout/stderr so we can wait with a deadline
-    // and SIGKILL on timeout. `Command::output()` (the previous impl)
-    // had no timeout — a single hung fixture would block the whole
-    // run. Drain pipes from dedicated reader threads to prevent the
-    // child blocking on full pipe buffers (~64 KB on macOS).
-    let mut child = Command::new(cmd)
-        .args(args)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("spawn {cmd}: {e}"))?;
-
-    let stdout_pipe = child.stdout.take().expect("stdout piped");
-    let stderr_pipe = child.stderr.take().expect("stderr piped");
-    let stdout_thread = std::thread::spawn(move || {
-        let mut s = String::new();
-        let _ = std::io::BufReader::new(stdout_pipe).read_to_string(&mut s);
-        s
-    });
-    let stderr_thread = std::thread::spawn(move || {
-        let mut s = String::new();
-        let _ = std::io::BufReader::new(stderr_pipe).read_to_string(&mut s);
-        s
-    });
-
-    let start = Instant::now();
-    // Exponential backoff polling: most fixtures finish in <50 ms so
-    // a flat 20 ms sleep wastes ~15 ms per case on short ops. Start
-    // at 1 ms (catches fast cases nearly idle-free), double up to a
-    // 20 ms cap (avoids burning CPU on slow ops). Saves ~20 s of
-    // per-run polling overhead at the gate scale.
-    let mut backoff_us: u64 = 500; // 0.5 ms initial
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(s)) => break s,
-            Ok(None) => {
-                if start.elapsed() >= timeout {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    let _ = stdout_thread.join();
-                    let _ = stderr_thread.join();
-                    return Err(format!(
-                        "{cmd} timeout after {}s (SIGKILL)",
-                        timeout.as_secs_f64()
-                    ));
-                }
-                std::thread::sleep(Duration::from_micros(backoff_us));
-                backoff_us = (backoff_us * 2).min(20_000);
-            }
-            Err(e) => return Err(format!("wait {cmd}: {e}")),
-        }
-    };
-
-    let stdout = stdout_thread.join().unwrap_or_default();
-    let stderr = stderr_thread.join().unwrap_or_default();
-
-    if !status.success() {
-        return Err(format!("{cmd} exited {}: {}", status, stderr.trim()));
-    }
-    Ok((stdout, stderr))
-}
-
 fn die(msg: &str) -> ! {
     eprintln!("error: {msg}");
     std::process::exit(2);
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn exec_returns_stdout_for_quick_command() {
-        let (out, _) = exec("echo", &["hello"]).expect("echo should succeed");
-        assert_eq!(out, "hello\n");
-    }
-
-    #[test]
-    fn exec_with_timeout_kills_hung_child_and_returns_timeout_error() {
-        // Use a tight 200 ms deadline against a 30 s sleep — the
-        // child cannot complete on its own; the deadline branch must
-        // fire and SIGKILL. The whole test should finish in well
-        // under a second (deadline + reader-thread join after the
-        // kernel closes pipes on the killed child).
-        let start = Instant::now();
-        let result = exec_with_timeout("sleep", &["30"], Duration::from_millis(200));
-        let elapsed = start.elapsed();
-        let err = result.expect_err("expected timeout error, got success");
-        assert!(
-            err.contains("timeout") && err.contains("SIGKILL"),
-            "error should mention timeout + SIGKILL, got: {err}"
-        );
-        assert!(
-            elapsed < Duration::from_secs(2),
-            "timeout path took {:?} — should be < 2 s (deadline 200 ms + cleanup)",
-            elapsed
-        );
-    }
-
-    #[test]
-    fn exec_with_timeout_returns_non_zero_exit_normally() {
-        // `false` exits 1 immediately — timeout path must not be on
-        // the hot path for non-hanging non-zero-exit commands.
-        let err = exec_with_timeout("false", &[], Duration::from_secs(5))
-            .expect_err("false should yield non-zero exit error");
-        assert!(
-            err.contains("exited") && !err.contains("timeout"),
-            "non-zero exit must not be mistaken for timeout: {err}"
-        );
-    }
 }
