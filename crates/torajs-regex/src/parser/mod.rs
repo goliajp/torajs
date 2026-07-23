@@ -312,6 +312,18 @@ impl<'p> Parser<'p> {
             return Some(None);
         }
         self.get(); // consume `}`
+        // ES §22.2.1.1 Term / QuantifierPrefix Static Semantics —
+        // `{n,m}` requires `n <= m`. bun/JSC throw SyntaxError from
+        // the constructor for `a{2,1}` unconditionally (u and non-u).
+        // Pre-fix tr accepted the reversed pair and produced a
+        // no-match matcher; make it a hard parse err so the throw
+        // plumbing (fee80fe5) surfaces the SyntaxError to
+        // `try/catch`. Both bounds are consumed at this point (past
+        // `}`), so no rewind — the rejection is final, not annexB.
+        if n2 < n1 {
+            self.err = true;
+            return None;
+        }
         Some(Some((n1, n2)))
     }
 
