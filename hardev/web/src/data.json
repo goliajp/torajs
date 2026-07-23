@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-23T18:27:31.420Z",
+  "generatedAt": "2026-07-23T18:42:50.827Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,9 +9,9 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-23T15:33:27Z",
-    "headSha": "60ce8960",
-    "elapsedSec": 713.29,
+    "ranAt": "2026-07-23T18:42:26Z",
+    "headSha": "5eb3ce87",
+    "elapsedSec": 713.13,
     "workers": 8,
     "limit": null,
     "totalCases": 53174,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 95.85
   },
   "torajs": {
-    "commit": "411ee0e5",
-    "commitSubject": "refactor(ssa_lower_inner): move setup helpers to sibling dir module",
+    "commit": "c204fe5b",
+    "commitSubject": "chore: hardev dashboard refresh after rotation 197 close",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,10 @@
   },
   "commits": [
     {
+      "hash": "c204fe5b",
+      "subject": "chore: hardev dashboard refresh after rotation 197 close"
+    },
+    {
       "hash": "411ee0e5",
       "subject": "refactor(ssa_lower_inner): move setup helpers to sibling dir module"
     },
@@ -755,13 +759,9 @@
     {
       "hash": "17f1b66f",
       "subject": "refactor(ssa_lower_inner): extract Pass-1.5 boundary + anon_stamp helpers"
-    },
-    {
-      "hash": "25910518",
-      "subject": "docs(check_type_of_call): mark route_arity_widen as CARVE-OUT #2"
     }
   ],
-  "headSha": "411ee0e5",
+  "headSha": "c204fe5b",
   "autorun": {
     "total": 501,
     "baselineTarget": 10,
