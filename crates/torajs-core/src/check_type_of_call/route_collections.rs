@@ -181,5 +181,13 @@ pub(crate) fn try_route(
     {
         return Some(r);
     }
+    // `Array<T>.reduce(cb, seed)` heterogeneous acc — `(U, T) => R`
+    // for primitive `U` != T answers `R`, checked against a
+    // matching seed; see [`crate::check_type_of_call_arr_reduce_hetero`].
+    if let Some(r) =
+        crate::check_type_of_call_arr_reduce_hetero::try_match(checker, ast, callee, args)
+    {
+        return Some(r);
+    }
     None
 }

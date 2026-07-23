@@ -368,6 +368,31 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
             }
             continue;
         }
+        // `reduce`/`reduceRight` — seed the acc param from the SEED
+        // arg's static type (args[1]) when it's a literal or typed
+        // ident; otherwise fall back to elem_ann for the sum/max
+        // idiom. Return ann stays for the body sniff so a `(number,
+        // number) => string` reduce (`[1,2,3].reduce((a: string, x)
+        // => a + x, '')`) types through instead of tripping
+        // `check_stmt_return` on the Str body return.
+        if name == "reduce" || name == "reduceRight" {
+            let acc_ann = args
+                .get(1)
+                .and_then(|&a| match ast.get_expr(a) {
+                    Expr::Ident(n) => all_anns.get(n).cloned(),
+                    _ => infer_lit_ann(ast, a),
+                })
+                .unwrap_or_else(|| elem_ann.clone());
+            for (_arg_idx, fn_name) in &closure_args {
+                let p = fn_user_param_count.get(fn_name).copied().unwrap_or(2);
+                let mut param_anns = vec![acc_ann.clone()];
+                while param_anns.len() < p {
+                    param_anns.push(elem_ann.clone());
+                }
+                param_only_updates.insert(fn_name.clone(), param_anns);
+            }
+            continue;
+        }
         // Per-method expected (param annotations, return annotation).
         let expected: Option<(Vec<String>, String)> = match name.as_str() {
             "sort" => Some((vec![elem_ann.clone(), elem_ann.clone()], "number".into())),
@@ -382,10 +407,7 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
                 Some((vec![elem_ann.clone()], format!("{elem_ann}[]")))
             }
             "reduce" | "reduceRight" => {
-                // (acc, cur) => acc — caller supplies the seed; without
-                // type-tracking the seed type, assume elem-typed accum
-                // (works for sum/max/etc.).
-                Some((vec![elem_ann.clone(), elem_ann.clone()], elem_ann.clone()))
+                unreachable!("reduce/reduceRight handled by param-only arm above")
             }
             _ => None,
         };
