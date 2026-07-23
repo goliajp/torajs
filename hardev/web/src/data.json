@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-23T15:36:36.538Z",
+  "generatedAt": "2026-07-23T16:39:42.927Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 95.85
   },
   "torajs": {
-    "commit": "03738a9c",
-    "commitSubject": "chore: test262 sweep at 60ce8960 — passTotal 13364 (+1) / bug 579 (-3)",
+    "commit": "6f769425",
+    "commitSubject": "refactor(member_get): extract wrapper arm from __torajs_any_member_get_tag",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "6f769425",
+      "subject": "refactor(member_get): extract wrapper arm from __torajs_any_member_get_tag"
+    },
+    {
+      "hash": "fe515182",
+      "subject": "refactor(member_set): extract wrapper-cell [[Set]] guards into sibling"
+    },
+    {
+      "hash": "6b9bdfd6",
+      "subject": "refactor(reflect): extract Object.getOwnPropertyDescriptor into sibling"
+    },
+    {
+      "hash": "2947eb3b",
+      "subject": "refactor(regex): extract Str-payload helpers into sibling module"
+    },
+    {
+      "hash": "a6a1cacb",
+      "subject": "fix(bench-harness): SIGKILL whole process group on hyperfine spawn timeout"
+    },
+    {
+      "hash": "526fc35a",
+      "subject": "chore: hardev dashboard refresh after rotation 195 close"
+    },
+    {
       "hash": "03738a9c",
       "subject": "chore: test262 sweep at 60ce8960 — passTotal 13364 (+1) / bug 579 (-3)"
     },
@@ -735,33 +759,9 @@
     {
       "hash": "7ba70a7e",
       "subject": "fix(bench-harness): SIGKILL whole process group on child timeout"
-    },
-    {
-      "hash": "e02a3807",
-      "subject": "fix(conformance-gate): SIGKILL whole process group on child timeout"
-    },
-    {
-      "hash": "0950056c",
-      "subject": "fix: regex parser rejects reversed range + u-mode shorthand as range endpoint (§22.2.1.1)"
-    },
-    {
-      "hash": "5eb3ce87",
-      "subject": "fix: test262 runner kills the whole tr process group on timeout"
-    },
-    {
-      "hash": "4944e45d",
-      "subject": "fix: regex parser rejects duplicate named-group in same Alternative (§22.2.1.1)"
-    },
-    {
-      "hash": "b74ab324",
-      "subject": "chore: test262 sweep at 95a00956 — passTotal 13363 (+1) / bug 582 (-1)"
-    },
-    {
-      "hash": "95a00956",
-      "subject": "chore: hardev dashboard refresh after chunks 3+5 (regex parser strictness)"
     }
   ],
-  "headSha": "03738a9c",
+  "headSha": "6f769425",
   "autorun": {
     "total": 500,
     "baselineTarget": 10,
