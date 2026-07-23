@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-23T14:06:09.215Z",
+  "generatedAt": "2026-07-23T15:33:42.891Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-23T14:05:38Z",
-    "headSha": "95a00956",
-    "elapsedSec": 677.17,
+    "ranAt": "2026-07-23T15:33:27Z",
+    "headSha": "60ce8960",
+    "elapsedSec": 713.29,
     "workers": 8,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 8800,
+    "pass": 8801,
     "passNoOracle": 116,
     "passNegative": 4447,
-    "passTotal": 13363,
-    "bug": 582,
-    "incompatible": 39229,
+    "passTotal": 13364,
+    "bug": 579,
+    "incompatible": 39231,
     "bunSkip": 11907,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 13945,
+    "trAccepted": 13943,
     "passRateInScope": 25.13,
-    "passRateTrAccepted": 95.83
+    "passRateTrAccepted": 95.85
   },
   "torajs": {
-    "commit": "95a00956",
-    "commitSubject": "chore: hardev dashboard refresh after chunks 3+5 (regex parser strictness)",
+    "commit": "60ce8960",
+    "commitSubject": "fix: regex parser rejects quantifier on assertion per QuantifiableAssertion (§22.2.1.1)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,55 +713,55 @@
   },
   "commits": [
     {
+      "hash": "60ce8960",
+      "subject": "fix: regex parser rejects quantifier on assertion per QuantifiableAssertion (§22.2.1.1)"
+    },
+    {
+      "hash": "3a640a64",
+      "subject": "fix: regex parser rejects bare {n,m} quantifier with no preceding Atom (§22.2.1.1)"
+    },
+    {
+      "hash": "1be825b8",
+      "subject": "fix: regex parser rejects \\\\0 followed by digit under u/v (§22.2.1.1)"
+    },
+    {
+      "hash": "ae1dbc47",
+      "subject": "fix: regex flag string rejects duplicate + unknown letters (§22.2.3.1)"
+    },
+    {
+      "hash": "7ba70a7e",
+      "subject": "fix(bench-harness): SIGKILL whole process group on child timeout"
+    },
+    {
+      "hash": "e02a3807",
+      "subject": "fix(conformance-gate): SIGKILL whole process group on child timeout"
+    },
+    {
+      "hash": "0950056c",
+      "subject": "fix: regex parser rejects reversed range + u-mode shorthand as range endpoint (§22.2.1.1)"
+    },
+    {
+      "hash": "5eb3ce87",
+      "subject": "fix: test262 runner kills the whole tr process group on timeout"
+    },
+    {
+      "hash": "4944e45d",
+      "subject": "fix: regex parser rejects duplicate named-group in same Alternative (§22.2.1.1)"
+    },
+    {
+      "hash": "b74ab324",
+      "subject": "chore: test262 sweep at 95a00956 — passTotal 13363 (+1) / bug 582 (-1)"
+    },
+    {
       "hash": "95a00956",
       "subject": "chore: hardev dashboard refresh after chunks 3+5 (regex parser strictness)"
     },
     {
       "hash": "7be204ad",
       "subject": "fix: regex parser rejects reverse-order quantifier bounds (§22.2.1.1)"
-    },
-    {
-      "hash": "ef53d3bb",
-      "subject": "Revert \"fix: regex parser rejects duplicate named-group specifier (§22.2.1.1)\""
-    },
-    {
-      "hash": "6c02a077",
-      "subject": "fix: regex parser rejects duplicate named-group specifier (§22.2.1.1)"
-    },
-    {
-      "hash": "21e45b09",
-      "subject": "fix: regex parser rejects invalid IdentityEscape in u/v mode (§22.2.1.1)"
-    },
-    {
-      "hash": "0ae41291",
-      "subject": "chore: hardev dashboard refresh after chunk 1 + test262 sweep"
-    },
-    {
-      "hash": "0e1602a6",
-      "subject": "chore: test262 sweep at fee80fe5 — passTotal 13362 (+2)"
-    },
-    {
-      "hash": "fee80fe5",
-      "subject": "feat: new RegExp(bad) throws catchable SyntaxError (ES §22.2.3.1)"
-    },
-    {
-      "hash": "a34993ca",
-      "subject": "chore: hardev dashboard refresh after test262 sweep"
-    },
-    {
-      "hash": "95a61810",
-      "subject": "chore: test262 sweep at f023e6c2 — passTotal 13360 (+10)"
-    },
-    {
-      "hash": "f023e6c2",
-      "subject": "chore: hardev dashboard snapshot at rotation 193 close"
-    },
-    {
-      "hash": "3186416e",
-      "subject": "fix: regex `\\k<name>` annexB identity fallback for pattern with no named groups"
     }
   ],
-  "headSha": "95a00956",
+  "headSha": "60ce8960",
   "autorun": {
     "total": 499,
     "baselineTarget": 10,
