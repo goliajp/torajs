@@ -90,8 +90,27 @@ impl<'p> Parser<'p> {
     }
 
     fn parse_hex_escape(&mut self) -> Option<Box<Node>> {
-        let h1 = self.read_hex_digit()?;
-        let h2 = self.read_hex_digit()?;
+        // annexB §B.1.4 IdentityEscape — outside u/v mode a malformed
+        // `\xHH` (missing / non-hex digits) falls back to literal `x`,
+        // leaving the trailing char (if any) to reparse: `/\x/` matches
+        // "x", `/\xa/` matches "xa". u/v mode keeps the strict spec
+        // (SyntaxError via read_hex_digit's err path).
+        if unicode_mode(self.flags) {
+            let h1 = self.read_hex_digit()?;
+            let h2 = self.read_hex_digit()?;
+            return Some(char_node((h1 << 4) | h2));
+        }
+        if self.eof() || hex_value(self.peek()).is_none() {
+            return Some(char_node(b'x'));
+        }
+        let h1_pos = self.i;
+        let h1 = hex_value(self.get()).unwrap();
+        if self.eof() || hex_value(self.peek()).is_none() {
+            // Rewind so the single hex digit reparses as itself.
+            self.i = h1_pos;
+            return Some(char_node(b'x'));
+        }
+        let h2 = hex_value(self.get()).unwrap();
         Some(char_node((h1 << 4) | h2))
     }
 
