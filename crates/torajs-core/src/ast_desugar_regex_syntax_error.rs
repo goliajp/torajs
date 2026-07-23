@@ -135,8 +135,15 @@ fn maybe_rewrite_letdecl(stmt: &mut Stmt, ast: &mut Ast) -> bool {
     // and the runtime Throw fires before any of them can execute.
     // Multi shares its parent scope (see `Stmt::Multi` docstring), so
     // the binding actually reaches the sibling statements.
+    // Keep the original LetDecl FIRST so ssa-lower emits a real SSA
+    // slot for `r`; downstream statements referencing `r` (checker-
+    // clean, unreachable at runtime) then have a def to bind to. The
+    // Throw follows immediately, terminating control flow before any
+    // reference actually runs — try/catch still catches the
+    // SyntaxError, and top-level uncaught yields exit 1 stderr
+    // `error: uncaught SyntaxError: …` (matches bun's exit 1 shape).
     let orig = std::mem::replace(stmt, Stmt::Block(Vec::new()));
-    *stmt = Stmt::Multi(vec![Stmt::Throw(new_id), orig]);
+    *stmt = Stmt::Multi(vec![orig, Stmt::Throw(new_id)]);
     true
 }
 
