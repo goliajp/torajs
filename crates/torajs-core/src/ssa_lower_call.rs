@@ -127,6 +127,11 @@ fn try_dispatch_a(ctx: &mut LowerCtx<'_>, callee: ExprId, args: &[ExprId]) -> Op
     if let Some(op) = crate::ssa_lower_call_string_from_char_code::try_lower(ctx, callee, args) {
         return Some(op);
     }
+    // `String.raw(template, ...substitutions)` — dispatch to
+    // __torajs_string_raw kernel (walks template.raw + interleaved subs).
+    if let Some(op) = crate::ssa_lower_call_string_raw::try_lower(ctx, callee, args) {
+        return Some(op);
+    }
     // Bare-name JS globals: parseInt / parseFloat / isNaN / isFinite / queueMicrotask.
     if let Some(op) = crate::ssa_lower_call_bare_globals::try_lower(ctx, callee, args) {
         return Some(op);

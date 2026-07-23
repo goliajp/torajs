@@ -212,5 +212,12 @@ pub(crate) fn try_route(
     {
         return Some(r);
     }
+    // `String.raw(template, ...substitutions)` per ES §22.1.2.4
+    // — direct-fn call shape; kernel `__torajs_string_raw` walks
+    // the template's `raw` array interleaved with substitutions.
+    // See [`crate::check_type_of_call_string_raw`].
+    if let Some(r) = crate::check_type_of_call_string_raw::try_match(checker, ast, callee, args) {
+        return Some(r);
+    }
     None
 }

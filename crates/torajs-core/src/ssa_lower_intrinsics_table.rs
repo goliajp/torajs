@@ -90,6 +90,7 @@ pub(crate) fn build(
         str_pad_end: init_a.str_a.str_pad_end,
         str_from_char_code: init_a.str_a.str_from_char_code,
         str_from_code_point: init_a.str_a.str_from_code_point,
+        string_raw: init_a.str_a.string_raw,
         str_normalize: init_a.str_a.str_normalize,
         str_to_locale_upper: init_a.str_a.str_to_locale_upper,
         str_to_locale_lower: init_a.str_a.str_to_locale_lower,
