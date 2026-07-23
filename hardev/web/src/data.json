@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-23T02:42:29.647Z",
+  "generatedAt": "2026-07-23T03:10:37.079Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-23T01:07:55Z",
-    "headSha": "23d6d5e1",
-    "elapsedSec": 619.42,
+    "ranAt": "2026-07-23T03:10:25Z",
+    "headSha": "f023e6c2",
+    "elapsedSec": 1001.53,
     "workers": 8,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 8787,
+    "pass": 8797,
     "passNoOracle": 116,
     "passNegative": 4447,
-    "passTotal": 13350,
+    "passTotal": 13360,
     "bug": 585,
-    "incompatible": 39239,
+    "incompatible": 39229,
     "bunSkip": 11907,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 13935,
-    "passRateInScope": 25.11,
+    "trAccepted": 13945,
+    "passRateInScope": 25.13,
     "passRateTrAccepted": 95.8
   },
   "torajs": {
-    "commit": "3186416e",
-    "commitSubject": "fix: regex `\\k<name>` annexB identity fallback for pattern with no named groups",
+    "commit": "95a61810",
+    "commitSubject": "chore: test262 sweep at f023e6c2 — passTotal 13360 (+10)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "95a61810",
+      "subject": "chore: test262 sweep at f023e6c2 — passTotal 13360 (+10)"
+    },
+    {
+      "hash": "f023e6c2",
+      "subject": "chore: hardev dashboard snapshot at rotation 193 close"
+    },
+    {
       "hash": "3186416e",
       "subject": "fix: regex `\\k<name>` annexB identity fallback for pattern with no named groups"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "08417164",
       "subject": "feat: Array<T>.flatMap(cb) heterogeneous cb return Array<U>"
-    },
-    {
-      "hash": "522b5412",
-      "subject": "fix: Object.assign({}, ...sources) empty struct target routes to Any lane"
-    },
-    {
-      "hash": "81f61db6",
-      "subject": "chore: hardev dashboard snapshot at rotation 191 close"
     }
   ],
-  "headSha": "3186416e",
+  "headSha": "95a61810",
   "autorun": {
     "total": 497,
     "baselineTarget": 10,
