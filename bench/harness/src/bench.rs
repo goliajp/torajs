@@ -1,7 +1,6 @@
 use anyhow::{Context, Result};
 use serde::Deserialize;
 use std::path::Path;
-use std::process::Command;
 
 use crate::case::Case;
 use crate::exec::{PER_EXEC_TIMEOUT, spawn_output_bounded};
@@ -390,23 +389,35 @@ fn hyperfine_one(cmd: &str, warmup: u32, runs: u32, env: &[(String, String)]) ->
         std::process::id(),
         rand_suffix()
     ));
-    let mut hf = Command::new("hyperfine");
-    hf.arg("--warmup")
-        .arg(warmup.to_string())
-        .arg("--runs")
-        .arg(runs.to_string())
-        .arg("--export-json")
-        .arg(&tmp)
-        .arg("--style")
-        .arg("none")
-        .arg("--shell=none")
-        .arg("--")
-        .arg(cmd);
-    for (k, v) in env {
-        hf.env(k, v);
-    }
-    let status = hf.status().context("spawning hyperfine")?;
-    anyhow::ensure!(status.success(), "hyperfine exited {status}");
+    // hyperfine `--shell=none` execs tr directly, so tr's `torajs-run-new-*`
+    // grandchild lives inside hyperfine's process group. Route the spawn
+    // through `spawn_output_bounded` so a hung fixture SIGKILLs the whole
+    // group instead of wedging the bench run + orphaning grandchild to init
+    // (matches 5eb3ce87 / e02a3807 / 7ba70a7e pgid audit family).
+    let tmp_str = tmp.to_string_lossy().into_owned();
+    let warmup_str = warmup.to_string();
+    let runs_str = runs.to_string();
+    let args: [&str; 11] = [
+        "--warmup",
+        &warmup_str,
+        "--runs",
+        &runs_str,
+        "--export-json",
+        &tmp_str,
+        "--style",
+        "none",
+        "--shell=none",
+        "--",
+        cmd,
+    ];
+    let output = spawn_output_bounded("hyperfine", &args, env, PER_EXEC_TIMEOUT)
+        .map_err(|e| anyhow::anyhow!("spawning hyperfine: {e}"))?;
+    anyhow::ensure!(
+        output.status.success(),
+        "hyperfine exited {} stderr={:?}",
+        output.status,
+        preview(&String::from_utf8_lossy(&output.stderr))
+    );
     let text =
         std::fs::read_to_string(&tmp).with_context(|| format!("reading {}", tmp.display()))?;
     let _ = std::fs::remove_file(&tmp);
