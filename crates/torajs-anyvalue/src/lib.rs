@@ -107,6 +107,7 @@ pub(crate) mod member_get_probe;
 pub(crate) mod member_get_value;
 mod member_props_regexp;
 mod member_set;
+mod member_set_wrapper;
 mod method_bind;
 mod method_call;
 mod method_call_arr;

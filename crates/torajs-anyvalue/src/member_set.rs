@@ -29,6 +29,8 @@ use core::ffi::c_void;
 
 use torajs_rc::{ANY_RPROP_LAST_INDEX, ANY_WPROP_ARR_LENGTH, FLAG_NON_EXTENSIBLE, Tag};
 
+use crate::member_set_wrapper::{reject_non_extensible, strwrapper_own_domain_key};
+
 use crate::nanbox::{AnyValue, as_void_ptr, is_cell};
 use crate::nanbox_encode::__torajs_anyv_box_from_pair;
 use crate::nanbox_ffi::__torajs_anyv_rc_dec;
@@ -83,7 +85,7 @@ unsafe extern "C" {
     fn __torajs_dynobj_get_value(obj: *const c_void, key: *const c_void) -> u64;
     fn __torajs_dynobj_get_flags(obj: *const c_void, key: *const c_void) -> u64;
     /// torajs-throw — record a pending catchable TypeError.
-    fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
+    pub(crate) fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
 }
 
 /// `dynobj_get_tag` accessor sentinel
@@ -91,7 +93,7 @@ unsafe extern "C" {
 const MEMBER_SET_ANY_ACCESSOR: u64 = 6;
 
 /// Release the lowering's +1 on a heap payload that no arm consumed.
-unsafe fn drop_payload(tag: u64, value: u64) {
+pub(crate) unsafe fn drop_payload(tag: u64, value: u64) {
     if tag == 4 {
         unsafe { __torajs_anyv_rc_dec(__torajs_anyv_box_from_pair(4, value as i64)) };
     }
@@ -104,49 +106,11 @@ unsafe fn reject(tag: u64, value: u64) {
     }
 }
 
-/// True when `key` names a `Tag::StringWrapper` inherent own
-/// property — `"length"` or a canonical code-unit index in
-/// `[0, len)` (§10.4.3 StringGetOwnProperty). Both are
-/// non-writable: the caller refuses the store instead of letting
-/// it shadow through the expando dynobj.
-unsafe fn strwrapper_own_domain_key(ptr: *mut c_void, key: *const c_void) -> bool {
-    unsafe {
-        let k = key as *const u8;
-        let key_len = (k.add(STR_LEN_OFF) as *const u32).read();
-        let bytes = core::slice::from_raw_parts(k.add(STR_DATA_OFF), key_len as usize);
-        if bytes == b"length" {
-            return true;
-        }
-        let Some(idx) = crate::member_get::canonical_index(bytes) else {
-            return false;
-        };
-        let inner = (ptr.cast::<u8>().add(8) as *const *const c_void).read();
-        let len = if inner.is_null() {
-            0
-        } else {
-            inner.cast::<u8>().add(STR_LEN_OFF).cast::<u32>().read() as u64
-        };
-        idx < len
-    }
-}
-
-/// Wrapper-cell `[[Set]]` rejection when the receiver has
-/// `[[Extensible]] = false` and the key is fresh — mirror of
-/// `__torajs_dynobj_set`'s new-key gate wording.
-unsafe fn reject_non_extensible(tag: u64, value: u64) {
-    unsafe {
-        drop_payload(tag, value);
-        __torajs_throw_type_error(
-            c"Attempting to define property on object that is not extensible.".as_ptr(),
-        );
-    }
-}
-
 /// See module doc. `hint` carries the compile-time member-name
 /// Str-cell payload offsets — mirror of `struct_probe.rs` (the key is
 /// a live Str cell; blade 7 reads its bytes to resolve the accessor).
-const STR_LEN_OFF: usize = 8;
-const STR_DATA_OFF: usize = 16;
+pub(crate) const STR_LEN_OFF: usize = 8;
+pub(crate) const STR_DATA_OFF: usize = 16;
 
 /// Closure-cell lazy props slot — mirror of torajs-core
 /// `ssa_lower.rs::CLOSURE_PROPS_OFF`.
