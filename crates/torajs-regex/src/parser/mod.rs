@@ -264,6 +264,24 @@ impl<'p> Parser<'p> {
             },
             _ => return Some(atom),
         };
+        // §22.2.1.1 Quantifier / annexB QuantifiableAssertion:
+        // - Lookbehind (`(?<=…)`, `(?<!…)`) with a quantifier is a
+        //   SyntaxError in every mode — the annexB
+        //   QuantifiableAssertion carve-out covers *lookahead only*
+        //   (`(?= …)`, `(?! …)`).
+        // - Lookahead + quantifier is annexB-legal in non-u (`/(?=a)+/`
+        //   accepts) but strict u/v rejects.
+        match atom.kind {
+            NodeKind::Lookbehind | NodeKind::NegLookbehind => {
+                self.err = true;
+                return None;
+            }
+            NodeKind::Lookahead | NodeKind::NegLookahead if unicode_mode(self.flags) => {
+                self.err = true;
+                return None;
+            }
+            _ => {}
+        }
         let lazy = self.match_byte(b'?');
         let mut r = Node::new(NodeKind::Repeat);
         r.child = Some(atom);
