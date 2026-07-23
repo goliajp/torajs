@@ -62,6 +62,15 @@ pub(crate) struct MapSetIds {
     pub map_iter_drop: FuncId,
 }
 
+// CARVE-OUT: dispatch table — 26 back-to-back `declare_intrinsic` calls
+// filling a single `MapSetIds` struct literal (data-driven; each entry
+// declares one runtime FuncId + records it in `fn_table`). Refactor
+// blocked by MapSetIds being non-composable — splitting into sub-structs
+// or a macro shape helper would either change the `intrinsics.<field>`
+// consumer surface (architectural churn across every ssa_lower map_set
+// read site) or trade line count for a `decl!(name, params, ret)` macro
+// that saves ≤ 3 lines per entry against the added macro-hygiene cost.
+// Same rationale as `ssa_lower_intrinsics_table.rs::build`.
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) -> MapSetIds {
     let set_pair = &[Type::Set, Type::Set][..];
     MapSetIds {
