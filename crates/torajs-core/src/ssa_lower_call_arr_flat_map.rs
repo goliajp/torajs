@@ -60,15 +60,25 @@ pub(crate) fn try_lower(
         let _ = ctx.lower_expr(a);
     }
     let fn_ty = ctx.operand_ty(&fn_val);
-    let inner_arr_ty = match fn_ty {
+    let cb_ret_ty = match fn_ty {
         Type::FnSig(s) | Type::Closure(s) => ctx.fn_sigs[s.0 as usize].1,
         _ => panic!("flatMap callback must be callable"),
     };
-    let Type::Arr(inner_arr_id) = inner_arr_ty else {
-        panic!("flatMap callback must return an array");
+    // Callback return can be either `Array<U>` (standard flat_map
+    // shape — inner walk pushes each element) or a scalar `U` per
+    // ES §23.1.3.11 step 8.d (a non-Array result acts like `[U]` —
+    // single push per outer iter, no inner walk). The scalar arm is
+    // gated by the sibling `check_type_of_call_arr_flat_map_scalar`
+    // checker wedge (admits `(T) => U` for primitive U).
+    let (scalar_ret, dst_elem_ty, dst_arr_ty) = match cb_ret_ty {
+        Type::Arr(inner_arr_id) => (false, ctx.arr_layouts[inner_arr_id.0 as usize], cb_ret_ty),
+        Type::I64 | Type::F64 | Type::Str | Type::Substr | Type::Bool | Type::Any => {
+            let dst_id =
+                crate::ssa_lower_interners::intern_arr_layout(&mut ctx.arr_layouts, cb_ret_ty);
+            (true, cb_ret_ty, Type::Arr(dst_id))
+        }
+        other => panic!("flatMap callback must return an array or primitive scalar, got {other:?}"),
     };
-    let dst_elem_ty = ctx.arr_layouts[inner_arr_id.0 as usize];
-    let dst_arr_ty = inner_arr_ty;
 
     // Allocate dst (cap=0; arr_push grows on demand). Chunk 625 —
     // an Any dst allocates the FLAG_ARR_ANY flavor: the walk pushes
@@ -163,19 +173,18 @@ pub(crate) fn try_lower(
             None,
         )
     };
-    let inner_arr = ctx.call_fn_value(fn_val, fn_ty, vec![Operand::Value(elem)], 0);
+    let cb_ret = ctx.call_fn_value(fn_val, fn_ty, vec![Operand::Value(elem)], 0);
 
-    emit_inner_walk(ctx, inner_arr, dst_slot, dst_arr_ty, dst_elem_ty);
-    let final_dst = emit_close_and_load(
-        ctx,
-        inner_arr,
-        inner_arr_ty,
-        i_slot,
-        oh,
-        oa,
-        dst_slot,
-        dst_arr_ty,
-    );
+    let final_dst = if scalar_ret {
+        // Scalar return — cb answered an owned scalar U directly (no
+        // inner arr wrapping). Push it into dst as-is: the value
+        // already carries the +1 the dst slot takes over (refcounted
+        // types), or is an inline immediate (Number / Boolean).
+        emit_scalar_push_and_close(ctx, cb_ret, i_slot, oh, oa, dst_slot, dst_arr_ty)
+    } else {
+        emit_inner_walk(ctx, cb_ret, dst_slot, dst_arr_ty, dst_elem_ty);
+        emit_close_and_load(ctx, cb_ret, cb_ret_ty, i_slot, oh, oa, dst_slot, dst_arr_ty)
+    };
     // RFC 20260705 chunk 552 — release owned-shape temps after the
     // loop consumed them (inline arrow's minted env in the cb slot,
     // Call/New-shaped receiver).
@@ -294,6 +303,76 @@ fn emit_inner_walk(
     );
     ctx.f.set_term(ctx.cur_block, Terminator::Br(ih));
     ctx.cur_block = ia;
+}
+
+/// Scalar-arm variant of [`emit_inner_walk`] + [`emit_close_and_load`]
+/// fused: `cb_ret` is an owned scalar U (not an Array<U>), so we push
+/// it into `dst` verbatim (the +1 the cb returned carries transfers to
+/// the dst slot) then do the outer i++ + br. No inner_arr drop — there
+/// was no wrapping array. Caller must have `ctx.cur_block` at the
+/// outer body block (after the closure call).
+///
+/// Refcount contract: an owned refcounted scalar (Str / Substr / Any)
+/// has rc = 1 at cb return; arr_push stores it in the dst slot (which
+/// takes over that share). Inline scalars (I64 / F64 / Bool) carry no
+/// rc — the push just stores the raw bits.
+#[allow(clippy::too_many_arguments)]
+fn emit_scalar_push_and_close(
+    ctx: &mut LowerCtx<'_>,
+    cb_ret: ValueId,
+    i_slot: ValueId,
+    oh: BlockId,
+    oa: BlockId,
+    dst_slot: ValueId,
+    dst_arr_ty: Type,
+) -> ValueId {
+    // Load current dst, push scalar, store back the returned pointer
+    // (arr_push may realloc the data buffer — cell itself never moves
+    // but the buffer ptr in the cell may, so re-capture the return).
+    let cur_dst = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(dst_arr_ty, Operand::Value(dst_slot), 0),
+        dst_arr_ty,
+        None,
+    );
+    let new_dst = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(
+            ctx.intrinsics.arr_push,
+            vec![Operand::Value(cur_dst), Operand::Value(cb_ret)],
+        ),
+        dst_arr_ty,
+        None,
+    );
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Store(Operand::Value(new_dst), Operand::Value(dst_slot), 0),
+    );
+    // Outer i++.
+    let i_then = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(Type::I64, Operand::Value(i_slot), 0),
+        Type::I64,
+        None,
+    );
+    let i_next = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::BinOp(SsaBinOp::Add, Operand::Value(i_then), Operand::ConstI64(1)),
+        Type::I64,
+        None,
+    );
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Store(Operand::Value(i_next), Operand::Value(i_slot), 0),
+    );
+    ctx.f.set_term(ctx.cur_block, Terminator::Br(oh));
+    ctx.cur_block = oa;
+    ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(dst_arr_ty, Operand::Value(dst_slot), 0),
+        dst_arr_ty,
+        None,
+    )
 }
 
 /// Emit the inner after-block close (drop inner_arr; outer i++ + br oh)

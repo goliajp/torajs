@@ -197,5 +197,14 @@ pub(crate) fn try_route(
     {
         return Some(r);
     }
+    // `Array<T>.flatMap(cb)` scalar cb return — `(T) => U` (primitive
+    // U) answers `Array<U>` per ES §23.1.3.11 step 8.d (a non-Array
+    // cb result acts like `[U]`). See
+    // [`crate::check_type_of_call_arr_flat_map_scalar`].
+    if let Some(r) =
+        crate::check_type_of_call_arr_flat_map_scalar::try_match(checker, ast, callee, args)
+    {
+        return Some(r);
+    }
     None
 }
