@@ -128,7 +128,7 @@ pub(crate) unsafe fn arr_cell_descriptor(arr: *const c_void, key: *const c_void)
                     .read()
             };
             return unsafe {
-                crate::reflect::__torajs_anyv_get_property_descriptor(props as u64, key)
+                crate::reflect_get_property_descriptor::__torajs_anyv_get_property_descriptor(props as u64, key)
             };
         }
         let tag = unsafe { __torajs_arr_get_any_tag(arr, idx) };
@@ -155,7 +155,7 @@ pub(crate) unsafe fn arr_cell_descriptor(arr: *const c_void, key: *const c_void)
             .read()
     };
     if !props.is_null() && unsafe { __torajs_dynobj_has(props, key as *const u8) } {
-        return unsafe { crate::reflect::__torajs_anyv_get_property_descriptor(props as u64, key) };
+        return unsafe { crate::reflect_get_property_descriptor::__torajs_anyv_get_property_descriptor(props as u64, key) };
     }
     VALUE_UNDEFINED_IMM
 }

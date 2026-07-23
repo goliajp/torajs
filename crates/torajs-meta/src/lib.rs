@@ -41,6 +41,7 @@ pub mod object_proto_install;
 pub mod own_names;
 pub mod reflect;
 pub mod reflect_descriptors;
+pub mod reflect_get_property_descriptor;
 pub mod reflect_proto;
 pub mod reflect_proto_set;
 pub mod str_descriptor;
@@ -56,7 +57,7 @@ pub use classmeta::{
 };
 pub use error_to_string::__torajs_error_to_string;
 pub use fnprops::{__torajs_fnprops_get_tag, __torajs_fnprops_get_value, __torajs_fnprops_set};
-pub use reflect::__torajs_anyv_get_property_descriptor;
+pub use reflect_get_property_descriptor::__torajs_anyv_get_property_descriptor;
 pub use reflect_proto::{__torajs_anyv_get_proto_of_any, __torajs_anyv_proto_member_get};
 pub use throw_readonly::__torajs_throw_readonly_assign;
 
