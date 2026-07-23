@@ -69,7 +69,31 @@ pub(crate) fn try_lower(
     // in write order. Sources box to any (borrow shapes take +1 via
     // the transfer predicate; owned temps hand their ref to the box)
     // and release after the kernel returns — it only borrows them.
-    if matches!(target_ty, Type::Any) {
+    //
+    // Empty-struct target (`Object.assign({}, ...)` idiom) — the
+    // struct has no slot for any prop, so the anyv_assign kernel
+    // would loud-reject every write on the boxed struct receiver.
+    // Alloc a fresh dynobj as the real target instead; drop the
+    // just-lowered empty-struct temp. The fresh dynobj is refcnt=1
+    // (owned), so the result skips the owned_result_inc that the
+    // borrow-shaped `any` target arm needs.
+    let empty_struct_target = matches!(
+        &target_ty,
+        Type::Obj(sid) if ctx.struct_layouts[sid.0 as usize].is_empty()
+    );
+    if matches!(target_ty, Type::Any) || empty_struct_target {
+        let (walk_target, target_is_fresh) = if empty_struct_target {
+            ctx.emit_drop_value(target_op, target_ty);
+            let dynobj = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.dynobj_alloc, vec![]),
+                Type::Ptr,
+                None,
+            );
+            (ctx.box_to_any(Operand::Value(dynobj)), true)
+        } else {
+            (target_op, false)
+        };
         for src_eid in &args[1..] {
             let s_raw = ctx.lower_expr(*src_eid);
             let s_ty = ctx.operand_ty(&s_raw);
@@ -85,7 +109,7 @@ pub(crate) fn try_lower(
                 ctx.cur_block,
                 InstKind::Call(
                     ctx.intrinsics.anyv_assign,
-                    vec![target_op.clone(), s_op.clone()],
+                    vec![walk_target.clone(), s_op.clone()],
                 ),
             );
             if we_boxed {
@@ -95,8 +119,10 @@ pub(crate) fn try_lower(
             }
             ctx.emit_throw_check(None);
         }
-        ctx.emit_owned_result_inc(target_op.clone(), Type::Any);
-        return Some(target_op);
+        if !target_is_fresh {
+            ctx.emit_owned_result_inc(walk_target.clone(), Type::Any);
+        }
+        return Some(walk_target);
     }
     let Type::Obj(t_sid) = target_ty else {
         panic!("ssa-lower: Object.assign target must be a struct, got {target_ty:?}");

@@ -70,7 +70,16 @@ pub(crate) fn try_match(
         // An `any` target takes the runtime §20.1.2.1 walk (the
         // anyv_assign kernel) — sources just need to typecheck; any
         // shape rides (struct literals box, any sources pass through).
-        if matches!(target_ty, Type::Any) {
+        //
+        // An empty-struct target (`Object.assign({}, ...)` idiom) has
+        // no slot for any source prop by definition, so the static
+        // subset gate has nothing to check against — route it through
+        // the same runtime walk. SSA-lower allocates a fresh dynobj as
+        // the real target (spec: assign returns target; an empty struct
+        // has no observable identity, so the swap is invisible) and
+        // answers Type::Any.
+        let empty_struct_target = matches!(&target_ty, Type::Struct(f) if f.is_empty());
+        if matches!(target_ty, Type::Any) || empty_struct_target {
             for src_id in &args[1..] {
                 if let Err(e) = checker.type_of(ast, *src_id) {
                     return Some(Err(e));
