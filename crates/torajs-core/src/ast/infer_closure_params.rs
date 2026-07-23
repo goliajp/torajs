@@ -18,12 +18,13 @@
 //!   `__fn(P|..)->R`-annotated param at a closure arg position
 //!   projects its spellings onto the lifted closure's params/ret.
 
-use super::infer_closure_params_apply::{apply_closure_ann_updates, body_returns_value};
-use super::infer_closure_params_helpers::{build_ann_table, mapset_foreach_expected};
+use super::infer_closure_params_apply::apply_closure_ann_updates;
+use super::infer_closure_params_helpers::{
+    apply_hof_param_only_arm, apply_user_fn_callee_hint, build_ann_table, collect_fn_decl_metadata,
+    mapset_foreach_expected,
+};
 use super::infer_closure_params_promise::resolve_promise_inner_ann;
-use super::infer_closure_typevars::{mentions_any_word, resolve_call_site_typevars};
-use super::{Ast, Expr, ExprId, Stmt, infer_return_ann};
-use crate::num_width::{fn_type_canon, split_fn_type};
+use super::{Ast, Expr, ExprId};
 use crate::ssa_lower_free_helpers::count_capture_groups;
 
 /// Annotations for a `<string>.replace(re, cb)` callback's user params,
@@ -166,50 +167,8 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
     // guess that only fits the param position).
     let mut param_only_updates: HashMap<String, Vec<String>> = HashMap::new();
 
-    // fn name → positional param annotations, for the user-fn callee
-    // hint arm (RFC 20260705 chunk 554 — `apply((n) => n + 1, 41)`).
-    // fn name → type params, so a generic callee's hint spellings get
-    // a call-site typevar resolution pass before projection.
-    let mut fn_param_pos_anns: HashMap<String, Vec<Option<String>>> = HashMap::new();
-    let mut fn_type_params: HashMap<String, Vec<String>> = HashMap::new();
-    // Lifted-closure user-param count (params minus the leading `__env`).
-    // Used to shape `<string>.replace(re, cb)` callback annotations.
-    let mut fn_user_param_count: HashMap<String, usize> = HashMap::new();
-    // Promise chain propagation — resolved (or sniffed) return ann per
-    // FnDecl, so `.then(prev_cb).then(next_cb)` can hand `next_cb`
-    // param the result of `prev_cb`'s return.
-    let mut fn_ret_anns: HashMap<String, Option<String>> = HashMap::new();
-    for s in &ast.stmts {
-        if let Stmt::FnDecl {
-            name,
-            params,
-            type_params,
-            return_type,
-            body,
-            ..
-        } = s
-        {
-            fn_param_pos_anns.insert(
-                name.clone(),
-                params.iter().map(|p| p.type_ann.clone()).collect(),
-            );
-            fn_user_param_count.insert(
-                name.clone(),
-                params.iter().filter(|p| p.name != "__env").count(),
-            );
-            if !type_params.is_empty() {
-                fn_type_params.insert(name.clone(), type_params.clone());
-            }
-            let ret = return_type.clone().or_else(|| {
-                if body_returns_value(body) {
-                    infer_return_ann(&ast.exprs, body, params, &HashMap::new())
-                } else {
-                    None
-                }
-            });
-            fn_ret_anns.insert(name.clone(), ret);
-        }
-    }
+    let (fn_param_pos_anns, fn_type_params, fn_user_param_count, fn_ret_anns) =
+        collect_fn_decl_metadata(ast);
 
     let n = ast.exprs.len();
     for i in 0..n {
@@ -253,39 +212,15 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
         // mentioning an unresolved typevar after substitution is not
         // projected.
         if let Expr::Ident(fname) = ast.get_expr(callee) {
-            if let Some(pos_anns) = fn_param_pos_anns.get(fname) {
-                let subst = fn_type_params
-                    .get(fname)
-                    .map(|tps| resolve_call_site_typevars(ast, tps, pos_anns, &args));
-                let tps = fn_type_params.get(fname);
-                for (arg_idx, fn_name) in &closure_args {
-                    let Some(Some(pann)) = pos_anns.get(*arg_idx) else {
-                        continue;
-                    };
-                    let Some(canon) = fn_type_canon(pann) else {
-                        continue;
-                    };
-                    let Some((param_spellings, ret_spelling)) = split_fn_type(&canon) else {
-                        continue;
-                    };
-                    let mut param_anns: Vec<String> =
-                        param_spellings.iter().map(|s| s.to_string()).collect();
-                    let mut ret_ann = ret_spelling.to_string();
-                    if let (Some(subst), Some(tps)) = (&subst, tps) {
-                        for a in param_anns.iter_mut() {
-                            *a = crate::ssa_lower_generics_monomorph::substitute_in_ann(a, subst);
-                        }
-                        ret_ann =
-                            crate::ssa_lower_generics_monomorph::substitute_in_ann(&ret_ann, subst);
-                        if param_anns.iter().any(|a| mentions_any_word(a, tps))
-                            || mentions_any_word(&ret_ann, tps)
-                        {
-                            continue;
-                        }
-                    }
-                    updates.insert(fn_name.clone(), (param_anns, ret_ann));
-                }
-            }
+            apply_user_fn_callee_hint(
+                ast,
+                fname,
+                &args,
+                &closure_args,
+                &fn_param_pos_anns,
+                &fn_type_params,
+                &mut updates,
+            );
             continue;
         }
         // Member(obj, method) — the Array-method path.
@@ -351,61 +286,16 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
             continue;
         };
         let elem_ann = elem_ann.to_string();
-        // `.map(cb)` — seed only the cb's param (elem), leave the
-        // return annotation to the body sniff. Heterogeneous returns
-        // like `numbers.map(n => n.toString())` are accepted at the
-        // call-site by
-        // [`crate::check_type_of_call_arr_map_hetero`]; strapping
-        // `return_type = elem_ann` here would trip
-        // `check_stmt_return` on the arrow body's Str return before
-        // the call-site arm gets a chance to answer `Array<String>`.
-        if name == "map" {
-            for (_arg_idx, fn_name) in &closure_args {
-                let p = fn_user_param_count.get(fn_name).copied().unwrap_or(1);
-                if p >= 1 {
-                    param_only_updates.insert(fn_name.clone(), vec![elem_ann.clone(); p]);
-                }
-            }
-            continue;
-        }
-        // `.flatMap(cb)` — sister to `.map`. Seed only the cb's
-        // param; leave the return ann to the body sniff so a
-        // heterogeneous return `Array<U>` (with U != T) can flow
-        // through [`crate::check_type_of_call_arr_flat_map_hetero`]
-        // without check_stmt_return rejecting it against a strapped
-        // `${elem_ann}[]`.
-        if name == "flatMap" {
-            for (_arg_idx, fn_name) in &closure_args {
-                let p = fn_user_param_count.get(fn_name).copied().unwrap_or(1);
-                if p >= 1 {
-                    param_only_updates.insert(fn_name.clone(), vec![elem_ann.clone(); p]);
-                }
-            }
-            continue;
-        }
-        // `reduce`/`reduceRight` — seed the acc param from the SEED
-        // arg's static type (args[1]) when it's a literal or typed
-        // ident; otherwise fall back to elem_ann for the sum/max
-        // idiom. Return ann stays for the body sniff so a `(number,
-        // number) => string` reduce (`[1,2,3].reduce((a: string, x)
-        // => a + x, '')`) types through instead of tripping
-        // `check_stmt_return` on the Str body return.
-        if name == "reduce" || name == "reduceRight" {
-            let acc_ann = args
-                .get(1)
-                .and_then(|&a| match ast.get_expr(a) {
-                    Expr::Ident(n) => all_anns.get(n).cloned(),
-                    _ => infer_lit_ann(ast, a),
-                })
-                .unwrap_or_else(|| elem_ann.clone());
-            for (_arg_idx, fn_name) in &closure_args {
-                let p = fn_user_param_count.get(fn_name).copied().unwrap_or(2);
-                let mut param_anns = vec![acc_ann.clone()];
-                while param_anns.len() < p {
-                    param_anns.push(elem_ann.clone());
-                }
-                param_only_updates.insert(fn_name.clone(), param_anns);
-            }
+        if apply_hof_param_only_arm(
+            ast,
+            &name,
+            &args,
+            &closure_args,
+            &elem_ann,
+            &all_anns,
+            &fn_user_param_count,
+            &mut param_only_updates,
+        ) {
             continue;
         }
         // Per-method expected (param annotations, return annotation).
