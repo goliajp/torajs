@@ -4,6 +4,7 @@ use std::path::Path;
 use std::process::Command;
 
 use crate::case::Case;
+use crate::exec::{PER_EXEC_TIMEOUT, spawn_output_bounded};
 use crate::runner::{Runner, TemplateContext, split_cmd};
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -331,12 +332,8 @@ fn exec_capture_status(
     if parts.is_empty() {
         return Err(CompileError::Real("empty command".into()));
     }
-    let mut command = Command::new(&parts[0]);
-    command.args(&parts[1..]);
-    for (k, v) in env {
-        command.env(k, v);
-    }
-    let output = match command.output() {
+    let args: Vec<&str> = parts[1..].iter().map(String::as_str).collect();
+    let output = match spawn_output_bounded(&parts[0], &args, env, PER_EXEC_TIMEOUT) {
         Ok(o) => o,
         Err(e) => return Err(CompileError::Real(format!("spawning `{cmd}`: {e}"))),
     };
@@ -358,10 +355,9 @@ fn exec_capture_status(
 fn exec_capture(cmd: &str) -> Result<String> {
     let parts = split_cmd(cmd);
     anyhow::ensure!(!parts.is_empty(), "empty command");
-    let output = Command::new(&parts[0])
-        .args(&parts[1..])
-        .output()
-        .with_context(|| format!("spawning `{cmd}`"))?;
+    let args: Vec<&str> = parts[1..].iter().map(String::as_str).collect();
+    let output = spawn_output_bounded(&parts[0], &args, &[], PER_EXEC_TIMEOUT)
+        .map_err(|e| anyhow::anyhow!("spawning `{cmd}`: {e}"))?;
     anyhow::ensure!(
         output.status.success(),
         "{} stderr={:?}",

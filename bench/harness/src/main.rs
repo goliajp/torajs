@@ -1,6 +1,7 @@
 mod bench;
 mod case;
 mod compare;
+mod exec;
 mod report;
 mod runner;
 mod score;
