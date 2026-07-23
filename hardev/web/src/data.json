@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-23T15:33:42.891Z",
+  "generatedAt": "2026-07-23T15:36:36.538Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 95.85
   },
   "torajs": {
-    "commit": "60ce8960",
-    "commitSubject": "fix: regex parser rejects quantifier on assertion per QuantifiableAssertion (§22.2.1.1)",
+    "commit": "03738a9c",
+    "commitSubject": "chore: test262 sweep at 60ce8960 — passTotal 13364 (+1) / bug 579 (-3)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,10 @@
   },
   "commits": [
     {
+      "hash": "03738a9c",
+      "subject": "chore: test262 sweep at 60ce8960 — passTotal 13364 (+1) / bug 579 (-3)"
+    },
+    {
       "hash": "60ce8960",
       "subject": "fix: regex parser rejects quantifier on assertion per QuantifiableAssertion (§22.2.1.1)"
     },
@@ -755,31 +759,38 @@
     {
       "hash": "95a00956",
       "subject": "chore: hardev dashboard refresh after chunks 3+5 (regex parser strictness)"
-    },
-    {
-      "hash": "7be204ad",
-      "subject": "fix: regex parser rejects reverse-order quantifier bounds (§22.2.1.1)"
     }
   ],
-  "headSha": "60ce8960",
+  "headSha": "03738a9c",
   "autorun": {
-    "total": 499,
+    "total": 500,
     "baselineTarget": 10,
-    "bySelf": 494,
+    "bySelf": 495,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784812124-4841",
-      "at": "2026-07-23T13:08:44Z",
-      "ts": 1784812124,
+      "rotationId": "r-1784820983-39ab",
+      "at": "2026-07-23T15:36:23Z",
+      "ts": 1784820983,
       "trigger": "self",
-      "prevHead": "95a00956",
-      "handoffSha": "sha256:f9dcc5e02531001a8c2d1c1964065c61be5b239c4b136fb5a266e42860bb3ace",
-      "handoffAgeSec": 4,
+      "prevHead": "03738a9c",
+      "handoffSha": "sha256:bcf11091a7f26c57b01b9d4d9dd4e63e3813fa6d45d5483fd66ca7fc600ba4a0",
+      "handoffAgeSec": 5,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784820983-39ab",
+        "at": "2026-07-23T15:36:23Z",
+        "ts": 1784820983,
+        "trigger": "self",
+        "prevHead": "03738a9c",
+        "handoffSha": "sha256:bcf11091a7f26c57b01b9d4d9dd4e63e3813fa6d45d5483fd66ca7fc600ba4a0",
+        "handoffAgeSec": 5,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784812124-4841",
         "at": "2026-07-23T13:08:44Z",
@@ -876,17 +887,6 @@
         "prevHead": "56feae1d",
         "handoffSha": "sha256:469d5778a7a3f900853390b067c8b0a78e929cf2c945aa7294f1ae2512834aa3",
         "handoffAgeSec": 394,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784694821-606f",
-        "at": "2026-07-22T04:33:41Z",
-        "ts": 1784694821,
-        "trigger": "self",
-        "prevHead": "4508edfe",
-        "handoffSha": "sha256:ec0bab071bec1f6138242410badd7aa1d716cccabcb5f2cc93567e78c24b03b0",
-        "handoffAgeSec": 15,
         "conformanceBefore": null,
         "commitsInSession": null
       }
