@@ -22,9 +22,23 @@
 //!   through the same subset-boundary table with a `no-oracle:`
 //!   kind prefix so the breakdown stays attributable.
 
+use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::Command;
 use std::time::Instant;
+
+/// `kill(2)` — sent with a negated pid to signal a whole process group.
+/// tr AOT-compiles each case to a native binary it then spawns
+/// (`torajs-run-new-*`); killing only the direct child (`Child::kill`)
+/// orphaned that grandchild to init, where an infinite-loop or
+/// runaway-allocation case kept a core pegged and memory growing forever.
+/// On a shared runner that starved the host into a watchdog-timeout panic
+/// and a reboot loop (mini, 2026-07-23). `torajs-test262` is a dev-only
+/// harness; declaring the one libc call inline keeps its zero-dep build.
+const SIGKILL: i32 = 9;
+unsafe extern "C" {
+    fn kill(pid: i32, sig: i32) -> i32;
+}
 
 /// Per-case verdict. `Pass` = oracle-matched; `PassNoOracle` /
 /// `PassNegative` = self-validated (see module doc).
@@ -43,11 +57,17 @@ pub enum Outcome {
 /// outlier almost always means an O(n^2) pass or an infinite loop.
 /// tr AOT cache stays enabled (content-keyed; byte-identical to the
 /// no-cache outcome).
+///
+/// tr runs as the leader of its own process group so the guard can
+/// signal the group (`kill(-pgid)`) — tr **and** the native binary it
+/// AOT-spawns — rather than tr alone. Killing only tr orphaned the
+/// grandchild, which on a hang kept running unbounded (see `SIGKILL`).
 pub fn run_tr(tr_bin: &Path, tmp_path: &Path) -> Result<std::process::Output, Outcome> {
     let mut tr_proc = match Command::new(tr_bin)
         .args(["run", &tmp_path.to_string_lossy()])
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
+        .process_group(0)
         .spawn()
     {
         Ok(c) => c,
@@ -57,6 +77,8 @@ pub fn run_tr(tr_bin: &Path, tmp_path: &Path) -> Result<std::process::Output, Ou
             });
         }
     };
+    // Group leader's pid is the pgid; negate it to target the whole group.
+    let pgid = tr_proc.id() as i32;
     let timeout = std::time::Duration::from_secs(30);
     let started = Instant::now();
     loop {
@@ -70,7 +92,9 @@ pub fn run_tr(tr_bin: &Path, tmp_path: &Path) -> Result<std::process::Output, Ou
             }
             Ok(None) => {
                 if started.elapsed() >= timeout {
-                    let _ = tr_proc.kill();
+                    // Kill the whole group so the AOT-spawned native child
+                    // dies with tr instead of being orphaned to init.
+                    unsafe { kill(-pgid, SIGKILL) };
                     let _ = tr_proc.wait();
                     return Err(Outcome::Incompatible {
                         kind: "tr-timeout".to_string(),
