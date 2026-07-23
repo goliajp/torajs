@@ -40,7 +40,25 @@ impl<'p> Parser<'p> {
             // that was applied directly to the class.
             let first = match self.parse_class_item(&mut n)? {
                 ClassItem::Char(c) => c,
-                ClassItem::ContinueLoop => continue,
+                ClassItem::ContinueLoop => {
+                    // Shorthand class-escape (`\d` / `\p{}` / …) was
+                    // just applied to `cc`. In u/v mode it cannot be
+                    // a range endpoint per §22.2.1.1 NonemptyClassRanges
+                    // Early Errors — a `-` following it (and not
+                    // closing with `]`) tries to open a range, reject.
+                    // Non-u annexB path lets `-` fall through as a
+                    // literal on the next iteration.
+                    if unicode_mode(self.flags)
+                        && !self.eof()
+                        && self.peek() == b'-'
+                        && self.i + 1 < self.p.len()
+                        && self.byte_at(self.i + 1) != b']'
+                    {
+                        self.set_err();
+                        return None;
+                    }
+                    continue;
+                }
             };
             // Optional range `c-c2`. Bun matches the C port's lookahead:
             // a `-` followed by `]` is a literal hyphen, not a range
@@ -52,6 +70,12 @@ impl<'p> Parser<'p> {
             {
                 self.get(); // consume `-`
                 let hi = self.parse_class_range_end()?;
+                // §22.2.1.1 CharacterClassRange Early Error: `[z-a]`
+                // is a SyntaxError in every mode (u, v, and non-u).
+                if first > hi {
+                    self.set_err();
+                    return None;
+                }
                 n.cc.add_range(first, hi);
             } else {
                 n.cc.add(first);
@@ -148,6 +172,15 @@ impl<'p> Parser<'p> {
                 return None;
             }
             let e = self.get();
+            // §22.2.1.1 NonemptyClassRanges Early Error under u/v:
+            // a shorthand class-escape can't be a range endpoint.
+            // Non-u annexB path falls through as a literal char.
+            if unicode_mode(self.flags)
+                && matches!(e, b'd' | b'D' | b'w' | b'W' | b's' | b'S' | b'p' | b'P')
+            {
+                self.set_err();
+                return None;
+            }
             Some(match e {
                 b'n' => b'\n',
                 b't' => b'\t',
