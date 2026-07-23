@@ -40,5 +40,6 @@
 
 pub mod any;
 pub mod formatters;
+pub mod line_est;
 pub mod tag_dispatch;
 pub mod wrapper_block;
