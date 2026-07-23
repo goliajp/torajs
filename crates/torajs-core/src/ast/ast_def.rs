@@ -95,6 +95,17 @@ pub struct Ast {
     /// instead) when the receiver checks as a builtin container —
     /// full mechanism in cm_demote.rs.
     pub speculative_cm_rewrites: std::collections::HashMap<ExprId, ExprId>,
+    /// RFC 20260724-regex-literal-syntax-error — side-channel populated
+    /// by `ast_desugar_regex_syntax_error::run`. Keyed by `Expr::Regex`
+    /// ExprId; value = the SyntaxError message to raise when the
+    /// literal is entered at runtime. Chunk 1 populates this table
+    /// (pre-parse each `Expr::Regex` via `torajs-regex` parser; when
+    /// parse fails, record a spec-shaped SyntaxError message) and
+    /// rewrites `Stmt::LetDecl { init: Expr::Regex(malformed) }` at
+    /// the top level into `Stmt::Throw(new SyntaxError(msg))`.
+    /// Non-let-init positions (nested stmts, expr-position) stay
+    /// silent-wrong pending chunk 2 (expr-position IIFE wrapper).
+    pub regex_parse_errors: std::collections::HashMap<ExprId, String>,
     /// T-24 — virtual method index. Populated only for `chain_methods`
     /// (methods with multiple owners forming a single inheritance
     /// chain — the override case that goes through `__dispatch_<M>`).
@@ -403,6 +414,13 @@ pub fn desugar_function_prototype_methods(ast: &mut Ast) {
 /// `ast_desugar_implicit_generics` sibling (chunk 140).
 pub fn desugar_implicit_generics(ast: &mut Ast) {
     crate::ast_desugar_implicit_generics::run(ast);
+}
+
+/// RFC 20260724-regex-literal-syntax-error — chunk 1 wrapper.
+/// Rewrites top-level `let r = /malformed/` into
+/// `throw new SyntaxError(...)`. See sibling module for scope.
+pub fn desugar_regex_syntax_error(ast: &mut Ast) {
+    crate::ast_desugar_regex_syntax_error::run(ast);
 }
 
 impl Ast {

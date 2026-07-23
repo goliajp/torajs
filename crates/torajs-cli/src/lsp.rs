@@ -208,6 +208,7 @@ fn compute_diagnostics(uri: &Uri, text: &str) -> Vec<Diagnostic> {
         torajs_core::ast::desugar_async(&mut ast);
         torajs_core::ast::desugar_builtin_imports(&mut ast);
         torajs_core::ast::desugar_builtin_new(&mut ast);
+        torajs_core::ast::desugar_regex_syntax_error(&mut ast);
         torajs_core::ast::desugar_prototype_call(&mut ast);
         torajs_core::ast::inject_builtin_classes(&mut ast);
         torajs_core::ast::desugar_classes(&mut ast);

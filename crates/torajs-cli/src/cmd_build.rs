@@ -144,6 +144,7 @@ pub(crate) fn lower_to_ssa(input: &str) -> Result<Module, ExitCode> {
     ast::desugar_async(&mut ast);
     ast::desugar_builtin_imports(&mut ast);
     ast::desugar_builtin_new(&mut ast);
+    ast::desugar_regex_syntax_error(&mut ast);
     ast::desugar_prototype_call(&mut ast);
     ast::inject_builtin_classes(&mut ast);
     ast::desugar_classes(&mut ast);
