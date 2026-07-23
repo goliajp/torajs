@@ -39,6 +39,7 @@ mod class;
 mod class_v;
 mod class_v_set;
 mod escape;
+mod named_groups;
 
 use crate::charclass::CharClass;
 use crate::node::{Node, NodeKind};
@@ -120,7 +121,7 @@ impl<'p> Parser<'p> {
         // patterns and the Vec grows for the rest.
         let mut names = Vec::with_capacity(8);
         names.push(Vec::new());
-        let has_named_groups = scan_has_named_groups(pattern);
+        let has_named_groups = named_groups::scan_has_named_groups(pattern);
         Self {
             p: pattern,
             i: 0,
@@ -143,6 +144,13 @@ impl<'p> Parser<'p> {
         // error — parse_atom rejects bare `)` at atom slot, so this
         // is mostly a defensive check.
         if self.i != self.p.len() {
+            self.err = true;
+            return None;
+        }
+        // ES §22.2.1.1 Static Semantics: dup GroupName in the same
+        // Alternative is a SyntaxError (ES2025 disjunction-siblings
+        // carve-out applies). See `named_groups`.
+        if !named_groups::check_named_groups_disjunction_ok(&root, &self.names) {
             self.err = true;
             return None;
         }
@@ -476,49 +484,6 @@ pub(super) fn apply_property_name(n: &mut Node, name: &[u8], value: Option<&[u8]
         }
         None => false,
     }
-}
-
-/// Pre-scan the pattern bytes for any `(?<name>...)` named capture
-/// group. Skips escape sequences (`\X` as one atom) and character
-/// class bodies (`[...]`) since a `(?<` there is not a group
-/// opener. Distinguishes named-group `(?<X` (where X is not `=` /
-/// `!`) from lookbehind assertions `(?<=` / `(?<!`.
-///
-/// Used to gate the annexB §B.1.4 `\k<name>` identity fallback:
-/// only patterns with zero named groups + non-u/v mode may take
-/// the fallback.
-fn scan_has_named_groups(p: &[u8]) -> bool {
-    let mut i = 0;
-    let mut in_class = false;
-    while i < p.len() {
-        let c = p[i];
-        if c == b'\\' && i + 1 < p.len() {
-            i += 2;
-            continue;
-        }
-        if !in_class && c == b'[' {
-            in_class = true;
-            i += 1;
-            continue;
-        }
-        if in_class {
-            if c == b']' {
-                in_class = false;
-            }
-            i += 1;
-            continue;
-        }
-        if c == b'(' && i + 2 < p.len() && p[i + 1] == b'?' && p[i + 2] == b'<' {
-            let next = if i + 3 < p.len() { p[i + 3] } else { 0 };
-            if next != b'=' && next != b'!' {
-                return true;
-            }
-            i += 3;
-            continue;
-        }
-        i += 1;
-    }
-    false
 }
 
 #[cfg(test)]
