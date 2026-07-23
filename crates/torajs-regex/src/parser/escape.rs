@@ -50,7 +50,17 @@ impl<'p> Parser<'p> {
             b'r' => Some(char_node(b'\r')),
             b'f' => Some(char_node(0x0C)),
             b'v' => Some(char_node(0x0B)),
-            b'0' => Some(char_node(0)),
+            b'0' => {
+                // §22.2.1.1 DecimalEscape Early Error: under u/v the
+                // `\0` NUL escape must not be followed by a decimal
+                // digit — `\01` reads as legacy octal in non-u annexB,
+                // but that form is a SyntaxError in strict u/v.
+                if unicode_mode(self.flags) && !self.eof() && self.peek().is_ascii_digit() {
+                    self.set_err();
+                    return None;
+                }
+                Some(char_node(0))
+            }
             b'd' => Some(class_node(|cc| cc.add_digit())),
             b'D' => Some(class_node(|cc| {
                 cc.add_digit();
