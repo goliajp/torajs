@@ -45,6 +45,7 @@ mod forof_destr;
 mod import_export;
 mod loops;
 mod object_literal;
+mod object_literal_computed;
 mod object_member;
 mod param_list;
 mod parse_class_decl;
