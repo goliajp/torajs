@@ -114,6 +114,22 @@ impl<'p> Parser<'p> {
                         self.get();
                         self.get(); // consume `?<`
                         let name = self.read_word_name(b'>')?;
+                        // ES §22.2.1.1 GroupSpecifier — duplicate
+                        // GroupSpecifier `name` within a single
+                        // pattern is a Static Semantics early error
+                        // (bun/JSC: `Invalid regular expression:
+                        // duplicate group specifier name`). v-mode
+                        // disjunction siblings may share names (ES
+                        // §22.2.1.1 v-mode carve-out) but tr's
+                        // Disjunction lowering doesn't distinguish
+                        // sibling branches yet — flag any duplicate
+                        // as an early error, matching bun's runtime
+                        // rejection for the same-branch case
+                        // covered by test262.
+                        if self.names.iter().any(|n| n == &name) {
+                            self.set_err();
+                            return None;
+                        }
                         capture_idx = self.assign_capture_idx()?;
                         // Ensure the names slot exists at this index.
                         while self.names.len() <= capture_idx as usize {
