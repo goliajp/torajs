@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-23T17:11:07.233Z",
+  "generatedAt": "2026-07-23T17:47:26.721Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 95.85
   },
   "torajs": {
-    "commit": "ce25236c",
-    "commitSubject": "refactor(inspect): extract line-width estimate into sibling",
+    "commit": "2d4fd80c",
+    "commitSubject": "refactor(method_call_cell): extract 刀 9 G2c wrapper arraylike arm",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,26 @@
   },
   "commits": [
     {
+      "hash": "2d4fd80c",
+      "subject": "refactor(method_call_cell): extract 刀 9 G2c wrapper arraylike arm"
+    },
+    {
+      "hash": "187dab77",
+      "subject": "refactor(infer_closure_params): extract three call-site helpers to sibling"
+    },
+    {
+      "hash": "17f1b66f",
+      "subject": "refactor(ssa_lower_inner): extract Pass-1.5 boundary + anon_stamp helpers"
+    },
+    {
+      "hash": "25910518",
+      "subject": "docs(check_type_of_call): mark route_arity_widen as CARVE-OUT #2"
+    },
+    {
+      "hash": "8cec0e87",
+      "subject": "chore: hardev dashboard refresh after rotation 196 chunks 6-9 close"
+    },
+    {
       "hash": "ce25236c",
       "subject": "refactor(inspect): extract line-width estimate into sibling"
     },
@@ -739,29 +759,9 @@
     {
       "hash": "fe515182",
       "subject": "refactor(member_set): extract wrapper-cell [[Set]] guards into sibling"
-    },
-    {
-      "hash": "6b9bdfd6",
-      "subject": "refactor(reflect): extract Object.getOwnPropertyDescriptor into sibling"
-    },
-    {
-      "hash": "2947eb3b",
-      "subject": "refactor(regex): extract Str-payload helpers into sibling module"
-    },
-    {
-      "hash": "a6a1cacb",
-      "subject": "fix(bench-harness): SIGKILL whole process group on hyperfine spawn timeout"
-    },
-    {
-      "hash": "526fc35a",
-      "subject": "chore: hardev dashboard refresh after rotation 195 close"
-    },
-    {
-      "hash": "03738a9c",
-      "subject": "chore: test262 sweep at 60ce8960 — passTotal 13364 (+1) / bug 579 (-3)"
     }
   ],
-  "headSha": "ce25236c",
+  "headSha": "2d4fd80c",
   "autorun": {
     "total": 501,
     "baselineTarget": 10,
