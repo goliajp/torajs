@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-23T16:39:42.927Z",
+  "generatedAt": "2026-07-23T17:11:07.233Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 95.85
   },
   "torajs": {
-    "commit": "6f769425",
-    "commitSubject": "refactor(member_get): extract wrapper arm from __torajs_any_member_get_tag",
+    "commit": "ce25236c",
+    "commitSubject": "refactor(inspect): extract line-width estimate into sibling",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,26 @@
   },
   "commits": [
     {
+      "hash": "ce25236c",
+      "subject": "refactor(inspect): extract line-width estimate into sibling"
+    },
+    {
+      "hash": "850cc440",
+      "subject": "refactor(throw): extract bug-327 C2.5 uncaught path into sibling"
+    },
+    {
+      "hash": "b8e80a99",
+      "subject": "refactor(infer_closure_params): extract mapset + ann-table helpers"
+    },
+    {
+      "hash": "08cf57f6",
+      "subject": "refactor(regex-parser): extract shared helpers into sibling module"
+    },
+    {
+      "hash": "49496c62",
+      "subject": "chore: hardev dashboard refresh after rotation 196 close"
+    },
+    {
       "hash": "6f769425",
       "subject": "refactor(member_get): extract wrapper arm from __torajs_any_member_get_tag"
     },
@@ -739,47 +759,38 @@
     {
       "hash": "03738a9c",
       "subject": "chore: test262 sweep at 60ce8960 — passTotal 13364 (+1) / bug 579 (-3)"
-    },
-    {
-      "hash": "60ce8960",
-      "subject": "fix: regex parser rejects quantifier on assertion per QuantifiableAssertion (§22.2.1.1)"
-    },
-    {
-      "hash": "3a640a64",
-      "subject": "fix: regex parser rejects bare {n,m} quantifier with no preceding Atom (§22.2.1.1)"
-    },
-    {
-      "hash": "1be825b8",
-      "subject": "fix: regex parser rejects \\\\0 followed by digit under u/v (§22.2.1.1)"
-    },
-    {
-      "hash": "ae1dbc47",
-      "subject": "fix: regex flag string rejects duplicate + unknown letters (§22.2.3.1)"
-    },
-    {
-      "hash": "7ba70a7e",
-      "subject": "fix(bench-harness): SIGKILL whole process group on child timeout"
     }
   ],
-  "headSha": "6f769425",
+  "headSha": "ce25236c",
   "autorun": {
-    "total": 500,
+    "total": 501,
     "baselineTarget": 10,
-    "bySelf": 495,
+    "bySelf": 496,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784820983-39ab",
-      "at": "2026-07-23T15:36:23Z",
-      "ts": 1784820983,
+      "rotationId": "r-1784826598-2799",
+      "at": "2026-07-23T17:09:58Z",
+      "ts": 1784826598,
       "trigger": "self",
-      "prevHead": "03738a9c",
-      "handoffSha": "sha256:bcf11091a7f26c57b01b9d4d9dd4e63e3813fa6d45d5483fd66ca7fc600ba4a0",
-      "handoffAgeSec": 5,
+      "prevHead": "ce25236c",
+      "handoffSha": "sha256:1c7113254d94fd13eac01a5f5dc400709f7f7bdeba18e21fe4a4dd0d5a2ece38",
+      "handoffAgeSec": 1741,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784826598-2799",
+        "at": "2026-07-23T17:09:58Z",
+        "ts": 1784826598,
+        "trigger": "self",
+        "prevHead": "ce25236c",
+        "handoffSha": "sha256:1c7113254d94fd13eac01a5f5dc400709f7f7bdeba18e21fe4a4dd0d5a2ece38",
+        "handoffAgeSec": 1741,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784820983-39ab",
         "at": "2026-07-23T15:36:23Z",
@@ -876,17 +887,6 @@
         "prevHead": "2fc753cc",
         "handoffSha": "sha256:df0440b1d8d059718f694f01dfeab24d58f0f833d3ba5bb799f8a9dbe8148407",
         "handoffAgeSec": 242,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784700234-1c9a",
-        "at": "2026-07-22T06:03:54Z",
-        "ts": 1784700234,
-        "trigger": "self",
-        "prevHead": "56feae1d",
-        "handoffSha": "sha256:469d5778a7a3f900853390b067c8b0a78e929cf2c945aa7294f1ae2512834aa3",
-        "handoffAgeSec": 394,
         "conformanceBefore": null,
         "commitsInSession": null
       }
