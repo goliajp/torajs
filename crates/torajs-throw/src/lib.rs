@@ -174,19 +174,19 @@ unsafe extern "C" {
 /// single-threaded so a relaxed atomic load/store is sufficient
 /// — the AtomicI64 wrapper exists for Rust's safety story (no
 /// `static mut`), not for actual concurrency.
-static THROW_ACTIVE: AtomicI64 = AtomicI64::new(0);
+pub(crate) static THROW_ACTIVE: AtomicI64 = AtomicI64::new(0);
 
 /// Dynamic tag of the in-flight throw value. `AnySlotTag` discrim
 /// (0=Null, 1=Bool, 2=I64, 3=F64, 4=Heap, 5=Undef). Catch sites
 /// with `: any` annotation read this via [`__torajs_throw_take_tag`]
 /// to reconstruct the boxed Any; typed `: T` catches ignore it.
-static THROW_TAG: AtomicI64 = AtomicI64::new(0);
+pub(crate) static THROW_TAG: AtomicI64 = AtomicI64::new(0);
 
 /// Packed i64 payload of the in-flight throw. Bitcast from f64
 /// for F64 tag; raw cast from i64 for I64 tag; cast from
 /// `*mut Heap` for Heap tag. ssa_lower-emitted code reads it via
 /// [`__torajs_throw_take`].
-static THROW_VALUE: AtomicI64 = AtomicI64::new(0);
+pub(crate) static THROW_VALUE: AtomicI64 = AtomicI64::new(0);
 
 /// Store `(tag, value)` into the throw slot and flag it active.
 /// Public FFI replacing ssa_inkwell's `define_throw_set` LLVM-IR
@@ -244,13 +244,13 @@ pub unsafe extern "C" fn __torajs_throw_take_tag() -> i64 {
 /// Byte offset of the Str payload within the heap layout
 /// `[header:8][len:8][bytes:N]`. Mirror of the C
 /// `__TORAJS_STR_HDR_SIZE` and `torajs-anyvalue`'s `STR_HDR_SIZE`.
-const STR_HDR_SIZE: usize = 16;
+pub(crate) const STR_HDR_SIZE: usize = 16;
 
 /// `tag` value matching `AnySlotTag::Heap` — refers to a heap-
 /// allocated payload (here a Str or an Error subclass instance).
 /// Hard-coded to match the C `__TORAJS_ANY_HEAP` constant and
 /// `AnySlotTag::Heap as i64` from `torajs-rc`.
-const ANY_TAG_HEAP: i64 = 4;
+pub(crate) const ANY_TAG_HEAP: i64 = 4;
 
 // ============================================================
 // throw_native + range_error / type_error wrappers
@@ -391,120 +391,9 @@ pub unsafe extern "C" fn __torajs_ctor_no_super_throw() {
     };
 }
 
-// ============================================================
-// bug-327 C2.5 — uncaught-throw exit path
-// ============================================================
-
-unsafe extern "C" {
-    /// Raw fd write — Layer-0 syscall shim (torajs-syscall).
-    fn __torajs_syscall_write(fd: i32, buf: *const u8, n: usize) -> isize;
-}
-
-/// Heap type_tag discriminant for Str blocks (`torajs_rc::Tag::Str`).
-/// torajs-throw is Layer-1 (no upstream crate deps) so the value is
-/// mirrored, not imported — same convention as [`ANY_TAG_HEAP`].
-const HEAP_TAG_STR: u16 = 0;
-/// Heap type_tag discriminant for class instances (`torajs_rc::Tag::Obj`).
-const HEAP_TAG_OBJ: u16 = 1;
-/// Header flags field offset (`torajs_rc::HeapHeader::flags`, u16 @+6).
-const HDR_FLAGS_OFF: usize = 6;
-/// `torajs_rc::FLAG_ERROR` — set on Error-derived class instances by
-/// ssa_lower's `__new_<C>` factory codegen.
-const FLAG_ERROR: u16 = 1 << 7;
-/// Obj field layout: `[header:24][field0:8][field1:8]…`. Error's
-/// declaration order is `message` (field0) then `name` (field1), both
-/// Str pointers — mirror of `ssa_lower::OBJ_HEADER_SIZE`.
-const OBJ_MESSAGE_OFF: usize = 24;
-const OBJ_NAME_OFF: usize = 32;
-/// Str length field offset within a Str block (`[header:8][len:8]…`).
-const STR_LEN_OFF: usize = 8;
-
-/// Write a Str block's payload bytes to stderr. `str_ptr` points at a
-/// Str heap object (`[header:8][len:8][bytes:N]`). Null / empty → no-op.
-///
-/// # Safety
-///
-/// `str_ptr` must be null or a live Str block. The uncaught reporter is
-/// the last line of defense at crash time, so a partially-constructed
-/// throw value (null field) is tolerated rather than dereferenced.
-unsafe fn write_str_to_stderr(str_ptr: *const u8) {
-    if str_ptr.is_null() {
-        return;
-    }
-    let len = unsafe { (str_ptr.add(STR_LEN_OFF) as *const u64).read() } as usize;
-    if len > 0 {
-        unsafe { __torajs_syscall_write(2, str_ptr.add(STR_HDR_SIZE), len) };
-    }
-}
-
-/// Report the pending throw to stderr and yield exit code 1. Called
-/// by the synthesized main's throw-propagate branch (a throw that
-/// escaped every user frame — `emit_throw_check` with `is_main_fn`
-/// and an empty try stack). Pre-fix that branch ret'd the I32
-/// sentinel 0: a crashing program exited clean and the silent-wrong
-/// poisoned every exit-code consumer (test262 runner included).
-///
-/// Rendering: a thrown Str prints its payload; an Error-derived class
-/// instance (FLAG_ERROR set by ssa_lower's factory codegen) prints
-/// `name: message` from the Error layout prefix; every other shape
-/// (plain objects, numbers, ...) prints a placeholder. Number rendering
-/// parity with bun's report is tracked in RFC
-/// 20260613-test262-bug327-root-causes.
-///
-/// # Safety
-///
-/// `extern "C"` ABI. When the pending tag says Heap the value slot
-/// must hold a live heap pointer (the throw machinery's invariant).
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_uncaught_exit_code() -> i32 {
-    if THROW_ACTIVE.load(Ordering::Relaxed) == 0 {
-        return 0;
-    }
-    const PREFIX: &[u8] = b"error: uncaught ";
-    unsafe { __torajs_syscall_write(2, PREFIX.as_ptr(), PREFIX.len()) };
-    let tag = THROW_TAG.load(Ordering::Relaxed);
-    let value = THROW_VALUE.load(Ordering::Relaxed);
-    let mut printed = false;
-    if tag == ANY_TAG_HEAP && value != 0 {
-        let p = value as *const u8;
-        // type_tag lives at offset +4 in the universal heap header.
-        let heap_tag = unsafe { (p.add(4) as *const u16).read() };
-        if heap_tag == HEAP_TAG_STR {
-            unsafe { write_str_to_stderr(p) };
-            printed = true;
-        } else if heap_tag == HEAP_TAG_OBJ {
-            // Error-derived instances carry FLAG_ERROR (set at the
-            // `__new_<C>` factory). Render `name: message` from the
-            // Error layout prefix (message=field0, name=field1, both
-            // Str pointers). The `: message` suffix is omitted when the
-            // message is empty — matching the Error.prototype.stack /
-            // bun first-line shape ("Error", not "Error: ").
-            let flags = unsafe { (p.add(HDR_FLAGS_OFF) as *const u16).read() };
-            if flags & FLAG_ERROR != 0 {
-                let name_ptr = unsafe { (p.add(OBJ_NAME_OFF) as *const usize).read() } as *const u8;
-                let msg_ptr =
-                    unsafe { (p.add(OBJ_MESSAGE_OFF) as *const usize).read() } as *const u8;
-                unsafe { write_str_to_stderr(name_ptr) };
-                let msg_len = if msg_ptr.is_null() {
-                    0usize
-                } else {
-                    unsafe { (msg_ptr.add(STR_LEN_OFF) as *const u64).read() as usize }
-                };
-                if msg_len > 0 {
-                    unsafe { __torajs_syscall_write(2, b": ".as_ptr(), 2) };
-                    unsafe { write_str_to_stderr(msg_ptr) };
-                }
-                printed = true;
-            }
-        }
-    }
-    if !printed {
-        const PLACEHOLDER: &[u8] = b"exception";
-        unsafe { __torajs_syscall_write(2, PLACEHOLDER.as_ptr(), PLACEHOLDER.len()) };
-    }
-    unsafe { __torajs_syscall_write(2, b"\n".as_ptr(), 1) };
-    1
-}
+// bug-327 C2.5 uncaught-throw exit path moved to `uncaught.rs`
+// (rotation-196 file-size sweep).
+pub mod uncaught;
 
 // ============================================================
 // Tests
