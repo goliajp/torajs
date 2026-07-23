@@ -100,6 +100,16 @@ pub struct Parser<'p> {
     /// `capture_idx` (1..=n_captures); slot 0 unused. Empty `Vec<u8>`
     /// = unnamed slot.
     pub names: Vec<Vec<u8>>,
+    /// Pre-scan flag — set at [`Parser::new`] via
+    /// [`scan_has_named_groups`]. Gates the annexB §B.1.4
+    /// `\k<name>` identity fallback: outside u/v mode, a `\k` in a
+    /// pattern with NO `(?<name>...)` group anywhere acts as a
+    /// literal `k` and the trailing `<name>` reparses as literals
+    /// (per test262 `RegExp/named-groups/non-unicode-malformed.js`).
+    /// A pattern with even one named group is strict: `\k<x>` where
+    /// `x` isn't defined is a SyntaxError. u/v mode is strict
+    /// regardless.
+    pub(super) has_named_groups: bool,
 }
 
 impl<'p> Parser<'p> {
@@ -110,6 +120,7 @@ impl<'p> Parser<'p> {
         // patterns and the Vec grows for the rest.
         let mut names = Vec::with_capacity(8);
         names.push(Vec::new());
+        let has_named_groups = scan_has_named_groups(pattern);
         Self {
             p: pattern,
             i: 0,
@@ -118,6 +129,7 @@ impl<'p> Parser<'p> {
             err: false,
             n_captures: 0,
             names,
+            has_named_groups,
         }
     }
 
@@ -452,6 +464,49 @@ pub(super) fn apply_property_name(n: &mut Node, name: &[u8], value: Option<&[u8]
         }
         None => false,
     }
+}
+
+/// Pre-scan the pattern bytes for any `(?<name>...)` named capture
+/// group. Skips escape sequences (`\X` as one atom) and character
+/// class bodies (`[...]`) since a `(?<` there is not a group
+/// opener. Distinguishes named-group `(?<X` (where X is not `=` /
+/// `!`) from lookbehind assertions `(?<=` / `(?<!`.
+///
+/// Used to gate the annexB §B.1.4 `\k<name>` identity fallback:
+/// only patterns with zero named groups + non-u/v mode may take
+/// the fallback.
+fn scan_has_named_groups(p: &[u8]) -> bool {
+    let mut i = 0;
+    let mut in_class = false;
+    while i < p.len() {
+        let c = p[i];
+        if c == b'\\' && i + 1 < p.len() {
+            i += 2;
+            continue;
+        }
+        if !in_class && c == b'[' {
+            in_class = true;
+            i += 1;
+            continue;
+        }
+        if in_class {
+            if c == b']' {
+                in_class = false;
+            }
+            i += 1;
+            continue;
+        }
+        if c == b'(' && i + 2 < p.len() && p[i + 1] == b'?' && p[i + 2] == b'<' {
+            let next = if i + 3 < p.len() { p[i + 3] } else { 0 };
+            if next != b'=' && next != b'!' {
+                return true;
+            }
+            i += 3;
+            continue;
+        }
+        i += 1;
+    }
+    false
 }
 
 #[cfg(test)]

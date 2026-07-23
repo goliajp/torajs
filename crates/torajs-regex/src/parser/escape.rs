@@ -77,6 +77,17 @@ impl<'p> Parser<'p> {
     }
 
     fn parse_named_backref(&mut self) -> Option<Box<Node>> {
+        // annexB §B.1.4 IdentityEscape — outside u/v mode, a pattern
+        // with NO `(?<name>...)` group anywhere treats `\k` as a
+        // literal `k` and leaves the trailing bytes (`<name>` if
+        // any) to reparse as literals. Pre-scanned in
+        // [`Parser::new`] via [`super::scan_has_named_groups`]
+        // (test262 `RegExp/named-groups/non-unicode-malformed.js`).
+        // u/v mode is strict — `\k<name>` there requires a defined
+        // named group.
+        if !self.has_named_groups && !unicode_mode(self.flags) {
+            return Some(char_node(b'k'));
+        }
         if self.eof() || self.peek() != b'<' {
             self.set_err();
             return None;
