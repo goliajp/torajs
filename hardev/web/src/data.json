@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-22T20:28:30.788Z",
+  "generatedAt": "2026-07-23T00:03:56.350Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 95.81
   },
   "torajs": {
-    "commit": "95d7d22b",
-    "commitSubject": "feat: chained xs.values().next() — checker-inferred receiver type",
+    "commit": "1e8c3ee8",
+    "commitSubject": "fix: Array<T>.reduce(cb, seed) heterogeneous acc",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "1e8c3ee8",
+      "subject": "fix: Array<T>.reduce(cb, seed) heterogeneous acc"
+    },
+    {
+      "hash": "e9ff9325",
+      "subject": "fix: Array<T>.map(cb) heterogeneous (T)=>U cb return"
+    },
+    {
+      "hash": "4c13fb3d",
+      "subject": "feat: parser accepts `new (E as T)(args)` computed-ident callee"
+    },
+    {
+      "hash": "d4962a4f",
+      "subject": "fix: JSON.stringify walks any-lane Tag::Obj struct cells"
+    },
+    {
+      "hash": "28ea14f7",
+      "subject": "fix: Promise .then chain propagates cb1 f64 return to cb2 param"
+    },
+    {
+      "hash": "587f4192",
+      "subject": "chore: hardev dashboard snapshot at rotation 190 close"
+    },
+    {
       "hash": "95d7d22b",
       "subject": "feat: chained xs.values().next() — checker-inferred receiver type"
     },
@@ -735,33 +759,9 @@
     {
       "hash": "ba6ed123",
       "subject": "fix: replaceAll throws TypeError on a non-global RegExp (ES §22.1.5)"
-    },
-    {
-      "hash": "f014a2d5",
-      "subject": "feat: arity-aware inference for multi-param <string>.replace(re, cb)"
-    },
-    {
-      "hash": "608c3cb3",
-      "subject": "feat: infer (string) for single-param <string>.replace(re, cb) callbacks"
-    },
-    {
-      "hash": "f04d252e",
-      "subject": "feat: typed Array<T>.values() / .entries() (mark elem-kind at the iter site)"
-    },
-    {
-      "hash": "534ba9c2",
-      "subject": "feat: labeled break/continue (ES §13.13/§14.8/§14.9)"
-    },
-    {
-      "hash": "985a7466",
-      "subject": "feat: Array.from over statically-typed Map / iterator sources"
-    },
-    {
-      "hash": "83c646dd",
-      "subject": "feat: array spread over statically-typed Map / iterator sources"
     }
   ],
-  "headSha": "95d7d22b",
+  "headSha": "1e8c3ee8",
   "autorun": {
     "total": 495,
     "baselineTarget": 10,
