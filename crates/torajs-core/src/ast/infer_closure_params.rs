@@ -368,6 +368,21 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
             }
             continue;
         }
+        // `.flatMap(cb)` — sister to `.map`. Seed only the cb's
+        // param; leave the return ann to the body sniff so a
+        // heterogeneous return `Array<U>` (with U != T) can flow
+        // through [`crate::check_type_of_call_arr_flat_map_hetero`]
+        // without check_stmt_return rejecting it against a strapped
+        // `${elem_ann}[]`.
+        if name == "flatMap" {
+            for (_arg_idx, fn_name) in &closure_args {
+                let p = fn_user_param_count.get(fn_name).copied().unwrap_or(1);
+                if p >= 1 {
+                    param_only_updates.insert(fn_name.clone(), vec![elem_ann.clone(); p]);
+                }
+            }
+            continue;
+        }
         // `reduce`/`reduceRight` — seed the acc param from the SEED
         // arg's static type (args[1]) when it's a literal or typed
         // ident; otherwise fall back to elem_ann for the sum/max
@@ -402,10 +417,7 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
             "find" | "findLast" => Some((vec![elem_ann.clone()], "boolean".into())),
             "findIndex" | "findLastIndex" => Some((vec![elem_ann.clone()], "boolean".into())),
             "some" | "every" => Some((vec![elem_ann.clone()], "boolean".into())),
-            "flatMap" => {
-                // Return is `T[]` (flattened); inner cb returns array.
-                Some((vec![elem_ann.clone()], format!("{elem_ann}[]")))
-            }
+            "flatMap" => unreachable!("flatMap handled by param-only arm above"),
             "reduce" | "reduceRight" => {
                 unreachable!("reduce/reduceRight handled by param-only arm above")
             }

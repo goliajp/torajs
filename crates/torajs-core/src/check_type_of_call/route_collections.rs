@@ -176,8 +176,7 @@ pub(crate) fn try_route(
     // primitive `U` (Number / String / Boolean / Any) answers
     // `Array<U>`. Homogeneous and Void-ret keep the two earlier
     // arms; see [`crate::check_type_of_call_arr_map_hetero`].
-    if let Some(r) =
-        crate::check_type_of_call_arr_map_hetero::try_match(checker, ast, callee, args)
+    if let Some(r) = crate::check_type_of_call_arr_map_hetero::try_match(checker, ast, callee, args)
     {
         return Some(r);
     }
@@ -186,6 +185,15 @@ pub(crate) fn try_route(
     // matching seed; see [`crate::check_type_of_call_arr_reduce_hetero`].
     if let Some(r) =
         crate::check_type_of_call_arr_reduce_hetero::try_match(checker, ast, callee, args)
+    {
+        return Some(r);
+    }
+    // `Array<T>.flatMap(cb)` heterogeneous cb return — `(T) => Array<U>`
+    // for primitive `U` != T answers `Array<U>`; homogeneous
+    // `(T) => T[]` keeps the method-table arm. See
+    // [`crate::check_type_of_call_arr_flat_map_hetero`].
+    if let Some(r) =
+        crate::check_type_of_call_arr_flat_map_hetero::try_match(checker, ast, callee, args)
     {
         return Some(r);
     }
