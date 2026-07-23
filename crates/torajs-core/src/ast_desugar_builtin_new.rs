@@ -200,15 +200,25 @@ fn rewrite_regexp_new(ast: &mut Ast) {
             // an entry-block-safe throw-check shape — L3b), so
             // rewriting a malformed constant would silently return a
             // never-match stub.
-            let flag_bits = torajs_regex::flags::parse_flags(flags.as_bytes());
-            let uv_conflict = flag_bits & torajs_regex::parser::RE_FLAG_U != 0
-                && flag_bits & torajs_regex::parser::RE_FLAG_V != 0;
-            let parse_ok = if uv_conflict {
-                false
-            } else {
-                let mut parser = torajs_regex::parser::Parser::new(pattern.as_bytes(), flag_bits);
-                let root_opt = parser.parse();
-                root_opt.is_some() && !parser.err()
+            // Strict flag parse: `None` = duplicate or unknown flag
+            // letter (§22.2.3.1 Early Error). Combined with the
+            // explicit `u`+`v` conflict check, the two cover every
+            // pattern-independent SyntaxError face; failing any of
+            // them keeps the node as `Expr::New` so
+            // `lower_regexp` routes through
+            // `__torajs_regex_compile_or_throw` for a catchable throw.
+            let flag_bits_opt = torajs_regex::flags::parse_flags(flags.as_bytes());
+            let parse_ok = match flag_bits_opt {
+                Some(flag_bits)
+                    if flag_bits & torajs_regex::parser::RE_FLAG_U == 0
+                        || flag_bits & torajs_regex::parser::RE_FLAG_V == 0 =>
+                {
+                    let mut parser =
+                        torajs_regex::parser::Parser::new(pattern.as_bytes(), flag_bits);
+                    let root_opt = parser.parse();
+                    root_opt.is_some() && !parser.err()
+                }
+                _ => false,
             };
             if parse_ok {
                 ast.exprs[i] = Expr::Regex { pattern, flags };

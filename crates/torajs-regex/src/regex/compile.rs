@@ -44,12 +44,15 @@ pub unsafe extern "C" fn __torajs_regex_compile(
     let pat = unsafe { str_slice(pattern_str) };
     let fl = unsafe { str_slice(flags_str) };
 
-    let flag_bits = parse_flags(&fl);
-    // ES §22.2.3.1 — `u` and `v` are mutually exclusive; the pair
-    // takes the parse-fail path (never-match rejected stub, matching
-    // the SyntaxError-at-JS-level behavior of other malformed input).
-    let flag_conflict =
-        flag_bits & crate::parser::RE_FLAG_U != 0 && flag_bits & crate::parser::RE_FLAG_V != 0;
+    let flag_bits_opt = parse_flags(&fl);
+    let flag_bits = flag_bits_opt.unwrap_or(0);
+    // ES §22.2.3.1 — `u` and `v` are mutually exclusive, and
+    // duplicate / unknown flag letters are also Early Errors
+    // (`parse_flags` returns `None` on either). Both funnel through
+    // the never-match rejected-stub path so `__torajs_regex_compile_or_throw`
+    // sees `rejected == 1` and records a SyntaxError.
+    let flag_conflict = flag_bits_opt.is_none()
+        || (flag_bits & crate::parser::RE_FLAG_U != 0 && flag_bits & crate::parser::RE_FLAG_V != 0);
     let src_bytes = pat.clone();
 
     let mut parser = Parser::new(&pat, flag_bits);
