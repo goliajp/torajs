@@ -72,7 +72,20 @@ impl<'p> Parser<'p> {
             b'x' => self.parse_hex_escape(),
             b'u' => self.parse_unicode_escape(),
             b'p' | b'P' => self.parse_property_escape(c),
-            other => Some(char_node(other)),
+            other => {
+                // ES §22.2.1.1 IdentityEscape :: SourceCharacter — in
+                // u/v mode, only SyntaxCharacter (`^ $ \ . * + ? ( ) [
+                // ] { } |`) and `/` are allowed after `\`. Other
+                // identity escapes (`\q`, `\z`, `\%`, ...) are early
+                // errors → SyntaxError. Non-u mode keeps the annexB
+                // ExtendedPatternCharacter lenience (treat as literal
+                // via char_node).
+                if unicode_mode(self.flags) && !is_regex_syntax_char(other) {
+                    self.set_err();
+                    return None;
+                }
+                Some(char_node(other))
+            }
         }
     }
 
@@ -241,6 +254,32 @@ impl<'p> Parser<'p> {
         }
         Some(n)
     }
+}
+
+/// ES §22.2.1.1 SyntaxCharacter — the punctuation chars that are
+/// reserved by pattern grammar and thus valid targets for
+/// IdentityEscape in u/v mode. `/` is also allowed as the pattern
+/// delimiter (ES §22.2.1.1 RegularExpressionBackslashSequence for
+/// literal `/pattern/`). Any other single-byte escape in u/v mode
+/// is an early error.
+fn is_regex_syntax_char(b: u8) -> bool {
+    matches!(
+        b,
+        b'^' | b'$'
+            | b'\\'
+            | b'.'
+            | b'*'
+            | b'+'
+            | b'?'
+            | b'('
+            | b')'
+            | b'['
+            | b']'
+            | b'{'
+            | b'}'
+            | b'|'
+            | b'/'
+    )
 }
 
 #[cfg(test)]
