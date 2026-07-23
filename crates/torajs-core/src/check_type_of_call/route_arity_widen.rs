@@ -219,5 +219,15 @@ pub(crate) fn try_route(
     if let Some(r) = crate::check_type_of_call_string_raw::try_match(checker, ast, callee, args) {
         return Some(r);
     }
+    // `Object.groupBy(items, callbackFn)` per ES §20.1.2.10 —
+    // Array items lane (iterable-only receivers are L3b). Kernel
+    // `__torajs_object_group_by` walks the array and dispatches
+    // the cb via the uniform any-call ABI.
+    // See [`crate::check_type_of_call_object_group_by`].
+    if let Some(r) =
+        crate::check_type_of_call_object_group_by::try_match(checker, ast, callee, args)
+    {
+        return Some(r);
+    }
     None
 }

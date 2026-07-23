@@ -132,6 +132,11 @@ fn try_dispatch_a(ctx: &mut LowerCtx<'_>, callee: ExprId, args: &[ExprId]) -> Op
     if let Some(op) = crate::ssa_lower_call_string_raw::try_lower(ctx, callee, args) {
         return Some(op);
     }
+    // `Object.groupBy(items, cb)` — Array items lane, dispatch to
+    // __torajs_object_group_by kernel (walks arr + cb via any_call).
+    if let Some(op) = crate::ssa_lower_call_object_group_by::try_lower(ctx, callee, args) {
+        return Some(op);
+    }
     // Bare-name JS globals: parseInt / parseFloat / isNaN / isFinite / queueMicrotask.
     if let Some(op) = crate::ssa_lower_call_bare_globals::try_lower(ctx, callee, args) {
         return Some(op);

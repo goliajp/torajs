@@ -325,6 +325,7 @@ pub(crate) fn build(
         anyv_forin_keys: init_b.object.anyv_forin_keys,
         anyv_own_symbols: init_b.object.anyv_own_symbols,
         anyv_from_entries: init_b.object.anyv_from_entries,
+        object_group_by: init_b.object.object_group_by,
         str_index_strs: init_b.object.str_index_strs,
         arr_keys_only: init_b.object.arr_keys_only,
         str_keys_only: init_b.object.str_keys_only,

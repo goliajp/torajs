@@ -369,6 +369,7 @@ pub(crate) struct Intrinsics {
     pub(crate) anyv_forin_keys: FuncId,
     pub(crate) anyv_own_symbols: FuncId,
     pub(crate) anyv_from_entries: FuncId,
+    pub(crate) object_group_by: FuncId,
     pub(crate) anyv_assign: FuncId,
     pub(crate) str_to_char_arr: FuncId,
     pub(crate) arr_entries_by_tag: FuncId,
