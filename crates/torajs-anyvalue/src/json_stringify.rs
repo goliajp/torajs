@@ -260,6 +260,13 @@ unsafe fn write_cell(sb: *mut c_void, ptr: *mut c_void, depth: u32) -> Wrote {
             // so the method-dispatch round trip buys nothing. Without
             // these the cells fell to the catch-all below and every
             // wrapper answered `{}`.
+            // §25.5.2.4 step 10 — a BigInt has no JSON representation
+            // and is a TypeError, not an object walk. It reached the
+            // catch-all below and answered `{}`.
+            t if t == Tag::BigInt as u16 => {
+                __torajs_throw_type_error(c"Do not know how to serialize a BigInt".as_ptr());
+                Wrote::Nothing
+            }
             t if t == Tag::NumberWrapper as u16 => {
                 // Step 9: a non-finite [[NumberData]] is `null`, which
                 // write_double already encodes.
