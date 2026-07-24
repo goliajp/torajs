@@ -33,3 +33,20 @@ const r = make(5);
 const r2 = make(9);
 console.log(r.v);
 console.log(r2.v);
+
+// inner-object return — the shape that made the pre-fix hole
+// OBSERVABLE (silent-wrong, not crash): every recursion level
+// returns the CHILD's object through the ternary; unmarked, each
+// level's {v} stack-alloc'd at the same frame offset, so the outer
+// activation's write overwrote the returned inner object (tr read 5
+// where bun reads 0). The four earlier probes all read the OUTER
+// activation's object and were masked.
+function makeInner(n: number): { v: number } {
+  const o = { v: n };
+  if (n <= 0) {
+    return true ? o : o;
+  }
+  const prev = makeInner(n - 1);
+  return true ? prev : o;
+}
+console.log(makeInner(5).v);
