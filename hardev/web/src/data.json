@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-24T12:10:29.880Z",
+  "generatedAt": "2026-07-24T12:25:23.546Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 95.86
   },
   "torajs": {
-    "commit": "5d5b1be3",
-    "commitSubject": "fix(ast): hof argc injection resolved the receiving fn by name only — SIGBUS on shadowed callee",
+    "commit": "ad7944cf",
+    "commitSubject": "fix(ast): method-default padding pads by receiver's own field, not name alone",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,7 +713,19 @@
   },
   "commits": [
     {
-      "hash": "5d5b1be3",
+      "hash": "ad7944cf",
+      "subject": "fix(ast): method-default padding pads by receiver's own field, not name alone"
+    },
+    {
+      "hash": "d7babd91",
+      "subject": "test: obj-escape inner-object-return shape — the observable face of the value-flow hole"
+    },
+    {
+      "hash": "247599b7",
+      "subject": "chore(hardev): dashboard snapshot at rotation 201 close (final)"
+    },
+    {
+      "hash": "4c506d5d",
       "subject": "fix(ast): hof argc injection resolved the receiving fn by name only — SIGBUS on shadowed callee"
     },
     {
@@ -747,21 +759,9 @@
     {
       "hash": "9134dcc0",
       "subject": "fix(ssa): append-into-terminated-block debug contract + the weakref has/delete violation it caught"
-    },
-    {
-      "hash": "2bac2b7a",
-      "subject": "refactor(parser): decompose parse_object_field 325 → 114 — accessor/method tail deduped"
-    },
-    {
-      "hash": "3d77e1d0",
-      "subject": "fix(ssa_lower): stop lowering dead siblings after a terminating stmt in fn-body and top-level walks"
-    },
-    {
-      "hash": "355b13a9",
-      "subject": "fix(egraph/elaborate): detach unreachable blocks instead of verbatim clone — inliner Identity leaked to liveness"
     }
   ],
-  "headSha": "5d5b1be3",
+  "headSha": "ad7944cf",
   "autorun": {
     "total": 505,
     "baselineTarget": 10,
