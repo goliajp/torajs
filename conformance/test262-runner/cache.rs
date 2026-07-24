@@ -40,6 +40,14 @@ pub struct CachedBun {
     pub stdout: Vec<u8>,
 }
 
+/// Bun oracle cache LRU cap. 53174 case × ~1.88 slot 允许 corpus/harness/bun
+/// version 微改时新旧 2 版本共存;超出即刻走 LRU-by-mtime prune 剔除最老。
+/// rotation 199 fork 调查发现 cache 从 rotation 早期起就没接 prune(cache.rs
+/// 顶部 doc 明说 "external prune cleans" 但 external prune 从不存在),累积
+/// 到 dev/mini 双侧 377,605 entries / 1.4GB(53k × 7 冗余),APFS 单目录
+/// lookup 在 >10k 后 O(log N)+ 常数放大,cache hit 都被拖慢。
+pub const BUN_CACHE_MAX_ENTRIES: usize = 100_000;
+
 /// Detected `bun --version` string. Read once at runner startup
 /// (`init_version()`); used as a cache-key salt so a bun upgrade
 /// auto-invalidates without manual prune.
@@ -81,6 +89,13 @@ pub fn init_and_report(no_cache: bool) {
     set_enabled(!no_cache);
     init();
     if !no_cache {
+        let (before, after) = prune_bun_cache(BUN_CACHE_MAX_ENTRIES);
+        if before > after {
+            eprintln!(
+                "→ bun oracle cache: pruned {before} → {after} entries (removed {} old LRU by mtime, cap {BUN_CACHE_MAX_ENTRIES})",
+                before - after,
+            );
+        }
         let (n, b) = stats();
         eprintln!(
             "→ bun oracle cache: {n} entries / {} KB on disk at {}",
@@ -238,6 +253,50 @@ pub fn bun_oracle(
     let success = out.status.success();
     insert(case_bytes, harness_bytes, success, &out.stdout);
     Ok((success, out.stdout))
+}
+
+/// LRU-prune bun oracle cache dir to under `max_entries` by mtime.
+/// Returns (before, after) count. Best-effort; ignores I/O errors.
+///
+/// **rotation 199 fork 调查**:cache.rs 顶部 doc 明示 "external prune cleans"
+/// 但 external prune 从不存在 → dev/mini 双侧累积 377k entries / 1.4GB
+/// (53k case × 7 冗余 = corpus/harness/bun version 变更时新 entries mint
+/// 但老 entries orphan 从没清)。APFS 单目录 lookup 在 >10k entries 后
+/// O(log N)+ 常数放大,cache hit 都被拖慢。
+///
+/// **实现**:scan cache_dir → 收集 (mtime, path) → 若 count > max 则
+/// sort by mtime asc + 删最老 (count - max) 个。O(n log n) 一次性;
+/// 稳态下 count ≤ max 直接 O(n) scan return 无删除。
+///
+/// **atime vs mtime**:macOS APFS `noatime` 是 default(mount option),故
+/// atime 更新不可靠;用 mtime(entry insert 时间)兜底 —— 最近 insert 表明
+/// 该 case 最近在 corpus 里活跃,老 entry 通常是 orphan 版本。
+pub fn prune_bun_cache(max_entries: usize) -> (usize, usize) {
+    let dir = cache_dir();
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return (0, 0);
+    };
+    let mut items: Vec<(std::time::SystemTime, std::path::PathBuf)> = entries
+        .flatten()
+        .filter_map(|e| {
+            let meta = e.metadata().ok()?;
+            if !meta.is_file() {
+                return None;
+            }
+            let mtime = meta.modified().ok()?;
+            Some((mtime, e.path()))
+        })
+        .collect();
+    let before = items.len();
+    if before <= max_entries {
+        return (before, before);
+    }
+    items.sort_by_key(|(t, _)| *t);
+    let to_remove = before - max_entries;
+    for (_, path) in items.iter().take(to_remove) {
+        let _ = std::fs::remove_file(path);
+    }
+    (before, max_entries)
 }
 
 /// Stats helper for the run summary. Returns (entry_count,
