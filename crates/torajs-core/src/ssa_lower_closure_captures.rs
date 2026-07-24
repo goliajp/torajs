@@ -59,6 +59,25 @@ pub(crate) fn collect_closure_captures_in_stmt(ast: &Ast, s: &Stmt, out: &mut Ha
             }
             collect_closure_captures_in_stmt(ast, body, out);
         }
+        Stmt::ForOf {
+            elem_expr,
+            body,
+            forin_obj,
+            ..
+        } => {
+            collect_closure_captures_in_expr(ast, *elem_expr, out);
+            if let Some(fo) = forin_obj {
+                collect_closure_captures_in_expr(ast, *fo, out);
+            }
+            collect_closure_captures_in_stmt(ast, body, out);
+        }
+        Stmt::ForOfSplitIter {
+            parent, sep, body, ..
+        } => {
+            collect_closure_captures_in_expr(ast, *parent, out);
+            collect_closure_captures_in_expr(ast, *sep, out);
+            collect_closure_captures_in_stmt(ast, body, out);
+        }
         Stmt::Block(stmts) | Stmt::Multi(stmts) => {
             for s in stmts {
                 collect_closure_captures_in_stmt(ast, s, out);
@@ -165,6 +184,25 @@ fn collect_assigned_in_stmt(ast: &Ast, s: &Stmt, out: &mut HashSet<String>) {
             if let Some(st) = step {
                 collect_assigned_in_expr(ast, *st, out);
             }
+            collect_assigned_in_stmt(ast, body, out);
+        }
+        Stmt::ForOf {
+            elem_expr,
+            body,
+            forin_obj,
+            ..
+        } => {
+            collect_assigned_in_expr(ast, *elem_expr, out);
+            if let Some(fo) = forin_obj {
+                collect_assigned_in_expr(ast, *fo, out);
+            }
+            collect_assigned_in_stmt(ast, body, out);
+        }
+        Stmt::ForOfSplitIter {
+            parent, sep, body, ..
+        } => {
+            collect_assigned_in_expr(ast, *parent, out);
+            collect_assigned_in_expr(ast, *sep, out);
             collect_assigned_in_stmt(ast, body, out);
         }
         Stmt::Block(stmts) | Stmt::Multi(stmts) => {
