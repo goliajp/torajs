@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-24T14:22:31.606Z",
+  "generatedAt": "2026-07-24T16:40:34.952Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-24T14:06:18Z",
+    "ranAt": "2026-07-24T16:39:57Z",
     "headSha": "5eb3ce87",
-    "elapsedSec": 248.39,
+    "elapsedSec": 197.13,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 8816,
-    "passNoOracle": 116,
+    "pass": 8860,
+    "passNoOracle": 115,
     "passNegative": 4447,
-    "passTotal": 13379,
-    "bug": 578,
-    "incompatible": 39217,
-    "bunSkip": 11907,
+    "passTotal": 13422,
+    "bug": 587,
+    "incompatible": 39165,
+    "bunSkip": 11904,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 13957,
-    "passRateInScope": 25.16,
-    "passRateTrAccepted": 95.86
+    "trAccepted": 14009,
+    "passRateInScope": 25.24,
+    "passRateTrAccepted": 95.81
   },
   "torajs": {
-    "commit": "5392b0df",
-    "commitSubject": "perf(link): borrow symbol names from archive bytes in the merge index",
+    "commit": "9781cc29",
+    "commitSubject": "perf(test262-runner): tree-shake the harness prepend to per-case minimal segments",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,26 @@
   },
   "commits": [
     {
+      "hash": "9781cc29",
+      "subject": "perf(test262-runner): tree-shake the harness prepend to per-case minimal segments"
+    },
+    {
+      "hash": "176eb1f0",
+      "subject": "feat(check): introspection-receiver triggers join the dynobj-degrade families"
+    },
+    {
+      "hash": "a996881d",
+      "subject": "feat(check): expando triggers degrade plain-object bindings to the dynobj lane"
+    },
+    {
+      "hash": "80aed67a",
+      "subject": "fix(check): scope-correct dynobj-degrade collection keyed by declaration site"
+    },
+    {
+      "hash": "995dce57",
+      "subject": "chore(hardev): dashboard snapshot at rotation 202 close (final)"
+    },
+    {
       "hash": "5392b0df",
       "subject": "perf(link): borrow symbol names from archive bytes in the merge index"
     },
@@ -739,47 +759,38 @@
     {
       "hash": "cf93f4ac",
       "subject": "chore(hardev): archive test262 r203 sweep (13379/578 restored after a47119b3) + dashboard snapshot at rotation 201 close"
-    },
-    {
-      "hash": "a47119b3",
-      "subject": "fix(ast): receiver-precise padding — ambiguous receivers fall back to the name table"
-    },
-    {
-      "hash": "c6fa42d3",
-      "subject": "chore(hardev): dashboard snapshot at rotation 201 close"
-    },
-    {
-      "hash": "ad7944cf",
-      "subject": "fix(ast): method-default padding pads by receiver's own field, not name alone"
-    },
-    {
-      "hash": "d7babd91",
-      "subject": "test: obj-escape inner-object-return shape — the observable face of the value-flow hole"
-    },
-    {
-      "hash": "247599b7",
-      "subject": "chore(hardev): dashboard snapshot at rotation 201 close (final)"
     }
   ],
-  "headSha": "5392b0df",
+  "headSha": "9781cc29",
   "autorun": {
-    "total": 506,
+    "total": 507,
     "baselineTarget": 10,
-    "bySelf": 501,
+    "bySelf": 502,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784897109-063d",
-      "at": "2026-07-24T12:45:09Z",
-      "ts": 1784897109,
+      "rotationId": "r-1784902951-3e83",
+      "at": "2026-07-24T14:22:31Z",
+      "ts": 1784902951,
       "trigger": "self",
-      "prevHead": "cf93f4ac",
-      "handoffSha": "sha256:14c61e5b1fe723711e14f1ca892d1a681055610f12496e65aa96513a5b1bb7cd",
-      "handoffAgeSec": 5,
+      "prevHead": "995dce57",
+      "handoffSha": "sha256:abe09ad97bbcc471505479416100c5c8808e16810d50846e0efe3c076200e1c6",
+      "handoffAgeSec": 7,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784902951-3e83",
+        "at": "2026-07-24T14:22:31Z",
+        "ts": 1784902951,
+        "trigger": "self",
+        "prevHead": "995dce57",
+        "handoffSha": "sha256:abe09ad97bbcc471505479416100c5c8808e16810d50846e0efe3c076200e1c6",
+        "handoffAgeSec": 7,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784897109-063d",
         "at": "2026-07-24T12:45:09Z",
@@ -876,17 +887,6 @@
         "prevHead": "a34993ca",
         "handoffSha": "sha256:dee810f5939585435a1711b78a616fd339ae3360c95efba91142e56f9011e307",
         "handoffAgeSec": 1620,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784770534-2b68",
-        "at": "2026-07-23T01:35:34Z",
-        "ts": 1784770534,
-        "trigger": "self",
-        "prevHead": "3ffe1f44",
-        "handoffSha": "sha256:f05ea5c49fced41249748ccf8669aac864f1aff8404ad333ed173319dbb4c0d4",
-        "handoffAgeSec": 8,
         "conformanceBefore": null,
         "commitsInSession": null
       }
