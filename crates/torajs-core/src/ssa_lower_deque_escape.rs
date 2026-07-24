@@ -22,7 +22,10 @@
 //!   `...xs` — escape through memory
 //! - return `xs` — escape through caller
 //! - alias: `let y = xs` or `y = xs` — both bindings get marked
-//!   (per-binding precision not tracked yet)
+//!   (per-binding precision not tracked yet); value-transparent
+//!   wrappers are looked through (`cond ? xs : zs` / `xs ?? zs` /
+//!   `(e, xs)` / `xs as T` / nested assign), so aliased sources
+//!   behind them are marked too — see `collect_value_flow_idents`
 //! - `for (...of xs)` source — runtime iter path unaudited
 //! - closure capture of `xs` — lifted body may shift
 //!
@@ -35,6 +38,42 @@ use std::collections::HashSet;
 
 use crate::ast::{Ast, Expr, ExprId, Stmt};
 
+/// Collect binding names that can be the *value* of this expression,
+/// looking through value-transparent wrappers: ternary arms, nullish
+/// arms, sequence results, `as` casts and nested assigns. Escape
+/// sites must use this instead of a bare-`Ident` match — an array
+/// aliased behind `cond ? xs : ys` escapes exactly like a bare `xs`
+/// (missing it is a false-negative = wrong-offset fast-path read).
+fn collect_value_flow_idents(ast: &Ast, eid: ExprId, out: &mut HashSet<String>) {
+    match ast.get_expr(eid) {
+        Expr::Ident(n) => {
+            out.insert(n.clone());
+        }
+        Expr::Ternary {
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            collect_value_flow_idents(ast, *then_branch, out);
+            collect_value_flow_idents(ast, *else_branch, out);
+        }
+        Expr::Nullish { lhs, rhs } => {
+            collect_value_flow_idents(ast, *lhs, out);
+            collect_value_flow_idents(ast, *rhs, out);
+        }
+        Expr::Sequence { right, .. } => {
+            collect_value_flow_idents(ast, *right, out);
+        }
+        Expr::As { expr, .. } => {
+            collect_value_flow_idents(ast, *expr, out);
+        }
+        Expr::Assign { value, .. } => {
+            collect_value_flow_idents(ast, *value, out);
+        }
+        _ => {}
+    }
+}
+
 pub(crate) fn collect_deque_arr_names_in_stmt(ast: &Ast, s: &Stmt, out: &mut HashSet<String>) {
     match s {
         Stmt::Expr(eid) | Stmt::Throw(eid) | Stmt::Yield(eid) => {
@@ -42,17 +81,18 @@ pub(crate) fn collect_deque_arr_names_in_stmt(ast: &Ast, s: &Stmt, out: &mut Has
         }
         Stmt::YieldInto { value, .. } => collect_deque_arr_names_in_expr(ast, *value, out),
         Stmt::Return(Some(eid)) => {
-            if let Expr::Ident(n) = ast.get_expr(*eid) {
-                out.insert(n.clone());
-            }
+            collect_value_flow_idents(ast, *eid, out);
             collect_deque_arr_names_in_expr(ast, *eid, out);
         }
         Stmt::Return(None) => {}
         Stmt::LetDecl { name, init, .. } => {
-            // `let y = xs` — y aliases xs; both marked deque-unsafe.
-            if let Expr::Ident(m) = ast.get_expr(*init) {
-                out.insert(m.clone());
+            // `let y = xs` (or `= cond ? xs : zs` etc.) — y aliases
+            // every value-flow source; all involved bindings marked.
+            let mut sources = HashSet::new();
+            collect_value_flow_idents(ast, *init, &mut sources);
+            if !sources.is_empty() {
                 out.insert(name.clone());
+                out.extend(sources);
             }
             collect_deque_arr_names_in_expr(ast, *init, out);
         }
@@ -171,9 +211,7 @@ fn collect_deque_arr_names_in_expr(ast: &Ast, eid: ExprId, out: &mut HashSet<Str
                 out.insert(n.clone());
             }
             for a in args {
-                if let Expr::Ident(n) = ast.get_expr(*a) {
-                    out.insert(n.clone());
-                }
+                collect_value_flow_idents(ast, *a, out);
                 collect_deque_arr_names_in_expr(ast, *a, out);
             }
             collect_deque_arr_names_in_expr(ast, *callee, out);
@@ -181,14 +219,14 @@ fn collect_deque_arr_names_in_expr(ast: &Ast, eid: ExprId, out: &mut HashSet<Str
         Expr::Assign { target, value } => {
             match ast.get_expr(*target) {
                 Expr::Member { .. } | Expr::Index { .. } => {
-                    if let Expr::Ident(n) = ast.get_expr(*value) {
-                        out.insert(n.clone());
-                    }
+                    collect_value_flow_idents(ast, *value, out);
                 }
                 Expr::Ident(name) => {
-                    if let Expr::Ident(m) = ast.get_expr(*value) {
+                    let mut sources = HashSet::new();
+                    collect_value_flow_idents(ast, *value, &mut sources);
+                    if !sources.is_empty() {
                         out.insert(name.clone());
-                        out.insert(m.clone());
+                        out.extend(sources);
                     }
                 }
                 _ => {}
@@ -198,31 +236,23 @@ fn collect_deque_arr_names_in_expr(ast: &Ast, eid: ExprId, out: &mut HashSet<Str
         }
         Expr::Array(els) => {
             for e in els {
-                if let Expr::Ident(n) = ast.get_expr(*e) {
-                    out.insert(n.clone());
-                }
+                collect_value_flow_idents(ast, *e, out);
                 collect_deque_arr_names_in_expr(ast, *e, out);
             }
         }
         Expr::ObjectLit { fields } => {
             for (_, e) in fields {
-                if let Expr::Ident(n) = ast.get_expr(*e) {
-                    out.insert(n.clone());
-                }
+                collect_value_flow_idents(ast, *e, out);
                 collect_deque_arr_names_in_expr(ast, *e, out);
             }
         }
         Expr::Spread { expr } => {
-            if let Expr::Ident(n) = ast.get_expr(*expr) {
-                out.insert(n.clone());
-            }
+            collect_value_flow_idents(ast, *expr, out);
             collect_deque_arr_names_in_expr(ast, *expr, out);
         }
         Expr::New { args, .. } | Expr::Super { args } => {
             for e in args {
-                if let Expr::Ident(n) = ast.get_expr(*e) {
-                    out.insert(n.clone());
-                }
+                collect_value_flow_idents(ast, *e, out);
                 collect_deque_arr_names_in_expr(ast, *e, out);
             }
         }
