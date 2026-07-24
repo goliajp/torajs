@@ -68,87 +68,8 @@ impl<'a> Parser<'a> {
         if let Some(pair) = self.try_parse_async_object_method_shorthand()? {
             return Ok(pair);
         }
-        // `async [computedKey]() {}` — computed-key form stays on the
-        // pre-existing stub-drop path (real substrate gated on Symbol.X
-        // dispatch, P3/P7 follow-up). Body brace-balanced + emit
-        // `__async_<sym>: null`.
-        if matches!(self.peek(), Token::Async)
-            && let Some(t1) = self.tokens.get(self.pos + 1)
-            && matches!(t1.token, Token::LBracket)
-        {
-            self.pos += 2; // consume `async` + `[`
-            let key = match self.peek() {
-                Token::String(s) => {
-                    let k = s.clone();
-                    self.pos += 1;
-                    k
-                }
-                Token::Ident(_) => {
-                    let mut parts: Vec<String> = Vec::new();
-                    while let Token::Ident(n) = self.peek() {
-                        parts.push(n.clone());
-                        self.pos += 1;
-                        if matches!(self.peek(), Token::Dot) {
-                            self.pos += 1;
-                        } else {
-                            break;
-                        }
-                    }
-                    format!("__sym_{}__", parts.join("_"))
-                }
-                t => {
-                    return Err(format!(
-                        "async [<key>]: expected key, got {t:?} at {}",
-                        self.at()
-                    ));
-                }
-            };
-            if matches!(self.peek(), Token::RBracket) {
-                self.pos += 1;
-            }
-            let synth_name = format!("__async_{key}");
-            if matches!(self.peek(), Token::LParen) {
-                self.pos += 1;
-                let mut depth = 1i32;
-                while depth > 0 {
-                    match self.peek() {
-                        Token::LParen => depth += 1,
-                        Token::RParen => depth -= 1,
-                        Token::Eof => {
-                            return Err(format!(
-                                "unexpected eof in async method params at {}",
-                                self.at()
-                            ));
-                        }
-                        _ => {}
-                    }
-                    self.pos += 1;
-                }
-            }
-            if matches!(self.peek(), Token::Colon) {
-                self.pos += 1;
-                let _ = self.parse_type_ann()?;
-            }
-            if matches!(self.peek(), Token::LBrace) {
-                self.pos += 1;
-                let mut depth = 1i32;
-                while depth > 0 {
-                    match self.peek() {
-                        Token::LBrace => depth += 1,
-                        Token::RBrace => depth -= 1,
-                        Token::Eof => {
-                            return Err(format!(
-                                "unexpected eof in async method body at {}",
-                                self.at()
-                            ));
-                        }
-                        _ => {}
-                    }
-                    self.pos += 1;
-                }
-            }
-            let value = self.ast.add_expr(Expr::Null);
-            return Ok((synth_name, value));
+        if let Some(pair) = self.try_parse_async_computed_stub()? {
+            return Ok(pair);
         }
         if let Some(pair) = self.try_parse_computed_property()? {
             return Ok(pair);
@@ -210,154 +131,22 @@ impl<'a> Parser<'a> {
         // cases that assert parse acceptance (vs accessor behaviour)
         // start passing; cases that depend on the accessor semantic
         // remain blocked until P3 / P7 lands.
-        if (name == "get" || name == "set")
-            && matches!(
-                self.peek(),
-                Token::Ident(_) | Token::String(_) | Token::Number(_)
-            )
-        {
-            let kind = name.clone();
-            // P0.10 — getter / setter shorthand also accepts string-
-            // literal and numeric-literal property names per ES spec
-            // §12.7.6 PropertyName. Pre-fix only Ident was accepted.
-            let prop_name = match self.peek() {
-                Token::Ident(n) => n.clone(),
-                Token::String(s) => s.clone(),
-                Token::Number(n) => crate::ast::number_prop_key(*n),
-                _ => unreachable!(),
-            };
-            self.pos += 1;
-            if matches!(self.peek(), Token::LParen) {
-                // RFC 20260714-objlit-accessor blade 2 — parse the body
-                // for real. It used to be walked brace-balanced and
-                // THROWN AWAY, leaving a `__getter_<n>: null` placeholder
-                // field: the accessor never ran, and even a direct read
-                // `o.b` failed ("no member `.b` on Struct([(\"__getter_b\",
-                // Null)])"). The stated reason was that a getter body
-                // uses `this`, which only resolved inside a class method
-                // — blade 1 fixed that, so the body can be a normal
-                // method now.
-                //
-                // The value is an ArrowFn under the same `__getter_<n>` /
-                // `__setter_<n>` synth name, marked as a method so it
-                // picks up the `__this` receiver and the `__mth(` ABI.
-                // Keeping the accessor IN the layout is what makes the
-                // type carry it: `{a:1, get b(){}}` is structurally
-                // distinct from `{a:1}`, so no same-layout object can
-                // reach for its getter (RFC §2.1).
-                let (params, destr_lets) = self.parse_param_list()?;
-                let return_type = if matches!(self.peek(), Token::Colon) {
-                    self.pos += 1;
-                    Some(self.parse_type_ann()?)
-                } else {
-                    None
-                };
-                match self.peek() {
-                    Token::LBrace => self.pos += 1,
-                    t => {
-                        return Err(format!(
-                            "expected `{{` after {kind}ter `{prop_name}` header, got {t:?} at {}",
-                            self.at()
-                        ));
-                    }
-                }
-                let mut body = Vec::new();
-                while !matches!(self.peek(), Token::RBrace | Token::Eof) {
-                    body.push(self.parse_stmt()?);
-                }
-                match self.peek() {
-                    Token::RBrace => self.pos += 1,
-                    t => {
-                        return Err(format!(
-                            "expected `}}` after {kind}ter `{prop_name}` body, got {t:?} at {}",
-                            self.at()
-                        ));
-                    }
-                }
-                let body = if destr_lets.is_empty() {
-                    body
-                } else {
-                    let mut full = destr_lets;
-                    full.extend(body);
-                    full
-                };
-                let value = self.add_expr_at(
-                    member_start_pos,
-                    Expr::ArrowFn {
-                        params,
-                        return_type,
-                        body,
-                    },
-                );
-                self.ast.objlit_method_exprs.insert(value);
-                let synth = format!("__{kind}ter_{prop_name}");
-                return Ok((synth, value));
-            }
-            // get / set followed by ident but not by `(` — treat as
-            // regular field (the ident-after path will hit the
-            // expected-`:` error like before).
+        if let Some(pair) = self.try_parse_accessor_shorthand(&name, member_start_pos)? {
+            return Ok(pair);
         }
         // Method shorthand: `{ valueOf() { ... } }` is sugar for
         // `{ valueOf: function () { ... } }`. The parser was rejecting
         // these with "expected `:`, got LParen" — accept the shorthand
         // by routing through `parse_fn_expr`-equivalent shape, then
         // sticking the resulting `Expr::ArrowFn` under the field name.
+        // 刀 1b — method-position default params infer their ann from
+        // the default (see param_list.rs), hence infer_defaults: true.
         if matches!(self.peek(), Token::LParen) {
-            let (mut params, destr_lets) = self.parse_param_list()?;
-            // 刀 1b — method-position default params infer their ann
-            // from the default (see param_list.rs).
-            self.infer_default_param_anns(&mut params);
-            let return_type = if matches!(self.peek(), Token::Colon) {
-                self.pos += 1;
-                Some(self.parse_type_ann()?)
-            } else {
-                None
-            };
-            match self.peek() {
-                Token::LBrace => self.pos += 1,
-                t => {
-                    return Err(format!(
-                        "expected `{{` after method shorthand `{name}` header, got {t:?} at {}",
-                        self.at()
-                    ));
-                }
-            }
-            let mut body = Vec::new();
-            while !matches!(self.peek(), Token::RBrace | Token::Eof) {
-                body.push(self.parse_stmt()?);
-            }
-            match self.peek() {
-                Token::RBrace => self.pos += 1,
-                t => {
-                    return Err(format!(
-                        "expected `}}` after method shorthand `{name}` body, got {t:?} at {}",
-                        self.at()
-                    ));
-                }
-            }
-            let body = if destr_lets.is_empty() {
-                body
-            } else {
-                let mut full = destr_lets;
-                full.extend(body);
-                full
-            };
-            let value = self.add_expr_at(
+            let value = self.parse_method_like_value(
                 member_start_pos,
-                Expr::ArrowFn {
-                    params,
-                    return_type,
-                    body,
-                },
-            );
-            // RFC 20260714-objlit-accessor blade 1 — the ArrowFn node is
-            // a lossy encoding of a method: an arrow takes the LEXICAL
-            // `this`, a method binds it to the receiver. Record the
-            // method position so `desugar_objlit_nominal` can give this
-            // closure a `__this` param — without the mark, the `this` in
-            // the body is left a free variable and the checker rejects it
-            // ("references unknown identifier `__this`").
-            self.ast.objlit_method_exprs.insert(value);
+                true,
+                &format!("method shorthand `{name}`"),
+            )?;
             return Ok((name, value));
         }
         // Property shorthand: `{ x }` is sugar for `{ x: x }`. Triggers
@@ -385,5 +174,215 @@ impl<'a> Parser<'a> {
         }
         let value = self.parse_expr()?;
         Ok((name, value))
+    }
+
+    /// `async [computedKey]() {}` — computed-key form stays on the
+    /// pre-existing stub-drop path (real substrate gated on Symbol.X
+    /// dispatch, P3/P7 follow-up). Body brace-balanced + emit
+    /// `__async_<sym>: null`. Returns `None` when the lookahead isn't
+    /// `async` `[`.
+    fn try_parse_async_computed_stub(&mut self) -> Result<Option<(String, ExprId)>, String> {
+        if !matches!(self.peek(), Token::Async) {
+            return Ok(None);
+        }
+        let Some(t1) = self.tokens.get(self.pos + 1) else {
+            return Ok(None);
+        };
+        if !matches!(t1.token, Token::LBracket) {
+            return Ok(None);
+        }
+        self.pos += 2; // consume `async` + `[`
+        let key = match self.peek() {
+            Token::String(s) => {
+                let k = s.clone();
+                self.pos += 1;
+                k
+            }
+            Token::Ident(_) => {
+                let mut parts: Vec<String> = Vec::new();
+                while let Token::Ident(n) = self.peek() {
+                    parts.push(n.clone());
+                    self.pos += 1;
+                    if matches!(self.peek(), Token::Dot) {
+                        self.pos += 1;
+                    } else {
+                        break;
+                    }
+                }
+                format!("__sym_{}__", parts.join("_"))
+            }
+            t => {
+                return Err(format!(
+                    "async [<key>]: expected key, got {t:?} at {}",
+                    self.at()
+                ));
+            }
+        };
+        if matches!(self.peek(), Token::RBracket) {
+            self.pos += 1;
+        }
+        let synth_name = format!("__async_{key}");
+        if matches!(self.peek(), Token::LParen) {
+            self.pos += 1;
+            let mut depth = 1i32;
+            while depth > 0 {
+                match self.peek() {
+                    Token::LParen => depth += 1,
+                    Token::RParen => depth -= 1,
+                    Token::Eof => {
+                        return Err(format!(
+                            "unexpected eof in async method params at {}",
+                            self.at()
+                        ));
+                    }
+                    _ => {}
+                }
+                self.pos += 1;
+            }
+        }
+        if matches!(self.peek(), Token::Colon) {
+            self.pos += 1;
+            let _ = self.parse_type_ann()?;
+        }
+        if matches!(self.peek(), Token::LBrace) {
+            self.pos += 1;
+            let mut depth = 1i32;
+            while depth > 0 {
+                match self.peek() {
+                    Token::LBrace => depth += 1,
+                    Token::RBrace => depth -= 1,
+                    Token::Eof => {
+                        return Err(format!(
+                            "unexpected eof in async method body at {}",
+                            self.at()
+                        ));
+                    }
+                    _ => {}
+                }
+                self.pos += 1;
+            }
+        }
+        let value = self.ast.add_expr(Expr::Null);
+        Ok(Some((synth_name, value)))
+    }
+
+    /// P-PARSE.4 — getter / setter shorthand `{ get NAME() {...} }` /
+    /// `{ set NAME(v) {...} }` per ES spec §12.7.6.
+    ///
+    /// RFC 20260714-objlit-accessor blade 2 — the body is parsed for
+    /// real (it used to be walked brace-balanced and thrown away,
+    /// leaving a `__getter_<n>: null` placeholder that broke even a
+    /// direct read). The value is an ArrowFn under the `__getter_<n>` /
+    /// `__setter_<n>` synth name, marked as a method so it picks up the
+    /// `__this` receiver and the `__mth(` ABI. Keeping the accessor IN
+    /// the layout is what makes the type carry it: `{a:1, get b(){}}`
+    /// is structurally distinct from `{a:1}` (RFC §2.1).
+    ///
+    /// Returns `None` when `name` isn't `get`/`set` followed by a
+    /// property name. NOTE: `get`/`set` followed by a property name but
+    /// NOT by `(` also returns `None` — with the property-name token
+    /// already consumed, so the caller's `:`-check path reports the
+    /// same "expected `:` after field name `get`" error as before.
+    fn try_parse_accessor_shorthand(
+        &mut self,
+        name: &str,
+        member_start_pos: usize,
+    ) -> Result<Option<(String, ExprId)>, String> {
+        if !((name == "get" || name == "set")
+            && matches!(
+                self.peek(),
+                Token::Ident(_) | Token::String(_) | Token::Number(_)
+            ))
+        {
+            return Ok(None);
+        }
+        // P0.10 — getter / setter shorthand also accepts string-
+        // literal and numeric-literal property names per ES spec
+        // §12.7.6 PropertyName. Pre-fix only Ident was accepted.
+        let prop_name = match self.peek() {
+            Token::Ident(n) => n.clone(),
+            Token::String(s) => s.clone(),
+            Token::Number(n) => crate::ast::number_prop_key(*n),
+            _ => unreachable!(),
+        };
+        self.pos += 1;
+        if !matches!(self.peek(), Token::LParen) {
+            return Ok(None);
+        }
+        let value = self.parse_method_like_value(
+            member_start_pos,
+            false,
+            &format!("{name}ter `{prop_name}`"),
+        )?;
+        let synth = format!("__{name}ter_{prop_name}");
+        Ok(Some((synth, value)))
+    }
+
+    /// Shared tail of the accessor / method shorthands:
+    /// `(params) [: ret] { body }` → an `Expr::ArrowFn` anchored at
+    /// `member_start_pos` (the member-name token, where the source
+    /// text starts — RFC 20260719-fn-tostring-source B1).
+    ///
+    /// RFC 20260714-objlit-accessor blade 1 — the ArrowFn node is a
+    /// lossy encoding of a method: an arrow takes the LEXICAL `this`,
+    /// a method binds it to the receiver. Registering the ExprId in
+    /// `objlit_method_exprs` is what lets `desugar_objlit_nominal`
+    /// give the closure a `__this` param — without the mark, `this`
+    /// in the body is left a free variable and the checker rejects it.
+    fn parse_method_like_value(
+        &mut self,
+        member_start_pos: usize,
+        infer_defaults: bool,
+        err_ctx: &str,
+    ) -> Result<ExprId, String> {
+        let (mut params, destr_lets) = self.parse_param_list()?;
+        if infer_defaults {
+            self.infer_default_param_anns(&mut params);
+        }
+        let return_type = if matches!(self.peek(), Token::Colon) {
+            self.pos += 1;
+            Some(self.parse_type_ann()?)
+        } else {
+            None
+        };
+        match self.peek() {
+            Token::LBrace => self.pos += 1,
+            t => {
+                return Err(format!(
+                    "expected `{{` after {err_ctx} header, got {t:?} at {}",
+                    self.at()
+                ));
+            }
+        }
+        let mut body = Vec::new();
+        while !matches!(self.peek(), Token::RBrace | Token::Eof) {
+            body.push(self.parse_stmt()?);
+        }
+        match self.peek() {
+            Token::RBrace => self.pos += 1,
+            t => {
+                return Err(format!(
+                    "expected `}}` after {err_ctx} body, got {t:?} at {}",
+                    self.at()
+                ));
+            }
+        }
+        let body = if destr_lets.is_empty() {
+            body
+        } else {
+            let mut full = destr_lets;
+            full.extend(body);
+            full
+        };
+        let value = self.add_expr_at(
+            member_start_pos,
+            Expr::ArrowFn {
+                params,
+                return_type,
+                body,
+            },
+        );
+        self.ast.objlit_method_exprs.insert(value);
+        Ok(value)
     }
 }
