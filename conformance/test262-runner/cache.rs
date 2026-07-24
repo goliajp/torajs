@@ -212,6 +212,10 @@ pub fn bun_oracle(
     // downstream; 15s here keeps total per-case <= 45s ceiling.
     let timeout = std::time::Duration::from_secs(15);
     let started = std::time::Instant::now();
+    // Exponential backoff: bun 通常 50-80ms/case,flat 20ms sleep 让快 case
+    // 平均多等 10ms(× 53k case = 分钟级 wall waste)。500us→20ms cap 与
+    // verdict.rs tr wait / conformance/runner/exec.rs 同 pattern。
+    let mut backoff_us: u64 = 500;
     let out = loop {
         match child.try_wait() {
             Ok(Some(_)) => break child.wait_with_output(),
@@ -224,7 +228,8 @@ pub fn bun_oracle(
                     // in case bun improved or environment changed).
                     return Ok((false, Vec::new()));
                 }
-                std::thread::sleep(std::time::Duration::from_millis(20));
+                std::thread::sleep(std::time::Duration::from_micros(backoff_us));
+                backoff_us = (backoff_us * 2).min(20_000);
             }
             Err(e) => return Err(format!("bun wait: {e}")),
         }

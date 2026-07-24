@@ -81,6 +81,12 @@ pub fn run_tr(tr_bin: &Path, tmp_path: &Path) -> Result<std::process::Output, Ou
     let pgid = tr_proc.id() as i32;
     let timeout = std::time::Duration::from_secs(30);
     let started = Instant::now();
+    // Exponential backoff: most tr runs finish in tens of ms so a flat
+    // 50ms sleep wastes tens of ms per fast case (× 53k case × 8 worker
+    // = measurable sweep wall). Start at 0.5ms (catches fast cases nearly
+    // idle-free), double up to a 20ms cap. Mirrors conformance runner
+    // `conformance/runner/exec.rs` pattern.
+    let mut backoff_us: u64 = 500;
     loop {
         match tr_proc.try_wait() {
             Ok(Some(_status)) => {
@@ -101,7 +107,8 @@ pub fn run_tr(tr_bin: &Path, tmp_path: &Path) -> Result<std::process::Output, Ou
                         msg: format!("tr timed out after {}s", timeout.as_secs()),
                     });
                 }
-                std::thread::sleep(std::time::Duration::from_millis(50));
+                std::thread::sleep(std::time::Duration::from_micros(backoff_us));
+                backoff_us = (backoff_us * 2).min(20_000);
             }
             Err(e) => {
                 return Err(Outcome::HarnessError {
