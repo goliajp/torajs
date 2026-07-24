@@ -63,12 +63,18 @@ enum Resolution {
 }
 
 /// Collect the init ExprIds of every `let` declaration whose binding
-/// receives a dynobj-degrade trigger (`Object.defineProperty` /
-/// `Object.defineProperties` / `Reflect.defineProperty` with the
-/// binding as `args[0]`), scope-correct. Consumed by both
-/// `check_pipeline` (binding type) and `ssa_lower_fn` /
-/// `ssa_lower_synthesize_main` (init-lane routing) so the two sides
-/// can't drift.
+/// receives a dynobj-degrade trigger, scope-correct:
+///
+/// - `Object.defineProperty` / `Object.defineProperties` /
+///   `Reflect.defineProperty` with the binding as `args[0]`
+///   (RC-4 F1c);
+/// - a write to a member the declaration's literal doesn't spell,
+///   a computed-key write, or a member `delete` on the binding
+///   (rotation 203 chunk 2 — the JS expando idiom).
+///
+/// Consumed by both `check_pipeline` (binding type) and
+/// `ssa_lower_fn` / `ssa_lower_synthesize_main` (init-lane routing)
+/// so the two sides can't drift.
 pub(crate) fn collect_dynobj_degraded_inits(ast: &Ast) -> HashSet<ExprId> {
     let mut w = Walker {
         ast,
@@ -175,6 +181,82 @@ impl Walker<'_> {
                 self.fallback_names.insert(recv.clone());
             }
         }
+    }
+
+    /// Rotation 203 chunk 2 — dynamic-member-write trigger: a write
+    /// to a member the declaration's own literal doesn't spell
+    /// (`obj.newField = v`) or a computed-key write (`obj[k] = v`)
+    /// on a tracked binding degrades the declaration, giving the
+    /// test262-pervasive "expando on a plain object" idiom a legal
+    /// lane (JS object semantics; the strict struct checker rejects
+    /// it otherwise). No `Free` fallback here: unlike defineProperty
+    /// (where a missed degrade orphans the define = silent wrong),
+    /// an unmarked dynamic write is rejected loudly by the checker,
+    /// so under-marking is safe and precision wins.
+    fn scan_dynamic_write(&mut self, target: ExprId) {
+        let ast = self.ast;
+        match ast.get_expr(target) {
+            Expr::Member { obj, name } => {
+                let Expr::Ident(recv) = ast.get_expr(*obj) else {
+                    return;
+                };
+                let Resolution::Tracked(eids) = self.resolve(recv) else {
+                    return;
+                };
+                let field = name.clone();
+                for eid in eids {
+                    if !self.init_has_field(eid, &field) {
+                        self.out.insert(eid);
+                    }
+                }
+            }
+            Expr::Index { obj, .. } => {
+                let Expr::Ident(recv) = ast.get_expr(*obj) else {
+                    return;
+                };
+                if let Resolution::Tracked(eids) = self.resolve(recv) {
+                    self.out.extend(eids);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Rotation 203 chunk 2 — `delete obj.k` / `delete obj[k]` on a
+    /// tracked binding degrades it unconditionally: removing even an
+    /// own field breaks the static struct layout, so the binding must
+    /// live on the dynobj lane. Same no-fallback rationale as
+    /// [`Self::scan_dynamic_write`].
+    fn scan_delete(&mut self, operand: ExprId) {
+        let ast = self.ast;
+        let (Expr::Member { obj, .. } | Expr::Index { obj, .. }) = ast.get_expr(operand) else {
+            return;
+        };
+        let Expr::Ident(recv) = ast.get_expr(*obj) else {
+            return;
+        };
+        if let Resolution::Tracked(eids) = self.resolve(recv) {
+            self.out.extend(eids);
+        }
+    }
+
+    /// Does the declaration's literal spell `field` as an own member?
+    /// Accessor pairs and async method shorthands are stored under
+    /// synthesized names (`get s() {}` → `__setter_s` / `__getter_s`,
+    /// `async m() {}` → `__async_m` — see parser/object_literal.rs),
+    /// and all spell the user-visible property: a write to an
+    /// accessor property is a setter invocation on the static lane,
+    /// not an expando.
+    fn init_has_field(&self, init: ExprId, field: &str) -> bool {
+        let Expr::ObjectLit { fields } = self.ast.get_expr(init) else {
+            return false;
+        };
+        fields.iter().any(|(n, _)| {
+            n == field
+                || n.strip_prefix("__getter_") == Some(field)
+                || n.strip_prefix("__setter_") == Some(field)
+                || n.strip_prefix("__async_") == Some(field)
+        })
     }
 }
 
@@ -308,5 +390,66 @@ let b = [1];
 Object.defineProperty(b, "y", { value: 1 });
 "#;
         assert!(collect(src).is_empty());
+    }
+
+    #[test]
+    fn unknown_member_write_marks_but_own_field_write_does_not() {
+        let src = r#"
+let a = { x: 1 };
+a.x = 2;
+let b = { x: 1 };
+b.newField = 2;
+"#;
+        let got = collect(src);
+        let a = decl_inits(src, "a");
+        let b = decl_inits(src, "b");
+        assert!(!got.contains(&a[0]), "own-field write stays static");
+        assert!(got.contains(&b[0]), "expando write degrades");
+    }
+
+    #[test]
+    fn computed_write_and_delete_mark() {
+        let src = r#"
+let a = { x: 1 };
+let k = "y";
+a[k] = 2;
+let b = { x: 1 };
+delete b.x;
+"#;
+        let got = collect(src);
+        let a = decl_inits(src, "a");
+        let b = decl_inits(src, "b");
+        assert!(got.contains(&a[0]), "computed-key write degrades");
+        assert!(got.contains(&b[0]), "own-field delete degrades");
+    }
+
+    #[test]
+    fn accessor_property_write_is_not_expando() {
+        // `set s()` is stored as `__setter_s` in the literal; the
+        // write is a setter invocation on the static lane (gate
+        // regression: objlit-accessor-001)
+        let src = r#"
+let c = { set s(n: number) { } };
+c.s = 21;
+"#;
+        let got = collect(src);
+        let decls = decl_inits(src, "c");
+        assert_eq!(decls.len(), 1);
+        assert!(!got.contains(&decls[0]));
+    }
+
+    #[test]
+    fn dynamic_write_has_no_free_fallback() {
+        // an unresolved fn-body write receiver is rejected loudly by
+        // the checker if unmarked — precision wins over fallback here
+        let src = r#"
+let obj = { x: 1 };
+function f() {
+    obj.newField = 2;
+}
+"#;
+        let got = collect(src);
+        let decls = decl_inits(src, "obj");
+        assert!(!got.contains(&decls[0]));
     }
 }

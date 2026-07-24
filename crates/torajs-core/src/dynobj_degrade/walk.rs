@@ -280,8 +280,11 @@ impl Walker<'_> {
             | Expr::TypeOf { expr }
             | Expr::Spread { expr }
             | Expr::As { expr, .. }
-            | Expr::InstanceOf { expr, .. }
-            | Expr::Delete { expr } => self.walk_expr(*expr),
+            | Expr::InstanceOf { expr, .. } => self.walk_expr(*expr),
+            Expr::Delete { expr } => {
+                self.scan_delete(*expr);
+                self.walk_expr(*expr);
+            }
             Expr::Member { obj, .. } | Expr::OptChain { obj, .. } => self.walk_expr(*obj),
             Expr::Call { callee, args } => {
                 self.scan_defineproperty(*callee, args);
@@ -297,6 +300,7 @@ impl Walker<'_> {
                 }
             }
             Expr::Assign { target, value } => {
+                self.scan_dynamic_write(*target);
                 self.walk_expr(*target);
                 self.walk_expr(*value);
             }
@@ -337,7 +341,10 @@ impl Walker<'_> {
                 self.walk_expr(*lhs);
                 self.walk_expr(*rhs);
             }
-            Expr::PostIncr { target, .. } => self.walk_expr(*target),
+            Expr::PostIncr { target, .. } => {
+                self.scan_dynamic_write(*target);
+                self.walk_expr(*target);
+            }
         }
     }
 
