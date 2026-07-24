@@ -305,7 +305,7 @@ mod tests {
     fn torajs_obj_leaf_member_has_no_non_text_sections() {
         let foo = fn_leaf("_foo");
         let archive = build_short_name_archive("a.o", &torajs_obj::write_object(&[foo]));
-        let archives = vec![archive];
+        let archives: Vec<std::borrow::Cow<'static, [u8]>> = vec![archive.into()];
         let merged = merge_archive_indexes(&archives).unwrap();
         let member_keys = vec![(0usize, 0usize)];
         let res = compute_non_text_layouts(&merged, &member_keys, 0x0001_2000).unwrap();
@@ -331,7 +331,7 @@ mod tests {
         // the segment + section table.
         let obj = build_three_section_member();
         let archive = build_short_name_archive("multi.o", &obj);
-        let archives = vec![archive];
+        let archives: Vec<std::borrow::Cow<'static, [u8]>> = vec![archive.into()];
         let merged = merge_archive_indexes(&archives).unwrap();
         let member_keys = vec![(0usize, 0usize)];
         let region_off = 0x0001_4000u32;
@@ -458,7 +458,7 @@ mod tests {
     fn literal16_align_advances_cursor_to_16_aligned() {
         let obj = build_member_with_literal16_after_cstring();
         let archive = build_short_name_archive("lit16.o", &obj);
-        let archives = vec![archive];
+        let archives: Vec<std::borrow::Cow<'static, [u8]>> = vec![archive.into()];
         let merged = merge_archive_indexes(&archives).unwrap();
         let region_off = 0x0001_4000u32;
         let res = compute_non_text_layouts(&merged, &[(0usize, 0usize)], region_off).unwrap();
@@ -570,7 +570,7 @@ mod tests {
     fn fix_c1_drops_data_segment_sections() {
         let obj = build_mixed_seg_member();
         let archive = build_short_name_archive("mix.o", &obj);
-        let archives = vec![archive];
+        let archives: Vec<std::borrow::Cow<'static, [u8]>> = vec![archive.into()];
         let merged = merge_archive_indexes(&archives).unwrap();
         let res = compute_non_text_layouts(&merged, &[(0usize, 0usize)], 0x0001_6000).unwrap();
         let layouts = &res.per_member[0];
@@ -594,7 +594,7 @@ mod tests {
     fn fix_c1_drops_zerofill_even_inside_text_segment() {
         let obj = build_text_with_zerofill_member();
         let archive = build_short_name_archive("zft.o", &obj);
-        let archives = vec![archive];
+        let archives: Vec<std::borrow::Cow<'static, [u8]>> = vec![archive.into()];
         let merged = merge_archive_indexes(&archives).unwrap();
         let res = compute_non_text_layouts(&merged, &[(0usize, 0usize)], 0x0001_6000).unwrap();
         let layouts = &res.per_member[0];

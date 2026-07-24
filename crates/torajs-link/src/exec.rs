@@ -73,8 +73,11 @@ pub struct LinkConfig {
     pub codesign_ident: String,
     /// Static-library `.a` archives in Apple `ld64` search order.
     /// S7-C1 only carries bytes; resolution + integration in C2..C5.
-    /// Empty for self-contained binaries.
-    pub archives: Vec<Vec<u8>>,
+    /// Empty for self-contained binaries. `Cow` so the baked
+    /// `TORAJS_STATICLIBS` statics ride in borrowed (~50MB deep-copied
+    /// per `tr run` pre-fix — ~36% of the per-case compile wall);
+    /// file-read probe/test archives stay owned.
+    pub archives: Vec<std::borrow::Cow<'static, [u8]>>,
     /// SD-4c-prereq+e0/e1/e2 — `ssa::Module.strings` materialized.
     /// e1/e2 emit rodata to `__TEXT,__cstring` + register sym→vaddr.
     /// Empty default keeps pre-e1 byte streams unchanged.

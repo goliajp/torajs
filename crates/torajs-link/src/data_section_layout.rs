@@ -313,7 +313,7 @@ mod tests {
         let foo = fn_leaf("_foo");
         let obj = torajs_obj::write_object(std::slice::from_ref(&foo));
         let archive = build_short_name_archive("a.o", &obj);
-        let archives = vec![archive];
+        let archives: Vec<std::borrow::Cow<'static, [u8]>> = vec![archive.into()];
         let merged = merge_archive_indexes(&archives).unwrap();
         let res = compute_data_section_layouts(&merged, &[(0usize, 0usize)], 0x2000, 0xDA00_0000)
             .unwrap();
@@ -342,7 +342,7 @@ mod tests {
     fn data_segment_splits_file_storage_from_zerofill() {
         let obj = build_data_mix_member();
         let archive = build_short_name_archive("dm.o", &obj);
-        let archives = vec![archive];
+        let archives: Vec<std::borrow::Cow<'static, [u8]>> = vec![archive.into()];
         let merged = merge_archive_indexes(&archives).unwrap();
         let file_start = 0x4000u32;
         let vaddr_start = 0x0000_0001_0000_8000u64;
@@ -391,7 +391,7 @@ mod tests {
         // — `concat_members_into_archive_data` already includes ar
         // headers, so we wrap once.
         let archive_bytes = build_concat_archive(&[(b"a.o", &obj_a), (b"b.o", &obj_b)]);
-        let archives = vec![archive_bytes];
+        let archives: Vec<std::borrow::Cow<'static, [u8]>> = vec![archive_bytes.into()];
         let merged = merge_archive_indexes(&archives).unwrap();
         let file_start = 0x6000u32;
         let vaddr_start = 0x0000_0001_0001_0000u64;
@@ -428,7 +428,7 @@ mod tests {
     fn sections_round_up_to_declared_alignment() {
         let obj = build_data_aligned_member();
         let archive = build_short_name_archive("al.o", &obj);
-        let archives = vec![archive];
+        let archives: Vec<std::borrow::Cow<'static, [u8]>> = vec![archive.into()];
         let merged = merge_archive_indexes(&archives).unwrap();
         // 16-aligned, file/vaddr congruent mod page.
         let file_start = 0x8000u32;

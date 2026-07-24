@@ -80,14 +80,14 @@ pub enum ArchiveMergeError {
 /// First-archive-wins on duplicate symbols — `archives[0]` is
 /// searched before `archives[1]`. Matches Apple `ld64` static
 /// library search order.
-pub fn merge_archive_indexes(
-    archives: &[Vec<u8>],
-) -> Result<MergedArchives<'_>, ArchiveMergeError> {
+pub fn merge_archive_indexes<'a>(
+    archives: &'a [std::borrow::Cow<'static, [u8]>],
+) -> Result<MergedArchives<'a>, ArchiveMergeError> {
     let mut per_archive_members: Vec<Vec<ArMember<'_>>> = Vec::with_capacity(archives.len());
     let mut index: BTreeMap<String, MergedSymbol> = BTreeMap::new();
 
     for (archive_idx, bytes) in archives.iter().enumerate() {
-        let members = parse_archive(bytes.as_slice())
+        let members = parse_archive(bytes.as_ref())
             .map_err(|err| ArchiveMergeError::Ar { archive_idx, err })?;
         let per_archive_index = build_archive_index(&members)
             .map_err(|err| ArchiveMergeError::Member { archive_idx, err })?;
@@ -469,7 +469,8 @@ mod tests {
     #[test]
     fn single_archive_round_trips() {
         let foo = make_ret_const_fn("_foo", 7);
-        let archives = vec![wrap_fn_in_archive("a.o", &foo)];
+        let archives: Vec<std::borrow::Cow<'static, [u8]>> =
+            vec![wrap_fn_in_archive("a.o", &foo).into()];
 
         let merged = merge_archive_indexes(&archives).unwrap();
         assert_eq!(merged.per_archive_members.len(), 1);
@@ -496,7 +497,8 @@ mod tests {
         let shared_b = make_ret_const_fn("_shared", 4);
         let archive_b = wrap_two_fns_in_archive("b.o", &bar, &shared_b);
 
-        let archives = vec![archive_a, archive_b];
+        let archives: Vec<std::borrow::Cow<'static, [u8]>> =
+            vec![archive_a.into(), archive_b.into()];
         let merged = merge_archive_indexes(&archives).unwrap();
 
         // Three distinct names — _shared collapses to one entry.
@@ -538,10 +540,10 @@ mod tests {
                 "../../target/aarch64-apple-darwin/release/libtorajs_str.a",
             ),
         ];
-        let mut archives: Vec<Vec<u8>> = Vec::new();
+        let mut archives: Vec<std::borrow::Cow<'static, [u8]>> = Vec::new();
         for (a, b) in &candidates {
             match std::fs::read(a).or_else(|_| std::fs::read(b)) {
-                Ok(bytes) => archives.push(bytes),
+                Ok(bytes) => archives.push(bytes.into()),
                 Err(_) => {
                     eprintln!("skip: real libtorajs_*.a not built yet");
                     return;
@@ -585,7 +587,7 @@ mod tests {
     #[test]
     fn malformed_archive_surfaces_typed_error() {
         let bad: Vec<u8> = b"not an archive".to_vec();
-        let err = merge_archive_indexes(&[bad]).unwrap_err();
+        let err = merge_archive_indexes(&[bad.into()]).unwrap_err();
         match err {
             ArchiveMergeError::Ar { archive_idx, .. } => assert_eq!(archive_idx, 0),
             ArchiveMergeError::Member { .. } => panic!("expected Ar variant"),
@@ -663,7 +665,7 @@ mod tests {
     fn single_hop_pulls_one_member() {
         let foo = fn_leaf("_foo");
         let archive = wrap_cfs_in_archive("a.o", std::slice::from_ref(&foo));
-        let archives = vec![archive];
+        let archives: Vec<std::borrow::Cow<'static, [u8]>> = vec![archive.into()];
         let merged = merge_archive_indexes(&archives).unwrap();
 
         let user = vec![fn_with_extern_calls("_main", &["_foo"])];
@@ -683,7 +685,8 @@ mod tests {
         let archive_a = wrap_cfs_in_archive("a.o", std::slice::from_ref(&foo));
         let archive_b = wrap_cfs_in_archive("b.o", std::slice::from_ref(&bar));
         let archive_c = wrap_cfs_in_archive("c.o", std::slice::from_ref(&baz));
-        let archives = vec![archive_a, archive_b, archive_c];
+        let archives: Vec<std::borrow::Cow<'static, [u8]>> =
+            vec![archive_a.into(), archive_b.into(), archive_c.into()];
         let merged = merge_archive_indexes(&archives).unwrap();
 
         let user = vec![fn_with_extern_calls("_main", &["_foo"])];
@@ -703,7 +706,8 @@ mod tests {
         let bar = fn_with_extern_calls("_bar", &["_foo"]);
         let archive_a = wrap_cfs_in_archive("a.o", std::slice::from_ref(&foo));
         let archive_b = wrap_cfs_in_archive("b.o", std::slice::from_ref(&bar));
-        let archives = vec![archive_a, archive_b];
+        let archives: Vec<std::borrow::Cow<'static, [u8]>> =
+            vec![archive_a.into(), archive_b.into()];
         let merged = merge_archive_indexes(&archives).unwrap();
 
         let user = vec![fn_with_extern_calls("_main", &["_foo"])];
@@ -718,7 +722,7 @@ mod tests {
     fn duplicate_extern_calls_dedupe_to_one_member() {
         let foo = fn_leaf("_foo");
         let archive = wrap_cfs_in_archive("a.o", std::slice::from_ref(&foo));
-        let archives = vec![archive];
+        let archives: Vec<std::borrow::Cow<'static, [u8]>> = vec![archive.into()];
         let merged = merge_archive_indexes(&archives).unwrap();
 
         let user = vec![fn_with_extern_calls("_main", &["_foo", "_foo", "_foo"])];

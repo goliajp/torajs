@@ -84,9 +84,9 @@ fn main() {
     ];
     let archive_paths: Vec<PathBuf> = archive_names.iter().map(|n| target_dir.join(n)).collect();
 
-    let archives: Vec<Vec<u8>> = archive_paths
+    let archives: Vec<std::borrow::Cow<'static, [u8]>> = archive_paths
         .iter()
-        .map(|p| fs::read(p).expect("read archive"))
+        .map(|p| fs::read(p).expect("read archive").into())
         .collect();
     eprintln!("probing with {} archive(s)", archives.len());
 

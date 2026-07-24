@@ -393,9 +393,12 @@ pub(crate) fn build_link_config(ssa_module: &Module) -> LinkConfig {
     let class_layouts = build_class_layout_entries(ssa_module);
     let vtable_globals = build_vtable_globals(ssa_module);
 
-    let archives: Vec<Vec<u8>> = TORAJS_STATICLIBS
+    // Borrowed straight off the baked `include_bytes` statics — the
+    // per-case `to_vec()` deep copy here was ~36% of `tr run` compile
+    // wall (~50MB memcpy; see rfcs/20260724 phase-timing.md A1).
+    let archives: Vec<std::borrow::Cow<'static, [u8]>> = TORAJS_STATICLIBS
         .iter()
-        .map(|(_, bytes)| bytes.to_vec())
+        .map(|(_, bytes)| std::borrow::Cow::Borrowed(*bytes))
         .collect();
 
     LinkConfig {
