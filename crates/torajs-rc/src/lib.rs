@@ -212,7 +212,7 @@ pub use any_method::{
     any_regexp_prop_id,
 };
 pub use any_method_intern::any_method_id;
-pub use any_method_meta::any_method_meta;
+pub use any_method_meta::{any_method_meta, any_method_meta_for};
 pub use arr_kind::{
     ARR_ELEM_KIND_MASK, ARR_ELEM_KIND_SHIFT, ARR_KIND_BOOL, ARR_KIND_F64, ARR_KIND_HEAP,
     ARR_KIND_I64, ARR_KIND_UNSET,

@@ -83,6 +83,19 @@ pub fn builtin_ctor_meta(tag: i64) -> Option<(&'static str, u32)> {
 /// `prop_has`).
 pub const ARRAY_PROTO_TAG: usize = 2;
 
+/// `Number.prototype`'s slot — the one family whose `toString` has
+/// an ES `length` different from every other prototype's (§21.1.6.6
+/// takes a radix), which `any_method_meta_for` disambiguates.
+pub const NUMBER_PROTO_TAG: usize = 0;
+
+/// `String.prototype`'s slot — the family whose reified methods run
+/// the §22.1.3 generic ToString(this) coerce on borrow re-dispatch.
+pub const STRING_PROTO_TAG: usize = 3;
+
+/// `Boolean.prototype`'s slot — its reified toString / valueOf
+/// brand-check thisBooleanValue (§20.3.3) on borrow re-dispatch.
+pub const BOOLEAN_PROTO_TAG: usize = 4;
+
 /// `Object.prototype`'s slot — its mint additionally installs the
 /// Annex B `__proto__` accessor own entry (see the mint site).
 pub const OBJECT_PROTO_TAG: usize = 1;

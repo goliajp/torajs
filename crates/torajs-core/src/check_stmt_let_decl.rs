@@ -154,15 +154,17 @@ pub(crate) fn check(
 
 /// The checker mirror of the lowering's mint gate (`ssa_lower_member
 /// ::try_lower_str_method_value`): init is a Member read whose
-/// receiver types String and whose own type is a Function, and the
-/// name interns to a builtin method id with a spec meta row.
+/// receiver types to a builtin prototype family (String / Number /
+/// Boolean) and whose own type is a Function, and the name interns
+/// to a builtin method id with a spec meta row.
 fn is_builtin_mv_init(checker: &mut Checker, ast: &Ast, init: ExprId) -> bool {
     let Expr::Member { obj, name } = ast.get_expr(init) else {
         return false;
     };
-    if !matches!(checker.type_of(ast, *obj), Ok(Type::String))
-        || !matches!(checker.type_of(ast, init), Ok(Type::Function(..)))
-    {
+    let recv_ok = checker
+        .type_of(ast, *obj)
+        .is_ok_and(|t| crate::ssa_lower_member::mv_family_of_checker_ty(&t).is_some());
+    if !recv_ok || !matches!(checker.type_of(ast, init), Ok(Type::Function(..))) {
         return false;
     }
     let mid = torajs_rc::any_method_id(name);

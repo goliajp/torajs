@@ -15,9 +15,10 @@ use crate::any_method::*;
 /// Lengths are the spec `length` property values (expected argument
 /// counts, ES2024). One interned id can serve several prototypes;
 /// the only length divergence in the table is `toString`
-/// (Number.prototype 1 vs String/Boolean/Date/RegExp 0) — the
-/// majority value 0 wins, the Number deviation is a recorded
-/// boundary of the per-mid (not per-prototype) cell interning.
+/// (Number.prototype 1 vs String/Boolean/Date/RegExp 0), so this
+/// per-mid row carries the majority value 0. Callers that know which
+/// prototype the cell was minted for use [`any_method_meta_for`],
+/// which resolves that one divergence.
 pub fn any_method_meta(mid: i64) -> Option<(&'static str, u32)> {
     Some(match mid {
         ANY_METHOD_PUSH => ("push", 1),
@@ -203,6 +204,23 @@ pub fn any_method_meta(mid: i64) -> Option<(&'static str, u32)> {
     })
 }
 
+/// Family-aware twin of [`any_method_meta`] — `fam` is the builtin
+/// proto tag the reified cell was minted for (see
+/// [`crate::builtin_proto`]). It resolves the table's single length
+/// divergence: §21.1.6.6 `Number.prototype.toString(radix)` has
+/// length 1 where every other prototype's `toString` has 0. Names
+/// never diverge, so they pass straight through.
+///
+/// Callers that have no family (a family-less mint answers -1) get
+/// the majority row, i.e. [`any_method_meta`]'s value.
+pub fn any_method_meta_for(fam: i64, mid: i64) -> Option<(&'static str, u32)> {
+    let (name, arity) = any_method_meta(mid)?;
+    if mid == ANY_METHOD_TO_STRING && fam == crate::builtin_proto::NUMBER_PROTO_TAG as i64 {
+        return Some((name, 1));
+    }
+    Some((name, arity))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -224,6 +242,36 @@ mod tests {
         assert!(any_method_meta(ANY_METHOD_UNKNOWN).is_none());
         assert!(any_method_meta(ANY_METHOD_GET_DESCRIPTION + 1).is_none());
         assert!(any_method_meta(-1).is_none());
+    }
+
+    #[test]
+    fn family_aware_length_resolves_the_tostring_divergence() {
+        use crate::builtin_proto::{BOOLEAN_PROTO_TAG, NUMBER_PROTO_TAG, STRING_PROTO_TAG};
+
+        // §21.1.6.6 — Number.prototype.toString takes a radix.
+        assert_eq!(
+            any_method_meta_for(NUMBER_PROTO_TAG as i64, ANY_METHOD_TO_STRING),
+            Some(("toString", 1))
+        );
+        // Every other prototype's toString is 0, including the
+        // family-less mint.
+        for fam in [STRING_PROTO_TAG as i64, BOOLEAN_PROTO_TAG as i64, -1] {
+            assert_eq!(
+                any_method_meta_for(fam, ANY_METHOD_TO_STRING),
+                Some(("toString", 0)),
+                "fam {fam}"
+            );
+        }
+        // No other id diverges — the family is inert for them.
+        assert_eq!(
+            any_method_meta_for(NUMBER_PROTO_TAG as i64, ANY_METHOD_TO_FIXED),
+            any_method_meta(ANY_METHOD_TO_FIXED)
+        );
+        assert_eq!(
+            any_method_meta_for(NUMBER_PROTO_TAG as i64, ANY_METHOD_VALUE_OF),
+            any_method_meta(ANY_METHOD_VALUE_OF)
+        );
+        assert!(any_method_meta_for(NUMBER_PROTO_TAG as i64, ANY_METHOD_UNKNOWN).is_none());
     }
 
     #[test]

@@ -172,6 +172,33 @@ pub(crate) fn lower_with_val(
     crate::ssa_lower_member_obj_field::try_lower(ctx, obj, obj_val, sid, name)
 }
 
+/// The builtin proto family a primitive receiver's method VALUE read
+/// mints against (`torajs_rc::builtin_proto` tags), or `None` when
+/// the receiver is not a reifiable primitive. Str / Substr, Number
+/// and Boolean receivers each reify off their own prototype so the
+/// runtime's family-generic gate — §22.1.3 ToString(this) for the
+/// String family, the §21.1.3 / §20.3.3 brand checks for the wrapper
+/// families — selects correctly on `.call` / `.bind`.
+pub(crate) fn mv_family_of_ssa_ty(t: &Type) -> Option<i64> {
+    Some(match t {
+        Type::Str | Type::Substr => torajs_rc::builtin_proto::STRING_PROTO_TAG as i64,
+        Type::I64 | Type::F64 => torajs_rc::builtin_proto::NUMBER_PROTO_TAG as i64,
+        Type::Bool => torajs_rc::builtin_proto::BOOLEAN_PROTO_TAG as i64,
+        _ => return None,
+    })
+}
+
+/// Checker-type twin of [`mv_family_of_ssa_ty`] — the let-decl
+/// recorder and the checker's own gates classify before lowering.
+pub(crate) fn mv_family_of_checker_ty(t: &crate::check::Type) -> Option<i64> {
+    Some(match t {
+        crate::check::Type::String => torajs_rc::builtin_proto::STRING_PROTO_TAG as i64,
+        crate::check::Type::Number => torajs_rc::builtin_proto::NUMBER_PROTO_TAG as i64,
+        crate::check::Type::Boolean => torajs_rc::builtin_proto::BOOLEAN_PROTO_TAG as i64,
+        _ => return None,
+    })
+}
+
 /// RFC 20260725-str-method-value-reify — a builtin method read as a
 /// VALUE off a String-typed receiver (`const m = s.slice`) resolves
 /// the interned mid-cell (family 3), typed as the checker
@@ -191,9 +218,7 @@ fn try_lower_str_method_value(
     obj_ty: &Type,
     name: &str,
 ) -> Option<Operand> {
-    if !matches!(obj_ty, Type::Str | Type::Substr) {
-        return None;
-    }
+    let fam = mv_family_of_ssa_ty(obj_ty)?;
     let Some(crate::check::Type::Function(ps, ret)) = ctx.expr_types.get(&eid) else {
         return None;
     };
@@ -203,8 +228,11 @@ fn try_lower_str_method_value(
     }
     // A nullable receiver (un-narrowed exec/match capture miss) must
     // throw before handing out a method value — same guard as the
-    // `.length` arm (no-op for non-nullable receivers).
-    crate::ssa_lower_nullable_guard::emit_nullable_str_guard(ctx, obj, obj_val);
+    // `.length` arm (no-op for non-nullable receivers). Number /
+    // Boolean receivers have no nullable form to guard.
+    if matches!(obj_ty, Type::Str | Type::Substr) {
+        crate::ssa_lower_nullable_guard::emit_nullable_str_guard(ctx, obj, obj_val);
+    }
     let params: Vec<Type> = ps
         .iter()
         .map(crate::ssa_lower_member_builtin_namespace::check_ty_to_ssa)
@@ -216,7 +244,7 @@ fn try_lower_str_method_value(
         cur_block,
         InstKind::Call(
             ctx.intrinsics.builtin_method_cell_tagged,
-            vec![Operand::ConstI64(3), Operand::ConstI64(mid)],
+            vec![Operand::ConstI64(fam), Operand::ConstI64(mid)],
         ),
         Type::Closure(sig),
         None,

@@ -182,7 +182,7 @@ pub(crate) struct LowerCtx<'a> {
     /// (`const m = s.slice`), name → method id. The `.length` /
     /// `.name` member folds read the spec row off the shared
     /// torajs-rc meta table instead of the checker-sig shape.
-    pub(crate) builtin_mv_locals: std::collections::HashMap<String, i64>,
+    pub(crate) builtin_mv_locals: std::collections::HashMap<String, (i64, i64)>,
     /// Stack of names declared in each enclosing lexical scope, with the
     /// fn-root scope as `scope_stack[0]`. M1.3 — at `}` close we pop the
     /// top frame and emit drops for owners declared at that depth, then

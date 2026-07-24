@@ -125,8 +125,8 @@ pub(crate) fn try_lower(
         // (`indexOf.length` is 1; the checker sig says 2). `.name`
         // stays on the runtime chain — the cell probe answers it.
         if name == "length"
-            && let Some(mid) = builtin_mv_mid_of_obj(ctx, obj)
-            && let Some((_, arity)) = torajs_rc::any_method_meta(mid)
+            && let Some((mid, fam)) = builtin_mv_mid_of_obj(ctx, obj)
+            && let Some((_, arity)) = torajs_rc::any_method_meta_for(fam, mid)
         {
             return Some(Operand::ConstI64(i64::from(arity)));
         }
@@ -176,14 +176,16 @@ fn ns_static_id_of_obj(ctx: &LowerCtx<'_>, obj: ExprId) -> Option<i64> {
     crate::ssa_lower_stmt_let_decl_general::ns_static_member_init_id(ctx, obj)
 }
 
-/// The builtin method id of a member READ receiver: a binding
-/// registered at its let-decl (`const m = s.slice; m.length`) or
-/// the direct nested member form (`s.slice.length`).
-fn builtin_mv_mid_of_obj(ctx: &LowerCtx<'_>, obj: ExprId) -> Option<i64> {
+/// The builtin `(method id, proto family)` of a member READ
+/// receiver: a binding registered at its let-decl (`const m =
+/// s.slice; m.length`) or the direct nested member form
+/// (`s.slice.length`). The family rides along because the spec
+/// `length` of one mid can differ per prototype.
+fn builtin_mv_mid_of_obj(ctx: &LowerCtx<'_>, obj: ExprId) -> Option<(i64, i64)> {
     if let crate::ast::Expr::Ident(n) = ctx.ast.get_expr(obj)
-        && let Some(mid) = ctx.builtin_mv_locals.get(n)
+        && let Some(mid_fam) = ctx.builtin_mv_locals.get(n)
     {
-        return Some(*mid);
+        return Some(*mid_fam);
     }
     crate::ssa_lower_stmt_let_decl_general::builtin_mv_member_init_mid(ctx, obj)
 }

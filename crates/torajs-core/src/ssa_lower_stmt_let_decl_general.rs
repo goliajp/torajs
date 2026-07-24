@@ -153,9 +153,9 @@ pub(crate) fn record_binding_flags(
     // is the typed-slot boundary throw, its boxed entry the spec
     // this-undefined TypeError. The mid registers alongside so the
     // `.length` / `.name` folds answer the spec meta row.
-    if let Some(mid) = builtin_mv_member_init_mid(ctx, init) {
+    if let Some(mid_fam) = builtin_mv_member_init_mid(ctx, init) {
         ctx.variadic_locals.insert(name.to_string());
-        ctx.builtin_mv_locals.insert(name.to_string(), mid);
+        ctx.builtin_mv_locals.insert(name.to_string(), mid_fam);
     }
     // RFC 20260707 residual chunk — record string-index let-inits
     // (`const c = s[i]`) and their aliases: the Substr slot may
@@ -199,17 +199,16 @@ pub(crate) fn ns_static_member_init_id(ctx: &LowerCtx, init: ExprId) -> Option<i
     }
 }
 
-/// The method id when `init` is a String-receiver builtin method
-/// VALUE read (`s.slice`) — the same gate the member lowering mints
-/// under: receiver checker-typed String + member typed `Function` +
-/// the name interns to a mid with a spec meta row.
-pub(crate) fn builtin_mv_member_init_mid(ctx: &LowerCtx, init: ExprId) -> Option<i64> {
+/// The `(mid, proto family)` when `init` is a primitive-receiver
+/// builtin method VALUE read (`s.slice` / `n.toString`) — the same
+/// gate the member lowering mints under: the receiver types to a
+/// prototype family + member typed `Function` + the name interns to
+/// a mid with a spec meta row.
+pub(crate) fn builtin_mv_member_init_mid(ctx: &LowerCtx, init: ExprId) -> Option<(i64, i64)> {
     let Expr::Member { obj, name } = ctx.ast.get_expr(init) else {
         return None;
     };
-    if !matches!(ctx.expr_types.get(obj), Some(crate::check::Type::String)) {
-        return None;
-    }
+    let fam = crate::ssa_lower_member::mv_family_of_checker_ty(ctx.expr_types.get(obj)?)?;
     if !matches!(
         ctx.expr_types.get(&init),
         Some(crate::check::Type::Function(..))
@@ -220,7 +219,7 @@ pub(crate) fn builtin_mv_member_init_mid(ctx: &LowerCtx, init: ExprId) -> Option
     if mid == torajs_rc::ANY_METHOD_UNKNOWN || torajs_rc::any_method_meta(mid).is_none() {
         return None;
     }
-    Some(mid)
+    Some((mid, fam))
 }
 
 /// Stage 3 — materialize the binding's slot (capture box for

@@ -256,13 +256,17 @@ fn try_builtin_mv_fn_surface(
 
 /// A reified builtin-method value (RFC 20260725-str-method-value-
 /// reify): a binding the let-decl marked `builtin_mv`, or the
-/// inline `s.slice` Member form (receiver types String, member
-/// types Function, name interns to a builtin mid with a meta row).
+/// inline `s.slice` Member form (receiver types to a builtin
+/// prototype family, member types Function, name interns to a
+/// builtin mid with a meta row).
 fn is_builtin_mv_read(checker: &mut Checker, ast: &Ast, obj: ExprId) -> bool {
     match ast.get_expr(obj) {
         Expr::Ident(n) => checker.lookup(n).is_some_and(|info| info.builtin_mv),
         Expr::Member { obj: inner, name } => {
-            if !matches!(checker.type_of(ast, *inner), Ok(Type::String)) {
+            let recv_ok = checker
+                .type_of(ast, *inner)
+                .is_ok_and(|t| crate::ssa_lower_member::mv_family_of_checker_ty(&t).is_some());
+            if !recv_ok {
                 return false;
             }
             let mid = torajs_rc::any_method_id(name);
