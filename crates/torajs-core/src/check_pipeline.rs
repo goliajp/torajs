@@ -259,6 +259,19 @@ pub(crate) fn pass_2_register_globals_and_check_stmts(c: &mut Checker, ast: &Ast
                     // is the single home (the old env-copy snapshot
                     // disagreed with ES shared-binding semantics).
                     if binding_refs.named_fn_refs.contains(name) {
+                        // Rotation 204 — a dynobj-degraded ObjectLit
+                        // init registers Any, making a degraded
+                        // binding named-fn-visible exactly like a
+                        // `: any` annotation (the degrade IS the
+                        // any-lane routing decision; see
+                        // `crate::dynobj_degrade`). `var` stays
+                        // main-local — the lowerer's promote loop
+                        // only takes `is_var: false`, and a
+                        // checker-only registration would typecheck
+                        // programs whose lowering still aborts.
+                        if !*is_var && c.dynobj_degraded.contains(init) {
+                            Some(Type::Any)
+                        }
                         // RFC 20260709-closure-global chunk 2 — an
                         // un-annotated lifted-arrow init registers
                         // under the sig synthesized from the lifted
@@ -270,7 +283,7 @@ pub(crate) fn pass_2_register_globals_and_check_stmts(c: &mut Checker, ast: &Ast
                         // mutable_promote gate). Variadic sigs stay
                         // main-local (boxed-dual routing is a
                         // fn-local table — RFC O2).
-                        if let Expr::Closure { fn_name, .. } = ast.get_expr(*init) {
+                        else if let Expr::Closure { fn_name, .. } = ast.get_expr(*init) {
                             if *is_var {
                                 None
                             } else {

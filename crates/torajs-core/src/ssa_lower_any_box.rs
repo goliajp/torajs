@@ -1,13 +1,14 @@
 //! Any-box / (tag, value) family helpers for `LowerCtx<'a>` extracted
 //! from `ssa_lower.rs` chunk 373.
 //!
-//! Six accessors that share the "SSA scalar ↔ AnyBox" boundary:
+//! Accessors that share the "SSA scalar ↔ AnyBox" boundary:
 //! `box_to_any_from_expr` / `box_to_any` / `box_to_tag_value` /
-//! `lower_to_tag_value` / `any_unbox_value_as_ptr` /
-//! `emit_any_dynobj_writeback`. Method bodies are byte-for-byte
-//! preserved from the source; siblings and `ssa_lower.rs` reach them
-//! through the impl block on the shared `crate::ssa_lower::LowerCtx`
-//! type.
+//! `lower_to_tag_value` / `any_unbox_value_as_ptr`. Method bodies are
+//! byte-for-byte preserved from the source; siblings and
+//! `ssa_lower.rs` reach them through the impl block on the shared
+//! `crate::ssa_lower::LowerCtx` type. `emit_any_dynobj_writeback`
+//! lives in the `ssa_lower_any_box_writeback` sibling (rotation 204
+//! file-size split).
 
 use crate::ast::{Expr, ExprId};
 use crate::short_str_encode::encode_short_str_literal;
@@ -430,55 +431,5 @@ impl<'a> LowerCtx<'a> {
             Type::Ptr,
             None,
         )
-    }
-
-    /// Step 7d-A — `dynobj_set` / `dynobj_define` may resize +
-    /// relocate the underlying heap block (`*obj_slot` updated).
-    /// The variable's AnyValue still holds the OLD ptr; if the
-    /// receiver was a named Ident, reload the post-resize ptr and
-    /// store it back as a fresh NaN-box `AnyValue`. NaN-box Cell
-    /// encoding is `ptr as u64` (identical bits — the PtrToInt +
-    /// IntToPtr cast is a no-op at LLVM IR; LTO collapses them
-    /// into the same SSA value). Non-Ident receivers (e.g.
-    /// `arr[i].x = v`) don't have a hoisted slot; the resize-time
-    /// dangling is a follow-up patch (no current conformance
-    /// fixture exercises it under the 7/8 load factor +
-    /// `INITIAL_CAP=8`).
-    pub(crate) fn emit_any_dynobj_writeback(
-        &mut self,
-        obj_ident: &Option<String>,
-        dynobj_slot: ValueId,
-    ) {
-        let Some(name) = obj_ident else {
-            return;
-        };
-        let Some(info) = self.locals.get(name).copied() else {
-            return;
-        };
-        if !matches!(info.ty, Type::Any) {
-            return;
-        }
-        let new_dynobj = self.f.append_inst(
-            self.cur_block,
-            InstKind::Load(Type::Ptr, Operand::Value(dynobj_slot), 0),
-            Type::Ptr,
-            None,
-        );
-        let new_dynobj_as_i64 = self.f.append_inst(
-            self.cur_block,
-            InstKind::PtrToInt(Operand::Value(new_dynobj)),
-            Type::I64,
-            None,
-        );
-        let new_any = self.f.append_inst(
-            self.cur_block,
-            InstKind::IntToPtr(Operand::Value(new_dynobj_as_i64)),
-            Type::Any,
-            None,
-        );
-        self.f.append_void(
-            self.cur_block,
-            InstKind::Store(Operand::Value(new_any), Operand::Value(info.slot), 0),
-        );
     }
 }

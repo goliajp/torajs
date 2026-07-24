@@ -52,6 +52,10 @@ pub(crate) fn collect_toplevel_globals(
     num_f64_slots: &crate::num_width::WidthTable,
 ) -> HashMap<String, Type> {
     let binding_refs = crate::ast_refs::toplevel_binding_refs(ast);
+    // Rotation 204 — mirror of the checker's `dynobj_degraded`
+    // consult in pass_2 (recomputed from this side's own Ast
+    // snapshot, the standard no-drift contract).
+    let dynobj_degraded = crate::dynobj_degrade::collect_dynobj_degraded_inits(ast);
     let mut globals: HashMap<String, Type> = HashMap::new();
     for stmt in &ast.stmts {
         if let Stmt::LetDecl {
@@ -105,6 +109,7 @@ pub(crate) fn collect_toplevel_globals(
                     *init,
                     ast,
                     &binding_refs,
+                    &dynobj_degraded,
                     aliases,
                     arr_layouts,
                     fn_sigs,
@@ -252,6 +257,7 @@ fn inferred_slot_ty(
     init: ExprId,
     ast: &Ast,
     binding_refs: &crate::ast_refs::ToplevelBindingRefs,
+    dynobj_degraded: &std::collections::HashSet<ExprId>,
     aliases: &HashMap<String, Type>,
     arr_layouts: &mut Vec<Type>,
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
@@ -272,6 +278,15 @@ fn inferred_slot_ty(
     // semantics — `inc(); show()` read a stale main-local).
     if !binding_refs.named_fn_refs.contains(name) {
         return None;
+    }
+    // Rotation 204 — a dynobj-degraded ObjectLit init promotes as
+    // Any, the exact type the checker's pass_2 registered for it
+    // (degrade ≡ `: any` annotation). The Any slot rides the whole
+    // chunk-809 Any-global machinery: supported/mutable gates admit
+    // it, the init lane boxes a fresh dynobj, the exit hook's Any
+    // arm settles the box.
+    if dynobj_degraded.contains(&init) {
+        return Some(Type::Any);
     }
     if let Expr::Closure { fn_name, .. } = ast.get_expr(init) {
         let canon = crate::ast_refs::lifted_closure_fn_canon(ast, fn_name)?;

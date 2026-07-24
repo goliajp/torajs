@@ -51,6 +51,16 @@ pub(crate) fn try_lower_global_let(ctx: &mut LowerCtx, name: &str, init: ExprId)
     {
         let ids: Vec<ExprId> = els.clone();
         ctx.lower_array_any_literal(&ids)
+    } else if slot_ty == Type::Any && matches!(ctx.ast.get_expr(init), Expr::ObjectLit { .. }) {
+        // Rotation 204 — mirror of the fn-scope P3.2 arm
+        // (`lower_let_init_val`): an ObjectLit init in an Any slot
+        // lowers through the dynobj lane, NOT the anon-struct lane —
+        // the define/expando write-back contract requires a dynobj
+        // cell. The raw Ptr result rides the chunk-809 box station
+        // below (Ptr is not refcounted at the SSA level, so no
+        // borrow-inc fires; the fresh dynobj's +1 transfers into the
+        // tag-4 box and K.4's fresh-heap-init holds).
+        ctx.lower_dynobj_init(init)
     } else {
         // Chunk 780 — pin the declared struct layout for a direct
         // ObjectLit init (global-lane mirror of the fn-scope hint;
