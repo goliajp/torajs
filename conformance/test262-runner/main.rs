@@ -33,6 +33,7 @@ mod args;
 mod bugdump;
 mod cache;
 mod frontmatter;
+mod harness_shake;
 mod verdict;
 
 use std::io::Write;
@@ -454,7 +455,7 @@ fn preceded_by_word(bytes: &[u8], i: usize) -> bool {
 
 fn run_case(
     path: &Path,
-    harness: &str,
+    harness: &harness_shake::HarnessIndex,
     tr_bin: &Path,
     slot: usize,
     dump_src: Option<&Path>,
@@ -500,7 +501,12 @@ fn run_case(
     }
 
     let transformed = transform_source(&case_src);
-    let full = format!("{harness}\n{transformed}");
+    // RFC 20260724-test262-harness-preamble blade 1 — prepend only
+    // the harness segments this case references (dep-closed), not
+    // the full ~700-line harness: the tr front-end otherwise spends
+    // ~90% of its per-case time re-compiling identical helpers.
+    let harness_min = harness.minimal_for(&transformed);
+    let full = format!("{harness_min}\n{transformed}");
 
     // `--dump-src`: persist the assembled source for runner-isomorphic
     // reproduction (byte-identical to the tmp file executed below).
@@ -545,7 +551,7 @@ fn run_case(
     // timeout). Cache hit → 0 spawn cost. Miss → spawn bun, populate
     // cache.
     let (bun_success, bun_stdout) =
-        match cache::bun_oracle(case_src.as_bytes(), harness.as_bytes(), &tmp_path) {
+        match cache::bun_oracle(case_src.as_bytes(), harness_min.as_bytes(), &tmp_path) {
             Ok(v) => v,
             Err(e) => {
                 let _ = std::fs::remove_file(&tmp_path);
@@ -592,6 +598,7 @@ fn main() {
             std::process::exit(2);
         }
     };
+    let harness = harness_shake::HarnessIndex::build(&harness);
 
     // tr binary path. The bench harness builds it via cargo; we
     // assume the workspace's `target/release/tr` is current — caller
