@@ -75,6 +75,23 @@ pub(super) fn collect_value_argc(
     // by DIRECT CALL only (any other use — alias, re-pass, store —
     // reaches sites that don't know the argc slot).
     let mut hof_arg_fns: HashSet<String> = HashSet::new();
+    // The receiving-fn gate below resolves the callee name `g` with
+    // a top-level FnDecl `.any()` — name-only. A call site whose `g`
+    // is really a LOCAL binding (param / fn-body let) shadowing a
+    // same-named top-level fn would pass the gate while the actual
+    // receiver knows nothing about the argc slot → ABI mismatch
+    // (probe: SIGBUS). Guard: a callee name bound in any fn-local
+    // position anywhere is not provably the top-level fn — skip
+    // (over-kill only loses the optimization, never wrong).
+    let mut fn_local_names: HashSet<String> = HashSet::new();
+    for s in &ast.stmts {
+        if let Stmt::FnDecl { params, body, .. } = s {
+            for p in params {
+                fn_local_names.insert(p.name.clone());
+            }
+            crate::ast_collect_bindings::collect_local_binding_names(body, &mut fn_local_names);
+        }
+    }
     for e in &ast.exprs {
         let Expr::Call { callee, args } = e else {
             continue;
@@ -82,6 +99,9 @@ pub(super) fn collect_value_argc(
         let Expr::Ident(g) = ast.get_expr(*callee) else {
             continue;
         };
+        if fn_local_names.contains(g) {
+            continue;
+        }
         for (pi, a) in args.iter().enumerate() {
             let Expr::Closure { fn_name, .. } = ast.get_expr(*a) else {
                 continue;
