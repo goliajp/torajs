@@ -331,6 +331,35 @@ fn inferred_slot_ty(
             fn_sigs,
         ));
     }
+    // RFC 20260725 follow-up — an un-annotated all-literal ObjectLit
+    // init promotes under its synthesized `__inlobj(...)` spelling
+    // (the exact string the checker's pass_2 registered, resolved
+    // through the same parse pipeline — layout, field widths and the
+    // interned sid all unify with an equivalent written annotation).
+    if let Some(ann) = crate::ast_refs::objlit_literal_inlobj_ann(ast, init) {
+        let parsed = parse_type(
+            Some(&ann),
+            aliases,
+            arr_layouts,
+            fn_sigs,
+            generic_struct_decls,
+            struct_layouts,
+            inst_memo,
+        );
+        // Same widen the annotated lane runs: an I64 field whose
+        // alias-class point is f64-possible (`w.a = 2.5` in a named
+        // fn) re-interns as F64 instead of tripping the
+        // assign-member width reject.
+        return Some(crate::ssa_lower_container_width::widen_container_ty(
+            parsed,
+            Some(&ann),
+            &SlotKey::Global(name.to_string()),
+            num_f64_slots,
+            arr_layouts,
+            struct_layouts,
+            fn_sigs,
+        ));
+    }
     let shape = crate::ast_refs::infer_toplevel_slot_shape(ast, init)?;
     let parsed = slot_shape_to_type(shape);
     Some(

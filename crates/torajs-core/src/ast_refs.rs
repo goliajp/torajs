@@ -194,6 +194,54 @@ pub fn lifted_closure_fn_canon(ast: &Ast, fn_name: &str) -> Option<String> {
     })
 }
 
+/// RFC 20260725 follow-up (un-annotated struct global) — the
+/// canonical `__inlobj(f:T|...)` spelling for an all-literal-field
+/// ObjectLit init (`let s = { a: 1, b: "x" }`). Both the checker's
+/// pass_2 registration and the lowerer's K.3b slot inference resolve
+/// the SAME string through their existing annotation pipelines, so
+/// the two slots cannot drift (and the interned layout unifies with
+/// an equivalent written annotation). `None` — keeping the binding
+/// main-local — for any field that isn't a Number/String/Bool
+/// literal, a computed-key / symbol / spread / dunder sentinel name,
+/// a non-identifier name (the spelling's `:` / `|` separators must
+/// stay unambiguous), or an empty literal (`{}` is the dynobj-family
+/// idiom, left to the degrade passes).
+pub fn objlit_literal_inlobj_ann(ast: &Ast, init: ExprId) -> Option<String> {
+    let Expr::ObjectLit { fields } = ast.get_expr(init) else {
+        return None;
+    };
+    if fields.is_empty() {
+        return None;
+    }
+    let mut parts: Vec<String> = Vec::with_capacity(fields.len());
+    for (fname, val) in fields {
+        let mut chars = fname.chars();
+        let head_ok = chars
+            .next()
+            .is_some_and(|c| c.is_ascii_alphabetic() || c == '_' || c == '$');
+        if !head_ok
+            || !chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
+            || fname.starts_with("__")
+        {
+            return None;
+        }
+        let ann = match ast.get_expr(*val) {
+            Expr::Number(n) => {
+                if n.fract() != 0.0 || n.abs() >= 9.223372036854776e18 {
+                    "f64"
+                } else {
+                    "number"
+                }
+            }
+            Expr::String(_) => "string",
+            Expr::Bool(_) => "boolean",
+            _ => return None,
+        };
+        parts.push(format!("{fname}:{ann}"));
+    }
+    Some(format!("__inlobj({})", parts.join("|")))
+}
+
 fn idents_in_stmt(ast: &Ast, s: &Stmt, shadow: &HashSet<String>, out: &mut HashSet<String>) {
     match s {
         Stmt::Expr(e) | Stmt::Throw(e) | Stmt::Yield(e) => idents_in_expr(ast, *e, shadow, out),

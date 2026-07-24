@@ -291,6 +291,18 @@ pub(crate) fn pass_2_register_globals_and_check_stmts(c: &mut Checker, ast: &Ast
                                     .filter(|canon| !canon.contains("__rest("))
                                     .and_then(|canon| resolve_type_ann(&canon, &c.aliases))
                             }
+                        }
+                        // RFC 20260725 follow-up — an un-annotated
+                        // all-literal ObjectLit init registers under
+                        // its synthesized `__inlobj(...)` spelling
+                        // (the lowerer's K.3b arm resolves the same
+                        // string, so the slots can't drift). `var`
+                        // stays main-local like every arm here.
+                        else if !*is_var
+                            && let Some(ann) =
+                                crate::ast_refs::objlit_literal_inlobj_ann(ast, *init)
+                        {
+                            resolve_type_ann(&ann, &c.aliases)
                         } else {
                             crate::ast_refs::infer_toplevel_slot_shape(ast, *init).map(
                                 |s| match s {
