@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-24T19:25:13.820Z",
+  "generatedAt": "2026-07-24T19:48:11.952Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-24T19:24:21Z",
+    "ranAt": "2026-07-24T19:47:48Z",
     "headSha": "5eb3ce87",
-    "elapsedSec": 196.52,
+    "elapsedSec": 197.2,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 8981,
+    "pass": 8983,
     "passNoOracle": 118,
     "passNegative": 4447,
-    "passTotal": 13546,
-    "bug": 546,
+    "passTotal": 13548,
+    "bug": 544,
     "incompatible": 39082,
     "bunSkip": 11904,
     "harnessError": 0,
     "inScope": 53174,
     "trAccepted": 14092,
-    "passRateInScope": 25.47,
-    "passRateTrAccepted": 96.13
+    "passRateInScope": 25.48,
+    "passRateTrAccepted": 96.14
   },
   "torajs": {
-    "commit": "a7c7e885",
-    "commitSubject": "feat(check): object-literal computed keys evaluate at runtime",
+    "commit": "2b5f1d00",
+    "commitSubject": "feat(runtime): JSON.stringify consults the user toJSON hook",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "2b5f1d00",
+      "subject": "feat(runtime): JSON.stringify consults the user toJSON hook"
+    },
+    {
+      "hash": "8be34011",
+      "subject": "chore(hardev): archive test262 r214 sweep (13546/546; objlit computed-key runtime evaluation +45 parse-face unlock; free-receiver write degrade + var redecl; +47/-2 vs r213 zero regression)"
+    },
+    {
       "hash": "a7c7e885",
       "subject": "feat(check): object-literal computed keys evaluate at runtime"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "0d8f2578",
       "subject": "fix(parser): computed ['__proto__'] key defines an own property, not the prototype"
-    },
-    {
-      "hash": "5ac2a801",
-      "subject": "fix(check): degraded top-level object bindings become named-fn-visible any globals"
-    },
-    {
-      "hash": "afa46564",
-      "subject": "chore(hardev): archive test262 r210 sweep (13422/587; iron-rule de-inflation + expando/introspection recovery + blade-1 tree-shake; warm wall 197s -24%)"
     }
   ],
-  "headSha": "a7c7e885",
+  "headSha": "2b5f1d00",
   "autorun": {
     "total": 509,
     "baselineTarget": 10,
