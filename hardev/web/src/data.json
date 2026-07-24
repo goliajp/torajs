@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-24T16:40:34.952Z",
+  "generatedAt": "2026-07-24T17:56:56.479Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-24T16:39:57Z",
+    "ranAt": "2026-07-24T17:56:24Z",
     "headSha": "5eb3ce87",
-    "elapsedSec": 197.13,
+    "elapsedSec": 196.07,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 8860,
-    "passNoOracle": 115,
+    "pass": 8924,
+    "passNoOracle": 116,
     "passNegative": 4447,
-    "passTotal": 13422,
-    "bug": 587,
-    "incompatible": 39165,
+    "passTotal": 13487,
+    "bug": 560,
+    "incompatible": 39127,
     "bunSkip": 11904,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 14009,
-    "passRateInScope": 25.24,
-    "passRateTrAccepted": 95.81
+    "trAccepted": 14047,
+    "passRateInScope": 25.36,
+    "passRateTrAccepted": 96.01
   },
   "torajs": {
-    "commit": "9781cc29",
-    "commitSubject": "perf(test262-runner): tree-shake the harness prepend to per-case minimal segments",
+    "commit": "1fde2630",
+    "commitSubject": "fix(test262-runner): var-to-let rewrite gates on preceded-by-dot",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "1fde2630",
+      "subject": "fix(test262-runner): var-to-let rewrite gates on preceded-by-dot"
+    },
+    {
+      "hash": "670b83de",
+      "subject": "fix(parser): var joins the reserved-word property-name table"
+    },
+    {
+      "hash": "1bbe9d4b",
+      "subject": "fix(runtime): borrowed builtin method cells dispatch through their mint family"
+    },
+    {
+      "hash": "0d8f2578",
+      "subject": "fix(parser): computed ['__proto__'] key defines an own property, not the prototype"
+    },
+    {
+      "hash": "5ac2a801",
+      "subject": "fix(check): degraded top-level object bindings become named-fn-visible any globals"
+    },
+    {
+      "hash": "afa46564",
+      "subject": "chore(hardev): archive test262 r210 sweep (13422/587; iron-rule de-inflation + expando/introspection recovery + blade-1 tree-shake; warm wall 197s -24%)"
+    },
+    {
       "hash": "9781cc29",
       "subject": "perf(test262-runner): tree-shake the harness prepend to per-case minimal segments"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "5392b0df",
       "subject": "perf(link): borrow symbol names from archive bytes in the merge index"
-    },
-    {
-      "hash": "781531e3",
-      "subject": "chore(hardev): dashboard snapshot at rotation 202 close"
-    },
-    {
-      "hash": "4e1b47f5",
-      "subject": "chore(hardev): archive test262 r204 sweep (13379/578 zero delta; struct-method pad + link perf pair; sweep wall 248s post-speedup)"
-    },
-    {
-      "hash": "c427463b",
-      "subject": "perf(link): merge archive indexes once per link instead of twice"
-    },
-    {
-      "hash": "38b17e3f",
-      "subject": "perf(link): borrow baked staticlibs into LinkConfig instead of deep-copying"
-    },
-    {
-      "hash": "580378a4",
-      "subject": "fix(ssa_lower): pad missing trailing-any args on the struct-method dispatch lane"
-    },
-    {
-      "hash": "cf93f4ac",
-      "subject": "chore(hardev): archive test262 r203 sweep (13379/578 restored after a47119b3) + dashboard snapshot at rotation 201 close"
     }
   ],
-  "headSha": "9781cc29",
+  "headSha": "1fde2630",
   "autorun": {
-    "total": 507,
+    "total": 508,
     "baselineTarget": 10,
-    "bySelf": 502,
+    "bySelf": 503,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784902951-3e83",
-      "at": "2026-07-24T14:22:31Z",
-      "ts": 1784902951,
+      "rotationId": "r-1784911321-73e6",
+      "at": "2026-07-24T16:42:01Z",
+      "ts": 1784911321,
       "trigger": "self",
-      "prevHead": "995dce57",
-      "handoffSha": "sha256:abe09ad97bbcc471505479416100c5c8808e16810d50846e0efe3c076200e1c6",
-      "handoffAgeSec": 7,
+      "prevHead": "afa46564",
+      "handoffSha": "sha256:575af29a34d6c2d7413e4548b22bbf012f78564298a2ff4a3fdc0ff8fe8ec995",
+      "handoffAgeSec": 4,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784911321-73e6",
+        "at": "2026-07-24T16:42:01Z",
+        "ts": 1784911321,
+        "trigger": "self",
+        "prevHead": "afa46564",
+        "handoffSha": "sha256:575af29a34d6c2d7413e4548b22bbf012f78564298a2ff4a3fdc0ff8fe8ec995",
+        "handoffAgeSec": 4,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784902951-3e83",
         "at": "2026-07-24T14:22:31Z",
@@ -876,17 +887,6 @@
         "prevHead": "95a00956",
         "handoffSha": "sha256:f9dcc5e02531001a8c2d1c1964065c61be5b239c4b136fb5a266e42860bb3ace",
         "handoffAgeSec": 4,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784776245-51e1",
-        "at": "2026-07-23T03:10:45Z",
-        "ts": 1784776245,
-        "trigger": "self",
-        "prevHead": "a34993ca",
-        "handoffSha": "sha256:dee810f5939585435a1711b78a616fd339ae3360c95efba91142e56f9011e307",
-        "handoffAgeSec": 1620,
         "conformanceBefore": null,
         "commitsInSession": null
       }
