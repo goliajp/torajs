@@ -69,8 +69,10 @@ fn main() -> ExitCode {
         Some("parse") => run_pipeline(args.get(1), Stage::Parse),
         Some("check") => run_pipeline(args.get(1), Stage::Check),
         Some("ssa") => run_pipeline(args.get(1), Stage::Ssa),
-        // `tr run` is AOT-with-cache (replaced Cranelift JIT 2026-05-01):
-        // hash source → `~/.torajs/cache/<hash>` → exec, or compile + cache + exec.
+        // `tr run` compiles unconditionally and execs a temp binary
+        // (no memoization — the `~/.torajs/cache` run-cache described
+        // here historically was never wired into this path; `tr cache`
+        // subcommands manage the directory for a future revival).
         // `jit` is kept as a back-compat alias.
         // Pipeline: codegen → torajs-obj → torajs-link (in-house aarch64 toolchain,
         // ssa_inkwell/LLVM retired in #9 atomic swap).
@@ -114,7 +116,7 @@ fn print_usage() {
     println!("    tr <COMMAND> <file|->");
     println!();
     println!("COMMANDS:");
-    println!("    run <file>           AOT-compile (cached at ~/.torajs/cache), execute");
+    println!("    run <file>           AOT-compile and execute");
     println!("    jit <file>           alias for `run` (back-compat)");
     println!("    tokenize <file>      print the token stream");
     println!("    parse <file>         print the parsed AST");
