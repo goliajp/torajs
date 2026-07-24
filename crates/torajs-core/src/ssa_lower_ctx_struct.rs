@@ -375,12 +375,12 @@ pub(crate) struct LowerCtx<'a> {
     /// recorded in `stack_alloced_locals` so end-of-scope drop
     /// emission skips its rc-dec branch + drop_sized call.
     pub(crate) escape_obj_lets: std::collections::HashSet<String>,
-    /// RC-4 F1c — defineProperty receiver names (module-flat arena
-    /// scan, `crate::define_receivers`). An unannotated ObjectLit
-    /// `LetDecl` for such a name lowers through the P3.2 dynobj-init
-    /// lane (binding type `any`), mirroring the checker's
-    /// `dynobj_degraded` so the two sides can't drift.
-    pub(crate) dynobj_degraded: std::collections::HashSet<String>,
+    /// RC-4 F1c — init ExprIds of defineProperty-receiver `let`
+    /// declarations (`crate::dynobj_degrade` scope-correct walk).
+    /// An unannotated ObjectLit `LetDecl` in the set lowers through
+    /// the P3.2 dynobj-init lane (binding type `any`), mirroring the
+    /// checker's `dynobj_degraded` so the two sides can't drift.
+    pub(crate) dynobj_degraded: std::collections::HashSet<crate::ast::ExprId>,
     /// RC-4 F1a — binding names whose let-init is an exec/match
     /// method call (Nullable<Array<Str>> per the checker). Filled
     /// in declaration order by the LetDecl arm; `.length` / index

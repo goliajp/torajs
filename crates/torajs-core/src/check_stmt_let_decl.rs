@@ -118,7 +118,7 @@ pub(crate) fn check(
     // arg fix at the call site — this is the pre-bound analog).
     let final_ty = if type_ann.is_none()
         && matches!(ast.get_expr(init), Expr::ObjectLit { .. })
-        && (checker.dynobj_degraded.contains(name) || struct_has_undef_field(&final_ty))
+        && (checker.dynobj_degraded.contains(&init) || struct_has_undef_field(&final_ty))
     {
         Type::Any
     } else {

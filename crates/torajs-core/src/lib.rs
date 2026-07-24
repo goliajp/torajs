@@ -202,7 +202,7 @@ pub(crate) mod check_type_of_unary;
 pub(crate) mod check_type_to_ann;
 pub(crate) mod check_typevar;
 pub(crate) mod cm_demote;
-pub(crate) mod define_receivers;
+pub(crate) mod dynobj_degrade;
 pub(crate) mod fn_source_erase;
 pub mod formatter;
 pub mod lexer;

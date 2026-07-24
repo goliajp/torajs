@@ -190,9 +190,9 @@ pub(crate) fn lower_fn(
     };
 
     ctx.prime_body_binding_sets(body.iter());
-    // RC-4 F1c — mirror of the checker's dynobj_degraded set (flat
-    // arena scan; see `crate::define_receivers`).
-    ctx.dynobj_degraded = crate::define_receivers::collect_defineproperty_receivers(ctx.ast);
+    // RC-4 F1c — mirror of the checker's dynobj_degraded set
+    // (scope-correct walk; see `crate::dynobj_degrade`).
+    ctx.dynobj_degraded = crate::dynobj_degrade::collect_dynobj_degraded_inits(ctx.ast);
 
     ctx.materialize_fn_params(name, param_setup);
     ctx.emit_closure_env_preamble(name, params);

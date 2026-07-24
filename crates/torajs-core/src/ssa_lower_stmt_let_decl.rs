@@ -105,7 +105,7 @@ pub(crate) fn lower(
     );
     if type_ann.is_none()
         && matches!(ctx.ast.get_expr(init), Expr::ObjectLit { .. })
-        && (ctx.dynobj_degraded.contains(name) || init_struct_has_undef)
+        && (ctx.dynobj_degraded.contains(&init) || init_struct_has_undef)
     {
         ty = Type::Any;
     }
