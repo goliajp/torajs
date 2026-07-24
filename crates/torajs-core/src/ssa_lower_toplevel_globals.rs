@@ -218,9 +218,18 @@ pub(crate) fn collect_toplevel_globals(
             // owns (drop-old/box-new in the Assign-Ident lane), and
             // member writes route through the runtime any-member
             // helpers on the loaded box.
-            let mutable_promote =
-                (ty == Type::Str || matches!(ty, Type::Closure(_)) || ty == Type::Any)
-                    && binding_refs.named_fn_refs.contains(name);
+            // RFC 20260725 (own-field-write follow-up) — mutable
+            // struct globals promote behind the same gate: a struct
+            // cell's field write is an in-place fixed-offset store
+            // (no reallocating method surface exists on Obj), so the
+            // K.6 writeback concern doesn't apply, and whole-binding
+            // reassignment rides the Assign-Ident global lane's
+            // drop-old/store-new like Str/Closure/Any.
+            let mutable_promote = (ty == Type::Str
+                || matches!(ty, Type::Closure(_))
+                || ty == Type::Any
+                || matches!(ty, Type::Obj(_)))
+                && binding_refs.named_fn_refs.contains(name);
             if *mutable && ty.is_refcounted() && !mutable_promote {
                 continue;
             }

@@ -60,12 +60,17 @@ fn lower_global_assign(
 ) -> Operand {
     // Chunk 809 — Any slots ride the same drop-old/store-new
     // sequence (the old box releases through emit_drop_value's Any
-    // arm; a concrete rhs boxes below).
-    let drop_old_slot =
-        slot_ty == Type::Str || matches!(slot_ty, Type::Closure(_)) || slot_ty == Type::Any;
+    // arm; a concrete rhs boxes below). RFC 20260725 follow-up —
+    // Obj slots join: a struct cell has no reallocating method
+    // surface (field writes are in-place), so drop-old/store-new is
+    // the complete mutation story.
+    let drop_old_slot = slot_ty == Type::Str
+        || matches!(slot_ty, Type::Closure(_))
+        || slot_ty == Type::Any
+        || matches!(slot_ty, Type::Obj(_));
     if slot_ty.is_refcounted() && !drop_old_slot {
         panic!(
-            "ssa-lower: assignment to refcount global `{name}` is not yet supported (K.6 — mutable Arr/Obj globals need method-mutation writeback)"
+            "ssa-lower: assignment to refcount global `{name}` is not yet supported (K.6 — mutable Arr globals need method-mutation writeback)"
         );
     }
     let v = lower_assign_rhs(ctx, slot_ty, value);
@@ -209,6 +214,16 @@ fn lower_assign_rhs(ctx: &mut LowerCtx<'_>, slot_ty: Type, value: ExprId) -> Ope
     if slot_ty == Type::Any && matches!(ctx.ast.get_expr(value), Expr::ObjectLit { .. }) {
         let dynobj = ctx.lower_dynobj_init(value);
         return ctx.box_to_any(dynobj);
+    }
+    // RFC 20260725 follow-up — pin the slot's struct layout for a
+    // direct ObjectLit rhs (`s = { a: 9 }` into an Obj global/local):
+    // without the hint the literal resolves its own anon layout and
+    // the sid mismatch trips the coercion check (mirror of the
+    // let-decl chunk 780 hint; consumed take-once).
+    if let Type::Obj(sid) = slot_ty
+        && matches!(ctx.ast.get_expr(value), Expr::ObjectLit { .. })
+    {
+        ctx.let_declared_obj_layout = Some(sid);
     }
     ctx.lower_expr(value)
 }
