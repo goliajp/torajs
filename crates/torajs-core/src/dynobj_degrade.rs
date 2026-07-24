@@ -81,6 +81,7 @@ pub(crate) fn collect_dynobj_degraded_inits(ast: &Ast) -> HashSet<ExprId> {
         scopes: vec![HashMap::new()],
         out: HashSet::new(),
         fallback_names: HashSet::new(),
+        fallback_introspect_names: HashSet::new(),
         registry: HashMap::new(),
     };
     for s in &ast.stmts {
@@ -91,6 +92,18 @@ pub(crate) fn collect_dynobj_degraded_inits(ast: &Ast) -> HashSet<ExprId> {
             w.out.extend(eids.iter().copied());
         }
     }
+    // introspection fallback skips accessor-bearing declarations —
+    // their static-lane introspection is correct and the accessor
+    // any-lane is a loud not-yet-supported boundary
+    let introspect_hits: Vec<ExprId> = w
+        .fallback_introspect_names
+        .iter()
+        .filter_map(|n| w.registry.get(n))
+        .flatten()
+        .copied()
+        .filter(|e| !w.init_has_accessor_field(*e))
+        .collect();
+    w.out.extend(introspect_hits);
     w.out
 }
 
@@ -100,9 +113,13 @@ struct Walker<'a> {
     /// stack (see module doc on closure captures).
     scopes: Vec<HashMap<String, Binding>>,
     out: HashSet<ExprId>,
-    /// Receiver names that resolved to no binding in their fn — after
-    /// the walk, every candidate declaration under these names marks.
+    /// Define-family receiver names that resolved to no binding in
+    /// their fn — after the walk, every candidate declaration under
+    /// these names marks.
     fallback_names: HashSet<String>,
+    /// Introspection-family receivers that resolved `Free` — applied
+    /// like `fallback_names` but skipping accessor-bearing decls.
+    fallback_introspect_names: HashSet<String>,
     /// Every candidate declaration in the module, by name — the
     /// fallback marking target set.
     registry: HashMap<String, Vec<ExprId>>,
@@ -154,12 +171,31 @@ impl Walker<'_> {
         Resolution::Free
     }
 
-    fn scan_defineproperty(&mut self, callee: ExprId, args: &[ExprId]) {
+    /// `Object.*` / `Reflect.*` static calls whose first-arg receiver
+    /// must live on the dynobj lane: the define family mutates through
+    /// the dynobj write-back (RC-4 F1c), and the descriptor / proto
+    /// introspection family answers wrongly on a struct-typed receiver
+    /// (rotation 203 chunk 3 — the r205 pass→bug collateral: gOPD /
+    /// getPrototypeOf silently mis-answered once the name-collision
+    /// degrade stopped masking them). Both families share the
+    /// conservative resolution: a `Free` receiver falls back to
+    /// name-keyed marking because a miss is SILENT WRONG either way.
+    fn scan_object_static_call(&mut self, callee: ExprId, args: &[ExprId]) {
         let ast = self.ast;
         let Expr::Member { obj, name } = ast.get_expr(callee) else {
             return;
         };
-        if !matches!(name.as_str(), "defineProperty" | "defineProperties") {
+        let is_define = matches!(name.as_str(), "defineProperty" | "defineProperties");
+        let is_introspect = matches!(
+            name.as_str(),
+            "getOwnPropertyDescriptor"
+                | "getOwnPropertyDescriptors"
+                | "getOwnPropertyNames"
+                | "getOwnPropertySymbols"
+                | "getPrototypeOf"
+                | "setPrototypeOf"
+        );
+        if !is_define && !is_introspect {
             return;
         }
         let Expr::Ident(ns) = ast.get_expr(*obj) else {
@@ -175,10 +211,24 @@ impl Walker<'_> {
             return;
         };
         match self.resolve(recv) {
-            Resolution::Tracked(eids) => self.out.extend(eids),
+            // introspection skips accessor-bearing decls: their
+            // static-lane introspection answers correctly (the
+            // objlit-accessor descriptor substrate) and the accessor
+            // any-lane is a loud not-yet-supported boundary
+            Resolution::Tracked(eids) => {
+                let hits: Vec<ExprId> = eids
+                    .into_iter()
+                    .filter(|e| is_define || !self.init_has_accessor_field(*e))
+                    .collect();
+                self.out.extend(hits);
+            }
             Resolution::Opaque => {}
             Resolution::Free => {
-                self.fallback_names.insert(recv.clone());
+                if is_define {
+                    self.fallback_names.insert(recv.clone());
+                } else {
+                    self.fallback_introspect_names.insert(recv.clone());
+                }
             }
         }
     }
@@ -257,6 +307,17 @@ impl Walker<'_> {
                 || n.strip_prefix("__setter_") == Some(field)
                 || n.strip_prefix("__async_") == Some(field)
         })
+    }
+
+    /// Does the declaration's literal carry an accessor member
+    /// (`get x()` / `set x()` — stored as `__getter_x` / `__setter_x`)?
+    fn init_has_accessor_field(&self, init: ExprId) -> bool {
+        matches!(
+            self.ast.get_expr(init),
+            Expr::ObjectLit { fields } if fields
+                .iter()
+                .any(|(n, _)| n.starts_with("__getter_") || n.starts_with("__setter_"))
+        )
     }
 }
 
@@ -421,6 +482,48 @@ delete b.x;
         let b = decl_inits(src, "b");
         assert!(got.contains(&a[0]), "computed-key write degrades");
         assert!(got.contains(&b[0]), "own-field delete degrades");
+    }
+
+    #[test]
+    fn introspection_receiver_marks_like_defineproperty() {
+        // the descriptor / proto introspection family mis-answers on
+        // a struct receiver (r205 pass→bug collateral) — receivers
+        // degrade under the same resolution rules as defineProperty
+        let src = r#"
+let a = { x: 1 };
+Object.getOwnPropertyDescriptor(a, "x");
+let b = { y: 1 };
+Object.getPrototypeOf(b);
+let c = { z: 1 };
+function f(c) {
+    Object.getOwnPropertyNames(c);
+}
+"#;
+        let got = collect(src);
+        let a = decl_inits(src, "a");
+        let b = decl_inits(src, "b");
+        let c = decl_inits(src, "c");
+        assert!(got.contains(&a[0]), "gOPD receiver degrades");
+        assert!(got.contains(&b[0]), "getPrototypeOf receiver degrades");
+        assert!(!got.contains(&c[0]), "param receiver stays opaque");
+    }
+
+    #[test]
+    fn introspection_skips_accessor_bearing_literals() {
+        // static-lane introspection over accessor literals is correct
+        // (objlit-accessor-enum-001 family); degrading them would hit
+        // the accessor any-lane loud boundary
+        let src = r#"
+let g = { a: 1, get v(): number { return 2; } };
+Object.getOwnPropertyNames(g);
+let h = { a: 1, get v(): number { return 2; } };
+Object.defineProperty(h, "x", { value: 1 });
+"#;
+        let got = collect(src);
+        let g = decl_inits(src, "g");
+        let h = decl_inits(src, "h");
+        assert!(!got.contains(&g[0]), "introspection skips accessors");
+        assert!(got.contains(&h[0]), "define family still marks");
     }
 
     #[test]

@@ -287,7 +287,7 @@ impl Walker<'_> {
             }
             Expr::Member { obj, .. } | Expr::OptChain { obj, .. } => self.walk_expr(*obj),
             Expr::Call { callee, args } => {
-                self.scan_defineproperty(*callee, args);
+                self.scan_object_static_call(*callee, args);
                 self.walk_expr(*callee);
                 for a in args {
                     self.walk_expr(*a);

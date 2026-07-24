@@ -1,10 +1,11 @@
-// torajs intentionally diverges from bun here: an Ident-bound
-// fixed-layout (struct-typed) receiver has no __proto__ slot, so
-// Object.setPrototypeOf throws a TypeError instead of silently
-// no-oping (the silent path read as success while getPrototypeOf
-// stayed unlinked — silent-wrong). bun re-parents; the .expected
-// file locks the loud boundary until variable-position
-// any-promotion lands.
+// Rotation 203 chunk 3 closed the divergence this fixture used to
+// lock: an Ident-bound object-literal receiver of
+// Object.setPrototypeOf now degrades to the dynobj lane
+// (dynobj_degrade introspection-receiver trigger — the
+// "variable-position any-promotion" the old comment deferred to),
+// so the call re-parents exactly like bun instead of throwing the
+// loud no-__proto__-slot TypeError. The .expected override is gone;
+// bun is the oracle again.
 const base: any = { greet: () => "hi" };
 const child = { own: 2 };
 try {
