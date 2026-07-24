@@ -412,6 +412,12 @@ pub(crate) unsafe fn str_method(s: *mut u8, mid: i64, argv: *const u64, argc: i6
                 // the searchValue ToString path (§22.1.3.15 step 2
                 // hands off to `@@replace` on the RegExp cell).
                 let all = (m == ANY_METHOD_REPLACE_ALL) as i64;
+                // §22.1.3.20 step 2.b precedes step 6.a — a
+                // non-global RegExp searchValue disqualifies the call
+                // before ToString(replaceValue) may run its user hook.
+                if reject_non_global_regex_search(m, argv, argc) {
+                    return VALUE_UNDEFINED;
+                }
                 if let Some(re_ptr) = regexp_cell(arg_at(0)) {
                     let repl = __torajs_anyv_to_str(arg_at(1));
                     let out = __torajs_str_any_replace_regex(s, re_ptr, repl as *const u8, all);
@@ -442,6 +448,9 @@ pub(crate) unsafe fn str_method(s: *mut u8, mid: i64, argv: *const u64, argc: i6
 }
 
 mod ext;
+mod regex_gate;
+
+pub(crate) use regex_gate::reject_non_global_regex_search;
 
 /// The argument's RegExp cell pointer, or `None` for any non-RegExp
 /// value (primitives, other cell tags).

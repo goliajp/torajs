@@ -410,6 +410,12 @@ pub(crate) unsafe fn generic_str_this(
             return None;
         }
     }
+    // §22.1.3.14 / §22.1.3.20 step 2.b precedes step 3's ToString(O)
+    // — a non-global RegExp search argument disqualifies the call
+    // before the receiver's user `toString` may run.
+    if unsafe { crate::method_call_str::reject_non_global_regex_search(mid, argv, argc) } {
+        return Some(VALUE_UNDEFINED);
+    }
     unsafe {
         let s = crate::nanbox_ffi::__torajs_anyv_to_str(this_arg);
         let out = crate::method_call_str::str_method(s as *mut u8, mid, argv, argc);
