@@ -383,8 +383,15 @@ fn transform_source(src: &str) -> String {
         if hit_helper {
             continue;
         }
-        // `var ` → `let ` (word-boundary on the left + whitespace on the right).
-        if starts_with_at(bytes, i, b"var ") && !preceded_by_word(bytes, i) {
+        // `var ` → `let ` (word-boundary on the left + whitespace on the
+        // right). The dot gate keeps member positions intact — without it
+        // `tokenCodes.var = 'var'` rewrote to `tokenCodes.let = ...` and
+        // the reserved-word property silently vanished (rotation 204,
+        // ident-name-keyword-memberexpr).
+        if starts_with_at(bytes, i, b"var ")
+            && !preceded_by_dot(bytes, i)
+            && !preceded_by_word(bytes, i)
+        {
             out.push_str("let ");
             i += b"var ".len();
             continue;
@@ -934,5 +941,18 @@ mod transform_tests {
             "assert.sameValue rewrite lost: {out:?}"
         );
         assert!(out.contains("let x"), "var → let rewrite lost: {out:?}");
+    }
+
+    #[test]
+    fn member_position_var_not_rewritten() {
+        // rotation 204 — `.var ` is a reserved-word property access,
+        // not a declaration; the dot gate must keep it intact.
+        let src = "var x = 1;\ntokenCodes.var = 'var';\n";
+        let out = transform_source(src);
+        assert!(out.contains("let x"), "decl rewrite lost: {out:?}");
+        assert!(
+            out.contains("tokenCodes.var = 'var'"),
+            "member-position var mangled: {out:?}"
+        );
     }
 }
