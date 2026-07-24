@@ -1,0 +1,150 @@
+//! The two composite-object writers of [`super`] — the dynobj
+//! entry walk and the struct-cell field walk. Split out of the
+//! parent under the 500-line file discipline; a child module reaches
+//! its parent's private items, so the extern block and the shared
+//! helpers stay private with no visibility churn.
+
+use core::ffi::c_void;
+
+use super::*;
+
+/// `{...}` — own enumerable entries in §10.1.11.1 order (the print
+/// walker's `iter_order` contract); a key whose value serializes to
+/// nothing is omitted entirely.
+pub(super) unsafe fn write_object(sb: *mut c_void, ptr: *mut c_void, depth: u32) {
+    unsafe {
+        __torajs_jsb_push_byte(sb, b'{');
+        let len = __torajs_dynobj_iter_len(ptr);
+        let order_layout = core::alloc::Layout::from_size_align(len as usize * 8, 8).unwrap();
+        let order = if len > 0 {
+            std::alloc::alloc_zeroed(order_layout) as *mut u64
+        } else {
+            core::ptr::null_mut()
+        };
+        let n = __torajs_dynobj_iter_order(ptr, order, len);
+        let mut emitted = false;
+        for j in 0..n {
+            let i = *order.add(j as usize);
+            if __torajs_dynobj_iter_flags(ptr, i) & BUCKET_FLAG_ENUMERABLE == 0 {
+                continue;
+            }
+            let mut value = __torajs_dynobj_iter_value(ptr, i);
+            // §25.5.2.2 step 1 — the serialized value is ? Get(holder,
+            // key): an accessor entry stores its AccessorPair cell, so
+            // run the getter (receiver = the holder, borrowed into the
+            // invoke) instead of serializing the pair as an empty
+            // object. The result is OWNED (len_get's box_probe_pair
+            // convention); a pending throw aborts the walk and
+            // propagates through the caller's throw-check.
+            let mut owned = accessor_pair_of(value).is_some();
+            if let Some(pair) = accessor_pair_of(value) {
+                value = __torajs_accessor_invoke_getter(
+                    pair,
+                    crate::nanbox_encode::__torajs_anyv_box_from_pair(4, ptr as i64),
+                );
+                if __torajs_throw_check() != 0 {
+                    break;
+                }
+            }
+            // §25.5.2.3 step 2 — field-level toJSON hook.
+            if let Some(r) = crate::json_stringify_tojson::apply_tojson(value) {
+                if owned {
+                    crate::nanbox_ffi::__torajs_anyv_rc_dec(value);
+                }
+                value = r;
+                owned = true;
+                if __torajs_throw_check() != 0 {
+                    crate::nanbox_ffi::__torajs_anyv_rc_dec(value);
+                    break;
+                }
+            }
+            // Probe the value FIRST: an undefined / callable field
+            // drops its key, so the separator and key bytes must not
+            // be emitted speculatively. Serializing into a scratch
+            // builder would cost an alloc per field — instead take
+            // the cheap pre-check the split allows.
+            if serializes_to_nothing(value) {
+                if owned {
+                    crate::nanbox_ffi::__torajs_anyv_rc_dec(value);
+                }
+                continue;
+            }
+            if emitted {
+                __torajs_jsb_push_byte(sb, b',');
+            }
+            emitted = true;
+            __torajs_jsb_push_str_quoted(sb, __torajs_dynobj_iter_key(ptr, i) as *const u8);
+            __torajs_jsb_push_byte(sb, b':');
+            write_value(sb, value, depth + 1);
+            if owned {
+                crate::nanbox_ffi::__torajs_anyv_rc_dec(value);
+            }
+            if __torajs_throw_check() != 0 {
+                break;
+            }
+        }
+        if !order.is_null() {
+            std::alloc::dealloc(order as *mut u8, order_layout);
+        }
+        __torajs_jsb_push_byte(sb, b'}');
+    }
+}
+
+/// `{...}` — the Tag::Obj struct-cell twin of [`write_object`]. Reads
+/// the instance's `class_tag` (`u32` at `+8`), looks the layout up in
+/// the toolchain-emitted `__torajs_class_layouts` table, and walks
+/// the fields in declaration order. Undefined / callable field values
+/// drop their key (§25.5.2), same three-way split as dynobj. An
+/// anonymous struct interned too late to receive a `class_tag`
+/// (`class_tag == 0` → NULL layout) serializes as `{}` — matches the
+/// same coverage gap `Object.keys(anonAny)` documents.
+pub(super) unsafe fn write_struct(sb: *mut c_void, ptr: *mut c_void, depth: u32) {
+    unsafe {
+        __torajs_jsb_push_byte(sb, b'{');
+        let class_tag = (ptr.cast::<u8>().add(8) as *const u32).read();
+        let layout = __torajs_struct_layout_lookup(class_tag);
+        if !layout.is_null() {
+            let n = __torajs_struct_field_count(layout);
+            let mut emitted = false;
+            for i in 0..n {
+                let name = __torajs_struct_field_name(layout, i);
+                let mut value: u64 = 0;
+                if __torajs_struct_field_read_anyv(ptr, name.ptr, name.len as u32, &mut value) == 0
+                {
+                    continue;
+                }
+                // §25.5.2.3 step 2 — field-level toJSON hook (a
+                // struct's Any field can hold a dynobj carrying one).
+                let mut hook_owned = false;
+                if let Some(r) = crate::json_stringify_tojson::apply_tojson(value) {
+                    value = r;
+                    hook_owned = true;
+                    if __torajs_throw_check() != 0 {
+                        crate::nanbox_ffi::__torajs_anyv_rc_dec(value);
+                        break;
+                    }
+                }
+                if serializes_to_nothing(value) {
+                    if hook_owned {
+                        crate::nanbox_ffi::__torajs_anyv_rc_dec(value);
+                    }
+                    continue;
+                }
+                if emitted {
+                    __torajs_jsb_push_byte(sb, b',');
+                }
+                emitted = true;
+                quote_bytes(sb, name.ptr, name.len);
+                __torajs_jsb_push_byte(sb, b':');
+                write_value(sb, value, depth + 1);
+                if hook_owned {
+                    crate::nanbox_ffi::__torajs_anyv_rc_dec(value);
+                }
+                if __torajs_throw_check() != 0 {
+                    break;
+                }
+            }
+        }
+        __torajs_jsb_push_byte(sb, b'}');
+    }
+}
