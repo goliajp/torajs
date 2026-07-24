@@ -267,6 +267,23 @@ fn lower_shape(ctx: &mut LowerCtx, val_op: Operand, ty: Type) -> Operand {
             ctx.emit_throw_check(None);
             Operand::Value(v)
         }
+        // §25.5.2.4 — these classes carry no own enumerable
+        // properties (their contents live in internal slots), so the
+        // ordinary-object walk answers `{}`. The any-lane walk says
+        // the same through its catch-all; this arm is what lets a
+        // statically typed receiver agree instead of rejecting. A
+        // NULL slot is JS null, same gate the Obj / Arr arms use.
+        Type::Map
+        | Type::Set
+        | Type::WeakMap
+        | Type::WeakSet
+        | Type::WeakRef
+        | Type::RegExp
+        | Type::Promise
+        | Type::MapIter
+        | Type::ArrIter => composite::with_null_gate(ctx, &val_op, "__json_exotic_out", |ctx| {
+            Operand::Value(ctx.intern_string_literal("{}"))
+        }),
         other => panic!("ssa-lower: JSON.stringify on type {other:?} not yet supported"),
     }
 }
