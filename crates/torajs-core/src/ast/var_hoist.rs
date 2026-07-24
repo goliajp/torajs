@@ -87,6 +87,17 @@ fn collect_and_rewrite_var(
     exprs: &mut Vec<Expr>,
 ) {
     let mut new_stmts: Vec<Stmt> = Vec::with_capacity(stmts.len());
+    // Rotation 205 — names the escape hatch already declared as a
+    // `let` in THIS stmt list. ES §14.3.2 allows same-scope `var`
+    // re-declaration (one shared binding); a second escape-hatch
+    // conversion would emit a second `let` and trip the checker's
+    // redeclaration reject, so later same-name `var`s convert to
+    // plain assignments instead (matching the hoisted path's
+    // BTreeMap dedup). Scoped to this list only: the converted `let`
+    // is block-scoped, so a name declared in a NESTED block is not
+    // assignable from here (the escape hatch's pre-existing
+    // block-scope compromise).
+    let mut escaped: std::collections::HashSet<String> = std::collections::HashSet::new();
     let drained = std::mem::take(stmts);
     for s in drained {
         match s {
@@ -143,7 +154,14 @@ fn collect_and_rewrite_var(
                     Expr::ObjectLit { .. } => true,
                     _ => false,
                 };
-                if type_ann.is_some() || init_keeps_type {
+                // Rotation 205 — a re-declared name (either form
+                // already declared it: an escape-hatch `let` in this
+                // list, or a hoisted prelude slot in this fn)
+                // converts to an assignment onto the existing
+                // binding — ES's one-shared-binding semantics.
+                let redeclared = escaped.contains(&name) || hoisted.contains_key(&name);
+                if (type_ann.is_some() || init_keeps_type) && !redeclared {
+                    escaped.insert(name.clone());
                     new_stmts.push(Stmt::LetDecl {
                         mutable,
                         name,
@@ -153,7 +171,9 @@ fn collect_and_rewrite_var(
                     });
                     continue;
                 }
-                hoisted.insert(name.clone(), None);
+                if !redeclared {
+                    hoisted.insert(name.clone(), None);
+                }
                 if !matches!(exprs[init.0 as usize], Expr::Uninit) {
                     let target_id = ExprId(exprs.len() as u32);
                     exprs.push(Expr::Ident(name));
@@ -276,5 +296,49 @@ fn hoist_recurse_stmt(
         Stmt::FnDecl { .. } => {}
         // Terminal stmts with no nested stmt list.
         _ => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::Ast;
+    use super::*;
+    use crate::lexer::tokenize;
+    use crate::parser::parse;
+
+    fn hoisted_ast(src: &str) -> Ast {
+        let tokens = tokenize(src).expect("lex");
+        let mut ast = parse(src, &tokens).expect("parse");
+        desugar_var_hoist(&mut ast);
+        ast
+    }
+
+    fn count_letdecls(ast: &Ast, name: &str) -> usize {
+        ast.stmts
+            .iter()
+            .filter(|s| matches!(s, Stmt::LetDecl { name: n, .. } if n == name))
+            .count()
+    }
+
+    #[test]
+    fn same_scope_var_redeclaration_dedups_to_one_let() {
+        // rotation 205 — ES §14.3.2 one-shared-binding: the second
+        // escape-hatch var converts to an assignment, not a second let
+        let ast = hoisted_ast("var v = { a: 1 };\nvar v = { a: 2 };\n");
+        assert_eq!(count_letdecls(&ast, "v"), 1);
+    }
+
+    #[test]
+    fn mixed_hoist_then_escape_shape_dedups() {
+        // first var hoists to the any-slot prelude; the second
+        // (escape-shape) must assign onto it, not redeclare
+        let ast = hoisted_ast("var w = 5;\nvar w = { a: 3 };\n");
+        assert_eq!(count_letdecls(&ast, "w"), 1);
+    }
+
+    #[test]
+    fn redeclaration_without_init_is_dropped() {
+        let ast = hoisted_ast("var m = { x: 7 };\nvar m;\n");
+        assert_eq!(count_letdecls(&ast, "m"), 1);
     }
 }
