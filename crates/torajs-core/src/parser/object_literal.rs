@@ -173,6 +173,19 @@ impl<'a> Parser<'a> {
             }
         }
         let value = self.parse_expr()?;
+        // RFC 20260725 (fn-expr field this) — a plain `function`
+        // expression in a field position binds `this` to the
+        // call-site receiver exactly like the method shorthand (the
+        // shorthand is its sugar, ES §10.2.1.2), so it joins
+        // `objlit_method_exprs` and rides objlit_nominal's `__this`
+        // promotion. The uses-this gate there keeps a this-free
+        // fn-expr on the plain closure ABI; async forms keep the
+        // recorded loud boundary (fnexpr_this module doc).
+        if self.ast.fn_expr_exprs.contains(&value)
+            && !self.ast.async_fn_value_exprs.contains(&value)
+        {
+            self.ast.objlit_method_exprs.insert(value);
+        }
         Ok((name, value))
     }
 
