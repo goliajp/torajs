@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-24T12:45:04.627Z",
+  "generatedAt": "2026-07-24T14:07:32.066Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,9 +9,9 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-24T12:40:51Z",
+    "ranAt": "2026-07-24T14:06:18Z",
     "headSha": "5eb3ce87",
-    "elapsedSec": 374.66,
+    "elapsedSec": 248.39,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 95.86
   },
   "torajs": {
-    "commit": "a47119b3",
-    "commitSubject": "fix(ast): receiver-precise padding — ambiguous receivers fall back to the name table",
+    "commit": "4e1b47f5",
+    "commitSubject": "chore(hardev): archive test262 r204 sweep (13379/578 zero delta; struct-method pad + link perf pair; sweep wall 248s post-speedup)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,26 @@
   },
   "commits": [
     {
+      "hash": "4e1b47f5",
+      "subject": "chore(hardev): archive test262 r204 sweep (13379/578 zero delta; struct-method pad + link perf pair; sweep wall 248s post-speedup)"
+    },
+    {
+      "hash": "c427463b",
+      "subject": "perf(link): merge archive indexes once per link instead of twice"
+    },
+    {
+      "hash": "38b17e3f",
+      "subject": "perf(link): borrow baked staticlibs into LinkConfig instead of deep-copying"
+    },
+    {
+      "hash": "580378a4",
+      "subject": "fix(ssa_lower): pad missing trailing-any args on the struct-method dispatch lane"
+    },
+    {
+      "hash": "cf93f4ac",
+      "subject": "chore(hardev): archive test262 r203 sweep (13379/578 restored after a47119b3) + dashboard snapshot at rotation 201 close"
+    },
+    {
       "hash": "a47119b3",
       "subject": "fix(ast): receiver-precise padding — ambiguous receivers fall back to the name table"
     },
@@ -739,47 +759,38 @@
     {
       "hash": "5d5fe7a4",
       "subject": "chore(hardev): dashboard snapshot at rotation 201 close"
-    },
-    {
-      "hash": "d99bd29e",
-      "subject": "docs(cli): tr run help/comment no longer claims a ~/.torajs run-cache"
-    },
-    {
-      "hash": "f1b94873",
-      "subject": "chore(hardev): archive test262 r201 sweep (passTotal 13379, zero delta after 3 collector fixes) + dashboard snapshot"
-    },
-    {
-      "hash": "727a6060",
-      "subject": "fix(ssa_lower): obj-escape hardened to value-flow contract at all escape sites"
-    },
-    {
-      "hash": "3a48a463",
-      "subject": "fix(ssa_lower): closure-capture and assigned-name walkers skip for-of bodies"
-    },
-    {
-      "hash": "646531e3",
-      "subject": "fix(ssa_lower): deque-escape misses aliases behind value-transparent wrappers"
     }
   ],
-  "headSha": "a47119b3",
+  "headSha": "4e1b47f5",
   "autorun": {
-    "total": 505,
+    "total": 506,
     "baselineTarget": 10,
-    "bySelf": 500,
+    "bySelf": 501,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784890738-6e31",
-      "at": "2026-07-24T10:58:58Z",
-      "ts": 1784890738,
+      "rotationId": "r-1784897109-063d",
+      "at": "2026-07-24T12:45:09Z",
+      "ts": 1784897109,
       "trigger": "self",
-      "prevHead": "afd510a4",
-      "handoffSha": "sha256:4ac412ab02e484f6875c8bdb1018f173e47d75555906f5c13f2573709c034ec4",
-      "handoffAgeSec": 4,
+      "prevHead": "cf93f4ac",
+      "handoffSha": "sha256:14c61e5b1fe723711e14f1ca892d1a681055610f12496e65aa96513a5b1bb7cd",
+      "handoffAgeSec": 5,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784897109-063d",
+        "at": "2026-07-24T12:45:09Z",
+        "ts": 1784897109,
+        "trigger": "self",
+        "prevHead": "cf93f4ac",
+        "handoffSha": "sha256:14c61e5b1fe723711e14f1ca892d1a681055610f12496e65aa96513a5b1bb7cd",
+        "handoffAgeSec": 5,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784890738-6e31",
         "at": "2026-07-24T10:58:58Z",
@@ -876,17 +887,6 @@
         "prevHead": "3ffe1f44",
         "handoffSha": "sha256:f05ea5c49fced41249748ccf8669aac864f1aff8404ad333ed173319dbb4c0d4",
         "handoffAgeSec": 8,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784765096-2400",
-        "at": "2026-07-23T00:04:56Z",
-        "ts": 1784765096,
-        "trigger": "self",
-        "prevHead": "81f61db6",
-        "handoffSha": "sha256:7e1bd0670d740aebbd381653da2e23fd49f798c6adbe08bbf86b7d0c563a12ee",
-        "handoffAgeSec": 5,
         "conformanceBefore": null,
         "commitsInSession": null
       }
