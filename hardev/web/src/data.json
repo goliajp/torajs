@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-24T11:52:30.908Z",
+  "generatedAt": "2026-07-24T12:00:11.288Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 95.86
   },
   "torajs": {
-    "commit": "727a6060",
-    "commitSubject": "fix(ssa_lower): obj-escape hardened to value-flow contract at all escape sites",
+    "commit": "d99bd29e",
+    "commitSubject": "docs(cli): tr run help/comment no longer claims a ~/.torajs run-cache",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "d99bd29e",
+      "subject": "docs(cli): tr run help/comment no longer claims a ~/.torajs run-cache"
+    },
+    {
+      "hash": "f1b94873",
+      "subject": "chore(hardev): archive test262 r201 sweep (passTotal 13379, zero delta after 3 collector fixes) + dashboard snapshot"
+    },
+    {
       "hash": "727a6060",
       "subject": "fix(ssa_lower): obj-escape hardened to value-flow contract at all escape sites"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "9638d155",
       "subject": "perf(test262-runner): DEFAULT_WORKERS 8 → auto-detect available_parallelism.min(10) — sweep wall -22% on M4 Pro"
-    },
-    {
-      "hash": "a3bbc125",
-      "subject": "perf(test262-runner): bun oracle cache LRU prune wire (100k cap by mtime) — 377k → 100k / 1.4GB → 391MB disk"
-    },
-    {
-      "hash": "4ac985e9",
-      "subject": "perf(test262-runner): flat sleep → exponential backoff (500us→20ms) — sweep wall -35%"
     }
   ],
-  "headSha": "727a6060",
+  "headSha": "d99bd29e",
   "autorun": {
     "total": 505,
     "baselineTarget": 10,
