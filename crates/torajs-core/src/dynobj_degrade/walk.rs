@@ -315,6 +315,11 @@ impl Walker<'_> {
             }
             Expr::ObjectLit { fields } => {
                 for (_, e) in fields {
+                    // computed-key fields carry a key expr too (RFC
+                    // 20260725 刀 2) — its receivers can trigger
+                    if let Some(k) = ast.objlit_computed_keys.get(e) {
+                        self.walk_expr(*k);
+                    }
                     self.walk_expr(*e);
                 }
             }

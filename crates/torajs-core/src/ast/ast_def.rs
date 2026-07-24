@@ -182,6 +182,16 @@ pub struct Ast {
     /// set): the computed fold to a plain field name records its
     /// value expr through the same channel.
     pub objlit_shorthand_proto_exprs: std::collections::HashSet<ExprId>,
+    /// RFC 20260725-objlit-computed-key 刀 1 — value ExprId → key
+    /// ExprId of `{ [expr]: v }` / `{ [expr]() {} }` computed-key
+    /// fields. The field name in the flattened `(String, ExprId)`
+    /// shape is a unique `__computed_<n>__` sentinel; the real
+    /// property name is the key expr's runtime ToPropertyKey result,
+    /// evaluated by the dynobj-init lane in field order. Literal
+    /// string keys still fold at parse time and `Symbol.`-chains
+    /// keep their `__sym_<chain>__` encoding (the iterator-protocol
+    /// consumers), so neither appears here.
+    pub objlit_computed_keys: std::collections::HashMap<ExprId, ExprId>,
     /// RFC 20260718-builtin-error-ctor-first-class 刀 1 — the class
     /// names `inject_builtin_classes` synthesized (Error + the
     /// NativeError subclasses). class_globals emits the

@@ -329,7 +329,7 @@ impl<'a> Parser<'a> {
     /// `objlit_method_exprs` is what lets `desugar_objlit_nominal`
     /// give the closure a `__this` param — without the mark, `this`
     /// in the body is left a free variable and the checker rejects it.
-    fn parse_method_like_value(
+    pub(super) fn parse_method_like_value(
         &mut self,
         member_start_pos: usize,
         infer_defaults: bool,

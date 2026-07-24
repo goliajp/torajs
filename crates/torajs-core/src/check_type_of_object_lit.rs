@@ -83,6 +83,17 @@ pub(crate) fn check(
                     field_tys.push((sn, st));
                 }
             }
+        } else if ast.objlit_computed_keys.contains_key(eid) {
+            // RFC 20260725-objlit-computed-key 刀 1 — a computed-key
+            // field has no static name, so it contributes nothing to
+            // the struct layer. Key and value still typecheck (side
+            // effects are real); the field itself only exists on the
+            // dynobj lane, where the runtime ToPropertyKey names it.
+            // A literal that never reaches that lane rejects at the
+            // struct-lane lowering instead.
+            let key_eid = ast.objlit_computed_keys[eid];
+            checker.type_of(ast, key_eid)?;
+            checker.type_of(ast, *eid)?;
         } else {
             let ty = checker.type_of(ast, *eid)?;
             if let Some(pos) = field_tys.iter().position(|(k, _)| k == n) {

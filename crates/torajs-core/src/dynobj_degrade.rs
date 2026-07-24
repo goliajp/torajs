@@ -162,6 +162,17 @@ impl Walker<'_> {
             self.shadow(name);
             return;
         }
+        // RFC 20260725-objlit-computed-key 刀 2 — a literal carrying
+        // a computed-key field degrades unconditionally: only the
+        // dynobj lane can evaluate the key (ToPropertyKey) and name
+        // the property at runtime.
+        if let Expr::ObjectLit { fields } = self.ast.get_expr(init)
+            && fields
+                .iter()
+                .any(|(_, v)| self.ast.objlit_computed_keys.contains_key(v))
+        {
+            self.out.insert(init);
+        }
         self.registry
             .entry(name.to_string())
             .or_default()
@@ -583,6 +594,23 @@ function f() {
         let b = decl_inits(src, "b");
         assert!(got.contains(&a[0]), "free computed-key write degrades");
         assert!(got.contains(&b[0]), "free delete degrades");
+    }
+
+    #[test]
+    fn computed_key_field_marks_unconditionally() {
+        // RFC 20260725-objlit-computed-key 刀 2 — only the dynobj
+        // lane can evaluate the key, so the literal degrades at
+        // declaration
+        let src = r#"
+let k = "x";
+let obj = { [k]: 1 };
+let plain = { a: 1 };
+"#;
+        let got = collect(src);
+        let obj = decl_inits(src, "obj");
+        let plain = decl_inits(src, "plain");
+        assert!(got.contains(&obj[0]), "computed-key literal degrades");
+        assert!(!got.contains(&plain[0]), "plain literal stays static");
     }
 
     #[test]

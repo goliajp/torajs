@@ -4,18 +4,18 @@
 //! stub-drop + `{ [expr]() {} }` method-shorthand wedges landed on
 //! top of the original literal-string / Symbol.X-chain key path.
 //!
-//! Covers V3-18 P2.4.c.4 + P0.10:
-//! - `{ [<StringLit>]: v }` rewrites to `{ <StringLit>: v }` at parse
-//!   time (struct layouts are static; runtime keys await a dictionary
-//!   substrate).
-//! - `{ [Symbol.iterator]: v }` / `{ [Foo.bar]: v }` — Member chain keys
-//!   parsed and encoded as the synthetic name `__sym_<chain>__`; the
-//!   real iterator-protocol dispatch lands with Phase E.
-//! - `{ [expr]() {} }` — computed-key method shorthand (ES §13.2.5
-//!   ComputedPropertyName + MethodDefinition). Body brace-balanced +
-//!   emits a null stub; the real Symbol.X dispatch lands with P3/P7.
-//!
-//! Verbatim move; token / grammar behavior unchanged.
+//! Covers V3-18 P2.4.c.4 + P0.10 + RFC 20260725-objlit-computed-key:
+//! - `{ ["k"]: v }` (the string IS the whole key) still folds to
+//!   `{ k: v }` at parse time.
+//! - `{ [Symbol.<chain>]: v }` keeps the `__sym_<chain>__` encoding —
+//!   the iterator-protocol consumers dispatch on
+//!   `__sym_Symbol_iterator__` by name; its method shorthand keeps
+//!   the historical stub-drop (Symbol dispatch substrate is P3/P7).
+//! - Every other key is a RUNTIME computed key (刀 1): the expr
+//!   parses for real, the field name is a `__computed_<n>__`
+//!   sentinel, and `ast.objlit_computed_keys` maps value → key expr
+//!   for the dynobj-init lane's ToPropertyKey evaluation. Method
+//!   shorthand bodies parse through the shared accessor/method tail.
 
 use super::*;
 
@@ -32,16 +32,25 @@ impl<'a> Parser<'a> {
         if !matches!(self.peek(), Token::LBracket) {
             return Ok(None);
         }
+        let member_start_pos = self.pos;
         self.pos += 1;
         let key = match self.peek() {
-            Token::String(s) => {
+            // A literal-string key folds only when the string IS the
+            // whole key (`["k"]`); a composite expression starting
+            // with a string (`["a" + b]`) is a runtime computed key.
+            Token::String(s) if matches!(self.tokens[self.pos + 1].token, Token::RBracket) => {
                 let key = s.clone();
                 self.pos += 1;
                 key
             }
-            Token::Ident(_) => {
-                // Try Member chain like `Symbol.iterator` / `Foo.bar`.
-                // Encode as `__sym_<chain>__` for the field name.
+            // `Symbol.<chain>` keys keep the `__sym_<chain>__`
+            // encoding — the iterator-protocol consumers dispatch on
+            // `__sym_Symbol_iterator__` by name. Everything else is a
+            // runtime-evaluated computed key (RFC
+            // 20260725-objlit-computed-key 刀 1).
+            Token::Ident(n)
+                if n == "Symbol" && matches!(self.tokens[self.pos + 1].token, Token::Dot) =>
+            {
                 let mut parts: Vec<String> = Vec::new();
                 loop {
                     if let Token::Ident(n) = self.peek() {
@@ -58,11 +67,10 @@ impl<'a> Parser<'a> {
                 }
                 format!("__sym_{}__", parts.join("_"))
             }
-            t => {
-                return Err(format!(
-                    "subset: computed property key must be a literal string, got {t:?} at {}",
-                    self.at()
-                ));
+            _ => {
+                return self
+                    .parse_runtime_computed_property(member_start_pos)
+                    .map(Some);
             }
         };
         match self.peek() {
@@ -145,6 +153,47 @@ impl<'a> Parser<'a> {
         let value = self.parse_assign()?;
         self.mark_computed_proto_own(&key, value);
         Ok(Some((key, value)))
+    }
+
+    /// RFC 20260725-objlit-computed-key 刀 1 — a computed key that is
+    /// neither a literal string nor a `Symbol.`-chain parses as a
+    /// real expression. The field name is a unique
+    /// `__computed_<n>__` sentinel and the key expr registers in
+    /// `objlit_computed_keys`; the dynobj-init lane evaluates it
+    /// (ToPropertyKey string face) in field order. A method
+    /// shorthand body parses for real through the shared
+    /// accessor/method tail — no more stub-drop.
+    fn parse_runtime_computed_property(
+        &mut self,
+        member_start_pos: usize,
+    ) -> Result<(String, ExprId), String> {
+        let key_expr = self.parse_assign()?;
+        match self.peek() {
+            Token::RBracket => self.pos += 1,
+            t => {
+                return Err(format!(
+                    "expected `]` after computed property key, got {t:?} at {}",
+                    self.at()
+                ));
+            }
+        }
+        let name = format!("__computed_{}__", self.ast.objlit_computed_keys.len());
+        let value = if matches!(self.peek(), Token::LParen) {
+            self.parse_method_like_value(member_start_pos, false, "computed-key method shorthand")?
+        } else {
+            match self.peek() {
+                Token::Colon => self.pos += 1,
+                t => {
+                    return Err(format!(
+                        "expected `:` after `[<key>]` in object literal, got {t:?} at {}",
+                        self.at()
+                    ));
+                }
+            }
+            self.parse_assign()?
+        };
+        self.ast.objlit_computed_keys.insert(value, key_expr);
+        Ok((name, value))
     }
 
     /// §B.3.1 step 5 — the `__proto__: v` [[Prototype]]-set special

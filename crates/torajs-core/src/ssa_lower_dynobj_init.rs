@@ -37,15 +37,15 @@ impl<'a> LowerCtx<'a> {
     /// the 8th on (entries_cap_for(DYNOBJ_INITIAL_CAP) = 7) land in
     /// a freed orphan while the result kept the dangling pre-resize
     /// pointer (rotation 174 chunk 3, probe /tmp/p8b-21.ts).
-    fn emit_dynobj_set(&mut self, slot: ValueId, fname: &str, tag: Operand, val: Operand) {
+    pub(crate) fn emit_dynobj_set(
+        &mut self,
+        slot: ValueId,
+        fname: &str,
+        tag: Operand,
+        val: Operand,
+    ) {
         let key_str = self.intern_string_literal(fname);
-        self.f.append_void(
-            self.cur_block,
-            InstKind::Call(
-                self.intrinsics.dynobj_set,
-                vec![Operand::Value(slot), Operand::Value(key_str), tag, val],
-            ),
-        );
+        self.emit_dynobj_set_key(slot, Operand::Value(key_str), tag, val);
     }
 
     /// The live dynobj pointer — a fresh Load off the shared init
@@ -128,7 +128,13 @@ impl<'a> LowerCtx<'a> {
         self.release_owned_temp(fval_eid, &v_op);
     }
 
-    fn emit_dynobj_field_value(&mut self, slot: ValueId, fname: &str, fval_eid: ExprId) {
+    pub(crate) fn emit_dynobj_field_value(
+        &mut self,
+        slot: ValueId,
+        fname: &str,
+        fval_eid: ExprId,
+        runtime_key: Option<ValueId>,
+    ) {
         let v_raw = self.lower_expr(fval_eid);
         // Chunk 570 — SHARE: the bucket takes its own +1 (the
         // refcounted arm's rc_inc / the Any arm's payload inc);
@@ -187,7 +193,13 @@ impl<'a> LowerCtx<'a> {
                     Type::I64,
                     None,
                 );
-                self.emit_dynobj_set(slot, fname, Operand::Value(tag_v), Operand::Value(val_v));
+                self.emit_dynobj_set_for(
+                    slot,
+                    fname,
+                    runtime_key,
+                    Operand::Value(tag_v),
+                    Operand::Value(val_v),
+                );
                 if transfers {
                     self.emit_drop_value(v_keep, Type::Any);
                 }
@@ -211,7 +223,13 @@ impl<'a> LowerCtx<'a> {
                     Type::I64,
                     None,
                 );
-                self.emit_dynobj_set(slot, fname, Operand::Value(tag_v), Operand::Value(val_v));
+                self.emit_dynobj_set_for(
+                    slot,
+                    fname,
+                    runtime_key,
+                    Operand::Value(tag_v),
+                    Operand::Value(val_v),
+                );
                 if transfers {
                     self.emit_drop_value(v_keep, Type::Str);
                 }
@@ -232,7 +250,7 @@ impl<'a> LowerCtx<'a> {
             Type::Ptr if matches!(v_raw, Operand::ConstPtrNull) => (0, Operand::ConstI64(0)),
             _ => panic!("ssa-lower: dynobj init unsupported field type {v_ty:?}"),
         };
-        self.emit_dynobj_set(slot, fname, Operand::ConstI64(tag), val_op);
+        self.emit_dynobj_set_for(slot, fname, runtime_key, Operand::ConstI64(tag), val_op);
         if transfers && v_ty.is_refcounted() {
             self.emit_drop_value(v_keep, v_ty);
         }
@@ -259,6 +277,13 @@ impl<'a> LowerCtx<'a> {
         // For each (name, value), set into the dynobj. Box value
         // first using the same scheme as box_to_any but inlined.
         for (fname, fval_eid) in fields {
+            // RFC 20260725-objlit-computed-key 刀 3 — a computed-key
+            // field evaluates its key at runtime (field order = spec
+            // evaluation order) and stores under the ToString'd name.
+            if let Some(&key_eid) = self.ast.objlit_computed_keys.get(&fval_eid) {
+                self.emit_dynobj_computed_field(slot, key_eid, fval_eid);
+                continue;
+            }
             // §13.2.5.5 — the literal `__proto__: v` member sets
             // [[Prototype]], never an own entry (RFC
             // 20260717-user-proto-chain): a cell lands in the
@@ -325,7 +350,7 @@ impl<'a> LowerCtx<'a> {
                 self.emit_dynobj_set(slot, &fname, Operand::ConstI64(4), nested);
                 continue;
             }
-            self.emit_dynobj_field_value(slot, &fname, fval_eid);
+            self.emit_dynobj_field_value(slot, &fname, fval_eid, None);
         }
         // The live pointer — a set may have relocated the block.
         let out = self.load_dynobj(slot);

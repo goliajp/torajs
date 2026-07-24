@@ -340,6 +340,7 @@ pub mod ssa_lower_deque_escape;
 pub(crate) mod ssa_lower_drops;
 pub(crate) mod ssa_lower_dstr_iter;
 pub(crate) mod ssa_lower_dynobj_init;
+pub(crate) mod ssa_lower_dynobj_init_computed;
 pub(crate) mod ssa_lower_emit_drop_value;
 pub(crate) mod ssa_lower_emit_shorthand;
 pub(crate) mod ssa_lower_emit_throw_check;

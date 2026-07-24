@@ -175,6 +175,18 @@ fn lower_field_entries(
     let mut field_tys: Vec<(String, Type)> = Vec::new();
     let mut field_vals: Vec<Operand> = Vec::new();
     for (n, eid) in entries {
+        // RFC 20260725-objlit-computed-key 刀 1 — a computed key has
+        // no static field name, so the struct lane cannot place it;
+        // only the dynobj lane (degraded / any-annotated /
+        // any-argv-promoted declarations) evaluates it. Loud reject —
+        // silently minting the sentinel name would orphan the key's
+        // side effects and the property.
+        if ctx.ast.objlit_computed_keys.contains_key(eid) {
+            panic!(
+                "ssa-lower: computed property key outside the dynobj lane \
+                 is not yet supported (field `{n}`)"
+            );
+        }
         if let Some(omit) = crate::check_type_of_object_lit::spread_omit_set(n) {
             let omit: Vec<String> = omit.iter().map(|s| s.to_string()).collect();
             unfold_spread(ctx, *eid, &omit, &mut field_tys, &mut field_vals);
