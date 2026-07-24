@@ -260,6 +260,13 @@ unsafe fn write_cell(sb: *mut c_void, ptr: *mut c_void, depth: u32) -> Wrote {
             // so the method-dispatch round trip buys nothing. Without
             // these the cells fell to the catch-all below and every
             // wrapper answered `{}`.
+            // §25.5.2.4 — a Symbol has no JSON representation and is
+            // NOT an error: it serializes to nothing, exactly like
+            // `undefined` and a callable. The caller's three-way split
+            // then answers `undefined` at the top level, omits the key
+            // inside an object, and writes `null` inside an array. It
+            // reached the catch-all below and answered `{}`.
+            t if t == Tag::Symbol as u16 => Wrote::Nothing,
             // §25.5.2.4 step 10 — a BigInt has no JSON representation
             // and is a TypeError, not an object walk. It reached the
             // catch-all below and answered `{}`.

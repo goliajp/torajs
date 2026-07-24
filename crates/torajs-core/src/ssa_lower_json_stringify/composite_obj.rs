@@ -180,12 +180,16 @@ fn lower_obj_concat(
         if matches!(accessor, Some(("__setter_", _))) {
             continue;
         }
-        // §25.5.2.4 step 11 — a callable property serializes to
-        // undefined, so step 8.b omits its whole segment. (`toJSON`
-        // never reaches here: the hook consumed the value before the
-        // unfold.) Accessor slots are excluded — their Closure is
-        // synthetic and the arm below calls it for its [[Get]].
-        if accessor.is_none() && matches!(slot_ty, Type::Closure(_)) {
+        // §25.5.2.4 — a property that serializes to nothing has its
+        // whole segment omitted by step 8.b. Two static shapes always
+        // do: a callable (step 11) and a Symbol. (`toJSON` never
+        // reaches here — the hook consumed the value before the
+        // unfold.) Accessor slots are excluded from the callable half:
+        // their Closure is synthetic and the arm below calls it for
+        // its [[Get]].
+        if matches!(slot_ty, Type::Symbol)
+            || (accessor.is_none() && matches!(slot_ty, Type::Closure(_)))
+        {
             continue;
         }
         let (key, field_v, fty, getter_owned) = match accessor {

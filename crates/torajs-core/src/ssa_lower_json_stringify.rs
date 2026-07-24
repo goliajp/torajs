@@ -284,6 +284,24 @@ fn lower_shape(ctx: &mut LowerCtx, val_op: Operand, ty: Type) -> Operand {
         | Type::ArrIter => composite::with_null_gate(ctx, &val_op, "__json_exotic_out", |ctx| {
             Operand::Value(ctx.intern_string_literal("{}"))
         }),
+        // §25.5.2.4 step 10 (BigInt is a TypeError) and the Symbol
+        // leg of the undefined/callable split (nothing at all) are
+        // both value-level verdicts with no shape to unfold, so they
+        // box into the any-lane walk that already implements them
+        // rather than growing a second copy here. Same posture as the
+        // `Type::Any` arm above, throw check included — that is what
+        // turns the BigInt TypeError into the caller's catch.
+        Type::BigInt | Type::Symbol => {
+            let boxed = ctx.box_to_any(val_op);
+            let v = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.anyv_json_stringify, vec![boxed]),
+                Type::Str,
+                None,
+            );
+            ctx.emit_throw_check(None);
+            Operand::Value(v)
+        }
         other => panic!("ssa-lower: JSON.stringify on type {other:?} not yet supported"),
     }
 }

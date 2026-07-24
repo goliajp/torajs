@@ -180,12 +180,19 @@ fn lower_arr_walk(ctx: &mut LowerCtx, val_op: Operand, arr_id: ArrId) -> Operand
         Type::Str,
         None,
     );
-    let elem_str = super::lower_keyed(
-        ctx,
-        Operand::Value(elem),
-        elem_ty,
-        Some(Operand::Value(idx_key)),
-    );
+    // §25.5.2.4 step 8.a — an element that serializes to nothing is
+    // `null` inside an array (an object would omit the key instead).
+    // A Symbol always does, and statically so.
+    let elem_str = if matches!(elem_ty, Type::Symbol) {
+        Operand::Value(ctx.intern_string_literal("null"))
+    } else {
+        super::lower_keyed(
+            ctx,
+            Operand::Value(elem),
+            elem_ty,
+            Some(Operand::Value(idx_key)),
+        )
+    };
     ctx.emit_drop_value(Operand::Value(idx_key), Type::Str);
     let acc_now2 = ctx.f.append_inst(
         ctx.cur_block,
