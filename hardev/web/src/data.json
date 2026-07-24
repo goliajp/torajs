@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-24T19:48:11.952Z",
+  "generatedAt": "2026-07-24T22:15:08.475Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-24T19:47:48Z",
+    "ranAt": "2026-07-24T22:14:19Z",
     "headSha": "5eb3ce87",
-    "elapsedSec": 197.2,
+    "elapsedSec": 197.65,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 8983,
+    "pass": 8984,
     "passNoOracle": 118,
     "passNegative": 4447,
-    "passTotal": 13548,
-    "bug": 544,
-    "incompatible": 39082,
+    "passTotal": 13549,
+    "bug": 546,
+    "incompatible": 39079,
     "bunSkip": 11904,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 14092,
+    "trAccepted": 14095,
     "passRateInScope": 25.48,
-    "passRateTrAccepted": 96.14
+    "passRateTrAccepted": 96.13
   },
   "torajs": {
-    "commit": "2b5f1d00",
-    "commitSubject": "feat(runtime): JSON.stringify consults the user toJSON hook",
+    "commit": "5ed69d56",
+    "commitSubject": "fix(check): promoted fn-expr descriptor faces re-ann through the knife-6 probe",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "5ed69d56",
+      "subject": "fix(check): promoted fn-expr descriptor faces re-ann through the knife-6 probe"
+    },
+    {
+      "hash": "2506f1be",
+      "subject": "feat(parser): fn-expr object-literal fields bind this to the receiver"
+    },
+    {
+      "hash": "3c017498",
+      "subject": "feat(check): un-annotated object-literal bindings promote to struct globals"
+    },
+    {
+      "hash": "ed0529f3",
+      "subject": "feat(check): mutable struct globals promote to module slots"
+    },
+    {
+      "hash": "dde52603",
+      "subject": "feat(check): string-receiver builtin methods reify as values"
+    },
+    {
+      "hash": "d347bdc2",
+      "subject": "chore(hardev): archive test262 r215 sweep (13548/544; +JSON.stringify toJSON hook value-tojson pair; rotation-205 total +49/-4 vs r213 zero regression)"
+    },
+    {
       "hash": "2b5f1d00",
       "subject": "feat(runtime): JSON.stringify consults the user toJSON hook"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "f0464206",
       "subject": "chore(hardev): archive test262 r213 sweep (13499/548; +brand-check thisNumberValue/thisBooleanValue; rotation-204 total +77/-39 vs r210 zero regression)"
-    },
-    {
-      "hash": "d78acb8e",
-      "subject": "fix(runtime): Number/Boolean prototype toString and valueOf brand-check their receiver"
-    },
-    {
-      "hash": "28f970e9",
-      "subject": "chore(hardev): archive test262 r212 sweep (13487/560; degraded-global visibility + builtin-method family dispatch + computed-proto + keyword-var; +65/-27 vs r210 zero regression)"
-    },
-    {
-      "hash": "1fde2630",
-      "subject": "fix(test262-runner): var-to-let rewrite gates on preceded-by-dot"
-    },
-    {
-      "hash": "670b83de",
-      "subject": "fix(parser): var joins the reserved-word property-name table"
-    },
-    {
-      "hash": "1bbe9d4b",
-      "subject": "fix(runtime): borrowed builtin method cells dispatch through their mint family"
-    },
-    {
-      "hash": "0d8f2578",
-      "subject": "fix(parser): computed ['__proto__'] key defines an own property, not the prototype"
     }
   ],
-  "headSha": "2b5f1d00",
+  "headSha": "5ed69d56",
   "autorun": {
-    "total": 509,
+    "total": 510,
     "baselineTarget": 10,
-    "bySelf": 504,
+    "bySelf": 505,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784916735-40ca",
-      "at": "2026-07-24T18:12:15Z",
-      "ts": 1784916735,
+      "rotationId": "r-1784922574-192b",
+      "at": "2026-07-24T19:49:35Z",
+      "ts": 1784922575,
       "trigger": "self",
-      "prevHead": "f0464206",
-      "handoffSha": "sha256:b9ecf50b244ecaf63c2525e3c0b79036a5fc0ca8267e00d81fc058d2473c4c32",
-      "handoffAgeSec": 216,
+      "prevHead": "d347bdc2",
+      "handoffSha": "sha256:a67439645aef531786c9b244acc1bf9f8463e8787325e8836564d845e361acc4",
+      "handoffAgeSec": 4,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784922574-192b",
+        "at": "2026-07-24T19:49:35Z",
+        "ts": 1784922575,
+        "trigger": "self",
+        "prevHead": "d347bdc2",
+        "handoffSha": "sha256:a67439645aef531786c9b244acc1bf9f8463e8787325e8836564d845e361acc4",
+        "handoffAgeSec": 4,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784916735-40ca",
         "at": "2026-07-24T18:12:15Z",
@@ -876,17 +887,6 @@
         "prevHead": "ce25236c",
         "handoffSha": "sha256:1c7113254d94fd13eac01a5f5dc400709f7f7bdeba18e21fe4a4dd0d5a2ece38",
         "handoffAgeSec": 1741,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784820983-39ab",
-        "at": "2026-07-23T15:36:23Z",
-        "ts": 1784820983,
-        "trigger": "self",
-        "prevHead": "03738a9c",
-        "handoffSha": "sha256:bcf11091a7f26c57b01b9d4d9dd4e63e3813fa6d45d5483fd66ca7fc600ba4a0",
-        "handoffAgeSec": 5,
         "conformanceBefore": null,
         "commitsInSession": null
       }
