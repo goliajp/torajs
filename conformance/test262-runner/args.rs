@@ -4,8 +4,25 @@
 //! HARD RULE ≤ 500 LOC / file (known debt: still over until further
 //! refactor; this extraction stops the bleed).
 
+/// Fallback used when `std::thread::available_parallelism()` fails
+/// (extremely rare — sandbox or truly minimal envs). Runtime callers
+/// should prefer [`default_workers`].
 pub const DEFAULT_WORKERS: usize = 8;
 pub const DEFAULT_REPORT_BUGS: usize = 20;
+
+/// Default worker count: auto-detects logical core count via
+/// `std::thread::available_parallelism()` and clamps to 10 to avoid
+/// M-series E-core efficiency drag(mini M4 Pro 10P+4E cores empirical
+/// @ rotation 199 chunk 4:workers=10 -22.3% sweep wall vs workers=8;
+/// 12/14 未测,10 = P-core count 是 saturation 上限,更多 workers 会拉
+/// E-core 单线程效率低 30-40% + 每 case tr+bun 双级 spawn = workers×2
+/// process 争 mmap/fs 恶化)。其它 host clamp to logical core count 保守
+/// (M2 Pro 8-core → 8 / M1 4-core → 4)。CLI `--workers N` override 优先。
+pub fn default_workers() -> usize {
+    std::thread::available_parallelism()
+        .map(|n| n.get().min(10))
+        .unwrap_or(DEFAULT_WORKERS)
+}
 
 pub struct Args {
     pub limit: Option<usize>,
@@ -43,7 +60,7 @@ pub struct Args {
 pub fn parse_args() -> Args {
     let mut limit: Option<usize> = None;
     let mut filter: Option<String> = None;
-    let mut workers = DEFAULT_WORKERS;
+    let mut workers = default_workers();
     let mut report_bugs = DEFAULT_REPORT_BUGS;
     let mut json_out: Option<String> = None;
     let mut bugs_ndjson: Option<String> = None;
@@ -71,12 +88,13 @@ pub fn parse_args() -> Args {
             "--no-cache" => no_cache = true,
             "--dump-src" => dump_src = iter.next(),
             "-h" | "--help" => {
+                let default_w = default_workers();
                 eprintln!(
                     "torajs-test262 — run tc39/test262 against tr\n\n\
                      flags:\n  \
                      --limit N       only first N cases\n  \
                      --filter STR    cases whose path contains STR\n  \
-                     --workers N     concurrency (default {DEFAULT_WORKERS})\n  \
+                     --workers N     concurrency (default {default_w}, auto-detected via available_parallelism clamped to 10)\n  \
                      --report-bugs N list first N bug failures (default {DEFAULT_REPORT_BUGS})\n  \
                      --json PATH     also write machine-readable summary to PATH\n  \
                      --bugs-ndjson PATH  dump every bug case (path/kind/msg) as ndjson for clustering\n  \
