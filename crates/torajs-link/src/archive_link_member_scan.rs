@@ -38,7 +38,13 @@ pub fn scan_member_text_and_symbols(
                 err,
             }
         })?;
-        defined_syms.push(defs);
+        // Layout keeps owned names (MemberLayout has no lifetime);
+        // only the required members' syms materialize here — small.
+        defined_syms.push(
+            defs.into_iter()
+                .map(|(n, v, s)| (n.to_string(), v, s))
+                .collect(),
+        );
     }
     Ok(MemberScanLayouts {
         text_sizes,

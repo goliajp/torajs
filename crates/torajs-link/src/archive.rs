@@ -195,7 +195,7 @@ pub struct ArchiveSymbol {
 /// LC_SYMTAB. The link driver uses this to satisfy an undefined
 /// extern: lookup name → pull in that member's bytes → patch the
 /// reloc against the member's `__TEXT,__text` slot.
-pub type ArchiveIndex = BTreeMap<String, ArchiveSymbol>;
+pub type ArchiveIndex<'a> = BTreeMap<&'a str, ArchiveSymbol>;
 
 /// Walk a parsed archive, parse each Mach-O member's symbol
 /// table, and aggregate every defined external symbol into a
@@ -212,8 +212,10 @@ pub type ArchiveIndex = BTreeMap<String, ArchiveSymbol>;
 /// symbol, the *first* one wins. Apple's `ld64` uses the same
 /// convention; downstream callers can grep for collisions if
 /// they care.
-pub fn build_archive_index(members: &[ArMember<'_>]) -> Result<ArchiveIndex, ArchiveParseError> {
-    let mut index: ArchiveIndex = BTreeMap::new();
+pub fn build_archive_index<'a>(
+    members: &[ArMember<'a>],
+) -> Result<ArchiveIndex<'a>, ArchiveParseError> {
+    let mut index: ArchiveIndex<'a> = BTreeMap::new();
     for (i, m) in members.iter().enumerate() {
         let syms = parse_member_defined_externs(m).map_err(|kind| ArchiveParseError {
             member_idx: i,
@@ -241,9 +243,9 @@ pub fn build_archive_index(members: &[ArMember<'_>]) -> Result<ArchiveIndex, Arc
 /// time. SD-4c swap-2e — pre-2e callers blindly used `member.vaddr +
 /// n_value` which silently misplaces every `__DATA`-resident static (rustc
 /// `static FOO: AtomicU32 = ...`) onto bogus `__text` bytes.
-pub fn parse_member_defined_externs(
-    member: &ArMember<'_>,
-) -> Result<Vec<(String, u64, u8)>, MemberSymtabError> {
+pub fn parse_member_defined_externs<'a>(
+    member: &ArMember<'a>,
+) -> Result<Vec<(&'a str, u64, u8)>, MemberSymtabError> {
     let bytes = member.data;
     if bytes.len() < 32 {
         return Err(MemberSymtabError::TruncatedHeader);
@@ -307,7 +309,7 @@ pub fn parse_member_defined_externs(
     }
 
     let strtab = &bytes[stroff..stroff + strsize];
-    let mut out: Vec<(String, u64, u8)> = Vec::new();
+    let mut out: Vec<(&'a str, u64, u8)> = Vec::new();
 
     for i in 0..nsyms {
         let off = symoff + i * 16;
@@ -340,7 +342,7 @@ pub fn parse_member_defined_externs(
         let name_bytes = &strtab[n_strx..end_off];
         let name = std::str::from_utf8(name_bytes)
             .map_err(|_| MemberSymtabError::NameNotUtf8 { sym_index: i })?;
-        out.push((name.to_string(), n_value, n_sect));
+        out.push((name, n_value, n_sect));
     }
 
     Ok(out)

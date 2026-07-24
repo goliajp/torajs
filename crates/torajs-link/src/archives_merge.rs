@@ -52,7 +52,9 @@ pub struct MergedArchives<'a> {
     pub per_archive_members: Vec<Vec<ArMember<'a>>>,
     /// Global defined-external lookup. First archive defining a
     /// given name wins (Apple `ld64` search-order semantics).
-    pub index: BTreeMap<String, MergedSymbol>,
+    /// Names borrow the archive bytes — the index build was
+    /// ~17ms/case as owned Strings (phase-timing.md merge split).
+    pub index: BTreeMap<&'a str, MergedSymbol>,
 }
 
 /// Failures `merge_archive_indexes` can report. Distinguishes the
@@ -84,7 +86,7 @@ pub fn merge_archive_indexes<'a>(
     archives: &'a [std::borrow::Cow<'static, [u8]>],
 ) -> Result<MergedArchives<'a>, ArchiveMergeError> {
     let mut per_archive_members: Vec<Vec<ArMember<'_>>> = Vec::with_capacity(archives.len());
-    let mut index: BTreeMap<String, MergedSymbol> = BTreeMap::new();
+    let mut index: BTreeMap<&'a str, MergedSymbol> = BTreeMap::new();
 
     for (archive_idx, bytes) in archives.iter().enumerate() {
         let members = parse_archive(bytes.as_ref())
@@ -211,7 +213,7 @@ pub fn compute_required_members(
         if defined_in_user.contains(name.as_str()) {
             continue;
         }
-        let Some(sym) = merged.index.get(&name) else {
+        let Some(sym) = merged.index.get(name.as_str()) else {
             // SD-1 / SD-4b: dyld-class externs (libSystem or
             // libcurl) bind through `LC_LOAD_DYLIB`, not through
             // any archive's defined-extern set. Classify them out
