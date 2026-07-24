@@ -41,7 +41,7 @@ use core::ffi::c_void;
 use torajs_rc::Tag;
 
 use crate::method_call::{MAX_BOXED_ARGS, closure_cell_entry, invoke_with_this, not_callable};
-use crate::method_value::{builtin_method_mid, native_entry};
+use crate::method_value::{builtin_method_family, builtin_method_mid, native_entry};
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED};
 use crate::nanbox_encode::__torajs_anyv_box_pointer;
 
@@ -82,7 +82,7 @@ pub(crate) unsafe fn bind_cell(ptr: *mut c_void, argv: *const u64, argc: i64) ->
         // its receiver; anything with a boxed dual entry (plain
         // closures, other bound cells) dispatches through it.
         let (kind, target) = if let Some(mid) = builtin_method_mid(ptr) {
-            (0u64, mid as u64)
+            (0u64, pack_builtin_target(mid, builtin_method_family(ptr)))
         } else if closure_cell_entry(ptr).is_some() {
             torajs_rc::__torajs_rc_inc(ptr);
             (1u64, ptr as u64)
@@ -115,6 +115,24 @@ pub(crate) unsafe fn bind_cell(ptr: *mut c_void, argv: *const u64, argc: i64) ->
         }
         __torajs_anyv_box_pointer(cell as *mut c_void)
     }
+}
+
+/// A kind-0 bound target packs `mid | (family + 1) << 32`, the same
+/// encoding the interned method cell uses for its capture slot.
+/// Carrying the family (rather than the bare mid) is what keeps a
+/// bound cell's dispatch identical to the `.call` path's: the
+/// family-generic gate — §21.1.3 thisNumberValue / §20.3.3
+/// thisBooleanValue brand checks, the §22.1.3 ToString(this) lane —
+/// is selected by family, so dropping it made
+/// `Boolean.prototype.toString.bind({})()` answer silently instead of
+/// throwing. It also keeps the `.length` reflection family-aware.
+fn pack_builtin_target(mid: i64, fam: i64) -> u64 {
+    (mid as u32 as u64) | (((fam + 1) as u32 as u64) << 32)
+}
+
+/// Inverse of [`pack_builtin_target`].
+pub(crate) fn unpack_builtin_target(target: u64) -> (i64, i64) {
+    ((target as u32) as i64, ((target >> 32) as i64) - 1)
 }
 
 /// Bound-cell metadata `(kind, target, bound_argc)` — `None` for
@@ -153,11 +171,12 @@ unsafe extern "C" fn bound_entry(env: *mut c_void, argv: *const u64, argc: i64) 
 
         let dispatch = |buf: *const u64, n: i64| -> AnyValue {
             if kind == 0 {
-                crate::method_call::any_method_call_inner(
+                // Same target shape `.call` / `.apply` build, so the
+                // family-generic gate runs identically on both paths.
+                let (mid, fam) = unpack_builtin_target(target);
+                crate::method_call_closure::dispatch(
+                    &crate::method_call_closure::CallTarget::Builtin(mid, fam),
                     bound_this,
-                    target as i64,
-                    core::ptr::null(),
-                    core::ptr::null_mut(),
                     buf,
                     n,
                 )

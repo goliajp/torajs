@@ -299,7 +299,8 @@ unsafe fn closure_name_str(ptr: *mut c_void) -> *mut u8 {
         }
         if let Some((kind, target, _)) = crate::method_bind::bound_cell_meta(ptr) {
             let tname: *mut u8 = if kind == 0 {
-                let name = torajs_rc::any_method_meta(target as i64).map_or("", |(n, _)| n);
+                let (mid, _) = crate::method_bind::unpack_builtin_target(target);
+                let name = torajs_rc::any_method_meta(mid).map_or("", |(n, _)| n);
                 __torajs_str_alloc(name.as_ptr(), name.len() as i64)
             } else {
                 closure_name_str(target as *mut c_void)

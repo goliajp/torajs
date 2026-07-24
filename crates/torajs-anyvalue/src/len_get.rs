@@ -264,7 +264,8 @@ unsafe fn closure_length_of(ptr: *mut c_void) -> Option<i64> {
         }
         if let Some((kind, target, bargc)) = crate::method_bind::bound_cell_meta(ptr) {
             let tlen = if kind == 0 {
-                torajs_rc::any_method_meta(target as i64).map(|(_, a)| a as i64)
+                let (mid, fam) = crate::method_bind::unpack_builtin_target(target);
+                crate::method_value::builtin_method_arity_for(mid, fam).map(|a| a as i64)
             } else {
                 closure_length_of(target as *mut c_void)
             };

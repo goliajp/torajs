@@ -318,7 +318,22 @@ pub(crate) unsafe fn builtin_method_arity(ptr: *mut c_void) -> Option<u32> {
         return ctor::ctor_meta(tag).map(|(_, l)| l);
     }
     let mid = unsafe { builtin_method_mid(ptr) }?;
-    torajs_rc::any_method_meta(mid).map(|(_, arity)| arity)
+    builtin_method_arity_for(mid, unsafe { family::builtin_method_family(ptr) })
+}
+
+/// The ES-spec `length` of the `(family, mid)` pair. `any_method_meta`
+/// is keyed by mid alone, and one interned id serves several
+/// prototypes; the table's single length divergence is `toString`
+/// (§21.1.6.6 `Number.prototype.toString(radix)` is 1, every other
+/// prototype's is 0), which the table resolves in favour of the
+/// majority. The minting family disambiguates it here, so a cell
+/// reified off `Number.prototype` answers its own spec length.
+pub(crate) fn builtin_method_arity_for(mid: i64, fam: i64) -> Option<u32> {
+    let (_, arity) = torajs_rc::any_method_meta(mid)?;
+    if mid == torajs_rc::ANY_METHOD_TO_STRING && fam == family::NUM_PROTO_FAMILY {
+        return Some(1);
+    }
+    Some(arity)
 }
 
 /// The method id a reified cell carries — `None` for ordinary
