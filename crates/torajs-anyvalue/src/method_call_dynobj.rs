@@ -174,6 +174,29 @@ pub(crate) unsafe fn dynobj_method(
                     && let Some(mid2) =
                         crate::method_value::builtin_method_mid(crate::nanbox::as_void_ptr(cell))
                 {
+                    // Rotation 204 — the mint family picks the
+                    // family-generic lane FIRST (the `.call` /
+                    // proto-patch stations' gate): a String-
+                    // prototype-minted cell runs the §22.1.3
+                    // ToString(this) generic instead of being
+                    // captured by the shared-mid array-like arm
+                    // (`inst.slice = String.prototype.slice;
+                    // inst.slice(0,2)` answered the array-like `[]`
+                    // — silent wrong). A family-less or
+                    // non-generic-family cell answers None and keeps
+                    // the arms below unchanged.
+                    let fam = crate::method_value::builtin_method_family(
+                        crate::nanbox::as_void_ptr(cell),
+                    );
+                    if let Some(out) = crate::method_call_closure::generic_builtin_this(
+                        mid2,
+                        __torajs_anyv_box_pointer(obj),
+                        argv,
+                        argc,
+                        fam,
+                    ) {
+                        return out;
+                    }
                     if crate::method_call_arraylike::arraylike_supported(mid2) {
                         return crate::method_call_arraylike::arraylike_method(
                             obj, mid2, recv_slot, argv, argc,
@@ -291,6 +314,18 @@ pub(crate) unsafe fn arr_expando_method(
                 && let Some(mid2) =
                     crate::method_value::builtin_method_mid(crate::nanbox::as_void_ptr(cell))
             {
+                // Rotation 204 — family-generic gate first (mirror
+                // of the dynobj arm above): a String-prototype-
+                // minted cell stored as an array expando runs the
+                // §22.1.3 ToString(this) generic; None falls through
+                // to the ordinary mid re-dispatch.
+                let fam =
+                    crate::method_value::builtin_method_family(crate::nanbox::as_void_ptr(cell));
+                if let Some(out) =
+                    crate::method_call_closure::generic_builtin_this(mid2, recv, argv, argc, fam)
+                {
+                    return Some(out);
+                }
                 return Some(crate::method_call::any_method_call_inner(
                     recv,
                     mid2,
