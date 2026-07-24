@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-24T23:45:04.171Z",
+  "generatedAt": "2026-07-24T23:55:07.960Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 96.1
   },
   "torajs": {
-    "commit": "89990a69",
-    "commitSubject": "fix(runtime): JSON.stringify throws on a BigInt",
+    "commit": "68523744",
+    "commitSubject": "fix(runtime): JSON.stringify handles Symbol and statically typed BigInt",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "68523744",
+      "subject": "fix(runtime): JSON.stringify handles Symbol and statically typed BigInt"
+    },
+    {
+      "hash": "5fa5f6ba",
+      "subject": "chore(hardev): refresh dashboard snapshot for rotation 207 close"
+    },
+    {
       "hash": "89990a69",
       "subject": "fix(runtime): JSON.stringify throws on a BigInt"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "9d794ebe",
       "subject": "fix(runtime): non-global RegExp gate precedes replaceAll/matchAll coercions"
-    },
-    {
-      "hash": "6caee759",
-      "subject": "chore(hardev): archive test262 r216 sweep (13549/546; +includes.length via str-method-value reflection; 2 replaceAll cases parse-face unlock to runtime-gap bucket; zero pass regression vs r215)"
-    },
-    {
-      "hash": "5ed69d56",
-      "subject": "fix(check): promoted fn-expr descriptor faces re-ann through the knife-6 probe"
     }
   ],
-  "headSha": "89990a69",
+  "headSha": "68523744",
   "autorun": {
     "total": 511,
     "baselineTarget": 10,
