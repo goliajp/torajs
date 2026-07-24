@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-24T14:07:32.066Z",
+  "generatedAt": "2026-07-24T14:22:31.606Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 95.86
   },
   "torajs": {
-    "commit": "4e1b47f5",
-    "commitSubject": "chore(hardev): archive test262 r204 sweep (13379/578 zero delta; struct-method pad + link perf pair; sweep wall 248s post-speedup)",
+    "commit": "5392b0df",
+    "commitSubject": "perf(link): borrow symbol names from archive bytes in the merge index",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "5392b0df",
+      "subject": "perf(link): borrow symbol names from archive bytes in the merge index"
+    },
+    {
+      "hash": "781531e3",
+      "subject": "chore(hardev): dashboard snapshot at rotation 202 close"
+    },
+    {
       "hash": "4e1b47f5",
       "subject": "chore(hardev): archive test262 r204 sweep (13379/578 zero delta; struct-method pad + link perf pair; sweep wall 248s post-speedup)"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "247599b7",
       "subject": "chore(hardev): dashboard snapshot at rotation 201 close (final)"
-    },
-    {
-      "hash": "4c506d5d",
-      "subject": "fix(ast): hof argc injection resolved the receiving fn by name only — SIGBUS on shadowed callee"
-    },
-    {
-      "hash": "5d5fe7a4",
-      "subject": "chore(hardev): dashboard snapshot at rotation 201 close"
     }
   ],
-  "headSha": "4e1b47f5",
+  "headSha": "5392b0df",
   "autorun": {
     "total": 506,
     "baselineTarget": 10,
