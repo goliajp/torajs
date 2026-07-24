@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-24T12:00:11.288Z",
+  "generatedAt": "2026-07-24T12:10:29.880Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 95.86
   },
   "torajs": {
-    "commit": "d99bd29e",
-    "commitSubject": "docs(cli): tr run help/comment no longer claims a ~/.torajs run-cache",
+    "commit": "5d5b1be3",
+    "commitSubject": "fix(ast): hof argc injection resolved the receiving fn by name only — SIGBUS on shadowed callee",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "5d5b1be3",
+      "subject": "fix(ast): hof argc injection resolved the receiving fn by name only — SIGBUS on shadowed callee"
+    },
+    {
+      "hash": "5d5fe7a4",
+      "subject": "chore(hardev): dashboard snapshot at rotation 201 close"
+    },
+    {
       "hash": "d99bd29e",
       "subject": "docs(cli): tr run help/comment no longer claims a ~/.torajs run-cache"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "355b13a9",
       "subject": "fix(egraph/elaborate): detach unreachable blocks instead of verbatim clone — inliner Identity leaked to liveness"
-    },
-    {
-      "hash": "71520e66",
-      "subject": "chore(hardev): snapshot at rotation 199 close"
-    },
-    {
-      "hash": "9638d155",
-      "subject": "perf(test262-runner): DEFAULT_WORKERS 8 → auto-detect available_parallelism.min(10) — sweep wall -22% on M4 Pro"
     }
   ],
-  "headSha": "d99bd29e",
+  "headSha": "5d5b1be3",
   "autorun": {
     "total": 505,
     "baselineTarget": 10,
