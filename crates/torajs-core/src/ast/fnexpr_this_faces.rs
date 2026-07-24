@@ -45,8 +45,15 @@ pub(super) fn collect_face(
                 eid: face,
                 fn_name: fn_name.clone(),
             });
+            return;
         }
-        return;
+        // RFC 20260725 — fn-expr FIELDS join `objlit_method_exprs`,
+        // so `objlit_nominal` may have promoted this face already
+        // (dropped `__this` from the captures, gave the lifted
+        // FnDecl a `__this` param). Fall through to the shorthand's
+        // has-this-param probe so the knife-6 re-ann (accessor
+        // `this` is the property READ receiver, `any`-typed) applies
+        // to the fn-expr spelling too.
     }
     let has_this_param = stmts.iter().any(|s| {
         matches!(s, Stmt::FnDecl { name, params, .. }
