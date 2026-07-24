@@ -130,6 +130,7 @@ impl<'a> Parser<'a> {
                 self.pos += 1;
             }
             let value = self.ast.add_expr(Expr::Null);
+            self.mark_computed_proto_own(&key, value);
             return Ok(Some((key, value)));
         }
         match self.peek() {
@@ -142,6 +143,20 @@ impl<'a> Parser<'a> {
             }
         }
         let value = self.parse_assign()?;
+        self.mark_computed_proto_own(&key, value);
         Ok(Some((key, value)))
+    }
+
+    /// §B.3.1 step 5 — the `__proto__: v` [[Prototype]]-set special
+    /// case requires `IsComputedPropertyKey(propKey)` to be FALSE: a
+    /// computed `['__proto__']` key defines an ordinary own property.
+    /// The parse-time fold to a plain field name would otherwise hit
+    /// the dynobj-init proto arm, so record the value expr in the
+    /// own-property side channel (shared with the `{ __proto__ }`
+    /// shorthand, which needs the identical skip).
+    fn mark_computed_proto_own(&mut self, key: &str, value: ExprId) {
+        if key == "__proto__" {
+            self.ast.objlit_shorthand_proto_exprs.insert(value);
+        }
     }
 }

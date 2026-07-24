@@ -177,6 +177,10 @@ pub struct Ast {
     /// AST flattens both to the same `(String, ExprId)` field shape,
     /// so the parser records the shorthand's value expr here and the
     /// dynobj-init lane skips the proto special-case for it.
+    /// Rotation 204 — computed `['__proto__']` keys join (§B.3.1
+    /// step 5 requires IsComputedPropertyKey = false for the proto
+    /// set): the computed fold to a plain field name records its
+    /// value expr through the same channel.
     pub objlit_shorthand_proto_exprs: std::collections::HashSet<ExprId>,
     /// RFC 20260718-builtin-error-ctor-first-class 刀 1 — the class
     /// names `inject_builtin_classes` synthesized (Error + the
