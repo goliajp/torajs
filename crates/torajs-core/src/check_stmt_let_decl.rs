@@ -132,6 +132,11 @@ pub(crate) fn check(
             None
         }
     });
+    // RFC 20260725-str-method-value-reify — mark bindings whose init
+    // is a String-receiver builtin method VALUE read (`const m =
+    // s.slice`): their `.call`/`.apply`/`.bind` admit any-dispatched
+    // (route_early), sidestepping the member table's fixed-arity sig.
+    let builtin_mv = is_builtin_mv_init(checker, ast, init);
     if let Err(e) = checker.declare(
         name.to_string(),
         LocalInfo {
@@ -140,10 +145,28 @@ pub(crate) fn check(
             moved: false,
             borrowed: is_alias_init,
             declared_class,
+            builtin_mv,
         },
     ) {
         checker.errors.push_err(e);
     }
+}
+
+/// The checker mirror of the lowering's mint gate (`ssa_lower_member
+/// ::try_lower_str_method_value`): init is a Member read whose
+/// receiver types String and whose own type is a Function, and the
+/// name interns to a builtin method id with a spec meta row.
+fn is_builtin_mv_init(checker: &mut Checker, ast: &Ast, init: ExprId) -> bool {
+    let Expr::Member { obj, name } = ast.get_expr(init) else {
+        return false;
+    };
+    if !matches!(checker.type_of(ast, *obj), Ok(Type::String))
+        || !matches!(checker.type_of(ast, init), Ok(Type::Function(..)))
+    {
+        return false;
+    }
+    let mid = torajs_rc::any_method_id(name);
+    mid != torajs_rc::ANY_METHOD_UNKNOWN && torajs_rc::any_method_meta(mid).is_some()
 }
 
 /// 2026-07-16 (rotation 121 chunk 5-followup) — an ObjectLit init

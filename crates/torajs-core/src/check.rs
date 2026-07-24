@@ -117,6 +117,13 @@ pub(crate) struct LocalInfo {
     /// to avoid a substrate refactor — it's enough for the
     /// `obj.member` pattern that visibility enforcement needs.
     pub(crate) declared_class: Option<String>,
+    /// RFC 20260725-str-method-value-reify — this binding was
+    /// initialized from a String-receiver builtin method VALUE read
+    /// (`const m = s.slice`). Its `.call` / `.apply` / `.bind` admit
+    /// as any-dispatched (the runtime re-dispatches the carried mid
+    /// with spec-exact arity), so the member-table's fixed signature
+    /// never rejects the optional-argument forms.
+    pub(crate) builtin_mv: bool,
 }
 
 /// M3 — substitution recorded at each generic call site. Keyed by the

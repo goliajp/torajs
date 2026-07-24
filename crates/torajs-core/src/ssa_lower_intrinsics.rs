@@ -469,6 +469,7 @@ pub(crate) struct Intrinsics {
     pub(crate) any_has_property: FuncId,
     pub(crate) arr_forin_key_live: FuncId,
     pub(crate) builtin_proto_method_value: FuncId,
+    pub(crate) builtin_method_cell_tagged: FuncId,
     pub(crate) any_unbox_tag: FuncId,
     pub(crate) any_unbox_value: FuncId,
     pub(crate) any_cell_ptr: FuncId,

@@ -186,6 +186,10 @@ pub(crate) struct AnySubstrateIds {
     /// `<Ctor>.prototype.<m>` method-value read (monkey-patch probe
     /// + interned method cell + undefined).
     pub builtin_proto_method_value: FuncId,
+    /// RFC 20260725-str-method-value-reify — the interned cell for a
+    /// compile-time-known (family, mid) pair; a typed-receiver
+    /// method VALUE read (`const m = s.slice`) mints through this.
+    pub builtin_method_cell_tagged: FuncId,
     pub any_unbox_tag: FuncId,
     pub any_unbox_value: FuncId,
     pub any_cell_ptr: FuncId,
@@ -354,6 +358,9 @@ pub(crate) fn declare(
         // RFC 20260711-closure-reflection chunk A — static
         // `<Ctor>.prototype.<m>` read (builtin-proto tag + key Str).
         builtin_proto_method_value: decl!("__torajs_builtin_proto_method_value", [I64, Ptr], Any),
+        // RFC 20260725-str-method-value-reify — (family, mid) →
+        // interned cell ptr (immortal; rc traffic no-ops).
+        builtin_method_cell_tagged: decl!("__torajs_builtin_method_cell_tagged", [I64, I64], Ptr),
         any_unbox_tag: decl!("__torajs_anyv_unbox_tag", [Any], I64),
         any_unbox_value: decl!("__torajs_anyv_unbox_value", [Any], I64),
         // chunk 712 — borrow-shaped cell-pointer read: heap cell →

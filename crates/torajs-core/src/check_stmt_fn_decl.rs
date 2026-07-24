@@ -64,6 +64,7 @@ pub(crate) fn check(checker: &mut Checker, ast: &Ast, name: &str, params: &[Para
                 moved: false,
                 borrowed: false,
                 declared_class,
+                builtin_mv: false,
             },
         ) {
             checker.errors.push_err(e);

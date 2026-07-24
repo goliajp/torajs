@@ -49,6 +49,7 @@ pub(crate) fn check(
             moved: false,
             borrowed: false,
             declared_class: None,
+            builtin_mv: false,
         },
     );
     checker.check_stmt(ast, body);

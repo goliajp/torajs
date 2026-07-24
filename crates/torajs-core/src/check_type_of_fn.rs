@@ -45,6 +45,7 @@ pub(crate) fn check_arrow_fn(
                 moved: false,
                 borrowed: false,
                 declared_class: None,
+                builtin_mv: false,
             },
         ) {
             checker.errors.push_err(e);
@@ -124,6 +125,7 @@ pub(crate) fn check_closure(
                 moved: false,
                 borrowed: false,
                 declared_class: None,
+                builtin_mv: false,
             },
         );
     }
@@ -136,6 +138,7 @@ pub(crate) fn check_closure(
                 moved: false,
                 borrowed: false,
                 declared_class: None,
+                builtin_mv: false,
             },
         );
     }

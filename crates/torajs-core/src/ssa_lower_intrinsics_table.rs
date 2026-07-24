@@ -419,6 +419,7 @@ pub(crate) fn build(
         any_has_property: init_c.any_substrate.any_has_property,
         arr_forin_key_live: init_c.any_substrate.arr_forin_key_live,
         builtin_proto_method_value: init_c.any_substrate.builtin_proto_method_value,
+        builtin_method_cell_tagged: init_c.any_substrate.builtin_method_cell_tagged,
         any_unbox_tag: init_c.any_substrate.any_unbox_tag,
         any_unbox_value: init_c.any_substrate.any_unbox_value,
         any_cell_ptr: init_c.any_substrate.any_cell_ptr,

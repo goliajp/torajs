@@ -61,6 +61,9 @@ pub(crate) fn try_route(
         }
         return Some(Ok(Type::Any));
     }
+    if let Some(r) = try_builtin_mv_fn_surface(checker, ast, callee, args) {
+        return Some(r);
+    }
     // RFC 20260719-fn-tostring-source B4b/B6a — `f.toString()` on a
     // fn-typed receiver answers String; lowering
     // (`ssa_lower_call_fn_tostring`) folds the type-erased source at
@@ -222,6 +225,53 @@ pub(crate) fn try_route(
 /// eid + rest args). `apply` admits the LITERAL argsArray form only
 /// — the chunk-138 desugar's own bound; a runtime array needs a
 /// variadic spread substrate, so that shape keeps its loud reject.
+/// RFC 20260725-str-method-value-reify — `.call` / `.apply` /
+/// `.bind` on a reified String-receiver method value: a registered
+/// binding (`const m = s.slice; m.call(s, 1)`) or the inline Member
+/// form (`s.slice.call(x, 1)`). Any-dispatched so the member
+/// table's fixed-arity sig never rejects the optional-argument
+/// forms — the runtime re-dispatch is spec-exact.
+fn try_builtin_mv_fn_surface(
+    checker: &mut Checker,
+    ast: &Ast,
+    callee: &ExprId,
+    args: &[ExprId],
+) -> Option<Result<Type, String>> {
+    let Expr::Member { obj, name } = ast.get_expr(*callee) else {
+        return None;
+    };
+    if !matches!(name.as_str(), "call" | "apply" | "bind")
+        || !matches!(checker.type_of(ast, *obj), Ok(Type::Function(..)))
+        || !is_builtin_mv_read(checker, ast, *obj)
+    {
+        return None;
+    }
+    for a in args {
+        if let Err(e) = checker.type_of(ast, *a) {
+            return Some(Err(e));
+        }
+    }
+    Some(Ok(Type::Any))
+}
+
+/// A reified builtin-method value (RFC 20260725-str-method-value-
+/// reify): a binding the let-decl marked `builtin_mv`, or the
+/// inline `s.slice` Member form (receiver types String, member
+/// types Function, name interns to a builtin mid with a meta row).
+fn is_builtin_mv_read(checker: &mut Checker, ast: &Ast, obj: ExprId) -> bool {
+    match ast.get_expr(obj) {
+        Expr::Ident(n) => checker.lookup(n).is_some_and(|info| info.builtin_mv),
+        Expr::Member { obj: inner, name } => {
+            if !matches!(checker.type_of(ast, *inner), Ok(Type::String)) {
+                return false;
+            }
+            let mid = torajs_rc::any_method_id(name);
+            mid != torajs_rc::ANY_METHOD_UNKNOWN && torajs_rc::any_method_meta(mid).is_some()
+        }
+        _ => false,
+    }
+}
+
 fn try_fn_value_call(
     checker: &mut Checker,
     ast: &Ast,

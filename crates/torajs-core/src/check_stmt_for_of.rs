@@ -104,6 +104,7 @@ pub(crate) fn check(
             moved: false,
             borrowed: false,
             declared_class: None,
+            builtin_mv: false,
         },
     );
     let src_kind = if let Expr::Index { obj, .. } = ast.get_expr(elem_expr) {
@@ -150,6 +151,7 @@ pub(crate) fn check(
             moved: false,
             borrowed: false,
             declared_class: None,
+            builtin_mv: false,
         },
     );
     checker.check_stmt(ast, body);

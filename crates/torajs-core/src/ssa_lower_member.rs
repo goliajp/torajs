@@ -142,6 +142,9 @@ pub(crate) fn lower_with_val(
         crate::ssa_lower_nullable_guard::emit_nullable_str_guard(ctx, obj, &obj_val);
         return crate::ssa_lower_str::load_str_or_substr_length(ctx, obj_val, obj_ty);
     }
+    if let Some(op) = try_lower_str_method_value(ctx, eid, obj, &obj_val, &obj_ty, name) {
+        return op;
+    }
     if matches!(obj_ty, Type::Any) {
         return crate::ssa_lower_any_member::lower_any_member_read(ctx, eid, obj_val, name);
     }
@@ -167,4 +170,56 @@ pub(crate) fn lower_with_val(
         _ => panic!("ssa-lower: member access on non-object {obj_ty:?} (.{name})"),
     };
     crate::ssa_lower_member_obj_field::try_lower(ctx, obj, obj_val, sid, name)
+}
+
+/// RFC 20260725-str-method-value-reify — a builtin method read as a
+/// VALUE off a String-typed receiver (`const m = s.slice`) resolves
+/// the interned mid-cell (family 3), typed as the checker
+/// signature's Closure repr. ES semantics: the read is UNBOUND —
+/// the receiver evaluates for effect only (the enclosing dispatch
+/// already lowered it; the owned-receiver release in `lower` still
+/// runs, and the detach-inc no-ops on the immortal cell). Calls
+/// route through the boxed dual entry (`variadic_locals` — the
+/// let-decl shape recorder), where a bare call is the spec
+/// this-undefined TypeError; `.call`/`.apply`/`.bind` ride the
+/// any-lane method dispatch (`any_method_call`'s sugar arm).
+fn try_lower_str_method_value(
+    ctx: &mut LowerCtx<'_>,
+    eid: ExprId,
+    obj: ExprId,
+    obj_val: &Operand,
+    obj_ty: &Type,
+    name: &str,
+) -> Option<Operand> {
+    if !matches!(obj_ty, Type::Str | Type::Substr) {
+        return None;
+    }
+    let Some(crate::check::Type::Function(ps, ret)) = ctx.expr_types.get(&eid) else {
+        return None;
+    };
+    let mid = torajs_rc::any_method_id(name);
+    if mid == torajs_rc::ANY_METHOD_UNKNOWN || torajs_rc::any_method_meta(mid).is_none() {
+        return None;
+    }
+    // A nullable receiver (un-narrowed exec/match capture miss) must
+    // throw before handing out a method value — same guard as the
+    // `.length` arm (no-op for non-nullable receivers).
+    crate::ssa_lower_nullable_guard::emit_nullable_str_guard(ctx, obj, obj_val);
+    let params: Vec<Type> = ps
+        .iter()
+        .map(crate::ssa_lower_member_builtin_namespace::check_ty_to_ssa)
+        .collect();
+    let ret = crate::ssa_lower_member_builtin_namespace::check_ty_to_ssa(ret.as_ref());
+    let sig = crate::ssa_lower::intern_fn_sig(ctx.fn_sigs, params, ret);
+    let cur_block = ctx.cur_block;
+    let v = ctx.f.append_inst(
+        cur_block,
+        InstKind::Call(
+            ctx.intrinsics.builtin_method_cell_tagged,
+            vec![Operand::ConstI64(3), Operand::ConstI64(mid)],
+        ),
+        Type::Closure(sig),
+        None,
+    );
+    Some(Operand::Value(v))
 }

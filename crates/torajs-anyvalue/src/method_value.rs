@@ -209,6 +209,19 @@ pub extern "C" fn __torajs_builtin_method_cell(mid: i64) -> *mut u8 {
     builtin_method_cell(-1, mid)
 }
 
+/// Family-tagged mint face for the compiler (RFC
+/// 20260725-str-method-value-reify) — a typed-receiver method VALUE
+/// read (`const m = s.slice`) resolves the interned cell at a
+/// compile-time-known (family, mid). The per-prototype cell aliases
+/// apply so the handed-out identity matches the reflection faces.
+#[unsafe(no_mangle)]
+pub extern "C" fn __torajs_builtin_method_cell_tagged(family: i64, mid: i64) -> *mut u8 {
+    builtin_method_cell(
+        family,
+        crate::method_support_proto::set_keys_alias(family, mid),
+    )
+}
+
 // Builtin-proto accessor getter cells (Map/Set `get size`, Symbol
 // `get description`) — `accessor_getter.rs` sibling; re-exported.
 mod accessor_getter;

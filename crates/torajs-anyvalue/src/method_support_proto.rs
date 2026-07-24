@@ -243,7 +243,7 @@ pub unsafe extern "C" fn __torajs_builtin_proto_own_method_cell(
 ///   "[object X]" badge classifier, distinct from every
 ///   per-receiver `toString` (RFC 20260713-array-proto-residual
 ///   blade 2).
-fn set_keys_alias(tag: i64, mid: i64) -> i64 {
+pub(crate) fn set_keys_alias(tag: i64, mid: i64) -> i64 {
     if tag == 12 && mid == ANY_METHOD_KEYS {
         return ANY_METHOD_VALUES;
     }

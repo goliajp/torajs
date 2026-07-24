@@ -147,6 +147,16 @@ pub(crate) fn record_binding_flags(
         ctx.variadic_locals.insert(name.to_string());
         ctx.ns_static_locals.insert(name.to_string(), id);
     }
+    // RFC 20260725-str-method-value-reify — a binding initialized
+    // from a String-receiver method VALUE read (`const m = s.slice`)
+    // routes its calls the same way: the minted mid-cell's fn_addr
+    // is the typed-slot boundary throw, its boxed entry the spec
+    // this-undefined TypeError. The mid registers alongside so the
+    // `.length` / `.name` folds answer the spec meta row.
+    if let Some(mid) = builtin_mv_member_init_mid(ctx, init) {
+        ctx.variadic_locals.insert(name.to_string());
+        ctx.builtin_mv_locals.insert(name.to_string(), mid);
+    }
     // RFC 20260707 residual chunk — record string-index let-inits
     // (`const c = s[i]`) and their aliases: the Substr slot may
     // hold the undefined sentinel (OOB read), so the inline
@@ -187,6 +197,30 @@ pub(crate) fn ns_static_member_init_id(ctx: &LowerCtx, init: ExprId) -> Option<i
     } else {
         None
     }
+}
+
+/// The method id when `init` is a String-receiver builtin method
+/// VALUE read (`s.slice`) — the same gate the member lowering mints
+/// under: receiver checker-typed String + member typed `Function` +
+/// the name interns to a mid with a spec meta row.
+pub(crate) fn builtin_mv_member_init_mid(ctx: &LowerCtx, init: ExprId) -> Option<i64> {
+    let Expr::Member { obj, name } = ctx.ast.get_expr(init) else {
+        return None;
+    };
+    if !matches!(ctx.expr_types.get(obj), Some(crate::check::Type::String)) {
+        return None;
+    }
+    if !matches!(
+        ctx.expr_types.get(&init),
+        Some(crate::check::Type::Function(..))
+    ) {
+        return None;
+    }
+    let mid = torajs_rc::any_method_id(name);
+    if mid == torajs_rc::ANY_METHOD_UNKNOWN || torajs_rc::any_method_meta(mid).is_none() {
+        return None;
+    }
+    Some(mid)
 }
 
 /// Stage 3 — materialize the binding's slot (capture box for

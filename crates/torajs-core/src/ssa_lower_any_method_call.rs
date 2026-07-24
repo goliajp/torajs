@@ -47,17 +47,30 @@ pub(crate) fn try_lower(
         // lowers to a runtime any cell, so .call / .apply / .bind
         // on it ride this any lane (checker mirror in
         // route_early.rs).
-        let sugar_fn_on_any = matches!(name.as_str(), "call" | "apply" | "bind")
+        let is_fn_surface = matches!(name.as_str(), "call" | "apply" | "bind")
             && matches!(
                 ctx.expr_types.get(obj),
                 Some(crate::check::Type::Function(..))
-            )
+            );
+        let sugar_fn_on_any = is_fn_surface
             && matches!(
                 ctx.ast.get_expr(*obj),
                 Expr::Member { obj: inner, .. }
                     if matches!(ctx.expr_types.get(inner), Some(crate::check::Type::Any))
             );
-        if !sugar_fn_on_any {
+        // RFC 20260725-str-method-value-reify — the same surfaces on
+        // a reified String-receiver method value (a `builtin_mv`
+        // binding or the inline `s.slice.call(…)` form) ride the any
+        // lane too: the runtime's `call_target` re-dispatches the
+        // carried mid with the thisArg as receiver (checker mirror
+        // in route_early.rs).
+        let builtin_mv = is_fn_surface
+            && (matches!(
+                ctx.ast.get_expr(*obj),
+                Expr::Ident(n) if ctx.builtin_mv_locals.contains_key(n)
+            ) || crate::ssa_lower_stmt_let_decl_general::builtin_mv_member_init_mid(ctx, *obj)
+                .is_some());
+        if !sugar_fn_on_any && !builtin_mv {
             return None;
         }
     }
@@ -77,6 +90,15 @@ pub(crate) fn try_lower(
     // concat spread) see UNSET. Self-gates on the operand's SSA
     // type — already-Any receivers no-op.
     ctx.emit_arr_mark_kind(&recv);
+    // RFC 20260725-str-method-value-reify — a typed Closure receiver
+    // (reified method-value binding on its .call/.apply/.bind) boxes
+    // at this any-lane boundary. Borrow-shaped box (box_to_any is
+    // RC-NEUTRAL, the kernel borrows the receiver) — no release.
+    let recv = if matches!(ctx.operand_ty(&recv), Type::Closure(_)) {
+        ctx.box_to_any(recv)
+    } else {
+        recv
+    };
     // Ident receivers ride their variable slot along so
     // growth-relocating methods write the fresh pointer back —
     // local alloca or K.3 top-level global slot (the same two

@@ -142,7 +142,7 @@ fn try_lower_ns_static_value(
 /// maps F64 (the boxed lane re-coerces returns through
 /// `any_to_number`, so width never routes a call); unknown shapes
 /// collapse to Any — the boxed lane boxes every arg anyway.
-fn check_ty_to_ssa(t: &crate::check::Type) -> Type {
+pub(crate) fn check_ty_to_ssa(t: &crate::check::Type) -> Type {
     match t {
         crate::check::Type::Number => Type::F64,
         crate::check::Type::String => Type::Str,

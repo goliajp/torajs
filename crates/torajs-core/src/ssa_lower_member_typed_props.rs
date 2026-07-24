@@ -120,6 +120,16 @@ pub(crate) fn try_lower(
         {
             return Some(Operand::ConstI64(i64::from(row.length)));
         }
+        // RFC 20260725-str-method-value-reify — a reified builtin
+        // method value's `.length` folds the spec meta row
+        // (`indexOf.length` is 1; the checker sig says 2). `.name`
+        // stays on the runtime chain — the cell probe answers it.
+        if name == "length"
+            && let Some(mid) = builtin_mv_mid_of_obj(ctx, obj)
+            && let Some((_, arity)) = torajs_rc::any_method_meta(mid)
+        {
+            return Some(Operand::ConstI64(i64::from(arity)));
+        }
         return Some(lower_fn_length_or_name(ctx, obj_val, obj_ty, name));
     }
     // RFC 20260721 刀 9 — `fun.prototype` on a Closure-typed
@@ -164,6 +174,18 @@ fn ns_static_id_of_obj(ctx: &LowerCtx<'_>, obj: ExprId) -> Option<i64> {
         return Some(*id);
     }
     crate::ssa_lower_stmt_let_decl_general::ns_static_member_init_id(ctx, obj)
+}
+
+/// The builtin method id of a member READ receiver: a binding
+/// registered at its let-decl (`const m = s.slice; m.length`) or
+/// the direct nested member form (`s.slice.length`).
+fn builtin_mv_mid_of_obj(ctx: &LowerCtx<'_>, obj: ExprId) -> Option<i64> {
+    if let crate::ast::Expr::Ident(n) = ctx.ast.get_expr(obj)
+        && let Some(mid) = ctx.builtin_mv_locals.get(n)
+    {
+        return Some(*mid);
+    }
+    crate::ssa_lower_stmt_let_decl_general::builtin_mv_member_init_mid(ctx, obj)
 }
 
 /// The builtin-proto tag whose interned ctor cell a typed

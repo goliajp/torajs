@@ -146,6 +146,7 @@ pub(crate) fn lower_fn(
         argc_locals,
         variadic_locals,
         ns_static_locals: HashMap::new(),
+        builtin_mv_locals: HashMap::new(),
         scope_stack: vec![Vec::new()],
         shadow_stack: vec![Vec::new()],
         loop_stack: Vec::new(),

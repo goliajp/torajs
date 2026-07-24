@@ -177,6 +177,12 @@ pub(crate) struct LowerCtx<'a> {
     /// table row instead of the checker-sig param count (which is a
     /// coincidence for Math and wrong for console's rest-shaped 0).
     pub(crate) ns_static_locals: std::collections::HashMap<String, i64>,
+    /// RFC 20260725-str-method-value-reify — bindings initialized
+    /// from a String-receiver builtin method VALUE read
+    /// (`const m = s.slice`), name → method id. The `.length` /
+    /// `.name` member folds read the spec row off the shared
+    /// torajs-rc meta table instead of the checker-sig shape.
+    pub(crate) builtin_mv_locals: std::collections::HashMap<String, i64>,
     /// Stack of names declared in each enclosing lexical scope, with the
     /// fn-root scope as `scope_stack[0]`. M1.3 — at `}` close we pop the
     /// top frame and emit drops for owners declared at that depth, then
