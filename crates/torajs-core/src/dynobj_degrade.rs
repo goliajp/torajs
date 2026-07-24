@@ -82,6 +82,8 @@ pub(crate) fn collect_dynobj_degraded_inits(ast: &Ast) -> HashSet<ExprId> {
         out: HashSet::new(),
         fallback_names: HashSet::new(),
         fallback_introspect_names: HashSet::new(),
+        fallback_write_fields: HashSet::new(),
+        fallback_write_names: HashSet::new(),
         registry: HashMap::new(),
     };
     for s in &ast.stmts {
@@ -104,6 +106,26 @@ pub(crate) fn collect_dynobj_degraded_inits(ast: &Ast) -> HashSet<ExprId> {
         .filter(|e| !w.init_has_accessor_field(*e))
         .collect();
     w.out.extend(introspect_hits);
+    // free-receiver writes (rotation 205) — expando spellings keep
+    // the own-field gate; computed writes and deletes mark every
+    // candidate under the name
+    let write_hits: Vec<ExprId> = w
+        .fallback_write_fields
+        .iter()
+        .filter_map(|(recv, field)| w.registry.get(recv).map(|eids| (eids, field)))
+        .flat_map(|(eids, field)| {
+            eids.iter()
+                .copied()
+                .filter(|e| !w.init_has_field(*e, field))
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    w.out.extend(write_hits);
+    for n in &w.fallback_write_names {
+        if let Some(eids) = w.registry.get(n) {
+            w.out.extend(eids.iter().copied());
+        }
+    }
     w.out
 }
 
@@ -120,6 +142,14 @@ struct Walker<'a> {
     /// Introspection-family receivers that resolved `Free` — applied
     /// like `fallback_names` but skipping accessor-bearing decls.
     fallback_introspect_names: HashSet<String>,
+    /// `(receiver, field)` of member writes whose receiver resolved
+    /// `Free` — applied like `fallback_names` but keeping the
+    /// own-field gate (a write the declaration's literal spells is a
+    /// static-lane store, not an expando).
+    fallback_write_fields: HashSet<(String, String)>,
+    /// Computed-key-write / member-delete receivers that resolved
+    /// `Free` — applied unconditionally like `fallback_names`.
+    fallback_write_names: HashSet<String>,
     /// Every candidate declaration in the module, by name — the
     /// fallback marking target set.
     registry: HashMap<String, Vec<ExprId>>,
@@ -239,10 +269,17 @@ impl Walker<'_> {
     /// on a tracked binding degrades the declaration, giving the
     /// test262-pervasive "expando on a plain object" idiom a legal
     /// lane (JS object semantics; the strict struct checker rejects
-    /// it otherwise). No `Free` fallback here: unlike defineProperty
-    /// (where a missed degrade orphans the define = silent wrong),
-    /// an unmarked dynamic write is rejected loudly by the checker,
-    /// so under-marking is safe and precision wins.
+    /// it otherwise).
+    ///
+    /// Rotation 205 — a `Free` receiver falls back to name-keyed
+    /// marking like the define family: the loud reject the original
+    /// no-fallback stance relied on turns out to gate the pervasive
+    /// `var obj = {}; function f() { obj.x = 1 }` idiom (the fn-body
+    /// receiver is always `Free` here, and without the degrade the
+    /// binding never reaches the named-fn-visible Any-global lane).
+    /// The expando spelling keeps the own-field gate through the
+    /// fallback; over-marking costs any-lane precision, never
+    /// correctness.
     fn scan_dynamic_write(&mut self, target: ExprId) {
         let ast = self.ast;
         match ast.get_expr(target) {
@@ -250,13 +287,18 @@ impl Walker<'_> {
                 let Expr::Ident(recv) = ast.get_expr(*obj) else {
                     return;
                 };
-                let Resolution::Tracked(eids) = self.resolve(recv) else {
-                    return;
-                };
-                let field = name.clone();
-                for eid in eids {
-                    if !self.init_has_field(eid, &field) {
-                        self.out.insert(eid);
+                match self.resolve(recv) {
+                    Resolution::Tracked(eids) => {
+                        for eid in eids {
+                            if !self.init_has_field(eid, name) {
+                                self.out.insert(eid);
+                            }
+                        }
+                    }
+                    Resolution::Opaque => {}
+                    Resolution::Free => {
+                        self.fallback_write_fields
+                            .insert((recv.clone(), name.clone()));
                     }
                 }
             }
@@ -264,8 +306,12 @@ impl Walker<'_> {
                 let Expr::Ident(recv) = ast.get_expr(*obj) else {
                     return;
                 };
-                if let Resolution::Tracked(eids) = self.resolve(recv) {
-                    self.out.extend(eids);
+                match self.resolve(recv) {
+                    Resolution::Tracked(eids) => self.out.extend(eids),
+                    Resolution::Opaque => {}
+                    Resolution::Free => {
+                        self.fallback_write_names.insert(recv.clone());
+                    }
                 }
             }
             _ => {}
@@ -275,7 +321,8 @@ impl Walker<'_> {
     /// Rotation 203 chunk 2 — `delete obj.k` / `delete obj[k]` on a
     /// tracked binding degrades it unconditionally: removing even an
     /// own field breaks the static struct layout, so the binding must
-    /// live on the dynobj lane. Same no-fallback rationale as
+    /// live on the dynobj lane. Rotation 205 — a `Free` receiver
+    /// takes the same name-keyed fallback as
     /// [`Self::scan_dynamic_write`].
     fn scan_delete(&mut self, operand: ExprId) {
         let ast = self.ast;
@@ -285,8 +332,12 @@ impl Walker<'_> {
         let Expr::Ident(recv) = ast.get_expr(*obj) else {
             return;
         };
-        if let Resolution::Tracked(eids) = self.resolve(recv) {
-            self.out.extend(eids);
+        match self.resolve(recv) {
+            Resolution::Tracked(eids) => self.out.extend(eids),
+            Resolution::Opaque => {}
+            Resolution::Free => {
+                self.fallback_write_names.insert(recv.clone());
+            }
         }
     }
 
@@ -485,6 +536,56 @@ delete b.x;
     }
 
     #[test]
+    fn free_expando_write_falls_back_to_name_marking() {
+        // rotation 205 — the pervasive named-fn expando idiom: the
+        // fn-body receiver resolves Free, and without the fallback
+        // the binding never reaches the Any-global lane
+        let src = r#"
+let obj = {};
+function f() {
+    obj.x = 1;
+}
+"#;
+        let got = collect(src);
+        let decls = decl_inits(src, "obj");
+        assert_eq!(decls.len(), 1);
+        assert!(got.contains(&decls[0]));
+    }
+
+    #[test]
+    fn free_own_field_write_does_not_mark() {
+        // the own-field gate holds through the Free fallback: a write
+        // the literal spells is a static-lane store, not an expando
+        let src = r#"
+let s = { a: 1 };
+function f() {
+    s.a = 2;
+}
+"#;
+        let got = collect(src);
+        let decls = decl_inits(src, "s");
+        assert_eq!(decls.len(), 1);
+        assert!(!got.contains(&decls[0]));
+    }
+
+    #[test]
+    fn free_computed_write_and_delete_mark() {
+        let src = r#"
+let a = { x: 1 };
+let b = { x: 1 };
+function f() {
+    a["y"] = 2;
+    delete b.x;
+}
+"#;
+        let got = collect(src);
+        let a = decl_inits(src, "a");
+        let b = decl_inits(src, "b");
+        assert!(got.contains(&a[0]), "free computed-key write degrades");
+        assert!(got.contains(&b[0]), "free delete degrades");
+    }
+
+    #[test]
     fn introspection_receiver_marks_like_defineproperty() {
         // the descriptor / proto introspection family mis-answers on
         // a struct receiver (r205 pass→bug collateral) — receivers
@@ -542,17 +643,21 @@ c.s = 21;
     }
 
     #[test]
-    fn dynamic_write_has_no_free_fallback() {
-        // an unresolved fn-body write receiver is rejected loudly by
-        // the checker if unmarked — precision wins over fallback here
+    fn free_write_fallback_is_field_keyed_not_name_keyed() {
+        // a free expando write on one name must not drag an
+        // unrelated same-field decl in: the fallback keys on
+        // (receiver, field), not the field alone
         let src = r#"
-let obj = { x: 1 };
+let a = { x: 1 };
+let b = {};
 function f() {
-    obj.newField = 2;
+    b.x = 2;
 }
 "#;
         let got = collect(src);
-        let decls = decl_inits(src, "obj");
-        assert!(!got.contains(&decls[0]));
+        let a = decl_inits(src, "a");
+        let b = decl_inits(src, "b");
+        assert!(!got.contains(&a[0]), "unrelated receiver must not mark");
+        assert!(got.contains(&b[0]), "the written receiver marks");
     }
 }

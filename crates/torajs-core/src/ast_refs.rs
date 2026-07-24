@@ -353,7 +353,8 @@ fn idents_in_expr(ast: &Ast, eid: ExprId, shadow: &HashSet<String>, out: &mut Ha
         | Expr::TypeOf { expr }
         | Expr::Spread { expr }
         | Expr::InstanceOf { expr, .. }
-        | Expr::As { expr, .. } => idents_in_expr(ast, *expr, shadow, out),
+        | Expr::As { expr, .. }
+        | Expr::Delete { expr } => idents_in_expr(ast, *expr, shadow, out),
         Expr::Member { obj, .. } | Expr::OptChain { obj, .. } => {
             idents_in_expr(ast, *obj, shadow, out)
         }
