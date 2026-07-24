@@ -239,24 +239,25 @@ pub fn apply_default_args(ast: &mut Ast) {
         &mut binding_counts,
         &mut objlit_inits,
     );
-    // `Some(fields)` = the name is bound exactly once program-wide
-    // and that binding is an ObjectLit — own-field resolution is
-    // sound. `None` = the name has an ObjectLit binding but ALSO
-    // other bindings (or a reassignment below) — ambiguous, padding
-    // is skipped (honest beats wrong). A name with no ObjectLit
-    // binding is absent — the name-keyed table applies as before
-    // (class instances etc. keep their padding).
-    let mut recv_fields: HashMap<String, Option<HashMap<String, Option<String>>>> = HashMap::new();
+    // A name enters the map only when it is bound exactly once
+    // program-wide, that binding is an ObjectLit, and it is never
+    // reassigned — own-field resolution is provably sound there.
+    // Everything else (multi-bound / reassigned / non-ObjectLit)
+    // keeps the pre-existing name-keyed behavior: test262-style
+    // programs rebind short names like `obj` constantly, and
+    // suppressing those pads regressed a sweep by -30 (the callee
+    // has no body-side default lane to fall back on).
+    let mut recv_fields: HashMap<String, HashMap<String, Option<String>>> = HashMap::new();
     for (name, fields) in objlit_inits {
-        let unique = binding_counts.get(&name) == Some(&1);
-        recv_fields.insert(name, if unique { Some(fields) } else { None });
+        if binding_counts.get(&name) == Some(&1) {
+            recv_fields.insert(name, fields);
+        }
     }
     for e in &ast.exprs {
         if let Expr::Assign { target, .. } = e
             && let Expr::Ident(nm) = ast.get_expr(*target)
-            && recv_fields.contains_key(nm)
         {
-            recv_fields.insert(nm.clone(), None);
+            recv_fields.remove(nm);
         }
     }
 
@@ -290,19 +291,18 @@ pub fn apply_default_args(ast: &mut Ast) {
                 },
                 Expr::Member { obj, name } => {
                     // Receiver-precise gate (see recv_fields above):
-                    // an ObjectLit-bound receiver answers from its own
-                    // field — own method without defaults / non-closure
-                    // field / ambiguous binding all mean NO padding
-                    // (honest undefined or arity error beats a wrong
-                    // default). Only an absent field (dynamic add) or
-                    // an unresolvable receiver falls to the name table.
+                    // a provably-unique ObjectLit-bound receiver
+                    // answers from its own field — own method without
+                    // defaults or a plain value field means NO padding
+                    // (honest beats a wrong default). An absent field
+                    // (dynamic add) or any receiver outside the map
+                    // falls to the name-keyed table as before.
                     let own = match ast.get_expr(obj) {
                         Expr::Ident(recv) => recv_fields.get(recv),
                         _ => None,
                     };
                     match own {
-                        Some(None) => continue,
-                        Some(Some(fields)) => match fields.get(&name) {
+                        Some(fields) => match fields.get(&name) {
                             Some(Some(fname)) => match fn_defaults.get(fname) {
                                 Some(d) => d.clone(),
                                 None => continue,
