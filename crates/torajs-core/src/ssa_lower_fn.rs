@@ -41,9 +41,6 @@ use crate::ssa_lower::{
     CLOSURE_CAP_BASE_OFF, CallRetargets, Intrinsics, LocalInfo, LowerCtx, decode_env_ann,
     effective_ret_ty,
 };
-use crate::ssa_lower_closure_captures::collect_closure_captures_in_stmt;
-use crate::ssa_lower_deque_escape::collect_deque_arr_names_in_stmt;
-use crate::ssa_lower_obj_escape::collect_escape_obj_let_names_in_stmt;
 use crate::ssa_lower_parse_type::parse_type;
 
 #[allow(clippy::too_many_arguments)]
@@ -192,19 +189,7 @@ pub(crate) fn lower_fn(
         owned_member_reads: std::collections::HashSet::new(),
     };
 
-    for s in body {
-        collect_closure_captures_in_stmt(ctx.ast, s, &mut ctx.escape_captured_lets);
-    }
-    if !ctx.escape_captured_lets.is_empty() {
-        ctx.mutated_captured_lets =
-            crate::ssa_lower_closure_captures::collect_assigned_names(ctx.ast);
-    }
-    for s in body {
-        collect_deque_arr_names_in_stmt(ctx.ast, s, &mut ctx.deque_arrs);
-    }
-    for s in body {
-        collect_escape_obj_let_names_in_stmt(ctx.ast, s, &mut ctx.escape_obj_lets);
-    }
+    ctx.prime_body_binding_sets(body.iter());
     // RC-4 F1c — mirror of the checker's dynobj_degraded set (flat
     // arena scan; see `crate::define_receivers`).
     ctx.dynobj_degraded = crate::define_receivers::collect_defineproperty_receivers(ctx.ast);
@@ -216,6 +201,14 @@ pub(crate) fn lower_fn(
     for s in body {
         if !ctx.try_lower_while_fast(prev, s) {
             ctx.lower_stmt(s);
+        }
+        // Terminating statement (throw / return / break / continue)
+        // closed the block — stop lowering siblings, same as the
+        // Block / Multi / try-body / switch-case walks. Without this
+        // guard dead siblings append into the terminated block and
+        // execute before its terminator.
+        if !ctx.cur_open() {
+            break;
         }
         prev = Some(s);
     }

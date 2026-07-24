@@ -13,9 +13,6 @@ use std::collections::HashMap;
 use crate::ast::{Ast, ExprId, Stmt};
 use crate::ssa::{self, BakedRegexEntry, FuncId, InstKind, Module, Type};
 use crate::ssa_lower::{CallRetargets, Intrinsics, LowerCtx};
-use crate::ssa_lower_closure_captures::collect_closure_captures_in_stmt;
-use crate::ssa_lower_deque_escape::collect_deque_arr_names_in_stmt;
-use crate::ssa_lower_obj_escape::collect_escape_obj_let_names_in_stmt;
 
 pub(crate) fn declare_intrinsic(
     module: &mut Module,
@@ -143,33 +140,22 @@ pub(crate) fn synthesize_main(
             argv_owned_temps: Vec::new(),
             owned_member_reads: std::collections::HashSet::new(),
         };
-        // T-15.g.5 fix: prime escape_captured_lets BEFORE lowering any
-        // top-level let-decl. Without this, top-level `let x = 10` in
-        // a program that later does `let cb = function() { return x }`
-        // alloca's x on stack; the closure construction stores that
-        // stack pointer into env+CAP_OFFSET; env_drop then calls
-        // obj_drop(stack_ptr) → "pointer being freed was not allocated"
-        // SIGABRT during shutdown. lower_fn does the same prime walk
-        // for user fn bodies; synthesize_main was missing it.
-        for s in stmts {
-            collect_closure_captures_in_stmt(ctx.ast, s, &mut ctx.escape_captured_lets);
-        }
-        if !ctx.escape_captured_lets.is_empty() {
-            ctx.mutated_captured_lets =
-                crate::ssa_lower_closure_captures::collect_assigned_names(ctx.ast);
-        }
-        // 11-A1 — prime deque-unsafe Array binding set.
-        for s in stmts {
-            collect_deque_arr_names_in_stmt(ctx.ast, s, &mut ctx.deque_arrs);
-        }
-        // 11-A2-a — prime escape-bound Obj-typed binding set.
-        for s in stmts {
-            collect_escape_obj_let_names_in_stmt(ctx.ast, s, &mut ctx.escape_obj_lets);
-        }
+        // T-15.g.5 — prime the binding sets BEFORE lowering any
+        // top-level let-decl (an unprimed escape-captured `let`
+        // stack-allocs and SIGABRTs at env_drop; see the helper doc).
+        ctx.prime_body_binding_sets(stmts.iter().copied());
         let mut prev: Option<&Stmt> = None;
         for s in stmts {
             if !ctx.try_lower_while_fast(prev, s) {
                 ctx.lower_top_stmt(s);
+            }
+            // Terminating statement (top-level throw in particular)
+            // closed the block — stop lowering siblings, same as the
+            // Block / Multi / try-body / switch-case walks. Without
+            // this guard dead siblings append into the terminated
+            // block and execute before its terminator.
+            if !ctx.cur_open() {
+                break;
             }
             prev = Some(*s);
         }

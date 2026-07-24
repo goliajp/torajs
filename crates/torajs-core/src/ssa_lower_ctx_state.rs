@@ -1,10 +1,13 @@
 //! Small `LowerCtx<'a>` ctx-state query helpers extracted from
 //! `ssa_lower.rs` chunk 402 — Path A.3-batch23.
 //!
-//! Three tiny leaf methods that inspect or route based on the
-//! current lowering context (main-fn vs. nested fn / block open
-//! status / while-loop fast-path):
+//! Leaf methods that inspect or route based on the current lowering
+//! context (main-fn vs. nested fn / block open status / while-loop
+//! fast-path), plus the shared pre-body binding-set prime:
 //!
+//! - `prime_body_binding_sets(body)` — escape-capture / deque /
+//!   escape-obj set prime shared by `lower_fn` and
+//!   `synthesize_main` (deduped from their identical walks).
 //! - `num_width_local_key(name) -> SlotKey` — W1 map key for a let
 //!   binding: `Global` for top-level bindings (regardless of Pass
 //!   1.5 promotion), `Local` for nested-fn locals.
@@ -23,6 +26,43 @@ use crate::ssa_lower_push_loop_detect::let_counter_zero_name;
 use crate::ssa_lower_while_push_fast::lower_while_inner;
 
 impl<'a> LowerCtx<'a> {
+    /// Prime the per-body binding sets shared by `lower_fn` and
+    /// `synthesize_main` before any statement lowers:
+    /// escape-captured lets (T-15.g.5 — a top-level `let` captured by
+    /// a later closure must not stack-alloc), the mutated-capture
+    /// mirror, deque-unsafe Array bindings (11-A1) and escape-bound
+    /// Obj bindings (11-A2-a).
+    pub(crate) fn prime_body_binding_sets<'s>(
+        &mut self,
+        body: impl Iterator<Item = &'s Stmt> + Clone,
+    ) {
+        for s in body.clone() {
+            crate::ssa_lower_closure_captures::collect_closure_captures_in_stmt(
+                self.ast,
+                s,
+                &mut self.escape_captured_lets,
+            );
+        }
+        if !self.escape_captured_lets.is_empty() {
+            self.mutated_captured_lets =
+                crate::ssa_lower_closure_captures::collect_assigned_names(self.ast);
+        }
+        for s in body.clone() {
+            crate::ssa_lower_deque_escape::collect_deque_arr_names_in_stmt(
+                self.ast,
+                s,
+                &mut self.deque_arrs,
+            );
+        }
+        for s in body {
+            crate::ssa_lower_obj_escape::collect_escape_obj_let_names_in_stmt(
+                self.ast,
+                s,
+                &mut self.escape_obj_lets,
+            );
+        }
+    }
+
     /// W1 — the num_width SlotKey for a let binding in the current fn.
     /// Top-level bindings key as Global regardless of whether Pass 1.5
     /// promoted them (the analysis keys every top-level let that way).
