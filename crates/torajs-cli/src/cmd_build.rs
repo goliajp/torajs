@@ -145,6 +145,12 @@ pub(crate) fn lower_to_ssa(input: &str) -> Result<Module, ExitCode> {
     ast::desugar_builtin_imports(&mut ast);
     ast::desugar_builtin_new(&mut ast);
     ast::desugar_regex_syntax_error(&mut ast);
+    if !ast.regex_parse_errors.is_empty() {
+        for msg in ast.regex_parse_errors.values() {
+            eprintln!("parse error: regex literal {msg}");
+        }
+        return Err(ExitCode::from(1));
+    }
     ast::desugar_prototype_call(&mut ast);
     ast::inject_builtin_classes(&mut ast);
     ast::desugar_classes(&mut ast);
