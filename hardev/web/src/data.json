@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-24T10:57:52.993Z",
+  "generatedAt": "2026-07-24T11:52:30.908Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,9 +9,9 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-24T10:06:14Z",
+    "ranAt": "2026-07-24T11:51:34Z",
     "headSha": "5eb3ce87",
-    "elapsedSec": 404.75,
+    "elapsedSec": 370.22,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 95.86
   },
   "torajs": {
-    "commit": "9134dcc0",
-    "commitSubject": "fix(ssa): append-into-terminated-block debug contract + the weakref has/delete violation it caught",
+    "commit": "727a6060",
+    "commitSubject": "fix(ssa_lower): obj-escape hardened to value-flow contract at all escape sites",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,22 @@
   },
   "commits": [
     {
+      "hash": "727a6060",
+      "subject": "fix(ssa_lower): obj-escape hardened to value-flow contract at all escape sites"
+    },
+    {
+      "hash": "3a48a463",
+      "subject": "fix(ssa_lower): closure-capture and assigned-name walkers skip for-of bodies"
+    },
+    {
+      "hash": "646531e3",
+      "subject": "fix(ssa_lower): deque-escape misses aliases behind value-transparent wrappers"
+    },
+    {
+      "hash": "afd510a4",
+      "subject": "chore(hardev): archive test262 r200 sweep (passTotal 13379 +13) + dashboard snapshot at rotation 200 close"
+    },
+    {
       "hash": "9134dcc0",
       "subject": "fix(ssa): append-into-terminated-block debug contract + the weakref has/delete violation it caught"
     },
@@ -743,43 +759,38 @@
     {
       "hash": "4ac985e9",
       "subject": "perf(test262-runner): flat sleep → exponential backoff (500us→20ms) — sweep wall -35%"
-    },
-    {
-      "hash": "8d5faf1f",
-      "subject": "Revert \"fix(ssa_lower/throw): switch cur_block to orphan block after set_term\" — 触发 egraph latent bug"
-    },
-    {
-      "hash": "23ae4407",
-      "subject": "fix(ssa_lower/throw): switch cur_block to orphan block after set_term — 3 arm sibling dead-code exec bug"
-    },
-    {
-      "hash": "ca912d11",
-      "subject": "chore: test262 sweep at 0631606e (rotation 198 close) — passTotal 13364 → 13366 (+2) / bug 579 → 578 (-1)"
-    },
-    {
-      "hash": "0631606e",
-      "subject": "refactor(ast): regex literal SyntaxError — chunk 4 pivot to compile-time reject"
     }
   ],
-  "headSha": "9134dcc0",
+  "headSha": "727a6060",
   "autorun": {
-    "total": 504,
+    "total": 505,
     "baselineTarget": 10,
-    "bySelf": 499,
+    "bySelf": 500,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784878903-5f45",
-      "at": "2026-07-24T07:41:43Z",
-      "ts": 1784878903,
+      "rotationId": "r-1784890738-6e31",
+      "at": "2026-07-24T10:58:58Z",
+      "ts": 1784890738,
       "trigger": "self",
-      "prevHead": "71520e66",
-      "handoffSha": "sha256:c254802aa02f86168eaf127c050ba13d0e7e3d89b09ff840e416af24fd28187a",
-      "handoffAgeSec": 73,
+      "prevHead": "afd510a4",
+      "handoffSha": "sha256:4ac412ab02e484f6875c8bdb1018f173e47d75555906f5c13f2573709c034ec4",
+      "handoffAgeSec": 4,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784890738-6e31",
+        "at": "2026-07-24T10:58:58Z",
+        "ts": 1784890738,
+        "trigger": "self",
+        "prevHead": "afd510a4",
+        "handoffSha": "sha256:4ac412ab02e484f6875c8bdb1018f173e47d75555906f5c13f2573709c034ec4",
+        "handoffAgeSec": 4,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784878903-5f45",
         "at": "2026-07-24T07:41:43Z",
@@ -876,17 +887,6 @@
         "prevHead": "81f61db6",
         "handoffSha": "sha256:7e1bd0670d740aebbd381653da2e23fd49f798c6adbe08bbf86b7d0c563a12ee",
         "handoffAgeSec": 5,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784752089-404a",
-        "at": "2026-07-22T20:28:09Z",
-        "ts": 1784752089,
-        "trigger": "self",
-        "prevHead": "95d7d22b",
-        "handoffSha": "sha256:e3b9b18a67fa86852538ff6149f88bebd15aa0c13b52f117cd49ae3a7b657f2c",
-        "handoffAgeSec": 20332,
         "conformanceBefore": null,
         "commitsInSession": null
       }
