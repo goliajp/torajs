@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-24T23:38:31.226Z",
+  "generatedAt": "2026-07-24T23:45:04.171Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 96.1
   },
   "torajs": {
-    "commit": "f66adcaf",
-    "commitSubject": "feat(check): struct-lane JSON.stringify answers {} for slot-backed classes",
+    "commit": "89990a69",
+    "commitSubject": "fix(runtime): JSON.stringify throws on a BigInt",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "89990a69",
+      "subject": "fix(runtime): JSON.stringify throws on a BigInt"
+    },
+    {
+      "hash": "f3c807dd",
+      "subject": "chore(hardev): archive test262 r218 sweep (13556/550, zero pass regression)"
+    },
+    {
       "hash": "f66adcaf",
       "subject": "feat(check): struct-lane JSON.stringify answers {} for slot-backed classes"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "5ed69d56",
       "subject": "fix(check): promoted fn-expr descriptor faces re-ann through the knife-6 probe"
-    },
-    {
-      "hash": "2506f1be",
-      "subject": "feat(parser): fn-expr object-literal fields bind this to the receiver"
-    },
-    {
-      "hash": "3c017498",
-      "subject": "feat(check): un-annotated object-literal bindings promote to struct globals"
     }
   ],
-  "headSha": "f66adcaf",
+  "headSha": "89990a69",
   "autorun": {
     "total": 511,
     "baselineTarget": 10,
