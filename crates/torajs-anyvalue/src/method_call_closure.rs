@@ -180,7 +180,7 @@ pub(crate) unsafe fn closure_method(
 /// 20260717-objlit-anylane-recv knife 2d), or a reified builtin
 /// method's original id re-dispatched with the thisArg as the
 /// receiver (chunk 711).
-enum CallTarget {
+pub(crate) enum CallTarget {
     Boxed(*mut c_void, u64),
     /// (mid, family) — the mint family picks the family-generic
     /// lane: §22.1.3 ToString(this) for a String-prototype cell,
@@ -194,7 +194,7 @@ enum CallTarget {
 }
 
 /// Classify the receiver closure cell.
-unsafe fn call_target(ptr: *mut c_void) -> Option<CallTarget> {
+pub(crate) unsafe fn call_target(ptr: *mut c_void) -> Option<CallTarget> {
     unsafe {
         if let Some(target_mid) = crate::method_value::builtin_method_mid(ptr) {
             let fam = crate::method_value::builtin_method_family(ptr);
@@ -211,7 +211,7 @@ unsafe fn call_target(ptr: *mut c_void) -> Option<CallTarget> {
 /// re-dispatch passes no name bytes and no receiver slot (a grow-
 /// relocating method reached through `.call` cannot write the
 /// caller's variable back — recorded boundary).
-unsafe fn dispatch(
+pub(crate) unsafe fn dispatch(
     target: &CallTarget,
     this_arg: AnyValue,
     argv: *const u64,

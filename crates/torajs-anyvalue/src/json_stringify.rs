@@ -129,8 +129,23 @@ enum Wrote {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_json_stringify(v: AnyValue) -> *mut u8 {
     unsafe {
+        // §25.5.2.3 step 2 — the top-level value consults the user
+        // toJSON hook before walking (rotation 205).
+        let (v, hook_owned) = match crate::json_stringify_tojson::apply_tojson(v) {
+            Some(r) => (r, true),
+            None => (v, false),
+        };
+        if __torajs_throw_check() != 0 {
+            if hook_owned {
+                crate::nanbox_ffi::__torajs_anyv_rc_dec(v);
+            }
+            return __torajs_str_undef();
+        }
         let sb = __torajs_jsb_new(64);
         let wrote = write_value(sb, v, 0);
+        if hook_owned {
+            crate::nanbox_ffi::__torajs_anyv_rc_dec(v);
+        }
         let s = __torajs_jsb_finalize(sb);
         if wrote == Wrote::Nothing || __torajs_throw_check() != 0 {
             __torajs_str_drop(s as *mut c_void);
@@ -255,7 +270,16 @@ unsafe fn write_array(sb: *mut c_void, ptr: *mut c_void, depth: u32) {
             if i > 0 {
                 __torajs_jsb_push_byte(sb, b',');
             }
-            let elem = crate::index_any::__torajs_any_index_get(boxed, i);
+            let mut elem = crate::index_any::__torajs_any_index_get(boxed, i);
+            // §25.5.2.3 step 2 — element-level toJSON hook.
+            if let Some(r) = crate::json_stringify_tojson::apply_tojson(elem) {
+                crate::nanbox_ffi::__torajs_anyv_rc_dec(elem);
+                elem = r;
+                if __torajs_throw_check() != 0 {
+                    crate::nanbox_ffi::__torajs_anyv_rc_dec(elem);
+                    break;
+                }
+            }
             if write_value(sb, elem, depth + 1) == Wrote::Nothing {
                 push_bytes(sb, b"null");
             }
@@ -296,13 +320,25 @@ unsafe fn write_object(sb: *mut c_void, ptr: *mut c_void, depth: u32) {
             // object. The result is OWNED (len_get's box_probe_pair
             // convention); a pending throw aborts the walk and
             // propagates through the caller's throw-check.
-            let owned = accessor_pair_of(value).is_some();
+            let mut owned = accessor_pair_of(value).is_some();
             if let Some(pair) = accessor_pair_of(value) {
                 value = __torajs_accessor_invoke_getter(
                     pair,
                     crate::nanbox_encode::__torajs_anyv_box_from_pair(4, ptr as i64),
                 );
                 if __torajs_throw_check() != 0 {
+                    break;
+                }
+            }
+            // §25.5.2.3 step 2 — field-level toJSON hook.
+            if let Some(r) = crate::json_stringify_tojson::apply_tojson(value) {
+                if owned {
+                    crate::nanbox_ffi::__torajs_anyv_rc_dec(value);
+                }
+                value = r;
+                owned = true;
+                if __torajs_throw_check() != 0 {
+                    crate::nanbox_ffi::__torajs_anyv_rc_dec(value);
                     break;
                 }
             }
@@ -361,7 +397,21 @@ unsafe fn write_struct(sb: *mut c_void, ptr: *mut c_void, depth: u32) {
                 {
                     continue;
                 }
+                // §25.5.2.3 step 2 — field-level toJSON hook (a
+                // struct's Any field can hold a dynobj carrying one).
+                let mut hook_owned = false;
+                if let Some(r) = crate::json_stringify_tojson::apply_tojson(value) {
+                    value = r;
+                    hook_owned = true;
+                    if __torajs_throw_check() != 0 {
+                        crate::nanbox_ffi::__torajs_anyv_rc_dec(value);
+                        break;
+                    }
+                }
                 if serializes_to_nothing(value) {
+                    if hook_owned {
+                        crate::nanbox_ffi::__torajs_anyv_rc_dec(value);
+                    }
                     continue;
                 }
                 if emitted {
@@ -371,6 +421,9 @@ unsafe fn write_struct(sb: *mut c_void, ptr: *mut c_void, depth: u32) {
                 quote_bytes(sb, name.ptr, name.len);
                 __torajs_jsb_push_byte(sb, b':');
                 write_value(sb, value, depth + 1);
+                if hook_owned {
+                    crate::nanbox_ffi::__torajs_anyv_rc_dec(value);
+                }
                 if __torajs_throw_check() != 0 {
                     break;
                 }
