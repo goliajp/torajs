@@ -97,14 +97,7 @@ impl<'p> Parser<'p> {
                 return None;
             }
             let e = self.get();
-            let c = match e {
-                b'n' => b'\n',
-                b't' => b'\t',
-                b'r' => b'\r',
-                b'f' => 0x0C,
-                b'v' => 0x0B,
-                b'0' => 0,
-                b'b' => 0x08,
+            match e {
                 b'd' => {
                     n.cc.add_digit();
                     return Some(ClassItem::ContinueLoop);
@@ -129,17 +122,55 @@ impl<'p> Parser<'p> {
                     add_complement_space(n);
                     return Some(ClassItem::ContinueLoop);
                 }
-                b'x' => {
-                    let h1 = self.read_hex_digit()?;
-                    let h2 = self.read_hex_digit()?;
-                    (h1 << 4) | h2
-                }
                 b'p' => return self.parse_class_property(n),
-                other => other,
-            };
+                _ => {}
+            }
+            let c = self.read_class_escape_char(e)?;
             Some(ClassItem::Char(c))
         } else {
             Some(ClassItem::Char(self.get()))
+        }
+    }
+
+    /// Shared escape-char reader for both class items and class-range
+    /// endpoints. `e` is the byte immediately after `\`. Returns the
+    /// literal byte value (or `None` + `set_err` on malformed escape).
+    /// Handles `\n \t \r \f \v \0 \b` literals, `\xHH` hex, and — under
+    /// non-u/v mode — annexB §B.1.4 LegacyOctalEscapeSequence (`\N` /
+    /// `\NN` / `\NNN`, first digit 0-3 up to 3 octal digits, 4-7 up to
+    /// 2). Anything else falls through as literal byte `e` (annexB
+    /// IdentityEscape).
+    fn read_class_escape_char(&mut self, e: u8) -> Option<u8> {
+        match e {
+            b'n' => Some(b'\n'),
+            b't' => Some(b'\t'),
+            b'r' => Some(b'\r'),
+            b'f' => Some(0x0C),
+            b'v' => Some(0x0B),
+            b'b' => Some(0x08),
+            b'0' => Some(0),
+            b'x' => {
+                let h1 = self.read_hex_digit()?;
+                let h2 = self.read_hex_digit()?;
+                Some((h1 << 4) | h2)
+            }
+            b'1'..=b'7' if !unicode_mode(self.flags) => {
+                let mut n: u32 = (e - b'0') as u32;
+                let max_more = if e <= b'3' { 2 } else { 1 };
+                let mut digits_read = 0;
+                while digits_read < max_more && !self.eof() {
+                    let c = self.peek();
+                    if (b'0'..=b'7').contains(&c) {
+                        self.get();
+                        n = n * 8 + (c - b'0') as u32;
+                        digits_read += 1;
+                    } else {
+                        break;
+                    }
+                }
+                Some((n & 0xff) as u8)
+            }
+            other => Some(other),
         }
     }
 
@@ -164,6 +195,10 @@ impl<'p> Parser<'p> {
     }
 
     /// Parse the high end of a `c-hi` class range (just-consumed `-`).
+    /// Delegates escape decoding to `read_class_escape_char` so `\xHH`
+    /// hex and annexB `\NN` legacy octal escapes work as range
+    /// endpoints (bun-accept, previously tr rejected → misfired
+    /// `SyntaxError` at `ast_desugar_regex_syntax_error`).
     fn parse_class_range_end(&mut self) -> Option<u8> {
         if self.peek() == b'\\' {
             self.get();
@@ -181,12 +216,7 @@ impl<'p> Parser<'p> {
                 self.set_err();
                 return None;
             }
-            Some(match e {
-                b'n' => b'\n',
-                b't' => b'\t',
-                b'r' => b'\r',
-                other => other,
-            })
+            self.read_class_escape_char(e)
         } else {
             Some(self.get())
         }
