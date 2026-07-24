@@ -84,8 +84,10 @@ pub struct ElaborateStats {
 /// The input `Function` is consumed by reference; its `values` table is
 /// cloned verbatim into the output (Phase 0 mints no new SSA values,
 /// only drops redundant ones). The returned `Function` has the same
-/// block layout and terminator shape; only `insts` may shrink (via
-/// GVN drop) or have operands canonicalised.
+/// block layout; reachable blocks keep their terminator shape (modulo
+/// branch folding) and `insts` may shrink (via GVN drop) or have
+/// operands canonicalised, while unreachable blocks are detached
+/// (emptied, terminator pinned to `Unreachable`).
 ///
 /// `_loop_info` is plumbed through unused in Phase 0; Phase 1 LICM
 /// consumes it to decide hoist placement.
@@ -238,28 +240,26 @@ pub fn elaborate(
         }
     }
 
-    // Any blocks unreachable from BlockId(0) keep their original
-    // contents — Phase 0 doesn't prune dead blocks (a separate
-    // SimplifyCFG pass lands later). Clone insts verbatim with
-    // terminator untouched.
-    for (bi, block) in func.blocks.iter().enumerate() {
-        if out_blocks[bi].insts.is_empty() && !block.insts.is_empty() {
-            // Distinguish "visited and emitted zero" from "never
-            // visited" by checking if we ever pushed the block.
-            // Phase 0 cheats: if the block was never visited
-            // (unreachable), `term` was initialised to the source's
-            // term (the clone in the prealloc), but `insts` is empty.
-            // For a truly visited block with all insts GVN-skipped,
-            // insts is also empty but term has been re-rewritten. We
-            // can detect "never visited" by checking the dominator
-            // tree: if `dom.immediate_dominator(bid)` is None AND
-            // bid != BlockId(0), the block is unreachable.
-            let bid = BlockId(bi as u32);
-            if bid != BlockId(0) && dom.immediate_dominator(bid).is_none() {
-                // Preserve original insts verbatim for unreachable
-                // blocks — round-trip equivalence.
-                out_blocks[bi].insts = block.insts.clone();
-            }
+    // Blocks unreachable from BlockId(0) are detached from the CFG —
+    // no edge reaches them, so their contents can never execute.
+    // Empty them and pin `Terminator::Unreachable` (the ctpop_idiom /
+    // ctpop_range_sum detach idiom) instead of cloning their insts
+    // verbatim: passes that run before elaboration walk the whole
+    // block list (the inliner in particular replaces calls with
+    // `InstKind::Identity` result bindings in any block), while the
+    // egraph optimize/elaborate walks are domtree DFS and never
+    // canonicalise dead-block contents — a verbatim clone leaks
+    // un-elaborated Identity insts straight into liveness, which
+    // rejects them by contract.
+    for bi in 1..n {
+        let bid = BlockId(bi as u32);
+        if dom.immediate_dominator(bid).is_none() {
+            // Never visited by the DFS: insts is still the empty
+            // prealloc (LICM redirects only target dominators, which
+            // are reachable by definition). Pin the terminator so the
+            // detached block carries no operand uses either.
+            out_blocks[bi].insts.clear();
+            out_blocks[bi].term = Terminator::Unreachable;
         }
     }
 
@@ -361,10 +361,10 @@ fn canonicalize_operands(kind: &InstKind, egraph: &mut Egraph) -> InstKind {
 /// is `ConstBool(true)`/`ConstBool(false)`, or when both arms target
 /// the same block, the `CondBr` is rewritten to a single-target `Br`
 /// and `stats.branches_folded` increments. The block that the fold
-/// drops on the floor is left as dead — a SimplifyCFG-style pass
-/// later can prune unreachable blocks; elaboration's existing
-/// "unreachable preserved verbatim" path keeps them safe in the
-/// meantime.
+/// drops on the floor stays in the layout this round (the domtree was
+/// computed before the fold, so the DFS still visits and elaborates
+/// it); blocks that were already unreachable coming in are detached
+/// by the loop after the DFS.
 fn rewrite_terminator(
     term: &Terminator,
     egraph: &mut Egraph,
@@ -972,10 +972,13 @@ mod tests {
     }
 
     #[test]
-    fn unreachable_block_preserved_verbatim() {
-        // Block 0 → ret. Block 1 is unreachable but holds insts that
-        // must NOT vanish (round-trip preserves layout).
-        let values = vec![vinfo("a", Type::I64)];
+    fn unreachable_block_detached() {
+        // Block 0 → ret. Block 1 is unreachable: its contents can
+        // never execute, so elaboration empties it and pins the
+        // terminator to Unreachable. Un-elaborated insts (an inliner-
+        // spliced Identity in particular) must never survive in a
+        // dead block — liveness rejects Identity by contract.
+        let values = vec![vinfo("a", Type::I64), vinfo("b", Type::I64)];
         let blocks = vec![
             Block {
                 id: BlockId(0),
@@ -984,11 +987,14 @@ mod tests {
             },
             Block {
                 id: BlockId(1),
-                insts: vec![val_inst(
-                    ValueId(0),
-                    InstKind::BinOp(BinOp::Add, Operand::ConstI64(1), Operand::ConstI64(2)),
-                )],
-                term: Terminator::Unreachable,
+                insts: vec![
+                    val_inst(
+                        ValueId(0),
+                        InstKind::BinOp(BinOp::Add, Operand::ConstI64(1), Operand::ConstI64(2)),
+                    ),
+                    val_inst(ValueId(1), InstKind::Identity(Operand::Value(ValueId(0)))),
+                ],
+                term: Terminator::Br(BlockId(0)),
             },
         ];
         let f = func(values, blocks);
@@ -996,8 +1002,9 @@ mod tests {
         let lp = LoopAnalysis::compute(&f, &dom);
         let mut eg = Egraph::new(f.values.len());
         let (out, stats) = elaborate(&f, &dom, &lp, &mut eg);
-        // Block 1 is unreachable from entry — preserved verbatim.
-        assert_eq!(out.blocks[1].insts.len(), 1);
+        // Block 1 is unreachable from entry — detached.
+        assert!(out.blocks[1].insts.is_empty());
+        assert!(matches!(out.blocks[1].term, Terminator::Unreachable));
         // Only block 0 was actually walked by the DFS.
         assert_eq!(stats.blocks_visited, 1);
     }
