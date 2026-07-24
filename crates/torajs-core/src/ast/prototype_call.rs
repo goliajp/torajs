@@ -108,14 +108,29 @@ pub fn desugar_prototype_call(ast: &mut Ast) {
         // `m` (checker reject / runtime garbage throw), and an own
         // `m` would shadow the explicitly-called builtin. The
         // runtime path reifies the method cell and the `.call`
-        // re-dispatch coerces (`generic_str_this`). `toString` /
-        // `valueOf` / `toLocaleString` keep the rewrite —
-        // thisStringValue mid-aliasing boundary, recorded.
-        if ns == "String"
-            && !matches!(
-                method_name.as_str(),
-                "toString" | "valueOf" | "toLocaleString"
-            )
+        // re-dispatch coerces (`generic_str_this`). `toString` and
+        // `valueOf` used to keep the rewrite (the thisStringValue
+        // mid-aliasing boundary) — they now join the brand-checked
+        // block below. `toLocaleString` is the one that still keeps
+        // it: §20.1.4.6 is the inherited generic, never brand-checked,
+        // and the rewritten form is what the checker resolves.
+        if ns == "String" && method_name != "toLocaleString" {
+            continue;
+        }
+        // §21.1.3 thisNumberValue / §20.3.3 thisBooleanValue /
+        // §22.1.3.28 thisStringValue — the brand-checked wrapper
+        // methods SKIP the rewrite (String's are caught by the block
+        // above, which now skips everything but toLocaleString): they
+        // throw
+        // a TypeError on a receiver of the wrong brand, which
+        // `recv.m()` cannot express (a plain object answers its OWN
+        // toString, i.e. the badge). The runtime path reifies the
+        // family-tagged cell and the `.call` short-circuit runs the
+        // brand gate (`generic_builtin_this`) — the same gate the
+        // through-a-binding form (`const m = Boolean.prototype
+        // .toString; m.call({})`) already reaches.
+        if matches!(ns.as_str(), "Number" | "Boolean")
+            && matches!(method_name.as_str(), "toString" | "valueOf")
         {
             continue;
         }
