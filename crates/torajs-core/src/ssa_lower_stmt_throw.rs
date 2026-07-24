@@ -148,4 +148,12 @@ pub(crate) fn lower(ctx: &mut LowerCtx, eid: ExprId) {
         };
         ctx.f.set_term(cb, term);
     }
+    // Throw stmt 三 arm 都已 set_term(Br handler / Ret uncaught_code / Ret zero),
+    // 后续 sibling stmt 若继续 lower 到 cur_block 会 append 进已 terminated block
+    // 的 term 前,codegen 按物理序 emit 导致 dead code 真被 exec(实测:top-level
+    // `throw ERR; console.log("after")` after 会 print,fn body throw + sibling
+    // stmt 同漏)。切 cur_block 到 orphan block,后续 stmt lower 挂 dead block
+    // 由 codegen/egraph dead-strip 剔除。
+    let dead = ctx.f.add_block();
+    ctx.cur_block = dead;
 }
