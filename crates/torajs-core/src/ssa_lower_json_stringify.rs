@@ -35,6 +35,7 @@
 
 mod composite;
 mod composite_obj;
+mod to_json;
 
 use crate::ssa::{InstKind, Operand, Terminator, Type};
 use crate::ssa_lower::LowerCtx;
@@ -78,11 +79,29 @@ pub(crate) fn lower_top(ctx: &mut LowerCtx, val_op: Operand, ty: Type) -> Operan
             ctx.emit_drop_value(Operand::Value(owned), Type::Str);
             Operand::Value(v)
         }
-        _ => lower(ctx, val_op, ty),
+        _ => lower_keyed(ctx, val_op, ty, None),
     }
 }
 
-pub(crate) fn lower(ctx: &mut LowerCtx, val_op: Operand, ty: Type) -> Operand {
+/// The recursive value serializer. `key` is the §25.5.2 property key
+/// the value sits under — the argument a `toJSON` hook receives
+/// (step 2.b). `None` is the empty key the top-level value carries;
+/// composite recursion passes its property name / element index.
+pub(crate) fn lower_keyed(
+    ctx: &mut LowerCtx,
+    val_op: Operand,
+    ty: Type,
+    key: Option<Operand>,
+) -> Operand {
+    if let Type::Obj(sid) = ty
+        && let Some(out) = to_json::try_lower_hook(ctx, &val_op, sid, key)
+    {
+        return out;
+    }
+    lower_shape(ctx, val_op, ty)
+}
+
+fn lower_shape(ctx: &mut LowerCtx, val_op: Operand, ty: Type) -> Operand {
     match ty {
         Type::I64 => {
             let v = ctx.f.append_inst(

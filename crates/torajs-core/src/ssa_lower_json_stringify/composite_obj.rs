@@ -180,6 +180,14 @@ fn lower_obj_concat(
         if matches!(accessor, Some(("__setter_", _))) {
             continue;
         }
+        // §25.5.2.4 step 11 — a callable property serializes to
+        // undefined, so step 8.b omits its whole segment. (`toJSON`
+        // never reaches here: the hook consumed the value before the
+        // unfold.) Accessor slots are excluded — their Closure is
+        // synthetic and the arm below calls it for its [[Get]].
+        if accessor.is_none() && matches!(slot_ty, Type::Closure(_)) {
+            continue;
+        }
         let (key, field_v, fty, getter_owned) = match accessor {
             Some((_, prop)) => {
                 let Type::Closure(sig_id) = *slot_ty else {
@@ -291,7 +299,10 @@ fn lower_obj_concat(
             None,
         );
         ctx.emit_drop_value(Operand::Value(v1), Type::Str);
-        let field_str = super::lower(ctx, field_v.clone(), *fty);
+        // §25.5.2 step 2.b — the key this value sits under is the
+        // property name, which this lane knows statically.
+        let hook_key = Operand::Value(ctx.intern_string_literal(&key));
+        let field_str = super::lower_keyed(ctx, field_v.clone(), *fty, Some(hook_key));
         let v3 = ctx.f.append_inst(
             ctx.cur_block,
             InstKind::Call(

@@ -131,7 +131,11 @@ pub(crate) fn try_lower(
 /// accessor lane answers the same question by scanning `aliases` for a
 /// structurally-equal entry, and that is exactly why a plain `{a:1}`
 /// steals a same-layout class's getter (RFC §2.1); this must not copy it.
-fn is_objlit_method_slot(ctx: &LowerCtx<'_>, sid: crate::ssa::StructId, name: &str) -> bool {
+pub(crate) fn is_objlit_method_slot(
+    ctx: &LowerCtx<'_>,
+    sid: crate::ssa::StructId,
+    name: &str,
+) -> bool {
     ctx.ast
         .objlit_method_fields
         .iter()
@@ -217,7 +221,22 @@ pub(crate) fn emit_receiver_closure_call_ops(
     user_sig_id: SigId,
     arg_ops: Vec<Operand>,
 ) -> Operand {
-    let mut site = prepare_closure_call(ctx, recv_op, offset, user_sig_id, true);
+    emit_closure_call_ops(ctx, recv_op, offset, user_sig_id, arg_ops, true)
+}
+
+/// [`emit_receiver_closure_call_ops`] with the receiver slot under
+/// caller control — an object-literal method that never mentions
+/// `this` keeps the plain `(__env, ...user)` ABI, so seeding the
+/// slot would shift every user argument by one.
+pub(crate) fn emit_closure_call_ops(
+    ctx: &mut LowerCtx<'_>,
+    recv_op: Operand,
+    offset: u64,
+    user_sig_id: SigId,
+    arg_ops: Vec<Operand>,
+    takes_recv: bool,
+) -> Operand {
+    let mut site = prepare_closure_call(ctx, recv_op, offset, user_sig_id, takes_recv);
     site.argv.extend(arg_ops);
     finish_closure_call(ctx, site)
 }

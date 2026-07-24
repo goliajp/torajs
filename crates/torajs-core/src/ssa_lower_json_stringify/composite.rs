@@ -172,7 +172,21 @@ fn lower_arr_walk(ctx: &mut LowerCtx, val_op: Operand, arr_id: ArrId) -> Operand
         elem_ty,
         None,
     );
-    let elem_str = super::lower(ctx, Operand::Value(elem), elem_ty);
+    // §25.5.2 step 2.b — an element's key is its index, which this
+    // lane only knows at runtime (the walk is a loop, not an unfold).
+    let idx_key = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(ctx.intrinsics.i64_to_str, vec![Operand::Value(i_now)]),
+        Type::Str,
+        None,
+    );
+    let elem_str = super::lower_keyed(
+        ctx,
+        Operand::Value(elem),
+        elem_ty,
+        Some(Operand::Value(idx_key)),
+    );
+    ctx.emit_drop_value(Operand::Value(idx_key), Type::Str);
     let acc_now2 = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Load(Type::Str, Operand::Value(acc), 0),
