@@ -35,6 +35,14 @@ pub(crate) const STR_PROTO_FAMILY: i64 = 3;
 /// generic_builtin_this`).
 pub(crate) const ARR_PROTO_FAMILY: i64 = 2;
 
+/// The Number family's proto tag — its reified toString / valueOf
+/// brand-check thisNumberValue (§21.1.3) on borrow re-dispatch.
+pub(crate) const NUM_PROTO_FAMILY: i64 = 0;
+
+/// The Boolean family's proto tag — its reified toString / valueOf
+/// brand-check thisBooleanValue (§20.3.3) on borrow re-dispatch.
+pub(crate) const BOOL_PROTO_FAMILY: i64 = 4;
+
 /// The Object-proto family row — the intern target for mids whose
 /// implementation a family INHERITS from `Object.prototype`.
 const OBJ_PROTO_FAMILY: i64 = 1;

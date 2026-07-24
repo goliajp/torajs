@@ -275,6 +275,24 @@ pub(crate) unsafe fn generic_builtin_this(
             crate::method_call_arraylike_concat::prim_method(this_arg, argv, argc)
         });
     }
+    // §21.1.3 thisNumberValue / §20.3.3 thisBooleanValue — a Number-
+    // or Boolean-prototype-minted toString / valueOf borrowed onto a
+    // receiver of the wrong brand is a TypeError (rotation 204,
+    // mirror of the String family's thisStringValue gate below;
+    // toString is NOT generic for these prototypes).
+    if matches!(mid, ANY_METHOD_TO_STRING | ANY_METHOD_VALUE_OF) {
+        let wrong_brand = (fam == crate::method_value::NUM_PROTO_FAMILY
+            && !is_number_shaped(this_arg))
+            || (fam == crate::method_value::BOOL_PROTO_FAMILY && !is_boolean_shaped(this_arg));
+        if wrong_brand {
+            unsafe {
+                __torajs_throw_type_error(
+                    c"builtin prototype method requires |this| to match its brand".as_ptr(),
+                );
+            }
+            return Some(VALUE_UNDEFINED);
+        }
+    }
     unsafe {
         generic_str_this(
             mid,
@@ -284,6 +302,31 @@ pub(crate) unsafe fn generic_builtin_this(
             fam == crate::method_value::STR_PROTO_FAMILY,
         )
     }
+}
+
+/// thisNumberValue shape — a number immediate or a Number wrapper
+/// (whose thisNumberValue is its [[NumberData]]).
+fn is_number_shaped(v: AnyValue) -> bool {
+    if is_int32(v) || is_double(v) {
+        return true;
+    }
+    if !is_cell(v) {
+        return false;
+    }
+    let tag = unsafe { (as_void_ptr(v).cast::<u8>().add(4) as *const u16).read() };
+    tag == Tag::NumberWrapper as u16
+}
+
+/// thisBooleanValue shape — a bool immediate or a Boolean wrapper.
+fn is_boolean_shaped(v: AnyValue) -> bool {
+    if is_bool(v) {
+        return true;
+    }
+    if !is_cell(v) {
+        return false;
+    }
+    let tag = unsafe { (as_void_ptr(v).cast::<u8>().add(4) as *const u16).read() };
+    tag == Tag::BooleanWrapper as u16
 }
 
 /// A primitive shape whose ToObject mints a fresh wrapper — the
