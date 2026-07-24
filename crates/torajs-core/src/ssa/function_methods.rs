@@ -55,6 +55,32 @@ impl Function {
         id
     }
 
+    /// Contract check shared by the append paths: a block whose
+    /// terminator has been set (no longer the `Unreachable` open
+    /// placeholder) must not receive further instructions — they
+    /// would sit before the terminator and execute, which is how the
+    /// dead-sibling-after-throw class of bugs ships. Lowering walks
+    /// guard with `cur_open()`; this backstop catches any site that
+    /// forgets.
+    ///
+    /// The entry block (bb0) is exempt: it is the prologue slot —
+    /// `alloca_in_entry` slot reservations and their zero-init
+    /// stores are deliberately appended there for the whole lowering
+    /// run, long after its terminator is set. They sit physically
+    /// before the terminator and run once on entry, which is exactly
+    /// the prologue semantics wanted (the textbook position that
+    /// dominates every use).
+    #[inline]
+    fn debug_assert_open(&self, block: BlockId, _kind: &InstKind) {
+        debug_assert!(
+            block.0 == 0 || matches!(self.blocks[block.0 as usize].term, Terminator::Unreachable),
+            "append into terminated block bb{} of `{}` — instructions \
+             added after set_term execute before the terminator",
+            block.0,
+            self.name
+        );
+    }
+
     pub fn append_inst(
         &mut self,
         block: BlockId,
@@ -62,6 +88,7 @@ impl Function {
         result_ty: Type,
         name: Option<&str>,
     ) -> ValueId {
+        self.debug_assert_open(block, &kind);
         let result = self.alloc_value(result_ty, name);
         let origin = self.current_origin;
         self.blocks[block.0 as usize].insts.push(Inst {
@@ -74,6 +101,7 @@ impl Function {
 
     /// Append a void-result instruction (currently only `Call` to a void-returning function).
     pub fn append_void(&mut self, block: BlockId, kind: InstKind) {
+        self.debug_assert_open(block, &kind);
         let origin = self.current_origin;
         self.blocks[block.0 as usize].insts.push(Inst {
             result: None,

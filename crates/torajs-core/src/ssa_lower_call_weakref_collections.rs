@@ -213,8 +213,13 @@ fn try_lower_weak_collection_method(
         .append_inst(cur_block, InstKind::Call(target, full_args), ret_ty, None);
     settle_owned_key(ctx, args[0], &key_raw);
     if matches!(m_name.as_str(), "has" | "delete") {
+        // Emit into the CURRENT block, not the pre-settle snapshot —
+        // settling an owned key temp (its drop's null-check split)
+        // may have moved cur_block; the snapshot block is then
+        // already terminated. `v` still dominates (defined in the
+        // pre-split half).
         let b = ctx.f.append_inst(
-            cur_block,
+            ctx.cur_block,
             InstKind::ICmp(IPred::Ne, Operand::Value(v), Operand::ConstI64(0)),
             Type::Bool,
             None,
