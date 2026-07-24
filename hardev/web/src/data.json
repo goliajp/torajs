@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-24T12:25:23.546Z",
+  "generatedAt": "2026-07-24T12:45:04.627Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,9 +9,9 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-24T11:51:34Z",
+    "ranAt": "2026-07-24T12:40:51Z",
     "headSha": "5eb3ce87",
-    "elapsedSec": 370.22,
+    "elapsedSec": 374.66,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 95.86
   },
   "torajs": {
-    "commit": "ad7944cf",
-    "commitSubject": "fix(ast): method-default padding pads by receiver's own field, not name alone",
+    "commit": "a47119b3",
+    "commitSubject": "fix(ast): receiver-precise padding — ambiguous receivers fall back to the name table",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "a47119b3",
+      "subject": "fix(ast): receiver-precise padding — ambiguous receivers fall back to the name table"
+    },
+    {
+      "hash": "c6fa42d3",
+      "subject": "chore(hardev): dashboard snapshot at rotation 201 close"
+    },
+    {
       "hash": "ad7944cf",
       "subject": "fix(ast): method-default padding pads by receiver's own field, not name alone"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "646531e3",
       "subject": "fix(ssa_lower): deque-escape misses aliases behind value-transparent wrappers"
-    },
-    {
-      "hash": "afd510a4",
-      "subject": "chore(hardev): archive test262 r200 sweep (passTotal 13379 +13) + dashboard snapshot at rotation 200 close"
-    },
-    {
-      "hash": "9134dcc0",
-      "subject": "fix(ssa): append-into-terminated-block debug contract + the weakref has/delete violation it caught"
     }
   ],
-  "headSha": "ad7944cf",
+  "headSha": "a47119b3",
   "autorun": {
     "total": 505,
     "baselineTarget": 10,
