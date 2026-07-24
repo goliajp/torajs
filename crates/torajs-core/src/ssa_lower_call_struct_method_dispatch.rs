@@ -40,6 +40,7 @@ use crate::ssa_lower::{CLOSURE_FN_ADDR_OFF, LowerCtx, OBJ_HEADER_SIZE, intern_fn
 
 pub(crate) fn try_lower(
     ctx: &mut LowerCtx<'_>,
+    eid: ExprId,
     callee: ExprId,
     args: &[ExprId],
 ) -> Option<Operand> {
@@ -81,8 +82,13 @@ pub(crate) fn try_lower(
         .find(|(_, (n, _))| n == name)
         .map(|(i, (_, t))| (i, *t))?;
     let offset = OBJ_HEADER_SIZE + (field_idx as u64) * 8;
+    // T-28 — the checker recorded the trailing-Any missing-arg count
+    // for this Call ExprId; a CallIndirect whose argv is shorter than
+    // its signature reads garbage registers in the callee (the probe
+    // face: a missing `x: any` answered a stray Str-tagged value).
+    let pad_n = ctx.arity_pad_count.get(&eid).copied().unwrap_or(0);
     match ssa_field_ty {
-        Type::FnSig(sig_id) => Some(emit_fnsig_call(ctx, recv_op, offset, sig_id, args)),
+        Type::FnSig(sig_id) => Some(emit_fnsig_call(ctx, recv_op, offset, sig_id, args, pad_n)),
         Type::Closure(user_sig_id) if is_variadic => {
             let closure_env = ctx.f.append_inst(
                 ctx.cur_block,
@@ -108,6 +114,7 @@ pub(crate) fn try_lower(
                 user_sig_id,
                 args,
                 takes_recv,
+                pad_n,
             ))
         }
         _ => None,
@@ -138,6 +145,7 @@ fn emit_fnsig_call(
     offset: u64,
     sig_id: SigId,
     args: &[ExprId],
+    pad_n: usize,
 ) -> Operand {
     let fn_ptr = ctx.f.append_inst(
         ctx.cur_block,
@@ -159,6 +167,7 @@ fn emit_fnsig_call(
     // answered undefined).
     let coerce_owned =
         crate::ssa_lower_call_terminal::coerce_args_by_param_tys(ctx, &params, args, &mut argv);
+    crate::ssa_lower_call_terminal::pad_undef_n(ctx, pad_n, &mut argv);
     let result = if ret_ty == Type::Void {
         ctx.f.append_void(
             ctx.cur_block,
@@ -191,7 +200,8 @@ pub(crate) fn emit_receiver_closure_call(
     user_sig_id: SigId,
     args: &[ExprId],
 ) -> Operand {
-    emit_closure_call(ctx, recv_op, offset, user_sig_id, args, true)
+    // Accessor arity is fixed (getter 0, setter 1) — never pads.
+    emit_closure_call(ctx, recv_op, offset, user_sig_id, args, true, 0)
 }
 
 /// Same `(__env, __this, ...user)` ABI as [`emit_receiver_closure_call`],
@@ -307,6 +317,7 @@ fn emit_closure_call(
     user_sig_id: SigId,
     args: &[ExprId],
     takes_recv: bool,
+    pad_n: usize,
 ) -> Operand {
     let mut site = prepare_closure_call(ctx, recv_op, offset, user_sig_id, takes_recv);
     let fixed = site.argv.len();
@@ -326,6 +337,7 @@ fn emit_closure_call(
         args,
         &mut site.argv[fixed..],
     );
+    crate::ssa_lower_call_terminal::pad_undef_n(ctx, pad_n, &mut site.argv);
     let result = finish_closure_call(ctx, site);
     for op in coerce_owned {
         ctx.emit_drop_value(op, Type::Str);

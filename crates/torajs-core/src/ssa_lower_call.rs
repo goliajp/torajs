@@ -47,7 +47,7 @@ pub(crate) fn lower(
     if let Some(op) = crate::ssa_lower_any_call::try_lower(ctx, callee, args) {
         return op;
     }
-    if let Some(op) = try_dispatch_a(ctx, callee, args) {
+    if let Some(op) = try_dispatch_a(ctx, eid, callee, args) {
         return op;
     }
     if let Some(op) = try_dispatch_b(ctx, callee, args) {
@@ -62,7 +62,12 @@ pub(crate) fn lower(
     crate::ssa_lower_call_terminal::emit(ctx, eid, callee, args)
 }
 
-fn try_dispatch_a(ctx: &mut LowerCtx<'_>, callee: ExprId, args: &[ExprId]) -> Option<Operand> {
+fn try_dispatch_a(
+    ctx: &mut LowerCtx<'_>,
+    eid: ExprId,
+    callee: ExprId,
+    args: &[ExprId],
+) -> Option<Operand> {
     if let Some(v) = crate::ssa_lower_process_on::try_lower(ctx, callee, args) {
         return Some(v);
     }
@@ -95,7 +100,9 @@ fn try_dispatch_a(ctx: &mut LowerCtx<'_>, callee: ExprId, args: &[ExprId]) -> Op
         return Some(op);
     }
     // P3.struct-method-dispatch — `obj.method()` on Type::Obj(sid) struct with FnSig/Closure field.
-    if let Some(op) = crate::ssa_lower_call_struct_method_dispatch::try_lower(ctx, callee, args) {
+    if let Some(op) =
+        crate::ssa_lower_call_struct_method_dispatch::try_lower(ctx, eid, callee, args)
+    {
         return Some(op);
     }
     // V3-18 m2.a / m2.d — Object.prototype methods on primitives (auto-box) + struct instances.

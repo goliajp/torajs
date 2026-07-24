@@ -68,8 +68,21 @@ pub(crate) fn monomorphize_and_check(c: &mut Checker, ast: &Ast) -> MonoOutput {
     // Restore the member-call shape at demoted speculative rewrites
     // BEFORE cloning, so specialization bodies and num_width see the
     // builtin dispatch shape (mechanism: cm_demote.rs).
-    for (&call_eid, &alt_eid) in &c.demoted_cm_rewrites {
+    let demoted: Vec<(ExprId, ExprId)> = c
+        .demoted_cm_rewrites
+        .iter()
+        .map(|(k, v)| (*k, *v))
+        .collect();
+    for (call_eid, alt_eid) in demoted {
         owned_ast.exprs[call_eid.0 as usize] = owned_ast.exprs[alt_eid.0 as usize].clone();
+        // The demoted re-check typed the ALT node, so its T-28
+        // trailing-Any pad count landed on alt_eid — but lowering
+        // consults the CALL ExprId it restored the shape at. Carry
+        // it over, or a demoted `d.m()` with missing any-params
+        // reads garbage registers (the struct-method pad miss).
+        if let Some(n) = c.arity_pad_count.get(&alt_eid).copied() {
+            c.arity_pad_count.insert(call_eid, n);
+        }
     }
     let generics = collect_generics(&owned_ast);
     let generic_fn_names: HashSet<String> = generics.keys().cloned().collect();

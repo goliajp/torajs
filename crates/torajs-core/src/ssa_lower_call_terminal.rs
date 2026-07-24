@@ -196,7 +196,16 @@ pub(crate) fn pad_trailing_undef(ctx: &mut LowerCtx<'_>, eid: ExprId, argv: &mut
         Some(n) if n > 0 => n,
         _ => return,
     };
-    for _ in 0..pad_n {
+    pad_undef_n(ctx, pad_n, argv);
+}
+
+/// Emit `n` ANY_UNDEF boxes onto `argv` — the count-known half of
+/// [`pad_trailing_undef`], for arms that resolve the pad count from
+/// `arity_pad_count` themselves before dropping the call ExprId
+/// (struct-method dispatch resolves it in `try_lower`; its emit
+/// helpers are shared with fixed-arity accessor callers that pad 0).
+pub(crate) fn pad_undef_n(ctx: &mut LowerCtx<'_>, n: usize, argv: &mut Vec<Operand>) {
+    for _ in 0..n {
         let cur_block = ctx.cur_block;
         let undef_box = ctx.f.append_inst(
             cur_block,
