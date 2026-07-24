@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-24T23:17:13.927Z",
+  "generatedAt": "2026-07-24T23:38:31.226Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-24T23:15:46Z",
+    "ranAt": "2026-07-24T23:37:59Z",
     "headSha": "5eb3ce87",
-    "elapsedSec": 196.76,
+    "elapsedSec": 195.74,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 8990,
+    "pass": 8991,
     "passNoOracle": 118,
     "passNegative": 4447,
-    "passTotal": 13555,
+    "passTotal": 13556,
     "bug": 550,
-    "incompatible": 39069,
+    "incompatible": 39068,
     "bunSkip": 11904,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 14105,
+    "trAccepted": 14106,
     "passRateInScope": 25.49,
     "passRateTrAccepted": 96.1
   },
   "torajs": {
-    "commit": "e76148d2",
-    "commitSubject": "feat(check): struct-lane JSON.stringify serializes through toJSON",
+    "commit": "f66adcaf",
+    "commitSubject": "feat(check): struct-lane JSON.stringify answers {} for slot-backed classes",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,18 @@
   },
   "commits": [
     {
+      "hash": "f66adcaf",
+      "subject": "feat(check): struct-lane JSON.stringify answers {} for slot-backed classes"
+    },
+    {
+      "hash": "5e5245e1",
+      "subject": "fix(runtime): JSON.stringify unwraps primitive wrapper objects"
+    },
+    {
+      "hash": "e959b21b",
+      "subject": "chore(hardev): archive test262 r217 sweep (13555/550, zero pass regression)"
+    },
+    {
       "hash": "e76148d2",
       "subject": "feat(check): struct-lane JSON.stringify serializes through toJSON"
     },
@@ -747,21 +759,9 @@
     {
       "hash": "3c017498",
       "subject": "feat(check): un-annotated object-literal bindings promote to struct globals"
-    },
-    {
-      "hash": "ed0529f3",
-      "subject": "feat(check): mutable struct globals promote to module slots"
-    },
-    {
-      "hash": "dde52603",
-      "subject": "feat(check): string-receiver builtin methods reify as values"
-    },
-    {
-      "hash": "d347bdc2",
-      "subject": "chore(hardev): archive test262 r215 sweep (13548/544; +JSON.stringify toJSON hook value-tojson pair; rotation-205 total +49/-4 vs r213 zero regression)"
     }
   ],
-  "headSha": "e76148d2",
+  "headSha": "f66adcaf",
   "autorun": {
     "total": 511,
     "baselineTarget": 10,
