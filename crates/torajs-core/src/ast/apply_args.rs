@@ -222,6 +222,44 @@ pub fn apply_default_args(ast: &mut Ast) {
         }
     }
 
+    // Receiver-precise suppression for the Member arm below: the
+    // name-keyed `method_defaults` table pads EVERY `x.m()` site, so
+    // a receiver whose OWN `m` has no defaults was handed another
+    // owner's default where the language gives undefined (probe:
+    // `const b = {m(x: any){}}; b.m()` padded with an unrelated
+    // `m(x = 5)`'s 5). When the receiver is an Ident bound to an
+    // ObjectLit, resolve against the object's own field first; the
+    // name-keyed table only serves unresolvable receivers.
+    let mut binding_counts: HashMap<String, usize> = HashMap::new();
+    let mut objlit_inits: HashMap<String, HashMap<String, Option<String>>> = HashMap::new();
+    super::apply_args_recv::collect_objlit_recv_fields(
+        ast,
+        &ast.stmts,
+        &synthetic_fn_ident,
+        &mut binding_counts,
+        &mut objlit_inits,
+    );
+    // `Some(fields)` = the name is bound exactly once program-wide
+    // and that binding is an ObjectLit — own-field resolution is
+    // sound. `None` = the name has an ObjectLit binding but ALSO
+    // other bindings (or a reassignment below) — ambiguous, padding
+    // is skipped (honest beats wrong). A name with no ObjectLit
+    // binding is absent — the name-keyed table applies as before
+    // (class instances etc. keep their padding).
+    let mut recv_fields: HashMap<String, Option<HashMap<String, Option<String>>>> = HashMap::new();
+    for (name, fields) in objlit_inits {
+        let unique = binding_counts.get(&name) == Some(&1);
+        recv_fields.insert(name, if unique { Some(fields) } else { None });
+    }
+    for e in &ast.exprs {
+        if let Expr::Assign { target, .. } = e
+            && let Expr::Ident(nm) = ast.get_expr(*target)
+            && recv_fields.contains_key(nm)
+        {
+            recv_fields.insert(nm.clone(), None);
+        }
+    }
+
     if fn_defaults.is_empty() && method_defaults.is_empty() {
         return;
     }
@@ -250,10 +288,37 @@ pub fn apply_default_args(ast: &mut Ast) {
                         None => continue,
                     },
                 },
-                Expr::Member { name, .. } => match method_defaults.get(&name) {
-                    Some(d) => d.clone(),
-                    None => continue,
-                },
+                Expr::Member { obj, name } => {
+                    // Receiver-precise gate (see recv_fields above):
+                    // an ObjectLit-bound receiver answers from its own
+                    // field — own method without defaults / non-closure
+                    // field / ambiguous binding all mean NO padding
+                    // (honest undefined or arity error beats a wrong
+                    // default). Only an absent field (dynamic add) or
+                    // an unresolvable receiver falls to the name table.
+                    let own = match ast.get_expr(obj) {
+                        Expr::Ident(recv) => recv_fields.get(recv),
+                        _ => None,
+                    };
+                    match own {
+                        Some(None) => continue,
+                        Some(Some(fields)) => match fields.get(&name) {
+                            Some(Some(fname)) => match fn_defaults.get(fname) {
+                                Some(d) => d.clone(),
+                                None => continue,
+                            },
+                            Some(None) => continue,
+                            None => match method_defaults.get(&name) {
+                                Some(d) => d.clone(),
+                                None => continue,
+                            },
+                        },
+                        None => match method_defaults.get(&name) {
+                            Some(d) => d.clone(),
+                            None => continue,
+                        },
+                    }
+                }
                 _ => continue,
             };
             if args_len >= defaults.len() {
