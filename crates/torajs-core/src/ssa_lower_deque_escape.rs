@@ -44,7 +44,9 @@ use crate::ast::{Ast, Expr, ExprId, Stmt};
 /// sites must use this instead of a bare-`Ident` match — an array
 /// aliased behind `cond ? xs : ys` escapes exactly like a bare `xs`
 /// (missing it is a false-negative = wrong-offset fast-path read).
-fn collect_value_flow_idents(ast: &Ast, eid: ExprId, out: &mut HashSet<String>) {
+/// Shared with the 11-A2-a obj-escape visitor — same hole there is
+/// a stack-use-after-free.
+pub(crate) fn collect_value_flow_idents(ast: &Ast, eid: ExprId, out: &mut HashSet<String>) {
     match ast.get_expr(eid) {
         Expr::Ident(n) => {
             out.insert(n.clone());

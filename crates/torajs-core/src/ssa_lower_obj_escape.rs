@@ -22,7 +22,10 @@
 //!   storage
 //! - `...X` spread — copy into a heap container
 //! - `let Y = X` / `Y = X` — alias propagates (mark both X and Y;
-//!   conservative — no per-binding precision)
+//!   conservative — no per-binding precision); value-transparent
+//!   wrappers are looked through (`cond ? X : Z` / `X ?? Z` /
+//!   `(e, X)` / `X as T` / nested assign) at every escape site —
+//!   see `collect_value_flow_idents` in the deque-escape sibling
 //! - `foo(X)` — fn-call arg, callee may retain
 //! - `X.method(...)` — receiver passed to method, callee may retain
 //! - `new C(X)` / `super(X)` — constructor arg
@@ -47,34 +50,32 @@
 use std::collections::HashSet;
 
 use crate::ast::{Ast, Expr, ExprId, Stmt};
+use crate::ssa_lower_deque_escape::collect_value_flow_idents;
 
 pub(crate) fn collect_escape_obj_let_names_in_stmt(ast: &Ast, s: &Stmt, out: &mut HashSet<String>) {
     match s {
         Stmt::Expr(eid) => collect_escape_obj_let_names_in_expr(ast, *eid, out),
         Stmt::Throw(eid) | Stmt::Yield(eid) => {
-            if let Expr::Ident(n) = ast.get_expr(*eid) {
-                out.insert(n.clone());
-            }
+            collect_value_flow_idents(ast, *eid, out);
             collect_escape_obj_let_names_in_expr(ast, *eid, out);
         }
         Stmt::YieldInto { value, .. } => {
-            if let Expr::Ident(n) = ast.get_expr(*value) {
-                out.insert(n.clone());
-            }
+            collect_value_flow_idents(ast, *value, out);
             collect_escape_obj_let_names_in_expr(ast, *value, out);
         }
         Stmt::Return(Some(eid)) => {
-            if let Expr::Ident(n) = ast.get_expr(*eid) {
-                out.insert(n.clone());
-            }
+            collect_value_flow_idents(ast, *eid, out);
             collect_escape_obj_let_names_in_expr(ast, *eid, out);
         }
         Stmt::Return(None) => {}
         Stmt::LetDecl { name, init, .. } => {
-            // `let y = X` — y aliases X; both marked escape-bound.
-            if let Expr::Ident(m) = ast.get_expr(*init) {
-                out.insert(m.clone());
+            // `let y = X` (or `= cond ? X : Z` etc.) — y aliases
+            // every value-flow source; all involved bindings marked.
+            let mut sources = HashSet::new();
+            collect_value_flow_idents(ast, *init, &mut sources);
+            if !sources.is_empty() {
                 out.insert(name.clone());
+                out.extend(sources);
             }
             collect_escape_obj_let_names_in_expr(ast, *init, out);
         }
@@ -184,15 +185,11 @@ fn collect_escape_obj_let_names_in_expr(ast: &Ast, eid: ExprId, out: &mut HashSe
         Expr::Call { callee, args } => {
             // `X.method(...)` — receiver passed to method, callee
             // may retain. Mark any Ident receiver of a method call.
-            if let Expr::Member { obj, .. } = ast.get_expr(*callee)
-                && let Expr::Ident(n) = ast.get_expr(*obj)
-            {
-                out.insert(n.clone());
+            if let Expr::Member { obj, .. } = ast.get_expr(*callee) {
+                collect_value_flow_idents(ast, *obj, out);
             }
             for a in args {
-                if let Expr::Ident(n) = ast.get_expr(*a) {
-                    out.insert(n.clone());
-                }
+                collect_value_flow_idents(ast, *a, out);
                 collect_escape_obj_let_names_in_expr(ast, *a, out);
             }
             collect_escape_obj_let_names_in_expr(ast, *callee, out);
@@ -200,14 +197,14 @@ fn collect_escape_obj_let_names_in_expr(ast: &Ast, eid: ExprId, out: &mut HashSe
         Expr::Assign { target, value } => {
             match ast.get_expr(*target) {
                 Expr::Member { .. } | Expr::Index { .. } => {
-                    if let Expr::Ident(n) = ast.get_expr(*value) {
-                        out.insert(n.clone());
-                    }
+                    collect_value_flow_idents(ast, *value, out);
                 }
                 Expr::Ident(name) => {
-                    if let Expr::Ident(m) = ast.get_expr(*value) {
+                    let mut sources = HashSet::new();
+                    collect_value_flow_idents(ast, *value, &mut sources);
+                    if !sources.is_empty() {
                         out.insert(name.clone());
-                        out.insert(m.clone());
+                        out.extend(sources);
                     }
                 }
                 _ => {}
@@ -217,31 +214,23 @@ fn collect_escape_obj_let_names_in_expr(ast: &Ast, eid: ExprId, out: &mut HashSe
         }
         Expr::Array(els) => {
             for e in els {
-                if let Expr::Ident(n) = ast.get_expr(*e) {
-                    out.insert(n.clone());
-                }
+                collect_value_flow_idents(ast, *e, out);
                 collect_escape_obj_let_names_in_expr(ast, *e, out);
             }
         }
         Expr::ObjectLit { fields } => {
             for (_, e) in fields {
-                if let Expr::Ident(n) = ast.get_expr(*e) {
-                    out.insert(n.clone());
-                }
+                collect_value_flow_idents(ast, *e, out);
                 collect_escape_obj_let_names_in_expr(ast, *e, out);
             }
         }
         Expr::Spread { expr } => {
-            if let Expr::Ident(n) = ast.get_expr(*expr) {
-                out.insert(n.clone());
-            }
+            collect_value_flow_idents(ast, *expr, out);
             collect_escape_obj_let_names_in_expr(ast, *expr, out);
         }
         Expr::New { args, .. } | Expr::Super { args } => {
             for e in args {
-                if let Expr::Ident(n) = ast.get_expr(*e) {
-                    out.insert(n.clone());
-                }
+                collect_value_flow_idents(ast, *e, out);
                 collect_escape_obj_let_names_in_expr(ast, *e, out);
             }
         }
