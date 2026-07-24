@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-23T18:42:50.827Z",
+  "generatedAt": "2026-07-24T05:43:52.988Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-23T18:42:26Z",
+    "ranAt": "2026-07-24T05:27:10Z",
     "headSha": "5eb3ce87",
-    "elapsedSec": 713.13,
+    "elapsedSec": 582.56,
     "workers": 8,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 8801,
+    "pass": 8803,
     "passNoOracle": 116,
     "passNegative": 4447,
-    "passTotal": 13364,
-    "bug": 579,
-    "incompatible": 39231,
+    "passTotal": 13366,
+    "bug": 578,
+    "incompatible": 39230,
     "bunSkip": 11907,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 13943,
-    "passRateInScope": 25.13,
+    "trAccepted": 13944,
+    "passRateInScope": 25.14,
     "passRateTrAccepted": 95.85
   },
   "torajs": {
-    "commit": "c204fe5b",
-    "commitSubject": "chore: hardev dashboard refresh after rotation 197 close",
+    "commit": "0631606e",
+    "commitSubject": "refactor(ast): regex literal SyntaxError — chunk 4 pivot to compile-time reject",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "0631606e",
+      "subject": "refactor(ast): regex literal SyntaxError — chunk 4 pivot to compile-time reject"
+    },
+    {
+      "hash": "7b493d33",
+      "subject": "fix(regex/parser): class-body escape \\NN octal + \\xHH range endpoint"
+    },
+    {
+      "hash": "03477421",
+      "subject": "feat(ast): regex literal SyntaxError desugar — chunk 2 (expr-position IIFE)"
+    },
+    {
+      "hash": "003f970c",
+      "subject": "fix(ast): regex-syntax-error Multi order — LetDecl first, Throw last"
+    },
+    {
+      "hash": "2cd52053",
+      "subject": "feat(ast): regex literal SyntaxError desugar — chunk 1 (LetDecl only)"
+    },
+    {
+      "hash": "31e6b3a3",
+      "subject": "chore: test262 sweep at 5eb3ce87 — passTotal 13364 (same) / bug 579 (same)"
+    },
+    {
       "hash": "c204fe5b",
       "subject": "chore: hardev dashboard refresh after rotation 197 close"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "37afc4a2",
       "subject": "refactor(ssa_lower_call_coercion): extract Type::Obj String() arm"
-    },
-    {
-      "hash": "696172d2",
-      "subject": "refactor(dynobj): extract accessor-getter descriptor arm from define_properties"
-    },
-    {
-      "hash": "707ddfe1",
-      "subject": "refactor(check_type_of_call_global_ctors): extract Number/String/Boolean coercion"
-    },
-    {
-      "hash": "4cfd48ce",
-      "subject": "chore: hardev dashboard refresh after rotation 197 close"
-    },
-    {
-      "hash": "2d4fd80c",
-      "subject": "refactor(method_call_cell): extract 刀 9 G2c wrapper arraylike arm"
-    },
-    {
-      "hash": "187dab77",
-      "subject": "refactor(infer_closure_params): extract three call-site helpers to sibling"
-    },
-    {
-      "hash": "17f1b66f",
-      "subject": "refactor(ssa_lower_inner): extract Pass-1.5 boundary + anon_stamp helpers"
     }
   ],
-  "headSha": "c204fe5b",
+  "headSha": "0631606e",
   "autorun": {
-    "total": 501,
+    "total": 502,
     "baselineTarget": 10,
-    "bySelf": 496,
+    "bySelf": 497,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784826598-2799",
-      "at": "2026-07-23T17:09:58Z",
-      "ts": 1784826598,
+      "rotationId": "r-1784832173-7644",
+      "at": "2026-07-23T18:42:53Z",
+      "ts": 1784832173,
       "trigger": "self",
-      "prevHead": "ce25236c",
-      "handoffSha": "sha256:1c7113254d94fd13eac01a5f5dc400709f7f7bdeba18e21fe4a4dd0d5a2ece38",
-      "handoffAgeSec": 1741,
+      "prevHead": "31e6b3a3",
+      "handoffSha": "sha256:9acb3bf9041b0b339eaf324094560765c34b20ffb05cf631be0a492b5779f519",
+      "handoffAgeSec": 928,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784832173-7644",
+        "at": "2026-07-23T18:42:53Z",
+        "ts": 1784832173,
+        "trigger": "self",
+        "prevHead": "31e6b3a3",
+        "handoffSha": "sha256:9acb3bf9041b0b339eaf324094560765c34b20ffb05cf631be0a492b5779f519",
+        "handoffAgeSec": 928,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784826598-2799",
         "at": "2026-07-23T17:09:58Z",
@@ -876,17 +887,6 @@
         "prevHead": "1297e7e3",
         "handoffSha": "sha256:1420b25341461903b485106f3aa4698ad7eff2f3094442d844ecefe17dd253c3",
         "handoffAgeSec": 32,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784705671-3eb7",
-        "at": "2026-07-22T07:34:31Z",
-        "ts": 1784705671,
-        "trigger": "self",
-        "prevHead": "2fc753cc",
-        "handoffSha": "sha256:df0440b1d8d059718f694f01dfeab24d58f0f833d3ba5bb799f8a9dbe8148407",
-        "handoffAgeSec": 242,
         "conformanceBefore": null,
         "commitsInSession": null
       }
