@@ -4,7 +4,7 @@
 
 use crate::archive_emit_lc_meta::compute_emit_lc_meta;
 use crate::archive_emit_lcs::{write_header_and_load_commands, write_symtab_and_strtab};
-use crate::archive_link::{ArchiveLayout, ArchiveLayoutError, compute_archive_layout};
+use crate::archive_link::{ArchiveLayout, ArchiveLayoutError};
 use crate::archives_merge::merge_archive_indexes;
 use crate::chained_fixups_call::recompute_chained_fixups_with_data_rebase;
 use crate::class_name_table_layout::{
@@ -36,8 +36,10 @@ use crate::user_vtables_layout::{apply_user_vtable_overrides, build_user_vtables
 /// relocs both resolve against one effective sym table (caller
 /// externs + every member defined-external + dyld stub vaddrs).
 pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLayoutError> {
-    let mut layout = compute_archive_layout(cfg)?;
+    // Merge once and share between layout and emit — each merge
+    // re-parses every archive member's symtab (~23ms/case).
     let merged = merge_archive_indexes(&cfg.archives).map_err(ArchiveLayoutError::Merge)?;
+    let mut layout = crate::archive_link::compute_archive_layout_with_merged(cfg, &merged)?;
 
     // Effective sym table = caller externs + member defined-externs
     // (vaddr dispatched by home section) + SD-2b dyld-stub vaddrs.
@@ -298,6 +300,7 @@ fn pad_to(buf: &mut Vec<u8>, target_len: usize) {
 mod tests {
     use super::*;
     use crate::archive::{AR_HEADER_SIZE, AR_MAGIC};
+    use crate::archive_link::compute_archive_layout;
     use crate::resolve::SymTable;
     use torajs_codegen::CompiledFunction;
     use torajs_codegen::compile_function;

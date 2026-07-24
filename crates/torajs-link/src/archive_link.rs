@@ -33,9 +33,20 @@ pub(crate) fn round_up_to(value: u64, align: u64) -> u64 {
 /// an empty `member_layouts`.
 pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, ArchiveLayoutError> {
     let merged = merge_archive_indexes(&cfg.archives).map_err(ArchiveLayoutError::Merge)?;
+    compute_archive_layout_with_merged(cfg, &merged)
+}
+
+/// Layout against an already-merged archive index. The emit driver
+/// merges once and shares the result between layout and emit — the
+/// double `merge_archive_indexes` (full archive + per-member symtab
+/// re-parse) was ~23ms/case, ~1/3 of the link wall.
+pub fn compute_archive_layout_with_merged(
+    cfg: &LinkConfig,
+    merged: &crate::archives_merge::MergedArchives<'_>,
+) -> Result<ArchiveLayout, ArchiveLayoutError> {
     let extra = collect_extra_defined_syms(cfg);
     let required =
-        compute_required_members(&cfg.funcs, &merged, &extra).map_err(ArchiveLayoutError::Link)?;
+        compute_required_members(&cfg.funcs, merged, &extra).map_err(ArchiveLayoutError::Link)?;
 
     // Sort member keys for reproducible layout.
     let mut member_keys: Vec<(usize, usize)> = required.members.iter().copied().collect();
@@ -45,7 +56,7 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
         text_sizes: member_text_sizes,
         text_offsets: member_text_offsets,
         defined_syms: mut member_defined_syms,
-    } = scan_member_text_and_symbols(&merged, &member_keys)?;
+    } = scan_member_text_and_symbols(merged, &member_keys)?;
 
     // Entry must be a user fn — member fns can be called, not entry.
     let entry_idx = cfg
@@ -57,8 +68,8 @@ pub fn compute_archive_layout(cfg: &LinkConfig) -> Result<ArchiveLayout, Archive
         })?;
 
     let mut tp =
-        compute_text_region_plan(cfg, &required, &merged, &member_keys, &member_text_sizes)?;
-    let dp = compute_data_region_plan(cfg, &required, &merged, &member_keys, &tp)?;
+        compute_text_region_plan(cfg, &required, merged, &member_keys, &member_text_sizes)?;
+    let dp = compute_data_region_plan(cfg, &required, merged, &member_keys, &tp)?;
 
     // Per-user-func vaddrs.
     let mut fn_vaddrs: Vec<u64> = Vec::with_capacity(cfg.funcs.len());
