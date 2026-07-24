@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-24T07:41:27.191Z",
+  "generatedAt": "2026-07-24T10:57:52.993Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-24T05:27:10Z",
+    "ranAt": "2026-07-24T10:06:14Z",
     "headSha": "5eb3ce87",
-    "elapsedSec": 582.56,
-    "workers": 8,
+    "elapsedSec": 404.75,
+    "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 8803,
+    "pass": 8816,
     "passNoOracle": 116,
     "passNegative": 4447,
-    "passTotal": 13366,
+    "passTotal": 13379,
     "bug": 578,
-    "incompatible": 39230,
+    "incompatible": 39217,
     "bunSkip": 11907,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 13944,
-    "passRateInScope": 25.14,
-    "passRateTrAccepted": 95.85
+    "trAccepted": 13957,
+    "passRateInScope": 25.16,
+    "passRateTrAccepted": 95.86
   },
   "torajs": {
-    "commit": "9638d155",
-    "commitSubject": "perf(test262-runner): DEFAULT_WORKERS 8 → auto-detect available_parallelism.min(10) — sweep wall -22% on M4 Pro",
+    "commit": "9134dcc0",
+    "commitSubject": "fix(ssa): append-into-terminated-block debug contract + the weakref has/delete violation it caught",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,26 @@
   },
   "commits": [
     {
+      "hash": "9134dcc0",
+      "subject": "fix(ssa): append-into-terminated-block debug contract + the weakref has/delete violation it caught"
+    },
+    {
+      "hash": "2bac2b7a",
+      "subject": "refactor(parser): decompose parse_object_field 325 → 114 — accessor/method tail deduped"
+    },
+    {
+      "hash": "3d77e1d0",
+      "subject": "fix(ssa_lower): stop lowering dead siblings after a terminating stmt in fn-body and top-level walks"
+    },
+    {
+      "hash": "355b13a9",
+      "subject": "fix(egraph/elaborate): detach unreachable blocks instead of verbatim clone — inliner Identity leaked to liveness"
+    },
+    {
+      "hash": "71520e66",
+      "subject": "chore(hardev): snapshot at rotation 199 close"
+    },
+    {
       "hash": "9638d155",
       "subject": "perf(test262-runner): DEFAULT_WORKERS 8 → auto-detect available_parallelism.min(10) — sweep wall -22% on M4 Pro"
     },
@@ -739,47 +759,38 @@
     {
       "hash": "0631606e",
       "subject": "refactor(ast): regex literal SyntaxError — chunk 4 pivot to compile-time reject"
-    },
-    {
-      "hash": "7b493d33",
-      "subject": "fix(regex/parser): class-body escape \\NN octal + \\xHH range endpoint"
-    },
-    {
-      "hash": "03477421",
-      "subject": "feat(ast): regex literal SyntaxError desugar — chunk 2 (expr-position IIFE)"
-    },
-    {
-      "hash": "003f970c",
-      "subject": "fix(ast): regex-syntax-error Multi order — LetDecl first, Throw last"
-    },
-    {
-      "hash": "2cd52053",
-      "subject": "feat(ast): regex literal SyntaxError desugar — chunk 1 (LetDecl only)"
-    },
-    {
-      "hash": "31e6b3a3",
-      "subject": "chore: test262 sweep at 5eb3ce87 — passTotal 13364 (same) / bug 579 (same)"
     }
   ],
-  "headSha": "9638d155",
+  "headSha": "9134dcc0",
   "autorun": {
-    "total": 503,
+    "total": 504,
     "baselineTarget": 10,
-    "bySelf": 498,
+    "bySelf": 499,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784871854-6136",
-      "at": "2026-07-24T05:44:14Z",
-      "ts": 1784871854,
+      "rotationId": "r-1784878903-5f45",
+      "at": "2026-07-24T07:41:43Z",
+      "ts": 1784878903,
       "trigger": "self",
-      "prevHead": "ca912d11",
-      "handoffSha": "sha256:68ab650b8dc42563ad78be2b23e93fb853b38372d9f87077f20423b71f3c7927",
-      "handoffAgeSec": 77,
+      "prevHead": "71520e66",
+      "handoffSha": "sha256:c254802aa02f86168eaf127c050ba13d0e7e3d89b09ff840e416af24fd28187a",
+      "handoffAgeSec": 73,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784878903-5f45",
+        "at": "2026-07-24T07:41:43Z",
+        "ts": 1784878903,
+        "trigger": "self",
+        "prevHead": "71520e66",
+        "handoffSha": "sha256:c254802aa02f86168eaf127c050ba13d0e7e3d89b09ff840e416af24fd28187a",
+        "handoffAgeSec": 73,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784871854-6136",
         "at": "2026-07-24T05:44:14Z",
@@ -876,17 +887,6 @@
         "prevHead": "95d7d22b",
         "handoffSha": "sha256:e3b9b18a67fa86852538ff6149f88bebd15aa0c13b52f117cd49ae3a7b657f2c",
         "handoffAgeSec": 20332,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784731765-59ff",
-        "at": "2026-07-22T14:49:25Z",
-        "ts": 1784731765,
-        "trigger": "self",
-        "prevHead": "ba6ed123",
-        "handoffSha": "sha256:e3b9b18a67fa86852538ff6149f88bebd15aa0c13b52f117cd49ae3a7b657f2c",
-        "handoffAgeSec": 8,
         "conformanceBefore": null,
         "commitsInSession": null
       }
