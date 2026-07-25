@@ -253,6 +253,23 @@ fn desugar_closure_shape_fn(
             infer_return_ann_seeded(ast_exprs_view, body, params, &seeded, fn_sigs)
         {
             *return_type = Some(inferred);
+        } else {
+            // The same fallback the other two arms take, for the same
+            // reason — this arm is the one that never got it. The sniff
+            // is a shape grammar with no type environment past the param
+            // annotations, so a field read off the receiver defeats it:
+            // `class C { v = 5; read() { return this.v; } }` left the
+            // return None, and the checker then expected Void and
+            // rejected the method. Reading a field is most of what
+            // methods do, so the arm without the fallback was turning
+            // away a large share of ordinary classes.
+            //
+            // `any` is the floor, not the goal — the receiver's class
+            // does know `v: number`, and teaching the sniff to read it
+            // would keep the method on the typed lane instead of boxing
+            // every return. That is additive; this restores the
+            // programs, it does not settle their representation.
+            *return_type = Some("any".to_string());
         }
     }
 }
