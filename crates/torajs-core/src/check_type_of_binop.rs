@@ -118,6 +118,19 @@ fn check_arith(l: Type, r: Type) -> Result<Type, String> {
     if js_arith_coerces_to_number(&l, &r) {
         return Ok(Type::Number);
     }
+    // §13.7-§13.10 call ToNumeric on each operand unconditionally, so
+    // an object side runs its `valueOf` and answers NaN when it has
+    // none. `+` is NOT here: its ToPrimitive uses the DEFAULT hint,
+    // whose answer for a hook-free object is a STRING, so `{v:1} + 1`
+    // concatenates rather than answering NaN — a result type this arm
+    // could not promise.
+    let objectish = |t: &Type| matches!(t, Type::Struct(_) | Type::ClassRef(_));
+    if (objectish(&l) || objectish(&r))
+        && (objectish(&l) || l == Type::Number)
+        && (objectish(&r) || r == Type::Number)
+    {
+        return Ok(Type::Number);
+    }
     Err(format!(
         "arithmetic requires number or bigint operands, got {l:?} and {r:?}"
     ))

@@ -245,6 +245,18 @@ impl LowerCtx<'_> {
     /// route through `__torajs_str_to_number` per spec
     /// §13.5.{4,5,6} ToNumber.
     fn coerce_unary_operand(&mut self, op: UnaryOp, v: Operand) -> Operand {
+        // §13.5.4 / §13.5.5 — unary `+` / `-` are ToNumber on the
+        // operand, so an object runs its `valueOf` (NaN when it has
+        // none). Both signs share this, and both want the f64 the
+        // runtime kernel answers with, so it sits ahead of the
+        // per-sign coercions below. A user `valueOf` can throw.
+        if matches!(op, UnaryOp::Plus | UnaryOp::Neg) && matches!(self.operand_ty(&v), Type::Obj(_))
+        {
+            let boxed = self.box_to_any(v);
+            let n = self.coerce_any_to_number(boxed, Type::F64);
+            self.emit_throw_check(None);
+            return n;
+        }
         match op {
             crate::ast::UnaryOp::Neg => {
                 if matches!(v, Operand::ConstPtrNull) {

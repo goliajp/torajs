@@ -60,7 +60,14 @@ fn check_neg(t: Type) -> Result<Type, String> {
         Ok(Type::BigInt)
     } else if matches!(
         t,
-        Type::Boolean | Type::Null | Type::String | Type::Undefined
+        Type::Boolean
+            | Type::Null
+            | Type::String
+            | Type::Undefined
+            // §13.5.5 negates ToNumber of the operand, which reaches
+            // an object's `valueOf` (NaN when it has none).
+            | Type::Struct(_)
+            | Type::ClassRef(_)
     ) {
         Ok(Type::Number)
     } else if matches!(t, Type::Any) {
@@ -73,7 +80,15 @@ fn check_neg(t: Type) -> Result<Type, String> {
 fn check_plus(t: Type) -> Result<Type, String> {
     if matches!(
         t,
-        Type::Number | Type::Boolean | Type::Null | Type::String | Type::Undefined
+        Type::Number
+            | Type::Boolean
+            | Type::Null
+            | Type::String
+            | Type::Undefined
+            // §13.5.4 is ToNumber, which reaches an object's `valueOf`
+            // and answers NaN when it has none.
+            | Type::Struct(_)
+            | Type::ClassRef(_)
     ) {
         Ok(Type::Number)
     } else if t == Type::BigInt {

@@ -78,6 +78,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx, op: AstBinOp, a: Operand, b: Operand) ->
     if let Some(v) = crate::ssa_lower_binop_inner_strict_eq::try_lower(ctx, op, a, b) {
         return v;
     }
+    let (a, b) = coerce_object_operands(ctx, op, a, b);
     let (a, b) = coerce_bool_null_operands(ctx, op, a, b);
     // T-25 BigInt × BigInt path — see
     // [`crate::ssa_lower_binop_inner_bigint`] (chunk 187 —
@@ -181,6 +182,55 @@ pub(crate) fn lower(ctx: &mut LowerCtx, op: AstBinOp, a: Operand, b: Operand) ->
  * combos hit this branch — only Number/Boolean/Null pairs
  * with at least one non-Number side. Pure Number+Number
  * stays on the existing path. */
+/// §13.7-§13.10 — `-` / `*` / `/` / `%` call ToNumeric on each
+/// operand unconditionally, so an object side runs its `valueOf`
+/// (and answers NaN when it has none). `+` is deliberately NOT here:
+/// its ToPrimitive uses the DEFAULT hint, whose answer for a
+/// hook-free object is a STRING, so `{v:1} + 1` is "[object Object]1"
+/// rather than NaN — a dynamic result type this static lane cannot
+/// promise.
+///
+/// The kernel is the one the `any` lane already used. Boxing the
+/// pointer is a pure encode with no refcount traffic, and the throw
+/// check is there because a user `valueOf` can throw.
+fn coerce_object_operands(
+    ctx: &mut LowerCtx,
+    op: AstBinOp,
+    a: Operand,
+    b: Operand,
+) -> (Operand, Operand) {
+    if !matches!(
+        op,
+        AstBinOp::Sub | AstBinOp::Mul | AstBinOp::Div | AstBinOp::Mod
+    ) {
+        return (a, b);
+    }
+    let a_obj = matches!(ctx.operand_ty(&a), Type::Obj(_));
+    let b_obj = matches!(ctx.operand_ty(&b), Type::Obj(_));
+    if !a_obj && !b_obj {
+        return (a, b);
+    }
+    // Both sides land on F64: the object side has to, and leaving the
+    // other on I64 would put a mixed pair in front of the numeric
+    // lanes that expect one width.
+    let a = coerce_operand_to_f64(ctx, a, a_obj);
+    let b = coerce_operand_to_f64(ctx, b, b_obj);
+    (a, b)
+}
+
+fn coerce_operand_to_f64(ctx: &mut LowerCtx, v: Operand, is_obj: bool) -> Operand {
+    if is_obj {
+        let boxed = ctx.box_to_any(v.clone());
+        let n = ctx.coerce_any_to_number(boxed, Type::F64);
+        ctx.emit_throw_check(None);
+        return n;
+    }
+    if matches!(ctx.operand_ty(&v), Type::I64) {
+        return ctx.coerce_to_f64(v);
+    }
+    v
+}
+
 fn coerce_bool_null_operands(
     ctx: &mut LowerCtx,
     op: AstBinOp,
