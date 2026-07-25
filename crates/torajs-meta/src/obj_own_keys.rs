@@ -19,7 +19,11 @@
 
 use core::ffi::c_void;
 
-use crate::reflect::PROTO_SLOT_KEY;
+use crate::obj_own_keys_key_shape::{key_bytes_are, key_is_canonical_index};
+// The key-shape predicates moved to a sibling for the file-size cap;
+// re-exported so every `crate::obj_own_keys::` consumer face (for-in,
+// values/entries) stays unchanged.
+pub(crate) use crate::obj_own_keys_key_shape::key_is_proto_slot;
 
 unsafe extern "C" {
     fn __torajs_arr_alloc(cap: u64) -> *mut u8;
@@ -46,6 +50,11 @@ unsafe extern "C" {
 /// tombstones on a Closure header (bits 10/11).
 const FLAG_FN_NAME_DELETED: u16 = 1 << 10;
 const FLAG_FN_LENGTH_DELETED: u16 = 1 << 11;
+/// `torajs_rc::FLAG_FN_PROTO` mirror (bit 15, Closure-private —
+/// disjoint-by-tag with Arr's exotic-index bit). Set by the compiler on
+/// a plain `function` cell; clear for arrow / method forms, which own
+/// no `prototype` at all (§20.2.4 vs §10.2.5).
+const FLAG_FN_PROTO: u16 = 1 << 15;
 /// `torajs_rc::any_method` mirrors — Function.prototype's virtual
 /// own name/length tombstone slots (RFC 20260722 刀 3).
 const FN_PROTO_NAME_SLOT: i64 = 164;
@@ -127,11 +136,18 @@ unsafe fn is_dynobj(obj: *const c_void) -> bool {
 /// (RFC 20260712-arr-exotic-define chunk B); the index domain is
 /// already enumerated from element storage, so those keys are
 /// filtered here.
+/// `skip_fn_prototype` — a plain function's `prototype` is materialized
+/// lazily INTO this dict on first read (RFC 20260721 刀 9), but
+/// §20.2.4 creates it at function definition, so it belongs with the
+/// virtual `length` / `name` pair the closure arm emits, not at
+/// whatever position the lazy mint happened to land in. The closure arm
+/// always emits it and filters it here.
 unsafe fn dynobj_keys_append(
     obj: *const c_void,
     include_nonenum: i64,
     mut arr: *mut u8,
     skip_index_shadow: bool,
+    skip_fn_prototype: bool,
 ) -> *mut u8 {
     let len = unsafe { __torajs_dynobj_iter_len(obj) };
     let mut order = vec![0u64; len as usize];
@@ -148,6 +164,9 @@ unsafe fn dynobj_keys_append(
             continue;
         }
         if skip_index_shadow && unsafe { key_is_canonical_index(key) } {
+            continue;
+        }
+        if skip_fn_prototype && unsafe { key_bytes_are(key, b"prototype") } {
             continue;
         }
         // PROTO_SLOT_KEY is tr's [[Prototype]]-slot simulation key
@@ -189,7 +208,7 @@ unsafe fn dynobj_keys_walk(obj: *const c_void, include_nonenum: i64) -> *mut c_v
             }
         }
     }
-    unsafe { dynobj_keys_append(obj, include_nonenum, arr, false) as *mut c_void }
+    unsafe { dynobj_keys_append(obj, include_nonenum, arr, false, false) as *mut c_void }
 }
 
 #[unsafe(no_mangle)]
@@ -288,37 +307,9 @@ unsafe fn arr_cell_keys(cell: *const c_void, include_nonenum: i64) -> *mut c_voi
     if props.is_null() {
         return out;
     }
-    unsafe { dynobj_keys_append(props, include_nonenum, out as *mut u8, true) as *mut c_void }
-}
-
-/// `true` iff the live Str key spells exactly [`PROTO_SLOT_KEY`]
-/// (the [[Prototype]]-slot simulation key hidden from own-keys
-/// walks).
-pub(crate) unsafe fn key_is_proto_slot(key: *const c_void) -> bool {
-    let len = unsafe { key.cast::<u8>().add(8).cast::<u32>().read() } as usize;
-    len == PROTO_SLOT_KEY.len()
-        && unsafe { core::slice::from_raw_parts(key.cast::<u8>().add(16), len) } == PROTO_SLOT_KEY
-}
-
-/// Canonical array-index test on a live Str key — the shadow-entry
-/// filter's key shape check ([`crate::arr_reflect`] twin).
-unsafe fn key_is_canonical_index(key: *const c_void) -> bool {
-    let len = unsafe { key.cast::<u8>().add(8).cast::<u32>().read() } as usize;
-    if len == 0 || len > 10 {
-        return false;
+    unsafe {
+        dynobj_keys_append(props, include_nonenum, out as *mut u8, true, false) as *mut c_void
     }
-    let bytes = unsafe { core::slice::from_raw_parts(key.cast::<u8>().add(16), len) };
-    if bytes == b"0" {
-        return true;
-    }
-    if bytes[0] == b'0' || !bytes.iter().all(|b| b.is_ascii_digit()) {
-        return false;
-    }
-    let mut v: u64 = 0;
-    for &b in bytes {
-        v = v * 10 + (b - b'0') as u64;
-    }
-    v < u32::MAX as u64
 }
 
 /// `Object.keys` / `getOwnPropertyNames` / `Reflect.ownKeys` arm for
@@ -380,6 +371,21 @@ pub unsafe extern "C" fn __torajs_anyv_own_keys(v: u64, include_nonenum: i64) ->
                     for (name, deleted) in [
                         (&b"length"[..], flags & FLAG_FN_LENGTH_DELETED != 0),
                         (&b"name"[..], flags & FLAG_FN_NAME_DELETED != 0),
+                        // §20.2.4 — a plain `function` also owns
+                        // `prototype` {writable: true, enumerable:
+                        // false, configurable: false}, created WITH the
+                        // function, so it sits right after the
+                        // name/length pair. tr materializes it lazily
+                        // into the props dict on first read (RFC
+                        // 20260721 刀 9), so emitting it here (and
+                        // filtering it out of the props append below)
+                        // makes the order independent of whether
+                        // anything has read it yet. An arrow / method
+                        // form has no `prototype` at all — the header
+                        // flag is exactly that distinction. Not
+                        // deletable (configurable: false), so no
+                        // tombstone.
+                        (&b"prototype"[..], flags & FLAG_FN_PROTO == 0),
                     ] {
                         if !deleted {
                             let k = unsafe { crate::reflect::alloc_str_key(name) };
@@ -390,7 +396,9 @@ pub unsafe extern "C" fn __torajs_anyv_own_keys(v: u64, include_nonenum: i64) ->
                 if props.is_null() {
                     out as *mut c_void
                 } else {
-                    unsafe { dynobj_keys_append(props, include_nonenum, out, false) as *mut c_void }
+                    unsafe {
+                        dynobj_keys_append(props, include_nonenum, out, false, true) as *mut c_void
+                    }
                 }
             }
             TAG_OBJ_CELL => unsafe {
@@ -420,7 +428,7 @@ pub unsafe extern "C" fn __torajs_anyv_own_keys(v: u64, include_nonenum: i64) ->
                     out
                 } else {
                     unsafe {
-                        dynobj_keys_append(props, include_nonenum, out as *mut u8, true)
+                        dynobj_keys_append(props, include_nonenum, out as *mut u8, true, false)
                             as *mut c_void
                     }
                 }
@@ -437,7 +445,9 @@ pub unsafe extern "C" fn __torajs_anyv_own_keys(v: u64, include_nonenum: i64) ->
                 if props.is_null() {
                     out as *mut c_void
                 } else {
-                    unsafe { dynobj_keys_append(props, include_nonenum, out, false) as *mut c_void }
+                    unsafe {
+                        dynobj_keys_append(props, include_nonenum, out, false, false) as *mut c_void
+                    }
                 }
             }
             _ => unsafe { __torajs_arr_alloc(0) as *mut c_void },

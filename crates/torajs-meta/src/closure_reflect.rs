@@ -27,6 +27,13 @@ unsafe extern "C" {
     fn __torajs_closure_name_str(ptr: *mut c_void) -> *mut u8;
     /// torajs-anyvalue — metadata-chain arity, `-1` = miss.
     fn __torajs_closure_length(ptr: *mut c_void) -> i64;
+    /// torajs-anyvalue — the §20.2.4 lazy `prototype` mint, boxed
+    /// (0 when the cell owns none). Writes the entry into the props
+    /// dict, so it runs at most once per cell.
+    fn __torajs_closure_prototype_any(env: *mut c_void) -> u64;
+    fn __torajs_anyv_unbox_tag(v: u64) -> i64;
+    fn __torajs_anyv_unbox_value(v: u64) -> i64;
+    fn __torajs_rc_inc(p: *mut c_void);
     fn __torajs_dynobj_has(dynobj: *const c_void, key: *const u8) -> bool;
     /// torajs-anyvalue — ctor-static probe (RFC 20260720 刀 2): the
     /// interned ns-static value cell when `cell` is a builtin ctor
@@ -60,6 +67,10 @@ const ANY_HEAP: u64 = 4;
 /// narrow — the u16 bit positions are part of the header ABI).
 /// Bits 10-11: 13-14 are the cycle-collector color field (RFC
 /// 20260713-defprop-residual-cluster chunk A).
+/// `torajs_rc::FLAG_FN_PROTO` mirror (bit 15, Closure-private) — set on
+/// a plain `function` cell, clear for arrow / method forms, which own no
+/// `prototype` (§20.2.4 vs §10.2.5).
+const FLAG_FN_PROTO: u16 = 1 << 15;
 const FLAG_FN_NAME_DELETED: u16 = 1 << 10;
 const FLAG_FN_LENGTH_DELETED: u16 = 1 << 11;
 
@@ -115,6 +126,24 @@ pub(crate) unsafe fn closure_cell_descriptor(cell: *const c_void, key: *const c_
         let l = unsafe { __torajs_closure_length(cell as *mut c_void) };
         if l >= 0 {
             return unsafe { build_data_descriptor(ANY_I64, l as u64, 0, 0, 1) };
+        }
+    }
+    // §20.2.4 — a plain `function` owns `prototype` {writable: true,
+    // enumerable: false, configurable: false}; an arrow / method form
+    // owns none (the FLAG_FN_PROTO header bit is that distinction).
+    // The mint is lazy (RFC 20260721 刀 9) and writes into the props
+    // dict, so a later call takes step 1's expando answer instead —
+    // this arm only runs before the first read. The descriptor takes
+    // its own stake on the returned cell.
+    if flags & FLAG_FN_PROTO != 0 && unsafe { key_is(key, b"prototype") } {
+        let boxed = unsafe { __torajs_closure_prototype_any(cell as *mut c_void) };
+        if boxed != 0 {
+            let t = unsafe { __torajs_anyv_unbox_tag(boxed) } as u64;
+            let v = unsafe { __torajs_anyv_unbox_value(boxed) } as u64;
+            if t == ANY_HEAP {
+                unsafe { __torajs_rc_inc(v as *mut c_void) };
+            }
+            return unsafe { build_data_descriptor(t, v, 1, 0, 0) };
         }
     }
     // 3. ctor-static own descriptor (RFC 20260720 刀 2) — a builtin
