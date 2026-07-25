@@ -248,9 +248,11 @@ impl Checker {
     /// lexical scope, check each statement, pop.
     fn check_block(&mut self, ast: &Ast, stmts: &[Stmt]) {
         self.scopes.push(HashMap::new());
+        let saved_hoists = crate::check_hoist_closure_lets::enter(self, ast, stmts);
         for s in stmts {
             self.check_stmt(ast, s);
         }
+        self.hoisted_closure_lets = saved_hoists;
         self.scopes.pop();
     }
 }

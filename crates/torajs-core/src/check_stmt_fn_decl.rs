@@ -70,9 +70,11 @@ pub(crate) fn check(checker: &mut Checker, ast: &Ast, name: &str, params: &[Para
             checker.errors.push_err(e);
         }
     }
+    let saved_hoists = crate::check_hoist_closure_lets::enter(checker, ast, body);
     for s in body {
         checker.check_stmt(ast, s);
     }
+    checker.hoisted_closure_lets = saved_hoists;
     checker.expected_return = saved_return;
     checker.scopes = saved_scopes;
     checker.current_class = saved_class;

@@ -180,7 +180,7 @@ pub(crate) fn check(
 /// call each other) still fails, and does so loudly.
 ///
 /// The annotation gate keeps this in step with the lowering lane that
-/// has to serve it (`ssa_lower_stmt_let_decl_selfref`), which claims a
+/// has to serve it (`ssa_lower_stmt_let_decl_recursive`), which claims a
 /// binding only when it takes a `Closure` slot. An `any`-annotated
 /// binding takes an any slot instead, so admitting it here would trade
 /// today's honest "unknown identifier" for a compiler panic at lower

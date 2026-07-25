@@ -33,6 +33,7 @@ use crate::ssa_lower::LowerCtx;
 pub(crate) fn lower(ctx: &mut LowerCtx, stmts: &[Stmt]) {
     ctx.scope_stack.push(Vec::new());
     ctx.shadow_stack.push(Vec::new());
+    crate::ssa_lower_stmt_let_decl_recursive::hoist_forward_boxes(ctx, stmts.iter());
     let mut early_exit = false;
     let mut prev: Option<&Stmt> = None;
     for s in stmts {

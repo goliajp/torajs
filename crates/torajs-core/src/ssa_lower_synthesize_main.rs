@@ -113,6 +113,7 @@ pub(crate) fn synthesize_main(
             escape_captured_lets: std::collections::HashSet::new(),
             mutated_captured_lets: std::collections::HashSet::new(),
             boxed_noncopy_lets: std::collections::HashSet::new(),
+        hoisted_closure_lets: std::collections::HashSet::new(),
             push_unchecked_for: std::collections::HashMap::new(),
             regex_lit_cache: std::collections::HashMap::new(),
             binop_left_undef_id: None,
@@ -146,6 +147,10 @@ pub(crate) fn synthesize_main(
         // top-level let-decl (an unprimed escape-captured `let`
         // stack-allocs and SIGABRTs at env_drop; see the helper doc).
         ctx.prime_body_binding_sets(stmts.iter().copied());
+        crate::ssa_lower_stmt_let_decl_recursive::hoist_forward_boxes(
+            &mut ctx,
+            stmts.iter().copied(),
+        );
         let mut prev: Option<&Stmt> = None;
         for s in stmts {
             if !ctx.try_lower_while_fast(prev, s) {

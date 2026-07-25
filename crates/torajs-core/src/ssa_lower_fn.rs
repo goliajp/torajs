@@ -161,6 +161,7 @@ pub(crate) fn lower_fn(
         escape_captured_lets: std::collections::HashSet::new(),
         mutated_captured_lets: std::collections::HashSet::new(),
         boxed_noncopy_lets: std::collections::HashSet::new(),
+        hoisted_closure_lets: std::collections::HashSet::new(),
         push_unchecked_for: std::collections::HashMap::new(),
         regex_lit_cache: std::collections::HashMap::new(),
         binop_left_undef_id: None,
@@ -198,6 +199,10 @@ pub(crate) fn lower_fn(
 
     ctx.materialize_fn_params(name, param_setup);
     ctx.emit_closure_env_preamble(name, params);
+
+    // Mutually recursive closure bindings need each other's boxes open
+    // before the first of them mints.
+    crate::ssa_lower_stmt_let_decl_recursive::hoist_forward_boxes(&mut ctx, body.iter());
 
     let mut prev: Option<&Stmt> = None;
     for s in body {

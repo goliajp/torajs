@@ -85,7 +85,7 @@ pub(crate) fn lower(
     }
     // A closure capturing the binding it initializes — the box has to
     // exist before the mint that fills it. Sub-sibling.
-    if crate::ssa_lower_stmt_let_decl_selfref::try_lower(ctx, name, type_ann, init, mutable) {
+    if crate::ssa_lower_stmt_let_decl_recursive::try_lower(ctx, name, type_ann, init, mutable) {
         return;
     }
     // General path. Stage helpers live in

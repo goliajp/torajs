@@ -272,6 +272,12 @@ pub(crate) struct LowerCtx<'a> {
     /// stake owner (the declaring frame); a closure-body preamble
     /// binding is borrowed (the env owns its stake).
     pub(crate) boxed_noncopy_lets: std::collections::HashSet<String>,
+    /// Bindings whose capture box was opened AHEAD of their own
+    /// declaration because a closure earlier in the same statement list
+    /// captures them (mutually recursive arrows). Each name is removed
+    /// by the declaration that fills it; see
+    /// [`crate::ssa_lower_stmt_let_decl_recursive`].
+    pub(crate) hoisted_closure_lets: std::collections::HashSet<String>,
     /// v0.6+1 perf checkpoint — push-loop pre-reserve fast-push state.
     ///
     /// When the for-loop lowerer detects a canonical fill loop

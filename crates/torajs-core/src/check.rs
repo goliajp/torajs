@@ -188,6 +188,7 @@ impl Checker {
     pub(crate) fn new() -> Self {
         Self {
             globals: HashMap::new(),
+            hoisted_closure_lets: HashMap::new(),
             scopes: vec![HashMap::new()],
             aliases: HashMap::new(),
             class_structs: HashMap::new(),
@@ -230,6 +231,13 @@ impl Checker {
 pub(crate) struct Checker {
     pub(crate) globals: HashMap<String, Type>,
     pub(crate) scopes: Vec<HashMap<String, LocalInfo>>,
+    /// Closure bindings a peer closure in the same statement list
+    /// captures before their own declaration is reached — two arrows
+    /// that call each other. A side table rather than a scope entry, so
+    /// each binding's real declare stays a first declaration; see
+    /// [`crate::check_hoist_closure_lets`]. Consulted only when
+    /// resolving a closure's captures, after scopes and globals.
+    pub(crate) hoisted_closure_lets: HashMap<String, Type>,
     /// User-declared type aliases — populated in pass 0 from
     /// `Stmt::TypeDecl`. `Point → Type::Struct(...)`.
     ///

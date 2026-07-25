@@ -148,6 +148,11 @@ pub(crate) fn check_closure(
             // K.3/K.4/K.6 promoted data global (or hoisted fn) — not a
             // capture: the body ident resolves through the same globals
             // fallback named-fn bodies use, so it needs no scope entry.
+        } else if let Some(ty) = checker.hoisted_closure_lets.get(cap) {
+            // A closure binding declared LATER in this same statement
+            // list (`crate::check_hoist_closure_lets`) — a real capture,
+            // typed from the FnDecl its own declaration will bind.
+            cap_tys.push((cap.clone(), ty.clone()));
         } else {
             return Err(format!(
                 "closure `{fn_name}` references unknown identifier `{cap}`"
