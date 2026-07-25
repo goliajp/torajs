@@ -198,17 +198,7 @@ impl<'a> LowerCtx<'a> {
         // drop-old no longer steals it — UAF, probe-proven); owned
         // temps keep transferring their fresh reference.
         let transfers = self.expr_transfers_ownership(value);
-        // W4 — align the stored value with the elem width. The
-        // reverse direction (f64 value into an i64 elem) means the
-        // width analysis missed a write site — loud over bit-punning.
-        let v = match (elem_ty, self.operand_ty(&v)) {
-            (Type::F64, Type::I64) => self.coerce_to_f64(v),
-            (Type::I64, Type::F64) => panic!(
-                "ssa-lower: f64 value into i64 array elem — \
-                 container width analysis missed this write"
-            ),
-            _ => v,
-        };
+        let (v, transfers) = self.coerce_elem_store(elem_ty, value, v, transfers);
         let join_blk = self.emit_index_bounds_guard(&arr_val, &idx_val, &v, elem_ty, transfers);
         // The slot's +1 lands inside the in-bounds write block — the
         // OOB path stores nothing and must not mint a stake.
@@ -420,5 +410,49 @@ impl<'a> LowerCtx<'a> {
         self.f.set_term(ob, Terminator::Br(join_blk));
         self.cur_block = write_blk;
         join_blk
+    }
+
+    /// W4 — align the stored value with the element's width, and
+    /// answer whether the slot now takes the value's own reference.
+    ///
+    /// The reverse width direction (an f64 value into an i64 element)
+    /// means the container width analysis missed a write site, and is
+    /// loud rather than bit-punned.
+    ///
+    /// An `any` rhs is the same crossing the binding and the
+    /// assignment boundaries decode (`ssa_lower_stmt_let_decl`'s
+    /// scalar row, `ssa_lower_assign_ident`'s coercion table). Without
+    /// it the NaN-box bits land in the slot and read back as the
+    /// element: `a[0] = v` with `v: any` holding 3 answered NaN, and a
+    /// member-shaped source answered the raw box.
+    fn coerce_elem_store(
+        &mut self,
+        elem_ty: Type,
+        value: ExprId,
+        v: Operand,
+        transfers: bool,
+    ) -> (Operand, bool) {
+        match (elem_ty, self.operand_ty(&v)) {
+            (Type::F64, Type::I64) => (self.coerce_to_f64(v), transfers),
+            (Type::I64, Type::F64) => panic!(
+                "ssa-lower: f64 value into i64 array elem — \
+                 container width analysis missed this write"
+            ),
+            (Type::I64 | Type::F64, Type::Any) => {
+                // ToNumber only READS the box, and the decoded slot is
+                // Copy, so the source's own stake needs settling here.
+                let n = self.coerce_any_to_number(v.clone(), elem_ty);
+                self.release_owned_temp(value, &v);
+                (n, true)
+            }
+            (Type::Str, Type::Any) => {
+                // ToString mints a fresh owned Str — the slot takes
+                // exactly that reference, so this is a transfer.
+                let s = self.coerce_to_str(v.clone(), Type::Any);
+                self.release_owned_temp(value, &v);
+                (s, true)
+            }
+            _ => (v, transfers),
+        }
     }
 }
