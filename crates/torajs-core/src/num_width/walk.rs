@@ -343,7 +343,6 @@ impl<'a> Analysis<'a> {
             | Expr::As { expr, .. } => self.walk_expr(*expr, scope),
             Expr::Member { obj, .. } | Expr::OptChain { obj, .. } => self.walk_expr(*obj, scope),
             Expr::OptIndex { obj, index } | Expr::Index { obj, index } => {
-                self.seed_index_read_elem(*obj, scope);
                 self.walk_expr(*obj, scope);
                 self.walk_expr(*index, scope);
             }
