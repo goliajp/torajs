@@ -89,7 +89,8 @@ pub(crate) use crate::member_get_layout::{
 /// See module doc.
 ///
 /// # Safety
-/// Cell receivers are valid heap pointers; `key` is a live Str cell.
+/// Cell receivers are valid heap pointers; `key` is a live Str or
+/// Symbol cell.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_any_member_get_tag(recv: AnyValue, key: *const c_void) -> u64 {
     if is_null(recv) || is_undefined(recv) {
@@ -97,6 +98,11 @@ pub unsafe extern "C" fn __torajs_any_member_get_tag(recv: AnyValue, key: *const
             __torajs_throw_type_error(c"cannot read properties of null or undefined".as_ptr());
         }
         return 5;
+    }
+    // §6.1.7 — a symbol key takes its own short walk (own dict, then
+    // what the receiver inherits); the cascade below is string-keyed.
+    if unsafe { crate::member_get_symbol::key_is_symbol(key) } {
+        return unsafe { crate::member_get_symbol::symbol_key_pair(recv, key) }.0;
     }
     match recv_cell(recv) {
         // Entry miss falls through to the builtin-proto own-method

@@ -152,6 +152,16 @@ pub(crate) fn lower_from_value(
             ctx.release_owned_temp(obj, &arr_val);
             return v;
         }
+        // §6.1.7 / §7.1.19 step 2 — a symbol key reaches the probe as
+        // its own cell, uncoerced. Same owned-read bookkeeping as the
+        // string-key arm; the probe borrows the key, so an Ident key
+        // keeps its stake and its scope drop.
+        if matches!(ctx.expr_types.get(&index), Some(crate::check::Type::Symbol)) {
+            let v = lower_any_index_symbol_key(ctx, arr_val.clone(), index);
+            ctx.owned_member_reads.insert(eid);
+            ctx.release_owned_temp(obj, &arr_val);
+            return v;
+        }
         let idx_val = ctx.lower_index_operand(index);
         let cur_block = ctx.cur_block;
         let v = ctx.f.append_inst(
@@ -406,6 +416,31 @@ pub(crate) fn lower_any_index_str_key(
     // traffic, no storage), so an Ident key keeps its stake and its
     // scope drop; an owned temp key (concat result / fresh view) is
     // released here (RFC 20260705 ledger #3, 32B/iter probe).
+    if k_ty.is_refcounted() && ctx.expr_transfers_ownership(index) {
+        ctx.emit_drop_value(k_raw, k_ty);
+    }
+    out
+}
+
+/// Symbol key on an `any` receiver — §7.1.19 step 2 hands the key to
+/// the lookup uncoerced, so the probe reads the Symbol cell itself and
+/// the runtime side keys off its `type_tag`. Twin of
+/// [`lower_any_index_str_key`] minus the coerce: there is no view /
+/// wrapper form of a Symbol to materialize.
+pub(crate) fn lower_any_index_symbol_key(
+    ctx: &mut LowerCtx<'_>,
+    obj_val: Operand,
+    index: ExprId,
+) -> Operand {
+    let k_raw = ctx.lower_expr(index);
+    let k_ty = ctx.operand_ty(&k_raw);
+    let Operand::Value(key_v) = k_raw.clone() else {
+        panic!("ssa-lower: symbol index key lowered to a non-value operand");
+    };
+    let out = crate::ssa_lower_any_member::emit_any_member_probe(ctx, &obj_val, key_v);
+    // Borrow contract as the string-key twin: an Ident key keeps its
+    // stake and its scope drop, an owned temp (a fresh `Symbol(desc)`
+    // in the index position) is released after the probe reads it.
     if k_ty.is_refcounted() && ctx.expr_transfers_ownership(index) {
         ctx.emit_drop_value(k_raw, k_ty);
     }

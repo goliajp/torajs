@@ -36,9 +36,15 @@ unsafe extern "C" {
 /// See `member_get.rs`'s module doc.
 ///
 /// # Safety
-/// Cell receivers are valid heap pointers; `key` is a live Str cell.
+/// Cell receivers are valid heap pointers; `key` is a live Str or
+/// Symbol cell.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_any_member_get_value(recv: AnyValue, key: *const c_void) -> u64 {
+    // §6.1.7 — a symbol key takes its own short walk (own dict, then
+    // what the receiver inherits); the cascade below is string-keyed.
+    if unsafe { crate::member_get_symbol::key_is_symbol(key) } {
+        return unsafe { crate::member_get_symbol::symbol_key_pair(recv, key) }.1;
+    }
     match recv_cell(recv) {
         // Miss → builtin-proto own-method cell bits (0 = absent),
         // pairing the tag channel's fallthrough above. The nonzero

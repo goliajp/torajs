@@ -6,8 +6,8 @@
 //! - Index expression `index` must typecheck to `Type::Number`
 //!   (V3-18 index-expression spec narrow; non-number index is a
 //!   typecheck error rather than a silent runtime coercion) —
-//!   except a `Type::Any` receiver, which also admits string keys
-//!   (L3b #13; ES ToPropertyKey).
+//!   except a `Type::Any` receiver, which also admits string and
+//!   symbol keys (L3b #13; ES ToPropertyKey / §6.1.7).
 //! - `Type::String` indexed → `Type::String` (1-char substring;
 //!   spec §6.1.4 string-indexed access returns a length-1 string).
 //! - `Type::Array(T)` indexed → element type `T`.
@@ -56,8 +56,12 @@ pub(crate) fn check(
     // ToPropertyKey: `o["k"]` ≡ `o.k`); every other receiver keeps
     // the number-only spec narrow. Chunk 753 — a struct receiver
     // admits them too (dynamic key rides the any-index runtime lane).
+    // Symbol keys ride the same two receivers: §6.1.7 makes them the
+    // other half of the property-key domain, and §7.1.19 step 2 hands
+    // them to the lookup uncoerced.
     if idx_ty != Type::Number
-        && !(matches!(obj_ty, Type::Any | Type::Struct(_)) && idx_ty == Type::String)
+        && !(matches!(obj_ty, Type::Any | Type::Struct(_))
+            && matches!(idx_ty, Type::String | Type::Symbol))
     {
         return Err(format!("index must be number, got {idx_ty:?}"));
     }

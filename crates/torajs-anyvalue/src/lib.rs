@@ -104,6 +104,7 @@ pub(crate) mod member_get;
 pub(crate) mod member_get_layout;
 pub(crate) mod member_get_own;
 pub(crate) mod member_get_probe;
+pub(crate) mod member_get_symbol;
 pub(crate) mod member_get_value;
 mod member_props_regexp;
 mod member_set;
