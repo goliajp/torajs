@@ -83,6 +83,11 @@ pub(crate) fn lower(
     if crate::ssa_lower_dstr_iter::try_lower_group(ctx, name, init) {
         return;
     }
+    // A closure capturing the binding it initializes — the box has to
+    // exist before the mint that fills it. Sub-sibling.
+    if crate::ssa_lower_stmt_let_decl_selfref::try_lower(ctx, name, type_ann, init, mutable) {
+        return;
+    }
     // General path. Stage helpers live in
     // [`crate::ssa_lower_stmt_let_decl_general`] (chunk 764).
     let mut ty =

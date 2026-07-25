@@ -43,6 +43,10 @@ unsafe extern "C" {
     /// cell, immediates are no-ops (RFC 20260710 C4, Any-typed
     /// promoted captures).
     fn __torajs_anyv_rc_dec(v: u64);
+    /// Cycle-candidate registration. Cheap: gated on the header's
+    /// walkable-children tag and a BUFFERED flag, so a repeat or a
+    /// leaf costs one call and two loads.
+    fn __torajs_cycle_buffer(p: *mut c_void);
 }
 
 const BOX_SIZE: usize = 16;
@@ -153,6 +157,24 @@ pub unsafe extern "C" fn __torajs_capture_box_drop_heap(slot_ptr: *mut c_void) {
         let rc = rc_word(slot_ptr);
         if *rc > 1 {
             *rc -= 1;
+            // The box survives, so its content did not lose a
+            // reference — but a holder of the box went away, and the
+            // box is a TRANSPARENT hop: `__env_trace_*` reports a byref
+            // capture as an edge straight to the payload, with this
+            // slot as the address to break. So the payload stands in
+            // for the box under Bacon-Rajan's "decremented but still
+            // positive" rule, and this is the one place that can say
+            // so — the collector never sees boxes, which carry no
+            // universal header.
+            //
+            // Without it a self-referential closure (`const f = n =>
+            // … f(n - 1) …`) is unreachable garbage no pass can find:
+            // env → box → env, and the env's own refcount is never
+            // decremented by anyone, so nothing ever nominates it.
+            let content = *(slot_ptr as *const i64);
+            if content != 0 {
+                __torajs_cycle_buffer(content as *mut c_void);
+            }
             return;
         }
         // Last stake (rc 1, or the defensive never-inc'd rc 0 edge):
@@ -210,6 +232,12 @@ mod tests {
     /// is the torajs-anyvalue staticlib).
     #[unsafe(no_mangle)]
     extern "C" fn __torajs_anyv_rc_dec(_v: u64) {}
+
+    /// Same stub convention for the cycle-candidate registration
+    /// (real provider is the torajs-cycle staticlib). The rc-mechanics
+    /// tests all use a zero payload, which never reaches it.
+    #[unsafe(no_mangle)]
+    extern "C" fn __torajs_cycle_buffer(_p: *mut c_void) {}
 
     #[test]
     fn drop_heap_zero_payload_round_trip() {

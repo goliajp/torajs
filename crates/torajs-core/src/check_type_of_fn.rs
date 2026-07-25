@@ -59,6 +59,79 @@ pub(crate) fn check_arrow_fn(
     Ok(fn_ty)
 }
 
+/// Everything about a lifted closure that its FnDecl's ANNOTATIONS fix,
+/// as opposed to what walking its body would tell you: the user-facing
+/// params, their types, the return type, the body, and the type the
+/// closure VALUE has.
+///
+/// Two callers read it — [`check_closure`], and the let-decl
+/// pre-declare a self-referential init needs (`const f = n => f(n - 1)`
+/// has to resolve the capture `f` before anything can walk the body).
+/// Both read this one function, so the value type they agree on has no
+/// way to drift apart.
+pub(crate) struct ClosureSig {
+    pub(crate) real_params: Vec<Param>,
+    pub(crate) param_tys: Vec<Type>,
+    pub(crate) ret_ty: Type,
+    pub(crate) body: Vec<Stmt>,
+    pub(crate) value_ty: Type,
+}
+
+pub(crate) fn closure_sig(
+    ast: &Ast,
+    fn_name: &str,
+    aliases: &HashMap<String, Type>,
+) -> Result<ClosureSig, String> {
+    let fn_decl = ast.stmts.iter().find_map(|s| match s {
+        Stmt::FnDecl {
+            name,
+            params,
+            return_type,
+            body,
+            ..
+        } if name == fn_name => Some((params.clone(), return_type.clone(), body.clone())),
+        _ => None,
+    });
+    let Some((params, return_type, body)) = fn_decl else {
+        return Err(format!("closure target `{fn_name}` has no FnDecl"));
+    };
+    // Skip the leading `__env` param — captures replace it.
+    let real_params: Vec<Param> = params.iter().skip(1).cloned().collect();
+    let fn_ty = build_fn_type(fn_name, &real_params, &return_type, aliases)?;
+    let Type::Function(param_tys, ret_ty) = fn_ty.clone() else {
+        unreachable!("build_fn_type returned non-Function");
+    };
+    // RFC 20260714-objlit-accessor blade 1 — an object-literal method's
+    // receiver is a param of the LIFTED fn, not of the method the user
+    // wrote: `o.m()` passes no receiver. It still has to be declared
+    // into the body's scope (that is what makes `this.a` resolve), so
+    // only the VALUE type sheds it.
+    let takes_recv = real_params.first().is_some_and(|p| p.name == "__this");
+    let value_ty = if takes_recv {
+        Type::Function(param_tys.iter().skip(1).cloned().collect(), ret_ty.clone())
+    } else {
+        fn_ty
+    };
+    // RFC 20260708-closure-argv-face — a full-arguments closure's
+    // PUBLIC type is `(...args: any[]) => R`: any call arity is
+    // legal and every call must ride the boxed dual entry (whose
+    // adapter feeds real argc + argv into the synthetic params).
+    // The rest-tail type reuses the whole variadic track — call
+    // admit, assignability, and the SSA boxed-lane registration.
+    let value_ty = if ast.closure_argv_fns.contains(fn_name) {
+        Type::Function(vec![Type::Rest(Box::new(Type::Any))], ret_ty.clone())
+    } else {
+        value_ty
+    };
+    Ok(ClosureSig {
+        real_params,
+        param_tys,
+        ret_ty: *ret_ty,
+        body,
+        value_ty,
+    })
+}
+
 pub(crate) fn check_closure(
     checker: &mut Checker,
     ast: &Ast,
@@ -84,38 +157,16 @@ pub(crate) fn check_closure(
     checker
         .closure_captures
         .insert(fn_name.clone(), cap_tys.clone());
-    let fn_decl = ast.stmts.iter().find_map(|s| match s {
-        Stmt::FnDecl {
-            name,
-            params,
-            return_type,
-            body,
-            ..
-        } if name == &fn_name => Some((params.clone(), return_type.clone(), body.clone())),
-        _ => None,
-    });
-    let Some((params, return_type, body)) = fn_decl else {
-        return Err(format!("closure target `{fn_name}` has no FnDecl"));
-    };
-    // Skip the leading `__env` param — captures replace it.
-    let real_params: Vec<Param> = params.iter().skip(1).cloned().collect();
-    let user_fn_ty = build_fn_type(&fn_name, &real_params, &return_type, &checker.aliases)?;
-    let Type::Function(param_tys, ret_ty) = user_fn_ty.clone() else {
-        unreachable!();
-    };
-    // RFC 20260714-objlit-accessor blade 1 — an object-literal method's
-    // receiver is a param of the LIFTED fn, not of the method the user
-    // wrote: `o.m()` passes no receiver. It still has to be declared
-    // into the body's scope below (that is what makes `this.a` resolve),
-    // so only the VALUE type sheds it.
-    let takes_recv = real_params.first().is_some_and(|p| p.name == "__this");
-    let user_fn_ty = if takes_recv {
-        Type::Function(param_tys.iter().skip(1).cloned().collect(), ret_ty.clone())
-    } else {
-        user_fn_ty
-    };
+    let sig = closure_sig(ast, &fn_name, &checker.aliases)?;
+    let ClosureSig {
+        real_params,
+        param_tys,
+        ret_ty,
+        body,
+        value_ty,
+    } = sig;
     let saved_scopes = std::mem::replace(&mut checker.scopes, vec![HashMap::new()]);
-    let saved_return = checker.expected_return.replace(*ret_ty);
+    let saved_return = checker.expected_return.replace(ret_ty);
     for (cap_name, cap_ty) in &cap_tys {
         let _ = checker.declare(
             cap_name.clone(),
@@ -147,17 +198,5 @@ pub(crate) fn check_closure(
     }
     checker.expected_return = saved_return;
     checker.scopes = saved_scopes;
-    // RFC 20260708-closure-argv-face — a full-arguments closure's
-    // PUBLIC type is `(...args: any[]) => R`: any call arity is
-    // legal and every call must ride the boxed dual entry (whose
-    // adapter feeds real argc + argv into the synthetic params).
-    // The rest-tail type reuses the whole variadic track — call
-    // admit, assignability, and the SSA boxed-lane registration.
-    if ast.closure_argv_fns.contains(&fn_name) {
-        let Type::Function(_, ret) = user_fn_ty else {
-            unreachable!("build_fn_type returned non-Function");
-        };
-        return Ok(Type::Function(vec![Type::Rest(Box::new(Type::Any))], ret));
-    }
-    Ok(user_fn_ty)
+    Ok(value_ty)
 }

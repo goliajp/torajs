@@ -42,6 +42,7 @@ pub(crate) fn check(
     type_ann: &Option<String>,
     init: ExprId,
 ) {
+    let self_ref_closure = predeclare_self_ref_closure(checker, ast, name, type_ann, init);
     let is_empty_array = matches!(ast.get_expr(init), Expr::Array(els) if els.is_empty());
     let init_ty = if is_empty_array {
         match check_empty_array_ann(checker, name, type_ann) {
@@ -137,6 +138,17 @@ pub(crate) fn check(
     // s.slice`): their `.call`/`.apply`/`.bind` admit any-dispatched
     // (route_early), sidestepping the member table's fixed-arity sig.
     let builtin_mv = is_builtin_mv_init(checker, ast, init);
+    if self_ref_closure {
+        // Drop the provisional entry the pre-declare pushed — it existed
+        // only so the init's own capture could resolve. The real
+        // `LocalInfo` below is the one that carries the alias / nominal
+        // verdicts, so it replaces rather than collides with it.
+        checker
+            .scopes
+            .last_mut()
+            .expect("at least one scope is always present")
+            .remove(name);
+    }
     if let Err(e) = checker.declare(
         name.to_string(),
         LocalInfo {
@@ -150,6 +162,66 @@ pub(crate) fn check(
     ) {
         checker.errors.push_err(e);
     }
+}
+
+/// A closure init whose capture list names the very binding it
+/// initializes — `const f = function (n) { … f(n - 1) … }` and the
+/// arrow form. The capture resolves against the OUTER scope, which does
+/// not hold the binding yet, so the capture walk answers "unknown
+/// identifier" and the whole decl fails to type.
+///
+/// Declaring it up front is sound because a closure's value type comes
+/// from its lifted FnDecl's annotations and never from its body
+/// ([`crate::check_type_of_fn::closure_sig`]) — there is no circular
+/// inference to break, only a scope-order artifact. Answers whether a
+/// provisional entry was pushed so the real declare can replace it.
+///
+/// Only self-reference: a capture of a LATER binding (two arrows that
+/// call each other) still fails, and does so loudly.
+///
+/// The annotation gate keeps this in step with the lowering lane that
+/// has to serve it (`ssa_lower_stmt_let_decl_selfref`), which claims a
+/// binding only when it takes a `Closure` slot. An `any`-annotated
+/// binding takes an any slot instead, so admitting it here would trade
+/// today's honest "unknown identifier" for a compiler panic at lower
+/// time. Unannotated and function-annotated are exactly the two shapes
+/// that reach the closure slot.
+fn predeclare_self_ref_closure(
+    checker: &mut Checker,
+    ast: &Ast,
+    name: &str,
+    type_ann: &Option<String>,
+    init: ExprId,
+) -> bool {
+    let Expr::Closure { fn_name, captures } = ast.get_expr(init) else {
+        return false;
+    };
+    if !captures.iter().any(|c| c == name) {
+        return false;
+    }
+    if let Some(ann) = type_ann {
+        let resolved =
+            resolve_type_ann_full(ann, &checker.aliases, &[], &checker.generic_alias_decls);
+        if !matches!(resolved, Some(Type::Function(..))) {
+            return false;
+        }
+    }
+    let Ok(sig) = crate::check_type_of_fn::closure_sig(ast, fn_name, &checker.aliases) else {
+        return false;
+    };
+    checker
+        .declare(
+            name.to_string(),
+            LocalInfo {
+                ty: sig.value_ty,
+                mutable: true,
+                moved: false,
+                borrowed: false,
+                declared_class: None,
+                builtin_mv: false,
+            },
+        )
+        .is_ok()
 }
 
 /// The checker mirror of the lowering's mint gate (`ssa_lower_member
