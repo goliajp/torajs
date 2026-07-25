@@ -278,11 +278,18 @@ fn emit_inner_walk(
         dst_arr_ty,
         None,
     );
+    // RFC 20260726-array-elem-width knife 7 — arr_push takes the slot
+    // as raw i64 bits, so an f64 element must be bitcast, not handed
+    // over as a value: passing it straight converted 0.5 to 0 on the
+    // way in, and the f64-typed read afterwards turned the stored
+    // integer back into a denormal. Every other push site already goes
+    // through this shorthand (`emit_map` in the shared loop).
+    let push_elem = ctx.raw_slot_arg(Operand::Value(inner_elem));
     let new_dst = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Call(
             ctx.intrinsics.arr_push,
-            vec![Operand::Value(cur_dst), Operand::Value(inner_elem)],
+            vec![Operand::Value(cur_dst), push_elem],
         ),
         dst_arr_ty,
         None,
@@ -335,11 +342,15 @@ fn emit_scalar_push_and_close(
         dst_arr_ty,
         None,
     );
+    // Knife 7, scalar arm — same raw-bits contract as the inner walk:
+    // a callback answering an f64 scalar per §23.1.3.11 step 8.d must
+    // reach arr_push as bits, not as a value.
+    let push_ret = ctx.raw_slot_arg(Operand::Value(cb_ret));
     let new_dst = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Call(
             ctx.intrinsics.arr_push,
-            vec![Operand::Value(cur_dst), Operand::Value(cb_ret)],
+            vec![Operand::Value(cur_dst), push_ret],
         ),
         dst_arr_ty,
         None,
