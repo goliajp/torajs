@@ -120,6 +120,77 @@ const MEMBER_SET_CLOSURE_PROPS_OFF: usize = 24;
 /// `torajs-wrapper::WRAPPER_PROPS_OFF` (RFC 20260716 刀 5, rotation
 /// 121). Every wrapper cell layout is `[header:8][value:8][props:8]`.
 const MEMBER_SET_WRAPPER_PROPS_OFF: usize = 16;
+
+/// §10.1.9.2 OrdinarySet — an own miss consults the user
+/// [[Prototype]] chain (RFC 20260721 候补刀): an inherited accessor
+/// writes through its setter with the ORIGINAL receiver; an inherited
+/// non-writable data property rejects; a writable (or absent) chain
+/// answer falls through to the caller's ordinary own create. Returns
+/// `true` when the write was handled here (setter ran, or a rejection
+/// was recorded). The common fresh create on an implicit-chain dynobj
+/// pays one own-has probe plus one interned proto-slot lookup.
+///
+/// Key-kind agnostic, which is why both the string lane above and the
+/// §6.1.7 symbol lane in [`crate::member_set_symbol`] share it —
+/// OrdinarySet does not care how the key is spelled.
+///
+/// # Safety
+/// `ptr` is a live `Tag::DynObj` cell that `recv` boxes; `key` is a
+/// live key cell; `(tag, value)` carries the caller's +1 on heap
+/// payloads.
+pub(crate) unsafe fn inherited_set_handled(
+    ptr: *mut c_void,
+    recv: AnyValue,
+    key: *mut c_void,
+    tag: u64,
+    value: u64,
+) -> bool {
+    unsafe {
+        let mut level = crate::member_get_own::user_proto_cell(ptr);
+        let mut depth = 0usize;
+        while let Some(cell) = level {
+            // Simulated-slot cycle guard (obj_forin_keys mirror).
+            depth += 1;
+            if depth > 64 {
+                break;
+            }
+            let cptr = cell as *const c_void;
+            if (cptr.cast::<u8>().add(4) as *const u16).read() != Tag::DynObj as u16 {
+                // A struct parent keeps the own-create fall-through
+                // (its accessor face is a recorded boundary).
+                break;
+            }
+            if __torajs_dynobj_has(cptr, key as *const c_void) != 0 {
+                let etag = __torajs_dynobj_get_tag(cptr, key as *const c_void);
+                if etag == MEMBER_SET_ANY_ACCESSOR {
+                    let pair =
+                        __torajs_dynobj_get_value(cptr, key as *const c_void) as *const c_void;
+                    let value_anyv = __torajs_anyv_box_from_pair(tag as i64, value as i64);
+                    // The setter consumes the value stake (the arr
+                    // accessor arm's ledger); a getter-only pair
+                    // refuses the strict assignment.
+                    if __torajs_accessor_invoke_setter(pair, recv, value_anyv) == 0 {
+                        __torajs_throw_type_error(
+                            c"Attempted to assign to readonly property.".as_ptr(),
+                        );
+                    }
+                    return true;
+                }
+                if __torajs_dynobj_get_flags(cptr, key as *const c_void) & 0x1 == 0 {
+                    drop_payload(tag, value);
+                    __torajs_throw_type_error(
+                        c"Attempted to assign to readonly property.".as_ptr(),
+                    );
+                    return true;
+                }
+                break;
+            }
+            level = crate::member_get_own::user_proto_cell(cptr);
+        }
+    }
+    false
+}
+
 /// `Tag::DynObj` receiver — the ordinary own-entry write, plus the
 /// Annex B §B.2.2.1 `__proto__` setter route.
 unsafe fn set_dynobj_member(
@@ -165,57 +236,8 @@ unsafe fn set_dynobj_member(
             drop_payload(tag, value);
             return;
         }
-        // §10.1.9.2 OrdinarySet — an own miss consults the user
-        // [[Prototype]] chain (RFC 20260721 候补刀): an inherited
-        // accessor writes through its setter with the ORIGINAL
-        // receiver; an inherited non-writable data property
-        // rejects; a writable (or absent) chain answer falls
-        // through to the ordinary own create. The common fresh
-        // create on an implicit-chain dynobj pays one own-has probe
-        // plus one interned proto-slot lookup.
-        if !has_own {
-            let mut level = crate::member_get_own::user_proto_cell(ptr);
-            let mut depth = 0usize;
-            while let Some(cell) = level {
-                // Simulated-slot cycle guard (obj_forin_keys mirror).
-                depth += 1;
-                if depth > 64 {
-                    break;
-                }
-                let cptr = cell as *const c_void;
-                if (cptr.cast::<u8>().add(4) as *const u16).read() != Tag::DynObj as u16 {
-                    // A struct parent keeps the own-create
-                    // fall-through (its accessor face is a
-                    // recorded boundary).
-                    break;
-                }
-                if __torajs_dynobj_has(cptr, key as *const c_void) != 0 {
-                    let etag = __torajs_dynobj_get_tag(cptr, key as *const c_void);
-                    if etag == MEMBER_SET_ANY_ACCESSOR {
-                        let pair =
-                            __torajs_dynobj_get_value(cptr, key as *const c_void) as *const c_void;
-                        let value_anyv = __torajs_anyv_box_from_pair(tag as i64, value as i64);
-                        // The setter consumes the value stake (the
-                        // arr accessor arm's ledger); a getter-only
-                        // pair refuses the strict assignment.
-                        if __torajs_accessor_invoke_setter(pair, recv, value_anyv) == 0 {
-                            __torajs_throw_type_error(
-                                c"Attempted to assign to readonly property.".as_ptr(),
-                            );
-                        }
-                        return;
-                    }
-                    if __torajs_dynobj_get_flags(cptr, key as *const c_void) & 0x1 == 0 {
-                        drop_payload(tag, value);
-                        __torajs_throw_type_error(
-                            c"Attempted to assign to readonly property.".as_ptr(),
-                        );
-                        return;
-                    }
-                    break;
-                }
-                level = crate::member_get_own::user_proto_cell(cptr);
-            }
+        if !has_own && inherited_set_handled(ptr, recv, key, tag, value) {
+            return;
         }
         let mut obj = ptr;
         __torajs_dynobj_set(&mut obj, key, tag, value);
@@ -304,6 +326,14 @@ pub unsafe extern "C" fn __torajs_any_member_set(
         }
         let ptr = as_void_ptr(recv);
         let cell_tag = (ptr.cast::<u8>().add(4) as *const u16).read();
+        // §6.1.7 — a symbol key takes its own lane; every arm below is
+        // gated on a property NAME.
+        if crate::member_get_symbol::key_is_symbol(key) {
+            crate::member_set_symbol::symbol_member_set(
+                recv_slot, recv, ptr, cell_tag, key, tag, value,
+            );
+            return;
+        }
         if cell_tag == Tag::DynObj as u16 {
             set_dynobj_member(recv_slot, recv, ptr, key, tag, value);
             return;

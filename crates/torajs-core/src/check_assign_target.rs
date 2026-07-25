@@ -269,8 +269,13 @@ pub(crate) fn check_index(
     let idx_ty = checker.type_of(ast, index)?;
     // L3b #13 — an `any` receiver admits string keys (ES
     // ToPropertyKey); every other receiver keeps the number-only
-    // spec narrow.
-    if idx_ty != Type::Number && !(matches!(obj_ty, Type::Any) && idx_ty == Type::String) {
+    // spec narrow. Symbol keys ride the same receiver: §6.1.7 makes
+    // them the other half of the property-key domain, and §7.1.19
+    // step 2 hands them to the store uncoerced (mirror of the
+    // read-side gate in `check_type_of_index`).
+    if idx_ty != Type::Number
+        && !(matches!(obj_ty, Type::Any) && matches!(idx_ty, Type::String | Type::Symbol))
+    {
         return Err(format!("index must be number, got {idx_ty:?}"));
     }
     // Any-dynamic-access RFC (20260704) S3-set — TS `any` admits

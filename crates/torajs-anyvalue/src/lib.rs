@@ -108,6 +108,7 @@ pub(crate) mod member_get_symbol;
 pub(crate) mod member_get_value;
 mod member_props_regexp;
 mod member_set;
+mod member_set_symbol;
 mod member_set_wrapper;
 mod method_bind;
 mod method_call;
