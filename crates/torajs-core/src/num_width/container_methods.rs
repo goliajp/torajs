@@ -213,6 +213,49 @@ impl<'a> Analysis<'a> {
         }
     }
 
+    /// RFC 20260726-array-elem-width knife 10 — `Array.from(src, cb)`
+    /// hands `cb` the source's elements exactly as the map family does,
+    /// so its parameter has to see that element class.
+    ///
+    /// The namespace receiver is untrackable, so this call never
+    /// reached the map family's callback wiring and the parameter kept
+    /// whatever width its own annotation defaulted to. A fractional
+    /// source then passed f64 elements into an i64 parameter and
+    /// register allocation aborted on it — the same shape the sort
+    /// comparator arm was fixed for.
+    fn array_from_wiring(&mut self, args: &[ExprId], scope: &Scope) {
+        if let Some(a0) = args.first()
+            && let Some(cb_arg) = args.get(1).copied()
+            && let Some(sk) = self.container_key_of(*a0, scope)
+        {
+            self.wire_elem_to_cb_param(&SlotKey::Elem(Box::new(sk)), cb_arg);
+        }
+    }
+
+    /// An element class flowing into a callback's first user parameter:
+    /// a one-way width edge always, plus the nested alias edge that
+    /// only fires when the parameter is itself used as a container
+    /// (`grid.map(row => row[0] = …)`); a scalar element parameter
+    /// keeps the width edge alone.
+    ///
+    /// F5 — positional wiring must index the USER params: a lifted
+    /// closure's raw param list starts with `__env`, so `ps.first()`
+    /// wired the elem edge onto the env pointer (and reduce's acc
+    /// feedback missed the accumulator entirely — the array-005 FPR
+    /// abort).
+    fn wire_elem_to_cb_param(&mut self, ek: &SlotKey, cb_arg: ExprId) {
+        if let Some(cb) = self.callee_fn_name(cb_arg)
+            && let Some(p0) = self.user_params(&cb).first().cloned()
+        {
+            let pk = SlotKey::Param(cb, p0);
+            self.c_edges
+                .entry(ek.clone())
+                .or_default()
+                .push((pk.clone(), false));
+            self.nested_unions.push((ek.clone(), pk));
+        }
+    }
+
     /// Side effects of a member call — element writes (push family),
     /// callback parameter wiring, and user-class-method broadcast.
     /// Fires from walk_expr for every call site, result used or not.
@@ -236,6 +279,14 @@ impl<'a> Analysis<'a> {
             && self.resolve(ns, scope).is_none()
         {
             self.promise_static_wiring(eid, &name, args, scope);
+            return;
+        }
+        if let Expr::Ident(ns) = self.ast.get_expr(obj)
+            && ns == "Array"
+            && name == "from"
+            && self.resolve(ns, scope).is_none()
+        {
+            self.array_from_wiring(args, scope);
             return;
         }
         // W-ESC (RFC 20260721-object-descriptor-cluster 刀 5) — the
@@ -309,24 +360,8 @@ impl<'a> Analysis<'a> {
         match name.as_str() {
             "map" | "forEach" | "filter" | "find" | "findLast" | "findIndex" | "some" | "every"
             | "flatMap" => {
-                // F5 — positional wiring must index the USER params: a
-                // lifted closure's raw param list starts with `__env`,
-                // so `ps.first()` wired the elem edge onto the env
-                // pointer (and reduce's acc feedback below missed the
-                // accumulator entirely — the array-005 FPR abort).
-                if let Some(cb) = args.first().and_then(|a| self.callee_fn_name(*a))
-                    && let Some(p0) = self.user_params(&cb).first().cloned()
-                {
-                    let pk = SlotKey::Param(cb, p0);
-                    self.c_edges
-                        .entry(ek.clone())
-                        .or_default()
-                        .push((pk.clone(), false));
-                    // F2-fix — the param aliases the element class
-                    // only when it is used as a container itself
-                    // (`grid.map(row => row[0] = …)`); a scalar elem
-                    // param keeps the one-way width edge above.
-                    self.nested_unions.push((ek.clone(), pk));
+                if let Some(a0) = args.first() {
+                    self.wire_elem_to_cb_param(&ek, *a0);
                 }
             }
             "sort" | "toSorted" => {
