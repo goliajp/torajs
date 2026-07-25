@@ -291,20 +291,30 @@ fn setup_fn_params(
 /// Terminate a block that the body walk left open — the path that
 /// runs off the end of the function.
 ///
-/// ES §10.2.1.4 [[Call]] step 11 says that path answers `undefined`.
-/// Only an F64 slot has a bit pattern to spare for saying so, and
-/// num_width seeds exactly the `number` returns whose body can get
-/// here (see [`crate::ast::body_always_terminates`]) — so an F64
-/// return slot with a still-open block is one of them. Every other
-/// width keeps asserting unreachable; RFC 20260725-fallthrough-return
-/// knives 2 and 4 cover those.
+/// ES §10.2.1.4 [[Call]] step 11 says that path answers `undefined`,
+/// so the question is only how each return width spells it:
+///
+/// - `void` — the slot's one value already is it.
+/// - `number` — an I64 slot has no bit pattern to spare, F64 does.
+///   num_width seeds exactly the `number` returns whose body can get
+///   here (see [`crate::ast::body_always_terminates`]), so an F64
+///   return slot with a still-open block is one of those.
+/// - pointer-shaped (`Str` / `Substr` / fn / Obj / Arr / Closure) —
+///   the per-type immortal sentinel cell, the same one an optional
+///   field or a `find` miss hands out.
+///
+/// A width with no sentinel yet keeps asserting unreachable, which is
+/// what every one of these used to do.
 fn close_fallthrough_path(ctx: &mut LowerCtx<'_>, cb: ssa::BlockId) {
     let term = match ctx.f.ret {
         Type::Void => Terminator::Ret(None),
         Type::F64 => Terminator::Ret(Some(Operand::ConstF64(f64::from_bits(
             crate::ssa_lower_nullable_guard::F64_UNDEF_SENTINEL_BITS,
         )))),
-        _ => Terminator::Unreachable,
+        ret_ty => match ctx.str_undef_sentinel_for(ret_ty) {
+            Some(cell) => Terminator::Ret(Some(cell)),
+            None => Terminator::Unreachable,
+        },
     };
     ctx.f.set_term(cb, term);
 }

@@ -334,7 +334,7 @@ pub(crate) fn analyze(
         params: HashSet::new(),
         locals: HashSet::new(),
     };
-    let mut fallthrough_num_fns: HashSet<String> = HashSet::new();
+    let mut fallthrough_fns: HashSet<String> = HashSet::new();
     for stmt in &ast.stmts {
         if let Stmt::FnDecl {
             name, params, body, ..
@@ -355,7 +355,7 @@ pub(crate) fn analyze(
             {
                 let rk = SlotKey::Ret(name.clone());
                 a.seed_any_face(&rk, r);
-                seed_fallthrough_return(&mut a, rk, r, name, body, &mut fallthrough_num_fns);
+                seed_fallthrough_return(&mut a, rk, r, name, body, &mut fallthrough_fns);
             }
             let scope = Scope {
                 fn_name: name,
@@ -434,16 +434,20 @@ pub(crate) fn analyze(
         a.uf,
         a.container_poison,
         a.nominal_aliases,
-        fallthrough_num_fns,
+        fallthrough_fns,
     )
 }
 
-/// RFC 20260725-fallthrough-return knife 1 — a `number` body that can
-/// run off its end answers `undefined` there (ES §10.2.1.4 step 11).
-/// An I64 slot has no bit pattern left to say so and F64 does, so seed
-/// the return slot wide and let the fixpoint carry the width to every
-/// binding the result flows into. The name goes on the table too: the
-/// call site reads it to know a result may hold the sentinel.
+/// RFC 20260725-fallthrough-return knives 1-2 — a body that can run
+/// off its end answers `undefined` there (ES §10.2.1.4 step 11). Every
+/// such function goes on the table, which the call site reads to know
+/// a result may hold that answer's sentinel.
+///
+/// `number` additionally needs a WIDER slot to carry it: I64 has no
+/// bit pattern to spare and F64 does, so seed the return slot and let
+/// the fixpoint carry the width to every binding the result flows
+/// into. Pointer-shaped returns need no seed — their slots already
+/// decode three ways (NULL / sentinel / live cell).
 fn seed_fallthrough_return(
     a: &mut Analysis<'_>,
     rk: SlotKey,
@@ -452,8 +456,11 @@ fn seed_fallthrough_return(
     body: &[Stmt],
     out: &mut HashSet<String>,
 ) {
-    if return_ann == "number" && !crate::ast::body_always_terminates(body) {
-        out.insert(fn_name.to_string());
+    if return_ann == "void" || crate::ast::body_always_terminates(body) {
+        return;
+    }
+    out.insert(fn_name.to_string());
+    if return_ann == "number" {
         a.seeds.push(rk);
     }
 }

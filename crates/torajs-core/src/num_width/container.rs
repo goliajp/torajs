@@ -120,12 +120,11 @@ pub(crate) struct WidthTable {
     /// D5 — cyclic plain-alias names (see `alias.rs`); the TypeDecl
     /// fill site takes nominal widths for these, like classes.
     nominal_aliases: HashSet<String>,
-    /// RFC 20260725-fallthrough-return knife 1 — `number`-returning
-    /// functions with a path that runs off the end of the body. Their
-    /// `Ret` slot is seeded F64 so the tail can answer `undefined`
-    /// through the sentinel, and the call site asks here to know that
-    /// a result read off one of them may hold it.
-    fallthrough_num_fns: HashSet<String>,
+    /// RFC 20260725-fallthrough-return knives 1-2 — functions with a
+    /// path that runs off the end of the body, which answers
+    /// `undefined` there. The call site asks here to know a result
+    /// read off one of them may hold that answer's sentinel.
+    fallthrough_fns: HashSet<String>,
 }
 
 impl WidthTable {
@@ -135,7 +134,7 @@ impl WidthTable {
         uf: UnionFind,
         container_poison: bool,
         nominal_aliases: HashSet<String>,
-        fallthrough_num_fns: HashSet<String>,
+        fallthrough_fns: HashSet<String>,
     ) -> Self {
         WidthTable {
             canon,
@@ -143,7 +142,7 @@ impl WidthTable {
             uf,
             container_poison,
             nominal_aliases,
-            fallthrough_num_fns,
+            fallthrough_fns,
         }
     }
 
@@ -155,7 +154,7 @@ impl WidthTable {
     /// `name` can answer `undefined` by running off the end of its
     /// body (ES §10.2.1.4 step 11) rather than through a `return`.
     pub(crate) fn returns_undef_on_fallthrough(&self, name: &str) -> bool {
-        self.fallthrough_num_fns.contains(name)
+        self.fallthrough_fns.contains(name)
     }
 
     pub(crate) fn slot_is_f64(&self, k: &SlotKey) -> bool {

@@ -60,6 +60,22 @@ pub(crate) fn emit_nullable_arr_guard(ctx: &mut LowerCtx<'_>, obj: ExprId, arr_v
     ctx.emit_throw_check(None);
 }
 
+/// RFC 20260725-fallthrough-return knives 1-2 — true when `eid` calls
+/// a function whose body can run off its end, which answers
+/// `undefined` there (ES §10.2.1.4 step 11) and so hands back that
+/// return width's sentinel. Every "may this hold the sentinel"
+/// predicate below consults it: the answer is a property of the
+/// callee, not of the width it arrives in.
+pub(crate) fn callee_falls_through(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
+    let Expr::Call { callee, .. } = ctx.ast.get_expr(eid) else {
+        return false;
+    };
+    matches!(
+        ctx.ast.get_expr(*callee),
+        Expr::Ident(f) if ctx.num_f64_slots.returns_undef_on_fallthrough(f)
+    )
+}
+
 /// RFC 20260707-undefined-sentinel-repr chunk 1 — true when a
 /// Str-typed expression may legally hold NULL (missed exec/match
 /// capture slot per the 591 NULL-means-undefined convention):
@@ -67,6 +83,9 @@ pub(crate) fn emit_nullable_arr_guard(ctx: &mut LowerCtx<'_>, obj: ExprId, arr_v
 /// binding recorded in `ctx.nullable_str_lets` (let-init of that
 /// shape, alias-propagated).
 pub(crate) fn is_nullable_str_source(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
+    if callee_falls_through(ctx, eid) {
+        return true;
+    }
     match ctx.ast.get_expr(eid) {
         Expr::Ident(n) => ctx.nullable_str_lets.contains(n),
         // 660 residual — a `string[]` element slot may hold the Str
@@ -160,15 +179,8 @@ pub(crate) fn is_undef_f64_source(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
         // branch), so its result may hold the sentinel too. RFC
         // 20260722 chunk D — a `find`/`findLast` miss answers the
         // sentinel the same way.
+        _ if callee_falls_through(ctx, eid) => true,
         Expr::Call { callee, .. } => {
-            // RFC 20260725-fallthrough-return knife 1 — a call to a
-            // `number` function whose body can run off its end
-            // answers the sentinel on that path.
-            if let Expr::Ident(f) = ctx.ast.get_expr(*callee)
-                && ctx.num_f64_slots.returns_undef_on_fallthrough(f)
-            {
-                return true;
-            }
             matches!(
                 ctx.ast.get_expr(*callee),
                 Expr::Member { obj, name } if matches!(name.as_str(), "at" | "find" | "findLast")
@@ -192,6 +204,9 @@ pub(crate) fn is_undef_f64_source(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
 /// (let-init of those shapes, alias-propagated). Over-broad for
 /// hit-path reads — one well-predicted cmp, never wrong.
 pub(crate) fn is_undefable_heap_source(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
+    if callee_falls_through(ctx, eid) {
+        return true;
+    }
     if matches!(
         ctx.expr_types.get(&eid),
         Some(crate::check::Type::Nullable(_))
