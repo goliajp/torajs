@@ -32,6 +32,35 @@ impl<'a> Analysis<'a> {
             self.mark_containerish(&anon);
             return Some(anon);
         }
+        // RFC 20260726-array-elem-width — `Array.from(src)` has the same
+        // untrackable-receiver shape as the Promise statics: `Array` is
+        // a global namespace ident, so the receiver lookup below fails
+        // and the whole call used to answer None. With no key, nothing
+        // joined the product to the binding that holds it — the binding
+        // widened on a fractional write while the copied source stayed
+        // narrow, and the reads reinterpreted the bits.
+        //
+        // The product memcpys the source's slots (the 1-arg path is an
+        // `arr_slice` clone), so the two share one repr class exactly
+        // like `slice` / `concat` below.
+        if let Expr::Ident(ns) = self.ast.get_expr(obj)
+            && ns == "Array"
+            && self.resolve(ns, scope).is_none()
+        {
+            if name != "from" {
+                return None;
+            }
+            let anon = SlotKey::Anon(eid.0);
+            self.mark_containerish(&anon);
+            if let Some(ak) = args.first().and_then(|a| self.container_key_of(*a, scope)) {
+                self.uf.union(
+                    &SlotKey::Elem(Box::new(anon.clone())),
+                    &SlotKey::Elem(Box::new(ak.clone())),
+                );
+                self.uf.union(&anon, &ak);
+            }
+            return Some(anon);
+        }
         let recv = self.container_key_of(obj, scope)?;
         self.mark_containerish(&recv);
         let ek = SlotKey::Elem(Box::new(recv.clone()));
