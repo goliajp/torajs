@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-25T03:06:10.924Z",
+  "generatedAt": "2026-07-25T06:12:20.322Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 96.12
   },
   "torajs": {
-    "commit": "a5894490",
-    "commitSubject": "feat(runtime): a plain function's prototype is one of its own properties",
+    "commit": "c474967a",
+    "commitSubject": "refactor(check): split the for-of protocol lowering back under the size cap",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,38 @@
   },
   "commits": [
     {
+      "hash": "c474967a",
+      "subject": "refactor(check): split the for-of protocol lowering back under the size cap"
+    },
+    {
+      "hash": "144744ba",
+      "subject": "fix(check): a for-of source names its class instead of matching a shape"
+    },
+    {
+      "hash": "52820e58",
+      "subject": "feat(check): a statically-typed for-of closes its iterator too"
+    },
+    {
+      "hash": "2763b59c",
+      "subject": "feat(check): a for-of that breaks closes its iterator"
+    },
+    {
+      "hash": "ff5a3518",
+      "subject": "feat(check): Array.from and array spread take any iterable"
+    },
+    {
+      "hash": "dd75a808",
+      "subject": "feat(runtime): for-of asks the receiver for its @@iterator"
+    },
+    {
+      "hash": "af169526",
+      "subject": "feat(check): an object literal's symbol key is a real property key"
+    },
+    {
+      "hash": "d83832e9",
+      "subject": "chore(hardev): refresh dashboard snapshot for rotation 209 close"
+    },
+    {
       "hash": "a5894490",
       "subject": "feat(runtime): a plain function's prototype is one of its own properties"
     },
@@ -727,59 +759,38 @@
     {
       "hash": "2e17fa0b",
       "subject": "chore(hardev): refresh dashboard snapshot for rotation 209"
-    },
-    {
-      "hash": "db179000",
-      "subject": "feat(check): in / hasOwnProperty / delete see the symbol-keyed slot"
-    },
-    {
-      "hash": "5867a953",
-      "subject": "fix(check): a dynamic-key store of undefined stays undefined"
-    },
-    {
-      "hash": "577b0f24",
-      "subject": "feat(check): o[sym] = v stores into the symbol-keyed slot"
-    },
-    {
-      "hash": "53be2731",
-      "subject": "feat(check): o[sym] reads the symbol-keyed slot"
-    },
-    {
-      "hash": "5e71ef82",
-      "subject": "feat(runtime): a symbol is a real property key, not a mangled name"
-    },
-    {
-      "hash": "4105caf0",
-      "subject": "chore(hardev): archive test262 r219 sweep (13558/548, zero pass regression)"
-    },
-    {
-      "hash": "b4c3c415",
-      "subject": "feat(check): the static JSON unfold splices its own indentation"
-    },
-    {
-      "hash": "ca149a7b",
-      "subject": "feat(runtime): JSON.stringify honours the space argument"
     }
   ],
-  "headSha": "a5894490",
+  "headSha": "c474967a",
   "autorun": {
-    "total": 513,
+    "total": 514,
     "baselineTarget": 10,
-    "bySelf": 508,
+    "bySelf": 509,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784943215-1aec",
-      "at": "2026-07-25T01:33:35Z",
-      "ts": 1784943215,
+      "rotationId": "r-1784948791-2adf",
+      "at": "2026-07-25T03:06:31Z",
+      "ts": 1784948791,
       "trigger": "self",
-      "prevHead": "4105caf0",
-      "handoffSha": "sha256:fb586cc727fa587d685f5c47cbc401651bb4b2ed5919640185830b46a5850d31",
-      "handoffAgeSec": 13,
+      "prevHead": "d83832e9",
+      "handoffSha": "sha256:65c538e1d64dffa092c3fc3a417453ea6a176f26cb08e9c2b84e64244109007d",
+      "handoffAgeSec": 0,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784948791-2adf",
+        "at": "2026-07-25T03:06:31Z",
+        "ts": 1784948791,
+        "trigger": "self",
+        "prevHead": "d83832e9",
+        "handoffSha": "sha256:65c538e1d64dffa092c3fc3a417453ea6a176f26cb08e9c2b84e64244109007d",
+        "handoffAgeSec": 0,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784943215-1aec",
         "at": "2026-07-25T01:33:35Z",
@@ -876,17 +887,6 @@
         "prevHead": "afd510a4",
         "handoffSha": "sha256:4ac412ab02e484f6875c8bdb1018f173e47d75555906f5c13f2573709c034ec4",
         "handoffAgeSec": 4,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784878903-5f45",
-        "at": "2026-07-24T07:41:43Z",
-        "ts": 1784878903,
-        "trigger": "self",
-        "prevHead": "71520e66",
-        "handoffSha": "sha256:c254802aa02f86168eaf127c050ba13d0e7e3d89b09ff840e416af24fd28187a",
-        "handoffAgeSec": 73,
         "conformanceBefore": null,
         "commitsInSession": null
       }
