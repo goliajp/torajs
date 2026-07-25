@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-25T19:30:20.135Z",
+  "generatedAt": "2026-07-25T19:37:12.797Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 96.12
   },
   "torajs": {
-    "commit": "e03a11b7",
-    "commitSubject": "fix(async): an array handed to Promise.resolve keeps its width class",
+    "commit": "0cefe806",
+    "commitSubject": "fix(arr): Array.from keeps one width class with its source",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "0cefe806",
+      "subject": "fix(arr): Array.from keeps one width class with its source"
+    },
+    {
+      "hash": "5b172920",
+      "subject": "chore(hardev): refresh dashboard snapshot for rotation 217 close"
+    },
+    {
       "hash": "e03a11b7",
       "subject": "fix(async): an array handed to Promise.resolve keeps its width class"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "0d3ec00a",
       "subject": "chore(hardev): refresh dashboard snapshot for rotation 216 close"
-    },
-    {
-      "hash": "0564a187",
-      "subject": "fix(ssa): a binding aliased to a fall-through function answers undefined"
-    },
-    {
-      "hash": "be842b20",
-      "subject": "chore(hardev): refresh dashboard snapshot for rotation 216 close"
     }
   ],
-  "headSha": "e03a11b7",
+  "headSha": "0cefe806",
   "autorun": {
     "total": 521,
     "baselineTarget": 10,
