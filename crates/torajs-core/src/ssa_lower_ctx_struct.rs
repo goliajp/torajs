@@ -137,6 +137,11 @@ pub(crate) struct LowerCtx<'a> {
     /// pending_return AND we're outermost → `load + ret`; otherwise →
     /// `br` to the next outer finally to keep unwinding.
     pub(crate) try_finally_stack: Vec<BlockId>,
+    /// Every for-of whose body is being lowered right now, outermost
+    /// first. `break` reaches its loop's exit block and closes the
+    /// iterator there; `return` leaves for the epilogue instead, so it
+    /// emits the same §7.4.9 close + slot release for each frame here.
+    pub(crate) for_of_teardown_stack: Vec<crate::ssa_lower_for_of_teardown::ForOfTeardown>,
     /// Lazily-allocated alloca slot for a pending return value across
     /// finally blocks. Type matches the enclosing fn's ret type. None
     /// until the first try-with-finally lowering observes a return

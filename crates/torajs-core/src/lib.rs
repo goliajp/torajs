@@ -356,6 +356,7 @@ pub(crate) mod ssa_lower_for_of_any_iter;
 pub(crate) mod ssa_lower_for_of_iter_protocol;
 pub(crate) mod ssa_lower_for_of_map_like;
 pub(crate) mod ssa_lower_for_of_str;
+pub(crate) mod ssa_lower_for_of_teardown;
 pub(crate) mod ssa_lower_free_helpers;
 pub(crate) mod ssa_lower_generics_mono_shapes;
 pub(crate) mod ssa_lower_generics_monomorph;

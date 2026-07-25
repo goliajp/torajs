@@ -89,6 +89,7 @@ pub(crate) fn synthesize_main(
             anon_stamp_pool,
             try_stack: Vec::new(),
             try_finally_stack: Vec::new(),
+            for_of_teardown_stack: Vec::new(),
             pending_return_slot: None,
             pending_return_flag: None,
             pending_break_flag: None,

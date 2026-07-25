@@ -137,6 +137,7 @@ pub(crate) fn lower_fn(
         anon_stamp_pool,
         try_stack: Vec::new(),
         try_finally_stack: Vec::new(),
+        for_of_teardown_stack: Vec::new(),
         try_finally_loop_depth: Vec::new(),
         pending_return_slot: None,
         pending_return_flag: None,

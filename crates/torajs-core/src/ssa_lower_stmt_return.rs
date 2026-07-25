@@ -110,6 +110,18 @@ pub(crate) fn lower(ctx: &mut LowerCtx, maybe: Option<crate::ast::ExprId>) {
         }
         v
     });
+    // §7.4.9 on the way out of every enclosing for-of. `break` gets
+    // this from the loop's exit block; a return never reaches that
+    // block, so the iterator stayed open AND its slot stake stayed
+    // held. Emitted after the return value is in hand — the value can
+    // read the loop variable — and before the finally hand-off below.
+    //
+    // With a `finally` INSIDE the loop body the spec order is
+    // finally-then-close and this emits close-then-finally; observable
+    // only if the finally block touches the iterator. Recorded as
+    // backlog rather than silently narrowed: not closing at all was
+    // the strictly worse answer this replaces.
+    crate::ssa_lower_for_of_teardown::emit_all_for_return(ctx);
     if !ctx.try_finally_stack.is_empty() {
         let target = *ctx.try_finally_stack.last().unwrap();
         let ret_ty = ctx.f.ret;

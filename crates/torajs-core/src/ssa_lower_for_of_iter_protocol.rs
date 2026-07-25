@@ -176,29 +176,16 @@ fn emit_loop_exit(
         },
     );
 
-    ctx.cur_block = close_blk;
-    let iter_for_close = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::Load(iter_ret_ty, Operand::Value(iter_slot), 0),
+    let teardown = crate::ssa_lower_for_of_teardown::ForOfTeardown::Typed {
+        iter_slot,
         iter_ret_ty,
-        None,
-    );
-    let boxed_iter = ctx.box_to_any(Operand::Value(iter_for_close));
-    ctx.f.append_void(
-        ctx.cur_block,
-        InstKind::Call(ctx.intrinsics.iter_close_value, vec![boxed_iter]),
-    );
-    ctx.emit_throw_check(None);
+    };
+    ctx.cur_block = close_blk;
+    crate::ssa_lower_for_of_teardown::emit_close(ctx, &teardown);
     ctx.f.set_term(ctx.cur_block, Terminator::Br(release_blk));
 
     ctx.cur_block = release_blk;
-    let iter_load_drop = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::Load(iter_ret_ty, Operand::Value(iter_slot), 0),
-        iter_ret_ty,
-        None,
-    );
-    ctx.emit_drop_value(Operand::Value(iter_load_drop), iter_ret_ty);
+    crate::ssa_lower_for_of_teardown::emit_release(ctx, &teardown);
 }
 
 /// The class an `@@iterator` method RETURNS, by name.
@@ -431,7 +418,13 @@ pub(crate) fn lower_for_of_iter_protocol(
             .push(var_name.to_string());
     }
     ctx.loop_stack.push((header, after));
+    ctx.for_of_teardown_stack
+        .push(crate::ssa_lower_for_of_teardown::ForOfTeardown::Typed {
+            iter_slot,
+            iter_ret_ty,
+        });
     ctx.lower_stmt(body);
+    ctx.for_of_teardown_stack.pop();
     let body_open = ctx.cur_open();
     ctx.loop_stack.pop();
     let step_frame = ctx.scope_stack.pop().expect("for-of-proto body scope");

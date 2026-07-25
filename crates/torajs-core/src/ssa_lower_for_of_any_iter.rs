@@ -151,7 +151,13 @@ pub(crate) fn lower(ctx: &mut LowerCtx, src_op: Operand, var_name: &str, body: &
     );
     bind_scoped_local(ctx, var_name, v_slot, Type::Any, false, false);
     ctx.loop_stack.push((header, after));
+    let teardown = crate::ssa_lower_for_of_teardown::ForOfTeardown::Any {
+        src: src_op.clone(),
+        iter_slot,
+    };
+    ctx.for_of_teardown_stack.push(teardown.clone());
     ctx.lower_stmt(body);
+    ctx.for_of_teardown_stack.pop();
     let body_open = ctx.cur_open();
     ctx.loop_stack.pop();
     close_body_scope(ctx, header, body_open);
@@ -180,19 +186,8 @@ pub(crate) fn lower(ctx: &mut LowerCtx, src_op: Operand, var_name: &str, body: &
         },
     );
 
-    // §7.4.9 with the iterator still live. An iterator with no
-    // `return` closes as a no-op, and so does a loop that never
-    // derived one (an indexed receiver leaves the slot at
-    // `undefined`), so this is safe for every lane the kernel drives.
     ctx.cur_block = close_blk;
-    ctx.f.append_void(
-        ctx.cur_block,
-        InstKind::Call(
-            ctx.intrinsics.any_iter_close,
-            vec![src_op, Operand::Value(iter_slot)],
-        ),
-    );
-    ctx.emit_throw_check(None);
+    crate::ssa_lower_for_of_teardown::emit_close(ctx, &teardown);
     ctx.f.set_term(ctx.cur_block, Terminator::Br(release_blk));
 
     ctx.cur_block = release_blk;
