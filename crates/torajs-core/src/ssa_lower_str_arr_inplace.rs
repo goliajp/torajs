@@ -149,10 +149,27 @@ pub(crate) fn try_dispatch(
         let elem_layout = ctx.arr_layouts[arr_id.0 as usize];
         let v_val = if elem_layout == Type::Any && v_ty != Type::Any {
             ctx.box_to_any(v_raw)
+        } else if elem_layout == Type::F64 {
+            // RFC 20260726-array-elem-width — the helper's slot
+            // argument is spelled i64 because a slot is 8 bytes, not
+            // because the element is an integer. Handing it a raw i64
+            // wrote the integer's own bits into an f64 slot, so
+            // `xs.with(1, 99)` on a widened array read back as
+            // 4.9e-322 — silently, exit 0. An f64 value used to panic
+            // here as "needs an IR bitcast"; `BitCastF64ToI64` has
+            // existed since, so both cases convert and then pun.
+            let as_f64 = if v_ty == Type::F64 {
+                v_raw
+            } else {
+                ctx.coerce_to_f64(v_raw)
+            };
+            Operand::Value(ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::BitCastF64ToI64(as_f64),
+                Type::I64,
+                None,
+            ))
         } else {
-            if v_ty == Type::F64 {
-                panic!("ssa-lower: Array.with on f64 elements not yet supported (need IR bitcast)");
-            }
             v_raw
         };
         // S283 — lower-and-drop trailing args[2..] per S272 idiom so
