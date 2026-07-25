@@ -61,6 +61,59 @@ pub(super) fn with_null_gate(
     Operand::Value(v)
 }
 
+/// §25.5.2.4 step 8.a — an element whose SerializeJSONProperty
+/// answers nothing is `null` inside an array. The any-lane walk
+/// reports that verdict as the undefined-Str sentinel, which the
+/// accumulator would otherwise concatenate as the literal text
+/// `undefined`. Every static lane answers real text (a Str element
+/// goes through `json_quote_str`, which already turns its sentinel
+/// into `"null"`; a `Type::Ptr` element interns `"null"` outright),
+/// so only `Type::Any` needs the runtime probe — typed arrays keep
+/// their branch-free loop body.
+fn coerce_sentinel_to_null(ctx: &mut LowerCtx, s: Operand) -> Operand {
+    let is_undef = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(ctx.intrinsics.str_is_undef, vec![s.clone()]),
+        Type::Bool,
+        None,
+    );
+    let out = ctx.alloca_in_entry(Type::Str, Some("__json_elem_out"));
+    let undef_blk = ctx.f.add_block();
+    let keep_blk = ctx.f.add_block();
+    let done_blk = ctx.f.add_block();
+    ctx.f.set_term(
+        ctx.cur_block,
+        Terminator::CondBr {
+            cond: Operand::Value(is_undef),
+            then_blk: undef_blk,
+            else_blk: keep_blk,
+        },
+    );
+    ctx.cur_block = undef_blk;
+    let null_str = ctx.intern_string_literal("null");
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Store(Operand::Value(null_str), Operand::Value(out), 0),
+    );
+    // 642 ledger — this path drops the sentinel the caller would
+    // otherwise have released after its concat (a static block, so
+    // the drop is a no-op; the entry keeps the account explicit).
+    ctx.emit_drop_value(s.clone(), Type::Str);
+    ctx.f.set_term(ctx.cur_block, Terminator::Br(done_blk));
+    ctx.cur_block = keep_blk;
+    ctx.f
+        .append_void(ctx.cur_block, InstKind::Store(s, Operand::Value(out), 0));
+    ctx.f.set_term(ctx.cur_block, Terminator::Br(done_blk));
+    ctx.cur_block = done_blk;
+    let v = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(Type::Str, Operand::Value(out), 0),
+        Type::Str,
+        None,
+    );
+    Operand::Value(v)
+}
+
 /// `[<e0>,<e1>,...]` — concat-loop accumulator over
 /// `arr_layouts[arr_id]`-typed slots (see module doc of the parent),
 /// behind the shared [`with_null_gate`] (655 arm).
@@ -186,12 +239,17 @@ fn lower_arr_walk(ctx: &mut LowerCtx, val_op: Operand, arr_id: ArrId) -> Operand
     let elem_str = if matches!(elem_ty, Type::Symbol) {
         Operand::Value(ctx.intern_string_literal("null"))
     } else {
-        super::lower_keyed(
+        let walked = super::lower_keyed(
             ctx,
             Operand::Value(elem),
             elem_ty,
             Some(Operand::Value(idx_key)),
-        )
+        );
+        if matches!(elem_ty, Type::Any) {
+            coerce_sentinel_to_null(ctx, walked)
+        } else {
+            walked
+        }
     };
     ctx.emit_drop_value(Operand::Value(idx_key), Type::Str);
     let acc_now2 = ctx.f.append_inst(

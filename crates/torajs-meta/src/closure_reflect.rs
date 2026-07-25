@@ -95,7 +95,12 @@ pub(crate) unsafe fn closure_cell_descriptor(cell: *const c_void, key: *const c_
             .read()
     };
     if !props.is_null() && unsafe { __torajs_dynobj_has(props, key as *const u8) } {
-        return unsafe { crate::reflect_get_property_descriptor::__torajs_anyv_get_property_descriptor(props as u64, key) };
+        return unsafe {
+            crate::reflect_get_property_descriptor::__torajs_anyv_get_property_descriptor(
+                props as u64,
+                key,
+            )
+        };
     }
     // 2. the virtual §20.2.4 pair — `{ writable: false, enumerable:
     //    false, configurable: true }`. The owned name Str transfers
