@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-25T18:11:16.143Z",
+  "generatedAt": "2026-07-25T18:17:26.266Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 96.12
   },
   "torajs": {
-    "commit": "e6f1d833",
-    "commitSubject": "fix(ssa): a function that passes a sentinel through answers undefined",
+    "commit": "d689e525",
+    "commitSubject": "fix(ssa): a sentinel parked in a local before the return still counts",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "d689e525",
+      "subject": "fix(ssa): a sentinel parked in a local before the return still counts"
+    },
+    {
+      "hash": "ab88159d",
+      "subject": "chore(hardev): refresh dashboard snapshot for rotation 216 close"
+    },
+    {
       "hash": "e6f1d833",
       "subject": "fix(ssa): a function that passes a sentinel through answers undefined"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "73059fad",
       "subject": "fix(async): a typed async function that runs off its end answers undefined"
-    },
-    {
-      "hash": "9019a32e",
-      "subject": "fix(async): an async function that runs off its end settles with undefined"
-    },
-    {
-      "hash": "4dd8589a",
-      "subject": "chore(hardev): refresh dashboard snapshot for rotation 215 close"
     }
   ],
-  "headSha": "e6f1d833",
+  "headSha": "d689e525",
   "autorun": {
     "total": 520,
     "baselineTarget": 10,
