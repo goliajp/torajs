@@ -36,6 +36,19 @@ pub(super) fn free_vars_of_arrow(
     // Pre-613 it leaked into the captures set and the checker rejected
     // the closure with "unknown identifier `arguments`".
     bound.push("arguments".into());
+    free_vars_of_body(ast, &bound, body)
+}
+
+/// The walk itself, over a caller-supplied pre-bound set. Split out of
+/// [`free_vars_of_arrow`] so the nested-fn capture router
+/// ([`super::nested_fns_capture`]) decides the same question from the
+/// same walk instead of growing a second one — two copies of a
+/// control-flow-sensitive traversal is exactly the thing that drifts.
+/// That caller wants `arguments` LEFT free (its presence is what tells
+/// it a declaration cannot become an arrow), so the quasi-binding is
+/// the wrapper's business, not the walk's.
+pub(super) fn free_vars_of_body(ast: &Ast, prebound: &[String], body: &[Stmt]) -> Vec<String> {
+    let mut bound: Vec<String> = prebound.to_vec();
     let mut out: Vec<String> = Vec::new();
     for s in body {
         walk_stmt(ast, s, &mut bound, &mut out);

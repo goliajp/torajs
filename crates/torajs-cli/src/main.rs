@@ -226,6 +226,11 @@ fn pipeline(src: &str, base_dir: &Path, stage: Stage) -> ExitCode {
     ast::fill_optional_fields(&mut ast);
     ast::synthesize_class_globals(&mut ast);
     ast::tag_struct_field_closure_types(&mut ast);
+    // A nested `function` that reads an outer local wants the closure
+    // lane, not the top-level lift below — see ast/nested_fns_capture.
+    // Must precede `lift_arrow_fns`: the rewrite it emits is a function
+    // expression, and that is the pass which gives one its env.
+    ast::desugar_capturing_nested_fns(&mut ast);
     ast::lift_arrow_fns(&mut ast);
     ast::infer_anonymous_closure_params(&mut ast);
     ast_closure_param_tag::tag_closure_arg_params(&mut ast);

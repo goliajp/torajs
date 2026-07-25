@@ -57,6 +57,7 @@ mod inject_builtin_classes;
 mod lift_arrow_fns;
 mod module_passes;
 mod nested_fns;
+mod nested_fns_capture;
 mod nested_fns_idents;
 pub(crate) mod objlit_nominal;
 mod objlit_nominal_anylane;
@@ -103,6 +104,7 @@ pub(crate) use lift_arrow_fns::{
 };
 pub use module_passes::{desugar_builtin_imports, rename_user_main, unwrap_exports};
 pub use nested_fns::desugar_nested_fns;
+pub use nested_fns_capture::desugar_capturing_nested_fns;
 pub use prop_key::{literal_prop_key, number_prop_key};
 pub use prototype_call::desugar_prototype_call;
 pub use sfi_pass::rewrite_split_for_i_to_iter;
