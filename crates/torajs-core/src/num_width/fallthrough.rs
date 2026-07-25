@@ -70,6 +70,10 @@ pub(super) fn alias_fallthrough_closures(ast: &Ast, out: &mut HashSet<String>) {
 /// the fixpoint carry the width to every binding the result flows
 /// into. Pointer-shaped returns need no seed — their slots already
 /// decode three ways (NULL / sentinel / live cell).
+/// A body can also hand the sentinel back on purpose — `return
+/// xs.find(...)` passes along whatever a miss answered. The call site
+/// has to route the same way either way, so both reasons put the
+/// function on one table.
 pub(super) fn seed_fallthrough_return(
     a: &mut Analysis<'_>,
     rk: SlotKey,
@@ -78,11 +82,66 @@ pub(super) fn seed_fallthrough_return(
     body: &[Stmt],
     out: &mut HashSet<String>,
 ) {
-    if return_ann == "void" || crate::ast::body_always_terminates(body) {
+    if return_ann == "void" {
+        return;
+    }
+    let falls_through = !crate::ast::body_always_terminates(body);
+    if !falls_through && !body_returns_sentinel(a, body) {
         return;
     }
     out.insert(fn_name.to_string());
-    if return_ann == "number" {
+    if return_ann == "number" && falls_through {
         a.seeds.push(rk);
     }
+}
+
+/// True when some `return` in `body` hands back a call that may answer
+/// undefined: a `find` / `findLast` / `at` miss, or a `pop` / `shift`
+/// on an empty array. Those already put their width's sentinel in the
+/// slot; without this the caller reads it as a plain value and prints
+/// NaN (or answers `typeof` "string" for the immortal cell).
+///
+/// Receiver-type-agnostic on purpose — the method names alone are the
+/// gate, and being on the table only costs one predictable compare at
+/// the call site.
+fn body_returns_sentinel(a: &Analysis<'_>, body: &[Stmt]) -> bool {
+    fn walk(a: &Analysis<'_>, stmts: &[Stmt]) -> bool {
+        stmts.iter().any(|s| match s {
+            Stmt::Return(Some(eid)) => matches!(
+                a.ast.get_expr(*eid),
+                Expr::Call { callee, .. } if matches!(
+                    a.ast.get_expr(*callee),
+                    Expr::Member { name, .. }
+                        if matches!(name.as_str(), "find" | "findLast" | "at" | "pop" | "shift")
+                )
+            ),
+            Stmt::Block(inner) | Stmt::Multi(inner) => walk(a, inner),
+            Stmt::If {
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                walk(a, std::slice::from_ref(then_branch))
+                    || else_branch
+                        .as_deref()
+                        .is_some_and(|e| walk(a, std::slice::from_ref(e)))
+            }
+            Stmt::While { body, .. }
+            | Stmt::DoWhile { body, .. }
+            | Stmt::For { body, .. }
+            | Stmt::Labeled { body, .. } => walk(a, std::slice::from_ref(body)),
+            Stmt::Try {
+                body,
+                catch_body,
+                finally_body,
+                ..
+            } => {
+                walk(a, body)
+                    || walk(a, catch_body)
+                    || finally_body.as_deref().is_some_and(|f| walk(a, f))
+            }
+            _ => false,
+        })
+    }
+    walk(a, body)
 }
