@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-25T01:32:14.005Z",
+  "generatedAt": "2026-07-25T02:45:30.383Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 96.12
   },
   "torajs": {
-    "commit": "b4c3c415",
-    "commitSubject": "feat(check): the static JSON unfold splices its own indentation",
+    "commit": "db179000",
+    "commitSubject": "feat(check): in / hasOwnProperty / delete see the symbol-keyed slot",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "db179000",
+      "subject": "feat(check): in / hasOwnProperty / delete see the symbol-keyed slot"
+    },
+    {
+      "hash": "5867a953",
+      "subject": "fix(check): a dynamic-key store of undefined stays undefined"
+    },
+    {
+      "hash": "577b0f24",
+      "subject": "feat(check): o[sym] = v stores into the symbol-keyed slot"
+    },
+    {
+      "hash": "53be2731",
+      "subject": "feat(check): o[sym] reads the symbol-keyed slot"
+    },
+    {
+      "hash": "5e71ef82",
+      "subject": "feat(runtime): a symbol is a real property key, not a mangled name"
+    },
+    {
+      "hash": "4105caf0",
+      "subject": "chore(hardev): archive test262 r219 sweep (13558/548, zero pass regression)"
+    },
+    {
       "hash": "b4c3c415",
       "subject": "feat(check): the static JSON unfold splices its own indentation"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "974c5032",
       "subject": "chore(hardev): refresh dashboard snapshot for rotation 207 close"
-    },
-    {
-      "hash": "68523744",
-      "subject": "fix(runtime): JSON.stringify handles Symbol and statically typed BigInt"
-    },
-    {
-      "hash": "5fa5f6ba",
-      "subject": "chore(hardev): refresh dashboard snapshot for rotation 207 close"
-    },
-    {
-      "hash": "89990a69",
-      "subject": "fix(runtime): JSON.stringify throws on a BigInt"
-    },
-    {
-      "hash": "f3c807dd",
-      "subject": "chore(hardev): archive test262 r218 sweep (13556/550, zero pass regression)"
-    },
-    {
-      "hash": "f66adcaf",
-      "subject": "feat(check): struct-lane JSON.stringify answers {} for slot-backed classes"
-    },
-    {
-      "hash": "5e5245e1",
-      "subject": "fix(runtime): JSON.stringify unwraps primitive wrapper objects"
     }
   ],
-  "headSha": "b4c3c415",
+  "headSha": "db179000",
   "autorun": {
-    "total": 512,
+    "total": 513,
     "baselineTarget": 10,
-    "bySelf": 507,
+    "bySelf": 508,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784937365-4545",
-      "at": "2026-07-24T23:56:05Z",
-      "ts": 1784937365,
+      "rotationId": "r-1784943215-1aec",
+      "at": "2026-07-25T01:33:35Z",
+      "ts": 1784943215,
       "trigger": "self",
-      "prevHead": "974c5032",
-      "handoffSha": "sha256:b72ad61d1ba86d3e42aa1d122151b5d2cae27bbd565205b0dad3a7b03bf958da",
-      "handoffAgeSec": 4,
+      "prevHead": "4105caf0",
+      "handoffSha": "sha256:fb586cc727fa587d685f5c47cbc401651bb4b2ed5919640185830b46a5850d31",
+      "handoffAgeSec": 13,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784943215-1aec",
+        "at": "2026-07-25T01:33:35Z",
+        "ts": 1784943215,
+        "trigger": "self",
+        "prevHead": "4105caf0",
+        "handoffSha": "sha256:fb586cc727fa587d685f5c47cbc401651bb4b2ed5919640185830b46a5850d31",
+        "handoffAgeSec": 13,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784937365-4545",
         "at": "2026-07-24T23:56:05Z",
@@ -876,17 +887,6 @@
         "prevHead": "71520e66",
         "handoffSha": "sha256:c254802aa02f86168eaf127c050ba13d0e7e3d89b09ff840e416af24fd28187a",
         "handoffAgeSec": 73,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784871854-6136",
-        "at": "2026-07-24T05:44:14Z",
-        "ts": 1784871854,
-        "trigger": "self",
-        "prevHead": "ca912d11",
-        "handoffSha": "sha256:68ab650b8dc42563ad78be2b23e93fb853b38372d9f87077f20423b71f3c7927",
-        "handoffAgeSec": 77,
         "conformanceBefore": null,
         "commitsInSession": null
       }
