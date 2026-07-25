@@ -56,7 +56,7 @@ pub(crate) fn try_lower(
     // a plain object literal), so a reverse lookup by shape answered
     // whichever class registered first.
     let cname = crate::ssa_lower_member_obj_field::class_name_of_expr(ctx, recv_id)?;
-    let fn_name = format!("__cm_{cname}__{method_name}");
+    let fn_name = declaring_class_fn(ctx, &cname, &method_name)?;
     let fid = *ctx.fn_table.get(&fn_name)?;
 
     let mut argv: Vec<Operand> = Vec::with_capacity(args.len() + 1);
@@ -73,4 +73,27 @@ pub(crate) fn try_lower(
         ctx.emit_throw_check(None);
     }
     Some(Operand::Value(v))
+}
+
+/// The `__cm_<C>__<M>` a receiver of static class `cname` would run:
+/// the first class along its ancestor chain that declares `method`.
+///
+/// The receiver's own class is not always the answer. A subclass that
+/// inherits the method declares no `__cm_` of its own, and this lane
+/// only ever sees a name several unrelated classes declare — so
+/// `Derived extends Base` reaches `Base`'s body while an unrelated
+/// `Point` with the same method name reaches its own.
+///
+/// Shared with the Object.prototype arm ahead of this one, which has
+/// to decline exactly the calls this lane claims.
+pub(crate) fn declaring_class_fn(ctx: &LowerCtx<'_>, cname: &str, method: &str) -> Option<String> {
+    let mut cur = Some(cname.to_string());
+    while let Some(c) = cur {
+        let fn_name = format!("__cm_{c}__{method}");
+        if ctx.fn_table.contains_key(&fn_name) {
+            return Some(fn_name);
+        }
+        cur = ctx.ast.class_parents.get(&c).cloned().flatten();
+    }
+    None
 }

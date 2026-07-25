@@ -78,8 +78,11 @@ fn check_add(l: Type, r: Type) -> Result<Type, String> {
         || (l == Type::BigInt && r == Type::String)
         || (l == Type::String && matches!(r, Type::Boolean | Type::Null | Type::Undefined))
         || (matches!(l, Type::Boolean | Type::Null | Type::Undefined) && r == Type::String)
-        || (l == Type::String && matches!(r, Type::Array(_) | Type::Struct(_)))
-        || (matches!(l, Type::Array(_) | Type::Struct(_)) && r == Type::String)
+        // A ClassRef sits beside Struct: §13.15.3 ToPrimitive reaches
+        // the instance's `toString` the same way, and the concat lane
+        // hands both to the same runtime kernel.
+        || (l == Type::String && matches!(r, Type::Array(_) | Type::Struct(_) | Type::ClassRef(_)))
+        || (matches!(l, Type::Array(_) | Type::Struct(_) | Type::ClassRef(_)) && r == Type::String)
         || (l == Type::String && matches!(r, Type::Any))
         || (matches!(l, Type::Any) && r == Type::String)
         // RFC 20260719-fn-tostring-source B5 — Str + fn concat:

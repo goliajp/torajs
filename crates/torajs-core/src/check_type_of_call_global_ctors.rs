@@ -221,6 +221,13 @@ fn try_primitive_coercion_ctor(
                     | Type::Struct(_)
                     | Type::Symbol
                     | Type::Function(..)
+                    // A class instance is an ordinary object here:
+                    // §7.1.17 runs OrdinaryToPrimitive, which finds
+                    // the class's own `toString` when it declares one
+                    // and Object.prototype's otherwise. The any lane
+                    // already answered both; only the typed spelling
+                    // was turned away.
+                    | Type::ClassRef(_)
             ),
             _ => false,
         };

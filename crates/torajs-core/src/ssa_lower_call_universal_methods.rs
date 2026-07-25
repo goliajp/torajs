@@ -63,6 +63,24 @@ pub(crate) fn try_lower(
     if crate::ssa_lower_call_fn_tostring::namespace_static_native_form(ctx, recv_id).is_some() {
         return None;
     }
+    // A class that declares one of these five names answers with its
+    // own method, not with the Object.prototype default this arm
+    // folds. Usually that never reaches here: a name with a single
+    // owner is rewritten to a direct `__cm_<C>__<M>` call during
+    // desugar. But when unrelated classes declare the SAME name,
+    // desugar leaves every call Member-shaped for the sibling-class
+    // lane to resolve by the receiver's static class — and that lane
+    // sits behind this one, so two classes with a `toString` each made
+    // both of them answer "[object Object]". Decline on exactly the
+    // pair of conditions that lane requires, so the two cannot
+    // disagree about who owns the call.
+    if ctx.ast.method_owners.contains_key(&m_name)
+        && let Some(cname) = crate::ssa_lower_member_obj_field::class_name_of_expr(ctx, recv_id)
+        && crate::ssa_lower_call_sibling_class_dispatch::declaring_class_fn(ctx, &cname, &m_name)
+            .is_some()
+    {
+        return None;
+    }
     let recv_op = ctx.lower_expr(recv_id);
     let recv_ty = ctx.operand_ty(&recv_op);
     let is_prim = matches!(

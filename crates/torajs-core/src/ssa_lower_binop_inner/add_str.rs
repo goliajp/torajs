@@ -346,39 +346,35 @@ pub(crate) fn coerce_to_str(ctx: &mut LowerCtx, v: Operand, undefable: bool) -> 
             );
             (Operand::Value(r), true)
         }
-        // A struct layout carrying a toString / valueOf hook runs
-        // OrdinaryToPrimitive at runtime (RFC 20260712 chunk C —
-        // mirror of the String(struct) S137 emit); a hook-free
-        // layout keeps the static §20.1.4.4 literal.
-        Type::Obj(sid) => {
-            let layout = &ctx.struct_layouts[sid.0 as usize];
-            let has_hook = layout
-                .iter()
-                .any(|(n, _)| n == "toString" || n == "valueOf");
-            if has_hook {
-                let raw = ctx.f.append_inst(
-                    ctx.cur_block,
-                    InstKind::PtrToInt(v.clone()),
-                    Type::I64,
-                    None,
-                );
-                let s = ctx.f.append_inst(
-                    ctx.cur_block,
-                    InstKind::Call(
-                        ctx.intrinsics.any_to_str_prim,
-                        vec![Operand::ConstI64(4), Operand::Value(raw)],
-                    ),
-                    Type::Str,
-                    None,
-                );
-                ctx.emit_throw_check(None);
-                (Operand::Value(s), true)
-            } else {
-                (
-                    Operand::Value(ctx.intern_string_literal("[object Object]")),
-                    false,
-                )
-            }
+        // An object side runs OrdinaryToPrimitive at runtime (RFC
+        // 20260712 chunk C — mirror of the String(struct) S137 emit),
+        // which also answers the §20.1.4.4 literal through
+        // Object.prototype.toString when the receiver has no hook.
+        //
+        // This used to shortcut to that literal statically whenever the
+        // LAYOUT carried no `toString` / `valueOf` field. A class
+        // instance shares the `Type::Obj` slot and keeps its methods on
+        // the prototype, never in the layout, so the test answered no
+        // for every class — `"x" + c` would have printed
+        // "[object Object]" over a user `toString`.
+        Type::Obj(_) => {
+            let raw = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::PtrToInt(v.clone()),
+                Type::I64,
+                None,
+            );
+            let s = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(
+                    ctx.intrinsics.any_to_str_prim,
+                    vec![Operand::ConstI64(4), Operand::Value(raw)],
+                ),
+                Type::Str,
+                None,
+            );
+            ctx.emit_throw_check(None);
+            (Operand::Value(s), true)
         }
         other => panic!("ssa-lower: mixed string concat unexpected type {other:?}"),
     }
