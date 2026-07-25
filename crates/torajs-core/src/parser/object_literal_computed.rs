@@ -7,15 +7,22 @@
 //! Covers V3-18 P2.4.c.4 + P0.10 + RFC 20260725-objlit-computed-key:
 //! - `{ ["k"]: v }` (the string IS the whole key) still folds to
 //!   `{ k: v }` at parse time.
-//! - `{ [Symbol.<chain>]: v }` keeps the `__sym_<chain>__` encoding —
-//!   the iterator-protocol consumers dispatch on
-//!   `__sym_Symbol_iterator__` by name; its method shorthand keeps
-//!   the historical stub-drop (Symbol dispatch substrate is P3/P7).
 //! - Every other key is a RUNTIME computed key (刀 1): the expr
 //!   parses for real, the field name is a `__computed_<n>__`
 //!   sentinel, and `ast.objlit_computed_keys` maps value → key expr
 //!   for the dynobj-init lane's ToPropertyKey evaluation. Method
 //!   shorthand bodies parse through the shared accessor/method tail.
+//!
+//! RFC 20260725-getiterator-getmethod 刀 1 — a `Symbol.<chain>` key
+//! used to be a third case, folded at parse time into a
+//! `__sym_<chain>__` NAME. That encoding was a dead end: the only
+//! consumers of `__sym_…` are the class-side vtable and fn_table
+//! lookups, so an object literal's mangled key answered nothing,
+//! reported 0 own symbols, and leaked a fake string property into
+//! `getOwnPropertyNames`. It is a computed key like any other now, so
+//! §7.1.19 ToPropertyKey hands the dynobj-init lane a real Symbol —
+//! and its method shorthand parses its body for real instead of
+//! dropping it on the floor.
 
 use super::*;
 
@@ -42,30 +49,6 @@ impl<'a> Parser<'a> {
                 let key = s.clone();
                 self.pos += 1;
                 key
-            }
-            // `Symbol.<chain>` keys keep the `__sym_<chain>__`
-            // encoding — the iterator-protocol consumers dispatch on
-            // `__sym_Symbol_iterator__` by name. Everything else is a
-            // runtime-evaluated computed key (RFC
-            // 20260725-objlit-computed-key 刀 1).
-            Token::Ident(n)
-                if n == "Symbol" && matches!(self.tokens[self.pos + 1].token, Token::Dot) =>
-            {
-                let mut parts: Vec<String> = Vec::new();
-                loop {
-                    if let Token::Ident(n) = self.peek() {
-                        parts.push(n.clone());
-                        self.pos += 1;
-                    } else {
-                        break;
-                    }
-                    if matches!(self.peek(), Token::Dot) {
-                        self.pos += 1;
-                    } else {
-                        break;
-                    }
-                }
-                format!("__sym_{}__", parts.join("_"))
             }
             _ => {
                 return self
