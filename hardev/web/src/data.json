@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-24T23:55:07.960Z",
+  "generatedAt": "2026-07-25T01:32:14.005Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-24T23:37:59Z",
-    "headSha": "5eb3ce87",
-    "elapsedSec": 195.74,
+    "ranAt": "2026-07-25T01:31:36Z",
+    "headSha": "b4c3c415",
+    "elapsedSec": 179.68,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 8991,
+    "pass": 8993,
     "passNoOracle": 118,
     "passNegative": 4447,
-    "passTotal": 13556,
-    "bug": 550,
+    "passTotal": 13558,
+    "bug": 548,
     "incompatible": 39068,
     "bunSkip": 11904,
     "harnessError": 0,
     "inScope": 53174,
     "trAccepted": 14106,
-    "passRateInScope": 25.49,
-    "passRateTrAccepted": 96.1
+    "passRateInScope": 25.5,
+    "passRateTrAccepted": 96.12
   },
   "torajs": {
-    "commit": "68523744",
-    "commitSubject": "fix(runtime): JSON.stringify handles Symbol and statically typed BigInt",
+    "commit": "b4c3c415",
+    "commitSubject": "feat(check): the static JSON unfold splices its own indentation",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "b4c3c415",
+      "subject": "feat(check): the static JSON unfold splices its own indentation"
+    },
+    {
+      "hash": "ca149a7b",
+      "subject": "feat(runtime): JSON.stringify honours the space argument"
+    },
+    {
+      "hash": "bfa1706a",
+      "subject": "fix(check): undefined-typed fields drop out of the JSON walk"
+    },
+    {
+      "hash": "c2796ee4",
+      "subject": "fix(runtime): any-slot fields serializing to nothing omit their key"
+    },
+    {
+      "hash": "f17be409",
+      "subject": "fix(runtime): array elements serializing to nothing write null"
+    },
+    {
+      "hash": "974c5032",
+      "subject": "chore(hardev): refresh dashboard snapshot for rotation 207 close"
+    },
+    {
       "hash": "68523744",
       "subject": "fix(runtime): JSON.stringify handles Symbol and statically typed BigInt"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "5e5245e1",
       "subject": "fix(runtime): JSON.stringify unwraps primitive wrapper objects"
-    },
-    {
-      "hash": "e959b21b",
-      "subject": "chore(hardev): archive test262 r217 sweep (13555/550, zero pass regression)"
-    },
-    {
-      "hash": "e76148d2",
-      "subject": "feat(check): struct-lane JSON.stringify serializes through toJSON"
-    },
-    {
-      "hash": "b1ba3f8a",
-      "subject": "feat(check): Number and Boolean receivers reify builtin method values"
-    },
-    {
-      "hash": "39d5390d",
-      "subject": "fix(ast): brand-checked wrapper methods skip the prototype-call rewrite"
-    },
-    {
-      "hash": "712718e6",
-      "subject": "fix(runtime): bound builtin method cells keep their prototype family"
-    },
-    {
-      "hash": "9d794ebe",
-      "subject": "fix(runtime): non-global RegExp gate precedes replaceAll/matchAll coercions"
     }
   ],
-  "headSha": "68523744",
+  "headSha": "b4c3c415",
   "autorun": {
-    "total": 511,
+    "total": 512,
     "baselineTarget": 10,
-    "bySelf": 506,
+    "bySelf": 507,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784931424-3ed7",
-      "at": "2026-07-24T22:17:04Z",
-      "ts": 1784931424,
+      "rotationId": "r-1784937365-4545",
+      "at": "2026-07-24T23:56:05Z",
+      "ts": 1784937365,
       "trigger": "self",
-      "prevHead": "6caee759",
-      "handoffSha": "sha256:1d6e6531e9385b3c5abbfe4d762640cc517dfa404c117335bb5786a340c43821",
+      "prevHead": "974c5032",
+      "handoffSha": "sha256:b72ad61d1ba86d3e42aa1d122151b5d2cae27bbd565205b0dad3a7b03bf958da",
       "handoffAgeSec": 4,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784937365-4545",
+        "at": "2026-07-24T23:56:05Z",
+        "ts": 1784937365,
+        "trigger": "self",
+        "prevHead": "974c5032",
+        "handoffSha": "sha256:b72ad61d1ba86d3e42aa1d122151b5d2cae27bbd565205b0dad3a7b03bf958da",
+        "handoffAgeSec": 4,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784931424-3ed7",
         "at": "2026-07-24T22:17:04Z",
@@ -876,17 +887,6 @@
         "prevHead": "ca912d11",
         "handoffSha": "sha256:68ab650b8dc42563ad78be2b23e93fb853b38372d9f87077f20423b71f3c7927",
         "handoffAgeSec": 77,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784832173-7644",
-        "at": "2026-07-23T18:42:53Z",
-        "ts": 1784832173,
-        "trigger": "self",
-        "prevHead": "31e6b3a3",
-        "handoffSha": "sha256:9acb3bf9041b0b339eaf324094560765c34b20ffb05cf631be0a492b5779f519",
-        "handoffAgeSec": 928,
         "conformanceBefore": null,
         "commitsInSession": null
       }
