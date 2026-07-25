@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-25T18:04:38.202Z",
+  "generatedAt": "2026-07-25T18:11:16.143Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 96.12
   },
   "torajs": {
-    "commit": "0564a187",
-    "commitSubject": "fix(ssa): a binding aliased to a fall-through function answers undefined",
+    "commit": "e6f1d833",
+    "commitSubject": "fix(ssa): a function that passes a sentinel through answers undefined",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "e6f1d833",
+      "subject": "fix(ssa): a function that passes a sentinel through answers undefined"
+    },
+    {
+      "hash": "0d3ec00a",
+      "subject": "chore(hardev): refresh dashboard snapshot for rotation 216 close"
+    },
+    {
       "hash": "0564a187",
       "subject": "fix(ssa): a binding aliased to a fall-through function answers undefined"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "4dd8589a",
       "subject": "chore(hardev): refresh dashboard snapshot for rotation 215 close"
-    },
-    {
-      "hash": "6613a49a",
-      "subject": "fix(promise): Promise.resolve(undefined) settles like the zero-arg form"
-    },
-    {
-      "hash": "536a2289",
-      "subject": "fix(ssa): a pointer-returning function that runs off its end answers undefined"
     }
   ],
-  "headSha": "0564a187",
+  "headSha": "e6f1d833",
   "autorun": {
     "total": 520,
     "baselineTarget": 10,
