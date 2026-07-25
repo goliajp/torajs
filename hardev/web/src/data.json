@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-25T14:34:50.778Z",
+  "generatedAt": "2026-07-25T16:45:45.795Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 96.12
   },
   "torajs": {
-    "commit": "88de84b3",
-    "commitSubject": "fix(ast): a descriptor's shorthand accessor binds this to the receiver",
+    "commit": "6613a49a",
+    "commitSubject": "fix(promise): Promise.resolve(undefined) settles like the zero-arg form",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "6613a49a",
+      "subject": "fix(promise): Promise.resolve(undefined) settles like the zero-arg form"
+    },
+    {
+      "hash": "536a2289",
+      "subject": "fix(ssa): a pointer-returning function that runs off its end answers undefined"
+    },
+    {
+      "hash": "e0d3af2d",
+      "subject": "fix(ssa): the finally hand-off carries a return value correctly"
+    },
+    {
+      "hash": "2d35b134",
+      "subject": "fix(ssa): a number function that runs off its end answers undefined"
+    },
+    {
+      "hash": "336d3298",
+      "subject": "fix(ssa): a void value prints as undefined inside a function body"
+    },
+    {
+      "hash": "347dbaef",
+      "subject": "fix(ssa): an object operand goes through valueOf in arithmetic"
+    },
+    {
+      "hash": "da5d9562",
+      "subject": "chore(hardev): refresh dashboard snapshot for rotation 214 close"
+    },
+    {
       "hash": "88de84b3",
       "subject": "fix(ast): a descriptor's shorthand accessor binds this to the receiver"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "24fe6d59",
       "subject": "fix(ssa): a closure can capture a binding declared later in its list"
-    },
-    {
-      "hash": "d0add202",
-      "subject": "chore(hardev): refresh dashboard snapshot for rotation 213 close"
-    },
-    {
-      "hash": "5358ddc3",
-      "subject": "fix(ast): an async class method infers its return type like any other"
-    },
-    {
-      "hash": "2953332f",
-      "subject": "fix(ast): a base class's field initializers run for a subclass instance"
-    },
-    {
-      "hash": "ba2c33a7",
-      "subject": "fix(ast): an unannotated class method may read a field off its receiver"
-    },
-    {
-      "hash": "db353b11",
-      "subject": "feat(ast): a nested function declaration can read the scope around it"
-    },
-    {
-      "hash": "ae02161d",
-      "subject": "style: restore rustfmt-clean on two rotation-212 files"
-    },
-    {
-      "hash": "b03bb4d0",
-      "subject": "chore(hardev): refresh dashboard snapshot for rotation 212 close"
     }
   ],
-  "headSha": "88de84b3",
+  "headSha": "6613a49a",
   "autorun": {
-    "total": 518,
+    "total": 519,
     "baselineTarget": 10,
-    "bySelf": 513,
+    "bySelf": 514,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784985712-580d",
-      "at": "2026-07-25T13:21:52Z",
-      "ts": 1784985712,
+      "rotationId": "r-1784991136-6b01",
+      "at": "2026-07-25T14:52:16Z",
+      "ts": 1784991136,
       "trigger": "self",
-      "prevHead": "d0add202",
-      "handoffSha": "sha256:a85b1ab1c39ce202d7673d9289f565bfefeb55cac59cb5527574207a280ec717",
-      "handoffAgeSec": 10,
+      "prevHead": "347dbaef",
+      "handoffSha": "sha256:f05f50c142cd640d2bd6fb3e3e86a2e8381945f7c712c492727f659c2c6937db",
+      "handoffAgeSec": 124,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784991136-6b01",
+        "at": "2026-07-25T14:52:16Z",
+        "ts": 1784991136,
+        "trigger": "self",
+        "prevHead": "347dbaef",
+        "handoffSha": "sha256:f05f50c142cd640d2bd6fb3e3e86a2e8381945f7c712c492727f659c2c6937db",
+        "handoffAgeSec": 124,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784985712-580d",
         "at": "2026-07-25T13:21:52Z",
@@ -876,17 +887,6 @@
         "prevHead": "d347bdc2",
         "handoffSha": "sha256:a67439645aef531786c9b244acc1bf9f8463e8787325e8836564d845e361acc4",
         "handoffAgeSec": 4,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784916735-40ca",
-        "at": "2026-07-24T18:12:15Z",
-        "ts": 1784916735,
-        "trigger": "self",
-        "prevHead": "f0464206",
-        "handoffSha": "sha256:b9ecf50b244ecaf63c2525e3c0b79036a5fc0ca8267e00d81fc058d2473c4c32",
-        "handoffAgeSec": 216,
         "conformanceBefore": null,
         "commitsInSession": null
       }
