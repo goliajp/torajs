@@ -95,11 +95,22 @@ const OBJ_CLASS_TAG_OFF: usize = 8;
 
 /// The desugared name of a `[Symbol.iterator]()` class member (the
 /// parser mangles the computed key; torajs-core emits
-/// `__cm_<C>____sym_Symbol_iterator__`).
-const SYM_ITERATOR_METHOD: &[u8] = b"__sym_Symbol_iterator__";
+/// `__cm_<C>____sym_Symbol_iterator__`). Knife 4 of RFC
+/// 20260725-getiterator-getmethod retires this: once a class member
+/// keyed by a symbol lands in the symbol-key domain, the real
+/// GetIterator finds it and this lane goes away.
+pub(crate) const SYM_ITERATOR_METHOD: &[u8] = b"__sym_Symbol_iterator__";
+
+/// `idx_slot` marker for "this loop is being driven by the
+/// `@@iterator` GetIterator resolved". The indexed lane only ever
+/// stores a cursor ≥ 0, so a negative value is free — and parking the
+/// marker in `idx_slot` rather than `iter_slot` leaves the latter
+/// holding exactly one thing: the caller-owned iterator it releases at
+/// loop exit.
+const USER_ITERATOR_LANE: i64 = -1;
 
 /// What came back from [`call_obj_method_0`].
-enum MethodOutcome {
+pub(crate) enum MethodOutcome {
     /// The receiver has no layout, or declares no method by that name.
     Missing,
     /// The method ran and threw. Its "result" is the sentinel an
@@ -123,7 +134,7 @@ enum MethodOutcome {
 ///
 /// # Safety
 /// `obj` is a live `Tag::Obj` heap pointer.
-unsafe fn call_obj_method_0(obj: *mut c_void, name: &[u8]) -> MethodOutcome {
+pub(crate) unsafe fn call_obj_method_0(obj: *mut c_void, name: &[u8]) -> MethodOutcome {
     let class_tag = unsafe { obj.cast::<u8>().add(OBJ_CLASS_TAG_OFF).cast::<u32>().read() };
     let layout = unsafe { __torajs_struct_layout_lookup(class_tag) };
     if layout.is_null() {
@@ -187,7 +198,10 @@ unsafe fn obj_iter_step(
     unsafe {
         // GetIterator, once per loop: the cached iterator is the
         // caller's to release, so a re-entry with a live slot skips
-        // straight to the step.
+        // straight to the step. A class instance still finds its
+        // iterator by mangled vtable name — the class-side folding is
+        // knife 4's to retire; by here the real `@@iterator` lookup
+        // has already missed.
         if *iter_slot == VALUE_UNDEFINED {
             match call_obj_method_0(obj, SYM_ITERATOR_METHOD) {
                 MethodOutcome::Ok(iter) => *iter_slot = iter,
@@ -204,32 +218,55 @@ unsafe fn obj_iter_step(
                 }
             }
         }
-        let iter = *iter_slot;
+        Some(step_derived_iterator(*iter_slot, out))
+    }
+}
+
+/// One step of an already-derived iterator, whichever way it was
+/// found — §7.4.6 IteratorNext plus §7.4.4/§7.4.5 on the result.
+///
+/// The tier split is by how `next` DISPATCHES, and `Tag::Obj` is not
+/// the answer to that: an anon-stamped object literal wears the same
+/// tag as a class instance, but its `next` is a closure-valued FIELD,
+/// not a vtable method. So the vtable is tried first and a miss falls
+/// through to the generic tier rather than becoming an error — the
+/// same entry-probe-then-by-name shape the member cascades use. A
+/// generator object and a hand-written iterator class keep the exact
+/// path they had.
+///
+/// # Safety
+/// `iter` is the caller's live iterator box; `out` is writable.
+pub(crate) unsafe fn step_derived_iterator(iter: AnyValue, out: *mut AnyValue) -> i64 {
+    unsafe {
         if !is_cell(iter) {
             __torajs_throw_type_error(c"iterator is not an object".as_ptr());
             *out = VALUE_UNDEFINED;
-            return Some(0);
+            return 0;
         }
         let iter_ptr = as_void_ptr(iter) as *mut c_void;
+        if (iter_ptr.cast::<u8>().add(4) as *const u16).read() != Tag::Obj as u16 {
+            return crate::iter_any_get_method::generic_iter_step(iter, out);
+        }
         // ES §7.4.6 IteratorNext — a step that throws forwards the
         // abrupt completion; there is no result to inspect.
         let step = match call_obj_method_0(iter_ptr, b"next") {
             MethodOutcome::Ok(step) => step,
+            // Not a vtable method — an object literal keeps `next` as
+            // a closure-valued field. Same iterator, other tier; the
+            // "no next()" diagnostic belongs to that tier's dispatcher.
             MethodOutcome::Missing => {
-                __torajs_throw_type_error(c"iterator has no next() method".as_ptr());
-                *out = VALUE_UNDEFINED;
-                return Some(0);
+                return crate::iter_any_get_method::generic_iter_step(iter, out);
             }
             MethodOutcome::Threw => {
                 *out = VALUE_UNDEFINED;
-                return Some(0);
+                return 0;
             }
         };
         if !is_cell(step) {
             __torajs_anyv_rc_dec(step);
             __torajs_throw_type_error(c"iterator result is not an object".as_ptr());
             *out = VALUE_UNDEFINED;
-            return Some(0);
+            return 0;
         }
         let step_ptr = as_void_ptr(step) as *mut c_void;
         // `done` / `value` come back BORROWED off the step struct —
@@ -242,7 +279,7 @@ unsafe fn obj_iter_step(
         if done {
             __torajs_anyv_rc_dec(step);
             *out = VALUE_UNDEFINED;
-            return Some(0);
+            return 0;
         }
         let value = match struct_field_pair_bytes(step_ptr, b"value") {
             Some((tag, payload)) => {
@@ -253,94 +290,7 @@ unsafe fn obj_iter_step(
         };
         __torajs_anyv_rc_dec(step);
         *out = value;
-        Some(1)
-    }
-}
-
-/// `__torajs_any_iter_close(recv, iter_slot)` — ES §7.4.9
-/// IteratorClose. A consumer that stops before the iterator reports
-/// done owes it a `return()` call: that is what runs a generator's
-/// `finally` blocks and lets a custom iterator release what it holds.
-/// Array / string / Map / Set iterators have no `return` method, so
-/// closing one is a no-op — as it is for any iterator whose prototype
-/// omits it (the spec returns early on an undefined `return`).
-///
-/// An `iter_slot` still at `undefined` means the consumer never took a
-/// step (an empty pattern, `const [] = src`). ES §13.15.5.3 calls
-/// GetIterator regardless, so this still rejects a non-iterable source
-/// — otherwise `const [] = 5` would bind nothing and pass.
-///
-/// The slot's reference stays the caller's to release.
-///
-/// # Safety
-/// `recv` is an AnyValue whose cells are live heap pointers;
-/// `iter_slot` is a valid writable pointer holding `undefined` or a
-/// derived iterator box.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_any_iter_close(recv: AnyValue, iter_slot: *mut AnyValue) {
-    unsafe {
-        if *iter_slot == VALUE_UNDEFINED && !derive_for_close(recv, iter_slot) {
-            return;
-        }
-        let iter = *iter_slot;
-        if !is_cell(iter) {
-            return;
-        }
-        let iter_ptr = as_void_ptr(iter) as *mut c_void;
-        if (iter_ptr.cast::<u8>().add(4) as *const u16).read() != Tag::Obj as u16 {
-            return;
-        }
-        // A `return()` that throws propagates on a normal completion
-        // (§7.4.9 step 6) — leave the throw in flight and touch nothing.
-        if let MethodOutcome::Ok(result) = call_obj_method_0(iter_ptr, b"return") {
-            __torajs_anyv_rc_dec(result);
-        }
-    }
-}
-
-/// The zero-step case of [`__torajs_any_iter_close`] — assert the
-/// receiver is iterable, and derive the iterator only when it is a
-/// class instance (the one shape with something to close). `false`
-/// means either a pending TypeError or a lane with no closable
-/// iterator; both leave the slot alone.
-///
-/// # Safety
-/// Same as the caller's.
-unsafe fn derive_for_close(recv: AnyValue, iter_slot: *mut AnyValue) -> bool {
-    unsafe {
-        if is_short_str(recv) {
-            return false;
-        }
-        if !is_cell(recv) {
-            __torajs_throw_type_error(c"value is not iterable".as_ptr());
-            return false;
-        }
-        let tag = (as_void_ptr(recv).cast::<u8>().add(4) as *const u16).read();
-        if tag == Tag::Str as u16
-            || tag == Tag::Arr as u16
-            || tag == Tag::Map as u16
-            || tag == Tag::Set as u16
-            || tag == Tag::MapIter as u16
-            || tag == Tag::ArrIter as u16
-        {
-            return false;
-        }
-        if tag != Tag::Obj as u16 {
-            __torajs_throw_type_error(c"value is not iterable".as_ptr());
-            return false;
-        }
-        match call_obj_method_0(as_void_ptr(recv) as *mut c_void, SYM_ITERATOR_METHOD) {
-            MethodOutcome::Ok(iter) => {
-                *iter_slot = iter;
-                true
-            }
-            MethodOutcome::Missing => {
-                __torajs_throw_type_error(c"value is not iterable".as_ptr());
-                false
-            }
-            // The user's `[Symbol.iterator]()` threw — forward it.
-            MethodOutcome::Threw => false,
-        }
+        1
     }
 }
 
@@ -358,6 +308,35 @@ pub unsafe extern "C" fn __torajs_any_iter_next(
     iter_slot: *mut AnyValue,
     out: *mut AnyValue,
 ) -> i64 {
+    // §7.4.2 GetIterator — a real `@@iterator` the receiver owns or
+    // inherits OUTRANKS every builtin lane below, which is what makes
+    // `arr[Symbol.iterator] = …` mean anything.
+    //
+    // It is a single spec step, so it runs once per loop, not once per
+    // iteration: probing per step would put a symbol-key walk in the
+    // array / string hot path. Both slots are pristine only on the
+    // first step — the indexed lane advances `idx_slot`, every derived
+    // lane fills `iter_slot` — and `idx_slot == USER_ITERATOR_LANE`
+    // records that this loop belongs to the method GetIterator found.
+    unsafe {
+        if *idx_slot == USER_ITERATOR_LANE {
+            return step_derived_iterator(*iter_slot, out);
+        }
+        if *idx_slot == 0 && *iter_slot == VALUE_UNDEFINED {
+            match crate::iter_any_get_method::get_iterator(recv) {
+                crate::iter_any_get_method::GetIterator::Iterator(iter) => {
+                    *iter_slot = iter;
+                    *idx_slot = USER_ITERATOR_LANE;
+                    return step_derived_iterator(iter, out);
+                }
+                crate::iter_any_get_method::GetIterator::NoUserMethod => {}
+                crate::iter_any_get_method::GetIterator::Threw => {
+                    *out = VALUE_UNDEFINED;
+                    return 0;
+                }
+            }
+        }
+    }
     let cell_tag = if is_cell(recv) {
         Some(unsafe { (as_void_ptr(recv).cast::<u8>().add(4) as *const u16).read() })
     } else {

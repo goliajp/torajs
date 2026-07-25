@@ -98,6 +98,8 @@ mod compare;
 pub(crate) mod index_any;
 mod index_any_set;
 mod iter_any;
+mod iter_any_close;
+mod iter_any_get_method;
 mod len_get;
 mod locale_list;
 pub(crate) mod member_get;

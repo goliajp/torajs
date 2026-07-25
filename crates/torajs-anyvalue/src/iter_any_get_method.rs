@@ -1,0 +1,298 @@
+//! §7.4.2 GetIterator's `GetMethod(obj, @@iterator)`, and the step
+//! tier that a user-written iterator needs — split from
+//! [`crate::iter_any`] at the size cap.
+//!
+//! Until the §6.1.7 symbol-key domain existed there was nothing for
+//! GetIterator to look up, so `for..of` found its iterator by MANGLED
+//! NAME through the class-methods vtable: only a class instance could
+//! be iterable, and only because the parser had folded its
+//! `[Symbol.iterator]()` member into a `__sym_Symbol_iterator__`
+//! method. An object literal declaring the same member iterated
+//! nothing.
+//!
+//! GetIterator asks the receiver for a property now, which is what the
+//! spec says it does. The lookup is [`crate::member_get_symbol`]'s own
+//! walk — own dict, then what the receiver inherits — so anything that
+//! can hold a symbol key can be iterable: an object literal, a
+//! dyn-assigned `o[Symbol.iterator] = f`, a `defineProperty`, an
+//! inherited one off a user prototype.
+//!
+//! **Once per loop, not once per step.** GetIterator is a single spec
+//! step; probing it per iteration would put a symbol-key walk in the
+//! array / string hot path for no gain. The caller decides when to
+//! ask — see `iter_any`'s `USER_ITERATOR_LANE` for how the two cursor
+//! slots encode "first step" and "this loop is mine".
+//!
+//! **A user `@@iterator` outranks the builtin lane**, per §7.4.2 —
+//! that is what makes `arr[Symbol.iterator] = …` mean anything. tr's
+//! builtin prototypes carry no symbol keys of their own, so today this
+//! only ever fires on a property somebody actually wrote.
+//!
+//! The step tier splits by how the iterator dispatches, not by how it
+//! was found: a class instance (a generator object, a hand-written
+//! iterator class) steps through the vtable exactly as before, while
+//! everything else — the object literal `{ next() {…} }` an
+//! `@@iterator` typically returns — steps through the `any` method
+//! dispatcher and reads `done` / `value` as ordinary members.
+
+use core::ffi::c_void;
+use core::sync::atomic::{AtomicPtr, Ordering};
+
+use torajs_rc::ANY_METHOD_NEXT;
+
+use crate::member_get::__torajs_any_member_get_tag;
+use crate::member_get_value::__torajs_any_member_get_value;
+use crate::method_call::__torajs_any_method_call;
+use crate::method_call_closure_dispatch::{closure_cell_entry, invoke_with_this};
+use crate::nanbox::{AnyValue, VALUE_UNDEFINED, as_void_ptr, is_cell};
+use crate::nanbox_encode::__torajs_anyv_box_from_pair;
+use crate::nanbox_ffi::{__torajs_anyv_rc_dec, __torajs_anyv_to_bool};
+use crate::payload_rc_inc;
+
+unsafe extern "C" {
+    /// torajs-str — the §6.1.5.1 well-known singleton table; idx 5 is
+    /// `@@iterator` (alphabetical property-name order). Answers an
+    /// owned +1.
+    fn __torajs_symbol_well_known(idx: i64) -> *mut c_void;
+    /// torajs-str — fresh rc-1 Str block from ASCII bytes.
+    fn __torajs_str_alloc_ascii(src: *const u8, len: i64) -> *mut u8;
+    /// torajs-rc — the universal heap-header decrement (non-zero when
+    /// the cell was freed; unused here).
+    fn __torajs_rc_dec(p: *mut c_void) -> i32;
+    fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
+    fn __torajs_throw_check() -> i64;
+}
+
+/// `WELL_KNOWN_DESCS` index of `Symbol.iterator`.
+const WK_ITERATOR: i64 = 5;
+
+/// `AnySlotTag::Undef` — an absent property.
+const TAG_UNDEF: u64 = 5;
+
+/// `AnySlotTag::Null`.
+const TAG_NULL: u64 = 0;
+
+/// §7.3.11 GetMethod steps 3-4 over an already-read property pair:
+/// `None` when the property is absent or nullish (the caller's own
+/// spec step decides what that means), the closure's `(env, entry)`
+/// when it is callable, and a recorded TypeError otherwise.
+///
+/// # Safety
+/// `(tag, payload)` is a live borrowed member pair.
+unsafe fn callable_entry(
+    tag: u64,
+    payload: u64,
+    not_a_function: &core::ffi::CStr,
+) -> Option<(*mut c_void, u64)> {
+    unsafe {
+        if tag == TAG_UNDEF || tag == TAG_NULL {
+            return None;
+        }
+        let method = __torajs_anyv_box_from_pair(tag as i64, payload as i64);
+        let entry = if is_cell(method) {
+            closure_cell_entry(as_void_ptr(method) as *mut c_void)
+        } else {
+            None
+        };
+        if entry.is_none() {
+            __torajs_throw_type_error(not_a_function.as_ptr());
+        }
+        entry
+    }
+}
+
+/// Interned property-name cells the step tier keys off. Minted once
+/// and never released — they are immortal by construction, and every
+/// consumer only READS a key.
+static NAME_NEXT: AtomicPtr<u8> = AtomicPtr::new(core::ptr::null_mut());
+static NAME_DONE: AtomicPtr<u8> = AtomicPtr::new(core::ptr::null_mut());
+static NAME_VALUE: AtomicPtr<u8> = AtomicPtr::new(core::ptr::null_mut());
+static NAME_RETURN: AtomicPtr<u8> = AtomicPtr::new(core::ptr::null_mut());
+
+/// The interned cell for `bytes`, minting it on first use. A racing
+/// initializer's loser drops its own mint; the winner is what
+/// everybody reads from then on.
+///
+/// # Safety
+/// `bytes` is ASCII.
+unsafe fn interned(slot: &AtomicPtr<u8>, bytes: &[u8]) -> *mut u8 {
+    let existing = slot.load(Ordering::Acquire);
+    if !existing.is_null() {
+        return existing;
+    }
+    let fresh = unsafe { __torajs_str_alloc_ascii(bytes.as_ptr(), bytes.len() as i64) };
+    match slot.compare_exchange(
+        core::ptr::null_mut(),
+        fresh,
+        Ordering::AcqRel,
+        Ordering::Acquire,
+    ) {
+        Ok(_) => fresh,
+        Err(winner) => {
+            unsafe { __torajs_rc_dec(fresh as *mut c_void) };
+            winner
+        }
+    }
+}
+
+/// What [`get_iterator`] resolved.
+pub(crate) enum GetIterator {
+    /// The receiver has no `@@iterator` — the caller keeps its builtin
+    /// lane (an array, a string, a Map).
+    NoUserMethod,
+    /// The derived iterator, owned; the caller parks it in `iter_slot`
+    /// and releases it at loop exit.
+    Iterator(AnyValue),
+    /// A pending throw is in flight — a non-callable `@@iterator`, or
+    /// one that threw. The caller reports done and lets its own
+    /// throw-check forward it.
+    Threw,
+}
+
+/// §7.4.2 steps 1-4 — `GetMethod(obj, @@iterator)`, then call it with
+/// the receiver as `this`.
+///
+/// # Safety
+/// `recv` is a live AnyValue.
+pub(crate) unsafe fn get_iterator(recv: AnyValue) -> GetIterator {
+    unsafe {
+        let sym = __torajs_symbol_well_known(WK_ITERATOR);
+        if sym.is_null() {
+            return GetIterator::NoUserMethod;
+        }
+        // The pair walk is borrow-shaped and the receiver keeps its
+        // stake for the whole call, so the method needs no retain.
+        let (tag, payload) = crate::member_get_symbol::symbol_key_pair(recv, sym);
+        let _ = __torajs_rc_dec(sym);
+        if tag == TAG_UNDEF {
+            return GetIterator::NoUserMethod;
+        }
+        // §7.4.2 step 3 — present but not callable is a TypeError, not
+        // a fallback: `o[Symbol.iterator] = 5` must throw rather than
+        // quietly iterating `o` some other way. A nullish one is the
+        // same refusal here, since GetIterator has no other source.
+        let Some((env, entry)) = callable_entry(tag, payload, c"Symbol.iterator is not a function")
+        else {
+            if __torajs_throw_check() == 0 {
+                __torajs_throw_type_error(c"value is not iterable".as_ptr());
+            }
+            return GetIterator::Threw;
+        };
+        let argv: [u64; 0] = [];
+        let iter = invoke_with_this(env, entry, recv, argv.as_ptr(), 0);
+        if __torajs_throw_check() != 0 {
+            return GetIterator::Threw;
+        }
+        if !is_cell(iter) {
+            __torajs_anyv_rc_dec(iter);
+            __torajs_throw_type_error(c"iterator is not an object".as_ptr());
+            return GetIterator::Threw;
+        }
+        GetIterator::Iterator(iter)
+    }
+}
+
+/// One step of an iterator that is NOT a class instance — §7.4.6
+/// IteratorNext through the `any` method dispatcher, then §7.4.4
+/// IteratorComplete / §7.4.5 IteratorValue as ordinary member reads.
+///
+/// Returns 1 with `*out` owned, or 0 with `*out` undefined (done, or
+/// a throw left in flight for the caller's check).
+///
+/// # Safety
+/// `iter` is a live cell; `out` is a valid writable pointer.
+pub(crate) unsafe fn generic_iter_step(iter: AnyValue, out: *mut AnyValue) -> i64 {
+    unsafe {
+        *out = VALUE_UNDEFINED;
+        let name_next = interned(&NAME_NEXT, b"next");
+        let argv: [u64; 0] = [];
+        let step = __torajs_any_method_call(
+            iter,
+            ANY_METHOD_NEXT,
+            name_next,
+            4,
+            core::ptr::null_mut(),
+            argv.as_ptr(),
+            0,
+        );
+        // The dispatcher's own TypeError (no `next`, not callable) is
+        // already recorded; a user `next()` that threw is too.
+        if __torajs_throw_check() != 0 {
+            return 0;
+        }
+        if !is_cell(step) {
+            __torajs_anyv_rc_dec(step);
+            __torajs_throw_type_error(c"iterator result is not an object".as_ptr());
+            return 0;
+        }
+        // §7.4.4 — ToBoolean(done), not an identity test against
+        // `true`: an iterator answering `done: 1` is done.
+        let done_key = interned(&NAME_DONE, b"done") as *const c_void;
+        let done_tag = __torajs_any_member_get_tag(step, done_key);
+        let done = if done_tag == TAG_UNDEF {
+            false
+        } else {
+            let done_payload = __torajs_any_member_get_value(step, done_key);
+            __torajs_anyv_to_bool(__torajs_anyv_box_from_pair(
+                done_tag as i64,
+                done_payload as i64,
+            ))
+        };
+        if done || __torajs_throw_check() != 0 {
+            __torajs_anyv_rc_dec(step);
+            return 0;
+        }
+        // The member pair is BORROWED off the step object, which is
+        // released right below — retain before the value outlives it.
+        let value_key = interned(&NAME_VALUE, b"value") as *const c_void;
+        let value_tag = __torajs_any_member_get_tag(step, value_key);
+        let value = if value_tag == TAG_UNDEF {
+            VALUE_UNDEFINED
+        } else {
+            let value_payload = __torajs_any_member_get_value(step, value_key);
+            payload_rc_inc(value_tag as i64, value_payload as i64);
+            __torajs_anyv_box_from_pair(value_tag as i64, value_payload as i64)
+        };
+        __torajs_anyv_rc_dec(step);
+        if __torajs_throw_check() != 0 {
+            __torajs_anyv_rc_dec(value);
+            return 0;
+        }
+        *out = value;
+        1
+    }
+}
+
+/// §7.4.9 IteratorClose for an iterator whose `return` is an ordinary
+/// property rather than a vtable method.
+///
+/// The optional-call flavor of the dispatcher is exactly the spec's
+/// step 4: an iterator with no `return` closes silently, while one
+/// whose `return` resolves to a non-callable still throws. A `return`
+/// that throws leaves its throw in flight — on a normal completion
+/// §7.4.9 step 6 propagates it, and touching the result would be
+/// reading an aborted call's sentinel.
+///
+/// # Safety
+/// `iter` is a live cell.
+pub(crate) unsafe fn generic_iter_close(iter: AnyValue) {
+    unsafe {
+        let key = interned(&NAME_RETURN, b"return") as *const c_void;
+        let tag = __torajs_any_member_get_tag(iter, key);
+        let payload = if tag == TAG_UNDEF {
+            0
+        } else {
+            __torajs_any_member_get_value(iter, key)
+        };
+        // §7.4.9 step 4 — GetMethod answering undefined ends the
+        // close; an iterator without a `return` is closed already.
+        let Some((env, entry)) = callable_entry(tag, payload, c"return is not a function") else {
+            return;
+        };
+        let argv: [u64; 0] = [];
+        let result = invoke_with_this(env, entry, iter, argv.as_ptr(), 0);
+        if __torajs_throw_check() == 0 {
+            __torajs_anyv_rc_dec(result);
+        }
+    }
+}
