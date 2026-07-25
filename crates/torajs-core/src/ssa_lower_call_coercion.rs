@@ -196,6 +196,22 @@ pub(crate) fn emit_to_number(
             );
             Operand::Value(n)
         }
+        // §7.1.4 step 8 — ToNumber(object) is ToNumber of what
+        // OrdinaryToPrimitive answers with the NUMBER hint, so the
+        // receiver's `valueOf` runs and its result is the number. A
+        // receiver with no hook lands on Object.prototype's, whose
+        // answer is the object itself, so the walk falls to `toString`
+        // and NaN. That whole ladder lives in the runtime kernel the
+        // any lane already used; the typed spelling boxes the pointer
+        // (a pure encode, no rc traffic) and asks the same question.
+        Type::Obj(_) => {
+            let boxed = ctx.box_to_any(arg_op.clone());
+            let n = ctx.coerce_any_to_number(boxed, Type::F64);
+            // A user `valueOf` can throw.
+            ctx.emit_throw_check(None);
+            ctx.release_owned_temp(arg_eid, &arg_op);
+            n
+        }
         _ => panic!("ssa-lower: Number() with arg type {arg_ty:?} not yet supported"),
     }
 }

@@ -11,7 +11,8 @@
 //!   coercion (NOT `new` — wrapper-object form deferred);
 //!   spec §21.1.1 / §22.1.1 / §20.3.1. Per-input type
 //!   dispatch covers Number / Boolean / Null / Undefined /
-//!   String / Any / Array (+ Struct for String only).
+//!   String / Any / Array / Struct / ClassRef (String also
+//!   takes Symbol and Function).
 //!   Trailing args silently dropped per generic policy.
 //! - `BigInt(value)` callable ctor (V3-03); arg type
 //!   dispatched (bigint clone / string from_str / number
@@ -197,6 +198,13 @@ fn try_primitive_coercion_ctor(
                     | Type::String
                     | Type::Any
                     | Type::Array(_)
+                    // §7.1.4 step 8 — an object answers whatever
+                    // OrdinaryToPrimitive(number) does: its own
+                    // `valueOf` when it has one, NaN otherwise. The
+                    // String arm beside this one has admitted both
+                    // shapes for as long as it has run them.
+                    | Type::Struct(_)
+                    | Type::ClassRef(_)
             ),
             // S137 — `String(arr)` routes to arr_join (ES §22.1.3.30 same path
             // as `arr.toString`); `String(struct)` is the generic Object
