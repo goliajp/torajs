@@ -29,7 +29,26 @@ use crate::ssa_lower_array_spread::LoweredItem;
 
 /// Emit the any-iterable → `Array<Any>` materialization loop. See
 /// module doc for the ownership contract.
+///
+/// A non-iterable source raises a catchable TypeError, which is what
+/// `[...x]` means.
 pub(crate) fn emit(ctx: &mut LowerCtx, src_op: Operand) -> Operand {
+    let step_fn = ctx.intrinsics.any_iter_next;
+    emit_with_step(ctx, src_op, step_fn)
+}
+
+/// The same loop for `Array.from`, whose §23.1.2.1 step 3 walks
+/// `length` and the index keys instead of throwing when the source
+/// turns out to have no iterator. The two entries differ ONLY in that
+/// verdict — the walk, the ownership contract and the resulting array
+/// are identical — so the branch lives in the kernel rather than in a
+/// second loop here.
+pub(crate) fn emit_for_array_from(ctx: &mut LowerCtx, src_op: Operand) -> Operand {
+    let step_fn = ctx.intrinsics.any_iter_next_array_like;
+    emit_with_step(ctx, src_op, step_fn)
+}
+
+fn emit_with_step(ctx: &mut LowerCtx, src_op: Operand, step_fn: crate::ssa::FuncId) -> Operand {
     let arr_id = intern_arr_layout(ctx.arr_layouts, Type::Any);
     let dst = ctx.f.append_inst(
         ctx.cur_block,
@@ -59,7 +78,7 @@ pub(crate) fn emit(ctx: &mut LowerCtx, src_op: Operand) -> Operand {
     let live = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Call(
-            ctx.intrinsics.any_iter_next,
+            step_fn,
             vec![
                 src_op,
                 Operand::Value(idx_slot),

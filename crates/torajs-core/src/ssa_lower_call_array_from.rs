@@ -137,7 +137,7 @@ fn materialize_src(
         // into the array-like branch and read a `length` that a
         // generator's layout does not have.
         let boxed = ctx.box_to_any(arg_op.clone());
-        let materialized = crate::ssa_lower_arr_from_any::emit(ctx, boxed);
+        let materialized = crate::ssa_lower_arr_from_any::emit_for_array_from(ctx, boxed);
         ctx.release_owned_temp(arg_eid, &arg_op);
         return materialized;
     }
@@ -179,7 +179,7 @@ fn materialize_src(
         // the arm below boxes FOR. Which lane it lands in is §7.4.2
         // GetIterator's call at runtime: a user `@@iterator`, else a
         // string / array / collection / class instance.
-        let materialized = crate::ssa_lower_arr_from_any::emit(ctx, arg_op.clone());
+        let materialized = crate::ssa_lower_arr_from_any::emit_for_array_from(ctx, arg_op.clone());
         ctx.release_owned_temp(arg_eid, &arg_op);
         return materialized;
     }
@@ -192,7 +192,7 @@ fn materialize_src(
         // yields an owned rc=1 array; `release_owned_temp` settles an
         // owned-temp source (`m.keys()` call) and no-ops a borrow.
         let boxed = ctx.box_to_any(arg_op.clone());
-        let materialized = crate::ssa_lower_arr_from_any::emit(ctx, boxed);
+        let materialized = crate::ssa_lower_arr_from_any::emit_for_array_from(ctx, boxed);
         ctx.release_owned_temp(arg_eid, &arg_op);
         return materialized;
     }

@@ -462,6 +462,10 @@ pub(crate) struct Intrinsics {
     pub(crate) any_accessor_get: FuncId,
     pub(crate) any_member_set: FuncId,
     pub(crate) any_iter_next: FuncId,
+    /// `Array.from`'s entry to the same walk — §23.1.2.1 step 3
+    /// takes the array-like branch where every other consumer
+    /// throws.
+    pub(crate) any_iter_next_array_like: FuncId,
     pub(crate) any_iter_close: FuncId,
     pub(crate) iter_close_value: FuncId,
     pub(crate) any_call: FuncId,

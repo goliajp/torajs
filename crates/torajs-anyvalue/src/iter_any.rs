@@ -48,7 +48,7 @@ use core::ffi::c_void;
 
 use crate::index_any::{__torajs_any_index_get, __torajs_any_iter_len};
 use crate::method_call::invoke_boxed;
-use crate::nanbox::{AnyValue, VALUE_UNDEFINED, as_void_ptr, is_cell, is_short_str};
+use crate::nanbox::{AnyValue, VALUE_UNDEFINED, as_void_ptr, is_cell, is_int32, is_short_str};
 use crate::nanbox_encode::__torajs_anyv_box_from_pair;
 use crate::nanbox_ffi::__torajs_anyv_rc_dec;
 use crate::payload_rc_inc;
@@ -205,11 +205,12 @@ unsafe fn obj_iter_step(
         if *iter_slot == VALUE_UNDEFINED {
             match call_obj_method_0(obj, SYM_ITERATOR_METHOD) {
                 MethodOutcome::Ok(iter) => *iter_slot = iter,
-                MethodOutcome::Missing => {
-                    __torajs_throw_type_error(c"value is not iterable".as_ptr());
-                    *out = VALUE_UNDEFINED;
-                    return Some(0);
-                }
+                // No iterator anywhere on this object. That verdict is
+                // not automatically an error — §23.1.2.1 step 3 hands
+                // `Array.from` to the array-like walk on exactly this
+                // answer — so it goes back to the single tail below,
+                // which is where the two callers differ.
+                MethodOutcome::Missing => return None,
                 // The user's throw is already in flight — say done and
                 // let the caller's throw-check forward it.
                 MethodOutcome::Threw => {
@@ -308,6 +309,49 @@ pub unsafe extern "C" fn __torajs_any_iter_next(
     iter_slot: *mut AnyValue,
     out: *mut AnyValue,
 ) -> i64 {
+    unsafe { iter_next_inner(recv, idx_slot, iter_slot, out, false) }
+}
+
+/// `Array.from`'s entry to the same walk. §23.1.2.1 step 3 splits on
+/// whether the source has an iterator: it does not throw on the `no`
+/// side, it walks `length` and the index keys instead. Only this entry
+/// takes that side — `[...x]` on an array-like still has to throw, so
+/// it keeps the plain entry above.
+///
+/// Once the array-like lane is entered it stays entered: it parks the
+/// length in `iter_slot`, and an immediate integer there is a shape no
+/// other lane produces (they hold `undefined` or an iterator cell), so
+/// re-entry is told apart without spending a marker.
+///
+/// # Safety
+/// As [`__torajs_any_iter_next`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_any_iter_next_array_like(
+    recv: AnyValue,
+    idx_slot: *mut i64,
+    iter_slot: *mut AnyValue,
+    out: *mut AnyValue,
+) -> i64 {
+    unsafe {
+        if is_int32(*iter_slot) {
+            return crate::iter_any_array_like::step(recv, idx_slot, iter_slot, out);
+        }
+        iter_next_inner(recv, idx_slot, iter_slot, out, true)
+    }
+}
+
+/// The shared cascade. `array_like_fallback` decides only what the
+/// tail does when nothing in it claimed the receiver.
+///
+/// # Safety
+/// As [`__torajs_any_iter_next`].
+unsafe fn iter_next_inner(
+    recv: AnyValue,
+    idx_slot: *mut i64,
+    iter_slot: *mut AnyValue,
+    out: *mut AnyValue,
+    array_like_fallback: bool,
+) -> i64 {
     // §7.4.2 GetIterator — a real `@@iterator` the receiver owns or
     // inherits OUTRANKS every builtin lane below, which is what makes
     // `arr[Symbol.iterator] = …` mean anything.
@@ -401,6 +445,13 @@ pub unsafe extern "C" fn __torajs_any_iter_next(
         if let Some(live) = unsafe { obj_iter_step(obj, iter_slot, out) } {
             return live;
         }
+    }
+    // Nothing claimed the receiver. §23.1.2.1 step 3's array-like walk
+    // reads `length` off whatever this is (a number answers an empty
+    // walk, which is what `Array.from(5)` means); every other consumer
+    // of the protocol says the value is not iterable.
+    if array_like_fallback {
+        return unsafe { crate::iter_any_array_like::step(recv, idx_slot, iter_slot, out) };
     }
     unsafe {
         __torajs_throw_type_error(c"value is not iterable".as_ptr());

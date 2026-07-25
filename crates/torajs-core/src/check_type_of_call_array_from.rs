@@ -85,10 +85,13 @@ pub(crate) fn try_match(
             if matches!(arg_ty, Type::Any | Type::ClassRef(_)) {
                 return Some(Ok(Type::Array(Box::new(Type::Any))));
             }
-            // Array-like `{length: n}` (ES §23.1.2.1 non-iterable
-            // branch) — every index read answers undefined, so the
-            // result is a dense undefined-filled `Array<Any>`.
-            if is_arraylike_struct(&arg_ty) {
+            // ES §23.1.2.1 step 3's non-iterable branch takes ANY
+            // object, not just one wearing `length`: the walk asks for
+            // `length`, and an object without one answers
+            // ToLength(undefined) = 0, so `Array.from({a: 1})` is `[]`
+            // rather than an error. A `{length: n}` struct is the same
+            // branch with a length that happens to be there.
+            if matches!(arg_ty, Type::Struct(_)) {
                 return Some(Ok(Type::Array(Box::new(Type::Any))));
             }
             // Fall through to the static-sig path; the String
@@ -115,7 +118,7 @@ pub(crate) fn try_match(
             match &arg_ty {
                 Type::String | Type::Array(_) | Type::Set => {}
                 Type::Map | Type::MapIter | Type::ArrIter | Type::Any | Type::ClassRef(_) => {}
-                t if is_arraylike_struct(t) => {}
+                Type::Struct(_) => {}
                 _ => {
                     return Some(Err(format!(
                         "Array.from(iter, mapFn): iter must be string, Array, Set, an array-like {{length}} object, a class instance, or any; got {arg_ty:?}"
@@ -143,13 +146,4 @@ pub(crate) fn try_match(
         }
     }
     None
-}
-
-/// Array-like iter source per ES §23.1.2.1's non-iterable branch —
-/// a structural object with a numeric `length` field
-/// (`{length: n}`; extra fields are irrelevant since every index
-/// read answers undefined).
-fn is_arraylike_struct(t: &Type) -> bool {
-    matches!(t, Type::Struct(fields)
-        if fields.iter().any(|(n, ft)| n == "length" && matches!(ft, Type::Number)))
 }

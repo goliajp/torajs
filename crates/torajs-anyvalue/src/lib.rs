@@ -98,6 +98,7 @@ mod compare;
 pub(crate) mod index_any;
 mod index_any_set;
 mod iter_any;
+mod iter_any_array_like;
 mod iter_any_close;
 mod iter_any_get_method;
 mod len_get;
