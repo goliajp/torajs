@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-25T17:58:22.875Z",
+  "generatedAt": "2026-07-25T18:04:38.202Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 96.12
   },
   "torajs": {
-    "commit": "88f49e5c",
-    "commitSubject": "fix(ssa): an arrow function that runs off its end answers undefined",
+    "commit": "0564a187",
+    "commitSubject": "fix(ssa): a binding aliased to a fall-through function answers undefined",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "0564a187",
+      "subject": "fix(ssa): a binding aliased to a fall-through function answers undefined"
+    },
+    {
+      "hash": "be842b20",
+      "subject": "chore(hardev): refresh dashboard snapshot for rotation 216 close"
+    },
+    {
       "hash": "88f49e5c",
       "subject": "fix(ssa): an arrow function that runs off its end answers undefined"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "536a2289",
       "subject": "fix(ssa): a pointer-returning function that runs off its end answers undefined"
-    },
-    {
-      "hash": "e0d3af2d",
-      "subject": "fix(ssa): the finally hand-off carries a return value correctly"
-    },
-    {
-      "hash": "2d35b134",
-      "subject": "fix(ssa): a number function that runs off its end answers undefined"
     }
   ],
-  "headSha": "88f49e5c",
+  "headSha": "0564a187",
   "autorun": {
     "total": 520,
     "baselineTarget": 10,
