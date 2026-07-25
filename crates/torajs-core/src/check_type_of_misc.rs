@@ -92,9 +92,13 @@ pub(crate) fn check_delete(
                      typed layouts have no removable properties"
                 ));
             }
-            if idx_ty != Type::String {
+            // §6.1.7 — a Symbol is the other half of the property-key
+            // domain, so `delete o[sym]` is as ordinary as the string
+            // form (§13.5.1.2 → §10.1.10 OrdinaryDelete, which is
+            // key-kind agnostic).
+            if !matches!(idx_ty, Type::String | Type::Symbol) {
                 return Err(format!(
-                    "`delete` key must be a string (got {idx_ty:?}); \
+                    "`delete` key must be a string or symbol (got {idx_ty:?}); \
                      numeric element deletion is not supported"
                 ));
             }

@@ -42,7 +42,14 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, operand: ExprId) -> Operand {
             } else {
                 let k_raw = ctx.lower_expr(index);
                 let k_ty = ctx.operand_ty(&k_raw);
-                let key_op = ctx.coerce_to_str(k_raw.clone(), k_ty);
+                // §13.5.1.2 step 5 is ToPropertyKey, so §7.1.19 step 2
+                // hands a Symbol key to OrdinaryDelete untouched — the
+                // entry table keys off the cell's own tag.
+                let key_op = if k_ty == Type::Symbol {
+                    k_raw.clone()
+                } else {
+                    ctx.coerce_to_str(k_raw.clone(), k_ty)
+                };
                 let Operand::Value(key_v) = key_op else {
                     panic!("ssa-lower: delete key lowered to a non-value operand");
                 };

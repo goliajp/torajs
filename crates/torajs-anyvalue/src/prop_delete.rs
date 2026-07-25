@@ -66,6 +66,25 @@ pub unsafe extern "C" fn __torajs_any_prop_delete(recv: AnyValue, key: *const c_
         }
         return 0;
     }
+    // §6.1.7 — OrdinaryDelete of a symbol key is exactly an entry-table
+    // removal: the index domain, `length`, the fn virtual pair and the
+    // builtin-prototype tombstones below are all string-keyed and read
+    // the key's Str payload. A shape with no dict has nothing to
+    // remove, and §13.5.1.2 makes deleting an absent property `true`.
+    if unsafe { crate::member_get_symbol::key_is_symbol(key) } {
+        let Some((ptr, t)) = recv_cell(recv) else {
+            return 1;
+        };
+        let dict = unsafe { crate::member_get_symbol::own_dict(ptr, t) };
+        if dict.is_null() {
+            return 1;
+        }
+        if unsafe { refuse_non_configurable(dict, key) } {
+            return 0;
+        }
+        unsafe { __torajs_dynobj_delete(dict as *mut c_void, key) };
+        return 1;
+    }
     match recv_cell(recv) {
         Some((ptr, t)) if t == Tag::DynObj as u16 => {
             if unsafe { refuse_non_configurable(ptr, key) } {

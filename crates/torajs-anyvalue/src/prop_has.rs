@@ -206,6 +206,18 @@ pub unsafe extern "C" fn __torajs_any_prop_has(recv: AnyValue, key: *const c_voi
         }
         return 0;
     }
+    // §6.1.7 — HasOwnProperty of a symbol key is exactly an entry-table
+    // probe: every face in the cascade below (index domain, `length`,
+    // fn `name`, builtin-prototype interned methods, ctor statics) is
+    // string-keyed, and each reads the key's Str payload. A shape with
+    // no dict simply owns no symbol-keyed property.
+    if unsafe { crate::member_get_symbol::key_is_symbol(key) } {
+        let Some((ptr, t)) = recv_cell(recv) else {
+            return 0;
+        };
+        let dict = unsafe { crate::member_get_symbol::own_dict(ptr, t) };
+        return (!dict.is_null() && unsafe { __torajs_dynobj_has(dict, key) } != 0) as i64;
+    }
     if is_short_str(recv) {
         // ShortStr imm — len lives in bits 47..40 (SSO layout).
         let len = (recv >> 40) & 0xFF;

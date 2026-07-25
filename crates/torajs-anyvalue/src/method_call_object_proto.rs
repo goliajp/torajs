@@ -160,10 +160,15 @@ pub unsafe extern "C" fn __torajs_error_tostring_dispatch(p: *const u8) -> *mut 
 }
 
 /// chunk D-1 — `hasOwnProperty` / `propertyIsEnumerable` universal
-/// arm: ToPropertyKey the first argument (`anyv_to_str` — a missing
-/// slot stringifies undefined per §7.1.19), probe the prop_has /
-/// prop_enumerable substrate, answer a Bool box. The key temp is
-/// owned and dropped here.
+/// arm: ToPropertyKey the first argument, probe the prop_has /
+/// prop_enumerable substrate, answer a Bool box.
+///
+/// §7.1.19 ToPropertyKey step 2 returns a Symbol key as-is; only the
+/// remaining shapes reach step 3's ToString (a missing slot
+/// stringifies undefined). Coercing a symbol would raise §7.1.17's
+/// "cannot convert a Symbol to a string" on a call that must simply
+/// answer whether the slot is there. A string key temp is owned and
+/// dropped here; a symbol key is the caller's argv borrow.
 pub(crate) unsafe fn own_prop_probe(
     recv: AnyValue,
     mid: i64,
@@ -175,17 +180,37 @@ pub(crate) unsafe fn own_prop_probe(
     } else {
         VALUE_UNDEFINED
     };
-    let key = unsafe { crate::nanbox_ffi::__torajs_anyv_to_str(key_av) };
-    let hit = if mid == ANY_METHOD_HAS_OWN_PROPERTY {
-        unsafe { crate::prop_has::__torajs_any_prop_has(recv, key as *const c_void) }
-    } else {
-        unsafe { crate::prop_has::__torajs_any_prop_enumerable(recv, key as *const c_void) }
+    let sym_key = unsafe { symbol_key_cell(key_av) };
+    let key = match sym_key {
+        Some(cell) => cell,
+        None => unsafe { crate::nanbox_ffi::__torajs_anyv_to_str(key_av) as *const c_void },
     };
-    unsafe { __torajs_str_drop(key as *mut c_void) };
+    let hit = if mid == ANY_METHOD_HAS_OWN_PROPERTY {
+        unsafe { crate::prop_has::__torajs_any_prop_has(recv, key) }
+    } else {
+        unsafe { crate::prop_has::__torajs_any_prop_enumerable(recv, key) }
+    };
+    if sym_key.is_none() {
+        unsafe { __torajs_str_drop(key as *mut c_void) };
+    }
     if hit != 0 {
         crate::nanbox::VALUE_TRUE
     } else {
         crate::nanbox::VALUE_FALSE
+    }
+}
+
+/// The argument as a borrowed `Tag::Symbol` key cell, or `None` when it
+/// is any other value (which §7.1.19 step 3 sends through ToString).
+///
+/// # Safety
+/// `v` carries a valid AnyValue bit pattern.
+unsafe fn symbol_key_cell(v: AnyValue) -> Option<*const c_void> {
+    let (ptr, t) = crate::member_get::recv_cell(v)?;
+    if t == Tag::Symbol as u16 {
+        Some(ptr as *const c_void)
+    } else {
+        None
     }
 }
 

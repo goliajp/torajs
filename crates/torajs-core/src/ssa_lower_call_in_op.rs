@@ -123,7 +123,11 @@ pub(crate) fn try_lower(
             ctx.emit_throw_check(None);
             return Some(Operand::Value(r));
         }
-        if matches!(key_ty, Type::Str) {
+        // §6.1.7 — a Symbol key rides the same kernel as a Str key,
+        // uncoerced per §7.1.19 step 2: the own probe and the user
+        // [[Prototype]] walk both key off the cell's own tag, and the
+        // kernel's name-keyed chain faces bow out for a symbol.
+        if matches!(key_ty, Type::Str | Type::Symbol) {
             let r = ctx.f.append_inst(
                 cur_block,
                 InstKind::Call(ctx.intrinsics.in_op_any_str, vec![obj_op, key_op]),

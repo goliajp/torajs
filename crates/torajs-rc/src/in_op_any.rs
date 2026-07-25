@@ -111,6 +111,18 @@ const TAG_STR: u16 = 0;
 const TAG_SYMBOL: u16 = 7;
 const TAG_BIGINT: u16 = 10;
 
+/// True when a property-KEY cell is a Symbol rather than a Str — the
+/// §6.1.7 key-domain split, read off the cell's own header `type_tag`.
+/// (Distinct from [`TAG_SYMBOL`]'s use above, which classifies a
+/// RECEIVER cell.)
+///
+/// # Safety
+/// `key` must be non-NULL and point at a live key cell.
+#[inline]
+unsafe fn key_cell_is_symbol(key: *const u8) -> bool {
+    unsafe { *(key.add(4) as *const u16) == TAG_SYMBOL }
+}
+
 /// Heap `Tag` → builtin-proto family tag (`torajs-rc/builtin_proto.rs`
 /// order: Number=0 Object=1 Array=2 String=3 Boolean=4 … RegExp=7
 /// Date=8 Promise=10 Map=11 Set=12 Function=13). `None` for cells
@@ -290,6 +302,13 @@ pub unsafe extern "C" fn __torajs_in_op_any_str(v: i64, key: *const u8) -> bool 
         if unsafe { *((ptr as *const u8).add(6) as *const u16) } & DYNOBJ_HDR_FLAG_NULL_PROTO != 0 {
             return false;
         }
+    }
+    // §6.1.7 — the two faces below are name-keyed: a class prototype's
+    // members and a builtin prototype's interned family methods are all
+    // spelled with strings, and both probes read the key's Str payload.
+    // A symbol key's chain ends with the user [[Prototype]] walk above.
+    if unsafe { key_cell_is_symbol(key) } {
+        return false;
     }
     // Class-prototype link — a struct receiver's methods / accessor
     // halves live on its class prototype, not on the instance

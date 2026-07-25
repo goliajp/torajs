@@ -75,7 +75,16 @@ pub(crate) fn try_lower(
         } else {
             let k_raw = ctx.lower_expr(args[1]);
             let k_ty = ctx.operand_ty(&k_raw);
-            let key_op = ctx.coerce_to_str(k_raw.clone(), k_ty);
+            // §20.1.3.4 step 1 is ToPropertyKey, not ToString, so
+            // §7.1.19 step 2 hands a Symbol key straight through — the
+            // own-property probe keys off the cell's own tag. Coercing
+            // it would hit §7.1.17's "cannot convert a Symbol to a
+            // string" TypeError on a call that must simply answer true.
+            let key_op = if k_ty == Type::Symbol {
+                k_raw.clone()
+            } else {
+                ctx.coerce_to_str(k_raw.clone(), k_ty)
+            };
             let Operand::Value(key_v) = key_op else {
                 panic!("ssa-lower: hasOwn key lowered to a non-value operand");
             };

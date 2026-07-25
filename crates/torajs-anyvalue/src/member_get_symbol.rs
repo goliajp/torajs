@@ -55,9 +55,13 @@ pub(crate) unsafe fn key_is_symbol(key: *const c_void) -> bool {
 /// shape has no dict (or has not lazily allocated one yet), in which
 /// case it holds no symbol-keyed property.
 ///
+/// Shared by every symbol-key face in this crate (read / has / delete)
+/// so "where does this shape keep its properties" is answered in one
+/// place.
+///
 /// # Safety
 /// `ptr` is a live cell whose `type_tag` is `t`.
-unsafe fn own_dict(ptr: *mut c_void, t: u16) -> *const c_void {
+pub(crate) unsafe fn own_dict(ptr: *mut c_void, t: u16) -> *const c_void {
     if t == Tag::DynObj as u16 {
         return ptr;
     }
