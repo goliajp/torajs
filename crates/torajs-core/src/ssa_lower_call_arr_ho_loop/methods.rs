@@ -45,7 +45,20 @@ pub(super) fn emit_map(
             cb_args(this_arg, elem),
             usize::from(this_arg.is_some()),
         );
-        ctx.raw_slot_arg(Operand::Value(mapped))
+        // RFC 20260726-array-elem-width knife 1 — the dst elem width is
+        // the analysis class's answer, which can be wider than what this
+        // callback returns (a fractional value reaching the product from
+        // any other site widens the class). Convert rather than store the
+        // integer's bits into an f64 slot.
+        let mapped = Operand::Value(mapped);
+        let mapped = if ctx.operand_ty(&mapped) == Type::I64
+            && matches!(dst_arr_ty, Type::Arr(id) if ctx.arr_layouts[id.0 as usize] == Type::F64)
+        {
+            ctx.coerce_to_f64(mapped)
+        } else {
+            mapped
+        };
+        ctx.raw_slot_arg(mapped)
     };
     // M6.2 fast-path — dst was reserve'd above the loop, so the unchecked
     // push elides the per-call capacity check.

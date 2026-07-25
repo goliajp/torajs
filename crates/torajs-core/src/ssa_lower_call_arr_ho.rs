@@ -21,6 +21,7 @@ use crate::ssa_lower_call_arr_ho_loop::{begin_loop, emit_per_method_body, end_lo
 /// shape; `None` lets the caller fall through to the next dispatch arm.
 pub(crate) fn try_lower(
     ctx: &mut LowerCtx<'_>,
+    eid: ExprId,
     callee: ExprId,
     args: &[ExprId],
 ) -> Option<Operand> {
@@ -34,11 +35,12 @@ pub(crate) fn try_lower(
     ) {
         return None;
     }
-    Some(lower_higher_order(ctx, obj, name, args))
+    Some(lower_higher_order(ctx, eid, obj, name, args))
 }
 
 fn lower_higher_order(
     ctx: &mut LowerCtx<'_>,
+    eid: ExprId,
     obj: ExprId,
     method: String,
     args: &[ExprId],
@@ -137,6 +139,26 @@ fn lower_higher_order(
         // RC-1 (RFC 20260706-test262-bug-corpus) — a Void-ret callback
         // maps every element to `undefined`; the dst holds Any boxes.
         let ret = if ret == Type::Void { Type::Any } else { ret };
+        // RFC 20260726-array-elem-width knife 1 — the callback's ret is
+        // only ONE source of the product's elements, so it cannot decide
+        // their width alone. The analysis keys this product by its call
+        // origin and joins that class with every slot the product flows
+        // into (`container_result_key.rs`, the "map" arm); a fractional
+        // value reaching any of them widens the class while the ret edge
+        // stays narrow — that edge is directional on purpose (reduce's
+        // accumulator rides it, see acc_ty below). Ask the class, the way
+        // an array literal already does (`ssa_lower_array::compute_elem_ty`).
+        // Skipping the ask stored I64 bits behind an F64-typed slot and
+        // every later read reinterpreted them — silently, exit 0.
+        let ret = if ret == Type::I64
+            && ctx
+                .num_f64_slots
+                .elem_is_f64(&crate::num_width::SlotKey::Anon(eid.0))
+        {
+            Type::F64
+        } else {
+            ret
+        };
         let arr_id = intern_arr_layout(ctx.arr_layouts, ret);
         Type::Arr(arr_id)
     } else {
