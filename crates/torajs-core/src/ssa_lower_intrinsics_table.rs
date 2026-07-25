@@ -411,6 +411,7 @@ pub(crate) fn build(
         any_member_set: init_c.any_substrate.any_member_set,
         any_iter_next: init_c.any_substrate.any_iter_next,
         any_iter_close: init_c.any_substrate.any_iter_close,
+        iter_close_value: init_c.any_substrate.iter_close_value,
         any_call: init_c.any_substrate.any_call,
         accessor_face_from_any: init_c.any_substrate.accessor_face_from_any,
         closure_call_variadic: init_c.any_substrate.closure_call_variadic,

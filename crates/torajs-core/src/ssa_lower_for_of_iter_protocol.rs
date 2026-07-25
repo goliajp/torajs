@@ -29,7 +29,7 @@
 //! end-of-body drop pass doesn't double-dec the step's owned rc.
 
 use crate::ast::{ExprId, Stmt};
-use crate::ssa::{FuncId, InstKind, Operand, Terminator, Type};
+use crate::ssa::{FuncId, IPred, InstKind, Operand, Terminator, Type};
 use crate::ssa_lower::{LocalInfo, LowerCtx, OBJ_HEADER_SIZE};
 
 /// Default-value ExprIds of the iterator's `next` beyond the leading
@@ -192,8 +192,19 @@ pub(crate) fn lower_for_of_iter_protocol(
         InstKind::Store(Operand::Value(iter_val), Operand::Value(iter_slot), 0),
     );
 
+    // ES §7.4.9 — a `return()` is owed only on an EARLY stop. Both
+    // exits share `after`, so the natural one records itself and the
+    // close is gated on the flag; a `break` leaves it 0. Mirror of the
+    // `any` lane's shape (`ssa_lower_for_of_any_iter`).
+    let done_slot = ctx.alloca(Type::I64, Some("__forof_proto_done"));
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Store(Operand::ConstI64(0), Operand::Value(done_slot), 0),
+    );
+
     let header = ctx.f.add_block();
     let body_blk = ctx.f.add_block();
+    let exhausted = ctx.f.add_block();
     let after = ctx.f.add_block();
     ctx.f.set_term(ctx.cur_block, Terminator::Br(header));
 
@@ -249,10 +260,18 @@ pub(crate) fn lower_for_of_iter_protocol(
         ctx.cur_block,
         Terminator::CondBr {
             cond: Operand::Value(done_val),
-            then_blk: after,
+            then_blk: exhausted,
             else_blk: body_blk,
         },
     );
+
+    // The iterator reported done — it closed itself.
+    ctx.cur_block = exhausted;
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Store(Operand::ConstI64(1), Operand::Value(done_slot), 0),
+    );
+    ctx.f.set_term(ctx.cur_block, Terminator::Br(after));
 
     ctx.cur_block = body_blk;
     ctx.scope_stack.push(Vec::new());
@@ -327,6 +346,50 @@ pub(crate) fn lower_for_of_iter_protocol(
     }
 
     ctx.cur_block = after;
+    let close_blk = ctx.f.add_block();
+    let release_blk = ctx.f.add_block();
+    let done_flag = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(Type::I64, Operand::Value(done_slot), 0),
+        Type::I64,
+        None,
+    );
+    let stopped_early = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::ICmp(IPred::Eq, Operand::Value(done_flag), Operand::ConstI64(0)),
+        Type::Bool,
+        None,
+    );
+    ctx.f.set_term(
+        ctx.cur_block,
+        Terminator::CondBr {
+            cond: Operand::Value(stopped_early),
+            then_blk: close_blk,
+            else_blk: release_blk,
+        },
+    );
+
+    // §7.4.9 with the iterator still live. This lane keeps its
+    // iterator in a TYPED local rather than an `Any` park slot, so it
+    // closes through the value-shaped face; the box is rc-neutral and
+    // the stake stays in the slot, released below either way. An
+    // iterator that declares no `return` closes as a no-op.
+    ctx.cur_block = close_blk;
+    let iter_for_close = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(iter_ret_ty, Operand::Value(iter_slot), 0),
+        iter_ret_ty,
+        None,
+    );
+    let boxed_iter = ctx.box_to_any(Operand::Value(iter_for_close));
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Call(ctx.intrinsics.iter_close_value, vec![boxed_iter]),
+    );
+    ctx.emit_throw_check(None);
+    ctx.f.set_term(ctx.cur_block, Terminator::Br(release_blk));
+
+    ctx.cur_block = release_blk;
     let iter_load_drop = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Load(iter_ret_ty, Operand::Value(iter_slot), 0),

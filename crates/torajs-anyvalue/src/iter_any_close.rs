@@ -41,7 +41,25 @@ pub unsafe extern "C" fn __torajs_any_iter_close(recv: AnyValue, iter_slot: *mut
         if *iter_slot == VALUE_UNDEFINED && !derive_for_close(recv, iter_slot) {
             return;
         }
-        let iter = *iter_slot;
+        __torajs_iter_close_value(*iter_slot);
+    }
+}
+
+/// `__torajs_iter_close_value(iter)` — §7.4.9 over an iterator the
+/// caller already holds, without the slot / GetIterator bookkeeping.
+///
+/// The statically-typed class-iterator lowering keeps its iterator in
+/// a typed local rather than an `Any` park slot, so it closes through
+/// this face; the slot-shaped extern above resolves its slot and then
+/// lands here, which is what keeps one copy of the cascade.
+///
+/// The reference stays the caller's — this only borrows it.
+///
+/// # Safety
+/// `iter` is `undefined` or a live AnyValue.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_iter_close_value(iter: AnyValue) {
+    unsafe {
         if !is_cell(iter) {
             return;
         }
