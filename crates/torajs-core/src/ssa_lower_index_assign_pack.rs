@@ -27,6 +27,20 @@ impl<'a> LowerCtx<'a> {
         v_raw: &Operand,
         v_ty: Type,
     ) -> (Operand, Operand) {
+        // SSA folds frontend `undefined` and `null` into the same
+        // `Type::Ptr` `ConstPtrNull`, so the pair packer below can only
+        // answer ANY_NULL for both — `o[k] = undefined` read back as
+        // `null` (RFC 20260725-ssa-undefined-vs-null). The checker DOES
+        // tell them apart, and this wrapper has the value's ExprId, so
+        // the undefined case is settled here before the SSA type is all
+        // that is left. Same `(ANY_UNDEF, 0)` pair `ssa_lower_any_box`
+        // emits for the boxed form.
+        if matches!(
+            self.expr_types.get(&value),
+            Some(crate::check::Type::Undefined)
+        ) {
+            return (Operand::ConstI64(5), Operand::ConstI64(0));
+        }
         let transfers = self.expr_transfers_ownership(value);
         let (tag_op, value_op) = self.pack_any_slot_value(v_raw, v_ty, !transfers);
         if !transfers && !matches!(v_ty, Type::Any) && v_ty.is_refcounted() {
