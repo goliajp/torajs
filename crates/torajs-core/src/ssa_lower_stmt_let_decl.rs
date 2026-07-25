@@ -182,12 +182,13 @@ pub(crate) fn lower(
     // The scalar sibling of the crossing above. `const x: number = t`
     // (`t: any`) reaches here with an Any operand and an I64/F64 slot;
     // without a decode the NaN-box bits ARE the stored number
-    // (`{v:10}` read back as -562949953421302). The two other
-    // Any→typed boundaries already decode — assignment
-    // (`ssa_lower_assign_ident`'s permissible-coercion table) and the
-    // call-arg lane — so this is the same row, on the binding.
-    let (init_val, num_converted) = maybe_any_to_typed_number(ctx, type_ann, ty, init, init_val);
-    let converted = converted || num_converted;
+    // (`{v:10}` read back as -562949953421302), and a Str slot reads
+    // them as a pointer. The two other Any→typed boundaries already
+    // decode — assignment (`ssa_lower_assign_ident`'s
+    // permissible-coercion table) and the call-arg lane — so these are
+    // the same rows, on the binding.
+    let (init_val, scalar_converted) = maybe_any_to_typed_scalar(ctx, type_ann, ty, init, init_val);
+    let converted = converted || scalar_converted;
     let is_alias_init = is_alias_init && !converted;
     // RFC 20260705 ledger #2 (chunk 563) — a concrete value boxed into
     // an `any` slot is ALWAYS owned by the slot: `anyv_box_from_pair`
@@ -314,42 +315,47 @@ fn finalize_and_bind(
     );
 }
 
-/// An `any` init bound to a `number` annotation: §7.1.4 ToNumber via
-/// `any_to_number`, so the slot holds the number the box carried
-/// rather than the box's bits. Answers `(value, converted)`; a `true`
-/// flag joins the chunk-698 `converted` above — the binding now holds
-/// a Copy primitive, so it neither aliases nor shares the source.
+/// An `any` init bound to a `number` or `string` annotation: §7.1.4
+/// ToNumber via `any_to_number` / §7.1.17 ToString via `coerce_to_str`,
+/// so the slot holds what the box carried rather than the box's bits.
+/// Answers `(value, converted)`; a `true` flag joins the chunk-698
+/// `converted` above — either way the binding owns its result outright
+/// and neither aliases nor shares the source.
 ///
 /// Only an ANNOTATED binding crosses: without an annotation the slot
 /// type follows the init (`finalize_and_bind` re-reads `operand_ty`),
 /// so `any` stays `any` and there is nothing to decode.
 ///
-/// Ownership: `any_to_number` only READS its argument (chunk 566), so
-/// an owned Any temp (a call result, a fresh box) still carries the
-/// stake nobody will drop now that the slot is Copy —
-/// `release_owned_temp` settles it, and leaves borrow shapes (Ident /
-/// Member / Index) untouched since their source keeps its own.
+/// Ownership differs by row, and both ends are settled here:
+/// `any_to_number` only READS its argument (chunk 566) and leaves a
+/// Copy slot behind, while `coerce_to_str` mints a fresh-owned Str the
+/// binding then drops at scope close. Either way an owned Any temp (a
+/// call result, a fresh box) still carries a stake the new slot won't
+/// answer for — `release_owned_temp` settles it, and leaves borrow
+/// shapes (Ident / Member / Index) untouched since their source keeps
+/// its own.
 ///
 /// A lying annotation (`const x: number = t`, `t` holding `"hi"`)
 /// answers NaN. That is ToNumber, not type erasure — bun keeps the
 /// string, since TS annotations vanish at runtime. Both sibling
-/// boundaries answer NaN the same way, so this row joins the existing
+/// boundaries answer NaN the same way, so these rows join the existing
 /// stance rather than inventing a third one; the erasure gap itself is
 /// one L3b entry against all three.
-fn maybe_any_to_typed_number(
+fn maybe_any_to_typed_scalar(
     ctx: &mut LowerCtx,
     type_ann: Option<&String>,
     ty: Type,
     init: ExprId,
     init_val: Operand,
 ) -> (Operand, bool) {
-    if type_ann.is_none() || !matches!(ty, Type::I64 | Type::F64) {
+    if type_ann.is_none() || ctx.operand_ty(&init_val) != Type::Any {
         return (init_val, false);
     }
-    if ctx.operand_ty(&init_val) != Type::Any {
-        return (init_val, false);
-    }
-    let decoded = ctx.coerce_any_to_number(init_val.clone(), ty);
+    let decoded = match ty {
+        Type::I64 | Type::F64 => ctx.coerce_any_to_number(init_val.clone(), ty),
+        Type::Str => ctx.coerce_to_str(init_val.clone(), Type::Any),
+        _ => return (init_val, false),
+    };
     ctx.release_owned_temp(init, &init_val);
     (decoded, true)
 }
