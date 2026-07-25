@@ -68,8 +68,27 @@ impl<'a> Analysis<'a> {
             let w = self.width_of(*a0, scope);
             self.add_container_constraint(pv.clone(), w);
             if let Some(ak) = self.container_key_of(*a0, scope) {
-                self.uf
-                    .union(&pv, &SlotKey::Field(Box::new(ak), "value".to_string()));
+                // RFC 20260726-array-elem-width — which point the
+                // argument contributes depends on what it IS. Handing
+                // `resolve` another promise passes that promise's value
+                // through, so the two value points join. Handing it a
+                // plain container makes that container the value, so
+                // the argument's OWN point is what joins.
+                //
+                // Only the first reading existed, so an array literal
+                // in `Promise.resolve([1, 2, 3])` sat in a different
+                // class from the binding that awaited it: the binding
+                // widened on a fractional write and read the untouched
+                // i64 literal back as 1e-323, silently.
+                if matches!(
+                    self.expr_types.get(a0),
+                    Some(crate::check::Type::Promise(_))
+                ) {
+                    self.uf
+                        .union(&pv, &SlotKey::Field(Box::new(ak), "value".to_string()));
+                } else {
+                    self.uf.union(&pv, &ak);
+                }
             }
         }
         if matches!(name, "all" | "race" | "any")
