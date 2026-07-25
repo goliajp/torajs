@@ -79,8 +79,19 @@ pub(crate) fn lower(ctx: &mut LowerCtx, src_op: Operand, var_name: &str, body: &
     let iter_slot = emit_iter_slot(ctx, "__forof_any_iter");
     let out_slot = ctx.alloca(Type::Any, Some("__forof_any_out"));
 
+    // ES §7.4.9 — the loop owes the iterator a `return()` only when it
+    // stops EARLY. Both exits land in `after`, so the natural one
+    // records itself here and the close is gated on the flag rather
+    // than on which predecessor arrived: a `break` leaves it 0.
+    let done_slot = ctx.alloca(Type::I64, Some("__forof_any_done"));
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Store(Operand::ConstI64(0), Operand::Value(done_slot), 0),
+    );
+
     let header = ctx.f.add_block();
     let body_blk = ctx.f.add_block();
+    let exhausted = ctx.f.add_block();
     let after = ctx.f.add_block();
     ctx.f.set_term(ctx.cur_block, Terminator::Br(header));
 
@@ -90,7 +101,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx, src_op: Operand, var_name: &str, body: &
         InstKind::Call(
             ctx.intrinsics.any_iter_next,
             vec![
-                src_op,
+                src_op.clone(),
                 Operand::Value(idx_slot),
                 Operand::Value(iter_slot),
                 Operand::Value(out_slot),
@@ -110,10 +121,19 @@ pub(crate) fn lower(ctx: &mut LowerCtx, src_op: Operand, var_name: &str, body: &
         ctx.cur_block,
         Terminator::CondBr {
             cond: Operand::Value(done),
-            then_blk: after,
+            then_blk: exhausted,
             else_blk: body_blk,
         },
     );
+
+    // The iterator said done — it closed itself, so mark the flag and
+    // fall into the shared exit.
+    ctx.cur_block = exhausted;
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Store(Operand::ConstI64(1), Operand::Value(done_slot), 0),
+    );
+    ctx.f.set_term(ctx.cur_block, Terminator::Br(after));
 
     ctx.cur_block = body_blk;
     ctx.scope_stack.push(Vec::new());
@@ -137,6 +157,45 @@ pub(crate) fn lower(ctx: &mut LowerCtx, src_op: Operand, var_name: &str, body: &
     close_body_scope(ctx, header, body_open);
 
     ctx.cur_block = after;
+    let close_blk = ctx.f.add_block();
+    let release_blk = ctx.f.add_block();
+    let done_flag = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(Type::I64, Operand::Value(done_slot), 0),
+        Type::I64,
+        None,
+    );
+    let stopped_early = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::ICmp(IPred::Eq, Operand::Value(done_flag), Operand::ConstI64(0)),
+        Type::Bool,
+        None,
+    );
+    ctx.f.set_term(
+        ctx.cur_block,
+        Terminator::CondBr {
+            cond: Operand::Value(stopped_early),
+            then_blk: close_blk,
+            else_blk: release_blk,
+        },
+    );
+
+    // §7.4.9 with the iterator still live. An iterator with no
+    // `return` closes as a no-op, and so does a loop that never
+    // derived one (an indexed receiver leaves the slot at
+    // `undefined`), so this is safe for every lane the kernel drives.
+    ctx.cur_block = close_blk;
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Call(
+            ctx.intrinsics.any_iter_close,
+            vec![src_op, Operand::Value(iter_slot)],
+        ),
+    );
+    ctx.emit_throw_check(None);
+    ctx.f.set_term(ctx.cur_block, Terminator::Br(release_blk));
+
+    ctx.cur_block = release_blk;
     emit_iter_slot_release(ctx, iter_slot);
     let _ = ctx.scope_stack.pop().expect("for-of-any iter scope");
     let _ = ctx.shadow_stack.pop().expect("shadow frame");
