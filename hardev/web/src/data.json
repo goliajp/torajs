@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-25T09:40:06.900Z",
+  "generatedAt": "2026-07-25T13:20:29.860Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 96.12
   },
   "torajs": {
-    "commit": "24ba36da",
-    "commitSubject": "fix(check): an object-literal method returning this types as its receiver",
+    "commit": "5358ddc3",
+    "commitSubject": "fix(ast): an async class method infers its return type like any other",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "5358ddc3",
+      "subject": "fix(ast): an async class method infers its return type like any other"
+    },
+    {
+      "hash": "2953332f",
+      "subject": "fix(ast): a base class's field initializers run for a subclass instance"
+    },
+    {
+      "hash": "ba2c33a7",
+      "subject": "fix(ast): an unannotated class method may read a field off its receiver"
+    },
+    {
+      "hash": "db353b11",
+      "subject": "feat(ast): a nested function declaration can read the scope around it"
+    },
+    {
+      "hash": "ae02161d",
+      "subject": "style: restore rustfmt-clean on two rotation-212 files"
+    },
+    {
+      "hash": "b03bb4d0",
+      "subject": "chore(hardev): refresh dashboard snapshot for rotation 212 close"
+    },
+    {
       "hash": "24ba36da",
       "subject": "fix(check): an object-literal method returning this types as its receiver"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "705144ba",
       "subject": "chore(bench): park the A/B runs where the dashboard won't read them"
-    },
-    {
-      "hash": "7199181a",
-      "subject": "chore(bench): three same-day runs across this rotation's commits"
-    },
-    {
-      "hash": "24c156b7",
-      "subject": "fix(check): the width analysis sees through an as-number over an any"
-    },
-    {
-      "hash": "43a824bf",
-      "subject": "fix(check): an any stored into a typed array element decodes the box"
-    },
-    {
-      "hash": "8d91ba8c",
-      "subject": "feat(check): Array.from walks an array-like it reaches through any"
-    },
-    {
-      "hash": "040d1d68",
-      "subject": "feat(check): a for-of closed by return closes its iterator"
-    },
-    {
-      "hash": "4ae47e00",
-      "subject": "fix(check): a string annotation on an any init unboxes too"
     }
   ],
-  "headSha": "24ba36da",
+  "headSha": "5358ddc3",
   "autorun": {
-    "total": 516,
+    "total": 517,
     "baselineTarget": 10,
-    "bySelf": 511,
+    "bySelf": 512,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784965436-09ea",
-      "at": "2026-07-25T07:43:56Z",
-      "ts": 1784965436,
+      "rotationId": "r-1784972484-70d6",
+      "at": "2026-07-25T09:41:24Z",
+      "ts": 1784972484,
       "trigger": "self",
-      "prevHead": "705144ba",
-      "handoffSha": "sha256:4d39c8b5c13b4124f8b7a2d90b8349b71c0c467537e4a9aa23d54918b4a85448",
-      "handoffAgeSec": 71,
+      "prevHead": "b03bb4d0",
+      "handoffSha": "sha256:df6643a22a42bd3fd6731831efb38aba14c813704e64ef6363e139bc61d8904a",
+      "handoffAgeSec": 3,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784972484-70d6",
+        "at": "2026-07-25T09:41:24Z",
+        "ts": 1784972484,
+        "trigger": "self",
+        "prevHead": "b03bb4d0",
+        "handoffSha": "sha256:df6643a22a42bd3fd6731831efb38aba14c813704e64ef6363e139bc61d8904a",
+        "handoffAgeSec": 3,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784965436-09ea",
         "at": "2026-07-25T07:43:56Z",
@@ -876,17 +887,6 @@
         "prevHead": "afa46564",
         "handoffSha": "sha256:575af29a34d6c2d7413e4548b22bbf012f78564298a2ff4a3fdc0ff8fe8ec995",
         "handoffAgeSec": 4,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784902951-3e83",
-        "at": "2026-07-24T14:22:31Z",
-        "ts": 1784902951,
-        "trigger": "self",
-        "prevHead": "995dce57",
-        "handoffSha": "sha256:abe09ad97bbcc471505479416100c5c8808e16810d50846e0efe3c076200e1c6",
-        "handoffAgeSec": 7,
         "conformanceBefore": null,
         "commitsInSession": null
       }
