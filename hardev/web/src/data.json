@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-25T02:54:17.279Z",
+  "generatedAt": "2026-07-25T03:06:10.924Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 96.12
   },
   "torajs": {
-    "commit": "3610c9c3",
-    "commitSubject": "feat(runtime): Object.assign copies own enumerable symbol keys",
+    "commit": "a5894490",
+    "commitSubject": "feat(runtime): a plain function's prototype is one of its own properties",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "a5894490",
+      "subject": "feat(runtime): a plain function's prototype is one of its own properties"
+    },
+    {
+      "hash": "24d506c4",
+      "subject": "chore(hardev): refresh dashboard snapshot after symbol-key chunk 6"
+    },
+    {
       "hash": "3610c9c3",
       "subject": "feat(runtime): Object.assign copies own enumerable symbol keys"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "ca149a7b",
       "subject": "feat(runtime): JSON.stringify honours the space argument"
-    },
-    {
-      "hash": "bfa1706a",
-      "subject": "fix(check): undefined-typed fields drop out of the JSON walk"
-    },
-    {
-      "hash": "c2796ee4",
-      "subject": "fix(runtime): any-slot fields serializing to nothing omit their key"
     }
   ],
-  "headSha": "3610c9c3",
+  "headSha": "a5894490",
   "autorun": {
     "total": 513,
     "baselineTarget": 10,
