@@ -108,10 +108,7 @@ fn box_ty(
 /// Only earlier captures: a self-capture is `try_lower`'s inline case,
 /// and a LATER peer capturing an EARLIER binding needs nothing — by
 /// then the binding is ordinary and already there.
-pub(crate) fn hoist_forward_boxes<'s>(
-    ctx: &mut LowerCtx,
-    stmts: impl Iterator<Item = &'s Stmt>,
-) {
+pub(crate) fn hoist_forward_boxes<'s>(ctx: &mut LowerCtx, stmts: impl Iterator<Item = &'s Stmt>) {
     let mut seen_captures: HashSet<String> = HashSet::new();
     let mut plan: Vec<(String, Option<String>, ExprId, String, bool)> = Vec::new();
     collect(ctx, stmts, &mut seen_captures, &mut plan);
