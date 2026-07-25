@@ -225,7 +225,14 @@ pub(crate) fn run(
     if patches.is_empty() {
         return;
     }
-    apply_patches(stmts, exprs, &patches, &mut type_decls, fn_sigs);
+    apply_patches(
+        stmts,
+        exprs,
+        &patches,
+        &mut type_decls,
+        fn_sigs,
+        fnexpr_recv_fns,
+    );
     stmts.extend(type_decls);
 }
 
@@ -242,6 +249,7 @@ fn apply_patches(
     patches: &[MethodPatch],
     type_decls: &mut [Stmt],
     fn_sigs: &mut HashMap<String, String>,
+    fnexpr_recv_fns: &mut std::collections::HashSet<String>,
 ) {
     // `__this` is a receiver, not a capture. It only landed in the
     // capture list because pass-2 rewrote `this` to a bare Ident before
@@ -329,6 +337,18 @@ fn apply_patches(
             let ann = format!("__mth({})->{}", param_anns.join("|"), ret);
             fn_sigs.insert(p.fn_name.clone(), ann.clone());
             mth_ann = Some(ann);
+            // The receiver is this body's first declared param, which
+            // is exactly what `fnexpr_recv_fns` means — so the closure
+            // cell carries `FLAG_CLOSURE_RECV_FIRST` and a call that
+            // arrives through the runtime dispatcher (`String(o)` and
+            // the other coercions reach the method via
+            // OrdinaryToPrimitive, not through the static call site)
+            // puts the receiver in argv[0] instead of leaving `this`
+            // undefined. The any-lane sibling already registers here;
+            // the four static gates that also read this set all key on
+            // the closure expression BEING the callback or accessor
+            // face, which a literal's own field never is.
+            fnexpr_recv_fns.insert(p.fn_name.clone());
             break;
         }
         // Fill the placeholder the collect phase parked in the TypeDecl:
