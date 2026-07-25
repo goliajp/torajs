@@ -148,6 +148,25 @@ fn lower_zero_arg(ctx: &mut LowerCtx<'_>, method: &str) -> Operand {
 /// `Promise.{resolve,reject}(v, ...)` — thenable absorption + heap /
 /// primitive dispatch + S322 trailing-arg side-effect.
 fn lower_one_plus(ctx: &mut LowerCtx<'_>, eid: ExprId, method: &str, args: &[ExprId]) -> Operand {
+    // §27.2.4.7 — `Promise.resolve(undefined)` settles with exactly
+    // what `Promise.resolve()` settles with, so it takes the zero-arg
+    // lane rather than boxing `undefined` as an ordinary value. Below,
+    // an undefined-typed operand is not heap-shaped, so it went to the
+    // primitive allocator WITHOUT the void repr stamp the zero-arg
+    // form applies — and the any-lane bridge then read a tag it did
+    // not recognise (`[unknown-any-tag]`, `typeof` answering
+    // "object"). The arguments still lower, for effect.
+    if method == "resolve"
+        && matches!(
+            ctx.expr_types.get(&args[0]),
+            Some(crate::check::Type::Undefined | crate::check::Type::Void)
+        )
+    {
+        for &a in args {
+            let _ = ctx.lower_expr(a);
+        }
+        return lower_zero_arg(ctx, method);
+    }
     let arg_op = ctx.lower_expr(args[0]);
     for &a in args.iter().skip(1) {
         let _ = ctx.lower_expr(a);

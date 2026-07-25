@@ -236,12 +236,16 @@ fn try_then_heterogeneous(
 /// arm above rejects (it limits inner T to the i64-
 /// roundtrippable Number/String/Boolean primitives).
 ///
-/// cb sig is `() => U` — ergonomic surface for the
-/// 0-arg ctor (TS spec actually wants `(v: undefined)
-/// => U`, but bare-`() => U` is what real code looks
-/// like and what bun accepts as a structural sig).
-/// The helper still calls cb via SystemV `int64_t
-/// (*)(int64_t)`; cb just ignores its argument slot.
+/// cb sig is `() => U` or `(v) => U`. The spec form is
+/// the latter (the callback is handed the settled
+/// value, which here is `undefined`); the former is
+/// what most real code writes for a promise carrying
+/// nothing. Rejecting the one-argument shape turned
+/// `Promise.resolve().then((v) => …)` — which bun
+/// accepts and runs — into a type error.
+/// The helper calls cb via SystemV `int64_t
+/// (*)(int64_t)` either way; a 0-arg cb just ignores
+/// its argument slot.
 ///
 /// cb return U: primitive (Number / String / Boolean)
 /// → Promise<U>; Void / Undefined → Promise<Undefined>.
@@ -277,7 +281,7 @@ fn try_then_undefined(
                 Err(e) => return Some(Err(e)),
             };
             if let Type::Function(params, ret) = &cb_ty
-                && params.is_empty()
+                && params.len() <= 1
             {
                 let result_inner = match &**ret {
                     Type::Number | Type::String | Type::Boolean => (**ret).clone(),

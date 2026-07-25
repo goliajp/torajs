@@ -143,12 +143,16 @@ impl Checker {
             // lowers to an opaque pointer at SSA — NaN-box AnyValue
             // is i64-sized).
             Type::Any if m_name == "resolve" => Type::Any,
-            // RFC 20260713 blade 4 — the async tail-safety default for
-            // an `any` inner type is now the undefined ident (JS's
-            // zero value): `Promise.resolve(undefined)` lands a
-            // Promise<any> like the As-any-wrapped explicit-return
-            // path does.
-            Type::Undefined if m_name == "resolve" => Type::Any,
+            // §27.2.4.7 — `Promise.resolve(undefined)` settles with
+            // exactly what the zero-arg form settles with, so it gets
+            // the same `Promise<Undefined>` that arm above answers.
+            // RFC 20260713 blade 4 typed it `Promise<any>` for the
+            // async tail-safety default, but nothing then produced an
+            // `any` VALUE for it to hold: the lowering stored the
+            // primitive 0 while `.value` decoded an Any pointer, so
+            // `await Promise.resolve(undefined)` read a tag that does
+            // not exist (`[unknown-any-tag]`, `typeof` → "object").
+            Type::Undefined | Type::Void if m_name == "resolve" => Type::Undefined,
             other => {
                 return Some(Err(format!(
                     "Promise.{m_name}: T must be number / string / boolean / array / struct / Date / RegExp / nullable / Promise<T> in v0.5 MVP (got {other:?})"
