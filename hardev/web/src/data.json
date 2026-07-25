@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-25T19:37:12.797Z",
+  "generatedAt": "2026-07-25T23:06:48.913Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 96.12
   },
   "torajs": {
-    "commit": "0cefe806",
-    "commitSubject": "fix(arr): Array.from keeps one width class with its source",
+    "commit": "bb2507c4",
+    "commitSubject": "fix(arr): sort converts its elements to the comparator's parameter width",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "bb2507c4",
+      "subject": "fix(arr): sort converts its elements to the comparator's parameter width"
+    },
+    {
+      "hash": "26940908",
+      "subject": "fix(arr): Array.from's mapFn parameter sees the source's element class"
+    },
+    {
+      "hash": "770600c5",
+      "subject": "fix(arr): flatMap converts the element to its callback's parameter width"
+    },
+    {
+      "hash": "7aa2841b",
+      "subject": "fix(arr): a scalar-returning flatMap callback answers an element"
+    },
+    {
+      "hash": "449ecdad",
+      "subject": "fix(arr): flatMap pushes its elements as bits, not as values"
+    },
+    {
+      "hash": "8c984774",
+      "subject": "chore(hardev): refresh dashboard snapshot for rotation 217 close"
+    },
+    {
       "hash": "0cefe806",
       "subject": "fix(arr): Array.from keeps one width class with its source"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "3343e0cb",
       "subject": "fix(ssa): how an array type is spelled no longer decides if it can widen"
-    },
-    {
-      "hash": "2f2b8003",
-      "subject": "fix(ssa): the array map builds takes its width from the class, not the callback"
-    },
-    {
-      "hash": "77d33007",
-      "subject": "chore(hardev): refresh dashboard snapshot for rotation 216 close"
-    },
-    {
-      "hash": "d689e525",
-      "subject": "fix(ssa): a sentinel parked in a local before the return still counts"
-    },
-    {
-      "hash": "ab88159d",
-      "subject": "chore(hardev): refresh dashboard snapshot for rotation 216 close"
-    },
-    {
-      "hash": "e6f1d833",
-      "subject": "fix(ssa): a function that passes a sentinel through answers undefined"
-    },
-    {
-      "hash": "0d3ec00a",
-      "subject": "chore(hardev): refresh dashboard snapshot for rotation 216 close"
     }
   ],
-  "headSha": "0cefe806",
+  "headSha": "bb2507c4",
   "autorun": {
-    "total": 521,
+    "total": 522,
     "baselineTarget": 10,
-    "bySelf": 516,
+    "bySelf": 517,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785003476-05bc",
-      "at": "2026-07-25T18:17:56Z",
-      "ts": 1785003476,
+      "rotationId": "r-1785008882-2588",
+      "at": "2026-07-25T19:48:02Z",
+      "ts": 1785008882,
       "trigger": "self",
-      "prevHead": "77d33007",
-      "handoffSha": "sha256:01dcc89f83245ccd8e19ab539939d1ae04f763c14367e89930fbbe494a29ad69",
-      "handoffAgeSec": 11,
+      "prevHead": "8c984774",
+      "handoffSha": "sha256:9d9cdb4b64bcf6e6ac2d057b8dd92d9d902708019ee330fff97c3979fdf3f34a",
+      "handoffAgeSec": 43,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1785008882-2588",
+        "at": "2026-07-25T19:48:02Z",
+        "ts": 1785008882,
+        "trigger": "self",
+        "prevHead": "8c984774",
+        "handoffSha": "sha256:9d9cdb4b64bcf6e6ac2d057b8dd92d9d902708019ee330fff97c3979fdf3f34a",
+        "handoffAgeSec": 43,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785003476-05bc",
         "at": "2026-07-25T18:17:56Z",
@@ -876,17 +887,6 @@
         "prevHead": "4105caf0",
         "handoffSha": "sha256:fb586cc727fa587d685f5c47cbc401651bb4b2ed5919640185830b46a5850d31",
         "handoffAgeSec": 13,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784937365-4545",
-        "at": "2026-07-24T23:56:05Z",
-        "ts": 1784937365,
-        "trigger": "self",
-        "prevHead": "974c5032",
-        "handoffSha": "sha256:b72ad61d1ba86d3e42aa1d122151b5d2cae27bbd565205b0dad3a7b03bf958da",
-        "handoffAgeSec": 4,
         "conformanceBefore": null,
         "commitsInSession": null
       }
