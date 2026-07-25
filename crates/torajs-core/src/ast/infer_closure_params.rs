@@ -21,7 +21,7 @@
 use super::infer_closure_params_apply::apply_closure_ann_updates;
 use super::infer_closure_params_helpers::{
     apply_hof_param_only_arm, apply_user_fn_callee_hint, build_ann_table, collect_fn_decl_metadata,
-    mapset_foreach_expected,
+    mapset_foreach_expected, seed_let_ann_hints,
 };
 use super::infer_closure_params_promise::resolve_promise_inner_ann;
 use super::{Ast, Expr, ExprId};
@@ -153,12 +153,19 @@ fn resolve_receiver_ann(
 pub fn infer_anonymous_closure_params(ast: &mut Ast) {
     use std::collections::HashMap;
 
-    let all_anns = build_ann_table(ast);
+    let (all_anns, closure_let_hints) = build_ann_table(ast);
 
     // Map from lifted closure fn_name → (param annotations, return
     // annotation). Filled by walking call sites; applied at the end
     // (deferred so we don't mutate ast.stmts mid-walk).
     let mut updates: HashMap<String, (Vec<String>, String)> = HashMap::new();
+
+    // `const g: (n: number) => number = (n) => n` — the binding's target
+    // type contextually types the arrow, exactly as at a call-arg
+    // position (chunk-554's user-fn callee hint, on a let instead).
+    // Seeded first so a call-site hint, which knows more about the
+    // actual arguments, can still overwrite it.
+    seed_let_ann_hints(ast, &closure_let_hints, &mut updates);
 
     // Promise `.then(cb)` / `.catch(cb)` arm — updates only the cb's
     // user params from the source promise inner type. Ret ann stays

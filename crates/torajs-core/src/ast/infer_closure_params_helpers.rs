@@ -67,8 +67,61 @@ pub(super) fn mapset_foreach_expected(ann: &str, method: &str) -> Option<(Vec<St
 /// - Inferred-from-init shape: `let arr = [<lit>, ...]` infers
 ///   arr's annotation as `<lit_ty>[]` so .map / .filter on
 ///   unannotated lets still get param inference.
-pub(super) fn build_ann_table(ast: &Ast) -> HashMap<String, String> {
+/// Read `ann` as a fn-type canonical spelling, chasing bare type
+/// aliases to get there: `type F = (n: number) => number` parks its RHS
+/// under an `__alias__` sentinel field, so the annotation on `const g:
+/// F` is the bare name `F` and canonicalizes to nothing on its own.
+/// Bounded so a `type A = B; type B = A` pair cannot spin.
+pub(super) fn resolve_fn_type_ann(ast: &Ast, ann: &str) -> Option<String> {
+    let mut cur = ann.to_string();
+    for _ in 0..8 {
+        if let Some(canon) = fn_type_canon(&cur) {
+            return Some(canon);
+        }
+        cur = ast.stmts.iter().find_map(|s| match s {
+            Stmt::TypeDecl { name, fields, .. } if *name == cur => fields
+                .iter()
+                .find(|(f, _)| f == "__alias__")
+                .map(|(_, a)| a.clone()),
+            _ => None,
+        })?;
+    }
+    None
+}
+
+/// Project each `lifted closure → binding annotation` hint onto the
+/// closure's params and return, the let-init counterpart of
+/// [`apply_user_fn_callee_hint`]. Both land in the same `updates` map
+/// and go through the same applier, which is what makes an explicitly
+/// annotated param win, a shorter param list not overrun, and a
+/// void-bodied closure keep its Void return.
+pub(super) fn seed_let_ann_hints(
+    ast: &Ast,
+    closure_let_hints: &HashMap<String, String>,
+    updates: &mut HashMap<String, (Vec<String>, String)>,
+) {
+    for (fn_name, ann) in closure_let_hints {
+        let Some(canon) = resolve_fn_type_ann(ast, ann) else {
+            continue;
+        };
+        let Some((param_spellings, ret_spelling)) = split_fn_type(&canon) else {
+            continue;
+        };
+        updates.insert(
+            fn_name.clone(),
+            (
+                param_spellings.iter().map(|s| s.to_string()).collect(),
+                ret_spelling.to_string(),
+            ),
+        );
+    }
+}
+
+pub(super) fn build_ann_table(ast: &Ast) -> (HashMap<String, String>, HashMap<String, String>) {
     let mut all_anns: HashMap<String, String> = HashMap::new();
+    // Lifted-closure name → the fn-type annotation of the binding it
+    // initializes, for contextual param typing (see `collect_let_anns`).
+    let mut closure_hints: HashMap<String, String> = HashMap::new();
     for s in &ast.stmts {
         if let Stmt::FnDecl { params, body, .. } = s {
             for p in params {
@@ -76,16 +129,16 @@ pub(super) fn build_ann_table(ast: &Ast) -> HashMap<String, String> {
                     all_anns.insert(p.name.clone(), ann.clone());
                 }
             }
-            collect_let_anns(body, &mut all_anns);
+            collect_let_anns(ast, body, &mut all_anns, &mut closure_hints);
         }
     }
-    collect_let_anns(&ast.stmts, &mut all_anns);
+    collect_let_anns(ast, &ast.stmts, &mut all_anns, &mut closure_hints);
     let mut inferred_inits: HashMap<String, String> = HashMap::new();
     collect_let_init_anns(ast, &ast.stmts, &mut inferred_inits);
     for (k, v) in inferred_inits {
         all_anns.entry(k).or_insert(v);
     }
-    all_anns
+    (all_anns, closure_hints)
 }
 
 /// Walk `ast.stmts` for FnDecls and pre-compute the four per-FnDecl side

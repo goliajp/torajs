@@ -80,38 +80,76 @@ pub(super) fn collect_let_init_anns(
     }
 }
 
-pub(super) fn collect_let_anns(body: &[Stmt], out: &mut std::collections::HashMap<String, String>) {
+/// Walk `body` for annotated `let` / `const` declarations, filling two
+/// tables from the same visit:
+///
+/// - `out` — binding name → annotation, the receiver table the HOF arms
+///   read (`const a: number[] = …; a.map(x => …)`).
+/// - `closure_hints` — for a binding whose init IS a closure, the
+///   LIFTED closure's name → that same annotation. `const g: (n: number)
+///   => number = (n) => n` contextually types the arrow's params from
+///   its target type, the way TS does; without it the unannotated param
+///   keeps its `any` default while the call site dispatches through the
+///   annotation's signature, and the two ABIs disagree.
+///
+/// One walk, two outputs, on purpose: a second copy of this control-flow
+/// recursion is a copy that drifts.
+pub(super) fn collect_let_anns(
+    ast: &Ast,
+    body: &[Stmt],
+    out: &mut std::collections::HashMap<String, String>,
+    closure_hints: &mut std::collections::HashMap<String, String>,
+) {
     for s in body {
         match s {
             Stmt::LetDecl {
                 name,
                 type_ann: Some(ann),
+                init,
                 ..
             } => {
                 out.insert(name.clone(), ann.clone());
+                // Both post-lift shapes, as at the call-arg positions:
+                // `Expr::Closure` when the arrow captured something,
+                // a bare ident at the lifted FnDecl when it did not.
+                let lifted = match ast.get_expr(*init) {
+                    Expr::Closure { fn_name, .. } => Some(fn_name.clone()),
+                    Expr::Ident(n) if n.starts_with("__closure_") => Some(n.clone()),
+                    _ => None,
+                };
+                if let Some(fn_name) = lifted {
+                    closure_hints.insert(fn_name, ann.clone());
+                }
             }
-            Stmt::Block(stmts) | Stmt::Multi(stmts) => collect_let_anns(stmts, out),
+            Stmt::Block(stmts) | Stmt::Multi(stmts) => {
+                collect_let_anns(ast, stmts, out, closure_hints)
+            }
             Stmt::If {
                 then_branch,
                 else_branch,
                 ..
             } => {
-                collect_let_anns(std::slice::from_ref(then_branch.as_ref()), out);
+                collect_let_anns(
+                    ast,
+                    std::slice::from_ref(then_branch.as_ref()),
+                    out,
+                    closure_hints,
+                );
                 if let Some(eb) = else_branch {
-                    collect_let_anns(std::slice::from_ref(eb.as_ref()), out);
+                    collect_let_anns(ast, std::slice::from_ref(eb.as_ref()), out, closure_hints);
                 }
             }
             Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
-                collect_let_anns(std::slice::from_ref(body.as_ref()), out);
+                collect_let_anns(ast, std::slice::from_ref(body.as_ref()), out, closure_hints);
             }
             Stmt::Labeled { body, .. } => {
-                collect_let_anns(std::slice::from_ref(body.as_ref()), out);
+                collect_let_anns(ast, std::slice::from_ref(body.as_ref()), out, closure_hints);
             }
             Stmt::For { init, body, .. } => {
                 if let Some(i) = init {
-                    collect_let_anns(std::slice::from_ref(i.as_ref()), out);
+                    collect_let_anns(ast, std::slice::from_ref(i.as_ref()), out, closure_hints);
                 }
-                collect_let_anns(std::slice::from_ref(body.as_ref()), out);
+                collect_let_anns(ast, std::slice::from_ref(body.as_ref()), out, closure_hints);
             }
             _ => {}
         }
