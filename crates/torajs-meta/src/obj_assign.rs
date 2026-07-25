@@ -69,12 +69,32 @@ pub unsafe extern "C" fn __torajs_anyv_assign(target: u64, source: u64) {
     if source == VALUE_NULL_IMM || source == VALUE_UNDEFINED_IMM {
         return;
     }
-    // Own enumerable string keys — full ToObject taxonomy (dynobj /
-    // struct / arr / str / closure / wrapper arms) lives in the keys
-    // kernel; this walk is shape-blind.
-    let keys = unsafe { crate::obj_own_keys::__torajs_anyv_own_keys(source, 0) };
+    // Own enumerable keys — full ToObject taxonomy (dynobj / struct /
+    // arr / str / closure / wrapper arms) lives in the keys kernel;
+    // this walk is shape-blind. §20.1.2.1 step 4.b.i runs
+    // OwnPropertyKeys, so the §10.1.11.1 SYMBOL bucket is copied too
+    // (enumerable-filtered, same as the string buckets) — a second pass
+    // over the same per-key body, because the two buckets come from
+    // separate kernels by construction.
+    let strings = unsafe { crate::obj_own_keys::__torajs_anyv_own_keys(source, 0) };
+    let threw = unsafe { copy_keys(target, source, strings) };
+    if !threw {
+        let symbols = unsafe { crate::own_names::__torajs_anyv_own_enum_symbols(source) };
+        unsafe { copy_keys(target, source, symbols) };
+    }
+}
+
+/// Copy every key in a keys array from `source` into `target`, then
+/// release the array and the key stakes it holds. Returns `true` when a
+/// getter or setter recorded a pending throw, which ends the assign.
+///
+/// # Safety
+/// `keys` is an owned `+1`-rc keys array this call consumes; `target` /
+/// `source` are live AnyValue bit patterns.
+unsafe fn copy_keys(target: u64, source: u64, keys: *mut c_void) -> bool {
     let len = unsafe { (keys.cast::<u8>().add(ARR_LEN_OFF) as *const u64).read() };
     let data = unsafe { (keys.cast::<u8>().add(ARR_DATA_PTR_OFF) as *const *const u64).read() };
+    let mut threw = false;
     for i in 0..len as usize {
         let key = unsafe { data.add(i).read() } as *mut c_void;
         if key.is_null() {
@@ -87,6 +107,7 @@ pub unsafe extern "C" fn __torajs_anyv_assign(target: u64, source: u64) {
             let pair_bits = unsafe { __torajs_any_member_get_value(source, key) };
             let owned = unsafe { __torajs_any_accessor_get(source, key, pair_bits) };
             if unsafe { __torajs_throw_check() } != 0 {
+                threw = true;
                 break;
             }
             let t = unsafe { __torajs_anyv_unbox_tag(owned) } as u64;
@@ -104,6 +125,7 @@ pub unsafe extern "C" fn __torajs_anyv_assign(target: u64, source: u64) {
         let mut t_slot = target;
         unsafe { __torajs_any_member_set(&mut t_slot, key, vtag, vval, -1) };
         if unsafe { __torajs_throw_check() } != 0 {
+            threw = true;
             break;
         }
     }
@@ -118,4 +140,5 @@ pub unsafe extern "C" fn __torajs_anyv_assign(target: u64, source: u64) {
         }
     }
     unsafe { __torajs_value_drop_heap(keys as *mut c_void) };
+    threw
 }

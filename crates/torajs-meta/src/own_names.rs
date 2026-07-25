@@ -22,6 +22,8 @@ unsafe extern "C" {
     fn __torajs_dynobj_iter_key(obj: *const c_void, i: u64) -> *mut c_void;
     /// §10.1.11.1's symbol bucket (own symbol keys, insertion order).
     fn __torajs_dynobj_iter_symbol_order(obj: *const c_void, out: *mut u64, cap: u64) -> u64;
+    /// Per-entry W/E/C descriptor flags — the enumerable filter.
+    fn __torajs_dynobj_iter_flags(obj: *const c_void, i: u64) -> u64;
     fn __torajs_arr_alloc(cap: u64) -> *mut u8;
     fn __torajs_arr_push(arr: *mut u8, val: i64) -> *mut u8;
     fn __torajs_arr_alloc_any(cap: u64) -> *mut u8;
@@ -95,6 +97,10 @@ pub unsafe extern "C" fn __torajs_arr_index_strs_of(arr: *const c_void) -> *mut 
 /// `arr_index_flags` result bit 3 — deleted index (hole;
 /// `torajs_arr::define::F_HOLE` mirror, RFC 20260713 chunk C).
 const ARR_F_HOLE: u64 = 1 << 3;
+
+/// `torajs_dynobj::layout::BUCKET_FLAG_ENUMERABLE` mirror (bit 1) —
+/// the descriptor bit `Object.assign`'s CopyDataProperties filters on.
+const DYNOBJ_FLAG_ENUMERABLE: u64 = 1 << 1;
 
 /// W-N-b' — `Object.keys(arr)` Arr-receiver path. Spec §22.1.3.16 +
 /// §10.4.2.OrdinaryOwnPropertyKeys: keys() filters to enumerable own.
@@ -336,6 +342,33 @@ pub unsafe extern "C" fn __torajs_anyv_own_symbols(obj_any: u64) -> *mut c_void 
         // SAFETY: NUL-terminated static C string.
         unsafe { __torajs_throw_type_error(c"null is not an object".as_ptr()) };
     }
+    unsafe { own_symbols_arr(obj_any, 1) }
+}
+
+/// §20.1.2.1 step 4.b.i — the own **enumerable** symbol keys, for
+/// `Object.assign` / CopyDataProperties, which filters on
+/// `[[Enumerable]]` where `getOwnPropertySymbols` does not. Nullish
+/// receivers are the caller's business here (assign's step 4.a treats a
+/// nullish SOURCE as contributing nothing, without a throw).
+///
+/// # Safety
+///
+/// `obj_any` carries a valid AnyValue bit pattern. Returned pointer
+/// owns a fresh `+1`-rc `Arr` of Symbol cells, each `+1`-rc'd for the
+/// array slot.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_own_enum_symbols(obj_any: u64) -> *mut c_void {
+    unsafe { own_symbols_arr(obj_any, 0) }
+}
+
+/// Shared walk behind both symbol-key faces — §10.1.11.1's third
+/// bucket off `__torajs_dynobj_iter_symbol_order`, optionally filtered
+/// to enumerable entries. `include_nonenum = 0` keeps only enumerable
+/// keys.
+///
+/// # Safety
+/// `obj_any` carries a valid AnyValue bit pattern.
+unsafe fn own_symbols_arr(obj_any: u64, include_nonenum: i64) -> *mut c_void {
     let mut out = unsafe { __torajs_arr_alloc(0) };
     let Some(dict) = (unsafe { own_symbol_dict_borrowed(obj_any) }) else {
         return out as *mut c_void;
@@ -344,6 +377,11 @@ pub unsafe extern "C" fn __torajs_anyv_own_symbols(obj_any: u64) -> *mut c_void 
     let mut order = vec![0u64; len as usize];
     let n = unsafe { __torajs_dynobj_iter_symbol_order(dict, order.as_mut_ptr(), len) };
     for &i in order.iter().take(n as usize) {
+        if include_nonenum == 0
+            && unsafe { __torajs_dynobj_iter_flags(dict, i) } & DYNOBJ_FLAG_ENUMERABLE == 0
+        {
+            continue;
+        }
         let key = unsafe { __torajs_dynobj_iter_key(dict, i) };
         if key.is_null() {
             continue;
