@@ -57,35 +57,10 @@ pub(crate) fn lower(
     init: ExprId,
     mutable: bool,
 ) {
-    // T-19.d — `let X: T = await Bun.file(p).json()`. Sub-sibling.
-    if crate::ssa_lower_stmt_let_decl_bun_json::try_lower(ctx, name, type_ann, init) {
-        return;
-    }
-    // T-02 — `let v: T = JSON.parse(text)`. Sub-sibling.
-    if crate::ssa_lower_stmt_let_decl_json_parse::try_lower(ctx, name, type_ann, init) {
-        return;
-    }
-    // T-09.c — `let o: Pair = Object.fromEntries(es)`. Sub-sibling.
-    if crate::ssa_lower_stmt_let_decl_fromentries::try_lower(ctx, name, type_ann, init) {
-        return;
-    }
-    // K.3 / K.4 — top-level data global.
-    if crate::ssa_lower_stmt_let_decl_global::try_lower_global_let(ctx, name, init) {
-        return;
-    }
-    // M2 Phase B Stage 4 — `let f = global_fn`.
-    if crate::ssa_lower_stmt_let_decl_global::try_lower_fn_addr_let(ctx, name, init) {
-        return;
-    }
-    // RFC 20260714-dstr-residual blade 3 — an array binding pattern
-    // whose source has to be STEPPED, not indexed (a generator, a
-    // Map / Set, a class iterable, anything behind `any`). Sub-sibling.
-    if crate::ssa_lower_dstr_iter::try_lower_group(ctx, name, init) {
-        return;
-    }
-    // A closure capturing the binding it initializes — the box has to
-    // exist before the mint that fills it. Sub-sibling.
-    if crate::ssa_lower_stmt_let_decl_recursive::try_lower(ctx, name, type_ann, init, mutable) {
+    // The specialized lanes, in order. Sibling (chunk of rotation 212)
+    // — see its doc for why the chain moved out rather than up.
+    if crate::ssa_lower_stmt_let_decl_dispatch::try_sub_siblings(ctx, name, type_ann, init, mutable)
+    {
         return;
     }
     // General path. Stage helpers live in
