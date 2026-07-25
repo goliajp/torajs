@@ -152,11 +152,21 @@ impl<'a> LowerCtx<'a> {
                 );
                 Operand::Value(undef)
             }
-            Type::F64 => Operand::ConstF64(0.0),
+            // Each width that HAS a way to spell undefined uses it:
+            // the F64 sentinel, or the per-type immortal cell an
+            // optional field / a `find` miss hands out. The rest keep
+            // the type's zero — there is no bit pattern there to do
+            // better with (an I64 `number` slot included, which is the
+            // narrower-than-JS form, not a decision about this exit).
+            Type::F64 => Operand::ConstF64(f64::from_bits(
+                crate::ssa_lower_nullable_guard::F64_UNDEF_SENTINEL_BITS,
+            )),
             Type::Bool => Operand::ConstBool(false),
-            t if t.is_refcounted() => Operand::ConstPtrNull,
-            Type::Ptr => Operand::ConstPtrNull,
-            _ => Operand::ConstI64(0),
+            t => match self.str_undef_sentinel_for(t) {
+                Some(cell) => cell,
+                None if t.is_refcounted() || t == Type::Ptr => Operand::ConstPtrNull,
+                None => Operand::ConstI64(0),
+            },
         };
         self.f.append_void(
             self.cur_block,

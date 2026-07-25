@@ -165,7 +165,12 @@ pub(crate) fn is_nullable_str_source(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
             Expr::Member { obj, name } if name == "toJSON" => {
                 matches!(ctx.expr_types.get(obj), Some(crate::check::Type::Date))
             }
-            Expr::Member { obj, name } if matches!(name.as_str(), "find" | "findLast") => {
+            // rotation 216 — `pop` / `shift` on an empty array answer
+            // undefined too (§23.1.3.20 step 4.a / §23.1.3.25 step 3.a),
+            // and the Str slot spells that as the same immortal cell.
+            Expr::Member { obj, name }
+                if matches!(name.as_str(), "find" | "findLast" | "pop" | "shift") =>
+            {
                 matches!(
                     ctx.expr_types.get(obj),
                     Some(crate::check::Type::Array(elem)) if **elem == crate::check::Type::String
@@ -219,7 +224,7 @@ pub(crate) fn is_undef_f64_source(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
         Expr::Call { callee, .. } => {
             matches!(
                 ctx.ast.get_expr(*callee),
-                Expr::Member { obj, name } if matches!(name.as_str(), "at" | "find" | "findLast")
+                Expr::Member { obj, name } if matches!(name.as_str(), "at" | "find" | "findLast" | "pop" | "shift")
                     && matches!(
                         ctx.expr_types.get(obj),
                         Some(crate::check::Type::Array(elem)) if **elem == crate::check::Type::Number
@@ -264,7 +269,10 @@ pub(crate) fn is_undefable_heap_source(ctx: &LowerCtx<'_>, eid: ExprId) -> bool 
         Expr::Ident(n) => ctx.undefable_heap_lets.contains(n),
         Expr::Call { callee, .. } => matches!(
             ctx.ast.get_expr(*callee),
-            Expr::Member { obj, name } if matches!(name.as_str(), "find" | "findLast")
+            // `pop` / `shift` on an empty array answer undefined the
+            // same way a miss does, and a pointer-shaped element slot
+            // spells it with the generic immortal cell.
+            Expr::Member { obj, name } if matches!(name.as_str(), "find" | "findLast" | "pop" | "shift")
                 && matches!(
                     ctx.expr_types.get(obj),
                     Some(crate::check::Type::Array(elem)) if matches!(
