@@ -351,13 +351,28 @@ pub(crate) fn widen_arr_elem(
     if !matches!(arr_layouts[id.0 as usize], Type::Any) && table.slot_escapes_any(key) {
         return Type::Arr(intern_arr_layout(arr_layouts, Type::Any));
     }
+    // RFC 20260726-array-elem-width knife 2 — the only question this
+    // gate has to answer is whether the element face is the user's
+    // explicit `i64` narrow spelling. It used to conflate that with
+    // "can I parse this annotation string", and answered an unparsable
+    // spelling as if it were the narrow one: `Nums` (alias),
+    // `Array<number>` and `__nullable(number[])` all refused to widen
+    // while the analysis had already joined them into one class with
+    // slots that do widen. Writes hit the loud `f64 value into i64
+    // array elem` refusal (four spellings bun runs fine); reads have no
+    // such guard and reinterpreted the bits.
+    //
+    // An unrecognized spelling asks the table instead. The table is the
+    // source of truth for this and the annotation is one of its inputs,
+    // so every future spelling is right for free. `None` already means
+    // "unannotated, widenable by construction" downstream, which is the
+    // reading we want. Explicit `i64[]` still parses to `Some("i64")`
+    // and stays narrow; `type Nums = i64[]` now widens instead of
+    // refusing, but only when a fractional value actually reaches the
+    // class — writing one into an `i64[]` is a self-contradictory
+    // request, and widening matches what bun does with it.
     let elem_ann = match ann {
-        Some(a) => match a.strip_suffix("[]") {
-            Some(inner) => Some(inner),
-            // Annotated but not `T[]`-spelled (alias) — leave the
-            // user's spelling alone; alias faces are D3+ scope.
-            None => return parsed,
-        },
+        Some(a) => a.strip_suffix("[]"),
         None => None,
     };
     let number_elem = matches!(elem_ann, Some("number") | None);
