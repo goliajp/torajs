@@ -16,7 +16,12 @@ use super::composite::with_null_gate;
 /// slot (`Nullable<Obj>` holding JS null) answers `"null"` instead
 /// of dereferencing NULL on the first field load (655 arr-arm
 /// mirror; the parse-reject that used to shield this lane is gone).
-pub(super) fn lower_obj(ctx: &mut LowerCtx, val_op: Operand, sid: StructId) -> Operand {
+pub(super) fn lower_obj(
+    ctx: &mut LowerCtx,
+    val_op: Operand,
+    sid: StructId,
+    fe_fields: Option<Vec<(String, crate::check::Type)>>,
+) -> Operand {
     with_null_gate(ctx, &val_op.clone(), "__json_obj_out", |ctx| {
         let layout = ctx.struct_layouts[sid.0 as usize].clone();
         let obj_ptr = match val_op {
@@ -27,9 +32,12 @@ pub(super) fn lower_obj(ctx: &mut LowerCtx, val_op: Operand, sid: StructId) -> O
             .iter()
             .all(|(_, fty)| matches!(fty, Type::I64 | Type::Bool | Type::Str));
         if primitive_only {
+            // A frontend `undefined` field is pointer-shaped at SSA,
+            // so a layout this gate accepts never carries one — the
+            // builder path needs no frontend types.
             lower_obj_jsb(ctx, obj_ptr, &layout)
         } else {
-            lower_obj_concat(ctx, obj_ptr, &layout)
+            lower_obj_concat(ctx, obj_ptr, &layout, fe_fields.as_deref())
         }
     })
 }
@@ -152,6 +160,7 @@ fn lower_obj_concat(
     ctx: &mut LowerCtx,
     obj_ptr: crate::ssa::ValueId,
     layout: &[(String, Type)],
+    fe_fields: Option<&[(String, crate::check::Type)]>,
 ) -> Operand {
     // Chunk 658 — the accumulator lives in a slot and the `,`
     // separator is a runtime decision (`json_obj_sep`: emitted-any-
@@ -167,7 +176,9 @@ fn lower_obj_concat(
         InstKind::Store(Operand::Value(lbrace), Operand::Value(acc_slot), 0),
     );
     for (i, (fname, slot_ty)) in layout.iter().enumerate() {
-        emit_field(ctx, obj_ptr, acc_slot, colon, i, fname, slot_ty);
+        let fe =
+            fe_fields.and_then(|fs| fs.iter().find(|(n, _)| n == fname).map(|(_, t)| t.clone()));
+        emit_field(ctx, obj_ptr, acc_slot, colon, i, fname, slot_ty, fe);
     }
     let acc_final = ctx.f.append_inst(
         ctx.cur_block,
@@ -201,6 +212,7 @@ fn resolve_field(
     field_off: u64,
     fname: &str,
     slot_ty: &Type,
+    fe: Option<&crate::check::Type>,
 ) -> Option<(String, Operand, Type, bool)> {
     // RFC 20260714-objlit-accessor — §25.5.2.4 serializes through
     // [[Get]], so an accessor contributes its GETTER'S RESULT under
@@ -212,6 +224,13 @@ fn resolve_field(
     // omits the whole segment.
     let accessor = crate::check_type_of_object_lit::accessor_slot(fname);
     if matches!(accessor, Some(("__setter_", _))) {
+        return None;
+    }
+    // §25.5.2.4 step 8.b again, for the shape SSA cannot express: an
+    // `undefined` slot is pointer-shaped, indistinguishable from a
+    // slot holding JS null, whose key DOES print. The checker keeps
+    // the two apart, so the frontend type settles it before the load.
+    if matches!(fe, Some(crate::check::Type::Undefined)) {
         return None;
     }
     // §25.5.2.4 — a property that serializes to nothing has its
@@ -273,10 +292,11 @@ fn emit_field(
     i: usize,
     fname: &str,
     slot_ty: &Type,
+    fe: Option<crate::check::Type>,
 ) {
     let field_off = OBJ_HEADER_SIZE + (i as u64) * 8;
     let Some((key, field_v, fty, getter_owned)) =
-        resolve_field(ctx, obj_ptr, field_off, fname, slot_ty)
+        resolve_field(ctx, obj_ptr, field_off, fname, slot_ty, fe.as_ref())
     else {
         return;
     };
@@ -323,7 +343,7 @@ fn emit_field(
     // emit decision anyway (the separator / key concat carries no
     // user-observable effect, so moving it after is free).
     let hook_key = Operand::Value(ctx.intern_string_literal(&key));
-    let field_str = super::lower_keyed(ctx, field_v.clone(), *fty, Some(hook_key));
+    let field_str = super::lower_keyed(ctx, field_v.clone(), *fty, Some(hook_key), fe);
     // A field Load borrows the struct's slot; a getter call answers
     // a fresh +1 that nothing else owns.
     if getter_owned {

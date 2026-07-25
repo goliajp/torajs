@@ -117,14 +117,24 @@ fn coerce_sentinel_to_null(ctx: &mut LowerCtx, s: Operand) -> Operand {
 /// `[<e0>,<e1>,...]` — concat-loop accumulator over
 /// `arr_layouts[arr_id]`-typed slots (see module doc of the parent),
 /// behind the shared [`with_null_gate`] (655 arm).
-pub(super) fn lower_arr(ctx: &mut LowerCtx, val_op: Operand, arr_id: ArrId) -> Operand {
+pub(super) fn lower_arr(
+    ctx: &mut LowerCtx,
+    val_op: Operand,
+    arr_id: ArrId,
+    fe_elem: Option<crate::check::Type>,
+) -> Operand {
     with_null_gate(ctx, &val_op.clone(), "__json_arr_out", |ctx| {
-        lower_arr_walk(ctx, val_op, arr_id)
+        lower_arr_walk(ctx, val_op, arr_id, fe_elem)
     })
 }
 
 /// The non-null walk body of [`lower_arr`] (verbatim pre-655 arm).
-fn lower_arr_walk(ctx: &mut LowerCtx, val_op: Operand, arr_id: ArrId) -> Operand {
+fn lower_arr_walk(
+    ctx: &mut LowerCtx,
+    val_op: Operand,
+    arr_id: ArrId,
+    fe_elem: Option<crate::check::Type>,
+) -> Operand {
     let elem_ty = ctx.arr_layouts[arr_id.0 as usize];
     let arr_ptr = match val_op {
         Operand::Value(v) => v,
@@ -244,6 +254,7 @@ fn lower_arr_walk(ctx: &mut LowerCtx, val_op: Operand, arr_id: ArrId) -> Operand
             Operand::Value(elem),
             elem_ty,
             Some(Operand::Value(idx_key)),
+            fe_elem.clone(),
         );
         if matches!(elem_ty, Type::Any) {
             coerce_sentinel_to_null(ctx, walked)

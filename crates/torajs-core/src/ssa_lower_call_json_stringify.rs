@@ -53,10 +53,15 @@ pub(crate) fn try_lower(
     }
     let arg_op = ctx.lower_expr(args[0]);
     let arg_ty = ctx.operand_ty(&arg_op);
+    // The checker's type for the argument rides along: SSA folds
+    // `undefined` and `null` into one pointer-shaped slot, while
+    // §25.5.2.4 omits an undefined property and prints a null one.
+    // The walk peels this in step with its own shape recursion.
+    let arg_fe = ctx.expr_types.get(&args[0]).cloned();
     for &a in args.iter().skip(1) {
         let _ = ctx.lower_expr(a);
     }
     Some(crate::ssa_lower_json_stringify::lower_top(
-        ctx, arg_op, arg_ty,
+        ctx, arg_op, arg_ty, arg_fe,
     ))
 }

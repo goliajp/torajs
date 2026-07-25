@@ -29,8 +29,12 @@
 //!   when every field is I64/Bool/Str, emit through `__torajs_jsb_*`
 //!   (single growing Vec<u8>, amortized O(N)) instead of str_concat
 //!   chain (O(N²) byte copies). Non-primitive falls back to chain.
-//! - **Ptr** (S169) → `"null"` for both null and undefined (Str-only
-//!   return type can't carry undefined; tracked L3b).
+//! - **Ptr** (S169) → `"null"`. SSA folds JS null and `undefined`
+//!   into this one pointer-shaped slot, which §25.5.2.4 does not:
+//!   an undefined property is omitted, a null one prints. The
+//!   composite arms take that verdict from the FRONTEND type riding
+//!   down beside the SSA one (rotation 208), so this arm only ever
+//!   sees the null half of the pair.
 //! - other → panic.
 
 mod composite;
@@ -46,7 +50,12 @@ use crate::ssa_lower::LowerCtx;
 /// §25.5.1 step 12 (`__torajs_json_quote_str_top`), while inside an
 /// array/object undefined stringifies to `null` (§25.5.2.4) — the
 /// composite element recursion keeps going through [`lower`].
-pub(crate) fn lower_top(ctx: &mut LowerCtx, val_op: Operand, ty: Type) -> Operand {
+pub(crate) fn lower_top(
+    ctx: &mut LowerCtx,
+    val_op: Operand,
+    ty: Type,
+    fe: Option<crate::check::Type>,
+) -> Operand {
     match ty {
         Type::Str => {
             let v = ctx.f.append_inst(
@@ -79,7 +88,7 @@ pub(crate) fn lower_top(ctx: &mut LowerCtx, val_op: Operand, ty: Type) -> Operan
             ctx.emit_drop_value(Operand::Value(owned), Type::Str);
             Operand::Value(v)
         }
-        _ => lower_keyed(ctx, val_op, ty, None),
+        _ => lower_keyed(ctx, val_op, ty, None, fe),
     }
 }
 
@@ -87,21 +96,45 @@ pub(crate) fn lower_top(ctx: &mut LowerCtx, val_op: Operand, ty: Type) -> Operan
 /// the value sits under — the argument a `toJSON` hook receives
 /// (step 2.b). `None` is the empty key the top-level value carries;
 /// composite recursion passes its property name / element index.
+///
+/// `fe` is the value's FRONTEND type where the walk still knows it.
+/// SSA folds `undefined` and `null` into the same `Type::Ptr` slot,
+/// but §25.5.2.4 keeps them apart — an undefined property is omitted
+/// (step 8.b) while a null one prints `null` — so the distinction has
+/// to ride down from the checker's types. `None` means the walk lost
+/// track (a `toJSON` result, an unannotated shape) and the SSA type
+/// decides alone, which is the pre-existing behaviour.
 pub(crate) fn lower_keyed(
     ctx: &mut LowerCtx,
     val_op: Operand,
     ty: Type,
     key: Option<Operand>,
+    fe: Option<crate::check::Type>,
 ) -> Operand {
     if let Type::Obj(sid) = ty
         && let Some(out) = to_json::try_lower_hook(ctx, &val_op, sid, key)
     {
         return out;
     }
-    lower_shape(ctx, val_op, ty)
+    lower_shape(ctx, val_op, ty, fe)
 }
 
-fn lower_shape(ctx: &mut LowerCtx, val_op: Operand, ty: Type) -> Operand {
+/// Peel the `Nullable` wrapper the checker puts around pointer-shaped
+/// types — the JSON walk cares about the payload's shape, and the
+/// null case is settled by the composite arms' own null gate.
+fn fe_peel(fe: Option<crate::check::Type>) -> Option<crate::check::Type> {
+    match fe {
+        Some(crate::check::Type::Nullable(inner)) => Some(*inner),
+        other => other,
+    }
+}
+
+fn lower_shape(
+    ctx: &mut LowerCtx,
+    val_op: Operand,
+    ty: Type,
+    fe: Option<crate::check::Type>,
+) -> Operand {
     match ty {
         Type::I64 => {
             let v = ctx.f.append_inst(
@@ -112,87 +145,8 @@ fn lower_shape(ctx: &mut LowerCtx, val_op: Operand, ty: Type) -> Operand {
             );
             Operand::Value(v)
         }
-        Type::F64 => {
-            let is_finite = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.num_is_finite_f, vec![val_op.clone()]),
-                Type::Bool,
-                None,
-            );
-            let finite_blk = ctx.f.add_block();
-            let nonfinite_blk = ctx.f.add_block();
-            let after_blk = ctx.f.add_block();
-            let slot = ctx.alloca_in_entry(Type::Str, Some("__json_num"));
-            ctx.f.set_term(
-                ctx.cur_block,
-                Terminator::CondBr {
-                    cond: Operand::Value(is_finite),
-                    then_blk: finite_blk,
-                    else_blk: nonfinite_blk,
-                },
-            );
-            ctx.cur_block = finite_blk;
-            let s = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.f64_to_str, vec![val_op]),
-                Type::Str,
-                None,
-            );
-            ctx.f.append_void(
-                ctx.cur_block,
-                InstKind::Store(Operand::Value(s), Operand::Value(slot), 0),
-            );
-            ctx.f.set_term(ctx.cur_block, Terminator::Br(after_blk));
-            ctx.cur_block = nonfinite_blk;
-            let null_str = ctx.intern_string_literal("null");
-            ctx.f.append_void(
-                ctx.cur_block,
-                InstKind::Store(Operand::Value(null_str), Operand::Value(slot), 0),
-            );
-            ctx.f.set_term(ctx.cur_block, Terminator::Br(after_blk));
-            ctx.cur_block = after_blk;
-            let v = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Load(Type::Str, Operand::Value(slot), 0),
-                Type::Str,
-                None,
-            );
-            Operand::Value(v)
-        }
-        Type::Bool => {
-            let true_ptr = ctx.intern_string_literal("true");
-            let false_ptr = ctx.intern_string_literal("false");
-            let then_blk = ctx.f.add_block();
-            let else_blk = ctx.f.add_block();
-            let after_blk = ctx.f.add_block();
-            let slot = ctx.alloca_in_entry(Type::Str, Some("__json_bool"));
-            ctx.f.set_term(
-                ctx.cur_block,
-                Terminator::CondBr {
-                    cond: val_op,
-                    then_blk,
-                    else_blk,
-                },
-            );
-            ctx.f.append_void(
-                then_blk,
-                InstKind::Store(Operand::Value(true_ptr), Operand::Value(slot), 0),
-            );
-            ctx.f.set_term(then_blk, Terminator::Br(after_blk));
-            ctx.f.append_void(
-                else_blk,
-                InstKind::Store(Operand::Value(false_ptr), Operand::Value(slot), 0),
-            );
-            ctx.f.set_term(else_blk, Terminator::Br(after_blk));
-            ctx.cur_block = after_blk;
-            let v = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Load(Type::Str, Operand::Value(slot), 0),
-                Type::Str,
-                None,
-            );
-            Operand::Value(v)
-        }
+        Type::F64 => lower_f64(ctx, val_op),
+        Type::Bool => lower_bool(ctx, val_op),
         Type::Str => {
             let v = ctx.f.append_inst(
                 ctx.cur_block,
@@ -240,8 +194,20 @@ fn lower_shape(ctx: &mut LowerCtx, val_op: Operand, ty: Type) -> Operand {
             ctx.emit_drop_value(Operand::Value(iso), Type::Str);
             Operand::Value(v)
         }
-        Type::Arr(arr_id) => composite::lower_arr(ctx, val_op, arr_id),
-        Type::Obj(sid) => composite_obj::lower_obj(ctx, val_op, sid),
+        Type::Arr(arr_id) => {
+            let fe_elem = match fe_peel(fe) {
+                Some(crate::check::Type::Array(e)) => Some(*e),
+                _ => None,
+            };
+            composite::lower_arr(ctx, val_op, arr_id, fe_elem)
+        }
+        Type::Obj(sid) => {
+            let fe_fields = match fe_peel(fe) {
+                Some(crate::check::Type::Struct(fs)) => Some(fs),
+                _ => None,
+            };
+            composite_obj::lower_obj(ctx, val_op, sid, fe_fields)
+        }
         Type::Ptr => {
             let p = ctx.intern_string_literal("null");
             Operand::Value(p)
@@ -304,4 +270,91 @@ fn lower_shape(ctx: &mut LowerCtx, val_op: Operand, ty: Type) -> Operand {
         }
         other => panic!("ssa-lower: JSON.stringify on type {other:?} not yet supported"),
     }
+}
+
+/// ES §25.5.2.1 SerializeJSONNumber — `!IsFinite(x)` is not valid
+/// JSON, so NaN / ±Infinity write `"null"`. Arm body verbatim from
+/// [`lower_shape`]'s match.
+fn lower_f64(ctx: &mut LowerCtx, val_op: Operand) -> Operand {
+    let is_finite = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(ctx.intrinsics.num_is_finite_f, vec![val_op.clone()]),
+        Type::Bool,
+        None,
+    );
+    let finite_blk = ctx.f.add_block();
+    let nonfinite_blk = ctx.f.add_block();
+    let after_blk = ctx.f.add_block();
+    let slot = ctx.alloca_in_entry(Type::Str, Some("__json_num"));
+    ctx.f.set_term(
+        ctx.cur_block,
+        Terminator::CondBr {
+            cond: Operand::Value(is_finite),
+            then_blk: finite_blk,
+            else_blk: nonfinite_blk,
+        },
+    );
+    ctx.cur_block = finite_blk;
+    let s = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(ctx.intrinsics.f64_to_str, vec![val_op]),
+        Type::Str,
+        None,
+    );
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Store(Operand::Value(s), Operand::Value(slot), 0),
+    );
+    ctx.f.set_term(ctx.cur_block, Terminator::Br(after_blk));
+    ctx.cur_block = nonfinite_blk;
+    let null_str = ctx.intern_string_literal("null");
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Store(Operand::Value(null_str), Operand::Value(slot), 0),
+    );
+    ctx.f.set_term(ctx.cur_block, Terminator::Br(after_blk));
+    ctx.cur_block = after_blk;
+    let v = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(Type::Str, Operand::Value(slot), 0),
+        Type::Str,
+        None,
+    );
+    Operand::Value(v)
+}
+
+/// `true` / `false` — arm body verbatim from [`lower_shape`]'s match.
+fn lower_bool(ctx: &mut LowerCtx, val_op: Operand) -> Operand {
+    let true_ptr = ctx.intern_string_literal("true");
+    let false_ptr = ctx.intern_string_literal("false");
+    let then_blk = ctx.f.add_block();
+    let else_blk = ctx.f.add_block();
+    let after_blk = ctx.f.add_block();
+    let slot = ctx.alloca_in_entry(Type::Str, Some("__json_bool"));
+    ctx.f.set_term(
+        ctx.cur_block,
+        Terminator::CondBr {
+            cond: val_op,
+            then_blk,
+            else_blk,
+        },
+    );
+    ctx.f.append_void(
+        then_blk,
+        InstKind::Store(Operand::Value(true_ptr), Operand::Value(slot), 0),
+    );
+    ctx.f.set_term(then_blk, Terminator::Br(after_blk));
+    ctx.f.append_void(
+        else_blk,
+        InstKind::Store(Operand::Value(false_ptr), Operand::Value(slot), 0),
+    );
+    ctx.f.set_term(else_blk, Terminator::Br(after_blk));
+    ctx.cur_block = after_blk;
+    let v = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(Type::Str, Operand::Value(slot), 0),
+        Type::Str,
+        None,
+    );
+    Operand::Value(v)
 }

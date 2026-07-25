@@ -77,7 +77,7 @@ pub(super) fn try_lower_hook(
     if matches!(ret_ty, Type::Void) {
         return Some(Operand::Value(ctx.intern_string_literal("null")));
     }
-    let out = super::lower_shape(ctx, got.clone(), ret_ty);
+    let out = super::lower_shape(ctx, got.clone(), ret_ty, None);
     ctx.emit_drop_value(got, ret_ty);
     Some(out)
 }
