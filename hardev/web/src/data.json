@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-25T17:46:43.723Z",
+  "generatedAt": "2026-07-25T17:58:22.875Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 96.12
   },
   "torajs": {
-    "commit": "613f8b63",
-    "commitSubject": "fix(arr): pop and shift on an empty array answer undefined",
+    "commit": "88f49e5c",
+    "commitSubject": "fix(ssa): an arrow function that runs off its end answers undefined",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "88f49e5c",
+      "subject": "fix(ssa): an arrow function that runs off its end answers undefined"
+    },
+    {
+      "hash": "2059acdd",
+      "subject": "chore(hardev): refresh dashboard snapshot for rotation 216 close"
+    },
+    {
       "hash": "613f8b63",
       "subject": "fix(arr): pop and shift on an empty array answer undefined"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "2d35b134",
       "subject": "fix(ssa): a number function that runs off its end answers undefined"
-    },
-    {
-      "hash": "336d3298",
-      "subject": "fix(ssa): a void value prints as undefined inside a function body"
-    },
-    {
-      "hash": "347dbaef",
-      "subject": "fix(ssa): an object operand goes through valueOf in arithmetic"
     }
   ],
-  "headSha": "613f8b63",
+  "headSha": "88f49e5c",
   "autorun": {
     "total": 520,
     "baselineTarget": 10,
