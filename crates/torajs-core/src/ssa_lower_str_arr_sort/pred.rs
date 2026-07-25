@@ -181,12 +181,33 @@ fn emit_user_cmp_pred(
     prev: ValueId,
     cur: ValueId,
 ) -> ValueId {
-    let cmp_ret = ctx.call_fn_value(
-        cv.clone(),
-        *ct,
-        vec![Operand::Value(prev), Operand::Value(cur)],
-        0,
-    );
+    // RFC 20260726-array-elem-width knife 11 — the elements' width and
+    // the comparator's parameter width answer to two different classes,
+    // and the wiring that ties them is a one-way width edge (elements
+    // widen the parameter, never the reverse). So a comparator shared
+    // with a fractional array is compiled to take f64 while this
+    // receiver's elements are still integers, and handing the slots
+    // over unconverted aborted register allocation. The helper fast
+    // path refuses this case outright (`sort_helper_mode` requires the
+    // parameters to equal the element type) and falls through to here,
+    // where nothing converted them either.
+    let params = match *ct {
+        Type::Closure(s) | Type::FnSig(s) => ctx.fn_sigs[s.0 as usize].0.clone(),
+        _ => Vec::new(),
+    };
+    let args = [prev, cur]
+        .iter()
+        .enumerate()
+        .map(|(i, v)| {
+            let op = Operand::Value(*v);
+            if params.get(i) == Some(&Type::F64) && ctx.operand_ty(&op) == Type::I64 {
+                ctx.coerce_to_f64(op)
+            } else {
+                op
+            }
+        })
+        .collect::<Vec<_>>();
+    let cmp_ret = ctx.call_fn_value(cv.clone(), *ct, args, 0);
     let cmp_ret_ty = ctx.f.value_type(cmp_ret);
     match cmp_ret_ty {
         Type::F64 => ctx.f.append_inst(
