@@ -339,14 +339,14 @@ mod tests {
     fn table(src: &str) -> WidthTable {
         let tokens = lexer::tokenize(src).expect("lex");
         let ast = parser::parse(src, &tokens).expect("parse");
-        analyze(&ast, &HashMap::new(), &HashMap::new())
+        analyze(&ast, &HashMap::new(), &HashMap::new(), &HashMap::new())
     }
 
     fn table_classes(src: &str) -> WidthTable {
         let tokens = lexer::tokenize(src).expect("lex");
         let mut ast = parser::parse(src, &tokens).expect("parse");
         crate::ast::desugar_classes(&mut ast);
-        analyze(&ast, &HashMap::new(), &HashMap::new())
+        analyze(&ast, &HashMap::new(), &HashMap::new(), &HashMap::new())
     }
 
     fn g(n: &str) -> SlotKey {

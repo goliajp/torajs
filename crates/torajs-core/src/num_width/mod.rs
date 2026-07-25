@@ -135,6 +135,11 @@ pub(super) struct Scope<'a> {
 
 pub(super) struct Analysis<'a> {
     pub(super) ast: &'a Ast,
+    /// The checker's verdict per expression. Read only where the
+    /// width a value arrives with depends on how lowering will
+    /// materialize it rather than on where it came from — see the
+    /// `Expr::As` arm in `width.rs`.
+    pub(super) expr_types: &'a HashMap<ExprId, crate::check::Type>,
     /// Per-call-site monomorphization retargets — a generic call's
     /// callee ident still spells the generic name in the AST; the
     /// edges must land on the mono instance lowering actually calls.
@@ -217,6 +222,24 @@ pub(super) struct Analysis<'a> {
     pub(super) container_poison: bool,
 }
 
+/// Every generic `type` declaration by name, as `(type params, fields)`
+/// — the shapes the alias hookups instantiate per use site.
+fn collect_generic_decls(ast: &Ast) -> HashMap<String, (Vec<String>, Vec<(String, String)>)> {
+    let mut out = HashMap::new();
+    for stmt in &ast.stmts {
+        if let Stmt::TypeDecl {
+            name,
+            type_params,
+            fields,
+        } = stmt
+            && !type_params.is_empty()
+        {
+            out.insert(name.clone(), (type_params.clone(), fields.clone()));
+        }
+    }
+    out
+}
+
 /// Full analysis result — the F64 slot classes plus the container
 /// alias classes that answer elem/field width queries (W4). Call
 /// after monomorphization (the analyzed AST must be the one lowering
@@ -225,6 +248,7 @@ pub(crate) fn analyze(
     ast: &Ast,
     retargets: &HashMap<ExprId, String>,
     demoted: &HashMap<ExprId, ExprId>,
+    expr_types: &HashMap<ExprId, crate::check::Type>,
 ) -> WidthTable {
     let mut fn_params: HashMap<String, Vec<String>> = HashMap::new();
     let mut toplevel_lets: HashSet<String> = HashSet::new();
@@ -274,21 +298,11 @@ pub(crate) fn analyze(
     let mut classes: Vec<String> = ast.class_parents.keys().cloned().collect();
     classes.sort();
     let nominal_aliases = alias::nominal_alias_names(ast);
-    let mut generic_decls: HashMap<String, (Vec<String>, Vec<(String, String)>)> = HashMap::new();
-    for stmt in &ast.stmts {
-        if let Stmt::TypeDecl {
-            name,
-            type_params,
-            fields,
-        } = stmt
-            && !type_params.is_empty()
-        {
-            generic_decls.insert(name.clone(), (type_params.clone(), fields.clone()));
-        }
-    }
+    let generic_decls = collect_generic_decls(ast);
 
     let mut a = Analysis {
         ast,
+        expr_types,
         retargets,
         demoted,
         fn_params,
@@ -455,7 +469,12 @@ mod tests {
     fn slots(src: &str) -> Slots {
         let tokens = lexer::tokenize(src).expect("lex");
         let ast = parser::parse(src, &tokens).expect("parse");
-        Slots(analyze(&ast, &HashMap::new(), &HashMap::new()))
+        Slots(analyze(
+            &ast,
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+        ))
     }
 
     fn local(f: &str, v: &str) -> SlotKey {

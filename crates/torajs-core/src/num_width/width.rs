@@ -125,7 +125,29 @@ impl<'a> Analysis<'a> {
             }
             Expr::Sequence { right, .. } => self.width_of(*right, scope),
             Expr::Assign { value, .. } => self.width_of(*value, scope),
-            Expr::As { expr, .. } => self.width_of(*expr, scope),
+            // An assertion is transparent — `x as number` on an i64
+            // local keeps the integer face — EXCEPT over an `any`,
+            // where lowering materializes the numeric face with a
+            // ToNumber whose result is f64 (`ssa_lower_any_cast`'s
+            // unbox direction). The gate here is that same predicate,
+            // read off the same map, so the two cannot drift.
+            //
+            // Where the value CAME from says nothing about this: the
+            // analysis happily tracks `{v: 3}`'s field as an integer,
+            // and reporting that width left containers narrow while
+            // the store handed them the f64 the assertion had really
+            // produced — `a.push(o.v as number)` and `a[0] = o.v as
+            // number` both ended at the loud "width analysis missed
+            // this write".
+            Expr::As { expr, ty_ann } => {
+                if ty_ann == "number"
+                    && matches!(self.expr_types.get(expr), Some(crate::check::Type::Any))
+                {
+                    W::F64
+                } else {
+                    self.width_of(*expr, scope)
+                }
+            }
             Expr::PostIncr { target, .. } => {
                 if let Expr::Ident(n) = self.ast.get_expr(*target)
                     && let Some(k) = self.resolve(n, scope)

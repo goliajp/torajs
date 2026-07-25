@@ -59,7 +59,8 @@ pub(crate) fn lower_inner(
     let ast: &Ast = &mono.mono_ast;
     let call_retargets = &mono.call_retargets;
     let generic_fn_names = &mono.generic_fn_names;
-    let num_f64_slots = crate::num_width::analyze(ast, call_retargets, demoted_cm_rewrites);
+    let num_f64_slots =
+        crate::num_width::analyze(ast, call_retargets, demoted_cm_rewrites, expr_types);
 
     let mut module = Module::default();
     let mut fn_table: HashMap<String, FuncId> = HashMap::new();
