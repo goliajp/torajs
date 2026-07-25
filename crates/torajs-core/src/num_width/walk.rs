@@ -318,6 +318,18 @@ impl<'a> Analysis<'a> {
                         let w = self.width_of(*arg, scope);
                         let pk = SlotKey::Field(Box::new(ck.clone()), format!("__p{i}"));
                         self.add_constraint(pk.clone(), w);
+                        // RFC 20260726-array-elem-width — a CONTAINER
+                        // argument has to join the projection too, not
+                        // just hand over its scalar width. The direct
+                        // arm above does this; without it here, an
+                        // arrow bound to a local (`let f = (xs:
+                        // number[]) => xs[0]`) left the caller's array
+                        // in a different class from the param reading
+                        // it, so the two disagreed on element width.
+                        // `fn_value_flow` at the binding's init already
+                        // glued this projection onto the lifted fn's
+                        // Param key, so one union reaches it.
+                        self.alias_guarded(pk.clone(), *arg, scope);
                         self.fn_value_flow(&pk, *arg, scope);
                     }
                 }
