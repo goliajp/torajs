@@ -179,6 +179,15 @@ pub(crate) fn lower(
     // and its stake untouched (the helper always copies; an owned
     // temp init releases through release_owned_temp).
     let (init_val, converted) = maybe_arr_any_to_typed(ctx, ty, init, init_val);
+    // The scalar sibling of the crossing above. `const x: number = t`
+    // (`t: any`) reaches here with an Any operand and an I64/F64 slot;
+    // without a decode the NaN-box bits ARE the stored number
+    // (`{v:10}` read back as -562949953421302). The two other
+    // Any→typed boundaries already decode — assignment
+    // (`ssa_lower_assign_ident`'s permissible-coercion table) and the
+    // call-arg lane — so this is the same row, on the binding.
+    let (init_val, num_converted) = maybe_any_to_typed_number(ctx, type_ann, ty, init, init_val);
+    let converted = converted || num_converted;
     let is_alias_init = is_alias_init && !converted;
     // RFC 20260705 ledger #2 (chunk 563) — a concrete value boxed into
     // an `any` slot is ALWAYS owned by the slot: `anyv_box_from_pair`
@@ -303,6 +312,46 @@ fn finalize_and_bind(
         boxed_any,
         cur_depth,
     );
+}
+
+/// An `any` init bound to a `number` annotation: §7.1.4 ToNumber via
+/// `any_to_number`, so the slot holds the number the box carried
+/// rather than the box's bits. Answers `(value, converted)`; a `true`
+/// flag joins the chunk-698 `converted` above — the binding now holds
+/// a Copy primitive, so it neither aliases nor shares the source.
+///
+/// Only an ANNOTATED binding crosses: without an annotation the slot
+/// type follows the init (`finalize_and_bind` re-reads `operand_ty`),
+/// so `any` stays `any` and there is nothing to decode.
+///
+/// Ownership: `any_to_number` only READS its argument (chunk 566), so
+/// an owned Any temp (a call result, a fresh box) still carries the
+/// stake nobody will drop now that the slot is Copy —
+/// `release_owned_temp` settles it, and leaves borrow shapes (Ident /
+/// Member / Index) untouched since their source keeps its own.
+///
+/// A lying annotation (`const x: number = t`, `t` holding `"hi"`)
+/// answers NaN. That is ToNumber, not type erasure — bun keeps the
+/// string, since TS annotations vanish at runtime. Both sibling
+/// boundaries answer NaN the same way, so this row joins the existing
+/// stance rather than inventing a third one; the erasure gap itself is
+/// one L3b entry against all three.
+fn maybe_any_to_typed_number(
+    ctx: &mut LowerCtx,
+    type_ann: Option<&String>,
+    ty: Type,
+    init: ExprId,
+    init_val: Operand,
+) -> (Operand, bool) {
+    if type_ann.is_none() || !matches!(ty, Type::I64 | Type::F64) {
+        return (init_val, false);
+    }
+    if ctx.operand_ty(&init_val) != Type::Any {
+        return (init_val, false);
+    }
+    let decoded = ctx.coerce_any_to_number(init_val.clone(), ty);
+    ctx.release_owned_temp(init, &init_val);
+    (decoded, true)
 }
 
 /// Chunk 698 — `Array<Any>` init bound to a typed `Array<T>`
