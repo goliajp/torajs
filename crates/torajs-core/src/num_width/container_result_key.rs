@@ -145,19 +145,7 @@ impl<'a> Analysis<'a> {
                 }
                 Some(anon)
             }
-            "flatMap" => {
-                let anon = SlotKey::Anon(eid.0);
-                self.mark_containerish(&anon);
-                let aek = SlotKey::Elem(Box::new(anon.clone()));
-                match args.first().and_then(|a| self.callee_fn_name(*a)) {
-                    Some(cb) => {
-                        self.uf
-                            .union(&aek, &SlotKey::Elem(Box::new(SlotKey::Ret(cb))));
-                    }
-                    None => self.c_seeds.push(aek),
-                }
-                Some(anon)
-            }
+            "flatMap" => Some(self.flat_map_result_key(eid, args)),
             "reduce" | "reduceRight" => args
                 .first()
                 .and_then(|a| self.callee_fn_name(*a))
@@ -200,5 +188,33 @@ impl<'a> Analysis<'a> {
                 }
             }
         }
+    }
+
+    /// The product point of `xs.flatMap(cb)`, joined to whichever point
+    /// of the callback supplies its elements.
+    ///
+    /// RFC 20260726-array-elem-width knife 8 — a callback answering a
+    /// non-array acts like `[U]` per ES §23.1.3.11 step 8.d, so its
+    /// return IS an element rather than a container holding one.
+    /// Spelling that case the array way named the element of a scalar,
+    /// a class nothing else is in, so the product never joined the
+    /// binding that received it and the two disagreed on width.
+    fn flat_map_result_key(&mut self, eid: ExprId, args: &[ExprId]) -> SlotKey {
+        let anon = SlotKey::Anon(eid.0);
+        self.mark_containerish(&anon);
+        let aek = SlotKey::Elem(Box::new(anon.clone()));
+        match args.first().and_then(|a| self.callee_fn_name(*a)) {
+            Some(cb) => {
+                let rk = SlotKey::Ret(cb);
+                let elem_src = if self.cb_returns_array(args[0]) {
+                    SlotKey::Elem(Box::new(rk))
+                } else {
+                    rk
+                };
+                self.uf.union(&aek, &elem_src);
+            }
+            None => self.c_seeds.push(aek),
+        }
+        anon
     }
 }

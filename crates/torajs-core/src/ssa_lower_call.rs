@@ -340,7 +340,7 @@ fn try_dispatch_d(
         return Some(op);
     }
     // `xs.flatMap(fn)` — outer xs loop + per-elem callback Array<T> push (S319 widening).
-    if let Some(op) = crate::ssa_lower_call_arr_flat_map::try_lower(ctx, callee, args) {
+    if let Some(op) = crate::ssa_lower_call_arr_flat_map::try_lower(ctx, eid, callee, args) {
         return Some(op);
     }
     // P6.4c-C3 — `xs.{keys|values|entries}()` ArrIter ctor for Type::Arr<Any> receivers.

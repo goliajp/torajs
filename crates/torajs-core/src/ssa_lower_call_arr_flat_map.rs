@@ -31,6 +31,7 @@ use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx};
 /// dispatched.
 pub(crate) fn try_lower(
     ctx: &mut LowerCtx<'_>,
+    eid: ExprId,
     callee: ExprId,
     args: &[ExprId],
 ) -> Option<Operand> {
@@ -73,9 +74,24 @@ pub(crate) fn try_lower(
     let (scalar_ret, dst_elem_ty, dst_arr_ty) = match cb_ret_ty {
         Type::Arr(inner_arr_id) => (false, ctx.arr_layouts[inner_arr_id.0 as usize], cb_ret_ty),
         Type::I64 | Type::F64 | Type::Str | Type::Substr | Type::Bool | Type::Any => {
-            let dst_id =
-                crate::ssa_lower_interners::intern_arr_layout(&mut ctx.arr_layouts, cb_ret_ty);
-            (true, cb_ret_ty, Type::Arr(dst_id))
+            // RFC 20260726-array-elem-width knife 8 — the callback's
+            // return is only one source of the product's elements, so
+            // it cannot decide their width alone; the class the
+            // analysis keys by this call's origin can be wider (a
+            // fractional value reaching the product from anywhere else
+            // widens it). Same ask an array literal already makes, and
+            // the same one knife 1 gave map's product.
+            let elem = if cb_ret_ty == Type::I64
+                && ctx
+                    .num_f64_slots
+                    .elem_is_f64(&crate::num_width::SlotKey::Anon(eid.0))
+            {
+                Type::F64
+            } else {
+                cb_ret_ty
+            };
+            let dst_id = crate::ssa_lower_interners::intern_arr_layout(&mut ctx.arr_layouts, elem);
+            (true, elem, Type::Arr(dst_id))
         }
         other => panic!("flatMap callback must return an array or primitive scalar, got {other:?}"),
     };
@@ -344,8 +360,18 @@ fn emit_scalar_push_and_close(
     );
     // Knife 7, scalar arm — same raw-bits contract as the inner walk:
     // a callback answering an f64 scalar per §23.1.3.11 step 8.d must
-    // reach arr_push as bits, not as a value.
-    let push_ret = ctx.raw_slot_arg(Operand::Value(cb_ret));
+    // reach arr_push as bits, not as a value. Knife 8 — when the class
+    // made the dst wider than this callback's return, convert rather
+    // than bitcast the integer into an f64 slot.
+    let scalar = Operand::Value(cb_ret);
+    let scalar = if ctx.operand_ty(&scalar) == Type::I64
+        && matches!(dst_arr_ty, Type::Arr(id) if ctx.arr_layouts[id.0 as usize] == Type::F64)
+    {
+        ctx.coerce_to_f64(scalar)
+    } else {
+        scalar
+    };
+    let push_ret = ctx.raw_slot_arg(scalar);
     let new_dst = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Call(

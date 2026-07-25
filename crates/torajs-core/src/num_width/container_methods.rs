@@ -198,6 +198,21 @@ impl<'a> Analysis<'a> {
         }
     }
 
+    /// RFC 20260726-array-elem-width knife 8 — whether a callback
+    /// answers an array. `flatMap` treats a non-array answer as the
+    /// element itself (ES §23.1.3.11 step 8.d), which is a different
+    /// element point from the one an array answer contributes.
+    /// An unknown type keeps the array reading, the one that was
+    /// unconditional before.
+    pub(super) fn cb_returns_array(&self, cb: ExprId) -> bool {
+        match self.expr_types.get(&cb) {
+            Some(crate::check::Type::Function(_, ret)) => {
+                matches!(**ret, crate::check::Type::Array(_))
+            }
+            _ => true,
+        }
+    }
+
     /// Side effects of a member call — element writes (push family),
     /// callback parameter wiring, and user-class-method broadcast.
     /// Fires from walk_expr for every call site, result used or not.
