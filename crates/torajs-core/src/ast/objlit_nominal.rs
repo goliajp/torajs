@@ -262,6 +262,7 @@ fn apply_patches(
                 name,
                 params,
                 return_type,
+                body,
                 ..
             } = s
             else {
@@ -294,6 +295,26 @@ fn apply_patches(
                         is_rest: false,
                     },
                 );
+            }
+            // …and re-decide the RETURN for a method that returns the
+            // receiver. The same "ran before `__this` existed" problem
+            // hits the return sniff, but worse: `__this` was not merely
+            // unresolvable, it resolved through a PROGRAM-WIDE by-name
+            // annotation map, where every class method in the program —
+            // including the injected `Error` subclasses — contributes a
+            // `__this` entry and the last one wins. So `{ v: 5, self()
+            // { return this; } }` typed `self` as returning
+            // `ReferenceError`, and every use of it failed with a
+            // mismatch against a class the program never mentions. This
+            // is the same collision the field-value sniff above already
+            // guards with its construction-site overlay.
+            //
+            // Only the bare `return this` shape is re-decided, and only
+            // when every return in the body is that: a recorded return
+            // type is indistinguishable from one the USER wrote, so a
+            // broader re-sniff would overwrite explicit annotations.
+            if returns_only_this(exprs, body) {
+                *return_type = Some(p.objlit_ty.clone());
             }
             // Re-publish the sig: `preinfer_closure_sigs` ran before
             // `__this` existed and spells every closure `__fn(`. The
@@ -329,6 +350,47 @@ fn apply_patches(
             }
         }
     }
+}
+
+/// Does every `return` in `body` hand back the bare receiver, and is
+/// there at least one? `this` has been rewritten to a bare `__this`
+/// ident by the time this pass runs.
+///
+/// A body that returns the receiver on one path and something else on
+/// another answers false: the return type is then a union this pass has
+/// no way to spell, and leaving the sniffed annotation alone keeps the
+/// mismatch visible instead of replacing it with a wrong-but-quiet one.
+fn returns_only_this(exprs: &[Expr], body: &[Stmt]) -> bool {
+    let mut saw = false;
+    fn walk(exprs: &[Expr], s: &Stmt, saw: &mut bool) -> bool {
+        match s {
+            Stmt::Return(Some(eid)) => {
+                *saw = true;
+                matches!(&exprs[eid.0 as usize], Expr::Ident(n) if n == "__this")
+            }
+            Stmt::Return(None) => {
+                *saw = true;
+                false
+            }
+            Stmt::Block(stmts) | Stmt::Multi(stmts) => stmts.iter().all(|s| walk(exprs, s, saw)),
+            Stmt::If {
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                walk(exprs, then_branch, saw)
+                    && else_branch.as_ref().is_none_or(|eb| walk(exprs, eb, saw))
+            }
+            Stmt::While { body, .. } | Stmt::DoWhile { body, .. } | Stmt::Labeled { body, .. } => {
+                walk(exprs, body, saw)
+            }
+            Stmt::For { body, .. } => walk(exprs, body, saw),
+            // A nested fn's returns are its own, not this method's.
+            Stmt::FnDecl { .. } => true,
+            _ => true,
+        }
+    }
+    body.iter().all(|s| walk(exprs, s, &mut saw)) && saw
 }
 
 fn closure_captures(exprs: &[Expr], eid: ExprId) -> Option<Vec<String>> {
