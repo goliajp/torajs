@@ -81,6 +81,126 @@ struct IterPlan {
 
 /// Resolve the iterator class behind `iter_sid`, its `next` method,
 /// and the field offsets of the IteratorResult struct `next` returns.
+/// One §7.4.6 IteratorNext — build `next()`'s argument list, call it,
+/// and let a throw out.
+///
+/// `next()` is user code (a generator body runs here), and an aborted
+/// fn returns the throw sentinel, so reading `.done` off the result
+/// before the check is a wild deref: `for (const v of gen)` over a
+/// generator that throws on its first step was a SIGSEGV.
+#[allow(clippy::too_many_arguments)]
+fn emit_next_call(
+    ctx: &mut LowerCtx,
+    iter_load: crate::ssa::ValueId,
+    next_fid: FuncId,
+    next_defaults: &[ExprId],
+    next_param_tys: &[Type],
+    step_ret_ty: Type,
+) -> crate::ssa::ValueId {
+    let mut next_argv: Vec<Operand> = Vec::with_capacity(1 + next_defaults.len());
+    next_argv.push(Operand::Value(iter_load));
+    for d in next_defaults {
+        let op = ctx.lower_expr(*d);
+        next_argv.push(op);
+    }
+    // Widen / box each defaulted arg into its declared param lane (an
+    // `any`-yield generator's numeric-zero placeholder default has to
+    // reach an Any param boxed).
+    let coerce_owned = if next_param_tys.len() == next_argv.len() {
+        crate::ssa_lower_call_terminal::coerce_args_by_param_tys(
+            ctx,
+            &next_param_tys[1..],
+            next_defaults,
+            &mut next_argv[1..],
+        )
+    } else {
+        Vec::new()
+    };
+    let step_val = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(next_fid, next_argv),
+        step_ret_ty,
+        None,
+    );
+    for owned in coerce_owned {
+        let ty = ctx.operand_ty(&owned);
+        ctx.emit_drop_value(owned, ty);
+    }
+    // ES §7.4.6 IteratorNext — a step that throws forwards the abrupt
+    // completion. `next()` is user code (a generator body runs here), and
+    // an aborted fn returns the throw sentinel, so reading `.done` off it
+    // is a wild deref: `for (const v of gen)` over a generator that throws
+    // on its first step was a SIGSEGV.
+    ctx.emit_throw_check(None);
+    step_val
+}
+
+/// The loop's shared exit — §7.4.9 IteratorClose gated on how the loop
+/// stopped, then the iterator's own release.
+///
+/// Both exits arrive at one block, so the close cannot be decided by
+/// predecessor; `done_slot` carries which one it was (0 = stopped
+/// early). This lane keeps its iterator in a TYPED local rather than
+/// an `Any` park slot, so it closes through the value-shaped face —
+/// the box is rc-neutral and the stake stays in the slot, released
+/// below either way. An iterator declaring no `return` closes as a
+/// no-op.
+fn emit_loop_exit(
+    ctx: &mut LowerCtx,
+    after: crate::ssa::BlockId,
+    iter_slot: crate::ssa::ValueId,
+    done_slot: crate::ssa::ValueId,
+    iter_ret_ty: Type,
+) {
+    ctx.cur_block = after;
+    let close_blk = ctx.f.add_block();
+    let release_blk = ctx.f.add_block();
+    let done_flag = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(Type::I64, Operand::Value(done_slot), 0),
+        Type::I64,
+        None,
+    );
+    let stopped_early = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::ICmp(IPred::Eq, Operand::Value(done_flag), Operand::ConstI64(0)),
+        Type::Bool,
+        None,
+    );
+    ctx.f.set_term(
+        ctx.cur_block,
+        Terminator::CondBr {
+            cond: Operand::Value(stopped_early),
+            then_blk: close_blk,
+            else_blk: release_blk,
+        },
+    );
+
+    ctx.cur_block = close_blk;
+    let iter_for_close = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(iter_ret_ty, Operand::Value(iter_slot), 0),
+        iter_ret_ty,
+        None,
+    );
+    let boxed_iter = ctx.box_to_any(Operand::Value(iter_for_close));
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Call(ctx.intrinsics.iter_close_value, vec![boxed_iter]),
+    );
+    ctx.emit_throw_check(None);
+    ctx.f.set_term(ctx.cur_block, Terminator::Br(release_blk));
+
+    ctx.cur_block = release_blk;
+    let iter_load_drop = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(iter_ret_ty, Operand::Value(iter_slot), 0),
+        iter_ret_ty,
+        None,
+    );
+    ctx.emit_drop_value(Operand::Value(iter_load_drop), iter_ret_ty);
+}
+
 /// The class an `@@iterator` method RETURNS, by name.
 ///
 /// RFC 20260715-nominal-class-identity — a class instance names its
@@ -240,41 +360,14 @@ pub(crate) fn lower_for_of_iter_protocol(
         iter_ret_ty,
         None,
     );
-    let mut next_argv: Vec<Operand> = Vec::with_capacity(1 + next_defaults.len());
-    next_argv.push(Operand::Value(iter_load));
-    for d in &next_defaults {
-        let op = ctx.lower_expr(*d);
-        next_argv.push(op);
-    }
-    // Widen / box each defaulted arg into its declared param lane (an
-    // `any`-yield generator's numeric-zero placeholder default has to
-    // reach an Any param boxed).
-    let coerce_owned = if next_param_tys.len() == next_argv.len() {
-        crate::ssa_lower_call_terminal::coerce_args_by_param_tys(
-            ctx,
-            &next_param_tys[1..],
-            &next_defaults,
-            &mut next_argv[1..],
-        )
-    } else {
-        Vec::new()
-    };
-    let step_val = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::Call(next_fid, next_argv),
+    let step_val = emit_next_call(
+        ctx,
+        iter_load,
+        next_fid,
+        &next_defaults,
+        &next_param_tys,
         step_ret_ty,
-        None,
     );
-    for owned in coerce_owned {
-        let ty = ctx.operand_ty(&owned);
-        ctx.emit_drop_value(owned, ty);
-    }
-    // ES §7.4.6 IteratorNext — a step that throws forwards the abrupt
-    // completion. `next()` is user code (a generator body runs here), and
-    // an aborted fn returns the throw sentinel, so reading `.done` off it
-    // is a wild deref: `for (const v of gen)` over a generator that throws
-    // on its first step was a SIGSEGV.
-    ctx.emit_throw_check(None);
     let done_val = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Load(Type::Bool, Operand::Value(step_val), done_off),
@@ -370,58 +463,7 @@ pub(crate) fn lower_for_of_iter_protocol(
         ctx.locals.insert(n, prev);
     }
 
-    ctx.cur_block = after;
-    let close_blk = ctx.f.add_block();
-    let release_blk = ctx.f.add_block();
-    let done_flag = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::Load(Type::I64, Operand::Value(done_slot), 0),
-        Type::I64,
-        None,
-    );
-    let stopped_early = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::ICmp(IPred::Eq, Operand::Value(done_flag), Operand::ConstI64(0)),
-        Type::Bool,
-        None,
-    );
-    ctx.f.set_term(
-        ctx.cur_block,
-        Terminator::CondBr {
-            cond: Operand::Value(stopped_early),
-            then_blk: close_blk,
-            else_blk: release_blk,
-        },
-    );
-
-    // §7.4.9 with the iterator still live. This lane keeps its
-    // iterator in a TYPED local rather than an `Any` park slot, so it
-    // closes through the value-shaped face; the box is rc-neutral and
-    // the stake stays in the slot, released below either way. An
-    // iterator that declares no `return` closes as a no-op.
-    ctx.cur_block = close_blk;
-    let iter_for_close = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::Load(iter_ret_ty, Operand::Value(iter_slot), 0),
-        iter_ret_ty,
-        None,
-    );
-    let boxed_iter = ctx.box_to_any(Operand::Value(iter_for_close));
-    ctx.f.append_void(
-        ctx.cur_block,
-        InstKind::Call(ctx.intrinsics.iter_close_value, vec![boxed_iter]),
-    );
-    ctx.emit_throw_check(None);
-    ctx.f.set_term(ctx.cur_block, Terminator::Br(release_blk));
-
-    ctx.cur_block = release_blk;
-    let iter_load_drop = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::Load(iter_ret_ty, Operand::Value(iter_slot), 0),
-        iter_ret_ty,
-        None,
-    );
-    ctx.emit_drop_value(Operand::Value(iter_load_drop), iter_ret_ty);
+    emit_loop_exit(ctx, after, iter_slot, done_slot, iter_ret_ty);
     let _ = ctx.scope_stack.pop().expect("for-of-proto iter scope");
     let _ = ctx.shadow_stack.pop().expect("shadow frame");
 }
