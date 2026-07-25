@@ -161,6 +161,14 @@ pub(crate) fn is_undef_f64_source(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
         // 20260722 chunk D — a `find`/`findLast` miss answers the
         // sentinel the same way.
         Expr::Call { callee, .. } => {
+            // RFC 20260725-fallthrough-return knife 1 — a call to a
+            // `number` function whose body can run off its end
+            // answers the sentinel on that path.
+            if let Expr::Ident(f) = ctx.ast.get_expr(*callee)
+                && ctx.num_f64_slots.returns_undef_on_fallthrough(f)
+            {
+                return true;
+            }
             matches!(
                 ctx.ast.get_expr(*callee),
                 Expr::Member { obj, name } if matches!(name.as_str(), "at" | "find" | "findLast")

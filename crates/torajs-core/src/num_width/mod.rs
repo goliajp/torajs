@@ -334,6 +334,7 @@ pub(crate) fn analyze(
         params: HashSet::new(),
         locals: HashSet::new(),
     };
+    let mut fallthrough_num_fns: HashSet<String> = HashSet::new();
     for stmt in &ast.stmts {
         if let Stmt::FnDecl {
             name, params, body, ..
@@ -354,6 +355,7 @@ pub(crate) fn analyze(
             {
                 let rk = SlotKey::Ret(name.clone());
                 a.seed_any_face(&rk, r);
+                seed_fallthrough_return(&mut a, rk, r, name, body, &mut fallthrough_num_fns);
             }
             let scope = Scope {
                 fn_name: name,
@@ -432,7 +434,28 @@ pub(crate) fn analyze(
         a.uf,
         a.container_poison,
         a.nominal_aliases,
+        fallthrough_num_fns,
     )
+}
+
+/// RFC 20260725-fallthrough-return knife 1 — a `number` body that can
+/// run off its end answers `undefined` there (ES §10.2.1.4 step 11).
+/// An I64 slot has no bit pattern left to say so and F64 does, so seed
+/// the return slot wide and let the fixpoint carry the width to every
+/// binding the result flows into. The name goes on the table too: the
+/// call site reads it to know a result may hold the sentinel.
+fn seed_fallthrough_return(
+    a: &mut Analysis<'_>,
+    rk: SlotKey,
+    return_ann: &str,
+    fn_name: &str,
+    body: &[Stmt],
+    out: &mut HashSet<String>,
+) {
+    if return_ann == "number" && !crate::ast::body_always_terminates(body) {
+        out.insert(fn_name.to_string());
+        a.seeds.push(rk);
+    }
 }
 
 /// Poison flows forward along assignment edges until stable.

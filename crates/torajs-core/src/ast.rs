@@ -13,6 +13,7 @@ mod arguments_object_walkers;
 mod class_globals;
 mod class_globals_register;
 mod closure_capture_anns;
+mod control_flow;
 mod desugar_async;
 mod desugar_classes;
 mod desugar_classes_abstract;
@@ -78,6 +79,7 @@ pub use class_globals::synthesize_class_globals;
 pub(crate) use closure_capture_anns::{
     SiteAnns, collect_closure_capture_anns, collect_outer_binds,
 };
+pub(crate) use control_flow::body_always_terminates;
 pub use desugar_async::desugar_async;
 pub use desugar_classes::desugar_classes;
 pub use desugar_generators::desugar_generators;

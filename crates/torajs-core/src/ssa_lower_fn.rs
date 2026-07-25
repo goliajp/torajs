@@ -36,11 +36,8 @@
 use std::collections::HashMap;
 
 use crate::ast::{self, Ast, ExprId, Stmt};
-use crate::ssa::{self, BakedRegexEntry, FuncId, InstKind, Operand, Terminator, Type, ValueId};
-use crate::ssa_lower::{
-    CLOSURE_CAP_BASE_OFF, CallRetargets, Intrinsics, LocalInfo, LowerCtx, decode_env_ann,
-    effective_ret_ty,
-};
+use crate::ssa::{self, BakedRegexEntry, FuncId, Operand, Terminator, Type, ValueId};
+use crate::ssa_lower::{CallRetargets, Intrinsics, LowerCtx, effective_ret_ty};
 use crate::ssa_lower_parse_type::parse_type;
 
 #[allow(clippy::too_many_arguments)]
@@ -223,10 +220,7 @@ pub(crate) fn lower_fn(
     if ctx.cur_open() {
         ctx.emit_drops_for_owned_locals();
         let cb = ctx.cur_block;
-        match ctx.f.ret {
-            Type::Void => ctx.f.set_term(cb, Terminator::Ret(None)),
-            _ => ctx.f.set_term(cb, Terminator::Unreachable),
-        }
+        close_fallthrough_path(&mut ctx, cb);
     }
 
     (f, new_strings)
@@ -294,6 +288,27 @@ fn setup_fn_params(
     (param_setup, argc_locals, variadic_locals)
 }
 
+/// Terminate a block that the body walk left open — the path that
+/// runs off the end of the function.
+///
+/// ES §10.2.1.4 [[Call]] step 11 says that path answers `undefined`.
+/// Only an F64 slot has a bit pattern to spare for saying so, and
+/// num_width seeds exactly the `number` returns whose body can get
+/// here (see [`crate::ast::body_always_terminates`]) — so an F64
+/// return slot with a still-open block is one of them. Every other
+/// width keeps asserting unreachable; RFC 20260725-fallthrough-return
+/// knives 2 and 4 cover those.
+fn close_fallthrough_path(ctx: &mut LowerCtx<'_>, cb: ssa::BlockId) {
+    let term = match ctx.f.ret {
+        Type::Void => Terminator::Ret(None),
+        Type::F64 => Terminator::Ret(Some(Operand::ConstF64(f64::from_bits(
+            crate::ssa_lower_nullable_guard::F64_UNDEF_SENTINEL_BITS,
+        )))),
+        _ => Terminator::Unreachable,
+    };
+    ctx.f.set_term(cb, term);
+}
+
 /// shared tail of ret/param slot type resolution: W1 f64-slot promotion
 /// (`number`-annotated I64 slots unified into the f64 width class) then
 /// container widen against the same slot key
@@ -318,180 +333,4 @@ fn promote_and_widen(
         struct_layouts,
         fn_sigs,
     )
-}
-
-impl<'a> LowerCtx<'a> {
-    /// T-15.g.5 escape-captured Copy binding: box the value on the heap
-    /// (16B = rc + value) via `capture_box_alloc`, bit-casting F64 / zero-
-    /// extending Bool into the i64 payload slot. Shared by fn-param
-    /// materialization here and the let-decl general path.
-    pub(crate) fn emit_capture_boxed(&mut self, ty: Type, v: Operand) -> ValueId {
-        let init_i64 = if matches!(ty, Type::F64) {
-            let b = self.f.append_inst(
-                self.cur_block,
-                InstKind::BitCastF64ToI64(v),
-                Type::I64,
-                None,
-            );
-            Operand::Value(b)
-        } else if matches!(ty, Type::Bool) {
-            let b = self
-                .f
-                .append_inst(self.cur_block, InstKind::ZExtBoolToI64(v), Type::I64, None);
-            Operand::Value(b)
-        } else {
-            v
-        };
-        self.f.append_inst(
-            self.cur_block,
-            InstKind::Call(self.intrinsics.capture_box_alloc, vec![init_i64]),
-            Type::Ptr,
-            None,
-        )
-    }
-
-    /// step 4 of `lower_fn`: materialize each param as an alloca-backed
-    /// local (refcounted capture box for escape-captured Copy params;
-    /// `__env` / `__cm_*` `__this` marked moved+borrowed — caller owns)
-    fn materialize_fn_params(&mut self, fn_name: &str, param_setup: Vec<(String, ValueId, Type)>) {
-        for (pname, pid, ty) in param_setup {
-            // RFC 20260710 C4 — a mutated non-Copy captured PARAM
-            // promotes to a capture box like a let (the caller keeps
-            // its stake, so the box incs its own share); the byref /
-            // assign / drop lanes then ride the C1 machinery.
-            let boxed_noncopy = !ty.is_copy()
-                && ty != Type::Substr
-                && pname != "__env"
-                && !(fn_name.starts_with("__cm_") && pname == "__this")
-                && self.escape_captured_lets.contains(&pname)
-                && self.mutated_captured_lets.contains(&pname);
-            let escape_captured =
-                (ty.is_copy() && self.escape_captured_lets.contains(&pname)) || boxed_noncopy;
-            let slot = if escape_captured {
-                if boxed_noncopy {
-                    self.emit_owned_result_inc(Operand::Value(pid), ty);
-                }
-                self.emit_capture_boxed(ty, Operand::Value(pid))
-            } else {
-                let s = self.alloca(ty, Some(&pname));
-                self.f.append_void(
-                    self.cur_block,
-                    InstKind::Store(Operand::Value(pid), Operand::Value(s), 0),
-                );
-                s
-            };
-            if boxed_noncopy {
-                self.boxed_noncopy_lets.insert(pname.clone());
-            }
-            let is_env_param = pname == "__env";
-            let is_class_self = fn_name.starts_with("__cm_") && pname == "__this";
-            let borrows_caller = is_env_param || is_class_self || !ty.is_copy() || escape_captured;
-            self.locals.insert(
-                pname.clone(),
-                LocalInfo {
-                    slot,
-                    ty,
-                    moved: borrows_caller,
-                    // A boxed param owns its box stake — the fn-exit
-                    // boxed walk releases it (`!borrowed` gate).
-                    borrowed: borrows_caller && !boxed_noncopy,
-                    scope_depth: 0,
-                },
-            );
-            self.scope_stack[0].push(pname);
-        }
-    }
-
-    /// step 5 of `lower_fn` — M2 closure-body env preamble: for a
-    /// first-param `__env`, decode the `__env(c1|c2|...)` annotation and
-    /// env-load each capture at offset 8/16/... per the construction-site
-    /// `closure_captures` side channel, binding under the capture's name
-    /// as moved+borrowed (the env owns the canonical pointer)
-    fn emit_closure_env_preamble(&mut self, fn_name: &str, params: &[ast::Param]) {
-        let Some(first) = params.first() else { return };
-        if first.name != "__env" {
-            return;
-        }
-        let Some(ann) = &first.type_ann else { return };
-        let Some(cap_names) = decode_env_ann(ann) else {
-            return;
-        };
-        if cap_names.is_empty() {
-            return;
-        }
-        // The `__env(c1|c2|...)` ann is the PRE-filter capture list —
-        // the construction site drops names that resolved to promoted
-        // data globals (those read via GlobalRef like named-fn bodies,
-        // no env slot), so the side-channel triples are the env-layout
-        // ground truth. A body ident not bound here falls through to
-        // the globals path in ident resolution.
-        let cap_meta: Vec<(String, Type, bool)> = self
-            .closure_captures
-            .get(fn_name)
-            .cloned()
-            .unwrap_or_else(|| {
-                panic!(
-                    "ssa-lower: lifted closure `{fn_name}` has no capture types — \
-                     construction site must run before body lowering"
-                )
-            });
-        let env_slot = self
-            .locals
-            .get("__env")
-            .copied()
-            .expect("__env param materialized as local")
-            .slot;
-        for (i, (cap_name, cap_ty, is_byref)) in cap_meta.iter().enumerate() {
-            let cap_ty = *cap_ty;
-            let is_byref = *is_byref;
-            let env_ptr = self.f.append_inst(
-                self.cur_block,
-                InstKind::Load(Type::Ptr, Operand::Value(env_slot), 0),
-                Type::Ptr,
-                None,
-            );
-            let offset = CLOSURE_CAP_BASE_OFF + (i as u64) * 8;
-            // A byref slot holds a capture-box pointer — bind the box
-            // value slot directly so body reads AND writes hit the
-            // shared live binding (Copy escape-captures + RFC 20260710
-            // promoted mutable non-Copy captures).
-            let cap_slot = if is_byref {
-                if !cap_ty.is_copy() {
-                    // Nested closures capturing this name must ride
-                    // the same box (byref write_captures arm).
-                    self.boxed_noncopy_lets.insert(cap_name.clone());
-                }
-                self.f.append_inst(
-                    self.cur_block,
-                    InstKind::Load(Type::Ptr, Operand::Value(env_ptr), offset),
-                    Type::Ptr,
-                    None,
-                )
-            } else {
-                let v = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::Load(cap_ty, Operand::Value(env_ptr), offset),
-                    cap_ty,
-                    None,
-                );
-                let local = self.alloca(cap_ty, Some(cap_name));
-                self.f.append_void(
-                    self.cur_block,
-                    InstKind::Store(Operand::Value(v), Operand::Value(local), 0),
-                );
-                local
-            };
-            self.locals.insert(
-                cap_name.clone(),
-                LocalInfo {
-                    slot: cap_slot,
-                    ty: cap_ty,
-                    moved: true,
-                    borrowed: true,
-                    scope_depth: 0,
-                },
-            );
-            self.scope_stack[0].push(cap_name.clone());
-        }
-    }
 }

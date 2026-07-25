@@ -351,6 +351,7 @@ pub(crate) mod ssa_lower_env_trace;
 pub(crate) mod ssa_lower_eq_fastpath;
 pub(crate) mod ssa_lower_expr_inner;
 pub(crate) mod ssa_lower_fn;
+pub(crate) mod ssa_lower_fn_ctx_methods;
 pub(crate) mod ssa_lower_fn_meta;
 pub(crate) mod ssa_lower_fn_props;
 pub(crate) mod ssa_lower_for_of_any_iter;
