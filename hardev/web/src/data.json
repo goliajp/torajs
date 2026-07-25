@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-25T02:45:30.383Z",
+  "generatedAt": "2026-07-25T02:54:17.279Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 96.12
   },
   "torajs": {
-    "commit": "db179000",
-    "commitSubject": "feat(check): in / hasOwnProperty / delete see the symbol-keyed slot",
+    "commit": "3610c9c3",
+    "commitSubject": "feat(runtime): Object.assign copies own enumerable symbol keys",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "3610c9c3",
+      "subject": "feat(runtime): Object.assign copies own enumerable symbol keys"
+    },
+    {
+      "hash": "2e17fa0b",
+      "subject": "chore(hardev): refresh dashboard snapshot for rotation 209"
+    },
+    {
       "hash": "db179000",
       "subject": "feat(check): in / hasOwnProperty / delete see the symbol-keyed slot"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "c2796ee4",
       "subject": "fix(runtime): any-slot fields serializing to nothing omit their key"
-    },
-    {
-      "hash": "f17be409",
-      "subject": "fix(runtime): array elements serializing to nothing write null"
-    },
-    {
-      "hash": "974c5032",
-      "subject": "chore(hardev): refresh dashboard snapshot for rotation 207 close"
     }
   ],
-  "headSha": "db179000",
+  "headSha": "3610c9c3",
   "autorun": {
     "total": 513,
     "baselineTarget": 10,
