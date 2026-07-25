@@ -33,6 +33,7 @@ mod container_result_key;
 mod container_walk;
 mod cycle;
 mod escape;
+mod fallthrough;
 mod fnsig;
 mod json_seed;
 mod mono;
@@ -44,6 +45,7 @@ pub(crate) use fnsig::{fn_type_canon, split_fn_type};
 pub(crate) use mono::{NumWidth, compute_typevar_widths};
 
 use crate::ast::{Ast, ExprId, Stmt};
+use fallthrough::{alias_fallthrough_closures, seed_fallthrough_return};
 use std::collections::{HashMap, HashSet, VecDeque};
 
 /// Identity of a number-typed storage slot, module-wide.
@@ -376,6 +378,8 @@ pub(crate) fn analyze(
         }
     }
 
+    alias_fallthrough_closures(ast, &mut fallthrough_fns);
+
     // W4 container pipeline: nominal class hookups, guarded-union
     // activation, container-channel merge, congruence closure, then
     // rewrite of every seed / edge key onto its alias-class
@@ -436,33 +440,6 @@ pub(crate) fn analyze(
         a.nominal_aliases,
         fallthrough_fns,
     )
-}
-
-/// RFC 20260725-fallthrough-return knives 1-2 — a body that can run
-/// off its end answers `undefined` there (ES §10.2.1.4 step 11). Every
-/// such function goes on the table, which the call site reads to know
-/// a result may hold that answer's sentinel.
-///
-/// `number` additionally needs a WIDER slot to carry it: I64 has no
-/// bit pattern to spare and F64 does, so seed the return slot and let
-/// the fixpoint carry the width to every binding the result flows
-/// into. Pointer-shaped returns need no seed — their slots already
-/// decode three ways (NULL / sentinel / live cell).
-fn seed_fallthrough_return(
-    a: &mut Analysis<'_>,
-    rk: SlotKey,
-    return_ann: &str,
-    fn_name: &str,
-    body: &[Stmt],
-    out: &mut HashSet<String>,
-) {
-    if return_ann == "void" || crate::ast::body_always_terminates(body) {
-        return;
-    }
-    out.insert(fn_name.to_string());
-    if return_ann == "number" {
-        a.seeds.push(rk);
-    }
 }
 
 /// Poison flows forward along assignment edges until stable.
