@@ -194,7 +194,7 @@ impl<'a> Parser<'a> {
         // V3-18 wedge — prepend `this.<n> = <init>` stmts for each
         // collected field initializer. Synthesize an empty ctor if
         // one wasn't declared so the inits still run on `new C(...)`.
-        let ctor = self.finalize_class_field_inits(field_inits, ctor);
+        let ctor = self.finalize_class_field_inits(&name, field_inits, ctor);
         // P8.1 — restore the outer class context (parse-error paths
         // skip this; the parser is in an error state and the value
         // is moot).

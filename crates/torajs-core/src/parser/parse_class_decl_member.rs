@@ -233,6 +233,7 @@ impl<'a> Parser<'a> {
     /// declared so the inits still run on `new C(...)`.
     pub(super) fn finalize_class_field_inits(
         &mut self,
+        class_name: &str,
         field_inits: Vec<(String, ExprId)>,
         ctor: Option<ClassCtor>,
     ) -> Option<ClassCtor> {
@@ -254,17 +255,46 @@ impl<'a> Parser<'a> {
         }
         Some(match ctor {
             Some(c) => {
-                let mut body = prefix;
-                body.extend(c.body);
+                // §10.2.11 — the initializers run once `this` exists,
+                // so in a derived class they belong AFTER the
+                // `super(...)`, not at the top. In front of it, an
+                // initializer reading an inherited field saw the slot
+                // before the base ctor filled it (`e = this.v + 1`
+                // answered 1 against a base `v = 5`). No super call in
+                // the body means either a base class or a ctor that
+                // never initializes `this` at all — the top is right
+                // for the first and moot for the second.
+                let at = self.super_stmt_index(&c.body).map_or(0, |i| i + 1);
+                let mut body = c.body;
+                body.splice(at..at, prefix);
                 ClassCtor {
                     params: c.params,
                     body,
                 }
             }
-            None => ClassCtor {
-                params: Vec::new(),
-                body: prefix,
-            },
+            None => {
+                // The class declared no ctor; this one exists only to
+                // hold the initializers. Record that, so the derived
+                // default-ctor synthesis still treats the class as
+                // having the implicit ctor it actually has.
+                self.ast
+                    .field_init_synth_ctors
+                    .insert(class_name.to_string());
+                ClassCtor {
+                    params: Vec::new(),
+                    body: prefix,
+                }
+            }
+        })
+    }
+
+    /// Index of the first statement in `body` that IS a `super(...)`
+    /// call. Only the statement level is examined: a super buried in a
+    /// branch has no single "after" to speak of, and that shape is a
+    /// recorded boundary elsewhere too.
+    fn super_stmt_index(&self, body: &[Stmt]) -> Option<usize> {
+        body.iter().position(|s| {
+            matches!(s, Stmt::Expr(eid) if matches!(self.ast.get_expr(*eid), Expr::Super { .. }))
         })
     }
 }

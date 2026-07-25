@@ -83,6 +83,14 @@ pub struct Ast {
     /// field-init ctor / a desugar default ctor is not a user ctor
     /// and never gets the raiser.
     pub explicit_ctor_classes: std::collections::HashSet<String>,
+    /// Classes whose ctor exists only to hold their field
+    /// initializers (`class C { v = 5 }`). Such a class has NOT said
+    /// what it takes — per §15.7.14 it has the implicit default ctor —
+    /// so a derived one still forwards its ancestor's parameters and
+    /// still calls super. Recorded positively, not as the complement
+    /// of `explicit_ctor_classes`: that set is parser-filled, so the
+    /// injected builtin classes never enter it.
+    pub field_init_synth_ctors: std::collections::HashSet<String>,
     /// Phase H.3.b — method name → declaring classes in source order
     /// (deepest sub last). Used by ssa_lower's `__dispatch_<M>` Call
     /// interception to emit the runtime tag-switch and call the right

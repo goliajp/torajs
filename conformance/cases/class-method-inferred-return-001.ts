@@ -67,12 +67,10 @@ class Branching {
   }
 }
 
-// A subclass reading its OWN field. Reading an INHERITED one is left
-// out on purpose: a field initializer declared on the base does not run
-// for a subclass instance at all (`class B { v: number = 5 }` /
-// `class D extends B { }` answers `d.v === 0`), which is a separate
-// pre-existing hole confirmed on the clean HEAD and recorded rather
-// than locked in here at its wrong answer.
+// inherited fields, and an override. Reading an inherited one was left
+// out when this fixture was written — a base field initializer did not
+// run for a subclass instance at all — and went in once that was fixed
+// (see class-inherited-field-init-001).
 class Base {
   v = 5;
   read() {
@@ -81,8 +79,8 @@ class Base {
 }
 class Derived extends Base {
   extra = 6;
-  own() {
-    return this.extra;
+  read() {
+    return this.v + this.extra;
   }
 }
 
@@ -121,7 +119,7 @@ function main(): void {
   console.log(br.pick(true), br.pick(false), br.ternary(true), br.ternary(false));
 
   const d = new Derived();
-  console.log(new Base().read(), d.own());
+  console.log(new Base().read(), d.read());
 
   const a = new Annotated();
   a.noReturn();
