@@ -76,6 +76,29 @@ pub(crate) fn callee_falls_through(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
     )
 }
 
+/// `await p` parses to `p.value`, so this answers the inner type of the
+/// promise being awaited (`None` for any other expression).
+///
+/// A promise's value slot carries whatever settled it, and an async body
+/// that runs off its end settles with that width's undefined sentinel
+/// (ES §10.2.1.4 step 11) — as does any sentinel-bearing value handed to
+/// `Promise.resolve`. Every "may this hold the sentinel" predicate
+/// consults it for its own width. Over-broad for the promises that
+/// always settle with a real value: one predictable compare, never
+/// wrong.
+fn awaited_promise_inner<'c>(ctx: &'c LowerCtx<'_>, eid: ExprId) -> Option<&'c crate::check::Type> {
+    let Expr::Member { obj, name } = ctx.ast.get_expr(eid) else {
+        return None;
+    };
+    if name != "value" {
+        return None;
+    }
+    match ctx.expr_types.get(obj) {
+        Some(crate::check::Type::Promise(inner)) => Some(inner),
+        _ => None,
+    }
+}
+
 /// RFC 20260707-undefined-sentinel-repr chunk 1 — true when a
 /// Str-typed expression may legally hold NULL (missed exec/match
 /// capture slot per the 591 NULL-means-undefined convention):
@@ -84,6 +107,12 @@ pub(crate) fn callee_falls_through(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
 /// shape, alias-propagated).
 pub(crate) fn is_nullable_str_source(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
     if callee_falls_through(ctx, eid) {
+        return true;
+    }
+    if matches!(
+        awaited_promise_inner(ctx, eid),
+        Some(crate::check::Type::String)
+    ) {
         return true;
     }
     match ctx.ast.get_expr(eid) {
@@ -180,6 +209,13 @@ pub(crate) fn is_undef_f64_source(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
         // 20260722 chunk D — a `find`/`findLast` miss answers the
         // sentinel the same way.
         _ if callee_falls_through(ctx, eid) => true,
+        _ if matches!(
+            awaited_promise_inner(ctx, eid),
+            Some(crate::check::Type::Number)
+        ) =>
+        {
+            true
+        }
         Expr::Call { callee, .. } => {
             matches!(
                 ctx.ast.get_expr(*callee),
@@ -205,6 +241,17 @@ pub(crate) fn is_undef_f64_source(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
 /// hit-path reads — one well-predicted cmp, never wrong.
 pub(crate) fn is_undefable_heap_source(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
     if callee_falls_through(ctx, eid) {
+        return true;
+    }
+    if matches!(
+        awaited_promise_inner(ctx, eid),
+        Some(
+            crate::check::Type::Struct(_)
+                | crate::check::Type::ClassRef(_)
+                | crate::check::Type::Array(_)
+                | crate::check::Type::Function(..)
+        )
+    ) {
         return true;
     }
     if matches!(

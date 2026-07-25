@@ -68,6 +68,9 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, name: &str) -> Operand {
         if let Some(op) = try_proto_sentinel(ctx, name) {
             return op;
         }
+        if let Some(op) = try_async_tail_undefined(ctx, name) {
+            return op;
+        }
         if name == "undefined" {
             return Operand::ConstPtrNull;
         }
@@ -76,6 +79,35 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, name: &str) -> Operand {
         }
     }
     lower_local_binding(ctx, name)
+}
+
+/// The `__undef_slot__<T>` marker `desugar_async` plants where an async
+/// body runs off its end: ES §10.2.1.4 step 11 settles that path with
+/// `undefined`, and this materializes the way width `T` spells it —
+/// the same choice [`crate::ssa_lower_fn`] makes for an ordinary
+/// function's fall-through path, so the two agree on what an awaiter
+/// will see.
+///
+/// A width with no sentinel of its own (`boolean`, plain I64) keeps the
+/// type's zero, which is what the tail carried before any of this — no
+/// worse, and there is no bit pattern there to do better with.
+fn try_async_tail_undefined(ctx: &mut LowerCtx<'_>, name: &str) -> Option<Operand> {
+    let ann = name.strip_prefix(crate::ast::UNDEF_SLOT_MARKER)?;
+    // `number` reads back as I64 here — the width is only widened where
+    // the promise's value slot is built — but the sentinel IS the reason
+    // to be wide, so ask for it by annotation rather than by resolved
+    // width.
+    if ann == "number" {
+        return Some(Operand::ConstF64(f64::from_bits(
+            crate::ssa_lower_nullable_guard::F64_UNDEF_SENTINEL_BITS,
+        )));
+    }
+    let ty = ctx.try_resolve_type_ann(Some(ann))?;
+    Some(ctx.str_undef_sentinel_for(ty.clone()).unwrap_or(match ty {
+        Type::F64 => Operand::ConstF64(0.0),
+        Type::I64 => Operand::ConstI64(0),
+        _ => Operand::ConstPtrNull,
+    }))
 }
 
 /// L3b ④ — a bare builtin-constructor namespace ident read as a

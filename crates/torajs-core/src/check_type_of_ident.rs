@@ -119,6 +119,21 @@ pub(crate) fn check(checker: &Checker, name: &str) -> Result<Type, String> {
         "gc" => Ok(Type::Function(Vec::new(), Box::new(Type::Void))),
         "undefined" => Ok(Type::Undefined),
         "NaN" | "Infinity" => Ok(Type::Number),
+        // The undefined an async body's fall-through tail settles with
+        // (`desugar_async`). It stands where a value of the declared
+        // inner type is expected, and the SSA lowering gives it that
+        // width's undefined sentinel, so it types as the annotation it
+        // carries rather than as `Type::Undefined`.
+        other if other.starts_with(crate::ast::UNDEF_SLOT_MARKER) => {
+            let ann = &other[crate::ast::UNDEF_SLOT_MARKER.len()..];
+            crate::check_type_ann::resolve_type_ann_full(
+                ann,
+                &checker.aliases,
+                &[],
+                &checker.generic_alias_decls,
+            )
+            .ok_or_else(|| format!("unresolvable async tail type `{ann}`"))
+        }
         other => Err(format!("unknown identifier `{other}`")),
     }
 }

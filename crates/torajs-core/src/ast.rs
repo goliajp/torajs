@@ -80,6 +80,7 @@ pub(crate) use closure_capture_anns::{
     SiteAnns, collect_closure_capture_anns, collect_outer_binds,
 };
 pub(crate) use control_flow::body_always_terminates;
+pub(crate) use desugar_async::UNDEF_SLOT_MARKER;
 pub use desugar_async::desugar_async;
 pub use desugar_classes::desugar_classes;
 pub use desugar_generators::desugar_generators;

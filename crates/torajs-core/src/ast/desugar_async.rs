@@ -21,6 +21,12 @@
 
 use super::{Ast, Expr, ExprId, Stmt, default_init_for_type};
 
+/// Prefix of the marker ident an async body's fall-through tail carries,
+/// suffixed with the declared inner type (`__undef_slot__number`). The
+/// checker types it as that annotation and the SSA lowering materializes
+/// that width's undefined sentinel — see [`fallthrough_undefined_for`].
+pub(crate) const UNDEF_SLOT_MARKER: &str = "__undef_slot__";
+
 pub fn desugar_async(ast: &mut Ast) {
     rewrite_async_fn_value_exprs(ast);
     if ast.async_fns.is_empty() {
@@ -171,8 +177,8 @@ pub(super) fn build_async_body(
     // Tail safety: if control flow falls off the end, return
     // `Promise.resolve(<default T>)`.
     if !body_ends_in_return(&new_body) {
-        let default_id = ast.add_expr(default_init_for_type(&inner_ty));
-        let call = build_async_resolve(ast, default_id, &inner_ty);
+        let tail_id = ast.add_expr(fallthrough_undefined_for(&inner_ty));
+        let call = build_async_resolve(ast, tail_id, &inner_ty);
         new_body.push(Stmt::Return(Some(call)));
     }
 
@@ -215,6 +221,32 @@ fn body_ends_in_return(body: &[Stmt]) -> bool {
         Some(Stmt::Throw(_)) => true,
         Some(Stmt::Multi(stmts)) | Some(Stmt::Block(stmts)) => body_ends_in_return(stmts),
         _ => false,
+    }
+}
+
+/// The value an async body's implicit tail completion settles with.
+///
+/// ES §10.2.1.4 step 11 makes that `undefined` whatever the return
+/// annotation says, so this is deliberately NOT `default_init_for_type`
+/// — that answers the *type's* zero (`0` for number, `""` for string),
+/// which is a different value the awaiter cannot tell apart from a real
+/// one. Only the annotations that already spell undefined as their zero
+/// keep using it; every other width needs its own undefined sentinel,
+/// which the `__undef_slot__<T>` marker asks the SSA lowering to
+/// materialize (`ssa_lower_ident`, alongside the one an ordinary
+/// function's fall-through path emits).
+fn fallthrough_undefined_for(inner_ty: &str) -> Expr {
+    match inner_ty {
+        "any" | "void" | "undefined" => default_init_for_type(inner_ty),
+        // `number` spells undefined as an F64 sentinel, so it needs the
+        // wide slot to carry it. Writing the sentinel as a literal is
+        // what earns that: num_width reads a non-integral literal as
+        // evidence the slot is F64 and widens the promise's value field
+        // to match, which a marker ident would not do.
+        "number" => Expr::Number(f64::from_bits(
+            crate::ssa_lower_nullable_guard::F64_UNDEF_SENTINEL_BITS,
+        )),
+        _ => Expr::Ident(format!("{UNDEF_SLOT_MARKER}{inner_ty}")),
     }
 }
 
