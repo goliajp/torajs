@@ -133,6 +133,7 @@ pub(crate) fn run(ast: &mut Ast) {
         stmts,
         exprs,
         fn_expr_exprs,
+        objlit_method_exprs,
         closure_argc_locals,
         closure_argv_locals,
         fnexpr_recv_fns,

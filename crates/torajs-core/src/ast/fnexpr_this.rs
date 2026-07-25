@@ -59,13 +59,22 @@ pub(crate) fn run(
     stmts: &mut [Stmt],
     exprs: &mut [Expr],
     fn_expr_exprs: &std::collections::HashSet<ExprId>,
+    objlit_method_exprs: &std::collections::HashSet<ExprId>,
     closure_argc_locals: &std::collections::HashSet<String>,
     closure_argv_locals: &std::collections::HashSet<String>,
     fnexpr_recv_fns: &mut std::collections::HashSet<String>,
     fnexpr_recv_faces: &mut std::collections::HashSet<ExprId>,
     fnexpr_recv_locals: &mut std::collections::HashSet<String>,
 ) {
-    if fn_expr_exprs.is_empty() {
+    // A face need not be spelled as a fn-expr. `Object.defineProperty(o,
+    // k, { get() { return this._y } })` is a METHOD SHORTHAND, which
+    // `objlit_nominal` has already given a `__this` typed with the
+    // descriptor literal's own nominal alias — and the walk below is
+    // what re-anns that to the property receiver. Keying the early-out
+    // on fn-exprs alone meant a program whose only face was a shorthand
+    // skipped the whole pass, and its getter body typed `this` as the
+    // descriptor: `no member ._y on type Struct([("get", ...)])`.
+    if fn_expr_exprs.is_empty() && objlit_method_exprs.is_empty() {
         return;
     }
     let mut patches: Vec<FacePatch> = Vec::new();
