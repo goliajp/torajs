@@ -17,32 +17,47 @@ use std::collections::HashSet;
 /// it with the binding it was assigned to (`const h = (f) => …; h(x)`),
 /// which would miss. Record the binding as an alias.
 ///
+/// A binding aliased to another binding (`const j = h`) rides the same
+/// rule — it reads as a plain Ident init — so the walk runs to a
+/// fixpoint rather than once, which also covers a chain declared out of
+/// order relative to the walk.
+///
 /// Same-named bindings merge conservatively, matching how `SlotKey`
 /// treats them: naming one fall-through closure is enough for every
 /// `h(...)` to take the sentinel-aware branch, which is the safe
 /// direction (one predictable compare) rather than the silent one.
 pub(super) fn alias_fallthrough_closures(ast: &Ast, out: &mut HashSet<String>) {
-    fn walk(ast: &Ast, stmts: &[Stmt], out: &mut HashSet<String>) {
+    fn walk(ast: &Ast, stmts: &[Stmt], out: &mut HashSet<String>, grew: &mut bool) {
         for s in stmts {
             match s {
                 Stmt::LetDecl { name, init, .. } => {
-                    if let Expr::Closure { fn_name, .. } = ast.get_expr(*init)
-                        && out.contains(fn_name)
-                    {
+                    if out.contains(name) {
+                        continue;
+                    }
+                    let aliases_fallthrough = match ast.get_expr(*init) {
+                        Expr::Closure { fn_name, .. } => out.contains(fn_name),
+                        Expr::Ident(n) => out.contains(n),
+                        _ => false,
+                    };
+                    if aliases_fallthrough {
                         out.insert(name.clone());
+                        *grew = true;
                     }
                 }
                 Stmt::FnDecl { body, .. } | Stmt::Block(body) | Stmt::Multi(body) => {
-                    walk(ast, body, out)
+                    walk(ast, body, out, grew)
                 }
                 _ => {}
             }
         }
     }
-    // One pass is enough for the direct shape; a binding aliased to
-    // another binding (`const j = h`) would need a fixpoint and is not
-    // covered — it reads as a plain Ident init, not a Closure.
-    walk(ast, &ast.stmts, out);
+    loop {
+        let mut grew = false;
+        walk(ast, &ast.stmts, out, &mut grew);
+        if !grew {
+            break;
+        }
+    }
 }
 
 /// RFC 20260725-fallthrough-return knives 1-2 — a body that can run

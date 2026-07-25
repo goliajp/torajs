@@ -51,3 +51,16 @@ function outer() {
   console.log(inner(false), inner(true));
 }
 outer();
+
+// a binding aliased to another binding rides the same rule — the alias
+// pass runs to a fixpoint, so a chain of them resolves
+const aliasOfArrow = num;
+const aliasOfAlias = aliasOfArrow;
+console.log(aliasOfArrow(false), aliasOfAlias(false), aliasOfAlias(true));
+
+function named(f: boolean): number {
+  if (f) return 7;
+}
+const aliasOfNamed = named;
+console.log(aliasOfNamed(false), aliasOfNamed(true));
+console.log(aliasOfNamed(false) === undefined);
