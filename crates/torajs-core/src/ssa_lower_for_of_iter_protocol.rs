@@ -81,18 +81,43 @@ struct IterPlan {
 
 /// Resolve the iterator class behind `iter_sid`, its `next` method,
 /// and the field offsets of the IteratorResult struct `next` returns.
-fn resolve_iter_plan(ctx: &LowerCtx, iter_sid: crate::ssa::StructId) -> IterPlan {
-    let mut iter_cname: Option<String> = None;
-    for (n, ty) in ctx.aliases.iter() {
-        if matches!(ty, Type::Obj(s) if s.0 == iter_sid.0) && ctx.ast.class_parents.contains_key(n)
-        {
-            iter_cname = Some(n.clone());
-            break;
+/// The class an `@@iterator` method RETURNS, by name.
+///
+/// RFC 20260715-nominal-class-identity — a class instance names its
+/// class. This used to scan the alias table for any entry whose
+/// `Type::Obj` StructId matched, which is structural: two classes with
+/// the same field shape share a StructId, so the scan picked whichever
+/// the HashMap happened to yield first and the SAME program compiled
+/// to a different iterator between runs. The declared return type of
+/// the `@@iterator` method is the nominal answer, and the generator
+/// desugar fills it in too (§27.5.1.5 — a generator is its own
+/// iterable, so its method returns its own class).
+fn iter_class_name(ctx: &LowerCtx, src_class: &str) -> Option<String> {
+    let iter_fn = format!("__cm_{src_class}____sym_Symbol_iterator__");
+    for st in &ctx.ast.stmts {
+        let Stmt::FnDecl {
+            name, return_type, ..
+        } = st
+        else {
+            continue;
+        };
+        if name != &iter_fn {
+            continue;
         }
+        let declared = return_type.as_deref()?;
+        return ctx
+            .ast
+            .class_parents
+            .contains_key(declared)
+            .then(|| declared.to_string());
     }
-    let Some(iter_cname) = iter_cname else {
+    None
+}
+
+fn resolve_iter_plan(ctx: &LowerCtx, iter_sid: crate::ssa::StructId, src_class: &str) -> IterPlan {
+    let Some(iter_cname) = iter_class_name(ctx, src_class) else {
         panic!(
-            "ssa-lower: for-of protocol — iter class sid={} not in aliases (P5.3 Phase B requires the iter to be a registered user class)",
+            "ssa-lower: for-of protocol — `{src_class}[Symbol.iterator]()` must declare the iterator class it returns (sid={} resolved to no registered class)",
             iter_sid.0
         );
     };
@@ -173,7 +198,7 @@ pub(crate) fn lower_for_of_iter_protocol(
     // below).
     ctx.emit_throw_check(None);
 
-    let plan = resolve_iter_plan(ctx, iter_sid);
+    let plan = resolve_iter_plan(ctx, iter_sid, src_class);
     let IterPlan {
         next_fid,
         next_defaults,
