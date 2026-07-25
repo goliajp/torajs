@@ -122,37 +122,6 @@ pub(crate) fn lower(ctx: &mut LowerCtx, maybe: Option<crate::ast::ExprId>) {
     // backlog rather than silently narrowed: not closing at all was
     // the strictly worse answer this replaces.
     crate::ssa_lower_for_of_teardown::emit_all_for_return(ctx);
-    if !ctx.try_finally_stack.is_empty() {
-        let target = *ctx.try_finally_stack.last().unwrap();
-        let ret_ty = ctx.f.ret;
-        let slot = match ctx.pending_return_slot {
-            Some(s) => s,
-            None => {
-                let s = ctx.alloca(ret_ty, Some("__pending_ret"));
-                ctx.pending_return_slot = Some(s);
-                s
-            }
-        };
-        let flag = match ctx.pending_return_flag {
-            Some(f) => f,
-            None => {
-                let f = ctx.alloca(Type::Bool, Some("__pending_flag"));
-                ctx.pending_return_flag = Some(f);
-                f
-            }
-        };
-        if let Some(v) = ret_operand {
-            ctx.f
-                .append_void(ctx.cur_block, InstKind::Store(v, Operand::Value(slot), 0));
-        }
-        ctx.f.append_void(
-            ctx.cur_block,
-            InstKind::Store(Operand::ConstBool(true), Operand::Value(flag), 0),
-        );
-        let cb = ctx.cur_block;
-        ctx.f.set_term(cb, Terminator::Br(target));
-        return;
-    }
     let coerced = ret_operand.map(|op| {
         let actual = ctx.operand_ty(&op);
         if ctx.f.ret == Type::Any && actual != Type::Any {
@@ -214,6 +183,55 @@ pub(crate) fn lower(ctx: &mut LowerCtx, maybe: Option<crate::ast::ExprId>) {
     } else {
         coerced
     };
+    // The finally hand-off is an exit like any other, so it stores the
+    // COERCED value: the slot is `ctx.f.ret`-wide, and reading it back
+    // in `emit_pending_return` loads at that width. Storing the raw
+    // operand let a `return 1` inside a try land an I64 constant in an
+    // F64 slot — codegen has no way to materialise that and aborted.
+    if !ctx.try_finally_stack.is_empty() {
+        let target = *ctx.try_finally_stack.last().unwrap();
+        let ret_ty = ctx.f.ret;
+        let slot = match ctx.pending_return_slot {
+            Some(s) => s,
+            None => {
+                // Entry-allocated for the same reason as the flag
+                // below: the lazy alloca lands in whichever block held
+                // the `return`, and that block does not dominate the
+                // finally tail once a path exists that reaches the
+                // tail WITHOUT returning. No initialiser needed — the
+                // flag gates every read of this slot.
+                let s = ctx.alloca_in_entry(ret_ty, Some("__pending_ret"));
+                ctx.pending_return_slot = Some(s);
+                s
+            }
+        };
+        let flag = match ctx.pending_return_flag {
+            Some(f) => f,
+            None => {
+                // Entry-allocated and zeroed, like its `__pending_break`
+                // / `__pending_continue` siblings: the finally tail
+                // reads this flag on the fall-through path too, which
+                // the lazy alloca in whichever block held the `return`
+                // neither dominates nor initialises. Latent until the
+                // fall-through path became reachable — it used to be
+                // terminated `unreachable`.
+                let f = ctx.alloca_bool_flag_in_entry(Some("__pending_flag"));
+                ctx.pending_return_flag = Some(f);
+                f
+            }
+        };
+        if let Some(v) = coerced {
+            ctx.f
+                .append_void(ctx.cur_block, InstKind::Store(v, Operand::Value(slot), 0));
+        }
+        ctx.f.append_void(
+            ctx.cur_block,
+            InstKind::Store(Operand::ConstBool(true), Operand::Value(flag), 0),
+        );
+        let cb = ctx.cur_block;
+        ctx.f.set_term(cb, Terminator::Br(target));
+        return;
+    }
     ctx.emit_drops_for_owned_locals();
     let cb = ctx.cur_block;
     ctx.f.set_term(cb, Terminator::Ret(coerced));

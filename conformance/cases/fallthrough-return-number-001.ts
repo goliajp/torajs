@@ -83,6 +83,47 @@ function looping(n: number): number {
 }
 console.log(looping(4));
 
+// a `return` inside a `try` hands its value to the finally tail
+// instead of returning directly, and that path used to skip the
+// return-value coercion entirely — a `return 1` landed an I64 constant
+// in the widened slot. The tail's "did someone return" flag also has
+// to start zeroed, which only matters once the fall-through path is
+// reachable at all.
+function guarded(f: boolean): number {
+  try {
+    if (f) {
+      return 1;
+    }
+  } finally {
+    console.log("cleanup");
+  }
+}
+console.log(guarded(true));
+console.log(guarded(false));
+
+// an exception raised in a try with no catch leaves the function, so
+// the body alone decides whether this one falls through
+function escapes(f: boolean): number {
+  try {
+    return f ? 1 : 2;
+  } finally {
+    console.log("out");
+  }
+}
+console.log(escapes(true), escapes(false));
+
+// with a catch, both halves have to return
+function handled(f: boolean): number {
+  try {
+    if (f) {
+      return 1;
+    }
+  } catch (e) {
+    return 9;
+  }
+}
+console.log(handled(true), handled(false));
+
 // switch without a default can miss every case
 function switched(n: number): number {
   switch (n) {

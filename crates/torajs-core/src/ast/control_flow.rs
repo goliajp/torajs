@@ -37,10 +37,12 @@ fn stmt_always_terminates(s: &Stmt) -> bool {
         }
         Stmt::Block(stmts) | Stmt::Multi(stmts) => body_always_terminates(stmts),
         // A `finally` that terminates swallows every path through the
-        // other two; otherwise both the protected body and the
-        // handler have to. `had_catch: false` leaves `catch_body`
-        // empty, which answers `false` and so keeps the whole `try`
-        // honest — an exception there escapes the statement.
+        // other two. Otherwise: with a `catch`, both the protected
+        // body and the handler have to terminate, because either can
+        // be the one that falls out of the statement. WITHOUT a
+        // `catch` the body alone decides — an exception raised there
+        // propagates out of the *function*, which is not the
+        // fall-through path this asks about.
         Stmt::Try {
             body,
             had_catch,
@@ -51,7 +53,10 @@ fn stmt_always_terminates(s: &Stmt) -> bool {
             if finally_body.as_deref().is_some_and(body_always_terminates) {
                 return true;
             }
-            body_always_terminates(body) && *had_catch && body_always_terminates(catch_body)
+            if !*had_catch {
+                return body_always_terminates(body);
+            }
+            body_always_terminates(body) && body_always_terminates(catch_body)
         }
         // Without a `default` the scrutinee can miss every case. With
         // one, every clause has to terminate — and an empty clause
@@ -170,9 +175,16 @@ mod tests {
             vec![expr()],
             None
         )]));
-        // no catch — an exception leaves the statement
-        assert!(!body_always_terminates(&[try_stmt(
+        // no catch — an exception leaves the whole function, so the
+        // body alone decides
+        assert!(body_always_terminates(&[try_stmt(
             vec![ret()],
+            false,
+            vec![],
+            None
+        )]));
+        assert!(!body_always_terminates(&[try_stmt(
+            vec![expr()],
             false,
             vec![],
             None
