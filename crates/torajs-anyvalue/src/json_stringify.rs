@@ -29,10 +29,12 @@ use core::ffi::c_void;
 use torajs_rc::Tag;
 
 mod composites;
+mod gap;
 
+use crate::member_set::{STR_DATA_OFF, STR_LEN_OFF};
 use crate::nanbox::{
-    AnyValue, as_bool, as_double, as_int32, as_void_ptr, is_bool, is_cell, is_double, is_int32,
-    is_null, is_short_str, is_undefined,
+    AnyValue, as_bool, as_double, as_int32, as_void_ptr, box_double, box_void_ptr, is_bool,
+    is_cell, is_double, is_int32, is_null, is_short_str, is_undefined,
 };
 
 /// torajs-dynobj `layout::BUCKET_FLAG_ENUMERABLE` mirror — a
@@ -130,6 +132,12 @@ enum Wrote {
 /// `v` carries a valid AnyValue bit pattern.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_json_stringify(v: AnyValue) -> *mut u8 {
+    unsafe { stringify_with_gap(v, &[]) }
+}
+
+/// Shared body of the two entries — `gap` is the ES §25.5.2.1
+/// indent unit (empty for the compact form).
+unsafe fn stringify_with_gap(v: AnyValue, gap: &[u8]) -> *mut u8 {
     unsafe {
         // §25.5.2.3 step 2 — the top-level value consults the user
         // toJSON hook before walking (rotation 205).
@@ -144,7 +152,7 @@ pub unsafe extern "C" fn __torajs_anyv_json_stringify(v: AnyValue) -> *mut u8 {
             return __torajs_str_undef();
         }
         let sb = __torajs_jsb_new(64);
-        let wrote = write_value(sb, v, 0);
+        let wrote = write_value(sb, v, 0, gap);
         if hook_owned {
             crate::nanbox_ffi::__torajs_anyv_rc_dec(v);
         }
@@ -159,7 +167,7 @@ pub unsafe extern "C" fn __torajs_anyv_json_stringify(v: AnyValue) -> *mut u8 {
 
 /// Append one value's serialization. See [`Wrote`] for the
 /// undefined/callable contract.
-unsafe fn write_value(sb: *mut c_void, v: AnyValue, depth: u32) -> Wrote {
+unsafe fn write_value(sb: *mut c_void, v: AnyValue, depth: u32, gap: &[u8]) -> Wrote {
     unsafe {
         if depth > MAX_DEPTH {
             __torajs_throw_type_error(c"cyclic or too deeply nested structure".as_ptr());
@@ -195,12 +203,12 @@ unsafe fn write_value(sb: *mut c_void, v: AnyValue, depth: u32) -> Wrote {
         if !is_cell(v) {
             return Wrote::Nothing;
         }
-        write_cell(sb, as_void_ptr(v), depth)
+        write_cell(sb, as_void_ptr(v), depth, gap)
     }
 }
 
 /// The heap-tag arms.
-unsafe fn write_cell(sb: *mut c_void, ptr: *mut c_void, depth: u32) -> Wrote {
+unsafe fn write_cell(sb: *mut c_void, ptr: *mut c_void, depth: u32, gap: &[u8]) -> Wrote {
     unsafe {
         let tag = (ptr.cast::<u8>().add(4) as *const u16).read();
         match tag {
@@ -223,15 +231,15 @@ unsafe fn write_cell(sb: *mut c_void, ptr: *mut c_void, depth: u32) -> Wrote {
                 Wrote::Value
             }
             t if t == Tag::Arr as u16 => {
-                write_array(sb, ptr, depth);
+                write_array(sb, ptr, depth, gap);
                 Wrote::Value
             }
             t if t == Tag::DynObj as u16 => {
-                composites::write_object(sb, ptr, depth);
+                composites::write_object(sb, ptr, depth, gap);
                 Wrote::Value
             }
             t if t == Tag::Obj as u16 => {
-                composites::write_struct(sb, ptr, depth);
+                composites::write_struct(sb, ptr, depth, gap);
                 Wrote::Value
             }
             t if t == Tag::Date as u16 => {
@@ -308,7 +316,7 @@ unsafe fn write_cell(sb: *mut c_void, ptr: *mut c_void, depth: u32) -> Wrote {
 
 /// `[...]` — an element that serializes to nothing becomes `null`
 /// (§25.5.2 SerializeJSONArray step 8).
-unsafe fn write_array(sb: *mut c_void, ptr: *mut c_void, depth: u32) {
+unsafe fn write_array(sb: *mut c_void, ptr: *mut c_void, depth: u32, gap: &[u8]) {
     unsafe {
         __torajs_jsb_push_byte(sb, b'[');
         let boxed = crate::nanbox::box_void_ptr(ptr);
@@ -317,6 +325,7 @@ unsafe fn write_array(sb: *mut c_void, ptr: *mut c_void, depth: u32) {
             if i > 0 {
                 __torajs_jsb_push_byte(sb, b',');
             }
+            push_indent(sb, depth + 1, gap);
             let mut elem = crate::index_any::__torajs_any_index_get(boxed, i);
             // §25.5.2.3 step 2 — element-level toJSON hook.
             if let Some(r) = crate::json_stringify_tojson::apply_tojson(elem) {
@@ -327,13 +336,16 @@ unsafe fn write_array(sb: *mut c_void, ptr: *mut c_void, depth: u32) {
                     break;
                 }
             }
-            if write_value(sb, elem, depth + 1) == Wrote::Nothing {
+            if write_value(sb, elem, depth + 1, gap) == Wrote::Nothing {
                 push_bytes(sb, b"null");
             }
             crate::nanbox_ffi::__torajs_anyv_rc_dec(elem);
             if __torajs_throw_check() != 0 {
                 break;
             }
+        }
+        if len > 0 {
+            push_indent(sb, depth, gap);
         }
         __torajs_jsb_push_byte(sb, b']');
     }
@@ -398,6 +410,23 @@ unsafe fn write_double(sb: *mut c_void, x: f64) {
     }
 }
 
+/// ES §25.5.2.1 — under a non-empty `gap`, every element / property
+/// sits on its own line indented by one `gap` per nesting level, and
+/// the closing bracket returns to the parent's level. A no-op for
+/// the compact form, which is the whole cost this adds to it.
+unsafe fn push_indent(sb: *mut c_void, depth: u32, gap: &[u8]) {
+    if gap.is_empty() {
+        return;
+    }
+    unsafe {
+        __torajs_jsb_push_byte(sb, b'\n');
+        for _ in 0..depth {
+            push_bytes(sb, gap);
+        }
+    }
+}
+
+/// Append raw (already-encoded) bytes to the builder.
 unsafe fn push_bytes(sb: *mut c_void, bytes: &[u8]) {
     for b in bytes {
         unsafe { __torajs_jsb_push_byte(sb, *b) };

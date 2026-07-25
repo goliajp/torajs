@@ -410,6 +410,7 @@ pub(crate) struct Intrinsics {
     pub(crate) builtin_ctor_value: FuncId,
     pub(crate) ns_static_cell: FuncId,
     pub(crate) anyv_json_stringify: FuncId,
+    pub(crate) anyv_json_stringify_spaced: FuncId,
     pub(crate) class_register: FuncId,
     pub(crate) error_proto_install: FuncId,
     pub(crate) error_is_error: FuncId,

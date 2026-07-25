@@ -23,7 +23,7 @@
 //! guard is defensive).
 
 use crate::ast::{Expr, ExprId};
-use crate::ssa::Operand;
+use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 
 pub(crate) fn try_lower(
@@ -58,8 +58,50 @@ pub(crate) fn try_lower(
     // §25.5.2.4 omits an undefined property and prints a null one.
     // The walk peels this in step with its own shape recursion.
     let arg_fe = ctx.expr_types.get(&args[0]).cloned();
-    for &a in args.iter().skip(1) {
-        let _ = ctx.lower_expr(a);
+    let mut space_op = None;
+    for (n, &a) in args.iter().enumerate().skip(1) {
+        let op = ctx.lower_expr(a);
+        if n == 2 {
+            let ty = ctx.operand_ty(&op);
+            // A pointer-shaped `space` is the `null` / `undefined`
+            // spelling of "no indent" — step 8 leaves the gap empty,
+            // so the static lane already answers byte-identically.
+            if !matches!(ty, Type::Ptr) {
+                space_op = Some((op, ty));
+            }
+        }
+    }
+    // §25.5.2.1 steps 5-8 — a `space` argument indents the output,
+    // which only a composite can show, and the runtime walk is the
+    // one entry that carries a gap.
+    //
+    // Only the any lane routes here. Handing a STATIC composite to
+    // the runtime walk would mean boxing it first, and a boxed struct
+    // no longer carries the frontend types that tell an `undefined`
+    // field apart from a null one (the class-layout tag is derived
+    // from the SSA type, which folds them) — the key would come back
+    // as `"u":null` instead of being omitted. The static lane grows
+    // its own gap support rather than trading that back.
+    if let Some((space, space_ty)) = space_op
+        && matches!(arg_ty, Type::Any)
+    {
+        let boxed = arg_op;
+        let space = if matches!(space_ty, Type::Any) {
+            space
+        } else {
+            ctx.box_to_any(space)
+        };
+        let v = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(
+                ctx.intrinsics.anyv_json_stringify_spaced,
+                vec![boxed, space],
+            ),
+            Type::Str,
+            None,
+        );
+        ctx.emit_throw_check(None);
+        return Some(Operand::Value(v));
     }
     Some(crate::ssa_lower_json_stringify::lower_top(
         ctx, arg_op, arg_ty, arg_fe,

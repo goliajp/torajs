@@ -363,6 +363,7 @@ pub(crate) fn build(
         builtin_ctor_value: init_c.any_substrate.builtin_ctor_value,
         ns_static_cell: init_c.any_substrate.ns_static_cell,
         anyv_json_stringify: init_c.any_substrate.anyv_json_stringify,
+        anyv_json_stringify_spaced: init_c.any_substrate.anyv_json_stringify_spaced,
         class_register: init_c.any_substrate.class_register,
         error_proto_install: init_c.any_substrate.error_proto_install,
         error_is_error: init_c.any_substrate.error_is_error,

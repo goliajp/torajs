@@ -11,7 +11,7 @@ use super::*;
 /// `{...}` — own enumerable entries in §10.1.11.1 order (the print
 /// walker's `iter_order` contract); a key whose value serializes to
 /// nothing is omitted entirely.
-pub(super) unsafe fn write_object(sb: *mut c_void, ptr: *mut c_void, depth: u32) {
+pub(super) unsafe fn write_object(sb: *mut c_void, ptr: *mut c_void, depth: u32, gap: &[u8]) {
     unsafe {
         __torajs_jsb_push_byte(sb, b'{');
         let len = __torajs_dynobj_iter_len(ptr);
@@ -73,9 +73,13 @@ pub(super) unsafe fn write_object(sb: *mut c_void, ptr: *mut c_void, depth: u32)
                 __torajs_jsb_push_byte(sb, b',');
             }
             emitted = true;
+            push_indent(sb, depth + 1, gap);
             __torajs_jsb_push_str_quoted(sb, __torajs_dynobj_iter_key(ptr, i) as *const u8);
             __torajs_jsb_push_byte(sb, b':');
-            write_value(sb, value, depth + 1);
+            if !gap.is_empty() {
+                __torajs_jsb_push_byte(sb, b' ');
+            }
+            write_value(sb, value, depth + 1, gap);
             if owned {
                 crate::nanbox_ffi::__torajs_anyv_rc_dec(value);
             }
@@ -85,6 +89,9 @@ pub(super) unsafe fn write_object(sb: *mut c_void, ptr: *mut c_void, depth: u32)
         }
         if !order.is_null() {
             std::alloc::dealloc(order as *mut u8, order_layout);
+        }
+        if emitted {
+            push_indent(sb, depth, gap);
         }
         __torajs_jsb_push_byte(sb, b'}');
     }
@@ -98,7 +105,7 @@ pub(super) unsafe fn write_object(sb: *mut c_void, ptr: *mut c_void, depth: u32)
 /// anonymous struct interned too late to receive a `class_tag`
 /// (`class_tag == 0` → NULL layout) serializes as `{}` — matches the
 /// same coverage gap `Object.keys(anonAny)` documents.
-pub(super) unsafe fn write_struct(sb: *mut c_void, ptr: *mut c_void, depth: u32) {
+pub(super) unsafe fn write_struct(sb: *mut c_void, ptr: *mut c_void, depth: u32, gap: &[u8]) {
     unsafe {
         __torajs_jsb_push_byte(sb, b'{');
         let class_tag = (ptr.cast::<u8>().add(8) as *const u32).read();
@@ -134,15 +141,22 @@ pub(super) unsafe fn write_struct(sb: *mut c_void, ptr: *mut c_void, depth: u32)
                     __torajs_jsb_push_byte(sb, b',');
                 }
                 emitted = true;
+                push_indent(sb, depth + 1, gap);
                 quote_bytes(sb, name.ptr, name.len);
                 __torajs_jsb_push_byte(sb, b':');
-                write_value(sb, value, depth + 1);
+                if !gap.is_empty() {
+                    __torajs_jsb_push_byte(sb, b' ');
+                }
+                write_value(sb, value, depth + 1, gap);
                 if hook_owned {
                     crate::nanbox_ffi::__torajs_anyv_rc_dec(value);
                 }
                 if __torajs_throw_check() != 0 {
                     break;
                 }
+            }
+            if emitted {
+                push_indent(sb, depth, gap);
             }
         }
         __torajs_jsb_push_byte(sb, b'}');
