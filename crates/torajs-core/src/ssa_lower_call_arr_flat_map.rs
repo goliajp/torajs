@@ -65,36 +65,7 @@ pub(crate) fn try_lower(
         Type::FnSig(s) | Type::Closure(s) => ctx.fn_sigs[s.0 as usize].1,
         _ => panic!("flatMap callback must be callable"),
     };
-    // Callback return can be either `Array<U>` (standard flat_map
-    // shape — inner walk pushes each element) or a scalar `U` per
-    // ES §23.1.3.11 step 8.d (a non-Array result acts like `[U]` —
-    // single push per outer iter, no inner walk). The scalar arm is
-    // gated by the sibling `check_type_of_call_arr_flat_map_scalar`
-    // checker wedge (admits `(T) => U` for primitive U).
-    let (scalar_ret, dst_elem_ty, dst_arr_ty) = match cb_ret_ty {
-        Type::Arr(inner_arr_id) => (false, ctx.arr_layouts[inner_arr_id.0 as usize], cb_ret_ty),
-        Type::I64 | Type::F64 | Type::Str | Type::Substr | Type::Bool | Type::Any => {
-            // RFC 20260726-array-elem-width knife 8 — the callback's
-            // return is only one source of the product's elements, so
-            // it cannot decide their width alone; the class the
-            // analysis keys by this call's origin can be wider (a
-            // fractional value reaching the product from anywhere else
-            // widens it). Same ask an array literal already makes, and
-            // the same one knife 1 gave map's product.
-            let elem = if cb_ret_ty == Type::I64
-                && ctx
-                    .num_f64_slots
-                    .elem_is_f64(&crate::num_width::SlotKey::Anon(eid.0))
-            {
-                Type::F64
-            } else {
-                cb_ret_ty
-            };
-            let dst_id = crate::ssa_lower_interners::intern_arr_layout(&mut ctx.arr_layouts, elem);
-            (true, elem, Type::Arr(dst_id))
-        }
-        other => panic!("flatMap callback must return an array or primitive scalar, got {other:?}"),
-    };
+    let (scalar_ret, dst_elem_ty, dst_arr_ty) = dst_shape(ctx, eid, cb_ret_ty);
 
     // Allocate dst (cap=0; arr_push grows on demand). Chunk 625 —
     // an Any dst allocates the FLAG_ARR_ANY flavor: the walk pushes
@@ -189,7 +160,25 @@ pub(crate) fn try_lower(
             None,
         )
     };
-    let cb_ret = ctx.call_fn_value(fn_val, fn_ty, vec![Operand::Value(elem)], 0);
+    // RFC 20260726-array-elem-width knife 9 — the element's width and
+    // the callback parameter's width answer to two different classes,
+    // so they can legitimately disagree: a named callback widened by
+    // another call site still reads an i64-elem array here. The shared
+    // higher-order loop converts on that mismatch
+    // (`ssa_lower_call_arr_ho_loop::emit_do_call`); flatMap builds its
+    // own call and skipped it, so an integer element reached an f64
+    // parameter and register allocation aborted on it.
+    let cb_param0 = match fn_ty {
+        Type::FnSig(s) | Type::Closure(s) => ctx.fn_sigs[s.0 as usize].0.first().copied(),
+        _ => None,
+    };
+    let cb_arg = Operand::Value(elem);
+    let cb_arg = if cb_param0 == Some(Type::F64) && ctx.operand_ty(&cb_arg) == Type::I64 {
+        ctx.coerce_to_f64(cb_arg)
+    } else {
+        cb_arg
+    };
+    let cb_ret = ctx.call_fn_value(fn_val, fn_ty, vec![cb_arg], 0);
 
     let final_dst = if scalar_ret {
         // Scalar return — cb answered an owned scalar U directly (no
@@ -207,6 +196,42 @@ pub(crate) fn try_lower(
     ctx.release_owned_temp(args[0], &fn_val);
     ctx.release_owned_temp(obj, &recv_op);
     Some(Operand::Value(final_dst))
+}
+
+/// The destination's shape: whether the callback answers a scalar, and
+/// the element / array types the product is built with.
+///
+/// Callback return can be either `Array<U>` (standard flat_map shape —
+/// the inner walk pushes each element) or a scalar `U` per ES
+/// §23.1.3.11 step 8.d (a non-Array result acts like `[U]` — single
+/// push per outer iter, no inner walk). The scalar arm is gated by the
+/// sibling `check_type_of_call_arr_flat_map_scalar` checker wedge
+/// (admits `(T) => U` for primitive U).
+fn dst_shape(ctx: &mut LowerCtx<'_>, eid: ExprId, cb_ret_ty: Type) -> (bool, Type, Type) {
+    match cb_ret_ty {
+        Type::Arr(inner_arr_id) => (false, ctx.arr_layouts[inner_arr_id.0 as usize], cb_ret_ty),
+        Type::I64 | Type::F64 | Type::Str | Type::Substr | Type::Bool | Type::Any => {
+            // RFC 20260726-array-elem-width knife 8 — the callback's
+            // return is only one source of the product's elements, so
+            // it cannot decide their width alone; the class the
+            // analysis keys by this call's origin can be wider (a
+            // fractional value reaching the product from anywhere else
+            // widens it). Same ask an array literal already makes, and
+            // the same one knife 1 gave map's product.
+            let elem = if cb_ret_ty == Type::I64
+                && ctx
+                    .num_f64_slots
+                    .elem_is_f64(&crate::num_width::SlotKey::Anon(eid.0))
+            {
+                Type::F64
+            } else {
+                cb_ret_ty
+            };
+            let dst_id = crate::ssa_lower_interners::intern_arr_layout(&mut ctx.arr_layouts, elem);
+            (true, elem, Type::Arr(dst_id))
+        }
+        other => panic!("flatMap callback must return an array or primitive scalar, got {other:?}"),
+    }
 }
 
 /// Emit the inner-array walk (`j in 0..inner_arr.length` pushing each
