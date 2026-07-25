@@ -171,17 +171,8 @@ pub(super) fn build_async_body(
     // Tail safety: if control flow falls off the end, return
     // `Promise.resolve(<default T>)`.
     if !body_ends_in_return(&new_body) {
-        let default_init = default_init_for_type(&inner_ty);
-        let default_id = ast.add_expr(default_init);
-        let promise_ident = ast.add_expr(Expr::Ident("Promise".into()));
-        let resolve_member = ast.add_expr(Expr::Member {
-            obj: promise_ident,
-            name: "resolve".into(),
-        });
-        let call = ast.add_expr(Expr::Call {
-            callee: resolve_member,
-            args: vec![default_id],
-        });
+        let default_id = ast.add_expr(default_init_for_type(&inner_ty));
+        let call = build_async_resolve(ast, default_id, &inner_ty);
         new_body.push(Stmt::Return(Some(call)));
     }
 
@@ -227,6 +218,41 @@ fn body_ends_in_return(body: &[Stmt]) -> bool {
     }
 }
 
+/// Build the `Promise.resolve(value)` an async return hands back, in the
+/// shape the declared inner type asks for.
+///
+/// P10.7 — a default-Any async fn wraps the value in `Expr::As { …,
+/// ty_ann: "any" }` so the call typechecks as `Promise<Any>` (matching the
+/// declared fn return) instead of inferring `Promise<concrete>` from the
+/// raw value's static type. Explicit-T async fns pass the value straight
+/// through.
+///
+/// The tail-safety return needs the very same wrap. "Settled with
+/// undefined" has two representations in tr — a `Promise<Undefined>`
+/// carrying no value, and an Any box holding ANY_UNDEF — and `await`
+/// decodes against the *declared* inner type. So an Any-returning function
+/// that fell off its end used to hand back the first while its awaiter read
+/// the second, answering `[unknown-any-tag]`.
+fn build_async_resolve(ast: &mut Ast, raw_value: ExprId, inner_ty: &str) -> ExprId {
+    let value = if inner_ty == "any" {
+        ast.add_expr(Expr::As {
+            expr: raw_value,
+            ty_ann: "any".into(),
+        })
+    } else {
+        raw_value
+    };
+    let promise_ident = ast.add_expr(Expr::Ident("Promise".into()));
+    let resolve_member = ast.add_expr(Expr::Member {
+        obj: promise_ident,
+        name: "resolve".into(),
+    });
+    ast.add_expr(Expr::Call {
+        callee: resolve_member,
+        args: vec![value],
+    })
+}
+
 /// T-15.h (v0.5.0) — recursively rewrite `Stmt::Return(Some(e))` /
 /// `Stmt::Return(None)` inside `s` into `Stmt::Return(Promise.resolve(e))`.
 ///
@@ -246,30 +272,7 @@ fn rewrite_returns_for_async(ast: &mut Ast, s: &mut Stmt, inner_ty: &str) {
                     ast.add_expr(default)
                 }
             };
-            // P10.7 — Default-Any async fn: wrap the return value in
-            // `Expr::As { …, ty_ann: "any" }` so `Promise.resolve(...)`
-            // typechecks as `Promise<Any>` (matching the declared fn
-            // return) instead of inferring `Promise<concrete>` from
-            // the raw value's static type. Explicit-T async fns
-            // (`inner_ty != "any"`) keep the direct call.
-            let value = if inner_ty == "any" {
-                ast.add_expr(Expr::As {
-                    expr: raw_value,
-                    ty_ann: "any".into(),
-                })
-            } else {
-                raw_value
-            };
-            // Build `Promise.resolve(value)` AST.
-            let promise_ident = ast.add_expr(Expr::Ident("Promise".into()));
-            let resolve_member = ast.add_expr(Expr::Member {
-                obj: promise_ident,
-                name: "resolve".into(),
-            });
-            let call = ast.add_expr(Expr::Call {
-                callee: resolve_member,
-                args: vec![value],
-            });
+            let call = build_async_resolve(ast, raw_value, inner_ty);
             *s = Stmt::Return(Some(call));
         }
         Stmt::If {
