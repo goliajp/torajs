@@ -4,19 +4,18 @@
 //! (torajs-value-drop) when a dynobj's refcount transitions to zero.
 //!
 //! Walks the dense entry array in order, drops each live entry's key
-//! Str + any ANY_HEAP value (holes are skipped), then frees the block.
+//! cell + any ANY_HEAP value (holes are skipped), then frees the block.
 
 use core::ffi::c_void;
 
 use crate::layout::{DYNOBJ_KEY_HOLE, block_bytes};
-use crate::probe::{bucket_key_ptr, cap, entries, entries_len};
+use crate::probe::{bucket_key_ptr, cap, drop_key, entries, entries_len};
 
 unsafe extern "C" {
     /// Cross-tier — torajs-rc's refcount dec. Returns 1 iff the
     /// caller should free + walk children; 0 otherwise.
     fn __torajs_rc_dec(p: *mut c_void) -> i32;
 
-    fn __torajs_str_drop(s: *mut c_void);
     /// Cross-tier — universal heap-value drop (NaN-box-safe; the 7d-A
     /// cell gate filters immediate AnyValues so this is unconditional).
     fn __torajs_value_drop_heap(child: *mut c_void);
@@ -62,7 +61,7 @@ pub unsafe extern "C" fn __torajs_dynobj_drop(obj: *mut c_void) {
             continue;
         }
         unsafe {
-            __torajs_str_drop(bucket_key_ptr(kp_tagged));
+            drop_key(bucket_key_ptr(kp_tagged));
             __torajs_value_drop_heap((*ent.add(i)).value_anyv as *mut c_void);
         }
     }

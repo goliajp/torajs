@@ -91,15 +91,16 @@ pub(crate) fn try_lower(
         let _ = ctx.lower_expr(a);
     }
     let arg_ty = ctx.operand_ty(&arg_op);
-    // W-N-c — `Object.getOwnPropertySymbols`: tr has no symbol-keyed
-    // property surface (a symbol index assignment rejects loud at
-    // typecheck), so the own-symbol list is statically empty for
-    // every receiver. An Any receiver still routes through the
-    // runtime guard (ToObject on undefined / null throws per
-    // §20.1.2.11); statically typed receivers can't be undefined /
-    // null and take the compile-time empty array.
+    // W-N-c — `Object.getOwnPropertySymbols`: an Any receiver routes
+    // through the runtime, which reads §10.1.11.1's symbol bucket off
+    // the receiver's live property dict (and throws ToObject on
+    // undefined / null per §20.1.2.10 step 1). A statically typed
+    // receiver takes the compile-time empty array: a symbol key can
+    // only arrive through `Object.defineProperty` / a computed key,
+    // both of which degrade the binding to the Any dynobj lane first,
+    // so a still-typed cell provably holds none.
     if m_name == "getOwnPropertySymbols" {
-        let arr_id = intern_arr_layout(ctx.arr_layouts, Type::Str);
+        let arr_id = intern_arr_layout(ctx.arr_layouts, Type::Symbol);
         if matches!(arg_ty, Type::Any) {
             let v = ctx.f.append_inst(
                 ctx.cur_block,

@@ -30,6 +30,54 @@ use crate::reflect::{
     build_accessor_descriptor, build_data_descriptor, heap_type_tag, is_cell_imm, is_wrapper_tag,
 };
 
+/// `torajs_dynobj::layout::TAG_SYMBOL_KEY` mirror — a property key
+/// cell is a Str (tag 0) or a Symbol (tag 7) per §6.1.7.
+const TAG_SYMBOL_KEY: u16 = 7;
+
+/// Arr / Closure in-layout expando props-dynobj slot
+/// (`torajs_dynobj::layout::CELL_PROPS_OFF` mirror).
+const CELL_PROPS_OFF: usize = 24;
+
+/// True when the property-key cell is a Symbol rather than a Str.
+///
+/// # Safety
+/// `key` must be non-NULL and point at a live key cell.
+#[inline]
+unsafe fn key_is_symbol_cell(key: *const c_void) -> bool {
+    unsafe { heap_type_tag(key) == TAG_SYMBOL_KEY }
+}
+
+/// Descriptor for a **symbol** key on a non-DynObj receiver: read it
+/// out of the receiver's in-layout property dict, or `undefined`.
+///
+/// A Symbol key can only ever name an ENTRY-TABLE own property, since
+/// every inherent / virtual own property tr synthesizes in the
+/// name-keyed cascade (struct fields, fn `name` / `length`, RegExp
+/// `lastIndex`, array `length` + canonical indices, wrapper `length` +
+/// chars, builtin-prototype methods) is string-keyed by construction.
+/// Routing the symbol here is also what keeps those arms from reading
+/// Str payload offsets off a 16-byte Symbol cell.
+///
+/// # Safety
+/// `dynobj` is a live cell whose `type_tag` is `htag`; `key` is a live
+/// Symbol cell.
+unsafe fn symbol_key_descriptor_via_dict(
+    dynobj: *const c_void,
+    htag: u16,
+    key: *const c_void,
+) -> u64 {
+    let props_off = match htag {
+        TAG_ARR | TAG_CLOSURE => CELL_PROPS_OFF,
+        t if is_wrapper_tag(t) => WRAPPER_PROPS_OFF,
+        _ => return VALUE_UNDEFINED_IMM,
+    };
+    let props = unsafe { (dynobj.cast::<u8>().add(props_off) as *const *const c_void).read() };
+    if props.is_null() {
+        return VALUE_UNDEFINED_IMM;
+    }
+    unsafe { __torajs_anyv_get_property_descriptor(props as u64, key) }
+}
+
 /// AnyValue-immediate `Object.getOwnPropertyDescriptor(obj, key)`
 /// — builds a fresh dynobj `{ value, writable, enumerable,
 /// configurable }` from the source dynobj's slot, returns it as
@@ -69,6 +117,10 @@ pub unsafe extern "C" fn __torajs_anyv_get_property_descriptor(
     let dynobj = obj_any as *const c_void;
     // SAFETY: cell pointer to valid heap object.
     let htag = unsafe { heap_type_tag(dynobj) };
+    // §6.1.7 — a symbol key skips the name-keyed cascade entirely.
+    if unsafe { key_is_symbol_cell(key) } && htag != TAG_DYNOBJ {
+        return unsafe { symbol_key_descriptor_via_dict(dynobj, htag, key) };
+    }
     // W-J Phase B — static-layout struct cell reads the field via the
     // class_layouts metadata instead of the dynobj hash table. SAFETY:
     // `dynobj` is a live Tag::Obj cell; `key` is non-NULL (checked above).
@@ -182,6 +234,12 @@ pub unsafe extern "C" fn __torajs_anyv_get_property_descriptor(
     }
     let k_str = key as *const u8;
     if !unsafe { __torajs_dynobj_has(dynobj, k_str) } {
+        // A missing symbol key stops here: `builtin_proto_descriptor`
+        // synthesizes name-keyed prototype methods and reads the key's
+        // Str payload to do it (see the §6.1.7 note above).
+        if unsafe { key_is_symbol_cell(key) } {
+            return VALUE_UNDEFINED_IMM;
+        }
         return unsafe { builtin_proto_descriptor(dynobj, key) };
     }
     let v_tag = unsafe { __torajs_dynobj_get_tag(dynobj, k_str) };

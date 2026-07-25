@@ -28,12 +28,30 @@
 //!
 //! ## Entry key-ptr low-bit flag tagging (Step 7e-B)
 //!
-//! `key_ptr_tagged: u64` packs the Str pointer (8-aligned ⇒ low 3 bits
-//! free) with the spec §6.2.5 PropertyDescriptor `writable` /
+//! `key_ptr_tagged: u64` packs the key-cell pointer (8-aligned ⇒ low 3
+//! bits free) with the spec §6.2.5 PropertyDescriptor `writable` /
 //! `enumerable` / `configurable` flags in bits 0/1/2. The high 61 bits
-//! hold the real Str pointer (mask `!0x7`). This is the JSC / V8
+//! hold the real key pointer (mask `!0x7`). This is the JSC / V8
 //! hidden-class style for compact descriptor storage; same pedigree as
 //! Swift Class isa + V8 Maps.
+//!
+//! ## Key domain — Str *or* Symbol cell
+//!
+//! §6.1.7 makes a property key either a String or a Symbol, and both
+//! are 8-aligned heap cells here, so one slot backs both: the
+//! **pointed-to cell's own `type_tag`** discriminates
+//! ([`crate::probe::key_is_symbol`]). String keys hash by content and
+//! compare by content; symbol keys hash by pointer and compare by
+//! pointer identity — a Symbol's identity *is* its cell (§20.4, each
+//! `Symbol(desc)` allocates fresh, description is not identity).
+//! Cross-kind keys never compare equal.
+//!
+//! §10.1.11.1 OrdinaryOwnPropertyKeys orders own keys in three
+//! buckets — array indices ascending, then strings in insertion
+//! order, then symbols in insertion order.
+//! [`crate::iter::__torajs_dynobj_iter_order`] materializes the first
+//! two (every user-visible string-key surface reads it) and
+//! [`crate::iter::__torajs_dynobj_iter_symbol_order`] the third.
 //!
 //! ## Entry value field
 //!
@@ -70,6 +88,13 @@ pub const TAG_ARR_HDR: u16 = 2;
 /// = 3). A Closure's expando props dynobj lives at +24
 /// (`CLOSURE_PROPS_OFF` mirror — same slot Arr uses).
 pub const TAG_CLOSURE_HDR: u16 = 3;
+
+/// `type_tag` mirror for Symbol key cells (`torajs_rc::Tag::Symbol`
+/// = 7, `torajs_str::symbol::TAG_SYMBOL`). A property key is either a
+/// Str cell or a Symbol cell (§6.1.7 property-key domain); the key
+/// slot stores the pointer either way and the pointed-to cell's own
+/// `type_tag` is the discriminator — see [`crate::probe::key_is_symbol`].
+pub const TAG_SYMBOL_KEY: u16 = 7;
 
 /// `type_tag` mirror for Obj (static-layout class instance / typed
 /// property bag = `torajs_rc::Tag::Obj` = 1). Used by
@@ -148,8 +173,8 @@ pub const IDX_TOMBSTONE: u32 = 0xFFFF_FFFE;
 /// well above zero, so `ptr | flags != 0`).
 pub const DYNOBJ_KEY_HOLE: u64 = 0;
 
-/// Mask isolating the real Str pointer in a `key_ptr_tagged` word
-/// (clears the low-3 flag bits).
+/// Mask isolating the real key-cell pointer (Str or Symbol) in a
+/// `key_ptr_tagged` word (clears the low-3 flag bits).
 pub const BUCKET_KEY_PTR_MASK: u64 = !0x7u64;
 
 /// Mask isolating the three PropertyDescriptor flag bits in a

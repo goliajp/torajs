@@ -12,17 +12,31 @@
 //! Probe contract: linear step = 1; mask = `cap - 1` (cap is power of
 //! 2); [`IDX_TOMBSTONE`] slots are walked past but remembered as the
 //! first insertion candidate (lazy slot reuse on next insert).
+//!
+//! A key is either §6.1.7 kind — Str or Symbol — and [`hash_key`] /
+//! [`key_eq`] / [`drop_key`] dispatch on the key cell's own tag (see
+//! [`crate::layout`]'s key-domain note). This module owns that
+//! dispatch so no consumer re-derives it.
 
 use core::ffi::c_void;
 
 use crate::layout::{
     BUCKET_FLAGS_MASK, BUCKET_KEY_PTR_MASK, DYNOBJ_CAP_OFF, DYNOBJ_COUNT_OFF,
     DYNOBJ_ENTRIES_CAP_OFF, DYNOBJ_ENTRIES_LEN_OFF, DYNOBJ_INDEX_OFF, IDX_EMPTY, IDX_TOMBSTONE,
-    STR_DATA_OFF, STR_LEN_OFF,
+    STR_DATA_OFF, STR_LEN_OFF, TAG_SYMBOL_KEY,
 };
 
+unsafe extern "C" {
+    /// Cross-tier — torajs-str's Str drop (an entry's owning
+    /// string-key share).
+    fn __torajs_str_drop(s: *mut c_void);
+    /// Cross-tier — torajs-str's Symbol drop (an entry's owning
+    /// symbol-key share).
+    fn __torajs_symbol_drop(s: *mut c_void);
+}
+
 /// Dense-array entry — 16 bytes, `#[repr(C)]`. `key_ptr_tagged` encodes
-/// the Str pointer (bits 3+) plus the W/E/C PropertyDescriptor flags
+/// the key-cell pointer (bits 3+) plus the W/E/C PropertyDescriptor flags
 /// (bits 0/1/2), or [`crate::layout::DYNOBJ_KEY_HOLE`] for a deleted
 /// hole; `value_anyv` is a NaN-box AnyValue carrying the slot's
 /// (tag, value) pair.
@@ -32,7 +46,8 @@ pub(crate) struct Entry {
     pub(crate) value_anyv: u64,
 }
 
-/// Decode the real Str pointer from a `key_ptr_tagged` word.
+/// Decode the real key-cell pointer (Str or Symbol) from a
+/// `key_ptr_tagged` word.
 #[inline]
 pub(crate) fn bucket_key_ptr(tagged: u64) -> *mut c_void {
     (tagged & BUCKET_KEY_PTR_MASK) as *mut c_void
@@ -45,8 +60,9 @@ pub(crate) fn bucket_flags(tagged: u64) -> u64 {
 }
 
 /// Re-pack a `(ptr, flags)` pair into a fresh `key_ptr_tagged` word.
-/// `flags` is masked to its low 3 bits; `ptr` must be 8-aligned (every
-/// Str heap allocation from torajs-str satisfies this).
+/// `flags` is masked to its low 3 bits; `ptr` must be 8-aligned (both
+/// torajs-str key kinds satisfy this — Str blocks and the 16-byte,
+/// align-8 Symbol cell).
 #[inline]
 pub(crate) fn bucket_make_key_tagged(ptr: *mut c_void, flags: u64) -> u64 {
     (ptr as u64) | (flags & BUCKET_FLAGS_MASK)
@@ -145,6 +161,33 @@ unsafe fn str_data(key: *const c_void) -> *const u8 {
     unsafe { (key as *const u8).add(STR_DATA_OFF) }
 }
 
+/// True when a key cell is a Symbol rather than a Str — the §6.1.7
+/// property-key domain split, read off the cell's own universal
+/// heap-header `type_tag` (offset 4).
+///
+/// # Safety
+/// `key` must point at a live heap block with a universal header.
+#[inline]
+pub(crate) unsafe fn key_is_symbol(key: *const c_void) -> bool {
+    unsafe { *((key as *const u8).add(4) as *const u16) == TAG_SYMBOL_KEY }
+}
+
+/// Release an entry's owning key share, dispatching on the §6.1.7 key
+/// kind. Single site so the delete and whole-block drop walks cannot
+/// drift on which dropper a Symbol key needs.
+///
+/// # Safety
+/// `key` must point at a live Str or Symbol heap block that this
+/// dynobj owns a `+1` share of. The pointee may be freed on return.
+#[inline]
+pub(crate) unsafe fn drop_key(key: *mut c_void) {
+    if unsafe { key_is_symbol(key) } {
+        unsafe { __torajs_symbol_drop(key) }
+    } else {
+        unsafe { __torajs_str_drop(key) }
+    }
+}
+
 /// FNV-1a hash over the Str's UTF-8 payload (64-bit constants,
 /// byte-order over the raw payload).
 ///
@@ -162,8 +205,60 @@ pub(crate) unsafe fn hash_str(key: *const c_void) -> u64 {
     h
 }
 
+/// FNV-1a hash over a Symbol key's cell address. A Symbol's identity
+/// is its cell (§20.4 — description is not identity), so the pointer
+/// *is* the hash input; running it through the same FNV-1a the string
+/// lane uses spreads the always-zero low alignment bits, which a bare
+/// `ptr & mask` probe start would bunch into every 16th slot.
+///
+/// # Safety
+/// `key` must point at a live Symbol heap block.
+#[inline]
+pub(crate) unsafe fn hash_symbol(key: *const c_void) -> u64 {
+    let bytes = (key as u64).to_le_bytes();
+    let mut h: u64 = 0xcbf29ce484222325;
+    for b in bytes {
+        h ^= b as u64;
+        h = h.wrapping_mul(0x100000001b3);
+    }
+    h
+}
+
+/// Hash a property key of either §6.1.7 kind — content for a Str,
+/// cell identity for a Symbol.
+///
+/// # Safety
+/// `key` must point at a live Str or Symbol heap block.
+#[inline]
+pub(crate) unsafe fn hash_key(key: *const c_void) -> u64 {
+    if unsafe { key_is_symbol(key) } {
+        unsafe { hash_symbol(key) }
+    } else {
+        unsafe { hash_str(key) }
+    }
+}
+
+/// Property-key equality across both §6.1.7 kinds. Same-kind keys
+/// compare by their own rule (Str content / Symbol cell identity);
+/// a Str and a Symbol are never the same key.
+///
+/// # Safety
+/// `a` and `b` must each point at a live Str or Symbol heap block.
+#[inline]
+pub(crate) unsafe fn key_eq(a: *const c_void, b: *const c_void) -> bool {
+    if a == b {
+        return true;
+    }
+    // A Symbol key can only equal the very same cell, so any surviving
+    // Symbol on either side is already a miss.
+    if unsafe { key_is_symbol(a) } || unsafe { key_is_symbol(b) } {
+        return false;
+    }
+    unsafe { str_eq(a, b) }
+}
+
 /// Compare two Str values for equality (length + byte content). Used
-/// by [`probe`] for property-key equality. Pointer-identity short-
+/// by [`key_eq`] for string-key equality. Pointer-identity short-
 /// circuit for interned literals.
 ///
 /// # Safety
@@ -201,12 +296,13 @@ pub(crate) struct Probe {
 /// [`IDX_TOMBSTONE`] is remembered for insert reuse.
 ///
 /// # Safety
-/// `obj` must point at a live dynobj heap block; `key` at a live Str.
+/// `obj` must point at a live dynobj heap block; `key` at a live Str
+/// or Symbol cell.
 pub(crate) unsafe fn probe(obj: *const c_void, key: *const c_void) -> Probe {
     let cap = unsafe { cap(obj) };
     let idx = unsafe { index_ptr(obj) };
     let ent = unsafe { entries(obj) };
-    let h = unsafe { hash_str(key) };
+    let h = unsafe { hash_key(key) };
     let mask = cap - 1;
     let start = (h as u32) & mask;
     let mut tombstone_at: Option<u32> = None;
@@ -227,7 +323,7 @@ pub(crate) unsafe fn probe(obj: *const c_void, key: *const c_void) -> Probe {
             continue;
         }
         let kp_tagged = unsafe { (*ent.add(iv as usize)).key_ptr_tagged };
-        if unsafe { str_eq(bucket_key_ptr(kp_tagged) as *const c_void, key) } {
+        if unsafe { key_eq(bucket_key_ptr(kp_tagged) as *const c_void, key) } {
             return Probe {
                 slot,
                 entry: iv,

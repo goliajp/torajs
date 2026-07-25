@@ -104,22 +104,31 @@ pub(crate) fn is_typed_object(ty: Type) -> bool {
     )
 }
 
-/// Lower the key to a `Str` operand. Call at the spec evaluation point
-/// (after `obj`, before the descriptor) so a side-effecting key expr
-/// orders correctly.
+/// Lower the key to a property-key operand — a `Str` or, per §7.1.19
+/// ToPropertyKey **step 2**, a `Symbol` passed through untouched. Call
+/// at the spec evaluation point (after `obj`, before the descriptor) so
+/// a side-effecting key expr orders correctly.
 ///
 /// Returns `(key_op, owned)` — `owned == true` means the caller must
 /// emit a `str_drop` on `key_op` after the runtime helper borrows it
 /// (RFC 20260716 刀 18 — ToPropertyKey coerce). `false` covers the
-/// interned-literal `DefineKey::Name` shape and the `Type::Str` Expr
-/// fast path (both are borrow-shaped shares of a stable Str).
+/// interned-literal `DefineKey::Name` shape and the `Type::Str` /
+/// `Type::Symbol` Expr fast paths (all borrow-shaped shares of a
+/// stable key cell).
 pub(crate) fn lower_key(ctx: &mut LowerCtx, key: &DefineKey) -> (Operand, bool) {
     match key {
         DefineKey::Expr(eid) => {
             let raw = ctx.lower_expr(*eid);
             let ty = ctx.operand_ty(&raw);
             match ty {
-                Type::Str => (raw, false),
+                // §7.1.19 step 2 — "If key is a Symbol, return key".
+                // A symbol key never reaches step 3's ToString (which
+                // §7.1.17 makes a TypeError for symbols anyway); it
+                // lands in the dynobj key slot as its own cell, where
+                // the pointed-to tag keeps it distinct from every
+                // string key. Same borrow shape as a `Type::Str` key —
+                // the kernel rc-incs its own share.
+                Type::Str | Type::Symbol => (raw, false),
                 // RFC 20260716 刀 18 — ES §20.1.2.6 step 1 / §20.1.2.10
                 // step 1 → §7.1.19 ToPropertyKey → §7.1.17 ToString.
                 // StringWrapper / Number / Boolean / etc. keys route

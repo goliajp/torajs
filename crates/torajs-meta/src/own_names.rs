@@ -10,8 +10,18 @@
 
 use core::ffi::{c_char, c_void};
 
+use crate::obj_own_keys::{
+    ARR_PROPS_OFF, TAG_ARR_CELL, TAG_BOOLEAN_WRAPPER, TAG_CLOSURE_CELL, TAG_NUMBER_WRAPPER,
+    TAG_STRING_WRAPPER, WRAPPER_PROPS_OFF, heap_type_tag_local, is_dynobj_imm,
+};
+
 unsafe extern "C" {
     fn __torajs_throw_type_error(msg: *const c_char);
+    /// torajs-dynobj iteration surface — keys are BORROWED.
+    fn __torajs_dynobj_iter_len(obj: *const c_void) -> u64;
+    fn __torajs_dynobj_iter_key(obj: *const c_void, i: u64) -> *mut c_void;
+    /// §10.1.11.1's symbol bucket (own symbol keys, insertion order).
+    fn __torajs_dynobj_iter_symbol_order(obj: *const c_void, out: *mut u64, cap: u64) -> u64;
     fn __torajs_arr_alloc(cap: u64) -> *mut u8;
     fn __torajs_arr_push(arr: *mut u8, val: i64) -> *mut u8;
     fn __torajs_arr_alloc_any(cap: u64) -> *mut u8;
@@ -272,18 +282,51 @@ pub unsafe extern "C" fn __torajs_str_to_char_arr(str_ptr: *const c_void) -> *mu
     out as *mut c_void
 }
 
+/// The property dict backing a receiver's own symbol keys, borrowed —
+/// the cell itself for a DynObj, else the in-layout expando slot the
+/// shape carries (`Arr` / `Closure` at `+24`, primitive wrappers at
+/// `+16`). `None` for a non-cell payload or a shape with no dict yet
+/// (a bare struct cell degrades to DynObj on its first define, so it
+/// cannot be holding a symbol key).
+///
+/// # Safety
+/// `obj_any` carries a valid AnyValue bit pattern.
+unsafe fn own_symbol_dict_borrowed(obj_any: u64) -> Option<*const c_void> {
+    if is_dynobj_imm(obj_any) {
+        return Some(obj_any as *const c_void);
+    }
+    // Cell-imm shape test, same bar as `is_dynobj_imm`: only a real
+    // heap-pointer bit pattern may have its header read.
+    if obj_any == 0 || obj_any & 0xFFFF_0000_0000_0000 != 0 || obj_any & 0x2 != 0 {
+        return None;
+    }
+    let cell = obj_any as *const c_void;
+    let props_off = match unsafe { heap_type_tag_local(cell) } {
+        TAG_ARR_CELL | TAG_CLOSURE_CELL => ARR_PROPS_OFF,
+        TAG_NUMBER_WRAPPER | TAG_STRING_WRAPPER | TAG_BOOLEAN_WRAPPER => WRAPPER_PROPS_OFF,
+        _ => return None,
+    };
+    let dict = unsafe { *(cell.cast::<u8>().add(props_off) as *const *const c_void) };
+    if dict.is_null() { None } else { Some(dict) }
+}
+
 /// W-N-c — `Object.getOwnPropertySymbols(o)` Any-receiver path.
-/// tr has no symbol-keyed property surface (a symbol index
-/// assignment rejects loud at typecheck), so every object's own
-/// symbol list is the empty array — but ToObject on `undefined` /
-/// `null` still throws per §20.1.2.11 → OrdinaryOwnPropertyKeys
-/// step 1 (gOPD guard shape; pending-throw model, so a valid empty
-/// array is still returned for the caller's value flow).
+/// §20.1.2.10 → OrdinaryOwnPropertyKeys' third bucket: own **symbol**
+/// keys in insertion order, read off
+/// `__torajs_dynobj_iter_symbol_order` (the string buckets belong to
+/// `iter_order`, which never reports a symbol). Non-enumerable symbol
+/// keys are included — gOPS lists keys, it does not filter on
+/// enumerability.
+///
+/// ToObject on `undefined` / `null` still throws per §20.1.2.10 →
+/// step 1 (gOPD guard shape; pending-throw model, so a valid array is
+/// still returned for the caller's value flow).
 ///
 /// # Safety
 ///
 /// `obj_any` carries a valid AnyValue bit pattern. Returned pointer
-/// owns a fresh `+1`-rc empty `Arr<Str>`.
+/// owns a fresh `+1`-rc `Arr` of Symbol cells, each `+1`-rc'd for the
+/// array slot (the dynobj's key share stays its own).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_own_symbols(obj_any: u64) -> *mut c_void {
     if obj_any == crate::reflect::VALUE_UNDEFINED_IMM {
@@ -293,5 +336,21 @@ pub unsafe extern "C" fn __torajs_anyv_own_symbols(obj_any: u64) -> *mut c_void 
         // SAFETY: NUL-terminated static C string.
         unsafe { __torajs_throw_type_error(c"null is not an object".as_ptr()) };
     }
-    unsafe { __torajs_arr_alloc(0) as *mut c_void }
+    let mut out = unsafe { __torajs_arr_alloc(0) };
+    let Some(dict) = (unsafe { own_symbol_dict_borrowed(obj_any) }) else {
+        return out as *mut c_void;
+    };
+    let len = unsafe { __torajs_dynobj_iter_len(dict) };
+    let mut order = vec![0u64; len as usize];
+    let n = unsafe { __torajs_dynobj_iter_symbol_order(dict, order.as_mut_ptr(), len) };
+    for &i in order.iter().take(n as usize) {
+        let key = unsafe { __torajs_dynobj_iter_key(dict, i) };
+        if key.is_null() {
+            continue;
+        }
+        // Borrowed key → the array slot takes its own share.
+        unsafe { __torajs_rc_inc(key) };
+        out = unsafe { __torajs_arr_push(out, key as i64) };
+    }
+    out as *mut c_void
 }

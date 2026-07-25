@@ -10,6 +10,12 @@
 //! over the dense indices. Consumers: property printing (torajs-arr
 //! print / this crate's print_any), future keys / for-in lowering.
 //!
+//! §10.1.11.1's third bucket — own **symbol** keys in insertion order
+//! — is [`__torajs_dynobj_iter_symbol_order`]. Keeping it out of
+//! `iter_order` is what makes every string-key face above correct by
+//! construction: a symbol key can never leak into `Object.keys` /
+//! `getOwnPropertyNames` / `for-in` / `JSON.stringify` output.
+//!
 //! Keys returned by [`__torajs_dynobj_iter_key`] are **borrowed** —
 //! the entry keeps its owning rc share; callers that retain the key
 //! beyond the dynobj's lifetime must rc-inc it themselves.
@@ -18,7 +24,7 @@ use core::ffi::c_void;
 
 use crate::get::type_tag;
 use crate::layout::{DYNOBJ_KEY_HOLE, TAG_DYNOBJ};
-use crate::probe::{bucket_flags, bucket_key_ptr, entries, entries_len};
+use crate::probe::{bucket_flags, bucket_key_ptr, entries, entries_len, key_is_symbol};
 
 /// `__torajs_dynobj_iter_len(obj)` — dense-array iteration upper bound
 /// (holes included). Returns 0 when `obj` is NULL or not a DynObj.
@@ -193,7 +199,9 @@ pub unsafe extern "C" fn __torajs_dynobj_iter_order(
     for j in 0..n_int {
         unsafe { *out.add(j) &= 0xFFFF_FFFF };
     }
-    // pass 2 — remaining keys, insertion order
+    // pass 2 — remaining STRING keys, insertion order. Symbol keys are
+    // the spec's separate third bucket and belong to
+    // `__torajs_dynobj_iter_symbol_order`, never to a string-key face.
     let mut n = n_int;
     for i in 0..len {
         let kp_tagged = unsafe { (*entries(obj).add(i as usize)).key_ptr_tagged };
@@ -201,7 +209,58 @@ pub unsafe extern "C" fn __torajs_dynobj_iter_order(
             continue;
         }
         let key = bucket_key_ptr(kp_tagged);
+        if unsafe { key_is_symbol(key) } {
+            continue;
+        }
         if unsafe { key_array_index(key) }.is_none() {
+            unsafe { *out.add(n) = i };
+            n += 1;
+        }
+    }
+    n as u64
+}
+
+/// `__torajs_dynobj_iter_symbol_order(obj, out, cap)` — the third
+/// §10.1.11.1 OrdinaryOwnPropertyKeys bucket: own **symbol** keys in
+/// insertion order (integer and string keys are
+/// [`__torajs_dynobj_iter_order`]'s two buckets). Fills `out[0..n]`
+/// with dense-entry indices and returns `n`; `cap` must be ≥
+/// `iter_len(obj)` (short caps answer 0 defensively, same bar as the
+/// NULL / foreign-tag inputs).
+///
+/// Split from the string order rather than appended to it so every
+/// existing string-key consumer (`Object.keys` /
+/// `getOwnPropertyNames` / `for-in` / `JSON.stringify` / property
+/// printing) keeps answering strings only, per §20.1.2.9 /
+/// §25.5.2.4 — only `Object.getOwnPropertySymbols` and
+/// `Reflect.ownKeys` read this bucket.
+///
+/// # Safety
+/// `obj` is null or a live heap pointer with a universal header;
+/// `out` is null or valid for `cap` u64 writes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_dynobj_iter_symbol_order(
+    obj: *const c_void,
+    out: *mut u64,
+    cap: u64,
+) -> u64 {
+    if obj.is_null() || out.is_null() {
+        return 0;
+    }
+    if unsafe { type_tag(obj) } != TAG_DYNOBJ {
+        return 0;
+    }
+    let len = unsafe { entries_len(obj) } as u64;
+    if cap < len {
+        return 0;
+    }
+    let mut n = 0usize;
+    for i in 0..len {
+        let kp_tagged = unsafe { (*entries(obj).add(i as usize)).key_ptr_tagged };
+        if kp_tagged == DYNOBJ_KEY_HOLE {
+            continue;
+        }
+        if unsafe { key_is_symbol(bucket_key_ptr(kp_tagged)) } {
             unsafe { *out.add(n) = i };
             n += 1;
         }
@@ -443,6 +502,101 @@ mod tests {
             let sp = s.as_ptr() as *const c_void;
             assert_eq!(__torajs_dynobj_iter_len(sp), 0);
             assert_eq!(__torajs_dynobj_iter_key(sp, 0), core::ptr::null_mut());
+        }
+    }
+
+    /// 16-byte `Tag::Symbol` key cell (torajs-str `SYMBOL_SIZE` /
+    /// `TAG_SYMBOL`); the desc slot stays NULL — identity is the cell
+    /// address, so nothing reads through it.
+    fn make_symbol() -> Vec<u64> {
+        let mut v = vec![0u64; 2];
+        unsafe {
+            let p = v.as_mut_ptr() as *mut u8;
+            *(p.add(4) as *mut u16) = crate::layout::TAG_SYMBOL_KEY;
+        }
+        v
+    }
+
+    /// §10.1.11.1 three buckets: `iter_order` answers indices then
+    /// strings and NEVER a symbol; `iter_symbol_order` answers exactly
+    /// the symbols, in insertion order.
+    #[test]
+    fn symbol_keys_form_their_own_order_bucket() {
+        let s1 = make_symbol();
+        let s2 = make_symbol();
+        let kname = make_latin1_str("name");
+        let kidx = make_latin1_str("3");
+        // insertion: sym1, "name", sym2, "3"
+        let keys: [*const c_void; 4] = [
+            s1.as_ptr() as *const c_void,
+            kname.as_ptr() as *const c_void,
+            s2.as_ptr() as *const c_void,
+            kidx.as_ptr() as *const c_void,
+        ];
+        unsafe {
+            let obj = __torajs_dynobj_alloc();
+            for (i, &k) in keys.iter().enumerate() {
+                raw_insert(obj, k, (i as u64 + 1) * 7);
+            }
+            let len = __torajs_dynobj_iter_len(obj);
+            assert_eq!(len, 4);
+            let mut out = vec![0u64; len as usize];
+
+            // string face: "3" (array index) then "name" — no symbols
+            let n = __torajs_dynobj_iter_order(obj, out.as_mut_ptr(), len);
+            assert_eq!(n, 2);
+            assert_eq!(&out[..2], &[3, 1]);
+
+            // symbol face: sym1 then sym2, insertion order
+            let ns = __torajs_dynobj_iter_symbol_order(obj, out.as_mut_ptr(), len);
+            assert_eq!(ns, 2);
+            assert_eq!(&out[..2], &[0, 2]);
+
+            // short cap / NULL out answer 0 defensively, as iter_order
+            assert_eq!(
+                __torajs_dynobj_iter_symbol_order(obj, out.as_mut_ptr(), 1),
+                0
+            );
+            assert_eq!(
+                __torajs_dynobj_iter_symbol_order(obj, core::ptr::null_mut(), len),
+                0
+            );
+
+            free(obj, block_bytes(DYNOBJ_INITIAL_CAP));
+        }
+    }
+
+    /// A Symbol key is its cell: two distinct cells are distinct keys
+    /// even though both carry a NULL description, and a string can
+    /// never collide with one. `probe` must agree with that.
+    #[test]
+    fn symbol_keys_compare_by_cell_identity() {
+        let s1 = make_symbol();
+        let s2 = make_symbol();
+        // A Str whose payload happens to spell the same bytes must not
+        // be confused with a symbol key.
+        let kstr = make_latin1_str("s");
+        unsafe {
+            let obj = __torajs_dynobj_alloc();
+            let p1 = s1.as_ptr() as *const c_void;
+            let p2 = s2.as_ptr() as *const c_void;
+            raw_insert(obj, p1, 11);
+            raw_insert(obj, kstr.as_ptr() as *const c_void, 22);
+
+            assert!(probe(obj, p1).found);
+            assert!(!probe(obj, p2).found, "distinct Symbol cell is a miss");
+            assert!(probe(obj, kstr.as_ptr() as *const c_void).found);
+
+            // the symbol entry keeps its own value
+            let pr = probe(obj, p1);
+            assert_eq!((*entries(obj).add(pr.entry as usize)).value_anyv, 11);
+
+            // deleting the symbol key leaves the string key intact
+            raw_delete(obj, p1);
+            assert!(!probe(obj, p1).found);
+            assert!(probe(obj, kstr.as_ptr() as *const c_void).found);
+
+            free(obj, block_bytes(DYNOBJ_INITIAL_CAP));
         }
     }
 }

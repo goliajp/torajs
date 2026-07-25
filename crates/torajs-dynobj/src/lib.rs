@@ -151,6 +151,14 @@ pub unsafe extern "C" fn __torajs_str_drop(_s: *mut core::ffi::c_void) {
     );
 }
 
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_symbol_drop(_s: *mut core::ffi::c_void) {
+    panic!(
+        "torajs-dynobj unit-test stub: __torajs_symbol_drop should not be called from cargo test paths"
+    );
+}
+
 // Faithful *pair* of NaN-box stubs for unit tests (attach_exec /
 // probe round-trips). The real torajs-anyvalue encoding is linked at
 // `tr build` time; these test stubs only need to be mutually
