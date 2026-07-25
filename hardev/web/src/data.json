@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-25T13:20:29.860Z",
+  "generatedAt": "2026-07-25T14:34:50.778Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 96.12
   },
   "torajs": {
-    "commit": "5358ddc3",
-    "commitSubject": "fix(ast): an async class method infers its return type like any other",
+    "commit": "88de84b3",
+    "commitSubject": "fix(ast): a descriptor's shorthand accessor binds this to the receiver",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "88de84b3",
+      "subject": "fix(ast): a descriptor's shorthand accessor binds this to the receiver"
+    },
+    {
+      "hash": "1f7c7e5a",
+      "subject": "fix(ssa): Number() of an object runs its valueOf"
+    },
+    {
+      "hash": "d9e3a1c6",
+      "subject": "fix(ssa): a class instance stringifies through its own toString"
+    },
+    {
+      "hash": "69385730",
+      "subject": "fix(anyvalue): an object literal's method gets its receiver through a coercion"
+    },
+    {
+      "hash": "24fe6d59",
+      "subject": "fix(ssa): a closure can capture a binding declared later in its list"
+    },
+    {
+      "hash": "d0add202",
+      "subject": "chore(hardev): refresh dashboard snapshot for rotation 213 close"
+    },
+    {
       "hash": "5358ddc3",
       "subject": "fix(ast): an async class method infers its return type like any other"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "b03bb4d0",
       "subject": "chore(hardev): refresh dashboard snapshot for rotation 212 close"
-    },
-    {
-      "hash": "24ba36da",
-      "subject": "fix(check): an object-literal method returning this types as its receiver"
-    },
-    {
-      "hash": "c1f0966a",
-      "subject": "refactor(ssa): move the let-decl lane chain to a sibling"
-    },
-    {
-      "hash": "4369625a",
-      "subject": "feat(check): two closure bindings can call each other"
-    },
-    {
-      "hash": "3fdff0d3",
-      "subject": "fix(check): a function-typed binding contextually types its arrow"
-    },
-    {
-      "hash": "a4bba8ba",
-      "subject": "feat(check): a closure can name the binding it initializes"
-    },
-    {
-      "hash": "705144ba",
-      "subject": "chore(bench): park the A/B runs where the dashboard won't read them"
     }
   ],
-  "headSha": "5358ddc3",
+  "headSha": "88de84b3",
   "autorun": {
-    "total": 517,
+    "total": 518,
     "baselineTarget": 10,
-    "bySelf": 512,
+    "bySelf": 513,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784972484-70d6",
-      "at": "2026-07-25T09:41:24Z",
-      "ts": 1784972484,
+      "rotationId": "r-1784985712-580d",
+      "at": "2026-07-25T13:21:52Z",
+      "ts": 1784985712,
       "trigger": "self",
-      "prevHead": "b03bb4d0",
-      "handoffSha": "sha256:df6643a22a42bd3fd6731831efb38aba14c813704e64ef6363e139bc61d8904a",
-      "handoffAgeSec": 3,
+      "prevHead": "d0add202",
+      "handoffSha": "sha256:a85b1ab1c39ce202d7673d9289f565bfefeb55cac59cb5527574207a280ec717",
+      "handoffAgeSec": 10,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784985712-580d",
+        "at": "2026-07-25T13:21:52Z",
+        "ts": 1784985712,
+        "trigger": "self",
+        "prevHead": "d0add202",
+        "handoffSha": "sha256:a85b1ab1c39ce202d7673d9289f565bfefeb55cac59cb5527574207a280ec717",
+        "handoffAgeSec": 10,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784972484-70d6",
         "at": "2026-07-25T09:41:24Z",
@@ -876,17 +887,6 @@
         "prevHead": "f0464206",
         "handoffSha": "sha256:b9ecf50b244ecaf63c2525e3c0b79036a5fc0ca8267e00d81fc058d2473c4c32",
         "handoffAgeSec": 216,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784911321-73e6",
-        "at": "2026-07-24T16:42:01Z",
-        "ts": 1784911321,
-        "trigger": "self",
-        "prevHead": "afa46564",
-        "handoffSha": "sha256:575af29a34d6c2d7413e4548b22bbf012f78564298a2ff4a3fdc0ff8fe8ec995",
-        "handoffAgeSec": 4,
         "conformanceBefore": null,
         "commitsInSession": null
       }
