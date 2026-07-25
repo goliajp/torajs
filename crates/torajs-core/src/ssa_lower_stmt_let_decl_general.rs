@@ -234,6 +234,14 @@ pub(crate) fn bind_let_slot(
     boxed_any: bool,
     cur_depth: usize,
 ) {
+    // A box for this name went up before the declaration ran, because a
+    // closure earlier in the list captured it; the envs already hold
+    // that box, so the value belongs in it rather than in a slot of
+    // this frame's own.
+    if let Some(sites) = ctx.forward_capture_boxes.remove(name) {
+        fill_forward_box(ctx, name, ty, init_val, is_alias_init, boxed_any, sites);
+        return;
+    }
     // RFC 20260710 — a MUTATED non-Copy captured binding promotes to
     // a capture box so every closure shares the live binding (ES
     // §9.1) instead of an env-owns snapshot. Never-written captures
@@ -289,4 +297,60 @@ pub(crate) fn bind_let_slot(
     );
     let top = ctx.scope_stack.last_mut().expect("scope frame");
     top.push(name.to_string());
+}
+
+/// Settle a binding whose capture box went up before its declaration:
+/// store the value into the waiting box and replace the provisional
+/// type — on the local, and on every env slot that already took it.
+///
+/// `open_box` did the registration (shadow save, scope push, the
+/// `boxed_noncopy_lets` mark that makes both the capture write and the
+/// scope-close release take the box path), so none of that repeats
+/// here; only the type was left open, because an un-annotated init has
+/// none until it lowers.
+///
+/// Ownership is the same ledger as the boxed arm above: the box holds
+/// one stake and this frame holds the box. A value the init produced
+/// outright transfers straight in; an alias-shaped one leaves its
+/// source's stake alone and the box takes a share of its own.
+fn fill_forward_box(
+    ctx: &mut LowerCtx,
+    name: &str,
+    ty: Type,
+    init_val: Operand,
+    is_alias_init: bool,
+    boxed_any: bool,
+    sites: Vec<(String, usize)>,
+) {
+    if !ty.is_copy() && is_alias_init && !boxed_any {
+        ctx.emit_owned_result_inc(init_val.clone(), ty);
+    }
+    // The frame releases a Copy payload's box through its own list,
+    // keyed on the slot being Copy and escape-captured. `open_box` had
+    // to mark the name on the non-Copy list to get the capture write
+    // to take the byref path, and could not yet tell which payload
+    // this would be; leaving it on both lists releases the same box
+    // twice. A Copy slot answers byref on its own, so the mark has
+    // done its work and comes off.
+    if ty.is_copy() {
+        ctx.boxed_noncopy_lets.remove(name);
+    }
+    let slot = ctx
+        .locals
+        .get(name)
+        .expect("forward capture box registered the binding")
+        .slot;
+    let cur_block = ctx.cur_block;
+    ctx.f.append_void(
+        cur_block,
+        InstKind::Store(init_val, Operand::Value(slot), 0),
+    );
+    for (fn_name, idx) in sites {
+        if let Some(caps) = ctx.closure_captures.get_mut(&fn_name) {
+            caps[idx].1 = ty;
+        }
+    }
+    if let Some(info) = ctx.locals.get_mut(name) {
+        info.ty = ty;
+    }
 }

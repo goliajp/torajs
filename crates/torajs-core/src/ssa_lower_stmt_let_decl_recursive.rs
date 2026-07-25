@@ -108,11 +108,41 @@ fn box_ty(
 /// Only earlier captures: a self-capture is `try_lower`'s inline case,
 /// and a LATER peer capturing an EARLIER binding needs nothing — by
 /// then the binding is ordinary and already there.
+///
+/// The captured binding does not have to be a closure itself. Whatever
+/// `const o = {v:3}` holds, a closure declared above it captures the
+/// BINDING (ES §9.1), so the box has to exist by the time that closure
+/// mints — the two shapes differ only in whether the slot type is
+/// knowable this early, and the ordinary one settles that later.
 pub(crate) fn hoist_forward_boxes<'s>(ctx: &mut LowerCtx, stmts: impl Iterator<Item = &'s Stmt>) {
     let mut seen_captures: HashSet<String> = HashSet::new();
-    let mut plan: Vec<(String, Option<String>, ExprId, String, bool)> = Vec::new();
+    let mut plan: Vec<Planned> = Vec::new();
     collect(ctx, stmts, &mut seen_captures, &mut plan);
-    for (name, type_ann, init, fn_name, mutable) in plan {
+    for p in plan {
+        let Planned {
+            name,
+            type_ann,
+            init,
+            fn_name,
+            mutable,
+        } = p;
+        let Some(fn_name) = fn_name else {
+            // An ordinary binding. A top-level one is a data global,
+            // which needs no box at all — the closure resolves the name
+            // through `globals` and takes no env slot for it.
+            if ctx.is_main_fn && ctx.globals.contains_key(&name) {
+                continue;
+            }
+            // PROVISIONAL type: non-Copy, so the mint conservatively
+            // wires the env's `__env_trace_*` twin (a Copy answer there
+            // would store 0 and leave a cycle through this slot
+            // unreachable to the collector — the one direction that
+            // cannot be repaired after the fact). The declaration
+            // patches it to what the init really produced.
+            open_box(ctx, &name, Type::Any);
+            ctx.forward_capture_boxes.insert(name, Vec::new());
+            continue;
+        };
         let Some(ty) = box_ty(ctx, &name, type_ann.as_ref(), init, &fn_name, mutable) else {
             continue;
         };
@@ -127,6 +157,17 @@ pub(crate) fn hoist_forward_boxes<'s>(ctx: &mut LowerCtx, stmts: impl Iterator<I
     }
 }
 
+/// One binding the walk decided needs its box up front. `fn_name` is
+/// the lifted closure the init mints — `None` marks an ordinary
+/// binding, whose type is not knowable yet.
+struct Planned {
+    name: String,
+    type_ann: Option<String>,
+    init: ExprId,
+    fn_name: Option<String>,
+    mutable: bool,
+}
+
 /// Walk the list in order, accumulating the names captured so far and
 /// picking out each closure-initialized binding one of them already
 /// named. `Stmt::Multi` is a transparent grouping sharing the
@@ -136,7 +177,7 @@ fn collect<'s>(
     ctx: &LowerCtx,
     stmts: impl Iterator<Item = &'s Stmt>,
     seen_captures: &mut HashSet<String>,
-    plan: &mut Vec<(String, Option<String>, ExprId, String, bool)>,
+    plan: &mut Vec<Planned>,
 ) {
     for s in stmts {
         match s {
@@ -147,20 +188,23 @@ fn collect<'s>(
                 mutable,
                 ..
             } => {
-                let Expr::Closure { fn_name, captures } = ctx.ast.get_expr(*init) else {
-                    continue;
+                let closure = match ctx.ast.get_expr(*init) {
+                    Expr::Closure { fn_name, captures } => Some((fn_name.clone(), captures)),
+                    _ => None,
                 };
                 if seen_captures.contains(name) {
-                    plan.push((
-                        name.clone(),
-                        type_ann.clone(),
-                        *init,
-                        fn_name.clone(),
-                        *mutable,
-                    ));
+                    plan.push(Planned {
+                        name: name.clone(),
+                        type_ann: type_ann.clone(),
+                        init: *init,
+                        fn_name: closure.as_ref().map(|(f, _)| f.clone()),
+                        mutable: *mutable,
+                    });
                 }
-                for c in captures {
-                    seen_captures.insert(c.clone());
+                if let Some((_, captures)) = closure {
+                    for c in captures {
+                        seen_captures.insert(c.clone());
+                    }
                 }
             }
             Stmt::Multi(inner) => collect(ctx, inner.iter(), seen_captures, plan),

@@ -21,8 +21,21 @@
 //! an ordinary first declaration and a genuine redeclaration still
 //! reports as one.
 //!
-//! Narrow twice over: only bindings whose initializer IS a closure, and
-//! only those some closure in the same list actually captures.
+//! The captured binding need not be a closure itself:
+//!
+//! ```text
+//! const g = () => o.v;
+//! const o = { v: 3 };
+//! ```
+//!
+//! is the same shape with the same answer — both declarations run
+//! before anything calls `g`. Such a binding takes its type from its
+//! annotation, or from its initializer when it has none.
+//!
+//! Narrow either way: only bindings some closure in the same list
+//! actually captures, and for the ordinary ones only when that closure
+//! was declared EARLIER (a later one finds the binding in scope on its
+//! own, and hoisting it would answer a question nobody asked).
 
 use std::collections::{HashMap, HashSet};
 
@@ -34,13 +47,36 @@ use crate::check::{Checker, Type};
 /// hoisted for one block cannot answer a capture in an unrelated one.
 pub(crate) fn enter(checker: &mut Checker, ast: &Ast, stmts: &[Stmt]) -> HashMap<String, Type> {
     let mut decls: Vec<(&str, &str, &Option<String>)> = Vec::new();
+    let mut plain: Vec<(&str, &Option<String>, crate::ast::ExprId)> = Vec::new();
     let mut captured: HashSet<&str> = HashSet::new();
-    collect(ast, stmts, &mut decls, &mut captured);
+    collect(ast, stmts, &mut decls, &mut plain, &mut captured);
     let saved = std::mem::take(&mut checker.hoisted_closure_lets);
-    if decls.is_empty() {
+    if decls.is_empty() && plain.is_empty() {
         return saved;
     }
     checker.hoisted_closure_lets = saved.clone();
+    for (name, type_ann, init) in plain {
+        // An annotation is the binding's own answer; without one the
+        // init's type is it, and typing that expression early is safe
+        // because the list's own declarations are not in scope yet
+        // either way — a reference to one of them fails here and the
+        // name simply goes unhoisted, leaving the original error to be
+        // reported where it belongs. `type_of` only caches into
+        // `expr_types`, which the ordinary pass over this statement
+        // overwrites with the same answer.
+        let ty = match type_ann {
+            Some(ann) => crate::check_type_ann::resolve_type_ann_full(
+                ann,
+                &checker.aliases,
+                &[],
+                &checker.generic_alias_decls,
+            ),
+            None => checker.type_of(ast, init).ok(),
+        };
+        if let Some(ty) = ty {
+            checker.hoisted_closure_lets.insert(name.to_string(), ty);
+        }
+    }
     for (name, fn_name, type_ann) in decls {
         if !captured.contains(name) {
             continue;
@@ -78,7 +114,26 @@ fn collect<'a>(
     ast: &'a Ast,
     stmts: &'a [Stmt],
     decls: &mut Vec<(&'a str, &'a str, &'a Option<String>)>,
+    plain: &mut Vec<(&'a str, &'a Option<String>, crate::ast::ExprId)>,
     captured: &mut HashSet<&'a str>,
+) {
+    // Ordinary bindings need the captures seen SO FAR, not the list's
+    // union: one captured only by a closure declared after it is
+    // already in scope by then and must stay an ordinary declaration.
+    // The closure-initialized ones keep the union they have always
+    // used — self-reference is the per-statement pass's case and does
+    // not depend on this ordering.
+    let mut seen: HashSet<&'a str> = HashSet::new();
+    collect_inner(ast, stmts, decls, plain, captured, &mut seen);
+}
+
+fn collect_inner<'a>(
+    ast: &'a Ast,
+    stmts: &'a [Stmt],
+    decls: &mut Vec<(&'a str, &'a str, &'a Option<String>)>,
+    plain: &mut Vec<(&'a str, &'a Option<String>, crate::ast::ExprId)>,
+    captured: &mut HashSet<&'a str>,
+    seen: &mut HashSet<&'a str>,
 ) {
     for s in stmts {
         match s {
@@ -92,10 +147,13 @@ fn collect<'a>(
                     decls.push((name.as_str(), fn_name.as_str(), type_ann));
                     for c in captures {
                         captured.insert(c.as_str());
+                        seen.insert(c.as_str());
                     }
+                } else if seen.contains(name.as_str()) {
+                    plain.push((name.as_str(), type_ann, *init));
                 }
             }
-            Stmt::Multi(inner) => collect(ast, inner, decls, captured),
+            Stmt::Multi(inner) => collect_inner(ast, inner, decls, plain, captured, seen),
             _ => {}
         }
     }

@@ -278,6 +278,12 @@ pub(crate) struct LowerCtx<'a> {
     /// by the declaration that fills it; see
     /// [`crate::ssa_lower_stmt_let_decl_recursive`].
     pub(crate) hoisted_closure_lets: std::collections::HashSet<String>,
+    /// The same hoist for an ORDINARY binding, whose slot type is not
+    /// knowable that early: the box goes up provisionally and each env
+    /// that took it is noted as `(lifted closure fn, capture index)` for
+    /// the declaration to correct. See
+    /// [`crate::ssa_lower_stmt_let_decl_general::bind_let_slot`].
+    pub(crate) forward_capture_boxes: std::collections::HashMap<String, Vec<(String, usize)>>,
     /// v0.6+1 perf checkpoint — push-loop pre-reserve fast-push state.
     ///
     /// When the for-loop lowerer detects a canonical fill loop

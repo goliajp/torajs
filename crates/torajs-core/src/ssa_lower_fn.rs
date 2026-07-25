@@ -162,6 +162,7 @@ pub(crate) fn lower_fn(
         mutated_captured_lets: std::collections::HashSet::new(),
         boxed_noncopy_lets: std::collections::HashSet::new(),
         hoisted_closure_lets: std::collections::HashSet::new(),
+        forward_capture_boxes: std::collections::HashMap::new(),
         push_unchecked_for: std::collections::HashMap::new(),
         regex_lit_cache: std::collections::HashMap::new(),
         binop_left_undef_id: None,

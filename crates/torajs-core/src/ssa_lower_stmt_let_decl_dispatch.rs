@@ -26,6 +26,14 @@ pub(crate) fn try_sub_siblings(
     init: ExprId,
     mutable: bool,
 ) -> bool {
+    // A capture box for this name is already up and already inside some
+    // env (a closure earlier in this list captured it). The general
+    // path is the one that knows to fill that box, so no specialized
+    // lane may claim the declaration and put the value in a slot of its
+    // own choosing — the closure would read the box forever.
+    if ctx.forward_capture_boxes.contains_key(name) {
+        return false;
+    }
     // T-19.d — `let X: T = await Bun.file(p).json()`.
     if crate::ssa_lower_stmt_let_decl_bun_json::try_lower(ctx, name, type_ann, init) {
         return true;
