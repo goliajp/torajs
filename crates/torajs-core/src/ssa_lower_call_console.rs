@@ -80,6 +80,28 @@ fn lower_single_arg(ctx: &mut LowerCtx<'_>, method: &'static str, arg_id: ExprId
     let arg_ty = ctx.operand_ty(&arg);
     let is_borrow = console_arg_is_borrow(ctx, arg_id);
     let cur_block = ctx.cur_block;
+    // RFC 20260725-fallthrough-return knife 3 — a `void` / `undefined`
+    // typed value carries no slot of its own (it lands on the default
+    // I64 slot), so the dispatch table below reached its `print_i64`
+    // catch-all and printed `0`. The statement-level fast path has a
+    // checker-type gate for exactly this (`lower_top_stmt`), which is
+    // why only the in-function form diverged: `const v = g();
+    // console.log(v)` printed `undefined` at top level and `0` inside
+    // any function body. `Void` joins `Undefined` here because
+    // `Promise<void>.value` — what `await` desugars to — answers
+    // `Void`, and a `void` value at runtime *is* `undefined`. The
+    // argument is lowered above so a void call still runs for effect;
+    // its operand carries no value.
+    if matches!(
+        ctx.expr_types.get(&arg_id),
+        Some(crate::check::Type::Undefined | crate::check::Type::Void)
+    ) {
+        let lit = ctx.intern_string_literal("undefined");
+        let target = ctx.console_print_target(method, Type::Str);
+        ctx.f
+            .append_void(cur_block, InstKind::Call(target, vec![Operand::Value(lit)]));
+        return Operand::ConstI64(0);
+    }
     if arg_ty == Type::Substr {
         let substr_to_owned = ctx.intrinsics.substr_to_owned;
         let owned = ctx.f.append_inst(
