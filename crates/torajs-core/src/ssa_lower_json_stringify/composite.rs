@@ -122,10 +122,70 @@ pub(super) fn lower_arr(
     val_op: Operand,
     arr_id: ArrId,
     fe_elem: Option<crate::check::Type>,
+    gap: Option<Operand>,
+    depth: u32,
 ) -> Operand {
     with_null_gate(ctx, &val_op.clone(), "__json_arr_out", |ctx| {
-        lower_arr_walk(ctx, val_op, arr_id, fe_elem)
+        lower_arr_walk(ctx, val_op, arr_id, fe_elem, gap, depth)
     })
+}
+
+/// ES §25.5.2.1 — `acc + "\n" + gap * depth`, the line break a
+/// composite puts before each of its members under a gap. Only
+/// emitted when the call site carried a `space`, so the compact
+/// unfold keeps its exact instruction sequence.
+pub(super) fn concat_indent(
+    ctx: &mut LowerCtx,
+    acc: Operand,
+    gap: &Operand,
+    depth: u32,
+) -> Operand {
+    let indent = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(
+            ctx.intrinsics.json_indent,
+            vec![gap.clone(), Operand::ConstI64(depth as i64)],
+        ),
+        Type::Str,
+        None,
+    );
+    let out = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(
+            ctx.intrinsics.str_concat,
+            vec![acc.clone(), Operand::Value(indent)],
+        ),
+        Type::Str,
+        None,
+    );
+    // 642 ledger — str_concat answers a fresh Str; both inputs are
+    // consumed stakes (the indent is freshly minted, the accumulator
+    // was owned by the caller).
+    ctx.emit_drop_value(Operand::Value(indent), Type::Str);
+    ctx.emit_drop_value(acc, Type::Str);
+    Operand::Value(out)
+}
+
+/// The closing bracket's own indent, which returns to the PARENT's
+/// level and is skipped entirely when the body emitted nothing —
+/// `[]` and `{}` stay on one line. The "emitted anything" test is
+/// the accumulator-length one the runtime helper owns.
+pub(super) fn concat_close_indent(
+    ctx: &mut LowerCtx,
+    acc: Operand,
+    gap: &Operand,
+    depth: u32,
+) -> Operand {
+    let out = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(
+            ctx.intrinsics.json_close_indent,
+            vec![acc, gap.clone(), Operand::ConstI64(depth as i64)],
+        ),
+        Type::Str,
+        None,
+    );
+    Operand::Value(out)
 }
 
 /// The non-null walk body of [`lower_arr`] (verbatim pre-655 arm).
@@ -134,6 +194,8 @@ fn lower_arr_walk(
     val_op: Operand,
     arr_id: ArrId,
     fe_elem: Option<crate::check::Type>,
+    gap: Option<Operand>,
+    depth: u32,
 ) -> Operand {
     let elem_ty = ctx.arr_layouts[arr_id.0 as usize];
     let arr_ptr = match val_op {
@@ -255,6 +317,8 @@ fn lower_arr_walk(
             elem_ty,
             Some(Operand::Value(idx_key)),
             fe_elem.clone(),
+            gap.clone(),
+            depth + 1,
         );
         if matches!(elem_ty, Type::Any) {
             coerce_sentinel_to_null(ctx, walked)
@@ -269,12 +333,13 @@ fn lower_arr_walk(
         Type::Str,
         None,
     );
+    let acc_now2 = match &gap {
+        Some(g) => concat_indent(ctx, Operand::Value(acc_now2), g, depth + 1),
+        None => Operand::Value(acc_now2),
+    };
     let with_elem = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::Call(
-            ctx.intrinsics.str_concat,
-            vec![Operand::Value(acc_now2), elem_str],
-        ),
+        InstKind::Call(ctx.intrinsics.str_concat, vec![acc_now2.clone(), elem_str]),
         Type::Str,
         None,
     );
@@ -285,7 +350,7 @@ fn lower_arr_walk(
     // 642 ledger — release the pre-concat accumulator and the
     // element's stringified temp (every per-elem lane answers a
     // fresh Str or an interned literal whose drop is a no-op).
-    ctx.emit_drop_value(Operand::Value(acc_now2), Type::Str);
+    ctx.emit_drop_value(acc_now2, Type::Str);
     ctx.emit_drop_value(elem_str.clone(), Type::Str);
     let i_next = ctx.f.append_inst(
         ctx.cur_block,
@@ -305,17 +370,21 @@ fn lower_arr_walk(
         Type::Str,
         None,
     );
+    let acc_final = match &gap {
+        Some(g) => concat_close_indent(ctx, Operand::Value(acc_final), g, depth),
+        None => Operand::Value(acc_final),
+    };
     let result = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Call(
             ctx.intrinsics.str_concat,
-            vec![Operand::Value(acc_final), Operand::Value(rbrack)],
+            vec![acc_final.clone(), Operand::Value(rbrack)],
         ),
         Type::Str,
         None,
     );
     // 642 ledger — release the final accumulator (a zero-element
     // array's acc is still the "[" literal: no-op drop).
-    ctx.emit_drop_value(Operand::Value(acc_final), Type::Str);
+    ctx.emit_drop_value(acc_final, Type::Str);
     Operand::Value(result)
 }

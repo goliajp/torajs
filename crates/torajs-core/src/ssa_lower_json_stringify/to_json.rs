@@ -43,6 +43,8 @@ pub(super) fn try_lower_hook(
     val_op: &Operand,
     sid: StructId,
     key: Option<Operand>,
+    gap: Option<Operand>,
+    depth: u32,
 ) -> Option<Operand> {
     let (field_off, sig_id) = to_json_slot(ctx, sid)?;
     let obj_ptr = match val_op {
@@ -77,7 +79,7 @@ pub(super) fn try_lower_hook(
     if matches!(ret_ty, Type::Void) {
         return Some(Operand::Value(ctx.intern_string_literal("null")));
     }
-    let out = super::lower_shape(ctx, got.clone(), ret_ty, None);
+    let out = super::lower_shape(ctx, got.clone(), ret_ty, None, gap, depth);
     ctx.emit_drop_value(got, ret_ty);
     Some(out)
 }

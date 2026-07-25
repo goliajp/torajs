@@ -21,6 +21,8 @@ pub(super) fn lower_obj(
     val_op: Operand,
     sid: StructId,
     fe_fields: Option<Vec<(String, crate::check::Type)>>,
+    gap: Option<Operand>,
+    depth: u32,
 ) -> Operand {
     with_null_gate(ctx, &val_op.clone(), "__json_obj_out", |ctx| {
         let layout = ctx.struct_layouts[sid.0 as usize].clone();
@@ -31,13 +33,16 @@ pub(super) fn lower_obj(
         let primitive_only = layout
             .iter()
             .all(|(_, fty)| matches!(fty, Type::I64 | Type::Bool | Type::Str));
-        if primitive_only {
+        if primitive_only && gap.is_none() {
             // A frontend `undefined` field is pointer-shaped at SSA,
             // so a layout this gate accepts never carries one — the
-            // builder path needs no frontend types.
+            // builder path needs no frontend types. It also writes
+            // its punctuation straight into one buffer, which leaves
+            // nowhere to splice indentation, so an indenting call
+            // takes the concat lane instead.
             lower_obj_jsb(ctx, obj_ptr, &layout)
         } else {
-            lower_obj_concat(ctx, obj_ptr, &layout, fe_fields.as_deref())
+            lower_obj_concat(ctx, obj_ptr, &layout, fe_fields.as_deref(), gap, depth)
         }
     })
 }
@@ -161,6 +166,8 @@ fn lower_obj_concat(
     obj_ptr: crate::ssa::ValueId,
     layout: &[(String, Type)],
     fe_fields: Option<&[(String, crate::check::Type)]>,
+    gap: Option<Operand>,
+    depth: u32,
 ) -> Operand {
     // Chunk 658 — the accumulator lives in a slot and the `,`
     // separator is a runtime decision (`json_obj_sep`: emitted-any-
@@ -178,7 +185,9 @@ fn lower_obj_concat(
     for (i, (fname, slot_ty)) in layout.iter().enumerate() {
         let fe =
             fe_fields.and_then(|fs| fs.iter().find(|(n, _)| n == fname).map(|(_, t)| t.clone()));
-        emit_field(ctx, obj_ptr, acc_slot, colon, i, fname, slot_ty, fe);
+        emit_field(
+            ctx, obj_ptr, acc_slot, colon, i, fname, slot_ty, fe, &gap, depth,
+        );
     }
     let acc_final = ctx.f.append_inst(
         ctx.cur_block,
@@ -186,18 +195,22 @@ fn lower_obj_concat(
         Type::Str,
         None,
     );
+    let acc_final = match &gap {
+        Some(g) => super::composite::concat_close_indent(ctx, Operand::Value(acc_final), g, depth),
+        None => Operand::Value(acc_final),
+    };
     let result = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Call(
             ctx.intrinsics.str_concat,
-            vec![Operand::Value(acc_final), Operand::Value(rbrace)],
+            vec![acc_final.clone(), Operand::Value(rbrace)],
         ),
         Type::Str,
         None,
     );
     // 642 ledger — release the final accumulator (an all-skipped
     // object's acc is still the "{" literal: no-op drop).
-    ctx.emit_drop_value(Operand::Value(acc_final), Type::Str);
+    ctx.emit_drop_value(acc_final, Type::Str);
     Operand::Value(result)
 }
 
@@ -293,6 +306,8 @@ fn emit_field(
     fname: &str,
     slot_ty: &Type,
     fe: Option<crate::check::Type>,
+    gap: &Option<Operand>,
+    depth: u32,
 ) {
     let field_off = OBJ_HEADER_SIZE + (i as u64) * 8;
     let Some((key, field_v, fty, getter_owned)) =
@@ -343,7 +358,15 @@ fn emit_field(
     // emit decision anyway (the separator / key concat carries no
     // user-observable effect, so moving it after is free).
     let hook_key = Operand::Value(ctx.intern_string_literal(&key));
-    let field_str = super::lower_keyed(ctx, field_v.clone(), *fty, Some(hook_key), fe);
+    let field_str = super::lower_keyed(
+        ctx,
+        field_v.clone(),
+        *fty,
+        Some(hook_key),
+        fe,
+        gap.clone(),
+        depth + 1,
+    );
     // A field Load borrows the struct's slot; a getter call answers
     // a fresh +1 that nothing else owns.
     if getter_owned {
@@ -394,6 +417,10 @@ fn emit_field(
         Type::Str,
         None,
     );
+    let acc_sep = match gap {
+        Some(g) => super::composite::concat_indent(ctx, Operand::Value(acc_sep), g, depth + 1),
+        None => Operand::Value(acc_sep),
+    };
     let key_str = ctx.intern_string_literal(&key);
     let key_quoted = ctx.f.append_inst(
         ctx.cur_block,
@@ -405,7 +432,7 @@ fn emit_field(
         ctx.cur_block,
         InstKind::Call(
             ctx.intrinsics.str_concat,
-            vec![Operand::Value(acc_sep), Operand::Value(key_quoted)],
+            vec![acc_sep.clone(), Operand::Value(key_quoted)],
         ),
         Type::Str,
         None,
@@ -414,18 +441,38 @@ fn emit_field(
     // consumed link releases right after its concat (json_obj_sep
     // is owned-in/owned-out and already settled acc_now; interned
     // literals no-op through the same drop).
-    ctx.emit_drop_value(Operand::Value(acc_sep), Type::Str);
+    ctx.emit_drop_value(acc_sep, Type::Str);
     ctx.emit_drop_value(Operand::Value(key_quoted), Type::Str);
+    // Under a gap the colon carries a trailing space, but only if
+    // that gap is non-empty — a runtime fact, so the spelling comes
+    // from the runtime too (§25.5.2.4 step 9.b.iii).
+    let colon_op = match gap {
+        Some(g) => {
+            let c = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.json_colon, vec![g.clone()]),
+                Type::Str,
+                None,
+            );
+            Operand::Value(c)
+        }
+        None => Operand::Value(colon),
+    };
     let v2 = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Call(
             ctx.intrinsics.str_concat,
-            vec![Operand::Value(v1), Operand::Value(colon)],
+            vec![Operand::Value(v1), colon_op.clone()],
         ),
         Type::Str,
         None,
     );
     ctx.emit_drop_value(Operand::Value(v1), Type::Str);
+    if gap.is_some() {
+        // The interned `:` literal is static (its drop is a no-op);
+        // the runtime spelling is a fresh stake this segment owns.
+        ctx.emit_drop_value(colon_op, Type::Str);
+    }
     let v3 = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Call(

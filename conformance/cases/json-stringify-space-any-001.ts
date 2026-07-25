@@ -15,7 +15,8 @@
 // This is the any lane. A statically shaped receiver keeps its
 // compile-time unfold — routing it here would mean boxing away the
 // frontend types that tell an `undefined` field from a null one —
-// so the static lane's own gap support is a separate step.
+// and splices the same indentation itself; see
+// json-stringify-space-static-001.
 
 const o: any = { a: 1, b: { c: [1, 2], d: "x" }, e: [] };
 console.log(JSON.stringify(o, null, 2));

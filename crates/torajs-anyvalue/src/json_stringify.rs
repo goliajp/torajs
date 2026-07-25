@@ -138,6 +138,13 @@ pub unsafe extern "C" fn __torajs_anyv_json_stringify(v: AnyValue) -> *mut u8 {
 /// Shared body of the two entries — `gap` is the ES §25.5.2.1
 /// indent unit (empty for the compact form).
 unsafe fn stringify_with_gap(v: AnyValue, gap: &[u8]) -> *mut u8 {
+    unsafe { stringify_with_gap_at(v, gap, 0) }
+}
+
+/// [`stringify_with_gap`] starting from an arbitrary nesting level —
+/// what an any-typed member of a statically unfolded composite needs
+/// so its indentation continues its parent's instead of restarting.
+unsafe fn stringify_with_gap_at(v: AnyValue, gap: &[u8], depth: u32) -> *mut u8 {
     unsafe {
         // §25.5.2.3 step 2 — the top-level value consults the user
         // toJSON hook before walking (rotation 205).
@@ -152,7 +159,7 @@ unsafe fn stringify_with_gap(v: AnyValue, gap: &[u8]) -> *mut u8 {
             return __torajs_str_undef();
         }
         let sb = __torajs_jsb_new(64);
-        let wrote = write_value(sb, v, 0, gap);
+        let wrote = write_value(sb, v, depth, gap);
         if hook_owned {
             crate::nanbox_ffi::__torajs_anyv_rc_dec(v);
         }

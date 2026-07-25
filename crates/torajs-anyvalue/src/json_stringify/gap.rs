@@ -7,27 +7,49 @@ use core::ffi::c_void;
 
 use super::*;
 
-/// ES §25.5.2.1 — under a non-empty `gap`, every element / property
-/// sits on its own line indented by one `gap` per nesting level, and
-/// the closing bracket returns to the parent's level. A no-op for
-
-/// `JSON.stringify(value, replacer, space)` with a `space` argument.
-/// ES §25.5.2.1 steps 5-8 normalize it: a Number (or Number object)
-/// becomes `min(10, ToIntegerOrInfinity(space))` spaces, a String (or
-/// String object) its first 10 code units, anything else no indent at
-/// all — in which case the output is byte-identical to the compact
-/// entry.
+/// `JSON.stringify(value, replacer, space)` under an already
+/// normalized gap. `depth` is the nesting level the value sits at,
+/// so an any-typed member of a statically unfolded composite keeps
+/// indenting from its parent's level instead of restarting at zero.
 ///
 /// # Safety
-/// `v` and `space` carry valid AnyValue bit patterns.
+/// `v` carries a valid AnyValue bit pattern; `gap` is a live Str
+/// block (or NULL for no indent).
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_anyv_json_stringify_spaced(
+pub unsafe extern "C" fn __torajs_anyv_json_stringify_gap(
     v: AnyValue,
-    space: AnyValue,
+    gap: *const u8,
+    depth: i64,
 ) -> *mut u8 {
     unsafe {
+        let bytes = if gap.is_null() {
+            &[][..]
+        } else {
+            let len = (gap.add(STR_LEN_OFF) as *const u32).read() as usize;
+            core::slice::from_raw_parts(gap.add(STR_DATA_OFF), len)
+        };
+        stringify_with_gap_at(v, bytes, depth.max(0) as u32)
+    }
+}
+
+/// ES §25.5.2.1 steps 5-8 — normalize a `space` argument into a gap,
+/// handed back as a Str cell. A Number (or Number object) becomes
+/// `min(10, ToIntegerOrInfinity(space))` spaces, a String (or String
+/// object) its first 10 code units, anything else the empty gap. The
+/// static unfold cannot take a Rust slice, so it asks for the gap
+/// once at the call site and threads that cell through its own
+/// recursion.
+/// Answers a fresh refcount=1 Str the caller drops (empty for "no
+/// indent", which the caller's own compile-time gate makes
+/// unreachable in practice).
+///
+/// # Safety
+/// `space` carries a valid AnyValue bit pattern.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_json_gap_str(space: AnyValue) -> *mut u8 {
+    unsafe {
         let gap = gap_of(space);
-        stringify_with_gap(v, &gap)
+        __torajs_str_alloc(gap.as_ptr(), gap.len() as i64)
     }
 }
 

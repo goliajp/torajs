@@ -71,39 +71,28 @@ pub(crate) fn try_lower(
             }
         }
     }
-    // §25.5.2.1 steps 5-8 — a `space` argument indents the output,
-    // which only a composite can show, and the runtime walk is the
-    // one entry that carries a gap.
-    //
-    // Only the any lane routes here. Handing a STATIC composite to
-    // the runtime walk would mean boxing it first, and a boxed struct
-    // no longer carries the frontend types that tell an `undefined`
-    // field apart from a null one (the class-layout tag is derived
-    // from the SSA type, which folds them) — the key would come back
-    // as `"u":null` instead of being omitted. The static lane grows
-    // its own gap support rather than trading that back.
-    if let Some((space, space_ty)) = space_op
-        && matches!(arg_ty, Type::Any)
-    {
-        let boxed = arg_op;
-        let space = if matches!(space_ty, Type::Any) {
+    // The static unfold keeps its own frontend types, so it takes
+    // the gap as a Str it splices into its concat chain. Computing it
+    // is a single call at the call site, and every indent emission
+    // downstream is behind `Option::is_some` — the compact form's
+    // instruction sequence is untouched.
+    let gap = space_op.map(|(space, space_ty)| {
+        let boxed = if matches!(space_ty, Type::Any) {
             space
         } else {
             ctx.box_to_any(space)
         };
-        let v = ctx.f.append_inst(
+        let g = ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::Call(
-                ctx.intrinsics.anyv_json_stringify_spaced,
-                vec![boxed, space],
-            ),
+            InstKind::Call(ctx.intrinsics.anyv_json_gap_str, vec![boxed]),
             Type::Str,
             None,
         );
-        ctx.emit_throw_check(None);
-        return Some(Operand::Value(v));
+        Operand::Value(g)
+    });
+    let out = crate::ssa_lower_json_stringify::lower_top(ctx, arg_op, arg_ty, arg_fe, gap.clone());
+    if let Some(g) = gap {
+        ctx.emit_drop_value(g, Type::Str);
     }
-    Some(crate::ssa_lower_json_stringify::lower_top(
-        ctx, arg_op, arg_ty, arg_fe,
-    ))
+    Some(out)
 }

@@ -267,6 +267,103 @@ pub unsafe extern "C" fn __torajs_json_obj_sep(acc: *mut u8) -> *mut u8 {
     out
 }
 
+/// ES §25.5.2.1 — one indent step for the static unfold: a newline
+/// followed by `depth` copies of `gap`. The compile-time walk only
+/// emits a call to this when the call site actually carries a
+/// `space` argument, so the compact form pays nothing.
+///
+/// # Safety
+///
+/// `gap` is a live Str block (or NULL for the empty gap).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_json_indent(gap: *const u8, depth: i64) -> *mut u8 {
+    let gap_len = if gap.is_null() {
+        0
+    } else {
+        unsafe { (gap.add(STR_LEN_OFF) as *const u32).read() as usize }
+    };
+    if gap_len == 0 {
+        // An empty gap is the compact form (a Number space of 0, an
+        // empty String space): §25.5.2.4 puts no line break in at
+        // all, so this is the empty string rather than a bare "\n".
+        return StrBlock::alloc(0).into_raw();
+    }
+    let depth = depth.max(0) as usize;
+    let out_len = 1 + gap_len * depth;
+    let mut block = StrBlock::alloc(out_len as u32);
+    // SAFETY: block was just allocated with payload capacity `out_len`.
+    let dst = unsafe { block.as_bytes_mut(out_len as u32) };
+    dst[0] = b'\n';
+    if gap_len > 0 {
+        let src = unsafe { core::slice::from_raw_parts(gap.add(STR_DATA_OFF), gap_len) };
+        for i in 0..depth {
+            let at = 1 + i * gap_len;
+            dst[at..at + gap_len].copy_from_slice(src);
+        }
+    }
+    block.into_raw()
+}
+
+/// The `:` between a property key and its value — ES §25.5.2.4 step
+/// 9.b.iii gives it a trailing space only under a NON-EMPTY gap, and
+/// whether the gap is empty is a runtime fact (a Number space of 0
+/// normalizes to one), so the static unfold asks here instead of
+/// interning one of the two spellings at compile time.
+///
+/// # Safety
+///
+/// `gap` is a live Str block (or NULL for the empty gap).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_json_colon(gap: *const u8) -> *mut u8 {
+    let gap_len = if gap.is_null() {
+        0
+    } else {
+        unsafe { (gap.add(STR_LEN_OFF) as *const u32).read() }
+    };
+    let text: &[u8] = if gap_len == 0 { b":" } else { b": " };
+    let mut block = StrBlock::alloc(text.len() as u32);
+    // SAFETY: block was just allocated with `text.len()` payload bytes.
+    let dst = unsafe { block.as_bytes_mut(text.len() as u32) };
+    dst.copy_from_slice(text);
+    block.into_raw()
+}
+
+/// The closing-bracket indent of a composite under a gap: the
+/// bracket returns to the PARENT's level, but only when the body
+/// emitted something — `[]` and `{}` stay on one line. "Emitted
+/// something" is the same accumulator-length test
+/// [`__torajs_json_obj_sep`] uses, since `acc` still holds just its
+/// opening bracket otherwise.
+///
+/// Owned-in, owned-out (642-ledger): the caller hands over its
+/// accumulator stake and receives one back.
+///
+/// # Safety
+///
+/// `acc` is a live Str block whose stake the caller relinquishes;
+/// `gap` is a live Str block (or NULL).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_json_close_indent(
+    acc: *mut u8,
+    gap: *const u8,
+    depth: i64,
+) -> *mut u8 {
+    let gap_len = if gap.is_null() {
+        0
+    } else {
+        unsafe { (gap.add(STR_LEN_OFF) as *const u32).read() }
+    };
+    let len = unsafe { (acc.add(STR_LEN_OFF) as *const u32).read() };
+    if len <= 1 || gap_len == 0 {
+        return acc;
+    }
+    let indent = unsafe { __torajs_json_indent(gap, depth) };
+    let out = unsafe { crate::concat::__torajs_str_concat(acc, indent) };
+    unsafe { crate::__torajs_str_drop(indent) };
+    unsafe { crate::__torajs_str_drop(acc) };
+    out
+}
+
 /// Top-level `JSON.stringify(str-slot)` — the undefined sentinel
 /// answers the undefined VALUE itself (ES §25.5.1 step 12:
 /// SerializeJSONProperty absent → stringify returns undefined),

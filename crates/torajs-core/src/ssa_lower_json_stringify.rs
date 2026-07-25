@@ -55,6 +55,7 @@ pub(crate) fn lower_top(
     val_op: Operand,
     ty: Type,
     fe: Option<crate::check::Type>,
+    gap: Option<Operand>,
 ) -> Operand {
     match ty {
         Type::Str => {
@@ -88,7 +89,7 @@ pub(crate) fn lower_top(
             ctx.emit_drop_value(Operand::Value(owned), Type::Str);
             Operand::Value(v)
         }
-        _ => lower_keyed(ctx, val_op, ty, None, fe),
+        _ => lower_keyed(ctx, val_op, ty, None, fe, gap, 0),
     }
 }
 
@@ -110,13 +111,40 @@ pub(crate) fn lower_keyed(
     ty: Type,
     key: Option<Operand>,
     fe: Option<crate::check::Type>,
+    gap: Option<Operand>,
+    depth: u32,
 ) -> Operand {
     if let Type::Obj(sid) = ty
-        && let Some(out) = to_json::try_lower_hook(ctx, &val_op, sid, key)
+        && let Some(out) = to_json::try_lower_hook(ctx, &val_op, sid, key, gap.clone(), depth)
     {
         return out;
     }
-    lower_shape(ctx, val_op, ty, fe)
+    lower_shape(ctx, val_op, ty, fe, gap, depth)
+}
+
+/// The runtime walk over an any-lane value. Under a gap it takes the
+/// gap entry, which also receives the nesting level so an any-typed
+/// member of a statically unfolded composite keeps indenting from
+/// its parent's level instead of restarting at zero.
+fn emit_any_walk(ctx: &mut LowerCtx, val_op: Operand, gap: Option<Operand>, depth: u32) -> Operand {
+    let v = match gap {
+        Some(g) => ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(
+                ctx.intrinsics.anyv_json_stringify_gap,
+                vec![val_op, g, Operand::ConstI64(depth as i64)],
+            ),
+            Type::Str,
+            None,
+        ),
+        None => ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.anyv_json_stringify, vec![val_op]),
+            Type::Str,
+            None,
+        ),
+    };
+    Operand::Value(v)
 }
 
 /// Peel the `Nullable` wrapper the checker puts around pointer-shaped
@@ -134,6 +162,8 @@ fn lower_shape(
     val_op: Operand,
     ty: Type,
     fe: Option<crate::check::Type>,
+    gap: Option<Operand>,
+    depth: u32,
 ) -> Operand {
     match ty {
         Type::I64 => {
@@ -199,14 +229,14 @@ fn lower_shape(
                 Some(crate::check::Type::Array(e)) => Some(*e),
                 _ => None,
             };
-            composite::lower_arr(ctx, val_op, arr_id, fe_elem)
+            composite::lower_arr(ctx, val_op, arr_id, fe_elem, gap, depth)
         }
         Type::Obj(sid) => {
             let fe_fields = match fe_peel(fe) {
                 Some(crate::check::Type::Struct(fs)) => Some(fs),
                 _ => None,
             };
-            composite_obj::lower_obj(ctx, val_op, sid, fe_fields)
+            composite_obj::lower_obj(ctx, val_op, sid, fe_fields, gap, depth)
         }
         Type::Ptr => {
             let p = ctx.intern_string_literal("null");
@@ -220,18 +250,13 @@ fn lower_shape(
         // undefined / callable argument); the undefined Str sentinel
         // carries that through the Str-typed slot.
         Type::Any => {
-            let v = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.anyv_json_stringify, vec![val_op]),
-                Type::Str,
-                None,
-            );
+            let v = emit_any_walk(ctx, val_op, gap, depth);
             // The runtime walk can leave a pending throw (an accessor
             // entry's getter, the depth-cap cycle TypeError) — route
             // it into the caller's catch machinery like every other
             // throwing kernel call.
             ctx.emit_throw_check(None);
-            Operand::Value(v)
+            v
         }
         // §25.5.2.4 — these classes carry no own enumerable
         // properties (their contents live in internal slots), so the
@@ -259,14 +284,9 @@ fn lower_shape(
         // turns the BigInt TypeError into the caller's catch.
         Type::BigInt | Type::Symbol => {
             let boxed = ctx.box_to_any(val_op);
-            let v = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.anyv_json_stringify, vec![boxed]),
-                Type::Str,
-                None,
-            );
+            let v = emit_any_walk(ctx, boxed, gap, depth);
             ctx.emit_throw_check(None);
-            Operand::Value(v)
+            v
         }
         other => panic!("ssa-lower: JSON.stringify on type {other:?} not yet supported"),
     }
