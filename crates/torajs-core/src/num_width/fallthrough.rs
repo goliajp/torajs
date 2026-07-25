@@ -70,6 +70,7 @@ pub(super) fn alias_fallthrough_closures(ast: &Ast, out: &mut HashSet<String>) {
 /// the fixpoint carry the width to every binding the result flows
 /// into. Pointer-shaped returns need no seed — their slots already
 /// decode three ways (NULL / sentinel / live cell).
+///
 /// A body can also hand the sentinel back on purpose — `return
 /// xs.find(...)` passes along whatever a miss answered. The call site
 /// has to route the same way either way, so both reasons put the
@@ -101,47 +102,64 @@ pub(super) fn seed_fallthrough_return(
 /// slot; without this the caller reads it as a plain value and prints
 /// NaN (or answers `typeof` "string" for the immortal cell).
 ///
+/// A value parked in a local first (`const m = xs.find(...); return m`)
+/// counts too — the binding is recorded on the way past, mirroring how
+/// the in-function consumers track the same shape through
+/// `undefable_f64_lets` / `nullable_str_lets`.
+///
 /// Receiver-type-agnostic on purpose — the method names alone are the
 /// gate, and being on the table only costs one predictable compare at
 /// the call site.
 fn body_returns_sentinel(a: &Analysis<'_>, body: &[Stmt]) -> bool {
-    fn walk(a: &Analysis<'_>, stmts: &[Stmt]) -> bool {
+    fn is_sentinel_call(a: &Analysis<'_>, eid: crate::ast::ExprId) -> bool {
+        matches!(
+            a.ast.get_expr(eid),
+            Expr::Call { callee, .. } if matches!(
+                a.ast.get_expr(*callee),
+                Expr::Member { name, .. }
+                    if matches!(name.as_str(), "find" | "findLast" | "at" | "pop" | "shift")
+            )
+        )
+    }
+    fn walk(a: &Analysis<'_>, stmts: &[Stmt], lets: &mut HashSet<String>) -> bool {
         stmts.iter().any(|s| match s {
-            Stmt::Return(Some(eid)) => matches!(
-                a.ast.get_expr(*eid),
-                Expr::Call { callee, .. } if matches!(
-                    a.ast.get_expr(*callee),
-                    Expr::Member { name, .. }
-                        if matches!(name.as_str(), "find" | "findLast" | "at" | "pop" | "shift")
-                )
-            ),
-            Stmt::Block(inner) | Stmt::Multi(inner) => walk(a, inner),
+            Stmt::LetDecl { name, init, .. } => {
+                if is_sentinel_call(a, *init) {
+                    lets.insert(name.clone());
+                }
+                false
+            }
+            Stmt::Return(Some(eid)) => {
+                is_sentinel_call(a, *eid)
+                    || matches!(a.ast.get_expr(*eid), Expr::Ident(n) if lets.contains(n))
+            }
+            Stmt::Block(inner) | Stmt::Multi(inner) => walk(a, inner, lets),
             Stmt::If {
                 then_branch,
                 else_branch,
                 ..
             } => {
-                walk(a, std::slice::from_ref(then_branch))
+                walk(a, std::slice::from_ref(then_branch), lets)
                     || else_branch
                         .as_deref()
-                        .is_some_and(|e| walk(a, std::slice::from_ref(e)))
+                        .is_some_and(|e| walk(a, std::slice::from_ref(e), lets))
             }
             Stmt::While { body, .. }
             | Stmt::DoWhile { body, .. }
             | Stmt::For { body, .. }
-            | Stmt::Labeled { body, .. } => walk(a, std::slice::from_ref(body)),
+            | Stmt::Labeled { body, .. } => walk(a, std::slice::from_ref(body), lets),
             Stmt::Try {
                 body,
                 catch_body,
                 finally_body,
                 ..
             } => {
-                walk(a, body)
-                    || walk(a, catch_body)
-                    || finally_body.as_deref().is_some_and(|f| walk(a, f))
+                walk(a, body, lets)
+                    || walk(a, catch_body, lets)
+                    || finally_body.as_deref().is_some_and(|f| walk(a, f, lets))
             }
             _ => false,
         })
     }
-    walk(a, body)
+    walk(a, body, &mut HashSet::new())
 }

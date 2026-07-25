@@ -46,6 +46,19 @@ console.log(typeof findNum());
 console.log(findStr() === undefined);
 console.log(typeof findStr());
 
+// parked in a local on the way out — the binding is tracked past the
+// declaration, the way the in-function consumers already track it
+function viaLocal(): number {
+  const m = nums.find((v) => v > 9);
+  return m;
+}
+function viaLocalStr(): string {
+  const m = strs.find((v) => v > "z");
+  return m;
+}
+console.log(viaLocal(), viaLocal() === undefined);
+console.log(viaLocalStr(), typeof viaLocalStr());
+
 // a hit passes through as itself, and so does a plain value
 function findHit(): number {
   return nums.find((v) => v > 0);
