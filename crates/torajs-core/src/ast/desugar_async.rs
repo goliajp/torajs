@@ -139,7 +139,17 @@ fn rewrite_async_fn_value_exprs(ast: &mut Ast) {
 /// instead of propagating synchronously to the caller. P10.5-A2 —
 /// `catch_type` is `any` (spec-correct; `throw <expr>` may differ from
 /// inner T), accepted by `Promise.reject` at `check/promise_static.rs`.
-fn build_async_body(ast: &mut Ast, body: Vec<Stmt>, declared_ty: &str) -> (Vec<Stmt>, String) {
+/// Shared with the class-method path
+/// (`desugar_classes_emit::maybe_rewrite_async_method_body`) — the two
+/// used to hold the same transform twice, and only this copy was taught
+/// the P10.7 default-`any`, so an async METHOD without a return
+/// annotation kept panicking long after the top-level requirement was
+/// lifted.
+pub(super) fn build_async_body(
+    ast: &mut Ast,
+    body: Vec<Stmt>,
+    declared_ty: &str,
+) -> (Vec<Stmt>, String) {
     let inner_ty = if let Some(rest) = declared_ty.strip_prefix("Promise<")
         && let Some(inner) = rest.strip_suffix('>')
     {
@@ -202,7 +212,7 @@ fn build_async_body(ast: &mut Ast, body: Vec<Stmt>, declared_ty: &str) -> (Vec<S
 /// safety `return __async_p;` when the body already ends in one (a
 /// second access of `__async_p` would trip tr's move tracker even on
 /// the unreachable path).
-pub(super) fn body_ends_in_return(body: &[Stmt]) -> bool {
+fn body_ends_in_return(body: &[Stmt]) -> bool {
     match body.last() {
         Some(Stmt::Return(_)) => true,
         // A trailing `throw` is a terminal completion too — control
@@ -226,7 +236,7 @@ pub(super) fn body_ends_in_return(body: &[Stmt]) -> bool {
 /// just constructs a fresh fulfilled Promise — no shared state, no
 /// move-tracker complications, no need for the user to declare
 /// `class Promise<T>` themselves.
-pub(super) fn rewrite_returns_for_async(ast: &mut Ast, s: &mut Stmt, inner_ty: &str) {
+fn rewrite_returns_for_async(ast: &mut Ast, s: &mut Stmt, inner_ty: &str) {
     match s {
         Stmt::Return(maybe) => {
             let raw_value = match maybe {

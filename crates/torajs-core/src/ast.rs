@@ -79,7 +79,6 @@ pub(crate) use closure_capture_anns::{
     SiteAnns, collect_closure_capture_anns, collect_outer_binds,
 };
 pub use desugar_async::desugar_async;
-use desugar_async::{body_ends_in_return, rewrite_returns_for_async};
 pub use desugar_classes::desugar_classes;
 pub use desugar_generators::desugar_generators;
 pub(crate) use desugar_generators_walkers::{expand_yield_into_in_stmt, lift_lets_in_stmt};
