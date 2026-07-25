@@ -92,6 +92,15 @@ fn elem_value_ty(checker: &mut Checker, ast: &Ast, eid: ExprId) -> Result<Option
             // RFC 20260704 S5+ — `[...anyval]` iterates at runtime
             // through the unified protocol; elements are type-erased.
             Type::Any => Ok(Some(Type::Any)),
+            // RFC 20260725-getiterator-getmethod knife 5 — a class
+            // instance names a class that may declare
+            // `[Symbol.iterator]`, and §7.4.2 GetIterator is what
+            // decides at runtime; a generator object is exactly this
+            // shape. What it yields is not knowable statically, so
+            // the product is type-erased like every other iterated
+            // source. A non-iterable one throws at the GetIterator
+            // step, which is where the spec puts that failure.
+            Type::ClassRef(_) => Ok(Some(Type::Any)),
             other => Err(format!(
                 "array spread source must be an array, got {other:?}"
             )),

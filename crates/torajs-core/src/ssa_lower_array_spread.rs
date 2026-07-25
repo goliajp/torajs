@@ -156,6 +156,20 @@ fn lower_spread_source(ctx: &mut LowerCtx<'_>, inner: ExprId) -> (Operand, Type,
         v_ty = Type::Arr(arr_any_id);
         return (v, v_ty, true);
     }
+    // RFC 20260725-getiterator-getmethod knife 5 — a class instance
+    // (a generator object, a class declaring `[Symbol.iterator]`)
+    // takes the same route as a Map: box the cell and let §7.4.2
+    // GetIterator decide at runtime what it is. Before knife 2 there
+    // was no lookup to make, so the checker refused these outright.
+    if matches!(v_ty, Type::Obj(_)) {
+        let arr_any_id = intern_arr_layout(ctx.arr_layouts, Type::Any);
+        let boxed = ctx.box_to_any(v.clone());
+        let materialized = crate::ssa_lower_arr_from_any::emit(ctx, boxed);
+        ctx.release_owned_temp(inner, &v);
+        v = materialized;
+        v_ty = Type::Arr(arr_any_id);
+        return (v, v_ty, true);
+    }
     // RFC 20260704 S5+ — `any` spread source: materialize through the
     // unified runtime iteration protocol into an owned Arr<Any> temp
     // (the assembler drops it after the extend).

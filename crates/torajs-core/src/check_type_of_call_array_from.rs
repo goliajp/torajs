@@ -71,6 +71,20 @@ pub(crate) fn try_match(
             if matches!(arg_ty, Type::Map | Type::MapIter | Type::ArrIter) {
                 return Some(Ok(Type::Array(Box::new(Type::Any))));
             }
+            // RFC 20260725-getiterator-getmethod knife 5 — an `any`
+            // source is whatever it turns out to be at runtime, and
+            // §7.4.2 GetIterator is what decides. The same unified
+            // protocol `[...x]` already drives answers `Array<Any>`;
+            // refusing it here was the last compile-time gate between
+            // a user `@@iterator` and this consumption point.
+            // A class instance is the ES §23.1.2.1 step 3 iterable
+            // branch when it declares `@@iterator` (a generator object
+            // always does) and the array-like branch when it carries a
+            // `length` instead; ssa-lower routes on exactly that, and
+            // both branches materialize `Array<Any>`.
+            if matches!(arg_ty, Type::Any | Type::ClassRef(_)) {
+                return Some(Ok(Type::Array(Box::new(Type::Any))));
+            }
             // Array-like `{length: n}` (ES §23.1.2.1 non-iterable
             // branch) — every index read answers undefined, so the
             // result is a dense undefined-filled `Array<Any>`.
@@ -100,11 +114,11 @@ pub(crate) fn try_match(
             };
             match &arg_ty {
                 Type::String | Type::Array(_) | Type::Set => {}
-                Type::Map | Type::MapIter | Type::ArrIter => {}
+                Type::Map | Type::MapIter | Type::ArrIter | Type::Any | Type::ClassRef(_) => {}
                 t if is_arraylike_struct(t) => {}
                 _ => {
                     return Some(Err(format!(
-                        "Array.from(iter, mapFn): iter must be string, Array, Set, or an array-like {{length}} object; got {arg_ty:?}"
+                        "Array.from(iter, mapFn): iter must be string, Array, Set, an array-like {{length}} object, a class instance, or any; got {arg_ty:?}"
                     )));
                 }
             }

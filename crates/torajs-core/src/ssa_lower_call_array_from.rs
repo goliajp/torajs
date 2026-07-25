@@ -125,6 +125,22 @@ fn materialize_src(
         // `ssa_lower_arr_from_set`.
         return crate::ssa_lower_arr_from_set::emit(ctx, arg_op);
     }
+    if let Type::Obj(sid) = arg_ty
+        && !struct_has_length(ctx, sid)
+    {
+        // ES §23.1.2.1 step 3 — the ITERABLE branch. A cell with no
+        // `length` is not array-like, so `Array.from` asks it for an
+        // iterator like every other consumer does, through the same
+        // materializer the `any` arm above uses. This is the shape a
+        // generator object and a hand-written iterator class wear;
+        // before knife 2 there was no lookup to make, so they fell
+        // into the array-like branch and read a `length` that a
+        // generator's layout does not have.
+        let boxed = ctx.box_to_any(arg_op.clone());
+        let materialized = crate::ssa_lower_arr_from_any::emit(ctx, boxed);
+        ctx.release_owned_temp(arg_eid, &arg_op);
+        return materialized;
+    }
     if let Type::Obj(sid) = arg_ty {
         // Array-like `{length: n}` (ES §23.1.2.1 non-iterable branch;
         // the checker gated on a numeric length field) — every index
@@ -157,6 +173,16 @@ fn materialize_src(
         ctx.release_owned_temp(arg_eid, &arg_op);
         return Operand::Value(v);
     }
+    if matches!(arg_ty, Type::Any) {
+        // RFC 20260725-getiterator-getmethod knife 5 — an `any` source
+        // is already boxed, so it goes straight into the materializer
+        // the arm below boxes FOR. Which lane it lands in is §7.4.2
+        // GetIterator's call at runtime: a user `@@iterator`, else a
+        // string / array / collection / class instance.
+        let materialized = crate::ssa_lower_arr_from_any::emit(ctx, arg_op.clone());
+        ctx.release_owned_temp(arg_eid, &arg_op);
+        return materialized;
+    }
     if matches!(arg_ty, Type::Map | Type::MapIter | Type::ArrIter) {
         // `Array.from(map / iterator)` — box the heap source (tag-4
         // ANY_HEAP, rc-neutral encode) and drive the unified runtime
@@ -173,6 +199,15 @@ fn materialize_src(
     panic!(
         "ssa-lower: Array.from requires a string, Array<T>, Set, or array-like arg, got {arg_ty:?}"
     )
+}
+
+/// Whether the struct carries a `length` field — the array-like test
+/// of ES §23.1.2.1, mirroring the checker's own gate so both layers
+/// route a source to the same branch.
+fn struct_has_length(ctx: &LowerCtx<'_>, sid: crate::ssa::StructId) -> bool {
+    ctx.struct_layouts
+        .get(sid.0 as usize)
+        .is_some_and(|layout| layout.iter().any(|(n, _)| n == "length"))
 }
 
 /// S151 — `Array.from(iter, mapFn)` per ES §23.1.2.1. mapFn shape:
