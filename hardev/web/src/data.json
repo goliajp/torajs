@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-25T16:45:45.795Z",
+  "generatedAt": "2026-07-25T17:46:43.723Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 96.12
   },
   "torajs": {
-    "commit": "6613a49a",
-    "commitSubject": "fix(promise): Promise.resolve(undefined) settles like the zero-arg form",
+    "commit": "613f8b63",
+    "commitSubject": "fix(arr): pop and shift on an empty array answer undefined",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "613f8b63",
+      "subject": "fix(arr): pop and shift on an empty array answer undefined"
+    },
+    {
+      "hash": "8901dca7",
+      "subject": "Revert \"fix(arr): reading a number[] out of range answers undefined\""
+    },
+    {
+      "hash": "15cf9b19",
+      "subject": "fix(arr): reading a number[] out of range answers undefined"
+    },
+    {
+      "hash": "73059fad",
+      "subject": "fix(async): a typed async function that runs off its end answers undefined"
+    },
+    {
+      "hash": "9019a32e",
+      "subject": "fix(async): an async function that runs off its end settles with undefined"
+    },
+    {
+      "hash": "4dd8589a",
+      "subject": "chore(hardev): refresh dashboard snapshot for rotation 215 close"
+    },
+    {
       "hash": "6613a49a",
       "subject": "fix(promise): Promise.resolve(undefined) settles like the zero-arg form"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "347dbaef",
       "subject": "fix(ssa): an object operand goes through valueOf in arithmetic"
-    },
-    {
-      "hash": "da5d9562",
-      "subject": "chore(hardev): refresh dashboard snapshot for rotation 214 close"
-    },
-    {
-      "hash": "88de84b3",
-      "subject": "fix(ast): a descriptor's shorthand accessor binds this to the receiver"
-    },
-    {
-      "hash": "1f7c7e5a",
-      "subject": "fix(ssa): Number() of an object runs its valueOf"
-    },
-    {
-      "hash": "d9e3a1c6",
-      "subject": "fix(ssa): a class instance stringifies through its own toString"
-    },
-    {
-      "hash": "69385730",
-      "subject": "fix(anyvalue): an object literal's method gets its receiver through a coercion"
-    },
-    {
-      "hash": "24fe6d59",
-      "subject": "fix(ssa): a closure can capture a binding declared later in its list"
     }
   ],
-  "headSha": "6613a49a",
+  "headSha": "613f8b63",
   "autorun": {
-    "total": 519,
+    "total": 520,
     "baselineTarget": 10,
-    "bySelf": 514,
+    "bySelf": 515,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1784991136-6b01",
-      "at": "2026-07-25T14:52:16Z",
-      "ts": 1784991136,
+      "rotationId": "r-1784998006-428f",
+      "at": "2026-07-25T16:46:46Z",
+      "ts": 1784998006,
       "trigger": "self",
-      "prevHead": "347dbaef",
-      "handoffSha": "sha256:f05f50c142cd640d2bd6fb3e3e86a2e8381945f7c712c492727f659c2c6937db",
-      "handoffAgeSec": 124,
+      "prevHead": "4dd8589a",
+      "handoffSha": "sha256:ce89685c29e2a74808c2ab47df9c2477d868c313e22d5391f3dc1fbd767ac483",
+      "handoffAgeSec": 4,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1784998006-428f",
+        "at": "2026-07-25T16:46:46Z",
+        "ts": 1784998006,
+        "trigger": "self",
+        "prevHead": "4dd8589a",
+        "handoffSha": "sha256:ce89685c29e2a74808c2ab47df9c2477d868c313e22d5391f3dc1fbd767ac483",
+        "handoffAgeSec": 4,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1784991136-6b01",
         "at": "2026-07-25T14:52:16Z",
@@ -875,17 +886,6 @@
         "trigger": "self",
         "prevHead": "6caee759",
         "handoffSha": "sha256:1d6e6531e9385b3c5abbfe4d762640cc517dfa404c117335bb5786a340c43821",
-        "handoffAgeSec": 4,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784922574-192b",
-        "at": "2026-07-24T19:49:35Z",
-        "ts": 1784922575,
-        "trigger": "self",
-        "prevHead": "d347bdc2",
-        "handoffSha": "sha256:a67439645aef531786c9b244acc1bf9f8463e8787325e8836564d845e361acc4",
         "handoffAgeSec": 4,
         "conformanceBefore": null,
         "commitsInSession": null
