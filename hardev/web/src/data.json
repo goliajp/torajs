@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-26T08:11:15.568Z",
+  "generatedAt": "2026-07-26T08:22:27.998Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 96.12
   },
   "torajs": {
-    "commit": "6ddf6281",
-    "commitSubject": "fix(class): type arguments written at `new` reach the factory",
+    "commit": "28dc1052",
+    "commitSubject": "fix(arr): a multi-argument push works on a field, not only on a name",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "28dc1052",
+      "subject": "fix(arr): a multi-argument push works on a field, not only on a name"
+    },
+    {
+      "hash": "31e23f91",
+      "subject": "chore(hardev): refresh dashboard snapshot for rotation 223 close"
+    },
+    {
       "hash": "6ddf6281",
       "subject": "fix(class): type arguments written at `new` reach the factory"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "ce23b11c",
       "subject": "chore(hardev): refresh dashboard snapshot for rotation 222 close"
-    },
-    {
-      "hash": "1af4ac1c",
-      "subject": "fix(infer): an annotated container types the arrows written into it"
-    },
-    {
-      "hash": "dfa4f4af",
-      "subject": "chore(hardev): refresh dashboard snapshot for rotation 222 close"
     }
   ],
-  "headSha": "6ddf6281",
+  "headSha": "28dc1052",
   "autorun": {
     "total": 527,
     "baselineTarget": 10,
