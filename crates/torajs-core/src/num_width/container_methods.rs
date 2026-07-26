@@ -151,10 +151,19 @@ impl<'a> Analysis<'a> {
     }
 
     /// Number-domain gate for a fn's first user param and ret: `true`
-    /// when the annotation is `number` or absent (inference may go
-    /// either way — union is the conservative, ABI-safe side for the
-    /// numeric case and harmless for non-numeric slots, which no
-    /// width query ever reads).
+    /// when the annotation is in the number domain or absent
+    /// (inference may go either way — union is the conservative,
+    /// ABI-safe side for the numeric case and harmless for non-numeric
+    /// slots, which no width query ever reads).
+    ///
+    /// RFC 20260726-array-elem-width — an array OF numbers is in that
+    /// domain too. The gate used to admit the bare spelling only, so
+    /// `Promise.all(ps).then((arr: number[]) => …)` left the handler's
+    /// parameter unjoined from the value the promise settles with, and
+    /// the two disagreed on the elements' width: the settled array
+    /// holds integers while a widened parameter reads them as f64.
+    /// `await` was never affected — it reads the value slot directly
+    /// rather than through a handler.
     fn fn_number_faces(&self, fname: &str) -> (bool, bool) {
         for stmt in &self.ast.stmts {
             if let crate::ast::Stmt::FnDecl {
@@ -171,10 +180,8 @@ impl<'a> Analysis<'a> {
                     } else {
                         &params[..]
                     };
-                let p = user
-                    .first()
-                    .is_none_or(|p0| matches!(p0.type_ann.as_deref(), None | Some("number")));
-                let r = matches!(return_type.as_deref(), None | Some("number"));
+                let p = user.first().is_none_or(|p0| in_number_domain(&p0.type_ann));
+                let r = in_number_domain(return_type);
                 return (p, r);
             }
         }
@@ -447,5 +454,17 @@ impl<'a> Analysis<'a> {
                 self.fn_value_flow(&pk, *a, scope);
             }
         }
+    }
+}
+
+/// True when an annotation names a number or a nesting of arrays of
+/// them (`number`, `number[]`, `number[][]`), or is absent.
+///
+/// Only the elements of such a container ever carry a width, so joining
+/// on the container is what carries the elements along.
+fn in_number_domain(ann: &Option<String>) -> bool {
+    match ann.as_deref() {
+        None => true,
+        Some(t) => t.trim_end_matches("[]") == "number",
     }
 }
