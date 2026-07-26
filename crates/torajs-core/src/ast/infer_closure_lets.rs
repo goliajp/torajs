@@ -229,6 +229,15 @@ fn seed_container_field_hints(
     }
 }
 
+/// The declared annotation of field `fname` on an object typed `ann`.
+/// The one lookup behind both the container walk above and the
+/// receiver resolution in [`super::infer_closure_params`], so a field
+/// type reads the same whether the arrow is written into it or handed
+/// to a method on it.
+pub(super) fn field_ann_of(ast: &Ast, ann: &str, fname: &str) -> Option<String> {
+    resolve_object_field_anns(ast, ann)?.get(fname).cloned()
+}
+
 /// Field name → annotation for an object type named by `ann`, whether
 /// it is a `TypeDecl` name or an inline object type.
 fn resolve_object_field_anns(

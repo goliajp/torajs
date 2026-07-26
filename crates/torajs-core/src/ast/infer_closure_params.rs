@@ -95,6 +95,12 @@ pub(super) fn infer_lit_ann(ast: &Ast, eid: ExprId) -> Option<String> {
 ///   element type) — recurse on `inner`, so chained receivers
 ///   (`b.reverse().sort(cmp)`, RFC 20260705 chunk 554) reach the root
 ///   binding's annotation instead of preinferring `(any, any)`.
+/// - `Member(inner, f)` — the declared type of field `f` on whatever
+///   `inner` resolves to, nesting as deep as the path goes. A field
+///   holds a container the same way a binding does, and its methods
+///   are reached the same way: `o.fs.push(cb)` had no receiver type
+///   at all, so the arrow it stores kept the parameter it gets with
+///   no context and `o.fs[0](3)` answered -562949953421311.
 /// - literal shapes — [`infer_lit_ann`].
 fn resolve_receiver_ann(
     ast: &Ast,
@@ -115,6 +121,10 @@ fn resolve_receiver_ann(
     ];
     match ast.get_expr(eid) {
         Expr::Ident(n) => all_anns.get(n).cloned(),
+        Expr::Member { obj, name } => {
+            let obj_ann = resolve_receiver_ann(ast, *obj, all_anns)?;
+            super::infer_closure_lets::field_ann_of(ast, &obj_ann, name)
+        }
         Expr::Call { callee, .. } => {
             let Expr::Member { obj, name } = ast.get_expr(*callee) else {
                 return None;
