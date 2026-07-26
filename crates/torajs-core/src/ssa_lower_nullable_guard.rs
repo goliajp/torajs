@@ -240,7 +240,8 @@ pub(crate) fn is_undef_f64_source(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
 /// refcounted-pointer expression may hold the generic immortal
 /// undefined cell: the checker's `Nullable` typing (the C2b
 /// optional-field producer), a read past the end or a `find` miss on
-/// an array of such elements, or a binding recorded in
+/// an array of such elements, a field of such a type (the class
+/// factory seeds it with the cell), or a binding recorded in
 /// `ctx.undefable_heap_lets` (let-init of those shapes,
 /// alias-propagated). Over-broad for hit-path reads — one
 /// well-predicted cmp, never wrong.
@@ -273,6 +274,18 @@ pub(crate) fn is_undefable_heap_source(ctx: &LowerCtx<'_>, eid: ExprId) -> bool 
             Expr::Member { obj, name } if matches!(name.as_str(), "find" | "findLast" | "pop" | "shift" | "at")
                 && heap_elem_array(ctx, *obj)
         ),
+        // A field read. The class factory seeds a field of one of these
+        // types with that same immortal cell (`default_init_for_type`),
+        // and it stays there until something writes the field — so a
+        // field is undefable for exactly the reason an optional one is,
+        // and the two were answering differently: `c.d === undefined`
+        // agreed the field held `undefined` while `typeof c.d` read the
+        // slot's static type and said "object". `expr_types` carries the
+        // declared field type here, which is the question being asked.
+        Expr::Member { .. } | Expr::OptChain { .. } => ctx
+            .expr_types
+            .get(&eid)
+            .is_some_and(spells_undef_with_generic_cell),
         Expr::As { expr, .. } => is_undefable_heap_source(ctx, *expr),
         _ => false,
     }
