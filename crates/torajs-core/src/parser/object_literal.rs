@@ -71,6 +71,13 @@ impl<'a> Parser<'a> {
         if let Some(pair) = self.try_parse_async_computed_stub()? {
             return Ok(pair);
         }
+        // P-SURF S2.1 — `{ *g() { yield 1 } }`. See
+        // `parser/object_member_generator.rs`; returns None unless the
+        // lookahead is `* <Ident> (`, so `*` in any other position keeps
+        // its existing diagnostic.
+        if let Some(pair) = self.try_parse_generator_object_method()? {
+            return Ok(pair);
+        }
         if let Some(pair) = self.try_parse_computed_property()? {
             return Ok(pair);
         }

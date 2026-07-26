@@ -48,6 +48,7 @@ mod loops;
 mod object_literal;
 mod object_literal_computed;
 mod object_member;
+mod object_member_generator;
 mod param_list;
 mod parse_class_decl;
 mod parse_class_decl_header;
