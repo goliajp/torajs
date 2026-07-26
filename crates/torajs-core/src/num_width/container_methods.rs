@@ -360,7 +360,11 @@ impl<'a> Analysis<'a> {
         // numeric repr: an I64-narrowed elem slot cannot hold it, so
         // the receiver's element class seeds F64. Non-numeric element
         // classes never consume width seeds — no repr change there.
-        if matches!(name.as_str(), "find" | "findLast") {
+        // `at` answers `undefined` out of range for the same reason
+        // (§23.1.3.1 step 6), and it lowers through the same checked
+        // index branch — it just is not spelled `xs[i]`, so the
+        // index-read seed does not see it.
+        if matches!(name.as_str(), "find" | "findLast" | "at") {
             self.add_container_constraint(ek.clone(), super::W::F64);
         }
         // Callback-taking iteration — the element param sees the

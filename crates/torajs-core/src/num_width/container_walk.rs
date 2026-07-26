@@ -185,6 +185,31 @@ impl<'a> Analysis<'a> {
         }
     }
 
+    /// An index read can go out of bounds, where ES §10.4.2.1 answers
+    /// `undefined` — so being read by index is itself a reason to widen
+    /// a `number` element slot, the same way a fractional write is.
+    ///
+    /// An I64 slot has no bit pattern to spare for that answer, which is
+    /// why the lowering raises a RangeError there instead
+    /// (`ssa_lower_index::lower_typed_index_checked`) — loud, but not
+    /// what bun does, and inside a named fn the pending throw used to
+    /// unwind the body while the caller's check was M4.3.b-skipped. F64
+    /// has the sentinel, and the consuming side already assumes it:
+    /// `is_undef_f64_source` routes every `number[]` index read through
+    /// the sentinel compare.
+    pub(super) fn seed_index_read_elem(&mut self, obj: ExprId, scope: &Scope) {
+        if !matches!(
+            self.expr_types.get(&obj),
+            Some(crate::check::Type::Array(elem)) if **elem == crate::check::Type::Number
+        ) {
+            return;
+        }
+        if let Some(rk) = self.container_key_of(obj, scope) {
+            self.mark_containerish(&rk);
+            self.c_seeds.push(SlotKey::Elem(Box::new(rk)));
+        }
+    }
+
     /// Element / field write through an Assign target (`xs[i] = e`,
     /// `o.x = e`). An untrackable index-assign receiver poisons every
     /// container query — conservative, never silent-wrong.
