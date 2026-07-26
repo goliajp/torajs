@@ -43,6 +43,11 @@ impl<'a> Parser<'a> {
         // Optional generic type params: `class Map<K, V> { ... }`.
         let type_params = self.parse_class_type_params()?;
         let parent = self.parse_class_heritage()?;
+        // Read only by the constructor branch below, to decide whether a
+        // `super()` in that body is the legal one (ES §15.7.1). Saved
+        // and restored like `current_class` for nested classes.
+        let saved_has_parent = self.current_class_has_parent;
+        self.current_class_has_parent = parent.is_some();
         let mut fields: Vec<(String, String)> = Vec::new();
         let mut static_init: Vec<StaticInit> = Vec::new();
         let mut ctor: Option<ClassCtor> = None;
@@ -219,6 +224,7 @@ impl<'a> Parser<'a> {
         // skip this; the parser is in an error state and the value
         // is moot).
         self.current_class = saved_class;
+        self.current_class_has_parent = saved_has_parent;
         Ok(Stmt::ClassDecl {
             name,
             type_params,

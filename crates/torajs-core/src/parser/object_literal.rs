@@ -374,10 +374,15 @@ impl<'a> Parser<'a> {
                 ));
             }
         }
+        // S2.9 — an object-literal method has a `[[HomeObject]]` but no
+        // constructor role, so `super()` in it is an early SyntaxError
+        // (ES §15.7.1) even when the literal sits in a derived ctor.
+        let saved_super = std::mem::replace(&mut self.super_call_allowed, false);
         let mut body = Vec::new();
         while !matches!(self.peek(), Token::RBrace | Token::Eof) {
             body.push(self.parse_stmt()?);
         }
+        self.super_call_allowed = saved_super;
         match self.peek() {
             Token::RBrace => self.pos += 1,
             t => {

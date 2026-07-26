@@ -109,6 +109,8 @@ pub fn parse_into(source: &str, tokens: &[Spanned], target: &mut Ast) -> Result<
         generator_fns: std::collections::HashMap::new(),
         current_class: None,
         in_gen_class_method: false,
+        super_call_allowed: false,
+        current_class_has_parent: false,
         synth_classes: Vec::new(),
         class_value_aliases: std::collections::HashMap::new(),
         dyn_import_counter: 0,
@@ -182,6 +184,20 @@ struct Parser<'a> {
     /// receiver. Minting the parameter reference up front keeps the two
     /// apart.
     in_gen_class_method: bool,
+    /// P-SURF S2.9 — whether `super(…)` is legal at the cursor. ES
+    /// §15.7.1 makes it an early SyntaxError anywhere but a **derived**
+    /// class constructor's body, so it is set only there and cleared on
+    /// entry to every other function-like body. An arrow inherits it
+    /// rather than clearing: `constructor() { (() => super())() }` is
+    /// legal. Defaulting to `false` puts the safe failure (one we fail
+    /// to refuse) on a missed clear, and confines the dangerous one to
+    /// the single site that sets it.
+    super_call_allowed: bool,
+    /// Whether the class being parsed has an `extends` clause. Tracked
+    /// alongside [`Parser::current_class`] and read only to decide
+    /// `super_call_allowed` — `super()` in a base class's constructor
+    /// is the same early error as `super()` in a method.
+    current_class_has_parent: bool,
     /// P8.5 — parser-synthesized ClassDecls produced when a class
     /// appears in expression position (`const F = class { ... }`,
     /// `new (class { ... })()`, etc.). Each entry is anonymous on

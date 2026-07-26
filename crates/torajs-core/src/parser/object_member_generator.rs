@@ -84,10 +84,14 @@ impl<'a> Parser<'a> {
                 ));
             }
         }
+        // S2.9 — same as the ordinary object-literal method: `super()`
+        // is an early SyntaxError here (ES §15.7.1).
+        let saved_super = std::mem::replace(&mut self.super_call_allowed, false);
         let mut body = Vec::new();
         while !matches!(self.peek(), Token::RBrace | Token::Eof) {
             body.push(self.parse_stmt()?);
         }
+        self.super_call_allowed = saved_super;
         match self.peek() {
             Token::RBrace => self.pos += 1,
             t => {

@@ -110,10 +110,19 @@ impl<'a> Parser<'a> {
                 ));
             }
         }
+        // P-SURF S2.9 — an ordinary function has its own `this` binding,
+        // so a `super()` written inside one is an early SyntaxError even
+        // when the function itself sits in a derived constructor
+        // (ES §15.7.1). Arrows are the exception and do not clear it.
+        // Error paths do not restore, following `current_class`: a parse
+        // that has failed leaves the parser in an error state where the
+        // value is moot.
+        let saved_super = std::mem::replace(&mut self.super_call_allowed, false);
         let mut body = Vec::new();
         while !matches!(self.peek(), Token::RBrace | Token::Eof) {
             body.push(self.parse_stmt()?);
         }
+        self.super_call_allowed = saved_super;
         match self.peek() {
             Token::RBrace => self.pos += 1,
             t => return Err(format!("expected `}}`, got {t:?} at {}", self.at())),

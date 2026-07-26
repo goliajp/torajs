@@ -1799,6 +1799,17 @@ touches runtime hot paths.
       identically (measured, 4-line repro). The fix is to walk the
       inheritance chain to the method's real owner, which closes both
       spellings at once. Not yet censused
+- [ ] **S2.13** A `class` **declaration** inside a function body reaches
+      the checker unlowered: `function f() { class Inner {} … }` answers
+      `internal: ClassDecl \`Inner\` reached check.rs (desugar didn't
+      run?)`. The class-desugar walks top-level statements and does not
+      descend into function bodies, so the declaration spelling is
+      simply missed — the *expression* spelling
+      (`const C = class {}`) works, being routed through
+      `synth_classes` at parse time. Found while writing the S2.9
+      fixture and confirmed pre-existing against the prior binary. Same
+      family as the `super()` diagnostic S2.9 replaced: an internal note
+      that blames a pass which did run. Not yet censused
 - [ ] **S2.10** The receiver parameter is visible in argument-position
       diagnostics. Passing a bad argument to a class generator method
       reports `argument 1` for what the user wrote as the first argument,
@@ -1828,9 +1839,24 @@ touches runtime hot paths.
       - `grammar-static-gen-meth-super` (2 cases) is blocked by
         `class C extends Function` being unsupported — nothing to do
         with generators
-      - only `super()` inside a generator method (3 cases) needs a
-        genuinely new check: `super()` is legal solely in a derived
-        constructor
+      - `super()` inside a generator method (3 cases) needed a
+        genuinely new check — **done 2026-07-27**. It is an early
+        SyntaxError anywhere but a derived constructor's body
+        (ES §15.7.1), and the position turned out not to be a generator
+        matter at all: an ordinary method, an object-literal method, a
+        static block, a plain `function` nested in a derived
+        constructor, and a base class's own constructor all reached the
+        checker as `internal: super(...) reached check.rs (desugar
+        didn't run?)` — an internal note blaming a pass that had in
+        fact run, since the desugar only ever rewrote `super()` in a
+        ctor body and silently left every other one standing. A parser
+        flag, set in that one branch and cleared on entry to each
+        function-like body, refuses all six positions as bun does. An
+        arrow deliberately inherits the position rather than clearing
+        it (`constructor() { (() => super())() }` is legal), and so
+        does the sub-parser for template interpolation. Fixture
+        `super-call-position-001` pins the legal side — the way to get
+        a cleared-flag check wrong is to clear it where it should carry
 - [ ] **S2.2** Private names `#x` — the lexer rejects byte `0x23`
       outright (941) before the parser ever sees a private name, plus
       static private fields (350) = **1291 cases**. Lexer first; the
@@ -1934,6 +1960,24 @@ our own checker objecting is, by itself, a reason to skip).
       So this is a boundary decision about *which* unresolved names are
       statically refusable, and it needs a written rationale in the
       S7.2 register either way
+- [ ] **S5.8** A module-level binding holding a **class instance** is
+      not visible from a function body. Four lines:
+
+      ```ts
+      class A { tag: string = "A" }
+      const inner = new A();
+      function show(): string { return inner.tag }   // unknown identifier `inner`
+      ```
+
+      `const` and `let` fail alike, and reading `inner` at module level
+      first does not help. A scalar (`const n = 5`) in the same position
+      works, so the module-globals channel exists and simply does not
+      carry struct-typed bindings. Found while writing the S2.9 fixture
+      (three separate attempts at an unrelated line kept hitting it) and
+      confirmed against the prior binary. Related to S5.7 in symptom
+      (`unknown identifier`) but not in cause: this name **is**
+      declared. Not yet censused — worth doing early, since the shape is
+      ordinary enough that the census signature is probably large
 
 #### S6 — Runner-side, not substrate
 
@@ -2046,9 +2090,9 @@ but see S2.1 for why the reasoning was wrong.
 
 **Status @ rotation 227**: S1.1 / S1.2 / S1.5 shipped (rotation 225),
 S1.7 / S1.8 measured, **S2.1 shipped whole** (all three positions),
-**S2.11 closed** (rotation 227) — which surfaced S2.12. S1.3 now
-measurable; S1.4 open with a corrected description; S1.8(b) blocked on
-S5.6.
+**S2.11 closed** and **S2.9's `super()` third** closed (rotation 227) —
+which surfaced S2.12, S2.13 and S5.8. S1.3 now measurable; S1.4 open
+with a corrected description; S1.8(b) blocked on S5.6.
 
 Four orderings here were decided by measurement rather than by the
 plan, which is the pattern worth keeping: S1.2 gated S1.1 (a function

@@ -90,10 +90,19 @@ impl<'a> Parser<'a> {
                     ));
                 }
             }
+            // P-SURF S2.9 — the one place `super()` becomes legal
+            // (ES §15.7.1: the constructor of a class with an `extends`
+            // clause). Every other function-like body clears the flag on
+            // entry, so a method's `super()` is refused at the token.
+            let saved_super = std::mem::replace(
+                &mut self.super_call_allowed,
+                is_ctor_branch && self.current_class_has_parent,
+            );
             let mut body = Vec::new();
             while !matches!(self.peek(), Token::RBrace | Token::Eof) {
                 body.push(self.parse_stmt()?);
             }
+            self.super_call_allowed = saved_super;
             match self.peek() {
                 Token::RBrace => {
                     member_span_end = self.tokens.get(self.pos).map(|t| t.span.end).unwrap_or(0);

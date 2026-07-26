@@ -114,6 +114,10 @@ impl<'a> Parser<'a> {
         let body_expr_start = self.ast.exprs.len();
         let saved_in_gen = self.in_gen_class_method;
         self.in_gen_class_method = true;
+        // S2.9 — a generator method is a method: `super()` in it is an
+        // early SyntaxError (ES §15.7.1). `super.m()` stays legal and is
+        // resolved below.
+        let saved_super = std::mem::replace(&mut self.super_call_allowed, false);
         let mut body = Vec::new();
         while !matches!(self.peek(), Token::RBrace | Token::Eof) {
             match self.parse_stmt() {
@@ -125,6 +129,7 @@ impl<'a> Parser<'a> {
             }
         }
         self.in_gen_class_method = saved_in_gen;
+        self.super_call_allowed = saved_super;
         // Byte end of the MethodDefinition span (ES §20.2.3.5) — the
         // closing `}`, captured before it is consumed, same as the
         // ordinary method path.

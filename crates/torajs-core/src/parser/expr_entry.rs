@@ -76,6 +76,12 @@ impl<'a> Parser<'a> {
                         // method's body must mint the same receiver
                         // reference the surrounding body does.
                         in_gen_class_method: self.in_gen_class_method,
+                        // Likewise: `${super.m()}` in a derived ctor is
+                        // as legal as the same call written outside the
+                        // template, so the sub-parse inherits the
+                        // position rather than resetting it.
+                        super_call_allowed: self.super_call_allowed,
+                        current_class_has_parent: self.current_class_has_parent,
                         synth_classes: Vec::new(),
                         // Sub-parser sees outer aliases so a template
                         // interpolation can do `${new F()}` where F is

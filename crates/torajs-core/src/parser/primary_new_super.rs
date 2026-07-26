@@ -71,6 +71,20 @@ impl<'a> Parser<'a> {
                 ));
             }
         }
+        // P-SURF S2.9 — ES §15.7.1 early error: a SuperCall is legal
+        // only in the constructor of a class that has an `extends`
+        // clause. Refusing it here rather than downstream is what makes
+        // the diagnostic true: the desugar only ever rewrote `super()`
+        // inside a ctor body, so every other position used to reach the
+        // checker as `super(...) reached check.rs (desugar didn't run?)`
+        // — an internal note blaming a pass that had in fact run.
+        if !self.super_call_allowed {
+            return Err(format!(
+                "`super()` is only valid in the constructor of a class with an \
+                 `extends` clause, at {}",
+                self.at()
+            ));
+        }
         let mut args: Vec<ExprId> = Vec::new();
         if !matches!(self.peek(), Token::RParen) {
             args.push(self.parse_expr()?);
