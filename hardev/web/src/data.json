@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-26T14:41:37.706Z",
+  "generatedAt": "2026-07-26T14:43:00.189Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 94.94
   },
   "torajs": {
-    "commit": "e023bc6b",
-    "commitSubject": "fix(fn): a constructor that returns an object gets to keep it",
+    "commit": "3639c961",
+    "commitSubject": "chore(test262): sweep @ e023bc6b — S1 moved its targets, its cascade theory did not",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,10 @@
   },
   "commits": [
     {
+      "hash": "3639c961",
+      "subject": "chore(test262): sweep @ e023bc6b — S1 moved its targets, its cascade theory did not"
+    },
+    {
       "hash": "e023bc6b",
       "subject": "fix(fn): a constructor that returns an object gets to keep it"
     },
@@ -755,31 +759,38 @@
     {
       "hash": "ec9f7118",
       "subject": "fix(promise): a promise held in a field can be chained off"
-    },
-    {
-      "hash": "b9a5057c",
-      "subject": "fix(class): a function held in a field can be called, not only rebound"
     }
   ],
-  "headSha": "e023bc6b",
+  "headSha": "3639c961",
   "autorun": {
-    "total": 529,
+    "total": 530,
     "baselineTarget": 10,
-    "bySelf": 524,
+    "bySelf": 525,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785068962-03e3",
-      "at": "2026-07-26T12:29:22Z",
-      "ts": 1785068962,
+      "rotationId": "r-1785076973-4896",
+      "at": "2026-07-26T14:42:53Z",
+      "ts": 1785076973,
       "trigger": "self",
-      "prevHead": "5634c9b0",
-      "handoffSha": "sha256:39d3dc2064f02a8d1181f67f403b4d100eab005ffee85a7b5c36d0a25d5e1771",
-      "handoffAgeSec": 11,
+      "prevHead": "3639c961",
+      "handoffSha": "sha256:713857f700686e1a66275570935d702b6c31668ceffdea5d20d3688a817320dc",
+      "handoffAgeSec": 6,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1785076973-4896",
+        "at": "2026-07-26T14:42:53Z",
+        "ts": 1785076973,
+        "trigger": "self",
+        "prevHead": "3639c961",
+        "handoffSha": "sha256:713857f700686e1a66275570935d702b6c31668ceffdea5d20d3688a817320dc",
+        "handoffAgeSec": 6,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785068962-03e3",
         "at": "2026-07-26T12:29:22Z",
@@ -876,17 +887,6 @@
         "prevHead": "77d33007",
         "handoffSha": "sha256:01dcc89f83245ccd8e19ab539939d1ae04f763c14367e89930fbbe494a29ad69",
         "handoffAgeSec": 11,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784998006-428f",
-        "at": "2026-07-25T16:46:46Z",
-        "ts": 1784998006,
-        "trigger": "self",
-        "prevHead": "4dd8589a",
-        "handoffSha": "sha256:ce89685c29e2a74808c2ab47df9c2477d868c313e22d5391f3dc1fbd767ac483",
-        "handoffAgeSec": 4,
         "conformanceBefore": null,
         "commitsInSession": null
       }
