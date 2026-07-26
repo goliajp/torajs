@@ -16,16 +16,31 @@ use super::{Ast, Expr, ExprId, Stmt};
 pub(super) fn collect_let_init_anns(
     ast: &Ast,
     body: &[Stmt],
+    declared_rets: &std::collections::HashMap<String, String>,
     out: &mut std::collections::HashMap<String, String>,
 ) {
-    fn ann_of(ast: &Ast, eid: ExprId) -> Option<String> {
+    fn ann_of(
+        ast: &Ast,
+        eid: ExprId,
+        declared_rets: &std::collections::HashMap<String, String>,
+    ) -> Option<String> {
         match ast.get_expr(eid) {
             Expr::Number(_) => Some("number".into()),
             Expr::String(_) => Some("string".into()),
             Expr::Bool(_) => Some("boolean".into()),
             Expr::Array(els) if !els.is_empty() => {
-                ann_of(ast, els[0]).map(|inner| format!("{inner}[]"))
+                ann_of(ast, els[0], declared_rets).map(|inner| format!("{inner}[]"))
             }
+            // A call to a function that declares what it returns —
+            // including the factory a `new C()` has become by now, so
+            // `const c = new C()` binds `C` and a method call on one
+            // of its fields has a receiver type. Only a *declared*
+            // return counts: a sniffed one is a guess, and this table
+            // is read as if it were an annotation.
+            Expr::Call { callee, .. } => match ast.get_expr(*callee) {
+                Expr::Ident(fname) => declared_rets.get(fname).cloned(),
+                _ => None,
+            },
             // `new Map<string, number>()` / `new Set<number>()` — the
             // explicit instantiation spelling carried on the New node
             // is the binding's ann (`Map<string|number>`, the same
@@ -48,32 +63,49 @@ pub(super) fn collect_let_init_anns(
                 init,
                 ..
             } => {
-                if let Some(ann) = ann_of(ast, *init) {
+                if let Some(ann) = ann_of(ast, *init, declared_rets) {
                     out.insert(name.clone(), ann);
                 }
             }
-            Stmt::Block(stmts) | Stmt::Multi(stmts) => collect_let_init_anns(ast, stmts, out),
+            Stmt::Block(stmts) | Stmt::Multi(stmts) => {
+                collect_let_init_anns(ast, stmts, declared_rets, out)
+            }
             Stmt::If {
                 then_branch,
                 else_branch,
                 ..
             } => {
-                collect_let_init_anns(ast, std::slice::from_ref(then_branch.as_ref()), out);
+                collect_let_init_anns(
+                    ast,
+                    std::slice::from_ref(then_branch.as_ref()),
+                    declared_rets,
+                    out,
+                );
                 if let Some(eb) = else_branch {
-                    collect_let_init_anns(ast, std::slice::from_ref(eb.as_ref()), out);
+                    collect_let_init_anns(
+                        ast,
+                        std::slice::from_ref(eb.as_ref()),
+                        declared_rets,
+                        out,
+                    );
                 }
             }
             Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
-                collect_let_init_anns(ast, std::slice::from_ref(body.as_ref()), out);
+                collect_let_init_anns(ast, std::slice::from_ref(body.as_ref()), declared_rets, out);
             }
             Stmt::Labeled { body, .. } => {
-                collect_let_init_anns(ast, std::slice::from_ref(body.as_ref()), out);
+                collect_let_init_anns(ast, std::slice::from_ref(body.as_ref()), declared_rets, out);
             }
             Stmt::For { init, body, .. } => {
                 if let Some(i) = init {
-                    collect_let_init_anns(ast, std::slice::from_ref(i.as_ref()), out);
+                    collect_let_init_anns(
+                        ast,
+                        std::slice::from_ref(i.as_ref()),
+                        declared_rets,
+                        out,
+                    );
                 }
-                collect_let_init_anns(ast, std::slice::from_ref(body.as_ref()), out);
+                collect_let_init_anns(ast, std::slice::from_ref(body.as_ref()), declared_rets, out);
             }
             _ => {}
         }

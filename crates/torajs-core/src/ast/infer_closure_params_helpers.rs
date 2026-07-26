@@ -206,14 +206,22 @@ pub(super) fn build_ann_table(ast: &Ast) -> (HashMap<String, String>, HashMap<St
     // Lifted-closure name → the fn-type annotation of the binding it
     // initializes, for contextual param typing (see `collect_let_anns`).
     let mut closure_hints: HashMap<String, String> = HashMap::new();
+    // Name → declared return type, for a binding whose initializer is
+    // a call. Only declared returns: a sniffed one is a guess, and
+    // this table is read as if it were an annotation.
+    let mut declared_rets: HashMap<String, String> = HashMap::new();
     for s in &ast.stmts {
         if let Stmt::FnDecl {
+            name,
             params,
             body,
             return_type,
             ..
         } = s
         {
+            if let Some(rt) = return_type {
+                declared_rets.insert(name.clone(), rt.clone());
+            }
             for p in params {
                 if let Some(ann) = &p.type_ann {
                     all_anns.insert(p.name.clone(), ann.clone());
@@ -232,7 +240,7 @@ pub(super) fn build_ann_table(ast: &Ast) -> (HashMap<String, String>, HashMap<St
     }
     collect_let_anns(ast, &ast.stmts, &mut all_anns, &mut closure_hints);
     let mut inferred_inits: HashMap<String, String> = HashMap::new();
-    collect_let_init_anns(ast, &ast.stmts, &mut inferred_inits);
+    collect_let_init_anns(ast, &ast.stmts, &declared_rets, &mut inferred_inits);
     for (k, v) in inferred_inits {
         all_anns.entry(k).or_insert(v);
     }
