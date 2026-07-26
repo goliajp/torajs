@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-26T08:22:27.998Z",
+  "generatedAt": "2026-07-26T12:28:10.094Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 96.12
   },
   "torajs": {
-    "commit": "28dc1052",
-    "commitSubject": "fix(arr): a multi-argument push works on a field, not only on a name",
+    "commit": "ec9f7118",
+    "commitSubject": "fix(promise): a promise held in a field can be chained off",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "ec9f7118",
+      "subject": "fix(promise): a promise held in a field can be chained off"
+    },
+    {
+      "hash": "b9a5057c",
+      "subject": "fix(class): a function held in a field can be called, not only rebound"
+    },
+    {
+      "hash": "373fc05e",
+      "subject": "fix(infer): `__this` names a different object in every function"
+    },
+    {
+      "hash": "3f60414d",
+      "subject": "fix(class): a field can be declared a function type, like every other type"
+    },
+    {
+      "hash": "e6fe74e3",
+      "subject": "fix(class): `typeof` on an unset field answers undefined, as `===` already did"
+    },
+    {
+      "hash": "6204cc42",
+      "subject": "chore(hardev): refresh dashboard snapshot for rotation 223 close"
+    },
+    {
       "hash": "28dc1052",
       "subject": "fix(arr): a multi-argument push works on a field, not only on a name"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "bc8ad25c",
       "subject": "fix(infer): a binding takes the return type its initializer declares"
-    },
-    {
-      "hash": "86836dd8",
-      "subject": "fix(infer): a call's receiver can be a field, not only a binding"
-    },
-    {
-      "hash": "c4694900",
-      "subject": "fix(class): a field can be declared any type, not the six the seed knew"
-    },
-    {
-      "hash": "a2d25349",
-      "subject": "fix(infer): an array mutator types the arrow it stores as an element"
-    },
-    {
-      "hash": "7397a196",
-      "subject": "chore(hardev): refresh dashboard snapshot for rotation 222 close"
-    },
-    {
-      "hash": "35e2577e",
-      "subject": "fix(infer): a declared return type types the arrow returned under it"
-    },
-    {
-      "hash": "ce23b11c",
-      "subject": "chore(hardev): refresh dashboard snapshot for rotation 222 close"
     }
   ],
-  "headSha": "28dc1052",
+  "headSha": "ec9f7118",
   "autorun": {
-    "total": 527,
+    "total": 528,
     "baselineTarget": 10,
-    "bySelf": 522,
+    "bySelf": 523,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785048874-720f",
-      "at": "2026-07-26T06:54:34Z",
-      "ts": 1785048874,
+      "rotationId": "r-1785054278-4154",
+      "at": "2026-07-26T08:24:38Z",
+      "ts": 1785054278,
       "trigger": "self",
-      "prevHead": "7397a196",
-      "handoffSha": "sha256:1e11061e7aadd1afc6212f481a3ea657e76e60115187e7529804a0154d3e36f3",
-      "handoffAgeSec": 24,
+      "prevHead": "6204cc42",
+      "handoffSha": "sha256:41208a7fd93b3d7b0517287d149a7fb5572f33518a98ae78e976b65cfb1b2ead",
+      "handoffAgeSec": 16,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1785054278-4154",
+        "at": "2026-07-26T08:24:38Z",
+        "ts": 1785054278,
+        "trigger": "self",
+        "prevHead": "6204cc42",
+        "handoffSha": "sha256:41208a7fd93b3d7b0517287d149a7fb5572f33518a98ae78e976b65cfb1b2ead",
+        "handoffAgeSec": 16,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785048874-720f",
         "at": "2026-07-26T06:54:34Z",
@@ -876,17 +887,6 @@
         "prevHead": "347dbaef",
         "handoffSha": "sha256:f05f50c142cd640d2bd6fb3e3e86a2e8381945f7c712c492727f659c2c6937db",
         "handoffAgeSec": 124,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784985712-580d",
-        "at": "2026-07-25T13:21:52Z",
-        "ts": 1784985712,
-        "trigger": "self",
-        "prevHead": "d0add202",
-        "handoffSha": "sha256:a85b1ab1c39ce202d7673d9289f565bfefeb55cac59cb5527574207a280ec717",
-        "handoffAgeSec": 10,
         "conformanceBefore": null,
         "commitsInSession": null
       }
