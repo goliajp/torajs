@@ -246,3 +246,71 @@ fn resolve_object_field_anns(
         _ => None,
     })
 }
+
+/// The `return` counterpart of the container walk: a fn whose declared
+/// return type is a fn type contextually types an arrow it returns.
+///
+/// `function make(): (n: number) => number { return (n) => n + 1 }` —
+/// the arrow is written with no annotation of its own, and without
+/// this it takes the same contextless `string` default that a field
+/// or an element used to, so `make()(3)` answered 3.
+///
+/// Nested `FnDecl` bodies are not descended into: their returns
+/// belong to their own declared type, and each is reached by the
+/// caller's own walk over `ast.stmts`.
+pub(super) fn seed_return_hints(
+    ast: &Ast,
+    body: &[Stmt],
+    ret_ann: &str,
+    closure_hints: &mut std::collections::HashMap<String, String>,
+) {
+    for s in body {
+        match s {
+            Stmt::Return(Some(e)) => {
+                if let Some(fn_name) = lifted_closure_name(ast, *e) {
+                    closure_hints.insert(fn_name, ret_ann.to_string());
+                }
+            }
+            Stmt::Block(stmts) | Stmt::Multi(stmts) => {
+                seed_return_hints(ast, stmts, ret_ann, closure_hints)
+            }
+            Stmt::If {
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                seed_return_hints(
+                    ast,
+                    std::slice::from_ref(then_branch.as_ref()),
+                    ret_ann,
+                    closure_hints,
+                );
+                if let Some(eb) = else_branch {
+                    seed_return_hints(
+                        ast,
+                        std::slice::from_ref(eb.as_ref()),
+                        ret_ann,
+                        closure_hints,
+                    );
+                }
+            }
+            Stmt::While { body, .. } | Stmt::DoWhile { body, .. } | Stmt::Labeled { body, .. } => {
+                seed_return_hints(
+                    ast,
+                    std::slice::from_ref(body.as_ref()),
+                    ret_ann,
+                    closure_hints,
+                );
+            }
+            Stmt::For { body, .. } => {
+                seed_return_hints(
+                    ast,
+                    std::slice::from_ref(body.as_ref()),
+                    ret_ann,
+                    closure_hints,
+                );
+            }
+            _ => {}
+        }
+    }
+}

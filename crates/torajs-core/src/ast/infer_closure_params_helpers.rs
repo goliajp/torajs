@@ -123,13 +123,27 @@ pub(super) fn build_ann_table(ast: &Ast) -> (HashMap<String, String>, HashMap<St
     // initializes, for contextual param typing (see `collect_let_anns`).
     let mut closure_hints: HashMap<String, String> = HashMap::new();
     for s in &ast.stmts {
-        if let Stmt::FnDecl { params, body, .. } = s {
+        if let Stmt::FnDecl {
+            params,
+            body,
+            return_type,
+            ..
+        } = s
+        {
             for p in params {
                 if let Some(ann) = &p.type_ann {
                     all_anns.insert(p.name.clone(), ann.clone());
                 }
             }
             collect_let_anns(ast, body, &mut all_anns, &mut closure_hints);
+            if let Some(ret_ann) = return_type {
+                super::infer_closure_lets::seed_return_hints(
+                    ast,
+                    body,
+                    ret_ann,
+                    &mut closure_hints,
+                );
+            }
         }
     }
     collect_let_anns(ast, &ast.stmts, &mut all_anns, &mut closure_hints);
