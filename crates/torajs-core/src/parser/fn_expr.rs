@@ -45,6 +45,53 @@ impl<'a> Parser<'a> {
                         if matches!(self.tokens.get(i + 1).map(|s| &s.token), Some(Token::Colon)) {
                             // Scan past the type ann to look for `=>`.
                             let mut j = i + 2;
+                            // An inline function type as the return
+                            // annotation: `(): (b: number) => void =>
+                            // …`. Requiring an identifier here read
+                            // its leading `(` as "not an arrow", so
+                            // the whole declaration fell into the
+                            // parenthesized-expression path and died
+                            // on the empty `()` with "expected
+                            // expression, got RParen".
+                            //
+                            // Only the unparenthesized spelling. A
+                            // parameter list holds named parameters,
+                            // so a group opening with another `(` is
+                            // a parenthesized type instead — and that
+                            // spelling needs the annotation parser to
+                            // stop at the arrow's own `=>`, which is
+                            // `parse_fn_type_ann`'s pinning question,
+                            // not this lookahead's. Declining keeps
+                            // it exactly as it was.
+                            if matches!(self.tokens.get(j).map(|s| &s.token), Some(Token::LParen)) {
+                                if matches!(
+                                    self.tokens.get(j + 1).map(|s| &s.token),
+                                    Some(Token::LParen)
+                                ) {
+                                    return false;
+                                }
+                                let mut d = 1;
+                                j += 1;
+                                while j < self.tokens.len() && d > 0 {
+                                    match self.tokens[j].token {
+                                        Token::LParen => d += 1,
+                                        Token::RParen => d -= 1,
+                                        Token::Eof => return false,
+                                        _ => {}
+                                    }
+                                    j += 1;
+                                }
+                                // The `=>` of the function type just
+                                // skipped, then its return type, then
+                                // the arrow's own `=>`.
+                                if !matches!(
+                                    self.tokens.get(j).map(|s| &s.token),
+                                    Some(Token::FatArrow)
+                                ) {
+                                    return false;
+                                }
+                                j += 1;
+                            }
                             // Type starts with an identifier — or
                             // the `void` keyword (m1.h.30 promoted
                             // it from contextual ident to keyword;
