@@ -71,6 +71,7 @@ mod sfi_rewrite;
 mod sfi_safe;
 mod stmt;
 mod super_collect;
+mod this_param;
 mod uninit_let;
 mod var_hoist;
 pub use apply_args::{apply_default_args, apply_rest_args};
@@ -115,6 +116,7 @@ pub use sfi_pass::rewrite_split_for_i_to_iter;
 pub use stmt::{
     AccessorKind, ClassCtor, ClassMethod, StaticField, StaticInit, Stmt, SwitchCase, Visibility,
 };
+pub use this_param::bind_this_param;
 pub use uninit_let::desugar_uninit_let;
 pub use var_hoist::desugar_var_hoist;
 

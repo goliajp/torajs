@@ -154,6 +154,10 @@ pub(crate) fn lower_to_ssa(input: &str) -> Result<Module, ExitCode> {
     ast::desugar_prototype_call(&mut ast);
     ast::inject_builtin_classes(&mut ast);
     ast::desugar_classes(&mut ast);
+    // Must follow desugar_classes: that pass is what turns `this`
+    // into the name `__this`, and this one is what gives plain
+    // functions somewhere to bind it (RFC 20260726 blade 1).
+    ast::bind_this_param(&mut ast);
     ast::fill_optional_fields(&mut ast);
     ast::synthesize_class_globals(&mut ast);
     ast::tag_struct_field_closure_types(&mut ast);
