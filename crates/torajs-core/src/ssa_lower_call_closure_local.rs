@@ -126,7 +126,7 @@ pub(crate) fn try_lower(
         argv.push(Operand::ConstI64(args.len() as i64));
     }
     let mut owned_temps: Vec<(ExprId, Operand)> = Vec::new();
-    let mut coerce_owned: Vec<Operand> = Vec::new();
+    let mut coerce_owned: Vec<(Operand, Type)> = Vec::new();
     for (i, a) in args.iter().enumerate() {
         let param_idx = if needs_argc { i + 1 } else { i };
         // Chunk 641 — empty `[]` arg allocs with the param's layout.
@@ -147,47 +147,18 @@ pub(crate) fn try_lower(
         if let Some(p) = user_params.get(param_idx) {
             ctx.mark_arr_arg_for_any_param(*p, &raw);
         }
-        let raw_ty = ctx.operand_ty(&raw);
-        let boxed = if param_idx < user_params.len()
-            && matches!(user_params[param_idx], Type::Any)
-            && !matches!(raw_ty, Type::Any)
-        {
-            ctx.box_to_any_from_expr(*a, raw)
-        } else if matches!(raw_ty, Type::Any) && param_idx < user_params.len() {
-            // RFC 20260708-spread-call chunk 2a — Any arg into a
-            // scalar / Str param (checker `any_into_scalar` admit
-            // pairing, terminal-lane mirror). Str mints a
-            // fresh-owned conversion released after the call.
-            match user_params[param_idx] {
-                Type::F64 | Type::I64 => ctx.coerce_any_to_number(raw, user_params[param_idx]),
-                Type::Bool => ctx.coerce_to_bool(raw),
-                Type::Str => {
-                    let s = ctx.coerce_to_str(raw, Type::Any);
-                    coerce_owned.push(s);
-                    s
-                }
-                _ => raw,
+        // This lane used to spell the conversions out itself, and it
+        // only ever carried the Any directions — so an I64 arg into a
+        // param some other call site widened to F64 went in raw:
+        // `const f = (b: number) => …; f(6.5); f(2)` printed 6.5
+        // twice, the callee reading integer bits out of an f64 slot.
+        let converted = match user_params.get(param_idx) {
+            Some(&p) => {
+                crate::ssa_lower_call_arg_conv::emit_arg_conv(ctx, p, *a, raw, &mut coerce_owned)
             }
-        } else if let Some(&p) = user_params.get(param_idx) {
-            // A number arg still has to arrive at the param's width.
-            // This lane is the hand-written twin of the direct call's
-            // `coerce_args_by_param_tys`, and it only ever carried
-            // that helper's two Any directions — so an I64 arg into a
-            // param some other call site widened to F64 went in raw:
-            // `const f = (b: number) => …; f(6.5); f(2)` printed 6.5
-            // twice, the callee reading integer bits out of an f64
-            // slot. Widening the param is what makes the two calls
-            // disagree, so the narrow one is always the one that
-            // breaks — silent, and never on the call that caused it.
-            match (p, raw_ty) {
-                (Type::F64, Type::I64 | Type::Bool) => ctx.coerce_to_f64(raw),
-                (Type::I64, Type::F64 | Type::Bool) => ctx.coerce_to_i64(raw),
-                _ => raw,
-            }
-        } else {
-            raw
+            None => raw,
         };
-        argv.push(boxed);
+        argv.push(converted);
     }
     // T-28 — missing trailing Any args pad with ANY_UNDEF (checker
     // recorded arity_pad_count); without the pad the CallIndirect
@@ -205,8 +176,8 @@ pub(crate) fn try_lower(
         for (a, op) in owned_temps {
             ctx.release_owned_temp(a, &op);
         }
-        for op in coerce_owned {
-            ctx.emit_drop_value(op, Type::Str);
+        for (op, ty) in coerce_owned {
+            ctx.emit_drop_value(op, ty);
         }
         return Some(Operand::ConstPtrNull);
     }
@@ -220,8 +191,8 @@ pub(crate) fn try_lower(
     for (a, op) in owned_temps {
         ctx.release_owned_temp(a, &op);
     }
-    for op in coerce_owned {
-        ctx.emit_drop_value(op, Type::Str);
+    for (op, ty) in coerce_owned {
+        ctx.emit_drop_value(op, ty);
     }
     Some(Operand::Value(v))
 }

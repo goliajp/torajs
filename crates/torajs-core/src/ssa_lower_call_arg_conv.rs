@@ -24,7 +24,9 @@
 //! bookkeeping (which genuinely differs — who owns a freshly minted
 //! temp, and when it is released, is a per-lane fact).
 
-use crate::ssa::Type;
+use crate::ast::ExprId;
+use crate::ssa::{InstKind, Operand, Type};
+use crate::ssa_lower::LowerCtx;
 
 /// What an argument of type `actual` needs to reach an `expected`
 /// parameter. [`arg_conv`] is the only thing that produces one.
@@ -73,6 +75,58 @@ pub(crate) fn arg_conv(expected: Type, actual: Type) -> ArgConv {
         (Type::F64, Type::I64 | Type::Bool) => ArgConv::ToF64,
         (Type::I64, Type::F64 | Type::Bool) => ArgConv::ToI64,
         _ => ArgConv::None,
+    }
+}
+
+/// Emit whatever the contract says this argument needs, and answer the
+/// operand that belongs in `argv`.
+///
+/// A conversion that mints a fresh owned value is pushed onto `owned`
+/// with its type; the calling lane releases those once the call
+/// returns, because the callee's parameter is a `+0` borrow per the
+/// SHARE convention.
+///
+/// `arg` is the argument's expression — boxing reads its static type so
+/// an `undefined` / `null` literal keeps its own tag instead of being
+/// encoded as whatever its lowered operand happens to look like. Lanes
+/// holding only operands (the fn-value lane) match on [`arg_conv`]
+/// directly instead; their boxing also has to settle refcounts, which
+/// is a fact about that lane rather than about the conversion.
+pub(crate) fn emit_arg_conv(
+    ctx: &mut LowerCtx<'_>,
+    expected: Type,
+    arg: ExprId,
+    op: Operand,
+    owned: &mut Vec<(Operand, Type)>,
+) -> Operand {
+    let actual = ctx.operand_ty(&op);
+    match arg_conv(expected, actual) {
+        ArgConv::None => op,
+        ArgConv::ToF64 => ctx.coerce_to_f64(op),
+        ArgConv::ToI64 => ctx.coerce_to_i64(op),
+        ArgConv::BoxAny => ctx.box_to_any_from_expr(arg, op),
+        ArgConv::AnyToNumber(t) => ctx.coerce_any_to_number(op, t),
+        ArgConv::AnyToBool => ctx.coerce_to_bool(op),
+        ArgConv::AnyToStr => {
+            let s = ctx.coerce_to_str(op, Type::Any);
+            owned.push((s, Type::Str));
+            s
+        }
+        ArgConv::AnyToBigInt => {
+            let b = ctx.coerce_any_to_bigint(op);
+            owned.push((b, Type::BigInt));
+            b
+        }
+        ArgConv::SubstrToStr => {
+            let v = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.substr_to_owned, vec![op]),
+                Type::Str,
+                None,
+            );
+            owned.push((Operand::Value(v), Type::Str));
+            Operand::Value(v)
+        }
     }
 }
 

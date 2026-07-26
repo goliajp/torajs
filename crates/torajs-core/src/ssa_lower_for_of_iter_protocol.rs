@@ -122,9 +122,8 @@ fn emit_next_call(
         step_ret_ty,
         None,
     );
-    for owned in coerce_owned {
-        let ty = ctx.operand_ty(&owned);
-        ctx.emit_drop_value(owned, ty);
+    for (op, ty) in coerce_owned {
+        ctx.emit_drop_value(op, ty);
     }
     // ES §7.4.6 IteratorNext — a step that throws forwards the abrupt
     // completion. `next()` is user code (a generator body runs here), and

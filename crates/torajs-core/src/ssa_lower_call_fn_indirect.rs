@@ -96,33 +96,15 @@ fn try_lower_local_fnsig(
             if let Some(p) = target_params.get(i) {
                 ctx.mark_arr_arg_for_any_param(*p, &raw);
             }
-            let raw_ty = ctx.operand_ty(&raw);
-            if i < target_params.len()
-                && matches!(target_params[i], Type::Any)
-                && !matches!(raw_ty, Type::Any)
-            {
-                ctx.box_to_any_from_expr(*a, raw)
-            } else if matches!(raw_ty, Type::Any) && i < target_params.len() {
-                // RFC 20260708-spread-call chunk 2a — Any arg into a
-                // scalar / Str / BigInt param (checker `any_into_scalar`
-                // admit pairing, terminal-lane mirror).
-                match target_params[i] {
-                    Type::F64 | Type::I64 => ctx.coerce_any_to_number(raw, target_params[i]),
-                    Type::Bool => ctx.coerce_to_bool(raw),
-                    Type::Str => {
-                        let s = ctx.coerce_to_str(raw, Type::Any);
-                        coerce_owned.push((s, Type::Str));
-                        s
-                    }
-                    Type::BigInt => {
-                        let b = ctx.coerce_any_to_bigint(raw);
-                        coerce_owned.push((b, Type::BigInt));
-                        b
-                    }
-                    _ => raw,
-                }
-            } else {
-                raw
+            match target_params.get(i) {
+                Some(&p) => crate::ssa_lower_call_arg_conv::emit_arg_conv(
+                    ctx,
+                    p,
+                    *a,
+                    raw,
+                    &mut coerce_owned,
+                ),
+                None => raw,
             }
         })
         .collect();
@@ -224,6 +206,7 @@ pub(crate) fn emit_closure_callee(
     let mut argv: Vec<Operand> = Vec::with_capacity(args.len() + 1);
     argv.push(Operand::Value(env_ptr));
     let mut owned_temps: Vec<(ExprId, Operand)> = Vec::new();
+    let mut coerce_owned: Vec<(Operand, Type)> = Vec::new();
     for (i, a) in args.iter().enumerate() {
         // Chunk 641 — empty `[]` arg allocs with the param's layout.
         let raw = ctx
@@ -242,14 +225,15 @@ pub(crate) fn emit_closure_callee(
         if let Some(p) = user_params.get(i) {
             ctx.mark_arr_arg_for_any_param(*p, &raw);
         }
-        if i < user_params.len()
-            && matches!(user_params[i], Type::Any)
-            && !matches!(ctx.operand_ty(&raw), Type::Any)
-        {
-            argv.push(ctx.box_to_any_from_expr(*a, raw));
-        } else {
-            argv.push(raw);
-        }
+        // Boxing was the only conversion this lane carried; the rest
+        // of the contract applies here for the same reasons.
+        let converted = match user_params.get(i) {
+            Some(&p) => {
+                crate::ssa_lower_call_arg_conv::emit_arg_conv(ctx, p, *a, raw, &mut coerce_owned)
+            }
+            None => raw,
+        };
+        argv.push(converted);
     }
     // T-28 — missing trailing Any args pad with ANY_UNDEF (see
     // pad_trailing_undef doc; short argv = garbage-register reads).
@@ -265,6 +249,9 @@ pub(crate) fn emit_closure_callee(
         for (a, op) in owned_temps {
             ctx.release_owned_temp(a, &op);
         }
+        for (op, ty) in coerce_owned {
+            ctx.emit_drop_value(op, ty);
+        }
         return Operand::ConstPtrNull;
     }
     let v = ctx.f.append_inst(
@@ -276,6 +263,9 @@ pub(crate) fn emit_closure_callee(
     ctx.emit_throw_check(None);
     for (a, op) in owned_temps {
         ctx.release_owned_temp(a, &op);
+    }
+    for (op, ty) in coerce_owned {
+        ctx.emit_drop_value(op, ty);
     }
     Operand::Value(v)
 }
@@ -296,6 +286,7 @@ pub(crate) fn emit_fnsig_callee(
     let target_params = ctx.fn_sigs[sig_id.0 as usize].0.clone();
     // Chunk 569 — args SHARE: no consume; owned temps release after.
     let mut owned_temps: Vec<(ExprId, Operand)> = Vec::new();
+    let mut coerce_owned: Vec<(Operand, Type)> = Vec::new();
     // RC-4 F3 — Type::Any target param boxes a concrete arg (see
     // emit_closure_callee / arm-1 P0.5).
     let mut argv: Vec<Operand> = args
@@ -312,13 +303,17 @@ pub(crate) fn emit_fnsig_callee(
             if let Some(p) = target_params.get(i) {
                 ctx.mark_arr_arg_for_any_param(*p, &raw);
             }
-            if i < target_params.len()
-                && matches!(target_params[i], Type::Any)
-                && !matches!(ctx.operand_ty(&raw), Type::Any)
-            {
-                ctx.box_to_any_from_expr(*a, raw)
-            } else {
-                raw
+            // Boxing was the only conversion this lane carried; the
+            // rest of the contract applies here for the same reasons.
+            match target_params.get(i) {
+                Some(&p) => crate::ssa_lower_call_arg_conv::emit_arg_conv(
+                    ctx,
+                    p,
+                    *a,
+                    raw,
+                    &mut coerce_owned,
+                ),
+                None => raw,
             }
         })
         .collect();
@@ -334,6 +329,9 @@ pub(crate) fn emit_fnsig_callee(
         for (a, op) in owned_temps {
             ctx.release_owned_temp(a, &op);
         }
+        for (op, ty) in coerce_owned {
+            ctx.emit_drop_value(op, ty);
+        }
         return Operand::ConstPtrNull;
     }
     let v = ctx.f.append_inst(
@@ -345,6 +343,9 @@ pub(crate) fn emit_fnsig_callee(
     ctx.emit_throw_check(None);
     for (a, op) in owned_temps {
         ctx.release_owned_temp(a, &op);
+    }
+    for (op, ty) in coerce_owned {
+        ctx.emit_drop_value(op, ty);
     }
     Operand::Value(v)
 }

@@ -150,8 +150,8 @@ pub(crate) fn emit(
     // chunk 2a — fresh-owned Any→Str conversions minted by
     // coerce_args carry their own +1; the callee borrowed them, so
     // release here.
-    for op in coerce_owned {
-        ctx.emit_drop_value(op, Type::Str);
+    for (op, ty) in coerce_owned {
+        ctx.emit_drop_value(op, ty);
     }
     result
 }
@@ -225,7 +225,7 @@ fn coerce_args(
     target: FuncId,
     args: &[ExprId],
     argv: &mut [Operand],
-) -> Vec<Operand> {
+) -> Vec<(Operand, Type)> {
     if ctx.is_math_unary(target) {
         debug_assert_eq!(argv.len(), 1, "Math.* unary takes 1 arg");
         argv[0] = coerce_to_f64_or_any_to_number(ctx, argv[0]);
@@ -245,27 +245,25 @@ fn coerce_args(
     coerce_args_by_param_tys(ctx, &param_tys, args, argv)
 }
 
-/// Width-aware per-arg coercion against a declared param-type list.
-/// Coerce both directions:
-///   expected F64 + actual I64 → SiToFp (widen)
-///   expected I64 + actual F64 → FpToSi (truncate; matches JS
-///     ToInt32 / ToUint32 prefix for indexes/codepoints/bit
-///     positions)
-/// P0.9 — Any param + concrete arg: box the concrete value into Any
-/// at the call boundary. S126-3 `box_to_any_from_expr` reads
-/// `args[i]` expr_types so undefined/null literals keep
-/// ANY_UNDEF/ANY_NULL tags. Shared by the direct-call terminal and
-/// the struct-field closure dispatch (RFC 20260714-t262-top-clusters
-/// 刀 1 — an Array-literal arg into an obj-method's any param used
-/// to pass its typed repr raw). Returns the fresh-owned Any→Str
-/// temps the caller must release after the call.
+/// Per-arg conversion against a declared param-type list, applying the
+/// shared contract (`ssa_lower_call_arg_conv`) to each position.
+///
+/// Shared by the direct-call terminal and the struct-field closure
+/// dispatch (RFC 20260714-t262-top-clusters 刀 1 — an Array-literal
+/// arg into an obj-method's any param used to pass its typed repr
+/// raw). Returns the fresh-owned temps the caller must release after
+/// the call, each with the type to release it as.
+///
+/// `args` and `argv` are the same positional list: callers with
+/// leading slots of their own (an env pointer, a receiver) pass the
+/// slice of `argv` that holds exactly these args.
 pub(crate) fn coerce_args_by_param_tys(
     ctx: &mut LowerCtx<'_>,
     param_tys: &[Type],
     args: &[ExprId],
     argv: &mut [Operand],
-) -> Vec<Operand> {
-    let mut coerce_owned: Vec<Operand> = Vec::new();
+) -> Vec<(Operand, Type)> {
+    let mut coerce_owned: Vec<(Operand, Type)> = Vec::new();
     for (i, expected) in param_tys.iter().enumerate() {
         if i >= argv.len() {
             break;
@@ -274,36 +272,13 @@ pub(crate) fn coerce_args_by_param_tys(
         // param (T-11 call-boundary widen) marks the block's elem
         // kind for the callee's kind-aware readers.
         ctx.mark_arr_arg_for_any_param(*expected, &argv[i]);
-        let got = ctx.operand_ty(&argv[i]);
-        match (expected, got) {
-            (Type::F64, Type::I64) | (Type::F64, Type::Bool) => {
-                argv[i] = ctx.coerce_to_f64(argv[i]);
-            }
-            (Type::I64, Type::F64) | (Type::I64, Type::Bool) => {
-                argv[i] = ctx.coerce_to_i64(argv[i]);
-            }
-            (Type::Any, got_ty) if got_ty != Type::Any => {
-                argv[i] = ctx.box_to_any_from_expr(args[i], argv[i]);
-            }
-            // RFC 20260708-spread-call chunk 2a — Any arg into a
-            // scalar / Str param (paired with the checker's
-            // `any_into_scalar` admit). Numbers / bools unbox to
-            // Copy scalars; Str produces a fresh-owned rc=1
-            // conversion released after the Call (the callee's
-            // param is a +0 borrow per the SHARE convention).
-            (Type::F64 | Type::I64, Type::Any) => {
-                argv[i] = ctx.coerce_any_to_number(argv[i], *expected);
-            }
-            (Type::Bool, Type::Any) => {
-                argv[i] = ctx.coerce_to_bool(argv[i]);
-            }
-            (Type::Str, Type::Any) => {
-                let s = ctx.coerce_to_str(argv[i], Type::Any);
-                coerce_owned.push(s);
-                argv[i] = s;
-            }
-            _ => {}
-        }
+        argv[i] = crate::ssa_lower_call_arg_conv::emit_arg_conv(
+            ctx,
+            *expected,
+            args[i],
+            argv[i],
+            &mut coerce_owned,
+        );
     }
     coerce_owned
 }

@@ -187,8 +187,8 @@ fn emit_fnsig_call(
         );
         Operand::Value(v)
     };
-    for op in coerce_owned {
-        ctx.emit_drop_value(op, Type::Str);
+    for (op, ty) in coerce_owned {
+        ctx.emit_drop_value(op, ty);
     }
     result
 }
@@ -358,8 +358,8 @@ fn emit_closure_call(
     );
     crate::ssa_lower_call_terminal::pad_undef_n(ctx, pad_n, &mut site.argv);
     let result = finish_closure_call(ctx, site);
-    for op in coerce_owned {
-        ctx.emit_drop_value(op, Type::Str);
+    for (op, ty) in coerce_owned {
+        ctx.emit_drop_value(op, ty);
     }
     result
 }
