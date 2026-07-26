@@ -119,6 +119,28 @@ fn try_then_two_arg(
                     }
                     continue;
                 }
+                // A handler whose parameter matches T — or that
+                // declares none at all, per the sibling arm below —
+                // may return ANYTHING. §27.2.5.4 makes the return the
+                // next cell's fulfilment value; it is under no
+                // obligation to be another T. Before this,
+                // `p.then((v: number) => { console.log(v) }, …)` —
+                // the ordinary two-handler side-effect shape — was
+                // refused until a `return v` was added, purely to
+                // satisfy the `(T) => T` signature the table fixes.
+                // The `(T) => T` case still lands here and still
+                // answers Promise<T>, so nothing it admitted moves.
+                if let Type::Function(params, ret) = &aty
+                    && (params.is_empty() || (params.len() == 1 && params[0] == inner_ty))
+                {
+                    if i == 0 {
+                        result_inner = match &**ret {
+                            Type::Void => Type::Undefined,
+                            other => other.clone(),
+                        };
+                    }
+                    continue;
+                }
                 if aty != expected_cb {
                     return Some(Err(format!(
                         "Promise.then arg {i}: expected {:?}, got {aty:?}",

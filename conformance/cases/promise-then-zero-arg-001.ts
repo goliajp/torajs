@@ -36,3 +36,50 @@ const chained: Promise<number> = Promise.resolve(2);
 chained.then(() => 7).then((v: number) => {
   console.log("chain-after-zero", v);
 });
+
+// the two-handler station had the mirror of the same over-narrowing:
+// it fixed each handler's signature at `(T) => T`, so the ordinary
+// side-effect pair needed a `return v` added purely to satisfy it.
+// §27.2.5.4 makes a handler's return the next cell's fulfilment
+// value — it is under no obligation to be another T.
+const two: Promise<number> = Promise.resolve(1);
+two.then(
+  (v: number) => {
+    console.log("two-ok-void", v);
+  },
+  (e: number) => {
+    console.log("two-err-void", e);
+  },
+);
+
+// the shape that already worked must still answer Promise<T>
+const same: Promise<number> = Promise.resolve(2);
+same
+  .then(
+    (v: number) => v + 1,
+    (e: number) => e,
+  )
+  .then((v: number) => {
+    console.log("two-same-T", v);
+  });
+
+// the rejection leg, and zero-arg handlers in both slots
+const rej: Promise<string> = Promise.reject("boom");
+rej.then(
+  (v: string) => {
+    console.log("never", v);
+  },
+  (e: string) => {
+    console.log("two-rejected", e);
+  },
+);
+
+const zz: Promise<number> = Promise.resolve(5);
+zz.then(
+  () => {
+    console.log("two-zero-arg");
+  },
+  () => {
+    console.log("never2");
+  },
+);
