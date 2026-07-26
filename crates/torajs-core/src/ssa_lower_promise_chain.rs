@@ -345,6 +345,17 @@ impl crate::ssa_lower::LowerCtx<'_> {
                     || fs_async
                     || bun_file_text
             }
+            // A field read. A `Promise`-typed field holds the same
+            // built-in promise a `Promise`-typed binding does, and the
+            // Ident arm above already answers for the binding by asking
+            // its slot — so `const p = f(); p.then(cb)` chained while
+            // `c.p.then(cb)` fell through to the resolve_callee panic
+            // ("unsupported member call shape: then"). `expr_types` is
+            // the same question asked of a field.
+            Expr::Member { .. } | Expr::OptChain { .. } => matches!(
+                self.expr_types.get(&src_id),
+                Some(crate::check::Type::Promise(_))
+            ),
             _ => false,
         }
     }
