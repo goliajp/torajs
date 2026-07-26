@@ -176,25 +176,22 @@ fn lower_by_ssa_type_inner(ctx: &mut LowerCtx<'_>, expr: ExprId, v: Operand, ty:
             return crate::ssa_lower_typeof_runtime::emit_substr_typeof_runtime(ctx, v);
         }
         Type::Str => "string",
+        // RFC 20260722-find-miss chunk B — an undefable heap source
+        // (Nullable optional-field read, or a read past the end / a
+        // `find` miss on such an array, or a let alias of either) may
+        // hold NULL (JS null → "object") or the generic undefined
+        // cell ("undefined"); take the three-state runtime branch
+        // instead of the static fold, answering with whatever name
+        // the live value would have carried. Everything else keeps
+        // the zero-cost literal.
+        t if t.spells_undef_with_generic_cell()
+            && crate::ssa_lower_nullable_guard::is_undefable_heap_source(ctx, expr) =>
+        {
+            let live = static_type_name(t);
+            return crate::ssa_lower_typeof_runtime::emit_heap_typeof_runtime(ctx, v, live);
+        }
         Type::Symbol => "symbol",
         Type::BigInt => "bigint",
-        // RFC 20260722-find-miss chunk B — an undefable heap source
-        // (Nullable optional-field read, or a heap-elem
-        // find/findLast miss / its let alias) may hold NULL (JS
-        // null → "object") or the generic undefined cell
-        // ("undefined"); take the three-state runtime branch
-        // instead of the static fold. Everything else keeps the
-        // zero-cost literal.
-        Type::Obj(_) | Type::Arr(_)
-            if crate::ssa_lower_nullable_guard::is_undefable_heap_source(ctx, expr) =>
-        {
-            return crate::ssa_lower_typeof_runtime::emit_heap_typeof_runtime(ctx, v, "object");
-        }
-        Type::Closure(_)
-            if crate::ssa_lower_nullable_guard::is_undefable_heap_source(ctx, expr) =>
-        {
-            return crate::ssa_lower_typeof_runtime::emit_heap_typeof_runtime(ctx, v, "function");
-        }
         Type::Closure(_) | Type::FnSig(_) => "function",
         Type::Obj(_)
         | Type::Arr(_)
@@ -221,4 +218,19 @@ fn lower_by_ssa_type_inner(ctx: &mut LowerCtx<'_>, expr: ExprId, v: Operand, ty:
         }
     };
     Operand::Value(ctx.intern_string_literal(s))
+}
+
+/// The `typeof` name a live value of a generic-cell family type
+/// carries — the answer the three-state runtime branch hands back
+/// when the slot turns out not to hold the sentinel. Only the
+/// members of that family are asked, so anything else is a caller
+/// bug rather than a value to invent.
+fn static_type_name(ty: Type) -> &'static str {
+    debug_assert!(ty.spells_undef_with_generic_cell());
+    match ty {
+        Type::Closure(_) => "function",
+        Type::Symbol => "symbol",
+        Type::BigInt => "bigint",
+        _ => "object",
+    }
 }

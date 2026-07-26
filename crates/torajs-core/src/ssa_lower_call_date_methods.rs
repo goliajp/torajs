@@ -105,6 +105,7 @@ pub(crate) fn try_lower(
         ctx.redispatch_lowered = Some((recv_id, recv_op));
         return None;
     }
+    crate::ssa_lower_nullable_guard::emit_undefable_heap_guard(ctx, recv_id, &recv_op);
 
     let arg_ops = build_arg_ops(ctx, &method, recv_op, args);
     let (target, ret_ty) = resolve_intrinsic(ctx, &method);

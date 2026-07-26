@@ -66,6 +66,7 @@ pub(crate) fn try_lower(
 
     let recv_id = *obj;
     let recv_op = ctx.lower_expr(recv_id);
+    crate::ssa_lower_nullable_guard::emit_undefable_heap_guard(ctx, recv_id, &recv_op);
     let tag_slot = ctx.alloca(Type::I64, Some("__iter_tag"));
     let val_slot = ctx.alloca(Type::I64, Some("__iter_val"));
     let cur_block = ctx.cur_block;

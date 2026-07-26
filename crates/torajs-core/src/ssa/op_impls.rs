@@ -95,6 +95,49 @@ impl Type {
         )
     }
 
+    /// True when a slot of this type spells JS `undefined` with the
+    /// generic immortal cell (`___TORAJS_UNDEF_CELL`, torajs-rc
+    /// `undef_cell.rs`) — a bare `Tag::Undefined` header block.
+    ///
+    /// Every consumer of such a slot branches on the ADDRESS, never
+    /// on content, which is why one cell serves the whole family:
+    /// strict-eq compares it, drop stations guard on it, print / JSON
+    /// probe identity, and the any boundary re-encodes it as
+    /// ANY_UNDEF. So the question a consumer actually has is this one
+    /// — not "is this an Obj, an Arr or a Closure", which is how it
+    /// was spelled at nine sites before, each of them naming three of
+    /// the fifteen members.
+    ///
+    /// Excluded, each for a reason of its own: `Str` and `Substr`
+    /// have their own family oddballs (`str_undef_sentinel_for`),
+    /// `FnSig` borrows the Str one (it is Copy, no rc traffic),
+    /// `Any` carries the answer in its tag, and the scalar slots
+    /// have no address to hand out.
+    ///
+    /// Exhaustive on purpose: a new SSA type must decide which side
+    /// it is on rather than falling into a wildcard.
+    pub fn spells_undef_with_generic_cell(self) -> bool {
+        match self {
+            Type::Obj(_)
+            | Type::Arr(_)
+            | Type::Closure(_)
+            | Type::RegExp
+            | Type::Date
+            | Type::Symbol
+            | Type::Promise
+            | Type::BigInt
+            | Type::WeakRef
+            | Type::WeakMap
+            | Type::WeakSet
+            | Type::Map
+            | Type::Set
+            | Type::MapIter
+            | Type::ArrIter => true,
+            Type::Str | Type::Substr | Type::FnSig(_) | Type::Any => false,
+            Type::I64 | Type::F64 | Type::I32 | Type::Bool | Type::Void | Type::Ptr => false,
+        }
+    }
+
     /// V3-05 — true if the SSA value is an i64-wide pointer slot
     /// (heap-owned refcounted types + raw Ptr + bare Promise / Symbol /
     /// any other heap handle). Used by ObjectLit's permissive layout

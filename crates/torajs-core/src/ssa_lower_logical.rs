@@ -261,19 +261,7 @@ impl LowerCtx<'_> {
                 // null literal or any raw pointer — null = false.
                 self.cmp(IPred::Ne, op, Operand::ConstPtrNull)
             }
-            Type::BigInt => {
-                // ES §7.1.4 ToBoolean(BigInt) — 0n is falsy, every
-                // other BigInt is truthy. The heap layout keeps
-                // `len == 0` iff the value is 0n, so a runtime probe
-                // suffices (avoids leaking LEN_OFF into SSA).
-                let v = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::Call(self.intrinsics.bigint_is_nonzero, vec![op]),
-                    Type::I64,
-                    None,
-                );
-                self.cmp(IPred::Ne, Operand::Value(v), Operand::ConstI64(0))
-            }
+            Type::BigInt => self.bigint_to_bool(op),
             // P0.4 — ToBoolean(Any) per JS spec §7.1.2 routes through
             // __torajs_any_to_bool which unboxes the tag + payload
             // and applies spec rules: NULL → false, BOOL → value,
@@ -317,5 +305,68 @@ impl LowerCtx<'_> {
                 Operand::Value(r)
             }
         }
+    }
+
+    /// ES §7.1.4 ToBoolean(BigInt) — `0n` is falsy, every other
+    /// BigInt is truthy. The heap layout keeps `len == 0` iff the
+    /// value is `0n`, so a runtime probe answers it without leaking
+    /// LEN_OFF into SSA.
+    ///
+    /// The probe reads the payload, so a slot that can hold the
+    /// generic undefined cell (a read past the end of a `bigint[]`,
+    /// a `find` miss) has to be sorted out first — the cell is a
+    /// bare header with no words behind it, and asking it for its
+    /// length answered `true` for a value that is `undefined`. Same
+    /// two falsy pointers as the pointer-slot arm below, only with a
+    /// branch rather than an `and` because the probe must not run on
+    /// the sentinel at all.
+    fn bigint_to_bool(&mut self, op: Operand) -> Operand {
+        let sentinel = self
+            .str_undef_sentinel_for(Type::BigInt)
+            .expect("BigInt spells undefined with the generic cell");
+        let ne_null = self.cmp(IPred::Ne, op.clone(), Operand::ConstPtrNull);
+        let ne_undef = self.cmp(IPred::Ne, op.clone(), sentinel);
+        let live = self.f.append_inst(
+            self.cur_block,
+            InstKind::BinOp(crate::ssa::BinOp::And, ne_null, ne_undef),
+            Type::Bool,
+            None,
+        );
+        let result_slot = self.alloca_in_entry(Type::Bool, Some("__bigbool"));
+        let live_blk = self.f.add_block();
+        let merge = self.f.add_block();
+        let cb = self.cur_block;
+        self.f.append_void(
+            cb,
+            InstKind::Store(Operand::ConstBool(false), Operand::Value(result_slot), 0),
+        );
+        self.f.set_term(
+            cb,
+            Terminator::CondBr {
+                cond: Operand::Value(live),
+                then_blk: live_blk,
+                else_blk: merge,
+            },
+        );
+        self.cur_block = live_blk;
+        let v = self.f.append_inst(
+            live_blk,
+            InstKind::Call(self.intrinsics.bigint_is_nonzero, vec![op]),
+            Type::I64,
+            None,
+        );
+        let nz = self.cmp(IPred::Ne, Operand::Value(v), Operand::ConstI64(0));
+        let cb = self.cur_block;
+        self.f
+            .append_void(cb, InstKind::Store(nz, Operand::Value(result_slot), 0));
+        self.f.set_term(cb, Terminator::Br(merge));
+        self.cur_block = merge;
+        let r = self.f.append_inst(
+            merge,
+            InstKind::Load(Type::Bool, Operand::Value(result_slot), 0),
+            Type::Bool,
+            None,
+        );
+        Operand::Value(r)
     }
 }

@@ -78,7 +78,7 @@ impl<'a> LowerCtx<'a> {
         // `anyv_box_from_pair` tag 5 ignores the payload. Plain heap
         // sources keep the zero-cmp encoding below.
         if crate::ssa_lower_nullable_guard::is_undefable_heap_source(self, eid)
-            && matches!(val_ty, Type::Obj(_) | Type::Arr(_) | Type::Closure(_))
+            && val_ty.spells_undef_with_generic_cell()
         {
             // Ownership mirrors box_to_any's refcounted arm (chunk
             // 753 — pure encoding, the caller owns the stake story);
@@ -144,7 +144,7 @@ impl<'a> LowerCtx<'a> {
         // +1); the inc and the kind mark both no-op on the sentinel
         // through the runtime static gates.
         if crate::ssa_lower_nullable_guard::is_undefable_heap_source(self, eid)
-            && matches!(val_ty, Type::Obj(_) | Type::Arr(_) | Type::Closure(_))
+            && val_ty.spells_undef_with_generic_cell()
         {
             self.emit_rc_inc(val.clone());
             self.emit_arr_mark_kind(&val);

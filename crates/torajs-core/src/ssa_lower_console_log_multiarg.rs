@@ -290,7 +290,7 @@ fn open_boxed_sentinel_branch(
     arg: &Operand,
     arg_ty: Type,
 ) -> Option<crate::ssa::BlockId> {
-    if !matches!(arg_ty, Type::Obj(_) | Type::Arr(_) | Type::Closure(_)) {
+    if !arg_ty.spells_undef_with_generic_cell() {
         return None;
     }
     let is_undef = ctx.f.append_inst(

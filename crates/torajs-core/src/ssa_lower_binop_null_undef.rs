@@ -56,7 +56,7 @@ impl<'a> LowerCtx<'a> {
             // on it (nullish, not just NULL), strict-eq compares
             // the address, print/JSON probe identity, and the any
             // boundary re-encodes it as ANY_UNDEF.
-            Type::Obj(_) | Type::Arr(_) | Type::Closure(_) => UNDEF_CELL_SYM,
+            t if t.spells_undef_with_generic_cell() => UNDEF_CELL_SYM,
             _ => return None,
         };
         let v = self.f.append_inst(
@@ -151,15 +151,9 @@ pub(crate) fn try_lower(
         // RFC 20260710 C2a/C2b — fn-typed slots (Str-shaped oddball)
         // and refcounted pointer slots (generic Tag::Undefined cell)
         // join the sentinel-capable set.
-        if !matches!(
-            val_ty,
-            Type::Str
-                | Type::Substr
-                | Type::FnSig(_)
-                | Type::Obj(_)
-                | Type::Arr(_)
-                | Type::Closure(_)
-        ) {
+        if !matches!(val_ty, Type::Str | Type::Substr | Type::FnSig(_))
+            && !val_ty.spells_undef_with_generic_cell()
+        {
             return None;
         }
         let rhs = if nullish_is_undef {

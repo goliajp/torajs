@@ -83,6 +83,7 @@ pub(crate) fn try_lower(
         return None;
     }
     let recv_op = ctx.lower_expr(obj);
+    crate::ssa_lower_nullable_guard::emit_undefable_heap_guard(ctx, obj, &recv_op);
     let out = dispatch_set_method(ctx, m_name.as_str(), recv_op, args);
     // RFC 20260705 chunk 548 — a Call-shaped receiver (chained
     // `s.add(a).add(b)`) is an owned temp; `add` answers the

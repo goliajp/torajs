@@ -324,7 +324,7 @@ fn emit_field(
     // would walk the bare oddball header as a live cell.
     let undef_probe = match fty {
         Type::Str => Some(ctx.intrinsics.str_is_undef),
-        Type::Obj(_) | Type::Arr(_) | Type::Closure(_) => Some(ctx.intrinsics.is_undef_cell),
+        t if t.spells_undef_with_generic_cell() => Some(ctx.intrinsics.is_undef_cell),
         _ => None,
     };
     let merge_blk = if let Some(probe_fid) = undef_probe {

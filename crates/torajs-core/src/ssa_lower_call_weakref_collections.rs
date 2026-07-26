@@ -78,6 +78,7 @@ fn try_lower_weakref_deref(
     }
     let recv_id = *obj;
     let recv_op = ctx.lower_expr(recv_id);
+    crate::ssa_lower_nullable_guard::emit_undefable_heap_guard(ctx, recv_id, &recv_op);
     let cur_block = ctx.cur_block;
     // Chunk 629 — boxed deref: the checker types the result
     // Nullable<Any>, so the SSA value is an AnyValue box (alive box
@@ -134,6 +135,7 @@ fn try_lower_weak_collection_method(
         return None;
     }
     let recv_op = ctx.lower_expr(recv_id);
+    crate::ssa_lower_nullable_guard::emit_undefable_heap_guard(ctx, recv_id, &recv_op);
     let useful = if do_weakmap && m_name == "set" { 2 } else { 1 };
     let is_setter = (do_weakmap && m_name == "set") || (do_weakset && m_name == "add");
 

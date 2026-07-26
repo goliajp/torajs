@@ -237,26 +237,18 @@ pub(crate) fn is_undef_f64_source(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
 }
 
 /// RFC 20260722-find-miss-undefined-sentinel chunk B — true when a
-/// pointer-shaped heap expression (Obj / Arr / Closure slot) may
-/// hold the generic immortal undefined cell: the checker's
-/// `Nullable` typing (the C2b optional-field producer), a
-/// `find`/`findLast` call on an array of heap elems (miss answers
-/// the cell), or a binding recorded in `ctx.undefable_heap_lets`
-/// (let-init of those shapes, alias-propagated). Over-broad for
-/// hit-path reads — one well-predicted cmp, never wrong.
+/// refcounted-pointer expression may hold the generic immortal
+/// undefined cell: the checker's `Nullable` typing (the C2b
+/// optional-field producer), a read past the end or a `find` miss on
+/// an array of such elements, or a binding recorded in
+/// `ctx.undefable_heap_lets` (let-init of those shapes,
+/// alias-propagated). Over-broad for hit-path reads — one
+/// well-predicted cmp, never wrong.
 pub(crate) fn is_undefable_heap_source(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
     if callee_falls_through(ctx, eid) {
         return true;
     }
-    if matches!(
-        awaited_promise_inner(ctx, eid),
-        Some(
-            crate::check::Type::Struct(_)
-                | crate::check::Type::ClassRef(_)
-                | crate::check::Type::Array(_)
-                | crate::check::Type::Function(..)
-        )
-    ) {
+    if awaited_promise_inner(ctx, eid).is_some_and(spells_undef_with_generic_cell) {
         return true;
     }
     if matches!(
@@ -286,21 +278,70 @@ pub(crate) fn is_undefable_heap_source(ctx: &LowerCtx<'_>, eid: ExprId) -> bool 
     }
 }
 
-/// True when `obj` is an array whose elements are pointer-shaped in a
-/// family that has a generic immortal `undefined` cell to answer with.
-/// Sentinel-less heap elems (Date / Map / …) keep the NULL default
-/// until their cells land.
+/// True when `obj` is an array whose elements spell `undefined` with
+/// the generic immortal cell.
 fn heap_elem_array(ctx: &LowerCtx<'_>, obj: ExprId) -> bool {
     matches!(
         ctx.expr_types.get(&obj),
-        Some(crate::check::Type::Array(elem)) if matches!(
-            &**elem,
-            crate::check::Type::Struct(_)
-                | crate::check::Type::ClassRef(_)
-                | crate::check::Type::Array(_)
-                | crate::check::Type::Function(..)
-        )
+        Some(crate::check::Type::Array(elem)) if spells_undef_with_generic_cell(elem)
     )
+}
+
+/// The checker-side reading of [`crate::ssa::Type::
+/// spells_undef_with_generic_cell`] — true when a value of this type
+/// lands in a slot that can hold the generic immortal cell.
+///
+/// The two are mirrors and must move together: a checker type that
+/// starts lowering to a refcounted pointer belongs on the `true` side
+/// here the same day. Both are exhaustive so that adding a type is a
+/// build error rather than a silent fall into the wrong half — the
+/// `container_key_lookup` mirror taught that lesson by answering the
+/// wrong class for a name it had never heard of.
+///
+/// One-way slack is fine and deliberate: saying `true` for something
+/// that turns out to lower to `FnSig` only buys a well-predicted
+/// identity compare, because the emitting sites gate on the SSA type
+/// as well. Saying `false` for something that does hold the cell is
+/// the direction that goes silently wrong, so `Nullable` recurses
+/// rather than guessing.
+pub(crate) fn spells_undef_with_generic_cell(t: &crate::check::Type) -> bool {
+    use crate::check::Type as T;
+    match t {
+        T::Struct(_)
+        | T::ClassRef(_)
+        | T::Array(_)
+        | T::Function(..)
+        | T::BigInt
+        | T::Date
+        | T::RegExp
+        | T::Symbol
+        | T::Promise(_)
+        | T::Map
+        | T::Set
+        | T::MapIter
+        | T::ArrIter
+        | T::WeakRef
+        | T::WeakMap
+        | T::WeakSet => true,
+        // `T | null` for a pointer-shaped T is that same slot with
+        // NULL in band, so the answer is T's.
+        T::Nullable(inner) => spells_undef_with_generic_cell(inner),
+        // Str and Substr carry their own family oddballs; Any carries
+        // the answer in its tag; the rest are scalars, absent values,
+        // or names that are gone by the time anything is lowered
+        // (`TypeVar` is substituted, `Rest` is an annotation marker,
+        // `Object` is a global stand-in).
+        T::String
+        | T::Number
+        | T::Boolean
+        | T::Void
+        | T::Any
+        | T::Null
+        | T::Undefined
+        | T::Object(_)
+        | T::TypeVar(_)
+        | T::Rest(_) => false,
+    }
 }
 
 /// Emit the heap nullish guard when `obj` is an undefable-heap

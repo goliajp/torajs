@@ -51,6 +51,7 @@ pub(crate) fn try_lower(
         ctx.redispatch_lowered = Some((recv_id, recv_op));
         return None;
     }
+    crate::ssa_lower_nullable_guard::emit_undefable_heap_guard(ctx, recv_id, &recv_op);
 
     // The Call must land in `ctx.cur_block` AS OF after the args are
     // lowered — a branching arg expression (ternary) splits blocks and

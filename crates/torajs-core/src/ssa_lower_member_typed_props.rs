@@ -92,6 +92,11 @@ pub(crate) fn try_lower(
         return Some(Operand::Value(v));
     }
     if matches!(obj_ty, Type::Map | Type::Set) && name == "size" {
+        // A Map / Set slot that can hold the generic undefined cell
+        // (a read past the end of such an array, a `find` miss) must
+        // throw here rather than hand the bare header to `map_size`,
+        // which would read a bucket count out of whatever follows it.
+        crate::ssa_lower_nullable_guard::emit_undefable_heap_guard(ctx, obj, &obj_val);
         let cur_block = ctx.cur_block;
         let v = ctx.f.append_inst(
             cur_block,

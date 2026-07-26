@@ -147,17 +147,16 @@ fn setup_result_slot(ctx: &mut LowerCtx<'_>, method: &str, elem_ty: Type) -> (Ty
             Type::Str => ctx
                 .str_undef_sentinel_for(Type::Str)
                 .expect("Str always has a sentinel mapping"),
-            // RFC 20260722 chunk B — an Obj/Arr/Closure elem miss
+            // RFC 20260722 chunk B — a refcounted-pointer elem miss
             // answers the generic immortal undefined cell (was NULL,
             // which boxed to an illegal tag4/0 and printed
             // [unknown-any-tag]); typeof / eq / member-guard / box
             // consumers route through `is_undefable_heap_source`'s
             // find arm. Static cell: the result slot's scope drop
-            // no-ops. Sentinel-less heap elems (Date / Map / ...)
-            // keep the NULL default until their cells land.
-            Type::Obj(_) | Type::Arr(_) | Type::Closure(_) => ctx
+            // no-ops.
+            t if t.spells_undef_with_generic_cell() => ctx
                 .str_undef_sentinel_for(elem_ty)
-                .expect("heap family always has a sentinel mapping"),
+                .expect("the generic-cell family always has a sentinel mapping"),
             _ => Operand::ConstPtrNull,
         },
         _ => unreachable!(),

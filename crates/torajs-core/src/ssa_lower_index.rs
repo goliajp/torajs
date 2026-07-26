@@ -298,7 +298,7 @@ pub(crate) fn lower_typed_index_checked(
         // constant out-of-range index folds the first compare away and
         // takes that block with it, leaving the reference with no
         // definition (`nested[-1]` aborted the compile).
-        Type::Obj(_) | Type::Arr(_) | Type::Closure(_) => {
+        t if t.spells_undef_with_generic_cell() => {
             let sentinel = ctx.f.append_inst(
                 oob_blk,
                 InstKind::GlobalRef(UNDEF_CELL_SYM.to_string()),

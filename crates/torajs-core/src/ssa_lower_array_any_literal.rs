@@ -342,7 +342,7 @@ impl<'a> LowerCtx<'a> {
                 // cmp instead of a raw tag-4 pointing at the oddball
                 // header (which printed [object]). The inc above
                 // no-ops on the static cell.
-                if matches!(val_ty, Type::Obj(_) | Type::Arr(_) | Type::Closure(_))
+                if val_ty.spells_undef_with_generic_cell()
                     && let Some(e) = eid
                     && crate::ssa_lower_nullable_guard::is_undefable_heap_source(self, e)
                 {
