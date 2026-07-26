@@ -1793,9 +1793,26 @@ touches runtime hot paths.
       into a user-facing message". Cosmetic, but it is the kind of
       cosmetic that sends a reader looking for a bug in the wrong place
 - [ ] **S2.9** Early errors that were being faked by a parse failure —
-      **9 cases**, exposed by S2.1: `super` in a generator method,
-      generator param redeclared by a body `let`/`const`, duplicate
-      default-param names. Each needs the real check
+      **9 cases**, exposed by S2.1. **Measured 2026-07-27; the list is
+      shorter than it looks, and start from this rather than the
+      sentence above:**
+      - `*method(x = 0, x)` and `*foo(a) { let a = 3 }` (4 cases) are
+        **already refused** — the duplicate name becomes two same-named
+        fields of the `__Gen_*` class and trips
+        `desugar_classes_fields.rs:64`. Two problems, neither being a
+        missing check: it `panic!`s, so the verdict is `not yet
+        supported` rather than one of the four kinds a negative test
+        accepts; and **the message is wrong** — it says "subclass
+        `__Gen___cm_gen_C__method` redeclares parent field `x`" when the
+        collision is between two fields of the *same* class and the
+        name it prints is a compiler-synthesized one the user never
+        wrote. Fix the message and the kind, not the detection
+      - `grammar-static-gen-meth-super` (2 cases) is blocked by
+        `class C extends Function` being unsupported — nothing to do
+        with generators
+      - only `super()` inside a generator method (3 cases) needs a
+        genuinely new check: `super()` is legal solely in a derived
+        constructor
 - [ ] **S2.2** Private names `#x` — the lexer rejects byte `0x23`
       outright (941) before the parser ever sees a private name, plus
       static private fields (350) = **1291 cases**. Lexer first; the
