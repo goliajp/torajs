@@ -288,6 +288,62 @@ fn resolve_object_field_anns(
     })
 }
 
+/// The assignment counterpart: writing an arrow into an already-typed
+/// place types it, the same way initializing that place does.
+///
+/// A binding, a field and an element all say what they hold, and only
+/// the declaration position was reading it — so the second line of
+///
+///     let g: (n: number) => number = (n) => n;
+///     g = (n) => n + 1;
+///
+/// left the arrow contextless while the call still dispatched through
+/// the declared signature, and `g(3)` SIGSEGVed. `fs[0] = cb` on a
+/// declared array answered -562949953421311 and `o.f = cb` on a
+/// declared field crashed the same way the rebind did.
+///
+/// Walks the expression arena rather than the statement tree: an
+/// assignment is an expression and can sit anywhere one can, and this
+/// question does not care where.
+pub(super) fn seed_assign_hints(
+    ast: &Ast,
+    all_anns: &std::collections::HashMap<String, String>,
+    closure_hints: &mut std::collections::HashMap<String, String>,
+) {
+    for e in &ast.exprs {
+        let Expr::Assign { target, value } = e else {
+            continue;
+        };
+        let Some(fn_name) = lifted_closure_name(ast, *value) else {
+            continue;
+        };
+        if let Some(ann) = assign_target_ann(ast, *target, all_anns) {
+            closure_hints.insert(fn_name, ann);
+        }
+    }
+}
+
+/// What an assignment target says it holds: a binding's own
+/// annotation, a field's declared type, or an array's element type.
+fn assign_target_ann(
+    ast: &Ast,
+    target: ExprId,
+    all_anns: &std::collections::HashMap<String, String>,
+) -> Option<String> {
+    match ast.get_expr(target) {
+        Expr::Ident(n) => all_anns.get(n).cloned(),
+        Expr::Member { obj, name } => {
+            let obj_ann = super::infer_closure_params::resolve_receiver_ann(ast, *obj, all_anns)?;
+            field_ann_of(ast, &obj_ann, name)
+        }
+        Expr::Index { obj, .. } => {
+            let obj_ann = super::infer_closure_params::resolve_receiver_ann(ast, *obj, all_anns)?;
+            Some(obj_ann.trim().strip_suffix("[]")?.to_string())
+        }
+        _ => None,
+    }
+}
+
 /// The `return` counterpart of the container walk: a fn whose declared
 /// return type is a fn type contextually types an arrow it returns.
 ///

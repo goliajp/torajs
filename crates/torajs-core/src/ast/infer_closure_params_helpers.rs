@@ -244,6 +244,9 @@ pub(super) fn build_ann_table(ast: &Ast) -> (HashMap<String, String>, HashMap<St
     for (k, v) in inferred_inits {
         all_anns.entry(k).or_insert(v);
     }
+    // Assignment targets last: resolving one reads the finished
+    // annotation table (`fs[0] = cb` needs to know what `fs` is).
+    crate::ast::infer_closure_lets::seed_assign_hints(ast, &all_anns, &mut closure_hints);
     (all_anns, closure_hints)
 }
 

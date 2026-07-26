@@ -102,7 +102,7 @@ pub(super) fn infer_lit_ann(ast: &Ast, eid: ExprId) -> Option<String> {
 ///   at all, so the arrow it stores kept the parameter it gets with
 ///   no context and `o.fs[0](3)` answered -562949953421311.
 /// - literal shapes — [`infer_lit_ann`].
-fn resolve_receiver_ann(
+pub(super) fn resolve_receiver_ann(
     ast: &Ast,
     eid: ExprId,
     all_anns: &std::collections::HashMap<String, String>,
