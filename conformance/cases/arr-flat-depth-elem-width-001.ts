@@ -1,12 +1,12 @@
-// `flat(0)` flattens nothing (§23.1.3.13 — a depth of 0 copies the
-// elements as they are), so its product stands where the receiver
-// stands, the way `slice`'s does.
+// `flat(depth)` peels exactly `depth` layers (§23.1.3.13), so its
+// product stands where the receiver's depth-th element layer stands.
 //
-// The width analysis read the depth as always 1 and put the product's
-// elements in the class of the receiver's INNER numbers. A nested read
-// then landed one level too deep, in a class nobody is in — which
-// defaults narrow — so the f64 bits of a fractional element came back
-// as an integer.
+// The width analysis read the depth as always 1 — right only for
+// `flat()` and `flat(1)`. Every other literal put the join one layer
+// off and a read landed in a class nobody is in, which defaults narrow,
+// so f64 bits came back as integers: `flat(0)` (a shallow clone, the
+// `slice` shape) went one layer too deep, `flat(2)` one layer too
+// shallow.
 
 const xs: number[][] = [[1, 2], [3]];
 xs[0][1] = 1.5;
@@ -32,6 +32,18 @@ const d1: number[] = d.flat();
 console.log(d1[0], d1[1], d1[2]);
 const d2: number[] = d.flat(1);
 console.log(d2[0], d2[1], d2[2]);
+
+// depth 2 peels two layers — the other side of the same off-by-one
+const ys: number[][][] = [[[1, 2], [3]], [[4], [5, 6]]];
+ys[0][0][0] = 1.5;
+const f2: number[] = ys.flat(2);
+console.log(f2.length, f2[0], f2[1], f2[5]);
+
+// widened at the innermost layer after the call
+const zs: number[][][] = [[[7, 8]], [[9]]];
+const z2: number[] = zs.flat(2);
+zs[0][0][1] = 6.5;
+console.log(z2[0], z2[1]);
 
 // an all-integral receiver stays narrow and unaffected
 const n: number[][] = [[11, 12]];

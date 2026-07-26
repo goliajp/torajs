@@ -103,7 +103,7 @@ impl<'a> Analysis<'a> {
                 }
                 Some(anon)
             }
-            "flat" => Some(self.flat_result_key(eid, args, recv, &ek)),
+            "flat" => Some(self.flat_result_key(eid, args, recv)),
             "pop" | "shift" | "at" | "find" | "findLast" => Some(ek),
             // §20.1.3.7 — `Object.prototype.valueOf` answers `this`,
             // so the product IS the receiver rather than a copy of it.
@@ -195,41 +195,37 @@ impl<'a> Analysis<'a> {
 
     /// The product point of `xs.flat(depth)`.
     ///
-    /// RFC 20260726-array-elem-width — §23.1.3.13 flattens nothing at a
-    /// depth of 0, so `flat(0)` is a shallow clone and its product
-    /// stands where the receiver stands, the way `slice`'s does.
-    /// Reading the depth as always-1 put the product's elements in the
-    /// class of the receiver's INNER numbers instead, and a nested read
-    /// landed one level too deep — in a class nobody is in, which
-    /// defaults narrow: `xs[0][1] = 1.5` then `xs.flat(0)[0][1]` read
-    /// those f64 bits as an integer.
+    /// RFC 20260726-array-elem-width — §23.1.3.13 peels exactly `depth`
+    /// layers, so the product's container stands where the receiver's
+    /// `depth`-th element layer stands, and its elements one layer
+    /// below that. B1b — the product's bits memcpy from that layer.
     ///
-    /// Only a literal 0 takes the clone path; a bare `flat()`, any
-    /// other literal depth, and a computed depth all flatten.
-    fn flat_result_key(
-        &mut self,
-        eid: ExprId,
-        args: &[ExprId],
-        recv: SlotKey,
-        ek: &SlotKey,
-    ) -> SlotKey {
+    /// The depth used to be read as always 1, which is right only for
+    /// `flat()` and `flat(1)`. Every other literal put both joins one
+    /// layer off, landing a read in a class nobody is in — and an empty
+    /// class defaults narrow, so f64 bits came back as integers:
+    /// `flat(0)` (a shallow clone, the `slice` shape) went one layer
+    /// too deep, `flat(2)` one layer too shallow.
+    ///
+    /// A bare `flat()` and a computed depth both keep the one-layer
+    /// join: the checker requires a literal to peel `Array<>` layers
+    /// statically, so a non-literal never reaches a typed lane.
+    fn flat_result_key(&mut self, eid: ExprId, args: &[ExprId], recv: SlotKey) -> SlotKey {
         let anon = SlotKey::Anon(eid.0);
         self.mark_containerish(&anon);
-        if matches!(
-            args.first().map(|a| self.ast.get_expr(*a)),
-            Some(Expr::Number(d)) if *d == 0.0
-        ) {
-            self.uf.union(&SlotKey::Elem(Box::new(anon.clone())), ek);
-            self.uf.union(&anon, &recv);
-        } else {
-            self.uf.union(
-                &SlotKey::Elem(Box::new(anon.clone())),
-                &SlotKey::Elem(Box::new(SlotKey::Elem(Box::new(recv)))),
-            );
-            // B1b — flat's product bits memcpy from the INNER arrays,
-            // whose container class is the receiver's element class.
-            self.uf.union(&anon, ek);
+        let depth = match args.first().map(|a| self.ast.get_expr(*a)) {
+            Some(Expr::Number(d)) if *d >= 0.0 && d.fract() == 0.0 && *d <= 16.0 => *d as usize,
+            _ => 1,
+        };
+        let mut layer = recv;
+        for _ in 0..depth {
+            layer = SlotKey::Elem(Box::new(layer));
         }
+        self.uf.union(
+            &SlotKey::Elem(Box::new(anon.clone())),
+            &SlotKey::Elem(Box::new(layer.clone())),
+        );
+        self.uf.union(&anon, &layer);
         anon
     }
 
