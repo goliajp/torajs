@@ -224,6 +224,26 @@ fn try_then_heterogeneous(
                  * (knife 1), same as the any-param lane. */
                 return Some(Ok(Type::Promise(ret.clone())));
             }
+            // A handler that declares NO parameter. §27.2.5.4 hands
+            // the settled value to onFulfilled as one argument; how
+            // many the handler declares is its own business, and
+            // `p.then(() => { … })` is the everyday side-effect
+            // shape. The `Promise<Undefined>` arm below has admitted
+            // it since P10.2-A1.1 and documents why it is safe —
+            // the kernels call through `int64_t (*)(int64_t)` either
+            // way, so a 0-arg handler just ignores its argument
+            // slot. Only the typed receivers still refused, with
+            // "expected Function([Number], Number), got
+            // Function([], Void)".
+            if let Type::Function(params, ret) = &cb_ty
+                && params.is_empty()
+            {
+                let result_inner = match &**ret {
+                    Type::Void => Type::Undefined,
+                    other => other.clone(),
+                };
+                return Some(Ok(Type::Promise(Box::new(result_inner))));
+            }
         }
     }
     None
