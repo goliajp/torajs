@@ -164,12 +164,22 @@ fn walk_stmt(ast: &Ast, s: &Stmt, bound: &mut Vec<String>, out: &mut Vec<String>
         }
         Stmt::ForOf {
             var_name,
+            i_ident,
             elem_expr,
             body,
             ..
         } => {
-            walk_expr(ast, *elem_expr, bound, out);
+            // The counter is minted by the for-of desugar and lives
+            // only inside this loop — but `elem_expr` IS `src[i]`, so
+            // walking it before binding the counter reported `i` as a
+            // free variable. Only arrows ask this question
+            // (`free_vars_of_arrow` feeds the lift pass), which is why
+            // `for (v of xs)` inside `() => {}` was a capture of an
+            // identifier no scope could ever hold, while the same loop
+            // in a named fn was fine.
             let saved = bound.len();
+            bound.push(i_ident.clone());
+            walk_expr(ast, *elem_expr, bound, out);
             bound.push(var_name.clone());
             walk_stmt(ast, body, bound, out);
             bound.truncate(saved);
