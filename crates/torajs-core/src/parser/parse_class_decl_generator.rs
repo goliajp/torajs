@@ -141,6 +141,15 @@ impl<'a> Parser<'a> {
             start: member_span_start,
             end: member_span_end,
         };
+        // A destructured parameter (`*g({a, b}) {}`) becomes a synthetic
+        // `__param_destr_N` param plus a prefix of `let` statements that
+        // unpack it. `desugar_generators` peels exactly those into the
+        // `__Gen_*` constructor — ES §9.2 binds parameters eagerly, so a
+        // throwing destructure fires at the call, not at the first
+        // `next()` — and it learns the count from this table. The count is
+        // of body statements, so the receiver parameter prepended below
+        // does not enter into it.
+        let destr_prefix = destr_lets.len();
         let body = if destr_lets.is_empty() {
             body
         } else {
@@ -155,6 +164,11 @@ impl<'a> Parser<'a> {
         // nominal annotation there would demand a layout the state
         // machine class does not have.
         let synth_name = format!("__cm_gen_{class_name}__{member_name}");
+        if destr_prefix > 0 {
+            self.ast
+                .gen_param_destr_prefix
+                .insert(synth_name.clone(), destr_prefix);
+        }
         let mut synth_params = vec![Param {
             name: GEN_RECV_PARAM.into(),
             type_ann: Some("any".into()),

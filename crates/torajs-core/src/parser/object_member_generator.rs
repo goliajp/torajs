@@ -97,6 +97,15 @@ impl<'a> Parser<'a> {
                 ));
             }
         }
+        // A destructured parameter (`*g({a, b}) {}`) becomes a synthetic
+        // `__param_destr_N` param plus a prefix of `let` statements that
+        // unpack it. `desugar_generators` has to peel exactly those into
+        // the `__Gen_*` constructor — ES §9.2 binds parameters eagerly, so
+        // a throwing destructure must fire at the call, not at the first
+        // `next()` — and it finds out how many via this table. Without the
+        // entry the lets stay in the body and `__param_destr_N` resolves
+        // against a field that was never created.
+        let destr_prefix = destr_lets.len();
         let body = if destr_lets.is_empty() {
             body
         } else {
@@ -111,6 +120,11 @@ impl<'a> Parser<'a> {
         // declared-before-use ordering this needs.
         let synth_id = self.mint_desugar_id();
         let synth_name = format!("__obj_gen_method_{synth_id}");
+        if destr_prefix > 0 {
+            self.ast
+                .gen_param_destr_prefix
+                .insert(synth_name.clone(), destr_prefix);
+        }
         self.synth_classes.push(Stmt::FnDecl {
             name: synth_name.clone(),
             type_params: Vec::new(),

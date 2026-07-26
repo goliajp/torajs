@@ -1754,10 +1754,29 @@ touches runtime hot paths.
             rule this is water draining out, not a defect introduced —
             but it is a regression and is counted as one. Filed as
             **S2.9**
-- [ ] **S2.8** Destructured parameters on a generator method —
-      **~750 cases**, exposed by S2.1. `*g({a, b}) {}` synthesizes an
-      unannotated `__param_destr_N` param, and the generator desugar
-      needs an annotation to turn a param into a `__Gen_*` field
+- [x] **S2.8** Destructured parameters on a generator method —
+      **~750 cases**, exposed by S2.1 and closed in the same rotation.
+      The diagnosis in the line above was wrong, which the minimal repro
+      caught before any code changed: `function* g({a, b})` **already
+      worked**, so nothing was missing from the desugar. What both new
+      paths omitted was registering `ast.gen_param_destr_prefix` —
+      the `name → count` table telling `desugar_generators` how many
+      leading body statements are parameter-unpacking `let`s to peel into
+      the `__Gen_*` constructor (ES §9.2 binds parameters eagerly, so a
+      throwing destructure must fire at the call, not at the first
+      `next()`). All three pre-existing generator forms register it; the
+      two new ones did not, so the lets stayed in the body and
+      `__param_destr_N` resolved against a field nobody created. The
+      count is of body statements, so the prepended receiver does not
+      enter into it
+- [ ] **S2.10** The receiver parameter is visible in argument-position
+      diagnostics. Passing a bad argument to a class generator method
+      reports `argument 1` for what the user wrote as the first argument,
+      because the hoisted receiver occupies slot 0. Same defect S1.4
+      records for `bind_this_param`'s hidden parameter — one fix should
+      cover both, since both are "a synthesized leading parameter leaked
+      into a user-facing message". Cosmetic, but it is the kind of
+      cosmetic that sends a reader looking for a bug in the wrong place
 - [ ] **S2.9** Early errors that were being faked by a parse failure —
       **9 cases**, exposed by S2.1: `super` in a generator method,
       generator param redeclared by a body `let`/`const`, duplicate
