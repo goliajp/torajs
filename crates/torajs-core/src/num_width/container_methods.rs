@@ -34,6 +34,7 @@ const BUILTIN_MEMBER_METHODS: &[&str] = &[
     "push",
     "unshift",
     "fill",
+    "copyWithin",
     "forEach",
     "findIndex",
     "some",

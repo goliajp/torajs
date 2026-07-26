@@ -81,7 +81,9 @@ impl<'a> Analysis<'a> {
     ) -> Option<SlotKey> {
         match name {
             "slice" | "filter" | "reverse" | "sort" | "toReversed" | "toSorted" | "splice"
-            | "with" | "concat" | "flat" | "map" | "flatMap" => Some(SlotKey::Anon(eid.0)),
+            | "with" | "concat" | "flat" | "map" | "flatMap" | "fill" | "copyWithin" => {
+                Some(SlotKey::Anon(eid.0))
+            }
             "pop" | "shift" | "at" | "find" | "findLast" => Some(SlotKey::Elem(Box::new(recv))),
             // Map value slot (b1) — same gate + spelling as the walk.
             // Demoted call sites carry typed receiver evidence (check

@@ -66,13 +66,14 @@ impl<'a> Analysis<'a> {
         let ek = SlotKey::Elem(Box::new(recv.clone()));
         match name {
             "slice" | "filter" | "reverse" | "sort" | "toReversed" | "toSorted" | "splice"
-            | "toSpliced" | "with" => {
+            | "toSpliced" | "with" | "fill" | "copyWithin" => {
                 let anon = SlotKey::Anon(eid.0);
                 self.mark_containerish(&anon);
                 self.uf.union(&SlotKey::Elem(Box::new(anon.clone())), &ek);
                 // RFC 20260713-array-proto-residual B1b — the product
                 // memcpys the receiver's slot bits verbatim (reverse /
-                // sort even return the same pointer), so the two
+                // sort / fill / copyWithin mutate in place and answer
+                // `this`, §23.1.3.{7,4} step 12 / 15), so the two
                 // containers share one repr class: a W-ESC any-escape
                 // face on either side must demote both, or the
                 // escaped side stores NaN-boxes that the typed side
