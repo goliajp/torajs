@@ -355,16 +355,7 @@ impl<'a> Analysis<'a> {
                 self.nested_unions.push((ek.clone(), ak));
             }
         }
-        // RFC 20260722-find-miss chunk D — find/findLast can answer
-        // `undefined`, and the F64 undefined-NaN sentinel is its only
-        // numeric repr: an I64-narrowed elem slot cannot hold it, so
-        // the receiver's element class seeds F64. Non-numeric element
-        // classes never consume width seeds — no repr change there.
-        // `at` answers `undefined` out of range for the same reason
-        // (§23.1.3.1 step 6), and it lowers through the same checked
-        // index branch — it just is not spelled `xs[i]`, so the
-        // index-read seed does not see it.
-        if matches!(name.as_str(), "find" | "findLast" | "at") {
+        if answers_undef_sentinel(&name) {
             self.add_container_constraint(ek.clone(), super::W::F64);
         }
         // Callback-taking iteration — the element param sees the
@@ -460,6 +451,25 @@ impl<'a> Analysis<'a> {
             }
         }
     }
+}
+
+/// True for the methods that can answer `undefined` about an element,
+/// which the F64 undefined-NaN sentinel is the only numeric repr of:
+/// an I64-narrowed element slot cannot hold it, so being called is
+/// itself a reason to widen the receiver's element class. Non-numeric
+/// element classes never consume width seeds — no repr change there.
+///
+/// - RFC 20260722-find-miss chunk D — `find` / `findLast` miss.
+/// - `at` out of range (§23.1.3.1 step 6). It lowers through the same
+///   checked index branch as `xs[i]`, it just isn't spelled that way,
+///   so the index-read seed doesn't see it.
+/// - `pop` / `shift` on an EMPTY array (§23.1.3.22 step 3.a,
+///   §23.1.3.25 step 3.a) — a different exit from the out-of-range
+///   one, and the last numeric shape that had nowhere to put the
+///   answer: the all-integral form answered the slot's zero where the
+///   same array holding one fraction already answered `undefined`.
+fn answers_undef_sentinel(name: &str) -> bool {
+    matches!(name, "find" | "findLast" | "at" | "pop" | "shift")
 }
 
 /// True when an annotation names a number or a nesting of arrays of
