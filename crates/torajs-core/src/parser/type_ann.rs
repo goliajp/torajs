@@ -111,16 +111,26 @@ impl<'a> Parser<'a> {
                     if optional {
                         self.pos += 1;
                     }
-                    match self.peek() {
-                        Token::Colon => self.pos += 1,
-                        t => {
-                            return Err(format!(
-                                "expected `:` after inline obj field name, got {t:?} at {}",
-                                self.at()
-                            ));
+                    // `m(p: T): R` — a MethodSignature, which TS reads as
+                    // the property holding a `(p: T) => R`. Producing
+                    // that spelling here means nothing downstream learns
+                    // a new shape: `{ f: () => number }` already worked,
+                    // and this is the same annotation written the other
+                    // way.
+                    let fty_raw = if matches!(self.peek(), Token::LParen) {
+                        self.parse_method_sig_type_ann()?
+                    } else {
+                        match self.peek() {
+                            Token::Colon => self.pos += 1,
+                            t => {
+                                return Err(format!(
+                                    "expected `:` after inline obj field name, got {t:?} at {}",
+                                    self.at()
+                                ));
+                            }
                         }
-                    }
-                    let fty_raw = self.parse_type_ann()?;
+                        self.parse_type_ann()?
+                    };
                     // Chunk 793 — struct-field fn slots are
                     // Closure-repr. Retag at birth: this is the site
                     // that mints `__inlobj(` from syntax, and nested
@@ -341,7 +351,7 @@ impl<'a> Parser<'a> {
     /// Chunk 735 — extracted from the parse_type_ann tail so the
     /// parenthesized-type arm in parse_fn_type_ann reads the same
     /// postfixes on its inner type (`(() => string)[]`).
-    fn read_type_postfix(&mut self, mut name: String) -> Result<String, String> {
+    pub(super) fn read_type_postfix(&mut self, mut name: String) -> Result<String, String> {
         while matches!(self.peek(), Token::LBracket) {
             self.pos += 1;
             match self.peek() {
@@ -372,102 +382,5 @@ impl<'a> Parser<'a> {
             }
         }
         Ok(name)
-    }
-
-    pub(super) fn parse_fn_type_ann(&mut self) -> Result<String, String> {
-        // current token = `(`
-        self.pos += 1;
-        let mut params: Vec<String> = Vec::new();
-        // Chunk 735 — a `name:` label or rest param pins the shape as
-        // a fn-type; without either, a single parenthesized type can
-        // re-read as TS ParenthesizedType when no `=>` follows the
-        // close paren (`(() => string)[]`).
-        let mut fn_shape_pinned = false;
-        if !matches!(self.peek(), Token::RParen) {
-            loop {
-                // `...name: E[]` rest param (RFC 20260708-variadic) —
-                // TS grammar: must be last, must be an array type.
-                // Encodes as `__rest(E[])` in the param slot.
-                if matches!(self.peek(), Token::DotDotDot) {
-                    self.pos += 1;
-                    fn_shape_pinned = true;
-                    let name_then_colon = matches!(self.peek(), Token::Ident(_))
-                        && matches!(
-                            self.tokens.get(self.pos + 1).map(|s| &s.token),
-                            Some(Token::Colon)
-                        );
-                    if name_then_colon {
-                        self.pos += 2;
-                    }
-                    let pty = self.parse_type_ann()?;
-                    if !(pty.ends_with("[]") || (pty.starts_with("Array<") && pty.ends_with('>'))) {
-                        return Err(format!(
-                            "rest param type must be an array type, got `{pty}` at {}",
-                            self.at()
-                        ));
-                    }
-                    params.push(format!("__rest({pty})"));
-                    match self.peek() {
-                        Token::RParen => break,
-                        t => {
-                            return Err(format!(
-                                "rest param must be last in fn-type params, got {t:?} at {}",
-                                self.at()
-                            ));
-                        }
-                    }
-                }
-                // Optional `name:` prefix on each param. Name is discarded;
-                // we keep only the type. Two shapes accepted:
-                //   `name: T` — TS standard fn-type form.
-                //   `T`       — bare type, no name (fallback).
-                let name_then_colon = matches!(self.peek(), Token::Ident(_))
-                    && matches!(
-                        self.tokens.get(self.pos + 1).map(|s| &s.token),
-                        Some(Token::Colon)
-                    );
-                if name_then_colon {
-                    self.pos += 2;
-                    fn_shape_pinned = true;
-                }
-                let pty = self.parse_type_ann()?;
-                params.push(pty);
-                match self.peek() {
-                    Token::Comma => self.pos += 1,
-                    Token::RParen => break,
-                    t => {
-                        return Err(format!(
-                            "expected `,` or `)` in fn-type params, got {t:?} at {}",
-                            self.at()
-                        ));
-                    }
-                }
-            }
-        }
-        match self.peek() {
-            Token::RParen => self.pos += 1,
-            t => return Err(format!("expected `)`, got {t:?} at {}", self.at())),
-        }
-        match self.peek() {
-            Token::FatArrow => self.pos += 1,
-            t => {
-                // Chunk 735 — TS ParenthesizedType: `(T)` with no
-                // `=>` after the close paren is a grouped type, most
-                // commonly a fn-type array `(() => string)[]`. Only a
-                // single bare type re-reads this way — a `name:`
-                // label or rest param pinned the fn-type shape and
-                // keeps the loud error.
-                if params.len() == 1 && !fn_shape_pinned {
-                    let inner = params.pop().expect("single grouped type");
-                    return self.read_type_postfix(inner);
-                }
-                return Err(format!(
-                    "expected `=>` in fn-type, got {t:?} at {}",
-                    self.at()
-                ));
-            }
-        }
-        let ret = self.parse_type_ann()?;
-        Ok(format!("__fn({})->{}", params.join("|"), ret))
     }
 }

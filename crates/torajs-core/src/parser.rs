@@ -66,6 +66,7 @@ mod primary_new_super;
 mod ret_throw_try;
 mod try_parse_for_of;
 mod type_ann;
+mod type_ann_fn;
 mod type_ann_helpers;
 mod type_decl;
 use class_member::ClassMemberModifierPrefix;
