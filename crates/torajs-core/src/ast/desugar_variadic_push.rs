@@ -1,7 +1,7 @@
 //! Variadic `arr.push(...)` / `arr.unshift(...)` splitting pass.
 //!
 //! Chunk 352 — extracted from ast.rs. Rewrites multi-arg push/unshift
-//! calls with an Ident receiver into N sequential single-arg calls so
+//! calls into N sequential single-arg calls so
 //! the SSA lowering stays variadic-agnostic. The entry
 //! `desugar_variadic_push` is `pub` because torajs-cli main /
 //! cmd_build / lsp reach it at `torajs_core::ast::desugar_variadic_push`;
@@ -18,10 +18,8 @@ use crate::ast::Ast;
 /// same array; this preserves that semantic without requiring
 /// the SSA-level push lowering to be variadic-aware.
 ///
-/// Subset limitation: only Ident receivers are rewritten. A
-/// complex receiver like `o.field.push(a, b)` is left alone
-/// (would re-evaluate `o.field` per call rather than once);
-/// users with that shape can hoist into a temp.
+/// A receiver that is not already a name is read once into one first,
+/// so it is evaluated once no matter how many arguments there were.
 pub fn desugar_variadic_push(ast: &mut Ast) {
     let exprs_snapshot = ast.exprs.clone();
     let mut stmts = std::mem::take(&mut ast.stmts);
@@ -56,10 +54,34 @@ fn split_variadic_push_call(
     if !matches!(name.as_str(), "push" | "unshift") {
         return None;
     }
-    if !matches!(snapshot[obj.0 as usize], Expr::Ident(_)) {
-        return None;
-    }
-    let callee_id = *callee;
+    // A receiver that is not already a name is read once into one, and
+    // the split calls run on that. Reusing the original callee would
+    // re-evaluate `o.items` per call — which is why this shape used to
+    // be left alone, and left alone it reached the lowering as a
+    // multi-argument push and stopped it ("unsupported member call
+    // shape: push"). The hoisted form is exactly what the note here
+    // used to tell people to write by hand.
+    let mut prelude: Vec<Stmt> = Vec::new();
+    let callee_id = if matches!(snapshot[obj.0 as usize], Expr::Ident(_)) {
+        *callee
+    } else {
+        let tmp = format!("__push_recv_{}", out_exprs.len());
+        let recv_id = ExprId(out_exprs.len() as u32);
+        out_exprs.push(Expr::Ident(tmp.clone()));
+        let new_callee = ExprId(out_exprs.len() as u32);
+        out_exprs.push(Expr::Member {
+            obj: recv_id,
+            name: name.clone(),
+        });
+        prelude.push(Stmt::LetDecl {
+            mutable: false,
+            name: tmp,
+            type_ann: None,
+            init: *obj,
+            is_var: false,
+        });
+        new_callee
+    };
     let mut args_clone = args.clone();
     // unshift(a, b, c) prepends a, b, c such that after the call a is
     // at index 0. Equivalent to sequential unshift(c), unshift(b),
@@ -68,7 +90,7 @@ fn split_variadic_push_call(
         args_clone.reverse();
     }
     let last_arg = args_clone.pop().unwrap();
-    let mut hoisted: Vec<Stmt> = Vec::with_capacity(args_clone.len());
+    let mut hoisted: Vec<Stmt> = prelude;
     for a in args_clone {
         let new_call = Expr::Call {
             callee: callee_id,
