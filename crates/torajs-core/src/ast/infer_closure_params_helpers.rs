@@ -126,6 +126,33 @@ pub(super) fn seed_let_ann_hints(
     }
 }
 
+/// A container literal written at an argument position takes the type
+/// that position declares, the same way one written as an initializer
+/// takes its binding's.
+///
+/// `take([(n) => n + 1])` against `take(fs: ((n: number) => number)[])`
+/// was loud about it ("expected Array(Function([Number], Number)), got
+/// Array(Function([Any], Any))"); the object form `take({ f: (n) => n
+/// + 1 })` was not loud at all and answered its own argument back.
+///
+/// The walk into the literal is the one an annotated binding already
+/// uses — a field takes its declared field type, an element takes the
+/// array's element type, and a nested literal recurses.
+pub(super) fn seed_container_arg_hints(
+    ast: &Ast,
+    param_ann: &str,
+    arg: ExprId,
+    updates: &mut HashMap<String, (Vec<String>, String)>,
+) {
+    let mut hints: HashMap<String, String> = HashMap::new();
+    crate::ast::infer_closure_lets::seed_container_field_hints(ast, param_ann, arg, &mut hints);
+    for (fn_name, ann) in hints {
+        if let Some(projected) = project_fn_type_ann(ast, &ann) {
+            updates.insert(fn_name, projected);
+        }
+    }
+}
+
 /// The argument positions at which an Array method holds an *element*
 /// — a value stored into the receiver array — rather than a callback
 /// it invokes with elements. `None` for every other method.
@@ -339,6 +366,14 @@ pub(super) fn apply_user_fn_callee_hint(
         .get(fname)
         .map(|tps| resolve_call_site_typevars(ast, tps, pos_anns, args));
     let tps = fn_type_params.get(fname);
+    // A container literal at an argument position carries that
+    // position's declared type inward; the arrows inside it are not
+    // themselves the argument.
+    for (arg_idx, arg) in args.iter().enumerate() {
+        if let Some(Some(pann)) = pos_anns.get(arg_idx) {
+            seed_container_arg_hints(ast, pann, *arg, updates);
+        }
+    }
     for (arg_idx, fn_name) in closure_args {
         let Some(Some(pann)) = pos_anns.get(*arg_idx) else {
             continue;

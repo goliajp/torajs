@@ -21,7 +21,8 @@
 use super::infer_closure_params_apply::apply_closure_ann_updates;
 use super::infer_closure_params_helpers::{
     apply_hof_param_only_arm, apply_stored_elem_arm, apply_user_fn_callee_hint, build_ann_table,
-    collect_fn_decl_metadata, mapset_foreach_expected, seed_let_ann_hints,
+    collect_fn_decl_metadata, mapset_foreach_expected, seed_container_arg_hints,
+    seed_let_ann_hints,
 };
 use super::infer_closure_params_promise::resolve_promise_inner_ann;
 use super::{Ast, Expr, ExprId};
@@ -139,6 +140,30 @@ pub(super) fn resolve_receiver_ann(
     }
 }
 
+/// The two kinds of argument a call site can type: the lifted closures
+/// among its arguments, paired with their positions, and whether any
+/// argument is a container literal.
+///
+/// A closure argument arrives in either post-lift shape —
+/// `Expr::Closure { fn_name }` when the arrow captured something, a
+/// bare ident at the lifted FnDecl when it did not — and both have to
+/// be probed. A container literal is interesting for the same reason a
+/// bare arrow is: the arrows inside it take the type the position
+/// declares.
+fn classify_call_args(ast: &Ast, args: &[ExprId]) -> (Vec<(usize, String)>, bool) {
+    let mut closure_args: Vec<(usize, String)> = Vec::new();
+    let mut has_container_arg = false;
+    for (i, a) in args.iter().enumerate() {
+        match ast.get_expr(*a) {
+            Expr::Closure { fn_name, .. } => closure_args.push((i, fn_name.clone())),
+            Expr::Ident(n) if n.starts_with("__closure_") => closure_args.push((i, n.clone())),
+            Expr::Array(_) | Expr::ObjectLit { .. } => has_container_arg = true,
+            _ => {}
+        }
+    }
+    (closure_args, has_container_arg)
+}
+
 /// Backward-infer the param type annotations of anonymous arrow
 /// closures from the call site that consumes them. Runs after
 /// `lift_arrow_fns` so each arrow is now a top-level FnDecl named
@@ -194,25 +219,8 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
         };
         let callee = *callee;
         let args = args.clone();
-        let mut closure_args: Vec<(usize, String)> = Vec::new();
-        for (i, a) in args.iter().enumerate() {
-            // Two shapes after lift_arrow_fns:
-            //   - `Expr::Closure { fn_name, captures }` for arrows that
-            //     captured outer-scope bindings.
-            //   - `Expr::Ident(fn_name)` for arrows with no captures
-            //     (lift emits a bare ident pointing at the lifted
-            //     FnDecl). Both cases must be probed for inference.
-            match ast.get_expr(*a) {
-                Expr::Closure { fn_name, .. } => {
-                    closure_args.push((i, fn_name.clone()));
-                }
-                Expr::Ident(n) if n.starts_with("__closure_") => {
-                    closure_args.push((i, n.clone()));
-                }
-                _ => {}
-            }
-        }
-        if closure_args.is_empty() {
+        let (closure_args, has_container_arg) = classify_call_args(ast, &args);
+        if closure_args.is_empty() && !has_container_arg {
             continue;
         }
         // User-fn callee: an `__fn(P|..)->R`-annotated param at a
@@ -295,6 +303,15 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
         if let Some(expected) = mapset_foreach_expected(&ann, &name) {
             for (_arg_idx, fn_name) in &closure_args {
                 updates.insert(fn_name.clone(), expected.clone());
+            }
+            continue;
+        }
+        // `xs.concat([cb])` — §23.1.3.1 takes containers of elements,
+        // not elements, so the literal takes the receiver's own type
+        // rather than its element type.
+        if name == "concat" {
+            for a in &args {
+                seed_container_arg_hints(ast, &ann, *a, &mut updates);
             }
             continue;
         }

@@ -214,7 +214,7 @@ fn lifted_closure_name(ast: &Ast, init: ExprId) -> Option<String> {
 /// off. Anything that does not resolve to a fn type is skipped, and a
 /// param the author annotated still wins downstream — the applier is
 /// the same one the direct-binding hint goes through.
-fn seed_container_field_hints(
+pub(super) fn seed_container_field_hints(
     ast: &Ast,
     ann: &str,
     init: ExprId,
