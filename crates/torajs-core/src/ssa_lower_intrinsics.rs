@@ -551,6 +551,7 @@ pub(crate) struct Intrinsics {
     pub(crate) promise_stamp_repr: FuncId,
     pub(crate) promise_drop: FuncId,
     pub(crate) promise_get_value: FuncId,
+    pub(crate) promise_get_value_as: FuncId,
     pub(crate) promise_then_simple: FuncId,
     pub(crate) promise_then2: FuncId,
     pub(crate) promise_then_closure: FuncId,

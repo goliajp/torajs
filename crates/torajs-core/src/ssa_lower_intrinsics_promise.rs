@@ -62,6 +62,7 @@ pub(crate) struct PromiseIds {
     pub promise_stamp_repr: FuncId,
     pub promise_drop: FuncId,
     pub promise_get_value: FuncId,
+    pub promise_get_value_as: FuncId,
     pub promise_then_simple: FuncId,
     pub promise_then2: FuncId,
     pub promise_then_closure: FuncId,
@@ -153,6 +154,16 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             fn_table,
             "__torajs_promise_get_value",
             &[Type::Promise],
+            Type::I64,
+        ),
+        // RFC 20260727 blade 3 — the same read, told which typed lane
+        // the awaiting site will cast into so a cell settled from an
+        // `any` gets unboxed instead of reinterpreted.
+        promise_get_value_as: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_promise_get_value_as",
+            &[Type::Promise, Type::I64],
             Type::I64,
         ),
         promise_then_simple: declare_intrinsic(

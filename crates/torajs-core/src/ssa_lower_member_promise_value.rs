@@ -198,9 +198,19 @@ fn lower_promise_get_value(ctx: &mut LowerCtx<'_>, obj: ExprId) -> Operand {
     let inner_ssa_ty = recover_inner_ssa_ty(ctx, obj);
     let inner_ssa_ty = ctx.widen_promise_inner_ty(inner_ssa_ty, obj);
     let cur_block = ctx.cur_block;
+    // RFC 20260727 blade 3 — tell the read which lane it is feeding.
+    // `cast_promise_value` below casts by the STATIC inner type; when
+    // the cell was settled from an `any` its slot holds a NaN-box
+    // pointer, and that cast reinterprets it (NaN for a number, a wild
+    // deref for a string). The stamp on the cell is the only runtime
+    // record of the real form, so the read consults it.
+    let want_repr = awaited_lane_repr(inner_ssa_ty.as_ref());
     let raw_v = ctx.f.append_inst(
         cur_block,
-        InstKind::Call(ctx.intrinsics.promise_get_value, vec![obj_op.clone()]),
+        InstKind::Call(
+            ctx.intrinsics.promise_get_value_as,
+            vec![obj_op.clone(), Operand::ConstI64(want_repr)],
+        ),
         Type::I64,
         None,
     );
@@ -214,6 +224,21 @@ fn lower_promise_get_value(ctx: &mut LowerCtx<'_>, obj: ExprId) -> Operand {
         ctx.emit_drop_value(obj_op, Type::Promise);
     }
     Operand::Value(v)
+}
+
+/// The repr code `__torajs_promise_get_value_as` should unbox into,
+/// for the lane [`cast_promise_value`] is about to cast to. `0` means
+/// "leave the slot alone" — either the lane is unknown, or it is `any`
+/// itself and the box is exactly what the awaiting site wants.
+fn awaited_lane_repr(inner_ssa_ty: Option<&Type>) -> i64 {
+    let Some(ty) = inner_ssa_ty else {
+        return 0;
+    };
+    if matches!(ty, Type::Any) {
+        return 0;
+    }
+    let as_f64 = matches!(ty, Type::F64);
+    crate::ssa_lower_promise_repr_mark::promise_value_repr(ty, as_f64, false).unwrap_or(0)
 }
 
 fn recover_inner_ssa_ty(ctx: &mut LowerCtx<'_>, obj: ExprId) -> Option<Type> {

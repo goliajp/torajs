@@ -20,7 +20,7 @@ use core::ffi::c_void;
 use core::ptr;
 
 use crate::layout::{
-    MicrotaskFn, Promise, PromiseCb, STATE_FULFILLED, STATE_PENDING, STATE_REJECTED,
+    MicrotaskFn, Promise, PromiseCb, REPR_ANY, STATE_FULFILLED, STATE_PENDING, STATE_REJECTED,
     THROW_TAG_ANY_HEAP, THROW_TAG_I64, as_promise,
 };
 
@@ -130,6 +130,32 @@ pub unsafe extern "C" fn __torajs_promise_get_value(p: *const c_void) -> i64 {
         return 0;
     }
     unsafe { (*pp).value }
+}
+
+/// `await p` where the awaiting site knows which typed lane it will
+/// read the result into (RFC 20260727 blade 3).
+///
+/// [`__torajs_promise_get_value`] answers the slot verbatim, which is
+/// right whenever the cell's storage form already matches the lane.
+/// It does not when the cell was settled from an `any`: the slot then
+/// holds a NaN-box pointer, and `await`'s caller casts by the STATIC
+/// inner type — bitcasting the pointer to f64 (NaN) or dereferencing
+/// it as a Str. Same defect the `.then` kernels had, same fix: consult
+/// the stamp, which is the only runtime record of the real form.
+///
+/// `want_repr` of 0 means the caller has no typed lane in mind and
+/// wants the slot as-is.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_promise_get_value_as(p: *const c_void, want_repr: i64) -> i64 {
+    let v = unsafe { __torajs_promise_get_value(p) };
+    if p.is_null() || want_repr == 0 {
+        return v;
+    }
+    let repr = unsafe { (*(p as *const Promise)).value_repr };
+    if repr != REPR_ANY {
+        return v;
+    }
+    unsafe { crate::then_box::unbox_settled(want_repr as u8, v) }
 }
 
 #[unsafe(no_mangle)]

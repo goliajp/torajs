@@ -108,6 +108,11 @@ pub(crate) unsafe fn unbox_settled(param_repr: u8, av: i64) -> i64 {
                 TAG_F64 => i64::from(f64::from_bits(raw as u64) != 0.0),
                 _ => i64::from(raw != 0),
             },
+            // The target lane IS `any` — hand the box back whole. The
+            // callers all route any-parameters elsewhere, but a lane
+            // that unwraps what it was asked to preserve is the exact
+            // defect this function exists to fix.
+            REPR_ANY => av,
             // A cell pointer is already the slot form both the STR and
             // HEAP lanes move values in.
             _ => raw,
