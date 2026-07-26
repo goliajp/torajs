@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-26T06:46:10.078Z",
+  "generatedAt": "2026-07-26T06:54:20.025Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 96.12
   },
   "torajs": {
-    "commit": "1af4ac1c",
-    "commitSubject": "fix(infer): an annotated container types the arrows written into it",
+    "commit": "35e2577e",
+    "commitSubject": "fix(infer): a declared return type types the arrow returned under it",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "35e2577e",
+      "subject": "fix(infer): a declared return type types the arrow returned under it"
+    },
+    {
+      "hash": "ce23b11c",
+      "subject": "chore(hardev): refresh dashboard snapshot for rotation 222 close"
+    },
+    {
       "hash": "1af4ac1c",
       "subject": "fix(infer): an annotated container types the arrows written into it"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "f7388c2c",
       "subject": "fix(arr): reading past the end of an object or nested array is undefined"
-    },
-    {
-      "hash": "459355c7",
-      "subject": "fix(width): a parameter handed an out-of-range read is still undefined"
-    },
-    {
-      "hash": "dee038e1",
-      "subject": "fix(lower): the argument contract stops at the last real argument"
     }
   ],
-  "headSha": "1af4ac1c",
+  "headSha": "35e2577e",
   "autorun": {
     "total": 526,
     "baselineTarget": 10,
