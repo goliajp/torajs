@@ -2122,9 +2122,11 @@ blocked on S6.4, except for what must not wait:
       — they now compile but do not terminate. Shape suggests an error
       that fails to propagate out of an iterator step, leaving the
       iteration unbounded. One root cause is plausible for all twenty
-- [ ] **S8.5** An array spread of a generator answers garbage once it
+- [~] **S8.5** An array spread of a generator answers garbage once it
       crosses a function return. **Three lines**, found 2026-07-27
-      while writing an unrelated fixture:
+      while writing an unrelated fixture; **the direct-return shape is
+      fixed the same day**, two shapes remain (see the end of this
+      entry):
 
       ```ts
       function* s(): number { yield 1; yield 2 }
@@ -2140,9 +2142,30 @@ blocked on S6.4, except for what must not wait:
       element representation. Nothing to do with classes — reproduces on
       a free `function*`, and equally on a public or private generator
       method. **Silent, so it outranks the refusals around it** by the
-      design principles; not yet censused, and the census signature is
-      probably large since collecting a generator into an array and
-      returning it is an ordinary thing to write
+      design principles.
+
+      **Root cause and fix.** The let-decl lane has decoded at this
+      boundary since chunk 698 — `const a: number[] = [...s()]` was
+      always right — via `__torajs_arr_any_to_typed`. The return lane
+      admitted the same pair through the assignability lattice and paid
+      nothing for it. The fix routes the return boundary through the
+      same helper. Fixture `return-arr-any-typed-001` covers generators
+      annotated and not, strings, spread mixed with literals, two
+      spreads in one array, Set and Map-iterator sources, an arrow, and
+      a class method — reading elements back individually, not only
+      printing the array.
+
+      **Still open, both filed here rather than chased:**
+      - a *borrowed* return — `const a = [...s()]; return a`. The
+        shared helper refuses to copy an aliasable source, which is
+        right for a let-decl (copying would detach the binding from the
+        source's later mutations) and arguably wrong for a return,
+        where `consume_all_idents_in_return` has already moved the
+        name out. Wants the gate lifted for this lane specifically,
+        which is a decision about aliasing rather than a mechanical
+        change
+      - a *nested* one — `return [[...s()]]`. The runtime decode walks
+        one level, so the inner array stays Any-tagged
 
 **P-SURF acceptance**: every S1–S6 item either shipped or closed by a
 register entry (S7.2); the S7.2 count of unattributed ≥ 4 clusters at
@@ -2164,7 +2187,8 @@ S1.7 / S1.8 measured, **S2.1 shipped whole** (all three positions),
 **S2.11 and S2.9 both closed** in rotation 227 (S2.9 except the two
 cases that were never its own), plus S2.2's private-generator-name
 third; that rotation also surfaced S2.12, S2.13, S2.14, S2.15, S5.8
-and S8.5. S1.3 now measurable; S1.4 open with a corrected description;
+and S8.5 — the last of those found and its main shape fixed in the same
+rotation. S1.3 now measurable; S1.4 open with a corrected description;
 S1.8(b) blocked on S5.6.
 
 **Two roadmap descriptions were measured and found wrong in rotation

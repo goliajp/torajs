@@ -29,6 +29,8 @@
 //!    - Substr → Str materialization (caller may rely on declared
 //!      return type for slot layout — e.g. flatMap's dst_elem_ty).
 //!    - Array<Substr> → Array<Str> materialization (symmetric).
+//!    - Array<Any> → Array<T> decode (S8.5), the same one the
+//!      let-decl lane has paid since chunk 698.
 //! 5. **Void-return guard** — arrow expression-body desugar wraps
 //!    a trailing void Call in `Stmt::Return(Some(eid))`; the dummy
 //!    operand must not feed `Terminator::Ret` if the fn is void
@@ -122,62 +124,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx, maybe: Option<crate::ast::ExprId>) {
     // backlog rather than silently narrowed: not closing at all was
     // the strictly worse answer this replaces.
     crate::ssa_lower_for_of_teardown::emit_all_for_return(ctx);
-    let coerced = ret_operand.map(|op| {
-        let actual = ctx.operand_ty(&op);
-        if ctx.f.ret == Type::Any && actual != Type::Any {
-            // Chunk 806 — the expr-aware variant tags an Undefined-
-            // typed source ANY_UNDEF; the plain box encoded its
-            // ConstPtrNull payload as ANY_NULL, so `return undefined`
-            // (and void-call returns) printed `null` at the caller.
-            if let Some(eid) = maybe {
-                return ctx.box_to_any_from_expr(eid, op);
-            }
-            return ctx.box_to_any(op);
-        }
-        if actual == Type::Any && matches!(ctx.f.ret, Type::I64 | Type::F64) {
-            return ctx.coerce_any_to_number(op, ctx.f.ret);
-        }
-        if actual == Type::Any && ctx.f.ret == Type::Str {
-            // RC-4 — Any-typed value returned where the declared
-            // return is Str: `anyv_to_str` materializes (fresh
-            // owned; a short-str immediate box would otherwise be
-            // deref'd as a Str pointer by the caller — heap results
-            // only survived because a cell box IS the raw pointer).
-            // The Any box's own stake settles via the box drop.
-            let v = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.any_to_str_box, vec![op]),
-                Type::Str,
-                None,
-            );
-            ctx.emit_drop_value(op, Type::Any);
-            // Pending-throw propagation — a user toString can throw
-            // (0-check audit, rotation 130 L3b).
-            ctx.emit_throw_check(None);
-            return Operand::Value(v);
-        }
-        if ctx.f.ret == Type::F64 && actual == Type::I64 {
-            ctx.coerce_to_f64(op)
-        } else if ctx.f.ret == Type::I64 && actual == Type::F64 {
-            ctx.coerce_to_i64(op)
-        } else if ctx.f.ret == Type::Str && actual == Type::Substr {
-            let v = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.substr_to_owned, vec![op]),
-                Type::Str,
-                None,
-            );
-            ctx.emit_drop_value(op, Type::Substr);
-            Operand::Value(v)
-        } else if let (Type::Arr(want_id), Type::Arr(got_id)) = (ctx.f.ret, actual)
-            && ctx.arr_layouts[want_id.0 as usize] == Type::Str
-            && ctx.arr_layouts[got_id.0 as usize] == Type::Substr
-        {
-            ctx.materialize_arr_substr_to_str(op, ctx.f.ret)
-        } else {
-            op
-        }
-    });
+    let coerced = ret_operand.map(|op| coerce_to_ret(ctx, op, maybe));
     let coerced = if ctx.f.ret == Type::Void {
         None
     } else {
@@ -235,4 +182,83 @@ pub(crate) fn lower(ctx: &mut LowerCtx, maybe: Option<crate::ast::ExprId>) {
     ctx.emit_drops_for_owned_locals();
     let cb = ctx.cur_block;
     ctx.f.set_term(cb, Terminator::Ret(coerced));
+}
+
+/// Step 4's boundary coercions, lifted out of `lower` to keep it
+/// under the 200-line limit (the S8.5 arm was what pushed it over).
+/// `maybe` is the returned expression's id, needed by the two arms
+/// that consult the source expression rather than only its type.
+fn coerce_to_ret(
+    ctx: &mut LowerCtx,
+    op: Operand,
+    maybe: Option<crate::ast::ExprId>,
+) -> Operand {
+    let actual = ctx.operand_ty(&op);
+    if ctx.f.ret == Type::Any && actual != Type::Any {
+        // Chunk 806 — the expr-aware variant tags an Undefined-
+        // typed source ANY_UNDEF; the plain box encoded its
+        // ConstPtrNull payload as ANY_NULL, so `return undefined`
+        // (and void-call returns) printed `null` at the caller.
+        if let Some(eid) = maybe {
+            return ctx.box_to_any_from_expr(eid, op);
+        }
+        return ctx.box_to_any(op);
+    }
+    if actual == Type::Any && matches!(ctx.f.ret, Type::I64 | Type::F64) {
+        return ctx.coerce_any_to_number(op, ctx.f.ret);
+    }
+    if actual == Type::Any && ctx.f.ret == Type::Str {
+        // RC-4 — Any-typed value returned where the declared
+        // return is Str: `anyv_to_str` materializes (fresh
+        // owned; a short-str immediate box would otherwise be
+        // deref'd as a Str pointer by the caller — heap results
+        // only survived because a cell box IS the raw pointer).
+        // The Any box's own stake settles via the box drop.
+        let v = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.any_to_str_box, vec![op]),
+            Type::Str,
+            None,
+        );
+        ctx.emit_drop_value(op, Type::Any);
+        // Pending-throw propagation — a user toString can throw
+        // (0-check audit, rotation 130 L3b).
+        ctx.emit_throw_check(None);
+        return Operand::Value(v);
+    }
+    if ctx.f.ret == Type::F64 && actual == Type::I64 {
+        ctx.coerce_to_f64(op)
+    } else if ctx.f.ret == Type::I64 && actual == Type::F64 {
+        ctx.coerce_to_i64(op)
+    } else if ctx.f.ret == Type::Str && actual == Type::Substr {
+        let v = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.substr_to_owned, vec![op]),
+            Type::Str,
+            None,
+        );
+        ctx.emit_drop_value(op, Type::Substr);
+        Operand::Value(v)
+    } else if let (Type::Arr(want_id), Type::Arr(got_id)) = (ctx.f.ret, actual)
+        && ctx.arr_layouts[want_id.0 as usize] == Type::Str
+        && ctx.arr_layouts[got_id.0 as usize] == Type::Substr
+    {
+        ctx.materialize_arr_substr_to_str(op, ctx.f.ret)
+    } else if let Some(eid) = maybe
+        && let (Type::Arr(_), Type::Arr(_)) = (ctx.f.ret, actual)
+    {
+        // P-SURF S8.5 — an `Arr<Any>` handed back through a typed
+        // `T[]` return. The let-decl lane has converted at this
+        // boundary since chunk 698; the return lane did not, so
+        // `function read(): number[] { return [...gen()] }` gave
+        // the caller NaN-box payloads to read as `f64` — silently,
+        // since the same spread printed in place is correct. The
+        // checker admits the pair through the assignability
+        // lattice (`Array` is covariant and `Any` is assignable to
+        // anything), which is only sound with the decode the
+        // let-decl lane was already paying for.
+        crate::ssa_lower_stmt_let_decl::maybe_arr_any_to_typed(ctx, ctx.f.ret, eid, op).0
+    } else {
+        op
+    }
 }
