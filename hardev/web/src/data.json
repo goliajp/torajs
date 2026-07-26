@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-25T23:06:48.913Z",
+  "generatedAt": "2026-07-26T01:06:48.492Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 96.12
   },
   "torajs": {
-    "commit": "bb2507c4",
-    "commitSubject": "fix(arr): sort converts its elements to the comparator's parameter width",
+    "commit": "081de892",
+    "commitSubject": "fix(throw): a throw and its catch binding agree on the value's width",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "081de892",
+      "subject": "fix(throw): a throw and its catch binding agree on the value's width"
+    },
+    {
+      "hash": "852cdfcb",
+      "subject": "fix(async): a then handler taking an array of numbers joins the value"
+    },
+    {
+      "hash": "f754c182",
+      "subject": "fix(arr): flat peels exactly the depth it was given"
+    },
+    {
+      "hash": "4d5f1d94",
+      "subject": "fix(arr): an array's valueOf answers the array itself"
+    },
+    {
+      "hash": "3778e92a",
+      "subject": "fix(arr): flat(0) is a shallow clone, so its product stands where the receiver stands"
+    },
+    {
+      "hash": "3a6f18c3",
+      "subject": "fix(call): a closure's argument arrives at its parameter's width"
+    },
+    {
+      "hash": "daee93c7",
+      "subject": "chore(hardev): refresh dashboard snapshot for rotation 218 close"
+    },
+    {
       "hash": "bb2507c4",
       "subject": "fix(arr): sort converts its elements to the comparator's parameter width"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "449ecdad",
       "subject": "fix(arr): flatMap pushes its elements as bits, not as values"
-    },
-    {
-      "hash": "8c984774",
-      "subject": "chore(hardev): refresh dashboard snapshot for rotation 217 close"
-    },
-    {
-      "hash": "0cefe806",
-      "subject": "fix(arr): Array.from keeps one width class with its source"
-    },
-    {
-      "hash": "5b172920",
-      "subject": "chore(hardev): refresh dashboard snapshot for rotation 217 close"
-    },
-    {
-      "hash": "e03a11b7",
-      "subject": "fix(async): an array handed to Promise.resolve keeps its width class"
-    },
-    {
-      "hash": "af025e9d",
-      "subject": "fix(arr): with() converts its replacement to the element width"
-    },
-    {
-      "hash": "19c432dc",
-      "subject": "fix(ssa): an array handed to an arrow keeps one width class with its param"
-    },
-    {
-      "hash": "3343e0cb",
-      "subject": "fix(ssa): how an array type is spelled no longer decides if it can widen"
     }
   ],
-  "headSha": "bb2507c4",
+  "headSha": "081de892",
   "autorun": {
-    "total": 522,
+    "total": 523,
     "baselineTarget": 10,
-    "bySelf": 517,
+    "bySelf": 518,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785008882-2588",
-      "at": "2026-07-25T19:48:02Z",
-      "ts": 1785008882,
+      "rotationId": "r-1785020880-6028",
+      "at": "2026-07-25T23:08:00Z",
+      "ts": 1785020880,
       "trigger": "self",
-      "prevHead": "8c984774",
-      "handoffSha": "sha256:9d9cdb4b64bcf6e6ac2d057b8dd92d9d902708019ee330fff97c3979fdf3f34a",
-      "handoffAgeSec": 43,
+      "prevHead": "daee93c7",
+      "handoffSha": "sha256:89377ef56fc9f28fbd7b9ef32c91983d6b3624b95daa1c8d937c52d40515fc8b",
+      "handoffAgeSec": 10,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1785020880-6028",
+        "at": "2026-07-25T23:08:00Z",
+        "ts": 1785020880,
+        "trigger": "self",
+        "prevHead": "daee93c7",
+        "handoffSha": "sha256:89377ef56fc9f28fbd7b9ef32c91983d6b3624b95daa1c8d937c52d40515fc8b",
+        "handoffAgeSec": 10,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785008882-2588",
         "at": "2026-07-25T19:48:02Z",
@@ -876,17 +887,6 @@
         "prevHead": "d83832e9",
         "handoffSha": "sha256:65c538e1d64dffa092c3fc3a417453ea6a176f26cb08e9c2b84e64244109007d",
         "handoffAgeSec": 0,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784943215-1aec",
-        "at": "2026-07-25T01:33:35Z",
-        "ts": 1784943215,
-        "trigger": "self",
-        "prevHead": "4105caf0",
-        "handoffSha": "sha256:fb586cc727fa587d685f5c47cbc401651bb4b2ed5919640185830b46a5850d31",
-        "handoffAgeSec": 13,
         "conformanceBefore": null,
         "commitsInSession": null
       }
