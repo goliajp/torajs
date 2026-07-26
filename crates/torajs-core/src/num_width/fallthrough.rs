@@ -81,13 +81,14 @@ pub(super) fn seed_fallthrough_return(
     return_ann: &str,
     fn_name: &str,
     body: &[Stmt],
+    tainted_params: &HashSet<(String, String)>,
     out: &mut HashSet<String>,
 ) {
     if return_ann == "void" {
         return;
     }
     let falls_through = !crate::ast::body_always_terminates(body);
-    if !falls_through && !body_returns_sentinel(a, body) {
+    if !falls_through && !body_returns_sentinel(a, fn_name, body, tainted_params) {
         return;
     }
     out.insert(fn_name.to_string());
@@ -111,25 +112,142 @@ pub(super) fn seed_fallthrough_return(
 /// Receiver-type-agnostic on purpose — the shape alone is the gate, and
 /// being on the table only costs one predictable compare at the call
 /// site.
-fn body_returns_sentinel(a: &Analysis<'_>, body: &[Stmt]) -> bool {
-    fn is_sentinel_source(a: &Analysis<'_>, eid: crate::ast::ExprId) -> bool {
-        match a.ast.get_expr(eid) {
-            // Reading past the end answers `undefined` (ES §10.4.2.1)
-            // exactly as a miss does, and `xs.at(i)` is on the list
-            // right below only because it takes that same exit under
-            // another spelling. Handing the read straight back left the
-            // caller reading the sentinel as a plain value and printing
-            // NaN, while the identical read at the call site itself has
-            // always answered `undefined`.
-            Expr::Index { .. } | Expr::OptIndex { .. } => true,
-            Expr::Call { callee, .. } => matches!(
-                a.ast.get_expr(*callee),
-                Expr::Member { name, .. }
-                    if matches!(name.as_str(), "find" | "findLast" | "at" | "pop" | "shift")
-            ),
-            _ => false,
+/// True when this expression is one of the shapes that answers the
+/// `undefined` sentinel rather than an ordinary value: a read past the
+/// end of an array, a `find` / `findLast` / `at` miss, or a `pop` /
+/// `shift` on an empty one.
+///
+/// Receiver-type-agnostic on purpose — the shape alone is the gate, and
+/// being on a table only costs one predictable compare at the consumer.
+pub(super) fn is_sentinel_source(a: &Analysis<'_>, eid: crate::ast::ExprId) -> bool {
+    match a.ast.get_expr(eid) {
+        // Reading past the end answers `undefined` (ES §10.4.2.1)
+        // exactly as a miss does, and `xs.at(i)` is on the list right
+        // below only because it takes that same exit under another
+        // spelling. Handing the read straight on left the consumer
+        // reading the sentinel as a plain value and printing NaN,
+        // while the identical read read in place has always answered
+        // `undefined`.
+        Expr::Index { .. } | Expr::OptIndex { .. } => true,
+        Expr::Call { callee, .. } => matches!(
+            a.ast.get_expr(*callee),
+            Expr::Member { name, .. }
+                if matches!(name.as_str(), "find" | "findLast" | "at" | "pop" | "shift")
+        ),
+        _ => false,
+    }
+}
+
+/// The mirror of the fall-through table: which **parameters** can be
+/// handed the `undefined` sentinel, rather than which returns can hand
+/// one back.
+///
+/// A binding that receives one is recorded where it is declared
+/// (`undefable_f64_lets`, at the let-decl site), so the consumers in
+/// that body know to check. A parameter has no such site — its value
+/// arrives from the *caller's* body, which is lowered separately — so
+/// nothing ever recorded it and `h(xs[7])` printed NaN inside `h`
+/// while the identical `console.log(xs[7])` at the call site printed
+/// `undefined`.
+///
+/// Scanning the expression arena rather than walking statements
+/// catches call sites at any nesting depth. Positional: argument `i`
+/// names parameter `i` of the callee. Recording one is enough for
+/// every call of that function to take the sentinel-aware branch,
+/// which is the safe direction — the same conservative merge the
+/// fall-through table makes for same-named bindings.
+pub(super) fn collect_undef_sentinel_params(a: &Analysis<'_>) -> HashSet<(String, String)> {
+    let lifted = lifted_closure_names(a.ast);
+    let mut out = HashSet::new();
+    for eid in 0..a.ast.exprs.len() {
+        let Expr::Call { callee, args } = a.ast.get_expr(crate::ast::ExprId(eid as u32)) else {
+            continue;
+        };
+        let Expr::Ident(f) = a.ast.get_expr(*callee) else {
+            continue;
+        };
+        // An arrow is lifted to a `__closure_N` FnDecl before this
+        // analysis runs, so the parameter list lives under that
+        // synthetic name while the call site still spells the binding
+        // it was assigned to.
+        let f = lifted.get(f).unwrap_or(f);
+        // `user_params`, not the raw list: a capturing closure's
+        // lifted FnDecl carries `__env` first, and the call site's
+        // arguments line up with the user-facing params after it.
+        let params = a.user_params(f);
+        for (i, arg) in args.iter().enumerate() {
+            if let Some(p) = params.get(i)
+                && is_sentinel_source(a, *arg)
+            {
+                out.insert((f.clone(), p.clone()));
+            }
         }
     }
+    out
+}
+
+/// Binding name → the `__closure_N` FnDecl an arrow assigned to it was
+/// lifted into, following plain re-bindings (`const j = h`) to a
+/// fixpoint so a chain declared out of walk order still resolves.
+/// The alias direction the fall-through table needs is the reverse of
+/// this one, which is why the two are separate walks.
+fn lifted_closure_names(ast: &Ast) -> std::collections::HashMap<String, String> {
+    fn walk(
+        ast: &Ast,
+        stmts: &[Stmt],
+        out: &mut std::collections::HashMap<String, String>,
+        grew: &mut bool,
+    ) {
+        for s in stmts {
+            match s {
+                Stmt::LetDecl { name, init, .. } => {
+                    if out.contains_key(name) {
+                        continue;
+                    }
+                    let target = match ast.get_expr(*init) {
+                        Expr::Closure { fn_name, .. } => Some(fn_name.clone()),
+                        Expr::Ident(n) => out.get(n).cloned(),
+                        _ => None,
+                    };
+                    if let Some(t) = target {
+                        out.insert(name.clone(), t);
+                        *grew = true;
+                    }
+                }
+                Stmt::FnDecl { body, .. } | Stmt::Block(body) | Stmt::Multi(body) => {
+                    walk(ast, body, out, grew)
+                }
+                _ => {}
+            }
+        }
+    }
+    let mut out = std::collections::HashMap::new();
+    loop {
+        let mut grew = false;
+        walk(ast, &ast.stmts, &mut out, &mut grew);
+        if !grew {
+            break;
+        }
+    }
+    out
+}
+
+fn body_returns_sentinel(
+    a: &Analysis<'_>,
+    fn_name: &str,
+    body: &[Stmt],
+    tainted_params: &HashSet<(String, String)>,
+) -> bool {
+    // Handing back a parameter a call site tainted passes the sentinel
+    // straight through, the same way handing back the read itself does.
+    let mut lets: HashSet<String> = a
+        .fn_params
+        .get(fn_name)
+        .into_iter()
+        .flatten()
+        .filter(|p| tainted_params.contains(&(fn_name.to_string(), (*p).clone())))
+        .cloned()
+        .collect();
     fn walk(a: &Analysis<'_>, stmts: &[Stmt], lets: &mut HashSet<String>) -> bool {
         stmts.iter().any(|s| match s {
             Stmt::LetDecl { name, init, .. } => {
@@ -170,5 +288,5 @@ fn body_returns_sentinel(a: &Analysis<'_>, body: &[Stmt]) -> bool {
             _ => false,
         })
     }
-    walk(a, body, &mut HashSet::new())
+    walk(a, body, &mut lets)
 }

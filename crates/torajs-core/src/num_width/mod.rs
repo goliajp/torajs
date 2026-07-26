@@ -45,7 +45,9 @@ pub(crate) use fnsig::{fn_type_canon, split_fn_type};
 pub(crate) use mono::{NumWidth, compute_typevar_widths};
 
 use crate::ast::{Ast, ExprId, Stmt};
-use fallthrough::{alias_fallthrough_closures, seed_fallthrough_return};
+use fallthrough::{
+    alias_fallthrough_closures, collect_undef_sentinel_params, seed_fallthrough_return,
+};
 use std::collections::{HashMap, HashSet, VecDeque};
 
 /// Identity of a number-typed storage slot, module-wide.
@@ -350,43 +352,14 @@ pub(crate) fn analyze(
         params: HashSet::new(),
         locals: HashSet::new(),
     };
+    // Ahead of the walk: the fall-through table below asks whether a
+    // body hands the sentinel back, and returning a parameter that a
+    // call site tainted is one of the ways it can.
+    let undef_sentinel_params = collect_undef_sentinel_params(&a);
     let mut fallthrough_fns: HashSet<String> = HashSet::new();
     for stmt in &ast.stmts {
-        if let Stmt::FnDecl {
-            name, params, body, ..
-        } = stmt
-        {
-            // W-ESC — any-annotated param / return faces are escape
-            // sinks (escape.rs).
-            for p in params {
-                if let Some(ann) = &p.type_ann {
-                    let pk = SlotKey::Param(name.clone(), p.name.clone());
-                    a.seed_any_face(&pk, ann);
-                }
-            }
-            if let Stmt::FnDecl {
-                return_type: Some(r),
-                ..
-            } = stmt
-            {
-                let rk = SlotKey::Ret(name.clone());
-                a.seed_any_face(&rk, r);
-                seed_fallthrough_return(&mut a, rk, r, name, body, &mut fallthrough_fns);
-            }
-            let scope = Scope {
-                fn_name: name,
-                params: params.iter().map(|p| p.name.clone()).collect(),
-                locals: {
-                    let mut s = HashSet::new();
-                    for b in body {
-                        walk::collect_let_names(b, &mut s);
-                    }
-                    s
-                },
-            };
-            for b in body {
-                a.walk_stmt(b, &scope);
-            }
+        if let Stmt::FnDecl { .. } = stmt {
+            seed_and_walk_fn(&mut a, stmt, &undef_sentinel_params, &mut fallthrough_fns);
         } else {
             a.walk_stmt(stmt, &top_scope);
         }
@@ -453,7 +426,56 @@ pub(crate) fn analyze(
         a.container_poison,
         a.nominal_aliases,
         fallthrough_fns,
+        undef_sentinel_params,
     )
+}
+
+/// One top-level `FnDecl`: seed its param / return escape faces, put
+/// it on the fall-through table when it can answer `undefined`, then
+/// walk its body under its own scope.
+fn seed_and_walk_fn(
+    a: &mut Analysis<'_>,
+    stmt: &Stmt,
+    undef_sentinel_params: &HashSet<(String, String)>,
+    fallthrough_fns: &mut HashSet<String>,
+) {
+    let Stmt::FnDecl {
+        name,
+        params,
+        body,
+        return_type,
+        ..
+    } = stmt
+    else {
+        return;
+    };
+    // W-ESC — any-annotated param / return faces are escape sinks
+    // (escape.rs).
+    for p in params {
+        if let Some(ann) = &p.type_ann {
+            let pk = SlotKey::Param(name.clone(), p.name.clone());
+            a.seed_any_face(&pk, ann);
+        }
+    }
+    if let Some(r) = return_type {
+        let rk = SlotKey::Ret(name.clone());
+        a.seed_any_face(&rk, r);
+        seed_fallthrough_return(a, rk, r, name, body, undef_sentinel_params, fallthrough_fns);
+    }
+    let scope = Scope {
+        fn_name: name,
+        params: params.iter().map(|p| p.name.clone()).collect(),
+        locals: {
+            let mut s = HashSet::new();
+            for b in body {
+                walk::collect_let_names(b, &mut s);
+            }
+            s
+        },
+    };
+    for b in body {
+        a.walk_stmt(b, &scope);
+    }
 }
 
 /// Poison flows forward along assignment edges until stable.

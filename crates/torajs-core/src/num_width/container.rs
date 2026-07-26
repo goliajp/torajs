@@ -125,6 +125,11 @@ pub(crate) struct WidthTable {
     /// `undefined` there. The call site asks here to know a result
     /// read off one of them may hold that answer's sentinel.
     fallthrough_fns: HashSet<String>,
+    /// The mirror of `fallthrough_fns`: `(fn name, param name)` pairs
+    /// some call site hands the `undefined` sentinel. The parameter's
+    /// own body asks here, because the value arrives from a caller
+    /// lowered separately and nothing else records it.
+    undef_sentinel_params: HashSet<(String, String)>,
 }
 
 impl WidthTable {
@@ -135,6 +140,7 @@ impl WidthTable {
         container_poison: bool,
         nominal_aliases: HashSet<String>,
         fallthrough_fns: HashSet<String>,
+        undef_sentinel_params: HashSet<(String, String)>,
     ) -> Self {
         WidthTable {
             canon,
@@ -143,7 +149,17 @@ impl WidthTable {
             container_poison,
             nominal_aliases,
             fallthrough_fns,
+            undef_sentinel_params,
         }
+    }
+
+    /// True when `param` of `fn_name` may be handed the `undefined`
+    /// sentinel by one of its call sites, so the consumers inside that
+    /// body have to check for it the way they check a binding that was
+    /// initialized from the same shape.
+    pub(crate) fn param_takes_undef_sentinel(&self, fn_name: &str, param: &str) -> bool {
+        self.undef_sentinel_params
+            .contains(&(fn_name.to_string(), param.to_string()))
     }
 
     pub(crate) fn is_nominal_alias(&self, name: &str) -> bool {

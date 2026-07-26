@@ -198,6 +198,20 @@ pub(crate) fn lower_fn(
     ctx.materialize_fn_params(name, param_setup);
     ctx.emit_closure_env_preamble(name, params);
 
+    // A parameter some call site hands an out-of-range read (or a
+    // `find` miss, or a `pop` off an empty array) carries that
+    // answer's sentinel, exactly like a binding initialized from the
+    // same shape. A binding gets recorded at its let-decl; a
+    // parameter's value arrives from a caller lowered separately, so
+    // without this the consumers in this body read the sentinel as a
+    // plain number: `h(xs[7])` printed NaN where `console.log(xs[7])`
+    // printed `undefined`.
+    for p in params {
+        if ctx.num_f64_slots.param_takes_undef_sentinel(name, &p.name) {
+            ctx.undefable_f64_lets.insert(p.name.clone());
+        }
+    }
+
     // Mutually recursive closure bindings need each other's boxes open
     // before the first of them mints.
     crate::ssa_lower_stmt_let_decl_recursive::hoist_forward_boxes(&mut ctx, body.iter());
