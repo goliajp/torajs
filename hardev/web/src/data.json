@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-26T21:32:51.693Z",
+  "generatedAt": "2026-07-26T23:42:24.608Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-26T21:32:25Z",
-    "headSha": "34157af0",
-    "elapsedSec": 269.99,
+    "ranAt": "2026-07-26T23:38:48Z",
+    "headSha": "831c8927",
+    "elapsedSec": 284.33,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 9815,
-    "passNoOracle": 144,
-    "passNegative": 4495,
-    "passTotal": 14454,
-    "bug": 788,
-    "incompatible": 37932,
+    "pass": 10024,
+    "passNoOracle": 143,
+    "passNegative": 4494,
+    "passTotal": 14661,
+    "bug": 847,
+    "incompatible": 37666,
     "bunSkip": 11904,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 15242,
-    "passRateInScope": 27.18,
-    "passRateTrAccepted": 94.83
+    "trAccepted": 15508,
+    "passRateInScope": 27.57,
+    "passRateTrAccepted": 94.54
   },
   "torajs": {
-    "commit": "34157af0",
-    "commitSubject": "fix(check): a two-handler then does not constrain what its handlers return",
+    "commit": "3d909599",
+    "commitSubject": "docs(roadmap): close S2.24, refresh the census tables, record the rotation 230 sweep",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,38 @@
   },
   "commits": [
     {
+      "hash": "3d909599",
+      "subject": "docs(roadmap): close S2.24, refresh the census tables, record the rotation 230 sweep"
+    },
+    {
+      "hash": "cdcc59d9",
+      "subject": "fix(check): a multi-declarator top-level let registers as a data global"
+    },
+    {
+      "hash": "d7455406",
+      "subject": "fix(check): a ternary with an undefined branch widens to any"
+    },
+    {
+      "hash": "829ee0cd",
+      "subject": "fix(lower): an any value into a declared scalar or string field unboxes"
+    },
+    {
+      "hash": "20ae565b",
+      "subject": "feat(parser): for-of accepts a bare assignment-pattern head"
+    },
+    {
+      "hash": "0de01a13",
+      "subject": "feat(parser): destructuring assignment to existing bindings"
+    },
+    {
+      "hash": "eab53f5d",
+      "subject": "feat(ast): an un-annotated uninitialized let is an implicit any binding"
+    },
+    {
+      "hash": "831c8927",
+      "subject": "chore(hardev): record the rotation 229 sweep and refresh the dashboard"
+    },
+    {
       "hash": "34157af0",
       "subject": "fix(check): a two-handler then does not constrain what its handlers return"
     },
@@ -727,59 +759,38 @@
     {
       "hash": "53466c5a",
       "subject": "fix(check): a then handler may declare no parameter"
-    },
-    {
-      "hash": "2db1cd2e",
-      "subject": "chore(hardev): record the rotation 229 sweep and refresh the dashboard"
-    },
-    {
-      "hash": "c6c22bbc",
-      "subject": "docs(roadmap): record the rotation 229 closures and re-measure S2.3"
-    },
-    {
-      "hash": "7599569e",
-      "subject": "fix(promise): await reads a settled any through the same stamp"
-    },
-    {
-      "hash": "1aa99fda",
-      "subject": "fix(promise): unbox a settled any for a handler that declared a type"
-    },
-    {
-      "hash": "2a2a2615",
-      "subject": "fix(parser): a generator method's forwarder does not return the yield type"
-    },
-    {
-      "hash": "4196ae10",
-      "subject": "fix(ast): a for-of loop counter is not a free variable of its arrow"
-    },
-    {
-      "hash": "19f7fdde",
-      "subject": "feat(ssa): for await over an async iterator held in a variable"
-    },
-    {
-      "hash": "b3a482cd",
-      "subject": "chore(hardev): record the rotation 228 sweep and refresh the dashboard"
     }
   ],
-  "headSha": "34157af0",
+  "headSha": "3d909599",
   "autorun": {
-    "total": 533,
+    "total": 534,
     "baselineTarget": 10,
-    "bySelf": 528,
+    "bySelf": 529,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785095866-5552",
-      "at": "2026-07-26T19:57:46Z",
-      "ts": 1785095866,
+      "rotationId": "r-1785101623-4d91",
+      "at": "2026-07-26T21:33:43Z",
+      "ts": 1785101623,
       "trigger": "self",
-      "prevHead": "b3a482cd",
-      "handoffSha": "sha256:2a7595594f36480b9782636a0238b72a63e3a27739d6bb457c7d5d27c3fcd6bf",
-      "handoffAgeSec": 14,
+      "prevHead": "831c8927",
+      "handoffSha": "sha256:fb85c07894d09ef16c79042adea999ec4f37deb8cab896ba3f3278b631b6496a",
+      "handoffAgeSec": 12,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1785101623-4d91",
+        "at": "2026-07-26T21:33:43Z",
+        "ts": 1785101623,
+        "trigger": "self",
+        "prevHead": "831c8927",
+        "handoffSha": "sha256:fb85c07894d09ef16c79042adea999ec4f37deb8cab896ba3f3278b631b6496a",
+        "handoffAgeSec": 12,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785095866-5552",
         "at": "2026-07-26T19:57:46Z",
@@ -876,17 +887,6 @@
         "prevHead": "837ddd69",
         "handoffSha": "sha256:3f91be5bd25d966e7ab78abf0138df676c8d0415382679297c9f62ba82caaf9e",
         "handoffAgeSec": 8,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1785028099-0576",
-        "at": "2026-07-26T01:08:19Z",
-        "ts": 1785028099,
-        "trigger": "self",
-        "prevHead": "49244c07",
-        "handoffSha": "sha256:95f2398d88905e09c7887ad2b631fe1c77ff577c80c24dc3d99747338bd891b1",
-        "handoffAgeSec": 3,
         "conformanceBefore": null,
         "commitsInSession": null
       }
