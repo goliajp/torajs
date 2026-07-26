@@ -4,19 +4,19 @@
 //! callee desugars into index-read direct expansion:
 //!
 //! ```text
-//! f(a0, …, ak-1,
-//!   src[__torajs_spread_guard(src.length, need)],   // guard returns 0
-//!   src[1], …, src[need-1])
+//! f(a0, …, ak-1, src[0], src[1], …, src[need-1])
 //! ```
 //!
-//! where `need = N - k` (N = callee user-param count). The guard
-//! throws when `src.length < need` — call args evaluate left to
-//! right, so the guard runs before any element read; once it
-//! passes, every constant index is in bounds and the typed-array
-//! OOB lane is never reached. Elements flow through the existing
-//! Index-read + coerce lanes (typed slot direct read for `T[]`,
-//! P1.4 Arr<Any> box read for `any[]`), so checker / ssa-lower /
-//! runtime need no new surface.
+//! where `need = N - k` (N = callee user-param count). A source
+//! shorter than `need` leaves the tail reading past the end, which
+//! answers `undefined` (ES §10.4.2.1) exactly as the same read does
+//! anywhere else. It used to be a synthesized length guard that
+//! threw instead — written when reading past the end of most
+//! element families threw too, so the guard was standing in front
+//! of a hole rather than describing a rule. Elements flow through
+//! the existing Index-read + coerce lanes (typed slot direct read
+//! for `T[]`, P1.4 Arr<Any> box read for `any[]`), so checker /
+//! ssa-lower / runtime need no new surface.
 //!
 //! Closure-value callees resolve through a let-alias walk (chunk
 //! 685); `Math.min/max` and `xs.push` spreads desugar in sibling
@@ -37,8 +37,6 @@ use super::apply_args::collect_fn_defaults;
 use super::{Ast, BinOp, Expr, ExprId, Param, Stmt};
 use std::collections::HashMap;
 
-const GUARD_NAME: &str = "__torajs_spread_guard";
-
 /// One collected spread call site: expr index, fixed prefix args,
 /// spread source ident, and the spread-covered slot plan.
 struct Rewrite {
@@ -46,12 +44,9 @@ struct Rewrite {
     prefix: Vec<ExprId>,
     src_name: String,
     need: usize,
-    /// `need` entries: `None` = required slot (guarded constant
-    /// index read), `Some(eid)` = defaulted slot (ternary).
+    /// `need` entries: `None` = required slot (constant index
+    /// read), `Some(eid)` = defaulted slot (ternary).
     slot_defaults: Vec<Option<ExprId>>,
-    /// Required slots among the spread-covered range; the guard
-    /// throws only when `src.length` can't cover these.
-    need_required: usize,
 }
 
 pub fn apply_spread_args(ast: &mut Ast) {
@@ -178,16 +173,15 @@ pub fn apply_spread_args(ast: &mut Ast) {
         // Defaults for the spread-covered slots. `first_default` is
         // the split point R: params[..R] required, params[R..] must
         // all carry defaults (canonical TS shape) — otherwise skip.
-        let (slot_defaults, need_required) = match fn_defaults.get(&resolved) {
+        let slot_defaults = match fn_defaults.get(&resolved) {
             Some(defaults) => {
                 let r = defaults.iter().position(|d| d.is_some()).unwrap_or(arity);
                 if defaults[r..].iter().any(|d| d.is_none()) {
                     continue;
                 }
-                let slots: Vec<Option<ExprId>> = (k..arity).map(|p| defaults[p]).collect();
-                (slots, r.saturating_sub(k))
+                (k..arity).map(|p| defaults[p]).collect()
             }
-            None => (vec![None; need], need),
+            None => vec![None; need],
         };
         rewrites.push(Rewrite {
             call_idx: i,
@@ -195,14 +189,10 @@ pub fn apply_spread_args(ast: &mut Ast) {
             src_name: src_name.clone(),
             need,
             slot_defaults,
-            need_required,
         });
     }
     if rewrites.is_empty() {
         return;
-    }
-    if rewrites.iter().any(|r| r.need_required > 0) {
-        synthesize_guard(ast);
     }
     for rw in rewrites {
         expand_call(ast, rw);
@@ -241,26 +231,14 @@ fn expand_call(ast: &mut Ast, rw: Rewrite) {
             }));
             continue;
         }
-        let index = if j == 0 {
-            // First slot carries the length guard: guard(src.length,
-            // need_required) returns 0, so `src[guard(...)]` reads
-            // slot 0 after the guard has run. Required slots come
-            // first (canonical shape), so j == 0 is required
-            // whenever any required slot exists.
-            let len_obj = ast.add_expr(Expr::Ident(rw.src_name.clone()));
-            let len = ast.add_expr(Expr::Member {
-                obj: len_obj,
-                name: "length".into(),
-            });
-            let need_lit = ast.add_expr(Expr::Number(rw.need_required as f64));
-            let guard_callee = ast.add_expr(Expr::Ident(GUARD_NAME.into()));
-            ast.add_expr(Expr::Call {
-                callee: guard_callee,
-                args: vec![len, need_lit],
-            })
-        } else {
-            ast.add_expr(Expr::Number(j as f64))
-        };
+        // A required slot the source is too short to cover reads
+        // past the end, which is the same question `src[j]` asks
+        // anywhere else and now answers the same way: `undefined`
+        // (ES §10.4.2.1). It used to be a length guard that threw
+        // instead, because back then reading past the end of most
+        // element families threw too — the guard was standing in
+        // front of a hole rather than describing a rule.
+        let index = ast.add_expr(Expr::Number(j as f64));
         new_args.push(ast.add_expr(Expr::Index { obj, index }));
     }
     let Expr::Call { callee, .. } = &ast.exprs[rw.call_idx] else {
@@ -271,51 +249,4 @@ fn expand_call(ast: &mut Ast, rw: Rewrite) {
         callee,
         args: new_args,
     };
-}
-
-/// `function __torajs_spread_guard(len: number, need: number): number {
-///   if (len < need) { throw "spread source array shorter than
-///   parameter count"; } return 0; }`
-fn synthesize_guard(ast: &mut Ast) {
-    let exists = ast
-        .stmts
-        .iter()
-        .any(|s| matches!(s, Stmt::FnDecl { name, .. } if name == GUARD_NAME));
-    if exists {
-        return;
-    }
-    let len_id = ast.add_expr(Expr::Ident("len".into()));
-    let need_id = ast.add_expr(Expr::Ident("need".into()));
-    let cond = ast.add_expr(Expr::BinOp {
-        op: BinOp::Lt,
-        left: len_id,
-        right: need_id,
-    });
-    let msg = ast.add_expr(Expr::String(
-        "spread source array shorter than parameter count".into(),
-    ));
-    let zero = ast.add_expr(Expr::Number(0.0));
-    let body = vec![
-        Stmt::If {
-            cond,
-            then_branch: Box::new(Stmt::Block(vec![Stmt::Throw(msg)])),
-            else_branch: None,
-        },
-        Stmt::Return(Some(zero)),
-    ];
-    let num_param = |name: &str| Param {
-        name: name.into(),
-        type_ann: Some("number".into()),
-        default: None,
-        is_rest: false,
-    };
-    ast.stmts.push(Stmt::FnDecl {
-        name: GUARD_NAME.into(),
-        type_params: Vec::new(),
-        params: vec![num_param("len"), num_param("need")],
-        return_type: Some("number".into()),
-        body,
-        is_generator: false,
-        span: crate::lexer::Span { start: 0, end: 0 },
-    });
 }
