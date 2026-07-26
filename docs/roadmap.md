@@ -1530,14 +1530,19 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 9215301c`, never as a constant.
 
-**Re-derived @ `b58797fb`** (2026-07-27, rotation 227): passTotal
-**14137** (+318 over rotation 226's 13819), bug 749, trAccepted 14886,
-incompatible **38288**, core **26046**. Gate predicate: **487** clusters
-of ≥ 4 cases holding 24755 cases, plus 919 clusters of ≤ 3 holding 1291.
-Both the cluster count and the case count fell this time — the first
-rotation where they moved together rather than the count rising as
-unlocked cases surfaced their own signatures. The per-group counts below
-are still stamped `@ 9215301c` except where an entry says otherwise.
+**Re-derived @ `98efa861`** (2026-07-27, rotation 228): passTotal
+**14444** (+307 over rotation 227's 14137), bug 768, trAccepted 15212,
+incompatible **37962**, core **25720**. Gate predicate: **484** clusters
+of ≥ 4 cases holding 24438 cases, plus 919 clusters of ≤ 3 holding 1282.
+**Both numbers fell for the second rotation running** (487 → 484 and
+24755 → 24438), so the pattern from rotation 227 held rather than
+reverting to the count-up-cases-down shape of 225/226. Conservation is
+exact: ΔtrAccepted +326 = Δpass +307 + Δbug +19. The nine
+`pass-negative → negative-unsupported` moves are S2.21, and were passing
+only because the escape was a lex error. Previous stamp: `b58797fb`
+(2026-07-27, rotation 227) — passTotal 14137, core 26046, 487 clusters
+holding 24755. The per-group counts below are still stamped
+`@ 9215301c` except where an entry says otherwise.
 
 **Scope split.** Of 38717 incompatible cases, **12241 are post-v1.0
 surface**: Temporal, TypedArray/Atomics (with ArrayBuffer and DataView,
@@ -1818,6 +1823,20 @@ touches runtime hot paths.
       desugar do the single rewrite once the class index exists — is
       the right shape; arena ExprIds are stable, so the desugar can
       reach a body it can no longer find by walking
+- [ ] **S2.21** **A token forgets it was spelled with an escape.**
+      Rotation 228's S2.19 knife 2 decodes `from` to the name
+      `from` and then throws away the fact that an escape produced it —
+      but §12.7.2 makes that distinction load-bearing beyond the
+      ReservedWord refusal the knife does implement. Nine negative
+      tests moved `pass-negative → negative-unsupported` because of it,
+      and they had been passing only because the `\` was a lex error
+      before the knife: `import {} from "…"` and
+      `as`-spelled specifiers (3 cases — tr matches `from` / `as`
+      by string on a plain Ident, so it cannot tell), plus
+      `void yield` / `await` used as an IdentifierReference
+      inside a generator or async body (6 cases — those need S2.17's
+      context tracking on top). The fix for the first three is a bit on
+      the Ident token; the other six wait on S2.17
 - [ ] **S2.17** **tr has no strict-mode tracking**, and S2.9 is the
       first place that cost something. `class` bodies are recognised
       (via `current_class`), but there is no notion of a `"use strict"`
@@ -1963,30 +1982,67 @@ touches runtime hot paths.
       The 941 figure therefore does not mean what it said. **Re-derive
       the signature from the next sweep before starting** rather than
       trusting the number here
-- [ ] **S2.18** **Async generator methods** — `async *g() {}`. The
-      largest single cluster in the census at **1470 cases** across
-      `test/language/statements` (716), `test/language/expressions`
-      (714) and `test/language/arguments-object` (40), signature
-      `parse error: expected method or field after X, got Some(Star)`.
-      S2.1 taught the class-member and object-literal positions to
-      accept `*`, but only after a plain member name — the `async`
-      prefix takes a different path and still refuses the star. The
-      substrate for both halves exists (`async` methods work,
-      generator methods now work), which is why this reads as a
-      parser-shaped gap; verify that before assuming it, since S2.1's
-      "parser-only" claim was half wrong
-- [ ] **S2.19** **Hashbang comments** — `#!/usr/bin/env node` at the
-      very start of a source text (ES2023 §12.5). **941 cases**, the
-      whole of the `lex error: unexpected byte 0x23` cluster, which
-      this rotation's probing showed is *not* the private-name gap
-      S2.2 claimed it was. A lexer rule with no substrate behind it
+- [x] **S2.18** **Async generator methods** — `async *g() {}`
+      (rotation 228, `21a343ca`). It did read as parser-shaped and this
+      time that held: a top-level `async function*` already ran, S2.1
+      had taught both member positions the plain `*g() {}` shape, and
+      what neither allowed was the modifier and the star standing next
+      to each other. The class modifier prefix now steps over an
+      intervening `*` without consuming it, and both generator paths
+      register their hoisted `function*` in `async_generator_fns` —
+      not `async_fns`, since §27.6 hands the generator object back
+      directly and it must not be Promise-wrapped. Teaching the
+      lookahead about `*` meant teaching it about private names, which
+      incidentally admitted the `async #m() {}` it had also refused.
+      Three limits stand behind it, none specific to member position
+      and all recorded in plan-state L3b: `for await` routes to the
+      async protocol only for a direct call to a named factory; the
+      generator object does not survive a boundary typed as anything
+      but its concrete class; and draining one through a typed return
+      yields a NaN-box payload read as an integer — a silent wrong,
+      reproduced on a plain top-level `async function*`
+- [x] **S2.19** ~~Hashbang comments~~ → **Unicode identifiers**
+      (rotation 228, `dc005d81` + `ca6b991a` + `e2527ebd`). **The
+      attribution was wrong, and by two orders of magnitude.** Splitting
+      the 941-case `unexpected byte 0x23` cluster by directory puts
+      **6** in `language/comments/hashbang` and **884** in
+      `class/elements` — the error names the byte the scan stopped on,
+      not what stopped it. What stopped it was the character *after*
+      the `#`: `is_ident_start` was `is_ascii_alphabetic() || '_' ||
+      '$'`, so `#\u{6F}` / `#℘` / `#ZW_<ZWNJ>_NJ` — how test262 spells
+      its private names — never got past lexing. Read together with its
+      sibling clusters (`0x5c` 485 = S2.6, ~75 raw non-ASCII, 25 VT/FF)
+      the family is **~1460 cases, the same order as S2.18**, not the
+      cheap one-liner this entry claimed. Shipped as three: ID_START /
+      ID_CONTINUE generated from `DerivedCoreProperties.txt` into
+      torajs-ucd with codepoint-based scanning; `\u` escapes in
+      identifiers, with an escaped ReservedWord refused per §12.7.2
+      (`yield` / `await` held out, being only conditionally reserved
+      and tr having no strict tracking — S2.17); and the hashbang rule
+      itself plus the rest of §12.2 WhiteSpace
+- [x] **S2.6** Unicode escapes in identifiers (lexer byte `0x5c`) —
+      **485**, closed by S2.19's second knife (`ca6b991a`): same root
+      cause, different byte
 - [ ] **S2.3** Computed field names `[k] = v` in class bodies — **548**
 - [ ] **S2.4** `yield*` against a non-call expression — the parser
       currently demands a direct call to a `function*` — **434**
 - [ ] **S2.5** `for await (… of …)` iterable form — **654**, all in one
-      directory (`test/language/statements`)
-- [ ] **S2.6** Unicode escapes in identifiers (lexer byte `0x5c`) — **485**
+      directory (`test/language/statements`). Rotation 228 localised
+      the decision: `parser/try_parse_for_of.rs:267` keys on
+      `Expr::Call { callee: Expr::Ident(name) }` being in
+      `async_generator_fns`, so a method call (callee is
+      `Expr::Member`) and a captured iterator never match and fall to
+      the sync protocol, which panics on the `Promise` that
+      `next()` returns. The fix is an await flag on `Stmt::ForOf` plus
+      an awaiting arm in the generic protocol path
 - [ ] **S2.7** Untyped class field without a literal initializer — **245**
+- [ ] **S2.20** **Method signatures in inline object types** —
+      `{ m(): number }` — shipped rotation 228 (`98efa861`); listed
+      here because it was never a census item, it surfaced while
+      probing S2.18. TS reads a MethodSignature as the property
+      holding a function, so it produces the `__fn(P|..)->R` spelling
+      `{ m: () => number }` already used; only the inline annotation
+      refused it, the named-alias lane already took it
 
 #### S3 — Name resolution at ssa-lower
 
@@ -2136,18 +2192,19 @@ cases, 4.8 %).
       > attributed to an entry in the subset-decision register below.
       > The count of unattributed ≥ 4 clusters drives to 0.**
 
-      Latest @ `7ef9b170`, 2026-07-27 (previous `e023bc6b`, then
-      baseline `9215301c`, in parentheses):
+      Latest @ `98efa861`, 2026-07-27 (previous `b58797fb`, then
+      `7ef9b170`, in parentheses):
 
       | | |
       |---|---|
-      | clusters ≥ 4 cases, unattributed | **490** (485, 482) ← drives to 0 |
-      | cases in them | 25079 (25089, 25198) |
-      | clusters ≤ 3 cases | 919 (921, 911) — 1291 cases, 4.9 % residue |
-      | core total | 26370 (26381, 26476) |
+      | clusters ≥ 4 cases, unattributed | **484** (487, 490) ← drives to 0 |
+      | cases in them | 24438 (24755, 25079) |
+      | clusters ≤ 3 cases | 919 (919, 919) — 1282 cases, 5.0 % residue |
+      | core total | 25720 (26046, 26370) |
 
-      Two rotations running, the movement has the predicted shape rather
-      than a regression's: count up, cases down. Rotation 225 shipped
+      Both numbers have now fallen two rotations running. Before that,
+      for two rotations, the movement had the other predicted shape —
+      count up, cases down. Rotation 225 shipped
       S1.1/S1.2/S1.5 (`__new_*` 1138 → 926, `__this` 783 → 636);
       rotation 226 shipped S2.1, which took three parse walls to zero —
       1610 cases — while `incompatible` fell by only 11, because most of

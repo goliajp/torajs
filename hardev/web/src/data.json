@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-26T17:50:06.423Z",
+  "generatedAt": "2026-07-26T19:55:48.901Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-26T17:47:47Z",
-    "headSha": "b58797fb",
-    "elapsedSec": 257.26,
+    "ranAt": "2026-07-26T19:51:29Z",
+    "headSha": "98efa861",
+    "elapsedSec": 268.31,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 9503,
-    "passNoOracle": 130,
-    "passNegative": 4504,
-    "passTotal": 14137,
-    "bug": 749,
-    "incompatible": 38288,
+    "pass": 9805,
+    "passNoOracle": 144,
+    "passNegative": 4495,
+    "passTotal": 14444,
+    "bug": 768,
+    "incompatible": 37962,
     "bunSkip": 11904,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 14886,
-    "passRateInScope": 26.59,
-    "passRateTrAccepted": 94.97
+    "trAccepted": 15212,
+    "passRateInScope": 27.16,
+    "passRateTrAccepted": 94.95
   },
   "torajs": {
-    "commit": "b58797fb",
-    "commitSubject": "fix(parser): scope the duplicate-parameter refusal to where it applies",
+    "commit": "98efa861",
+    "commitSubject": "feat(parser): method signatures in inline object types",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "98efa861",
+      "subject": "feat(parser): method signatures in inline object types"
+    },
+    {
+      "hash": "21a343ca",
+      "subject": "feat(parser): async generator methods, in both member positions"
+    },
+    {
+      "hash": "e2527ebd",
+      "subject": "feat(lexer): hashbang comments, and the rest of WhiteSpace"
+    },
+    {
+      "hash": "ca6b991a",
+      "subject": "feat(lexer): identifiers can spell their characters as \\u escapes"
+    },
+    {
+      "hash": "dc005d81",
+      "subject": "feat(lexer): identifiers are Unicode, not ASCII"
+    },
+    {
+      "hash": "fdc403c2",
+      "subject": "chore(hardev): record the rotation 227 sweep and refresh the dashboard"
+    },
+    {
       "hash": "b58797fb",
       "subject": "fix(parser): scope the duplicate-parameter refusal to where it applies"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "e3956d3d",
       "subject": "fix(parser): refuse a body let that repeats a parameter"
-    },
-    {
-      "hash": "11d1eb12",
-      "subject": "fix(parser): refuse a parameter name that repeats"
-    },
-    {
-      "hash": "8ee9f448",
-      "subject": "fix(parser): refuse super() outside a derived constructor"
-    },
-    {
-      "hash": "ec215b74",
-      "subject": "fix(parser): a generator method may call super.m()"
-    },
-    {
-      "hash": "e7ef480a",
-      "subject": "chore(hardev): refresh dashboard snapshot for rotation 226 close"
-    },
-    {
-      "hash": "86c31699",
-      "subject": "fix(desugar): say which class declared the field twice"
-    },
-    {
-      "hash": "f39a807c",
-      "subject": "docs(p-surf): S2.9 is three cases of new work, not nine"
     }
   ],
-  "headSha": "b58797fb",
+  "headSha": "98efa861",
   "autorun": {
-    "total": 531,
+    "total": 532,
     "baselineTarget": 10,
-    "bySelf": 526,
+    "bySelf": 527,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785082395-2a55",
-      "at": "2026-07-26T16:13:15Z",
-      "ts": 1785082395,
+      "rotationId": "r-1785088313-097e",
+      "at": "2026-07-26T17:51:53Z",
+      "ts": 1785088313,
       "trigger": "self",
-      "prevHead": "86c31699",
-      "handoffSha": "sha256:0d088967c1b1a11531c78a913e4e0f98fda2c96861f6e9450019d9639ab2de3d",
-      "handoffAgeSec": 0,
+      "prevHead": "fdc403c2",
+      "handoffSha": "sha256:d3c50602d550f5086263c2d15b7cbeca5832abdd3c7b47564dbfa585bb5a0359",
+      "handoffAgeSec": 26,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1785088313-097e",
+        "at": "2026-07-26T17:51:53Z",
+        "ts": 1785088313,
+        "trigger": "self",
+        "prevHead": "fdc403c2",
+        "handoffSha": "sha256:d3c50602d550f5086263c2d15b7cbeca5832abdd3c7b47564dbfa585bb5a0359",
+        "handoffAgeSec": 26,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785082395-2a55",
         "at": "2026-07-26T16:13:15Z",
@@ -876,17 +887,6 @@
         "prevHead": "daee93c7",
         "handoffSha": "sha256:89377ef56fc9f28fbd7b9ef32c91983d6b3624b95daa1c8d937c52d40515fc8b",
         "handoffAgeSec": 10,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1785008882-2588",
-        "at": "2026-07-25T19:48:02Z",
-        "ts": 1785008882,
-        "trigger": "self",
-        "prevHead": "8c984774",
-        "handoffSha": "sha256:9d9cdb4b64bcf6e6ac2d057b8dd92d9d902708019ee330fff97c3979fdf3f34a",
-        "handoffAgeSec": 43,
         "conformanceBefore": null,
         "commitsInSession": null
       }
