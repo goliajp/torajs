@@ -1672,12 +1672,45 @@ console.log(c.x);                         // unknown identifier `c`  (cascade)
 #### S2 — Generator and class-member syntax
 
 Single syntactic points, large mass, narrow directory spread — the
-cheapest ratio on the board. Parser/lexer work; none of it touches
-runtime hot paths.
+cheapest ratio on the board. Mostly parser/lexer work; none of it
+touches runtime hot paths.
 
-- [ ] **S2.1** `*f() {}` generator methods, all three positions: class
-      member (2139), class member-name path (693), object literal (253)
-      = **3085 cases**, 4–7 directories. One grammar point
+- [~] **S2.1** `*f() {}` generator methods — one grammar point, three
+      positions, **3085 cases**. It was listed as parser-only. That
+      holds for one position and **not** for the other two:
+      - [x] **object literal (253)** — shipped `797d4517`. Genuinely
+            parser-only. The generator substrate was already whole, so
+            the shorthand mints a synthetic top-level
+            `function* __obj_gen_method_N` — `Stmt::FnDecl` already had
+            an `is_generator` field — and hands the property an
+            `Expr::Ident` naming it, which is exactly what ES §13.2.5
+            says the sugar means. Mirrors the async shorthand next door
+      - [ ] **class member (2139) + class member-name path (693)** —
+            **not parser-only**, measured 2026-07-27. Three facts
+            constrain it, and together they fix the design:
+            (1) `desugar_generators` runs *before* `desugar_classes`
+            (`cmd_build.rs:143` vs `:156`), so at generator time a class
+            is still a `ClassDecl` and `this` is still `Expr::This`;
+            (2) the generator desugar turns a `function*` into a
+            `__Gen_<name>` **class** whose fields hold the generator's
+            params, which is how state survives across `next()` calls —
+            verified: an object param does reach the body intact;
+            (3) it has **no env channel** at all — `hoist_gen_fn_exprs`
+            documents that prep rewrites params and lifted lets to
+            `this.<name>` and everything else must resolve as a
+            module-level global, on pain of a loud panic.
+            So the receiver has to arrive **as a parameter** to be
+            reachable from the state machine, and the `this` the user
+            wrote must stop being `Expr::This` *before*
+            `desugar_generators` sees it — otherwise it collides with
+            the `this` that prep introduces, which points at the
+            `__Gen_*` instance rather than the class instance.
+            Shape that follows: hoist each class generator method to a
+            top-level `function* __cm_gen_<C>__<m>(__this: any, …)` with
+            the body's `this` already rewritten to `__this`, and leave
+            an ordinary forwarder method in the class — which keeps the
+            vtable / `method_owners` machinery untouched. Sibling of the
+            existing `hoist_gen_fn_exprs`, same pipeline slot
 - [ ] **S2.2** Private names `#x` — the lexer rejects byte `0x23`
       outright (941) before the parser ever sees a private name, plus
       static private fields (350) = **1291 cases**. Lexer first; the
