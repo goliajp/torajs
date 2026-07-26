@@ -188,11 +188,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx, maybe: Option<crate::ast::ExprId>) {
 /// under the 200-line limit (the S8.5 arm was what pushed it over).
 /// `maybe` is the returned expression's id, needed by the two arms
 /// that consult the source expression rather than only its type.
-fn coerce_to_ret(
-    ctx: &mut LowerCtx,
-    op: Operand,
-    maybe: Option<crate::ast::ExprId>,
-) -> Operand {
+fn coerce_to_ret(ctx: &mut LowerCtx, op: Operand, maybe: Option<crate::ast::ExprId>) -> Operand {
     let actual = ctx.operand_ty(&op);
     if ctx.f.ret == Type::Any && actual != Type::Any {
         // Chunk 806 — the expr-aware variant tags an Undefined-
