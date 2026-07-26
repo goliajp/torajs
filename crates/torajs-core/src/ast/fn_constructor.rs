@@ -40,7 +40,59 @@
 //! mentions `this` (`function Empty() {}`) is still constructible, it
 //! just does not receive the instance.
 
-use super::{Ast, Expr, ExprId, Param, Stmt};
+use super::{Ast, BinOp, Expr, ExprId, Param, Stmt};
+
+/// Does any `return <expr>` appear anywhere in this body?
+///
+/// Spec §10.2.2 step 8 lets a constructor's own return value win over
+/// the fresh receiver, but only when it is an Object. Most constructors
+/// return nothing, and for those the check is dead weight on every
+/// construction — so it is emitted only when the body can actually
+/// produce a value. A bare `return;` does not count: it yields
+/// undefined, which is never an Object.
+fn returns_a_value(body: &[Stmt]) -> bool {
+    body.iter().any(stmt_returns_a_value)
+}
+
+fn stmt_returns_a_value(s: &Stmt) -> bool {
+    match s {
+        Stmt::Return(v) => v.is_some(),
+        Stmt::Block(b) | Stmt::Multi(b) => returns_a_value(b),
+        Stmt::If {
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            stmt_returns_a_value(then_branch)
+                || else_branch
+                    .as_ref()
+                    .is_some_and(|e| stmt_returns_a_value(e))
+        }
+        Stmt::While { body, .. }
+        | Stmt::DoWhile { body, .. }
+        | Stmt::For { body, .. }
+        | Stmt::ForOf { body, .. }
+        | Stmt::ForOfSplitIter { body, .. }
+        | Stmt::Labeled { body, .. } => stmt_returns_a_value(body),
+        Stmt::Switch { cases, default, .. } => {
+            cases.iter().any(|c| returns_a_value(&c.body))
+                || default.as_ref().is_some_and(|d| returns_a_value(d))
+        }
+        Stmt::Try {
+            body,
+            catch_body,
+            finally_body,
+            ..
+        } => {
+            returns_a_value(body)
+                || returns_a_value(catch_body)
+                || finally_body.as_ref().is_some_and(|f| returns_a_value(f))
+        }
+        // A nested FnDecl's `return` belongs to that function, not this
+        // one.
+        _ => false,
+    }
+}
 
 /// A function this pass can construct: its name, and the parameters the
 /// factory has to forward (blade 1's hidden receiver excluded).
@@ -48,6 +100,8 @@ struct Constructible {
     name: String,
     params: Vec<Param>,
     takes_this: bool,
+    /// Body can produce a value, so §10.2.2 step 8 is live for it.
+    returns_value: bool,
 }
 
 fn collect_declared(ast: &Ast) -> (Vec<String>, Vec<Constructible>) {
@@ -57,6 +111,7 @@ fn collect_declared(ast: &Ast) -> (Vec<String>, Vec<Constructible>) {
         let Stmt::FnDecl {
             name,
             params,
+            body,
             is_generator,
             ..
         } = st
@@ -78,6 +133,7 @@ fn collect_declared(ast: &Ast) -> (Vec<String>, Vec<Constructible>) {
                 params.clone()
             },
             takes_this,
+            returns_value: returns_a_value(body),
         });
     }
     (declared, candidates)
@@ -158,14 +214,76 @@ pub fn synthesize_fn_constructors(ast: &mut Ast) {
             args.push(ast.add_expr(Expr::Ident(p.name.clone())));
         }
         let call = ast.add_expr(Expr::Call { callee, args });
-        let ret = ast.add_expr(Expr::Ident("__this".into()));
+
+        // §10.2.2 step 8 — the constructor's own return value wins, but
+        // only if it is an Object; anything else (including a bare
+        // `return;`) leaves the fresh receiver in place. Emitted only
+        // when the body can actually produce a value, so the common
+        // constructor pays nothing for it.
+        let factory_body = if c.returns_value {
+            let r = ast.add_expr(Expr::Ident("__r".into()));
+            let let_r = Stmt::LetDecl {
+                mutable: false,
+                name: "__r".into(),
+                type_ann: Some("any".into()),
+                init: call,
+                is_var: false,
+            };
+            // `typeof` answers "function" for callables, which are
+            // Objects too — hence the second arm rather than a bare
+            // `=== "object"`.
+            let is_obj = {
+                let t1 = ast.add_expr(Expr::TypeOf { expr: r });
+                let s1 = ast.add_expr(Expr::String("object".into()));
+                let eq1 = ast.add_expr(Expr::BinOp {
+                    op: BinOp::Eq,
+                    left: t1,
+                    right: s1,
+                });
+                let t2 = ast.add_expr(Expr::TypeOf { expr: r });
+                let s2 = ast.add_expr(Expr::String("function".into()));
+                let eq2 = ast.add_expr(Expr::BinOp {
+                    op: BinOp::Eq,
+                    left: t2,
+                    right: s2,
+                });
+                ast.add_expr(Expr::BinOp {
+                    op: BinOp::LOr,
+                    left: eq1,
+                    right: eq2,
+                })
+            };
+            // `typeof null` is "object", so null has to be excluded
+            // explicitly or `return null` would win over the receiver.
+            let null_lit = ast.add_expr(Expr::Null);
+            let not_null = ast.add_expr(Expr::BinOp {
+                op: BinOp::Neq,
+                left: r,
+                right: null_lit,
+            });
+            let cond = ast.add_expr(Expr::BinOp {
+                op: BinOp::LAnd,
+                left: not_null,
+                right: is_obj,
+            });
+            let this_ref = ast.add_expr(Expr::Ident("__this".into()));
+            let picked = ast.add_expr(Expr::Ternary {
+                cond,
+                then_branch: r,
+                else_branch: this_ref,
+            });
+            vec![let_this, let_r, Stmt::Return(Some(picked))]
+        } else {
+            let ret = ast.add_expr(Expr::Ident("__this".into()));
+            vec![let_this, Stmt::Expr(call), Stmt::Return(Some(ret))]
+        };
 
         ast.stmts.push(Stmt::FnDecl {
             name: format!("__fnctor_{bare}"),
             type_params: Vec::new(),
             params: c.params.clone(),
             return_type: Some("any".into()),
-            body: vec![let_this, Stmt::Expr(call), Stmt::Return(Some(ret))],
+            body: factory_body,
             is_generator: false,
             span: crate::lexer::Span { start: 0, end: 0 },
         });
