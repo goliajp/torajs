@@ -20,8 +20,8 @@
 
 use super::infer_closure_params_apply::apply_closure_ann_updates;
 use super::infer_closure_params_helpers::{
-    apply_hof_param_only_arm, apply_user_fn_callee_hint, build_ann_table, collect_fn_decl_metadata,
-    mapset_foreach_expected, seed_let_ann_hints,
+    apply_hof_param_only_arm, apply_stored_elem_arm, apply_user_fn_callee_hint, build_ann_table,
+    collect_fn_decl_metadata, mapset_foreach_expected, seed_let_ann_hints,
 };
 use super::infer_closure_params_promise::resolve_promise_inner_ann;
 use super::{Ast, Expr, ExprId};
@@ -293,6 +293,13 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
             continue;
         };
         let elem_ann = elem_ann.to_string();
+        // An arrow at an element position of `push` / `unshift` /
+        // `fill` / `with` / `splice` is stored, not called — the
+        // receiver's element type is its type, the same contextual
+        // typing a literal element already gets.
+        if apply_stored_elem_arm(ast, &name, &elem_ann, &closure_args, &mut updates) {
+            continue;
+        }
         if apply_hof_param_only_arm(
             ast,
             &name,

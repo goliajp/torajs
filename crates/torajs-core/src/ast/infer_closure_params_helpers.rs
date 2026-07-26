@@ -89,6 +89,25 @@ pub(super) fn resolve_fn_type_ann(ast: &Ast, ann: &str) -> Option<String> {
     None
 }
 
+/// Read `ann` as a fn type and answer the (param spellings, return
+/// spelling) a lifted closure's own annotations take from it.
+///
+/// The single place that asks "what does this annotation say a
+/// function's parameters are", for every position that types an arrow
+/// by the type of the slot it lands in: an annotated binding, a field
+/// or element of an annotated container, a declared return type, and
+/// an element stored through an array mutator. `None` for an
+/// annotation that is not a fn type — the arrow then keeps whatever
+/// its own params say.
+pub(super) fn project_fn_type_ann(ast: &Ast, ann: &str) -> Option<(Vec<String>, String)> {
+    let canon = resolve_fn_type_ann(ast, ann)?;
+    let (param_spellings, ret_spelling) = split_fn_type(&canon)?;
+    Some((
+        param_spellings.iter().map(|s| s.to_string()).collect(),
+        ret_spelling.to_string(),
+    ))
+}
+
 /// Project each `lifted closure → binding annotation` hint onto the
 /// closure's params and return, the let-init counterpart of
 /// [`apply_user_fn_callee_hint`]. Both land in the same `updates` map
@@ -101,20 +120,85 @@ pub(super) fn seed_let_ann_hints(
     updates: &mut HashMap<String, (Vec<String>, String)>,
 ) {
     for (fn_name, ann) in closure_let_hints {
-        let Some(canon) = resolve_fn_type_ann(ast, ann) else {
-            continue;
-        };
-        let Some((param_spellings, ret_spelling)) = split_fn_type(&canon) else {
-            continue;
-        };
-        updates.insert(
-            fn_name.clone(),
-            (
-                param_spellings.iter().map(|s| s.to_string()).collect(),
-                ret_spelling.to_string(),
-            ),
-        );
+        if let Some(projected) = project_fn_type_ann(ast, ann) {
+            updates.insert(fn_name.clone(), projected);
+        }
     }
+}
+
+/// The argument positions at which an Array method holds an *element*
+/// — a value stored into the receiver array — rather than a callback
+/// it invokes with elements. `None` for every other method.
+///
+/// One list, asked two ways (is this method one of them, and does this
+/// position hold an element), so the two answers cannot drift apart.
+fn stored_elem_args(method: &str) -> Option<ElemArgs> {
+    match method {
+        // `push(...items)` / `unshift(...items)` — §23.1.3.23 / .34.
+        "push" | "unshift" => Some(ElemArgs::All),
+        // `fill(value, start?, end?)` — §23.1.3.7.
+        "fill" => Some(ElemArgs::At(0)),
+        // `with(index, value)` — §23.1.3.39.
+        "with" => Some(ElemArgs::At(1)),
+        // `splice(start, deleteCount, ...items)` — §23.1.3.36.
+        "splice" => Some(ElemArgs::From(2)),
+        _ => None,
+    }
+}
+
+/// Which of a method's argument positions hold elements.
+enum ElemArgs {
+    All,
+    At(usize),
+    From(usize),
+}
+
+impl ElemArgs {
+    fn holds(&self, arg_idx: usize) -> bool {
+        match *self {
+            ElemArgs::All => true,
+            ElemArgs::At(i) => arg_idx == i,
+            ElemArgs::From(i) => arg_idx >= i,
+        }
+    }
+}
+
+/// Array-mutator element arm — an arrow handed to `push` / `unshift` /
+/// `fill` / `with` / `splice` at an element position is not a callback
+/// being described, it is a value being stored, so the receiver's
+/// element type IS that arrow's type.
+///
+/// It is the same contextual typing an arrow written as a literal
+/// element already gets, reached one call later, and it was the only
+/// way in with no context at all: an un-annotated param then takes its
+/// default, the call site still dispatches through the declared
+/// signature, and the two disagree about what a parameter is. Loudly
+/// for the mutators that type-check their items (`fill` / `splice` /
+/// `concat` answered "got Function([Any], Any)"), silently for the
+/// ones that do not — `fs.push((n) => n + 1); fs[0](3)` answered
+/// -562949953421311.
+///
+/// Returns true for those five methods — none of them is
+/// callback-bearing, so the caller skips the per-method callback table
+/// either way.
+pub(super) fn apply_stored_elem_arm(
+    ast: &Ast,
+    name: &str,
+    elem_ann: &str,
+    closure_args: &[(usize, String)],
+    updates: &mut HashMap<String, (Vec<String>, String)>,
+) -> bool {
+    let Some(elem_args) = stored_elem_args(name) else {
+        return false;
+    };
+    if let Some(projected) = project_fn_type_ann(ast, elem_ann) {
+        for (arg_idx, fn_name) in closure_args {
+            if elem_args.holds(*arg_idx) {
+                updates.insert(fn_name.clone(), projected.clone());
+            }
+        }
+    }
+    true
 }
 
 pub(super) fn build_ann_table(ast: &Ast) -> (HashMap<String, String>, HashMap<String, String>) {
