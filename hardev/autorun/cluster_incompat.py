@@ -52,8 +52,36 @@ SUBS = [
 # P16 multi-thread, and the Temporal / TypedArray / Intl backlog items).
 # They are excluded from the gate predicate — not from the census, where
 # they are reported separately so the split stays visible.
-POST_V1_PATH = ("Temporal", "TypedArray", "Atomics", "SharedArrayBuffer", "Proxy", "Reflect")
+#
+# ArrayBuffer / DataView ride with the TypedArray backlog item: they are
+# its substrate (a DataView without typed arrays serves nothing), and
+# counting them as core would put ~950 cases on the v1.0 gate that the
+# TypedArray phase will absorb anyway.
+POST_V1_PATH = (
+    "Temporal",
+    "TypedArray",
+    "Atomics",
+    "ArrayBuffer",  # covers SharedArrayBuffer too
+    "DataView",
+    "Proxy",
+    "Reflect",
+)
 POST_V1_MSG = ("Temporal", "Intl")
+
+# A case whose unknown identifier IS a post-v1.0 global is blocked on
+# that surface no matter which directory it lives in (`new Proxy(...)`
+# as a test fixture under Object/keys is still a Proxy case). Matched
+# against the extracted name exactly — never as a message substring,
+# which would misfire on core cases that merely mention these words.
+POST_V1_GLOBALS = frozenset(
+    ["Temporal", "Intl", "Proxy", "Reflect", "Atomics", "ShadowRealm"]
+    + ["ArrayBuffer", "SharedArrayBuffer", "DataView"]
+    + [f"{p}{w}Array" for p in ("Ui", "I") for w in ("nt8", "nt16", "nt32")]
+    + ["Uint8ClampedArray", "Float16Array", "Float32Array", "Float64Array"]
+    + ["BigInt64Array", "BigUint64Array"]
+)
+
+UNKNOWN_IDENT = re.compile(r"unknown ident(?:ifier)? `([^`]*)`")
 
 
 def is_post_v1(path: str, msg: str) -> bool:
@@ -61,23 +89,31 @@ def is_post_v1(path: str, msg: str) -> bool:
         return True
     if any(t in path for t in POST_V1_PATH):
         return True
-    return any(t in msg for t in POST_V1_MSG)
+    if any(t in msg for t in POST_V1_MSG):
+        return True
+    m = UNKNOWN_IDENT.search(msg)
+    if m:
+        name = m.group(1).removeprefix("__new_")
+        return name in POST_V1_GLOBALS
+    return False
 
 
 def signature(msg: str) -> str:
     """Collapse a message to its cluster key.
 
-    `unknown identifier` keeps the actual name — that name IS the
-    signal (`__this` and `eval` are different problems). `__new_*` folds
-    into one key because the varying half is the user's class name, not
-    a distinct gap.
+    The two unknown-name shapes (checker `unknown identifier`, ssa-lower
+    `unknown ident`) keep the actual name — that name IS the signal
+    (`__this` and `eval` are different problems, and so are `callbackfn`
+    and `Math`). `__new_*` folds into one key because the varying half
+    is the user's class name, not a distinct gap.
     """
-    m = re.search(r"unknown identifier `([^`]*)`", msg)
+    m = UNKNOWN_IDENT.search(msg)
     if m:
         name = m.group(1)
+        stage = "ssa-lower " if "ssa-lower" in msg else ""
         if name.startswith("__new_"):
-            return "unknown identifier `__new_*` (new-on-a-function desugar)"
-        return f"unknown identifier `{name}`"
+            return f"{stage}unknown ident `__new_*` (new-on-a-function desugar)"
+        return f"{stage}unknown ident `{name}`"
     s = msg.strip()
     for pat, rep in SUBS:
         s = pat.sub(rep, s)
