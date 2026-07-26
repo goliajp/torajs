@@ -1769,21 +1769,36 @@ touches runtime hot paths.
       `__param_destr_N` resolved against a field nobody created. The
       count is of body statements, so the prepended receiver does not
       enter into it
-- [ ] **S2.11** `super.m()` inside a class generator method. Hoisting the
-      body out of the class broke the `super` marker's resolution, and
-      the fix is half done: the parser now rewrites `__supercall__<m>`
-      to `__cm_<Parent>__<m>(recv, …)` while the parent is still in
-      hand — it has to happen there, since by the time
-      `desugar_classes` would do it `desugar_generators` has moved the
-      body again, into the `__Gen_*` state machine. What remains is a
-      type-system decision, not a parser one: the call wants the
-      parent's nominal type and the receiver is `any`. Typing the
-      receiver nominally is **not** the answer — an inherited generator
-      method is reached through a subclass instance, so `class B extends
-      A` calling A's generator then fails the other way (measured, both
-      directions). It needs a widening or cast at the call site. Until
-      then the diagnostic at least names the real mismatch rather than
-      an undeclared `__supercall__*`
+- [x] **S2.11** `super.m()` inside a class generator method — **done
+      2026-07-27**. The parser half landed in rotation 226 (rewrite
+      `__supercall__<m>` to `__cm_<Parent>__<m>(recv, …)` while the
+      parent is still in hand, since by the time `desugar_classes`
+      would do it `desugar_generators` has moved the body into the
+      `__Gen_*` state machine). What remained was the receiver's type:
+      the hoisted generator took it as `any`, and `any` is not admitted
+      into a heap-typed parameter slot, so the call failed with
+      `argument 0: expected ClassRef("A"), got Any`.
+      **The note this entry used to carry was wrong** — it said typing
+      the receiver nominally breaks the inherited direction. It does
+      not, provided the annotation names the **declaring** class rather
+      than the parent: the forwarder that passes `this` lives on the
+      declaring class, and the receiver slot already admits a subclass
+      by prefix layout, so a grandchild instance reaching a generator
+      declared two levels up type-checks too (measured — the earlier
+      "measured, both directions" claim did not distinguish the two
+      annotations). `static *g()` keeps `any`, its receiver being the
+      class object. One `type_ann`; fixture `gen-class-super-001`
+      (super with arguments, twice in one expression, interleaved with
+      `this`, inherited and grandchild receivers, static generator,
+      per-instance state) is bun byte-equal JIT and AOT
+- [ ] **S2.12** `super.m()` resolves against the **direct** parent only,
+      so `class C extends B extends A` reaching A's `m` emits
+      `unknown identifier __cm_B__m`. Found while probing S2.11, but
+      **not a generator defect**: `desugar_classes_super` resolves
+      ordinary methods the same way and the plain-method spelling fails
+      identically (measured, 4-line repro). The fix is to walk the
+      inheritance chain to the method's real owner, which closes both
+      spellings at once. Not yet censused
 - [ ] **S2.10** The receiver parameter is visible in argument-position
       diagnostics. Passing a bad argument to a class generator method
       reports `argument 1` for what the user wrote as the first argument,
@@ -2029,10 +2044,11 @@ that put S2 second turned out to be true for one of S2.1's three
 positions and false for the other two; it did not change the ordering,
 but see S2.1 for why the reasoning was wrong.
 
-**Status @ rotation 226**: S1.1 / S1.2 / S1.5 shipped (rotation 225),
-S1.7 / S1.8 measured, **S2.1 shipped whole** (all three positions).
-S1.3 now measurable; S1.4 open with a corrected description; S1.8(b)
-blocked on S5.6.
+**Status @ rotation 227**: S1.1 / S1.2 / S1.5 shipped (rotation 225),
+S1.7 / S1.8 measured, **S2.1 shipped whole** (all three positions),
+**S2.11 closed** (rotation 227) — which surfaced S2.12. S1.3 now
+measurable; S1.4 open with a corrected description; S1.8(b) blocked on
+S5.6.
 
 Four orderings here were decided by measurement rather than by the
 plan, which is the pattern worth keeping: S1.2 gated S1.1 (a function

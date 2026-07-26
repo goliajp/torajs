@@ -162,10 +162,18 @@ impl<'a> Parser<'a> {
         Self::rewrite_supercalls_in_range(&mut self.ast, body_expr_start, parent);
 
         // The hoisted generator: receiver first, then the user's params.
-        // `any` rather than the class's nominal type — the generator
-        // desugar turns this parameter into a `__Gen_*` field, and a
-        // nominal annotation there would demand a layout the state
-        // machine class does not have.
+        // An instance receiver carries the declaring class's own name
+        // (S2.11): `super.m()` rewrites below to `__cm_<Parent>__<m>`,
+        // whose first parameter is the parent's nominal type, and `any`
+        // is not admitted into a heap-typed parameter slot. Naming the
+        // declaring class rather than the parent is what makes the
+        // inherited direction work too — the receiver slot admits a
+        // subclass by prefix layout, so a grandchild instance reaching a
+        // generator declared two levels up still type-checks.
+        //
+        // `static *g()` keeps `any`: there the receiver is the class
+        // object rather than an instance, and no nominal type describes
+        // it.
         let synth_name = format!("{GEN_METHOD_PREFIX}{class_name}__{member_name}");
         if destr_prefix > 0 {
             self.ast
@@ -174,7 +182,11 @@ impl<'a> Parser<'a> {
         }
         let mut synth_params = vec![Param {
             name: GEN_RECV_PARAM.into(),
-            type_ann: Some("any".into()),
+            type_ann: Some(if is_static {
+                "any".into()
+            } else {
+                class_name.to_string()
+            }),
             default: None,
             is_rest: false,
         }];
@@ -231,16 +243,18 @@ impl<'a> Parser<'a> {
     /// With no parent the markers are left alone, so the existing "no
     /// parent class" diagnostic still fires.
     ///
-    /// **Known gap (S2.11).** Resolving the marker is only half of it:
-    /// the rewritten call wants `__cm_<Parent>__<m>(recv, …)` where
-    /// `recv` has the parent's nominal type, and this receiver is `any`.
-    /// Typing it nominally instead is not the fix — an inherited
-    /// generator method is reached through a subclass instance, so
-    /// `class B extends A` calling A's generator would then fail the
-    /// other way (measured, both directions). It needs a widening or
-    /// cast at the call, which is a type-system decision rather than a
-    /// parser one. Until then the diagnostic at least names the real
-    /// mismatch instead of an undeclared `__supercall__*` identifier.
+    /// The receiver's type is what made the call type-check: it is the
+    /// declaring class's own name rather than `any`, so it meets
+    /// `__cm_<Parent>__<m>`'s nominal first parameter (S2.11 — see the
+    /// receiver-parameter comment above for why the declaring class and
+    /// not the parent).
+    ///
+    /// **Known gap.** Only the *direct* parent is consulted, so
+    /// `class C extends B extends A` reaching A's `m` rewrites to
+    /// `__cm_B__m` and fails as an unknown identifier. That is not a
+    /// generator defect — `desugar_classes_super` resolves ordinary
+    /// methods the same way and the plain-method spelling fails
+    /// identically (measured). Walking the chain fixes both at once.
     fn rewrite_supercalls_in_range(ast: &mut crate::ast::Ast, from: usize, parent: Option<&str>) {
         let Some(parent_name) = parent else {
             return;
