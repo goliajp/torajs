@@ -59,6 +59,7 @@ use std::collections::{HashMap, VecDeque};
 
 use torajs_core::ssa::{Function, Type};
 
+use crate::linear_scan_lanes::{param_arg_regs, ret_lane_free};
 use crate::liveness::{Interval, compute_intervals};
 use crate::reg::{Fpr, Gpr, Reg, aapcs64};
 use crate::regalloc::{Assignment, alloca_slot_size, collect_ret_value_ids, inst_emits_bl};
@@ -325,28 +326,7 @@ pub fn allocate_linear_scan(func: &Function) -> Assignment {
         idx += 1; // terminator slot
     }
 
-    // AAPCS64 §5.4.2 param lanes — each param's entry register.
-    let mut param_arg_reg: HashMap<u32, Reg> = HashMap::new();
-    let mut gpr_arg_idx = 0usize;
-    let mut fpr_arg_idx = 0usize;
-    for &param in &func.params {
-        let ty = func
-            .values
-            .get(param.0 as usize)
-            .map(|vi| &vi.ty)
-            .expect("ValueId(param) out of bounds");
-        let is_fp = matches!(ty, Type::F64);
-        let reg = if is_fp {
-            let v = aapcs64::FP_ARG_RET[fpr_arg_idx];
-            fpr_arg_idx += 1;
-            Reg::Fpr(v)
-        } else {
-            let x = aapcs64::ARG_RET[gpr_arg_idx];
-            gpr_arg_idx += 1;
-            Reg::Gpr(x)
-        };
-        param_arg_reg.insert(param.0, reg);
-    }
+    let param_arg_reg = param_arg_regs(func);
 
     let mut sweep = Sweep::new(next_alloca_offset, compute_spill_weights(func));
 
@@ -424,8 +404,12 @@ pub fn allocate_linear_scan(func: &Function) -> Assignment {
             } else {
                 Reg::Gpr(aapcs64::ARG_RET[0])
             };
-            sweep.by_value.insert(vid, reg);
-            continue;
+            // That lane belongs to the first param too — see
+            // `ret_lane_free` for why the sweep can't see the clash.
+            if ret_lane_free(func, reg, interval, &intervals, &sweep.by_value) {
+                sweep.by_value.insert(vid, reg);
+                continue;
+            }
         }
 
         let reg = if crossing {

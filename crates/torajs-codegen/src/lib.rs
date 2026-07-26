@@ -28,6 +28,7 @@ pub mod compile;
 pub mod enc;
 pub mod frame;
 pub mod linear_scan;
+mod linear_scan_lanes;
 pub mod liveness;
 pub mod reg;
 pub mod regalloc;
