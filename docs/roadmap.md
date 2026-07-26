@@ -1675,9 +1675,10 @@ Single syntactic points, large mass, narrow directory spread — the
 cheapest ratio on the board. Mostly parser/lexer work; none of it
 touches runtime hot paths.
 
-- [~] **S2.1** `*f() {}` generator methods — one grammar point, three
-      positions, **3085 cases**. It was listed as parser-only. That
-      holds for one position and **not** for the other two:
+- [x] **S2.1** `*f() {}` generator methods — one grammar point, three
+      positions, **3085 cases**, all three shipped in rotation 226. It
+      was listed as parser-only; that held for one position and **not**
+      for the other two:
       - [x] **object literal (253)** — shipped `797d4517`. Genuinely
             parser-only. The generator substrate was already whole, so
             the shorthand mints a synthetic top-level
@@ -1685,9 +1686,9 @@ touches runtime hot paths.
             an `is_generator` field — and hands the property an
             `Expr::Ident` naming it, which is exactly what ES §13.2.5
             says the sugar means. Mirrors the async shorthand next door
-      - [ ] **class member (2139) + class member-name path (693)** —
-            **not parser-only**, measured 2026-07-27. Three facts
-            constrain it, and together they fix the design:
+      - [x] **class member (2139) + class member-name path (693)** —
+            shipped `7ef9b170`. **Not parser-only**, and three facts
+            constrained it into exactly one shape:
             (1) `desugar_generators` runs *before* `desugar_classes`
             (`cmd_build.rs:143` vs `:156`), so at generator time a class
             is still a `ClassDecl` and `this` is still `Expr::This`;
@@ -1705,12 +1706,23 @@ touches runtime hot paths.
             `desugar_generators` sees it — otherwise it collides with
             the `this` that prep introduces, which points at the
             `__Gen_*` instance rather than the class instance.
-            Shape that follows: hoist each class generator method to a
-            top-level `function* __cm_gen_<C>__<m>(__this: any, …)` with
-            the body's `this` already rewritten to `__this`, and leave
-            an ordinary forwarder method in the class — which keeps the
-            vtable / `method_owners` machinery untouched. Sibling of the
-            existing `hoist_gen_fn_exprs`, same pipeline slot
+            Shape that follows, and what shipped: each class generator
+            method is hoisted to a top-level
+            `function* __cm_gen_<C>__<m>(recv, …)` with the body's
+            `this` minted as that parameter *while parsing*, and the
+            class keeps an ordinary forwarder
+            `g(a) { return __cm_gen_C__g(this, a); }` — so vtable
+            construction, `method_owners`, visibility and dispatch are
+            untouched.
+            **The receiver parameter is deliberately not named
+            `__this`.** That was tried first and fails loudly with
+            `redeclaration of __this in current scope`: `__this` is the
+            first-parameter name every `__cm_*` method carries, so
+            turning it into a `__Gen_*` field collides with the `__this`
+            that `__Gen_*`'s own `next()` receives. Same shape as the
+            `__new_` collision in S1.1 — borrowing a load-bearing name
+            inherits everything it means. `static` also had to be taught
+            that `*` may follow it
 - [ ] **S2.2** Private names `#x` — the lexer rejects byte `0x23`
       outright (941) before the parser ever sees a private name, plus
       static private fields (350) = **1291 cases**. Lexer first; the
@@ -1913,17 +1925,26 @@ register entry (S7.2); the S7.2 count of unattributed ≥ 4 clusters at
 **Ordering rationale**: S1 first — ~1900 core cases behind one gap plus
 a cascade that makes everything downstream noise until it lands, and
 its `__this` half has the widest directory spread in the census. S2
-next for ratio (3085 cases behind one grammar point, parser-only blast
-radius). S6.4 early and out of band — it is cheap and it makes S8
-legible. S4.1 (`eval`) needs an RFC before it needs a commit.
+next for ratio (3085 cases behind one grammar point). S6.4 early and
+out of band — it is cheap and it makes S8 legible. S4.1 (`eval`) needs
+an RFC before it needs a commit. The "parser-only blast radius" claim
+that put S2 second turned out to be true for one of S2.1's three
+positions and false for the other two; it did not change the ordering,
+but see S2.1 for why the reasoning was wrong.
 
-**Status @ rotation 225** (RFC `.claude/rfcs/20260726-new-on-function`):
-S1.1 / S1.2 / S1.5 shipped, S1.3 now measurable, S1.4 and S1.6 open —
-S1.6 being the honest test of whether the cascade theory held. Two
-orderings inside S1 were decided by measurement rather than by the plan:
-S1.2 turned out to gate S1.1 (a function mentioning `this` failed at
-declaration, no `new` required), and S1.5 jumped the queue because it
-was the only *silent* wrong answer in the group. **Next: S2.**
+**Status @ rotation 226**: S1.1 / S1.2 / S1.5 shipped (rotation 225),
+S1.7 / S1.8 measured, **S2.1 shipped whole** (all three positions).
+S1.3 now measurable; S1.4 open with a corrected description; S1.8(b)
+blocked on S5.6.
+
+Four orderings here were decided by measurement rather than by the
+plan, which is the pattern worth keeping: S1.2 gated S1.1 (a function
+mentioning `this` failed at declaration, no `new` required); S1.5 jumped
+the queue as the group's only *silent* wrong answer; S1.6's cascade
+theory was **disproved** by its own sweep, which redirected the work to
+S5.6/S5.7; and S2.1's class half proved not to be parser work at all.
+**Next: S2.2** (private names, 1291) — but note S5.6 outranks it on
+kind, being a silent wrong answer rather than a refusal.
 
 ---
 
