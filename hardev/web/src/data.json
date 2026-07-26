@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-26T12:28:10.094Z",
+  "generatedAt": "2026-07-26T13:39:46.272Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,31 +9,31 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-25T01:31:36Z",
-    "headSha": "b4c3c415",
-    "elapsedSec": 179.68,
+    "ranAt": "2026-07-26T12:55:01Z",
+    "headSha": "9215301c",
+    "elapsedSec": 252.79,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 8993,
+    "pass": 9174,
     "passNoOracle": 118,
-    "passNegative": 4447,
-    "passTotal": 13558,
-    "bug": 548,
-    "incompatible": 39068,
+    "passNegative": 4470,
+    "passTotal": 13762,
+    "bug": 695,
+    "incompatible": 38717,
     "bunSkip": 11904,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 14106,
-    "passRateInScope": 25.5,
-    "passRateTrAccepted": 96.12
+    "trAccepted": 14457,
+    "passRateInScope": 25.88,
+    "passRateTrAccepted": 95.19
   },
   "torajs": {
-    "commit": "ec9f7118",
-    "commitSubject": "fix(promise): a promise held in a field can be chained off",
-    "phase": "P10",
-    "phaseTitle": "Promise + async-await + Generator",
+    "commit": "ee5b1f31",
+    "commitSubject": "docs(plan-state): record the sweep, its six regressions, and the first incompatible breakdown",
+    "phase": null,
+    "phaseTitle": null,
     "conformance": {
       "pass": 660,
       "fail": 0,
@@ -96,7 +96,7 @@
     {
       "id": "P10",
       "title": "Promise + async-await + Generator",
-      "status": "CURRENT"
+      "status": "DONE"
     },
     {
       "id": "P11",
@@ -713,6 +713,22 @@
   },
   "commits": [
     {
+      "hash": "ee5b1f31",
+      "subject": "docs(plan-state): record the sweep, its six regressions, and the first incompatible breakdown"
+    },
+    {
+      "hash": "b09cff3d",
+      "subject": "chore(test262): sweep baseline @ 9215301c"
+    },
+    {
+      "hash": "9215301c",
+      "subject": "feat(test262): the incompatible bucket can be dumped per case, like bugs"
+    },
+    {
+      "hash": "5634c9b0",
+      "subject": "chore(hardev): refresh dashboard snapshot for rotation 224 close"
+    },
+    {
       "hash": "ec9f7118",
       "subject": "fix(promise): a promise held in a field can be chained off"
     },
@@ -743,43 +759,38 @@
     {
       "hash": "31e23f91",
       "subject": "chore(hardev): refresh dashboard snapshot for rotation 223 close"
-    },
-    {
-      "hash": "6ddf6281",
-      "subject": "fix(class): type arguments written at `new` reach the factory"
-    },
-    {
-      "hash": "922a3d48",
-      "subject": "fix(infer): a container literal at an argument position takes that type"
-    },
-    {
-      "hash": "76bbc31f",
-      "subject": "fix(infer): writing an arrow into a typed place types it, not just declaring it"
-    },
-    {
-      "hash": "bc8ad25c",
-      "subject": "fix(infer): a binding takes the return type its initializer declares"
     }
   ],
-  "headSha": "ec9f7118",
+  "headSha": "ee5b1f31",
   "autorun": {
-    "total": 528,
+    "total": 529,
     "baselineTarget": 10,
-    "bySelf": 523,
+    "bySelf": 524,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785054278-4154",
-      "at": "2026-07-26T08:24:38Z",
-      "ts": 1785054278,
+      "rotationId": "r-1785068962-03e3",
+      "at": "2026-07-26T12:29:22Z",
+      "ts": 1785068962,
       "trigger": "self",
-      "prevHead": "6204cc42",
-      "handoffSha": "sha256:41208a7fd93b3d7b0517287d149a7fb5572f33518a98ae78e976b65cfb1b2ead",
-      "handoffAgeSec": 16,
+      "prevHead": "5634c9b0",
+      "handoffSha": "sha256:39d3dc2064f02a8d1181f67f403b4d100eab005ffee85a7b5c36d0a25d5e1771",
+      "handoffAgeSec": 11,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1785068962-03e3",
+        "at": "2026-07-26T12:29:22Z",
+        "ts": 1785068962,
+        "trigger": "self",
+        "prevHead": "5634c9b0",
+        "handoffSha": "sha256:39d3dc2064f02a8d1181f67f403b4d100eab005ffee85a7b5c36d0a25d5e1771",
+        "handoffAgeSec": 11,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785054278-4154",
         "at": "2026-07-26T08:24:38Z",
@@ -876,17 +887,6 @@
         "prevHead": "4dd8589a",
         "handoffSha": "sha256:ce89685c29e2a74808c2ab47df9c2477d868c313e22d5391f3dc1fbd767ac483",
         "handoffAgeSec": 4,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784991136-6b01",
-        "at": "2026-07-25T14:52:16Z",
-        "ts": 1784991136,
-        "trigger": "self",
-        "prevHead": "347dbaef",
-        "handoffSha": "sha256:f05f50c142cd640d2bd6fb3e3e86a2e8381945f7c712c492727f659c2c6937db",
-        "handoffAgeSec": 124,
         "conformanceBefore": null,
         "commitsInSession": null
       }

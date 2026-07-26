@@ -145,6 +145,15 @@ hatch.
 
 ## Status snapshot (2026-05-18, HEAD `aac1934` — P6 phase closed)
 
+> ⚠️ **HISTORICAL — every number below is from 2026-05-18 and is wrong
+> now.** Kept as a one-shot mark, per the Checkpoints section that
+> follows. For current ground truth: conformance gate and sweep numbers
+> live in `.claude/plan-state.md`, the test262 census lives in the
+> **P-SURF** section of this file, and bench lives in
+> `bench/results/*.json`. For scale of the drift: curated conformance
+> 618 → **2070**, test262 (5k sample then, full 53174 corpus now)
+> 344 pass → **13762**.
+
 ### Curated conformance (`conformance/cases/`)
 
 **618 pass / 0 fail / 1 skip** committed. +11 from P6 phase (map-001
@@ -244,9 +253,15 @@ trend table and the "how to add" instructions.
 
 ## Trunk
 
-The trunk is **P0 → P13 (v1.0 gate) + P14 / P15 post-v1.0**, executed
-in strict order. Phase order is fixed by substrate dependency — earlier
-phases unlock later phases' work.
+The trunk is **P0 → P13 → P-SURF (v1.0 gate) + P14 / P15 / P16
+post-v1.0**, executed in strict order. Phase order is fixed by substrate
+dependency — earlier phases unlock later phases' work.
+
+**P0–P13 are all closed** (2026-07-26; P5.4 was the last box and had
+been working since P6). The live phase is **P-SURF**, which sits between
+P13 and the v1.0 gate and is derived from a test262 cluster census
+rather than from design intent — see its section for why the trunk
+needed a phase that measurement, not planning, produced.
 
 **Per-phase acceptance has three parts (all required):**
 
@@ -412,7 +427,7 @@ commit `fc0e125` (2026-05-17 → 18 between).
 **Goal**: `Symbol.iterator` is a real resolvable property; for-of
 dispatches via it; spread-in-call works for arbitrary iterables.
 
-**Substrate checklist** (6 / 6 substrate complete, P5.4 deferred):
+**Substrate checklist** (7 / 7 complete — P5.4 closed late, see below):
 
 - [x] **P5.3 Phase A** First-class `Stmt::ForOf` substrate (`9e38c87`)
       — parse-time desugar 升级成 AST node + Array<T> / Array<Any>
@@ -426,9 +441,15 @@ dispatches via it; spread-in-call works for arbitrary iterables.
 - [x] **P5.3 Phase B** for-of via `[Symbol.iterator]()` dispatch
       (`1a4fa09`) — Stmt::ForOf dispatches through iterator protocol
       for user-class iterables; Array / Str / Set fast path preserved
-- [ ] **P5.4** `arr.entries()` / `.keys()` / `.values()` Array
-      Iterator objects — **deferred to P6 同期**, blocker is
-      generic-over-T iter class substrate which P6 Map/Set surfaces
+- [x] **P5.4** `arr.entries()` / `.keys()` / `.values()` Array
+      Iterator objects — was deferred to P6 同期 (blocker: the
+      generic-over-T iter class substrate P6 Map/Set surfaces). P6
+      shipped that substrate and this came with it, but the box was
+      never ticked. Verified 2026-07-26 @ `9215301c`: all three,
+      including the `for (const [i, v] of a.entries())` destructuring
+      form, are byte-equal with bun. **This was the last open box in
+      P0–P13** — see the v1.0 release gate section for why that no
+      longer means what it used to
 - [x] **P5.5** Spread in fn calls — literal-array spread fold
       (`26310bd`); `f(...[a,b,c])` parser desugars to `f(a,b,c)`;
       dynamic-spread via rest-param already worked; fixed-arity-
@@ -999,7 +1020,7 @@ groups, Unicode flag, sticky flag.
 
 ---
 
-### P10 — Promise + async-await + Generator (CURRENT)
+### P10 — Promise + async-await + Generator (DONE)
 
 **Goal**: real microtask queue, ordering guarantees, async iterators,
 generator full state machine. v5 merges v4's P9 (Promise) + P14
@@ -1490,13 +1511,237 @@ typecheck/lowering polish; non-literal source for dynamic import (`tr
 build` is AOT so the only viable extension is a build-time URL
 whitelist).
 
+### P-SURF — core spec-surface closure (the countable face of v1.0)
+
+**Why this phase exists.** P0–P13 is 84 boxes and, as of 2026-07-26, all
+84 are ticked (P5.4 was the last, and it had been silently working since
+P6). Yet tr rejects 27559 core test262 cases at the checker. The old
+gate — "P0–P13 closed" — is therefore satisfied and simultaneously
+meaningless: the checklist enumerated the substrate we set out to build,
+not the surface a TS runtime has to present. P-SURF is that surface,
+and unlike the trunk above it is **derived from measurement rather than
+from design intent**.
+
+**Where the numbers come from.** Full sweep @ `9215301c` (53174 cases,
+`hardev/test262-latest.json`), then the `incompatible` bucket dumped per
+case (`--incompat-ndjson`, added the same day) and clustered by message
+signature. Method and script: `hardev/autorun/cluster_incompat.py`.
+Re-run both after any sweep — **every count below is a snapshot, not a
+constant**, and the point of the script is that the next sweep re-derives
+them mechanically instead of by hand.
+
+**Scope split.** Of 38717 incompatible cases, **11158 are post-v1.0
+surface** — Temporal 6600, TypedArray/Atomics 2758, intl402 1295,
+Proxy/Reflect 503 — which belong to P14/P16 and the backlog, not here.
+**core = 27559.** That is P-SURF's denominator. Its shape:
+
+| cluster depth | core cases covered |
+|---|---|
+| top 10 | 35.8 % |
+| top 25 | 55.2 % |
+| top 50 | 68.9 % |
+| top 100 | 80.0 % |
+| top 400 | 94.5 % |
+| clusters of ≤ 3 cases (875 of them) | 4.4 % |
+
+The tail is short. 1345 clusters total, but 80 % of the mass is in 100
+of them — which is why this phase is enumerable at all.
+
+#### S1 — `new` on a function, and the `this` that comes with it
+
+**The single largest structural gap found.** A three-line ES5
+constructor trips three of the biggest clusters at once (verified
+2026-07-26 @ `9215301c`):
+
+```ts
+function Con(x: number) { this.x = x; }   // unknown identifier `__this`
+const c = new Con(1);                     // unknown identifier `__new_Con`
+console.log(c.x);                         // unknown identifier `c`  (cascade)
+```
+
+- [ ] **S1.1** `new F()` where `F` is a function declaration, not a
+      `class`. The desugar emits a call to a synthetic `__new_<Name>`
+      factory, and that factory is only synthesized when a **class**
+      declaration is in scope. Directly accounts for the user-defined
+      half of the `__new_*` cluster — `__new_Con` 233, `__new_ConstructFun`
+      126, `__new_foo` 89, `__new_DummyError` 52, `__new___FACTORY` 28,
+      `__new_MyError` 19, `__new_CustomError` 9 = **556 cases**, and the
+      built-in half (`ArrayBuffer` 355, `Promise` 215, `Function` 102,
+      `Object` 60, …) very likely shares the mechanism. Core mass of the
+      whole `__new_*` cluster: **1729 across 49 directories**
+- [ ] **S1.2** `this` inside a function called as a constructor. The
+      `__this` cluster is **785 cases across 57 directories**; object-literal
+      methods already bind `this` correctly (verified), so the gap is
+      specifically the constructor-call binding, plus `eval` (75) and
+      `with` (65) contexts that have no binding site at all.
+      **Design note, to verify:** rotation 224 blade 3 fixed `__this`
+      *colliding* across functions by making the lookup per-function.
+      This is the neighbouring failure — no entry at all rather than the
+      wrong entry — so the same per-function table is where it lands
+- [ ] **S1.3** `F.prototype.m = function () {…}` — the method half of the
+      ES5 object model. **Not yet measured**; S1.1 will surface it the
+      moment `new F()` works, so measure before designing
+- [ ] **S1.4** Re-measure the cascade. `unknown identifier \`c\`` /
+      `\`f\`` / `\`x\`` style clusters (314 + 156 + …) are downstream of
+      a failed `new` — they should evaporate with S1.1 rather than need
+      their own work. **Acceptance is the sweep delta, not a fixture**
+
+#### S2 — Generator and class-member syntax
+
+Single syntactic points, large mass, narrow directory spread — the
+cheapest ratio on the board.
+
+- [ ] **S2.1** `*f() {}` generator methods, all three positions: class
+      member (2139), class member-name path (693), object literal (253)
+      = **3085 cases**, 4–7 directories. One grammar point
+- [ ] **S2.2** Private names `#x` — lexer rejects byte `0x23` outright
+      (941) plus static private fields (350) = **1291 cases**
+- [ ] **S2.3** Computed field names `[k] = v` in class bodies — **548**
+- [ ] **S2.4** `yield*` against a non-call expression — the parser
+      currently demands a direct call to a `function*` — **434**
+- [ ] **S2.5** `for await (… of …)` iterable form — **654**, all in
+      `test/language/statements`
+- [ ] **S2.6** Unicode escapes in identifiers (lexer byte `0x5c`) — **485**
+- [ ] **S2.7** Untyped class field without a literal initializer — **245**
+
+#### S3 — Name resolution at ssa-lower
+
+- [ ] **S3.1** `callbackfn` family — **526 cases** (`callbackfn` 486,
+      `callbackfn1` 36, `callbackfn2` 4) reach ssa-lower as unknown
+      idents. The name is test262's house style for a callback
+      parameter, so this is one binding shape, not 526 problems
+- [ ] **S3.2** Already-implemented globals unreachable from ssa-lower —
+      `Math` 98, `JSON` 34, `WeakMap` 25, `WeakSet` 20, `Reflect` 20,
+      `WeakRef` 13 = **~210**. These objects exist; something about the
+      position they are referenced from loses them. **Design note:**
+      likely the same "value position vs call position" split that S1.4
+      cascades through — check whether one fix covers both before
+      opening two work items
+
+#### S4 — Big missing features
+
+- [ ] **S4.1** `eval` — **1009 cases**, 25 directories. Direct eval is
+      the bulk (`test/language/eval-code` 146, `annexB` 325). For an AOT
+      runtime this is a design question, not an implementation one:
+      decide the shape (compile-time-only? refuse indirect eval?) before
+      any code. **Write the RFC first**
+- [ ] **S4.2** `arguments` object — **389 + 37** at two different stages
+- [ ] **S4.3** `with` statement — 65 seen via the `__this` cluster;
+      re-measure once S1.2 lands, since `with` cases currently fail on
+      `__this` before reaching the `with` itself
+
+#### S5 — Type-system boundaries
+
+These are cases where tr's checker refuses a program bun runs. Each
+needs a decision — widen the type system, or declare the case
+out-of-subset and record why (per the test262 discipline in
+`.claude/rules/torajs-design-principles.md`: bun failing is not an
+excuse to skip, and neither is our own checker).
+
+- [ ] **S5.1** `not callable: type Any` — **543**, 23 directories
+- [ ] **S5.2** `parameter requires a type annotation` — **380**
+- [ ] **S5.3** `no member X on type Promise(Struct(…))` — **372**
+- [ ] **S5.4** Parent class must be declared before the subclass, and
+      must be a class rather than a type alias — **378**
+- [ ] **S5.5** `RegExp` as an unresolved identifier in value position —
+      **394** (contrast: the RegExp substrate itself is P9-closed, so
+      this is a resolution problem, not a feature gap)
+
+#### S6 — Runner-side, not substrate
+
+`harness-includes` is 6877 cases; roughly 4894 of those are Temporal /
+TypedArray / Intl helpers and follow their post-v1.0 phases. The rest is
+**~1189 core cases that need no substrate work at all** — only a typed
+port of the helper into `conformance/test262-harness.ts`.
+
+- [ ] **S6.1** `isConstructor.js` — 601 (407 core, 42 directories)
+- [ ] **S6.2** `asyncHelpers.js` — 341
+- [ ] **S6.3** `fnGlobalObject.js` 130, `deepEqual.js` 48,
+      `nativeFunctionMatcher.js` 69
+- [ ] **S6.4** Make `Test262Error` carry its message through. **289 of
+      the 695 bug-bucket cases (41.6 %) report bare `uncaught
+      Test262Error` with no detail**, which makes the largest bug
+      cluster unanalysable. This is the highest-leverage runner change
+      on the list — it does not fix a single case, it makes 289 of them
+      diagnosable
+
+#### S7 — The tail, as one item
+
+Deliberately **not** enumerated. Beyond the clusters above, core holds
+~1345 signatures whose per-item size drops below 200 fast; 875 of them
+hold ≤ 3 cases each (1223 cases, 4.4 %).
+
+- [ ] **S7.1** Re-cluster after S1–S6 land and re-cut the top-100 line.
+      The tail is not static: S1.4 predicts entire cascade clusters
+      vanish, and every unlocked case can also surface a *new* signature
+      (the sweep that produced these numbers moved 139 cases from
+      `incompatible` straight into the bug bucket — that is the normal
+      direction of travel, not a regression)
+- [ ] **S7.2** Treat the ≤ 3-case clusters as a single acceptance
+      condition, not 875 work items: **done when what remains is only
+      ≤ 3-case clusters**, i.e. no cluster ≥ 4 outside a documented
+      post-v1.0 phase. That predicate is the honest form of "we
+      finished the countable part"
+
+#### S8 — Cases tr accepts and gets wrong
+
+The bug bucket (695 @ `9215301c`) is closer to the gate than anything in
+`incompatible`: these compile and run, and produce the wrong answer.
+It is a genuine long tail — 210 clusters, largest 21 — and blocked on
+S6.4 for the 289 that carry no message.
+
+- [ ] **S8.1** Land S6.4, re-cluster the bug bucket, then enumerate
+- [ ] **S8.2** 12 cases exit 138/139 — **silent crashes, triage first**
+      regardless of cluster size; a crash is never a subset boundary
+- [ ] **S8.3** Six pass regressions from the `9215301c` sweep, already
+      case-level identified in `plan-state.md`, not yet attributed to a
+      commit in the rotations 220–224 window
+- [ ] **S8.4** Twenty cases moved `type error` → `tr-timeout` in the same
+      sweep, all in the `iter-val-err` / `spread-err-*-itr-value` family
+      — they now compile but do not terminate. Shape suggests an error
+      that fails to propagate out of an iterator step, leaving the
+      iteration unbounded. One root cause is plausible for all twenty
+
+**P-SURF acceptance**: S1–S6 substrate items closed, S7.2's predicate
+true, S8.2 empty, and every sweep from here on re-derives its own
+numbers via `cluster_incompat.py` rather than quoting this section.
+
+**Ordering rationale**: S1 first because one gap holds ~2500 core cases
+and everything downstream of a failed `new` is noise until it lands. S2
+next for ratio (3085 cases behind one grammar point). S6.4 early and out
+of band — it is cheap and it makes S8 legible. S4.1 (`eval`) needs an
+RFC before it needs a commit.
+
+---
+
 ### v1.0 release gate
 
-**P0–P13 substrate-checklists all closed = v1.0**. Per-phase acceptance
-gates above are the contract — substrate sections done, conformance
-gate green, bench-tr 0 regression on typed-tier, no new external
-dependencies. test262 in-scope pass rate is observed (expected ≥ 90 %)
-but not the gate; the gate is substrate completeness.
+**Superseded definition** (kept for the audit trail): "P0–P13
+substrate-checklists all closed = v1.0". As of 2026-07-26 all 84 boxes
+are ticked and tr still rejects 27559 core test262 cases. The checklist
+measured the substrate we planned; it never measured the surface. A
+gate that a runtime can satisfy while failing half its corpus is not a
+gate.
+
+**Current definition**: **P0–P13 closed ✓ *and* P-SURF closed**. The
+three axes are unchanged —
+
+- 轴 A (spec) — P13 close ✓, **P-SURF open** ← the live axis
+- 轴 B (perf, bench-tr 0 regression on typed-tier) — holding; @
+  `24c156b7` the AOT tier is 0.502× bun-aot median across 44 cells with
+  no cell slower than bun
+- 轴 C (implementation purity / metal) — v0.7 Metal closed @ `0d5a8b0`
+  (0 LLVM, 0 inkwell, self-researched AArch64 backend + Mach-O writer +
+  linker)
+
+— and no new external dependencies, conformance gate green, per the
+standing contract.
+
+**test262 pass rate remains an observation, not the gate.** This is
+unchanged and deliberate: the gate is S7.2's substrate predicate ("no
+cluster ≥ 4 outside a documented post-v1.0 phase"), not a percentage.
+Percentages invite candy-coating; a cluster census does not. Rate is
+recorded per sweep for trend only.
 
 ---
 
