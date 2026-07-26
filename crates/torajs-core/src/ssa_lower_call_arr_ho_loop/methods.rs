@@ -17,7 +17,6 @@ pub(super) fn emit_map(
     known_fid: Option<FuncId>,
     fn_val: &Operand,
     fn_ty: Type,
-    sig_params: &[Type],
     this_arg: Option<&Operand>,
 ) {
     // RC-1 (RFC 20260706-test262-bug-corpus) — a Void-ret callback
@@ -27,7 +26,6 @@ pub(super) fn emit_map(
     let mapped_arg = if ctx.callback_ret_ty(fn_ty) == Some(Type::Void) {
         let _ = emit_do_call(
             ctx,
-            sig_params,
             known_fid,
             fn_val,
             fn_ty,
@@ -38,7 +36,6 @@ pub(super) fn emit_map(
     } else {
         let mapped = emit_do_call(
             ctx,
-            sig_params,
             known_fid,
             fn_val,
             fn_ty,
@@ -87,7 +84,6 @@ pub(super) fn emit_filter(
     known_fid: Option<FuncId>,
     fn_val: &Operand,
     fn_ty: Type,
-    sig_params: &[Type],
     this_arg: Option<&Operand>,
 ) {
     // RC-1 — Void-ret predicate: ToBoolean(undefined) = false, so no
@@ -95,7 +91,6 @@ pub(super) fn emit_filter(
     if ctx.callback_ret_ty(fn_ty) == Some(Type::Void) {
         let _ = emit_do_call(
             ctx,
-            sig_params,
             known_fid,
             fn_val,
             fn_ty,
@@ -106,7 +101,6 @@ pub(super) fn emit_filter(
     }
     let keep = emit_do_call(
         ctx,
-        sig_params,
         known_fid,
         fn_val,
         fn_ty,
@@ -163,7 +157,6 @@ pub(super) fn emit_reduce(
     known_fid: Option<FuncId>,
     fn_val: &Operand,
     fn_ty: Type,
-    sig_params: &[Type],
 ) {
     let acc_now = ctx.f.append_inst(
         ctx.cur_block,
@@ -177,7 +170,6 @@ pub(super) fn emit_reduce(
     let new_acc = if ctx.callback_ret_ty(fn_ty) == Some(Type::Void) {
         let _ = emit_do_call(
             ctx,
-            sig_params,
             known_fid,
             fn_val,
             fn_ty,
@@ -188,7 +180,6 @@ pub(super) fn emit_reduce(
     } else {
         emit_do_call(
             ctx,
-            sig_params,
             known_fid,
             fn_val,
             fn_ty,

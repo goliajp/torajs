@@ -138,8 +138,9 @@ pub(crate) fn begin_loop(
 
 /// Emit body work: load i, head-aware byte offset → elem load, per-method
 /// dispatch through `emit_do_call`. Devirts to direct call when `known_fid`
-/// is set; sig-mismatched arg widths (f64-param vs i64 elem) coerce
-/// inline (W4).
+/// is set. Sig-mismatched arg widths (an f64 parameter reading an i64
+/// element) used to be coerced inline here; that is one direction of the
+/// shared argument contract, applied by the call lanes themselves.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn emit_per_method_body(
     ctx: &mut LowerCtx<'_>,
@@ -154,7 +155,6 @@ pub(crate) fn emit_per_method_body(
     known_fid: Option<FuncId>,
     fn_val: &Operand,
     fn_ty: Type,
-    sig_params: &[Type],
     this_arg: Option<&Operand>,
 ) {
     let i_now2 = ctx.f.append_inst(
@@ -195,19 +195,17 @@ pub(crate) fn emit_per_method_body(
     };
     match method {
         "map" => emit_map(
-            ctx, dst_slot, dst_arr_ty, elem, known_fid, fn_val, fn_ty, sig_params, this_arg,
+            ctx, dst_slot, dst_arr_ty, elem, known_fid, fn_val, fn_ty, this_arg,
         ),
         "filter" => emit_filter(
-            ctx, dst_slot, dst_arr_ty, elem, elem_ty, known_fid, fn_val, fn_ty, sig_params,
-            this_arg,
+            ctx, dst_slot, dst_arr_ty, elem, elem_ty, known_fid, fn_val, fn_ty, this_arg,
         ),
-        "reduce" | "reduceRight" => emit_reduce(
-            ctx, acc_slot, acc_ty, elem, known_fid, fn_val, fn_ty, sig_params,
-        ),
+        "reduce" | "reduceRight" => {
+            emit_reduce(ctx, acc_slot, acc_ty, elem, known_fid, fn_val, fn_ty)
+        }
         "forEach" => {
             let _ = emit_do_call(
                 ctx,
-                sig_params,
                 known_fid,
                 fn_val,
                 fn_ty,
@@ -249,22 +247,22 @@ fn cb_args(this_arg: Option<&Operand>, elem: ValueId) -> Vec<Operand> {
 
 fn emit_do_call(
     ctx: &mut LowerCtx<'_>,
-    sig_params: &[Type],
     known_fid: Option<FuncId>,
     fn_val: &Operand,
     fn_ty: Type,
-    mut args: Vec<Operand>,
+    args: Vec<Operand>,
     sig_skip: usize,
 ) -> ValueId {
     // `sig_skip` — a promoted receiver-first callback's leading boxed
     // `__this` argv entry is not in the sig (knife 4); positional
-    // alignment against sig_params starts after it.
-    for (i, a) in args.iter_mut().enumerate() {
-        let expected = i.checked_sub(sig_skip).and_then(|pi| sig_params.get(pi));
-        if expected == Some(&Type::F64) && ctx.operand_ty(a) == Type::I64 {
-            *a = ctx.coerce_to_f64(a.clone());
-        }
-    }
+    // alignment against the sig starts after it, and the call lanes
+    // below apply the same skip.
+    //
+    // The I64 → F64 alignment that used to sit here is gone: it was
+    // one direction of the shared argument contract, patched back in
+    // on this side because `materialize_call_args` (which every lane
+    // below reaches) did not carry the number lanes. It does now, so
+    // converting here would only do the same work twice.
     let r = match known_fid {
         Some(fid) => ctx.call_fn_value_devirt(fid, fn_val.clone(), fn_ty, args, sig_skip),
         None => ctx.call_fn_value(fn_val.clone(), fn_ty, args, sig_skip),

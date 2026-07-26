@@ -163,22 +163,12 @@ pub(crate) fn try_lower(
     // RFC 20260726-array-elem-width knife 9 — the element's width and
     // the callback parameter's width answer to two different classes,
     // so they can legitimately disagree: a named callback widened by
-    // another call site still reads an i64-elem array here. The shared
-    // higher-order loop converts on that mismatch
-    // (`ssa_lower_call_arr_ho_loop::emit_do_call`); flatMap builds its
-    // own call and skipped it, so an integer element reached an f64
-    // parameter and register allocation aborted on it.
-    let cb_param0 = match fn_ty {
-        Type::FnSig(s) | Type::Closure(s) => ctx.fn_sigs[s.0 as usize].0.first().copied(),
-        _ => None,
-    };
-    let cb_arg = Operand::Value(elem);
-    let cb_arg = if cb_param0 == Some(Type::F64) && ctx.operand_ty(&cb_arg) == Type::I64 {
-        ctx.coerce_to_f64(cb_arg)
-    } else {
-        cb_arg
-    };
-    let cb_ret = ctx.call_fn_value(fn_val, fn_ty, vec![cb_arg], 0);
+    // another call site still reads an i64-elem array here. That
+    // conversion used to be spelled out on this side, in the one
+    // direction the crash showed; it is one direction of the shared
+    // argument contract, which `call_fn_value` now applies for every
+    // lane.
+    let cb_ret = ctx.call_fn_value(fn_val, fn_ty, vec![Operand::Value(elem)], 0);
 
     let final_dst = if scalar_ret {
         // Scalar return — cb answered an owned scalar U directly (no

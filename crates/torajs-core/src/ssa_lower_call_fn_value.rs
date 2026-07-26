@@ -26,6 +26,7 @@
 
 use crate::ssa::{FuncId, InstKind, Operand, Type, ValueId};
 use crate::ssa_lower::{CLOSURE_FN_ADDR_OFF, LowerCtx};
+use crate::ssa_lower_call_arg_conv::ArgConv;
 use crate::ssa_lower_interners::intern_fn_sig;
 
 impl<'a> LowerCtx<'a> {
@@ -102,54 +103,72 @@ impl<'a> LowerCtx<'a> {
             if let Some(exp) = expected {
                 self.mark_arr_arg_for_any_param(exp, &a);
             }
-            if expected == Some(Type::Str) && actual == Type::Substr {
-                let v = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::Call(self.intrinsics.substr_to_owned, vec![a]),
-                    Type::Str,
-                    None,
-                );
-                out.push(Operand::Value(v));
-                drops.push((Operand::Value(v), Type::Str));
-            } else if expected == Some(Type::Any) && actual != Type::Any {
-                // Str included: anyv_box_str_slot is rc-neutral too
-                // (box_void_ptr is a pure encode; the sentinel/null
-                // shapes carry no rc at all).
-                if actual.is_refcounted() {
-                    self.emit_rc_inc(a.clone());
+            // The shared contract decides; this lane only owns the
+            // bookkeeping. Beyond the sig's arity there is no
+            // parameter to reach, so nothing converts.
+            let conv = match expected {
+                Some(exp) => crate::ssa_lower_call_arg_conv::arg_conv(exp, actual),
+                None => ArgConv::None,
+            };
+            match conv {
+                ArgConv::None => out.push(a),
+                // Both number lanes. This lane used to carry neither,
+                // and three higher-order call stations patched the
+                // I64 → F64 half back in on their own side before
+                // handing their argv here; they no longer need to.
+                ArgConv::ToF64 => {
+                    let v = self.coerce_to_f64(a);
+                    out.push(v);
                 }
-                let boxed = self.box_to_any(a);
-                out.push(boxed);
-                drops.push((boxed, Type::Any));
-            } else if actual == Type::Any
-                && matches!(
-                    expected,
-                    Some(Type::F64 | Type::I64 | Type::Bool | Type::Str | Type::BigInt)
-                )
-            {
-                // Any arg into a scalar / Str / BigInt param — unbox at the
-                // call boundary (fn-indirect chunk-2a mirror). Without this
-                // the CallIndirect passes the NaN-box bits raw into the
-                // typed lane: `Map<string, number>.forEach((v: number) =>
-                // ...)` re-boxes entries as Any, and the typed callback read
-                // the box bits as an i64 (silent-wrong arithmetic).
-                match expected.unwrap() {
-                    t @ (Type::F64 | Type::I64) => out.push(self.coerce_any_to_number(a, t)),
-                    Type::Bool => out.push(self.coerce_to_bool(a)),
-                    Type::Str => {
-                        let s = self.coerce_to_str(a, Type::Any);
-                        out.push(s);
-                        drops.push((s, Type::Str));
-                    }
-                    Type::BigInt => {
-                        let b = self.coerce_any_to_bigint(a);
-                        out.push(b);
-                        drops.push((b, Type::BigInt));
-                    }
-                    _ => unreachable!(),
+                ArgConv::ToI64 => {
+                    let v = self.coerce_to_i64(a);
+                    out.push(v);
                 }
-            } else {
-                out.push(a);
+                ArgConv::BoxAny => {
+                    // Str included: anyv_box_str_slot is rc-neutral too
+                    // (box_void_ptr is a pure encode; the sentinel/null
+                    // shapes carry no rc at all).
+                    if actual.is_refcounted() {
+                        self.emit_rc_inc(a.clone());
+                    }
+                    let boxed = self.box_to_any(a);
+                    out.push(boxed);
+                    drops.push((boxed, Type::Any));
+                }
+                // Any arg into a typed param — unbox at the call
+                // boundary. Without this the CallIndirect passes the
+                // NaN-box bits raw into the typed lane: `Map<string,
+                // number>.forEach((v: number) => ...)` re-boxes
+                // entries as Any, and the typed callback read the box
+                // bits as an i64 (silent-wrong arithmetic).
+                ArgConv::AnyToNumber(t) => {
+                    let v = self.coerce_any_to_number(a, t);
+                    out.push(v);
+                }
+                ArgConv::AnyToBool => {
+                    let v = self.coerce_to_bool(a);
+                    out.push(v);
+                }
+                ArgConv::AnyToStr => {
+                    let s = self.coerce_to_str(a, Type::Any);
+                    out.push(s);
+                    drops.push((s, Type::Str));
+                }
+                ArgConv::AnyToBigInt => {
+                    let b = self.coerce_any_to_bigint(a);
+                    out.push(b);
+                    drops.push((b, Type::BigInt));
+                }
+                ArgConv::SubstrToStr => {
+                    let v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(self.intrinsics.substr_to_owned, vec![a]),
+                        Type::Str,
+                        None,
+                    );
+                    out.push(Operand::Value(v));
+                    drops.push((Operand::Value(v), Type::Str));
+                }
             }
         }
         (out, drops)

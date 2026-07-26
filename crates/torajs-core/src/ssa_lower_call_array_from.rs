@@ -346,17 +346,13 @@ fn emit_map_loop(ctx: &mut LowerCtx<'_>, src_arr_op: Operand, args: &[ExprId]) -
     if src_elem_ty.is_refcounted() {
         ctx.emit_rc_inc(Operand::Value(elem));
     }
-    // mapFn argv: [elem] or [elem, i] per sig arity. Align widths
-    // (i64 → f64) for f64-typed callback params, mirroring Array.map's
-    // W4 fix.
+    // mapFn argv: [elem] or [elem, i] per sig arity. The i64 → f64
+    // alignment that used to follow is one direction of the shared
+    // argument contract, which the call lanes below now apply for
+    // every parameter — spelling it here too would only repeat it.
     let mut call_args: Vec<Operand> = vec![Operand::Value(elem)];
     if sig_params.len() >= 2 {
         call_args.push(Operand::Value(i_body));
-    }
-    for (i, a) in call_args.iter_mut().enumerate() {
-        if sig_params.get(i) == Some(&Type::F64) && ctx.operand_ty(a) == Type::I64 {
-            *a = ctx.coerce_to_f64(a.clone());
-        }
     }
     let mapped = match known_fid {
         Some(fid) => ctx.call_fn_value_devirt(fid, fn_val.clone(), fn_ty, call_args, 0),

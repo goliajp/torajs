@@ -177,10 +177,6 @@ fn lower_higher_order(
     };
     let reduce_no_init = matches!(method.as_str(), "reduce" | "reduceRight") && args.len() == 1;
     let acc_slot = prepare_acc_slot(ctx, &method, args, src_arr, elem_ty, acc_ty, reduce_no_init);
-    let sig_params: Vec<Type> = match fn_ty {
-        Type::FnSig(s) | Type::Closure(s) => ctx.fn_sigs[s.0 as usize].0.clone(),
-        _ => Vec::new(),
-    };
     let frame = begin_loop(ctx, &method, src_arr, dst_slot, dst_arr_ty, reduce_no_init);
     emit_per_method_body(
         ctx,
@@ -195,7 +191,6 @@ fn lower_higher_order(
         known_fid,
         &fn_val,
         fn_ty,
-        &sig_params,
         this_arg.as_ref(),
     );
     let out = end_loop_and_produce(ctx, frame, &method, dst_slot, acc_slot, dst_arr_ty, acc_ty);
