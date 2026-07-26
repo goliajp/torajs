@@ -1612,14 +1612,18 @@ console.log(c.x);                         // unknown identifier `c`  (cascade)
 - [ ] **S1.3** `F.prototype.m = function () {…}` — the method half of the
       ES5 object model. **Not yet measured**; now measurable since S1.1
       landed, so measure before designing
-- [ ] **S1.4** Indirect calls, and saying so intelligibly. A function
-      whose signature S1.2 changed, passed as a value (`const g = F;
-      g(1)`), cannot have its call site rewritten — desugar never sees
-      it. It fails loudly rather than silently, which was the design
-      intent, **but it says `expected 2 argument(s), got 1` about a
-      one-parameter function**: the synthesized receiver leaked into a
-      user-facing diagnostic. Scope is therefore both halves — make the
-      call work, or refuse it in words that do not mention `__this`.
+- [ ] **S1.4** Indirect calls. A function whose signature S1.2 changed,
+      passed as a value (`const g = F; g(1)`), cannot have its call site
+      rewritten — desugar never sees it. It fails loudly rather than
+      silently, which was the design intent.
+      **Correction (measured 2026-07-27):** the previous entry here said
+      it reports `expected 2 argument(s), got 1`, i.e. that the
+      synthesized receiver leaked into a user-facing diagnostic. It does
+      not. The actual message is
+      `not yet supported: ssa-lower: box_to_any element type FnSig(SigId(95))
+      not supported` — taking a *function value* at all is what is
+      missing, which is a different and larger scope than a wording fix.
+      Whatever produces the arity wording, it is not this shape.
       Not a regression: this code did not compile at all before S1.2
 - [ ] **S1.6** ~~Re-measure the cascade~~ — **measured, and the theory
       was wrong.** The RFC predicted that clusters keyed on ordinary
@@ -1635,6 +1639,35 @@ console.log(c.x);                         // unknown identifier `c`  (cascade)
       involved.** Neither S1 cluster reached zero either, so some other
       shape (`F.prototype.m`, indirect calls, `this` inside a nested
       function) still feeds them; measure that too
+- [x] **S1.7** What the `f`/`x` clusters actually are — **measured
+      2026-07-27**, full workings in
+      `.claude/tasks/2026-07-27/measure-this-and-cascade-roots.md`.
+      They are not a binding gap at all. Most are not even bare
+      `unknown identifier`: they are
+      `closure __closure_N references unknown identifier`, and **211 of
+      `f`'s 306 live under `test/annexB`** — Annex B.3.3 block-level
+      function hoisting. Those cases *deliberately* reference a binding
+      that must not exist and assert it throws:
+      `assert.throws(ReferenceError, function() { f; })`. tr's checker
+      treats an unresolved free identifier as a **compile-time hard
+      error**; the spec requires it to become a **runtime
+      ReferenceError**. 44 more cases in the family are literally named
+      `unresolvableReference`. So this is a semantic-classification
+      decision about which unresolved names may be refused statically —
+      **filed as S5.x, not an S1 follow-up** — and the `new` theory is
+      independently disproved a second time
+- [ ] **S1.8** The other two `this` shapes. S1.2 walks **top-level
+      `Stmt::FnDecl` only** (`ast/this_param.rs:36`), which is one of
+      three shapes; the `__this` residual is **644 cases across 175
+      directories**, and it is not one problem:
+      **(a) 186 cases — `this` inside a function *expression* or a
+      nested function.** `var f = function () { return this; }` lifts to
+      `__closure_N` and `__this` becomes a free variable the FnDecl walk
+      never sees. Sample: `built-ins/Array/from/iter-map-fn-this-arg.js`,
+      which is exactly `var mapFn = function () { thisVals.push(this); }`.
+      **(b) 458 cases — top-level `this` in a *value* position**
+      (`var o = this`, `verifyProperty(this, 'Array', {…})`). This half
+      is blocked on S5.x below, not independently fixable
 
 #### S2 — Generator and class-member syntax
 
@@ -1670,9 +1703,11 @@ One cluster family, split by what the lost name is:
 - [ ] **S3.2** Already-implemented globals unreachable from ssa-lower —
       `Math` 98, `JSON` 34, `WeakMap` 25, `WeakSet` 20, `WeakRef` 13
       ≈ **190**. These objects exist; something about the position they
-      are referenced from loses them. **Design note:** likely the same
-      value-position-vs-call-position split S1.4 cascades through —
-      check whether one fix covers both before opening two work items
+      are referenced from loses them. ~~**Design note:** likely the same
+      value-position-vs-call-position split~~ — **confirmed 2026-07-27**:
+      it is exactly that split, and it is the same one behind S1.8(b),
+      S5.5 and the `globalThis` cluster. Folded into **S5.6**; do not
+      open this separately
 
 #### S4 — Big missing features
 
@@ -1708,6 +1743,44 @@ our own checker objecting is, by itself, a reason to skip).
 - [ ] **S5.5** `RegExp` unresolved in value position — **394** (the
       RegExp substrate itself is P9-closed; this is reflective/value
       use of the constructor object, not a regex feature gap)
+- [ ] **S5.6** **There is no global object.** Measured 2026-07-27; this
+      is the shared root of S1.8(b), S3.2, S5.5 and the `globalThis`
+      cluster (115), so it is one item rather than four. The pattern is
+      always the same — the `typeof` position answers, the value
+      position does not:
+
+      | | `typeof X` | value position (`var o = X`, `take(X)`) |
+      |---|---|---|
+      | `this` (top level) | `undefined` — **wrong, bun says `object`** | `unknown identifier __this` |
+      | `globalThis` | `object` | `unknown identifier globalThis` |
+
+      The immediate cause of the `globalThis` half is one missing arm:
+      `check_type_of_ident.rs:36` lists `console` / `Math` / `Object` /
+      … but not `globalThis`. It *is* in
+      `check_js_semantics.rs:44`'s `is_known_builtin_global`, but that
+      list only serves the `typeof undeclared` path and never
+      participates in value-position resolution.
+      **Adding the arm is not enough.** `typeof globalThis`'s `"object"`
+      is a static string in `ssa_lower_typeof.rs:100`; grepping
+      `global_object|globalThis` across `torajs-dynobj` and
+      `torajs-anyvalue` returns **nothing**. The object does not exist.
+      Making either name work in a value position requires actually
+      minting a global object, and `verifyProperty(this, 'Array', {…})`
+      further requires the builtins to be reachable as its properties.
+      That is substrate, not a one-line arm.
+      Note the ordering claim: the top-level `typeof this` answer is a
+      **silent wrong answer**, not a refusal, which by the design
+      principles outranks the louder gaps around it
+- [ ] **S5.7** Which unresolved names may be refused at compile time.
+      The finding behind S1.7: tr treats every unresolved free
+      identifier as a compile-time hard error, but the spec makes it a
+      runtime `ReferenceError`, and **entire test262 families assert
+      exactly that throw** (Annex B.3.3 hoisting, the 44
+      `unresolvableReference` cases). A checker that never refuses an
+      unknown name is not the answer either — that is TS's whole value.
+      So this is a boundary decision about *which* unresolved names are
+      statically refusable, and it needs a written rationale in the
+      S7.2 register either way
 
 #### S6 — Runner-side, not substrate
 
