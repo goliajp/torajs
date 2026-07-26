@@ -103,6 +103,23 @@ fn try_async_tail_undefined(ctx: &mut LowerCtx<'_>, name: &str) -> Option<Operan
         )));
     }
     let ty = ctx.try_resolve_type_ann(Some(ann))?;
+    // A fn annotation parses as `FnSig` — a bare function ADDRESS,
+    // which is Copy — but the marker only ever stands in a slot that
+    // something is stored INTO (a class field, a promise's value, a
+    // generator's yield), and a stored function is a `Closure`:
+    // refcounted, env-first. The two spell `undefined` differently
+    // (RFC 20260710 C2a hands a Copy fn slot the Str-family oddball,
+    // C2b hands a refcounted pointer slot the generic cell whose drop
+    // stations guard on it), so reading the repr off `FnSig` here put
+    // the Str cell in a refcounted field and the rc write faulted on
+    // that cell's read-only page — KERN_PROTECTION_FAILURE at
+    // `___TORAJS_STR_UNDEF_CELL` + 0, the refcount word. Ask as the
+    // slot actually is; `parse_arr_suffix` normalizes the same way for
+    // an element slot.
+    let ty = match ty {
+        Type::FnSig(sig) => Type::Closure(sig),
+        t => t,
+    };
     Some(ctx.str_undef_sentinel_for(ty.clone()).unwrap_or(match ty {
         Type::F64 => Operand::ConstF64(0.0),
         Type::I64 => Operand::ConstI64(0),

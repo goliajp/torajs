@@ -165,18 +165,7 @@ pub(crate) fn default_init_for_type(ann: &str) -> Expr {
         _ if ann == "WeakSet" || ann.starts_with("WeakSet<") => ctor("WeakSet"),
         // TypeVar (short all-uppercase T/U/K/V…) — monomorphizer-resolved marker.
         _ if is_likely_typevar(ann) => Expr::Ident(format!("__tvdefault__{ann}")),
-        // A function type is the one slot the sentinel below cannot
-        // seed yet: it lowers to a null closure pointer, and a class
-        // holding one crashes on construction — `class C { f: (a:
-        // number) => number = (a: number) => a + 1 }` SIGBUSes with
-        // or without an initializer, and so does one that only reads
-        // a *different* field. Left on the wrong-typed zero, which at
-        // least stays loud (the `__this` mismatch below), until the
-        // closure slot can carry it. Its own axis, measured: calling
-        // a function held in a class field is also not lowered yet
-        // ("unsupported member call shape").
-        _ if crate::num_width::fn_type_canon(ann).is_some() => Expr::Number(0.0),
-        // Every other type: the annotation's own undefined sentinel,
+        // Every type: the annotation's own undefined sentinel,
         // asked for by the marker [`crate::ast::UNDEF_SLOT_MARKER`]
         // that an async body's fall-through tail already uses. It
         // types as the annotation rather than as `Type::Undefined`,
@@ -197,6 +186,15 @@ pub(crate) fn default_init_for_type(ann: &str) -> Expr {
         // an empty `RegExp`, `0n`) would answer a real-looking value
         // where the language answers `undefined`, and would make
         // every construction pay for it.
+        //
+        // A function type was held back on the wrong-typed zero one
+        // release longer, because seeding it here SIGBUSed: the slot
+        // took the Str-family oddball (fn types are Copy, so RFC
+        // 20260710 C2a hands them that one) while the field it lands
+        // in is refcounted, and the rc write hit the immortal cell's
+        // read-only page. The repr is picked by the slot's own type
+        // now — see [`crate::ssa_lower_ident`] — so a function type
+        // seeds like every other type.
         _ => Expr::Ident(format!("{}{ann}", crate::ast::UNDEF_SLOT_MARKER)),
     }
 }
