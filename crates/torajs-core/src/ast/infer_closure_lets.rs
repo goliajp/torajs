@@ -112,14 +112,10 @@ pub(super) fn collect_let_anns(
                 // Both post-lift shapes, as at the call-arg positions:
                 // `Expr::Closure` when the arrow captured something,
                 // a bare ident at the lifted FnDecl when it did not.
-                let lifted = match ast.get_expr(*init) {
-                    Expr::Closure { fn_name, .. } => Some(fn_name.clone()),
-                    Expr::Ident(n) if n.starts_with("__closure_") => Some(n.clone()),
-                    _ => None,
-                };
-                if let Some(fn_name) = lifted {
+                if let Some(fn_name) = lifted_closure_name(ast, *init) {
                     closure_hints.insert(fn_name, ann.clone());
                 }
+                seed_container_field_hints(ast, ann, *init, closure_hints);
             }
             Stmt::Block(stmts) | Stmt::Multi(stmts) => {
                 collect_let_anns(ast, stmts, out, closure_hints)
@@ -154,4 +150,99 @@ pub(super) fn collect_let_anns(
             _ => {}
         }
     }
+}
+
+/// The lifted closure an initializer names, in either post-lift shape:
+/// `Expr::Closure` when the arrow captured something, a bare ident at
+/// the lifted FnDecl when it did not.
+fn lifted_closure_name(ast: &Ast, init: ExprId) -> Option<String> {
+    match ast.get_expr(init) {
+        Expr::Closure { fn_name, .. } => Some(fn_name.clone()),
+        Expr::Ident(n) if n.starts_with("__closure_") => Some(n.clone()),
+        _ => None,
+    }
+}
+
+/// The same contextual typing, carried into an object or array
+/// literal: `const o: { f: (a: number) => number } = { f: (a) => … }`
+/// and `const fs: ((n: number) => number)[] = [(n) => …]`. Nested
+/// literals recurse, so a field whose type is another object type
+/// carries its own fields' types inward too.
+///
+/// Only the direct binding was carrying its annotation inward, so an
+/// arrow written straight into a field or an element kept the default
+/// its params get with no context — which is `string`. The call site
+/// still dispatched through the declared signature, so the two sides
+/// disagreed about what a parameter even is: `o.f(3)` read the number
+/// as a Str pointer and `typeof a` answered "string" inside a field
+/// declared `(a: number) => number`.
+///
+/// Field annotations come from a named `TypeDecl` or an inline object
+/// type; an array annotation is its element type with the `[]` taken
+/// off. Anything that does not resolve to a fn type is skipped, and a
+/// param the author annotated still wins downstream — the applier is
+/// the same one the direct-binding hint goes through.
+fn seed_container_field_hints(
+    ast: &Ast,
+    ann: &str,
+    init: ExprId,
+    closure_hints: &mut std::collections::HashMap<String, String>,
+) {
+    match ast.get_expr(init) {
+        Expr::ObjectLit { fields } => {
+            let Some(field_anns) = resolve_object_field_anns(ast, ann) else {
+                return;
+            };
+            for (fname, fexpr) in fields {
+                let Some(fann) = field_anns.get(fname.as_str()) else {
+                    continue;
+                };
+                match lifted_closure_name(ast, *fexpr) {
+                    Some(fn_name) => {
+                        closure_hints.insert(fn_name, fann.clone());
+                    }
+                    None => seed_container_field_hints(ast, fann, *fexpr, closure_hints),
+                }
+            }
+        }
+        Expr::Array(elems) => {
+            let Some(elem_ann) = ann.trim().strip_suffix("[]") else {
+                return;
+            };
+            let elem_ann = elem_ann.trim();
+            // `((n: number) => number)[]` — the element type keeps the
+            // parens the array suffix needed.
+            let elem_ann = elem_ann
+                .strip_prefix('(')
+                .and_then(|t| t.strip_suffix(')'))
+                .unwrap_or(elem_ann);
+            for e in elems {
+                match lifted_closure_name(ast, *e) {
+                    Some(fn_name) => {
+                        closure_hints.insert(fn_name, elem_ann.to_string());
+                    }
+                    None => seed_container_field_hints(ast, elem_ann, *e, closure_hints),
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Field name → annotation for an object type named by `ann`, whether
+/// it is a `TypeDecl` name or an inline object type.
+fn resolve_object_field_anns(
+    ast: &Ast,
+    ann: &str,
+) -> Option<std::collections::HashMap<String, String>> {
+    let ann = ann.trim();
+    if let Some(fields) = crate::ast_collect_fn_closure_init::parse_inlobj_field_anns(ann) {
+        return Some(fields);
+    }
+    ast.stmts.iter().find_map(|s| match s {
+        Stmt::TypeDecl { name, fields, .. } if name == ann => {
+            Some(fields.iter().cloned().collect())
+        }
+        _ => None,
+    })
 }
