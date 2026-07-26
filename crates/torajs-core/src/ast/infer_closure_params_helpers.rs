@@ -237,6 +237,9 @@ pub(super) fn build_ann_table(ast: &Ast) -> (HashMap<String, String>, HashMap<St
     // a call. Only declared returns: a sniffed one is a guess, and
     // this table is read as if it were an annotation.
     let mut declared_rets: HashMap<String, String> = HashMap::new();
+    // Bodies that have a `__this` of their own, with the class it is
+    // annotated as — replayed after the program-wide assignment pass.
+    let mut this_scopes: Vec<(&[Stmt], String)> = Vec::new();
     for s in &ast.stmts {
         if let Stmt::FnDecl {
             name,
@@ -252,6 +255,9 @@ pub(super) fn build_ann_table(ast: &Ast) -> (HashMap<String, String>, HashMap<St
             for p in params {
                 if let Some(ann) = &p.type_ann {
                     all_anns.insert(p.name.clone(), ann.clone());
+                    if p.name == "__this" {
+                        this_scopes.push((body, ann.clone()));
+                    }
                 }
             }
             collect_let_anns(ast, body, &mut all_anns, &mut closure_hints);
@@ -274,6 +280,17 @@ pub(super) fn build_ann_table(ast: &Ast) -> (HashMap<String, String>, HashMap<St
     // Assignment targets last: resolving one reads the finished
     // annotation table (`fs[0] = cb` needs to know what `fs` is).
     crate::ast::infer_closure_lets::seed_assign_hints(ast, &all_anns, &mut closure_hints);
+    // ...except through `__this`, which names a different object in
+    // every function and so cannot be answered from a table keyed by
+    // bare name. See `infer_closure_this_scope::seed_this_assign_hints`.
+    for (body, this_ann) in this_scopes {
+        crate::ast::infer_closure_this_scope::seed_this_assign_hints(
+            ast,
+            body,
+            &this_ann,
+            &mut closure_hints,
+        );
+    }
     (all_anns, closure_hints)
 }
 

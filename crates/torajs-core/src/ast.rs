@@ -54,6 +54,7 @@ mod infer_closure_params;
 mod infer_closure_params_apply;
 mod infer_closure_params_helpers;
 mod infer_closure_params_promise;
+mod infer_closure_this_scope;
 mod infer_closure_typevars;
 mod inject_builtin_classes;
 mod lift_arrow_fns;

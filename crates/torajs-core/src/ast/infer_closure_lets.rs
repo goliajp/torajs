@@ -187,7 +187,7 @@ pub(super) fn collect_let_anns(
 /// The lifted closure an initializer names, in either post-lift shape:
 /// `Expr::Closure` when the arrow captured something, a bare ident at
 /// the lifted FnDecl when it did not.
-fn lifted_closure_name(ast: &Ast, init: ExprId) -> Option<String> {
+pub(super) fn lifted_closure_name(ast: &Ast, init: ExprId) -> Option<String> {
     match ast.get_expr(init) {
         Expr::Closure { fn_name, .. } => Some(fn_name.clone()),
         Expr::Ident(n) if n.starts_with("__closure_") => Some(n.clone()),
@@ -317,6 +317,11 @@ pub(super) fn seed_assign_hints(
         let Some(fn_name) = lifted_closure_name(ast, *value) else {
             continue;
         };
+        // `__this` is not a program-wide name — see
+        // [`seed_this_assign_hints`], which answers for it per function.
+        if super::infer_closure_this_scope::is_this_rooted(ast, *target) {
+            continue;
+        }
         if let Some(ann) = assign_target_ann(ast, *target, all_anns) {
             closure_hints.insert(fn_name, ann);
         }
