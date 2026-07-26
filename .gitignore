@@ -26,3 +26,7 @@ vendor/
 # hardev autorun — per-developer runtime data
 # (rotation log accumulates per-machine session history; not source)
 hardev/autorun/rotations.jsonl
+
+# python bytecode caches (cluster_incompat.py et al)
+__pycache__/
+*.pyc
