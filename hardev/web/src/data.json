@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-26T21:19:22.133Z",
+  "generatedAt": "2026-07-26T21:32:51.693Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,9 +9,9 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-26T21:18:44Z",
-    "headSha": "fba7d421",
-    "elapsedSec": 266.63,
+    "ranAt": "2026-07-26T21:32:25Z",
+    "headSha": "34157af0",
+    "elapsedSec": 269.99,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
@@ -20,18 +20,18 @@
     "passNoOracle": 144,
     "passNegative": 4495,
     "passTotal": 14454,
-    "bug": 787,
-    "incompatible": 37933,
+    "bug": 788,
+    "incompatible": 37932,
     "bunSkip": 11904,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 15241,
+    "trAccepted": 15242,
     "passRateInScope": 27.18,
-    "passRateTrAccepted": 94.84
+    "passRateTrAccepted": 94.83
   },
   "torajs": {
-    "commit": "fba7d421",
-    "commitSubject": "docs(roadmap): record the zero-arg then handler closure",
+    "commit": "34157af0",
+    "commitSubject": "fix(check): a two-handler then does not constrain what its handlers return",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "34157af0",
+      "subject": "fix(check): a two-handler then does not constrain what its handlers return"
+    },
+    {
+      "hash": "df59905a",
+      "subject": "chore(hardev): record the rotation 229 sweep and refresh the dashboard"
+    },
+    {
       "hash": "fba7d421",
       "subject": "docs(roadmap): record the zero-arg then handler closure"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "b3a482cd",
       "subject": "chore(hardev): record the rotation 228 sweep and refresh the dashboard"
-    },
-    {
-      "hash": "98efa861",
-      "subject": "feat(parser): method signatures in inline object types"
-    },
-    {
-      "hash": "21a343ca",
-      "subject": "feat(parser): async generator methods, in both member positions"
     }
   ],
-  "headSha": "fba7d421",
+  "headSha": "34157af0",
   "autorun": {
     "total": 533,
     "baselineTarget": 10,
