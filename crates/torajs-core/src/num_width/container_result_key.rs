@@ -106,14 +106,31 @@ impl<'a> Analysis<'a> {
             "flat" => {
                 let anon = SlotKey::Anon(eid.0);
                 self.mark_containerish(&anon);
-                self.uf.union(
-                    &SlotKey::Elem(Box::new(anon.clone())),
-                    &SlotKey::Elem(Box::new(SlotKey::Elem(Box::new(recv)))),
-                );
-                // B1b — flat's product bits memcpy from the INNER
-                // arrays, whose container class is the receiver's
-                // element class.
-                self.uf.union(&anon, &ek);
+                // §23.1.3.13 — `flat(0)` flattens nothing. It is a
+                // shallow clone, so its product stands where the
+                // receiver stands, the way `slice`'s does; reading the
+                // depth as always-1 put the product's elements in the
+                // class of the receiver's INNER numbers instead. A
+                // nested read then landed one level too deep, in a
+                // class nobody is in, which defaults narrow:
+                // `xs[0][1] = 1.5` then `xs.flat(0)[0][1]` read those
+                // f64 bits as an integer.
+                if matches!(
+                    args.first().map(|a| self.ast.get_expr(*a)),
+                    Some(Expr::Number(d)) if *d == 0.0
+                ) {
+                    self.uf.union(&SlotKey::Elem(Box::new(anon.clone())), &ek);
+                    self.uf.union(&anon, &recv);
+                } else {
+                    self.uf.union(
+                        &SlotKey::Elem(Box::new(anon.clone())),
+                        &SlotKey::Elem(Box::new(SlotKey::Elem(Box::new(recv)))),
+                    );
+                    // B1b — flat's product bits memcpy from the INNER
+                    // arrays, whose container class is the receiver's
+                    // element class.
+                    self.uf.union(&anon, &ek);
+                }
                 Some(anon)
             }
             "pop" | "shift" | "at" | "find" | "findLast" => Some(ek),
