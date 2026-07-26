@@ -53,6 +53,18 @@ impl<'a> Analysis<'a> {
                     {
                         return Some(SlotKey::Anon(eid.0));
                     }
+                    // Mirror of the walk's `Array.from` arm. Both static
+                    // calls have an untrackable receiver — a global
+                    // namespace ident — so the receiver lookup below
+                    // fails and the whole call used to answer "no key"
+                    // on this side while the walk keyed it by its Anon
+                    // origin.
+                    if let Expr::Ident(ns) = self.ast.get_expr(*obj)
+                        && ns == "Array"
+                        && self.resolve(ns, scope).is_none()
+                    {
+                        return (name == "from").then(|| SlotKey::Anon(eid.0));
+                    }
                     let recv = self.container_key_lookup(*obj, scope)?;
                     return self.method_result_key_pure(eid, recv, name, args);
                 }
@@ -69,9 +81,22 @@ impl<'a> Analysis<'a> {
         }
     }
 
-    /// Pure key part of `method_result_key` — shared by the walk
-    /// (which attaches unions around it) and the read-only lookup, so
-    /// the two can never disagree on a key spelling.
+    /// Pure key part of `method_result_key`: the same key for every
+    /// name, none of the unions the walk attaches around it.
+    ///
+    /// The two lists are **hand-maintained mirrors, not one shared
+    /// list** — the earlier claim here that they "can never disagree"
+    /// was aspiration, and three names had already drifted apart
+    /// (`toSpliced`, `valueOf`, and the `Array.from` prologue above).
+    /// Nothing announces a drift: a name the walk knows but this side
+    /// does not falls through to the `_` arm and answers the
+    /// struct-field-fn projection `Field(Field(recv, name), "__ret")`,
+    /// a key nobody populated — and an empty class defaults narrow, so
+    /// f64 bits come back read as integers. The bound form stays right
+    /// (the walk keyed it), which is why only the unbound reads —
+    /// `take(xs.toSpliced(1, 1)[0])` — showed it.
+    ///
+    /// **Adding a name to `method_result_key` means adding it here.**
     fn method_result_key_pure(
         &self,
         eid: ExprId,
@@ -81,10 +106,17 @@ impl<'a> Analysis<'a> {
     ) -> Option<SlotKey> {
         match name {
             "slice" | "filter" | "reverse" | "sort" | "toReversed" | "toSorted" | "splice"
-            | "with" | "concat" | "flat" | "map" | "flatMap" | "fill" | "copyWithin" => {
-                Some(SlotKey::Anon(eid.0))
-            }
+            | "toSpliced" | "with" | "concat" | "flat" | "map" | "flatMap" | "fill"
+            | "copyWithin" => Some(SlotKey::Anon(eid.0)),
             "pop" | "shift" | "at" | "find" | "findLast" => Some(SlotKey::Elem(Box::new(recv))),
+            // §20.1.3.7 — `Object.prototype.valueOf` answers `this`, so
+            // the product IS the receiver. Same gate and spelling as the
+            // walk's arm.
+            "valueOf"
+                if !self.any_class_owns_method("valueOf") || self.demoted.contains_key(&eid) =>
+            {
+                Some(recv)
+            }
             // Map value slot (b1) — same gate + spelling as the walk.
             // Demoted call sites carry typed receiver evidence (check
             // proved a builtin container), so the class-name gate
