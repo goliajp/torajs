@@ -1822,20 +1822,33 @@ touches runtime hot paths.
       **9 cases**, exposed by S2.1. **Measured 2026-07-27; the list is
       shorter than it looks, and start from this rather than the
       sentence above:**
-      - `*method(x = 0, x)` and `*foo(a) { let a = 3 }` (4 cases) are
-        **already refused** — the duplicate name becomes two same-named
-        fields of the `__Gen_*` class and trips
-        `desugar_classes_fields.rs`. Two problems, neither being a
-        missing check. **The wrong message is fixed** (rotation 226):
-        it used to say "subclass `__Gen___cm_gen_C__method` redeclares
-        parent field `x`" when the collision is between two fields of
-        the *same* class, sending the reader up a hierarchy that has
-        nothing to do with it, named after a class they never wrote; it
-        now distinguishes the inherited case from the declared-twice
-        case and says which. **What remains** is the verdict kind: it
-        `panic!`s, so these land as `not yet supported` rather than one
-        of the four kinds a negative test accepts. Fix the kind, not
-        the detection
+      - `*method(x = 0, x)` and `*foo(a) { let a = 3 }` (4 cases).
+        **"Fix the kind, not the detection" — written here after
+        rotation 226 — was wrong, and rotation 227 measured why.** The
+        duplicate name did become two same-named fields of the `__Gen_*`
+        class and did trip `desugar_classes_fields.rs`, but that is a
+        refusal by accident: the message named a synthesized class the
+        user never wrote, and the plain spelling
+        `function f(x = 0, x) {}` was **not refused at all**. Dressing a
+        `panic!` up as a different verdict kind would have kept both.
+        - **duplicate parameter names: done 2026-07-27.** ES §15.1.1
+          makes it an early SyntaxError; a check at each parameter-list
+          parser refuses it in every position bun does (function
+          declaration, method, constructor, object-literal method,
+          generator method, arrow), and the accidental route is now
+          dead code on this path. The arrow check sits **after** the
+          `=>` rather than after the `)`, because until that token is
+          seen the same text may still be a parenthesized sequence
+          expression, and `(w, w)` is legal as one. Fixture
+          `param-names-001` pins the legal side — same name in sibling
+          functions, shadowing, nesting, rest, several destructuring
+          holders side by side, TS parameter properties, accessors,
+          arrows, and that sequence expression
+        - **parameter vs body `let`/`const` (`*foo(a) { let a = 3 }`):
+          still open.** Same early error (ES §14.2.1 — a lexical
+          declaration may not shadow a parameter name), and it needs
+          the body's top-level lexical names, not just the parameter
+          list. Currently refused by the same accident
       - `grammar-static-gen-meth-super` (2 cases) is blocked by
         `class C extends Function` being unsupported — nothing to do
         with generators
@@ -2090,9 +2103,10 @@ but see S2.1 for why the reasoning was wrong.
 
 **Status @ rotation 227**: S1.1 / S1.2 / S1.5 shipped (rotation 225),
 S1.7 / S1.8 measured, **S2.1 shipped whole** (all three positions),
-**S2.11 closed** and **S2.9's `super()` third** closed (rotation 227) —
-which surfaced S2.12, S2.13 and S5.8. S1.3 now measurable; S1.4 open
-with a corrected description; S1.8(b) blocked on S5.6.
+**S2.11 closed**, and **S2.9 down to one open item** — its `super()`
+third and its duplicate-parameter-name half both landed in rotation
+227, which also surfaced S2.12, S2.13 and S5.8. S1.3 now measurable;
+S1.4 open with a corrected description; S1.8(b) blocked on S5.6.
 
 Four orderings here were decided by measurement rather than by the
 plan, which is the pattern worth keeping: S1.2 gated S1.1 (a function

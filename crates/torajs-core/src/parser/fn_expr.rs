@@ -414,6 +414,12 @@ impl<'a> Parser<'a> {
             Token::FatArrow => self.pos += 1,
             t => return Err(format!("expected `=>`, got {t:?} at {}", self.at())),
         }
+        // ES §15.1.1 duplicate-parameter check, deliberately placed
+        // *after* the `=>` rather than after the `)`: until that token
+        // is seen the same text may still be a parenthesized sequence
+        // expression, and `(x, x)` is perfectly legal as one. Refusing
+        // at the `)` would reject the comma operator.
+        self.reject_duplicate_params(&params)?;
         let body = if matches!(self.peek(), Token::LBrace) {
             self.pos += 1;
             let mut stmts = Vec::new();

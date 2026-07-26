@@ -354,6 +354,7 @@ impl<'a> Parser<'a> {
             Token::RParen => self.pos += 1,
             t => return Err(format!("expected `)`, got {t:?} at {}", self.at())),
         }
+        self.reject_duplicate_params(&params)?;
         Ok((params, param_destr_lets))
     }
 }

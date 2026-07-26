@@ -17,6 +17,35 @@
 use super::*;
 
 impl<'a> Parser<'a> {
+    /// ES §15.1.1 early error: a duplicate parameter name is a
+    /// SyntaxError. (Strictly the spec scopes this to strict mode and to
+    /// non-simple parameter lists; TS is always strict, so it holds
+    /// everywhere here.)
+    ///
+    /// P-SURF S2.9 — tr used to refuse `*m(x = 0, x)` by accident. The
+    /// generator desugar turns parameters into fields of the `__Gen_*`
+    /// state-machine class, two same-named parameters became two
+    /// same-named fields, and the field-conflict check panicked. That
+    /// refusal was right for the wrong reason and said so out loud,
+    /// naming a synthesized class the user never wrote; the plain
+    /// spelling `function f(x = 0, x) {}` was not refused at all.
+    ///
+    /// Called from every parameter-list parser rather than from one
+    /// shared place, because there is no shared place: `parse_fn` and
+    /// the arrow parser each carry their own copy of the loop.
+    pub(super) fn reject_duplicate_params(&self, params: &[Param]) -> Result<(), String> {
+        for (i, p) in params.iter().enumerate() {
+            if params[..i].iter().any(|q| q.name == p.name) {
+                return Err(format!(
+                    "duplicate parameter name `{}` at {}",
+                    p.name,
+                    self.at()
+                ));
+            }
+        }
+        Ok(())
+    }
+
     /// V3-18 wedge — TS parameter-property shorthand
     /// (`constructor(public x: number, private readonly y: string)`).
     /// Returns the regular param list plus a side-table of
@@ -201,6 +230,7 @@ impl<'a> Parser<'a> {
             Token::RParen => self.pos += 1,
             t => return Err(format!("expected `)`, got {t:?} at {}", self.at())),
         }
+        self.reject_duplicate_params(&params)?;
         Ok((params, promoted, destr_lets))
     }
 
@@ -356,6 +386,7 @@ impl<'a> Parser<'a> {
             Token::RParen => self.pos += 1,
             t => return Err(format!("expected `)`, got {t:?} at {}", self.at())),
         }
+        self.reject_duplicate_params(&params)?;
         Ok((params, param_destr_lets))
     }
 
