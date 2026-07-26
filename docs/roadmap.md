@@ -1538,7 +1538,8 @@ inside an Object test is still a Proxy case. The exclusion lists live in
 the script (`POST_V1_PATH` / `POST_V1_GLOBALS`), so the split is
 mechanical, not judgment applied per sweep.
 
-**core = 26476. That is P-SURF's denominator.** Its shape, from the
+**core = 26370 @ `7ef9b170` (was 26476 when this section was
+written). That is P-SURF's denominator.** Its shape, from the
 census:
 
 | cluster depth | core cases covered |
@@ -1723,6 +1724,44 @@ touches runtime hot paths.
             `__new_` collision in S1.1 — borrowing a load-bearing name
             inherits everything it means. `static` also had to be taught
             that `*` may follow it
+      - **What the sweep says, measured @ `7ef9b170`.** All three parse
+            walls went to **zero** — `expected class member name, got
+            Star` 693 → 0, `expected \`(\` … after \`static\`` 669 → 0,
+            `expected field name in object literal, got Star` 253 → 5.
+            But **`incompatible` fell by only 11**, because most of those
+            1610 cases walked straight into the next wall, one layer in:
+            - `*#priv() {}` — **496 cases**. The generator member-name
+              parse accepts `Ident` and reserved words, not
+              `PrivateIdent`. This is S2.1 × S2.2 and belongs to S2.2
+            - generator methods with **destructured parameters**
+              (`*g({a, b}) {}`) — **~750 cases** reporting
+              `no member .__param_destr_N on ClassRef("__Gen_…")` or
+              `__param_destr_N requires a type annotation`. The
+              destructuring helper param has no annotation, and the
+              generator desugar turns params into `__Gen_*` fields, which
+              needs one. New work item, filed as **S2.8**
+            13 cases went `parse error → pass` outright, 7 to the bug
+            bucket, 8 to `not yet supported`.
+            **And 9 cases regressed, honestly: `pass-negative →
+            negative-unsupported`.** They were passing *for the wrong
+            reason* — a negative test expecting a syntax error was
+            satisfied by tr's "I don't know `*`" parse error, standing in
+            for the early error actually under test (`super` inside a
+            generator method: 5; generator param redeclared by a body
+            `let`/`const`: 2; duplicate default-param names: 2). Now that
+            `*` parses, the refusal has to come from the real rule, and
+            tr does not implement it yet. Per the no-metric-inflation
+            rule this is water draining out, not a defect introduced —
+            but it is a regression and is counted as one. Filed as
+            **S2.9**
+- [ ] **S2.8** Destructured parameters on a generator method —
+      **~750 cases**, exposed by S2.1. `*g({a, b}) {}` synthesizes an
+      unannotated `__param_destr_N` param, and the generator desugar
+      needs an annotation to turn a param into a `__Gen_*` field
+- [ ] **S2.9** Early errors that were being faked by a parse failure —
+      **9 cases**, exposed by S2.1: `super` in a generator method,
+      generator param redeclared by a body `let`/`const`, duplicate
+      default-param names. Each needs the real check
 - [ ] **S2.2** Private names `#x` — the lexer rejects byte `0x23`
       outright (941) before the parser ever sees a private name, plus
       static private fields (350) = **1291 cases**. Lexer first; the
@@ -1866,21 +1905,25 @@ cases, 4.8 %).
       > attributed to an entry in the subset-decision register below.
       > The count of unattributed ≥ 4 clusters drives to 0.**
 
-      Latest @ `e023bc6b`, 2026-07-26 (baseline `9215301c` in
-      parentheses):
+      Latest @ `7ef9b170`, 2026-07-27 (previous `e023bc6b`, then
+      baseline `9215301c`, in parentheses):
 
       | | |
       |---|---|
-      | clusters ≥ 4 cases, unattributed | **485** (482) ← drives to 0 |
-      | cases in them | 25089 (25198) |
-      | clusters ≤ 3 cases | 921 (911) — 1292 cases, 4.9 % residue |
-      | core total | 26381 (26476) |
+      | clusters ≥ 4 cases, unattributed | **490** (485, 482) ← drives to 0 |
+      | cases in them | 25079 (25089, 25198) |
+      | clusters ≤ 3 cases | 919 (921, 911) — 1291 cases, 4.9 % residue |
+      | core total | 26370 (26381, 26476) |
 
-      That first movement is the predicted shape, not a regression:
-      count up 3, cases down 109. Rotation 225 shipped S1.1/S1.2/S1.5,
-      which pulled `__new_*` from 1138 to 926 and `__this` from 783 to
-      636 — and the cases that could suddenly run surfaced signatures of
-      their own.
+      Two rotations running, the movement has the predicted shape rather
+      than a regression's: count up, cases down. Rotation 225 shipped
+      S1.1/S1.2/S1.5 (`__new_*` 1138 → 926, `__this` 783 → 636);
+      rotation 226 shipped S2.1, which took three parse walls to zero —
+      1610 cases — while `incompatible` fell by only 11, because most of
+      them hit the next wall one layer in and surfaced the two new
+      signatures now filed as S2.8 and S2.9. **This is why the two
+      numbers must be read together**: a rotation can demolish 1610
+      cases' worth of one obstacle and move the headline by 11.
 
       **Expect the count to rise before it falls.** Unlocking a gap lets
       cases that could not previously run do so, and they surface their
