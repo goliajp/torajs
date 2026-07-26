@@ -55,15 +55,28 @@ pub(super) fn compute_full_fields(
             });
             combined.extend(pfields.iter().cloned());
         }
+        // Everything in `combined` up to here came from the parent, so
+        // this index separates "collides with an inherited field" from
+        // "declared twice in this class" below.
+        let inherited = combined.len();
         for (fn_, ft) in fields {
             // Subclass fields must not collide with parent fields. (TS
             // allows shadowing with the same type, but M5.2.a keeps this
             // simple — disallow.)
-            if combined.iter().any(|(n, _)| n == fn_) {
-                panic!(
-                    "M5.2: subclass `{cname}` redeclares parent field `{fn_}` — \
-                     not yet supported"
-                );
+            if let Some(at) = combined.iter().position(|(n, _)| n == fn_) {
+                if at < inherited {
+                    panic!(
+                        "M5.2: subclass `{cname}` redeclares parent field `{fn_}` — \
+                         not yet supported"
+                    );
+                }
+                // Not an inheritance problem at all: the class declares
+                // `fn_` twice. Reachable from source a user did write —
+                // `*g(x = 0, x)` gives the generator's state-machine
+                // class two fields named `x` — so saying "parent field"
+                // here sent the reader looking up a hierarchy that has
+                // nothing to do with it, naming a class they never wrote.
+                panic!("M5.2: class `{cname}` declares field `{fn_}` twice — not yet supported");
             }
             combined.push((fn_.clone(), ft.clone()));
         }

@@ -1799,14 +1799,17 @@ touches runtime hot paths.
       - `*method(x = 0, x)` and `*foo(a) { let a = 3 }` (4 cases) are
         **already refused** — the duplicate name becomes two same-named
         fields of the `__Gen_*` class and trips
-        `desugar_classes_fields.rs:64`. Two problems, neither being a
-        missing check: it `panic!`s, so the verdict is `not yet
-        supported` rather than one of the four kinds a negative test
-        accepts; and **the message is wrong** — it says "subclass
-        `__Gen___cm_gen_C__method` redeclares parent field `x`" when the
-        collision is between two fields of the *same* class and the
-        name it prints is a compiler-synthesized one the user never
-        wrote. Fix the message and the kind, not the detection
+        `desugar_classes_fields.rs`. Two problems, neither being a
+        missing check. **The wrong message is fixed** (rotation 226):
+        it used to say "subclass `__Gen___cm_gen_C__method` redeclares
+        parent field `x`" when the collision is between two fields of
+        the *same* class, sending the reader up a hierarchy that has
+        nothing to do with it, named after a class they never wrote; it
+        now distinguishes the inherited case from the declared-twice
+        case and says which. **What remains** is the verdict kind: it
+        `panic!`s, so these land as `not yet supported` rather than one
+        of the four kinds a negative test accepts. Fix the kind, not
+        the detection
       - `grammar-static-gen-meth-super` (2 cases) is blocked by
         `class C extends Function` being unsupported — nothing to do
         with generators
