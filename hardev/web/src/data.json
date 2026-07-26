@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-26T21:02:50.222Z",
+  "generatedAt": "2026-07-26T21:19:22.133Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-26T20:59:44Z",
-    "headSha": "c6c22bbc",
-    "elapsedSec": 283.6,
+    "ranAt": "2026-07-26T21:18:44Z",
+    "headSha": "fba7d421",
+    "elapsedSec": 266.63,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 9814,
+    "pass": 9815,
     "passNoOracle": 144,
     "passNegative": 4495,
-    "passTotal": 14453,
+    "passTotal": 14454,
     "bug": 787,
-    "incompatible": 37934,
+    "incompatible": 37933,
     "bunSkip": 11904,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 15240,
+    "trAccepted": 15241,
     "passRateInScope": 27.18,
     "passRateTrAccepted": 94.84
   },
   "torajs": {
-    "commit": "c6c22bbc",
-    "commitSubject": "docs(roadmap): record the rotation 229 closures and re-measure S2.3",
+    "commit": "fba7d421",
+    "commitSubject": "docs(roadmap): record the zero-arg then handler closure",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,18 @@
   },
   "commits": [
     {
+      "hash": "fba7d421",
+      "subject": "docs(roadmap): record the zero-arg then handler closure"
+    },
+    {
+      "hash": "53466c5a",
+      "subject": "fix(check): a then handler may declare no parameter"
+    },
+    {
+      "hash": "2db1cd2e",
+      "subject": "chore(hardev): record the rotation 229 sweep and refresh the dashboard"
+    },
+    {
       "hash": "c6c22bbc",
       "subject": "docs(roadmap): record the rotation 229 closures and re-measure S2.3"
     },
@@ -747,21 +759,9 @@
     {
       "hash": "21a343ca",
       "subject": "feat(parser): async generator methods, in both member positions"
-    },
-    {
-      "hash": "e2527ebd",
-      "subject": "feat(lexer): hashbang comments, and the rest of WhiteSpace"
-    },
-    {
-      "hash": "ca6b991a",
-      "subject": "feat(lexer): identifiers can spell their characters as \\u escapes"
-    },
-    {
-      "hash": "dc005d81",
-      "subject": "feat(lexer): identifiers are Unicode, not ASCII"
     }
   ],
-  "headSha": "c6c22bbc",
+  "headSha": "fba7d421",
   "autorun": {
     "total": 533,
     "baselineTarget": 10,
