@@ -1558,15 +1558,16 @@ census:
 
 | cluster depth | core cases covered |
 |---|---|
-| top 10 | 33.7 % |
-| top 25 | 53.7 % |
-| top 50 | 67.7 % |
-| top 100 | 78.6 % |
-| top 400 | 93.9 % |
-| clusters of ≤ 3 cases (911 of them) | 4.8 % |
+| top 10 | 34.4 % |
+| top 25 | 53.6 % |
+| top 50 | 67.5 % |
+| top 100 | 78.2 % |
+| top 400 | 93.8 % |
+| clusters of ≤ 3 cases (916 of them) | 5.0 % |
 
-The tail is short: 1393 clusters total, but four fifths of the mass is
-in 100 of them — which is why this phase is enumerable at all.
+(refreshed @ rotation 230 sweep, core 25421.) The tail is short: 1391
+clusters total, but four fifths of the mass is in 100 of them — which
+is why this phase is enumerable at all.
 
 **The groups at a glance** (core cases @ `9215301c`, each ≈ because
 clusters shift under every fix):
@@ -2051,16 +2052,31 @@ touches runtime hot paths.
       `(let|const) IDENT … of` — never recognises it and the `for
       await` arm reports the only thing it can. A bare identifier
       target (`for (x of …)`) already works; the gap is the PATTERN.
-      **Blocked on S2.24 below**, which is the real prerequisite
-- [ ] **S2.24** **Destructuring assignment to existing bindings** —
-      ES §13.15.5. `[a, b] = [1, 2]` answers `invalid assignment
-      target`; the declaration form (`const [a, b] = …`) has worked for
-      a long time, so the patterns themselves are understood — what is
-      missing is the assignment-target reading of them. Carries S2.5's
-      654 behind it plus the plain-for-of mirror
-      (`for ([a, b] of …)`), and stands on its own as an everyday
-      shape. Needs an RFC: array and object patterns, defaults, holes,
-      nesting, rest, and member-expression targets are each a decision
+      **Rotation 230 update — S2.24 shipped and three of this item's
+      walls peeled in one rotation, still 0 of the 654 pass**: the
+      parse wall fell (刀 2, pattern head accepted), then
+      `assignment to undeclared v2` (the preamble is a
+      multi-declarator, 刀 6), and the sweep-verified current wall is
+      **`unknown identifier assert`** — the harness `assert` binding
+      is not visible from inside the async fn bodies these generated
+      cases use (their non-dstr siblings pass, so it is something
+      this shape combination triggers; next rotation's entry point is
+      `async-func-decl-dstr-array-elem-init-assignment.js` verbatim).
+      The dir-level movement is real: 185 of its cases advanced
+      parse error → type error
+- [x] **S2.24** **Destructuring assignment to existing bindings** —
+      shipped rotation 230 (RFC 20260727-dstr-assignment, six blades:
+      implicit-any uninit let / statement-form expansion / for-of
+      bare-pattern head + the S2.28 box half / S2.26 scalar-Str unbox /
+      S2.27 undefined-branch ternary / multi-declarator K.3
+      registration). Statement form and both for-of/for-in mirrors
+      work with defaults, holes, rest, nesting and member targets;
+      sweep moved **+207 passTotal** with 210 dstr-adjacent cases
+      turning pass. Recorded boundaries (loud): EXPRESSION-position
+      patterns (`result = [a, b] = vals` — the entire
+      expressions/assignment/dstr directory is this chained shape,
+      needs the value-of-pattern semantics via a Sequence tail);
+      object rest; `{ x = D }` CoverInitializedName
 - [x] **S2.5-a** `for await` over an iterator the loop does not get as
       a direct factory call — shipped rotation 229 (`19f7fdde`). Split
       out of S2.5 because it is a real defect that carried **none** of
@@ -2115,6 +2131,17 @@ touches runtime hot paths.
       branch types Undefined — the fall-through used to load the
       undefined branch's ConstPtrNull through the other branch's
       slot type (`cond ? undefined : 42` answered 0)
+- [ ] **S2.29** **The 32 KiB frame cap now costs 16
+      unicode-identifier passes** — regression recorded rotation 230,
+      root-caused, accepted deliberately. The
+      `language/identifiers/start-unicode-*.js` files declare ~6000
+      bare `var ࠃ;` bindings; pre-刀0 those stayed Uninit (zero-size,
+      accidentally under the cap), post-刀0 each is a real 8-byte any
+      slot → frame 49 KiB > the scaled-imm12 cap → loud
+      "not yet supported" (the cap's own recorded message: "scratch-reg
+      path lands later"). The old passes were accidental — the
+      bindings were not real; the fix is the cap's scratch-reg path,
+      not a revert
 - [ ] **S2.7** Untyped class field without a literal initializer — **245**
 - [x] **S2.25** **A `.then` handler may declare no parameter** — shipped
       rotation 229 (`53466c5a`). `p.then(() => { … })`, the everyday
