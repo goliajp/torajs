@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-26T14:43:00.189Z",
+  "generatedAt": "2026-07-26T15:37:40.666Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-26T14:39:45Z",
-    "headSha": "e023bc6b",
-    "elapsedSec": 253.68,
+    "ranAt": "2026-07-26T15:35:04Z",
+    "headSha": "7ef9b170",
+    "elapsedSec": 261.36,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 9227,
+    "pass": 9240,
     "passNoOracle": 118,
-    "passNegative": 4470,
-    "passTotal": 13815,
-    "bug": 736,
-    "incompatible": 38623,
+    "passNegative": 4461,
+    "passTotal": 13819,
+    "bug": 743,
+    "incompatible": 38612,
     "bunSkip": 11904,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 14551,
-    "passRateInScope": 25.98,
-    "passRateTrAccepted": 94.94
+    "trAccepted": 14562,
+    "passRateInScope": 25.99,
+    "passRateTrAccepted": 94.9
   },
   "torajs": {
-    "commit": "3639c961",
-    "commitSubject": "chore(test262): sweep @ e023bc6b — S1 moved its targets, its cascade theory did not",
+    "commit": "2b725ff2",
+    "commitSubject": "docs(p-surf): sweep @ 7ef9b170 — S2.1 took 1610 cases past one wall into the next",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,42 @@
   },
   "commits": [
     {
+      "hash": "2b725ff2",
+      "subject": "docs(p-surf): sweep @ 7ef9b170 — S2.1 took 1610 cases past one wall into the next"
+    },
+    {
+      "hash": "f743da3c",
+      "subject": "chore: untrack the python bytecode cache that landed with cluster_incompat"
+    },
+    {
+      "hash": "c350b8ce",
+      "subject": "docs(p-surf): mark S2.1 shipped whole, and record what the ordering got wrong"
+    },
+    {
+      "hash": "7ef9b170",
+      "subject": "feat(parser): a generator method may be written as a class member"
+    },
+    {
+      "hash": "38177abc",
+      "subject": "docs(p-surf): S2.1 is parser-only in one position and not in the other two"
+    },
+    {
+      "hash": "797d4517",
+      "subject": "feat(parser): a generator method may be written in an object literal"
+    },
+    {
+      "hash": "162e1260",
+      "subject": "style: sort the mod declarations rotation 225 appended out of order"
+    },
+    {
+      "hash": "89287589",
+      "subject": "docs(p-surf): measure what the f/x clusters actually are, and what __this still is"
+    },
+    {
+      "hash": "110ebe35",
+      "subject": "chore(hardev): refresh dashboard snapshot for rotation 225 close"
+    },
+    {
       "hash": "3639c961",
       "subject": "chore(test262): sweep @ e023bc6b — S1 moved its targets, its cascade theory did not"
     },
@@ -723,45 +759,9 @@
     {
       "hash": "48f805d5",
       "subject": "fix(fn): `new F()` works when F is a function, not only a class"
-    },
-    {
-      "hash": "6972d7bd",
-      "subject": "fix(fn): a function may mention `this`, whether or not it is a constructor"
-    },
-    {
-      "hash": "6aad212a",
-      "subject": "docs(roadmap): P-SURF audit pass — one authority, one honest predicate"
-    },
-    {
-      "hash": "fb286ad2",
-      "subject": "feat(autorun): the census script prints the distance-to-v1.0 number"
-    },
-    {
-      "hash": "2830f4aa",
-      "subject": "docs(roadmap): v1.0 gate stops being a checklist we already finished"
-    },
-    {
-      "hash": "ee5b1f31",
-      "subject": "docs(plan-state): record the sweep, its six regressions, and the first incompatible breakdown"
-    },
-    {
-      "hash": "b09cff3d",
-      "subject": "chore(test262): sweep baseline @ 9215301c"
-    },
-    {
-      "hash": "9215301c",
-      "subject": "feat(test262): the incompatible bucket can be dumped per case, like bugs"
-    },
-    {
-      "hash": "5634c9b0",
-      "subject": "chore(hardev): refresh dashboard snapshot for rotation 224 close"
-    },
-    {
-      "hash": "ec9f7118",
-      "subject": "fix(promise): a promise held in a field can be chained off"
     }
   ],
-  "headSha": "3639c961",
+  "headSha": "2b725ff2",
   "autorun": {
     "total": 530,
     "baselineTarget": 10,
