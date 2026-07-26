@@ -6,38 +6,18 @@
 //! - `scan_string` — `"…"` and `'…'` literals with full JS-spec
 //!   escape decoding (`\n` / `\xNN` / `\uNNNN` / `\u{N…N}` / …).
 //!   Returns `Err` on unterminated literals.
-//! - `scan_ident_or_keyword` — ident-start byte through to the next
-//!   non-ident byte; emits the keyword token if the slice matches
-//!   the reserved-word table, else `Token::Ident(name)`.
 //! - `scan_number` — every numeric literal shape: decimal, BigInt,
 //!   leading-dot, binary (`0b`), octal (`0o`), hex (`0x`). Returns
 //!   `Err` on empty digit groups (e.g. `0b`).
 //!
+//! Identifier and private-name scanning lives next door in
+//! `scan_ident.rs` — it grew an escape decoder and a reserved-word rule
+//! of its own.
+//!
 //! Extracted from `lexer.rs` (2026-05-25, god-file decomp batch 23).
 
-use super::util::{decode_utf8, emit, is_ident_cont, is_ident_cont_cp, push_codepoint};
+use super::util::{emit, push_codepoint};
 use super::{Spanned, Token};
-
-/// Walk `i` forward over `IdentifierPart` characters (ES §12.7.1).
-/// ASCII stays a plain byte step; a byte ≥ 0x80 is decoded once and
-/// admitted only if it carries `ID_Continue` (or is ZWNJ / ZWJ, which
-/// the table folds in). Anything else stops the walk without consuming,
-/// so the caller's span ends on a codepoint boundary.
-fn walk_ident_part(bytes: &[u8], i: &mut u32, len: u32) {
-    while *i < len {
-        let b = bytes[*i as usize];
-        if is_ident_cont(b) {
-            *i += 1;
-        } else if b >= 0x80 {
-            match decode_utf8(bytes, *i) {
-                Some((cp, w)) if is_ident_cont_cp(cp) => *i += w,
-                _ => break,
-            }
-        } else {
-            break;
-        }
-    }
-}
 
 pub(super) fn scan_string(
     bytes: &[u8],
@@ -235,89 +215,4 @@ pub(super) fn scan_string(
     *i += 1; // consume closing quote
     emit(out, Token::String(value), start, *i);
     Ok(())
-}
-
-pub(super) fn scan_ident_or_keyword(
-    bytes: &[u8],
-    i: &mut u32,
-    out: &mut Vec<Spanned>,
-    start: u32,
-    len: u32,
-) {
-    walk_ident_part(bytes, i, len);
-    let name = std::str::from_utf8(&bytes[start as usize..*i as usize])
-        .expect("ident slice ends on a codepoint boundary");
-    let token = match name {
-        "let" => Token::Let,
-        "const" => Token::Const,
-        // V3-18 m4 first wedge — `var` lexes as Let.
-        // Full hoisting + function-scope semantics
-        // (vs let/const block-scope) is a follow-up;
-        // many test262 cases use `var` for plain
-        // top-level declarations and just need it to
-        // parse + behave like let. Programs that depend
-        // on hoisting to use `var` before its decl will
-        // continue to fail until the m4.b hoisting pass.
-        "var" => Token::Var,
-        "if" => Token::If,
-        "else" => Token::Else,
-        "true" => Token::True,
-        "false" => Token::False,
-        "while" => Token::While,
-        "for" => Token::For,
-        "break" => Token::Break,
-        "continue" => Token::Continue,
-        "function" => Token::Function,
-        "return" => Token::Return,
-        "type" => Token::Type,
-        "try" => Token::Try,
-        "catch" => Token::Catch,
-        "finally" => Token::Finally,
-        "throw" => Token::Throw,
-        "class" => Token::Class,
-        "new" => Token::New,
-        "this" => Token::This,
-        "extends" => Token::Extends,
-        "super" => Token::Super,
-        "do" => Token::Do,
-        "switch" => Token::Switch,
-        "case" => Token::Case,
-        "default" => Token::Default,
-        "typeof" => Token::TypeOf,
-        "delete" => Token::Delete,
-        "void" => Token::Void,
-        "instanceof" => Token::InstanceOf,
-        "yield" => Token::Yield,
-        "async" => Token::Async,
-        "await" => Token::Await,
-        "import" => Token::Import,
-        "export" => Token::Export,
-        // `from` and `as` are contextual keywords in TS —
-        // they may appear as plain identifiers outside
-        // import context (`let from = 1` is legal). Lexer
-        // keeps them as Ident; parser recognizes them by
-        // string match in the import-decl tail.
-        "null" => Token::Null,
-        _ => Token::Ident(name.to_string()),
-    };
-    emit(out, token, start, *i);
-}
-
-/// `#name` PrivateIdentifier scanner (P8.1). Extracted verbatim
-/// from `tokenize`'s `b'#'` match arm (2026-07-03, fn-debt decomp;
-/// the `is_ident_start` guard stays at the call site so a bare `#`
-/// still falls through to the unexpected-byte error).
-pub(super) fn scan_private_ident(
-    bytes: &[u8],
-    i: &mut u32,
-    out: &mut Vec<Spanned>,
-    start: u32,
-    len: u32,
-) {
-    *i += 1;
-    let ident_start = *i;
-    walk_ident_part(bytes, i, len);
-    let name = std::str::from_utf8(&bytes[ident_start as usize..*i as usize])
-        .expect("ident slice ends on a codepoint boundary");
-    emit(out, Token::PrivateIdent(name.to_string()), start, *i);
 }

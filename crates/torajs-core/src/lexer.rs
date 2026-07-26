@@ -5,6 +5,7 @@
 //! `lexer/util.rs`.
 
 mod scan;
+mod scan_ident;
 mod scan_number;
 mod scan_slash;
 mod scan_template;
@@ -13,7 +14,7 @@ mod util;
 
 pub use types::{Span, Spanned, TemplatePart, Token};
 
-use util::{advance, emit, ident_start_at, peek};
+use util::{advance, emit, peek};
 
 pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
     let bytes = src.as_bytes();
@@ -155,20 +156,21 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
             b'!' => scan_bang(bytes, &mut i, &mut out, start),
             b'"' | b'\'' => scan::scan_string(bytes, &mut i, &mut out, start, len)?,
             b'`' => scan_template::scan_template(bytes, &mut i, &mut out, start, len)?,
-            b'#' if ident_start_at(bytes, i + 1) => {
+            b'#' if scan_ident::ident_start_at(bytes, i + 1) => {
                 // P8.1 — `#name` PrivateIdentifier; a bare `#` not
                 // followed by an ident start falls through to the
                 // unexpected-byte error below.
-                scan::scan_private_ident(bytes, &mut i, &mut out, start, len)
+                scan_ident::scan_private_ident(bytes, &mut i, &mut out, start, len)?
             }
             b if b.is_ascii_digit() => {
                 scan_number::scan_number(bytes, &mut i, &mut out, start, len, b)?
             }
-            // ES §12.7.1 IdentifierStartChar. Kept below the digit arm so
-            // `0`-`9` still route to the numeric scanner; non-ASCII gets
-            // here only after every ASCII byte arm has declined it.
-            _ if ident_start_at(bytes, i) => {
-                scan::scan_ident_or_keyword(bytes, &mut i, &mut out, start, len)
+            // ES §12.7.1 IdentifierStart. Kept below the digit arm so
+            // `0`-`9` still route to the numeric scanner; a non-ASCII
+            // character or a `\u` escape gets here only after every ASCII
+            // byte arm has declined it.
+            _ if scan_ident::ident_start_at(bytes, i) => {
+                scan_ident::scan_ident_or_keyword(bytes, &mut i, &mut out, start, len)?
             }
             _ => return Err(format!("unexpected byte {b:#x} at {start}")),
         }

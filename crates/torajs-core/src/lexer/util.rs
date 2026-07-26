@@ -139,22 +139,3 @@ pub(super) fn decode_utf8(bytes: &[u8], i: u32) -> Option<(u32, u32)> {
         .next()?;
     Some((c as u32, width as u32))
 }
-
-/// Whether an `IdentifierStartChar` (ES §12.7.1) begins at `i` — the
-/// ASCII `$` / `_` / letter half, or a non-ASCII codepoint carrying
-/// `ID_Start`. Used both by `tokenize`'s identifier arm and by the `#`
-/// arm, which must agree with it so `#℘` and `℘` admit the same names.
-pub(super) fn ident_start_at(bytes: &[u8], i: u32) -> bool {
-    match bytes.get(i as usize) {
-        Some(&b) if b < 0x80 => is_ident_start(b),
-        Some(_) => decode_utf8(bytes, i).is_some_and(|(cp, _)| torajs_ucd::is_id_start_cp(cp)),
-        None => false,
-    }
-}
-
-/// ES §12.7.1 `IdentifierPartChar` for a non-ASCII codepoint:
-/// `UnicodeIDContinue`, plus the ZWNJ / ZWJ the spec names separately
-/// (folded into the table by `scripts/ucd/gen_id_tables.py`).
-pub(super) fn is_ident_cont_cp(cp: u32) -> bool {
-    torajs_ucd::is_id_continue_cp(cp)
-}
