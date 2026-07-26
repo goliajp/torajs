@@ -128,6 +128,7 @@ fn sfi_rewrite_stmt(ast: &mut Ast, s: &Stmt, x_name: &str, i_name: &str, v_name:
             elem_expr,
             body,
             forin_obj,
+            is_await,
         } => Stmt::ForOf {
             var_name: var_name.clone(),
             var_type_ann: var_type_ann.clone(),
@@ -136,6 +137,7 @@ fn sfi_rewrite_stmt(ast: &mut Ast, s: &Stmt, x_name: &str, i_name: &str, v_name:
             elem_expr: sfi_rewrite_expr(ast, *elem_expr, x_name, i_name, v_name),
             body: Box::new(sfi_rewrite_stmt(ast, body, x_name, i_name, v_name)),
             forin_obj: *forin_obj,
+            is_await: *is_await,
         },
         Stmt::Try {
             body,

@@ -441,6 +441,7 @@ impl<'a> Parser<'a> {
             elem_expr,
             body: Box::new(body),
             forin_obj,
+            is_await: is_async,
         };
         if src_is_ident {
             forof_stmt

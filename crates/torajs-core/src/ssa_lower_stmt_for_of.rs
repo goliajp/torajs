@@ -66,6 +66,7 @@ pub(crate) fn lower(
     elem_expr: crate::ast::ExprId,
     body: &Stmt,
     forin_obj: Option<crate::ast::ExprId>,
+    is_await: bool,
 ) {
     let index_eid = resolve_index_eid(ctx, elem_expr);
     let src_ref_eid = if let Expr::Index { obj, .. } = ctx.ast.get_expr(index_eid) {
@@ -90,7 +91,7 @@ pub(crate) fn lower(
             let iter_fn = format!("__cm_{cname}____sym_Symbol_iterator__");
             if let Some(&iter_fid) = ctx.fn_table.get(&iter_fn) {
                 crate::ssa_lower_for_of_iter_protocol::lower_for_of_iter_protocol(
-                    ctx, src_ptr_op, iter_fid, var_name, body, &cname,
+                    ctx, src_ptr_op, iter_fid, var_name, body, &cname, is_await,
                 );
                 return;
             }

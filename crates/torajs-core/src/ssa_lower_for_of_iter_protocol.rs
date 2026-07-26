@@ -73,6 +73,10 @@ struct IterPlan {
     next_defaults: Vec<ExprId>,
     /// `next`'s declared param types (leading `__this` included).
     next_param_tys: Vec<Type>,
+    /// What the `next()` Call instruction itself answers — under
+    /// `for await` over an async generator that is `Type::Promise`,
+    /// and `step_ret_ty` is what it settles to.
+    next_call_ty: Type,
     step_ret_ty: Type,
     value_ty: Type,
     value_off: u64,
@@ -95,6 +99,7 @@ fn emit_next_call(
     next_fid: FuncId,
     next_defaults: &[ExprId],
     next_param_tys: &[Type],
+    next_call_ty: Type,
     step_ret_ty: Type,
 ) -> crate::ssa::ValueId {
     let mut next_argv: Vec<Operand> = Vec::with_capacity(1 + next_defaults.len());
@@ -119,7 +124,7 @@ fn emit_next_call(
     let step_val = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Call(next_fid, next_argv),
-        step_ret_ty,
+        next_call_ty,
         None,
     );
     for (op, ty) in coerce_owned {
@@ -131,7 +136,11 @@ fn emit_next_call(
     // is a wild deref: `for (const v of gen)` over a generator that throws
     // on its first step was a SIGSEGV.
     ctx.emit_throw_check(None);
-    step_val
+    if next_call_ty == step_ret_ty {
+        return step_val;
+    }
+    // §14.7.5.10 — the async form awaits the step before reading it.
+    crate::ssa_lower_for_of_iter_protocol_await::emit_await_step(ctx, step_val, step_ret_ty)
 }
 
 /// The loop's shared exit — §7.4.9 IteratorClose gated on how the loop
@@ -220,7 +229,12 @@ fn iter_class_name(ctx: &LowerCtx, src_class: &str) -> Option<String> {
     None
 }
 
-fn resolve_iter_plan(ctx: &LowerCtx, iter_sid: crate::ssa::StructId, src_class: &str) -> IterPlan {
+fn resolve_iter_plan(
+    ctx: &mut LowerCtx,
+    iter_sid: crate::ssa::StructId,
+    src_class: &str,
+    is_await: bool,
+) -> IterPlan {
     let Some(iter_cname) = iter_class_name(ctx, src_class) else {
         panic!(
             "ssa-lower: for-of protocol — `{src_class}[Symbol.iterator]()` must declare the iterator class it returns (sid={} resolved to no registered class)",
@@ -239,8 +253,23 @@ fn resolve_iter_plan(ctx: &LowerCtx, iter_sid: crate::ssa::StructId, src_class: 
         .get(&next_fid)
         .map(|sid| ctx.fn_sigs[sid.0 as usize].0.clone())
         .unwrap_or_default();
-    let step_ret_ty = ctx.f_ret_type_hint(next_fid);
+    let next_call_ty = ctx.f_ret_type_hint(next_fid);
+    // §27.6 — an async generator's steps answer Promises. Under
+    // `for await` that is expected and gets unwrapped per step;
+    // without it the loop is a plain for-of over an object with no
+    // `[Symbol.iterator]`, which is a TypeError in JS, so say which
+    // form was needed rather than reporting the Promise as a shape
+    // surprise.
+    let awaited = (is_await && next_call_ty == Type::Promise)
+        .then(|| crate::ssa_lower_for_of_iter_protocol_await::awaited_step_ty(ctx, &next_fn))
+        .flatten();
+    let step_ret_ty = awaited.unwrap_or(next_call_ty);
     let Type::Obj(step_sid) = step_ret_ty else {
+        if next_call_ty == Type::Promise {
+            panic!(
+                "ssa-lower: for-of protocol — `{iter_cname}.next()` answers a Promise (an async iterator); the loop must be written `for await (... of ...)`"
+            );
+        }
         panic!(
             "ssa-lower: for-of protocol — `{iter_cname}.next()` must return an IteratorResult-shaped struct, got {step_ret_ty:?}"
         );
@@ -272,6 +301,7 @@ fn resolve_iter_plan(ctx: &LowerCtx, iter_sid: crate::ssa::StructId, src_class: 
         next_fid,
         next_defaults,
         next_param_tys,
+        next_call_ty,
         step_ret_ty,
         value_ty,
         value_off: OBJ_HEADER_SIZE + (value_idx as u64) * 8,
@@ -286,6 +316,7 @@ pub(crate) fn lower_for_of_iter_protocol(
     var_name: &str,
     body: &Stmt,
     src_class: &str,
+    is_await: bool,
 ) {
     let iter_ret_ty = ctx.f_ret_type_hint(iter_fid);
     let Type::Obj(iter_sid) = iter_ret_ty else {
@@ -304,11 +335,12 @@ pub(crate) fn lower_for_of_iter_protocol(
     // below).
     ctx.emit_throw_check(None);
 
-    let plan = resolve_iter_plan(ctx, iter_sid, src_class);
+    let plan = resolve_iter_plan(ctx, iter_sid, src_class, is_await);
     let IterPlan {
         next_fid,
         next_defaults,
         next_param_tys,
+        next_call_ty,
         step_ret_ty,
         value_ty,
         value_off,
@@ -352,6 +384,7 @@ pub(crate) fn lower_for_of_iter_protocol(
         next_fid,
         &next_defaults,
         &next_param_tys,
+        next_call_ty,
         step_ret_ty,
     );
     let done_val = ctx.f.append_inst(

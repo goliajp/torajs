@@ -112,6 +112,16 @@ pub enum Stmt {
         /// live object (`any_prop_has`) before the body runs so
         /// properties deleted mid-loop are not visited (ES §14.7.5).
         forin_obj: Option<ExprId>,
+        /// The loop was written `for await` (ES §14.7.5.10 — the
+        /// async form). Recorded rather than inferred: the array
+        /// lane's marker is a `.value` wrap on `elem_expr`, but the
+        /// iterator-protocol lane ignores `elem_expr` entirely, so
+        /// it has no proxy to read. Under this flag that lane awaits
+        /// each `next()` — an async generator's step methods answer
+        /// `Promise<IteratorResult>` per §27.6. The checker ignores
+        /// the flag: the `.value` wrap already narrows the binding
+        /// for it.
+        is_await: bool,
     },
     /// `break;` / `break label;` — exits the innermost enclosing loop
     /// or switch when unlabeled; with a label, exits the enclosing

@@ -88,10 +88,11 @@ impl<'a> LowerCtx<'a> {
                 elem_expr,
                 body,
                 forin_obj,
+                is_await,
                 ..
             } => {
                 crate::ssa_lower_stmt_for_of::lower(
-                    self, var_name, i_ident, *elem_expr, body, *forin_obj,
+                    self, var_name, i_ident, *elem_expr, body, *forin_obj, *is_await,
                 );
             }
             Stmt::DoWhile { body, cond } => {
