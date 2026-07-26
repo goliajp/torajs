@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-26T13:39:46.272Z",
+  "generatedAt": "2026-07-26T14:41:37.706Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-26T12:55:01Z",
-    "headSha": "9215301c",
-    "elapsedSec": 252.79,
+    "ranAt": "2026-07-26T14:39:45Z",
+    "headSha": "e023bc6b",
+    "elapsedSec": 253.68,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 9174,
+    "pass": 9227,
     "passNoOracle": 118,
     "passNegative": 4470,
-    "passTotal": 13762,
-    "bug": 695,
-    "incompatible": 38717,
+    "passTotal": 13815,
+    "bug": 736,
+    "incompatible": 38623,
     "bunSkip": 11904,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 14457,
-    "passRateInScope": 25.88,
-    "passRateTrAccepted": 95.19
+    "trAccepted": 14551,
+    "passRateInScope": 25.98,
+    "passRateTrAccepted": 94.94
   },
   "torajs": {
-    "commit": "ee5b1f31",
-    "commitSubject": "docs(plan-state): record the sweep, its six regressions, and the first incompatible breakdown",
+    "commit": "e023bc6b",
+    "commitSubject": "fix(fn): a constructor that returns an object gets to keep it",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "e023bc6b",
+      "subject": "fix(fn): a constructor that returns an object gets to keep it"
+    },
+    {
+      "hash": "48f805d5",
+      "subject": "fix(fn): `new F()` works when F is a function, not only a class"
+    },
+    {
+      "hash": "6972d7bd",
+      "subject": "fix(fn): a function may mention `this`, whether or not it is a constructor"
+    },
+    {
+      "hash": "6aad212a",
+      "subject": "docs(roadmap): P-SURF audit pass — one authority, one honest predicate"
+    },
+    {
+      "hash": "fb286ad2",
+      "subject": "feat(autorun): the census script prints the distance-to-v1.0 number"
+    },
+    {
+      "hash": "2830f4aa",
+      "subject": "docs(roadmap): v1.0 gate stops being a checklist we already finished"
+    },
+    {
       "hash": "ee5b1f31",
       "subject": "docs(plan-state): record the sweep, its six regressions, and the first incompatible breakdown"
     },
@@ -735,33 +759,9 @@
     {
       "hash": "b9a5057c",
       "subject": "fix(class): a function held in a field can be called, not only rebound"
-    },
-    {
-      "hash": "373fc05e",
-      "subject": "fix(infer): `__this` names a different object in every function"
-    },
-    {
-      "hash": "3f60414d",
-      "subject": "fix(class): a field can be declared a function type, like every other type"
-    },
-    {
-      "hash": "e6fe74e3",
-      "subject": "fix(class): `typeof` on an unset field answers undefined, as `===` already did"
-    },
-    {
-      "hash": "6204cc42",
-      "subject": "chore(hardev): refresh dashboard snapshot for rotation 223 close"
-    },
-    {
-      "hash": "28dc1052",
-      "subject": "fix(arr): a multi-argument push works on a field, not only on a name"
-    },
-    {
-      "hash": "31e23f91",
-      "subject": "chore(hardev): refresh dashboard snapshot for rotation 223 close"
     }
   ],
-  "headSha": "ee5b1f31",
+  "headSha": "e023bc6b",
   "autorun": {
     "total": 529,
     "baselineTarget": 10,

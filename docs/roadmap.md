@@ -1583,36 +1583,58 @@ const c = new Con(1);                     // unknown identifier `__new_Con`
 console.log(c.x);                         // unknown identifier `c`  (cascade)
 ```
 
-- [ ] **S1.1** `new F()` where `F` is a function declaration, not a
-      `class`. The desugar emits a call to a synthetic `__new_<Name>`
-      factory, and that factory is only synthesized when a **class**
-      declaration is in scope. The core `__new_*` cluster is **1138
-      cases across 42 directories**; the named halves are user-defined
-      constructors (`Con` 233, `ConstructFun` 126, `foo` 89,
-      `DummyError` 52, … ≈ 560) and built-ins constructed through the
-      same desugar (`Promise` 215, `Function` 100, `Object` 60), which
-      very likely share the mechanism
-- [ ] **S1.2** `this` inside a function called as a constructor. The
-      `__this` cluster is **783 cases across 55 directories** — the
-      widest directory spread in the census, i.e. the most cross-cutting
-      gap on the board. Object-literal methods already bind `this`
-      correctly (verified), so the gap is specifically the
-      constructor-call binding, plus `eval` (75) and `with` (65)
-      contexts that have no binding site at all.
-      **Design note, to verify:** rotation 224 blade 3 fixed `__this`
-      *colliding* across functions by making the lookup per-function.
-      This is the neighbouring failure — no entry at all rather than the
-      wrong entry — so the same per-function table is where it lands
+- [x] **S1.1** `new F()` where `F` is a function declaration, not a
+      `class` — shipped `48f805d5`. The desugar emitted a call to a
+      synthetic `__new_<Name>` factory that only classes ever got. The
+      core `__new_*` cluster was **1138 cases across 42 directories**.
+      The factory is now minted under `__fnctor_` — deliberately not
+      `__new_`, which is load-bearing for classes well beyond the
+      factory (`class_globals` rebuilds the whole class list by
+      stripping it off FnDecl names), so borrowing it announced a class
+      that did not exist
+- [x] **S1.2** `this` inside a function — shipped `6972d7bd`, and it
+      turned out to be S1.1's *prerequisite* rather than its follow-up:
+      a function mentioning `this` was rejected **at declaration**,
+      whether or not anything ever constructed it. The `__this` cluster
+      was **783 cases across 55 directories**, the widest spread in the
+      census. `desugar_classes` rewrites every `this` to the name
+      `__this` but only class members get a parameter binding it, so
+      the fix gives plain functions the same hidden receiver parameter.
+      The test is exact — a body with `__this` free — so class members
+      are excluded by construction rather than by prefix matching
+- [x] **S1.5** A constructor returning an object keeps it (spec
+      §10.2.2 step 8) — shipped `e023bc6b`. Not in the original list:
+      S1.1's factory returned the receiver unconditionally, which made
+      `return {y: 2}` a *silent* wrong answer, so it was closed in the
+      same rotation ahead of the louder S1.4. `typeof null` being
+      "object" is the trap; the check is emitted only for bodies that
+      can produce a value, so ordinary constructors pay nothing
 - [ ] **S1.3** `F.prototype.m = function () {…}` — the method half of the
-      ES5 object model. **Not yet measured**; S1.1 will surface it the
-      moment `new F()` works, so measure before designing
-- [ ] **S1.4** Re-measure the cascade. Clusters keyed on ordinary user
-      names — `f` (314), `x`, `c`, … — are downstream of a failed `new`
-      or a failed binding earlier in the same file; they should
-      evaporate with S1.1/S1.2 rather than need their own work.
-      **Acceptance is the sweep delta, not a fixture** — if they do
-      not evaporate, the S1 root-cause theory is wrong, which is worth
-      more than a passing fixture
+      ES5 object model. **Not yet measured**; now measurable since S1.1
+      landed, so measure before designing
+- [ ] **S1.4** Indirect calls, and saying so intelligibly. A function
+      whose signature S1.2 changed, passed as a value (`const g = F;
+      g(1)`), cannot have its call site rewritten — desugar never sees
+      it. It fails loudly rather than silently, which was the design
+      intent, **but it says `expected 2 argument(s), got 1` about a
+      one-parameter function**: the synthesized receiver leaked into a
+      user-facing diagnostic. Scope is therefore both halves — make the
+      call work, or refuse it in words that do not mention `__this`.
+      Not a regression: this code did not compile at all before S1.2
+- [ ] **S1.6** ~~Re-measure the cascade~~ — **measured, and the theory
+      was wrong.** The RFC predicted that clusters keyed on ordinary
+      user names were downstream of a failed `new` and would evaporate
+      once S1.1/S1.2 landed. Sweep `e023bc6b` says otherwise: **`f`
+      315 → 315, `x` 171 → 171, `c` 1 → 1 — not one case moved**, while
+      the actual S1 targets did (`__new_*` 1138 → 926, `__this` 783 →
+      636). So these clusters have a separate root cause and are not
+      cascade at all. This is exactly why the acceptance was written as
+      "run the sweep and see", not "write a fixture": a theory disproved
+      is worth more than a fixture passed. **Next step is to find what
+      they actually are — starting from no assumption that `new` is
+      involved.** Neither S1 cluster reached zero either, so some other
+      shape (`F.prototype.m`, indirect calls, `this` inside a nested
+      function) still feeds them; measure that too
 
 #### S2 — Generator and class-member syntax
 
@@ -1726,14 +1748,21 @@ cases, 4.8 %).
       > attributed to an entry in the subset-decision register below.
       > The count of unattributed ≥ 4 clusters drives to 0.**
 
-      Baseline @ `9215301c`, 2026-07-26:
+      Latest @ `e023bc6b`, 2026-07-26 (baseline `9215301c` in
+      parentheses):
 
       | | |
       |---|---|
-      | clusters ≥ 4 cases, unattributed | **482** ← drives to 0 |
-      | cases in them | 25198 |
-      | clusters ≤ 3 cases | 911 (1278 cases, 4.8 % — acceptable residue) |
-      | core total | 26476 |
+      | clusters ≥ 4 cases, unattributed | **485** (482) ← drives to 0 |
+      | cases in them | 25089 (25198) |
+      | clusters ≤ 3 cases | 921 (911) — 1292 cases, 4.9 % residue |
+      | core total | 26381 (26476) |
+
+      That first movement is the predicted shape, not a regression:
+      count up 3, cases down 109. Rotation 225 shipped S1.1/S1.2/S1.5,
+      which pulled `__new_*` from 1138 to 926 and `__this` from 783 to
+      636 — and the cases that could suddenly run surfaced signatures of
+      their own.
 
       **Expect the count to rise before it falls.** Unlocking a gap lets
       cases that could not previously run do so, and they surface their
@@ -1781,6 +1810,14 @@ its `__this` half has the widest directory spread in the census. S2
 next for ratio (3085 cases behind one grammar point, parser-only blast
 radius). S6.4 early and out of band — it is cheap and it makes S8
 legible. S4.1 (`eval`) needs an RFC before it needs a commit.
+
+**Status @ rotation 225** (RFC `.claude/rfcs/20260726-new-on-function`):
+S1.1 / S1.2 / S1.5 shipped, S1.3 now measurable, S1.4 and S1.6 open —
+S1.6 being the honest test of whether the cascade theory held. Two
+orderings inside S1 were decided by measurement rather than by the plan:
+S1.2 turned out to gate S1.1 (a function mentioning `this` failed at
+declaration, no `new` required), and S1.5 jumped the queue because it
+was the only *silent* wrong answer in the group. **Next: S2.**
 
 ---
 
