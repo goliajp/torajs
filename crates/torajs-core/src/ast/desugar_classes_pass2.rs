@@ -55,7 +55,9 @@ pub(super) fn rewrite_expr_arena_pass2(
             // if `__new_target` is a local (ctor body), load it;
             // otherwise emit ANY_UNDEF box.
             Expr::New {
-                class_name, args, ..
+                class_name,
+                args,
+                type_args,
             } => {
                 /* Builtin News (Date, ...) are rewritten by
                  * `desugar_builtin_new` BEFORE this pass, so any
@@ -108,8 +110,17 @@ pub(super) fn rewrite_expr_arena_pass2(
                 }
                 let factory = format!("__new_{class_name}");
                 let args = args.clone();
+                // `new Box<number>()` states what `T` is. A call has
+                // nowhere to carry that, so it goes into the side
+                // table generic inference reads — otherwise a class
+                // whose type parameter appears only in its field
+                // types has nothing to infer from.
+                let type_args = type_args.clone();
                 let callee = ast.add_expr(Expr::Ident(factory));
                 ast.exprs[i] = Expr::Call { callee, args };
+                if !type_args.is_empty() {
+                    ast.call_type_args.insert(ExprId(i as u32), type_args);
+                }
             }
             Expr::Call { callee, args } => {
                 let callee_id = *callee;

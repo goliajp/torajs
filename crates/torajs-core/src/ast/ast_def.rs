@@ -91,6 +91,15 @@ pub struct Ast {
     /// of `explicit_ctor_classes`: that set is parser-filled, so the
     /// injected builtin classes never enter it.
     pub field_init_synth_ctors: std::collections::HashSet<String>,
+    /// Type arguments written at a call site, by the ExprId of the
+    /// call. `new Box<number>()` states what `T` is; the rewrite to
+    /// the synthesized factory turns it into a plain call, and there
+    /// is nowhere on a call to carry them, so they are recorded here
+    /// and read back by generic inference. Without it a class whose
+    /// type parameter appears only in its field types could not be
+    /// instantiated at all — inference is argument-driven, and that
+    /// call has no arguments to drive it.
+    pub call_type_args: std::collections::HashMap<ExprId, Vec<String>>,
     /// Phase H.3.b — method name → declaring classes in source order
     /// (deepest sub last). Used by ssa_lower's `__dispatch_<M>` Call
     /// interception to emit the runtime tag-switch and call the right

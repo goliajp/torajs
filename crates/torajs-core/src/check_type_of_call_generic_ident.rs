@@ -55,6 +55,38 @@ fn decay_nullable_arr(param_ty: &Type, arg_ty: Type) -> Type {
     arg_ty
 }
 
+/// The substitution the call site *stated*, before any is inferred
+/// from the arguments. `new Box<number>()` says what `T` is, and
+/// inference here is argument-driven, so a class whose type parameter
+/// appears only in its field types had nothing to go on and answered
+/// "could not infer type parameter `T` for `__new_Box`".
+///
+/// Positional, as written, and only as far as the parameter list goes
+/// — extra spellings are for whoever else reads them, and an
+/// unresolvable one is left to be inferred rather than guessed at.
+fn explicit_type_arg_subst(
+    checker: &Checker,
+    ast: &Ast,
+    eid: ExprId,
+    type_params: &[String],
+) -> HashMap<String, Type> {
+    let mut subst = HashMap::new();
+    let Some(spellings) = ast.call_type_args.get(&eid) else {
+        return subst;
+    };
+    for (tp, spelling) in type_params.iter().zip(spellings.iter()) {
+        if let Some(t) = crate::check_type_ann::resolve_type_ann_full(
+            spelling,
+            &checker.aliases,
+            &[],
+            &checker.generic_alias_decls,
+        ) {
+            subst.insert(tp.clone(), t);
+        }
+    }
+    subst
+}
+
 pub(crate) fn try_match(
     checker: &mut Checker,
     ast: &Ast,
@@ -123,7 +155,8 @@ pub(crate) fn try_match(
                 args.len()
             )));
         }
-        let mut subst: HashMap<String, Type> = HashMap::new();
+        let mut subst: HashMap<String, Type> =
+            explicit_type_arg_subst(checker, ast, eid, &type_params);
         let mut arg_tys: Vec<Type> = Vec::with_capacity(args.len());
         for (i, (param_ty, arg_id)) in params.iter().zip(args.iter()).enumerate() {
             let arg_ty = match checker.type_of(ast, *arg_id) {
