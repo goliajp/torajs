@@ -2039,18 +2039,41 @@ touches runtime hot paths.
       degrade path. Deserves its own RFC; not startable as a side blade
 - [ ] **S2.4** `yield*` against a non-call expression — the parser
       currently demands a direct call to a `function*` — **434**
-- [x] **S2.5** `for await (… of …)` iterable form — **654**, all in one
-      directory (`test/language/statements`). Rotation 228 localised
-      the decision: `parser/try_parse_for_of.rs:267` keys on
+- [ ] **S2.5** `for await (… of …)` — **654**, all in one directory.
+      **Re-characterised rotation 229 by the post-fix sweep, and the
+      name was wrong.** The entry read "iterable form" because that is
+      what the refusal SAYS (`parser/loops.rs:226`); measuring the 654
+      after shipping the iterable-form fix showed **all 654 still
+      refused, and every one of them is a `dstr-assignment-for-await`
+      generated case**: `for await ([v = 10, w] of [[2]])`. The head is
+      a LeftHandSideExpression assigning to already-declared outer
+      bindings, so `try_parse_for_of` — which wants
+      `(let|const) IDENT … of` — never recognises it and the `for
+      await` arm reports the only thing it can. A bare identifier
+      target (`for (x of …)`) already works; the gap is the PATTERN.
+      **Blocked on S2.24 below**, which is the real prerequisite
+- [ ] **S2.24** **Destructuring assignment to existing bindings** —
+      ES §13.15.5. `[a, b] = [1, 2]` answers `invalid assignment
+      target`; the declaration form (`const [a, b] = …`) has worked for
+      a long time, so the patterns themselves are understood — what is
+      missing is the assignment-target reading of them. Carries S2.5's
+      654 behind it plus the plain-for-of mirror
+      (`for ([a, b] of …)`), and stands on its own as an everyday
+      shape. Needs an RFC: array and object patterns, defaults, holes,
+      nesting, rest, and member-expression targets are each a decision
+- [x] **S2.5-a** `for await` over an iterator the loop does not get as
+      a direct factory call — shipped rotation 229 (`19f7fdde`). Split
+      out of S2.5 because it is a real defect that carried **none** of
+      that item's census mass (recording it under S2.5 would be exactly
+      the metric water the iron rule forbids). Rotation 228 localised
+      it correctly: `parser/try_parse_for_of.rs:267` keys on
       `Expr::Call { callee: Expr::Ident(name) }` being in
-      `async_generator_fns`, so a method call (callee is
-      `Expr::Member`) and a captured iterator never match and fall to
-      the sync protocol, which panics on the `Promise` that
-      `next()` returns. Shipped rotation 229 (`19f7fdde`) exactly as
-      predicted: an await flag on `Stmt::ForOf` — the fact had no proxy
-      in that lane, since the array lane's marker is a `.value` wrap on
-      `elem_expr` and the protocol lane ignores `elem_expr` — plus an
-      awaiting arm that unwraps each step
+      `async_generator_fns`, so a method call and a captured iterator
+      fell to the sync protocol, which panicked on the `Promise` that
+      `next()` returns. Fixed with an await flag on `Stmt::ForOf` —
+      the fact had no proxy in that lane, since the array lane's marker
+      is a `.value` wrap on `elem_expr` and the protocol lane ignores
+      `elem_expr` — plus an awaiting arm that unwraps each step
 - [ ] **S2.7** Untyped class field without a literal initializer — **245**
 - [x] **S2.22** **for-of inside an arrow function** — shipped rotation
       229 (`4196ae10`); never a census item, it surfaced while writing

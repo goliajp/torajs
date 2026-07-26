@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-26T19:55:48.901Z",
+  "generatedAt": "2026-07-26T21:02:50.222Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-26T19:51:29Z",
-    "headSha": "98efa861",
-    "elapsedSec": 268.31,
+    "ranAt": "2026-07-26T20:59:44Z",
+    "headSha": "c6c22bbc",
+    "elapsedSec": 283.6,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 9805,
+    "pass": 9814,
     "passNoOracle": 144,
     "passNegative": 4495,
-    "passTotal": 14444,
-    "bug": 768,
-    "incompatible": 37962,
+    "passTotal": 14453,
+    "bug": 787,
+    "incompatible": 37934,
     "bunSkip": 11904,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 15212,
-    "passRateInScope": 27.16,
-    "passRateTrAccepted": 94.95
+    "trAccepted": 15240,
+    "passRateInScope": 27.18,
+    "passRateTrAccepted": 94.84
   },
   "torajs": {
-    "commit": "98efa861",
-    "commitSubject": "feat(parser): method signatures in inline object types",
+    "commit": "c6c22bbc",
+    "commitSubject": "docs(roadmap): record the rotation 229 closures and re-measure S2.3",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "c6c22bbc",
+      "subject": "docs(roadmap): record the rotation 229 closures and re-measure S2.3"
+    },
+    {
+      "hash": "7599569e",
+      "subject": "fix(promise): await reads a settled any through the same stamp"
+    },
+    {
+      "hash": "1aa99fda",
+      "subject": "fix(promise): unbox a settled any for a handler that declared a type"
+    },
+    {
+      "hash": "2a2a2615",
+      "subject": "fix(parser): a generator method's forwarder does not return the yield type"
+    },
+    {
+      "hash": "4196ae10",
+      "subject": "fix(ast): a for-of loop counter is not a free variable of its arrow"
+    },
+    {
+      "hash": "19f7fdde",
+      "subject": "feat(ssa): for await over an async iterator held in a variable"
+    },
+    {
+      "hash": "b3a482cd",
+      "subject": "chore(hardev): record the rotation 228 sweep and refresh the dashboard"
+    },
+    {
       "hash": "98efa861",
       "subject": "feat(parser): method signatures in inline object types"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "dc005d81",
       "subject": "feat(lexer): identifiers are Unicode, not ASCII"
-    },
-    {
-      "hash": "fdc403c2",
-      "subject": "chore(hardev): record the rotation 227 sweep and refresh the dashboard"
-    },
-    {
-      "hash": "b58797fb",
-      "subject": "fix(parser): scope the duplicate-parameter refusal to where it applies"
-    },
-    {
-      "hash": "8331a938",
-      "subject": "fix(desugar): super.m() names the nearest ancestor that declares m"
-    },
-    {
-      "hash": "0a300c15",
-      "subject": "style: fmt-drift fix in the return-coercion extraction"
-    },
-    {
-      "hash": "7dfe9ad4",
-      "subject": "fix(lower): decode an Arr<Any> handed back through a typed return"
-    },
-    {
-      "hash": "af62aeb3",
-      "subject": "feat(parser): a generator method may have a private name"
-    },
-    {
-      "hash": "e3956d3d",
-      "subject": "fix(parser): refuse a body let that repeats a parameter"
     }
   ],
-  "headSha": "98efa861",
+  "headSha": "c6c22bbc",
   "autorun": {
-    "total": 532,
+    "total": 533,
     "baselineTarget": 10,
-    "bySelf": 527,
+    "bySelf": 528,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785088313-097e",
-      "at": "2026-07-26T17:51:53Z",
-      "ts": 1785088313,
+      "rotationId": "r-1785095866-5552",
+      "at": "2026-07-26T19:57:46Z",
+      "ts": 1785095866,
       "trigger": "self",
-      "prevHead": "fdc403c2",
-      "handoffSha": "sha256:d3c50602d550f5086263c2d15b7cbeca5832abdd3c7b47564dbfa585bb5a0359",
-      "handoffAgeSec": 26,
+      "prevHead": "b3a482cd",
+      "handoffSha": "sha256:2a7595594f36480b9782636a0238b72a63e3a27739d6bb457c7d5d27c3fcd6bf",
+      "handoffAgeSec": 14,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1785095866-5552",
+        "at": "2026-07-26T19:57:46Z",
+        "ts": 1785095866,
+        "trigger": "self",
+        "prevHead": "b3a482cd",
+        "handoffSha": "sha256:2a7595594f36480b9782636a0238b72a63e3a27739d6bb457c7d5d27c3fcd6bf",
+        "handoffAgeSec": 14,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785088313-097e",
         "at": "2026-07-26T17:51:53Z",
@@ -876,17 +887,6 @@
         "prevHead": "49244c07",
         "handoffSha": "sha256:95f2398d88905e09c7887ad2b631fe1c77ff577c80c24dc3d99747338bd891b1",
         "handoffAgeSec": 3,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1785020880-6028",
-        "at": "2026-07-25T23:08:00Z",
-        "ts": 1785020880,
-        "trigger": "self",
-        "prevHead": "daee93c7",
-        "handoffSha": "sha256:89377ef56fc9f28fbd7b9ef32c91983d6b3624b95daa1c8d937c52d40515fc8b",
-        "handoffAgeSec": 10,
         "conformanceBefore": null,
         "commitsInSession": null
       }
