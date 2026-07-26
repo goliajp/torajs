@@ -103,37 +103,23 @@ impl<'a> Analysis<'a> {
                 }
                 Some(anon)
             }
-            "flat" => {
-                let anon = SlotKey::Anon(eid.0);
-                self.mark_containerish(&anon);
-                // §23.1.3.13 — `flat(0)` flattens nothing. It is a
-                // shallow clone, so its product stands where the
-                // receiver stands, the way `slice`'s does; reading the
-                // depth as always-1 put the product's elements in the
-                // class of the receiver's INNER numbers instead. A
-                // nested read then landed one level too deep, in a
-                // class nobody is in, which defaults narrow:
-                // `xs[0][1] = 1.5` then `xs.flat(0)[0][1]` read those
-                // f64 bits as an integer.
-                if matches!(
-                    args.first().map(|a| self.ast.get_expr(*a)),
-                    Some(Expr::Number(d)) if *d == 0.0
-                ) {
-                    self.uf.union(&SlotKey::Elem(Box::new(anon.clone())), &ek);
-                    self.uf.union(&anon, &recv);
-                } else {
-                    self.uf.union(
-                        &SlotKey::Elem(Box::new(anon.clone())),
-                        &SlotKey::Elem(Box::new(SlotKey::Elem(Box::new(recv)))),
-                    );
-                    // B1b — flat's product bits memcpy from the INNER
-                    // arrays, whose container class is the receiver's
-                    // element class.
-                    self.uf.union(&anon, &ek);
-                }
-                Some(anon)
-            }
+            "flat" => Some(self.flat_result_key(eid, args, recv, &ek)),
             "pop" | "shift" | "at" | "find" | "findLast" => Some(ek),
+            // §20.1.3.7 — `Object.prototype.valueOf` answers `this`,
+            // so the product IS the receiver rather than a copy of it.
+            // With no arm here the call answered "no key" and whatever
+            // held the result never joined the receiver's class:
+            // `xs[0] = 1.5` widened `xs` while `xs.valueOf()` stayed
+            // narrow, and the read reinterpreted those f64 bits as an
+            // integer. Gated the way `get` is — a user class owning a
+            // `valueOf` must keep the `_` arm's every-owner Ret join,
+            // except at a demoted site, whose receiver check already
+            // proved a builtin container.
+            "valueOf"
+                if !self.any_class_owns_method("valueOf") || self.demoted.contains_key(&eid) =>
+            {
+                Some(recv)
+            }
             // Map value slot (b1) — `m.get(k)` reads the same class
             // `m.set(k, v)` writes (the Elem of the receiver, same
             // shape as Array's at/pop). Gated on no user class owning
@@ -205,6 +191,46 @@ impl<'a> Analysis<'a> {
                 }
             }
         }
+    }
+
+    /// The product point of `xs.flat(depth)`.
+    ///
+    /// RFC 20260726-array-elem-width — §23.1.3.13 flattens nothing at a
+    /// depth of 0, so `flat(0)` is a shallow clone and its product
+    /// stands where the receiver stands, the way `slice`'s does.
+    /// Reading the depth as always-1 put the product's elements in the
+    /// class of the receiver's INNER numbers instead, and a nested read
+    /// landed one level too deep — in a class nobody is in, which
+    /// defaults narrow: `xs[0][1] = 1.5` then `xs.flat(0)[0][1]` read
+    /// those f64 bits as an integer.
+    ///
+    /// Only a literal 0 takes the clone path; a bare `flat()`, any
+    /// other literal depth, and a computed depth all flatten.
+    fn flat_result_key(
+        &mut self,
+        eid: ExprId,
+        args: &[ExprId],
+        recv: SlotKey,
+        ek: &SlotKey,
+    ) -> SlotKey {
+        let anon = SlotKey::Anon(eid.0);
+        self.mark_containerish(&anon);
+        if matches!(
+            args.first().map(|a| self.ast.get_expr(*a)),
+            Some(Expr::Number(d)) if *d == 0.0
+        ) {
+            self.uf.union(&SlotKey::Elem(Box::new(anon.clone())), ek);
+            self.uf.union(&anon, &recv);
+        } else {
+            self.uf.union(
+                &SlotKey::Elem(Box::new(anon.clone())),
+                &SlotKey::Elem(Box::new(SlotKey::Elem(Box::new(recv)))),
+            );
+            // B1b — flat's product bits memcpy from the INNER arrays,
+            // whose container class is the receiver's element class.
+            self.uf.union(&anon, ek);
+        }
+        anon
     }
 
     /// The product point of `xs.flatMap(cb)`, joined to whichever point
