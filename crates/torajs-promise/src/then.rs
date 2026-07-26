@@ -45,7 +45,7 @@ use crate::pool::{__torajs_promise_alloc_pending, __torajs_promise_drop};
 use crate::state::{
     __torajs_promise_attach_then, __torajs_promise_reject, __torajs_promise_resolve,
 };
-use crate::then_box::{PARAM_ANY_FLAG, box_settled, refuse_unstamped};
+use crate::then_box::{PARAM_ANY_FLAG, PARAM_REPR_SHIFT, refuse_unstamped, settle_param};
 
 unsafe extern "C" {
     /// torajs-mmalloc libc-compat — v0.7-A2 step 6b cutover.
@@ -92,6 +92,7 @@ struct ThenSimpleArg {
     result: *mut c_void,
     ret_repr: u8,
     param_any: u8,
+    param_repr: u8,
 }
 
 unsafe extern "C" fn then_simple_dispatch(arg: i64) {
@@ -104,11 +105,12 @@ unsafe extern "C" fn then_simple_dispatch(arg: i64) {
             stamp_result_repr((*a).result, (*src).value_repr);
             __torajs_promise_reject((*a).result, (*src).value);
         } else {
-            let v = if (*a).param_any != 0 {
-                box_settled((*src).value_repr, (*src).value)
-            } else {
-                (*src).value
-            };
+            let v = settle_param(
+                (*src).value_repr,
+                (*a).param_any != 0,
+                (*a).param_repr,
+                (*src).value,
+            );
             let result = ((*a).cb)(v);
             // A Void-ret handler leaves garbage in the return
             // register — settle a clean 0 behind the VOID stamp.
@@ -137,6 +139,7 @@ pub unsafe extern "C" fn __torajs_promise_then_simple(
     }
     let Some(cb) = cb else { return ptr::null_mut() };
     let param_any = (ret_repr & PARAM_ANY_FLAG) != 0;
+    let param_repr = ((ret_repr >> PARAM_REPR_SHIFT) & 0xff) as u8;
     if param_any && unsafe { refuse_unstamped(source) } {
         return ptr::null_mut();
     }
@@ -153,6 +156,7 @@ pub unsafe extern "C" fn __torajs_promise_then_simple(
         (*a).result = result;
         (*a).ret_repr = ret_repr;
         (*a).param_any = param_any as u8;
+        (*a).param_repr = param_repr;
         __torajs_rc_inc(source);
         __torajs_rc_inc(result);
         __torajs_promise_attach_then(source, Some(then_simple_dispatch), a as i64);
@@ -171,6 +175,7 @@ struct ThenClosureArg {
     result: *mut c_void,
     ret_repr: u8,
     param_any: u8,
+    param_repr: u8,
 }
 
 unsafe extern "C" fn then_closure_dispatch(arg: i64) {
@@ -186,11 +191,12 @@ unsafe extern "C" fn then_closure_dispatch(arg: i64) {
             free(a as *mut c_void);
             return;
         }
-        let value = if (*a).param_any != 0 {
-            box_settled((*src).value_repr, (*src).value)
-        } else {
-            (*src).value
-        };
+        let value = settle_param(
+            (*src).value_repr,
+            (*a).param_any != 0,
+            (*a).param_repr,
+            (*src).value,
+        );
         // Load fn_addr from env+8, call cb(env, value).
         let fn_ptr = *(((*a).env as *mut u8).add(8) as *const *mut c_void);
         let cb: ThenClosureFn = core::mem::transmute(fn_ptr);
@@ -222,6 +228,7 @@ pub unsafe extern "C" fn __torajs_promise_then_closure(
         return ptr::null_mut();
     }
     let param_any = (ret_repr & PARAM_ANY_FLAG) != 0;
+    let param_repr = ((ret_repr >> PARAM_REPR_SHIFT) & 0xff) as u8;
     if param_any && unsafe { refuse_unstamped(source) } {
         return ptr::null_mut();
     }
@@ -238,6 +245,7 @@ pub unsafe extern "C" fn __torajs_promise_then_closure(
         (*a).result = result;
         (*a).ret_repr = ret_repr;
         (*a).param_any = param_any as u8;
+        (*a).param_repr = param_repr;
         __torajs_rc_inc(source);
         __torajs_rc_inc(result);
         __torajs_rc_inc(env);
@@ -257,6 +265,7 @@ struct CatchSimpleArg {
     result: *mut c_void,
     ret_repr: u8,
     param_any: u8,
+    param_repr: u8,
 }
 
 unsafe extern "C" fn catch_simple_dispatch(arg: i64) {
@@ -264,11 +273,12 @@ unsafe extern "C" fn catch_simple_dispatch(arg: i64) {
     unsafe {
         let src = as_promise((*a).source);
         if (*src).state == STATE_REJECTED {
-            let v = if (*a).param_any != 0 {
-                box_settled((*src).value_repr, (*src).value)
-            } else {
-                (*src).value
-            };
+            let v = settle_param(
+                (*src).value_repr,
+                (*a).param_any != 0,
+                (*a).param_repr,
+                (*src).value,
+            );
             let result = ((*a).cb)(v);
             // A Void-ret handler leaves garbage in the return
             // register — settle a clean 0 behind the VOID stamp.
@@ -300,6 +310,7 @@ pub unsafe extern "C" fn __torajs_promise_catch_simple(
     }
     let Some(cb) = cb else { return ptr::null_mut() };
     let param_any = (ret_repr & PARAM_ANY_FLAG) != 0;
+    let param_repr = ((ret_repr >> PARAM_REPR_SHIFT) & 0xff) as u8;
     if param_any && unsafe { refuse_unstamped(source) } {
         return ptr::null_mut();
     }
@@ -316,6 +327,7 @@ pub unsafe extern "C" fn __torajs_promise_catch_simple(
         (*a).result = result;
         (*a).ret_repr = ret_repr;
         (*a).param_any = param_any as u8;
+        (*a).param_repr = param_repr;
         __torajs_rc_inc(source);
         __torajs_rc_inc(result);
         __torajs_promise_attach_then(source, Some(catch_simple_dispatch), a as i64);
@@ -334,6 +346,7 @@ struct CatchClosureArg {
     result: *mut c_void,
     ret_repr: u8,
     param_any: u8,
+    param_repr: u8,
 }
 
 unsafe extern "C" fn catch_closure_dispatch(arg: i64) {
@@ -341,11 +354,12 @@ unsafe extern "C" fn catch_closure_dispatch(arg: i64) {
     unsafe {
         let src = as_promise((*a).source);
         if (*src).state == STATE_REJECTED {
-            let v = if (*a).param_any != 0 {
-                box_settled((*src).value_repr, (*src).value)
-            } else {
-                (*src).value
-            };
+            let v = settle_param(
+                (*src).value_repr,
+                (*a).param_any != 0,
+                (*a).param_repr,
+                (*src).value,
+            );
             let fn_ptr = *(((*a).env as *mut u8).add(8) as *const *mut c_void);
             let cb: ThenClosureFn = core::mem::transmute(fn_ptr);
             let result = cb((*a).env, v);
@@ -379,6 +393,7 @@ pub unsafe extern "C" fn __torajs_promise_catch_closure(
         return ptr::null_mut();
     }
     let param_any = (ret_repr & PARAM_ANY_FLAG) != 0;
+    let param_repr = ((ret_repr >> PARAM_REPR_SHIFT) & 0xff) as u8;
     if param_any && unsafe { refuse_unstamped(source) } {
         return ptr::null_mut();
     }
@@ -395,6 +410,7 @@ pub unsafe extern "C" fn __torajs_promise_catch_closure(
         (*a).result = result;
         (*a).ret_repr = ret_repr;
         (*a).param_any = param_any as u8;
+        (*a).param_repr = param_repr;
         __torajs_rc_inc(source);
         __torajs_rc_inc(result);
         __torajs_rc_inc(env);

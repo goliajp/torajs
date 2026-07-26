@@ -19,16 +19,20 @@ impl LowerCtx<'_> {
     /// THEN2_CLOSURE (env block vs bare fn address).
     pub(crate) fn lower_then_two_arg(&mut self, src_op: Operand, args: &[ExprId]) -> ValueId {
         let on_ok = self.lower_expr(args[0]);
+        let on_ok_pre_ty = self.operand_ty(&on_ok);
         let on_ok = self.maybe_wrap_promise_cb(on_ok);
         let on_err = self.lower_expr(args[1]);
+        let on_err_pre_ty = self.operand_ty(&on_err);
         let on_err = self.maybe_wrap_promise_cb(on_err);
         let on_ok_ty = self.operand_ty(&on_ok);
         let on_err_ty = self.operand_ty(&on_err);
-        let mut ok_word = self.chain_cb_repr_word(&on_ok_ty);
+        let mut ok_word =
+            self.chain_cb_repr_word(&on_ok_ty) | self.chain_cb_param_repr(&on_ok_pre_ty);
         if matches!(on_ok_ty, Type::Closure(_)) {
             ok_word |= crate::ssa_lower_promise_repr_mark::THEN2_CLOSURE_FLAG;
         }
-        let mut err_word = self.chain_cb_repr_word(&on_err_ty);
+        let mut err_word =
+            self.chain_cb_repr_word(&on_err_ty) | self.chain_cb_param_repr(&on_err_pre_ty);
         if matches!(on_err_ty, Type::Closure(_)) {
             err_word |= crate::ssa_lower_promise_repr_mark::THEN2_CLOSURE_FLAG;
         }
@@ -85,5 +89,32 @@ impl LowerCtx<'_> {
             w |= crate::ssa_lower_promise_repr_mark::PARAM_ANY_FLAG;
         }
         w
+    }
+
+    /// RFC 20260727 — the lane the kernel must unbox INTO when the
+    /// source cell was settled from an `any`. Only the kernel can
+    /// decide that (the cell's stamp is the truth, and SSA's
+    /// `Type::Promise` is inner-T erased); this hands it the target.
+    ///
+    /// **Takes the cb type BEFORE `maybe_wrap_promise_cb`.** That
+    /// wrapper's own signature is `(i64) -> i64` — the f64 bits-ABI
+    /// adapter — so asking the wrapped operand what its parameter is
+    /// answers I64 for every f64-faced handler, and the kernel would
+    /// hand a bit-identical integer to a thunk that bitcasts it: 42
+    /// arriving as 2.08e-322.
+    pub(crate) fn chain_cb_param_repr(&self, pre_wrap_ty: &Type) -> i64 {
+        let (Type::Closure(sig) | Type::FnSig(sig)) = pre_wrap_ty else {
+            return 0;
+        };
+        let Some(param) = self.fn_sigs[sig.0 as usize].0.first().cloned() else {
+            return 0;
+        };
+        if param == Type::Any {
+            return 0;
+        }
+        let as_f64 = matches!(param, Type::F64);
+        crate::ssa_lower_promise_repr_mark::promise_value_repr(&param, as_f64, false)
+            .map(|r| r << crate::ssa_lower_promise_repr_mark::PARAM_REPR_SHIFT)
+            .unwrap_or(0)
     }
 }

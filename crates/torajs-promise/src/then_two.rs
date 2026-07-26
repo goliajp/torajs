@@ -27,7 +27,7 @@ use crate::layout::{REPR_VOID, STATE_REJECTED, as_promise};
 use crate::pool::{__torajs_promise_alloc_pending, __torajs_promise_drop};
 use crate::state::{__torajs_promise_attach_then, __torajs_promise_resolve};
 use crate::then::{ThenCbI64, ThenClosureFn, stamp_result_repr};
-use crate::then_box::{PARAM_ANY_FLAG, box_settled, refuse_unstamped};
+use crate::then_box::{PARAM_ANY_FLAG, PARAM_REPR_SHIFT, refuse_unstamped, settle_param};
 
 /// Bit 9 of a then2 handler word — the handler pointer is a closure
 /// env block, not a bare fn.
@@ -53,8 +53,10 @@ struct Then2Arg {
     result: *mut c_void,
     ok_repr: u8,
     ok_flags: u8,
+    ok_param_repr: u8,
     err_repr: u8,
     err_flags: u8,
+    err_param_repr: u8,
 }
 
 /// Run one handler leg: box the settled value if the handler is
@@ -80,16 +82,22 @@ unsafe extern "C" fn then2_dispatch(arg: i64) {
     unsafe {
         let src = as_promise((*a).source);
         let rejected = (*src).state == STATE_REJECTED;
-        let (handler, flags, repr) = if rejected {
-            ((*a).on_err, (*a).err_flags, (*a).err_repr)
+        let (handler, flags, repr, param_repr) = if rejected {
+            (
+                (*a).on_err,
+                (*a).err_flags,
+                (*a).err_repr,
+                (*a).err_param_repr,
+            )
         } else {
-            ((*a).on_ok, (*a).ok_flags, (*a).ok_repr)
+            ((*a).on_ok, (*a).ok_flags, (*a).ok_repr, (*a).ok_param_repr)
         };
-        let value = if flags & FLAG_PARAM_ANY != 0 {
-            box_settled((*src).value_repr, (*src).value)
-        } else {
-            (*src).value
-        };
+        let value = settle_param(
+            (*src).value_repr,
+            flags & FLAG_PARAM_ANY != 0,
+            param_repr,
+            (*src).value,
+        );
         let result = run_leg(handler, flags, repr, value);
         stamp_result_repr((*a).result, repr);
         // Both legs FULFILL on normal handler return — onErr's
@@ -107,7 +115,7 @@ unsafe extern "C" fn then2_dispatch(arg: i64) {
     }
 }
 
-fn split_word(word: i64) -> (u8, u8) {
+fn split_word(word: i64) -> (u8, u8, u8) {
     let mut flags = 0u8;
     if word & PARAM_ANY_FLAG != 0 {
         flags |= FLAG_PARAM_ANY;
@@ -115,7 +123,11 @@ fn split_word(word: i64) -> (u8, u8) {
     if word & THEN2_CLOSURE_FLAG != 0 {
         flags |= FLAG_CLOSURE;
     }
-    ((word & 0xff) as u8, flags)
+    (
+        (word & 0xff) as u8,
+        flags,
+        ((word >> PARAM_REPR_SHIFT) & 0xff) as u8,
+    )
 }
 
 /// `.then(onOk, onErr)` — both handlers attach to `source` in ONE
@@ -138,8 +150,8 @@ pub unsafe extern "C" fn __torajs_promise_then2(
     if source.is_null() || on_ok.is_null() || on_err.is_null() {
         return ptr::null_mut();
     }
-    let (ok_repr, ok_flags) = split_word(ok_word);
-    let (err_repr, err_flags) = split_word(err_word);
+    let (ok_repr, ok_flags, ok_param_repr) = split_word(ok_word);
+    let (err_repr, err_flags, err_param_repr) = split_word(err_word);
     if (ok_flags | err_flags) & FLAG_PARAM_ANY != 0 && unsafe { refuse_unstamped(source) } {
         return ptr::null_mut();
     }
@@ -156,8 +168,10 @@ pub unsafe extern "C" fn __torajs_promise_then2(
         (*a).result = result;
         (*a).ok_repr = ok_repr;
         (*a).ok_flags = ok_flags;
+        (*a).ok_param_repr = ok_param_repr;
         (*a).err_repr = err_repr;
         (*a).err_flags = err_flags;
+        (*a).err_param_repr = err_param_repr;
         __torajs_rc_inc(source);
         __torajs_rc_inc(result);
         if ok_flags & FLAG_CLOSURE != 0 {

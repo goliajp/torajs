@@ -32,6 +32,13 @@ use crate::ssa_lower::LowerCtx;
 /// lockstep.
 pub(crate) const PARAM_ANY_FLAG: i64 = 256;
 
+/// Bits 16-23 of the same word — the handler's FIRST-PARAMETER repr,
+/// for the mirror direction: a cell settled with an `any` handed to a
+/// handler that declared a typed lane, which the kernel then unboxes.
+/// Mirrors `torajs-promise/src/then_box.rs::PARAM_REPR_SHIFT` — must
+/// move in lockstep.
+pub(crate) const PARAM_REPR_SHIFT: i64 = 16;
+
 /// Bit 9 of a then2 handler word — the handler operand is a closure
 /// env block (not a bare fn address). Mirror:
 /// `torajs-promise/src/then_two.rs::THEN2_CLOSURE_FLAG` — must move

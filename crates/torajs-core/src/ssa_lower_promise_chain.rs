@@ -372,6 +372,10 @@ impl crate::ssa_lower::LowerCtx<'_> {
     /// (finally takes no value, nothing to adapt).
     fn lower_chain_one_arg(&mut self, m_name: &str, src_op: Operand, args: &[ExprId]) -> ValueId {
         let cb_op = self.lower_expr(args[0]);
+        // Before the bits-ABI wrapper replaces it — see
+        // `chain_cb_param_repr` for why the wrapped operand cannot
+        // answer what the handler's parameter is.
+        let cb_pre_ty = self.operand_ty(&cb_op);
         let cb_op = if m_name == "finally" {
             cb_op
         } else {
@@ -397,7 +401,7 @@ impl crate::ssa_lower::LowerCtx<'_> {
         let repr_word = if m_name == "finally" {
             0
         } else {
-            self.chain_cb_repr_word(&cb_ty)
+            self.chain_cb_repr_word(&cb_ty) | self.chain_cb_param_repr(&cb_pre_ty)
         };
         let mut call_args = vec![src_op.clone(), cb_op];
         if m_name != "finally" {
