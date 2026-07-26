@@ -267,26 +267,40 @@ pub(crate) fn is_undefable_heap_source(ctx: &LowerCtx<'_>, eid: ExprId) -> bool 
     }
     match ctx.ast.get_expr(eid) {
         Expr::Ident(n) => ctx.undefable_heap_lets.contains(n),
+        // Reading past the end answers the same immortal cell a miss
+        // does — the mirror of `is_undef_f64_source`'s Index arm, for
+        // the element families that have a cell to answer with.
+        Expr::Index { obj, .. } | Expr::OptIndex { obj, .. } => heap_elem_array(ctx, *obj),
         Expr::Call { callee, .. } => matches!(
             ctx.ast.get_expr(*callee),
             // `pop` / `shift` on an empty array answer undefined the
-            // same way a miss does, and a pointer-shaped element slot
-            // spells it with the generic immortal cell.
-            Expr::Member { obj, name } if matches!(name.as_str(), "find" | "findLast" | "pop" | "shift")
-                && matches!(
-                    ctx.expr_types.get(obj),
-                    Some(crate::check::Type::Array(elem)) if matches!(
-                        &**elem,
-                        crate::check::Type::Struct(_)
-                            | crate::check::Type::ClassRef(_)
-                            | crate::check::Type::Array(_)
-                            | crate::check::Type::Function(..)
-                    )
-                )
+            // same way a miss does, and `at` is here because it takes
+            // the same out-of-range exit under another spelling. A
+            // pointer-shaped element slot spells it with the generic
+            // immortal cell.
+            Expr::Member { obj, name } if matches!(name.as_str(), "find" | "findLast" | "pop" | "shift" | "at")
+                && heap_elem_array(ctx, *obj)
         ),
         Expr::As { expr, .. } => is_undefable_heap_source(ctx, *expr),
         _ => false,
     }
+}
+
+/// True when `obj` is an array whose elements are pointer-shaped in a
+/// family that has a generic immortal `undefined` cell to answer with.
+/// Sentinel-less heap elems (Date / Map / …) keep the NULL default
+/// until their cells land.
+fn heap_elem_array(ctx: &LowerCtx<'_>, obj: ExprId) -> bool {
+    matches!(
+        ctx.expr_types.get(&obj),
+        Some(crate::check::Type::Array(elem)) if matches!(
+            &**elem,
+            crate::check::Type::Struct(_)
+                | crate::check::Type::ClassRef(_)
+                | crate::check::Type::Array(_)
+                | crate::check::Type::Function(..)
+        )
+    )
 }
 
 /// Emit the heap nullish guard when `obj` is an undefable-heap

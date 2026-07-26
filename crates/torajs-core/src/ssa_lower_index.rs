@@ -239,6 +239,7 @@ pub(crate) fn lower_typed_index_checked(
 ) -> Operand {
     use crate::ssa::{IPred, Terminator};
     use crate::ssa_lower::ARR_LEN_OFF;
+    use crate::ssa_lower_binop_null_undef::UNDEF_CELL_SYM;
     use crate::ssa_lower_intrinsics_str_b::STR_UNDEF_CELL_SYM;
     use crate::ssa_lower_nullable_guard::F64_UNDEF_SENTINEL_BITS;
     let len = ctx.f.append_inst(
@@ -284,6 +285,28 @@ pub(crate) fn lower_typed_index_checked(
             Operand::Value(sentinel)
         }
         Type::F64 => Operand::ConstF64(f64::from_bits(F64_UNDEF_SENTINEL_BITS)),
+        // A pointer-shaped element spells `undefined` with the generic
+        // immortal cell, which is how a `find` / `pop` miss on the same
+        // array has answered since RFC 20260722 chunk B. Reading past
+        // the end is the same question (§10.4.2.1), so it takes the
+        // same exit rather than the RangeError below — `q.find(miss)`
+        // answered `undefined` while `q[5]` on that very array threw.
+        // Static cell: the result slot's scope drop no-ops.
+        //
+        // Emitted into `oob_blk` rather than through
+        // `str_undef_sentinel_for`, which appends at `cur_block`: a
+        // constant out-of-range index folds the first compare away and
+        // takes that block with it, leaving the reference with no
+        // definition (`nested[-1]` aborted the compile).
+        Type::Obj(_) | Type::Arr(_) | Type::Closure(_) => {
+            let sentinel = ctx.f.append_inst(
+                oob_blk,
+                InstKind::GlobalRef(UNDEF_CELL_SYM.to_string()),
+                elem_ty,
+                None,
+            );
+            Operand::Value(sentinel)
+        }
         _ => {
             oob_throws = true;
             ctx.f.append_void(
