@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-26T06:34:53.787Z",
+  "generatedAt": "2026-07-26T06:46:10.078Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 96.12
   },
   "torajs": {
-    "commit": "34a0ca36",
-    "commitSubject": "fix(spread): a short spread source leaves undefined, not a throw",
+    "commit": "1af4ac1c",
+    "commitSubject": "fix(infer): an annotated container types the arrows written into it",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "1af4ac1c",
+      "subject": "fix(infer): an annotated container types the arrows written into it"
+    },
+    {
+      "hash": "dfa4f4af",
+      "subject": "chore(hardev): refresh dashboard snapshot for rotation 222 close"
+    },
+    {
       "hash": "34a0ca36",
       "subject": "fix(spread): a short spread source leaves undefined, not a throw"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "dee038e1",
       "subject": "fix(lower): the argument contract stops at the last real argument"
-    },
-    {
-      "hash": "18ac44a3",
-      "subject": "refactor(lower): the remaining five call lanes share the argument contract"
-    },
-    {
-      "hash": "accbdf27",
-      "subject": "refactor(lower): one contract for what converts an argument into a parameter"
     }
   ],
-  "headSha": "34a0ca36",
+  "headSha": "1af4ac1c",
   "autorun": {
     "total": 526,
     "baselineTarget": 10,
