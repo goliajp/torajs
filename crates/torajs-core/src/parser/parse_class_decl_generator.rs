@@ -72,10 +72,28 @@ impl<'a> Parser<'a> {
         // Consume `*`.
         self.pos += 1;
 
+        let mut visibility = visibility;
         let member_name = match self.peek() {
             Token::Ident(n) => n.clone(),
             t if Self::keyword_property_name(t).is_some() => {
                 Self::keyword_property_name(t).unwrap().to_string()
+            }
+            // P-SURF S2.2 × S2.1 — `*#g() {}`. Mangled and forced
+            // Private exactly as the ordinary-member path does
+            // (`parse_class_decl_member.rs`), so everything downstream
+            // sees a regular name and `this.#g()` resolves to it via the
+            // same rewrite. `static #x` is still out of scope, so
+            // `static *#g()` refuses with the same message rather than
+            // synthesizing a static mangled name nothing can lower.
+            Token::PrivateIdent(n) => {
+                if is_static {
+                    return Err(format!(
+                        "static private fields (`static #{n}`) not yet supported in class `{class_name}` — defer P8.x followup (at {})",
+                        self.at()
+                    ));
+                }
+                visibility = Visibility::Private;
+                format!("__priv_{class_name}__{n}")
             }
             t => {
                 return Err(format!(

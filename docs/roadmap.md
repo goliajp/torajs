@@ -1890,11 +1890,28 @@ touches runtime hot paths.
         does the sub-parser for template interpolation. Fixture
         `super-call-position-001` pins the legal side — the way to get
         a cleared-flag check wrong is to clear it where it should carry
-- [ ] **S2.2** Private names `#x` — the lexer rejects byte `0x23`
-      outright (941) before the parser ever sees a private name, plus
-      static private fields (350) = **1291 cases**. Lexer first; the
-      static-field half is a parser follow-up already tagged "defer
-      P8.x" in its own error message
+- [ ] **S2.2** Private names `#x` — **1291 cases**. **The description
+      this entry carried was wrong and the correction changes what to
+      do first.** It said the lexer rejects byte `0x23` outright before
+      the parser ever sees a private name. It does not:
+      `lexer.rs:158` matches `b'#'` followed by an ident start and
+      scans a `PrivateIdent`; only a *bare* `#` falls through to the
+      unexpected-byte arm. Measured 2026-07-27 — `#x` fields, `#m()`
+      methods, and reading `this.#x` from inside a generator method all
+      already work. What is actually missing, in the shapes probed:
+      - `static #s` — refused deliberately by the parser with its own
+        "defer P8.x" message (the 350 half, and the only part of the
+        original description that held)
+      - `#x in obj` — the ergonomic brand check; `expected expression,
+        got PrivateIdent`
+      - ~~`*#g() {}` — a generator method with a private name~~ **done
+        2026-07-27**: S2.1 taught the member position to accept `*` but
+        its name only took `Ident` and the reserved words. It now takes
+        the same mangle-and-force-Private route the ordinary member
+        path does. Fixture `gen-class-private-001`
+      The 941 figure therefore does not mean what it said. **Re-derive
+      the signature from the next sweep before starting** rather than
+      trusting the number here
 - [ ] **S2.3** Computed field names `[k] = v` in class bodies — **548**
 - [ ] **S2.4** `yield*` against a non-call expression — the parser
       currently demands a direct call to a `function*` — **434**
@@ -2105,6 +2122,27 @@ blocked on S6.4, except for what must not wait:
       — they now compile but do not terminate. Shape suggests an error
       that fails to propagate out of an iterator step, leaving the
       iteration unbounded. One root cause is plausible for all twenty
+- [ ] **S8.5** An array spread of a generator answers garbage once it
+      crosses a function return. **Three lines**, found 2026-07-27
+      while writing an unrelated fixture:
+
+      ```ts
+      function* s(): number { yield 1; yield 2 }
+      function read(): number[] { return [...s()] }
+      console.log(read());     // [ -562949953421311, -562949953421310 ]
+      console.log([...s()]);   // [ 1, 2 ]  — same spread, printed in place
+      ```
+
+      Those values are NaN-box payloads read as `f64`, so the produced
+      array's elements are Any-tagged while the `number[]` return type
+      makes the caller read them raw. `[...[1, 2]]` across the same
+      boundary is fine, so it is the generator source that decides the
+      element representation. Nothing to do with classes — reproduces on
+      a free `function*`, and equally on a public or private generator
+      method. **Silent, so it outranks the refusals around it** by the
+      design principles; not yet censused, and the census signature is
+      probably large since collecting a generator into an array and
+      returning it is an ordinary thing to write
 
 **P-SURF acceptance**: every S1–S6 item either shipped or closed by a
 register entry (S7.2); the S7.2 count of unattributed ≥ 4 clusters at
@@ -2124,9 +2162,17 @@ but see S2.1 for why the reasoning was wrong.
 **Status @ rotation 227**: S1.1 / S1.2 / S1.5 shipped (rotation 225),
 S1.7 / S1.8 measured, **S2.1 shipped whole** (all three positions),
 **S2.11 and S2.9 both closed** in rotation 227 (S2.9 except the two
-cases that were never its own), which also surfaced S2.12, S2.13,
-S2.14, S2.15 and S5.8. S1.3 now measurable; S1.4 open with a corrected
-description; S1.8(b) blocked on S5.6.
+cases that were never its own), plus S2.2's private-generator-name
+third; that rotation also surfaced S2.12, S2.13, S2.14, S2.15, S5.8
+and S8.5. S1.3 now measurable; S1.4 open with a corrected description;
+S1.8(b) blocked on S5.6.
+
+**Two roadmap descriptions were measured and found wrong in rotation
+227** (S2.11's "both directions fail", S2.2's "the lexer rejects
+`0x23`"), on top of the three rotation 226 corrected. Every one was
+caught by a minimal repro that took under a minute. Treat a
+census-derived sentence in this document as a lead, not a fact, and
+run the repro before building on it.
 
 Four orderings here were decided by measurement rather than by the
 plan, which is the pattern worth keeping: S1.2 gated S1.1 (a function
