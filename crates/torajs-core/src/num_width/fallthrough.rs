@@ -96,41 +96,50 @@ pub(super) fn seed_fallthrough_return(
     }
 }
 
-/// True when some `return` in `body` hands back a call that may answer
-/// undefined: a `find` / `findLast` / `at` miss, or a `pop` / `shift`
-/// on an empty array. Those already put their width's sentinel in the
-/// slot; without this the caller reads it as a plain value and prints
-/// NaN (or answers `typeof` "string" for the immortal cell).
+/// True when some `return` in `body` hands back a value that may be
+/// the `undefined` answer: an index read past the end, a `find` /
+/// `findLast` / `at` miss, or a `pop` / `shift` on an empty array.
+/// Those already put their width's sentinel in the slot; without this
+/// the caller reads it as a plain value and prints NaN (or answers
+/// `typeof` "string" for the immortal cell).
 ///
 /// A value parked in a local first (`const m = xs.find(...); return m`)
 /// counts too — the binding is recorded on the way past, mirroring how
 /// the in-function consumers track the same shape through
 /// `undefable_f64_lets` / `nullable_str_lets`.
 ///
-/// Receiver-type-agnostic on purpose — the method names alone are the
-/// gate, and being on the table only costs one predictable compare at
-/// the call site.
+/// Receiver-type-agnostic on purpose — the shape alone is the gate, and
+/// being on the table only costs one predictable compare at the call
+/// site.
 fn body_returns_sentinel(a: &Analysis<'_>, body: &[Stmt]) -> bool {
-    fn is_sentinel_call(a: &Analysis<'_>, eid: crate::ast::ExprId) -> bool {
-        matches!(
-            a.ast.get_expr(eid),
-            Expr::Call { callee, .. } if matches!(
+    fn is_sentinel_source(a: &Analysis<'_>, eid: crate::ast::ExprId) -> bool {
+        match a.ast.get_expr(eid) {
+            // Reading past the end answers `undefined` (ES §10.4.2.1)
+            // exactly as a miss does, and `xs.at(i)` is on the list
+            // right below only because it takes that same exit under
+            // another spelling. Handing the read straight back left the
+            // caller reading the sentinel as a plain value and printing
+            // NaN, while the identical read at the call site itself has
+            // always answered `undefined`.
+            Expr::Index { .. } | Expr::OptIndex { .. } => true,
+            Expr::Call { callee, .. } => matches!(
                 a.ast.get_expr(*callee),
                 Expr::Member { name, .. }
                     if matches!(name.as_str(), "find" | "findLast" | "at" | "pop" | "shift")
-            )
-        )
+            ),
+            _ => false,
+        }
     }
     fn walk(a: &Analysis<'_>, stmts: &[Stmt], lets: &mut HashSet<String>) -> bool {
         stmts.iter().any(|s| match s {
             Stmt::LetDecl { name, init, .. } => {
-                if is_sentinel_call(a, *init) {
+                if is_sentinel_source(a, *init) {
                     lets.insert(name.clone());
                 }
                 false
             }
             Stmt::Return(Some(eid)) => {
-                is_sentinel_call(a, *eid)
+                is_sentinel_source(a, *eid)
                     || matches!(a.ast.get_expr(*eid), Expr::Ident(n) if lets.contains(n))
             }
             Stmt::Block(inner) | Stmt::Multi(inner) => walk(a, inner, lets),
