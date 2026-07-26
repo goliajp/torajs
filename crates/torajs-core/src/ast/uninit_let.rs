@@ -33,26 +33,30 @@ use super::{Ast, Expr, ExprId, Stmt};
 ///     control-flow children don't bubble assignments across their
 ///     boundary (we only splice within the same `Vec<Stmt>`)
 pub fn desugar_uninit_let(ast: &mut Ast) {
+    // One shared `undefined` Ident for every implicit-any conversion
+    // below (RFC 20260727-dstr-assignment 刀 0); ExprId reuse across
+    // statements is established form (destr_defaults does the same).
+    let undef_eid = ast.add_expr(Expr::Ident("undefined".into()));
     // mem::take so the statement vec can be mutated while the arena
     // stays readable for the reference walker (get_expr only).
     let mut stmts = std::mem::take(&mut ast.stmts);
-    rewrite_uninit_in_stmts(&mut stmts, ast);
+    rewrite_uninit_in_stmts(&mut stmts, ast, undef_eid);
     ast.stmts = stmts;
     // FnDecl bodies live inside the vec already; the recursive
     // walk handles them when it descends into Stmt::FnDecl variants.
 }
 
-fn rewrite_uninit_in_stmts(stmts: &mut Vec<Stmt>, ast: &Ast) {
+fn rewrite_uninit_in_stmts(stmts: &mut Vec<Stmt>, ast: &Ast, undef_eid: ExprId) {
     let mut i = 0;
     while i < stmts.len() {
         // Recurse into nested scopes first so each scope's lets see
         // their own follow-up assignments.
         match &mut stmts[i] {
             Stmt::FnDecl { body, .. } => {
-                rewrite_uninit_in_stmts(body, ast);
+                rewrite_uninit_in_stmts(body, ast, undef_eid);
             }
             Stmt::Block(inner) | Stmt::Multi(inner) => {
-                rewrite_uninit_in_stmts(inner, ast);
+                rewrite_uninit_in_stmts(inner, ast, undef_eid);
             }
             Stmt::If {
                 then_branch,
@@ -60,22 +64,22 @@ fn rewrite_uninit_in_stmts(stmts: &mut Vec<Stmt>, ast: &Ast) {
                 ..
             } => {
                 if let Stmt::Block(b) | Stmt::Multi(b) = then_branch.as_mut() {
-                    rewrite_uninit_in_stmts(b, ast);
+                    rewrite_uninit_in_stmts(b, ast, undef_eid);
                 }
                 if let Some(eb) = else_branch
                     && let Stmt::Block(b) | Stmt::Multi(b) = eb.as_mut()
                 {
-                    rewrite_uninit_in_stmts(b, ast);
+                    rewrite_uninit_in_stmts(b, ast, undef_eid);
                 }
             }
             Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
                 if let Stmt::Block(b) | Stmt::Multi(b) = body.as_mut() {
-                    rewrite_uninit_in_stmts(b, ast);
+                    rewrite_uninit_in_stmts(b, ast, undef_eid);
                 }
             }
             Stmt::For { body, .. } => {
                 if let Stmt::Block(b) | Stmt::Multi(b) = body.as_mut() {
-                    rewrite_uninit_in_stmts(b, ast);
+                    rewrite_uninit_in_stmts(b, ast, undef_eid);
                 }
             }
             Stmt::Labeled { body, .. } => {
@@ -83,7 +87,7 @@ fn rewrite_uninit_in_stmts(stmts: &mut Vec<Stmt>, ast: &Ast) {
                 // nested lets inside a labeled loop / block are rewritten
                 // like any other (the wrapped stmt re-enters this walker).
                 let mut tmp = vec![std::mem::replace(body.as_mut(), Stmt::Break(None))];
-                rewrite_uninit_in_stmts(&mut tmp, ast);
+                rewrite_uninit_in_stmts(&mut tmp, ast, undef_eid);
                 *body = Box::new(tmp.pop().unwrap());
             }
             Stmt::Try {
@@ -92,10 +96,10 @@ fn rewrite_uninit_in_stmts(stmts: &mut Vec<Stmt>, ast: &Ast) {
                 finally_body,
                 ..
             } => {
-                rewrite_uninit_in_stmts(body, ast);
-                rewrite_uninit_in_stmts(catch_body, ast);
+                rewrite_uninit_in_stmts(body, ast, undef_eid);
+                rewrite_uninit_in_stmts(catch_body, ast, undef_eid);
                 if let Some(fb) = finally_body {
-                    rewrite_uninit_in_stmts(fb, ast);
+                    rewrite_uninit_in_stmts(fb, ast, undef_eid);
                 }
             }
             _ => {}
@@ -160,6 +164,26 @@ fn rewrite_uninit_in_stmts(stmts: &mut Vec<Stmt>, ast: &Ast) {
                 // Re-examine the slot that slid into position i.
                 continue;
             }
+        }
+        // ES §14.3.1 / TS: an un-annotated `let x;` the splice could
+        // not resolve is an implicit-any binding holding `undefined`
+        // (RFC 20260727-dstr-assignment 刀 0). The Uninit sentinel it
+        // used to keep typed the binding Undefined, which rejected
+        // every later cross-scope / cross-Multi assignment (`let v;
+        // function f() { v = 1; }` / `let a, b; a = 1;`). Annotated
+        // survivors keep their sentinel (parser-let-no-init-001
+        // asserts their Null semantics); `var`-machinery decls
+        // (for-of `var k;`, var_hoist) keep their own path.
+        if let Stmt::LetDecl {
+            type_ann,
+            init,
+            is_var: false,
+            ..
+        } = &mut stmts[i]
+            && type_ann.is_none()
+        {
+            *type_ann = Some("any".into());
+            *init = undef_eid;
         }
         i += 1;
     }
