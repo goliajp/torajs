@@ -1809,6 +1809,19 @@ touches runtime hot paths.
       desugar do the single rewrite once the class index exists — is
       the right shape; arena ExprIds are stable, so the desugar can
       reach a body it can no longer find by walking
+- [ ] **S2.17** **tr has no strict-mode tracking**, and S2.9 is the
+      first place that cost something. `class` bodies are recognised
+      (via `current_class`), but there is no notion of a `"use strict"`
+      directive, of module code being strict, or of a `.ts` file being
+      strict by construction. So the duplicate-parameter check has to
+      choose: refuse `function f(a, a)` everywhere and lose the three
+      sloppy test262 cases that assert it runs, or scope it to
+      non-simple lists and accept it inside a `.ts` file where
+      TypeScript (and bun) refuse. It currently does the latter —
+      spec-faithful for test262, laxer than TS for tr's own surface.
+      The real answer is a strict flag threaded through the parser,
+      which several other early errors will want as well. Worth doing
+      before the next early-error item rather than after
 - [ ] **S2.16** `super.m()` from a **static** method emits
       `unknown identifier __cm_A__make`. Fails against the direct parent
       too, so it is not S2.12's chain walk — the static half simply has
@@ -1861,18 +1874,23 @@ touches runtime hot paths.
         `function f(x = 0, x) {}` was **not refused at all**. Dressing a
         `panic!` up as a different verdict kind would have kept both.
         - **duplicate parameter names: done 2026-07-27.** ES §15.1.1
-          makes it an early SyntaxError; a check at each parameter-list
-          parser refuses it in every position bun does (function
-          declaration, method, constructor, object-literal method,
-          generator method, arrow), and the accidental route is now
-          dead code on this path. The arrow check sits **after** the
-          `=>` rather than after the `)`, because until that token is
-          seen the same text may still be a parenthesized sequence
-          expression, and `(w, w)` is legal as one. Fixture
-          `param-names-001` pins the legal side — same name in sibling
-          functions, shadowing, nesting, rest, several destructuring
-          holders side by side, TS parameter properties, accessors,
-          arrows, and that sequence expression
+          makes it an early SyntaxError, and *where* decides whether
+          unconditionally. A **method definition** (§15.4) and an
+          **arrow** (§15.3.1) take `UniqueFormalParameters` — always
+          refused. A **function declaration or expression** takes plain
+          `FormalParameters`, whose early error applies only in strict
+          code or when the list is not simple. **The first version
+          refused everywhere and the sweep caught it**: three cases
+          (`param-duplicated-non-strict.js` ×2, `S10.2.1_A2.js`) run
+          `function f(a, a)` in sloppy code and expect it to work.
+          Scoped to what the spec says, they came back. The arrow check
+          sits **after** the `=>` rather than after the `)`, because
+          until that token is seen the same text may still be a
+          parenthesized sequence expression, and `(w, w)` is legal as
+          one. Fixture `param-names-001` pins the legal side — same
+          name in sibling functions, shadowing, nesting, rest, several
+          destructuring holders side by side, TS parameter properties,
+          accessors, arrows, and that sequence expression
         - **parameter vs body `let`/`const`: done 2026-07-27.** Same
           early error (ES §14.2.1), checked at the same six sites once
           the body is parsed and before the destructuring prelude is
@@ -2202,7 +2220,7 @@ S1.7 / S1.8 measured, **S2.1 shipped whole** (all three positions),
 **S2.11 and S2.9 both closed** in rotation 227 (S2.9 except the two
 cases that were never its own), plus S2.2's private-generator-name
 third and S2.12's ordinary-method half; that rotation also surfaced
-S2.12, S2.13, S2.14, S2.15, S2.16, S5.8
+S2.12, S2.13, S2.14, S2.15, S2.16, S2.17, S5.8
 and S8.5 — the last of those found and its main shape fixed in the same
 rotation. S1.3 now measurable; S1.4 open with a corrected description;
 S1.8(b) blocked on S5.6.

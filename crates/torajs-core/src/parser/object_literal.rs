@@ -356,6 +356,8 @@ impl<'a> Parser<'a> {
         err_ctx: &str,
     ) -> Result<ExprId, String> {
         let (mut params, destr_lets) = self.parse_param_list()?;
+        // Method shorthand and accessors are method definitions.
+        self.reject_duplicate_params(&params, true)?;
         if infer_defaults {
             self.infer_default_param_anns(&mut params);
         }

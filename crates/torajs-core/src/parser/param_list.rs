@@ -17,10 +17,24 @@
 use super::*;
 
 impl<'a> Parser<'a> {
-    /// ES §15.1.1 early error: a duplicate parameter name is a
-    /// SyntaxError. (Strictly the spec scopes this to strict mode and to
-    /// non-simple parameter lists; TS is always strict, so it holds
-    /// everywhere here.)
+    /// A duplicate parameter name is a SyntaxError, and *where* decides
+    /// whether unconditionally:
+    ///
+    /// - A **method definition** (§15.4) and an **arrow** (§15.3.1) take
+    ///   `UniqueFormalParameters`, so duplicates are refused whatever
+    ///   the list looks like. `unique = true`.
+    /// - A **function declaration or expression** takes plain
+    ///   `FormalParameters`, whose §15.1.1 early error applies only in
+    ///   strict code or when the list is not simple. In sloppy code with
+    ///   a simple list `function f(a, a) {}` is legal, and test262
+    ///   asserts it: `param-duplicated-non-strict.js` (×2) and
+    ///   `S10.2.1_A2.js` run it and expect it to work. Refusing there
+    ///   cost exactly those three cases — measured, not predicted.
+    ///
+    /// Class bodies are always strict (§11.2.2), so a `function` nested
+    /// in one is refused too. `current_class` is an exact test for that
+    /// rather than a heuristic: everything lexically inside a class body
+    /// is strict code.
     ///
     /// P-SURF S2.9 — tr used to refuse `*m(x = 0, x)` by accident. The
     /// generator desugar turns parameters into fields of the `__Gen_*`
@@ -33,7 +47,19 @@ impl<'a> Parser<'a> {
     /// Called from every parameter-list parser rather than from one
     /// shared place, because there is no shared place: `parse_fn` and
     /// the arrow parser each carry their own copy of the loop.
-    pub(super) fn reject_duplicate_params(&self, params: &[Param]) -> Result<(), String> {
+    pub(super) fn reject_duplicate_params(
+        &self,
+        params: &[Param],
+        unique: bool,
+    ) -> Result<(), String> {
+        // §15.1.2 IsSimpleParameterList — no default, no rest, no
+        // binding pattern (which arrives as a synthesized holder name).
+        let simple = params
+            .iter()
+            .all(|p| p.default.is_none() && !p.is_rest && !p.name.starts_with("__param_destr_"));
+        if !unique && simple && self.current_class.is_none() {
+            return Ok(());
+        }
         for (i, p) in params.iter().enumerate() {
             if params[..i].iter().any(|q| q.name == p.name) {
                 return Err(format!(
@@ -280,7 +306,7 @@ impl<'a> Parser<'a> {
             Token::RParen => self.pos += 1,
             t => return Err(format!("expected `)`, got {t:?} at {}", self.at())),
         }
-        self.reject_duplicate_params(&params)?;
+        self.reject_duplicate_params(&params, true)?;
         Ok((params, promoted, destr_lets))
     }
 
@@ -436,7 +462,6 @@ impl<'a> Parser<'a> {
             Token::RParen => self.pos += 1,
             t => return Err(format!("expected `)`, got {t:?} at {}", self.at())),
         }
-        self.reject_duplicate_params(&params)?;
         Ok((params, param_destr_lets))
     }
 

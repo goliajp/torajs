@@ -195,6 +195,8 @@ impl<'a> Parser<'a> {
             None
         };
         let (params, destr_lets) = self.parse_param_list()?;
+        // A function *expression* takes plain FormalParameters.
+        self.reject_duplicate_params(&params, false)?;
         let mut return_type = if matches!(self.peek(), Token::Colon) {
             self.pos += 1;
             Some(self.parse_type_ann()?)
@@ -420,7 +422,7 @@ impl<'a> Parser<'a> {
         // is seen the same text may still be a parenthesized sequence
         // expression, and `(x, x)` is perfectly legal as one. Refusing
         // at the `)` would reject the comma operator.
-        self.reject_duplicate_params(&params)?;
+        self.reject_duplicate_params(&params, true)?;
         let body = if matches!(self.peek(), Token::LBrace) {
             self.pos += 1;
             let mut stmts = Vec::new();

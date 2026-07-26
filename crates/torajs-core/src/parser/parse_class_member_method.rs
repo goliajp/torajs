@@ -47,6 +47,7 @@ impl<'a> Parser<'a> {
             (p, pr, dl)
         } else {
             let (mut p, dl) = self.parse_param_list()?;
+            self.reject_duplicate_params(&p, true)?;
             // 刀 1b — method-position default params infer their ann
             // from the default (see param_list.rs).
             self.infer_default_param_anns(&mut p);
