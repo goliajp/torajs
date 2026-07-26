@@ -1530,6 +1530,15 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 9215301c`, never as a constant.
 
+**Re-derived @ `b58797fb`** (2026-07-27, rotation 227): passTotal
+**14137** (+318 over rotation 226's 13819), bug 749, trAccepted 14886,
+incompatible **38288**, core **26046**. Gate predicate: **487** clusters
+of ≥ 4 cases holding 24755 cases, plus 919 clusters of ≤ 3 holding 1291.
+Both the cluster count and the case count fell this time — the first
+rotation where they moved together rather than the count rising as
+unlocked cases surfaced their own signatures. The per-group counts below
+are still stamped `@ 9215301c` except where an entry says otherwise.
+
 **Scope split.** Of 38717 incompatible cases, **12241 are post-v1.0
 surface**: Temporal, TypedArray/Atomics (with ArrayBuffer and DataView,
 which are its substrate), intl402, Proxy/Reflect. The split is by test
@@ -1937,6 +1946,15 @@ touches runtime hot paths.
         original description that held)
       - `#x in obj` — the ergonomic brand check; `expected expression,
         got PrivateIdent`
+      - **and the 941 turn out not to be private names at all.** The
+        `lex error: unexpected byte 0x23` cluster is still 941 after
+        this rotation, and its examples are
+        `test/language/comments/hashbang/*`: the **hashbang comment**
+        `#!/usr/bin/env node` (ES2023 §12.5, a `#!` permitted only at
+        the very start of a source text). That is a lexer feature of
+        its own, unrelated to `#x`, and it is the cheapest large
+        cluster on the board. Split it out rather than carrying it
+        under S2.2
       - ~~`*#g() {}` — a generator method with a private name~~ **done
         2026-07-27**: S2.1 taught the member position to accept `*` but
         its name only took `Ident` and the reserved words. It now takes
@@ -1945,6 +1963,23 @@ touches runtime hot paths.
       The 941 figure therefore does not mean what it said. **Re-derive
       the signature from the next sweep before starting** rather than
       trusting the number here
+- [ ] **S2.18** **Async generator methods** — `async *g() {}`. The
+      largest single cluster in the census at **1470 cases** across
+      `test/language/statements` (716), `test/language/expressions`
+      (714) and `test/language/arguments-object` (40), signature
+      `parse error: expected method or field after X, got Some(Star)`.
+      S2.1 taught the class-member and object-literal positions to
+      accept `*`, but only after a plain member name — the `async`
+      prefix takes a different path and still refuses the star. The
+      substrate for both halves exists (`async` methods work,
+      generator methods now work), which is why this reads as a
+      parser-shaped gap; verify that before assuming it, since S2.1's
+      "parser-only" claim was half wrong
+- [ ] **S2.19** **Hashbang comments** — `#!/usr/bin/env node` at the
+      very start of a source text (ES2023 §12.5). **941 cases**, the
+      whole of the `lex error: unexpected byte 0x23` cluster, which
+      this rotation's probing showed is *not* the private-name gap
+      S2.2 claimed it was. A lexer rule with no substrate behind it
 - [ ] **S2.3** Computed field names `[k] = v` in class bodies — **548**
 - [ ] **S2.4** `yield*` against a non-call expression — the parser
       currently demands a direct call to a `function*` — **434**

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-26T16:13:20.752Z",
+  "generatedAt": "2026-07-26T17:50:06.423Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-26T15:35:04Z",
-    "headSha": "7ef9b170",
-    "elapsedSec": 261.36,
+    "ranAt": "2026-07-26T17:47:47Z",
+    "headSha": "b58797fb",
+    "elapsedSec": 257.26,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 9240,
-    "passNoOracle": 118,
-    "passNegative": 4461,
-    "passTotal": 13819,
-    "bug": 743,
-    "incompatible": 38612,
+    "pass": 9503,
+    "passNoOracle": 130,
+    "passNegative": 4504,
+    "passTotal": 14137,
+    "bug": 749,
+    "incompatible": 38288,
     "bunSkip": 11904,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 14562,
-    "passRateInScope": 25.99,
-    "passRateTrAccepted": 94.9
+    "trAccepted": 14886,
+    "passRateInScope": 26.59,
+    "passRateTrAccepted": 94.97
   },
   "torajs": {
-    "commit": "86c31699",
-    "commitSubject": "fix(desugar): say which class declared the field twice",
+    "commit": "b58797fb",
+    "commitSubject": "fix(parser): scope the duplicate-parameter refusal to where it applies",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,55 +713,55 @@
   },
   "commits": [
     {
+      "hash": "b58797fb",
+      "subject": "fix(parser): scope the duplicate-parameter refusal to where it applies"
+    },
+    {
+      "hash": "8331a938",
+      "subject": "fix(desugar): super.m() names the nearest ancestor that declares m"
+    },
+    {
+      "hash": "0a300c15",
+      "subject": "style: fmt-drift fix in the return-coercion extraction"
+    },
+    {
+      "hash": "7dfe9ad4",
+      "subject": "fix(lower): decode an Arr<Any> handed back through a typed return"
+    },
+    {
+      "hash": "af62aeb3",
+      "subject": "feat(parser): a generator method may have a private name"
+    },
+    {
+      "hash": "e3956d3d",
+      "subject": "fix(parser): refuse a body let that repeats a parameter"
+    },
+    {
+      "hash": "11d1eb12",
+      "subject": "fix(parser): refuse a parameter name that repeats"
+    },
+    {
+      "hash": "8ee9f448",
+      "subject": "fix(parser): refuse super() outside a derived constructor"
+    },
+    {
+      "hash": "ec215b74",
+      "subject": "fix(parser): a generator method may call super.m()"
+    },
+    {
+      "hash": "e7ef480a",
+      "subject": "chore(hardev): refresh dashboard snapshot for rotation 226 close"
+    },
+    {
       "hash": "86c31699",
       "subject": "fix(desugar): say which class declared the field twice"
     },
     {
       "hash": "f39a807c",
       "subject": "docs(p-surf): S2.9 is three cases of new work, not nine"
-    },
-    {
-      "hash": "cbcd6b0a",
-      "subject": "fix(parser): resolve super in a hoisted class generator method, halfway"
-    },
-    {
-      "hash": "2e7d081e",
-      "subject": "fix(parser): a generator method may destructure its parameters"
-    },
-    {
-      "hash": "55038033",
-      "subject": "chore(hardev): archive the 7ef9b170 sweep and refresh the dashboard"
-    },
-    {
-      "hash": "2b725ff2",
-      "subject": "docs(p-surf): sweep @ 7ef9b170 — S2.1 took 1610 cases past one wall into the next"
-    },
-    {
-      "hash": "f743da3c",
-      "subject": "chore: untrack the python bytecode cache that landed with cluster_incompat"
-    },
-    {
-      "hash": "c350b8ce",
-      "subject": "docs(p-surf): mark S2.1 shipped whole, and record what the ordering got wrong"
-    },
-    {
-      "hash": "7ef9b170",
-      "subject": "feat(parser): a generator method may be written as a class member"
-    },
-    {
-      "hash": "38177abc",
-      "subject": "docs(p-surf): S2.1 is parser-only in one position and not in the other two"
-    },
-    {
-      "hash": "797d4517",
-      "subject": "feat(parser): a generator method may be written in an object literal"
-    },
-    {
-      "hash": "162e1260",
-      "subject": "style: sort the mod declarations rotation 225 appended out of order"
     }
   ],
-  "headSha": "86c31699",
+  "headSha": "b58797fb",
   "autorun": {
     "total": 531,
     "baselineTarget": 10,
