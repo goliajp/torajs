@@ -165,7 +165,39 @@ pub(crate) fn default_init_for_type(ann: &str) -> Expr {
         _ if ann == "WeakSet" || ann.starts_with("WeakSet<") => ctor("WeakSet"),
         // TypeVar (short all-uppercase T/U/K/V…) — monomorphizer-resolved marker.
         _ if is_likely_typevar(ann) => Expr::Ident(format!("__tvdefault__{ann}")),
-        _ => Expr::Number(0.0),
+        // A function type is the one slot the sentinel below cannot
+        // seed yet: it lowers to a null closure pointer, and a class
+        // holding one crashes on construction — `class C { f: (a:
+        // number) => number = (a: number) => a + 1 }` SIGBUSes with
+        // or without an initializer, and so does one that only reads
+        // a *different* field. Left on the wrong-typed zero, which at
+        // least stays loud (the `__this` mismatch below), until the
+        // closure slot can carry it. Its own axis, measured: calling
+        // a function held in a class field is also not lowered yet
+        // ("unsupported member call shape").
+        _ if crate::num_width::fn_type_canon(ann).is_some() => Expr::Number(0.0),
+        // Every other type: the annotation's own undefined sentinel,
+        // asked for by the marker [`crate::ast::UNDEF_SLOT_MARKER`]
+        // that an async body's fall-through tail already uses. It
+        // types as the annotation rather than as `Type::Undefined`,
+        // which is the whole requirement here — the seed literal has
+        // to agree with the class it is declared as.
+        //
+        // The catch-all used to be `Number(0.0)`, and a class simply
+        // could not declare a field of any type outside the list
+        // above: the factory died on its own synthesized `__this`
+        // ("declared ClassRef(\"C\"), init has Struct([(\"d\", Number)])"),
+        // taking every other field of that class down with it. A
+        // function type, `Date`, `RegExp` and `bigint` were all
+        // unusable as field types, however the field was initialized
+        // — including from the constructor, since the seed is built
+        // before the constructor runs.
+        //
+        // Fabricating a value of the type instead (an epoch `Date`,
+        // an empty `RegExp`, `0n`) would answer a real-looking value
+        // where the language answers `undefined`, and would make
+        // every construction pay for it.
+        _ => Expr::Ident(format!("{}{ann}", crate::ast::UNDEF_SLOT_MARKER)),
     }
 }
 
