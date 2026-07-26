@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-26T06:54:20.025Z",
+  "generatedAt": "2026-07-26T08:11:15.568Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 96.12
   },
   "torajs": {
-    "commit": "35e2577e",
-    "commitSubject": "fix(infer): a declared return type types the arrow returned under it",
+    "commit": "6ddf6281",
+    "commitSubject": "fix(class): type arguments written at `new` reach the factory",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,38 @@
   },
   "commits": [
     {
+      "hash": "6ddf6281",
+      "subject": "fix(class): type arguments written at `new` reach the factory"
+    },
+    {
+      "hash": "922a3d48",
+      "subject": "fix(infer): a container literal at an argument position takes that type"
+    },
+    {
+      "hash": "76bbc31f",
+      "subject": "fix(infer): writing an arrow into a typed place types it, not just declaring it"
+    },
+    {
+      "hash": "bc8ad25c",
+      "subject": "fix(infer): a binding takes the return type its initializer declares"
+    },
+    {
+      "hash": "86836dd8",
+      "subject": "fix(infer): a call's receiver can be a field, not only a binding"
+    },
+    {
+      "hash": "c4694900",
+      "subject": "fix(class): a field can be declared any type, not the six the seed knew"
+    },
+    {
+      "hash": "a2d25349",
+      "subject": "fix(infer): an array mutator types the arrow it stores as an element"
+    },
+    {
+      "hash": "7397a196",
+      "subject": "chore(hardev): refresh dashboard snapshot for rotation 222 close"
+    },
+    {
       "hash": "35e2577e",
       "subject": "fix(infer): a declared return type types the arrow returned under it"
     },
@@ -727,59 +759,38 @@
     {
       "hash": "dfa4f4af",
       "subject": "chore(hardev): refresh dashboard snapshot for rotation 222 close"
-    },
-    {
-      "hash": "34a0ca36",
-      "subject": "fix(spread): a short spread source leaves undefined, not a throw"
-    },
-    {
-      "hash": "f5429d71",
-      "subject": "fix(lower): a parameter is told which family's undefined it was handed"
-    },
-    {
-      "hash": "83437f64",
-      "subject": "fix(arr): a boolean element answers undefined by widening the answer"
-    },
-    {
-      "hash": "3570efac",
-      "subject": "fix(arr): every refcounted-pointer element answers undefined the same way"
-    },
-    {
-      "hash": "9bd7a23f",
-      "subject": "chore(hardev): refresh dashboard snapshot for rotation 221 close"
-    },
-    {
-      "hash": "14b4160b",
-      "subject": "fix(check): an optional `any` parameter accepts every argument"
-    },
-    {
-      "hash": "785c5da3",
-      "subject": "fix(parser): an arrow can declare an inline function type as its return"
-    },
-    {
-      "hash": "f7388c2c",
-      "subject": "fix(arr): reading past the end of an object or nested array is undefined"
     }
   ],
-  "headSha": "35e2577e",
+  "headSha": "6ddf6281",
   "autorun": {
-    "total": 526,
+    "total": 527,
     "baselineTarget": 10,
-    "bySelf": 521,
+    "bySelf": 522,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785043205-4bde",
-      "at": "2026-07-26T05:20:05Z",
-      "ts": 1785043205,
+      "rotationId": "r-1785048874-720f",
+      "at": "2026-07-26T06:54:34Z",
+      "ts": 1785048874,
       "trigger": "self",
-      "prevHead": "9bd7a23f",
-      "handoffSha": "sha256:45490364d3cdcb70f5e2ee9b4335029c94d22a5096fc7aa802d889f40f8b9379",
-      "handoffAgeSec": 70,
+      "prevHead": "7397a196",
+      "handoffSha": "sha256:1e11061e7aadd1afc6212f481a3ea657e76e60115187e7529804a0154d3e36f3",
+      "handoffAgeSec": 24,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1785048874-720f",
+        "at": "2026-07-26T06:54:34Z",
+        "ts": 1785048874,
+        "trigger": "self",
+        "prevHead": "7397a196",
+        "handoffSha": "sha256:1e11061e7aadd1afc6212f481a3ea657e76e60115187e7529804a0154d3e36f3",
+        "handoffAgeSec": 24,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785043205-4bde",
         "at": "2026-07-26T05:20:05Z",
@@ -876,17 +887,6 @@
         "prevHead": "d0add202",
         "handoffSha": "sha256:a85b1ab1c39ce202d7673d9289f565bfefeb55cac59cb5527574207a280ec717",
         "handoffAgeSec": 10,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784972484-70d6",
-        "at": "2026-07-25T09:41:24Z",
-        "ts": 1784972484,
-        "trigger": "self",
-        "prevHead": "b03bb4d0",
-        "handoffSha": "sha256:df6643a22a42bd3fd6731831efb38aba14c813704e64ef6363e139bc61d8904a",
-        "handoffAgeSec": 3,
         "conformanceBefore": null,
         "commitsInSession": null
       }
