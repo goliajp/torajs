@@ -1810,6 +1810,18 @@ touches runtime hot paths.
       fixture and confirmed pre-existing against the prior binary. Same
       family as the `super()` diagnostic S2.9 replaced: an internal note
       that blames a pass which did run. Not yet censused
+- [ ] **S2.14** A `catch` binding that shadows a parameter erases it
+      for the rest of the function: `function f(a) { try { … } catch
+      (a) { … } return a }` answers `ssa-lower: unknown ident \`a\``.
+      The catch parameter's scope is not popped, so the outer name
+      never comes back. Found while writing the S2.9 fixture. Not yet
+      censused
+- [ ] **S2.15** `var` may repeat a parameter name — it *is* the same
+      variable (ES §14.3.2.1) — but tr answers `redeclaration of \`a\`
+      in current scope`. Note the asymmetry this leaves: as of S2.9 the
+      `let` spelling is refused for the right reason while the `var`
+      spelling is refused for the wrong one. Found while writing the
+      S2.9 fixture. Not yet censused
 - [ ] **S2.10** The receiver parameter is visible in argument-position
       diagnostics. Passing a bad argument to a class generator method
       reports `argument 1` for what the user wrote as the first argument,
@@ -1818,10 +1830,12 @@ touches runtime hot paths.
       cover both, since both are "a synthesized leading parameter leaked
       into a user-facing message". Cosmetic, but it is the kind of
       cosmetic that sends a reader looking for a bug in the wrong place
-- [ ] **S2.9** Early errors that were being faked by a parse failure —
-      **9 cases**, exposed by S2.1. **Measured 2026-07-27; the list is
-      shorter than it looks, and start from this rather than the
-      sentence above:**
+- [x] **S2.9** Early errors that were being faked by a parse failure —
+      **9 cases**, exposed by S2.1. **Closed 2026-07-27** except the
+      two `grammar-static-gen-meth-super` cases, which are blocked on
+      `class C extends Function` and were never S2.9's to begin with.
+      Measured before starting, and the measurement changed the plan
+      twice — read the sub-items rather than the sentence above:
       - `*method(x = 0, x)` and `*foo(a) { let a = 3 }` (4 cases).
         **"Fix the kind, not the detection" — written here after
         rotation 226 — was wrong, and rotation 227 measured why.** The
@@ -1844,11 +1858,17 @@ touches runtime hot paths.
           functions, shadowing, nesting, rest, several destructuring
           holders side by side, TS parameter properties, accessors,
           arrows, and that sequence expression
-        - **parameter vs body `let`/`const` (`*foo(a) { let a = 3 }`):
-          still open.** Same early error (ES §14.2.1 — a lexical
-          declaration may not shadow a parameter name), and it needs
-          the body's top-level lexical names, not just the parameter
-          list. Currently refused by the same accident
+        - **parameter vs body `let`/`const`: done 2026-07-27.** Same
+          early error (ES §14.2.1), checked at the same six sites once
+          the body is parsed and before the destructuring prelude is
+          prepended — those synthesized `let`s bind the parameter's own
+          leaves and are parameter names for this purpose, while the
+          unspellable `__param_destr_N` holders are not. `var` is
+          exempt (§14.3.2.1 makes it the same variable) and so is a
+          nested function declaration, being var-scoped. Fixture
+          `param-body-shadow-001` pins the legal side: inner blocks,
+          nested functions and arrows, loop and catch bindings, and a
+          body name matching a *different* function's parameter
       - `grammar-static-gen-meth-super` (2 cases) is blocked by
         `class C extends Function` being unsupported — nothing to do
         with generators
@@ -2103,10 +2123,10 @@ but see S2.1 for why the reasoning was wrong.
 
 **Status @ rotation 227**: S1.1 / S1.2 / S1.5 shipped (rotation 225),
 S1.7 / S1.8 measured, **S2.1 shipped whole** (all three positions),
-**S2.11 closed**, and **S2.9 down to one open item** — its `super()`
-third and its duplicate-parameter-name half both landed in rotation
-227, which also surfaced S2.12, S2.13 and S5.8. S1.3 now measurable;
-S1.4 open with a corrected description; S1.8(b) blocked on S5.6.
+**S2.11 and S2.9 both closed** in rotation 227 (S2.9 except the two
+cases that were never its own), which also surfaced S2.12, S2.13,
+S2.14, S2.15 and S5.8. S1.3 now measurable; S1.4 open with a corrected
+description; S1.8(b) blocked on S5.6.
 
 Four orderings here were decided by measurement rather than by the
 plan, which is the pattern worth keeping: S1.2 gated S1.1 (a function

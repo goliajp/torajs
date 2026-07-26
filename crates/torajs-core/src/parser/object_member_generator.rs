@@ -109,6 +109,7 @@ impl<'a> Parser<'a> {
         // `next()` — and it finds out how many via this table. Without the
         // entry the lets stay in the body and `__param_destr_N` resolves
         // against a field that was never created.
+        self.reject_lexical_shadowing_param(&params, &destr_lets, &body)?;
         let destr_prefix = destr_lets.len();
         let body = if destr_lets.is_empty() {
             body

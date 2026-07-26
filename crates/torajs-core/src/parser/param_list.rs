@@ -46,6 +46,56 @@ impl<'a> Parser<'a> {
         Ok(())
     }
 
+    /// ES §14.2.1 early error: a `let` / `const` at the top level of a
+    /// function body may not repeat a parameter name. (`var` may — it
+    /// is the same variable, per §14.3.2.1 — and so may a nested
+    /// function declaration, which is var-scoped.)
+    ///
+    /// P-SURF S2.9, the other half of [`Self::reject_duplicate_params`]
+    /// and refused by the same accident until now: the name collided as
+    /// two fields of the generator's `__Gen_*` class, which caught
+    /// `*foo(a) { let a = 3 }` and missed the plain spelling.
+    ///
+    /// `destr_lets` carries the bindings a destructuring parameter
+    /// unpacks (`function f({ a }) {}` binds `a`), which are parameter
+    /// names for this purpose even though they arrive as statements.
+    /// The synthesized `__param_destr_N` holders are not — they are
+    /// unspellable, so no user declaration can collide with one.
+    pub(super) fn reject_lexical_shadowing_param(
+        &self,
+        params: &[Param],
+        destr_lets: &[Stmt],
+        body: &[Stmt],
+    ) -> Result<(), String> {
+        let mut bound: Vec<&str> = params
+            .iter()
+            .map(|p| p.name.as_str())
+            .filter(|n| !n.starts_with("__param_destr_"))
+            .collect();
+        for s in destr_lets {
+            if let Stmt::LetDecl { name, .. } = s {
+                bound.push(name.as_str());
+            }
+        }
+        for s in body {
+            let Stmt::LetDecl {
+                name,
+                is_var: false,
+                ..
+            } = s
+            else {
+                continue;
+            };
+            if bound.contains(&name.as_str()) {
+                return Err(format!(
+                    "`{name}` is declared in the body and is already a parameter, at {}",
+                    self.at()
+                ));
+            }
+        }
+        Ok(())
+    }
+
     /// V3-18 wedge — TS parameter-property shorthand
     /// (`constructor(public x: number, private readonly y: string)`).
     /// Returns the regular param list plus a side-table of

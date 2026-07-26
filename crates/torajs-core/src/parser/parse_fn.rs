@@ -127,6 +127,7 @@ impl<'a> Parser<'a> {
             Token::RBrace => self.pos += 1,
             t => return Err(format!("expected `}}`, got {t:?} at {}", self.at())),
         }
+        self.reject_lexical_shadowing_param(&params, &param_destr_lets, &body)?;
         // V3-18 wedge — prepend per-param destructuring lets when a
         // parameter was a binding pattern. Order is preserved (lets
         // run first, then user body).

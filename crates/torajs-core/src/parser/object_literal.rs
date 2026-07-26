@@ -392,6 +392,7 @@ impl<'a> Parser<'a> {
                 ));
             }
         }
+        self.reject_lexical_shadowing_param(&params, &destr_lets, &body)?;
         let body = if destr_lets.is_empty() {
             body
         } else {
