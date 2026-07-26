@@ -22,23 +22,37 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
     let mut out = Vec::new();
     let mut i: u32 = 0;
 
+    // ES2023 §12.5 HashbangComment — `#!` runs to the end of the line and
+    // is permitted only at the very start of the source text, so this is
+    // deliberately outside the loop rather than a `#` match arm. A `#`
+    // anywhere else is still either a private name or an error.
+    if bytes.starts_with(b"#!") {
+        while i < len && bytes[i as usize] != b'\n' && bytes[i as usize] != b'\r' {
+            i += 1;
+        }
+    }
+
     while i < len {
         let start = i;
         let b = bytes[i as usize];
+        // The non-ASCII half of §12.2 WhiteSpace / §12.3 LineTerminator:
+        // <NBSP>, <ZWNBSP>, the Zs category, and U+2028 / U+2029.
+        // Terminators are skipped as whitespace here so single-line
+        // comments and ASI still observe them. A non-ASCII character that
+        // is not whitespace falls through to the identifier arm below,
+        // and from there to the unexpected-byte error.
+        if b >= 0x80
+            && let Some((cp, w)) = util::decode_utf8(bytes, i)
+            && is_whitespace_cp(cp)
+        {
+            i += w;
+            continue;
+        }
         match b {
-            b' ' | b'\t' | b'\r' | b'\n' => {
+            // ES2024 §12.2 WhiteSpace + §12.3 LineTerminator, ASCII half:
+            // <TAB> <VT> <FF> <SP> <LF> <CR>.
+            b' ' | b'\t' | 0x0B | 0x0C | b'\r' | b'\n' => {
                 i += 1;
-                continue;
-            }
-            // ES2024 §11.3 line terminators U+2028 (LINE SEPARATOR) and
-            // U+2029 (PARAGRAPH SEPARATOR) — UTF-8 E2 80 A8 / A9.
-            // Consumed as whitespace here so single-line comments and
-            // ASI observe them as line terminators.
-            0xE2 if (i as usize) + 2 < len as usize
-                && bytes[i as usize + 1] == 0x80
-                && (bytes[i as usize + 2] == 0xA8 || bytes[i as usize + 2] == 0xA9) =>
-            {
-                i += 3;
                 continue;
             }
             b'.' => scan_number::scan_dot(bytes, &mut i, &mut out, start),
@@ -177,6 +191,28 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
     }
     emit(&mut out, Token::Eof, len, len);
     Ok(out)
+}
+
+/// The non-ASCII members of ES2024 §12.2 `WhiteSpace` — <NBSP>,
+/// <ZWNBSP>, and the Zs category — plus the two §12.3 `LineTerminator`
+/// characters U+2028 / U+2029, which the caller skips the same way.
+///
+/// Zs is spelled out rather than looked up: it is eight ranges that have
+/// not moved in a decade, and pulling a UCD table in for it would cost
+/// more than it explains.
+fn is_whitespace_cp(cp: u32) -> bool {
+    matches!(
+        cp,
+        0x00A0                  // NBSP
+        | 0x1680                // OGHAM SPACE MARK
+        | 0x2000
+            ..=0x200A       // EN QUAD .. HAIR SPACE
+        | 0x2028 | 0x2029       // LINE / PARAGRAPH SEPARATOR
+        | 0x202F                // NARROW NO-BREAK SPACE
+        | 0x205F                // MEDIUM MATHEMATICAL SPACE
+        | 0x3000                // IDEOGRAPHIC SPACE
+        | 0xFEFF // ZWNBSP
+    )
 }
 
 /// `>` / `>=` / `>>` / `>>>` — greater-than family. Right-shift arms
