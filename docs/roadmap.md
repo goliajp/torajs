@@ -2023,19 +2023,50 @@ touches runtime hot paths.
 - [x] **S2.6** Unicode escapes in identifiers (lexer byte `0x5c`) —
       **485**, closed by S2.19's second knife (`ca6b991a`): same root
       cause, different byte
-- [ ] **S2.3** Computed field names `[k] = v` in class bodies — **548**
+- [ ] **S2.3** Computed field names `[k] = v` in class bodies — **548**.
+      Rotation 229 measured the shapes; it is not one failure mode but
+      three, and one of them is silent:
+      `parse_class_decl_member.rs:64` accepts only `[<Ident>(.<Ident>)*]`
+      (minted as the P5.2 `__sym_A_B__` name) and `[<StringLiteral>]`.
+      So `["lit"] = 2` is **already correct**; `[k + "2"]` is a **parse
+      error**; and `[k] = 1` with `k` a variable **silently installs a
+      field literally named `__sym_k__`**, so `a[k]` reads `undefined`
+      with no diagnostic — metric water by the iron rule, and the first
+      thing to fix. Doing it properly needs the §15.7.10 semantics (the
+      key expression is evaluated ONCE at class-definition time, in
+      source order) plus a home for a runtime-keyed property on an
+      instance whose layout is a static struct — i.e. the dynobj
+      degrade path. Deserves its own RFC; not startable as a side blade
 - [ ] **S2.4** `yield*` against a non-call expression — the parser
       currently demands a direct call to a `function*` — **434**
-- [ ] **S2.5** `for await (… of …)` iterable form — **654**, all in one
+- [x] **S2.5** `for await (… of …)` iterable form — **654**, all in one
       directory (`test/language/statements`). Rotation 228 localised
       the decision: `parser/try_parse_for_of.rs:267` keys on
       `Expr::Call { callee: Expr::Ident(name) }` being in
       `async_generator_fns`, so a method call (callee is
       `Expr::Member`) and a captured iterator never match and fall to
       the sync protocol, which panics on the `Promise` that
-      `next()` returns. The fix is an await flag on `Stmt::ForOf` plus
-      an awaiting arm in the generic protocol path
+      `next()` returns. Shipped rotation 229 (`19f7fdde`) exactly as
+      predicted: an await flag on `Stmt::ForOf` — the fact had no proxy
+      in that lane, since the array lane's marker is a `.value` wrap on
+      `elem_expr` and the protocol lane ignores `elem_expr` — plus an
+      awaiting arm that unwraps each step
 - [ ] **S2.7** Untyped class field without a literal initializer — **245**
+- [x] **S2.22** **for-of inside an arrow function** — shipped rotation
+      229 (`4196ae10`); never a census item, it surfaced while writing
+      S2.5's fixture with the ordinary `(async () => {})()` driver.
+      Only arrows compute free variables, and the for-of desugar's own
+      loop counter was answering: `elem_expr` is `src[i]`, walked before
+      `i` was bound. So NO for-of of ANY source shape could appear
+      inside an arrow — wider than the S2.5 item that exposed it
+- [x] **S2.23** **Return annotation on a class generator method** —
+      shipped rotation 229 (`2a2a2615`); also not a census item.
+      `*g(): Generator<number>` was a hard type error in all four member
+      positions (instance / static / private / async) while the same
+      method unannotated ran. The method parses into a hoisted
+      `function*` plus a forwarder; the unwrapped yield type belongs to
+      the first, and the forwarder was handed it too, so it declared a
+      number return over a body that answers the generator object
 - [ ] **S2.20** **Method signatures in inline object types** —
       `{ m(): number }` — shipped rotation 228 (`98efa861`); listed
       here because it was never a census item, it surfaced while
