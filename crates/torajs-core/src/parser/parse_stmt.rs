@@ -167,7 +167,7 @@ impl<'a> Parser<'a> {
         if matches!(self.peek(), Token::Semi) {
             self.pos += 1;
         }
-        Ok(Stmt::Expr(expr))
+        self.expr_stmt_or_dstr_assign(expr)
     }
 
     /// `break`/`continue` optional label — ES §14.9/§14.8 restricted

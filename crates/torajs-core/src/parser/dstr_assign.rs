@@ -1,0 +1,273 @@
+//! S2.24 (RFC 20260727-dstr-assignment 刀 1) — destructuring
+//! assignment to existing bindings, ES §13.15.5.
+//!
+//! `[a, b] = src;` / `({ x: o.x } = src);` parse naturally into
+//! `Expr::Assign { target: Array | ObjectLit, value }` — the LHS is
+//! read as a literal first (the spec's CoverAssignmentPattern). The
+//! statement path re-reads that literal as an AssignmentPattern and
+//! expands it, parse-time, into a `Stmt::Multi` of plain assignments
+//! (the same desugar family as let/const destructuring in
+//! destr_drivers), so check / ssa_lower only ever see simple targets.
+//!
+//! The source ALWAYS hoists into a fresh `__dstra_src_N` temp — no
+//! declaration-form ident-reuse: `[c, d] = c` under reuse would let
+//! `c = c[0]` poison the later `c[1]` read, and the swap idiom
+//! `[a, b] = [b, a]` depends on the RHS materializing first.
+//!
+//! Element grammar (array): Ident / Member / Index targets, `= D`
+//! defaults (mirroring destr_defaults' length-guard ternary), holes,
+//! trailing `...rest` (slice tail, same as the declaration form),
+//! nested patterns (fresh temp + recursion). Object: shorthand /
+//! renamed / Member-target fields, `f: y = D` defaults, nested
+//! patterns, plus the §13.15.5 RequireObjectCoercible guard.
+//!
+//! Recorded boundaries (loud, never silent): object rest
+//! (`{ ...r } = o` — remainder-copy semantics, not spread) rejects
+//! here; `{ x = D }` shorthand defaults stay an upstream ObjectLit
+//! parse error (CoverInitializedName); an expression-POSITION pattern
+//! (`x = ([a] = arr)`) keeps check's `invalid assignment target`.
+
+use super::*;
+
+impl<'a> Parser<'a> {
+    /// Statement finisher: a statement-position `Expr::Assign` whose
+    /// target parsed as an array / object literal is a destructuring
+    /// assignment — expand it; anything else stays `Stmt::Expr`.
+    pub(super) fn expr_stmt_or_dstr_assign(&mut self, expr: ExprId) -> Result<Stmt, String> {
+        if let Expr::Assign { target, value } = self.ast.get_expr(expr)
+            && matches!(
+                self.ast.get_expr(*target),
+                Expr::Array(_) | Expr::ObjectLit { .. }
+            )
+        {
+            let (t, v) = (*target, *value);
+            return Ok(Stmt::Multi(self.desugar_dstr_assign(t, v)?));
+        }
+        Ok(Stmt::Expr(expr))
+    }
+
+    /// Pattern-assignment expansion entry, shared with the for-of
+    /// bare-pattern head (刀 2): hoist the source into a fresh temp,
+    /// then walk the pattern emitting one plain assignment per slot.
+    pub(super) fn desugar_dstr_assign(
+        &mut self,
+        target: ExprId,
+        value: ExprId,
+    ) -> Result<Vec<Stmt>, String> {
+        let id = self.mint_desugar_id();
+        let src_name = format!("__dstra_src_{id}");
+        let mut out = vec![Stmt::LetDecl {
+            mutable: false,
+            name: src_name.clone(),
+            type_ann: None,
+            init: value,
+            is_var: false,
+        }];
+        self.emit_dstr_assign_pattern(target, &src_name, &mut out)?;
+        Ok(out)
+    }
+
+    fn emit_dstr_assign_pattern(
+        &mut self,
+        pat: ExprId,
+        src_name: &str,
+        out: &mut Vec<Stmt>,
+    ) -> Result<(), String> {
+        match self.ast.get_expr(pat).clone() {
+            Expr::Array(elems) => self.emit_dstr_assign_array(&elems, src_name, out),
+            Expr::ObjectLit { fields } => self.emit_dstr_assign_object(&fields, src_name, out),
+            _ => Err(format!(
+                "invalid destructuring assignment target at {}",
+                self.at()
+            )),
+        }
+    }
+
+    /// §13.15.5.5 IteratorDestructuringAssignmentEvaluation over the
+    /// index-read approximation the declaration form already uses.
+    fn emit_dstr_assign_array(
+        &mut self,
+        elems: &[ExprId],
+        src_name: &str,
+        out: &mut Vec<Stmt>,
+    ) -> Result<(), String> {
+        for (i, &el) in elems.iter().enumerate() {
+            match self.ast.get_expr(el).clone() {
+                // Elision advances the position, binds nothing.
+                Expr::Elision => {}
+                Expr::Spread { expr } => {
+                    if i + 1 != elems.len() {
+                        return Err(format!(
+                            "rest element must be last in a destructuring pattern at {}",
+                            self.at()
+                        ));
+                    }
+                    let src_ref = self.ast.add_expr(Expr::Ident(src_name.to_string()));
+                    let slice_m = self.ast.add_expr(Expr::Member {
+                        obj: src_ref,
+                        name: "slice".into(),
+                    });
+                    let start = self.ast.add_expr(Expr::Number(i as f64));
+                    let tail = self.ast.add_expr(Expr::Call {
+                        callee: slice_m,
+                        args: vec![start],
+                    });
+                    self.emit_dstr_assign_slot(expr, tail, out)?;
+                }
+                // `[v = 10]` — the element parsed as an Assign; its
+                // value is the §13.15.5.3 default.
+                Expr::Assign {
+                    target,
+                    value: default,
+                } => {
+                    let load = self.dstra_elem_load(src_name, i, Some(default));
+                    self.emit_dstr_assign_slot(target, load, out)?;
+                }
+                _ => {
+                    let load = self.dstra_elem_load(src_name, i, None);
+                    self.emit_dstr_assign_slot(el, load, out)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// §13.15.5.4 keyed destructuring, plus the RequireObjectCoercible
+    /// guard the declaration form emits (null / undefined source is a
+    /// TypeError even for `{}`).
+    fn emit_dstr_assign_object(
+        &mut self,
+        fields: &[(String, ExprId)],
+        src_name: &str,
+        out: &mut Vec<Stmt>,
+    ) -> Result<(), String> {
+        out.push(self.emit_object_coercible_guard(src_name));
+        for (fname, val) in fields {
+            if fname == "__spread__" {
+                return Err(format!(
+                    "object rest is not supported in destructuring assignment yet at {}",
+                    self.at()
+                ));
+            }
+            let (target, default) = match self.ast.get_expr(*val) {
+                // `{ f: y = D }` — the field value parsed as an
+                // Assign; its value is the default.
+                Expr::Assign { target, value } => (*target, Some(*value)),
+                _ => (*val, None),
+            };
+            let load = self.dstra_field_load(src_name, fname, default);
+            self.emit_dstr_assign_slot(target, load, out)?;
+        }
+        Ok(())
+    }
+
+    /// One pattern slot: a simple target gets a direct assign; a
+    /// nested pattern hoists the loaded value into a fresh temp and
+    /// recurses; anything else is the spec's early error.
+    fn emit_dstr_assign_slot(
+        &mut self,
+        target: ExprId,
+        loaded: ExprId,
+        out: &mut Vec<Stmt>,
+    ) -> Result<(), String> {
+        let is_simple = matches!(
+            self.ast.get_expr(target),
+            Expr::Ident(_) | Expr::Member { .. } | Expr::Index { .. }
+        );
+        if is_simple {
+            let assign = self.ast.add_expr(Expr::Assign {
+                target,
+                value: loaded,
+            });
+            out.push(Stmt::Expr(assign));
+            return Ok(());
+        }
+        if matches!(
+            self.ast.get_expr(target),
+            Expr::Array(_) | Expr::ObjectLit { .. }
+        ) {
+            let id = self.mint_desugar_id();
+            let tmp = format!("__dstra_src_{id}");
+            out.push(Stmt::LetDecl {
+                mutable: false,
+                name: tmp.clone(),
+                type_ann: None,
+                init: loaded,
+                is_var: false,
+            });
+            return self.emit_dstr_assign_pattern(target, &tmp, out);
+        }
+        Err(format!(
+            "invalid destructuring assignment target at {}",
+            self.at()
+        ))
+    }
+
+    /// `__t[i]`, optionally wrapped in the §13.15.5.3 default ternary
+    /// (mirrors maybe_parse_destr_default: fires past-end — the
+    /// length guard also keeps typed-lane OOB reads out — and on an
+    /// explicit undefined element; null / 0 / '' keep their value).
+    fn dstra_elem_load(&mut self, src_name: &str, idx: usize, default: Option<ExprId>) -> ExprId {
+        let src_ref = self.ast.add_expr(Expr::Ident(src_name.to_string()));
+        let idx_e = self.ast.add_expr(Expr::Number(idx as f64));
+        let load = self.ast.add_expr(Expr::Index {
+            obj: src_ref,
+            index: idx_e,
+        });
+        let Some(default_expr) = default else {
+            return load;
+        };
+        let src_ref2 = self.ast.add_expr(Expr::Ident(src_name.to_string()));
+        let len_member = self.ast.add_expr(Expr::Member {
+            obj: src_ref2,
+            name: "length".into(),
+        });
+        let idx_lit = self.ast.add_expr(Expr::Number(idx as f64));
+        let len_ok = self.ast.add_expr(Expr::BinOp {
+            op: BinOp::Gt,
+            left: len_member,
+            right: idx_lit,
+        });
+        let undef = self.ast.add_expr(Expr::Ident("undefined".into()));
+        let not_undef = self.ast.add_expr(Expr::BinOp {
+            op: BinOp::Neq,
+            left: load,
+            right: undef,
+        });
+        let cond = self.ast.add_expr(Expr::BinOp {
+            op: BinOp::LAnd,
+            left: len_ok,
+            right: not_undef,
+        });
+        self.ast.add_expr(Expr::Ternary {
+            cond,
+            then_branch: load,
+            else_branch: default_expr,
+        })
+    }
+
+    /// `__t.f`, optionally wrapped in the §13.15.5.4 default ternary
+    /// (mirrors maybe_parse_object_destr_default: undefined and ONLY
+    /// undefined fires the default).
+    fn dstra_field_load(&mut self, src_name: &str, field: &str, default: Option<ExprId>) -> ExprId {
+        let src_ref = self.ast.add_expr(Expr::Ident(src_name.to_string()));
+        let load = self.ast.add_expr(Expr::Member {
+            obj: src_ref,
+            name: field.to_string(),
+        });
+        let Some(default_expr) = default else {
+            return load;
+        };
+        let undef = self.ast.add_expr(Expr::Ident("undefined".into()));
+        let cond = self.ast.add_expr(Expr::BinOp {
+            op: BinOp::Eq,
+            left: load,
+            right: undef,
+        });
+        self.ast.add_expr(Expr::Ternary {
+            cond,
+            then_branch: default_expr,
+            else_branch: load,
+        })
+    }
+}

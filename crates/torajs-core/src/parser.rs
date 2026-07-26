@@ -37,6 +37,7 @@ mod class_member;
 mod destr_defaults;
 mod destr_drivers;
 mod destr_helpers;
+mod dstr_assign;
 mod expr_entry;
 mod expr_prec;
 mod fn_expr;
