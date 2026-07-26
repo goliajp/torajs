@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-26T15:37:40.666Z",
+  "generatedAt": "2026-07-26T16:13:20.752Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 94.9
   },
   "torajs": {
-    "commit": "2b725ff2",
-    "commitSubject": "docs(p-surf): sweep @ 7ef9b170 — S2.1 took 1610 cases past one wall into the next",
+    "commit": "86c31699",
+    "commitSubject": "fix(desugar): say which class declared the field twice",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,26 @@
   },
   "commits": [
     {
+      "hash": "86c31699",
+      "subject": "fix(desugar): say which class declared the field twice"
+    },
+    {
+      "hash": "f39a807c",
+      "subject": "docs(p-surf): S2.9 is three cases of new work, not nine"
+    },
+    {
+      "hash": "cbcd6b0a",
+      "subject": "fix(parser): resolve super in a hoisted class generator method, halfway"
+    },
+    {
+      "hash": "2e7d081e",
+      "subject": "fix(parser): a generator method may destructure its parameters"
+    },
+    {
+      "hash": "55038033",
+      "subject": "chore(hardev): archive the 7ef9b170 sweep and refresh the dashboard"
+    },
+    {
       "hash": "2b725ff2",
       "subject": "docs(p-surf): sweep @ 7ef9b170 — S2.1 took 1610 cases past one wall into the next"
     },
@@ -739,47 +759,38 @@
     {
       "hash": "162e1260",
       "subject": "style: sort the mod declarations rotation 225 appended out of order"
-    },
-    {
-      "hash": "89287589",
-      "subject": "docs(p-surf): measure what the f/x clusters actually are, and what __this still is"
-    },
-    {
-      "hash": "110ebe35",
-      "subject": "chore(hardev): refresh dashboard snapshot for rotation 225 close"
-    },
-    {
-      "hash": "3639c961",
-      "subject": "chore(test262): sweep @ e023bc6b — S1 moved its targets, its cascade theory did not"
-    },
-    {
-      "hash": "e023bc6b",
-      "subject": "fix(fn): a constructor that returns an object gets to keep it"
-    },
-    {
-      "hash": "48f805d5",
-      "subject": "fix(fn): `new F()` works when F is a function, not only a class"
     }
   ],
-  "headSha": "2b725ff2",
+  "headSha": "86c31699",
   "autorun": {
-    "total": 530,
+    "total": 531,
     "baselineTarget": 10,
-    "bySelf": 525,
+    "bySelf": 526,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785076973-4896",
-      "at": "2026-07-26T14:42:53Z",
-      "ts": 1785076973,
+      "rotationId": "r-1785082395-2a55",
+      "at": "2026-07-26T16:13:15Z",
+      "ts": 1785082395,
       "trigger": "self",
-      "prevHead": "3639c961",
-      "handoffSha": "sha256:713857f700686e1a66275570935d702b6c31668ceffdea5d20d3688a817320dc",
-      "handoffAgeSec": 6,
+      "prevHead": "86c31699",
+      "handoffSha": "sha256:0d088967c1b1a11531c78a913e4e0f98fda2c96861f6e9450019d9639ab2de3d",
+      "handoffAgeSec": 0,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1785082395-2a55",
+        "at": "2026-07-26T16:13:15Z",
+        "ts": 1785082395,
+        "trigger": "self",
+        "prevHead": "86c31699",
+        "handoffSha": "sha256:0d088967c1b1a11531c78a913e4e0f98fda2c96861f6e9450019d9639ab2de3d",
+        "handoffAgeSec": 0,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785076973-4896",
         "at": "2026-07-26T14:42:53Z",
@@ -876,17 +887,6 @@
         "prevHead": "8c984774",
         "handoffSha": "sha256:9d9cdb4b64bcf6e6ac2d057b8dd92d9d902708019ee330fff97c3979fdf3f34a",
         "handoffAgeSec": 43,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1785003476-05bc",
-        "at": "2026-07-25T18:17:56Z",
-        "ts": 1785003476,
-        "trigger": "self",
-        "prevHead": "77d33007",
-        "handoffSha": "sha256:01dcc89f83245ccd8e19ab539939d1ae04f763c14367e89930fbbe494a29ad69",
-        "handoffAgeSec": 11,
         "conformanceBefore": null,
         "commitsInSession": null
       }
