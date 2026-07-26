@@ -168,6 +168,22 @@ pub(crate) fn try_lower(
                 }
                 _ => raw,
             }
+        } else if let Some(&p) = user_params.get(param_idx) {
+            // A number arg still has to arrive at the param's width.
+            // This lane is the hand-written twin of the direct call's
+            // `coerce_args_by_param_tys`, and it only ever carried
+            // that helper's two Any directions — so an I64 arg into a
+            // param some other call site widened to F64 went in raw:
+            // `const f = (b: number) => …; f(6.5); f(2)` printed 6.5
+            // twice, the callee reading integer bits out of an f64
+            // slot. Widening the param is what makes the two calls
+            // disagree, so the narrow one is always the one that
+            // breaks — silent, and never on the call that caused it.
+            match (p, raw_ty) {
+                (Type::F64, Type::I64 | Type::Bool) => ctx.coerce_to_f64(raw),
+                (Type::I64, Type::F64 | Type::Bool) => ctx.coerce_to_i64(raw),
+                _ => raw,
+            }
         } else {
             raw
         };
