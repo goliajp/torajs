@@ -405,6 +405,23 @@ pub(crate) fn coerce_push_value(
             }
             n
         }
+        // A read of a bool array comes back as a tagged value (it has
+        // an out-of-range exit to describe), so pushing one straight
+        // into another bool array arrives here. Unboxing is exact for
+        // every value a bool slot can hold; a promoted `undefined`
+        // lands on `false`, which is the only answer the slot has.
+        (Type::Bool, Type::Any) => {
+            let b = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.any_to_bool, vec![val.clone()]),
+                Type::Bool,
+                None,
+            );
+            if ctx.expr_transfers_ownership(arg_eid) {
+                ctx.emit_drop_value(val, Type::Any);
+            }
+            Operand::Value(b)
+        }
         (Type::Str, Type::Any) => {
             let s = ctx.coerce_to_str(val.clone(), Type::Any);
             if ctx.expr_transfers_ownership(arg_eid) {

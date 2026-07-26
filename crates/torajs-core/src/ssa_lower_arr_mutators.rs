@@ -116,7 +116,8 @@ impl<'a> LowerCtx<'a> {
     /// path; the caller emits the mutation there and closes with
     /// [`Self::emit_pop_shift_join`]. In-bounds cost: one cmp+branch.
     fn emit_pop_shift_empty_guard(&mut self, len: ValueId, elem_ty: Type) -> (ValueId, BlockId) {
-        let result_slot = self.alloca(elem_ty, Some("__pop_shift_result"));
+        let slot_ty = crate::ssa_lower_nullable_guard::undefable_read_ty(elem_ty);
+        let result_slot = self.alloca(slot_ty, Some("__pop_shift_result"));
         let is_empty = self.f.append_inst(
             self.cur_block,
             InstKind::ICmp(IPred::Eq, Operand::Value(len), Operand::ConstI64(0)),
@@ -161,7 +162,21 @@ impl<'a> LowerCtx<'a> {
             Type::F64 => Operand::ConstF64(f64::from_bits(
                 crate::ssa_lower_nullable_guard::F64_UNDEF_SENTINEL_BITS,
             )),
-            Type::Bool => Operand::ConstBool(false),
+            // A bool slot is exactly two states, so the promoted read
+            // answers with the tag every tagged value uses for
+            // `undefined` (was `false` — a hit value).
+            Type::Bool => {
+                let undef = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(
+                        self.intrinsics.any_box,
+                        vec![Operand::ConstI64(5), Operand::ConstI64(0)],
+                    ),
+                    Type::Any,
+                    None,
+                );
+                Operand::Value(undef)
+            }
             t => match self.str_undef_sentinel_for(t) {
                 Some(cell) => cell,
                 None if t.is_refcounted() || t == Type::Ptr => Operand::ConstPtrNull,
@@ -188,17 +203,23 @@ impl<'a> LowerCtx<'a> {
         elem_ty: Type,
     ) -> Operand {
         let (result_slot, join_blk) = guard;
+        let slot_ty = crate::ssa_lower_nullable_guard::undefable_read_ty(elem_ty);
+        let stored = if slot_ty == elem_ty {
+            elem
+        } else {
+            self.box_to_any(elem)
+        };
         self.f.append_void(
             self.cur_block,
-            InstKind::Store(elem, Operand::Value(result_slot), 0),
+            InstKind::Store(stored, Operand::Value(result_slot), 0),
         );
         let cb = self.cur_block;
         self.f.set_term(cb, Terminator::Br(join_blk));
         self.cur_block = join_blk;
         let result = self.f.append_inst(
             self.cur_block,
-            InstKind::Load(elem_ty, Operand::Value(result_slot), 0),
-            elem_ty,
+            InstKind::Load(slot_ty, Operand::Value(result_slot), 0),
+            slot_ty,
             None,
         );
         Operand::Value(result)

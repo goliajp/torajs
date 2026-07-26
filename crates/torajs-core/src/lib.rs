@@ -366,6 +366,7 @@ pub(crate) mod ssa_lower_generics_monomorph;
 pub(crate) mod ssa_lower_generics_tvdefault;
 pub(crate) mod ssa_lower_ident;
 pub(crate) mod ssa_lower_index;
+pub(crate) mod ssa_lower_index_any_key;
 pub(crate) mod ssa_lower_index_assign;
 pub(crate) mod ssa_lower_index_assign_dyn_key;
 pub(crate) mod ssa_lower_index_assign_pack;

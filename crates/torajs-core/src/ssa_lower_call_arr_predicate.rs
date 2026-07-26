@@ -97,7 +97,7 @@ pub(crate) fn try_lower(
 fn setup_result_slot(ctx: &mut LowerCtx<'_>, method: &str, elem_ty: Type) -> (Type, ValueId) {
     let is_find = matches!(method, "find" | "findLast");
     let result_ty = if is_find {
-        elem_ty
+        crate::ssa_lower_nullable_guard::undefable_read_ty(elem_ty)
     } else if matches!(method, "findIndex" | "findLastIndex") {
         Type::I64
     } else {
@@ -122,7 +122,21 @@ fn setup_result_slot(ctx: &mut LowerCtx<'_>, method: &str, elem_ty: Type) -> (Ty
             Type::F64 => Operand::ConstF64(f64::from_bits(
                 crate::ssa_lower_nullable_guard::F64_UNDEF_SENTINEL_BITS,
             )),
-            Type::Bool => Operand::ConstBool(false),
+            // The promoted bool result spells a miss with the tag
+            // every tagged value already uses for `undefined` (was
+            // `false`, which is a hit value — silent wrong).
+            Type::Bool => {
+                let undef = ctx.f.append_inst(
+                    ctx.cur_block,
+                    InstKind::Call(
+                        ctx.intrinsics.any_box,
+                        vec![Operand::ConstI64(5), Operand::ConstI64(0)],
+                    ),
+                    Type::Any,
+                    None,
+                );
+                Operand::Value(undef)
+            }
             // RC-1 — an Any slot must default to the boxed `undefined`
             // (ES no-match result); raw null-ptr bits are not a valid
             // NaN-box and render as [unknown-any-tag] downstream.
@@ -369,7 +383,11 @@ fn emit_body_and_step(
             if elem_ty.is_refcounted() {
                 ctx.emit_rc_inc(Operand::Value(elem));
             }
-            Operand::Value(elem)
+            if elem_ty == Type::Bool {
+                ctx.box_to_any(Operand::Value(elem))
+            } else {
+                Operand::Value(elem)
+            }
         }
         _ => unreachable!(),
     };

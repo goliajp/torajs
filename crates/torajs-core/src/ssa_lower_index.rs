@@ -44,6 +44,10 @@ use crate::ast::ExprId;
 use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 
+pub(crate) use crate::ssa_lower_index_any_key::{
+    lower_any_index_str_key, lower_any_index_symbol_key, lower_array_any_index,
+};
+
 pub(crate) fn lower(ctx: &mut LowerCtx<'_>, eid: ExprId, obj: ExprId, index: ExprId) -> Operand {
     // Chunk 745 — struct receiver + compile-time literal index:
     // `g[0]` ≡ `g."0"` per ES ToPropertyKey (§7.1.19); the full
@@ -248,7 +252,9 @@ pub(crate) fn lower_typed_index_checked(
         Type::I64,
         None,
     );
-    let slot = ctx.alloca_in_entry(elem_ty, Some("__oob_elem"));
+    let slot_ty = crate::ssa_lower_nullable_guard::undefable_read_ty(elem_ty);
+    let promote_bool = slot_ty != elem_ty;
+    let slot = ctx.alloca_in_entry(slot_ty, Some("__oob_elem"));
     let oob_blk = ctx.f.add_block();
     let chk2_blk = ctx.f.add_block();
     let in_blk = ctx.f.add_block();
@@ -307,6 +313,20 @@ pub(crate) fn lower_typed_index_checked(
             );
             Operand::Value(sentinel)
         }
+        // The promoted bool read spells `undefined` as the tag every
+        // tagged value already uses for it.
+        Type::Bool => {
+            let undef = ctx.f.append_inst(
+                oob_blk,
+                InstKind::Call(
+                    ctx.intrinsics.any_box,
+                    vec![Operand::ConstI64(5), Operand::ConstI64(0)],
+                ),
+                Type::Any,
+                None,
+            );
+            Operand::Value(undef)
+        }
         _ => {
             oob_throws = true;
             ctx.f.append_void(
@@ -315,7 +335,6 @@ pub(crate) fn lower_typed_index_checked(
             );
             match elem_ty {
                 Type::I64 | Type::I32 => Operand::ConstI64(0),
-                Type::Bool => Operand::ConstBool(false),
                 _ => Operand::ConstPtrNull,
             }
         }
@@ -332,16 +351,21 @@ pub(crate) fn lower_typed_index_checked(
         elem_ty,
         None,
     );
-    ctx.f.append_void(
-        cur,
-        InstKind::Store(Operand::Value(v), Operand::Value(slot), 0),
-    );
+    let stored = if promote_bool {
+        ctx.cur_block = cur;
+        ctx.box_to_any(Operand::Value(v))
+    } else {
+        Operand::Value(v)
+    };
+    let cur = ctx.cur_block;
+    ctx.f
+        .append_void(cur, InstKind::Store(stored, Operand::Value(slot), 0));
     ctx.f.set_term(cur, Terminator::Br(merge));
     ctx.cur_block = merge;
     let out = ctx.f.append_inst(
         merge,
-        InstKind::Load(elem_ty, Operand::Value(slot), 0),
-        elem_ty,
+        InstKind::Load(slot_ty, Operand::Value(slot), 0),
+        slot_ty,
         None,
     );
     if oob_throws {
@@ -379,95 +403,6 @@ fn lower_string_index(
         None,
     );
     Operand::Value(v)
-}
-
-pub(crate) fn lower_array_any_index(
-    ctx: &mut LowerCtx<'_>,
-    arr_val: Operand,
-    idx_val: Operand,
-) -> Operand {
-    let cur_block = ctx.cur_block;
-    let tag = ctx.f.append_inst(
-        cur_block,
-        InstKind::Call(
-            ctx.intrinsics.arr_get_any_tag,
-            vec![arr_val.clone(), idx_val.clone()],
-        ),
-        Type::I64,
-        None,
-    );
-    let cur_block = ctx.cur_block;
-    let value = ctx.f.append_inst(
-        cur_block,
-        InstKind::Call(ctx.intrinsics.arr_get_any_value, vec![arr_val, idx_val]),
-        Type::I64,
-        None,
-    );
-    let cur_block = ctx.cur_block;
-    let box_v = ctx.f.append_inst(
-        cur_block,
-        InstKind::Call(
-            ctx.intrinsics.any_box,
-            vec![Operand::Value(tag), Operand::Value(value)],
-        ),
-        Type::Any,
-        None,
-    );
-    Operand::Value(box_v)
-}
-
-/// Dynamic string key on an `any` receiver — probe by the runtime
-/// Str cell (borrow); a Substr view materializes to an owned temp
-/// released after the probe.
-pub(crate) fn lower_any_index_str_key(
-    ctx: &mut LowerCtx<'_>,
-    obj_val: Operand,
-    index: ExprId,
-) -> Operand {
-    let k_raw = ctx.lower_expr(index);
-    let k_ty = ctx.operand_ty(&k_raw);
-    let owned = k_ty == Type::Substr;
-    let key_op = ctx.coerce_to_str(k_raw.clone(), k_ty);
-    let Operand::Value(key_v) = key_op else {
-        panic!("ssa-lower: string index key lowered to a non-value operand");
-    };
-    let out = crate::ssa_lower_any_member::emit_any_member_probe(ctx, &obj_val, key_v);
-    if owned {
-        ctx.emit_drop_value(key_op, Type::Str);
-    }
-    // The probe borrows the key (dynobj/arrprops hash lookup — no rc
-    // traffic, no storage), so an Ident key keeps its stake and its
-    // scope drop; an owned temp key (concat result / fresh view) is
-    // released here (RFC 20260705 ledger #3, 32B/iter probe).
-    if k_ty.is_refcounted() && ctx.expr_transfers_ownership(index) {
-        ctx.emit_drop_value(k_raw, k_ty);
-    }
-    out
-}
-
-/// Symbol key on an `any` receiver — §7.1.19 step 2 hands the key to
-/// the lookup uncoerced, so the probe reads the Symbol cell itself and
-/// the runtime side keys off its `type_tag`. Twin of
-/// [`lower_any_index_str_key`] minus the coerce: there is no view /
-/// wrapper form of a Symbol to materialize.
-pub(crate) fn lower_any_index_symbol_key(
-    ctx: &mut LowerCtx<'_>,
-    obj_val: Operand,
-    index: ExprId,
-) -> Operand {
-    let k_raw = ctx.lower_expr(index);
-    let k_ty = ctx.operand_ty(&k_raw);
-    let Operand::Value(key_v) = k_raw.clone() else {
-        panic!("ssa-lower: symbol index key lowered to a non-value operand");
-    };
-    let out = crate::ssa_lower_any_member::emit_any_member_probe(ctx, &obj_val, key_v);
-    // Borrow contract as the string-key twin: an Ident key keeps its
-    // stake and its scope drop, an owned temp (a fresh `Symbol(desc)`
-    // in the index position) is released after the probe reads it.
-    if k_ty.is_refcounted() && ctx.expr_transfers_ownership(index) {
-        ctx.emit_drop_value(k_raw, k_ty);
-    }
-    out
 }
 
 /// The receiver shapes `check_type_of_index` admits: a bare struct, and

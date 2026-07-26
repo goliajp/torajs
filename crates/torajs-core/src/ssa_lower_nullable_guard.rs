@@ -278,6 +278,31 @@ pub(crate) fn is_undefable_heap_source(ctx: &LowerCtx<'_>, eid: ExprId) -> bool 
     }
 }
 
+/// The type that carries a read of a `T` element when that read has
+/// an exit answering `undefined` — an out-of-range index, `at`, a
+/// `find` miss, `pop` / `shift` on an empty array.
+///
+/// Every type answers in its own slot, because each has a bit
+/// pattern to spare that no live value uses: the F64 sentinel NaN,
+/// the Str / Substr oddballs, the generic cell for pointers. `Bool`
+/// is the one that does not — a bool is exactly two states — so its
+/// read comes back as a tagged value instead. Only the value handed
+/// back changes; the array's own slots stay bool-shaped, so nothing
+/// is paid by an array that is never read past its end.
+///
+/// Promoting rather than inventing a third bool state is what keeps
+/// this right for consumers nobody has written yet: an in-band third
+/// state has to be remembered at every consumer forever, and the two
+/// conversions that mask a bool to its low bit would erase it into
+/// `false` on the way through.
+pub(crate) fn undefable_read_ty(elem_ty: crate::ssa::Type) -> crate::ssa::Type {
+    if elem_ty == crate::ssa::Type::Bool {
+        crate::ssa::Type::Any
+    } else {
+        elem_ty
+    }
+}
+
 /// True when `obj` is an array whose elements spell `undefined` with
 /// the generic immortal cell.
 fn heap_elem_array(ctx: &LowerCtx<'_>, obj: ExprId) -> bool {
