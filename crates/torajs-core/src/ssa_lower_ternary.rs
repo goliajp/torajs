@@ -145,6 +145,34 @@ fn widen_branches(
         let t = ctx.coerce_to_f64(then_val);
         return (t, else_val, Type::F64, false, false);
     }
+    // S2.27 (RFC 20260727-dstr-assignment 刀 5) — exactly one branch
+    // types Undefined (the checker's unify widened the join to Any):
+    // box BOTH sides expr-aware, so the undefined side carries its
+    // ANY_UNDEF tag through the eid gate instead of falling to the
+    // slot-type mismatch below (`cond ? undefined : 42` loaded the
+    // ConstPtrNull through an I64 slot and answered 0). Both boxes
+    // are fresh, so both branches join owned.
+    let then_undef = matches!(
+        ctx.expr_types.get(&then_branch),
+        Some(crate::check::Type::Undefined)
+    );
+    let else_undef = matches!(
+        ctx.expr_types.get(&else_branch),
+        Some(crate::check::Type::Undefined)
+    );
+    if then_undef != else_undef && tt != Type::Any && et != Type::Any {
+        ctx.cur_block = then_end;
+        if tt.is_refcounted() && !ctx.expr_transfers_ownership(then_branch) {
+            ctx.emit_rc_inc(then_val.clone());
+        }
+        let t = ctx.box_to_any_from_expr(then_branch, then_val);
+        ctx.cur_block = else_end;
+        if et.is_refcounted() && !ctx.expr_transfers_ownership(else_branch) {
+            ctx.emit_rc_inc(else_val.clone());
+        }
+        let e = ctx.box_to_any_from_expr(else_branch, else_val);
+        return (t, e, Type::Any, true, true);
+    }
     if tt == Type::Any || et == Type::Any {
         if tt != Type::Any {
             ctx.cur_block = then_end;

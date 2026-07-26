@@ -2102,15 +2102,19 @@ touches runtime hot paths.
       with no undefined representation — I64 / nested-heap); loud,
       not silent, but bun answers undefined. Carries the
       no-default-past-end slice of S2.5's 654 under `for await`
-- [ ] **S2.27** **Ternary branches of Undefined/Null vs T reject
-      instead of unifying** — `let [u = 13] = [undefined]` (and the
-      S2.24 assignment mirror) answers `ternary branches differ —
-      then is Undefined, else is Number`, because a MONOMORPHIC
-      `Array<Undefined>` / `Array<Null>` source makes the
-      destructuring default's guard ternary type its branches
-      Undefined vs Number. The heterogeneous (Any) sources test262
-      actually uses unify fine — this bites only the mono edge, in
-      both declaration and assignment forms
+- [x] **S2.27** **Ternary branches of Undefined vs T reject instead
+      of unifying** — shipped rotation 230.
+      `let [u = 13] = [undefined]` (and the S2.24 assignment mirror)
+      answered `ternary branches differ`, because a MONOMORPHIC
+      `Array<Undefined>` source makes the destructuring default's
+      guard ternary type its branches Undefined vs Number (the
+      `Array<Null>` mono edge already unified through the Null →
+      Nullable arm). Two halves: `unify_ternary` widens
+      Undefined-vs-T to Any (the S129-1 mixed-Any shape), and
+      `widen_branches` boxes BOTH sides expr-aware when exactly one
+      branch types Undefined — the fall-through used to load the
+      undefined branch's ConstPtrNull through the other branch's
+      slot type (`cond ? undefined : 42` answered 0)
 - [ ] **S2.7** Untyped class field without a literal initializer — **245**
 - [x] **S2.25** **A `.then` handler may declare no parameter** — shipped
       rotation 229 (`53466c5a`). `p.then(() => { … })`, the everyday

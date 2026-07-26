@@ -31,6 +31,17 @@ pub(crate) fn unify_ternary(t: &Type, e: &Type) -> Option<Type> {
         return Some(Type::Any);
     }
     match (t, e) {
+        // S2.27 (RFC 20260727-dstr-assignment 刀 5) — an Undefined
+        // branch against any other type widens to Any, the S129-1
+        // shape (ssa-lower boxes both branches into the shared
+        // __tern slot; the Undefined side carries its ANY_UNDEF tag
+        // through the expr-aware box). This is the destructuring
+        // default's guard ternary over a MONOMORPHIC
+        // `Array<Undefined>` source (`let [u = 13] = [undefined]`),
+        // which used to reject with "branches differ". TS spells the
+        // join `T | undefined`; Any is the same safe widening the
+        // mixed-Any wedge already applies.
+        (Type::Undefined, _) | (_, Type::Undefined) => Some(Type::Any),
         (Type::Null, other) | (other, Type::Null) => Some(Type::Nullable(Box::new(other.clone()))),
         (Type::Nullable(inner), other) | (other, Type::Nullable(inner)) => {
             if inner.as_ref() == other {
