@@ -1769,6 +1769,21 @@ touches runtime hot paths.
       `__param_destr_N` resolved against a field nobody created. The
       count is of body statements, so the prepended receiver does not
       enter into it
+- [ ] **S2.11** `super.m()` inside a class generator method. Hoisting the
+      body out of the class broke the `super` marker's resolution, and
+      the fix is half done: the parser now rewrites `__supercall__<m>`
+      to `__cm_<Parent>__<m>(recv, …)` while the parent is still in
+      hand — it has to happen there, since by the time
+      `desugar_classes` would do it `desugar_generators` has moved the
+      body again, into the `__Gen_*` state machine. What remains is a
+      type-system decision, not a parser one: the call wants the
+      parent's nominal type and the receiver is `any`. Typing the
+      receiver nominally is **not** the answer — an inherited generator
+      method is reached through a subclass instance, so `class B extends
+      A` calling A's generator then fails the other way (measured, both
+      directions). It needs a widening or cast at the call site. Until
+      then the diagnostic at least names the real mismatch rather than
+      an undeclared `__supercall__*`
 - [ ] **S2.10** The receiver parameter is visible in argument-position
       diagnostics. Passing a bad argument to a class generator method
       reports `argument 1` for what the user wrote as the first argument,

@@ -121,7 +121,7 @@ impl<'a> Parser<'a> {
                 // into a reference to the `__Gen_*` state-machine
                 // instance. See `Parser::in_gen_class_method`.
                 if self.in_gen_class_method {
-                    let recv = super::parse_class_decl_generator::GEN_RECV_PARAM;
+                    let recv = crate::ast::GEN_RECV_PARAM;
                     return Ok(self.ast.add_expr(Expr::Ident(recv.into())));
                 }
                 Ok(self.ast.add_expr(Expr::This))

@@ -406,3 +406,18 @@ pub enum StaticInit {
     /// with `this` bound to the class itself (textbook static-context).
     Block(Vec<Stmt>),
 }
+
+/// P-SURF S2.1 — prefix of the top-level `function*` the parser hoists a
+/// class generator method into (`__cm_gen_<Class>__<method>`). The class
+/// name is embedded because `desugar_classes` has to claim these bodies
+/// back when rewriting `super.<m>()`: they belong to the class even
+/// though they no longer sit in its `methods`.
+pub(crate) const GEN_METHOD_PREFIX: &str = "__cm_gen_";
+
+/// P-SURF S2.1 — the parameter carrying the receiver into such a hoisted
+/// body. Deliberately not `__this`, which is load-bearing as the first
+/// parameter of every `__cm_*` method: the generator desugar turns this
+/// parameter into a field of the `__Gen_*` state-machine class, and a
+/// field named `__this` collides with the `__this` that class's own
+/// `next()` receives.
+pub(crate) const GEN_RECV_PARAM: &str = "__genrecv";

@@ -51,12 +51,8 @@
 //! other static method's.
 
 use super::Parser;
-use crate::ast::{ClassMethod, Expr, Param, Stmt, Visibility};
+use crate::ast::{ClassMethod, Expr, GEN_METHOD_PREFIX, GEN_RECV_PARAM, Param, Stmt, Visibility};
 use crate::lexer::Token;
-
-/// Parameter name carrying the receiver into a hoisted class generator
-/// method. Deliberately not `__this` — see the module docs.
-pub(super) const GEN_RECV_PARAM: &str = "__genrecv";
 
 impl<'a> Parser<'a> {
     /// Parse `*<name>(params) { body }` as a class member. The caller
@@ -66,6 +62,7 @@ impl<'a> Parser<'a> {
     pub(super) fn parse_class_generator_method(
         &mut self,
         class_name: &str,
+        parent: Option<&str>,
         is_static: bool,
         visibility: Visibility,
         member_span_start: u32,
@@ -111,6 +108,10 @@ impl<'a> Parser<'a> {
         }
         // The body's `this` mints `Ident(GEN_RECV_PARAM)` from here — see
         // the module docs for why it cannot wait for `desugar_classes`.
+        // Every expression the body mints lands in the arena from here
+        // on, so remembering the high-water mark gives an exact range to
+        // sweep for `super` afterwards without walking statements.
+        let body_expr_start = self.ast.exprs.len();
         let saved_in_gen = self.in_gen_class_method;
         self.in_gen_class_method = true;
         let mut body = Vec::new();
@@ -158,12 +159,14 @@ impl<'a> Parser<'a> {
             full
         };
 
+        Self::rewrite_supercalls_in_range(&mut self.ast, body_expr_start, parent);
+
         // The hoisted generator: receiver first, then the user's params.
         // `any` rather than the class's nominal type — the generator
         // desugar turns this parameter into a `__Gen_*` field, and a
         // nominal annotation there would demand a layout the state
         // machine class does not have.
-        let synth_name = format!("__cm_gen_{class_name}__{member_name}");
+        let synth_name = format!("{GEN_METHOD_PREFIX}{class_name}__{member_name}");
         if destr_prefix > 0 {
             self.ast
                 .gen_param_destr_prefix
@@ -209,5 +212,59 @@ impl<'a> Parser<'a> {
             methods.push(forwarder);
         }
         Ok(())
+    }
+
+    /// Resolve `super.m(args)` markers minted inside a hoisted generator
+    /// body. `from` is the arena high-water mark taken before the body
+    /// was parsed, so the range covers exactly that body's expressions.
+    ///
+    /// This has to run in the parser rather than in `desugar_classes`,
+    /// which normally owns the rewrite: by the time that pass runs,
+    /// `desugar_generators` has already moved the body again — into the
+    /// `__Gen_*` state machine — and it is no longer reachable as a
+    /// method body of any class.
+    ///
+    /// The receiver is the synthesized parameter rather than `this`, for
+    /// the same reason the body's `this` was: `this` inside the state
+    /// machine denotes the `__Gen_*` instance.
+    ///
+    /// With no parent the markers are left alone, so the existing "no
+    /// parent class" diagnostic still fires.
+    ///
+    /// **Known gap (S2.11).** Resolving the marker is only half of it:
+    /// the rewritten call wants `__cm_<Parent>__<m>(recv, …)` where
+    /// `recv` has the parent's nominal type, and this receiver is `any`.
+    /// Typing it nominally instead is not the fix — an inherited
+    /// generator method is reached through a subclass instance, so
+    /// `class B extends A` calling A's generator would then fail the
+    /// other way (measured, both directions). It needs a widening or
+    /// cast at the call, which is a type-system decision rather than a
+    /// parser one. Until then the diagnostic at least names the real
+    /// mismatch instead of an undeclared `__supercall__*` identifier.
+    fn rewrite_supercalls_in_range(ast: &mut crate::ast::Ast, from: usize, parent: Option<&str>) {
+        let Some(parent_name) = parent else {
+            return;
+        };
+        for i in from..ast.exprs.len() {
+            let (m_name, args) = match &ast.exprs[i] {
+                Expr::Call { callee, args } => match &ast.exprs[callee.0 as usize] {
+                    Expr::Ident(n) => match n.strip_prefix("__supercall__") {
+                        Some(m) => (m.to_string(), args.clone()),
+                        None => continue,
+                    },
+                    _ => continue,
+                },
+                _ => continue,
+            };
+            let callee = ast.add_expr(Expr::Ident(format!("__cm_{parent_name}__{m_name}")));
+            let recv = ast.add_expr(Expr::Ident(GEN_RECV_PARAM.into()));
+            let mut new_args = Vec::with_capacity(args.len() + 1);
+            new_args.push(recv);
+            new_args.extend(args);
+            ast.exprs[i] = Expr::Call {
+                callee,
+                args: new_args,
+            };
+        }
     }
 }

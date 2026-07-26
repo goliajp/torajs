@@ -114,6 +114,7 @@ impl<'a> Parser<'a> {
                 let visibility = explicit_visibility.unwrap_or(ast::Visibility::Public);
                 self.parse_class_generator_method(
                     &name,
+                    parent.as_deref(),
                     is_static,
                     visibility,
                     member_span_start,
