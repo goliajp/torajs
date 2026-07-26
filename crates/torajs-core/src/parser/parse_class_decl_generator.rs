@@ -236,7 +236,7 @@ impl<'a> Parser<'a> {
             name: synth_name.clone(),
             type_params: Vec::new(),
             params: synth_params,
-            return_type: return_type.clone(),
+            return_type,
             body,
             is_generator: true,
             span,
@@ -252,7 +252,17 @@ impl<'a> Parser<'a> {
         let forwarder = ClassMethod {
             name: member_name,
             params,
-            return_type,
+            // NOT `return_type` — that is the unwrapped YIELD type,
+            // which is what the hoisted `function*` above wants (the
+            // desugar builds the iterator class from T and rewrites
+            // the decl to answer that class). The forwarder answers
+            // the generator OBJECT, so carrying T here declared
+            // `*g(): Generator<number>` to return a number while its
+            // body returned the class — a type error on every
+            // annotated generator method, sync and async alike.
+            // Leaving it open lets the body's own verdict stand, the
+            // same way an unannotated one already worked.
+            return_type: None,
             body: vec![Stmt::Return(Some(call))],
             is_abstract: false,
             visibility,
