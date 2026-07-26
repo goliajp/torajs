@@ -1678,10 +1678,27 @@ hold ≤ 3 cases each (1223 cases, 4.4 %).
       `incompatible` straight into the bug bucket — that is the normal
       direction of travel, not a regression)
 - [ ] **S7.2** Treat the ≤ 3-case clusters as a single acceptance
-      condition, not 875 work items: **done when what remains is only
+      condition, not 899 work items: **done when what remains is only
       ≤ 3-case clusters**, i.e. no cluster ≥ 4 outside a documented
       post-v1.0 phase. That predicate is the honest form of "we
-      finished the countable part"
+      finished the countable part".
+
+      **It is also the project's distance-to-v1.0 number**, printed by
+      `cluster_incompat.py` as the last thing it does, and quoted in
+      every rotation-close report (`.claude/rules/torajs-autorun-pipeline.md`
+      step 0b). Baseline @ `9215301c`, 2026-07-26:
+
+      | | |
+      |---|---|
+      | clusters ≥ 4 cases | **476** ← drives to 0 |
+      | cases in them | 26303 |
+      | clusters ≤ 3 cases | 899 (1256 cases, 4.6 % — acceptable residue) |
+      | core total | 27559 |
+
+      **Expect it to rise before it falls.** Unlocking a gap lets cases
+      that could not previously run do so, and they surface their own
+      signatures. That is progress presenting as a bigger number — which
+      is why the count is never read without the case count beside it
 
 #### S8 — Cases tr accepts and gets wrong
 
