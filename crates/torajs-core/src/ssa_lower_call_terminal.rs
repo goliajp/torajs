@@ -254,9 +254,16 @@ fn coerce_args(
 /// raw). Returns the fresh-owned temps the caller must release after
 /// the call, each with the type to release it as.
 ///
-/// `args` and `argv` are the same positional list: callers with
-/// leading slots of their own (an env pointer, a receiver) pass the
-/// slice of `argv` that holds exactly these args.
+/// `args` and `argv` line up positionally: callers with leading slots
+/// of their own (an env pointer, a receiver) pass the slice of `argv`
+/// that holds exactly these args.
+///
+/// `argv` may still run past `args` at the tail — the direct-call
+/// terminal pads missing trailing Any params with synthesized
+/// `ANY_UNDEF` boxes *before* calling here. Those positions have no
+/// argument expression and are already in the parameter's lane, so
+/// they convert nothing; walking into them is what read `args` out of
+/// range.
 pub(crate) fn coerce_args_by_param_tys(
     ctx: &mut LowerCtx<'_>,
     param_tys: &[Type],
@@ -265,7 +272,7 @@ pub(crate) fn coerce_args_by_param_tys(
 ) -> Vec<(Operand, Type)> {
     let mut coerce_owned: Vec<(Operand, Type)> = Vec::new();
     for (i, expected) in param_tys.iter().enumerate() {
-        if i >= argv.len() {
+        if i >= argv.len() || i >= args.len() {
             break;
         }
         // RFC 20260707 chunk 626 — typed array into an Arr<Any>
