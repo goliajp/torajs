@@ -208,11 +208,22 @@ impl<'a> Parser<'a> {
         // lookahead after the keyword. `abstract async` is a TS
         // error ("'async' modifier cannot be used with 'abstract'");
         // call site rejects the same combo for consistency.
+        // P-SURF S2.18 — `async *g() {}` puts a `*` between the modifier
+        // and the name, so the lookahead skips over one when it is
+        // there. The `*` itself is deliberately left unconsumed: the
+        // caller's generator arm is what claims it, and it needs to see
+        // it to fire.
         let mut member_span_start: Option<u32> = None;
+        let async_star = matches!(self.peek(), Token::Async)
+            && matches!(
+                self.tokens.get(self.pos + 1).map(|t| &t.token),
+                Some(Token::Star)
+            );
+        let name_off = if async_star { 2 } else { 1 };
         let is_async = if matches!(self.peek(), Token::Async)
-            && let Some(t1) = self.tokens.get(self.pos + 1)
-            && matches!(t1.token, Token::Ident(_))
-            && let Some(t2) = self.tokens.get(self.pos + 2)
+            && let Some(t1) = self.tokens.get(self.pos + name_off)
+            && matches!(t1.token, Token::Ident(_) | Token::PrivateIdent(_))
+            && let Some(t2) = self.tokens.get(self.pos + name_off + 1)
             && matches!(t2.token, Token::LParen)
         {
             member_span_start = self.tokens.get(self.pos).map(|t| t.span.start);

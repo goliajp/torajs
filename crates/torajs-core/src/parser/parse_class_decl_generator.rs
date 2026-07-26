@@ -64,6 +64,7 @@ impl<'a> Parser<'a> {
         class_name: &str,
         parent: Option<&str>,
         is_static: bool,
+        is_async: bool,
         visibility: Visibility,
         member_span_start: u32,
         methods: &mut Vec<ClassMethod>,
@@ -217,6 +218,20 @@ impl<'a> Parser<'a> {
             is_rest: false,
         }];
         synth_params.extend(params.iter().cloned());
+        // P-SURF S2.18 — `async *g() {}`. Async-ness rides a side table
+        // keyed by the declared name, so the hoisted `function*` is
+        // registered exactly as a top-level `async function*` would be.
+        // The set is `async_generator_fns` rather than `async_fns`
+        // because §27.6 says the factory hands back the generator object
+        // directly; Promise-wrapping it is `desugar_async`'s job for
+        // ordinary async functions only, and the step methods get their
+        // Promise shape later via `desugar_generators`.
+        //
+        // The forwarder below stays an ordinary method for the same
+        // reason: it returns that object unchanged.
+        if is_async {
+            self.ast.async_generator_fns.insert(synth_name.clone());
+        }
         self.synth_classes.push(Stmt::FnDecl {
             name: synth_name.clone(),
             type_params: Vec::new(),

@@ -121,6 +121,7 @@ impl<'a> Parser<'a> {
                     &name,
                     parent.as_deref(),
                     is_static,
+                    is_async,
                     visibility,
                     member_span_start,
                     &mut methods,

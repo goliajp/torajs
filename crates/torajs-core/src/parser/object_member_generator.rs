@@ -40,29 +40,42 @@ impl<'a> Parser<'a> {
     pub(super) fn try_parse_generator_object_method(
         &mut self,
     ) -> Result<Option<(String, ExprId)>, String> {
-        if !matches!(self.peek(), Token::Star) {
+        // P-SURF S2.18 — `{ async *g() {} }` is the same shape with a
+        // modifier in front. The async shorthand next door is tried
+        // first by the caller and declines it (its name lookahead lands
+        // on the `*`), so claiming it here needs no reordering.
+        let is_async = matches!(self.peek(), Token::Async)
+            && matches!(
+                self.tokens.get(self.pos + 1).map(|t| &t.token),
+                Some(Token::Star)
+            );
+        let star_off = if is_async { 1 } else { 0 };
+        if !matches!(
+            self.tokens.get(self.pos + star_off).map(|t| &t.token),
+            Some(Token::Star)
+        ) {
             return Ok(None);
         }
-        // Span anchor is the `*` — where the method's source text
-        // starts (RFC 20260719-fn-tostring-source B1). Nothing is
-        // consumed before the lookahead guards below return None, so
-        // capturing it here is safe.
+        // Span anchor is the `*` — or the `async` before it — where the
+        // method's source text starts (RFC 20260719-fn-tostring-source
+        // B1). Nothing is consumed before the lookahead guards below
+        // return None, so capturing it here is safe.
         let start_pos = self.pos;
-        let Some(t1) = self.tokens.get(self.pos + 1) else {
+        let Some(t1) = self.tokens.get(self.pos + star_off + 1) else {
             return Ok(None);
         };
         let Token::Ident(name) = &t1.token else {
             return Ok(None);
         };
         let method_name = name.clone();
-        let Some(t2) = self.tokens.get(self.pos + 2) else {
+        let Some(t2) = self.tokens.get(self.pos + star_off + 2) else {
             return Ok(None);
         };
         if !matches!(t2.token, Token::LParen) {
             return Ok(None);
         }
-        // Consume `*` and the method name.
-        self.pos += 2;
+        // Consume the optional `async`, the `*`, and the method name.
+        self.pos += star_off + 2;
 
         let (mut params, destr_lets) = self.parse_param_list()?;
         self.infer_default_param_anns(&mut params);
@@ -130,6 +143,14 @@ impl<'a> Parser<'a> {
             self.ast
                 .gen_param_destr_prefix
                 .insert(synth_name.clone(), destr_prefix);
+        }
+        // Async-ness rides a side table keyed by the declared name, so
+        // the synthetic decl is registered exactly as a top-level
+        // `async function*` would be — see the class half in
+        // `parse_class_decl_generator.rs` for why the set is
+        // `async_generator_fns` and not `async_fns`.
+        if is_async {
+            self.ast.async_generator_fns.insert(synth_name.clone());
         }
         self.synth_classes.push(Stmt::FnDecl {
             name: synth_name.clone(),
