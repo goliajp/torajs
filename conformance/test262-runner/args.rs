@@ -37,6 +37,13 @@ pub struct Args {
     /// (138/139 = silent crash, 1 = loud fail, stdout-mismatch), `msg`
     /// the stderr first line (the substrate-gap signal).
     pub bugs_ndjson: Option<String>,
+    /// `--incompat-ndjson PATH`: same shape as `--bugs-ndjson`, for the
+    /// `incompatible` bucket instead. The stdout breakdown only carries
+    /// the six `incompat_kind` prefixes and the sample list is capped at
+    /// 30 per kind, so neither can answer "how much of the incompatible
+    /// mass sits behind one substrate gap". This dumps every case so a
+    /// downstream pass can cluster on `msg`.
+    pub incompat_ndjson: Option<String>,
     /// `--dump-verdicts PATH`: write one `<rel-path>\t<outcome>` line per
     /// case. Two runs diffed against each other are what turns a sweep's
     /// aggregate delta ("passTotal -19") into an attributable list of
@@ -64,6 +71,7 @@ pub fn parse_args() -> Args {
     let mut report_bugs = DEFAULT_REPORT_BUGS;
     let mut json_out: Option<String> = None;
     let mut bugs_ndjson: Option<String> = None;
+    let mut incompat_ndjson: Option<String> = None;
     let mut dump_verdicts: Option<String> = None;
     let mut no_cache = false;
     let mut dump_src: Option<String> = None;
@@ -84,6 +92,7 @@ pub fn parse_args() -> Args {
             }
             "--json" => json_out = iter.next(),
             "--bugs-ndjson" => bugs_ndjson = iter.next(),
+            "--incompat-ndjson" => incompat_ndjson = iter.next(),
             "--dump-verdicts" => dump_verdicts = iter.next(),
             "--no-cache" => no_cache = true,
             "--dump-src" => dump_src = iter.next(),
@@ -98,6 +107,7 @@ pub fn parse_args() -> Args {
                      --report-bugs N list first N bug failures (default {DEFAULT_REPORT_BUGS})\n  \
                      --json PATH     also write machine-readable summary to PATH\n  \
                      --bugs-ndjson PATH  dump every bug case (path/kind/msg) as ndjson for clustering\n  \
+                     --incompat-ndjson PATH  same, for the incompatible bucket (stdout only shows kind counts + 30 samples/kind)\n  \
                      --dump-verdicts PATH  write `<case>\\t<outcome>` per case; diff two runs to attribute a sweep delta\n  \
                      --no-cache      bypass the bun oracle cache for this run\n  \
                      --dump-src DIR  also write each assembled source (harness + transformed case) into DIR"
@@ -117,6 +127,7 @@ pub fn parse_args() -> Args {
         report_bugs,
         json_out,
         bugs_ndjson,
+        incompat_ndjson,
         dump_verdicts,
         no_cache,
         dump_src,

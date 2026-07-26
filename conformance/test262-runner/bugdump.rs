@@ -1,12 +1,14 @@
-//! Per-case bug-corpus dump for root-cause clustering.
+//! Per-case corpus dump for root-cause clustering.
 //!
-//! The runner's stdout `--report-bugs N` only shows the head of the bug
-//! list; the summary `--json` only carries bucket counts. Neither is
-//! enough to systematically classify the bug corpus by root-cause
-//! substrate gap. `--bugs-ndjson PATH` writes EVERY bug case as one JSON
+//! The runner's stdout only shows the head of the bug list and, for the
+//! incompatible bucket, kind counts plus 30 samples per kind; the
+//! summary `--json` carries bucket counts alone. None of that is enough
+//! to classify a bucket by root-cause substrate gap. `--bugs-ndjson` and
+//! `--incompat-ndjson` write EVERY case of their bucket as one JSON
 //! object per line so a downstream cluster pass can group by `kind`
-//! (exit code — 138/139 = silent crash, 1 = loud fail, stdout-mismatch)
-//! and `msg` (stderr first line — the substrate-gap signal).
+//! (for bugs: exit code — 138/139 = silent crash, 1 = loud fail,
+//! stdout-mismatch; for incompatibles: the compile-reject prefix) and
+//! `msg` (stderr first line — the substrate-gap signal).
 //!
 //! Zero-dep, like the rest of the runner: JSON is hand-escaped.
 
@@ -31,16 +33,16 @@ fn json_escape(s: &str) -> String {
     out
 }
 
-/// Write the full bug list to `out_path` as ndjson. Paths are made
-/// repo-relative against `root` (the test262 corpus root) so the
-/// feature directory is the leading path component.
-pub fn write_bugs_ndjson(
+/// Write a full `(path, kind, msg)` case list to `out_path` as ndjson.
+/// Paths are made repo-relative against `root` (the test262 corpus root)
+/// so the feature directory is the leading path component.
+pub fn write_cases_ndjson(
     out_path: &Path,
     root: &Path,
-    bugs: &[(PathBuf, String, String)],
+    cases: &[(PathBuf, String, String)],
 ) -> Result<(), String> {
     let mut body = String::new();
-    for (p, kind, msg) in bugs {
+    for (p, kind, msg) in cases {
         let rel = p.strip_prefix(root).unwrap_or(p);
         body.push_str(&format!(
             "{{\"path\":\"{}\",\"kind\":\"{}\",\"msg\":\"{}\"}}\n",
@@ -79,7 +81,7 @@ mod tests {
             ),
         ];
         let tmp = std::env::temp_dir().join("torajs-bugdump-test.ndjson");
-        write_bugs_ndjson(&tmp, root, &bugs).unwrap();
+        write_cases_ndjson(&tmp, root, &bugs).unwrap();
         let got = std::fs::read_to_string(&tmp).unwrap();
         let lines: Vec<&str> = got.lines().collect();
         assert_eq!(lines.len(), 2);
