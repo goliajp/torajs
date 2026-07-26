@@ -452,6 +452,17 @@ fn lower_struct_field_store(
             (Type::Any, Type::Ptr) if matches!(v, Operand::ConstPtrNull) => {
                 ctx.box_to_any_from_expr(value, v)
             }
+            // S2.26 (RFC 20260727-dstr-assignment 刀 4) — the reverse
+            // direction: an Any value into a declared scalar / Str
+            // field unboxes through the same kernels every other
+            // any→typed sink uses (coerce_for_local / coerce_for_
+            // global). The fall-through used to store the NaN-box
+            // bits raw — `o.k = (v: any) 9` read back as NaN.
+            // Bool / heap-typed fields still fall through (no
+            // established unbox kernel carries their guard story) —
+            // the registered S2.26 remainder.
+            (Type::F64 | Type::I64, Type::Any) => ctx.coerce_any_to_number(v, field_ty),
+            (Type::Str, Type::Any) => ctx.coerce_to_str(v, Type::Any),
             _ => v,
         };
         let v_ty = ctx.operand_ty(&v);

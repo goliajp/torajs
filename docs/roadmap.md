@@ -2076,14 +2076,17 @@ touches runtime hot paths.
       `elem_expr` — plus an awaiting arm that unwraps each step
 - [ ] **S2.26** **Any→typed member assignment stores raw box bits** —
       SILENT WRONG, found rotation 230 while probing S2.24's nested
-      patterns. `let o = { k: 0 }; let v: any = 9; o.k = v;` prints
-      **NaN** (and `o.k = src.k` off an `any` source prints
-      `-562949953421303`) — the member-assign lane accepts the Any
-      value but never unboxes it into the declared field lane, so the
-      NaN-box bits land in the number slot as-is. Same family as RFC
-      20260727-promise-typed-readback (that RFC fixed the settle /
-      await lanes; this is the member-store lane). Iron-rule grade:
-      no diagnostic, wrong data
+      patterns; the scalar / string directions are fixed
+      (rotation 230 刀 4): `o.k = (v: any) 9` printed **NaN** and
+      `o.k = src.k` a NaN-box bit pattern, because the struct field
+      store's width-align match had the box arm for `(Any ← scalar)`
+      but nothing for the reverse — an Any value into a declared
+      Number / Str field now unboxes through `coerce_any_to_number` /
+      `coerce_to_str`, the kernels every other any→typed sink uses.
+      Same family as RFC 20260727-promise-typed-readback (settle /
+      await lanes). REMAINING: Bool- and heap-typed fields
+      (`o.flag = (any)` / `o.child = (any)`) still fall through raw —
+      no established unbox kernel carries their type-guard story yet
 - [ ] **S2.28** **Typed OOB element read crossing into `any`** —
       found rotation 230 while probing S2.24's for-await face. The
       SILENT half is fixed: `let t = [1]; let b: any = 0; b = t[1];`

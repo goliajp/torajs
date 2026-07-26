@@ -9,13 +9,11 @@ let c = 0;
 [[a, b], c] = [[1, 2], 3];
 console.log(a, b, c); // 1 2 3
 
-// object in array — homogeneous source keeps the inner temp typed,
-// so a member target works; ident targets take the any lane.
-// NOTE: a member target under a HETEROGENEOUS source
-// (`[{ k: o.k }, x] = [{ k: 9 }, 8]`) hits the pre-existing
-// any→typed member-assign hole (stores raw box bits — silent
-// wrong, `o.k = (any)` reproduces it without any pattern) —
-// recorded hole, not this blade.
+// object in array — homogeneous source keeps the inner temp typed;
+// ident targets take the any lane; a member target under a
+// HETEROGENEOUS (Any) source rides the S2.26 unbox arm (any value
+// into a declared number field), fixed in the 刀 4 sibling
+// any-member-assign-001.
 let o = { k: 0 };
 [{ k: o.k }] = [{ k: 9 }];
 console.log(o.k); // 9
