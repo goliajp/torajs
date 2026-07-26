@@ -198,19 +198,7 @@ pub(crate) fn lower_fn(
     ctx.materialize_fn_params(name, param_setup);
     ctx.emit_closure_env_preamble(name, params);
 
-    // A parameter some call site hands an out-of-range read (or a
-    // `find` miss, or a `pop` off an empty array) carries that
-    // answer's sentinel, exactly like a binding initialized from the
-    // same shape. A binding gets recorded at its let-decl; a
-    // parameter's value arrives from a caller lowered separately, so
-    // without this the consumers in this body read the sentinel as a
-    // plain number: `h(xs[7])` printed NaN where `console.log(xs[7])`
-    // printed `undefined`.
-    for p in params {
-        if ctx.num_f64_slots.param_takes_undef_sentinel(name, &p.name) {
-            ctx.undefable_f64_lets.insert(p.name.clone());
-        }
-    }
+    seed_undef_sentinel_params(&mut ctx, name, params);
 
     // Mutually recursive closure bindings need each other's boxes open
     // before the first of them mints.
@@ -357,4 +345,48 @@ fn promote_and_widen(
         struct_layouts,
         fn_sigs,
     )
+}
+
+/// Record the parameters that a call site hands an answer meaning
+/// `undefined`, so the consumers in this body know to check.
+fn seed_undef_sentinel_params(ctx: &mut LowerCtx<'_>, name: &str, params: &[ast::Param]) {
+    // A parameter some call site hands an out-of-range read (or a
+    // `find` miss, or a `pop` off an empty array) carries that
+    // answer's sentinel, exactly like a binding initialized from the
+    // same shape. A binding gets recorded at its let-decl; a
+    // parameter's value arrives from a caller lowered separately, so
+    // without this the consumers in this body read the sentinel as a
+    // plain number: `h(xs[7])` printed NaN where `console.log(xs[7])`
+    // printed `undefined`.
+    //
+    // Which set to record it in follows the slot, because each family
+    // spells the answer its own way and each has its own consumers
+    // reading its own set. The collector itself is shape-only, so it
+    // has always named these parameters; only `number` was being
+    // told. `ts(ss[7])` answered "string" and `td(ds[7])` "object"
+    // for want of these three lines.
+    for p in params {
+        if !ctx.num_f64_slots.param_takes_undef_sentinel(name, &p.name) {
+            continue;
+        }
+        let slot_ty = ctx.locals.get(&p.name).map(|l| l.ty);
+        match slot_ty {
+            Some(Type::Str) => {
+                ctx.nullable_str_lets.insert(p.name.clone());
+            }
+            Some(Type::Substr) => {
+                ctx.undefable_substr_lets.insert(p.name.clone());
+            }
+            Some(t) if t.spells_undef_with_generic_cell() => {
+                ctx.undefable_heap_lets.insert(p.name.clone());
+            }
+            // F64 stays the default rather than an arm of its own: a
+            // slot type that is not on this list costs nothing by
+            // being in the number set, since every consumer of it
+            // gates on an F64 operand as well.
+            _ => {
+                ctx.undefable_f64_lets.insert(p.name.clone());
+            }
+        }
+    }
 }
