@@ -1514,6 +1514,7 @@ dependencies = [
  "torajs-structmeta",
  "torajs-syscall",
  "torajs-throw",
+ "torajs-ucd",
  "torajs-value-drop",
  "torajs-weak",
 ]

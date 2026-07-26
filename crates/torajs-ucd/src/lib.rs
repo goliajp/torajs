@@ -9,9 +9,11 @@
 //!
 //! ## Scope
 //!
-//! These tables are an **intentional partial cover**, not a full UCD.
-//! Picked to lift the dominant test262 cases at minimum code-size cost.
-//! Coverage:
+//! `UCD_LETTER` / `UCD_NUMBER` are an **intentional partial cover**, not
+//! a full UCD. Picked to lift the dominant test262 cases at minimum
+//! code-size cost. (`ID_START` / `ID_CONTINUE`, added later for the
+//! lexer, are the opposite: generated from `DerivedCoreProperties.txt`
+//! and complete.) Coverage:
 //!
 //! - **Letter (L)** — Latin-1 supplement, IPA + Spacing Modifier,
 //!   Greek + Coptic, Cyrillic, Armenian, Hebrew, Arabic, Devanagari,
@@ -53,6 +55,10 @@
 //! (see `benches/ucd.rs`).
 
 #![no_std]
+
+mod id_table;
+
+pub use id_table::{ID_CONTINUE, ID_START};
 
 /// A `(lo, hi)` inclusive codepoint range.
 pub type Range = (u32, u32);
@@ -203,9 +209,89 @@ pub fn is_number_cp(cp: u32) -> bool {
     range_contains(UCD_NUMBER, cp)
 }
 
+/// Test whether `cp` can start an identifier — Unicode `ID_Start`, which
+/// is what ES §12.7.1 `UnicodeIDStart` names (cp ≥ 128 portion). Returns
+/// false for ASCII, including the `$` and `_` that §12.7.1 also admits:
+/// the caller bitmap-tests those, same as `is_letter_cp`.
+///
+/// Unlike `UCD_LETTER` this is **full coverage**, not a curated subset —
+/// `ID_START` is generated from `DerivedCoreProperties.txt`. It is also
+/// not the same set as Letter: `ID_Start` picks up Nl and Other_ID_Start
+/// (U+2118 ℘ and U+212E ℮ are the ones test262 exercises) while dropping
+/// Pattern_Syntax characters.
+#[inline]
+pub fn is_id_start_cp(cp: u32) -> bool {
+    range_contains(id_table::ID_START, cp)
+}
+
+/// Test whether `cp` can continue an identifier — Unicode `ID_Continue`
+/// plus U+200C ZWNJ and U+200D ZWJ, which ES §12.7.1 names separately in
+/// `IdentifierPartChar` (cp ≥ 128 portion; ASCII is the caller's).
+#[inline]
+pub fn is_id_continue_cp(cp: u32) -> bool {
+    range_contains(id_table::ID_CONTINUE, cp)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn id_start_letters_and_other_id_start() {
+        assert!(is_id_start_cp(0x4E2D)); // 中
+        assert!(is_id_start_cp(0x03B1)); // α
+        // Other_ID_Start — not Letter category, but identifier-startable.
+        // test262's class-elements privatename tests use exactly these.
+        assert!(is_id_start_cp(0x2118)); // ℘ SCRIPT CAPITAL P (Sm)
+        assert!(is_id_start_cp(0x212E)); // ℮ ESTIMATED SIGN (So)
+        assert!(!is_letter_cp(0x2118)); // the reason ID_Start != Letter
+    }
+
+    #[test]
+    fn id_start_rejects_ascii_and_punctuation() {
+        // ASCII is the caller's bitmap, including the `$`/`_` that
+        // §12.7.1 admits alongside UnicodeIDStart.
+        assert!(!is_id_start_cp(b'a' as u32));
+        assert!(!is_id_start_cp(b'$' as u32));
+        assert!(!is_id_start_cp(b'_' as u32));
+        assert!(!is_id_start_cp(0x2022)); // bullet
+        assert!(!is_id_start_cp(0x00A0)); // NBSP
+    }
+
+    #[test]
+    fn id_continue_adds_joiners_and_marks() {
+        // ZWNJ/ZWJ are named by ES, not carried by the Unicode property.
+        assert!(is_id_continue_cp(0x200C));
+        assert!(is_id_continue_cp(0x200D));
+        assert!(!is_id_start_cp(0x200C));
+        assert!(!is_id_start_cp(0x200D));
+        assert!(is_id_continue_cp(0x0301)); // combining acute (Mn)
+        assert!(is_id_continue_cp(0x0660)); // Arabic-Indic zero (Nd)
+        assert!(is_id_continue_cp(0x4E2D)); // ID_Start ⊂ ID_Continue
+        assert!(!is_id_continue_cp(0x2022)); // bullet
+    }
+
+    #[test]
+    fn id_tables_are_sorted_and_disjoint() {
+        // range_contains binary-searches; the invariant is load-bearing.
+        for table in [ID_START, ID_CONTINUE] {
+            for w in table.windows(2) {
+                assert!(w[0].0 <= w[0].1);
+                assert!(w[0].1 < w[1].0, "overlap at {:#X}", w[0].0);
+            }
+        }
+    }
+
+    #[test]
+    fn id_start_is_a_subset_of_id_continue() {
+        // UAX #31: ID_Continue = ID_Start + Mn/Mc/Nd/Pc + Other_ID_Continue.
+        // The lexer leans on this — it walks the *whole* identifier,
+        // first codepoint included, with the ID_Continue predicate.
+        for &(lo, hi) in ID_START {
+            assert!(is_id_continue_cp(lo), "{lo:#X} starts but cannot continue");
+            assert!(is_id_continue_cp(hi), "{hi:#X} starts but cannot continue");
+        }
+    }
 
     #[test]
     fn letter_cjk_basic() {

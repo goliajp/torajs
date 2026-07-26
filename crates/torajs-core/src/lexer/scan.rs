@@ -15,8 +15,29 @@
 //!
 //! Extracted from `lexer.rs` (2026-05-25, god-file decomp batch 23).
 
-use super::util::{emit, is_ident_cont, push_codepoint};
+use super::util::{decode_utf8, emit, is_ident_cont, is_ident_cont_cp, push_codepoint};
 use super::{Spanned, Token};
+
+/// Walk `i` forward over `IdentifierPart` characters (ES §12.7.1).
+/// ASCII stays a plain byte step; a byte ≥ 0x80 is decoded once and
+/// admitted only if it carries `ID_Continue` (or is ZWNJ / ZWJ, which
+/// the table folds in). Anything else stops the walk without consuming,
+/// so the caller's span ends on a codepoint boundary.
+fn walk_ident_part(bytes: &[u8], i: &mut u32, len: u32) {
+    while *i < len {
+        let b = bytes[*i as usize];
+        if is_ident_cont(b) {
+            *i += 1;
+        } else if b >= 0x80 {
+            match decode_utf8(bytes, *i) {
+                Some((cp, w)) if is_ident_cont_cp(cp) => *i += w,
+                _ => break,
+            }
+        } else {
+            break;
+        }
+    }
+}
 
 pub(super) fn scan_string(
     bytes: &[u8],
@@ -223,11 +244,9 @@ pub(super) fn scan_ident_or_keyword(
     start: u32,
     len: u32,
 ) {
-    while *i < len && is_ident_cont(bytes[*i as usize]) {
-        *i += 1;
-    }
+    walk_ident_part(bytes, i, len);
     let name = std::str::from_utf8(&bytes[start as usize..*i as usize])
-        .expect("ascii ident slice is valid utf-8");
+        .expect("ident slice ends on a codepoint boundary");
     let token = match name {
         "let" => Token::Let,
         "const" => Token::Const,
@@ -297,10 +316,8 @@ pub(super) fn scan_private_ident(
 ) {
     *i += 1;
     let ident_start = *i;
-    while *i < len && is_ident_cont(bytes[*i as usize]) {
-        *i += 1;
-    }
+    walk_ident_part(bytes, i, len);
     let name = std::str::from_utf8(&bytes[ident_start as usize..*i as usize])
-        .expect("ascii ident slice is valid utf-8");
+        .expect("ident slice ends on a codepoint boundary");
     emit(out, Token::PrivateIdent(name.to_string()), start, *i);
 }

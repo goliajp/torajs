@@ -114,3 +114,47 @@ pub(super) fn is_ident_start(b: u8) -> bool {
 pub(super) fn is_ident_cont(b: u8) -> bool {
     b.is_ascii_alphanumeric() || b == b'_' || b == b'$'
 }
+
+/// Decode the UTF-8 sequence at `i`, returning `(codepoint, byte width)`.
+/// `None` when the bytes there are not a valid sequence — the caller then
+/// leaves `i` alone and reports the raw byte, so malformed input keeps
+/// producing the same lex error it always did.
+///
+/// The lexer only reaches this on a byte ≥ 0x80: every ASCII path is a
+/// match arm above it, so identifiers stay a pure byte walk in the common
+/// case and pay decoding only where a non-ASCII codepoint really appears.
+pub(super) fn decode_utf8(bytes: &[u8], i: u32) -> Option<(u32, u32)> {
+    let width = match *bytes.get(i as usize)? {
+        0x00..=0x7F => 1,
+        0xC2..=0xDF => 2,
+        0xE0..=0xEF => 3,
+        0xF0..=0xF4 => 4,
+        _ => return None,
+    };
+    // Doubles as the continuation-byte check: a truncated or malformed
+    // sequence fails here and the caller falls through to its error path.
+    let c = core::str::from_utf8(bytes.get(i as usize..i as usize + width)?)
+        .ok()?
+        .chars()
+        .next()?;
+    Some((c as u32, width as u32))
+}
+
+/// Whether an `IdentifierStartChar` (ES §12.7.1) begins at `i` — the
+/// ASCII `$` / `_` / letter half, or a non-ASCII codepoint carrying
+/// `ID_Start`. Used both by `tokenize`'s identifier arm and by the `#`
+/// arm, which must agree with it so `#℘` and `℘` admit the same names.
+pub(super) fn ident_start_at(bytes: &[u8], i: u32) -> bool {
+    match bytes.get(i as usize) {
+        Some(&b) if b < 0x80 => is_ident_start(b),
+        Some(_) => decode_utf8(bytes, i).is_some_and(|(cp, _)| torajs_ucd::is_id_start_cp(cp)),
+        None => false,
+    }
+}
+
+/// ES §12.7.1 `IdentifierPartChar` for a non-ASCII codepoint:
+/// `UnicodeIDContinue`, plus the ZWNJ / ZWJ the spec names separately
+/// (folded into the table by `scripts/ucd/gen_id_tables.py`).
+pub(super) fn is_ident_cont_cp(cp: u32) -> bool {
+    torajs_ucd::is_id_continue_cp(cp)
+}
