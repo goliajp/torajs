@@ -71,6 +71,7 @@ mod sfi_pass;
 mod sfi_rewrite;
 mod sfi_safe;
 mod stmt;
+mod stmt_flat;
 mod super_collect;
 mod this_param;
 mod uninit_let;
@@ -119,6 +120,7 @@ pub use stmt::{
     AccessorKind, ClassCtor, ClassMethod, StaticField, StaticInit, Stmt, SwitchCase, Visibility,
 };
 pub(crate) use stmt::{GEN_METHOD_PREFIX, GEN_RECV_PARAM};
+pub use stmt_flat::toplevel_stmts_flat;
 pub use this_param::bind_this_param;
 pub use uninit_let::desugar_uninit_let;
 pub use var_hoist::desugar_var_hoist;

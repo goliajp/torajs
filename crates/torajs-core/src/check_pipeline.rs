@@ -223,7 +223,11 @@ pub(crate) fn pass_1_hoist_fn_signatures(c: &mut Checker, ast: &Ast) {
 /// with each TypeVar instance.
 pub(crate) fn pass_2_register_globals_and_check_stmts(c: &mut Checker, ast: &Ast) {
     let binding_refs = crate::ast_refs::toplevel_binding_refs(ast);
-    for stmt in &ast.stmts {
+    // Multi-flattened walk (rotation 230) — multi-declarator lets
+    // live inside Stmt::Multi and must register like flat ones; the
+    // lowerer's collect_toplevel_globals walks the same flat view
+    // (the no-drift contract both sides document).
+    for stmt in crate::ast::toplevel_stmts_flat(ast) {
         if let Stmt::LetDecl {
             name,
             init,

@@ -57,7 +57,9 @@ pub(crate) fn collect_toplevel_globals(
     // snapshot, the standard no-drift contract).
     let dynobj_degraded = crate::dynobj_degrade::collect_dynobj_degraded_inits(ast);
     let mut globals: HashMap<String, Type> = HashMap::new();
-    for stmt in &ast.stmts {
+    // Multi-flattened walk (rotation 230) — mirror of the checker's
+    // pass_2 pre-pass, same no-drift contract.
+    for stmt in crate::ast::toplevel_stmts_flat(ast) {
         if let Stmt::LetDecl {
             name,
             init,
