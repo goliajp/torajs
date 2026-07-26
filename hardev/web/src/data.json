@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-26T05:17:07.645Z",
+  "generatedAt": "2026-07-26T06:34:53.787Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 96.12
   },
   "torajs": {
-    "commit": "14b4160b",
-    "commitSubject": "fix(check): an optional `any` parameter accepts every argument",
+    "commit": "34a0ca36",
+    "commitSubject": "fix(spread): a short spread source leaves undefined, not a throw",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -713,6 +713,26 @@
   },
   "commits": [
     {
+      "hash": "34a0ca36",
+      "subject": "fix(spread): a short spread source leaves undefined, not a throw"
+    },
+    {
+      "hash": "f5429d71",
+      "subject": "fix(lower): a parameter is told which family's undefined it was handed"
+    },
+    {
+      "hash": "83437f64",
+      "subject": "fix(arr): a boolean element answers undefined by widening the answer"
+    },
+    {
+      "hash": "3570efac",
+      "subject": "fix(arr): every refcounted-pointer element answers undefined the same way"
+    },
+    {
+      "hash": "9bd7a23f",
+      "subject": "chore(hardev): refresh dashboard snapshot for rotation 221 close"
+    },
+    {
       "hash": "14b4160b",
       "subject": "fix(check): an optional `any` parameter accepts every argument"
     },
@@ -739,47 +759,38 @@
     {
       "hash": "accbdf27",
       "subject": "refactor(lower): one contract for what converts an argument into a parameter"
-    },
-    {
-      "hash": "92ebd022",
-      "subject": "fix(width): the read-only container-key mirror knows every name the walk does"
-    },
-    {
-      "hash": "837ddd69",
-      "subject": "chore(hardev): refresh dashboard snapshot for rotation 220 close"
-    },
-    {
-      "hash": "8bd171ba",
-      "subject": "fix(arr): pop and shift on an empty number[] answer undefined"
-    },
-    {
-      "hash": "acb7e756",
-      "subject": "fix(arr): reading a number[] out of range answers undefined"
-    },
-    {
-      "hash": "76cbe611",
-      "subject": "fix(arr): an out-of-range read handed back out of a function is still undefined"
     }
   ],
-  "headSha": "14b4160b",
+  "headSha": "34a0ca36",
   "autorun": {
-    "total": 525,
+    "total": 526,
     "baselineTarget": 10,
-    "bySelf": 520,
+    "bySelf": 521,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785037771-7276",
-      "at": "2026-07-26T03:49:31Z",
-      "ts": 1785037771,
+      "rotationId": "r-1785043205-4bde",
+      "at": "2026-07-26T05:20:05Z",
+      "ts": 1785043205,
       "trigger": "self",
-      "prevHead": "837ddd69",
-      "handoffSha": "sha256:3f91be5bd25d966e7ab78abf0138df676c8d0415382679297c9f62ba82caaf9e",
-      "handoffAgeSec": 8,
+      "prevHead": "9bd7a23f",
+      "handoffSha": "sha256:45490364d3cdcb70f5e2ee9b4335029c94d22a5096fc7aa802d889f40f8b9379",
+      "handoffAgeSec": 70,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1785043205-4bde",
+        "at": "2026-07-26T05:20:05Z",
+        "ts": 1785043205,
+        "trigger": "self",
+        "prevHead": "9bd7a23f",
+        "handoffSha": "sha256:45490364d3cdcb70f5e2ee9b4335029c94d22a5096fc7aa802d889f40f8b9379",
+        "handoffAgeSec": 70,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785037771-7276",
         "at": "2026-07-26T03:49:31Z",
@@ -876,17 +887,6 @@
         "prevHead": "b03bb4d0",
         "handoffSha": "sha256:df6643a22a42bd3fd6731831efb38aba14c813704e64ef6363e139bc61d8904a",
         "handoffAgeSec": 3,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1784965436-09ea",
-        "at": "2026-07-25T07:43:56Z",
-        "ts": 1784965436,
-        "trigger": "self",
-        "prevHead": "705144ba",
-        "handoffSha": "sha256:4d39c8b5c13b4124f8b7a2d90b8349b71c0c467537e4a9aa23d54918b4a85448",
-        "handoffAgeSec": 71,
         "conformanceBefore": null,
         "commitsInSession": null
       }
