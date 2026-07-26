@@ -1791,14 +1791,29 @@ touches runtime hot paths.
       (super with arguments, twice in one expression, interleaved with
       `this`, inherited and grandchild receivers, static generator,
       per-instance state) is bun byte-equal JIT and AOT
-- [ ] **S2.12** `super.m()` resolves against the **direct** parent only,
-      so `class C extends B extends A` reaching A's `m` emits
-      `unknown identifier __cm_B__m`. Found while probing S2.11, but
-      **not a generator defect**: `desugar_classes_super` resolves
-      ordinary methods the same way and the plain-method spelling fails
-      identically (measured, 4-line repro). The fix is to walk the
-      inheritance chain to the method's real owner, which closes both
-      spellings at once. Not yet censused
+- [~] **S2.12** `super.m()` resolved against the **direct** parent only,
+      so `class C extends B extends A` reaching A's `m` emitted
+      `unknown identifier __cm_B__m`. Found while probing S2.11, and
+      **not a generator defect**: `desugar_classes_super` resolved
+      ordinary methods the same way and the plain-method spelling failed
+      identically. **The ordinary-method half is fixed 2026-07-27** —
+      the rewrite walks up from the parent for the nearest class that
+      declares the name, so an override partway up the chain still wins
+      over the grandparent's version, and a name nothing declares keeps
+      the existing diagnostic rather than resolving to silence. Fixture
+      `super-method-chain-001`. **Still open:** the generator-method
+      spelling, whose rewrite happens in the parser (it has to, since by
+      desugar time the body has moved into the `__Gen_*` state machine)
+      and so has only the direct parent in hand. Unifying the two —
+      have the parser record `(ExprId, class, method)` and let the
+      desugar do the single rewrite once the class index exists — is
+      the right shape; arena ExprIds are stable, so the desugar can
+      reach a body it can no longer find by walking
+- [ ] **S2.16** `super.m()` from a **static** method emits
+      `unknown identifier __cm_A__make`. Fails against the direct parent
+      too, so it is not S2.12's chain walk — the static half simply has
+      no rewrite. Found while writing the S2.12 fixture. Not yet
+      censused
 - [ ] **S2.13** A `class` **declaration** inside a function body reaches
       the checker unlowered: `function f() { class Inner {} … }` answers
       `internal: ClassDecl \`Inner\` reached check.rs (desugar didn't
@@ -2186,7 +2201,8 @@ but see S2.1 for why the reasoning was wrong.
 S1.7 / S1.8 measured, **S2.1 shipped whole** (all three positions),
 **S2.11 and S2.9 both closed** in rotation 227 (S2.9 except the two
 cases that were never its own), plus S2.2's private-generator-name
-third; that rotation also surfaced S2.12, S2.13, S2.14, S2.15, S5.8
+third and S2.12's ordinary-method half; that rotation also surfaced
+S2.12, S2.13, S2.14, S2.15, S2.16, S5.8
 and S8.5 — the last of those found and its main shape fixed in the same
 rotation. S1.3 now measurable; S1.4 open with a corrected description;
 S1.8(b) blocked on S5.6.

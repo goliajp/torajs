@@ -134,7 +134,16 @@ pub(super) fn rewrite_super_method_calls(ast: &mut Ast, class_index: &[ClassInde
         }
         for (eid, m_name, args) in sites {
             let _ = cname; // diag context only
-            let callee = ast.add_expr(Expr::Ident(format!("__cm_{parent_name}__{m_name}")));
+            // S2.12 — `super.m()` names the nearest ancestor that
+            // declares `m`, not necessarily the direct parent. Walking
+            // up from the parent is what `class C extends B extends A`
+            // needs when `m` lives on A; before this the rewrite named
+            // `__cm_B__m` and the program died on an unknown identifier.
+            // Falling back to the direct parent when nothing declares it
+            // keeps the pre-existing diagnostic for a genuine typo.
+            let owner =
+                nearest_declaring(class_index, parent_name, &m_name).unwrap_or(parent_name.clone());
+            let callee = ast.add_expr(Expr::Ident(format!("__cm_{owner}__{m_name}")));
             let this_id = ast.add_expr(Expr::This);
             let mut new_args = Vec::with_capacity(args.len() + 1);
             new_args.push(this_id);
@@ -145,4 +154,29 @@ pub(super) fn rewrite_super_method_calls(ast: &mut Ast, class_index: &[ClassInde
             };
         }
     }
+}
+
+/// Walk `start` and its ancestors for the first class declaring a
+/// method named `m`, answering that class's name. `None` when nothing
+/// in the chain declares it — the caller then keeps naming the direct
+/// parent so the existing "unknown identifier" diagnostic still fires
+/// for a genuine typo rather than being replaced by silence.
+///
+/// The hop bound guards a malformed `extends` cycle; a well-formed
+/// hierarchy is a tree and terminates on its own.
+fn nearest_declaring(class_index: &[ClassIndexEntry], start: &str, m: &str) -> Option<String> {
+    let mut cur = start.to_string();
+    for _ in 0..64 {
+        let entry = class_index.iter().find(|e| e.1 == cur)?;
+        if entry
+            .7
+            .iter()
+            .chain(entry.8.iter())
+            .any(|method| method.name == m)
+        {
+            return Some(cur);
+        }
+        cur = entry.3.clone()?;
+    }
+    None
 }
