@@ -462,7 +462,7 @@ impl<'a> Analysis<'a> {
 ///
 /// Only the elements of such a container ever carry a width, so joining
 /// on the container is what carries the elements along.
-fn in_number_domain(ann: &Option<String>) -> bool {
+pub(super) fn in_number_domain(ann: &Option<String>) -> bool {
     match ann.as_deref() {
         None => true,
         Some(t) => t.trim_end_matches("[]") == "number",

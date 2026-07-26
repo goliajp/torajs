@@ -83,6 +83,20 @@ pub(crate) enum SlotKey {
     /// W4 — field-width point of a struct / class / inline-object
     /// alias class: (container class representative, field name).
     Field(Box<SlotKey>, String),
+    /// RFC 20260726-array-elem-width — the pending-throw value slot.
+    ///
+    /// There is one of it in the runtime, and it holds raw 8 bytes that
+    /// a `throw` writes and a `catch` binding reads back, so both ends
+    /// have to agree on how to read those bits — the same reason a
+    /// promise's `value` point exists. Nothing joined them before, so
+    /// `throw xs[i]` on a widened array wrote f64 bits that
+    /// `catch (e: number)` read as an integer.
+    ///
+    /// Being a single point means every numeric throw site in a program
+    /// shares one class. That is the conservative direction: a class
+    /// merges F64-ward, and a JS number IS an f64, so the worst case is
+    /// a slot that stays wider than it had to.
+    Thrown,
 }
 
 /// A slot dependency plus whether the value path from that slot to

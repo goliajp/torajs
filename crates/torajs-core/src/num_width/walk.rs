@@ -64,10 +64,16 @@ pub(super) fn collect_let_names(s: &Stmt, out: &mut HashSet<String>) {
         }
         Stmt::Try {
             body,
+            catch_param,
             catch_body,
             finally_body,
             ..
         } => {
+            // The catch binding is a slot like any other — it has to be
+            // resolvable for the pending-throw join below to reach it.
+            if let Some(p) = catch_param {
+                out.insert(p.clone());
+            }
             for bs in body {
                 collect_let_names(bs, out);
             }
@@ -137,7 +143,15 @@ impl<'a> Analysis<'a> {
                     self.walk_expr(*e, scope);
                 }
             }
-            Stmt::Expr(e) | Stmt::Throw(e) | Stmt::Yield(e) => self.walk_expr(*e, scope),
+            Stmt::Throw(e) => {
+                // The thrown value goes through the one pending-throw
+                // slot, so its width feeds that slot's class and comes
+                // back out at whatever catch binding reads it.
+                let w = self.width_of(*e, scope);
+                self.add_container_constraint(SlotKey::Thrown, w);
+                self.walk_expr(*e, scope);
+            }
+            Stmt::Expr(e) | Stmt::Yield(e) => self.walk_expr(*e, scope),
             Stmt::YieldInto { value, .. } => self.walk_expr(*value, scope),
             Stmt::If {
                 cond,
@@ -222,10 +236,24 @@ impl<'a> Analysis<'a> {
             }
             Stmt::Try {
                 body,
+                catch_param,
+                catch_type,
                 catch_body,
                 finally_body,
                 ..
             } => {
+                // The catch binding reads the same raw slot every throw
+                // writes, so the two share one class — the promise
+                // `value` shape. Gated on the number domain for the
+                // same reason that one is: a slot carries any type, and
+                // gluing a non-numeric face into the numeric class
+                // poisons it.
+                if let Some(p) = catch_param
+                    && super::container_methods::in_number_domain(catch_type)
+                    && let Some(k) = self.resolve(p, scope)
+                {
+                    self.uf.union(&SlotKey::Thrown, &k);
+                }
                 for bs in body {
                     self.walk_stmt(bs, scope);
                 }

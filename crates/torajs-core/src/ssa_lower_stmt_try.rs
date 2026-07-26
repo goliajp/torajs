@@ -177,6 +177,22 @@ fn lower_catch(
             ),
             None => Type::Any,
         };
+        // RFC 20260726-array-elem-width — `throw_take` hands back the
+        // pending slot's raw 8 bytes, so the binding has to read them
+        // at the width the throw sites wrote. A `let` asks the table
+        // the same way; catch never did, and `throw xs[i]` on a widened
+        // array wrote f64 bits that `catch (e: number)` read as an
+        // integer.
+        let e_ty = if e_ty == Type::I64
+            && catch_type.map(|s| s.as_str()) == Some("number")
+            && ctx
+                .num_f64_slots
+                .slot_is_f64(&crate::num_width::SlotKey::Thrown)
+        {
+            Type::F64
+        } else {
+            e_ty
+        };
         let slot_v = if matches!(e_ty, Type::Any) {
             let tag_v = ctx.f.append_inst(
                 ctx.cur_block,
@@ -207,7 +223,20 @@ fn lower_catch(
                 Type::I64,
                 Some(p),
             );
-            Operand::Value(v)
+            if e_ty == Type::F64 {
+                // The slot holds raw 8 bytes; decode them the way the
+                // throw site encoded them rather than converting the
+                // number (the symmetric `BitCastF64ToI64` the promise
+                // value point uses).
+                Operand::Value(ctx.f.append_inst(
+                    ctx.cur_block,
+                    InstKind::BitCastI64ToF64(Operand::Value(v)),
+                    Type::F64,
+                    None,
+                ))
+            } else {
+                Operand::Value(v)
+            }
         };
         let slot = ctx.alloca(e_ty, Some(p));
         ctx.f.append_void(

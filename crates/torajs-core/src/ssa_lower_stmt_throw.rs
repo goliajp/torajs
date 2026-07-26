@@ -64,7 +64,30 @@ pub(crate) fn lower(ctx: &mut LowerCtx, eid: ExprId) {
         (Operand::ConstI64(5), Operand::ConstI64(0))
     } else {
         match v_ty {
-            Type::I64 | Type::I32 => (Operand::ConstI64(2), v),
+            Type::I64 | Type::I32 => {
+                // RFC 20260726-array-elem-width — the pending slot is
+                // raw 8 bytes shared by every throw site and every
+                // `catch (e: number)` that reads one, so all of them
+                // encode at one width. When the class came out F64
+                // (some site throws a fractional value), an integer
+                // throw widens to match rather than writing integer
+                // bits a f64-reading catch would misread.
+                if ctx
+                    .num_f64_slots
+                    .slot_is_f64(&crate::num_width::SlotKey::Thrown)
+                {
+                    let f = ctx.coerce_to_f64(v);
+                    let bits = ctx.f.append_inst(
+                        ctx.cur_block,
+                        InstKind::BitCastF64ToI64(f),
+                        Type::I64,
+                        None,
+                    );
+                    (Operand::ConstI64(3), Operand::Value(bits))
+                } else {
+                    (Operand::ConstI64(2), v)
+                }
+            }
             Type::F64 => {
                 let bits =
                     ctx.f
