@@ -89,6 +89,11 @@ fn token_starts_class_member_name(t: Option<&Token>, allow_private: bool) -> boo
             // distinguishes the modifier form from `async` as a
             // member name via the trailing `Ident + LParen` lookahead.
             | Token::Async
+            // P-SURF S2.1 — `static *g() {}`. `*` legally follows
+            // `static`, so without this the `static` lookahead fails and
+            // `static` is taken for the member name itself, reporting
+            // "expected `(` (method) or `:` (field) after `static`".
+            | Token::Star
     )
 }
 

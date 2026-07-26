@@ -113,6 +113,17 @@ impl<'a> Parser<'a> {
             }
             Token::This => {
                 self.pos += 1;
+                // P-SURF S2.1 — inside a hoisted class generator method
+                // the receiver arrives as a parameter, and it has to be
+                // named here rather than left to
+                // `desugar_classes`: that pass runs after
+                // `desugar_generators`, which by then has turned `this`
+                // into a reference to the `__Gen_*` state-machine
+                // instance. See `Parser::in_gen_class_method`.
+                if self.in_gen_class_method {
+                    let recv = super::parse_class_decl_generator::GEN_RECV_PARAM;
+                    return Ok(self.ast.add_expr(Expr::Ident(recv.into())));
+                }
                 Ok(self.ast.add_expr(Expr::This))
             }
             Token::Super => self.parse_primary_super(),

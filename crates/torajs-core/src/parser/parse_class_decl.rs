@@ -103,6 +103,25 @@ impl<'a> Parser<'a> {
             let member_span_start = member_span_start
                 .or_else(|| self.tokens.get(self.pos).map(|t| t.span.start))
                 .unwrap_or(0);
+            // P-SURF S2.1 — `*g() { yield 1 }`. Checked before member-name
+            // parsing, which is where `*` used to die with `expected class
+            // member name, got Star`. See
+            // `parser/parse_class_decl_generator.rs`: the method is hoisted
+            // to a top-level `function*` taking the receiver as a parameter
+            // and the class keeps an ordinary forwarder, so nothing
+            // downstream of here changes.
+            if matches!(self.peek(), Token::Star) {
+                let visibility = explicit_visibility.unwrap_or(ast::Visibility::Public);
+                self.parse_class_generator_method(
+                    &name,
+                    is_static,
+                    visibility,
+                    member_span_start,
+                    &mut methods,
+                    &mut static_methods,
+                )?;
+                continue;
+            }
             // Computed / private / reserved-word member-name parsing
             // — split to `parse_class_decl_member.rs`.
             let (member_name, consumed_computed_name) =

@@ -51,6 +51,7 @@ mod object_member;
 mod object_member_generator;
 mod param_list;
 mod parse_class_decl;
+mod parse_class_decl_generator;
 mod parse_class_decl_header;
 mod parse_class_decl_member;
 mod parse_class_member_field;
@@ -107,6 +108,7 @@ pub fn parse_into(source: &str, tokens: &[Spanned], target: &mut Ast) -> Result<
         desugar_id: id_offset,
         generator_fns: std::collections::HashMap::new(),
         current_class: None,
+        in_gen_class_method: false,
         synth_classes: Vec::new(),
         class_value_aliases: std::collections::HashMap::new(),
         dyn_import_counter: 0,
@@ -165,6 +167,21 @@ struct Parser<'a> {
     /// possible without static type info — those flow through as
     /// raw `#name` and typecheck/desugar can mangle later (P8.x).
     current_class: Option<String>,
+    /// P-SURF S2.1 — set while parsing the body of a class generator
+    /// method, which is hoisted to a top-level `function*` taking the
+    /// receiver as a parameter. While it is set, `this` mints
+    /// `Ident(GEN_RECV_PARAM)` directly instead of `Expr::This`.
+    ///
+    /// It has to happen here rather than in a desugar pass:
+    /// `desugar_generators` runs *before* `desugar_classes` (the pass
+    /// that normally performs the `This` → `__this` rewrite), and the
+    /// generator desugar rewrites the params it hoists into fields of a
+    /// `__Gen_*` class reached through `this`. An `Expr::This` still
+    /// standing at that point would therefore be read as the `__Gen_*`
+    /// instance rather than the class instance — silently the wrong
+    /// receiver. Minting the parameter reference up front keeps the two
+    /// apart.
+    in_gen_class_method: bool,
     /// P8.5 — parser-synthesized ClassDecls produced when a class
     /// appears in expression position (`const F = class { ... }`,
     /// `new (class { ... })()`, etc.). Each entry is anonymous on

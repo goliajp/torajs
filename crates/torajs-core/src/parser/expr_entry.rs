@@ -71,6 +71,11 @@ impl<'a> Parser<'a> {
                         desugar_id: self.desugar_id,
                         generator_fns: std::mem::take(&mut self.generator_fns),
                         current_class: self.current_class.clone(),
+                        // Inherited for the same reason `current_class`
+                        // is: `${this.x}` inside a class generator
+                        // method's body must mint the same receiver
+                        // reference the surrounding body does.
+                        in_gen_class_method: self.in_gen_class_method,
                         synth_classes: Vec::new(),
                         // Sub-parser sees outer aliases so a template
                         // interpolation can do `${new F()}` where F is
