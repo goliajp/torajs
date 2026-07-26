@@ -98,4 +98,22 @@ impl<'a> Parser<'a> {
         };
         Some((destruct_names, destruct_obj, var_name, assign_target))
     }
+
+    /// S2.24 刀 2 (RFC 20260727-dstr-assignment) — bare
+    /// assignment-pattern head scan: `for ([a, b] of src)` /
+    /// `for ({ x } of src)`. The pattern parses as a literal
+    /// expression (the spec's CoverAssignmentPattern, same as the
+    /// statement form); a non-of/in follow means this was a C-style
+    /// init that happens to open with `[` — the caller restores its
+    /// saved position and falls through.
+    pub(super) fn scan_forof_assign_pattern(&mut self) -> Option<ExprId> {
+        let Ok(pat) = self.parse_expr() else {
+            return None;
+        };
+        let next_is_of_in = matches!(
+            self.peek(),
+            Token::Ident(n) if n == "of" || n == "in"
+        );
+        next_is_of_in.then_some(pat)
+    }
 }

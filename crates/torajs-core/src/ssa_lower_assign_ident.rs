@@ -170,7 +170,7 @@ fn lower_local_assign(ctx: &mut LowerCtx<'_>, name: String, value: ExprId) -> Op
     apply_borrow_rc_inc(ctx, &v, value);
     let v_ty = ctx.operand_ty(&v);
     check_local_coercion(ctx, &name, snapshot.ty, v_ty);
-    let v = coerce_for_local(ctx, snapshot.ty, v_ty, v);
+    let v = coerce_for_local(ctx, snapshot.ty, v_ty, v, value);
     let post_rhs = *ctx.locals.get(&name).unwrap_or(&snapshot);
     // RFC 20260710 — a promoted mutable capture binding is
     // moved-marked (its stake lives in the capture box), but the box
@@ -306,9 +306,23 @@ fn check_local_coercion(ctx: &LowerCtx<'_>, name: &str, snap_ty: Type, v_ty: Typ
     );
 }
 
-fn coerce_for_local(ctx: &mut LowerCtx<'_>, snap_ty: Type, v_ty: Type, v: Operand) -> Operand {
+fn coerce_for_local(
+    ctx: &mut LowerCtx<'_>,
+    snap_ty: Type,
+    v_ty: Type,
+    v: Operand,
+    value: ExprId,
+) -> Operand {
     if snap_ty == Type::Any && v_ty != Type::Any {
-        ctx.box_to_any(v)
+        // S2.28 (RFC 20260727-dstr-assignment) — the eid-aware box,
+        // same as the global lane and the let-init lane: a typed OOB
+        // element read (`b = t[i]` past the end) carries the
+        // undefined sentinel, and the eid-blind `box_to_any` was
+        // boxing its raw bits as a Number (`let b: any = 0;
+        // b = t[1];` answered NaN). The expr gate also keeps
+        // `undefined` / `null` rhs tags apart, as the global path
+        // has since chunk 809.
+        ctx.box_to_any_from_expr(value, v)
     } else if snap_ty == Type::F64 && v_ty == Type::I64 {
         ctx.coerce_to_f64(v)
     } else if matches!(snap_ty, Type::I64 | Type::F64) && v_ty == Type::Any {

@@ -2074,6 +2074,40 @@ touches runtime hot paths.
       the fact had no proxy in that lane, since the array lane's marker
       is a `.value` wrap on `elem_expr` and the protocol lane ignores
       `elem_expr` — plus an awaiting arm that unwraps each step
+- [ ] **S2.26** **Any→typed member assignment stores raw box bits** —
+      SILENT WRONG, found rotation 230 while probing S2.24's nested
+      patterns. `let o = { k: 0 }; let v: any = 9; o.k = v;` prints
+      **NaN** (and `o.k = src.k` off an `any` source prints
+      `-562949953421303`) — the member-assign lane accepts the Any
+      value but never unboxes it into the declared field lane, so the
+      NaN-box bits land in the number slot as-is. Same family as RFC
+      20260727-promise-typed-readback (that RFC fixed the settle /
+      await lanes; this is the member-store lane). Iron-rule grade:
+      no diagnostic, wrong data
+- [ ] **S2.28** **Typed OOB element read crossing into `any`** —
+      found rotation 230 while probing S2.24's for-await face. The
+      SILENT half is fixed: `let t = [1]; let b: any = 0; b = t[1];`
+      printed **NaN** because `coerce_for_local` used the eid-blind
+      `box_to_any` (the global-assign and let-init lanes were already
+      eid-aware), boxing the undefined-sentinel's raw bits as a
+      Number — one-line route through `box_to_any_from_expr`, and the
+      plain-for-of no-default past-end slot
+      (`for ([w1 = 20, w2] of [[2]])`) came right with it. REMAINING:
+      the `for await` variant of the same shape still THROWS a
+      catchable "array index out of bounds" RangeError
+      (`__torajs_arr_oob_throw`, the loud OOB exit for element lanes
+      with no undefined representation — I64 / nested-heap); loud,
+      not silent, but bun answers undefined. Carries the
+      no-default-past-end slice of S2.5's 654 under `for await`
+- [ ] **S2.27** **Ternary branches of Undefined/Null vs T reject
+      instead of unifying** — `let [u = 13] = [undefined]` (and the
+      S2.24 assignment mirror) answers `ternary branches differ —
+      then is Undefined, else is Number`, because a MONOMORPHIC
+      `Array<Undefined>` / `Array<Null>` source makes the
+      destructuring default's guard ternary type its branches
+      Undefined vs Number. The heterogeneous (Any) sources test262
+      actually uses unify fine — this bites only the mono edge, in
+      both declaration and assignment forms
 - [ ] **S2.7** Untyped class field without a literal initializer — **245**
 - [x] **S2.25** **A `.then` handler may declare no parameter** — shipped
       rotation 229 (`53466c5a`). `p.then(() => { … })`, the everyday

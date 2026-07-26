@@ -56,6 +56,7 @@ impl<'a> Parser<'a> {
     ) -> Result<Vec<Stmt>, String> {
         let id = self.mint_desugar_id();
         let src_name = format!("__dstra_src_{id}");
+        self.note_ary_destr_group(target, value);
         let mut out = vec![Stmt::LetDecl {
             mutable: false,
             name: src_name.clone(),
@@ -65,6 +66,22 @@ impl<'a> Parser<'a> {
         }];
         self.emit_dstr_assign_pattern(target, &src_name, &mut out)?;
         Ok(out)
+    }
+
+    /// Register the temp's init in `ary_destr_groups`, exactly as the
+    /// declaration form does (destr_drivers / destr_helpers): the
+    /// group entry is what routes a non-indexable source through the
+    /// iterator lane AND what keeps a short source's past-end slots
+    /// reading `undefined` instead of the typed lane's OOB behavior.
+    fn note_ary_destr_group(&mut self, pat: ExprId, src_expr: ExprId) {
+        if let Expr::Array(elems) = self.ast.get_expr(pat) {
+            let has_rest = elems
+                .last()
+                .map(|&e| matches!(self.ast.get_expr(e), Expr::Spread { .. }))
+                .unwrap_or(false);
+            let limit = if has_rest { -1 } else { elems.len() as i64 };
+            self.ast.ary_destr_groups.insert(src_expr, limit);
+        }
     }
 
     fn emit_dstr_assign_pattern(
@@ -188,6 +205,7 @@ impl<'a> Parser<'a> {
         ) {
             let id = self.mint_desugar_id();
             let tmp = format!("__dstra_src_{id}");
+            self.note_ary_destr_group(target, loaded);
             out.push(Stmt::LetDecl {
                 mutable: false,
                 name: tmp.clone(),

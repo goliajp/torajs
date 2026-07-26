@@ -48,6 +48,12 @@ impl<'a> Parser<'a> {
         };
         let bare_form = is_var_decl.is_none();
         if bare_form {
+            // S2.24 刀 2 — `[` / `{` opens a bare assignment-pattern
+            // head (`for ([a, b] of …)`); the caller scans + validates
+            // it and restores on a non-of/in follow.
+            if matches!(self.peek(), Token::LBracket | Token::LBrace) {
+                return Some((None, true));
+            }
             let next_is_of_in = matches!(
                 self.tokens.get(self.pos + 1).map(|t| &t.token),
                 Some(Token::Ident(n)) if n == "of" || n == "in"
@@ -141,10 +147,26 @@ impl<'a> Parser<'a> {
         let Some((is_var_decl, bare_form)) = self.scan_forof_head() else {
             return Ok(None);
         };
-        let Some((destruct_names, destruct_obj, var_name, assign_target)) =
-            self.parse_forof_binding_and_pattern(saved, is_var_decl, bare_form)
-        else {
-            return Ok(None);
+        // S2.24 刀 2 — bare assignment-pattern head: a fresh loop
+        // local receives each element; the body prepends the same
+        // pattern-assignment expansion the statement form uses.
+        let mut destruct_assign: Option<ExprId> = None;
+        let (destruct_names, destruct_obj, var_name, assign_target) = if bare_form
+            && matches!(self.peek(), Token::LBracket | Token::LBrace)
+        {
+            let Some(pat) = self.scan_forof_assign_pattern() else {
+                self.pos = saved;
+                return Ok(None);
+            };
+            destruct_assign = Some(pat);
+            let id = self.mint_desugar_id();
+            (None, None, format!("__forvar_{id}"), None)
+        } else {
+            let Some(head) = self.parse_forof_binding_and_pattern(saved, is_var_decl, bare_form)
+            else {
+                return Ok(None);
+            };
+            head
         };
         // P5.3 — preserve the optional `: T` annotation on the
         // binding name so check.rs / ssa_lower can pin the var's
@@ -196,6 +218,18 @@ impl<'a> Parser<'a> {
         // from the fresh loop-local at the top of each iteration.
         let body = if let Some(target) = &assign_target {
             self.wrap_assign_form(target, &var_name, body)
+        } else {
+            body
+        };
+        // S2.24 刀 2 — bare pattern head: destructure the fresh
+        // loop-local into the existing bindings at the top of each
+        // iteration (desugar_dstr_assign hoists it into its own temp,
+        // then assigns per slot).
+        let body = if let Some(pat) = destruct_assign {
+            let var_ref = self.ast.add_expr(Expr::Ident(var_name.clone()));
+            let mut pre = self.desugar_dstr_assign(pat, var_ref)?;
+            pre.push(body);
+            Stmt::Block(pre)
         } else {
             body
         };
