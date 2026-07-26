@@ -2075,6 +2075,15 @@ touches runtime hot paths.
       is a `.value` wrap on `elem_expr` and the protocol lane ignores
       `elem_expr` — plus an awaiting arm that unwraps each step
 - [ ] **S2.7** Untyped class field without a literal initializer — **245**
+- [x] **S2.25** **A `.then` handler may declare no parameter** — shipped
+      rotation 229 (`53466c5a`). `p.then(() => { … })`, the everyday
+      side-effect shape, was a type error on every typed receiver. The
+      reasoning for admitting it was already written down one arm over:
+      the `Promise<Undefined>` receiver has taken a 0-arg handler since
+      P10.2-A1.1, documenting that the kernels call through
+      `int64_t (*)(int64_t)` either way. §27.2.5.4 hands the value to
+      onFulfilled as one argument; how many the handler declares is its
+      own business
 - [x] **S2.22** **for-of inside an arrow function** — shipped rotation
       229 (`4196ae10`); never a census item, it surfaced while writing
       S2.5's fixture with the ordinary `(async () => {})()` driver.
