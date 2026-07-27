@@ -176,7 +176,11 @@ fn collect_fn_expr_bindings(ast: &Ast, candidates: &mut Vec<Constructible>) {
             continue;
         }
         let takes_this = params.first().is_some_and(|p| p.name == "__this");
-        let user_params = if takes_this { &params[1..] } else { &params[..] };
+        let user_params = if takes_this {
+            &params[1..]
+        } else {
+            &params[..]
+        };
         let param_names: Vec<String> = params.iter().map(|p| p.name.clone()).collect();
         if !takes_this
             && super::free_vars::free_vars_of_body(ast, &param_names, body)
