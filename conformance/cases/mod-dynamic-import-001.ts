@@ -2,17 +2,15 @@
 // tora's parser rejected `import` in expression context with
 //   `parse error: expected expression, got Import`
 //
-// Substrate fix (P13-S5):
+// Substrate fix (P13-S5, reshaped rotation 233):
 // - parser.rs: parse_primary detects `import(<string-literal>)` and
 //   synthesizes an `import * as __dyn_ns_<n> from "<source>"` decl
 //   (via synth_classes, flushed before the enclosing stmt), then
-//   returns the expression as `{ value: __dyn_ns_<n> }` — a plain
-//   object literal whose `value` field is the namespace struct.
-//   Tora's `await <expr>` desugar (`<expr>.value`) reads the
-//   namespace through that wrapper without the typecheck having to
-//   traverse Promise<struct-with-fn-fields> (which is a separate
-//   substrate gap tracked in L3b — only matters for `.then()` use,
-//   which is uncommon for dynamic import in TS code).
+//   returns the namespace struct itself. `await import(...)` passes
+//   it through identity (await dispatches by type; the namespace is
+//   not a Promise), without the typecheck traversing
+//   Promise<struct-with-fn-fields>. Standalone `.then()` use stays
+//   a separate L3b gap — uncommon for dynamic import in TS code.
 //
 // Subset constraint: source must be a string literal so the
 // resolver can statically materialize the namespace at compile

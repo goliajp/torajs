@@ -68,19 +68,16 @@ impl<'a> Parser<'a> {
             named: Vec::new(),
             source,
         });
-        // Build expression: `{ value: <ns_name> }`. The await prefix
-        // desugar (`<expr>.value`) then reads the namespace struct
-        // out of the wrapper. This matches the common
-        // `const M = await import("./y")` pattern without forcing the
-        // typecheck through Promise<struct-with-fn-fields> (which is
-        // a separate substrate gap tracked in L3b — the standalone
-        // Promise<namespace> shape only matters for `.then()` use,
-        // which is uncommon for dynamic import in TS code).
-        let ns_id = self.ast.add_expr(Expr::Ident(ns_name));
-        let wrapper = self.ast.add_expr(Expr::ObjectLit {
-            fields: vec![("value".into(), ns_id)],
-        });
-        return Ok(wrapper);
+        // The expression is the namespace struct itself. `await
+        // import("./y")` passes it through identity (rotation 233 —
+        // await dispatches by type, and the namespace is not a
+        // Promise), matching the common `const M = await import(...)`
+        // pattern without the typecheck traversing
+        // Promise<struct-with-fn-fields>. Pre-233 this minted a
+        // `{value: ns}` wrapper to feed await's `.value` field read;
+        // with the by-type dispatch the wrapper would leak out
+        // whole. Standalone `.then()` use stays the L3b gap it was.
+        return Ok(self.ast.add_expr(Expr::Ident(ns_name)));
     }
 
     pub(super) fn parse_primary_paren(&mut self) -> Result<ExprId, String> {
