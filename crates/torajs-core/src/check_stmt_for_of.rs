@@ -94,6 +94,7 @@ pub(crate) fn check(
     i_ident: &str,
     elem_expr: ExprId,
     body: &Stmt,
+    is_await: bool,
 ) {
     checker.scopes.push(HashMap::new());
     let _ = checker.declare(
@@ -137,6 +138,16 @@ pub(crate) fn check(
                 Type::Any
             }
         }
+    };
+    // Hole Z — `for await` awaits each element (§14.7.5.10): a
+    // Promise(T) element binds as T; every non-thenable element
+    // awaits to itself, so Struct / Object / primitive elements bind
+    // unchanged. The elem_expr stays typed Promise(T) in expr_types —
+    // ssa_lower's array lane reads that verdict to route the load
+    // through promise_get_value.
+    let elem_ty = match elem_ty {
+        Type::Promise(inner) if is_await => *inner,
+        t => t,
     };
     let var_ty = if let Some(ann) = var_type_ann {
         resolve_type_ann(ann, &checker.aliases).unwrap_or(elem_ty)

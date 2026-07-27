@@ -28,11 +28,13 @@
 //!    refcount belongs to source slot, per-iter drop skips to
 //!    avoid double-dec of array slot child rc).
 //!
-//! P10.3-A1 — `for await (decl of iter)` desugar wraps elem_expr in
-//! a `.value` Member access (await desugar); we strip the wrapper
-//! to find the underlying Index for src resolution, but per-iter
-//! lowering still uses the wrapped elem_expr so await semantics
-//! (`promise_get_value`) fire naturally.
+//! Hole Z — `for await (decl of iter)` no longer wraps elem_expr in
+//! a `.value` Member (that conflated the await unwrap with a real
+//! user member and killed Struct elements on member lookup). The
+//! stmt's `is_await` flag drives the await: a Promise-typed element
+//! (checker verdict in `expr_types`) loads through
+//! `promise_get_value`; every other element awaits to itself per
+//! §27.2, so the plain Index load stands.
 
 use crate::ast::{Expr, Stmt};
 use crate::ssa::{BinOp as SsaBinOp, IPred, InstKind, Operand, Terminator, Type};
@@ -68,11 +70,13 @@ pub(crate) fn lower(
     forin_obj: Option<crate::ast::ExprId>,
     is_await: bool,
 ) {
-    let index_eid = resolve_index_eid(ctx, elem_expr);
-    let src_ref_eid = if let Expr::Index { obj, .. } = ctx.ast.get_expr(index_eid) {
+    let src_ref_eid = if let Expr::Index { obj, .. } = ctx.ast.get_expr(elem_expr) {
         *obj
     } else {
-        unreachable!("index_eid resolution above guarantees Expr::Index");
+        panic!(
+            "for-of: elem_expr must be Expr::Index (parser pre-builds `src[i]`), got {:?}",
+            ctx.ast.get_expr(elem_expr)
+        );
     };
     let src_ptr_op = ctx.lower_expr(src_ref_eid);
     let src_ty = ctx.operand_ty(&src_ptr_op);
@@ -114,7 +118,7 @@ pub(crate) fn lower(
     // strings / arrays / MapIter / ArrIter; catchable TypeError for
     // non-iterable receivers). See sibling ssa_lower_for_of_any_iter.
     if src_ty == Type::Any {
-        if !matches!(ctx.ast.get_expr(elem_expr), Expr::Index { .. }) {
+        if is_await {
             panic!(
                 "ssa-lower: for-await over an `any` source is not yet supported (the runtime iteration protocol has no promise_get_value hook — P10.3 follow-up)"
             );
@@ -180,7 +184,20 @@ pub(crate) fn lower(
     ctx.cur_block = body_blk;
     ctx.scope_stack.push(Vec::new());
     ctx.shadow_stack.push(Vec::new());
-    let v_val = ctx.lower_expr(elem_expr);
+    // Hole Z — for-await element await by the checker's verdict: a
+    // Promise-typed element loads through promise_get_value (microtask
+    // drain + value cast + rc_inc, same route the `await e` Member arm
+    // takes); every other element awaits to itself per §27.2 and the
+    // plain Index load stands.
+    let v_val = if is_await
+        && matches!(
+            ctx.expr_types.get(&elem_expr),
+            Some(crate::check::Type::Promise(_))
+        ) {
+        crate::ssa_lower_member_promise_value::lower_promise_get_value(ctx, elem_expr)
+    } else {
+        ctx.lower_expr(elem_expr)
+    };
     let v_ty = ctx.operand_ty(&v_val);
     if let Some(obj_eid) = forin_obj {
         emit_forin_guard(ctx, obj_eid, &v_val, step_blk);
@@ -285,28 +302,6 @@ fn emit_forin_guard(
         },
     );
     ctx.cur_block = live_blk;
-}
-
-/// Peel the for-await `.value` Member wrapper (P10.3-A1) to the
-/// underlying `Expr::Index` used for src resolution.
-fn resolve_index_eid(ctx: &LowerCtx, elem_expr: crate::ast::ExprId) -> crate::ast::ExprId {
-    match ctx.ast.get_expr(elem_expr) {
-        Expr::Index { .. } => elem_expr,
-        Expr::Member { obj, name } if name == "value" => {
-            if matches!(ctx.ast.get_expr(*obj), Expr::Index { .. }) {
-                *obj
-            } else {
-                panic!(
-                    "for-of: for-await wrapper expects Member.value over Index, got {:?}",
-                    ctx.ast.get_expr(*obj)
-                );
-            }
-        }
-        other => panic!(
-            "for-of: elem_expr must be Expr::Index or for-await Member.value-over-Index wrapper, got {:?}",
-            other
-        ),
-    }
 }
 
 /// Register `name` in the innermost scope frame, shadow-saving any

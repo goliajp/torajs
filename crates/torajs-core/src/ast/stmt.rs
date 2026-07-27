@@ -113,14 +113,15 @@ pub enum Stmt {
         /// properties deleted mid-loop are not visited (ES §14.7.5).
         forin_obj: Option<ExprId>,
         /// The loop was written `for await` (ES §14.7.5.10 — the
-        /// async form). Recorded rather than inferred: the array
-        /// lane's marker is a `.value` wrap on `elem_expr`, but the
-        /// iterator-protocol lane ignores `elem_expr` entirely, so
-        /// it has no proxy to read. Under this flag that lane awaits
-        /// each `next()` — an async generator's step methods answer
-        /// `Promise<IteratorResult>` per §27.6. The checker ignores
-        /// the flag: the `.value` wrap already narrows the binding
-        /// for it.
+        /// async form). This flag is the ONLY marker (hole Z removed
+        /// the `.value` Member wrap on `elem_expr` — it conflated the
+        /// await unwrap with a real user member). The checker unwraps
+        /// a Promise(T) element to T under this flag (every
+        /// non-thenable awaits to itself per §27.2); the array lane
+        /// routes Promise-typed elements through promise_get_value;
+        /// the iterator-protocol lane awaits each `next()` — an async
+        /// generator's step methods answer `Promise<IteratorResult>`
+        /// per §27.6.
         is_await: bool,
     },
     /// `break;` / `break label;` — exits the innermost enclosing loop

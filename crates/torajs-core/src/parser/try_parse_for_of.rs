@@ -418,10 +418,10 @@ impl<'a> Parser<'a> {
         Stmt::Block(stmts)
     }
 
-    /// Default for-of tail (P5.3 `Stmt::ForOf` emission incl. the
-    /// `for await` `.value` wrap) — split from `try_parse_for_of`
-    /// (2026-07-03, fn-debt decomp). Body verbatim; the two
-    /// `Ok(Some(..))` tails become plain `Stmt`s.
+    /// Default for-of tail (P5.3 `Stmt::ForOf` emission; `for await`
+    /// is carried by the `is_await` flag alone) — split from
+    /// `try_parse_for_of` (2026-07-03, fn-debt decomp). Body verbatim;
+    /// the two `Ok(Some(..))` tails become plain `Stmt`s.
     fn emit_forof_default(
         &mut self,
         var_name: String,
@@ -447,26 +447,22 @@ impl<'a> Parser<'a> {
         } else {
             format!("__forof_src_{id}")
         };
-        // Pre-allocate elem_expr = src_ident[i_ident]. P10.3-A1 — for
-        // `for await`, wrap the element access in a `.value` Member
-        // (the same desugar parser uses for `await e`). check.rs's
-        // Promise<T>.value arm narrows the loop binding to T; ssa_lower's
-        // P10.3-prereq whitelist (d2a7c61) routes Index-shaped Promise
-        // sources to promise_get_value at the dispatch site.
+        // Pre-allocate elem_expr = src_ident[i_ident]. Hole Z — the
+        // for-await element await is NOT desugared to a `.value`
+        // Member here: the parser has no types, and `.value` conflates
+        // the await unwrap with a real user member (a Struct element
+        // without a `value` field died on member lookup). The
+        // `is_await` flag on Stmt::ForOf carries the async form;
+        // check_stmt_for_of unwraps Promise(T) → T by type and
+        // ssa_lower_stmt_for_of routes Promise-typed elements through
+        // promise_get_value — every non-thenable element awaits to
+        // itself per §27.2.
         let src_ref_for_index = self.ast.add_expr(Expr::Ident(src_ident_name.clone()));
         let i_ref_for_index = self.ast.add_expr(Expr::Ident(i_name.clone()));
-        let index_expr = self.ast.add_expr(Expr::Index {
+        let elem_expr = self.ast.add_expr(Expr::Index {
             obj: src_ref_for_index,
             index: i_ref_for_index,
         });
-        let elem_expr = if is_async {
-            self.ast.add_expr(Expr::Member {
-                obj: index_expr,
-                name: "value".into(),
-            })
-        } else {
-            index_expr
-        };
         let forof_stmt = Stmt::ForOf {
             var_name,
             var_type_ann,

@@ -23,11 +23,10 @@ async function nested() {
   }
 }
 
-// Recorded boundary (hole Z, plan-state L3b): object patterns under
-// `for await` die on the element unwrap — `.value` has no arm for a
-// non-Promise Struct element (`for await ({ x: o.x } of [{ x: 5 }])`
-// shows the same wall with no pattern machinery involved). The obj
-// face joins this fixture once that arm lands.
+// Hole Z closed: the element await is now driven by the ForOf
+// `is_await` flag by type (Promise(T) → promise_get_value, every
+// non-thenable → itself per §27.2), so obj patterns over Struct
+// elements work. Obj faces live in forawait-struct-elem-001.
 
 async function restTail() {
   for await (const [head, ...rest] of [[1, 2, 3]]) {

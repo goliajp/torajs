@@ -188,7 +188,11 @@ fn try_p10_4_primitive_identity(ctx: &mut LowerCtx<'_>, obj: ExprId) -> Option<O
     Some(ctx.lower_expr(obj))
 }
 
-fn lower_promise_get_value(ctx: &mut LowerCtx<'_>, obj: ExprId) -> Operand {
+/// `pub(crate)`: also the for-await element unwrap —
+/// `ssa_lower_stmt_for_of` calls this with the elem `Expr::Index`
+/// when the checker typed the element `Promise(_)` (hole Z removed
+/// the `.value` Member wrap that used to route it here).
+pub(crate) fn lower_promise_get_value(ctx: &mut LowerCtx<'_>, obj: ExprId) -> Operand {
     let obj_op = ctx.lower_expr(obj);
     let cur_block = ctx.cur_block;
     ctx.f.append_void(

@@ -1,11 +1,10 @@
-// P10.3-A1 narrow MVP — `for await (decl of iter)` on Array<Promise<T>>.
-// Parser strips the optional `await` after `for`, sets is_async on the
-// for-of head; try_parse_for_of wraps elem_expr in Member.value (the
-// await desugar). ssa_lower's ForOf lowering accepts the wrapper,
-// resolves src via the inner Index, and the body's elem load goes
-// through promise_get_value (P10.3 prereq d2a7c61 made that route
-// work on Index obj). AsyncIterator protocol + AsyncGenerator + for-
-// await over user-iterables deferred to later sub-A's.
+// P10.3-A1 — `for await (decl of iter)` on Array<Promise<T>>.
+// Parser strips the optional `await` after `for` and sets is_await on
+// Stmt::ForOf; the element stays a plain `src[i]` Index (hole Z
+// removed the `.value` Member wrap). ssa_lower's array lane reads the
+// checker's Promise verdict on the element and routes the load
+// through promise_get_value; non-thenable elements await to
+// themselves per §27.2.
 
 // Path A — number array
 let pn: Promise<number>[] = [Promise.resolve(1), Promise.resolve(2), Promise.resolve(3)]
