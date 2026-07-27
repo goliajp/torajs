@@ -48,4 +48,21 @@ impl<'a> LowerCtx<'a> {
         );
         (Operand::Value(tag), val)
     }
+
+    /// [`Self::heap_slot_tag_value`] taken all the way to an `Any`
+    /// box — the shape a slot READER wants (RFC 20260710 C2b
+    /// readback): ANY_UNDEF at the cell, null at NULL, a heap box
+    /// otherwise. The kind mark self-gates on NULL / the sentinel at
+    /// runtime. Same rc-neutrality as the pair form.
+    pub(crate) fn box_heap_slot_or_undef(&mut self, val: Operand) -> Operand {
+        self.emit_arr_mark_kind(&val);
+        let (tag, v) = self.heap_slot_tag_value(val);
+        let b = self.f.append_inst(
+            self.cur_block,
+            InstKind::Call(self.intrinsics.any_box, vec![tag, v]),
+            Type::Any,
+            None,
+        );
+        Operand::Value(b)
+    }
 }

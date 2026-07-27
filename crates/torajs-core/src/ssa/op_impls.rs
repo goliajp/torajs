@@ -114,6 +114,15 @@ impl Type {
     /// `Any` carries the answer in its tag, and the scalar slots
     /// have no address to hand out.
     ///
+    /// `Ptr` joins the cell set (RFC 20260710 C2b completion): a slot
+    /// stays `Ptr` only when nothing but nullish literals were ever
+    /// seen for it (`{r: undefined}` with no other type info), so its
+    /// value is NULL (JS null) or this cell (JS undefined) — without
+    /// the cell the write collapsed both to NULL and the runtime
+    /// field reader (`field_slot_to_anyv_borrowed`, which already
+    /// normalizes the sentinels for tags 4..=21) answered null for a
+    /// written undefined.
+    ///
     /// Exhaustive on purpose: a new SSA type must decide which side
     /// it is on rather than falling into a wildcard.
     pub fn spells_undef_with_generic_cell(self) -> bool {
@@ -132,9 +141,10 @@ impl Type {
             | Type::Map
             | Type::Set
             | Type::MapIter
-            | Type::ArrIter => true,
+            | Type::ArrIter
+            | Type::Ptr => true,
             Type::Str | Type::Substr | Type::FnSig(_) | Type::Any => false,
-            Type::I64 | Type::F64 | Type::I32 | Type::Bool | Type::Void | Type::Ptr => false,
+            Type::I64 | Type::F64 | Type::I32 | Type::Bool | Type::Void => false,
         }
     }
 

@@ -109,44 +109,9 @@ pub(crate) fn lower_any_member_read(
         },
     );
 
-    // class_blk: load type_tag (low 16 bits of the i32 at +4; high
-    // 16 bits = flags). Mask + cmp against OBJ_TAG (1, mirrored from
-    // `torajs_rc::Tag::Obj`).
-    ctx.cur_block = class_blk;
-    let tt_word = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::Load(Type::I32, Operand::Value(dynobj), 4),
-        Type::I32,
-        None,
-    );
-    let tt_low = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::BinOp(
-            SsaBinOp::And,
-            Operand::Value(tt_word),
-            Operand::ConstI32(0xFFFF),
-        ),
-        Type::I32,
-        None,
-    );
-    let is_obj = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::ICmp(IPred::Eq, Operand::Value(tt_low), Operand::ConstI32(1)),
-        Type::Bool,
-        None,
-    );
-    let cls_dispatch = ctx.f.add_block();
-    ctx.f.set_term(
-        ctx.cur_block,
-        Terminator::CondBr {
-            cond: Operand::Value(is_obj),
-            then_blk: cls_dispatch,
-            else_blk: dynobj_blk,
-        },
-    );
+    let cls_dispatch = emit_obj_tag_gate(ctx, class_blk, dynobj, dynobj_blk);
 
     // cls_dispatch: load class_tag + emit one cmp arm per candidate.
-    ctx.cur_block = cls_dispatch;
     let ct = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Load(Type::I64, Operand::Value(dynobj), OBJ_CLASS_TAG_OFF),
@@ -213,7 +178,15 @@ pub(crate) fn lower_any_member_read(
         if field_ty.is_refcounted() && !matches!(field_ty, Type::Any) {
             ctx.emit_rc_inc(Operand::Value(field_v));
         }
-        let boxed = ctx.box_to_any(Operand::Value(field_v));
+        // RFC 20260710 C2b readback — a pointer-family slot may hold
+        // the generic undefined cell (a `{r: undefined}` Ptr slot, an
+        // optional heap field): normalize to ANY_UNDEF, mirroring the
+        // runtime probe (`struct_field_pair_bytes`).
+        let boxed = if field_ty.spells_undef_with_generic_cell() {
+            ctx.box_heap_slot_or_undef(Operand::Value(field_v))
+        } else {
+            ctx.box_to_any(Operand::Value(field_v))
+        };
         ctx.f.append_void(
             ctx.cur_block,
             InstKind::Store(boxed, Operand::Value(res_slot), 0),
@@ -245,6 +218,53 @@ pub(crate) fn lower_any_member_read(
         None,
     );
     Operand::Value(r)
+}
+
+/// class_blk body — load the header's type_tag (low 16 bits of the
+/// i32 at +4; high 16 bits = flags), mask + cmp against OBJ_TAG (1,
+/// mirrored from `torajs_rc::Tag::Obj`), and branch to a fresh
+/// `cls_dispatch` block for Obj cells / `dynobj_blk` for everything
+/// else. Leaves `ctx.cur_block` at the returned `cls_dispatch`.
+fn emit_obj_tag_gate(
+    ctx: &mut LowerCtx,
+    class_blk: crate::ssa::BlockId,
+    dynobj: crate::ssa::ValueId,
+    dynobj_blk: crate::ssa::BlockId,
+) -> crate::ssa::BlockId {
+    ctx.cur_block = class_blk;
+    let tt_word = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(Type::I32, Operand::Value(dynobj), 4),
+        Type::I32,
+        None,
+    );
+    let tt_low = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::BinOp(
+            SsaBinOp::And,
+            Operand::Value(tt_word),
+            Operand::ConstI32(0xFFFF),
+        ),
+        Type::I32,
+        None,
+    );
+    let is_obj = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::ICmp(IPred::Eq, Operand::Value(tt_low), Operand::ConstI32(1)),
+        Type::Bool,
+        None,
+    );
+    let cls_dispatch = ctx.f.add_block();
+    ctx.f.set_term(
+        ctx.cur_block,
+        Terminator::CondBr {
+            cond: Operand::Value(is_obj),
+            then_blk: cls_dispatch,
+            else_blk: dynobj_blk,
+        },
+    );
+    ctx.cur_block = cls_dispatch;
+    cls_dispatch
 }
 
 /// Compile-time enumerate class candidates whose layout declares
