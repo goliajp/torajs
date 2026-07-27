@@ -90,6 +90,16 @@ pub(crate) fn try_lower(
     for &a in args.iter().skip(1) {
         let _ = ctx.lower_expr(a);
     }
+    // Cluster #4 follow-up (rotation 235) — a typed Closure receiver
+    // boxes to any at this boundary and rides the runtime own-keys
+    // walk: `anyv_own_keys`' TAG_CLOSURE_CELL arm answers the
+    // §20.2.4 virtual length/name/prototype face plus expando props
+    // (borrow-shaped box, RC-NEUTRAL — no release).
+    let arg_op = if matches!(ctx.operand_ty(&arg_op), Type::Closure(_)) {
+        ctx.box_to_any(arg_op)
+    } else {
+        arg_op
+    };
     let arg_ty = ctx.operand_ty(&arg_op);
     // W-N-c — `Object.getOwnPropertySymbols`: an Any receiver routes
     // through the runtime, which reads §10.1.11.1's symbol bucket off
