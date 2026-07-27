@@ -338,12 +338,24 @@ impl crate::ssa_lower::LowerCtx<'_> {
                                     )
                             )
                 );
+                // rotation 233 — the checker's answer covers every
+                // call shape the enumerations above spell out one by
+                // one, plus the ones they miss (an async-generator's
+                // `gen().next()` / `.return()` / `.throw()` method
+                // trio, any struct-method returning Promise). The
+                // shape probes stay first: they also answer inside
+                // synthesized fns whose exprs the checker never
+                // visited.
                 static_ctor
                     || then_chain
                     || fn_returns_promise
                     || closure_returns_promise
                     || fs_async
                     || bun_file_text
+                    || matches!(
+                        self.expr_types.get(&src_id),
+                        Some(crate::check::Type::Promise(_))
+                    )
             }
             // A field read. A `Promise`-typed field holds the same
             // built-in promise a `Promise`-typed binding does, and the

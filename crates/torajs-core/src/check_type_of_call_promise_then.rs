@@ -88,10 +88,30 @@ fn try_then_two_arg(
          * only gate. Non-any-param handlers over Any/Array inner
          * still need the exact `(T) => T` shape — same posture as
          * the 1-arg Any lane. */
+        /* rotation 233 — Struct / Undefined / Void inners join the
+         * two-arg station. The async-generator method trio desugars
+         * to `Promise.resolve({value, done})`, so every
+         * `gen().next().then(onOk, onErr)` receiver is
+         * Promise(Struct([...])) — the largest test262 wall (1014
+         * cases) was this arm refusing it. The station itself has
+         * been receiver-generic since rotation 184 (per-slot
+         * PARAM_ANY, kernel boxes by the cell's repr stamp; the
+         * struct mint stamps REPR_HEAP); the checker was again the
+         * only gate. Undefined / Void ride along for the chain's
+         * second hop: a Void-returning first handler answers
+         * Promise(Undefined), which `.then($DONE, $DONE)` then
+         * receives. */
         if let Type::Promise(inner) = &src_ty
             && matches!(
                 **inner,
-                Type::Number | Type::String | Type::Boolean | Type::Any | Type::Array(_)
+                Type::Number
+                    | Type::String
+                    | Type::Boolean
+                    | Type::Any
+                    | Type::Array(_)
+                    | Type::Struct(_)
+                    | Type::Undefined
+                    | Type::Void
             )
         {
             let inner_ty = (**inner).clone();
@@ -203,8 +223,18 @@ fn try_then_heterogeneous(
                 return Some(Ok(Type::Promise(ret.clone())));
             }
         }
+        /* rotation 233 — Struct joins the 1-arg lane for the same
+         * reason as the two-arg station above: the async-generator
+         * `.next()` result is Promise(Struct([...])), and
+         * `p.next().then(cb)` handlers over it are either any-param
+         * (boxed per the REPR_HEAP stamp), 0-arg, or
+         * `(r: {value, done}) => U` — all three shapes this arm
+         * already admits; only the receiver gate refused. */
         if let Type::Promise(inner) = &src_ty
-            && matches!(**inner, Type::Number | Type::String | Type::Boolean)
+            && matches!(
+                **inner,
+                Type::Number | Type::String | Type::Boolean | Type::Struct(_)
+            )
         {
             let inner_ty = (**inner).clone();
             let cb_ty = match checker.type_of(ast, args[0]) {
@@ -315,8 +345,12 @@ fn try_then_undefined(
             Ok(t) => t,
             Err(e) => return Some(Err(e)),
         };
+        /* rotation 233 — Void rides the Undefined lane: a
+         * Promise(Void) cell settles with `undefined` (the kernel's
+         * REPR_VOID ret stamp zeroes the result leg), so its
+         * `.then`/`.catch` contract is exactly this arm's. */
         if let Type::Promise(inner) = &src_ty
-            && matches!(**inner, Type::Undefined)
+            && matches!(**inner, Type::Undefined | Type::Void)
         {
             let cb_ty = match checker.type_of(ast, args[0]) {
                 Ok(t) => t,
