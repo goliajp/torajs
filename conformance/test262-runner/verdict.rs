@@ -205,10 +205,44 @@ pub fn judge_negative(phase: &str, expected_type: &str, out: &std::process::Outp
     }
 }
 
+/// `flags: [async]` completion marker (test262 doneprintHandle.js
+/// protocol): the harness's `$DONE` prints this on success. An async
+/// case's process exit code is meaningless — a dropped promise chain
+/// exits 0 without ever completing — so pass judgment keys on the
+/// marker, never on exit status alone.
+pub const ASYNC_COMPLETE: &str = "Test262:AsyncTestComplete";
+/// `$DONE(error)` failure marker prefix.
+pub const ASYNC_FAILURE: &str = "Test262:AsyncTestFailure";
+
+/// True iff stdout signals a clean async completion: the complete
+/// marker present and no failure marker (a failed-then-completed run
+/// is still a failure).
+pub fn async_completed(stdout: &[u8]) -> bool {
+    let s = String::from_utf8_lossy(stdout);
+    s.contains(ASYNC_COMPLETE) && !s.contains(ASYNC_FAILURE)
+}
+
 /// Judge a positive case bun itself failed on: the assert harness
 /// self-validates, so exit 0 is a pass. Failures classify through
-/// the subset table with a `no-oracle:` prefix.
-pub fn judge_no_oracle(out: &std::process::Output) -> Outcome {
+/// the subset table with a `no-oracle:` prefix. Async cases
+/// additionally require the `$DONE` completion marker — exit 0 with
+/// no marker means the promise machinery never drove the callback,
+/// which is a bug, not a pass (no-metric-inflation).
+pub fn judge_no_oracle(out: &std::process::Output, is_async: bool) -> Outcome {
+    if out.status.success() && is_async && !async_completed(&out.stdout) {
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        let (kind, msg) = match stdout.lines().find(|l| l.starts_with(ASYNC_FAILURE)) {
+            Some(fail_line) => ("no-oracle:async-failure", fail_line.to_string()),
+            None => (
+                "no-oracle:async-incomplete",
+                format!("exit 0 without {ASYNC_COMPLETE}"),
+            ),
+        };
+        return Outcome::Bug {
+            kind: kind.to_string(),
+            msg,
+        };
+    }
     if out.status.success() {
         return Outcome::PassNoOracle;
     }
@@ -319,15 +353,53 @@ mod tests {
     #[test]
     fn no_oracle_exit_zero_passes() {
         let o = out(0, "");
-        assert!(matches!(judge_no_oracle(&o), Outcome::PassNoOracle));
+        assert!(matches!(judge_no_oracle(&o, false), Outcome::PassNoOracle));
     }
 
     #[test]
     fn no_oracle_subset_reject_prefixed() {
         let o = out(3, "not yet supported: generators");
         assert!(matches!(
-            judge_no_oracle(&o),
+            judge_no_oracle(&o, false),
             Outcome::Incompatible { kind, .. } if kind == "no-oracle:not yet supported"
         ));
+    }
+
+    fn out_stdout(code: i32, stdout: &str) -> Output {
+        Output {
+            status: ExitStatus::from_raw(code << 8),
+            stdout: stdout.as_bytes().to_vec(),
+            stderr: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn async_exit_zero_without_marker_is_bug() {
+        let o = out_stdout(0, "");
+        assert!(matches!(
+            judge_no_oracle(&o, true),
+            Outcome::Bug { kind, .. } if kind == "no-oracle:async-incomplete"
+        ));
+    }
+
+    #[test]
+    fn async_failure_marker_is_bug() {
+        let o = out_stdout(0, "Test262:AsyncTestFailure:Test262Error: boom\n");
+        assert!(matches!(
+            judge_no_oracle(&o, true),
+            Outcome::Bug { kind, .. } if kind == "no-oracle:async-failure"
+        ));
+    }
+
+    #[test]
+    fn async_complete_marker_passes() {
+        let o = out_stdout(0, "Test262:AsyncTestComplete\n");
+        assert!(matches!(judge_no_oracle(&o, true), Outcome::PassNoOracle));
+    }
+
+    #[test]
+    fn async_complete_after_failure_still_fails() {
+        let o = out_stdout(0, "Test262:AsyncTestFailure:X\nTest262:AsyncTestComplete\n");
+        assert!(!async_completed(&o.stdout));
     }
 }

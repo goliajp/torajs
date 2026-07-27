@@ -25,6 +25,16 @@ pub struct Frontmatter {
     /// `includes:` harness files beyond the implicit assert.js +
     /// sta.js (which the typed harness already covers).
     pub includes: Vec<String>,
+    /// `flags:` list — `async` drives the `$DONE` completion-marker
+    /// judgment (an async case exiting 0 without printing
+    /// `Test262:AsyncTestComplete` is NOT a pass).
+    pub flags: Vec<String>,
+}
+
+impl Frontmatter {
+    pub fn is_async(&self) -> bool {
+        self.flags.iter().any(|f| f == "async")
+    }
 }
 
 /// Parse the `/*--- ... ---*/` block out of `src`. Missing block or
@@ -42,6 +52,7 @@ pub fn parse(src: &str) -> Frontmatter {
 
     let mut in_negative = false;
     let mut in_includes_list = false;
+    let mut in_flags_list = false;
     for raw in block.lines() {
         let line = raw.trim_end();
         let trimmed = line.trim_start();
@@ -51,6 +62,7 @@ pub fn parse(src: &str) -> Frontmatter {
         if !indented && !trimmed.is_empty() && !trimmed.starts_with('-') {
             in_negative = false;
             in_includes_list = false;
+            in_flags_list = false;
         }
 
         if let Some(rest) = trimmed.strip_prefix("negative:") {
@@ -95,8 +107,36 @@ pub fn parse(src: &str) -> Frontmatter {
                 continue;
             }
         }
+
+        if let Some(rest) = trimmed.strip_prefix("flags:") {
+            let inline = rest.trim();
+            if let Some(list) = inline.strip_prefix('[') {
+                // Inline form `flags: [generated, async]`.
+                let list = list.strip_suffix(']').unwrap_or(list);
+                for item in list.split(',') {
+                    push_flag(&mut fm.flags, item);
+                }
+            } else if inline.is_empty() {
+                in_flags_list = true;
+            }
+            continue;
+        }
+        if in_flags_list
+            && indented
+            && let Some(item) = trimmed.strip_prefix('-')
+        {
+            push_flag(&mut fm.flags, item);
+            continue;
+        }
     }
     fm
+}
+
+fn push_flag(out: &mut Vec<String>, raw: &str) {
+    let name = raw.trim().trim_matches('"').trim_matches('\'');
+    if !name.is_empty() {
+        out.push(name.to_string());
+    }
 }
 
 /// The typed harness already provides assert.js + sta.js equivalents,
@@ -156,5 +196,26 @@ var x;"#;
         let fm = parse("var x = 1;");
         assert!(fm.negative_phase.is_none());
         assert!(fm.includes.is_empty());
+        assert!(!fm.is_async());
+    }
+
+    #[test]
+    fn inline_flags_async() {
+        let fm = parse("/*---\nflags: [generated, async]\n---*/");
+        assert_eq!(fm.flags, vec!["generated".to_string(), "async".to_string()]);
+        assert!(fm.is_async());
+    }
+
+    #[test]
+    fn block_flags_list() {
+        let fm = parse("/*---\nflags:\n  - noStrict\n  - async\ndescription: x\n---*/");
+        assert_eq!(fm.flags, vec!["noStrict".to_string(), "async".to_string()]);
+        assert!(fm.is_async());
+    }
+
+    #[test]
+    fn non_async_flags() {
+        let fm = parse("/*---\nflags: [onlyStrict]\n---*/");
+        assert!(!fm.is_async());
     }
 }

@@ -29,9 +29,10 @@
 // testTypedArray.js (2,064) — TypedArray family is unimplemented
 //   (loud reject in check.rs).
 // isConstructor.js (637) — needs Reflect.construct; no Reflect.
-// asyncHelpers.js (357) — asyncTest/$DONE async-completion protocol
-//   plus dynamic .then callbacks; the runner has no async-case
-//   protocol yet.
+// asyncHelpers.js (357) — the asyncTest wrapper (dynamic .then
+//   callbacks over an arbitrary thunk); the raw `$DONE` completion
+//   protocol IS ported (see `$DONE` below, 2026-07-27) — only cases
+//   that include asyncHelpers.js itself stay in this bucket.
 // detachArrayBuffer.js (326) / resizableArrayBufferUtils.js (188) —
 //   ArrayBuffer is unimplemented.
 // testIntl.js (175) — Intl is unimplemented.
@@ -57,6 +58,28 @@ class Test262Error extends Error {
 function __t262_assert(actual: boolean, msg: string = ""): void {
   if (!actual) {
     throw new Test262Error(msg);
+  }
+}
+
+// `flags: [async]` completion protocol — the typed equivalent of
+// test262's harness/doneprintHandle.js. Async cases signal
+// completion by calling `$DONE`: no arg / falsy = success, truthy =
+// failure. Judgment keys on the printed marker, never the exit code
+// (a dropped promise chain exits 0 without completing): the runner
+// requires `Test262:AsyncTestComplete` on stdout, and the bun oracle
+// runs this same assembled source so the markers compare
+// byte-for-byte. The truthiness gate mirrors the stock harness —
+// `$DONE(null)` / `$DONE(0)` count as success there too.
+function $DONE(error: any = undefined): void {
+  if (error) {
+    const e: any = error;
+    if (typeof e === "object" && e.name !== undefined) {
+      console.log("Test262:AsyncTestFailure:" + e.name + ": " + e.message);
+    } else {
+      console.log("Test262:AsyncTestFailure:Test262Error: " + e);
+    }
+  } else {
+    console.log("Test262:AsyncTestComplete");
   }
 }
 

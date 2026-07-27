@@ -12,7 +12,11 @@
 //!      match exit 0 + stdout. bun FAILING is NOT a skip (takagi
 //!      2026-06-13): the assert harness self-validates, so tr is
 //!      judged directly — exit 0 = `pass-no-oracle`, failures
-//!      classify with a `no-oracle:` kind prefix.
+//!      classify with a `no-oracle:` kind prefix. `flags: [async]`
+//!      cases additionally judge on the `$DONE` completion marker
+//!      (`Test262:AsyncTestComplete` on stdout) — exit 0 alone is
+//!      not a pass, and bun printing the failure marker demotes it
+//!      from oracle to the no-oracle path.
 //!   5. Categorize (see verdict.rs for the full table):
 //!     - pass / pass-no-oracle / pass-negative
 //!     - bug: unexpected divergence (real-bug bucket)
@@ -462,12 +466,20 @@ fn run_case(
     };
     let _ = std::fs::remove_file(&tmp_path);
 
-    if bun_success {
+    // `flags: [async]` — the doneprintHandle.js protocol makes the
+    // exit code meaningless (`$DONE(err)` prints a failure marker and
+    // exits 0). bun only counts as a live oracle when it actually
+    // completed; matching bun on a run where bun itself printed the
+    // failure marker would score a shared failure as a pass.
+    let is_async = fm.is_async();
+    let bun_ok = bun_success && (!is_async || verdict::async_completed(&bun_stdout));
+
+    if bun_ok {
         verdict::judge_oracle(&out, &bun_stdout)
     } else {
         // bun itself failed — not a skip (takagi 2026-06-13): test262
         // positive cases self-validate through the assert harness.
-        verdict::judge_no_oracle(&out)
+        verdict::judge_no_oracle(&out, is_async)
     }
 }
 
