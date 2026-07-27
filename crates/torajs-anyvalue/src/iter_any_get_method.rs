@@ -47,7 +47,6 @@ use crate::method_call_closure_dispatch::{closure_cell_entry, invoke_with_this};
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED, as_void_ptr, is_cell};
 use crate::nanbox_encode::__torajs_anyv_box_from_pair;
 use crate::nanbox_ffi::{__torajs_anyv_rc_dec, __torajs_anyv_to_bool};
-use crate::payload_rc_inc;
 
 unsafe extern "C" {
     /// torajs-str — the §6.1.5.1 well-known singleton table; idx 5 is
@@ -105,8 +104,6 @@ unsafe fn callable_entry(
 /// and never released — they are immortal by construction, and every
 /// consumer only READS a key.
 static NAME_NEXT: AtomicPtr<u8> = AtomicPtr::new(core::ptr::null_mut());
-static NAME_DONE: AtomicPtr<u8> = AtomicPtr::new(core::ptr::null_mut());
-static NAME_VALUE: AtomicPtr<u8> = AtomicPtr::new(core::ptr::null_mut());
 static NAME_RETURN: AtomicPtr<u8> = AtomicPtr::new(core::ptr::null_mut());
 
 /// The interned cell for `bytes`, minting it on first use. A racing
@@ -225,39 +222,37 @@ pub(crate) unsafe fn generic_iter_step(iter: AnyValue, out: *mut AnyValue) -> i6
             __torajs_throw_type_error(c"iterator result is not an object".as_ptr());
             return 0;
         }
-        // §7.4.4 — ToBoolean(done), not an identity test against
-        // `true`: an iterator answering `done: 1` is done.
-        let done_key = interned(&NAME_DONE, b"done") as *const c_void;
-        let done_tag = __torajs_any_member_get_tag(step, done_key);
-        let done = if done_tag == TAG_UNDEF {
-            false
-        } else {
-            let done_payload = __torajs_any_member_get_value(step, done_key);
-            __torajs_anyv_to_bool(__torajs_anyv_box_from_pair(
-                done_tag as i64,
-                done_payload as i64,
-            ))
+        // §7.4.4 / §7.4.5 — the shared IteratorResult [[Get]]
+        // (struct-probe fast lane, accessor-aware dispatcher lane).
+        // The old inline reads went through the member dispatcher but
+        // treated an ANY_ACCESSOR answer as a plain data pair — the
+        // getter never fired, so a poisoned `value` getter (test262's
+        // iter-val-err family) never threw and `done` never turned
+        // true: an infinite loop where the spec owes an abrupt exit.
+        let step_ptr = as_void_ptr(step) as *mut c_void;
+        let done = match crate::iter_any_result::iter_result_get(step, step_ptr, b"done") {
+            None => {
+                __torajs_anyv_rc_dec(step);
+                return 0;
+            }
+            Some(v) => {
+                let b = __torajs_anyv_to_bool(v);
+                __torajs_anyv_rc_dec(v);
+                b
+            }
         };
         if done || __torajs_throw_check() != 0 {
             __torajs_anyv_rc_dec(step);
             return 0;
         }
-        // The member pair is BORROWED off the step object, which is
-        // released right below — retain before the value outlives it.
-        let value_key = interned(&NAME_VALUE, b"value") as *const c_void;
-        let value_tag = __torajs_any_member_get_tag(step, value_key);
-        let value = if value_tag == TAG_UNDEF {
-            VALUE_UNDEFINED
-        } else {
-            let value_payload = __torajs_any_member_get_value(step, value_key);
-            payload_rc_inc(value_tag as i64, value_payload as i64);
-            __torajs_anyv_box_from_pair(value_tag as i64, value_payload as i64)
+        let value = match crate::iter_any_result::iter_result_get(step, step_ptr, b"value") {
+            None => {
+                __torajs_anyv_rc_dec(step);
+                return 0;
+            }
+            Some(v) => v,
         };
         __torajs_anyv_rc_dec(step);
-        if __torajs_throw_check() != 0 {
-            __torajs_anyv_rc_dec(value);
-            return 0;
-        }
         *out = value;
         1
     }

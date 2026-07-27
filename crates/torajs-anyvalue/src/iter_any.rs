@@ -52,7 +52,6 @@ use crate::nanbox::{AnyValue, VALUE_UNDEFINED, as_void_ptr, is_cell, is_int32, i
 use crate::nanbox_encode::__torajs_anyv_box_from_pair;
 use crate::nanbox_ffi::__torajs_anyv_rc_dec;
 use crate::payload_rc_inc;
-use crate::struct_probe::struct_field_pair_bytes;
 use torajs_rc::{AnySlotTag, Tag};
 
 unsafe extern "C" {
@@ -270,24 +269,35 @@ pub(crate) unsafe fn step_derived_iterator(iter: AnyValue, out: *mut AnyValue) -
             return 0;
         }
         let step_ptr = as_void_ptr(step) as *mut c_void;
-        // `done` / `value` come back BORROWED off the step struct —
-        // the step cell keeps the stake until it is released below,
-        // so the yielded value is retained before it outlives it.
-        let done = matches!(
-            struct_field_pair_bytes(step_ptr, b"done"),
-            Some((tag, payload)) if tag == AnySlotTag::Bool as u64 && payload != 0
-        );
+        // §7.4.4 IteratorComplete — ToBoolean(Get(step, "done")). The
+        // Get may run a getter that throws (forward it); the answer is
+        // truthiness, not a Bool-tag check (`{done: 1}` is done).
+        let done = match crate::iter_any_result::iter_result_get(step, step_ptr, b"done") {
+            None => {
+                __torajs_anyv_rc_dec(step);
+                *out = VALUE_UNDEFINED;
+                return 0;
+            }
+            Some(v) => {
+                let b = crate::nanbox_ffi::__torajs_anyv_to_bool(v);
+                __torajs_anyv_rc_dec(v);
+                b
+            }
+        };
         if done {
             __torajs_anyv_rc_dec(step);
             *out = VALUE_UNDEFINED;
             return 0;
         }
-        let value = match struct_field_pair_bytes(step_ptr, b"value") {
-            Some((tag, payload)) => {
-                payload_rc_inc(tag as i64, payload as i64);
-                __torajs_anyv_box_from_pair(tag as i64, payload as i64)
+        // §7.4.5 IteratorValue — Get(step, "value"), abrupt forwarded
+        // (the test262 poisoned-getter shape: the ONLY loop exit).
+        let value = match crate::iter_any_result::iter_result_get(step, step_ptr, b"value") {
+            None => {
+                __torajs_anyv_rc_dec(step);
+                *out = VALUE_UNDEFINED;
+                return 0;
             }
-            None => VALUE_UNDEFINED,
+            Some(v) => v,
         };
         __torajs_anyv_rc_dec(step);
         *out = value;
