@@ -348,6 +348,19 @@ fn rewrite_date_new(ast: &mut Ast) {
 /// evaluate trailing args for their side effects to be faithful —
 /// left loud rather than silently dropped.
 fn rewrite_promise_new(ast: &mut Ast) {
+    // P4.6 stdlib-override — a user `class Promise` (or any user
+    // binding of the name) owns every `new Promise(...)` in the
+    // program; rewriting would hand the user's constructor arg to the
+    // executor helper (gate caught: promise-001-basic declares
+    // `class Promise<T>` with a SEED-value ctor).
+    let user_shadows_promise = ast.stmts.iter().any(|s| {
+        matches!(s, crate::ast::Stmt::ClassDecl { name, .. } if name == "Promise")
+            || matches!(s, crate::ast::Stmt::FnDecl { name, .. } if name == "Promise")
+            || matches!(s, crate::ast::Stmt::LetDecl { name, .. } if name == "Promise")
+    });
+    if user_shadows_promise {
+        return;
+    }
     let n_exprs = ast.exprs.len();
     let mut synthesized = false;
     for i in 0..n_exprs {
