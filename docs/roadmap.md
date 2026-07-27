@@ -1530,6 +1530,24 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 9215301c`, never as a constant.
 
+**Re-derived @ `b5fb1232`** (2026-07-28, rotation 233): passTotal
+**15648** (+506 over rotation 232's 15142), bug 901, trAccepted 16549,
+incompatible **36625**, core **24380**. Gate predicate: **482** clusters
+of ≥ 4 cases holding 23073, plus 935 clusters of ≤ 3 holding 1307.
+Cluster count rose (472 → 482) while cases fell hard (23639 → 23073,
+−566) — the unlock-exposes-new-signatures shape the section header
+warns about; the case count is the honest axis this rotation.
+Conservation is exact: ΔtrAccepted +532 = Δpass +506 + Δbug +26. Pass
+regressions **0** (per-case verdict diff); timeout 24 and crash 12 both
+flat. Top movement: 480 `type error → pass` + 25 no-oracle mirrors —
+cluster #4 (`no member on Promise(Struct)`, 1014 cases) fell to the
+`.then`/`.catch` receiver generalization + by-type await dispatch
+(expression position, promise-in-any, ternary field-depth unify); 31
+`type → not-yet-supported` is the wall one layer deeper, 26 fresh bugs
+are honest exposure. New top gaps: #1 untyped fn-decl param 1469, #2
+static private 1404, #3 `eval` 1034, #4 `new`-on-a-function `__new_*`
+930 across **39 dirs** (widest span). Previous stamp below.
+
 **Re-derived @ `410d8a9f`** (2026-07-28, rotation 232): passTotal
 **15142** (+216 over rotation 231's 14926), bug 875, trAccepted 16017,
 incompatible **37157**, core **24912**. Gate predicate: **472** clusters
