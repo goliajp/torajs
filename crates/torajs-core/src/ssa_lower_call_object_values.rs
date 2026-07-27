@@ -72,6 +72,17 @@ pub(crate) fn try_lower(
     for &a in args.iter().skip(1) {
         let _ = ctx.lower_expr(a);
     }
+    // Cluster #4 follow-up (rotation 235) — a typed Closure receiver
+    // boxes to any and rides the runtime own-values walk (the
+    // `anyv_own_values` TAG_CLOSURE_CELL arm answers the expando
+    // props; the §20.2.4 virtual face is non-enumerable so a plain
+    // fn answers []). Borrow-shaped box, RC-NEUTRAL — mirror of the
+    // keys lane's arm.
+    let arg_op = if matches!(ctx.operand_ty(&arg_op), Type::Closure(_)) {
+        ctx.box_to_any(arg_op)
+    } else {
+        arg_op
+    };
     let arg_ty = ctx.operand_ty(&arg_op);
 
     // W-O — Array receiver: bun returns a fresh shallow array of slot

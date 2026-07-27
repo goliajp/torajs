@@ -68,6 +68,15 @@ pub(crate) fn try_lower(
     for &a in args.iter().skip(1) {
         let _ = ctx.lower_expr(a);
     }
+    // Cluster #4 follow-up (rotation 235) — a typed Closure receiver
+    // boxes to any and rides the runtime own-entries walk (mirror of
+    // the keys / values arms; a plain fn answers []). Borrow-shaped
+    // box, RC-NEUTRAL.
+    let arg_op = if matches!(ctx.operand_ty(&arg_op), Type::Closure(_)) {
+        ctx.box_to_any(arg_op)
+    } else {
+        arg_op
+    };
     let arg_ty = ctx.operand_ty(&arg_op);
 
     // W-O-3 — Array receiver: bun returns Arr<Arr<[idx_str, val], 2>>.

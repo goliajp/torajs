@@ -156,6 +156,13 @@ pub(crate) fn try_match(
         if matches!(arg_ty, Type::Any) {
             return Some(Ok(Type::Array(Box::new(Type::Any))));
         }
+        // Cluster #4 follow-up (rotation 235) — a Function receiver:
+        // the lowering boxes the closure cell and the runtime
+        // own-values walk answers the expando props (a plain fn
+        // answers [] — the §20.2.4 virtual face is non-enumerable).
+        if matches!(arg_ty, Type::Function(..)) {
+            return Some(Ok(Type::Array(Box::new(Type::Any))));
+        }
         let Type::Struct(fields) = &arg_ty else {
             return Some(Err(format!(
                 "Object.values requires a struct arg, got {arg_ty:?}"
