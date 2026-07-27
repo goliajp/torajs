@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-26T23:42:24.608Z",
+  "generatedAt": "2026-07-27T09:51:14.507Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-26T23:38:48Z",
-    "headSha": "831c8927",
-    "elapsedSec": 284.33,
+    "ranAt": "2026-07-27T09:49:45Z",
+    "headSha": "d2b7e393",
+    "elapsedSec": 280.16,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 10024,
-    "passNoOracle": 143,
+    "pass": 10284,
+    "passNoOracle": 148,
     "passNegative": 4494,
-    "passTotal": 14661,
-    "bug": 847,
-    "incompatible": 37666,
-    "bunSkip": 11904,
+    "passTotal": 14926,
+    "bug": 865,
+    "incompatible": 37383,
+    "bunSkip": 7356,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 15508,
-    "passRateInScope": 27.57,
-    "passRateTrAccepted": 94.54
+    "trAccepted": 15791,
+    "passRateInScope": 28.07,
+    "passRateTrAccepted": 94.52
   },
   "torajs": {
-    "commit": "3d909599",
-    "commitSubject": "docs(roadmap): close S2.24, refresh the census tables, record the rotation 230 sweep",
+    "commit": "17f6c278",
+    "commitSubject": "docs(roadmap): record the rotation 231 close for S2.5; archive the d2b7e393 sweep",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "17f6c278",
+      "subject": "docs(roadmap): record the rotation 231 close for S2.5; archive the d2b7e393 sweep"
+    },
+    {
+      "hash": "d2b7e393",
+      "subject": "fix(check,lower): heterogeneous heap-element array literals get one verdict"
+    },
+    {
+      "hash": "74bbfff3",
+      "subject": "docs(roadmap): S2.5 rotation 231 update — the recorded wall was the runner's missing async protocol"
+    },
+    {
+      "hash": "89ec3d26",
+      "subject": "feat(parser): for-of and for-await decl-head patterns through the PatShape machine"
+    },
+    {
+      "hash": "de810c88",
+      "subject": "feat(parser): declaration destructuring through a recursive PatShape machine"
+    },
+    {
+      "hash": "7b160462",
+      "subject": "feat(test262): async-case $DONE completion protocol"
+    },
+    {
+      "hash": "1478f2ec",
+      "subject": "chore(hardev): record the rotation 230 sweep and refresh the dashboard"
+    },
+    {
       "hash": "3d909599",
       "subject": "docs(roadmap): close S2.24, refresh the census tables, record the rotation 230 sweep"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "20ae565b",
       "subject": "feat(parser): for-of accepts a bare assignment-pattern head"
-    },
-    {
-      "hash": "0de01a13",
-      "subject": "feat(parser): destructuring assignment to existing bindings"
-    },
-    {
-      "hash": "eab53f5d",
-      "subject": "feat(ast): an un-annotated uninitialized let is an implicit any binding"
-    },
-    {
-      "hash": "831c8927",
-      "subject": "chore(hardev): record the rotation 229 sweep and refresh the dashboard"
-    },
-    {
-      "hash": "34157af0",
-      "subject": "fix(check): a two-handler then does not constrain what its handlers return"
-    },
-    {
-      "hash": "df59905a",
-      "subject": "chore(hardev): record the rotation 229 sweep and refresh the dashboard"
-    },
-    {
-      "hash": "fba7d421",
-      "subject": "docs(roadmap): record the zero-arg then handler closure"
-    },
-    {
-      "hash": "53466c5a",
-      "subject": "fix(check): a then handler may declare no parameter"
     }
   ],
-  "headSha": "3d909599",
+  "headSha": "17f6c278",
   "autorun": {
-    "total": 534,
+    "total": 535,
     "baselineTarget": 10,
-    "bySelf": 529,
+    "bySelf": 530,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785101623-4d91",
-      "at": "2026-07-26T21:33:43Z",
-      "ts": 1785101623,
+      "rotationId": "r-1785109464-4609",
+      "at": "2026-07-26T23:44:24Z",
+      "ts": 1785109464,
       "trigger": "self",
-      "prevHead": "831c8927",
-      "handoffSha": "sha256:fb85c07894d09ef16c79042adea999ec4f37deb8cab896ba3f3278b631b6496a",
-      "handoffAgeSec": 12,
+      "prevHead": "1478f2ec",
+      "handoffSha": "sha256:c3dbc90396023c48d978922212ef621b96a7949f62245557e32f08bc616f6fe1",
+      "handoffAgeSec": 8,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1785109464-4609",
+        "at": "2026-07-26T23:44:24Z",
+        "ts": 1785109464,
+        "trigger": "self",
+        "prevHead": "1478f2ec",
+        "handoffSha": "sha256:c3dbc90396023c48d978922212ef621b96a7949f62245557e32f08bc616f6fe1",
+        "handoffAgeSec": 8,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785101623-4d91",
         "at": "2026-07-26T21:33:43Z",
@@ -876,17 +887,6 @@
         "prevHead": "9bd7a23f",
         "handoffSha": "sha256:45490364d3cdcb70f5e2ee9b4335029c94d22a5096fc7aa802d889f40f8b9379",
         "handoffAgeSec": 70,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1785037771-7276",
-        "at": "2026-07-26T03:49:31Z",
-        "ts": 1785037771,
-        "trigger": "self",
-        "prevHead": "837ddd69",
-        "handoffSha": "sha256:3f91be5bd25d966e7ab78abf0138df676c8d0415382679297c9f62ba82caaf9e",
-        "handoffAgeSec": 8,
         "conformanceBefore": null,
         "commitsInSession": null
       }
