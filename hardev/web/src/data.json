@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-27T20:36:16.886Z",
+  "generatedAt": "2026-07-27T21:53:51.988Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-27T20:34:33Z",
-    "headSha": "b5fb1232",
-    "elapsedSec": 209.2,
+    "ranAt": "2026-07-27T21:51:59Z",
+    "headSha": "665d8958",
+    "elapsedSec": 209.38,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 10964,
+    "pass": 11274,
     "passNoOracle": 190,
     "passNegative": 4494,
-    "passTotal": 15648,
-    "bug": 901,
-    "incompatible": 36625,
+    "passTotal": 15958,
+    "bug": 993,
+    "incompatible": 36223,
     "bunSkip": 7356,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 16549,
-    "passRateInScope": 29.43,
-    "passRateTrAccepted": 94.56
+    "trAccepted": 16951,
+    "passRateInScope": 30.01,
+    "passRateTrAccepted": 94.14
   },
   "torajs": {
-    "commit": "b5fb1232",
-    "commitSubject": "feat(check,lower): ternary struct branches unify at field depth - join to Any",
+    "commit": "665d8958",
+    "commitSubject": "feat(ast): a constructed fn-expr body gets its `this` - RECV promote for `new`",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "665d8958",
+      "subject": "feat(ast): a constructed fn-expr body gets its `this` - RECV promote for `new`"
+    },
+    {
+      "hash": "f6fd5352",
+      "subject": "feat(ast): AggregateError and SuppressedError join the injected error family"
+    },
+    {
+      "hash": "fb0e5ca8",
+      "subject": "fix(ast): a user `class Promise` keeps its own `new Promise(...)`"
+    },
+    {
+      "hash": "534d49cd",
+      "subject": "feat(ast): `new Promise(executor)` desugars onto the withResolvers trio"
+    },
+    {
+      "hash": "e6c50de1",
+      "subject": "feat(check): a class instance settles a promise - reject(new Error) admitted"
+    },
+    {
+      "hash": "c4bf340d",
+      "subject": "fix(fn): `new F()` works when F is a function expression bound to a variable"
+    },
+    {
+      "hash": "5ce7a2f7",
+      "subject": "chore(hardev): record the rotation 233 sweep and refresh the dashboard"
+    },
+    {
       "hash": "b5fb1232",
       "subject": "feat(check,lower): ternary struct branches unify at field depth - join to Any"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "27311a0f",
       "subject": "feat(check,lower): .then/.catch admit Struct/Undefined/Void promise inners"
-    },
-    {
-      "hash": "ea5a2ecb",
-      "subject": "chore(hardev): record the rotation 232 sweep and refresh the dashboard"
-    },
-    {
-      "hash": "fb53865f",
-      "subject": "docs(roadmap): record the rotation 232 sweep; archive the 410d8a9f sweep"
-    },
-    {
-      "hash": "410d8a9f",
-      "subject": "fix(runtime): IteratorResult reads are a real [[Get]] - shared, accessor-aware"
-    },
-    {
-      "hash": "6b44265b",
-      "subject": "feat(parser,check,lower): CoverInitializedName + runtime GetV for default-guarded pattern loads"
-    },
-    {
-      "hash": "8dd911b7",
-      "subject": "feat(parser): assignment chains through a destructuring pattern link"
-    },
-    {
-      "hash": "176840f9",
-      "subject": "fix(lower): a nullish-only struct field slot keeps the null/undefined distinction"
-    },
-    {
-      "hash": "a024a8dd",
-      "subject": "fix(parser,check,lower): for-await element await by type, not by .value member wrap"
     }
   ],
-  "headSha": "b5fb1232",
+  "headSha": "665d8958",
   "autorun": {
-    "total": 537,
+    "total": 538,
     "baselineTarget": 10,
-    "bySelf": 532,
+    "bySelf": 533,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785176718-7012",
-      "at": "2026-07-27T18:25:18Z",
-      "ts": 1785176718,
+      "rotationId": "r-1785184656-0cf9",
+      "at": "2026-07-27T20:37:36Z",
+      "ts": 1785184656,
       "trigger": "self",
-      "prevHead": "ea5a2ecb",
-      "handoffSha": "sha256:a23abf8ba88158139203def6977441d4f774b8d756e9123cb4942f867a67c01c",
-      "handoffAgeSec": 5,
+      "prevHead": "5ce7a2f7",
+      "handoffSha": "sha256:be62933fa624ea55f1ea862014e5640922b0dd1771e089eed032c4c7f230ab5a",
+      "handoffAgeSec": 20,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1785184656-0cf9",
+        "at": "2026-07-27T20:37:36Z",
+        "ts": 1785184656,
+        "trigger": "self",
+        "prevHead": "5ce7a2f7",
+        "handoffSha": "sha256:be62933fa624ea55f1ea862014e5640922b0dd1771e089eed032c4c7f230ab5a",
+        "handoffAgeSec": 20,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785176718-7012",
         "at": "2026-07-27T18:25:18Z",
@@ -876,17 +887,6 @@
         "prevHead": "5634c9b0",
         "handoffSha": "sha256:39d3dc2064f02a8d1181f67f403b4d100eab005ffee85a7b5c36d0a25d5e1771",
         "handoffAgeSec": 11,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1785054278-4154",
-        "at": "2026-07-26T08:24:38Z",
-        "ts": 1785054278,
-        "trigger": "self",
-        "prevHead": "6204cc42",
-        "handoffSha": "sha256:41208a7fd93b3d7b0517287d149a7fb5572f33518a98ae78e976b65cfb1b2ead",
-        "handoffAgeSec": 16,
         "conformanceBefore": null,
         "commitsInSession": null
       }

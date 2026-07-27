@@ -1530,6 +1530,29 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 9215301c`, never as a constant.
 
+**Re-derived @ `665d8958`** (2026-07-28, rotation 234): passTotal
+**15958** (+310 over rotation 233's 15648), bug 993, trAccepted 16951,
+incompatible **36223**, core **23978**. Gate predicate: **483** clusters
+of ≥ 4 cases holding 22662, plus 941 clusters of ≤ 3 holding 1316. The
+case count fell hard again (23073 → 22662, −411) with clusters
+essentially flat (482 → 483). Conservation is exact: ΔtrAccepted +402 =
+Δpass +310 + Δbug +92. Pass regressions **0** (per-case verdict diff);
+timeout 24 and crash 12 (3× exit 138 + 9× exit 139) both flat. Top
+movement: 308 `type error → pass` — cluster #4 (`__new_*`
+new-on-a-function, 930 cases / 39 dirs) fell to the fn-expr
+constructor blades (RFC 20260726 blades A/B), the
+`new Promise(executor)` desugar, the class-instance promise admit, and
+the AggregateError/SuppressedError injection; residuals are near zero
+(Con 233→0, ConstructFun 126→1, Promise 216→1, AggregateError 11→0).
+131 `type → not-yet-supported` is the wall one layer deeper; 92 fresh
+bugs (75 exit-1 + 14 stdout-mismatch) are honest exposure of cases now
+reaching the runtime. New top gaps: #1 untyped fn-decl param 1469, #2
+static private 1404, #3 `eval` 1035, #4 `not callable: type Any` 847 /
+21 dirs (spotting note: the reject is check_type_of_call/general.rs's
+non-Function catch-all; the exemplar shape is
+`Object.prototype.hasOwnProperty.call(x, k)` — a nested-member
+Any-typed callee). Previous stamp below.
+
 **Re-derived @ `b5fb1232`** (2026-07-28, rotation 233): passTotal
 **15648** (+506 over rotation 232's 15142), bug 901, trAccepted 16549,
 incompatible **36625**, core **24380**. Gate predicate: **482** clusters
