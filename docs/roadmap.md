@@ -1530,17 +1530,18 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 9215301c`, never as a constant.
 
-**Re-derived @ `efae2a7e`** (2026-07-28, rotation 235; final sweep —
-the mid sweep at `c7303b36` differed only by the keys-closure blade:
-+2 pass / +3 bug, 0 regressions): passTotal
-**16275** (+316 over rotation 234's 15959), bug 1129, trAccepted 17404,
-incompatible **35770**, core **23528**. Gate predicate: **495** clusters
-of ≥ 4 cases holding 22197, plus 950 clusters of ≤ 3 holding 1331. The
+**Re-derived @ `b83b0f88`** (2026-07-28, rotation 235; final sweep —
+the two earlier sweeps at `c7303b36` / `efae2a7e` differed only by the
+keys/values/entries closure blades, +2 pass / +4 bug total, 0
+regressions at every diff): passTotal
+**16275** (+316 over rotation 234's 15959), bug 1130, trAccepted 17405,
+incompatible **35769**, core **23527**. Gate predicate: **495** clusters
+of ≥ 4 cases holding 22197, plus 949 clusters of ≤ 3 holding 1330. The
 case count fell for the third rotation running (22663 → 22197, −466)
 with clusters up (483 → 495) — the unlock-exposes-new-signatures shape;
 the case count stays the honest axis. Conservation is exact:
-ΔtrAccepted +454 = Δpass +316 + Δbug +138. Pass regressions **0**
-(per-case verdict diff at both sweeps); timeout 24 flat; crash 12 → **14** (two fresh
+ΔtrAccepted +455 = Δpass +316 + Δbug +139. Pass regressions **0**
+(per-case verdict diff at all three sweeps); timeout 24 flat; crash 12 → **14** (two fresh
 exit-139: `defineProperty(arr, 2^32-2, …)` boundary-index cases whose
 checker wall fell and whose dense-grow alloc now SIGSEGVs — runtime
 array-index-clamp face, L3b). Top movement: 310 `type error → pass` +

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-27T23:29:10.989Z",
+  "generatedAt": "2026-07-27T23:42:31.117Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,9 +9,9 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-27T23:28:33Z",
-    "headSha": "efae2a7e",
-    "elapsedSec": 226.16,
+    "ranAt": "2026-07-27T23:41:26Z",
+    "headSha": "b83b0f88",
+    "elapsedSec": 215.67,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
@@ -20,18 +20,18 @@
     "passNoOracle": 190,
     "passNegative": 4494,
     "passTotal": 16275,
-    "bug": 1129,
-    "incompatible": 35770,
+    "bug": 1130,
+    "incompatible": 35769,
     "bunSkip": 7356,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 17404,
+    "trAccepted": 17405,
     "passRateInScope": 30.61,
     "passRateTrAccepted": 93.51
   },
   "torajs": {
-    "commit": "efae2a7e",
-    "commitSubject": "feat(ssa): Object.keys / getOwnPropertyNames / Reflect.ownKeys accept a Closure receiver - box to any, runtime own-keys walk",
+    "commit": "b83b0f88",
+    "commitSubject": "feat(ssa): Object.values / Object.entries accept a Closure receiver - box to any, runtime own walks",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "b83b0f88",
+      "subject": "feat(ssa): Object.values / Object.entries accept a Closure receiver - box to any, runtime own walks"
+    },
+    {
+      "hash": "873ea992",
+      "subject": "chore(hardev): rotation 235 final sweep at efae2a7e and dashboard refresh"
+    },
+    {
       "hash": "efae2a7e",
       "subject": "feat(ssa): Object.keys / getOwnPropertyNames / Reflect.ownKeys accept a Closure receiver - box to any, runtime own-keys walk"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "937ced49",
       "subject": "feat(ast): AggregateError and SuppressedError construct when called as functions"
-    },
-    {
-      "hash": "99bc9922",
-      "subject": "chore(hardev): record the rotation 234 sweep and refresh the dashboard"
-    },
-    {
-      "hash": "665d8958",
-      "subject": "feat(ast): a constructed fn-expr body gets its `this` - RECV promote for `new`"
     }
   ],
-  "headSha": "efae2a7e",
+  "headSha": "b83b0f88",
   "autorun": {
     "total": 539,
     "baselineTarget": 10,
