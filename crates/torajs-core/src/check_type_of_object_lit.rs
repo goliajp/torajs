@@ -47,6 +47,15 @@ pub(crate) fn check(
 ) -> Result<Type, String> {
     let mut field_tys: Vec<(String, Type)> = Vec::new();
     for (n, eid) in fields {
+        // S2.24 刀 4 — a CoverInitializedName field (`{ x = D }`)
+        // reaching expression position is the §13.2.5.1 early error:
+        // only a destructuring re-read (which the parser expands
+        // before check ever runs) may consume it.
+        if ast.objlit_cover_init_exprs.contains(eid) {
+            return Err(format!(
+                "shorthand property initializer `{n} = ...` is only valid in a destructuring pattern"
+            ));
+        }
         if let Some(omit) = spread_omit_set(n) {
             let src_ty = checker.type_of(ast, *eid)?;
             let Type::Struct(src_fields) = &src_ty else {

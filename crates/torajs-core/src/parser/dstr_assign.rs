@@ -358,6 +358,10 @@ impl<'a> Parser<'a> {
         let Some(default_expr) = default else {
             return load;
         };
+        // S2.24 刀 4 — the guard makes an absent field well-defined
+        // (§13.15.5.4 GetV → undefined → default fires), so this read
+        // is lenient on a miss; see `Ast::dstr_default_member_loads`.
+        self.ast.dstr_default_member_loads.insert(load);
         let undef = self.ast.add_expr(Expr::Ident("undefined".into()));
         let cond = self.ast.add_expr(Expr::BinOp {
             op: BinOp::Eq,

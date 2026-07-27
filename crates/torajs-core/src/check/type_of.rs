@@ -37,7 +37,13 @@ impl Checker {
                 // [`crate::check_type_of_ident::check`].
                 crate::check_type_of_ident::check(self, name)
             }
-            Expr::Member { obj, name } => crate::check_type_of_member::check(self, ast, obj, name),
+            Expr::Member { obj, name } => crate::check_type_of_member::check(
+                self,
+                ast,
+                obj,
+                name,
+                ast.dstr_default_member_loads.contains(&eid),
+            ),
             Expr::Index { obj, index } => {
                 // V3-18 index-expression — `obj[index]` Number-index
                 // narrow + String/Array<T> receiver narrow. See

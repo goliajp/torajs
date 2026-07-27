@@ -170,6 +170,24 @@ impl<'a> Parser<'a> {
             }
             return Ok((name, value));
         }
+        // S2.24 刀 4 — CoverInitializedName `{ x = D }` (§13.2.5.1):
+        // legal ONLY when the literal is re-read as an assignment
+        // pattern. Read it the way the cover grammar does — the field
+        // value is the assignment expression `x = D`, exactly the
+        // shape the pattern walk's `f: y = D` default arm consumes —
+        // and record the eid; a literal that survives to expression
+        // position early-errors on it (check_type_of_object_lit).
+        if matches!(self.peek(), Token::Eq) {
+            self.pos += 1;
+            let default = self.parse_expr()?;
+            let target = self.ast.add_expr(Expr::Ident(name.clone()));
+            let value = self.ast.add_expr(Expr::Assign {
+                target,
+                value: default,
+            });
+            self.ast.objlit_cover_init_exprs.insert(value);
+            return Ok((name, value));
+        }
         match self.peek() {
             Token::Colon => self.pos += 1,
             t => {

@@ -28,11 +28,21 @@ use crate::ast::Visibility;
 use crate::ast::{Ast, Expr, ExprId};
 use crate::check::{Checker, Type, resolve_class_ref};
 
+/// `lenient_missing` — S2.24 刀 4: true for a desugar-minted
+/// default-guarded pattern load (`Ast::dstr_default_member_loads`);
+/// the terminal "no member" reject answers `Type::Any` instead — the
+/// read becomes a RUNTIME GetV (§13.15.5.4) at the lowering, because
+/// a static miss is not a runtime miss: a prefix-compatible
+/// heterogeneous array types its elements by the anchor
+/// (`[{}, {b: 3}]` → Struct([])), and the wider element really
+/// carries the field. Every other error path (visibility, family-arm
+/// rejects) stays an error.
 pub(crate) fn check(
     checker: &mut Checker,
     ast: &Ast,
     obj: &ExprId,
     name: &str,
+    lenient_missing: bool,
 ) -> Result<Type, String> {
     // RFC 20260710 C5 — a member-path truthiness narrow
     // (`if (o.cb) { o.cb() }`) overrides the declared Nullable
@@ -195,6 +205,9 @@ pub(crate) fn check(
     // siblings inside [`try_family_dispatch`] (chunks
     // 191-206). Anything reaching this point is genuinely
     // unknown for the obj_ty — emit a typecheck error.
+    if lenient_missing {
+        return Ok(Type::Any);
+    }
     Err(format!("no member `.{name}` on type {obj_ty:?}"))
 }
 

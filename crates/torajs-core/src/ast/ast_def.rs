@@ -199,6 +199,25 @@ pub struct Ast {
     /// set): the computed fold to a plain field name records its
     /// value expr through the same channel.
     pub objlit_shorthand_proto_exprs: std::collections::HashSet<ExprId>,
+    /// S2.24 刀 4 — value ExprIds of CoverInitializedName fields
+    /// (`{ x = D }`, §13.2.5.1): the parser reads the cover grammar
+    /// as the field value `Expr::Assign(x, D)` — the exact shape the
+    /// pattern walk's `f: y = D` default arm consumes — and records
+    /// it here. A literal that survives to expression position must
+    /// early-error on it (check_type_of_object_lit); only a
+    /// destructuring re-read may consume it.
+    pub objlit_cover_init_exprs: std::collections::HashSet<ExprId>,
+    /// S2.24 刀 4 — Member ExprIds minted by `dstra_field_load` for a
+    /// DEFAULT-guarded pattern field (`{ f = D }` / `{ f: y = D }`,
+    /// both lanes — declaration and assignment share the recipe).
+    /// §13.15.5.4 GetV answers `undefined` for an absent field, so
+    /// these reads are LENIENT on a static miss: the checker answers
+    /// `Any` instead of "no member" and the lowering rides the
+    /// any-member runtime read — a static miss is not a runtime miss
+    /// (prefix-widened heterogeneous array elements type by the
+    /// anchor but may really carry the field). Only marked reads —
+    /// a user member read keeps the hard error (TS posture).
+    pub dstr_default_member_loads: std::collections::HashSet<ExprId>,
     /// RFC 20260725-objlit-computed-key 刀 1 — value ExprId → key
     /// ExprId of `{ [expr]: v }` / `{ [expr]() {} }` computed-key
     /// fields. The field name in the flattened `(String, ExprId)`

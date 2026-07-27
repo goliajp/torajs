@@ -49,7 +49,9 @@ pub(crate) fn check(
     if matches!(obj_ty, Type::Struct(_))
         && let Some(name) = crate::ast::literal_prop_key(ast, index)
     {
-        return crate::check_type_of_member::check(checker, ast, &obj, &name);
+        // Index reads are never the desugar's default-guarded pattern
+        // load (that lane mints Member exprs) — no lenient miss here.
+        return crate::check_type_of_member::check(checker, ast, &obj, &name, false);
     }
     let idx_ty = checker.type_of(ast, index)?;
     // L3b #13 — an `any` receiver admits string keys (ES
