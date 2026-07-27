@@ -16,7 +16,8 @@
 //!    ssa_lower paths cover both spellings). The Error family
 //!    (`Error(...)` / `TypeError(...)` / ... — ES §20.5.1.1, same
 //!    called-as-function = construct rule) rides the same rewrite;
-//!    AggregateError stays out (recorded RFC 20260718 boundary).
+//!    AggregateError / SuppressedError joined in rotation 234 (their
+//!    classes are injectable now — build_error_data_subclass).
 //! 3. **`new Array(...)` P0.10 MVP** — 0 args → `[]`; ≥2 args →
 //!    `[a, b, ...]`; 1-arg numeric stays as `Expr::New` (ssa_lower
 //!    routes to `__torajs_arr_alloc_any_filled(n)`).
@@ -86,8 +87,8 @@ fn rewrite_array_call(ast: &mut Ast) {
     // `Error(...)` / `TypeError(...)` / ... without `new` → the
     // construct form (ES §20.5.1.1: the Error constructor performs
     // the same steps when called as a function). Same rewrite shape
-    // as `Array(...)` above; AggregateError stays out (its ctor
-    // shape is the recorded RFC 20260718 injection boundary).
+    // as `Array(...)` above; AggregateError / SuppressedError ride it
+    // too since rotation 234 (injectable via build_error_data_subclass).
 }
 
 fn rewrite_error_call(ast: &mut Ast) {
@@ -105,6 +106,13 @@ fn rewrite_error_call(ast: &mut Ast) {
                             | "ReferenceError"
                             | "EvalError"
                             | "URIError"
+                            // rotation 234 — the data-carrying pair
+                            // construct when called as functions too
+                            // (§20.5.7.1.1 / §20.5.8.1.1 step 1); they
+                            // joined the injectable family with
+                            // build_error_data_subclass.
+                            | "AggregateError"
+                            | "SuppressedError"
                     )
                 {
                     Some((name.clone(), args.clone()))
