@@ -1530,6 +1530,23 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 9215301c`, never as a constant.
 
+**Re-derived @ `410d8a9f`** (2026-07-28, rotation 232): passTotal
+**15142** (+216 over rotation 231's 14926), bug 875, trAccepted 16017,
+incompatible **37157**, core **24912**. Gate predicate: **472** clusters
+of ≥ 4 cases holding 23639, plus 919 clusters of ≤ 3 holding 1273.
+Clusters and cases fell together again (476 → 472 and 23855 → 23639).
+Conservation is exact: ΔtrAccepted +226 = Δpass +216 + Δbug +10. Pass
+regressions **0** (per-case verdict diff); **tr-timeout 49 → 24** — the
+IteratorResult [[Get]] fix un-hung the whole iter-val-err family, 25 of
+them straight to pass. Top movement: 132 `type error → pass`
+(CoverInitializedName + default-guard GetV + for-await by-type), 22
+`bug → pass`, 15 `parse → pass`; 20 `type → parse` + 18
+`type → not-yet-supported` are the wall moving one layer deeper.
+Cluster #4 (`no member on Promise(Struct)`) now 1014 cases / 7 dirs —
+the for-await unlock pushed more cases onto it; its body (`.then` /
+`.value` on Promise(Struct), the AsyncFromSyncIterator family) is
+untouched and is the next widest reachable gap. Previous stamp below.
+
 **Re-derived @ `98efa861`** (2026-07-27, rotation 228): passTotal
 **14444** (+307 over rotation 227's 14137), bug 768, trAccepted 15212,
 incompatible **37962**, core **25720**. Gate predicate: **484** clusters
