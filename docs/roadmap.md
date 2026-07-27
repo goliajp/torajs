@@ -2079,7 +2079,20 @@ touches runtime hot paths.
       Remaining family walls: decl-head patterns (RFC
       20260727-dstr-decl-shape blades A/B, this rotation) and the
       for-await element unwrap's missing non-Promise-Struct `.value`
-      arm (hole Z, L3b) gating every object-pattern shape
+      arm (hole Z, L3b) gating every object-pattern shape.
+      **Rotation 231 close**: blades A/B/C shipped (recursive
+      PatShape machine for declaration-position patterns — statement
+      + for-of/for-await heads; heterogeneous heap-element literal
+      repr unification). Family state @ d2b7e393: passTotal 166
+      (was 0 at rotation 230 close), `requires the iterable form`
+      447 → 75 (obj assignment heads / CoverInitializedName + odd
+      shapes remain), and the biggest family wall is now the
+      Promise(Struct) member cluster (1,001 cases corpus-wide, #4
+      overall — `.then`/`.value` arms missing on
+      Promise(Struct([value, done])), exactly hole Z's family).
+      3 honest new timeouts: for-of/dstr `*-ary-ptrn-rest-id-
+      iter-val-err` (rest over a poisoned iterator, ran for the
+      first time and hangs — L3b)
 - [x] **S2.24** **Destructuring assignment to existing bindings** —
       shipped rotation 230 (RFC 20260727-dstr-assignment, six blades:
       implicit-any uninit let / statement-form expansion / for-of
