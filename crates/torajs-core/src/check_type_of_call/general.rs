@@ -18,6 +18,22 @@ pub(crate) fn general_call(
 ) -> Result<Type, String> {
     let callee_ty = checker.type_of(ast, *callee)?;
     let Type::Function(mut params, ret) = callee_ty else {
+        // Cluster #4 (test262) — an Any-typed callee reaching the
+        // general tail is a MEMBER READ the per-family tables
+        // answered with their catch-all (`arr.hasOwnProperty` /
+        // `fn.caller` / an expando property): every real typed
+        // method name answers a concrete Function from its table,
+        // and a bare Any Ident was already admitted by route_early.
+        // TS semantics: `any` absorbs the call and answers `any`;
+        // lowering routes it through the runtime any-method
+        // dispatcher (gate mirror in `ssa_lower_any_method_call` —
+        // both key on this Any record for the callee expr).
+        if callee_ty == Type::Any {
+            for a in args {
+                checker.type_of(ast, *a)?;
+            }
+            return Ok(Type::Any);
+        }
         return Err(format!("not callable: type {callee_ty:?}"));
     };
     // Chunk 806 — a void call USED AS A VALUE is `undefined` (ES

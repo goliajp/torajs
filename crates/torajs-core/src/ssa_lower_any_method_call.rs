@@ -70,7 +70,16 @@ pub(crate) fn try_lower(
                 Expr::Ident(n) if ctx.builtin_mv_locals.contains_key(n)
             ) || crate::ssa_lower_stmt_let_decl_general::builtin_mv_member_init_mid(ctx, *obj)
                 .is_some());
-        if !sugar_fn_on_any && !builtin_mv {
+        // Cluster #4 (test262) — a CONCRETE receiver whose member
+        // read types Any: the per-family member tables' catch-all
+        // answered the read (`arr.hasOwnProperty` / `fn.caller` /
+        // an expando property), and the checker's general tail
+        // admitted the call as Any (mirror gate — both key on the
+        // callee expr's Any record). The receiver boxes at this
+        // any-lane boundary below; the runtime dispatcher answers
+        // by tag.
+        let any_member_read = matches!(ctx.expr_types.get(&callee), Some(crate::check::Type::Any));
+        if !sugar_fn_on_any && !builtin_mv && !any_member_read {
             return None;
         }
     }
@@ -92,12 +101,15 @@ pub(crate) fn try_lower(
     ctx.emit_arr_mark_kind(&recv);
     // RFC 20260725-str-method-value-reify — a typed Closure receiver
     // (reified method-value binding on its .call/.apply/.bind) boxes
-    // at this any-lane boundary. Borrow-shaped box (box_to_any is
-    // RC-NEUTRAL, the kernel borrows the receiver) — no release.
-    let recv = if matches!(ctx.operand_ty(&recv), Type::Closure(_)) {
-        ctx.box_to_any(recv)
-    } else {
+    // at this any-lane boundary. Cluster #4 widened this to EVERY
+    // non-Any receiver (Arr / Str / f64 / fn addr — the concrete
+    // receiver of a catch-all-Any member call). Borrow-shaped box
+    // (box_to_any is RC-NEUTRAL, the kernel borrows the receiver) —
+    // no release.
+    let recv = if matches!(ctx.operand_ty(&recv), Type::Any) {
         recv
+    } else {
+        ctx.box_to_any(recv)
     };
     // Ident receivers ride their variable slot along so
     // growth-relocating methods write the fresh pointer back —

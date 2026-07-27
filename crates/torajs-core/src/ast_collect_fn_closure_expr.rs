@@ -48,6 +48,24 @@ impl<'a> FnToClosureCollector<'a> {
         {
             self.try_mark(args[1]);
         }
+        // Cluster #4 (test262) — a top-FnDecl Ident as the RECEIVER
+        // of a member call the Function family's member tables
+        // answer with their catch-all (`inner.hasOwnProperty(…)`):
+        // the read types Any, the call rides the runtime any-method
+        // lane, and the receiver must box — which a raw FnSig
+        // can't. Wrap it so a boxed closure cell reaches the lane.
+        // The fn-surface names with their own raw-FnSig lanes stay
+        // unwrapped (call/apply/bind desugar + fn-toString fold);
+        // a name with a non-Function typed answer (`inner.name()`)
+        // only costs the wrap — the reject stays identical.
+        if let Expr::Member { obj, name: mname } = self.ast.get_expr(*callee)
+            && !matches!(
+                mname.as_str(),
+                "call" | "apply" | "bind" | "toString" | "toLocaleString"
+            )
+        {
+            self.try_mark(*obj);
+        }
         // Chunk 617 — replace-cb argument site (see module
         // doc): the runtime's functional-replaceValue lane
         // needs a closure cell, so a named top fn wraps.
