@@ -160,7 +160,15 @@ fn widen_branches(
         ctx.expr_types.get(&else_branch),
         Some(crate::check::Type::Undefined)
     );
-    if then_undef != else_undef && tt != Type::Any && et != Type::Any {
+    // rotation 233 (S2.27 field depth) — two struct-shaped branches
+    // whose layouts differ (the checker joined them to Any: same
+    // field names, field-wise joinable): box BOTH sides expr-aware,
+    // so each branch's fields read back through the any-member
+    // runtime-layout path instead of one branch's raw layout being
+    // read by the other's (probe: `(false ? {v: 1} : {v: undefined})
+    // .v` answered the sentinel-cell pointer as a number).
+    let struct_join = matches!(tt, Type::Obj(_)) && matches!(et, Type::Obj(_)) && tt != et;
+    if (struct_join || then_undef != else_undef) && tt != Type::Any && et != Type::Any {
         ctx.cur_block = then_end;
         if tt.is_refcounted() && !ctx.expr_transfers_ownership(then_branch) {
             ctx.emit_rc_inc(then_val.clone());

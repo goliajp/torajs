@@ -42,6 +42,40 @@ pub(crate) fn unify_ternary(t: &Type, e: &Type) -> Option<Type> {
         // join `T | undefined`; Any is the same safe widening the
         // mixed-Any wedge already applies.
         (Type::Undefined, _) | (_, Type::Undefined) => Some(Type::Any),
+        // rotation 233 (S2.27 field depth) — two structs with the
+        // same field names in the same order and field-wise joinable
+        // types (each field through this same join, so a
+        // Number/Undefined or Number/Null field widens like the
+        // top-level wedge) join to ANY, the S129-1 posture. The
+        // iterator idiom `i <= 3 ? {value: i, done: false} : {value:
+        // undefined, done: true}` is this shape; rotation 230's
+        // knife 5 only caught the TOP-level Undefined.
+        //
+        // Any — NOT Struct(joined-fields): the branches materialize
+        // by their OWN layouts, so a static join struct would read a
+        // raw-I64 field where the other branch stored a sentinel
+        // cell (probe: `d1.v` printed the pointer). The Any join
+        // rides the ternary lowering's both-sides box and the
+        // any-member read's runtime-layout normalization, which
+        // answers every field combination correctly. A statically-
+        // typed relayout join is the ceiling — L3b.
+        (Type::Struct(tf), Type::Struct(ef)) => {
+            if tf.len() != ef.len() {
+                return None;
+            }
+            for ((tn, tt), (en, et)) in tf.iter().zip(ef.iter()) {
+                if tn != en {
+                    return None;
+                }
+                match (tt, et) {
+                    (Type::Null, o) | (o, Type::Null) if !matches!(o, Type::Null) => {}
+                    _ => {
+                        unify_ternary(tt, et)?;
+                    }
+                }
+            }
+            Some(Type::Any)
+        }
         (Type::Null, other) | (other, Type::Null) => Some(Type::Nullable(Box::new(other.clone()))),
         (Type::Nullable(inner), other) | (other, Type::Nullable(inner)) => {
             if inner.as_ref() == other {
