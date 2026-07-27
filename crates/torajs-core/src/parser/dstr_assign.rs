@@ -225,7 +225,14 @@ impl<'a> Parser<'a> {
     /// (mirrors maybe_parse_destr_default: fires past-end — the
     /// length guard also keeps typed-lane OOB reads out — and on an
     /// explicit undefined element; null / 0 / '' keep their value).
-    fn dstra_elem_load(&mut self, src_name: &str, idx: usize, default: Option<ExprId>) -> ExprId {
+    /// `pub(super)`: shared with the declaration-position PatShape
+    /// emitter (destr_shape.rs) so both lanes read one recipe.
+    pub(super) fn dstra_elem_load(
+        &mut self,
+        src_name: &str,
+        idx: usize,
+        default: Option<ExprId>,
+    ) -> ExprId {
         let src_ref = self.ast.add_expr(Expr::Ident(src_name.to_string()));
         let idx_e = self.ast.add_expr(Expr::Number(idx as f64));
         let load = self.ast.add_expr(Expr::Index {
@@ -266,8 +273,14 @@ impl<'a> Parser<'a> {
 
     /// `__t.f`, optionally wrapped in the §13.15.5.4 default ternary
     /// (mirrors maybe_parse_object_destr_default: undefined and ONLY
-    /// undefined fires the default).
-    fn dstra_field_load(&mut self, src_name: &str, field: &str, default: Option<ExprId>) -> ExprId {
+    /// undefined fires the default). `pub(super)`: shared with
+    /// destr_shape.rs, same as dstra_elem_load.
+    pub(super) fn dstra_field_load(
+        &mut self,
+        src_name: &str,
+        field: &str,
+        default: Option<ExprId>,
+    ) -> ExprId {
         let src_ref = self.ast.add_expr(Expr::Ident(src_name.to_string()));
         let load = self.ast.add_expr(Expr::Member {
             obj: src_ref,

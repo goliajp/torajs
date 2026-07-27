@@ -324,11 +324,8 @@ impl<'a> Parser<'a> {
         // Parsed inline so it shares the let-decl's lookahead. Both
         // forms desugar to `let __t = src; let <field>...; ...` so the
         // backend never sees a destructuring pattern.
-        if matches!(self.peek(), Token::LBracket) {
-            return self.parse_array_destructuring(mutable);
-        }
-        if matches!(self.peek(), Token::LBrace) {
-            return self.parse_object_destructuring(mutable);
+        if matches!(self.peek(), Token::LBracket | Token::LBrace) {
+            return self.parse_destructuring_decl(mutable);
         }
         // V3-18 m1.h.5 — multi-decl `let a, b = 1, c` per spec
         // §14.3.1. Each binding can have its own type ann and
