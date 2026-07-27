@@ -75,6 +75,12 @@ pub enum GlobalSlotShape {
     F64,
     Str,
     Bool,
+    /// Cluster #4 follow-up (rotation 235) — a `Symbol()` /
+    /// `Symbol(desc)` init: fresh heap mint per §20.4.1, so the
+    /// slot's runtime type is statically certain like the literal
+    /// shapes above (test262's forbidden-ext family reads such a
+    /// binding from class-method bodies).
+    Symbol,
 }
 
 pub fn infer_toplevel_slot_shape(ast: &Ast, init: ExprId) -> Option<GlobalSlotShape> {
@@ -147,17 +153,25 @@ fn infer_slot_shape(ast: &Ast, init: ExprId, depth: u32) -> Option<GlobalSlotSha
             let Expr::Ident(fname) = ast.get_expr(*callee) else {
                 return None;
             };
-            ast.stmts.iter().find_map(|s| match s {
+            let fn_decl_shape = ast.stmts.iter().find_map(|s| match s {
                 Stmt::FnDecl {
                     name,
                     return_type,
                     params,
                     ..
                 } if name == fname && params.first().is_none_or(|p| p.name != "__env") => {
-                    return_type.as_deref().and_then(shape_of_simple_ann)
+                    Some(return_type.as_deref().and_then(shape_of_simple_ann))
                 }
                 _ => None,
-            })
+            });
+            match fn_decl_shape {
+                Some(shape) => shape,
+                // Cluster #4 follow-up — a `Symbol()` ctor call with
+                // no user FnDecl shadowing the name mints a fresh
+                // Symbol cell (§20.4.1): statically certain shape.
+                None if fname == "Symbol" => Some(GlobalSlotShape::Symbol),
+                None => None,
+            }
         }
         _ => None,
     }

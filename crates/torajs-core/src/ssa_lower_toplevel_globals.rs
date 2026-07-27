@@ -37,6 +37,7 @@ fn slot_shape_to_type(shape: GlobalSlotShape) -> Type {
         GlobalSlotShape::F64 => Type::F64,
         GlobalSlotShape::Str => Type::Str,
         GlobalSlotShape::Bool => Type::Bool,
+        GlobalSlotShape::Symbol => Type::Symbol,
     }
 }
 
@@ -169,6 +170,10 @@ pub(crate) fn collect_toplevel_globals(
             // Synthetic class plumbing (`__class_*` / `__proto_*`,
             // `: any`-annotated by construction) stays main-local —
             // the class machinery owns its own access lanes.
+            // Cluster #4 follow-up (rotation 235) — Symbol joins:
+            // fresh-mint init (§20.4.1), no in-place mutation
+            // surface (same profile as Str), drop dispatch already
+            // carries a Symbol arm (`symbol_drop`).
             let supported = matches!(
                 ty,
                 Type::I64
@@ -179,6 +184,7 @@ pub(crate) fn collect_toplevel_globals(
                     | Type::Arr(_)
                     | Type::Obj(_)
                     | Type::Closure(_)
+                    | Type::Symbol
             ) || (ty == Type::Any
                 && binding_refs.named_fn_refs.contains(name)
                 && !name.starts_with("__"));
@@ -227,10 +233,14 @@ pub(crate) fn collect_toplevel_globals(
             // K.6 writeback concern doesn't apply, and whole-binding
             // reassignment rides the Assign-Ident global lane's
             // drop-old/store-new like Str/Closure/Any.
+            // Symbol rides the Str profile: no in-place mutation
+            // methods exist, so assignment (drop-old/store-new in
+            // the Assign-Ident lane) is the only mutation face.
             let mutable_promote = (ty == Type::Str
                 || matches!(ty, Type::Closure(_))
                 || ty == Type::Any
-                || matches!(ty, Type::Obj(_)))
+                || matches!(ty, Type::Obj(_))
+                || ty == Type::Symbol)
                 && binding_refs.named_fn_refs.contains(name);
             if *mutable && ty.is_refcounted() && !mutable_promote {
                 continue;

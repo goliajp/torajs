@@ -64,6 +64,19 @@ pub(crate) fn lower(ctx: &mut LowerCtx, maybe: Option<crate::ast::ExprId>) {
             ctx.locals
                 .get(name)
                 .is_some_and(|info| info.borrowed && info.ty.is_refcounted())
+                // Cluster #4 follow-up (rotation 235) — a K.3 global
+                // slot read is ALWAYS a borrow (pure GlobalRef+Load,
+                // the slot keeps its stake), so returning it takes
+                // the same +1 the borrowed-local arm pays: the
+                // caller owns every return value. Without it a
+                // discarded `f()` freed the cell under the live slot
+                // (Symbol probe e1b SIGSEGV; the Str shape was the
+                // same double-dec that only happened not to crash).
+                || (ctx.locals.get(name).is_none()
+                    && ctx
+                        .globals
+                        .get(name)
+                        .is_some_and(|t| t.is_refcounted()))
         } else {
             false
         };

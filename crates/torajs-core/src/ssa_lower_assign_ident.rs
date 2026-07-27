@@ -64,10 +64,14 @@ fn lower_global_assign(
     // Obj slots join: a struct cell has no reallocating method
     // surface (field writes are in-place), so drop-old/store-new is
     // the complete mutation story.
+    // Cluster #4 follow-up (rotation 235) — Symbol joins: no
+    // in-place mutation surface (Str profile), a fresh `Symbol()`
+    // rhs is an owned mint and transfers.
     let drop_old_slot = slot_ty == Type::Str
         || matches!(slot_ty, Type::Closure(_))
         || slot_ty == Type::Any
-        || matches!(slot_ty, Type::Obj(_));
+        || matches!(slot_ty, Type::Obj(_))
+        || slot_ty == Type::Symbol;
     if slot_ty.is_refcounted() && !drop_old_slot {
         panic!(
             "ssa-lower: assignment to refcount global `{name}` is not yet supported (K.6 — mutable Arr globals need method-mutation writeback)"

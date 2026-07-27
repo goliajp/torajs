@@ -314,6 +314,7 @@ pub(crate) fn pass_2_register_globals_and_check_stmts(c: &mut Checker, ast: &Ast
                                     | crate::ast_refs::GlobalSlotShape::F64 => Type::Number,
                                     crate::ast_refs::GlobalSlotShape::Str => Type::String,
                                     crate::ast_refs::GlobalSlotShape::Bool => Type::Boolean,
+                                    crate::ast_refs::GlobalSlotShape::Symbol => Type::Symbol,
                                 },
                             )
                         }
