@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-27T22:07:21.744Z",
+  "generatedAt": "2026-07-27T23:29:10.989Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-27T22:06:30Z",
-    "headSha": "47b722ac",
-    "elapsedSec": 210.23,
+    "ranAt": "2026-07-27T23:28:33Z",
+    "headSha": "efae2a7e",
+    "elapsedSec": 226.16,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 11275,
+    "pass": 11591,
     "passNoOracle": 190,
     "passNegative": 4494,
-    "passTotal": 15959,
-    "bug": 991,
-    "incompatible": 36224,
+    "passTotal": 16275,
+    "bug": 1129,
+    "incompatible": 35770,
     "bunSkip": 7356,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 16950,
-    "passRateInScope": 30.01,
-    "passRateTrAccepted": 94.15
+    "trAccepted": 17404,
+    "passRateInScope": 30.61,
+    "passRateTrAccepted": 93.51
   },
   "torajs": {
-    "commit": "47b722ac",
-    "commitSubject": "style: fmt-drift fix - mini's cargo fmt rewrapped a let-else in fn_constructor",
+    "commit": "efae2a7e",
+    "commitSubject": "feat(ssa): Object.keys / getOwnPropertyNames / Reflect.ownKeys accept a Closure receiver - box to any, runtime own-keys walk",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,38 @@
   },
   "commits": [
     {
+      "hash": "efae2a7e",
+      "subject": "feat(ssa): Object.keys / getOwnPropertyNames / Reflect.ownKeys accept a Closure receiver - box to any, runtime own-keys walk"
+    },
+    {
+      "hash": "c7303b36",
+      "subject": "fix(ast): toplevel-this walker skips objlit method/accessor/fn-expr-field bodies - receiver-this, not lexical"
+    },
+    {
+      "hash": "0f04cb71",
+      "subject": "feat(ast): top-level this materializes as the module-this {} dynobj"
+    },
+    {
+      "hash": "7fe75f43",
+      "subject": "fix(ast): cluster-4 wrap axes skip generator-family fns - their fn-value reflection substrate must stay unwrapped"
+    },
+    {
+      "hash": "1e1c944f",
+      "subject": "feat(ast): wrap a bare top-fn argument to Object/Reflect statics - reflection kernels get a boxable closure cell"
+    },
+    {
+      "hash": "7f001cfe",
+      "subject": "feat(ssa): Symbol() toplevel let promotes to a K.3b global - named-fn and class-method bodies can read it"
+    },
+    {
+      "hash": "16592a79",
+      "subject": "feat(check): admit Any-typed member callee - catch-all member reads become runtime any-method calls"
+    },
+    {
+      "hash": "f35e3876",
+      "subject": "chore(hardev): final rotation 234 sweep at 47b722ac and dashboard refresh"
+    },
+    {
       "hash": "47b722ac",
       "subject": "style: fmt-drift fix - mini's cargo fmt rewrapped a let-else in fn_constructor"
     },
@@ -727,59 +759,38 @@
     {
       "hash": "665d8958",
       "subject": "feat(ast): a constructed fn-expr body gets its `this` - RECV promote for `new`"
-    },
-    {
-      "hash": "f6fd5352",
-      "subject": "feat(ast): AggregateError and SuppressedError join the injected error family"
-    },
-    {
-      "hash": "fb0e5ca8",
-      "subject": "fix(ast): a user `class Promise` keeps its own `new Promise(...)`"
-    },
-    {
-      "hash": "534d49cd",
-      "subject": "feat(ast): `new Promise(executor)` desugars onto the withResolvers trio"
-    },
-    {
-      "hash": "e6c50de1",
-      "subject": "feat(check): a class instance settles a promise - reject(new Error) admitted"
-    },
-    {
-      "hash": "c4bf340d",
-      "subject": "fix(fn): `new F()` works when F is a function expression bound to a variable"
-    },
-    {
-      "hash": "5ce7a2f7",
-      "subject": "chore(hardev): record the rotation 233 sweep and refresh the dashboard"
-    },
-    {
-      "hash": "b5fb1232",
-      "subject": "feat(check,lower): ternary struct branches unify at field depth - join to Any"
-    },
-    {
-      "hash": "0566a587",
-      "subject": "feat(runtime,lower): await on any dispatches by value - promise-in-any unwraps"
     }
   ],
-  "headSha": "47b722ac",
+  "headSha": "efae2a7e",
   "autorun": {
-    "total": 538,
+    "total": 539,
     "baselineTarget": 10,
-    "bySelf": 533,
+    "bySelf": 534,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785184656-0cf9",
-      "at": "2026-07-27T20:37:36Z",
-      "ts": 1785184656,
+      "rotationId": "r-1785190161-2d76",
+      "at": "2026-07-27T22:09:21Z",
+      "ts": 1785190161,
       "trigger": "self",
-      "prevHead": "5ce7a2f7",
-      "handoffSha": "sha256:be62933fa624ea55f1ea862014e5640922b0dd1771e089eed032c4c7f230ab5a",
-      "handoffAgeSec": 20,
+      "prevHead": "f35e3876",
+      "handoffSha": "sha256:6803511d9997fa48c7b261ee9bd2c697f316155d9adaab74d019b00009fa1f81",
+      "handoffAgeSec": 46,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1785190161-2d76",
+        "at": "2026-07-27T22:09:21Z",
+        "ts": 1785190161,
+        "trigger": "self",
+        "prevHead": "f35e3876",
+        "handoffSha": "sha256:6803511d9997fa48c7b261ee9bd2c697f316155d9adaab74d019b00009fa1f81",
+        "handoffAgeSec": 46,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785184656-0cf9",
         "at": "2026-07-27T20:37:36Z",
@@ -876,17 +887,6 @@
         "prevHead": "3639c961",
         "handoffSha": "sha256:713857f700686e1a66275570935d702b6c31668ceffdea5d20d3688a817320dc",
         "handoffAgeSec": 6,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1785068962-03e3",
-        "at": "2026-07-26T12:29:22Z",
-        "ts": 1785068962,
-        "trigger": "self",
-        "prevHead": "5634c9b0",
-        "handoffSha": "sha256:39d3dc2064f02a8d1181f67f403b4d100eab005ffee85a7b5c36d0a25d5e1771",
-        "handoffAgeSec": 11,
         "conformanceBefore": null,
         "commitsInSession": null
       }

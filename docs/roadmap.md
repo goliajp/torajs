@@ -1530,6 +1530,34 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 9215301c`, never as a constant.
 
+**Re-derived @ `efae2a7e`** (2026-07-28, rotation 235; final sweep —
+the mid sweep at `c7303b36` differed only by the keys-closure blade:
++2 pass / +3 bug, 0 regressions): passTotal
+**16275** (+316 over rotation 234's 15959), bug 1129, trAccepted 17404,
+incompatible **35770**, core **23528**. Gate predicate: **495** clusters
+of ≥ 4 cases holding 22197, plus 950 clusters of ≤ 3 holding 1331. The
+case count fell for the third rotation running (22663 → 22197, −466)
+with clusters up (483 → 495) — the unlock-exposes-new-signatures shape;
+the case count stays the honest axis. Conservation is exact:
+ΔtrAccepted +454 = Δpass +316 + Δbug +138. Pass regressions **0**
+(per-case verdict diff at both sweeps); timeout 24 flat; crash 12 → **14** (two fresh
+exit-139: `defineProperty(arr, 2^32-2, …)` boundary-index cases whose
+checker wall fell and whose dense-grow alloc now SIGSEGVs — runtime
+array-index-clamp face, L3b). Top movement: 310 `type error → pass` +
+3 nys + 1 bug — cluster #4 (`not callable: type Any`, measured 862
+cases) fell to the Any-member-callee admit (checker general tail +
+any-method-call mirror gate + fn-receiver wrap axis), the Symbol()
+K.3b global promotion (with the generic return-station global-borrow
+retain fix), the Object/Reflect fn-arg wrap, and cluster #5's bare
+top-level-this shape fell to the module-this `{}` rewrite. 212
+`type → not yet supported` + 19 no-oracle mirrors are the wall one
+layer deeper (mostly Object.* lanes now reached with non-struct
+receivers); 133 fresh bugs net are honest exposure. Two gate
+regressions were caught and fixed in-rotation before ship
+(generator-family wrap severing the %GeneratorFunction% chain;
+toplevel-this walker descending into objlit method bodies). Previous
+stamp below.
+
 **Re-derived @ `47b722ac`** (2026-07-28, rotation 234): passTotal
 **15959** (+311 over rotation 233's 15648), bug 991, trAccepted 16950,
 incompatible **36224**, core **23979**. Gate predicate: **483** clusters
