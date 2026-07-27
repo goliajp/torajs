@@ -8,6 +8,20 @@ use crate::ast::{Ast, BinOp, Expr, ExprId, is_fn_like_ann};
 use crate::ast_collect_fn_closure::{FnToClosureCollector, is_fn_like_field_ann};
 
 impl<'a> FnToClosureCollector<'a> {
+    /// Generator / async-generator factory fns carry their own
+    /// fn-value reflection substrate (RFC 20260713 blade 5:
+    /// `generator_factory_classes` wires `.prototype` /
+    /// getPrototypeOf / instanceof to the `__Gen_*` class) —
+    /// wrapping one in a plain `__forward_*` closure severs the
+    /// %GeneratorFunction% / %AsyncGeneratorFunction% intrinsic
+    /// chain (gate generator-fn-intrinsics-001 caught exactly
+    /// that), so the cluster-#4 axes skip them.
+    fn is_generator_family_ident(&self, eid: ExprId) -> bool {
+        matches!(self.ast.get_expr(eid), Expr::Ident(n)
+            if self.ast.generator_factory_classes.contains_key(n)
+                || self.ast.async_generator_fns.contains(n))
+    }
+
     /// Walk an Expr looking for nested store-sites (Call args,
     /// assigns into `any` bindings, nested ObjectLits, etc.).
     /// `Expr::Call` arm — the callee/arg boxing decisions plus the
@@ -62,7 +76,9 @@ impl<'a> FnToClosureCollector<'a> {
             && matches!(ns.as_str(), "Object" | "Reflect")
         {
             for &arg in args {
-                self.try_mark(arg);
+                if !self.is_generator_family_ident(arg) {
+                    self.try_mark(arg);
+                }
             }
         }
         // Cluster #4 (test262) — a top-FnDecl Ident as the RECEIVER
@@ -80,6 +96,7 @@ impl<'a> FnToClosureCollector<'a> {
                 mname.as_str(),
                 "call" | "apply" | "bind" | "toString" | "toLocaleString"
             )
+            && !self.is_generator_family_ident(*obj)
         {
             self.try_mark(*obj);
         }
