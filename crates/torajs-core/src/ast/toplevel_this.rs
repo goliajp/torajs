@@ -167,9 +167,13 @@ fn collect_expr(ast: &Ast, eid: ExprId, out: &mut Vec<ExprId>) {
         Expr::Ident(n) if n == "__this" => out.push(eid),
         // A true arrow inherits the lexical top-level `this`; a
         // function EXPRESSION (same variant, `fn_expr_exprs` marked)
-        // owns its `this` and stays loud / other passes' territory.
+        // owns its `this`, and an object-literal METHOD / accessor /
+        // fn-expr-field value (`objlit_method_exprs` — the parser
+        // parks all of them in ArrowFn too) binds `this` to the
+        // receiver (§10.2.1.2) — both stay out (gate caught 21
+        // objlit fixtures going silent-wrong when this walked in).
         Expr::ArrowFn { body, .. } => {
-            if !ast.fn_expr_exprs.contains(&eid) {
+            if !ast.fn_expr_exprs.contains(&eid) && !ast.objlit_method_exprs.contains(&eid) {
                 for s in body {
                     collect_stmt(ast, s, out);
                 }
