@@ -1,68 +1,50 @@
 //! for-of loop-variable + destructuring-pattern binding scan, split
 //! from `try_parse_for_of` (rotation 119 chunk 6, fn-debt decomp).
 //!
-//! Body verbatim from the pre-split fn — three destructuring
-//! branches (array pattern / object pattern / bare Ident) resolve to
-//! a `var_name` (a fresh `__forof_destr_N` or `__forvar_N` for the
-//! synthetic loop-locals, or the user's Ident), plus an
-//! `assign_target` for the `var` / bare-head assign-form wrap.
+//! RFC 20260727-dstr-decl-shape 刀 B — the decl-head pattern scan is
+//! the recursive PatShape reader (destr_shape.rs), replacing the
+//! names-only lookahead that bailed on defaults / elisions / rest /
+//! nesting. The pattern resolves to a `__forof_destr_N` fresh
+//! loop-local; the body prepends the same recursive bind expansion
+//! the statement form emits. Bare Ident heads and the `var` / bare
+//! assign-form wrap are unchanged.
 
 use super::*;
 
-use super::forof_destr::ForOfPatScan;
+use super::destr_shape::PatShape;
 
 impl<'a> Parser<'a> {
     /// Scan the loop-variable position: destructuring pattern (array
-    /// `[a,b]` / object `{x,y}`) → `__forof_destr_N` fresh loop-local
-    /// with a body-prepend of per-field lets; bare Ident → the user's
-    /// binding name; `var`/bare head → an `__forvar_N` fresh loop-local
-    /// with an assign-form body wrap so the user's binding tracks each
-    /// iteration. Returns `None` on Bail / unrecognised token so the
-    /// caller can restore `pos = saved` and return `Ok(None)`.
+    /// `[a,b]` / object `{x,y}`, recursive) → `__forof_destr_N` fresh
+    /// loop-local with a body-prepend of pattern binds; bare Ident →
+    /// the user's binding name; `var`/bare head → an `__forvar_N`
+    /// fresh loop-local with an assign-form body wrap so the user's
+    /// binding tracks each iteration. Returns `None` on a
+    /// non-pattern / unrecognised token so the caller can restore
+    /// `pos = saved` and return `Ok(None)`.
     pub(super) fn parse_forof_binding_and_pattern(
         &mut self,
         saved: usize,
         is_var_decl: Option<bool>,
         bare_form: bool,
-    ) -> Option<(
-        Option<Vec<String>>,
-        Option<Vec<(String, String)>>,
-        String,
-        Option<String>,
-    )> {
-        // V3-18 wedge — for-of with array-destructuring pattern:
-        // `for (let [a, b] of pairs) { ... }`. Common shape for
-        // iterating tuple arrays.
-        let destruct_names: Option<Vec<String>> = match self.scan_forof_destr_array() {
-            ForOfPatScan::Bail => {
-                self.pos = saved;
-                return None;
-            }
-            ForOfPatScan::NotPattern => None,
-            ForOfPatScan::Pat(names) => Some(names),
-        };
-        // V3-18 wedge — for-of with object-destructuring pattern:
-        // `for (let { x, y } of pts) { ... }`. Mirror of the array
-        // destr branch: hoist the iterator variable into a fresh
-        // synthetic name (`__forof_destr_<id>`), then prepend
-        // per-field `let bound = <iter>.field` lets to the body.
-        // Reserved-word fields go through keyword_property_name.
-        // Bound binding name still required to be an Ident
-        // (reserved-word fields require explicit `field: name`
-        // rename — same rule as parse_object_destructuring).
-        let destruct_obj: Option<Vec<(String, String)>> = if destruct_names.is_none() {
-            match self.scan_forof_destr_obj() {
-                ForOfPatScan::Bail => {
-                    self.pos = saved;
-                    return None;
+    ) -> Option<(Option<PatShape>, String, Option<String>)> {
+        let destruct_pat: Option<PatShape> =
+            if matches!(self.peek(), Token::LBracket | Token::LBrace) {
+                match self.read_pattern_shape() {
+                    Ok(pat) => Some(pat),
+                    // Not a well-formed pattern — this head is a
+                    // C-style init that happens to open with `[`/`{`
+                    // (or a real syntax error the C-style parse will
+                    // report); surrender the for-of attempt.
+                    Err(_) => {
+                        self.pos = saved;
+                        return None;
+                    }
                 }
-                ForOfPatScan::NotPattern => None,
-                ForOfPatScan::Pat(entries) => Some(entries),
-            }
-        } else {
-            None
-        };
-        let var_name = if destruct_names.is_some() || destruct_obj.is_some() {
+            } else {
+                None
+            };
+        let var_name = if destruct_pat.is_some() {
             let id = self.mint_desugar_id();
             format!("__forof_destr_{id}")
         } else {
@@ -83,8 +65,7 @@ impl<'a> Parser<'a> {
         // each iteration (var+destructuring keeps the block-scoped
         // per-field lets — recorded divergence on fn-scope leak).
         let assign_target: Option<String> = if (bare_form || is_var_decl == Some(true))
-            && destruct_names.is_none()
-            && destruct_obj.is_none()
+            && destruct_pat.is_none()
         {
             Some(var_name.clone())
         } else {
@@ -96,7 +77,27 @@ impl<'a> Parser<'a> {
         } else {
             var_name
         };
-        Some((destruct_names, destruct_obj, var_name, assign_target))
+        Some((destruct_pat, var_name, assign_target))
+    }
+
+    /// Prepend the recursive pattern binds when the loop var was a
+    /// decl-head pattern — the original `body` is wrapped in a block
+    /// so block-close drops still fire normally. Replaces the flat
+    /// per-name/per-field wrap (wrap_forof_destr_body).
+    pub(super) fn wrap_forof_pattern_body(
+        &mut self,
+        destruct_pat: &Option<PatShape>,
+        var_name: &str,
+        body: Stmt,
+    ) -> Stmt {
+        let Some(pat) = destruct_pat else {
+            return body;
+        };
+        let src_ref = self.ast.add_expr(Expr::Ident(var_name.to_string()));
+        let mut pre: Vec<Stmt> = Vec::new();
+        self.emit_pattern_binds(pat, src_ref, false, &mut pre);
+        pre.push(body);
+        Stmt::Block(pre)
     }
 
     /// S2.24 刀 2 (RFC 20260727-dstr-assignment) — bare

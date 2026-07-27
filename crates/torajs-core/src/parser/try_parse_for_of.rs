@@ -9,9 +9,10 @@
 //! step)`. Returns `Ok(None)` on non-for-of shape so `parse_stmt`
 //! can fall through to `parse_for`. Body unchanged.
 //!
-//! 2026-07-03 fn-debt decomp: destructuring scans + body wrapper →
-//! `forof_destr.rs`; generator desugar + default ForOf tail split
-//! into sub-fns below (bodies verbatim, dedented one level).
+//! 2026-07-03 fn-debt decomp: generator desugar + default ForOf
+//! tail split into sub-fns below. RFC 20260727-dstr-decl-shape 刀 B:
+//! decl-head patterns read via destr_shape's recursive PatShape
+//! machine (forof_binding.rs); the flat forof_destr scanners are gone.
 
 use super::*;
 
@@ -151,7 +152,7 @@ impl<'a> Parser<'a> {
         // local receives each element; the body prepends the same
         // pattern-assignment expansion the statement form uses.
         let mut destruct_assign: Option<ExprId> = None;
-        let (destruct_names, destruct_obj, var_name, assign_target) = if bare_form
+        let (destruct_pat, var_name, assign_target) = if bare_form
             && matches!(self.peek(), Token::LBracket | Token::LBrace)
         {
             let Some(pat) = self.scan_forof_assign_pattern() else {
@@ -160,7 +161,7 @@ impl<'a> Parser<'a> {
             };
             destruct_assign = Some(pat);
             let id = self.mint_desugar_id();
-            (None, None, format!("__forvar_{id}"), None)
+            (None, format!("__forvar_{id}"), None)
         } else {
             let Some(head) = self.parse_forof_binding_and_pattern(saved, is_var_decl, bare_form)
             else {
@@ -210,10 +211,9 @@ impl<'a> Parser<'a> {
             }
         }
         let body = self.parse_stmt()?;
-        // V3-18 wedge — prepend per-element / per-field destructuring
-        // lets when the loop var was a pattern. The original `body` is
-        // wrapped in a block so block-close drops still fire normally.
-        let body = self.wrap_forof_destr_body(&destruct_names, &destruct_obj, &var_name, body);
+        // RFC 20260727-dstr-decl-shape 刀 B — prepend the recursive
+        // pattern binds when the loop var was a decl-head pattern.
+        let body = self.wrap_forof_pattern_body(&destruct_pat, &var_name, body);
         // chunk B2 — `var` / bare forms: assign the user's binding
         // from the fresh loop-local at the top of each iteration.
         let body = if let Some(target) = &assign_target {
