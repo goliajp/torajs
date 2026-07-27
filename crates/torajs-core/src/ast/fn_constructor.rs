@@ -136,7 +136,67 @@ fn collect_declared(ast: &Ast) -> (Vec<String>, Vec<Constructible>) {
             returns_value: returns_a_value(body),
         });
     }
+    collect_fn_expr_bindings(ast, &mut candidates);
     (declared, candidates)
+}
+
+/// The census's main constructor shape is not a declaration at all:
+/// `var Con = function() {};` then `new Con()` — a function EXPRESSION
+/// bound to a top-level let/var/const (371 cases at rotation 233's
+/// sweep, versus the declaration form blade 2 covered). The factory is
+/// the same; the callee just reaches the closure binding instead of a
+/// FnDecl name.
+///
+/// Two gates keep this the loud-failure-preserving subset:
+/// - A body that mentions `this` is skipped. `desugar_classes` has
+///   already rewritten `this` → `__this` by the time this pass runs,
+///   and a fn-expr gets that binding only through the RECV_FIRST
+///   promote (RFC 20260717-fnexpr-this-channel), a separate blade.
+///   Synthesizing a factory anyway would move the reject from the
+///   `new` site into a lifted closure body — worse, not better.
+/// - A rest param is skipped: the factory forwards by naming each
+///   param, which a `...args` spread-through would misrepresent.
+///
+/// Untyped params are forwarded as `any` — the instance side is
+/// already dynamic, and the closure's own params stay whatever
+/// inference gives them.
+fn collect_fn_expr_bindings(ast: &Ast, candidates: &mut Vec<Constructible>) {
+    for st in &ast.stmts {
+        let Stmt::LetDecl { name, init, .. } = st else {
+            continue;
+        };
+        if !ast.fn_expr_exprs.contains(init) {
+            continue;
+        }
+        let Expr::ArrowFn { params, body, .. } = ast.get_expr(*init) else {
+            continue;
+        };
+        if candidates.iter().any(|c| &c.name == name) {
+            continue;
+        }
+        if params.iter().any(|p| p.is_rest) {
+            continue;
+        }
+        let param_names: Vec<String> = params.iter().map(|p| p.name.clone()).collect();
+        if super::free_vars::free_vars_of_body(ast, &param_names, body)
+            .iter()
+            .any(|v| v == "__this")
+        {
+            continue;
+        }
+        candidates.push(Constructible {
+            name: name.clone(),
+            params: params
+                .iter()
+                .map(|p| Param {
+                    type_ann: p.type_ann.clone().or_else(|| Some("any".into())),
+                    ..p.clone()
+                })
+                .collect(),
+            takes_this: false,
+            returns_value: returns_a_value(body),
+        });
+    }
 }
 
 /// Names called as `__new_<X>` for which no `__new_<X>` was declared,
