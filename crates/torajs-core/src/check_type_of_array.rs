@@ -56,15 +56,30 @@ pub(crate) fn check(checker: &mut Checker, ast: &Ast, elements: &[ExprId]) -> Re
         let ty = elem_value_ty(checker, ast, eid)?;
         if let Some(ty) = ty
             && !heterogeneous
-            && !is_assignable_to_resolved(
+        {
+            if !is_assignable_to_resolved(
                 &first_ty,
                 &ty,
                 &checker.class_structs,
                 &checker.aliases,
                 &checker.generic_alias_decls,
-            )
-        {
-            heterogeneous = true;
+            ) {
+                heterogeneous = true;
+            }
+            // Hole X (rotation 231) — plain assignability is
+            // REPR-blind for literal unification: `Array<Any>` is
+            // assignable to `Array<Number>` (the M6.3 Any hole),
+            // but the two carry different slot layouts (16-byte
+            // tagged vs 8-byte scalar). `[[1], [undefined, 2]]`
+            // unified to Array<Array<Number>> and the mixed inner
+            // array's slots read back as garbage bits (5e-323). An
+            // Any-ness disagreement between container element types
+            // is a repr disagreement — widen.
+            else if let (Type::Array(first_in), Type::Array(elem_in)) = (&first_ty, &ty)
+                && ((**elem_in == Type::Any) != (**first_in == Type::Any))
+            {
+                heterogeneous = true;
+            }
         }
     }
     if heterogeneous {

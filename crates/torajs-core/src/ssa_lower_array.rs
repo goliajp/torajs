@@ -145,6 +145,28 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, elements: &[ExprId], eid: ExprId) ->
     {
         return ctx.lower_array_any_literal(&element_ids);
     }
+    // Holes X+Y (rotation 231) — the kind probe collapses every
+    // struct-ish element into kind 10 and every array element into
+    // kind 2, so `[{r: 2}, {p: 5}]` and `[[1], [undefined, 2]]`
+    // both took the typed lane and the anchor's layout was forced
+    // onto every sibling (loud no-field reject when the shapes
+    // differ; silent garbage when only the reprs differ — an
+    // undefined-valued field read back 0, a mixed inner array read
+    // back 5e-323). When the checker already widened the literal to
+    // Array<Any> AND the recorded heap-element types disagree,
+    // there is no shared typed slot repr — route through
+    // FLAG_ARR_ANY. The recorded-Any gate keeps the width-subtyped
+    // struct family (`[{r: 2}, {r: 3, s: 4}]`, prefix-compatible
+    // offsets, checker keeps it typed) on the typed lane.
+    if !has_spread
+        && matches!(
+            ctx.expr_types.get(&eid),
+            Some(crate::check::Type::Array(inner)) if matches!(**inner, crate::check::Type::Any)
+        )
+        && ctx.heap_elem_types_disagree(&element_ids)
+    {
+        return ctx.lower_array_any_literal(&element_ids);
+    }
     // W-ESC (RFC 20260706-typed-arr-any-escape) — a literal whose
     // Anon alias class flows into the `any` world lowers as Arr<Any>
     // directly: return-position / arg-position literals never pass

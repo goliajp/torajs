@@ -3,25 +3,27 @@
 // accepted only flat name lists; defaults / elisions / rest / nested
 // patterns / renames all bailed to C-style and died on `expected ;`.
 //
-// Recorded boundaries this fixture dodges (pre-existing element-lane
-// holes, minimal repros in plan-state L3b, NOT pattern bugs):
-// - hole X: a heterogeneous Array<Array> source
-//   (`[[1], [undefined, 2], []]`) reads garbage bits per element
-//   (`5e-323 NaN`) — the S2.24 assignment head shows the identical
-//   wrong bits, statement position is clean.
-// - hole Y: a mixed struct array's undefined-valued field reads back
-//   `0` (`for (const o of [{r:2},{r:undefined}]) o.r` — no pattern
-//   involved). Sources here keep every field populated.
+// Holes X and Y (the garbage-bits / forced-anchor-layout faces) are
+// FIXED — see arr-hetero-struct-001, which asserts the previously
+// dodged shapes, including the heterogeneous-source defaults below.
+// Recorded residual this fixture still dodges: a pure-undefined
+// VALUED struct field reads back null instead of undefined (RFC
+// 20260710 C2b family, kind-less Ptr slot) — so the object-pattern
+// default here keeps its fields populated.
 
 // flat names (the previously-working face — must stay working)
 for (const [a, b] of [[1, 2], [3, 4]]) {
   console.log(a, b);
 }
 
-// defaults fire on an in-tuple undefined (single-tuple source stays
-// off hole X)
+// defaults fire on an in-tuple undefined
 for (const [x = 10, y = 20] of [[undefined, 2]]) {
   console.log(x, y);
+}
+
+// defaults over a heterogeneous source (the hole-X shape, now fixed)
+for (const [hx = 10, hy = 20] of [[1], [undefined, 2], []]) {
+  console.log(hx, hy);
 }
 
 // defaults NOT fired when values are present
@@ -40,7 +42,7 @@ for (const [[m, n], k] of [[[1, 2], 3]]) {
 }
 
 // object pattern with rename and (not-fired) default — the fired
-// case needs hole Y closed first
+// case needs the null/undefined Ptr-slot residual closed first
 for (const { p: q, r = 7 } of [{ p: 1, r: 2 }, { p: 3, r: 9 }]) {
   console.log(q, r);
 }
