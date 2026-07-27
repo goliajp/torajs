@@ -158,6 +158,7 @@ pub(crate) fn lower_to_ssa(input: &str) -> Result<Module, ExitCode> {
     // into the name `__this`, and this one is what gives plain
     // functions somewhere to bind it (RFC 20260726 blade 1).
     ast::bind_this_param(&mut ast);
+    ast::rewrite_toplevel_this(&mut ast);
     // Reads the receiver parameter the pass above may have added,
     // so it has to follow it (RFC 20260726 blade 2).
     ast::synthesize_fn_constructors(&mut ast);

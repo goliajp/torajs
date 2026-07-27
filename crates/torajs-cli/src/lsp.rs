@@ -220,6 +220,7 @@ fn compute_diagnostics(uri: &Uri, text: &str) -> Vec<Diagnostic> {
         torajs_core::ast::inject_builtin_classes(&mut ast);
         torajs_core::ast::desugar_classes(&mut ast);
         torajs_core::ast::bind_this_param(&mut ast);
+        torajs_core::ast::rewrite_toplevel_this(&mut ast);
         torajs_core::ast::synthesize_fn_constructors(&mut ast);
         torajs_core::ast::synthesize_class_globals(&mut ast);
         torajs_core::ast::tag_struct_field_closure_types(&mut ast);

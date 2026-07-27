@@ -270,6 +270,7 @@ fn parse_check(src: &str) -> ParseOutcome {
     ast::inject_builtin_classes(&mut a);
     ast::desugar_classes(&mut a);
     ast::bind_this_param(&mut a);
+    ast::rewrite_toplevel_this(&mut a);
     ast::synthesize_fn_constructors(&mut a);
     ast::synthesize_class_globals(&mut a);
     ast::tag_struct_field_closure_types(&mut a);

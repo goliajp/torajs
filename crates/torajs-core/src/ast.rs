@@ -75,6 +75,7 @@ mod stmt;
 mod stmt_flat;
 mod super_collect;
 mod this_param;
+mod toplevel_this;
 mod uninit_let;
 mod var_hoist;
 pub use apply_args::{apply_default_args, apply_rest_args};
@@ -123,6 +124,7 @@ pub use stmt::{
 pub(crate) use stmt::{GEN_METHOD_PREFIX, GEN_RECV_PARAM};
 pub use stmt_flat::toplevel_stmts_flat;
 pub use this_param::bind_this_param;
+pub use toplevel_this::rewrite_toplevel_this;
 pub use uninit_let::desugar_uninit_let;
 pub use var_hoist::desugar_var_hoist;
 
