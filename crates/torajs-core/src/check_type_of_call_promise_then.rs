@@ -110,6 +110,7 @@ fn try_then_two_arg(
                     | Type::Any
                     | Type::Array(_)
                     | Type::Struct(_)
+                    | Type::ClassRef(_)
                     | Type::Undefined
                     | Type::Void
             )
@@ -233,7 +234,7 @@ fn try_then_heterogeneous(
         if let Type::Promise(inner) = &src_ty
             && matches!(
                 **inner,
-                Type::Number | Type::String | Type::Boolean | Type::Struct(_)
+                Type::Number | Type::String | Type::Boolean | Type::Struct(_) | Type::ClassRef(_)
             )
         {
             let inner_ty = (**inner).clone();

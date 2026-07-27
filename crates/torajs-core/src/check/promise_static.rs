@@ -109,6 +109,13 @@ impl Checker {
             // value (rc-aware) instead of treating the
             // inner ptr as an i64 value.
             Type::Promise(boxed_inner) => (**boxed_inner).clone(),
+            // rotation 234 — a class instance (`Promise.reject(new
+            // Error("boom"))`, the test262 async family's canonical
+            // rejection reason; any user class rides the same shape).
+            // A ClassRef is a nominal heap struct at SSA, so the
+            // runtime side is the existing heap adopt path — this
+            // whitelist was the only gate.
+            Type::ClassRef(_) => arg_ty.clone(),
             // P10.5-A2 — `Promise.reject` accepts Type::Any so the
             // async-fn body try/catch wrapper (desugar_async, P10.5-A1)
             // can shadow `__async_err` as spec-correct `any` per ES
