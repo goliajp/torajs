@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-27T09:51:14.507Z",
+  "generatedAt": "2026-07-27T18:24:03.349Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-27T09:49:45Z",
-    "headSha": "d2b7e393",
-    "elapsedSec": 280.16,
+    "ranAt": "2026-07-27T18:22:10Z",
+    "headSha": "410d8a9f",
+    "elapsedSec": 214,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 10284,
-    "passNoOracle": 148,
+    "pass": 10484,
+    "passNoOracle": 164,
     "passNegative": 4494,
-    "passTotal": 14926,
-    "bug": 865,
-    "incompatible": 37383,
+    "passTotal": 15142,
+    "bug": 875,
+    "incompatible": 37157,
     "bunSkip": 7356,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 15791,
-    "passRateInScope": 28.07,
-    "passRateTrAccepted": 94.52
+    "trAccepted": 16017,
+    "passRateInScope": 28.48,
+    "passRateTrAccepted": 94.54
   },
   "torajs": {
-    "commit": "17f6c278",
-    "commitSubject": "docs(roadmap): record the rotation 231 close for S2.5; archive the d2b7e393 sweep",
+    "commit": "410d8a9f",
+    "commitSubject": "fix(runtime): IteratorResult reads are a real [[Get]] - shared, accessor-aware",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "410d8a9f",
+      "subject": "fix(runtime): IteratorResult reads are a real [[Get]] - shared, accessor-aware"
+    },
+    {
+      "hash": "6b44265b",
+      "subject": "feat(parser,check,lower): CoverInitializedName + runtime GetV for default-guarded pattern loads"
+    },
+    {
+      "hash": "8dd911b7",
+      "subject": "feat(parser): assignment chains through a destructuring pattern link"
+    },
+    {
+      "hash": "176840f9",
+      "subject": "fix(lower): a nullish-only struct field slot keeps the null/undefined distinction"
+    },
+    {
+      "hash": "a024a8dd",
+      "subject": "fix(parser,check,lower): for-await element await by type, not by .value member wrap"
+    },
+    {
+      "hash": "8bfaf29e",
+      "subject": "style(parser): fmt-drift fix from the rotation 231 close"
+    },
+    {
+      "hash": "61b91b85",
+      "subject": "chore(hardev): record the rotation 231 sweep and refresh the dashboard"
+    },
+    {
       "hash": "17f6c278",
       "subject": "docs(roadmap): record the rotation 231 close for S2.5; archive the d2b7e393 sweep"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "de810c88",
       "subject": "feat(parser): declaration destructuring through a recursive PatShape machine"
-    },
-    {
-      "hash": "7b160462",
-      "subject": "feat(test262): async-case $DONE completion protocol"
-    },
-    {
-      "hash": "1478f2ec",
-      "subject": "chore(hardev): record the rotation 230 sweep and refresh the dashboard"
-    },
-    {
-      "hash": "3d909599",
-      "subject": "docs(roadmap): close S2.24, refresh the census tables, record the rotation 230 sweep"
-    },
-    {
-      "hash": "cdcc59d9",
-      "subject": "fix(check): a multi-declarator top-level let registers as a data global"
-    },
-    {
-      "hash": "d7455406",
-      "subject": "fix(check): a ternary with an undefined branch widens to any"
-    },
-    {
-      "hash": "829ee0cd",
-      "subject": "fix(lower): an any value into a declared scalar or string field unboxes"
-    },
-    {
-      "hash": "20ae565b",
-      "subject": "feat(parser): for-of accepts a bare assignment-pattern head"
     }
   ],
-  "headSha": "17f6c278",
+  "headSha": "410d8a9f",
   "autorun": {
-    "total": 535,
+    "total": 536,
     "baselineTarget": 10,
-    "bySelf": 530,
+    "bySelf": 531,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785109464-4609",
-      "at": "2026-07-26T23:44:24Z",
-      "ts": 1785109464,
+      "rotationId": "r-1785145947-2de0",
+      "at": "2026-07-27T09:52:27Z",
+      "ts": 1785145947,
       "trigger": "self",
-      "prevHead": "1478f2ec",
-      "handoffSha": "sha256:c3dbc90396023c48d978922212ef621b96a7949f62245557e32f08bc616f6fe1",
-      "handoffAgeSec": 8,
+      "prevHead": "61b91b85",
+      "handoffSha": "sha256:bfcc67fab570d069048a0d76b684c73a5615650bb3953620397731bf8fc5a25d",
+      "handoffAgeSec": 5,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1785145947-2de0",
+        "at": "2026-07-27T09:52:27Z",
+        "ts": 1785145947,
+        "trigger": "self",
+        "prevHead": "61b91b85",
+        "handoffSha": "sha256:bfcc67fab570d069048a0d76b684c73a5615650bb3953620397731bf8fc5a25d",
+        "handoffAgeSec": 5,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785109464-4609",
         "at": "2026-07-26T23:44:24Z",
@@ -876,17 +887,6 @@
         "prevHead": "7397a196",
         "handoffSha": "sha256:1e11061e7aadd1afc6212f481a3ea657e76e60115187e7529804a0154d3e36f3",
         "handoffAgeSec": 24,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1785043205-4bde",
-        "at": "2026-07-26T05:20:05Z",
-        "ts": 1785043205,
-        "trigger": "self",
-        "prevHead": "9bd7a23f",
-        "handoffSha": "sha256:45490364d3cdcb70f5e2ee9b4335029c94d22a5096fc7aa802d889f40f8b9379",
-        "handoffAgeSec": 70,
         "conformanceBefore": null,
         "commitsInSession": null
       }
