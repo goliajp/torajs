@@ -63,15 +63,32 @@ use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 use crate::ssa_lower_parse_type::parse_type;
 
-pub(crate) fn try_lower(ctx: &mut LowerCtx<'_>, obj: ExprId, name: &str) -> Option<Operand> {
+pub(crate) fn try_lower(
+    ctx: &mut LowerCtx<'_>,
+    eid: ExprId,
+    obj: ExprId,
+    name: &str,
+) -> Option<Operand> {
     if name != "value" {
         return None;
     }
     let obj_is_builtin_promise = detect_obj_is_builtin_promise(ctx, obj);
-    if !obj_is_builtin_promise {
-        return try_p10_4_primitive_identity(ctx, obj);
+    if obj_is_builtin_promise {
+        return Some(lower_promise_get_value(ctx, obj));
     }
-    Some(lower_promise_get_value(ctx, obj))
+    // rotation 233 — a parser-minted `await e` read
+    // (`Ast::await_value_reads`) on a NON-promise operand is identity
+    // for every type per §27.7.5.1 (`Promise.resolve(e)` of a
+    // non-thenable yields e) — including Struct / class receivers,
+    // which used to fall through to the field lookup and win a user
+    // `{value: T}` field (`await {value: 1}` answered `1`). The
+    // P10.4 whitelist below stays for unmarked `.value` reads (a
+    // desugar-rebuilt Member that lost its mark degrades to the old
+    // name-based posture, never to a crash).
+    if ctx.ast.await_value_reads.contains(&eid) {
+        return Some(ctx.lower_expr(obj));
+    }
+    try_p10_4_primitive_identity(ctx, obj)
 }
 
 fn detect_obj_is_builtin_promise(ctx: &LowerCtx<'_>, obj: ExprId) -> bool {

@@ -37,13 +37,28 @@ impl Checker {
                 // [`crate::check_type_of_ident::check`].
                 crate::check_type_of_ident::check(self, name)
             }
-            Expr::Member { obj, name } => crate::check_type_of_member::check(
-                self,
-                ast,
-                obj,
-                name,
-                ast.dstr_default_member_loads.contains(&eid),
-            ),
+            Expr::Member { obj, name } => {
+                // rotation 233 — a parser-minted `await e` read
+                // (`Ast::await_value_reads`) dispatches by TYPE per
+                // §27.7.5.1: Promise(T) unwraps to T, every other
+                // operand passes through identity — never the field
+                // lookup a user's `{value: T}` struct would win
+                // (`await {value: 1}` used to answer `1`).
+                if ast.await_value_reads.contains(&eid) {
+                    let obj_ty = self.type_of(ast, *obj)?;
+                    return Ok(match obj_ty {
+                        Type::Promise(inner) => *inner,
+                        other => other,
+                    });
+                }
+                crate::check_type_of_member::check(
+                    self,
+                    ast,
+                    obj,
+                    name,
+                    ast.dstr_default_member_loads.contains(&eid),
+                )
+            }
             Expr::Index { obj, index } => {
                 // V3-18 index-expression — `obj[index]` Number-index
                 // narrow + String/Array<T> receiver narrow. See

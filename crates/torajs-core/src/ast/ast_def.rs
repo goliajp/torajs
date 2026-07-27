@@ -218,6 +218,16 @@ pub struct Ast {
     /// anchor but may really carry the field). Only marked reads —
     /// a user member read keeps the hard error (TS posture).
     pub dstr_default_member_loads: std::collections::HashSet<ExprId>,
+    /// rotation 233 — Member ExprIds minted by the parser's `await e`
+    /// desugar (`e.value`, expr_prec L.2). §27.7.5.1 Await: a Promise
+    /// unwraps to its settled value, ANY other operand passes through
+    /// identity (`Promise.resolve(e)` of a non-thenable yields e) —
+    /// the read is by TYPE, never a field lookup. Unmarked `.value`
+    /// reads keep the field-lookup path, so a user's `{value: T}`
+    /// struct member is untouched. Without the mark the checker had
+    /// to guess from the name alone and let Struct receivers win the
+    /// field, so `await {value: 1}` answered `1` (silent wrong).
+    pub await_value_reads: std::collections::HashSet<ExprId>,
     /// RFC 20260725-objlit-computed-key 刀 1 — value ExprId → key
     /// ExprId of `{ [expr]: v }` / `{ [expr]() {} }` computed-key
     /// fields. The field name in the flattened `(String, ExprId)`

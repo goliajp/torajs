@@ -429,10 +429,17 @@ impl<'a> Parser<'a> {
         if matches!(self.peek(), Token::Await) {
             self.pos += 1;
             let inner = self.parse_unary()?;
-            return Ok(self.ast.add_expr(Expr::Member {
+            let read = self.ast.add_expr(Expr::Member {
                 obj: inner,
                 name: "value".into(),
-            }));
+            });
+            // rotation 233 — mark the minted read so the checker /
+            // lowering dispatch it by TYPE (§27.7.5.1: Promise
+            // unwraps, everything else passes through identity)
+            // instead of falling into the field lookup a user's
+            // `{value: T}` struct would win.
+            self.ast.await_value_reads.insert(read);
+            return Ok(read);
         }
         // Pre-increment / pre-decrement: `++x` desugars to `x = x + 1`,
         // value is the new x. We emit an Assign whose target is the

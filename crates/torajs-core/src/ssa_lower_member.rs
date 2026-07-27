@@ -49,7 +49,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, eid: ExprId, obj: ExprId, name: &str
     if let Some(op) = crate::ssa_lower_member_fn_intro::try_lower(ctx, obj, name) {
         return op;
     }
-    if let Some(op) = crate::ssa_lower_member_promise_value::try_lower(ctx, obj, name) {
+    if let Some(op) = crate::ssa_lower_member_promise_value::try_lower(ctx, eid, obj, name) {
         return op;
     }
     if let Some(op) = crate::ssa_lower_member_symbol_wellknown::try_lower(ctx, obj, name) {
