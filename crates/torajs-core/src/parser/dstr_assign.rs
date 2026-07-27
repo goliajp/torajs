@@ -24,8 +24,11 @@
 //! Recorded boundaries (loud, never silent): object rest
 //! (`{ ...r } = o` — remainder-copy semantics, not spread) rejects
 //! here; `{ x = D }` shorthand defaults stay an upstream ObjectLit
-//! parse error (CoverInitializedName); an expression-POSITION pattern
-//! (`x = ([a] = arr)`) keeps check's `invalid assignment target`.
+//! parse error (CoverInitializedName); a pattern in a general
+//! expression position (call arg, ternary arm) keeps check's
+//! `invalid assignment target` — the statement-position CHAIN
+//! (`result = [a, b] = vals`) is handled by
+//! `try_desugar_assign_chain`.
 
 use super::*;
 
@@ -34,6 +37,9 @@ impl<'a> Parser<'a> {
     /// target parsed as an array / object literal is a destructuring
     /// assignment — expand it; anything else stays `Stmt::Expr`.
     pub(super) fn expr_stmt_or_dstr_assign(&mut self, expr: ExprId) -> Result<Stmt, String> {
+        if let Some(stmts) = self.try_desugar_assign_chain(expr)? {
+            return Ok(Stmt::Multi(stmts));
+        }
         if let Expr::Assign { target, value } = self.ast.get_expr(expr)
             && matches!(
                 self.ast.get_expr(*target),
@@ -44,6 +50,69 @@ impl<'a> Parser<'a> {
             return Ok(Stmt::Multi(self.desugar_dstr_assign(t, v)?));
         }
         Ok(Stmt::Expr(expr))
+    }
+
+    /// Chained assignment through a pattern link, statement position —
+    /// `result = [a, b] = vals` (the test262 dstr result-capture
+    /// idiom, §13.15.2: the value of a destructuring assignment is
+    /// the RHS reference itself, so `result` receives `vals`).
+    ///
+    /// Walk the `Expr::Assign` spine collecting links; rewrite only
+    /// when ≥2 links and at least one is a pattern (a single pattern
+    /// keeps the plain path below; a pattern-free chain is an
+    /// ordinary nested assign expression and stays `Stmt::Expr`).
+    /// The ultimate source hoists ONCE into `__dstra_chain_N`; every
+    /// link then reads that temp right-to-left — a pattern link
+    /// re-expands through [`Self::desugar_dstr_assign`], an ident
+    /// link becomes a plain assignment. Reading the temp per link is
+    /// pure, so the single-eval contract on the RHS holds.
+    ///
+    /// Recorded boundary (loud, never silent): a Member / Index link
+    /// keeps check's `invalid assignment target` — its object
+    /// expression would evaluate AFTER the RHS under this rewrite,
+    /// and §13.15.2 orders it before.
+    fn try_desugar_assign_chain(&mut self, expr: ExprId) -> Result<Option<Vec<Stmt>>, String> {
+        let mut links: Vec<ExprId> = Vec::new();
+        let mut saw_pattern = false;
+        let mut cur = expr;
+        while let Expr::Assign { target, value } = self.ast.get_expr(cur) {
+            let (t, v) = (*target, *value);
+            match self.ast.get_expr(t) {
+                Expr::Array(_) | Expr::ObjectLit { .. } => saw_pattern = true,
+                Expr::Ident(_) => {}
+                _ => return Ok(None),
+            }
+            links.push(t);
+            cur = v;
+        }
+        if !saw_pattern || links.len() < 2 {
+            return Ok(None);
+        }
+        let id = self.mint_desugar_id();
+        let tname = format!("__dstra_chain_{id}");
+        let mut out = vec![Stmt::LetDecl {
+            mutable: false,
+            name: tname.clone(),
+            type_ann: None,
+            init: cur,
+            is_var: false,
+        }];
+        for t in links.iter().rev() {
+            let tref = self.ast.add_expr(Expr::Ident(tname.clone()));
+            if matches!(
+                self.ast.get_expr(*t),
+                Expr::Array(_) | Expr::ObjectLit { .. }
+            ) {
+                out.extend(self.desugar_dstr_assign(*t, tref)?);
+            } else {
+                let assign = self.ast.add_expr(Expr::Assign {
+                    target: *t,
+                    value: tref,
+                });
+                out.push(Stmt::Expr(assign));
+            }
+        }
+        Ok(Some(out))
     }
 
     /// Pattern-assignment expansion entry, shared with the for-of
