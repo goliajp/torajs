@@ -33,7 +33,7 @@ use super::{Ast, ClassCtor, ClassMethod, Expr, ExprId, Param, Stmt, Visibility};
 /// the name, which the old AST-level `=== ""` ternary couldn't see
 /// once absence became the sentinel — RFC
 /// 20260718-error-message-own-prop 刀 2).
-fn build_stack_concat(ast: &mut Ast) -> ExprId {
+pub(super) fn build_stack_concat(ast: &mut Ast) -> ExprId {
     let this = ast.add_expr(Expr::This);
     let callee = ast.add_expr(Expr::Ident("__torajs_error_stack".to_string()));
     ast.add_expr(Expr::Call {
@@ -48,7 +48,7 @@ fn build_stack_concat(ast: &mut Ast) -> ExprId {
 /// `message` property (RFC 20260718-error-message-own-prop 刀 2;
 /// pre-fix the default was `""`, which owned the property on every
 /// no-arg construction).
-fn build_msg_default(ast: &mut Ast) -> ExprId {
+pub(super) fn build_msg_default(ast: &mut Ast) -> ExprId {
     let callee = ast.add_expr(Expr::Ident("__torajs_undef_str".to_string()));
     ast.add_expr(Expr::Call {
         callee,
@@ -267,9 +267,13 @@ pub fn inject_builtin_classes(ast: &mut Ast) {
         return;
     }
 
-    // The standard NativeError subclasses (spec §20.5.5; AggregateError
-    // is excluded — its ctor takes (errors, message), a different
-    // shape, recorded RFC 20260718 boundary).
+    // The standard NativeError subclasses (spec §20.5.5). The two
+    // data-carrying subclasses whose ctors do NOT share the (message)
+    // shape — AggregateError (errors, message) §20.5.7 and
+    // SuppressedError (error, suppressed, message) §20.5.8 — ride
+    // `build_error_data_subclass` below instead (rotation 234; the
+    // RFC 20260718 boundary that excluded them was about THIS array's
+    // one-shape builder, not about the classes).
     const ERROR_SUBCLASSES: [&str; 6] = [
         "TypeError",
         "RangeError",
@@ -346,8 +350,27 @@ pub fn inject_builtin_classes(ast: &mut Ast) {
         })
         .collect();
 
+    // The data-carrying subclasses (§20.5.7 / §20.5.8): own params
+    // land as own `any` fields ahead of the shared optional message.
+    // Reference-gated only — no runtime helper ever throws these.
+    const DATA_SUBCLASSES: [(&str, &[&str]); 2] = [
+        ("AggregateError", &["errors"]),
+        ("SuppressedError", &["error", "suppressed"]),
+    ];
+    let want_data: Vec<(&str, &[&str])> = DATA_SUBCLASSES
+        .iter()
+        .copied()
+        .filter(|(n, _)| {
+            let shadowed = ast
+                .stmts
+                .iter()
+                .any(|s| matches!(s, Stmt::ClassDecl { name, .. } if name == n));
+            !shadowed && referenced(n)
+        })
+        .collect();
+
     // Subclasses extend Error, so any wanted subclass implies Error.
-    let want_error = referenced("Error") || !want_sub.is_empty();
+    let want_error = referenced("Error") || !want_sub.is_empty() || !want_data.is_empty();
     if !want_error {
         return;
     }
@@ -357,11 +380,17 @@ pub fn inject_builtin_classes(ast: &mut Ast) {
     // field-flattening + declaration-order check in `desugar_classes`
     // requires every ancestor declared before its descendants — and
     // all user references (forward + downstream) resolve here.
-    let mut injected: Vec<Stmt> = Vec::with_capacity(1 + want_sub.len());
+    let mut injected: Vec<Stmt> = Vec::with_capacity(1 + want_sub.len() + want_data.len());
     injected.push(build_error_class(ast));
     ast.injected_error_classes.insert("Error".to_string());
     for n in &want_sub {
         injected.push(build_error_subclass(ast, n));
+        ast.injected_error_classes.insert((*n).to_string());
+    }
+    for (n, data_params) in &want_data {
+        injected.push(
+            super::inject_builtin_classes_data::build_error_data_subclass(ast, n, data_params),
+        );
         ast.injected_error_classes.insert((*n).to_string());
     }
     ast.stmts.splice(0..0, injected);
