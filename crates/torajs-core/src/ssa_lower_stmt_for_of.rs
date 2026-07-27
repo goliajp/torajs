@@ -196,7 +196,16 @@ pub(crate) fn lower(
         ) {
         crate::ssa_lower_member_promise_value::lower_promise_get_value(ctx, elem_expr)
     } else {
-        ctx.lower_expr(elem_expr)
+        let v = ctx.lower_expr(elem_expr);
+        // rotation 233 — an `any` element only knows its form at
+        // runtime: the `__torajs_anyv_await` hook unwraps a heap
+        // Promise cell (promise-in-any used to bind verbatim) and
+        // passes everything else through identity.
+        if is_await && matches!(ctx.operand_ty(&v), Type::Any) {
+            crate::ssa_lower_member_promise_value::lower_any_await(ctx, v, elem_expr)
+        } else {
+            v
+        }
     };
     let v_ty = ctx.operand_ty(&v_val);
     if let Some(obj_eid) = forin_obj {

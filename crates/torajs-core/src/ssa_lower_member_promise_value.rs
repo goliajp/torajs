@@ -86,9 +86,44 @@ pub(crate) fn try_lower(
     // desugar-rebuilt Member that lost its mark degrades to the old
     // name-based posture, never to a crash).
     if ctx.ast.await_value_reads.contains(&eid) {
-        return Some(ctx.lower_expr(obj));
+        let op = ctx.lower_expr(obj);
+        // An `any` operand only knows its form at runtime — route
+        // through the `__torajs_anyv_await` hook (heap Promise cell
+        // unwraps per its repr stamp, everything else identity).
+        if matches!(ctx.operand_ty(&op), Type::Any) {
+            return Some(lower_any_await(ctx, op, obj));
+        }
+        return Some(op);
     }
     try_p10_4_primitive_identity(ctx, obj)
+}
+
+/// rotation 233 — `await <any>`: drain microtasks (same as the typed
+/// await route), hand the box to the runtime's by-VALUE dispatch,
+/// propagate a rejection via the throw slot. The hook's result
+/// carries its own +1 stake; an owned source temp is released here,
+/// mirroring [`lower_promise_get_value`]'s borrow classification.
+pub(crate) fn lower_any_await(ctx: &mut LowerCtx<'_>, op: Operand, obj: ExprId) -> Operand {
+    let cur_block = ctx.cur_block;
+    ctx.f.append_void(
+        cur_block,
+        InstKind::Call(ctx.intrinsics.microtask_drain, vec![]),
+    );
+    let v = ctx.f.append_inst(
+        cur_block,
+        InstKind::Call(ctx.intrinsics.anyv_await, vec![op.clone()]),
+        Type::Any,
+        None,
+    );
+    ctx.emit_throw_check(None);
+    let is_borrow = matches!(
+        ctx.ast.get_expr(obj),
+        Expr::Ident(_) | Expr::Member { .. } | Expr::Index { .. }
+    );
+    if !is_borrow {
+        ctx.emit_drop_value(op, Type::Any);
+    }
+    Operand::Value(v)
 }
 
 fn detect_obj_is_builtin_promise(ctx: &LowerCtx<'_>, obj: ExprId) -> bool {

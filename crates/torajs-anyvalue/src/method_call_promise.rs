@@ -36,6 +36,7 @@ const P_STATE_OFF: usize = 8;
 const P_IS_HEAP_OFF: usize = 9;
 const P_REPR_OFF: usize = 11;
 const P_VALUE_OFF: usize = 16;
+const STATE_FULFILLED: u8 = 1;
 const STATE_REJECTED: u8 = 2;
 const REPR_UNSTAMPED: u8 = 0;
 const REPR_I64: u8 = 1;
@@ -49,6 +50,7 @@ const REPR_NULL: u8 = 8;
 
 unsafe extern "C" {
     fn __torajs_promise_alloc_pending() -> *mut c_void;
+    fn __torajs_promise_get_value(p: *const c_void) -> i64;
     fn __torajs_promise_resolve(p: *mut c_void, value: i64);
     fn __torajs_promise_reject(p: *mut c_void, reason: i64);
     fn __torajs_promise_attach_then(
@@ -151,6 +153,51 @@ pub(crate) unsafe fn promise_method(
         }
         __torajs_promise_attach_then(ptr, Some(then_any_dispatch), a as i64);
         Some(__torajs_anyv_box_pointer(result))
+    }
+}
+
+/// `await <any>` — §27.7.5.1 by-VALUE dispatch for the erased lane
+/// (rotation 233). The static tiers dispatch await by TYPE
+/// (Promise(T) unwraps, everything else identity); an `any` operand
+/// only knows its form at runtime. A heap Promise cell unwraps to
+/// its settled value boxed per the cell's repr stamp, +1 stake — the
+/// result is an independent binding, mirroring the typed lane's
+/// rc_inc after `get_value` (box_settled is a borrow). A REJECTED
+/// cell routes through `get_value`'s throw slot (the call site's
+/// throw-check propagates); a still-PENDING cell answers undefined
+/// (the sync-resolve model's guard, same as the typed read); an
+/// UNSTAMPED fulfilled cell refuses loudly — never a silent mis-box.
+/// Every other value — including a thenable struct (L3b) — passes
+/// through identity. The call site drains microtasks first, same as
+/// the typed await route.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_await(av: AnyValue) -> AnyValue {
+    unsafe {
+        if !crate::nanbox::is_cell(av) {
+            return av;
+        }
+        let ptr = crate::nanbox::as_void_ptr(av);
+        let tag = (ptr.cast::<u8>().add(4) as *const u16).read();
+        if tag != torajs_rc::Tag::Promise as u16 {
+            return av;
+        }
+        let state = ptr.cast::<u8>().add(P_STATE_OFF).read();
+        let repr = ptr.cast::<u8>().add(P_REPR_OFF).read();
+        let value = __torajs_promise_get_value(ptr);
+        if state != STATE_FULFILLED {
+            // rejected: get_value set the throw slot; pending: the
+            // sync-model undefined guard.
+            return VALUE_UNDEFINED;
+        }
+        if repr == REPR_UNSTAMPED {
+            __torajs_throw_type_error(
+                c"promise value form unknown to `await` on this receiver".as_ptr(),
+            );
+            return VALUE_UNDEFINED;
+        }
+        let out = box_settled(repr, value);
+        crate::nanbox_ffi::__torajs_anyv_rc_inc(out);
+        out
     }
 }
 

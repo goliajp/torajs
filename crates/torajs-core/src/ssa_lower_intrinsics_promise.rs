@@ -63,6 +63,7 @@ pub(crate) struct PromiseIds {
     pub promise_drop: FuncId,
     pub promise_get_value: FuncId,
     pub promise_get_value_as: FuncId,
+    pub anyv_await: FuncId,
     pub promise_then_simple: FuncId,
     pub promise_then2: FuncId,
     pub promise_then_closure: FuncId,
@@ -165,6 +166,16 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             "__torajs_promise_get_value_as",
             &[Type::Promise, Type::I64],
             Type::I64,
+        ),
+        // rotation 233 — `await <any>` by-VALUE dispatch: a heap
+        // Promise cell unwraps (boxed per its repr stamp, +1 stake),
+        // everything else passes through identity.
+        anyv_await: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_anyv_await",
+            &[Type::Any],
+            Type::Any,
         ),
         promise_then_simple: declare_intrinsic(
             module,
