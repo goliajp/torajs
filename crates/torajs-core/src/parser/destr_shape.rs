@@ -251,8 +251,12 @@ impl<'a> Parser<'a> {
         out: &mut Vec<Stmt>,
     ) {
         match pat {
-            PatShape::Ary { elems, rest } => self.emit_ary_binds(elems, rest, src_expr, mutable, out),
-            PatShape::Obj { fields, rest } => self.emit_obj_binds(fields, rest, src_expr, mutable, out),
+            PatShape::Ary { elems, rest } => {
+                self.emit_ary_binds(elems, rest, src_expr, mutable, out)
+            }
+            PatShape::Obj { fields, rest } => {
+                self.emit_obj_binds(fields, rest, src_expr, mutable, out)
+            }
         }
     }
 

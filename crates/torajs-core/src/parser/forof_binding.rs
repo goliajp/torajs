@@ -64,13 +64,12 @@ impl<'a> Parser<'a> {
         // loop-local; the user's binding is assigned at the top of
         // each iteration (var+destructuring keeps the block-scoped
         // per-field lets — recorded divergence on fn-scope leak).
-        let assign_target: Option<String> = if (bare_form || is_var_decl == Some(true))
-            && destruct_pat.is_none()
-        {
-            Some(var_name.clone())
-        } else {
-            None
-        };
+        let assign_target: Option<String> =
+            if (bare_form || is_var_decl == Some(true)) && destruct_pat.is_none() {
+                Some(var_name.clone())
+            } else {
+                None
+            };
         let var_name = if assign_target.is_some() {
             let id = self.mint_desugar_id();
             format!("__forvar_{id}")

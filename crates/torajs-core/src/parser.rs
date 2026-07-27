@@ -35,8 +35,8 @@ use crate::lexer::{self, Spanned, Token};
 
 mod class_member;
 mod destr_defaults;
-mod destr_shape;
 mod destr_helpers;
+mod destr_shape;
 mod dstr_assign;
 mod expr_entry;
 mod expr_prec;
