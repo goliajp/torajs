@@ -2064,6 +2064,22 @@ touches runtime hot paths.
       `async-func-decl-dstr-array-elem-init-assignment.js` verbatim).
       The dir-level movement is real: 185 of its cases advanced
       parse error → type error
+      **Rotation 231 update — the recorded wall was NOT substrate**:
+      running the flagship case verbatim showed `unknown identifier
+      $DONE`, and the root cause was the RUNNER — it never parsed
+      `flags:`, so the async completion protocol (doneprintHandle.js
+      `$DONE`) did not exist for any of the corpus's 5,581
+      `flags: [async]` cases. Runner blade `7b160462` ports `$DONE`
+      into the typed harness and judges async cases on the printed
+      `Test262:AsyncTestComplete` marker (exit 0 alone is NOT a pass
+      — no-metric-inflation). The flagship case now PASSES bun-oracle
+      matched (tr's for-await + promise chain + `$DONE`
+      function-value callback works end to end); family probe: 123
+      pass / 13 honest bugs / walls now attributable parse kinds.
+      Remaining family walls: decl-head patterns (RFC
+      20260727-dstr-decl-shape blades A/B, this rotation) and the
+      for-await element unwrap's missing non-Promise-Struct `.value`
+      arm (hole Z, L3b) gating every object-pattern shape
 - [x] **S2.24** **Destructuring assignment to existing bindings** —
       shipped rotation 230 (RFC 20260727-dstr-assignment, six blades:
       implicit-any uninit let / statement-form expansion / for-of
