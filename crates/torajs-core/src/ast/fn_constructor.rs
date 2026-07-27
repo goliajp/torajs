@@ -148,12 +148,10 @@ fn collect_declared(ast: &Ast) -> (Vec<String>, Vec<Constructible>) {
 /// FnDecl name.
 ///
 /// Two gates keep this the loud-failure-preserving subset:
-/// - A body that mentions `this` is skipped. `desugar_classes` has
-///   already rewritten `this` → `__this` by the time this pass runs,
-///   and a fn-expr gets that binding only through the RECV_FIRST
-///   promote (RFC 20260717-fnexpr-this-channel), a separate blade.
-///   Synthesizing a factory anyway would move the reject from the
-///   `new` site into a lifted closure body — worse, not better.
+/// - A body that mentions `this` is only accepted after
+///   [`promote_fn_expr_ctor_this`] has given it the `__this` param
+///   (the promotion has its own strict use-profile gate; a binding it
+///   refused keeps the loud reject).
 /// - A rest param is skipped: the factory forwards by naming each
 ///   param, which a `...args` spread-through would misrepresent.
 ///
@@ -177,25 +175,127 @@ fn collect_fn_expr_bindings(ast: &Ast, candidates: &mut Vec<Constructible>) {
         if params.iter().any(|p| p.is_rest) {
             continue;
         }
+        let takes_this = params.first().is_some_and(|p| p.name == "__this");
+        let user_params = if takes_this { &params[1..] } else { &params[..] };
         let param_names: Vec<String> = params.iter().map(|p| p.name.clone()).collect();
-        if super::free_vars::free_vars_of_body(ast, &param_names, body)
-            .iter()
-            .any(|v| v == "__this")
+        if !takes_this
+            && super::free_vars::free_vars_of_body(ast, &param_names, body)
+                .iter()
+                .any(|v| v == "__this")
         {
             continue;
         }
         candidates.push(Constructible {
             name: name.clone(),
-            params: params
+            params: user_params
                 .iter()
                 .map(|p| Param {
                     type_ann: p.type_ann.clone().or_else(|| Some("any".into())),
                     ..p.clone()
                 })
                 .collect(),
-            takes_this: false,
+            takes_this,
             returns_value: returns_a_value(body),
         });
+    }
+}
+
+/// Blade B (rotation 234) — a constructed fn-expr whose body says
+/// `this`: `var P = function (n) { this.n = n; }; new P(5)`. The body
+/// gets the receiver the same way blade 1 gave it to declarations —
+/// `__this: any` becomes the first declared param (inserted while the
+/// fn-expr is still an `Expr::ArrowFn`, before `lift_arrow_fns`), the
+/// factory passes the fresh instance, and a plain direct call passes
+/// `undefined` (§10.2.1.2 strict OrdinaryCallBindThis).
+///
+/// The promotion changes the closure's native arity, so it is gated
+/// on a strict use profile — the ONLY tolerated `Ident(<name>)`
+/// position is a `.prototype` member read/write (reads the cell,
+/// never calls). Everything else refuses the promotion and the
+/// binding keeps today's loud reject:
+/// - the value passed along (`g = P`, `arr.push(P)`), `.call` /
+///   `.apply` / any other member — an unpromoted body reaching an
+///   any-lane invoker with a hidden first param would shift every
+///   argument, the exact silent-wrong B-4 narrow-surface forbids;
+/// - a plain direct call `P(5)` — the published closure signature
+///   deliberately stays `__this`-free (the `__mth(` precedent), so a
+///   fixed-up call site still arity-rejects at the checker with a
+///   diagnostic counting the hidden param. Refusing keeps the
+///   `unknown identifier __this` reject, which at least names the
+///   root cause; making mixed profiles work (and speak) is RFC
+///   20260726 blade 4's scope.
+///
+/// Arena entries nothing references (dead mints from earlier
+/// rewrites) land in the refuse bucket too — a false negative only
+/// keeps the loud reject.
+fn promote_fn_expr_ctor_this(ast: &mut Ast) {
+    use std::collections::HashSet;
+
+    // Bindings whose fn-expr body mentions `this` and that are
+    // actually constructed (`__new_<name>` call exists).
+    let mut wanted: Vec<(String, ExprId)> = Vec::new();
+    for st in &ast.stmts {
+        let Stmt::LetDecl { name, init, .. } = st else {
+            continue;
+        };
+        if !ast.fn_expr_exprs.contains(init) {
+            continue;
+        }
+        let Expr::ArrowFn { params, body, .. } = ast.get_expr(*init) else {
+            continue;
+        };
+        if params.iter().any(|p| p.is_rest || p.name == "__this") {
+            continue;
+        }
+        let param_names: Vec<String> = params.iter().map(|p| p.name.clone()).collect();
+        if !super::free_vars::free_vars_of_body(ast, &param_names, body)
+            .iter()
+            .any(|v| v == "__this")
+        {
+            continue;
+        }
+        let factory = format!("__new_{name}");
+        let constructed = ast.exprs.iter().any(
+            |e| matches!(e, Expr::Call { callee, .. } if matches!(&ast.exprs[callee.0 as usize], Expr::Ident(n) if *n == factory)),
+        );
+        if constructed {
+            wanted.push((name.clone(), *init));
+        }
+    }
+
+    for (name, init) in wanted {
+        let ident_eids: HashSet<u32> = ast
+            .exprs
+            .iter()
+            .enumerate()
+            .filter(|(_, e)| matches!(e, Expr::Ident(n) if *n == name))
+            .map(|(i, _)| i as u32)
+            .collect();
+        let mut good: HashSet<u32> = HashSet::new();
+        for e in &ast.exprs {
+            if let Expr::Member { obj, name: m } = e
+                && ident_eids.contains(&obj.0)
+                && m == "prototype"
+            {
+                good.insert(obj.0);
+            }
+        }
+        if ident_eids.iter().any(|e| !good.contains(e)) {
+            continue;
+        }
+
+        let Expr::ArrowFn { params, .. } = &mut ast.exprs[init.0 as usize] else {
+            continue;
+        };
+        params.insert(
+            0,
+            Param {
+                name: "__this".into(),
+                type_ann: Some("any".into()),
+                default: None,
+                is_rest: false,
+            },
+        );
     }
 }
 
@@ -226,6 +326,7 @@ fn missing_factories(ast: &Ast, declared: &[String]) -> (Vec<String>, Vec<ExprId
 }
 
 pub fn synthesize_fn_constructors(ast: &mut Ast) {
+    promote_fn_expr_ctor_this(ast);
     let (declared, candidates) = collect_declared(ast);
     let (wanted, callees) = missing_factories(ast, &declared);
     if wanted.is_empty() {
