@@ -48,6 +48,23 @@ impl<'a> FnToClosureCollector<'a> {
         {
             self.try_mark(args[1]);
         }
+        // Cluster #4 (test262) — a bare top-FnDecl Ident argument to
+        // an Object / Reflect namespace-static call
+        // (`Object.getOwnPropertyDescriptor(inner, "caller")`): the
+        // checker's Any-param sig admits it and the lowering packs
+        // an any argv, which a raw FnSig can't box. Wrap it so the
+        // boxed closure cell reaches the reflection kernels (the
+        // closure-receiver forms already answer spec meta — probe
+        // d5/d7). A user binding named Object/Reflect shadowing the
+        // namespace only costs the wrap.
+        if let Expr::Member { obj, .. } = self.ast.get_expr(*callee)
+            && let Expr::Ident(ns) = self.ast.get_expr(*obj)
+            && matches!(ns.as_str(), "Object" | "Reflect")
+        {
+            for &arg in args {
+                self.try_mark(arg);
+            }
+        }
         // Cluster #4 (test262) — a top-FnDecl Ident as the RECEIVER
         // of a member call the Function family's member tables
         // answer with their catch-all (`inner.hasOwnProperty(…)`):
