@@ -133,6 +133,23 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, fields: Vec<(String, ExprId)>, eid: 
                     None => ctx.box_to_any(field_vals[i].clone()),
                 };
             }
+        } else if ctx.operand_ty(&field_vals[i]) == Type::Any {
+            // Unbox mirror — a typed slot taking an Any-valued init:
+            // a declared layout (let-decl / return-type hint, or a
+            // generator step struct's `value: T`) pins the slot to T
+            // while the field expr carries a NaN-box. Pre-fix the box
+            // bits stored raw and read back as garbage (`{ value: x }`
+            // with `x: any` under a `{ value: number }` return type
+            // answered NaN). Same helpers as the as-cast unbox arms;
+            // str / bigint mint fresh owned values the slot takes
+            // over like any other owned init.
+            field_vals[i] = match slot_ty {
+                Type::F64 | Type::I64 => ctx.coerce_any_to_number(field_vals[i].clone(), *slot_ty),
+                Type::Str => ctx.coerce_to_str(field_vals[i].clone(), Type::Any),
+                Type::Bool => ctx.coerce_to_bool(field_vals[i].clone()),
+                Type::BigInt => ctx.coerce_any_to_bigint(field_vals[i].clone()),
+                _ => field_vals[i].clone(),
+            };
         }
     }
     for (i, val) in field_vals.iter().enumerate() {

@@ -77,10 +77,38 @@ pub(crate) fn resolve_objlit_layout(
                 })
     };
 
+    // Unbox mirror of the C4 arm, HINT-ONLY: a declared slot T taking
+    // an Any-valued field expr (`{ value: x }` with `x: any` under a
+    // `{ value: number }` declared layout). The slot retypes to T here
+    // and the ObjectLit caller unboxes the value after resolution —
+    // same division of labor as C4's box direction. Deliberately NOT
+    // part of `coercible`: in the un-hinted fallback scan this arm
+    // would let an anon literal adsorb onto any same-named typed
+    // layout and silently change existing layout selection.
+    let coercible_unbox = |reg: &Vec<(String, Type)>| -> bool {
+        reg.len() == field_tys.len()
+            && reg
+                .iter()
+                .zip(field_tys.iter())
+                .all(|((rn, rt), (ln, lt))| {
+                    rn == ln
+                        && (rt == lt
+                            || (*lt == Type::Ptr && rt.is_pointer_shaped())
+                            || (*lt == Type::F64 && *rt == Type::I64)
+                            || (*lt == Type::I64 && *rt == Type::F64)
+                            || (*rt == Type::Any
+                                && matches!(*lt, Type::I64 | Type::I32 | Type::F64 | Type::Bool))
+                            || (*lt == Type::Any
+                                && matches!(
+                                    *rt,
+                                    Type::I64 | Type::F64 | Type::Bool | Type::Str | Type::BigInt
+                                )))
+                })
+    };
     let hinted = declared_hint.filter(|sid| {
         layouts
             .get(sid.0 as usize)
-            .is_some_and(|reg| exact(reg) || coercible(reg))
+            .is_some_and(|reg| exact(reg) || coercible(reg) || coercible_unbox(reg))
     });
     let sid = match hinted.or_else(|| {
         layouts

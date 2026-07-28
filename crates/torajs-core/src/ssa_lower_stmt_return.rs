@@ -58,7 +58,23 @@ pub(crate) fn lower(ctx: &mut LowerCtx, maybe: Option<crate::ast::ExprId>) {
             let ids: Vec<crate::ast::ExprId> = els.clone();
             ctx.lower_array_any_literal(&ids)
         } else {
-            ctx.lower_expr(eid)
+            // A direct ObjectLit returned from a declared-Obj fn pins
+            // the declared layout, same as the let-decl chunk 780 arm:
+            // without the hint resolve_objlit_layout registers an anon
+            // layout off the field exprs' own types (`{ value: x }`
+            // with `x: any` got an Any slot), the caller reads the
+            // slot at the declared width, and the box bits misread as
+            // a raw scalar (`{ value: number }` return answered NaN;
+            // a generator's step struct hit the same lane through the
+            // desugared `return { value, done }`).
+            if let Expr::ObjectLit { .. } = ctx.ast.get_expr(eid)
+                && let Type::Obj(sid) = ctx.f.ret
+            {
+                ctx.let_declared_obj_layout = Some(sid);
+            }
+            let v = ctx.lower_expr(eid);
+            ctx.let_declared_obj_layout = None;
+            v
         };
         let needs_retain = if let Expr::Ident(name) = ctx.ast.get_expr(eid) {
             ctx.locals
