@@ -85,6 +85,10 @@ impl<'a> Parser<'a> {
                         // template, so the sub-parse inherits the
                         // position rather than resetting it.
                         super_call_allowed: self.super_call_allowed,
+                        // A template interpolation cannot contain a
+                        // statement-level `yield*`, but the flag rides
+                        // along like the other position markers.
+                        in_async_gen: self.in_async_gen,
                         current_class_has_parent: self.current_class_has_parent,
                         synth_classes: Vec::new(),
                         // Sub-parser sees outer aliases so a template

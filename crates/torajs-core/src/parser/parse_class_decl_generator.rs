@@ -134,17 +134,20 @@ impl<'a> Parser<'a> {
         // early SyntaxError (ES §15.7.1). `super.m()` stays legal and is
         // resolved below.
         let saved_super = std::mem::replace(&mut self.super_call_allowed, false);
+        let saved_async_gen = std::mem::replace(&mut self.in_async_gen, is_async);
         let mut body = Vec::new();
         while !matches!(self.peek(), Token::RBrace | Token::Eof) {
             match self.parse_stmt() {
                 Ok(s) => body.push(s),
                 Err(e) => {
                     self.in_gen_class_method = saved_in_gen;
+                    self.in_async_gen = saved_async_gen;
                     return Err(e);
                 }
             }
         }
         self.in_gen_class_method = saved_in_gen;
+        self.in_async_gen = saved_async_gen;
         self.super_call_allowed = saved_super;
         // Byte end of the MethodDefinition span (ES §20.2.3.5) — the
         // closing `}`, captured before it is consumed, same as the

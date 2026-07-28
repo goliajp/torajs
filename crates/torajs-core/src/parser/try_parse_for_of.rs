@@ -422,7 +422,7 @@ impl<'a> Parser<'a> {
     /// is carried by the `is_await` flag alone) — split from
     /// `try_parse_for_of` (2026-07-03, fn-debt decomp). Body verbatim;
     /// the two `Ok(Some(..))` tails become plain `Stmt`s.
-    fn emit_forof_default(
+    pub(super) fn emit_forof_default(
         &mut self,
         var_name: String,
         var_type_ann: Option<String>,

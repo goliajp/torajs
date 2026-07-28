@@ -111,6 +111,7 @@ pub fn parse_into(source: &str, tokens: &[Spanned], target: &mut Ast) -> Result<
         generator_fns: std::collections::HashMap::new(),
         current_class: None,
         in_gen_class_method: false,
+        in_async_gen: false,
         static_this_class: None,
         super_call_allowed: false,
         current_class_has_parent: false,
@@ -187,6 +188,15 @@ struct Parser<'a> {
     /// receiver. Minting the parameter reference up front keeps the two
     /// apart.
     in_gen_class_method: bool,
+    /// F2 (RFC 20260728-gen-forof-yieldstar) — whether the cursor is
+    /// inside an `async function*` body. The generic `yield* e`
+    /// desugar is sync-only (its manual `next()` drive does not await
+    /// the inner steps per §27.6.3.8), so the async form keeps the
+    /// loud parse error until F3 (for-await-any) lands — a silent
+    /// mis-drive would loop on Promise-shaped steps. Save/restore at
+    /// every generator-body parse site, same discipline as
+    /// `super_call_allowed`.
+    in_async_gen: bool,
     /// P-SURF S2.37 — name of the class whose STATIC member body we
     /// are currently inside, or None elsewhere. While set, `this`
     /// mints `Ident(<ClassName>)` directly: per ES §15.7.14 a static

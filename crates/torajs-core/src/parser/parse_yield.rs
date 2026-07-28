@@ -37,7 +37,28 @@ impl<'a> Parser<'a> {
             if matches!(self.ast.get_expr(src), Expr::Array(_)) {
                 return Ok(self.emit_yieldstar_array(src));
             }
-            return self.emit_yieldstar_known(src);
+            // J.3 typed lane — a direct call to a known function*
+            // keeps the fully-typed expansion.
+            let known_gen_call = matches!(
+                self.ast.get_expr(src),
+                Expr::Call { callee, .. }
+                    if matches!(self.ast.get_expr(*callee),
+                        Expr::Ident(n) if self.generator_fns.contains_key(n))
+            );
+            if known_gen_call {
+                return self.emit_yieldstar_known(src);
+            }
+            // F2 — every remaining operand shape delegates through
+            // the generic for-of desugar; the async form stays loud
+            // until F3 (see `in_async_gen`'s field doc).
+            if self.in_async_gen {
+                return Err(format!(
+                    "yield* delegation in an async generator needs the \
+                     for-await drive (F3, not yet implemented) at {}",
+                    self.at()
+                ));
+            }
+            return Ok(self.emit_yieldstar_generic(src));
         }
         let v = self.parse_yield_operand()?;
         if matches!(self.peek(), Token::Semi) {
@@ -123,6 +144,21 @@ impl<'a> Parser<'a> {
         };
         stmts.push(while_loop);
         Stmt::Block(stmts)
+    }
+
+    /// F2 (RFC 20260728-gen-forof-yieldstar) — generic `yield* e`
+    /// delegation (§27.5.3.2 next-drive): desugars to
+    /// `for (const __ysv_N of e) { yield __ysv_N }`; the generator
+    /// prep's F1 pass turns that into the manual iterator protocol.
+    /// Residual (registered): received `throw()` / `return()`
+    /// forwarding to the inner iterator (spec steps 7.b/7.c) and the
+    /// done-completion value.
+    fn emit_yieldstar_generic(&mut self, src: ExprId) -> Stmt {
+        let id = self.mint_desugar_id();
+        let v_name = format!("__ysv_{id}");
+        let v_ref = self.ast.add_expr(Expr::Ident(v_name.clone()));
+        let body = Stmt::Block(vec![Stmt::Yield(v_ref)]);
+        self.emit_forof_default(v_name, Some("any".into()), src, body, false, None)
     }
 
     /// J.3 — `yield * gen(args);` delegates to an inner generator.

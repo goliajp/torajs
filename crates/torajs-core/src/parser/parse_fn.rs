@@ -118,10 +118,12 @@ impl<'a> Parser<'a> {
         // that has failed leaves the parser in an error state where the
         // value is moot.
         let saved_super = std::mem::replace(&mut self.super_call_allowed, false);
+        let saved_async_gen = std::mem::replace(&mut self.in_async_gen, is_async && is_generator);
         let mut body = Vec::new();
         while !matches!(self.peek(), Token::RBrace | Token::Eof) {
             body.push(self.parse_stmt()?);
         }
+        self.in_async_gen = saved_async_gen;
         self.super_call_allowed = saved_super;
         match self.peek() {
             Token::RBrace => self.pos += 1,
