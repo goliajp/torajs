@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-28T02:28:48.637Z",
+  "generatedAt": "2026-07-28T04:02:53.591Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-28T02:26:14Z",
-    "headSha": "7e25fd42",
-    "elapsedSec": 240.22,
+    "ranAt": "2026-07-28T03:56:36Z",
+    "headSha": "591c5fd5",
+    "elapsedSec": 255.9,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 12711,
-    "passNoOracle": 210,
-    "passNegative": 4494,
-    "passTotal": 17415,
-    "bug": 1508,
-    "incompatible": 34251,
+    "pass": 12819,
+    "passNoOracle": 217,
+    "passNegative": 4490,
+    "passTotal": 17526,
+    "bug": 1534,
+    "incompatible": 34114,
     "bunSkip": 7356,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 18923,
-    "passRateInScope": 32.75,
-    "passRateTrAccepted": 92.03
+    "trAccepted": 19060,
+    "passRateInScope": 32.96,
+    "passRateTrAccepted": 91.95
   },
   "torajs": {
-    "commit": "7e25fd42",
-    "commitSubject": "feat(ast): an untyped-param plain fn wraps for member-call value uses - the forwarder is the generic's mono site",
+    "commit": "591c5fd5",
+    "commitSubject": "feat(ast): a user return in a generator body completes with a done step carrying the value",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,26 @@
   },
   "commits": [
     {
+      "hash": "591c5fd5",
+      "subject": "feat(ast): a user return in a generator body completes with a done step carrying the value"
+    },
+    {
+      "hash": "3fcd8201",
+      "subject": "feat(parser): bare class field declarations - name; is an any slot initialized to undefined"
+    },
+    {
+      "hash": "aa77a133",
+      "subject": "feat(parser): yield* over an array literal delegates as an indexed while+yield"
+    },
+    {
+      "hash": "307367b5",
+      "subject": "feat(parser,lower): objlit computed accessor names ride the computed-key sentinel and the accessor define kernel"
+    },
+    {
+      "hash": "aedc233b",
+      "subject": "chore(hardev): rotation 236 final sweep at 7e25fd42 and dashboard refresh"
+    },
+    {
       "hash": "7e25fd42",
       "subject": "feat(ast): an untyped-param plain fn wraps for member-call value uses - the forwarder is the generic's mono site"
     },
@@ -739,47 +759,38 @@
     {
       "hash": "0fe6c1ad",
       "subject": "chore(hardev): final rotation 235 sweep at b83b0f88 and dashboard refresh"
-    },
-    {
-      "hash": "b83b0f88",
-      "subject": "feat(ssa): Object.values / Object.entries accept a Closure receiver - box to any, runtime own walks"
-    },
-    {
-      "hash": "873ea992",
-      "subject": "chore(hardev): rotation 235 final sweep at efae2a7e and dashboard refresh"
-    },
-    {
-      "hash": "efae2a7e",
-      "subject": "feat(ssa): Object.keys / getOwnPropertyNames / Reflect.ownKeys accept a Closure receiver - box to any, runtime own-keys walk"
-    },
-    {
-      "hash": "c7303b36",
-      "subject": "fix(ast): toplevel-this walker skips objlit method/accessor/fn-expr-field bodies - receiver-this, not lexical"
-    },
-    {
-      "hash": "0f04cb71",
-      "subject": "feat(ast): top-level this materializes as the module-this {} dynobj"
     }
   ],
-  "headSha": "7e25fd42",
+  "headSha": "591c5fd5",
   "autorun": {
-    "total": 540,
+    "total": 541,
     "baselineTarget": 10,
-    "bySelf": 535,
+    "bySelf": 536,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785195767-2a18",
-      "at": "2026-07-27T23:42:47Z",
-      "ts": 1785195767,
+      "rotationId": "r-1785205799-7a5b",
+      "at": "2026-07-28T02:29:59Z",
+      "ts": 1785205799,
       "trigger": "self",
-      "prevHead": "0fe6c1ad",
-      "handoffSha": "sha256:78cfc82456e45c0a2cb36fa125383ab2eeb437bbc78efba66190515799ae0e06",
-      "handoffAgeSec": 17,
+      "prevHead": "aedc233b",
+      "handoffSha": "sha256:4d12a7f1f08aea63a1795bacf64eb70aa92d4768c22101b33a4a672466ce615b",
+      "handoffAgeSec": 13,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1785205799-7a5b",
+        "at": "2026-07-28T02:29:59Z",
+        "ts": 1785205799,
+        "trigger": "self",
+        "prevHead": "aedc233b",
+        "handoffSha": "sha256:4d12a7f1f08aea63a1795bacf64eb70aa92d4768c22101b33a4a672466ce615b",
+        "handoffAgeSec": 13,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785195767-2a18",
         "at": "2026-07-27T23:42:47Z",
@@ -876,17 +887,6 @@
         "prevHead": "fdc403c2",
         "handoffSha": "sha256:d3c50602d550f5086263c2d15b7cbeca5832abdd3c7b47564dbfa585bb5a0359",
         "handoffAgeSec": 26,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1785082395-2a55",
-        "at": "2026-07-26T16:13:15Z",
-        "ts": 1785082395,
-        "trigger": "self",
-        "prevHead": "86c31699",
-        "handoffSha": "sha256:0d088967c1b1a11531c78a913e4e0f98fda2c96861f6e9450019d9639ab2de3d",
-        "handoffAgeSec": 0,
         "conformanceBefore": null,
         "commitsInSession": null
       }
