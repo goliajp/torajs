@@ -96,17 +96,33 @@ pub(super) fn try_lower_static_method_reify(
     // argument surface is lossless: every param `Any` (a typed slot
     // would silently unbox an undefined argv box to 0) and no
     // caller-side-injected default a runtime call would bypass.
-    let sig_all_any = ctx.fn_sig_ids.get(&body_fid).is_some_and(|sid| {
-        ctx.fn_sigs[sid.0 as usize]
-            .0
-            .iter()
-            .all(|t| *t == Type::Any)
+    let ast_params = ctx.ast.stmts.iter().find_map(|s| match s {
+        crate::ast::Stmt::FnDecl { name, params, .. } if *name == body => Some(params),
+        _ => None,
     });
-    let has_default = ctx.ast.stmts.iter().any(|s| {
-        matches!(s, crate::ast::Stmt::FnDecl { name, params, .. }
-            if *name == body && params.iter().any(|p| p.default.is_some()))
-    });
-    let this_free = sig_all_any && !has_default;
+    let this_free = ctx
+        .fn_sig_ids
+        .get(&body_fid)
+        .zip(ast_params)
+        .is_some_and(|(sid, ps)| {
+            let tys = &ctx.fn_sigs[sid.0 as usize].0;
+            // Mirror of the instance-side verdict (S2.38/S2.39, see
+            // `ssa_lower_module_metadata`): an undefaulted param must
+            // be Any; an adapter-substituted literal default
+            // (Number/Bool) admits any scalar slot; an expression
+            // default refuses.
+            tys.len() == ps.len()
+                && tys.iter().zip(ps.iter()).all(|(ty, p)| match &p.default {
+                    None => *ty == Type::Any,
+                    Some(d) => {
+                        matches!(ctx.ast.get_expr(*d), Expr::Number(_) | Expr::Bool(_))
+                            && matches!(
+                                ty,
+                                Type::Any | Type::I64 | Type::I32 | Type::F64 | Type::Bool
+                            )
+                    }
+                })
+        });
     let name_op = ctx.lower_expr(args[1]);
     let cur_block = ctx.cur_block;
     let adapter = ctx.f.append_inst(

@@ -102,7 +102,7 @@ pub(crate) fn synthesize_boxed_entries(
             .copied()
             .unwrap_or_else(|| anon_stamp_pool.borrow_mut().assign_or_get(sid))
     };
-    let mut targets: Vec<(String, FuncId, Vec<Type>, Type, bool, bool, bool)> = Vec::new();
+    let mut targets: Vec<BoxedEntryTarget> = Vec::new();
     for stmt in &ast.stmts {
         let Stmt::FnDecl { name, params, .. } = stmt else {
             continue;
@@ -160,15 +160,31 @@ pub(crate) fn synthesize_boxed_entries(
         if !user_tys.iter().all(boxable) || !(ret_ty == Type::Void || boxable(&ret_ty)) {
             continue;
         }
-        targets.push((
-            name.clone(),
+        // S2.39 — literal defaults on the user params, positionally
+        // aligned with `user_tys`. The adapter fills these when an
+        // argv slot arrives undefined (missing OR explicit — ES
+        // §10.2.1.3 treats both alike), which a runtime call cannot
+        // get from the caller-side default injection. Only Number /
+        // Bool literals qualify (an expression default may reference
+        // prior params and needs real callee-side evaluation).
+        let dflt_lits: Vec<Option<DfltLit>> = params[skip..]
+            .iter()
+            .map(|p| match p.default.map(|d| ast.get_expr(d)) {
+                Some(crate::ast::Expr::Number(n)) => Some(DfltLit::Num(*n)),
+                Some(crate::ast::Expr::Bool(b)) => Some(DfltLit::Bool(*b)),
+                _ => None,
+            })
+            .collect();
+        targets.push(BoxedEntryTarget {
+            name: name.clone(),
             fid,
             user_tys,
             ret_ty,
             has_real_argc,
             has_argv,
             feeds_env,
-        ));
+            dflt_lits,
+        });
     }
     let mut entries = HashMap::new();
     if targets.is_empty() {
@@ -199,10 +215,21 @@ pub(crate) fn synthesize_boxed_entries(
         &[Type::Any],
         Type::Void,
     );
-    for (name, fid, user_tys, ret_ty, has_real_argc, has_argv, feeds_env) in targets {
-        let obj_tags: Vec<Option<u32>> = user_tys
+    // S2.39 — the literal-default substitution kernel (answers the
+    // slot unless undefined, else boxes the baked literal), declared
+    // lazily like the trio above.
+    let anyv_or_default = crate::ssa_lower_synthesize_main::declare_intrinsic(
+        module,
+        fn_table,
+        "__torajs_anyv_or_default",
+        &[Type::Any, Type::I64, Type::I64],
+        Type::Any,
+    );
+    for t in targets {
+        let obj_tags: Vec<Option<u32>> = t
+            .user_tys
             .iter()
-            .map(|t| match t {
+            .map(|ty| match ty {
                 Type::Obj(sid) => Some(sid_tag(*sid)),
                 _ => None,
             })
@@ -217,19 +244,42 @@ pub(crate) fn synthesize_boxed_entries(
             BoxedCoerceIntrinsics {
                 arg_to_struct,
                 anyv_rc_dec,
+                anyv_or_default,
                 obj_tags: &obj_tags,
             },
-            &name,
-            fid,
-            &user_tys,
-            ret_ty,
-            has_real_argc,
-            has_argv,
-            feeds_env,
+            &t.name,
+            t.fid,
+            &t.user_tys,
+            t.ret_ty,
+            t.has_real_argc,
+            t.has_argv,
+            t.feeds_env,
+            &t.dflt_lits,
         );
-        entries.insert(fid, pair);
+        entries.insert(t.fid, pair);
     }
     entries
+}
+
+/// S2.39 — one qualifying literal default (`b = 39` / `flag = true`),
+/// substituted by the adapter when the argv slot arrives undefined.
+#[derive(Clone, Copy)]
+pub(crate) enum DfltLit {
+    Num(f64),
+    Bool(bool),
+}
+
+/// One adapter-synthesis target — the per-FnDecl facts the targets
+/// loop collects before any adapter is built.
+struct BoxedEntryTarget {
+    name: String,
+    fid: FuncId,
+    user_tys: Vec<Type>,
+    ret_ty: Type,
+    has_real_argc: bool,
+    has_argv: bool,
+    feeds_env: bool,
+    dflt_lits: Vec<Option<DfltLit>>,
 }
 
 /// One adapter — see module doc for the ABI.
@@ -249,6 +299,7 @@ fn build_boxed_entry(
     has_real_argc: bool,
     has_argv: bool,
     feeds_env: bool,
+    dflt_lits: &[Option<DfltLit>],
 ) -> (FuncId, ssa::SigId) {
     let name = format!("__boxed_{body_name}");
     let fid = FuncId(module.funcs.len() as u32);
@@ -295,6 +346,7 @@ fn build_boxed_entry(
         &mut args,
         &mut str_temps,
         &mut obj_temps,
+        dflt_lits,
     );
 
     let boxed = if ret_ty == Type::Void {

@@ -218,6 +218,21 @@ pub unsafe extern "C" fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> An
     }
 }
 
+/// S2.39 — the boxed adapter's literal-default substitution: answer
+/// `v` unless it is undefined, in which case box the compile-time
+/// `(tag, bits)` literal (Number / Bool — ES §10.2.1.3 fires a
+/// default for a missing AND an explicit-undefined argument alike;
+/// the adapter's argv padding makes both arrive as the undefined
+/// box). Immediates only — no ownership transfer either way.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_or_default(v: AnyValue, tag: i64, bits: i64) -> AnyValue {
+    if is_undefined(v) {
+        unsafe { __torajs_anyv_box_from_pair(tag, bits) }
+    } else {
+        v
+    }
+}
+
 /// Borrow-shaped cell-pointer read (chunk 712): a heap cell decodes
 /// to its pointer bits, everything else — immediates INCLUDING
 /// ShortStr — answers 0. The lowering's class-candidate dispatch

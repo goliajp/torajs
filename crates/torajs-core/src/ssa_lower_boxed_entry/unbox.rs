@@ -15,6 +15,9 @@ use crate::ssa::{self, FuncId, InstKind, Operand, Type};
 pub(super) struct BoxedCoerceIntrinsics<'a> {
     pub(super) arg_to_struct: FuncId,
     pub(super) anyv_rc_dec: FuncId,
+    /// S2.39 — `__torajs_anyv_or_default(v, tag, bits)`: the
+    /// literal-default substitution kernel.
+    pub(super) anyv_or_default: FuncId,
     pub(super) obj_tags: &'a [Option<u32>],
 }
 
@@ -34,14 +37,45 @@ pub(super) fn unbox_args(
     args: &mut Vec<Operand>,
     str_temps: &mut Vec<ssa::ValueId>,
     obj_temps: &mut Vec<ssa::ValueId>,
+    dflt_lits: &[Option<super::DfltLit>],
 ) {
     for (i, pty) in user_tys.iter().enumerate() {
-        let av = Operand::Value(f.append_inst(
+        let mut av = Operand::Value(f.append_inst(
             entry,
             InstKind::Load(Type::Any, Operand::Value(argv), (i as u64) * 8),
             Type::Any,
             None,
         ));
+        // S2.39 — a qualifying literal default substitutes when the
+        // slot arrives undefined (missing args read the invoke
+        // buffer's undefined padding, so the kernel's one undefined
+        // test covers both the short-argc and the explicit-undefined
+        // form — ES §10.2.1.3 treats them alike). The substitution
+        // happens at the BOX level through `__torajs_anyv_or_default`
+        // (a branchless kernel call — lower-time SSA has no Select;
+        // that inst is egraph-internal), so every per-type unbox arm
+        // below stays untouched.
+        if let Some(lit) = dflt_lits.get(i).copied().flatten() {
+            let (box_tag, box_bits) = match lit {
+                // Integral numbers box as tag-2 i64, fractional as
+                // tag-3 f64 bits — the same split the typed-return
+                // boxing above the adapter uses.
+                super::DfltLit::Num(n) if n.fract() == 0.0 && n.abs() < 9.0e15 => {
+                    (2i64, Operand::ConstI64(n as i64))
+                }
+                super::DfltLit::Num(n) => (3i64, Operand::ConstI64(n.to_bits() as i64)),
+                super::DfltLit::Bool(b) => (1i64, Operand::ConstI64(i64::from(b))),
+            };
+            av = Operand::Value(f.append_inst(
+                entry,
+                InstKind::Call(
+                    coerce.anyv_or_default,
+                    vec![av, Operand::ConstI64(box_tag), box_bits],
+                ),
+                Type::Any,
+                None,
+            ));
+        }
         let arg = match pty {
             Type::Any => av,
             Type::F64 => Operand::Value(f.append_inst(

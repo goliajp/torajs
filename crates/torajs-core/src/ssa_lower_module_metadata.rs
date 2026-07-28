@@ -304,13 +304,29 @@ pub(crate) fn populate_class_layouts(
     // trading the loud TypeError for a silent wrong answer is
     // forbidden). A generator-method forwarder feeds `__this` into
     // the `__Gen_*` factory, so it stays receiver-bound naturally.
-    let fn_has_default: std::collections::HashMap<&str, bool> = ast
+    // Per-param default verdicts, positionally aligned with the
+    // FnDecl's params: None = no default, Some(true) = a literal the
+    // adapter substitutes itself (S2.39 — Number / Bool), Some(false)
+    // = an expression default only caller-side injection can
+    // evaluate.
+    let fn_dflt_verdicts: std::collections::HashMap<&str, Vec<Option<bool>>> = ast
         .stmts
         .iter()
         .filter_map(|s| match s {
-            crate::ast::Stmt::FnDecl { name, params, .. } => {
-                Some((name.as_str(), params.iter().any(|p| p.default.is_some())))
-            }
+            crate::ast::Stmt::FnDecl { name, params, .. } => Some((
+                name.as_str(),
+                params
+                    .iter()
+                    .map(|p| {
+                        p.default.map(|d| {
+                            matches!(
+                                ast.get_expr(d),
+                                crate::ast::Expr::Number(_) | crate::ast::Expr::Bool(_)
+                            )
+                        })
+                    })
+                    .collect(),
+            )),
             _ => None,
         })
         .collect();
@@ -320,11 +336,29 @@ pub(crate) fn populate_class_layouts(
         .map(|(_, fid)| *fid)
         .filter(|fid| {
             let f = &module.funcs[fid.0 as usize];
+            let Some(verdicts) = fn_dflt_verdicts.get(f.name.as_str()) else {
+                return false;
+            };
             fn_ignores_receiver(f)
-                && f.params[1..]
-                    .iter()
-                    .all(|&p| f.values[p.0 as usize].ty == Type::Any)
-                && !fn_has_default.get(f.name.as_str()).copied().unwrap_or(true)
+                && f.params.len() == verdicts.len()
+                && f.params[1..].iter().zip(&verdicts[1..]).all(|(&p, v)| {
+                    let ty = &f.values[p.0 as usize].ty;
+                    match v {
+                        // No default: only an Any slot passes an
+                        // undefined argv box through losslessly.
+                        None => *ty == Type::Any,
+                        // Adapter-substituted literal: the undefined
+                        // case never reaches the typed unbox, so any
+                        // scalar slot is safe.
+                        Some(true) => matches!(
+                            ty,
+                            Type::Any | Type::I64 | Type::I32 | Type::F64 | Type::Bool
+                        ),
+                        // Expression default: a runtime bare call
+                        // bypasses caller-side injection — refuse.
+                        Some(false) => false,
+                    }
+                })
         })
         .collect();
     for (cname, _tag) in &class_names_by_tag {
