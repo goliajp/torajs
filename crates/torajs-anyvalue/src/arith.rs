@@ -30,15 +30,16 @@ use crate::nanbox::{
 };
 use crate::{__torajs_str_concat, __torajs_str_drop};
 
-/// Op code for `-`, `*`, `/`, `%` per ssa_lower's emission. Mirror
-/// of the C-side arith switch on the `op` argument:
-/// 0=Sub, 1=Mul, 2=Div, 3=Mod.
+/// Op code for `-`, `*`, `/`, `%`, `**` per ssa_lower's emission.
+/// Mirror of the C-side arith switch on the `op` argument:
+/// 0=Sub, 1=Mul, 2=Div, 3=Mod, 4=Pow (S2.43).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ArithOp {
     Sub,
     Mul,
     Div,
     Mod,
+    Pow,
 }
 
 impl ArithOp {
@@ -49,6 +50,7 @@ impl ArithOp {
             1 => Some(ArithOp::Mul),
             2 => Some(ArithOp::Div),
             3 => Some(ArithOp::Mod),
+            4 => Some(ArithOp::Pow),
             _ => None,
         }
     }
@@ -56,20 +58,30 @@ impl ArithOp {
     /// Apply the op to two already-ToNumber-d operands. ES §13.9
     /// `%` matches C's `fmod` (sign of dividend; NaN on `y == 0`);
     /// Rust's `f64 % f64` lowers to `fmod` on every host we target,
-    /// so the Mod arm is a one-liner with no special-casing.
+    /// so the Mod arm is a one-liner with no special-casing. `**`
+    /// delegates to the self-ported `__torajs_math_pow` — its
+    /// special-case lattice IS ES §6.1.6.1.3 Number::exponentiate
+    /// (NaN exponent → NaN even for base 1, unlike C pow).
     #[inline]
     pub(crate) fn apply(self, l: f64, r: f64) -> f64 {
+        unsafe extern "C" {
+            fn __torajs_math_pow(x: f64, y: f64) -> f64;
+        }
         match self {
             ArithOp::Sub => l - r,
             ArithOp::Mul => l * r,
             ArithOp::Div => l / r,
             ArithOp::Mod => l % r,
+            // SAFETY: pure f64→f64 math, no pointers or state.
+            ArithOp::Pow => unsafe { __torajs_math_pow(l, r) },
         }
     }
 
     /// Whether the integer fast-path applies to this op. `Div`
     /// always yields f64 even for integer operands (`1/2 === 0.5`,
-    /// not `0`), so it's excluded; the rest qualify.
+    /// not `0`), so it's excluded; the rest qualify (`Pow`'s
+    /// fractional results — negative exponents — are caught by the
+    /// caller's lossless round-trip check).
     #[inline]
     pub(crate) fn allows_i64_fast_path(self) -> bool {
         !matches!(self, ArithOp::Div)

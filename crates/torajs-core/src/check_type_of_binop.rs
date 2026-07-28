@@ -143,6 +143,13 @@ fn check_pow(l: Type, r: Type) -> Result<Type, String> {
     if l == Type::BigInt && r == Type::BigInt {
         return Ok(Type::BigInt);
     }
+    // S2.43 — Any operand on either side: ssa_lower routes through
+    // `__torajs_anyv_arith_pair` op 4 (ES §13.6 ToNumber both sides,
+    // Number::exponentiate). Mirrors the arith / bitwise Any-fringe
+    // pattern.
+    if matches!(l, Type::Any) || matches!(r, Type::Any) {
+        return Ok(Type::Any);
+    }
     Err(format!(
         "`**` requires matching number or bigint operands, got {l:?} and {r:?}"
     ))

@@ -44,6 +44,7 @@ pub(crate) fn try_lower(
             | AstBinOp::Mul
             | AstBinOp::Div
             | AstBinOp::Mod
+            | AstBinOp::Pow
             | AstBinOp::BitAnd
             | AstBinOp::BitOr
             | AstBinOp::BitXor
@@ -137,12 +138,16 @@ pub(crate) fn try_lower(
             Type::Any,
             None,
         ),
-        AstBinOp::Sub | AstBinOp::Mul | AstBinOp::Div | AstBinOp::Mod => {
+        AstBinOp::Sub | AstBinOp::Mul | AstBinOp::Div | AstBinOp::Mod | AstBinOp::Pow => {
+            // S2.43 — Pow rides the arith kernel (op 4, ES §13.6:
+            // ToNumber both sides then Number::exponentiate via the
+            // self-ported pow lattice).
             let op_code: i64 = match op {
                 AstBinOp::Sub => 0,
                 AstBinOp::Mul => 1,
                 AstBinOp::Div => 2,
                 AstBinOp::Mod => 3,
+                AstBinOp::Pow => 4,
                 _ => unreachable!(),
             };
             ctx.f.append_inst(

@@ -1170,7 +1170,8 @@ mod tests {
         assert_eq!(ArithOp::from_i64(1), Some(ArithOp::Mul));
         assert_eq!(ArithOp::from_i64(2), Some(ArithOp::Div));
         assert_eq!(ArithOp::from_i64(3), Some(ArithOp::Mod));
-        assert_eq!(ArithOp::from_i64(4), None);
+        assert_eq!(ArithOp::from_i64(4), Some(ArithOp::Pow));
+        assert_eq!(ArithOp::from_i64(5), None);
         assert_eq!(ArithOp::from_i64(-1), None);
     }
 
