@@ -21,14 +21,12 @@
 use super::*;
 
 impl<'a> Parser<'a> {
-    /// `yield e ;` / `yield * gen(args) ;` / `yield * [elems] ;`
-    /// statement. Caller has peeked `Token::Yield`.
+    /// `yield e ;` / `yield ;` / `yield * gen(args) ;` /
+    /// `yield * [elems] ;` statement. Caller has peeked `Token::Yield`.
     pub(super) fn parse_yield_stmt(&mut self) -> Result<Stmt, String> {
         // `yield e ;` — Phase J. Parser-level only; the surrounding
         // function must be `function*` or `desugar_generators` will
-        // surface this as a typecheck error. Single-arg form only —
-        // tr's subset doesn't accept the `yield;` (undefined value)
-        // shape.
+        // surface this as a typecheck error.
         self.pos += 1;
         if matches!(self.peek(), Token::Star) {
             self.pos += 1;
@@ -41,11 +39,27 @@ impl<'a> Parser<'a> {
             }
             return self.emit_yieldstar_known(src);
         }
-        let v = self.parse_expr()?;
+        let v = self.parse_yield_operand()?;
         if matches!(self.peek(), Token::Semi) {
             self.pos += 1;
         }
         Ok(Stmt::Yield(v))
+    }
+
+    /// S2.41 — YieldExpression's operand is OPTIONAL (§15.5.5:
+    /// `yield` [no LineTerminator] AssignmentExpression?): a bare
+    /// `yield` before an expression terminator yields undefined (the
+    /// t262 for-of / for-await-of dstr suites drive their generators
+    /// with `yield;`). The pre-S2.41 parse handed the terminator to
+    /// `parse_expr` — "expected expression, got Semi".
+    pub(super) fn parse_yield_operand(&mut self) -> Result<ExprId, String> {
+        if matches!(
+            self.peek(),
+            Token::Semi | Token::RBrace | Token::RParen | Token::RBracket | Token::Comma
+        ) {
+            return Ok(self.ast.add_expr(Expr::Ident("undefined".into())));
+        }
+        self.parse_expr()
     }
 
     /// S2.28 — `yield* [a, b, ...]` array-literal delegation: hoist

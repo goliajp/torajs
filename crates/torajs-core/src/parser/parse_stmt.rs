@@ -299,7 +299,10 @@ impl<'a> Parser<'a> {
             // matches the v0.5 generator semantics.
             if decls.is_empty() && matches!(self.peek(), Token::Yield) {
                 self.pos += 1;
-                let value = self.parse_expr()?;
+                // S2.41 — `let v = yield;` binds the resumption value
+                // with an undefined operand (same optional-operand
+                // rule as the statement lane).
+                let value = self.parse_yield_operand()?;
                 if matches!(self.peek(), Token::Semi) {
                     self.pos += 1;
                 }
