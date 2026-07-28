@@ -224,6 +224,21 @@ fn try_match_base(obj_ty: &Type, name: &str) -> Option<Type> {
     Some(ty)
 }
 
+/// Spec §23.1.3 callback shape — `(elem, index, sourceArray) => ret`.
+/// Declaring the trailing slots lets full-arity user callbacks admit
+/// (shorter ones ride the S133 prefix rule as before); the lowering
+/// appends the actual index / source-array values per the callback's
+/// own declared arity. The sourceArray slot is `Array<Any>` — the
+/// kind-aware view (chunk 625/626 protocol) that reads i64-slot
+/// numeric blocks correctly; it also matches the `any[]` annotation
+/// the closure-param inference seeds.
+fn cb3(elem: &Type, ret: Type) -> Type {
+    Type::Function(
+        vec![elem.clone(), Type::Number, Type::Array(Box::new(Type::Any))],
+        Box::new(ret),
+    )
+}
+
 /// Second half — callback-iteration arms (map → some/every), the
 /// keys/values/entries ArrIter arms, and the T-29 Array-as-Object
 /// catch-all (must stay the LAST arm so it only fires after every
@@ -238,7 +253,7 @@ fn try_match_iter(obj_ty: &Type, name: &str) -> Option<Type> {
         (Type::Array(elem), "map") => {
             let inner = (**elem).clone();
             Type::Function(
-                vec![Type::Function(vec![inner.clone()], Box::new(inner.clone()))],
+                vec![cb3(&inner, inner.clone())],
                 Box::new(Type::Array(Box::new(inner))),
             )
         }
@@ -258,7 +273,7 @@ fn try_match_iter(obj_ty: &Type, name: &str) -> Option<Type> {
         (Type::Array(elem), "filter") => {
             let inner = (**elem).clone();
             Type::Function(
-                vec![Type::Function(vec![inner.clone()], Box::new(Type::Boolean))],
+                vec![cb3(&inner, Type::Boolean)],
                 Box::new(Type::Array(Box::new(inner))),
             )
         }
@@ -272,9 +287,19 @@ fn try_match_iter(obj_ty: &Type, name: &str) -> Option<Type> {
         // only in the cursor init / cmp / inc direction.
         (Type::Array(elem), "reduce" | "reduceRight") => {
             let inner = (**elem).clone();
+            // Reducer shape per §23.1.3.24 — (acc, cur, index, srcArray);
+            // srcArray is the kind-aware Array<Any> view (see cb3).
             Type::Function(
                 vec![
-                    Type::Function(vec![inner.clone(), inner.clone()], Box::new(inner.clone())),
+                    Type::Function(
+                        vec![
+                            inner.clone(),
+                            inner.clone(),
+                            Type::Number,
+                            Type::Array(Box::new(Type::Any)),
+                        ],
+                        Box::new(inner.clone()),
+                    ),
                     inner.clone(),
                 ],
                 Box::new(inner),
@@ -282,10 +307,9 @@ fn try_match_iter(obj_ty: &Type, name: &str) -> Option<Type> {
         }
         // M6.2 — `xs.forEach(fn)`: takes a `(T) => void`,
         // returns void. Used for side-effecting iteration.
-        (Type::Array(elem), "forEach") => Type::Function(
-            vec![Type::Function(vec![(**elem).clone()], Box::new(Type::Void))],
-            Box::new(Type::Void),
-        ),
+        (Type::Array(elem), "forEach") => {
+            Type::Function(vec![cb3(elem, Type::Void)], Box::new(Type::Void))
+        }
         /* P6.4c-C3 / P5.4 — Array.keys / .values / .entries
          * returning ArrIter, for ANY element type. `.keys()`
          * yields 0..length-1 independent of the slot encoding;
@@ -312,30 +336,19 @@ fn try_match_iter(obj_ty: &Type, name: &str) -> Option<Type> {
         // or check against the sentinel value.
         (Type::Array(elem), "find" | "findLast") => {
             let inner = (**elem).clone();
-            Type::Function(
-                vec![Type::Function(vec![inner.clone()], Box::new(Type::Boolean))],
-                Box::new(inner),
-            )
+            Type::Function(vec![cb3(&inner, Type::Boolean)], Box::new(inner))
         }
         // `xs.findIndex(pred)` — index of first matching, or -1.
         // `findLastIndex` is the reverse-iteration sibling and
         // shares the same -1-on-miss return.
-        (Type::Array(elem), "findIndex" | "findLastIndex") => Type::Function(
-            vec![Type::Function(
-                vec![(**elem).clone()],
-                Box::new(Type::Boolean),
-            )],
-            Box::new(Type::Number),
-        ),
+        (Type::Array(elem), "findIndex" | "findLastIndex") => {
+            Type::Function(vec![cb3(elem, Type::Boolean)], Box::new(Type::Number))
+        }
         // `xs.some(pred)` / `xs.every(pred)` — short-circuit
         // ored / anded predicate iteration.
-        (Type::Array(elem), "some" | "every") => Type::Function(
-            vec![Type::Function(
-                vec![(**elem).clone()],
-                Box::new(Type::Boolean),
-            )],
-            Box::new(Type::Boolean),
-        ),
+        (Type::Array(elem), "some" | "every") => {
+            Type::Function(vec![cb3(elem, Type::Boolean)], Box::new(Type::Boolean))
+        }
         // T-29 — Array-as-Object catch-all read. `arr.x` on
         // an array with an unknown name returns Type::Any
         // (lookup via side table at lower time). Excludes

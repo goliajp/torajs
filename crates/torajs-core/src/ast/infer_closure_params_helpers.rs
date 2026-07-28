@@ -16,12 +16,11 @@
 
 use std::collections::HashMap;
 
-use super::infer_closure_params::infer_lit_ann;
 use super::infer_closure_params_apply::body_returns_value;
 use super::infer_closure_typevars::{mentions_any_word, resolve_call_site_typevars};
 use super::infer_return_ann;
 use crate::ast::infer_closure_lets::{collect_let_anns, collect_let_init_anns};
-use crate::ast::{Ast, Expr, ExprId, Stmt};
+use crate::ast::{Ast, ExprId, Stmt};
 use crate::num_width::{fn_type_canon, split_fn_type};
 
 /// Callback param/return annotations for `forEach` on a `Map<K|V>` /
@@ -418,78 +417,7 @@ pub(super) fn apply_user_fn_callee_hint(
     }
 }
 
-/// Array HOF param-only arms — `.map(cb)` / `.flatMap(cb)` /
-/// `.reduce(cb, seed?)` / `.reduceRight(cb, seed?)` seed only the cb's
-/// user params (leave return ann to the body sniff so heterogeneous
-/// returns can flow through the call-site hetero-arm without
-/// `check_stmt_return` rejecting them against a strapped return ann).
-///
-/// Returns true if `name` matched one of the four arms — caller
-/// `continue`s in that case to skip the trailing per-method
-/// (param, return) table below.
-pub(super) fn apply_hof_param_only_arm(
-    ast: &Ast,
-    name: &str,
-    args: &[ExprId],
-    closure_args: &[(usize, String)],
-    elem_ann: &str,
-    all_anns: &HashMap<String, String>,
-    fn_user_param_count: &HashMap<String, usize>,
-    param_only_updates: &mut HashMap<String, Vec<String>>,
-) -> bool {
-    // `.map(cb)` — seed only the cb's param (elem), leave the return
-    // annotation to the body sniff. Heterogeneous returns like
-    // `numbers.map(n => n.toString())` are accepted at the call-site by
-    // [`crate::check_type_of_call_arr_map_hetero`]; strapping
-    // `return_type = elem_ann` here would trip `check_stmt_return` on
-    // the arrow body's Str return before the call-site arm gets a chance
-    // to answer `Array<String>`.
-    if name == "map" {
-        for (_arg_idx, fn_name) in closure_args {
-            let p = fn_user_param_count.get(fn_name).copied().unwrap_or(1);
-            if p >= 1 {
-                param_only_updates.insert(fn_name.clone(), vec![elem_ann.to_string(); p]);
-            }
-        }
-        return true;
-    }
-    // `.flatMap(cb)` — sister to `.map`. Seed only the cb's param;
-    // leave the return ann to the body sniff so a heterogeneous return
-    // `Array<U>` (with U != T) can flow through
-    // [`crate::check_type_of_call_arr_flat_map_hetero`] without
-    // check_stmt_return rejecting it against a strapped `${elem_ann}[]`.
-    if name == "flatMap" {
-        for (_arg_idx, fn_name) in closure_args {
-            let p = fn_user_param_count.get(fn_name).copied().unwrap_or(1);
-            if p >= 1 {
-                param_only_updates.insert(fn_name.clone(), vec![elem_ann.to_string(); p]);
-            }
-        }
-        return true;
-    }
-    // `reduce`/`reduceRight` — seed the acc param from the SEED arg's
-    // static type (args[1]) when it's a literal or typed ident;
-    // otherwise fall back to elem_ann for the sum/max idiom. Return ann
-    // stays for the body sniff so a `(number, number) => string` reduce
-    // (`[1,2,3].reduce((a: string, x) => a + x, '')`) types through
-    // instead of tripping `check_stmt_return` on the Str body return.
-    if name == "reduce" || name == "reduceRight" {
-        let acc_ann = args
-            .get(1)
-            .and_then(|&a| match ast.get_expr(a) {
-                Expr::Ident(n) => all_anns.get(n).cloned(),
-                _ => infer_lit_ann(ast, a),
-            })
-            .unwrap_or_else(|| elem_ann.to_string());
-        for (_arg_idx, fn_name) in closure_args {
-            let p = fn_user_param_count.get(fn_name).copied().unwrap_or(2);
-            let mut param_anns = vec![acc_ann.clone()];
-            while param_anns.len() < p {
-                param_anns.push(elem_ann.to_string());
-            }
-            param_only_updates.insert(fn_name.clone(), param_anns);
-        }
-        return true;
-    }
-    false
-}
+// `apply_hof_param_only_arm` (map / flatMap / reduce / reduceRight
+// param-only seeds) lives in the sibling
+// `infer_closure_params_hof.rs` — moved when the cluster-#1 blade-2
+// position seeds pushed this file past the 500-line cap.

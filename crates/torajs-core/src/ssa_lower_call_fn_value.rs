@@ -36,7 +36,7 @@ impl<'a> LowerCtx<'a> {
     /// dispatch, packaged for re-use).
     /// Look up a sig's param types from a callable type. Returns None for
     /// non-callable types — callers should already have validated.
-    fn sig_param_tys(&self, fn_ty: Type) -> Option<Vec<Type>> {
+    pub(crate) fn sig_param_tys(&self, fn_ty: Type) -> Option<Vec<Type>> {
         let sig_id = match fn_ty {
             Type::FnSig(s) | Type::Closure(s) => s,
             _ => return None,

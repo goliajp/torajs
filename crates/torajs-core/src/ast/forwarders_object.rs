@@ -355,11 +355,23 @@ fn synthesize_forwarder_decls(
             default: None,
             is_rest: false,
         });
-        fwd_params.extend(params.iter().cloned());
-        let arg_eids: Vec<ExprId> = params
-            .iter()
-            .map(|p| ast.add_expr(Expr::Ident(p.name.clone())))
-            .collect();
+        // Skip a promoted target's hidden `__this` first param on the
+        // public face; forward `undefined` into it (mirrors
+        // forwarders.rs — plain-call receiver semantics).
+        let takes_this = params.first().is_some_and(|p| p.name == "__this");
+        let user_params = if takes_this {
+            &params[1..]
+        } else {
+            &params[..]
+        };
+        fwd_params.extend(user_params.iter().cloned());
+        let mut arg_eids: Vec<ExprId> = Vec::with_capacity(params.len());
+        if takes_this {
+            arg_eids.push(ast.add_expr(Expr::Ident("undefined".into())));
+        }
+        for p in user_params {
+            arg_eids.push(ast.add_expr(Expr::Ident(p.name.clone())));
+        }
         let callee_id = ast.add_expr(Expr::Ident(target.clone()));
         let call_id = ast.add_expr(Expr::Call {
             callee: callee_id,

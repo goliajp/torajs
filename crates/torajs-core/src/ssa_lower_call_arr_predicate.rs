@@ -341,11 +341,22 @@ fn emit_body_and_step(
     // (ES §23.1.3.{8-11,30}). Emit the call for its side effects
     // only — consuming the void call's value is the SIGTRAP lane.
     let cb_ret_void = ctx.callback_ret_ty(fn_ty) == Some(Type::Void);
+    // Spec §23.1.3.{8-11,30} — the predicate's trailing (index,
+    // sourceArray) slots, appended only when its sig declares them;
+    // materialize_call_args aligns the reprs.
+    let cb_arity = ctx.sig_param_tys(fn_ty).map_or(1, |p| p.len());
+    let mut pred_args = vec![Operand::Value(elem)];
+    if cb_arity >= 2 {
+        pred_args.push(Operand::Value(i_now2));
+    }
+    if cb_arity >= 3 {
+        pred_args.push(Operand::Value(src_arr));
+    }
     let pred_op: Operand = if cb_ret_void {
-        let _ = ctx.call_fn_value(fn_val, fn_ty, vec![Operand::Value(elem)], 0);
+        let _ = ctx.call_fn_value(fn_val, fn_ty, pred_args, 0);
         Operand::ConstBool(false)
     } else {
-        let pred_v = ctx.call_fn_value(fn_val, fn_ty, vec![Operand::Value(elem)], 0);
+        let pred_v = ctx.call_fn_value(fn_val, fn_ty, pred_args, 0);
         Operand::Value(pred_v)
     };
     // some + findIndex break on `pred == true`; every breaks on

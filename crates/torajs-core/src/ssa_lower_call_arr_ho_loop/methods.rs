@@ -18,6 +18,9 @@ pub(super) fn emit_map(
     fn_val: &Operand,
     fn_ty: Type,
     this_arg: Option<&Operand>,
+    i_now: ValueId,
+    src_arr: ValueId,
+    cb_arity: usize,
 ) {
     // RC-1 (RFC 20260706-test262-bug-corpus) — a Void-ret callback
     // returns `undefined`: emit the call for side effects, push a
@@ -29,7 +32,7 @@ pub(super) fn emit_map(
             known_fid,
             fn_val,
             fn_ty,
-            cb_args(this_arg, elem),
+            cb_args(this_arg, elem, i_now, src_arr, cb_arity),
             usize::from(this_arg.is_some()),
         );
         Operand::Value(emit_undef_any_box(ctx))
@@ -39,7 +42,7 @@ pub(super) fn emit_map(
             known_fid,
             fn_val,
             fn_ty,
-            cb_args(this_arg, elem),
+            cb_args(this_arg, elem, i_now, src_arr, cb_arity),
             usize::from(this_arg.is_some()),
         );
         // RFC 20260726-array-elem-width knife 1 — the dst elem width is
@@ -85,6 +88,9 @@ pub(super) fn emit_filter(
     fn_val: &Operand,
     fn_ty: Type,
     this_arg: Option<&Operand>,
+    i_now: ValueId,
+    src_arr: ValueId,
+    cb_arity: usize,
 ) {
     // RC-1 — Void-ret predicate: ToBoolean(undefined) = false, so no
     // element is ever kept. Emit the call for side effects only.
@@ -94,7 +100,7 @@ pub(super) fn emit_filter(
             known_fid,
             fn_val,
             fn_ty,
-            cb_args(this_arg, elem),
+            cb_args(this_arg, elem, i_now, src_arr, cb_arity),
             usize::from(this_arg.is_some()),
         );
         return;
@@ -104,7 +110,7 @@ pub(super) fn emit_filter(
         known_fid,
         fn_val,
         fn_ty,
-        cb_args(this_arg, elem),
+        cb_args(this_arg, elem, i_now, src_arr, cb_arity),
         usize::from(this_arg.is_some()),
     );
     let push_blk = ctx.f.add_block();
@@ -157,6 +163,9 @@ pub(super) fn emit_reduce(
     known_fid: Option<FuncId>,
     fn_val: &Operand,
     fn_ty: Type,
+    i_now: ValueId,
+    src_arr: ValueId,
+    cb_arity: usize,
 ) {
     let acc_now = ctx.f.append_inst(
         ctx.cur_block,
@@ -164,28 +173,23 @@ pub(super) fn emit_reduce(
         acc_ty,
         None,
     );
+    // Spec §23.1.3.24 — the reducer's trailing (index, sourceArray)
+    // slots, appended only when its sig declares them (arity 3 / 4).
+    let mut reduce_args = vec![Operand::Value(acc_now), Operand::Value(elem)];
+    if cb_arity >= 3 {
+        reduce_args.push(Operand::Value(i_now));
+    }
+    if cb_arity >= 4 {
+        reduce_args.push(Operand::Value(src_arr));
+    }
     // RC-1 — Void-ret callback: the new accumulator is `undefined`
     // (boxed ANY_UNDEF; the dispatch entry maps a Void callback ret
     // to an Any acc slot).
     let new_acc = if ctx.callback_ret_ty(fn_ty) == Some(Type::Void) {
-        let _ = emit_do_call(
-            ctx,
-            known_fid,
-            fn_val,
-            fn_ty,
-            vec![Operand::Value(acc_now), Operand::Value(elem)],
-            0,
-        );
+        let _ = emit_do_call(ctx, known_fid, fn_val, fn_ty, reduce_args, 0);
         emit_undef_any_box(ctx)
     } else {
-        emit_do_call(
-            ctx,
-            known_fid,
-            fn_val,
-            fn_ty,
-            vec![Operand::Value(acc_now), Operand::Value(elem)],
-            0,
-        )
+        emit_do_call(ctx, known_fid, fn_val, fn_ty, reduce_args, 0)
     };
     ctx.f.append_void(
         ctx.cur_block,

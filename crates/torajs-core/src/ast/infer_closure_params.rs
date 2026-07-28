@@ -20,10 +20,10 @@
 
 use super::infer_closure_params_apply::apply_closure_ann_updates;
 use super::infer_closure_params_helpers::{
-    apply_hof_param_only_arm, apply_stored_elem_arm, apply_user_fn_callee_hint, build_ann_table,
-    collect_fn_decl_metadata, mapset_foreach_expected, seed_container_arg_hints,
-    seed_let_ann_hints,
+    apply_stored_elem_arm, apply_user_fn_callee_hint, build_ann_table, collect_fn_decl_metadata,
+    mapset_foreach_expected, seed_container_arg_hints, seed_let_ann_hints,
 };
+use super::infer_closure_params_hof::apply_hof_param_only_arm;
 use super::infer_closure_params_promise::resolve_promise_inner_ann;
 use super::{Ast, Expr, ExprId};
 use crate::ssa_lower_free_helpers::count_capture_groups;
@@ -340,14 +340,24 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
             continue;
         }
         // Per-method expected (param annotations, return annotation).
+        // Spec §23.1.3 callback positions — (elem, index, srcArray);
+        // the apply step writes only as many as the closure declares.
+        // srcArray is `any[]` (kind-aware Arr<Any> view) — see
+        // `hof_pos_anns` in infer_closure_params_helpers for why.
+        let pos3 = |ret: &str| {
+            Some((
+                vec![elem_ann.clone(), "number".to_string(), "any[]".to_string()],
+                ret.to_string(),
+            ))
+        };
         let expected: Option<(Vec<String>, String)> = match name.as_str() {
             "sort" => Some((vec![elem_ann.clone(), elem_ann.clone()], "number".into())),
             "map" => unreachable!("map handled by param-only arm above"),
-            "filter" => Some((vec![elem_ann.clone()], "boolean".into())),
-            "forEach" => Some((vec![elem_ann.clone()], "void".into())),
-            "find" | "findLast" => Some((vec![elem_ann.clone()], "boolean".into())),
-            "findIndex" | "findLastIndex" => Some((vec![elem_ann.clone()], "boolean".into())),
-            "some" | "every" => Some((vec![elem_ann.clone()], "boolean".into())),
+            "filter" => pos3("boolean"),
+            "forEach" => pos3("void"),
+            "find" | "findLast" => pos3("boolean"),
+            "findIndex" | "findLastIndex" => pos3("boolean"),
+            "some" | "every" => pos3("boolean"),
             "flatMap" => unreachable!("flatMap handled by param-only arm above"),
             "reduce" | "reduceRight" => {
                 unreachable!("reduce/reduceRight handled by param-only arm above")

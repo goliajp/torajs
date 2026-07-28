@@ -114,12 +114,26 @@ pub fn synthesize_forwarders(ast: &mut Ast) {
             default: None,
             is_rest: false,
         });
-        fwd_params.extend(params.iter().cloned());
+        // A bind_this_param-promoted target carries a hidden `__this`
+        // first param. The forwarder's public face skips it (callers
+        // pass the user-visible arity) and the forwarding call feeds
+        // `undefined` — same plain-call receiver the direct-call
+        // rewrite in this_param.rs supplies.
+        let takes_this = params.first().is_some_and(|p| p.name == "__this");
+        let user_params = if takes_this {
+            &params[1..]
+        } else {
+            &params[..]
+        };
+        fwd_params.extend(user_params.iter().cloned());
         // body: return target(p0, p1, ...);
-        let arg_eids: Vec<ExprId> = params
-            .iter()
-            .map(|p| ast.add_expr(Expr::Ident(p.name.clone())))
-            .collect();
+        let mut arg_eids: Vec<ExprId> = Vec::with_capacity(params.len());
+        if takes_this {
+            arg_eids.push(ast.add_expr(Expr::Ident("undefined".into())));
+        }
+        for p in user_params {
+            arg_eids.push(ast.add_expr(Expr::Ident(p.name.clone())));
+        }
         let callee_id = ast.add_expr(Expr::Ident(target.clone()));
         let call_id = ast.add_expr(Expr::Call {
             callee: callee_id,

@@ -193,23 +193,26 @@ pub(crate) fn emit_per_method_body(
             None,
         )
     };
+    let cb_arity = ctx.sig_param_tys(fn_ty).map_or(1, |p| p.len());
     match method {
         "map" => emit_map(
-            ctx, dst_slot, dst_arr_ty, elem, known_fid, fn_val, fn_ty, this_arg,
+            ctx, dst_slot, dst_arr_ty, elem, known_fid, fn_val, fn_ty, this_arg, i_now2, src_arr,
+            cb_arity,
         ),
         "filter" => emit_filter(
-            ctx, dst_slot, dst_arr_ty, elem, elem_ty, known_fid, fn_val, fn_ty, this_arg,
+            ctx, dst_slot, dst_arr_ty, elem, elem_ty, known_fid, fn_val, fn_ty, this_arg, i_now2,
+            src_arr, cb_arity,
         ),
-        "reduce" | "reduceRight" => {
-            emit_reduce(ctx, acc_slot, acc_ty, elem, known_fid, fn_val, fn_ty)
-        }
+        "reduce" | "reduceRight" => emit_reduce(
+            ctx, acc_slot, acc_ty, elem, known_fid, fn_val, fn_ty, i_now2, src_arr, cb_arity,
+        ),
         "forEach" => {
             let _ = emit_do_call(
                 ctx,
                 known_fid,
                 fn_val,
                 fn_ty,
-                cb_args(this_arg, elem),
+                cb_args(this_arg, elem, i_now2, src_arr, cb_arity),
                 usize::from(this_arg.is_some()),
             );
         }
@@ -237,12 +240,30 @@ pub(crate) fn emit_undef_any_box(ctx: &mut LowerCtx<'_>) -> ValueId {
 
 /// Callback arg list — a promoted receiver-first callback takes the
 /// boxed thisArg (knife 4) as its leading `__this` arg; a plain
-/// callback keeps `(elem, …)`.
-fn cb_args(this_arg: Option<&Operand>, elem: ValueId) -> Vec<Operand> {
-    match this_arg {
-        Some(t) => vec![t.clone(), Operand::Value(elem)],
-        None => vec![Operand::Value(elem)],
+/// callback keeps `(elem, …)`. Spec §23.1.3 callbacks also receive
+/// (index, sourceArray); those slots are appended only when the
+/// callback's own sig declares them (`user_arity` 2 / 3), and
+/// `materialize_call_args` aligns the reprs (I64 index → F64 / Any
+/// box, array → Any box with the rc bookkeeping).
+fn cb_args(
+    this_arg: Option<&Operand>,
+    elem: ValueId,
+    i_now: ValueId,
+    src_arr: ValueId,
+    user_arity: usize,
+) -> Vec<Operand> {
+    let mut a: Vec<Operand> = Vec::with_capacity(4);
+    if let Some(t) = this_arg {
+        a.push(t.clone());
     }
+    a.push(Operand::Value(elem));
+    if user_arity >= 2 {
+        a.push(Operand::Value(i_now));
+    }
+    if user_arity >= 3 {
+        a.push(Operand::Value(src_arr));
+    }
+    a
 }
 
 fn emit_do_call(

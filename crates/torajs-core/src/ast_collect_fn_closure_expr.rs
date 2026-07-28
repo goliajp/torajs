@@ -22,6 +22,15 @@ impl<'a> FnToClosureCollector<'a> {
                 || self.ast.async_generator_fns.contains(n))
     }
 
+    /// A top-FnDecl Ident whose sig gained the hidden `__this` first
+    /// param from bind_this_param — its raw FnSig arity no longer
+    /// matches the user-visible one, so value uses must wrap.
+    fn is_this_promoted_ident(&self, eid: ExprId) -> bool {
+        matches!(self.ast.get_expr(eid), Expr::Ident(n)
+            if self.fn_sigs.get(n).is_some_and(
+                |(params, _, _)| params.first().is_some_and(|p| p.name == "__this")))
+    }
+
     /// Walk an Expr looking for nested store-sites (Call args,
     /// assigns into `any` bindings, nested ObjectLits, etc.).
     /// `Expr::Call` arm — the callee/arg boxing decisions plus the
@@ -99,6 +108,20 @@ impl<'a> FnToClosureCollector<'a> {
             && !self.is_generator_family_ident(*obj)
         {
             self.try_mark(*obj);
+        }
+        // Cluster #1 (test262) — a bind_this_param-promoted top fn
+        // (hidden `__this` first param) passed as a member-call
+        // argument (`arr.every(callbackfn)`): the raw-FnSig lanes
+        // would call it with every argument off by one slot, so the
+        // value use must ride the forwarder, whose public face skips
+        // `__this` and feeds `undefined` into the target. Unpromoted
+        // named fns keep their raw FnSig fast paths.
+        if matches!(self.ast.get_expr(*callee), Expr::Member { .. }) {
+            for &arg in args {
+                if self.is_this_promoted_ident(arg) && !self.is_generator_family_ident(arg) {
+                    self.try_mark(arg);
+                }
+            }
         }
         // Chunk 617 — replace-cb argument site (see module
         // doc): the runtime's functional-replaceValue lane

@@ -82,7 +82,8 @@ pub(crate) fn try_match(
         return None;
     }
     let is_reduce = matches!(m_name.as_str(), "reduce" | "reduceRight");
-    if ps.len() > if is_reduce { 2 } else { 1 } {
+    // Full spec arity — (elem, index, srcArray); reducers lead with acc.
+    if ps.len() > if is_reduce { 4 } else { 3 } {
         return None;
     }
     // reduce's (acc, cur) slots take the boxed-undefined acc / any elem
