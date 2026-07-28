@@ -32,6 +32,11 @@ pub(super) fn prep_generator_body(
     gen_params: &[Param],
     yield_ty: &str,
 ) -> (Vec<Stmt>, Vec<(String, String)>) {
+    // F1 (RFC 20260728-gen-forof-yieldstar) — pass 0: rewrite every
+    // yield-bearing `for…of` into the manual iterator protocol
+    // BEFORE the lift, so the iterator / step bindings it mints
+    // become class fields that survive yield boundaries.
+    super::desugar_generators_forof::rewrite_yield_forof(ast, &mut gen_body);
     // J.4 — expand every `let v(:T)? = yield <e>;` into the pair
     // [Stmt::Yield(e); Stmt::LetDecl { init: this.__sent }] so the
     // rest of the pipeline only sees standard Yield + LetDecl. The

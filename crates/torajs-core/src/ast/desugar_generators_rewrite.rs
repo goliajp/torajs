@@ -54,6 +54,30 @@ fn rewrite_params_in_stmt(
         Stmt::Labeled { body, .. } => {
             rewrite_params_in_stmt(ast, body, pset, visited);
         }
+        // F1 (RFC 20260728-gen-forof-yieldstar) — a yield-free for-of
+        // kept inline by the state machine still reads lifted outer
+        // locals through its element expr and body. (The `src_ident`
+        // NAME contract with a lifted source is a separate registered
+        // hole — the checker resolves it by name, not ExprId.)
+        Stmt::ForOf {
+            elem_expr,
+            body,
+            forin_obj,
+            ..
+        } => {
+            rewrite_params_in_expr(ast, *elem_expr, pset, visited);
+            if let Some(o) = forin_obj {
+                rewrite_params_in_expr(ast, *o, pset, visited);
+            }
+            rewrite_params_in_stmt(ast, body, pset, visited);
+        }
+        Stmt::ForOfSplitIter {
+            parent, sep, body, ..
+        } => {
+            rewrite_params_in_expr(ast, *parent, pset, visited);
+            rewrite_params_in_expr(ast, *sep, pset, visited);
+            rewrite_params_in_stmt(ast, body, pset, visited);
+        }
         Stmt::While { cond, body } => {
             rewrite_params_in_expr(ast, *cond, pset, visited);
             rewrite_params_in_stmt(ast, body, pset, visited);
@@ -128,6 +152,7 @@ fn rewrite_params_in_expr(
         Expr::Unary { expr, .. }
         | Expr::TypeOf { expr }
         | Expr::Spread { expr }
+        | Expr::As { expr, .. }
         | Expr::InstanceOf { expr, .. } => {
             rewrite_params_in_expr(ast, expr, pset, visited);
         }

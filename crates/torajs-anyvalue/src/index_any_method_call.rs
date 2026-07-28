@@ -151,6 +151,9 @@ unsafe fn symbol_keyed_call(
 ) -> AnyValue {
     let (tag, value) = unsafe { crate::member_get_symbol::symbol_key_pair(recv, key) };
     if tag != TAG_HEAP || value == 0 {
+        if let Some(out) = unsafe { obj_symbol_iterator_call(recv, key) } {
+            return out;
+        }
         return unsafe { not_callable() };
     }
     let cell = value as *mut c_void;
@@ -181,4 +184,62 @@ unsafe fn symbol_keyed_call(
         return VALUE_UNDEFINED;
     }
     raw
+}
+
+/// `class_tag` u32 offset inside a `Tag::Obj` instance — mirror of
+/// torajs-core `ssa_lower::OBJ_CLASS_TAG_OFF` (the iter_any mirror).
+const OBJ_CLASS_TAG_OFF: usize = 8;
+
+unsafe extern "C" {
+    /// torajs-structmeta — class-methods dispatch table lookups
+    /// (same pair the iter_any Obj lane uses).
+    fn __torajs_struct_layout_lookup(class_tag: u32) -> *const c_void;
+    fn __torajs_struct_method_find(
+        layout: *const c_void,
+        name: *const u8,
+        name_len: u32,
+    ) -> *const c_void;
+    fn __torajs_rc_inc(p: *mut c_void);
+}
+
+/// `src[Symbol.iterator]()` on a class instance — the symbol dict
+/// walk misses (a class member keyed `[Symbol.iterator]` is folded to
+/// the mangled vtable name; knife 4 of 20260725-getiterator-getmethod
+/// retires the fold). Two arms, mirroring the for-of Obj lane:
+/// a declared `[Symbol.iterator]()` invokes through the vtable with
+/// THIS receiver; a generator object (no declared `@@iterator`, but a
+/// vtable `next`) answers itself per §27.1.3.1
+/// %IteratorPrototype%[@@iterator]. `None` = not this shape.
+unsafe fn obj_symbol_iterator_call(recv: AnyValue, key: *const c_void) -> Option<AnyValue> {
+    if key != crate::method_value::symbol_static::well_known_singleton(5) {
+        return None;
+    }
+    if !is_cell(recv) {
+        return None;
+    }
+    let obj = as_void_ptr(recv);
+    // SAFETY: is_cell guarantees a live header.
+    if unsafe { (obj.cast::<u8>().add(4) as *const u16).read() } != Tag::Obj as u16 {
+        return None;
+    }
+    match unsafe { crate::iter_any::call_obj_method_0(obj, crate::iter_any::SYM_ITERATOR_METHOD) } {
+        crate::iter_any::MethodOutcome::Ok(v) => Some(v),
+        // The user body's throw is in flight — the caller's throw
+        // check propagates it; the sentinel must not be read.
+        crate::iter_any::MethodOutcome::Threw => Some(VALUE_UNDEFINED),
+        crate::iter_any::MethodOutcome::Missing => {
+            let class_tag = unsafe { obj.cast::<u8>().add(OBJ_CLASS_TAG_OFF).cast::<u32>().read() };
+            let layout = unsafe { __torajs_struct_layout_lookup(class_tag) };
+            if layout.is_null() {
+                return None;
+            }
+            let next = unsafe { __torajs_struct_method_find(layout, c"next".as_ptr().cast(), 4) };
+            if next.is_null() {
+                return None;
+            }
+            // Owned result convention — the self-answer takes a stake.
+            unsafe { __torajs_rc_inc(obj) };
+            Some(recv)
+        }
+    }
 }

@@ -29,6 +29,7 @@ mod desugar_classes_statics;
 mod desugar_classes_super;
 mod desugar_generators;
 mod desugar_generators_class;
+mod desugar_generators_forof;
 mod desugar_generators_methods;
 mod desugar_generators_prep;
 mod desugar_generators_rewrite;
