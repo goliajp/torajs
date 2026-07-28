@@ -35,5 +35,15 @@ use crate::ast::{Ast, Expr, ExprId};
 /// this arm would trade it for). That half stays on the L3b ledger
 /// until the objlit-anylane method substrate carries it.
 pub(crate) fn any_promote_init(ast: &Ast, init: ExprId) -> bool {
-    matches!(ast.get_expr(init), Expr::Call { .. })
+    let Expr::Call { callee, .. } = ast.get_expr(init) else {
+        return false;
+    };
+    // `new C()` desugars to a `__new_<C>` factory call — the binding
+    // has nominal class identity the typed lanes dispatch on, and
+    // boxing it away demotes every main-side method call to the
+    // any-lane (rotation 238: the destr-param method fixture walked
+    // straight into the any×destr silent hole). Class instances are
+    // the named-fn-visibility problem of a different wall; never
+    // promote them here.
+    !matches!(ast.get_expr(*callee), Expr::Ident(n) if n.starts_with("__new_"))
 }
