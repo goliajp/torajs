@@ -59,11 +59,29 @@ pub(crate) fn try_lower(
     let fn_name = declaring_class_fn(ctx, &cname, &method_name)?;
     let fid = *ctx.fn_table.get(&fn_name)?;
 
+    let mut arg_ops: Vec<Operand> = args.iter().map(|a| ctx.lower_expr(*a)).collect();
+    // S2.42 (rotation 240) — this lane handed every argument verbatim
+    // while all its sibling call lanes route through the `arg_conv`
+    // contract; an i64 into the callee's Any param arrived as raw
+    // bits (two `function*` decls make `next` a sibling-owned name,
+    // so `g.next(42)` came through here and the generator's
+    // resumption value read back as a garbage NaN-box). The sig is
+    // receiver-first: user args align to params[1..].
+    let coerce_owned = match ctx.fn_sig_ids.get(&fid).copied() {
+        Some(sig_id) => {
+            let param_tys = ctx.fn_sigs[sig_id.0 as usize].0.clone();
+            crate::ssa_lower_call_terminal::coerce_args_by_param_tys(
+                ctx,
+                param_tys.get(1..).unwrap_or(&[]),
+                args,
+                &mut arg_ops,
+            )
+        }
+        None => Vec::new(),
+    };
     let mut argv: Vec<Operand> = Vec::with_capacity(args.len() + 1);
     argv.push(recv_op);
-    for a in args {
-        argv.push(ctx.lower_expr(*a));
-    }
+    argv.extend(arg_ops);
     let ret_ty = ctx.f_ret_type_hint(fid);
     let cur_block = ctx.cur_block;
     let v = ctx
@@ -71,6 +89,9 @@ pub(crate) fn try_lower(
         .append_inst(cur_block, InstKind::Call(fid, argv), ret_ty, None);
     if ctx.may_throw_fns.contains(&fn_name) {
         ctx.emit_throw_check(None);
+    }
+    for (op, ty) in coerce_owned {
+        ctx.emit_drop_value(op, ty);
     }
     Some(Operand::Value(v))
 }
