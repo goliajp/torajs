@@ -90,6 +90,23 @@ pub(super) fn try_lower_static_method_reify(
     let Some(&(adapter_fid, adapter_sig)) = ctx.boxed_entries.get(&body_fid) else {
         return Some(Operand::ConstI64(0));
     };
+    // S2.38 — a static body never reads a runtime receiver (its
+    // `this` resolves to the class object at parse time), so the
+    // face may run a detached bare call IF the adapter-visible
+    // argument surface is lossless: every param `Any` (a typed slot
+    // would silently unbox an undefined argv box to 0) and no
+    // caller-side-injected default a runtime call would bypass.
+    let sig_all_any = ctx.fn_sig_ids.get(&body_fid).is_some_and(|sid| {
+        ctx.fn_sigs[sid.0 as usize]
+            .0
+            .iter()
+            .all(|t| *t == Type::Any)
+    });
+    let has_default = ctx.ast.stmts.iter().any(|s| {
+        matches!(s, crate::ast::Stmt::FnDecl { name, params, .. }
+            if *name == body && params.iter().any(|p| p.default.is_some()))
+    });
+    let this_free = sig_all_any && !has_default;
     let name_op = ctx.lower_expr(args[1]);
     let cur_block = ctx.cur_block;
     let adapter = ctx.f.append_inst(
@@ -107,6 +124,7 @@ pub(super) fn try_lower_static_method_reify(
                 Operand::ConstI64(tag as i64),
                 name_op.clone(),
                 Operand::Value(adapter),
+                Operand::ConstI64(i64::from(this_free)),
             ],
         ),
     );

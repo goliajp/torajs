@@ -348,6 +348,7 @@ fn build_class_layout_entries(ssa_module: &Module) -> Vec<UserClassLayoutEntry> 
                 .map(|mm| torajs_link::exec::UserMethodMetaEntry {
                     name: mm.name.clone(),
                     adapter_fn_id: mm.adapter_fid.0,
+                    flags: u32::from(mm.this_free),
                 })
                 .collect(),
         })

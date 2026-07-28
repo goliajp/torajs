@@ -131,6 +131,99 @@ fn collect_own_class_methods(
     own
 }
 
+/// S2.38 — `true` when the function never observes its first param
+/// (the `__cm_` receiver slot). The lowerer spills every param into
+/// an alloca at entry, so a plain "no operand mentions params[0]"
+/// test refuses everything; the real predicate is two-step:
+///
+/// 1. every use of `recv` is a `Store(recv, <alloca>, _)` — the
+///    entry spill (any other use — arithmetic, call arg, return,
+///    branch — is an observation);
+/// 2. every OTHER use of each such spill slot is another one of
+///    those stores — a Load, a call arg, a re-store elsewhere, or a
+///    dyn access would let the value escape.
+///
+/// A missing param 0 answers `false` (not a method shape, nothing
+/// to prove).
+fn fn_ignores_receiver(f: &ssa::Function) -> bool {
+    let Some(&recv) = f.params.first() else {
+        return false;
+    };
+    let is_alloca: Vec<bool> = f
+        .values
+        .iter()
+        .enumerate()
+        .map(|(i, _)| {
+            f.blocks.iter().any(|b| {
+                b.insts.iter().any(|inst| {
+                    inst.result == Some(ssa::ValueId(i as u32))
+                        && matches!(
+                            inst.kind,
+                            ssa::InstKind::Alloca(_) | ssa::InstKind::AllocaBytes(_)
+                        )
+                })
+            })
+        })
+        .collect();
+    let op_is =
+        |op: &ssa::Operand, v: ssa::ValueId| matches!(op, ssa::Operand::Value(x) if *x == v);
+    // Pass 1 — every recv use must be an entry spill into an alloca.
+    let mut spill_slots: Vec<ssa::ValueId> = Vec::new();
+    for b in &f.blocks {
+        for inst in &b.insts {
+            let mut uses_recv = false;
+            ssa::visit_value_operands(&inst.kind, |v| uses_recv |= v == recv);
+            if !uses_recv {
+                continue;
+            }
+            match &inst.kind {
+                ssa::InstKind::Store(val, ptr, _)
+                    if op_is(val, recv)
+                        && matches!(ptr, ssa::Operand::Value(s)
+                            if is_alloca.get(s.0 as usize).copied().unwrap_or(false)) =>
+                {
+                    if let ssa::Operand::Value(s) = ptr {
+                        spill_slots.push(*s);
+                    }
+                }
+                _ => return false,
+            }
+        }
+        match &b.term {
+            ssa::Terminator::CondBr { cond, .. } if op_is(cond, recv) => return false,
+            ssa::Terminator::Ret(Some(op)) if op_is(op, recv) => return false,
+            _ => {}
+        }
+    }
+    // Pass 2 — the spill slots themselves must never be read or
+    // escape: their only uses are the recv spills counted above.
+    for b in &f.blocks {
+        for inst in &b.insts {
+            let mut touches_slot = false;
+            ssa::visit_value_operands(&inst.kind, |v| touches_slot |= spill_slots.contains(&v));
+            if !touches_slot {
+                continue;
+            }
+            match &inst.kind {
+                ssa::InstKind::Store(val, _, _) if op_is(val, recv) => {}
+                _ => return false,
+            }
+        }
+        match &b.term {
+            ssa::Terminator::CondBr { cond, .. } if matches!(cond, ssa::Operand::Value(v) if spill_slots.contains(v)) =>
+            {
+                return false;
+            }
+            ssa::Terminator::Ret(Some(op)) if matches!(op, ssa::Operand::Value(v) if spill_slots.contains(v)) =>
+            {
+                return false;
+            }
+            _ => {}
+        }
+    }
+    true
+}
+
 /// 刀 4 — resolve one class's runtime-dispatchable methods: its own
 /// `__cm_` bodies plus inherited ones up the parent chain (child
 /// declarations shadow, the vtable walk's override semantics). Only
@@ -141,6 +234,7 @@ fn resolve_class_methods(
     ast: &crate::ast::Ast,
     own_methods: &HashMap<String, Vec<(String, ssa::FuncId)>>,
     boxed_entries: &HashMap<ssa::FuncId, (ssa::FuncId, ssa::SigId)>,
+    this_free_fids: &std::collections::HashSet<ssa::FuncId>,
     cname: &str,
 ) -> Vec<ssa::MethodMetaSpec> {
     let mut out: Vec<ssa::MethodMetaSpec> = Vec::new();
@@ -160,6 +254,7 @@ fn resolve_class_methods(
                     out.push(ssa::MethodMetaSpec {
                         name: mname.clone(),
                         adapter_fid,
+                        this_free: this_free_fids.contains(fid),
                     });
                 }
                 // Shadow even on adapter dropout — a child decl
@@ -199,6 +294,39 @@ pub(crate) fn populate_class_layouts(
     // whole table (the per-class walk below merges parent chains).
     let all_class_names: Vec<&String> = class_names_by_tag.iter().map(|(n, _)| *n).collect();
     let own_methods = collect_own_class_methods(ast, fn_table, &all_class_names);
+    // S2.38 — `__cm_` bodies proven safe to run through the boxed
+    // adapter with a NULL receiver: (1) the body never observes its
+    // receiver param, and (2) the adapter-visible argument surface
+    // is lossless — every user param is `Any` (a typed slot would
+    // silently unbox an undefined argv box to 0/"" instead of ES's
+    // undefined) and none carries a default (defaults are
+    // caller-side injected, which a runtime bare call bypasses —
+    // trading the loud TypeError for a silent wrong answer is
+    // forbidden). A generator-method forwarder feeds `__this` into
+    // the `__Gen_*` factory, so it stays receiver-bound naturally.
+    let fn_has_default: std::collections::HashMap<&str, bool> = ast
+        .stmts
+        .iter()
+        .filter_map(|s| match s {
+            crate::ast::Stmt::FnDecl { name, params, .. } => {
+                Some((name.as_str(), params.iter().any(|p| p.default.is_some())))
+            }
+            _ => None,
+        })
+        .collect();
+    let this_free_fids: std::collections::HashSet<ssa::FuncId> = own_methods
+        .values()
+        .flatten()
+        .map(|(_, fid)| *fid)
+        .filter(|fid| {
+            let f = &module.funcs[fid.0 as usize];
+            fn_ignores_receiver(f)
+                && f.params[1..]
+                    .iter()
+                    .all(|&p| f.values[p.0 as usize].ty == Type::Any)
+                && !fn_has_default.get(f.name.as_str()).copied().unwrap_or(true)
+        })
+        .collect();
     for (cname, _tag) in &class_names_by_tag {
         let sid = match module.struct_layouts.iter().enumerate().find_map(|(i, _)| {
             aliases.get(*cname).and_then(|t| match t {
@@ -233,7 +361,13 @@ pub(crate) fn populate_class_layouts(
             child_offsets,
             field_metadata,
             is_named: true,
-            methods: resolve_class_methods(ast, &own_methods, boxed_entries, cname),
+            methods: resolve_class_methods(
+                ast,
+                &own_methods,
+                boxed_entries,
+                &this_free_fids,
+                cname,
+            ),
         });
     }
 

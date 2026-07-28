@@ -214,10 +214,21 @@ pub(crate) unsafe fn invoke_with_this(
         // mono body reads the class layout off `this`, so a primitive
         // receiver can never run it. Accessor faces don't answer the
         // method-face probe and keep their own not-callable path.
-        if let Some(adapter) = crate::method_value_class::class_method_face_adapter(env)
-            && is_cell(this_arg)
-        {
-            return invoke_boxed(as_void_ptr(this_arg), adapter, argv, argc);
+        if let Some(adapter) = crate::method_value_class::class_method_face_adapter(env) {
+            if is_cell(this_arg) {
+                return invoke_boxed(as_void_ptr(this_arg), adapter, argv, argc);
+            }
+            // S2.38 — a compiler-proven receiver-free body runs a
+            // bare / primitive-`this` call with a null receiver (ES
+            // §10.2.1.2: a this-free body runs regardless of the
+            // thisArgument). Receiver-reading bodies keep the bare
+            // entry's TypeError below — the mono body reads the
+            // class layout off `this`, so a primitive can never
+            // safely run those.
+            let flags = (env as *const u8).add(6).cast::<u16>().read();
+            if flags & torajs_rc::FLAG_CLASS_METHOD_THIS_FREE != 0 {
+                return invoke_boxed(core::ptr::null_mut(), adapter, argv, argc);
+            }
         }
         if recv_first_shift(env) != 0 {
             return invoke_boxed_recv_first(env, entry, this_arg, argv, argc);

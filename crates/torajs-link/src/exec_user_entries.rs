@@ -111,6 +111,9 @@ pub struct UserMethodMetaEntry {
     /// The boxed adapter's `FuncId` index into the link layer's
     /// `fn_vaddrs` slice.
     pub adapter_fn_id: u32,
+    /// S2.38 — MethodMeta flags word (bit 0 = this-free body); baked
+    /// into the elem's formerly-pad u32 at +12.
+    pub flags: u32,
 }
 
 /// W-J A3b — one per-field metadata row carried into the link layer.

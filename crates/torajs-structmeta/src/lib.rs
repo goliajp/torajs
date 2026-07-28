@@ -84,7 +84,8 @@ pub use accessor_table::{
 };
 pub use class_name::{__torajs_struct_class_name, ClassNameTableEntry};
 pub use method_table::{
-    __torajs_struct_accessor_method_find, __torajs_struct_method_find, MethodMeta,
+    __torajs_struct_accessor_method_find, __torajs_struct_method_find, METHOD_FLAG_THIS_FREE,
+    MethodMeta,
 };
 
 /// One outer-table entry — the same 24-byte record `torajs-cycle`'s

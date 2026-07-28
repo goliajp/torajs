@@ -14,7 +14,7 @@
 //! | 3     | [`FLAG_ARR_ANY`] (Arr) / [`FLAG_FN_GENERATOR`] (Closure) | disjoint-by-tag |
 //! | 4     | [`FLAG_FROZEN`] | universal |
 //! | 5     | [`FLAG_BUFFERED`] | universal (cycle collector) |
-//! | 6     | NULL_PROTO (torajs-dynobj private) | DynObj |
+//! | 6     | NULL_PROTO (torajs-dynobj private, DynObj) / [`FLAG_CLASS_METHOD_THIS_FREE`] (Closure) | disjoint-by-tag |
 //! | 7     | [`FLAG_ERROR`] (Obj) / [`FLAG_ARR_LENGTH_RO`] (Arr) / [`FLAG_FN_ASYNC`] (Closure) | disjoint-by-tag |
 //! | 8     | [`FLAG_NON_EXTENSIBLE`] | universal |
 //! | 9     | [`FLAG_SEALED`] | universal |
@@ -102,6 +102,15 @@ pub const FLAG_DYNOBJ_CLASS_CTOR: u16 = 1 << 10;
 /// (disjoint-by-tag reuse of Tag::Arr's element-kind field, bits
 /// 10-12); 13-14 stay off-limits per the module-doc occupancy map.
 pub const FLAG_CLOSURE_RECV_FIRST: u16 = 1 << 12;
+/// Tag::Closure reified class-method face whose mono body never
+/// reads its receiver (S2.38 — the compiler proves `__this` unused
+/// at the SSA level and bakes the bit through the MethodMeta flags
+/// word). A bare / primitive-`this` call of such a face runs the
+/// adapter with a null receiver instead of the this-undefined
+/// TypeError — ES §10.2.1.2 runs a this-free body regardless of the
+/// thisArgument. Bit 6 is Tag::Closure-private (disjoint-by-tag
+/// reuse of the DynObj NULL_PROTO bit).
+pub const FLAG_CLASS_METHOD_THIS_FREE: u16 = 1 << 6;
 /// `Tag::Arr` cell carries at least one array index with non-default
 /// property attributes (RFC 20260712-arr-exotic-define chunk B) — set
 /// by `Object.defineProperty(arr, index, desc)` when the resulting

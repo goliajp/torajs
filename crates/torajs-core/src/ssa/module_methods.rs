@@ -257,6 +257,13 @@ pub struct MethodMetaSpec {
     /// The boxed adapter fn — resolves to a vaddr through the
     /// `__torajs_fn_<i>` sym convention (vtable slots' mechanism).
     pub adapter_fid: FuncId,
+    /// S2.38 — the `__cm_` body never reads its receiver param
+    /// (proven at the SSA level). Baked into the MethodMeta flags
+    /// word so a bare / primitive-`this` call of the reified face
+    /// runs the body with a null receiver instead of the
+    /// this-undefined TypeError (ES §10.2.1.2 — a this-free body
+    /// runs regardless of the thisArgument).
+    pub this_free: bool,
 }
 
 #[derive(Debug, Clone)]

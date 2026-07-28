@@ -102,9 +102,9 @@ pub fn build_user_class_layouts_payload(
                     buf.len() - elem_start,
                     METHOD_META_NAME_LEN_OFFSET_IN_ELEM as usize
                 );
-                // name_len u32 + u32 pad.
+                // name_len u32 + flags u32 (S2.38 — bit 0 this-free).
                 buf.extend_from_slice(&(mm.name_bytes.len() as u32).to_le_bytes());
-                buf.extend_from_slice(&[0u8; 4]);
+                buf.extend_from_slice(&mm.flags.to_le_bytes());
                 debug_assert_eq!(
                     buf.len() - elem_start,
                     METHOD_META_ADAPTER_PTR_OFFSET_IN_ELEM as usize

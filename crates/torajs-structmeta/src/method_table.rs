@@ -49,10 +49,17 @@ pub struct MethodMeta {
     pub name_ptr: *const u8,
     /// Length of the method name in bytes.
     pub name_len: u32,
-    _pad: u32,
+    /// S2.38 — flags word (formerly pad; link bakes 0 for older
+    /// semantics). Bit 0 = [`METHOD_FLAG_THIS_FREE`].
+    pub flags: u32,
     /// The boxed adapter's vaddr (rebased at load time).
     pub adapter: *const core::ffi::c_void,
 }
+
+/// S2.38 — MethodMeta flags bit 0: the `__cm_` body never reads its
+/// receiver (compiler-proven at the SSA level), so a bare call may
+/// run it with a null receiver per ES §10.2.1.2.
+pub const METHOD_FLAG_THIS_FREE: u32 = 1;
 
 // Compile-time ABI lock against the emit side (same posture as the
 // field-meta block in lib.rs).
@@ -255,6 +262,27 @@ pub unsafe extern "C" fn __torajs_struct_method_at(
     m.adapter
 }
 
+/// The `idx`-th record's flags word (S2.38 — bit 0 =
+/// [`METHOD_FLAG_THIS_FREE`]); `0` for a NULL layout or an
+/// out-of-range index.
+///
+/// # Safety
+/// `layout` as above.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_struct_method_flags_at(
+    layout: *const StructLayoutEntry,
+    idx: u32,
+) -> u32 {
+    if layout.is_null() {
+        return 0;
+    }
+    // SAFETY: caller contract above.
+    match (unsafe { &*layout }).method(idx) {
+        Some(m) => m.flags,
+        None => 0,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -294,13 +322,13 @@ mod tests {
                 MethodMeta {
                     name_ptr: NAME_NEXT.as_ptr(),
                     name_len: NAME_NEXT.len() as u32,
-                    _pad: 0,
+                    flags: 0,
                     adapter: ADAPTER_A,
                 },
                 MethodMeta {
                     name_ptr: NAME_ADD.as_ptr(),
                     name_len: NAME_ADD.len() as u32,
-                    _pad: 0,
+                    flags: 0,
                     adapter: ADAPTER_B,
                 },
             ],
@@ -335,13 +363,13 @@ mod tests {
                 MethodMeta {
                     name_ptr: NAME_GETTER_B.as_ptr(),
                     name_len: NAME_GETTER_B.len() as u32,
-                    _pad: 0,
+                    flags: 0,
                     adapter: ADAPTER_A,
                 },
                 MethodMeta {
                     name_ptr: NAME_SETTER_B.as_ptr(),
                     name_len: NAME_SETTER_B.len() as u32,
-                    _pad: 0,
+                    flags: 0,
                     adapter: ADAPTER_B,
                 },
             ],

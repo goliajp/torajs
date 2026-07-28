@@ -53,7 +53,10 @@ unsafe extern "C" {
         out_name: *mut *const u8,
         out_len: *mut u32,
     ) -> *const c_void;
-    fn __torajs_class_method_cell_new(adapter: u64) -> *mut u8;
+    /// torajs-structmeta — the record's flags word (S2.38, bit 0 =
+    /// this-free body).
+    fn __torajs_struct_method_flags_at(layout: *const c_void, idx: u32) -> u32;
+    fn __torajs_class_method_cell_new(adapter: u64, this_free: u64) -> *mut u8;
     fn __torajs_builtin_method_cell(mid: i64) -> *mut u8;
     /// torajs-anyvalue — reified class-accessor face (RFC
     /// 20260718-accessor-reify 刀 2; name transfers).
@@ -308,7 +311,11 @@ unsafe fn reify_prototype_methods(tag: i64, proto: *mut c_void) {
             if name.starts_with(b"__getter_") || name.starts_with(b"__setter_") {
                 continue;
             }
-            let cell = __torajs_class_method_cell_new(adapter as u64);
+            // S2.38 — bit 0 of the MethodMeta flags word marks a
+            // receiver-free body; the face runs bare calls with a
+            // null receiver instead of the this-undefined TypeError.
+            let this_free = u64::from(__torajs_struct_method_flags_at(layout, i) & 1);
+            let cell = __torajs_class_method_cell_new(adapter as u64, this_free);
             let key = alloc_str_key(name);
             // The minted cell is FLAG_STATIC_LITERAL (rc no-op) — the
             // define's transferred stake is the entry's sole handle.

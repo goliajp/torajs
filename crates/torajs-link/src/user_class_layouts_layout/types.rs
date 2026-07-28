@@ -122,6 +122,9 @@ pub struct UserMethodMetaPlacement {
     /// The boxed adapter's fn id — indexes the link layer's
     /// `fn_vaddrs` slice at rebase-assembly time.
     pub adapter_fn_id: u32,
+    /// S2.38 — MethodMeta flags word (bit 0 = this-free body),
+    /// written into the elem's `+12` u32 (formerly pad).
+    pub flags: u32,
 }
 
 /// Per-entry placement — inner child_offsets global, per-field name

@@ -405,6 +405,7 @@ fn mmeta(name: &str, adapter_fn_id: u32) -> crate::exec::UserMethodMetaEntry {
     crate::exec::UserMethodMetaEntry {
         name: name.into(),
         adapter_fn_id,
+        flags: 0,
     }
 }
 

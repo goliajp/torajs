@@ -30,7 +30,7 @@
 
 use core::ffi::c_void;
 
-use torajs_rc::{FLAG_STATIC_LITERAL, Tag};
+use torajs_rc::{FLAG_CLASS_METHOD_THIS_FREE, FLAG_STATIC_LITERAL, Tag};
 
 use crate::nanbox::VALUE_UNDEFINED;
 
@@ -78,15 +78,27 @@ unsafe extern "C" fn class_native_entry() -> u64 {
 /// module init — the prototype's own entry keeps the sole reference,
 /// so no interning table is needed for identity (`C.prototype.m ===
 /// C.prototype.m` reads the same entry).
+///
+/// `this_free` (S2.38) — non-zero when the compiler proved the mono
+/// body never reads its receiver: the cell carries
+/// [`FLAG_CLASS_METHOD_THIS_FREE`] and `invoke_with_this` runs bare /
+/// primitive-`this` calls with a null receiver instead of the
+/// this-undefined TypeError (ES §10.2.1.2 — a this-free body runs
+/// regardless of the thisArgument).
 #[unsafe(no_mangle)]
-pub extern "C" fn __torajs_class_method_cell_new(adapter: u64) -> *mut u8 {
+pub extern "C" fn __torajs_class_method_cell_new(adapter: u64, this_free: u64) -> *mut u8 {
     // SAFETY: fresh CELL_SIZE allocation, fully initialized below.
     unsafe {
         let layout = core::alloc::Layout::from_size_align(CELL_SIZE, 8).unwrap();
         let cell = std::alloc::alloc_zeroed(layout);
         *(cell as *mut u32) = 1;
         *(cell.add(4) as *mut u16) = Tag::Closure as u16;
-        *(cell.add(6) as *mut u16) = FLAG_STATIC_LITERAL;
+        *(cell.add(6) as *mut u16) = FLAG_STATIC_LITERAL
+            | if this_free != 0 {
+                FLAG_CLASS_METHOD_THIS_FREE
+            } else {
+                0
+            };
         *(cell.add(CLOSURE_FN_ADDR_OFF) as *mut u64) = class_native_entry as *const () as u64;
         *(cell.add(CLOSURE_DROP_FN_OFF) as *mut u64) = 0;
         *(cell.add(CLOSURE_PROPS_OFF) as *mut u64) = 0;

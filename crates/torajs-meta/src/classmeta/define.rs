@@ -32,6 +32,7 @@ pub unsafe extern "C" fn __torajs_class_static_method_define(
     tag: i64,
     name_str: *const u8,
     adapter: u64,
+    this_free: u64,
 ) {
     if !in_range(tag) || name_str.is_null() || adapter == 0 {
         return;
@@ -46,7 +47,13 @@ pub unsafe extern "C" fn __torajs_class_static_method_define(
         return;
     }
     unsafe {
-        let cell = __torajs_class_method_cell_new(adapter);
+        // S2.38 — a static body never depends on a runtime receiver
+        // (its `this` resolves to the class object at parse time and
+        // the `__sm_` adapter drops its env argument); the compiler
+        // still gates the flag on a lossless argument surface
+        // (all-`Any` params, no caller-side defaults), so the emit
+        // side decides and this define just carries the verdict.
+        let cell = __torajs_class_method_cell_new(adapter, this_free);
         let mut slot = class_anyv as *mut c_void;
         __torajs_dynobj_define(
             &mut slot,
