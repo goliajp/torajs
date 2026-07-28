@@ -447,6 +447,13 @@ pub(crate) unsafe fn builtin_symbol_iterator_lookup(
         t if t == Tag::Arr as u16 => (2, torajs_rc::ANY_METHOD_VALUES),
         t if t == Tag::Map as u16 => (11, torajs_rc::ANY_METHOD_ENTRIES),
         t if t == Tag::Set as u16 => (12, torajs_rc::ANY_METHOD_VALUES),
+        // §22.1.3.36 — no named alias; the dedicated own id (a
+        // Substr view shares Tag::Str). A StringWrapper inherits
+        // the same String.prototype face (§22.1.5's this is
+        // ToString-generic).
+        t if t == Tag::Str as u16 || t == Tag::StringWrapper as u16 => {
+            (3, torajs_rc::ANY_METHOD_STR_ITERATOR)
+        }
         _ => return None,
     };
     Some(builtin_method_cell(family, mid))

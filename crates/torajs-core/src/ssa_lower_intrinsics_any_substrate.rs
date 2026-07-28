@@ -186,6 +186,9 @@ pub(crate) struct AnySubstrateIds {
     pub closure_call_variadic: FuncId,
     pub any_method_call: FuncId,
     pub any_method_call_opt: FuncId,
+    /// §13.3.6.2 `recv[key](args…)` with a runtime key — RFC
+    /// 20260728-gen-forof-yieldstar F0b.
+    pub any_index_method_call: FuncId,
     pub any_method_probe: FuncId,
     pub any_prop_delete: FuncId,
     pub any_prop_has: FuncId,
@@ -378,6 +381,14 @@ pub(crate) fn declare(
         any_method_call_opt: decl!(
             "__torajs_any_method_call_opt",
             [Any, I64, Ptr, Ptr, Ptr, I64],
+            Any
+        ),
+        // §13.3.6.2 `recv[key](args…)` — runtime ToPropertyKey then
+        // the by-name/symbol method dispatch with recv as thisValue
+        // (RFC 20260728-gen-forof-yieldstar F0b).
+        any_index_method_call: decl!(
+            "__torajs_any_index_method_call",
+            [Any, Any, Ptr, Ptr, I64],
             Any
         ),
         any_method_probe: decl!("__torajs_any_method_probe", [Any, I64, Ptr], I64),

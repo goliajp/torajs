@@ -144,9 +144,17 @@ unsafe fn probe_dict(dict: *const c_void, key: *const c_void) -> Option<(u64, u6
 /// Cell receivers are live heap pointers; `key` is a live Symbol cell.
 pub(crate) unsafe fn symbol_key_pair(recv: AnyValue, key: *const c_void) -> (u64, u64) {
     // A primitive receiver boxes to a wrapper with no own symbol-keyed
-    // property, and tr's builtin prototypes carry none either, so
-    // there is nothing to find.
+    // property, and tr's builtin prototypes carry none either — the
+    // only inherited symbol face a primitive CAN see is the F0
+    // builtin `@@iterator` reify. A ShortStr is not a cell, so it
+    // consults the reify table directly under its Str family.
     let Some((ptr, t)) = recv_cell(recv) else {
+        if crate::nanbox::is_short_str(recv)
+            && let Some(cell) =
+                unsafe { crate::method_value::builtin_symbol_iterator_lookup(Tag::Str as u16, key) }
+        {
+            return (4, cell as u64);
+        }
         return (TAG_UNDEF, 0);
     };
     if let Some(pair) = unsafe { probe_dict(own_dict(ptr, t), key) } {

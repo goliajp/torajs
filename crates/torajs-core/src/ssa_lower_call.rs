@@ -42,6 +42,13 @@ pub(crate) fn lower(
     if let Some(op) = crate::ssa_lower_any_method_call::try_lower(ctx, callee, args) {
         return op;
     }
+    // RFC 20260728-gen-forof-yieldstar F0b — `recv[key](args…)` on an
+    // any receiver is a METHOD call (§13.3.6.2 thisValue = base);
+    // claims the Index callee before the bare any-call layer would
+    // read it as a value and call it receiverless.
+    if let Some(op) = crate::ssa_lower_index_any_method_call::try_lower(ctx, callee, args) {
+        return op;
+    }
     // RFC C4+ — bare call on an `any`-typed callee (`f(1)` where f
     // erased to any) routes to the runtime closure dispatch.
     if let Some(op) = crate::ssa_lower_any_call::try_lower(ctx, callee, args) {

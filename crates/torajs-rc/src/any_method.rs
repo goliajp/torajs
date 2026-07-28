@@ -442,6 +442,15 @@ pub const ANY_METHOD_SYMBOL_VALUE_OF: i64 = 167;
 /// gOPD hands out; thisSymbolValue throws a TypeError on every
 /// non-Symbol receiver.
 pub const ANY_METHOD_GET_DESCRIPTION: i64 = 168;
+/// The reified `String.prototype[Symbol.iterator]` cell's OWN id
+/// (§22.1.3.36 — RFC 20260728-gen-forof-yieldstar F0, string leg).
+/// Unlike Array/Map/Set, the string iterator has NO named prototype
+/// alias, so the cell carries this dedicated id; it never interns
+/// from a name. The body is receiver-generic — ToString(this), then
+/// a VALUES iterator over the character array (per-code-unit, the
+/// any-lane for-of tier's documented deviation from §22.1.5.1's
+/// per-code-point walk).
+pub const ANY_METHOD_STR_ITERATOR: i64 = 169;
 
 /// RegExp property-read ids (Any-method-call RFC 20260704 C4-3c-2)
 /// — `r.source` / `r.lastIndex` / flag booleans through an `any`

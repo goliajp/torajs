@@ -420,6 +420,7 @@ pub(crate) fn build(
         closure_call_variadic: init_c.any_substrate.closure_call_variadic,
         any_method_call: init_c.any_substrate.any_method_call,
         any_method_call_opt: init_c.any_substrate.any_method_call_opt,
+        any_index_method_call: init_c.any_substrate.any_index_method_call,
         any_method_probe: init_c.any_substrate.any_method_probe,
         any_prop_delete: init_c.any_substrate.any_prop_delete,
         any_prop_has: init_c.any_substrate.any_prop_has,

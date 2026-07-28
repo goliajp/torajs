@@ -305,6 +305,13 @@ unsafe fn any_method_call_dispatch(
     if mid == torajs_rc::ANY_METHOD_GET_DESCRIPTION {
         return unsafe { crate::method_call_cell::symbol_description_getter(recv) };
     }
+    // §22.1.3.36 — the reified `String.prototype[Symbol.iterator]`
+    // cell (F0 string leg): receiver-generic ToString(this), then a
+    // VALUES ArrIter over the character array. The id never interns;
+    // the nullish guard above is RequireObjectCoercible.
+    if mid == torajs_rc::ANY_METHOD_STR_ITERATOR {
+        return unsafe { crate::str_iterator::str_iterator_mint(recv) };
+    }
     // §20.5.3.4 — the dedicated Error.prototype.toString cell:
     // generic Get(name)/Get(message) steps over any object receiver
     // (FLAG_ERROR instances ride the fixed-offset fast lane inside).
