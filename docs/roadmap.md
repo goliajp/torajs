@@ -2534,7 +2534,19 @@ One cluster family, split by what the lost name is:
       refusal of indirect eval?) and **write the RFC first**. Whatever
       the decision, it lands in the subset-decision register (S7.2) —
       cases a refusal leaves incompatible must be attributed, not left
-      as an anonymous cluster
+      as an anonymous cluster.
+      **RFC drafted 2026-07-28** (`.claude/rfcs/20260728-eval-shape/`,
+      rotation 241): a full per-case call-shape census @ `2879793f`
+      puts **91.2 % of the cluster's eval arguments in compile-time
+      literals** (direct-literal 840 / indirect-literal 142 / dynamic
+      43 / value-ref 29 / aliased 21 / indirect-dynamic 2, of 1077).
+      Proposed shape: staged static expansion (E1 global object +
+      attributed refusal → E2 indirect-literal → E3 direct-literal,
+      completion-value machinery as the shared prerequisite), dynamic
+      eval deferred to a post-v1.0 runtime tier (E4, a phase not a
+      refusal); the register entry covers only the 66 dynamic cases.
+      **Awaiting takagi sign-off** — the register entry format is the
+      precedent-setter
 - [ ] **S4.2** `arguments` object — **426** at two stages (checker
       `unknown identifier` 389, ssa-lower 37)
 - [ ] **S4.3** `with` statement — 65 seen via the `__this` cluster;
