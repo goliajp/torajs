@@ -176,6 +176,7 @@ impl<'a> FnToClosureCollector<'a> {
                 }
             }
         }
+        self.mark_any_recv_member_args(callee, args);
         // Chunk 617 — replace-cb argument site (see module
         // doc): the runtime's functional-replaceValue lane
         // needs a closure cell, so a named top fn wraps.
@@ -235,6 +236,36 @@ impl<'a> FnToClosureCollector<'a> {
         self.walk_expr(*callee);
         for arg in args {
             self.walk_expr(*arg);
+        }
+    }
+
+    /// RFC 20260729-fn-value-any V1 — a user top-FnDecl Ident
+    /// argument of a member call whose receiver cannot be statically
+    /// typed: an `any`-bound ident receiver (`p.then(done)`, p: any)
+    /// or a chained expression receiver (`ref(3).next().then($DONE,
+    /// $DONE)` — the t262 async harness tail on every async case,
+    /// the whole box_to_any FnSig 720-cluster's shared trigger). The
+    /// callee rides the runtime any-method lane, whose argv boxes
+    /// into the any world — a raw FnSig has no arm there. A TYPED
+    /// ident receiver keeps its args unwrapped so `xs.map(topFn)`
+    /// hot paths stay on raw-FnSig direct dispatch; a typed chained
+    /// receiver (`getArr().map(topFn)`) only costs the wrap —
+    /// closure values are legal fn-param arguments.
+    fn mark_any_recv_member_args(&mut self, callee: &ExprId, args: &[ExprId]) {
+        let Expr::Member { obj, .. } = self.ast.get_expr(*callee) else {
+            return;
+        };
+        let typed_ident_recv = matches!(
+            self.ast.get_expr(*obj),
+            Expr::Ident(n) if !self.any_bindings.contains(n)
+        );
+        if typed_ident_recv {
+            return;
+        }
+        for &arg in args {
+            if !self.is_generator_family_ident(arg) {
+                self.try_mark(arg);
+            }
         }
     }
 
