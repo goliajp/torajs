@@ -226,7 +226,11 @@ fn desugar_closure_shape_fn(
     cap_anns: &std::collections::HashMap<String, std::collections::HashMap<String, String>>,
     fn_sigs: &std::collections::HashMap<String, String>,
 ) {
-    if first_kind == Some("__env") && is_synth_closure_name(name) {
+    if (first_kind == Some("__env") && is_synth_closure_name(name)) || first_kind == Some("__this")
+    {
+        // `__this`-first = desugared class methods (incl. synthesized
+        // `__param_destr_N` holders) + bind_this_param-promoted fns —
+        // implicit-any surfaces per TS noImplicitAny=false.
         for p in params.iter_mut().skip(1) {
             if p.type_ann.is_none() {
                 p.type_ann = Some("any".to_string());
