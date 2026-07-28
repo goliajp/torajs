@@ -152,6 +152,73 @@ impl<'a> Parser<'a> {
         Ok((member_name, consumed_computed_name))
     }
 
+    /// Field-declaration dispatch — the `:` / `=` / `;` / `}` arms
+    /// of the member loop share one 10-parameter surface and differ
+    /// only in which field parser runs (rotation 240: collapsed out
+    /// of `parse_class_decl_with_abstract` when the S2.40 empty-
+    /// element skip pushed it past the 200-line fn limit).
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn parse_class_member_field_dispatch(
+        &mut self,
+        name: &str,
+        member_name: String,
+        consumed_computed_name: bool,
+        explicit_visibility: Option<ast::Visibility>,
+        is_readonly: bool,
+        is_abstract_method: bool,
+        is_static: bool,
+        fields: &mut Vec<(String, String)>,
+        static_init: &mut Vec<StaticInit>,
+        field_inits: &mut Vec<(String, ExprId)>,
+    ) -> Result<(), String> {
+        // Same lookahead the member loop matched on: the member name
+        // is still unconsumed unless the computed-name path already
+        // ate it (`name + ]`), so the shape token sits one ahead.
+        let idx = if consumed_computed_name {
+            self.pos
+        } else {
+            self.pos + 1
+        };
+        match self.tokens.get(idx).map(|t| &t.token) {
+            Some(Token::Colon) => self.parse_class_member_field_typed(
+                name,
+                member_name,
+                consumed_computed_name,
+                explicit_visibility,
+                is_readonly,
+                is_abstract_method,
+                is_static,
+                fields,
+                static_init,
+                field_inits,
+            ),
+            Some(Token::Eq) => self.parse_class_member_field_untyped(
+                name,
+                member_name,
+                consumed_computed_name,
+                explicit_visibility,
+                is_readonly,
+                is_abstract_method,
+                is_static,
+                fields,
+                static_init,
+                field_inits,
+            ),
+            _ => self.parse_class_member_field_bare(
+                name,
+                member_name,
+                consumed_computed_name,
+                explicit_visibility,
+                is_readonly,
+                is_abstract_method,
+                is_static,
+                fields,
+                static_init,
+                field_inits,
+            ),
+        }
+    }
+
     /// Untyped class field with initializer (`name = init` /
     /// `static name = init`, V3-18) — type inferred from a literal
     /// initializer shape. Sibling of the chunk-175 typed-field

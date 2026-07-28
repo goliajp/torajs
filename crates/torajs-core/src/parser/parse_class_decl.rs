@@ -174,44 +174,12 @@ impl<'a> Parser<'a> {
                         continue;
                     }
                 }
-                Some(Token::Colon) => {
-                    // field declaration with explicit type ann — extracted
-                    // to sub-sibling (chunk 175, 2026-06-28).
-                    self.parse_class_member_field_typed(
-                        &name,
-                        member_name,
-                        consumed_computed_name,
-                        explicit_visibility,
-                        is_readonly,
-                        is_abstract_method,
-                        is_static,
-                        &mut fields,
-                        &mut static_init,
-                        &mut field_inits,
-                    )?;
-                }
-                Some(Token::Eq) => {
-                    // Untyped field with initializer (`name = init`)
-                    // — split to `parse_class_decl_member.rs`.
-                    self.parse_class_member_field_untyped(
-                        &name,
-                        member_name,
-                        consumed_computed_name,
-                        explicit_visibility,
-                        is_readonly,
-                        is_abstract_method,
-                        is_static,
-                        &mut fields,
-                        &mut static_init,
-                        &mut field_inits,
-                    )?;
-                }
-                Some(Token::Semi) | Some(Token::RBrace) => {
-                    // S2.29 — bare field declaration (`name;` /
-                    // trailing `name }`): an `any` slot initialized
-                    // to `undefined`. Split to
-                    // `parse_class_member_field.rs`.
-                    self.parse_class_member_field_bare(
+                Some(Token::Colon) | Some(Token::Eq) | Some(Token::Semi) | Some(Token::RBrace) => {
+                    // Field declaration — typed (`:`), initialized
+                    // (`=`), or bare (`;` / trailing `}`). One
+                    // shared-surface dispatch in
+                    // `parse_class_decl_member.rs`.
+                    self.parse_class_member_field_dispatch(
                         &name,
                         member_name,
                         consumed_computed_name,
