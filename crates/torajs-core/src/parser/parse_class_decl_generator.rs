@@ -186,6 +186,22 @@ impl<'a> Parser<'a> {
 
         Self::rewrite_supercalls_in_range(&mut self.ast, body_expr_start, parent);
 
+        // RFC 20260729-fn-value-any V2a — whether the body observes
+        // its receiver at all. Every `this` minted
+        // `Ident(GEN_RECV_PARAM)` during the body parse, and the
+        // super rewrite above minted the same name for its receiver
+        // argument, so one arena sweep over the body's expr range
+        // answers both. A receiver-free body lets the forwarder pass
+        // `undefined` instead of `this`, which makes the forwarder
+        // itself this-free: the S2.38 metadata pass stamps
+        // FLAG_CLASS_METHOD_THIS_FREE and a detached
+        // `C.prototype.g` bare call (`let ref = C.prototype.m;
+        // ref(5)`, the t262 dflt-params template family's shape)
+        // runs instead of the receiver TypeError.
+        let body_reads_recv = self.ast.exprs[body_expr_start..]
+            .iter()
+            .any(|e| matches!(e, Expr::Ident(n) if n == GEN_RECV_PARAM));
+
         // The hoisted generator: receiver first, then the user's params.
         // An instance receiver carries the declaring class's own name
         // (S2.11): `super.m()` rewrites below to `__cm_<Parent>__<m>`,
@@ -205,9 +221,15 @@ impl<'a> Parser<'a> {
                 .gen_param_destr_prefix
                 .insert(synth_name.clone(), destr_prefix);
         }
+        // A receiver-free body (V2a) relaxes the instance receiver's
+        // nominal ann to `any`: nothing reads the slot, and the
+        // forwarder passes `undefined`, which a nominal-typed param
+        // would refuse at check time. The nominal ann stays for
+        // bodies that DO read it — `super.m()`'s rewrite depends on
+        // it (S2.11), and those minted the name so they keep `this`.
         let mut synth_params = vec![Param {
             name: GEN_RECV_PARAM.into(),
-            type_ann: Some(if is_static {
+            type_ann: Some(if is_static || !body_reads_recv {
                 "any".into()
             } else {
                 class_name.to_string()
@@ -240,9 +262,17 @@ impl<'a> Parser<'a> {
             span,
         });
 
-        // The forwarder: `return __cm_gen_C__g(this, ...params)`.
+        // The forwarder: `return __cm_gen_C__g(this, ...params)` —
+        // or `undefined` in place of `this` for a receiver-free body
+        // (V2a), which is what lets the metadata pass prove the
+        // forwarder this-free.
         let callee = self.ast.add_expr(Expr::Ident(synth_name));
-        let mut args = vec![self.ast.add_expr(Expr::This)];
+        let recv_arg = if body_reads_recv {
+            self.ast.add_expr(Expr::This)
+        } else {
+            self.ast.add_expr(Expr::Ident("undefined".into()))
+        };
+        let mut args = vec![recv_arg];
         for p in &params {
             args.push(self.ast.add_expr(Expr::Ident(p.name.clone())));
         }
