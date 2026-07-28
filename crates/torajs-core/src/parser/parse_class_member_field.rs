@@ -95,4 +95,62 @@ impl<'a> Parser<'a> {
         }
         Ok(())
     }
+
+    /// P-SURF S2.29 — bare field declaration `name;` / `name }` (a
+    /// `FieldDefinition ;` with no annotation and no initializer, ES
+    /// §15.7). The field exists on every instance with the value
+    /// `undefined` until written, so it registers as an `any` slot
+    /// with an explicit `undefined` init (`c1.x` before any write must
+    /// answer `undefined`, not slot garbage). `static name;` mirrors
+    /// through the static-field lane with the same synthesized init.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn parse_class_member_field_bare(
+        &mut self,
+        name: &str,
+        member_name: String,
+        consumed_computed_name: bool,
+        explicit_visibility: Option<ast::Visibility>,
+        is_readonly: bool,
+        is_abstract_method: bool,
+        is_static: bool,
+        fields: &mut Vec<(String, String)>,
+        static_init: &mut Vec<StaticInit>,
+        field_inits: &mut Vec<(String, ExprId)>,
+    ) -> Result<(), String> {
+        if is_abstract_method {
+            return Err(format!(
+                "`abstract` modifier is only valid on methods, not on field `{member_name}` in class `{name}` at {}",
+                self.at()
+            ));
+        }
+        if !consumed_computed_name {
+            self.pos += 1; // consume the member name; cursor on `;` / `}`
+        }
+        if matches!(self.peek(), Token::Semi) {
+            self.pos += 1;
+        }
+        let visibility = explicit_visibility.unwrap_or(ast::Visibility::Public);
+        if visibility != ast::Visibility::Public {
+            self.ast
+                .member_visibility
+                .insert((name.to_string(), member_name.clone()), visibility);
+        }
+        if is_readonly {
+            self.ast
+                .readonly_fields
+                .insert((name.to_string(), member_name.clone()));
+        }
+        let undef = self.ast.add_expr(Expr::Ident("undefined".into()));
+        if is_static {
+            static_init.push(StaticInit::Field(ast::StaticField {
+                name: member_name,
+                type_ann: "any".into(),
+                init: undef,
+            }));
+        } else {
+            fields.push((member_name.clone(), "any".into()));
+            field_inits.push((member_name, undef));
+        }
+        Ok(())
+    }
 }

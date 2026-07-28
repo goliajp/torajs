@@ -197,6 +197,24 @@ impl<'a> Parser<'a> {
                         &mut field_inits,
                     )?;
                 }
+                Some(Token::Semi) | Some(Token::RBrace) => {
+                    // S2.29 — bare field declaration (`name;` /
+                    // trailing `name }`): an `any` slot initialized
+                    // to `undefined`. Split to
+                    // `parse_class_member_field.rs`.
+                    self.parse_class_member_field_bare(
+                        &name,
+                        member_name,
+                        consumed_computed_name,
+                        explicit_visibility,
+                        is_readonly,
+                        is_abstract_method,
+                        is_static,
+                        &mut fields,
+                        &mut static_init,
+                        &mut field_inits,
+                    )?;
+                }
                 t => {
                     return Err(format!(
                         "expected `(` (method) or `:` (field) after `{member_name}`, got {t:?} at {}",
