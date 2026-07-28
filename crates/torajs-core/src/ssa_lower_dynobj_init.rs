@@ -281,6 +281,29 @@ impl<'a> LowerCtx<'a> {
             // field evaluates its key at runtime (field order = spec
             // evaluation order) and stores under the ToString'd name.
             if let Some(&key_eid) = self.ast.objlit_computed_keys.get(&fval_eid) {
+                // P-SURF S2.27 — a computed ACCESSOR face routes
+                // through the accessor define kernel with the runtime
+                // key (`DefineKey::Expr` — §7.1.19 Symbol pass-through
+                // included); a computed data field keeps the
+                // key-parameterized store.
+                if let Some(&is_get) = self.ast.objlit_computed_accessors.get(&fval_eid) {
+                    let what = if is_get {
+                        "accessor getter"
+                    } else {
+                        "accessor setter"
+                    };
+                    self.guard_anylane_recv_face(fval_eid, what);
+                    crate::ssa_lower_accessor::emit_accessor_define_into(
+                        self,
+                        slot,
+                        &crate::ssa_lower_object_define::DefineKey::Expr(key_eid),
+                        if is_get { Some(fval_eid) } else { None },
+                        if is_get { None } else { Some(fval_eid) },
+                        Some(true),
+                        Some(true),
+                    );
+                    continue;
+                }
                 self.emit_dynobj_computed_field(slot, key_eid, fval_eid);
                 continue;
             }

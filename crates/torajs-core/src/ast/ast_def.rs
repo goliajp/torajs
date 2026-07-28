@@ -238,6 +238,12 @@ pub struct Ast {
     /// keep their `__sym_<chain>__` encoding (the iterator-protocol
     /// consumers), so neither appears here.
     pub objlit_computed_keys: std::collections::HashMap<ExprId, ExprId>,
+    /// P-SURF S2.27 — the accessor subset of `objlit_computed_keys`:
+    /// `{ get [expr]() {} }` / `{ set [expr](v) {} }` faces, keyed by
+    /// the face ExprId, `true` = getter. The dynobj-init computed arm
+    /// routes a member in this set through the accessor define kernel
+    /// (`DefineKey::Expr`) instead of the data-field store.
+    pub objlit_computed_accessors: std::collections::HashMap<ExprId, bool>,
     /// RFC 20260718-builtin-error-ctor-first-class 刀 1 — the class
     /// names `inject_builtin_classes` synthesized (Error + the
     /// NativeError subclasses). class_globals emits the

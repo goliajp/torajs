@@ -39,13 +39,19 @@ fn accessor_ret_kind(ctx: &LowerCtx, op: &Operand) -> i64 {
     }
 }
 
-/// Setter param kind — the closure's user value parameter (param 1,
-/// after the env-first lifted `__env`) → [`accessor_kind_of`].
+/// Setter param kind — the closure's user value parameter →
+/// [`accessor_kind_of`]. A `Closure`/`FnSig` signature is the USER
+/// face: the lifted `__env` is a codegen detail and never enters
+/// `fn_sigs` params, so the value parameter is `.first()` (S2.27
+/// probe: `set(v: number)` interned as `([I64], Void)`; the prior
+/// `.get(1)` env-first read answered None → ACC_KIND_ANY, and the
+/// invoke handed the NaN-box verbatim to an i64-ABI body — every
+/// typed-param setter behind the define kernel read box bits).
 fn accessor_param_kind(ctx: &LowerCtx, op: &Operand) -> i64 {
     match ctx.operand_ty(op) {
         Type::Closure(sid) | Type::FnSig(sid) => ctx.fn_sigs[sid.0 as usize]
             .0
-            .get(1)
+            .first()
             .map_or(0, accessor_kind_of),
         _ => 0,
     }

@@ -329,10 +329,18 @@ impl<'a> Parser<'a> {
         if !((name == "get" || name == "set")
             && matches!(
                 self.peek(),
-                Token::Ident(_) | Token::String(_) | Token::Number(_)
+                Token::Ident(_) | Token::String(_) | Token::Number(_) | Token::LBracket
             ))
         {
             return Ok(None);
+        }
+        // P-SURF S2.27 — computed accessor name `{ get [expr]() {} }` /
+        // `{ set [expr](v) {} }` per §13.2.5 ComputedPropertyName in a
+        // MethodDefinition accessor. See `object_literal_computed.rs`.
+        if matches!(self.peek(), Token::LBracket) {
+            return self
+                .parse_computed_accessor(name, member_start_pos)
+                .map(Some);
         }
         // P0.10 — getter / setter shorthand also accepts string-
         // literal and numeric-literal property names per ES spec

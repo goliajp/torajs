@@ -179,6 +179,57 @@ impl<'a> Parser<'a> {
         Ok((name, value))
     }
 
+    /// P-SURF S2.27 — computed accessor name: `{ get [expr]() {} }` /
+    /// `{ set [expr](v) {} }` (§13.2.5 ComputedPropertyName in an
+    /// accessor MethodDefinition). Caller has consumed the `get`/`set`
+    /// keyword and sits on the `[`. A literal-string whole key folds
+    /// to the static `__getter_<k>` / `__setter_<k>` slot (same fold
+    /// as `try_parse_computed_property`); every other key parses as a
+    /// runtime computed key — sentinel field name, key expr in
+    /// `objlit_computed_keys`, accessor kind in
+    /// `objlit_computed_accessors` so the dynobj-init computed arm
+    /// routes the face through the accessor define kernel.
+    pub(super) fn parse_computed_accessor(
+        &mut self,
+        kind: &str,
+        member_start_pos: usize,
+    ) -> Result<(String, ExprId), String> {
+        self.pos += 1;
+        if let Token::String(s) = self.peek()
+            && matches!(self.tokens[self.pos + 1].token, Token::RBracket)
+        {
+            let prop = s.clone();
+            self.pos += 2;
+            let value = self.parse_method_like_value(
+                member_start_pos,
+                false,
+                &format!("{kind}ter `{prop}`"),
+            )?;
+            return Ok((format!("__{kind}ter_{prop}"), value));
+        }
+        let key_expr = self.parse_assign()?;
+        match self.peek() {
+            Token::RBracket => self.pos += 1,
+            t => {
+                return Err(format!(
+                    "expected `]` after computed accessor key, got {t:?} at {}",
+                    self.at()
+                ));
+            }
+        }
+        let value = self.parse_method_like_value(
+            member_start_pos,
+            false,
+            &format!("computed-key {kind}ter"),
+        )?;
+        let name = format!("__computed_{}__", self.ast.objlit_computed_keys.len());
+        self.ast.objlit_computed_keys.insert(value, key_expr);
+        self.ast
+            .objlit_computed_accessors
+            .insert(value, kind == "get");
+        Ok((name, value))
+    }
+
     /// §B.3.1 step 5 — the `__proto__: v` [[Prototype]]-set special
     /// case requires `IsComputedPropertyKey(propKey)` to be FALSE: a
     /// computed `['__proto__']` key defines an ordinary own property.
