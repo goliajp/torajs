@@ -1892,6 +1892,39 @@ touches runtime hot paths.
       adapter synthesis moved after the stamp-pool build so Obj
       params resolve their class_tag.
 
+- [x] **S2.37** static private class members — shipped `e6893e38` +
+      `77fb4cff` (rotation 239, cluster #1: 1482 cases / 4 dirs).
+      The two parser rejects drop away: a pre-mangled
+      `__priv_<C>__<n>` flows through the `__sf_/__sm_` static
+      machinery with zero new lanes. `this` in a static
+      method/accessor body mints `Ident(<ClassName>)` at parse time
+      (ES §15.7.14; the S2.1 `in_gen_class_method` precedent), so
+      `this.#x` / `this.m` resolve via the existing static-member
+      rewrite. `get #p()` / `set #p(v)` accepted as accessor names.
+      Two bycatches: `x.#p` OUTSIDE any class body had rotted into a
+      silent `undefined` — now the §13.1 early SyntaxError; and the
+      dominant t262 consumption shape (`static get m() { return
+      this.#m }`, a None-ann `__sm_*_get`) needed the L3b #8 return
+      axis widened from explicit `:any` to missing annotations (a
+      bare fn-ident return under an inferred-Any slot always died
+      loud at box_to_any).
+
+- [x] **S2.38 / S2.39** receiver-free method faces run bare calls +
+      the boxed adapter substitutes literal defaults — shipped
+      `790a21c1` + `7b193f4a` (rotation 239). Detached
+      `C.prototype.m` values (`var ref = C.prototype.method;
+      ref(42, undefined, 1)`, the dflt-params / forbidden-ext t262
+      shape) stop dying on the S2.34 this-undefined TypeError when
+      the compiler proves the body never observes its receiver AND
+      the adapter argument surface is lossless (undefaulted params
+      Any; Number/Bool literal defaults baked into the adapter via
+      the `__torajs_anyv_or_default` kernel — which also fixed a
+      PRE-EXISTING silent wrong: `c.method(42, undefined)` through
+      the any lane answered 42 instead of applying the default, on
+      every dispatch path through the adapter). Expression defaults
+      and async/gen wrappers (they feed `__this` into the state
+      machine) conservatively keep the loud TypeError.
+
 - [x] **S2.1** `*f() {}` generator methods — one grammar point, three
       positions, **3085 cases**, all three shipped in rotation 226. It
       was listed as parser-only; that held for one position and **not**
