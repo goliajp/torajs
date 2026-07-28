@@ -66,17 +66,18 @@ pub unsafe extern "C" fn __torajs_any_index_method_call(
             return unsafe { symbol_keyed_call(recv, as_void_ptr(key), argv, argc) };
         }
         if kt == Tag::Str as u16 {
-            return unsafe {
+            let r = unsafe {
                 str_keyed_call(recv, as_void_ptr(key) as *const u8, recv_slot, argv, argc)
             };
+            return unsafe { settle_str_lane(r, recv, key, argv, argc) };
         }
     }
     if is_short_str(key) {
         // SAFETY: materializes a fresh rc=1 Str; dropped below.
         let s = unsafe { materialize_short_str(key) };
-        let out = unsafe { str_keyed_call(recv, s as *const u8, recv_slot, argv, argc) };
+        let r = unsafe { str_keyed_call(recv, s as *const u8, recv_slot, argv, argc) };
         unsafe { drop_materialized_str(s) };
-        return out;
+        return unsafe { settle_str_lane(r, recv, key, argv, argc) };
     }
     // Numeric / bool / nullish key — ToString (§7.1.19 step 3),
     // then the string lane. Fresh owned Str, released after.
@@ -84,16 +85,17 @@ pub unsafe extern "C" fn __torajs_any_index_method_call(
     if s.is_null() {
         return unsafe { not_callable() };
     }
-    let out = unsafe { str_keyed_call(recv, s as *const u8, recv_slot, argv, argc) };
+    let r = unsafe { str_keyed_call(recv, s as *const u8, recv_slot, argv, argc) };
     // SAFETY: to_str minted the cell for us.
     unsafe { crate::__torajs_str_drop(s as *mut c_void) };
-    out
+    unsafe { settle_str_lane(r, recv, key, argv, argc) }
 }
 
 /// The string-key leg — intern the name and re-enter the by-name
 /// dispatch. A mid-miss gets the builtin-proto patch consult (the
-/// named form's §10.1.9.2 chain step) before the standard
-/// TypeError, so `o["m"]()` and `o.m()` resolve identically.
+/// named form's §10.1.9.2 chain step); a full miss floats
+/// `ANY_METHOD_NO_SUCH` back so the entry runs the value-call
+/// fallback with the ORIGINAL key.
 unsafe fn str_keyed_call(
     recv: AnyValue,
     name_cell: *const u8,
@@ -103,17 +105,39 @@ unsafe fn str_keyed_call(
 ) -> AnyValue {
     let mid = unsafe { crate::method_value::key_method_id(name_cell as *const c_void) };
     let r = unsafe { any_method_call_inner(recv, mid, name_cell, recv_slot, argv, argc) };
-    if r == crate::method_call::ANY_METHOD_NO_SUCH {
-        if let Some(out) = unsafe {
+    if r == crate::method_call::ANY_METHOD_NO_SUCH
+        && let Some(out) = unsafe {
             crate::method_call_proto_patch::builtin_proto_patch_method(
                 recv, mid, name_cell, argv, argc,
             )
-        } {
-            return out;
         }
-        return unsafe { not_callable() };
+    {
+        return out;
     }
     r
+}
+
+/// Resolve a string-lane `ANY_METHOD_NO_SUCH` float: properties the
+/// method-dispatch surface cannot see (an Array element under a
+/// canonical-index key, a string-keyed slot only the indexed read
+/// serves) get the §13.3.6.2 fallback — keyed property read, then
+/// the bare any-call on the value (`arr[0](x)` calls the element;
+/// a non-callable read keeps the standard TypeError).
+unsafe fn settle_str_lane(
+    r: AnyValue,
+    recv: AnyValue,
+    key: AnyValue,
+    argv: *const u64,
+    argc: i64,
+) -> AnyValue {
+    if r != crate::method_call::ANY_METHOD_NO_SUCH {
+        return r;
+    }
+    // Owned read (+1 for cells); the call borrows the callee.
+    let v = unsafe { crate::index_any_keyed::__torajs_any_index_get_keyed(recv, key) };
+    let out = unsafe { crate::method_call_closure_dispatch::__torajs_any_call(v, argv, argc) };
+    unsafe { crate::nanbox_ffi::__torajs_anyv_rc_dec(v) };
+    out
 }
 
 /// The symbol-key leg — resolve through the symbol face (dict /
