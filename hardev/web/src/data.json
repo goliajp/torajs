@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-28T04:02:53.591Z",
+  "generatedAt": "2026-07-28T07:55:34.492Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-28T03:56:36Z",
-    "headSha": "591c5fd5",
-    "elapsedSec": 255.9,
+    "ranAt": "2026-07-28T07:49:56Z",
+    "headSha": "c56c47ca",
+    "elapsedSec": 263.21,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 12819,
-    "passNoOracle": 217,
+    "pass": 13153,
+    "passNoOracle": 233,
     "passNegative": 4490,
-    "passTotal": 17526,
-    "bug": 1534,
-    "incompatible": 34114,
+    "passTotal": 17876,
+    "bug": 1641,
+    "incompatible": 33657,
     "bunSkip": 7356,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 19060,
-    "passRateInScope": 32.96,
-    "passRateTrAccepted": 91.95
+    "trAccepted": 19517,
+    "passRateInScope": 33.62,
+    "passRateTrAccepted": 91.59
   },
   "torajs": {
-    "commit": "591c5fd5",
-    "commitSubject": "feat(ast): a user return in a generator body completes with a done step carrying the value",
+    "commit": "316a4495",
+    "commitSubject": "refactor(lower): boxed-entry unbox walk and temp releases move to a child module - the S2.36 arm pushed build_boxed_entry past the fn cap",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "316a4495",
+      "subject": "refactor(lower): boxed-entry unbox walk and temp releases move to a child module - the S2.36 arm pushed build_boxed_entry past the fn cap"
+    },
+    {
+      "hash": "e53e7197",
+      "subject": "chore(docs,hardev): rotation 237 leftovers - roadmap S2.30-33 entries and sweep data files missed by the final chore"
+    },
+    {
+      "hash": "c56c47ca",
+      "subject": "feat(lower,runtime): boxed-adapter struct params coerce through a dynobj-to-struct kernel - inline objlit args to any-dispatched typed bodies stop dying silently"
+    },
+    {
+      "hash": "c3a4ad05",
+      "subject": "fix(check,lower): a __new_ factory call keeps its nominal binding - the any-promote verdict never boxes class instances"
+    },
+    {
+      "hash": "b3c7a1c0",
+      "subject": "feat(check,lower): an untypeable call-result toplevel let promotes to an Any global - named-fn bodies read the IIFE-iterator idiom"
+    },
+    {
+      "hash": "722871cf",
+      "subject": "feat(check,lower,runtime): a class method read as a value answers the callable face - call-shape receivers demote, struct getter-as-callee, receiver-routed method faces"
+    },
+    {
+      "hash": "10263c31",
+      "subject": "chore(hardev): rotation 237 final sweep at 591c5fd5 and dashboard refresh"
+    },
+    {
       "hash": "591c5fd5",
       "subject": "feat(ast): a user return in a generator body completes with a done step carrying the value"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "aedc233b",
       "subject": "chore(hardev): rotation 236 final sweep at 7e25fd42 and dashboard refresh"
-    },
-    {
-      "hash": "7e25fd42",
-      "subject": "feat(ast): an untyped-param plain fn wraps for member-call value uses - the forwarder is the generic's mono site"
-    },
-    {
-      "hash": "042f053e",
-      "subject": "feat(check,lower): a struct receiver rides the keyed kernel for an any-typed key"
-    },
-    {
-      "hash": "cc5dcd54",
-      "subject": "feat(runtime,lower,check): any[any] keyed index WRITE - the set mirror of the keyed kernel"
-    },
-    {
-      "hash": "b75a1fc9",
-      "subject": "feat(runtime,lower,check): any[any] keyed index - runtime ToPropertyKey dispatch kernel"
-    },
-    {
-      "hash": "f9ce01ae",
-      "subject": "feat(check,lower): array HOF callbacks receive (elem, index, srcArray); promoted named fns ride the forwarder as callback values"
-    },
-    {
-      "hash": "fe2eb28c",
-      "subject": "feat(ast): __this-first fns get the closure-shape any-default for untyped params"
-    },
-    {
-      "hash": "0fe6c1ad",
-      "subject": "chore(hardev): final rotation 235 sweep at b83b0f88 and dashboard refresh"
     }
   ],
-  "headSha": "591c5fd5",
+  "headSha": "316a4495",
   "autorun": {
-    "total": 541,
+    "total": 542,
     "baselineTarget": 10,
-    "bySelf": 536,
+    "bySelf": 537,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785205799-7a5b",
-      "at": "2026-07-28T02:29:59Z",
-      "ts": 1785205799,
+      "rotationId": "r-1785211451-4418",
+      "at": "2026-07-28T04:04:11Z",
+      "ts": 1785211451,
       "trigger": "self",
-      "prevHead": "aedc233b",
-      "handoffSha": "sha256:4d12a7f1f08aea63a1795bacf64eb70aa92d4768c22101b33a4a672466ce615b",
-      "handoffAgeSec": 13,
+      "prevHead": "10263c31",
+      "handoffSha": "sha256:4ca0e11d16d82d475fde18a9fb463a6a58581a62c79faae68e61c37421fd5b8b",
+      "handoffAgeSec": 33,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1785211451-4418",
+        "at": "2026-07-28T04:04:11Z",
+        "ts": 1785211451,
+        "trigger": "self",
+        "prevHead": "10263c31",
+        "handoffSha": "sha256:4ca0e11d16d82d475fde18a9fb463a6a58581a62c79faae68e61c37421fd5b8b",
+        "handoffAgeSec": 33,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785205799-7a5b",
         "at": "2026-07-28T02:29:59Z",
@@ -876,17 +887,6 @@
         "prevHead": "b3a482cd",
         "handoffSha": "sha256:2a7595594f36480b9782636a0238b72a63e3a27739d6bb457c7d5d27c3fcd6bf",
         "handoffAgeSec": 14,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1785088313-097e",
-        "at": "2026-07-26T17:51:53Z",
-        "ts": 1785088313,
-        "trigger": "self",
-        "prevHead": "fdc403c2",
-        "handoffSha": "sha256:d3c50602d550f5086263c2d15b7cbeca5832abdd3c7b47564dbfa585bb5a0359",
-        "handoffAgeSec": 26,
         "conformanceBefore": null,
         "commitsInSession": null
       }

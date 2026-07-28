@@ -1530,6 +1530,34 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 9215301c`, never as a constant.
 
+**Re-derived @ `c56c47ca`** (2026-07-28, rotation 238): passTotal
+**17876** (+350), bug 1641, trAccepted 19517, incompatible **33657**,
+core **21412**. Gate predicate: **493** clusters of ≥ 4 cases holding
+20133, plus 914 clusters of ≤ 3 holding 1279. **Second rotation in a
+row with both numbers falling together** (501 → 493 clusters, 20568 →
+20133 cases). Conservation exact: ΔtrAccepted +457 = Δpass +350 +
+Δbug +107. Pass regressions **0**; timeout 90 flat, crash 0. Forward
+attribution: 318 of 334 verdict-level fresh passes sit in the two
+class directories — the S2.33+S2.34 pair emptied the 457-case
+ClassRef cluster out of the top list entirely; 9 for-await-of passes
+came from the S2.35 promotion. En route, S2.36 closed a pre-existing
+worst-shape silent wrong (inline objlit args to any-dispatched
+destr-param methods died with exit 0). Next walls: #1 static private
+1482/4 dirs (both parser reject sites already located), #2 eval 1070
+(register sign-off), #3 yield* bare-ident 555, #4 `box_to_any FnSig`
+540/12 dirs (fn-value materialization, newly in the top list), #5
+`arguments` 434/16 dirs. Previous stamp below.
+
+**Re-derived @ `591c5fd5`** (2026-07-28, rotation 237; census block
+recovered by rotation 238 — the 237 close committed only the
+dashboard): passTotal **17526** (+111), bug 1534, trAccepted 19060,
+incompatible **34114**, core **21869**. Gate predicate: **501**
+clusters of ≥ 4 holding 20568, plus 927 of ≤ 3 holding 1301.
+Conservation exact: +137 = +111 + 26. Pass regressions 0. Cluster +4
+with cases −139: unlock exposure (static private 1404 → 1482, yield*
+525 → 555 both swelled from newly-reachable cases), the fifth
+case-count fall in a row. Previous stamp below.
+
 **Re-derived @ `7e25fd42`** (2026-07-28, rotation 236): passTotal
 **17415** (+1140 over rotation 235's 16275 — the largest single-rotation
 gain of the sweep era), bug 1508, trAccepted 18923, incompatible
@@ -1830,6 +1858,39 @@ touches runtime hot paths.
       (rotation 237; first wall of the 457-case ClassRef cluster,
       sync + async). Top-level returns via a new GenSm arm; nested
       returns via a Stmt-tree walker at the four inline-emit points.
+- [x] **S2.34** class-method VALUE-use route — shipped `722871cf`
+      (rotation 238; second wall of the ClassRef cluster, 675
+      Gen-ClassRef signatures). Four stacked gaps, one commit:
+      cm_demote admits Call-shape receivers (`ref(42).next()` /
+      `new C().m(…).next()` stopped dying at the speculative
+      `__cm___Gen_*__next` rewrite); a layout-miss member read whose
+      name is a class method (own/inherited/private-mangled/gen-
+      hoisted) answers the method value via the any-member lane;
+      struct_method gains the getter-as-callee arm (dynobj/arr had
+      it since chunk 523); invoke_with_this routes reified
+      class-method faces through the receiver-in-env adapter ABI.
+      Residual: a bare `ref(42)` call with a non-instance receiver
+      keeps the this-undefined TypeError (mono bodies read the class
+      layout off `this`).
+- [x] **S2.35** untypeable call-result toplevel lets promote to Any
+      globals — shipped `b3c7a1c0` + fix `c3a4ad05` (rotation 238).
+      Census of the 12287 unknown-identifier cases: 1335
+      declared-but-unregistered (asyncIter 300 / values 227 / iter
+      175 on top). Shape-typed calls (simple ret ann / `Symbol()`)
+      keep their exact slot; `__new_*` factory calls keep nominal
+      identity (the fix — promoting them walked the destr-param
+      fixture into the S2.36 hole). The method-objlit half stays on
+      L3b (dynobj-lane method this-home doesn't round-trip yet);
+      asyncIter's consumer form needs for-await-over-any (L3b).
+- [x] **S2.36** boxed-adapter struct-param coercion kernel — shipped
+      `c56c47ca` (rotation 238). An inline objlit argument to an
+      any-dispatched typed body arrived as a dynobj box while the
+      body read its struct layout: garbage fields, silent exit 0
+      (the worst silent-wrong shape — pre-existing, exposed by
+      S2.35's promotion). `__torajs_anyv_arg_to_struct` materializes
+      the struct repr per layout field at the adapter boundary;
+      adapter synthesis moved after the stamp-pool build so Obj
+      params resolve their class_tag.
 
 - [x] **S2.1** `*f() {}` generator methods — one grammar point, three
       positions, **3085 cases**, all three shipped in rotation 226. It
