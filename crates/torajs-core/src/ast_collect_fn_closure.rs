@@ -70,6 +70,12 @@ pub(crate) struct FnToClosureCollector<'a> {
     /// Binding names declared with an `any` annotation anywhere in
     /// the program (scope-approximate; see module doc).
     pub(crate) any_bindings: &'a HashSet<String>,
+    /// UN-annotated binding names with a constructor-call init
+    /// (`let f = new C()` — V1b): their method calls ride the
+    /// runtime any-method lane, so the V1 axis's typed-ident-receiver
+    /// exemption must not cover them. Scope-approximate like the
+    /// sets above.
+    pub(crate) new_init_bindings: &'a HashSet<String>,
     /// Top-level binding names whose slot is Closure-repr (a lifted
     /// arrow init or a fn-type annotation) — RFC 20260709 chunk 4:
     /// `cb = top_fn` must wrap so the drop-old/store-new global lane

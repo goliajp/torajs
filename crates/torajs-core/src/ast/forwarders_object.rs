@@ -225,12 +225,20 @@ pub fn synthesize_fn_to_closure_forwarders(ast: &mut Ast) {
     // the forwarder wrap (see ast_collect_fn_closure module doc for
     // the axis list).
     let stmts_snapshot = ast.stmts.clone();
+    // V1b — un-annotated ctor-init receivers (see the collect's doc).
+    let mut new_init_bindings: HashSet<String> = HashSet::new();
+    crate::ast_collect_bindings::collect_untyped_new_init_bindings(
+        ast,
+        &ast.stmts,
+        &mut new_init_bindings,
+    );
     let mut collector = crate::ast_collect_fn_closure::FnToClosureCollector {
         ast,
         fn_sigs: &fn_sigs,
         struct_field_anns: &struct_field_anns,
         generic_field_anns: &generic_field_anns,
         any_bindings: &any_bindings,
+        new_init_bindings: &new_init_bindings,
         closure_bindings: &closure_bindings,
         fn_arr_bindings: &fn_arr_bindings,
         struct_bindings: &struct_bindings,

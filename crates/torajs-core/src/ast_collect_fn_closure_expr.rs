@@ -258,6 +258,7 @@ impl<'a> FnToClosureCollector<'a> {
         let typed_ident_recv = matches!(
             self.ast.get_expr(*obj),
             Expr::Ident(n) if !self.any_bindings.contains(n)
+                && !self.new_init_bindings.contains(n)
         );
         if typed_ident_recv {
             return;

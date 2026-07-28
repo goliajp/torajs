@@ -41,6 +41,39 @@ pub(crate) fn collect_fn_ann_bindings(stmts: &[Stmt], out: &mut HashSet<String>)
     collect_bindings_matching(stmts, &|a| is_fn_like_ann(a) && !a.contains("__rest("), out);
 }
 
+/// RFC 20260729-fn-value-any V1b — UN-annotated binding names whose
+/// init is a constructor call (`let f = new C()`; by wrap time the
+/// class/fn-ctor desugars have rewritten `new` into a `__new_*`
+/// factory call). Such a receiver is a class instance / dynobj the
+/// checker types Any-ward — its method calls ride the runtime
+/// any-method lane, so a fn-name argument must wrap (the V1 axis's
+/// "typed ident receiver" exemption must NOT cover it: `let f = new
+/// foo(); f.every(cb)` was the box_to_any FnSig residue's largest
+/// shape).
+pub(crate) fn collect_untyped_new_init_bindings(
+    ast: &crate::ast::Ast,
+    stmts: &[Stmt],
+    out: &mut HashSet<String>,
+) {
+    walk_bindings(stmts, &mut |name, ann, init| {
+        let ctor_init = match ast.get_expr(init) {
+            crate::ast::Expr::New { .. } => true,
+            crate::ast::Expr::Call { callee, .. } => matches!(
+                ast.get_expr(*callee),
+                // `__new_` = class factory; `__fnctor_` = the
+                // repointed fn-constructor factory (`new foo()` where
+                // foo is a plain function).
+                crate::ast::Expr::Ident(n)
+                    if n.starts_with("__new_") || n.starts_with("__fnctor_")
+            ),
+            _ => false,
+        };
+        if ann.is_none() && ctor_init {
+            out.insert(name.to_string());
+        }
+    });
+}
+
 /// Chunk 783 — binding name → declared type-ann (trimmed) for every
 /// binding whose annotation satisfies `pred`. The member-assign wrap
 /// axis (`o.cb = top_fn`) resolves the receiver binding to its
@@ -53,8 +86,10 @@ pub(crate) fn collect_bindings_ann_matching(
     pred: &dyn Fn(&str) -> bool,
     out: &mut HashMap<String, String>,
 ) {
-    walk_bindings(stmts, &mut |name, ann| {
-        if pred(ann) {
+    walk_bindings(stmts, &mut |name, ann, _| {
+        if let Some(ann) = ann
+            && pred(ann)
+        {
             out.insert(name.to_string(), ann.trim().to_string());
         }
     });
@@ -67,8 +102,10 @@ fn collect_bindings_matching(
     pred: &dyn Fn(&str) -> bool,
     out: &mut HashSet<String>,
 ) {
-    walk_bindings(stmts, &mut |name, ann| {
-        if pred(ann) {
+    walk_bindings(stmts, &mut |name, ann, _| {
+        if let Some(ann) = ann
+            && pred(ann)
+        {
             out.insert(name.to_string());
         }
     });
@@ -77,18 +114,21 @@ fn collect_bindings_matching(
 /// Visit every annotated `let`/`const`/`var` binding (name, ann)
 /// recursing through fn bodies and statement containers — the shared
 /// walker behind the set and map collections (chunk 783 rework).
-fn walk_bindings(stmts: &[Stmt], f: &mut dyn FnMut(&str, &str)) {
+fn walk_bindings(stmts: &[Stmt], f: &mut dyn FnMut(&str, Option<&str>, crate::ast::ExprId)) {
     for s in stmts {
         walk_bindings_stmt(s, f);
     }
 }
 
-fn walk_bindings_stmt(s: &Stmt, f: &mut dyn FnMut(&str, &str)) {
+fn walk_bindings_stmt(s: &Stmt, f: &mut dyn FnMut(&str, Option<&str>, crate::ast::ExprId)) {
     match s {
-        Stmt::LetDecl { name, type_ann, .. } => {
-            if let Some(ann) = type_ann.as_deref() {
-                f(name, ann);
-            }
+        Stmt::LetDecl {
+            name,
+            type_ann,
+            init,
+            ..
+        } => {
+            f(name, type_ann.as_deref(), *init);
         }
         Stmt::FnDecl { body, .. } => walk_bindings(body, f),
         Stmt::If {
