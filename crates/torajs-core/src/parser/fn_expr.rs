@@ -170,6 +170,10 @@ impl<'a> Parser<'a> {
         // 20260719-fn-tostring-source B1: toString hands back the
         // source slice, so every fn-like node records its byte range).
         let start_pos = self.pos;
+        // One-shot: primary_async consumed an `async` prefix for this
+        // very call (see the field doc). Taken unconditionally so a
+        // stale flag can never leak into an unrelated fn expression.
+        let was_async_prefixed = std::mem::take(&mut self.pending_async_fn_expr);
         self.pos += 1;
         // P-PARSE.5 → RFC 20260713-generator-fn-value-substrate blade 2:
         // `function*() {...}` generator function expressions parse for
@@ -223,10 +227,25 @@ impl<'a> Parser<'a> {
                 ));
             }
         }
+        // F2 guard — scope `in_async_gen` to THIS body: true only for
+        // an `async function*` expression (the one-shot handshake from
+        // primary_async carries the consumed `async`), false for every
+        // other function expression, including a sync `function*`
+        // nested inside an async-generator body.
+        let saved_async_gen =
+            std::mem::replace(&mut self.in_async_gen, was_async_prefixed && is_generator);
         let mut stmts = Vec::new();
         while !matches!(self.peek(), Token::RBrace | Token::Eof) {
-            stmts.push(self.parse_stmt()?);
+            let s = match self.parse_stmt() {
+                Ok(s) => s,
+                Err(e) => {
+                    self.in_async_gen = saved_async_gen;
+                    return Err(e);
+                }
+            };
+            stmts.push(s);
         }
+        self.in_async_gen = saved_async_gen;
         match self.peek() {
             Token::RBrace => self.pos += 1,
             t => {

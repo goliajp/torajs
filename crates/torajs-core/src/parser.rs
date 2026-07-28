@@ -112,6 +112,7 @@ pub fn parse_into(source: &str, tokens: &[Spanned], target: &mut Ast) -> Result<
         current_class: None,
         in_gen_class_method: false,
         in_async_gen: false,
+        pending_async_fn_expr: false,
         static_this_class: None,
         super_call_allowed: false,
         current_class_has_parent: false,
@@ -197,6 +198,12 @@ struct Parser<'a> {
     /// every generator-body parse site, same discipline as
     /// `super_call_allowed`.
     in_async_gen: bool,
+    /// One-shot handshake from `primary_async` to `parse_fn_expr`:
+    /// the `async` keyword was consumed one token earlier, so the
+    /// expression parser cannot see async-ness itself. `take`n at
+    /// `parse_fn_expr` entry; combined with its own `*` detection it
+    /// scopes `in_async_gen` to exactly that body.
+    pending_async_fn_expr: bool,
     /// P-SURF S2.37 — name of the class whose STATIC member body we
     /// are currently inside, or None elsewhere. While set, `this`
     /// mints `Ident(<ClassName>)` directly: per ES §15.7.14 a static

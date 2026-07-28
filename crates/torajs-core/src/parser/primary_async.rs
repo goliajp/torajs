@@ -108,6 +108,15 @@ impl<'a> Parser<'a> {
         {
             let start_pos = self.pos;
             self.pos += 1; // consume `async` only
+            // F2 guard — an `async function*` EXPRESSION body is an
+            // async-generator body: the generic `yield*` desugar must
+            // not claim it (rotation 242 sweep audit: the un-flagged
+            // expression form rode the sync drive — 65 coincidental
+            // passes + 36 mis-drives). One-shot handshake instead of
+            // setting `in_async_gen` here: parse_fn_expr scopes the
+            // flag to ITS body, so a sync `function*` nested inside
+            // does not inherit the refusal.
+            self.pending_async_fn_expr = true;
             let eid = self.parse_fn_expr()?;
             // parse_fn_expr anchored at `function`; pull the span back
             // to cover the `async ` prefix (B1).

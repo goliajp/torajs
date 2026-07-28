@@ -89,6 +89,7 @@ impl<'a> Parser<'a> {
                         // statement-level `yield*`, but the flag rides
                         // along like the other position markers.
                         in_async_gen: self.in_async_gen,
+                        pending_async_fn_expr: false,
                         current_class_has_parent: self.current_class_has_parent,
                         synth_classes: Vec::new(),
                         // Sub-parser sees outer aliases so a template
