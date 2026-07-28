@@ -189,13 +189,14 @@ struct Parser<'a> {
     /// receiver. Minting the parameter reference up front keeps the two
     /// apart.
     in_gen_class_method: bool,
-    /// F2 (RFC 20260728-gen-forof-yieldstar) — whether the cursor is
-    /// inside an `async function*` body. The generic `yield* e`
-    /// desugar is sync-only (its manual `next()` drive does not await
-    /// the inner steps per §27.6.3.8), so the async form keeps the
-    /// loud parse error until F3 (for-await-any) lands — a silent
-    /// mis-drive would loop on Promise-shaped steps. Save/restore at
-    /// every generator-body parse site, same discipline as
+    /// F2/F3 (RFC 20260728-gen-forof-yieldstar) — whether the cursor
+    /// is inside an `async function*` body. The generic `yield* e`
+    /// desugar reads it to stamp `is_await` on its ForOf (F3: the F1
+    /// manual-protocol rewrite then drives the delegation with the
+    /// §14.7.5.6 await taps), and it gates the J.3 typed lane off —
+    /// an async inner generator's next() answers Promise<__step>,
+    /// which the typed expansion would read unsettled. Save/restore
+    /// at every generator-body parse site, same discipline as
     /// `super_call_allowed`.
     in_async_gen: bool,
     /// One-shot handshake from `primary_async` to `parse_fn_expr`:

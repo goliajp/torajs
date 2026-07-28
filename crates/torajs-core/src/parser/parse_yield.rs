@@ -38,25 +38,19 @@ impl<'a> Parser<'a> {
                 return Ok(self.emit_yieldstar_array(src));
             }
             // J.3 typed lane — a direct call to a known function*
-            // keeps the fully-typed expansion.
+            // keeps the fully-typed expansion. An async generator
+            // body skips it (F3): the inner async gen's next()
+            // answers Promise<__step>, which the typed expansion
+            // reads unsettled — the generic for-await desugar below
+            // carries the await drive instead.
             let known_gen_call = matches!(
                 self.ast.get_expr(src),
                 Expr::Call { callee, .. }
                     if matches!(self.ast.get_expr(*callee),
                         Expr::Ident(n) if self.generator_fns.contains_key(n))
             );
-            if known_gen_call {
+            if known_gen_call && !self.in_async_gen {
                 return self.emit_yieldstar_known(src);
-            }
-            // F2 — every remaining operand shape delegates through
-            // the generic for-of desugar; the async form stays loud
-            // until F3 (see `in_async_gen`'s field doc).
-            if self.in_async_gen {
-                return Err(format!(
-                    "yield* delegation in an async generator needs the \
-                     for-await drive (F3, not yet implemented) at {}",
-                    self.at()
-                ));
             }
             return Ok(self.emit_yieldstar_generic(src));
         }
@@ -150,6 +144,9 @@ impl<'a> Parser<'a> {
     /// delegation (§27.5.3.2 next-drive): desugars to
     /// `for (const __ysv_N of e) { yield __ysv_N }`; the generator
     /// prep's F1 pass turns that into the manual iterator protocol.
+    /// In an async generator (F3) the ForOf carries `is_await`, so
+    /// the F1 rewrite drives it with the §14.7.5.6 await taps
+    /// (§27.5.3.2 with generatorKind=async — steps 6.a.viii/7.a).
     /// Residual (registered): received `throw()` / `return()`
     /// forwarding to the inner iterator (spec steps 7.b/7.c) and the
     /// done-completion value.
@@ -158,7 +155,8 @@ impl<'a> Parser<'a> {
         let v_name = format!("__ysv_{id}");
         let v_ref = self.ast.add_expr(Expr::Ident(v_name.clone()));
         let body = Stmt::Block(vec![Stmt::Yield(v_ref)]);
-        self.emit_forof_default(v_name, Some("any".into()), src, body, false, None)
+        let is_async = self.in_async_gen;
+        self.emit_forof_default(v_name, Some("any".into()), src, body, is_async, None)
     }
 
     /// J.3 — `yield * gen(args);` delegates to an inner generator.
