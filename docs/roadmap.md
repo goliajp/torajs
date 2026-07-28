@@ -1530,6 +1530,31 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 9215301c`, never as a constant.
 
+**Re-derived @ `7e25fd42`** (2026-07-28, rotation 236): passTotal
+**17415** (+1140 over rotation 235's 16275 — the largest single-rotation
+gain of the sweep era), bug 1508, trAccepted 18923, incompatible
+**34251**, core **22006**. Gate predicate: **497** clusters of ≥ 4
+cases holding 20707, plus 926 clusters of ≤ 3 holding 1299. The case
+count fell for the fourth rotation running (22197 → 20707, −1490) with
+clusters near-flat (495 → 497). Conservation is exact: ΔtrAccepted
++1518 = Δpass +1140 + Δbug +378. Pass regressions **0** (per-case
+verdict diff). Timeout 24 → 28: four fresh `Array.prototype.map.call
+(obj, cb)` with `length: Infinity` — the blade-5b unlock lets the cb
+value through and the runtime arraylike-map loop lacks the §23.1.3.19
+len RangeError guard (real bug, L3b). Crash 14 → 15 (one fresh
+exit-139, `class` setter restricted-ids, L3b). Top movement — cluster
+#1 (untyped fn-decl param, 1488 cases measured at entry) fell
+entirely out of the top clusters to six blades: the `__this`-first
+closure-shape any-default (class-method `__param_destr_N` holders +
+bind_this_param-promoted fns), the full-arity §23.1.3 HOF callback
+substrate ((elem, index, srcArray) formals + position seeds + lowering
+argv), the any[any] keyed index kernel (read + write + struct
+receiver), and the untyped-plain-fn value-use wrap whose forwarder is
+the generic's all-any mono site. 378 fresh bugs are honest exposure of
+callback-heavy cases now reaching the runtime. Two pre-commit full
+gates ran for the wrap-class blades (handoff-235 discipline); zero
+in-rotation regressions. Previous stamp below.
+
 **Re-derived @ `b83b0f88`** (2026-07-28, rotation 235; final sweep —
 the two earlier sweeps at `c7303b36` / `efae2a7e` differed only by the
 keys/values/entries closure blades, +2 pass / +4 bug total, 0

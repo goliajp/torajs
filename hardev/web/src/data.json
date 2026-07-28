@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-27T23:42:31.117Z",
+  "generatedAt": "2026-07-28T02:28:48.637Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-27T23:41:26Z",
-    "headSha": "b83b0f88",
-    "elapsedSec": 215.67,
+    "ranAt": "2026-07-28T02:26:14Z",
+    "headSha": "7e25fd42",
+    "elapsedSec": 240.22,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 11591,
-    "passNoOracle": 190,
+    "pass": 12711,
+    "passNoOracle": 210,
     "passNegative": 4494,
-    "passTotal": 16275,
-    "bug": 1130,
-    "incompatible": 35769,
+    "passTotal": 17415,
+    "bug": 1508,
+    "incompatible": 34251,
     "bunSkip": 7356,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 17405,
-    "passRateInScope": 30.61,
-    "passRateTrAccepted": 93.51
+    "trAccepted": 18923,
+    "passRateInScope": 32.75,
+    "passRateTrAccepted": 92.03
   },
   "torajs": {
-    "commit": "b83b0f88",
-    "commitSubject": "feat(ssa): Object.values / Object.entries accept a Closure receiver - box to any, runtime own walks",
+    "commit": "7e25fd42",
+    "commitSubject": "feat(ast): an untyped-param plain fn wraps for member-call value uses - the forwarder is the generic's mono site",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "7e25fd42",
+      "subject": "feat(ast): an untyped-param plain fn wraps for member-call value uses - the forwarder is the generic's mono site"
+    },
+    {
+      "hash": "042f053e",
+      "subject": "feat(check,lower): a struct receiver rides the keyed kernel for an any-typed key"
+    },
+    {
+      "hash": "cc5dcd54",
+      "subject": "feat(runtime,lower,check): any[any] keyed index WRITE - the set mirror of the keyed kernel"
+    },
+    {
+      "hash": "b75a1fc9",
+      "subject": "feat(runtime,lower,check): any[any] keyed index - runtime ToPropertyKey dispatch kernel"
+    },
+    {
+      "hash": "f9ce01ae",
+      "subject": "feat(check,lower): array HOF callbacks receive (elem, index, srcArray); promoted named fns ride the forwarder as callback values"
+    },
+    {
+      "hash": "fe2eb28c",
+      "subject": "feat(ast): __this-first fns get the closure-shape any-default for untyped params"
+    },
+    {
+      "hash": "0fe6c1ad",
+      "subject": "chore(hardev): final rotation 235 sweep at b83b0f88 and dashboard refresh"
+    },
+    {
       "hash": "b83b0f88",
       "subject": "feat(ssa): Object.values / Object.entries accept a Closure receiver - box to any, runtime own walks"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "0f04cb71",
       "subject": "feat(ast): top-level this materializes as the module-this {} dynobj"
-    },
-    {
-      "hash": "7fe75f43",
-      "subject": "fix(ast): cluster-4 wrap axes skip generator-family fns - their fn-value reflection substrate must stay unwrapped"
-    },
-    {
-      "hash": "1e1c944f",
-      "subject": "feat(ast): wrap a bare top-fn argument to Object/Reflect statics - reflection kernels get a boxable closure cell"
-    },
-    {
-      "hash": "7f001cfe",
-      "subject": "feat(ssa): Symbol() toplevel let promotes to a K.3b global - named-fn and class-method bodies can read it"
-    },
-    {
-      "hash": "16592a79",
-      "subject": "feat(check): admit Any-typed member callee - catch-all member reads become runtime any-method calls"
-    },
-    {
-      "hash": "f35e3876",
-      "subject": "chore(hardev): final rotation 234 sweep at 47b722ac and dashboard refresh"
-    },
-    {
-      "hash": "47b722ac",
-      "subject": "style: fmt-drift fix - mini's cargo fmt rewrapped a let-else in fn_constructor"
-    },
-    {
-      "hash": "937ced49",
-      "subject": "feat(ast): AggregateError and SuppressedError construct when called as functions"
     }
   ],
-  "headSha": "b83b0f88",
+  "headSha": "7e25fd42",
   "autorun": {
-    "total": 539,
+    "total": 540,
     "baselineTarget": 10,
-    "bySelf": 534,
+    "bySelf": 535,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785190161-2d76",
-      "at": "2026-07-27T22:09:21Z",
-      "ts": 1785190161,
+      "rotationId": "r-1785195767-2a18",
+      "at": "2026-07-27T23:42:47Z",
+      "ts": 1785195767,
       "trigger": "self",
-      "prevHead": "f35e3876",
-      "handoffSha": "sha256:6803511d9997fa48c7b261ee9bd2c697f316155d9adaab74d019b00009fa1f81",
-      "handoffAgeSec": 46,
+      "prevHead": "0fe6c1ad",
+      "handoffSha": "sha256:78cfc82456e45c0a2cb36fa125383ab2eeb437bbc78efba66190515799ae0e06",
+      "handoffAgeSec": 17,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1785195767-2a18",
+        "at": "2026-07-27T23:42:47Z",
+        "ts": 1785195767,
+        "trigger": "self",
+        "prevHead": "0fe6c1ad",
+        "handoffSha": "sha256:78cfc82456e45c0a2cb36fa125383ab2eeb437bbc78efba66190515799ae0e06",
+        "handoffAgeSec": 17,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785190161-2d76",
         "at": "2026-07-27T22:09:21Z",
@@ -876,17 +887,6 @@
         "prevHead": "86c31699",
         "handoffSha": "sha256:0d088967c1b1a11531c78a913e4e0f98fda2c96861f6e9450019d9639ab2de3d",
         "handoffAgeSec": 0,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1785076973-4896",
-        "at": "2026-07-26T14:42:53Z",
-        "ts": 1785076973,
-        "trigger": "self",
-        "prevHead": "3639c961",
-        "handoffSha": "sha256:713857f700686e1a66275570935d702b6c31668ceffdea5d20d3688a817320dc",
-        "handoffAgeSec": 6,
         "conformanceBefore": null,
         "commitsInSession": null
       }
