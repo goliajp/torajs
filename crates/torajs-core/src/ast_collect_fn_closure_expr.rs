@@ -72,6 +72,23 @@ impl<'a> FnToClosureCollector<'a> {
                 }) {
                     self.try_mark(*arg);
                 }
+                // S2.37 followup — a REWRITE-MINTED method-body ident
+                // (`__sm_`/`__cm_`, the static-member rewrite's
+                // product; user code never spells these) admits into
+                // generic / untyped param slots too, where the
+                // instantiation lands on Any and the box site can't
+                // take a raw FnSig (`__t262_notSameValue(result,
+                // this.method)` — the t262 forbidden-ext family).
+                // Fn-like-annotated params keep their raw-FnSig
+                // direct dispatch.
+                if let Expr::Ident(n) = self.ast.get_expr(*arg)
+                    && (n.starts_with("__sm_") || n.starts_with("__cm_"))
+                    && params
+                        .get(i)
+                        .is_some_and(|p| !p.type_ann.as_deref().is_some_and(is_fn_like_ann))
+                {
+                    self.try_mark(*arg);
+                }
             }
         }
         // `<key> in <fn>` — the parser rewrites the binary op to a
@@ -99,6 +116,25 @@ impl<'a> FnToClosureCollector<'a> {
         {
             for &arg in args {
                 if !self.is_generator_family_ident(arg) {
+                    self.try_mark(arg);
+                }
+            }
+        }
+        // S2.37 followup — a REWRITE-MINTED method-body ident
+        // (`__sm_<C>__<m>` / `__cm_<C>__<m>`, the static-member /
+        // static-this rewrite's product — user code never spells
+        // these) as an argument of ANY member call: the arg boxes
+        // into the any world at the dispatch boundary, which a raw
+        // FnSig can't (`assert.notSameValue(result, this.method)` in
+        // a static body — the t262 forbidden-ext family). Bare-ident
+        // callees ride the declared-param axis above; the mangled
+        // prefix keeps user `xs.map(topFn)` hot paths on their raw
+        // FnSig direct dispatch.
+        if matches!(self.ast.get_expr(*callee), Expr::Member { .. }) {
+            for &arg in args {
+                if let Expr::Ident(n) = self.ast.get_expr(arg)
+                    && (n.starts_with("__sm_") || n.starts_with("__cm_"))
+                {
                     self.try_mark(arg);
                 }
             }
