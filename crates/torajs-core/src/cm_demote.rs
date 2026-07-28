@@ -116,10 +116,21 @@ impl Checker {
         // and the checker's arg-admit gate rejected the primitive
         // receiver at "expected ClassRef(...), got Number|Boolean|
         // BigInt|String".
+        // Call receivers (S2.34): `ref(42).next()` / `new C().m(…).next()`
+        // — the receiver is a call RESULT, typed Any whenever the callee
+        // is a fn value read off a prototype / accessor. The speculative
+        // `__cm___Gen_*__next(recv)` rewrite was a guaranteed reject
+        // ("expected ClassRef(__Gen_…), got Any"). Probing a Call's
+        // type_of is double-probe-safe: every mutation on the call-check
+        // path keys on the ExprId and re-inserts the same value
+        // (expr_types / generic_call_instantiations / arity_pad_count /
+        // demoted_cm_rewrites / t28 pad) — the consuming-params move
+        // bitmap retired in chunk 568, so no affine state double-counts.
         if !matches!(
             ast.get_expr(recv_eid),
             Expr::Ident(_)
                 | Expr::Member { .. }
+                | Expr::Call { .. }
                 | Expr::Number(_)
                 | Expr::String(_)
                 | Expr::Bool(_)

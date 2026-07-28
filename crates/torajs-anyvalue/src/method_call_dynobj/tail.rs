@@ -185,6 +185,44 @@ pub(crate) unsafe fn struct_method(
                 if !adapter.is_null() {
                     return crate::method_call::invoke_boxed(obj, adapter as u64, argv, argc);
                 }
+                // S2.34 — getter-as-callee (mirror of the dynobj /
+                // arr accessor arms): a class ACCESSOR under this
+                // name runs its getter first (receiver in the env
+                // slot, the `__cm_<C>__<p>_get` adapter shape), and
+                // the (owned) answer dispatches as the callee with
+                // the instance bound as `this` (§13.3.6 EvaluateCall
+                // — the Reference base). A throwing getter aborts
+                // before the callee probe; a resolved non-callable
+                // keeps the TypeError.
+                let getter_key: Vec<u8> = b"__getter_"
+                    .iter()
+                    .chain(core::slice::from_raw_parts(name_bytes, name_len as usize))
+                    .copied()
+                    .collect();
+                let getter_adapter = __torajs_struct_method_find(
+                    layout,
+                    getter_key.as_ptr(),
+                    getter_key.len() as u32,
+                );
+                if !getter_adapter.is_null() {
+                    let got = crate::method_call::invoke_boxed(
+                        obj,
+                        getter_adapter as u64,
+                        core::ptr::null(),
+                        0,
+                    );
+                    if __torajs_throw_check() != 0 {
+                        return got;
+                    }
+                    if let Some((env, entry)) = closure_boxed_entry(got) {
+                        let recv = crate::nanbox_encode::__torajs_anyv_box_from_pair(4, obj as i64);
+                        let r = crate::method_call::invoke_with_this(env, entry, recv, argv, argc);
+                        crate::nanbox_ffi::__torajs_anyv_rc_dec(got);
+                        return r;
+                    }
+                    crate::nanbox_ffi::__torajs_anyv_rc_dec(got);
+                    return not_callable();
+                }
             }
         }
         // No layout / absent field → the inherited Object.prototype

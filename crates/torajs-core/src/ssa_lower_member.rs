@@ -186,6 +186,24 @@ pub(crate) fn lower_with_val(
         let boxed_recv = ctx.box_to_any(obj_val);
         return crate::ssa_lower_any_member::lower_any_member_read(ctx, eid, boxed_recv, name);
     }
+    // S2.34 — a class-instance read whose name misses the layout but
+    // IS a method of the receiver's class (own or inherited; private
+    // names arrive pre-mangled as `__priv_<C>__<m>`; generator
+    // methods live under the parser-hoisted `__cm_gen_` spelling)
+    // answers the method VALUE per §10.1.8.1 [[Get]]: box the
+    // receiver and ride the any-member lane, which resolves the
+    // reified class-method cell / generator factory the runtime
+    // registration wired onto the prototype. Field reads keep the
+    // typed fast path; a genuinely unknown name keeps the loud
+    // layout panic (silent-wrong guard).
+    if !ctx.struct_layouts[sid.0 as usize]
+        .iter()
+        .any(|(f, _)| f == name)
+        && receiver_class_owns_method(ctx, obj, name)
+    {
+        let boxed_recv = ctx.box_to_any(obj_val);
+        return crate::ssa_lower_any_member::lower_any_member_read(ctx, eid, boxed_recv, name);
+    }
     crate::ssa_lower_member_obj_field::try_lower(ctx, obj, obj_val, sid, name)
 }
 
@@ -227,6 +245,30 @@ pub(crate) fn mv_family_of_checker_ty(t: &crate::check::Type) -> Option<i64> {
 /// let-decl shape recorder), where a bare call is the spec
 /// this-undefined TypeError; `.call`/`.apply`/`.bind` ride the
 /// any-lane method dispatch (`any_method_call`'s sugar arm).
+/// S2.34 — true iff `name` is a method of the receiver's class or any
+/// ancestor: a `__cm_<C>__<name>` mono body or the parser-hoisted
+/// generator spelling `__cm_gen_<C>__<name>` exists in the fn table.
+/// The class comes off the receiver's checked `ClassRef` — a receiver
+/// with no nominal identity never fires (the layout panic stands).
+fn receiver_class_owns_method(ctx: &LowerCtx<'_>, obj: ExprId, name: &str) -> bool {
+    let Some(mut cname) = crate::ssa_lower_member_obj_field::class_name_of_expr(ctx, obj) else {
+        return false;
+    };
+    loop {
+        if ctx.fn_table.contains_key(&format!("__cm_{cname}__{name}"))
+            || ctx
+                .fn_table
+                .contains_key(&format!("__cm_gen_{cname}__{name}"))
+        {
+            return true;
+        }
+        match ctx.ast.class_parents.get(&cname) {
+            Some(Some(p)) => cname = p.clone(),
+            _ => return false,
+        }
+    }
+}
+
 fn try_lower_str_method_value(
     ctx: &mut LowerCtx<'_>,
     eid: ExprId,

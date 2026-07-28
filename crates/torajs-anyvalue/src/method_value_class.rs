@@ -123,6 +123,26 @@ pub(crate) unsafe fn registry_addr(ptr: *mut c_void) -> u64 {
 ///
 /// # Safety
 /// `ptr` points at a live `Tag::Closure` heap cell.
+/// METHOD-face-only twin of [`class_method_adapter`] — answers the
+/// adapter for a reified class-method cell and `None` for an
+/// accessor face (whose adapter is a getter body, never a callee):
+/// `invoke_with_this` uses this to route a detached method value
+/// back through the receiver-in-env adapter ABI without turning
+/// accessor faces callable.
+///
+/// # Safety
+/// `ptr` points at a live `Tag::Closure` heap cell.
+pub(crate) unsafe fn class_method_face_adapter(ptr: *mut c_void) -> Option<u64> {
+    unsafe {
+        let entry = *(ptr.cast::<u8>().add(CLOSURE_BOXED_ENTRY_OFF) as *const u64);
+        if entry == class_bare_entry as *const () as u64 {
+            Some(*(ptr.cast::<u8>().add(CLOSURE_CAP_BASE_OFF) as *const u64))
+        } else {
+            None
+        }
+    }
+}
+
 pub(crate) unsafe fn class_method_adapter(ptr: *mut c_void) -> Option<u64> {
     unsafe {
         let entry = *(ptr.cast::<u8>().add(CLOSURE_BOXED_ENTRY_OFF) as *const u64);

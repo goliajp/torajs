@@ -206,6 +206,19 @@ pub(crate) unsafe fn invoke_with_this(
     argc: i64,
 ) -> AnyValue {
     unsafe {
+        // S2.34 — a reified class-METHOD face carries its boxed
+        // adapter in the cap slot and wants the RECEIVER in the env
+        // slot (`adapter(this-as-env, argv, argc)`, the exact shape
+        // `struct_method` dispatch uses). A non-cell thisValue falls
+        // through to the bare entry's this-undefined TypeError — the
+        // mono body reads the class layout off `this`, so a primitive
+        // receiver can never run it. Accessor faces don't answer the
+        // method-face probe and keep their own not-callable path.
+        if let Some(adapter) = crate::method_value_class::class_method_face_adapter(env)
+            && is_cell(this_arg)
+        {
+            return invoke_boxed(as_void_ptr(this_arg), adapter, argv, argc);
+        }
         if recv_first_shift(env) != 0 {
             return invoke_boxed_recv_first(env, entry, this_arg, argv, argc);
         }
