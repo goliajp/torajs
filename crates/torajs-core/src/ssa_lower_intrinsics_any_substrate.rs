@@ -163,6 +163,8 @@ pub(crate) struct AnySubstrateIds {
     /// runtime ToPropertyKey dispatch (numeric lane / Str / Symbol
     /// probe / ToString fallback).
     pub any_index_get_keyed: FuncId,
+    /// Write mirror of the keyed read.
+    pub any_index_set_keyed: FuncId,
     pub any_index_set: FuncId,
     pub any_length_get: FuncId,
     pub any_name_get: FuncId,
@@ -299,6 +301,11 @@ pub(crate) fn declare(
         // (tag, value) pair write mirror.
         any_index_get: decl!("__torajs_any_index_get", [Any, I64], Any),
         any_index_get_keyed: decl!("__torajs_any_index_get_keyed", [Any, Any], Any),
+        any_index_set_keyed: decl!(
+            "__torajs_any_index_set_keyed",
+            [Any, Any, I64, I64, Ptr],
+            Void
+        ),
         any_index_set: decl!("__torajs_any_index_set", [Any, I64, I64, I64, Ptr], Void),
         // RFC 20260704 S4 / chunk 716 / C4-2 — recv.length / .name /
         // .size runtime dispatches (dynobj probe included).

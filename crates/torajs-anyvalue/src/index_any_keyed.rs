@@ -41,6 +41,72 @@ unsafe fn probe_key_cell(recv: AnyValue, key: *const c_void) -> AnyValue {
     }
 }
 
+/// Write mirror — `recv[key] = v` with an `any` key. Same §7.1.19
+/// dispatch as the read: numeric keys ride
+/// `__torajs_any_index_set`, Str / Symbol cells hand the key to the
+/// member-set core uncoerced, everything else stores under its
+/// ToString spelling. The (tag, value) pair transfers into the store
+/// per the set cores' contract; a NULL `recv_slot` (temp receiver)
+/// uses a local slot — relocation write-back is meaningless for a
+/// temp, mirroring the numeric lane's NULL contract.
+///
+/// # Safety
+/// Cell receivers / keys must be valid heap pointers; `recv_slot` is
+/// NULL or points at a live AnyValue slot the caller owns.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_any_index_set_keyed(
+    recv: AnyValue,
+    key: AnyValue,
+    tag: u64,
+    value: u64,
+    recv_slot: *mut u64,
+) {
+    unsafe {
+        if is_int32(key) {
+            return crate::index_any_set::__torajs_any_index_set(
+                recv,
+                as_int32(key) as i64,
+                tag,
+                value,
+                recv_slot,
+            );
+        }
+        if is_double(key) {
+            let d = as_double(key);
+            if d.is_finite() && d.trunc() == d && d.abs() <= 9007199254740991.0 {
+                return crate::index_any_set::__torajs_any_index_set(
+                    recv, d as i64, tag, value, recv_slot,
+                );
+            }
+        }
+        let mut local = recv;
+        let slot: *mut AnyValue = if recv_slot.is_null() {
+            &mut local
+        } else {
+            recv_slot as *mut AnyValue
+        };
+        if is_cell(key) {
+            let ptr = as_void_ptr(key);
+            let ktag = (ptr as *const u8).add(4).cast::<u16>().read();
+            if ktag == Tag::Symbol as u16 || ktag == Tag::Str as u16 {
+                return crate::member_set::__torajs_any_member_set(
+                    slot,
+                    ptr as *mut c_void,
+                    tag,
+                    value,
+                    -1,
+                );
+            }
+        }
+        let kstr = crate::nanbox_ffi::__torajs_anyv_to_str(key);
+        if kstr.is_null() {
+            return;
+        }
+        crate::member_set::__torajs_any_member_set(slot, kstr, tag, value, -1);
+        __torajs_str_drop(kstr);
+    }
+}
+
 /// See module doc.
 ///
 /// # Safety

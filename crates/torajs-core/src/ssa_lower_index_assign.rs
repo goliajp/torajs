@@ -105,33 +105,17 @@ impl<'a> LowerCtx<'a> {
             ) {
                 return self.lower_any_index_assign_symbol_key(obj, arr_val, index, value);
             }
+            // Cluster #1 blade 4 — an `any`-typed key rides the keyed
+            // set kernel's runtime ToPropertyKey dispatch.
+            if matches!(self.expr_types.get(&index), Some(crate::check::Type::Any)) {
+                return self.lower_any_index_assign_any_key(obj, arr_val, index, value);
+            }
             let idx_val = self.lower_index_operand(index);
             let v_raw = self.lower_expr(value);
             // Chunk 567 — SHARE, no consume.
             let v_ty = self.operand_ty(&v_raw);
             let (tag_op, value_op) = self.pack_any_slot_value_shared(value, &v_raw, v_ty);
-            // L3b #3 (chunk 527) — an Ident receiver rides its
-            // variable slot along so a dynobj store that resizes
-            // writes the fresh cell back (same two shapes as the
-            // member-set gate); other receivers pass NULL.
-            let recv_slot = if let Expr::Ident(n) = self.ast.get_expr(obj) {
-                if let Some(info) = self.locals.get(n) {
-                    Operand::Value(info.slot)
-                } else if self.globals.contains_key(n) {
-                    let name = n.clone();
-                    let gref = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::GlobalRef(name),
-                        Type::Ptr,
-                        None,
-                    );
-                    Operand::Value(gref)
-                } else {
-                    Operand::ConstPtrNull
-                }
-            } else {
-                Operand::ConstPtrNull
-            };
+            let recv_slot = self.resolve_any_recv_slot(obj);
             let cur_block = self.cur_block;
             self.f.append_void(
                 cur_block,

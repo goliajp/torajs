@@ -17,6 +17,31 @@ use crate::ssa::{Operand, Type};
 use crate::ssa_lower::LowerCtx;
 
 impl<'a> LowerCtx<'a> {
+    /// L3b #3 (chunk 527) — an Ident receiver rides its variable slot
+    /// along so a dynobj store that resizes writes the fresh cell
+    /// back (same two shapes as the member-set gate); other receivers
+    /// pass NULL. Shared by the numeric and any-key set lanes.
+    pub(crate) fn resolve_any_recv_slot(&mut self, obj: ExprId) -> Operand {
+        if let Expr::Ident(n) = self.ast.get_expr(obj) {
+            if let Some(info) = self.locals.get(n) {
+                Operand::Value(info.slot)
+            } else if self.globals.contains_key(n) {
+                let name = n.clone();
+                let gref = self.f.append_inst(
+                    self.cur_block,
+                    crate::ssa::InstKind::GlobalRef(name),
+                    Type::Ptr,
+                    None,
+                );
+                Operand::Value(gref)
+            } else {
+                Operand::ConstPtrNull
+            }
+        } else {
+            Operand::ConstPtrNull
+        }
+    }
+
     /// Dynamic string key on an `any` receiver — store through the
     /// key-parameterized member-set core with the runtime Str cell
     /// as the key (a Substr view materializes to an owned temp
@@ -61,6 +86,41 @@ impl<'a> LowerCtx<'a> {
             // An owned-temp key (BinOp mint / fresh view) releases
             // its own reference too — substr_to_owned only reads.
             self.emit_drop_value(key_raw_keep, k_ty);
+        }
+        v_raw
+    }
+
+    /// `any`-typed key on an `any` receiver (cluster #1 blade 4) — no
+    /// static lane can be picked, so the keyed set kernel does the
+    /// §7.1.19 ToPropertyKey dispatch at runtime. Key is READ by the
+    /// kernel (chunk-567 ledger, same as the str/symbol twins); the
+    /// (tag, value) pair transfers into the store. Ident receivers
+    /// ride their variable slot along for the dynobj-resize
+    /// write-back, mirroring the numeric lane.
+    pub(crate) fn lower_any_index_assign_any_key(
+        &mut self,
+        obj: ExprId,
+        obj_val: Operand,
+        index: ExprId,
+        value: ExprId,
+    ) -> Operand {
+        let k_raw = self.lower_expr(index);
+        let key_transfers = self.expr_transfers_ownership(index);
+        let v_raw = self.lower_expr(value);
+        let v_ty = self.operand_ty(&v_raw);
+        let (tag_op, value_op) = self.pack_any_slot_value_shared(value, &v_raw, v_ty);
+        let recv_slot = self.resolve_any_recv_slot(obj);
+        let cur_block = self.cur_block;
+        self.f.append_void(
+            cur_block,
+            crate::ssa::InstKind::Call(
+                self.intrinsics.any_index_set_keyed,
+                vec![obj_val, k_raw.clone(), tag_op, value_op, recv_slot],
+            ),
+        );
+        self.emit_throw_check(None);
+        if key_transfers {
+            self.emit_drop_value(k_raw, Type::Any);
         }
         v_raw
     }

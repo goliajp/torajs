@@ -273,8 +273,12 @@ pub(crate) fn check_index(
     // them the other half of the property-key domain, and §7.1.19
     // step 2 hands them to the store uncoerced (mirror of the
     // read-side gate in `check_type_of_index`).
+    // Cluster #1 blade 4 — an `any` key on an `any` receiver rides
+    // the keyed set kernel's runtime ToPropertyKey dispatch (mirror
+    // of the read-side admit in `check_type_of_index`).
     if idx_ty != Type::Number
-        && !(matches!(obj_ty, Type::Any) && matches!(idx_ty, Type::String | Type::Symbol))
+        && !(matches!(obj_ty, Type::Any)
+            && matches!(idx_ty, Type::String | Type::Symbol | Type::Any))
     {
         return Err(format!("index must be number, got {idx_ty:?}"));
     }
