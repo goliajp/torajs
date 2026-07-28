@@ -175,6 +175,71 @@ unsafe fn compare_str_lexicographic(la: i64, ra: i64) -> Ordering {
     }
 }
 
+/// §7.2.13 BigInt-side comparison. Outer `None` = neither side is
+/// a BigInt (caller proceeds to the ToNumber lane); `Some(None)` =
+/// a NaN sat beside the BigInt (all compare ops answer false);
+/// `Some(Some(ord))` = the mathematical-value ordering.
+unsafe fn bigint_side_cmp(lt: i64, lv: i64, rt: i64, rv: i64) -> Option<Option<Ordering>> {
+    use crate::arith_bigint::heap_bigint_ptr;
+    use crate::loose_eq::bigint_ffi;
+    // SAFETY: caller invariant — propagated.
+    let l_big = unsafe { heap_bigint_ptr(lt, lv) };
+    let r_big = unsafe { heap_bigint_ptr(rt, rv) };
+    match (l_big, r_big) {
+        (Some(a), Some(b)) => {
+            // SAFETY: both are live BigInt cells.
+            Some(Some(
+                unsafe { bigint_ffi::__torajs_bigint_cmp(a, b) }.cmp(&0),
+            ))
+        }
+        (Some(a), None) => {
+            // SAFETY: rt/rv is non-BigInt — ToNumber is legal.
+            let n = unsafe { any_to_number(rt, rv) };
+            Some(unsafe { bigint_num_cmp(a, n) })
+        }
+        (None, Some(b)) => {
+            // SAFETY: lt/lv is non-BigInt — ToNumber is legal.
+            let n = unsafe { any_to_number(lt, lv) };
+            Some(unsafe { bigint_num_cmp(b, n) }.map(Ordering::reverse))
+        }
+        (None, None) => None,
+    }
+}
+
+/// Mathematical `bigint ? number` ordering (§7.2.13 step 4 /
+/// §6.1.6.2's BigInt::lessThan against ℝ(number)). `None` = the
+/// number is NaN. The f64 is NOT rounded through the BigInt's
+/// magnitude: compare against `floor(n)` exactly (the loose-eq
+/// `bigint_num_eq` mint-tmp-cmp-drop shape), then a fractional
+/// remainder breaks the tie toward the number.
+unsafe fn bigint_num_cmp(b: *const core::ffi::c_void, n: f64) -> Option<Ordering> {
+    use crate::loose_eq::bigint_ffi;
+    if n.is_nan() {
+        return None;
+    }
+    if n == f64::INFINITY {
+        return Some(Ordering::Less);
+    }
+    if n == f64::NEG_INFINITY {
+        return Some(Ordering::Greater);
+    }
+    let fl = n.floor();
+    // SAFETY: fl is a finite integral f64 — from_number stays off
+    // its pending-RangeError path.
+    let tmp = unsafe { bigint_ffi::__torajs_bigint_from_number(fl) };
+    if tmp.is_null() {
+        return None;
+    }
+    // SAFETY: b is a live BigInt cell; tmp is a fresh BigInt block.
+    let c = unsafe { bigint_ffi::__torajs_bigint_cmp(b, tmp as *const core::ffi::c_void) };
+    unsafe { bigint_ffi::__torajs_bigint_drop(tmp as *mut core::ffi::c_void) };
+    Some(match c.cmp(&0) {
+        // b == floor(n) with a fractional remainder → b < n.
+        Ordering::Equal if n > fl => Ordering::Less,
+        other => other,
+    })
+}
+
 /// `<`, `<=`, `>`, `>=` on two Any-tagged `(tag, value)` pairs per
 /// ES §7.2.13 IsLessThan + §13.10. Both sides go through
 /// `ToPrimitive(hint=Number)`; if BOTH result in String the path
@@ -206,6 +271,23 @@ pub(crate) unsafe fn any_compare(op: i64, lt: i64, lv: i64, rt: i64, rv: i64) ->
         let l_ptr = unsafe { str_effective_ptr(lt, lv).unwrap_unchecked() };
         let r_ptr = unsafe { str_effective_ptr(rt, rv).unwrap_unchecked() };
         unsafe { compare_str_lexicographic(l_ptr, r_ptr) }
+    } else if let Some(cmp) =
+        // §7.2.13 steps 3-4 — a BigInt operand compares by
+        // MATHEMATICAL value against BigInt or Number (mixed
+        // comparison is legal, unlike arithmetic). Intercepted
+        // before ToNumber, whose BigInt arm is the mixed-arith
+        // throw. The BigInt-vs-String leg approximates
+        // StringToBigInt with ToNumber(string) — exact for the
+        // integer strings the corpus uses; the non-integer /
+        // radix-prefixed divergence is a registered residue.
+        // SAFETY: caller invariant — propagated.
+        unsafe { bigint_side_cmp(lt, lv, rt, rv) }
+    {
+        match cmp {
+            Some(c) => c,
+            // NaN beside a BigInt — all four ops answer false.
+            None => return false,
+        }
     } else {
         // SAFETY: caller invariant — propagated to any_to_number.
         let l = unsafe { any_to_number(lt, lv) };

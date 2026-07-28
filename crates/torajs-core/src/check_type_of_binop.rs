@@ -144,15 +144,13 @@ fn check_pow(l: Type, r: Type) -> Result<Type, String> {
         return Ok(Type::BigInt);
     }
     // S2.43 — Any operand on either side: ssa_lower routes through
-    // `__torajs_anyv_arith_pair` op 4 (ES §13.6 ToNumber both sides,
-    // Number::exponentiate). Mirrors the arith / bitwise Any-fringe
-    // pattern. A BigInt on the OTHER side stays rejected — the arith
-    // kernel has no BigInt lane, and `2n ** (p: any)` rode straight
-    // into it (t262 staging/sm/BigInt/decimal.js: the pre-S2.43
-    // checker reject became an exit-139 crash; the ToNumeric
-    // BigInt-vs-Number runtime dispatch is its own registered face).
-    if (matches!(l, Type::Any) || matches!(r, Type::Any)) && l != Type::BigInt && r != Type::BigInt
-    {
+    // `__torajs_anyv_arith_pair` op 4. The rotation-240 BigInt-side
+    // reject is retired: the kernel now carries the ToNumeric
+    // dispatch (a BigInt pair rides `__torajs_bigint_pow`, a mixed
+    // pair records the catchable mixed-types TypeError), so
+    // `2n ** (p: any)` resolves at runtime per §13.6 instead of a
+    // compile-time refusal.
+    if matches!(l, Type::Any) || matches!(r, Type::Any) {
         return Ok(Type::Any);
     }
     Err(format!(

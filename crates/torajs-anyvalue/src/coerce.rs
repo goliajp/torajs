@@ -300,6 +300,21 @@ pub(crate) unsafe fn any_to_number(tag: i64, value: i64) -> f64 {
             }
             return f64::NAN;
         }
+        // §7.1.4 step 2 — ToNumber(BigInt) throws. Same posture as
+        // the Symbol arm: a BigInt cell is a primitive, and letting
+        // it fall into OrdinaryToPrimitive ran the object method
+        // machinery over a non-object layout (`2n - (p: any)` was
+        // silent no-output or SIGSEGV by layout). Callers with a
+        // legal BigInt path (any_arith / any_add / any_compare /
+        // any_bitwise) intercept the tag before calling here.
+        if matches!(h.tag(), Tag::BigInt) {
+            unsafe {
+                __torajs_throw_type_error(
+                    c"Cannot mix BigInt and other types, use explicit conversions".as_ptr(),
+                );
+            }
+            return f64::NAN;
+        }
         // Non-Str heap object — OrdinaryToPrimitive (hint number):
         // valueOf → toString, ToNumber of the first primitive
         // result (chunk C; pre-C every object answered NaN

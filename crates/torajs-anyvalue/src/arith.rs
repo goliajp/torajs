@@ -121,6 +121,20 @@ pub(crate) unsafe fn any_arith(op: i64, lt: i64, lv: i64, rt: i64, rv: i64) -> A
         // Defensive — match the C `default: NaN` branch.
         None => return box_double(f64::NAN),
     };
+    // §13.6-§13.9 ToNumeric dispatch — BigInt pair rides the bigint
+    // kernel, a mixed pair throws, before either operand reaches
+    // ToNumber (whose BigInt arm is the throw).
+    let kernel = match arith_op {
+        ArithOp::Sub => crate::loose_eq::bigint_ffi::__torajs_bigint_sub,
+        ArithOp::Mul => crate::loose_eq::bigint_ffi::__torajs_bigint_mul,
+        ArithOp::Div => crate::loose_eq::bigint_ffi::__torajs_bigint_div,
+        ArithOp::Mod => crate::loose_eq::bigint_ffi::__torajs_bigint_mod,
+        ArithOp::Pow => crate::loose_eq::bigint_ffi::__torajs_bigint_pow,
+    };
+    // SAFETY: caller invariant — propagated.
+    if let Some(v) = unsafe { crate::arith_bigint::try_bigint_pair(lt, lv, rt, rv, kernel) } {
+        return v;
+    }
     // SAFETY: caller invariant — propagated.
     let l = unsafe { any_to_number(lt, lv) };
     let r = unsafe { any_to_number(rt, rv) };
@@ -198,6 +212,27 @@ pub(crate) unsafe fn any_add(lt: i64, lv: i64, rt: i64, rv: i64) -> AnyValue {
     // SAFETY: caller invariant — propagated.
     let l_is_str = unsafe { is_heap_str(lt, lv) };
     let r_is_str = unsafe { is_heap_str(rt, rv) };
+
+    // §13.15.3 step 3 ToNumeric dispatch — after the String split
+    // decides against concat (a BigInt beside a Str legitimately
+    // concatenates via ToString below), a BigInt pair adds on the
+    // bigint kernel and a mixed pair throws.
+    if !l_is_str && !r_is_str {
+        // SAFETY: caller invariant — propagated.
+        if let Some(v) = unsafe {
+            crate::arith_bigint::try_bigint_pair(
+                lt,
+                lv,
+                rt,
+                rv,
+                crate::loose_eq::bigint_ffi::__torajs_bigint_add,
+            )
+        } {
+            release(l_prim);
+            release(r_prim);
+            return v;
+        }
+    }
 
     // String concatenation path (ES §13.15.3 — either side String
     // wins). Both operands go through ToString; the two
@@ -286,7 +321,13 @@ unsafe fn add_operand_to_primitive(tag: i64, value: i64) -> (i64, i64, Option<An
     // into OrdinaryToPrimitive, whose toString probe answered the
     // descriptive string — `sym + ""` concatenated instead of
     // throwing.
-    if matches!(h.tag(), torajs_rc::Tag::Str | torajs_rc::Tag::Symbol) {
+    if matches!(
+        h.tag(),
+        torajs_rc::Tag::Str | torajs_rc::Tag::Symbol | torajs_rc::Tag::BigInt
+    ) {
+        // A BigInt cell IS the bigint primitive (§7.1.1 step 3, same
+        // as Str/Symbol) — pre-fix it fell into OrdinaryToPrimitive's
+        // object-method machinery over a non-object layout (UB).
         return (tag, value, None);
     }
     match unsafe { crate::to_primitive::heap_to_primitive_default(value as *mut c_void) } {
@@ -354,118 +395,6 @@ unsafe fn try_concat_short(l_str: *mut c_void, r_str: *mut c_void) -> Option<Any
         }
     }
     try_box_short_str(&bytes[..total])
-}
-
-/// Bitwise op code decoded from the SSA-emitted wire (RFC 20260716
-/// 刀 7). Mirror of the checker `check_bitwise` accept-set plus
-/// `UShr` — six ops in total: 0=BitAnd, 1=BitOr, 2=BitXor, 3=Shl,
-/// 4=Shr, 5=UShr. Kept aligned with the SSA lower's op-code emit
-/// in `ssa_lower_binop_inner_any_arith::try_lower`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum BitwiseOp {
-    BitAnd,
-    BitOr,
-    BitXor,
-    Shl,
-    Shr,
-    UShr,
-}
-
-impl BitwiseOp {
-    fn from_i64(op: i64) -> Option<BitwiseOp> {
-        match op {
-            0 => Some(BitwiseOp::BitAnd),
-            1 => Some(BitwiseOp::BitOr),
-            2 => Some(BitwiseOp::BitXor),
-            3 => Some(BitwiseOp::Shl),
-            4 => Some(BitwiseOp::Shr),
-            5 => Some(BitwiseOp::UShr),
-            _ => None,
-        }
-    }
-}
-
-/// ES spec §7.1.6 ToInt32 — NaN / ±0 / ±Infinity → 0; otherwise
-/// truncate towards zero, then modulo 2^32, then signed
-/// interpretation of the low 32 bits.
-#[inline]
-fn to_int32(n: f64) -> i32 {
-    if !n.is_finite() {
-        return 0;
-    }
-    let n_trunc = n.trunc();
-    let n_mod = n_trunc.rem_euclid(4294967296.0);
-    n_mod as u32 as i32
-}
-
-/// ES spec §7.1.7 ToUint32 — same as ToInt32 but returns the low
-/// 32 bits interpreted as unsigned.
-#[inline]
-fn to_uint32(n: f64) -> u32 {
-    if !n.is_finite() {
-        return 0;
-    }
-    let n_trunc = n.trunc();
-    n_trunc.rem_euclid(4294967296.0) as u32
-}
-
-/// Bitwise dispatch (`&`, `|`, `^`, `<<`, `>>`, `>>>`) on two
-/// Any-tagged `(tag, value)` pairs per ES §13.12. Both operands
-/// route through `ToNumber` (via [`any_to_number`], which unwraps
-/// primitive wrappers per RFC 20260716 刀 1-6) and then `ToInt32`
-/// (`ToUint32` for `>>>`'s LHS). The op runs at 32-bit width; the
-/// result is boxed as I32 (fits in i32) or F64 (`>>>` results in
-/// `[2^31, 2^32)` promote to f64 so the value stays non-negative
-/// per spec).
-///
-/// Out-of-range `op` → NaN-boxed (defensive; IR should never emit
-/// this).
-///
-/// # Safety
-///
-/// If either `tag` is Heap, the corresponding `value` must be
-/// null or a valid `*mut HeapHeader` — propagated through
-/// [`any_to_number`].
-pub(crate) unsafe fn any_bitwise(op: i64, lt: i64, lv: i64, rt: i64, rv: i64) -> AnyValue {
-    let Some(bit_op) = BitwiseOp::from_i64(op) else {
-        return box_double(f64::NAN);
-    };
-    // SAFETY: caller invariant — propagated.
-    let l = unsafe { any_to_number(lt, lv) };
-    let r = unsafe { any_to_number(rt, rv) };
-    let shift_count = to_uint32(r) & 31;
-    match bit_op {
-        BitwiseOp::BitAnd => box_int32(to_int32(l) & to_int32(r)),
-        BitwiseOp::BitOr => box_int32(to_int32(l) | to_int32(r)),
-        BitwiseOp::BitXor => box_int32(to_int32(l) ^ to_int32(r)),
-        BitwiseOp::Shl => box_int32((to_int32(l).wrapping_shl(shift_count)) as i32),
-        BitwiseOp::Shr => box_int32(to_int32(l) >> shift_count),
-        BitwiseOp::UShr => {
-            // Spec §13.12 `>>>` — LHS ToUint32, result ∈ [0, 2^32).
-            // Values ≥ 2^31 do not fit in i32; promote to f64 so
-            // the sign stays non-negative per spec.
-            let result = to_uint32(l) >> shift_count;
-            if result <= i32::MAX as u32 {
-                box_int32(result as i32)
-            } else {
-                box_double(result as f64)
-            }
-        }
-    }
-}
-
-/// Unary `~` on an Any-tagged `(tag, value)` pair per ES §13.5.6.
-/// Operand routes through `ToNumber` → `ToInt32` → bitwise-not.
-/// Result always fits in i32 (`~` preserves sign-extended-32).
-///
-/// # Safety
-///
-/// If `tag` is Heap, `value` must be null or a valid
-/// `*mut HeapHeader` — propagated through [`any_to_number`].
-pub(crate) unsafe fn any_bitnot(tag: i64, value: i64) -> AnyValue {
-    // SAFETY: caller invariant — propagated.
-    let n = unsafe { any_to_number(tag, value) };
-    box_int32(!to_int32(n))
 }
 
 #[cfg(test)]

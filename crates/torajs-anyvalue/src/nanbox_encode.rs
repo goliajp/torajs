@@ -19,7 +19,8 @@ use std::ffi::c_void;
 
 use torajs_rc::AnySlotTag;
 
-use crate::arith::{any_add, any_arith, any_bitnot, any_bitwise};
+use crate::arith::{any_add, any_arith};
+use crate::arith_bitwise::{any_bitnot, any_bitwise};
 use crate::coerce::any_to_str;
 use crate::compare::any_compare;
 use crate::nanbox::{

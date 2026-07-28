@@ -40,28 +40,80 @@ pub(crate) mod bigint_ffi {
     use core::ffi::c_void;
     unsafe extern "C" {
         pub fn __torajs_bigint_eq(a: *const c_void, b: *const c_void) -> i64;
+        pub fn __torajs_bigint_cmp(a: *const c_void, b: *const c_void) -> i64;
         pub fn __torajs_bigint_from_number(v: f64) -> *mut u8;
         pub fn __torajs_bigint_from_str_strict(s: *const c_void) -> *mut u8;
         pub fn __torajs_bigint_drop(p: *mut c_void);
         pub fn __torajs_bigint_is_nonzero(p: *const c_void) -> i64;
+        pub fn __torajs_bigint_add(a: *const c_void, b: *const c_void) -> *mut u8;
+        pub fn __torajs_bigint_sub(a: *const c_void, b: *const c_void) -> *mut u8;
+        pub fn __torajs_bigint_mul(a: *const c_void, b: *const c_void) -> *mut u8;
+        pub fn __torajs_bigint_div(a: *const c_void, b: *const c_void) -> *mut u8;
+        pub fn __torajs_bigint_mod(a: *const c_void, b: *const c_void) -> *mut u8;
+        pub fn __torajs_bigint_pow(a: *const c_void, b: *const c_void) -> *mut u8;
+        pub fn __torajs_bigint_and(a: *const c_void, b: *const c_void) -> *mut u8;
+        pub fn __torajs_bigint_or(a: *const c_void, b: *const c_void) -> *mut u8;
+        pub fn __torajs_bigint_xor(a: *const c_void, b: *const c_void) -> *mut u8;
+        pub fn __torajs_bigint_shl(a: *const c_void, b: *const c_void) -> *mut u8;
+        pub fn __torajs_bigint_shr(a: *const c_void, b: *const c_void) -> *mut u8;
+        pub fn __torajs_bigint_not(a: *const c_void) -> *mut u8;
     }
 }
 
 #[cfg(test)]
 pub(crate) mod bigint_ffi {
     use core::ffi::c_void;
-    pub unsafe fn __torajs_bigint_eq(_a: *const c_void, _b: *const c_void) -> i64 {
+    pub unsafe extern "C" fn __torajs_bigint_eq(_a: *const c_void, _b: *const c_void) -> i64 {
         0
     }
-    pub unsafe fn __torajs_bigint_from_number(_v: f64) -> *mut u8 {
+    pub unsafe extern "C" fn __torajs_bigint_cmp(_a: *const c_void, _b: *const c_void) -> i64 {
+        0
+    }
+    pub unsafe extern "C" fn __torajs_bigint_from_number(_v: f64) -> *mut u8 {
         core::ptr::null_mut()
     }
-    pub unsafe fn __torajs_bigint_from_str_strict(_s: *const c_void) -> *mut u8 {
+    pub unsafe extern "C" fn __torajs_bigint_from_str_strict(_s: *const c_void) -> *mut u8 {
         core::ptr::null_mut()
     }
-    pub unsafe fn __torajs_bigint_drop(_p: *mut c_void) {}
-    pub unsafe fn __torajs_bigint_is_nonzero(_p: *const c_void) -> i64 {
+    pub unsafe extern "C" fn __torajs_bigint_drop(_p: *mut c_void) {}
+    pub unsafe extern "C" fn __torajs_bigint_is_nonzero(_p: *const c_void) -> i64 {
         1
+    }
+    pub unsafe extern "C" fn __torajs_bigint_add(_a: *const c_void, _b: *const c_void) -> *mut u8 {
+        core::ptr::null_mut()
+    }
+    pub unsafe extern "C" fn __torajs_bigint_sub(_a: *const c_void, _b: *const c_void) -> *mut u8 {
+        core::ptr::null_mut()
+    }
+    pub unsafe extern "C" fn __torajs_bigint_mul(_a: *const c_void, _b: *const c_void) -> *mut u8 {
+        core::ptr::null_mut()
+    }
+    pub unsafe extern "C" fn __torajs_bigint_div(_a: *const c_void, _b: *const c_void) -> *mut u8 {
+        core::ptr::null_mut()
+    }
+    pub unsafe extern "C" fn __torajs_bigint_mod(_a: *const c_void, _b: *const c_void) -> *mut u8 {
+        core::ptr::null_mut()
+    }
+    pub unsafe extern "C" fn __torajs_bigint_pow(_a: *const c_void, _b: *const c_void) -> *mut u8 {
+        core::ptr::null_mut()
+    }
+    pub unsafe extern "C" fn __torajs_bigint_and(_a: *const c_void, _b: *const c_void) -> *mut u8 {
+        core::ptr::null_mut()
+    }
+    pub unsafe extern "C" fn __torajs_bigint_or(_a: *const c_void, _b: *const c_void) -> *mut u8 {
+        core::ptr::null_mut()
+    }
+    pub unsafe extern "C" fn __torajs_bigint_xor(_a: *const c_void, _b: *const c_void) -> *mut u8 {
+        core::ptr::null_mut()
+    }
+    pub unsafe extern "C" fn __torajs_bigint_shl(_a: *const c_void, _b: *const c_void) -> *mut u8 {
+        core::ptr::null_mut()
+    }
+    pub unsafe extern "C" fn __torajs_bigint_shr(_a: *const c_void, _b: *const c_void) -> *mut u8 {
+        core::ptr::null_mut()
+    }
+    pub unsafe extern "C" fn __torajs_bigint_not(_a: *const c_void) -> *mut u8 {
+        core::ptr::null_mut()
     }
 }
 
