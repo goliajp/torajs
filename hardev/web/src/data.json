@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-28T10:09:42.516Z",
+  "generatedAt": "2026-07-28T12:19:05.601Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-28T10:07:05Z",
-    "headSha": "3fb2e527",
-    "elapsedSec": 473.6,
+    "ranAt": "2026-07-28T12:18:23Z",
+    "headSha": "2879793f",
+    "elapsedSec": 379.23,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 13427,
+    "pass": 13790,
     "passNoOracle": 243,
-    "passNegative": 4490,
-    "passTotal": 18160,
-    "bug": 1891,
-    "incompatible": 33123,
+    "passNegative": 4489,
+    "passTotal": 18522,
+    "bug": 2101,
+    "incompatible": 32551,
     "bunSkip": 7356,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 20051,
-    "passRateInScope": 34.15,
-    "passRateTrAccepted": 90.57
+    "trAccepted": 20623,
+    "passRateInScope": 34.83,
+    "passRateTrAccepted": 89.81
   },
   "torajs": {
-    "commit": "3fb2e527",
-    "commitSubject": "fix(check): rewrite-minted __sm_/__cm_ method idents wrap into forwarders in argument positions - the 12 forbidden-ext pass regressions recover",
+    "commit": "2879793f",
+    "commitSubject": "refactor(parser): the three field-declaration arms collapse into one shared-surface dispatch - the S2.40 skip had pushed the member loop past the 200-line fn limit",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,73 +713,84 @@
   },
   "commits": [
     {
+      "hash": "2879793f",
+      "subject": "refactor(parser): the three field-declaration arms collapse into one shared-surface dispatch - the S2.40 skip had pushed the member loop past the 200-line fn limit"
+    },
+    {
+      "hash": "b9a8019b",
+      "subject": "fix(check): a BigInt beside an Any operand keeps the pow rejection - the arith kernel has no BigInt lane and 2n ** any crashed"
+    },
+    {
+      "hash": "451b2bd9",
+      "subject": "feat(check,lower,runtime): exponentiation accepts Any operands through the anyv arith kernel op 4 - compound pow-assign on accessors rides the same lane"
+    },
+    {
+      "hash": "cc65a6c9",
+      "subject": "fix(math): the pow lattice answers NaN for abs(base) 1 with infinite exponent per ES 6.1.6.1.3 and half exponents ride sqrt - the unit tests now exercise the impl instead of host libm"
+    },
+    {
+      "hash": "e361d31a",
+      "subject": "fix(lower): the sibling-class static dispatch lane routes arguments through arg_conv - a generator resumption value arrived as raw i64 bits in the Any param"
+    },
+    {
+      "hash": "c1d8765d",
+      "subject": "feat(parser): a bare yield parses with an optional operand per ES 15.5.5 - the statement and let-binding lanes both mint undefined"
+    },
+    {
+      "hash": "7b56a07f",
+      "subject": "feat(parser): a bare semicolon in a class body parses as the ES 15.7 empty ClassElement - the 474-case got-Semi parse wall opens"
+    },
+    {
+      "hash": "3821be3f",
+      "subject": "style: fmt-drift fix for d27cb5a5 - the drift check compared before mini fmt ran"
+    },
+    {
+      "hash": "d27cb5a5",
+      "subject": "fix(lower): the accessor-setter direct call routes its argument through arg_conv - an untyped Any param received raw i64 bits and bare fields held a garbage NaN-box"
+    },
+    {
+      "hash": "3281d6f1",
+      "subject": "chore(docs,hardev): rotation 239 final sweep at 3fb2e527 - S2.37-39 roadmap entries, sweep artifacts, dashboard refresh"
+    },
+    {
       "hash": "3fb2e527",
       "subject": "fix(check): rewrite-minted __sm_/__cm_ method idents wrap into forwarders in argument positions - the 12 forbidden-ext pass regressions recover"
     },
     {
       "hash": "7b193f4a",
       "subject": "feat(lower,runtime): the boxed adapter substitutes literal defaults on undefined argv slots - explicit undefined finally triggers a default per ES 10.2.1.3"
-    },
-    {
-      "hash": "790a21c1",
-      "subject": "feat(lower,link,runtime): a receiver-free class method face runs bare calls with a null receiver - detached C.prototype.m values stop dying on the this-undefined TypeError"
-    },
-    {
-      "hash": "77fb4cff",
-      "subject": "feat(check): a bare fn-ident return under a missing return annotation wraps into its forwarder closure - the inferred Any return slot needs the boxed dual entry"
-    },
-    {
-      "hash": "e6893e38",
-      "subject": "feat(parser): static private class members parse and lower through the existing static lane - static bodies mint the class object for this"
-    },
-    {
-      "hash": "0630d0a6",
-      "subject": "chore(docs,hardev): rotation 238 final sweep at c56c47ca - S2.34-36 entries, census blocks for 237+238, dashboard refresh"
-    },
-    {
-      "hash": "316a4495",
-      "subject": "refactor(lower): boxed-entry unbox walk and temp releases move to a child module - the S2.36 arm pushed build_boxed_entry past the fn cap"
-    },
-    {
-      "hash": "e53e7197",
-      "subject": "chore(docs,hardev): rotation 237 leftovers - roadmap S2.30-33 entries and sweep data files missed by the final chore"
-    },
-    {
-      "hash": "c56c47ca",
-      "subject": "feat(lower,runtime): boxed-adapter struct params coerce through a dynobj-to-struct kernel - inline objlit args to any-dispatched typed bodies stop dying silently"
-    },
-    {
-      "hash": "c3a4ad05",
-      "subject": "fix(check,lower): a __new_ factory call keeps its nominal binding - the any-promote verdict never boxes class instances"
-    },
-    {
-      "hash": "b3c7a1c0",
-      "subject": "feat(check,lower): an untypeable call-result toplevel let promotes to an Any global - named-fn bodies read the IIFE-iterator idiom"
-    },
-    {
-      "hash": "722871cf",
-      "subject": "feat(check,lower,runtime): a class method read as a value answers the callable face - call-shape receivers demote, struct getter-as-callee, receiver-routed method faces"
     }
   ],
-  "headSha": "3fb2e527",
+  "headSha": "2879793f",
   "autorun": {
-    "total": 543,
+    "total": 544,
     "baselineTarget": 10,
-    "bySelf": 538,
+    "bySelf": 539,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785225428-7d7a",
-      "at": "2026-07-28T07:57:08Z",
-      "ts": 1785225428,
+      "rotationId": "r-1785233490-2b02",
+      "at": "2026-07-28T10:11:30Z",
+      "ts": 1785233490,
       "trigger": "self",
-      "prevHead": "0630d0a6",
-      "handoffSha": "sha256:5365ffea58a2ef8021e0440dec476ba77f744d0a1b7dc735e4bc575860956821",
-      "handoffAgeSec": 4,
+      "prevHead": "3281d6f1",
+      "handoffSha": "sha256:68b4b01bbc72e4b490260fb1a2f7580ffd8c1de6070bd419985940902d354d4d",
+      "handoffAgeSec": 44,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1785233490-2b02",
+        "at": "2026-07-28T10:11:30Z",
+        "ts": 1785233490,
+        "trigger": "self",
+        "prevHead": "3281d6f1",
+        "handoffSha": "sha256:68b4b01bbc72e4b490260fb1a2f7580ffd8c1de6070bd419985940902d354d4d",
+        "handoffAgeSec": 44,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785225428-7d7a",
         "at": "2026-07-28T07:57:08Z",
@@ -876,17 +887,6 @@
         "prevHead": "1478f2ec",
         "handoffSha": "sha256:c3dbc90396023c48d978922212ef621b96a7949f62245557e32f08bc616f6fe1",
         "handoffAgeSec": 8,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1785101623-4d91",
-        "at": "2026-07-26T21:33:43Z",
-        "ts": 1785101623,
-        "trigger": "self",
-        "prevHead": "831c8927",
-        "handoffSha": "sha256:fb85c07894d09ef16c79042adea999ec4f37deb8cab896ba3f3278b631b6496a",
-        "handoffAgeSec": 12,
         "conformanceBefore": null,
         "commitsInSession": null
       }

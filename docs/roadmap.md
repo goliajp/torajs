@@ -1530,6 +1530,40 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 9215301c`, never as a constant.
 
+**Re-derived @ `b9a8019b`** (2026-07-28, rotation 240; re-swept at
+the final HEAD `2879793f` after the size-debt refactor — verdicts
+byte-identical across all 53174 cases, every number below unchanged):
+passTotal
+**18522** (+362), bug 2101, trAccepted 20623, incompatible **32551**,
+core **20301**. Gate predicate: **497** clusters of ≥ 4 cases holding
+19015, plus 918 clusters of ≤ 3 holding 1286. Clusters −3 with cases
+−577 and core −572 — all three axes down. Conservation exact:
+ΔtrAccepted +572 = Δpass +362 + Δbug +210. Pass regressions **0**
+(the single pass-family transition is static-init-invalid-yield:
+pass-negative → negative-unsupported, an HONEST correction — the old
+pass rode "tr can't parse bare yield" hitting the expected
+SyntaxError by accident; the real §15.5.1 non-generator-context
+early error is a registered face). New crashes 0 (the mid-rotation
+`2n ** any` exit-139 was recovered same-rotation by the BigInt
+guard), new timeouts 0. Forward attribution: 251 of 363 in the two
+class dirs (empty `;` element + setter arg_conv), 22 exponentiation
+(S2.43), ~45 across for-of / for / for-await-of / compound-assign
+(bare `yield;` fixture drivers + private-accessor compound). Next
+walls: #1 eval 1074 (register sign-off), #2 yield* bare-ident, #3
+box_to_any FnSig, #4 `arguments`. Previous stamp below.
+
+**Re-derived @ `3fb2e527`** (2026-07-28, rotation 239; stamp
+recovered by rotation 240 — the 239 close wrote the S2.37-39 entries
+but skipped this census block): passTotal **18160** (+284), bug 1891,
+trAccepted 20051, incompatible **33123**, core **20873**. Gate
+predicate: **500** clusters of ≥ 4 holding 19592, plus 914 of ≤ 3
+holding 1281. Conservation exact: +534 = +284 + 250. True
+regressions 0 (12 mid-rotation forbidden-ext pass losses recovered
+same-rotation by the collect double-arm fix). Cluster +7 with cases
+−541: unlock exposure. Forward 285 concentrated in the two class
+dirs — old cluster #1 static private (1482/4 dirs) emptied entirely.
+Previous stamp below.
+
 **Re-derived @ `c56c47ca`** (2026-07-28, rotation 238): passTotal
 **17876** (+350), bug 1641, trAccepted 19517, incompatible **33657**,
 core **21412**. Gate predicate: **493** clusters of ≥ 4 cases holding
@@ -1924,6 +1958,42 @@ touches runtime hot paths.
       every dispatch path through the adapter). Expression defaults
       and async/gen wrappers (they feed `__this` into the state
       machine) conservatively keep the loud TypeError.
+
+- [x] **S2.40–S2.43 + three lane fixes** — rotation 240, seven
+      knives, +362 passTotal. The through-line: THREE separate call
+      lanes were handing arguments verbatim past the rotation-221
+      `arg_conv` contract, each surfacing as a different symptom.
+      - [x] **accessor-setter direct call** `d27cb5a5` — the P8.2
+            F2-fix knew only I64→F64; an untyped `set p(v)` (Any
+            param) received raw i64 bits and the bare-field store
+            held a garbage NaN-box (p25g crash / the 7 exit-139
+            compound-assign private-accessor rows).
+      - [x] **sibling-class static dispatch** `e361d31a` — with two
+            `function*` decls `next` becomes a sibling-owned name
+            and `g.next(42)` routed through the one lane with zero
+            coercion: generator RESUMPTION VALUES read back as
+            `[unknown-any-tag]` on every multi-generator program.
+      - [x] **S2.40** `ClassElement : ;` `7b56a07f` — a bare
+            semicolon is an empty class element (ES §15.7); the t262
+            elements/ suites end every class body with one (the
+            474-case "got Semi" cluster #4, 618 rows across the two
+            class dirs).
+      - [x] **S2.41** bare `yield` `c1d8765d` — YieldExpression's
+            operand is optional (§15.5.5); statement + `let v =
+            yield;` lanes mint undefined. The for-of / for-await-of
+            dstr suites drive every fixture generator with `yield;`.
+      - [x] **S2.42/S2.43** `**` Any operands `451b2bd9` + BigInt
+            guard `b9a8019b` — the anyv arith kernel grows op 4
+            (Pow); `**=` on accessors rides the same lane. A BigInt
+            beside an Any stays a loud reject (no BigInt lane in the
+            kernel — the ToNumeric dispatch is a registered face).
+      - [x] **pow ES lattice** `cc65a6c9` — `(-1) ** Infinity`
+            answered 1: the self-ported pow had pinned the C99 cell
+            where ES differs (abs(base)==1, ±∞ exponent → NaN), and
+            its unit test never caught it because a host-linked test
+            binary resolves `no_mangle pow` to libSystem. Impl split
+            to `pow_es` so tests exercise the real code; `x ** 0.5`
+            now rides correctly-rounded sqrt.
 
 - [x] **S2.1** `*f() {}` generator methods — one grammar point, three
       positions, **3085 cases**, all three shipped in rotation 226. It
