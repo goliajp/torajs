@@ -96,6 +96,7 @@ pub(crate) mod closure_proto;
 mod coerce;
 mod compare;
 pub(crate) mod index_any;
+mod index_any_keyed;
 mod index_any_set;
 mod iter_any;
 mod iter_any_array_like;

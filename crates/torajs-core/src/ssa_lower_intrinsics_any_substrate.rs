@@ -159,6 +159,10 @@ pub(crate) struct AnySubstrateIds {
     /// 刀 3 static twin — AccessorPair own entry onto the class object.
     pub class_static_accessor_define: FuncId,
     pub any_index_get: FuncId,
+    /// Cluster #1 blade 3 — `recv[key]` where both sides are `any`:
+    /// runtime ToPropertyKey dispatch (numeric lane / Str / Symbol
+    /// probe / ToString fallback).
+    pub any_index_get_keyed: FuncId,
     pub any_index_set: FuncId,
     pub any_length_get: FuncId,
     pub any_name_get: FuncId,
@@ -294,6 +298,7 @@ pub(crate) fn declare(
         // kind-aware / Str / primitive dispatch); S3-set = the
         // (tag, value) pair write mirror.
         any_index_get: decl!("__torajs_any_index_get", [Any, I64], Any),
+        any_index_get_keyed: decl!("__torajs_any_index_get_keyed", [Any, Any], Any),
         any_index_set: decl!("__torajs_any_index_set", [Any, I64, I64, I64, Ptr], Void),
         // RFC 20260704 S4 / chunk 716 / C4-2 — recv.length / .name /
         // .size runtime dispatches (dynobj probe included).

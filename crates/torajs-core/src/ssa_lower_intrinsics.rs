@@ -452,6 +452,7 @@ pub(crate) struct Intrinsics {
     pub(crate) any_any_strict_eq: FuncId,
     pub(crate) any_any_loose_eq: FuncId,
     pub(crate) any_index_get: FuncId,
+    pub(crate) any_index_get_keyed: FuncId,
     pub(crate) any_index_set: FuncId,
     pub(crate) any_length_get: FuncId,
     pub(crate) any_name_get: FuncId,

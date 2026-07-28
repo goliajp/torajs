@@ -60,10 +60,14 @@ pub(crate) fn check(
     // admits them too (dynamic key rides the any-index runtime lane).
     // Symbol keys ride the same two receivers: §6.1.7 makes them the
     // other half of the property-key domain, and §7.1.19 step 2 hands
-    // them to the lookup uncoerced.
+    // them to the lookup uncoerced. Cluster #1 blade 3 — an `any` KEY
+    // on an `any` receiver rides the runtime keyed kernel's
+    // ToPropertyKey dispatch (an `any` key on a Struct receiver stays
+    // loud — its lowering lane still coerces to i64).
     if idx_ty != Type::Number
         && !(matches!(obj_ty, Type::Any | Type::Struct(_))
             && matches!(idx_ty, Type::String | Type::Symbol))
+        && !(obj_ty == Type::Any && idx_ty == Type::Any)
     {
         return Err(format!("index must be number, got {idx_ty:?}"));
     }

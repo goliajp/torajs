@@ -166,6 +166,31 @@ pub(crate) fn lower_from_value(
             ctx.release_owned_temp(obj, &arr_val);
             return v;
         }
+        // Cluster #1 blade 3 — an `any`-typed KEY can't pick a static
+        // lane (number / string / symbol all possible at runtime);
+        // the keyed kernel does the §7.1.19 ToPropertyKey dispatch.
+        // Probe borrows the key; same owned-read bookkeeping as the
+        // numeric lane below.
+        if matches!(ctx.expr_types.get(&index), Some(crate::check::Type::Any)) {
+            let k_raw = ctx.lower_expr(index);
+            let cur_block = ctx.cur_block;
+            let v = ctx.f.append_inst(
+                cur_block,
+                InstKind::Call(
+                    ctx.intrinsics.any_index_get_keyed,
+                    vec![arr_val.clone(), k_raw.clone()],
+                ),
+                Type::Any,
+                None,
+            );
+            ctx.emit_throw_check(None);
+            ctx.owned_member_reads.insert(eid);
+            ctx.release_owned_temp(obj, &arr_val);
+            if ctx.expr_transfers_ownership(index) {
+                ctx.emit_drop_value(k_raw, Type::Any);
+            }
+            return Operand::Value(v);
+        }
         let idx_val = ctx.lower_index_operand(index);
         let cur_block = ctx.cur_block;
         let v = ctx.f.append_inst(
