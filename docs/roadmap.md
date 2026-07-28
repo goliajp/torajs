@@ -1530,6 +1530,39 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 9215301c`, never as a constant.
 
+**Re-derived @ `6397d916`** (2026-07-29, rotation 243): passTotal
+**19573** (+999), bug 2354, trAccepted 21927, incompatible
+**31247**, core **18997**. Gate predicate: **495** clusters of ≥ 4
+holding 17714, plus 917 of ≤ 3 holding 1283. Both numbers down
+together (496 → 495 clusters, 18953 → 17714 cases, core −1242).
+Conservation exact: ΔtrAccepted +1242 = Δpass +999 + Δbug +243.
+True regressions **0** — the verdict diff shows exactly 2
+pass-losses (`async-gen-meth-ary-init-iter-get-err-array-prototype`,
+expressions + statements mirror pair), both honest-fail exposure:
+the old pass rode the receiver-guard TypeError coincidentally
+matching a GetIterator-on-deleted negative oracle, and V2a's
+bare-call drive surfaced the real missing face (array destructuring
+does not consult a monkey-deleted `Array.prototype[Symbol.iterator]`
+— registered). **The mid-close sweep @ `b845d957` caught 85
+`async-gen-meth-static-*` passes broken by V2a** (a static forwarder
+dropping `this` broke the `__sm_<C>__<m>` static-member alias chain
+into whole-program rejects); fix-up `6397d916` narrows the
+receiver-free relaxation to instance methods and this stamp is the
+re-swept final. Timeout 31 → 32 (+1, machine-load edge). Forward
+1001: 628 in the two class dirs + 200 for-await-of + 124
+async-generator + 41 object — the async-iteration walls fell
+together: for-await-any (`4d470616`) + F3 async yield* (`4982ffb9`)
+closed RFC 20260728-gen-forof-yieldstar entirely (`yield*` refusal
+and for-await-any signatures both at **0**), and RFC
+20260729-fn-value-any V1 (`2e4f56d2`, fn-name args wrap on untyped
+member-call receivers — the `.then($DONE, $DONE)` harness tail that
+gated every async t262 case) + V2a (`b845d957`, detached
+receiver-free generator-method bare-calls) opened the class
+dflt-params template family (`box_to_any FnSig` 720 → **355**).
+Next walls: #1 eval 735 (RFC awaiting sign-off), #2 fn-value-any
+V2b (expression-default bare-call materialization — the remaining
+355 + class residue), #3 `arguments` ~430. Previous stamp below.
+
 **Re-derived @ `8dadd71a`** (2026-07-29, rotation 242): passTotal
 **18574** (+51 over rotation 241's 18523 — that rotation's sweep @
 `04655b9f` ran but its census stamp was skipped; its +1 is folded

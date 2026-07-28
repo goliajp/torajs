@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-28T21:41:05.668Z",
+  "generatedAt": "2026-07-28T23:12:45.609Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-28T21:38:52Z",
-    "headSha": "8dadd71a",
-    "elapsedSec": 358.74,
+    "ranAt": "2026-07-28T23:11:39Z",
+    "headSha": "6397d916",
+    "elapsedSec": 400.49,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 13842,
-    "passNoOracle": 243,
+    "pass": 14817,
+    "passNoOracle": 267,
     "passNegative": 4489,
-    "passTotal": 18574,
-    "bug": 2111,
-    "incompatible": 32489,
+    "passTotal": 19573,
+    "bug": 2354,
+    "incompatible": 31247,
     "bunSkip": 7356,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 20685,
-    "passRateInScope": 34.93,
-    "passRateTrAccepted": 89.79
+    "trAccepted": 21927,
+    "passRateInScope": 36.81,
+    "passRateTrAccepted": 89.26
   },
   "torajs": {
-    "commit": "8dadd71a",
-    "commitSubject": "fix(core): async function* expressions keep the yield* refusal - the f2 guard only covered the three declaration-form generator body sites, so the expression form rode the sync next-drive (rotation 242 sweep audit: 65 coincidental test262 passes where the sync getiterator typeerror happened to match, 36 abrupt-family mis-drives); a one-shot pending_async_fn_expr handshake carries the consumed async prefix into parse_fn_expr, which scopes in_async_gen to exactly its own body so nested sync function* expressions keep the generic lane",
+    "commit": "6397d916",
+    "commitSubject": "fix(core): static generator methods keep the this-passing forwarder - rotation 243 sweep caught 85 async-gen-meth-static-* pass regressions from v2a: a static forwarder that stops mentioning this breaks the __sm_<C>__<m> static-member alias chain (let m = C.method lowered to an unknown __sm_ ident or a whole-program generic-arity reject), so the receiver-free relaxation now applies to instance methods only; the static value-use face keeps its previous path until that chain gets its own lane",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "6397d916",
+      "subject": "fix(core): static generator methods keep the this-passing forwarder - rotation 243 sweep caught 85 async-gen-meth-static-* pass regressions from v2a: a static forwarder that stops mentioning this breaks the __sm_<C>__<m> static-member alias chain (let m = C.method lowered to an unknown __sm_ ident or a whole-program generic-arity reject), so the receiver-free relaxation now applies to instance methods only; the static value-use face keeps its previous path until that chain gets its own lane"
+    },
+    {
+      "hash": "b845d957",
+      "subject": "feat(core): detached generator method values run bare when the body is receiver-free - rfc 20260729-fn-value-any v2a: parse_class_decl_generator sweeps the body's expr range for the minted __genrecv ident (this and super rewrites are its only two sources), and a receiver-free body relaxes the synth generator's receiver ann to any and passes undefined instead of this through the forwarder - which makes the forwarder itself this-free, so the existing s2.38 metadata pass stamps FLAG_CLASS_METHOD_THIS_FREE and a detached C.prototype.m bare call (the t262 class dflt-params template family's shape) constructs the generator object instead of the receiver-undefined TypeError; a this-reading generator method keeps its nominal receiver ann and normal path"
+    },
+    {
+      "hash": "2e4f56d2",
+      "subject": "feat(core): fn-name arguments box through their forwarder on untyped member-call receivers - rfc 20260729-fn-value-any v1: a top-fndecl ident passed to a member call whose receiver is an any-bound ident or any chained expression (the t262 async harness .then($DONE, $DONE) tail - the shared trigger of the whole 720-case box_to_any FnSig cluster) now wraps as Closure{__forward_<name>} through the existing fn-to-closure axis family, so the any-method argv gets a boxed closure cell instead of the raw FnSig loud panic; a typed ident receiver keeps its args on raw-FnSig direct dispatch so xs.map(topFn) hot paths are untouched"
+    },
+    {
+      "hash": "4982ffb9",
+      "subject": "feat(core): async yield* and for-await inside async generator bodies - f3 closes the rfc 20260728-gen-forof-yieldstar async half on top of the for-await-any kernel: the f1 manual-protocol rewrite accepts is_await and drives it with the async taps (getiterator hint=async via an @@asyncIterator probe ternary falling to the sync symbol per getmethod nullish, awaited next() so an async iterator's promise-shaped step settles before done/value per 14.7.5.6, awaited value for the async-from-sync lane per 27.1.4.4), the generic yield* desugar stamps is_await from in_async_gen so the async refusal retires, and the j.3 typed lane gates off in async generators (an async inner's next() answers promise-shaped steps the typed expansion would read unsettled)"
+    },
+    {
+      "hash": "4d470616",
+      "subject": "feat(core,runtime): for-await over any sources through the unified iteration protocol - the refusal at the any-source is_await gate becomes a real drive: a new kernel entry __torajs_any_iter_next_await rides the same cascade with the two await taps the async drive owes (a derived iterator whose next() answered a Promise settles it before done/value are read per 14.7.5.6 step 6.d - an async generator object erased to any now iterates; a sync lane's value awaits per the 27.1.4.4 async-from-sync wrapper, so Promise elements unwrap and rejections forward as catchable throws), GetIterator runs with hint=async (the @@asyncIterator probe outranks everything, nullish falls to the sync symbol per GetMethod), and the lower drains microtasks before each step like the typed await route; the step tier moves to a new iter_any_step sibling to keep iter_any under the size cap"
+    },
+    {
+      "hash": "7146023a",
+      "subject": "chore(docs,hardev): rotation 242 census stamp and sweep archive - completes the close chore whose first git add aborted on a bad path"
+    },
+    {
+      "hash": "1ebca6fb",
+      "subject": "chore(docs,hardev): rotation 242 sweep artifacts at 8dadd71a - census stamp with the 65-case inflation revert accounting, sweep json and verdicts archive, dashboard refresh"
+    },
+    {
       "hash": "8dadd71a",
       "subject": "fix(core): async function* expressions keep the yield* refusal - the f2 guard only covered the three declaration-form generator body sites, so the expression form rode the sync next-drive (rotation 242 sweep audit: 65 coincidental test262 passes where the sync getiterator typeerror happened to match, 36 abrupt-family mis-drives); a one-shot pending_async_fn_expr handshake carries the consumed async prefix into parse_fn_expr, which scopes in_async_gen to exactly its own body so nested sync function* expressions keep the generic lane"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "f38eb33b",
       "subject": "feat(runtime,core): index-call receiver semantics and string @@iterator reify - o[k]() on an any receiver is a method call per es 13.3.6.2 thisvalue=base via the new any_index_method_call kernel (topropertykey dispatch: str name re-enters by-name dispatch with proto-patch consult, symbol probes the symbol face, else tostring), and the f0 @@iterator reify grows its string leg (22.1.3.36 own id, receiver-generic tostring then a values arriter over the char array; short-str receivers consult the reify table directly)"
-    },
-    {
-      "hash": "632d1139",
-      "subject": "chore(docs,hardev): rotation 241 sweep artifacts and s4.1 rfc stamp - completes the final-sweep chore whose first git add aborted on a bad path"
-    },
-    {
-      "hash": "d4746cc1",
-      "subject": "chore(docs,hardev): rotation 241 final sweep at 04655b9f - eval-shape rfc stamp on roadmap s4.1, sweep artifacts, dashboard refresh"
-    },
-    {
-      "hash": "04655b9f",
-      "subject": "fix(runtime): getiterator treats the reified builtin @@iterator cell as the fast-lane verdict - the symbol walk's miss used to mean no user method and the f0 reify broke that invariant, riding native receivers into the user invoke and its bare-entry throw"
-    },
-    {
-      "hash": "2c6b9d10",
-      "subject": "feat(runtime): symbol.iterator on native iterable any receivers reifies the aliased prototype method - array answers values, map entries, set values, same interned cell so the spec alias identities hold and .call re-binds"
-    },
-    {
-      "hash": "fc1ac4d7",
-      "subject": "fix(runtime,check): bigint through the any lane rides the tonumeric dispatch - a bigint pair hits the bigint kernels, a mixed pair throws the catchable mixed-types typeerror, comparison mixes by mathematical value, and tonumber's new bigint arm replaces the ordinary-to-primitive UB; the rotation-240 pow guard retires onto the new kernel face"
-    },
-    {
-      "hash": "82a43766",
-      "subject": "fix(lower): objlit under a declared layout unboxes Any-valued fields - return lane gains the declared-layout hint, the hint match admits lit-Any into declared-T slots, and the field store mirrors the C4 box direction; a generator step's { value, done } rode the same lane so yield of an Any answered box bits as f64"
-    },
-    {
-      "hash": "01eba367",
-      "subject": "fix(lower): as-cast out of Any materializes string/boolean/bigint faces - only number had an unbox arm and the raw NaN-box bits deref'd as heap pointers (silent no-output or exit 139 by layout)"
     }
   ],
-  "headSha": "8dadd71a",
+  "headSha": "6397d916",
   "autorun": {
-    "total": 546,
+    "total": 547,
     "baselineTarget": 10,
-    "bySelf": 541,
+    "bySelf": 542,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785249613-12b5",
-      "at": "2026-07-28T14:40:13Z",
-      "ts": 1785249613,
+      "rotationId": "r-1785274946-348a",
+      "at": "2026-07-28T21:42:26Z",
+      "ts": 1785274946,
       "trigger": "self",
-      "prevHead": "632d1139",
-      "handoffSha": "sha256:230161eac54e1c3a9b3c31cfe7e3cc25044309857e8d5939a75b22b6f05560ab",
-      "handoffAgeSec": 0,
+      "prevHead": "7146023a",
+      "handoffSha": "sha256:a2ba52e5d6a462a92b4ea681418dda961ac73ceca6c423c20007a52395898d8d",
+      "handoffAgeSec": 4,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1785274946-348a",
+        "at": "2026-07-28T21:42:26Z",
+        "ts": 1785274946,
+        "trigger": "self",
+        "prevHead": "7146023a",
+        "handoffSha": "sha256:a2ba52e5d6a462a92b4ea681418dda961ac73ceca6c423c20007a52395898d8d",
+        "handoffAgeSec": 4,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785249613-12b5",
         "at": "2026-07-28T14:40:13Z",
@@ -876,17 +887,6 @@
         "prevHead": "5ce7a2f7",
         "handoffSha": "sha256:be62933fa624ea55f1ea862014e5640922b0dd1771e089eed032c4c7f230ab5a",
         "handoffAgeSec": 20,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1785176718-7012",
-        "at": "2026-07-27T18:25:18Z",
-        "ts": 1785176718,
-        "trigger": "self",
-        "prevHead": "ea5a2ecb",
-        "handoffSha": "sha256:a23abf8ba88158139203def6977441d4f774b8d756e9123cb4942f867a67c01c",
-        "handoffAgeSec": 5,
         "conformanceBefore": null,
         "commitsInSession": null
       }
