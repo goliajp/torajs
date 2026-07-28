@@ -67,7 +67,13 @@ pub(crate) fn emit_iter_slot_release(ctx: &mut LowerCtx, iter_slot: ValueId) {
     ctx.emit_drop_value(Operand::Value(iter_val), Type::Any);
 }
 
-pub(crate) fn lower(ctx: &mut LowerCtx, src_op: Operand, var_name: &str, body: &Stmt) {
+pub(crate) fn lower(
+    ctx: &mut LowerCtx,
+    src_op: Operand,
+    var_name: &str,
+    body: &Stmt,
+    is_await: bool,
+) {
     ctx.scope_stack.push(Vec::new());
     ctx.shadow_stack.push(Vec::new());
 
@@ -96,10 +102,22 @@ pub(crate) fn lower(ctx: &mut LowerCtx, src_op: Operand, var_name: &str, body: &
     ctx.f.set_term(ctx.cur_block, Terminator::Br(header));
 
     ctx.cur_block = header;
+    // `for await` — drain microtasks before each step (same as the
+    // typed await route) so the kernel's settle taps see settled
+    // cells, then drive the await entry of the same cascade.
+    let step_fid = if is_await {
+        ctx.f.append_void(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.microtask_drain, vec![]),
+        );
+        ctx.intrinsics.any_iter_next_await
+    } else {
+        ctx.intrinsics.any_iter_next
+    };
     let live = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Call(
-            ctx.intrinsics.any_iter_next,
+            step_fid,
             vec![
                 src_op.clone(),
                 Operand::Value(idx_slot),

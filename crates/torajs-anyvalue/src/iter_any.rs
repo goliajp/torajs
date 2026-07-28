@@ -47,10 +47,10 @@
 use core::ffi::c_void;
 
 use crate::index_any::{__torajs_any_index_get, __torajs_any_iter_len};
+use crate::iter_any_step::step_derived_iterator;
 use crate::method_call::invoke_boxed;
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED, as_void_ptr, is_cell, is_int32, is_short_str};
 use crate::nanbox_encode::__torajs_anyv_box_from_pair;
-use crate::nanbox_ffi::__torajs_anyv_rc_dec;
 use crate::payload_rc_inc;
 use torajs_rc::{AnySlotTag, Tag};
 
@@ -193,6 +193,7 @@ unsafe fn obj_iter_step(
     obj: *mut c_void,
     iter_slot: *mut AnyValue,
     out: *mut AnyValue,
+    await_mode: bool,
 ) -> Option<i64> {
     unsafe {
         // GetIterator, once per loop: the cached iterator is the
@@ -218,90 +219,7 @@ unsafe fn obj_iter_step(
                 }
             }
         }
-        Some(step_derived_iterator(*iter_slot, out))
-    }
-}
-
-/// One step of an already-derived iterator, whichever way it was
-/// found — §7.4.6 IteratorNext plus §7.4.4/§7.4.5 on the result.
-///
-/// The tier split is by how `next` DISPATCHES, and `Tag::Obj` is not
-/// the answer to that: an anon-stamped object literal wears the same
-/// tag as a class instance, but its `next` is a closure-valued FIELD,
-/// not a vtable method. So the vtable is tried first and a miss falls
-/// through to the generic tier rather than becoming an error — the
-/// same entry-probe-then-by-name shape the member cascades use. A
-/// generator object and a hand-written iterator class keep the exact
-/// path they had.
-///
-/// # Safety
-/// `iter` is the caller's live iterator box; `out` is writable.
-pub(crate) unsafe fn step_derived_iterator(iter: AnyValue, out: *mut AnyValue) -> i64 {
-    unsafe {
-        if !is_cell(iter) {
-            __torajs_throw_type_error(c"iterator is not an object".as_ptr());
-            *out = VALUE_UNDEFINED;
-            return 0;
-        }
-        let iter_ptr = as_void_ptr(iter) as *mut c_void;
-        if (iter_ptr.cast::<u8>().add(4) as *const u16).read() != Tag::Obj as u16 {
-            return crate::iter_any_get_method::generic_iter_step(iter, out);
-        }
-        // ES §7.4.6 IteratorNext — a step that throws forwards the
-        // abrupt completion; there is no result to inspect.
-        let step = match call_obj_method_0(iter_ptr, b"next") {
-            MethodOutcome::Ok(step) => step,
-            // Not a vtable method — an object literal keeps `next` as
-            // a closure-valued field. Same iterator, other tier; the
-            // "no next()" diagnostic belongs to that tier's dispatcher.
-            MethodOutcome::Missing => {
-                return crate::iter_any_get_method::generic_iter_step(iter, out);
-            }
-            MethodOutcome::Threw => {
-                *out = VALUE_UNDEFINED;
-                return 0;
-            }
-        };
-        if !is_cell(step) {
-            __torajs_anyv_rc_dec(step);
-            __torajs_throw_type_error(c"iterator result is not an object".as_ptr());
-            *out = VALUE_UNDEFINED;
-            return 0;
-        }
-        let step_ptr = as_void_ptr(step) as *mut c_void;
-        // §7.4.4 IteratorComplete — ToBoolean(Get(step, "done")). The
-        // Get may run a getter that throws (forward it); the answer is
-        // truthiness, not a Bool-tag check (`{done: 1}` is done).
-        let done = match crate::iter_any_result::iter_result_get(step, step_ptr, b"done") {
-            None => {
-                __torajs_anyv_rc_dec(step);
-                *out = VALUE_UNDEFINED;
-                return 0;
-            }
-            Some(v) => {
-                let b = crate::nanbox_ffi::__torajs_anyv_to_bool(v);
-                __torajs_anyv_rc_dec(v);
-                b
-            }
-        };
-        if done {
-            __torajs_anyv_rc_dec(step);
-            *out = VALUE_UNDEFINED;
-            return 0;
-        }
-        // §7.4.5 IteratorValue — Get(step, "value"), abrupt forwarded
-        // (the test262 poisoned-getter shape: the ONLY loop exit).
-        let value = match crate::iter_any_result::iter_result_get(step, step_ptr, b"value") {
-            None => {
-                __torajs_anyv_rc_dec(step);
-                *out = VALUE_UNDEFINED;
-                return 0;
-            }
-            Some(v) => v,
-        };
-        __torajs_anyv_rc_dec(step);
-        *out = value;
-        1
+        Some(step_derived_iterator(*iter_slot, out, await_mode))
     }
 }
 
@@ -319,7 +237,7 @@ pub unsafe extern "C" fn __torajs_any_iter_next(
     iter_slot: *mut AnyValue,
     out: *mut AnyValue,
 ) -> i64 {
-    unsafe { iter_next_inner(recv, idx_slot, iter_slot, out, false) }
+    unsafe { iter_next_inner(recv, idx_slot, iter_slot, out, false, false) }
 }
 
 /// `Array.from`'s entry to the same walk. §23.1.2.1 step 3 splits on
@@ -346,21 +264,24 @@ pub unsafe extern "C" fn __torajs_any_iter_next_array_like(
         if is_int32(*iter_slot) {
             return crate::iter_any_array_like::step(recv, idx_slot, iter_slot, out);
         }
-        iter_next_inner(recv, idx_slot, iter_slot, out, true)
+        iter_next_inner(recv, idx_slot, iter_slot, out, true, false)
     }
 }
 
 /// The shared cascade. `array_like_fallback` decides only what the
-/// tail does when nothing in it claimed the receiver.
+/// tail does when nothing in it claimed the receiver; `await_mode`
+/// is the §14.7.5.6 async-iterate drive (`for await`) — the two are
+/// never both set (Array.from is sync).
 ///
 /// # Safety
 /// As [`__torajs_any_iter_next`].
-unsafe fn iter_next_inner(
+pub(crate) unsafe fn iter_next_inner(
     recv: AnyValue,
     idx_slot: *mut i64,
     iter_slot: *mut AnyValue,
     out: *mut AnyValue,
     array_like_fallback: bool,
+    await_mode: bool,
 ) -> i64 {
     // §7.4.2 GetIterator — a real `@@iterator` the receiver owns or
     // inherits OUTRANKS every builtin lane below, which is what makes
@@ -374,14 +295,37 @@ unsafe fn iter_next_inner(
     // records that this loop belongs to the method GetIterator found.
     unsafe {
         if *idx_slot == USER_ITERATOR_LANE {
-            return step_derived_iterator(*iter_slot, out);
+            return step_derived_iterator(*iter_slot, out, await_mode);
         }
         if *idx_slot == 0 && *iter_slot == VALUE_UNDEFINED {
+            // §7.4.2 hint=async step 2.a — `for await` asks for
+            // `@@asyncIterator` first; a receiver without one falls to
+            // the sync `@@iterator` below and rides the
+            // Async-from-Sync value-await in the step tier.
+            if await_mode {
+                match crate::iter_any_get_method::get_iterator_wk(
+                    recv,
+                    1,
+                    c"Symbol.asyncIterator is not a function",
+                    true,
+                ) {
+                    crate::iter_any_get_method::GetIterator::Iterator(iter) => {
+                        *iter_slot = iter;
+                        *idx_slot = USER_ITERATOR_LANE;
+                        return step_derived_iterator(iter, out, true);
+                    }
+                    crate::iter_any_get_method::GetIterator::NoUserMethod => {}
+                    crate::iter_any_get_method::GetIterator::Threw => {
+                        *out = VALUE_UNDEFINED;
+                        return 0;
+                    }
+                }
+            }
             match crate::iter_any_get_method::get_iterator(recv) {
                 crate::iter_any_get_method::GetIterator::Iterator(iter) => {
                     *iter_slot = iter;
                     *idx_slot = USER_ITERATOR_LANE;
-                    return step_derived_iterator(iter, out);
+                    return step_derived_iterator(iter, out, await_mode);
                 }
                 crate::iter_any_get_method::GetIterator::NoUserMethod => {}
                 crate::iter_any_get_method::GetIterator::Threw => {
@@ -416,6 +360,12 @@ unsafe fn iter_next_inner(
             }
             *idx_slot = idx + 1;
             *out = __torajs_any_index_get(recv, idx);
+            // §27.1.4.4 — a sync lane's value is awaited under
+            // `for await` (a Promise element unwraps to its settled
+            // value; a rejection forwards).
+            if await_mode {
+                return crate::iter_any_await::settle_out(out);
+            }
         }
         return 1;
     }
@@ -447,12 +397,17 @@ unsafe fn iter_next_inner(
             // boxing (ENTRIES pre-decrement lands the pair at 1).
             payload_rc_inc(tag, payload);
             *out = __torajs_anyv_box_from_pair(tag, payload);
+            // Sync lane under `for await` — same §27.1.4.4 value
+            // await as the indexed lane above.
+            if await_mode {
+                return crate::iter_any_await::settle_out(out);
+            }
         }
         return 1;
     }
     if matches!(cell_tag, Some(t) if t == Tag::Obj as u16) {
         let obj = as_void_ptr(recv) as *mut c_void;
-        if let Some(live) = unsafe { obj_iter_step(obj, iter_slot, out) } {
+        if let Some(live) = unsafe { obj_iter_step(obj, iter_slot, out, await_mode) } {
             return live;
         }
     }

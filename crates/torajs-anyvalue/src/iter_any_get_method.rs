@@ -153,7 +153,37 @@ pub(crate) enum GetIterator {
 /// `recv` is a live AnyValue.
 pub(crate) unsafe fn get_iterator(recv: AnyValue) -> GetIterator {
     unsafe {
-        let sym = __torajs_symbol_well_known(WK_ITERATOR);
+        get_iterator_wk(
+            recv,
+            WK_ITERATOR,
+            c"Symbol.iterator is not a function",
+            false,
+        )
+    }
+}
+
+/// [`get_iterator`] over any well-known symbol slot — the async
+/// GetIterator (§7.4.2 hint=async step 2.a) probes `@@asyncIterator`
+/// (table idx 1) through the same GetMethod-then-call walk before
+/// falling back to the sync symbol.
+///
+/// `nullish_missing` is the §7.3.11 GetMethod step-2 split the two
+/// probes disagree on: the async probe treats a null `@@asyncIterator`
+/// as absent (there IS a fallback — the sync symbol), while the sync
+/// probe keeps nullish → TypeError, because GetIterator has no other
+/// source and `arr[Symbol.iterator] = null` must refuse rather than
+/// ride the builtin lane.
+///
+/// # Safety
+/// `recv` is a live AnyValue; `wk_idx` indexes `WELL_KNOWN_DESCS`.
+pub(crate) unsafe fn get_iterator_wk(
+    recv: AnyValue,
+    wk_idx: i64,
+    not_a_function: &core::ffi::CStr,
+    nullish_missing: bool,
+) -> GetIterator {
+    unsafe {
+        let sym = __torajs_symbol_well_known(wk_idx);
         if sym.is_null() {
             return GetIterator::NoUserMethod;
         }
@@ -161,7 +191,7 @@ pub(crate) unsafe fn get_iterator(recv: AnyValue) -> GetIterator {
         // stake for the whole call, so the method needs no retain.
         let (tag, payload) = crate::member_get_symbol::symbol_key_pair(recv, sym);
         let _ = __torajs_rc_dec(sym);
-        if tag == TAG_UNDEF {
+        if tag == TAG_UNDEF || (nullish_missing && tag == TAG_NULL) {
             return GetIterator::NoUserMethod;
         }
         // F0 follow-up (RFC 20260728-gen-forof-yieldstar) — the
@@ -186,8 +216,7 @@ pub(crate) unsafe fn get_iterator(recv: AnyValue) -> GetIterator {
         // a fallback: `o[Symbol.iterator] = 5` must throw rather than
         // quietly iterating `o` some other way. A nullish one is the
         // same refusal here, since GetIterator has no other source.
-        let Some((env, entry)) = callable_entry(tag, payload, c"Symbol.iterator is not a function")
-        else {
+        let Some((env, entry)) = callable_entry(tag, payload, not_a_function) else {
             if __torajs_throw_check() == 0 {
                 __torajs_throw_type_error(c"value is not iterable".as_ptr());
             }
@@ -214,14 +243,23 @@ pub(crate) unsafe fn get_iterator(recv: AnyValue) -> GetIterator {
 /// Returns 1 with `*out` owned, or 0 with `*out` undefined (done, or
 /// a throw left in flight for the caller's check).
 ///
+/// `await_mode` (§14.7.5.6 async-iterate): a `next()` that answered
+/// a Promise is awaited before §7.4.4 reads the result; a sync
+/// result's VALUE is awaited instead, per the §27.1.4.4
+/// Async-from-Sync wrapper this lane stands in for.
+///
 /// # Safety
 /// `iter` is a live cell; `out` is a valid writable pointer.
-pub(crate) unsafe fn generic_iter_step(iter: AnyValue, out: *mut AnyValue) -> i64 {
+pub(crate) unsafe fn generic_iter_step(
+    iter: AnyValue,
+    out: *mut AnyValue,
+    await_mode: bool,
+) -> i64 {
     unsafe {
         *out = VALUE_UNDEFINED;
         let name_next = interned(&NAME_NEXT, b"next");
         let argv: [u64; 0] = [];
-        let step = __torajs_any_method_call(
+        let mut step = __torajs_any_method_call(
             iter,
             ANY_METHOD_NEXT,
             name_next,
@@ -233,6 +271,11 @@ pub(crate) unsafe fn generic_iter_step(iter: AnyValue, out: *mut AnyValue) -> i6
         // The dispatcher's own TypeError (no `next`, not callable) is
         // already recorded; a user `next()` that threw is too.
         if __torajs_throw_check() != 0 {
+            return 0;
+        }
+        let was_async = await_mode && crate::iter_any_await::await_settle(&mut step);
+        if was_async && __torajs_throw_check() != 0 {
+            __torajs_anyv_rc_dec(step);
             return 0;
         }
         if !is_cell(step) {
@@ -272,6 +315,9 @@ pub(crate) unsafe fn generic_iter_step(iter: AnyValue, out: *mut AnyValue) -> i6
         };
         __torajs_anyv_rc_dec(step);
         *out = value;
+        if await_mode && !was_async {
+            return crate::iter_any_await::settle_out(out);
+        }
         1
     }
 }

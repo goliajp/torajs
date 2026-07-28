@@ -464,6 +464,8 @@ pub(crate) struct Intrinsics {
     pub(crate) any_accessor_get: FuncId,
     pub(crate) any_member_set: FuncId,
     pub(crate) any_iter_next: FuncId,
+    /// `for await (v of <any>)` — the async-iterate drive.
+    pub(crate) any_iter_next_await: FuncId,
     /// `Array.from`'s entry to the same walk — §23.1.2.1 step 3
     /// takes the array-like branch where every other consumer
     /// throws.

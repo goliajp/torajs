@@ -412,6 +412,7 @@ pub(crate) fn build(
         any_accessor_get: init_c.any_substrate.any_accessor_get,
         any_member_set: init_c.any_substrate.any_member_set,
         any_iter_next: init_c.any_substrate.any_iter_next,
+        any_iter_next_await: init_c.any_substrate.any_iter_next_await,
         any_iter_next_array_like: init_c.any_substrate.any_iter_next_array_like,
         any_iter_close: init_c.any_substrate.any_iter_close,
         iter_close_value: init_c.any_substrate.iter_close_value,

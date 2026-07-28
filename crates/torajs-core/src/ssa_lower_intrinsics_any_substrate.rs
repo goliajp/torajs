@@ -175,6 +175,9 @@ pub(crate) struct AnySubstrateIds {
     pub any_accessor_get: FuncId,
     pub any_member_set: FuncId,
     pub any_iter_next: FuncId,
+    /// `for await (v of <any>)` — same cascade with the §14.7.5.6
+    /// step-await / §27.1.4.4 value-await taps.
+    pub any_iter_next_await: FuncId,
     /// `Array.from`'s entry to the same walk — §23.1.2.1 step 3 takes
     /// the array-like branch where every other consumer throws.
     pub any_iter_next_array_like: FuncId,
@@ -346,6 +349,7 @@ pub(crate) fn declare(
         // caller-owned iterator park slot, owned-AnyValue out slot)
         // → live flag.
         any_iter_next: decl!("__torajs_any_iter_next", [Any, Ptr, Ptr, Ptr], I64),
+        any_iter_next_await: decl!("__torajs_any_iter_next_await", [Any, Ptr, Ptr, Ptr], I64),
         any_iter_next_array_like: decl!(
             "__torajs_any_iter_next_array_like",
             [Any, Ptr, Ptr, Ptr],

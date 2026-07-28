@@ -118,12 +118,7 @@ pub(crate) fn lower(
     // strings / arrays / MapIter / ArrIter; catchable TypeError for
     // non-iterable receivers). See sibling ssa_lower_for_of_any_iter.
     if src_ty == Type::Any {
-        if is_await {
-            panic!(
-                "ssa-lower: for-await over an `any` source is not yet supported (the runtime iteration protocol has no promise_get_value hook — P10.3 follow-up)"
-            );
-        }
-        crate::ssa_lower_for_of_any_iter::lower(ctx, src_ptr_op, var_name, body);
+        crate::ssa_lower_for_of_any_iter::lower(ctx, src_ptr_op, var_name, body, is_await);
         return;
     }
     if !matches!(src_ty, Type::Arr(_)) {
