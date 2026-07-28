@@ -422,6 +422,36 @@ pub(crate) unsafe fn builtin_method_lookup(recv: AnyValue, key: *const c_void) -
     Some(builtin_method_cell(recv_proto_family(recv), mid))
 }
 
+/// `[Symbol.iterator]` read off a native iterable tag — RFC
+/// 20260728-gen-forof-yieldstar F0. The spec aliases each builtin's
+/// @@iterator to a named prototype method (§23.1.3.40 Array →
+/// `values`, §24.1.3.12 Map → `entries`, §24.2.3.11 Set → `values`),
+/// so the reify answers the SAME interned cell as the named read —
+/// `a[Symbol.iterator] === a.values` holds like the Set keys/values
+/// alias above. `None` for every other key / receiver tag (the
+/// symbol lane's dict miss stays undefined).
+///
+/// # Safety
+/// `key` is a live Symbol cell.
+pub(crate) unsafe fn builtin_symbol_iterator_lookup(
+    recv_tag: u16,
+    key: *const c_void,
+) -> Option<*mut u8> {
+    // Alphabetical WELL_KNOWN_NAMES index 5 = "iterator"; the
+    // singleton is immortal so pointer identity IS symbol identity.
+    let iter_sym = crate::method_value::symbol_static::well_known_singleton(5);
+    if key != iter_sym {
+        return None;
+    }
+    let (family, mid) = match recv_tag {
+        t if t == Tag::Arr as u16 => (2, torajs_rc::ANY_METHOD_VALUES),
+        t if t == Tag::Map as u16 => (11, torajs_rc::ANY_METHOD_ENTRIES),
+        t if t == Tag::Set as u16 => (12, torajs_rc::ANY_METHOD_VALUES),
+        _ => return None,
+    };
+    Some(builtin_method_cell(family, mid))
+}
+
 /// True iff the boxed value is a live `Tag::Set` heap cell.
 fn is_set_cell(recv: AnyValue) -> bool {
     if !is_cell(recv) {

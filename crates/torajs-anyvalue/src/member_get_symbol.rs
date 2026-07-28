@@ -153,8 +153,21 @@ pub(crate) unsafe fn symbol_key_pair(recv: AnyValue, key: *const c_void) -> (u64
         return pair;
     }
     match unsafe { inherited_dict(ptr, t) } {
-        InheritedFrom::Receiver(parent) => unsafe { symbol_key_pair(parent, key) },
-        InheritedFrom::Dict(dict) => unsafe { probe_dict(dict, key) }.unwrap_or((TAG_UNDEF, 0)),
-        InheritedFrom::Nothing => (TAG_UNDEF, 0),
+        InheritedFrom::Receiver(parent) => return unsafe { symbol_key_pair(parent, key) },
+        InheritedFrom::Dict(dict) => {
+            if let Some(pair) = unsafe { probe_dict(dict, key) } {
+                return pair;
+            }
+        }
+        InheritedFrom::Nothing => {}
     }
+    // RFC 20260728-gen-forof-yieldstar F0 — a native iterable tag's
+    // `[Symbol.iterator]` reifies its aliased prototype method (a
+    // monkey-patch in the dicts above shadows it, per the probes'
+    // order). Tag 4 = Heap; the cell is immortal, borrow-shaped.
+    // SAFETY: key is a live Symbol cell per the caller contract.
+    if let Some(cell) = unsafe { crate::method_value::builtin_symbol_iterator_lookup(t, key) } {
+        return (4, cell as u64);
+    }
+    (TAG_UNDEF, 0)
 }
