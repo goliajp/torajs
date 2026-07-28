@@ -116,11 +116,32 @@ fn same_literal(ast: &Ast, a: ExprId, b: ExprId) -> bool {
         (Expr::String(x), Expr::String(y)) => x == y,
         (Expr::Bool(x), Expr::Bool(y)) => x == y,
         (Expr::Null, Expr::Null) => true,
+        // The materialize pass rewrites every expression default to
+        // a fresh `undefined` literal per owner — same default.
+        (Expr::Ident(x), Expr::Ident(y)) => x == "undefined" && y == "undefined",
         _ => false,
     }
 }
 
+/// Synthetic-fn classifier, shared by the let-alias walk and the
+/// obj-literal method-field walk: `let f = __closure_N` (or a
+/// `Closure{fn_name}` value) names the lifted FnDecl that carries
+/// the defaults.
+fn synthetic_fn_ident(e: &Expr) -> Option<String> {
+    match e {
+        Expr::Ident(n) if n.starts_with("__closure_") || n.starts_with("__genexpr_") => {
+            Some(n.clone())
+        }
+        Expr::Closure { fn_name, .. } => Some(fn_name.clone()),
+        _ => None,
+    }
+}
+
 pub fn apply_default_args(ast: &mut Ast) {
+    // RFC 20260729-fn-value-any V2b — expression defaults move into
+    // the callee body first (see apply_args_materialize); what's
+    // left in the param lists is pad-safe literals only.
+    super::apply_args_materialize::materialize_expr_defaults(ast);
     let fn_defaults = collect_fn_defaults(ast);
     // Sibling-shape Member calls (`obj.method(args)`) survive desugar
     // when the method name is shared by unrelated classes (I.1). For
@@ -129,19 +150,6 @@ pub fn apply_default_args(ast: &mut Ast) {
     // same defaults shape (length + which positions have defaults),
     // we can apply them to the bare `obj.method(args)` call site
     // without knowing the receiver's static type.
-    // Synthetic-fn classifier, shared by the let-alias walk below and
-    // the obj-literal method-field walk: `let f = __closure_N` (or a
-    // `Closure{fn_name}` value) names the lifted FnDecl that carries
-    // the defaults.
-    let synthetic_fn_ident = |e: &Expr| -> Option<String> {
-        match e {
-            Expr::Ident(n) if n.starts_with("__closure_") || n.starts_with("__genexpr_") => {
-                Some(n.clone())
-            }
-            Expr::Closure { fn_name, .. } => Some(fn_name.clone()),
-            _ => None,
-        }
-    };
     let mut method_defaults: HashMap<String, Vec<Option<ExprId>>> = HashMap::new();
     let mut method_conflict: std::collections::HashSet<String> = std::collections::HashSet::new();
     for (fname, defaults) in &fn_defaults {

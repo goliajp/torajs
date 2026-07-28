@@ -306,9 +306,12 @@ pub(crate) fn populate_class_layouts(
     // the `__Gen_*` factory, so it stays receiver-bound naturally.
     // Per-param default verdicts, positionally aligned with the
     // FnDecl's params: None = no default, Some(true) = a literal the
-    // adapter substitutes itself (S2.39 — Number / Bool), Some(false)
-    // = an expression default only caller-side injection can
-    // evaluate.
+    // adapter substitutes itself (S2.39 — Number / Bool, plus the
+    // `undefined` literal V2b's materialize pass leaves behind: the
+    // real default now lives as a body-head guard that fires on the
+    // undefined argv a bare call sends, so runtime dispatch is
+    // exactly as correct as a padded site), Some(false) = an
+    // expression default only caller-side injection can evaluate.
     let fn_dflt_verdicts: std::collections::HashMap<&str, Vec<Option<bool>>> = ast
         .stmts
         .iter()
@@ -318,11 +321,10 @@ pub(crate) fn populate_class_layouts(
                 params
                     .iter()
                     .map(|p| {
-                        p.default.map(|d| {
-                            matches!(
-                                ast.get_expr(d),
-                                crate::ast::Expr::Number(_) | crate::ast::Expr::Bool(_)
-                            )
+                        p.default.map(|d| match ast.get_expr(d) {
+                            crate::ast::Expr::Number(_) | crate::ast::Expr::Bool(_) => true,
+                            crate::ast::Expr::Ident(n) if n == "undefined" => true,
+                            _ => false,
                         })
                     })
                     .collect(),
