@@ -61,12 +61,22 @@ impl crate::ssa_lower::LowerCtx<'_> {
                 return self.box_to_any_from_expr(inner, inner_op);
             }
         }
-        // Unbox direction (b1) — `<Any-valued> as number` must
-        // materialize the numeric face. Pre-fix the boxed AnyValue
-        // bits passed through raw and printed as garbage
-        // (`m.get(k) as number` → NaN-box tag bits as integer).
-        if inner_ty == Type::Any && ty_ann == "number" {
-            return self.coerce_any_to_number(inner_op, Type::F64);
+        // Unbox direction (b1) — `<Any-valued> as T` must materialize
+        // the annotated primitive face. Pre-fix only `number` had an
+        // arm; `as string` / `as boolean` / `as bigint` passed the
+        // NaN-box bits through raw, which downstream deref'd as a
+        // heap pointer (silent no-output or SIGSEGV depending on
+        // layout). Same helpers as the call-lane arg_conv contract;
+        // string / bigint mint an owned value the consuming lane
+        // releases like any other owned temp.
+        if inner_ty == Type::Any {
+            match ty_ann {
+                "number" => return self.coerce_any_to_number(inner_op, Type::F64),
+                "string" => return self.coerce_to_str(inner_op, Type::Any),
+                "boolean" => return self.coerce_to_bool(inner_op),
+                "bigint" => return self.coerce_any_to_bigint(inner_op),
+                _ => {}
+            }
         }
         inner_op
     }
