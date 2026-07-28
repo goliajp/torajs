@@ -35,6 +35,9 @@ use crate::ast::{Ast, Stmt};
 use crate::ssa::{self, FuncId, InstKind, Module, Operand, Terminator, Type};
 use crate::ssa_lower::intern_fn_sig;
 
+mod unbox;
+use unbox::{BoxedCoerceIntrinsics, drop_obj_temps, drop_str_temps, unbox_args};
+
 /// The runtime dispatcher's fixed argv width (undefined-filled).
 pub(crate) const MAX_BOXED_PARAMS: usize = 8;
 
@@ -229,15 +232,6 @@ pub(crate) fn synthesize_boxed_entries(
     entries
 }
 
-/// S2.36 — the struct-param coercion trio threaded into one adapter
-/// build: the kernel + release FuncIds and the per-user-param
-/// class_tag (`Some` only for `Type::Obj` params).
-struct BoxedCoerceIntrinsics<'a> {
-    arg_to_struct: FuncId,
-    anyv_rc_dec: FuncId,
-    obj_tags: &'a [Option<u32>],
-}
-
 /// One adapter — see module doc for the ABI.
 #[allow(clippy::too_many_arguments)]
 fn build_boxed_entry(
@@ -290,108 +284,18 @@ fn build_boxed_entry(
     if has_argv {
         args.push(Operand::Value(argv));
     }
-    for (i, pty) in user_tys.iter().enumerate() {
-        let av = Operand::Value(f.append_inst(
-            entry,
-            InstKind::Load(Type::Any, Operand::Value(argv), (i as u64) * 8),
-            Type::Any,
-            None,
-        ));
-        let arg = match pty {
-            Type::Any => av,
-            Type::F64 => Operand::Value(f.append_inst(
-                entry,
-                InstKind::Call(intr.any_to_number, vec![av]),
-                Type::F64,
-                None,
-            )),
-            // Width-narrowed number params truncate toward zero —
-            // the narrowing proof can't see runtime any-calls, so a
-            // fractional argument here is the RFC's documented
-            // width-vs-any boundary (fixture keeps to integers).
-            Type::I64 | Type::I32 => {
-                let d = f.append_inst(
-                    entry,
-                    InstKind::Call(intr.any_to_number, vec![av]),
-                    Type::F64,
-                    None,
-                );
-                Operand::Value(f.append_inst(
-                    entry,
-                    InstKind::FpToSi(Operand::Value(d)),
-                    Type::I64,
-                    None,
-                ))
-            }
-            Type::Bool => Operand::Value(f.append_inst(
-                entry,
-                InstKind::Call(intr.any_to_bool, vec![av]),
-                Type::Bool,
-                None,
-            )),
-            // Str params go through ToString (owned) — a borrow
-            // unbox would leak the ShortStr materialization.
-            Type::Str => {
-                let s = f.append_inst(
-                    entry,
-                    InstKind::Call(anyv_to_str, vec![av]),
-                    Type::Ptr,
-                    None,
-                );
-                str_temps.push(s);
-                Operand::Value(s)
-            }
-            // S2.36 — struct params ride the coercion kernel: an
-            // inline-objlit argument arrives as a DYNOBJ box (the
-            // any-lane packing contract) while the body reads the
-            // param through its struct LAYOUT; the kernel
-            // materializes the right repr (or stakes a pass-through)
-            // and the owned answer releases after the call.
-            Type::Obj(_) => {
-                let tag = coerce.obj_tags[i].expect("obj_tags aligns with user_tys");
-                let coerced = f.append_inst(
-                    entry,
-                    InstKind::Call(
-                        coerce.arg_to_struct,
-                        vec![av, Operand::ConstI64(tag as i64)],
-                    ),
-                    Type::Any,
-                    None,
-                );
-                obj_temps.push(coerced);
-                let raw = f.append_inst(
-                    entry,
-                    InstKind::Call(intr.any_unbox_value, vec![Operand::Value(coerced)]),
-                    Type::I64,
-                    None,
-                );
-                Operand::Value(f.append_inst(
-                    entry,
-                    InstKind::IntToPtr(Operand::Value(raw)),
-                    Type::Ptr,
-                    None,
-                ))
-            }
-            // Other heap-typed / raw-ptr params: the cell's NaN-box
-            // encoding is its pointer bits (borrow — the argv slot
-            // keeps the reference alive across the call).
-            _ => {
-                let raw = f.append_inst(
-                    entry,
-                    InstKind::Call(intr.any_unbox_value, vec![av]),
-                    Type::I64,
-                    None,
-                );
-                Operand::Value(f.append_inst(
-                    entry,
-                    InstKind::IntToPtr(Operand::Value(raw)),
-                    Type::Ptr,
-                    None,
-                ))
-            }
-        };
-        args.push(arg);
-    }
+    unbox_args(
+        &mut f,
+        entry,
+        argv,
+        user_tys,
+        intr,
+        anyv_to_str,
+        &coerce,
+        &mut args,
+        &mut str_temps,
+        &mut obj_temps,
+    );
 
     let boxed = if ret_ty == Type::Void {
         f.append_void(entry, InstKind::Call(body_fid, args));
@@ -463,36 +367,4 @@ fn build_boxed_entry(
     f.set_term(entry, Terminator::Ret(Some(Operand::Value(boxed))));
     module.funcs.push(f);
     (fid, own_sig)
-}
-
-/// Release the Str-param ToString temps after the body call. A body
-/// that returned one of them holds its own reference (owned-return
-/// convention), so the release never frees a live result.
-/// S2.36 — release the coerced struct-param boxes after the body
-/// call (`anyv_rc_dec`: stake balanced / fresh cell freed through
-/// the universal heap drop; no-op on immediates the kernel passed
-/// through).
-fn drop_obj_temps(
-    f: &mut ssa::Function,
-    entry: ssa::BlockId,
-    anyv_rc_dec: FuncId,
-    temps: &[ssa::ValueId],
-) {
-    for &t in temps {
-        f.append_void(entry, InstKind::Call(anyv_rc_dec, vec![Operand::Value(t)]));
-    }
-}
-
-fn drop_str_temps(
-    f: &mut ssa::Function,
-    entry: ssa::BlockId,
-    intr: &BoxedEntryIntrinsics,
-    temps: &[ssa::ValueId],
-) {
-    for &t in temps {
-        f.append_void(
-            entry,
-            InstKind::Call(intr.str_drop, vec![Operand::Value(t)]),
-        );
-    }
 }
