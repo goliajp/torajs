@@ -111,6 +111,7 @@ pub fn parse_into(source: &str, tokens: &[Spanned], target: &mut Ast) -> Result<
         generator_fns: std::collections::HashMap::new(),
         current_class: None,
         in_gen_class_method: false,
+        static_this_class: None,
         super_call_allowed: false,
         current_class_has_parent: false,
         synth_classes: Vec::new(),
@@ -186,6 +187,23 @@ struct Parser<'a> {
     /// receiver. Minting the parameter reference up front keeps the two
     /// apart.
     in_gen_class_method: bool,
+    /// P-SURF S2.37 — name of the class whose STATIC member body we
+    /// are currently inside, or None elsewhere. While set, `this`
+    /// mints `Ident(<ClassName>)` directly: per ES §15.7.14 a static
+    /// method's `this` is the constructor object, and minting the
+    /// class name here lets the existing Pass 2.5/3 static-member
+    /// rewrite (`Member { obj: Ident(C), name }` → `__sf_/__sm_`)
+    /// resolve `this.#x` / `this.m` in static bodies with no new
+    /// downstream lane. Minted at parse time for the same reason
+    /// `in_gen_class_method` is: `desugar_classes`' blanket
+    /// `This → __this` rewrite runs over the whole arena and cannot
+    /// tell static bodies apart by then. Static *generator* bodies
+    /// keep the GEN_RECV_PARAM mint (checked first in `primary.rs`)
+    /// — their receiver already arrives as a parameter. Known shared
+    /// limitation with `in_gen_class_method`: a non-arrow `function`
+    /// expression nested in the body inherits the mint even though
+    /// its dynamic `this` is not the class.
+    static_this_class: Option<String>,
     /// P-SURF S2.9 — whether `super(…)` is legal at the cursor. ES
     /// §15.7.1 makes it an early SyntaxError anywhere but a **derived**
     /// class constructor's body, so it is set only there and cleared on
@@ -439,48 +457,6 @@ impl Parser<'_> {
         let id = self.desugar_id;
         self.desugar_id += 1;
         id
-    }
-
-    /// Identifier-or-contextual-keyword name after a `.` / `?.` / for
-    /// class member declaration. JS / TS allow reserved words to appear
-    /// as property names (`p.catch(...)`, `obj.return`) — routes
-    /// keyword tokens through `keyword_property_name` for the full
-    /// reserved-word list. Advances `self.pos` on success and returns
-    /// None (without consuming) when no name token is present.
-    fn member_name_after_dot(&mut self) -> Option<String> {
-        if let Token::Ident(n) = self.peek() {
-            let n = n.clone();
-            self.pos += 1;
-            return Some(n);
-        }
-        // P8.1 — `#name` PrivateIdentifier after dot. When we are
-        // lexically inside a class body (`current_class` is Some) the
-        // access is necessarily through `this.#x` or `c.#x` for a `c`
-        // typed as the same class — both bind to the SAME class's
-        // private slot, so mangling to `__priv_<current_class>__<n>`
-        // at parse time is correct and matches the field-decl
-        // mangling that A2 wrote into struct_layouts. Cross-class
-        // access (e.g. inside D's method, `c: C` and `c.#x`) is
-        // rejected by the existing `Visibility::Private` exact-class
-        // check in check.rs (M-OO.5 — exact-class match for
-        // Private), because the mangled name carries the declaring
-        // class in its prefix.
-        //
-        // Outside any class (`current_class` is None) `#name` access
-        // has no defined binding — keep the raw `#`-prefixed name so
-        // the type / lookup layer fails cleanly with "no field `#x`
-        // on Struct" instead of accidentally finding a Public field.
-        if let Token::PrivateIdent(n) = self.peek() {
-            let n = n.clone();
-            self.pos += 1;
-            return Some(match &self.current_class {
-                Some(cls) => format!("__priv_{cls}__{n}"),
-                None => format!("#{n}"),
-            });
-        }
-        let kw = Self::keyword_property_name(self.peek())?;
-        self.pos += 1;
-        Some(kw.to_string())
     }
 
     /// M5.1 — `class C { field: T; constructor(...) {...} method(...): R {...} }`.

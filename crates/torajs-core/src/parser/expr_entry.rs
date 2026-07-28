@@ -76,6 +76,10 @@ impl<'a> Parser<'a> {
                         // method's body must mint the same receiver
                         // reference the surrounding body does.
                         in_gen_class_method: self.in_gen_class_method,
+                        // Same inheritance rationale: `${this.x}` in a
+                        // static method body must mint the class-object
+                        // reference the surrounding body does (S2.37).
+                        static_this_class: self.static_this_class.clone(),
                         // Likewise: `${super.m()}` in a derived ctor is
                         // as legal as the same call written outside the
                         // template, so the sub-parse inherits the

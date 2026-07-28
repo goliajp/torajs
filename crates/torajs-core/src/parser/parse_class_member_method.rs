@@ -99,10 +99,24 @@ impl<'a> Parser<'a> {
                 &mut self.super_call_allowed,
                 is_ctor_branch && self.current_class_has_parent,
             );
+            // S2.37 — a static method/accessor body's `this` is the
+            // constructor object; see `Parser::static_this_class`.
+            let saved_static_this = std::mem::replace(
+                &mut self.static_this_class,
+                if is_static && !is_ctor_branch {
+                    Some(name.to_string())
+                } else {
+                    None
+                },
+            );
             let mut body = Vec::new();
             while !matches!(self.peek(), Token::RBrace | Token::Eof) {
-                body.push(self.parse_stmt()?);
+                if let Err(e) = self.parse_stmt().map(|s| body.push(s)) {
+                    self.static_this_class = saved_static_this;
+                    return Err(e);
+                }
             }
+            self.static_this_class = saved_static_this;
             self.super_call_allowed = saved_super;
             match self.peek() {
                 Token::RBrace => {
@@ -141,42 +155,7 @@ impl<'a> Parser<'a> {
             if ctor.is_some() {
                 return Err(format!("duplicate constructor in class `{name}`"));
             }
-            // V3-18 wedge — for each TS parameter-property
-            // (e.g. `public x: number`), promote to an
-            // instance field on the class and prepend
-            // `this.<n> = <n>` to the ctor body.
-            let mut body = body;
-            if !promoted_props.is_empty() {
-                let mut prefix: Vec<Stmt> = Vec::new();
-                for (idx, vis, rd) in &promoted_props {
-                    let p = &params[*idx];
-                    let ty_ann = p.type_ann.clone().unwrap_or_else(|| "any".into());
-                    fields.push((p.name.clone(), ty_ann));
-                    if *vis != ast::Visibility::Public {
-                        self.ast
-                            .member_visibility
-                            .insert((name.to_string(), p.name.clone()), *vis);
-                    }
-                    if *rd {
-                        self.ast
-                            .readonly_fields
-                            .insert((name.to_string(), p.name.clone()));
-                    }
-                    let this_ref = self.ast.add_expr(Expr::This);
-                    let lhs = self.ast.add_expr(Expr::Member {
-                        obj: this_ref,
-                        name: p.name.clone(),
-                    });
-                    let rhs = self.ast.add_expr(Expr::Ident(p.name.clone()));
-                    let assign = self.ast.add_expr(Expr::Assign {
-                        target: lhs,
-                        value: rhs,
-                    });
-                    prefix.push(Stmt::Expr(assign));
-                }
-                prefix.extend(body);
-                body = prefix;
-            }
+            let body = self.promote_ctor_param_props(name, &params, &promoted_props, fields, body);
             self.ast.explicit_ctor_classes.insert(name.to_string());
             *ctor = Some(ClassCtor { params, body });
         } else {
@@ -208,6 +187,51 @@ impl<'a> Parser<'a> {
             )?;
         }
         Ok(false)
+    }
+
+    /// V3-18 wedge — for each TS parameter-property (e.g. `public x:
+    /// number`), promote to an instance field on the class and prepend
+    /// `this.<n> = <n>` to the ctor body.
+    fn promote_ctor_param_props(
+        &mut self,
+        name: &str,
+        params: &[Param],
+        promoted_props: &[(usize, ast::Visibility, bool)],
+        fields: &mut Vec<(String, String)>,
+        body: Vec<Stmt>,
+    ) -> Vec<Stmt> {
+        if promoted_props.is_empty() {
+            return body;
+        }
+        let mut prefix: Vec<Stmt> = Vec::new();
+        for (idx, vis, rd) in promoted_props {
+            let p = &params[*idx];
+            let ty_ann = p.type_ann.clone().unwrap_or_else(|| "any".into());
+            fields.push((p.name.clone(), ty_ann));
+            if *vis != ast::Visibility::Public {
+                self.ast
+                    .member_visibility
+                    .insert((name.to_string(), p.name.clone()), *vis);
+            }
+            if *rd {
+                self.ast
+                    .readonly_fields
+                    .insert((name.to_string(), p.name.clone()));
+            }
+            let this_ref = self.ast.add_expr(Expr::This);
+            let lhs = self.ast.add_expr(Expr::Member {
+                obj: this_ref,
+                name: p.name.clone(),
+            });
+            let rhs = self.ast.add_expr(Expr::Ident(p.name.clone()));
+            let assign = self.ast.add_expr(Expr::Assign {
+                target: lhs,
+                value: rhs,
+            });
+            prefix.push(Stmt::Expr(assign));
+        }
+        prefix.extend(body);
+        prefix
     }
 }
 

@@ -124,6 +124,15 @@ impl<'a> Parser<'a> {
                     let recv = crate::ast::GEN_RECV_PARAM;
                     return Ok(self.ast.add_expr(Expr::Ident(recv.into())));
                 }
+                // P-SURF S2.37 — inside a static member body `this` is
+                // the constructor object (ES §15.7.14); minting the
+                // class name lets the static-member rewrite resolve
+                // `this.#x` / `this.m` without a runtime receiver.
+                // Checked after the generator arm: a static generator
+                // body's receiver already arrives as GEN_RECV_PARAM.
+                if let Some(cls) = &self.static_this_class {
+                    return Ok(self.ast.add_expr(Expr::Ident(cls.clone())));
+                }
                 Ok(self.ast.add_expr(Expr::This))
             }
             Token::Super => self.parse_primary_super(),

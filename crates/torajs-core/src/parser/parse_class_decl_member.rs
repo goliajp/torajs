@@ -46,7 +46,7 @@ impl<'a> Parser<'a> {
     pub(super) fn parse_class_member_name(
         &mut self,
         name: &str,
-        is_static: bool,
+        _is_static: bool,
         explicit_visibility: &mut Option<ast::Visibility>,
     ) -> Result<(String, bool), String> {
         // P5.2 — computed-key class member `[Symbol.iterator]() {
@@ -119,19 +119,15 @@ impl<'a> Parser<'a> {
                 // (check.rs P8.1-A4); ssa_lower sees a regular
                 // String name (P8.1-A5 validates round-trip).
                 //
-                // `static #x` is out of P8.1 scope — reject here
-                // with a targeted error rather than silently
-                // synthesizing a static mangled name we can't yet
-                // lower correctly. The `is_static` lookahead above
-                // recognizes `static <PrivateIdent>` so we land in
-                // this arm.
+                // `static #x` (P-SURF S2.37) mangles exactly like the
+                // instance path — the static machinery keys off the
+                // member NAME (`__sf_<C>__<mangled>` / `__sm_<C>__
+                // <mangled>`), so a pre-mangled name flows through it
+                // unchanged. Access sites (`C.#x` / `this.#x` in a
+                // static body) mangle at `member_name_after_dot` to
+                // the same `__priv_<C>__<n>`, matching the rewrite
+                // table keys Pass 2.5 builds from this declaration.
                 Token::PrivateIdent(n) => {
-                    if is_static {
-                        return Err(format!(
-                            "static private fields (`static #{n}`) not yet supported in class `{name}` — defer P8.x followup (at {})",
-                            self.at()
-                        ));
-                    }
                     let priv_name = n.clone();
                     *explicit_visibility = Some(ast::Visibility::Private);
                     format!("__priv_{name}__{priv_name}")

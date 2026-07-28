@@ -255,7 +255,11 @@ impl<'a> Parser<'a> {
             let kw = s.clone();
             let name_tok = self.tokens.get(self.pos + 1).map(|t| &t.token);
             let after_name = self.tokens.get(self.pos + 2).map(|t| &t.token);
-            if matches!(name_tok, Some(Token::Ident(_)))
+            // S2.37 — `get #p()` / `set #p(v)`: a PrivateIdent is a
+            // legal accessor name (§15.4 ClassElementName includes
+            // PrivateIdentifier). No ambiguity with a member NAMED
+            // `get`: that shape is `get(` — never `get #p(`.
+            if matches!(name_tok, Some(Token::Ident(_) | Token::PrivateIdent(_)))
                 && matches!(after_name, Some(Token::LParen))
             {
                 accessor_kind = Some(match kw.as_str() {

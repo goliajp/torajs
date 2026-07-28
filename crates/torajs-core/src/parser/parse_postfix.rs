@@ -152,6 +152,50 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Identifier-or-contextual-keyword name after a `.` / `?.` / for
+    /// class member declaration. JS / TS allow reserved words to appear
+    /// as property names (`p.catch(...)`, `obj.return`) — routes
+    /// keyword tokens through `keyword_property_name` for the full
+    /// reserved-word list. Advances `self.pos` on success and returns
+    /// None (without consuming) when no name token is present.
+    fn member_name_after_dot(&mut self) -> Option<String> {
+        if let Token::Ident(n) = self.peek() {
+            let n = n.clone();
+            self.pos += 1;
+            return Some(n);
+        }
+        // P8.1 — `#name` PrivateIdentifier after dot. When we are
+        // lexically inside a class body (`current_class` is Some) the
+        // access is necessarily through `this.#x` or `c.#x` for a `c`
+        // typed as the same class — both bind to the SAME class's
+        // private slot, so mangling to `__priv_<current_class>__<n>`
+        // at parse time is correct and matches the field-decl
+        // mangling that A2 wrote into struct_layouts. Cross-class
+        // access (e.g. inside D's method, `c: C` and `c.#x`) is
+        // rejected by the existing `Visibility::Private` exact-class
+        // check in check.rs (M-OO.5 — exact-class match for
+        // Private), because the mangled name carries the declaring
+        // class in its prefix.
+        //
+        // Outside any class (`current_class` is None) a `#name`
+        // reference is an early SyntaxError per ES §13.1 — leave the
+        // token unconsumed so `expect_member_name` refuses it with a
+        // targeted message. (S2.37 — the previous "keep the raw
+        // `#`-name for the lookup layer" route had rotted into a
+        // silent `undefined` through the dynobj member-miss lane.)
+        if let Token::PrivateIdent(n) = self.peek() {
+            if let Some(cls) = &self.current_class {
+                let mangled = format!("__priv_{cls}__{n}");
+                self.pos += 1;
+                return Some(mangled);
+            }
+            return None;
+        }
+        let kw = Self::keyword_property_name(self.peek())?;
+        self.pos += 1;
+        Some(kw.to_string())
+    }
+
     /// Member name after a just-consumed `.` / `?.`, or the shared
     /// "expected identifier" parse error (`after` names the operator
     /// in the message).
@@ -159,6 +203,15 @@ impl<'a> Parser<'a> {
         match self.member_name_after_dot() {
             Some(n) => Ok(n),
             None => {
+                // S2.37 — `x.#p` outside any class body: early
+                // SyntaxError per ES §13.1 (private references are
+                // only legal lexically inside the declaring class).
+                if let Token::PrivateIdent(n) = self.peek() {
+                    return Err(format!(
+                        "private name `#{n}` is only allowed within a class body (at {})",
+                        self.at()
+                    ));
+                }
                 let t = self.peek();
                 Err(format!(
                     "expected identifier after `{after}`, got {t:?} at {}",
