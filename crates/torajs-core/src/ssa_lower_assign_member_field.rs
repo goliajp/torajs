@@ -56,9 +56,13 @@ pub(crate) fn try_lower_setter_call(
         // The `__cm_` setter's sig is receiver-first: param 0 is the
         // receiver, param 1 the user value.
         Some(sig_id) => match ctx.fn_sigs[sig_id.0 as usize].0.get(1).copied() {
-            Some(expected) => {
-                crate::ssa_lower_call_arg_conv::emit_arg_conv(ctx, expected, value, v.clone(), &mut owned)
-            }
+            Some(expected) => crate::ssa_lower_call_arg_conv::emit_arg_conv(
+                ctx,
+                expected,
+                value,
+                v.clone(),
+                &mut owned,
+            ),
             None => v.clone(),
         },
         None => v.clone(),
