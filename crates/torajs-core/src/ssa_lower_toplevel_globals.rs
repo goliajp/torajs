@@ -372,7 +372,19 @@ fn inferred_slot_ty(
             fn_sigs,
         ));
     }
-    let shape = crate::ast_refs::infer_toplevel_slot_shape(ast, init)?;
+    let Some(shape) = crate::ast_refs::infer_toplevel_slot_shape(ast, init) else {
+        // S2.35 — a call-result init the shape inference can't type
+        // promotes as an Any slot via the shared verdict the
+        // checker's pass_2 registered from (`ast_refs_any_promote`,
+        // same fallback position — the no-drift contract). The Any
+        // slot rides the chunk-809 machinery: the init lane boxes
+        // the concrete value, reads dispatch any-lane. Shape-typed
+        // calls above keep their exact slot.
+        if crate::ast_refs_any_promote::any_promote_init(ast, init) {
+            return Some(Type::Any);
+        }
+        return None;
+    };
     let parsed = slot_shape_to_type(shape);
     Some(
         if parsed == Type::I64 && num_f64_slots.slot_is_f64(&SlotKey::Global(name.to_string())) {

@@ -122,6 +122,13 @@ pub(crate) fn check(
         && (checker.dynobj_degraded.contains(&init) || struct_has_undef_field(&final_ty))
     {
         Type::Any
+    } else if checker.any_promoted_inits.contains(&init) {
+        // S2.35 — pass_2 promoted this toplevel binding to an Any
+        // global (call-init / method-objlit shared verdict); the
+        // main binding widens to match, or member calls off the
+        // main home would route to mono sigs the boxed slot value
+        // can never satisfy.
+        Type::Any
     } else {
         final_ty
     };

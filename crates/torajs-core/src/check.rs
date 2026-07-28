@@ -198,6 +198,7 @@ impl Checker {
             closure_captures: HashMap::new(),
             closure_fn_names: std::collections::HashSet::new(),
             dynobj_degraded: std::collections::HashSet::new(),
+            any_promoted_inits: std::collections::HashSet::new(),
             generic_type_params: HashMap::new(),
             generic_call_sites: HashMap::new(),
             arity_pad_count: HashMap::new(),
@@ -286,6 +287,13 @@ pub(crate) struct Checker {
     /// so it lowers through the P3.2 dynobj-init lane and the define
     /// write-back can rebind it.
     pub(crate) dynobj_degraded: std::collections::HashSet<crate::ast::ExprId>,
+    /// S2.35 — init ExprIds pass_2 promoted to an `Any` global via
+    /// the shared [`crate::ast_refs_any_promote`] verdict (call-init
+    /// / method-objlit). The LetDecl arm widens the main binding to
+    /// `Any` off this set so both homes agree with the lowerer's
+    /// Any slot (a typed main binding would route member calls to
+    /// mono sigs the boxed slot value can never satisfy).
+    pub(crate) any_promoted_inits: std::collections::HashSet<crate::ast::ExprId>,
     /// M3 — type params for each generic FnDecl (`function id<T, U>(...)`).
     /// Empty for non-generic fns. Pass-2 skips these decls (their
     /// TypeVar-bearing bodies can't be type-checked without substitution);

@@ -308,15 +308,36 @@ pub(crate) fn pass_2_register_globals_and_check_stmts(c: &mut Checker, ast: &Ast
                         {
                             resolve_type_ann(&ann, &c.aliases)
                         } else {
-                            crate::ast_refs::infer_toplevel_slot_shape(ast, *init).map(
-                                |s| match s {
+                            let shaped = crate::ast_refs::infer_toplevel_slot_shape(ast, *init)
+                                .map(|s| match s {
                                     crate::ast_refs::GlobalSlotShape::I64
                                     | crate::ast_refs::GlobalSlotShape::F64 => Type::Number,
                                     crate::ast_refs::GlobalSlotShape::Str => Type::String,
                                     crate::ast_refs::GlobalSlotShape::Bool => Type::Boolean,
                                     crate::ast_refs::GlobalSlotShape::Symbol => Type::Symbol,
-                                },
-                            )
+                                });
+                            // S2.35 — a call-result init the shape
+                            // inference can't type (the test262
+                            // IIFE-iterator idiom) registers Any via
+                            // the shared verdict
+                            // (`ast_refs_any_promote`; the lowerer's
+                            // inferred_slot_ty consults the same fn
+                            // in the same fallback position). The
+                            // eid is recorded so the LetDecl arm
+                            // widens the main binding to Any too —
+                            // both homes must agree with the boxed
+                            // slot. Shape-typed calls (simple ret
+                            // ann / `Symbol()`) keep their exact
+                            // slot — the fallback never demotes.
+                            if shaped.is_none()
+                                && !*is_var
+                                && crate::ast_refs_any_promote::any_promote_init(ast, *init)
+                            {
+                                c.any_promoted_inits.insert(*init);
+                                Some(Type::Any)
+                            } else {
+                                shaped
+                            }
                         }
                     } else {
                         None
