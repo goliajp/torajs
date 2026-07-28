@@ -1805,6 +1805,32 @@ Single syntactic points, large mass, narrow directory spread — the
 cheapest ratio on the board. Mostly parser/lexer work; none of it
 touches runtime hot paths.
 
+- [x] **S2.30** objlit computed accessor `{ get [expr]() {} }` /
+      `set` — shipped `307367b5` (rotation 237; the 552-case
+      `got LBracket` cluster's true shape, NOT class members as
+      first guessed). Rides the computed-key sentinel + the accessor
+      define kernel (`DefineKey::Expr`); en route fixed a live
+      silent-wrong: `accessor_param_kind` read sig param 1 assuming
+      env-first but fn_sigs is the user face — every typed-param
+      setter behind the define kernel received the NaN-box verbatim.
+      (Commit messages label these knives S2.27-2.30; those numbers
+      were already taken here — canonical ids are S2.30-33.)
+- [x] **S2.31** `yield* [array-literal]` — shipped `aa77a133`
+      (rotation 237; 340 of the 525-case yield* cluster). Indexed
+      while+yield expansion (array default iterator IS index order,
+      §23.1.5.1). General GetIterator delegation stays loud: the
+      generator state machine has no ForOf arm and the runtime
+      Array cell carries no `Symbol.iterator` property (L3b).
+- [x] **S2.32** bare class fields `name;` / `#p;` / `static s;` —
+      shipped `3fcd8201` (rotation 237; the 527-case `got
+      Some(Semi)` cluster). An `any` slot with a synthesized
+      `undefined` init.
+- [x] **S2.33** user `return v;` in generator bodies completes with
+      `{ value: v, done: true }` (§27.5.1.2) — shipped `591c5fd5`
+      (rotation 237; first wall of the 457-case ClassRef cluster,
+      sync + async). Top-level returns via a new GenSm arm; nested
+      returns via a Stmt-tree walker at the four inline-emit points.
+
 - [x] **S2.1** `*f() {}` generator methods — one grammar point, three
       positions, **3085 cases**, all three shipped in rotation 226. It
       was listed as parser-only; that held for one position and **not**
