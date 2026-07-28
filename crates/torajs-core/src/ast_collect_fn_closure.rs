@@ -176,7 +176,18 @@ impl<'a> FnToClosureCollector<'a> {
                 body,
                 ..
             } => {
-                let ret_any = return_type.as_deref().is_some_and(|a| a.trim() == "any");
+                // S2.37 knife 2 — a MISSING return annotation counts:
+                // the inferred return slot for a bare-fn-ident return
+                // is Any (FnSig is not a propagatable return width),
+                // so the box site needs the closure wrap exactly as
+                // the explicit-`any` case does. Before this arm every
+                // `return <top-fn>` under a None annotation died loud
+                // at box_to_any ("element type FnSig not supported")
+                // — the t262 static-private accessor family
+                // (`static get m() { return this.#m }`, desugared to
+                // a None-ann `__sm_*_get`) is the mass consumer.
+                let ret_any = return_type.is_none()
+                    || return_type.as_deref().is_some_and(|a| a.trim() == "any");
                 // Shadow frame (rotation 128) — the fn's params + body
                 // locals hide a same-named top-level fn for the whole
                 // body walk; see `shadowed` field doc.
