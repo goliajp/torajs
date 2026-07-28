@@ -164,6 +164,24 @@ pub(crate) unsafe fn get_iterator(recv: AnyValue) -> GetIterator {
         if tag == TAG_UNDEF {
             return GetIterator::NoUserMethod;
         }
+        // F0 follow-up (RFC 20260728-gen-forof-yieldstar) — the
+        // symbol walk now ends in a builtin `@@iterator` reify for
+        // native iterable tags, which used to be a miss. That cell
+        // IS the aliased prototype method whose semantics the
+        // builtin lane implements, so answer the fast-lane verdict;
+        // a USER override still wins because the dict probes run
+        // before the reify. Without this arm the reified cell rode
+        // the user-method invoke and bare-entry-threw (the 27-fail
+        // gate on the F0 commit).
+        if tag == 4 && payload != 0 {
+            let cell = payload as *mut core::ffi::c_void;
+            let ct = (cell as *const u8).add(4).cast::<u16>().read();
+            if ct == torajs_rc::Tag::Closure as u16
+                && crate::method_value::builtin_method_mid(cell).is_some()
+            {
+                return GetIterator::NoUserMethod;
+            }
+        }
         // §7.4.2 step 3 — present but not callable is a TypeError, not
         // a fallback: `o[Symbol.iterator] = 5` must throw rather than
         // quietly iterating `o` some other way. A nullish one is the
