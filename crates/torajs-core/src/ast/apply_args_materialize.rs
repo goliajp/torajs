@@ -1,6 +1,11 @@
 //! Expression-default materialization — RFC 20260729-fn-value-any
-//! V2b, run by [`super::apply_args::apply_default_args`] before it
-//! builds its call-site padding tables.
+//! V2b. Runs right after `desugar_classes` (every function form is a
+//! top-level FnDecl by then) and BEFORE `bind_this_param` /
+//! `lift_arrow_fns` / the capture passes, so a default moved into
+//! the body — an arrow-bearing IIFE included — rides the same
+//! pipeline as any other body expression (running later orphaned
+//! the moved arrow from the closure lift: `closure capture not in
+//! scope`, the gate-caught first cut).
 //!
 //! ES §9.2 evaluates a parameter default in the CALLEE's scope, in
 //! parameter order, whenever the bound argument is undefined. tr's
@@ -56,11 +61,52 @@ fn is_pad_safe_literal(ast: &Ast, d: ExprId) -> bool {
     ) || matches!(ast.get_expr(d), Expr::Ident(n) if n == "undefined")
 }
 
+/// Whether the default is safe to evaluate inside the callee body —
+/// a recursive WHITELIST over expression shapes with no function
+/// literal anywhere in them. An arrow-bearing default (the IIFE
+/// shape `_ = (() => { cc++; })()`) stays on the call-site pad: a
+/// closure minted inside a fn body cannot capture a top-level `let`
+/// today (pre-existing "closure capture not in scope", gate-caught
+/// on the first cut of this pass), while the padded copy sits at
+/// the top-level call site where the capture works. Unknown shapes
+/// answer false — keeping today's behavior is always safe.
+fn body_safe_default(ast: &Ast, e: ExprId) -> bool {
+    match ast.get_expr(e) {
+        Expr::Number(_) | Expr::String(_) | Expr::Bool(_) | Expr::Null | Expr::Ident(_) => true,
+        Expr::BinOp { left, right, .. } => {
+            body_safe_default(ast, *left) && body_safe_default(ast, *right)
+        }
+        Expr::Unary { expr, .. } | Expr::As { expr, .. } => body_safe_default(ast, *expr),
+        Expr::Member { obj, .. } => body_safe_default(ast, *obj),
+        Expr::Index { obj, index } => {
+            body_safe_default(ast, *obj) && body_safe_default(ast, *index)
+        }
+        Expr::Ternary {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            body_safe_default(ast, *cond)
+                && body_safe_default(ast, *then_branch)
+                && body_safe_default(ast, *else_branch)
+        }
+        Expr::Sequence { left, right } => {
+            body_safe_default(ast, *left) && body_safe_default(ast, *right)
+        }
+        Expr::Call { callee, args } => {
+            body_safe_default(ast, *callee) && args.iter().all(|a| body_safe_default(ast, *a))
+        }
+        Expr::Array(elems) => elems.iter().all(|a| body_safe_default(ast, *a)),
+        Expr::ObjectLit { fields } => fields.iter().all(|(_, v)| body_safe_default(ast, *v)),
+        _ => false,
+    }
+}
+
 /// See module doc. Walks every top-level FnDecl (all function forms
 /// are FnDecls by this point in the pass pipeline — class methods
 /// are `__cm_*`, lifted closures `__closure_*`, generator factories
 /// their own names).
-pub(crate) fn materialize_expr_defaults(ast: &mut Ast) {
+pub fn materialize_expr_defaults(ast: &mut Ast) {
     // Phase A — collect (stmt index, param index, param name,
     // default ExprId) for every converting param, immutably.
     let mut sites: Vec<(usize, usize, String, ExprId)> = Vec::new();
@@ -70,7 +116,7 @@ pub(crate) fn materialize_expr_defaults(ast: &mut Ast) {
         };
         for (pi, p) in params.iter().enumerate() {
             let Some(d) = p.default else { continue };
-            if is_pad_safe_literal(ast, d) {
+            if is_pad_safe_literal(ast, d) || !body_safe_default(ast, d) {
                 continue;
             }
             let ann_ok = p.type_ann.as_deref().is_none_or(|a| a.trim() == "any");

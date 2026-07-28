@@ -269,6 +269,7 @@ fn parse_check(src: &str) -> ParseOutcome {
     a.warm_newline_cache();
     ast::inject_builtin_classes(&mut a);
     ast::desugar_classes(&mut a);
+    ast::materialize_expr_defaults(&mut a);
     ast::bind_this_param(&mut a);
     ast::rewrite_toplevel_this(&mut a);
     ast::synthesize_fn_constructors(&mut a);

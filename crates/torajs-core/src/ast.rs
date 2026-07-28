@@ -82,6 +82,7 @@ mod toplevel_this;
 mod uninit_let;
 mod var_hoist;
 pub use apply_args::{apply_default_args, apply_rest_args};
+pub use apply_args_materialize::materialize_expr_defaults;
 pub use apply_spread::apply_spread_args;
 pub use arguments_object::desugar_arguments_object;
 pub use class_globals::synthesize_class_globals;

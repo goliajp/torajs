@@ -138,10 +138,6 @@ fn synthetic_fn_ident(e: &Expr) -> Option<String> {
 }
 
 pub fn apply_default_args(ast: &mut Ast) {
-    // RFC 20260729-fn-value-any V2b — expression defaults move into
-    // the callee body first (see apply_args_materialize); what's
-    // left in the param lists is pad-safe literals only.
-    super::apply_args_materialize::materialize_expr_defaults(ast);
     let fn_defaults = collect_fn_defaults(ast);
     // Sibling-shape Member calls (`obj.method(args)`) survive desugar
     // when the method name is shared by unrelated classes (I.1). For

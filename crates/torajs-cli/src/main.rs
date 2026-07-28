@@ -223,6 +223,7 @@ fn pipeline(src: &str, base_dir: &Path, stage: Stage) -> ExitCode {
     ast::desugar_prototype_call(&mut ast);
     ast::inject_builtin_classes(&mut ast);
     ast::desugar_classes(&mut ast);
+    ast::materialize_expr_defaults(&mut ast);
     // Must follow desugar_classes: that pass is what turns `this`
     // into the name `__this`, and this one is what gives plain
     // functions somewhere to bind it (RFC 20260726 blade 1).
