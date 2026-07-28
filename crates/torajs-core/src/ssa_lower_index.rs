@@ -112,6 +112,28 @@ pub(crate) fn lower_from_value(
             ctx.owned_member_reads.insert(eid);
             return v;
         }
+        // Cluster #1 blade 5 — an `any`-typed key on the boxed struct
+        // rides the keyed kernel's ToPropertyKey dispatch (mirror of
+        // the Any-receiver arm below).
+        if matches!(ctx.expr_types.get(&index), Some(crate::check::Type::Any)) {
+            let k_raw = ctx.lower_expr(index);
+            let cur_block = ctx.cur_block;
+            let v = ctx.f.append_inst(
+                cur_block,
+                InstKind::Call(
+                    ctx.intrinsics.any_index_get_keyed,
+                    vec![boxed, k_raw.clone()],
+                ),
+                Type::Any,
+                None,
+            );
+            ctx.emit_throw_check(None);
+            ctx.owned_member_reads.insert(eid);
+            if ctx.expr_transfers_ownership(index) {
+                ctx.emit_drop_value(k_raw, Type::Any);
+            }
+            return Operand::Value(v);
+        }
         let idx_val = ctx.lower_index_operand(index);
         let cur_block = ctx.cur_block;
         let v = ctx.f.append_inst(

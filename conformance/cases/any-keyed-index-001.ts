@@ -37,3 +37,12 @@ function cb(val, idx, obj) {
   return this === undefined && obj[idx] === val;
 }
 console.log(nums.every(cb));
+
+// blade 5 — a typed struct receiver with an `any` key boxes at the
+// lane boundary and rides the same keyed kernel
+type P = { a: number, b: string };
+const p: P = { a: 7, b: "x" };
+var pk: any = "a";
+console.log(p[pk]);
+var pk2: any = "missing";
+console.log(p[pk2]);
