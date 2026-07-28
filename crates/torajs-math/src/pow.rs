@@ -44,11 +44,23 @@ fn is_odd_integer(y: f64) -> bool {
 /// `pow(x, y) -> x^y` — backs `Math.pow` and the LLVM-emitted libm
 /// `pow` symbol; replaces the `f64::powf` path that linked to libc.
 ///
-/// Special-case ordering follows C99 Annex F.10.4.4 (ES Math.pow §
-/// 21.3.2.27 is byte-for-byte the same lattice with NaN-propagation
-/// tighter).
+/// Special-case lattice is ES §6.1.6.1.3 Number::exponentiate. It
+/// matches C99 Annex F.10.4.4 in every cell but one: C99 says
+/// `pow(±1, ±∞) = 1`, ES says NaN — every caller of this symbol is
+/// a JS `**` / `Math.pow`, so ES wins (rotation 240: the C99 cell
+/// answered `(-1) ** Infinity === 1` where bun answers NaN).
 #[unsafe(no_mangle)]
 pub extern "C" fn pow(x: f64, y: f64) -> f64 {
+    pow_es(x, y)
+}
+
+/// The implementation behind [`pow`]. Split out (rotation 240) so
+/// the unit tests exercise THIS code: in a host-linked test binary
+/// the `no_mangle pow` symbol resolves to libSystem's C99 `pow`,
+/// and the pre-split assertions silently tested libm — the one
+/// lattice cell where ES and C99 differ was pinned to the WRONG
+/// (C99) answer and never caught.
+fn pow_es(x: f64, y: f64) -> f64 {
     // y == 0 → 1 for ANY x (including NaN, ±∞, ±0). ES + C99 agree.
     if y == 0.0 {
         return 1.0;
@@ -62,22 +74,22 @@ pub extern "C" fn pow(x: f64, y: f64) -> f64 {
         return x;
     }
 
-    // x == 1 → 1 for any finite or infinite y (and we've already
-    // handled NaN y above).
-    if x == 1.0 {
-        return 1.0;
-    }
-
-    // |y| == ∞ branches: depends on |x| vs 1.
+    // |y| == ∞ branches: depends on |x| vs 1. Ordered BEFORE the
+    // x == 1 shortcut — ES answers NaN for |x| == 1 here.
     if y.is_infinite() {
         let abs_x = x.abs();
         if abs_x == 1.0 {
-            return 1.0;
+            return f64::NAN;
         }
         // y == +∞:  |x| < 1 → 0,  |x| > 1 → +∞
         // y == -∞:  |x| < 1 → +∞, |x| > 1 → 0
         let big = (abs_x > 1.0) ^ y.is_sign_negative();
         return if big { f64::INFINITY } else { 0.0 };
+    }
+
+    // x == 1 → 1 for any finite y (infinite y handled above).
+    if x == 1.0 {
+        return 1.0;
     }
 
     // x == ±0 branches.
@@ -117,6 +129,16 @@ pub extern "C" fn pow(x: f64, y: f64) -> f64 {
         if !is_integer(y) {
             return f64::NAN;
         }
+    }
+
+    // y == 0.5 → sqrt: correctly rounded where the exp(y·log x)
+    // general path drifts a ulp (`2 ** 0.5` printed …373095 vs
+    // libm's …3730951). Safe only AFTER the x == ±0 / x == ±∞
+    // branches (C99+ES: pow(-0, 0.5) = +0 but sqrt(-0) = -0;
+    // pow(-∞, 0.5) = +∞ but sqrt(-∞) = NaN); a remaining negative
+    // x answers NaN through sqrt exactly as pow requires.
+    if y == 0.5 {
+        return x.sqrt();
     }
 
     // Integer-y fast path: repeated squaring. Gives bit-exact
@@ -187,56 +209,75 @@ mod tests {
 
     #[test]
     fn integer_powers() {
-        assert!(ulp_close(pow(2.0, 10.0), 1024.0, 4.0));
-        assert!(ulp_close(pow(3.0, 4.0), 81.0, 4.0));
-        assert!(ulp_close(pow(10.0, 6.0), 1000000.0, 4.0));
+        assert!(ulp_close(pow_es(2.0, 10.0), 1024.0, 4.0));
+        assert!(ulp_close(pow_es(3.0, 4.0), 81.0, 4.0));
+        assert!(ulp_close(pow_es(10.0, 6.0), 1000000.0, 4.0));
     }
 
     #[test]
     fn fractional_exponents() {
-        assert!(ulp_close(pow(4.0, 0.5), 2.0, 4.0));
-        assert!(ulp_close(pow(8.0, 1.0 / 3.0), 2.0, 16.0));
+        assert!(ulp_close(pow_es(4.0, 0.5), 2.0, 4.0));
+        assert!(ulp_close(pow_es(8.0, 1.0 / 3.0), 2.0, 16.0));
     }
 
     #[test]
     fn negative_base_integer_exponent() {
-        assert_eq!(pow(-2.0, 3.0), -8.0);
-        assert!(ulp_close(pow(-2.0, 4.0), 16.0, 4.0));
+        assert_eq!(pow_es(-2.0, 3.0), -8.0);
+        assert!(ulp_close(pow_es(-2.0, 4.0), 16.0, 4.0));
     }
 
     #[test]
     fn negative_base_noninteger_exponent_is_nan() {
-        assert!(pow(-2.0, 0.5).is_nan());
-        assert!(pow(-2.0, 1.5).is_nan());
+        assert!(pow_es(-2.0, 0.5).is_nan());
+        assert!(pow_es(-2.0, 1.5).is_nan());
     }
 
     #[test]
     fn y_zero_returns_one_for_any_x() {
-        assert_eq!(pow(0.0, 0.0), 1.0);
-        assert_eq!(pow(f64::NAN, 0.0), 1.0);
-        assert_eq!(pow(f64::INFINITY, 0.0), 1.0);
-        assert_eq!(pow(-1.0, 0.0), 1.0);
+        assert_eq!(pow_es(0.0, 0.0), 1.0);
+        assert_eq!(pow_es(f64::NAN, 0.0), 1.0);
+        assert_eq!(pow_es(f64::INFINITY, 0.0), 1.0);
+        assert_eq!(pow_es(-1.0, 0.0), 1.0);
     }
 
     #[test]
     fn x_one_returns_one_for_any_finite_y() {
-        assert_eq!(pow(1.0, 100.0), 1.0);
-        assert_eq!(pow(1.0, f64::INFINITY), 1.0);
+        assert_eq!(pow_es(1.0, 100.0), 1.0);
+        assert_eq!(pow_es(1.0, -7.5), 1.0);
+    }
+
+    #[test]
+    fn abs_one_base_infinite_exponent_is_nan() {
+        // ES §6.1.6.1.3 — the one cell where ES differs from C99
+        // (C99 says 1).
+        assert!(pow_es(1.0, f64::INFINITY).is_nan());
+        assert!(pow_es(-1.0, f64::INFINITY).is_nan());
+        assert!(pow_es(1.0, f64::NEG_INFINITY).is_nan());
+        assert!(pow_es(-1.0, f64::NEG_INFINITY).is_nan());
+    }
+
+    #[test]
+    fn half_exponent_is_correctly_rounded_sqrt() {
+        assert_eq!(pow_es(2.0, 0.5), 2.0_f64.sqrt());
+        assert_eq!(pow_es(-0.0, 0.5), 0.0);
+        assert!(pow_es(-0.0, 0.5).is_sign_positive());
+        assert_eq!(pow_es(f64::NEG_INFINITY, 0.5), f64::INFINITY);
+        assert!(pow_es(-2.0, 0.5).is_nan());
     }
 
     #[test]
     fn pow_zero_negative_exponent_is_infinity() {
-        assert_eq!(pow(0.0, -2.0), f64::INFINITY);
-        assert_eq!(pow(-0.0, -3.0), f64::NEG_INFINITY); // -∞ for odd int
-        assert_eq!(pow(-0.0, -4.0), f64::INFINITY); // +∞ for even int
+        assert_eq!(pow_es(0.0, -2.0), f64::INFINITY);
+        assert_eq!(pow_es(-0.0, -3.0), f64::NEG_INFINITY); // -∞ for odd int
+        assert_eq!(pow_es(-0.0, -4.0), f64::INFINITY); // +∞ for even int
     }
 
     #[test]
     fn pow_infinity_cases() {
-        assert_eq!(pow(2.0, f64::INFINITY), f64::INFINITY);
-        assert_eq!(pow(0.5, f64::INFINITY), 0.0);
-        assert_eq!(pow(2.0, f64::NEG_INFINITY), 0.0);
-        assert_eq!(pow(0.5, f64::NEG_INFINITY), f64::INFINITY);
+        assert_eq!(pow_es(2.0, f64::INFINITY), f64::INFINITY);
+        assert_eq!(pow_es(0.5, f64::INFINITY), 0.0);
+        assert_eq!(pow_es(2.0, f64::NEG_INFINITY), 0.0);
+        assert_eq!(pow_es(0.5, f64::NEG_INFINITY), f64::INFINITY);
     }
 
     #[test]
@@ -251,10 +292,10 @@ mod tests {
         ];
         for (x, y) in cases {
             let host = x.powf(y);
-            let ours = pow(x, y);
+            let ours = pow_es(x, y);
             assert!(
                 ulp_close(ours, host, 32.0),
-                "pow({x}, {y}): ours={ours} host={host}",
+                "pow_es({x}, {y}): ours={ours} host={host}",
             );
         }
     }
