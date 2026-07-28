@@ -31,6 +31,19 @@ impl<'a> FnToClosureCollector<'a> {
                 |(params, _, _)| params.first().is_some_and(|p| p.name == "__this")))
     }
 
+    /// A top-FnDecl Ident with un-annotated params — the later
+    /// `desugar_implicit_generics` pass turns those into `__T<N>`
+    /// TypeVars, so the fn has no concrete raw-FnSig instance a value
+    /// use could carry. Its forwarder does: the shim's params inherit
+    /// the un-annotated shape, the closure-shape arm defaults them to
+    /// `any`, and the forwarding DIRECT call is a mono site that
+    /// instantiates the generic at all-any.
+    fn is_untyped_plain_fn_ident(&self, eid: ExprId) -> bool {
+        matches!(self.ast.get_expr(eid), Expr::Ident(n)
+            if self.fn_sigs.get(n).is_some_and(
+                |(params, _, _)| params.iter().any(|p| p.type_ann.is_none() && !p.is_rest)))
+    }
+
     /// Walk an Expr looking for nested store-sites (Call args,
     /// assigns into `any` bindings, nested ObjectLits, etc.).
     /// `Expr::Call` arm — the callee/arg boxing decisions plus the
@@ -109,16 +122,20 @@ impl<'a> FnToClosureCollector<'a> {
         {
             self.try_mark(*obj);
         }
-        // Cluster #1 (test262) — a bind_this_param-promoted top fn
-        // (hidden `__this` first param) passed as a member-call
-        // argument (`arr.every(callbackfn)`): the raw-FnSig lanes
-        // would call it with every argument off by one slot, so the
-        // value use must ride the forwarder, whose public face skips
-        // `__this` and feeds `undefined` into the target. Unpromoted
-        // named fns keep their raw FnSig fast paths.
+        // Cluster #1 (test262) — a member-call argument fn-Ident whose
+        // raw FnSig can't serve the value use: a
+        // bind_this_param-promoted fn (hidden `__this` first param —
+        // every argument would land off by one slot) or an
+        // untyped-param fn (becomes a `__T<N>` generic with no
+        // concrete instance). Both ride the forwarder — its public
+        // face skips `__this` / defaults to `any`, and its direct
+        // forwarding call is the mono site for the generic. Typed,
+        // unpromoted named fns keep their raw FnSig fast paths.
         if matches!(self.ast.get_expr(*callee), Expr::Member { .. }) {
             for &arg in args {
-                if self.is_this_promoted_ident(arg) && !self.is_generator_family_ident(arg) {
+                if (self.is_this_promoted_ident(arg) || self.is_untyped_plain_fn_ident(arg))
+                    && !self.is_generator_family_ident(arg)
+                {
                     self.try_mark(arg);
                 }
             }
