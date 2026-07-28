@@ -78,7 +78,27 @@ pub(crate) fn synthesize_boxed_entries(
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
     fn_sig_ids: &mut HashMap<FuncId, ssa::SigId>,
     intr: &BoxedEntryIntrinsics,
+    anon_stamp_pool: &crate::ssa_lower_anon_stamp::AnonStampPoolCell,
+    class_name_to_tag: &HashMap<String, u32>,
+    aliases: &HashMap<String, Type>,
 ) -> HashMap<FuncId, (FuncId, ssa::SigId)> {
+    // S2.36 — sid → class_tag for the struct-param coercion call.
+    // Named classes resolve through their name tag; anonymous shapes
+    // through the Pass-1.5 stamp pool (same split the ObjectLit
+    // alloc stamping uses).
+    let named_sid_to_tag: HashMap<ssa::StructId, u32> = class_name_to_tag
+        .iter()
+        .filter_map(|(cname, &tag)| match aliases.get(cname) {
+            Some(Type::Obj(sid)) => Some((*sid, tag)),
+            _ => None,
+        })
+        .collect();
+    let sid_tag = |sid: ssa::StructId| -> u32 {
+        named_sid_to_tag
+            .get(&sid)
+            .copied()
+            .unwrap_or_else(|| anon_stamp_pool.borrow_mut().assign_or_get(sid))
+    };
     let mut targets: Vec<(String, FuncId, Vec<Type>, Type, bool, bool, bool)> = Vec::new();
     for stmt in &ast.stmts {
         let Stmt::FnDecl { name, params, .. } = stmt else {
@@ -160,7 +180,30 @@ pub(crate) fn synthesize_boxed_entries(
         &[Type::Any],
         Type::Ptr,
     );
+    // S2.36 — struct-param coercion kernel + the release for its
+    // owned answer, declared lazily like anyv_to_str.
+    let arg_to_struct = crate::ssa_lower_synthesize_main::declare_intrinsic(
+        module,
+        fn_table,
+        "__torajs_anyv_arg_to_struct",
+        &[Type::Any, Type::I64],
+        Type::Any,
+    );
+    let anyv_rc_dec = crate::ssa_lower_synthesize_main::declare_intrinsic(
+        module,
+        fn_table,
+        "__torajs_anyv_rc_dec",
+        &[Type::Any],
+        Type::Void,
+    );
     for (name, fid, user_tys, ret_ty, has_real_argc, has_argv, feeds_env) in targets {
+        let obj_tags: Vec<Option<u32>> = user_tys
+            .iter()
+            .map(|t| match t {
+                Type::Obj(sid) => Some(sid_tag(*sid)),
+                _ => None,
+            })
+            .collect();
         let pair = build_boxed_entry(
             module,
             fn_table,
@@ -168,6 +211,11 @@ pub(crate) fn synthesize_boxed_entries(
             fn_sig_ids,
             intr,
             anyv_to_str,
+            BoxedCoerceIntrinsics {
+                arg_to_struct,
+                anyv_rc_dec,
+                obj_tags: &obj_tags,
+            },
             &name,
             fid,
             &user_tys,
@@ -181,6 +229,15 @@ pub(crate) fn synthesize_boxed_entries(
     entries
 }
 
+/// S2.36 — the struct-param coercion trio threaded into one adapter
+/// build: the kernel + release FuncIds and the per-user-param
+/// class_tag (`Some` only for `Type::Obj` params).
+struct BoxedCoerceIntrinsics<'a> {
+    arg_to_struct: FuncId,
+    anyv_rc_dec: FuncId,
+    obj_tags: &'a [Option<u32>],
+}
+
 /// One adapter — see module doc for the ABI.
 #[allow(clippy::too_many_arguments)]
 fn build_boxed_entry(
@@ -190,6 +247,7 @@ fn build_boxed_entry(
     fn_sig_ids: &mut HashMap<FuncId, ssa::SigId>,
     intr: &BoxedEntryIntrinsics,
     anyv_to_str: FuncId,
+    coerce: BoxedCoerceIntrinsics<'_>,
     body_name: &str,
     body_fid: FuncId,
     user_tys: &[Type],
@@ -213,6 +271,11 @@ fn build_boxed_entry(
     // Str-param temps (owned via ToString — a ShortStr argument
     // materializes) released after the body call.
     let mut str_temps: Vec<ssa::ValueId> = Vec::new();
+    // S2.36 — coerced struct-param boxes (the kernel answers OWNED:
+    // a stake on pass-throughs, a fresh cell for materialized
+    // dynobjs) released after the body call via anyv_rc_dec (no-op
+    // on immediates).
+    let mut obj_temps: Vec<ssa::ValueId> = Vec::new();
     // A static-method body (`__sm_`) has no env slot — the adapter
     // drops its env argument (knife B cut 2).
     if feeds_env {
@@ -278,6 +341,37 @@ fn build_boxed_entry(
                 str_temps.push(s);
                 Operand::Value(s)
             }
+            // S2.36 — struct params ride the coercion kernel: an
+            // inline-objlit argument arrives as a DYNOBJ box (the
+            // any-lane packing contract) while the body reads the
+            // param through its struct LAYOUT; the kernel
+            // materializes the right repr (or stakes a pass-through)
+            // and the owned answer releases after the call.
+            Type::Obj(_) => {
+                let tag = coerce.obj_tags[i].expect("obj_tags aligns with user_tys");
+                let coerced = f.append_inst(
+                    entry,
+                    InstKind::Call(
+                        coerce.arg_to_struct,
+                        vec![av, Operand::ConstI64(tag as i64)],
+                    ),
+                    Type::Any,
+                    None,
+                );
+                obj_temps.push(coerced);
+                let raw = f.append_inst(
+                    entry,
+                    InstKind::Call(intr.any_unbox_value, vec![Operand::Value(coerced)]),
+                    Type::I64,
+                    None,
+                );
+                Operand::Value(f.append_inst(
+                    entry,
+                    InstKind::IntToPtr(Operand::Value(raw)),
+                    Type::Ptr,
+                    None,
+                ))
+            }
             // Other heap-typed / raw-ptr params: the cell's NaN-box
             // encoding is its pointer bits (borrow — the argv slot
             // keeps the reference alive across the call).
@@ -302,6 +396,7 @@ fn build_boxed_entry(
     let boxed = if ret_ty == Type::Void {
         f.append_void(entry, InstKind::Call(body_fid, args));
         drop_str_temps(&mut f, entry, intr, &str_temps);
+        drop_obj_temps(&mut f, entry, coerce.anyv_rc_dec, &obj_temps);
         // undefined — tag 5.
         f.append_inst(
             entry,
@@ -315,6 +410,7 @@ fn build_boxed_entry(
     } else {
         let r = f.append_inst(entry, InstKind::Call(body_fid, args), ret_ty, None);
         drop_str_temps(&mut f, entry, intr, &str_temps);
+        drop_obj_temps(&mut f, entry, coerce.anyv_rc_dec, &obj_temps);
         match ret_ty {
             Type::Any => r,
             Type::F64 => {
@@ -372,6 +468,21 @@ fn build_boxed_entry(
 /// Release the Str-param ToString temps after the body call. A body
 /// that returned one of them holds its own reference (owned-return
 /// convention), so the release never frees a live result.
+/// S2.36 — release the coerced struct-param boxes after the body
+/// call (`anyv_rc_dec`: stake balanced / fresh cell freed through
+/// the universal heap drop; no-op on immediates the kernel passed
+/// through).
+fn drop_obj_temps(
+    f: &mut ssa::Function,
+    entry: ssa::BlockId,
+    anyv_rc_dec: FuncId,
+    temps: &[ssa::ValueId],
+) {
+    for &t in temps {
+        f.append_void(entry, InstKind::Call(anyv_rc_dec, vec![Operand::Value(t)]));
+    }
+}
+
 fn drop_str_temps(
     f: &mut ssa::Function,
     entry: ssa::BlockId,

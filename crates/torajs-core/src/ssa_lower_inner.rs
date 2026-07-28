@@ -120,19 +120,6 @@ pub(crate) fn lower_inner(
             &num_f64_slots,
         );
 
-    let (intrinsics, boxed_entries) = build_intrinsics_and_boxed_entries(
-        ast,
-        &mut module,
-        &mut fn_table,
-        &mut fn_sigs,
-        &mut fn_sig_ids,
-        env_drop_trivial_fid,
-        &init_a,
-        &init_b,
-        &init_c,
-        &init_d,
-    );
-
     // (struct_layouts already detached from module at top of lower(),
     // see M3.4 block above; write-back happens at the end.)
 
@@ -159,6 +146,28 @@ pub(crate) fn lower_inner(
 
     let (anon_stamp_pool, struct_layouts_pass15_len) =
         build_anon_stamp_pool_with_snapshot(&class_name_to_tag, &aliases, &struct_layouts);
+
+    // S2.36 — intrinsics + boxed-adapter synthesis moved AFTER the
+    // stamp-pool build: the adapters' struct-param coercion call
+    // needs each Obj param sid's class_tag, resolved through the
+    // same named/anon split the ObjectLit alloc stamping uses.
+    // Nothing between the old position and here consumed either
+    // output (globals registration is data-slot work).
+    let (intrinsics, boxed_entries) = build_intrinsics_and_boxed_entries(
+        ast,
+        &mut module,
+        &mut fn_table,
+        &mut fn_sigs,
+        &mut fn_sig_ids,
+        &anon_stamp_pool,
+        &class_name_to_tag,
+        &aliases,
+        env_drop_trivial_fid,
+        &init_a,
+        &init_b,
+        &init_c,
+        &init_d,
+    );
 
     body_passes::run(
         decl_indices,

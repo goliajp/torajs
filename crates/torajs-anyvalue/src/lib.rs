@@ -88,6 +88,7 @@ use std::ptr::NonNull;
 
 use torajs_rc::{__torajs_rc_inc, AnySlotTag, HeapHeader, Tag};
 
+mod arg_struct_coerce;
 mod arith;
 pub(crate) mod arr_locale_string;
 mod arr_member_value;

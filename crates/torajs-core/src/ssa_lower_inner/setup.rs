@@ -27,6 +27,9 @@ pub(super) fn build_intrinsics_and_boxed_entries(
     fn_table: &mut HashMap<String, FuncId>,
     fn_sigs: &mut Vec<(Vec<crate::ssa::Type>, crate::ssa::Type)>,
     fn_sig_ids: &mut HashMap<FuncId, crate::ssa::SigId>,
+    anon_stamp_pool: &crate::ssa_lower_anon_stamp::AnonStampPoolCell,
+    class_name_to_tag: &HashMap<String, u32>,
+    aliases: &HashMap<String, crate::ssa::Type>,
     env_drop_trivial_fid: (FuncId, crate::ssa::SigId),
     init_a: &crate::ssa_lower_intrinsics_init_a::InitA,
     init_b: &crate::ssa_lower_intrinsics_init_b::InitB,
@@ -56,6 +59,9 @@ pub(super) fn build_intrinsics_and_boxed_entries(
             any_unbox_value: intrinsics.any_unbox_value,
             str_drop: intrinsics.str_drop,
         },
+        anon_stamp_pool,
+        class_name_to_tag,
+        aliases,
     );
     (intrinsics, boxed_entries)
 }
