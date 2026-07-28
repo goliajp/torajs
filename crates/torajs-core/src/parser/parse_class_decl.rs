@@ -72,6 +72,15 @@ impl<'a> Parser<'a> {
             // contextual keyword: only treated as such when the next token
             // is a valid member name shape.
 
+            // S2.40 — `ClassElement : ;` (ES §15.7): a bare semicolon
+            // is an empty class element. The t262 elements/ suites
+            // end every class body with one (474-case `got Semi`
+            // parse wall).
+            if matches!(self.peek(), Token::Semi) {
+                self.pos += 1;
+                continue;
+            }
+
             // P8.3-A2 — `static { ... }` class static block (ES2022 §15.7.10).
             // Detected at the top of each iteration, before modifier parsing,
             // because the `is_static`-modifier dispatch below assumes `static`
