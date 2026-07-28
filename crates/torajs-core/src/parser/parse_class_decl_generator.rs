@@ -198,9 +198,18 @@ impl<'a> Parser<'a> {
         // `C.prototype.g` bare call (`let ref = C.prototype.m;
         // ref(5)`, the t262 dflt-params template family's shape)
         // runs instead of the receiver TypeError.
-        let body_reads_recv = self.ast.exprs[body_expr_start..]
-            .iter()
-            .any(|e| matches!(e, Expr::Ident(n) if n == GEN_RECV_PARAM));
+        // Static methods are excluded (the `|| is_static` below):
+        // rotation 243's sweep caught 85 `async-gen-meth-static-*`
+        // regressions — a static forwarder that stops mentioning
+        // `this` breaks the `__sm_<C>__<m>` static-member alias
+        // chain (`let m = C.method` lowers to an unknown
+        // `__sm_…` ident / a whole-program generic-arity reject),
+        // so the static value-use face keeps its `this`-passing
+        // forwarder until that chain gets its own lane.
+        let body_reads_recv = is_static
+            || self.ast.exprs[body_expr_start..]
+                .iter()
+                .any(|e| matches!(e, Expr::Ident(n) if n == GEN_RECV_PARAM));
 
         // The hoisted generator: receiver first, then the user's params.
         // An instance receiver carries the declaring class's own name
