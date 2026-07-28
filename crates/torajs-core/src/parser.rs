@@ -59,6 +59,7 @@ mod parse_class_member_method;
 mod parse_fn;
 mod parse_postfix;
 mod parse_stmt;
+mod parse_yield;
 mod primary;
 mod primary_async;
 mod primary_atoms;
