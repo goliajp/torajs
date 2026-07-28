@@ -1530,6 +1530,32 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 9215301c`, never as a constant.
 
+**Re-derived @ `8dadd71a`** (2026-07-29, rotation 242): passTotal
+**18574** (+51 over rotation 241's 18523 — that rotation's sweep @
+`04655b9f` ran but its census stamp was skipped; its +1 is folded
+into this baseline), bug 2111, trAccepted 20685, incompatible
+**32489**, core **20239**. Gate predicate: **496** clusters of ≥ 4
+holding 18953, plus 918 of ≤ 3 holding 1286. Conservation exact:
+ΔtrAccepted +61 = Δpass +51 + Δbug +10. True regressions **0**; new
+crash 0; timeout 28 → 31 (three `identifiers/start-unicode-*-class*`
+moved not-yet-supported → tr-timeout inside incompatible — the
+mid-rotation sweep at `362270e7` still showed not-yet-supported and
+the only commit after touches the async-expr parser guard, so this
+is machine-load edge, registered watch). Forward attribution: 45 of
+51 in the two class dirs (class generator methods' for-of bodies —
+the F1 state-machine ForOf arm), 6 across for-of / generators /
+yield / object. Bug +10 = the registered F2 residual surfacing
+(sync yield* abrupt-completion forwarding, stdout-mismatch family).
+**Mid-close audit caught and reverted a 65-case inflation**: the
+un-flagged `async function*` EXPRESSION form rode the F2 sync
+next-drive — 65 coincidental passes (sync GetIterator TypeError
+happening to match the async oracle) + 36 abrupt mis-drives; fix-up
+`8dadd71a` restores the attributed refusal and this stamp is the
+honest re-baseline (the intermediate sweep read 18639/2147). Next
+walls: #1 eval 1076 (RFC awaiting sign-off), #2 `box_to_any FnSig`
+720, #3 async yield* (F3, needs for-await-any), #4 `arguments` ~430.
+Previous stamp below.
+
 **Re-derived @ `b9a8019b`** (2026-07-28, rotation 240; re-swept at
 the final HEAD `2879793f` after the size-debt refactor — verdicts
 byte-identical across all 53174 cases, every number below unchanged):
