@@ -78,10 +78,20 @@ pub(crate) fn check(
         // type.
         && !(matches!(obj_ty, Type::Array(_))
             && matches!(idx_ty, Type::String | Type::Symbol | Type::Any))
+        // A STRING receiver takes that same key domain, and §10.4.3
+        // decides the outcome the same three ways: `s["0"]` is the
+        // character, `s["length"]` ≡ `s.length`, and anything else
+        // reads through to the method surface or a miss. Only the
+        // number key keeps the narrow String answer below.
+        && !(matches!(obj_ty, Type::String)
+            && matches!(idx_ty, Type::String | Type::Symbol | Type::Any))
     {
         return Err(format!("index must be number, got {idx_ty:?}"));
     }
     match obj_ty {
+        // See the note on the reject above — the three outcomes have
+        // no common narrower type, so a non-number key answers Any.
+        Type::String if matches!(idx_ty, Type::String | Type::Symbol | Type::Any) => Ok(Type::Any),
         Type::String => Ok(Type::String),
         // See the note on the reject above.
         Type::Array(_) if matches!(idx_ty, Type::String | Type::Symbol | Type::Any) => {

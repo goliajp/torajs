@@ -61,6 +61,55 @@ pub(crate) fn lower_typed_arr_any_key(
     Operand::Value(v)
 }
 
+/// String / Substr receiver. A NUMBER key takes the character lane:
+/// routed through the index-get runtime pair (RFC 20260707 residual),
+/// where — unlike the charAt / slice method family, which answers the
+/// empty string on OOB per §22.1.3.2 — `s[i]` OOB answers JS
+/// `undefined` per §10.4.3 [[Get]], the immortal Substr-shaped
+/// sentinel whose view walks to "undefined" (ToString consumers stay
+/// branch-free) while identity consumers (strict-eq / typeof /
+/// nullish probes) compare its address.
+///
+/// Any other key can't pick that lane: its spelling — or, for an
+/// `any` key, its runtime tag — decides between the character,
+/// `length`, a reified method and a miss. Box both sides and let the
+/// keyed kernel's §7.1.19 ToPropertyKey dispatch answer, exactly as
+/// the Arr receiver does. Pre-fix those keys rejected the whole
+/// program ("index must be number, got String").
+///
+/// Lives here rather than in `ssa_lower_index` because that file's
+/// `lower_from_value` sits against the 200-line rule and the file
+/// itself against the 500-line one.
+pub(crate) fn lower_str_recv_index(
+    ctx: &mut LowerCtx<'_>,
+    eid: ExprId,
+    arr_val: Operand,
+    arr_ty: Type,
+    index: ExprId,
+) -> Operand {
+    if matches!(
+        ctx.expr_types.get(&index),
+        Some(crate::check::Type::Any | crate::check::Type::String | crate::check::Type::Symbol)
+    ) {
+        return lower_typed_arr_any_key(ctx, eid, arr_val, index);
+    }
+    let idx_raw = ctx.lower_expr(index);
+    let idx_val = ctx.coerce_to_i64(idx_raw);
+    let fid = if arr_ty == Type::Str {
+        ctx.intrinsics.str_index_view
+    } else {
+        ctx.intrinsics.substr_index_view
+    };
+    let cur_block = ctx.cur_block;
+    let v = ctx.f.append_inst(
+        cur_block,
+        InstKind::Call(fid, vec![arr_val, idx_val]),
+        Type::Substr,
+        None,
+    );
+    Operand::Value(v)
+}
+
 pub(crate) fn lower_array_any_index(
     ctx: &mut LowerCtx<'_>,
     arr_val: Operand,
