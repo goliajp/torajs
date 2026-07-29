@@ -46,24 +46,47 @@ pub(crate) fn try_lower(
     }
     if m_name == "fromAsync" {
         // proposal-array-from-async §2.1.1 sync-source MVP — box the
-        // items arg and hand it to the dyn kernel (array-like step
-        // protocol + settled-promise element unwrap). Checker admits
-        // the 1-arg form only, so args[1..] never reaches here.
+        // items arg (and the mapfn when present) and hand them to
+        // the dyn kernel (array-like step protocol + settled-promise
+        // element unwrap; the mapped entry interleaves await /
+        // mapfn / await per element). args[2..] (thisArg + trailing)
+        // eval-and-drop per the S275 posture.
         let arg_op = ctx.lower_expr(args[0]);
         let arg_ty = ctx.operand_ty(&arg_op);
         let boxed = ctx.box_to_any_from_expr(args[0], arg_op.clone());
-        let fid = ctx.intrinsics.array_from_async_dyn;
+        let mut call_args = vec![boxed];
+        let mut cb_temp: Option<(Operand, Type)> = None;
+        if args.len() >= 2 {
+            let cb_op = ctx.lower_expr(args[1]);
+            let cb_ty = ctx.operand_ty(&cb_op);
+            call_args.push(ctx.box_to_any_from_expr(args[1], cb_op.clone()));
+            cb_temp = Some((cb_op, cb_ty));
+        }
+        for &a in args.iter().skip(2) {
+            let _ = ctx.lower_expr(a);
+        }
+        let fid = if args.len() >= 2 {
+            ctx.intrinsics.array_from_async_map_dyn
+        } else {
+            ctx.intrinsics.array_from_async_dyn
+        };
         let cur_block = ctx.cur_block;
         let v = ctx.f.append_inst(
             cur_block,
-            InstKind::Call(fid, vec![boxed]),
+            InstKind::Call(fid, call_args),
             Type::Promise,
             None,
         );
-        // The box shares; a fresh owned temp still owes its stake
+        // The boxes share; fresh owned temps still owe their stake
         // (the combinator dyn-entry ownership shape).
         if arg_ty.is_refcounted() && ctx.expr_is_fresh_owned(args[0]) {
             ctx.emit_drop_value(arg_op, arg_ty);
+        }
+        if let Some((cb_op, cb_ty)) = cb_temp
+            && cb_ty.is_refcounted()
+            && ctx.expr_is_fresh_owned(args[1])
+        {
+            ctx.emit_drop_value(cb_op, cb_ty);
         }
         return Some(Operand::Value(v));
     }

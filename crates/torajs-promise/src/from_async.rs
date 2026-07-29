@@ -11,12 +11,17 @@
 //! its repr stamp and a rejected one rejects the whole result. The
 //! result rides a `REPR_HEAP` promise holding an `Array<Any>`.
 //!
+//! The mapped form (`__torajs_array_from_async_map_dyn`) interleaves
+//! per element exactly as the spec does: await the element, call
+//! `mapfn(value, k)` through the uniform boxed-adapter ABI, await
+//! the mapped result; step 2's IsCallable check precedes iteration.
+//!
 //! Recorded MVP boundaries (registered, spec-strict forms follow):
 //! a real async iterator (`Symbol.asyncIterator`) is not consulted —
 //! the sync step protocol answers for it; a PENDING or UNSTAMPED
 //! promise element takes the combinator placeholder-reject posture;
 //! non-promise thenables store verbatim (no generic `then` await);
-//! the `mapFn` arity stays a loud compile reject.
+//! `thisArg` typecheck-and-drops (tr closures don't bind `this`).
 
 use core::ffi::c_void;
 
@@ -37,6 +42,36 @@ unsafe extern "C" {
     fn __torajs_arr_alloc_any_filled(n: u64) -> *mut u8;
     fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64;
     fn __torajs_anyv_rc_dec(v: u64);
+    /// torajs-anyvalue — uniform boxed-adapter call over an
+    /// any-held callee (argv slots BORROWED, return caller-owned;
+    /// non-callable mints a catchable TypeError).
+    fn __torajs_any_call(recv: u64, argv: *const u64, argc: i64) -> u64;
+    fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
+    fn __torajs_throw_check() -> i64;
+}
+
+/// Callback-shape probe — NaN-box cell gate + Closure tag + boxed
+/// dual entry present. Mirrors torajs-anyvalue
+/// `closure_boxed_entry` (offsets lockstep torajs-core
+/// `CLOSURE_BOXED_ENTRY_OFF`); needed here because §2.1.1 step 2
+/// checks IsCallable BEFORE iteration — a non-callable mapfn
+/// rejects even for an empty source, so the per-call TypeError
+/// inside `__torajs_any_call` fires too late.
+unsafe fn callback_shaped(bits: u64) -> bool {
+    const TOP_16_MASK: u64 = 0xFFFF_0000_0000_0000;
+    const TAG_BIT_TYPE_OTHER: u64 = 0x02;
+    const TAG_CLOSURE: u16 = 3;
+    const CLOSURE_BOXED_ENTRY_OFF: usize = 32;
+    if bits == 0 || bits & TOP_16_MASK != 0 || bits & TAG_BIT_TYPE_OTHER != 0 {
+        return false;
+    }
+    unsafe {
+        let p = bits as *mut u8;
+        if *(p.add(4) as *const u16) != TAG_CLOSURE {
+            return false;
+        }
+        *(p.add(CLOSURE_BOXED_ENTRY_OFF) as *const u64) != 0
+    }
 }
 
 /// # Safety
@@ -98,6 +133,122 @@ pub unsafe extern "C" fn __torajs_array_from_async_dyn(v: u64) -> *mut c_void {
                 None => bits,
             };
             *(data.add((head as usize + i) * 8) as *mut u64) = v;
+        }
+        crate::combinator::defer_settle(STATE_FULFILLED, out as i64, 1, REPR_HEAP)
+    }
+}
+
+/// Settle one collected slot: a fulfilled promise unwraps to a
+/// fresh OWNED box, a plain value answers a BORROW of the
+/// collected stake (`owned = false`); a rejected / pending /
+/// unstamped promise answers the verdict promise instead.
+unsafe fn settle_slot(bits: u64) -> Result<(u64, bool), *mut c_void> {
+    unsafe {
+        let Some(pp) = slot_promise(bits) else {
+            return Ok((bits, false));
+        };
+        (*pp).has_handler = 1;
+        let state = (*pp).state;
+        if state == STATE_REJECTED {
+            return Err(match box_settled_owned((*pp).value_repr, (*pp).value) {
+                Some(reason) => {
+                    crate::combinator::defer_settle(STATE_REJECTED, reason as i64, 1, REPR_ANY)
+                }
+                None => crate::combinator::defer_settle(STATE_REJECTED, 0, 0, REPR_VOID),
+            });
+        }
+        if state == STATE_PENDING || (*pp).value_repr == REPR_UNSTAMPED {
+            return Err(crate::combinator::defer_settle(
+                STATE_REJECTED,
+                0,
+                0,
+                REPR_VOID,
+            ));
+        }
+        let unwrapped = box_settled_owned((*pp).value_repr, (*pp).value)
+            .unwrap_or_else(|| __torajs_anyv_box_from_pair(5, 0));
+        Ok((unwrapped, true))
+    }
+}
+
+/// `Array.fromAsync(items, mapfn)` — the mapped form. Single-phase
+/// per element, matching the spec's interleaving: element k awaits
+/// (settled unwrap), `mapfn(value, k)` runs, its result awaits —
+/// so mapfn HAS run for elements before a later rejection and has
+/// NOT run past it. A mapfn throw or a rejected element releases
+/// everything collected and answers the rejection.
+///
+/// # Safety
+/// `v` and `cb` are live any-boxed values the caller owns for the
+/// duration of the call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_array_from_async_map_dyn(v: u64, cb: u64) -> *mut c_void {
+    unsafe {
+        // §2.1.1 step 2 — IsCallable precedes iteration.
+        if !callback_shaped(cb) {
+            __torajs_throw_type_error(c"mapfn is not a function".as_ptr());
+            return crate::combinator_dyn::reject_with_pending_throw();
+        }
+        let items = match collect_items(v, __torajs_any_iter_next_array_like) {
+            Err(rejected) => return rejected,
+            Ok(items) => items,
+        };
+        let mut mapped: Vec<u64> = Vec::with_capacity(items.len());
+        let mut verdict: Option<*mut c_void> = None;
+        for (i, &bits) in items.iter().enumerate() {
+            let (elem, elem_owned) = match settle_slot(bits) {
+                Ok(pair) => pair,
+                Err(rejected) => {
+                    verdict = Some(rejected);
+                    break;
+                }
+            };
+            // argv slots are borrows; the index is an immediate.
+            let argv = [elem, __torajs_anyv_box_from_pair(2, i as i64)];
+            let ret = __torajs_any_call(cb, argv.as_ptr(), 2);
+            if elem_owned {
+                __torajs_anyv_rc_dec(elem);
+            }
+            if __torajs_throw_check() != 0 {
+                __torajs_anyv_rc_dec(ret);
+                verdict = Some(crate::combinator_dyn::reject_with_pending_throw());
+                break;
+            }
+            // step 5.j — the mapped value awaits too.
+            match settle_slot(ret) {
+                Ok((mv, owned)) => {
+                    if owned {
+                        // Unwrapped from the returned promise — the
+                        // promise cell's own stake releases.
+                        __torajs_anyv_rc_dec(ret);
+                        mapped.push(mv);
+                    } else {
+                        // Plain return — `ret` is already the
+                        // caller-owned box, transfer it.
+                        mapped.push(ret);
+                    }
+                }
+                Err(rejected) => {
+                    __torajs_anyv_rc_dec(ret);
+                    verdict = Some(rejected);
+                    break;
+                }
+            }
+        }
+        for it in items {
+            __torajs_anyv_rc_dec(it);
+        }
+        if let Some(rejected) = verdict {
+            for m in mapped {
+                __torajs_anyv_rc_dec(m);
+            }
+            return rejected;
+        }
+        let out = __torajs_arr_alloc_any_filled(mapped.len() as u64);
+        let head = *(out.add(ARR_HEAD_OFF) as *const u32) as u64;
+        let data = *(out.add(ARR_DATA_PTR_OFF) as *const *mut u8);
+        for (i, bits) in mapped.into_iter().enumerate() {
+            *(data.add((head as usize + i) * 8) as *mut u64) = bits;
         }
         crate::combinator::defer_settle(STATE_FULFILLED, out as i64, 1, REPR_HEAP)
     }
