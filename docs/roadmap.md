@@ -1825,14 +1825,21 @@ census:
 
 | cluster depth | core cases covered |
 |---|---|
-| top 10 | 26.6 % |
-| top 25 | 43.8 % |
-| top 50 | 58.3 % |
-| top 100 | 72.9 % |
+| top 10 | 26.3 % |
+| top 25 | 43.6 % |
+| top 50 | 58.2 % |
+| top 100 | 73.0 % |
 | top 400 | 92.0 % |
-| clusters of ≤ 3 cases (843 of them) | 7.0 % |
+| clusters of ≤ 3 cases (842 of them) | 7.1 % |
 
-(refreshed @ rotation 251 closing sweep `40085319`, core **16164**,
+(refreshed @ rotation 252 closing sweep `53c4e80a`, core **16090**,
+437 clusters of ≥ 4 holding 14955 cases. Rotation 252 closed RFC
+20260730 (allSettled joined the any-lane + dyn combinator paths),
+landed `class C extends Object` as base-class shape (M5.N knife 1),
+and shipped Array.fromAsync's sync-source MVP + mapfn form —
+passTotal +40 / bug +34 / trAccepted +74 over the rotation, all 105
+verdict moves case-attributed to those three faces, zero pass lost.
+Previous stamp: rotation 251 closing sweep `40085319`, core **16164**,
 440 clusters of ≥ 4 holding 15029 cases. Rotation 251 ported
 asyncHelpers.js for real (`needs asyncHelpers.js` 341 across 33
 directories → 0), wired the fn-constructor instance prototype link
@@ -1841,7 +1848,7 @@ GetIterator over dynamic arguments (RFC 20260730 knives A+B) —
 passTotal +161 and bug −83 over the rotation, with the bug drop
 coming from bug-bucket cases the knives converted to passes.
 Mid-rotation stamp: sweep `d4163724`, core 16218, 446 clusters of ≥ 4
-holding 15052. Previous stamp: rotation 250 sweep `1f21a019`, core
+holding 15052. Stamp before that: rotation 250 sweep `1f21a019`, core
 **16243**, 443 clusters of ≥ 4 holding 15129. Rotation 250 is the shape this section warns
 about: cluster count up two while the cases in them fell 476 and core
 fell 458. Two clusters left the census outright — `needs
