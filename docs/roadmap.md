@@ -1832,8 +1832,11 @@ census:
 | top 400 | 92.4 % |
 | clusters of ≤ 3 cases (808 of them) | 6.6 % |
 
-(refreshed @ rotation 248 sweep `6122f7c6`, core 16719; rotation 247
-read core 16724; rotation 246
+(re-measured @ rotation 249 sweep `834ed201` — **every figure in the
+table above came back identical**, core 16719 included: that rotation's
+six fixes were memory-safety and property-key correctness, which move
+one case and no cluster. Same numbers @ rotation 248 sweep `6122f7c6`;
+rotation 247 read core 16724; rotation 246
 read core 17144 with top-10 at 27.7 %, rotation 245 core 18112 at
 24.5 %, rotation 230 core 25421 at 34.4 %. **The rotation-246 reading is not comparable to the two before
 it on the oracle side**: that rotation removed a `var` → `let` source

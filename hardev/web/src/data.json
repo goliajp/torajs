@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-29T16:38:47.765Z",
+  "generatedAt": "2026-07-29T17:41:45.870Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,18 +9,18 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-29T16:35:11Z",
-    "headSha": "6122f7c6",
-    "elapsedSec": 280.88,
+    "ranAt": "2026-07-29T17:40:05Z",
+    "headSha": "834ed201",
+    "elapsedSec": 285.31,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 16259,
+    "pass": 16260,
     "passNoOracle": 489,
     "passNegative": 4489,
-    "passTotal": 21237,
-    "bug": 2973,
+    "passTotal": 21238,
+    "bug": 2972,
     "incompatible": 28964,
     "bunSkip": 7080,
     "harnessError": 0,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 87.72
   },
   "torajs": {
-    "commit": "6122f7c6",
-    "commitSubject": "Revert \"fix(core): the typed tier honors a frozen array too\"",
+    "commit": "834ed201",
+    "commitSubject": "fix(core): getOwnPropertyDescriptor asks the shared key resolver",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "834ed201",
+      "subject": "fix(core): getOwnPropertyDescriptor asks the shared key resolver"
+    },
+    {
+      "hash": "40e8bba1",
+      "subject": "fix(core): release the any key temp the new property-key arm reads"
+    },
+    {
+      "hash": "5a41afd2",
+      "subject": "fix(core): a symbol in an any is still a symbol as a property key"
+    },
+    {
+      "hash": "7a241ef4",
+      "subject": "fix(arr): the Array define kernel stops walking a symbol key as a string"
+    },
+    {
+      "hash": "2f3d6dd2",
+      "subject": "fix(core): the typed tier honors a frozen array too"
+    },
+    {
+      "hash": "5058ab6f",
+      "subject": "fix(dynobj): a symbol key is never read as a string"
+    },
+    {
+      "hash": "3bd60146",
+      "subject": "chore(docs,hardev): rotation 248 census at 6122f7c6"
+    },
+    {
       "hash": "6122f7c6",
       "subject": "Revert \"fix(core): the typed tier honors a frozen array too\""
     },
@@ -731,55 +759,38 @@
     {
       "hash": "2aef21a5",
       "subject": "feat(core): a non-number key works on a string receiver"
-    },
-    {
-      "hash": "204397f6",
-      "subject": "feat(core): a dynamic key reads a string's own properties"
-    },
-    {
-      "hash": "af3a8bd9",
-      "subject": "chore(docs,hardev): rotation 247 census at 62f92006"
-    },
-    {
-      "hash": "62f92006",
-      "subject": "feat(core): a symbol key works on an array"
-    },
-    {
-      "hash": "5c7871c1",
-      "subject": "feat(core): a string key works on an array"
-    },
-    {
-      "hash": "51f12f21",
-      "subject": "feat(core): a class-expression binding can be a parent"
-    },
-    {
-      "hash": "35a60f70",
-      "subject": "feat(core): an any key works on a typed array"
-    },
-    {
-      "hash": "1fc80e97",
-      "subject": "chore(docs,hardev): rotation 246 census at 59fd6799"
     }
   ],
-  "headSha": "6122f7c6",
+  "headSha": "834ed201",
   "autorun": {
-    "total": 552,
+    "total": 553,
     "baselineTarget": 10,
-    "bySelf": 547,
+    "bySelf": 548,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785327591-75e4",
-      "at": "2026-07-29T12:19:51Z",
-      "ts": 1785327591,
+      "rotationId": "r-1785343149-2806",
+      "at": "2026-07-29T16:39:09Z",
+      "ts": 1785343149,
       "trigger": "self",
-      "prevHead": "af3a8bd9",
-      "handoffSha": "sha256:4275980526d39ef58cd8b8c75f59e98212c6d71dda5c4d42ae03644c67c0fb9e",
-      "handoffAgeSec": 27,
+      "prevHead": "3bd60146",
+      "handoffSha": "sha256:db797ed35c5eff21e1ac9ae4e54e8f80ef5eb7f7ae8de7d68cbbbc66e70f848b",
+      "handoffAgeSec": 35,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1785343149-2806",
+        "at": "2026-07-29T16:39:09Z",
+        "ts": 1785343149,
+        "trigger": "self",
+        "prevHead": "3bd60146",
+        "handoffSha": "sha256:db797ed35c5eff21e1ac9ae4e54e8f80ef5eb7f7ae8de7d68cbbbc66e70f848b",
+        "handoffAgeSec": 35,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785327591-75e4",
         "at": "2026-07-29T12:19:51Z",
@@ -876,17 +887,6 @@
         "prevHead": "3281d6f1",
         "handoffSha": "sha256:68b4b01bbc72e4b490260fb1a2f7580ffd8c1de6070bd419985940902d354d4d",
         "handoffAgeSec": 44,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1785225428-7d7a",
-        "at": "2026-07-28T07:57:08Z",
-        "ts": 1785225428,
-        "trigger": "self",
-        "prevHead": "0630d0a6",
-        "handoffSha": "sha256:5365ffea58a2ef8021e0440dec476ba77f744d0a1b7dc735e4bc575860956821",
-        "handoffAgeSec": 4,
         "conformanceBefore": null,
         "commitsInSession": null
       }
