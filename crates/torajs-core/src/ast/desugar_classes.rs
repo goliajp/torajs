@@ -51,6 +51,10 @@ pub fn desugar_classes(ast: &mut Ast) {
     if class_index.is_empty() {
         return;
     }
+    // M5.N — a builtin parent (`extends Object`) strips to base-class
+    // shape before any pass keyed on `parent` runs (see the sibling's
+    // module doc for the two seams it handles).
+    super::desugar_classes_builtin_heritage::strip_builtin_heritage(ast, &mut class_index);
     super::desugar_classes_default_ctor::synthesize_derived_default_ctors(ast, &mut class_index);
     // 刀 3 (RFC 20260718-error-message-own-prop) — super-less derived
     // USER ctors get the no-super ReferenceError raiser appended

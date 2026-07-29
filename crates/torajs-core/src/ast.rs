@@ -18,6 +18,7 @@ mod control_flow;
 mod desugar_async;
 mod desugar_classes;
 mod desugar_classes_abstract;
+mod desugar_classes_builtin_heritage;
 mod desugar_classes_default_ctor;
 mod desugar_classes_dispatch;
 mod desugar_classes_emit;
