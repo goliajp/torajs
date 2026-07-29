@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-29T19:43:31.052Z",
+  "generatedAt": "2026-07-29T22:05:20.140Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-29T19:40:29Z",
-    "headSha": "1f21a019",
-    "elapsedSec": 289.5,
+    "ranAt": "2026-07-29T22:03:35Z",
+    "headSha": "40085319",
+    "elapsedSec": 382.22,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 16314,
-    "passNoOracle": 695,
+    "pass": 16674,
+    "passNoOracle": 496,
     "passNegative": 4489,
-    "passTotal": 21498,
-    "bug": 3199,
-    "incompatible": 28477,
-    "bunSkip": 7679,
+    "passTotal": 21659,
+    "bug": 3116,
+    "incompatible": 28399,
+    "bunSkip": 7468,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 24697,
-    "passRateInScope": 40.43,
-    "passRateTrAccepted": 87.05
+    "trAccepted": 24775,
+    "passRateInScope": 40.73,
+    "passRateTrAccepted": 87.42
   },
   "torajs": {
-    "commit": "1f21a019",
-    "commitSubject": "fix(core): ask for the factory, not for a class declaration",
+    "commit": "40085319",
+    "commitSubject": "feat(core,promise): combinators iterate whatever GetIterator yields",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "40085319",
+      "subject": "feat(core,promise): combinators iterate whatever GetIterator yields"
+    },
+    {
+      "hash": "e7ddf96e",
+      "subject": "feat(core,promise): a non-iterable combinator argument rejects at runtime"
+    },
+    {
+      "hash": "81760dd3",
+      "subject": "chore(docs,hardev): rotation 251 census at c75136bb"
+    },
+    {
+      "hash": "c75136bb",
+      "subject": "feat(core): a function-constructed instance knows its constructor"
+    },
+    {
+      "hash": "d4163724",
+      "subject": "feat(conformance): port asyncHelpers.js — real asyncTest and throwsAsync"
+    },
+    {
+      "hash": "e7366753",
+      "subject": "chore(docs,hardev): rotation 250 census at 1f21a019"
+    },
+    {
       "hash": "1f21a019",
       "subject": "fix(core): ask for the factory, not for a class declaration"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "9f438355",
       "subject": "chore(docs,hardev): rotation 249 census at 38eb6513"
-    },
-    {
-      "hash": "38eb6513",
-      "subject": "feat(core): Object.hasOwn takes the whole property-key domain"
-    },
-    {
-      "hash": "185bebfe",
-      "subject": "feat(core): delete accepts a key whose kind is only known at run time"
-    },
-    {
-      "hash": "500f62d6",
-      "subject": "feat(core): `in` accepts a key whose kind is only known at run time"
-    },
-    {
-      "hash": "cb3a6e2a",
-      "subject": "chore(docs,hardev): rotation 249 census at 834ed201"
-    },
-    {
-      "hash": "834ed201",
-      "subject": "fix(core): getOwnPropertyDescriptor asks the shared key resolver"
-    },
-    {
-      "hash": "40e8bba1",
-      "subject": "fix(core): release the any key temp the new property-key arm reads"
     }
   ],
-  "headSha": "1f21a019",
+  "headSha": "40085319",
   "autorun": {
-    "total": 554,
+    "total": 555,
     "baselineTarget": 10,
-    "bySelf": 549,
+    "bySelf": 550,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785348658-6ec4",
-      "at": "2026-07-29T18:10:58Z",
-      "ts": 1785348658,
+      "rotationId": "r-1785354229-6d81",
+      "at": "2026-07-29T19:43:49Z",
+      "ts": 1785354229,
       "trigger": "self",
-      "prevHead": "9f438355",
-      "handoffSha": "sha256:cc48f15fc2d40104e9a98c7f878970bb7e2a94b42d9d8100c72f92aea9067d46",
-      "handoffAgeSec": 28,
+      "prevHead": "e7366753",
+      "handoffSha": "sha256:b258271cdf1367588c6f0062fac61d8b7cb8caab848976e888b10e2f9105f1a1",
+      "handoffAgeSec": 43,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1785354229-6d81",
+        "at": "2026-07-29T19:43:49Z",
+        "ts": 1785354229,
+        "trigger": "self",
+        "prevHead": "e7366753",
+        "handoffSha": "sha256:b258271cdf1367588c6f0062fac61d8b7cb8caab848976e888b10e2f9105f1a1",
+        "handoffAgeSec": 43,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785348658-6ec4",
         "at": "2026-07-29T18:10:58Z",
@@ -876,17 +887,6 @@
         "prevHead": "632d1139",
         "handoffSha": "sha256:230161eac54e1c3a9b3c31cfe7e3cc25044309857e8d5939a75b22b6f05560ab",
         "handoffAgeSec": 0,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1785241197-46b0",
-        "at": "2026-07-28T12:19:57Z",
-        "ts": 1785241197,
-        "trigger": "self",
-        "prevHead": "ec5b8817",
-        "handoffSha": "sha256:fad79a1dd6104f890bd83d2dcea2da43a9f73a7562de24a63d3e0946b7c5dec6",
-        "handoffAgeSec": 482,
         "conformanceBefore": null,
         "commitsInSession": null
       }
