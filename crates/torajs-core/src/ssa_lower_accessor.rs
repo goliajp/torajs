@@ -324,12 +324,7 @@ pub(crate) fn emit_accessor_define_into(
         ),
     );
     // 刀 18 — coerced key was owned Str; drop after helper borrowed it.
-    if key_owned {
-        ctx.f.append_void(
-            ctx.cur_block,
-            InstKind::Call(ctx.intrinsics.str_drop, vec![key_op]),
-        );
-    }
+    crate::ssa_lower_object_define::emit_key_release(ctx, key_op, key_owned);
     ctx.emit_throw_check(None);
     true
 }

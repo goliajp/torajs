@@ -403,6 +403,8 @@ pub(crate) fn build(
         any_any_loose_eq: init_c.any_substrate.any_any_loose_eq,
         any_index_get: init_c.any_substrate.any_index_get,
         any_index_get_keyed: init_c.any_substrate.any_index_get_keyed,
+        anyv_to_property_key: init_c.any_substrate.anyv_to_property_key,
+        anyv_property_key_drop: init_c.any_substrate.anyv_property_key_drop,
         any_index_set_keyed: init_c.any_substrate.any_index_set_keyed,
         any_index_set: init_c.any_substrate.any_index_set,
         any_length_get: init_c.any_substrate.any_length_get,

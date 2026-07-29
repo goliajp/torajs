@@ -315,12 +315,7 @@ fn emit_define_arr_prop(
         ),
     );
     // 刀 18 — coerced key was owned Str; drop after helper borrowed it.
-    if key_owned {
-        ctx.f.append_void(
-            ctx.cur_block,
-            InstKind::Call(ctx.intrinsics.str_drop, vec![key_op]),
-        );
-    }
+    super::emit_key_release(ctx, key_op, key_owned);
     // pack_tagged_value's +1 fed the kernel's transfer contract; an
     // owned-shape value temp (concat / call result) still holds its
     // own mint stake with no consumer — release it (borrow shapes
@@ -383,12 +378,7 @@ fn emit_define_dynobj(
         ),
     );
     // 刀 18 — coerced key was owned Str; drop after helper borrowed it.
-    if key_owned {
-        ctx.f.append_void(
-            ctx.cur_block,
-            InstKind::Call(ctx.intrinsics.str_drop, vec![key_op]),
-        );
-    }
+    super::emit_key_release(ctx, key_op, key_owned);
     // pack_tagged_value's +1 fed the kernel's transfer contract; an
     // owned-shape value temp (concat / call result) still holds its
     // own mint stake with no consumer — release it (borrow shapes

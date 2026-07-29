@@ -66,3 +66,14 @@ Object.defineProperty(arr, s1, { value: 55, writable: true, configurable: true }
 arr[s1] = 66;
 console.log(arr[s1], arr.length, arr.join(","));
 console.log(Object.keys(arr).join(","));
+
+// §7.1.19 step 2 applies to a symbol sitting in an `any` just as much
+// as to a statically-typed one. Stringifying it stored the property
+// under "Symbol(x)" — wrong key, and a name in Object.keys that no
+// symbol ever has.
+const typedSym = Symbol("typed");
+const d: any = {};
+Object.defineProperty(d, typedSym, { value: 1, writable: true, enumerable: true, configurable: true });
+Object.defineProperty(d, s1, { value: 2, writable: true, enumerable: true, configurable: true });
+console.log(d[typedSym], d[s1]);
+console.log(JSON.stringify(Object.keys(d)));

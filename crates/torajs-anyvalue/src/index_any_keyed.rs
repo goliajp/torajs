@@ -25,6 +25,61 @@ unsafe extern "C" {
     /// torajs-str — release a heap Str reference (the temp ToString
     /// key minted below).
     fn __torajs_str_drop(s: *mut c_void);
+    /// torajs-str — release a Symbol reference.
+    fn __torajs_symbol_drop(s: *mut c_void);
+    /// torajs-rc — take one more share of a heap cell.
+    fn __torajs_rc_inc(p: *mut c_void);
+}
+
+/// §7.1.19 ToPropertyKey as a standalone answer: the key CELL a
+/// runtime `any` names, owned by the caller.
+///
+/// The dispatch above resolves a key and probes in one breath, which
+/// suits reads. The define family needs the key itself, to hand to a
+/// kernel that stores it — and it had no way to ask, so it reached
+/// for ToString and turned a symbol living in an `any` into the
+/// string `"Symbol(x)"`: stored under the wrong key, and visible in
+/// `Object.keys`, which no symbol ever is.
+///
+/// Step 2 hands a Symbol back untouched; everything else is step 3's
+/// ToString. Either way the answer carries one share — release it
+/// with [`__torajs_anyv_property_key_drop`], which is kind-aware
+/// because the answer's kind is not knowable at the call site.
+/// NULL means ToString threw and the caller must propagate.
+///
+/// # Safety
+/// `key` is a valid AnyValue; a cell key points at a live heap block.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_to_property_key(key: AnyValue) -> *mut c_void {
+    unsafe {
+        if is_cell(key) {
+            let ptr = as_void_ptr(key);
+            let tag = (ptr as *const u8).add(4).cast::<u16>().read();
+            if tag == Tag::Symbol as u16 || tag == Tag::Str as u16 {
+                __torajs_rc_inc(ptr);
+                return ptr;
+            }
+        }
+        crate::nanbox_ffi::__torajs_anyv_to_str(key) as *mut c_void
+    }
+}
+
+/// Release what [`__torajs_anyv_to_property_key`] handed out.
+///
+/// # Safety
+/// `p` is null or a share of a live Str / Symbol cell.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_property_key_drop(p: *mut c_void) {
+    if p.is_null() {
+        return;
+    }
+    unsafe {
+        if (p as *const u8).add(4).cast::<u16>().read() == Tag::Symbol as u16 {
+            __torajs_symbol_drop(p);
+        } else {
+            __torajs_str_drop(p);
+        }
+    }
 }
 
 const ANY_ACCESSOR_TAG: u64 = 6;

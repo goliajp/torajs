@@ -129,6 +129,23 @@ pub(crate) fn lower_key(ctx: &mut LowerCtx, key: &DefineKey) -> (Operand, bool) 
                 // string key. Same borrow shape as a `Type::Str` key —
                 // the kernel rc-incs its own share.
                 Type::Str | Type::Symbol => (raw, false),
+                // An `any` key only reveals its kind at run time, and
+                // step 2 applies to it just as much: a symbol that
+                // happens to be sitting in an `any` must arrive as
+                // itself. Stringifying it stored the property under
+                // "Symbol(x)" and put that name into `Object.keys`,
+                // where no symbol belongs. The kernel answers the key
+                // cell for either kind, owned.
+                Type::Any => {
+                    let k = ctx.f.append_inst(
+                        ctx.cur_block,
+                        InstKind::Call(ctx.intrinsics.anyv_to_property_key, vec![raw]),
+                        Type::Ptr,
+                        None,
+                    );
+                    ctx.emit_throw_check(None);
+                    (Operand::Value(k), true)
+                }
                 // RFC 20260716 刀 18 — ES §20.1.2.6 step 1 / §20.1.2.10
                 // step 1 → §7.1.19 ToPropertyKey → §7.1.17 ToString.
                 // StringWrapper / Number / Boolean / etc. keys route
@@ -143,6 +160,23 @@ pub(crate) fn lower_key(ctx: &mut LowerCtx, key: &DefineKey) -> (Operand, bool) 
         }
         DefineKey::Name(n) => (Operand::Value(ctx.intern_string_literal(n)), false),
     }
+}
+
+/// Release what [`lower_key`] handed out, if it handed out a share.
+///
+/// Paired with the constructor because the answer's kind is no longer
+/// knowable at the call site: an `any` key resolves to a Str or to a
+/// Symbol at run time, and a Symbol released through `str_drop` walks
+/// the wrong layout. Every consumer of `lower_key` releases here, so
+/// the two cannot drift apart.
+pub(crate) fn emit_key_release(ctx: &mut LowerCtx, key_op: Operand, key_owned: bool) {
+    if !key_owned {
+        return;
+    }
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Call(ctx.intrinsics.anyv_property_key_drop, vec![key_op]),
+    );
 }
 
 /// Lower a define-family receiver. An inline ObjectLit receiver
@@ -285,12 +319,7 @@ fn emit_define_objlit_runtime(
         InstKind::Call(ctx.intrinsics.value_drop_heap, vec![desc_ptr]),
     );
     // 刀 18 — coerced key was owned Str; drop after helper borrowed it.
-    if key_owned {
-        ctx.f.append_void(
-            ctx.cur_block,
-            InstKind::Call(ctx.intrinsics.str_drop, vec![key_op]),
-        );
-    }
+    emit_key_release(ctx, key_op, key_owned);
     ctx.emit_throw_check(None);
     if matches!(obj_ty, Type::Any) {
         ctx.emit_any_dynobj_writeback(receiver_ident, slot);
@@ -398,12 +427,7 @@ fn emit_define_runtime_desc(
     // mkDesc())` leaked the descriptor cell per call).
     ctx.release_owned_temp(desc_eid, &desc_op);
     // 刀 18 — coerced key was owned Str; drop after helper borrowed it.
-    if key_owned {
-        ctx.f.append_void(
-            ctx.cur_block,
-            InstKind::Call(ctx.intrinsics.str_drop, vec![key_op]),
-        );
-    }
+    emit_key_release(ctx, key_op, key_owned);
     ctx.emit_throw_check(None);
     if matches!(obj_ty, Type::Any) {
         ctx.emit_any_dynobj_writeback(receiver_ident, slot);

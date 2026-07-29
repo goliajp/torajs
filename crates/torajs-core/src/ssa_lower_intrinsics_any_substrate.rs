@@ -172,6 +172,10 @@ pub(crate) struct AnySubstrateIds {
     /// runtime ToPropertyKey dispatch (numeric lane / Str / Symbol
     /// probe / ToString fallback).
     pub any_index_get_keyed: FuncId,
+    /// §7.1.19 ToPropertyKey as a key cell (owned) + its releaser —
+    /// the define family's `any`-key arm.
+    pub anyv_to_property_key: FuncId,
+    pub anyv_property_key_drop: FuncId,
     /// Write mirror of the keyed read.
     pub any_index_set_keyed: FuncId,
     pub any_index_set: FuncId,
@@ -321,6 +325,8 @@ pub(crate) fn declare(
         // (tag, value) pair write mirror.
         any_index_get: decl!("__torajs_any_index_get", [Any, I64], Any),
         any_index_get_keyed: decl!("__torajs_any_index_get_keyed", [Any, Any], Any),
+        anyv_to_property_key: decl!("__torajs_anyv_to_property_key", [Any], Ptr),
+        anyv_property_key_drop: decl!("__torajs_anyv_property_key_drop", [Ptr], Void),
         any_index_set_keyed: decl!(
             "__torajs_any_index_set_keyed",
             [Any, Any, I64, I64, Ptr],
