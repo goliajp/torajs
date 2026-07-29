@@ -30,7 +30,7 @@ use crate::layout::{
 };
 use crate::probe::{
     Entry, bucket_flags, bucket_make_key_tagged, count, entries, entries_cap, entries_len,
-    index_ptr, probe, set_count, set_entries_len,
+    index_ptr, key_str_bytes, probe, set_count, set_entries_len,
 };
 use crate::resize::resize;
 
@@ -172,12 +172,11 @@ pub(crate) unsafe fn define_apply(
     // A define landing on a builtin `<Ctor>.prototype` singleton is
     // a monkey-patch — note it for the fast-arm pre-gate (RFC
     // 20260721 刀 11 G13; one relaxed load when no singleton exists).
-    unsafe {
-        __torajs_builtin_proto_note_own_write(
-            obj,
-            (key as *const u8).add(crate::layout::STR_DATA_OFF),
-            *((key as *const u8).add(crate::layout::STR_LEN_OFF) as *const u64) as i64,
-        );
+    // The gate keys off the method NAME, so a symbol key has nothing
+    // to report — and must not have the Str payload offsets read off
+    // its cell, which is why the name comes from `key_str_bytes`.
+    if let Some((data, len)) = unsafe { key_str_bytes(key) } {
+        unsafe { __torajs_builtin_proto_note_own_write(obj, data, len as i64) };
     }
     // Dense-array-full guard — same shape as set.rs.
     if unsafe { entries_len(obj) } == unsafe { entries_cap(obj) } {

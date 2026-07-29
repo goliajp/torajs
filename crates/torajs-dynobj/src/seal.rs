@@ -17,9 +17,9 @@ use core::ffi::c_void;
 use crate::get::type_tag;
 use crate::layout::{
     BUCKET_FLAG_CONFIGURABLE, BUCKET_FLAG_ENUMERABLE, BUCKET_FLAG_WRITABLE, DYNOBJ_KEY_HOLE,
-    STR_DATA_OFF, STR_LEN_OFF, TAG_DYNOBJ,
+    TAG_DYNOBJ,
 };
-use crate::probe::{bucket_key_ptr, entries, entries_len};
+use crate::probe::{bucket_key_ptr, entries, entries_len, key_str_bytes};
 
 /// `__torajs_dynobj_seal_entries(obj)` — clear
 /// `BUCKET_FLAG_CONFIGURABLE` (bit 2 of the `key_ptr_tagged` word) on
@@ -150,13 +150,12 @@ enum KeyKind {
 }
 
 /// Byte-compare the Str payload at `key` against the three built-in
-/// class-object slot names. Assumes `key` points at a live Str heap
-/// block laid out per `STR_LEN_OFF` / `STR_DATA_OFF`.
+/// class-object slot names. A Symbol key names none of them, and
+/// answers `None` before its cell is walked as a Str.
 fn key_kind(key: *const c_void) -> Option<KeyKind> {
     unsafe {
-        let len = *((key as *const u8).add(STR_LEN_OFF) as *const u64) as usize;
-        let data = (key as *const u8).add(STR_DATA_OFF);
-        let slice = core::slice::from_raw_parts(data, len);
+        let (data, len) = key_str_bytes(key)?;
+        let slice = core::slice::from_raw_parts(data, len as usize);
         match slice {
             b"name" | b"length" => Some(KeyKind::NameOrLength),
             b"prototype" => Some(KeyKind::Prototype),

@@ -21,7 +21,7 @@ use crate::layout::{
 };
 use crate::probe::{
     Entry, bucket_flags, bucket_make_key_tagged, count, entries, entries_cap, entries_len,
-    index_ptr, key_is_symbol, probe, set_count, set_entries_len,
+    index_ptr, key_str_bytes, probe, set_count, set_entries_len,
 };
 use crate::resize::resize;
 
@@ -76,14 +76,8 @@ pub unsafe extern "C" fn __torajs_dynobj_set(
     // keys off the method NAME, so a symbol key has nothing to report
     // and must not have the Str payload offsets read off its 16-byte
     // cell.
-    if !unsafe { key_is_symbol(key) } {
-        unsafe {
-            __torajs_builtin_proto_note_own_write(
-                obj,
-                (key as *const u8).add(crate::layout::STR_DATA_OFF),
-                *((key as *const u8).add(crate::layout::STR_LEN_OFF) as *const u64) as i64,
-            );
-        }
+    if let Some((data, len)) = unsafe { key_str_bytes(key) } {
+        unsafe { __torajs_builtin_proto_note_own_write(obj, data, len as i64) };
     }
     // Dense-array-full guard: compact (and grow if genuinely full)
     // before probing so a fresh insert always has an append slot.

@@ -24,7 +24,9 @@ use core::ffi::c_void;
 
 use crate::get::type_tag;
 use crate::layout::{DYNOBJ_KEY_HOLE, TAG_DYNOBJ};
-use crate::probe::{bucket_flags, bucket_key_ptr, entries, entries_len, key_is_symbol};
+use crate::probe::{
+    bucket_flags, bucket_key_ptr, entries, entries_len, key_is_symbol, key_str_bytes,
+};
 
 /// `__torajs_dynobj_iter_len(obj)` — dense-array iteration upper bound
 /// (holes included). Returns 0 when `obj` is NULL or not a DynObj.
@@ -106,6 +108,10 @@ const MAX_ARRAY_INDEX: u64 = 4_294_967_294;
 /// Handles both Latin-1 and UTF-16 payloads (digit-only keys can
 /// arrive in either encoding). `None` for every other shape.
 unsafe fn key_array_index(key: *const c_void) -> Option<u64> {
+    // A Symbol is never an array index, and its cell keeps a pointer
+    // where a Str keeps `len` — decoding one as digits both answers
+    // wrong and reads past the 16-byte cell.
+    unsafe { key_str_bytes(key) }?;
     let p = key as *const u8;
     let len = unsafe { *(p.add(KEY_STR_LEN_OFF) as *const u32) } as usize;
     if len == 0 || len > 10 {

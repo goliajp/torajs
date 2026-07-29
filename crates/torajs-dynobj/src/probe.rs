@@ -172,6 +172,28 @@ pub(crate) unsafe fn key_is_symbol(key: *const c_void) -> bool {
     unsafe { *((key as *const u8).add(4) as *const u16) == TAG_SYMBOL_KEY }
 }
 
+/// A key's Str payload as `(data, len)`, or `None` when the key is a
+/// Symbol — the §6.1.7 domain split applied at the one place the
+/// payload is reachable.
+///
+/// The two cells overlap where it hurts: a Str keeps its `len: u64`
+/// at offset 8, a Symbol keeps its *description pointer* there. Read
+/// blind, a Symbol key hands out a heap address as a byte count, and
+/// whatever walks that span runs off the end of the mapping. Every
+/// consumer that wants the name behind a key goes through here, so
+/// the gate cannot be present on one arm of a pair and missing on
+/// the other.
+///
+/// # Safety
+/// `key` must point at a live Str or Symbol heap block.
+#[inline]
+pub(crate) unsafe fn key_str_bytes(key: *const c_void) -> Option<(*const u8, u64)> {
+    if unsafe { key_is_symbol(key) } {
+        return None;
+    }
+    Some((unsafe { str_data(key) }, unsafe { str_len(key) }))
+}
+
 /// Release an entry's owning key share, dispatching on the §6.1.7 key
 /// kind. Single site so the delete and whole-block drop walks cannot
 /// drift on which dropper a Symbol key needs.
