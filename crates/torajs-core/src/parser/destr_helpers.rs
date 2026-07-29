@@ -321,8 +321,38 @@ impl<'a> Parser<'a> {
         self.pos += 1;
         let guard = self.emit_object_coercible_guard(&src_name);
         lets.push(guard);
+        // Keys the pattern names, in source order — the omit set for a
+        // trailing `...rest`.
+        let mut seen_fields: Vec<String> = Vec::new();
         if !matches!(self.peek(), Token::RBrace) {
             loop {
+                if matches!(self.peek(), Token::DotDotDot) {
+                    self.pos += 1;
+                    let rest_name = match self.peek() {
+                        Token::Ident(n) => n.clone(),
+                        t => {
+                            return Err(format!(
+                                "expected identifier after `...` in object param destructuring, got {t:?} at {}",
+                                self.at()
+                            ));
+                        }
+                    };
+                    self.pos += 1;
+                    let omit: Vec<&str> = seen_fields.iter().map(String::as_str).collect();
+                    let bind = self.emit_obj_rest_let(&src_name, &omit, &rest_name, false);
+                    lets.push(bind);
+                    // §14.3.3.1 — a rest element is always last; the
+                    // pattern must close here.
+                    match self.peek() {
+                        Token::RBrace => break,
+                        t => {
+                            return Err(format!(
+                                "rest element must be last in object param destructuring, got {t:?} at {}",
+                                self.at()
+                            ));
+                        }
+                    }
+                }
                 let (field, field_is_kw) = match self.peek() {
                     Token::Ident(n) => (n.clone(), false),
                     // ES §12.7.2 — escaped ReservedWord names the
@@ -339,6 +369,7 @@ impl<'a> Parser<'a> {
                     }
                 };
                 self.pos += 1;
+                seen_fields.push(field.clone());
                 let src_ref = self.ast.add_expr(Expr::Ident(src_name.clone()));
                 let mem = self.ast.add_expr(Expr::Member {
                     obj: src_ref,

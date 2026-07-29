@@ -385,22 +385,39 @@ impl<'a> Parser<'a> {
             }
         }
         if let Some(rest_name) = rest {
-            // `let rest = { ...src minus destructured keys }` — the
-            // omit set rides in the spread sentinel's name; ObjectLit
-            // checking / lowering skip the named keys.
             let omit: Vec<&str> = fields.iter().map(|f| f.field.as_str()).collect();
-            let sentinel = format!("__spread_omit__:{}", omit.join(","));
-            let src_ref = self.ast.add_expr(Expr::Ident(src_name));
-            let obj = self.ast.add_expr(Expr::ObjectLit {
-                fields: vec![(sentinel, src_ref)],
-            });
-            out.push(Stmt::LetDecl {
-                mutable,
-                name: rest_name.clone(),
-                type_ann: None,
-                init: obj,
-                is_var: false,
-            });
+            let bind = self.emit_obj_rest_let(&src_name, &omit, rest_name, mutable);
+            out.push(bind);
+        }
+    }
+
+    /// ES §14.3.3.1 RestBindingInitialization for object patterns —
+    /// `{ a, b, ...rest }` binds `rest` to a fresh object holding the
+    /// source's own enumerable keys minus the ones the pattern already
+    /// named. The omit set rides in the spread sentinel's name;
+    /// ObjectLit checking / lowering skip the listed keys.
+    ///
+    /// Shared by both pattern readers — the `PatShape` walker above
+    /// (let / const / for-of heads) and the param walker in
+    /// `destr_helpers` — so the sentinel protocol has one owner.
+    pub(super) fn emit_obj_rest_let(
+        &mut self,
+        src_name: &str,
+        omit: &[&str],
+        rest_name: &str,
+        mutable: bool,
+    ) -> Stmt {
+        let sentinel = format!("__spread_omit__:{}", omit.join(","));
+        let src_ref = self.ast.add_expr(Expr::Ident(src_name.to_string()));
+        let obj = self.ast.add_expr(Expr::ObjectLit {
+            fields: vec![(sentinel, src_ref)],
+        });
+        Stmt::LetDecl {
+            mutable,
+            name: rest_name.to_string(),
+            type_ann: None,
+            init: obj,
+            is_var: false,
         }
     }
 
