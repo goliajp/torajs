@@ -324,10 +324,20 @@ impl<'a> Parser<'a> {
                     self.pos += 1;
                     Some(self.parse_expr()?)
                 } else if optional {
-                    // Implicit null default for `name?: T` without an
-                    // explicit `= <expr>`. apply_default_args picks this
-                    // up at every call site that omits the trailing arg.
-                    Some(self.ast.add_expr(Expr::Null))
+                    // §9.2 — an absent optional binds undefined; an
+                    // `any` / un-annotated slot carries the real
+                    // undefined box (`typeof b === "undefined"` now
+                    // answers per spec). A TYPED optional keeps the
+                    // legacy implicit null — its __nullable(T) slot
+                    // has no undefined arm (registered).
+                    let undef_ok = type_ann
+                        .as_deref()
+                        .is_none_or(|a| a == "__nullable(any)" || a == "any");
+                    Some(if undef_ok {
+                        self.ast.add_expr(Expr::Ident("undefined".into()))
+                    } else {
+                        self.ast.add_expr(Expr::Null)
+                    })
                 } else {
                     None
                 };
