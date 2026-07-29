@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-29T00:12:38.874Z",
+  "generatedAt": "2026-07-29T00:32:21.833Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,9 +9,9 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-29T00:11:33Z",
-    "headSha": "9fefe8b7",
-    "elapsedSec": 267.7,
+    "ranAt": "2026-07-29T00:31:22Z",
+    "headSha": "b53d226b",
+    "elapsedSec": 269.56,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
@@ -20,18 +20,18 @@
     "passNoOracle": 279,
     "passNegative": 4489,
     "passTotal": 19965,
-    "bug": 2201,
-    "incompatible": 31008,
+    "bug": 2374,
+    "incompatible": 30835,
     "bunSkip": 7356,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 22166,
+    "trAccepted": 22339,
     "passRateInScope": 37.55,
-    "passRateTrAccepted": 90.07
+    "passRateTrAccepted": 89.37
   },
   "torajs": {
-    "commit": "9fefe8b7",
-    "commitSubject": "refactor(core): optional-default synthesis converges into a param_optional_default sibling - the three inline guards pushed param_list.rs to 521 (over the 500 hard cap rotation 227's watch predicted; the per-commit audit missed the file axis) - the shared implicit_optional_default method brings it back to 497 and parse_fn to 415",
+    "commit": "b53d226b",
+    "commitSubject": "feat(core): generator-expression factories wrap in destructuring-slot defaults - rfc 20260729-fn-value-any v4 knife 1: a destr default holding a hoisted __genexpr_* factory (the t262 fn-name-gen template family, 186 of the 291 box_to_any residue) had no wrap axis and the raw FnSig panicked the whole program; the collector now marks dstr_default_names entries with the synthetic prefix (user code cannot spell it, so no shadow risk), accepting the same intrinsic-chain trade the any-call-arg axis has always made - the assembled case runs to its .name assert (the NamedEvaluation thread through dstr_default_names is the registered follow-up) and generator-fn-intrinsics-001 holds",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "b53d226b",
+      "subject": "feat(core): generator-expression factories wrap in destructuring-slot defaults - rfc 20260729-fn-value-any v4 knife 1: a destr default holding a hoisted __genexpr_* factory (the t262 fn-name-gen template family, 186 of the 291 box_to_any residue) had no wrap axis and the raw FnSig panicked the whole program; the collector now marks dstr_default_names entries with the synthetic prefix (user code cannot spell it, so no shadow risk), accepting the same intrinsic-chain trade the any-call-arg axis has always made - the assembled case runs to its .name assert (the NamedEvaluation thread through dstr_default_names is the registered follow-up) and generator-fn-intrinsics-001 holds"
+    },
+    {
+      "hash": "4a81e59d",
+      "subject": "chore(docs,hardev): rotation 244 census stamp and sweep archive - passTotal +392 with bug -153 as the v2b expression-default materialization turns a bug family into passes, box_to_any FnSig 355 to 291, four honest-fail exposures in the iter-get-err family, dashboard refresh"
+    },
+    {
       "hash": "9fefe8b7",
       "subject": "refactor(core): optional-default synthesis converges into a param_optional_default sibling - the three inline guards pushed param_list.rs to 521 (over the 500 hard cap rotation 227's watch predicted; the per-commit audit missed the file axis) - the shared implicit_optional_default method brings it back to 497 and parse_fn to 415"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "4982ffb9",
       "subject": "feat(core): async yield* and for-await inside async generator bodies - f3 closes the rfc 20260728-gen-forof-yieldstar async half on top of the for-await-any kernel: the f1 manual-protocol rewrite accepts is_await and drives it with the async taps (getiterator hint=async via an @@asyncIterator probe ternary falling to the sync symbol per getmethod nullish, awaited next() so an async iterator's promise-shaped step settles before done/value per 14.7.5.6, awaited value for the async-from-sync lane per 27.1.4.4), the generic yield* desugar stamps is_await from in_async_gen so the async refusal retires, and the j.3 typed lane gates off in async generators (an async inner's next() answers promise-shaped steps the typed expansion would read unsettled)"
-    },
-    {
-      "hash": "4d470616",
-      "subject": "feat(core,runtime): for-await over any sources through the unified iteration protocol - the refusal at the any-source is_await gate becomes a real drive: a new kernel entry __torajs_any_iter_next_await rides the same cascade with the two await taps the async drive owes (a derived iterator whose next() answered a Promise settles it before done/value are read per 14.7.5.6 step 6.d - an async generator object erased to any now iterates; a sync lane's value awaits per the 27.1.4.4 async-from-sync wrapper, so Promise elements unwrap and rejections forward as catchable throws), GetIterator runs with hint=async (the @@asyncIterator probe outranks everything, nullish falls to the sync symbol per GetMethod), and the lower drains microtasks before each step like the typed await route; the step tier moves to a new iter_any_step sibling to keep iter_any under the size cap"
-    },
-    {
-      "hash": "7146023a",
-      "subject": "chore(docs,hardev): rotation 242 census stamp and sweep archive - completes the close chore whose first git add aborted on a bad path"
     }
   ],
-  "headSha": "9fefe8b7",
+  "headSha": "b53d226b",
   "autorun": {
     "total": 548,
     "baselineTarget": 10,

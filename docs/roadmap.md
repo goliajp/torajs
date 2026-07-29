@@ -1530,33 +1530,37 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 9215301c`, never as a constant.
 
-**Re-derived @ `9fefe8b7`** (2026-07-29, rotation 244): passTotal
-**19965** (+392), bug **2201** (−153 — V2b turned a bug family into
-passes), trAccepted 22166, incompatible **31008**, core **18758**.
-Gate predicate: **495** clusters of ≥ 4 holding 17476 (cases −238,
-core −239; clusters flat). Conservation exact: ΔtrAccepted +239 =
-Δpass +392 + Δbug −153. True regressions **0** — the verdict diff
-shows exactly 4 pass-losses, all
+**Re-derived @ `b53d226b`** (2026-07-29, rotation 244; re-swept at
+the final HEAD after V4 knife 1): passTotal **19965** (+392), bug
+**2374** (net +173 vs `6397d916`'s 2354: V2b turned a −153 family
+into passes, then V4 knife 1 moved +173 whole-program rejects into
+runtime bug-classified — those cases now RUN to their `.name`
+assert), trAccepted 22339, incompatible **30835**, core **18585**.
+Gate predicate: **495** clusters of ≥ 4 holding 17303 (cases −411,
+core −412 over the rotation; clusters flat). Conservation exact
+across both sweeps: +239 = +392 − 153, then +173 = 0 + 173. True
+regressions **0** — 4 pass-losses at the mid sweep, all
 `async-gen-meth-dflt-ary-init-iter-get-err-array-prototype`
 (dflt / static-dflt × expressions / statements), the same
-honest-fail family as rotation 243's pair: the old pass rode the
-receiver-guard TypeError coincidentally matching a
-GetIterator-on-deleted negative oracle, and the now-working
-bare-call drive surfaces the real registered face. Timeout 32 → 28.
-Forward 396: 302 in the two class dirs + 21 object + 50
-generators/async-generators + 14 Array/prototype — RFC
-20260729-fn-value-any's V2b (`e72e64b5`+`f0924087`: expression
-parameter defaults materialize in the callee body per §9.2 — they
-had NEVER worked: solo-name shapes whole-program-rejected, same-name
-shapes silently bound null) and V1b (`515f7a06`: ctor-init receivers
-lose the typed-ident wrap exemption) plus the §9.2 optional-param
-undefined fix (`ba213d72` — an absent `any`-slot optional bound null
-since the feature landed). `box_to_any FnSig` 355 → **291**
-(remaining: gen-fn-expr value box — the fn-name-gen template family,
-registered as V4 — plus Function.prototype call/apply/bind). Next
-walls: #1 eval (RFC awaiting sign-off), #2 fn-value-any V4 +
-dynobj-proto builtin Array method dispatch, #3 `arguments` ~430.
-Previous stamp below.
+honest-fail family as rotation 243's pair (receiver-guard TypeError
+coincidentally matching a GetIterator-on-deleted negative oracle);
+the final re-sweep is verdict-stable (0 regressions, 0 forward).
+Timeout 32 → 28. Forward 396 at the mid sweep: 302 in the two class
+dirs + 21 object + 50 generators/async-generators + 14
+Array/prototype — RFC 20260729-fn-value-any's V2b
+(`e72e64b5`+`f0924087`: expression parameter defaults materialize in
+the callee body per §9.2 — they had NEVER worked: solo-name shapes
+whole-program-rejected, same-name shapes silently bound null), V1b
+(`515f7a06`: ctor-init receivers lose the typed-ident wrap
+exemption), the §9.2 optional-param undefined fix (`ba213d72`), and
+V4 knife 1 (`b53d226b`: destr-slot `__genexpr_*` defaults wrap —
+the fn-name-gen template family). `box_to_any FnSig` 355 → **118**
+(remaining: Function.prototype call/apply/bind 22 + annexB
+block-decl 12 + scattered; the fn-name-gen 186 now runs, gated on
+the NamedEvaluation `.name` thread — registered follow-up). Next
+walls: #1 eval (RFC awaiting sign-off), #2 fn-value-any
+NamedEvaluation thread + dynobj-proto builtin Array method dispatch,
+#3 `arguments` ~430. Previous stamp below.
 
 **Re-derived @ `6397d916`** (2026-07-29, rotation 243): passTotal
 **19573** (+999), bug 2354, trAccepted 21927, incompatible
