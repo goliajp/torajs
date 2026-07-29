@@ -189,6 +189,7 @@ impl<'a> LowerCtx<'a> {
         if !transfers && !elem_ty.is_copy() {
             self.emit_rc_inc(v.clone());
         }
+        self.emit_index_integrity_guard(&arr_val, &idx_val);
         // T-13.5: head-aware byte offset for indexed assign.
         let (offset_base, offset) =
             self.emit_arr_slot_byte_offset(arr_val.clone(), idx_val.clone(), 3, is_non_deque);
@@ -220,52 +221,6 @@ impl<'a> LowerCtx<'a> {
     /// header word — the load shares the len load's cache line.
     /// Terminates the current (write) block and leaves `cur_block`
     /// on `join_blk`.
-    fn emit_hole_revive_branch(&mut self, arr_val: &Operand, idx_val: &Operand, join_blk: BlockId) {
-        let hdr = self.f.append_inst(
-            self.cur_block,
-            InstKind::Load(Type::I64, arr_val.clone(), 0),
-            Type::I64,
-            None,
-        );
-        let exotic_bit = self.f.append_inst(
-            self.cur_block,
-            InstKind::BinOp(
-                crate::ssa::BinOp::And,
-                Operand::Value(hdr),
-                Operand::ConstI64(i64::MIN),
-            ),
-            Type::I64,
-            None,
-        );
-        let is_exotic = self.f.append_inst(
-            self.cur_block,
-            InstKind::ICmp(IPred::Ne, Operand::Value(exotic_bit), Operand::ConstI64(0)),
-            Type::Bool,
-            None,
-        );
-        let revive_blk = self.f.add_block();
-        let wb = self.cur_block;
-        self.f.set_term(
-            wb,
-            Terminator::CondBr {
-                cond: Operand::Value(is_exotic),
-                then_blk: revive_blk,
-                else_blk: join_blk,
-            },
-        );
-        self.cur_block = revive_blk;
-        self.f.append_void(
-            self.cur_block,
-            InstKind::Call(
-                self.intrinsics.arr_index_revive_idx,
-                vec![arr_val.clone(), idx_val.clone()],
-            ),
-        );
-        let rb = self.cur_block;
-        self.f.set_term(rb, Terminator::Br(join_blk));
-        self.cur_block = join_blk;
-    }
-
     /// Route the Any-slot write to the growable helper (write-back
     /// receiver present — the realloc'd pointer is stored back to the
     /// local slot / const-global) or the plain entry (loud RangeError
