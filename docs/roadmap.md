@@ -1825,19 +1825,26 @@ census:
 
 | cluster depth | core cases covered |
 |---|---|
-| top 10 | 34.4 % |
-| top 25 | 53.6 % |
-| top 50 | 67.5 % |
-| top 100 | 78.2 % |
-| top 400 | 93.8 % |
-| clusters of ≤ 3 cases (916 of them) | 5.0 % |
+| top 10 | 24.5 % |
+| top 25 | 43.0 % |
+| top 50 | 57.0 % |
+| top 100 | 70.3 % |
+| top 400 | 90.7 % |
+| clusters of ≤ 3 cases (922 of them) | 7.1 % |
 
-(refreshed @ rotation 230 sweep, core 25421.) The tail is short: 1391
-clusters total, but four fifths of the mass is in 100 of them — which
-is why this phase is enumerable at all.
+(refreshed @ rotation 245 sweep `87860167`, core 18112; the rotation
+230 reading was core 25421 with top-10 at 34.4 %.) The tail is short:
+1417 clusters total, but seven tenths of the mass is in 100 of them —
+which is why this phase is enumerable at all. **The curve has
+flattened as core shrank**: the same fixes that removed 7300 core
+cases since rotation 230 removed whole head clusters, so the remaining mass is spread
+wider even though it is smaller. A falling top-10 share is what
+progress looks like here, not a regression.
 
 **The groups at a glance** (core cases @ `9215301c`, each ≈ because
-clusters shift under every fix):
+clusters shift under every fix; core total has since fallen 25421 →
+**18112** @ `87860167`, so read these as proportions, not counts —
+re-derive with `cluster_incompat.py` before acting on any of them):
 
 | group | what | ≈ core cases |
 |---|---|---|

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-29T00:32:21.833Z",
+  "generatedAt": "2026-07-29T02:38:31.251Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-29T00:31:22Z",
-    "headSha": "b53d226b",
-    "elapsedSec": 269.56,
+    "ranAt": "2026-07-29T02:35:34Z",
+    "headSha": "87860167",
+    "elapsedSec": 271.34,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 15197,
+    "pass": 15674,
     "passNoOracle": 279,
     "passNegative": 4489,
-    "passTotal": 19965,
-    "bug": 2374,
-    "incompatible": 30835,
+    "passTotal": 20442,
+    "bug": 2370,
+    "incompatible": 30362,
     "bunSkip": 7356,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 22339,
-    "passRateInScope": 37.55,
-    "passRateTrAccepted": 89.37
+    "trAccepted": 22812,
+    "passRateInScope": 38.44,
+    "passRateTrAccepted": 89.61
   },
   "torajs": {
-    "commit": "b53d226b",
-    "commitSubject": "feat(core): generator-expression factories wrap in destructuring-slot defaults - rfc 20260729-fn-value-any v4 knife 1: a destr default holding a hoisted __genexpr_* factory (the t262 fn-name-gen template family, 186 of the 291 box_to_any residue) had no wrap axis and the raw FnSig panicked the whole program; the collector now marks dstr_default_names entries with the synthetic prefix (user code cannot spell it, so no shadow risk), accepting the same intrinsic-chain trade the any-call-arg axis has always made - the assembled case runs to its .name assert (the NamedEvaluation thread through dstr_default_names is the registered follow-up) and generator-fn-intrinsics-001 holds",
+    "commit": "87860167",
+    "commitSubject": "fix(core): an untyped class field takes the any slot instead of rejecting",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "87860167",
+      "subject": "fix(core): an untyped class field takes the any slot instead of rejecting"
+    },
+    {
+      "hash": "7ef6c1b6",
+      "subject": "fix(core): an escaped reserved word is legal where an IdentifierName is"
+    },
+    {
+      "hash": "6973e4f7",
+      "subject": "fix(core): admit RegExp as a value ident"
+    },
+    {
+      "hash": "6c4ccdd1",
+      "subject": "fix(core): a var slot is an any destination for the fn-value wrap"
+    },
+    {
+      "hash": "ea4f3a70",
+      "subject": "fix(core): generator expressions answer their NamedEvaluation name"
+    },
+    {
+      "hash": "1cf62e6f",
+      "subject": "chore(docs,hardev): rotation 244 final census at b53d226b - re-swept after v4 knife 1, box_to_any 291 to 118 with 173 whole-program rejects now running to their .name asserts, core 18585, dashboard refresh"
+    },
+    {
       "hash": "b53d226b",
       "subject": "feat(core): generator-expression factories wrap in destructuring-slot defaults - rfc 20260729-fn-value-any v4 knife 1: a destr default holding a hoisted __genexpr_* factory (the t262 fn-name-gen template family, 186 of the 291 box_to_any residue) had no wrap axis and the raw FnSig panicked the whole program; the collector now marks dstr_default_names entries with the synthetic prefix (user code cannot spell it, so no shadow risk), accepting the same intrinsic-chain trade the any-call-arg axis has always made - the assembled case runs to its .name assert (the NamedEvaluation thread through dstr_default_names is the registered follow-up) and generator-fn-intrinsics-001 holds"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "f0924087",
       "subject": "fix(core): expression-default materialize runs before the closure lift and skips arrow-bearing defaults - the gate caught the first cut orphaning a moved IIFE default from the capture machinery (closure capture cc not in scope): the pass now runs as its own pipeline stage right after desugar_classes so a moved default rides bind_this_param / lift_arrow_fns like any body expression, and a recursive whitelist keeps arrow-bearing defaults on the call-site pad - a closure minted inside a fn body cannot capture a top-level let today (pre-existing, registered), while the padded copy at the top-level call site works"
-    },
-    {
-      "hash": "e72e64b5",
-      "subject": "feat(core): expression parameter defaults materialize in the callee body - rfc 20260729-fn-value-any v2b: call-site padding cannot express a default that references the callee scope (padding f(x, y = x) with the ExprId of x either rejected the whole program on the solo-name shape or silently bound the implicit fill when the by-name merge bailed - probes showed c.m(9) answering null where the spec owes 9), so a new materialize pass run at the head of apply_default_args rewrites every any/unannotated expression default per es 9.2 into a body-head guard (if (y === undefined) y = x, callee scope, param order, ahead of a destructured param's unpack prefix) and leaves an undefined literal as the pad value; the s2.38 this-free verdict accepts that literal, which closes the detached-generator-method chain end to end (the t262 dflt-params-ref-prior assembled case now runs to AsyncTestComplete); typed expression defaults keep their loud reject"
-    },
-    {
-      "hash": "770171eb",
-      "subject": "chore(docs,hardev): rotation 243 census stamp and sweep archive - re-swept at the fix-up head 6397d916, passTotal +999 with the async-iteration walls closed (rfc gen-forof-yieldstar complete, box_to_any FnSig 720 to 355), 85 v2a static regressions caught mid-close and reverted, dashboard refresh"
-    },
-    {
-      "hash": "6397d916",
-      "subject": "fix(core): static generator methods keep the this-passing forwarder - rotation 243 sweep caught 85 async-gen-meth-static-* pass regressions from v2a: a static forwarder that stops mentioning this breaks the __sm_<C>__<m> static-member alias chain (let m = C.method lowered to an unknown __sm_ ident or a whole-program generic-arity reject), so the receiver-free relaxation now applies to instance methods only; the static value-use face keeps its previous path until that chain gets its own lane"
-    },
-    {
-      "hash": "b845d957",
-      "subject": "feat(core): detached generator method values run bare when the body is receiver-free - rfc 20260729-fn-value-any v2a: parse_class_decl_generator sweeps the body's expr range for the minted __genrecv ident (this and super rewrites are its only two sources), and a receiver-free body relaxes the synth generator's receiver ann to any and passes undefined instead of this through the forwarder - which makes the forwarder itself this-free, so the existing s2.38 metadata pass stamps FLAG_CLASS_METHOD_THIS_FREE and a detached C.prototype.m bare call (the t262 class dflt-params template family's shape) constructs the generator object instead of the receiver-undefined TypeError; a this-reading generator method keeps its nominal receiver ann and normal path"
-    },
-    {
-      "hash": "2e4f56d2",
-      "subject": "feat(core): fn-name arguments box through their forwarder on untyped member-call receivers - rfc 20260729-fn-value-any v1: a top-fndecl ident passed to a member call whose receiver is an any-bound ident or any chained expression (the t262 async harness .then($DONE, $DONE) tail - the shared trigger of the whole 720-case box_to_any FnSig cluster) now wraps as Closure{__forward_<name>} through the existing fn-to-closure axis family, so the any-method argv gets a boxed closure cell instead of the raw FnSig loud panic; a typed ident receiver keeps its args on raw-FnSig direct dispatch so xs.map(topFn) hot paths are untouched"
-    },
-    {
-      "hash": "4982ffb9",
-      "subject": "feat(core): async yield* and for-await inside async generator bodies - f3 closes the rfc 20260728-gen-forof-yieldstar async half on top of the for-await-any kernel: the f1 manual-protocol rewrite accepts is_await and drives it with the async taps (getiterator hint=async via an @@asyncIterator probe ternary falling to the sync symbol per getmethod nullish, awaited next() so an async iterator's promise-shaped step settles before done/value per 14.7.5.6, awaited value for the async-from-sync lane per 27.1.4.4), the generic yield* desugar stamps is_await from in_async_gen so the async refusal retires, and the j.3 typed lane gates off in async generators (an async inner's next() answers promise-shaped steps the typed expansion would read unsettled)"
     }
   ],
-  "headSha": "b53d226b",
+  "headSha": "87860167",
   "autorun": {
-    "total": 548,
+    "total": 549,
     "baselineTarget": 10,
-    "bySelf": 543,
+    "bySelf": 544,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785280458-7673",
-      "at": "2026-07-28T23:14:18Z",
-      "ts": 1785280458,
+      "rotationId": "r-1785285921-5e9a",
+      "at": "2026-07-29T00:45:21Z",
+      "ts": 1785285921,
       "trigger": "self",
-      "prevHead": "770171eb",
-      "handoffSha": "sha256:8bf2a66af39295ea0b2896d1766848bf5268d9dc573095b523fd5aee00aeec79",
-      "handoffAgeSec": 38,
+      "prevHead": "1cf62e6f",
+      "handoffSha": "sha256:9d9ad525f8f4bbf25f5e88b483e30d6aad57e5b79f94cfa5200e6b277945135b",
+      "handoffAgeSec": 672,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1785285921-5e9a",
+        "at": "2026-07-29T00:45:21Z",
+        "ts": 1785285921,
+        "trigger": "self",
+        "prevHead": "1cf62e6f",
+        "handoffSha": "sha256:9d9ad525f8f4bbf25f5e88b483e30d6aad57e5b79f94cfa5200e6b277945135b",
+        "handoffAgeSec": 672,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785280458-7673",
         "at": "2026-07-28T23:14:18Z",
@@ -876,17 +887,6 @@
         "prevHead": "0fe6c1ad",
         "handoffSha": "sha256:78cfc82456e45c0a2cb36fa125383ab2eeb437bbc78efba66190515799ae0e06",
         "handoffAgeSec": 17,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1785190161-2d76",
-        "at": "2026-07-27T22:09:21Z",
-        "ts": 1785190161,
-        "trigger": "self",
-        "prevHead": "f35e3876",
-        "handoffSha": "sha256:6803511d9997fa48c7b261ee9bd2c697f316155d9adaab74d019b00009fa1f81",
-        "handoffAgeSec": 46,
         "conformanceBefore": null,
         "commitsInSession": null
       }
