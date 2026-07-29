@@ -1825,21 +1825,26 @@ census:
 
 | cluster depth | core cases covered |
 |---|---|
-| top 10 | 26.4 % |
-| top 25 | 44.1 % |
-| top 50 | 58.7 % |
-| top 100 | 73.0 % |
-| top 400 | 92.1 % |
-| clusters of ≤ 3 cases (828 of them) | 6.9 % |
+| top 10 | 26.5 % |
+| top 25 | 43.7 % |
+| top 50 | 58.1 % |
+| top 100 | 72.5 % |
+| top 400 | 91.7 % |
+| clusters of ≤ 3 cases (868 of them) | 7.2 % |
 
-(refreshed @ rotation 250 sweep `1f21a019`, core **16243**, 443 clusters
-of ≥ 4 holding 15129 cases. Rotation 250 is the shape this section warns
+(refreshed @ rotation 251 sweep `d4163724`, core **16218**, 446 clusters
+of ≥ 4 holding 15052 cases. Rotation 251 ported asyncHelpers.js for
+real — `needs asyncHelpers.js` (341 across 33 directories) went to
+zero; 13 cases pass forward (8 of them the throwsAsync harness
+self-tests), the rest re-attribute to their true walls. Previous
+stamp: rotation 250 sweep `1f21a019`, core **16243**, 443 clusters of
+≥ 4 holding 15129. Rotation 250 is the shape this section warns
 about: cluster count up two while the cases in them fell 476 and core
 fell 458. Two clusters left the census outright — `needs
 isConstructor.js` (377 across 40 directories) went to zero and
 `unknown ident __new_*` (385 across 41) went to two — and the cases they
 had been blocking now run far enough to show signatures of their own.
-Previous stamp: rotation 249 sweep `38eb6513`, core **16701**, 441
+Stamp before that: rotation 249 sweep `38eb6513`, core **16701**, 441
 clusters of ≥ 4. That rotation ran the sweep twice: after its first six fixes
 every figure came back identical (core 16719, same as rotation 248's
 `6122f7c6`) because memory-safety and property-key correctness make
