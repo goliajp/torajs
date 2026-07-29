@@ -36,6 +36,7 @@ extern crate torajs_mmalloc as _;
 pub mod combinator;
 pub(crate) mod combinator_any;
 pub mod combinator_dyn;
+pub mod from_async;
 pub mod layout;
 pub mod micro;
 pub mod pool;
@@ -55,6 +56,7 @@ pub use combinator_dyn::{
     __torajs_promise_all_dyn, __torajs_promise_allsettled_dyn, __torajs_promise_any_dyn,
     __torajs_promise_race_dyn,
 };
+pub use from_async::__torajs_array_from_async_dyn;
 pub use micro::{__torajs_queue_microtask_closure, __torajs_queue_microtask_simple};
 pub use pool::{
     __torajs_promise_alloc_fulfilled, __torajs_promise_alloc_fulfilled_heap,

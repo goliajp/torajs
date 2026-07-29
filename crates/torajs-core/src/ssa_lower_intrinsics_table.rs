@@ -500,6 +500,7 @@ pub(crate) fn build(
         promise_race_dyn: init_d.promise.promise_race_dyn,
         promise_any_dyn: init_d.promise.promise_any_dyn,
         promise_allsettled_dyn: init_d.promise.promise_allsettled_dyn,
+        array_from_async_dyn: init_d.promise.array_from_async_dyn,
         promise_with_resolvers: init_d.promise.promise_with_resolvers,
         bigint_from_decimal: init_c.bigint.bigint_from_decimal,
         bigint_from_hex: init_c.bigint.bigint_from_hex,

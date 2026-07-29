@@ -45,7 +45,7 @@ unsafe extern "C" {
 /// Pop the in-flight throw off the TLS and answer a promise rejected
 /// with it (take_tag peeks first; take clears `active` but leaves
 /// the tag slot — the `: any`-typed catch order).
-unsafe fn reject_with_pending_throw() -> *mut c_void {
+pub(crate) unsafe fn reject_with_pending_throw() -> *mut c_void {
     unsafe {
         let tag = __torajs_throw_take_tag();
         let value = __torajs_throw_take();
@@ -54,13 +54,21 @@ unsafe fn reject_with_pending_throw() -> *mut c_void {
     }
 }
 
-/// §7.4.2 GetIterator + full drive: collect every element the
-/// iterable yields into a fresh any-shape array (owned slots), or
-/// answer the rejected promise when any step leaves a throw in
-/// flight. The receiver is borrowed; the iterator ref lives in
-/// `iter_slot` and is released on every exit (nanbox-aware dec — an
-/// undefined immediate is a no-op).
-unsafe fn collect_iterable(v: u64) -> Result<*mut c_void, *mut c_void> {
+/// The `__torajs_any_iter_next` family's shared signature — the
+/// for-of any-lane step protocol (receiver, index slot, iterator
+/// ref slot, out slot) → has-element flag.
+pub(crate) type IterStepFn = unsafe extern "C" fn(u64, *mut i64, *mut u64, *mut u64) -> i64;
+
+/// §7.4.2 GetIterator + full drive: collect every element the step
+/// protocol yields into an owned Vec, or answer the rejected promise
+/// when any step leaves a throw in flight. The step fn picks the
+/// non-iterable verdict: `any_iter_next` throws TypeError, the
+/// `_array_like` sibling walks `length` + index keys (§23.1.2.1
+/// step 3's branch, resolved in the kernel). The receiver is
+/// borrowed; the iterator ref lives in `iter_slot` and is released
+/// on every exit (nanbox-aware dec — an undefined immediate is a
+/// no-op).
+pub(crate) unsafe fn collect_items(v: u64, step: IterStepFn) -> Result<Vec<u64>, *mut c_void> {
     unsafe {
         let undef = __torajs_anyv_box_from_pair(5, 0);
         let mut idx: i64 = 0;
@@ -68,7 +76,7 @@ unsafe fn collect_iterable(v: u64) -> Result<*mut c_void, *mut c_void> {
         let mut out_v: u64 = undef;
         let mut items: Vec<u64> = Vec::new();
         loop {
-            let has = __torajs_any_iter_next(v, &mut idx, &mut iter_slot, &mut out_v);
+            let has = step(v, &mut idx, &mut iter_slot, &mut out_v);
             if __torajs_throw_check() != 0 {
                 for it in items {
                     __torajs_anyv_rc_dec(it);
@@ -84,6 +92,15 @@ unsafe fn collect_iterable(v: u64) -> Result<*mut c_void, *mut c_void> {
             items.push(out_v);
         }
         __torajs_anyv_rc_dec(iter_slot);
+        Ok(items)
+    }
+}
+
+/// Collect via the strict-iterable step, then build the any-shape
+/// array the `*_sync` kernels consume (owned slot transfer).
+unsafe fn collect_iterable(v: u64) -> Result<*mut c_void, *mut c_void> {
+    unsafe {
+        let items = collect_items(v, __torajs_any_iter_next)?;
         let out = __torajs_arr_alloc_any_filled(items.len() as u64);
         let head = *(out.add(ARR_HEAD_OFF) as *const u32) as u64;
         let data = *(out.add(ARR_DATA_PTR_OFF) as *const *mut u8);

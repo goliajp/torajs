@@ -71,7 +71,7 @@ unsafe fn any_slot(arr: *mut c_void, i: u64) -> u64 {
 
 /// NaN-box cell gate (mirror of `torajs-anyvalue::nanbox::is_cell`)
 /// + promise tag probe. `None` = not a promise element.
-unsafe fn slot_promise(bits: u64) -> Option<*mut Promise> {
+pub(crate) unsafe fn slot_promise(bits: u64) -> Option<*mut Promise> {
     const TOP_16_MASK: u64 = 0xFFFF_0000_0000_0000;
     const TAG_BIT_TYPE_OTHER: u64 = 0x02;
     if bits == 0 || bits & TOP_16_MASK != 0 || bits & TAG_BIT_TYPE_OTHER != 0 {
@@ -88,7 +88,7 @@ unsafe fn slot_promise(bits: u64) -> Option<*mut Promise> {
 /// the result array keeps its own stake (`anyv_rc_inc` is NaN-box
 /// aware, immediates pass through). `None` = UNSTAMPED (caller
 /// rejects with the MVP placeholder instead of mis-boxing).
-unsafe fn box_settled_owned(repr: u8, value: i64) -> Option<u64> {
+pub(crate) unsafe fn box_settled_owned(repr: u8, value: i64) -> Option<u64> {
     let boxed = unsafe {
         match repr {
             REPR_I64 => __torajs_anyv_box_from_pair(2, value),

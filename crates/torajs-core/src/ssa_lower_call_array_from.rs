@@ -35,7 +35,7 @@ pub(crate) fn try_lower(
         Expr::Member { obj, name } => (*obj, name.clone()),
         _ => return None,
     };
-    if m_name != "from" {
+    if m_name != "from" && m_name != "fromAsync" {
         return None;
     }
     if !matches!(ctx.ast.get_expr(ns_id), Expr::Ident(n) if n == "Array") {
@@ -43,6 +43,29 @@ pub(crate) fn try_lower(
     }
     if args.is_empty() {
         return None;
+    }
+    if m_name == "fromAsync" {
+        // proposal-array-from-async §2.1.1 sync-source MVP — box the
+        // items arg and hand it to the dyn kernel (array-like step
+        // protocol + settled-promise element unwrap). Checker admits
+        // the 1-arg form only, so args[1..] never reaches here.
+        let arg_op = ctx.lower_expr(args[0]);
+        let arg_ty = ctx.operand_ty(&arg_op);
+        let boxed = ctx.box_to_any_from_expr(args[0], arg_op.clone());
+        let fid = ctx.intrinsics.array_from_async_dyn;
+        let cur_block = ctx.cur_block;
+        let v = ctx.f.append_inst(
+            cur_block,
+            InstKind::Call(fid, vec![boxed]),
+            Type::Promise,
+            None,
+        );
+        // The box shares; a fresh owned temp still owes its stake
+        // (the combinator dyn-entry ownership shape).
+        if arg_ty.is_refcounted() && ctx.expr_is_fresh_owned(args[0]) {
+            ctx.emit_drop_value(arg_op, arg_ty);
+        }
+        return Some(Operand::Value(v));
     }
     // S275 — widen `== 1 || == 2` to `>= 1`. The 2-arg path below handles
     // iter+mapFn; trailing args (thisArg + extras) are eval-and-dropped

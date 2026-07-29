@@ -84,6 +84,10 @@ pub(crate) struct PromiseIds {
     pub promise_race_dyn: FuncId,
     pub promise_any_dyn: FuncId,
     pub promise_allsettled_dyn: FuncId,
+    /// `Array.fromAsync(items)` sync-source MVP — the array-like
+    /// step protocol collects, promise elements unwrap (§2.1.1
+    /// step 5.e award), result promise holds an `Array<Any>`.
+    pub array_from_async_dyn: FuncId,
 }
 
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) -> PromiseIds {
@@ -293,6 +297,13 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             module,
             fn_table,
             "__torajs_promise_allsettled_dyn",
+            &[Type::Any],
+            Type::Promise,
+        ),
+        array_from_async_dyn: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_array_from_async_dyn",
             &[Type::Any],
             Type::Promise,
         ),

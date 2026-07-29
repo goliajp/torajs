@@ -40,6 +40,35 @@ pub(crate) fn try_match(
     callee: &ExprId,
     args: &Vec<ExprId>,
 ) -> Option<Result<Type, String>> {
+    // proposal-array-from-async §2.1.1 — `Array.fromAsync(items)`
+    // sync-source MVP. Every input type is admitted: the runtime
+    // step kernel resolves iterable vs array-like (§23.1.2.1 step-3
+    // shape), a plain number answers `Promise<[]>`, and null /
+    // undefined reject with the length-read TypeError. Promise
+    // elements unwrap per step 5.e. The mapFn arity changes element
+    // semantics, so it stays a loud reject until it ships (silent
+    // trailing-drop would be wrong here, unlike thisArg).
+    if let Expr::Member {
+        obj: ns_id,
+        name: m_name,
+    } = ast.get_expr(*callee)
+        && m_name == "fromAsync"
+        && let Expr::Ident(ns) = ast.get_expr(*ns_id)
+        && ns == "Array"
+    {
+        if args.len() != 1 {
+            return Some(Err(format!(
+                "Array.fromAsync: expects 1 arg in the sync-source MVP (mapFn ships later), got {}",
+                args.len()
+            )));
+        }
+        if let Err(e) = checker.type_of(ast, args[0]) {
+            return Some(Err(e));
+        }
+        return Some(Ok(Type::Promise(Box::new(Type::Array(Box::new(
+            Type::Any,
+        ))))));
+    }
     if let Expr::Member {
         obj: ns_id,
         name: m_name,
