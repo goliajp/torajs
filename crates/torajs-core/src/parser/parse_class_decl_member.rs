@@ -263,12 +263,18 @@ impl<'a> Parser<'a> {
             Expr::Number(_) => "number",
             Expr::String(_) => "string",
             Expr::Bool(_) => "boolean",
-            _ => {
-                return Err(format!(
-                    "untyped class field `{member_name}` requires a literal initializer (number / string / boolean) for type inference at {}",
-                    self.at()
-                ));
-            }
+            // Anything else takes the `any` slot rather than rejecting
+            // the program. Real inference needs the initializer's TYPE,
+            // which only the checker has — the parser can read shape and
+            // nothing more, so scalar literals are the whole of what it
+            // can honestly narrow. Refusing the rest bought no safety
+            // (the initializer is still parsed and checked; only the
+            // SLOT widens) while costing every field whose init is a
+            // call, an array, an object, or null. Narrowing these
+            // properly belongs in the checker and is registered; doing
+            // it here would mean re-implementing type inference on
+            // syntax.
+            _ => "any",
         };
         let ty = inferred.to_string();
         if matches!(self.peek(), Token::Semi) {
