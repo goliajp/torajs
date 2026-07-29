@@ -70,6 +70,10 @@ pub(crate) fn try_lower(
     // intern; dynamic keys lower + coerce to a Str (Substr temps are
     // owned and dropped — same ledger as `ssa_lower_delete`).
     if matches!(obj_ty, Type::Any) {
+        // A key resolved through §7.1.19 at run time is owned and of
+        // unknowable kind, so it releases through the kind-aware
+        // dropper rather than the Str ledger below.
+        let mut resolved_key = false;
         let (key_v, owned_temp) = if let Some(key) = &key_lit {
             (ctx.intern_string_literal(key), None)
         } else {
@@ -80,15 +84,31 @@ pub(crate) fn try_lower(
             // own-property probe keys off the cell's own tag. Coercing
             // it would hit §7.1.17's "cannot convert a Symbol to a
             // string" TypeError on a call that must simply answer true.
-            let key_op = if k_ty == Type::Symbol {
-                k_raw.clone()
+            if k_ty == Type::Any {
+                // The kind is the run time's to decide; stringifying
+                // would ask for "Symbol(x)" and answer false about a
+                // property that is there.
+                let k = ctx.f.append_inst(
+                    ctx.cur_block,
+                    InstKind::Call(ctx.intrinsics.anyv_to_property_key, vec![k_raw.clone()]),
+                    Type::Ptr,
+                    None,
+                );
+                ctx.release_owned_temp(args[1], &k_raw);
+                ctx.emit_throw_check(None);
+                resolved_key = true;
+                (k, None)
             } else {
-                ctx.coerce_to_str(k_raw.clone(), k_ty)
-            };
-            let Operand::Value(key_v) = key_op else {
-                panic!("ssa-lower: hasOwn key lowered to a non-value operand");
-            };
-            (key_v, Some((key_op, k_ty == Type::Substr, k_raw, k_ty)))
+                let key_op = if k_ty == Type::Symbol {
+                    k_raw.clone()
+                } else {
+                    ctx.coerce_to_str(k_raw.clone(), k_ty)
+                };
+                let Operand::Value(key_v) = key_op else {
+                    panic!("ssa-lower: hasOwn key lowered to a non-value operand");
+                };
+                (key_v, Some((key_op, k_ty == Type::Substr, k_raw, k_ty)))
+            }
         };
         for &a in args.iter().skip(2) {
             let _ = ctx.lower_expr(a);
@@ -103,6 +123,15 @@ pub(crate) fn try_lower(
             None,
         );
         ctx.emit_throw_check(None);
+        if resolved_key {
+            ctx.f.append_void(
+                ctx.cur_block,
+                InstKind::Call(
+                    ctx.intrinsics.anyv_property_key_drop,
+                    vec![Operand::Value(key_v)],
+                ),
+            );
+        }
         if let Some((key_op, coerce_owned, k_raw, k_ty)) = owned_temp {
             if coerce_owned {
                 ctx.emit_drop_value(key_op, Type::Str);

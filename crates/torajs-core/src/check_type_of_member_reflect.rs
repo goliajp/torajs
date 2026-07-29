@@ -75,7 +75,12 @@ pub(crate) fn try_match(obj_ty: &Type, name: &str) -> Option<Result<Type, String
         (Type::Object("Object"), "hasOwn")
         // ES6 §28.1.9 — `Reflect.has` shares this signature.
         | (Type::Object("Reflect"), "has") => {
-            Type::Function(vec![Type::Any, Type::String], Box::new(Type::Boolean))
+            // §20.1.2.13 step 2 is ToPropertyKey, so the key domain is
+            // the whole value domain, not `string`. Pinning it to
+            // String refused the program for `Object.hasOwn(o, sym)`
+            // — even for a statically-typed Symbol, which the lowering
+            // has always handled.
+            Type::Function(vec![Type::Any, Type::Any], Box::new(Type::Boolean))
         }
         // ES6 §28.1.6 — `Reflect.get(target, key)`. Subset:
         // typed struct target + literal-string key folds at

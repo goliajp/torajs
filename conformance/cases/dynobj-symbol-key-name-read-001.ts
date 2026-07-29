@@ -97,3 +97,11 @@ del[s1] = 2;
 console.log(Object.getOwnPropertySymbols(del).length);
 console.log(delete del[s1], delete del[typedSym]);
 console.log(Object.getOwnPropertySymbols(del).length, del[s1], del[typedSym]);
+
+// Object.hasOwn pinned its key to `string`, so a symbol key was
+// refused outright — even a statically-typed one, which the lowering
+// had always handled.
+const h: any = {};
+h[typedSym] = 1;
+h[s1] = 2;
+console.log(Object.hasOwn(h, typedSym), Object.hasOwn(h, s1), Object.hasOwn(h, "nope"));
