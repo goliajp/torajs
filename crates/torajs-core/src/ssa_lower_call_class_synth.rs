@@ -57,6 +57,7 @@ pub(crate) fn try_lower(
         "__torajs_class_register" => try_lower_class_register(ctx, args),
         "__torajs_error_proto_install" => try_lower_error_proto_install(ctx, args),
         "__torajs_error_is_error" => try_lower_error_is_error(ctx, args),
+        "__torajs_is_constructor" => try_lower_is_constructor(ctx, args),
         "__torajs_static_method_reify" => reify::try_lower_static_method_reify(ctx, args),
         "__torajs_static_field_reify" => reify::try_lower_static_field_reify(ctx, args),
         "__torajs_class_accessor_reify" => reify::try_lower_class_accessor_reify(ctx, args, false),
@@ -218,6 +219,47 @@ fn try_lower_error_is_error(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<O
         Type::Bool,
         None,
     );
+    Some(Operand::Value(v))
+}
+
+/// `__torajs_is_constructor(x)` — §7.2.4 as a predicate: one Any in,
+/// Bool out.
+///
+/// Unlike the `error_is_error` probe above, this one boxes a
+/// non-Any operand instead of passing it through. That probe is only
+/// ever emitted for the injected `Error.isError` body, whose argument
+/// is already `any`; this name is callable from any source the checker
+/// admits, and handing the runtime a raw `5` where it expects an
+/// AnyValue made it read the number as a pointer and take a SIGSEGV.
+fn try_lower_is_constructor(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Operand> {
+    if args.len() != 1 {
+        return None;
+    }
+    let is_borrow = matches!(
+        ctx.ast.get_expr(args[0]),
+        Expr::Ident(_) | Expr::Member { .. }
+    );
+    let raw = ctx.lower_expr(args[0]);
+    let raw_ty = ctx.operand_ty(&raw);
+    let (v_op, boxed) = if raw_ty == Type::Any {
+        (raw, false)
+    } else {
+        if is_borrow && raw_ty.is_refcounted() {
+            ctx.emit_rc_inc(raw.clone());
+        }
+        (ctx.box_to_any_from_expr(args[0], raw), true)
+    };
+    let cur_block = ctx.cur_block;
+    let probe = ctx.intrinsics.is_constructor;
+    let v = ctx.f.append_inst(
+        cur_block,
+        InstKind::Call(probe, vec![v_op.clone()]),
+        Type::Bool,
+        None,
+    );
+    if boxed {
+        ctx.emit_drop_value(v_op, Type::Any);
+    }
     Some(Operand::Value(v))
 }
 

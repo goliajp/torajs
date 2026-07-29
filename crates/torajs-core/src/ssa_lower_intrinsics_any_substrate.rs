@@ -234,6 +234,9 @@ pub(crate) struct AnySubstrateIds {
     /// S-NEW 刀 2 — `new <runtime value>(args…)`: IsConstructor, then
     /// the factory adapter.
     pub construct: FuncId,
+    /// S-NEW 刀 3 — §7.2.4 IsConstructor as a value-level predicate,
+    /// which is the whole of test262's `isConstructor.js`.
+    pub is_constructor: FuncId,
 }
 
 // CARVE-OUT: dispatch table — the body is one `decl!` line per
@@ -452,5 +455,6 @@ pub(crate) fn declare(
         any_box_rc_inc: decl!("__torajs_anyv_rc_inc", [Any], Void),
         ctor_register: decl!("__torajs_anyv_ctor_register", [Any, Ptr], Void),
         construct: decl!("__torajs_anyv_construct", [Any, Ptr, I64], Any),
+        is_constructor: decl!("__torajs_is_constructor", [Any], Bool),
     }
 }

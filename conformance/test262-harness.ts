@@ -166,7 +166,23 @@ function __t262_throws_runtime(thunk: () => void, msg: string = ""): void {
 // rewriter pass in test262-runner/main.rs textually replaces each
 // bare-call site with the `__t262_*` shim below.
 
-function __t262_isConstructor(_obj: any): boolean { return true; }
+// isConstructor.js port (S-NEW 刀 3). The stock harness asks its
+// question through `Reflect.construct(function(){}, [], f)` — a probe
+// whose only purpose is to test f's [[Construct]] without running f.
+// tr has no Reflect yet, but it has the predicate that probe exists to
+// evaluate: ES §7.2.4 IsConstructor. Answering it directly is the same
+// question asked without the detour.
+//
+// It was a stub returning true until now, which is why isConstructor.js
+// stayed out of PORTED_INCLUDES: admitting cases against a shim that
+// says yes to everything would have put ~370 free passes into the
+// numbers.
+function __t262_isConstructor(obj: any): boolean {
+  if (typeof obj !== "function") {
+    throw new Test262Error("isConstructor invoked with a non-function value");
+  }
+  return __torajs_is_constructor(obj);
+}
 function __t262_assertRelativeDateMs(_date: any, _ms: any): void {}
 
 // ─── propertyHelper.js port (2026-07-11, RFC 20260711 chunk D-2b) ───

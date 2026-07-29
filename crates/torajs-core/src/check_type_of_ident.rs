@@ -103,6 +103,9 @@ pub(crate) fn check(checker: &Checker, name: &str) -> Result<Type, String> {
             Ok(Type::Function(vec![Type::String], Box::new(Type::Void)))
         }
         "__torajs_error_is_error" => Ok(Type::Function(vec![Type::Any], Box::new(Type::Boolean))),
+        // S-NEW 刀 3 — §7.2.4 IsConstructor, the question test262's
+        // isConstructor.js asks through `Reflect.construct`.
+        "__torajs_is_constructor" => Ok(Type::Function(vec![Type::Any], Box::new(Type::Boolean))),
         // RFC 20260718-error-message-own-prop 刀 2 — injected error
         // ctor internals: the own-absence Str sentinel mint and the
         // §20.5.3.4 stack-header formatter over `this`.

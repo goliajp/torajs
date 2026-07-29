@@ -129,6 +129,20 @@ pub(crate) unsafe fn is_constructor(av: AnyValue) -> bool {
     hdr.type_tag == Tag::DynObj as u16 && hdr.flags & torajs_rc::FLAG_DYNOBJ_CLASS_CTOR != 0
 }
 
+/// ES §7.2.4 IsConstructor as a value-level predicate.
+///
+/// Exposed because test262's `isConstructor.js` needs exactly this
+/// question answered without constructing anything — the stock harness
+/// gets it from `Reflect.construct(function(){}, [], f)`, whose only
+/// purpose is to probe `f`'s [[Construct]] without running `f`.
+///
+/// # Safety
+/// `v` must be a live AnyValue.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_is_constructor(v: AnyValue) -> bool {
+    unsafe { is_constructor(v) }
+}
+
 /// `new callee(argv[0..argc])` where `callee` is a runtime value.
 ///
 /// Answers the constructed object, owned by the caller. A callee that

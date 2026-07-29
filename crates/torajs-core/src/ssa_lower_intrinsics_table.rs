@@ -442,6 +442,7 @@ pub(crate) fn build(
         any_box_rc_inc: init_c.any_substrate.any_box_rc_inc,
         ctor_register: init_c.any_substrate.ctor_register,
         construct: init_c.any_substrate.construct,
+        is_constructor: init_c.any_substrate.is_constructor,
         print_any: init_c.print_freeze.print_any,
         print_any_inline_top: init_c.print_freeze.print_any_inline_top,
         io_putc_stdout: init_c.print_freeze.io_putc_stdout,

@@ -501,6 +501,8 @@ pub(crate) struct Intrinsics {
     pub(crate) ctor_register: FuncId,
     /// S-NEW 刀 2 — `new <runtime value>(args…)`.
     pub(crate) construct: FuncId,
+    /// S-NEW 刀 3 — §7.2.4 IsConstructor as a predicate.
+    pub(crate) is_constructor: FuncId,
     pub(crate) print_any: FuncId,
     pub(crate) print_any_inline_top: FuncId,
     pub(crate) io_putc_stdout: FuncId,

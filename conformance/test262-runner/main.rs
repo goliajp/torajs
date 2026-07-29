@@ -379,6 +379,9 @@ fn run_case(
         "promiseHelper.js",
         "regExpUtils.js",
         "tcoHelper.js",
+        // S-NEW 刀 3 — real `isConstructor`, once `__t262_isConstructor`
+        // stopped being a stub that answered true to everything.
+        "isConstructor.js",
     ];
     let unported: Vec<&str> = fm
         .includes
