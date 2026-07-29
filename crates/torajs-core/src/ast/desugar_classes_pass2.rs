@@ -215,32 +215,65 @@ pub(super) fn ssa_intercepted_builtin(name: &str) -> bool {
     )
 }
 
-/// S-NEW 刀 4 — `new <name>()` where the name is not a class.
+/// S-NEW 刀 4 — `new <name>()` where nothing synthesized a factory
+/// for that name.
 ///
-/// A factory only exists for something declared as a class. When the
-/// name is a binding holding a value instead, what it holds is a
-/// run-time question, so the node becomes a construct from that value.
-/// Pass 2 used to mint `__new_<name>` regardless, which is why
+/// A factory exists for a class, and for a function used as a
+/// constructor. When neither claimed the name, it is a binding holding
+/// a value, and what it holds is a run-time question — so the node
+/// becomes a construct from that value. Pass 2 mints `__new_<name>`
+/// for every name it does not recognize as a built-in, which is why
 /// `const K: any = C; new K()` failed as "unknown identifier
-/// `__new_K`" — a name the program never wrote, reported to whoever
+/// `__new_K`": a name the program never wrote, reported to whoever
 /// wrote `new K()`.
 ///
-/// Runs before Pass 2, and also on the class-free early return: a
-/// program with no classes at all reaches the checker's `New`
-/// fallback otherwise, which panics rather than diagnoses.
-pub(super) fn route_non_class_new(ast: &mut Ast, class_index: &[ClassIndexEntry]) {
+/// Two shapes reach here, because the position that can answer "is
+/// there a factory" is after every pass that makes one:
+///
+/// - `Call(__new_<name>)` — what Pass 2 left behind. That mint is
+///   load-bearing for function constructors, whose FnDecl is
+///   synthesized afterwards against exactly this call, so it cannot
+///   be made conditional at the Pass 2 site.
+/// - `Expr::New` — a program with no classes at all returns early
+///   from the class desugar, so Pass 2 never ran on it. Left alone,
+///   the node reaches the checker's `New` fallback, which panics
+///   rather than diagnoses.
+pub fn route_non_class_new(ast: &mut Ast) {
+    let factories: HashSet<String> = ast
+        .stmts
+        .iter()
+        .filter_map(|s| match s {
+            Stmt::FnDecl { name, .. } => name.strip_prefix("__new_").map(str::to_owned),
+            _ => None,
+        })
+        .collect();
     for i in 0..ast.exprs.len() {
-        let Expr::New {
-            class_name, args, ..
-        } = &ast.exprs[i]
-        else {
+        let rewrite = match &ast.exprs[i] {
+            Expr::Call { callee, args } => match ast.get_expr(*callee) {
+                // `__new_` is not spellable in source, so a call to
+                // one is always Pass 2's.
+                // `__new_target` shares the prefix but names the
+                // meta-property binding, not a factory.
+                Expr::Ident(n) => n
+                    .strip_prefix("__new_")
+                    .filter(|name| *name != "target" && !factories.contains(*name))
+                    .map(|name| (name.to_owned(), args.clone())),
+                _ => None,
+            },
+            Expr::New {
+                class_name, args, ..
+            } if !ssa_intercepted_builtin(class_name) && !factories.contains(class_name) => {
+                Some((class_name.clone(), args.clone()))
+            }
+            _ => None,
+        };
+        let Some((name, args)) = rewrite else {
             continue;
         };
-        if ssa_intercepted_builtin(class_name) || class_index.iter().any(|c| &c.1 == class_name) {
-            continue;
-        }
-        let (name, args) = (class_name.clone(), args.clone());
         let callee = ast.add_expr(Expr::Ident(name));
         ast.exprs[i] = Expr::NewDynamic { callee, args };
+        // The explicit instantiation Pass 2 parked here was for a
+        // named generic class; there is no name to instantiate now.
+        ast.call_type_args.remove(&ExprId(i as u32));
     }
 }

@@ -232,6 +232,10 @@ fn pipeline(src: &str, base_dir: &Path, stage: Stage) -> ExitCode {
     // Reads the receiver parameter the pass above may have added,
     // so it has to follow it (RFC 20260726 blade 2).
     ast::synthesize_fn_constructors(&mut ast);
+    // Every factory that will exist exists by now, so a `new <name>()`
+    // still holding a name nobody claimed is constructing a value
+    // (S-NEW 刀 4). Must follow both factory-synthesizing passes.
+    ast::route_non_class_new(&mut ast);
     ast::fill_optional_fields(&mut ast);
     ast::synthesize_class_globals(&mut ast);
     ast::tag_struct_field_closure_types(&mut ast);

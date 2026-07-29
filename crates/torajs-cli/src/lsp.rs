@@ -223,6 +223,8 @@ fn compute_diagnostics(uri: &Uri, text: &str) -> Vec<Diagnostic> {
         torajs_core::ast::bind_this_param(&mut ast);
         torajs_core::ast::rewrite_toplevel_this(&mut ast);
         torajs_core::ast::synthesize_fn_constructors(&mut ast);
+        // See cmd_build: every factory exists by now (S-NEW 刀 4).
+        torajs_core::ast::route_non_class_new(&mut ast);
         torajs_core::ast::synthesize_class_globals(&mut ast);
         torajs_core::ast::tag_struct_field_closure_types(&mut ast);
         torajs_core::ast::lift_arrow_fns(&mut ast);

@@ -273,6 +273,8 @@ fn parse_check(src: &str) -> ParseOutcome {
     ast::bind_this_param(&mut a);
     ast::rewrite_toplevel_this(&mut a);
     ast::synthesize_fn_constructors(&mut a);
+    // See cmd_build: every factory exists by now (S-NEW 刀 4).
+    ast::route_non_class_new(&mut a);
     ast::synthesize_class_globals(&mut a);
     ast::tag_struct_field_closure_types(&mut a);
     ast::lift_arrow_fns(&mut a);

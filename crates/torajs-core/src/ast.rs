@@ -94,6 +94,7 @@ pub(crate) use control_flow::body_always_terminates;
 pub(crate) use desugar_async::UNDEF_SLOT_MARKER;
 pub use desugar_async::desugar_async;
 pub use desugar_classes::desugar_classes;
+pub use desugar_classes_pass2::route_non_class_new;
 pub use desugar_generators::desugar_generators;
 pub(crate) use desugar_generators_walkers::{expand_yield_into_in_stmt, lift_lets_in_stmt};
 pub use desugar_variadic_push::desugar_variadic_push;
