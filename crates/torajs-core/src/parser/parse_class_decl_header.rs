@@ -114,7 +114,15 @@ impl<'a> Parser<'a> {
                 Token::Ident(n) => {
                     let n = n.clone();
                     self.pos += 1;
-                    Some(n)
+                    // P8.5 — a class-expression binding (`var A = class
+                    // {}`) is a class VALUE under a user name; the
+                    // heritage position resolves it to the synth class
+                    // the same way `new A()` and `A.m()` already do.
+                    // Without this the field-flattening pass looks up
+                    // `A` among declared class NAMES, finds nothing,
+                    // and rejects the whole program as a forward
+                    // reference — even though `A` was bound above.
+                    Some(self.class_value_aliases.get(&n).cloned().unwrap_or(n))
                 }
                 t => {
                     return Err(format!(
