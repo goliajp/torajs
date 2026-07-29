@@ -87,3 +87,13 @@ console.log(gt === undefined ? "undefined" : gt.value, gb === undefined ? "undef
 // `in` resolved its key by static type too, and rejected the whole
 // program for an `any` key rather than answering.
 console.log(s1 in d, typedSym in d, ("nope" as any) in d);
+
+// delete resolved its key the same way, and refused the program for
+// an `any` key; stringifying one would have deleted "Symbol(x)" and
+// left the real entry in place.
+const del: any = {};
+del[typedSym] = 1;
+del[s1] = 2;
+console.log(Object.getOwnPropertySymbols(del).length);
+console.log(delete del[s1], delete del[typedSym]);
+console.log(Object.getOwnPropertySymbols(del).length, del[s1], del[typedSym]);

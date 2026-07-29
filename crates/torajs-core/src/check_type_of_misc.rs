@@ -96,7 +96,12 @@ pub(crate) fn check_delete(
             // domain, so `delete o[sym]` is as ordinary as the string
             // form (§13.5.1.2 → §10.1.10 OrdinaryDelete, which is
             // key-kind agnostic).
-            if !matches!(idx_ty, Type::String | Type::Symbol) {
+            // An `any` key is admitted on the same grounds: §7.1.19 is
+            // defined on the value, so the kind is the run time's to
+            // decide, and the lowering resolves it there. Rejecting it
+            // here refused whole programs for `delete o[sym]` whenever
+            // the symbol travelled in an `any`.
+            if !matches!(idx_ty, Type::String | Type::Symbol | Type::Any) {
                 return Err(format!(
                     "`delete` key must be a string or symbol (got {idx_ty:?}); \
                      numeric element deletion is not supported"

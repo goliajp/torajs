@@ -42,6 +42,22 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, operand: ExprId) -> Operand {
             } else {
                 let k_raw = ctx.lower_expr(index);
                 let k_ty = ctx.operand_ty(&k_raw);
+                // An `any` key names its kind only at run time, and
+                // ToPropertyKey decides on the value — stringifying it
+                // would delete under "Symbol(x)" and leave the real
+                // entry in place. Same resolver and releaser the
+                // define family and `in` ask.
+                if k_ty == Type::Any {
+                    let k = ctx.f.append_inst(
+                        ctx.cur_block,
+                        InstKind::Call(ctx.intrinsics.anyv_to_property_key, vec![k_raw.clone()]),
+                        Type::Ptr,
+                        None,
+                    );
+                    ctx.release_owned_temp(index, &k_raw);
+                    ctx.emit_throw_check(None);
+                    return finish(ctx, recv, k, true);
+                }
                 // §13.5.1.2 step 5 is ToPropertyKey, so §7.1.19 step 2
                 // hands a Symbol key to OrdinaryDelete untouched — the
                 // entry table keys off the cell's own tag.
@@ -63,6 +79,28 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, operand: ExprId) -> Operand {
         }
         other => panic!("ssa-lower: `delete` on non-property operand {other:?}"),
     };
+    let b = finish(ctx, recv, key_v, false);
+    if let Some((key_op, coerce_owned, k_raw, k_ty, index)) = owned_temp {
+        if coerce_owned {
+            ctx.emit_drop_value(key_op, Type::Str);
+        }
+        if k_ty.is_refcounted() && ctx.expr_transfers_ownership(index) {
+            ctx.emit_drop_value(k_raw, k_ty);
+        }
+    }
+    b
+}
+
+/// Call the delete kernel with an already-resolved key cell and fold
+/// the i64 answer to a Bool. `release_key` releases the cell through
+/// the kind-aware dropper — the resolved key may be a Str or a Symbol
+/// and the two do not free the same way.
+fn finish(
+    ctx: &mut LowerCtx<'_>,
+    recv: Operand,
+    key_v: crate::ssa::ValueId,
+    release_key: bool,
+) -> Operand {
     let cur_block = ctx.cur_block;
     let ans = ctx.f.append_inst(
         cur_block,
@@ -74,13 +112,14 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, operand: ExprId) -> Operand {
         None,
     );
     ctx.emit_throw_check(None);
-    if let Some((key_op, coerce_owned, k_raw, k_ty, index)) = owned_temp {
-        if coerce_owned {
-            ctx.emit_drop_value(key_op, Type::Str);
-        }
-        if k_ty.is_refcounted() && ctx.expr_transfers_ownership(index) {
-            ctx.emit_drop_value(k_raw, k_ty);
-        }
+    if release_key {
+        ctx.f.append_void(
+            ctx.cur_block,
+            InstKind::Call(
+                ctx.intrinsics.anyv_property_key_drop,
+                vec![Operand::Value(key_v)],
+            ),
+        );
     }
     let cur_block = ctx.cur_block;
     let b = ctx.f.append_inst(
