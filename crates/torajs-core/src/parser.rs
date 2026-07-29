@@ -50,6 +50,7 @@ mod object_literal_computed;
 mod object_member;
 mod object_member_generator;
 mod param_list;
+mod param_optional_default;
 mod parse_class_decl;
 mod parse_class_decl_generator;
 mod parse_class_decl_header;

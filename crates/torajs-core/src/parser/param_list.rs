@@ -267,20 +267,8 @@ impl<'a> Parser<'a> {
                     self.pos += 1;
                     Some(self.parse_expr()?)
                 } else if optional {
-                    // §9.2 — an absent optional binds undefined; an
-                    // `any` / un-annotated slot carries the real
-                    // undefined box (`typeof b === "undefined"` now
-                    // answers per spec). A TYPED optional keeps the
-                    // legacy implicit null — its __nullable(T) slot
-                    // has no undefined arm (registered).
-                    let undef_ok = type_ann
-                        .as_deref()
-                        .is_none_or(|a| a == "__nullable(any)" || a == "any");
-                    Some(if undef_ok {
-                        self.ast.add_expr(Expr::Ident("undefined".into()))
-                    } else {
-                        self.ast.add_expr(Expr::Null)
-                    })
+                    // §9.2 — see param_optional_default.
+                    Some(self.implicit_optional_default(type_ann.as_deref()))
                 } else {
                     None
                 };
@@ -431,25 +419,13 @@ impl<'a> Parser<'a> {
                 // Default value: `= <expr>`. Evaluated at the call
                 // site (not in callee scope) when the caller omits
                 // the arg. Not allowed on rest params. Optional `name?: T`
-                // without an explicit default binds per §9.2:
-                // undefined for an `any` / un-annotated slot (the
-                // real box — `typeof y === "undefined"` answers per
-                // spec), the legacy implicit null for a TYPED
-                // optional (its __nullable(T) slot has no undefined
-                // arm — registered). Matches parse_fn / the ctor
-                // list above.
+                // without an explicit default binds per §9.2 —
+                // see param_optional_default.
                 let default = if !is_rest && matches!(self.peek(), Token::Eq) {
                     self.pos += 1;
                     Some(self.parse_expr()?)
                 } else if optional {
-                    let undef_ok = type_ann
-                        .as_deref()
-                        .is_none_or(|a| a == "__nullable(any)" || a == "any");
-                    Some(if undef_ok {
-                        self.ast.add_expr(Expr::Ident("undefined".into()))
-                    } else {
-                        self.ast.add_expr(Expr::Null)
-                    })
+                    Some(self.implicit_optional_default(type_ann.as_deref()))
                 } else {
                     None
                 };

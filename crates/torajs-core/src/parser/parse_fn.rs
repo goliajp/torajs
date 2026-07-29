@@ -324,20 +324,8 @@ impl<'a> Parser<'a> {
                     self.pos += 1;
                     Some(self.parse_expr()?)
                 } else if optional {
-                    // §9.2 — an absent optional binds undefined; an
-                    // `any` / un-annotated slot carries the real
-                    // undefined box (`typeof b === "undefined"` now
-                    // answers per spec). A TYPED optional keeps the
-                    // legacy implicit null — its __nullable(T) slot
-                    // has no undefined arm (registered).
-                    let undef_ok = type_ann
-                        .as_deref()
-                        .is_none_or(|a| a == "__nullable(any)" || a == "any");
-                    Some(if undef_ok {
-                        self.ast.add_expr(Expr::Ident("undefined".into()))
-                    } else {
-                        self.ast.add_expr(Expr::Null)
-                    })
+                    // §9.2 — see param_optional_default.
+                    Some(self.implicit_optional_default(type_ann.as_deref()))
                 } else {
                     None
                 };
