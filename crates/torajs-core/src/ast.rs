@@ -64,6 +64,7 @@ mod inject_builtin_classes;
 mod inject_builtin_classes_data;
 mod lift_arrow_fns;
 mod module_passes;
+mod named_eval;
 mod nested_fns;
 mod nested_fns_capture;
 mod nested_fns_idents;
@@ -117,6 +118,7 @@ pub(crate) use lift_arrow_fns::{
     is_fn_like_ann, method_owner_is_in_chain, retag_field_fn_ann, rewrite_this_in_ann,
 };
 pub use module_passes::{desugar_builtin_imports, rename_user_main, unwrap_exports};
+pub(crate) use named_eval::collect_named_eval_positions;
 pub use nested_fns::desugar_nested_fns;
 pub use nested_fns_capture::desugar_capturing_nested_fns;
 pub use prop_key::{literal_prop_key, number_prop_key};

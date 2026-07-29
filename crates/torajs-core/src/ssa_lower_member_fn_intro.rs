@@ -27,6 +27,9 @@
 //! - `__closure_N` lifted-closure synthetic name → `""` per JS
 //!   spec (anonymous fn expressions return empty `.name` unless
 //!   assigned to a tracked binder).
+//! - `__genexpr_N` hoisted generator-expression decl → the
+//!   NamedEvaluation verdict `hoist_gen_fn_exprs` recorded, which is
+//!   `""` for one in no naming position.
 //!
 //! Returns `Some(op)` on hit; `None` on miss (obj not Ident, name
 //! not `length`/`name`, or neither path resolves the ident).
@@ -95,6 +98,13 @@ fn try_top_level_fn_decl(ctx: &mut LowerCtx<'_>, fn_name_ref: &str, name: &str) 
     }
     let visible_name = if fn_name_owned.starts_with("__closure_") {
         String::new()
+    } else if let Some(n) = ctx.ast.genexpr_names.get(&fn_name_owned) {
+        // RFC 20260729-fn-value-any V4 刀 2 — `(function* () {}).name`
+        // reads a hoisted generator expression's decl directly (the
+        // hoist left an `Ident("__genexpr_N")` in the member's object
+        // slot), so this compile-time fold has to answer the same
+        // NamedEvaluation verdict the fn-name registry does.
+        n.clone()
     } else {
         // ES SetFunctionName — a static-method mangled ident answers
         // the property key (same strip as the fn-addr registry rows).

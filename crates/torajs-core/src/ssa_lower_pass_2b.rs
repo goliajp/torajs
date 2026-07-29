@@ -18,128 +18,28 @@ use crate::ssa::{self, BakedRegexEntry, FnNameEntry, FuncId, Module, Type};
 use crate::ssa_lower::Intrinsics;
 
 /// Chunk 720 — ES §8.4.5 NamedEvaluation for lifted arrows: an
-/// anonymous function definition bound by a `let` / `const` / `var`
-/// declaration takes the binding name as its `name`. The lift pass
-/// (`lift_arrow_fns`) runs per-expression with no statement context,
-/// so the binding is recovered here by walking every LetDecl whose
-/// init is (possibly `as`-wrapped) the lifted `Expr::Closure`.
-/// Returns `__closure_N` → binding-name. Chunk 724 adds the
-/// assign position (`f = () => {}`, ES §13.15.2: an Ident target
-/// names the anonymous rhs), including chained `f = g = () => {}`
-/// where only the innermost assignment names the arrow (the outer
-/// rhs is an Assign expression, not an anonymous fn definition).
-/// Chunk 792 adds the object-literal field position (ES §13.2.5.5
-/// PropertyDefinitionEvaluation: `{ cb: () => 1 }` names the
-/// anonymous definition by its property key) — an arena sweep over
-/// every `ObjectLit` covers nested literals / call-arg / return
-/// positions without growing the statement walker. Default-export
-/// stays a recorded follow-up.
+/// anonymous function definition takes its name from the syntactic
+/// position it sits in. The lift pass (`lift_arrow_fns`) runs
+/// per-expression with no statement context, so the binding is
+/// recovered here. Returns `__closure_N` → binding-name.
+///
+/// The positions themselves (declaration binder, assignment Ident
+/// target incl. the chained `f = g = () => {}` form, object-literal
+/// property key) come from `ast::named_eval` — shared with the
+/// generator-expression hoist, which needs the same answer for slots
+/// it erases before this pass ever runs. Default-export and
+/// class-field initializers stay recorded follow-ups.
 fn collect_named_eval(ast: &Ast) -> HashMap<String, String> {
-    fn init_closure_name(ast: &Ast, eid: ExprId) -> Option<&str> {
-        match ast.get_expr(eid) {
-            Expr::Closure { fn_name, .. } if fn_name.starts_with("__closure_") => Some(fn_name),
-            Expr::As { expr, .. } => init_closure_name(ast, *expr),
-            _ => None,
-        }
-    }
-    fn walk_assign(ast: &Ast, eid: ExprId, map: &mut HashMap<String, String>) {
-        if let Expr::Assign { target, value } = ast.get_expr(eid) {
-            if let (Expr::Ident(n), Some(cn)) =
-                (ast.get_expr(*target), init_closure_name(ast, *value))
-            {
-                map.insert(cn.to_string(), n.clone());
-            }
-            walk_assign(ast, *value, map);
-        }
-    }
-    fn walk(ast: &Ast, s: &Stmt, map: &mut HashMap<String, String>) {
-        match s {
-            Stmt::LetDecl { name, init, .. } => {
-                if let Some(cn) = init_closure_name(ast, *init) {
-                    map.insert(cn.to_string(), name.clone());
-                }
-            }
-            Stmt::Expr(eid) => walk_assign(ast, *eid, map),
-            Stmt::If {
-                then_branch,
-                else_branch,
-                ..
-            } => {
-                walk(ast, then_branch, map);
-                if let Some(e) = else_branch {
-                    walk(ast, e, map);
-                }
-            }
-            Stmt::While { body, .. }
-            | Stmt::DoWhile { body, .. }
-            | Stmt::ForOfSplitIter { body, .. }
-            | Stmt::ForOf { body, .. }
-            | Stmt::Labeled { body, .. } => walk(ast, body, map),
-            Stmt::For { init, body, .. } => {
-                if let Some(i) = init {
-                    walk(ast, i, map);
-                }
-                walk(ast, body, map);
-            }
-            Stmt::Switch { cases, default, .. } => {
-                for c in cases {
-                    for cs in &c.body {
-                        walk(ast, cs, map);
-                    }
-                }
-                if let Some(d) = default {
-                    for ds in d {
-                        walk(ast, ds, map);
-                    }
-                }
-            }
-            Stmt::Try {
-                body,
-                catch_body,
-                finally_body,
-                ..
-            } => {
-                for bs in body.iter().chain(catch_body.iter()) {
-                    walk(ast, bs, map);
-                }
-                if let Some(f) = finally_body {
-                    for fs in f {
-                        walk(ast, fs, map);
-                    }
-                }
-            }
-            Stmt::Block(v) | Stmt::Multi(v) => {
-                for bs in v {
-                    walk(ast, bs, map);
-                }
-            }
-            Stmt::FnDecl { body, .. } => {
-                for bs in body {
-                    walk(ast, bs, map);
-                }
-            }
-            Stmt::ExportDecl { inner, .. } => {
-                if let Some(i) = inner {
-                    walk(ast, i, map);
-                }
-            }
-            _ => {}
-        }
-    }
+    // The position walk itself is shared with `hoist_gen_fn_exprs`
+    // (RFC 20260729-fn-value-any V4 刀 2) — see `ast::named_eval`.
+    // Here it is filtered down to the lifted-closure nodes: every
+    // other slot the walk recorded belongs to some non-fn value.
     let mut map = HashMap::new();
-    for s in &ast.stmts {
-        walk(ast, s, &mut map);
-    }
-    // Chunk 792 — a closure node sits in exactly one syntactic
-    // position, so the arena sweep never collides with the
-    // statement walk above.
-    for e in &ast.exprs {
-        if let Expr::ObjectLit { fields } = e {
-            for (fname, val) in fields {
-                if let Some(cn) = init_closure_name(ast, *val) {
-                    map.insert(cn.to_string(), fname.clone());
-                }
-            }
+    for (eid, binding) in crate::ast::collect_named_eval_positions(ast) {
+        if let Expr::Closure { fn_name, .. } = ast.get_expr(eid)
+            && fn_name.starts_with("__closure_")
+        {
+            map.insert(fn_name.clone(), binding);
         }
     }
     // RFC 20260714-dstr-residual blade 2 — destructuring-default

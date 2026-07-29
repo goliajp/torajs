@@ -20,10 +20,13 @@
 //! are globals in tr's model and pre-bind as non-captures, matching
 //! what an equivalent decl-form generator at top level sees.
 //!
-//! Known scoped losses (RFC 残面): NamedEvaluation `.name` rows don't
-//! mint for `__genexpr_*` (pass 2B filters on the `__closure_` prefix)
-//! and parse-time `generator_fns` for-of elem typing can't see hoisted
-//! names.
+//! NamedEvaluation: resolved in this pass and parked in
+//! `ast.genexpr_names` for the fn-name registry (V4 刀 2). It cannot
+//! wait for pass 2B — that walk reads syntactic positions, and this
+//! pass is what erases them.
+//!
+//! Known scoped loss (RFC 残面): parse-time `generator_fns` for-of
+//! elem typing can't see hoisted names.
 
 use super::{Ast, Expr, ExprId, Stmt};
 
@@ -45,6 +48,13 @@ pub fn hoist_gen_fn_exprs(ast: &mut Ast) {
         }
     }
 
+    // RFC 20260729-fn-value-any V4 刀 2 — NamedEvaluation has to be
+    // resolved HERE: replacing the expression with an Ident erases the
+    // syntactic position, so pass-2B's walk (which the closure path
+    // still uses) would find nothing left to name. Collected once over
+    // the pre-hoist tree.
+    let positions = crate::ast::collect_named_eval_positions(ast);
+
     let mut counter: usize = 0;
     for i in 0..ast.exprs.len() {
         let eid = ExprId(i as u32);
@@ -53,6 +63,19 @@ pub fn hoist_gen_fn_exprs(ast: &mut Ast) {
         };
         let name = format!("__genexpr_{counter}");
         counter += 1;
+        // §15.5.5 — NamedEvaluation applies only to ANONYMOUS
+        // definitions, so a `function* x() {}` self-name wins over
+        // every position; a destructuring default (§8.4.5) carries its
+        // binder separately because the desugar buries the slot in a
+        // ternary. No naming position at all → the empty ES name.
+        let visible = ast
+            .fn_expr_self_names
+            .get(&eid)
+            .or_else(|| ast.dstr_default_names.get(&eid))
+            .or_else(|| positions.get(&eid))
+            .cloned()
+            .unwrap_or_default();
+        ast.genexpr_names.insert(name.clone(), visible);
         let arrow = std::mem::replace(&mut ast.exprs[i], Expr::Ident(name.clone()));
         let Expr::ArrowFn {
             params,

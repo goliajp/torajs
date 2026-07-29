@@ -267,6 +267,14 @@ fn register_fn_name(
         .map(|(target, _id)| format!("bound {target}"));
     let visible = bound_form.as_deref().unwrap_or_else(|| {
         let base = name.strip_prefix("__forward_").unwrap_or(name);
+        // RFC 20260729-fn-value-any V4 刀 2 — a hoisted generator
+        // EXPRESSION answers the NamedEvaluation verdict the hoist
+        // pass recorded (binding name, or its own self-name, or the
+        // empty ES name), never the `__genexpr_N` mint. Generator
+        // DECLARATIONS never land a row here and keep their own name.
+        if let Some(n) = ast.genexpr_names.get(base) {
+            return n.as_str();
+        }
         // `__sm_<C>__<M>` static-method bodies carry the ES
         // SetFunctionName form — the property key `<M>` (`K.sf.name`
         // answered the mangled name). `<C>` is matched against the

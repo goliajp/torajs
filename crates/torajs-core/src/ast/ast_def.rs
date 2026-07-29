@@ -36,6 +36,15 @@ pub struct Ast {
     /// merged into pass-2B's registry BEFORE the self-name overlay
     /// (a named fn expression's self-name still wins per §15.5.5).
     pub closure_dstr_names: std::collections::HashMap<String, String>,
+    /// RFC 20260729-fn-value-any V4 刀 2 — hoisted generator-expression
+    /// decl name (`__genexpr_N`) → the name a `.name` read must answer.
+    /// `hoist_gen_fn_exprs` erases the expression's syntactic position
+    /// before pass-2B can see it, so it resolves NamedEvaluation itself
+    /// and parks the verdict here; the fn-name registry reads it in
+    /// place of the synthetic mint. An anonymous expression in no
+    /// naming position lands an EMPTY string (the ES answer), so a
+    /// missing key means "not a hoisted generator expression".
+    pub genexpr_names: std::collections::HashMap<String, String>,
     /// RFC 20260714-dstr-residual blade 3 — every array binding pattern
     /// reads its elements out of a `__ary_src_<id>` group temp, and the
     /// temp's init ExprId is the key here. The value is the pattern's
