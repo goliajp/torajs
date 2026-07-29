@@ -12,14 +12,19 @@ use crate::index_any::i64_dec;
 
 use crate::nanbox::{AnyValue, as_void_ptr, is_cell, is_null, is_undefined};
 
+/// `torajs_arr::define` mirrors — attribute bit 0, and the probe's
+/// HOLE result bit (a deleted index: element storage stays dense but
+/// the index is not an own property).
+const F_WRITABLE: u64 = 1 << 0;
+const F_HOLE: u64 = 1 << 3;
+
 unsafe extern "C" {
     /// torajs-arr — kind-aware `arr[idx] = (tag, value)` (pair ABI,
     /// tag 4 transfers one rc).
     fn __torajs_arr_index_set(arr: *mut c_void, idx: i64, tag: u64, value: u64);
-    /// torajs-arr — §10.4.2.1 store refusal for one index (writable
-    /// / hole-vs-extensible, integrity level folded in). Shared with
-    /// the typed tier's emitted pre-store gate.
-    fn __torajs_arr_index_refuses_store(arr: *const c_void, idx: u64) -> i32;
+    /// torajs-arr — per-index attribute flags (bit 0 = writable),
+    /// already masked by the cell's integrity level.
+    fn __torajs_arr_index_flags(arr: *const c_void, idx: u64) -> u64;
     /// Universal NaN-box-safe heap dropper (torajs-value-drop).
     fn __torajs_value_drop_heap(p: *mut c_void);
     /// torajs-str — release a heap Str reference.
@@ -31,6 +36,22 @@ unsafe extern "C" {
     /// torajs-dynobj — keyed store (resize writes the relocated
     /// block back through the slot).
     fn __torajs_dynobj_set(obj_slot: *mut *mut c_void, key: *mut c_void, tag: u64, value: u64);
+}
+
+/// §10.4.2.1 — whether an index store has to be refused. A live own
+/// index refuses when it is not writable; a HOLE is ABSENT, so the
+/// store CREATES the property and only a non-extensible cell refuses
+/// it (`Object.freeze` implies non-extensible, so a frozen array's
+/// hole stays a hole).
+///
+/// # Safety
+/// `arr` is a live `Tag::Arr` heap pointer.
+unsafe fn refuses_store(arr: *const c_void, idx: u64, hflags: u16) -> bool {
+    let flags = unsafe { __torajs_arr_index_flags(arr, idx) };
+    if flags & F_HOLE != 0 {
+        return hflags & FLAG_NON_EXTENSIBLE != 0;
+    }
+    flags & F_WRITABLE == 0
 }
 
 /// `recv[idx] = (tag, value)` where the receiver is an `any` value
@@ -101,7 +122,7 @@ pub unsafe extern "C" fn __torajs_any_index_set(
         if idx >= 0
             && hflags & (FLAG_ARR_EXOTIC_INDEX | FLAG_FROZEN | FLAG_SEALED | FLAG_NON_EXTENSIBLE)
                 != 0
-            && unsafe { __torajs_arr_index_refuses_store(ptr, idx as u64) } != 0
+            && unsafe { refuses_store(ptr, idx as u64, hflags) }
         {
             unsafe {
                 drop_transferred_pair(tag, value);

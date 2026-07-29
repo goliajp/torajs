@@ -8,7 +8,7 @@
 
 use core::ffi::c_void;
 
-use torajs_rc::{FLAG_ARR_EXOTIC_INDEX, FLAG_FROZEN, FLAG_NON_EXTENSIBLE, FLAG_SEALED};
+use torajs_rc::{FLAG_ARR_EXOTIC_INDEX, FLAG_FROZEN, FLAG_SEALED};
 
 use crate::define::{
     F_CONFIGURABLE, F_HOLE, F_WRITABLE, FLAGS_DEFAULT, header_flags, mint_index_key, props_slot,
@@ -19,8 +19,6 @@ unsafe extern "C" {
     fn __torajs_dynobj_get_flags(dynobj: *const c_void, key: *const c_void) -> u64;
     fn __torajs_dynobj_entry_is_hole(dynobj: *const c_void, key: *const c_void) -> i32;
     fn __torajs_str_drop(s: *mut c_void);
-    /// torajs-throw — record a pending catchable TypeError.
-    fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
 }
 
 /// §7.3.15 SetIntegrityLevel over the ELEMENT domain — mask an
@@ -85,46 +83,4 @@ pub unsafe extern "C" fn __torajs_arr_index_flags(arr: *const c_void, idx: u64) 
     let flags = unsafe { index_flags_with_key(arr, key as *const c_void) };
     unsafe { __torajs_str_drop(key as *mut c_void) };
     flags
-}
-
-/// §10.4.2.1 — whether an index store has to be refused. A live own
-/// index refuses when it is not writable; a HOLE is ABSENT, so the
-/// store CREATES the property and only a non-extensible cell refuses
-/// it (`Object.freeze` implies non-extensible, so a frozen array's
-/// hole stays a hole). An out-of-range index owns nothing and is left
-/// to the callers' own OOB handling.
-///
-/// Both element-store lanes ask this: the `any`-receiver kernel and
-/// the typed tier's emitted pre-store gate. Callers screen on the
-/// header bits first, so a plain array never reaches here.
-///
-/// # Safety
-/// `arr` is a live `Tag::Arr` heap pointer.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_arr_index_refuses_store(arr: *const c_void, idx: u64) -> i32 {
-    let hflags = unsafe { header_flags(arr) };
-    let flags = unsafe { __torajs_arr_index_flags(arr, idx) };
-    let refused = if flags & F_HOLE != 0 {
-        hflags & FLAG_NON_EXTENSIBLE != 0
-    } else {
-        flags & F_WRITABLE == 0
-    };
-    refused as i32
-}
-
-/// Typed-tier twin of [`__torajs_arr_index_refuses_store`] shaped
-/// like `__torajs_obj_check_not_frozen`: arms the catchable TypeError
-/// instead of answering, so the emitted gate is one call plus the
-/// lowering's usual throw-check. The emitted code screens the header
-/// bits first, so a plain array never calls this.
-///
-/// # Safety
-/// `arr` is a live `Tag::Arr` heap pointer.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_arr_index_check_store(arr: *const c_void, idx: u64) {
-    if unsafe { __torajs_arr_index_refuses_store(arr, idx) } != 0 {
-        unsafe {
-            __torajs_throw_type_error(c"cannot assign to a read-only property".as_ptr());
-        }
-    }
 }
