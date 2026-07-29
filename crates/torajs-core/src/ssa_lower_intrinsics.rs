@@ -497,6 +497,10 @@ pub(crate) struct Intrinsics {
     pub(crate) any_unbox_settle: FuncId,
     pub(crate) any_box_drop: FuncId,
     pub(crate) any_box_rc_inc: FuncId,
+    /// S-NEW 刀 2 — class object → boxed factory adapter registration.
+    pub(crate) ctor_register: FuncId,
+    /// S-NEW 刀 2 — `new <runtime value>(args…)`.
+    pub(crate) construct: FuncId,
     pub(crate) print_any: FuncId,
     pub(crate) print_any_inline_top: FuncId,
     pub(crate) io_putc_stdout: FuncId,

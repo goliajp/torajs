@@ -109,6 +109,13 @@ pub(crate) fn lower(ctx: &mut LowerCtx, eid: ExprId) -> Operand {
         // dec'ing the box twice for a single transferred ref.
         // Outside any ctor (function-scope, top-level), emit
         // ANY_UNDEF box per spec §13.3.10.
+        // S-NEW 刀 2 — `new <expr>()`: the callee is evaluated, then
+        // the runtime decides whether it is a constructor. See
+        // [`crate::ssa_lower_new_dynamic::lower`].
+        Expr::NewDynamic { callee, args } => {
+            let (callee, args) = (*callee, args.clone());
+            return crate::ssa_lower_new_dynamic::lower(ctx, callee, &args);
+        }
         Expr::NewTarget => {
             // P4.5 — Load + rc_inc from __new_target slot
             // inside ctors (each read = owned ref balanced

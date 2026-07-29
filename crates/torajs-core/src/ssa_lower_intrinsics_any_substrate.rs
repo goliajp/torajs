@@ -228,8 +228,19 @@ pub(crate) struct AnySubstrateIds {
     pub any_unbox_settle: FuncId,
     pub any_box_drop: FuncId,
     pub any_box_rc_inc: FuncId,
+    /// S-NEW 刀 2 — record a class object's boxed factory adapter, so
+    /// `new <expr>()` can find it once the callee has been evaluated.
+    pub ctor_register: FuncId,
+    /// S-NEW 刀 2 — `new <runtime value>(args…)`: IsConstructor, then
+    /// the factory adapter.
+    pub construct: FuncId,
 }
 
+// CARVE-OUT: dispatch table — the body is one `decl!` line per
+// runtime helper filling a struct literal, whose field order the
+// callers read by name; same shape as the intrinsics_table /
+// intrinsics_map_set / intrinsics_print_freeze declarations already
+// carved out, and it grows by one line per helper the runtime gains.
 pub(crate) fn declare(
     module: &mut Module,
     fn_table: &mut HashMap<String, FuncId>,
@@ -439,5 +450,7 @@ pub(crate) fn declare(
         any_unbox_settle: decl!("__torajs_anyv_unbox_settle", [Any, I64], Void),
         any_box_drop: decl!("__torajs_anyv_rc_dec", [Any], Void),
         any_box_rc_inc: decl!("__torajs_anyv_rc_inc", [Any], Void),
+        ctor_register: decl!("__torajs_anyv_ctor_register", [Any, Ptr], Void),
+        construct: decl!("__torajs_anyv_construct", [Any, Ptr, I64], Any),
     }
 }

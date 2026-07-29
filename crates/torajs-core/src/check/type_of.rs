@@ -138,19 +138,19 @@ impl Checker {
                 }
                 panic!("internal: `new {class_name}` reached check.rs (desugar didn't run?)")
             }
-            // S-NEW 刀 1 — `new <expr>()`. The callee and the
-            // arguments are still walked so anything wrong inside them
-            // is reported on its own terms; only then does the missing
-            // runtime construct get named.
+            // S-NEW 刀 2 — `new <expr>()`. Nothing static can be said
+            // about the result: whether the callee is a constructor at
+            // all is §7.2.4 IsConstructor, answered at run time by
+            // `__torajs_anyv_construct`, which raises a TypeError when
+            // it is not. The callee and arguments are still walked so
+            // anything wrong inside them is reported on its own terms.
             Expr::NewDynamic { callee, args } => {
                 let callee = *callee;
                 for a in args.clone() {
                     self.type_of(ast, a)?;
                 }
                 self.type_of(ast, callee)?;
-                Err(crate::check_type_of_new::dynamic_construct_unsupported(
-                    ast, callee,
-                ))
+                Ok(Type::Any)
             }
             Expr::Super { .. } => {
                 panic!("internal: `super(...)` reached check.rs (desugar didn't run?)")

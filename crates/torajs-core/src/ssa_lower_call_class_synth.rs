@@ -265,6 +265,7 @@ fn try_lower_class_register(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<O
                 ],
             ),
         );
+        emit_ctor_register(ctx, &cname, class_op.clone());
         // rotation 186 — the register kernel defines `constructor`
         // + reified methods onto the PROTOTYPE dynobj, which may
         // resize (fresh block + free old); refresh the module
@@ -315,6 +316,34 @@ fn try_lower_register_native_error(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> O
         );
     }
     Some(Operand::ConstI64(0))
+}
+
+/// S-NEW 刀 2 — hand the runtime this class's boxed factory adapter,
+/// keyed on the very class value that was just registered.
+///
+/// Silence when there is no adapter is deliberate. A factory whose
+/// parameter or return type falls outside the boxable set gets none,
+/// and `__torajs_anyv_construct` answers that miss with its own
+/// message; inventing an entry here would be worse than the gap.
+fn emit_ctor_register(ctx: &mut LowerCtx<'_>, cname: &str, class_op: Operand) {
+    let Some(&factory) = ctx.fn_table.get(&format!("__new_{cname}")) else {
+        return;
+    };
+    let Some(&(adapter, adapter_sig)) = ctx.boxed_entries.get(&factory) else {
+        return;
+    };
+    let cur_block = ctx.cur_block;
+    let addr = ctx.f.append_inst(
+        cur_block,
+        InstKind::FnAddr(adapter),
+        Type::FnSig(adapter_sig),
+        None,
+    );
+    let ctor_register = ctx.intrinsics.ctor_register;
+    ctx.f.append_void(
+        cur_block,
+        InstKind::Call(ctor_register, vec![class_op, Operand::Value(addr)]),
+    );
 }
 
 fn try_lower_my_class_ref(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Operand> {

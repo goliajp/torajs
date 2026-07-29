@@ -102,6 +102,15 @@ pub(crate) fn synthesize_boxed_entries(
             .copied()
             .unwrap_or_else(|| anon_stamp_pool.borrow_mut().assign_or_get(sid))
     };
+    // S-NEW 刀 2 — factory adapters exist only so
+    // `__torajs_anyv_construct` can reach a class through a value. A
+    // program that never constructs from a value gets none of them:
+    // one extra function per class is a real cost to an artifact
+    // whose size is a differentiator.
+    let constructs_from_value = ast
+        .exprs
+        .iter()
+        .any(|e| matches!(e, crate::ast::Expr::NewDynamic { .. }));
     let mut targets: Vec<BoxedEntryTarget> = Vec::new();
     for stmt in &ast.stmts {
         let Stmt::FnDecl { name, params, .. } = stmt else {
@@ -122,7 +131,12 @@ pub(crate) fn synthesize_boxed_entries(
         // drops its env argument (static dispatch carries no
         // receiver).
         let is_static = name.starts_with("__sm_");
-        if !first_is_env && !first_is_this && !is_static {
+        // S-NEW 刀 2 — the `__new_<C>` factories, same head-less shape
+        // as a static method: their params ARE the constructor's, so
+        // argv maps straight onto them. `__torajs_anyv_construct`
+        // reaches a class object's factory through this adapter.
+        let is_factory = constructs_from_value && name.starts_with("__new_");
+        if !first_is_env && !first_is_this && !is_static && !is_factory {
             continue;
         }
         let feeds_env = first_is_env || first_is_this;

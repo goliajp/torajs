@@ -98,6 +98,7 @@ mod arr_proto_probe;
 pub(crate) mod closure_proto;
 mod coerce;
 mod compare;
+mod construct;
 pub(crate) mod index_any;
 mod index_any_keyed;
 mod index_any_method_call;
