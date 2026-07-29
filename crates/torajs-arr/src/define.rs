@@ -108,7 +108,21 @@ pub(crate) const STR_DATA_OFF: usize = 16;
 const ANY_HEAP: u64 = 4;
 pub(crate) const ANY_UNDEF: u64 = 5;
 
+/// A key's Str payload, or an empty slice when the key is a Symbol.
+///
+/// §6.1.7 lets a property key be either, and the two cells overlap
+/// where it hurts: a Str keeps `len` at +8, a Symbol keeps its
+/// description pointer there. Building the slice from that pointer
+/// spans gigabytes of whatever follows the cell — the length-first
+/// comparisons below happen not to read it, but the slice itself is
+/// already outside what this crate is allowed to describe.
+///
+/// A symbol names neither `length` nor an array index, so the empty
+/// slice routes it to the ordinary-key arm, which is where it belongs.
 unsafe fn key_bytes<'a>(key: *const c_void) -> &'a [u8] {
+    if unsafe { (*(key as *const HeapHeader)).type_tag } == Tag::Symbol as u16 {
+        return &[];
+    }
     let len = unsafe { key.cast::<u8>().add(STR_LEN_OFF).cast::<u32>().read() };
     unsafe { core::slice::from_raw_parts(key.cast::<u8>().add(STR_DATA_OFF), len as usize) }
 }

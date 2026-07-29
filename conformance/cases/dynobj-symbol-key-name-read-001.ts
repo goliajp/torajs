@@ -57,3 +57,12 @@ console.log(JSON.stringify(e));
 // slot names; a symbol names none of them.
 Object.freeze(e);
 console.log(Object.isFrozen(e), e[s1]);
+
+// An Array receiver routes defines to its own kernel before any key
+// inspection, so it walks the key cell on its own — a symbol names
+// neither `length` nor an index and belongs on the ordinary-key arm.
+const arr: any = [1, 2, 3];
+Object.defineProperty(arr, s1, { value: 55, writable: true, configurable: true });
+arr[s1] = 66;
+console.log(arr[s1], arr.length, arr.join(","));
+console.log(Object.keys(arr).join(","));
