@@ -139,10 +139,15 @@ pub(crate) fn lower_key(ctx: &mut LowerCtx, key: &DefineKey) -> (Operand, bool) 
                 Type::Any => {
                     let k = ctx.f.append_inst(
                         ctx.cur_block,
-                        InstKind::Call(ctx.intrinsics.anyv_to_property_key, vec![raw]),
+                        InstKind::Call(ctx.intrinsics.anyv_to_property_key, vec![raw.clone()]),
                         Type::Ptr,
                         None,
                     );
+                    // The answer carries its own share either way, so
+                    // a key that was a fresh temp is done being read —
+                    // released here rather than after the throw check,
+                    // which is a path that never comes back.
+                    ctx.release_owned_temp(*eid, &raw);
                     ctx.emit_throw_check(None);
                     (Operand::Value(k), true)
                 }
