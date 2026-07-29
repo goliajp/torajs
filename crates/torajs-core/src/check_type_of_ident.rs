@@ -52,6 +52,12 @@ pub(crate) fn check(checker: &Checker, name: &str) -> Result<Type, String> {
         "Symbol" => Ok(Type::Object("Symbol")),
         "BigInt" => Ok(Type::Object("BigInt")),
         "Promise" => Ok(Type::Object("Promise")),
+        // The RegExp constructor as a VALUE. `new RegExp(...)` never
+        // came through here (the builtin-new desugar owns it), so the
+        // ident stayed unlisted and `RegExp.prototype` answered
+        // "unknown identifier" — while the lowerer had carried the
+        // ctor-namespace face (proto tag 7, name, length) all along.
+        "RegExp" => Ok(Type::Object("RegExp")),
         // RFC 20260711-closure-reflection chunk A — `Function.prototype.<m>`
         // (call/apply/bind method cells) needs the namespace ident typed.
         "Function" => Ok(Type::Object("Function")),
