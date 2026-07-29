@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-29T17:41:45.870Z",
+  "generatedAt": "2026-07-29T18:09:26.657Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-29T17:40:05Z",
-    "headSha": "834ed201",
-    "elapsedSec": 285.31,
+    "ranAt": "2026-07-29T18:08:06Z",
+    "headSha": "38eb6513",
+    "elapsedSec": 282.63,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 16260,
+    "pass": 16266,
     "passNoOracle": 489,
     "passNegative": 4489,
-    "passTotal": 21238,
-    "bug": 2972,
-    "incompatible": 28964,
+    "passTotal": 21244,
+    "bug": 2985,
+    "incompatible": 28945,
     "bunSkip": 7080,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 24210,
-    "passRateInScope": 39.94,
-    "passRateTrAccepted": 87.72
+    "trAccepted": 24229,
+    "passRateInScope": 39.95,
+    "passRateTrAccepted": 87.68
   },
   "torajs": {
-    "commit": "834ed201",
-    "commitSubject": "fix(core): getOwnPropertyDescriptor asks the shared key resolver",
+    "commit": "38eb6513",
+    "commitSubject": "feat(core): Object.hasOwn takes the whole property-key domain",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,22 @@
   },
   "commits": [
     {
+      "hash": "38eb6513",
+      "subject": "feat(core): Object.hasOwn takes the whole property-key domain"
+    },
+    {
+      "hash": "185bebfe",
+      "subject": "feat(core): delete accepts a key whose kind is only known at run time"
+    },
+    {
+      "hash": "500f62d6",
+      "subject": "feat(core): `in` accepts a key whose kind is only known at run time"
+    },
+    {
+      "hash": "cb3a6e2a",
+      "subject": "chore(docs,hardev): rotation 249 census at 834ed201"
+    },
+    {
       "hash": "834ed201",
       "subject": "fix(core): getOwnPropertyDescriptor asks the shared key resolver"
     },
@@ -743,25 +759,9 @@
     {
       "hash": "6122f7c6",
       "subject": "Revert \"fix(core): the typed tier honors a frozen array too\""
-    },
-    {
-      "hash": "bc27f1b3",
-      "subject": "fix(core): the typed tier honors a frozen array too"
-    },
-    {
-      "hash": "1cf39f3f",
-      "subject": "fix(core): a deleted index is absent, not read-only"
-    },
-    {
-      "hash": "f4e8bf10",
-      "subject": "fix(core): freezing an array actually freezes its elements"
-    },
-    {
-      "hash": "2aef21a5",
-      "subject": "feat(core): a non-number key works on a string receiver"
     }
   ],
-  "headSha": "834ed201",
+  "headSha": "38eb6513",
   "autorun": {
     "total": 553,
     "baselineTarget": 10,

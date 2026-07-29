@@ -1827,16 +1827,18 @@ census:
 |---|---|
 | top 10 | 26.7 % |
 | top 25 | 45.5 % |
-| top 50 | 60.1 % |
-| top 100 | 73.8 % |
-| top 400 | 92.4 % |
-| clusters of ≤ 3 cases (808 of them) | 6.6 % |
+| top 50 | 60.2 % |
+| top 100 | 73.9 % |
+| top 400 | 92.5 % |
+| clusters of ≤ 3 cases (805 of them) | 6.6 % |
 
-(re-measured @ rotation 249 sweep `834ed201` — **every figure in the
-table above came back identical**, core 16719 included: that rotation's
-six fixes were memory-safety and property-key correctness, which move
-one case and no cluster. Same numbers @ rotation 248 sweep `6122f7c6`;
-rotation 247 read core 16724; rotation 246
+(refreshed @ rotation 249 sweep `38eb6513`, core **16701**, 441 clusters
+of ≥ 4. That rotation ran the sweep twice: after its first six fixes
+every figure came back identical (core 16719, same as rotation 248's
+`6122f7c6`) because memory-safety and property-key correctness make
+programs that already run answer right; the movement above came from
+its last three, which stopped refusing programs outright. Rotation 247
+read core 16724; rotation 246
 read core 17144 with top-10 at 27.7 %, rotation 245 core 18112 at
 24.5 %, rotation 230 core 25421 at 34.4 %. **The rotation-246 reading is not comparable to the two before
 it on the oracle side**: that rotation removed a `var` → `let` source
@@ -1851,7 +1853,7 @@ progress looks like here, not a regression.
 
 **The groups at a glance** (core cases @ `9215301c`, each ≈ because
 clusters shift under every fix; core total has since fallen 25421 →
-**16719** @ `6122f7c6`, so read these as proportions, not counts —
+**16701** @ `38eb6513`, so read these as proportions, not counts —
 re-derive with `cluster_incompat.py` before acting on any of them):
 
 | group | what | ≈ core cases |
