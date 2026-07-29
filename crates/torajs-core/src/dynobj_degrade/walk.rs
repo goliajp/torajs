@@ -329,6 +329,12 @@ impl Walker<'_> {
                     self.walk_expr(*a);
                 }
             }
+            Expr::NewDynamic { callee, args } => {
+                self.walk_expr(*callee);
+                for a in args {
+                    self.walk_expr(*a);
+                }
+            }
             Expr::Ternary {
                 cond,
                 then_branch,

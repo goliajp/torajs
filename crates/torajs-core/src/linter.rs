@@ -400,7 +400,11 @@ fn stmt_can_throw(ast: &Ast, s: &Stmt) -> bool {
 fn expr_can_throw(ast: &Ast, eid: ExprId) -> bool {
     match ast.get_expr(eid) {
         Expr::Elision => false,
-        Expr::Call { .. } | Expr::OptCall { .. } | Expr::New { .. } | Expr::Super { .. } => true,
+        Expr::Call { .. }
+        | Expr::OptCall { .. }
+        | Expr::New { .. }
+        | Expr::NewDynamic { .. }
+        | Expr::Super { .. } => true,
         Expr::Member { obj, .. } | Expr::OptChain { obj, .. } => expr_can_throw(ast, *obj),
         Expr::OptIndex { obj, index } => expr_can_throw(ast, *obj) || expr_can_throw(ast, *index),
         Expr::Index { obj, index } => expr_can_throw(ast, *obj) || expr_can_throw(ast, *index),

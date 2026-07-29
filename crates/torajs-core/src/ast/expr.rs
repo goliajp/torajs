@@ -172,6 +172,25 @@ pub enum Expr {
         args: Vec<ExprId>,
         type_args: Vec<String>,
     },
+    /// S-NEW 刀 1 — `new <expr>(args)` where the callee is a full
+    /// MemberExpression per spec §13.3, not a name the compiler can
+    /// resolve to a class: `new a.b()`, `new a[k]()`, `new (f())()`.
+    ///
+    /// Kept separate from [`Expr::New`] on purpose. `New` names its
+    /// target, so the whole desugar chain can bind it to a synthesized
+    /// `__new_<C>` factory at compile time; this one cannot know its
+    /// target until the callee has been evaluated, so it has to go
+    /// through a runtime construct. That is the ordinary direct-call
+    /// versus indirect-call split, and keeping the fast path untouched
+    /// is what `torajs-build-and-port.md` B-4 asks for.
+    ///
+    /// Before this variant existed the parser stopped at the head
+    /// identifier, so `new a.b()` silently became `(new a).b()` — a
+    /// different program, quietly.
+    NewDynamic {
+        callee: ExprId,
+        args: Vec<ExprId>,
+    },
     /// M5.2 — `super(args)` inside a subclass constructor. Rewritten by
     /// `desugar_classes` into `__cm_<Parent>__ctor(__this, args)` once
     /// the surrounding class's parent is known.

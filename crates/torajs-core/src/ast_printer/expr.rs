@@ -94,6 +94,13 @@ pub(crate) fn print_expr(ast: &Ast, id: ExprId, indent: usize) {
                 print_expr(ast, *a, indent + 1);
             }
         }
+        Expr::NewDynamic { callee, args } => {
+            println!("{pad}NewDynamic");
+            print_expr(ast, *callee, indent + 1);
+            for a in args {
+                print_expr(ast, *a, indent + 1);
+            }
+        }
         Expr::Super { args } => {
             println!("{pad}Super");
             for a in args {

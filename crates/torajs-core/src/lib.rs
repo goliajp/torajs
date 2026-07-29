@@ -27,6 +27,7 @@ pub(crate) mod ast_printer;
 pub mod ast_refs;
 pub(crate) mod ast_refs_any_promote;
 pub mod ast_throw_info;
+pub(crate) mod ast_throw_info_call;
 pub mod check;
 pub(crate) mod check_assign_ident;
 pub(crate) mod check_assign_narrow;

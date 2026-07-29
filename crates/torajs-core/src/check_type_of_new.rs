@@ -316,3 +316,27 @@ fn check_regexp(checker: &mut Checker, ast: &Ast, args: &[ExprId]) -> Result<Typ
     }
     Ok(Type::RegExp)
 }
+
+/// S-NEW 刀 1 — the message for `new <expr>()`, where the thing being
+/// constructed is an expression rather than a name.
+///
+/// Worth stating plainly why this is a rejection and not a silent
+/// fallback: before the parser learned that a `new` callee is a whole
+/// MemberExpression, `new a.b()` was quietly read as `(new a).b()` and
+/// ran as a different program. Refusing here is the honest halfway
+/// point until the runtime construct exists.
+pub(crate) fn dynamic_construct_unsupported(ast: &Ast, callee: ExprId) -> String {
+    let what = match ast.get_expr(callee) {
+        Expr::Member { name, .. } => format!("`.{name}`"),
+        // A static member on a class reaches here already rewritten to
+        // the flat binding the statics desugar minted, so this arm
+        // carries most of the `new C.m()` shapes too.
+        Expr::Ident(n) => format!("`{n}`"),
+        Expr::Index { .. } => "an indexed property".to_string(),
+        _ => "an expression".to_string(),
+    };
+    format!(
+        "`new` on {what}: the constructor is not known until run time, and \
+         runtime construct is not implemented yet"
+    )
+}

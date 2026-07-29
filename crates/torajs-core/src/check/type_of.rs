@@ -138,6 +138,20 @@ impl Checker {
                 }
                 panic!("internal: `new {class_name}` reached check.rs (desugar didn't run?)")
             }
+            // S-NEW 刀 1 — `new <expr>()`. The callee and the
+            // arguments are still walked so anything wrong inside them
+            // is reported on its own terms; only then does the missing
+            // runtime construct get named.
+            Expr::NewDynamic { callee, args } => {
+                let callee = *callee;
+                for a in args.clone() {
+                    self.type_of(ast, a)?;
+                }
+                self.type_of(ast, callee)?;
+                Err(crate::check_type_of_new::dynamic_construct_unsupported(
+                    ast, callee,
+                ))
+            }
             Expr::Super { .. } => {
                 panic!("internal: `super(...)` reached check.rs (desugar didn't run?)")
             }

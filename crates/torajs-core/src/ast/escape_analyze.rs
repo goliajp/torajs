@@ -323,6 +323,10 @@ fn eal_expr_safe(ast: &Ast, eid: ExprId, x_name: &str) -> bool {
             false
         }
         Expr::New { args, .. } => args.iter().all(|a| eal_expr_safe(ast, *a, x_name)),
+        Expr::NewDynamic { callee, args } => {
+            eal_expr_safe(ast, *callee, x_name)
+                && args.iter().all(|a| eal_expr_safe(ast, *a, x_name))
+        }
         Expr::Super { args } => args.iter().all(|a| eal_expr_safe(ast, *a, x_name)),
         Expr::This
         | Expr::NewTarget

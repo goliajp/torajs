@@ -198,6 +198,12 @@ fn sfi_expr_x_safe(ast: &Ast, eid: ExprId, x_name: &str, i_name: &str) -> bool {
         Expr::New { args, .. } => args
             .iter()
             .all(|a| sfi_expr_x_safe(ast, *a, x_name, i_name)),
+        Expr::NewDynamic { callee, args } => {
+            sfi_expr_x_safe(ast, *callee, x_name, i_name)
+                && args
+                    .iter()
+                    .all(|a| sfi_expr_x_safe(ast, *a, x_name, i_name))
+        }
         Expr::Nullish { lhs, rhs } => {
             sfi_expr_x_safe(ast, *lhs, x_name, i_name) && sfi_expr_x_safe(ast, *rhs, x_name, i_name)
         }

@@ -125,6 +125,13 @@ impl<'a> Formatter<'a> {
                 self.fmt_comma_list(args);
                 self.write(")");
             }
+            Expr::NewDynamic { callee, args } => {
+                self.write("new ");
+                self.fmt_expr(*callee);
+                self.write("(");
+                self.fmt_comma_list(args);
+                self.write(")");
+            }
             Expr::Super { args } => {
                 self.write("super(");
                 self.fmt_comma_list(args);

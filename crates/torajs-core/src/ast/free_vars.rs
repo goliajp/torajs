@@ -369,6 +369,12 @@ fn walk_expr(ast: &Ast, eid: ExprId, bound: &mut Vec<String>, out: &mut Vec<Stri
                 walk_expr(ast, *a, bound, out);
             }
         }
+        Expr::NewDynamic { callee, args } => {
+            walk_expr(ast, *callee, bound, out);
+            for a in args {
+                walk_expr(ast, *a, bound, out);
+            }
+        }
         Expr::Ternary {
             cond,
             then_branch,

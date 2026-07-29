@@ -201,7 +201,7 @@ impl<'a> Parser<'a> {
     /// Member name after a just-consumed `.` / `?.`, or the shared
     /// "expected identifier" parse error (`after` names the operator
     /// in the message).
-    fn expect_member_name(&mut self, after: &str) -> Result<String, String> {
+    pub(super) fn expect_member_name(&mut self, after: &str) -> Result<String, String> {
         match self.member_name_after_dot() {
             Some(n) => Ok(n),
             None => {
@@ -285,7 +285,11 @@ impl<'a> Parser<'a> {
     /// Only fires for compile-time string literals whose content is a
     /// syntactic IdentifierName; dynamic / numeric / non-identifier
     /// indices stay as Index and hit the existing Array / String paths.
-    fn parse_postfix_index(&mut self, node: ExprId, start_pos: usize) -> Result<ExprId, String> {
+    pub(super) fn parse_postfix_index(
+        &mut self,
+        node: ExprId,
+        start_pos: usize,
+    ) -> Result<ExprId, String> {
         self.pos += 1;
         let index = self.parse_expr()?;
         match self.peek() {

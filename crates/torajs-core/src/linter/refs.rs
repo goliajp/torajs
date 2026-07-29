@@ -226,6 +226,12 @@ pub(super) fn count_refs_expr(ast: &Ast, eid: ExprId, refs: &mut HashMap<String,
                 count_refs_expr(ast, *a, refs);
             }
         }
+        Expr::NewDynamic { callee, args } => {
+            count_refs_expr(ast, *callee, refs);
+            for a in args {
+                count_refs_expr(ast, *a, refs);
+            }
+        }
         Expr::Super { args } => {
             for a in args {
                 count_refs_expr(ast, *a, refs);

@@ -13,6 +13,17 @@
 
 use super::*;
 
+/// What `new` is going to construct, as far as the parser can tell.
+///
+/// `Named` is the case the whole desugar chain is built around: the
+/// target is spelled out, so a `__new_<C>` factory can be bound to it
+/// at compile time. `Dynamic` is everything else — the target is an
+/// expression and only the running program knows what it is.
+enum NewHead {
+    Named(String),
+    Dynamic(ExprId),
+}
+
 impl<'a> Parser<'a> {
     pub(super) fn parse_primary_super(&mut self) -> Result<ExprId, String> {
         // `super(args)` — only valid inside a subclass ctor; the
@@ -124,7 +135,7 @@ impl<'a> Parser<'a> {
                 }
             }
         }
-        let class_name = match self.peek() {
+        let head = match self.peek() {
             Token::Ident(n) => {
                 let n = n.clone();
                 self.pos += 1;
@@ -134,7 +145,7 @@ impl<'a> Parser<'a> {
                 // static-factory path resolves to the synth
                 // class's `__new___ClassExpr_<id>`. Avoids a
                 // dynamic-ctor-dispatch substrate change.
-                self.class_value_aliases.get(&n).cloned().unwrap_or(n)
+                NewHead::Named(self.class_value_aliases.get(&n).cloned().unwrap_or(n))
             }
             // P8.5 — `new class { ... }(args)` /
             // `new class Foo { ... }(args)`. Parse the class
@@ -149,18 +160,16 @@ impl<'a> Parser<'a> {
                     _ => unreachable!(),
                 };
                 self.synth_classes.push(stmt);
-                cls_name
+                NewHead::Named(cls_name)
             }
             // P8.5 — `new (expr)(args)` per ES spec §13.3.5
             // NewExpression: the callee may be a parenthesized
-            // expression. tora handles the case where the inner
-            // expression resolves to an Ident — which covers
-            // `new (class { ... })()` (the class-expression
-            // branch in parse_primary emits an Ident at that
-            // inner site) and `new (SomeClass)()`. Non-Ident
-            // callees (dynamic ctor invocation through a
-            // computed value) require runtime constructor
-            // dispatch — V3-later.
+            // expression. An inner Ident keeps the static path —
+            // that covers `new (class { ... })()` (the class-
+            // expression branch in parse_primary emits an Ident at
+            // that inner site) and `new (SomeClass)()`. Anything
+            // else is a constructor the parser cannot name, so it
+            // goes to the runtime-construct path.
             Token::LParen => {
                 self.pos += 1;
                 let inner = self.parse_expr()?;
@@ -174,28 +183,16 @@ impl<'a> Parser<'a> {
                     }
                 }
                 match self.ast.get_expr(inner) {
-                    Expr::Ident(n) => n.clone(),
+                    Expr::Ident(n) => NewHead::Named(n.clone()),
                     // `new (E as SomeType)(args)` — the TS `as` cast is a
                     // static-only assertion; the runtime callee is still
-                    // the inner Ident. Peel it here so the downstream
+                    // the inner expression. Peel it here so the downstream
                     // class-registry lookup (P8.5 `new C(args)`) sees `E`.
                     Expr::As { expr, .. } => match self.ast.get_expr(*expr) {
-                        Expr::Ident(n) => n.clone(),
-                        other => {
-                            return Err(format!(
-                                "new ((expr) as T) callee must resolve to a class \
-                                     ident (got {other:?}) at {}",
-                                self.at()
-                            ));
-                        }
+                        Expr::Ident(n) => NewHead::Named(n.clone()),
+                        _ => NewHead::Dynamic(inner),
                     },
-                    other => {
-                        return Err(format!(
-                            "new (expr) callee must resolve to a class ident (got \
-                                 {other:?}) at {}",
-                            self.at()
-                        ));
-                    }
+                    _ => NewHead::Dynamic(inner),
                 }
             }
             t => {
@@ -205,6 +202,12 @@ impl<'a> Parser<'a> {
                 ));
             }
         };
+        // ES §13.3 NewExpression: what follows `new` is a
+        // MemberExpression, so a `.` or `[` here is part of the
+        // callee — `new a.b()` constructs `a.b`, not `a`. Reading
+        // only the head identifier used to turn that into
+        // `(new a).b()`, a different program with no complaint.
+        let head = self.extend_new_callee(head)?;
         // Explicit TS instantiation on built-in generics:
         // `new Set<number>()` / `new Map<string, number>()`. Parsed
         // into flat ann spellings and carried on `Expr::New.type_args`
@@ -249,10 +252,43 @@ impl<'a> Parser<'a> {
             }
         }
         let args = self.fold_static_spread(args);
-        Ok(self.ast.add_expr(Expr::New {
-            class_name,
-            args,
-            type_args,
-        }))
+        Ok(match head {
+            NewHead::Named(class_name) => self.ast.add_expr(Expr::New {
+                class_name,
+                args,
+                type_args,
+            }),
+            // `type_args` is dropped here on purpose: it only feeds
+            // callback-param seeding off a named container class, and
+            // there is no name to seed from.
+            NewHead::Dynamic(callee) => self.ast.add_expr(Expr::NewDynamic { callee, args }),
+        })
+    }
+
+    /// Consume the `.name` / `[expr]` tail of a `new` callee, if any.
+    ///
+    /// Reaching one at all means the constructor is an expression
+    /// rather than a name, so a named head is materialized back into
+    /// an `Ident` and the result is dynamic from here on.
+    fn extend_new_callee(&mut self, head: NewHead) -> Result<NewHead, String> {
+        if !matches!(self.peek(), Token::Dot | Token::LBracket) {
+            return Ok(head);
+        }
+        let start_pos = self.pos;
+        let mut node = match head {
+            NewHead::Dynamic(e) => e,
+            NewHead::Named(n) => self.ast.add_expr(Expr::Ident(n)),
+        };
+        loop {
+            match self.peek() {
+                Token::Dot => {
+                    self.pos += 1;
+                    let name = self.expect_member_name(".")?;
+                    node = self.add_expr_at(start_pos, Expr::Member { obj: node, name });
+                }
+                Token::LBracket => node = self.parse_postfix_index(node, start_pos)?,
+                _ => return Ok(NewHead::Dynamic(node)),
+            }
+        }
     }
 }

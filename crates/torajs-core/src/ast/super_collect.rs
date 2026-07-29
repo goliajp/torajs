@@ -198,6 +198,12 @@ fn collect_supercall_in_expr(ast: &Ast, eid: ExprId, out: &mut Vec<(ExprId, Stri
                 collect_supercall_in_expr(ast, *a, out);
             }
         }
+        Expr::NewDynamic { callee, args } => {
+            collect_supercall_in_expr(ast, *callee, out);
+            for a in args {
+                collect_supercall_in_expr(ast, *a, out);
+            }
+        }
         Expr::Ternary {
             cond,
             then_branch,
@@ -401,6 +407,12 @@ fn collect_super_in_expr(ast: &Ast, eid: ExprId, out: &mut Vec<(ExprId, Vec<Expr
             }
         }
         Expr::Closure { .. } => {}
+        Expr::NewDynamic { callee, args } => {
+            collect_super_in_expr(ast, *callee, out);
+            for a in args {
+                collect_super_in_expr(ast, *a, out);
+            }
+        }
         Expr::New { args, .. } => {
             for a in args {
                 collect_super_in_expr(ast, *a, out);
