@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-28T23:12:45.609Z",
+  "generatedAt": "2026-07-29T00:12:38.874Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-28T23:11:39Z",
-    "headSha": "6397d916",
-    "elapsedSec": 400.49,
+    "ranAt": "2026-07-29T00:11:33Z",
+    "headSha": "9fefe8b7",
+    "elapsedSec": 267.7,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 14817,
-    "passNoOracle": 267,
+    "pass": 15197,
+    "passNoOracle": 279,
     "passNegative": 4489,
-    "passTotal": 19573,
-    "bug": 2354,
-    "incompatible": 31247,
+    "passTotal": 19965,
+    "bug": 2201,
+    "incompatible": 31008,
     "bunSkip": 7356,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 21927,
-    "passRateInScope": 36.81,
-    "passRateTrAccepted": 89.26
+    "trAccepted": 22166,
+    "passRateInScope": 37.55,
+    "passRateTrAccepted": 90.07
   },
   "torajs": {
-    "commit": "6397d916",
-    "commitSubject": "fix(core): static generator methods keep the this-passing forwarder - rotation 243 sweep caught 85 async-gen-meth-static-* pass regressions from v2a: a static forwarder that stops mentioning this breaks the __sm_<C>__<m> static-member alias chain (let m = C.method lowered to an unknown __sm_ ident or a whole-program generic-arity reject), so the receiver-free relaxation now applies to instance methods only; the static value-use face keeps its previous path until that chain gets its own lane",
+    "commit": "9fefe8b7",
+    "commitSubject": "refactor(core): optional-default synthesis converges into a param_optional_default sibling - the three inline guards pushed param_list.rs to 521 (over the 500 hard cap rotation 227's watch predicted; the per-commit audit missed the file axis) - the shared implicit_optional_default method brings it back to 497 and parse_fn to 415",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "9fefe8b7",
+      "subject": "refactor(core): optional-default synthesis converges into a param_optional_default sibling - the three inline guards pushed param_list.rs to 521 (over the 500 hard cap rotation 227's watch predicted; the per-commit audit missed the file axis) - the shared implicit_optional_default method brings it back to 497 and parse_fn to 415"
+    },
+    {
+      "hash": "ba213d72",
+      "subject": "fix(core): an absent any-slot optional parameter binds undefined, not null - es 9.2: the three optional-param synthesis sites (parse_fn, the ctor param list, parse_param_list for methods and fn-exprs) minted an implicit Expr::Null default, so typeof b answered object and b === undefined false on every omitted optional (probe-caught alongside the v2b work); an any / un-annotated optional now mints the undefined ident while a typed optional keeps the legacy implicit null - its __nullable(T) slot has no undefined arm (registered)"
+    },
+    {
+      "hash": "515f7a06",
+      "subject": "feat(core): ctor-init receivers lose the typed-ident wrap exemption - rfc 20260729-fn-value-any v1b: the v1 axis exempted every non-any-annotated ident receiver to protect typed hof fast paths, but an UN-annotated binding whose init is a constructor call (let f = new foo(); f.every(cb) - the largest box_to_any FnSig residue shape at 64 Array/prototype cases) is a dynobj whose method calls ride the runtime any-method lane; a new collect walks let-inits for __new_/__fnctor_ factory calls (the binding walker generalizes to carry ann-less bindings and the init ExprId) and the exemption skips those names, so the fn-name argument wraps and the case reaches the runtime instead of the whole-program panic"
+    },
+    {
+      "hash": "f0924087",
+      "subject": "fix(core): expression-default materialize runs before the closure lift and skips arrow-bearing defaults - the gate caught the first cut orphaning a moved IIFE default from the capture machinery (closure capture cc not in scope): the pass now runs as its own pipeline stage right after desugar_classes so a moved default rides bind_this_param / lift_arrow_fns like any body expression, and a recursive whitelist keeps arrow-bearing defaults on the call-site pad - a closure minted inside a fn body cannot capture a top-level let today (pre-existing, registered), while the padded copy at the top-level call site works"
+    },
+    {
+      "hash": "e72e64b5",
+      "subject": "feat(core): expression parameter defaults materialize in the callee body - rfc 20260729-fn-value-any v2b: call-site padding cannot express a default that references the callee scope (padding f(x, y = x) with the ExprId of x either rejected the whole program on the solo-name shape or silently bound the implicit fill when the by-name merge bailed - probes showed c.m(9) answering null where the spec owes 9), so a new materialize pass run at the head of apply_default_args rewrites every any/unannotated expression default per es 9.2 into a body-head guard (if (y === undefined) y = x, callee scope, param order, ahead of a destructured param's unpack prefix) and leaves an undefined literal as the pad value; the s2.38 this-free verdict accepts that literal, which closes the detached-generator-method chain end to end (the t262 dflt-params-ref-prior assembled case now runs to AsyncTestComplete); typed expression defaults keep their loud reject"
+    },
+    {
+      "hash": "770171eb",
+      "subject": "chore(docs,hardev): rotation 243 census stamp and sweep archive - re-swept at the fix-up head 6397d916, passTotal +999 with the async-iteration walls closed (rfc gen-forof-yieldstar complete, box_to_any FnSig 720 to 355), 85 v2a static regressions caught mid-close and reverted, dashboard refresh"
+    },
+    {
       "hash": "6397d916",
       "subject": "fix(core): static generator methods keep the this-passing forwarder - rotation 243 sweep caught 85 async-gen-meth-static-* pass regressions from v2a: a static forwarder that stops mentioning this breaks the __sm_<C>__<m> static-member alias chain (let m = C.method lowered to an unknown __sm_ ident or a whole-program generic-arity reject), so the receiver-free relaxation now applies to instance methods only; the static value-use face keeps its previous path until that chain gets its own lane"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "7146023a",
       "subject": "chore(docs,hardev): rotation 242 census stamp and sweep archive - completes the close chore whose first git add aborted on a bad path"
-    },
-    {
-      "hash": "1ebca6fb",
-      "subject": "chore(docs,hardev): rotation 242 sweep artifacts at 8dadd71a - census stamp with the 65-case inflation revert accounting, sweep json and verdicts archive, dashboard refresh"
-    },
-    {
-      "hash": "8dadd71a",
-      "subject": "fix(core): async function* expressions keep the yield* refusal - the f2 guard only covered the three declaration-form generator body sites, so the expression form rode the sync next-drive (rotation 242 sweep audit: 65 coincidental test262 passes where the sync getiterator typeerror happened to match, 36 abrupt-family mis-drives); a one-shot pending_async_fn_expr handshake carries the consumed async prefix into parse_fn_expr, which scopes in_async_gen to exactly its own body so nested sync function* expressions keep the generic lane"
-    },
-    {
-      "hash": "362270e7",
-      "subject": "feat(core): yield* delegates generically through the for-of desugar - every operand shape beyond the array-literal and known-generator lanes (bare idents, strings, arbitrary expressions) now desugars to for (const __ysv of e) { yield __ysv } and rides the f1 manual iterator protocol instead of the loud parse error; async generators keep an attributed refusal until f3 lands the for-await drive, tracked by the new in_async_gen parser flag saved and restored at all three generator-body parse sites"
-    },
-    {
-      "hash": "8dc8c5f3",
-      "subject": "feat(core,runtime): generator state machine gains for-of via the manual iterator protocol - a yield-bearing for..of in a function* body rewrites (prep pass 0, before the let-lift so the iterator and step bindings become fields surviving yields) into src[Symbol.iterator]() plus a next-driven while the machine already lowers; the index-call symbol lane grows the class-instance arm (declared [Symbol.iterator]() invokes through the vtable fold, a generator object answers itself per 27.1.3.1); the params-to-this walker learns As, ForOf and ForOfSplitIter nodes it silently skipped"
-    },
-    {
-      "hash": "dda3375d",
-      "subject": "fix(runtime): index-call string lane falls back to keyed read plus bare call on a full dispatch miss - properties only the indexed read serves (array elements under canonical-index keys) were unreachable through the method-dispatch surface, so arr[0](x) raised the not-a-function typeerror the f38eb33b arm introduced; a no-such float now resolves via any_index_get_keyed with the original key and the bare any-call, keeping method semantics first and restoring the pre-arm value-call behavior for everything dispatch cannot see"
-    },
-    {
-      "hash": "f38eb33b",
-      "subject": "feat(runtime,core): index-call receiver semantics and string @@iterator reify - o[k]() on an any receiver is a method call per es 13.3.6.2 thisvalue=base via the new any_index_method_call kernel (topropertykey dispatch: str name re-enters by-name dispatch with proto-patch consult, symbol probes the symbol face, else tostring), and the f0 @@iterator reify grows its string leg (22.1.3.36 own id, receiver-generic tostring then a values arriter over the char array; short-str receivers consult the reify table directly)"
     }
   ],
-  "headSha": "6397d916",
+  "headSha": "9fefe8b7",
   "autorun": {
-    "total": 547,
+    "total": 548,
     "baselineTarget": 10,
-    "bySelf": 542,
+    "bySelf": 543,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785274946-348a",
-      "at": "2026-07-28T21:42:26Z",
-      "ts": 1785274946,
+      "rotationId": "r-1785280458-7673",
+      "at": "2026-07-28T23:14:18Z",
+      "ts": 1785280458,
       "trigger": "self",
-      "prevHead": "7146023a",
-      "handoffSha": "sha256:a2ba52e5d6a462a92b4ea681418dda961ac73ceca6c423c20007a52395898d8d",
-      "handoffAgeSec": 4,
+      "prevHead": "770171eb",
+      "handoffSha": "sha256:8bf2a66af39295ea0b2896d1766848bf5268d9dc573095b523fd5aee00aeec79",
+      "handoffAgeSec": 38,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1785280458-7673",
+        "at": "2026-07-28T23:14:18Z",
+        "ts": 1785280458,
+        "trigger": "self",
+        "prevHead": "770171eb",
+        "handoffSha": "sha256:8bf2a66af39295ea0b2896d1766848bf5268d9dc573095b523fd5aee00aeec79",
+        "handoffAgeSec": 38,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785274946-348a",
         "at": "2026-07-28T21:42:26Z",
@@ -876,17 +887,6 @@
         "prevHead": "f35e3876",
         "handoffSha": "sha256:6803511d9997fa48c7b261ee9bd2c697f316155d9adaab74d019b00009fa1f81",
         "handoffAgeSec": 46,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1785184656-0cf9",
-        "at": "2026-07-27T20:37:36Z",
-        "ts": 1785184656,
-        "trigger": "self",
-        "prevHead": "5ce7a2f7",
-        "handoffSha": "sha256:be62933fa624ea55f1ea862014e5640922b0dd1771e089eed032c4c7f230ab5a",
-        "handoffAgeSec": 20,
         "conformanceBefore": null,
         "commitsInSession": null
       }
