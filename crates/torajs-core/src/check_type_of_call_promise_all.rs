@@ -87,6 +87,22 @@ pub(crate) fn try_match(
                     )));
                 }
             },
+            // RFC 20260730 knife A — §27.2.4 GetIterator on an
+            // unambiguously non-iterable primitive throws at RUNTIME
+            // and the combinator answers a rejected promise; tr must
+            // not reject the program. Only types no runtime value
+            // can make iterable are admitted; String (iterable per
+            // spec), Any, class instances and structs (runtime
+            // Symbol.iterator possible) keep the loud reject until
+            // the tag-dispatch knife gives them true dispatch.
+            Type::Number
+            | Type::Boolean
+            | Type::BigInt
+            | Type::Null
+            | Type::Undefined
+            | Type::Void => {
+                return Some(Ok(Type::Promise(Box::new(Type::Any))));
+            }
             other => {
                 return Some(Err(format!(
                     "Promise.{m_name}: arg must be Array<Promise<T>>, got {other:?}"

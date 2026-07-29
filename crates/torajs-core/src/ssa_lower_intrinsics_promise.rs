@@ -77,6 +77,13 @@ pub(crate) struct PromiseIds {
     pub promise_race_sync: FuncId,
     pub promise_any_sync: FuncId,
     pub promise_allsettled_sync: FuncId,
+    /// RFC 20260730 knife A — combinators over a statically
+    /// non-iterable (any-boxed) argument; §27.2.4 GetIterator
+    /// failure answers a rejected promise at runtime.
+    pub promise_all_dyn: FuncId,
+    pub promise_race_dyn: FuncId,
+    pub promise_any_dyn: FuncId,
+    pub promise_allsettled_dyn: FuncId,
 }
 
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) -> PromiseIds {
@@ -259,6 +266,34 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             fn_table,
             "__torajs_promise_allsettled_sync",
             ptr1,
+            Type::Promise,
+        ),
+        promise_all_dyn: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_promise_all_dyn",
+            &[Type::Any],
+            Type::Promise,
+        ),
+        promise_race_dyn: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_promise_race_dyn",
+            &[Type::Any],
+            Type::Promise,
+        ),
+        promise_any_dyn: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_promise_any_dyn",
+            &[Type::Any],
+            Type::Promise,
+        ),
+        promise_allsettled_dyn: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_promise_allsettled_dyn",
+            &[Type::Any],
             Type::Promise,
         ),
         promise_with_resolvers: declare_intrinsic(

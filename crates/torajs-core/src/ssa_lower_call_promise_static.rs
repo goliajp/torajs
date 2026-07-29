@@ -100,6 +100,36 @@ fn lower_aggregate(ctx: &mut LowerCtx<'_>, method: &str, args: &[ExprId]) -> Ope
     for &a in &args[1..] {
         let _ = ctx.lower_expr(a);
     }
+    let arg_ty = ctx.operand_ty(&arr_op);
+    // RFC 20260730 knife A — a statically non-Array argument reaches
+    // the dynamic entries: §27.2.4 GetIterator on it throws at
+    // runtime and the combinator answers a rejected promise instead
+    // of tr rejecting the whole program at compile time. The checker
+    // admits only statically non-iterable types here (Any / String
+    // stay compile rejects until the tag-dispatch knife).
+    if !matches!(arg_ty, Type::Arr(_)) {
+        let boxed = ctx.box_to_any_from_expr(args[0], arr_op.clone());
+        let fid = match method {
+            "all" => ctx.intrinsics.promise_all_dyn,
+            "race" => ctx.intrinsics.promise_race_dyn,
+            "any" => ctx.intrinsics.promise_any_dyn,
+            "allSettled" => ctx.intrinsics.promise_allsettled_dyn,
+            _ => unreachable!(),
+        };
+        let cur_block = ctx.cur_block;
+        let v = ctx.f.append_inst(
+            cur_block,
+            InstKind::Call(fid, vec![boxed]),
+            Type::Promise,
+            None,
+        );
+        // The box shares; a fresh owned temp still owes its stake
+        // (the isFinite/isNaN box-and-call precedent).
+        if arg_ty.is_refcounted() && ctx.expr_is_fresh_owned(args[0]) {
+            ctx.emit_drop_value(arr_op, arg_ty);
+        }
+        return Operand::Value(v);
+    }
     let fid = match method {
         "all" => ctx.intrinsics.promise_all_sync,
         "race" => ctx.intrinsics.promise_race_sync,
