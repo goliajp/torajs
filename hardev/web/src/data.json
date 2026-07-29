@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-29T02:38:31.251Z",
+  "generatedAt": "2026-07-29T09:33:52.954Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-29T02:35:34Z",
-    "headSha": "87860167",
-    "elapsedSec": 271.34,
+    "ranAt": "2026-07-29T09:32:57Z",
+    "headSha": "59fd6799",
+    "elapsedSec": 293.07,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 15674,
-    "passNoOracle": 279,
+    "pass": 15898,
+    "passNoOracle": 489,
     "passNegative": 4489,
-    "passTotal": 20442,
-    "bug": 2370,
-    "incompatible": 30362,
-    "bunSkip": 7356,
+    "passTotal": 20876,
+    "bug": 2907,
+    "incompatible": 29391,
+    "bunSkip": 7080,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 22812,
-    "passRateInScope": 38.44,
-    "passRateTrAccepted": 89.61
+    "trAccepted": 23783,
+    "passRateInScope": 39.26,
+    "passRateTrAccepted": 87.78
   },
   "torajs": {
-    "commit": "87860167",
-    "commitSubject": "fix(core): an untyped class field takes the any slot instead of rejecting",
+    "commit": "59fd6799",
+    "commitSubject": "fix(core): a var slot is an any destination on the assign axis too",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "59fd6799",
+      "subject": "fix(core): a var slot is an any destination on the assign axis too"
+    },
+    {
+      "hash": "f19dce38",
+      "subject": "fix(conformance): key the bun oracle cache on what bun is handed"
+    },
+    {
+      "hash": "b6741671",
+      "subject": "feat(core): x++ and x-- work over an any slot"
+    },
+    {
+      "hash": "3200f030",
+      "subject": "fix(conformance): stop rewriting var to let before measuring"
+    },
+    {
+      "hash": "0b333dce",
+      "subject": "fix(core): an object param pattern may end in a rest element"
+    },
+    {
+      "hash": "bef5c55b",
+      "subject": "chore(docs,hardev): rotation 245 census at 87860167"
+    },
+    {
       "hash": "87860167",
       "subject": "fix(core): an untyped class field takes the any slot instead of rejecting"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "1cf62e6f",
       "subject": "chore(docs,hardev): rotation 244 final census at b53d226b - re-swept after v4 knife 1, box_to_any 291 to 118 with 173 whole-program rejects now running to their .name asserts, core 18585, dashboard refresh"
-    },
-    {
-      "hash": "b53d226b",
-      "subject": "feat(core): generator-expression factories wrap in destructuring-slot defaults - rfc 20260729-fn-value-any v4 knife 1: a destr default holding a hoisted __genexpr_* factory (the t262 fn-name-gen template family, 186 of the 291 box_to_any residue) had no wrap axis and the raw FnSig panicked the whole program; the collector now marks dstr_default_names entries with the synthetic prefix (user code cannot spell it, so no shadow risk), accepting the same intrinsic-chain trade the any-call-arg axis has always made - the assembled case runs to its .name assert (the NamedEvaluation thread through dstr_default_names is the registered follow-up) and generator-fn-intrinsics-001 holds"
-    },
-    {
-      "hash": "4a81e59d",
-      "subject": "chore(docs,hardev): rotation 244 census stamp and sweep archive - passTotal +392 with bug -153 as the v2b expression-default materialization turns a bug family into passes, box_to_any FnSig 355 to 291, four honest-fail exposures in the iter-get-err family, dashboard refresh"
-    },
-    {
-      "hash": "9fefe8b7",
-      "subject": "refactor(core): optional-default synthesis converges into a param_optional_default sibling - the three inline guards pushed param_list.rs to 521 (over the 500 hard cap rotation 227's watch predicted; the per-commit audit missed the file axis) - the shared implicit_optional_default method brings it back to 497 and parse_fn to 415"
-    },
-    {
-      "hash": "ba213d72",
-      "subject": "fix(core): an absent any-slot optional parameter binds undefined, not null - es 9.2: the three optional-param synthesis sites (parse_fn, the ctor param list, parse_param_list for methods and fn-exprs) minted an implicit Expr::Null default, so typeof b answered object and b === undefined false on every omitted optional (probe-caught alongside the v2b work); an any / un-annotated optional now mints the undefined ident while a typed optional keeps the legacy implicit null - its __nullable(T) slot has no undefined arm (registered)"
-    },
-    {
-      "hash": "515f7a06",
-      "subject": "feat(core): ctor-init receivers lose the typed-ident wrap exemption - rfc 20260729-fn-value-any v1b: the v1 axis exempted every non-any-annotated ident receiver to protect typed hof fast paths, but an UN-annotated binding whose init is a constructor call (let f = new foo(); f.every(cb) - the largest box_to_any FnSig residue shape at 64 Array/prototype cases) is a dynobj whose method calls ride the runtime any-method lane; a new collect walks let-inits for __new_/__fnctor_ factory calls (the binding walker generalizes to carry ann-less bindings and the init ExprId) and the exemption skips those names, so the fn-name argument wraps and the case reaches the runtime instead of the whole-program panic"
-    },
-    {
-      "hash": "f0924087",
-      "subject": "fix(core): expression-default materialize runs before the closure lift and skips arrow-bearing defaults - the gate caught the first cut orphaning a moved IIFE default from the capture machinery (closure capture cc not in scope): the pass now runs as its own pipeline stage right after desugar_classes so a moved default rides bind_this_param / lift_arrow_fns like any body expression, and a recursive whitelist keeps arrow-bearing defaults on the call-site pad - a closure minted inside a fn body cannot capture a top-level let today (pre-existing, registered), while the padded copy at the top-level call site works"
     }
   ],
-  "headSha": "87860167",
+  "headSha": "59fd6799",
   "autorun": {
-    "total": 549,
+    "total": 550,
     "baselineTarget": 10,
-    "bySelf": 544,
+    "bySelf": 545,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785285921-5e9a",
-      "at": "2026-07-29T00:45:21Z",
-      "ts": 1785285921,
+      "rotationId": "r-1785292870-5358",
+      "at": "2026-07-29T02:41:10Z",
+      "ts": 1785292870,
       "trigger": "self",
-      "prevHead": "1cf62e6f",
-      "handoffSha": "sha256:9d9ad525f8f4bbf25f5e88b483e30d6aad57e5b79f94cfa5200e6b277945135b",
-      "handoffAgeSec": 672,
+      "prevHead": "bef5c55b",
+      "handoffSha": "sha256:47052d252acc7a9f1f56d2be44d02549b537d83a1f62c7567cd613a64fdd2e61",
+      "handoffAgeSec": 107,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1785292870-5358",
+        "at": "2026-07-29T02:41:10Z",
+        "ts": 1785292870,
+        "trigger": "self",
+        "prevHead": "bef5c55b",
+        "handoffSha": "sha256:47052d252acc7a9f1f56d2be44d02549b537d83a1f62c7567cd613a64fdd2e61",
+        "handoffAgeSec": 107,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785285921-5e9a",
         "at": "2026-07-29T00:45:21Z",
@@ -876,17 +887,6 @@
         "prevHead": "aedc233b",
         "handoffSha": "sha256:4d12a7f1f08aea63a1795bacf64eb70aa92d4768c22101b33a4a672466ce615b",
         "handoffAgeSec": 13,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1785195767-2a18",
-        "at": "2026-07-27T23:42:47Z",
-        "ts": 1785195767,
-        "trigger": "self",
-        "prevHead": "0fe6c1ad",
-        "handoffSha": "sha256:78cfc82456e45c0a2cb36fa125383ab2eeb437bbc78efba66190515799ae0e06",
-        "handoffAgeSec": 17,
         "conformanceBefore": null,
         "commitsInSession": null
       }

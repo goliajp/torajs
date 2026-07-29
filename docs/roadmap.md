@@ -1825,15 +1825,19 @@ census:
 
 | cluster depth | core cases covered |
 |---|---|
-| top 10 | 24.5 % |
-| top 25 | 43.0 % |
-| top 50 | 57.0 % |
-| top 100 | 70.3 % |
-| top 400 | 90.7 % |
-| clusters of ≤ 3 cases (922 of them) | 7.1 % |
+| top 10 | 27.7 % |
+| top 25 | 47.4 % |
+| top 50 | 61.1 % |
+| top 100 | 74.5 % |
+| top 400 | 92.6 % |
+| clusters of ≤ 3 cases (804 of them) | 6.4 % |
 
-(refreshed @ rotation 245 sweep `87860167`, core 18112; the rotation
-230 reading was core 25421 with top-10 at 34.4 %.) The tail is short:
+(refreshed @ rotation 246 sweep `59fd6799`, core 17144; rotation 245
+read core 18112 with top-10 at 24.5 %, rotation 230 core 25421 at
+34.4 %. **The rotation-246 reading is not comparable to the two before
+it on the oracle side**: that rotation removed a `var` → `let` source
+rewrite the runner had been applying before handing cases to both
+engines, so every earlier census measured rewritten programs.) The tail is short:
 1417 clusters total, but seven tenths of the mass is in 100 of them —
 which is why this phase is enumerable at all. **The curve has
 flattened as core shrank**: the same fixes that removed 7300 core
@@ -1843,7 +1847,7 @@ progress looks like here, not a regression.
 
 **The groups at a glance** (core cases @ `9215301c`, each ≈ because
 clusters shift under every fix; core total has since fallen 25421 →
-**18112** @ `87860167`, so read these as proportions, not counts —
+**17144** @ `59fd6799`, so read these as proportions, not counts —
 re-derive with `cluster_incompat.py` before acting on any of them):
 
 | group | what | ≈ core cases |
