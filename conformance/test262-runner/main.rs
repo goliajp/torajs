@@ -443,8 +443,15 @@ fn run_case(
     // Positive case — bun oracle (cache lookup + spawn with 15s
     // timeout). Cache hit → 0 spawn cost. Miss → spawn bun, populate
     // cache.
+    //
+    // Keyed on the TRANSFORMED source, which is what bun is handed.
+    // Keying on the case as it sits in the corpus left every entry
+    // valid across a change to `transform_source`, so the next sweep
+    // silently scored tr against the previous transform's oracle —
+    // the shape of wrongness that dropping the `var` rewrite exposed
+    // (298 cases came back carrying the rewritten program's verdict).
     let (bun_success, bun_stdout) =
-        match cache::bun_oracle(case_src.as_bytes(), harness_min.as_bytes(), &tmp_path) {
+        match cache::bun_oracle(transformed.as_bytes(), harness_min.as_bytes(), &tmp_path) {
             Ok(v) => v,
             Err(e) => {
                 let _ = std::fs::remove_file(&tmp_path);

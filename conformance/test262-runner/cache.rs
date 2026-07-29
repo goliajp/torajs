@@ -24,7 +24,11 @@
 //!
 //! Cache is **invalidation-on-mismatch**: any of (case bytes / harness
 //! bytes / bun version) changing flips the hash key, so old entries
-//! become orphan. They sit on disk; periodic external prune cleans
+//! become orphan. "Case bytes" means the bytes bun is actually handed
+//! — the transformed source, not the case as it sits in the corpus.
+//! Keyed on the latter, a change to the source transform left every
+//! entry valid and the next sweep scored tr against the previous
+//! transform's oracle. They sit on disk; periodic external prune cleans
 //! (LRU based on atime if needed). For now the corpus is stable so
 //! the cache grows once + stays warm.
 
