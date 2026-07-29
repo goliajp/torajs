@@ -202,13 +202,19 @@ pub(super) fn scan_ident_or_keyword(
 ) -> Result<(), String> {
     let (name, escaped) = scan_ident_name(bytes, i, len)?;
     if escaped {
-        // §12.7.2 — an escaped ReservedWord is neither the keyword nor a
-        // usable name. Refusing here is what keeps `if (x) {}` from
-        // quietly becoming a call to a function named `if`.
+        // §12.7.2 — an escaped ReservedWord is not the keyword, but it
+        // IS a valid IdentifierName, so `({ break: 1 })` and
+        // `o.break` are legal while `if (x) {}` is not. The
+        // lexer cannot tell those apart — position is the parser's
+        // business — so hand over a token the property-name positions
+        // opt into and everything else refuses by construction. (The
+        // blanket refusal that used to live here is what kept
+        // `if (x) {}` from quietly becoming a call to a function named
+        // `if`; `Token::EscapedIdent` keeps that guarantee without
+        // taking the legal positions down with it.)
         if RESERVED_WORDS.contains(&name.as_str()) {
-            return Err(format!(
-                "keyword `{name}` cannot be written with an escape at {start}"
-            ));
+            emit(out, Token::EscapedIdent(name), start, *i);
+            return Ok(());
         }
         emit(out, Token::Ident(name), start, *i);
         return Ok(());

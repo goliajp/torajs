@@ -325,6 +325,9 @@ impl<'a> Parser<'a> {
             loop {
                 let (field, field_is_kw) = match self.peek() {
                     Token::Ident(n) => (n.clone(), false),
+                    // ES §12.7.2 — escaped ReservedWord names the
+                    // FIELD; needs the rename like a bare keyword.
+                    Token::EscapedIdent(n) => (n.clone(), true),
                     t if Self::keyword_property_name(t).is_some() => {
                         (Self::keyword_property_name(t).unwrap().to_string(), true)
                     }

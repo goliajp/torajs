@@ -7,6 +7,18 @@
 #[derive(Debug, Clone, PartialEq)]
 pub enum Token {
     Ident(String),
+    /// A ReservedWord written with at least one Unicode escape
+    /// (`break`). ES §12.7.2 allows escapes in an
+    /// **IdentifierName** but not in the ReservedWord itself, so the
+    /// legality depends on the position: legal as a property key /
+    /// method name / member name after a dot, illegal anywhere the
+    /// grammar wants the keyword or a binding Identifier.
+    ///
+    /// Kept distinct from `Ident` so the default is refusal: the
+    /// property-name positions opt in explicitly, and every other
+    /// site — including future ones — rejects it structurally rather
+    /// than by remembering to check a flag.
+    EscapedIdent(String),
     /// P8.1 — `#name` PrivateIdentifier (ES2022 §6.2.10). Holds the
     /// identifier body without the leading `#`. Distinct from `Ident`
     /// so the parser can route private-field declarations and

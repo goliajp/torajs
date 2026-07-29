@@ -83,6 +83,9 @@ impl<'a> Parser<'a> {
         }
         let name = match self.peek() {
             Token::Ident(n) => n.clone(),
+            // ES §12.7.2 — an escaped ReservedWord is a legal
+            // IdentifierName here (`{ bre\u0061k: 1 }`).
+            Token::EscapedIdent(n) => n.clone(),
             // V3-18 wedge — accept reserved-word tokens as object-
             // literal field names per ES spec §12.7.6 (the full
             // reserved-word set is allowed in property-name

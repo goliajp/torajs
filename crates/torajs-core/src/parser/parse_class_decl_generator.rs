@@ -76,6 +76,8 @@ impl<'a> Parser<'a> {
         let mut visibility = visibility;
         let member_name = match self.peek() {
             Token::Ident(n) => n.clone(),
+            // ES §12.7.2 — escaped ReservedWord as an IdentifierName.
+            Token::EscapedIdent(n) => n.clone(),
             t if Self::keyword_property_name(t).is_some() => {
                 Self::keyword_property_name(t).unwrap().to_string()
             }

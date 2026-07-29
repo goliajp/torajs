@@ -141,6 +141,9 @@ impl<'a> Parser<'a> {
                 t if Self::keyword_property_name(t).is_some() => {
                     Self::keyword_property_name(t).unwrap().to_string()
                 }
+                // ES §12.7.2 — the same IdentifierName written with an
+                // escape (`break() {}`).
+                Token::EscapedIdent(n) => n.clone(),
                 t => {
                     return Err(format!(
                         "expected class member name, got {t:?} at {}",

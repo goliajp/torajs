@@ -159,7 +159,9 @@ impl<'a> Parser<'a> {
     /// reserved-word list. Advances `self.pos` on success and returns
     /// None (without consuming) when no name token is present.
     fn member_name_after_dot(&mut self) -> Option<String> {
-        if let Token::Ident(n) = self.peek() {
+        // ES §12.7.2 — the name after a dot is an IdentifierName, so an
+        // escaped ReservedWord is legal here (`o.break`).
+        if let Token::Ident(n) | Token::EscapedIdent(n) = self.peek() {
             let n = n.clone();
             self.pos += 1;
             return Some(n);
