@@ -18,21 +18,15 @@
 //! any-lane sibling. A pending throw at any step (GetIterator miss,
 //! poisoned `next()`, a step body throw) becomes the rejection
 //! reason — popped off the throw TLS by the take_tag + take
-//! composition, boxed, settled with `REPR_ANY`.
-//!
-//! `Promise.allSettled` stays on the knife-A reject-only path: the
-//! sync kernel has no any-lane sibling yet (its `{status, value}`
-//! result struct walks raw promise pointers — the recorded L3b
-//! follow-up), so the checker admits only unambiguously
-//! non-iterable primitives for it and the dyn entry only ever
-//! rejects.
+//! composition, boxed, settled with `REPR_ANY`. All four
+//! combinators share the shape — `allSettled` joined once its
+//! any-lane sibling (`combinator_any::allsettled_sync_any`) landed.
 
-use core::ffi::{c_char, c_void};
+use core::ffi::c_void;
 
 use crate::layout::{ARR_DATA_PTR_OFF, ARR_HEAD_OFF, REPR_ANY, STATE_REJECTED};
 
 unsafe extern "C" {
-    fn __torajs_throw_type_error(msg: *const c_char);
     fn __torajs_throw_check() -> i64;
     fn __torajs_throw_take() -> i64;
     fn __torajs_throw_take_tag() -> i64;
@@ -57,15 +51,6 @@ unsafe fn reject_with_pending_throw() -> *mut c_void {
         let value = __torajs_throw_take();
         let boxed = __torajs_anyv_box_from_pair(tag, value);
         crate::combinator::defer_settle(STATE_REJECTED, boxed as i64, 1, REPR_ANY)
-    }
-}
-
-/// Mint a TypeError and answer a promise rejected with it — the
-/// knife-A path, still the whole story for `allSettled`.
-unsafe fn reject_not_iterable() -> *mut c_void {
-    unsafe {
-        __torajs_throw_type_error(c"value is not iterable".as_ptr());
-        reject_with_pending_throw()
     }
 }
 
@@ -153,8 +138,8 @@ pub unsafe extern "C" fn __torajs_promise_any_dyn(v: u64) -> *mut c_void {
 }
 
 /// # Safety
-/// See [`__torajs_promise_all_dyn`]. Reject-only (see module doc).
+/// See [`__torajs_promise_all_dyn`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_promise_allsettled_dyn(_v: u64) -> *mut c_void {
-    unsafe { reject_not_iterable() }
+pub unsafe extern "C" fn __torajs_promise_allsettled_dyn(v: u64) -> *mut c_void {
+    unsafe { dyn_combinator(v, crate::combinator::__torajs_promise_allsettled_sync) }
 }

@@ -243,7 +243,9 @@ unsafe fn make_settled_str(literal: &[u8]) -> *mut c_void {
 /// Allocate a `{status: string, value: number}` Obj. Mirrors the C
 /// `alloc_settled_struct_` exactly: header(8) + class_tag(8 zeroed)
 /// + vtable(8 zeroed) + status_ptr(8) + value(8) = 40 bytes.
-unsafe fn alloc_settled_struct(state: u8, value: i64) -> *mut c_void {
+/// `pub(crate)` — the any-lane sibling packs boxed AnyValue bits
+/// into the same value slot.
+pub(crate) unsafe fn alloc_settled_struct(state: u8, value: i64) -> *mut c_void {
     let p = unsafe { malloc(ALLSETTLED_OBJ_HEADER_SIZE + 16) } as *mut u8;
     unsafe {
         // Universal heap header.
@@ -273,6 +275,11 @@ pub unsafe extern "C" fn __torajs_promise_allsettled_sync(
 ) -> *mut c_void {
     if promises_arr.is_null() {
         return unsafe { defer_settle(STATE_REJECTED, 0, 0, REPR_VOID) };
+    }
+    // An `Array<Any>` input carries NaN-box slots — route to the
+    // any-lane sibling (same gate as all / race / any).
+    if unsafe { crate::combinator_any::arr_is_any(promises_arr) } {
+        return unsafe { crate::combinator_any::allsettled_sync_any(promises_arr) };
     }
     unsafe { absorb_inputs(promises_arr) };
     let len = unsafe { arr_len(promises_arr) };

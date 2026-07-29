@@ -44,6 +44,13 @@ unsafe extern "C" {
     fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64;
     fn __torajs_anyv_box_str_slot(s: *mut c_void) -> u64;
     fn __torajs_anyv_rc_inc(v: u64);
+    /// torajs-arr raw-slot alloc + push + elem-kind mark — the
+    /// allSettled result is a typed heap-cell array of `{status,
+    /// value}` structs (the typed kernel's result shape), not an
+    /// any-shape array.
+    fn __torajs_arr_alloc(initial_cap: u64) -> *mut c_void;
+    fn __torajs_arr_push(arr: *mut c_void, val: i64) -> *mut c_void;
+    fn __torajs_arr_mark_kind(arr: *mut c_void, chain: u64);
 }
 
 /// True when the input array carries NaN-box slots.
@@ -162,6 +169,63 @@ pub(crate) unsafe fn all_sync_any(promises_arr: *mut c_void) -> *mut c_void {
             *(data.add(((head + i) * 8) as usize) as *mut u64) = v;
         }
         crate::combinator::defer_settle(STATE_FULFILLED, out as i64, 1, REPR_HEAP)
+    }
+}
+
+/// `Promise.allSettled` over an `Array<Any>` (§27.2.4.3). Every
+/// element lands in the result as a `{status, value}` settled struct
+/// (the typed kernel's MVP shape — a rejected element's reason rides
+/// the `value` slot until the spec-strict union shape ships), and a
+/// rejected element does NOT short-circuit. The struct's value slot
+/// holds boxed AnyValue bits; the checker types the result element
+/// `{status: string, value: any}` so field reads decode the NaN-box.
+/// The result is a typed heap-cell array (chain 4) of struct
+/// pointers — exactly the typed kernel's result shape.
+pub(crate) unsafe fn allsettled_sync_any(promises_arr: *mut c_void) -> *mut c_void {
+    unsafe {
+        let len = *((promises_arr as *mut u8).add(ARR_LEN_OFF) as *const u64);
+        // Absorb + verdict in one walk: a PENDING element (MVP — no
+        // fan-in yet) or an UNSTAMPED settled promise element (mint
+        // family without repr wiring) rejects up front so the build
+        // loop below never aborts mid-array (all_sync_any's gate
+        // posture; allSettled has no first-rejection exit).
+        for i in 0..len {
+            let Some(pp) = slot_promise(any_slot(promises_arr, i)) else {
+                continue;
+            };
+            (*pp).has_handler = 1;
+            if (*pp).state == STATE_PENDING || (*pp).value_repr == REPR_UNSTAMPED {
+                return crate::combinator::defer_settle(STATE_REJECTED, 0, 0, REPR_VOID);
+            }
+        }
+        // Build — every element becomes a settled struct; a boxed
+        // settle value transfers its fresh stake into the struct's
+        // value slot (box_settled_owned inc'd it), a plain value
+        // takes one more owner (typed kernel's value_is_heap inc).
+        let mut result_arr = __torajs_arr_alloc(len);
+        for i in 0..len {
+            let bits = any_slot(promises_arr, i);
+            let s = match slot_promise(bits) {
+                // The pre-scan gated UNSTAMPED — the None arm is
+                // unreachable; undefined keeps it total without a
+                // runtime panic path.
+                Some(pp) => {
+                    let v = box_settled_owned((*pp).value_repr, (*pp).value)
+                        .unwrap_or_else(|| __torajs_anyv_box_from_pair(5, 0));
+                    crate::combinator::alloc_settled_struct((*pp).state, v as i64)
+                }
+                None => {
+                    // Plain value — already fulfilled (§27.2.4.3
+                    // resolve-wrap), stored boxed verbatim.
+                    __torajs_anyv_rc_inc(bits);
+                    crate::combinator::alloc_settled_struct(STATE_FULFILLED, bits as i64)
+                }
+            };
+            result_arr = __torajs_arr_push(result_arr, s as i64);
+        }
+        // {status, value} obj cells — heap-ptr slots (chain 4).
+        __torajs_arr_mark_kind(result_arr, 4);
+        crate::combinator::defer_settle(STATE_FULFILLED, result_arr as i64, 1, REPR_HEAP)
     }
 }
 

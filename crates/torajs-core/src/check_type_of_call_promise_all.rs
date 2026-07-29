@@ -13,8 +13,8 @@
 //!   Promise<T> (single winner / first-fulfilled).
 //! - T-17.c-A3 — `Promise.allSettled(promises)` →
 //!   `Promise<{status: string, value: T}[]>`. T constrained
-//!   to {Number, String, Boolean} primitive set for v0.5 MVP
-//!   (parity with Promise.all's existing T support).
+//!   to {Number, String, Boolean, Any} — the primitive set of
+//!   the v0.5 MVP plus the any-lane sibling's boxed form.
 //!
 //! Heterogeneous T-tuples per spec are deferred until
 //! PromiseId interning preserves per-element T shape.
@@ -71,16 +71,15 @@ pub(crate) fn try_match(
         let inner = match &arg_ty {
             Type::Array(boxed) => match &**boxed {
                 Type::Promise(t_box) => (**t_box).clone(),
-                // §27.2.4.{1,2,5} — a mixed literal (`[Promise.resolve(1),
-                // 2]`) infers Array<Any>; spec resolve-wraps
-                // non-thenable elements, so the shape is legal.
-                // all / race / any: the runtime kernels' any-lane
-                // siblings (combinator_any) decode NaN-box slots.
-                // allSettled still walks raw promise pointers (its
-                // {status, value} result struct has no any-valued
-                // form yet) and stays rejected here (recorded L3b
-                // follow-up).
-                Type::Any if m_name == "all" || m_name == "race" || m_name == "any" => Type::Any,
+                // §27.2.4.{1,2,3,5} — a mixed literal
+                // (`[Promise.resolve(1), 2]`) infers Array<Any>; spec
+                // resolve-wraps non-thenable elements, so the shape is
+                // legal. All four runtime kernels route `FLAG_ARR_ANY`
+                // inputs to their any-lane siblings (combinator_any),
+                // which decode NaN-box slots — allSettled joined with
+                // `allsettled_sync_any` ({status, value: any} settled
+                // structs).
+                Type::Any => Type::Any,
                 other => {
                     return Some(Err(format!(
                         "Promise.{m_name}: arg must be Array<Promise<T>>, got Array<{other:?}>"
@@ -92,15 +91,8 @@ pub(crate) fn try_match(
             // protocol (arrays / strings / Map / Set / iterator
             // cells / class `[Symbol.iterator]()`), and a
             // non-iterable value answers a REJECTED promise instead
-            // of tr rejecting the whole program.
-            //
-            // `allSettled` stays on the knife-A subset — its sync
-            // kernel has no any-lane sibling yet (raw promise-
-            // pointer walk, the recorded L3b follow-up), so only
-            // unambiguously non-iterable primitives are admitted
-            // (the dyn entry only ever rejects); a spec-iterable
-            // argument keeps the loud compile reject rather than a
-            // wrong runtime answer.
+            // of tr rejecting the whole program. All four combinators
+            // share the collect-then-delegate dyn entry.
             //
             // `Array<non-Promise>` element shapes are matched above
             // and stay rejected: the lowering routes statically
@@ -108,21 +100,8 @@ pub(crate) fn try_match(
             // admitting them here would hand that walk non-promise
             // slots (the resolve-wrap element face is its own
             // registered follow-up).
-            Type::Number
-            | Type::Boolean
-            | Type::BigInt
-            | Type::Null
-            | Type::Undefined
-            | Type::Void => {
+            _ => {
                 return Some(Ok(Type::Promise(Box::new(Type::Any))));
-            }
-            _ if m_name != "allSettled" => {
-                return Some(Ok(Type::Promise(Box::new(Type::Any))));
-            }
-            other => {
-                return Some(Err(format!(
-                    "Promise.{m_name}: arg must be Array<Promise<T>>, got {other:?}"
-                )));
             }
         };
         /* Promise.all → Promise<T[]>; .race / .any →
@@ -140,7 +119,14 @@ pub(crate) fn try_match(
         let result = match m_name.as_str() {
             "all" => Type::Promise(Box::new(Type::Array(Box::new(inner)))),
             "allSettled" => {
-                if !matches!(inner, Type::Number | Type::String | Type::Boolean) {
+                // Any joins the primitive set via the any-lane
+                // sibling — the settled struct's value slot carries
+                // boxed AnyValue bits, typed `any` here so field
+                // reads decode the NaN-box.
+                if !matches!(
+                    inner,
+                    Type::Number | Type::String | Type::Boolean | Type::Any
+                ) {
                     return Some(Err(format!(
                         "Promise.allSettled: T must be Number, String, or Boolean in v0.5 MVP (got {inner:?}); spec-strict heterogeneous-T shape ships post-PromiseId interning"
                     )));
