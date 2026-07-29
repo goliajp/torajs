@@ -12,12 +12,13 @@ use crate::ast::ExprId;
 use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 
-/// Typed array receiver with an `any` KEY — the key's runtime tag
-/// decides whether `a[k]` is an element read (`a[i]`), a property
-/// read (`a[len]`), or a miss (`a[1.7]`), so no static lane can
-/// answer it. Box at the lane boundary and hand both sides to the
-/// keyed kernel's §7.1.19 ToPropertyKey dispatch, mirroring the
-/// struct-receiver arm.
+/// Typed array receiver with a KEY that no static lane can answer —
+/// an `any` key (`a[i]`, whose runtime tag decides between an element
+/// read, a property read, and a miss) or a string key (§7.1.19 makes
+/// `a["length"]` ≡ `a.length` and `a["0"]` an element read, and only
+/// the key's spelling tells them apart). Box both sides at the lane
+/// boundary and hand them to the keyed kernel's ToPropertyKey
+/// dispatch, mirroring the struct-receiver arm.
 ///
 /// The kernel reads raw typed slots through the header's element-kind
 /// field, which every array reaching here carries: a heap array
@@ -33,13 +34,19 @@ pub(crate) fn lower_typed_arr_any_key(
 ) -> Operand {
     let boxed = ctx.box_to_any(arr_val);
     let k_raw = ctx.lower_expr(index);
+    let k_ty = ctx.operand_ty(&k_raw);
+    // A string key arrives as a Str slot; the kernel takes an
+    // AnyValue. The box helpers are pure encodings, so the raw
+    // operand keeps its own stake and its own drop below.
+    let k_boxed = if k_ty == Type::Any {
+        k_raw.clone()
+    } else {
+        ctx.box_to_any(k_raw.clone())
+    };
     let cur_block = ctx.cur_block;
     let v = ctx.f.append_inst(
         cur_block,
-        InstKind::Call(
-            ctx.intrinsics.any_index_get_keyed,
-            vec![boxed, k_raw.clone()],
-        ),
+        InstKind::Call(ctx.intrinsics.any_index_get_keyed, vec![boxed, k_boxed]),
         Type::Any,
         None,
     );
@@ -48,8 +55,8 @@ pub(crate) fn lower_typed_arr_any_key(
     // releases; the probe borrows the key, so only an owned temp key
     // is released here (the numeric lane's convention).
     ctx.owned_member_reads.insert(eid);
-    if ctx.expr_transfers_ownership(index) {
-        ctx.emit_drop_value(k_raw, Type::Any);
+    if k_ty.is_refcounted() && ctx.expr_transfers_ownership(index) {
+        ctx.emit_drop_value(k_raw, k_ty);
     }
     Operand::Value(v)
 }
