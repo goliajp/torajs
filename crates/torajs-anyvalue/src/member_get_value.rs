@@ -13,7 +13,7 @@ use crate::member_get_own::{
     arr_own_pair, array_proto_props, closure_virtual_pair, dynobj_proto_pair, function_proto_props,
     strwrapper_length, user_proto_cell, wrapper_proto_props,
 };
-use crate::nanbox::AnyValue;
+use crate::nanbox::{AnyValue, is_short_str};
 
 unsafe extern "C" {
     /// torajs-dynobj — own-property probe pair ((5, 0) = absent).
@@ -44,6 +44,12 @@ pub unsafe extern "C" fn __torajs_any_member_get_value(recv: AnyValue, key: *con
     // what the receiver inherits); the cascade below is string-keyed.
     if unsafe { crate::member_get_symbol::key_is_symbol(key) } {
         return unsafe { crate::member_get_symbol::symbol_key_pair(recv, key) }.1;
+    }
+    // §10.4.3 ShortStr own face — tag twin in `member_get.rs`.
+    if is_short_str(recv)
+        && let Some((_, val)) = unsafe { crate::member_get_str::str_own_pair(recv, key) }
+    {
+        return val;
     }
     match recv_cell(recv) {
         // Miss → builtin-proto own-method cell bits (0 = absent),
@@ -84,34 +90,7 @@ pub unsafe extern "C" fn __torajs_any_member_get_value(recv: AnyValue, key: *con
             }
             v
         },
-        Some((ptr, t)) if t == Tag::Arr as u16 => unsafe {
-            if let Some((_, val)) = arr_own_pair(ptr, key) {
-                return val;
-            }
-            if __torajs_arrprops_get_tag(ptr, key) != 5 {
-                return __torajs_arrprops_get_value(ptr, key);
-            }
-            // Stored-undefined shadow — see the tag twin.
-            if __torajs_arrprops_has(ptr, key) != 0 {
-                return 0;
-            }
-            // Inherited Array.prototype expando — tag twin above.
-            let ap = array_proto_props();
-            if !ap.is_null() {
-                if __torajs_dynobj_get_tag(ap, key) != 5 {
-                    return __torajs_dynobj_get_value(ap, key);
-                }
-                if __torajs_dynobj_has(ap, key) != 0 {
-                    return 0;
-                }
-            }
-            // Arr-cell singleton own surface — tag twin above.
-            let cell = crate::method_support::__torajs_builtin_proto_own_method_cell(ptr, key);
-            if cell != 0 {
-                return cell;
-            }
-            reify_value(recv, key)
-        },
+        Some((ptr, t)) if t == Tag::Arr as u16 => unsafe { arr_arm_value(ptr, recv, key) },
         Some((ptr, t)) if t == Tag::Closure as u16 => unsafe {
             let props = closure_props(ptr);
             if !props.is_null() {
@@ -147,10 +126,16 @@ pub unsafe extern "C" fn __torajs_any_member_get_value(recv: AnyValue, key: *con
         // RFC 20260716 刀 5 (rotation 121 chunk 4) — wrapper own-
         // property expando value probe (mirror of the closure arm).
         Some((ptr, t)) if is_wrapper_tag(t) => unsafe {
-            if t == Tag::StringWrapper as u16
-                && let Some(len) = strwrapper_length(ptr, key)
-            {
-                return len;
+            if t == Tag::StringWrapper as u16 {
+                if let Some(len) = strwrapper_length(ptr, key) {
+                    return len;
+                }
+                // Inherent index face ahead of the expando — tag twin.
+                if let Some(inner) = crate::wrapper_view_through::resolve_inner_recv(ptr, t)
+                    && let Some((_, val)) = crate::member_get_str::str_own_pair(inner, key)
+                {
+                    return val;
+                }
             }
             let props = wrapper_props(ptr);
             if !props.is_null() {
@@ -226,7 +211,52 @@ pub unsafe extern "C" fn __torajs_any_member_get_value(recv: AnyValue, key: *con
             }
             reify_value(recv, key)
         },
+        // §10.4.3 heap Str / Substr own face — tag twin.
+        Some((_, t)) if t == Tag::Str as u16 => unsafe {
+            if let Some((_, val)) = crate::member_get_str::str_own_pair(recv, key) {
+                return val;
+            }
+            reify_value(recv, key)
+        },
         _ => unsafe { reify_value(recv, key) },
+    }
+}
+
+/// `Tag::Arr` value channel — arm-for-arm twin of `member_get.rs`'s
+/// `arr_arm_tag`, extracted alongside it under the 200-line function
+/// rule.
+///
+/// # Safety
+/// `ptr` is a live `Tag::Arr` cell; `key` is a live Str cell; `recv`
+/// NaN-boxes the array.
+unsafe fn arr_arm_value(ptr: *mut c_void, recv: AnyValue, key: *const c_void) -> u64 {
+    unsafe {
+        if let Some((_, val)) = arr_own_pair(ptr, key) {
+            return val;
+        }
+        if __torajs_arrprops_get_tag(ptr, key) != 5 {
+            return __torajs_arrprops_get_value(ptr, key);
+        }
+        // Stored-undefined shadow — see the tag twin.
+        if __torajs_arrprops_has(ptr, key) != 0 {
+            return 0;
+        }
+        // Inherited Array.prototype expando — tag twin above.
+        let ap = array_proto_props();
+        if !ap.is_null() {
+            if __torajs_dynobj_get_tag(ap, key) != 5 {
+                return __torajs_dynobj_get_value(ap, key);
+            }
+            if __torajs_dynobj_has(ap, key) != 0 {
+                return 0;
+            }
+        }
+        // Arr-cell singleton own surface — tag twin above.
+        let cell = crate::method_support::__torajs_builtin_proto_own_method_cell(ptr, key);
+        if cell != 0 {
+            return cell;
+        }
+        reify_value(recv, key)
     }
 }
 

@@ -50,7 +50,7 @@ use crate::member_get_own::{
     user_proto_cell, wrapper_proto_props,
 };
 pub(crate) use crate::member_get_own::{canonical_index, strwrapper_length};
-use crate::nanbox::{AnyValue, is_null, is_undefined};
+use crate::nanbox::{AnyValue, is_null, is_short_str, is_undefined};
 
 unsafe extern "C" {
     /// torajs-dynobj — own-property probe pair ((5, 0) = absent).
@@ -104,6 +104,14 @@ pub unsafe extern "C" fn __torajs_any_member_get_tag(recv: AnyValue, key: *const
     if unsafe { crate::member_get_symbol::key_is_symbol(key) } {
         return unsafe { crate::member_get_symbol::symbol_key_pair(recv, key) }.0;
     }
+    // §10.4.3 — a ShortStr receiver is an inline NaN-box, not a cell,
+    // so it never reaches the match below; its own face answers here
+    // (`member_get_str`).
+    if is_short_str(recv)
+        && let Some((tag, _)) = unsafe { crate::member_get_str::str_own_pair(recv, key) }
+    {
+        return tag;
+    }
     match recv_cell(recv) {
         // Entry miss falls through to the builtin-proto own-method
         // probe (RFC 20260712 chunk 2) — a builtin `<Ctor>.prototype`
@@ -140,40 +148,7 @@ pub unsafe extern "C" fn __torajs_any_member_get_tag(recv: AnyValue, key: *const
             }
             dynobj_builtin_tail_tag(ptr, recv, key)
         },
-        Some((ptr, t)) if t == Tag::Arr as u16 => unsafe {
-            if let Some((tag, _)) = arr_own_pair(ptr, key) {
-                return tag;
-            }
-            let tag = __torajs_arrprops_get_tag(ptr, key);
-            if tag != 5 {
-                return tag;
-            }
-            // Stored-undefined expando shadows the builtin surface
-            // (`arr.join = undefined` reads undefined, not the
-            // reified join cell).
-            if __torajs_arrprops_has(ptr, key) != 0 {
-                return 5;
-            }
-            // Inherited Array.prototype expando (tag-2 singleton).
-            let ap = array_proto_props();
-            if !ap.is_null() {
-                let tag = __torajs_dynobj_get_tag(ap, key);
-                if tag != 5 {
-                    return tag;
-                }
-                if __torajs_dynobj_has(ap, key) != 0 {
-                    return 5;
-                }
-            }
-            // The Array.prototype singleton is an Arr CELL, so a
-            // read of its own interned surface (`constructor`, the
-            // family methods) lands in this arm, not the dynobj one
-            // — same synthesis probe (rotation 131).
-            if crate::method_support::__torajs_builtin_proto_own_method_cell(ptr, key) != 0 {
-                return 4;
-            }
-            reify_tag(recv, key)
-        },
+        Some((ptr, t)) if t == Tag::Arr as u16 => unsafe { arr_arm_tag(ptr, recv, key) },
         Some((ptr, t)) if t == Tag::Closure as u16 => unsafe {
             let props = closure_props(ptr);
             if !props.is_null() {
@@ -279,7 +254,63 @@ pub unsafe extern "C" fn __torajs_any_member_get_tag(recv: AnyValue, key: *const
             }
             reify_tag(recv, key)
         },
+        // §10.4.3 — a heap Str / Substr receiver's own face: `length`
+        // and the canonical index domain. A miss (a method name, an
+        // index past the end) falls to the reify tail.
+        Some((_, t)) if t == Tag::Str as u16 => unsafe {
+            if let Some((tag, _)) = crate::member_get_str::str_own_pair(recv, key) {
+                return tag;
+            }
+            reify_tag(recv, key)
+        },
         _ => unsafe { reify_tag(recv, key) },
+    }
+}
+
+/// `Tag::Arr` `[[GetOwnProperty]]` tag probe — own index / `length`
+/// domain, then the expando bag, the inherited `Array.prototype`
+/// expando, and the singleton's own interned surface, before the
+/// builtin-method reify tail. Extracted from the cascade under the
+/// 200-line function rule when the §10.4.3 Str arm landed, mirroring
+/// [`wrapper_arm_tag`].
+///
+/// # Safety
+/// `ptr` is a live `Tag::Arr` cell; `key` is a live Str cell; `recv`
+/// NaN-boxes the array.
+unsafe fn arr_arm_tag(ptr: *mut c_void, recv: AnyValue, key: *const c_void) -> u64 {
+    unsafe {
+        if let Some((tag, _)) = arr_own_pair(ptr, key) {
+            return tag;
+        }
+        let tag = __torajs_arrprops_get_tag(ptr, key);
+        if tag != 5 {
+            return tag;
+        }
+        // Stored-undefined expando shadows the builtin surface
+        // (`arr.join = undefined` reads undefined, not the reified
+        // join cell).
+        if __torajs_arrprops_has(ptr, key) != 0 {
+            return 5;
+        }
+        // Inherited Array.prototype expando (tag-2 singleton).
+        let ap = array_proto_props();
+        if !ap.is_null() {
+            let tag = __torajs_dynobj_get_tag(ap, key);
+            if tag != 5 {
+                return tag;
+            }
+            if __torajs_dynobj_has(ap, key) != 0 {
+                return 5;
+            }
+        }
+        // The Array.prototype singleton is an Arr CELL, so a read of
+        // its own interned surface (`constructor`, the family
+        // methods) lands in this arm, not the dynobj one — same
+        // synthesis probe (rotation 131).
+        if crate::method_support::__torajs_builtin_proto_own_method_cell(ptr, key) != 0 {
+            return 4;
+        }
+        reify_tag(recv, key)
     }
 }
 
@@ -295,8 +326,17 @@ pub unsafe extern "C" fn __torajs_any_member_get_tag(recv: AnyValue, key: *const
 /// or a live Str cell; `recv` NaN-boxes the wrapper.
 unsafe fn wrapper_arm_tag(ptr: *mut c_void, key: *const c_void, t: u16, recv: AnyValue) -> u64 {
     unsafe {
-        if t == Tag::StringWrapper as u16 && strwrapper_length(ptr, key).is_some() {
-            return AnySlotTag::I64 as u64;
+        if t == Tag::StringWrapper as u16 {
+            if strwrapper_length(ptr, key).is_some() {
+                return AnySlotTag::I64 as u64;
+            }
+            // §10.4.3 — the wrapper's inherent index face is
+            // non-configurable, so it answers ahead of the expando.
+            if let Some(inner) = crate::wrapper_view_through::resolve_inner_recv(ptr, t)
+                && let Some((tag, _)) = crate::member_get_str::str_own_pair(inner, key)
+            {
+                return tag;
+            }
         }
         let props = wrapper_props(ptr);
         if !props.is_null() {
