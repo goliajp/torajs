@@ -83,3 +83,7 @@ console.log(JSON.stringify(Object.keys(d)));
 const gt: any = Object.getOwnPropertyDescriptor(d, typedSym);
 const gb: any = Object.getOwnPropertyDescriptor(d, s1);
 console.log(gt === undefined ? "undefined" : gt.value, gb === undefined ? "undefined" : gb.value);
+
+// `in` resolved its key by static type too, and rejected the whole
+// program for an `any` key rather than answering.
+console.log(s1 in d, typedSym in d, ("nope" as any) in d);

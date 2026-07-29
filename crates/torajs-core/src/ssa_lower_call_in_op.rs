@@ -14,7 +14,9 @@
 //!   would always be the literal-key constant fold anyway).
 //! - `Type::Any` — dispatch on the **key**'s static type:
 //!   `Number → __torajs_in_op_any_num`,
-//!   `String → __torajs_in_op_any_str`.
+//!   `String → __torajs_in_op_any_str`, and an `any` key through
+//!   §7.1.19 first (the resolver the define family shares) so a
+//!   symbol riding an `any` reaches the str kernel as itself.
 //!   Both helpers read `HeapHeader::type_tag@+4` and route by Tag
 //!   (`Arr → bounds check`, `DynObj → __torajs_dynobj_has`, else
 //!   `false`). The old single-path arm called `dynobj_has`
@@ -133,6 +135,41 @@ pub(crate) fn try_lower(
                 InstKind::Call(ctx.intrinsics.in_op_any_str, vec![obj_op, key_op]),
                 Type::Bool,
                 None,
+            );
+            // See the num arm — same pending-throw contract.
+            ctx.emit_throw_check(None);
+            return Some(Operand::Value(r));
+        }
+        // An `any` key only names its kind at run time, and §7.1.19
+        // is defined on the value, so it resolves through the same
+        // kernel the define family asks: a Symbol arrives as itself,
+        // everything else as its ToString. Without this the whole
+        // program was rejected, which is how `sym in o` reads when
+        // the symbol travels in an `any` — the usual way it travels.
+        if matches!(key_ty, Type::Any) {
+            let k = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.anyv_to_property_key, vec![key_op.clone()]),
+                Type::Ptr,
+                None,
+            );
+            ctx.release_owned_temp(args[0], &key_op);
+            ctx.emit_throw_check(None);
+            let r = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(
+                    ctx.intrinsics.in_op_any_str,
+                    vec![obj_op, Operand::Value(k)],
+                ),
+                Type::Bool,
+                None,
+            );
+            ctx.f.append_void(
+                ctx.cur_block,
+                InstKind::Call(
+                    ctx.intrinsics.anyv_property_key_drop,
+                    vec![Operand::Value(k)],
+                ),
             );
             // See the num arm — same pending-throw contract.
             ctx.emit_throw_check(None);
