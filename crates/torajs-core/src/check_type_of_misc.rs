@@ -228,12 +228,19 @@ pub(crate) fn check_post_incr(
     target: ExprId,
 ) -> Result<Type, String> {
     let ty = checker.type_of(ast, target)?;
-    if ty != Type::Number {
-        return Err(format!(
-            "post-increment requires a number target, got {ty:?}"
-        ));
+    // ES §13.4.4.1 step 1 is ToNumeric, so an update expression is
+    // legal over any value — `"5"++` is 6, `true++` is 2. The typed
+    // lane still demands a Number because it adds one at the slot's
+    // own width with no coercion in between; an `any` slot carries
+    // the coercion into the runtime step and answers `any` (the
+    // result is a Number or, for a BigInt operand, a BigInt).
+    match ty {
+        Type::Number => Ok(Type::Number),
+        Type::Any => Ok(Type::Any),
+        other => Err(format!(
+            "post-increment requires a number target, got {other:?}"
+        )),
     }
-    Ok(Type::Number)
 }
 
 pub(crate) fn check_sequence(

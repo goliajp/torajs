@@ -66,6 +66,15 @@ pub(crate) struct AnySubstrateIds {
     /// RFC 20260716 刀 7 — unary `~` on an Any operand per ES §13.5.6.
     /// Operand `ToNumber` → `ToInt32` → `xor -1`.
     pub any_bitnot: FuncId,
+    /// `x++` / `x--` on an `any` slot per ES §13.4.4 / §13.4.5. Takes
+    /// the slot pointer rather than the loaded value: §13.4.4.1 puts a
+    /// ToNumeric between the load and the add that must run exactly
+    /// once (a second one would call `valueOf` twice) and that picks
+    /// the numeric domain — BigInt or Number — for the step. The whole
+    /// read-modify-write therefore stays on the runtime side, which
+    /// also keeps the replaced value's release next to the store. The
+    /// result is the COERCED old value (`s = "5"; s++` answers 5).
+    pub any_incr_slot: FuncId,
     pub any_compare: FuncId,
     pub any_strict_eq: FuncId,
     /// SameValueZero pair variant (§7.2.9) — `includes` with an
@@ -248,6 +257,7 @@ pub(crate) fn declare(
         any_arith: decl!("__torajs_anyv_arith_pair", [I64, I64, I64, I64, I64], Any),
         any_bitwise: decl!("__torajs_anyv_bitwise_pair", [I64, I64, I64, I64, I64], Any),
         any_bitnot: decl!("__torajs_anyv_bitnot_pair", [I64, I64], Any),
+        any_incr_slot: decl!("__torajs_anyv_incr_slot", [Ptr, I64], Any),
         any_compare: decl!(
             "__torajs_anyv_compare_pair",
             [I64, I64, I64, I64, I64],

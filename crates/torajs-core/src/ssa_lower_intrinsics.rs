@@ -445,6 +445,8 @@ pub(crate) struct Intrinsics {
     pub(crate) any_bitwise: FuncId,
     /// RFC 20260716 刀 7 — Any unary `~` dispatch.
     pub(crate) any_bitnot: FuncId,
+    /// `x++` / `x--` over an `any` slot (§13.4.4 / §13.4.5).
+    pub(crate) any_incr_slot: FuncId,
     pub(crate) any_compare: FuncId,
     pub(crate) any_strict_eq: FuncId,
     /// SameValueZero pair variant (§7.2.9) — includes-with-any-needle.

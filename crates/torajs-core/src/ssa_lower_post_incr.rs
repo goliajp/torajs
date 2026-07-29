@@ -19,11 +19,17 @@
 //!   `emit_arr_slot_byte_offset` (11-A1 non-deque peek fast
 //!   path).
 //!
-//! Type is always Number (typecheck enforced); the incr op must
-//! match the slot width — `FAdd`/`FSub` on `ConstF64(1.0)` for
-//! f64 slots, `Add`/`Sub` on `ConstI64(1)` for i64 (codegen
-//! dispatches register class by op kind, so an int Add with an
-//! f64 result is an invalid SSA shape).
+//! On the typed lanes the incr op must match the slot width —
+//! `FAdd`/`FSub` on `ConstF64(1.0)` for f64 slots, `Add`/`Sub` on
+//! `ConstI64(1)` for i64 (codegen dispatches register class by op
+//! kind, so an int Add with an f64 result is an invalid SSA shape).
+//!
+//! An `any` slot cannot be stepped inline at all: §13.4.4.1 puts a
+//! ToNumeric between the load and the add, which must run exactly once
+//! and which picks the numeric domain — BigInt or Number — the step
+//! happens in. Both Ident shapes hand the slot pointer to one runtime
+//! call instead ([`lower_any_slot`]); Member and Index on an `any`
+//! element stay loud (registered).
 //!
 //! Returns `Operand` directly (terminal arm — caller's
 //! `Expr::PostIncr` match arm bottoms out here).
@@ -51,6 +57,9 @@ fn lower_ident(ctx: &mut LowerCtx<'_>, name: String, is_inc: bool) -> Operand {
         Some(i) => *i,
         None => panic!("ssa-lower: post-incr on unknown ident `{name}`"),
     };
+    if info.ty == Type::Any {
+        return lower_any_slot(ctx, Operand::Value(info.slot), is_inc);
+    }
     let cur_block = ctx.cur_block;
     let old = ctx.f.append_inst(
         cur_block,
@@ -83,6 +92,9 @@ fn lower_ident_global(
     let ptr = ctx
         .f
         .append_inst(cur_block, InstKind::GlobalRef(name), Type::Ptr, None);
+    if slot_ty == Type::Any {
+        return lower_any_slot(ctx, Operand::Value(ptr), is_inc);
+    }
     let cur_block = ctx.cur_block;
     let old = ctx.f.append_inst(
         cur_block,
@@ -101,6 +113,24 @@ fn lower_ident_global(
     ctx.f.append_void(
         cur_block,
         InstKind::Store(Operand::Value(new_v), Operand::Value(ptr), 0),
+    );
+    Operand::Value(old)
+}
+
+/// The `any`-slot lane — one call carrying the whole §13.4.4.1 step
+/// (load, ToNumeric, add one in the operand's own numeric domain,
+/// release the replaced value, store) and answering the coerced old
+/// value. See `Intrinsics::any_incr_slot` for why the runtime takes
+/// the slot pointer instead of the loaded value.
+fn lower_any_slot(ctx: &mut LowerCtx<'_>, slot: Operand, is_inc: bool) -> Operand {
+    let fid = ctx.intrinsics.any_incr_slot;
+    let flag = Operand::ConstI64(if is_inc { 1 } else { 0 });
+    let cur_block = ctx.cur_block;
+    let old = ctx.f.append_inst(
+        cur_block,
+        InstKind::Call(fid, vec![slot, flag]),
+        Type::Any,
+        None,
     );
     Operand::Value(old)
 }

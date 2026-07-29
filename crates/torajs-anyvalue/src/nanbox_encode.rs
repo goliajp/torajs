@@ -384,7 +384,9 @@ pub extern "C" fn __torajs_anyv_unbox_settle(v: AnyValue, raw: i64) {
     }
 }
 
+mod incr;
 mod pair;
+pub use incr::*;
 pub use pair::*;
 
 #[cfg(test)]

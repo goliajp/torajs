@@ -149,6 +149,11 @@ impl<'a> LowerCtx<'a> {
             // field store) added their own inc on top of the
             // stranded +1.
             Expr::Array(_) | Expr::ObjectLit { .. } => true,
+            // An update expression over an `any` slot answers the
+            // runtime step's own coerced value, owned. The typed lanes
+            // answer a bare number, which `release_owned_temp`'s copy
+            // check drops out of before reaching a release site.
+            Expr::PostIncr { .. } => true,
             // Chunk 637 — a Member read is normally a receiver
             // borrow, but `ssa_lower_member::lower` detaches the
             // result (owned inc) when the receiver was itself an
