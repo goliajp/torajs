@@ -117,7 +117,15 @@ fn read_harness() -> Result<String, String> {
 ///                              first ident arg — torajs has no way
 ///                              to compare class identity at runtime)
 ///   - bare `assert(`          → `__t262_assert(`
-///   - leading-word `var `     → `let `
+///
+/// `var` passes through UNCHANGED. A `var ` → `let ` rewrite lived here
+/// from before tr parsed `var` at all, and outlived its need: the two
+/// keywords do not mean the same thing (function scope + hoisting vs
+/// block scope + TDZ), and a duplicate `var` — legal per §14.3.2 —
+/// became a duplicate `let`, which is a real SyntaxError. Both the
+/// oracle and tr read the rewritten source, so neither the passes nor
+/// the rejections it produced were statements about the case as
+/// written.
 ///
 /// What this DOESN'T do: untyped fn-decl parameter annotation,
 /// `null` / `undefined` literals, or features like Proxy. Those hit
@@ -272,19 +280,6 @@ fn transform_source(src: &str) -> String {
             }
         }
         if hit_helper {
-            continue;
-        }
-        // `var ` → `let ` (word-boundary on the left + whitespace on the
-        // right). The dot gate keeps member positions intact — without it
-        // `tokenCodes.var = 'var'` rewrote to `tokenCodes.let = ...` and
-        // the reserved-word property silently vanished (rotation 204,
-        // ident-name-keyword-memberexpr).
-        if starts_with_at(bytes, i, b"var ")
-            && !preceded_by_dot(bytes, i)
-            && !preceded_by_word(bytes, i)
-        {
-            out.push_str("let ");
-            i += b"var ".len();
             continue;
         }
         copy_utf8_char(bytes, &mut i, &mut out);
@@ -864,19 +859,25 @@ mod transform_tests {
             out.contains("__t262_sameValue("),
             "assert.sameValue rewrite lost: {out:?}"
         );
-        assert!(out.contains("let x"), "var → let rewrite lost: {out:?}");
+        assert!(
+            out.contains("var x = 1;"),
+            "var declaration mangled: {out:?}"
+        );
     }
 
     #[test]
-    fn member_position_var_not_rewritten() {
-        // rotation 204 — `.var ` is a reserved-word property access,
-        // not a declaration; the dot gate must keep it intact.
-        let src = "var x = 1;\ntokenCodes.var = 'var';\n";
+    fn var_is_carried_through_verbatim() {
+        // The runner used to rewrite `var ` -> `let ` — a crutch from
+        // before tr parsed `var` at all. It outlived its need and had
+        // become a source of wrong verdicts in both directions: the two
+        // keywords do not mean the same thing (function scope +
+        // hoisting vs block scope + TDZ), and a duplicate `var` — legal
+        // per §14.3.2 — turned into a duplicate `let`, which is a real
+        // SyntaxError. Both the oracle and tr saw the rewritten source,
+        // so neither the passes nor the rejections it produced were
+        // statements about the case as written.
+        let src = "var x = 1;\nvar x = 2;\ntokenCodes.var = 'var';\n";
         let out = transform_source(src);
-        assert!(out.contains("let x"), "decl rewrite lost: {out:?}");
-        assert!(
-            out.contains("tokenCodes.var = 'var'"),
-            "member-position var mangled: {out:?}"
-        );
+        assert_eq!(out, src, "source must reach the engines unrewritten");
     }
 }
