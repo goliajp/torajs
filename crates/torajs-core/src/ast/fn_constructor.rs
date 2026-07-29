@@ -361,7 +361,21 @@ pub fn synthesize_fn_constructors(ast: &mut Ast) {
             continue;
         };
 
-        let empty_obj = ast.add_expr(Expr::ObjectLit { fields: Vec::new() });
+        // §10.2.2 step 5 (OrdinaryCreateFromConstructor) — the instance's
+        // [[Prototype]] is F.prototype, not %Object.prototype%. Built as
+        // an object-literal `__proto__` field so it rides the existing
+        // literal-proto lane; the `.prototype` read materializes the
+        // function's prototype object (with its `constructor` back-ref)
+        // on first touch. This is what makes `new F().constructor === F`
+        // and the classic `F.prototype.m = ...` method pattern resolve.
+        let proto_base = ast.add_expr(Expr::Ident(c.name.clone()));
+        let proto_read = ast.add_expr(Expr::Member {
+            obj: proto_base,
+            name: "prototype".into(),
+        });
+        let empty_obj = ast.add_expr(Expr::ObjectLit {
+            fields: vec![("__proto__".into(), proto_read)],
+        });
         let let_this = Stmt::LetDecl {
             mutable: true,
             name: "__this".into(),
