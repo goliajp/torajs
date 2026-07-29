@@ -43,6 +43,21 @@ const f: any = [1, 2];
 Object.freeze(f);
 console.log(delete f["9"]);
 
+// a HOLE is absent, not read-only: the store re-creates it while the
+// array is still extensible (the first cut of the write guard read a
+// hole's flags word as "not writable" and refused every revive)
+const h: any = [1, 2, 3];
+delete h["1"];
+h[1] = 5;
+console.log(h[1], JSON.stringify(Object.getOwnPropertyDescriptor(h, "1")));
+
+// ...but creating one back is a store into a non-extensible cell once
+// the array is frozen, so that refusal stands
+const hf: any = [1, 2, 3];
+delete hf["1"];
+Object.freeze(hf);
+try { hf[1] = 5; console.log("hole wrote", hf[1]); } catch (e) { console.log("hole write threw", (e as any).constructor.name, hf[1]); }
+
 // a frozen plain object was already correct — regression witness
 const o: any = { x: 1 };
 Object.freeze(o);
