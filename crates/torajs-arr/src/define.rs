@@ -31,6 +31,11 @@ use core::ffi::c_void;
 
 use torajs_rc::{FLAG_ARR_EXOTIC_INDEX, FLAG_ARR_LENGTH_RO, FLAG_NON_EXTENSIBLE, HeapHeader, Tag};
 
+// The per-index attribute READERS live in the sibling (file-size
+// rule); the re-export keeps every `crate::define::` consumer path
+// unchanged.
+pub(crate) use crate::define_index_flags::{__torajs_arr_index_flags, index_flags_with_key};
+
 use crate::layout::ARR_LEN_OFF;
 
 unsafe extern "C" {
@@ -143,40 +148,6 @@ pub(crate) unsafe fn props_slot(arr: *mut c_void) -> *mut *mut c_void {
 #[inline]
 pub(crate) unsafe fn header_flags(arr: *const c_void) -> u16 {
     unsafe { (arr.cast::<u8>().add(6) as *const u16).read() }
-}
-
-/// Current attribute flags of index `idx` — the shadow entry when one
-/// exists, the implicit defaults otherwise. `key` is the caller's
-/// index Str (avoids a re-mint).
-pub(crate) unsafe fn index_flags_with_key(arr: *const c_void, key: *const c_void) -> u64 {
-    if unsafe { header_flags(arr) } & FLAG_ARR_EXOTIC_INDEX == 0 {
-        return FLAGS_DEFAULT;
-    }
-    let props = unsafe { *props_slot(arr as *mut c_void) };
-    if props.is_null() || unsafe { __torajs_dynobj_has(props, key) } == 0 {
-        return FLAGS_DEFAULT;
-    }
-    if unsafe { __torajs_dynobj_entry_is_hole(props, key) } != 0 {
-        return F_HOLE;
-    }
-    unsafe { __torajs_dynobj_get_flags(props, key) }
-}
-
-/// `Object.getOwnPropertyDescriptor` / element-write flags probe —
-/// mint the canonical index key, read the shadow entry (or defaults).
-/// Fast path: exotic bit clear → defaults with zero allocation.
-///
-/// # Safety
-/// `arr` is a live `Tag::Arr` heap pointer.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_arr_index_flags(arr: *const c_void, idx: u64) -> u64 {
-    if unsafe { header_flags(arr) } & FLAG_ARR_EXOTIC_INDEX == 0 {
-        return FLAGS_DEFAULT;
-    }
-    let key = unsafe { mint_index_key(idx) };
-    let flags = unsafe { index_flags_with_key(arr, key as *const c_void) };
-    unsafe { __torajs_str_drop(key as *mut c_void) };
-    flags
 }
 
 /// Mint a pooled Str carrying the canonical decimal digits of `idx`

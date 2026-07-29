@@ -43,6 +43,7 @@ pub mod any_typed_bridge;
 pub mod define;
 pub mod define_accessor;
 pub mod define_hole;
+pub mod define_index_flags;
 pub mod define_length;
 pub mod drop;
 pub mod from_string;

@@ -6,15 +6,22 @@
 
 use core::ffi::c_void;
 
-use torajs_rc::Tag;
+use torajs_rc::{FLAG_ARR_EXOTIC_INDEX, FLAG_FROZEN, FLAG_SEALED, Tag};
 
 use crate::index_any::i64_dec;
+
+/// `torajs_arr::define::F_WRITABLE` mirror — attribute bit 0.
+const F_WRITABLE: u64 = 1 << 0;
+
 use crate::nanbox::{AnyValue, as_void_ptr, is_cell, is_null, is_undefined};
 
 unsafe extern "C" {
     /// torajs-arr — kind-aware `arr[idx] = (tag, value)` (pair ABI,
     /// tag 4 transfers one rc).
     fn __torajs_arr_index_set(arr: *mut c_void, idx: i64, tag: u64, value: u64);
+    /// torajs-arr — per-index attribute flags (bit 0 = writable),
+    /// already masked by the cell's integrity level.
+    fn __torajs_arr_index_flags(arr: *const c_void, idx: u64) -> u64;
     /// Universal NaN-box-safe heap dropper (torajs-value-drop).
     fn __torajs_value_drop_heap(p: *mut c_void);
     /// torajs-str — release a heap Str reference.
@@ -76,6 +83,33 @@ pub unsafe extern "C" fn __torajs_any_index_set(
     let ptr = as_void_ptr(recv);
     let hdr_tag = unsafe { (ptr.cast::<u8>().add(4) as *const u16).read() };
     if hdr_tag == Tag::Arr as u16 {
+        // §10.4.2.1 / OrdinarySetWithOwnDescriptor — a non-writable
+        // own index refuses the store, and a module-strict program
+        // turns that refusal into a TypeError. The element domain has
+        // no per-slot attribute storage, so the flags probe folds in
+        // both the defineProperty shadow and the cell's integrity
+        // level; an out-of-range index owns nothing and falls through
+        // to the kernel's own RangeError. Pre-fix `Object.freeze(a)`
+        // left `a[i] = v` MUTATING the frozen array (and a
+        // `writable: false` index was equally writable), while
+        // `Object.isFrozen` answered true.
+        //
+        // The probe is a cross-staticlib call, so the hot path skips
+        // it on the header word already loaded for `hdr_tag`: an
+        // index can only be non-writable through a defineProperty
+        // shadow (the exotic bit) or an integrity level, and a plain
+        // array carries neither.
+        let hflags = unsafe { (ptr.cast::<u8>().add(6) as *const u16).read() };
+        if idx >= 0
+            && hflags & (FLAG_ARR_EXOTIC_INDEX | FLAG_FROZEN | FLAG_SEALED) != 0
+            && unsafe { __torajs_arr_index_flags(ptr, idx as u64) } & F_WRITABLE == 0
+        {
+            unsafe {
+                drop_transferred_pair(tag, value);
+                __torajs_throw_type_error(c"cannot assign to a read-only property".as_ptr());
+            }
+            return;
+        }
         unsafe { __torajs_arr_index_set(ptr, idx, tag, value) };
         return;
     }
