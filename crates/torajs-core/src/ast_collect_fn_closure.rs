@@ -147,10 +147,20 @@ impl<'a> FnToClosureCollector<'a> {
                 mutable,
                 type_ann,
                 init,
+                is_var,
                 ..
             } => {
                 self.collect_objectlit_field_sites(*init, type_ann.as_deref());
-                if type_ann.as_deref().is_some_and(|a| a.trim() == "any") {
+                // RFC 20260729-fn-value-any V4 刀 3 — a `var` slot is
+                // an `any` destination whatever the source says: the
+                // hoist pass (which runs AFTER this collector) mints
+                // every hoisted binding as `any` on purpose, since a
+                // pre-init read is `undefined` and a var may be
+                // reassigned across types. Reading only the written
+                // annotation left `var b = foo` — the plainest fn-value
+                // alias there is — panicking the whole program at
+                // box_to_any while the `let` / `const` forms worked.
+                if *is_var || type_ann.as_deref().is_some_and(|a| a.trim() == "any") {
                     self.collect_any_init_sites(*init);
                 }
                 // Chunk 733 — `const fns: ((n)=>n)[] = [top_fn, ...]`:
