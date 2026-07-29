@@ -22,7 +22,18 @@ use crate::ast::{Stmt, is_fn_like_ann};
 /// Collect every `let`/`const`/`var` binding name carrying an `any`
 /// annotation, recursing through fn bodies and statement containers.
 pub(crate) fn collect_any_bindings(stmts: &[Stmt], out: &mut HashSet<String>) {
-    collect_bindings_matching(stmts, &|a| a.trim() == "any", out);
+    // A `var` binding counts whatever the source says, on the same
+    // grounds V4 knife 3 gave the init axis: the hoist pass — which
+    // runs after this walk — mints every hoisted binding as `any` on
+    // purpose, since a pre-init read is `undefined` and a var may be
+    // reassigned across types. Reading only the written annotation
+    // left `var x; x = foo;` panicking at box_to_any while
+    // `var x = foo` (knife 3) and `let x: any; x = foo` both worked.
+    walk_bindings(stmts, &mut |name, ann, _, is_var| {
+        if is_var || ann.is_some_and(|a| a.trim() == "any") {
+            out.insert(name.to_string());
+        }
+    });
 }
 
 /// Chunk 733 — binding names declared with a fn-typed array
@@ -55,7 +66,7 @@ pub(crate) fn collect_untyped_new_init_bindings(
     stmts: &[Stmt],
     out: &mut HashSet<String>,
 ) {
-    walk_bindings(stmts, &mut |name, ann, init| {
+    walk_bindings(stmts, &mut |name, ann, init, _| {
         let ctor_init = match ast.get_expr(init) {
             crate::ast::Expr::New { .. } => true,
             crate::ast::Expr::Call { callee, .. } => matches!(
@@ -86,7 +97,7 @@ pub(crate) fn collect_bindings_ann_matching(
     pred: &dyn Fn(&str) -> bool,
     out: &mut HashMap<String, String>,
 ) {
-    walk_bindings(stmts, &mut |name, ann, _| {
+    walk_bindings(stmts, &mut |name, ann, _, _| {
         if let Some(ann) = ann
             && pred(ann)
         {
@@ -102,7 +113,7 @@ fn collect_bindings_matching(
     pred: &dyn Fn(&str) -> bool,
     out: &mut HashSet<String>,
 ) {
-    walk_bindings(stmts, &mut |name, ann, _| {
+    walk_bindings(stmts, &mut |name, ann, _, _| {
         if let Some(ann) = ann
             && pred(ann)
         {
@@ -114,21 +125,22 @@ fn collect_bindings_matching(
 /// Visit every annotated `let`/`const`/`var` binding (name, ann)
 /// recursing through fn bodies and statement containers — the shared
 /// walker behind the set and map collections (chunk 783 rework).
-fn walk_bindings(stmts: &[Stmt], f: &mut dyn FnMut(&str, Option<&str>, crate::ast::ExprId)) {
+fn walk_bindings(stmts: &[Stmt], f: &mut dyn FnMut(&str, Option<&str>, crate::ast::ExprId, bool)) {
     for s in stmts {
         walk_bindings_stmt(s, f);
     }
 }
 
-fn walk_bindings_stmt(s: &Stmt, f: &mut dyn FnMut(&str, Option<&str>, crate::ast::ExprId)) {
+fn walk_bindings_stmt(s: &Stmt, f: &mut dyn FnMut(&str, Option<&str>, crate::ast::ExprId, bool)) {
     match s {
         Stmt::LetDecl {
             name,
             type_ann,
             init,
+            is_var,
             ..
         } => {
-            f(name, type_ann.as_deref(), *init);
+            f(name, type_ann.as_deref(), *init, *is_var);
         }
         Stmt::FnDecl { body, .. } => walk_bindings(body, f),
         Stmt::If {
