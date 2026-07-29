@@ -46,6 +46,7 @@ use crate::ssa_lower::LowerCtx;
 
 pub(crate) use crate::ssa_lower_index_any_key::{
     lower_any_index_str_key, lower_any_index_symbol_key, lower_array_any_index,
+    lower_typed_arr_any_key,
 };
 
 pub(crate) fn lower(ctx: &mut LowerCtx<'_>, eid: ExprId, obj: ExprId, index: ExprId) -> Operand {
@@ -231,6 +232,11 @@ pub(crate) fn lower_from_value(
         ctx.owned_member_reads.insert(eid);
         ctx.release_owned_temp(obj, &arr_val);
         return Operand::Value(v);
+    }
+    if matches!(arr_ty, Type::Arr(_))
+        && matches!(ctx.expr_types.get(&index), Some(crate::check::Type::Any))
+    {
+        return lower_typed_arr_any_key(ctx, eid, arr_val, index);
     }
     // RC-4 F1a — a nullable-arr receiver (exec/match result) may be
     // null on miss; guard before the element load (both Arr<Any>

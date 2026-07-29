@@ -34,7 +34,13 @@ impl<'a> LowerCtx<'a> {
             self.emit_arr_mark_kind(op);
         }
     }
-    fn arr_kind_chain(&self, elem: &Type, depth: u32) -> u64 {
+    /// Element-kind chain for an array layout — 3 bits per nesting
+    /// level, little-endian. Also read by
+    /// [`crate::ssa_lower_array::alloc_stack_arr`], which bakes the
+    /// level-0 kind straight into the alloca's header (a stack
+    /// literal carries `FLAG_STATIC_LITERAL`, which the runtime
+    /// marker refuses to write).
+    pub(crate) fn arr_kind_chain(&self, elem: &Type, depth: u32) -> u64 {
         if depth >= 21 {
             return 0;
         }

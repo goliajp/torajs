@@ -425,8 +425,21 @@ fn alloc_stack_arr(
         Type::Arr(arr_id),
         None,
     );
-    // Header packed: tag=2 (ARR) bits 32..48, flags=4 (STATIC) bits 48..64.
-    let hdr_packed: i64 = (2i64 << 32) | (4i64 << 48);
+    // Header packed: tag=2 (ARR) bits 32..48, flags bits 48..64 =
+    // STATIC (4) | element-kind field (bits 10-12).
+    //
+    // The kind is baked HERE rather than written by
+    // `__torajs_arr_mark_kind` at the boxing boundary: that helper
+    // refuses every FLAG_STATIC_LITERAL block ("never write
+    // `.rodata`"), so a stack literal would reach the kind-aware
+    // readers as ARR_KIND_UNSET and answer `undefined`. A stack
+    // alloca is writable, but it is also known-typed at emit time —
+    // so it is born self-describing and the runtime gate stays
+    // intact. `on_stack` implies a non-refcounted element, so the
+    // chain is always one scalar level (I64 / F64 / Bool).
+    let elem = ctx.arr_layouts[arr_id.0 as usize];
+    let kind = ctx.arr_kind_chain(&elem, 0);
+    let hdr_packed: i64 = (2i64 << 32) | ((4i64 | ((kind as i64) << 10)) << 48);
     let cur_block = ctx.cur_block;
     ctx.f.append_void(
         cur_block,

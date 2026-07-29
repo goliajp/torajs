@@ -12,6 +12,48 @@ use crate::ast::ExprId;
 use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 
+/// Typed array receiver with an `any` KEY — the key's runtime tag
+/// decides whether `a[k]` is an element read (`a[i]`), a property
+/// read (`a[len]`), or a miss (`a[1.7]`), so no static lane can
+/// answer it. Box at the lane boundary and hand both sides to the
+/// keyed kernel's §7.1.19 ToPropertyKey dispatch, mirroring the
+/// struct-receiver arm.
+///
+/// The kernel reads raw typed slots through the header's element-kind
+/// field, which every array reaching here carries: a heap array
+/// records it inside `box_to_any`, and a non-escaping array literal
+/// is born with it baked in (`ssa_lower_array::alloc_stack_arr` —
+/// such a block is FLAG_STATIC_LITERAL, which the runtime marker
+/// refuses to write).
+pub(crate) fn lower_typed_arr_any_key(
+    ctx: &mut LowerCtx<'_>,
+    eid: ExprId,
+    arr_val: Operand,
+    index: ExprId,
+) -> Operand {
+    let boxed = ctx.box_to_any(arr_val);
+    let k_raw = ctx.lower_expr(index);
+    let cur_block = ctx.cur_block;
+    let v = ctx.f.append_inst(
+        cur_block,
+        InstKind::Call(
+            ctx.intrinsics.any_index_get_keyed,
+            vec![boxed, k_raw.clone()],
+        ),
+        Type::Any,
+        None,
+    );
+    ctx.emit_throw_check(None);
+    // The kernel answers cells with an explicit +1, so the consumer
+    // releases; the probe borrows the key, so only an owned temp key
+    // is released here (the numeric lane's convention).
+    ctx.owned_member_reads.insert(eid);
+    if ctx.expr_transfers_ownership(index) {
+        ctx.emit_drop_value(k_raw, Type::Any);
+    }
+    Operand::Value(v)
+}
+
 pub(crate) fn lower_array_any_index(
     ctx: &mut LowerCtx<'_>,
     arr_val: Operand,

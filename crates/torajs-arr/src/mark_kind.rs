@@ -14,8 +14,12 @@
 //!
 //! Gates:
 //! - NULL → no-op
-//! - `FLAG_STATIC_LITERAL` → no-op (never write `.rodata`; no baked
-//!   array literals exist today, but the boundary is real)
+//! - `FLAG_STATIC_LITERAL` → no-op (never write `.rodata`). Such
+//!   blocks must therefore be born self-describing: ssa-lower's
+//!   `alloc_stack_arr` bakes the element-kind field straight into the
+//!   header it emits for a non-escaping array literal. Skipping that
+//!   bake leaves the block ARR_KIND_UNSET and every kind-aware reader
+//!   answers `undefined` — the gate here cannot fix it up later.
 //! - `FLAG_ARR_ANY` → no-op (NaN-box slots are self-describing;
 //!   nested typed arrays inside Any slots are marked at their own
 //!   boxing sites in `lower_array_any_literal`'s `box_to_tag_value`)

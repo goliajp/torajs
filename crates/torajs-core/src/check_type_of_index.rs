@@ -67,11 +67,20 @@ pub(crate) fn check(
     if idx_ty != Type::Number
         && !(matches!(obj_ty, Type::Any | Type::Struct(_))
             && matches!(idx_ty, Type::String | Type::Symbol | Type::Any))
+        // An `any` key on an ARRAY receiver rides the same keyed
+        // kernel: `a[k]` is an element read, a property read, or a
+        // miss depending on k's runtime tag, and §7.1.19 decides
+        // which. The static answer is Any for the same reason the
+        // struct receiver's is — the three outcomes have no common
+        // narrower type.
+        && !(matches!(obj_ty, Type::Array(_)) && matches!(idx_ty, Type::Any))
     {
         return Err(format!("index must be number, got {idx_ty:?}"));
     }
     match obj_ty {
         Type::String => Ok(Type::String),
+        // See the `any`-key note on the reject above.
+        Type::Array(_) if idx_ty == Type::Any => Ok(Type::Any),
         Type::Array(elem) => Ok(*elem),
         // Chunk 753 — struct receiver + dynamic index (the literal
         // form resolved through the member checker above): runtime
