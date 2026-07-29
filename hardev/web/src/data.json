@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-29T09:33:52.954Z",
+  "generatedAt": "2026-07-29T12:17:01.541Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-29T09:32:57Z",
-    "headSha": "59fd6799",
-    "elapsedSec": 293.07,
+    "ranAt": "2026-07-29T12:16:09Z",
+    "headSha": "62f92006",
+    "elapsedSec": 281.58,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 15898,
+    "pass": 16255,
     "passNoOracle": 489,
     "passNegative": 4489,
-    "passTotal": 20876,
-    "bug": 2907,
-    "incompatible": 29391,
+    "passTotal": 21233,
+    "bug": 2972,
+    "incompatible": 28969,
     "bunSkip": 7080,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 23783,
-    "passRateInScope": 39.26,
-    "passRateTrAccepted": 87.78
+    "trAccepted": 24205,
+    "passRateInScope": 39.93,
+    "passRateTrAccepted": 87.72
   },
   "torajs": {
-    "commit": "59fd6799",
-    "commitSubject": "fix(core): a var slot is an any destination on the assign axis too",
+    "commit": "62f92006",
+    "commitSubject": "feat(core): a symbol key works on an array",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,26 @@
   },
   "commits": [
     {
+      "hash": "62f92006",
+      "subject": "feat(core): a symbol key works on an array"
+    },
+    {
+      "hash": "5c7871c1",
+      "subject": "feat(core): a string key works on an array"
+    },
+    {
+      "hash": "51f12f21",
+      "subject": "feat(core): a class-expression binding can be a parent"
+    },
+    {
+      "hash": "35a60f70",
+      "subject": "feat(core): an any key works on a typed array"
+    },
+    {
+      "hash": "1fc80e97",
+      "subject": "chore(docs,hardev): rotation 246 census at 59fd6799"
+    },
+    {
       "hash": "59fd6799",
       "subject": "fix(core): a var slot is an any destination on the assign axis too"
     },
@@ -739,47 +759,38 @@
     {
       "hash": "87860167",
       "subject": "fix(core): an untyped class field takes the any slot instead of rejecting"
-    },
-    {
-      "hash": "7ef6c1b6",
-      "subject": "fix(core): an escaped reserved word is legal where an IdentifierName is"
-    },
-    {
-      "hash": "6973e4f7",
-      "subject": "fix(core): admit RegExp as a value ident"
-    },
-    {
-      "hash": "6c4ccdd1",
-      "subject": "fix(core): a var slot is an any destination for the fn-value wrap"
-    },
-    {
-      "hash": "ea4f3a70",
-      "subject": "fix(core): generator expressions answer their NamedEvaluation name"
-    },
-    {
-      "hash": "1cf62e6f",
-      "subject": "chore(docs,hardev): rotation 244 final census at b53d226b - re-swept after v4 knife 1, box_to_any 291 to 118 with 173 whole-program rejects now running to their .name asserts, core 18585, dashboard refresh"
     }
   ],
-  "headSha": "59fd6799",
+  "headSha": "62f92006",
   "autorun": {
-    "total": 550,
+    "total": 551,
     "baselineTarget": 10,
-    "bySelf": 545,
+    "bySelf": 546,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785292870-5358",
-      "at": "2026-07-29T02:41:10Z",
-      "ts": 1785292870,
+      "rotationId": "r-1785317821-7c11",
+      "at": "2026-07-29T09:37:01Z",
+      "ts": 1785317821,
       "trigger": "self",
-      "prevHead": "bef5c55b",
-      "handoffSha": "sha256:47052d252acc7a9f1f56d2be44d02549b537d83a1f62c7567cd613a64fdd2e61",
-      "handoffAgeSec": 107,
+      "prevHead": "1fc80e97",
+      "handoffSha": "sha256:ad7b1ff2f85feab41e9dd218b370e6c02ff0e076d869dd5598b7a493eef11ed1",
+      "handoffAgeSec": 130,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1785317821-7c11",
+        "at": "2026-07-29T09:37:01Z",
+        "ts": 1785317821,
+        "trigger": "self",
+        "prevHead": "1fc80e97",
+        "handoffSha": "sha256:ad7b1ff2f85feab41e9dd218b370e6c02ff0e076d869dd5598b7a493eef11ed1",
+        "handoffAgeSec": 130,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785292870-5358",
         "at": "2026-07-29T02:41:10Z",
@@ -876,17 +887,6 @@
         "prevHead": "10263c31",
         "handoffSha": "sha256:4ca0e11d16d82d475fde18a9fb463a6a58581a62c79faae68e61c37421fd5b8b",
         "handoffAgeSec": 33,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1785205799-7a5b",
-        "at": "2026-07-28T02:29:59Z",
-        "ts": 1785205799,
-        "trigger": "self",
-        "prevHead": "aedc233b",
-        "handoffSha": "sha256:4d12a7f1f08aea63a1795bacf64eb70aa92d4768c22101b33a4a672466ce615b",
-        "handoffAgeSec": 13,
         "conformanceBefore": null,
         "commitsInSession": null
       }
