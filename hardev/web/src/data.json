@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-29T12:17:01.541Z",
+  "generatedAt": "2026-07-29T16:38:47.765Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-29T12:16:09Z",
-    "headSha": "62f92006",
-    "elapsedSec": 281.58,
+    "ranAt": "2026-07-29T16:35:11Z",
+    "headSha": "6122f7c6",
+    "elapsedSec": 280.88,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 16255,
+    "pass": 16259,
     "passNoOracle": 489,
     "passNegative": 4489,
-    "passTotal": 21233,
-    "bug": 2972,
-    "incompatible": 28969,
+    "passTotal": 21237,
+    "bug": 2973,
+    "incompatible": 28964,
     "bunSkip": 7080,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 24205,
-    "passRateInScope": 39.93,
+    "trAccepted": 24210,
+    "passRateInScope": 39.94,
     "passRateTrAccepted": 87.72
   },
   "torajs": {
-    "commit": "62f92006",
-    "commitSubject": "feat(core): a symbol key works on an array",
+    "commit": "6122f7c6",
+    "commitSubject": "Revert \"fix(core): the typed tier honors a frozen array too\"",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "6122f7c6",
+      "subject": "Revert \"fix(core): the typed tier honors a frozen array too\""
+    },
+    {
+      "hash": "bc27f1b3",
+      "subject": "fix(core): the typed tier honors a frozen array too"
+    },
+    {
+      "hash": "1cf39f3f",
+      "subject": "fix(core): a deleted index is absent, not read-only"
+    },
+    {
+      "hash": "f4e8bf10",
+      "subject": "fix(core): freezing an array actually freezes its elements"
+    },
+    {
+      "hash": "2aef21a5",
+      "subject": "feat(core): a non-number key works on a string receiver"
+    },
+    {
+      "hash": "204397f6",
+      "subject": "feat(core): a dynamic key reads a string's own properties"
+    },
+    {
+      "hash": "af3a8bd9",
+      "subject": "chore(docs,hardev): rotation 247 census at 62f92006"
+    },
+    {
       "hash": "62f92006",
       "subject": "feat(core): a symbol key works on an array"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "1fc80e97",
       "subject": "chore(docs,hardev): rotation 246 census at 59fd6799"
-    },
-    {
-      "hash": "59fd6799",
-      "subject": "fix(core): a var slot is an any destination on the assign axis too"
-    },
-    {
-      "hash": "f19dce38",
-      "subject": "fix(conformance): key the bun oracle cache on what bun is handed"
-    },
-    {
-      "hash": "b6741671",
-      "subject": "feat(core): x++ and x-- work over an any slot"
-    },
-    {
-      "hash": "3200f030",
-      "subject": "fix(conformance): stop rewriting var to let before measuring"
-    },
-    {
-      "hash": "0b333dce",
-      "subject": "fix(core): an object param pattern may end in a rest element"
-    },
-    {
-      "hash": "bef5c55b",
-      "subject": "chore(docs,hardev): rotation 245 census at 87860167"
-    },
-    {
-      "hash": "87860167",
-      "subject": "fix(core): an untyped class field takes the any slot instead of rejecting"
     }
   ],
-  "headSha": "62f92006",
+  "headSha": "6122f7c6",
   "autorun": {
-    "total": 551,
+    "total": 552,
     "baselineTarget": 10,
-    "bySelf": 546,
+    "bySelf": 547,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785317821-7c11",
-      "at": "2026-07-29T09:37:01Z",
-      "ts": 1785317821,
+      "rotationId": "r-1785327591-75e4",
+      "at": "2026-07-29T12:19:51Z",
+      "ts": 1785327591,
       "trigger": "self",
-      "prevHead": "1fc80e97",
-      "handoffSha": "sha256:ad7b1ff2f85feab41e9dd218b370e6c02ff0e076d869dd5598b7a493eef11ed1",
-      "handoffAgeSec": 130,
+      "prevHead": "af3a8bd9",
+      "handoffSha": "sha256:4275980526d39ef58cd8b8c75f59e98212c6d71dda5c4d42ae03644c67c0fb9e",
+      "handoffAgeSec": 27,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1785327591-75e4",
+        "at": "2026-07-29T12:19:51Z",
+        "ts": 1785327591,
+        "trigger": "self",
+        "prevHead": "af3a8bd9",
+        "handoffSha": "sha256:4275980526d39ef58cd8b8c75f59e98212c6d71dda5c4d42ae03644c67c0fb9e",
+        "handoffAgeSec": 27,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785317821-7c11",
         "at": "2026-07-29T09:37:01Z",
@@ -876,17 +887,6 @@
         "prevHead": "0630d0a6",
         "handoffSha": "sha256:5365ffea58a2ef8021e0440dec476ba77f744d0a1b7dc735e4bc575860956821",
         "handoffAgeSec": 4,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1785211451-4418",
-        "at": "2026-07-28T04:04:11Z",
-        "ts": 1785211451,
-        "trigger": "self",
-        "prevHead": "10263c31",
-        "handoffSha": "sha256:4ca0e11d16d82d475fde18a9fb463a6a58581a62c79faae68e61c37421fd5b8b",
-        "handoffAgeSec": 33,
         "conformanceBefore": null,
         "commitsInSession": null
       }

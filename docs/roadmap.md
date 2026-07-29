@@ -1832,7 +1832,8 @@ census:
 | top 400 | 92.4 % |
 | clusters of ≤ 3 cases (808 of them) | 6.6 % |
 
-(refreshed @ rotation 247 sweep `62f92006`, core 16724; rotation 246
+(refreshed @ rotation 248 sweep `6122f7c6`, core 16719; rotation 247
+read core 16724; rotation 246
 read core 17144 with top-10 at 27.7 %, rotation 245 core 18112 at
 24.5 %, rotation 230 core 25421 at 34.4 %. **The rotation-246 reading is not comparable to the two before
 it on the oracle side**: that rotation removed a `var` → `let` source
@@ -1847,7 +1848,7 @@ progress looks like here, not a regression.
 
 **The groups at a glance** (core cases @ `9215301c`, each ≈ because
 clusters shift under every fix; core total has since fallen 25421 →
-**16724** @ `62f92006`, so read these as proportions, not counts —
+**16719** @ `6122f7c6`, so read these as proportions, not counts —
 re-derive with `cluster_incompat.py` before acting on any of them):
 
 | group | what | ≈ core cases |
