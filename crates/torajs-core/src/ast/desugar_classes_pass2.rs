@@ -68,22 +68,7 @@ pub(super) fn rewrite_expr_arena_pass2(
                  * → owning bindings drop normally → registry
                  * cleanup runs). Skip the generic factory rewrite
                  * here to keep the Expr::New shape intact. */
-                if class_name == "WeakRef"
-                    || class_name == "WeakMap"
-                    || class_name == "WeakSet"
-                    || class_name == "Map"
-                    || class_name == "Set"
-                    || class_name == "Array"
-                    || class_name == "RegExp"
-                    // RFC 20260716 刀 2 — `new Number(x)` / `new
-                    // String(x)` / `new Boolean(x)` stay `Expr::New`
-                    // so ssa_lower_new intercepts them for wrapper-
-                    // alloc emit. check_type_of_new arms handle
-                    // typechecking.
-                    || class_name == "Number"
-                    || class_name == "String"
-                    || class_name == "Boolean"
-                {
+                if ssa_intercepted_builtin(class_name) {
                     /* P6.1 — `new Map()` is the same shape: SSA
                      * intercepts to emit __torajs_map_create.
                      * P6.2 — `new Set()` reuses the same Map storage,
@@ -201,5 +186,61 @@ pub(super) fn rewrite_expr_arena_pass2(
             }
             _ => {}
         }
+    }
+}
+
+/// Built-in `new` shapes ssa_lower intercepts directly, so Pass 2
+/// leaves the `Expr::New` node alone.
+///
+/// T-26 `new WeakRef(t)` / `new WeakMap()` / `new WeakSet()` pass
+/// their target as a borrow (no consume, so owning bindings drop
+/// normally and registry cleanup runs). P6.1/P6.2 Map and Set lower
+/// to `__torajs_map_create`. P0.10 `new Array(n)` needs an `arr_id`
+/// interned at lower time, which an AST call cannot carry. RFC
+/// 20260716 刀 2 keeps the Number / String / Boolean wrappers here for
+/// their alloc emit.
+pub(super) fn ssa_intercepted_builtin(name: &str) -> bool {
+    matches!(
+        name,
+        "WeakRef"
+            | "WeakMap"
+            | "WeakSet"
+            | "Map"
+            | "Set"
+            | "Array"
+            | "RegExp"
+            | "Number"
+            | "String"
+            | "Boolean"
+    )
+}
+
+/// S-NEW 刀 4 — `new <name>()` where the name is not a class.
+///
+/// A factory only exists for something declared as a class. When the
+/// name is a binding holding a value instead, what it holds is a
+/// run-time question, so the node becomes a construct from that value.
+/// Pass 2 used to mint `__new_<name>` regardless, which is why
+/// `const K: any = C; new K()` failed as "unknown identifier
+/// `__new_K`" — a name the program never wrote, reported to whoever
+/// wrote `new K()`.
+///
+/// Runs before Pass 2, and also on the class-free early return: a
+/// program with no classes at all reaches the checker's `New`
+/// fallback otherwise, which panics rather than diagnoses.
+pub(super) fn route_non_class_new(ast: &mut Ast, class_index: &[ClassIndexEntry]) {
+    for i in 0..ast.exprs.len() {
+        let Expr::New {
+            class_name, args, ..
+        } = &ast.exprs[i]
+        else {
+            continue;
+        };
+        if ssa_intercepted_builtin(class_name) || class_index.iter().any(|c| &c.1 == class_name) {
+            continue;
+        }
+        let (name, args) = (class_name.clone(), args.clone());
+        let callee = ast.add_expr(Expr::Ident(name));
+        ast.exprs[i] = Expr::NewDynamic { callee, args };
     }
 }

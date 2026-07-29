@@ -48,6 +48,12 @@ pub fn desugar_classes(ast: &mut Ast) {
     let mut static_field_inits: Vec<Stmt> = Vec::new();
 
     let mut class_index = snapshot_class_index(ast);
+    // S-NEW 刀 4 — `new <name>()` whose name is not one of these
+    // classes constructs a value, not a factory. Routing happens here,
+    // before Pass 2 mints `__new_<name>`, and on the class-free path
+    // below too: with no classes at all the node would otherwise reach
+    // the checker's `New` fallback, which panics rather than diagnoses.
+    super::desugar_classes_pass2::route_non_class_new(ast, &class_index);
     if class_index.is_empty() {
         return;
     }
