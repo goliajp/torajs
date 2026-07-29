@@ -373,6 +373,7 @@ pub(crate) mod ssa_lower_index_any_key;
 pub(crate) mod ssa_lower_index_any_method_call;
 pub(crate) mod ssa_lower_index_assign;
 pub(crate) mod ssa_lower_index_assign_dyn_key;
+pub(crate) mod ssa_lower_index_assign_guards;
 pub(crate) mod ssa_lower_index_assign_pack;
 pub(crate) mod ssa_lower_inner;
 pub(crate) mod ssa_lower_instanceof;

@@ -58,6 +58,21 @@ delete hf["1"];
 Object.freeze(hf);
 try { hf[1] = 5; console.log("hole wrote", hf[1]); } catch (e) { console.log("hole write threw", (e as any).constructor.name, hf[1]); }
 
+// the typed tier stores straight into the slot instead of going
+// through the any-lane kernel, so it needs the same refusal emitted —
+// otherwise freezing a `number[]` binding still let writes through
+const t: number[] = [1, 2, 3];
+Object.freeze(t);
+try { t[1] = 99; console.log("typed wrote", t[1]); } catch (e) { console.log("typed write threw", (e as any).constructor.name, t[1]); }
+const ts: string[] = ["x", "y"];
+Object.freeze(ts);
+try { ts[0] = "z"; console.log("typed str wrote", ts[0]); } catch (e) { console.log("typed str threw", (e as any).constructor.name, ts[0]); }
+
+// an unfrozen typed array is untouched in the same shape
+const tp: number[] = [1, 2, 3];
+tp[1] = 99;
+console.log(tp[1], tp.length);
+
 // a frozen plain object was already correct — regression witness
 const o: any = { x: 1 };
 Object.freeze(o);
