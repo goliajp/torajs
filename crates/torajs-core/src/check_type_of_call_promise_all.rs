@@ -87,20 +87,36 @@ pub(crate) fn try_match(
                     )));
                 }
             },
-            // RFC 20260730 knife A — §27.2.4 GetIterator on an
-            // unambiguously non-iterable primitive throws at RUNTIME
-            // and the combinator answers a rejected promise; tr must
-            // not reject the program. Only types no runtime value
-            // can make iterable are admitted; String (iterable per
-            // spec), Any, class instances and structs (runtime
-            // Symbol.iterator possible) keep the loud reject until
-            // the tag-dispatch knife gives them true dispatch.
+            // RFC 20260730 knives A+B — §27.2.4 GetIterator runs at
+            // RUNTIME: the dyn kernel drives the for-of any-lane
+            // protocol (arrays / strings / Map / Set / iterator
+            // cells / class `[Symbol.iterator]()`), and a
+            // non-iterable value answers a REJECTED promise instead
+            // of tr rejecting the whole program.
+            //
+            // `allSettled` stays on the knife-A subset — its sync
+            // kernel has no any-lane sibling yet (raw promise-
+            // pointer walk, the recorded L3b follow-up), so only
+            // unambiguously non-iterable primitives are admitted
+            // (the dyn entry only ever rejects); a spec-iterable
+            // argument keeps the loud compile reject rather than a
+            // wrong runtime answer.
+            //
+            // `Array<non-Promise>` element shapes are matched above
+            // and stay rejected: the lowering routes statically
+            // Arr-typed operands onto the raw-pointer sync walk, so
+            // admitting them here would hand that walk non-promise
+            // slots (the resolve-wrap element face is its own
+            // registered follow-up).
             Type::Number
             | Type::Boolean
             | Type::BigInt
             | Type::Null
             | Type::Undefined
             | Type::Void => {
+                return Some(Ok(Type::Promise(Box::new(Type::Any))));
+            }
+            _ if m_name != "allSettled" => {
                 return Some(Ok(Type::Promise(Box::new(Type::Any))));
             }
             other => {
