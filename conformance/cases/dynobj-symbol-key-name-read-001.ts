@@ -77,3 +77,9 @@ Object.defineProperty(d, typedSym, { value: 1, writable: true, enumerable: true,
 Object.defineProperty(d, s1, { value: 2, writable: true, enumerable: true, configurable: true });
 console.log(d[typedSym], d[s1]);
 console.log(JSON.stringify(Object.keys(d)));
+
+// getOwnPropertyDescriptor carried its own copy of the same key
+// resolution, and so the same hole.
+const gt: any = Object.getOwnPropertyDescriptor(d, typedSym);
+const gb: any = Object.getOwnPropertyDescriptor(d, s1);
+console.log(gt === undefined ? "undefined" : gt.value, gb === undefined ? "undefined" : gb.value);
