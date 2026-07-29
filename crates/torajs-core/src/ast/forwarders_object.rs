@@ -250,6 +250,24 @@ pub fn synthesize_fn_to_closure_forwarders(ast: &mut Ast) {
     for s in &stmts_snapshot {
         collector.walk_stmt(s, false);
     }
+    // RFC 20260729-fn-value-any V4 刀 1 — a destructuring-slot
+    // default that is a hoisted generator-expression factory
+    // (`{ gen = function* () {} }` → the ternary's else arm holds
+    // `Ident("__genexpr_N")`): the slot is an any destination the
+    // walk has no axis for, and the raw FnSig panics at box_to_any
+    // (the t262 fn-name-gen template family, 186 of the 291
+    // residue). The synthetic prefix is the guard — user code
+    // cannot spell it, so no shadow risk — and wrapping a gen
+    // factory here accepts the same intrinsic-chain trade the
+    // any-call-arg axis has always made. `.name` still answers the
+    // synthetic name (loud assert mismatch, not a whole-program
+    // reject); the NamedEvaluation thread through
+    // `dstr_default_names` is the registered follow-up.
+    for &eid in ast.dstr_default_names.clone().keys() {
+        if matches!(ast.get_expr(eid), Expr::Ident(n) if n.starts_with("__genexpr_")) {
+            collector.try_mark(eid);
+        }
+    }
     let (mut targets, mut rewrites) = (collector.targets, collector.rewrites);
 
     collect_let_init_axis_rewrites(
