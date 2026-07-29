@@ -1825,20 +1825,24 @@ census:
 
 | cluster depth | core cases covered |
 |---|---|
-| top 10 | 26.5 % |
-| top 25 | 43.7 % |
-| top 50 | 58.1 % |
-| top 100 | 72.5 % |
-| top 400 | 91.7 % |
-| clusters of ≤ 3 cases (868 of them) | 7.2 % |
+| top 10 | 26.6 % |
+| top 25 | 43.8 % |
+| top 50 | 58.3 % |
+| top 100 | 72.9 % |
+| top 400 | 92.0 % |
+| clusters of ≤ 3 cases (843 of them) | 7.0 % |
 
-(refreshed @ rotation 251 sweep `d4163724`, core **16218**, 446 clusters
-of ≥ 4 holding 15052 cases. Rotation 251 ported asyncHelpers.js for
-real — `needs asyncHelpers.js` (341 across 33 directories) went to
-zero; 13 cases pass forward (8 of them the throwsAsync harness
-self-tests), the rest re-attribute to their true walls. Previous
-stamp: rotation 250 sweep `1f21a019`, core **16243**, 443 clusters of
-≥ 4 holding 15129. Rotation 250 is the shape this section warns
+(refreshed @ rotation 251 closing sweep `40085319`, core **16164**,
+440 clusters of ≥ 4 holding 15029 cases. Rotation 251 ported
+asyncHelpers.js for real (`needs asyncHelpers.js` 341 across 33
+directories → 0), wired the fn-constructor instance prototype link
+(§10.2.2 step 5), and gave Promise.all/any/race true runtime
+GetIterator over dynamic arguments (RFC 20260730 knives A+B) —
+passTotal +161 and bug −83 over the rotation, with the bug drop
+coming from bug-bucket cases the knives converted to passes.
+Mid-rotation stamp: sweep `d4163724`, core 16218, 446 clusters of ≥ 4
+holding 15052. Previous stamp: rotation 250 sweep `1f21a019`, core
+**16243**, 443 clusters of ≥ 4 holding 15129. Rotation 250 is the shape this section warns
 about: cluster count up two while the cases in them fell 476 and core
 fell 458. Two clusters left the census outright — `needs
 isConstructor.js` (377 across 40 directories) went to zero and
