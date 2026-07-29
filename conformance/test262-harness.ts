@@ -29,10 +29,9 @@
 // testTypedArray.js (2,064) — TypedArray family is unimplemented
 //   (loud reject in check.rs).
 // isConstructor.js (637) — needs Reflect.construct; no Reflect.
-// asyncHelpers.js (357) — the asyncTest wrapper (dynamic .then
-//   callbacks over an arbitrary thunk); the raw `$DONE` completion
-//   protocol IS ported (see `$DONE` below, 2026-07-27) — only cases
-//   that include asyncHelpers.js itself stay in this bucket.
+// asyncHelpers.js — PORTED 2026-07-30 (real `__t262_asyncTest` +
+//   `__t262_throwsAsync` below; the `$DONE` completion protocol was
+//   already ported 2026-07-27).
 // detachArrayBuffer.js (326) / resizableArrayBufferUtils.js (188) —
 //   ArrayBuffer is unimplemented.
 // testIntl.js (175) — Intl is unimplemented.
@@ -184,6 +183,120 @@ function __t262_isConstructor(obj: any): boolean {
   return __torajs_is_constructor(obj);
 }
 function __t262_assertRelativeDateMs(_date: any, _ms: any): void {}
+
+// ─── asyncHelpers.js port (2026-07-30) ───
+//
+// Mirrors vendor/test262/harness/asyncHelpers.js on tr's any
+// substrate. The stock `asyncTest` gates on
+// `Object.prototype.hasOwnProperty.call(globalThis, "$DONE")` — an
+// async-flag probe. globalThis has no expression surface in tr, but
+// the runner reads the same fact from the case frontmatter: it
+// injects `__t262_async_flag = true;` ahead of the case body iff the
+// case carries `flags: [async]` and calls asyncTest. Same question,
+// answered from the frontmatter instead of the global object — NOT a
+// stub: a case that calls asyncTest without the flag still gets the
+// stock Test262Error throw.
+let __t262_async_flag: boolean = false;
+
+// Stock asyncTest, protocol-identical: non-function arguments route
+// through $DONE(Test262Error); a synchronously-throwing thunk routes
+// its exception to $DONE; a non-thenable return surfaces as the
+// throw from the `.then` invocation, caught by the same try and
+// forwarded — the stock single-expression `testFunc().then(...)`
+// split into a const + call, observably the same.
+function __t262_asyncTest(testFunc: any): void {
+  if (!__t262_async_flag) {
+    throw new Test262Error("asyncTest called without async flag");
+  }
+  if (typeof testFunc !== "function") {
+    $DONE(new Test262Error("asyncTest called with non-function argument"));
+    return;
+  }
+  try {
+    const p: any = testFunc();
+    p.then(
+      function (): void {
+        $DONE();
+      },
+      function (error: any): void {
+        $DONE(error);
+      }
+    );
+  } catch (syncError) {
+    $DONE(syncError);
+  }
+}
+
+// assert.throwsAsync — full-fidelity port INCLUDING the constructor
+// identity comparison (`thrown.constructor !== ctor` and the
+// same-name-different-ctor refinement): `.constructor === Class`
+// probes bun-equal on tr for built-in error classes and user
+// classes alike, so unlike `assert.throws` (whose rewrite drops the
+// class arg) the class arg is kept.
+function __t262_throwsAsync(expectedErrorConstructor: any, func: any, message: any = undefined): any {
+  return new Promise(function (resolve: any): void {
+    const fail = function (detail: string): void {
+      if (message === undefined) {
+        throw new Test262Error(detail);
+      }
+      throw new Test262Error(message + " " + detail);
+    };
+    if (typeof expectedErrorConstructor !== "function") {
+      fail("assert.throwsAsync called with an argument that is not an error constructor");
+    }
+    if (typeof func !== "function") {
+      fail("assert.throwsAsync called with an argument that is not a function");
+    }
+    const expectedName: any = expectedErrorConstructor.name;
+    const expectation: string = "Expected a " + expectedName + " to be thrown asynchronously";
+    let res: any = undefined;
+    let syncThrew: boolean = false;
+    try {
+      res = func();
+    } catch (thrown) {
+      syncThrew = true;
+    }
+    if (syncThrew) {
+      fail(expectation + " but the function threw synchronously");
+    }
+    if (res === null || typeof res !== "object" || typeof res.then !== "function") {
+      fail(expectation + " but result was not a thenable");
+    }
+    let onResFulfilled: any = undefined;
+    let onResRejected: any = undefined;
+    const resSettlementP: any = new Promise(function (onFulfilled: any, onRejected: any): void {
+      onResFulfilled = onFulfilled;
+      onResRejected = onRejected;
+    });
+    let thenThrew: boolean = false;
+    try {
+      res.then(onResFulfilled, onResRejected);
+    } catch (thrown) {
+      thenThrew = true;
+    }
+    if (thenThrew) {
+      fail(expectation + " but .then threw synchronously");
+    }
+    resolve(
+      resSettlementP.then(
+        function (): void {
+          fail(expectation + " but no exception was thrown at all");
+        },
+        function (thrown: any): void {
+          if (thrown === null || typeof thrown !== "object") {
+            fail(expectation + " but thrown value was not an object");
+          } else if (thrown.constructor !== expectedErrorConstructor) {
+            const actualName: any = thrown.constructor.name;
+            if (expectedName === actualName) {
+              fail(expectation + " but got a different error constructor with the same name");
+            }
+            fail(expectation + " but got a " + actualName);
+          }
+        }
+      )
+    );
+  });
+}
 
 // ─── propertyHelper.js port (2026-07-11, RFC 20260711 chunk D-2b) ───
 //

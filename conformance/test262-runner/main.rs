@@ -192,6 +192,13 @@ fn transform_source(src: &str) -> String {
                 (b"assert.compareArray(", "__t262_compareArray_assert("),
                 (b"assert.deepEqual(", "__t262_deepEqual("),
                 (b"assert.compareIterator(", "__t262_compareIterator("),
+                // Must sit in this table (tried before the
+                // `assert.throws(` class-arg-drop block below, whose
+                // needle can't match this one anyway — after "throws"
+                // it requires '('): unlike assert.throws, the class
+                // arg is KEPT — `.constructor === Class` compares
+                // bun-equal on tr, so the port keeps full fidelity.
+                (b"assert.throwsAsync(", "__t262_throwsAsync("),
             ];
             let mut hit = false;
             for (needle, replacement) in REWRITES {
@@ -266,6 +273,7 @@ fn transform_source(src: &str) -> String {
             (b"isWritable(", "__t262_isWritable("),
             (b"isConstructor(", "__t262_isConstructor("),
             (b"assertRelativeDateMs(", "__t262_assertRelativeDateMs("),
+            (b"asyncTest(", "__t262_asyncTest("),
         ];
         let mut hit_helper = false;
         for (needle, replacement) in T262_HELPER_REWRITES {
@@ -382,6 +390,9 @@ fn run_case(
         // S-NEW 刀 3 — real `isConstructor`, once `__t262_isConstructor`
         // stopped being a stub that answered true to everything.
         "isConstructor.js",
+        // 2026-07-30 — real `__t262_asyncTest` + `__t262_throwsAsync`
+        // (constructor comparison kept, see the harness port note).
+        "asyncHelpers.js",
     ];
     let unported: Vec<&str> = fm
         .includes
@@ -396,7 +407,17 @@ fn run_case(
         };
     }
 
-    let transformed = transform_source(&case_src);
+    let mut transformed = transform_source(&case_src);
+    // asyncHelpers port — stock `asyncTest` probes the async flag via
+    // `Object.hasOwn(globalThis, "$DONE")`; tr's harness reads the
+    // same fact from a runner-set global instead. Inject the
+    // assignment only for flagged cases that actually call asyncTest:
+    // an unflagged caller keeps the flag false and gets the stock
+    // Test262Error throw. The line lands in `transformed` BEFORE the
+    // harness shake and the oracle-cache key, so both see it.
+    if fm.is_async() && transformed.contains("__t262_asyncTest(") {
+        transformed = format!("__t262_async_flag = true;\n{transformed}");
+    }
     // RFC 20260724-test262-harness-preamble blade 1 — prepend only
     // the harness segments this case references (dep-closed), not
     // the full ~700-line harness: the tr front-end otherwise spends
@@ -872,6 +893,36 @@ mod transform_tests {
         assert!(
             out.contains("var x = 1;"),
             "var declaration mangled: {out:?}"
+        );
+    }
+
+    #[test]
+    fn async_helpers_rewrites_fire_and_guard() {
+        // `asyncTest(` is a bare-call rewrite; member access and
+        // longer identifiers must not match. `assert.throwsAsync(`
+        // keeps ALL args (the class arg is compared for real, unlike
+        // `assert.throws` whose rewrite drops it).
+        let src = "asyncTest(async function () {});\n\
+                   obj.asyncTest(1);\n\
+                   myasyncTest(2);\n\
+                   await assert.throwsAsync(TypeError, () => p, 'msg');\n\
+                   assert.throws(TypeError, function () {});\n";
+        let out = transform_source(src);
+        assert!(
+            out.contains("__t262_asyncTest(async function"),
+            "bare asyncTest rewrite lost: {out:?}"
+        );
+        assert!(
+            out.contains("obj.asyncTest(1)") && out.contains("myasyncTest(2)"),
+            "guarded asyncTest sites must stay verbatim: {out:?}"
+        );
+        assert!(
+            out.contains("__t262_throwsAsync(TypeError, () => p, 'msg')"),
+            "throwsAsync must keep the class arg: {out:?}"
+        );
+        assert!(
+            out.contains("__t262_throws_runtime(function () {})"),
+            "assert.throws class-arg drop must survive the new needle: {out:?}"
         );
     }
 
