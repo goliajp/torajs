@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-29T23:16:31.771Z",
+  "generatedAt": "2026-07-30T02:56:19.378Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-29T23:12:52Z",
-    "headSha": "53c4e80a",
-    "elapsedSec": 334.21,
+    "ranAt": "2026-07-30T01:24:38Z",
+    "headSha": "f8c93908",
+    "elapsedSec": 545.02,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 16714,
+    "pass": 16970,
     "passNoOracle": 496,
     "passNegative": 4489,
-    "passTotal": 21699,
-    "bug": 3150,
-    "incompatible": 28325,
+    "passTotal": 21955,
+    "bug": 3152,
+    "incompatible": 28067,
     "bunSkip": 7467,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 24849,
-    "passRateInScope": 40.81,
-    "passRateTrAccepted": 87.32
+    "trAccepted": 25107,
+    "passRateInScope": 41.29,
+    "passRateTrAccepted": 87.45
   },
   "torajs": {
-    "commit": "53c4e80a",
-    "commitSubject": "feat(core,promise): Array.fromAsync mapfn form",
+    "commit": "f8c93908",
+    "commitSubject": "feat(core): nested array-literal toplevel bindings promote",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "f8c93908",
+      "subject": "feat(core): nested array-literal toplevel bindings promote"
+    },
+    {
+      "hash": "e8a22255",
+      "subject": "feat(core): un-annotated array-literal toplevel bindings promote"
+    },
+    {
+      "hash": "866b4669",
+      "subject": "fix(core): escape analysis keeps named-fn-referenced bindings heap"
+    },
+    {
+      "hash": "30b2a083",
+      "subject": "fix(core): ToBoolean at a declared boolean return boundary"
+    },
+    {
+      "hash": "144f412e",
+      "subject": "feat(core): mutable Arr globals promote (K.6 close)"
+    },
+    {
+      "hash": "ea956bac",
+      "subject": "chore(docs,hardev): rotation 252 census at 53c4e80a"
+    },
+    {
       "hash": "53c4e80a",
       "subject": "feat(core,promise): Array.fromAsync mapfn form"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "b072b7e0",
       "subject": "chore(docs,hardev): rotation 251 census at 40085319"
-    },
-    {
-      "hash": "40085319",
-      "subject": "feat(core,promise): combinators iterate whatever GetIterator yields"
-    },
-    {
-      "hash": "e7ddf96e",
-      "subject": "feat(core,promise): a non-iterable combinator argument rejects at runtime"
-    },
-    {
-      "hash": "81760dd3",
-      "subject": "chore(docs,hardev): rotation 251 census at c75136bb"
-    },
-    {
-      "hash": "c75136bb",
-      "subject": "feat(core): a function-constructed instance knows its constructor"
-    },
-    {
-      "hash": "d4163724",
-      "subject": "feat(conformance): port asyncHelpers.js — real asyncTest and throwsAsync"
-    },
-    {
-      "hash": "e7366753",
-      "subject": "chore(docs,hardev): rotation 250 census at 1f21a019"
     }
   ],
-  "headSha": "53c4e80a",
+  "headSha": "f8c93908",
   "autorun": {
-    "total": 556,
+    "total": 557,
     "baselineTarget": 10,
-    "bySelf": 551,
+    "bySelf": 552,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785362832-740f",
-      "at": "2026-07-29T22:07:12Z",
-      "ts": 1785362832,
+      "rotationId": "r-1785368308-335a",
+      "at": "2026-07-29T23:38:28Z",
+      "ts": 1785368308,
       "trigger": "self",
-      "prevHead": "fd25e8b4",
-      "handoffSha": "sha256:a75f776dcdaa16d262111d8ad5b833a0b715704ad370a11d7a6d98ba7c02ddc9",
-      "handoffAgeSec": 6,
+      "prevHead": "ea956bac",
+      "handoffSha": "sha256:07b448552435854d136e839bf32a6cc79d77731a42d02a2832d58666ff995c76",
+      "handoffAgeSec": 897,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1785368308-335a",
+        "at": "2026-07-29T23:38:28Z",
+        "ts": 1785368308,
+        "trigger": "self",
+        "prevHead": "ea956bac",
+        "handoffSha": "sha256:07b448552435854d136e839bf32a6cc79d77731a42d02a2832d58666ff995c76",
+        "handoffAgeSec": 897,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785362832-740f",
         "at": "2026-07-29T22:07:12Z",
@@ -876,17 +887,6 @@
         "prevHead": "770171eb",
         "handoffSha": "sha256:8bf2a66af39295ea0b2896d1766848bf5268d9dc573095b523fd5aee00aeec79",
         "handoffAgeSec": 38,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1785274946-348a",
-        "at": "2026-07-28T21:42:26Z",
-        "ts": 1785274946,
-        "trigger": "self",
-        "prevHead": "7146023a",
-        "handoffSha": "sha256:a2ba52e5d6a462a92b4ea681418dda961ac73ceca6c423c20007a52395898d8d",
-        "handoffAgeSec": 4,
         "conformanceBefore": null,
         "commitsInSession": null
       }

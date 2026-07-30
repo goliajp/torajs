@@ -1826,13 +1826,27 @@ census:
 | cluster depth | core cases covered |
 |---|---|
 | top 10 | 26.3 % |
-| top 25 | 43.6 % |
-| top 50 | 58.2 % |
-| top 100 | 73.0 % |
+| top 25 | 43.2 % |
+| top 50 | 58.0 % |
+| top 100 | 72.8 % |
 | top 400 | 92.0 % |
-| clusters of ≤ 3 cases (842 of them) | 7.1 % |
+| clusters of ≤ 3 cases (845 of them) | 7.2 % |
 
-(refreshed @ rotation 252 closing sweep `53c4e80a`, core **16090**,
+(refreshed @ rotation 253 closing sweep `f8c93908`, core **15829**,
+432 clusters of ≥ 4 holding 14688 cases. Rotation 253 drove the
+`values` cluster's real root through — mutable Arr globals promote
+(K.6 close), un-annotated + nested array-literal top-level bindings
+promote on a synthesized `T[]` spelling both checker and lowerer
+resolve, and materialize-converted params carry an explicit `any` —
+plus two pre-existing silent-wrong fixes the probes surfaced
+(an Any box flowing raw into a declared boolean return slot, and the
+escape analysis stack-allocating cells the K.3b promote had already
+put behind a global slot). passTotal +256 / bug +2 / trAccepted +258,
+258 forward moves and 2 pass regressions both case-attributed
+(one timeout-window edge on `new Array(4294967295)`, one
+non-trailing-default arity strictness filed with the
+undeclared-ident policy RFC). Previous stamp: rotation 252 closing
+sweep `53c4e80a`, core **16090**,
 437 clusters of ≥ 4 holding 14955 cases. Rotation 252 closed RFC
 20260730 (allSettled joined the any-lane + dyn combinator paths),
 landed `class C extends Object` as base-class shape (M5.N knife 1),
