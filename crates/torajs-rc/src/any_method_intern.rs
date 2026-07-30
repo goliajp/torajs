@@ -127,6 +127,7 @@ pub fn any_method_id(name: &str) -> i64 {
         "values" => ANY_METHOD_VALUES,
         "entries" => ANY_METHOD_ENTRIES,
         "next" => ANY_METHOD_NEXT,
+        "return" => ANY_METHOD_ITER_RETURN,
         "anchor" => ANY_METHOD_ANCHOR,
         "fontcolor" => ANY_METHOD_FONTCOLOR,
         "fontsize" => ANY_METHOD_FONTSIZE,

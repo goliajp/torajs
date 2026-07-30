@@ -452,6 +452,11 @@ pub const ANY_METHOD_GET_DESCRIPTION: i64 = 168;
 /// per-code-point walk).
 pub const ANY_METHOD_STR_ITERATOR: i64 = 169;
 
+/// `return` — the iterator-protocol close face (§27.1.5.2 on helper
+/// cells; generators keep theirs as class methods). RFC
+/// 20260730-iterator-global 刀 2.
+pub const ANY_METHOD_ITER_RETURN: i64 = 170;
+
 /// RegExp property-read ids (Any-method-call RFC 20260704 C4-3c-2)
 /// — `r.source` / `r.lastIndex` / flag booleans through an `any`
 /// receiver. ssa-lower interns the member NAME into one of these at

@@ -305,10 +305,21 @@ pub(crate) unsafe fn cell_method(
         });
     }
     if tag == Tag::MapIter as u16 {
+        // Lazy-helper chaining first (RFC 20260730-iterator-global
+        // 刀 2): `m.entries().map(f)` mints a helper over this cell.
+        if let Some(v) = unsafe { crate::iter_helper::try_helper_chain(ptr, mid, argv, argc) } {
+            return Some(v);
+        }
         return Some(unsafe { crate::method_call_mapset::map_iter_method(ptr, mid) });
     }
     if tag == Tag::ArrIter as u16 {
+        if let Some(v) = unsafe { crate::iter_helper::try_helper_chain(ptr, mid, argv, argc) } {
+            return Some(v);
+        }
         return Some(unsafe { crate::method_call_mapset::arr_iter_method(ptr, mid) });
+    }
+    if tag == Tag::IterHelper as u16 {
+        return Some(unsafe { crate::iter_helper::iter_helper_method(ptr, mid, argv, argc) });
     }
     if tag == Tag::Date as u16 {
         return Some(unsafe { crate::method_call_date::date_method(ptr, mid, argv, argc) });

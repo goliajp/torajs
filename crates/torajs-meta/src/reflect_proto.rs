@@ -323,6 +323,9 @@ pub unsafe extern "C" fn __torajs_anyv_get_proto_of_any(v: u64) -> u64 {
             // Iterator` agrees.
             16 => 15, // MapIter → Iterator.prototype
             17 => 15, // ArrIter → Iterator.prototype
+            25 => 15, // IterHelper → Iterator.prototype (刀 2; the
+            // %IteratorHelperPrototype% intermediate is the same
+            // recorded boundary as the per-family iterator protos)
             _ => -1,
         };
         if proto_tag >= 0 {

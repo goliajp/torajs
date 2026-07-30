@@ -39,6 +39,16 @@ unsafe extern "C" {
 pub unsafe extern "C" fn __torajs_any_iter_close(recv: AnyValue, iter_slot: *mut AnyValue) {
     unsafe {
         if *iter_slot == VALUE_UNDEFINED && !derive_for_close(recv, iter_slot) {
+            // An IterHelper is itself the iterator — a zero-derive
+            // close still owes it the §27.1.5.2 return() (close the
+            // underlying); borrow shape, the recv ref stays the
+            // caller's (RFC 20260730-iterator-global 刀 2).
+            if is_cell(recv)
+                && (as_void_ptr(recv).cast::<u8>().add(4) as *const u16).read()
+                    == Tag::IterHelper as u16
+            {
+                __torajs_iter_close_value(recv);
+            }
             return;
         }
         __torajs_iter_close_value(*iter_slot);
@@ -64,11 +74,27 @@ pub unsafe extern "C" fn __torajs_iter_close_value(iter: AnyValue) {
             return;
         }
         let iter_ptr = as_void_ptr(iter) as *mut c_void;
+        let tag = (iter_ptr.cast::<u8>().add(4) as *const u16).read();
+        // An IterHelper closes through its own §27.1.5.2 return()
+        // arm directly — the generic tier below resolves `return`
+        // through the member-VALUE face, which the helper cell does
+        // not carry (RFC 20260730-iterator-global 刀 2; the reified
+        // method-value face is the 刀 2b supported-table work).
+        if tag == Tag::IterHelper as u16 {
+            let r = crate::iter_helper::iter_helper_method(
+                iter_ptr,
+                torajs_rc::any_method::ANY_METHOD_ITER_RETURN,
+                core::ptr::null(),
+                0,
+            );
+            __torajs_anyv_rc_dec(r);
+            return;
+        }
         // Same tier cascade the step takes, for the same reason: an
         // anon-stamped literal wears `Tag::Obj` but keeps `return` as
         // a field, so a vtable miss is a tier hand-off, not "no
         // return method".
-        if (iter_ptr.cast::<u8>().add(4) as *const u16).read() != Tag::Obj as u16 {
+        if tag != Tag::Obj as u16 {
             crate::iter_any_get_method::generic_iter_close(iter);
             return;
         }
@@ -120,6 +146,7 @@ unsafe fn derive_for_close(recv: AnyValue, iter_slot: *mut AnyValue) -> bool {
             || tag == Tag::Set as u16
             || tag == Tag::MapIter as u16
             || tag == Tag::ArrIter as u16
+            || tag == Tag::IterHelper as u16
         {
             return false;
         }

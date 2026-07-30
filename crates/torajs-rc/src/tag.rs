@@ -96,4 +96,10 @@ pub enum Tag {
     /// Symbol()` throws per §20.4.1.1) — only the callable-coercion
     /// mint path allocates it.
     SymbolWrapper = 24,
+    /// Iterator Helper cell (§27.1.4.x lazy helpers — `.map(fn)` et
+    /// al.): `{ header:8 | underlying:8 | fn:8 | counter:8 | kind:1
+    /// alive:1 pad:6 | inner:8 }`. Owns its underlying iterator and
+    /// captured callback; substrate in `torajs-anyvalue::iter_helper`
+    /// (RFC 20260730-iterator-global 刀 2).
+    IterHelper = 25,
 }

@@ -225,8 +225,31 @@ pub(crate) unsafe fn struct_method(
                 }
             }
         }
+        // %Iterator.prototype% helper inheritance (RFC 20260730
+        // 刀 2): a full miss (no field, no class method, no
+        // accessor) on an instance whose prototype chain carries
+        // %Iterator.prototype% — a generator object, an `extends
+        // Iterator` heir — mints the lazy helper. Own/class methods
+        // above stay authoritative (shadowing wins per §10.1.8);
+        // ordinary class instances fail the chain walk and keep the
+        // ordinary miss path.
+        if __torajs_instanceof_builtin_proto(obj as u64, ITERATOR_PROTO_TAG)
+            && let Some(v) = crate::iter_helper::try_helper_chain(obj, mid, argv, argc)
+        {
+            return v;
+        }
         // No layout / absent field → the inherited Object.prototype
         // surface, mirroring the dynobj arm's absent branch.
         object_proto_fallback(obj, mid, true, argv, argc)
     }
+}
+
+/// `%Iterator.prototype%`'s builtin-proto tag (torajs-rc
+/// `builtin_proto.rs` tag space, RFC 20260730-iterator-global).
+const ITERATOR_PROTO_TAG: i64 = 15;
+
+unsafe extern "C" {
+    /// torajs-meta — §7.3.22 prototype-chain membership against a
+    /// builtin proto singleton (RFC 20260730-iterator-global).
+    fn __torajs_instanceof_builtin_proto(v: u64, proto_tag: i64) -> bool;
 }

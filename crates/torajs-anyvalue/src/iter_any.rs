@@ -379,6 +379,17 @@ pub(crate) unsafe fn iter_next_inner(
         recv = unsafe { map_set_derive_iter(recv, is_map, iter_slot) };
         cell_tag = Some(Tag::MapIter as u16);
     }
+    // An Iterator Helper cell steps itself (RFC 20260730 刀 2) —
+    // the shared core the next() method face wraps; owned-out
+    // contract matches this fn's directly.
+    if matches!(cell_tag, Some(t) if t == Tag::IterHelper as u16) {
+        let hit =
+            unsafe { crate::iter_helper::iter_helper_step(as_void_ptr(recv) as *mut c_void, out) };
+        if hit != 0 && await_mode {
+            return unsafe { crate::iter_any_await::settle_out(out) };
+        }
+        return hit;
+    }
     type StepFn = unsafe extern "C" fn(*mut c_void, *mut i64, *mut i64) -> i64;
     let step: Option<StepFn> = match cell_tag {
         Some(t) if t == Tag::MapIter as u16 => Some(__torajs_map_iter_step),
