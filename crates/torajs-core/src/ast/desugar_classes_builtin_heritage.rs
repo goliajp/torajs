@@ -43,7 +43,7 @@ const SUBCLASSABLE_BUILTINS: &[&str] = &["Object"];
 /// and `super(...)` lower differently, everything else takes the
 /// stripped base-class shape below.
 const EXOTIC_SUBCLASSABLE: &[&str] = &[
-    "Array", "Number", "String", "Boolean", "Function", "Map", "Set",
+    "Array", "Number", "String", "Boolean", "Function", "Map", "Set", "Promise",
 ];
 
 /// The factory's zero-arg mint magic for an exotic parent (the class
@@ -57,6 +57,7 @@ pub(crate) fn exotic_alloc_self_magic(parent: &str) -> &'static str {
         "Function" => "__torajs_function_subclass_alloc_self",
         "Map" => "__torajs_map_subclass_alloc_self",
         "Set" => "__torajs_set_subclass_alloc_self",
+        "Promise" => "__torajs_promise_subclass_alloc_self",
         _ => unreachable!("not an exotic subclassable builtin: {parent}"),
     }
 }
@@ -75,9 +76,18 @@ fn exotic_super_kernel(parent: &str) -> Option<&'static str> {
         "Number" => Some("__torajs_number_wrapper_subclass_super"),
         "String" => Some("__torajs_string_wrapper_subclass_super"),
         "Boolean" => Some("__torajs_boolean_wrapper_subclass_super"),
+        "Promise" => Some("__torajs_promise_subclass_super"),
         "Function" | "Map" | "Set" => None,
         _ => unreachable!("not an exotic subclassable builtin: {parent}"),
     }
+}
+
+/// Whether a bare `super()` is the builtin's no-argument ctor (a
+/// no-op against the mint's default). Promise is the exception:
+/// §27.2.3.1 step 2 rejects a non-callable executor, so `super()`
+/// routes to the kernel with undefined and takes the TypeError.
+fn exotic_super_zero_is_noop(parent: &str) -> bool {
+    parent != "Promise"
 }
 
 /// Strip a builtin parent down to base-class shape (see module doc).
@@ -137,16 +147,19 @@ pub(super) fn strip_builtin_heritage(ast: &mut Ast, class_index: &mut [ClassInde
                     // compile — are later seams, loud in the same
                     // not-yet-supported bucket as M5.2.
                     match args.len() {
-                        0 => {
+                        0 if exotic_super_zero_is_noop(p) => {
                             ast.exprs[eid.0 as usize] = Expr::Ident("undefined".into());
                         }
-                        1 if exotic_super_kernel(p).is_some() => {
+                        0 | 1 if exotic_super_kernel(p).is_some() => {
                             let callee = ast
                                 .add_expr(Expr::Ident(exotic_super_kernel(p).unwrap().to_string()));
                             let this_id = ast.add_expr(Expr::This);
+                            let arg = args.first().copied().unwrap_or_else(|| {
+                                ast.add_expr(Expr::Ident("undefined".to_string()))
+                            });
                             ast.exprs[eid.0 as usize] = Expr::Call {
                                 callee,
-                                args: vec![this_id, args[0]],
+                                args: vec![this_id, arg],
                             };
                         }
                         _ => panic!(

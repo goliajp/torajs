@@ -52,15 +52,15 @@ use crate::nanbox::{VALUE_UNDEFINED, as_void_ptr, is_cell};
 use crate::nanbox_encode::__torajs_anyv_box_pointer;
 
 // ---- torajs-promise layout mirror (lockstep layout.rs) ----
-const P_STATE_OFF: usize = 8;
-const P_IS_HEAP_OFF: usize = 9;
-const P_REPR_OFF: usize = 11;
+pub(crate) const P_STATE_OFF: usize = 8;
+pub(crate) const P_IS_HEAP_OFF: usize = 9;
+pub(crate) const P_REPR_OFF: usize = 11;
 /// `_pad[1]` — the `[[AlreadyResolved]]` lock (see module doc).
-const P_RESOLVED_LOCK_OFF: usize = 13;
+pub(crate) const P_RESOLVED_LOCK_OFF: usize = 13;
 const P_VALUE_OFF: usize = 16;
-const STATE_PENDING: u8 = 0;
+pub(crate) const STATE_PENDING: u8 = 0;
 const STATE_REJECTED: u8 = 2;
-const REPR_ANY: u8 = 6;
+pub(crate) const REPR_ANY: u8 = 6;
 /// Universal heap header `type_tag` for a Promise cell (torajs-promise
 /// `layout.rs::TAG_PROMISE`).
 const TAG_PROMISE: u16 = 8;
@@ -158,7 +158,7 @@ unsafe fn set_field(obj_slot: *mut *mut c_void, name: &[u8], value: u64) {
 /// One settle-function cell — owned, carries the promise at the
 /// capture slot, props pre-seeded with the spec reflection entries
 /// (`name` "" / `length` 1).
-unsafe fn mint_resolver(
+pub(crate) unsafe fn mint_resolver(
     p: *mut c_void,
     entry: unsafe extern "C" fn(*mut c_void, *const u64, i64) -> u64,
 ) -> *mut u8 {
@@ -298,11 +298,19 @@ unsafe fn settle(env: *mut c_void, argv: *const u64, argc: i64, rejected: bool) 
     }
 }
 
-unsafe extern "C" fn resolver_resolve_entry(env: *mut c_void, argv: *const u64, argc: i64) -> u64 {
+pub(crate) unsafe extern "C" fn resolver_resolve_entry(
+    env: *mut c_void,
+    argv: *const u64,
+    argc: i64,
+) -> u64 {
     unsafe { settle(env, argv, argc, false) }
 }
 
-unsafe extern "C" fn resolver_reject_entry(env: *mut c_void, argv: *const u64, argc: i64) -> u64 {
+pub(crate) unsafe extern "C" fn resolver_reject_entry(
+    env: *mut c_void,
+    argv: *const u64,
+    argc: i64,
+) -> u64 {
     unsafe { settle(env, argv, argc, true) }
 }
 

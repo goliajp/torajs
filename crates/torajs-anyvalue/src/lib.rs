@@ -160,6 +160,7 @@ mod method_support_proto_meta;
 mod method_value;
 mod method_value_class;
 mod name_get;
+mod promise_subclass;
 mod promise_with_resolvers;
 mod prop_delete;
 mod prop_has;
