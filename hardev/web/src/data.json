@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-30T11:26:00.733Z",
+  "generatedAt": "2026-07-30T19:35:18.522Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-30T11:23:46Z",
-    "headSha": "e93c16a5",
-    "elapsedSec": 540.78,
+    "ranAt": "2026-07-30T19:32:13Z",
+    "headSha": "e35eef75",
+    "elapsedSec": 450.58,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 17068,
+    "pass": 17078,
     "passNoOracle": 502,
     "passNegative": 4489,
-    "passTotal": 22059,
-    "bug": 3357,
-    "incompatible": 27758,
+    "passTotal": 22069,
+    "bug": 3355,
+    "incompatible": 27750,
     "bunSkip": 7467,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 25416,
-    "passRateInScope": 41.48,
-    "passRateTrAccepted": 86.79
+    "trAccepted": 25424,
+    "passRateInScope": 41.5,
+    "passRateTrAccepted": 86.8
   },
   "torajs": {
-    "commit": "e93c16a5",
-    "commitSubject": "Revert \"feat(runtime): iterator cells' method-VALUE read face\"",
+    "commit": "e35eef75",
+    "commitSubject": "feat(runtime): iterator cells' @@iterator return-this",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "e35eef75",
+      "subject": "feat(runtime): iterator cells' @@iterator return-this"
+    },
+    {
+      "hash": "233e8b2c",
+      "subject": "feat(runtime): iterator cells' method-VALUE read face, take 2"
+    },
+    {
+      "hash": "16a84a06",
+      "subject": "style: fmt-drift fix on blade-4 files"
+    },
+    {
+      "hash": "b07b9bc6",
+      "subject": "feat(core,runtime): Iterator.from + flatMap — GetIteratorFlattenable"
+    },
+    {
+      "hash": "df5fb163",
+      "subject": "refactor: split iter_helper eager family to sibling at the size cap"
+    },
+    {
+      "hash": "a556cba5",
+      "subject": "chore(docs,hardev): rotation 256 census at e93c16a5"
+    },
+    {
       "hash": "e93c16a5",
       "subject": "Revert \"feat(runtime): iterator cells' method-VALUE read face\""
     },
@@ -735,51 +759,38 @@
     {
       "hash": "0f88f586",
       "subject": "feat(core,runtime): Iterator global — identity, %Iterator.prototype%, extends, instanceof"
-    },
-    {
-      "hash": "f2262426",
-      "subject": "docs: rotation 255 sweep stamp in roadmap"
-    },
-    {
-      "hash": "d0fb9490",
-      "subject": "chore(docs,hardev): rotation 255 census at f8e8298a"
-    },
-    {
-      "hash": "f8e8298a",
-      "subject": "feat(core,runtime): class C extends RegExp — exotic-backed regexp instances"
-    },
-    {
-      "hash": "e4801f87",
-      "subject": "feat(core,runtime): class C extends Promise — exotic-backed promise instances"
-    },
-    {
-      "hash": "2f92e36d",
-      "subject": "feat(core,runtime): class C extends Map/Set — exotic-backed collection instances"
-    },
-    {
-      "hash": "6ad63ffe",
-      "subject": "feat(core,runtime): class C extends Function — callable exotic-backed instances"
     }
   ],
-  "headSha": "e93c16a5",
+  "headSha": "e35eef75",
   "autorun": {
-    "total": 560,
+    "total": 561,
     "baselineTarget": 10,
-    "bySelf": 555,
+    "bySelf": 556,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785402011-4572",
-      "at": "2026-07-30T09:00:11Z",
-      "ts": 1785402011,
+      "rotationId": "r-1785410856-2e49",
+      "at": "2026-07-30T11:27:36Z",
+      "ts": 1785410856,
       "trigger": "self",
-      "prevHead": "f2262426",
-      "handoffSha": "sha256:66d640119c181d8c31fea6d9aa6bf9a91a7caa474f3173df89e422515046e05e",
-      "handoffAgeSec": 1,
+      "prevHead": "a556cba5",
+      "handoffSha": "sha256:376b70d4f25b07cc255857816e6d0f952a65b6333f0ec0272a26cbee757719dc",
+      "handoffAgeSec": 46,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1785410856-2e49",
+        "at": "2026-07-30T11:27:36Z",
+        "ts": 1785410856,
+        "trigger": "self",
+        "prevHead": "a556cba5",
+        "handoffSha": "sha256:376b70d4f25b07cc255857816e6d0f952a65b6333f0ec0272a26cbee757719dc",
+        "handoffAgeSec": 46,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785402011-4572",
         "at": "2026-07-30T09:00:11Z",
@@ -876,17 +887,6 @@
         "prevHead": "af3a8bd9",
         "handoffSha": "sha256:4275980526d39ef58cd8b8c75f59e98212c6d71dda5c4d42ae03644c67c0fb9e",
         "handoffAgeSec": 27,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1785317821-7c11",
-        "at": "2026-07-29T09:37:01Z",
-        "ts": 1785317821,
-        "trigger": "self",
-        "prevHead": "1fc80e97",
-        "handoffSha": "sha256:ad7b1ff2f85feab41e9dd218b370e6c02ff0e076d869dd5598b7a493eef11ed1",
-        "handoffAgeSec": 130,
         "conformanceBefore": null,
         "commitsInSession": null
       }

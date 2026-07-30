@@ -1825,15 +1825,36 @@ census:
 
 | cluster depth | core cases covered |
 |---|---|
-| top 10 | 26.2 % |
-| top 25 | 42.7 % |
-| top 50 | 57.5 % |
+| top 10 | 27.4 % |
+| top 25 | 42.8 % |
+| top 50 | 57.4 % |
 | top 100 | 72.6 % |
 | top 400 | 92.1 % |
-| clusters of ≤ 3 cases (822 of them) | 7.2 % |
+| clusters of ≤ 3 cases (823 of them) | 7.2 % |
 
-(refreshed @ rotation 256 closing sweep `e93c16a5`, core **15520**,
-428 clusters of ≥ 4 holding 14406 cases. Rotation 256 opened the
+(refreshed @ rotation 257 closing sweep `e35eef75`, core **15512**,
+428 clusters of ≥ 4 holding 14397 cases. Rotation 257 finished the
+iterator-global RFC's blade 4 + the blade-2c redo: `Iterator.from`
+(GetIteratorFlattenable — user @@iterator wins, builtin iterables
+mint their lane, anything else is its own iterator; pass-through
+when already on %Iterator.prototype%'s chain, else a kind-WRAP cell
+whose next/return forward), `flatMap` (inner-slot double loop,
+REJECT-PRIMITIVES), the iterator cells' method-VALUE read face
+(next + helper family reified on the Iterator row; the first cut's
+3-fail root-caused by SPEC — `return` belongs to
+%IteratorHelperPrototype% alone, never Array/Map iterator protos),
+and @@iterator return-this (§27.1.2.1, unlocking spread /
+Array.from over iterator cells). passTotal +10 (Iterator/from +
+staging lazy-methods) / bug −2 / trAccepted +8, one pass →
+tr-timeout under 10-worker load (S15.4.2.2_A2.1_T1, standalone
+re-run passes — borderline-timeout noise, not a regression). A
+200k-iter churn face isolated a PRE-EXISTING reachable-RSS
+accumulation (~130B/iter) in the `[].values()` mint-drop path
+(clean-HEAD binary reproduces; leaks-tool clean; blade-4's own
+wrap / all-generator flatMap churns are flat) — registered L3b.
+Previous stamp: rotation 256 closing sweep `e93c16a5`, core
+**15520**, 428 clusters of ≥ 4 holding 14406 cases. Rotation 256
+opened the
 iterator-global RFC and landed its first four blades: the `Iterator`
 global joins the proto table as tag 15 (§27.1.3 identity, abstract
 ctor TypeError, `extends Iterator` via stripped heritage + prototype
