@@ -97,6 +97,39 @@ pub unsafe extern "C" fn __torajs_subclass_drop_entry(_p: *mut core::ffi::c_void
     );
 }
 
+// RFC 20260730 blade 2 — subclass mint/super kernel dep stubs
+// (torajs-meta registry + torajs-anyvalue NaN-box faces).
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_subclass_register(_c: *mut core::ffi::c_void, _t: i64, _p: u64) {
+    panic!("torajs-regex test stub: __torajs_subclass_register");
+}
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_proto_cell_raw(_t: i64) -> u64 {
+    panic!("torajs-regex test stub: __torajs_proto_cell_raw");
+}
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_box_from_pair(_tag: i64, _value: i64) -> u64 {
+    panic!("torajs-regex test stub: __torajs_anyv_box_from_pair");
+}
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_cell_ptr(_v: u64) -> i64 {
+    panic!("torajs-regex test stub: __torajs_anyv_cell_ptr");
+}
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_unbox_value(_v: u64) -> i64 {
+    panic!("torajs-regex test stub: __torajs_anyv_unbox_value");
+}
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_to_str(_v: u64) -> *mut core::ffi::c_void {
+    panic!("torajs-regex test stub: __torajs_anyv_to_str");
+}
+
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_dynobj_mark_null_proto(_obj: *mut core::ffi::c_void) {

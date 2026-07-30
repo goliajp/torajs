@@ -43,7 +43,13 @@ pub unsafe extern "C" fn __torajs_regex_compile(
 ) -> *mut c_void {
     let pat = unsafe { str_slice(pattern_str) };
     let fl = unsafe { str_slice(flags_str) };
+    compile_bytes(pat, fl)
+}
 
+/// Bytes-level compile pipeline — the extern face above decodes the
+/// Str cells first; the subclass `super(pattern)` kernel (RFC
+/// 20260730 blade 2) enters here with bytes it already owns.
+pub(crate) fn compile_bytes(pat: Vec<u8>, fl: Vec<u8>) -> *mut c_void {
     let flag_bits_opt = parse_flags(&fl);
     let flag_bits = flag_bits_opt.unwrap_or(0);
     // ES §22.2.3.1 — `u` and `v` are mutually exclusive, and
@@ -268,35 +274,34 @@ pub unsafe extern "C" fn __torajs_regex_compile_or_throw(
     buf.extend_from_slice(b"Invalid regular expression: /");
     buf.extend_from_slice(&re.src_bytes);
     buf.push(b'/');
-    let f = re.flags;
-    if f & RE_FLAG_D != 0 {
-        buf.push(b'd');
-    }
-    if f & RE_FLAG_G != 0 {
-        buf.push(b'g');
-    }
-    if f & RE_FLAG_I != 0 {
-        buf.push(b'i');
-    }
-    if f & RE_FLAG_M != 0 {
-        buf.push(b'm');
-    }
-    if f & RE_FLAG_S != 0 {
-        buf.push(b's');
-    }
-    if f & RE_FLAG_U != 0 {
-        buf.push(b'u');
-    }
-    if f & RE_FLAG_V != 0 {
-        buf.push(b'v');
-    }
-    if f & RE_FLAG_Y != 0 {
-        buf.push(b'y');
-    }
+    buf.extend_from_slice(&flag_letters(re.flags));
     buf.push(0);
     unsafe {
         __torajs_throw_syntax_error(buf.as_ptr());
     }
     drop(buf);
     raw
+}
+
+/// Flag byte → canonical letter spelling, ES §22.2.6.4 order
+/// (`d g i m s u v y`) — the `parse_flags` inverse. Shared by the
+/// SyntaxError message above and the subclass `super(regexArg)`
+/// source+flags copy (§22.2.3.1 step 5).
+pub(crate) fn flag_letters(f: u8) -> Vec<u8> {
+    let mut out = Vec::with_capacity(8);
+    for (bit, ch) in [
+        (RE_FLAG_D, b'd'),
+        (RE_FLAG_G, b'g'),
+        (RE_FLAG_I, b'i'),
+        (RE_FLAG_M, b'm'),
+        (RE_FLAG_S, b's'),
+        (RE_FLAG_U, b'u'),
+        (RE_FLAG_V, b'v'),
+        (RE_FLAG_Y, b'y'),
+    ] {
+        if f & bit != 0 {
+            out.push(ch);
+        }
+    }
+    out
 }

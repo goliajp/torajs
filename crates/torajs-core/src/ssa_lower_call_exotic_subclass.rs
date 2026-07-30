@@ -53,6 +53,14 @@ pub(crate) fn try_lower(ctx: &mut LowerCtx<'_>, name: &str, args: &[ExprId]) -> 
             let f = ctx.intrinsics.promise_subclass_super;
             lower_super_one_arg(ctx, args, f)
         }
+        "__torajs_regex_subclass_alloc_self" => {
+            let f = ctx.intrinsics.regex_subclass_alloc;
+            lower_alloc_self(ctx, args, f, false)
+        }
+        "__torajs_regex_subclass_super" => {
+            let f = ctx.intrinsics.regex_subclass_super;
+            lower_super_one_arg(ctx, args, f)
+        }
         "__torajs_arr_subclass_super_len" => {
             let f = ctx.intrinsics.arr_subclass_super_len;
             lower_super_one_arg(ctx, args, f)

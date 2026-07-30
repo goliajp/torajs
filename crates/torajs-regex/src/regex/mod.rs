@@ -38,6 +38,7 @@ pub mod replace_fn_dispatch;
 pub mod split;
 pub mod static_keys;
 pub mod str_helpers;
+pub mod subclass;
 pub mod test_find;
 
 use core::ffi::c_void;

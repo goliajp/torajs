@@ -43,7 +43,7 @@ const SUBCLASSABLE_BUILTINS: &[&str] = &["Object"];
 /// and `super(...)` lower differently, everything else takes the
 /// stripped base-class shape below.
 const EXOTIC_SUBCLASSABLE: &[&str] = &[
-    "Array", "Number", "String", "Boolean", "Function", "Map", "Set", "Promise",
+    "Array", "Number", "String", "Boolean", "Function", "Map", "Set", "Promise", "RegExp",
 ];
 
 /// The factory's zero-arg mint magic for an exotic parent (the class
@@ -58,6 +58,7 @@ pub(crate) fn exotic_alloc_self_magic(parent: &str) -> &'static str {
         "Map" => "__torajs_map_subclass_alloc_self",
         "Set" => "__torajs_set_subclass_alloc_self",
         "Promise" => "__torajs_promise_subclass_alloc_self",
+        "RegExp" => "__torajs_regex_subclass_alloc_self",
         _ => unreachable!("not an exotic subclassable builtin: {parent}"),
     }
 }
@@ -77,6 +78,7 @@ fn exotic_super_kernel(parent: &str) -> Option<&'static str> {
         "String" => Some("__torajs_string_wrapper_subclass_super"),
         "Boolean" => Some("__torajs_boolean_wrapper_subclass_super"),
         "Promise" => Some("__torajs_promise_subclass_super"),
+        "RegExp" => Some("__torajs_regex_subclass_super"),
         "Function" | "Map" | "Set" => None,
         _ => unreachable!("not an exotic subclassable builtin: {parent}"),
     }

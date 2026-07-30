@@ -129,7 +129,8 @@ unsafe fn wrapper_subclass_probe(
     let probed = crate::member_get::is_wrapper_tag(tag)
         || tag == Tag::Map as u16
         || tag == Tag::Set as u16
-        || tag == Tag::Promise as u16;
+        || tag == Tag::Promise as u16
+        || tag == Tag::RegExp as u16;
     if !probed || name_str.is_null() {
         return None;
     }
