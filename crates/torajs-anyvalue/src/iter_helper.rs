@@ -326,6 +326,13 @@ pub(crate) unsafe fn try_helper_chain(
         torajs_rc::any_method_iter::ANY_METHOD_TO_ARRAY => {
             return Some(unsafe { iter_to_array(ptr) });
         }
+        // §27.1.2.1 %Iterator.prototype%[@@iterator] — return this
+        // (the receiver box takes its own stake; borrow in, owned
+        // out like every dispatch return).
+        torajs_rc::any_method_iter::ANY_METHOD_ITER_SELF => {
+            unsafe { torajs_rc::__torajs_rc_inc(ptr) };
+            return Some(unsafe { crate::nanbox_encode::__torajs_anyv_box_pointer(ptr) });
+        }
         // 刀 3 — eager consumers (§27.1.4.5/.7/.8/.2/.12): drive to
         // exhaustion / short-circuit, closing the underlying on an
         // early exit.

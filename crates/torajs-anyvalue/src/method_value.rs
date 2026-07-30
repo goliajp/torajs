@@ -454,6 +454,15 @@ pub(crate) unsafe fn builtin_symbol_iterator_lookup(
         t if t == Tag::Str as u16 || t == Tag::StringWrapper as u16 => {
             (3, torajs_rc::ANY_METHOD_STR_ITERATOR)
         }
+        // §27.1.2.1 — iterator cells inherit the
+        // %Iterator.prototype% return-this (Iterator family row,
+        // proto tag 15; RFC 20260730-iterator-global 刀 4 长尾).
+        t if t == Tag::MapIter as u16
+            || t == Tag::ArrIter as u16
+            || t == Tag::IterHelper as u16 =>
+        {
+            (15, torajs_rc::any_method_iter::ANY_METHOD_ITER_SELF)
+        }
         _ => return None,
     };
     Some(builtin_method_cell(family, mid))

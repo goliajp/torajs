@@ -11,3 +11,9 @@ pub const ANY_METHOD_DROP: i64 = 172;
 
 /// `toArray` — §27.1.4.10 eager collector.
 pub const ANY_METHOD_TO_ARRAY: i64 = 173;
+
+/// `%Iterator.prototype%[Symbol.iterator]` — §27.1.2.1 return-this
+/// (own id, never interns back; the spec function name has
+/// brackets). Iterator cells (MapIter / ArrIter / IterHelper) reify
+/// their `@@iterator` read to this id (刀 4 长尾).
+pub const ANY_METHOD_ITER_SELF: i64 = 174;

@@ -203,6 +203,9 @@ pub fn any_method_meta(mid: i64) -> Option<(&'static str, u32)> {
         // §22.1.3.36 — String.prototype[Symbol.iterator] (own id,
         // never interns back; the spec function name has brackets).
         ANY_METHOD_STR_ITERATOR => ("[Symbol.iterator]", 0),
+        // §27.1.2.1 — %Iterator.prototype%[Symbol.iterator]
+        // return-this (own id, never interns back).
+        m if m == crate::any_method_iter::ANY_METHOD_ITER_SELF => ("[Symbol.iterator]", 0),
         _ => return None,
     })
 }
