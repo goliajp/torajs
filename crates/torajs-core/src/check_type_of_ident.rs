@@ -121,9 +121,9 @@ pub(crate) fn check(checker: &Checker, name: &str) -> Result<Type, String> {
         | "__torajs_number_wrapper_subclass_alloc_self"
         | "__torajs_string_wrapper_subclass_alloc_self"
         | "__torajs_boolean_wrapper_subclass_alloc_self"
-        | "__torajs_function_subclass_alloc_self" => {
-            Ok(Type::Function(Vec::new(), Box::new(Type::Any)))
-        }
+        | "__torajs_function_subclass_alloc_self"
+        | "__torajs_map_subclass_alloc_self"
+        | "__torajs_set_subclass_alloc_self" => Ok(Type::Function(Vec::new(), Box::new(Type::Any))),
         "__torajs_arr_subclass_super_len" => Ok(Type::Function(
             vec![Type::Any, Type::Number],
             Box::new(Type::Any),

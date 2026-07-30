@@ -42,7 +42,9 @@ const SUBCLASSABLE_BUILTINS: &[&str] = &["Object"];
 /// 20260730 blades 1-2). Recorded in `ast.exotic_parent`; the factory
 /// and `super(...)` lower differently, everything else takes the
 /// stripped base-class shape below.
-const EXOTIC_SUBCLASSABLE: &[&str] = &["Array", "Number", "String", "Boolean", "Function"];
+const EXOTIC_SUBCLASSABLE: &[&str] = &[
+    "Array", "Number", "String", "Boolean", "Function", "Map", "Set",
+];
 
 /// The factory's zero-arg mint magic for an exotic parent (the class
 /// resolves from the enclosing `__new_<C>` fn name at lower time).
@@ -53,6 +55,8 @@ pub(crate) fn exotic_alloc_self_magic(parent: &str) -> &'static str {
         "String" => "__torajs_string_wrapper_subclass_alloc_self",
         "Boolean" => "__torajs_boolean_wrapper_subclass_alloc_self",
         "Function" => "__torajs_function_subclass_alloc_self",
+        "Map" => "__torajs_map_subclass_alloc_self",
+        "Set" => "__torajs_set_subclass_alloc_self",
         _ => unreachable!("not an exotic subclassable builtin: {parent}"),
     }
 }
@@ -60,16 +64,18 @@ pub(crate) fn exotic_alloc_self_magic(parent: &str) -> &'static str {
 /// The ctor-side one-argument `super(v)` semantics kernel — `new
 /// Array(len)` length semantics (§23.1.2.1) / the wrapper ctors'
 /// `[[*Data]] = To*(v)` coercion (§21.1.1.1 / §22.1.1.1 / §20.3.1.1).
-/// `None` = no one-argument form exists for this parent
+/// `None` = no one-argument form exists for this parent yet
 /// (`Function`'s body-source form needs dynamic compilation — the
-/// eval-shape seam — so it stays in the loud multi-arg bucket).
+/// eval-shape seam; Map/Set's iterable seeding (§24.1.1.1
+/// AddEntriesFromIterable) is its own later seam) — those forms stay
+/// in the loud bucket.
 fn exotic_super_kernel(parent: &str) -> Option<&'static str> {
     match parent {
         "Array" => Some("__torajs_arr_subclass_super_len"),
         "Number" => Some("__torajs_number_wrapper_subclass_super"),
         "String" => Some("__torajs_string_wrapper_subclass_super"),
         "Boolean" => Some("__torajs_boolean_wrapper_subclass_super"),
-        "Function" => None,
+        "Function" | "Map" | "Set" => None,
         _ => unreachable!("not an exotic subclassable builtin: {parent}"),
     }
 }

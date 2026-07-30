@@ -105,12 +105,15 @@ pub(crate) unsafe fn symbol_description_getter(recv: AnyValue) -> AnyValue {
     }
 }
 
-/// RFC 20260730 blade 2 — wrapper-subclass method probe: on the spec
-/// chain C.prototype sits between own properties and the builtin
+/// RFC 20260730 blade 2 — exotic-subclass method probe for the tags
+/// whose arms carry no own-expando shadow of their own (wrappers'
+/// expando ran just above; Map/Set have none): on the spec chain
+/// C.prototype sits between own properties and the builtin
 /// prototype, so a class method (including an override of a builtin
-/// name) resolves here, after the expando shadow and before the
-/// view-through surface. Plain wrappers pay one predicted-clear
-/// branch on an already-loaded header word.
+/// name) resolves here, before the view-through / valueOf-identity /
+/// per-tag surfaces. Arr keeps its own probe inside its arm (its
+/// expando shadow lives there). Plain receivers pay one
+/// predicted-clear branch on an already-loaded header word.
 ///
 /// # Safety
 /// `ptr` is a live heap cell whose header carries `tag`; `name_str`
@@ -123,7 +126,9 @@ unsafe fn wrapper_subclass_probe(
     argv: *const u64,
     argc: i64,
 ) -> Option<AnyValue> {
-    if !crate::member_get::is_wrapper_tag(tag) || name_str.is_null() {
+    let probed =
+        crate::member_get::is_wrapper_tag(tag) || tag == Tag::Map as u16 || tag == Tag::Set as u16;
+    if !probed || name_str.is_null() {
         return None;
     }
     let flags = unsafe { (ptr.cast::<u8>().add(6) as *const u16).read() };

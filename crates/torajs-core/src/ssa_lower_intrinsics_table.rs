@@ -384,6 +384,8 @@ pub(crate) fn build(
         string_wrapper_subclass_alloc: init_c.subclass.string_wrapper_subclass_alloc,
         boolean_wrapper_subclass_alloc: init_c.subclass.boolean_wrapper_subclass_alloc,
         function_subclass_alloc: init_c.subclass.function_subclass_alloc,
+        map_subclass_alloc: init_c.subclass.map_subclass_alloc,
+        set_subclass_alloc: init_c.subclass.set_subclass_alloc,
         number_wrapper_subclass_super: init_c.subclass.number_wrapper_subclass_super,
         string_wrapper_subclass_super: init_c.subclass.string_wrapper_subclass_super,
         boolean_wrapper_subclass_super: init_c.subclass.boolean_wrapper_subclass_super,

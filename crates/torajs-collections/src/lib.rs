@@ -65,6 +65,7 @@ pub mod mutate;
 pub mod print;
 pub mod probe;
 pub mod query;
+pub mod subclass_alloc;
 
 pub use create::{__torajs_map_create, __torajs_set_create};
 pub use delete::{__torajs_map_clear, __torajs_map_delete};
