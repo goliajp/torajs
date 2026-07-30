@@ -154,12 +154,22 @@ pub fn materialize_expr_defaults(ast: &mut Ast) {
             });
             // The param's default becomes the undefined literal —
             // arity bookkeeping and the pad table stay live, the
-            // padded value is now scope-free.
+            // padded value is now scope-free. An unannotated param
+            // becomes `any` EXPLICITLY: the conversion's whole
+            // premise is that the slot carries the undefined box the
+            // pad sends and then whatever the guard assigns — leaving
+            // the ann empty let downstream inference type the slot
+            // off the padded undefined (Ptr) and reject the body's
+            // reads (`x[0]` on Ptr — the cluster-`values` fixture
+            // shape).
             let pad_undef = ast.add_expr(Expr::Ident("undefined".into()));
             let Stmt::FnDecl { params, .. } = &mut ast.stmts[si] else {
                 unreachable!()
             };
             params[pi].default = Some(pad_undef);
+            if params[pi].type_ann.is_none() {
+                params[pi].type_ann = Some("any".to_string());
+            }
         }
         let Stmt::FnDecl { body, .. } = &mut ast.stmts[si] else {
             unreachable!()

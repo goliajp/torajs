@@ -26,6 +26,7 @@ pub(crate) mod ast_desugar_regex_syntax_error;
 pub(crate) mod ast_printer;
 pub mod ast_refs;
 pub(crate) mod ast_refs_any_promote;
+pub(crate) mod ast_refs_arrlit;
 pub mod ast_throw_info;
 pub(crate) mod ast_throw_info_call;
 pub mod check;

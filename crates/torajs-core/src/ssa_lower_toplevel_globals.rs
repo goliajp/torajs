@@ -377,6 +377,31 @@ fn inferred_slot_ty(
             fn_sigs,
         ));
     }
+    // Cluster-`values` follow-up (rotation 253) — an un-annotated
+    // all-literal Array init promotes under its synthesized `T[]`
+    // spelling (the exact string the checker's pass_2 registered,
+    // resolved through the same parse pipeline — the `__inlobj`
+    // precedent above). Same widen the annotated lane runs.
+    if let Some(ann) = crate::ast_refs_arrlit::arrlit_literal_elem_ann(ast, init) {
+        let parsed = parse_type(
+            Some(&ann),
+            aliases,
+            arr_layouts,
+            fn_sigs,
+            generic_struct_decls,
+            struct_layouts,
+            inst_memo,
+        );
+        return Some(crate::ssa_lower_container_width::widen_container_ty(
+            parsed,
+            Some(&ann),
+            &SlotKey::Global(name.to_string()),
+            num_f64_slots,
+            arr_layouts,
+            struct_layouts,
+            fn_sigs,
+        ));
+    }
     let Some(shape) = crate::ast_refs::infer_toplevel_slot_shape(ast, init) else {
         // S2.35 — a call-result init the shape inference can't type
         // promotes as an Any slot via the shared verdict the

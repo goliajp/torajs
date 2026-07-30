@@ -307,6 +307,21 @@ pub(crate) fn pass_2_register_globals_and_check_stmts(c: &mut Checker, ast: &Ast
                                 crate::ast_refs::objlit_literal_inlobj_ann(ast, *init)
                         {
                             resolve_type_ann(&ann, &c.aliases)
+                        }
+                        // Cluster-`values` follow-up (rotation 253) —
+                        // an un-annotated all-literal Array init
+                        // registers under its synthesized `T[]`
+                        // spelling (the lowerer's K.3b arm resolves
+                        // the same string, so the slots can't
+                        // drift). `var` reaches here already
+                        // converted by the hoist escape hatch
+                        // (Array inits keep their typed slot), so
+                        // the is_var gate mirrors the arms above.
+                        else if !*is_var
+                            && let Some(ann) =
+                                crate::ast_refs_arrlit::arrlit_literal_elem_ann(ast, *init)
+                        {
+                            resolve_type_ann(&ann, &c.aliases)
                         } else {
                             let shaped = crate::ast_refs::infer_toplevel_slot_shape(ast, *init)
                                 .map(|s| match s {
