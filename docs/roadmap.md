@@ -1827,12 +1827,32 @@ census:
 |---|---|
 | top 10 | 26.2 % |
 | top 25 | 42.7 % |
-| top 50 | 57.9 % |
-| top 100 | 73.0 % |
-| top 400 | 92.3 % |
-| clusters of ≤ 3 cases (822 of them) | 7.1 % |
+| top 50 | 57.5 % |
+| top 100 | 72.6 % |
+| top 400 | 92.1 % |
+| clusters of ≤ 3 cases (822 of them) | 7.2 % |
 
-(refreshed @ rotation 255 closing sweep `f8e8298a`, core **15614**,
+(refreshed @ rotation 256 closing sweep `e93c16a5`, core **15520**,
+428 clusters of ≥ 4 holding 14406 cases. Rotation 256 opened the
+iterator-global RFC and landed its first four blades: the `Iterator`
+global joins the proto table as tag 15 (§27.1.3 identity, abstract
+ctor TypeError, `extends Iterator` via stripped heritage + prototype
+chain, §7.3.22 instanceof walk; %GeneratorPrototype% now chains to
+%Iterator.prototype% per §27.1.2), and `Tag::IterHelper` cells carry
+the §27.1.4 helper family — lazy map/filter/take/drop, eager
+toArray/forEach/some/every/find/reduce — over one
+step_derived_iterator drive shared by generator instances, iterator
+cells and helper chains. passTotal +17 (Iterator ctor identity /
+subclassable / staging lazy-methods semantics) / bug +77 (the
+Iterator bucket advanced from unknown-ident compile rejects to
+next-layer semantic mismatches — the progress-exposure shape) /
+trAccepted +94, ZERO pass regressions. A method-VALUE read face for
+iterator cells shipped and was gate-reverted same-rotation (the
+reified cell's receiver protocol isn't ready — three for-of close
+regressions; redo needs the invoke_with_this contract, L3b). The
+blade-2b two-layer churn caught the 2a drop glue violating the
+value-drop release-one-reference contract (double-free). Previous
+stamp: rotation 255 closing sweep `f8e8298a`, core **15614**,
 426 clusters of ≥ 4 holding 14500 cases. Rotation 255 completed the
 exotic-backed subclass blade-2 tag walk — `class C extends
 Number/String/Boolean/Function/Map/Set/Promise/RegExp` all mint REAL

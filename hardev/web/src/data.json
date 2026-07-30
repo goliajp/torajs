@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-30T08:56:59.994Z",
+  "generatedAt": "2026-07-30T11:26:00.733Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-30T08:55:31Z",
-    "headSha": "f8e8298a",
-    "elapsedSec": 570.65,
+    "ranAt": "2026-07-30T11:23:46Z",
+    "headSha": "e93c16a5",
+    "elapsedSec": 540.78,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 17053,
-    "passNoOracle": 500,
+    "pass": 17068,
+    "passNoOracle": 502,
     "passNegative": 4489,
-    "passTotal": 22042,
-    "bug": 3280,
-    "incompatible": 27852,
+    "passTotal": 22059,
+    "bug": 3357,
+    "incompatible": 27758,
     "bunSkip": 7467,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 25322,
-    "passRateInScope": 41.45,
-    "passRateTrAccepted": 87.05
+    "trAccepted": 25416,
+    "passRateInScope": 41.48,
+    "passRateTrAccepted": 86.79
   },
   "torajs": {
-    "commit": "f8e8298a",
-    "commitSubject": "feat(core,runtime): class C extends RegExp — exotic-backed regexp instances",
+    "commit": "e93c16a5",
+    "commitSubject": "Revert \"feat(runtime): iterator cells' method-VALUE read face\"",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,38 @@
   },
   "commits": [
     {
+      "hash": "e93c16a5",
+      "subject": "Revert \"feat(runtime): iterator cells' method-VALUE read face\""
+    },
+    {
+      "hash": "0b861b0b",
+      "subject": "feat(runtime): iterator cells' method-VALUE read face"
+    },
+    {
+      "hash": "a4f07210",
+      "subject": "feat(core,runtime): Iterator eager consumers — forEach, some, every, find, reduce"
+    },
+    {
+      "hash": "a0fff1f7",
+      "subject": "feat(core,runtime): Iterator helpers — filter, take, drop, toArray"
+    },
+    {
+      "hash": "c7f52f1c",
+      "subject": "feat(core,runtime): Iterator.prototype.map — lazy helper cells (Tag::IterHelper)"
+    },
+    {
+      "hash": "0f88f586",
+      "subject": "feat(core,runtime): Iterator global — identity, %Iterator.prototype%, extends, instanceof"
+    },
+    {
+      "hash": "f2262426",
+      "subject": "docs: rotation 255 sweep stamp in roadmap"
+    },
+    {
+      "hash": "d0fb9490",
+      "subject": "chore(docs,hardev): rotation 255 census at f8e8298a"
+    },
+    {
       "hash": "f8e8298a",
       "subject": "feat(core,runtime): class C extends RegExp — exotic-backed regexp instances"
     },
@@ -727,59 +759,38 @@
     {
       "hash": "6ad63ffe",
       "subject": "feat(core,runtime): class C extends Function — callable exotic-backed instances"
-    },
-    {
-      "hash": "1434fd0b",
-      "subject": "feat(core,runtime): class C extends Number/String/Boolean — wrapper-subclass instances"
-    },
-    {
-      "hash": "3d2165b9",
-      "subject": "chore(docs,hardev): rotation 254 census at d159c899"
-    },
-    {
-      "hash": "d159c899",
-      "subject": "feat(core,runtime): class C extends Array — exotic-backed instances end to end"
-    },
-    {
-      "hash": "e1609ec2",
-      "subject": "feat(runtime): array-subclass instance alloc kernel"
-    },
-    {
-      "hash": "08e5b21c",
-      "subject": "feat(runtime): exotic-subclass identity substrate — flag bit + side table + drop scrub"
-    },
-    {
-      "hash": "137abc92",
-      "subject": "feat(core): capturing nested fn decls in closure bodies route via arena scan"
-    },
-    {
-      "hash": "d9027bc4",
-      "subject": "feat(core): nested fn decls in closure bodies bind and walk in free-vars"
-    },
-    {
-      "hash": "c3b05d7e",
-      "subject": "chore(docs,hardev): rotation 253 census at f8c93908"
     }
   ],
-  "headSha": "f8e8298a",
+  "headSha": "e93c16a5",
   "autorun": {
-    "total": 559,
+    "total": 560,
     "baselineTarget": 10,
-    "bySelf": 554,
+    "bySelf": 555,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785390732-522e",
-      "at": "2026-07-30T05:52:12Z",
-      "ts": 1785390732,
+      "rotationId": "r-1785402011-4572",
+      "at": "2026-07-30T09:00:11Z",
+      "ts": 1785402011,
       "trigger": "self",
-      "prevHead": "3d2165b9",
-      "handoffSha": "sha256:9e43640b8a0d40dbc821b4a661147c65cce667476fd97771d74b89d71efaccf5",
-      "handoffAgeSec": 0,
+      "prevHead": "f2262426",
+      "handoffSha": "sha256:66d640119c181d8c31fea6d9aa6bf9a91a7caa474f3173df89e422515046e05e",
+      "handoffAgeSec": 1,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1785402011-4572",
+        "at": "2026-07-30T09:00:11Z",
+        "ts": 1785402011,
+        "trigger": "self",
+        "prevHead": "f2262426",
+        "handoffSha": "sha256:66d640119c181d8c31fea6d9aa6bf9a91a7caa474f3173df89e422515046e05e",
+        "handoffAgeSec": 1,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785390732-522e",
         "at": "2026-07-30T05:52:12Z",
@@ -876,17 +887,6 @@
         "prevHead": "1fc80e97",
         "handoffSha": "sha256:ad7b1ff2f85feab41e9dd218b370e6c02ff0e076d869dd5598b7a493eef11ed1",
         "handoffAgeSec": 130,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1785292870-5358",
-        "at": "2026-07-29T02:41:10Z",
-        "ts": 1785292870,
-        "trigger": "self",
-        "prevHead": "bef5c55b",
-        "handoffSha": "sha256:47052d252acc7a9f1f56d2be44d02549b537d83a1f62c7567cd613a64fdd2e61",
-        "handoffAgeSec": 107,
         "conformanceBefore": null,
         "commitsInSession": null
       }
