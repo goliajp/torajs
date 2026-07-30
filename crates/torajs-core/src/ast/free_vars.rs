@@ -50,10 +50,25 @@ pub(super) fn free_vars_of_arrow(
 pub(super) fn free_vars_of_body(ast: &Ast, prebound: &[String], body: &[Stmt]) -> Vec<String> {
     let mut bound: Vec<String> = prebound.to_vec();
     let mut out: Vec<String> = Vec::new();
+    hoist_fn_decl_names(body, &mut bound);
     for s in body {
         walk_stmt(ast, s, &mut bound, &mut out);
     }
     out
+}
+
+/// Function declarations hoist: a reference anywhere in the holding
+/// list — including before the declaration — resolves to the local
+/// decl, never to an outer binding. Bind every direct FnDecl name
+/// before walking the list's statements.
+fn hoist_fn_decl_names(list: &[Stmt], bound: &mut Vec<String>) {
+    for s in list {
+        if let Stmt::FnDecl { name, .. } = s {
+            if !bound.contains(name) {
+                bound.push(name.clone());
+            }
+        }
+    }
 }
 
 fn walk_stmt(ast: &Ast, s: &Stmt, bound: &mut Vec<String>, out: &mut Vec<String>) {
@@ -102,6 +117,7 @@ fn walk_stmt(ast: &Ast, s: &Stmt, bound: &mut Vec<String>, out: &mut Vec<String>
             for c in cases {
                 walk_expr(ast, c.value, bound, out);
                 let saved = bound.len();
+                hoist_fn_decl_names(&c.body, bound);
                 for s in &c.body {
                     walk_stmt(ast, s, bound, out);
                 }
@@ -109,6 +125,7 @@ fn walk_stmt(ast: &Ast, s: &Stmt, bound: &mut Vec<String>, out: &mut Vec<String>
             }
             if let Some(db) = default {
                 let saved = bound.len();
+                hoist_fn_decl_names(db, bound);
                 for s in db {
                     walk_stmt(ast, s, bound, out);
                 }
@@ -136,6 +153,7 @@ fn walk_stmt(ast: &Ast, s: &Stmt, bound: &mut Vec<String>, out: &mut Vec<String>
         }
         Stmt::Block(stmts) => {
             let saved = bound.len();
+            hoist_fn_decl_names(stmts, bound);
             for st in stmts {
                 walk_stmt(ast, st, bound, out);
             }
@@ -143,6 +161,7 @@ fn walk_stmt(ast: &Ast, s: &Stmt, bound: &mut Vec<String>, out: &mut Vec<String>
         }
         Stmt::Multi(stmts) => {
             // Same surrounding scope — bindings stay visible after.
+            hoist_fn_decl_names(stmts, bound);
             for st in stmts {
                 walk_stmt(ast, st, bound, out);
             }
@@ -196,6 +215,7 @@ fn walk_stmt(ast: &Ast, s: &Stmt, bound: &mut Vec<String>, out: &mut Vec<String>
             finally_body,
         } => {
             let saved = bound.len();
+            hoist_fn_decl_names(body, bound);
             for s in body {
                 walk_stmt(ast, s, bound, out);
             }
@@ -203,21 +223,40 @@ fn walk_stmt(ast: &Ast, s: &Stmt, bound: &mut Vec<String>, out: &mut Vec<String>
             if let Some(name) = catch_param {
                 bound.push(name.clone());
             }
+            hoist_fn_decl_names(catch_body, bound);
             for s in catch_body {
                 walk_stmt(ast, s, bound, out);
             }
             bound.truncate(saved);
             if let Some(fb) = finally_body {
+                hoist_fn_decl_names(fb, bound);
                 for s in fb {
                     walk_stmt(ast, s, bound, out);
                 }
                 bound.truncate(saved);
             }
         }
-        Stmt::FnDecl { .. } | Stmt::TypeDecl { .. } => {
-            // FnDecl inside an arrow body would be unusual; conservatively
-            // ignore since check.rs hoists these out anyway.
+        Stmt::FnDecl { params, body, .. } => {
+            // The decl's own name is hoist-bound by the enclosing list
+            // walk. Its body is a scope of its own: params and the
+            // decl's `arguments` quasi-binding bind, and whatever stays
+            // free inside is free in the enclosing scope too — a nested
+            // decl reading an outer local makes the enclosing closure
+            // capture it. Ignoring the body (the pre-fix behavior) both
+            // reported the decl's NAME as a phantom capture and hid its
+            // real ones.
+            let saved = bound.len();
+            for p in params {
+                bound.push(p.name.clone());
+            }
+            bound.push("arguments".into());
+            hoist_fn_decl_names(body, bound);
+            for s in body {
+                walk_stmt(ast, s, bound, out);
+            }
+            bound.truncate(saved);
         }
+        Stmt::TypeDecl { .. } => {}
         Stmt::ClassDecl { .. } => {
             // desugar_classes runs before lift_arrow_fns; if a ClassDecl
             // somehow remains, ignore — its body has already been split
@@ -342,6 +381,7 @@ fn walk_expr(ast: &Ast, eid: ExprId, bound: &mut Vec<String>, out: &mut Vec<Stri
             for p in params {
                 bound.push(p.name.clone());
             }
+            hoist_fn_decl_names(body, bound);
             for s in body {
                 walk_stmt(ast, s, bound, out);
             }
