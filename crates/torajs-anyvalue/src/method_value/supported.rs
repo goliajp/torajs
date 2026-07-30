@@ -59,7 +59,18 @@ pub(crate) fn builtin_method_supported(recv: AnyValue, mid: i64) -> bool {
         t if t == Tag::Arr as u16 => arr_supports(mid),
         t if t == Tag::Map as u16 => map_supports(mid),
         t if t == Tag::Set as u16 => set_supports(mid),
-        t if t == Tag::MapIter as u16 => mid == ANY_METHOD_NEXT,
+        // Iterator-protocol cells (RFC 20260730-iterator-global
+        // 刀 2c): next/return plus the helper family — the reified
+        // cell re-dispatches the mid against the receiver, landing
+        // in the same arms the direct call takes. ArrIter joins
+        // MapIter (its missing `next` read was a recorded
+        // asymmetry).
+        t if t == Tag::MapIter as u16
+            || t == Tag::ArrIter as u16
+            || t == Tag::IterHelper as u16 =>
+        {
+            iter_face_supports(mid)
+        }
         t if t == Tag::Date as u16 => date_supports(mid),
         t if t == Tag::RegExp as u16 => regexp_supports(mid),
         t if t == Tag::WeakMap as u16 => weakmap_supports(mid),
@@ -110,4 +121,22 @@ pub(crate) fn builtin_method_supported(recv: AnyValue, mid: i64) -> bool {
         }
         _ => false,
     }
+}
+
+/// The iterator-protocol face (MapIter / ArrIter / IterHelper —
+/// RFC 20260730-iterator-global 刀 2c): next / return plus the
+/// helper family every iterator inherits from %Iterator.prototype%.
+fn iter_face_supports(mid: i64) -> bool {
+    mid == ANY_METHOD_NEXT
+        || mid == torajs_rc::any_method::ANY_METHOD_ITER_RETURN
+        || mid == torajs_rc::ANY_METHOD_MAP
+        || mid == torajs_rc::ANY_METHOD_FILTER
+        || mid == torajs_rc::any_method_iter::ANY_METHOD_TAKE
+        || mid == torajs_rc::any_method_iter::ANY_METHOD_DROP
+        || mid == torajs_rc::any_method_iter::ANY_METHOD_TO_ARRAY
+        || mid == torajs_rc::ANY_METHOD_FOR_EACH
+        || mid == torajs_rc::ANY_METHOD_SOME
+        || mid == torajs_rc::ANY_METHOD_EVERY
+        || mid == torajs_rc::ANY_METHOD_FIND
+        || mid == torajs_rc::ANY_METHOD_REDUCE
 }
