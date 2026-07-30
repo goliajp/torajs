@@ -38,18 +38,39 @@ use super::{Ast, Expr, ExprId, Stmt};
 /// positives would be silent UAF — bias every uncertain shape
 /// toward false.
 pub fn escape_analyze_array_literals(ast: &mut Ast) {
+    // K.3b coherence (rotation 253) — a top-level binding a named-fn
+    // body references gets PROMOTED to a data global (the ast_refs
+    // gate the checker and the K.3 collect both consult), and the
+    // K.4 init stores the literal's cell pointer into that slot. A
+    // stack-alloca'd cell behind a global slot is exactly the silent
+    // UAF this pass's bias rule forbids — the fn's read decodes main
+    // frame layout (found live: an annotated `const flags: boolean[]`
+    // answered its elements differently under iter and release
+    // builds). The FnDecl arm below can't see this (it treats fn
+    // bodies as separate scopes, and hoisting lets a fn DECLARED
+    // BEFORE the let read it — outside the trailing window), so
+    // consult the same table the promote decision uses: any name a
+    // named-fn body references stays heap. Over-approximation
+    // (fn-local shadows count) is the safe direction.
+    let named_fn_refs = crate::ast_refs::toplevel_binding_refs(ast).named_fn_refs;
     let mut found: std::collections::HashSet<ExprId> = std::collections::HashSet::new();
     let stmts = ast.stmts.clone();
-    eal_walk_stmts(ast, &stmts, &mut found);
+    eal_walk_stmts(ast, &stmts, &mut found, &named_fn_refs);
     ast.stack_array_literals = found;
 }
 
-fn eal_walk_stmts(ast: &Ast, stmts: &[Stmt], found: &mut std::collections::HashSet<ExprId>) {
+fn eal_walk_stmts(
+    ast: &Ast,
+    stmts: &[Stmt],
+    found: &mut std::collections::HashSet<ExprId>,
+    named_fn_refs: &std::collections::HashSet<String>,
+) {
     // Pass 1: at this level, check each `let X = [...]` against the
     // stmts that follow it (in source order — `let` is in scope from
     // its decl to end of block).
     for (i, s) in stmts.iter().enumerate() {
         if let Stmt::LetDecl { name, init, .. } = s
+            && !named_fn_refs.contains(name)
             && let Expr::Array(els) = ast.get_expr(*init)
             && !els.is_empty()
             && !els
@@ -66,39 +87,46 @@ fn eal_walk_stmts(ast: &Ast, stmts: &[Stmt], found: &mut std::collections::HashS
     }
     // Pass 2: recurse into every nested stmt list.
     for s in stmts {
-        eal_recurse_into(ast, s, found);
+        eal_recurse_into(ast, s, found, named_fn_refs);
     }
 }
 
-fn eal_recurse_into(ast: &Ast, s: &Stmt, found: &mut std::collections::HashSet<ExprId>) {
+fn eal_recurse_into(
+    ast: &Ast,
+    s: &Stmt,
+    found: &mut std::collections::HashSet<ExprId>,
+    named_fn_refs: &std::collections::HashSet<String>,
+) {
     match s {
-        Stmt::Block(inner) | Stmt::Multi(inner) => eal_walk_stmts(ast, inner, found),
+        Stmt::Block(inner) | Stmt::Multi(inner) => eal_walk_stmts(ast, inner, found, named_fn_refs),
         Stmt::If {
             then_branch,
             else_branch,
             ..
         } => {
-            eal_recurse_into(ast, then_branch, found);
+            eal_recurse_into(ast, then_branch, found, named_fn_refs);
             if let Some(eb) = else_branch {
-                eal_recurse_into(ast, eb, found);
+                eal_recurse_into(ast, eb, found, named_fn_refs);
             }
         }
-        Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => eal_recurse_into(ast, body, found),
+        Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
+            eal_recurse_into(ast, body, found, named_fn_refs)
+        }
         Stmt::For { init, body, .. } => {
             if let Some(i) = init {
-                eal_recurse_into(ast, i, found);
+                eal_recurse_into(ast, i, found, named_fn_refs);
             }
-            eal_recurse_into(ast, body, found);
+            eal_recurse_into(ast, body, found, named_fn_refs);
         }
         Stmt::ForOfSplitIter { body, .. } | Stmt::ForOf { body, .. } => {
-            eal_recurse_into(ast, body, found)
+            eal_recurse_into(ast, body, found, named_fn_refs)
         }
         Stmt::Switch { cases, default, .. } => {
             for c in cases {
-                eal_walk_stmts(ast, &c.body, found);
+                eal_walk_stmts(ast, &c.body, found, named_fn_refs);
             }
             if let Some(db) = default {
-                eal_walk_stmts(ast, db, found);
+                eal_walk_stmts(ast, db, found, named_fn_refs);
             }
         }
         Stmt::Try {
@@ -107,24 +135,24 @@ fn eal_recurse_into(ast: &Ast, s: &Stmt, found: &mut std::collections::HashSet<E
             finally_body,
             ..
         } => {
-            eal_walk_stmts(ast, body, found);
-            eal_walk_stmts(ast, catch_body, found);
+            eal_walk_stmts(ast, body, found, named_fn_refs);
+            eal_walk_stmts(ast, catch_body, found, named_fn_refs);
             if let Some(fb) = finally_body {
-                eal_walk_stmts(ast, fb, found);
+                eal_walk_stmts(ast, fb, found, named_fn_refs);
             }
         }
-        Stmt::FnDecl { body, .. } => eal_walk_stmts(ast, body, found),
+        Stmt::FnDecl { body, .. } => eal_walk_stmts(ast, body, found, named_fn_refs),
         Stmt::ClassDecl { methods, .. } => {
             for m in methods {
-                eal_walk_stmts(ast, &m.body, found);
+                eal_walk_stmts(ast, &m.body, found, named_fn_refs);
             }
         }
         Stmt::ExportDecl { inner, .. } => {
             if let Some(inner) = inner {
-                eal_recurse_into(ast, inner, found);
+                eal_recurse_into(ast, inner, found, named_fn_refs);
             }
         }
-        Stmt::Labeled { body, .. } => eal_recurse_into(ast, body, found),
+        Stmt::Labeled { body, .. } => eal_recurse_into(ast, body, found, named_fn_refs),
         _ => {}
     }
 }
