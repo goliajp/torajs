@@ -59,7 +59,18 @@ pub(crate) fn builtin_method_supported(recv: AnyValue, mid: i64) -> bool {
         t if t == Tag::Arr as u16 => arr_supports(mid),
         t if t == Tag::Map as u16 => map_supports(mid),
         t if t == Tag::Set as u16 => set_supports(mid),
-        t if t == Tag::MapIter as u16 => mid == ANY_METHOD_NEXT,
+        // Iterator-protocol cells (RFC 20260730-iterator-global
+        // 刀 2c): next plus the %Iterator.prototype% helper family —
+        // the reified cell re-dispatches the mid against the
+        // receiver, landing in the same arms the direct call takes.
+        // ArrIter joins MapIter (its missing `next` read was a
+        // recorded asymmetry).
+        t if t == Tag::MapIter as u16
+            || t == Tag::ArrIter as u16
+            || t == Tag::IterHelper as u16 =>
+        {
+            iter_face_supports(t, mid)
+        }
         t if t == Tag::Date as u16 => date_supports(mid),
         t if t == Tag::RegExp as u16 => regexp_supports(mid),
         t if t == Tag::WeakMap as u16 => weakmap_supports(mid),
@@ -110,4 +121,34 @@ pub(crate) fn builtin_method_supported(recv: AnyValue, mid: i64) -> bool {
         }
         _ => false,
     }
+}
+
+/// The iterator-protocol face (MapIter / ArrIter / IterHelper —
+/// RFC 20260730-iterator-global 刀 2c): next plus the helper family
+/// every iterator inherits from %Iterator.prototype% (flatMap
+/// included since 刀 4).
+///
+/// `return` belongs to %IteratorHelperPrototype% ALONE (§27.1.5.2)
+/// — the array / map iterator prototypes never had one (§23.1.5 /
+/// §24.1.5), a read there stays undefined and the §7.4.9 close tier
+/// treats it as the spec's silent no-op. The first 刀 2c cut listed
+/// `return` for all three tags; the close tier then read the
+/// reified cell off a MapIter and bare-invoked it (no receiver) —
+/// the 3-fail gate behind the `e93c16a5` revert.
+fn iter_face_supports(tag: u16, mid: i64) -> bool {
+    if mid == torajs_rc::any_method::ANY_METHOD_ITER_RETURN {
+        return tag == Tag::IterHelper as u16;
+    }
+    mid == ANY_METHOD_NEXT
+        || mid == torajs_rc::ANY_METHOD_MAP
+        || mid == torajs_rc::ANY_METHOD_FILTER
+        || mid == torajs_rc::ANY_METHOD_FLAT_MAP
+        || mid == torajs_rc::any_method_iter::ANY_METHOD_TAKE
+        || mid == torajs_rc::any_method_iter::ANY_METHOD_DROP
+        || mid == torajs_rc::any_method_iter::ANY_METHOD_TO_ARRAY
+        || mid == torajs_rc::ANY_METHOD_FOR_EACH
+        || mid == torajs_rc::ANY_METHOD_SOME
+        || mid == torajs_rc::ANY_METHOD_EVERY
+        || mid == torajs_rc::ANY_METHOD_FIND
+        || mid == torajs_rc::ANY_METHOD_REDUCE
 }

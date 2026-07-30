@@ -122,6 +122,17 @@ pub(crate) fn recv_proto_family(recv: AnyValue) -> i64 {
         t if t == Tag::BigInt as u16 => 6,
         t if t == Tag::Map as u16 => 11,
         t if t == Tag::Set as u16 => 12,
+        // Iterator-protocol cells hang off %Iterator.prototype%
+        // (builtin-proto tag 15; the per-family intermediate
+        // prototypes are a recorded boundary — RFC
+        // 20260730-iterator-global §5), so their method reads
+        // intern on the Iterator row.
+        t if t == Tag::MapIter as u16
+            || t == Tag::ArrIter as u16
+            || t == Tag::IterHelper as u16 =>
+        {
+            15
+        }
         t if t == Tag::NumberWrapper as u16 => 0,
         t if t == Tag::StringWrapper as u16 => STR_PROTO_FAMILY,
         t if t == Tag::BooleanWrapper as u16 => 4,
