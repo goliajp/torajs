@@ -25,13 +25,12 @@ console.log(calls);
 // Exhausted helper stays done.
 console.log(JSON.stringify(mapped.next()));
 
-// Chaining: map over map (stepwise bindings — the single-expression
-// chain `it.map(f).map(g)` trips a pre-existing lowering bug where
-// the intermediate temp is over-released, L3b-registered with the
-// RFC; the helper-over-helper runtime path is what this exercises).
+// Chaining: map over map, single expression (this shape caught the
+// blade-2 drop-glue contract bug — the dispatcher releases one
+// reference per call, an unconditional free double-freed the
+// intermediate helper).
 const it2: any = g();
-const inner: any = it2.map((v: any) => v + "!");
-const chained: any = inner.map((v: any) => "<" + v + ">");
+const chained: any = it2.map((v: any) => v + "!").map((v: any) => "<" + v + ">");
 for (const x of chained) {
   console.log(x);
 }

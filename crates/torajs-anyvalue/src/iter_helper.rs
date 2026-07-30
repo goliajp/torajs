@@ -33,6 +33,12 @@ use torajs_rc::Tag;
 
 /// Helper kinds (the `kind` byte).
 pub(crate) const ITER_HELPER_MAP: u8 = 0;
+/// §27.1.4.6-sibling predicate helper (刀 2b).
+pub(crate) const ITER_HELPER_FILTER: u8 = 1;
+/// §27.1.4.9 — `fn` slot holds the remaining-count f64 bits.
+pub(crate) const ITER_HELPER_TAKE: u8 = 2;
+/// §27.1.4.3 — `fn` slot holds the still-to-skip f64 bits.
+pub(crate) const ITER_HELPER_DROP: u8 = 3;
 
 const UNDERLYING_OFF: usize = 8;
 const FN_OFF: usize = 16;
@@ -43,11 +49,14 @@ const CELL_SIZE: usize = 48;
 
 unsafe extern "C" {
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
+    fn __torajs_throw_range_error(msg: *const core::ffi::c_char);
     fn __torajs_dynobj_alloc() -> *mut c_void;
     fn __torajs_dynobj_set(dst: *mut *mut c_void, key: *mut c_void, tag: u64, value: u64);
     fn __torajs_str_alloc(bytes: *const u8, len: i64) -> *mut u8;
     fn __torajs_str_drop(s: *mut c_void);
     fn __torajs_throw_check() -> i64;
+    fn __torajs_arr_alloc_any(cap: u64) -> *mut u8;
+    fn __torajs_arr_push_any(arr: *mut c_void, tag: u64, value: u64) -> *mut u8;
 }
 
 /// Mint a helper cell over `recv` (§27.1.4.x steps 1-4). Non-object
@@ -64,15 +73,37 @@ pub(crate) unsafe fn iter_helper_mint(recv: AnyValue, kind: u8, fn_av: AnyValue)
         }
         return VALUE_UNDEFINED;
     }
-    // Callable check BEFORE touching the underlying (§27.1.4.6 step
-    // 2 precedes GetIteratorDirect).
-    if !is_cell(fn_av) || unsafe { closure_cell_entry(as_void_ptr(fn_av) as *mut c_void) }.is_none()
-    {
-        unsafe {
-            __torajs_throw_type_error(c"Iterator helper callback is not a function".as_ptr());
+    let numeric_kind = kind == ITER_HELPER_TAKE || kind == ITER_HELPER_DROP;
+    // Callable / limit validation BEFORE touching the underlying
+    // (§27.1.4.x step 2 precedes GetIteratorDirect). take/drop run
+    // §27.1.4.9/.3 steps 3-6: ToNumber, NaN or negative →
+    // RangeError; the (possibly +∞) count rides the fn slot as f64
+    // bits.
+    let fn_slot: u64 = if numeric_kind {
+        let (t, p) = (
+            crate::__torajs_anyv_unbox_tag(fn_av),
+            crate::__torajs_anyv_unbox_value(fn_av),
+        );
+        let n = unsafe { crate::coerce::any_to_number(t, p) };
+        if n.is_nan() || n < 0.0 {
+            unsafe {
+                __torajs_throw_range_error(c"Iterator helper limit must be non-negative".as_ptr());
+            }
+            return VALUE_UNDEFINED;
         }
-        return VALUE_UNDEFINED;
-    }
+        n.trunc().to_bits()
+    } else {
+        if !is_cell(fn_av)
+            || unsafe { closure_cell_entry(as_void_ptr(fn_av) as *mut c_void) }.is_none()
+        {
+            unsafe {
+                __torajs_throw_type_error(c"Iterator helper callback is not a function".as_ptr());
+            }
+            return VALUE_UNDEFINED;
+        }
+        unsafe { torajs_rc::__torajs_rc_inc(as_void_ptr(fn_av) as *mut c_void) };
+        fn_av
+    };
     unsafe {
         let layout = core::alloc::Layout::from_size_align(CELL_SIZE, 8).unwrap();
         let cell = std::alloc::alloc_zeroed(layout);
@@ -82,8 +113,10 @@ pub(crate) unsafe fn iter_helper_mint(recv: AnyValue, kind: u8, fn_av: AnyValue)
         // assumption baked in; the header is the universal one).
         torajs_rc::__torajs_rc_inc(as_void_ptr(recv) as *mut c_void);
         *(cell.add(UNDERLYING_OFF) as *mut u64) = recv;
-        torajs_rc::__torajs_rc_inc(as_void_ptr(fn_av) as *mut c_void);
-        *(cell.add(FN_OFF) as *mut u64) = fn_av;
+        // fn-kinds stored their +1 above; numeric kinds store plain
+        // f64 bits (never cell-shaped — the drop glue's anyv_rc_dec
+        // no-ops on non-cell patterns).
+        *(cell.add(FN_OFF) as *mut u64) = fn_slot;
         *(cell.add(KIND_OFF) as *mut u8) = kind;
         *(cell.add(ALIVE_OFF) as *mut u8) = 1;
         *(cell.add(40) as *mut u64) = VALUE_UNDEFINED;
@@ -106,40 +139,89 @@ pub(crate) unsafe fn iter_helper_step(ptr: *mut c_void, out: *mut AnyValue) -> i
             return 0;
         }
         let underlying = (ptr.cast::<u8>().add(UNDERLYING_OFF) as *const u64).read();
-        let mut item: AnyValue = VALUE_UNDEFINED;
-        let hit = crate::iter_any_step::step_derived_iterator(underlying, &mut item, false);
-        if hit == 0 {
-            // Underlying done or threw — either way this helper is
-            // finished (§27.1.4.2 step 5.b.ii; a throw propagates
-            // through the caller's pending-throw check).
-            (ptr.cast::<u8>().add(ALIVE_OFF)).write(0);
-            return 0;
+        let kind = (ptr.cast::<u8>().add(KIND_OFF)).read();
+        // §27.1.4.9 take — a zero remaining-count is done BEFORE the
+        // underlying steps (and closes it, step 5.a.ii).
+        if kind == ITER_HELPER_TAKE {
+            let remaining = f64::from_bits((ptr.cast::<u8>().add(FN_OFF) as *const u64).read());
+            if remaining <= 0.0 {
+                (ptr.cast::<u8>().add(ALIVE_OFF)).write(0);
+                crate::iter_any_close::__torajs_iter_close_value(underlying);
+                return 0;
+            }
+            (ptr.cast::<u8>().add(FN_OFF) as *mut u64).write((remaining - 1.0).to_bits());
         }
-        let counter = (ptr.cast::<u8>().add(COUNTER_OFF) as *const u64).read();
-        (ptr.cast::<u8>().add(COUNTER_OFF) as *mut u64).write(counter + 1);
-        let fn_av = (ptr.cast::<u8>().add(FN_OFF) as *const u64).read();
-        let Some((env, entry)) = closure_cell_entry(as_void_ptr(fn_av) as *mut c_void) else {
-            // Unreachable by construction (mint validated) — treat
-            // as done rather than UB.
+        // §27.1.4.3 drop — the skip runs once, ahead of the first
+        // real step (counter == 0 marks "not started").
+        if kind == ITER_HELPER_DROP && (ptr.cast::<u8>().add(COUNTER_OFF) as *const u64).read() == 0
+        {
+            let mut to_skip = f64::from_bits((ptr.cast::<u8>().add(FN_OFF) as *const u64).read());
+            while to_skip > 0.0 {
+                let mut skipped: AnyValue = VALUE_UNDEFINED;
+                let hit =
+                    crate::iter_any_step::step_derived_iterator(underlying, &mut skipped, false);
+                if hit == 0 {
+                    (ptr.cast::<u8>().add(ALIVE_OFF)).write(0);
+                    return 0;
+                }
+                crate::nanbox_ffi::__torajs_anyv_rc_dec(skipped);
+                to_skip -= 1.0;
+            }
+        }
+        loop {
+            let mut item: AnyValue = VALUE_UNDEFINED;
+            let hit = crate::iter_any_step::step_derived_iterator(underlying, &mut item, false);
+            if hit == 0 {
+                // Underlying done or threw — either way this helper
+                // is finished (§27.1.4.2 step 5.b.ii; a throw
+                // propagates through the caller's throw check).
+                (ptr.cast::<u8>().add(ALIVE_OFF)).write(0);
+                return 0;
+            }
+            let counter = (ptr.cast::<u8>().add(COUNTER_OFF) as *const u64).read();
+            (ptr.cast::<u8>().add(COUNTER_OFF) as *mut u64).write(counter + 1);
+            if kind == ITER_HELPER_TAKE || kind == ITER_HELPER_DROP {
+                *out = item;
+                return 1;
+            }
+            let fn_av = (ptr.cast::<u8>().add(FN_OFF) as *const u64).read();
+            let Some((env, entry)) = closure_cell_entry(as_void_ptr(fn_av) as *mut c_void) else {
+                // Unreachable by construction (mint validated) —
+                // treat as done rather than UB.
+                crate::nanbox_ffi::__torajs_anyv_rc_dec(item);
+                (ptr.cast::<u8>().add(ALIVE_OFF)).write(0);
+                return 0;
+            };
+            // 𝔽(counter) rides the i64 lane (numerically identical).
+            let counter_av = crate::__torajs_anyv_box_from_pair(2, counter as i64) as u64;
+            let argv = [item, counter_av];
+            let result = invoke_boxed(env, entry, argv.as_ptr(), 2);
+            if __torajs_throw_check() != 0 {
+                // §27.1.4.6 step 5.b.v — callback threw: close the
+                // underlying, kill the helper, forward the throw.
+                crate::nanbox_ffi::__torajs_anyv_rc_dec(item);
+                crate::nanbox_ffi::__torajs_anyv_rc_dec(result);
+                (ptr.cast::<u8>().add(ALIVE_OFF)).write(0);
+                crate::iter_any_close::__torajs_iter_close_value(underlying);
+                return 0;
+            }
+            if kind == ITER_HELPER_FILTER {
+                // §27.1.4.4 step 5.b.v — ToBoolean(selected): keep
+                // the ITEM on truthy, loop on falsy.
+                let keep = crate::nanbox_ffi::__torajs_anyv_to_bool(result);
+                crate::nanbox_ffi::__torajs_anyv_rc_dec(result);
+                if keep {
+                    *out = item;
+                    return 1;
+                }
+                crate::nanbox_ffi::__torajs_anyv_rc_dec(item);
+                continue;
+            }
+            // MAP — the mapped value replaces the item.
             crate::nanbox_ffi::__torajs_anyv_rc_dec(item);
-            (ptr.cast::<u8>().add(ALIVE_OFF)).write(0);
-            return 0;
-        };
-        // 𝔽(counter) rides the i64 lane (numerically identical).
-        let counter_av = crate::__torajs_anyv_box_from_pair(2, counter as i64) as u64;
-        let argv = [item, counter_av];
-        let mapped = invoke_boxed(env, entry, argv.as_ptr(), 2);
-        crate::nanbox_ffi::__torajs_anyv_rc_dec(item);
-        if __torajs_throw_check() != 0 {
-            // §27.1.4.6 step 5.b.v — mapper threw: close the
-            // underlying, kill the helper, forward the throw.
-            crate::nanbox_ffi::__torajs_anyv_rc_dec(mapped);
-            (ptr.cast::<u8>().add(ALIVE_OFF)).write(0);
-            crate::iter_any_close::__torajs_iter_close_value(underlying);
-            return 0;
+            *out = result;
+            return 1;
         }
-        *out = mapped;
-        1
     }
 }
 
@@ -196,6 +278,12 @@ pub(crate) unsafe fn try_helper_chain(
 ) -> Option<AnyValue> {
     let kind = match mid {
         torajs_rc::ANY_METHOD_MAP => ITER_HELPER_MAP,
+        torajs_rc::ANY_METHOD_FILTER => ITER_HELPER_FILTER,
+        torajs_rc::any_method_iter::ANY_METHOD_TAKE => ITER_HELPER_TAKE,
+        torajs_rc::any_method_iter::ANY_METHOD_DROP => ITER_HELPER_DROP,
+        torajs_rc::any_method_iter::ANY_METHOD_TO_ARRAY => {
+            return Some(unsafe { iter_to_array(ptr) });
+        }
         _ => return None,
     };
     let fn_av = if argc >= 1 {
@@ -206,6 +294,39 @@ pub(crate) unsafe fn try_helper_chain(
     // The receiver box is a borrow of the dispatcher's cell; mint
     // takes its own stake.
     Some(unsafe { iter_helper_mint(ptr as u64, kind, fn_av) })
+}
+
+/// §27.1.4.10 toArray — eager: drive the receiver (any
+/// iterator-protocol cell — the chain entry is shared with the lazy
+/// mints) to exhaustion into a fresh Array<Any>. A step throw
+/// answers undefined with the pending throw in flight.
+///
+/// # Safety
+/// `ptr` is a live heap cell honoring the iterator protocol.
+unsafe fn iter_to_array(ptr: *mut c_void) -> AnyValue {
+    unsafe {
+        let mut arr = __torajs_arr_alloc_any(0);
+        loop {
+            let mut item: AnyValue = VALUE_UNDEFINED;
+            let hit = crate::iter_any_step::step_derived_iterator(ptr as u64, &mut item, false);
+            if hit == 0 {
+                if __torajs_throw_check() != 0 {
+                    crate::nanbox_ffi::__torajs_anyv_rc_dec(__torajs_anyv_box_pointer(
+                        arr as *mut c_void,
+                    ));
+                    return VALUE_UNDEFINED;
+                }
+                return __torajs_anyv_box_pointer(arr as *mut c_void);
+            }
+            let (t, p) = (
+                crate::__torajs_anyv_unbox_tag(item),
+                crate::__torajs_anyv_unbox_value(item),
+            );
+            // push_any is transfer-shaped — the step's owned ref
+            // hands over.
+            arr = __torajs_arr_push_any(arr as *mut c_void, t as u64, p as u64);
+        }
+    }
 }
 
 /// Fresh `{ value, done }` IteratorResult dynobj; `value` transfers
@@ -227,14 +348,24 @@ unsafe fn iter_result_obj(value: AnyValue, done: bool) -> AnyValue {
     }
 }
 
-/// Drop glue — release the three owned AnyValue slots, then free the
-/// cell block. Reached from torajs-value-drop's tag walk.
+/// Drop glue — the torajs-value-drop dispatcher contract is
+/// RELEASE ONE REFERENCE: rc-dec the cell itself, and only on
+/// hit-zero release the three owned AnyValue slots and free the
+/// block (mirror of `__torajs_arr_iter_drop`). The 刀 2b churn
+/// caught the unconditional-free first cut: a chained helper's
+/// underlying release freed the inner cell while its binding still
+/// held a reference (double-free SIGTRAP within hundreds of
+/// iterations; single-layer cells survived by accident — their one
+/// release WAS the last).
 ///
 /// # Safety
-/// `cell` is a dead (rc 0) IterHelper cell.
+/// `cell` is a live IterHelper cell.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_iter_helper_drop(cell: *mut c_void) {
     unsafe {
+        if torajs_rc::__torajs_rc_dec(cell) == 0 {
+            return;
+        }
         let p = cell.cast::<u8>();
         crate::nanbox_ffi::__torajs_anyv_rc_dec((p.add(UNDERLYING_OFF) as *const u64).read());
         crate::nanbox_ffi::__torajs_anyv_rc_dec((p.add(FN_OFF) as *const u64).read());
