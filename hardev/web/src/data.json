@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-30T05:51:09.151Z",
+  "generatedAt": "2026-07-30T08:56:59.994Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-30T05:47:49Z",
-    "headSha": "d159c899",
-    "elapsedSec": 471.82,
+    "ranAt": "2026-07-30T08:55:31Z",
+    "headSha": "f8e8298a",
+    "elapsedSec": 570.65,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 17033,
+    "pass": 17053,
     "passNoOracle": 500,
     "passNegative": 4489,
-    "passTotal": 22022,
-    "bug": 3268,
-    "incompatible": 27884,
+    "passTotal": 22042,
+    "bug": 3280,
+    "incompatible": 27852,
     "bunSkip": 7467,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 25290,
-    "passRateInScope": 41.41,
-    "passRateTrAccepted": 87.08
+    "trAccepted": 25322,
+    "passRateInScope": 41.45,
+    "passRateTrAccepted": 87.05
   },
   "torajs": {
-    "commit": "d159c899",
-    "commitSubject": "feat(core,runtime): class C extends Array — exotic-backed instances end to end",
+    "commit": "f8e8298a",
+    "commitSubject": "feat(core,runtime): class C extends RegExp — exotic-backed regexp instances",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "f8e8298a",
+      "subject": "feat(core,runtime): class C extends RegExp — exotic-backed regexp instances"
+    },
+    {
+      "hash": "e4801f87",
+      "subject": "feat(core,runtime): class C extends Promise — exotic-backed promise instances"
+    },
+    {
+      "hash": "2f92e36d",
+      "subject": "feat(core,runtime): class C extends Map/Set — exotic-backed collection instances"
+    },
+    {
+      "hash": "6ad63ffe",
+      "subject": "feat(core,runtime): class C extends Function — callable exotic-backed instances"
+    },
+    {
+      "hash": "1434fd0b",
+      "subject": "feat(core,runtime): class C extends Number/String/Boolean — wrapper-subclass instances"
+    },
+    {
+      "hash": "3d2165b9",
+      "subject": "chore(docs,hardev): rotation 254 census at d159c899"
+    },
+    {
       "hash": "d159c899",
       "subject": "feat(core,runtime): class C extends Array — exotic-backed instances end to end"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "c3b05d7e",
       "subject": "chore(docs,hardev): rotation 253 census at f8c93908"
-    },
-    {
-      "hash": "f8c93908",
-      "subject": "feat(core): nested array-literal toplevel bindings promote"
-    },
-    {
-      "hash": "e8a22255",
-      "subject": "feat(core): un-annotated array-literal toplevel bindings promote"
-    },
-    {
-      "hash": "866b4669",
-      "subject": "fix(core): escape analysis keeps named-fn-referenced bindings heap"
-    },
-    {
-      "hash": "30b2a083",
-      "subject": "fix(core): ToBoolean at a declared boolean return boundary"
-    },
-    {
-      "hash": "144f412e",
-      "subject": "feat(core): mutable Arr globals promote (K.6 close)"
-    },
-    {
-      "hash": "ea956bac",
-      "subject": "chore(docs,hardev): rotation 252 census at 53c4e80a"
     }
   ],
-  "headSha": "d159c899",
+  "headSha": "f8e8298a",
   "autorun": {
-    "total": 558,
+    "total": 559,
     "baselineTarget": 10,
-    "bySelf": 553,
+    "bySelf": 554,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785380265-5c79",
-      "at": "2026-07-30T02:57:45Z",
-      "ts": 1785380265,
+      "rotationId": "r-1785390732-522e",
+      "at": "2026-07-30T05:52:12Z",
+      "ts": 1785390732,
       "trigger": "self",
-      "prevHead": "c3b05d7e",
-      "handoffSha": "sha256:33712ce34e99aa067f5f5570f6c4c4232e83f78649544f98b42386898ae856ff",
-      "handoffAgeSec": 5,
+      "prevHead": "3d2165b9",
+      "handoffSha": "sha256:9e43640b8a0d40dbc821b4a661147c65cce667476fd97771d74b89d71efaccf5",
+      "handoffAgeSec": 0,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1785390732-522e",
+        "at": "2026-07-30T05:52:12Z",
+        "ts": 1785390732,
+        "trigger": "self",
+        "prevHead": "3d2165b9",
+        "handoffSha": "sha256:9e43640b8a0d40dbc821b4a661147c65cce667476fd97771d74b89d71efaccf5",
+        "handoffAgeSec": 0,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785380265-5c79",
         "at": "2026-07-30T02:57:45Z",
@@ -876,17 +887,6 @@
         "prevHead": "bef5c55b",
         "handoffSha": "sha256:47052d252acc7a9f1f56d2be44d02549b537d83a1f62c7567cd613a64fdd2e61",
         "handoffAgeSec": 107,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1785285921-5e9a",
-        "at": "2026-07-29T00:45:21Z",
-        "ts": 1785285921,
-        "trigger": "self",
-        "prevHead": "1cf62e6f",
-        "handoffSha": "sha256:9d9ad525f8f4bbf25f5e88b483e30d6aad57e5b79f94cfa5200e6b277945135b",
-        "handoffAgeSec": 672,
         "conformanceBefore": null,
         "commitsInSession": null
       }
