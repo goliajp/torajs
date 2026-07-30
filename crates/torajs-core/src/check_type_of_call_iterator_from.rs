@@ -26,9 +26,7 @@ pub(crate) fn try_match(
         return None;
     }
     if args.is_empty() {
-        return Some(Err(
-            "Iterator.from requires a value per ES §27.1.6.2".into(),
-        ));
+        return Some(Err("Iterator.from requires a value per ES §27.1.6.2".into()));
     }
     for &aid in args {
         if let Err(e) = checker.type_of(ast, aid) {

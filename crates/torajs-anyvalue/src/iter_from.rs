@@ -150,8 +150,7 @@ pub(crate) unsafe fn wrap_return_forward(underlying: AnyValue) -> AnyValue {
         // Vtable tier first — a class instance / generator keeps
         // `return` as a method (same cascade the close family runs).
         if is_cell(underlying)
-            && (as_void_ptr(underlying).cast::<u8>().add(4) as *const u16).read()
-                == Tag::Obj as u16
+            && (as_void_ptr(underlying).cast::<u8>().add(4) as *const u16).read() == Tag::Obj as u16
         {
             match call_obj_method_0(as_void_ptr(underlying) as *mut c_void, b"return") {
                 MethodOutcome::Ok(r) => return r,
