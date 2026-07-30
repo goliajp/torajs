@@ -105,6 +105,34 @@ pub(crate) unsafe fn symbol_description_getter(recv: AnyValue) -> AnyValue {
     }
 }
 
+/// RFC 20260730 blade 2 — wrapper-subclass method probe: on the spec
+/// chain C.prototype sits between own properties and the builtin
+/// prototype, so a class method (including an override of a builtin
+/// name) resolves here, after the expando shadow and before the
+/// view-through surface. Plain wrappers pay one predicted-clear
+/// branch on an already-loaded header word.
+///
+/// # Safety
+/// `ptr` is a live heap cell whose header carries `tag`; `name_str`
+/// is NULL or a live Str cell; `argv`/`argc` follow the boxed-adapter
+/// convention.
+unsafe fn wrapper_subclass_probe(
+    ptr: *mut c_void,
+    tag: u16,
+    name_str: *const u8,
+    argv: *const u64,
+    argc: i64,
+) -> Option<AnyValue> {
+    if !crate::member_get::is_wrapper_tag(tag) || name_str.is_null() {
+        return None;
+    }
+    let flags = unsafe { (ptr.cast::<u8>().add(6) as *const u16).read() };
+    if flags & FLAG_SUBCLASSED == 0 {
+        return None;
+    }
+    unsafe { crate::method_call_subclass::subclass_method(ptr, name_str, argv, argc) }
+}
+
 /// Dispatch a cell receiver by its heap tag. `None` = no arm
 /// matched; the caller raises the no-such-method TypeError.
 /// `skip_wrapper_expando` = the call is a reified-builtin cell's
@@ -137,6 +165,13 @@ pub(crate) unsafe fn cell_method(
         }
     {
         return Some(out);
+    }
+    // A reified builtin's re-dispatch resolved to the BUILTIN entry
+    // already — re-probing a same-name override would loop.
+    if !skip_wrapper_expando
+        && let Some(r) = unsafe { wrapper_subclass_probe(ptr, tag, name_str, argv, argc) }
+    {
+        return Some(r);
     }
     if let Some(out) = unsafe { try_wrapper_arraylike_arm(ptr, tag, mid, name_str, argv, argc) } {
         return Some(out);

@@ -20,6 +20,7 @@ use std::collections::HashMap;
 
 pub(crate) struct InitC {
     pub any_substrate: crate::ssa_lower_intrinsics_any_substrate::AnySubstrateIds,
+    pub subclass: crate::ssa_lower_intrinsics_subclass::ExoticSubclassIds,
     pub print_freeze: crate::ssa_lower_intrinsics_print_freeze::PrintFreezeIds,
     pub bigint: crate::ssa_lower_intrinsics_bigint::BigIntIds,
     pub weak: crate::ssa_lower_intrinsics_weak::WeakIds,
@@ -29,6 +30,7 @@ pub(crate) struct InitC {
 
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) -> InitC {
     let any_substrate = crate::ssa_lower_intrinsics_any_substrate::declare(module, fn_table);
+    let subclass = crate::ssa_lower_intrinsics_subclass::declare(module, fn_table);
     let print_freeze = crate::ssa_lower_intrinsics_print_freeze::declare(module, fn_table);
     let bigint = crate::ssa_lower_intrinsics_bigint::declare(module, fn_table);
     let weak = crate::ssa_lower_intrinsics_weak::declare(module, fn_table);
@@ -42,6 +44,7 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
     crate::ssa_lower_process_on::declare(module, fn_table);
     InitC {
         any_substrate,
+        subclass,
         print_freeze,
         bigint,
         weak,

@@ -39,6 +39,9 @@
 
 #![no_std]
 
+/// RFC 20260730 blade 2 — wrapper-subclass mint + `super(v)` kernels.
+pub mod subclass_alloc;
+
 use core::ffi::c_void;
 
 use torajs_rc::{HeapHeader, Tag};
@@ -498,6 +501,83 @@ mod tests {
     // FLAG_SUBCLASSED so the gated call never fires.
     #[unsafe(no_mangle)]
     unsafe extern "C" fn __torajs_subclass_drop_entry(_p: *mut c_void) {}
+    // Blade-2 subclass kernels (subclass_alloc.rs) — registry /
+    // classmeta / anyvalue coercion stand-ins. The box stubs are
+    // identity so the kernels' unbox(box(ptr)) round-trips; the
+    // coercion stubs answer fixed sentinels the tests assert on
+    // (to_str answers NULL = the pending-throw shape).
+    #[unsafe(no_mangle)]
+    unsafe extern "C" fn __torajs_subclass_register(_c: *mut c_void, _t: i64, _p: u64) {}
+    #[unsafe(no_mangle)]
+    unsafe extern "C" fn __torajs_proto_cell_raw(_t: i64) -> u64 {
+        0
+    }
+    #[unsafe(no_mangle)]
+    unsafe extern "C" fn __torajs_anyv_box_from_pair(_tag: i64, value: i64) -> u64 {
+        value as u64
+    }
+    #[unsafe(no_mangle)]
+    unsafe extern "C" fn __torajs_anyv_unbox_value(v: u64) -> i64 {
+        v as i64
+    }
+    #[unsafe(no_mangle)]
+    unsafe extern "C" fn __torajs_anyv_to_number(_v: u64) -> f64 {
+        42.0
+    }
+    #[unsafe(no_mangle)]
+    unsafe extern "C" fn __torajs_anyv_to_bool(_v: u64) -> bool {
+        true
+    }
+    #[unsafe(no_mangle)]
+    unsafe extern "C" fn __torajs_anyv_to_str(_v: u64) -> *mut c_void {
+        core::ptr::null_mut()
+    }
+
+    #[test]
+    fn number_subclass_mint_and_super() {
+        unsafe {
+            let av = subclass_alloc::__torajs_number_wrapper_subclass_alloc(7);
+            let p = av as usize as *mut u8; // identity box stubs
+            let hdr = &*(p as *const HeapHeader);
+            assert_eq!(hdr.type_tag, Tag::NumberWrapper as u16);
+            assert_ne!(hdr.flags & torajs_rc::FLAG_SUBCLASSED, 0);
+            assert!((number_wrapper_value(p) - 0.0).abs() < 1e-12);
+            let back = subclass_alloc::__torajs_number_wrapper_subclass_super(av, 0);
+            assert_eq!(back, av);
+            assert!((number_wrapper_value(p) - 42.0).abs() < 1e-12); // to_number stub
+            assert_eq!((*(p as *const HeapHeader)).refcount, 2); // fresh owned answer
+            __torajs_number_wrapper_drop_rc(p as *mut c_void);
+            __torajs_number_wrapper_drop_rc(p as *mut c_void);
+        }
+    }
+
+    #[test]
+    fn boolean_subclass_super_coerces() {
+        unsafe {
+            let av = subclass_alloc::__torajs_boolean_wrapper_subclass_alloc(9);
+            let p = av as usize as *mut u8;
+            assert_eq!(boolean_wrapper_value(p), 0);
+            subclass_alloc::__torajs_boolean_wrapper_subclass_super(av, 0);
+            assert_eq!(boolean_wrapper_value(p), 1); // to_bool stub
+            __torajs_boolean_wrapper_drop_rc(p as *mut c_void);
+            __torajs_boolean_wrapper_drop_rc(p as *mut c_void);
+        }
+    }
+
+    #[test]
+    fn string_subclass_super_pending_throw_keeps_default() {
+        unsafe {
+            let av = subclass_alloc::__torajs_string_wrapper_subclass_alloc(3);
+            let p = av as usize as *mut u8;
+            // to_str stub answers NULL = pending throw: the default
+            // (NULL inner cell) stays, NO fresh reference is taken
+            // (the caller's throw-check diverts past the release).
+            subclass_alloc::__torajs_string_wrapper_subclass_super(av, 0);
+            assert!(string_wrapper_cell(p).is_null());
+            assert_eq!((*(p as *const HeapHeader)).refcount, 1);
+            __torajs_string_wrapper_drop_rc(p as *mut c_void);
+        }
+    }
 
     #[test]
     fn number_wrapper_new_and_read() {

@@ -233,12 +233,16 @@ pub(crate) fn build_factory_body(
 ) -> Vec<Stmt> {
     let exotic = ast.exotic_parent.contains_key(cname);
     let obj_lit = if exotic {
-        // RFC 20260730 blade 1 — an exotic-parent class mints a REAL
-        // builtin cell, not an ObjectLit. The zero-arg magic call is
-        // resolved by the lowerer from the enclosing `__new_<C>` fn
-        // name (same channel write_class_tag uses); `super(len)` in
-        // the ctor resizes it afterwards.
-        let callee = ast.add_expr(Expr::Ident("__torajs_arr_subclass_alloc_self".to_string()));
+        // RFC 20260730 blades 1-2 — an exotic-parent class mints a
+        // REAL builtin cell, not an ObjectLit. The zero-arg magic
+        // call is resolved by the lowerer from the enclosing
+        // `__new_<C>` fn name (same channel write_class_tag uses);
+        // `super(...)` in the ctor applies the builtin's semantics
+        // afterwards.
+        let magic = super::desugar_classes_builtin_heritage::exotic_alloc_self_magic(
+            &ast.exotic_parent[cname],
+        );
+        let callee = ast.add_expr(Expr::Ident(magic.to_string()));
         ast.add_expr(Expr::Call {
             callee,
             args: Vec::new(),

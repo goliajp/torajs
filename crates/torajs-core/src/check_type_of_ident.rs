@@ -117,9 +117,22 @@ pub(crate) fn check(checker: &Checker, name: &str) -> Result<Type, String> {
         // the zero-arg self-alloc magic (class resolved from the
         // enclosing `__new_<C>` at lower time) and the ctor-side
         // `super(len)` resize.
-        "__torajs_arr_subclass_alloc_self" => Ok(Type::Function(Vec::new(), Box::new(Type::Any))),
+        "__torajs_arr_subclass_alloc_self"
+        | "__torajs_number_wrapper_subclass_alloc_self"
+        | "__torajs_string_wrapper_subclass_alloc_self"
+        | "__torajs_boolean_wrapper_subclass_alloc_self" => {
+            Ok(Type::Function(Vec::new(), Box::new(Type::Any)))
+        }
         "__torajs_arr_subclass_super_len" => Ok(Type::Function(
             vec![Type::Any, Type::Number],
+            Box::new(Type::Any),
+        )),
+        // Blade 2 — the wrapper `super(v)` kernels coerce any operand
+        // (§21.1.1.1 / §22.1.1.1 / §20.3.1.1 all run To* themselves).
+        "__torajs_number_wrapper_subclass_super"
+        | "__torajs_string_wrapper_subclass_super"
+        | "__torajs_boolean_wrapper_subclass_super" => Ok(Type::Function(
+            vec![Type::Any, Type::Any],
             Box::new(Type::Any),
         )),
         "__torajs_error_stack" => Ok(Type::Function(vec![Type::Any], Box::new(Type::String))),

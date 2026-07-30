@@ -1,14 +1,15 @@
-//! Exotic-subclass method dispatch probe (RFC 20260730 blade 1).
+//! Exotic-subclass method dispatch probe (RFC 20260730 blades 1-2).
 //!
-//! A `class C extends Array` instance IS a `Tag::Arr` cell; its
-//! methods live in the class-methods dispatch table under C's class
-//! tag, resolved through the blade-0 identity side table. The cell
-//! arm calls this probe behind a `FLAG_SUBCLASSED` gate (header
-//! already loaded — plain builtin receivers pay one predicted-clear
-//! branch), AFTER the own-expando shadow probe and BEFORE the builtin
-//! surface: C.prototype sits between own properties and
-//! Array.prototype on the spec chain, so a user method (including an
-//! override of a builtin name) wins exactly there.
+//! A `class C extends Array` (or Number / String / Boolean) instance
+//! IS the exotic cell; its methods live in the class-methods dispatch
+//! table under C's class tag, resolved through the blade-0 identity
+//! side table. Each exotic arm calls this probe behind a
+//! `FLAG_SUBCLASSED` gate (header already loaded — plain builtin
+//! receivers pay one predicted-clear branch), AFTER the own-expando
+//! shadow probe and BEFORE the builtin surface: C.prototype sits
+//! between own properties and the builtin prototype on the spec
+//! chain, so a user method (including an override of a builtin name)
+//! wins exactly there.
 
 use core::ffi::c_void;
 
