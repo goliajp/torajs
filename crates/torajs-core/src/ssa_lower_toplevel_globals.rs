@@ -191,14 +191,18 @@ pub(crate) fn collect_toplevel_globals(
             if !supported {
                 continue;
             }
-            // K.6 — mutable Arr / Obj globals are not yet supported.
-            // The shipped Assign-Ident reject covers `X = newValue`,
-            // but hidden mutation through method calls (`xs.push(v)`,
-            // `xs.sort()`, `obj.field = v` on a global) bypasses
-            // that gate and would need writeback to the global slot
-            // for any push that reallocates. Until that path lands,
-            // mutable Arr / Obj globals stay scoped to the implicit
-            // main as before. Mutable primitive Copy globals stay
+            // K.6 — mutable Obj/Arr globals promote (see the gate
+            // below); the historical writeback concern is retired.
+            // For Arr, B1 fixed the cell across growth: `push` /
+            // `set_any_grow` realloc only the spilled data buffer
+            // behind ARR_DATA_PTR_OFF and return the same cell
+            // (`__torajs_arr_push` in torajs-arr grow.rs), so hidden
+            // mutation through method calls needs no slot writeback —
+            // the push global lane already ships on that invariant
+            // ("B1 — cell fixed across grow; global-slot write-back
+            // retired", ssa_lower_call_arr_push). Whole-binding
+            // reassignment rides the Assign-Ident global lane's
+            // drop-old/store-new. Mutable primitive Copy globals stay
             // promoted (K.3 / globals-001 depends on it). Mutable Str
             // globals promote ONLY behind the named-fn-refs gate
             // (chunk 558): strings have no in-place mutation methods,
@@ -240,6 +244,7 @@ pub(crate) fn collect_toplevel_globals(
                 || matches!(ty, Type::Closure(_))
                 || ty == Type::Any
                 || matches!(ty, Type::Obj(_))
+                || matches!(ty, Type::Arr(_))
                 || ty == Type::Symbol)
                 && binding_refs.named_fn_refs.contains(name);
             if *mutable && ty.is_refcounted() && !mutable_promote {

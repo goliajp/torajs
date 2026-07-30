@@ -7,10 +7,11 @@
 //!
 //! 1. **K.3 module-level data global** — `globals.contains(name)`:
 //!    `GlobalRef + Store` to the slot pointer. Primitive Copy types
-//!    have no old-value drop dance; Str slots (chunk 558) run the
-//!    borrow-inc → load-old → store-new → drop-old sequence; Arr/Obj
-//!    refcount globals are rejected loudly (K.6 — method-mutation
-//!    writeback not yet landed, so they never enter `globals`).
+//!    have no old-value drop dance; Str (chunk 558) / Obj (RFC
+//!    20260725) / Arr (K.6 close, rotation 253 — B1 fixed the cell
+//!    across growth so method mutation needs no slot writeback) run
+//!    the borrow-inc → load-old → store-new → drop-old sequence;
+//!    remaining refcount slot types are rejected loudly.
 //!    P11.2-A1 type-check rejects silent `f64 → i64` slot stores;
 //!    permissible coercions:
 //!    - `slot F64 + value I64` → `coerce_to_f64`
@@ -67,15 +68,19 @@ fn lower_global_assign(
     // Cluster #4 follow-up (rotation 235) — Symbol joins: no
     // in-place mutation surface (Str profile), a fresh `Symbol()`
     // rhs is an owned mint and transfers.
+    // K.6 close (rotation 253) — Arr joins: B1 fixed the cell
+    // across growth (push/grow realloc only the spilled data buffer
+    // and return the same cell), so method mutation needs no slot
+    // writeback and drop-old/store-new is the complete reassignment
+    // story here too (emit_drop_value's Arr arm walks elements).
     let drop_old_slot = slot_ty == Type::Str
         || matches!(slot_ty, Type::Closure(_))
         || slot_ty == Type::Any
         || matches!(slot_ty, Type::Obj(_))
+        || matches!(slot_ty, Type::Arr(_))
         || slot_ty == Type::Symbol;
     if slot_ty.is_refcounted() && !drop_old_slot {
-        panic!(
-            "ssa-lower: assignment to refcount global `{name}` is not yet supported (K.6 — mutable Arr globals need method-mutation writeback)"
-        );
+        panic!("ssa-lower: assignment to refcount global `{name}` is not yet supported (K.6)");
     }
     let v = lower_assign_rhs(ctx, slot_ty, value);
     // Chunk 558 — mutable Str globals; chunk 730 (RFC
