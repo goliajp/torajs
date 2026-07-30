@@ -438,6 +438,7 @@ pub(crate) struct Intrinsics {
     pub(crate) number_wrapper_subclass_alloc: FuncId,
     pub(crate) string_wrapper_subclass_alloc: FuncId,
     pub(crate) boolean_wrapper_subclass_alloc: FuncId,
+    pub(crate) function_subclass_alloc: FuncId,
     pub(crate) number_wrapper_subclass_super: FuncId,
     pub(crate) string_wrapper_subclass_super: FuncId,
     pub(crate) boolean_wrapper_subclass_super: FuncId,

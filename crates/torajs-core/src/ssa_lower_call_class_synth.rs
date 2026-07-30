@@ -74,11 +74,9 @@ pub(crate) fn try_lower(
         }
         "__torajs_my_class_ref" => try_lower_my_class_ref(ctx, args),
         // RFC 20260730 blades 1-2 — exotic-subclass mint / super
-        // magics, per-builtin kernels resolved in the sibling module.
-        n if n.starts_with("__torajs_arr_subclass_")
-            || n.ends_with("_wrapper_subclass_alloc_self")
-            || n.ends_with("_wrapper_subclass_super") =>
-        {
+        // magics (`__torajs_<builtin>_subclass_{alloc_self,super*}`),
+        // per-builtin kernels resolved in the sibling module.
+        n if n.ends_with("_subclass_alloc_self") || n.contains("_subclass_super") => {
             crate::ssa_lower_call_exotic_subclass::try_lower(ctx, n, args)
         }
         "__torajs_arguments_materialize" => try_lower_arguments_materialize(ctx, args),

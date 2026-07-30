@@ -108,6 +108,21 @@ pub(crate) unsafe fn closure_method(
                 argc,
             );
         }
+        // RFC 20260730 blade 2 — Function-subclass method probe: on
+        // the spec chain C.prototype sits between own properties and
+        // Function.prototype, so a class method (including an
+        // override of call/apply/bind) resolves here. Plain closures
+        // pay one predicted-clear branch on an already-loaded header
+        // word.
+        if !name_str.is_null() {
+            let flags = (ptr.cast::<u8>().add(6) as *const u16).read();
+            if flags & torajs_rc::FLAG_SUBCLASSED != 0
+                && let Some(r) =
+                    crate::method_call_subclass::subclass_method(ptr, name_str, argv, argc)
+            {
+                return r;
+            }
+        }
         match mid {
             m if m == ANY_METHOD_CALL => {
                 let Some(target) = call_target(ptr) else {

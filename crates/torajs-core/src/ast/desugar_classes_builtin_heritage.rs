@@ -42,7 +42,7 @@ const SUBCLASSABLE_BUILTINS: &[&str] = &["Object"];
 /// 20260730 blades 1-2). Recorded in `ast.exotic_parent`; the factory
 /// and `super(...)` lower differently, everything else takes the
 /// stripped base-class shape below.
-const EXOTIC_SUBCLASSABLE: &[&str] = &["Array", "Number", "String", "Boolean"];
+const EXOTIC_SUBCLASSABLE: &[&str] = &["Array", "Number", "String", "Boolean", "Function"];
 
 /// The factory's zero-arg mint magic for an exotic parent (the class
 /// resolves from the enclosing `__new_<C>` fn name at lower time).
@@ -52,6 +52,7 @@ pub(crate) fn exotic_alloc_self_magic(parent: &str) -> &'static str {
         "Number" => "__torajs_number_wrapper_subclass_alloc_self",
         "String" => "__torajs_string_wrapper_subclass_alloc_self",
         "Boolean" => "__torajs_boolean_wrapper_subclass_alloc_self",
+        "Function" => "__torajs_function_subclass_alloc_self",
         _ => unreachable!("not an exotic subclassable builtin: {parent}"),
     }
 }
@@ -59,12 +60,16 @@ pub(crate) fn exotic_alloc_self_magic(parent: &str) -> &'static str {
 /// The ctor-side one-argument `super(v)` semantics kernel — `new
 /// Array(len)` length semantics (§23.1.2.1) / the wrapper ctors'
 /// `[[*Data]] = To*(v)` coercion (§21.1.1.1 / §22.1.1.1 / §20.3.1.1).
-fn exotic_super_kernel(parent: &str) -> &'static str {
+/// `None` = no one-argument form exists for this parent
+/// (`Function`'s body-source form needs dynamic compilation — the
+/// eval-shape seam — so it stays in the loud multi-arg bucket).
+fn exotic_super_kernel(parent: &str) -> Option<&'static str> {
     match parent {
-        "Array" => "__torajs_arr_subclass_super_len",
-        "Number" => "__torajs_number_wrapper_subclass_super",
-        "String" => "__torajs_string_wrapper_subclass_super",
-        "Boolean" => "__torajs_boolean_wrapper_subclass_super",
+        "Array" => Some("__torajs_arr_subclass_super_len"),
+        "Number" => Some("__torajs_number_wrapper_subclass_super"),
+        "String" => Some("__torajs_string_wrapper_subclass_super"),
+        "Boolean" => Some("__torajs_boolean_wrapper_subclass_super"),
+        "Function" => None,
         _ => unreachable!("not an exotic subclassable builtin: {parent}"),
     }
 }
@@ -120,17 +125,18 @@ pub(super) fn strip_builtin_heritage(ast: &mut Ast, class_index: &mut [ClassInde
                     // newTarget: `super()` contributes nothing beyond
                     // the minted cell (each mint already carries the
                     // no-argument default); `super(v)` applies the
-                    // builtin ctor's semantics to it. The multi-arg
-                    // form (`super(a, b, ...)`) is a later seam —
-                    // loud, in the same not-yet-supported bucket as
-                    // M5.2.
+                    // builtin ctor's semantics to it where a
+                    // one-argument form exists. The rest — multi-arg
+                    // (`super(a, b, ...)`) and Function's body-source
+                    // compile — are later seams, loud in the same
+                    // not-yet-supported bucket as M5.2.
                     match args.len() {
                         0 => {
                             ast.exprs[eid.0 as usize] = Expr::Ident("undefined".into());
                         }
-                        1 => {
-                            let callee =
-                                ast.add_expr(Expr::Ident(exotic_super_kernel(p).to_string()));
+                        1 if exotic_super_kernel(p).is_some() => {
+                            let callee = ast
+                                .add_expr(Expr::Ident(exotic_super_kernel(p).unwrap().to_string()));
                             let this_id = ast.add_expr(Expr::This);
                             ast.exprs[eid.0 as usize] = Expr::Call {
                                 callee,
@@ -138,8 +144,8 @@ pub(super) fn strip_builtin_heritage(ast: &mut Ast, class_index: &mut [ClassInde
                             };
                         }
                         _ => panic!(
-                            "M5.N: `{cname} extends {p}` — super(items...) with multiple \
-                             arguments is not yet supported for an exotic builtin parent"
+                            "M5.N: `{cname} extends {p}` — this super(...) argument form \
+                             is not yet supported for an exotic builtin parent"
                         ),
                     }
                     continue;
