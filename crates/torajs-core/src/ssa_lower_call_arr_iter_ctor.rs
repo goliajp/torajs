@@ -71,9 +71,18 @@ pub(crate) fn try_lower(
     let cur_block = ctx.cur_block;
     let v = ctx.f.append_inst(
         cur_block,
-        InstKind::Call(target, vec![recv_op]),
+        InstKind::Call(target, vec![recv_op.clone()]),
         Type::ArrIter,
         None,
     );
+    // The create helper takes its own +1 on the source array (iter
+    // holds a strong ref), so an owned-shape receiver (an array
+    // literal built for this call) still holds its stranded stake
+    // here: release it (chunk 744 fromEntries idiom; churn 200k
+    // `[1,2].values()` leaked the 72B arr cell every iteration —
+    // rc parked at 1, scan_black'd out of the cycle buffer, 32.2MB
+    // vs 6.4MB flat). Ident-read receivers are borrows — no-op
+    // through the predicate.
+    ctx.release_owned_temp(recv_id, &recv_op);
     Some(Operand::Value(v))
 }
