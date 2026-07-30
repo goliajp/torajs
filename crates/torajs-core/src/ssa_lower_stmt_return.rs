@@ -232,6 +232,24 @@ fn coerce_to_ret(ctx: &mut LowerCtx, op: Operand, maybe: Option<crate::ast::Expr
     if actual == Type::Any && matches!(ctx.f.ret, Type::I64 | Type::F64) {
         return ctx.coerce_any_to_number(op, ctx.f.ret);
     }
+    if actual == Type::Any && ctx.f.ret == Type::Bool {
+        // Cluster-`values` follow-up (rotation 253) — a promoted bool
+        // read (`return flags[1]` off a boolean[] global: the index
+        // lane boxes Bool elements so OOB can spell undefined) used
+        // to flow its Any box RAW into the declared Bool ret slot.
+        // The caller then printed the box as if it were 0/1 — true
+        // under one build's non-zero test, coincidentally right
+        // under another's low-bit test. ToBoolean at the boundary,
+        // like the number/Str arms above (a bool box carries no heap
+        // payload, so no drop dance).
+        let v = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.any_to_bool, vec![op]),
+            Type::Bool,
+            None,
+        );
+        return Operand::Value(v);
+    }
     if actual == Type::Any && ctx.f.ret == Type::Str {
         // RC-4 — Any-typed value returned where the declared
         // return is Str: `anyv_to_str` materializes (fresh
