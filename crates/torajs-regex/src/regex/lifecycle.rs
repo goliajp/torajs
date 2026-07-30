@@ -8,6 +8,17 @@ use super::{
     __torajs_rc_dec, __torajs_str_alloc_pooled, RegExp, STR_HDR_SIZE, as_regex, as_regex_mut,
 };
 
+unsafe extern "C" {
+    /// torajs-meta — scrub a dying exotic-subclass instance's
+    /// identity entry (RFC 20260730 blade 0); gated on
+    /// `FLAG_SUBCLASSED` so plain regexes never call out.
+    fn __torajs_subclass_drop_entry(p: *mut c_void);
+}
+
+/// `torajs_rc::FLAG_SUBCLASSED` mirror (flags bit 0, RFC 20260730
+/// blade 0) — exotic cell minted as a user-class instance.
+const FLAG_SUBCLASSED: u16 = 1;
+
 /// # Safety
 ///
 /// `re_ptr` must be a pointer previously returned by
@@ -32,6 +43,9 @@ pub unsafe extern "C" fn __torajs_regex_drop(re_ptr: *mut c_void) {
         let boxed = as_regex(re_ptr).last_index_boxed;
         if boxed != 0 {
             super::__torajs_value_drop_heap(boxed as *mut c_void);
+        }
+        if as_regex(re_ptr).header.flags & FLAG_SUBCLASSED != 0 {
+            __torajs_subclass_drop_entry(re_ptr);
         }
         let _ = Box::from_raw(re_ptr as *mut RegExp);
     }

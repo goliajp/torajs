@@ -45,6 +45,11 @@ const POOL_CAP: usize = 32;
 /// flag scheme.
 const FLAG_STATIC_LITERAL: u16 = 4;
 
+/// `FLAG_SUBCLASSED` mirror (`torajs_rc::flags` bit 0, RFC 20260730
+/// blade 0) — an exotic cell minted as a user-class instance; drop
+/// must scrub its identity entry from torajs-meta's side table.
+const FLAG_SUBCLASSED: u16 = 1;
+
 use std::sync::atomic::{AtomicI32, AtomicPtr, Ordering};
 
 /// Freelist head — `Promise.callbacks` repurposed as `next`.
@@ -68,6 +73,10 @@ unsafe extern "C" {
     /// Universal-drop dispatcher in runtime_str.c. Routes the heap
     /// pointer to its type-specific drop helper.
     fn __torajs_value_drop_heap(p: *mut c_void);
+    /// torajs-meta — scrub a dying exotic-subclass instance's
+    /// identity entry (RFC 20260730 blade 0); gated on
+    /// `FLAG_SUBCLASSED` so plain promises never call out.
+    fn __torajs_subclass_drop_entry(p: *mut c_void);
 }
 
 /// Internal alloc — pop pool or malloc, then init fields.
@@ -242,6 +251,9 @@ pub unsafe extern "C" fn __torajs_promise_drop(p: *mut c_void) {
         // Heap-typed resolved value gets a type-specific drop.
         if (*pp).value_is_heap != 0 && (*pp).state != STATE_PENDING && (*pp).value != 0 {
             __torajs_value_drop_heap((*pp).value as *mut c_void);
+        }
+        if (*pp).header.flags & FLAG_SUBCLASSED != 0 {
+            __torajs_subclass_drop_entry(p);
         }
         promise_release_(pp);
     }

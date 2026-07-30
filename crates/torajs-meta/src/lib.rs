@@ -50,6 +50,7 @@ pub mod string_raw;
 pub mod struct_enum;
 pub mod struct_print;
 pub mod struct_reflect;
+pub mod subclass_instance;
 pub mod throw_readonly;
 
 pub use classmeta::{

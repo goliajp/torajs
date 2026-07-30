@@ -9,6 +9,7 @@
 //!
 //! | bits  | user | scope |
 //! |-------|------|-------|
+//! | 0     | [`FLAG_SUBCLASSED`] | universal |
 //! | 1     | [`FLAG_SPLIT_BLOCK`] | Str |
 //! | 2     | [`FLAG_STATIC_LITERAL`] | universal |
 //! | 3     | [`FLAG_ARR_ANY`] (Arr) / [`FLAG_FN_GENERATOR`] (Closure) | disjoint-by-tag |
@@ -30,6 +31,16 @@
 //! `defineProperties(arr, {})`'s receiver dec buffered the array
 //! Purple, which read back as a locked length).
 
+/// Exotic builtin cell minted as a user-class instance (RFC
+/// 20260730-exotic-backed-class-instance blade 0) — `class C extends
+/// Array` mints a real `Tag::Arr` cell and marks it here; the class
+/// identity (class_tag + prototype cell) lives in torajs-meta's
+/// subclass instance side table keyed on the cell pointer. Readers
+/// (instanceof / getPrototypeOf / method dispatch / drop) gate on the
+/// bit before touching the table, so plain builtin instances pay
+/// nothing on paths that already loaded the header. Bit 0 is free on
+/// every tag — universal.
+pub const FLAG_SUBCLASSED: u16 = 1 << 0;
 /// `str_split` single-malloc block carrying N inline substrs.
 pub const FLAG_SPLIT_BLOCK: u16 = 1 << 1;
 /// rc_inc / rc_dec / str_free no-op when set (immortal literal).

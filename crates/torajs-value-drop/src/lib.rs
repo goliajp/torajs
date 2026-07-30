@@ -64,7 +64,7 @@
 
 use core::ffi::c_void;
 
-use torajs_rc::{__torajs_rc_dec, ARR_KIND_HEAP, FLAG_ARR_ANY, HeapHeader, Tag};
+use torajs_rc::{__torajs_rc_dec, ARR_KIND_HEAP, FLAG_ARR_ANY, FLAG_SUBCLASSED, HeapHeader, Tag};
 
 /// Byte offset of the synthesized drop-fn pointer in a Closure env
 /// block — ABI mirror of `torajs-core::ssa_lower::CLOSURE_DROP_FN_OFF`
@@ -106,6 +106,10 @@ unsafe extern "C" {
     fn __torajs_symbol_drop(p: *mut c_void);
     fn __torajs_promise_drop(p: *mut c_void);
     fn __torajs_obj_drop_rc(p: *mut c_void);
+    /// torajs-meta — scrub a dying exotic-subclass instance's
+    /// identity entry (RFC 20260730 blade 0); every call is gated on
+    /// `FLAG_SUBCLASSED`.
+    fn __torajs_subclass_drop_entry(p: *mut c_void);
     // RFC 20260716-primitive-wrapper-substrate 刀 1 — three fixed
     // 16B wrapper blocks (torajs-wrapper). Each `_drop` is the direct
     // free path (matches the BigInt shape) called by the tag arm
@@ -243,6 +247,12 @@ pub unsafe extern "C" fn __torajs_value_drop_heap(child: *mut c_void) {
             // (typed sites own their single reference), so the dec
             // gate lives here.
             if __torajs_rc_dec(child) != 0 {
+                // RFC 20260730 blade 0 — a Function-subclass instance
+                // (closure cell minted through a user class) scrubs
+                // its identity entry before the env drop frees it.
+                if (*(child as *const HeapHeader)).flags & FLAG_SUBCLASSED != 0 {
+                    __torajs_subclass_drop_entry(child);
+                }
                 let drop_fn: unsafe extern "C" fn(*mut c_void) = core::mem::transmute(
                     (child.cast::<u8>().add(CLOSURE_DROP_FN_OFF) as *const usize).read(),
                 );

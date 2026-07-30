@@ -91,6 +91,14 @@ pub unsafe extern "C" fn __torajs_rc_inc(_p: *mut core::ffi::c_void) {
 
 #[cfg(test)]
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_subclass_drop_entry(_p: *mut core::ffi::c_void) {
+    panic!(
+        "torajs-regex test stub: __torajs_subclass_drop_entry should not be called from cargo test"
+    );
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_dynobj_mark_null_proto(_obj: *mut core::ffi::c_void) {
     panic!(
         "torajs-regex test stub: __torajs_dynobj_mark_null_proto should not be called from cargo test"

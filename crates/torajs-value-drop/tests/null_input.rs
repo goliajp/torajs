@@ -59,6 +59,8 @@ per_tag_drop_stub!(
     __torajs_string_wrapper_drop,
     __torajs_boolean_wrapper_drop,
     __torajs_symbol_wrapper_drop,
+    // RFC 20260730-exotic-backed-class-instance blade 0
+    __torajs_subclass_drop_entry,
 );
 
 // Transitive extern: torajs-rc's `__torajs_rc_dec` notifies the weak

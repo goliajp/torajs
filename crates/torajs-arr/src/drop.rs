@@ -22,7 +22,7 @@ use core::ffi::c_void;
 
 use torajs_rc::{
     ARR_ELEM_KIND_MASK, ARR_ELEM_KIND_SHIFT, ARR_KIND_HEAP, FLAG_ARR_ANY, FLAG_BUFFERED,
-    FLAG_STATIC_LITERAL, HeapHeader,
+    FLAG_STATIC_LITERAL, FLAG_SUBCLASSED, HeapHeader,
 };
 
 use crate::layout::{ARR_LEN_OFF, arr_data, arr_data_is_inline};
@@ -68,6 +68,13 @@ unsafe extern "C" {
     /// before its memory is freed / pooled (a stale entry would be
     /// walked by the next collect).
     fn __torajs_cycle_unbuffer(p: *mut c_void);
+
+    /// torajs-meta — remove a dying exotic-subclass instance's
+    /// identity entry (RFC 20260730 blade 0). A stale entry would
+    /// resurrect the class identity on the next cell minted at the
+    /// same address, so every hit-zero path gates on
+    /// `FLAG_SUBCLASSED` and scrubs.
+    fn __torajs_subclass_drop_entry(p: *mut c_void);
 }
 
 /// True iff the array's slots can carry heap-cell pointers — the only
@@ -102,6 +109,9 @@ pub unsafe extern "C" fn __torajs_arr_drop(p: *mut c_void) {
             // buffer before arr_free can pool-recycle its cell.
             if header.flags & FLAG_BUFFERED != 0 {
                 __torajs_cycle_unbuffer(p);
+            }
+            if header.flags & FLAG_SUBCLASSED != 0 {
+                __torajs_subclass_drop_entry(p);
             }
             __torajs_arrprops_drop_entry(p);
             __torajs_arr_free(p);
@@ -178,6 +188,9 @@ pub unsafe extern "C" fn __torajs_arr_drop_any(arr: *mut c_void) {
             let av = *(slots.add(off) as *const u64);
             __torajs_value_drop_heap(av as *mut c_void);
         }
+        if header.flags & FLAG_SUBCLASSED != 0 {
+            __torajs_subclass_drop_entry(arr);
+        }
         __torajs_arrprops_drop_entry(arr);
         // B1 — a grown array spilled its slots to an independent
         // buffer; release it before the cell (mirror of
@@ -242,6 +255,9 @@ pub unsafe extern "C" fn __torajs_arr_drop_heap(arr: *mut c_void) {
         for i in 0..len {
             let child = *(slots.add(i as usize * 8) as *const *mut c_void);
             __torajs_value_drop_heap(child);
+        }
+        if header.flags & FLAG_SUBCLASSED != 0 {
+            __torajs_subclass_drop_entry(arr);
         }
         __torajs_arrprops_drop_entry(arr);
         __torajs_arr_free(arr);

@@ -25,7 +25,15 @@ unsafe extern "C" {
     /// torajs-anyvalue — NaN-box AnyValue decoders.
     fn __torajs_anyv_unbox_tag(v: u64) -> i64;
     fn __torajs_anyv_unbox_value(v: u64) -> i64;
+    /// torajs-meta — scrub a dying exotic-subclass instance's
+    /// identity entry (RFC 20260730 blade 0); gated on
+    /// `FLAG_SUBCLASSED` so plain maps/sets never call out.
+    fn __torajs_subclass_drop_entry(p: *mut c_void);
 }
+
+/// `torajs_rc::FLAG_SUBCLASSED` mirror (flags bit 0, RFC 20260730
+/// blade 0) — exotic cell minted as a user-class instance.
+const FLAG_SUBCLASSED: u16 = 1;
 
 /// `__torajs_map_drop(m)` — refcount-aware drop. Returns immediately
 /// if `m` is null, STATIC_LITERAL, or refcount stays positive after
@@ -65,6 +73,9 @@ pub unsafe extern "C" fn __torajs_map_drop(p: *mut c_void) {
                     __torajs_value_drop_heap(vp);
                 }
             }
+        }
+        if (*m).header.flags & FLAG_SUBCLASSED != 0 {
+            __torajs_subclass_drop_entry(p);
         }
         free((*m).slots as *mut c_void);
         free((*m).entries as *mut c_void);

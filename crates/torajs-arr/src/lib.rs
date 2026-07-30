@@ -257,3 +257,11 @@ pub unsafe extern "C" fn __torajs_cycle_unbuffer(_p: *mut core::ffi::c_void) {
         "torajs-arr unit-test stub: __torajs_cycle_unbuffer should not be called from cargo test paths"
     );
 }
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_subclass_drop_entry(_p: *mut core::ffi::c_void) {
+    panic!(
+        "torajs-arr unit-test stub: __torajs_subclass_drop_entry should not be called from cargo test paths"
+    );
+}

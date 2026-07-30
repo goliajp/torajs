@@ -66,6 +66,11 @@ unsafe extern "C" {
     /// Rc decrement (torajs-rc). Returns `1` on hit-zero; `0` otherwise.
     fn __torajs_rc_dec(p: *mut c_void) -> i32;
 
+    /// torajs-meta — scrub a dying exotic-subclass instance's
+    /// identity entry (RFC 20260730 blade 0); gated on
+    /// `FLAG_SUBCLASSED` so plain wrappers never call out.
+    fn __torajs_subclass_drop_entry(p: *mut c_void);
+
     /// torajs-cycle — register a possible cycle root when the rc
     /// stayed positive (RFC 20260717 blade 3: wrappers joined the
     /// trial-deletion walk through their +16 expando props dict).
@@ -141,6 +146,17 @@ unsafe fn release_wrapper_props(ptr: *mut u8) {
     }
 }
 
+/// RFC 20260730 blade 0 — a wrapper minted as a user-class instance
+/// carries its identity in torajs-meta's side table; scrub the entry
+/// on the free path. Plain wrappers (flag clear) never call out.
+unsafe fn scrub_subclass_entry(p: *mut c_void) {
+    unsafe {
+        if (*(p as *const HeapHeader)).flags & torajs_rc::FLAG_SUBCLASSED != 0 {
+            __torajs_subclass_drop_entry(p);
+        }
+    }
+}
+
 // ============================================================
 // NumberWrapper — new Number(x), [[NumberData]] = x
 // ============================================================
@@ -185,6 +201,7 @@ pub unsafe extern "C" fn __torajs_number_wrapper_drop(p: *mut c_void) {
     }
     unsafe {
         __torajs_cycle_unbuffer(p);
+        scrub_subclass_entry(p);
         release_wrapper_props(p as *mut u8);
         libc_free(p);
     };
@@ -261,6 +278,7 @@ pub unsafe extern "C" fn __torajs_string_wrapper_drop(p: *mut c_void) {
         unsafe { __torajs_value_drop_heap(cell as *mut c_void) };
     }
     unsafe {
+        scrub_subclass_entry(p);
         release_wrapper_props(p as *mut u8);
         libc_free(p);
     };
@@ -332,6 +350,7 @@ pub unsafe extern "C" fn __torajs_boolean_wrapper_drop(p: *mut c_void) {
     }
     unsafe {
         __torajs_cycle_unbuffer(p);
+        scrub_subclass_entry(p);
         release_wrapper_props(p as *mut u8);
         libc_free(p);
     };
@@ -474,6 +493,11 @@ mod tests {
     unsafe extern "C" fn __torajs_cycle_buffer(_p: *mut c_void) {}
     #[unsafe(no_mangle)]
     unsafe extern "C" fn __torajs_cycle_unbuffer(_p: *mut c_void) {}
+    // Subclass identity side table (RFC 20260730 blade 0) lives in
+    // libtorajs_meta.a — no-op stub; test wrappers never set
+    // FLAG_SUBCLASSED so the gated call never fires.
+    #[unsafe(no_mangle)]
+    unsafe extern "C" fn __torajs_subclass_drop_entry(_p: *mut c_void) {}
 
     #[test]
     fn number_wrapper_new_and_read() {
