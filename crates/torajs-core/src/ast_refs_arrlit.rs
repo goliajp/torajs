@@ -12,10 +12,13 @@
 use crate::ast::{Ast, Expr, ExprId};
 
 /// `None` — keeping the binding main-local — for an empty literal
-/// (`[]` has no statically certain element type), any non-literal
-/// element, or mixed element shapes. Integral and fractional Number
-/// literals unify to the wide `f64[]` slot (storing f64 bits in an
-/// i64 slot reads back garbage; the reverse widens losslessly).
+/// (`[]` has no statically certain element type, at any depth), any
+/// non-literal element, or mixed element shapes. Integral and
+/// fractional Number literals unify to the wide `f64[]` slot at any
+/// shared nesting depth (storing f64 bits in an i64 slot reads back
+/// garbage; the reverse widens losslessly). Nested Array literals
+/// recurse (`[[1, 2], [3]]` → `number[][]` — the test262 matrix
+/// prelude shape).
 pub(crate) fn arrlit_literal_elem_ann(ast: &Ast, init: ExprId) -> Option<String> {
     let Expr::Array(elems) = ast.get_expr(init) else {
         return None;
@@ -23,26 +26,41 @@ pub(crate) fn arrlit_literal_elem_ann(ast: &Ast, init: ExprId) -> Option<String>
     if elems.is_empty() {
         return None;
     }
-    let mut elem_ann: Option<&str> = None;
+    let mut elem_ann: Option<String> = None;
     for e in elems {
-        let ann = match ast.get_expr(*e) {
-            Expr::Number(n) => {
-                if n.fract() != 0.0 || n.abs() >= 9.223372036854776e18 {
-                    "f64"
-                } else {
-                    "number"
-                }
+        let ann: String = match ast.get_expr(*e) {
+            Expr::Number(n) => if n.fract() != 0.0 || n.abs() >= 9.223372036854776e18 {
+                "f64"
+            } else {
+                "number"
             }
-            Expr::String(_) => "string",
-            Expr::Bool(_) => "boolean",
+            .to_string(),
+            Expr::String(_) => "string".to_string(),
+            Expr::Bool(_) => "boolean".to_string(),
+            Expr::Array(_) => arrlit_literal_elem_ann(ast, *e)?,
             _ => return None,
         };
-        elem_ann = Some(match (elem_ann, ann) {
-            (None, a) => a,
-            (Some(prev), a) if prev == a => prev,
-            (Some("number"), "f64") | (Some("f64"), "number") => "f64",
-            _ => return None,
+        elem_ann = Some(match elem_ann {
+            None => ann,
+            Some(prev) if prev == ann => prev,
+            Some(prev) => unify_number_width(&prev, &ann)?,
         });
     }
     Some(format!("{}[]", elem_ann?))
+}
+
+/// `number`/`f64` unify to the wide spelling when their nesting
+/// depths agree (`number[]` + `f64[]` → `f64[]`); anything else is a
+/// genuine shape mix and answers `None`.
+fn unify_number_width(a: &str, b: &str) -> Option<String> {
+    let base_a = a.trim_end_matches("[]");
+    let base_b = b.trim_end_matches("[]");
+    let depth = (a.len() - base_a.len()) / 2;
+    if a.len() - base_a.len() != b.len() - base_b.len() {
+        return None;
+    }
+    if matches!((base_a, base_b), ("number", "f64") | ("f64", "number")) {
+        return Some(format!("f64{}", "[]".repeat(depth)));
+    }
+    None
 }
