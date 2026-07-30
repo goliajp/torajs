@@ -111,6 +111,7 @@ mod iter_any_close;
 mod iter_any_get_method;
 mod iter_any_result;
 mod iter_any_step;
+mod iter_from;
 mod iter_helper;
 mod iter_helper_eager;
 mod len_get;

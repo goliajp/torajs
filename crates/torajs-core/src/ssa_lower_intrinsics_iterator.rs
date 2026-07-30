@@ -16,6 +16,7 @@ pub(crate) struct IteratorIds {
     pub proto_chain_builtin: FuncId,
     pub instanceof_builtin_proto: FuncId,
     pub iterator_ctor_throw: FuncId,
+    pub iterator_from: FuncId,
 }
 
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) -> IteratorIds {
@@ -39,6 +40,15 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             fn_table,
             "__torajs_iterator_ctor_throw",
             &[],
+            Type::Any,
+        ),
+        // §27.1.6.2 Iterator.from — GetIteratorFlattenable +
+        // pass-through-or-wrap (刀 4). (value) → owned iterator Any.
+        iterator_from: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_iterator_from",
+            &[Type::Any],
             Type::Any,
         ),
     }

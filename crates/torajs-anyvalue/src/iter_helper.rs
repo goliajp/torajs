@@ -12,8 +12,8 @@
 //!   pad:6 | inner:8 }                                    (48 B)
 //! ```
 //!
-//! `inner` is the flatMap current-inner-iterator slot (undefined
-//! until that kind lands; carried in the layout so the cell never
+//! `inner` is the flatMap current-inner-iterator slot (undefined for
+//! every other kind; carried in the one layout so the cell never
 //! needs a second shape).
 //!
 //! Recorded boundary (RFC §3.3 deviation): the spec's
@@ -40,12 +40,20 @@ pub(crate) const ITER_HELPER_FILTER: u8 = 1;
 pub(crate) const ITER_HELPER_TAKE: u8 = 2;
 /// §27.1.4.3 — `fn` slot holds the still-to-skip f64 bits.
 pub(crate) const ITER_HELPER_DROP: u8 = 3;
+/// §27.1.6.2 WrapForValidIterator (`Iterator.from` over a
+/// non-Iterator) — `fn` slot stays undefined; next/return forward
+/// to the underlying (刀 4).
+pub(crate) const ITER_HELPER_WRAP: u8 = 4;
+/// §27.1.4.5 flatMap — the `inner` slot drives (刀 4).
+pub(crate) const ITER_HELPER_FLAT_MAP: u8 = 5;
 
-const UNDERLYING_OFF: usize = 8;
-const FN_OFF: usize = 16;
-const COUNTER_OFF: usize = 24;
+pub(crate) const UNDERLYING_OFF: usize = 8;
+pub(crate) const FN_OFF: usize = 16;
+pub(crate) const COUNTER_OFF: usize = 24;
 const KIND_OFF: usize = 32;
-const ALIVE_OFF: usize = 33;
+pub(crate) const ALIVE_OFF: usize = 33;
+/// The flatMap current-inner-iterator slot.
+pub(crate) const INNER_OFF: usize = 40;
 const CELL_SIZE: usize = 48;
 
 unsafe extern "C" {
@@ -118,7 +126,29 @@ pub(crate) unsafe fn iter_helper_mint(recv: AnyValue, kind: u8, fn_av: AnyValue)
         *(cell.add(FN_OFF) as *mut u64) = fn_slot;
         *(cell.add(KIND_OFF) as *mut u8) = kind;
         *(cell.add(ALIVE_OFF) as *mut u8) = 1;
-        *(cell.add(40) as *mut u64) = VALUE_UNDEFINED;
+        *(cell.add(INNER_OFF) as *mut u64) = VALUE_UNDEFINED;
+        __torajs_anyv_box_pointer(cell as *mut c_void)
+    }
+}
+
+/// Mint a kind-WRAP cell over an OWNED underlying — §27.1.6.2
+/// WrapForValidIterator. The caller's reference TRANSFERS to the
+/// cell's underlying slot (unlike [`iter_helper_mint`], whose
+/// receiver is a dispatcher borrow); the fn slot stays undefined.
+///
+/// # Safety
+/// `underlying` is an owned live cell AnyValue.
+pub(crate) unsafe fn iter_helper_mint_wrap(underlying: AnyValue) -> AnyValue {
+    unsafe {
+        let layout = core::alloc::Layout::from_size_align(CELL_SIZE, 8).unwrap();
+        let cell = std::alloc::alloc_zeroed(layout);
+        *(cell as *mut u32) = 1;
+        *(cell.add(4) as *mut u16) = Tag::IterHelper as u16;
+        *(cell.add(UNDERLYING_OFF) as *mut u64) = underlying;
+        *(cell.add(FN_OFF) as *mut u64) = VALUE_UNDEFINED;
+        *(cell.add(KIND_OFF) as *mut u8) = ITER_HELPER_WRAP;
+        *(cell.add(ALIVE_OFF) as *mut u8) = 1;
+        *(cell.add(INNER_OFF) as *mut u64) = VALUE_UNDEFINED;
         __torajs_anyv_box_pointer(cell as *mut c_void)
     }
 }
@@ -139,6 +169,11 @@ pub(crate) unsafe fn iter_helper_step(ptr: *mut c_void, out: *mut AnyValue) -> i
         }
         let underlying = (ptr.cast::<u8>().add(UNDERLYING_OFF) as *const u64).read();
         let kind = (ptr.cast::<u8>().add(KIND_OFF)).read();
+        // §27.1.4.5 flatMap — the double loop (inner drain + outer
+        // step + flatten) lives with GetIteratorFlattenable.
+        if kind == ITER_HELPER_FLAT_MAP {
+            return crate::iter_from::iter_flat_map_step(ptr, out);
+        }
         // §27.1.4.9 take — a zero remaining-count is done BEFORE the
         // underlying steps (and closes it, step 5.a.ii).
         if kind == ITER_HELPER_TAKE {
@@ -179,7 +214,9 @@ pub(crate) unsafe fn iter_helper_step(ptr: *mut c_void, out: *mut AnyValue) -> i
             }
             let counter = (ptr.cast::<u8>().add(COUNTER_OFF) as *const u64).read();
             (ptr.cast::<u8>().add(COUNTER_OFF) as *mut u64).write(counter + 1);
-            if kind == ITER_HELPER_TAKE || kind == ITER_HELPER_DROP {
+            // take / drop pass the item through untouched; WRAP is
+            // the §27.1.6.3.1 next() forward — same pass-through.
+            if kind == ITER_HELPER_TAKE || kind == ITER_HELPER_DROP || kind == ITER_HELPER_WRAP {
                 *out = item;
                 return 1;
             }
@@ -247,10 +284,15 @@ pub(crate) unsafe fn iter_helper_method(
             }
             torajs_rc::any_method::ANY_METHOD_ITER_RETURN => {
                 // §27.1.5.2 — close the underlying, answer
-                // { value: undefined, done: true }.
+                // { value: undefined, done: true }. A WRAP cell
+                // instead FORWARDS return() and passes the
+                // underlying's own result through (§27.1.6.3.2).
                 if (ptr.cast::<u8>().add(ALIVE_OFF)).read() != 0 {
                     (ptr.cast::<u8>().add(ALIVE_OFF)).write(0);
                     let underlying = (ptr.cast::<u8>().add(UNDERLYING_OFF) as *const u64).read();
+                    if (ptr.cast::<u8>().add(KIND_OFF)).read() == ITER_HELPER_WRAP {
+                        return crate::iter_from::wrap_return_forward(underlying);
+                    }
                     crate::iter_any_close::__torajs_iter_close_value(underlying);
                 }
                 iter_result_obj(VALUE_UNDEFINED, true)
@@ -278,6 +320,7 @@ pub(crate) unsafe fn try_helper_chain(
     let kind = match mid {
         torajs_rc::ANY_METHOD_MAP => ITER_HELPER_MAP,
         torajs_rc::ANY_METHOD_FILTER => ITER_HELPER_FILTER,
+        torajs_rc::ANY_METHOD_FLAT_MAP => ITER_HELPER_FLAT_MAP,
         torajs_rc::any_method_iter::ANY_METHOD_TAKE => ITER_HELPER_TAKE,
         torajs_rc::any_method_iter::ANY_METHOD_DROP => ITER_HELPER_DROP,
         torajs_rc::any_method_iter::ANY_METHOD_TO_ARRAY => {
@@ -307,7 +350,7 @@ pub(crate) unsafe fn try_helper_chain(
 
 /// Fresh `{ value, done }` IteratorResult dynobj; `value` transfers
 /// in owned (same ledger as the MapIter/ArrIter next() arms).
-unsafe fn iter_result_obj(value: AnyValue, done: bool) -> AnyValue {
+pub(crate) unsafe fn iter_result_obj(value: AnyValue, done: bool) -> AnyValue {
     unsafe {
         let mut obj = __torajs_dynobj_alloc();
         let (tag, payload) = (
@@ -345,7 +388,7 @@ pub unsafe extern "C" fn __torajs_iter_helper_drop(cell: *mut c_void) {
         let p = cell.cast::<u8>();
         crate::nanbox_ffi::__torajs_anyv_rc_dec((p.add(UNDERLYING_OFF) as *const u64).read());
         crate::nanbox_ffi::__torajs_anyv_rc_dec((p.add(FN_OFF) as *const u64).read());
-        crate::nanbox_ffi::__torajs_anyv_rc_dec((p.add(40) as *const u64).read());
+        crate::nanbox_ffi::__torajs_anyv_rc_dec((p.add(INNER_OFF) as *const u64).read());
         let layout = core::alloc::Layout::from_size_align(CELL_SIZE, 8).unwrap();
         std::alloc::dealloc(p, layout);
     }

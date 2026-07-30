@@ -156,6 +156,10 @@ fn try_dispatch_a(
     if let Some(op) = crate::ssa_lower_call_map_group_by::try_lower(ctx, callee, args) {
         return Some(op);
     }
+    // `Iterator.from(O)` — GetIteratorFlattenable + wrap-or-pass.
+    if let Some(op) = crate::ssa_lower_call_iterator_from::try_lower(ctx, callee, args) {
+        return Some(op);
+    }
     // Bare-name JS globals: parseInt / parseFloat / isNaN / isFinite / queueMicrotask.
     if let Some(op) = crate::ssa_lower_call_bare_globals::try_lower(ctx, callee, args) {
         return Some(op);

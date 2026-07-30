@@ -398,6 +398,7 @@ pub(crate) fn build(
         proto_chain_builtin: init_c.iterator.proto_chain_builtin,
         instanceof_builtin_proto: init_c.iterator.instanceof_builtin_proto,
         iterator_ctor_throw: init_c.iterator.iterator_ctor_throw,
+        iterator_from: init_c.iterator.iterator_from,
         static_method_define: init_c.any_substrate.static_method_define,
         static_field_define: init_c.any_substrate.static_field_define,
         class_cell_raw: init_c.any_substrate.class_cell_raw,

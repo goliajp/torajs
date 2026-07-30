@@ -243,5 +243,13 @@ pub(crate) fn try_route(
     if let Some(r) = crate::check_type_of_call_map_group_by::try_match(checker, ast, callee, args) {
         return Some(r);
     }
+    // `Iterator.from(O)` per ES §27.1.6.2 — derived iterator is a
+    // runtime cell; answers `Type::Any`.
+    // See [`crate::check_type_of_call_iterator_from`].
+    if let Some(r) =
+        crate::check_type_of_call_iterator_from::try_match(checker, ast, callee, args)
+    {
+        return Some(r);
+    }
     None
 }
