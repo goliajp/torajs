@@ -86,6 +86,14 @@ pub(crate) fn lower(ctx: &mut LowerCtx, eid: ExprId) -> Operand {
             return crate::ssa_lower_new::try_lower(ctx, class_name, args)
                 .expect("ssa-lower: Boolean wrapper sibling miss");
         }
+        // RFC 20260730-iterator-global 刀 1 — §27.1.3.1 abstract
+        // ctor: direct `new Iterator()` throws at runtime.
+        Expr::New {
+            class_name, args, ..
+        } if class_name == "Iterator" => {
+            return crate::ssa_lower_new::try_lower(ctx, class_name, args)
+                .expect("ssa-lower: Iterator ctor sibling miss");
+        }
         // Number literals coerce to i64 — type inference lifts them to
         // f64 once we wire numeric-mode detection into the lowerer.
         Expr::Number(n) => {

@@ -38,8 +38,9 @@ unsafe extern "C" {
 
 /// Number of builtin prototypes ssa_lower can request. Order is
 /// fixed by the tag constants ssa_lower emits — never reorder
-/// (append-only; AsyncFunction joined as 14, RFC 20260721 刀 4).
-pub const NUM_BUILTIN_PROTOS: usize = 15;
+/// (append-only; AsyncFunction joined as 14, RFC 20260721 刀 4;
+/// Iterator joined as 15, RFC 20260730-iterator-global 刀 1).
+pub const NUM_BUILTIN_PROTOS: usize = 16;
 
 /// ES `name` / ctor-clause `length` of the builtin constructor
 /// owning each proto tag (RFC 20260720-ctor-static-reflection 刀 3)
@@ -49,7 +50,7 @@ pub const NUM_BUILTIN_PROTOS: usize = 15;
 /// §23.1.1 / §22.1.1 / §20.3.1 / §20.4.1 (Symbol 0) / §21.2.1 /
 /// §22.2.4 (RegExp 2) / §21.4.2 (Date 7) / §20.5.1 / §27.2.3 /
 /// §24.1.1 (Map 0) / §24.2.2 (Set 0) / §20.2.1 / §27.7.1
-/// (AsyncFunction 1).
+/// (AsyncFunction 1) / §27.1.3.1 (Iterator 0).
 pub fn builtin_ctor_meta(tag: i64) -> Option<(&'static str, u32)> {
     Some(match tag {
         0 => ("Number", 1),
@@ -67,6 +68,7 @@ pub fn builtin_ctor_meta(tag: i64) -> Option<(&'static str, u32)> {
         12 => ("Set", 0),
         13 => ("Function", 1),
         14 => ("AsyncFunction", 1),
+        15 => ("Iterator", 0),
         _ => return None,
     })
 }

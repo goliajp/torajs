@@ -76,6 +76,10 @@ const ATTRS_WEC_101: u64 = PRESENT_ALL_VALUE | FLAG_CONFIGURABLE | 1;
 /// (`builtin_proto.rs` tag space).
 const FUNCTION_PROTO_TAG: i64 = 13;
 
+/// Builtin-proto singleton tag for %Iterator.prototype%
+/// (RFC 20260730-iterator-global 刀 1).
+const ITERATOR_PROTO_TAG: i64 = 15;
+
 /// Per-kind trio: [fn_proto, ctor, gen_proto]. kind 0 = generator,
 /// kind 1 = async generator. Pointer addresses stored as usize so
 /// the statics stay Sync (multi-thread-ready shape); slot 0 doubles
@@ -151,6 +155,17 @@ unsafe fn mint_kind(kind: usize) {
 
     // gen_proto: constructor back-link (§27.5.1.1 / §27.6.1.1).
     unsafe { define_heap(gen_proto, b"constructor", fn_proto, ATTRS_WEC_001) };
+    // §27.1.2 — %GeneratorPrototype%.[[Prototype]] is
+    // %Iterator.prototype% (sync kind only; the async trio's parent
+    // is %AsyncIteratorPrototype%, which tr does not have — that
+    // link stays absent, recorded boundary). RFC
+    // 20260730-iterator-global 刀 1.
+    if kind == 0 {
+        let iter_proto = unsafe { __torajs_get_builtin_prototype(ITERATOR_PROTO_TAG) };
+        if !iter_proto.is_null() {
+            unsafe { define_heap(gen_proto, PROTO_SLOT_KEY, iter_proto, PROTO_SLOT_ATTRS) };
+        }
+    }
     // gen_proto: next / return / throw step methods (§27.5.1.2-4 /
     // §27.6.1.2-4, {W:1, E:0, C:1}) — interned reflection cells
     // (RFC 20260721 刀 2; the call face records a loud reject, live

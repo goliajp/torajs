@@ -314,6 +314,15 @@ pub unsafe extern "C" fn __torajs_anyv_get_proto_of_any(v: u64) -> u64 {
             21 => 0, // NumberWrapper  → Number.prototype
             22 => 3, // StringWrapper  → String.prototype
             23 => 4, // BooleanWrapper → Boolean.prototype
+            // RFC 20260730-iterator-global 刀 1 — iterator cells
+            // answer %Iterator.prototype% directly. Recorded
+            // boundary: tr has no per-family intermediate
+            // (%ArrayIteratorPrototype% / %MapIteratorPrototype%)
+            // singletons, so the one-hop-shorter chain differs from
+            // bun on getPrototypeOf identity while `instanceof
+            // Iterator` agrees.
+            16 => 15, // MapIter → Iterator.prototype
+            17 => 15, // ArrIter → Iterator.prototype
             _ => -1,
         };
         if proto_tag >= 0 {

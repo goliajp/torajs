@@ -212,6 +212,9 @@ pub(super) fn ssa_intercepted_builtin(name: &str) -> bool {
             | "Number"
             | "String"
             | "Boolean"
+            // RFC 20260730-iterator-global 刀 1 — `new Iterator()`
+            // lowers to the §27.1.3.1 abstract-ctor TypeError kernel.
+            | "Iterator"
     )
 }
 

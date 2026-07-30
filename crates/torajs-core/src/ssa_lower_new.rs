@@ -79,8 +79,29 @@ pub(crate) fn try_lower(
         "Number" if !args.is_empty() => Some(lower_number_wrapper(ctx, args)),
         "String" if !args.is_empty() => Some(lower_string_wrapper(ctx, args)),
         "Boolean" if !args.is_empty() => Some(lower_boolean_wrapper(ctx, args)),
+        // RFC 20260730-iterator-global 刀 1 — §27.1.3.1: the Iterator
+        // constructor is abstract; direct `new Iterator(...)` throws
+        // a TypeError at runtime (args unevaluated is fine — the
+        // throw fires before any observable use; recorded boundary
+        // for argument side effects).
+        "Iterator" => Some(lower_iterator_ctor_throw(ctx)),
         _ => None,
     }
+}
+
+/// `new Iterator(...)` — call the abstract-ctor TypeError kernel and
+/// propagate the pending throw (same shape as the RegExp
+/// compile-or-throw arm below).
+fn lower_iterator_ctor_throw(ctx: &mut LowerCtx<'_>) -> Operand {
+    let cur_block = ctx.cur_block;
+    let v = ctx.f.append_inst(
+        cur_block,
+        InstKind::Call(ctx.intrinsics.iterator_ctor_throw, Vec::new()),
+        Type::Any,
+        None,
+    );
+    ctx.emit_throw_check(None);
+    Operand::Value(v)
 }
 
 /// RFC 20260716 刀 2 — `new Number(x)` wrapper alloc. Coerces `x` to

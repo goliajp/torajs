@@ -70,6 +70,7 @@ pub(crate) fn is_known_builtin_global(name: &str) -> bool {
             | "Bun"
             | "Promise"
             | "RegExp"
+            | "Iterator"
             | "Map"
             | "Set"
             | "fetch"

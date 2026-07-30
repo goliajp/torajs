@@ -89,6 +89,31 @@ pub(super) fn emit_proto_chain_and_register(
         });
         out.push(Stmt::Expr(call));
     }
+
+    // RFC 20260730-iterator-global 刀 1 — chain each stripped-
+    // builtin heir's prototype object to its builtin prototype
+    // singleton (`class C extends Iterator {}` → C.prototype's
+    // [[Prototype]] IS %Iterator.prototype%, §27.1.3). Same emit
+    // shape as the genfn chain above; sorted for determinism.
+    let mut heirs: Vec<(String, i64)> = ast
+        .builtin_proto_heirs
+        .iter()
+        .map(|(c, t)| (c.clone(), *t))
+        .collect();
+    heirs.sort();
+    for (cls, tag) in heirs {
+        if !meta.class_names.iter().any(|c| c == &cls) {
+            continue;
+        }
+        let proto_ident = ast.add_expr(Expr::Ident(format!("__proto_{cls}")));
+        let tag_expr = ast.add_expr(Expr::Number(tag as f64));
+        let callee = ast.add_expr(Expr::Ident("__torajs_proto_chain_builtin".to_string()));
+        let call = ast.add_expr(Expr::Call {
+            callee,
+            args: vec![proto_ident, tag_expr],
+        });
+        out.push(Stmt::Expr(call));
+    }
 }
 
 /// Class-object registration: the tag-keyed `__class_<C>` side

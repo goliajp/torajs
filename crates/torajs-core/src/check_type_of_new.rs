@@ -54,6 +54,10 @@ pub(crate) fn try_check(
         "Number" => check_number_wrapper(checker, ast, args),
         "String" => check_string_wrapper(checker, ast, args),
         "Boolean" => check_boolean_wrapper(checker, ast, args),
+        // RFC 20260730-iterator-global 刀 1 — `new Iterator()` types
+        // Any; the lowering emits the §27.1.3.1 abstract-ctor
+        // TypeError (runtime, catchable).
+        "Iterator" => Ok(Type::Any),
         _ => return None,
     };
     Some(result)

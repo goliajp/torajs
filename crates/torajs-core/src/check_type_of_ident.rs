@@ -61,6 +61,11 @@ pub(crate) fn check(checker: &Checker, name: &str) -> Result<Type, String> {
         // RFC 20260711-closure-reflection chunk A — `Function.prototype.<m>`
         // (call/apply/bind method cells) needs the namespace ident typed.
         "Function" => Ok(Type::Object("Function")),
+        // RFC 20260730-iterator-global 刀 1 — the `Iterator` global
+        // as a VALUE (§27.1.3). The type-annotation head `Iterator<T>`
+        // resolves in a separate namespace (check_type_ann collapses
+        // it to Any) — recorded boundary, no mechanical conflict.
+        "Iterator" => Ok(Type::Object("Iterator")),
         "fs" => Ok(Type::Object("fs")),
         "fs_promises" => Ok(Type::Object("fs_promises")),
         "process" => Ok(Type::Object("process")),
@@ -151,6 +156,13 @@ pub(crate) fn check(checker: &Checker, name: &str) -> Result<Type, String> {
         // %GeneratorPrototype% chain writer (class_globals emits it
         // at module init; lowered in the class-synth lane).
         "__torajs_genfn_chain" => Ok(Type::Function(
+            vec![Type::Any, Type::Number],
+            Box::new(Type::Void),
+        )),
+        // RFC 20260730-iterator-global 刀 1 — stripped-heir proto →
+        // builtin-proto singleton chain writer (class_globals emits
+        // it at module init; lowered in the class-synth lane).
+        "__torajs_proto_chain_builtin" => Ok(Type::Function(
             vec![Type::Any, Type::Number],
             Box::new(Type::Void),
         )),

@@ -74,6 +74,17 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, expr: ExprId, class_name: &str) -> O
     let class_name = class_name.as_str();
     let v = ctx.lower_expr(expr);
     let actual_ty = ctx.operand_ty(&v);
+    // RFC 20260730-iterator-global 刀 1 — `x instanceof Iterator` is
+    // pure §7.3.22 prototype-chain membership (no per-instance heap
+    // tag): iterator cells fold true, object-shaped operands walk
+    // the chain at runtime (generator instances / `extends Iterator`
+    // heirs / arbitrary objects), everything else is spec-false
+    // (OrdinaryHasInstance step 3 rejects non-Objects; a closure's
+    // chain tops out at %Function.prototype% — recorded boundary
+    // for a monkey-patched Function.prototype.__proto__).
+    if class_name == "Iterator" {
+        return lower_iterator_instanceof(ctx, v, actual_ty);
+    }
     if let Some(r) = try_compile_time_fold(actual_ty, class_name) {
         return Operand::ConstBool(r);
     }
@@ -84,6 +95,30 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, expr: ExprId, class_name: &str) -> O
         return Operand::ConstBool(false);
     }
     lower_typed_obj_dispatch(ctx, v, class_name)
+}
+
+/// `x instanceof Iterator` — see the call site's rationale. The
+/// runtime walk is `__torajs_instanceof_builtin_proto(v, 15)` (15 =
+/// %Iterator.prototype%'s builtin-proto tag).
+fn lower_iterator_instanceof(ctx: &mut LowerCtx<'_>, v: Operand, actual_ty: Type) -> Operand {
+    const ITERATOR_PROTO_TAG: i64 = 15;
+    let v_any = match actual_ty {
+        Type::MapIter | Type::ArrIter => return Operand::ConstBool(true),
+        Type::Any => v,
+        Type::Obj(_) => ctx.box_to_any(v),
+        _ => return Operand::ConstBool(false),
+    };
+    let cur_block = ctx.cur_block;
+    let r = ctx.f.append_inst(
+        cur_block,
+        InstKind::Call(
+            ctx.intrinsics.instanceof_builtin_proto,
+            vec![v_any, Operand::ConstI64(ITERATOR_PROTO_TAG)],
+        ),
+        Type::Bool,
+        None,
+    );
+    Operand::Value(r)
 }
 
 fn try_compile_time_fold(actual_ty: Type, class_name: &str) -> Option<bool> {

@@ -34,8 +34,11 @@ use super::desugar_classes_super::ClassIndexEntry;
 use super::super_collect::collect_super_in_stmt;
 use super::*;
 
-/// Builtins accepted as an `extends` parent today.
-const SUBCLASSABLE_BUILTINS: &[&str] = &["Object"];
+/// Builtins accepted as an `extends` parent today. Instances stay
+/// ordinary `Tag::Obj` cells; Iterator additionally chains the
+/// class's prototype to %Iterator.prototype% (see
+/// `builtin_proto_heir_tag`).
+const SUBCLASSABLE_BUILTINS: &[&str] = &["Object", "Iterator"];
 
 /// Builtins whose instances are exotic objects — the subclass mints a
 /// REAL exotic cell via the per-builtin subclass-alloc kernel (RFC
@@ -92,6 +95,20 @@ fn exotic_super_zero_is_noop(parent: &str) -> bool {
     parent != "Promise"
 }
 
+/// SUBCLASSABLE (stripped, ordinary-instance) parents whose only
+/// substrate contribution is a prototype-chain link: the class's
+/// `__proto_<C>` dynobj gets a PROTO_SLOT_KEY entry pointing at the
+/// builtin prototype singleton of the returned tag, so
+/// `new C() instanceof Iterator` and inherited-helper dispatch walk
+/// through it. `None` = no link needed (Object — the default chain
+/// is already correct). RFC 20260730-iterator-global 刀 1.
+fn builtin_proto_heir_tag(parent: &str) -> Option<i64> {
+    match parent {
+        "Iterator" => Some(15),
+        _ => None,
+    }
+}
+
 /// Strip a builtin parent down to base-class shape (see module doc).
 /// Runs on the mutable `class_index` FIRST — before default-ctor
 /// synthesis (a stripped class takes the base default ctor, not the
@@ -123,6 +140,9 @@ pub(super) fn strip_builtin_heritage(ast: &mut Ast, class_index: &mut [ClassInde
                 );
             }
             ast.exotic_parent.insert(cname.clone(), p.clone());
+        }
+        if let Some(tag) = builtin_proto_heir_tag(p) {
+            ast.builtin_proto_heirs.insert(cname.clone(), tag);
         }
         if let Some(c) = ctor.as_mut() {
             let mut sites: Vec<(ExprId, Vec<ExprId>)> = Vec::new();

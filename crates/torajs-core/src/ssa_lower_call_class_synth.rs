@@ -81,8 +81,35 @@ pub(crate) fn try_lower(
         }
         "__torajs_arguments_materialize" => try_lower_arguments_materialize(ctx, args),
         "__torajs_genfn_chain" => try_lower_genfn_chain(ctx, args),
+        "__torajs_proto_chain_builtin" => try_lower_proto_chain_builtin(ctx, args),
         _ => None,
     }
+}
+
+/// RFC 20260730-iterator-global 刀 1 —
+/// `__torajs_proto_chain_builtin(__proto_<cls>, <proto_tag>)`,
+/// emitted by synthesize_class_globals for each stripped-builtin
+/// heir (`class C extends Iterator {}`): chains the class's
+/// prototype object to the builtin prototype singleton of
+/// `proto_tag`. Same borrow shape as the genfn-chain arm above.
+fn try_lower_proto_chain_builtin(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Operand> {
+    if args.len() != 2 {
+        return None;
+    }
+    let Expr::Number(tag) = ctx.ast.get_expr(args[1]) else {
+        return None;
+    };
+    let tag = *tag as i64;
+    let proto_op = ctx.lower_expr(args[0]);
+    let cur_block = ctx.cur_block;
+    let chain = ctx.intrinsics.proto_chain_builtin;
+    let v = ctx.f.append_inst(
+        cur_block,
+        InstKind::Call(chain, vec![proto_op, Operand::ConstI64(tag)]),
+        Type::I64,
+        None,
+    );
+    Some(Operand::Value(v))
 }
 
 /// RFC 20260713 blade 5 cut 4 —

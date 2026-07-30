@@ -225,6 +225,7 @@ fn builtin_proto_tag(ns_name: &str) -> Option<i64> {
         "Map" => Some(11),
         "Set" => Some(12),
         "Function" => Some(13),
+        "Iterator" => Some(15),
         _ => None,
     }
 }

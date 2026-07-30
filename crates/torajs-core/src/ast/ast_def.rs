@@ -109,6 +109,14 @@ pub struct Ast {
     /// strip, which also rewrites `super(...)` to the builtin's ctor
     /// semantics.
     pub exotic_parent: std::collections::HashMap<String, String>,
+    /// Classes whose stripped builtin parent contributes only a
+    /// prototype-chain link (ordinary instances): class name →
+    /// builtin-proto tag to chain `__proto_<C>` to at module init
+    /// (`class C extends Iterator {}` → 15). Recorded by the
+    /// builtin-heritage strip; consumed by class_globals_register's
+    /// `__torajs_proto_chain_builtin` emit (RFC
+    /// 20260730-iterator-global 刀 1).
+    pub builtin_proto_heirs: std::collections::HashMap<String, i64>,
     /// Type arguments written at a call site, by the ExprId of the
     /// call. `new Box<number>()` states what `T` is; the rewrite to
     /// the synthesized factory turns it into a plain call, and there

@@ -450,6 +450,15 @@ pub(crate) struct Intrinsics {
     pub(crate) boolean_wrapper_subclass_super: FuncId,
     pub(crate) genfn_proto: FuncId,
     pub(crate) genfn_chain: FuncId,
+    /// RFC 20260730-iterator-global 刀 1 — stripped-heir prototype
+    /// chain writer (`class C extends Iterator {}`).
+    pub(crate) proto_chain_builtin: FuncId,
+    /// RFC 20260730-iterator-global 刀 1 — §7.3.22 proto-chain walk
+    /// backing `v instanceof Iterator`.
+    pub(crate) instanceof_builtin_proto: FuncId,
+    /// RFC 20260730-iterator-global 刀 1 — §27.1.3.1 abstract-ctor
+    /// TypeError kernel behind `new Iterator()`.
+    pub(crate) iterator_ctor_throw: FuncId,
     pub(crate) any_typeof: FuncId,
     pub(crate) any_to_bool: FuncId,
     pub(crate) any_to_number: FuncId,

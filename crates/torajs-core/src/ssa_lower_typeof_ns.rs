@@ -105,6 +105,7 @@ fn is_known_ns(ns: &str) -> bool {
             | "Promise"
             | "Map"
             | "Set"
+            | "Iterator"
     )
 }
 
