@@ -1825,14 +1825,27 @@ census:
 
 | cluster depth | core cases covered |
 |---|---|
-| top 10 | 26.3 % |
-| top 25 | 43.2 % |
-| top 50 | 58.0 % |
-| top 100 | 72.8 % |
-| top 400 | 92.0 % |
-| clusters of ≤ 3 cases (845 of them) | 7.2 % |
+| top 10 | 26.2 % |
+| top 25 | 42.7 % |
+| top 50 | 57.9 % |
+| top 100 | 73.0 % |
+| top 400 | 92.3 % |
+| clusters of ≤ 3 cases (822 of them) | 7.1 % |
 
-(refreshed @ rotation 253 closing sweep `f8c93908`, core **15829**,
+(refreshed @ rotation 254 closing sweep `d159c899`, core **15646**,
+425 clusters of ≥ 4 holding 14534 cases. Rotation 254 closed the
+`assertions` cluster outright (296 cases, nested function
+declarations inside closure bodies — free-vars now hoist-binds and
+walks them, and the capturing router scans the expression arena) and
+landed `class C extends Array` end to end on the new exotic-subclass
+substrate (FLAG_SUBCLASSED + instance side table; instanceof both
+ways, getPrototypeOf, super(len), method override — M5.N 334 → 322).
+passTotal +67 / bug +116 / trAccepted +183, ZERO pass regressions;
+105 of the new bugs are the unlocked assertions-family cases running
+into the async-verify layer (verifyProperty / $DONE reporting), the
+progress shape this section describes. Rotation 253's timeout-window
+regression re-passed and is closed. Previous stamp: rotation 253
+closing sweep `f8c93908`, core **15829**,
 432 clusters of ≥ 4 holding 14688 cases. Rotation 253 drove the
 `values` cluster's real root through — mutable Arr globals promote
 (K.6 close), un-annotated + nested array-literal top-level bindings
