@@ -80,6 +80,29 @@ pub fn desugar_capturing_nested_fns(ast: &mut Ast) {
             _ => None,
         })
         .collect();
+    // Function-expression / arrow bodies live in the expression arena,
+    // not the statement tree — a declaration nested in one is invisible
+    // to the descent below, and `nested_fns` would lift it to top level
+    // where its captures (the closure's params and locals) resolve to
+    // nothing. The arena holds every such body flat, inner before outer
+    // (the parser emits inner expressions first), so a fixed-length
+    // low→high scan routes each body exactly once; bodies minted by the
+    // rewrite itself were routed while taken out and need no revisit.
+    let n = ast.exprs.len();
+    for i in 0..n {
+        if !matches!(ast.exprs[i], Expr::ArrowFn { .. }) {
+            continue;
+        }
+        let mut body = match &mut ast.exprs[i] {
+            Expr::ArrowFn { body, .. } => std::mem::take(body),
+            _ => unreachable!("matched ArrowFn above"),
+        };
+        walk_list(ast, &mut body, &globals);
+        match &mut ast.exprs[i] {
+            Expr::ArrowFn { body: b, .. } => *b = body,
+            _ => unreachable!("matched ArrowFn above"),
+        }
+    }
     // The module's own statement list is not a routing site — its
     // `function` declarations ARE the globals. Only descend.
     for s in top.iter_mut() {

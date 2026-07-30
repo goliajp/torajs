@@ -245,6 +245,11 @@ fn partition_closure_decls(
                 _ => true,
             });
     closure_decls.reverse();
+    // Reverse append equals parent-before-child only for parser-shaped
+    // nesting; a closure minted by the capturing-nested-fn route sits
+    // at the arena tail and needs the topological pass to lower after
+    // the closure that constructs it.
+    let closure_decls = crate::ssa_lower_closure_order::order_closure_bodies(ast, closure_decls);
     (user_decls, closure_decls)
 }
 
