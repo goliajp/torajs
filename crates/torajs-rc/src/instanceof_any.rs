@@ -25,6 +25,8 @@
 
 use core::ffi::c_void;
 
+use crate::Tag;
+
 #[cfg(not(test))]
 unsafe extern "C" {
     fn __torajs_anyv_unbox_tag(v: i64) -> i64;
@@ -142,14 +144,38 @@ pub unsafe extern "C" fn __torajs_instanceof_class_any_tag(v: i64, expected_tag:
     if ptr.is_null() {
         return false;
     }
-    // SAFETY: per ssa_lower convention, every heap block whose
-    // ssa-level type is `Type::Obj(_)` carries a class tag in the
-    // i64 slot at +OBJ_CLASS_TAG_OFF. Non-class heap blocks
-    // (Str / Arr / dynobj / ...) carry different data there;
-    // their stored value won't match any class's registered tag,
-    // so the comparison returns `false` and we don't UB.
+    // Only a `Tag::Obj` block carries a class tag at +8 — every
+    // exotic layout stores its own word there (Arr=len,
+    // Promise=state, Map=n_entries), and reading it as a class tag
+    // was a live wrong answer whenever the value collided with a
+    // registered tag (`[1,2,3] instanceof C` with C's tag == 3).
+    // An exotic cell IS a class instance exactly when it was minted
+    // through an exotic-subclass factory (RFC 20260730 blade 1) —
+    // the header flag gates, the blade-0 side table answers.
+    let type_tag = unsafe { *((ptr as *const u8).add(4) as *const u16) };
+    if type_tag != Tag::Obj as u16 {
+        let flags = unsafe { *((ptr as *const u8).add(6) as *const u16) };
+        if flags & crate::FLAG_SUBCLASSED != 0 {
+            return unsafe { __torajs_subclass_class_tag(ptr) } == expected_tag;
+        }
+        return false;
+    }
     let class_tag = unsafe { *((ptr as *const u8).add(OBJ_CLASS_TAG_OFF) as *const i64) };
     class_tag == expected_tag
+}
+
+#[cfg(not(test))]
+unsafe extern "C" {
+    /// torajs-meta — the blade-0 subclass identity side table (-1 on
+    /// miss).
+    fn __torajs_subclass_class_tag(cell: *const c_void) -> i64;
+}
+
+/// Cargo-test stand-in — no test block sets `FLAG_SUBCLASSED`, so
+/// the gated call never fires (mirrors the unbox stubs above).
+#[cfg(test)]
+unsafe fn __torajs_subclass_class_tag(_cell: *const c_void) -> i64 {
+    -1
 }
 
 // Cargo-test stubs for the NaN-box unbox externs. The real symbols
@@ -176,8 +202,10 @@ mod tests {
     use core::ffi::c_void;
 
     fn make_test_block(class_tag: i64) -> Vec<u8> {
-        // 16 bytes: 8B HeapHeader placeholder + 8B class_tag slot.
+        // 16 bytes: 8B HeapHeader (type_tag Obj at +4 — only Obj
+        // blocks carry a class tag at +8) + 8B class_tag slot.
         let mut block = vec![0u8; 16];
+        block[4..6].copy_from_slice(&(Tag::Obj as u16).to_ne_bytes());
         let tag_bytes = class_tag.to_ne_bytes();
         block[OBJ_CLASS_TAG_OFF..OBJ_CLASS_TAG_OFF + 8].copy_from_slice(&tag_bytes);
         block

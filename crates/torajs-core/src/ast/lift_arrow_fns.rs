@@ -231,10 +231,29 @@ pub(crate) fn build_factory_body(
     prelude: Vec<Stmt>,
     ctor: Option<&ClassCtor>,
 ) -> Vec<Stmt> {
-    let obj_lit = ast.add_expr(Expr::ObjectLit {
-        fields: field_inits.to_vec(),
-    });
-    let this_ann = if type_params.is_empty() {
+    let exotic = ast.exotic_parent.contains_key(cname);
+    let obj_lit = if exotic {
+        // RFC 20260730 blade 1 — an exotic-parent class mints a REAL
+        // builtin cell, not an ObjectLit. The zero-arg magic call is
+        // resolved by the lowerer from the enclosing `__new_<C>` fn
+        // name (same channel write_class_tag uses); `super(len)` in
+        // the ctor resizes it afterwards.
+        let callee = ast.add_expr(Expr::Ident("__torajs_arr_subclass_alloc_self".to_string()));
+        ast.add_expr(Expr::Call {
+            callee,
+            args: Vec::new(),
+        })
+    } else {
+        ast.add_expr(Expr::ObjectLit {
+            fields: field_inits.to_vec(),
+        })
+    };
+    let this_ann = if exotic {
+        // Exotic instances live in the any world — typing __this as
+        // the class name would send member access down the Obj-layout
+        // typed tier against an Arr cell.
+        "any".to_string()
+    } else if type_params.is_empty() {
         cname.to_string()
     } else {
         format!("{cname}<{}>", type_params.join("|"))

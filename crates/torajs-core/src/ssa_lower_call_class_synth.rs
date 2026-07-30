@@ -73,6 +73,8 @@ pub(crate) fn try_lower(
             crate::ssa_lower_call_error_magic::try_lower_error_stack(ctx, args)
         }
         "__torajs_my_class_ref" => try_lower_my_class_ref(ctx, args),
+        "__torajs_arr_subclass_alloc_self" => try_lower_arr_subclass_alloc_self(ctx, args),
+        "__torajs_arr_subclass_super_len" => try_lower_arr_subclass_super_len(ctx, args),
         "__torajs_arguments_materialize" => try_lower_arguments_materialize(ctx, args),
         "__torajs_genfn_chain" => try_lower_genfn_chain(ctx, args),
         _ => None,
@@ -386,6 +388,55 @@ fn emit_ctor_register(ctx: &mut LowerCtx<'_>, cname: &str, class_op: Operand) {
         cur_block,
         InstKind::Call(ctor_register, vec![class_op, Operand::Value(addr)]),
     );
+}
+
+/// RFC 20260730 blade 1 — `__torajs_arr_subclass_alloc_self()`, the
+/// exotic-parent factory's mint site. The class is the enclosing
+/// `__new_<C>` fn (the same channel `write_class_tag` reads); the
+/// runtime kernel resolves the prototype from the classmeta registry
+/// and answers the boxed instance.
+fn try_lower_arr_subclass_alloc_self(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Operand> {
+    if !args.is_empty() {
+        return None;
+    }
+    let tag = ctx
+        .f
+        .name
+        .strip_prefix("__new_")
+        .and_then(|cname| ctx.class_name_to_tag.get(cname).copied())?;
+    let cur_block = ctx.cur_block;
+    let alloc = ctx.intrinsics.arr_subclass_alloc;
+    let v = ctx.f.append_inst(
+        cur_block,
+        InstKind::Call(
+            alloc,
+            vec![Operand::ConstI64(tag as i64), Operand::ConstI64(0)],
+        ),
+        Type::Any,
+        None,
+    );
+    Some(Operand::Value(v))
+}
+
+/// RFC 20260730 blade 1 — ctor-side `super(len)` resize; both
+/// operands are any-world (the kernel runs ToNumber per §23.1.2.1).
+fn try_lower_arr_subclass_super_len(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Operand> {
+    if args.len() != 2 {
+        return None;
+    }
+    let this_raw = ctx.lower_expr(args[0]);
+    let this_op = ctx.box_to_any_from_expr(args[0], this_raw);
+    let len_raw = ctx.lower_expr(args[1]);
+    let len_op = ctx.box_to_any_from_expr(args[1], len_raw);
+    let cur_block = ctx.cur_block;
+    let super_len = ctx.intrinsics.arr_subclass_super_len;
+    let v = ctx.f.append_inst(
+        cur_block,
+        InstKind::Call(super_len, vec![this_op, len_op]),
+        Type::Any,
+        None,
+    );
+    Some(Operand::Value(v))
 }
 
 fn try_lower_my_class_ref(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Operand> {

@@ -100,6 +100,15 @@ pub struct Ast {
     /// of `explicit_ctor_classes`: that set is parser-filled, so the
     /// injected builtin classes never enter it.
     pub field_init_synth_ctors: std::collections::HashSet<String>,
+    /// Classes extending an exotic-instance builtin (`class C extends
+    /// Array`), class name → builtin name (RFC 20260730 blade 1).
+    /// Their factory mints a REAL exotic cell through the per-builtin
+    /// subclass-alloc kernel instead of an ObjectLit, and the checker
+    /// types `new C()` as `any` (exotic instances live in the any
+    /// world; fields are dict-mode). Recorded by the builtin-heritage
+    /// strip, which also rewrites `super(...)` to the builtin's ctor
+    /// semantics.
+    pub exotic_parent: std::collections::HashMap<String, String>,
     /// Type arguments written at a call site, by the ExprId of the
     /// call. `new Box<number>()` states what `T` is; the rewrite to
     /// the synthesized factory turns it into a plain call, and there

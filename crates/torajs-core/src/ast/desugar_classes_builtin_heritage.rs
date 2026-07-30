@@ -37,6 +37,13 @@ use super::*;
 /// Builtins accepted as an `extends` parent today.
 const SUBCLASSABLE_BUILTINS: &[&str] = &["Object"];
 
+/// Builtins whose instances are exotic objects — the subclass mints a
+/// REAL exotic cell via the per-builtin subclass-alloc kernel (RFC
+/// 20260730 blade 1). Recorded in `ast.exotic_parent`; the factory
+/// and `super(...)` lower differently, everything else takes the
+/// stripped base-class shape below.
+const EXOTIC_SUBCLASSABLE: &[&str] = &["Array"];
+
 /// Strip a builtin parent down to base-class shape (see module doc).
 /// Runs on the mutable `class_index` FIRST — before default-ctor
 /// synthesis (a stripped class takes the base default ctor, not the
@@ -46,12 +53,28 @@ const SUBCLASSABLE_BUILTINS: &[&str] = &["Object"];
 pub(super) fn strip_builtin_heritage(ast: &mut Ast, class_index: &mut [ClassIndexEntry]) {
     let declared: std::collections::HashSet<String> =
         class_index.iter().map(|e| e.1.clone()).collect();
-    for (_, cname, _tp, parent, _, _, ctor, _, _) in class_index.iter_mut() {
+    for (_, cname, _tp, parent, fields, _, ctor, _, _) in class_index.iter_mut() {
         let Some(p) = parent.as_ref() else { continue };
         // A user class of the same name shadows the builtin — the
         // ordinary declared-parent path handles it.
-        if declared.contains(p) || !SUBCLASSABLE_BUILTINS.contains(&p.as_str()) {
+        if declared.contains(p) {
             continue;
+        }
+        let exotic = EXOTIC_SUBCLASSABLE.contains(&p.as_str());
+        if !exotic && !SUBCLASSABLE_BUILTINS.contains(&p.as_str()) {
+            continue;
+        }
+        if exotic {
+            if !fields.is_empty() {
+                // Exotic cells have no fixed field region — declared
+                // fields go dict-mode through the expando face, a
+                // later blade. Loud until then (same bucket as M5.2).
+                panic!(
+                    "M5.N: `{cname} extends {p}` — declared fields on an exotic builtin \
+                     subclass are not yet supported"
+                );
+            }
+            ast.exotic_parent.insert(cname.clone(), p.clone());
         }
         if let Some(c) = ctor.as_mut() {
             let mut sites: Vec<(ExprId, Vec<ExprId>)> = Vec::new();
@@ -67,6 +90,34 @@ pub(super) fn strip_builtin_heritage(ast: &mut Ast, class_index: &mut [ClassInde
                 c.body.push(Stmt::Expr(call));
             }
             for (eid, args) in sites {
+                if exotic {
+                    // Array's [[Construct]] under an active newTarget:
+                    // `super()` contributes nothing beyond the minted
+                    // cell; `super(len)` is `new Array(len)` length
+                    // semantics applied to it. The items form
+                    // (`super(a, b, ...)`) is a later seam — loud, in
+                    // the same not-yet-supported bucket as M5.2.
+                    match args.len() {
+                        0 => {
+                            ast.exprs[eid.0 as usize] = Expr::Ident("undefined".into());
+                        }
+                        1 => {
+                            let callee = ast.add_expr(Expr::Ident(
+                                "__torajs_arr_subclass_super_len".to_string(),
+                            ));
+                            let this_id = ast.add_expr(Expr::This);
+                            ast.exprs[eid.0 as usize] = Expr::Call {
+                                callee,
+                                args: vec![this_id, args[0]],
+                            };
+                        }
+                        _ => panic!(
+                            "M5.N: `{cname} extends {p}` — super(items...) with multiple \
+                             arguments is not yet supported for an exotic builtin parent"
+                        ),
+                    }
+                    continue;
+                }
                 if args.is_empty() {
                     ast.exprs[eid.0 as usize] = Expr::Ident("undefined".into());
                     continue;

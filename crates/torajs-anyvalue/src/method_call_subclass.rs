@@ -1,0 +1,72 @@
+//! Exotic-subclass method dispatch probe (RFC 20260730 blade 1).
+//!
+//! A `class C extends Array` instance IS a `Tag::Arr` cell; its
+//! methods live in the class-methods dispatch table under C's class
+//! tag, resolved through the blade-0 identity side table. The cell
+//! arm calls this probe behind a `FLAG_SUBCLASSED` gate (header
+//! already loaded — plain builtin receivers pay one predicted-clear
+//! branch), AFTER the own-expando shadow probe and BEFORE the builtin
+//! surface: C.prototype sits between own properties and
+//! Array.prototype on the spec chain, so a user method (including an
+//! override of a builtin name) wins exactly there.
+
+use core::ffi::c_void;
+
+use crate::nanbox::AnyValue;
+
+unsafe extern "C" {
+    /// torajs-meta — blade-0 identity side table (-1 miss).
+    fn __torajs_subclass_class_tag(cell: *const c_void) -> i64;
+    /// torajs-structmeta — layout by class tag (NULL miss).
+    fn __torajs_struct_layout_lookup(class_tag: u32) -> *const c_void;
+    /// torajs-structmeta 刀 4 — class-method boxed adapter by name
+    /// bytes (NULL miss).
+    fn __torajs_struct_method_find(
+        layout: *const c_void,
+        name: *const u8,
+        name_len: u32,
+    ) -> *const c_void;
+}
+
+/// Str header offsets (`torajs-str` layout mirror, same constants the
+/// dynobj dispatcher carries).
+const STR_LEN_OFF: usize = 8;
+const STR_DATA_OFF: usize = 16;
+
+/// Resolve + invoke a subclass method on an exotic receiver; `None`
+/// falls through to the builtin surface (the name is not one of the
+/// class's methods).
+///
+/// # Safety
+/// `ptr` is a live exotic cell with `FLAG_SUBCLASSED` set; `name_str`
+/// is a live Str cell (callers pass NULL-name mids straight to the
+/// builtin arm); `argv`/`argc` follow the boxed-adapter convention.
+pub(crate) unsafe fn subclass_method(
+    ptr: *mut c_void,
+    name_str: *const u8,
+    argv: *const u64,
+    argc: i64,
+) -> Option<AnyValue> {
+    unsafe {
+        let class_tag = __torajs_subclass_class_tag(ptr);
+        if class_tag < 0 {
+            return None;
+        }
+        let layout = __torajs_struct_layout_lookup(class_tag as u32);
+        if layout.is_null() {
+            return None;
+        }
+        let name_len = (name_str.add(STR_LEN_OFF) as *const u32).read();
+        let name_bytes = name_str.add(STR_DATA_OFF);
+        let adapter = __torajs_struct_method_find(layout, name_bytes, name_len);
+        if adapter.is_null() {
+            return None;
+        }
+        Some(crate::method_call::invoke_boxed(
+            ptr,
+            adapter as u64,
+            argv,
+            argc,
+        ))
+    }
+}

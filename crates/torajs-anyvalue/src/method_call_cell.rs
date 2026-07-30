@@ -8,7 +8,8 @@
 //! stay in the caller rather than be duplicated here.
 
 use torajs_rc::{
-    __torajs_rc_inc, ANY_METHOD_TO_LOCALE_STRING, ANY_METHOD_TO_STRING, ANY_METHOD_VALUE_OF, Tag,
+    __torajs_rc_inc, ANY_METHOD_TO_LOCALE_STRING, ANY_METHOD_TO_STRING, ANY_METHOD_VALUE_OF,
+    FLAG_SUBCLASSED, Tag,
 };
 
 use core::ffi::c_void;
@@ -203,6 +204,22 @@ pub(crate) unsafe fn cell_method(
             }
         {
             return Some(r);
+        }
+        // RFC 20260730 blade 1 — subclass method probe: on the spec
+        // chain C.prototype sits between own properties and
+        // Array.prototype, so a class method (including an override
+        // of a builtin name) resolves here, after the expando shadow
+        // and before the builtin surface. Plain arrays pay one
+        // predicted-clear branch on an already-loaded header word.
+        if !name_str.is_null() {
+            let flags = unsafe { (ptr.cast::<u8>().add(6) as *const u16).read() };
+            if flags & FLAG_SUBCLASSED != 0
+                && let Some(r) = unsafe {
+                    crate::method_call_subclass::subclass_method(ptr, name_str, argv, argc)
+                }
+            {
+                return Some(r);
+            }
         }
         // §20.1.4.7 Object.prototype.valueOf identity — moved
         // after the expando probe so a patched `arr.valueOf`

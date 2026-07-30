@@ -221,7 +221,13 @@ pub(super) fn rewrite_classdecls_pass3(
 
         // For generic classes, the `__this` type ann must reference
         // the instantiated form, e.g. `Wrapper<T>` not bare `Wrapper`.
-        let this_ann = if type_params.is_empty() {
+        // An exotic-parent class's instance is a REAL builtin cell in
+        // the any world (RFC 20260730 blade 1) — typing __this by the
+        // class name would send member access down the Obj-layout
+        // typed tier against it.
+        let this_ann = if ast.exotic_parent.contains_key(cname) {
+            "any".to_string()
+        } else if type_params.is_empty() {
             cname.clone()
         } else {
             format!("{cname}<{}>", type_params.join("|"))

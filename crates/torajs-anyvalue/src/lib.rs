@@ -150,6 +150,7 @@ mod method_call_promise;
 mod method_call_proto_patch;
 mod method_call_regexp;
 mod method_call_str;
+mod method_call_subclass;
 mod method_call_weak;
 pub(crate) mod method_call_wrapper_expando;
 mod method_support;

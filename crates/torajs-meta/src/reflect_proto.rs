@@ -16,6 +16,10 @@ use crate::reflect::{
     VALUE_UNDEFINED_IMM, alloc_str_key, box_pair_imm, heap_type_tag, is_cell_imm,
 };
 
+/// `torajs_rc::FLAG_SUBCLASSED` mirror (flags bit 0, RFC 20260730
+/// blade 1) — exotic cell minted as a user-class instance.
+const FLAG_SUBCLASSED: u16 = 1;
+
 /// `torajs_rc::FLAG_FN_GENERATOR` mirror (Tag::Closure-private
 /// header-flags bit 3, RFC 20260721 刀 2).
 const FLAG_FN_GENERATOR_BIT: u16 = 1 << 3;
@@ -256,6 +260,25 @@ pub unsafe extern "C" fn __torajs_anyv_get_proto_of_any(v: u64) -> u64 {
             // answer the root, matching the dynobj-lane implicit
             // chain).
             return unsafe { proto_singleton(OBJECT_PROTO_TAG) };
+        }
+        // RFC 20260730 blade 1 — an exotic cell minted as a subclass
+        // instance answers ITS CLASS's prototype, not the builtin
+        // singleton: `getPrototypeOf(new C()) === C.prototype` for
+        // `class C extends Array`. Same class_tag → proto route as
+        // the TAG_OBJ arm, identity from the blade-0 side table;
+        // plain builtin cells (flag clear) fall through unchanged.
+        {
+            let flags = unsafe { dynobj.cast::<u8>().add(6).cast::<u16>().read() };
+            if flags & FLAG_SUBCLASSED != 0 {
+                let class_tag =
+                    unsafe { crate::subclass_instance::__torajs_subclass_class_tag(dynobj) };
+                if class_tag >= 0 {
+                    let r = unsafe { crate::classmeta::__torajs_anyv_proto_get(class_tag) };
+                    if r != VALUE_NULL_IMM {
+                        return r;
+                    }
+                }
+            }
         }
         // RFC 20260713-array-proto-residual blade 3 — builtin-tagged
         // cells answer their `<Ctor>.prototype` singleton per

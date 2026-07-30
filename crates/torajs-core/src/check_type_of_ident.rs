@@ -113,6 +113,15 @@ pub(crate) fn check(checker: &Checker, name: &str) -> Result<Type, String> {
         // 刀 3 — the derived-ctor no-super ReferenceError raiser the
         // class desugar appends to super-less derived ctors.
         "__torajs_ctor_no_super_throw" => Ok(Type::Function(Vec::new(), Box::new(Type::Void))),
+        // RFC 20260730 blade 1 — exotic-subclass factory internals:
+        // the zero-arg self-alloc magic (class resolved from the
+        // enclosing `__new_<C>` at lower time) and the ctor-side
+        // `super(len)` resize.
+        "__torajs_arr_subclass_alloc_self" => Ok(Type::Function(Vec::new(), Box::new(Type::Any))),
+        "__torajs_arr_subclass_super_len" => Ok(Type::Function(
+            vec![Type::Any, Type::Number],
+            Box::new(Type::Any),
+        )),
         "__torajs_error_stack" => Ok(Type::Function(vec![Type::Any], Box::new(Type::String))),
         "__torajs_register_native_error" => {
             Ok(Type::Function(vec![Type::String], Box::new(Type::Void)))
