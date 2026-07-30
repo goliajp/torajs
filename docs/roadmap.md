@@ -1832,7 +1832,23 @@ census:
 | top 400 | 92.3 % |
 | clusters of ≤ 3 cases (822 of them) | 7.1 % |
 
-(refreshed @ rotation 254 closing sweep `d159c899`, core **15646**,
+(refreshed @ rotation 255 closing sweep `f8e8298a`, core **15614**,
+426 clusters of ≥ 4 holding 14500 cases. Rotation 255 completed the
+exotic-backed subclass blade-2 tag walk — `class C extends
+Number/String/Boolean/Function/Map/Set/Promise/RegExp` all mint REAL
+exotic cells on the blade-0 identity substrate (five substrate
+commits, one per tag group; per-tag super() semantics: wrapper
+[[*Data]] coercions, Promise's full §27.2.3.1 executor run bound to
+the instance, RegExp recompile-and-swap). M5.N 322 → **247** (the
+extends face itself is done; the remainder is `extends Iterator` 130
+awaiting the iterator-global RFC + declared-parent ordering tails).
+passTotal +20 (the subclass-builtins suite directly) / bug +12
+(annexB RegExp legacy-accessors unlocked to their next layer) /
+trAccepted +32, ZERO pass regressions. The RegExp churn probe caught
+a real ~32B/iter leak on the way — the legacy pair API materializes
+ShortStr patterns into owned cells; fixed with the borrow-safe
+`anyv_cell_ptr` probe. Previous stamp: rotation 254 closing sweep
+`d159c899`, core **15646**,
 425 clusters of ≥ 4 holding 14534 cases. Rotation 254 closed the
 `assertions` cluster outright (296 cases, nested function
 declarations inside closure bodies — free-vars now hoist-binds and
