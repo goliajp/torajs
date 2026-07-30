@@ -112,6 +112,7 @@ mod iter_any_get_method;
 mod iter_any_result;
 mod iter_any_step;
 mod iter_helper;
+mod iter_helper_eager;
 mod len_get;
 mod locale_list;
 pub(crate) mod member_get;
