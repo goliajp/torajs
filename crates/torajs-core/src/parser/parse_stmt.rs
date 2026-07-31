@@ -161,6 +161,7 @@ impl<'a> Parser<'a> {
             let label = name.clone();
             self.pos += 2; // consume label ident + ':'
             let body = Box::new(self.parse_stmt()?);
+            self.reject_decl_in_single_stmt(&body, "a labeled statement")?;
             return Ok(Stmt::Labeled { label, body });
         }
         let expr = self.parse_expr()?;

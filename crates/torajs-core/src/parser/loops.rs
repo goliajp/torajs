@@ -16,6 +16,44 @@
 use super::*;
 
 impl<'a> Parser<'a> {
+    /// §14.6 / §14.7 / §14.13 early error — a single-statement
+    /// position (if/else branch, loop body, labeled body) admits a
+    /// Statement, not a Declaration. Lexical declarations (let /
+    /// const / class / generator / async fn) reject; a plain
+    /// `function` is allowed (Annex B.3.2/B.3.4 — bun accepts both
+    /// `if (x) function f(){}` and `lbl: function f(){}`), and `var`
+    /// is a VariableStatement proper. The check is post-parse on the
+    /// produced Stmt — parse side effects are moot since the whole
+    /// compile aborts.
+    pub(super) fn reject_decl_in_single_stmt(&self, body: &Stmt, ctx: &str) -> Result<(), String> {
+        let offending = match body {
+            Stmt::LetDecl {
+                is_var: false,
+                mutable,
+                ..
+            } => Some(if *mutable { "let" } else { "const" }),
+            Stmt::ClassDecl { .. } => Some("class"),
+            Stmt::FnDecl {
+                name, is_generator, ..
+            } => {
+                if *is_generator {
+                    Some("generator function")
+                } else if self.ast.async_fns.contains(name) {
+                    Some("async function")
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        };
+        match offending {
+            Some(kind) => Err(format!(
+                "{kind} declarations are not allowed as the body of {ctx} at {}",
+                self.at()
+            )),
+            None => Ok(()),
+        }
+    }
     pub(super) fn parse_while(&mut self) -> Result<Stmt, String> {
         self.pos += 1; // consume `while`
         match self.peek() {
@@ -38,12 +76,14 @@ impl<'a> Parser<'a> {
             }
         }
         let body = Box::new(self.parse_stmt()?);
+        self.reject_decl_in_single_stmt(&body, "a while loop")?;
         Ok(Stmt::While { cond, body })
     }
 
     pub(super) fn parse_do_while(&mut self) -> Result<Stmt, String> {
         self.pos += 1; // consume `do`
         let body = Box::new(self.parse_stmt()?);
+        self.reject_decl_in_single_stmt(&body, "a do-while loop")?;
         match self.peek() {
             Token::While => self.pos += 1,
             t => {
@@ -287,6 +327,7 @@ impl<'a> Parser<'a> {
             }
         }
         let body = Box::new(self.parse_stmt()?);
+        self.reject_decl_in_single_stmt(&body, "a for loop")?;
         Ok(Stmt::For {
             init,
             cond,

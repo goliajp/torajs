@@ -459,9 +459,12 @@ impl Parser<'_> {
             }
         }
         let then_branch = Box::new(self.parse_stmt()?);
+        self.reject_decl_in_single_stmt(&then_branch, "an if statement")?;
         let else_branch = if matches!(self.peek(), Token::Else) {
             self.pos += 1;
-            Some(Box::new(self.parse_stmt()?))
+            let e = Box::new(self.parse_stmt()?);
+            self.reject_decl_in_single_stmt(&e, "an else clause")?;
+            Some(e)
         } else {
             None
         };
