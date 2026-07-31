@@ -36,16 +36,24 @@ impl<'a> LowerCtx<'a> {
         &mut self,
         body: impl Iterator<Item = &'s Stmt> + Clone,
     ) {
+        let mut scan = crate::ssa_lower_closure_captures::ClosureScan::default();
         for s in body.clone() {
             crate::ssa_lower_closure_captures::collect_closure_captures_in_stmt(
-                self.ast,
-                s,
-                &mut self.escape_captured_lets,
+                self.ast, s, &mut scan,
             );
         }
+        self.escape_captured_lets.extend(scan.captures);
         if !self.escape_captured_lets.is_empty() {
+            // Scoped to this body + the closures it constructs — a
+            // same-named assignment in an unrelated scope must not
+            // promote this fn's never-written binding to a capture
+            // box (RFC 20260731-mono-closure-clone 刀 2).
             self.mutated_captured_lets =
-                crate::ssa_lower_closure_captures::collect_assigned_names(self.ast);
+                crate::ssa_lower_closure_captures::collect_assigned_names_scoped(
+                    self.ast,
+                    body.clone(),
+                    &scan.fn_names,
+                );
         }
         for s in body.clone() {
             crate::ssa_lower_deque_escape::collect_deque_arr_names_in_stmt(

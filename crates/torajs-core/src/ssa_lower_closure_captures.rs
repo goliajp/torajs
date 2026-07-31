@@ -11,7 +11,18 @@ use std::collections::HashSet;
 
 use crate::ast::{Ast, Expr, ExprId, Stmt};
 
-pub(crate) fn collect_closure_captures_in_stmt(ast: &Ast, s: &Stmt, out: &mut HashSet<String>) {
+/// What one body's closure-construction walk finds (RFC
+/// 20260731-mono-closure-clone 刀 2): the names its closures capture
+/// (the escape-capture set) and the lifted fn names it constructs —
+/// the latter scopes the assigned-name collection to exactly the
+/// bodies that can write those captures.
+#[derive(Default)]
+pub(crate) struct ClosureScan {
+    pub(crate) captures: HashSet<String>,
+    pub(crate) fn_names: Vec<String>,
+}
+
+pub(crate) fn collect_closure_captures_in_stmt(ast: &Ast, s: &Stmt, out: &mut ClosureScan) {
     match s {
         Stmt::Expr(eid) | Stmt::Throw(eid) | Stmt::Yield(eid) => {
             collect_closure_captures_in_expr(ast, *eid, out)
@@ -130,10 +141,41 @@ pub(crate) fn collect_closure_captures_in_stmt(ast: &Ast, s: &Stmt, out: &mut Ha
 /// same precision as the escape collector: over-collection promotes
 /// a never-written same-named capture to a box — one extra
 /// indirection, semantics unchanged.
-pub(crate) fn collect_assigned_names(ast: &Ast) -> HashSet<String> {
+/// Assigned names visible to ONE body's escape-capture promotion: the
+/// body's own assignments plus those of every lifted closure it
+/// (transitively) constructs — the only bodies that can write its
+/// captured bindings. The old program-wide collection keyed by bare
+/// name, so an unrelated same-named toplevel assignment promoted a
+/// never-written param to a capture box (RFC 20260731-mono-closure-
+/// clone 刀 2 — the scope pollution that amplified the shared-decl
+/// layout bug into a UAF).
+pub(crate) fn collect_assigned_names_scoped<'s>(
+    ast: &Ast,
+    body: impl Iterator<Item = &'s Stmt>,
+    seed_fns: &[String],
+) -> HashSet<String> {
     let mut out = HashSet::new();
-    for s in &ast.stmts {
+    for s in body {
         collect_assigned_in_stmt(ast, s, &mut out);
+    }
+    let mut visited: HashSet<String> = HashSet::new();
+    let mut pending: Vec<String> = seed_fns.to_vec();
+    while let Some(name) = pending.pop() {
+        if !visited.insert(name.clone()) {
+            continue;
+        }
+        let Some(fn_body) = ast.stmts.iter().find_map(|s| match s {
+            Stmt::FnDecl { name: n, body, .. } if *n == name => Some(body),
+            _ => None,
+        }) else {
+            continue;
+        };
+        let mut scan = ClosureScan::default();
+        for s in fn_body {
+            collect_assigned_in_stmt(ast, s, &mut out);
+            collect_closure_captures_in_stmt(ast, s, &mut scan);
+        }
+        pending.extend(scan.fn_names);
     }
     out
 }
@@ -373,12 +415,13 @@ pub(crate) fn expr_contains_closure(ast: &Ast, eid: ExprId) -> bool {
     }
 }
 
-fn collect_closure_captures_in_expr(ast: &Ast, eid: ExprId, out: &mut HashSet<String>) {
+fn collect_closure_captures_in_expr(ast: &Ast, eid: ExprId, out: &mut ClosureScan) {
     match ast.get_expr(eid) {
-        Expr::Closure { captures, .. } => {
+        Expr::Closure { fn_name, captures } => {
             for c in captures {
-                out.insert(c.clone());
+                out.captures.insert(c.clone());
             }
+            out.fn_names.push(fn_name.clone());
         }
         Expr::BinOp { left, right, .. } => {
             collect_closure_captures_in_expr(ast, *left, out);
