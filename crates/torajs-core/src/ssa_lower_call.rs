@@ -26,7 +26,7 @@
 //!   arr_predicate / arr_flat_map / arr_iter_ctor / closure_local /
 //!   fn_indirect)
 
-use crate::ast::ExprId;
+use crate::ast::{Expr, ExprId};
 use crate::ssa::Operand;
 use crate::ssa_lower::LowerCtx;
 
@@ -36,6 +36,17 @@ pub(crate) fn lower(
     callee: ExprId,
     args: &[ExprId],
 ) -> Operand {
+    // RFC 20260730-undeclared-ident — a call whose callee is a
+    // marked unresolvable Ident (`ff()` with `ff` declared nowhere)
+    // raises the ReferenceError at the callee read (§6.2.5.5
+    // GetValue precedes the call). Claimed before every dispatcher
+    // so no name-keyed lane can misroute it; lowering the callee
+    // emits the throw (ssa_lower_ident::try_undeclared_read_throw).
+    if matches!(ctx.ast.get_expr(callee), Expr::Ident(_))
+        && ctx.ast.undeclared_reads.contains_key(&callee)
+    {
+        return ctx.lower_expr(callee);
+    }
     // Any-method-call RFC 20260704 — an `any`-typed receiver claims
     // the call before every typed dispatcher (their name matches
     // assume concrete receiver types).

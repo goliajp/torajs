@@ -73,12 +73,7 @@ pub(crate) fn enter(checker: &mut Checker, ast: &Ast, stmts: &[Stmt]) -> HashMap
                 &[],
                 &checker.generic_alias_decls,
             ),
-            None => {
-                checker.hoist_prepass_depth += 1;
-                let t = checker.type_of(ast, init).ok();
-                checker.hoist_prepass_depth -= 1;
-                t
-            }
+            None => checker.type_of(ast, init).ok(),
         };
         checker
             .hoisted_closure_lets

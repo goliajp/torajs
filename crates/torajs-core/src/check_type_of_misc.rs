@@ -238,7 +238,7 @@ pub(crate) fn check_post_incr(
     // names stays a compile reject (annexB implicit-global writes
     // are out of scope). The type_of above marked the read; unmark
     // and reject — this program never compiles.
-    if checker.undeclared_reads.remove(&target) {
+    if checker.undeclared_reads.remove(&target).is_some() {
         let name = match ast.get_expr(target) {
             Expr::Ident(n) => n.as_str(),
             _ => "?",

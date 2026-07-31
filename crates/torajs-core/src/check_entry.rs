@@ -66,11 +66,14 @@ pub fn check_with_arity(ast: &Ast) -> Result<CheckArtifacts, String> {
     check_with_arity_warn(ast).map(|(artifacts, _)| artifacts)
 }
 
-/// RFC 20260730-undeclared-ident — variant that also surfaces the
-/// main pipeline's Warning diagnostics (deduped, insertion order).
-/// `tr run` / `tr build` print them to stderr without rejecting —
-/// the tsc posture (diagnose + still emit). Collected before the
-/// mono pass, whose specialization diagnostics are discarded.
+/// RFC 20260730-undeclared-ident — variant that also surfaces
+/// warnings. `tr run` / `tr build` print them to stderr without
+/// rejecting — the tsc posture (diagnose + still emit). Undeclared-
+/// read warnings synthesize here from the surviving mark set (one
+/// per name, sorted — marks self-heal during the pipeline, so only
+/// end-state marks warn); any Warning-severity diagnostics ride
+/// along. Collected before the mono pass, whose specialization
+/// diagnostics are discarded.
 pub fn check_with_arity_warn(ast: &Ast) -> Result<(CheckArtifacts, Vec<String>), String> {
     let mut c = Checker::new();
     c.run_full_pipeline(ast);
@@ -83,14 +86,19 @@ pub fn check_with_arity_warn(ast: &Ast) -> Result<(CheckArtifacts, Vec<String>),
     if !error_messages.is_empty() {
         return Err(error_messages.join("\n"));
     }
-    let mut seen = std::collections::HashSet::new();
-    let warnings: Vec<String> = c
-        .errors
-        .iter()
-        .filter(|d| d.severity == Severity::Warning)
-        .map(|d| d.message.clone())
-        .filter(|m| seen.insert(m.clone()))
+    let mut undeclared: Vec<&String> = c.undeclared_reads.values().collect();
+    undeclared.sort();
+    undeclared.dedup();
+    let mut warnings: Vec<String> = undeclared
+        .into_iter()
+        .map(|n| format!("unknown identifier `{n}`"))
         .collect();
+    warnings.extend(
+        c.errors
+            .iter()
+            .filter(|d| d.severity == Severity::Warning)
+            .map(|d| d.message.clone()),
+    );
     let mono = crate::check_monomorph::monomorphize_and_check(&mut c, ast);
     Ok((
         (

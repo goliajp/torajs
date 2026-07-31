@@ -208,8 +208,8 @@ impl Checker {
             demoted_cm_rewrites: HashMap::new(),
             contextual_any_literals: std::collections::HashSet::new(),
             iter_destr_srcs: HashMap::new(),
-            undeclared_reads: std::collections::HashSet::new(),
-            hoist_prepass_depth: 0,
+            undeclared_reads: std::collections::HashMap::new(),
+            unresolved_captures: HashMap::new(),
             assign_narrows: HashMap::new(),
             member_narrows: HashMap::new(),
         }
@@ -357,16 +357,20 @@ pub(crate) struct Checker {
     /// lowerer on the post-check AST by `check_monomorph`.
     pub(crate) iter_destr_srcs: HashMap<ExprId, i64>,
     /// RFC 20260730-undeclared-ident — expression-position reads that
-    /// resolved nowhere; typed `Any` with a warning diagnostic, raised
-    /// as runtime ReferenceError by the lowerer. Carried to the
-    /// lowerer on the post-check AST by `check_monomorph`.
-    pub(crate) undeclared_reads: std::collections::HashSet<ExprId>,
-    /// RFC 20260730-undeclared-ident — non-zero while the closure-let
-    /// hoist pre-pass speculatively types an init in a scope that is
-    /// not fully built yet. Unresolved reads under this gate stay
-    /// hard `Err` (never marked): the ordinary pass re-types the same
-    /// expression with the real scope and decides for keeps.
-    pub(crate) hoist_prepass_depth: u32,
+    /// resolved nowhere (ExprId → name); typed `Any`, surfaced as a
+    /// deduped end-of-pipeline warning, raised as runtime
+    /// ReferenceError by the lowerer. A later resolution of the same
+    /// eid unmarks it (speculative pre-pass typing self-heals).
+    /// Carried to the lowerer on the post-check AST by
+    /// `check_monomorph`.
+    pub(crate) undeclared_reads: std::collections::HashMap<ExprId, String>,
+    /// RFC 20260730-undeclared-ident 刀 3 — closure captures that
+    /// resolved nowhere, keyed by the `Expr::Closure` construction
+    /// site. `check_closure` skips them (the body's Ident read takes
+    /// the undeclared-read lane instead); `check_monomorph` prunes
+    /// them from the owned AST's capture lists so the lowerer's env
+    /// materialization never sees them.
+    pub(crate) unresolved_captures: HashMap<ExprId, Vec<String>>,
     /// Straight-line assignment-narrowing ledger — `name → declared
     /// (pre-narrow) type` for bindings narrowed by a statement-level
     /// `b = <non-null>` assign (see check_assign_narrow.rs). Flushed
@@ -719,10 +723,10 @@ mod tests {
     #[test]
     fn for_init_var_doesnt_leak_outer_scope() {
         // RFC 20260730-undeclared-ident — the out-of-scope read is no
-        // longer a compile reject: it types Any, carries a Warning,
-        // and defers to a runtime ReferenceError. The scope fact
-        // under test (the for-init `i` does not leak) now shows up as
-        // the undeclared-read warning + mark instead of an error.
+        // longer a compile reject: it types Any, marks the read, and
+        // defers to a runtime ReferenceError. The scope fact under
+        // test (the for-init `i` does not leak) now shows up as the
+        // surviving mark instead of an error.
         let src = r#"
             for (let i: number = 0; i < 10; i = i + 1) {
             }
@@ -739,16 +743,9 @@ mod tests {
             c.errors
         );
         assert!(
-            c.errors
-                .iter()
-                .any(|d| d.severity == Severity::Warning
-                    && d.message.contains("unknown identifier `i`")),
-            "expected undeclared-read warning for `i`, got {:?}",
-            c.errors
-        );
-        assert!(
-            !c.undeclared_reads.is_empty(),
-            "expected the out-of-scope read to be marked"
+            c.undeclared_reads.values().any(|n| n == "i"),
+            "expected the out-of-scope read of `i` to be marked, got {:?}",
+            c.undeclared_reads
         );
     }
 

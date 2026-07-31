@@ -120,7 +120,7 @@ impl Checker {
                 // Lifted FnDecl with capture types resolved in outer
                 // scope + lazy body walk. See
                 // [`crate::check_type_of_fn::check_closure`].
-                crate::check_type_of_fn::check_closure(self, ast, fn_name, captures)
+                crate::check_type_of_fn::check_closure(self, ast, eid, fn_name, captures)
             }
             // M5.1 — desugar_classes flattens these out before check runs.
             // Reaching here is an internal compiler error, not a user error.

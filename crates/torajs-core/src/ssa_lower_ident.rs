@@ -95,7 +95,7 @@ fn try_undeclared_read_throw(
     eid: crate::ast::ExprId,
     name: &str,
 ) -> Option<Operand> {
-    if !ctx.ast.undeclared_reads.contains(&eid) {
+    if !ctx.ast.undeclared_reads.contains_key(&eid) {
         return None;
     }
     let name_str = ctx.intern_string_literal(name);

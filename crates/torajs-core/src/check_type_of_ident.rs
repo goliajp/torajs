@@ -24,7 +24,7 @@
 //!    `NaN` / `Infinity` → `Type::Number`.
 //! 7. **Unknown** — `Err("unknown identifier ...")`.
 
-use crate::check::{Checker, DiagPush, Type};
+use crate::check::{Checker, Type};
 
 pub(crate) fn check(
     checker: &mut Checker,
@@ -32,10 +32,16 @@ pub(crate) fn check(
     name: &str,
 ) -> Result<Type, String> {
     if let Some(info) = checker.lookup(name) {
+        // A read marked undeclared by an earlier speculative pass
+        // (hoist pre-typing under an incomplete scope) that NOW
+        // resolves is a legal forward reference — self-heal the mark.
+        checker.undeclared_reads.remove(&eid);
         return Ok(info.ty);
     }
     if let Some(ty) = checker.globals.get(name) {
-        return Ok(ty.clone());
+        let ty = ty.clone();
+        checker.undeclared_reads.remove(&eid);
+        return Ok(ty);
     }
     match name {
         "console" => Ok(Type::Object("console")),
@@ -190,30 +196,25 @@ pub(crate) fn check(
         }
         // RFC 20260730-undeclared-ident (§6.2.5.5) — an expression-
         // position read that resolves nowhere is not a compile
-        // reject: it types `Any`, carries a Warning diagnostic, and
-        // raises a catchable ReferenceError when evaluated (see
-        // ssa_lower_ident::try_undeclared_read_throw). Three
-        // carve-outs stay hard errors: `__`-prefixed names are
-        // compiler-synthesized (an unresolved one is a compiler bug,
-        // not user code); reads issued from the hoist pre-pass run
-        // before the scope is fully built (a mark there would turn a
-        // legal forward reference into a bogus runtime throw); and
-        // known builtin globals (`parseInt` / `queueMicrotask` / …)
-        // that exist only as NAME-keyed call lanes — a speculative
-        // wedge probe types their callee Ident, and a mark there
-        // turns every such call into a bogus runtime throw (gate
-        // caught 28: parseInt ×10, queueMicrotask ×5, isNaN, …).
+        // reject: it types `Any`, gets marked (surfaced as one
+        // deduped end-of-pipeline warning), and raises a catchable
+        // ReferenceError when evaluated (see
+        // ssa_lower_ident::try_undeclared_read_throw). Two carve-outs
+        // stay hard errors: `__`-prefixed names are compiler-
+        // synthesized (an unresolved one is a compiler bug, not user
+        // code), and known builtin globals (`parseInt` /
+        // `queueMicrotask` / …) that exist only as NAME-keyed call
+        // lanes — a speculative wedge probe types their callee
+        // Ident, and a mark there turns every such call into a bogus
+        // runtime throw (gate caught 28: parseInt ×10,
+        // queueMicrotask ×5, isNaN, …). A speculative pre-pass mark
+        // on a name that later resolves self-heals at the resolution
+        // sites above.
         other => {
-            if other.starts_with("__")
-                || checker.hoist_prepass_depth > 0
-                || crate::check::is_known_builtin_global(other)
-            {
+            if other.starts_with("__") || crate::check::is_known_builtin_global(other) {
                 return Err(format!("unknown identifier `{other}`"));
             }
-            checker.undeclared_reads.insert(eid);
-            checker
-                .errors
-                .push_warn(format!("unknown identifier `{other}`"));
+            checker.undeclared_reads.insert(eid, other.to_string());
             Ok(Type::Any)
         }
     }

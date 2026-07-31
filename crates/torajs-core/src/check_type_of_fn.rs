@@ -135,6 +135,7 @@ pub(crate) fn closure_sig(
 pub(crate) fn check_closure(
     checker: &mut Checker,
     ast: &Ast,
+    eid: crate::ast::ExprId,
     fn_name: &str,
     captures: &[String],
 ) -> Result<Type, String> {
@@ -153,10 +154,24 @@ pub(crate) fn check_closure(
             // list (`crate::check_hoist_closure_lets`) — a real capture,
             // typed from the FnDecl its own declaration will bind.
             cap_tys.push((cap.clone(), ty.clone()));
-        } else {
+        } else if cap.starts_with("__") || crate::check::is_known_builtin_global(cap) {
+            // Same carve-outs as the undeclared-read lane: synthetic
+            // names and name-keyed builtin globals stay hard errors.
             return Err(format!(
                 "closure `{fn_name}` references unknown identifier `{cap}`"
             ));
+        } else {
+            // RFC 20260730-undeclared-ident 刀 3 — a capture that
+            // resolves nowhere (§6.2.5.5). Not a compile reject: skip
+            // the env slot and record it; the body's Ident read takes
+            // the undeclared-read mark lane (runtime ReferenceError),
+            // and check_monomorph prunes the name from the owned
+            // AST's capture list so env materialization never sees it.
+            checker
+                .unresolved_captures
+                .entry(eid)
+                .or_default()
+                .push(cap.clone());
         }
     }
     checker

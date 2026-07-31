@@ -38,7 +38,7 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use crate::ast::{Ast, ExprId, Param, Stmt};
+use crate::ast::{Ast, Expr, ExprId, Param, Stmt};
 use crate::check::{Checker, Type, substitute_typevars};
 use crate::ssa_lower_generics_monomorph::{
     Generics, collect_generics, compute_arg_anns, substitute_in_ann, substitute_in_stmt,
@@ -245,6 +245,34 @@ pub(crate) fn monomorphize_and_check(c: &mut Checker, ast: &Ast) -> MonoOutput {
     // above) ride to the lowerer on the AST it already reads.
     owned_ast.iter_destr_srcs = std::mem::take(&mut c.iter_destr_srcs);
     owned_ast.undeclared_reads = std::mem::take(&mut c.undeclared_reads);
+    // RFC 20260730-undeclared-ident 刀 3 — prune nowhere-resolving
+    // capture names (recorded by check_closure per construction site)
+    // from the owned AST's capture lists, so the lowerer's env
+    // materialization never sees them; the body's marked Ident read
+    // raises the ReferenceError instead. The lifted FnDecl's
+    // `__env(...)` ann is kept in step (the lowerer only gates on
+    // empty/non-empty, but a stale name list misleads readers).
+    for (ceid, gone) in std::mem::take(&mut c.unresolved_captures) {
+        let Expr::Closure { fn_name, captures } = &mut owned_ast.exprs[ceid.0 as usize] else {
+            continue;
+        };
+        captures.retain(|cap| !gone.contains(cap));
+        let caps = captures.join("|");
+        let fname = fn_name.clone();
+        for s in owned_ast.stmts.iter_mut() {
+            let Stmt::FnDecl { name, params, .. } = s else {
+                continue;
+            };
+            if *name != fname {
+                continue;
+            }
+            if let Some(env) = params.first_mut()
+                && env.name == "__env"
+            {
+                env.type_ann = Some(format!("__env({caps})"));
+            }
+        }
+    }
     MonoOutput {
         mono_ast: owned_ast,
         call_retargets,

@@ -67,12 +67,14 @@ pub struct Ast {
     pub iter_destr_srcs: std::collections::HashMap<ExprId, i64>,
     /// RFC 20260730-undeclared-ident — expression-position reads of
     /// identifiers that resolve nowhere (§6.2.5.5 GetValue on an
-    /// unresolvable Reference). The checker types them `Any` and
-    /// records the ExprId here; the lowerer raises a catchable
-    /// ReferenceError at the read. Parked by `check_monomorph` on the
-    /// owned post-check AST (same ride as `iter_destr_srcs`). Empty
-    /// pre-check.
-    pub undeclared_reads: std::collections::HashSet<ExprId>,
+    /// unresolvable Reference), ExprId → name. The checker types them
+    /// `Any` and records them here (a later read of the same eid that
+    /// DOES resolve unmarks it, so speculative pre-pass typing under
+    /// an incomplete scope self-heals); the lowerer raises a
+    /// catchable ReferenceError at the read. Parked by
+    /// `check_monomorph` on the owned post-check AST (same ride as
+    /// `iter_destr_srcs`). Empty pre-check.
+    pub undeclared_reads: std::collections::HashMap<ExprId, String>,
     /// RFC 20260714-dstr-residual blade 4 — NamedEvaluation for
     /// anonymous class expressions: synth class name
     /// (`__ClassExpr_<id>`) → binding identifier, recorded by the

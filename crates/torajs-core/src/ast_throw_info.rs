@@ -389,7 +389,7 @@ pub(crate) fn scan_expr(
         // raises ReferenceError at evaluation, so the enclosing fn
         // must enter `may_throw` or callers prune the check and the
         // throw is silently swallowed across the fn boundary.
-        Expr::Ident(_) if ast.undeclared_reads.contains(&eid) => {
+        Expr::Ident(_) if ast.undeclared_reads.contains_key(&eid) => {
             *direct = true;
         }
         Expr::Ident(_)
