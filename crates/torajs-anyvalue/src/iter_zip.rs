@@ -12,23 +12,31 @@
 //! - fn        = the padding `Array<Any>` (longest mode; undefined
 //!   otherwise);
 //! - counter   = the mode (0 shortest / 1 longest / 2 strict);
-//! - inner     = unused (undefined).
+//! - inner     = unused for zip (zipKeyed parks its keys snapshot
+//!   here — the row step below serves both kinds through
+//!   [`RowSink`]).
 //!
 //! Each step drives every open iterator once, per the proposal's
 //! IteratorZip closure: shortest finishes (closing the others) on the
 //! first done; longest substitutes `padding[i]` and finishes when no
-//! iterator remains open; strict requires column 0 to finish first
-//! and every sibling to agree.
+//! iterator remains open (abandoning the row when the LAST column
+//! retires); strict requires column 0 to finish first and every
+//! sibling to agree. Options parsing / column bookkeeping shared with
+//! zipKeyed in [`crate::iter_zip_shared`].
 
 use core::ffi::c_void;
 
 use crate::iter_from::derive_flattenable;
 use crate::iter_helper::{
-    ALIVE_OFF, COUNTER_OFF, FN_OFF, ITER_HELPER_ZIP, UNDERLYING_OFF, iter_helper_cell_alloc,
+    ALIVE_OFF, COUNTER_OFF, FN_OFF, INNER_OFF, ITER_HELPER_ZIP, UNDERLYING_OFF,
+    iter_helper_cell_alloc,
 };
-use crate::nanbox::{AnyValue, VALUE_UNDEFINED, as_void_ptr, is_cell, is_short_str};
+use crate::iter_zip_shared::{
+    ARR_LEN_OFF, RowSink, TAG_HEAP, TAG_UNDEF, ZIP_MODE_LONGEST, ZIP_MODE_SHORTEST,
+    ZIP_MODE_STRICT, av_is_object, close_open_iters, zip_parse_options,
+};
+use crate::nanbox::{AnyValue, VALUE_UNDEFINED, as_void_ptr};
 use crate::nanbox_ffi::__torajs_anyv_rc_dec;
-use torajs_rc::Tag;
 
 unsafe extern "C" {
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
@@ -40,92 +48,7 @@ unsafe extern "C" {
     /// takes the new pair WITHOUT inc (transfer).
     fn __torajs_arr_set_any(arr: *mut c_void, i: u64, tag: u64, value: u64);
     fn __torajs_arr_drop_any(arr: *mut c_void);
-    fn __torajs_str_alloc(bytes: *const u8, len: i64) -> *mut u8;
-    fn __torajs_str_drop(s: *mut c_void);
-}
-
-/// Array length word (mirror of `torajs-arr::layout::ARR_LEN_OFF`).
-const ARR_LEN_OFF: usize = 8;
-/// torajs-str Str layout — u64 length at +8, payload at +16.
-const STR_LEN_OFF: usize = 8;
-const STR_HDR_SIZE: usize = 16;
-
-/// Member-protocol slot tags.
-const TAG_UNDEF: u64 = 5;
-const TAG_HEAP: u64 = 4;
-
-/// Modes (the cell's counter word).
-pub(crate) const ZIP_MODE_SHORTEST: u64 = 0;
-pub(crate) const ZIP_MODE_LONGEST: u64 = 1;
-pub(crate) const ZIP_MODE_STRICT: u64 = 2;
-
-/// True when `v` is a language-value Object (a heap cell that is not
-/// a primitive Str / Symbol / BigInt cell).
-unsafe fn av_is_object(v: AnyValue) -> bool {
-    if is_short_str(v) || !is_cell(v) {
-        return false;
-    }
-    let t = unsafe { (as_void_ptr(v).cast::<u8>().add(4) as *const u16).read() };
-    t != Tag::Str as u16 && t != Tag::Symbol as u16 && t != Tag::BigInt as u16
-}
-
-/// Compare a string-family AnyValue against ASCII `expect`. Only
-/// called after the string-family gate; materializes through
-/// ToString (no coercion side effects on an actual string).
-unsafe fn str_av_eq(v: AnyValue, expect: &[u8]) -> bool {
-    unsafe {
-        let s = crate::nanbox_ffi::__torajs_anyv_to_str(v);
-        if s.is_null() {
-            return false;
-        }
-        let len = (s.cast::<u8>().add(STR_LEN_OFF) as *const u64).read() as usize;
-        let eq = len == expect.len()
-            && core::slice::from_raw_parts(s.cast::<u8>().add(STR_HDR_SIZE), len) == expect;
-        __torajs_str_drop(s as *mut c_void);
-        eq
-    }
-}
-
-/// True when `v` sits in the string family (ShortStr immediate or a
-/// Str-tagged cell — Substr views share the tag).
-unsafe fn av_is_string(v: AnyValue) -> bool {
-    if is_short_str(v) {
-        return true;
-    }
-    is_cell(v)
-        && unsafe { (as_void_ptr(v).cast::<u8>().add(4) as *const u16).read() } == Tag::Str as u16
-}
-
-/// Borrowed member read `(tag, payload)` off an options object.
-unsafe fn member_pair(obj: AnyValue, name: &[u8]) -> (u64, u64) {
-    unsafe {
-        let key = __torajs_str_alloc(name.as_ptr(), name.len() as i64);
-        let tag = crate::member_get::__torajs_any_member_get_tag(obj, key as *const c_void);
-        let payload = if tag == TAG_UNDEF {
-            0
-        } else {
-            crate::member_get_value::__torajs_any_member_get_value(obj, key as *const c_void)
-        };
-        __torajs_str_drop(key as *mut c_void);
-        (tag, payload)
-    }
-}
-
-/// Close every still-open iterator in `iters` except `skip` (pass
-/// `u64::MAX` to close all). Slots keep their references — the cell
-/// drop glue (or the caller's explicit drop) releases them.
-unsafe fn close_open_iters(iters: *const c_void, count: u64, skip: u64) {
-    unsafe {
-        for j in 0..count {
-            if j == skip {
-                continue;
-            }
-            let av = __torajs_arr_get_any_boxed(iters, j);
-            if av != VALUE_UNDEFINED {
-                crate::iter_any_close::__torajs_iter_close_value(av);
-            }
-        }
-    }
+    fn __torajs_dynobj_alloc() -> *mut c_void;
 }
 
 /// `Iterator.zip(iterables, options)` kernel. Validates options,
@@ -145,47 +68,10 @@ pub unsafe extern "C" fn __torajs_iterator_zip(iterables: AnyValue, options: Any
             __torajs_throw_type_error(c"Iterator.zip iterables is not an object".as_ptr());
             return VALUE_UNDEFINED;
         }
-        // Step 2 — GetOptionsObject.
-        if options != VALUE_UNDEFINED && !av_is_object(options) {
-            __torajs_throw_type_error(c"Iterator.zip options is not an object".as_ptr());
+        // Steps 2-6 — options / mode / padding option (shared).
+        let Some((mode, padding_opt)) = zip_parse_options(options) else {
             return VALUE_UNDEFINED;
-        }
-        // Steps 3-5 — mode.
-        let mut mode = ZIP_MODE_SHORTEST;
-        if options != VALUE_UNDEFINED {
-            let (t, p) = member_pair(options, b"mode");
-            if t != TAG_UNDEF {
-                let mode_av = crate::nanbox_encode::__torajs_anyv_box_from_pair(t as i64, p as i64);
-                if !av_is_string(mode_av) {
-                    __torajs_throw_type_error(c"Iterator.zip mode is invalid".as_ptr());
-                    return VALUE_UNDEFINED;
-                }
-                mode = if str_av_eq(mode_av, b"shortest") {
-                    ZIP_MODE_SHORTEST
-                } else if str_av_eq(mode_av, b"longest") {
-                    ZIP_MODE_LONGEST
-                } else if str_av_eq(mode_av, b"strict") {
-                    ZIP_MODE_STRICT
-                } else {
-                    __torajs_throw_type_error(c"Iterator.zip mode is invalid".as_ptr());
-                    return VALUE_UNDEFINED;
-                };
-            }
-        }
-        // Step 6 — the padding OPTION reads before the iterables
-        // iterate (its own iteration runs after the opens).
-        let mut padding_opt = VALUE_UNDEFINED;
-        if mode == ZIP_MODE_LONGEST && options != VALUE_UNDEFINED {
-            let (t, p) = member_pair(options, b"padding");
-            if t != TAG_UNDEF {
-                let pad_av = crate::nanbox_encode::__torajs_anyv_box_from_pair(t as i64, p as i64);
-                if !av_is_object(pad_av) {
-                    __torajs_throw_type_error(c"Iterator.zip padding is not an object".as_ptr());
-                    return VALUE_UNDEFINED;
-                }
-                padding_opt = pad_av;
-            }
-        }
+        };
         // Steps 7-8 — open every input iterator eagerly.
         let Some(outer) = derive_flattenable(iterables, false) else {
             return VALUE_UNDEFINED;
@@ -286,14 +172,14 @@ pub unsafe extern "C" fn __torajs_iterator_zip(iterables: AnyValue, options: Any
     }
 }
 
-/// One protocol step of a kind-ZIP cell — the proposal's IteratorZip
-/// closure body. 1 with `*out` owning a fresh results `Array<Any>`,
-/// 0 on done / pending throw.
+/// One protocol step of a kind-ZIP / kind-ZIP_KEYED cell — the
+/// proposal's IteratorZip closure body, row shape per [`RowSink`].
+/// 1 with `*out` owning the fresh row, 0 on done / pending throw.
 ///
 /// # Safety
-/// `ptr` is a live IterHelper cell of kind ZIP (alive already checked
-/// by the caller); `out` is writable.
-pub(crate) unsafe fn iter_zip_step(ptr: *mut c_void, out: *mut AnyValue) -> i64 {
+/// `ptr` is a live IterHelper cell of kind ZIP / ZIP_KEYED (alive
+/// already checked by the caller); `out` is writable.
+pub(crate) unsafe fn iter_zip_step(ptr: *mut c_void, out: *mut AnyValue, keyed: bool) -> i64 {
     unsafe {
         let p = ptr.cast::<u8>();
         let mode = (p.add(COUNTER_OFF) as *const u64).read();
@@ -319,7 +205,12 @@ pub(crate) unsafe fn iter_zip_step(ptr: *mut c_void, out: *mut AnyValue) -> i64 
                 return 0;
             }
         }
-        let mut results = __torajs_arr_alloc_any(count) as *mut c_void;
+        let mut sink = if keyed {
+            let keys_av = (p.add(INNER_OFF) as *const u64).read();
+            RowSink::Obj(__torajs_dynobj_alloc(), as_void_ptr(keys_av))
+        } else {
+            RowSink::Arr(__torajs_arr_alloc_any(count) as *mut c_void)
+        };
         for i in 0..count {
             let iter_av = __torajs_arr_get_any_boxed(iters, i);
             if iter_av == VALUE_UNDEFINED {
@@ -330,7 +221,7 @@ pub(crate) unsafe fn iter_zip_step(ptr: *mut c_void, out: *mut AnyValue) -> i64 
                     crate::__torajs_anyv_unbox_value(pad),
                 );
                 crate::payload_rc_inc(t, v);
-                results = __torajs_arr_push_any(results, t as u64, v as u64) as *mut c_void;
+                sink.put(i, t as u64, v as u64);
                 continue;
             }
             let mut item: AnyValue = VALUE_UNDEFINED;
@@ -340,7 +231,7 @@ pub(crate) unsafe fn iter_zip_step(ptr: *mut c_void, out: *mut AnyValue) -> i64 
                     crate::__torajs_anyv_unbox_tag(item),
                     crate::__torajs_anyv_unbox_value(item),
                 );
-                results = __torajs_arr_push_any(results, t as u64, v as u64) as *mut c_void;
+                sink.put(i, t as u64, v as u64);
                 continue;
             }
             if __torajs_throw_check() != 0 {
@@ -349,7 +240,7 @@ pub(crate) unsafe fn iter_zip_step(ptr: *mut c_void, out: *mut AnyValue) -> i64 
                 __torajs_arr_set_any(iters, i, TAG_UNDEF, 0);
                 close_open_iters(iters, count, u64::MAX);
                 (p.add(ALIVE_OFF)).write(0);
-                __torajs_arr_drop_any(results);
+                sink.abandon();
                 return 0;
             }
             // Column i finished — remove it from the open set (the
@@ -360,7 +251,7 @@ pub(crate) unsafe fn iter_zip_step(ptr: *mut c_void, out: *mut AnyValue) -> i64 
                 ZIP_MODE_SHORTEST => {
                     close_open_iters(iters, count, u64::MAX);
                     (p.add(ALIVE_OFF)).write(0);
-                    __torajs_arr_drop_any(results);
+                    sink.abandon();
                     return 0;
                 }
                 ZIP_MODE_STRICT => {
@@ -370,7 +261,7 @@ pub(crate) unsafe fn iter_zip_step(ptr: *mut c_void, out: *mut AnyValue) -> i64 
                         );
                         close_open_iters(iters, count, u64::MAX);
                         (p.add(ALIVE_OFF)).write(0);
-                        __torajs_arr_drop_any(results);
+                        sink.abandon();
                         return 0;
                     }
                     // Column 0 done first — every sibling must agree.
@@ -391,7 +282,7 @@ pub(crate) unsafe fn iter_zip_step(ptr: *mut c_void, out: *mut AnyValue) -> i64 
                             );
                             close_open_iters(iters, count, u64::MAX);
                             (p.add(ALIVE_OFF)).write(0);
-                            __torajs_arr_drop_any(results);
+                            sink.abandon();
                             return 0;
                         }
                         // Done (agrees) or abrupt — either way the
@@ -400,12 +291,12 @@ pub(crate) unsafe fn iter_zip_step(ptr: *mut c_void, out: *mut AnyValue) -> i64 
                         if __torajs_throw_check() != 0 {
                             close_open_iters(iters, count, u64::MAX);
                             (p.add(ALIVE_OFF)).write(0);
-                            __torajs_arr_drop_any(results);
+                            sink.abandon();
                             return 0;
                         }
                     }
                     (p.add(ALIVE_OFF)).write(0);
-                    __torajs_arr_drop_any(results);
+                    sink.abandon();
                     return 0;
                 }
                 _ => {
@@ -424,7 +315,7 @@ pub(crate) unsafe fn iter_zip_step(ptr: *mut c_void, out: *mut AnyValue) -> i64 
                     }
                     if !any_open {
                         (p.add(ALIVE_OFF)).write(0);
-                        __torajs_arr_drop_any(results);
+                        sink.abandon();
                         return 0;
                     }
                     // Substitute the retired column's padding.
@@ -434,11 +325,11 @@ pub(crate) unsafe fn iter_zip_step(ptr: *mut c_void, out: *mut AnyValue) -> i64 
                         crate::__torajs_anyv_unbox_value(pad),
                     );
                     crate::payload_rc_inc(t, v);
-                    results = __torajs_arr_push_any(results, t as u64, v as u64) as *mut c_void;
+                    sink.put(i, t as u64, v as u64);
                 }
             }
         }
-        *out = crate::nanbox_encode::__torajs_anyv_box_pointer(results);
+        *out = sink.finish();
         1
     }
 }
@@ -447,7 +338,7 @@ pub(crate) unsafe fn iter_zip_step(ptr: *mut c_void, out: *mut AnyValue) -> i64 
 /// early finish.
 ///
 /// # Safety
-/// `ptr` is a live IterHelper cell of kind ZIP.
+/// `ptr` is a live IterHelper cell of kind ZIP / ZIP_KEYED.
 pub(crate) unsafe fn iter_zip_close_all(ptr: *mut c_void) {
     unsafe {
         let p = ptr.cast::<u8>();

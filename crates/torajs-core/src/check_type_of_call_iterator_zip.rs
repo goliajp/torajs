@@ -1,8 +1,9 @@
-//! `Iterator.zip(iterables, options)` (proposal-joint-iteration) —
-//! checker wedge (RFC 20260730-iterator-global 刀 5b). Groupby-family
-//! shape: admit any arguments (the kernel runs the spec's own
-//! TypeError gates at runtime, including the zero-argument
-//! `undefined is not an object` case), answer `Type::Any`.
+//! `Iterator.zip(iterables, options)` / `Iterator.zipKeyed(obj,
+//! options)` (proposal-joint-iteration) — checker wedge (RFC
+//! 20260730-iterator-global 刀 5b/5c). Groupby-family shape: admit
+//! any arguments (the kernel runs the spec's own TypeError gates at
+//! runtime, including the zero-argument `undefined is not an
+//! object` case), answer `Type::Any`.
 
 use crate::ast::{Ast, Expr, ExprId};
 use crate::check::{Checker, Type};
@@ -16,7 +17,7 @@ pub(crate) fn try_match(
     let Expr::Member { obj, name: m } = ast.get_expr(*callee) else {
         return None;
     };
-    if m != "zip" {
+    if m != "zip" && m != "zipKeyed" {
         return None;
     }
     let Expr::Ident(ns) = ast.get_expr(*obj) else {

@@ -54,6 +54,9 @@ pub(crate) const ITER_HELPER_CONCAT: u8 = 6;
 /// the open-iterators `Array<Any>`, fn is the longest-mode padding
 /// list, counter is the mode.
 pub(crate) const ITER_HELPER_ZIP: u8 = 7;
+/// `Iterator.zipKeyed` (刀 5c) — zip's shape plus the keys snapshot
+/// (`Array<Str>`, HEAP-marked) in the inner slot; rows are objects.
+pub(crate) const ITER_HELPER_ZIP_KEYED: u8 = 8;
 
 pub(crate) const UNDERLYING_OFF: usize = 8;
 pub(crate) const FN_OFF: usize = 16;
@@ -197,9 +200,10 @@ pub(crate) unsafe fn iter_helper_step(ptr: *mut c_void, out: *mut AnyValue) -> i
         if kind == ITER_HELPER_CONCAT {
             return crate::iter_concat::iter_concat_step(ptr, out);
         }
-        // Iterator.zip — the joint-iteration row step (刀 5b).
-        if kind == ITER_HELPER_ZIP {
-            return crate::iter_zip::iter_zip_step(ptr, out);
+        // Iterator.zip / zipKeyed — the joint-iteration row step
+        // (刀 5b/5c; the flag picks the row shape).
+        if kind == ITER_HELPER_ZIP || kind == ITER_HELPER_ZIP_KEYED {
+            return crate::iter_zip::iter_zip_step(ptr, out, kind == ITER_HELPER_ZIP_KEYED);
         }
         // §27.1.4.9 take — a zero remaining-count is done BEFORE the
         // underlying steps (and closes it, step 5.a.ii).
@@ -326,9 +330,12 @@ pub(crate) unsafe fn iter_helper_method(
                         crate::iter_concat::iter_concat_close_inner(ptr);
                         return iter_result_obj(VALUE_UNDEFINED, true);
                     }
-                    // ZIP's underlying is the open-columns list —
-                    // close every still-open column.
-                    if (ptr.cast::<u8>().add(KIND_OFF)).read() == ITER_HELPER_ZIP {
+                    // ZIP / ZIP_KEYED's underlying is the open-columns
+                    // list — close every still-open column.
+                    if matches!(
+                        (ptr.cast::<u8>().add(KIND_OFF)).read(),
+                        ITER_HELPER_ZIP | ITER_HELPER_ZIP_KEYED
+                    ) {
                         crate::iter_zip::iter_zip_close_all(ptr);
                         return iter_result_obj(VALUE_UNDEFINED, true);
                     }

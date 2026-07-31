@@ -1,11 +1,12 @@
-//! `Iterator.zip(iterables, options)` lowering
-//! (proposal-joint-iteration) — RFC 20260730-iterator-global 刀 5b.
+//! `Iterator.zip(iterables, options)` / `Iterator.zipKeyed(obj,
+//! options)` lowering (proposal-joint-iteration) — RFC
+//! 20260730-iterator-global 刀 5b/5c.
 //!
 //! Statics wedge in the Iterator.from shape, binary: both operands
-//! box to Any and pass BORROWED to `__torajs_iterator_zip` (the
-//! kernel opens every input iterator eagerly and mints a lazy
-//! kind-ZIP IterHelper cell; refusals leave a pending throw). An
-//! absent options argument passes the undefined immediate.
+//! box to Any and pass BORROWED to the kernel (`__torajs_iterator_
+//! zip` / `_zip_keyed` — eager opens + lazy kind-ZIP{,_KEYED}
+//! IterHelper cell; refusals leave a pending throw). An absent
+//! options argument passes the undefined immediate.
 
 use crate::ast::{Expr, ExprId};
 use crate::ssa::{InstKind, Operand, Type};
@@ -19,9 +20,14 @@ pub(crate) fn try_lower(
     let Expr::Member { obj: ns_id, name } = ctx.ast.get_expr(callee) else {
         return None;
     };
-    if name != "zip" {
+    if name != "zip" && name != "zipKeyed" {
         return None;
     }
+    let target = if name == "zip" {
+        ctx.intrinsics.iterator_zip
+    } else {
+        ctx.intrinsics.iterator_zip_keyed
+    };
     let Expr::Ident(ns) = ctx.ast.get_expr(*ns_id) else {
         return None;
     };
@@ -77,12 +83,9 @@ pub(crate) fn try_lower(
         let _ = ctx.lower_expr(a);
     }
     let argv: Vec<Operand> = ops.iter().map(|(op, _, _)| op.clone()).collect();
-    let result = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::Call(ctx.intrinsics.iterator_zip, argv),
-        Type::Any,
-        None,
-    );
+    let result = ctx
+        .f
+        .append_inst(ctx.cur_block, InstKind::Call(target, argv), Type::Any, None);
     // Kernel borrows both values (it derives its own owned columns).
     for (op, we_boxed, eid) in ops {
         if we_boxed {

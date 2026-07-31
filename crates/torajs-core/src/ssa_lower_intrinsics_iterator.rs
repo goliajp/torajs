@@ -19,6 +19,7 @@ pub(crate) struct IteratorIds {
     pub iterator_from: FuncId,
     pub iterator_concat: FuncId,
     pub iterator_zip: FuncId,
+    pub iterator_zip_keyed: FuncId,
 }
 
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) -> IteratorIds {
@@ -70,6 +71,14 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             module,
             fn_table,
             "__torajs_iterator_zip",
+            &[Type::Any, Type::Any],
+            Type::Any,
+        ),
+        // Iterator.zipKeyed(obj, options) — keyed sibling (刀 5c).
+        iterator_zip_keyed: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_iterator_zip_keyed",
             &[Type::Any, Type::Any],
             Type::Any,
         ),

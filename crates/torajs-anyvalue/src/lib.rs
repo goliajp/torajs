@@ -116,6 +116,8 @@ mod iter_from;
 mod iter_helper;
 mod iter_helper_eager;
 mod iter_zip;
+mod iter_zip_keyed;
+mod iter_zip_shared;
 mod len_get;
 mod locale_list;
 pub(crate) mod member_get;
