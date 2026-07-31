@@ -219,6 +219,10 @@ fn collect_position_faces(
             // the loud reject (same argv-contention bar as the
             // knife-2W mixed profile).
             Expr::Member { obj, name } if name == "call" || name == "apply" => {
+                // An INLINE fn-expr callee (`(function () { …this…
+                // }).apply(obj)`) promotes directly — zero aliases
+                // by construction, the call is its only consumer.
+                collect_face(stmts, exprs, *obj, fn_expr_exprs, patches);
                 if matches!(&exprs[obj.0 as usize], Expr::Ident(_)) {
                     collect_ident_face(exprs, *obj, ident_cands);
                     call_faces.insert(*obj);

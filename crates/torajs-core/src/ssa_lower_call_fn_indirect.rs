@@ -187,6 +187,22 @@ pub(crate) fn emit_closure_callee(
     user_sig_id: crate::ssa::SigId,
     args: &[ExprId],
 ) -> Operand {
+    emit_closure_callee_with_this(ctx, eid, callee_op, user_sig_id, args, None)
+}
+
+/// Rotation 261 — the inline fn-expr `.call`/`.apply` face entry:
+/// `this_arg` is the EXPLICIT thisArg expression (§20.2.3.3/.1),
+/// boxed into the promoted callee's leading `__this` argv slot
+/// (evaluated ahead of the user args, spec order). The plain entry
+/// above passes `None` and keeps the env-first shape byte-for-byte.
+pub(crate) fn emit_closure_callee_with_this(
+    ctx: &mut LowerCtx<'_>,
+    eid: ExprId,
+    callee_op: Operand,
+    user_sig_id: crate::ssa::SigId,
+    args: &[ExprId],
+    this_arg: Option<ExprId>,
+) -> Operand {
     let env_ptr = match callee_op {
         Operand::Value(v) => v,
         _ => panic!("ssa-lower: closure callee must be an SSA value"),
@@ -198,15 +214,30 @@ pub(crate) fn emit_closure_callee(
         None,
     );
     let (user_params, ret_ty) = ctx.fn_sigs[user_sig_id.0 as usize].clone();
-    let mut env_first = Vec::with_capacity(user_params.len() + 1);
+    let mut env_first = Vec::with_capacity(user_params.len() + 2);
     env_first.push(Type::Ptr);
+    if this_arg.is_some() {
+        env_first.push(Type::Any);
+    }
     env_first.extend(user_params);
     let env_first_sig = intern_fn_sig(ctx.fn_sigs, env_first, ret_ty);
     let user_params = ctx.fn_sigs[user_sig_id.0 as usize].0.clone();
-    let mut argv: Vec<Operand> = Vec::with_capacity(args.len() + 1);
+    let mut argv: Vec<Operand> = Vec::with_capacity(args.len() + 2);
     argv.push(Operand::Value(env_ptr));
     let mut owned_temps: Vec<(ExprId, Operand)> = Vec::new();
     let mut coerce_owned: Vec<(Operand, Type)> = Vec::new();
+    if let Some(t) = this_arg {
+        let raw = ctx.lower_expr(t);
+        owned_temps.push((t, raw));
+        let boxed = crate::ssa_lower_call_arg_conv::emit_arg_conv(
+            ctx,
+            Type::Any,
+            t,
+            raw,
+            &mut coerce_owned,
+        );
+        argv.push(boxed);
+    }
     for (i, a) in args.iter().enumerate() {
         // Chunk 641 — empty `[]` arg allocs with the param's layout.
         let raw = ctx

@@ -295,13 +295,18 @@ fn try_fn_value_call(
     let rest: Vec<ExprId> = if name == "call" {
         args[1..].to_vec()
     } else {
-        if args.len() != 2 {
-            return None;
+        match args.len() {
+            // §20.2.3.1 step 2 — an absent argArray means no args
+            // (rotation 261; the fn-value lowering's bound matches).
+            1 => Vec::new(),
+            2 => {
+                let Expr::Array(els) = ast.get_expr(args[1]) else {
+                    return None;
+                };
+                els.clone()
+            }
+            _ => return None,
         }
-        let Expr::Array(els) = ast.get_expr(args[1]) else {
-            return None;
-        };
-        els.clone()
     };
     if let Err(e) = checker.type_of(ast, args[0]) {
         return Some(Err(e));

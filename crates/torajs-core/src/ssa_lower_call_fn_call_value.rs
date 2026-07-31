@@ -40,13 +40,17 @@ pub(crate) fn try_lower(
     let rest: Vec<ExprId> = if is_call {
         args[1..].to_vec()
     } else {
-        if args.len() != 2 {
-            return None;
+        match args.len() {
+            // §20.2.3.1 step 2 — an absent argArray means no args.
+            1 => Vec::new(),
+            2 => {
+                let Expr::Array(els) = ctx.ast.get_expr(args[1]) else {
+                    return None;
+                };
+                els.clone()
+            }
+            _ => return None,
         }
-        let Expr::Array(els) = ctx.ast.get_expr(args[1]) else {
-            return None;
-        };
-        els.clone()
     };
     // Rotation 261 — a promoted fnexpr-this binding (`const f =
     // function () { …this… }` whose every use is a face read /
@@ -64,6 +68,28 @@ pub(crate) fn try_lower(
             &rest,
             Some(args[0]),
         );
+    }
+    // Rotation 261 — an INLINE promoted fn-expr callee
+    // (`(function () { …this… }).apply(obj)`): lower the closure
+    // (fresh minted env), box the thisArg into its leading `__this`
+    // slot, release the env after the call consumed it.
+    if matches!(ctx.ast.get_expr(obj), Expr::Closure { fn_name, .. }
+        if ctx.ast.fnexpr_recv_fns.contains(fn_name))
+    {
+        let callee_op = ctx.lower_expr(obj);
+        let crate::ssa::Type::Closure(sig) = ctx.operand_ty(&callee_op) else {
+            return None;
+        };
+        let out = crate::ssa_lower_call_fn_indirect::emit_closure_callee_with_this(
+            ctx,
+            eid,
+            callee_op,
+            sig,
+            &rest,
+            Some(args[0]),
+        );
+        ctx.release_owned_temp(obj, &callee_op);
+        return Some(out);
     }
     // thisArg evaluates for effect (§20.2.3.3 evaluates it), then
     // its fresh ownership ends here — the callee never sees it.
