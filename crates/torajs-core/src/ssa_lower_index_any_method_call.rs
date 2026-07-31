@@ -22,6 +22,19 @@ use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 use crate::ssa_lower_any_method_call::pack_any_argv;
 
+/// True when the index expression is a symbol key — the syntactic
+/// `Symbol.<wellKnown>` member read, or anything the checker typed
+/// `Symbol` (a symbol-valued binding).
+fn index_is_symbol_key(ctx: &LowerCtx<'_>, index: ExprId) -> bool {
+    if let Expr::Member { obj, .. } = ctx.ast.get_expr(index)
+        && let Expr::Ident(n) = ctx.ast.get_expr(*obj)
+        && n == "Symbol"
+    {
+        return true;
+    }
+    matches!(ctx.expr_types.get(&index), Some(crate::check::Type::Symbol))
+}
+
 /// Try to lower `callee(args…)` as an any-receiver index-keyed
 /// method call. Returns `None` unless the callee is an Index read
 /// off an `any`-typed object.
@@ -34,7 +47,15 @@ pub(crate) fn try_lower(
         return None;
     };
     let (obj, index) = (*obj, *index);
-    if !matches!(ctx.expr_types.get(&obj), Some(crate::check::Type::Any)) {
+    // A symbol-keyed index call rides this lane for TYPED receivers
+    // too (`[1][Symbol.iterator]()`, `set[Symbol.iterator]()`) — the
+    // receiver boxes at the boundary below and the runtime's symbol
+    // face dispatches with the receiver in place. Everything else
+    // keeps the Any-receiver gate: numeric/string index calls on
+    // typed receivers have their own typed lanes.
+    if !matches!(ctx.expr_types.get(&obj), Some(crate::check::Type::Any))
+        && !index_is_symbol_key(ctx, index)
+    {
         return None;
     }
 
