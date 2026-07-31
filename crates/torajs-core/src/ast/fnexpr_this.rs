@@ -48,12 +48,13 @@
 //! published the user-facing `__fn(P)->R` anns (which deliberately
 //! stay `__this`-free, like `__mth(`'s receiver-less spelling).
 
+pub(crate) use super::fnexpr_this_faces::promote_recv_any;
 use super::fnexpr_this_faces::{FacePatch, collect_face, collect_ident_face, literal_desc_faces};
 use super::fnexpr_this_recvs::{
     collect_any_binding_names, collect_arraylit_binding_names, collect_decls_by_name,
     collect_mapset_binding_names, fn_has_rest_param, name_shadowed_elsewhere,
 };
-use super::{Expr, ExprId, Param, Stmt};
+use super::{Expr, ExprId, Stmt};
 
 pub(crate) fn run(
     stmts: &mut [Stmt],
@@ -121,7 +122,7 @@ fn collect_position_faces(
     ident_cands: &mut Vec<(String, ExprId)>,
     call_faces: &mut std::collections::HashSet<ExprId>,
 ) {
-    let any_recvs = collect_any_binding_names(stmts);
+    let any_recvs = collect_any_binding_names(stmts, exprs);
     let arraylit_recvs = collect_arraylit_binding_names(stmts, exprs);
     let mapset_recvs = collect_mapset_binding_names(stmts, exprs);
     for i in 0..exprs.len() {
@@ -135,10 +136,19 @@ fn collect_position_faces(
         // use-shape analysis: the binding promotes only when its
         // remaining uses are all face reads / direct calls, same bar
         // as every other variable-routed face. (The Index-target
-        // twin `o["k"] = fn` already rides this arm through the
-        // parser's Member desugar.)
+        // twin `o["k"] = fn` rides this arm through the parser's
+        // Member desugar for STRING-literal keys; a computed key —
+        // `o[Symbol.match] = fn`, `o[k] = fn` — stays Expr::Index
+        // and matches the second target pattern: the stored value
+        // reaches calls only through the same runtime keyed
+        // dispatch, so the face bar is identical.)
         if let Expr::Assign { target, value } = &exprs[i] {
-            if let Expr::Member { obj, .. } = &exprs[target.0 as usize]
+            let store_recv = match &exprs[target.0 as usize] {
+                Expr::Member { obj, .. } => Some(*obj),
+                Expr::Index { obj, .. } => Some(*obj),
+                _ => None,
+            };
+            if let Some(obj) = store_recv
                 && matches!(&exprs[obj.0 as usize], Expr::Ident(n) if any_recvs.contains(n))
             {
                 collect_face(stmts, exprs, *value, fn_expr_exprs, patches);
@@ -436,65 +446,4 @@ fn is_hof_method(name: &str) -> bool {
             | "findLastIndex"
             | "flatMap"
     )
-}
-
-/// Promote each `(closure eid, lifted fn name)` to the receiver-first
-/// any shape: `__this` leaves the capture list (it is a receiver, not
-/// a capture — mirror of `objlit_nominal::apply_patches`), the lifted
-/// FnDecl gains a `__this: any` param right after `__env`, and the fn
-/// name joins `fnexpr_recv_fns` so the construction site stamps
-/// `FLAG_CLOSURE_RECV_FIRST` and receiver-aware invokers put the
-/// receiver in argv[0]. Shared by this pass's fn-expr faces and
-/// `objlit_nominal`'s any-lane literal members (RFC
-/// 20260717-objlit-anylane-recv knife 1).
-pub(crate) fn promote_recv_any(
-    stmts: &mut [Stmt],
-    exprs: &mut [Expr],
-    patches: &[(ExprId, String)],
-    fnexpr_recv_fns: &mut std::collections::HashSet<String>,
-) {
-    for (eid, _) in patches {
-        if let Expr::Closure { captures, .. } = &mut exprs[eid.0 as usize] {
-            captures.retain(|c| c != "__this");
-        }
-    }
-    for (eid, fn_name) in patches {
-        let caps: Vec<String> = match &exprs[eid.0 as usize] {
-            Expr::Closure { captures, .. } => captures.clone(),
-            _ => continue,
-        };
-        for s in stmts.iter_mut() {
-            let Stmt::FnDecl { name, params, .. } = s else {
-                continue;
-            };
-            if name != fn_name {
-                continue;
-            }
-            if let Some(env) = params.first_mut()
-                && env.name == "__env"
-            {
-                env.type_ann = Some(format!("__env({})", caps.join("|")));
-            }
-            if let Some(t) = params.iter_mut().find(|q| q.name == "__this") {
-                // Knife 6 — a method-shorthand face arrives with a
-                // nominal-typed `__this` (objlit_nominal's receiver);
-                // the accessor invoke hands a NaN-box, so the param
-                // re-anns to `any` (typeof / member reads go dynamic).
-                t.type_ann = Some("any".to_string());
-            } else {
-                let at = usize::from(params.first().is_some_and(|q| q.name == "__env"));
-                params.insert(
-                    at,
-                    Param {
-                        name: "__this".to_string(),
-                        type_ann: Some("any".to_string()),
-                        default: None,
-                        is_rest: false,
-                    },
-                );
-            }
-            fnexpr_recv_fns.insert(fn_name.clone());
-            break;
-        }
-    }
 }

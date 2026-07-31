@@ -168,18 +168,21 @@ unsafe fn symbol_keyed_call(
     if let Some(mid) = unsafe { crate::method_value::builtin_method_mid(cell) } {
         return unsafe { crate::method_call::any_method_redispatch(recv, mid, argv, argc) };
     }
-    // User closure — boxed-entry call (recorded residue: symbol-keyed
-    // user methods have no this-plumbing yet; `this`-free bodies work).
+    // User closure — boxed-entry call through the uniform dispatch
+    // helpers (they pad argv into the 8-slot undefined buffer the
+    // adapters read unconditionally). A receiver-first closure (a
+    // promoted fn-expr body that says `this`) carries
+    // FLAG_CLOSURE_RECV_FIRST on its env header — §13.3.6.2 method
+    // semantics: this symbol-keyed store's receiver rides argv[0]
+    // onto the `__this` param, user args shift up by one.
     // SAFETY: the closure layout carries the boxed dual entry.
     let entry = unsafe { *(cell.cast::<u8>().add(CLOSURE_BOXED_ENTRY_OFF) as *const u64) };
     if entry == 0 {
         return unsafe { not_callable() };
     }
-    let f: unsafe extern "C" fn(*mut c_void, *const u64, i64) -> u64 =
-        // SAFETY: non-zero boxed entries are function addresses by
-        // the closure-layout contract.
-        unsafe { core::mem::transmute(entry) };
-    let raw = unsafe { f(cell, argv, argc) };
+    let raw = unsafe {
+        crate::method_call_closure_dispatch::invoke_with_this(cell, entry, recv, argv, argc)
+    };
     if raw == crate::method_call::ANY_METHOD_NO_SUCH {
         return VALUE_UNDEFINED;
     }

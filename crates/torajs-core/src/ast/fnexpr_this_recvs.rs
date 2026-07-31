@@ -9,33 +9,50 @@ use super::{Expr, Stmt};
 /// program (top-level walk; a same-name non-any declaration anywhere
 /// removes the name — over-removal only keeps a face loud, never
 /// mis-promotes a typed receiver).
-pub(super) fn collect_any_binding_names(stmts: &[Stmt]) -> std::collections::HashSet<String> {
+///
+/// An UNANNOTATED empty-object-literal init (`var obj = {}`) joins
+/// the set: `{}` has no struct surface, so the binding is a dynobj
+/// and every expando-stored method call rides the runtime any-method
+/// dispatch — the same receiver-seeding lane the `: any` spelling
+/// uses (test262's dominant custom-matcher receiver shape).
+pub(super) fn collect_any_binding_names(
+    stmts: &[Stmt],
+    exprs: &[Expr],
+) -> std::collections::HashSet<String> {
     let mut any_names = std::collections::HashSet::new();
     let mut other_names = std::collections::HashSet::new();
-    collect_binding_names_inner(stmts, &mut any_names, &mut other_names);
+    collect_binding_names_inner(stmts, exprs, &mut any_names, &mut other_names);
     any_names.retain(|n| !other_names.contains(n));
     any_names
 }
 
 fn collect_binding_names_inner(
     stmts: &[Stmt],
+    exprs: &[Expr],
     any_names: &mut std::collections::HashSet<String>,
     other_names: &mut std::collections::HashSet<String>,
 ) {
     for s in stmts {
         match s {
-            Stmt::LetDecl { name, type_ann, .. } => {
-                if type_ann.as_deref() == Some("any") {
+            Stmt::LetDecl {
+                name,
+                type_ann,
+                init,
+                ..
+            } => {
+                let dynobj_certain = type_ann.is_none()
+                    && matches!(&exprs[init.0 as usize], Expr::ObjectLit { fields } if fields.is_empty());
+                if type_ann.as_deref() == Some("any") || dynobj_certain {
                     any_names.insert(name.clone());
                 } else {
                     other_names.insert(name.clone());
                 }
             }
             Stmt::FnDecl { body, .. } => {
-                collect_binding_names_inner(body, any_names, other_names);
+                collect_binding_names_inner(body, exprs, any_names, other_names);
             }
             Stmt::Block(inner) | Stmt::Multi(inner) => {
-                collect_binding_names_inner(inner, any_names, other_names);
+                collect_binding_names_inner(inner, exprs, any_names, other_names);
             }
             _ => {}
         }
