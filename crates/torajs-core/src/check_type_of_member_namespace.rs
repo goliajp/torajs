@@ -113,6 +113,11 @@ pub(crate) fn try_match(obj_ty: &Type, name: &str) -> Option<Result<Type, String
             vec![Type::String],
             Box::new(Type::Array(Box::new(Type::String))),
         ),
+        // ES2025 §22.2.5.1 RegExp.escape (rotation 266) — strict
+        // String gate lives in the runtime shell (non-string throws,
+        // no ToString), so the sig admits Any and answers Any (the
+        // boxed fresh Str).
+        (Type::Object("RegExp"), "escape") => Type::Function(vec![Type::Any], Box::new(Type::Any)),
         // §23.1.2.3 Array.of read as a VALUE (rotation 266) — the
         // direct-call form lowers through the array-literal wedge
         // first; this arm serves the reflection face (.length = 0,

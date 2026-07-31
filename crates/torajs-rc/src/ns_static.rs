@@ -206,6 +206,9 @@ pub static NS_STATIC_TABLE: &[NsStaticRow] = &[
     // Array<Any> (the direct-call form lowers through the
     // array-literal wedge). Length 0 per spec (rest-param shaped).
     row("Array", "of", 0),
+    // ES2025 §22.2.5.1 RegExp.escape — strict String gate (no
+    // ToString) + the EncodeForRegExpEscape kernel. Length 1.
+    row("RegExp", "escape", 1),
 ];
 
 /// Compile-time `(namespace, member)` → id. Linear scan — lower-time

@@ -283,6 +283,7 @@ unsafe fn dispatch(id: i64, argv: *const u64, argc: i64) -> u64 {
                 super::ns_static_reflect::reflect_set_prototype_of(argv, argc)
             }
             Disp::ArrayOf => super::ns_static_obj::array_of_pack(argv, argc),
+            Disp::RegExpEscape => super::ns_static_obj::regexp_escape_value(arg_at(argv, argc, 0)),
         }
     }
 }

@@ -151,6 +151,9 @@ unsafe extern "C" {
     /// `ns_static.rs`'s iterator_concat_pack declares).
     fn __torajs_arr_alloc_any(cap: u64) -> *mut u8;
     fn __torajs_arr_push_any(arr: *mut c_void, tag: u64, value: u64) -> *mut u8;
+    /// torajs-regex — ES2025 §22.2.5.1 EncodeForRegExpEscape over a
+    /// live Str; answers a fresh Str.
+    fn __torajs_regexp_escape(s: *const c_void) -> *mut u8;
 }
 
 /// §23.1.2.3 Array.of as a detached call — pack argv into a fresh
@@ -170,4 +173,38 @@ pub(super) unsafe fn array_of_pack(argv: *const u64, argc: i64) -> u64 {
         }
         crate::nanbox::box_void_ptr(items as *mut c_void)
     }
+}
+
+/// ES2025 §22.2.5.1 RegExp.escape — step 1 is a STRICT String check
+/// (no ToString: every non-string throws). A ShortStr materializes
+/// to a heap Str first (released after the kernel run); a Str cell
+/// rides the torajs-regex escape kernel directly. The fresh escaped
+/// Str comes back boxed.
+pub(super) unsafe fn regexp_escape_value(v: u64) -> u64 {
+    unsafe {
+        if crate::nanbox::is_short_str(v) {
+            let tmp = crate::nanbox_ffi_materialize::materialize_short_str(v);
+            let out = __torajs_regexp_escape(tmp as *const c_void);
+            crate::nanbox_ffi_materialize::drop_materialized_str(tmp);
+            return crate::nanbox::box_void_ptr(out as *mut c_void);
+        }
+        if crate::nanbox::is_cell(v) {
+            let p = v as *const c_void;
+            let tag = (p.cast::<u8>().add(4) as *const u16).read();
+            if tag == Tag::Str as u16 {
+                return crate::nanbox::box_void_ptr(__torajs_regexp_escape(p) as *mut c_void);
+            }
+        }
+        super::ns_static_table::__torajs_throw_type_error(
+            c"RegExp.escape requires a string".as_ptr(),
+        );
+        VALUE_UNDEFINED
+    }
+}
+
+/// Compiler face for the typed/any direct-call lane — same shell the
+/// dispatcher arm uses, so the strict String gate never drifts.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_regexp_escape_any(v: u64) -> u64 {
+    unsafe { regexp_escape_value(v) }
 }

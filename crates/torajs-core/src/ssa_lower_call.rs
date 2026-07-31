@@ -225,6 +225,10 @@ fn try_dispatch_b(ctx: &mut LowerCtx<'_>, callee: ExprId, args: &[ExprId]) -> Op
     if let Some(v) = crate::ssa_lower_object_define::try_lower(ctx, callee, args) {
         return Some(v);
     }
+    // ES2025 §22.2.5.1 — RegExp.escape strict-String any shell.
+    if let Some(op) = crate::ssa_lower_call_regexp_escape::try_lower(ctx, callee, args) {
+        return Some(op);
+    }
     // P3.getOwnPropertyDescriptor — Object.getOwnPropertyDescriptor (W-M / RFC C5a + S315).
     if let Some(op) =
         crate::ssa_lower_call_object_get_property_descriptor::try_lower(ctx, callee, args)

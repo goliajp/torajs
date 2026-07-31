@@ -299,6 +299,9 @@ pub(super) enum Disp {
     /// §23.1.2.3 Array.of — argv packs into a fresh `Array<Any>`
     /// (the `Iterator.concat` pack shape, minus the kernel hop).
     ArrayOf,
+    /// ES2025 §22.2.5.1 RegExp.escape — strict String gate + the
+    /// torajs-regex EncodeForRegExpEscape kernel.
+    RegExpEscape,
 }
 
 /// The own-enumeration surfaces (shared dispatch shape) — `Names`
@@ -413,4 +416,5 @@ pub(super) static DISPATCH: &[Disp] = &[
     Disp::ReflectDeleteProperty,
     Disp::ReflectSetPrototypeOf,
     Disp::ArrayOf,
+    Disp::RegExpEscape,
 ];

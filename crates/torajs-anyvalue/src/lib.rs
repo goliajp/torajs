@@ -486,6 +486,12 @@ mod tests {
     pub unsafe extern "C" fn __torajs_reflect_set_prototype_of(_obj: u64, _proto: u64) -> i64 {
         0
     }
+    // rotation 266 — the RegExpEscape arm's kernel (shipped binary
+    // resolves libtorajs_regex.a).
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_regexp_escape(_s: *const c_void) -> *mut u8 {
+        core::ptr::null_mut()
+    }
     #[unsafe(no_mangle)]
     pub unsafe extern "C" fn __torajs_anyv_from_entries(_entries: u64) -> u64 {
         0

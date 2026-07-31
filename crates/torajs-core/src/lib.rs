@@ -331,6 +331,7 @@ pub(crate) mod ssa_lower_call_recognizers;
 pub(crate) mod ssa_lower_call_reflect_get;
 pub(crate) mod ssa_lower_call_reflect_integrity;
 pub(crate) mod ssa_lower_call_regex_methods;
+pub(crate) mod ssa_lower_call_regexp_escape;
 pub(crate) mod ssa_lower_call_set_dispatch;
 pub(crate) mod ssa_lower_call_sibling_class_dispatch;
 pub(crate) mod ssa_lower_call_str_match_custom;

@@ -529,6 +529,7 @@ pub(crate) struct Intrinsics {
     pub(crate) any_prop_delete: FuncId,
     pub(crate) any_prop_delete_soft: FuncId,
     pub(crate) reflect_set_prototype_of: FuncId,
+    pub(crate) regexp_escape_any: FuncId,
     pub(crate) any_prop_has: FuncId,
     pub(crate) any_has_property: FuncId,
     pub(crate) arr_forin_key_live: FuncId,

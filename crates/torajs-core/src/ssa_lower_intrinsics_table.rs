@@ -168,6 +168,7 @@ pub(crate) fn build(
         substr_concat_substr_str: init_d.arr_str_etc.substr_concat_substr_str,
         substr_concat_str_substr: init_d.arr_str_etc.substr_concat_str_substr,
         substr_concat_substr_substr: init_d.arr_str_etc.substr_concat_substr_substr,
+        regexp_escape_any: init_b.regex.regexp_escape_any,
         regex_compile: init_b.regex.regex_compile,
         regex_compile_or_throw: init_b.regex.regex_compile_or_throw,
         regex_compile_from_static_dfa: init_b.regex.regex_compile_from_static_dfa,

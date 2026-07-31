@@ -36,6 +36,8 @@ use crate::ssa::{FuncId, Module, Type};
 use crate::ssa_lower::declare_intrinsic;
 
 pub(crate) struct RegexIds {
+    /// ES2025 §22.2.5.1 RegExp.escape — strict-String any shell.
+    pub regexp_escape_any: FuncId,
     pub regex_compile: FuncId,
     /// `new RegExp(pattern, flags)` entry — wraps
     /// `__torajs_regex_compile` and records a catchable `SyntaxError`
@@ -80,6 +82,13 @@ pub(crate) struct RegexIds {
 
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) -> RegexIds {
     RegexIds {
+        regexp_escape_any: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_regexp_escape_any",
+            &[Type::Any],
+            Type::Any,
+        ),
         regex_compile: declare_intrinsic(
             module,
             fn_table,

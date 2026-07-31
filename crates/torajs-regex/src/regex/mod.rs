@@ -24,8 +24,9 @@
 //!   `__torajs_str_replace_regex_fn` + `__torajs_str_replace_all_regex_fn`.
 //! - [`split`] — `__torajs_str_split_regex`.
 
-pub mod compile;
+mod compile;
 pub mod compile_aot;
+pub mod escape;
 pub mod lifecycle;
 pub mod match_all;
 pub mod match_indices;
