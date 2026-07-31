@@ -115,6 +115,7 @@ mod iter_concat;
 mod iter_from;
 mod iter_helper;
 mod iter_helper_eager;
+mod iter_zip;
 mod len_get;
 mod locale_list;
 pub(crate) mod member_get;

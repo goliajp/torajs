@@ -92,6 +92,17 @@ pub(crate) unsafe fn derive_flattenable(v: AnyValue, allow_string: bool) -> Opti
             t if t == Tag::Arr as u16 => {
                 __torajs_arr_iter_create_values(as_void_ptr(v) as *mut c_void)
             }
+            // §22.1.5 — a String exotic object is an Object whose
+            // @@iterator walks code units; ride the reified
+            // String.prototype[@@iterator] body (刀 5b: zip's
+            // string-object elements were the first consumer).
+            t if t == Tag::StringWrapper as u16 => {
+                let it = crate::str_iterator::str_iterator_mint(v);
+                if __torajs_throw_check() != 0 {
+                    return None;
+                }
+                return Some(it);
+            }
             // Map's @@iterator is entries (§24.1.3.13); Set's is
             // values, which the collections kernel serves as keys
             // (§24.2.3.8 alias).

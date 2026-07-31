@@ -256,5 +256,9 @@ pub(crate) fn try_route(
     {
         return Some(r);
     }
+    // `Iterator.zip(iterables, options)` — binary statics wedge, `Any`.
+    if let Some(r) = crate::check_type_of_call_iterator_zip::try_match(checker, ast, callee, args) {
+        return Some(r);
+    }
     None
 }

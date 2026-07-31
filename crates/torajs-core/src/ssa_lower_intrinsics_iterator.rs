@@ -18,6 +18,7 @@ pub(crate) struct IteratorIds {
     pub iterator_ctor_throw: FuncId,
     pub iterator_from: FuncId,
     pub iterator_concat: FuncId,
+    pub iterator_zip: FuncId,
 }
 
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) -> IteratorIds {
@@ -60,6 +61,16 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             fn_table,
             "__torajs_iterator_concat",
             &[Type::Ptr],
+            Type::Any,
+        ),
+        // Iterator.zip(iterables, options) — eager opens + lazy
+        // kind-ZIP cell (刀 5b). (iterables, options — both borrowed
+        // Any) → owned iterator Any.
+        iterator_zip: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_iterator_zip",
+            &[Type::Any, Type::Any],
             Type::Any,
         ),
     }

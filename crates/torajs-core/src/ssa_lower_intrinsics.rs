@@ -465,6 +465,9 @@ pub(crate) struct Intrinsics {
     /// RFC 20260730-iterator-global 刀 5a — `Iterator.concat`
     /// (eager iterability check + lazy kind-CONCAT cell).
     pub(crate) iterator_concat: FuncId,
+    /// RFC 20260730-iterator-global 刀 5b — `Iterator.zip`
+    /// (eager opens + lazy kind-ZIP cell).
+    pub(crate) iterator_zip: FuncId,
     pub(crate) any_typeof: FuncId,
     pub(crate) any_to_bool: FuncId,
     pub(crate) any_to_number: FuncId,
