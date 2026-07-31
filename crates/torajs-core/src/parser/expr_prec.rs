@@ -375,6 +375,21 @@ impl<'a> Parser<'a> {
         if matches!(self.peek(), Token::Delete) {
             self.pos += 1;
             let inner = self.parse_unary()?;
+            // §13.5.1.1 early error — the operand must not be a
+            // private reference (`delete o.#m`), however the
+            // receiver is shaped. Parens are transparent in the
+            // arena, so the covered forms land here too. A private
+            // name parses to its `__priv_<cls>__<n>` mangling
+            // (member_name_after_dot), so that prefix is the marker.
+            if let Expr::Member { name, .. } = self.ast.get_expr(inner)
+                && name.starts_with("__priv_")
+            {
+                let bare = name.rsplit("__").next().unwrap_or(name);
+                return Err(format!(
+                    "deleting the private name `#{bare}` is forbidden at {}",
+                    self.at()
+                ));
+            }
             if !matches!(
                 self.ast.get_expr(inner),
                 Expr::Member { .. } | Expr::Index { .. }
