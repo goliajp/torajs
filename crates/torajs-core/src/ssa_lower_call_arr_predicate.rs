@@ -56,10 +56,37 @@ pub(crate) fn try_lower(
     };
     let fn_val = ctx.lower_expr(args[0]);
     let fn_ty = ctx.operand_ty(&fn_val);
+    // Rotation 261 — a promoted fn-expr predicate (inline Closure in
+    // `fnexpr_recv_fns`, or a knife-2 variable-routed binding in
+    // `fnexpr_recv_locals`) takes the §23.1.3 thisArg (T) as its
+    // leading `__this` arg: args[1] lowers into an Any box
+    // (undefined when absent) — the arr_ho knife-4 protocol mirrored
+    // onto the predicate family. The box borrows the temp's stake;
+    // the release rides the after-loop settlement below.
+    let promoted = matches!(ctx.ast.get_expr(args[0]),
+        Expr::Closure { fn_name, .. } if ctx.ast.fnexpr_recv_fns.contains(fn_name))
+        || matches!(ctx.ast.get_expr(args[0]),
+            Expr::Ident(n) if ctx.ast.fnexpr_recv_locals.contains(n));
+    let mut this_temp: Option<(ExprId, Operand)> = None;
+    let this_arg: Option<Operand> = if promoted {
+        if let Some(&t) = args.get(1) {
+            let op = ctx.lower_expr(t);
+            let boxed = ctx.box_to_any_from_expr(t, op.clone());
+            this_temp = Some((t, op));
+            Some(boxed)
+        } else {
+            Some(Operand::Value(
+                crate::ssa_lower_call_arr_ho_loop::emit_undef_any_box(ctx),
+            ))
+        }
+    } else {
+        None
+    };
     // S270 — eval-and-drop trailing args (thisArg + any extras) so side-
     // effect expressions fire per ES §23.1.3.X trailing-arg ignore. SSA-
-    // emit reads only args[0] (the predicate cb).
-    for &t in args.iter().skip(1) {
+    // emit reads only args[0] (the predicate cb); a promoted
+    // predicate's thisArg lowered above.
+    for &t in args.iter().skip(if promoted { 2 } else { 1 }) {
         let _ = ctx.lower_expr(t);
     }
     let (result_ty, result_slot) = setup_result_slot(ctx, &name, elem_ty);
@@ -70,14 +97,18 @@ pub(crate) fn try_lower(
         elem_ty,
         fn_val,
         fn_ty,
+        this_arg.as_ref(),
         result_ty,
         result_slot,
     );
     // RFC 20260705 chunk 552 — release owned-shape temps after the
     // loop consumed them (inline arrow's minted env in the cb slot,
-    // Call/New-shaped receiver).
+    // Call/New-shaped receiver, the boxed thisArg's payload).
     ctx.release_owned_temp(args[0], &fn_val);
     ctx.release_owned_temp(obj, &recv_op);
+    if let Some((t, op)) = this_temp {
+        ctx.release_owned_temp(t, &op);
+    }
     Some(out)
 }
 
@@ -186,6 +217,7 @@ fn setup_result_slot(ctx: &mut LowerCtx<'_>, method: &str, elem_ty: Type) -> (Ty
 /// body (load elem → call predicate → branch hit/next) + i++ step + after-
 /// block result load. Returns the final loaded result operand.
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)]
 fn emit_predicate_iter(
     ctx: &mut LowerCtx<'_>,
     method: &str,
@@ -193,6 +225,7 @@ fn emit_predicate_iter(
     elem_ty: Type,
     fn_val: Operand,
     fn_ty: Type,
+    this_arg: Option<&Operand>,
     result_ty: Type,
     result_slot: ValueId,
 ) -> Operand {
@@ -267,6 +300,7 @@ fn emit_predicate_iter(
         elem_ty,
         fn_val,
         fn_ty,
+        this_arg,
         result_slot,
     );
     ctx.cur_block = after_blk;
@@ -286,6 +320,7 @@ fn emit_predicate_iter(
 /// final ctx.f.set_term left it — the caller resets to after_blk before
 /// loading the result).
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)]
 fn emit_body_and_step(
     ctx: &mut LowerCtx<'_>,
     method: &str,
@@ -298,6 +333,7 @@ fn emit_body_and_step(
     elem_ty: Type,
     fn_val: Operand,
     fn_ty: Type,
+    this_arg: Option<&Operand>,
     result_slot: ValueId,
 ) {
     // body — load elem, run predicate
@@ -345,18 +381,27 @@ fn emit_body_and_step(
     // sourceArray) slots, appended only when its sig declares them;
     // materialize_call_args aligns the reprs.
     let cb_arity = ctx.sig_param_tys(fn_ty).map_or(1, |p| p.len());
-    let mut pred_args = vec![Operand::Value(elem)];
+    // Rotation 261 — a promoted receiver-first predicate takes the
+    // boxed thisArg as its leading `__this` argv entry, which is not
+    // in the sig; `sig_skip` starts positional alignment after it
+    // (knife-4 protocol, cb_args mirror).
+    let mut pred_args = Vec::with_capacity(4);
+    if let Some(t) = this_arg {
+        pred_args.push(t.clone());
+    }
+    pred_args.push(Operand::Value(elem));
     if cb_arity >= 2 {
         pred_args.push(Operand::Value(i_now2));
     }
     if cb_arity >= 3 {
         pred_args.push(Operand::Value(src_arr));
     }
+    let sig_skip = usize::from(this_arg.is_some());
     let pred_op: Operand = if cb_ret_void {
-        let _ = ctx.call_fn_value(fn_val, fn_ty, pred_args, 0);
+        let _ = ctx.call_fn_value(fn_val, fn_ty, pred_args, sig_skip);
         Operand::ConstBool(false)
     } else {
-        let pred_v = ctx.call_fn_value(fn_val, fn_ty, pred_args, 0);
+        let pred_v = ctx.call_fn_value(fn_val, fn_ty, pred_args, sig_skip);
         Operand::Value(pred_v)
     };
     // some + findIndex break on `pred == true`; every breaks on
