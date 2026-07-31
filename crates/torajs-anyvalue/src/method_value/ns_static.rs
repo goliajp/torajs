@@ -268,7 +268,14 @@ unsafe fn dispatch(id: i64, argv: *const u64, argc: i64) -> u64 {
                     arg_at(argv, argc, 1),
                 )
             }
-            Disp::ReflectGopd => super::ns_static_ctor::reflect_gopd_static(argv, argc),
+            Disp::ReflectGopd => super::ns_static_reflect::reflect_gopd_static(argv, argc),
+            Disp::ReflectGetProto => super::ns_static_reflect::reflect_get_proto(argv, argc),
+            Disp::ReflectPreventExtensions => {
+                super::ns_static_reflect::reflect_prevent_extensions(argv, argc)
+            }
+            Disp::ReflectIsExtensible => {
+                super::ns_static_reflect::reflect_is_extensible(argv, argc)
+            }
         }
     }
 }

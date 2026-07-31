@@ -77,6 +77,7 @@ mod ns_static_ctor;
 pub(crate) mod symbol_static;
 // Object / Symbol arm bodies (file-size split, batch 6).
 mod ns_static_obj;
+mod ns_static_reflect;
 mod ns_static_table;
 // rotation-197 file-size sweep — per-receiver support table split.
 mod supported;

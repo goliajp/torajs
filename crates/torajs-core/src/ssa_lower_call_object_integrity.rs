@@ -72,10 +72,23 @@ pub(crate) fn try_lower(
     let Expr::Ident(ns) = ctx.ast.get_expr(recv_id) else {
         return None;
     };
-    if ns != "Object" {
+    if args.is_empty() {
         return None;
     }
-    if args.is_empty() {
+    // §28.1.{8,10} Reflect.isExtensible / preventExtensions
+    // (rotation 266 刀 R2) — the Object-flavor kernels with the
+    // strict IsObject gate in front (every primitive throws, no
+    // primitive pass-through). preventExtensions answers boolean
+    // true (ordinary [[PreventExtensions]] always succeeds), not
+    // the receiver.
+    if ns == "Reflect" {
+        return match method.as_str() {
+            "preventExtensions" => Some(lower_reflect_extensible(ctx, args, true)),
+            "isExtensible" => Some(lower_reflect_extensible(ctx, args, false)),
+            _ => None,
+        };
+    }
+    if ns != "Object" {
         return None;
     }
     match method.as_str() {
@@ -232,6 +245,41 @@ fn lower_prevent_extensions(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand 
     // block got recycled by the next alloc, observed as
     // `n.valueOf()` answering `[]` after `Object.keys(n)`).
     ctx.emit_owned_result_inc(Operand::Value(v), Type::Any);
+    Operand::Value(v)
+}
+
+/// §28.1.{8,10} Reflect.isExtensible / preventExtensions — strict
+/// IsObject gate (the define family's receiver guard) then the
+/// Object-flavor kernel. `prevent` answers ConstBool(true): ordinary
+/// [[PreventExtensions]] always succeeds, and the setter kernel's
+/// un-inc'd receiver pass-through is dropped without a dec (it
+/// aliases the argument box — no ref transferred).
+fn lower_reflect_extensible(ctx: &mut LowerCtx<'_>, args: &[ExprId], prevent: bool) -> Operand {
+    let obj_op = ctx.lower_expr(args[0]);
+    let obj_ty = ctx.operand_ty(&obj_op);
+    crate::ssa_lower_object_define::emit_receiver_typecheck(ctx, args[0], &obj_op, obj_ty.clone());
+    let any_op = if matches!(obj_ty, Type::Any) {
+        obj_op
+    } else {
+        ctx.box_to_any_from_expr(args[0], obj_op)
+    };
+    for a in args.iter().skip(1) {
+        let _ = ctx.lower_expr(*a);
+    }
+    let cur_block = ctx.cur_block;
+    if prevent {
+        ctx.f.append_void(
+            cur_block,
+            InstKind::Call(ctx.intrinsics.anyv_prevent_extensions, vec![any_op]),
+        );
+        return Operand::ConstBool(true);
+    }
+    let v = ctx.f.append_inst(
+        cur_block,
+        InstKind::Call(ctx.intrinsics.anyv_is_extensible, vec![any_op]),
+        Type::Bool,
+        None,
+    );
     Operand::Value(v)
 }
 

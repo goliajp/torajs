@@ -280,6 +280,16 @@ pub(super) enum Disp {
     /// gate (step 1 throws on every primitive, no ToObject) in front
     /// of the same descriptor path as `Disp::Gopd`.
     ReflectGopd,
+    /// §28.1.4 Reflect.getPrototypeOf — strict gate + the proto
+    /// classifier kernel (`Disp::ObjectGetProtoOf`'s path).
+    ReflectGetProto,
+    /// §28.1.10 Reflect.preventExtensions — strict gate + the
+    /// header-flag setter; answers boolean true (ordinary
+    /// [[PreventExtensions]] always succeeds), not the receiver.
+    ReflectPreventExtensions,
+    /// §28.1.8 Reflect.isExtensible — strict gate + the header-flag
+    /// reader.
+    ReflectIsExtensible,
 }
 
 /// The own-enumeration surfaces (shared dispatch shape) — `Names`
@@ -388,4 +398,7 @@ pub(super) static DISPATCH: &[Disp] = &[
     Disp::IteratorZip { keyed: false },
     Disp::IteratorZip { keyed: true },
     Disp::ReflectGopd,
+    Disp::ReflectGetProto,
+    Disp::ReflectPreventExtensions,
+    Disp::ReflectIsExtensible,
 ];

@@ -188,6 +188,14 @@ pub static NS_STATIC_TABLE: &[NsStaticRow] = &[
     // descriptor kernel Object.getOwnPropertyDescriptor settles
     // through. Length per §28.1.5.
     row("Reflect", "getOwnPropertyDescriptor", 2),
+    // §28.1.{4,8,10} Reflect read-only trio (rotation 266 刀 R2) —
+    // same strict IsObject gate in front of the Object-flavor
+    // kernels. preventExtensions answers boolean true (ordinary
+    // [[PreventExtensions]] always succeeds) instead of the
+    // receiver pass-through. Lengths per spec.
+    row("Reflect", "getPrototypeOf", 1),
+    row("Reflect", "preventExtensions", 1),
+    row("Reflect", "isExtensible", 1),
 ];
 
 /// Compile-time `(namespace, member)` → id. Linear scan — lower-time

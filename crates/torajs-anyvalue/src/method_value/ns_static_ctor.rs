@@ -364,9 +364,6 @@ unsafe extern "C" {
     /// torajs-meta — the §20.1.2.8 descriptor kernel (owned fresh
     /// descriptor dynobj / undefined; nullish receiver throws inside).
     fn __torajs_anyv_get_property_descriptor(obj_any: u64, key: *const c_void) -> u64;
-    /// torajs-meta — the §10.1.6.3 strict Type(O) gate (every
-    /// primitive throws, heap-cell Str/BigInt/Symbol included).
-    fn __torajs_anyv_throw_typeerror_if_not_object(obj_any: u64);
 }
 
 /// §20.1.2.8 Object.getOwnPropertyDescriptor as a detached call —
@@ -385,22 +382,6 @@ pub(super) unsafe fn gopd_static(argv: *const u64, argc: i64) -> u64 {
         d
     }
 }
-
-/// §28.1.5 Reflect.getOwnPropertyDescriptor as a detached call —
-/// step 1 is a **strict** IsObject check (every primitive throws, no
-/// ToObject wrap, unlike the §20.1.2.8 Object flavor); a passing
-/// target rides the same ToString(P) + descriptor-kernel path as
-/// [`gopd_static`].
-pub(super) unsafe fn reflect_gopd_static(argv: *const u64, argc: i64) -> u64 {
-    unsafe {
-        __torajs_anyv_throw_typeerror_if_not_object(arg_at(argv, argc, 0));
-        if __torajs_throw_check() != 0 {
-            return VALUE_UNDEFINED;
-        }
-        gopd_static(argv, argc)
-    }
-}
-
 /// §20.1.2.{9,2,4,3} getOwnPropertyDescriptors / create /
 /// defineProperty / defineProperties as detached calls — the define
 /// family's kernels are dynobj-slot shaped (a resize relocates the

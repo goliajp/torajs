@@ -98,6 +98,18 @@ pub(crate) fn try_match(obj_ty: &Type, name: &str) -> Option<Result<Type, String
         (Type::Object("Reflect"), "getOwnPropertyDescriptor") => {
             Type::Function(vec![Type::Any, Type::Any], Box::new(Type::Any))
         }
+        // §28.1.4 Reflect.getPrototypeOf (rotation 266 刀 R2) — the
+        // Object.getPrototypeOf lowering with the strict gate.
+        (Type::Object("Reflect"), "getPrototypeOf") => {
+            Type::Function(vec![Type::Any], Box::new(Type::Any))
+        }
+        // §28.1.{8,10} Reflect.isExtensible / preventExtensions
+        // (rotation 266 刀 R2) — strict gate + the header-flag
+        // kernels; preventExtensions answers boolean true, not the
+        // receiver.
+        (Type::Object("Reflect"), "isExtensible" | "preventExtensions") => {
+            Type::Function(vec![Type::Any], Box::new(Type::Boolean))
+        }
         _ => return None,
     };
     Some(Ok(ty))

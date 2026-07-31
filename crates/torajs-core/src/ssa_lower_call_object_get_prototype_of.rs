@@ -53,7 +53,14 @@ pub(crate) fn try_lower(
     let Expr::Ident(ns) = ctx.ast.get_expr(ns_id) else {
         return None;
     };
-    if ns != "Object" {
+    // §28.1.4 Reflect.getPrototypeOf (rotation 266 刀 R2) shares
+    // this lowering with a strict IsObject gate emitted before the
+    // general dispatch (every primitive throws, no ToObject wrap).
+    // The static fast paths below (generator factory / top-level fn)
+    // are object receivers by construction, so they stay valid for
+    // both flavors.
+    let is_reflect = ns == "Reflect";
+    if ns != "Object" && !is_reflect {
         return None;
     }
     if args.is_empty() {
@@ -65,7 +72,7 @@ pub(crate) fn try_lower(
     for a in args.iter().skip(1) {
         let _ = ctx.lower_expr(*a);
     }
-    if let Some(res) = lower_nullish_or_any_gate(ctx, args[0]) {
+    if let Some(res) = lower_nullish_or_any_gate(ctx, args[0], is_reflect) {
         return Some(res);
     }
     // RFC 20260713 blade 5 cut 4 — a generator factory fn as the
@@ -124,6 +131,13 @@ pub(crate) fn try_lower(
     // BORROW semantics — see module doc for rc-balance rationale.
     let v = ctx.lower_expr(args[0]);
     let v_ty = ctx.operand_ty(&v);
+    // Reflect flavor — strict IsObject gate before the dispatch: a
+    // typed Str/BigInt/Symbol (spec primitives) or non-heap typed
+    // value throws here instead of answering the Object-flavor
+    // wrapper proto / null-box.
+    if is_reflect {
+        crate::ssa_lower_object_define::emit_receiver_typecheck(ctx, args[0], &v, v_ty.clone());
+    }
     let arg_is_ident = matches!(ctx.ast.get_expr(args[0]), Expr::Ident(_));
     let proto = match v_ty {
         Type::Obj(_) => {
@@ -193,7 +207,11 @@ pub(crate) fn try_lower(
 /// Returns `Some(result)` when the arg is nullish literal / any /
 /// nullable — caller propagates it up. `None` lets the caller fall
 /// through to the typed reflection routes below.
-fn lower_nullish_or_any_gate(ctx: &mut LowerCtx<'_>, arg0_eid: ExprId) -> Option<Operand> {
+fn lower_nullish_or_any_gate(
+    ctx: &mut LowerCtx<'_>,
+    arg0_eid: ExprId,
+    strict: bool,
+) -> Option<Operand> {
     let checker_ty0 = ctx.expr_types.get(&arg0_eid).cloned();
     let is_nullish_lit = matches!(
         checker_ty0,
@@ -236,12 +254,16 @@ fn lower_nullish_or_any_gate(ctx: &mut LowerCtx<'_>, arg0_eid: ExprId) -> Option
             ),
         }
     };
+    // Reflect flavor (`strict`) swaps the nullish-only guard for the
+    // full §10.1.6.3 IsObject gate — every primitive throws.
+    let gate_fid = if strict {
+        ctx.intrinsics.throw_typeerror_if_not_object
+    } else {
+        ctx.intrinsics.throw_typeerror_if_props_nullish
+    };
     ctx.f.append_void(
         ctx.cur_block,
-        InstKind::Call(
-            ctx.intrinsics.throw_typeerror_if_props_nullish,
-            vec![Operand::Value(boxed)],
-        ),
+        InstKind::Call(gate_fid, vec![Operand::Value(boxed)]),
     );
     ctx.emit_throw_check(None);
     // For Nullable<T> the gate returns only when non-null, so the
