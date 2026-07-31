@@ -381,6 +381,7 @@ pub(crate) fn build(
         error_message_present: init_c.any_substrate.error_message_present,
         error_message_get: init_c.any_substrate.error_message_get,
         ctor_no_super_throw: init_c.any_substrate.ctor_no_super_throw,
+        throw_reference_error_name: init_c.any_substrate.throw_reference_error_name,
         arr_subclass_alloc: init_c.subclass.arr_subclass_alloc,
         arr_subclass_super_len: init_c.subclass.arr_subclass_super_len,
         number_wrapper_subclass_alloc: init_c.subclass.number_wrapper_subclass_alloc,

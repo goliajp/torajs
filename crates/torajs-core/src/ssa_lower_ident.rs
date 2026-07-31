@@ -45,8 +45,11 @@ use crate::ast::{Expr, Stmt};
 use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 
-pub(crate) fn lower(ctx: &mut LowerCtx<'_>, name: &str) -> Operand {
+pub(crate) fn lower(ctx: &mut LowerCtx<'_>, eid: crate::ast::ExprId, name: &str) -> Operand {
     if ctx.locals.get(name).is_none() {
+        if let Some(op) = try_undeclared_read_throw(ctx, eid, name) {
+            return op;
+        }
         if name == "NaN" {
             return Operand::ConstF64(f64::NAN);
         }
@@ -79,6 +82,31 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, name: &str) -> Operand {
         }
     }
     lower_local_binding(ctx, name)
+}
+
+/// RFC 20260730-undeclared-ident — §6.2.5.5 GetValue on an
+/// unresolvable Reference. The checker marked this read
+/// (`ast.undeclared_reads`), so evaluating it raises a catchable
+/// ReferenceError (`<name> is not defined`). The value lane past the
+/// throw-check is unreachable; `undefined`'s shape stands in so the
+/// enclosing expression still types out.
+fn try_undeclared_read_throw(
+    ctx: &mut LowerCtx<'_>,
+    eid: crate::ast::ExprId,
+    name: &str,
+) -> Option<Operand> {
+    if !ctx.ast.undeclared_reads.contains(&eid) {
+        return None;
+    }
+    let name_str = ctx.intern_string_literal(name);
+    let raiser = ctx.intrinsics.throw_reference_error_name;
+    let cur_block = ctx.cur_block;
+    ctx.f.append_void(
+        cur_block,
+        InstKind::Call(raiser, vec![Operand::Value(name_str)]),
+    );
+    ctx.emit_throw_check(None);
+    Some(Operand::ConstPtrNull)
 }
 
 /// The `__undef_slot__<T>` marker `desugar_async` plants where an async

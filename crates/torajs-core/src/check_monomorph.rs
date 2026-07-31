@@ -244,6 +244,7 @@ pub(crate) fn monomorphize_and_check(c: &mut Checker, ast: &Ast) -> MonoOutput {
     // from the main pipeline, specialization ones from the body checks
     // above) ride to the lowerer on the AST it already reads.
     owned_ast.iter_destr_srcs = std::mem::take(&mut c.iter_destr_srcs);
+    owned_ast.undeclared_reads = std::mem::take(&mut c.undeclared_reads);
     MonoOutput {
         mono_ast: owned_ast,
         call_retargets,

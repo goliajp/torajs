@@ -245,6 +245,8 @@ pub unsafe extern "C" fn __torajs_throw_take_tag() -> i64 {
 /// `[header:8][len:8][bytes:N]`. Mirror of the C
 /// `__TORAJS_STR_HDR_SIZE` and `torajs-anyvalue`'s `STR_HDR_SIZE`.
 pub(crate) const STR_HDR_SIZE: usize = 16;
+/// Byte offset of the Str length field within the same layout.
+pub(crate) const STR_LEN_OFF: usize = 8;
 
 /// `tag` value matching `AnySlotTag::Heap` — refers to a heap-
 /// allocated payload (here a Str or an Error subclass instance).
@@ -290,7 +292,19 @@ unsafe fn throw_native(slot: i64, msg: *const c_char) {
             ptr::copy_nonoverlapping(msg as *const u8, err.add(STR_HDR_SIZE), len as usize);
         }
     }
+    // SAFETY: err is the just-minted Str we own.
+    unsafe { throw_native_str(slot, err) };
+}
 
+/// Factory dispatch over an OWNED just-minted message Str `err` —
+/// the tail of [`throw_native`], split out so raisers that build
+/// their message from tr Str inputs (not C strings) can share it.
+///
+/// # Safety
+///
+/// `err` must be a valid, owned (rc = 1) Str block; ownership
+/// transfers to this function.
+unsafe fn throw_native_str(slot: i64, err: *mut u8) {
     if slot >= 0 && (slot as usize) < SLOT_COUNT {
         if let Some(factory) = lookup_factory(slot as usize) {
             // SAFETY: factory is a valid NativeErrorFactory per the
@@ -358,6 +372,40 @@ pub unsafe extern "C" fn __torajs_throw_type_error(msg: *const c_char) {
 pub unsafe extern "C" fn __torajs_throw_reference_error(msg: *const c_char) {
     // SAFETY: caller invariant — propagated.
     unsafe { throw_native(SLOT_REFERENCE_ERROR as i64, msg) };
+}
+
+/// RFC 20260730-undeclared-ident — §6.2.5.5 GetValue on an
+/// unresolvable Reference. `name` is the identifier as a tr Str
+/// (the lowerer's interned literal); the message is
+/// `<name> is not defined`, matching bun / V8 text.
+///
+/// # Safety
+///
+/// `name` must be a valid Str block pointer. Borrowed — only its
+/// bytes are read.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_throw_reference_error_name(name: *mut c_void) {
+    const SUFFIX: &[u8] = b" is not defined";
+    let name = name as *const u8;
+    // SAFETY: name is a valid Str block per caller invariant; len
+    // field lives at STR_LEN_OFF.
+    let name_len = unsafe { (name.add(STR_LEN_OFF) as *const u64).read() } as usize;
+    let total = (name_len + SUFFIX.len()) as u64;
+    // SAFETY: __torajs_str_alloc_pooled returns an initialized Str
+    // header with the len field set; we own the rc = 1 allocation.
+    let err = unsafe { __torajs_str_alloc_pooled(total) };
+    // SAFETY: dst spans `total` bytes past the payload offset of the
+    // just-allocated block; both srcs are readable for their lengths
+    // and non-overlapping with the fresh allocation.
+    unsafe {
+        ptr::copy_nonoverlapping(name.add(STR_HDR_SIZE), err.add(STR_HDR_SIZE), name_len);
+        ptr::copy_nonoverlapping(
+            SUFFIX.as_ptr(),
+            err.add(STR_HDR_SIZE + name_len),
+            SUFFIX.len(),
+        );
+        throw_native_str(SLOT_REFERENCE_ERROR as i64, err);
+    }
 }
 
 /// Cross-TU wrapper for `SyntaxError` — RFC 20260720 刀 5b (the

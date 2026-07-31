@@ -13,7 +13,7 @@
 //! for the AOT `ssa_lower_stmt_throw` / `ssa_lower_main_exit`
 //! consumers.
 
-use crate::{ANY_TAG_HEAP, STR_HDR_SIZE, THROW_ACTIVE, THROW_TAG, THROW_VALUE};
+use crate::{ANY_TAG_HEAP, STR_HDR_SIZE, STR_LEN_OFF, THROW_ACTIVE, THROW_TAG, THROW_VALUE};
 use core::sync::atomic::Ordering;
 
 unsafe extern "C" {
@@ -37,8 +37,6 @@ const FLAG_ERROR: u16 = 1 << 7;
 /// Str pointers — mirror of `ssa_lower::OBJ_HEADER_SIZE`.
 const OBJ_MESSAGE_OFF: usize = 24;
 const OBJ_NAME_OFF: usize = 32;
-/// Str length field offset within a Str block (`[header:8][len:8]…`).
-const STR_LEN_OFF: usize = 8;
 
 /// Write a Str block's payload bytes to stderr. `str_ptr` points at a
 /// Str heap object (`[header:8][len:8][bytes:N]`). Null / empty → no-op.

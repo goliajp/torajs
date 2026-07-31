@@ -209,7 +209,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx, eid: ExprId) -> Operand {
             // FnAddr / inline const literal / K.3 global Load /
             // P4.5 class+proto sentinel / undefined / local
             // binding Load). See [`crate::ssa_lower_ident::lower`].
-            crate::ssa_lower_ident::lower(ctx, name)
+            crate::ssa_lower_ident::lower(ctx, eid, name)
         }
         Expr::Assign { target, value } => {
             // Ident / Member / Index target dispatch — see

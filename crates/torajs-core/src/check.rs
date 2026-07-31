@@ -208,6 +208,7 @@ impl Checker {
             demoted_cm_rewrites: HashMap::new(),
             contextual_any_literals: std::collections::HashSet::new(),
             iter_destr_srcs: HashMap::new(),
+            undeclared_reads: std::collections::HashSet::new(),
             assign_narrows: HashMap::new(),
             member_narrows: HashMap::new(),
         }
@@ -354,6 +355,11 @@ pub(crate) struct Checker {
     /// whether `src` is an array, a generator, or a Set. Carried to the
     /// lowerer on the post-check AST by `check_monomorph`.
     pub(crate) iter_destr_srcs: HashMap<ExprId, i64>,
+    /// RFC 20260730-undeclared-ident — expression-position reads that
+    /// resolved nowhere; typed `Any` with a warning diagnostic, raised
+    /// as runtime ReferenceError by the lowerer. Carried to the
+    /// lowerer on the post-check AST by `check_monomorph`.
+    pub(crate) undeclared_reads: std::collections::HashSet<ExprId>,
     /// Straight-line assignment-narrowing ledger — `name → declared
     /// (pre-narrow) type` for bindings narrowed by a statement-level
     /// `b = <non-null>` assign (see check_assign_narrow.rs). Flushed

@@ -385,6 +385,13 @@ pub(crate) fn scan_expr(
             scan_expr(ast, *target, out, direct, fn_values, expr_types)
         }
         Expr::This | Expr::NewTarget => {}
+        // RFC 20260730-undeclared-ident — a marked unresolvable read
+        // raises ReferenceError at evaluation, so the enclosing fn
+        // must enter `may_throw` or callers prune the check and the
+        // throw is silently swallowed across the fn boundary.
+        Expr::Ident(_) if ast.undeclared_reads.contains(&eid) => {
+            *direct = true;
+        }
         Expr::Ident(_)
         | Expr::String(_)
         | Expr::Number(_)
