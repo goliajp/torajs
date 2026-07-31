@@ -126,11 +126,17 @@ impl Checker {
         // (expr_types / generic_call_instantiations / arity_pad_count /
         // demoted_cm_rewrites / t28 pad) — the consuming-params move
         // bitmap retired in chunk 568, so no affine state double-counts.
+        // As receivers (刀 5b follow-up to S2.34): `(f() as any).next()`
+        // — the cast is a pure type override over an expression the
+        // Call arm already probes safely; without it the speculative
+        // `__cm___Gen_*__next(recv)` rewrite survived and rejected at
+        // "expected ClassRef(__Gen_…), got Any".
         if !matches!(
             ast.get_expr(recv_eid),
             Expr::Ident(_)
                 | Expr::Member { .. }
                 | Expr::Call { .. }
+                | Expr::As { .. }
                 | Expr::Number(_)
                 | Expr::String(_)
                 | Expr::Bool(_)
