@@ -200,6 +200,14 @@ pub(crate) fn check(
     if let Some(r) = try_family_dispatch(&resolved_obj_ty, name) {
         return r;
     }
+    // Iterator-helper fallback face — a §27.1.4 helper name on an
+    // iterator-by-construction receiver (generator class / extends-
+    // Iterator heir / MapIter / ArrIter) answers Any and rides the
+    // any-lane method dispatcher. Keys on the UNRESOLVED obj_ty:
+    // resolution flattens ClassRef to its Struct and loses the name.
+    if let Some(r) = crate::check_type_of_member_iterator::try_match(&obj_ty, name, ast) {
+        return r;
+    }
     // Every other `(obj_ty, name)` shape has already been
     // matched by one of the per-type-family `try_match`
     // siblings inside [`try_family_dispatch`] (chunks

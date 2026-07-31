@@ -189,6 +189,7 @@ pub(crate) mod check_type_of_index;
 pub(crate) mod check_type_of_member;
 pub(crate) mod check_type_of_member_array;
 pub(crate) mod check_type_of_member_date;
+pub(crate) mod check_type_of_member_iterator;
 pub(crate) mod check_type_of_member_misc;
 pub(crate) mod check_type_of_member_namespace;
 pub(crate) mod check_type_of_member_namespace_io;
