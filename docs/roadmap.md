@@ -1530,7 +1530,29 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 9215301c`, never as a constant.
 
-**Re-derived @ `38d1b8ca`** (2026-08-01, rotation 265 — the Iterator
+**Re-derived @ `c44a5d10`** (2026-08-01, rotation 266 — the Object
+member cluster survey plus seven blades: Promise combinator statics
+as values, Reflect gOPD / getPrototypeOf / preventExtensions /
+isExtensible / deleteProperty / setPrototypeOf, Array.of as a value,
+RegExp.escape): passTotal **23166** (+100), bug **11819** (+87),
+trAccepted **34985** (+187, conservation exact = +100 + 87),
+incompatible **18189** (−187), core **12253** (−118). Gate
+predicate: **392** clusters of ≥ 4 holding 11179 (clusters +3
+unlock-exposed, cases −120), residue 816 clusters / 1074 cases.
+**Zero regressions, zero new timeouts, zero new crashes** — 100
+forward transitions (86 incompat→pass, 12 →pass-no-oracle, 2
+bug→pass). The `no member X on Object("X")` family fell 376 → 187
+(the Promise-combinator `.call` shapes, five Reflect methods, the
+Array.of / RegExp.escape reflection faces); the remaining 187 is
+mostly un-reified Promise statics (48: try / withResolvers /
+allSettled-keyed proposals) and Function statics (23). The
+Reflect.deleteProperty blade parameterized the OrdinaryDelete
+kernel's refusal throw (`any_prop_delete_impl` + soft shell — the
+§13.5.1.2 strict TypeError belongs to the delete expression's
+caller, not OrdinaryDelete); Reflect.defineProperty / apply / set /
+construct are surveyed and filed in RFC `20260801-reflect-namespace`.
+
+**Previous @ `38d1b8ca`** (2026-08-01, rotation 265 — the Iterator
 ClassRef member blade plus four early-error blades): passTotal
 **23066** (+626 vs rotation 264's 22440), bug **11732** (−340),
 trAccepted **34798** (+286), incompatible **18376** (−286), core
