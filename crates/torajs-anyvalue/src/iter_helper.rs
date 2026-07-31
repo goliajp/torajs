@@ -46,6 +46,10 @@ pub(crate) const ITER_HELPER_DROP: u8 = 3;
 pub(crate) const ITER_HELPER_WRAP: u8 = 4;
 /// §27.1.4.5 flatMap — the `inner` slot drives (刀 4).
 pub(crate) const ITER_HELPER_FLAT_MAP: u8 = 5;
+/// `Iterator.concat` (proposal-iterator-sequencing, 刀 5a) — the
+/// underlying slot holds the items `Array<Any>`, counter is the
+/// next-item index, and the inner slot drives like flatMap's.
+pub(crate) const ITER_HELPER_CONCAT: u8 = 6;
 
 pub(crate) const UNDERLYING_OFF: usize = 8;
 pub(crate) const FN_OFF: usize = 16;
@@ -131,6 +135,24 @@ pub(crate) unsafe fn iter_helper_mint(recv: AnyValue, kind: u8, fn_av: AnyValue)
     }
 }
 
+/// Fresh rc-1 helper cell of `kind` with every AnyValue slot set to
+/// undefined — the shared alloc under [`iter_helper_mint_wrap`] and
+/// the concat mint (each fills its own underlying slot after).
+pub(crate) unsafe fn iter_helper_cell_alloc(kind: u8) -> *mut u8 {
+    unsafe {
+        let layout = core::alloc::Layout::from_size_align(CELL_SIZE, 8).unwrap();
+        let cell = std::alloc::alloc_zeroed(layout);
+        *(cell as *mut u32) = 1;
+        *(cell.add(4) as *mut u16) = Tag::IterHelper as u16;
+        *(cell.add(UNDERLYING_OFF) as *mut u64) = VALUE_UNDEFINED;
+        *(cell.add(FN_OFF) as *mut u64) = VALUE_UNDEFINED;
+        *(cell.add(KIND_OFF) as *mut u8) = kind;
+        *(cell.add(ALIVE_OFF) as *mut u8) = 1;
+        *(cell.add(INNER_OFF) as *mut u64) = VALUE_UNDEFINED;
+        cell
+    }
+}
+
 /// Mint a kind-WRAP cell over an OWNED underlying — §27.1.6.2
 /// WrapForValidIterator. The caller's reference TRANSFERS to the
 /// cell's underlying slot (unlike [`iter_helper_mint`], whose
@@ -140,15 +162,8 @@ pub(crate) unsafe fn iter_helper_mint(recv: AnyValue, kind: u8, fn_av: AnyValue)
 /// `underlying` is an owned live cell AnyValue.
 pub(crate) unsafe fn iter_helper_mint_wrap(underlying: AnyValue) -> AnyValue {
     unsafe {
-        let layout = core::alloc::Layout::from_size_align(CELL_SIZE, 8).unwrap();
-        let cell = std::alloc::alloc_zeroed(layout);
-        *(cell as *mut u32) = 1;
-        *(cell.add(4) as *mut u16) = Tag::IterHelper as u16;
+        let cell = iter_helper_cell_alloc(ITER_HELPER_WRAP);
         *(cell.add(UNDERLYING_OFF) as *mut u64) = underlying;
-        *(cell.add(FN_OFF) as *mut u64) = VALUE_UNDEFINED;
-        *(cell.add(KIND_OFF) as *mut u8) = ITER_HELPER_WRAP;
-        *(cell.add(ALIVE_OFF) as *mut u8) = 1;
-        *(cell.add(INNER_OFF) as *mut u64) = VALUE_UNDEFINED;
         __torajs_anyv_box_pointer(cell as *mut c_void)
     }
 }
@@ -173,6 +188,10 @@ pub(crate) unsafe fn iter_helper_step(ptr: *mut c_void, out: *mut AnyValue) -> i
         // step + flatten) lives with GetIteratorFlattenable.
         if kind == ITER_HELPER_FLAT_MAP {
             return crate::iter_from::iter_flat_map_step(ptr, out);
+        }
+        // Iterator.concat — the sequenced-items double loop (刀 5a).
+        if kind == ITER_HELPER_CONCAT {
+            return crate::iter_concat::iter_concat_step(ptr, out);
         }
         // §27.1.4.9 take — a zero remaining-count is done BEFORE the
         // underlying steps (and closes it, step 5.a.ii).
@@ -292,6 +311,12 @@ pub(crate) unsafe fn iter_helper_method(
                     let underlying = (ptr.cast::<u8>().add(UNDERLYING_OFF) as *const u64).read();
                     if (ptr.cast::<u8>().add(KIND_OFF)).read() == ITER_HELPER_WRAP {
                         return crate::iter_from::wrap_return_forward(underlying);
+                    }
+                    // CONCAT's underlying is the items list, not an
+                    // iterator — only the open inner needs closing.
+                    if (ptr.cast::<u8>().add(KIND_OFF)).read() == ITER_HELPER_CONCAT {
+                        crate::iter_concat::iter_concat_close_inner(ptr);
+                        return iter_result_obj(VALUE_UNDEFINED, true);
                     }
                     crate::iter_any_close::__torajs_iter_close_value(underlying);
                 }

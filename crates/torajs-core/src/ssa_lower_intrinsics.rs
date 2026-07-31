@@ -462,6 +462,9 @@ pub(crate) struct Intrinsics {
     /// RFC 20260730-iterator-global 刀 4 — §27.1.6.2 `Iterator.from`
     /// (GetIteratorFlattenable + pass-through-or-wrap).
     pub(crate) iterator_from: FuncId,
+    /// RFC 20260730-iterator-global 刀 5a — `Iterator.concat`
+    /// (eager iterability check + lazy kind-CONCAT cell).
+    pub(crate) iterator_concat: FuncId,
     pub(crate) any_typeof: FuncId,
     pub(crate) any_to_bool: FuncId,
     pub(crate) any_to_number: FuncId,

@@ -17,6 +17,7 @@ pub(crate) struct IteratorIds {
     pub instanceof_builtin_proto: FuncId,
     pub iterator_ctor_throw: FuncId,
     pub iterator_from: FuncId,
+    pub iterator_concat: FuncId,
 }
 
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) -> IteratorIds {
@@ -49,6 +50,16 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             fn_table,
             "__torajs_iterator_from",
             &[Type::Any],
+            Type::Any,
+        ),
+        // Iterator.concat(...items) — eager iterability check + lazy
+        // kind-CONCAT helper cell (刀 5a). (items Arr<Any>, borrowed)
+        // → owned iterator Any.
+        iterator_concat: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_iterator_concat",
+            &[Type::Ptr],
             Type::Any,
         ),
     }
