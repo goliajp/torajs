@@ -319,9 +319,14 @@ pub(crate) fn emit_to_string(
                 None,
             );
             ctx.release_owned_temp(arg_eid, &arg_op);
-            if implicit_tostring {
-                ctx.emit_throw_check(None);
-            }
+            // Both kernels can record a pending throw: the implicit
+            // one on ToString(Symbol) (§13.2.8.6), and BOTH on an
+            // OrdinaryToPrimitive receiver whose toString/valueOf
+            // each answer objects (§7.1.17 step 3 TypeError) or whose
+            // user hook throws — the display variant only differs on
+            // the Symbol arm (test262 String S8.12.8_A1 leaked the
+            // placeholder without this).
+            ctx.emit_throw_check(None);
             Operand::Value(v)
         }
         // rotation 141 — `String(symbol)` typed spelling: §22.1.1

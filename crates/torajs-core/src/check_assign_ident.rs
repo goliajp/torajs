@@ -38,6 +38,10 @@ pub(crate) fn check(
     if checker.lookup(&name).is_none()
         && let Some(global_ty) = checker.globals.get(&name).cloned()
     {
+        // A write-target mark under an incomplete scope (speculative
+        // pre-pass) that NOW resolves is legal — self-heal, mirroring
+        // the read side (check_type_of_ident).
+        checker.undeclared_reads.remove(&target);
         let value_ty = checker.type_of(ast, value)?;
         if !is_assignable_to_resolved(
             &global_ty,
@@ -76,6 +80,12 @@ pub(crate) fn check(
             return checker.type_of(ast, value);
         }
     };
+    // Same self-heal as the global arm above: the target resolved on
+    // this (complete-scope) pass, so any speculative-pass mark is
+    // stale — an IIFE param shadowing an outer fn param left the mark
+    // behind and the assign lane threw a spurious ReferenceError
+    // (test262 parameter-name-shadowing-parameter-name-let-const-and-var).
+    checker.undeclared_reads.remove(&target);
     if !info.mutable {
         return Err(format!("cannot assign to const `{name}`"));
     }

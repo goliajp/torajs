@@ -59,6 +59,14 @@ impl<'a> LowerCtx<'a> {
             Type::F64,
             None,
         ));
+        // §7.1.4 ToNumber can record a pending throw (Symbol / BigInt
+        // reject, OrdinaryToPrimitive both-methods-answer-objects
+        // TypeError). Without this check the NaN placeholder leaks out
+        // and the stranded pending throw poisons the next runtime
+        // entry (the second `Number(x)` over a both-object receiver
+        // SIGSEGVed on a placeholder rc_dec). Twin of
+        // `coerce_any_to_bigint` below.
+        self.emit_throw_check(None);
         if target == Type::F64 {
             num
         } else {

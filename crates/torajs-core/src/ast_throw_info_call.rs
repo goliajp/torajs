@@ -39,6 +39,29 @@ pub(crate) fn scan_call(
             if name == "BigInt" {
                 *direct = true;
             }
+            // `Number(x)` / `String(x)` over an Any/object argument
+            // run OrdinaryToPrimitive at runtime, which records a
+            // pending TypeError when both toString/valueOf answer
+            // objects (§7.1.4 / §7.1.17) or when a user hook throws.
+            // Primitive-typed args take never-throwing typed lanes,
+            // so gate on the arg's static type to keep hot numeric
+            // code out of `may_throw` (an unknown type flags
+            // conservatively — a miss is a silent swallow, a false
+            // positive is one cold throw-check).
+            if (name == "Number" || name == "String")
+                && args.first().is_some_and(|a| {
+                    !matches!(
+                        expr_types.get(a),
+                        Some(
+                            crate::check::Type::Number
+                                | crate::check::Type::String
+                                | crate::check::Type::Boolean
+                        )
+                    )
+                })
+            {
+                *direct = true;
+            }
             // RFC 20260718-error-message-own-prop 刀 3 — the
             // no-super ReferenceError raiser the class desugar
             // appends to super-less derived ctors records a pending
