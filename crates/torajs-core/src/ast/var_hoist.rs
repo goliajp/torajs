@@ -49,7 +49,7 @@ pub fn desugar_var_hoist(ast: &mut super::Ast) {
 fn hoist_vars_in_block(body: &mut Vec<Stmt>, exprs: &mut Vec<Expr>) {
     use std::collections::BTreeMap;
     let mut hoisted: BTreeMap<String, Option<String>> = BTreeMap::new();
-    collect_and_rewrite_var(body, &mut hoisted, exprs);
+    collect_and_rewrite_var(body, &mut hoisted, exprs, false);
     if hoisted.is_empty() {
         return;
     }
@@ -85,6 +85,7 @@ fn collect_and_rewrite_var(
     stmts: &mut Vec<Stmt>,
     hoisted: &mut std::collections::BTreeMap<String, Option<String>>,
     exprs: &mut Vec<Expr>,
+    nested: bool,
 ) {
     let mut new_stmts: Vec<Stmt> = Vec::with_capacity(stmts.len());
     // Rotation 205 — names the escape hatch already declared as a
@@ -160,7 +161,17 @@ fn collect_and_rewrite_var(
                 // converts to an assignment onto the existing
                 // binding — ES's one-shared-binding semantics.
                 let redeclared = escaped.contains(&name) || hoisted.contains_key(&name);
-                if (type_ann.is_some() || init_keeps_type) && !redeclared {
+                // Rotation 264 — the escape hatch is sound ONLY at
+                // the fn-body / script top level, where block scope
+                // and fn scope coincide. In a NESTED list (try /
+                // block / switch case) an escaped `let` is invisible
+                // to the rest of the fn — `try { var x = [] } x`
+                // answered "undeclared" (the compromise the escape
+                // notes admitted to). Member/call-on-Any has matured
+                // since P5 (length / index / methods / field reads /
+                // invocation all dispatch), so a nested var always
+                // hoists to the Any prelude slot per §14.3.2.1.
+                if (type_ann.is_some() || init_keeps_type) && !redeclared && !nested {
                     escaped.insert(name.clone());
                     new_stmts.push(Stmt::LetDecl {
                         mutable,
@@ -211,7 +222,7 @@ fn hoist_recurse_stmt(
             }
         }
         Stmt::Block(b) => {
-            collect_and_rewrite_var(b, hoisted, exprs);
+            collect_and_rewrite_var(b, hoisted, exprs, true);
         }
         Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
             hoist_recurse_stmt(body, hoisted, exprs);
@@ -271,22 +282,22 @@ fn hoist_recurse_stmt(
             finally_body,
             ..
         } => {
-            collect_and_rewrite_var(body, hoisted, exprs);
-            collect_and_rewrite_var(catch_body, hoisted, exprs);
+            collect_and_rewrite_var(body, hoisted, exprs, true);
+            collect_and_rewrite_var(catch_body, hoisted, exprs, true);
             if let Some(fb) = finally_body {
-                collect_and_rewrite_var(fb, hoisted, exprs);
+                collect_and_rewrite_var(fb, hoisted, exprs, true);
             }
         }
         Stmt::Switch { cases, default, .. } => {
             for case in cases {
-                collect_and_rewrite_var(&mut case.body, hoisted, exprs);
+                collect_and_rewrite_var(&mut case.body, hoisted, exprs, true);
             }
             if let Some(dflt) = default {
-                collect_and_rewrite_var(dflt, hoisted, exprs);
+                collect_and_rewrite_var(dflt, hoisted, exprs, true);
             }
         }
         Stmt::Multi(inner) => {
-            collect_and_rewrite_var(inner, hoisted, exprs);
+            collect_and_rewrite_var(inner, hoisted, exprs, true);
         }
         // Bare LetDecl that's NOT is_var=true — leave alone. (The
         // is_var=true path is handled by the caller's match arm.)
