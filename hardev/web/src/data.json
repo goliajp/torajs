@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-31T01:00:12.089Z",
+  "generatedAt": "2026-07-31T03:01:42.226Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-31T00:58:13Z",
-    "headSha": "e697516f",
-    "elapsedSec": 341.33,
+    "ranAt": "2026-07-31T02:59:49Z",
+    "headSha": "858e2702",
+    "elapsedSec": 444.33,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 17092,
-    "passNoOracle": 507,
+    "pass": 17118,
+    "passNoOracle": 513,
     "passNegative": 4489,
-    "passTotal": 22088,
-    "bug": 3365,
-    "incompatible": 27721,
+    "passTotal": 22120,
+    "bug": 3349,
+    "incompatible": 27705,
     "bunSkip": 7467,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 25453,
-    "passRateInScope": 41.54,
-    "passRateTrAccepted": 86.78
+    "trAccepted": 25469,
+    "passRateInScope": 41.6,
+    "passRateTrAccepted": 86.85
   },
   "torajs": {
-    "commit": "e697516f",
-    "commitSubject": "feat(core,runtime): Iterator.zipKeyed — keyed joint iteration",
+    "commit": "858e2702",
+    "commitSubject": "fix(core): clone-closure check env + static-cell inline drop guard",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "858e2702",
+      "subject": "fix(core): clone-closure check env + static-cell inline drop guard"
+    },
+    {
+      "hash": "283b8179",
+      "subject": "feat(core,runtime): Iterator statics as values — ns-static reify rows"
+    },
+    {
+      "hash": "4cd262f9",
+      "subject": "fix(runtime): wrapper receivers inherit symbol keys through their prototype"
+    },
+    {
+      "hash": "02d8e9ec",
+      "subject": "feat(core): symbol-keyed index calls on typed receivers"
+    },
+    {
+      "hash": "bc50b78f",
+      "subject": "fix(core): scope mutated-capture promotion to the constructing body"
+    },
+    {
+      "hash": "d6a09959",
+      "subject": "fix(core): clone lifted closures per monomorphized specialization"
+    },
+    {
+      "hash": "db39aae4",
+      "subject": "chore(docs,hardev): rotation 258 census at e697516f"
+    },
+    {
       "hash": "e697516f",
       "subject": "feat(core,runtime): Iterator.zipKeyed — keyed joint iteration"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "d3cb6fee",
       "subject": "fix(core): release literal receiver stake in arr iter ctor lowering"
-    },
-    {
-      "hash": "dae62237",
-      "subject": "chore(docs,hardev): rotation 257 census at e35eef75"
-    },
-    {
-      "hash": "e35eef75",
-      "subject": "feat(runtime): iterator cells' @@iterator return-this"
-    },
-    {
-      "hash": "233e8b2c",
-      "subject": "feat(runtime): iterator cells' method-VALUE read face, take 2"
-    },
-    {
-      "hash": "16a84a06",
-      "subject": "style: fmt-drift fix on blade-4 files"
-    },
-    {
-      "hash": "b07b9bc6",
-      "subject": "feat(core,runtime): Iterator.from + flatMap — GetIteratorFlattenable"
-    },
-    {
-      "hash": "df5fb163",
-      "subject": "refactor: split iter_helper eager family to sibling at the size cap"
-    },
-    {
-      "hash": "a556cba5",
-      "subject": "chore(docs,hardev): rotation 256 census at e93c16a5"
     }
   ],
-  "headSha": "e697516f",
+  "headSha": "858e2702",
   "autorun": {
-    "total": 562,
+    "total": 563,
     "baselineTarget": 10,
-    "bySelf": 557,
+    "bySelf": 558,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785440183-3a7d",
-      "at": "2026-07-30T19:36:23Z",
-      "ts": 1785440183,
+      "rotationId": "r-1785459705-6f29",
+      "at": "2026-07-31T01:01:45Z",
+      "ts": 1785459705,
       "trigger": "self",
-      "prevHead": "dae62237",
-      "handoffSha": "sha256:d7da1d41e76678f21a7b9bec100d84789a4983bd88db9a2ecbfaf07e39cd1180",
-      "handoffAgeSec": 4,
+      "prevHead": "db39aae4",
+      "handoffSha": "sha256:eccd4f208f1492b3e19e6abe9c5e43f9c864b53c6f7514da58ccb55303094508",
+      "handoffAgeSec": 9,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1785459705-6f29",
+        "at": "2026-07-31T01:01:45Z",
+        "ts": 1785459705,
+        "trigger": "self",
+        "prevHead": "db39aae4",
+        "handoffSha": "sha256:eccd4f208f1492b3e19e6abe9c5e43f9c864b53c6f7514da58ccb55303094508",
+        "handoffAgeSec": 9,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785440183-3a7d",
         "at": "2026-07-30T19:36:23Z",
@@ -876,17 +887,6 @@
         "prevHead": "9f438355",
         "handoffSha": "sha256:cc48f15fc2d40104e9a98c7f878970bb7e2a94b42d9d8100c72f92aea9067d46",
         "handoffAgeSec": 28,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1785343149-2806",
-        "at": "2026-07-29T16:39:09Z",
-        "ts": 1785343149,
-        "trigger": "self",
-        "prevHead": "3bd60146",
-        "handoffSha": "sha256:db797ed35c5eff21e1ac9ae4e54e8f80ef5eb7f7ae8de7d68cbbbc66e70f848b",
-        "handoffAgeSec": 35,
         "conformanceBefore": null,
         "commitsInSession": null
       }

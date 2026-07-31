@@ -1825,14 +1825,55 @@ census:
 
 | cluster depth | core cases covered |
 |---|---|
-| top 10 | 27.2 % |
-| top 25 | 42.6 % |
-| top 50 | 57.3 % |
+| top 10 | 27.1 % |
+| top 25 | 42.5 % |
+| top 50 | 57.2 % |
 | top 100 | 72.5 % |
 | top 400 | 92.1 % |
-| clusters of ≤ 3 cases (822 of them) | 7.2 % |
+| clusters of ≤ 3 cases (824 of them) | 7.2 % |
 
-(refreshed @ rotation 258 closing sweep `e697516f`, core **15483**,
+(refreshed @ rotation 259 closing sweep `858e2702`, core **15467**,
+429 clusters of ≥ 4 holding 14354 cases. Rotation 259 chased the
+concat exit-139 crash down to a GENERAL substrate bug and shipped
+RFC 20260731-mono-closure-clone: a generic fn's lifted closures
+(arrows / fn-exprs / objlit methods) were SHARED across every
+monomorphized specialization, so the per-construction-site
+`closure_captures` entry was overwritten by whichever spec lowered
+last and the shared `__env_drop` walked the other specs' envs with
+the wrong capture layout — a boolean slot dropped as a heap pointer
+dereferences VALUE_TRUE=0x7 (minimized to 15 lines with no iterator
+involvement). Fix = C++/Rust generic-lambda semantics: clone every
+referenced lifted closure per spec under the spec's `$$_` suffix,
+mirror the name-keyed side tables + globals signature, rewrite the
+closure sites BEFORE the spec body checks (the construction-site
+check_closure walk of the clone bodies is what records their inner
+generic calls — a mid-rotation sweep caught the shadowing family
+regressing to "unknown function" under the first ordering), and
+retire the shared originals via the mono skip set. Companion scope
+fix: `mutated_captured_lets` was collect_assigned_names over the
+WHOLE ast, so any same-named toplevel assignment promoted an
+unrelated fn's never-written param to a capture box. Three more
+knives rode the same crash trail: symbol-keyed index calls on TYPED
+receivers (`[1][Symbol.iterator]()` lost its base per §13.3.6.2 and
+hit the reified cell's this-undefined entry; Map/Set joined the
+checker's property-key domain), wrapper receivers now inherit
+symbol keys through their primitive's prototype singleton
+(defineProperty(Boolean.prototype, Symbol.iterator) was invisible
+to Object(true); SymbolWrapper's proto mapping was also wrong —
+Number's dict), and the four Iterator statics reified as ns-static
+VALUES (table rows + checker arm + dispatch into the same kernels;
+`Iterator.concat.length` was "no member"). That unlock exposed a
+pre-existing crash: emit_drop_closure's inline dec didn't know
+FLAG_STATIC_LITERAL, so releasing a non-ident ns-static temp
+(`Object.getPrototypeOf(Math.max)`!) took the immortal cell's rc
+to 0 and CallIndirect'd its null drop_fn — the closure drop now
+tests the static bit first. Sweep: passTotal +32 / bug −16 /
+trAccepted +16, conservation exact; regressions: the ONE pass-loss
+is the known borderline-timeout case
+(`Array/length/S15.4.2.2_A2.1_T1`, pass↔tr-timeout oscillation,
+non-semantic). Gate: 2238 → **2244**/0/4 zero-red across six
+substrate commits. Previous stamp: rotation 258 closing sweep
+`e697516f`, core **15483**,
 429 clusters of ≥ 4 holding 14371 cases. Rotation 258 root-caused
 and fixed the values() mint-drop leak — NOT cycle/mmalloc: the
 keys/values/entries lowering never released a literal receiver's
