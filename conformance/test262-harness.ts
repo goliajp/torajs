@@ -571,14 +571,15 @@ function __t262_verifyCallableProperty(obj: any, name: string, functionName: any
 //
 // Real implementation replacing the former no-op stubs, with the
 // SameValue element semantics of test262's assert._isSameValue
-// (NaN equals NaN; +0 differs from -0). Generic over the element
-// type because torajs array typing is invariant — Array(Number)
-// doesn't flow into an `any[]` parameter — so a single generic
-// declaration serves number[] / string[] / boolean[] case arrays;
-// the per-element comparison drops to `any` for the NaN / ±0
-// discrimination arithmetic.
+// (NaN equals NaN; +0 differs from -0). The parameters are `any`,
+// matching the untyped upstream compareArray.js: a generic
+// `Array<T>` signature rejected an Any-typed actual (the checker
+// answers Any for e.g. `.split(anySeparator)` since a user @@split
+// can return anything — 220+ sweep cases sat behind
+// "expected Array(TypeVar), got Any"), and per-element work drops
+// to `any` for the NaN / ±0 discrimination arithmetic anyway.
 
-function __t262_sv<T>(a: T, b: T): boolean {
+function __t262_sv(a: any, b: any): boolean {
   const aa: any = a;
   const bb: any = b;
   if (aa !== aa && bb !== bb) {
@@ -590,7 +591,7 @@ function __t262_sv<T>(a: T, b: T): boolean {
   return aa === bb;
 }
 
-function __t262_compareArray<T>(actual: T[], expected: T[]): boolean {
+function __t262_compareArray(actual: any, expected: any): boolean {
   if (actual.length !== expected.length) {
     return false;
   }
@@ -604,7 +605,7 @@ function __t262_compareArray<T>(actual: T[], expected: T[]): boolean {
 
 // `assert.compareArray(actual, expected)` — like compareArray but
 // THROWS on mismatch (vs the bare-call form that returns boolean).
-function __t262_compareArray_assert<T>(actual: T[], expected: T[], msg: string = ""): void {
+function __t262_compareArray_assert(actual: any, expected: any, msg: string = ""): void {
   if (!__t262_compareArray(actual, expected)) {
     throw new Test262Error("compareArray mismatch: " + msg);
   }
@@ -807,7 +808,7 @@ function __t262_hasOwn(obj: any, key: string): boolean {
   return Object.getOwnPropertyDescriptor(obj, key) !== undefined;
 }
 
-function checkSettledPromises<T, U>(settleds: T[], expected: U[], message: string = ""): void {
+function checkSettledPromises(settleds: any, expected: any, message: string = ""): void {
   const prefix: string = message ? message + ": " : "";
   __t262_sameValue(Array.isArray(settleds), true, prefix + "Settled values is an array");
   __t262_sameValue(
