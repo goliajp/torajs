@@ -262,12 +262,17 @@ unsafe fn arr_define_impl(
     }
     if let Some(idx) = canonical_index(bytes) {
         if flags_byte & (P_GET | P_SET) != 0 {
-            // Accessor path — R5b boundary: a refusal inside still
-            // records the throw for either flavor.
-            unsafe {
-                crate::define_accessor::define_index_accessor(arr, key, idx, tag, value, flags_byte)
+            return unsafe {
+                crate::define_accessor::define_index_accessor(
+                    arr,
+                    key,
+                    idx,
+                    tag,
+                    value,
+                    flags_byte,
+                    throw_on_refusal,
+                )
             };
-            return 1;
         }
         return unsafe {
             crate::define_index::define_index(

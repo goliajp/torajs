@@ -36,6 +36,15 @@ unsafe extern "C" {
         value: u64,
         flags_byte: u64,
     );
+    /// torajs-dynobj — boolean-answer flavor (rotation 267 刀 R5b):
+    /// refusal answers 0 with no pending throw.
+    fn __torajs_dynobj_define_soft(
+        obj_slot: *mut *mut c_void,
+        key: *mut c_void,
+        tag: u64,
+        value: u64,
+        flags_byte: u64,
+    ) -> i64;
     fn __torajs_dynobj_delete(dynobj: *mut c_void, key: *const c_void) -> i32;
     fn __torajs_dynobj_has(dynobj: *const c_void, key: *const c_void) -> i32;
     // Signature shape mirrors props.rs's prior declarations (same
@@ -63,7 +72,9 @@ const F_CONFIGURABLE: u64 = 1 << 2;
 
 /// §10.4.2.1 accessor-descriptor arm of `define_index` — `(tag,
 /// value)` carry the AccessorPair (one transferred rc), `flags_byte`
-/// has `DEFINE_PRESENT_GET` and/or `_SET`.
+/// has `DEFINE_PRESENT_GET` and/or `_SET`. Answers 1 on success, 0
+/// on a §10.1.6.3 refusal (recorded as a TypeError only for the
+/// throwing flavor — rotation 267 刀 R5b).
 ///
 /// # Safety
 /// `arr` is a live `Tag::Arr` heap pointer; `key` a live Str. Caller
@@ -75,14 +86,16 @@ pub(crate) unsafe fn define_index_accessor(
     tag: u64,
     value: u64,
     flags_byte: u64,
-) {
+    throw_on_refusal: bool,
+) -> i64 {
     let header = unsafe { &*(arr as *const HeapHeader) };
     if header.flags & FLAG_ARR_ANY == 0 {
         // Typed element storage — no accessor hook on the inline read
         // path (recorded divergence, same reflection boundary as the
-        // typed-struct define no-op).
+        // typed-struct define no-op; the boolean flavor answers 0 —
+        // nothing was defined).
         unsafe { drop_owned_pair(tag, value) };
-        return;
+        return if throw_on_refusal { 1 } else { 0 };
     }
     let len = unsafe { (arr.cast::<u8>().add(ARR_LEN_OFF) as *const u64).read() };
 
@@ -90,22 +103,24 @@ pub(crate) unsafe fn define_index_accessor(
         // Fresh append — §10.4.2.1 step 2: locked length rejects the
         // implicit length bump; then the extensible check.
         if header.flags & torajs_rc::FLAG_ARR_LENGTH_RO != 0 {
-            unsafe { drop_owned_pair(tag, value) };
-            unsafe {
-                __torajs_throw_type_error(
+            return unsafe {
+                refuse_pair(
+                    throw_on_refusal,
                     c"Attempting to define property beyond a non-writable array length.".as_ptr(),
+                    tag,
+                    value,
                 )
             };
-            return;
         }
         if header.flags & FLAG_NON_EXTENSIBLE != 0 {
-            unsafe { drop_owned_pair(tag, value) };
-            unsafe {
-                __torajs_throw_type_error(
+            return unsafe {
+                refuse_pair(
+                    throw_on_refusal,
                     c"Attempting to define property on object that is not extensible.".as_ptr(),
+                    tag,
+                    value,
                 )
             };
-            return;
         }
         // Dense model: gap-fill + a dead undefined slot for the
         // accessor index (the value lives behind the getter).
@@ -114,8 +129,9 @@ pub(crate) unsafe fn define_index_accessor(
             unsafe { crate::__torajs_arr_push_any(arr, ANY_UNDEF, 0) };
             cursor += 1;
         }
-        unsafe { define_shadow_accessor(arr, key, tag, value, flags_byte) };
-        return;
+        return unsafe {
+            define_shadow_accessor(arr, key, tag, value, flags_byte, throw_on_refusal)
+        };
     }
 
     let cur_flags = unsafe { index_flags_with_key(arr, key as *const c_void) };
@@ -125,20 +141,22 @@ pub(crate) unsafe fn define_index_accessor(
         // define lands as a fresh create (absent attributes complete
         // to false), not a revive-then-redefine.
         if header.flags & FLAG_NON_EXTENSIBLE != 0 {
-            unsafe { drop_owned_pair(tag, value) };
-            unsafe {
-                __torajs_throw_type_error(
+            return unsafe {
+                refuse_pair(
+                    throw_on_refusal,
                     c"Attempting to define property on object that is not extensible.".as_ptr(),
+                    tag,
+                    value,
                 )
             };
-            return;
         }
         let props = unsafe { *props_slot(arr) };
         if !props.is_null() {
             unsafe { __torajs_dynobj_delete(props, key as *const c_void) };
         }
-        unsafe { define_shadow_accessor(arr, key, tag, value, flags_byte) };
-        return;
+        return unsafe {
+            define_shadow_accessor(arr, key, tag, value, flags_byte, throw_on_refusal)
+        };
     }
 
     // Existing index. §10.1.6.3 step 5 — a data → accessor transition
@@ -156,13 +174,14 @@ pub(crate) unsafe fn define_index_accessor(
         unsafe { __torajs_dynobj_get_tag(props, key as *const c_void) }
     };
     if entry_tag != ANY_ACCESSOR && cur_flags & F_CONFIGURABLE == 0 {
-        unsafe { drop_owned_pair(tag, value) };
-        unsafe {
-            __torajs_throw_type_error(
+        return unsafe {
+            refuse_pair(
+                throw_on_refusal,
                 c"Attempting to change configurable attribute of unconfigurable property.".as_ptr(),
+                tag,
+                value,
             )
         };
-        return;
     }
     // When no shadow entry exists the index is an implicit data
     // property {w:1, e:1, c:1} — a redefine to accessor keeps the
@@ -183,26 +202,49 @@ pub(crate) unsafe fn define_index_accessor(
     // getter. (Already-accessor indexes hold undefined here; the
     // double store is harmless.)
     unsafe { clear_element_slot(arr, idx) };
-    unsafe { define_shadow_accessor(arr, key, tag, value, flags) };
+    unsafe { define_shadow_accessor(arr, key, tag, value, flags, throw_on_refusal) }
 }
 
-/// Shared tail — route the pair through `dynobj_define` (create or
-/// validate-and-merge) on the lazily-allocated props dynobj, then
-/// raise the header exotic bit so readers/writers probe the shadow.
+/// Shared refusal answer — release the transferred pair rc, record
+/// the TypeError only for the throwing flavor, answer 0.
+unsafe fn refuse_pair(
+    throw_on_refusal: bool,
+    msg: *const core::ffi::c_char,
+    tag: u64,
+    value: u64,
+) -> i64 {
+    unsafe { drop_owned_pair(tag, value) };
+    if throw_on_refusal {
+        unsafe { __torajs_throw_type_error(msg) };
+    }
+    0
+}
+
+/// Shared tail — route the pair through the dynobj define kernel
+/// (create or validate-and-merge, flavor-matched) on the
+/// lazily-allocated props dynobj, then raise the header exotic bit
+/// so readers/writers probe the shadow.
 unsafe fn define_shadow_accessor(
     arr: *mut c_void,
     key: *mut c_void,
     tag: u64,
     value: u64,
     flags_byte: u64,
-) {
+    throw_on_refusal: bool,
+) -> i64 {
     let slot = unsafe { props_slot(arr) };
     if unsafe { (*slot).is_null() } {
         unsafe { *slot = __torajs_dynobj_alloc() };
     }
-    unsafe { __torajs_dynobj_define(slot, key, tag, value, flags_byte) };
+    let ok = if throw_on_refusal {
+        unsafe { __torajs_dynobj_define(slot, key, tag, value, flags_byte) };
+        1
+    } else {
+        unsafe { __torajs_dynobj_define_soft(slot, key, tag, value, flags_byte) }
+    };
     let p = unsafe { (arr as *mut u8).add(6) as *mut u16 };
     unsafe { p.write(p.read() | FLAG_ARR_EXOTIC_INDEX) };
+    ok
 }
 
 /// Drop the Array<Any> element slot's current value and store a

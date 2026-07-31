@@ -70,16 +70,20 @@ unsafe fn take_accessor_closure(
     Err(())
 }
 
-/// §6.2.6.5 ToPropertyDescriptor — the accessor half. Returns true
-/// when the descriptor named a get / set face: the entry is then
-/// already defined (or the step 9/10 mix rejection already threw)
-/// and the caller has nothing left to do. `flags_byte` is local
-/// because the data half below starts from zero either way.
+/// §6.2.6.5 ToPropertyDescriptor — the accessor half. Answers
+/// `Some(_)` when the descriptor named a get / set face: the entry is
+/// then already defined (`Some(1)`), refused (`Some(0)` — recorded as
+/// a TypeError only for the throwing flavor), or a
+/// ToPropertyDescriptor rejection already threw for either flavor
+/// (step 9/10 mix, non-callable face — `Some(0)`); `None` hands the
+/// caller the data half. `flags_byte` is local because the data half
+/// starts from zero either way.
 pub(super) unsafe fn try_define_accessor(
     obj_slot: *mut *mut c_void,
     key: *mut c_void,
     desc: DescStore,
-) -> bool {
+    throw_on_refusal: bool,
+) -> Option<i64> {
     let mut flags_byte: u64 = 0;
     // §6.2.6.5 ToPropertyDescriptor — every field read goes through
     // [[Get]] (a field that is itself an accessor invokes its
@@ -104,7 +108,7 @@ pub(super) unsafe fn try_define_accessor(
                 c"Invalid property.  'writable' present on property with getter or setter."
             };
             unsafe { __torajs_throw_type_error(msg.as_ptr() as *const u8) };
-            return true;
+            return Some(0);
         }
         // take_accessor_closure answers an OWNED ref per closure
         // (borrows inc, getter products transfer); the pair takes
@@ -114,13 +118,13 @@ pub(super) unsafe fn try_define_accessor(
             if let Some((v, o)) = set_f {
                 unsafe { release_desc_field(v, o) };
             }
-            return true;
+            return Some(0);
         };
         let Ok(set_ptr) = (unsafe { take_accessor_closure(set_f, "set") }) else {
             if !get_ptr.is_null() {
                 unsafe { __torajs_value_drop_heap(get_ptr) };
             }
-            return true;
+            return Some(0);
         };
         // RFC 20260717-fnexpr-this-channel knife 5 — a fn-expr face
         // whose body says `this` carries FLAG_CLOSURE_RECV_FIRST on
@@ -153,9 +157,16 @@ pub(super) unsafe fn try_define_accessor(
             }
             unsafe { release_desc_field(c, o) };
         }
-        // Accessor path keeps the throwing flavor (R5b boundary).
-        unsafe { define_apply(obj_slot, key, ANY_HEAP, pair as u64, flags_byte, true) };
-        return true;
+        return Some(unsafe {
+            define_apply(
+                obj_slot,
+                key,
+                ANY_HEAP,
+                pair as u64,
+                flags_byte,
+                throw_on_refusal,
+            )
+        });
     }
-    false
+    None
 }

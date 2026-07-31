@@ -340,10 +340,11 @@ unsafe fn define_from_desc_impl(
     let mut out_tag: u64 = 0;
     let mut out_value: u64 = 0;
 
-    // Accessor path — R5b boundary: a refusal inside still records
-    // the throw for either flavor.
-    if unsafe { try_define_accessor(obj_slot, key, desc) } {
-        return 1;
+    // Accessor half (R5b) — a §10.1.6.3 refusal answers per flavor;
+    // a ToPropertyDescriptor rejection (face mix / non-callable face)
+    // throws for either.
+    if let Some(r) = unsafe { try_define_accessor(obj_slot, key, desc, throw_on_refusal) } {
+        return r;
     }
 
     if let Some((v_anyv, v_owned)) = unsafe { desc_field_get(desc, "value") } {

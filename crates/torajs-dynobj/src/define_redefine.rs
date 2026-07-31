@@ -148,8 +148,7 @@ pub(crate) unsafe fn redefine_entry(
 
     // Accessor-over-accessor redefine (RFC 20260713 chunk D) —
     // §10.1.6.3 partial update; a rejection inside drops the fresh
-    // pair and records the pending throw (R5b boundary: it records
-    // for either flavor).
+    // pair and answers per flavor (R5b).
     if incoming_accessor
         && cur_accessor
         && !unsafe {
@@ -158,6 +157,7 @@ pub(crate) unsafe fn redefine_entry(
                 value as *mut u8,
                 flags_byte,
                 cur_configurable,
+                throw_on_refusal,
             )
         }
     {
@@ -234,9 +234,9 @@ pub(crate) unsafe fn redefine_entry(
 /// (`DEFINE_PRESENT_GET` / `_SET` clear) inherits the current closure
 /// and its kind byte (an explicit `undefined` face is present + NULL
 /// and clears it); a non-configurable accessor rejects any face
-/// change. Answers `false` on rejection (the fresh pair is dropped
-/// and a TypeError is pending — the caller returns), `true` to
-/// proceed with the ordinary apply.
+/// change. Answers `false` on rejection (the fresh pair is dropped;
+/// the TypeError records only for the throwing flavor — the caller
+/// returns 0), `true` to proceed with the ordinary apply.
 ///
 /// # Safety
 /// `cur_value_anyv` wraps a live `AccessorPair`; `new_pair` is a live
@@ -246,6 +246,7 @@ unsafe fn merge_accessor_redefine(
     new_pair: *mut u8,
     flags_byte: u64,
     cur_configurable: bool,
+    throw_on_refusal: bool,
 ) -> bool {
     use crate::accessor::{ACC_GET_OFF, ACC_KINDS_OFF, ACC_SET_OFF};
     let cur_pair = unsafe { __torajs_anyv_unbox_value(cur_value_anyv) } as *const u8;
@@ -259,11 +260,13 @@ unsafe fn merge_accessor_redefine(
         let new_set = unsafe { new_pair.add(ACC_SET_OFF).cast::<u64>().read() };
         if (has_get && new_get != cur_get) || (has_set && new_set != cur_set) {
             unsafe { __torajs_value_drop_heap(new_pair as *mut c_void) };
-            unsafe {
-                __torajs_throw_type_error(
-                    c"Attempting to change access mechanism for an unconfigurable property."
-                        .as_ptr() as *const u8,
-                );
+            if throw_on_refusal {
+                unsafe {
+                    __torajs_throw_type_error(
+                        c"Attempting to change access mechanism for an unconfigurable property."
+                            .as_ptr() as *const u8,
+                    );
+                }
             }
             return false;
         }
