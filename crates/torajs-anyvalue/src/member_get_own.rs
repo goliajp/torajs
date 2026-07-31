@@ -132,14 +132,16 @@ pub(crate) fn function_proto_props() -> *const c_void {
     unsafe { torajs_rc::builtin_proto::__torajs_get_builtin_prototype(13) as *const c_void }
 }
 
-/// A primitive wrapper's prototype expando dynobj — the tag-0/3/4
-/// singleton (Number/String/Boolean); wrapper receivers inherit
-/// through it after their own expando misses.
+/// A primitive wrapper's prototype expando dynobj — the tag-0/3/4/5
+/// singleton (Number/String/Boolean/Symbol); wrapper receivers
+/// inherit through it after their own expando misses.
 pub(crate) fn wrapper_proto_props(t: u16) -> *const c_void {
     let tag = if t == Tag::StringWrapper as u16 {
         3
     } else if t == Tag::BooleanWrapper as u16 {
         4
+    } else if t == Tag::SymbolWrapper as u16 {
+        5
     } else {
         0
     };

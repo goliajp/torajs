@@ -94,6 +94,12 @@ unsafe fn inherited_dict(ptr: *mut c_void, t: u16) -> InheritedFrom {
         array_proto_props()
     } else if t == Tag::Closure as u16 {
         function_proto_props()
+    } else if crate::member_get_layout::is_wrapper_tag(t) {
+        // A wrapper receiver inherits through its primitive's
+        // prototype singleton — where `Object.defineProperty(
+        // Boolean.prototype, sym, …)` lands (test262 concat's
+        // iterable-primitive-wrapper-objects face).
+        crate::member_get_own::wrapper_proto_props(t)
     } else {
         core::ptr::null()
     };
