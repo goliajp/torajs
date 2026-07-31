@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-31T21:18:20.861Z",
+  "generatedAt": "2026-07-31T22:54:51.495Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-31T21:13:19Z",
-    "headSha": "38d1b8ca",
-    "elapsedSec": 379.29,
+    "ranAt": "2026-07-31T22:53:15Z",
+    "headSha": "c44a5d10",
+    "elapsedSec": 389.68,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 18769,
-    "passNoOracle": 539,
+    "pass": 18857,
+    "passNoOracle": 551,
     "passNegative": 3758,
-    "passTotal": 23066,
-    "bug": 11732,
-    "incompatible": 18376,
+    "passTotal": 23166,
+    "bug": 11819,
+    "incompatible": 18189,
     "bunSkip": 7467,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 34798,
-    "passRateInScope": 43.38,
-    "passRateTrAccepted": 66.29
+    "trAccepted": 34985,
+    "passRateInScope": 43.57,
+    "passRateTrAccepted": 66.22
   },
   "torajs": {
-    "commit": "38d1b8ca",
-    "commitSubject": "feat(core): escaped await/yield spellings reject like any reserved word",
+    "commit": "c44a5d10",
+    "commitSubject": "feat(core): RegExp.escape per ES2025",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,42 @@
   },
   "commits": [
     {
+      "hash": "c44a5d10",
+      "subject": "feat(core): RegExp.escape per ES2025"
+    },
+    {
+      "hash": "9f326cfd",
+      "subject": "feat(core): Array.of reads as a value"
+    },
+    {
+      "hash": "5f7d935b",
+      "subject": "feat(core): Reflect.setPrototypeOf with boolean-answer semantics"
+    },
+    {
+      "hash": "e06118bd",
+      "subject": "feat(core): Reflect.deleteProperty with no-throw refusal semantics"
+    },
+    {
+      "hash": "16997af9",
+      "subject": "feat(core): Reflect getPrototypeOf / preventExtensions / isExtensible"
+    },
+    {
+      "hash": "182c4f86",
+      "subject": "feat(core): Reflect.getOwnPropertyDescriptor with strict IsObject gate"
+    },
+    {
+      "hash": "3fe0385a",
+      "subject": "style: fmt-drift fix (multiline tuple arm collapsed by rustfmt)"
+    },
+    {
+      "hash": "d3428ed7",
+      "subject": "feat(core): promise combinator statics read as values"
+    },
+    {
+      "hash": "53e38780",
+      "subject": "chore(docs,hardev): rotation 265 census at 38d1b8ca"
+    },
+    {
       "hash": "38d1b8ca",
       "subject": "feat(core): escaped await/yield spellings reject like any reserved word"
     },
@@ -723,63 +759,38 @@
     {
       "hash": "4ade86bf",
       "subject": "feat(core): reject lexical declarations in single-statement positions"
-    },
-    {
-      "hash": "c5c35c76",
-      "subject": "feat(core): block and switch-CaseBlock redeclaration early errors"
-    },
-    {
-      "hash": "66d77727",
-      "subject": "feat(core): iterator helpers on typed iterator receivers ride the any lane"
-    },
-    {
-      "hash": "31e2a4f8",
-      "subject": "chore(docs,hardev): rotation 264 census at 5506154f"
-    },
-    {
-      "hash": "5506154f",
-      "subject": "fix(conformance): compareArray/checkSettledPromises harness params accept any"
-    },
-    {
-      "hash": "0c8d1bb2",
-      "subject": "fix(core): heal stale write-target marks and check pending throws after ToNumber/ToString kernels"
-    },
-    {
-      "hash": "a02973c6",
-      "subject": "feat(core): lexer rejects misplaced numeric separators and legacy-octal bigints"
-    },
-    {
-      "hash": "294d57c6",
-      "subject": "fix(core): var in nested blocks hoists to fn scope regardless of init shape"
-    },
-    {
-      "hash": "8a96f063",
-      "subject": "feat(core): string split dispatches user @@split on any-typed separator"
-    },
-    {
-      "hash": "e3e795bb",
-      "subject": "feat(core): undeclared write targets throw runtime ReferenceError"
     }
   ],
-  "headSha": "38d1b8ca",
+  "headSha": "c44a5d10",
   "autorun": {
-    "total": 569,
+    "total": 570,
     "baselineTarget": 10,
-    "bySelf": 564,
+    "bySelf": 565,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785525860-0eab",
-      "at": "2026-07-31T19:24:20Z",
-      "ts": 1785525860,
+      "rotationId": "r-1785532779-6c56",
+      "at": "2026-07-31T21:19:39Z",
+      "ts": 1785532779,
       "trigger": "self",
-      "prevHead": "31e2a4f8",
-      "handoffSha": "sha256:39e597d689d9f7b0a1f06996398ad152e06c9d104fe940304c44a1aaf9076c02",
-      "handoffAgeSec": 36,
+      "prevHead": "53e38780",
+      "handoffSha": "sha256:d5ea1145c7bc8544e975e65466dd83cd3ae4806e8565d1af906849f1f6b48d19",
+      "handoffAgeSec": 6,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1785532779-6c56",
+        "at": "2026-07-31T21:19:39Z",
+        "ts": 1785532779,
+        "trigger": "self",
+        "prevHead": "53e38780",
+        "handoffSha": "sha256:d5ea1145c7bc8544e975e65466dd83cd3ae4806e8565d1af906849f1f6b48d19",
+        "handoffAgeSec": 6,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785525860-0eab",
         "at": "2026-07-31T19:24:20Z",
@@ -876,17 +887,6 @@
         "prevHead": "a556cba5",
         "handoffSha": "sha256:376b70d4f25b07cc255857816e6d0f952a65b6333f0ec0272a26cbee757719dc",
         "handoffAgeSec": 46,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1785402011-4572",
-        "at": "2026-07-30T09:00:11Z",
-        "ts": 1785402011,
-        "trigger": "self",
-        "prevHead": "f2262426",
-        "handoffSha": "sha256:66d640119c181d8c31fea6d9aa6bf9a91a7caa474f3173df89e422515046e05e",
-        "handoffAgeSec": 1,
         "conformanceBefore": null,
         "commitsInSession": null
       }
