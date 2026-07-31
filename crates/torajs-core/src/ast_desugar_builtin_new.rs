@@ -91,6 +91,37 @@ fn rewrite_array_call(ast: &mut Ast) {
     // too since rotation 234 (injectable via build_error_data_subclass).
 }
 
+/// `RegExp(pattern, flags)` without `new` → the construct form (ES
+/// §22.2.4.1: the RegExp constructor performs the same steps when
+/// called as a function). Same rewrite shape as `Array(...)` above.
+/// The §22.2.3.1 same-pattern short-circuit — answering the argument
+/// itself when it is already a RegExp with undefined flags — is a
+/// recorded divergence: the rewrite always constructs a fresh cell.
+fn rewrite_regexp_call(ast: &mut Ast) {
+    let n_exprs = ast.exprs.len();
+    for i in 0..n_exprs {
+        let regexp_call_args = match &ast.exprs[i] {
+            Expr::Call { callee, args } => {
+                if let Expr::Ident(name) = &ast.exprs[callee.0 as usize]
+                    && name == "RegExp"
+                {
+                    Some(args.clone())
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        };
+        if let Some(args) = regexp_call_args {
+            ast.exprs[i] = Expr::New {
+                class_name: "RegExp".into(),
+                args,
+                type_args: vec![],
+            };
+        }
+    }
+}
+
 fn rewrite_error_call(ast: &mut Ast) {
     let n_exprs = ast.exprs.len();
     for i in 0..n_exprs {
@@ -474,6 +505,7 @@ fn synthesize_promise_executor_helper(ast: &mut Ast) {
 pub(crate) fn run(ast: &mut Ast) {
     rewrite_array_of(ast);
     rewrite_array_call(ast);
+    rewrite_regexp_call(ast);
     rewrite_error_call(ast);
     rewrite_array_args(ast);
     rewrite_zero_arg_object(ast);
