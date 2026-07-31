@@ -1851,14 +1851,33 @@ census:
 
 | cluster depth | core cases covered |
 |---|---|
-| top 10 | 27.1 % |
-| top 25 | 42.5 % |
-| top 50 | 57.2 % |
-| top 100 | 72.5 % |
+| top 10 | 31.3 % |
+| top 25 | 45.4 % |
+| top 50 | 59.2 % |
+| top 100 | 73.2 % |
 | top 400 | 92.1 % |
-| clusters of ≤ 3 cases (824 of them) | 7.2 % |
+| clusters of ≤ 3 cases (806 of them) | 8.1 % |
 
-(refreshed @ rotation 259 closing sweep `858e2702`, core **15467**,
+(refreshed @ rotation 263 closing sweep `c52fd6d1`, core **13147**,
+390 clusters of ≥ 4 holding 12081 cases. Rotation 263 shipped RFC
+20260730-undeclared-ident (policy B, decided under takagi's
+ceiling-first delegation): expression-position reads that resolve
+nowhere type Any + warn on stderr and raise a catchable runtime
+ReferenceError (`<name> is not defined`), per §6.2.5.5 GetValue —
+including inside closures (unresolved captures pruned from env
+layouts, the body read throws) and as call callees. Write positions
+(`x = 1`, `x++`) stay compile rejects. The flip moved 8462 cases
+out of the incompatible bucket (trAccepted 25568 → 33989,
+conservation exact: +43 pass, +8419 now run and fail honestly);
+core shrank 15367 → 13147 and ≥4-clusters 426 → 390. It also
+evaporated 1161 wrong-reason PassNegatives (phase:parse negatives
+that had "passed" because tr choked on the harness marker
+`$DONOTEVALUATE` — the honest gap is the unimplemented early-error
+family: block-scope redeclaration, ASI, RegExp property-escapes;
+now registered). Gate 2259 → **2261**/0/4 zero-red across five
+substrate commits; zero positive-case regressions.
+
+Previous census @ rotation 259 `858e2702`: core 15467,
 429 clusters of ≥ 4 holding 14354 cases. Rotation 259 chased the
 concat exit-139 crash down to a GENERAL substrate bug and shipped
 RFC 20260731-mono-closure-clone: a generic fn's lifted closures
