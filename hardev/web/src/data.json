@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-31T11:17:19.789Z",
+  "generatedAt": "2026-07-31T19:22:54.280Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-31T11:13:59Z",
-    "headSha": "a7a11c50",
-    "elapsedSec": 361.95,
+    "ranAt": "2026-07-31T19:17:17Z",
+    "headSha": "5506154f",
+    "elapsedSec": 399.91,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 18372,
-    "passNoOracle": 536,
-    "passNegative": 3331,
-    "passTotal": 22239,
-    "bug": 11750,
-    "incompatible": 19185,
+    "pass": 18565,
+    "passNoOracle": 546,
+    "passNegative": 3329,
+    "passTotal": 22440,
+    "bug": 12072,
+    "incompatible": 18662,
     "bunSkip": 7467,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 33989,
-    "passRateInScope": 41.82,
-    "passRateTrAccepted": 65.43
+    "trAccepted": 34512,
+    "passRateInScope": 42.2,
+    "passRateTrAccepted": 65.02
   },
   "torajs": {
-    "commit": "c52fd6d1",
-    "commitSubject": "refactor(core): extract prune_unresolved_captures from monomorphize_and_check",
+    "commit": "5506154f",
+    "commitSubject": "fix(conformance): compareArray/checkSettledPromises harness params accept any",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,42 @@
   },
   "commits": [
     {
+      "hash": "5506154f",
+      "subject": "fix(conformance): compareArray/checkSettledPromises harness params accept any"
+    },
+    {
+      "hash": "0c8d1bb2",
+      "subject": "fix(core): heal stale write-target marks and check pending throws after ToNumber/ToString kernels"
+    },
+    {
+      "hash": "a02973c6",
+      "subject": "feat(core): lexer rejects misplaced numeric separators and legacy-octal bigints"
+    },
+    {
+      "hash": "294d57c6",
+      "subject": "fix(core): var in nested blocks hoists to fn scope regardless of init shape"
+    },
+    {
+      "hash": "8a96f063",
+      "subject": "feat(core): string split dispatches user @@split on any-typed separator"
+    },
+    {
+      "hash": "e3e795bb",
+      "subject": "feat(core): undeclared write targets throw runtime ReferenceError"
+    },
+    {
+      "hash": "fb0f8fe3",
+      "subject": "chore(bench): archive 2026-07-31 mini bench results at 1d8539d"
+    },
+    {
+      "hash": "1d485e57",
+      "subject": "chore(docs,hardev): rotation 263 census part 2 - roadmap p-surf refresh + test262 archive"
+    },
+    {
+      "hash": "0ee0558e",
+      "subject": "chore(docs,hardev): rotation 263 census at c52fd6d1"
+    },
+    {
       "hash": "c52fd6d1",
       "subject": "refactor(core): extract prune_unresolved_captures from monomorphize_and_check"
     },
@@ -723,63 +759,38 @@
     {
       "hash": "c3834f6e",
       "subject": "feat(core): undeclared reads in closures and call callees throw ReferenceError"
-    },
-    {
-      "hash": "b914d013",
-      "subject": "fix(core): known builtin globals stay hard errors in the undeclared-read lane"
-    },
-    {
-      "hash": "9278d428",
-      "subject": "feat(core): undeclared reads type Any with warning, throw ReferenceError at runtime"
-    },
-    {
-      "hash": "628c3a5a",
-      "subject": "feat(core): undeclared-read ReferenceError substrate plumbing"
-    },
-    {
-      "hash": "1d8539d3",
-      "subject": "chore(docs,hardev): rotation 262 census at eaed4a47"
-    },
-    {
-      "hash": "eaed4a47",
-      "subject": "feat(core): string replace dispatches user @@replace on any-typed searchValue"
-    },
-    {
-      "hash": "ac79c877",
-      "subject": "feat(core): string search dispatches user @@search; symbol-dispatch kernel generalized"
-    },
-    {
-      "hash": "3c7d1dca",
-      "subject": "feat(core): string match dispatches user @@match on any-typed pattern"
-    },
-    {
-      "hash": "0d371068",
-      "subject": "feat(core): computed-key member-store fn-expr this face + symbol-keyed recv seed"
-    },
-    {
-      "hash": "6db40466",
-      "subject": "chore(docs,hardev): rotation 261 census at 2ee51cef"
     }
   ],
-  "headSha": "c52fd6d1",
+  "headSha": "5506154f",
   "autorun": {
-    "total": 567,
+    "total": 568,
     "baselineTarget": 10,
-    "bySelf": 562,
+    "bySelf": 563,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785491289-7fa4",
-      "at": "2026-07-31T09:48:09Z",
-      "ts": 1785491289,
+      "rotationId": "r-1785496697-0033",
+      "at": "2026-07-31T11:18:17Z",
+      "ts": 1785496697,
       "trigger": "self",
-      "prevHead": "1d8539d3",
-      "handoffSha": "sha256:dd6bb468fc97c0c304f4810ccf07759a4101b9834df9537b3ef6b4b140fe4f29",
-      "handoffAgeSec": 136,
+      "prevHead": "1d485e57",
+      "handoffSha": "sha256:d681b16624aa34c84019e98a1ad6682bfa13c61f7c0a4f76994ff886a7e77793",
+      "handoffAgeSec": 70,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1785496697-0033",
+        "at": "2026-07-31T11:18:17Z",
+        "ts": 1785496697,
+        "trigger": "self",
+        "prevHead": "1d485e57",
+        "handoffSha": "sha256:d681b16624aa34c84019e98a1ad6682bfa13c61f7c0a4f76994ff886a7e77793",
+        "handoffAgeSec": 70,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785491289-7fa4",
         "at": "2026-07-31T09:48:09Z",
@@ -876,17 +887,6 @@
         "prevHead": "3d2165b9",
         "handoffSha": "sha256:9e43640b8a0d40dbc821b4a661147c65cce667476fd97771d74b89d71efaccf5",
         "handoffAgeSec": 0,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1785380265-5c79",
-        "at": "2026-07-30T02:57:45Z",
-        "ts": 1785380265,
-        "trigger": "self",
-        "prevHead": "c3b05d7e",
-        "handoffSha": "sha256:33712ce34e99aa067f5f5570f6c4c4232e83f78649544f98b42386898ae856ff",
-        "handoffAgeSec": 5,
         "conformanceBefore": null,
         "commitsInSession": null
       }

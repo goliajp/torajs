@@ -1530,7 +1530,27 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 9215301c`, never as a constant.
 
-**Re-derived @ `eaed4a47`** (2026-07-31, rotation 262 — the
+**Re-derived @ `5506154f`** (2026-08-01, rotation 264 — the
+undeclared-write strict lane + var-in-nested-block hoist fix +
+numeric-separator early errors + @@split face, then a two-commit
+regression repayment: stale write-mark self-heal + ToNumber/ToString
+pending-throw checks + harness compareArray de-genericization):
+passTotal **22440** (+201 vs rotation 263's 22239), bug **12072**
+(+322), trAccepted **34512** (+523), incompatible **18662** (−523),
+core **12657**. Gate predicate: **387** clusters of ≥ 4 holding
+11595 (−3 clusters, −486 cases vs 263), residue 807 clusters / 1062
+cases. Conservation exact: +523 = +201 + 322. The mid-rotation sweep
+@ `a02973c6` caught 4 pass regressions; 3 roots fixed same rotation
+(`0c8d1bb2` checker mark self-heal + coercion-kernel throw checks,
+`5506154f` harness `Array<T>`→`any` — the checker now honestly
+answers Any for `.split(anySeparator)`, which the generic harness
+signature rejected along with 220+ pre-existing cases). Final sweep
+keeps **2 regressions** (RegExp lookBehind/captures-negative +
+named-groups/duplicate-names-split), one shared pre-existing root
+now registered: monomorph specializes an `any` param to `Arr<Str>`
+per call site and the typed str-index lane has no value for a NULL
+capture slot — needs the match/split return-type honesty RFC
+(plan-state L3b rotation-264 #7). New crashes/timeouts **0**.
 symbol-dispatch method-face family: @@match / @@search / @@replace
 over Any-typed patterns, plus the computed-key member-store
 fn-expr-this face): passTotal **22196** (+10), bug **3372** (±0:
