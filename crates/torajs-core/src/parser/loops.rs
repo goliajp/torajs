@@ -135,6 +135,15 @@ impl<'a> Parser<'a> {
                     cases.push(ast::SwitchCase { value, body });
                 }
                 Token::Default => {
+                    // §14.12.1 CaseBlock early error — at most one
+                    // DefaultClause. The single `Option` slot would
+                    // otherwise silently overwrite the first body.
+                    if default.is_some() {
+                        return Err(format!(
+                            "multiple default clauses are not allowed at {}",
+                            self.at()
+                        ));
+                    }
                     self.pos += 1;
                     match self.peek() {
                         Token::Colon => self.pos += 1,

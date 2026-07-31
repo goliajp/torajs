@@ -137,6 +137,15 @@ pub(crate) fn lower_to_ssa(input: &str) -> Result<Module, ExitCode> {
         ExitCode::from(1)
     })?;
 
+    // Block/CaseBlock redeclaration early errors — raw-AST pass,
+    // mirrors main.rs (run before any desugar rewrites decls).
+    ast::early_redecl_errors(&mut ast);
+    if !ast.redecl_parse_errors.is_empty() {
+        for msg in &ast.redecl_parse_errors {
+            eprintln!("parse error: {msg}");
+        }
+        return Err(ExitCode::from(1));
+    }
     ast::unwrap_exports(&mut ast);
     ast::rename_user_main(&mut ast);
     ast::hoist_gen_fn_exprs(&mut ast);

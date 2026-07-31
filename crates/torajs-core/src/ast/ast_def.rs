@@ -163,6 +163,12 @@ pub struct Ast {
     /// Non-let-init positions (nested stmts, expr-position) stay
     /// silent-wrong pending chunk 2 (expr-position IIFE wrapper).
     pub regex_parse_errors: std::collections::HashMap<ExprId, String>,
+    /// Block / switch-CaseBlock redeclaration early errors (§14.2.1 /
+    /// §14.12.1), filled by `ast_early_redecl::run` on the raw
+    /// post-parse AST. Same pipeline-consumer shape as
+    /// `regex_parse_errors`: the CLI drivers print each entry with
+    /// the `parse error:` prefix and exit 1 before any desugar runs.
+    pub redecl_parse_errors: Vec<String>,
     /// T-24 — virtual method index. Populated only for `chain_methods`
     /// (methods with multiple owners forming a single inheritance
     /// chain — the override case that goes through `__dispatch_<M>`).
@@ -527,6 +533,13 @@ pub fn desugar_implicit_generics(ast: &mut Ast) {
 /// `throw new SyntaxError(...)`. See sibling module for scope.
 pub fn desugar_regex_syntax_error(ast: &mut Ast) {
     crate::ast_desugar_regex_syntax_error::run(ast);
+}
+
+/// Block / switch-CaseBlock redeclaration early errors — must run on
+/// the RAW post-parse AST (before generator / async / var-hoist
+/// desugars move one side of a conflict away). See sibling module.
+pub fn early_redecl_errors(ast: &mut Ast) {
+    crate::ast_early_redecl::run(ast);
 }
 
 impl Ast {

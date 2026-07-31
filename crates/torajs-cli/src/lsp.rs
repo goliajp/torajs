@@ -202,6 +202,16 @@ fn compute_diagnostics(uri: &Uri, text: &str) -> Vec<Diagnostic> {
             return vec![error_at_origin(format!("import error: {e}"))];
         }
 
+        // Block/CaseBlock redeclaration early errors — raw-AST pass,
+        // mirrors main.rs (run before any desugar rewrites decls).
+        torajs_core::ast::early_redecl_errors(&mut ast);
+        if !ast.redecl_parse_errors.is_empty() {
+            return ast
+                .redecl_parse_errors
+                .iter()
+                .map(|msg| error_at_origin(format!("parse error: {msg}")))
+                .collect();
+        }
         torajs_core::ast::unwrap_exports(&mut ast);
         torajs_core::ast::hoist_gen_fn_exprs(&mut ast);
         torajs_core::ast::desugar_generators(&mut ast);

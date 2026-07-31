@@ -203,6 +203,16 @@ fn pipeline(src: &str, base_dir: &Path, stage: Stage) -> ExitCode {
         eprintln!("import error: {e}");
         return ExitCode::from(1);
     }
+    // Block/CaseBlock redeclaration early errors — must see the RAW
+    // AST before generator / async / var-hoist desugars move one
+    // side of a conflict away.
+    ast::early_redecl_errors(&mut ast);
+    if !ast.redecl_parse_errors.is_empty() {
+        for msg in &ast.redecl_parse_errors {
+            eprintln!("parse error: {msg}");
+        }
+        return ExitCode::from(1);
+    }
     // M2 Phase A — lift arrow fns to top-level FnDecls so check.rs's
     // global-fn machinery resolves them. Non-capturing closures only;
     // captures land in Phase B.
