@@ -40,6 +40,22 @@ use crate::ssa_lower::{LowerCtx, OBJ_HEADER_SIZE};
 
 pub(crate) fn lower(ctx: &mut LowerCtx<'_>, target: ExprId, is_inc: bool) -> Operand {
     match ctx.ast.get_expr(target).clone() {
+        // RFC 20260730-undeclared-ident, write position — §13.4.4.1
+        // step 1 is GetValue on the target, so an update expression
+        // over a marked unresolvable name raises the read-side
+        // ReferenceError before any numeric step; nothing else here
+        // is reachable.
+        Expr::Ident(name) if ctx.ast.undeclared_reads.contains_key(&target) => {
+            let name_str = ctx.intern_string_literal(&name);
+            let raiser = ctx.intrinsics.throw_reference_error_name;
+            let cur_block = ctx.cur_block;
+            ctx.f.append_void(
+                cur_block,
+                InstKind::Call(raiser, vec![Operand::Value(name_str)]),
+            );
+            ctx.emit_throw_check(None);
+            return Operand::ConstPtrNull;
+        }
         Expr::Ident(name) => lower_ident(ctx, name, is_inc),
         Expr::Member { obj, name: field } => lower_member(ctx, obj, field, is_inc),
         Expr::Index { obj, index } => lower_index(ctx, obj, index, is_inc),

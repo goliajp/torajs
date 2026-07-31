@@ -3,7 +3,9 @@
 //! match arm as chunk-79a of the decomp (chunks 1-78 = ... + `Expr::New`
 //! 6-class ctor cluster).
 //!
-//! Two assignment paths:
+//! Two assignment paths (plus the RFC 20260730 undeclared-write
+//! ReferenceError lane, keyed by the target eid the checker marked —
+//! see [`lower_undeclared_write_throw`]):
 //!
 //! 1. **K.3 module-level data global** — `globals.contains(name)`:
 //!    `GlobalRef + Store` to the slot pointer. Primitive Copy types
@@ -44,13 +46,46 @@ use crate::ast::{Expr, ExprId};
 use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 
-pub(crate) fn lower(ctx: &mut LowerCtx<'_>, name: String, value: ExprId) -> Operand {
+pub(crate) fn lower(
+    ctx: &mut LowerCtx<'_>,
+    target: ExprId,
+    name: String,
+    value: ExprId,
+) -> Operand {
+    if ctx.ast.undeclared_reads.contains_key(&target) {
+        return lower_undeclared_write_throw(ctx, &name, value);
+    }
     if ctx.locals.get(&name).is_none()
         && let Some(slot_ty) = ctx.globals.get(&name).copied()
     {
         return lower_global_assign(ctx, name, slot_ty, value);
     }
     lower_local_assign(ctx, name, value)
+}
+
+/// RFC 20260730-undeclared-ident, write position — §6.2.5.6 PutValue
+/// on an unresolvable Reference (the checker marked the target eid).
+/// The RHS lowers first (§13.15.2 rref before PutValue) and its value
+/// drops — the throw makes it unobservable — then the ReferenceError
+/// raiser fires with the same `<name> is not defined` kernel the read
+/// side uses. The lane past the throw-check is unreachable;
+/// `undefined`'s shape stands in so the enclosing expression still
+/// types out.
+fn lower_undeclared_write_throw(ctx: &mut LowerCtx<'_>, name: &str, value: ExprId) -> Operand {
+    let v = ctx.lower_expr(value);
+    let v_ty = ctx.operand_ty(&v);
+    if !v_ty.is_copy() {
+        ctx.emit_drop_value(v, v_ty);
+    }
+    let name_str = ctx.intern_string_literal(name);
+    let raiser = ctx.intrinsics.throw_reference_error_name;
+    let cur_block = ctx.cur_block;
+    ctx.f.append_void(
+        cur_block,
+        InstKind::Call(raiser, vec![Operand::Value(name_str)]),
+    );
+    ctx.emit_throw_check(None);
+    Operand::ConstPtrNull
 }
 
 fn lower_global_assign(

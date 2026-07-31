@@ -35,7 +35,7 @@ pub(crate) fn check(
             checker
                 .member_narrows
                 .retain(|(recv, _), _| !crate::check_assigns_to::path_overlaps(recv, &name));
-            crate::check_assign_ident::check(checker, ast, name, value)
+            crate::check_assign_ident::check(checker, ast, target, name, value)
         }
         Expr::Member { obj, name: field } => {
             // RFC 20260710 C5 — writing the member invalidates its

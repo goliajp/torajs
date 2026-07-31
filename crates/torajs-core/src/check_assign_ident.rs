@@ -31,6 +31,7 @@ use crate::check_assignable::is_assignable_to_resolved;
 pub(crate) fn check(
     checker: &mut Checker,
     ast: &Ast,
+    target: ExprId,
     name: String,
     value: ExprId,
 ) -> Result<Type, String> {
@@ -54,7 +55,25 @@ pub(crate) fn check(
     let info = match checker.lookup(&name) {
         Some(i) => i,
         None => {
-            return Err(format!("assignment to undeclared `{name}`"));
+            // RFC 20260730-undeclared-ident, write position — §6.2.5.6
+            // PutValue on an unresolvable Reference in strict code (module
+            // code always is) raises a catchable ReferenceError at run
+            // time, not a compile reject. Mark the TARGET ident in the
+            // same `undeclared_reads` occurrence table the read side uses
+            // (spec-wise both are the same unresolvable Reference; the
+            // assign / post-incr lowering lanes consult it by target eid)
+            // and keep typing the RHS — §13.15.2 evaluates rref before
+            // PutValue throws, so its side effects (and any marked reads
+            // inside it, e.g. the desugared `x = x * v` compound form)
+            // are real. Same carve-outs as the read side: `__`-prefixed
+            // names are compiler-synthesized, and known builtin globals
+            // (`Object = 12` / `NaN = 12` global-property write
+            // semantics) stay a hard reject — recorded boundary.
+            if name.starts_with("__") || crate::check::is_known_builtin_global(&name) {
+                return Err(format!("assignment to undeclared `{name}`"));
+            }
+            checker.undeclared_reads.insert(target, name);
+            return checker.type_of(ast, value);
         }
     };
     if !info.mutable {

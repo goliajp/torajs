@@ -356,13 +356,14 @@ pub(crate) struct Checker {
     /// whether `src` is an array, a generator, or a Set. Carried to the
     /// lowerer on the post-check AST by `check_monomorph`.
     pub(crate) iter_destr_srcs: HashMap<ExprId, i64>,
-    /// RFC 20260730-undeclared-ident — expression-position reads that
-    /// resolved nowhere (ExprId → name); typed `Any`, surfaced as a
-    /// deduped end-of-pipeline warning, raised as runtime
-    /// ReferenceError by the lowerer. A later resolution of the same
-    /// eid unmarks it (speculative pre-pass typing self-heals).
-    /// Carried to the lowerer on the post-check AST by
-    /// `check_monomorph`.
+    /// RFC 20260730-undeclared-ident — expression-position reads AND
+    /// write-position targets that resolved nowhere (ExprId → name);
+    /// typed `Any`, surfaced as a deduped end-of-pipeline warning,
+    /// raised as runtime ReferenceError by the lowerer (§6.2.5.5
+    /// GetValue / §6.2.5.6 PutValue are the same unresolvable
+    /// Reference). A later resolution of the same eid unmarks it
+    /// (speculative pre-pass typing self-heals). Carried to the
+    /// lowerer on the post-check AST by `check_monomorph`.
     pub(crate) undeclared_reads: std::collections::HashMap<ExprId, String>,
     /// RFC 20260730-undeclared-ident 刀 3 — closure captures that
     /// resolved nowhere, keyed by the `Expr::Closure` construction

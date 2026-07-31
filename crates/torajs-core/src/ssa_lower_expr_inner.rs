@@ -397,9 +397,10 @@ fn lower_assign(ctx: &mut LowerCtx, target: ExprId, value: ExprId) -> Operand {
             // K.3 module-level data global + local-binding
             // assign (4-layer coercion: F64←I64 / Any←val
             // box_to_any / num←Any coerce / Str←Any
-            // coerce_to_str). See
+            // coerce_to_str), plus the RFC 20260730 undeclared-
+            // write ReferenceError lane keyed by target eid. See
             // [`crate::ssa_lower_assign_ident::lower`].
-            crate::ssa_lower_assign_ident::lower(ctx, name, value)
+            crate::ssa_lower_assign_ident::lower(ctx, target, name, value)
         }
         Expr::Member { obj, name: field } => {
             // M1.4 — `obj.field = value`. 7-way dispatch

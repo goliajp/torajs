@@ -65,15 +65,19 @@ pub struct Ast {
     /// parked here by `check_monomorph` on the owned post-check AST, so
     /// the lowerer reads it straight off `ctx.ast`. Empty pre-check.
     pub iter_destr_srcs: std::collections::HashMap<ExprId, i64>,
-    /// RFC 20260730-undeclared-ident — expression-position reads of
-    /// identifiers that resolve nowhere (§6.2.5.5 GetValue on an
-    /// unresolvable Reference), ExprId → name. The checker types them
-    /// `Any` and records them here (a later read of the same eid that
-    /// DOES resolve unmarks it, so speculative pre-pass typing under
-    /// an incomplete scope self-heals); the lowerer raises a
-    /// catchable ReferenceError at the read. Parked by
-    /// `check_monomorph` on the owned post-check AST (same ride as
-    /// `iter_destr_srcs`). Empty pre-check.
+    /// RFC 20260730-undeclared-ident — expression-position occurrences
+    /// of identifiers that resolve nowhere (§6.2.5.5 GetValue /
+    /// §6.2.5.6 PutValue on an unresolvable Reference), ExprId → name.
+    /// Reads AND write-position targets share this table — spec-wise
+    /// both are the same unresolvable Reference raising the same
+    /// ReferenceError; the assign / post-incr lowering lanes consult it
+    /// by target eid. The checker types them `Any` and records them
+    /// here (a later read of the same eid that DOES resolve unmarks
+    /// it, so speculative pre-pass typing under an incomplete scope
+    /// self-heals); the lowerer raises a catchable ReferenceError at
+    /// the occurrence. Parked by `check_monomorph` on the owned
+    /// post-check AST (same ride as `iter_destr_srcs`). Empty
+    /// pre-check.
     pub undeclared_reads: std::collections::HashMap<ExprId, String>,
     /// RFC 20260714-dstr-residual blade 4 — NamedEvaluation for
     /// anonymous class expressions: synth class name
