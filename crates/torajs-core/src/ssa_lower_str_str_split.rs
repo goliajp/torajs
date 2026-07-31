@@ -42,6 +42,19 @@ pub(crate) fn lower_split(
     args: &[ExprId],
     mut argv: Vec<Operand>,
 ) -> Operand {
+    // Rotation 264 — §22.1.3.23 step 2: an Any separator with store
+    // evidence may carry a user `@@split`; the probe/invoke branch
+    // (checker gate twin: `try_match_split` answers `any`) runs
+    // before every static guard below. Store-free / non-Ident
+    // separators keep today's three-way kernel and its
+    // Array-of-views static face.
+    if args
+        .first()
+        .is_some_and(|a| matches!(ctx.expr_types.get(a), Some(crate::check::Type::Any)))
+        && crate::check_type_of_call_string_match::any_pattern_may_carry_matcher(ctx.ast, args[0])
+    {
+        return crate::ssa_lower_call_str_match_custom::lower_split_any_pattern(ctx, argv);
+    }
     // An `any` separator (`s.split(x)` with `x: any`, or an As-cast
     // like `split(undefined as any)`) defeats every static guard
     // below — the (Str, Str) kernel would receive raw AnyValue bits

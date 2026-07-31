@@ -75,6 +75,10 @@ pub(crate) struct StrBIds {
     pub str_split: FuncId,
     pub str_split_no_sep: FuncId,
     pub str_split_any_sep: FuncId,
+    /// Rotation 264 — the limit-carrying twin for the `@@split`
+    /// probe-miss lane (limit rides RAW; the kernel runs step 4's
+    /// ToUint32 itself). Returns the result as an AnyValue box.
+    pub str_split_any_sep_lim: FuncId,
 }
 
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) -> StrBIds {
@@ -244,6 +248,13 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             "__torajs_str_split_any_sep",
             &[Type::Str, Type::Any],
             Type::Ptr,
+        ),
+        str_split_any_sep_lim: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_str_split_any_sep_lim",
+            &[Type::Str, Type::Any, Type::Any],
+            Type::Any,
         ),
     }
 }

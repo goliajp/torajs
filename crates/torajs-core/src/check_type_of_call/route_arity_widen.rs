@@ -112,6 +112,16 @@ pub(crate) fn try_route(
     {
         return Some(r);
     }
+    // Rotation 264 — `s.split(anyPattern, limit?)` §22.1.3.23
+    // step-2 `@@split` shape (store-evidence gate, result `any`);
+    // must precede the 2-arg split wedge below or the static face
+    // answers Array<String> while the SSA branch can return the
+    // splitter's arbitrary value.
+    if let Some(r) =
+        crate::check_type_of_call_string_match::try_match_split(checker, ast, callee, args)
+    {
+        return Some(r);
+    }
     // V3-18 wedge — `s.split(sep, limit?)` 2-arg arm + S215
     // Undefined limit widen — see
     // [`crate::check_type_of_call_string_split_2arg`] (chunk

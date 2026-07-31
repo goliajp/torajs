@@ -31,9 +31,11 @@ unsafe extern "C" {
 
 /// `WELL_KNOWN_DESCS` indices — pick the invoke legs'
 /// not-a-function message (torajs-core's gate passes 6 = `@@match`
-/// / 8 = `@@replace` / 9 = `@@search` as the `wk_idx` operand).
+/// / 8 = `@@replace` / 9 = `@@search` / 11 = `@@split` as the
+/// `wk_idx` operand).
 const WK_REPLACE: i64 = 8;
 const WK_SEARCH: i64 = 9;
+pub(crate) const WK_SPLIT: i64 = 11;
 
 /// The per-symbol GetMethod step-4 TypeError text.
 fn not_a_function_msg(wk_idx: i64) -> &'static core::ffi::CStr {
@@ -41,6 +43,8 @@ fn not_a_function_msg(wk_idx: i64) -> &'static core::ffi::CStr {
         c"o[Symbol.search] is not a function"
     } else if wk_idx == WK_REPLACE {
         c"o[Symbol.replace] is not a function"
+    } else if wk_idx == WK_SPLIT {
+        c"o[Symbol.split] is not a function"
     } else {
         c"o[Symbol.match] is not a function"
     }

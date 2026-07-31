@@ -310,3 +310,112 @@ pub(crate) fn lower_replace_any_pattern(
     );
     Operand::Value(out)
 }
+
+/// Lower `s.split(x, limit?)` with an Any-typed `x` carrying store
+/// evidence — §22.1.3.23 step 2: probe GetMethod(separator,
+/// @@split); when present the splitter runs as Call(splitter,
+/// separator, «O, limit») with the limit passed through RAW (step 2
+/// precedes step 4's ToUint32), otherwise the existing any-separator
+/// three-way kernel answers with the step 4-onward behavior (limit
+/// clamp included). The caller (`ssa_lower_str_str_split`) hands the
+/// already-lowered `argv = [recv, sep, limit?]`. Answers a
+/// `Type::Any` operand.
+pub(crate) fn lower_split_any_pattern(ctx: &mut LowerCtx<'_>, argv: Vec<Operand>) -> Operand {
+    let result_slot = ctx.alloca(Type::Any, Some("__symdisp_split_result"));
+    // Both lanes consume the limit as an AnyValue: the splitter gets
+    // it RAW (step 2 precedes step 4's ToUint32), and the fallback
+    // kernel runs the ToUint32 itself. Absent = undefined (ANY_UNDEF
+    // = 5, payload ignored).
+    let limit_any = match argv.get(2) {
+        Some(op) => ctx.box_to_any(op.clone()),
+        None => {
+            let u = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(
+                    ctx.intrinsics.any_box,
+                    vec![Operand::ConstI64(5), Operand::ConstI64(0)],
+                ),
+                Type::Any,
+                None,
+            );
+            Operand::Value(u)
+        }
+    };
+    let probe = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(
+            ctx.intrinsics.any_str_symbol_probe,
+            vec![argv[1].clone(), Operand::ConstI64(11)],
+        ),
+        Type::I64,
+        None,
+    );
+    let hit = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::ICmp(IPred::Ne, Operand::Value(probe), Operand::ConstI64(0)),
+        Type::Bool,
+        None,
+    );
+    let custom_blk = ctx.f.add_block();
+    let coerce_blk = ctx.f.add_block();
+    let after_blk = ctx.f.add_block();
+    ctx.f.set_term(
+        ctx.cur_block,
+        Terminator::CondBr {
+            cond: Operand::Value(hit),
+            then_blk: custom_blk,
+            else_blk: coerce_blk,
+        },
+    );
+    // Step 2.b — Call(splitter, separator, «O, limit»).
+    ctx.cur_block = custom_blk;
+    let r = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(
+            ctx.intrinsics.any_str_symbol_invoke2,
+            vec![
+                argv[0].clone(),
+                argv[1].clone(),
+                limit_any.clone(),
+                Operand::ConstI64(11),
+            ],
+        ),
+        Type::Any,
+        None,
+    );
+    ctx.emit_throw_check(None);
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Store(Operand::Value(r), Operand::Value(result_slot), 0),
+    );
+    ctx.f.set_term(ctx.cur_block, Terminator::Br(after_blk));
+    // Step 4-onward fallback — the limit-carrying any-separator
+    // kernel (undefined → [S] / RegExp cell → regex split / else
+    // ToString; the limit's ToUint32 runs inside, per step 4's
+    // placement AFTER the splitter probe). Answers an AnyValue box
+    // so both lanes agree at the join.
+    ctx.cur_block = coerce_blk;
+    let v = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(
+            ctx.intrinsics.str_split_any_sep_lim,
+            vec![argv[0].clone(), argv[1].clone(), limit_any],
+        ),
+        Type::Any,
+        None,
+    );
+    ctx.emit_throw_check(None);
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Store(Operand::Value(v), Operand::Value(result_slot), 0),
+    );
+    ctx.f.set_term(ctx.cur_block, Terminator::Br(after_blk));
+    ctx.cur_block = after_blk;
+    let out = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(Type::Any, Operand::Value(result_slot), 0),
+        Type::Any,
+        None,
+    );
+    Operand::Value(out)
+}

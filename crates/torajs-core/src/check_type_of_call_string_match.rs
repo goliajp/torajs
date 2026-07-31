@@ -200,3 +200,50 @@ pub(crate) fn any_pattern_may_carry_matcher(ast: &Ast, arg: ExprId) -> bool {
     }
     false
 }
+
+/// `s.split(x, limit?)` with an Any-typed `x` and store evidence —
+/// the §22.1.3.23 step-2 `@@split` shape (SSA mirror:
+/// `ssa_lower_call_str_match_custom::lower_split_any_pattern`).
+/// The splitter's return is arbitrary → `any`; the limit passes
+/// through raw (step 2 precedes step 4's ToUint32, so no numeric
+/// gate here — the fallback lane coerces it itself).
+pub(crate) fn try_match_split(
+    checker: &mut Checker,
+    ast: &Ast,
+    callee: &ExprId,
+    args: &Vec<ExprId>,
+) -> Option<Result<Type, String>> {
+    let Expr::Member {
+        obj: src_id,
+        name: m_name,
+    } = ast.get_expr(*callee)
+    else {
+        return None;
+    };
+    if m_name != "split"
+        || !matches!(args.len(), 1 | 2)
+        || !any_pattern_may_carry_matcher(ast, args[0])
+    {
+        return None;
+    }
+    let src_ty = match checker.type_of(ast, *src_id) {
+        Ok(t) => t,
+        Err(e) => return Some(Err(e)),
+    };
+    if !matches!(src_ty, Type::String) {
+        return None;
+    }
+    let aty0 = match checker.type_of(ast, args[0]) {
+        Ok(t) => t,
+        Err(e) => return Some(Err(e)),
+    };
+    if !matches!(aty0, Type::Any) {
+        return None;
+    }
+    if let Some(&a1) = args.get(1)
+        && let Err(e) = checker.type_of(ast, a1)
+    {
+        return Some(Err(e));
+    }
+    Some(Ok(Type::Any))
+}

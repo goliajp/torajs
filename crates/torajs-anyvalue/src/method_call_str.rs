@@ -169,88 +169,6 @@ unsafe fn regexp_drop_if_coerced(orig: AnyValue, re: *mut c_void) {
     }
 }
 
-/// §22.1.3.23 step 2 — the three-way separator dispatch shared by
-/// the ANY_METHOD_SPLIT arm and the typed-receiver `Any`-separator
-/// lane: undefined skips splitting ([S]), a RegExp cell hands off
-/// to `@@split`, everything else ToStrings.
-///
-/// # Safety
-/// `s` is a live Str/Substr cell; `sep_av` carries a valid AnyValue
-/// bit pattern.
-unsafe fn split_with_any_sep(s: *mut u8, sep_av: u64) -> AnyValue {
-    unsafe {
-        if is_undefined(sep_av) {
-            __torajs_str_any_split(s, core::ptr::null())
-        } else if let Some(re) = regexp_cell(sep_av) {
-            // The prior ToString lane matched the literal "/pat/"
-            // spelling instead (test262 15.5.4.14 A4 family — every
-            // `new String(s).split(regexp)` answered one unsplit
-            // token).
-            __torajs_str_any_split_regex(s, re)
-        } else {
-            let sep = __torajs_anyv_to_str(sep_av);
-            let out = __torajs_str_any_split(s, sep as *const u8);
-            __torajs_str_drop(sep);
-            out
-        }
-    }
-}
-
-/// §7.1.6 ToUint32 for the split limit — undefined never reaches
-/// here (the caller rides the no-limit path); NaN / ±∞ answer 0,
-/// finite values truncate toward zero then wrap mod 2^32.
-unsafe fn split_lim(limit_av: AnyValue) -> i64 {
-    let n = unsafe { __torajs_anyv_to_number(limit_av) };
-    if !n.is_finite() {
-        return 0;
-    }
-    n.trunc().rem_euclid(4294967296.0) as i64
-}
-
-/// §22.1.3.23 steps 4-9 for the any-receiver lane with a present
-/// limit argument — lim's ToUint32 runs BEFORE any separator
-/// coercion (step 4 precedes steps 5-7: lim == 0 answers `[]`
-/// without ToString-ing the separator, which the
-/// separator-override-tostring test262 family pins), then the split
-/// product truncates to its first `lim` tokens. A RegExp separator's
-/// `@@split` collector stops at lim per RegExpSplit steps 13-19, so
-/// prefix-truncating the full product is observationally equal.
-///
-/// # Safety
-/// `s` is a live Str/Substr cell; `sep_av` / `limit_av` carry valid
-/// AnyValue bit patterns.
-unsafe fn split_any_with_limit(s: *mut u8, sep_av: u64, limit_av: u64) -> AnyValue {
-    unsafe {
-        let lim = split_lim(limit_av);
-        if __torajs_throw_check() != 0 {
-            return VALUE_UNDEFINED;
-        }
-        if lim == 0 {
-            return __torajs_anyv_box_pointer(__torajs_arr_alloc_any(0) as *mut c_void);
-        }
-        let full = split_with_any_sep(s, sep_av);
-        let sliced = __torajs_arr_any_slice(full as *const u8, 0, lim);
-        __torajs_value_drop_heap(full as *mut c_void);
-        sliced as u64
-    }
-}
-
-/// Typed-receiver `s.split(sep)` with an `any` separator — the SSA
-/// lowering's static undefined guards cannot see through an As-cast
-/// or an `any` binding, so the (Str, Str) kernel used to receive
-/// raw AnyValue bits as a pointer (SIGSEGV). One runtime entry runs
-/// the same three-way dispatch the any lane uses; the product is an
-/// Arr cell pointer either way, so the typed limit-clamp slice
-/// downstream applies unchanged.
-///
-/// # Safety
-/// `s` is a live Str/Substr cell; `sep_av` carries a valid AnyValue
-/// bit pattern.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_str_split_any_sep(s: *mut u8, sep_av: u64) -> u64 {
-    unsafe { split_with_any_sep(s, sep_av) }
-}
-
 /// `Tag::Str` arm — id-switch onto the torajs-str glue.
 pub(crate) unsafe fn str_method(s: *mut u8, mid: i64, argv: *const u64, argc: i64) -> AnyValue {
     let arg_at = |i: i64| -> u64 {
@@ -373,13 +291,31 @@ pub(crate) unsafe fn str_method(s: *mut u8, mid: i64, argv: *const u64, argc: i6
                 __torajs_anyv_box_from_pair(1, hit)
             }
             m if m == ANY_METHOD_SPLIT => {
-                // §22.1.3.23 — a present limit argument routes
-                // through the ToUint32 + truncation lane; absent /
-                // undefined keeps the zero-cost three-way dispatch.
+                // §22.1.3.23 step 2 — a separator carrying a user
+                // `@@split` dispatches with the limit passed RAW
+                // (step 2 precedes step 4's ToUint32; a RegExp
+                // separator misses this probe — its split rides the
+                // dedicated kernel below — unless an own-dict
+                // override shadows it, which is exactly step 2).
+                if crate::str_match_custom::__torajs_any_str_symbol_probe(
+                    arg_at(0),
+                    crate::str_match_custom::WK_SPLIT,
+                ) != 0
+                {
+                    return crate::str_match_custom::__torajs_any_str_symbol_invoke2(
+                        s as *mut c_void,
+                        arg_at(0),
+                        arg_at(1),
+                        crate::str_match_custom::WK_SPLIT,
+                    );
+                }
+                // A present limit argument routes through the
+                // ToUint32 + truncation lane; absent / undefined
+                // keeps the zero-cost three-way dispatch.
                 if is_undefined(arg_at(1)) {
-                    split_with_any_sep(s, arg_at(0))
+                    split::split_with_any_sep(s, arg_at(0))
                 } else {
-                    split_any_with_limit(s, arg_at(0), arg_at(1))
+                    split::split_any_with_limit(s, arg_at(0), arg_at(1))
                 }
             }
             m if m == ANY_METHOD_MATCH => {
@@ -449,6 +385,7 @@ pub(crate) unsafe fn str_method(s: *mut u8, mid: i64, argv: *const u64, argc: i6
 
 mod ext;
 mod regex_gate;
+mod split;
 
 pub(crate) use regex_gate::reject_non_global_regex_search;
 
