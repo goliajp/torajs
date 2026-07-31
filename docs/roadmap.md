@@ -1530,6 +1530,18 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 9215301c`, never as a constant.
 
+**Re-derived @ `eaed4a47`** (2026-07-31, rotation 262 — the
+symbol-dispatch method-face family: @@match / @@search / @@replace
+over Any-typed patterns, plus the computed-key member-store
+fn-expr-this face): passTotal **22196** (+10), bug **3372** (±0:
++2 search true-runs − 2 get-err bug→pass), trAccepted **25568**,
+incompatible **27606**, core **15367**. Gate predicate: **426**
+clusters of ≥ 4 holding 14209 (cases −9), residue 870 clusters /
+1158 cases. Conservation exact: +10 = +10 + 0. True regressions
+**0**; crashes 22 / timeouts 96 both unchanged. The cstm-* family
+went 9/21 → 18/21 exit-0 across match/search/replace (all three
+`invocation` cases stay behind the `arguments` wall).
+
 **Re-derived @ `2ee51cef`** (2026-07-31, rotation 261; re-swept at
 the final HEAD after the iterator-helper executing-gate fix-up):
 passTotal **22186** (+8), bug **3372** (+6), trAccepted **25558**,

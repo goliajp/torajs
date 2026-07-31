@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-31T08:16:17.315Z",
+  "generatedAt": "2026-07-31T09:45:05.550Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-31T08:14:47Z",
-    "headSha": "2ee51cef",
-    "elapsedSec": 338.69,
+    "ranAt": "2026-07-31T09:43:22Z",
+    "headSha": "eaed4a47",
+    "elapsedSec": 339.5,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 17178,
+    "pass": 17188,
     "passNoOracle": 519,
     "passNegative": 4489,
-    "passTotal": 22186,
+    "passTotal": 22196,
     "bug": 3372,
-    "incompatible": 27616,
+    "incompatible": 27606,
     "bunSkip": 7467,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 25558,
-    "passRateInScope": 41.72,
+    "trAccepted": 25568,
+    "passRateInScope": 41.74,
     "passRateTrAccepted": 86.81
   },
   "torajs": {
-    "commit": "2ee51cef",
-    "commitSubject": "fix(core): iterator helper return() checks but does not hold the executing flag",
+    "commit": "eaed4a47",
+    "commitSubject": "feat(core): string replace dispatches user @@replace on any-typed searchValue",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,26 @@
   },
   "commits": [
     {
+      "hash": "eaed4a47",
+      "subject": "feat(core): string replace dispatches user @@replace on any-typed searchValue"
+    },
+    {
+      "hash": "ac79c877",
+      "subject": "feat(core): string search dispatches user @@search; symbol-dispatch kernel generalized"
+    },
+    {
+      "hash": "3c7d1dca",
+      "subject": "feat(core): string match dispatches user @@match on any-typed pattern"
+    },
+    {
+      "hash": "0d371068",
+      "subject": "feat(core): computed-key member-store fn-expr this face + symbol-keyed recv seed"
+    },
+    {
+      "hash": "6db40466",
+      "subject": "chore(docs,hardev): rotation 261 census at 2ee51cef"
+    },
+    {
       "hash": "2ee51cef",
       "subject": "fix(core): iterator helper return() checks but does not hold the executing flag"
     },
@@ -739,47 +759,38 @@
     {
       "hash": "6bc75e6b",
       "subject": "chore(docs,hardev): rotation 260 final census at b38532c1"
-    },
-    {
-      "hash": "b38532c1",
-      "subject": "fix(core): variable-routed promoted callbacks thread thisArg through HOF and Array.from"
-    },
-    {
-      "hash": "30243cd3",
-      "subject": "chore(docs,hardev): rotation 260 census at 6950eeaa"
-    },
-    {
-      "hash": "6950eeaa",
-      "subject": "feat(core): Array.from mapFn joins the fnexpr-this channel"
-    },
-    {
-      "hash": "9b8fbe4c",
-      "subject": "feat(core): fnexpr this promotes on inline array-literal HOF receivers"
-    },
-    {
-      "hash": "80d5629e",
-      "subject": "fix(core): forward captures from closures nested inside let-inits"
     }
   ],
-  "headSha": "2ee51cef",
+  "headSha": "eaed4a47",
   "autorun": {
-    "total": 565,
+    "total": 566,
     "baselineTarget": 10,
-    "bySelf": 560,
+    "bySelf": 561,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785472480-2ba4",
-      "at": "2026-07-31T04:34:40Z",
-      "ts": 1785472480,
+      "rotationId": "r-1785485876-0d74",
+      "at": "2026-07-31T08:17:56Z",
+      "ts": 1785485876,
       "trigger": "self",
-      "prevHead": "b38532c1",
-      "handoffSha": "sha256:c88679d189996168af484fb3bb9ad3b874308ba80f2b305c7963f94392f5a243",
-      "handoffAgeSec": 1083,
+      "prevHead": "6db40466",
+      "handoffSha": "sha256:f8237a81844c5cce81aa909be7e3640734f5acd03748eade4559c76614f9ea26",
+      "handoffAgeSec": 0,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1785485876-0d74",
+        "at": "2026-07-31T08:17:56Z",
+        "ts": 1785485876,
+        "trigger": "self",
+        "prevHead": "6db40466",
+        "handoffSha": "sha256:f8237a81844c5cce81aa909be7e3640734f5acd03748eade4559c76614f9ea26",
+        "handoffAgeSec": 0,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785472480-2ba4",
         "at": "2026-07-31T04:34:40Z",
@@ -876,17 +887,6 @@
         "prevHead": "ea956bac",
         "handoffSha": "sha256:07b448552435854d136e839bf32a6cc79d77731a42d02a2832d58666ff995c76",
         "handoffAgeSec": 897,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1785362832-740f",
-        "at": "2026-07-29T22:07:12Z",
-        "ts": 1785362832,
-        "trigger": "self",
-        "prevHead": "fd25e8b4",
-        "handoffSha": "sha256:a75f776dcdaa16d262111d8ad5b833a0b715704ad370a11d7a6d98ba7c02ddc9",
-        "handoffAgeSec": 6,
         "conformanceBefore": null,
         "commitsInSession": null
       }
