@@ -177,6 +177,8 @@ pub(crate) fn build(
         regex_has_flag: init_b.regex.regex_has_flag,
         regex_drop: init_b.regex.regex_drop,
         regex_match: init_b.regex.regex_match,
+        any_str_match_probe: init_b.regex.any_str_match_probe,
+        any_str_match_invoke: init_b.regex.any_str_match_invoke,
         regex_replace: init_b.regex.regex_replace,
         regex_replace_all: init_b.regex.regex_replace_all,
         regex_replace_fn: init_b.regex.regex_replace_fn,

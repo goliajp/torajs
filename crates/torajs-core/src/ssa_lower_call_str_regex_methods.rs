@@ -93,6 +93,29 @@ pub(crate) fn try_lower(
     } else {
         raw_recv
     };
+    // §22.1.3.13 step 3 — an Any-typed pattern may carry a user
+    // `@@match` method; branch on the runtime probe before the
+    // step-4 coerce. The checker mirrors this exact gate with a
+    // `Type::Any` result (`check_type_of_call_string_match`), so
+    // only the single-arg `match` shape with a checker-Any pattern
+    // routes here.
+    if coerce_match_lane
+        && name == "match"
+        && matches!(ctx.expr_types.get(&args[0]), Some(crate::check::Type::Any))
+        && crate::check_type_of_call_string_match::any_pattern_may_carry_matcher(ctx.ast, args[0])
+    {
+        let arr_id = intern_arr_layout(ctx.arr_layouts, Type::Str);
+        let result = crate::ssa_lower_call_str_match_custom::lower_match_any_pattern(
+            ctx,
+            recv_op.clone(),
+            args,
+            arr_id,
+        );
+        if recv_is_view {
+            ctx.emit_drop_value(recv_op, Type::Str);
+        }
+        return Some(result);
+    }
     let (re_op, minted_regex) = if coerce_match_lane {
         // ES §22.1.3.{11,12} step 4.c → `RegExpCreate(regexp, F)`.
         // RegExpCreate → RegExpInitialize (§22.2.3.2):

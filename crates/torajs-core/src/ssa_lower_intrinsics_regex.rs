@@ -51,6 +51,12 @@ pub(crate) struct RegexIds {
     pub regex_test: FuncId,
     pub regex_drop: FuncId,
     pub regex_match: FuncId,
+    /// §22.1.3.13 step 3 custom-matcher legs over an Any-typed
+    /// pattern (torajs-anyvalue `str_match_custom`): the probe
+    /// answers 1 when the pattern carries a non-nullish @@match,
+    /// the invoke leg runs GetMethod + Call(matcher, pattern, «S»).
+    pub any_str_match_probe: FuncId,
+    pub any_str_match_invoke: FuncId,
     pub regex_replace: FuncId,
     pub regex_replace_all: FuncId,
     pub regex_replace_fn: FuncId,
@@ -110,6 +116,20 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             "__torajs_str_match_regex",
             &[Type::Str, Type::RegExp],
             Type::Ptr,
+        ),
+        any_str_match_probe: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_any_str_match_probe",
+            &[Type::Any],
+            Type::I64,
+        ),
+        any_str_match_invoke: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_any_str_match_invoke",
+            &[Type::Str, Type::Any],
+            Type::Any,
         ),
         regex_replace: declare_intrinsic(
             module,

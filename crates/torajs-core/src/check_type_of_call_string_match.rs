@@ -15,12 +15,15 @@
 //! - `Some(Ok(Type::Array<Array<String>>))` for matchAll
 //!   when receiver is String AND args[0] is RegExp AND
 //!   args.len() >= 2
-//! - `Some(Ok(Type::Array<String>))` for match under the
-//!   same gates
+//! - `Some(Ok(Type::Nullable<Array<String>>))` for match under
+//!   the same gates
+//! - `Some(Ok(Type::Any))` for single-arg `match` with an
+//!   Any-typed pattern — the §22.1.3.13 step-3 custom `@@match`
+//!   shape (`ssa_lower_call_str_match_custom` is the SSA mirror)
 //! - `Some(Err(_))` on receiver / arg type_of failure
 //! - `None` otherwise (non-Member callee, m_name not in
-//!   {match, matchAll}, args.len() < 2, non-String receiver,
-//!   or args[0] not RegExp — cascade falls through to the
+//!   {match, matchAll}, no args, non-String receiver, or
+//!   args[0] not RegExp — cascade falls through to the
 //!   copyWithin/fill / general method dispatch arms below)
 
 use crate::ast::{Ast, Expr, ExprId};
@@ -39,8 +42,33 @@ pub(crate) fn try_match(
     else {
         return None;
     };
-    if !matches!(m_name.as_str(), "match" | "matchAll") || args.len() < 2 {
+    if !matches!(m_name.as_str(), "match" | "matchAll") || args.is_empty() {
         return None;
+    }
+    // §22.1.3.13 step 3 — a single-arg `s.match(x)` whose pattern
+    // syntactically can carry a user `@@match` types `any` (the SSA
+    // mirror is `ssa_lower_call_str_match_custom`). The syntactic
+    // probe runs BEFORE any type_of so a non-matching shape falls
+    // through with the cascade completely untouched.
+    if args.len() == 1 {
+        if m_name != "match" || !any_pattern_may_carry_matcher(ast, args[0]) {
+            return None;
+        }
+        let src_ty = match checker.type_of(ast, *src_id) {
+            Ok(t) => t,
+            Err(e) => return Some(Err(e)),
+        };
+        if !matches!(src_ty, Type::String) {
+            return None;
+        }
+        let aty0 = match checker.type_of(ast, args[0]) {
+            Ok(t) => t,
+            Err(e) => return Some(Err(e)),
+        };
+        if !matches!(aty0, Type::Any) {
+            return None;
+        }
+        return Some(Ok(Type::Any));
     }
     let src_ty = match checker.type_of(ast, *src_id) {
         Ok(t) => t,
@@ -69,4 +97,53 @@ pub(crate) fn try_match(
         // check_type_of_member_regex for the decay contract.
         Type::Nullable(Box::new(Type::Array(Box::new(Type::String))))
     }))
+}
+
+/// Can an Any-typed pattern argument actually carry a user `@@match`?
+/// Purely syntactic, shared verbatim by the checker gate above and
+/// the SSA gate (`ssa_lower_call_str_regex_methods`) so the static
+/// result type and the emitted branch agree.
+///
+/// An `any` binding can also be a hoist-widened primitive — `var
+/// separator = ","` types Any because var-hoist splits the init off
+/// and stamps a synthetic `: any` on the hoisted `let`, so neither
+/// the annotation nor the (now-`Uninit`) init distinguishes a
+/// dynobj from a string. Routing a primitive to the custom-probe
+/// branch is behavior-correct (the probe misses, the coerce lane
+/// answers) but would needlessly widen the result type from
+/// `Nullable<Array<Str>>` to `any` and break typed downstream reads
+/// (the test262 cstm-matcher-on-*-primitive regressions). So the
+/// gate keys off DIRECT store evidence instead: an Ident pattern
+/// joins only when the program somewhere computed-key-stores into
+/// that name (`name[expr] = v` — the only spelling that can plant a
+/// `@@match`) or hands it to `Object.defineProperty` /
+/// `defineProperties` / `Reflect.defineProperty`. Everything else
+/// (non-Ident patterns, store-free names) keeps the member-table
+/// route and today's coerce behavior.
+pub(crate) fn any_pattern_may_carry_matcher(ast: &Ast, arg: ExprId) -> bool {
+    let Expr::Ident(name) = ast.get_expr(arg) else {
+        return false;
+    };
+    for e in &ast.exprs {
+        match e {
+            Expr::Assign { target, .. } => {
+                if let Expr::Index { obj, .. } = ast.get_expr(*target)
+                    && matches!(ast.get_expr(*obj), Expr::Ident(n) if n == name)
+                {
+                    return true;
+                }
+            }
+            Expr::Call { callee, args } => {
+                if let Expr::Member { obj, name: m } = ast.get_expr(*callee)
+                    && matches!(m.as_str(), "defineProperty" | "defineProperties")
+                    && matches!(ast.get_expr(*obj), Expr::Ident(ns) if ns == "Object" || ns == "Reflect")
+                    && matches!(args.first().map(|a| ast.get_expr(*a)), Some(Expr::Ident(n)) if n == name)
+                {
+                    return true;
+                }
+            }
+            _ => {}
+        }
+    }
+    false
 }

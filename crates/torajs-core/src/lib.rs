@@ -330,6 +330,7 @@ pub(crate) mod ssa_lower_call_reflect_get;
 pub(crate) mod ssa_lower_call_regex_methods;
 pub(crate) mod ssa_lower_call_set_dispatch;
 pub(crate) mod ssa_lower_call_sibling_class_dispatch;
+pub(crate) mod ssa_lower_call_str_match_custom;
 pub(crate) mod ssa_lower_call_str_regex_methods;
 pub(crate) mod ssa_lower_call_string_from_char_code;
 pub(crate) mod ssa_lower_call_string_raw;

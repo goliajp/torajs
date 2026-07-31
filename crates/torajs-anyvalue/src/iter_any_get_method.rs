@@ -78,7 +78,7 @@ const TAG_NULL: u64 = 0;
 ///
 /// # Safety
 /// `(tag, payload)` is a live borrowed member pair.
-unsafe fn callable_entry(
+pub(crate) unsafe fn callable_entry(
     tag: u64,
     payload: u64,
     not_a_function: &core::ffi::CStr,
