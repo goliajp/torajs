@@ -17,11 +17,32 @@ fn is_radix_digit(c: u8, radix: u32) -> bool {
     }
 }
 
+/// §12.9.3 NumericLiteralSeparator — a `_` is legal ONLY between two
+/// digits of the same digit run. Trailing / leading / consecutive
+/// separators and separators touching `.` / `e` / the radix prefix
+/// are SyntaxError (rotation 264; the prior tolerant strip silently
+/// accepted `1_` / `1__2` / `0x_1` — bun rejects all of them).
+/// `digit_ok` picks the radix's digit set.
+fn validate_separators(raw: &str, start: u32, digit_ok: impl Fn(u8) -> bool) -> Result<(), String> {
+    let b = raw.as_bytes();
+    for (k, &c) in b.iter().enumerate() {
+        if c != b'_' {
+            continue;
+        }
+        let prev_ok = k > 0 && digit_ok(b[k - 1]);
+        let next_ok = k + 1 < b.len() && digit_ok(b[k + 1]);
+        if !prev_ok || !next_ok {
+            return Err(format!("invalid numeric separator at {start}"));
+        }
+    }
+    Ok(())
+}
+
 /// Shared body of the `0b` / `0o` / `0x` arms (chunk 476 — the three
 /// were byte-for-byte the same shape): skip the 2-byte prefix, scan
-/// radix digits (`_` separators allowed), strip separators, handle
-/// the `n` BigInt suffix, else parse as u64 → f64 per JS spec
-/// §12.8.3.
+/// radix digits (`_` separators allowed between digits), strip
+/// separators, handle the `n` BigInt suffix, else parse as u64 → f64
+/// per JS spec §12.8.3.
 ///
 /// BigInt suffix shape differs by radix (pre-split behaviour kept):
 /// - binary / octal (P0.10) — pre-convert to decimal at lex time
@@ -47,6 +68,7 @@ fn scan_radix_literal(
     }
     let raw = std::str::from_utf8(&bytes[dig_start as usize..*i as usize])
         .expect("ascii radix digits are valid utf-8");
+    validate_separators(raw, start, |c| is_radix_digit(c, radix))?;
     let cleaned;
     let s: &str = if raw.contains('_') {
         cleaned = raw.replace('_', "");
@@ -104,10 +126,9 @@ pub(super) fn scan_number(
         return scan_radix_literal(bytes, i, out, start, len, 16, "hex");
     }
     // V3-18 m1.h.55 — numeric separator `_` (per JS spec §12.8.3
-    // NumericLiteralSeparator). Stripped before parsing. Allowed
-    // between digits only; consecutive `_` or leading/trailing `_`
-    // aren't valid but our tolerant parse silently allows them —
-    // strict spec rejection is a polish item.
+    // NumericLiteralSeparator). Scanned into the run here, position-
+    // validated by `validate_separators` below, stripped before
+    // parsing.
     while *i < len && (bytes[*i as usize].is_ascii_digit() || bytes[*i as usize] == b'_') {
         *i += 1;
     }
@@ -165,6 +186,19 @@ pub(super) fn scan_number(
     }
     let raw = std::str::from_utf8(&bytes[start as usize..*i as usize])
         .expect("ascii digits are valid utf-8");
+    validate_separators(raw, start, |c| c.is_ascii_digit())?;
+    // §12.9.3 — a DecimalIntegerLiteral starting `0<digit>` is the
+    // LEGACY octal-like family, which admits no separators in any
+    // grammar (`0_0` / `0_8` — bun rejects both; the bare `01` / `09`
+    // strict-mode rejection is a recorded policy item, half-blade B).
+    // Scoped to the INTEGER part: `0.5_5` / `0e1_0` keep their legal
+    // fraction / exponent separators.
+    let int_part = &raw[..raw.find(['.', 'e', 'E']).unwrap_or(raw.len())];
+    if int_part.len() > 1 && int_part.starts_with('0') && int_part.contains('_') {
+        return Err(format!(
+            "numeric separator in a leading-zero literal at {start}"
+        ));
+    }
     // V3-18 m1.h.55 — strip numeric separators before parsing
     // into f64 / BigInt.
     let s_owned;
@@ -179,6 +213,13 @@ pub(super) fn scan_number(
      * followed by `n`. JS rejects `1.5n` / `1e2n` at parse time —
      * same here. */
     if peek(bytes, *i) == Some(b'n') && !s.contains('.') && !s.contains('e') && !s.contains('E') {
+        // §12.9.3 BigIntLiteralSuffix hangs off DecimalIntegerLiteral,
+        // never the legacy octal-like family — `01n` / `08n` are
+        // SyntaxError in every mode (bun rejects; the tolerant lex
+        // minted BigInt(01) silently).
+        if s.len() > 1 && s.starts_with('0') {
+            return Err(format!("invalid BigInt literal at {start}"));
+        }
         let digits = s.to_string();
         *i += 1;
         emit(out, Token::BigInt { digits, radix: 10 }, start, *i);
