@@ -57,13 +57,15 @@ pub(crate) fn enter(checker: &mut Checker, ast: &Ast, stmts: &[Stmt]) -> HashMap
     checker.hoisted_closure_lets = saved.clone();
     for (name, type_ann, init) in plain {
         // An annotation is the binding's own answer; without one the
-        // init's type is it, and typing that expression early is safe
-        // because the list's own declarations are not in scope yet
-        // either way — a reference to one of them fails here and the
-        // name simply goes unhoisted, leaving the original error to be
-        // reported where it belongs. `type_of` only caches into
-        // `expr_types`, which the ordinary pass over this statement
-        // overwrites with the same answer.
+        // init's type is it. Typing that expression early can fail
+        // when it references the list's OWN earlier declarations
+        // (`let iterable = {...}; let iterator = f(iterable)` — at
+        // hoist time nothing in the list is in scope yet), so a
+        // failure hoists `Any` instead of giving up: the capture
+        // resolves, and a genuinely-bad init still errors when the
+        // declaration statement itself re-types it. `type_of` only
+        // caches into `expr_types`, which the ordinary pass over
+        // this statement overwrites with the same answer.
         let ty = match type_ann {
             Some(ann) => crate::check_type_ann::resolve_type_ann_full(
                 ann,
@@ -73,9 +75,9 @@ pub(crate) fn enter(checker: &mut Checker, ast: &Ast, stmts: &[Stmt]) -> HashMap
             ),
             None => checker.type_of(ast, init).ok(),
         };
-        if let Some(ty) = ty {
-            checker.hoisted_closure_lets.insert(name.to_string(), ty);
-        }
+        checker
+            .hoisted_closure_lets
+            .insert(name.to_string(), ty.unwrap_or(Type::Any));
     }
     for (name, fn_name, type_ann) in decls {
         if !captured.contains(name) {
@@ -149,8 +151,23 @@ fn collect_inner<'a>(
                         captured.insert(c.as_str());
                         seen.insert(c.as_str());
                     }
-                } else if seen.contains(name.as_str()) {
-                    plain.push((name.as_str(), type_ann, *init));
+                } else {
+                    if seen.contains(name.as_str()) {
+                        plain.push((name.as_str(), type_ann, *init));
+                    }
+                    // A closure minted DEEPER in the init (object-
+                    // literal method, array element, `new` argument)
+                    // forward-references the same way a closure init
+                    // does — its captures mark later bindings for the
+                    // plain hoist. Extra `seen` entries are harmless:
+                    // they only matter when a later binding matches
+                    // one, and matching means it was captured.
+                    let mut nested: Vec<&str> = Vec::new();
+                    crate::ast::nested_closure_captures::collect(ast, *init, &mut nested);
+                    for c in nested {
+                        captured.insert(c);
+                        seen.insert(c);
+                    }
                 }
             }
             Stmt::Multi(inner) => collect_inner(ast, inner, decls, plain, captured, seen),

@@ -66,6 +66,7 @@ mod inject_builtin_classes_data;
 mod lift_arrow_fns;
 mod module_passes;
 mod named_eval;
+pub(crate) mod nested_closure_captures;
 mod nested_fns;
 mod nested_fns_capture;
 mod nested_fns_idents;

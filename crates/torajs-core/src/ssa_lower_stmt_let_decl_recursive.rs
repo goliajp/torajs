@@ -205,6 +205,17 @@ fn collect<'s>(
                     for c in captures {
                         seen_captures.insert(c.clone());
                     }
+                } else {
+                    // A closure minted DEEPER in the init (object-
+                    // literal method, array element, `new` argument)
+                    // forward-references the same way — collect its
+                    // captures so a later binding gets its box (or,
+                    // at top level, rides the data-global lane).
+                    let mut nested: Vec<&str> = Vec::new();
+                    crate::ast::nested_closure_captures::collect(ctx.ast, *init, &mut nested);
+                    for c in nested {
+                        seen_captures.insert(c.to_string());
+                    }
                 }
             }
             Stmt::Multi(inner) => collect(ctx, inner.iter(), seen_captures, plan),
