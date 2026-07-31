@@ -201,7 +201,13 @@ fn collect_position_faces(
                 // forEach only (their sole callback-bearing method —
                 // the mapset kernels thread the thisArg box).
                 let mapset_ok = name == "forEach";
-                if !matches!(&exprs[obj.0 as usize], Expr::Ident(n)
+                // An INLINE array-literal receiver
+                // (`[1,2].forEach(<fn-expr>, thisArg)`) is the
+                // arraylit_recvs shape without the binding hop — same
+                // inlined-loop trio, same thisArg thread.
+                let inline_arraylit = typed_ok && matches!(&exprs[obj.0 as usize], Expr::Array(_));
+                if !inline_arraylit
+                    && !matches!(&exprs[obj.0 as usize], Expr::Ident(n)
                     if any_recvs.contains(n)
                         || (typed_ok && arraylit_recvs.contains(n))
                         || (mapset_ok && mapset_recvs.contains(n)))
@@ -210,6 +216,13 @@ fn collect_position_faces(
                 }
                 if let Some(cb) = args.first() {
                     collect_face(stmts, exprs, *cb, fn_expr_exprs, patches);
+                    // NOT collect_ident_face: a variable-routed
+                    // callback promoted through this face ran the
+                    // loop with shifted args and dropped the
+                    // program's output silently (probed rotation
+                    // 260) — the HOF lowering trio resolves a
+                    // promoted cb by the face ExprId, which an
+                    // Ident hop hides. Keeps today's loud reject.
                 }
             }
             _ => {}
