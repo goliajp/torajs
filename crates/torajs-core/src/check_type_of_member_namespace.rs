@@ -213,10 +213,9 @@ pub(crate) fn try_match(obj_ty: &Type, name: &str) -> Option<Result<Type, String
          * raises the same catchable TypeError bun/JSC does, so the
          * signature only needs to admit any call shape. Arity
          * reflection comes from the ns-static table row, not here. */
-        (
-            Type::Object("Promise"),
-            "resolve" | "reject" | "all" | "allSettled" | "any" | "race",
-        ) => Type::Function(vec![Type::Any], Box::new(Type::Any)),
+        (Type::Object("Promise"), "resolve" | "reject" | "all" | "allSettled" | "any" | "race") => {
+            Type::Function(vec![Type::Any], Box::new(Type::Any))
+        }
         // Iterator statics read as VALUES (RFC 20260731 刀 5) — call
         // positions hit the statics wedges first; this arm serves the
         // reflection face (`Iterator.concat.length`, aliased calls
