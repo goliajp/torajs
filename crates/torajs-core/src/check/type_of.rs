@@ -35,7 +35,7 @@ impl Checker {
                 // distinguished literal (undefined / NaN / Infinity) →
                 // unknown identifier error. See
                 // [`crate::check_type_of_ident::check`].
-                crate::check_type_of_ident::check(self, name)
+                crate::check_type_of_ident::check(self, eid, name)
             }
             Expr::Member { obj, name } => {
                 // rotation 233 — a parser-minted `await e` read

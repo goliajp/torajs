@@ -24,9 +24,13 @@
 //!    `NaN` / `Infinity` → `Type::Number`.
 //! 7. **Unknown** — `Err("unknown identifier ...")`.
 
-use crate::check::{Checker, Type};
+use crate::check::{Checker, DiagPush, Type};
 
-pub(crate) fn check(checker: &Checker, name: &str) -> Result<Type, String> {
+pub(crate) fn check(
+    checker: &mut Checker,
+    eid: crate::ast::ExprId,
+    name: &str,
+) -> Result<Type, String> {
     if let Some(info) = checker.lookup(name) {
         return Ok(info.ty);
     }
@@ -184,6 +188,25 @@ pub(crate) fn check(checker: &Checker, name: &str) -> Result<Type, String> {
             )
             .ok_or_else(|| format!("unresolvable async tail type `{ann}`"))
         }
-        other => Err(format!("unknown identifier `{other}`")),
+        // RFC 20260730-undeclared-ident (§6.2.5.5) — an expression-
+        // position read that resolves nowhere is not a compile
+        // reject: it types `Any`, carries a Warning diagnostic, and
+        // raises a catchable ReferenceError when evaluated (see
+        // ssa_lower_ident::try_undeclared_read_throw). Two carve-outs
+        // stay hard errors: `__`-prefixed names are compiler-
+        // synthesized (an unresolved one is a compiler bug, not user
+        // code), and reads issued from the hoist pre-pass run before
+        // the scope is fully built (a mark there would turn a legal
+        // forward reference into a bogus runtime throw).
+        other => {
+            if other.starts_with("__") || checker.hoist_prepass_depth > 0 {
+                return Err(format!("unknown identifier `{other}`"));
+            }
+            checker.undeclared_reads.insert(eid);
+            checker
+                .errors
+                .push_warn(format!("unknown identifier `{other}`"));
+            Ok(Type::Any)
+        }
     }
 }

@@ -233,6 +233,18 @@ pub(crate) fn check_post_incr(
     target: ExprId,
 ) -> Result<Type, String> {
     let ty = checker.type_of(ast, target)?;
+    // RFC 20260730-undeclared-ident — an update expression both
+    // reads and WRITES its target, and the write side of undeclared
+    // names stays a compile reject (annexB implicit-global writes
+    // are out of scope). The type_of above marked the read; unmark
+    // and reject — this program never compiles.
+    if checker.undeclared_reads.remove(&target) {
+        let name = match ast.get_expr(target) {
+            Expr::Ident(n) => n.as_str(),
+            _ => "?",
+        };
+        return Err(format!("assignment to undeclared `{name}`"));
+    }
     // ES §13.4.4.1 step 1 is ToNumeric, so an update expression is
     // legal over any value — `"5"++` is 6, `true++` is 2. The typed
     // lane still demands a Number because it adds one at the slot's

@@ -68,7 +68,6 @@ impl Diagnostic {
 /// attachment swaps `push_err(msg)` for `push_err_at(eid, msg)`.
 pub(crate) trait DiagPush {
     fn push_err(&mut self, msg: String);
-    #[allow(dead_code)] // T-06 lint will populate
     fn push_warn(&mut self, msg: String);
     /// Span-aware variant. Looks up the source span from `ast.expr_spans`.
     #[allow(dead_code)]

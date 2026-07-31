@@ -63,6 +63,15 @@ pub type CheckArtifacts = (
 /// inside the pass (see check_monomorph.rs), so only main-pipeline
 /// errors reject the program.
 pub fn check_with_arity(ast: &Ast) -> Result<CheckArtifacts, String> {
+    check_with_arity_warn(ast).map(|(artifacts, _)| artifacts)
+}
+
+/// RFC 20260730-undeclared-ident — variant that also surfaces the
+/// main pipeline's Warning diagnostics (deduped, insertion order).
+/// `tr run` / `tr build` print them to stderr without rejecting —
+/// the tsc posture (diagnose + still emit). Collected before the
+/// mono pass, whose specialization diagnostics are discarded.
+pub fn check_with_arity_warn(ast: &Ast) -> Result<(CheckArtifacts, Vec<String>), String> {
     let mut c = Checker::new();
     c.run_full_pipeline(ast);
     let error_messages: Vec<String> = c
@@ -74,14 +83,25 @@ pub fn check_with_arity(ast: &Ast) -> Result<CheckArtifacts, String> {
     if !error_messages.is_empty() {
         return Err(error_messages.join("\n"));
     }
+    let mut seen = std::collections::HashSet::new();
+    let warnings: Vec<String> = c
+        .errors
+        .iter()
+        .filter(|d| d.severity == Severity::Warning)
+        .map(|d| d.message.clone())
+        .filter(|m| seen.insert(m.clone()))
+        .collect();
     let mono = crate::check_monomorph::monomorphize_and_check(&mut c, ast);
     Ok((
-        c.generic_call_sites,
-        c.expr_types,
-        c.arity_pad_count,
-        c.demoted_cm_rewrites,
-        c.contextual_any_literals,
-        mono,
+        (
+            c.generic_call_sites,
+            c.expr_types,
+            c.arity_pad_count,
+            c.demoted_cm_rewrites,
+            c.contextual_any_literals,
+            mono,
+        ),
+        warnings,
     ))
 }
 

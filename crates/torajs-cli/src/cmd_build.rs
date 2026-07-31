@@ -196,10 +196,17 @@ pub(crate) fn lower_to_ssa(input: &str) -> Result<Module, ExitCode> {
     ast::apply_spread_args(&mut ast);
     ast::fold_fromentries(&mut ast);
 
-    let artifacts = check::check_with_arity(&ast).map_err(|e| {
+    let (artifacts, warnings) = check::check_with_arity_warn(&ast).map_err(|e| {
         eprintln!("type error: {e}");
         ExitCode::from(1)
     })?;
+    // RFC 20260730-undeclared-ident — non-fatal diagnostics: printed,
+    // program still compiles and runs (spec semantics take over at
+    // runtime). The `warning:` prefix stays outside the test262
+    // verdict classifier's compile-reject set.
+    for w in &warnings {
+        eprintln!("warning: {w}");
+    }
 
     // ssa_lower panics on unsupported AST shapes; surface them as the
     // exit-3 "not yet supported" contract the bench harness keys on.

@@ -175,8 +175,8 @@ pub use crate::check_type_to_ann::type_to_ann;
 // `torajs_core::check::check_with_arity`, etc.) keep their import
 // paths working.
 pub use crate::check_entry::{
-    CheckArtifacts, check, check_with_arity, check_with_types, collect_diagnostics, collect_errors,
-    collect_types_and_errors,
+    CheckArtifacts, check, check_with_arity, check_with_arity_warn, check_with_types,
+    collect_diagnostics, collect_errors, collect_types_and_errors,
 };
 
 // Post-check monomorphization output (RFC
@@ -209,6 +209,7 @@ impl Checker {
             contextual_any_literals: std::collections::HashSet::new(),
             iter_destr_srcs: HashMap::new(),
             undeclared_reads: std::collections::HashSet::new(),
+            hoist_prepass_depth: 0,
             assign_narrows: HashMap::new(),
             member_narrows: HashMap::new(),
         }
@@ -360,6 +361,12 @@ pub(crate) struct Checker {
     /// as runtime ReferenceError by the lowerer. Carried to the
     /// lowerer on the post-check AST by `check_monomorph`.
     pub(crate) undeclared_reads: std::collections::HashSet<ExprId>,
+    /// RFC 20260730-undeclared-ident — non-zero while the closure-let
+    /// hoist pre-pass speculatively types an init in a scope that is
+    /// not fully built yet. Unresolved reads under this gate stay
+    /// hard `Err` (never marked): the ordinary pass re-types the same
+    /// expression with the real scope and decides for keeps.
+    pub(crate) hoist_prepass_depth: u32,
     /// Straight-line assignment-narrowing ledger — `name → declared
     /// (pre-narrow) type` for bindings narrowed by a statement-level
     /// `b = <non-null>` assign (see check_assign_narrow.rs). Flushed
@@ -391,6 +398,7 @@ pub(crate) use crate::check_substitute_typevars::substitute_typevars;
 
 #[cfg(test)]
 mod tests {
+    use crate::check::{Checker, Severity};
     use crate::lexer;
     use crate::parser;
 
@@ -710,18 +718,37 @@ mod tests {
 
     #[test]
     fn for_init_var_doesnt_leak_outer_scope() {
+        // RFC 20260730-undeclared-ident — the out-of-scope read is no
+        // longer a compile reject: it types Any, carries a Warning,
+        // and defers to a runtime ReferenceError. The scope fact
+        // under test (the for-init `i` does not leak) now shows up as
+        // the undeclared-read warning + mark instead of an error.
         let src = r#"
             for (let i: number = 0; i < 10; i = i + 1) {
             }
             let n: number = i;
         "#;
-        let r = check_src(src);
+        let tokens = lexer::tokenize(src).unwrap();
+        let mut ast = parser::parse(src, &tokens).unwrap();
+        crate::ast::lift_arrow_fns(&mut ast);
+        let mut c = Checker::new();
+        c.run_full_pipeline(&ast);
         assert!(
-            r.as_ref()
-                .err()
-                .map(|s| s.contains("unknown identifier `i`"))
-                .unwrap_or(false),
-            "expected scope-leak error, got {r:?}"
+            !c.errors.iter().any(|d| d.severity == Severity::Error),
+            "expected no hard errors, got {:?}",
+            c.errors
+        );
+        assert!(
+            c.errors
+                .iter()
+                .any(|d| d.severity == Severity::Warning
+                    && d.message.contains("unknown identifier `i`")),
+            "expected undeclared-read warning for `i`, got {:?}",
+            c.errors
+        );
+        assert!(
+            !c.undeclared_reads.is_empty(),
+            "expected the out-of-scope read to be marked"
         );
     }
 
