@@ -91,9 +91,15 @@ fn lower_higher_order(
     // arg: args[1] lowers into an Any box (undefined when absent).
     // Only map / filter / forEach carry a thisArg — reduce's args[1]
     // is the initialValue.
+    // A promoted callback is either the inline Closure itself or a
+    // knife-2 variable-routed binding (`fnexpr_recv_locals`) — both
+    // native ABIs carry the leading `__this`; missing the Ident
+    // shape ran the loop with shifted args (rotation 260).
     let promoted = matches!(ctx.ast.get_expr(args[0]),
         Expr::Closure { fn_name, .. } if ctx.ast.fnexpr_recv_fns.contains(fn_name))
-        && matches!(method.as_str(), "map" | "filter" | "forEach");
+        || matches!(ctx.ast.get_expr(args[0]),
+            Expr::Ident(n) if ctx.ast.fnexpr_recv_locals.contains(n));
+    let promoted = promoted && matches!(method.as_str(), "map" | "filter" | "forEach");
     let mut this_temp: Option<(ExprId, Operand)> = None;
     let this_arg: Option<Operand> = if promoted {
         if let Some(&t) = args.get(1) {

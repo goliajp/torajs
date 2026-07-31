@@ -182,7 +182,7 @@ impl<'a> LowerCtx<'a> {
         sig_skip: usize,
     ) -> ValueId {
         let (args, drops) = self.materialize_call_args(fn_ty, args, sig_skip);
-        let ret = self.call_fn_value_raw(fn_val, fn_ty, args);
+        let ret = self.call_fn_value_raw(fn_val, fn_ty, args, sig_skip);
         for (d, ty) in drops {
             self.emit_drop_value(d, ty);
         }
@@ -238,7 +238,13 @@ impl<'a> LowerCtx<'a> {
         ret
     }
 
-    fn call_fn_value_raw(&mut self, fn_val: Operand, fn_ty: Type, args: Vec<Operand>) -> ValueId {
+    fn call_fn_value_raw(
+        &mut self,
+        fn_val: Operand,
+        fn_ty: Type,
+        args: Vec<Operand>,
+        sig_skip: usize,
+    ) -> ValueId {
         match fn_ty {
             Type::Closure(user_sig_id) => {
                 let env_ptr = match fn_val {
@@ -252,8 +258,17 @@ impl<'a> LowerCtx<'a> {
                     None,
                 );
                 let (user_params, ret_ty) = self.fn_sigs[user_sig_id.0 as usize].clone();
-                let mut env_first = Vec::with_capacity(user_params.len() + 1);
+                let mut env_first = Vec::with_capacity(user_params.len() + 1 + sig_skip);
                 env_first.push(Type::Ptr);
+                // Skipped leading argv entries (a promoted callback's
+                // boxed `__this`) are in the native ABI but shed from
+                // the user sig — the indirect call's own sig must
+                // carry their slots or the CallIndirect type drops
+                // them (the devirt lane never sees this: a direct
+                // Call takes its type from the fn definition).
+                for _ in 0..sig_skip {
+                    env_first.push(Type::Any);
+                }
                 env_first.extend(user_params);
                 let env_first_sig = intern_fn_sig(self.fn_sigs, env_first, ret_ty);
                 let mut argv = Vec::with_capacity(args.len() + 1);
@@ -267,6 +282,10 @@ impl<'a> LowerCtx<'a> {
                 )
             }
             Type::FnSig(sig_id) => {
+                // A bare fn value never rides the fnexpr-this
+                // promotion (no env, no receiver slot) — a skip here
+                // would silently mis-type the indirect call.
+                assert_eq!(sig_skip, 0, "sig_skip on a FnSig callee");
                 let fn_ptr_val = match fn_val {
                     Operand::Value(v) => v,
                     _ => unreachable!("fnsig value is SSA"),

@@ -273,6 +273,7 @@ pub(crate) mod ssa_lower_call_arr_iter_ctor;
 pub(crate) mod ssa_lower_call_arr_predicate;
 pub(crate) mod ssa_lower_call_arr_push;
 pub(crate) mod ssa_lower_call_array_from;
+pub(crate) mod ssa_lower_call_array_from_loop;
 pub(crate) mod ssa_lower_call_array_is_array;
 pub(crate) mod ssa_lower_call_array_of;
 pub(crate) mod ssa_lower_call_bare_globals;

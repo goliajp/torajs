@@ -194,6 +194,7 @@ fn collect_position_faces(
                 }
                 if let Some(cb) = args.get(1) {
                     collect_face(stmts, exprs, *cb, fn_expr_exprs, patches);
+                    collect_ident_face(exprs, *cb, ident_cands);
                 }
             }
             // Knife 4 — array HOF callback position over a
@@ -229,13 +230,14 @@ fn collect_position_faces(
                 }
                 if let Some(cb) = args.first() {
                     collect_face(stmts, exprs, *cb, fn_expr_exprs, patches);
-                    // NOT collect_ident_face: a variable-routed
-                    // callback promoted through this face ran the
-                    // loop with shifted args and dropped the
-                    // program's output silently (probed rotation
-                    // 260) — the HOF lowering trio resolves a
-                    // promoted cb by the face ExprId, which an
-                    // Ident hop hides. Keeps today's loud reject.
+                    // A variable-routed callback rides knife 2's
+                    // zero-alias profile. The HOF lowerings detect
+                    // the promoted binding through
+                    // `fnexpr_recv_locals` (the Closure-shape
+                    // detection alone ran the loop with shifted
+                    // args — probed rotation 260, fixed same
+                    // rotation).
+                    collect_ident_face(exprs, *cb, ident_cands);
                 }
             }
             _ => {}
@@ -352,9 +354,16 @@ fn promote_variable_routed(
                 fn_name: fn_name.clone(),
             });
             fnexpr_recv_faces.extend(face_eids.iter().copied());
-            if !mixed_calls.is_empty() {
-                fnexpr_recv_locals.insert(name.clone());
-            }
+            // EVERY promoted binding registers, not only the mixed
+            // profile: the HOF lowerings detect a variable-routed
+            // promoted callback through this set (a pure-face
+            // binding left it empty and the loop called the RECV
+            // ABI without the `__this` argv slot — `this` read the
+            // element box, rotation 260). The direct-call consumer
+            // (`ssa_lower_call_closure_local`) still only fires on
+            // an actual bare-name call, which a pure-face profile
+            // has none of.
+            fnexpr_recv_locals.insert(name.clone());
         }
     }
 }
