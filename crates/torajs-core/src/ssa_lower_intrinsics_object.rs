@@ -123,6 +123,10 @@ pub(crate) struct ObjectIds {
     /// §28.1.3 Reflect.deleteProperty — the OrdinaryDelete kernel's
     /// no-throw flavor (refusal answers 0 with no pending throw).
     pub any_prop_delete_soft: FuncId,
+    /// §28.1.12 Reflect.setPrototypeOf — boolean-answer flavor of
+    /// the OrdinarySetPrototypeOf core (refusal = 0, no throw;
+    /// invalid proto still throws).
+    pub reflect_set_prototype_of: FuncId,
     pub object_create_check_proto: FuncId,
     pub object_create_link_proto: FuncId,
     pub anyv_set_prototype_of: FuncId,
@@ -210,6 +214,7 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
         dynobj_has: decl!("__torajs_dynobj_has", [Ptr, Ptr], I32),
         dynobj_delete: decl!("__torajs_dynobj_delete", [Ptr, Ptr], I32),
         any_prop_delete_soft: decl!("__torajs_any_prop_delete_soft", [Any, Ptr], I64),
+        reflect_set_prototype_of: decl!("__torajs_reflect_set_prototype_of", [Any, Any], I64),
         object_create_check_proto: decl!("__torajs_object_create_check_proto", [Any], Void),
         object_create_link_proto: decl!("__torajs_object_create_link_proto", [Ptr, Any], Void),
         anyv_set_prototype_of: decl!("__torajs_anyv_set_prototype_of", [Any, Any], Void),

@@ -293,6 +293,9 @@ pub(super) enum Disp {
     /// §28.1.3 Reflect.deleteProperty — strict gate + the
     /// OrdinaryDelete kernel (ToString(P) key; Bool answer).
     ReflectDeleteProperty,
+    /// §28.1.12 Reflect.setPrototypeOf — strict gate + the
+    /// boolean-answer OrdinarySetPrototypeOf core.
+    ReflectSetPrototypeOf,
 }
 
 /// The own-enumeration surfaces (shared dispatch shape) — `Names`
@@ -405,4 +408,5 @@ pub(super) static DISPATCH: &[Disp] = &[
     Disp::ReflectPreventExtensions,
     Disp::ReflectIsExtensible,
     Disp::ReflectDeleteProperty,
+    Disp::ReflectSetPrototypeOf,
 ];

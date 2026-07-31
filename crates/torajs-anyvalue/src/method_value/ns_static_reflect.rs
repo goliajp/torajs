@@ -22,6 +22,9 @@ unsafe extern "C" {
     /// torajs-meta — the §10.1.6.3 strict Type(O) gate (every
     /// primitive throws, heap-cell Str/BigInt/Symbol included).
     fn __torajs_anyv_throw_typeerror_if_not_object(obj_any: u64);
+    /// torajs-meta — §28.1.12 boolean-answer OrdinarySetPrototypeOf
+    /// (refusal = 0, no throw; invalid proto throws inside).
+    fn __torajs_reflect_set_prototype_of(obj: u64, proto: u64) -> i64;
 }
 
 /// §28.1.5 Reflect.getOwnPropertyDescriptor as a detached call —
@@ -107,5 +110,21 @@ pub(super) unsafe fn reflect_delete_property(argv: *const u64, argc: i64) -> u64
         } else {
             VALUE_FALSE
         }
+    }
+}
+
+/// §28.1.12 Reflect.setPrototypeOf as a detached call — strict gate
+/// + the boolean-answer OrdinarySetPrototypeOf core.
+pub(super) unsafe fn reflect_set_prototype_of(argv: *const u64, argc: i64) -> u64 {
+    unsafe {
+        __torajs_anyv_throw_typeerror_if_not_object(arg_at(argv, argc, 0));
+        if __torajs_throw_check() != 0 {
+            return VALUE_UNDEFINED;
+        }
+        let ok = __torajs_reflect_set_prototype_of(arg_at(argv, argc, 0), arg_at(argv, argc, 1));
+        if __torajs_throw_check() != 0 {
+            return VALUE_UNDEFINED;
+        }
+        if ok != 0 { VALUE_TRUE } else { VALUE_FALSE }
     }
 }

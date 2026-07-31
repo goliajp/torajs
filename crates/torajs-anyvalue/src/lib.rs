@@ -480,6 +480,12 @@ mod tests {
     // IsObject gate (shipped binary resolves libtorajs_meta.a).
     #[unsafe(no_mangle)]
     pub unsafe extern "C" fn __torajs_anyv_throw_typeerror_if_not_object(_obj_any: u64) {}
+    // rotation 266 刀 R4 — the ReflectSetPrototypeOf arm's kernel
+    // (shipped binary resolves libtorajs_meta.a).
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_reflect_set_prototype_of(_obj: u64, _proto: u64) -> i64 {
+        0
+    }
     #[unsafe(no_mangle)]
     pub unsafe extern "C" fn __torajs_anyv_from_entries(_entries: u64) -> u64 {
         0

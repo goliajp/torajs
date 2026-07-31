@@ -199,6 +199,9 @@ pub static NS_STATIC_TABLE: &[NsStaticRow] = &[
     // §28.1.3 Reflect.deleteProperty (rotation 266 刀 R3) — strict
     // gate + the OrdinaryDelete kernel. Length per spec.
     row("Reflect", "deleteProperty", 2),
+    // §28.1.12 Reflect.setPrototypeOf (rotation 266 刀 R4) — strict
+    // gate + the boolean-answer OrdinarySetPrototypeOf core.
+    row("Reflect", "setPrototypeOf", 2),
 ];
 
 /// Compile-time `(namespace, member)` → id. Linear scan — lower-time

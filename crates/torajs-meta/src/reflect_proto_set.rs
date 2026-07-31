@@ -218,6 +218,40 @@ pub unsafe extern "C" fn __torajs_anyv_set_prototype_of(obj: u64, proto: u64) {
     }
 }
 
+/// `Reflect.setPrototypeOf(target, proto)` — §28.1.12 (rotation 266
+/// 刀 R4). Same OrdinarySetPrototypeOf core as the Object flavor,
+/// but a refusal (cycle / non-extensible / fixed-layout boundary)
+/// answers 0 instead of throwing — the [[SetPrototypeOf]] boolean is
+/// the Reflect return value (§10.1.2). An invalid proto still throws
+/// (step 1 both flavors). The caller's strict IsObject gate runs
+/// first, so a primitive target never reaches the pass-through arm.
+///
+/// # Safety
+/// `obj` / `proto` carry valid AnyValue bit patterns.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_reflect_set_prototype_of(obj: u64, proto: u64) -> i64 {
+    unsafe {
+        if !is_null_any(proto) && !is_cell_imm(proto) {
+            __torajs_throw_type_error(c"Prototype must be an object or null".as_ptr());
+            return 0;
+        }
+        if !is_cell_imm(obj) {
+            return 0;
+        }
+        let cell = obj as *mut c_void;
+        if heap_type_tag(cell) != TAG_DYNOBJ {
+            // Fixed-layout struct / exotic (Arr / Closure / wrapper)
+            // receivers cannot take a new [[Prototype]] in tr — the
+            // Object flavor throws / silently keeps; the honest
+            // Reflect spelling of "the write cannot take effect" is
+            // false (recorded boundary, same family as the
+            // rotation-154 struct probe).
+            return 0;
+        }
+        i64::from(ordinary_set_prototype_of(cell, proto))
+    }
+}
+
 /// Annex B §B.2.2.1 `set __proto__(v)` — an invalid v is silently
 /// ignored (step 2 returns undefined); only the OrdinarySetPrototypeOf
 /// refusal throws.

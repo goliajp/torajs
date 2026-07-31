@@ -110,6 +110,12 @@ pub(crate) fn try_match(obj_ty: &Type, name: &str) -> Option<Result<Type, String
         (Type::Object("Reflect"), "isExtensible" | "preventExtensions") => {
             Type::Function(vec![Type::Any], Box::new(Type::Boolean))
         }
+        // §28.1.12 Reflect.setPrototypeOf (rotation 266 刀 R4) —
+        // strict gate + the boolean-answer OrdinarySetPrototypeOf
+        // core (refusal = false, invalid proto throws).
+        (Type::Object("Reflect"), "setPrototypeOf") => {
+            Type::Function(vec![Type::Any, Type::Any], Box::new(Type::Boolean))
+        }
         // §28.1.3 Reflect.deleteProperty (rotation 266 刀 R3) —
         // strict gate + the `delete`-expression OrdinaryDelete
         // kernel; Bool answer (absent = true, non-configurable =
