@@ -476,6 +476,10 @@ mod tests {
     ) -> u64 {
         0
     }
+    // rotation 266 刀 R1 — the ReflectGopd dispatch arm's strict
+    // IsObject gate (shipped binary resolves libtorajs_meta.a).
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_anyv_throw_typeerror_if_not_object(_obj_any: u64) {}
     #[unsafe(no_mangle)]
     pub unsafe extern "C" fn __torajs_anyv_from_entries(_entries: u64) -> u64 {
         0

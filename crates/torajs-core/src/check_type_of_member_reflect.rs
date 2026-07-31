@@ -90,6 +90,14 @@ pub(crate) fn try_match(obj_ty: &Type, name: &str) -> Option<Result<Type, String
         (Type::Object("Reflect"), "get") => {
             Type::Function(vec![Type::Any, Type::String], Box::new(Type::Any))
         }
+        // §28.1.5 Reflect.getOwnPropertyDescriptor (rotation 266
+        // 刀 R1) — the Object.getOwnPropertyDescriptor lowering
+        // with a strict IsObject gate in front (every primitive
+        // throws, no ToObject). Key domain is Any per ToPropertyKey
+        // (symbol keys ride through, matching the Object flavor).
+        (Type::Object("Reflect"), "getOwnPropertyDescriptor") => {
+            Type::Function(vec![Type::Any, Type::Any], Box::new(Type::Any))
+        }
         _ => return None,
     };
     Some(Ok(ty))

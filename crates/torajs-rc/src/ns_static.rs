@@ -183,6 +183,11 @@ pub static NS_STATIC_TABLE: &[NsStaticRow] = &[
     row("Iterator", "concat", 0),
     row("Iterator", "zip", 1),
     row("Iterator", "zipKeyed", 1),
+    // §28.1.5 Reflect.getOwnPropertyDescriptor (rotation 266 刀 R1)
+    // — strict IsObject gate (no ToObject) in front of the same meta
+    // descriptor kernel Object.getOwnPropertyDescriptor settles
+    // through. Length per §28.1.5.
+    row("Reflect", "getOwnPropertyDescriptor", 2),
 ];
 
 /// Compile-time `(namespace, member)` → id. Linear scan — lower-time

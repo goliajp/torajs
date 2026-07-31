@@ -276,6 +276,10 @@ pub(super) enum Disp {
     IteratorZip {
         keyed: bool,
     },
+    /// §28.1.5 Reflect.getOwnPropertyDescriptor — strict IsObject
+    /// gate (step 1 throws on every primitive, no ToObject) in front
+    /// of the same descriptor path as `Disp::Gopd`.
+    ReflectGopd,
 }
 
 /// The own-enumeration surfaces (shared dispatch shape) — `Names`
@@ -383,4 +387,5 @@ pub(super) static DISPATCH: &[Disp] = &[
     Disp::IteratorConcat,
     Disp::IteratorZip { keyed: false },
     Disp::IteratorZip { keyed: true },
+    Disp::ReflectGopd,
 ];

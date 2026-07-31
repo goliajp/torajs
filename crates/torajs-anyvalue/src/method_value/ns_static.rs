@@ -268,6 +268,7 @@ unsafe fn dispatch(id: i64, argv: *const u64, argc: i64) -> u64 {
                     arg_at(argv, argc, 1),
                 )
             }
+            Disp::ReflectGopd => super::ns_static_ctor::reflect_gopd_static(argv, argc),
         }
     }
 }

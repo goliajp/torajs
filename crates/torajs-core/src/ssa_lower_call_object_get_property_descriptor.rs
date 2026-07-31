@@ -69,7 +69,14 @@ pub(crate) fn try_lower(
     let Expr::Ident(ns) = ctx.ast.get_expr(ns_id) else {
         return None;
     };
-    if ns != "Object" {
+    // §28.1.5 Reflect.getOwnPropertyDescriptor (rotation 266 刀 R1)
+    // shares this lowering: same descriptor kernel, but step 1 is a
+    // strict IsObject gate (every primitive throws, no ToObject) —
+    // emitted below via the define family's receiver guard. The
+    // Object-flavored Str fast paths are skipped: a Str target under
+    // Reflect must throw, not answer wrapper own-props.
+    let is_reflect = ns == "Reflect";
+    if ns != "Object" && !is_reflect {
         return None;
     }
     let obj_raw = ctx.lower_expr(args[0]);
@@ -77,9 +84,18 @@ pub(crate) fn try_lower(
     for &a in args.iter().skip(2) {
         let _ = ctx.lower_expr(a);
     }
+    if is_reflect {
+        crate::ssa_lower_object_define::emit_receiver_typecheck(
+            ctx,
+            args[0],
+            &obj_raw,
+            obj_ty.clone(),
+        );
+    }
     let key_expr = ctx.ast.get_expr(args[1]);
     let cur_block = ctx.cur_block;
-    if matches!(obj_ty, Type::Str)
+    if !is_reflect
+        && matches!(obj_ty, Type::Str)
         && let Expr::String(k) = key_expr
         && k == "length"
     {
@@ -91,7 +107,8 @@ pub(crate) fn try_lower(
         );
         return Some(Operand::Value(v));
     }
-    if matches!(obj_ty, Type::Str)
+    if !is_reflect
+        && matches!(obj_ty, Type::Str)
         && let Expr::String(k) = key_expr
         && is_canonical_index_key(k)
         && let Ok(idx) = k.parse::<i64>()
