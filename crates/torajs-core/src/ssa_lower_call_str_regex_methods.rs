@@ -68,7 +68,16 @@ pub(crate) fn try_lower(
     // kernel throws TypeError on non-global — the coerced RegExp
     // must be global implicitly). Emit the coerce inline below and
     // fall through to the shared dispatch block.
-    let coerce_match_lane = !arg0_is_regex && matches!(name.as_str(), "match" | "matchAll");
+    //
+    // Rotation 262 — `search` joins the coerce lane for an
+    // Any-typed single arg only (§22.1.3.20 step 4; regex, not
+    // indexOf, semantics): the string-arg spelling keeps its
+    // member-table indexOf boundary and every other shape keeps
+    // today's route.
+    let arg0_is_any = matches!(ctx.expr_types.get(&args[0]), Some(crate::check::Type::Any));
+    let coerce_match_lane = !arg0_is_regex
+        && (matches!(name.as_str(), "match" | "matchAll")
+            || (name == "search" && arg0_is_any && args.len() == 1));
     if !arg0_is_regex && !coerce_match_lane {
         return None;
     }
@@ -93,23 +102,30 @@ pub(crate) fn try_lower(
     } else {
         raw_recv
     };
-    // §22.1.3.13 step 3 — an Any-typed pattern may carry a user
-    // `@@match` method; branch on the runtime probe before the
-    // step-4 coerce. The checker mirrors this exact gate with a
-    // `Type::Any` result (`check_type_of_call_string_match`), so
-    // only the single-arg `match` shape with a checker-Any pattern
-    // routes here.
+    // §22.1.3.{13,20} step 3 — an Any-typed pattern may carry a
+    // user `@@match` / `@@search` method; branch on the runtime
+    // probe before the step-4 coerce. The checker mirrors this
+    // exact gate with a `Type::Any` result
+    // (`check_type_of_call_string_match` / `_search_regex`), so
+    // only the single-arg shape with a checker-Any pattern AND
+    // store evidence routes here; a store-free Any pattern falls
+    // through to the plain coerce lane below.
     if coerce_match_lane
-        && name == "match"
-        && matches!(ctx.expr_types.get(&args[0]), Some(crate::check::Type::Any))
+        && matches!(name.as_str(), "match" | "search")
+        && arg0_is_any
         && crate::check_type_of_call_string_match::any_pattern_may_carry_matcher(ctx.ast, args[0])
     {
-        let arr_id = intern_arr_layout(ctx.arr_layouts, Type::Str);
-        let result = crate::ssa_lower_call_str_match_custom::lower_match_any_pattern(
+        use crate::ssa_lower_call_str_match_custom::SymbolDispatchKind;
+        let kind = if name == "search" {
+            SymbolDispatchKind::Search
+        } else {
+            SymbolDispatchKind::Match
+        };
+        let result = crate::ssa_lower_call_str_match_custom::lower_symbol_dispatch_pattern(
             ctx,
             recv_op.clone(),
             args,
-            arr_id,
+            kind,
         );
         if recv_is_view {
             ctx.emit_drop_value(recv_op, Type::Str);
