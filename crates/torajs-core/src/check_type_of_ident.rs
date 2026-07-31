@@ -192,14 +192,22 @@ pub(crate) fn check(
         // position read that resolves nowhere is not a compile
         // reject: it types `Any`, carries a Warning diagnostic, and
         // raises a catchable ReferenceError when evaluated (see
-        // ssa_lower_ident::try_undeclared_read_throw). Two carve-outs
-        // stay hard errors: `__`-prefixed names are compiler-
-        // synthesized (an unresolved one is a compiler bug, not user
-        // code), and reads issued from the hoist pre-pass run before
-        // the scope is fully built (a mark there would turn a legal
-        // forward reference into a bogus runtime throw).
+        // ssa_lower_ident::try_undeclared_read_throw). Three
+        // carve-outs stay hard errors: `__`-prefixed names are
+        // compiler-synthesized (an unresolved one is a compiler bug,
+        // not user code); reads issued from the hoist pre-pass run
+        // before the scope is fully built (a mark there would turn a
+        // legal forward reference into a bogus runtime throw); and
+        // known builtin globals (`parseInt` / `queueMicrotask` / …)
+        // that exist only as NAME-keyed call lanes — a speculative
+        // wedge probe types their callee Ident, and a mark there
+        // turns every such call into a bogus runtime throw (gate
+        // caught 28: parseInt ×10, queueMicrotask ×5, isNaN, …).
         other => {
-            if other.starts_with("__") || checker.hoist_prepass_depth > 0 {
+            if other.starts_with("__")
+                || checker.hoist_prepass_depth > 0
+                || crate::check::is_known_builtin_global(other)
+            {
                 return Err(format!("unknown identifier `{other}`"));
             }
             checker.undeclared_reads.insert(eid);
