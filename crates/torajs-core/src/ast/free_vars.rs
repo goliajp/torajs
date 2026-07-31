@@ -277,6 +277,15 @@ fn walk_stmt(ast: &Ast, s: &Stmt, bound: &mut Vec<String>, out: &mut Vec<String>
 /// objects. Kept in sync with `check.rs`'s `type_of(Expr::Ident)`
 /// fallback list.
 fn is_global_name(name: &str) -> bool {
+    // Compiler-synthesized helpers (`__torajs_date_from_ms`, the
+    // arguments materializer, reify hooks, ...) resolve through the
+    // checker's ident fallback and lower as intrinsics — capturing
+    // one renames it out from under that resolution (a lifted
+    // closure inside desugared Date code answered "references
+    // unknown identifier `__torajs_date_from_ms`").
+    if name.starts_with("__torajs_") {
+        return true;
+    }
     matches!(
         name,
         // Built-in objects + namespaces
@@ -309,6 +318,19 @@ fn is_global_name(name: &str) -> bool {
             | "ArrayBuffer"
             | "DataView"
             | "Function"
+            // §27.1.3 Iterator global (RFC 20260730-iterator-global
+            // 刀 1) — landed in the checker fallback but this table
+            // drifted: a closure body's `Iterator.concat(...)`
+            // collected `Iterator` as a capture and the rename broke
+            // both the checker resolution and the statics wedge.
+            | "Iterator"
+            | "WeakRef"
+            // Runtime module namespaces the checker fallback types
+            // (kept in the same sync).
+            | "fs"
+            | "fs_promises"
+            | "process"
+            | "Bun"
             // Numeric constants
             | "NaN"
             | "Infinity"
