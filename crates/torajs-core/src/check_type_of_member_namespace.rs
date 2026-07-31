@@ -16,7 +16,9 @@
 //!   arms (is / entries / fromEntries / values / freeze /
 //!   isFrozen); mixed arms with Reflect / generic Object(_)
 //!   stay in the main match.
-//! - `Promise` static (resolve / reject)
+//! - `Promise` static (resolve / reject / all / allSettled /
+//!   any / race — value-position reflection; call positions are
+//!   intercepted by the call checker first)
 //! - `Symbol` static (for / keyFor)
 //!
 //! Mixed-namespace arms stay in the main match:
@@ -201,17 +203,20 @@ pub(crate) fn try_match(obj_ty: &Type, name: &str) -> Option<Result<Type, String
         (Type::Object("Object"), "isFrozen") => {
             Type::Function(vec![Type::Any], Box::new(Type::Boolean))
         }
-        /* Promise.resolve / reject as a VALUE (RFC 20260720 刀 6).
-         * Direct member calls never reach this arm (the call
-         * checker's T-15.g.4 promise-static handling intercepts
-         * first); a detached value's bare call has an undefined
-         * |this| and both statics require an object this (§27.2.4.7
-         * step 1) — the reified cell's dispatch arm raises the same
-         * catchable TypeError bun/JSC does, so the signature only
-         * needs to admit any call shape. */
-        (Type::Object("Promise"), "resolve" | "reject") => {
-            Type::Function(vec![Type::Any], Box::new(Type::Any))
-        }
+        /* Promise statics as VALUES (RFC 20260720 刀 6; combinators
+         * added rotation 266). Direct member calls never reach this
+         * arm (the call checker's T-15.g.4 promise-static handling
+         * intercepts first); a detached value's bare call has an
+         * undefined |this| and all six statics require an object
+         * this (§27.2.4.7 step 1 / §27.2.4.1 GetPromiseResolve) —
+         * the reified cell's dispatch arm (Disp::PromiseSettle)
+         * raises the same catchable TypeError bun/JSC does, so the
+         * signature only needs to admit any call shape. Arity
+         * reflection comes from the ns-static table row, not here. */
+        (
+            Type::Object("Promise"),
+            "resolve" | "reject" | "all" | "allSettled" | "any" | "race",
+        ) => Type::Function(vec![Type::Any], Box::new(Type::Any)),
         // Iterator statics read as VALUES (RFC 20260731 刀 5) — call
         // positions hit the statics wedges first; this arm serves the
         // reflection face (`Iterator.concat.length`, aliased calls
