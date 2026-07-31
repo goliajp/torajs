@@ -54,39 +54,10 @@ pub(crate) fn try_match(obj_ty: &Type, name: &str) -> Option<Result<Type, String
         (Type::Object("console"), "log" | "error" | "warn" | "info" | "debug") => {
             Type::Function(vec![Type::Any], Box::new(Type::Void))
         }
-        // `Math` global — every method takes one number and
-        // returns a number. f64-flavored at the SSA level
-        // (the lowerer auto-promotes integer args), but
-        // check.rs uses the umbrella Type::Number.
-        (
-            Type::Object("Math"),
-            "sqrt" | "abs" | "floor" | "ceil" | "log" | "exp" | "sign" | "round" | "trunc" | "sin"
-            | "cos" | "tan" | "asin" | "acos" | "atan" | "log2" | "log10" | "cbrt" | "sinh"
-            | "cosh" | "tanh" | "asinh" | "acosh" | "atanh" | "expm1" | "log1p" | "clz32"
-            | "fround" | "f16round",
-        ) => Type::Function(vec![Type::Number], Box::new(Type::Number)),
-        (Type::Object("Math"), "imul") => {
-            Type::Function(vec![Type::Number, Type::Number], Box::new(Type::Number))
-        }
-        // ES2025 §21.3.2.32 — correctly-rounded sum of an
-        // Array<Number>. Narrow form: only Array<Number>
-        // input (spec accepts any iterable of Number;
-        // tora's Set/Map/iterator surface comes later).
-        (Type::Object("Math"), "sumPrecise") => Type::Function(
-            vec![Type::Array(Box::new(Type::Number))],
-            Box::new(Type::Number),
-        ),
-        (Type::Object("Math"), "random") => Type::Function(Vec::new(), Box::new(Type::Number)),
-        // Two-arg methods: pow(x, y), min(a, b), max(a, b),
-        // atan2(y, x).
-        (Type::Object("Math"), "pow" | "min" | "max" | "atan2") => {
-            Type::Function(vec![Type::Number, Type::Number], Box::new(Type::Number))
-        }
-        // Constants — read directly without parens.
-        (
-            Type::Object("Math"),
-            "PI" | "E" | "LN2" | "LN10" | "LOG2E" | "LOG10E" | "SQRT2" | "SQRT1_2",
-        ) => Type::Number,
+        // `Math` family — extracted to try_match_math (rotation 266:
+        // this fn sat at the 200-line hard limit; the debt-table
+        // watch required extracting an arm before adding one).
+        (Type::Object("Math"), _) => return try_match_math(name),
         // Number namespace constants — common floating-point
         // limits and integer-safety bounds.
         (
@@ -142,6 +113,14 @@ pub(crate) fn try_match(obj_ty: &Type, name: &str) -> Option<Result<Type, String
             vec![Type::String],
             Box::new(Type::Array(Box::new(Type::String))),
         ),
+        // §23.1.2.3 Array.of read as a VALUE (rotation 266) — the
+        // direct-call form lowers through the array-literal wedge
+        // first; this arm serves the reflection face (.length = 0,
+        // rest-param shaped) and detached calls through the
+        // ns-static cell's argv pack.
+        (Type::Object("Array"), "of") => {
+            Type::Function(vec![Type::Rest(Box::new(Type::Any))], Box::new(Type::Any))
+        }
         // Object.is(a, b) — strict equality with two
         // corner-case overrides vs `===`: NaN is equal to
         // NaN, and +0 is NOT equal to -0. Lowered per arg
@@ -242,5 +221,35 @@ pub(crate) fn try_match(obj_ty: &Type, name: &str) -> Option<Result<Type, String
         _ => return None,
     };
     let _ = obj_ty;
+    Some(Ok(ty))
+}
+
+/// `Type::Object("Math")` arms — extracted from [`try_match`]
+/// (rotation 266; the parent hit the 200-line fn hard limit).
+fn try_match_math(name: &str) -> Option<Result<Type, String>> {
+    let ty = match name {
+        // Every method takes one number and returns a number.
+        // f64-flavored at the SSA level (the lowerer auto-promotes
+        // integer args), but check.rs uses the umbrella Type::Number.
+        "sqrt" | "abs" | "floor" | "ceil" | "log" | "exp" | "sign" | "round" | "trunc" | "sin"
+        | "cos" | "tan" | "asin" | "acos" | "atan" | "log2" | "log10" | "cbrt" | "sinh"
+        | "cosh" | "tanh" | "asinh" | "acosh" | "atanh" | "expm1" | "log1p" | "clz32"
+        | "fround" | "f16round" => Type::Function(vec![Type::Number], Box::new(Type::Number)),
+        "imul" => Type::Function(vec![Type::Number, Type::Number], Box::new(Type::Number)),
+        // ES2025 §21.3.2.32 — correctly-rounded sum of an
+        // Array<Number>. Narrow form: only Array<Number> input.
+        "sumPrecise" => Type::Function(
+            vec![Type::Array(Box::new(Type::Number))],
+            Box::new(Type::Number),
+        ),
+        "random" => Type::Function(Vec::new(), Box::new(Type::Number)),
+        // Two-arg methods: pow(x, y), min(a, b), max(a, b), atan2(y, x).
+        "pow" | "min" | "max" | "atan2" => {
+            Type::Function(vec![Type::Number, Type::Number], Box::new(Type::Number))
+        }
+        // Constants — read directly without parens.
+        "PI" | "E" | "LN2" | "LN10" | "LOG2E" | "LOG10E" | "SQRT2" | "SQRT1_2" => Type::Number,
+        _ => return None,
+    };
     Some(Ok(ty))
 }

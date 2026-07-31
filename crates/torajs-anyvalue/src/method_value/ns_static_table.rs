@@ -296,6 +296,9 @@ pub(super) enum Disp {
     /// §28.1.12 Reflect.setPrototypeOf — strict gate + the
     /// boolean-answer OrdinarySetPrototypeOf core.
     ReflectSetPrototypeOf,
+    /// §23.1.2.3 Array.of — argv packs into a fresh `Array<Any>`
+    /// (the `Iterator.concat` pack shape, minus the kernel hop).
+    ArrayOf,
 }
 
 /// The own-enumeration surfaces (shared dispatch shape) — `Names`
@@ -409,4 +412,5 @@ pub(super) static DISPATCH: &[Disp] = &[
     Disp::ReflectIsExtensible,
     Disp::ReflectDeleteProperty,
     Disp::ReflectSetPrototypeOf,
+    Disp::ArrayOf,
 ];

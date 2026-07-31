@@ -282,6 +282,7 @@ unsafe fn dispatch(id: i64, argv: *const u64, argc: i64) -> u64 {
             Disp::ReflectSetPrototypeOf => {
                 super::ns_static_reflect::reflect_set_prototype_of(argv, argc)
             }
+            Disp::ArrayOf => super::ns_static_obj::array_of_pack(argv, argc),
         }
     }
 }
@@ -309,23 +310,6 @@ unsafe fn iterator_concat_pack(argv: *const u64, argc: i64) -> u64 {
         }
         crate::iter_concat::__torajs_iterator_concat(items as *mut c_void)
     }
-}
-
-/// Compiler face for the any-arg direct-call lane (RFC
-/// 20260720-symbol-any-call-boundary) — same kernel the dispatcher
-/// arm uses, so ToString coercion and its throw face never drift.
-/// Arg is a borrow; the returned Symbol is owned.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_symbol_for_any(key_any: u64) -> u64 {
-    unsafe { super::ns_static_obj::symbol_for_value(key_any) }
-}
-
-/// Compiler face for `Symbol.keyFor(x: any)` — §20.4.2.6 brand check
-/// (non-Symbol throws), unregistered answers VALUE_UNDEFINED. Arg is
-/// a borrow; a hit's key Str comes back owned.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_symbol_key_for_any(v: u64) -> u64 {
-    unsafe { super::ns_static_obj::symbol_key_for_value(v) }
 }
 
 /// Hand an argv borrow back as the OWNED result the boxed entry's

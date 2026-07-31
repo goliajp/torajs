@@ -14,6 +14,7 @@ use super::ns_static_table::{
     OwnKind,
 };
 
+use core::ffi::c_void;
 use torajs_rc::Tag;
 
 /// `ARR_KIND_HEAP` mirror (torajs-rc) — the one kind an own-keys
@@ -125,5 +126,48 @@ pub(super) unsafe fn symbol_key_for_value(v: u64) -> u64 {
             return VALUE_UNDEFINED;
         }
         key as u64
+    }
+}
+
+/// Compiler face for the any-arg direct-call lane (RFC
+/// 20260720-symbol-any-call-boundary) — same kernel the dispatcher
+/// arm uses, so ToString coercion and its throw face never drift.
+/// Arg is a borrow; the returned Symbol is owned.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_symbol_for_any(key_any: u64) -> u64 {
+    unsafe { symbol_for_value(key_any) }
+}
+
+/// Compiler face for `Symbol.keyFor(x: any)` — §20.4.2.6 brand check
+/// (non-Symbol throws), unregistered answers VALUE_UNDEFINED. Arg is
+/// a borrow; a hit's key Str comes back owned.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_symbol_key_for_any(v: u64) -> u64 {
+    unsafe { symbol_key_for_value(v) }
+}
+
+unsafe extern "C" {
+    /// torajs-arr — fresh `Array<Any>` mint + push (the same pair
+    /// `ns_static.rs`'s iterator_concat_pack declares).
+    fn __torajs_arr_alloc_any(cap: u64) -> *mut u8;
+    fn __torajs_arr_push_any(arr: *mut c_void, tag: u64, value: u64) -> *mut u8;
+}
+
+/// §23.1.2.3 Array.of as a detached call — pack argv into a fresh
+/// `Array<Any>` (the `iterator_concat_pack` shape without the kernel
+/// hop). Each arg's payload rc-incs on entry; the minted array is
+/// the owned answer.
+pub(super) unsafe fn array_of_pack(argv: *const u64, argc: i64) -> u64 {
+    unsafe {
+        let n = argc.max(0);
+        let mut items = __torajs_arr_alloc_any(n as u64);
+        for i in 0..n {
+            let v = arg_at(argv, argc, i);
+            let t = crate::__torajs_anyv_unbox_tag(v);
+            let p = crate::__torajs_anyv_unbox_value(v);
+            crate::payload_rc_inc(t, p);
+            items = __torajs_arr_push_any(items as *mut c_void, t as u64, p as u64);
+        }
+        crate::nanbox::box_void_ptr(items as *mut c_void)
     }
 }

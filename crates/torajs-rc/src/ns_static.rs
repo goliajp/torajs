@@ -202,6 +202,10 @@ pub static NS_STATIC_TABLE: &[NsStaticRow] = &[
     // §28.1.12 Reflect.setPrototypeOf (rotation 266 刀 R4) — strict
     // gate + the boolean-answer OrdinarySetPrototypeOf core.
     row("Reflect", "setPrototypeOf", 2),
+    // §23.1.2.3 Array.of — the call face packs argv into a fresh
+    // Array<Any> (the direct-call form lowers through the
+    // array-literal wedge). Length 0 per spec (rest-param shaped).
+    row("Array", "of", 0),
 ];
 
 /// Compile-time `(namespace, member)` → id. Linear scan — lower-time
