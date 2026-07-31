@@ -183,6 +183,19 @@ fn collect_position_faces(
                     }
                 }
             }
+            // Rotation 260 — `Array.from(iterable, <fn-expr>,
+            // thisArg?)`: the static mapFn slot. Only the INLINE
+            // fn-expr promotes (zero aliases by construction); the
+            // from lowering's map loop threads the boxed thisArg
+            // ahead of (elem, i) exactly like the trio kernels.
+            Expr::Member { obj, name } if name == "from" => {
+                if !matches!(&exprs[obj.0 as usize], Expr::Ident(n) if n == "Array") {
+                    continue;
+                }
+                if let Some(cb) = args.get(1) {
+                    collect_face(stmts, exprs, *cb, fn_expr_exprs, patches);
+                }
+            }
             // Knife 4 — array HOF callback position over a
             // syntactically-certain `any` receiver
             // (`recv.forEach(<fn-expr>, thisArg?)`): the any-lane HOF

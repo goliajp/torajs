@@ -100,11 +100,19 @@ pub(crate) fn try_lower(
     if args.len() == 1 {
         return Some(src_arr_op);
     }
-    // S275 — eval-and-drop args[2..] (thisArg + any trailing) so side-
-    // effect exprs fire per ES §23.1.2.1 trailing-arg ignore. tora closures
-    // don't bind `this`, so thisArg value is silently discarded; args[1]
-    // is the mapFn (lowered below).
-    for &a in &args[2..] {
+    // S275 — eval-and-drop trailing args so side-effect exprs fire per
+    // ES §23.1.2.1 trailing-arg ignore. A plain callback doesn't bind
+    // `this`, so args[2] (thisArg) is dropped too; a promoted fn-expr
+    // callback's thisArg lowers inside the map loop instead (knife-4
+    // mirror), so the drop walk starts after it.
+    let promoted_skip = if matches!(ctx.ast.get_expr(args[1]),
+        Expr::Closure { fn_name, .. } if ctx.ast.fnexpr_recv_fns.contains(fn_name))
+    {
+        3
+    } else {
+        2
+    };
+    for &a in args.iter().skip(promoted_skip) {
         let _ = ctx.lower_expr(a);
     }
     Some(emit_map_loop(ctx, src_arr_op, args))
@@ -277,6 +285,28 @@ fn emit_map_loop(ctx: &mut LowerCtx<'_>, src_arr_op: Operand, args: &[ExprId]) -
     };
     let fn_val = ctx.lower_expr(args[1]);
     let fn_ty = ctx.operand_ty(&fn_val);
+    // Knife-4 mirror (rotation 260) — a promoted fn-expr callback
+    // takes the §23.1.2.1 thisArg as its leading boxed `__this` arg
+    // (undefined when absent); box_to_any is a pure encoding, so an
+    // owned-shape thisArg temp keeps its stake in `op` and settles
+    // after the loop, same as ssa_lower_call_arr_ho.
+    let promoted = matches!(ctx.ast.get_expr(args[1]),
+        Expr::Closure { fn_name, .. } if ctx.ast.fnexpr_recv_fns.contains(fn_name));
+    let mut this_temp: Option<(ExprId, Operand)> = None;
+    let this_arg: Option<Operand> = if promoted {
+        if let Some(&t) = args.get(2) {
+            let op = ctx.lower_expr(t);
+            let boxed = ctx.box_to_any_from_expr(t, op.clone());
+            this_temp = Some((t, op));
+            Some(boxed)
+        } else {
+            Some(Operand::Value(
+                crate::ssa_lower_call_arr_ho_loop::emit_undef_any_box(ctx),
+            ))
+        }
+    } else {
+        None
+    };
     let (sig_params, dst_elem_ty) = match fn_ty {
         Type::FnSig(s) | Type::Closure(s) => {
             let (p, r) = ctx.fn_sigs[s.0 as usize].clone();
@@ -396,13 +426,18 @@ fn emit_map_loop(ctx: &mut LowerCtx<'_>, src_arr_op: Operand, args: &[ExprId]) -
     // alignment that used to follow is one direction of the shared
     // argument contract, which the call lanes below now apply for
     // every parameter — spelling it here too would only repeat it.
-    let mut call_args: Vec<Operand> = vec![Operand::Value(elem)];
+    let mut call_args: Vec<Operand> = Vec::with_capacity(3);
+    if let Some(t) = &this_arg {
+        call_args.push(t.clone());
+    }
+    call_args.push(Operand::Value(elem));
     if sig_params.len() >= 2 {
         call_args.push(Operand::Value(i_body));
     }
+    let sig_skip = usize::from(this_arg.is_some());
     let mapped = match known_fid {
-        Some(fid) => ctx.call_fn_value_devirt(fid, fn_val.clone(), fn_ty, call_args, 0),
-        None => ctx.call_fn_value(fn_val.clone(), fn_ty, call_args, 0),
+        Some(fid) => ctx.call_fn_value_devirt(fid, fn_val.clone(), fn_ty, call_args, sig_skip),
+        None => ctx.call_fn_value(fn_val.clone(), fn_ty, call_args, sig_skip),
     };
     let cur_dst = ctx.f.append_inst(
         ctx.cur_block,
@@ -443,6 +478,9 @@ fn emit_map_loop(ctx: &mut LowerCtx<'_>, src_arr_op: Operand, args: &[ExprId]) -
     // RFC 20260705 chunk 552 — release an inline arrow's minted env
     // after the loop consumed it.
     ctx.release_owned_temp(args[1], &fn_val);
+    if let Some((t, op)) = this_temp {
+        ctx.release_owned_temp(t, &op);
+    }
     let final_dst = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Load(dst_arr_ty, Operand::Value(dst_slot), 0),
