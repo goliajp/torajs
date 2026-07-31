@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-31T03:01:42.226Z",
+  "generatedAt": "2026-07-31T04:14:53.980Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-31T02:59:49Z",
-    "headSha": "858e2702",
-    "elapsedSec": 444.33,
+    "ranAt": "2026-07-31T04:08:35Z",
+    "headSha": "6950eeaa",
+    "elapsedSec": 361.72,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 17118,
-    "passNoOracle": 513,
+    "pass": 17170,
+    "passNoOracle": 519,
     "passNegative": 4489,
-    "passTotal": 22120,
-    "bug": 3349,
-    "incompatible": 27705,
+    "passTotal": 22178,
+    "bug": 3366,
+    "incompatible": 27630,
     "bunSkip": 7467,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 25469,
-    "passRateInScope": 41.6,
-    "passRateTrAccepted": 86.85
+    "trAccepted": 25544,
+    "passRateInScope": 41.71,
+    "passRateTrAccepted": 86.82
   },
   "torajs": {
-    "commit": "858e2702",
-    "commitSubject": "fix(core): clone-closure check env + static-cell inline drop guard",
+    "commit": "6950eeaa",
+    "commitSubject": "feat(core): Array.from mapFn joins the fnexpr-this channel",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "6950eeaa",
+      "subject": "feat(core): Array.from mapFn joins the fnexpr-this channel"
+    },
+    {
+      "hash": "9b8fbe4c",
+      "subject": "feat(core): fnexpr this promotes on inline array-literal HOF receivers"
+    },
+    {
+      "hash": "80d5629e",
+      "subject": "fix(core): forward captures from closures nested inside let-inits"
+    },
+    {
+      "hash": "1990de4c",
+      "subject": "fix(core): sync free_vars known-global table with checker fallback"
+    },
+    {
+      "hash": "22a4c32d",
+      "subject": "fix(core): mixed-inner nested array literals ride the Arr<Any> lane"
+    },
+    {
+      "hash": "03f668a1",
+      "subject": "chore(docs,hardev): rotation 259 census at 858e2702"
+    },
+    {
       "hash": "858e2702",
       "subject": "fix(core): clone-closure check env + static-cell inline drop guard"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "d6a09959",
       "subject": "fix(core): clone lifted closures per monomorphized specialization"
-    },
-    {
-      "hash": "db39aae4",
-      "subject": "chore(docs,hardev): rotation 258 census at e697516f"
-    },
-    {
-      "hash": "e697516f",
-      "subject": "feat(core,runtime): Iterator.zipKeyed — keyed joint iteration"
-    },
-    {
-      "hash": "927603f0",
-      "subject": "feat(core,runtime): Iterator.zip — joint iteration, three modes"
-    },
-    {
-      "hash": "388373a9",
-      "subject": "fix(core): admit As-shaped receivers in cm_demote"
-    },
-    {
-      "hash": "a2f8ff57",
-      "subject": "feat(core,runtime): Iterator.concat — sequenced lazy iteration"
-    },
-    {
-      "hash": "d3cb6fee",
-      "subject": "fix(core): release literal receiver stake in arr iter ctor lowering"
     }
   ],
-  "headSha": "858e2702",
+  "headSha": "6950eeaa",
   "autorun": {
-    "total": 563,
+    "total": 564,
     "baselineTarget": 10,
-    "bySelf": 558,
+    "bySelf": 559,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785459705-6f29",
-      "at": "2026-07-31T01:01:45Z",
-      "ts": 1785459705,
+      "rotationId": "r-1785466977-0dd2",
+      "at": "2026-07-31T03:02:57Z",
+      "ts": 1785466977,
       "trigger": "self",
-      "prevHead": "db39aae4",
-      "handoffSha": "sha256:eccd4f208f1492b3e19e6abe9c5e43f9c864b53c6f7514da58ccb55303094508",
-      "handoffAgeSec": 9,
+      "prevHead": "03f668a1",
+      "handoffSha": "sha256:8140cca6009d4e86e73dea6d0818789b6d35718ef74045468166ff9641a4e65c",
+      "handoffAgeSec": 0,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1785466977-0dd2",
+        "at": "2026-07-31T03:02:57Z",
+        "ts": 1785466977,
+        "trigger": "self",
+        "prevHead": "03f668a1",
+        "handoffSha": "sha256:8140cca6009d4e86e73dea6d0818789b6d35718ef74045468166ff9641a4e65c",
+        "handoffAgeSec": 0,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785459705-6f29",
         "at": "2026-07-31T01:01:45Z",
@@ -876,17 +887,6 @@
         "prevHead": "e7366753",
         "handoffSha": "sha256:b258271cdf1367588c6f0062fac61d8b7cb8caab848976e888b10e2f9105f1a1",
         "handoffAgeSec": 43,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1785348658-6ec4",
-        "at": "2026-07-29T18:10:58Z",
-        "ts": 1785348658,
-        "trigger": "self",
-        "prevHead": "9f438355",
-        "handoffSha": "sha256:cc48f15fc2d40104e9a98c7f878970bb7e2a94b42d9d8100c72f92aea9067d46",
-        "handoffAgeSec": 28,
         "conformanceBefore": null,
         "commitsInSession": null
       }
