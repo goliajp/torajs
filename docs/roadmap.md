@@ -1825,15 +1825,43 @@ census:
 
 | cluster depth | core cases covered |
 |---|---|
-| top 10 | 27.4 % |
-| top 25 | 42.8 % |
-| top 50 | 57.4 % |
-| top 100 | 72.6 % |
+| top 10 | 27.2 % |
+| top 25 | 42.6 % |
+| top 50 | 57.3 % |
+| top 100 | 72.5 % |
 | top 400 | 92.1 % |
-| clusters of ≤ 3 cases (823 of them) | 7.2 % |
+| clusters of ≤ 3 cases (822 of them) | 7.2 % |
 
-(refreshed @ rotation 257 closing sweep `e35eef75`, core **15512**,
-428 clusters of ≥ 4 holding 14397 cases. Rotation 257 finished the
+(refreshed @ rotation 258 closing sweep `e697516f`, core **15483**,
+429 clusters of ≥ 4 holding 14371 cases. Rotation 258 root-caused
+and fixed the values() mint-drop leak — NOT cycle/mmalloc: the
+keys/values/entries lowering never released a literal receiver's
+stake, so every 72B arr cell parked at rc=1, got scan_black'd out
+of the cycle buffer and leaked permanently (mmalloc per-class diag:
+C128 a=200000/f=0 = the exact 25.7MB delta; churn 32.24 → 6.59MB
+flat) — and closed the iterator-global RFC's blade 5 in full:
+`Iterator.concat` (eager per-item iterability check, lazy
+kind-CONCAT cell, items-list ownership transfer), `Iterator.zip`
+(three modes — shortest / longest with padding / strict, eager
+column opens, exhausted-slot = openIters removal, longest abandons
+the trailing all-padding row) and `Iterator.zipKeyed` (own
+enumerable keys snapshot, per-key padding Get, object rows) sharing
+one RowSink row step; derive_flattenable grew the StringWrapper
+code-unit arm (§22.1.5). zip/zipKeyed have NO reference runtime
+(bun/node both lack joint-iteration — probed) so their fixtures
+ride the runner's .expected oracle override. A fourth fix fell out:
+cm_demote's receiver-shape gate admitted Call but not As casts, so
+`(expr as any).next()` with any generator present was a guaranteed
+checker reject. passTotal +19 (concat / zip / zipKeyed direct hits
++ the borderline-timeout case back to pass) / bug +10 (all
+progress-exposure inside the newly-unlocked buckets; one exit-139
+crash single-listed: concat/throws-typeerror-when-iterator-not-an-
+object) / trAccepted +29, ZERO pass regressions. Mixed-nested
+array-literal inline args mis-stamp the elem-kind chain of
+secondary columns (silent-wrong, any-binding path is correct) —
+registered L3b. Previous stamp: rotation 257 closing sweep
+`e35eef75`, core **15512**, 428 clusters of ≥ 4 holding 14397
+cases. Rotation 257 finished the
 iterator-global RFC's blade 4 + the blade-2c redo: `Iterator.from`
 (GetIteratorFlattenable — user @@iterator wins, builtin iterables
 mint their lane, anything else is its own iterator; pass-through

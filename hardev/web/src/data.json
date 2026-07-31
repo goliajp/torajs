@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-30T19:35:18.522Z",
+  "generatedAt": "2026-07-31T01:00:12.089Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-30T19:32:13Z",
-    "headSha": "e35eef75",
-    "elapsedSec": 450.58,
+    "ranAt": "2026-07-31T00:58:13Z",
+    "headSha": "e697516f",
+    "elapsedSec": 341.33,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 17078,
-    "passNoOracle": 502,
+    "pass": 17092,
+    "passNoOracle": 507,
     "passNegative": 4489,
-    "passTotal": 22069,
-    "bug": 3355,
-    "incompatible": 27750,
+    "passTotal": 22088,
+    "bug": 3365,
+    "incompatible": 27721,
     "bunSkip": 7467,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 25424,
-    "passRateInScope": 41.5,
-    "passRateTrAccepted": 86.8
+    "trAccepted": 25453,
+    "passRateInScope": 41.54,
+    "passRateTrAccepted": 86.78
   },
   "torajs": {
-    "commit": "e35eef75",
-    "commitSubject": "feat(runtime): iterator cells' @@iterator return-this",
+    "commit": "e697516f",
+    "commitSubject": "feat(core,runtime): Iterator.zipKeyed — keyed joint iteration",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "e697516f",
+      "subject": "feat(core,runtime): Iterator.zipKeyed — keyed joint iteration"
+    },
+    {
+      "hash": "927603f0",
+      "subject": "feat(core,runtime): Iterator.zip — joint iteration, three modes"
+    },
+    {
+      "hash": "388373a9",
+      "subject": "fix(core): admit As-shaped receivers in cm_demote"
+    },
+    {
+      "hash": "a2f8ff57",
+      "subject": "feat(core,runtime): Iterator.concat — sequenced lazy iteration"
+    },
+    {
+      "hash": "d3cb6fee",
+      "subject": "fix(core): release literal receiver stake in arr iter ctor lowering"
+    },
+    {
+      "hash": "dae62237",
+      "subject": "chore(docs,hardev): rotation 257 census at e35eef75"
+    },
+    {
       "hash": "e35eef75",
       "subject": "feat(runtime): iterator cells' @@iterator return-this"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "a556cba5",
       "subject": "chore(docs,hardev): rotation 256 census at e93c16a5"
-    },
-    {
-      "hash": "e93c16a5",
-      "subject": "Revert \"feat(runtime): iterator cells' method-VALUE read face\""
-    },
-    {
-      "hash": "0b861b0b",
-      "subject": "feat(runtime): iterator cells' method-VALUE read face"
-    },
-    {
-      "hash": "a4f07210",
-      "subject": "feat(core,runtime): Iterator eager consumers — forEach, some, every, find, reduce"
-    },
-    {
-      "hash": "a0fff1f7",
-      "subject": "feat(core,runtime): Iterator helpers — filter, take, drop, toArray"
-    },
-    {
-      "hash": "c7f52f1c",
-      "subject": "feat(core,runtime): Iterator.prototype.map — lazy helper cells (Tag::IterHelper)"
-    },
-    {
-      "hash": "0f88f586",
-      "subject": "feat(core,runtime): Iterator global — identity, %Iterator.prototype%, extends, instanceof"
     }
   ],
-  "headSha": "e35eef75",
+  "headSha": "e697516f",
   "autorun": {
-    "total": 561,
+    "total": 562,
     "baselineTarget": 10,
-    "bySelf": 556,
+    "bySelf": 557,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785410856-2e49",
-      "at": "2026-07-30T11:27:36Z",
-      "ts": 1785410856,
+      "rotationId": "r-1785440183-3a7d",
+      "at": "2026-07-30T19:36:23Z",
+      "ts": 1785440183,
       "trigger": "self",
-      "prevHead": "a556cba5",
-      "handoffSha": "sha256:376b70d4f25b07cc255857816e6d0f952a65b6333f0ec0272a26cbee757719dc",
-      "handoffAgeSec": 46,
+      "prevHead": "dae62237",
+      "handoffSha": "sha256:d7da1d41e76678f21a7b9bec100d84789a4983bd88db9a2ecbfaf07e39cd1180",
+      "handoffAgeSec": 4,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1785440183-3a7d",
+        "at": "2026-07-30T19:36:23Z",
+        "ts": 1785440183,
+        "trigger": "self",
+        "prevHead": "dae62237",
+        "handoffSha": "sha256:d7da1d41e76678f21a7b9bec100d84789a4983bd88db9a2ecbfaf07e39cd1180",
+        "handoffAgeSec": 4,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785410856-2e49",
         "at": "2026-07-30T11:27:36Z",
@@ -876,17 +887,6 @@
         "prevHead": "3bd60146",
         "handoffSha": "sha256:db797ed35c5eff21e1ac9ae4e54e8f80ef5eb7f7ae8de7d68cbbbc66e70f848b",
         "handoffAgeSec": 35,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1785327591-75e4",
-        "at": "2026-07-29T12:19:51Z",
-        "ts": 1785327591,
-        "trigger": "self",
-        "prevHead": "af3a8bd9",
-        "handoffSha": "sha256:4275980526d39ef58cd8b8c75f59e98212c6d71dda5c4d42ae03644c67c0fb9e",
-        "handoffAgeSec": 27,
         "conformanceBefore": null,
         "commitsInSession": null
       }
