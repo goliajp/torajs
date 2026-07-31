@@ -207,8 +207,37 @@ pub unsafe extern "C" fn __torajs_dynobj_define_from_desc(
     key: *mut c_void,
     desc: *const c_void,
 ) {
+    unsafe { define_from_desc_impl(obj_slot, key, desc, true) };
+}
+
+/// §28.1.2 Reflect.defineProperty flavor — identical
+/// ToPropertyDescriptor + validate/apply walk, but a §10.1.6.3
+/// refusal answers 0 with NO pending throw. A throw raised while
+/// READING the descriptor (a getter-backed desc field per §6.2.6.5
+/// [[Get]], or an accessor/data mix per §10.1.6.3) still records for
+/// either flavor — those belong to ToPropertyDescriptor, not to
+/// [[DefineOwnProperty]] — so the caller must still run its
+/// throw-check before consuming the answer.
+///
+/// # Safety
+/// Same contract as [`__torajs_dynobj_define_from_desc`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_dynobj_define_from_desc_soft(
+    obj_slot: *mut *mut c_void,
+    key: *mut c_void,
+    desc: *const c_void,
+) -> i64 {
+    unsafe { define_from_desc_impl(obj_slot, key, desc, false) }
+}
+
+unsafe fn define_from_desc_impl(
+    obj_slot: *mut *mut c_void,
+    key: *mut c_void,
+    desc: *const c_void,
+    throw_on_refusal: bool,
+) -> i64 {
     if desc.is_null() {
-        return;
+        return 1;
     }
     // §6.2.6.5 ToPropertyDescriptor reads off ANY object — dispatch
     // per the desc cell's shape to its own-field store: dynobj entry
@@ -304,16 +333,17 @@ pub unsafe extern "C" fn __torajs_dynobj_define_from_desc(
         _ => None,
     };
     let Some(desc) = desc else {
-        unsafe { define_apply(obj_slot, key, 0, 0, 0) };
-        return;
+        return unsafe { define_apply(obj_slot, key, 0, 0, 0, throw_on_refusal) };
     };
 
     let mut flags_byte: u64 = 0;
     let mut out_tag: u64 = 0;
     let mut out_value: u64 = 0;
 
+    // Accessor path — R5b boundary: a refusal inside still records
+    // the throw for either flavor.
     if unsafe { try_define_accessor(obj_slot, key, desc) } {
-        return;
+        return 1;
     }
 
     if let Some((v_anyv, v_owned)) = unsafe { desc_field_get(desc, "value") } {
@@ -356,5 +386,14 @@ pub unsafe extern "C" fn __torajs_dynobj_define_from_desc(
         unsafe { release_desc_field(c, o) };
     }
 
-    unsafe { define_apply(obj_slot, key, out_tag, out_value, flags_byte) }
+    unsafe {
+        define_apply(
+            obj_slot,
+            key,
+            out_tag,
+            out_value,
+            flags_byte,
+            throw_on_refusal,
+        )
+    }
 }

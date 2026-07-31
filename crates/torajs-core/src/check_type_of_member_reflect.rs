@@ -123,6 +123,14 @@ pub(crate) fn try_match(obj_ty: &Type, name: &str) -> Option<Result<Type, String
         (Type::Object("Reflect"), "deleteProperty") => {
             Type::Function(vec![Type::Any, Type::Any], Box::new(Type::Boolean))
         }
+        // §28.1.2 Reflect.defineProperty (rotation 267 刀 R5a) —
+        // strict gate + the boolean-answer runtime-descriptor define
+        // (refusal = false, no throw; a ToPropertyDescriptor throw
+        // still propagates). Key domain Any per ToPropertyKey.
+        (Type::Object("Reflect"), "defineProperty") => Type::Function(
+            vec![Type::Any, Type::Any, Type::Any],
+            Box::new(Type::Boolean),
+        ),
         _ => return None,
     };
     Some(Ok(ty))

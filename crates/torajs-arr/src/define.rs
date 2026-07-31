@@ -29,14 +29,12 @@
 
 use core::ffi::c_void;
 
-use torajs_rc::{FLAG_ARR_EXOTIC_INDEX, FLAG_ARR_LENGTH_RO, FLAG_NON_EXTENSIBLE, HeapHeader, Tag};
+use torajs_rc::{FLAG_ARR_EXOTIC_INDEX, HeapHeader, Tag};
 
 // The per-index attribute READERS live in the sibling (file-size
 // rule); the re-export keeps every `crate::define::` consumer path
 // unchanged.
 pub(crate) use crate::define_index_flags::{__torajs_arr_index_flags, index_flags_with_key};
-
-use crate::layout::ARR_LEN_OFF;
 
 unsafe extern "C" {
     /// torajs-dynobj — ordinary define on the expando dynobj
@@ -48,6 +46,16 @@ unsafe extern "C" {
         value: u64,
         flags_byte: u64,
     );
+    /// torajs-dynobj — ordinary define, boolean-answer flavor
+    /// (rotation 267 刀 R5a): a §10.1.6.3 refusal answers 0 with no
+    /// pending throw.
+    fn __torajs_dynobj_define_soft(
+        obj_slot: *mut *mut c_void,
+        key: *mut c_void,
+        tag: u64,
+        value: u64,
+        flags_byte: u64,
+    ) -> i64;
     fn __torajs_dynobj_alloc() -> *mut c_void;
     fn __torajs_dynobj_has(dynobj: *const c_void, key: *const c_void) -> i32;
     fn __torajs_dynobj_get_flags(dynobj: *const c_void, key: *const c_void) -> u64;
@@ -58,23 +66,10 @@ unsafe extern "C" {
     /// torajs-dynobj — HOLE sentinel probe (chunk C; the upsert
     /// lives in `define_hole.rs`).
     fn __torajs_dynobj_entry_is_hole(dynobj: *const c_void, key: *const c_void) -> i32;
-    /// torajs-dynobj — entry removal (drops key + value; the
-    /// accessor→data transition deletes the pair-owning shadow entry).
-    fn __torajs_dynobj_delete(dynobj: *mut c_void, key: *const c_void) -> i32;
     /// torajs-str — canonical index key mint for the flags probe.
     fn __torajs_str_alloc_pooled(len: u64) -> *mut u8;
     fn __torajs_str_drop(s: *mut c_void);
-    /// torajs-str — view-aware content equality (SameValue on Str).
-    fn __torajs_str_eq(a: *const u8, b: *const u8) -> i64;
-    fn __torajs_arr_set_length_any(arr: *mut c_void, tag: i64, value: i64);
-    /// torajs-anyvalue — NaN-box + spec ToNumber (the §10.4.2.4
-    /// convert-once step; a heap operand's valueOf runs here).
-    fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64;
-    fn __torajs_anyv_to_number(v: u64) -> f64;
-    fn __torajs_throw_range_error(msg: *const u8);
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
-    /// torajs-throw — non-destructive pending-throw probe.
-    fn __torajs_throw_check() -> i64;
     fn __torajs_value_drop_heap(p: *mut c_void);
 }
 
@@ -105,7 +100,7 @@ const STR_LEN_OFF: usize = 8;
 pub(crate) const STR_DATA_OFF: usize = 16;
 
 /// `AnySlotTag` mirrors.
-const ANY_HEAP: u64 = 4;
+pub(crate) const ANY_HEAP: u64 = 4;
 pub(crate) const ANY_UNDEF: u64 = 5;
 
 /// A key's Str payload, or an empty slice when the key is a Symbol.
@@ -199,32 +194,92 @@ pub unsafe extern "C" fn __torajs_arr_define(
     value: u64,
     flags_byte: u64,
 ) {
+    unsafe { arr_define_impl(arr, key, tag, value, flags_byte, true) };
+}
+
+/// §28.1.2 Reflect.defineProperty flavor — identical
+/// ArrayDefineOwnProperty walk, but a §10.1.6.3 refusal answers 0
+/// with NO pending throw (the TypeError belongs to
+/// Object.defineProperty's §20.1.2.4 caller, not to
+/// [[DefineOwnProperty]] itself). A ToNumber throw / RangeError on
+/// the `length` [[Value]] still records — those are conversions the
+/// spec runs inside ArraySetLength, not refusals.
+///
+/// # Safety
+/// Same contract as [`__torajs_arr_define`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_define_soft(
+    arr: *mut c_void,
+    key: *mut c_void,
+    tag: u64,
+    value: u64,
+    flags_byte: u64,
+) -> i64 {
+    unsafe { arr_define_impl(arr, key, tag, value, flags_byte, false) }
+}
+
+/// Shared refusal answer — release the transferred [[Value]] stake,
+/// record the TypeError only for the throwing flavor, answer 0.
+pub(crate) unsafe fn refuse(
+    throw_on_refusal: bool,
+    msg: *const core::ffi::c_char,
+    tag: u64,
+    value: u64,
+) -> i64 {
+    unsafe { drop_owned(tag, value) };
+    if throw_on_refusal {
+        unsafe { __torajs_throw_type_error(msg) };
+    }
+    0
+}
+
+unsafe fn arr_define_impl(
+    arr: *mut c_void,
+    key: *mut c_void,
+    tag: u64,
+    value: u64,
+    flags_byte: u64,
+    throw_on_refusal: bool,
+) -> i64 {
     let bytes = unsafe { key_bytes(key) };
     if bytes == b"length" {
         if flags_byte & (P_GET | P_SET) != 0 {
             // §10.4.2.4 — length is a data property; an accessor
-            // redefine of a non-configurable property throws.
-            unsafe { drop_owned(tag, value) };
-            unsafe {
-                __torajs_throw_type_error(
+            // redefine of a non-configurable property is a refusal.
+            return unsafe {
+                refuse(
+                    throw_on_refusal,
                     c"Attempting to change configurable attribute of unconfigurable property."
                         .as_ptr(),
+                    tag,
+                    value,
                 )
             };
-            return;
         }
-        unsafe { crate::define_length::define_length(arr, tag, value, flags_byte) };
-        return;
+        return unsafe {
+            crate::define_length::define_length(arr, tag, value, flags_byte, throw_on_refusal)
+        };
     }
     if let Some(idx) = canonical_index(bytes) {
         if flags_byte & (P_GET | P_SET) != 0 {
+            // Accessor path — R5b boundary: a refusal inside still
+            // records the throw for either flavor.
             unsafe {
                 crate::define_accessor::define_index_accessor(arr, key, idx, tag, value, flags_byte)
             };
-            return;
+            return 1;
         }
-        unsafe { define_index(arr, key, idx, tag, value, flags_byte) };
-        return;
+        return unsafe {
+            crate::define_index::define_index(
+                arr,
+                key,
+                idx,
+                tag,
+                value,
+                flags_byte,
+                throw_on_refusal,
+            )
+        };
     }
     // Ordinary key — full-flags define on the expando props dynobj
     // (lazily allocated; dynobj_define's null-obj guard would no-op).
@@ -232,240 +287,12 @@ pub unsafe extern "C" fn __torajs_arr_define(
     if unsafe { (*slot).is_null() } {
         unsafe { *slot = __torajs_dynobj_alloc() };
     }
-    unsafe { __torajs_dynobj_define(slot, key, tag, value, flags_byte) };
-}
-
-/// §7.2.10 SameValue on unboxed `(tag, value)` pairs. Bit equality
-/// covers immediates (F64 bits distinguish ±0 and unify NaN) and
-/// heap identity; equal-content Str cells at different addresses
-/// compare by content (view-aware `str_eq`), and a mixed-width
-/// number pair (I64 5 vs F64 5.0) is the same Number value.
-unsafe fn same_value_pair(a_tag: u64, a_val: u64, b_tag: u64, b_val: u64) -> bool {
-    if a_tag == b_tag && a_val == b_val {
-        return true;
-    }
-    const ANY_I64: u64 = 2;
-    const ANY_F64: u64 = 3;
-    if a_tag == ANY_I64 && b_tag == ANY_F64 {
-        // bits-equal keeps ±0 apart (i as f64 is always +0); the
-        // round-trip check rejects a lossy i64 → f64 conversion.
-        let (i, d) = (a_val as i64, f64::from_bits(b_val));
-        return d.to_bits() == (i as f64).to_bits() && d as i64 == i;
-    }
-    if a_tag == ANY_F64 && b_tag == ANY_I64 {
-        return unsafe { same_value_pair(b_tag, b_val, a_tag, a_val) };
-    }
-    if a_tag != ANY_HEAP || b_tag != ANY_HEAP || a_val == 0 || b_val == 0 {
-        return false;
-    }
-    let a_tt = unsafe { (*(a_val as *const HeapHeader)).type_tag };
-    let b_tt = unsafe { (*(b_val as *const HeapHeader)).type_tag };
-    if a_tt != Tag::Str as u16 || b_tt != Tag::Str as u16 {
-        return false;
-    }
-    unsafe { __torajs_str_eq(a_val as *const u8, b_val as *const u8) != 0 }
-}
-
-/// Validate + apply for a canonical index per §10.1.6.3 (data
-/// subset; the readonly value check runs §7.2.10 SameValue via
-/// [`same_value_pair`]).
-unsafe fn define_index(
-    arr: *mut c_void,
-    key: *mut c_void,
-    idx: u64,
-    tag: u64,
-    value: u64,
-    flags_byte: u64,
-) {
-    let len = unsafe { (arr.cast::<u8>().add(ARR_LEN_OFF) as *const u64).read() };
-    let has_value = flags_byte & P_VALUE != 0;
-
-    if idx < len {
-        let cur_flags = unsafe { index_flags_with_key(arr, key as *const c_void) };
-        // A hole is an absent property — the define is a fresh
-        // CreateDataProperty (extensible check, no current-flags
-        // validation) that revives the index (chunk C).
-        if cur_flags & F_HOLE != 0 {
-            if unsafe { header_flags(arr) } & FLAG_NON_EXTENSIBLE != 0 {
-                unsafe { drop_owned(tag, value) };
-                unsafe {
-                    __torajs_throw_type_error(
-                        c"Attempting to define property on object that is not extensible.".as_ptr(),
-                    )
-                };
-                return;
-            }
-            if has_value {
-                unsafe { crate::index_any::__torajs_arr_index_set(arr, idx as i64, tag, value) };
-            }
-            // Unconditional shadow write — the flags upsert also
-            // clears the hole sentinel, so a defaults-flags define
-            // must still land.
-            unsafe { store_shadow(arr, key, flags_byte & FLAGS_DEFAULT) };
-            return;
-        }
-        // Accessor → data transition (chunk C): a data descriptor over
-        // an accessor index needs the configurable gate, then the
-        // shadow entry (owning the pair) is deleted and the define
-        // lands as a data property — absent `writable` completes to
-        // false, e/c keep the current values (§10.1.6.3 step 4).
-        let pair = unsafe { crate::define_accessor::__torajs_arr_index_accessor(arr, idx) };
-        if !pair.is_null() {
-            let cur_e = cur_flags & F_ENUMERABLE != 0;
-            let cur_c = cur_flags & F_CONFIGURABLE != 0;
-            if !cur_c {
-                unsafe { drop_owned(tag, value) };
-                unsafe {
-                    __torajs_throw_type_error(
-                        c"Attempting to change configurable attribute of unconfigurable property."
-                            .as_ptr(),
-                    )
-                };
-                return;
-            }
-            let props = unsafe { *props_slot(arr) };
-            unsafe { __torajs_dynobj_delete(props, key as *const c_void) };
-            if has_value {
-                unsafe { crate::index_any::__torajs_arr_index_set(arr, idx as i64, tag, value) };
-            }
-            let mut new_flags = 0u64;
-            if flags_byte & P_WRITABLE != 0 && flags_byte & F_WRITABLE != 0 {
-                new_flags |= F_WRITABLE;
-            }
-            let e = if flags_byte & P_ENUMERABLE != 0 {
-                flags_byte & F_ENUMERABLE != 0
-            } else {
-                cur_e
-            };
-            let c = if flags_byte & P_CONFIGURABLE != 0 {
-                flags_byte & F_CONFIGURABLE != 0
-            } else {
-                cur_c
-            };
-            if e {
-                new_flags |= F_ENUMERABLE;
-            }
-            if c {
-                new_flags |= F_CONFIGURABLE;
-            }
-            unsafe { store_shadow(arr, key, new_flags) };
-            return;
-        }
-        let cur_w = cur_flags & F_WRITABLE != 0;
-        let cur_e = cur_flags & F_ENUMERABLE != 0;
-        let cur_c = cur_flags & F_CONFIGURABLE != 0;
-        if !cur_c {
-            if flags_byte & P_CONFIGURABLE != 0 && flags_byte & F_CONFIGURABLE != 0 {
-                unsafe { drop_owned(tag, value) };
-                unsafe {
-                    __torajs_throw_type_error(
-                        c"Attempting to change configurable attribute of unconfigurable property."
-                            .as_ptr(),
-                    )
-                };
-                return;
-            }
-            if flags_byte & P_ENUMERABLE != 0 && (flags_byte & F_ENUMERABLE != 0) != cur_e {
-                unsafe { drop_owned(tag, value) };
-                unsafe {
-                    __torajs_throw_type_error(
-                        c"Attempting to change enumerable attribute of unconfigurable property."
-                            .as_ptr(),
-                    )
-                };
-                return;
-            }
-            if !cur_w {
-                if flags_byte & P_WRITABLE != 0 && flags_byte & F_WRITABLE != 0 {
-                    unsafe { drop_owned(tag, value) };
-                    unsafe {
-                        __torajs_throw_type_error(
-                            c"Attempting to change writable attribute of unconfigurable property."
-                                .as_ptr(),
-                        )
-                    };
-                    return;
-                }
-                if has_value {
-                    let cur_tag = unsafe { crate::any::__torajs_arr_get_any_tag(arr, idx) };
-                    let cur_val = unsafe { crate::any::__torajs_arr_get_any_value(arr, idx) };
-                    if !unsafe { same_value_pair(tag, value, cur_tag, cur_val) } {
-                        unsafe { drop_owned(tag, value) };
-                        unsafe {
-                            __torajs_throw_type_error(
-                                c"Attempting to change value of a readonly property.".as_ptr(),
-                            )
-                        };
-                        return;
-                    }
-                }
-            }
-        }
-        if has_value {
-            // index_set consumes the transferred rc (drop-old +
-            // store-new, kind-aware).
-            unsafe { crate::index_any::__torajs_arr_index_set(arr, idx as i64, tag, value) };
-        }
-        let new_flags = fold_flags(cur_flags, flags_byte);
-        if new_flags != cur_flags {
-            unsafe { store_shadow(arr, key, new_flags) };
-        }
-        return;
-    }
-
-    // Fresh index — §10.4.2.1 step 2: a locked length (chunk D)
-    // rejects the implicit length bump before the extensible check.
-    if unsafe { header_flags(arr) } & FLAG_ARR_LENGTH_RO != 0 {
-        unsafe { drop_owned(tag, value) };
-        unsafe {
-            __torajs_throw_type_error(
-                c"Attempting to define property beyond a non-writable array length.".as_ptr(),
-            )
-        };
-        return;
-    }
-    if unsafe { header_flags(arr) } & FLAG_NON_EXTENSIBLE != 0 {
-        unsafe { drop_owned(tag, value) };
-        unsafe {
-            __torajs_throw_type_error(
-                c"Attempting to define property on object that is not extensible.".as_ptr(),
-            )
-        };
-        return;
-    }
-    // Dense model: fill the gap with undefined elements, then append
-    // the defined value. (Recorded divergence: the fill positions
-    // read as own properties; spec makes them holes.)
-    let mut cursor = len;
-    while cursor < idx {
-        unsafe { crate::any::__torajs_arr_push_any(arr, ANY_UNDEF, 0) };
-        cursor += 1;
-    }
-    let (init_tag, init_value) = if has_value {
-        (tag, value)
+    if throw_on_refusal {
+        unsafe { __torajs_dynobj_define(slot, key, tag, value, flags_byte) };
+        1
     } else {
-        (ANY_UNDEF, 0)
-    };
-    unsafe { crate::any::__torajs_arr_push_any(arr, init_tag, init_value) };
-    // Fresh define completes absent flags to false (§10.1.6.2).
-    let new_flags = flags_byte & FLAGS_DEFAULT;
-    if new_flags != FLAGS_DEFAULT {
-        unsafe { store_shadow(arr, key, new_flags) };
+        unsafe { __torajs_dynobj_define_soft(slot, key, tag, value, flags_byte) }
     }
-}
-
-/// Per-flag fold: present → descriptor value, absent → current.
-fn fold_flags(cur: u64, flags_byte: u64) -> u64 {
-    let pick = |present: u64, val: u64, cur_bit: u64| -> u64 {
-        if flags_byte & present != 0 {
-            if flags_byte & val != 0 { val } else { 0 }
-        } else {
-            cur & cur_bit
-        }
-    };
-    pick(P_WRITABLE, F_WRITABLE, F_WRITABLE)
-        | pick(P_ENUMERABLE, F_ENUMERABLE, F_ENUMERABLE)
-        | pick(P_CONFIGURABLE, F_CONFIGURABLE, F_CONFIGURABLE)
 }
 
 /// Write the shadow flags entry + raise the header exotic bit.

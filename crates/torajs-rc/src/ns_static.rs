@@ -209,6 +209,9 @@ pub static NS_STATIC_TABLE: &[NsStaticRow] = &[
     // ES2025 §22.2.5.1 RegExp.escape — strict String gate (no
     // ToString) + the EncodeForRegExpEscape kernel. Length 1.
     row("RegExp", "escape", 1),
+    // §28.1.2 Reflect.defineProperty (rotation 267 刀 R5a) — strict
+    // gate + the boolean-answer runtime-descriptor define. Length 3.
+    row("Reflect", "defineProperty", 3),
 ];
 
 /// Compile-time `(namespace, member)` → id. Linear scan — lower-time

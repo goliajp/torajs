@@ -486,6 +486,20 @@ mod tests {
     pub unsafe extern "C" fn __torajs_reflect_set_prototype_of(_obj: u64, _proto: u64) -> i64 {
         0
     }
+    // rotation 267 刀 R5a — the ReflectDefineProperty arm's desc gate
+    // (shipped binary resolves libtorajs_meta.a).
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_anyv_throw_typeerror_if_not_desc_object(_desc_any: u64) {}
+    // rotation 267 刀 R5a — the ReflectDefineProperty arm's kernel
+    // (shipped binary resolves libtorajs_dynobj.a).
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_dynobj_define_from_desc_soft(
+        _obj_slot: *mut *mut c_void,
+        _key: *mut c_void,
+        _desc: *const c_void,
+    ) -> i64 {
+        0
+    }
     // rotation 266 — the RegExpEscape arm's kernel (shipped binary
     // resolves libtorajs_regex.a).
     #[unsafe(no_mangle)]

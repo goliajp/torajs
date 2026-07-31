@@ -350,6 +350,7 @@ pub(crate) struct Intrinsics {
     pub(crate) dynobj_set: FuncId,
     pub(crate) dynobj_define: FuncId,
     pub(crate) dynobj_define_from_desc: FuncId,
+    pub(crate) dynobj_define_from_desc_soft: FuncId,
     pub(crate) accessor_pair_new: FuncId,
     pub(crate) accessor_invoke_getter: FuncId,
     pub(crate) get_property_descriptor: FuncId,

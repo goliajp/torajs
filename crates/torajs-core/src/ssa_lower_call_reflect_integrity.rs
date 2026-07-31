@@ -1,12 +1,13 @@
 //! Reflect.* integrity-family call lowerings (rotation 266 刀
-//! R2/R3) — split from `ssa_lower_call_object_integrity.rs` under
-//! the 500-line file rule (the parent hit 501 when 刀 R3 landed).
-//! Dispatch stays in the parent's `try_lower` Reflect branch; both
-//! fns share its shape: the §10.1.6.3 strict IsObject gate (the
-//! define family's receiver guard — every primitive throws, no
-//! ToObject) in front of the Object-flavor kernel.
+//! R2/R3 + rotation 267 刀 R5a) — split from
+//! `ssa_lower_call_object_integrity.rs` under the 500-line file rule
+//! (the parent hit 501 when 刀 R3 landed). Dispatch stays in the
+//! parent's `try_lower` Reflect branch; every fn shares its shape:
+//! the §10.1.6.3 strict IsObject gate (the define family's receiver
+//! guard — every primitive throws, no ToObject) in front of the
+//! Object-flavor kernel.
 
-use crate::ast::ExprId;
+use crate::ast::{Expr, ExprId};
 use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 
@@ -131,6 +132,131 @@ pub(crate) fn lower_reflect_delete_property(ctx: &mut LowerCtx<'_>, args: &[Expr
     );
     crate::ssa_lower_object_define::emit_key_release(ctx, key_op, key_owned);
     ctx.emit_throw_check(None);
+    let cur_block = ctx.cur_block;
+    let b = ctx.f.append_inst(
+        cur_block,
+        InstKind::ICmp(
+            crate::ssa::IPred::Ne,
+            Operand::Value(ans),
+            Operand::ConstI64(0),
+        ),
+        Type::Bool,
+        None,
+    );
+    Operand::Value(b)
+}
+
+/// §28.1.2 Reflect.defineProperty(target, key, desc) — strict
+/// IsObject gate on the target, ToPropertyKey through the define
+/// family's shared resolver, then the boolean-answer flavor of the
+/// runtime-descriptor define kernel: a §10.1.6.3 refusal answers
+/// `false` with no throw, while a ToPropertyDescriptor throw (desc
+/// not an object, getter-backed desc field, accessor/data mix) still
+/// propagates through the throw-check. Every descriptor shape rides
+/// the runtime `define_from_desc` walk — the Object flavor's
+/// compile-time literal fast path extracts flags but calls the
+/// throwing kernel, so the soft flavor skips it (a fresh ObjectLit
+/// descriptor has no getters; the runtime read is observably
+/// identical).
+pub(crate) fn lower_reflect_define_property(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
+    // Step 7d-A mirror — capture the receiver's Ident name so the
+    // dynobj Any path can writeback the post-resize ptr.
+    let receiver_ident: Option<String> = if let Expr::Ident(n) = ctx.ast.get_expr(args[0]) {
+        Some(n.clone())
+    } else {
+        None
+    };
+    let obj_op = crate::ssa_lower_object_define::lower_define_receiver(ctx, args[0]);
+    let obj_ty = ctx.operand_ty(&obj_op);
+    crate::ssa_lower_object_define::emit_receiver_typecheck(ctx, args[0], &obj_op, obj_ty.clone());
+    let obj_ptr: Operand = match &obj_ty {
+        Type::Any => Operand::Value(ctx.any_unbox_value_as_ptr(obj_op.clone())),
+        Type::Arr(_) => {
+            // Kernel element writes are kind-aware — mark at the
+            // reflection boundary (mirror of the Object-flavor arm).
+            ctx.emit_arr_mark_kind(&obj_op);
+            obj_op.clone()
+        }
+        Type::Closure(_) | Type::FnSig(_) => obj_op.clone(),
+        // Typed Struct / Date / RegExp / ... — no expando define
+        // storage yet (RFC 20260721 刀 2b backlog; mirrors the Object
+        // flavor's no-op). Nothing gets defined, and `false` is the
+        // honest spelling (the prop_delete Tag::Obj precedent; the
+        // runtime kernel's non-dynobj arm answers the same).
+        _ => {
+            for a in args.iter().skip(1) {
+                let _ = ctx.lower_expr(*a);
+            }
+            return Operand::ConstBool(false);
+        }
+    };
+    let (key_op, key_owned) = crate::ssa_lower_object_define::lower_key(
+        ctx,
+        &crate::ssa_lower_object_define::DefineKey::Expr(args[1]),
+    );
+    // Descriptor — an inline ObjectLit materializes as a fresh dynobj
+    // (owned, released after the call); everything else takes the
+    // §6.2.6.5 step-1 object gate, then hands its cell to the kernel
+    // (whose DescStore dispatch resolves the shape).
+    let desc_eid = args[2];
+    // `desc_objlit` marks a materialized inline ObjectLit (its mint
+    // stake drops after the call); `desc_temp` carries a lowered
+    // non-literal operand whose owned-temp stake (call / new product)
+    // releases after the kernel borrow — never before.
+    let (desc_ptr, desc_objlit, desc_temp): (Operand, bool, Option<Operand>) =
+        if matches!(ctx.ast.get_expr(desc_eid), Expr::ObjectLit { .. }) {
+            (ctx.lower_dynobj_init(desc_eid), true, None)
+        } else {
+            let desc_op = ctx.lower_expr(desc_eid);
+            let desc_ty = ctx.operand_ty(&desc_op);
+            let desc_any = if matches!(desc_ty, Type::Any) {
+                desc_op.clone()
+            } else {
+                ctx.box_to_any_from_expr(desc_eid, desc_op.clone())
+            };
+            ctx.f.append_void(
+                ctx.cur_block,
+                InstKind::Call(
+                    ctx.intrinsics.throw_typeerror_if_not_desc_object,
+                    vec![desc_any.clone()],
+                ),
+            );
+            ctx.emit_throw_check(None);
+            let ptr = Operand::Value(ctx.any_unbox_value_as_ptr(desc_any));
+            (ptr, false, Some(desc_op))
+        };
+    for a in args.iter().skip(3) {
+        let _ = ctx.lower_expr(*a);
+    }
+    let slot = ctx.alloca(Type::Ptr, Some("__dynobj_slot"));
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Store(obj_ptr, Operand::Value(slot), 0),
+    );
+    let cur_block = ctx.cur_block;
+    let ans = ctx.f.append_inst(
+        cur_block,
+        InstKind::Call(
+            ctx.intrinsics.dynobj_define_from_desc_soft,
+            vec![Operand::Value(slot), key_op.clone(), desc_ptr.clone()],
+        ),
+        Type::I64,
+        None,
+    );
+    if desc_objlit {
+        ctx.f.append_void(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.value_drop_heap, vec![desc_ptr]),
+        );
+    }
+    if let Some(op) = desc_temp {
+        ctx.release_owned_temp(desc_eid, &op);
+    }
+    crate::ssa_lower_object_define::emit_key_release(ctx, key_op, key_owned);
+    ctx.emit_throw_check(None);
+    if matches!(obj_ty, Type::Any) {
+        ctx.emit_any_dynobj_writeback(&receiver_ident, slot);
+    }
     let cur_block = ctx.cur_block;
     let b = ctx.f.append_inst(
         cur_block,

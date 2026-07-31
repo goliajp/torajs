@@ -153,7 +153,8 @@ pub(super) unsafe fn try_define_accessor(
             }
             unsafe { release_desc_field(c, o) };
         }
-        unsafe { define_apply(obj_slot, key, ANY_HEAP, pair as u64, flags_byte) };
+        // Accessor path keeps the throwing flavor (R5b boundary).
+        unsafe { define_apply(obj_slot, key, ANY_HEAP, pair as u64, flags_byte, true) };
         return true;
     }
     false

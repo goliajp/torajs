@@ -74,16 +74,18 @@ fn canonical_index(bytes: &[u8]) -> Option<u64> {
 
 /// §10.1.6.3 ValidateAndApplyPropertyDescriptor against a fixed
 /// non-configurable data slot (`cur_anyv` borrowed, `cur_enumerable`
-/// per §22.1.4). Any upgrade / mismatch throws; a fully-compatible
-/// descriptor is a spec no-op. Either way the desc's owned value
-/// stake is released (the entry never adopts it).
+/// per §22.1.4). Any upgrade / mismatch refuses (answer 0, TypeError
+/// recorded only for the throwing flavor); a fully-compatible
+/// descriptor is a spec no-op (answer 1). Either way the desc's owned
+/// value stake is released (the entry never adopts it).
 unsafe fn validate_immutable_slot(
     tag: u64,
     value: u64,
     flags_byte: u64,
     cur_anyv: u64,
     cur_enumerable: bool,
-) {
+    throw_on_refusal: bool,
+) -> i64 {
     // A data → accessor conversion on a non-configurable slot is a
     // §10.1.6.3 step-4 reject — the accessor path hands the minted
     // AccessorPair through the same (ANY_HEAP, ptr) shape, detected
@@ -111,15 +113,21 @@ unsafe fn validate_immutable_slot(
         unsafe { __torajs_value_drop_heap(value as *mut c_void) };
     }
     if incompatible {
-        unsafe {
-            __torajs_throw_type_error(
-                c"Attempting to change value of a readonly property.".as_ptr() as *const u8,
-            );
+        if throw_on_refusal {
+            unsafe {
+                __torajs_throw_type_error(
+                    c"Attempting to change value of a readonly property.".as_ptr() as *const u8,
+                );
+            }
         }
+        return 0;
     }
+    1
 }
 
-/// See module doc.
+/// See module doc. Answers 1 on success / spec no-op, 0 on a
+/// §10.1.6.3 refusal (recorded as a TypeError only when
+/// `throw_on_refusal`).
 ///
 /// # Safety
 /// `obj` is a live wrapper cell (Number / String / Boolean tag,
@@ -131,7 +139,8 @@ pub(crate) unsafe fn wrapper_define(
     tag: u64,
     value: u64,
     flags_byte: u64,
-) {
+    throw_on_refusal: bool,
+) -> i64 {
     let htag = unsafe { (obj.cast::<u8>().add(4) as *const u16).read() };
     if htag == TAG_STRING_WRAPPER {
         let inner =
@@ -149,20 +158,23 @@ pub(crate) unsafe fn wrapper_define(
             unsafe { core::slice::from_raw_parts(key.cast::<u8>().add(16) as *const u8, key_len) };
         if key_bytes == b"length" {
             let cur = unsafe { __torajs_anyv_box_from_pair(2, len as i64) };
-            unsafe { validate_immutable_slot(tag, value, flags_byte, cur, false) };
-            return;
+            return unsafe {
+                validate_immutable_slot(tag, value, flags_byte, cur, false, throw_on_refusal)
+            };
         }
         if let Some(idx) = canonical_index(key_bytes) {
             if idx < len {
                 let ch = unsafe { __torajs_str_at(inner, idx as i64) };
                 let cur = unsafe { __torajs_anyv_box_from_pair(ANY_HEAP as i64, ch as i64) };
-                unsafe { validate_immutable_slot(tag, value, flags_byte, cur, true) };
+                let ok = unsafe {
+                    validate_immutable_slot(tag, value, flags_byte, cur, true, throw_on_refusal)
+                };
                 unsafe { __torajs_value_drop_heap(ch as *mut c_void) };
-                return;
+                return ok;
             }
         }
     }
-    // Expando lane — fresh keys on a non-extensible wrapper reject
+    // Expando lane — fresh keys on a non-extensible wrapper refuse
     // (the bit lives on the wrapper header, not the lazily-allocated
     // expando; mirror of member_set's wrapper [[Set]] gate).
     let props_slot = unsafe { obj.cast::<u8>().add(WRAPPER_PROPS_OFF) } as *mut u64;
@@ -171,21 +183,24 @@ pub(crate) unsafe fn wrapper_define(
     if wrapper_flags & DYNOBJ_HDR_FLAG_NON_EXTENSIBLE != 0 {
         let present = !props.is_null() && unsafe { probe(props, key as *const c_void) }.found;
         if !present {
-            unsafe {
-                __torajs_throw_type_error(
+            return unsafe {
+                crate::define::refuse(
+                    throw_on_refusal,
                     c"Attempting to define property on object that is not extensible.".as_ptr()
                         as *const u8,
-                );
-            }
-            if flags_byte & DEFINE_PRESENT_VALUE != 0 {
-                unsafe { crate::define::drop_rejected_value(tag, value) };
-            }
-            return;
+                    flags_byte & DEFINE_PRESENT_VALUE != 0,
+                    tag,
+                    value,
+                )
+            };
         }
     }
     if props.is_null() {
         props = unsafe { __torajs_dynobj_alloc() };
     }
-    unsafe { crate::define::define_apply(&mut props, key, tag, value, flags_byte) };
+    let ok = unsafe {
+        crate::define::define_apply(&mut props, key, tag, value, flags_byte, throw_on_refusal)
+    };
     unsafe { *props_slot = props as u64 };
+    ok
 }

@@ -302,6 +302,10 @@ pub(super) enum Disp {
     /// ES2025 §22.2.5.1 RegExp.escape — strict String gate + the
     /// torajs-regex EncodeForRegExpEscape kernel.
     RegExpEscape,
+    /// §28.1.2 Reflect.defineProperty — strict gate + the
+    /// boolean-answer runtime-descriptor define kernel (refusal =
+    /// false, no throw; a ToPropertyDescriptor throw propagates).
+    ReflectDefineProperty,
 }
 
 /// The own-enumeration surfaces (shared dispatch shape) — `Names`
@@ -417,4 +421,5 @@ pub(super) static DISPATCH: &[Disp] = &[
     Disp::ReflectSetPrototypeOf,
     Disp::ArrayOf,
     Disp::RegExpEscape,
+    Disp::ReflectDefineProperty,
 ];

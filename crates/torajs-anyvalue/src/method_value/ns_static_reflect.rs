@@ -25,6 +25,16 @@ unsafe extern "C" {
     /// torajs-meta — §28.1.12 boolean-answer OrdinarySetPrototypeOf
     /// (refusal = 0, no throw; invalid proto throws inside).
     fn __torajs_reflect_set_prototype_of(obj: u64, proto: u64) -> i64;
+    /// torajs-meta — §6.2.6.5 step 1 gate (desc must be an object).
+    fn __torajs_anyv_throw_typeerror_if_not_desc_object(desc_any: u64);
+    /// torajs-dynobj — §28.1.2 boolean-answer runtime-descriptor
+    /// define (refusal = 0, no throw; a ToPropertyDescriptor throw
+    /// still records).
+    fn __torajs_dynobj_define_from_desc_soft(
+        obj_slot: *mut *mut core::ffi::c_void,
+        key: *mut core::ffi::c_void,
+        desc: *const core::ffi::c_void,
+    ) -> i64;
 }
 
 /// §28.1.5 Reflect.getOwnPropertyDescriptor as a detached call —
@@ -110,6 +120,41 @@ pub(super) unsafe fn reflect_delete_property(argv: *const u64, argc: i64) -> u64
         } else {
             VALUE_FALSE
         }
+    }
+}
+
+/// §28.1.2 Reflect.defineProperty as a detached call — strict gate
+/// on the target, §6.2.6.5 desc-object gate, ToString(P) key (the
+/// [`reflect_delete_property`] posture; a symbol key rides the
+/// wedge-lowered call face, not this cell), then the boolean-answer
+/// runtime-descriptor define kernel. The target cell rides a local
+/// slot (the anyvalue member_set posture — a dynobj resize swaps the
+/// cell within the kernel; the caller's box is not written back).
+pub(super) unsafe fn reflect_define_property(argv: *const u64, argc: i64) -> u64 {
+    unsafe {
+        __torajs_anyv_throw_typeerror_if_not_object(arg_at(argv, argc, 0));
+        if __torajs_throw_check() != 0 {
+            return VALUE_UNDEFINED;
+        }
+        __torajs_anyv_throw_typeerror_if_not_desc_object(arg_at(argv, argc, 2));
+        if __torajs_throw_check() != 0 {
+            return VALUE_UNDEFINED;
+        }
+        let key = crate::nanbox_ffi::__torajs_anyv_to_str(arg_at(argv, argc, 1));
+        if __torajs_throw_check() != 0 {
+            return VALUE_UNDEFINED;
+        }
+        let mut target = crate::nanbox_encode::__torajs_anyv_cell_ptr(arg_at(argv, argc, 0))
+            as *mut core::ffi::c_void;
+        let desc = crate::nanbox_encode::__torajs_anyv_cell_ptr(arg_at(argv, argc, 2))
+            as *const core::ffi::c_void;
+        let ok =
+            __torajs_dynobj_define_from_desc_soft(&mut target, key as *mut core::ffi::c_void, desc);
+        crate::__torajs_str_drop(key as *mut core::ffi::c_void);
+        if __torajs_throw_check() != 0 {
+            return VALUE_UNDEFINED;
+        }
+        if ok != 0 { VALUE_TRUE } else { VALUE_FALSE }
     }
 }
 

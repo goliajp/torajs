@@ -42,7 +42,18 @@ pub(crate) fn to_uint32(n: f64) -> u32 {
 /// FIRST (steps 3-4 — a throwing valueOf wins over every attribute
 /// rejection and runs exactly once), then the e/c/w validation, then
 /// the apply with the already-converted number.
-pub(crate) unsafe fn define_length(arr: *mut c_void, tag: u64, value: u64, flags_byte: u64) {
+///
+/// Answers 1 on success, 0 on a §10.1.6.3 refusal — recorded as a
+/// TypeError only for the throwing flavor (rotation 267 刀 R5a; the
+/// ToNumber throw and the RangeError are conversions, not refusals,
+/// and record for either flavor).
+pub(crate) unsafe fn define_length(
+    arr: *mut c_void,
+    tag: u64,
+    value: u64,
+    flags_byte: u64,
+    throw_on_refusal: bool,
+) -> i64 {
     // §10.4.2.4 steps 3-5 — `newLen = ToUint32(v)` then `numberLen =
     // ToNumber(v)` (the spec really runs a side-effecting valueOf
     // TWICE), RangeError when they disagree. Conversion precedes the
@@ -53,44 +64,52 @@ pub(crate) unsafe fn define_length(arr: *mut c_void, tag: u64, value: u64, flags
         let n1 = unsafe { __torajs_anyv_to_number(anyv) };
         if unsafe { __torajs_throw_check() } != 0 {
             unsafe { drop_owned(tag, value) };
-            return;
+            return 0;
         }
         let n2 = unsafe { __torajs_anyv_to_number(anyv) };
         unsafe { drop_owned(tag, value) };
         if unsafe { __torajs_throw_check() } != 0 {
-            return;
+            return 0;
         }
         let new_len = to_uint32(n1);
         if new_len as f64 != n2 {
             unsafe { __torajs_throw_range_error(c"Invalid array length".as_ptr() as *const u8) };
-            return;
+            return 0;
         }
         converted = Some(new_len as i64);
     }
     let ro = unsafe { header_flags(arr) } & FLAG_ARR_LENGTH_RO != 0;
     if flags_byte & P_CONFIGURABLE != 0 && flags_byte & F_CONFIGURABLE != 0 {
-        unsafe {
-            __torajs_throw_type_error(
-                c"Attempting to change configurable attribute of unconfigurable property.".as_ptr(),
-            )
-        };
-        return;
+        return refuse_length(
+            throw_on_refusal,
+            c"Attempting to change configurable attribute of unconfigurable property.".as_ptr(),
+        );
     }
     if flags_byte & P_ENUMERABLE != 0 && flags_byte & F_ENUMERABLE != 0 {
-        unsafe {
-            __torajs_throw_type_error(
-                c"Attempting to change enumerable attribute of unconfigurable property.".as_ptr(),
-            )
-        };
-        return;
+        return refuse_length(
+            throw_on_refusal,
+            c"Attempting to change enumerable attribute of unconfigurable property.".as_ptr(),
+        );
     }
     if ro && flags_byte & P_WRITABLE != 0 && flags_byte & F_WRITABLE != 0 {
-        unsafe {
-            __torajs_throw_type_error(
-                c"Attempting to change writable attribute of unconfigurable property.".as_ptr(),
-            )
-        };
-        return;
+        return refuse_length(
+            throw_on_refusal,
+            c"Attempting to change writable attribute of unconfigurable property.".as_ptr(),
+        );
+    }
+    // Soft-flavor pre-check of the writable lock — the resize helper
+    // below records its own TypeError on a changed value, which the
+    // boolean flavor must answer as a plain refusal instead (a locked
+    // length still admits the same value; §10.4.2.4 step 12).
+    if !throw_on_refusal
+        && ro
+        && let Some(n) = converted
+    {
+        let cur =
+            unsafe { (arr.cast::<u8>().add(crate::layout::ARR_LEN_OFF) as *const u64).read() };
+        if n as u64 != cur {
+            return 0;
+        }
     }
     if let Some(n) = converted {
         // §10.4.2.4 steps 15-19 — shrinking deletes down from
@@ -111,13 +130,14 @@ pub(crate) unsafe fn define_length(arr: *mut c_void, tag: u64, value: u64, flags
                 if f & crate::define::F_HOLE == 0 && f & F_CONFIGURABLE == 0 {
                     unsafe { __torajs_arr_set_length_any(arr, 2, (i + 1) as i64) };
                     // Step 19.b-c — a requested writable:false still
-                    // applies before the throw.
+                    // applies before the refusal (§10.4.2.4 answers
+                    // false here; §20.1.2.4 turns that into the
+                    // TypeError).
                     if flags_byte & P_WRITABLE != 0 && flags_byte & F_WRITABLE == 0 {
                         let p = unsafe { (arr as *mut u8).add(6) as *mut u16 };
                         unsafe { p.write(p.read() | FLAG_ARR_LENGTH_RO) };
                     }
-                    unsafe { __torajs_throw_type_error(c"Unable to delete property.".as_ptr()) };
-                    return;
+                    return refuse_length(throw_on_refusal, c"Unable to delete property.".as_ptr());
                 }
             }
         }
@@ -126,13 +146,24 @@ pub(crate) unsafe fn define_length(arr: *mut c_void, tag: u64, value: u64, flags
         // the writable drop below per the spec's fail-fast order.
         unsafe { __torajs_arr_set_length_any(arr, 2, n) };
         if unsafe { __torajs_throw_check() } != 0 {
-            return;
+            return 0;
         }
     }
     if flags_byte & P_WRITABLE != 0 && flags_byte & F_WRITABLE == 0 {
         let p = unsafe { (arr as *mut u8).add(6) as *mut u16 };
         unsafe { p.write(p.read() | FLAG_ARR_LENGTH_RO) };
     }
+    1
+}
+
+/// Refusal answer for the `length` arm — no [[Value]] stake to
+/// release here (every leg runs after the conversion block already
+/// consumed it, or carries none).
+fn refuse_length(throw_on_refusal: bool, msg: *const core::ffi::c_char) -> i64 {
+    if throw_on_refusal {
+        unsafe { __torajs_throw_type_error(msg) };
+    }
+    0
 }
 
 /// §23.1.3.{20,29} pop/shift step 4.f / 5.g — `Set(O, "length", …,

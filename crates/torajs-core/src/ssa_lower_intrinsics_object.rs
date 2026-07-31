@@ -127,6 +127,11 @@ pub(crate) struct ObjectIds {
     /// the OrdinarySetPrototypeOf core (refusal = 0, no throw;
     /// invalid proto still throws).
     pub reflect_set_prototype_of: FuncId,
+    /// §28.1.2 Reflect.defineProperty — boolean-answer flavor of the
+    /// runtime-descriptor define (refusal = 0, no throw; a
+    /// ToPropertyDescriptor throw — getter-backed desc field,
+    /// accessor/data mix — still records).
+    pub dynobj_define_from_desc_soft: FuncId,
     pub object_create_check_proto: FuncId,
     pub object_create_link_proto: FuncId,
     pub anyv_set_prototype_of: FuncId,
@@ -215,6 +220,11 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
         dynobj_delete: decl!("__torajs_dynobj_delete", [Ptr, Ptr], I32),
         any_prop_delete_soft: decl!("__torajs_any_prop_delete_soft", [Any, Ptr], I64),
         reflect_set_prototype_of: decl!("__torajs_reflect_set_prototype_of", [Any, Any], I64),
+        dynobj_define_from_desc_soft: decl!(
+            "__torajs_dynobj_define_from_desc_soft",
+            [Ptr, Ptr, Ptr],
+            I64
+        ),
         object_create_check_proto: decl!("__torajs_object_create_check_proto", [Any], Void),
         object_create_link_proto: decl!("__torajs_object_create_link_proto", [Ptr, Any], Void),
         anyv_set_prototype_of: decl!("__torajs_anyv_set_prototype_of", [Any, Any], Void),
