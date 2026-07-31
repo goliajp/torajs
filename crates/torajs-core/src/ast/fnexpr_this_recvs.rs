@@ -182,3 +182,69 @@ pub(super) fn collect_decls_by_name(
         }
     }
 }
+
+/// Does any NON-LetDecl declaration site rebind `name` — an fn param
+/// (incl. lifted closure params), a `catch (name)`, or a for-of /
+/// for-in loop variable? Those scopes' `name` reads are different
+/// bindings, but the knife-2 use-vs-face parity walks Ident nodes
+/// program-wide by NAME, so a shadowed name cannot be paired to its
+/// binding syntactically — a mispair would stamp RECV on a face whose
+/// runtime value is the shadow. Shadowed names keep the loud reject
+/// (same bar as the `decls.len() != 1` guard, which only sees
+/// LetDecls).
+pub(super) fn name_shadowed_elsewhere(stmts: &[Stmt], name: &str) -> bool {
+    for s in stmts {
+        let hit = match s {
+            Stmt::FnDecl { params, body, .. } => {
+                params.iter().any(|p| p.name == name) || name_shadowed_elsewhere(body, name)
+            }
+            Stmt::Try {
+                body,
+                catch_param,
+                catch_body,
+                finally_body,
+                ..
+            } => {
+                catch_param.as_deref() == Some(name)
+                    || name_shadowed_elsewhere(body, name)
+                    || name_shadowed_elsewhere(catch_body, name)
+                    || finally_body
+                        .as_ref()
+                        .is_some_and(|f| name_shadowed_elsewhere(f, name))
+            }
+            Stmt::ForOf { var_name, body, .. } | Stmt::ForOfSplitIter { var_name, body, .. } => {
+                var_name == name || name_shadowed_elsewhere(std::slice::from_ref(body), name)
+            }
+            Stmt::For { init, body, .. } => {
+                init.as_ref()
+                    .is_some_and(|i| name_shadowed_elsewhere(std::slice::from_ref(i), name))
+                    || name_shadowed_elsewhere(std::slice::from_ref(body), name)
+            }
+            Stmt::While { body, .. } | Stmt::DoWhile { body, .. } | Stmt::Labeled { body, .. } => {
+                name_shadowed_elsewhere(std::slice::from_ref(body), name)
+            }
+            Stmt::If {
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                name_shadowed_elsewhere(std::slice::from_ref(then_branch), name)
+                    || else_branch
+                        .as_ref()
+                        .is_some_and(|e| name_shadowed_elsewhere(std::slice::from_ref(e), name))
+            }
+            Stmt::Switch { cases, default, .. } => {
+                cases.iter().any(|c| name_shadowed_elsewhere(&c.body, name))
+                    || default
+                        .as_ref()
+                        .is_some_and(|d| name_shadowed_elsewhere(d, name))
+            }
+            Stmt::Block(inner) | Stmt::Multi(inner) => name_shadowed_elsewhere(inner, name),
+            _ => false,
+        };
+        if hit {
+            return true;
+        }
+    }
+    false
+}

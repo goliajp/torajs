@@ -51,7 +51,7 @@
 use super::fnexpr_this_faces::{FacePatch, collect_face, collect_ident_face, literal_desc_faces};
 use super::fnexpr_this_recvs::{
     collect_any_binding_names, collect_arraylit_binding_names, collect_decls_by_name,
-    collect_mapset_binding_names, fn_has_rest_param,
+    collect_mapset_binding_names, fn_has_rest_param, name_shadowed_elsewhere,
 };
 use super::{Expr, ExprId, Param, Stmt};
 
@@ -279,7 +279,8 @@ fn collect_position_faces(
 /// any OTHER read — a direct call, a reassignment target, an alias
 /// init — would see the shifted-args closure ABI, the exact
 /// silent-wrong the zero-alias bar forbids, so those keep today's
-/// loud reject) and the const init is a marked fn-expr whose body
+/// loud reject) and the decl's init (const or var — rotation 261) is
+/// a marked fn-expr whose body
 /// says `this`. The decl lookup recurses through fn bodies (a face
 /// inside a function scope resolves its local const — the
 /// nested-scope profile), but only a name DECLARED EXACTLY ONCE
@@ -358,12 +359,24 @@ fn promote_variable_routed(
         if decls.len() != 1 {
             continue;
         }
-        let (mutable, init) = decls[0];
-        if !mutable
-            && fn_expr_exprs.contains(&init)
+        // Rotation 261 — a MUTABLE decl (`var f = function () {…}`,
+        // the dominant test262 spelling) promotes too: a reassignment
+        // is an Assign-target / PostIncr-target Ident, which the
+        // use-vs-face parity above already rejects (not a face, not a
+        // call callee), so a promoted binding provably never rebinds.
+        // What mutability does NOT cover is a same-name shadow from a
+        // non-LetDecl declarator (fn param / catch param / loop var)
+        // — the by-name Ident walk would pair the shadow's uses with
+        // this binding — so those keep the loud reject for var and
+        // const alike (the decls-count guard only sees LetDecls).
+        let (_mutable, init) = decls[0];
+        if fn_expr_exprs.contains(&init)
             && let Expr::Closure { fn_name, captures } = &exprs[init.0 as usize]
             && captures.iter().any(|c| c == "__this")
         {
+            if name_shadowed_elsewhere(stmts, name) {
+                continue;
+            }
             // A mixed binding must not also ride a boxed-argv call
             // lane: the real-argc prepend contends for the same
             // leading argv slot, and the variadic / full-arguments
