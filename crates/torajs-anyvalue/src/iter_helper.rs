@@ -342,14 +342,18 @@ pub(crate) unsafe fn iter_helper_method(
                 // §27.5.3.4 GeneratorResumeAbrupt validates the same
                 // "executing" state — a return() from inside a
                 // running step is a catchable TypeError, not a close.
+                // But return() itself does NOT hold the flag: spec
+                // §27.1.4.x return sets the state to completed FIRST
+                // and then runs IteratorCloseAll, so a next()/
+                // return() re-entered from a closing iterator's own
+                // return() observes "completed" and answers done
+                // (test262 zip suspended-start-iterator-close-calls-
+                // next — the executing gate must not fire there).
                 if (ptr.cast::<u8>().add(RUNNING_OFF)).read() != 0 {
                     __torajs_throw_type_error(c"Iterator Helper is already running".as_ptr());
                     return VALUE_UNDEFINED;
                 }
-                (ptr.cast::<u8>().add(RUNNING_OFF)).write(1);
-                let r = iter_helper_do_return(ptr);
-                (ptr.cast::<u8>().add(RUNNING_OFF)).write(0);
-                r
+                iter_helper_do_return(ptr)
             }
             _ => try_helper_chain(ptr, mid, argv, argc)
                 .unwrap_or_else(|| crate::method_call::method_no_such()),
