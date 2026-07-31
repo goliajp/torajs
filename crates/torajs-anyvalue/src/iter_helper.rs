@@ -63,6 +63,9 @@ pub(crate) const FN_OFF: usize = 16;
 pub(crate) const COUNTER_OFF: usize = 24;
 const KIND_OFF: usize = 32;
 pub(crate) const ALIVE_OFF: usize = 33;
+/// §27.5.3.2 "executing" state byte (third flag in the pad;
+/// `alloc_zeroed` starts it 0 = not running).
+const RUNNING_OFF: usize = 34;
 /// The flatMap current-inner-iterator slot.
 pub(crate) const INNER_OFF: usize = 40;
 const CELL_SIZE: usize = 48;
@@ -186,9 +189,31 @@ pub(crate) unsafe fn iter_helper_mint_wrap(underlying: AnyValue) -> AnyValue {
 pub(crate) unsafe fn iter_helper_step(ptr: *mut c_void, out: *mut AnyValue) -> i64 {
     unsafe {
         *out = VALUE_UNDEFINED;
+        // §27.5.3.2 GeneratorValidate step 6 — a helper is a spec
+        // generator, and a re-entrant resume (a user next() called
+        // from inside the callback / inner iterator this step is
+        // driving) throws a catchable TypeError. Without the gate
+        // the re-entry re-drove the same inner and recursed to a
+        // stack overflow (test262 Iterator/concat
+        // throws-typeerror-when-generator-is-running-next, exit 139).
+        if (ptr.cast::<u8>().add(RUNNING_OFF)).read() != 0 {
+            __torajs_throw_type_error(c"Iterator Helper is already running".as_ptr());
+            return 0;
+        }
         if (ptr.cast::<u8>().add(ALIVE_OFF)).read() == 0 {
             return 0;
         }
+        (ptr.cast::<u8>().add(RUNNING_OFF)).write(1);
+        let r = iter_helper_step_inner(ptr, out);
+        (ptr.cast::<u8>().add(RUNNING_OFF)).write(0);
+        r
+    }
+}
+
+/// The pre-guard step body — every arm of the kind dispatch, exactly
+/// as it ran before the executing gate wrapped it.
+unsafe fn iter_helper_step_inner(ptr: *mut c_void, out: *mut AnyValue) -> i64 {
+    unsafe {
         let underlying = (ptr.cast::<u8>().add(UNDERLYING_OFF) as *const u64).read();
         let kind = (ptr.cast::<u8>().add(KIND_OFF)).read();
         // §27.1.4.5 flatMap — the double loop (inner drain + outer
@@ -314,38 +339,54 @@ pub(crate) unsafe fn iter_helper_method(
                 iter_result_obj(v, hit == 0)
             }
             torajs_rc::any_method::ANY_METHOD_ITER_RETURN => {
-                // §27.1.5.2 — close the underlying, answer
-                // { value: undefined, done: true }. A WRAP cell
-                // instead FORWARDS return() and passes the
-                // underlying's own result through (§27.1.6.3.2).
-                if (ptr.cast::<u8>().add(ALIVE_OFF)).read() != 0 {
-                    (ptr.cast::<u8>().add(ALIVE_OFF)).write(0);
-                    let underlying = (ptr.cast::<u8>().add(UNDERLYING_OFF) as *const u64).read();
-                    if (ptr.cast::<u8>().add(KIND_OFF)).read() == ITER_HELPER_WRAP {
-                        return crate::iter_from::wrap_return_forward(underlying);
-                    }
-                    // CONCAT's underlying is the items list, not an
-                    // iterator — only the open inner needs closing.
-                    if (ptr.cast::<u8>().add(KIND_OFF)).read() == ITER_HELPER_CONCAT {
-                        crate::iter_concat::iter_concat_close_inner(ptr);
-                        return iter_result_obj(VALUE_UNDEFINED, true);
-                    }
-                    // ZIP / ZIP_KEYED's underlying is the open-columns
-                    // list — close every still-open column.
-                    if matches!(
-                        (ptr.cast::<u8>().add(KIND_OFF)).read(),
-                        ITER_HELPER_ZIP | ITER_HELPER_ZIP_KEYED
-                    ) {
-                        crate::iter_zip::iter_zip_close_all(ptr);
-                        return iter_result_obj(VALUE_UNDEFINED, true);
-                    }
-                    crate::iter_any_close::__torajs_iter_close_value(underlying);
+                // §27.5.3.4 GeneratorResumeAbrupt validates the same
+                // "executing" state — a return() from inside a
+                // running step is a catchable TypeError, not a close.
+                if (ptr.cast::<u8>().add(RUNNING_OFF)).read() != 0 {
+                    __torajs_throw_type_error(c"Iterator Helper is already running".as_ptr());
+                    return VALUE_UNDEFINED;
                 }
-                iter_result_obj(VALUE_UNDEFINED, true)
+                (ptr.cast::<u8>().add(RUNNING_OFF)).write(1);
+                let r = iter_helper_do_return(ptr);
+                (ptr.cast::<u8>().add(RUNNING_OFF)).write(0);
+                r
             }
             _ => try_helper_chain(ptr, mid, argv, argc)
                 .unwrap_or_else(|| crate::method_call::method_no_such()),
         }
+    }
+}
+
+/// §27.1.5.2 — close the underlying, answer `{ value: undefined,
+/// done: true }`. A WRAP cell instead FORWARDS return() and passes
+/// the underlying's own result through (§27.1.6.3.2). Runs under the
+/// caller's executing gate (the close can re-enter user code).
+unsafe fn iter_helper_do_return(ptr: *mut c_void) -> AnyValue {
+    unsafe {
+        if (ptr.cast::<u8>().add(ALIVE_OFF)).read() != 0 {
+            (ptr.cast::<u8>().add(ALIVE_OFF)).write(0);
+            let underlying = (ptr.cast::<u8>().add(UNDERLYING_OFF) as *const u64).read();
+            if (ptr.cast::<u8>().add(KIND_OFF)).read() == ITER_HELPER_WRAP {
+                return crate::iter_from::wrap_return_forward(underlying);
+            }
+            // CONCAT's underlying is the items list, not an
+            // iterator — only the open inner needs closing.
+            if (ptr.cast::<u8>().add(KIND_OFF)).read() == ITER_HELPER_CONCAT {
+                crate::iter_concat::iter_concat_close_inner(ptr);
+                return iter_result_obj(VALUE_UNDEFINED, true);
+            }
+            // ZIP / ZIP_KEYED's underlying is the open-columns
+            // list — close every still-open column.
+            if matches!(
+                (ptr.cast::<u8>().add(KIND_OFF)).read(),
+                ITER_HELPER_ZIP | ITER_HELPER_ZIP_KEYED
+            ) {
+                crate::iter_zip::iter_zip_close_all(ptr);
+                return iter_result_obj(VALUE_UNDEFINED, true);
+            }
+            crate::iter_any_close::__torajs_iter_close_value(underlying);
+        }
+        iter_result_obj(VALUE_UNDEFINED, true)
     }
 }
 
