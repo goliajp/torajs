@@ -1530,7 +1530,38 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 9215301c`, never as a constant.
 
-**Re-derived @ `5506154f`** (2026-08-01, rotation 264 — the
+**Re-derived @ `38d1b8ca`** (2026-08-01, rotation 265 — the Iterator
+ClassRef member blade plus four early-error blades): passTotal
+**23066** (+626 vs rotation 264's 22440), bug **11732** (−340),
+trAccepted **34798** (+286), incompatible **18376** (−286), core
+**12371** (−286). Gate predicate: **389** clusters of ≥ 4 holding
+11299 (clusters +2, cases −296 — unlock-exposed signatures, read
+with the case count), residue 815 clusters / 1072 cases.
+Conservation exact: +286 = +626 − 340. Blade 1 implemented the
+iterator-global RFC's written-but-unimplemented §3.3 SSA face: the
+eleven §27.1.4 helper names on iterator-by-construction TYPED
+receivers (generator ClassRef / extends-Iterator heirs / MapIter /
+ArrIter) answer Any and ride the any-lane dispatcher — the ClassRef
+incompat family fell 486 → 229. Blades 2-5 are the early-error
+family's next four clans (negative-phase-mismatch 1128 → 748):
+block/switch-CaseBlock redeclaration (raw-AST pass + parser
+dup-default), lexical decls in single-statement positions, `delete
+o.#x` (parse-time, keyed on the `__priv_` mangling), and escaped
+`await`/`yield` spellings (RESERVED_WORDS is escaped-only — literal
+spellings untouched). 380 mismatches turned PassNegative, 205
+ClassRef type-errors turned pass. Regressions: **8**, two roots,
+both honest — 4× `let`-with-newline (noStrict ASI shapes bun
+accepts: tr parses `L: let\nx=1` as a decl and the new
+single-statement check now rejects it; the real gap is the ASI
+`let`-as-identifier face, registered) and 4× escaped-await in
+script-goal positions (bun rejects these files identically —
+the old passes were strict-semantics accidents, no-metric-inflation
+evaporation). New crashes **0**; 6 new timeouts are unlock-exposed
+Iterator cases hitting the recorded next-method-not-cached boundary
+(RFC blade 2a). Gate 2267 → **2270**/0/4 zero-red across five
+substrate commits.
+
+Previous census @ rotation 264 `5506154f` (the
 undeclared-write strict lane + var-in-nested-block hoist fix +
 numeric-separator early errors + @@split face, then a two-commit
 regression repayment: stale write-mark self-heal + ToNumber/ToString
@@ -1871,15 +1902,16 @@ census:
 
 | cluster depth | core cases covered |
 |---|---|
-| top 10 | 31.3 % |
-| top 25 | 45.4 % |
-| top 50 | 59.2 % |
-| top 100 | 73.2 % |
-| top 400 | 92.1 % |
-| clusters of ≤ 3 cases (806 of them) | 8.1 % |
+| top 10 | 29.5 % |
+| top 25 | 43.3 % |
+| top 50 | 57.1 % |
+| top 100 | 71.4 % |
+| top 400 | 91.6 % |
+| clusters of ≤ 3 cases (815 of them) | 8.7 % |
 
-(refreshed @ rotation 263 closing sweep `c52fd6d1`, core **13147**,
-390 clusters of ≥ 4 holding 12081 cases. Rotation 263 shipped RFC
+(refreshed @ rotation 265 closing sweep `38d1b8ca`, core **12371**,
+389 clusters of ≥ 4 holding 11299 cases. Earlier stamp @ rotation
+263 `c52fd6d1`: core 13147, 390 clusters of ≥ 4 holding 12081. Rotation 263 shipped RFC
 20260730-undeclared-ident (policy B, decided under takagi's
 ceiling-first delegation): expression-position reads that resolve
 nowhere type Any + warn on stderr and raise a catchable runtime

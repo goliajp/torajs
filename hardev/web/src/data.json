@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-31T19:22:54.280Z",
+  "generatedAt": "2026-07-31T21:18:20.861Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-31T19:17:17Z",
-    "headSha": "5506154f",
-    "elapsedSec": 399.91,
+    "ranAt": "2026-07-31T21:13:19Z",
+    "headSha": "38d1b8ca",
+    "elapsedSec": 379.29,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 18565,
-    "passNoOracle": 546,
-    "passNegative": 3329,
-    "passTotal": 22440,
-    "bug": 12072,
-    "incompatible": 18662,
+    "pass": 18769,
+    "passNoOracle": 539,
+    "passNegative": 3758,
+    "passTotal": 23066,
+    "bug": 11732,
+    "incompatible": 18376,
     "bunSkip": 7467,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 34512,
-    "passRateInScope": 42.2,
-    "passRateTrAccepted": 65.02
+    "trAccepted": 34798,
+    "passRateInScope": 43.38,
+    "passRateTrAccepted": 66.29
   },
   "torajs": {
-    "commit": "5506154f",
-    "commitSubject": "fix(conformance): compareArray/checkSettledPromises harness params accept any",
+    "commit": "38d1b8ca",
+    "commitSubject": "feat(core): escaped await/yield spellings reject like any reserved word",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "38d1b8ca",
+      "subject": "feat(core): escaped await/yield spellings reject like any reserved word"
+    },
+    {
+      "hash": "b93a5a6c",
+      "subject": "feat(core): deleting a private name is a parse-time SyntaxError"
+    },
+    {
+      "hash": "4ade86bf",
+      "subject": "feat(core): reject lexical declarations in single-statement positions"
+    },
+    {
+      "hash": "c5c35c76",
+      "subject": "feat(core): block and switch-CaseBlock redeclaration early errors"
+    },
+    {
+      "hash": "66d77727",
+      "subject": "feat(core): iterator helpers on typed iterator receivers ride the any lane"
+    },
+    {
+      "hash": "31e2a4f8",
+      "subject": "chore(docs,hardev): rotation 264 census at 5506154f"
+    },
+    {
       "hash": "5506154f",
       "subject": "fix(conformance): compareArray/checkSettledPromises harness params accept any"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "e3e795bb",
       "subject": "feat(core): undeclared write targets throw runtime ReferenceError"
-    },
-    {
-      "hash": "fb0f8fe3",
-      "subject": "chore(bench): archive 2026-07-31 mini bench results at 1d8539d"
-    },
-    {
-      "hash": "1d485e57",
-      "subject": "chore(docs,hardev): rotation 263 census part 2 - roadmap p-surf refresh + test262 archive"
-    },
-    {
-      "hash": "0ee0558e",
-      "subject": "chore(docs,hardev): rotation 263 census at c52fd6d1"
-    },
-    {
-      "hash": "c52fd6d1",
-      "subject": "refactor(core): extract prune_unresolved_captures from monomorphize_and_check"
-    },
-    {
-      "hash": "a7a11c50",
-      "subject": "test: harness defines $DONOTEVALUATE matching upstream sta.js"
-    },
-    {
-      "hash": "c3834f6e",
-      "subject": "feat(core): undeclared reads in closures and call callees throw ReferenceError"
     }
   ],
-  "headSha": "5506154f",
+  "headSha": "38d1b8ca",
   "autorun": {
-    "total": 568,
+    "total": 569,
     "baselineTarget": 10,
-    "bySelf": 563,
+    "bySelf": 564,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785496697-0033",
-      "at": "2026-07-31T11:18:17Z",
-      "ts": 1785496697,
+      "rotationId": "r-1785525860-0eab",
+      "at": "2026-07-31T19:24:20Z",
+      "ts": 1785525860,
       "trigger": "self",
-      "prevHead": "1d485e57",
-      "handoffSha": "sha256:d681b16624aa34c84019e98a1ad6682bfa13c61f7c0a4f76994ff886a7e77793",
-      "handoffAgeSec": 70,
+      "prevHead": "31e2a4f8",
+      "handoffSha": "sha256:39e597d689d9f7b0a1f06996398ad152e06c9d104fe940304c44a1aaf9076c02",
+      "handoffAgeSec": 36,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1785525860-0eab",
+        "at": "2026-07-31T19:24:20Z",
+        "ts": 1785525860,
+        "trigger": "self",
+        "prevHead": "31e2a4f8",
+        "handoffSha": "sha256:39e597d689d9f7b0a1f06996398ad152e06c9d104fe940304c44a1aaf9076c02",
+        "handoffAgeSec": 36,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785496697-0033",
         "at": "2026-07-31T11:18:17Z",
@@ -876,17 +887,6 @@
         "prevHead": "f2262426",
         "handoffSha": "sha256:66d640119c181d8c31fea6d9aa6bf9a91a7caa474f3173df89e422515046e05e",
         "handoffAgeSec": 1,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1785390732-522e",
-        "at": "2026-07-30T05:52:12Z",
-        "ts": 1785390732,
-        "trigger": "self",
-        "prevHead": "3d2165b9",
-        "handoffSha": "sha256:9e43640b8a0d40dbc821b4a661147c65cce667476fd97771d74b89d71efaccf5",
-        "handoffAgeSec": 0,
         "conformanceBefore": null,
         "commitsInSession": null
       }
