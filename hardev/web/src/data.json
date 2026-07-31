@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-31T04:14:53.980Z",
+  "generatedAt": "2026-07-31T04:42:22.740Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,9 +9,9 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-31T04:08:35Z",
-    "headSha": "6950eeaa",
-    "elapsedSec": 361.72,
+    "ranAt": "2026-07-31T04:41:42Z",
+    "headSha": "b38532c1",
+    "elapsedSec": 340.98,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 86.82
   },
   "torajs": {
-    "commit": "6950eeaa",
-    "commitSubject": "feat(core): Array.from mapFn joins the fnexpr-this channel",
+    "commit": "b38532c1",
+    "commitSubject": "fix(core): variable-routed promoted callbacks thread thisArg through HOF and Array.from",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "b38532c1",
+      "subject": "fix(core): variable-routed promoted callbacks thread thisArg through HOF and Array.from"
+    },
+    {
+      "hash": "30243cd3",
+      "subject": "chore(docs,hardev): rotation 260 census at 6950eeaa"
+    },
+    {
       "hash": "6950eeaa",
       "subject": "feat(core): Array.from mapFn joins the fnexpr-this channel"
     },
@@ -751,35 +759,38 @@
     {
       "hash": "02d8e9ec",
       "subject": "feat(core): symbol-keyed index calls on typed receivers"
-    },
-    {
-      "hash": "bc50b78f",
-      "subject": "fix(core): scope mutated-capture promotion to the constructing body"
-    },
-    {
-      "hash": "d6a09959",
-      "subject": "fix(core): clone lifted closures per monomorphized specialization"
     }
   ],
-  "headSha": "6950eeaa",
+  "headSha": "b38532c1",
   "autorun": {
-    "total": 564,
+    "total": 565,
     "baselineTarget": 10,
-    "bySelf": 559,
+    "bySelf": 560,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785466977-0dd2",
-      "at": "2026-07-31T03:02:57Z",
-      "ts": 1785466977,
+      "rotationId": "r-1785472480-2ba4",
+      "at": "2026-07-31T04:34:40Z",
+      "ts": 1785472480,
       "trigger": "self",
-      "prevHead": "03f668a1",
-      "handoffSha": "sha256:8140cca6009d4e86e73dea6d0818789b6d35718ef74045468166ff9641a4e65c",
-      "handoffAgeSec": 0,
+      "prevHead": "b38532c1",
+      "handoffSha": "sha256:c88679d189996168af484fb3bb9ad3b874308ba80f2b305c7963f94392f5a243",
+      "handoffAgeSec": 1083,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1785472480-2ba4",
+        "at": "2026-07-31T04:34:40Z",
+        "ts": 1785472480,
+        "trigger": "self",
+        "prevHead": "b38532c1",
+        "handoffSha": "sha256:c88679d189996168af484fb3bb9ad3b874308ba80f2b305c7963f94392f5a243",
+        "handoffAgeSec": 1083,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785466977-0dd2",
         "at": "2026-07-31T03:02:57Z",
@@ -876,17 +887,6 @@
         "prevHead": "fd25e8b4",
         "handoffSha": "sha256:a75f776dcdaa16d262111d8ad5b833a0b715704ad370a11d7a6d98ba7c02ddc9",
         "handoffAgeSec": 6,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1785354229-6d81",
-        "at": "2026-07-29T19:43:49Z",
-        "ts": 1785354229,
-        "trigger": "self",
-        "prevHead": "e7366753",
-        "handoffSha": "sha256:b258271cdf1367588c6f0062fac61d8b7cb8caab848976e888b10e2f9105f1a1",
-        "handoffAgeSec": 43,
         "conformanceBefore": null,
         "commitsInSession": null
       }
