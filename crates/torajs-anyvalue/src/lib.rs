@@ -172,6 +172,7 @@ mod promise_with_resolvers;
 mod prop_delete;
 mod prop_has;
 mod prop_has_proto;
+mod reflect_apply;
 mod str_iterator;
 mod str_match_custom;
 mod struct_error_msg;

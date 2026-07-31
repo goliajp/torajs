@@ -132,6 +132,10 @@ pub(crate) struct ObjectIds {
     /// ToPropertyDescriptor throw — getter-backed desc field,
     /// accessor/data mix — still records).
     pub dynobj_define_from_desc_soft: FuncId,
+    /// §28.1.1 Reflect.apply — IsCallable gate + the
+    /// Function.prototype.apply kernel (nullish argumentsList
+    /// throws).
+    pub reflect_apply: FuncId,
     pub object_create_check_proto: FuncId,
     pub object_create_link_proto: FuncId,
     pub anyv_set_prototype_of: FuncId,
@@ -225,6 +229,7 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             [Ptr, Ptr, Ptr],
             I64
         ),
+        reflect_apply: decl!("__torajs_reflect_apply", [Any, Any, Any], Any),
         object_create_check_proto: decl!("__torajs_object_create_check_proto", [Any], Void),
         object_create_link_proto: decl!("__torajs_object_create_link_proto", [Ptr, Any], Void),
         anyv_set_prototype_of: decl!("__torajs_anyv_set_prototype_of", [Any, Any], Void),

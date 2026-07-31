@@ -442,7 +442,11 @@ pub(crate) unsafe fn generic_str_this(
 /// CreateListFromArrayLike + invoke — `undefined` / `null` is an
 /// empty list, an `Arr` cell unpacks element-by-element, everything
 /// else is a catchable TypeError.
-unsafe fn apply_list(target: &CallTarget, this_arg: AnyValue, list: AnyValue) -> AnyValue {
+pub(crate) unsafe fn apply_list(
+    target: &CallTarget,
+    this_arg: AnyValue,
+    list: AnyValue,
+) -> AnyValue {
     unsafe {
         if is_undefined(list) || is_null(list) {
             return dispatch(target, this_arg, core::ptr::null(), 0);

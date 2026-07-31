@@ -131,6 +131,12 @@ pub(crate) fn try_match(obj_ty: &Type, name: &str) -> Option<Result<Type, String
             vec![Type::Any, Type::Any, Type::Any],
             Box::new(Type::Boolean),
         ),
+        // §28.1.1 Reflect.apply (rotation 267 刀 R6) — IsCallable
+        // gate + the Function.prototype.apply kernel; a nullish
+        // argumentsList throws (no empty-list amnesty).
+        (Type::Object("Reflect"), "apply") => {
+            Type::Function(vec![Type::Any, Type::Any, Type::Any], Box::new(Type::Any))
+        }
         _ => return None,
     };
     Some(Ok(ty))

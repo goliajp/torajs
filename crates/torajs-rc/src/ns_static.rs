@@ -212,6 +212,9 @@ pub static NS_STATIC_TABLE: &[NsStaticRow] = &[
     // §28.1.2 Reflect.defineProperty (rotation 267 刀 R5a) — strict
     // gate + the boolean-answer runtime-descriptor define. Length 3.
     row("Reflect", "defineProperty", 3),
+    // §28.1.1 Reflect.apply (rotation 267 刀 R6) — IsCallable gate +
+    // the Function.prototype.apply kernel. Length 3.
+    row("Reflect", "apply", 3),
 ];
 
 /// Compile-time `(namespace, member)` → id. Linear scan — lower-time

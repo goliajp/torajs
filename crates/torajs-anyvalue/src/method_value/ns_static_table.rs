@@ -306,6 +306,10 @@ pub(super) enum Disp {
     /// boolean-answer runtime-descriptor define kernel (refusal =
     /// false, no throw; a ToPropertyDescriptor throw propagates).
     ReflectDefineProperty,
+    /// §28.1.1 Reflect.apply — IsCallable gate + the
+    /// Function.prototype.apply kernel (nullish argumentsList
+    /// throws, no empty-list amnesty).
+    ReflectApply,
 }
 
 /// The own-enumeration surfaces (shared dispatch shape) — `Names`
@@ -422,4 +426,5 @@ pub(super) static DISPATCH: &[Disp] = &[
     Disp::ArrayOf,
     Disp::RegExpEscape,
     Disp::ReflectDefineProperty,
+    Disp::ReflectApply,
 ];

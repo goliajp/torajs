@@ -146,6 +146,36 @@ pub(crate) fn lower_reflect_delete_property(ctx: &mut LowerCtx<'_>, args: &[Expr
     Operand::Value(b)
 }
 
+/// §28.1.1 Reflect.apply(target, thisArg, argumentsList) — every
+/// operand boxes to Any for the kernel ABI; the kernel carries the
+/// IsCallable gate, the no-amnesty nullish-argumentsList TypeError
+/// and the shared CreateListFromArrayLike + invoke walk.
+pub(crate) fn lower_reflect_apply(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
+    let mut boxed = Vec::with_capacity(3);
+    for &a in args.iter().take(3) {
+        let op = ctx.lower_expr(a);
+        let ty = ctx.operand_ty(&op);
+        let any = if matches!(ty, Type::Any) {
+            op
+        } else {
+            ctx.box_to_any_from_expr(a, op)
+        };
+        boxed.push(any);
+    }
+    for a in args.iter().skip(3) {
+        let _ = ctx.lower_expr(*a);
+    }
+    let cur_block = ctx.cur_block;
+    let v = ctx.f.append_inst(
+        cur_block,
+        InstKind::Call(ctx.intrinsics.reflect_apply, boxed),
+        Type::Any,
+        None,
+    );
+    ctx.emit_throw_check(None);
+    Operand::Value(v)
+}
+
 /// §28.1.2 Reflect.defineProperty(target, key, desc) — strict
 /// IsObject gate on the target, ToPropertyKey through the define
 /// family's shared resolver, then the boolean-answer flavor of the

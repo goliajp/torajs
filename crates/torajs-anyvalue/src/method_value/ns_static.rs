@@ -287,6 +287,11 @@ unsafe fn dispatch(id: i64, argv: *const u64, argc: i64) -> u64 {
             Disp::ReflectDefineProperty => {
                 super::ns_static_reflect::reflect_define_property(argv, argc)
             }
+            Disp::ReflectApply => crate::reflect_apply::__torajs_reflect_apply(
+                arg_at(argv, argc, 0),
+                arg_at(argv, argc, 1),
+                arg_at(argv, argc, 2),
+            ),
         }
     }
 }
