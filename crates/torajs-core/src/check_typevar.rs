@@ -68,7 +68,16 @@ pub(crate) fn unify_typevar(
                 }
                 return unify_typevar(p_ret, a_ret, subst);
             }
-            if p_args.len() != a_args.len() {
+            // TS function-type compatibility — an actual that
+            // accepts FEWER parameters than the pattern provides is
+            // compatible (callback parameter elision: `arr.map(x =>
+            // x)` against `(v, i, arr) => U`); only the common
+            // prefix unifies, and a typevar living solely in an
+            // elided position stays unbound (the caller's
+            // could-not-infer check reports it). An actual needing
+            // MORE parameters than the pattern supplies stays a
+            // mismatch.
+            if a_args.len() > p_args.len() {
                 return Err(format!(
                     "function arity mismatch: pattern {:?}, actual {:?}",
                     p_args.len(),
