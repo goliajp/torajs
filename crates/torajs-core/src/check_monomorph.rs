@@ -85,7 +85,11 @@ pub(crate) fn monomorphize_and_check(c: &mut Checker, ast: &Ast) -> MonoOutput {
         }
     }
     let generics = collect_generics(&owned_ast);
-    let generic_fn_names: HashSet<String> = generics.keys().cloned().collect();
+    // Also collects the original lifted-closure names whose per-spec
+    // clones replace them (RFC 20260731-mono-closure-clone) — lower
+    // skips those decls exactly like the generic originals: their only
+    // construction sites lived in generic bodies that never lower.
+    let mut generic_fn_names: HashSet<String> = generics.keys().cloned().collect();
 
     let mut cache: HashMap<(String, Vec<String>), String> = HashMap::new();
     let mut worklist: VecDeque<WorkItem> = VecDeque::new();
@@ -120,6 +124,9 @@ pub(crate) fn monomorphize_and_check(c: &mut Checker, ast: &Ast) -> MonoOutput {
             continue;
         };
         let mono_name = cache[&(name.clone(), arg_anns.clone())].clone();
+        // `MakeIterable$$_boolean` → `$$_boolean`; the same suffix
+        // names this spec's lifted-closure clones.
+        let spec_suffix = mono_name[name.len()..].to_string();
         // Ann-level substitution — the concrete signature the lowerer
         // parses (keeps width/closure-shape anns like "f64"/"__cls(").
         let subst: Vec<(String, String)> = type_params
@@ -127,43 +134,8 @@ pub(crate) fn monomorphize_and_check(c: &mut Checker, ast: &Ast) -> MonoOutput {
             .cloned()
             .zip(arg_anns.iter().cloned())
             .collect();
-        let mut new_params: Vec<Param> = params.clone();
-        for p in new_params.iter_mut() {
-            if let Some(ann) = &mut p.type_ann {
-                *ann = substitute_in_ann(ann, &subst);
-            }
-        }
-        let new_return_type = return_type.as_ref().map(|rt| substitute_in_ann(rt, &subst));
-        let mut id_map: Vec<(ExprId, ExprId)> = Vec::new();
-        let mut new_body: Vec<Stmt> = body
-            .iter()
-            .map(|s| crate::ssa_lower::deep_clone_stmt(&mut owned_ast, &mut id_map, s))
-            .collect();
-        // Blade 3 — carry the array-destructuring group registry onto
-        // the clone's fresh ExprIds, so the specialization's own check
-        // below picks each group's lane. It can differ per
-        // instantiation: the same `const [a, b] = xs` destructures an
-        // array in one and a generator in the next.
-        let cloned_groups: Vec<(ExprId, i64)> = id_map
-            .iter()
-            .filter_map(|&(old, new)| {
-                owned_ast
-                    .ary_destr_groups
-                    .get(&old)
-                    .map(|&limit| (new, limit))
-            })
-            .collect();
-        owned_ast.ary_destr_groups.extend(cloned_groups);
-        for s in new_body.iter_mut() {
-            substitute_in_stmt(s, &subst);
-        }
-        for s in new_body.iter() {
-            crate::ssa_lower_generics_tvdefault::rewrite_tvdefault_in_stmt(
-                &mut owned_ast,
-                s,
-                &subst,
-            );
-        }
+        let (new_params, new_return_type, new_body, id_map) =
+            clone_spec_body(&mut owned_ast, params, return_type, body, &subst);
         // Type-level signature for the checker: substitute the
         // ORIGINAL generic signature's typevars with the inferred
         // type args and register under the mono name so
@@ -222,6 +194,18 @@ pub(crate) fn monomorphize_and_check(c: &mut Checker, ast: &Ast) -> MonoOutput {
         let saved_error_count = c.errors.len();
         c.check_stmt(&owned_ast, &spec_decl);
         c.errors.truncate(saved_error_count);
+        // RFC 20260731-mono-closure-clone — clone every lifted closure
+        // this spec body references (inside the swap window so clone
+        // bodies' inner generic calls seed too; bodies still name the
+        // ORIGINALS here — the rewrite runs after checking).
+        let (closure_decls, closure_rename, closure_sites) =
+            crate::check_monomorph_closures::clone_spec_closures(
+                c,
+                &mut owned_ast,
+                &spec_suffix,
+                &id_map,
+                &subst,
+            );
         let inner_sites = std::mem::replace(&mut c.generic_call_sites, saved_sites);
         let inner_pads = std::mem::replace(&mut c.arity_pad_count, saved_pads);
         let mut inner: Vec<(ExprId, (String, Vec<Type>))> =
@@ -244,7 +228,19 @@ pub(crate) fn monomorphize_and_check(c: &mut Checker, ast: &Ast) -> MonoOutput {
         );
         c.generic_call_sites.extend(inner_sites);
         c.arity_pad_count.extend(inner_pads);
+        // Checking is done for this spec — point the closure sites at
+        // their clones and retire the shared originals from lowering.
+        crate::check_monomorph_closures::rewrite_closure_refs(
+            &mut owned_ast,
+            &closure_rename,
+            &closure_sites,
+        );
+        generic_fn_names.extend(closure_rename.keys().cloned());
         mono_decls.push(spec_decl);
+        // Clones append AFTER their spec: construction sites (in the
+        // spec body) must lower before the closure bodies that read
+        // the `closure_captures` entries they insert.
+        mono_decls.extend(closure_decls);
     }
     owned_ast.stmts.extend(mono_decls);
     // Blade 3 — the checker's per-group lane verdicts (top-level ones
@@ -256,6 +252,53 @@ pub(crate) fn monomorphize_and_check(c: &mut Checker, ast: &Ast) -> MonoOutput {
         call_retargets,
         generic_fn_names,
     }
+}
+
+/// One specialization's body materialization: ann-substituted params
+/// and return type, deep-cloned + substituted body statements, and the
+/// clone's ExprId map (feeds the destructuring-group carry done here,
+/// plus the lifted-closure reference scan).
+///
+/// Blade 3 note — the array-destructuring group registry rides the
+/// fresh ExprIds so the specialization's own check picks each group's
+/// lane; it can differ per instantiation (the same `const [a, b] = xs`
+/// destructures an array in one and a generator in the next).
+fn clone_spec_body(
+    owned_ast: &mut Ast,
+    params: &[Param],
+    return_type: &Option<String>,
+    body: &[Stmt],
+    subst: &[(String, String)],
+) -> (Vec<Param>, Option<String>, Vec<Stmt>, Vec<(ExprId, ExprId)>) {
+    let mut new_params: Vec<Param> = params.to_vec();
+    for p in new_params.iter_mut() {
+        if let Some(ann) = &mut p.type_ann {
+            *ann = substitute_in_ann(ann, subst);
+        }
+    }
+    let new_return_type = return_type.as_ref().map(|rt| substitute_in_ann(rt, subst));
+    let mut id_map: Vec<(ExprId, ExprId)> = Vec::new();
+    let mut new_body: Vec<Stmt> = body
+        .iter()
+        .map(|s| crate::ssa_lower::deep_clone_stmt(owned_ast, &mut id_map, s))
+        .collect();
+    let cloned_groups: Vec<(ExprId, i64)> = id_map
+        .iter()
+        .filter_map(|&(old, new)| {
+            owned_ast
+                .ary_destr_groups
+                .get(&old)
+                .map(|&limit| (new, limit))
+        })
+        .collect();
+    owned_ast.ary_destr_groups.extend(cloned_groups);
+    for s in new_body.iter_mut() {
+        substitute_in_stmt(s, subst);
+    }
+    for s in new_body.iter() {
+        crate::ssa_lower_generics_tvdefault::rewrite_tvdefault_in_stmt(owned_ast, s, subst);
+    }
+    (new_params, new_return_type, new_body, id_map)
 }
 
 /// Resolve each recorded generic call to its mono name: derive the
