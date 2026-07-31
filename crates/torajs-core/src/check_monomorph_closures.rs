@@ -32,31 +32,31 @@ use crate::ssa_lower_generics_monomorph::{substitute_in_ann, substitute_in_stmt}
 
 /// Clone every lifted closure the freshly-cloned spec body references.
 ///
-/// Runs INSIDE the caller's generic-call-site swap-capture window and
-/// AFTER the spec body's own `check_stmt` — each clone is checked here
-/// too, so its ExprIds land in `expr_types` and its inner generic
-/// calls seed further instantiations. Bodies still reference ORIGINAL
-/// closure names during checking (`closure_sig` resolves against
-/// `ast.stmts`); the caller must invoke [`rewrite_closure_refs`] with
-/// the returned rename map once checking is done.
+/// Runs BEFORE the spec body's `check_stmt` (inside the caller's
+/// swap-capture window): the clone decls join `owned_ast.stmts` and
+/// every `Expr::Closure` site (spec body + clone bodies) is rewritten
+/// to the clone names here, so the spec check's construction-site
+/// `check_closure` — which resolves the body through `closure_sig`'s
+/// `ast.stmts` walk — checks the CLONE bodies under the spec's scope.
+/// That walk is the one place the clones' inner generic calls get
+/// recorded (the captures aren't in scope for a bare top-level
+/// re-check, so its records are unreliable), and lowering reads the
+/// same fresh ExprIds the retargets then land on.
 ///
-/// Returns `(clone_decls, rename_map, rewrite_sites)`:
-/// - `clone_decls` — the new FnDecls, in clone order (append AFTER the
-///   spec decl so construction sites lower before closure bodies);
-/// - `rename_map` — original name → clone name (feeds the rewrite and
-///   the lower-side skip set);
-/// - `rewrite_sites` — every `Expr::Closure` ExprId (spec body + clone
-///   bodies) whose `fn_name` must be renamed.
+/// Returns the original-name → clone-name map; the caller feeds its
+/// keys to the lower-side skip set. Lowering order is safe regardless
+/// of stmt position: `partition_closure_decls` defers every closure
+/// body behind the plain fns, so the spec's construction sites always
+/// lower first.
 pub(crate) fn clone_spec_closures(
     c: &mut Checker,
     owned_ast: &mut Ast,
     spec_suffix: &str,
     spec_body_id_map: &[(ExprId, ExprId)],
     subst: &[(String, String)],
-) -> (Vec<Stmt>, HashMap<String, String>, Vec<ExprId>) {
+) -> HashMap<String, String> {
     let mut rename: HashMap<String, String> = HashMap::new();
     let mut rewrite_sites: Vec<ExprId> = Vec::new();
-    let mut clone_decls: Vec<Stmt> = Vec::new();
     let mut queue: VecDeque<String> = VecDeque::new();
 
     collect_lifted_refs(
@@ -113,6 +113,14 @@ pub(crate) fn clone_spec_closures(
         // Name-keyed side tables must mirror BEFORE the clone checks:
         // `closure_argv_fns` shapes the closure's checker-facing type.
         mirror_name_keyed_tables(owned_ast, &orig, &clone_name);
+        // So must the globals signature — `check_stmt_fn_decl`
+        // resolves the fn type by name and SILENTLY skips the body on
+        // a miss, which would leave the clone's inner generic calls
+        // unrecorded (no retarget → "unknown function" at lower time;
+        // the shadowing lookup-from-closure regression caught this).
+        if let Some(t) = c.globals.get(&orig).cloned() {
+            c.globals.insert(clone_name.clone(), t);
+        }
 
         let clone_decl = Stmt::FnDecl {
             name: clone_name,
@@ -123,32 +131,28 @@ pub(crate) fn clone_spec_closures(
             is_generator,
             span,
         };
-        // Inference-only check, same discard discipline as the spec
-        // body (these bodies were checked once already under the
-        // original name — diagnostics would be duplicates).
+        // Top-level re-check mirrors the original decl's pass-2 walk
+        // (inference-only; captures aren't in scope at top level, so
+        // diagnostics discard — the construction-site check under the
+        // spec is the real record source).
         let saved_error_count = c.errors.len();
         c.check_stmt(owned_ast, &clone_decl);
         c.errors.truncate(saved_error_count);
-        clone_decls.push(clone_decl);
+        // Straight into the stmt list — `closure_sig` resolves clone
+        // names against `ast.stmts` during the spec's own check.
+        owned_ast.stmts.push(clone_decl);
     }
 
-    (clone_decls, rename, rewrite_sites)
-}
-
-/// Point every recorded `Expr::Closure` site at its clone. Runs after
-/// ALL checking (spec + clones) so `closure_sig` saw original names.
-pub(crate) fn rewrite_closure_refs(
-    owned_ast: &mut Ast,
-    rename: &HashMap<String, String>,
-    rewrite_sites: &[ExprId],
-) {
-    for &eid in rewrite_sites {
+    // Point every recorded `Expr::Closure` site (spec body + clone
+    // bodies) at its clone before the spec check runs.
+    for &eid in &rewrite_sites {
         if let Expr::Closure { fn_name, .. } = &mut owned_ast.exprs[eid.0 as usize]
             && let Some(clone_name) = rename.get(fn_name.as_str())
         {
             *fn_name = clone_name.clone();
         }
     }
+    rename
 }
 
 /// Scan a deep-clone `id_map` for `Expr::Closure` references to

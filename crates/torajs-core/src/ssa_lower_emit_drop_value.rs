@@ -305,6 +305,7 @@ fn emit_drop_arr(ctx: &mut LowerCtx, val: Operand, arr_id: crate::ssa::ArrId) {
 /// paths must not rc-dec through it. RFC 20260710 C2b upgraded the
 /// guard to nullish (NULL or the generic undefined cell).
 fn emit_drop_closure(ctx: &mut LowerCtx, val: Operand) {
+    let flags_blk = ctx.f.add_block();
     let dec_blk = ctx.f.add_block();
     let skip = ctx.f.add_block();
     let skip_check = nullish_skip_cond(ctx, &val);
@@ -312,6 +313,43 @@ fn emit_drop_closure(ctx: &mut LowerCtx, val: Operand) {
         ctx.cur_block,
         Terminator::CondBr {
             cond: skip_check,
+            then_blk: skip,
+            else_blk: flags_blk,
+        },
+    );
+    // An immortal static cell (ns-static / reified builtin-method —
+    // FLAG_STATIC_LITERAL) skips the whole dec: its drop_fn slot is
+    // 0, so letting the inline dec reach 0 jumps to address zero
+    // (`Object.getPrototypeOf(Math.max)` crashed exactly there — the
+    // non-ident arg's temp release was the first consumer to inline-
+    // drop one of these cells). Header +4 packs tag:u16 | flags:u16.
+    ctx.cur_block = flags_blk;
+    let tag_flags = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(Type::I32, val.clone(), 4),
+        Type::I32,
+        None,
+    );
+    let static_bit = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::BinOp(
+            SsaBinOp::And,
+            Operand::Value(tag_flags),
+            Operand::ConstI32((torajs_rc::FLAG_STATIC_LITERAL as i32) << 16),
+        ),
+        Type::I32,
+        None,
+    );
+    let is_static = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::ICmp(IPred::Ne, Operand::Value(static_bit), Operand::ConstI32(0)),
+        Type::Bool,
+        None,
+    );
+    ctx.f.set_term(
+        ctx.cur_block,
+        Terminator::CondBr {
+            cond: Operand::Value(is_static),
             then_blk: skip,
             else_blk: dec_blk,
         },

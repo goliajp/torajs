@@ -192,20 +192,22 @@ pub(crate) fn monomorphize_and_check(c: &mut Checker, ast: &Ast) -> MonoOutput {
         let saved_sites = std::mem::take(&mut c.generic_call_sites);
         let saved_pads = std::mem::take(&mut c.arity_pad_count);
         let saved_error_count = c.errors.len();
+        // RFC 20260731-mono-closure-clone — clone every lifted closure
+        // this spec body references BEFORE the body checks: the clone
+        // decls join `owned_ast.stmts` and the spec body's closure
+        // sites are rewritten to the clone names, so the spec check's
+        // construction-site `check_closure` walks the CLONE bodies
+        // (fresh ExprIds) — that walk is what records their inner
+        // generic calls for the seed pass below.
+        let closure_rename = crate::check_monomorph_closures::clone_spec_closures(
+            c,
+            &mut owned_ast,
+            &spec_suffix,
+            &id_map,
+            &subst,
+        );
         c.check_stmt(&owned_ast, &spec_decl);
         c.errors.truncate(saved_error_count);
-        // RFC 20260731-mono-closure-clone — clone every lifted closure
-        // this spec body references (inside the swap window so clone
-        // bodies' inner generic calls seed too; bodies still name the
-        // ORIGINALS here — the rewrite runs after checking).
-        let (closure_decls, closure_rename, closure_sites) =
-            crate::check_monomorph_closures::clone_spec_closures(
-                c,
-                &mut owned_ast,
-                &spec_suffix,
-                &id_map,
-                &subst,
-            );
         let inner_sites = std::mem::replace(&mut c.generic_call_sites, saved_sites);
         let inner_pads = std::mem::replace(&mut c.arity_pad_count, saved_pads);
         let mut inner: Vec<(ExprId, (String, Vec<Type>))> =
@@ -228,19 +230,14 @@ pub(crate) fn monomorphize_and_check(c: &mut Checker, ast: &Ast) -> MonoOutput {
         );
         c.generic_call_sites.extend(inner_sites);
         c.arity_pad_count.extend(inner_pads);
-        // Checking is done for this spec — point the closure sites at
-        // their clones and retire the shared originals from lowering.
-        crate::check_monomorph_closures::rewrite_closure_refs(
-            &mut owned_ast,
-            &closure_rename,
-            &closure_sites,
-        );
+        // The shared originals retire from lowering (their only
+        // construction sites lived in generic bodies). The clone
+        // decls already joined `owned_ast.stmts` — AFTER this spec
+        // decl in stmt order, so construction sites lower before the
+        // closure bodies that read their `closure_captures` entries
+        // (mono_decls append behind everything).
         generic_fn_names.extend(closure_rename.keys().cloned());
         mono_decls.push(spec_decl);
-        // Clones append AFTER their spec: construction sites (in the
-        // spec body) must lower before the closure bodies that read
-        // the `closure_captures` entries they insert.
-        mono_decls.extend(closure_decls);
     }
     owned_ast.stmts.extend(mono_decls);
     // Blade 3 — the checker's per-group lane verdicts (top-level ones
