@@ -265,6 +265,17 @@ pub(super) enum Disp {
     /// (RFC 20260721 records the face), so the arm raises a loud
     /// TypeError.
     ArrayFromFace,
+    /// §27.1.2.1 Iterator.from — the GetIteratorFlattenable kernel,
+    /// AnyValue → owned AnyValue direct.
+    IteratorFrom,
+    /// proposal-iterator-sequencing Iterator.concat — argv packs
+    /// into the fresh `Array<Any>` the kernel's items slot takes.
+    IteratorConcat,
+    /// proposal-joint-iteration Iterator.zip / zipKeyed —
+    /// (iterables, options?) direct into the joint kernels.
+    IteratorZip {
+        keyed: bool,
+    },
 }
 
 /// The own-enumeration surfaces (shared dispatch shape) — `Names`
@@ -368,4 +379,8 @@ pub(super) static DISPATCH: &[Disp] = &[
     Disp::PromiseSettle, // Promise.allSettled
     Disp::PromiseSettle, // Promise.any
     Disp::PromiseSettle, // Promise.race
+    Disp::IteratorFrom,
+    Disp::IteratorConcat,
+    Disp::IteratorZip { keyed: false },
+    Disp::IteratorZip { keyed: true },
 ];

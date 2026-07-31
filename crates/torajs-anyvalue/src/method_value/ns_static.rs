@@ -254,7 +254,46 @@ unsafe fn dispatch(id: i64, argv: *const u64, argc: i64) -> u64 {
             Disp::DefineFace => super::ns_static_ctor::define_face_reject(),
             Disp::OwnSymbols => super::ns_static_obj::own_symbols_value(arg_at(argv, argc, 0)),
             Disp::ArrayFromFace => super::ns_static_ctor::array_from_face_reject(),
+            // Iterator statics delegate to the SAME kernels the
+            // statics-wedge lowering bakes — a pending throw from a
+            // refusal path rides out with the undefined answer.
+            Disp::IteratorFrom => crate::iter_from::__torajs_iterator_from(arg_at(argv, argc, 0)),
+            Disp::IteratorConcat => iterator_concat_pack(argv, argc),
+            Disp::IteratorZip { keyed: false } => {
+                crate::iter_zip::__torajs_iterator_zip(arg_at(argv, argc, 0), arg_at(argv, argc, 1))
+            }
+            Disp::IteratorZip { keyed: true } => {
+                crate::iter_zip_keyed::__torajs_iterator_zip_keyed(
+                    arg_at(argv, argc, 0),
+                    arg_at(argv, argc, 1),
+                )
+            }
         }
+    }
+}
+
+unsafe extern "C" {
+    /// torajs-arr — the fresh `Array<Any>` pack Iterator.concat's
+    /// kernel takes ownership of (mirrors the wedge lowering).
+    fn __torajs_arr_alloc_any(cap: u64) -> *mut u8;
+    fn __torajs_arr_push_any(arr: *mut c_void, tag: u64, value: u64) -> *mut u8;
+}
+
+/// `Iterator.concat(...items)` through the value cell — pack the
+/// borrowed argv into a fresh rc-1 `Array<Any>` (each slot takes its
+/// own +1 stake) and hand it to the kernel, which owns it from there.
+unsafe fn iterator_concat_pack(argv: *const u64, argc: i64) -> u64 {
+    unsafe {
+        let n = argc.max(0);
+        let mut items = __torajs_arr_alloc_any(n as u64);
+        for i in 0..n {
+            let v = arg_at(argv, argc, i);
+            let t = crate::__torajs_anyv_unbox_tag(v);
+            let p = crate::__torajs_anyv_unbox_value(v);
+            crate::payload_rc_inc(t, p);
+            items = __torajs_arr_push_any(items as *mut c_void, t as u64, p as u64);
+        }
+        crate::iter_concat::__torajs_iterator_concat(items as *mut c_void)
     }
 }
 

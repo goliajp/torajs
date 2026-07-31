@@ -175,6 +175,14 @@ pub static NS_STATIC_TABLE: &[NsStaticRow] = &[
     row("Promise", "allSettled", 1),
     row("Promise", "any", 1),
     row("Promise", "race", 1),
+    // Iterator statics (RFC 20260731 刀 5 — the concat/zip reflection
+    // faces). Lengths per proposal-iterator-sequencing (`concat` is
+    // all-rest → 0) and proposal-joint-iteration (`zip` / `zipKeyed`
+    // take one required iterables argument; options is optional).
+    row("Iterator", "from", 1),
+    row("Iterator", "concat", 0),
+    row("Iterator", "zip", 1),
+    row("Iterator", "zipKeyed", 1),
 ];
 
 /// Compile-time `(namespace, member)` → id. Linear scan — lower-time

@@ -212,6 +212,14 @@ pub(crate) fn try_match(obj_ty: &Type, name: &str) -> Option<Result<Type, String
         (Type::Object("Promise"), "resolve" | "reject") => {
             Type::Function(vec![Type::Any], Box::new(Type::Any))
         }
+        // Iterator statics read as VALUES (RFC 20260731 刀 5) — call
+        // positions hit the statics wedges first; this arm serves the
+        // reflection face (`Iterator.concat.length`, aliased calls
+        // through the ns-static cell's boxed variadic lane). Arity
+        // reflection comes from the ns-static table row, not here.
+        (Type::Object("Iterator"), "from" | "concat" | "zip" | "zipKeyed") => {
+            Type::Function(vec![Type::Rest(Box::new(Type::Any))], Box::new(Type::Any))
+        }
         /* T-13.b (v0.4.0) — Symbol.for(key) returns the
          * registered Symbol for the key (creates one on
          * first call). Identity preserved across calls. */
