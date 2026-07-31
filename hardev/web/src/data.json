@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-31T04:42:22.740Z",
+  "generatedAt": "2026-07-31T08:16:17.315Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-31T04:41:42Z",
-    "headSha": "b38532c1",
-    "elapsedSec": 340.98,
+    "ranAt": "2026-07-31T08:14:47Z",
+    "headSha": "2ee51cef",
+    "elapsedSec": 338.69,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 17170,
+    "pass": 17178,
     "passNoOracle": 519,
     "passNegative": 4489,
-    "passTotal": 22178,
-    "bug": 3366,
-    "incompatible": 27630,
+    "passTotal": 22186,
+    "bug": 3372,
+    "incompatible": 27616,
     "bunSkip": 7467,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 25544,
-    "passRateInScope": 41.71,
-    "passRateTrAccepted": 86.82
+    "trAccepted": 25558,
+    "passRateInScope": 41.72,
+    "passRateTrAccepted": 86.81
   },
   "torajs": {
-    "commit": "b38532c1",
-    "commitSubject": "fix(core): variable-routed promoted callbacks thread thisArg through HOF and Array.from",
+    "commit": "2ee51cef",
+    "commitSubject": "fix(core): iterator helper return() checks but does not hold the executing flag",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "2ee51cef",
+      "subject": "fix(core): iterator helper return() checks but does not hold the executing flag"
+    },
+    {
+      "hash": "69e46bbd",
+      "subject": "fix(core): iterator helpers reject re-entrant next/return with TypeError"
+    },
+    {
+      "hash": "60d80b00",
+      "subject": "feat(core): inline fn-expr .call/.apply face and absent-argArray apply"
+    },
+    {
+      "hash": "42e138d7",
+      "subject": "feat(core): predicate-family HOF threads thisArg into promoted fn-expr callbacks"
+    },
+    {
+      "hash": "fa18586a",
+      "subject": "feat(core): var-declared fnexpr-this bindings promote under shadow guard"
+    },
+    {
+      "hash": "df8535cd",
+      "subject": "feat(core): fnexpr this binds through explicit .call/.apply thisArg"
+    },
+    {
+      "hash": "6bc75e6b",
+      "subject": "chore(docs,hardev): rotation 260 final census at b38532c1"
+    },
+    {
       "hash": "b38532c1",
       "subject": "fix(core): variable-routed promoted callbacks thread thisArg through HOF and Array.from"
     },
@@ -731,37 +759,9 @@
     {
       "hash": "80d5629e",
       "subject": "fix(core): forward captures from closures nested inside let-inits"
-    },
-    {
-      "hash": "1990de4c",
-      "subject": "fix(core): sync free_vars known-global table with checker fallback"
-    },
-    {
-      "hash": "22a4c32d",
-      "subject": "fix(core): mixed-inner nested array literals ride the Arr<Any> lane"
-    },
-    {
-      "hash": "03f668a1",
-      "subject": "chore(docs,hardev): rotation 259 census at 858e2702"
-    },
-    {
-      "hash": "858e2702",
-      "subject": "fix(core): clone-closure check env + static-cell inline drop guard"
-    },
-    {
-      "hash": "283b8179",
-      "subject": "feat(core,runtime): Iterator statics as values — ns-static reify rows"
-    },
-    {
-      "hash": "4cd262f9",
-      "subject": "fix(runtime): wrapper receivers inherit symbol keys through their prototype"
-    },
-    {
-      "hash": "02d8e9ec",
-      "subject": "feat(core): symbol-keyed index calls on typed receivers"
     }
   ],
-  "headSha": "b38532c1",
+  "headSha": "2ee51cef",
   "autorun": {
     "total": 565,
     "baselineTarget": 10,

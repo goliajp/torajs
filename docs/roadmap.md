@@ -1530,6 +1530,20 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 9215301c`, never as a constant.
 
+**Re-derived @ `2ee51cef`** (2026-07-31, rotation 261; re-swept at
+the final HEAD after the iterator-helper executing-gate fix-up):
+passTotal **22186** (+8), bug **3372** (+6), trAccepted **25558**,
+incompatible **27616**, core **15377**. Gate predicate: **426**
+clusters of ≥ 4 holding 14218 (cases −16; clusters +1 — the
+non-strict-this family the fnexpr knives unlocked now runs to its
+own signature), residue 870 clusters / 1159 cases. Conservation
+exact: +14 = +8 + 6. True regressions **0** — the mid-close sweep
+@ `69e46bbd` caught 6 pass-losses (zip/zipKeyed
+suspended-start-iterator-close-calls-* + options-padding), all one
+root: return() must not HOLD the executing flag across
+IteratorCloseAll (§27.1.4.x sets completed first); fixed same
+rotation, all six re-verified.
+
 **Re-derived @ `b53d226b`** (2026-07-29, rotation 244; re-swept at
 the final HEAD after V4 knife 1): passTotal **19965** (+392), bug
 **2374** (net +173 vs `6397d916`'s 2354: V2b turned a −153 family
