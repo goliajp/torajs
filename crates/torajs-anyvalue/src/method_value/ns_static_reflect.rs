@@ -82,3 +82,30 @@ pub(super) unsafe fn reflect_is_extensible(argv: *const u64, argc: i64) -> u64 {
         }
     }
 }
+
+/// §28.1.3 Reflect.deleteProperty as a detached call — strict gate,
+/// ToString(P) key (the [`gopd_static`] posture; a symbol key rides
+/// the wedge-lowered call face, not this cell), then the same
+/// OrdinaryDelete kernel the `delete` expression lowers to.
+pub(super) unsafe fn reflect_delete_property(argv: *const u64, argc: i64) -> u64 {
+    unsafe {
+        __torajs_anyv_throw_typeerror_if_not_object(arg_at(argv, argc, 0));
+        if __torajs_throw_check() != 0 {
+            return VALUE_UNDEFINED;
+        }
+        let key = crate::nanbox_ffi::__torajs_anyv_to_str(arg_at(argv, argc, 1));
+        if __torajs_throw_check() != 0 {
+            return VALUE_UNDEFINED;
+        }
+        let deleted = crate::prop_delete::__torajs_any_prop_delete_soft(
+            arg_at(argv, argc, 0),
+            key as *const core::ffi::c_void,
+        );
+        crate::__torajs_str_drop(key as *mut core::ffi::c_void);
+        if deleted != 0 {
+            VALUE_TRUE
+        } else {
+            VALUE_FALSE
+        }
+    }
+}

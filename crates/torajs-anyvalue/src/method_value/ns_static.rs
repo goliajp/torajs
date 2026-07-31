@@ -276,6 +276,9 @@ unsafe fn dispatch(id: i64, argv: *const u64, argc: i64) -> u64 {
             Disp::ReflectIsExtensible => {
                 super::ns_static_reflect::reflect_is_extensible(argv, argc)
             }
+            Disp::ReflectDeleteProperty => {
+                super::ns_static_reflect::reflect_delete_property(argv, argc)
+            }
         }
     }
 }

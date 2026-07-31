@@ -60,6 +60,35 @@ unsafe extern "C" {
 /// Cell receivers are valid heap pointers; `key` is a live Str cell.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_any_prop_delete(recv: AnyValue, key: *const c_void) -> i64 {
+    unsafe { any_prop_delete_impl(recv, key, true) }
+}
+
+/// §28.1.3 Reflect.deleteProperty flavor — identical OrdinaryDelete
+/// walk, but a non-configurable refusal answers 0 with NO pending
+/// throw (the §13.5.1.2 strict TypeError belongs to the delete
+/// expression's caller strictness, not to OrdinaryDelete itself).
+/// The nullish-receiver TypeError still records — Reflect's strict
+/// IsObject gate runs first, so that arm is unreachable through the
+/// Reflect path anyway.
+///
+/// # Safety
+/// Same contract as [`__torajs_any_prop_delete`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_any_prop_delete_soft(recv: AnyValue, key: *const c_void) -> i64 {
+    unsafe { any_prop_delete_impl(recv, key, false) }
+}
+
+/// Shared refusal answer — see the two extern shells above.
+unsafe fn refuse(throw_on_refusal: bool) -> i64 {
+    if throw_on_refusal {
+        unsafe {
+            __torajs_throw_type_error(c"cannot delete a non-configurable property".as_ptr());
+        }
+    }
+    0
+}
+
+unsafe fn any_prop_delete_impl(recv: AnyValue, key: *const c_void, throw_on_refusal: bool) -> i64 {
     if is_null(recv) || is_undefined(recv) {
         unsafe {
             __torajs_throw_type_error(c"cannot delete a property of null or undefined".as_ptr());
@@ -79,7 +108,7 @@ pub unsafe extern "C" fn __torajs_any_prop_delete(recv: AnyValue, key: *const c_
         if dict.is_null() {
             return 1;
         }
-        if unsafe { refuse_non_configurable(dict, key) } {
+        if unsafe { refuse_non_configurable(dict, key, throw_on_refusal) } {
             return 0;
         }
         unsafe { __torajs_dynobj_delete(dict as *mut c_void, key) };
@@ -87,7 +116,7 @@ pub unsafe extern "C" fn __torajs_any_prop_delete(recv: AnyValue, key: *const c_
     }
     match recv_cell(recv) {
         Some((ptr, t)) if t == Tag::DynObj as u16 => {
-            if unsafe { refuse_non_configurable(ptr, key) } {
+            if unsafe { refuse_non_configurable(ptr, key, throw_on_refusal) } {
                 return 0;
             }
             unsafe { __torajs_dynobj_delete(ptr, key) };
@@ -100,26 +129,17 @@ pub unsafe extern "C" fn __torajs_any_prop_delete(recv: AnyValue, key: *const c_
             // index domain.
             if let Some(idx) = unsafe { crate::prop_has::canonical_index(key) } {
                 if unsafe { __torajs_arr_delete_index(ptr, key as *mut c_void, idx) } == 0 {
-                    unsafe {
-                        __torajs_throw_type_error(
-                            c"cannot delete a non-configurable property".as_ptr(),
-                        );
-                    }
-                    return 0;
+                    return unsafe { refuse(throw_on_refusal) };
                 }
                 return 1;
             }
             // `length` is permanently non-configurable (§10.4.2).
             if unsafe { crate::prop_has::key_is(key, b"length") } {
-                unsafe {
-                    __torajs_throw_type_error(
-                        c"cannot delete a non-configurable property".as_ptr(),
-                    );
-                }
-                return 0;
+                return unsafe { refuse(throw_on_refusal) };
             }
             let props = unsafe { arr_props(ptr) };
-            if !props.is_null() && unsafe { refuse_non_configurable(props, key) } {
+            if !props.is_null() && unsafe { refuse_non_configurable(props, key, throw_on_refusal) }
+            {
                 return 0;
             }
             unsafe { __torajs_arrprops_delete(ptr, key) };
@@ -138,27 +158,17 @@ pub unsafe extern "C" fn __torajs_any_prop_delete(recv: AnyValue, key: *const c_
             if unsafe { crate::prop_has::key_is(key, b"prototype") }
                 && crate::method_value::ctor::ctor_tag_of_cell(ptr).is_some()
             {
-                unsafe {
-                    __torajs_throw_type_error(
-                        c"cannot delete a non-configurable property".as_ptr(),
-                    );
-                }
-                return 0;
+                return unsafe { refuse(throw_on_refusal) };
             }
             // §6.1.5.1 — the Symbol ctor's well-known data statics
             // are {configurable: false} (RFC 20260722 刀 2).
             if unsafe { crate::method_value::symbol_static::is_wellknown_on_symbol_ctor(ptr, key) }
             {
-                unsafe {
-                    __torajs_throw_type_error(
-                        c"cannot delete a non-configurable property".as_ptr(),
-                    );
-                }
-                return 0;
+                return unsafe { refuse(throw_on_refusal) };
             }
             let props = unsafe { closure_props(ptr) };
             if !props.is_null() {
-                if unsafe { refuse_non_configurable(props as *mut c_void, key) } {
+                if unsafe { refuse_non_configurable(props as *mut c_void, key, throw_on_refusal) } {
                     return 0;
                 }
                 unsafe { __torajs_dynobj_delete(props as *mut c_void, key) };
@@ -207,16 +217,11 @@ pub unsafe extern "C" fn __torajs_any_prop_delete(recv: AnyValue, key: *const c_
                     unsafe { crate::wrapper_view_through::resolve_inner_recv(ptr, t) }
                 && unsafe { crate::member_get_str::str_own_pair(inner, key) }.is_some()
             {
-                unsafe {
-                    __torajs_throw_type_error(
-                        c"cannot delete a non-configurable property".as_ptr(),
-                    );
-                }
-                return 0;
+                return unsafe { refuse(throw_on_refusal) };
             }
             let props = unsafe { crate::member_get::wrapper_props(ptr) };
             if !props.is_null() {
-                if unsafe { refuse_non_configurable(props as *mut c_void, key) } {
+                if unsafe { refuse_non_configurable(props as *mut c_void, key, throw_on_refusal) } {
                     return 0;
                 }
                 unsafe { __torajs_dynobj_delete(props as *mut c_void, key) };
@@ -228,12 +233,7 @@ pub unsafe extern "C" fn __torajs_any_prop_delete(recv: AnyValue, key: *const c_
         // delete throws. Every other key owns nothing → success.
         Some((_, t)) if t == Tag::RegExp as u16 => {
             if unsafe { crate::prop_has::key_is(key, b"lastIndex") } {
-                unsafe {
-                    __torajs_throw_type_error(
-                        c"cannot delete a non-configurable property".as_ptr(),
-                    );
-                }
-                return 0;
+                return unsafe { refuse(throw_on_refusal) };
             }
             1
         }
@@ -293,13 +293,15 @@ unsafe fn tombstone_proto_method(ptr: *mut c_void, key: *const c_void) {
 /// isConfigurable probe relies on exactly this shape). A plain
 /// `o.k = v` entry carries BUCKET_FLAGS_DEFAULT (all set), so only
 /// defineProperty-shaped entries can refuse.
-unsafe fn refuse_non_configurable(obj: *const c_void, key: *const c_void) -> bool {
+unsafe fn refuse_non_configurable(
+    obj: *const c_void,
+    key: *const c_void,
+    throw_on_refusal: bool,
+) -> bool {
     if unsafe { __torajs_dynobj_has(obj, key) } != 0
         && unsafe { __torajs_dynobj_get_flags(obj, key) } & 0x4 == 0
     {
-        unsafe {
-            __torajs_throw_type_error(c"cannot delete a non-configurable property".as_ptr());
-        }
+        let _ = unsafe { refuse(throw_on_refusal) };
         return true;
     }
     false

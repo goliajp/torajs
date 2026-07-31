@@ -290,6 +290,9 @@ pub(super) enum Disp {
     /// §28.1.8 Reflect.isExtensible — strict gate + the header-flag
     /// reader.
     ReflectIsExtensible,
+    /// §28.1.3 Reflect.deleteProperty — strict gate + the
+    /// OrdinaryDelete kernel (ToString(P) key; Bool answer).
+    ReflectDeleteProperty,
 }
 
 /// The own-enumeration surfaces (shared dispatch shape) — `Names`
@@ -401,4 +404,5 @@ pub(super) static DISPATCH: &[Disp] = &[
     Disp::ReflectGetProto,
     Disp::ReflectPreventExtensions,
     Disp::ReflectIsExtensible,
+    Disp::ReflectDeleteProperty,
 ];

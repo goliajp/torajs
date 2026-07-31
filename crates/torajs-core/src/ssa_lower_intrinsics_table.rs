@@ -455,6 +455,7 @@ pub(crate) fn build(
         any_index_method_call: init_c.any_substrate.any_index_method_call,
         any_method_probe: init_c.any_substrate.any_method_probe,
         any_prop_delete: init_c.any_substrate.any_prop_delete,
+        any_prop_delete_soft: init_b.object.any_prop_delete_soft,
         any_prop_has: init_c.any_substrate.any_prop_has,
         any_has_property: init_c.any_substrate.any_has_property,
         arr_forin_key_live: init_c.any_substrate.arr_forin_key_live,
