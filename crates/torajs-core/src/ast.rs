@@ -14,6 +14,7 @@ mod arguments_object_walkers;
 mod class_globals;
 mod class_globals_register;
 mod closure_capture_anns;
+mod closure_capture_anns_outer;
 mod control_flow;
 mod desugar_async;
 mod desugar_classes;
@@ -89,9 +90,8 @@ pub use apply_args_materialize::materialize_expr_defaults;
 pub use apply_spread::apply_spread_args;
 pub use arguments_object::desugar_arguments_object;
 pub use class_globals::synthesize_class_globals;
-pub(crate) use closure_capture_anns::{
-    SiteAnns, collect_closure_capture_anns, collect_outer_binds,
-};
+pub(crate) use closure_capture_anns::{SiteAnns, collect_closure_capture_anns};
+pub(crate) use closure_capture_anns_outer::collect_outer_binds;
 pub(crate) use control_flow::body_always_terminates;
 pub(crate) use desugar_async::UNDEF_SLOT_MARKER;
 pub use desugar_async::desugar_async;

@@ -50,8 +50,8 @@
 
 use super::fnexpr_this_faces::{FacePatch, collect_face, collect_ident_face, literal_desc_faces};
 use super::fnexpr_this_recvs::{
-    collect_any_binding_names, collect_arraylit_binding_names, collect_mapset_binding_names,
-    fn_has_rest_param,
+    collect_any_binding_names, collect_arraylit_binding_names, collect_decls_by_name,
+    collect_mapset_binding_names, fn_has_rest_param,
 };
 use super::{Expr, ExprId, Param, Stmt};
 
@@ -79,7 +79,15 @@ pub(crate) fn run(
     }
     let mut patches: Vec<FacePatch> = Vec::new();
     let mut ident_cands: Vec<(String, ExprId)> = Vec::new();
-    collect_position_faces(stmts, exprs, fn_expr_exprs, &mut patches, &mut ident_cands);
+    let mut call_faces: std::collections::HashSet<ExprId> = std::collections::HashSet::new();
+    collect_position_faces(
+        stmts,
+        exprs,
+        fn_expr_exprs,
+        &mut patches,
+        &mut ident_cands,
+        &mut call_faces,
+    );
     promote_variable_routed(
         stmts,
         exprs,
@@ -87,6 +95,7 @@ pub(crate) fn run(
         closure_argc_locals,
         closure_argv_locals,
         ident_cands,
+        &call_faces,
         &mut patches,
         fnexpr_recv_faces,
         fnexpr_recv_locals,
@@ -110,6 +119,7 @@ fn collect_position_faces(
     fn_expr_exprs: &std::collections::HashSet<ExprId>,
     patches: &mut Vec<FacePatch>,
     ident_cands: &mut Vec<(String, ExprId)>,
+    call_faces: &mut std::collections::HashSet<ExprId>,
 ) {
     let any_recvs = collect_any_binding_names(stmts);
     let arraylit_recvs = collect_arraylit_binding_names(stmts, exprs);
@@ -197,6 +207,23 @@ fn collect_position_faces(
                     collect_ident_face(exprs, *cb, ident_cands);
                 }
             }
+            // Rotation 261 — `f.call(thisArg, ...)` / `f.apply(
+            // thisArg, [args])` on a bare-name binding: §20.2.3.3 /
+            // §20.2.3.1 supply an EXPLICIT this, so the callee-obj
+            // position is receiver-correct by construction — the
+            // fn-value lowering boxes thisArg into the promoted
+            // `__this` argv slot instead of the no-this drop. The
+            // Ident joins `call_faces` too: this use shape replays
+            // through `closure_local`, whose variadic / real-argc
+            // lanes have no `__this` slot, so those bindings keep
+            // the loud reject (same argv-contention bar as the
+            // knife-2W mixed profile).
+            Expr::Member { obj, name } if name == "call" || name == "apply" => {
+                if matches!(&exprs[obj.0 as usize], Expr::Ident(_)) {
+                    collect_ident_face(exprs, *obj, ident_cands);
+                    call_faces.insert(*obj);
+                }
+            }
             // Knife 4 — array HOF callback position over a
             // syntactically-certain `any` receiver
             // (`recv.forEach(<fn-expr>, thisArg?)`): the any-lane HOF
@@ -280,6 +307,7 @@ fn promote_variable_routed(
     closure_argc_locals: &std::collections::HashSet<String>,
     closure_argv_locals: &std::collections::HashSet<String>,
     ident_cands: Vec<(String, ExprId)>,
+    call_faces: &std::collections::HashSet<ExprId>,
     patches: &mut Vec<FacePatch>,
     fnexpr_recv_faces: &mut std::collections::HashSet<ExprId>,
     fnexpr_recv_locals: &mut std::collections::HashSet<String>,
@@ -341,8 +369,10 @@ fn promote_variable_routed(
             // leading argv slot, and the variadic / full-arguments
             // adapters (rest param, `arguments[i]` tier) materialize
             // params straight off argv — a `__this` param would eat
-            // argv[0]. All stay loud.
-            if !mixed_calls.is_empty()
+            // argv[0]. All stay loud. A `.call`/`.apply` face rides
+            // the same `closure_local` replay, so its binding is
+            // under the same bar even with zero direct calls.
+            if (!mixed_calls.is_empty() || face_eids.iter().any(|e| call_faces.contains(e)))
                 && (closure_argc_locals.contains(name)
                     || closure_argv_locals.contains(name)
                     || fn_has_rest_param(stmts, fn_name))
@@ -385,28 +415,6 @@ fn is_hof_method(name: &str) -> bool {
             | "findLastIndex"
             | "flatMap"
     )
-}
-
-/// Every `LetDecl` matching `name`, walking fn bodies and blocks (the
-/// same recursion set as [`collect_binding_names_inner`]) — knife 2's
-/// uniqueness guard needs the full program-wide count, not just the
-/// first hit.
-fn collect_decls_by_name(stmts: &[Stmt], name: &str, out: &mut Vec<(bool, ExprId)>) {
-    for s in stmts {
-        match s {
-            Stmt::LetDecl {
-                mutable,
-                name: dn,
-                init,
-                ..
-            } if dn == name => {
-                out.push((*mutable, *init));
-            }
-            Stmt::FnDecl { body, .. } => collect_decls_by_name(body, name, out),
-            Stmt::Block(inner) | Stmt::Multi(inner) => collect_decls_by_name(inner, name, out),
-            _ => {}
-        }
-    }
 }
 
 /// Promote each `(closure eid, lifted fn name)` to the receiver-first

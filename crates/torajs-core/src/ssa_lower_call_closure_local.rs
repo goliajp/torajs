@@ -36,6 +36,21 @@ pub(crate) fn try_lower(
     callee: ExprId,
     args: &[ExprId],
 ) -> Option<Operand> {
+    try_lower_with_this(ctx, eid, callee, args, None)
+}
+
+/// Rotation 261 — the `.call`/`.apply` face entry: `this_arg` is the
+/// EXPLICIT thisArg expression (§20.2.3.3 / §20.2.3.1), boxed into
+/// the promoted `__this` argv slot ahead of the user args. The plain
+/// entry above passes `None` and a promoted binding's direct call
+/// seeds `undefined` exactly as before.
+pub(crate) fn try_lower_with_this(
+    ctx: &mut LowerCtx<'_>,
+    eid: ExprId,
+    callee: ExprId,
+    args: &[ExprId],
+    this_arg: Option<ExprId>,
+) -> Option<Operand> {
     let Expr::Ident(callee_name) = ctx.ast.get_expr(callee) else {
         return None;
     };
@@ -47,8 +62,13 @@ pub(crate) fn try_lower(
     // RFC 20260708-variadic — a `(...args: E[]) => R`-typed binding
     // never static-dispatches: one binding serves closures of any
     // declared arity (with or without the real-argc slot), so the
-    // call boxes its args and routes through the boxed dual entry.
+    // call boxes its args and routes through the boxed dual entry —
+    // which has no `__this` slot, so an explicit-this replay stays
+    // loud instead of dropping the receiver.
     if ctx.variadic_locals.contains(callee_name) {
+        if this_arg.is_some() {
+            return None;
+        }
         return Some(lower_variadic_call(ctx, &info, user_sig_id, args));
     }
 
@@ -107,26 +127,46 @@ pub(crate) fn try_lower(
     // S126-3 see direct fn-call P0.9 in ssa_lower.
     let mut argv: Vec<Operand> = Vec::with_capacity(args.len() + 3);
     argv.push(Operand::Value(env_ptr));
+    let mut owned_temps: Vec<(ExprId, Operand)> = Vec::new();
+    let mut coerce_owned: Vec<(Operand, Type)> = Vec::new();
     if needs_this {
-        // `undefined` NaN-box into the `__this` slot (an argc
-        // binding never promotes — the AST pass keeps the two
-        // leading-slot prepends from coexisting).
-        let undef_box = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Call(
-                ctx.intrinsics.any_box,
-                vec![Operand::ConstI64(5), Operand::ConstI64(0)],
-            ),
-            Type::Any,
-            None,
-        );
-        argv.push(Operand::Value(undef_box));
+        match this_arg {
+            // `.call`/`.apply` face — the explicit thisArg boxes
+            // into the `__this` slot; the callee's param is a +0
+            // borrow, so a fresh-owned thisArg releases after the
+            // call like every other arg (chunk-569 SHARE contract).
+            Some(t) => {
+                let raw = ctx.lower_expr(t);
+                owned_temps.push((t, raw));
+                let boxed = crate::ssa_lower_call_arg_conv::emit_arg_conv(
+                    ctx,
+                    Type::Any,
+                    t,
+                    raw,
+                    &mut coerce_owned,
+                );
+                argv.push(boxed);
+            }
+            // `undefined` NaN-box into the `__this` slot (an argc
+            // binding never promotes — the AST pass keeps the two
+            // leading-slot prepends from coexisting).
+            None => {
+                let undef_box = ctx.f.append_inst(
+                    ctx.cur_block,
+                    InstKind::Call(
+                        ctx.intrinsics.any_box,
+                        vec![Operand::ConstI64(5), Operand::ConstI64(0)],
+                    ),
+                    Type::Any,
+                    None,
+                );
+                argv.push(Operand::Value(undef_box));
+            }
+        }
     }
     if needs_argc {
         argv.push(Operand::ConstI64(args.len() as i64));
     }
-    let mut owned_temps: Vec<(ExprId, Operand)> = Vec::new();
-    let mut coerce_owned: Vec<(Operand, Type)> = Vec::new();
     for (i, a) in args.iter().enumerate() {
         let param_idx = if needs_argc { i + 1 } else { i };
         // Chunk 641 — empty `[]` arg allocs with the param's layout.

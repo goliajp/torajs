@@ -48,6 +48,23 @@ pub(crate) fn try_lower(
         };
         els.clone()
     };
+    // Rotation 261 — a promoted fnexpr-this binding (`const f =
+    // function () { …this… }` whose every use is a face read /
+    // direct call / this replay) has the `__this: any` slot in its
+    // native ABI; §20.2.3.3 / §20.2.3.1 bind `this` to the EXPLICIT
+    // thisArg, so it boxes into that slot instead of dropping. The
+    // closure_local this-entry owns the thisArg evaluation (ahead of
+    // the rest args, spec order); a lane without the slot (variadic)
+    // answers None and the call stays loud.
+    if matches!(ctx.ast.get_expr(obj), Expr::Ident(n) if ctx.ast.fnexpr_recv_locals.contains(n)) {
+        return crate::ssa_lower_call_closure_local::try_lower_with_this(
+            ctx,
+            eid,
+            obj,
+            &rest,
+            Some(args[0]),
+        );
+    }
     // thisArg evaluates for effect (§20.2.3.3 evaluates it), then
     // its fresh ownership ends here — the callee never sees it.
     let t_op = ctx.lower_expr(args[0]);

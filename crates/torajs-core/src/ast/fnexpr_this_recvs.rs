@@ -156,3 +156,29 @@ pub(super) fn fn_has_rest_param(stmts: &[Stmt], fn_name: &str) -> bool {
             if name == fn_name && params.iter().any(|p| p.is_rest))
     })
 }
+
+/// Every `LetDecl` matching `name`, walking fn bodies and blocks (the
+/// same recursion set as [`collect_binding_names_inner`]) — knife 2's
+/// uniqueness guard needs the full program-wide count, not just the
+/// first hit.
+pub(super) fn collect_decls_by_name(
+    stmts: &[Stmt],
+    name: &str,
+    out: &mut Vec<(bool, super::ExprId)>,
+) {
+    for s in stmts {
+        match s {
+            Stmt::LetDecl {
+                mutable,
+                name: dn,
+                init,
+                ..
+            } if dn == name => {
+                out.push((*mutable, *init));
+            }
+            Stmt::FnDecl { body, .. } => collect_decls_by_name(body, name, out),
+            Stmt::Block(inner) | Stmt::Multi(inner) => collect_decls_by_name(inner, name, out),
+            _ => {}
+        }
+    }
+}
