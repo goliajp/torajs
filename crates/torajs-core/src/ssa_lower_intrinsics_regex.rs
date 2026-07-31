@@ -59,6 +59,9 @@ pub(crate) struct RegexIds {
     /// Call(matcher, pattern, «S»).
     pub any_str_symbol_probe: FuncId,
     pub any_str_symbol_invoke: FuncId,
+    /// Two-extra-argument twin — §22.1.3.19 `@@replace` calls
+    /// «O, replaceValue» (8 = `@@replace`).
+    pub any_str_symbol_invoke2: FuncId,
     pub regex_replace: FuncId,
     pub regex_replace_all: FuncId,
     pub regex_replace_fn: FuncId,
@@ -131,6 +134,13 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             fn_table,
             "__torajs_any_str_symbol_invoke",
             &[Type::Str, Type::Any, Type::I64],
+            Type::Any,
+        ),
+        any_str_symbol_invoke2: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_any_str_symbol_invoke2",
+            &[Type::Str, Type::Any, Type::Any, Type::I64],
             Type::Any,
         ),
         regex_replace: declare_intrinsic(

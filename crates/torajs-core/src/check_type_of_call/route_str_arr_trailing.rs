@@ -170,6 +170,13 @@ pub(crate) fn try_route(
     if let Some(r) = crate::check_type_of_call_string_match::try_match(checker, ast, callee, args) {
         return Some(r);
     }
+    // Rotation 262 — `s.replace(anyPattern, r)` §22.1.3.19 step-3
+    // `@@replace` shape (store-evidence gate, result `any`).
+    if let Some(r) =
+        crate::check_type_of_call_string_match::try_match_replace(checker, ast, callee, args)
+    {
+        return Some(r);
+    }
     // S246 — `xs.{copyWithin,fill}(a, b, c, ...trailing)`
     // Array-receiver trailing-arg ignore wedge extracted to
     // [`crate::check_type_of_call_array_copy_within_fill`]

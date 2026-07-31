@@ -29,10 +29,22 @@ unsafe extern "C" {
     fn __torajs_rc_dec(p: *mut c_void) -> i32;
 }
 
-/// `WELL_KNOWN_DESCS` index of `@@search` — picks the invoke leg's
+/// `WELL_KNOWN_DESCS` indices — pick the invoke legs'
 /// not-a-function message (torajs-core's gate passes 6 = `@@match`
-/// / 9 = `@@search` as the `wk_idx` operand).
+/// / 8 = `@@replace` / 9 = `@@search` as the `wk_idx` operand).
+const WK_REPLACE: i64 = 8;
 const WK_SEARCH: i64 = 9;
+
+/// The per-symbol GetMethod step-4 TypeError text.
+fn not_a_function_msg(wk_idx: i64) -> &'static core::ffi::CStr {
+    if wk_idx == WK_SEARCH {
+        c"o[Symbol.search] is not a function"
+    } else if wk_idx == WK_REPLACE {
+        c"o[Symbol.replace] is not a function"
+    } else {
+        c"o[Symbol.match] is not a function"
+    }
+}
 
 /// `AnySlotTag::Undef` / `AnySlotTag::Null` — mirror of
 /// `member_get_symbol`'s pair encoding.
@@ -85,12 +97,7 @@ pub unsafe extern "C" fn __torajs_any_str_symbol_invoke(
         let sym = __torajs_symbol_well_known(wk_idx);
         let (tag, payload) = crate::member_get_symbol::symbol_key_pair(arg, sym);
         let _ = __torajs_rc_dec(sym);
-        let not_a_function = if wk_idx == WK_SEARCH {
-            c"o[Symbol.search] is not a function"
-        } else {
-            c"o[Symbol.match] is not a function"
-        };
-        let Some((env, entry)) = callable_entry(tag, payload, not_a_function) else {
+        let Some((env, entry)) = callable_entry(tag, payload, not_a_function_msg(wk_idx)) else {
             return VALUE_UNDEFINED;
         };
         // Call(matcher, regexp, «O») — the receiver string is the
@@ -98,5 +105,34 @@ pub unsafe extern "C" fn __torajs_any_str_symbol_invoke(
         let s_any = __torajs_anyv_box_from_pair(4, recv_str as i64);
         let argv = [s_any];
         invoke_with_this(env, entry, arg, argv.as_ptr(), 1)
+    }
+}
+
+/// The two-extra-argument twin — §22.1.3.19 `@@replace` calls
+/// Call(replacer, searchValue, «O, replaceValue») (and a future
+/// `@@split` rides the same «O, limit» shape). `extra` arrives
+/// already boxed and borrowed.
+///
+/// # Safety
+/// `recv_str` is a live Str cell and `extra` a live AnyValue the
+/// caller keeps alive across the call; `arg` is a live AnyValue;
+/// `wk_idx` indexes `WELL_KNOWN_DESCS`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_any_str_symbol_invoke2(
+    recv_str: *mut c_void,
+    arg: AnyValue,
+    extra: AnyValue,
+    wk_idx: i64,
+) -> AnyValue {
+    unsafe {
+        let sym = __torajs_symbol_well_known(wk_idx);
+        let (tag, payload) = crate::member_get_symbol::symbol_key_pair(arg, sym);
+        let _ = __torajs_rc_dec(sym);
+        let Some((env, entry)) = callable_entry(tag, payload, not_a_function_msg(wk_idx)) else {
+            return VALUE_UNDEFINED;
+        };
+        let s_any = __torajs_anyv_box_from_pair(4, recv_str as i64);
+        let argv = [s_any, extra];
+        invoke_with_this(env, entry, arg, argv.as_ptr(), 2)
     }
 }

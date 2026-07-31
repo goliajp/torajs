@@ -167,3 +167,146 @@ pub(crate) fn lower_symbol_dispatch_pattern(
     );
     Operand::Value(out)
 }
+
+/// Lower `s.replace(x, r)` with an Any-typed `x` — §22.1.3.19
+/// step 3: probe GetMethod(searchValue, @@replace); when present the
+/// replacer runs as Call(replacer, searchValue, «O, replaceValue»),
+/// otherwise ToString(searchValue) takes the LITERAL substring
+/// replace kernels (`str_replace` / `str_replace_fn` — replace's
+/// step 4 never mints a RegExp, unlike match/search). The caller
+/// gated `r` to a checker String or Function shape so both lanes
+/// can emit. Answers a `Type::Any` operand.
+pub(crate) fn lower_replace_any_pattern(
+    ctx: &mut LowerCtx<'_>,
+    recv_op: Operand,
+    args: &[ExprId],
+) -> Operand {
+    let raw_arg = ctx.lower_expr(args[0]);
+    // A single-arg `s.replace(x)` has replaceValue = undefined
+    // (the get-err poison shape reads @@replace before anything
+    // touches the replacer).
+    let repl_op = args.get(1).map(|&a| ctx.lower_expr(a));
+    let repl_ty = repl_op.as_ref().map(|op| ctx.operand_ty(op));
+    // ES §22.1.3.19 silently ignores args past (pattern,
+    // replacement) — eval-then-discard.
+    for &a in args.iter().skip(2) {
+        let _ = ctx.lower_expr(a);
+    }
+    let result_slot = ctx.alloca(Type::Any, Some("__symdisp_repl_result"));
+    let probe = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(
+            ctx.intrinsics.any_str_symbol_probe,
+            vec![raw_arg.clone(), Operand::ConstI64(8)],
+        ),
+        Type::I64,
+        None,
+    );
+    let hit = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::ICmp(IPred::Ne, Operand::Value(probe), Operand::ConstI64(0)),
+        Type::Bool,
+        None,
+    );
+    let custom_blk = ctx.f.add_block();
+    let coerce_blk = ctx.f.add_block();
+    let after_blk = ctx.f.add_block();
+    ctx.f.set_term(
+        ctx.cur_block,
+        Terminator::CondBr {
+            cond: Operand::Value(hit),
+            then_blk: custom_blk,
+            else_blk: coerce_blk,
+        },
+    );
+    // Step 3.c — Call(replacer, searchValue, «O, replaceValue»);
+    // the box is borrowed (box_to_any is rc-neutral, the operand's
+    // stake stays with this frame until the join's release).
+    ctx.cur_block = custom_blk;
+    let extra_any = match &repl_op {
+        Some(op) => ctx.box_to_any(op.clone()),
+        // ANY_UNDEF = 5 (payload ignored).
+        None => {
+            let u = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(
+                    ctx.intrinsics.any_box,
+                    vec![Operand::ConstI64(5), Operand::ConstI64(0)],
+                ),
+                Type::Any,
+                None,
+            );
+            Operand::Value(u)
+        }
+    };
+    let r = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(
+            ctx.intrinsics.any_str_symbol_invoke2,
+            vec![
+                recv_op.clone(),
+                raw_arg.clone(),
+                extra_any,
+                Operand::ConstI64(8),
+            ],
+        ),
+        Type::Any,
+        None,
+    );
+    ctx.emit_throw_check(None);
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Store(Operand::Value(r), Operand::Value(result_slot), 0),
+    );
+    ctx.f.set_term(ctx.cur_block, Terminator::Br(after_blk));
+    // Step 4-onward fallback — ToString(searchValue), then the
+    // literal substring kernels the string-pattern spelling uses.
+    ctx.cur_block = coerce_blk;
+    let arg_ty = ctx.operand_ty(&raw_arg);
+    let pat_op = crate::ssa_lower_call_coercion::emit_to_string(
+        ctx,
+        args[0],
+        raw_arg.clone(),
+        arg_ty,
+        false,
+    );
+    let (fid, repl_arg) = match (&repl_op, &repl_ty) {
+        (Some(op), Some(Type::Closure(_))) => (ctx.intrinsics.str_replace_fn, op.clone()),
+        (Some(op), _) => (ctx.intrinsics.str_replace, op.clone()),
+        // ToString(undefined) — the absent replaceValue substitutes
+        // the literal text per the string-replacer path.
+        (None, _) => {
+            let lit = ctx.intern_string_literal("undefined");
+            (ctx.intrinsics.str_replace, Operand::Value(lit))
+        }
+    };
+    let v = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(fid, vec![recv_op.clone(), pat_op.clone(), repl_arg]),
+        Type::Str,
+        None,
+    );
+    // The fn replacer can throw — propagate the pending throw.
+    ctx.emit_throw_check(None);
+    ctx.emit_drop_value(pat_op, Type::Str);
+    let v_any = ctx.box_to_any(Operand::Value(v));
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Store(v_any, Operand::Value(result_slot), 0),
+    );
+    ctx.f.set_term(ctx.cur_block, Terminator::Br(after_blk));
+    ctx.cur_block = after_blk;
+    // Release an inline closure literal's minted env after whichever
+    // lane consumed it (the str_replace_fn mirror; both lanes route
+    // through this join).
+    if let (Some(&a1), Some(op)) = (args.get(1), &repl_op) {
+        ctx.release_owned_temp(a1, op);
+    }
+    let out = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(Type::Any, Operand::Value(result_slot), 0),
+        Type::Any,
+        None,
+    );
+    Operand::Value(out)
+}

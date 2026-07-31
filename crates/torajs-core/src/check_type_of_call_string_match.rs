@@ -104,6 +104,59 @@ pub(crate) fn try_match(
 /// the SSA gate (`ssa_lower_call_str_regex_methods`) so the static
 /// result type and the emitted branch agree.
 ///
+/// `s.replace(x, r)` with an Any-typed `x` and store evidence — the
+/// §22.1.3.19 step-3 `@@replace` shape (SSA mirror:
+/// `ssa_lower_call_str_match_custom::lower_replace_any_pattern`).
+/// The replacer gate (checker String or Function) matches the SSA
+/// twin so only shapes both lanes can emit leave the member-table
+/// route; the custom replacer's return is arbitrary → `any`.
+pub(crate) fn try_match_replace(
+    checker: &mut Checker,
+    ast: &Ast,
+    callee: &ExprId,
+    args: &Vec<ExprId>,
+) -> Option<Result<Type, String>> {
+    let Expr::Member {
+        obj: src_id,
+        name: m_name,
+    } = ast.get_expr(*callee)
+    else {
+        return None;
+    };
+    if m_name != "replace"
+        || !matches!(args.len(), 1 | 2)
+        || !any_pattern_may_carry_matcher(ast, args[0])
+    {
+        return None;
+    }
+    let src_ty = match checker.type_of(ast, *src_id) {
+        Ok(t) => t,
+        Err(e) => return Some(Err(e)),
+    };
+    if !matches!(src_ty, Type::String) {
+        return None;
+    }
+    let aty0 = match checker.type_of(ast, args[0]) {
+        Ok(t) => t,
+        Err(e) => return Some(Err(e)),
+    };
+    if !matches!(aty0, Type::Any) {
+        return None;
+    }
+    // The single-arg spelling has replaceValue = undefined; the
+    // two-arg one gates on shapes both SSA lanes can emit.
+    if let Some(&a1) = args.get(1) {
+        let aty1 = match checker.type_of(ast, a1) {
+            Ok(t) => t,
+            Err(e) => return Some(Err(e)),
+        };
+        if !matches!(aty1, Type::String | Type::Function(..)) {
+            return None;
+        }
+    }
+    Some(Ok(Type::Any))
+}
+
 /// An `any` binding can also be a hoist-widened primitive — `var
 /// separator = ","` types Any because var-hoist splits the init off
 /// and stamps a synthetic `: any` on the hoisted `let`, so neither

@@ -210,6 +210,7 @@ pub(crate) struct Intrinsics {
     /// pattern; wk-symbol index operand picks match / search).
     pub(crate) any_str_symbol_probe: FuncId,
     pub(crate) any_str_symbol_invoke: FuncId,
+    pub(crate) any_str_symbol_invoke2: FuncId,
     pub(crate) regex_replace: FuncId,
     pub(crate) regex_replace_all: FuncId,
     /// P9.5-A1 — fn-callback variants of `s.replace(re, fn)` /
