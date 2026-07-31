@@ -19,14 +19,17 @@
 use super::util::{decode_utf8, emit, is_ident_cont, is_ident_start, push_codepoint};
 use super::{Spanned, Token};
 
-/// ES §12.7.2 `ReservedWord`, minus the two that are only conditionally
-/// reserved. `yield` is reserved in strict code and generator bodies,
-/// `await` in modules and async bodies — and tr does not track either
-/// context yet (roadmap S2.17), so refusing them outright would reject
-/// sloppy programs that are allowed to use them as plain names. They
-/// scan as identifiers here; the day strict-mode tracking lands, this
-/// list is where they go.
+/// ES §12.7.2 `ReservedWord`. This table is consulted ONLY for names
+/// an escape contributed to (`scan_ident_or_keyword`'s escaped
+/// branch) — literal spellings go through `keyword_or_ident` and
+/// never read it. `await` and `yield` are conditionally reserved
+/// (modules/async bodies resp. strict/generator bodies), but tr's
+/// corpus is module-goal strict where both are reserved, so their
+/// ESCAPED spellings reject here like any keyword (bun parity:
+/// "The keyword X cannot be escaped"); their LITERAL spellings keep
+/// the parser's context-sensitive handling untouched.
 const RESERVED_WORDS: &[&str] = &[
+    "await",
     "break",
     "case",
     "catch",
@@ -63,6 +66,7 @@ const RESERVED_WORDS: &[&str] = &[
     "void",
     "while",
     "with",
+    "yield",
 ];
 
 /// ES §12.7.1 `IdentifierStartChar`, as a code point rather than a byte —
