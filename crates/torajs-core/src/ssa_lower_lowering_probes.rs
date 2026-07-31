@@ -179,14 +179,17 @@ impl<'a> LowerCtx<'a> {
     /// disagree in a way `array_literal_is_heterogeneous`'s kind
     /// probe cannot see? Struct-family (Struct / ClassRef) elements
     /// disagree on any recorded-type inequality (distinct layouts);
-    /// array-family elements disagree on inner Any-ness (the 16-byte
-    /// tagged vs 8-byte scalar repr split). Elements with no
-    /// recorded type (mono-specialized clones) contribute nothing —
-    /// the pre-existing lanes keep them.
+    /// array-family elements disagree on any inner-type inequality
+    /// (rotation 260 — Any-ness alone missed `[[1,2], ["a","b"]]`:
+    /// Array(Number) vs Array(String) share neither slot repr nor
+    /// elem-kind chain, so the typed lane raw-read the Str column's
+    /// pointers as I64). Elements with no recorded type
+    /// (mono-specialized clones) contribute nothing — the
+    /// pre-existing lanes keep them.
     pub(crate) fn heap_elem_types_disagree(&self, ids: &[ExprId]) -> bool {
         use crate::check::Type as C;
         let mut struct_anchor: Option<&C> = None;
-        let mut ary_anchor_any: Option<bool> = None;
+        let mut ary_anchor: Option<&C> = None;
         for id in ids {
             match self.expr_types.get(id) {
                 Some(t @ (C::Struct(_) | C::ClassRef(_))) => match struct_anchor {
@@ -194,14 +197,11 @@ impl<'a> LowerCtx<'a> {
                     Some(a) if a != t => return true,
                     _ => {}
                 },
-                Some(C::Array(inner)) => {
-                    let is_any = **inner == C::Any;
-                    match ary_anchor_any {
-                        None => ary_anchor_any = Some(is_any),
-                        Some(a) if a != is_any => return true,
-                        _ => {}
-                    }
-                }
+                Some(C::Array(inner)) => match ary_anchor {
+                    None => ary_anchor = Some(inner),
+                    Some(a) if a != &**inner => return true,
+                    _ => {}
+                },
                 _ => {}
             }
         }
