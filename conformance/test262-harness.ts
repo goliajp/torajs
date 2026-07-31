@@ -54,6 +54,18 @@ class Test262Error extends Error {
   }
 }
 
+// Real test262 sta.js marker for negative phase:parse/early cases —
+// the file must be rejected BEFORE evaluation; reaching this call is
+// itself the failure. Upstream throws this exact bare string. Absent
+// from the harness it read as `unknown identifier $DONOTEVALUATE`,
+// which pre-RFC-20260730 compile-rejected every such case — a
+// wrong-reason PassNegative the undeclared-read lane evaporated
+// (rotation 263 sweep: 1161 pass-negative → negative-phase-mismatch,
+// the honest gap being the unimplemented early errors themselves).
+function $DONOTEVALUATE(): void {
+  throw "Test262: This statement should not be evaluated.";
+}
+
 function __t262_assert(actual: boolean, msg: string = ""): void {
   if (!actual) {
     throw new Test262Error(msg);
