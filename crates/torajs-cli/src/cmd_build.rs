@@ -164,6 +164,8 @@ pub(crate) fn lower_to_ssa(input: &str) -> Result<Module, ExitCode> {
     ast::desugar_prototype_call(&mut ast);
     ast::inject_builtin_classes(&mut ast);
     ast::desugar_classes(&mut ast);
+    // §8.6.2 default-param TDZ — after desugar_classes, before materialize.
+    ast::desugar_dflt_param_tdz(&mut ast);
     ast::materialize_expr_defaults(&mut ast);
     // Must follow desugar_classes: that pass is what turns `this`
     // into the name `__this`, and this one is what gives plain

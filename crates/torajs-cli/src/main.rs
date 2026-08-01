@@ -234,6 +234,12 @@ fn pipeline(src: &str, base_dir: &Path, stage: Stage) -> ExitCode {
     ast::desugar_prototype_call(&mut ast);
     ast::inject_builtin_classes(&mut ast);
     ast::desugar_classes(&mut ast);
+    // §8.6.2 default-param TDZ — after desugar_classes (methods are
+    // flat `__cm_` FnDecls, the `__new_*` error factories exist),
+    // before materialize_expr_defaults (which would otherwise move a
+    // bare self/later-param read into the body where it reads the
+    // undefined-bound parameter instead of throwing).
+    ast::desugar_dflt_param_tdz(&mut ast);
     ast::materialize_expr_defaults(&mut ast);
     // Must follow desugar_classes: that pass is what turns `this`
     // into the name `__this`, and this one is what gives plain

@@ -551,6 +551,13 @@ pub fn desugar_promise_try(ast: &mut Ast) {
     crate::ast_desugar_promise_try::run(ast);
 }
 
+/// §8.6.2 default-parameter TDZ — rewrites a default that bare-reads
+/// its own or a later parameter into a throwing IIFE (ReferenceError
+/// at call time). See sibling module for scope and ordering.
+pub fn desugar_dflt_param_tdz(ast: &mut Ast) {
+    super::dflt_param_tdz::run(ast);
+}
+
 /// Block / switch-CaseBlock redeclaration early errors — must run on
 /// the RAW post-parse AST (before generator / async / var-hoist
 /// desugars move one side of a conflict away). See sibling module.

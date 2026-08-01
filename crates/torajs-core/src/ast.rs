@@ -47,6 +47,7 @@ mod desugar_generators_sm;
 mod desugar_generators_sm_rewrite;
 mod desugar_generators_walkers;
 mod desugar_variadic_push;
+mod dflt_param_tdz;
 mod escape_analyze;
 mod expr;
 mod fill_optional_fields;
