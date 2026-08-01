@@ -1530,7 +1530,23 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 9215301c`, never as a constant.
 
-**Latest @ `a3a45e66`** (2026-08-02, rotation 276 — six knives, RFC
+**Latest @ `6ecef1a7`** (2026-08-02, rotation 276 knife 7 = RFC
+20260802 D3a on top of the `a3a45e66` stamp below — a `return`
+inside a generator's try/finally body (or nested catch body) now
+routes through every enclosing finally copy before completing,
+outside-in, via a frame stack + placeholder-patched gotos into a
+third F duplicate): sweep is **verdict-identical to `a3a45e66`** —
+passTotal 24323 / bug 11718 / trAccepted 36041 / incompatible 17133
+/ gate predicate 377 clusters / 10173 cases, zero moves in either
+direction. The body-return face has no direct test262 coverage of
+its own (the remaining GeneratorPrototype/return try-finally-*
+cases need the `return()` METHOD injection — registered as D3b);
+the knife's semantics are held by fixture gen-try-011 (early return
+through a yielding finally, nested chain outside-in, return-in-
+catch, bare return + finally-return override, all bun byte-equal)
+and it unblocks D3b, which reuses the same return-copy entries.
+
+**Previous @ `a3a45e66`** (2026-08-02, rotation 276 — six knives, RFC
 20260802-generator-try-region C0-D2 + one default-param knife:
 generator try/catch/finally exception regions in the regenerator
 tryEntries shape (monotonic state allocation makes the numeric range

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-01T19:19:49.888Z",
+  "generatedAt": "2026-08-01T19:41:58.787Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,9 +9,9 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-01T19:16:27Z",
-    "headSha": "a3a45e66",
-    "elapsedSec": 391.51,
+    "ranAt": "2026-08-01T19:41:17Z",
+    "headSha": "6ecef1a7",
+    "elapsedSec": 412.12,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 67.49
   },
   "torajs": {
-    "commit": "a3a45e66",
-    "commitSubject": "feat(core): expression defaults materialize for arrow and fn-expression values",
+    "commit": "6ecef1a7",
+    "commitSubject": "feat(core): generator return routes through enclosing finally copies",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "6ecef1a7",
+      "subject": "feat(core): generator return routes through enclosing finally copies"
+    },
+    {
+      "hash": "8cb58e07",
+      "subject": "chore(docs,hardev): rotation 276 final census at a3a45e66"
+    },
+    {
       "hash": "a3a45e66",
       "subject": "feat(core): expression defaults materialize for arrow and fn-expression values"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "50a43514",
       "subject": "feat(core): array rest slot accepts a nested binding pattern"
-    },
-    {
-      "hash": "c1ab5cbe",
-      "subject": "feat(core): default-parameter TDZ throws on bare self/later-param reads"
-    },
-    {
-      "hash": "0e4eeda8",
-      "subject": "feat(core,anyvalue,rc): reify fromAsync / Promise.try / rawJSON pair as ns-static cells"
     }
   ],
-  "headSha": "a3a45e66",
+  "headSha": "6ecef1a7",
   "autorun": {
     "total": 580,
     "baselineTarget": 10,
