@@ -217,6 +217,16 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
                     || body_has_non_length_arguments_touch(ast, body))
             {
                 ArgcMode::KeepLoud
+            } else if super::arguments_object_mutation::body_mutates_args_view(ast, body, &params) {
+                // FoldArity tier (no static argc), mutating body —
+                // the literal-index substitution wrote through
+                // (`arguments[0] = 5` mutated `a`; module code is
+                // strict, so nothing ever maps). Ride the
+                // materialized array under the tier's existing
+                // declared-==-actual assumption: length folds and
+                // beyond-declared reads stay wrong-at-parity with
+                // the FoldArity baseline, but writes are isolated.
+                ArgcMode::Unmapped(params.len())
             } else {
                 ArgcMode::FoldArity
             };
