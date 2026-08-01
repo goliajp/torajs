@@ -52,6 +52,7 @@ pub fn desugar_nested_fns(ast: &mut Ast) {
                 &parent,
                 &mut renames,
                 &mut branch_scoped,
+                true,
                 &mut lifted,
                 &mut counter,
             );
@@ -100,6 +101,7 @@ pub fn desugar_nested_fns(ast: &mut Ast) {
                     &parent,
                     &mut top_renames,
                     &mut top_branch_scoped,
+                    false,
                     &mut top_lifted,
                     &mut counter,
                 );
@@ -140,6 +142,7 @@ fn collect_nested_fns_in_stmt(
     parent_name: &str,
     renames: &mut HashMap<String, String>,
     branch_scoped: &mut HashSet<String>,
+    strict_branch: bool,
     lifted: &mut Vec<Stmt>,
     counter: &mut u32,
 ) {
@@ -155,13 +158,20 @@ fn collect_nested_fns_in_stmt(
             let mangled = format!("__nested_{parent_name}_{name}_{counter}");
             *counter += 1;
             renames.insert(name.clone(), mangled.clone());
-            // TS semantics: a bare-branch decl is block-scoped, so
-            // the rename must NOT redirect references outside the
-            // lifted body (bun answers ReferenceError there; the
-            // sloppy annexB hoist face is an S5.7 boundary decision,
-            // recorded). Block-shaped `{ function f() {} }` keeps
-            // the historical leak-to-parent behavior.
-            branch_scoped.insert(name.clone());
+            // TS semantics INSIDE a fn body (strict_branch): a
+            // bare-branch decl is block-scoped, so the rename must
+            // NOT redirect references outside the lifted body (bun
+            // answers ReferenceError there). MODULE-TOP global code
+            // keeps the historical sloppy leak (annexB B.3.3 — the
+            // 20 global-code `if-decl-*-update` cases assert exactly
+            // that hoist; rotation 269's first cut flipped them to
+            // strict and regressed all 20). The split is an S5.7
+            // boundary-decision entry. Block-shaped
+            // `{ function f() {} }` keeps the historical
+            // leak-to-parent behavior on both sides.
+            if strict_branch {
+                branch_scoped.insert(name.clone());
+            }
             // Take the FnDecl out of the slot, replace with empty
             // Block, push the renamed decl into `lifted`.
             let taken = std::mem::replace(stmt, Stmt::Block(Vec::new()));
@@ -191,7 +201,15 @@ fn collect_nested_fns_in_stmt(
     }
     match stmt {
         Stmt::Block(body) | Stmt::Multi(body) => {
-            collect_nested_fns_to_lift(body, parent_name, renames, branch_scoped, lifted, counter);
+            collect_nested_fns_to_lift(
+                body,
+                parent_name,
+                renames,
+                branch_scoped,
+                strict_branch,
+                lifted,
+                counter,
+            );
         }
         Stmt::If {
             then_branch,
@@ -203,6 +221,7 @@ fn collect_nested_fns_in_stmt(
                 parent_name,
                 renames,
                 branch_scoped,
+                strict_branch,
                 lifted,
                 counter,
             );
@@ -212,19 +231,36 @@ fn collect_nested_fns_in_stmt(
                     parent_name,
                     renames,
                     branch_scoped,
+                    strict_branch,
                     lifted,
                     counter,
                 );
             }
         }
         Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
-            collect_nested_fns_in_stmt(body, parent_name, renames, branch_scoped, lifted, counter);
+            collect_nested_fns_in_stmt(
+                body,
+                parent_name,
+                renames,
+                branch_scoped,
+                strict_branch,
+                lifted,
+                counter,
+            );
         }
         Stmt::For { body, .. }
         | Stmt::ForOfSplitIter { body, .. }
         | Stmt::ForOf { body, .. }
         | Stmt::Labeled { body, .. } => {
-            collect_nested_fns_in_stmt(body, parent_name, renames, branch_scoped, lifted, counter);
+            collect_nested_fns_in_stmt(
+                body,
+                parent_name,
+                renames,
+                branch_scoped,
+                strict_branch,
+                lifted,
+                counter,
+            );
         }
         Stmt::Try {
             body,
@@ -232,12 +268,21 @@ fn collect_nested_fns_in_stmt(
             finally_body,
             ..
         } => {
-            collect_nested_fns_to_lift(body, parent_name, renames, branch_scoped, lifted, counter);
+            collect_nested_fns_to_lift(
+                body,
+                parent_name,
+                renames,
+                branch_scoped,
+                strict_branch,
+                lifted,
+                counter,
+            );
             collect_nested_fns_to_lift(
                 catch_body,
                 parent_name,
                 renames,
                 branch_scoped,
+                strict_branch,
                 lifted,
                 counter,
             );
@@ -247,6 +292,7 @@ fn collect_nested_fns_in_stmt(
                     parent_name,
                     renames,
                     branch_scoped,
+                    strict_branch,
                     lifted,
                     counter,
                 );
@@ -259,12 +305,21 @@ fn collect_nested_fns_in_stmt(
                     parent_name,
                     renames,
                     branch_scoped,
+                    strict_branch,
                     lifted,
                     counter,
                 );
             }
             if let Some(d) = default {
-                collect_nested_fns_to_lift(d, parent_name, renames, branch_scoped, lifted, counter);
+                collect_nested_fns_to_lift(
+                    d,
+                    parent_name,
+                    renames,
+                    branch_scoped,
+                    strict_branch,
+                    lifted,
+                    counter,
+                );
             }
         }
         _ => {} // leaf stmts have no nested FnDecl children
@@ -276,6 +331,7 @@ fn collect_nested_fns_to_lift(
     parent_name: &str,
     renames: &mut HashMap<String, String>,
     branch_scoped: &mut HashSet<String>,
+    strict_branch: bool,
     lifted: &mut Vec<Stmt>,
     counter: &mut u32,
 ) {
@@ -331,6 +387,7 @@ fn collect_nested_fns_to_lift(
                     parent_name,
                     renames,
                     branch_scoped,
+                    strict_branch,
                     lifted,
                     counter,
                 );
