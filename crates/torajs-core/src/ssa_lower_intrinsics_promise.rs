@@ -59,6 +59,10 @@ pub(crate) struct PromiseIds {
     pub promise_resolve_thenable: FuncId,
     pub promise_alloc_fulfilled_heap: FuncId,
     pub promise_alloc_rejected_heap: FuncId,
+    /// §27.2.4.7 step 2 through the any lane — probes the boxed
+    /// value for a %Promise% cell (pass-through) before falling back
+    /// to the fulfilled_heap + REPR_ANY pair.
+    pub promise_resolve_any: FuncId,
     pub promise_stamp_repr: FuncId,
     pub promise_drop: FuncId,
     pub promise_get_value: FuncId,
@@ -93,6 +97,11 @@ pub(crate) struct PromiseIds {
     pub array_from_async_map_dyn: FuncId,
 }
 
+// CARVE-OUT: dispatch table — back-to-back `declare_intrinsic` calls
+// filling the PromiseIds struct literal (same family as the
+// `intrinsics_map_set` / `intrinsics_print_freeze` declare tables;
+// registered as a carve-out candidate in rotation 255's audit, stamp
+// applied on first touch per the ledger's instruction).
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) -> PromiseIds {
     let p_ptr = &[Type::Promise, Type::Ptr][..];
     // knife 3 — then/catch entries carry the callback-return repr
@@ -154,6 +163,13 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             module,
             fn_table,
             "__torajs_promise_alloc_rejected_heap",
+            i641,
+            Type::Promise,
+        ),
+        promise_resolve_any: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_promise_resolve_any",
             i641,
             Type::Promise,
         ),

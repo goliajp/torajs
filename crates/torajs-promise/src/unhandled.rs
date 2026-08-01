@@ -87,7 +87,7 @@ const TAG_STR: u16 = 0;
 /// address space and SIGSEGV. `__torajs_value_drop_heap` already
 /// skips on the same gate; the reporter must too.
 #[inline]
-fn reason_is_cell_like(v: i64) -> bool {
+pub(crate) fn reason_is_cell_like(v: i64) -> bool {
     const TOP_16_MASK: u64 = 0xFFFF_0000_0000_0000;
     const TAG_BIT_TYPE_OTHER: u64 = 0x02;
     let u = v as u64;

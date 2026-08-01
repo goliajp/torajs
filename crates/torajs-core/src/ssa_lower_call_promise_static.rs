@@ -215,6 +215,25 @@ fn lower_one_plus(ctx: &mut LowerCtx<'_>, eid: ExprId, method: &str, args: &[Exp
         }
         return arg_op;
     }
+    // §27.2.4.7 step 2 through the ANY lane — the runtime kernel
+    // probes the box for a %Promise% cell (pass-through, adopting
+    // the caller's transferred ref) and otherwise folds the
+    // fulfilled_heap + REPR_ANY stamp pair itself, so the
+    // pass-through can never be stamped over. Borrow-shaped args
+    // share (+1) exactly like the heap lane below.
+    if matches!(arg_ty, Type::Any) && method == "resolve" {
+        if !ctx.expr_transfers_ownership(args[0]) {
+            ctx.emit_owned_result_inc(arg_op.clone(), arg_ty);
+        }
+        let cur_block = ctx.cur_block;
+        let v = ctx.f.append_inst(
+            cur_block,
+            InstKind::Call(ctx.intrinsics.promise_resolve_any, vec![arg_op]),
+            Type::Promise,
+            None,
+        );
+        return Operand::Value(v);
+    }
     let is_heap = matches!(
         arg_ty,
         Type::Str

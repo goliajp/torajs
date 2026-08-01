@@ -611,6 +611,9 @@ pub(crate) struct Intrinsics {
     pub(crate) promise_alloc_rejected: FuncId,
     pub(crate) promise_alloc_fulfilled_heap: FuncId,
     pub(crate) promise_alloc_rejected_heap: FuncId,
+    /// §27.2.4.7 step 2 any-lane probe: pass a boxed %Promise%
+    /// through, else fulfilled_heap + REPR_ANY (kernel-side stamp).
+    pub(crate) promise_resolve_any: FuncId,
     /// RFC 20260720-anylane-promise-methods knife 1 — stamp the
     /// cell's `value_repr` at a mint site whose static arg type
     /// fixes the storage form.

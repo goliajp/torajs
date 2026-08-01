@@ -177,6 +177,40 @@ pub unsafe extern "C" fn __torajs_promise_alloc_rejected_heap(reason: i64) -> *m
     p
 }
 
+/// §27.2.4.7 step 2 through the ANY lane — `Promise.resolve(x)`
+/// where `x`'s static type is Any. When the boxed value IS a
+/// %Promise% cell, answer the same cell (`Promise.resolve(p) === p`;
+/// tr has no Promise subclassing): the caller transferred one ref on
+/// the box — for a heap tag that IS one ref on the cell — and the
+/// return carries it through. Everything else takes exactly the
+/// `alloc_fulfilled_heap` + `REPR_ANY` stamp pair the lowering used
+/// to emit, folded here so the pass-through branch cannot be stamped
+/// over (stamping an adopted cell would overwrite the inner
+/// promise's own repr).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_promise_resolve_any(bits: i64) -> *mut c_void {
+    unsafe extern "C" {
+        fn __torajs_anyv_unbox_tag(v: u64) -> i64;
+        fn __torajs_anyv_unbox_value(v: u64) -> i64;
+    }
+    // AnySlotTag heap index (`nanbox_encode` reports 4 for the
+    // heap-cell tag — the `then_box::box_settled` REPR_HEAP mirror).
+    const TAG_HEAP: i64 = 4;
+    unsafe {
+        if __torajs_anyv_unbox_tag(bits as u64) == TAG_HEAP {
+            let raw = __torajs_anyv_unbox_value(bits as u64);
+            if crate::unhandled::reason_is_cell_like(raw)
+                && (*(raw as *const crate::layout::HeapHeader)).type_tag == TAG_PROMISE
+            {
+                return raw as *mut c_void;
+            }
+        }
+        let p = __torajs_promise_alloc_fulfilled_heap(bits);
+        (*as_promise(p)).value_repr = crate::layout::REPR_ANY;
+        p
+    }
+}
+
 /// `Promise.resolve(p)` thenable absorption. When `p` is itself a
 /// Promise, return a fresh Promise with the same state + value
 /// (per ES2015 spec). PENDING inner → rejected outer with placeholder
