@@ -247,7 +247,10 @@ pub(super) fn collect_method_static_argv(ast: &Ast) -> std::collections::HashMap
 pub(super) fn collect_objlit_method_static_argv(
     ast: &Ast,
     env_fns: &std::collections::HashSet<String>,
-) -> std::collections::HashMap<String, usize> {
+) -> (
+    std::collections::HashMap<String, usize>,
+    std::collections::HashSet<String>,
+) {
     use std::collections::{HashMap, HashSet};
     // (binding, field) → lifted closure fn name, for top-level
     // object-literal lets whose method closures are env fns with an
@@ -269,7 +272,7 @@ pub(super) fn collect_objlit_method_static_argv(
         }
     }
     if methods.is_empty() {
-        return HashMap::new();
+        return (HashMap::new(), HashSet::new());
     }
     let obj_names: HashSet<&String> = methods.keys().map(|(o, _)| o).collect();
     let mut fn_local_names: HashSet<String> = HashSet::new();
@@ -320,8 +323,14 @@ pub(super) fn collect_objlit_method_static_argv(
             killed.insert(n.clone());
         }
     }
-    // Vote argc over the member call sites; a member read that is
-    // not a call callee is legal but silent (see the fn doc).
+    // Vote argc over the member call sites. A member read that is
+    // NOT a call callee is a value escape — the face's fold would
+    // answer the direct sites' argc to a call it can't see (knife
+    // 4c caught exactly that: `var ref = obj.m; ref(a, b)` next to
+    // a 1-arg direct call answered length 1). Such a field's fn
+    // leaves the static face; the knife-4c argv-face seed picks the
+    // alias up and delivers the TRUE per-call argc instead.
+    let mut escaped_fns: HashSet<String> = HashSet::new();
     let mut argcs: HashMap<String, HashSet<usize>> = HashMap::new();
     for (i, e) in ast.exprs.iter().enumerate() {
         let Expr::Member { obj, name: fname } = e else {
@@ -334,6 +343,7 @@ pub(super) fn collect_objlit_method_static_argv(
             continue;
         };
         if !call_callee_member.contains(&(i as u32)) {
+            escaped_fns.insert(fn_name.clone());
             continue;
         }
         // Find the call that owns this callee to count its args.
@@ -374,7 +384,7 @@ pub(super) fn collect_objlit_method_static_argv(
             out.insert(fn_name.clone(), n);
         }
     }
-    out
+    (out, escaped_fns)
 }
 
 /// RFC 20260801 knife 1 — append `__torajs_iife_extra_i: any` params

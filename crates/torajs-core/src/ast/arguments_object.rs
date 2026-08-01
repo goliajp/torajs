@@ -125,12 +125,31 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
     // the argc count).
     static_argv.extend(collect_method_static_argv(ast));
     // RFC 20260801 objlit branch — object-literal methods whose
-    // member call sites are all visible and uniform.
-    static_argv.extend(collect_objlit_method_static_argv(ast, &env_fns));
+    // member call sites are all visible and uniform. A field that
+    // ALSO escapes as a value (a member read off the callee
+    // position) comes back in `objlit_escaped`.
+    let (objlit_face, objlit_escaped) = collect_objlit_method_static_argv(ast, &env_fns);
+    static_argv.extend(objlit_face);
     // Shadowed fns (a binding named `arguments` in the body — see
     // collect_arguments_shadowed_fns) and bare-assign fns never
     // join any face.
     static_argv.retain(|n, _| !excluded.contains(n));
+    // Knife 4c — escape-vs-static resolution: when the escaped
+    // alias qualifies for the argv face (exclusively-called safe
+    // chain), that face wins — it answers the TRUE per-call argc,
+    // where the static fold would answer the direct sites' count to
+    // a call it can't see. A store-only escape (never called, e.g.
+    // `typeof ref`) fails the argv chain and the fn stays on the
+    // static face — the pre-4c "legal but silent" compromise, which
+    // is strictly better than falling off both faces into a loud
+    // arity refuse (the objlit fixture caught that regression).
+    let (value_argv_pre, argv_locals) =
+        collect_value_argv(ast, &env_fns, &iife_real_argc, &excluded);
+    for f in &objlit_escaped {
+        if value_argv_pre.contains(f) {
+            static_argv.remove(f);
+        }
+    }
     let iife_static_argv = static_argv;
     inject_iife_static_params(ast, &iife_static_argv, &mut fn_params);
     // A named fn admitted to the static face must leave the T-31
@@ -151,10 +170,10 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
     value_real_argc.retain(|n| !iife_static_argv.contains_key(n));
     ast.closure_argc_locals = argc_locals;
 
-    // RFC 20260708-closure-argv-face — full-arguments tier seed +
-    // the same binding safety walk (see collect_value_argv).
-    let (mut value_argv_fns, argv_locals) =
-        collect_value_argv(ast, &env_fns, &iife_real_argc, &excluded);
+    // RFC 20260708-closure-argv-face — full-arguments tier
+    // (collected above, pre-static-retain, for the knife-4c
+    // escape-vs-static resolution).
+    let mut value_argv_fns = value_argv_pre;
     value_argv_fns.retain(|n| !iife_static_argv.contains_key(n));
     ast.closure_argv_fns = value_argv_fns.clone();
     ast.closure_argv_locals = argv_locals;

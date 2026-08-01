@@ -216,6 +216,59 @@ fn safe_binding_chain(
             candidates.insert(name.clone(), fn_name.clone());
         }
     }
+    // Knife 4c (RFC 20260801-arguments-method-face) — `var ref =
+    // obj.method`: a member read of a top-level object-literal
+    // binding whose field holds a seeded closure joins the chain
+    // too (the test262 meth-args template's escape form). Only the
+    // ALIAS binding enters the walk — the object binding itself is
+    // untouched, and its member CALLS stay safe because the argv
+    // face's rest-tail checker type routes a reshaped field through
+    // the boxed variadic lane rather than the static widen.
+    let mut objlit_fields: HashMap<(&str, &str), &str> = HashMap::new();
+    for s in &ast.stmts {
+        if let Stmt::LetDecl { name, init, .. } = s
+            && let Expr::ObjectLit { fields } = ast.get_expr(*init)
+        {
+            for (fname, feid) in fields {
+                if let Expr::Closure { fn_name, .. } = ast.get_expr(*feid) {
+                    objlit_fields.insert((name.as_str(), fname.as_str()), fn_name.as_str());
+                }
+            }
+        }
+    }
+    // The escape usually arrives var-hoisted: `var ref = obj.m` is
+    // `let ref: any (Uninit)` + a top-level `ref = obj.m` Assign.
+    // Seed both spellings; the Assign's target Ident is whitelisted
+    // for the kill walk below (it is the binding's own definition,
+    // not a value use — any OTHER assignment to the alias still
+    // kills the chain).
+    let mut assign_legal: HashSet<u32> = HashSet::new();
+    for s in &ast.stmts {
+        let (bname, member_eid, target_eid) = match s {
+            Stmt::LetDecl { name, init, .. } => (name.clone(), *init, None),
+            Stmt::Expr(eid) => {
+                let Expr::Assign { target, value } = ast.get_expr(*eid) else {
+                    continue;
+                };
+                let Expr::Ident(name) = ast.get_expr(*target) else {
+                    continue;
+                };
+                (name.clone(), *value, Some(target.0))
+            }
+            _ => continue,
+        };
+        if let Expr::Member { obj, name: m } = ast.get_expr(member_eid)
+            && let Expr::Ident(o) = ast.get_expr(*obj)
+            && let Some(fn_name) = objlit_fields.get(&(o.as_str(), m.as_str()))
+            && seed(fn_name)
+            && !candidates.contains_key(&bname)
+        {
+            candidates.insert(bname, fn_name.to_string());
+            if let Some(t) = target_eid {
+                assign_legal.insert(t);
+            }
+        }
+    }
     loop {
         let mut grew = false;
         for s in &ast.stmts {
@@ -253,6 +306,11 @@ fn safe_binding_chain(
                 {
                     legal.insert(init.0);
                 }
+            }
+            // Knife 4c — the seeding `ref = obj.m` Assign's own
+            // target Ident is the binding's definition, not a use.
+            for &t in assign_legal.intersection(&b_eids) {
+                legal.insert(t);
             }
             if b_eids.difference(&legal).next().is_some() {
                 killed.insert(b.clone());
