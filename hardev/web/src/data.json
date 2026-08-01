@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-01T12:37:28.461Z",
+  "generatedAt": "2026-08-01T14:18:04.454Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-01T12:36:47Z",
-    "headSha": "d9831e8f",
-    "elapsedSec": 390.39,
+    "ranAt": "2026-08-01T14:16:10Z",
+    "headSha": "a4be9596",
+    "elapsedSec": 432.89,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 19552,
+    "pass": 19608,
     "passNoOracle": 553,
-    "passNegative": 3760,
-    "passTotal": 23865,
-    "bug": 11874,
-    "incompatible": 17435,
+    "passNegative": 3826,
+    "passTotal": 23987,
+    "bug": 11756,
+    "incompatible": 17431,
     "bunSkip": 7467,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 35739,
-    "passRateInScope": 44.88,
-    "passRateTrAccepted": 66.78
+    "trAccepted": 35743,
+    "passRateInScope": 45.11,
+    "passRateTrAccepted": 67.11
   },
   "torajs": {
-    "commit": "d9831e8f",
-    "commitSubject": "fix(core): value-return fns that can fall through answer undefined",
+    "commit": "a4be9596",
+    "commitSubject": "feat(core): static methods join the argv face; devirt feeds the receiver slot",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "a4be9596",
+      "subject": "feat(core): static methods join the argv face; devirt feeds the receiver slot"
+    },
+    {
+      "hash": "05b98530",
+      "subject": "feat(core): object-literal generator methods route real argv into arguments"
+    },
+    {
+      "hash": "c3cf8a2e",
+      "subject": "feat(core): escaped object-literal methods answer their true argv"
+    },
+    {
+      "hash": "c419b72d",
+      "subject": "feat(core): method values deliver their real argv into arguments"
+    },
+    {
+      "hash": "1eec998b",
+      "subject": "feat(core): refuse \"use strict\" directive with non-simple parameter list"
+    },
+    {
+      "hash": "f06d5f95",
+      "subject": "chore(docs,hardev): rotation 272 final census at d9831e8f"
+    },
+    {
       "hash": "d9831e8f",
       "subject": "fix(core): value-return fns that can fall through answer undefined"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "80c864f6",
       "subject": "fix(core): the whole static-argv face goes unmapped — module code is strict"
-    },
-    {
-      "hash": "93ee16f1",
-      "subject": "fix(core): rest-tailed fns get a rest-aware static-argv face"
-    },
-    {
-      "hash": "4f6ee131",
-      "subject": "feat(core): untyped rest param defaults to implicit any[]"
-    },
-    {
-      "hash": "a8818690",
-      "subject": "chore(docs,hardev): rotation 271 final census at 36f97ddd"
-    },
-    {
-      "hash": "36f97ddd",
-      "subject": "fix(core): default/rest/destructured params take the unmapped arguments face"
-    },
-    {
-      "hash": "0d539ce7",
-      "subject": "fix(core): spread call sites keep a fn out of the static-argv face"
-    },
-    {
-      "hash": "5748fe9e",
-      "subject": "feat(core): devirtualize exclusively-called fn-value aliases in the arguments face"
     }
   ],
-  "headSha": "d9831e8f",
+  "headSha": "a4be9596",
   "autorun": {
-    "total": 576,
+    "total": 577,
     "baselineTarget": 10,
-    "bySelf": 571,
+    "bySelf": 572,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785581247-593c",
-      "at": "2026-08-01T10:47:27Z",
-      "ts": 1785581247,
+      "rotationId": "r-1785587899-3359",
+      "at": "2026-08-01T12:38:19Z",
+      "ts": 1785587899,
       "trigger": "self",
-      "prevHead": "a8818690",
-      "handoffSha": "sha256:60dc6ddc3ac3a147a8f5cf40f3f3345671019cadc5ff408d092a77ec36b39e1c",
-      "handoffAgeSec": 5,
+      "prevHead": "f06d5f95",
+      "handoffSha": "sha256:00a95d130f8c2520094548b8afcba86ac430b096046e5e0b33254455129a9b90",
+      "handoffAgeSec": 8,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1785587899-3359",
+        "at": "2026-08-01T12:38:19Z",
+        "ts": 1785587899,
+        "trigger": "self",
+        "prevHead": "f06d5f95",
+        "handoffSha": "sha256:00a95d130f8c2520094548b8afcba86ac430b096046e5e0b33254455129a9b90",
+        "handoffAgeSec": 8,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785581247-593c",
         "at": "2026-08-01T10:47:27Z",
@@ -876,17 +887,6 @@
         "prevHead": "1d485e57",
         "handoffSha": "sha256:d681b16624aa34c84019e98a1ad6682bfa13c61f7c0a4f76994ff886a7e77793",
         "handoffAgeSec": 70,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1785491289-7fa4",
-        "at": "2026-07-31T09:48:09Z",
-        "ts": 1785491289,
-        "trigger": "self",
-        "prevHead": "1d8539d3",
-        "handoffSha": "sha256:dd6bb468fc97c0c304f4810ccf07759a4101b9834df9537b3ef6b4b140fe4f29",
-        "handoffAgeSec": 136,
         "conformanceBefore": null,
         "commitsInSession": null
       }

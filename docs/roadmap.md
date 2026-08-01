@@ -1530,7 +1530,26 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 9215301c`, never as a constant.
 
-**Re-derived @ `d9831e8f`** (2026-08-01, rotation 272 close — knife
+**Latest @ `a4be9596`** (2026-08-01, rotation 273 — five knives:
+the §15.1.1 "use strict" × non-simple-params early error at all 8
+params+body parse sites; method VALUES delivering real argv through
+the boxed adapter into injected `__torajs_real_argc`/`__torajs_argv`
+(zero-Ident admission); escaped object-literal methods joining the
+argv face with escape-vs-static resolution; object-literal generator
+methods riding the GEN_ARGV_PARAM channel through their `__forward_`
+relays; static methods (`__sm_`) joining the method static face plus
+the devirt receiver-slot fix): passTotal **23987** (+122), bug
+**11756** (−118), trAccepted **35743** (+4 — conservation exact:
++4 = +122 − 118), incompatible **17431** (−4), core **11550** (−4).
+Gate predicate: **387** clusters of ≥ 4 holding 10473 (flat
+clusters, −4 cases), residue 818 / 1077. Forward 122, zero
+regressions: 25 rest-param-strict-body / use-strict-with-non-simple
+negatives (knife 1), 56 arguments-object (48 cls-decl/expr private +
+escape families, 8 obj gen-meth), and the rest across the
+statements/expressions static-gen and method-escape families. New
+crashes: 0.
+
+**Previous @ `d9831e8f`** (2026-08-01, rotation 272 close — knife
 F on top of the `a08ff268` sweep below: value-return fns that can
 fall through now answer undefined per §10.2.1.4 instead of trapping
 on an `unreachable` tail; re-sweep moved exactly 2 verdicts,
