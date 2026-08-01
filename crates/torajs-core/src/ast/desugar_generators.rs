@@ -250,7 +250,7 @@ fn desugar_one_generator(
     // Yields close an arm with `return {value:e, done:false}`;
     // control-flow gotos close with `state = N; continue;` and the
     // `while(true)` loop re-enters the if-chain at the new state.
-    let (next_body, gen_hoisted) =
+    let (next_body, gen_hoisted, has_try_regions) =
         crate::ast::desugar_generators_assemble::build_state_machine_next_body(
             ast, gen_body, &yield_ty,
         );
@@ -305,7 +305,8 @@ fn desugar_one_generator(
     );
     let return_method =
         crate::ast::desugar_generators_methods::build_return_method(ast, &yield_ty, &step_ann);
-    let throw_method = crate::ast::desugar_generators_methods::build_throw_method(ast, &step_ann);
+    let throw_method =
+        crate::ast::desugar_generators_methods::build_throw_method(ast, &step_ann, has_try_regions);
     // For Phase J MVP, generator parameters are stored as fields on
     // the iterator object so the body can reference them through
     // `this.<name>`. The fields are auto-prepended to the class

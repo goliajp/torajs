@@ -74,28 +74,71 @@ pub(super) fn build_return_method(ast: &mut Ast, yield_ty: &str, step_ann: &str)
 /// `emit_throw_check`) propagates the error to the innermost
 /// enclosing try/catch in the caller's frame.
 ///
-/// Narrow MVP — when J.2.b still forbids `yield` inside `try`,
-/// the spec's "rethrow inside the generator body if a try block
-/// wraps the suspended yield" branch has nothing to walk: the
-/// throw simply propagates out of `next()`'s outer call as if
-/// the caller's `throw` was at the call site. P10.6-A2-follow-up
-/// (with the J.2.b lift) revisits this to inject the error at
-/// the suspended yield position so an in-body `catch` can
-/// observe it.
-pub(super) fn build_throw_method(ast: &mut Ast, step_ann: &str) -> ClassMethod {
+/// RFC 20260802 C2 — a REGION-BEARING generator (`has_try_regions`)
+/// instead injects: `this.__thrown = err; this.__inject = true;
+/// return this.next();`. next()'s prologue throws the stash at the
+/// suspended state, so a try wrapping the suspended yield observes
+/// it (§27.5.1.4 resume-with-throw-completion); a state in no region
+/// rethrows out of next() — same caller-visible shape as the close
+/// path, with the prologue kill supplying the "completed" sentinel.
+///
+/// Region-FREE generators keep the close+rethrow shape: no body try
+/// can observe the error, and skipping injection keeps their class
+/// free of the `__inject` / `__thrown` fields.
+pub(super) fn build_throw_method(
+    ast: &mut Ast,
+    step_ann: &str,
+    has_try_regions: bool,
+) -> ClassMethod {
     let err_param = Param {
         name: THROW_ERR_PARAM.into(),
         type_ann: Some("any".into()),
         default: None,
         is_rest: false,
     };
-    let close_stmt = emit_close_state(ast);
-    let err_ident = ast.add_expr(Expr::Ident(THROW_ERR_PARAM.into()));
+    let body = if has_try_regions {
+        let this_id = ast.add_expr(Expr::This);
+        let thrown = ast.add_expr(Expr::Member {
+            obj: this_id,
+            name: "__thrown".into(),
+        });
+        let err_ident = ast.add_expr(Expr::Ident(THROW_ERR_PARAM.into()));
+        let stash = ast.add_expr(Expr::Assign {
+            target: thrown,
+            value: err_ident,
+        });
+        let this_arm = ast.add_expr(Expr::This);
+        let inj = ast.add_expr(Expr::Member {
+            obj: this_arm,
+            name: "__inject".into(),
+        });
+        let true_lit = ast.add_expr(Expr::Bool(true));
+        let arm = ast.add_expr(Expr::Assign {
+            target: inj,
+            value: true_lit,
+        });
+        // `this.next()` — the arg pads via apply_default_args like
+        // every user `it.next()` call site.
+        let this_recv = ast.add_expr(Expr::This);
+        let next_callee = ast.add_expr(Expr::Member {
+            obj: this_recv,
+            name: "next".into(),
+        });
+        let call = ast.add_expr(Expr::Call {
+            callee: next_callee,
+            args: Vec::new(),
+        });
+        vec![Stmt::Expr(stash), Stmt::Expr(arm), Stmt::Return(Some(call))]
+    } else {
+        let close_stmt = emit_close_state(ast);
+        let err_ident = ast.add_expr(Expr::Ident(THROW_ERR_PARAM.into()));
+        vec![close_stmt, Stmt::Throw(err_ident)]
+    };
     ClassMethod {
         name: "throw".into(),
         params: vec![err_param],
         return_type: Some(step_ann.into()),
-        body: vec![close_stmt, Stmt::Throw(err_ident)],
+        body,
         is_abstract: false,
         visibility: Visibility::Public,
         accessor_kind: None,

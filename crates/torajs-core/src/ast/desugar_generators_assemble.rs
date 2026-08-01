@@ -15,15 +15,18 @@ use super::{Ast, BinOp, Expr, Stmt, default_init_for_type};
 /// as the two-stmt body. Caller wraps it into the ClassMethod.
 ///
 /// RFC 20260802 — also returns the hoisted catch-param slots the SM
-/// minted (extra class fields the driver appends to lifted_locals).
-/// When the SM recorded exception regions, the dispatch if-chain is
-/// wrapped in the region-routing try/catch; region-free generators
-/// keep the exact pre-RFC shape.
+/// minted (extra class fields the driver appends to lifted_locals)
+/// and whether exception regions exist (the driver picks the
+/// injecting `throw()` shape only for region-bearing generators).
+/// When the SM recorded regions, the dispatch if-chain is wrapped in
+/// the region-routing try/catch and the `throw()` injection prologue
+/// + fields are added; region-free generators keep the exact pre-RFC
+/// shape.
 pub(super) fn build_state_machine_next_body(
     ast: &mut Ast,
     gen_body: Vec<Stmt>,
     yield_ty: &str,
-) -> (Vec<Stmt>, Vec<(String, String)>) {
+) -> (Vec<Stmt>, Vec<(String, String)>, bool) {
     // Build the state machine. Each arm is the body of one state in
     // an if-chain wrapped by `while (true) { ... }`. Yields close an
     // arm with `return {value:e, done:false}`; control-flow gotos
@@ -41,7 +44,7 @@ pub(super) fn build_state_machine_next_body(
     sm.cur_buf.push(Stmt::Return(Some(final_obj)));
     sm.flush_cur();
     let regions = std::mem::take(&mut sm.regions);
-    let hoisted = std::mem::take(&mut sm.hoisted);
+    let mut hoisted = std::mem::take(&mut sm.hoisted);
 
     // Assemble: while (true) { if (st==0){arm0} if (st==1){arm1} ... ; catch-all }
     let mut loop_body: Vec<Stmt> = Vec::new();
@@ -73,11 +76,20 @@ pub(super) fn build_state_machine_next_body(
     loop_body.push(Stmt::Return(Some(final_tail)));
 
     // RFC 20260802 — exception regions route a throw from any state
-    // inside a try range to its catch-entry state.
-    let loop_body = if regions.is_empty() {
-        loop_body
-    } else {
+    // inside a try range to its catch-entry state. Region-bearing
+    // generators also carry the `throw()` injection fields + prologue
+    // (C2): `throw(err)` stashes err and re-enters `next()`, which
+    // throws it at the suspended state so the region wrap can route
+    // it to an enclosing catch.
+    let has_regions = !regions.is_empty();
+    let mut inject_prologue: Vec<Stmt> = Vec::new();
+    let loop_body = if has_regions {
+        hoisted.push(("__inject".into(), "boolean".into()));
+        hoisted.push(("__thrown".into(), "any".into()));
+        inject_prologue = super::desugar_generators_sm_try::emit_inject_prologue(ast);
         super::desugar_generators_sm_try::wrap_dispatch_with_region_catch(ast, loop_body, &regions)
+    } else {
+        loop_body
     };
 
     let true_lit = ast.add_expr(Expr::Bool(true));
@@ -121,16 +133,12 @@ pub(super) fn build_state_machine_next_body(
         target: state_kill,
         value: dead_lit,
     });
-    (
-        vec![
-            seed_local,
-            Stmt::Expr(kill),
-            Stmt::While {
-                cond: true_lit,
-                body: Box::new(Stmt::Block(loop_body)),
-            },
-            Stmt::Return(Some(final_after)),
-        ],
-        hoisted,
-    )
+    let mut body = vec![seed_local, Stmt::Expr(kill)];
+    body.extend(inject_prologue);
+    body.push(Stmt::While {
+        cond: true_lit,
+        body: Box::new(Stmt::Block(loop_body)),
+    });
+    body.push(Stmt::Return(Some(final_after)));
+    (body, hoisted, has_regions)
 }
