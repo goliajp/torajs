@@ -38,12 +38,28 @@ use super::{Ast, Expr, ExprId, Param, Stmt};
 pub(crate) fn run(ast: &mut Ast) {
     let mut hits: Vec<(ExprId, String)> = Vec::new();
     for s in &ast.stmts {
-        if let Stmt::FnDecl { params, .. } = s {
+        if let Stmt::FnDecl { name, params, .. } = s {
+            // A plain async function owes a REJECTED promise for a
+            // param-initializer throw (§15.8.4 step 3), not the sync
+            // throw this rewrite produces — and its existing channel
+            // already answers the ReferenceError rejection (the
+            // dflt-params-ref-self async family passed before this
+            // pass existed). Skip it; async GENERATORS are not in
+            // `async_fns` (their §15.6.2 param throw is sync) and
+            // keep the rewrite.
+            if ast.async_fns.contains(name) {
+                continue;
+            }
             collect_param_hits(ast, params, &mut hits);
         }
     }
-    for e in &ast.exprs {
+    for (i, e) in ast.exprs.iter().enumerate() {
         if let Expr::ArrowFn { params, .. } = e {
+            // Same §15.8.4 posture for async function values / async
+            // arrows (side table keyed by ExprId).
+            if ast.async_fn_value_exprs.contains(&ExprId(i as u32)) {
+                continue;
+            }
             collect_param_hits(ast, params, &mut hits);
         }
     }
