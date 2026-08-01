@@ -13,115 +13,14 @@
 //! Callers live in parse_class_member_method / object_member /
 //! object_literal / fn_expr siblings. Both promoted `pub(super)`
 //! per the sibling-impl pack pattern. Body unchanged.
+//!
+//! The §15 early-error checks (`reject_duplicate_params` /
+//! `reject_lexical_shadowing_param`) live in the
+//! `param_list_early_errors` sibling.
 
 use super::*;
 
 impl<'a> Parser<'a> {
-    /// A duplicate parameter name is a SyntaxError, and *where* decides
-    /// whether unconditionally:
-    ///
-    /// - A **method definition** (§15.4) and an **arrow** (§15.3.1) take
-    ///   `UniqueFormalParameters`, so duplicates are refused whatever
-    ///   the list looks like. `unique = true`.
-    /// - A **function declaration or expression** takes plain
-    ///   `FormalParameters`, whose §15.1.1 early error applies only in
-    ///   strict code or when the list is not simple. In sloppy code with
-    ///   a simple list `function f(a, a) {}` is legal, and test262
-    ///   asserts it: `param-duplicated-non-strict.js` (×2) and
-    ///   `S10.2.1_A2.js` run it and expect it to work. Refusing there
-    ///   cost exactly those three cases — measured, not predicted.
-    ///
-    /// Class bodies are always strict (§11.2.2), so a `function` nested
-    /// in one is refused too. `current_class` is an exact test for that
-    /// rather than a heuristic: everything lexically inside a class body
-    /// is strict code.
-    ///
-    /// P-SURF S2.9 — tr used to refuse `*m(x = 0, x)` by accident. The
-    /// generator desugar turns parameters into fields of the `__Gen_*`
-    /// state-machine class, two same-named parameters became two
-    /// same-named fields, and the field-conflict check panicked. That
-    /// refusal was right for the wrong reason and said so out loud,
-    /// naming a synthesized class the user never wrote; the plain
-    /// spelling `function f(x = 0, x) {}` was not refused at all.
-    ///
-    /// Called from every parameter-list parser rather than from one
-    /// shared place, because there is no shared place: `parse_fn` and
-    /// the arrow parser each carry their own copy of the loop.
-    pub(super) fn reject_duplicate_params(
-        &self,
-        params: &[Param],
-        unique: bool,
-    ) -> Result<(), String> {
-        // §15.1.2 IsSimpleParameterList — no default, no rest, no
-        // binding pattern (which arrives as a synthesized holder name).
-        let simple = params
-            .iter()
-            .all(|p| p.default.is_none() && !p.is_rest && !p.name.starts_with("__param_destr_"));
-        if !unique && simple && self.current_class.is_none() {
-            return Ok(());
-        }
-        for (i, p) in params.iter().enumerate() {
-            if params[..i].iter().any(|q| q.name == p.name) {
-                return Err(format!(
-                    "duplicate parameter name `{}` at {}",
-                    p.name,
-                    self.at()
-                ));
-            }
-        }
-        Ok(())
-    }
-
-    /// ES §14.2.1 early error: a `let` / `const` at the top level of a
-    /// function body may not repeat a parameter name. (`var` may — it
-    /// is the same variable, per §14.3.2.1 — and so may a nested
-    /// function declaration, which is var-scoped.)
-    ///
-    /// P-SURF S2.9, the other half of [`Self::reject_duplicate_params`]
-    /// and refused by the same accident until now: the name collided as
-    /// two fields of the generator's `__Gen_*` class, which caught
-    /// `*foo(a) { let a = 3 }` and missed the plain spelling.
-    ///
-    /// `destr_lets` carries the bindings a destructuring parameter
-    /// unpacks (`function f({ a }) {}` binds `a`), which are parameter
-    /// names for this purpose even though they arrive as statements.
-    /// The synthesized `__param_destr_N` holders are not — they are
-    /// unspellable, so no user declaration can collide with one.
-    pub(super) fn reject_lexical_shadowing_param(
-        &self,
-        params: &[Param],
-        destr_lets: &[Stmt],
-        body: &[Stmt],
-    ) -> Result<(), String> {
-        let mut bound: Vec<&str> = params
-            .iter()
-            .map(|p| p.name.as_str())
-            .filter(|n| !n.starts_with("__param_destr_"))
-            .collect();
-        for s in destr_lets {
-            if let Stmt::LetDecl { name, .. } = s {
-                bound.push(name.as_str());
-            }
-        }
-        for s in body {
-            let Stmt::LetDecl {
-                name,
-                is_var: false,
-                ..
-            } = s
-            else {
-                continue;
-            };
-            if bound.contains(&name.as_str()) {
-                return Err(format!(
-                    "`{name}` is declared in the body and is already a parameter, at {}",
-                    self.at()
-                ));
-            }
-        }
-        Ok(())
-    }
-
     /// V3-18 wedge — TS parameter-property shorthand
     /// (`constructor(public x: number, private readonly y: string)`).
     /// Returns the regular param list plus a side-table of
@@ -260,6 +159,9 @@ impl<'a> Parser<'a> {
                     } else {
                         Some(ann)
                     }
+                } else if is_rest {
+                    // Untyped rest param is implicitly `any[]` — see parse_fn.
+                    Some("any[]".into())
                 } else {
                     None
                 };
@@ -413,6 +315,9 @@ impl<'a> Parser<'a> {
                     } else {
                         Some(ann)
                     }
+                } else if is_rest {
+                    // Untyped rest param is implicitly `any[]` — see parse_fn.
+                    Some("any[]".into())
                 } else {
                     None
                 };

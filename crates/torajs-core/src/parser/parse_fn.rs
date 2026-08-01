@@ -317,6 +317,11 @@ impl<'a> Parser<'a> {
                     } else {
                         Some(ann)
                     }
+                } else if is_rest {
+                    // Untyped rest param is implicitly `any[]` (TS
+                    // §implicit-any); synthesizing here lets every
+                    // downstream face see the user-written-`any[]` shape.
+                    Some("any[]".into())
                 } else {
                     None
                 };
