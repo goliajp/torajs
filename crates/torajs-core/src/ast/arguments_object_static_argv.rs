@@ -89,27 +89,94 @@ pub(super) fn collect_named_static_argv(
         if fn_local_names.contains(&name) {
             continue;
         }
-        let eids: HashSet<u32> = (0..ast.exprs.len() as u32)
-            .filter(|&i| matches!(&ast.exprs[i as usize], Expr::Ident(n) if *n == name))
-            .collect();
-        if eids.is_empty() {
+        if let Some(n) = uniform_direct_call_argc(ast, &name, 0) {
+            out.insert(name, n);
+        }
+    }
+    out
+}
+
+/// Shared reference analysis (knife 3a + method face): every arena
+/// `Ident(name)` must be a direct Call callee, and all sites must
+/// pass ONE uniform user arg count. `this_slots` leading args are
+/// excluded from the count — 1 for `__cm_` methods (the pass-2
+/// rewrite carries the receiver at arg[0]), 0 for plain named fns.
+fn uniform_direct_call_argc(ast: &Ast, name: &str, this_slots: usize) -> Option<usize> {
+    use std::collections::HashSet;
+    let eids: HashSet<u32> = (0..ast.exprs.len() as u32)
+        .filter(|&i| matches!(&ast.exprs[i as usize], Expr::Ident(n) if n == name))
+        .collect();
+    if eids.is_empty() {
+        return None;
+    }
+    let mut argcs: HashSet<usize> = HashSet::new();
+    let mut legal: HashSet<u32> = HashSet::new();
+    for e in &ast.exprs {
+        if let Expr::Call { callee, args } = e
+            && eids.contains(&callee.0)
+        {
+            legal.insert(callee.0);
+            argcs.insert(args.len().saturating_sub(this_slots));
+        }
+    }
+    if eids.difference(&legal).next().is_some() {
+        return None;
+    }
+    if argcs.len() == 1 {
+        argcs.into_iter().next()
+    } else {
+        None
+    }
+}
+
+/// RFC 20260801-arguments-method-face knife 1 — single-owner class
+/// methods join the static-argv face. The pass-2 desugar rewrote
+/// every method call to `__cm_<C>__<M>(receiver, ...user)`, so the
+/// same all-refs-direct + uniform-argc analysis applies with the
+/// receiver slot excluded. Length-only bodies qualify too (methods
+/// have no T-31 real-argc tier — their historical FoldArity answer
+/// was the declared arity, silent-wrong on any other argc).
+/// Member-read escapes (`var ref = C.prototype.m`) are invisible to
+/// the Ident scan but memory-safe: boxed/escape calls pad missing
+/// trailing params (the injected extras included) with undefined,
+/// and their fold answers stay wrong-at-parity with FoldArity.
+/// Multi-owner methods dispatch through `__dispatch_<M>` / raw
+/// Member — excluded via the method_owners side table. Defaults /
+/// rest params interleave with apply_args argc bookkeeping —
+/// defensively excluded.
+pub(super) fn collect_method_static_argv(ast: &Ast) -> std::collections::HashMap<String, usize> {
+    use std::collections::HashMap;
+    let mut out: HashMap<String, usize> = HashMap::new();
+    for s in &ast.stmts {
+        let Stmt::FnDecl {
+            name, params, body, ..
+        } = s
+        else {
+            continue;
+        };
+        if !name.starts_with("__cm_") {
             continue;
         }
-        let mut argcs: HashSet<usize> = HashSet::new();
-        let mut legal: HashSet<u32> = HashSet::new();
-        for e in &ast.exprs {
-            if let Expr::Call { callee, args } = e
-                && eids.contains(&callee.0)
-            {
-                legal.insert(callee.0);
-                argcs.insert(args.len());
-            }
-        }
-        if eids.difference(&legal).next().is_some() {
+        if params.first().is_none_or(|p| p.name != "__this") {
             continue;
         }
-        if argcs.len() == 1 {
-            out.insert(name, argcs.into_iter().next().unwrap());
+        if params.iter().any(|p| p.default.is_some() || p.is_rest) {
+            continue;
+        }
+        if ast
+            .method_owners
+            .iter()
+            .any(|(m, owners)| owners.iter().any(|o| name == &format!("__cm_{o}__{m}")))
+        {
+            continue;
+        }
+        if !body_has_non_length_arguments_touch(ast, body)
+            && !super::arguments_object_walkers::body_has_arguments_length(ast, body)
+        {
+            continue;
+        }
+        if let Some(n) = uniform_direct_call_argc(ast, name, 1) {
+            out.insert(name.clone(), n);
         }
     }
     out

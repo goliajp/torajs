@@ -15,7 +15,8 @@
 
 use super::arguments_object_collect::{collect_value_argc, collect_value_argv};
 use super::arguments_object_static_argv::{
-    collect_iife_static_argv, collect_named_static_argv, inject_iife_static_params,
+    collect_iife_static_argv, collect_method_static_argv, collect_named_static_argv,
+    inject_iife_static_params,
 };
 use super::arguments_object_synth::{synth_arguments_local, synth_arguments_local_argv};
 use super::arguments_object_walkers::{
@@ -94,6 +95,10 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
     // the body, and extends the rewrite param table to match.
     let mut static_argv = collect_iife_static_argv(ast, &iife_real_argc);
     static_argv.extend(collect_named_static_argv(ast, &env_fns));
+    // RFC 20260801-arguments-method-face knife 1 — single-owner
+    // class methods ride the same face (receiver slot excluded from
+    // the argc count).
+    static_argv.extend(collect_method_static_argv(ast));
     // Shadowed fns (a binding named `arguments` in the body — see
     // collect_arguments_shadowed_fns) and bare-assign fns never
     // join any face.
