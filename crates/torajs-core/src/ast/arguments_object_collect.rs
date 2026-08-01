@@ -24,7 +24,7 @@ pub(super) fn collect_value_argc(
     ast: &Ast,
     env_fns: &std::collections::HashSet<String>,
     iife_real_argc: &std::collections::HashSet<String>,
-    shadowed: &std::collections::HashSet<String>,
+    excluded: &std::collections::HashSet<String>,
 ) -> (
     std::collections::HashSet<String>,
     std::collections::HashSet<String>,
@@ -58,7 +58,7 @@ pub(super) fn collect_value_argc(
         if let Stmt::FnDecl { name, body, .. } = s {
             if env_fns.contains(name)
                 && !iife_real_argc.contains(name)
-                && !shadowed.contains(name)
+                && !excluded.contains(name)
                 && body_has_arguments_length(ast, body)
                 && !body_has_non_length_arguments_touch(ast, body)
             {
@@ -168,7 +168,7 @@ pub(super) fn collect_value_argv(
     ast: &Ast,
     env_fns: &std::collections::HashSet<String>,
     iife_real_argc: &std::collections::HashSet<String>,
-    shadowed: &std::collections::HashSet<String>,
+    excluded: &std::collections::HashSet<String>,
 ) -> (
     std::collections::HashSet<String>,
     std::collections::HashSet<String>,
@@ -179,7 +179,7 @@ pub(super) fn collect_value_argv(
         if let Stmt::FnDecl { name, body, .. } = s
             && env_fns.contains(name)
             && !iife_real_argc.contains(name)
-            && !shadowed.contains(name)
+            && !excluded.contains(name)
             && body_has_non_length_arguments_touch(ast, body)
             && !body_has_unsafe_return_arguments(ast, body)
         {

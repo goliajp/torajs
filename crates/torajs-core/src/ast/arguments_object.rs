@@ -17,10 +17,10 @@ use super::arguments_object_collect::{collect_value_argc, collect_value_argv};
 use super::arguments_object_static_argv::{
     collect_iife_static_argv, collect_named_static_argv, inject_iife_static_params,
 };
+use super::arguments_object_synth::{synth_arguments_local, synth_arguments_local_argv};
 use super::arguments_object_walkers::{
-    body_has_arguments_length, body_has_arguments_length_write,
-    body_has_non_length_arguments_touch, stmt_uses_dynamic_arguments, synth_arguments_local,
-    synth_arguments_local_argv,
+    body_has_arguments_length, body_has_arguments_length_write, body_has_bare_arguments_assign,
+    body_has_non_length_arguments_touch, stmt_uses_dynamic_arguments,
 };
 use super::{Ast, Expr, Param, Stmt};
 
@@ -64,6 +64,23 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
     // Stage helpers extracted chunk 767 (the pass had drifted past
     // the 200-line fn limit as argc/argv tiers stacked up).
     let shadowed = collect_arguments_shadowed_fns(ast);
+    // Bare-assign bodies (`arguments = v`, for-await dstr defaults)
+    // also leave every swapping face — the materialized local is
+    // const, and the pre-face undeclared-ident lane (sloppy
+    // auto-global) is the behavior those tests observe. They still
+    // take the default FoldArity rewrite (literal-index param
+    // substitution, pre-face parity) — only the face admissions are
+    // gated, so `excluded` feeds the collectors while `shadowed`
+    // alone skips the rewrite loop.
+    let mut excluded = shadowed.clone();
+    for s in &ast.stmts {
+        if let Stmt::FnDecl { name, body, .. } = s
+            && !excluded.contains(name)
+            && body_has_bare_arguments_assign(ast, body)
+        {
+            excluded.insert(name.clone());
+        }
+    }
     let (mut fn_params, uses_real_argc, env_fns) = snapshot_fn_params(ast);
     let (iife_real_argc, iife_call_sites) = collect_iife_real_argc(ast, &shadowed);
 
@@ -78,8 +95,9 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
     let mut static_argv = collect_iife_static_argv(ast, &iife_real_argc);
     static_argv.extend(collect_named_static_argv(ast, &env_fns));
     // Shadowed fns (a binding named `arguments` in the body — see
-    // collect_arguments_shadowed_fns) never join any face.
-    static_argv.retain(|n, _| !shadowed.contains(n));
+    // collect_arguments_shadowed_fns) and bare-assign fns never
+    // join any face.
+    static_argv.retain(|n, _| !excluded.contains(n));
     let iife_static_argv = static_argv;
     inject_iife_static_params(ast, &iife_static_argv, &mut fn_params);
     // A named fn admitted to the static face must leave the T-31
@@ -93,13 +111,13 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
     // RFC 20260708-closure-argc-abi chunk 1 — closure VALUE form
     // seed + binding safety walk (see collect_value_argc).
     let (value_real_argc, argc_locals) =
-        collect_value_argc(ast, &env_fns, &iife_real_argc, &shadowed);
+        collect_value_argc(ast, &env_fns, &iife_real_argc, &excluded);
     ast.closure_argc_locals = argc_locals;
 
     // RFC 20260708-closure-argv-face — full-arguments tier seed +
     // the same binding safety walk (see collect_value_argv).
     let (value_argv_fns, argv_locals) =
-        collect_value_argv(ast, &env_fns, &iife_real_argc, &shadowed);
+        collect_value_argv(ast, &env_fns, &iife_real_argc, &excluded);
     ast.closure_argv_fns = value_argv_fns.clone();
     ast.closure_argv_locals = argv_locals;
 

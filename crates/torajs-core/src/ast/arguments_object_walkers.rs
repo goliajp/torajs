@@ -1,12 +1,13 @@
-//! T-11 / T-31 walker + builder helpers for
+//! T-11 / T-31 walker helpers for
 //! [`super::arguments_object::desugar_arguments_object`] — split out
 //! as a sibling (rotation 44) when the main pass crossed the 500-line
 //! file limit: `stmt/expr_uses_dynamic_arguments` (materialize gate),
 //! `body_has_arguments_length` (T-31 argc seed, via the shared
 //! `stmt_scan`/`expr_scan` pair),
 //! `body_has_non_length_arguments_touch` (RFC 20260708-closure-
-//! argc-abi length-only classifier), and `synth_arguments_local` (the
-//! `__torajs_arguments: any[]` builder).
+//! argc-abi length-only classifier), plus the write-position scans
+//! (LengthWrite / BareAssign, rotation 270). The `__torajs_arguments`
+//! local builders live in the `arguments_object_synth` sibling.
 
 use super::{Ast, Expr, ExprId, Stmt};
 
@@ -34,6 +35,16 @@ enum ScanFor {
     /// assignment target") and every later read would answer the
     /// stale constant.
     LengthWrite,
+    /// The bare `arguments` binding itself in a WRITE position
+    /// (`arguments = v` / `arguments++`). See
+    /// [`body_has_bare_arguments_assign`].
+    BareAssign,
+}
+
+/// `Ident("arguments")` — the bare-binding shape the BareAssign
+/// write-position scan keys on.
+fn is_bare_arguments(ast: &Ast, eid: ExprId) -> bool {
+    matches!(ast.get_expr(eid), Expr::Ident(n) if n == "arguments")
 }
 
 /// `Member { obj: Ident("arguments"), name: "length" }` — the node
@@ -48,6 +59,17 @@ fn is_arguments_length(ast: &Ast, eid: ExprId) -> bool {
 /// or post-incr/decr). See [`ScanFor::LengthWrite`].
 pub(super) fn body_has_arguments_length_write(ast: &Ast, body: &[Stmt]) -> bool {
     body.iter().any(|s| stmt_scan(ast, s, ScanFor::LengthWrite))
+}
+
+/// True if the body ASSIGNS the bare `arguments` binding itself
+/// (`arguments = v`, destructuring-default desugar included, or
+/// `arguments++`). Such a fn must leave every swapping face: the
+/// materialized `__torajs_arguments` local is const, so the swap
+/// turned the assignment into a type error — pre-face these bodies
+/// rode the undeclared-ident lane (sloppy auto-global write + read),
+/// which is the behavior the for-await-of dstr tests observe.
+pub(super) fn body_has_bare_arguments_assign(ast: &Ast, body: &[Stmt]) -> bool {
+    body.iter().any(|s| stmt_scan(ast, s, ScanFor::BareAssign))
 }
 
 /// True if the body touches `arguments` in any form other than
@@ -396,10 +418,16 @@ fn expr_scan(ast: &Ast, eid: ExprId, what: ScanFor) -> bool {
             if what == ScanFor::LengthWrite && is_arguments_length(ast, *target) {
                 return true;
             }
+            if what == ScanFor::BareAssign && is_bare_arguments(ast, *target) {
+                return true;
+            }
             expr_scan(ast, *target, what)
         }
         Expr::Assign { target, value } => {
             if what == ScanFor::LengthWrite && is_arguments_length(ast, *target) {
+                return true;
+            }
+            if what == ScanFor::BareAssign && is_bare_arguments(ast, *target) {
                 return true;
             }
             expr_scan(ast, *target, what) || expr_scan(ast, *value, what)
@@ -430,46 +458,7 @@ fn expr_scan(ast: &Ast, eid: ExprId, what: ScanFor) -> bool {
     }
 }
 
-/// T-11 — synthesize `let __torajs_arguments: any[] = [p0, p1, ...]`
-/// for prepending to a fn body. Each param Ident becomes one array
-/// element; the LetDecl arm in ssa_lower routes through the forced-
-/// Any path because the annotation is `any[]`.
-pub(super) fn synth_arguments_local(ast: &mut Ast, params: &[String]) -> Stmt {
-    let elems: Vec<ExprId> = params
-        .iter()
-        .map(|p| ast.add_expr(Expr::Ident(p.clone())))
-        .collect();
-    let init = ast.add_expr(Expr::Array(elems));
-    Stmt::LetDecl {
-        mutable: false,
-        name: "__torajs_arguments".into(),
-        type_ann: Some("any[]".into()),
-        init,
-        is_var: false,
-    }
-}
-
-/// RFC 20260708-closure-argv-face — synthesize
-/// `let __torajs_arguments: any[] =
-///   __torajs_arguments_materialize(__torajs_argv, __torajs_real_argc)`
-/// for a full-arguments closure body. The synthetic call resolves in
-/// the checker's ident special-case and lowers in the class-synth
-/// lane to `arr_alloc_any` + `arr_any_push` over the adapter's argv,
-/// so beyond-declared argument VALUES are reachable (the
-/// `[p0, p1, …]` builder above only covers declared params).
-pub(super) fn synth_arguments_local_argv(ast: &mut Ast) -> Stmt {
-    let argv = ast.add_expr(Expr::Ident("__torajs_argv".into()));
-    let argc = ast.add_expr(Expr::Ident("__torajs_real_argc".into()));
-    let callee = ast.add_expr(Expr::Ident("__torajs_arguments_materialize".into()));
-    let init = ast.add_expr(Expr::Call {
-        callee,
-        args: vec![argv, argc],
-    });
-    Stmt::LetDecl {
-        mutable: false,
-        name: "__torajs_arguments".into(),
-        type_ann: Some("any[]".into()),
-        init,
-        is_var: false,
-    }
-}
+// The `__torajs_arguments` local builders live in the sibling
+// `arguments_object_synth` (split rotation 270 when the BareAssign
+// scan pushed this file past the 500-line limit — builders and
+// walkers were always two identities sharing one file).
