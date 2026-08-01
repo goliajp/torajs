@@ -102,10 +102,48 @@ fn body_safe_default(ast: &Ast, e: ExprId) -> bool {
     }
 }
 
+/// Build one `if (name === undefined) name = <default>;` guard.
+fn build_default_guard(ast: &mut Ast, name: &str, d: ExprId) -> Stmt {
+    let undef = ast.add_expr(Expr::Ident("undefined".into()));
+    let name_ref = ast.add_expr(Expr::Ident(name.to_string()));
+    let cond = ast.add_expr(Expr::BinOp {
+        op: BinOp::Eq,
+        left: name_ref,
+        right: undef,
+    });
+    let target = ast.add_expr(Expr::Ident(name.to_string()));
+    let assign = ast.add_expr(Expr::Assign { target, value: d });
+    Stmt::If {
+        cond,
+        then_branch: Box::new(Stmt::Expr(assign)),
+        else_branch: None,
+    }
+}
+
+/// Shared per-param conversion gate: an expression default that the
+/// pad cannot carry (not a scope-free literal), is body-safe, and
+/// sits on an `any` / unannotated param.
+fn converting_default(ast: &Ast, p: &super::Param) -> Option<ExprId> {
+    let d = p.default?;
+    if is_pad_safe_literal(ast, d) || !body_safe_default(ast, d) {
+        return None;
+    }
+    let ann_ok = p.type_ann.as_deref().is_none_or(|a| a.trim() == "any");
+    if !ann_ok {
+        return None;
+    }
+    Some(d)
+}
+
 /// See module doc. Walks every top-level FnDecl (all function forms
 /// are FnDecls by this point in the pass pipeline — class methods
 /// are `__cm_*`, lifted closures `__closure_*`, generator factories
-/// their own names).
+/// their own names) AND every `Expr::ArrowFn` still in the arena:
+/// arrow-fn / function-expression VALUES only become FnDecls at
+/// `lift_arrow_fns`, which runs AFTER this pass — the t262
+/// arrow/function-expression dflt-params families were falling
+/// through with their defaults pasted into the caller's scope
+/// (`unknown identifier`, rotation 276).
 pub fn materialize_expr_defaults(ast: &mut Ast) {
     // Phase A — collect (stmt index, param index, param name,
     // default ExprId) for every converting param, immutably.
@@ -115,15 +153,20 @@ pub fn materialize_expr_defaults(ast: &mut Ast) {
             continue;
         };
         for (pi, p) in params.iter().enumerate() {
-            let Some(d) = p.default else { continue };
-            if is_pad_safe_literal(ast, d) || !body_safe_default(ast, d) {
-                continue;
+            if let Some(d) = converting_default(ast, p) {
+                sites.push((si, pi, p.name.clone(), d));
             }
-            let ann_ok = p.type_ann.as_deref().is_none_or(|a| a.trim() == "any");
-            if !ann_ok {
-                continue;
+        }
+    }
+    let mut arrow_sites: Vec<(usize, usize, String, ExprId)> = Vec::new();
+    for (ei, e) in ast.exprs.iter().enumerate() {
+        let Expr::ArrowFn { params, .. } = e else {
+            continue;
+        };
+        for (pi, p) in params.iter().enumerate() {
+            if let Some(d) = converting_default(ast, p) {
+                arrow_sites.push((ei, pi, p.name.clone(), d));
             }
-            sites.push((si, pi, p.name.clone(), d));
         }
     }
     // Phase B — mutate. Guards are built per fn in PARAM ORDER and
@@ -138,20 +181,7 @@ pub fn materialize_expr_defaults(ast: &mut Ast) {
         conv.sort_by_key(|(pi, _, _)| *pi);
         let mut guards: Vec<Stmt> = Vec::new();
         for (pi, name, d) in conv {
-            let undef = ast.add_expr(Expr::Ident("undefined".into()));
-            let name_ref = ast.add_expr(Expr::Ident(name.clone()));
-            let cond = ast.add_expr(Expr::BinOp {
-                op: BinOp::Eq,
-                left: name_ref,
-                right: undef,
-            });
-            let target = ast.add_expr(Expr::Ident(name.clone()));
-            let assign = ast.add_expr(Expr::Assign { target, value: d });
-            guards.push(Stmt::If {
-                cond,
-                then_branch: Box::new(Stmt::Expr(assign)),
-                else_branch: None,
-            });
+            guards.push(build_default_guard(ast, &name, d));
             // The param's default becomes the undefined literal —
             // arity bookkeeping and the pad table stay live, the
             // padded value is now scope-free. An unannotated param
@@ -174,6 +204,34 @@ pub fn materialize_expr_defaults(ast: &mut Ast) {
         let Stmt::FnDecl { body, .. } = &mut ast.stmts[si] else {
             unreachable!()
         };
+        body.splice(0..0, guards);
+    }
+    // Phase B' — same conversion for arrow-fn / fn-expression values
+    // still living in the expr arena (nested arrows included: the
+    // arena walk sees every ArrowFn regardless of depth).
+    let mut by_expr: std::collections::BTreeMap<usize, Vec<(usize, String, ExprId)>> =
+        std::collections::BTreeMap::new();
+    for (ei, pi, name, d) in arrow_sites {
+        by_expr.entry(ei).or_default().push((pi, name, d));
+    }
+    for (ei, mut conv) in by_expr {
+        conv.sort_by_key(|(pi, _, _)| *pi);
+        let mut guards: Vec<Stmt> = Vec::new();
+        let mut pads: Vec<(usize, ExprId)> = Vec::new();
+        for (pi, name, d) in conv {
+            guards.push(build_default_guard(ast, &name, d));
+            let pad_undef = ast.add_expr(Expr::Ident("undefined".into()));
+            pads.push((pi, pad_undef));
+        }
+        let Expr::ArrowFn { params, body, .. } = &mut ast.exprs[ei] else {
+            unreachable!()
+        };
+        for (pi, pad) in pads {
+            params[pi].default = Some(pad);
+            if params[pi].type_ann.is_none() {
+                params[pi].type_ann = Some("any".to_string());
+            }
+        }
         body.splice(0..0, guards);
     }
 }
