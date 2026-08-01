@@ -26,15 +26,29 @@
 use crate::ast::{Ast, Expr, ExprId};
 
 /// True iff `init` is a shape the toplevel whitelist promotes as an
-/// `Any` slot — currently a call result only. Method-carrying
-/// ObjectLits (`let iter = { next() {…} }`) are NOT admitted: the
-/// Any slot's init lane lowers them through the dynobj lane, whose
-/// method `this`-home doesn't yet round-trip (probe tb2: `next()`
-/// answered box bits as a number and the main-side `count` read a
-/// stale 0 — a silent wrong, worse than the loud unknown-identifier
-/// this arm would trade it for). That half stays on the L3b ledger
-/// until the objlit-anylane method substrate carries it.
+/// `Any` slot — a call result, or an EMPTY object literal.
+/// Method-carrying ObjectLits (`let iter = { next() {…} }`) are NOT
+/// admitted: the Any slot's init lane lowers them through the dynobj
+/// lane, whose method `this`-home doesn't yet round-trip (probe tb2:
+/// `next()` answered box bits as a number and the main-side `count`
+/// read a stale 0 — a silent wrong, worse than the loud
+/// unknown-identifier this arm would trade it for). That half stays
+/// on the L3b ledger until the objlit-anylane method substrate
+/// carries it.
+///
+/// The empty literal (`var obj = {};` — the dominant test262 shared-
+/// fixture idiom) has no fields at all, so the tb2 hazard cannot
+/// arise: the init lane mints an empty dynobj (the rotation-204
+/// `Any × ObjectLit` arm), reads ride the any-member lanes, and
+/// expando writes land on the dynobj cell like any degraded binding.
+/// Without this arm the binding fell into a gap — not degraded (no
+/// define/expando trigger), not `__inlobj` (empty is excluded), not
+/// shaped — and every named-fn read died loud with
+/// "unknown identifier".
 pub(crate) fn any_promote_init(ast: &Ast, init: ExprId) -> bool {
+    if let Expr::ObjectLit { fields } = ast.get_expr(init) {
+        return fields.is_empty();
+    }
     let Expr::Call { callee, .. } = ast.get_expr(init) else {
         return false;
     };
