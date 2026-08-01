@@ -243,6 +243,22 @@ fn scan_stmt(
     }
 }
 
+/// `Member { obj: <Arr-or-Any receiver>, name: "length" }` in a
+/// WRITE position — the shape whose store rides the throwing
+/// §10.4.2.5 resize helper (see the Assign / PostIncr arms).
+fn is_arr_length_member(
+    ast: &Ast,
+    eid: ExprId,
+    expr_types: &HashMap<ExprId, crate::check::Type>,
+) -> bool {
+    matches!(ast.get_expr(eid), Expr::Member { obj, name }
+    if name == "length"
+        && matches!(
+            expr_types.get(obj),
+            Some(crate::check::Type::Array(_)) | Some(crate::check::Type::Any)
+        ))
+}
+
 pub(crate) fn scan_expr(
     ast: &Ast,
     eid: ExprId,
@@ -296,6 +312,19 @@ pub(crate) fn scan_expr(
             scan_expr(ast, *obj, out, direct, fn_values, expr_types)
         }
         Expr::Assign { target, value } => {
+            // Rotation 270 — `xs.length = v` routes through the
+            // §10.4.2.5 resize helper, which throws (RangeError on
+            // an invalid length value, TypeError on a locked one).
+            // Before this rule a named fn whose ONLY throw source
+            // was a length assign stayed out of may_throw, the
+            // caller pruned its check, and the pending throw was
+            // silently dropped — the callee answered the ret
+            // sentinel 0 under a try/catch that printed "no throw";
+            // the arguments LiveLength face turned that swallow into
+            // a SIGSEGV (test262 S10.6_A5_T4).
+            if is_arr_length_member(ast, *target, expr_types) {
+                *direct = true;
+            }
             scan_expr(ast, *target, out, direct, fn_values, expr_types);
             scan_expr(ast, *value, out, direct, fn_values, expr_types);
         }
@@ -382,6 +411,11 @@ pub(crate) fn scan_expr(
             }
         }
         Expr::PostIncr { target, .. } => {
+            // `xs.length--` — same §10.4.2.5 resize-helper throw
+            // face as the Assign arm above.
+            if is_arr_length_member(ast, *target, expr_types) {
+                *direct = true;
+            }
             scan_expr(ast, *target, out, direct, fn_values, expr_types)
         }
         Expr::This | Expr::NewTarget => {}

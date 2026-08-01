@@ -75,3 +75,19 @@ realTierWrite(1, 2);
   arguments.length--;
   console.log(arguments.length, t);
 })(1, 9);
+
+// 9. a throwing length write inside a fn propagates to the caller
+//    (the resize helper's RangeError joins the may-throw analysis;
+//    before, the pending throw was silently dropped at the pruned
+//    caller check and the callee answered the ret sentinel).
+var badLen = "text";
+function throwyLen(): number {
+  var xs: any[] = [];
+  xs.length = badLen;
+  return 1;
+}
+try {
+  console.log(throwyLen());
+} catch (e) {
+  console.log("caught", e instanceof RangeError);
+}
