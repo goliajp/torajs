@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-01T14:18:04.454Z",
+  "generatedAt": "2026-08-01T15:19:51.116Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-01T14:16:10Z",
-    "headSha": "a4be9596",
-    "elapsedSec": 432.89,
+    "ranAt": "2026-08-01T15:18:03Z",
+    "headSha": "49aa4ebb",
+    "elapsedSec": 581.35,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 19608,
-    "passNoOracle": 553,
+    "pass": 19671,
+    "passNoOracle": 554,
     "passNegative": 3826,
-    "passTotal": 23987,
-    "bug": 11756,
-    "incompatible": 17431,
+    "passTotal": 24051,
+    "bug": 11717,
+    "incompatible": 17406,
     "bunSkip": 7467,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 35743,
-    "passRateInScope": 45.11,
-    "passRateTrAccepted": 67.11
+    "trAccepted": 35768,
+    "passRateInScope": 45.23,
+    "passRateTrAccepted": 67.24
   },
   "torajs": {
-    "commit": "a4be9596",
-    "commitSubject": "feat(core): static methods join the argv face; devirt feeds the receiver slot",
+    "commit": "49aa4ebb",
+    "commitSubject": "feat(core): mixed data-literal array globals fall back to the any-elem lane",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "49aa4ebb",
+      "subject": "feat(core): mixed data-literal array globals fall back to the any-elem lane"
+    },
+    {
+      "hash": "20ba8fd0",
+      "subject": "feat(core): empty array-literal globals promote to the any-elem lane"
+    },
+    {
+      "hash": "6b0caedb",
+      "subject": "feat(core): undefined-valued fields join the data-literal global promote"
+    },
+    {
+      "hash": "0cdc7ac8",
+      "subject": "feat(core): data-only literal object globals promote to the any lane"
+    },
+    {
+      "hash": "1200371f",
+      "subject": "feat(core): empty object-literal globals promote to the any lane"
+    },
+    {
+      "hash": "f1a55bc1",
+      "subject": "chore(docs,hardev): rotation 273 final census at a4be9596"
+    },
+    {
       "hash": "a4be9596",
       "subject": "feat(core): static methods join the argv face; devirt feeds the receiver slot"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "f06d5f95",
       "subject": "chore(docs,hardev): rotation 272 final census at d9831e8f"
-    },
-    {
-      "hash": "d9831e8f",
-      "subject": "fix(core): value-return fns that can fall through answer undefined"
-    },
-    {
-      "hash": "e90a5982",
-      "subject": "chore(docs,hardev): rotation 272 final census at a08ff268"
-    },
-    {
-      "hash": "a08ff268",
-      "subject": "feat(core): object-literal methods join the static-argv face"
-    },
-    {
-      "hash": "55f0464a",
-      "subject": "fix(core): mutating FoldArity bodies take the unmapped array ride"
-    },
-    {
-      "hash": "76dfbd7c",
-      "subject": "fix(core): re-admit FoldTo as the mutation-free unmapped snapshot"
-    },
-    {
-      "hash": "80c864f6",
-      "subject": "fix(core): the whole static-argv face goes unmapped — module code is strict"
     }
   ],
-  "headSha": "a4be9596",
+  "headSha": "49aa4ebb",
   "autorun": {
-    "total": 577,
+    "total": 578,
     "baselineTarget": 10,
-    "bySelf": 572,
+    "bySelf": 573,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785587899-3359",
-      "at": "2026-08-01T12:38:19Z",
-      "ts": 1785587899,
+      "rotationId": "r-1785593969-67e5",
+      "at": "2026-08-01T14:19:29Z",
+      "ts": 1785593969,
       "trigger": "self",
-      "prevHead": "f06d5f95",
-      "handoffSha": "sha256:00a95d130f8c2520094548b8afcba86ac430b096046e5e0b33254455129a9b90",
-      "handoffAgeSec": 8,
+      "prevHead": "f1a55bc1",
+      "handoffSha": "sha256:e7616764242a4cd24cdc0d96451eb959881932352e0f134b849cd64ef8d768bf",
+      "handoffAgeSec": 39,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1785593969-67e5",
+        "at": "2026-08-01T14:19:29Z",
+        "ts": 1785593969,
+        "trigger": "self",
+        "prevHead": "f1a55bc1",
+        "handoffSha": "sha256:e7616764242a4cd24cdc0d96451eb959881932352e0f134b849cd64ef8d768bf",
+        "handoffAgeSec": 39,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785587899-3359",
         "at": "2026-08-01T12:38:19Z",
@@ -876,17 +887,6 @@
         "prevHead": "31e2a4f8",
         "handoffSha": "sha256:39e597d689d9f7b0a1f06996398ad152e06c9d104fe940304c44a1aaf9076c02",
         "handoffAgeSec": 36,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1785496697-0033",
-        "at": "2026-07-31T11:18:17Z",
-        "ts": 1785496697,
-        "trigger": "self",
-        "prevHead": "1d485e57",
-        "handoffSha": "sha256:d681b16624aa34c84019e98a1ad6682bfa13c61f7c0a4f76994ff886a7e77793",
-        "handoffAgeSec": 70,
         "conformanceBefore": null,
         "commitsInSession": null
       }

@@ -1530,7 +1530,26 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 9215301c`, never as a constant.
 
-**Latest @ `a4be9596`** (2026-08-01, rotation 273 — five knives:
+**Latest @ `49aa4ebb`** (2026-08-02, rotation 274 — the top-level
+global promotion gap family, five knives on the shared
+`any_promote_init` / `arrlit_literal_elem_ann` verdicts: empty
+object literals (`var obj = {};`, the dominant test262 shared-
+fixture idiom), data-only literals with null / nested / array
+fields, undefined-valued fields, empty array literals (`var xs =
+[]` → `any[]` over the K.6 fast path), and mixed data-literal
+arrays falling back to `any[]`; method-carrying literals and
+runtime-expression members stay fenced behind the tb2 guard):
+passTotal **24051** (+64), bug **11717** (−39), trAccepted
+**35768** (+25 — conservation exact: +25 = +64 − 39), incompatible
+**17406** (−25), core **11525** (−25). Gate predicate: **385**
+clusters of ≥ 4 holding 10448 (−2 clusters, −25 cases — both axes
+down together), residue 816 / 1077. Forward 64, zero regressions;
+15 bug→incompatible moves are timeouts/exit-3s turned into loud
+refusals, and 6 incompatible→bug:exit-1 are newly-exposed
+defineProperty/defineProperties 15.2.3.x cases whose `var obj = {}`
+prelude now runs into the real semantic face. New crashes: 0.
+
+**Previous @ `a4be9596`** (2026-08-01, rotation 273 — five knives:
 the §15.1.1 "use strict" × non-simple-params early error at all 8
 params+body parse sites; method VALUES delivering real argv through
 the boxed adapter into injected `__torajs_real_argc`/`__torajs_argv`
