@@ -20,6 +20,15 @@ fn spread_take(params: &[String], argc_mode: ArgcMode) -> usize {
     }
 }
 
+/// Length-write knife — a LiveLength body's `...arguments` spread
+/// must read the LIVE materialized array (a length write may have
+/// grown or truncated it); inline-expanding the static prefix would
+/// answer the stale pre-write shape. The argv face already spreads
+/// the array for its own reason (beyond-declared values).
+fn spread_rides_array(argc_mode: ArgcMode, is_argv_fn: bool) -> bool {
+    is_argv_fn || matches!(argc_mode, ArgcMode::LiveLength(_))
+}
+
 /// `f(...arguments)` — argv-face bodies swap the spread source to the
 /// materialized `__torajs_arguments` array (apply_spread_args expands
 /// it downstream against fixed-arity callees; rest-callees take it
@@ -42,7 +51,7 @@ pub(super) fn rewrite_call_arm(
             && let Expr::Ident(n) = ast.get_expr(*expr)
             && n == "arguments"
         {
-            if is_argv_fn {
+            if spread_rides_array(argc_mode, is_argv_fn) {
                 let src = ast.add_expr(Expr::Ident("__torajs_arguments".into()));
                 new_args.push(ast.add_expr(Expr::Spread { expr: src }));
             } else {
@@ -93,7 +102,7 @@ pub(super) fn rewrite_array_arm(
             && let Expr::Ident(n) = ast.get_expr(*expr)
             && n == "arguments"
         {
-            if is_argv_fn {
+            if spread_rides_array(argc_mode, is_argv_fn) {
                 let src = ast.add_expr(Expr::Ident("__torajs_arguments".into()));
                 new_elems.push(ast.add_expr(Expr::Spread { expr: src }));
             } else {

@@ -218,6 +218,17 @@ pub(super) fn rewrite_arguments_in_expr(
                     ArgcMode::FoldTo(n) => {
                         return ast.add_expr(Expr::Number(n as f64));
                     }
+                    // Length-write knife — reads AND writes ride the
+                    // materialized array's live `.length` (this arm
+                    // serves both positions: an Assign target and a
+                    // PostIncr target flow through it unchanged).
+                    ArgcMode::LiveLength(_) => {
+                        let synth_obj = ast.add_expr(Expr::Ident("__torajs_arguments".into()));
+                        return ast.add_expr(Expr::Member {
+                            obj: synth_obj,
+                            name,
+                        });
+                    }
                     // Keep the `arguments.length` node untouched so the
                     // checker rejects it loudly — a closure VALUE's real
                     // argc needs the ABI face (recorded); folding the
@@ -282,6 +293,45 @@ pub(super) fn rewrite_arguments_in_expr(
                 index: new_index,
             })
         }
+        Expr::Call { callee, args } => {
+            rewrite_call_arm(ast, eid, callee, args, params, argc_mode, is_argv_fn)
+        }
+        Expr::Array(elems) => rewrite_array_arm(ast, eid, elems, params, argc_mode, is_argv_fn),
+        // RFC 20260801-arguments-escape-face — bare `arguments`
+        // escape (return / assign value / call arg / for-of source
+        // hoist init): under a materializing mode it becomes the
+        // synthesized `__torajs_arguments: any[]` local, which the
+        // consumer then treats as an ordinary array-like. Every other
+        // mode leaves the node for the checker's loud reject.
+        Expr::Ident(n) if n == "arguments" => {
+            if is_argv_fn || matches!(argc_mode, ArgcMode::FoldTo(_) | ArgcMode::LiveLength(_)) {
+                return ast.add_expr(Expr::Ident("__torajs_arguments".into()));
+            }
+            eid
+        }
+        other => rewrite_recurse_arm(ast, eid, other, params, argc_mode, is_argv_fn),
+    }
+}
+
+/// RFC 20260801 knife 2 — the mechanical copy-on-write recursion
+/// arms (walker-mirror family): every shape here mirrors one the
+/// walkers' detection scan reaches, so a body the pass decided to
+/// materialize gets its touches swapped at any depth — a stale
+/// `arguments` ident would silently ride a fallback lane (`typeof
+/// arguments` folded to "undefined" through the undeclared-ident
+/// typeof fold). Split from [`rewrite_arguments_in_expr`] (length-
+/// write knife pushed the match past the 200-line fn limit); the
+/// `arguments`-special arms (Member-length / Index / Call / Array /
+/// bare Ident) stay in the main fn, everything below only recurses.
+fn rewrite_recurse_arm(
+    ast: &mut Ast,
+    eid: ExprId,
+    e: Expr,
+    params: &[String],
+    argc_mode: ArgcMode,
+    is_argv_fn: bool,
+) -> ExprId {
+    match e {
         Expr::BinOp { op, left, right } => {
             let l = rewrite_arguments_in_expr(ast, left, params, argc_mode, is_argv_fn);
             let r = rewrite_arguments_in_expr(ast, right, params, argc_mode, is_argv_fn);
@@ -301,18 +351,24 @@ pub(super) fn rewrite_arguments_in_expr(
             }
             ast.add_expr(Expr::Unary { op, expr: e2 })
         }
-        // RFC 20260801 knife 2 — every arm below mirrors a shape the
-        // walkers' detection scan reaches: a body the pass decided to
-        // materialize must have its touches swapped here too, or the
-        // stale `arguments` ident silently rides a fallback lane
-        // (`typeof arguments` folded to "undefined" through the
-        // undeclared-ident typeof fold).
         Expr::TypeOf { expr } => {
             let e2 = rewrite_arguments_in_expr(ast, expr, params, argc_mode, is_argv_fn);
             if e2 == expr {
                 return eid;
             }
             ast.add_expr(Expr::TypeOf { expr: e2 })
+        }
+        // Length-write knife — `arguments.length--` (walker-mirror:
+        // the scans reach PostIncr targets; without this arm the
+        // stale Member leaked to the lowering as "post-incr field on
+        // non-obj Ptr"). Real mode lands on `__torajs_real_argc--`,
+        // LiveLength on `__torajs_arguments.length--`.
+        Expr::PostIncr { target, is_inc } => {
+            let t = rewrite_arguments_in_expr(ast, target, params, argc_mode, is_argv_fn);
+            if t == target {
+                return eid;
+            }
+            ast.add_expr(Expr::PostIncr { target: t, is_inc })
         }
         Expr::Spread { expr } => {
             let e2 = rewrite_arguments_in_expr(ast, expr, params, argc_mode, is_argv_fn);
@@ -375,9 +431,6 @@ pub(super) fn rewrite_arguments_in_expr(
                 args: new_args,
             })
         }
-        Expr::Call { callee, args } => {
-            rewrite_call_arm(ast, eid, callee, args, params, argc_mode, is_argv_fn)
-        }
         Expr::Member { obj, name } => {
             let o = rewrite_arguments_in_expr(ast, obj, params, argc_mode, is_argv_fn);
             if o == obj {
@@ -396,7 +449,6 @@ pub(super) fn rewrite_arguments_in_expr(
                 value: v,
             })
         }
-        Expr::Array(elems) => rewrite_array_arm(ast, eid, elems, params, argc_mode, is_argv_fn),
         Expr::ObjectLit { fields } => {
             let new_fields: Vec<(String, ExprId)> = fields
                 .iter()
@@ -411,18 +463,6 @@ pub(super) fn rewrite_arguments_in_expr(
                 return eid;
             }
             ast.add_expr(Expr::ObjectLit { fields: new_fields })
-        }
-        // RFC 20260801-arguments-escape-face — bare `arguments`
-        // escape (return / assign value / call arg / for-of source
-        // hoist init): under a materializing mode it becomes the
-        // synthesized `__torajs_arguments: any[]` local, which the
-        // consumer then treats as an ordinary array-like. Every other
-        // mode leaves the node for the checker's loud reject.
-        Expr::Ident(n) if n == "arguments" => {
-            if is_argv_fn || matches!(argc_mode, ArgcMode::FoldTo(_)) {
-                return ast.add_expr(Expr::Ident("__torajs_arguments".into()));
-            }
-            eid
         }
         // Leaf / opaque shapes — no children to recurse through here.
         // Intentionally returns the original `eid` so we don't bloat

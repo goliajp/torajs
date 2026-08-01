@@ -26,6 +26,28 @@ enum ScanFor {
     /// scan: bare escapes ride the argv face now (the rewriter
     /// swaps them to the materialized `__torajs_arguments`).
     NonLengthTouch,
+    /// `arguments.length` in a WRITE position — Assign target or
+    /// PostIncr/PostDecr target (pre-incr desugars to Assign in the
+    /// parser, so the two arms cover every mutation form). A hit
+    /// moves a static-argv-face body from FoldTo to LiveLength:
+    /// folding the write target mints a literal ("invalid
+    /// assignment target") and every later read would answer the
+    /// stale constant.
+    LengthWrite,
+}
+
+/// `Member { obj: Ident("arguments"), name: "length" }` — the node
+/// shape both write-position scans key on.
+fn is_arguments_length(ast: &Ast, eid: ExprId) -> bool {
+    matches!(ast.get_expr(eid), Expr::Member { obj, name }
+        if name == "length"
+            && matches!(ast.get_expr(*obj), Expr::Ident(n) if n == "arguments"))
+}
+
+/// True if the body WRITES `arguments.length` anywhere (assignment
+/// or post-incr/decr). See [`ScanFor::LengthWrite`].
+pub(super) fn body_has_arguments_length_write(ast: &Ast, body: &[Stmt]) -> bool {
+    body.iter().any(|s| stmt_scan(ast, s, ScanFor::LengthWrite))
 }
 
 /// True if the body touches `arguments` in any form other than
@@ -369,10 +391,17 @@ fn expr_scan(ast: &Ast, eid: ExprId, what: ScanFor) -> bool {
         Expr::BinOp { left, right, .. } => {
             expr_scan(ast, *left, what) || expr_scan(ast, *right, what)
         }
-        Expr::Unary { expr, .. } | Expr::TypeOf { expr } | Expr::PostIncr { target: expr, .. } => {
-            expr_scan(ast, *expr, what)
+        Expr::Unary { expr, .. } | Expr::TypeOf { expr } => expr_scan(ast, *expr, what),
+        Expr::PostIncr { target, .. } => {
+            if what == ScanFor::LengthWrite && is_arguments_length(ast, *target) {
+                return true;
+            }
+            expr_scan(ast, *target, what)
         }
         Expr::Assign { target, value } => {
+            if what == ScanFor::LengthWrite && is_arguments_length(ast, *target) {
+                return true;
+            }
             expr_scan(ast, *target, what) || expr_scan(ast, *value, what)
         }
         Expr::Call { callee, args } => {

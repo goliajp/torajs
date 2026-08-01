@@ -13,7 +13,9 @@
 //!   the read / Assign paths and keeps post-incr working for
 //!   `Counter.value++`.
 //! - **Member** (`obj.field++`) — `load obj+offset → compute new
-//!   → store new at same offset` via struct layout walk.
+//!   → store new at same offset` via struct layout walk. The
+//!   `xs.length++/--` array form routes the store through the
+//!   §10.4.2.5 resize helper instead (see [`lower_arr_length`]).
 //! - **Index** (`arr[i]++`) — `load arr+offset → compute new →
 //!   store new at same addr` via T-13.5 head-aware
 //!   `emit_arr_slot_byte_offset` (11-A1 non-deque peek fast
@@ -154,6 +156,15 @@ fn lower_any_slot(ctx: &mut LowerCtx<'_>, slot: Operand, is_inc: bool) -> Operan
 fn lower_member(ctx: &mut LowerCtx<'_>, obj: ExprId, field: String, is_inc: bool) -> Operand {
     let obj_val = ctx.lower_expr(obj);
     let obj_ty = ctx.operand_ty(&obj_val);
+    // Length-write knife (rotation 270) — `xs.length--` / `++` on an
+    // array: load the len, step, route the store through the
+    // §10.4.2.5 resize helper (mirrors `lower_arr_length_assign`;
+    // truncation releases slots, grow fills holes), yield the old
+    // value. Surfaced by LiveLength arguments bodies decrementing
+    // `arguments.length`, but serves plain arrays the same.
+    if matches!(obj_ty, Type::Arr(_)) && field == "length" {
+        return lower_arr_length(ctx, obj, obj_val, obj_ty, is_inc);
+    }
     let sid = match obj_ty {
         Type::Obj(sid) => sid,
         other => panic!("ssa-lower: post-incr field on non-obj {other:?}"),
@@ -190,6 +201,57 @@ fn lower_member(ctx: &mut LowerCtx<'_>, obj: ExprId, field: String, is_inc: bool
         cur_block,
         InstKind::Store(Operand::Value(new_v), obj_val, offset),
     );
+    Operand::Value(old)
+}
+
+/// The Arr-length lane of [`lower_member`] — old len loads inline
+/// (read-path twin at `ssa_lower_member_typed_props`), the stepped
+/// value stores through the same helper split as
+/// `lower_arr_length_assign` (scalar elem kinds take the truncate
+/// helper, refcounted kinds the full resize; tag 2 = raw i64 pair,
+/// `define_length` precedent). The helper can throw (readonly
+/// length / invalid value), hence the throw check.
+fn lower_arr_length(
+    ctx: &mut LowerCtx<'_>,
+    obj: ExprId,
+    obj_val: Operand,
+    obj_ty: Type,
+    is_inc: bool,
+) -> Operand {
+    crate::ssa_lower_nullable_guard::emit_nullable_arr_guard(ctx, obj, &obj_val);
+    let cur_block = ctx.cur_block;
+    let old = ctx.f.append_inst(
+        cur_block,
+        InstKind::Load(Type::I64, obj_val.clone(), crate::ssa_lower::ARR_LEN_OFF),
+        Type::I64,
+        None,
+    );
+    let (one, op) = incr_op_one(Type::I64, is_inc);
+    let cur_block = ctx.cur_block;
+    let new_v = ctx.f.append_inst(
+        cur_block,
+        InstKind::BinOp(op, Operand::Value(old), one),
+        Type::I64,
+        None,
+    );
+    let elem_ty = match obj_ty {
+        Type::Arr(arr_id) => ctx.arr_layouts[arr_id.0 as usize],
+        _ => unreachable!("gated on Type::Arr above"),
+    };
+    let helper = if matches!(elem_ty, Type::I64 | Type::F64 | Type::Bool) {
+        ctx.intrinsics.arr_set_length_truncate_scalar
+    } else {
+        ctx.intrinsics.arr_set_length_any
+    };
+    let cur_block = ctx.cur_block;
+    ctx.f.append_void(
+        cur_block,
+        InstKind::Call(
+            helper,
+            vec![obj_val, Operand::ConstI64(2), Operand::Value(new_v)],
+        ),
+    );
+    ctx.emit_throw_check(None);
     Operand::Value(old)
 }
 

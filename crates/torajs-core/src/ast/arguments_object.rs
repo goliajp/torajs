@@ -18,8 +18,9 @@ use super::arguments_object_static_argv::{
     collect_iife_static_argv, collect_named_static_argv, inject_iife_static_params,
 };
 use super::arguments_object_walkers::{
-    body_has_arguments_length, body_has_non_length_arguments_touch, stmt_uses_dynamic_arguments,
-    synth_arguments_local, synth_arguments_local_argv,
+    body_has_arguments_length, body_has_arguments_length_write,
+    body_has_non_length_arguments_touch, stmt_uses_dynamic_arguments, synth_arguments_local,
+    synth_arguments_local_argv,
 };
 use super::{Ast, Expr, Param, Stmt};
 
@@ -40,6 +41,19 @@ pub(super) enum ArgcMode {
     /// params. Bare `arguments` escapes rewrite to the materialized
     /// `__torajs_arguments` local under this mode.
     FoldTo(usize),
+    /// Length-write knife (rotation 270) — a static-argv-face body
+    /// that WRITES `arguments.length`: the FoldTo fold would (a)
+    /// mint a literal in the write target ("invalid assignment
+    /// target") and (b) keep answering the stale constant on every
+    /// later read. Length reads AND writes ride the materialized
+    /// `__torajs_arguments.length` instead — the array resize is
+    /// the §10.4.2.4 approximation on this face (expansion fills
+    /// holes, truncation drops slots), which is what the
+    /// arguments-iterator tests observe. The payload still carries
+    /// the static argc for the materialize take-count, and
+    /// `...arguments` spreads swap to the live array rather than
+    /// inline-expanding a stale prefix.
+    LiveLength(usize),
     /// Leave the node alone so the checker rejects it loudly — a
     /// closure VALUE's real argc needs the ABI face (recorded);
     /// folding the declared arity would be silent-wrong.
@@ -49,8 +63,9 @@ pub(super) enum ArgcMode {
 pub fn desugar_arguments_object(ast: &mut Ast) {
     // Stage helpers extracted chunk 767 (the pass had drifted past
     // the 200-line fn limit as argc/argv tiers stacked up).
+    let shadowed = collect_arguments_shadowed_fns(ast);
     let (mut fn_params, uses_real_argc, env_fns) = snapshot_fn_params(ast);
-    let (iife_real_argc, iife_call_sites) = collect_iife_real_argc(ast);
+    let (iife_real_argc, iife_call_sites) = collect_iife_real_argc(ast, &shadowed);
 
     // RFC 20260801-arguments-escape-face knives 1+3a — static-argv
     // face: any non-length arguments touch (index / spread / bare
@@ -62,24 +77,29 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
     // the body, and extends the rewrite param table to match.
     let mut static_argv = collect_iife_static_argv(ast, &iife_real_argc);
     static_argv.extend(collect_named_static_argv(ast, &env_fns));
+    // Shadowed fns (a binding named `arguments` in the body — see
+    // collect_arguments_shadowed_fns) never join any face.
+    static_argv.retain(|n, _| !shadowed.contains(n));
     let iife_static_argv = static_argv;
     inject_iife_static_params(ast, &iife_static_argv, &mut fn_params);
     // A named fn admitted to the static face must leave the T-31
     // real-argc tier (param injection + call-site argc prepend would
-    // double-reshape its signature).
+    // double-reshape its signature); a shadowed fn leaves every tier.
     let uses_real_argc: std::collections::HashSet<String> = uses_real_argc
         .into_iter()
-        .filter(|n| !iife_static_argv.contains_key(n))
+        .filter(|n| !iife_static_argv.contains_key(n) && !shadowed.contains(n))
         .collect();
 
     // RFC 20260708-closure-argc-abi chunk 1 — closure VALUE form
     // seed + binding safety walk (see collect_value_argc).
-    let (value_real_argc, argc_locals) = collect_value_argc(ast, &env_fns, &iife_real_argc);
+    let (value_real_argc, argc_locals) =
+        collect_value_argc(ast, &env_fns, &iife_real_argc, &shadowed);
     ast.closure_argc_locals = argc_locals;
 
     // RFC 20260708-closure-argv-face — full-arguments tier seed +
     // the same binding safety walk (see collect_value_argv).
-    let (value_argv_fns, argv_locals) = collect_value_argv(ast, &env_fns, &iife_real_argc);
+    let (value_argv_fns, argv_locals) =
+        collect_value_argv(ast, &env_fns, &iife_real_argc, &shadowed);
     ast.closure_argv_fns = value_argv_fns.clone();
     ast.closure_argv_locals = argv_locals;
 
@@ -94,6 +114,12 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
     let stmts_clone: Vec<Stmt> = ast.stmts.clone();
     for (idx, stmt) in stmts_clone.iter().enumerate() {
         if let Stmt::FnDecl { name, body, .. } = stmt {
+            // A shadowed fn's `arguments` idents refer to its OWN
+            // `var arguments` local — leave the body untouched (the
+            // hoisted decl resolves them as an ordinary binding).
+            if shadowed.contains(name) {
+                continue;
+            }
             let Some(params) = fn_params.get(name) else {
                 continue;
             };
@@ -108,7 +134,14 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
             // undefined for beyond-declared values reached through
             // any-call / container dispatch (probe ac6/ac7).
             let argc_mode = if let Some(&n) = iife_static_argv.get(name) {
-                ArgcMode::FoldTo(n)
+                // Length-write bodies leave the fold — reads and
+                // writes both ride the materialized array's live
+                // `.length` (see ArgcMode::LiveLength).
+                if body_has_arguments_length_write(ast, body) {
+                    ArgcMode::LiveLength(n)
+                } else {
+                    ArgcMode::FoldTo(n)
+                }
             } else if uses_real_argc.contains(name)
                 || iife_real_argc.contains(name)
                 || value_real_argc.contains(name)
@@ -133,7 +166,7 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
             // adapter's argv — beyond-declared values included);
             // named-fn bodies keep the declared-params builder,
             // gated on a dynamic use.
-            let mut needs_materialize = is_argv_fn;
+            let mut needs_materialize = is_argv_fn || matches!(argc_mode, ArgcMode::LiveLength(_));
             if !needs_materialize {
                 for s in body {
                     if stmt_uses_dynamic_arguments(ast, s) {
@@ -160,7 +193,7 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
                 // covered by the injected extras already in `params`;
                 // an under-filled site takes the leading argc params.
                 let take = match argc_mode {
-                    ArgcMode::FoldTo(n) => n.min(params.len()),
+                    ArgcMode::FoldTo(n) | ArgcMode::LiveLength(n) => n.min(params.len()),
                     _ => params.len(),
                 };
                 Some(synth_arguments_local(ast, &params[..take]))
@@ -181,6 +214,33 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
     }
 
     prepend_static_argc(ast, &uses_real_argc, iife_call_sites);
+}
+
+/// Sloppy-mode shadow guard (rotation 270, test262 10.6-6-3/4) — a
+/// fn whose param list or body declares a binding named `arguments`
+/// (`var arguments = ...`): every `arguments` ident inside refers to
+/// that local, so the fn must leave EVERY argc/argv tier and stay
+/// unrewritten (the pre-face behavior). Without this, the named
+/// static-argv face admitted such fns and the bare-escape swap
+/// turned `arguments = undefined` into an assignment to the const
+/// synth local. `collect_local_binding_names` recurses into nested
+/// FnDecls, so a nested declaration over-excludes the outer fn —
+/// conservative (loses an admit, never wrong).
+fn collect_arguments_shadowed_fns(ast: &Ast) -> std::collections::HashSet<String> {
+    let mut out = std::collections::HashSet::new();
+    for s in &ast.stmts {
+        if let Stmt::FnDecl {
+            name, params, body, ..
+        } = s
+        {
+            let mut names = std::collections::HashSet::new();
+            crate::ast_collect_bindings::collect_local_binding_names(body, &mut names);
+            if params.iter().any(|p| p.name == "arguments") || names.contains("arguments") {
+                out.insert(name.clone());
+            }
+        }
+    }
+    out
 }
 
 /// Snapshot per-fn user-param names, indexed by FnDecl name (the
@@ -246,7 +306,10 @@ fn snapshot_fn_params(
 /// statically that call's arg count. Same T-31 shape: inject
 /// `__torajs_real_argc: number` as the first USER param (after
 /// `__env`) and prepend the static count at the call site.
-fn collect_iife_real_argc(ast: &Ast) -> (std::collections::HashSet<String>, Vec<usize>) {
+fn collect_iife_real_argc(
+    ast: &Ast,
+    shadowed: &std::collections::HashSet<String>,
+) -> (std::collections::HashSet<String>, Vec<usize>) {
     let mut iife_real_argc = std::collections::HashSet::new();
     let mut iife_call_sites: Vec<usize> = Vec::new();
     for i in 0..ast.exprs.len() {
@@ -256,6 +319,9 @@ fn collect_iife_real_argc(ast: &Ast) -> (std::collections::HashSet<String>, Vec<
         let Expr::Closure { fn_name, .. } = ast.get_expr(*callee) else {
             continue;
         };
+        if shadowed.contains(fn_name) {
+            continue;
+        }
         let fn_name = fn_name.clone();
         // RFC 20260801 knife 1 narrowed this tier to length-ONLY
         // bodies: any non-length touch (index / spread / escape)
