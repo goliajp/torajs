@@ -78,7 +78,7 @@ pub(crate) fn any_promote_init(ast: &Ast, init: ExprId) -> bool {
 /// (`__getter_` / `__setter_` accessors, `__computed_<n>__` keys,
 /// `__spread__`, `__proto__` side-channel), mirroring the
 /// `objlit_literal_inlobj_ann` name gate.
-fn data_literal_value(ast: &Ast, e: ExprId) -> bool {
+pub(crate) fn data_literal_value(ast: &Ast, e: ExprId) -> bool {
     match ast.get_expr(e) {
         Expr::Number(_) | Expr::String(_) | Expr::Bool(_) | Expr::BigInt { .. } | Expr::Null => {
             true

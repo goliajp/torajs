@@ -27,12 +27,30 @@ use crate::ast::{Ast, Expr, ExprId};
 /// to `None` — `[[]]` as `any[][]` would claim elem certainty the
 /// outer spelling doesn't have.
 pub(crate) fn arrlit_literal_elem_ann(ast: &Ast, init: ExprId) -> Option<String> {
-    if let Expr::Array(elems) = ast.get_expr(init)
-        && elems.is_empty()
+    let Expr::Array(elems) = ast.get_expr(init) else {
+        return None;
+    };
+    if elems.is_empty() {
+        return Some("any[]".to_string());
+    }
+    if let Some(ann) = arrlit_elem_ann_nonempty(ast, init) {
+        return Some(ann);
+    }
+    // Typed synthesis failed (mixed shapes / null / undefined /
+    // object-literal elems — `var a = [1, "two", null]`, the test262
+    // mixed-fixture idiom). Elements that are still pure DATA
+    // literals promote under the wide `any[]` slot: the init lane
+    // boxes each elem (`lower_array_any_literal`), reads are
+    // kind-aware. A runtime-expression element keeps the binding
+    // main-local — it could evaluate to a closure and re-open the
+    // tb2 method hole through an any-index call.
+    if elems
+        .iter()
+        .all(|e| crate::ast_refs_any_promote::data_literal_value(ast, *e))
     {
         return Some("any[]".to_string());
     }
-    arrlit_elem_ann_nonempty(ast, init)
+    None
 }
 
 /// The recursive body — nested levels come back here directly, so a
