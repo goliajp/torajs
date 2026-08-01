@@ -1530,7 +1530,20 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 9215301c`, never as a constant.
 
-**Latest @ `49aa4ebb`** (2026-08-02, rotation 274 — the top-level
+**Latest @ `3db6224b`** (2026-08-02, rotation 274 knife 6 on top of
+the `49aa4ebb` sweep below — ES2025 `Promise.try` desugared to an
+immediately-invoked try/catch arrow over the resolve/reject statics;
+re-sweep moved exactly the 4 core-semantics Promise/try cases
+incompatible→pass, nothing else): passTotal **24055** (+4), bug
+**11717** (flat), trAccepted **35772** (+4 — conservation exact),
+incompatible **17402** (−4), core **11521** (−4). Gate predicate:
+**385** clusters of ≥ 4 holding 10444 (flat clusters, −4 cases),
+residue 816 / 1077. Zero regressions. The 8 remaining Promise/try
+cases are the reflection face (length / name / prop-desc / ctx-*) —
+they need `Promise.try` as a readable function object, the
+builtin-method-value family.
+
+**Previous @ `49aa4ebb`** (2026-08-02, rotation 274 — the top-level
 global promotion gap family, five knives on the shared
 `any_promote_init` / `arrlit_literal_elem_ann` verdicts: empty
 object literals (`var obj = {};`, the dominant test262 shared-

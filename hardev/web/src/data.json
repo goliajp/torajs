@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-01T15:19:51.116Z",
+  "generatedAt": "2026-08-01T15:43:43.928Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-01T15:18:03Z",
-    "headSha": "49aa4ebb",
-    "elapsedSec": 581.35,
+    "ranAt": "2026-08-01T15:42:46Z",
+    "headSha": "3db6224b",
+    "elapsedSec": 389.73,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 19671,
+    "pass": 19675,
     "passNoOracle": 554,
     "passNegative": 3826,
-    "passTotal": 24051,
+    "passTotal": 24055,
     "bug": 11717,
-    "incompatible": 17406,
+    "incompatible": 17402,
     "bunSkip": 7467,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 35768,
-    "passRateInScope": 45.23,
-    "passRateTrAccepted": 67.24
+    "trAccepted": 35772,
+    "passRateInScope": 45.24,
+    "passRateTrAccepted": 67.25
   },
   "torajs": {
-    "commit": "49aa4ebb",
-    "commitSubject": "feat(core): mixed data-literal array globals fall back to the any-elem lane",
+    "commit": "3db6224b",
+    "commitSubject": "feat(core): Promise.try desugars to an immediately-invoked try/catch arrow",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "3db6224b",
+      "subject": "feat(core): Promise.try desugars to an immediately-invoked try/catch arrow"
+    },
+    {
+      "hash": "24ef2593",
+      "subject": "chore(docs,hardev): rotation 274 final census at 49aa4ebb"
+    },
+    {
       "hash": "49aa4ebb",
       "subject": "feat(core): mixed data-literal array globals fall back to the any-elem lane"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "c419b72d",
       "subject": "feat(core): method values deliver their real argv into arguments"
-    },
-    {
-      "hash": "1eec998b",
-      "subject": "feat(core): refuse \"use strict\" directive with non-simple parameter list"
-    },
-    {
-      "hash": "f06d5f95",
-      "subject": "chore(docs,hardev): rotation 272 final census at d9831e8f"
     }
   ],
-  "headSha": "49aa4ebb",
+  "headSha": "3db6224b",
   "autorun": {
     "total": 578,
     "baselineTarget": 10,
