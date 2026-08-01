@@ -108,6 +108,11 @@ fn try_lower_local_fnsig(
             }
         })
         .collect();
+    // Beyond-arity extras lowered above for §13.3.6.1 side effects;
+    // the CallIndirect signature reads only its declared slots.
+    if argv.len() > target_params.len() {
+        argv.truncate(target_params.len());
+    }
     // T-28 — missing trailing Any args pad with ANY_UNDEF (see
     // pad_trailing_undef doc; short argv = garbage-register reads).
     crate::ssa_lower_call_terminal::pad_trailing_undef(ctx, eid, &mut argv);
@@ -244,6 +249,9 @@ pub(crate) fn emit_closure_callee_with_this(
             .try_lower_empty_array_arg(*a, user_params.get(i))
             .unwrap_or_else(|| ctx.lower_expr(*a));
         owned_temps.push((*a, raw));
+        if i >= user_params.len() {
+            continue; // beyond-arity: evaluated, value unused
+        }
         // RC-4 F3 — Type::Any target param boxes a concrete arg
         // (arm-1 P0.5 mirror): an untyped IIFE param is Type::Any at
         // the ABI, and passing a raw i64 into the box-shaped lane

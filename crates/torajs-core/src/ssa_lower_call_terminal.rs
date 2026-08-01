@@ -121,6 +121,16 @@ pub(crate) fn emit(
         .filter(|(_, (a, _))| ctx.expr_owned_shape(**a))
         .map(|(i, (_, op))| (i, *op))
         .collect();
+    // Direct-call trailing-ignore (checker wedge mirror): the extra
+    // args lowered above for §13.3.6.1 side effects; the callee's ABI
+    // reads only its declared slots, so argv aligns down to the
+    // signature. Owned-shape extras were snapshotted with the rest
+    // and release after the call.
+    if let Some(ps) = &param_tys
+        && argv.len() > ps.len()
+    {
+        argv.truncate(ps.len());
+    }
     target = maybe_swap_math_sum_precise(ctx, target, &argv);
     pad_trailing_undef(ctx, eid, &mut argv);
     let coerce_owned = coerce_args(ctx, target, args, &mut argv);

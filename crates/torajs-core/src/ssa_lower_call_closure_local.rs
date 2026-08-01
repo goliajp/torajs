@@ -178,7 +178,7 @@ pub(crate) fn try_lower_with_this(
         // their stake (no inc: the body never drops params, no
         // consume: TS args share).
         owned_temps.push((*a, raw));
-        if needs_argc && param_idx >= user_params.len() {
+        if param_idx >= user_params.len() {
             continue; // beyond-arity: evaluated, value unused
         }
         // RFC 20260707 chunk 626 — typed array into an Arr<Any>

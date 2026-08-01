@@ -105,6 +105,7 @@ pub(crate) mod check_type_of_call_date_instance_trailing;
 pub(crate) mod check_type_of_call_date_setter;
 pub(crate) mod check_type_of_call_date_setter_narrow;
 pub(crate) mod check_type_of_call_date_utc;
+pub(crate) mod check_type_of_call_direct_trailing_ignore;
 pub(crate) mod check_type_of_call_dispatch_flags;
 pub(crate) mod check_type_of_call_generic_ident;
 pub(crate) mod check_type_of_call_global_ctors;
