@@ -231,7 +231,8 @@ fn desugar_one_generator(
     // the step methods pick up their Promise<__step_*> shape via
     // the class-method async rewrite: registering the mangled
     // names here is all desugar_classes_emit needs.
-    if ast.async_generator_fns.contains(&gen_name) {
+    let is_async_gen = ast.async_generator_fns.contains(&gen_name);
+    if is_async_gen {
         for m in ["next", "return", "throw"] {
             ast.async_fns.insert(format!("__cm_{class_name}__{m}"));
         }
@@ -308,6 +309,7 @@ fn desugar_one_generator(
         &yield_ty,
         &step_ann,
         has_finally_ret,
+        is_async_gen,
     );
     let throw_method =
         crate::ast::desugar_generators_methods::build_throw_method(ast, &step_ann, has_try_regions);

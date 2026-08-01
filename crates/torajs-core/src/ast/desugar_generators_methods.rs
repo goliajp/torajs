@@ -54,12 +54,34 @@ pub(super) fn build_return_method(
     yield_ty: &str,
     step_ann: &str,
     has_finally_ret: bool,
+    is_async_gen: bool,
 ) -> ClassMethod {
     let val_param = Param {
         name: RET_VAL_PARAM.into(),
         type_ann: Some(yield_ty.into()),
         default: None,
         is_rest: false,
+    };
+    // §27.6.3.7 step 8.d — an ASYNC generator's return(v) awaits v
+    // before completing with it: prepend `__ret_val = await
+    // __ret_val;` (the await-read is type-dispatched — a Promise
+    // unwraps, anything else passes through identity). Sync
+    // generators complete with v verbatim (§27.5.1.7).
+    let await_stash = if is_async_gen {
+        let inner = ast.add_expr(Expr::Ident(RET_VAL_PARAM.into()));
+        let read = ast.add_expr(Expr::Member {
+            obj: inner,
+            name: "value".into(),
+        });
+        ast.await_value_reads.insert(read);
+        let target = ast.add_expr(Expr::Ident(RET_VAL_PARAM.into()));
+        let assign = ast.add_expr(Expr::Assign {
+            target,
+            value: read,
+        });
+        Some(Stmt::Expr(assign))
+    } else {
+        None
     };
     let body = if has_finally_ret {
         let this_id = ast.add_expr(Expr::This);
@@ -103,6 +125,7 @@ pub(super) fn build_return_method(
         });
         vec![close_stmt, Stmt::Return(Some(result))]
     };
+    let body: Vec<Stmt> = await_stash.into_iter().chain(body).collect();
     ClassMethod {
         name: "return".into(),
         params: vec![val_param],
