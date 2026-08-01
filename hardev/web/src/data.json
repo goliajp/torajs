@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-01T20:54:25.100Z",
+  "generatedAt": "2026-08-01T21:22:11.283Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-01T20:52:11Z",
-    "headSha": "72974723",
-    "elapsedSec": 388.42,
+    "ranAt": "2026-08-01T21:16:00Z",
+    "headSha": "58002883",
+    "elapsedSec": 550.32,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 19993,
+    "pass": 19992,
     "passNoOracle": 559,
     "passNegative": 3826,
-    "passTotal": 24378,
-    "bug": 11680,
+    "passTotal": 24377,
+    "bug": 11681,
     "incompatible": 17116,
     "bunSkip": 7467,
     "harnessError": 0,
     "inScope": 53174,
     "trAccepted": 36058,
-    "passRateInScope": 45.85,
-    "passRateTrAccepted": 67.61
+    "passRateInScope": 45.84,
+    "passRateTrAccepted": 67.6
   },
   "torajs": {
-    "commit": "72974723",
-    "commitSubject": "feat(core): missing trailing typevar/any params pad undefined",
+    "commit": "58002883",
+    "commitSubject": "feat(core): async generator return() awaits its value",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,18 @@
   },
   "commits": [
     {
+      "hash": "58002883",
+      "subject": "feat(core): async generator return() awaits its value"
+    },
+    {
+      "hash": "f1304b1e",
+      "subject": "chore(hardev): archive rotation 277 sweep artifacts at 72974723"
+    },
+    {
+      "hash": "92434991",
+      "subject": "chore(docs,hardev): rotation 277 final census at 72974723"
+    },
+    {
       "hash": "72974723",
       "subject": "feat(core): missing trailing typevar/any params pad undefined"
     },
@@ -747,21 +759,9 @@
     {
       "hash": "8cb58e07",
       "subject": "chore(docs,hardev): rotation 276 final census at a3a45e66"
-    },
-    {
-      "hash": "a3a45e66",
-      "subject": "feat(core): expression defaults materialize for arrow and fn-expression values"
-    },
-    {
-      "hash": "3fc602c1",
-      "subject": "feat(core): generator try/catch/finally via standard nesting decomposition"
-    },
-    {
-      "hash": "41315e80",
-      "subject": "feat(core): generator try/finally via per-exit-path duplication"
     }
   ],
-  "headSha": "72974723",
+  "headSha": "58002883",
   "autorun": {
     "total": 581,
     "baselineTarget": 10,
