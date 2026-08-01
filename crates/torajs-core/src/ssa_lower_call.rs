@@ -148,6 +148,10 @@ fn try_dispatch_a(
     if let Some(op) = crate::ssa_lower_call_json_stringify::try_lower(ctx, callee, args) {
         return Some(op);
     }
+    // `JSON.rawJSON(text)` / `JSON.isRawJSON(O)` — ES2026 json-parse-with-source kernels.
+    if let Some(op) = crate::ssa_lower_call_json_raw::try_lower(ctx, callee, args) {
+        return Some(op);
+    }
     // `String.fromCharCode(...)` / `String.fromCodePoint(...)` variadic — pairwise str_concat chain.
     if let Some(op) = crate::ssa_lower_call_string_from_char_code::try_lower(ctx, callee, args) {
         return Some(op);

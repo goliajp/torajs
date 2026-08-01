@@ -242,6 +242,18 @@ unsafe fn write_cell(sb: *mut c_void, ptr: *mut c_void, depth: u32, gap: &[u8]) 
                 Wrote::Value
             }
             t if t == Tag::DynObj as u16 => {
+                // §25.5.2 SerializeJSONProperty step 5a — a rawJSON
+                // carrier (`JSON.rawJSON`, header bit
+                // FLAG_DYNOBJ_RAW_JSON) splices its validated text
+                // verbatim instead of walking the object shape. The
+                // single frozen entry's value is the text Str
+                // (borrowed from the entry — no drop).
+                let hflags = (ptr.cast::<u8>().add(6) as *const u16).read();
+                if hflags & torajs_rc::FLAG_DYNOBJ_RAW_JSON != 0 {
+                    let raw = __torajs_dynobj_iter_value(ptr, 0);
+                    __torajs_jsb_push_str_raw(sb, as_void_ptr(raw) as *const u8);
+                    return Wrote::Value;
+                }
                 composites::write_object(sb, ptr, depth, gap);
                 Wrote::Value
             }

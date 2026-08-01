@@ -219,7 +219,7 @@ fn ns_has_own_property(ns: &str, key: &str) -> bool {
                 | "fround"
                 | "f16round"
         ),
-        "JSON" => matches!(key, "stringify" | "parse"),
+        "JSON" => matches!(key, "stringify" | "parse" | "rawJSON" | "isRawJSON"),
         "Reflect" => matches!(
             key,
             "apply"

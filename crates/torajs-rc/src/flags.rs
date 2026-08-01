@@ -22,6 +22,7 @@
 //! | 10-12 | element-kind field (`arr_kind.rs`) | Arr |
 //! | 10-11 | [`FLAG_FN_NAME_DELETED`] / [`FLAG_FN_LENGTH_DELETED`] | Closure (disjoint-by-tag with Arr kind) |
 //! | 10    | [`FLAG_DYNOBJ_CLASS_CTOR`] | DynObj (disjoint-by-tag with Closure / Arr) |
+//! | 11    | [`FLAG_DYNOBJ_RAW_JSON`] | DynObj (disjoint-by-tag with Closure / Arr) |
 //! | 13-14 | cycle-collector color field (`color.rs`) | **universal — never place a flag here** |
 //! | 15    | [`FLAG_ARR_EXOTIC_INDEX`] (Arr) / [`FLAG_FN_PROTO`] (Closure) | disjoint-by-tag |
 //!
@@ -103,6 +104,16 @@ pub const FLAG_FN_LENGTH_DELETED: u16 = 1 << 11;
 /// (disjoint-by-tag reuse of Tag::Closure's [`FLAG_FN_NAME_DELETED`]
 /// / Tag::Arr's element-kind field).
 pub const FLAG_DYNOBJ_CLASS_CTOR: u16 = 1 << 10;
+/// `Tag::DynObj` cell carrying the ES §25.5.1 `[[IsRawJSON]]`
+/// internal slot — minted only by `JSON.rawJSON` (torajs-anyvalue
+/// `json_raw.rs`): a frozen null-prototype object whose single
+/// `"rawJSON"` own property holds a validated scalar JSON text.
+/// `JSON.isRawJSON` answers off this bit, and the any-lane
+/// `JSON.stringify` walk splices the stored text verbatim instead of
+/// serializing the object shape. Bit 11 is Tag::DynObj-private
+/// (disjoint-by-tag reuse of Tag::Closure's
+/// [`FLAG_FN_LENGTH_DELETED`] / Tag::Arr's element-kind field).
+pub const FLAG_DYNOBJ_RAW_JSON: u16 = 1 << 11;
 /// Tag::Closure cell whose lifted body takes the call-site `this` as
 /// its first declared param (`(__env, __this, ...user)`) — a
 /// function-expression accessor face (RFC 20260717-fnexpr-this-channel

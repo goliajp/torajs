@@ -423,6 +423,8 @@ pub(crate) struct Intrinsics {
     pub(crate) anyv_json_stringify: FuncId,
     pub(crate) anyv_json_stringify_gap: FuncId,
     pub(crate) anyv_json_gap_str: FuncId,
+    pub(crate) json_raw_json: FuncId,
+    pub(crate) json_is_raw_json: FuncId,
     pub(crate) json_indent: FuncId,
     pub(crate) json_colon: FuncId,
     pub(crate) json_close_indent: FuncId,

@@ -100,6 +100,14 @@ pub(crate) fn try_match(obj_ty: &Type, name: &str) -> Option<Result<Type, String
         // any `Type::Any` slot, so the let binding's
         // declared `T` slot type drives the actual decode.
         (Type::Object("JSON"), "parse") => Type::Function(vec![Type::String], Box::new(Type::Any)),
+        // ES2026 json-parse-with-source — `JSON.rawJSON(text)` mints
+        // the frozen [[IsRawJSON]] carrier (any-world dict-mode
+        // object); `JSON.isRawJSON(O)` probes for the slot. Both are
+        // runtime kernels; the answers live in the any lane (the
+        // boxed bool prints / branches correctly there).
+        (Type::Object("JSON"), "rawJSON" | "isRawJSON") => {
+            Type::Function(vec![Type::Any], Box::new(Type::Any))
+        }
         // Array.isArray(x) — compile-time static check.
         (Type::Object("Array"), "isArray") => {
             Type::Function(vec![Type::Any], Box::new(Type::Boolean))

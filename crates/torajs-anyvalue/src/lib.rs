@@ -186,6 +186,7 @@ mod to_primitive;
 mod wrapper_view_through;
 
 pub mod inspect;
+pub mod json_raw;
 pub mod json_stringify;
 pub(crate) mod json_stringify_tojson;
 pub mod loose_eq;
