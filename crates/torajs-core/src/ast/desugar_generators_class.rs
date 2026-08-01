@@ -37,6 +37,7 @@ pub(super) fn assemble_generator_class_and_factory(
     next_method: ClassMethod,
     return_method: ClassMethod,
     throw_method: ClassMethod,
+    captures_arguments: bool,
     appended: &mut Vec<Stmt>,
 ) {
     // P10.6-A3 nominal marker (per-generator unique field name so
@@ -101,8 +102,31 @@ pub(super) fn assemble_generator_class_and_factory(
         });
         ctor_body_with_params.push(Stmt::Expr(assign));
     }
+    // RFC 20260801-arguments-method-face knife 2 — the captured
+    // argv rides a trailing ctor param into a class field literally
+    // named `arguments` (the body rewrite minted `this.arguments`
+    // reads; the ctor's own param named `arguments` is exactly the
+    // sloppy shadow the arguments pass already exempts).
+    let mut ctor_params = gen_params.clone();
+    if captures_arguments {
+        class_fields.push(("arguments".into(), "any".into()));
+        ctor_params.push(Param {
+            name: "arguments".into(),
+            type_ann: Some("any".into()),
+            default: None,
+            is_rest: false,
+        });
+        let this_id = ast.add_expr(Expr::This);
+        let target = ast.add_expr(Expr::Member {
+            obj: this_id,
+            name: "arguments".into(),
+        });
+        let value = ast.add_expr(Expr::Ident("arguments".into()));
+        let assign = ast.add_expr(Expr::Assign { target, value });
+        ctor_body_with_params.push(Stmt::Expr(assign));
+    }
     let ctor_with_params = ClassCtor {
-        params: gen_params.clone(),
+        params: ctor_params,
         body: ctor_body_with_params,
     };
 
@@ -138,10 +162,22 @@ pub(super) fn assemble_generator_class_and_factory(
 
     // Replace the original generator FnDecl with a thin factory
     // that returns `new __Gen_<name>(args)`.
-    let factory_args: Vec<ExprId> = gen_params
+    let mut factory_args: Vec<ExprId> = gen_params
         .iter()
         .map(|p| ast.add_expr(Expr::Ident(p.name.clone())))
         .collect();
+    if captures_arguments {
+        // `[...arguments]` — the inline-spread rewrite compiles this
+        // under EVERY argc mode: a static-argv-qualified factory
+        // expands the exact call-site argv (injected extras
+        // included), a non-qualified one degrades to the declared
+        // params (parity with the historical next()-arity fold) —
+        // never a compile break, never a loud regression on
+        // declaration-only tests.
+        let src = ast.add_expr(Expr::Ident("arguments".into()));
+        let spread = ast.add_expr(Expr::Spread { expr: src });
+        factory_args.push(ast.add_expr(Expr::Array(vec![spread])));
+    }
     let new_expr = ast.add_expr(Expr::New {
         class_name: class_name.clone(),
         args: factory_args,

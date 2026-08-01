@@ -211,6 +211,8 @@ fn desugar_one_generator(
             is_rest: false,
         });
     }
+    let captures_arguments =
+        push_arguments_capture(ast, &gen_params, &gen_body, &mut rewrite_params);
     let (gen_body, lifted_locals) = crate::ast::desugar_generators_prep::prep_generator_body(
         ast,
         gen_body,
@@ -332,8 +334,50 @@ fn desugar_one_generator(
         next_method,
         return_method,
         throw_method,
+        captures_arguments,
         appended,
     );
+}
+
+/// RFC 20260801-arguments-method-face knife 2a — true when a
+/// generator body touches `arguments` and the FACTORY's argv can
+/// carry it: joining the rewrite set maps every body `arguments`
+/// ident to the `this.arguments` class field; the ctor takes it as
+/// a trailing `any` param and the factory passes `[...arguments]`,
+/// whose inline-spread rewrite compiles under EVERY argc mode (a
+/// static-argv-qualified factory expands the exact call-site argv,
+/// extras included; a non-qualified one degrades to the declared
+/// params — parity with the historical next()-arity fold, never a
+/// compile break). A body that declares its own `arguments` binding
+/// keeps it (shadow, pre-face semantics). Class gen METHODS
+/// (parser-synth `__cm_gen_*` with a `__genrecv` first param) are
+/// excluded: their real argv lives at the class-side forwarder
+/// (which drops over-arity today) and the factory's own arguments
+/// would put the RECEIVER in slot 0. The forwarder argv channel is
+/// knife 2b (RFC, registered).
+fn push_arguments_capture(
+    ast: &Ast,
+    gen_params: &[Param],
+    gen_body: &[Stmt],
+    rewrite_params: &mut Vec<Param>,
+) -> bool {
+    use crate::ast::arguments_object_walkers as aw;
+    let mut local_binds = std::collections::HashSet::new();
+    crate::ast_collect_bindings::collect_local_binding_names(gen_body, &mut local_binds);
+    let captures = !gen_params.first().is_some_and(|p| p.name == "__genrecv")
+        && !local_binds.contains("arguments")
+        && !gen_params.iter().any(|p| p.name == "arguments")
+        && (aw::body_has_non_length_arguments_touch(ast, gen_body)
+            || aw::body_has_arguments_length(ast, gen_body));
+    if captures {
+        rewrite_params.push(Param {
+            name: "arguments".into(),
+            type_ann: Some("any".into()),
+            default: None,
+            is_rest: false,
+        });
+    }
+    captures
 }
 
 /// Build the next()'s state-machine body: lower `gen_body` through

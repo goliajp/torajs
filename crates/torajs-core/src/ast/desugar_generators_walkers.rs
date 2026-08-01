@@ -90,7 +90,18 @@ pub(crate) fn lift_lets_in_stmt(ast: &mut Ast, s: &mut Stmt, lifted: &mut Vec<(S
             ..
         } => {
             let n = name.clone();
-            let t = type_ann.clone().unwrap_or_else(|| "number".into());
+            // Knife 2a — an untyped alias of `arguments` lifts as
+            // `any`: the capture rewrite turns the init into the
+            // any-typed `this.arguments` field read, and the
+            // historical "number" fallback would pin the lifted
+            // field's type wrong (`.length on Number`).
+            let t = type_ann.clone().unwrap_or_else(|| {
+                if matches!(ast.get_expr(*init), Expr::Ident(nm) if nm == "arguments") {
+                    "any".into()
+                } else {
+                    "number".into()
+                }
+            });
             lifted.push((n.clone(), t));
             let this_id = ast.add_expr(Expr::This);
             let m = ast.add_expr(Expr::Member {
