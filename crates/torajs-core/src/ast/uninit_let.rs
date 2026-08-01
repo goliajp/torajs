@@ -38,7 +38,8 @@ pub fn desugar_uninit_let(ast: &mut Ast) {
     // statements is established form (destr_defaults does the same).
     let undef_eid = ast.add_expr(Expr::Ident("undefined".into()));
     // mem::take so the statement vec can be mutated while the arena
-    // stays readable for the reference walker (get_expr only).
+    // stays available for the reference walker and the orphan
+    // tombstoning below.
     let mut stmts = std::mem::take(&mut ast.stmts);
     rewrite_uninit_in_stmts(&mut stmts, ast, undef_eid);
     ast.stmts = stmts;
@@ -46,7 +47,7 @@ pub fn desugar_uninit_let(ast: &mut Ast) {
     // walk handles them when it descends into Stmt::FnDecl variants.
 }
 
-fn rewrite_uninit_in_stmts(stmts: &mut Vec<Stmt>, ast: &Ast, undef_eid: ExprId) {
+fn rewrite_uninit_in_stmts(stmts: &mut Vec<Stmt>, ast: &mut Ast, undef_eid: ExprId) {
     let mut i = 0;
     while i < stmts.len() {
         // Recurse into nested scopes first so each scope's lets see
@@ -119,14 +120,14 @@ fn rewrite_uninit_in_stmts(stmts: &mut Vec<Stmt>, ast: &Ast, undef_eid: ExprId) 
             continue;
         }
         let mut j = i + 1;
-        let mut found: Option<(usize, ExprId)> = None;
+        let mut found: Option<(usize, ExprId, ExprId, ExprId)> = None;
         while j < stmts.len() {
             if let Stmt::Expr(eid) = &stmts[j]
                 && let Expr::Assign { target, value } = ast.get_expr(*eid)
                 && let Expr::Ident(n) = ast.get_expr(*target)
                 && n == &name
             {
-                found = Some((j, *value));
+                found = Some((j, *eid, *target, *value));
                 break;
             }
             // Don't reach into non-flat control-flow: an assignment in
@@ -135,7 +136,7 @@ fn rewrite_uninit_in_stmts(stmts: &mut Vec<Stmt>, ast: &Ast, undef_eid: ExprId) 
             // count.
             j += 1;
         }
-        if let Some((stmt_idx, value)) = found {
+        if let Some((stmt_idx, assign_eid, target_eid, value)) = found {
             // Execution-order fix (rotation 133): splicing the
             // assignment's VALUE into the earlier let REORDERED its
             // side effects across every intermediate statement —
@@ -161,6 +162,15 @@ fn rewrite_uninit_in_stmts(stmts: &mut Vec<Stmt>, ast: &Ast, undef_eid: ExprId) 
                 }
                 // stmt_idx shifted down by the remove above.
                 stmts[stmt_idx - 1] = decl;
+                // The replaced assignment's Assign node and its
+                // target Ident are now arena orphans — no statement
+                // reaches them, but whole-arena name scans (the
+                // arguments-face binding-safety walk, the HOF
+                // direct-call gate) still see the orphan Ident and
+                // kill the binding's chain. Tombstone both slots;
+                // `value` stays live as the spliced init.
+                ast.exprs[assign_eid.0 as usize] = Expr::Uninit;
+                ast.exprs[target_eid.0 as usize] = Expr::Uninit;
                 // Re-examine the slot that slid into position i.
                 continue;
             }
