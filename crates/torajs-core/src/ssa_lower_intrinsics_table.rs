@@ -461,6 +461,7 @@ pub(crate) fn build(
         any_method_probe: init_c.any_substrate.any_method_probe,
         any_prop_delete: init_c.any_substrate.any_prop_delete,
         any_prop_delete_soft: init_b.object.any_prop_delete_soft,
+        any_member_set_soft: init_b.object.any_member_set_soft,
         reflect_set_prototype_of: init_b.object.reflect_set_prototype_of,
         any_prop_has: init_c.any_substrate.any_prop_has,
         any_has_property: init_c.any_substrate.any_has_property,

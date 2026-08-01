@@ -12,8 +12,8 @@ use core::ffi::c_void;
 use torajs_rc::{FLAG_NON_EXTENSIBLE, Tag};
 
 use crate::member_set::{
-    __torajs_dynobj_alloc, __torajs_dynobj_has, __torajs_dynobj_set, __torajs_throw_type_error,
-    STR_DATA_OFF, STR_LEN_OFF, drop_payload,
+    __torajs_dynobj_alloc, __torajs_dynobj_has, __torajs_throw_type_error, STR_DATA_OFF,
+    STR_LEN_OFF, drop_payload, dynobj_set_flavored,
 };
 
 /// Number/String/Boolean-wrapper lazy props slot — mirror of
@@ -36,7 +36,8 @@ pub(crate) unsafe fn set_wrapper_member(
     key: *mut c_void,
     tag: u64,
     value: u64,
-) {
+    throw_on_refusal: bool,
+) -> i64 {
     unsafe {
         // §10.4.3 String Exotic — `"length"` and the in-range
         // code-unit indices are non-writable own properties:
@@ -47,8 +48,10 @@ pub(crate) unsafe fn set_wrapper_member(
         // test262's isWritable probe saw a writable length.
         if cell_tag == Tag::StringWrapper as u16 && strwrapper_own_domain_key(ptr, key) {
             drop_payload(tag, value);
-            __torajs_throw_type_error(c"Attempted to assign to readonly property.".as_ptr());
-            return;
+            if throw_on_refusal {
+                __torajs_throw_type_error(c"Attempted to assign to readonly property.".as_ptr());
+            }
+            return 0;
         }
         let props_slot = ptr.cast::<u8>().add(MEMBER_SET_WRAPPER_PROPS_OFF) as *mut u64;
         let mut props = *props_slot as *mut c_void;
@@ -66,15 +69,21 @@ pub(crate) unsafe fn set_wrapper_member(
             let key_present = !props.is_null()
                 && __torajs_dynobj_has(props as *const c_void, key as *const c_void) != 0;
             if !key_present {
-                reject_non_extensible(tag, value);
-                return;
+                drop_payload(tag, value);
+                if throw_on_refusal {
+                    __torajs_throw_type_error(
+                        c"Attempting to define property on object that is not extensible.".as_ptr(),
+                    );
+                }
+                return 0;
             }
         }
         if props.is_null() {
             props = __torajs_dynobj_alloc();
         }
-        __torajs_dynobj_set(&mut props, key, tag, value);
+        let wrote = dynobj_set_flavored(&mut props, key, tag, value, throw_on_refusal);
         *props_slot = props as u64;
+        wrote
     }
 }
 
@@ -101,17 +110,5 @@ pub(crate) unsafe fn strwrapper_own_domain_key(ptr: *mut c_void, key: *const c_v
             inner.cast::<u8>().add(STR_LEN_OFF).cast::<u32>().read() as u64
         };
         idx < len
-    }
-}
-
-/// Wrapper-cell `[[Set]]` rejection when the receiver has
-/// `[[Extensible]] = false` and the key is fresh — mirror of
-/// `__torajs_dynobj_set`'s new-key gate wording.
-pub(crate) unsafe fn reject_non_extensible(tag: u64, value: u64) {
-    unsafe {
-        drop_payload(tag, value);
-        __torajs_throw_type_error(
-            c"Attempting to define property on object that is not extensible.".as_ptr(),
-        );
     }
 }

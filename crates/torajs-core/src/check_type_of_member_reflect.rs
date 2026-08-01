@@ -137,6 +137,15 @@ pub(crate) fn try_match(obj_ty: &Type, name: &str) -> Option<Result<Type, String
         (Type::Object("Reflect"), "apply") => {
             Type::Function(vec![Type::Any, Type::Any, Type::Any], Box::new(Type::Any))
         }
+        // §28.1.13 Reflect.set (rotation 268) — strict gate + the
+        // boolean-answer [[Set]] (refusal = false, no throw; a setter
+        // throw still propagates). 3-arg form; the 4-arg receiver
+        // variant is a recorded boundary (Set-b). Key domain Any per
+        // ToPropertyKey.
+        (Type::Object("Reflect"), "set") => Type::Function(
+            vec![Type::Any, Type::Any, Type::Any],
+            Box::new(Type::Boolean),
+        ),
         _ => return None,
     };
     Some(Ok(ty))

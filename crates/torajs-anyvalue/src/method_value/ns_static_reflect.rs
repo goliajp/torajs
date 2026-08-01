@@ -173,3 +173,36 @@ pub(super) unsafe fn reflect_set_prototype_of(argv: *const u64, argc: i64) -> u6
         if ok != 0 { VALUE_TRUE } else { VALUE_FALSE }
     }
 }
+
+/// §28.1.13 Reflect.set as a detached call — strict gate, ToString(P)
+/// key (the [`gopd_static`] posture; a symbol key rides the
+/// wedge-lowered call face, not this cell), then the [[Set]] kernel's
+/// no-throw flavor. The owned unbox mints the payload +1 the entry
+/// write consumes. The receiver rides a local slot (the
+/// [`reflect_define_property`] posture — a dynobj resize swaps the
+/// cell within the kernel; the caller's box is not written back).
+pub(super) unsafe fn reflect_set(argv: *const u64, argc: i64) -> u64 {
+    unsafe {
+        __torajs_anyv_throw_typeerror_if_not_object(arg_at(argv, argc, 0));
+        if __torajs_throw_check() != 0 {
+            return VALUE_UNDEFINED;
+        }
+        let key = crate::nanbox_ffi::__torajs_anyv_to_str(arg_at(argv, argc, 1));
+        if __torajs_throw_check() != 0 {
+            return VALUE_UNDEFINED;
+        }
+        let v = arg_at(argv, argc, 2);
+        let tag = crate::nanbox_encode::__torajs_anyv_unbox_tag(v);
+        let value = crate::nanbox_encode::__torajs_anyv_unbox_value_owned(v);
+        let mut recv = arg_at(argv, argc, 0);
+        let wrote = crate::member_set::__torajs_any_member_set_soft(
+            &mut recv as *mut u64,
+            key as *mut core::ffi::c_void,
+            tag as u64,
+            value as u64,
+            -1,
+        );
+        crate::__torajs_str_drop(key as *mut core::ffi::c_void);
+        if wrote != 0 { VALUE_TRUE } else { VALUE_FALSE }
+    }
+}

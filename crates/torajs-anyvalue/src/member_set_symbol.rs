@@ -25,15 +25,11 @@ use core::ffi::c_void;
 
 use torajs_rc::Tag;
 
-use crate::member_set::{drop_payload, inherited_set_handled};
+use crate::member_set::{drop_payload, dynobj_set_flavored, inherited_set_handled};
 use crate::nanbox::AnyValue;
 use crate::nanbox_encode::__torajs_anyv_box_from_pair;
 
 unsafe extern "C" {
-    /// torajs-dynobj — realloc-on-grow set; the slot receives the
-    /// possibly-relocated block pointer. Dispatches an accessor
-    /// entry's setter and refuses a non-writable data entry.
-    fn __torajs_dynobj_set(obj_slot: *mut *mut c_void, key: *mut c_void, tag: u64, value: u64);
     fn __torajs_dynobj_alloc() -> *mut c_void;
     fn __torajs_dynobj_has(obj: *const c_void, key: *const c_void) -> i32;
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
@@ -79,40 +75,47 @@ pub(crate) unsafe fn symbol_member_set(
     key: *mut c_void,
     tag: u64,
     value: u64,
-) {
+    throw_on_refusal: bool,
+) -> i64 {
     unsafe {
         if cell_tag == Tag::DynObj as u16 {
             if __torajs_dynobj_has(ptr, key as *const c_void) == 0
-                && inherited_set_handled(ptr, recv, key, tag, value)
+                && let Some(handled) =
+                    inherited_set_handled(ptr, recv, key, tag, value, throw_on_refusal)
             {
-                return;
+                return handled;
             }
             let mut obj = ptr;
-            __torajs_dynobj_set(&mut obj, key, tag, value);
+            let wrote = dynobj_set_flavored(&mut obj, key, tag, value, throw_on_refusal);
             if obj != ptr {
                 // Relocated block — the NaN-box cell encoding is the
                 // pointer bits; transfer, no rc traffic (same object
                 // identity, moved storage).
                 *recv_slot = __torajs_anyv_box_from_pair(4, obj as i64);
             }
-            return;
+            return wrote;
         }
         let Some(off) = props_slot_off(cell_tag) else {
             // A primitive receiver's write is discarded per §10.1.9,
             // and a static-layout struct cell cannot grow through
             // `any` yet — the string lane's boundary TypeError.
             drop_payload(tag, value);
-            __torajs_throw_type_error(c"cannot set a symbol-keyed property on this value".as_ptr());
-            return;
+            if throw_on_refusal {
+                __torajs_throw_type_error(
+                    c"cannot set a symbol-keyed property on this value".as_ptr(),
+                );
+            }
+            return 0;
         };
         let props_slot = ptr.cast::<u8>().add(off) as *mut u64;
         let mut props = *props_slot as *mut c_void;
         if props.is_null() {
             props = __torajs_dynobj_alloc();
         }
-        __torajs_dynobj_set(&mut props, key, tag, value);
+        let wrote = dynobj_set_flavored(&mut props, key, tag, value, throw_on_refusal);
         // First-write alloc and resize relocation both land the fresh
         // table back in the slot; the host cell itself never moves.
         *props_slot = props as u64;
+        wrote
     }
 }

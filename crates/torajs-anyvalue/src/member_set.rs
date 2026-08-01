@@ -47,6 +47,14 @@ unsafe extern "C" {
         tag: u64,
         value: u64,
     );
+    /// torajs-dynobj — the Reflect.set flavor of the entry write:
+    /// refusal answers 0 instead of recording the TypeError.
+    fn __torajs_dynobj_set_soft(
+        obj_slot: *mut *mut c_void,
+        key: *mut c_void,
+        tag: u64,
+        value: u64,
+    ) -> i64;
     /// torajs-dynobj — setter dispatch; `0` = getter-only accessor.
     fn __torajs_accessor_invoke_setter(pair: *const c_void, recv_anyv: u64, value_anyv: u64)
     -> i32;
@@ -85,11 +93,17 @@ pub(crate) unsafe fn drop_payload(tag: u64, value: u64) {
     }
 }
 
-unsafe fn reject(tag: u64, value: u64) {
+/// Non-assignable receiver refusal — flavored (R3-style): the strict
+/// assignment records the TypeError, the Reflect.set flavor answers
+/// `0` silently. Both drop the caller's +1.
+unsafe fn reject(tag: u64, value: u64, throw_on_refusal: bool) -> i64 {
     unsafe {
         drop_payload(tag, value);
-        __torajs_throw_type_error(c"cannot assign to a property of this any value".as_ptr());
+        if throw_on_refusal {
+            __torajs_throw_type_error(c"cannot assign to a property of this any value".as_ptr());
+        }
     }
+    0
 }
 
 /// See module doc. `hint` carries the compile-time member-name
@@ -103,9 +117,11 @@ pub(crate) const STR_DATA_OFF: usize = 16;
 /// writes through its setter with the ORIGINAL receiver; an inherited
 /// non-writable data property rejects; a writable (or absent) chain
 /// answer falls through to the caller's ordinary own create. Returns
-/// `true` when the write was handled here (setter ran, or a rejection
-/// was recorded). The common fresh create on an implicit-chain dynobj
-/// pays one own-has probe plus one interned proto-slot lookup.
+/// `Some(1)` when the setter ran, `Some(0)` when the chain refused
+/// (flavored — the strict flavor records the TypeError first), and
+/// `None` for the own-create fall-through. The common fresh create
+/// on an implicit-chain dynobj pays one own-has probe plus one
+/// interned proto-slot lookup.
 ///
 /// Key-kind agnostic, which is why both the string lane above and the
 /// §6.1.7 symbol lane in [`crate::member_set_symbol`] share it —
@@ -121,7 +137,8 @@ pub(crate) unsafe fn inherited_set_handled(
     key: *mut c_void,
     tag: u64,
     value: u64,
-) -> bool {
+    throw_on_refusal: bool,
+) -> Option<i64> {
     unsafe {
         let mut level = crate::member_get_own::user_proto_cell(ptr);
         let mut depth = 0usize;
@@ -147,25 +164,30 @@ pub(crate) unsafe fn inherited_set_handled(
                     // accessor arm's ledger); a getter-only pair
                     // refuses the strict assignment.
                     if __torajs_accessor_invoke_setter(pair, recv, value_anyv) == 0 {
+                        if throw_on_refusal {
+                            __torajs_throw_type_error(
+                                c"Attempted to assign to readonly property.".as_ptr(),
+                            );
+                        }
+                        return Some(0);
+                    }
+                    return Some(1);
+                }
+                if __torajs_dynobj_get_flags(cptr, key as *const c_void) & 0x1 == 0 {
+                    drop_payload(tag, value);
+                    if throw_on_refusal {
                         __torajs_throw_type_error(
                             c"Attempted to assign to readonly property.".as_ptr(),
                         );
                     }
-                    return true;
-                }
-                if __torajs_dynobj_get_flags(cptr, key as *const c_void) & 0x1 == 0 {
-                    drop_payload(tag, value);
-                    __torajs_throw_type_error(
-                        c"Attempted to assign to readonly property.".as_ptr(),
-                    );
-                    return true;
+                    return Some(0);
                 }
                 break;
             }
             level = crate::member_get_own::user_proto_cell(cptr);
         }
     }
-    false
+    None
 }
 
 /// `Tag::DynObj` receiver — the ordinary own-entry write, plus the
@@ -177,7 +199,8 @@ unsafe fn set_dynobj_member(
     key: *mut c_void,
     tag: u64,
     value: u64,
-) {
+    throw_on_refusal: bool,
+) -> i64 {
     unsafe {
         // Annex B §B.2.2.1 — `o.__proto__ = v` runs the
         // inherited setter, not an ordinary entry write (RFC
@@ -199,8 +222,10 @@ unsafe fn set_dynobj_member(
         if !has_own && crate::method_support_proto_meta::builtin_proto_own_meta(ptr, key).is_some()
         {
             drop_payload(tag, value);
-            __torajs_throw_type_error(c"Attempted to assign to readonly property.".as_ptr());
-            return;
+            if throw_on_refusal {
+                __torajs_throw_type_error(c"Attempted to assign to readonly property.".as_ptr());
+            }
+            return 0;
         }
         if hdr_flags & DYNOBJ_HDR_FLAG_NULL_PROTO == 0
             && !has_own
@@ -211,20 +236,47 @@ unsafe fn set_dynobj_member(
             // The setter takes its own stake on the stored cell;
             // the caller's transferred reference dies here.
             drop_payload(tag, value);
-            return;
+            return 1;
         }
-        if !has_own && inherited_set_handled(ptr, recv, key, tag, value) {
-            return;
+        if !has_own
+            && let Some(handled) =
+                inherited_set_handled(ptr, recv, key, tag, value, throw_on_refusal)
+        {
+            return handled;
         }
         let mut obj = ptr;
-        __torajs_dynobj_set(&mut obj, key, tag, value);
+        let wrote = dynobj_set_flavored(&mut obj, key, tag, value, throw_on_refusal);
         if obj != ptr {
             // Relocated block — the NaN-box cell encoding is the
             // pointer bits; transfer, no rc traffic (same object
             // identity, moved storage).
             *recv_slot = __torajs_anyv_box_from_pair(4, obj as i64);
         }
-        return;
+        wrote
+    }
+}
+
+/// Flavor split over the torajs-dynobj entry-write kernel — the
+/// strict flavor keeps the historical void extern (a refusal records
+/// the pending TypeError inside), the Reflect.set flavor routes
+/// through the `_soft` twin and surfaces its success i64.
+///
+/// # Safety
+/// Same contract as `__torajs_dynobj_set`.
+pub(crate) unsafe fn dynobj_set_flavored(
+    obj_slot: *mut *mut c_void,
+    key: *mut c_void,
+    tag: u64,
+    value: u64,
+    throw_on_refusal: bool,
+) -> i64 {
+    unsafe {
+        if throw_on_refusal {
+            __torajs_dynobj_set(obj_slot, key, tag, value);
+            1
+        } else {
+            __torajs_dynobj_set_soft(obj_slot, key, tag, value)
+        }
     }
 }
 
@@ -242,25 +294,62 @@ pub unsafe extern "C" fn __torajs_any_member_set(
     value: u64,
     hint: i64,
 ) {
+    unsafe { any_member_set_impl(recv_slot, key, tag, value, hint, true) };
+}
+
+/// §28.1.13 Reflect.set flavor — a [[Set]] refusal answers `0`
+/// instead of recording the strict-assignment TypeError; a handled
+/// write answers `1`. Same R3-style parameterization as
+/// `__torajs_any_prop_delete_soft` / `__torajs_dynobj_set_soft`.
+///
+/// # Safety
+/// Same contract as [`__torajs_any_member_set`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_any_member_set_soft(
+    recv_slot: *mut AnyValue,
+    key: *mut c_void,
+    tag: u64,
+    value: u64,
+    hint: i64,
+) -> i64 {
+    unsafe { any_member_set_impl(recv_slot, key, tag, value, hint, false) }
+}
+
+/// Flavor-carrying core of the two shells above — `throw_on_refusal`
+/// picks §13.15.2 strict-assignment (record the TypeError) or
+/// §28.1.13 Reflect.set (answer false). Returns 1 = written / setter
+/// ran, 0 = refused.
+unsafe fn any_member_set_impl(
+    recv_slot: *mut AnyValue,
+    key: *mut c_void,
+    tag: u64,
+    value: u64,
+    hint: i64,
+    throw_on_refusal: bool,
+) -> i64 {
     unsafe {
         let recv = *recv_slot;
         if !is_cell(recv) {
-            reject(tag, value);
-            return;
+            return reject(tag, value, throw_on_refusal);
         }
         let ptr = as_void_ptr(recv);
         let cell_tag = (ptr.cast::<u8>().add(4) as *const u16).read();
         // §6.1.7 — a symbol key takes its own lane; every arm below is
         // gated on a property NAME.
         if crate::member_get_symbol::key_is_symbol(key) {
-            crate::member_set_symbol::symbol_member_set(
-                recv_slot, recv, ptr, cell_tag, key, tag, value,
+            return crate::member_set_symbol::symbol_member_set(
+                recv_slot,
+                recv,
+                ptr,
+                cell_tag,
+                key,
+                tag,
+                value,
+                throw_on_refusal,
             );
-            return;
         }
         if cell_tag == Tag::DynObj as u16 {
-            set_dynobj_member(recv_slot, recv, ptr, key, tag, value);
-            return;
+            return set_dynobj_member(recv_slot, recv, ptr, key, tag, value, throw_on_refusal);
         }
         // The hint is the compile-time interned fast path; a DYNAMIC
         // key spelling `lastIndex` (`re[k] = v`) misses it, so the
@@ -284,15 +373,20 @@ pub unsafe extern "C" fn __torajs_any_member_set(
                     let v =
                         crate::nanbox_encode::__torajs_anyv_box_from_pair(tag as i64, value as i64);
                     __torajs_regex_last_index_store_boxed(ptr, v);
-                    return;
+                    return 1;
                 }
             };
             __torajs_regex_set_last_index(ptr, idx);
-            return;
+            return 1;
         }
         if cell_tag == Tag::Closure as u16 {
-            crate::member_set_closure::set_closure_member(ptr, key, tag, value);
-            return;
+            return crate::member_set_closure::set_closure_member(
+                ptr,
+                key,
+                tag,
+                value,
+                throw_on_refusal,
+            );
         }
         // RFC 20260714-objlit-accessor blade 7 — a struct accessor's
         // [[Set]] (the write mirror of blade 5's read). A setter runs
@@ -311,7 +405,7 @@ pub unsafe extern "C" fn __torajs_any_member_set(
                 // The setter borrowed the value out of argv; the write
                 // path owns the payload it was handed.
                 drop_payload(tag, value);
-                return;
+                return 1;
             }
             // RFC 20260718-error-message-own-prop — a class-layout
             // DATA field takes the store when the payload matches the
@@ -319,12 +413,18 @@ pub unsafe extern "C" fn __torajs_any_member_set(
             // inside). A mismatch falls through to the loud reject —
             // a typed slot never silently coerces.
             if crate::struct_error_msg::struct_data_field_set(ptr, key, tag, value) {
-                return;
+                return 1;
             }
         }
         if cell_tag == Tag::Arr as u16 {
-            crate::member_set_arr::set_arr_member(ptr, key, tag, value, hint);
-            return;
+            return crate::member_set_arr::set_arr_member(
+                ptr,
+                key,
+                tag,
+                value,
+                hint,
+                throw_on_refusal,
+            );
         }
         // RFC 20260716 刀 5 (rotation 121 chunk 4) — a primitive-
         // wrapper receiver (`new Number()` / `new String()` /
@@ -334,9 +434,15 @@ pub unsafe extern "C" fn __torajs_any_member_set(
             || cell_tag == Tag::StringWrapper as u16
             || cell_tag == Tag::BooleanWrapper as u16
         {
-            crate::member_set_wrapper::set_wrapper_member(ptr, cell_tag, key, tag, value);
-            return;
+            return crate::member_set_wrapper::set_wrapper_member(
+                ptr,
+                cell_tag,
+                key,
+                tag,
+                value,
+                throw_on_refusal,
+            );
         }
-        reject(tag, value);
+        reject(tag, value, throw_on_refusal)
     }
 }

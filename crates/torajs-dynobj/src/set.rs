@@ -66,9 +66,41 @@ pub unsafe extern "C" fn __torajs_dynobj_set(
     tag: u64,
     value: u64,
 ) {
+    unsafe { dynobj_set_impl(obj_slot, key, tag, value, true) };
+}
+
+/// §28.1.13 Reflect.set flavor — a [[Set]] refusal (readonly entry /
+/// setter-less accessor / non-extensible fresh key) answers `0`
+/// instead of recording the strict-assignment TypeError; a handled
+/// write answers `1`. Same R3-style parameterization as
+/// `__torajs_any_prop_delete_soft`.
+///
+/// # Safety
+/// Same contract as [`__torajs_dynobj_set`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_dynobj_set_soft(
+    obj_slot: *mut *mut c_void,
+    key: *mut c_void,
+    tag: u64,
+    value: u64,
+) -> i64 {
+    unsafe { dynobj_set_impl(obj_slot, key, tag, value, false) }
+}
+
+/// Flavor-carrying core of the two shells above — `throw_on_refusal`
+/// picks §13.15.2 strict-assignment (record the TypeError) or
+/// §28.1.13 Reflect.set (answer false). Both flavors return the
+/// success i64 (1 = written / setter ran, 0 = refused).
+unsafe fn dynobj_set_impl(
+    obj_slot: *mut *mut c_void,
+    key: *mut c_void,
+    tag: u64,
+    value: u64,
+    throw_on_refusal: bool,
+) -> i64 {
     let mut obj = unsafe { *obj_slot };
     if obj.is_null() {
-        return;
+        return 1;
     }
     // A write landing on a builtin `<Ctor>.prototype` singleton is a
     // monkey-patch — note it for the fast-arm pre-gate (RFC 20260721
@@ -112,22 +144,27 @@ pub unsafe extern "C" fn __torajs_dynobj_set(
                 )
             } == 0
             {
+                if throw_on_refusal {
+                    unsafe {
+                        __torajs_throw_type_error(
+                            c"Attempted to assign to readonly property.".as_ptr() as *const u8,
+                        );
+                    }
+                }
+                return 0;
+            }
+            return 1;
+        }
+        let cur_flags = bucket_flags(unsafe { (*e).key_ptr_tagged });
+        if cur_flags & BUCKET_FLAG_WRITABLE == 0 {
+            if throw_on_refusal {
                 unsafe {
                     __torajs_throw_type_error(
                         c"Attempted to assign to readonly property.".as_ptr() as *const u8,
                     );
                 }
             }
-            return;
-        }
-        let cur_flags = bucket_flags(unsafe { (*e).key_ptr_tagged });
-        if cur_flags & BUCKET_FLAG_WRITABLE == 0 {
-            unsafe {
-                __torajs_throw_type_error(
-                    c"Attempted to assign to readonly property.".as_ptr() as *const u8
-                );
-            }
-            return;
+            return 0;
         }
         let cur_tag = unsafe { __torajs_anyv_unbox_tag(cur_value_anyv) } as u64;
         // Drop the old heap value if the current slot was ANY_HEAP.
@@ -145,6 +182,7 @@ pub unsafe extern "C" fn __torajs_dynobj_set(
             (*e).value_anyv =
                 __torajs_anyv_box_from_pair((tag & BUCKET_TAG_MASK) as i64, value as i64);
         }
+        1
     } else {
         // §10.1.5.1 [[Set]] on a non-extensible dict must reject new
         // keys in strict mode (tr modules are all strict). Mirrors
@@ -155,13 +193,15 @@ pub unsafe extern "C" fn __torajs_dynobj_set(
         // 15.2.3.10-3-{2,5-1,6,7,12,15,16,17}.js).
         let header_flags = unsafe { *(obj.cast::<u8>().add(6) as *const u16) };
         if header_flags & DYNOBJ_HDR_FLAG_NON_EXTENSIBLE != 0 {
-            unsafe {
-                __torajs_throw_type_error(
-                    c"Attempting to define property on object that is not extensible.".as_ptr()
-                        as *const u8,
-                );
+            if throw_on_refusal {
+                unsafe {
+                    __torajs_throw_type_error(
+                        c"Attempting to define property on object that is not extensible.".as_ptr()
+                            as *const u8,
+                    );
+                }
             }
-            return;
+            return 0;
         }
         // Fresh insert: append to the dense array (insertion order),
         // point the probed slot (tombstone reuse or empty) at it.
@@ -179,6 +219,7 @@ pub unsafe extern "C" fn __torajs_dynobj_set(
             set_entries_len(obj, e_idx + 1);
             set_count(obj, count(obj) + 1);
         }
+        1
     }
 }
 

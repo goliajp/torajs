@@ -310,6 +310,10 @@ pub(super) enum Disp {
     /// Function.prototype.apply kernel (nullish argumentsList
     /// throws, no empty-list amnesty).
     ReflectApply,
+    /// §28.1.13 Reflect.set — strict gate + the boolean-answer
+    /// [[Set]] kernel (refusal = false, no throw; a setter throw
+    /// propagates).
+    ReflectSet,
 }
 
 /// The own-enumeration surfaces (shared dispatch shape) — `Names`
@@ -427,4 +431,5 @@ pub(super) static DISPATCH: &[Disp] = &[
     Disp::RegExpEscape,
     Disp::ReflectDefineProperty,
     Disp::ReflectApply,
+    Disp::ReflectSet,
 ];

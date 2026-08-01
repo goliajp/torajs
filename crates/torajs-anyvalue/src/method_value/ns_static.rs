@@ -263,6 +263,7 @@ unsafe fn dispatch(id: i64, argv: *const u64, argc: i64) -> u64 {
                 arg_at(argv, argc, 1),
                 arg_at(argv, argc, 2),
             ),
+            Disp::ReflectSet => super::ns_static_reflect::reflect_set(argv, argc),
         }
     }
 }

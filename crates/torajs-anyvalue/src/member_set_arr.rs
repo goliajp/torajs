@@ -36,7 +36,8 @@ unsafe extern "C" {
 
 /// `Tag::Arr` receiver — RFC 20260712-arr-exotic-define chunk C
 /// own-domain routing, so an index key reaches element storage
-/// instead of landing in the expando dynobj.
+/// instead of landing in the expando dynobj. Flavored (R3-style):
+/// refusals throw or answer 0 per `throw_on_refusal`.
 ///
 /// # Safety
 /// `ptr` is a live `Tag::Arr` cell; `key` is a live Str cell;
@@ -47,7 +48,8 @@ pub(crate) unsafe fn set_arr_member(
     tag: u64,
     value: u64,
     hint: i64,
-) {
+    throw_on_refusal: bool,
+) -> i64 {
     unsafe {
         // RFC 20260712-arr-exotic-define chunk C — own-domain
         // routing for the dynamic string key. Pre-fix every
@@ -57,7 +59,7 @@ pub(crate) unsafe fn set_arr_member(
         // key missed the resize path.
         if hint == ANY_WPROP_ARR_LENGTH || crate::prop_has::key_is(key, b"length") {
             __torajs_arr_set_length_any(ptr, tag as i64, value as i64);
-            return;
+            return 1;
         }
         if let Some(idx) = crate::prop_has::canonical_index(key) {
             // An accessor index writes through its setter (RFC
@@ -69,11 +71,14 @@ pub(crate) unsafe fn set_arr_member(
                 let value_anyv = __torajs_anyv_box_from_pair(tag as i64, value as i64);
                 let recv_anyv = __torajs_anyv_box_from_pair(4, ptr as i64);
                 if __torajs_accessor_invoke_setter(pair, recv_anyv, value_anyv) == 0 {
-                    __torajs_throw_type_error(
-                        c"Attempted to assign to readonly property.".as_ptr(),
-                    );
+                    if throw_on_refusal {
+                        __torajs_throw_type_error(
+                            c"Attempted to assign to readonly property.".as_ptr(),
+                        );
+                    }
+                    return 0;
                 }
-                return;
+                return 1;
             }
             let flags = __torajs_arr_index_flags(ptr, idx);
             if flags & crate::prop_has::ARR_F_HOLE != 0 {
@@ -82,16 +87,21 @@ pub(crate) unsafe fn set_arr_member(
                 // the shadow upsert clears the hole sentinel).
                 __torajs_arr_index_set(ptr, idx as i64, tag, value);
                 __torajs_arr_index_revive(ptr, key as *mut c_void);
-                return;
+                return 1;
             }
             if flags & 0x1 == 0 {
                 drop_payload(tag, value);
-                __torajs_throw_type_error(c"Attempted to assign to readonly property.".as_ptr());
-                return;
+                if throw_on_refusal {
+                    __torajs_throw_type_error(
+                        c"Attempted to assign to readonly property.".as_ptr(),
+                    );
+                }
+                return 0;
             }
             __torajs_arr_index_set(ptr, idx as i64, tag, value);
-            return;
+            return 1;
         }
         __torajs_arrprops_set(ptr, key, tag as i64, value as i64);
+        1
     }
 }
