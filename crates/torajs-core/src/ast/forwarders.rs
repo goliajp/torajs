@@ -14,6 +14,34 @@
 
 use super::{Ast, Expr, ExprId, Param, Stmt};
 
+/// Knife 4d (RFC 20260801-arguments-method-face) — an argv-consuming
+/// generator factory carries a trailing GEN_ARGV_PARAM (the obj-gen
+/// parser's argv channel). Its forwarder must NOT declare that slot:
+/// it fills it with its own `[...arguments]` instead, so the relay
+/// carries an arguments touch, the argv/static faces adopt the relay,
+/// and the true call-site argv reaches the factory however the relay
+/// is invoked (member call or escaped alias). Answers the params the
+/// forwarder declares plus whether the tail was trimmed — the caller
+/// then pushes the spread arg via [`push_gen_argv_spread`].
+pub(crate) fn split_gen_argv_tail(params: &[Param]) -> (&[Param], bool) {
+    if params
+        .last()
+        .is_some_and(|p| p.name == crate::ast::GEN_ARGV_PARAM)
+    {
+        (&params[..params.len() - 1], true)
+    } else {
+        (params, false)
+    }
+}
+
+/// Second half of [`split_gen_argv_tail`]: append `[...arguments]`
+/// as the factory call's argv argument.
+pub(crate) fn push_gen_argv_spread(ast: &mut Ast, arg_eids: &mut Vec<ExprId>) {
+    let src = ast.add_expr(Expr::Ident("arguments".into()));
+    let spread = ast.add_expr(Expr::Spread { expr: src });
+    arg_eids.push(ast.add_expr(Expr::Array(vec![spread])));
+}
+
 /// Synthesize forwarder closures for `Stmt::Return(Ident(global_fn))`
 /// in functions whose declared ret type is a closure type
 /// (`(...) => R`). Without this, ssa_lower's `effective_ret_ty`
@@ -125,6 +153,10 @@ pub fn synthesize_forwarders(ast: &mut Ast) {
         } else {
             &params[..]
         };
+        // Knife 4d — a trailing GEN_ARGV_PARAM never enters the
+        // forwarder's declared face; the call below feeds it
+        // `[...arguments]` (see split_gen_argv_tail).
+        let (user_params, takes_gen_argv) = split_gen_argv_tail(user_params);
         fwd_params.extend(user_params.iter().cloned());
         // body: return target(p0, p1, ...);
         let mut arg_eids: Vec<ExprId> = Vec::with_capacity(params.len());
@@ -133,6 +165,9 @@ pub fn synthesize_forwarders(ast: &mut Ast) {
         }
         for p in user_params {
             arg_eids.push(ast.add_expr(Expr::Ident(p.name.clone())));
+        }
+        if takes_gen_argv {
+            push_gen_argv_spread(ast, &mut arg_eids);
         }
         let callee_id = ast.add_expr(Expr::Ident(target.clone()));
         let call_id = ast.add_expr(Expr::Call {

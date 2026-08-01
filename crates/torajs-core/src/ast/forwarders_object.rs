@@ -390,6 +390,10 @@ fn synthesize_forwarder_decls(
         } else {
             &params[..]
         };
+        // Knife 4d — a trailing GEN_ARGV_PARAM never enters the
+        // forwarder's declared face; the call below feeds it
+        // `[...arguments]` (see forwarders::split_gen_argv_tail).
+        let (user_params, takes_gen_argv) = super::forwarders::split_gen_argv_tail(user_params);
         fwd_params.extend(user_params.iter().cloned());
         let mut arg_eids: Vec<ExprId> = Vec::with_capacity(params.len());
         if takes_this {
@@ -397,6 +401,9 @@ fn synthesize_forwarder_decls(
         }
         for p in user_params {
             arg_eids.push(ast.add_expr(Expr::Ident(p.name.clone())));
+        }
+        if takes_gen_argv {
+            super::forwarders::push_gen_argv_spread(ast, &mut arg_eids);
         }
         let callee_id = ast.add_expr(Expr::Ident(target.clone()));
         let call_id = ast.add_expr(Expr::Call {

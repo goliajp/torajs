@@ -29,7 +29,7 @@
 
 use super::Parser;
 use super::type_ann_helpers::unwrap_generator_return_ann;
-use crate::ast::{Expr, ExprId, Stmt};
+use crate::ast::{Expr, ExprId, Param, Stmt};
 use crate::lexer::Token;
 
 impl<'a> Parser<'a> {
@@ -102,6 +102,10 @@ impl<'a> Parser<'a> {
         // is an early SyntaxError here (ES §15.7.1).
         let saved_super = std::mem::replace(&mut self.super_call_allowed, false);
         let saved_async_gen = std::mem::replace(&mut self.in_async_gen, is_async);
+        // Knife 4d — arena range for the `arguments` rename sweep
+        // below (the class half does the same, see
+        // parse_class_decl_generator.rs knife 2b).
+        let body_expr_start = self.ast.exprs.len();
         let mut body = Vec::new();
         while !matches!(self.peek(), Token::RBrace | Token::Eof) {
             body.push(self.parse_stmt()?);
@@ -135,6 +139,41 @@ impl<'a> Parser<'a> {
             full.extend(body);
             full
         };
+
+        // Knife 4d (RFC 20260801-arguments-method-face) — the body's
+        // `arguments` idents rename to the trailing argv param over
+        // the parsed arena range, mirroring the class generator
+        // method (knife 2b): once the state machine owns the body,
+        // `arguments` would denote next()'s own object. A body that
+        // declares its own `arguments` binding keeps it.
+        let mut body_uses_arguments = false;
+        {
+            let mut local_binds = std::collections::HashSet::new();
+            crate::ast_collect_bindings::collect_local_binding_names(&body, &mut local_binds);
+            if !local_binds.contains("arguments") && !params.iter().any(|p| p.name == "arguments") {
+                for e in self.ast.exprs[body_expr_start..].iter_mut() {
+                    if matches!(e, Expr::Ident(n) if n == "arguments") {
+                        *e = Expr::Ident(crate::ast::GEN_ARGV_PARAM.into());
+                        body_uses_arguments = true;
+                    }
+                }
+            }
+        }
+        // The argv rides a trailing `any` param — an ordinary
+        // generator param, so the __Gen field / ctor / factory
+        // plumbing carries it with zero desugar changes. The
+        // `__forward_` relay that wraps the hoisted fn's value read
+        // fills it with its OWN `[...arguments]` (see the knife-4d
+        // arm in ast_closure_param_tag_axes), which the argv/static
+        // faces then expand to the true call-site argv.
+        if body_uses_arguments {
+            params.push(Param {
+                name: crate::ast::GEN_ARGV_PARAM.into(),
+                type_ann: Some("any".into()),
+                default: None,
+                is_rest: false,
+            });
+        }
 
         // Same synth-decl channel the async shorthand uses: the
         // `synth_classes` drain in `parse_program` prepends accumulated

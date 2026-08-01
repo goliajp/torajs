@@ -113,6 +113,7 @@ pub use fill_optional_fields::fill_optional_fields;
 pub use fn_constructor::synthesize_fn_constructors;
 pub use fold_fromentries::fold_fromentries;
 pub use forwarders::synthesize_forwarders;
+pub(crate) use forwarders::{push_gen_argv_spread, split_gen_argv_tail};
 pub use forwarders_object::{synthesize_fn_to_closure_forwarders, tag_struct_field_closure_types};
 pub use gen_fn_expr::{GenFnExprInfo, GenFnExprKind};
 pub use hoist_gen_fn_exprs::hoist_gen_fn_exprs;

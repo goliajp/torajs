@@ -172,18 +172,31 @@ pub(crate) fn wrap_named_fn_values(
         let forward_name = format!("__forward_{target}");
         if !existing_forwarders.contains(&forward_name) {
             let (params, return_type, target_span) = fn_sigs.get(target).unwrap().clone();
-            let mut fwd_params: Vec<Param> = Vec::with_capacity(params.len() + 1);
+            // Knife 4d (RFC 20260801-arguments-method-face) — an
+            // argv-consuming generator factory (trailing
+            // GEN_ARGV_PARAM, the obj-gen parser's argv channel)
+            // takes its argv from the relay's own `[...arguments]`
+            // rather than a declared slot: the relay then carries an
+            // arguments touch, the argv/static faces adopt IT, and
+            // the true call-site argv reaches the factory however
+            // the relay is invoked (member call or escaped alias).
+            let (declared, takes_gen_argv) = crate::ast::split_gen_argv_tail(&params);
+            let declared = declared.to_vec();
+            let mut fwd_params: Vec<Param> = Vec::with_capacity(declared.len() + 1);
             fwd_params.push(Param {
                 name: "__env".into(),
                 type_ann: Some("__env()".to_string()),
                 default: None,
                 is_rest: false,
             });
-            fwd_params.extend(params.iter().cloned());
-            let arg_eids: Vec<ExprId> = params
+            fwd_params.extend(declared.iter().cloned());
+            let mut arg_eids: Vec<ExprId> = declared
                 .iter()
                 .map(|p| ast.add_expr(Expr::Ident(p.name.clone())))
                 .collect();
+            if takes_gen_argv {
+                crate::ast::push_gen_argv_spread(ast, &mut arg_eids);
+            }
             let callee_id = ast.add_expr(Expr::Ident(target.clone()));
             let call_id = ast.add_expr(Expr::Call {
                 callee: callee_id,
