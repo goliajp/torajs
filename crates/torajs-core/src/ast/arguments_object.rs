@@ -36,6 +36,19 @@ pub(super) enum ArgcMode {
     /// Fold to the declared arity (legacy fallback; still serves
     /// class methods, whose ABI is untouched — recorded face).
     FoldArity,
+    /// Mutation-free FoldTo (rotation 272 re-admission) — a
+    /// static-argv-face body with SIMPLE params that never writes an
+    /// arguments element, never writes a param, and never lets the
+    /// arguments object escape (see arguments_object_mutation): the
+    /// zero-cost literal-index param substitution and inline spread
+    /// expansion are then observationally equivalent to the real
+    /// unmapped arguments object — nothing can tell the snapshot
+    /// from the live view — AND they preserve static element types
+    /// (an `...arguments` inline expansion stays `number`-typed
+    /// where the materialized `any[]` ride would smuggle boxed
+    /// slots into a typed literal). Any mutation / escape / non-
+    /// simple param routes to Unmapped instead.
+    FoldTo(usize),
     /// Length-write knife (rotation 270) — a static-argv-face body
     /// that WRITES `arguments.length`: a static fold would (a)
     /// mint a literal in the write target ("invalid assignment
@@ -181,8 +194,17 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
                 // (module) code never maps arguments to params.
                 if body_has_arguments_length_write(ast, body) {
                     ArgcMode::LiveLength(n)
-                } else {
+                } else if decl_params.iter().any(|p| {
+                    p.default.is_some() || p.is_rest || p.name.starts_with("__param_destr_")
+                }) || super::arguments_object_mutation::body_mutates_args_view(
+                    ast, body, &params,
+                ) {
+                    // Non-simple params misalign position ↔ param;
+                    // a mutation / escape makes the snapshot
+                    // distinguishable (see ArgcMode::FoldTo doc).
                     ArgcMode::Unmapped(n)
+                } else {
+                    ArgcMode::FoldTo(n)
                 }
             } else if uses_real_argc.contains(name)
                 || iife_real_argc.contains(name)
@@ -273,13 +295,17 @@ fn synth_materialized_arguments(
         && let Some((rest_name, fixed)) = params.split_last()
     {
         let take = match argc_mode {
-            ArgcMode::LiveLength(n) | ArgcMode::Unmapped(n) => n.min(fixed.len()),
+            ArgcMode::FoldTo(n) | ArgcMode::LiveLength(n) | ArgcMode::Unmapped(n) => {
+                n.min(fixed.len())
+            }
             _ => fixed.len(),
         };
         synth_arguments_local_rest(ast, &fixed[..take], rest_name)
     } else {
         let take = match argc_mode {
-            ArgcMode::LiveLength(n) | ArgcMode::Unmapped(n) => n.min(params.len()),
+            ArgcMode::FoldTo(n) | ArgcMode::LiveLength(n) | ArgcMode::Unmapped(n) => {
+                n.min(params.len())
+            }
             _ => params.len(),
         };
         synth_arguments_local(ast, &params[..take])

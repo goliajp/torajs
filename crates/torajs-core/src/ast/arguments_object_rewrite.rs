@@ -217,7 +217,7 @@ pub(super) fn rewrite_arguments_in_expr(
                     // the injected extras otherwise). The unmapped
                     // face folds the same count — only element
                     // aliasing differs (see the Index arm).
-                    ArgcMode::Unmapped(n) => {
+                    ArgcMode::FoldTo(n) | ArgcMode::Unmapped(n) => {
                         return ast.add_expr(Expr::Number(n as f64));
                     }
                     // Length-write knife — reads AND writes ride the
@@ -313,7 +313,12 @@ pub(super) fn rewrite_arguments_in_expr(
         // consumer then treats as an ordinary array-like. Every other
         // mode leaves the node for the checker's loud reject.
         Expr::Ident(n) if n == "arguments" => {
-            if is_argv_fn || matches!(argc_mode, ArgcMode::LiveLength(_) | ArgcMode::Unmapped(_)) {
+            if is_argv_fn
+                || matches!(
+                    argc_mode,
+                    ArgcMode::FoldTo(_) | ArgcMode::LiveLength(_) | ArgcMode::Unmapped(_)
+                )
+            {
                 return ast.add_expr(Expr::Ident("__torajs_arguments".into()));
             }
             eid
