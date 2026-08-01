@@ -248,6 +248,15 @@ pub(super) fn inject_iife_static_params(
         if let Stmt::FnDecl { name, params, .. } = s
             && let Some(&n) = iife_static_argv.get(name)
         {
+            // A trailing rest param already captures every over-arity
+            // arg (apply_rest_args bundles them downstream) — a
+            // positional extra would land AFTER the rest param,
+            // breaking rest-must-be-last AND the bundling's
+            // last-param probe. The materializer spreads the rest
+            // array instead (see synth_arguments_local_rest).
+            if params.last().is_some_and(|p| p.is_rest) {
+                continue;
+            }
             let Some(user_params) = fn_params.get_mut(name) else {
                 continue;
             };

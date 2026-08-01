@@ -26,6 +26,30 @@ pub(super) fn synth_arguments_local(ast: &mut Ast, params: &[String]) -> Stmt {
     }
 }
 
+/// Rest-param variant of [`synth_arguments_local`] — synthesize
+/// `let __torajs_arguments: any[] = [f0, ..., fk, ...rest]`. The
+/// trailing spread pulls the over-arity values out of the rest array
+/// (apply_rest_args bundles them there downstream), so no positional
+/// extras are injected for rest-tailed fns; `fixed` is already
+/// sliced to `min(static argc, fixed params)` by the caller so an
+/// under-filled site contributes only the args it actually passed.
+pub(super) fn synth_arguments_local_rest(ast: &mut Ast, fixed: &[String], rest: &str) -> Stmt {
+    let mut elems: Vec<ExprId> = fixed
+        .iter()
+        .map(|p| ast.add_expr(Expr::Ident(p.clone())))
+        .collect();
+    let rest_ident = ast.add_expr(Expr::Ident(rest.into()));
+    elems.push(ast.add_expr(Expr::Spread { expr: rest_ident }));
+    let init = ast.add_expr(Expr::Array(elems));
+    Stmt::LetDecl {
+        mutable: false,
+        name: "__torajs_arguments".into(),
+        type_ann: Some("any[]".into()),
+        init,
+        is_var: false,
+    }
+}
+
 /// RFC 20260708-closure-argv-face — synthesize
 /// `let __torajs_arguments: any[] =
 ///   __torajs_arguments_materialize(__torajs_argv, __torajs_real_argc)`
