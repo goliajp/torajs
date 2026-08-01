@@ -46,7 +46,8 @@ use crate::ast::{Ast, Expr, ExprId};
 /// Non-empty ALL-PRIMITIVE literals never reach this fallback — the
 /// `__inlobj` arm sits earlier in both consumers and keeps them on
 /// the typed-struct lane; only the shapes `__inlobj` refuses (empty,
-/// null / nested-literal / array-literal fields) land here. Without
+/// null / undefined / nested-literal / array-literal fields) land
+/// here. Without
 /// this arm those bindings fell into a gap — not degraded (no
 /// define/expando trigger), not `__inlobj`, not shaped — and every
 /// named-fn read died loud with "unknown identifier". Field VALUES
@@ -82,6 +83,12 @@ fn data_literal_value(ast: &Ast, e: ExprId) -> bool {
         Expr::Number(_) | Expr::String(_) | Expr::Bool(_) | Expr::BigInt { .. } | Expr::Null => {
             true
         }
+        // `{ a: undefined }` — the dynobj init lane stores the
+        // ANY_UNDEF slot pair for this exact spelling (its own
+        // shadow-guarded fast arm), and a TOP-LEVEL `var undefined`
+        // shadow is a silent no-op in sloppy mode, so the spelling is
+        // unambiguous at this position.
+        Expr::Ident(n) if n == "undefined" => true,
         Expr::ObjectLit { fields } => fields.iter().all(|(name, val)| {
             let mut chars = name.chars();
             let head_ok = chars
