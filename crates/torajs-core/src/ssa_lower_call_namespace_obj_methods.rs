@@ -171,7 +171,7 @@ fn ns_has_own_property(ns: &str, key: &str) -> bool {
         ),
         "Array" => matches!(
             key,
-            "isArray" | "from" | "of" | "prototype" | "length" | "name"
+            "isArray" | "from" | "fromAsync" | "of" | "prototype" | "length" | "name"
         ),
         "Math" => matches!(
             key,
@@ -236,7 +236,20 @@ fn ns_has_own_property(ns: &str, key: &str) -> bool {
                 | "set"
                 | "setPrototypeOf"
         ),
-        "Function" | "RegExp" | "Date" | "Error" | "Promise" | "Map" | "Set" => {
+        "Promise" => matches!(
+            key,
+            "resolve"
+                | "reject"
+                | "all"
+                | "allSettled"
+                | "any"
+                | "race"
+                | "try"
+                | "prototype"
+                | "length"
+                | "name"
+        ),
+        "Function" | "RegExp" | "Date" | "Error" | "Map" | "Set" => {
             matches!(key, "prototype" | "length" | "name")
         }
         _ => false,

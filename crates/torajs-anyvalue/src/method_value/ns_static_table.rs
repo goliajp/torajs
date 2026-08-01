@@ -314,6 +314,18 @@ pub(super) enum Disp {
     /// [[Set]] kernel (refusal = false, no throw; a setter throw
     /// propagates).
     ReflectSet,
+    /// proposal-array-from-async §2.1.1 Array.fromAsync as a
+    /// detached call — an undefined |this| is not a constructor, so
+    /// §3.k.iv falls to ArrayCreate: the same sync-source kernels
+    /// the direct-call lowering bakes (mapped form when a
+    /// non-undefined mapfn argument is present).
+    FromAsyncDyn,
+    /// ES2026 json-parse-with-source §25.5.1/.3 — same-crate
+    /// kernels (`crate::json_raw`), so the detached face IS the real
+    /// semantics (rawJSON's TypeError / SyntaxError ride the pending
+    /// throw out with the undefined answer).
+    JsonRawJson,
+    JsonIsRawJson,
 }
 
 /// The own-enumeration surfaces (shared dispatch shape) — `Names`
@@ -432,4 +444,8 @@ pub(super) static DISPATCH: &[Disp] = &[
     Disp::ReflectDefineProperty,
     Disp::ReflectApply,
     Disp::ReflectSet,
+    Disp::FromAsyncDyn,
+    Disp::PromiseSettle,
+    Disp::JsonRawJson,
+    Disp::JsonIsRawJson,
 ];

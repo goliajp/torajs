@@ -28,6 +28,7 @@ use core::sync::atomic::{AtomicPtr, Ordering};
 unsafe extern "C" {
     fn __torajs_str_alloc_ascii(src: *const u8, len: i64) -> *mut u8;
     fn __torajs_rc_dec(p: *mut core::ffi::c_void) -> i32;
+    fn __torajs_throw_range_error(msg: *const core::ffi::c_char);
 }
 
 /// The interned `"length"` key cell. Minted once and never released —
@@ -73,6 +74,17 @@ unsafe fn array_like_length(recv: AnyValue) -> i32 {
         let n = any_to_number(tag as i64, payload as i64);
         if !(n > 0.0) {
             // NaN, negative and zero all answer an empty walk.
+            return 0;
+        }
+        // §10.4.2.2 ArrayCreate step 1 — both consumers of this walk
+        // (`Array.from` step 3.c / `Array.fromAsync` §3.k.v) feed the
+        // length straight into ArrayCreate, which throws RangeError
+        // above 2³²−1. Gating here (with a pending throw the caller's
+        // step check turns into the throw/reject) instead of clamping
+        // — the clamp walked ~2³¹ indexes before answering, which
+        // reads as a hang.
+        if n > 4294967295.0 {
+            __torajs_throw_range_error(c"invalid array length".as_ptr());
             return 0;
         }
         if n >= i32::MAX as f64 {

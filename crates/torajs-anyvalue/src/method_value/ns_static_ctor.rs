@@ -414,6 +414,34 @@ pub(super) unsafe fn array_from_face_reject() -> u64 {
     VALUE_UNDEFINED
 }
 
+unsafe extern "C" {
+    /// torajs-promise — the proposal-array-from-async §2.1.1
+    /// sync-source kernels the direct-call lowering bakes (fresh
+    /// rc-1 REPR_HEAP promise cell out).
+    fn __torajs_array_from_async_dyn(v: u64) -> *mut core::ffi::c_void;
+    fn __torajs_array_from_async_map_dyn(v: u64, cb: u64) -> *mut core::ffi::c_void;
+}
+
+/// proposal-array-from-async §2.1.1 Array.fromAsync as a detached
+/// call — the undefined |this| is not a constructor, so §3.k.iv
+/// falls to ArrayCreate and the plain kernels answer. An undefined
+/// mapfn argument selects the unmapped form (spec step 3.a); a
+/// present one routes the mapped kernel, whose own IsCallable gate
+/// raises the step-2 TypeError. The kernel's fresh promise cell is
+/// the owned answer.
+pub(super) unsafe fn from_async_dyn(argv: *const u64, argc: i64) -> u64 {
+    unsafe {
+        let items = arg_at(argv, argc, 0);
+        let mapfn = arg_at(argv, argc, 1);
+        let p = if is_undefined(mapfn) {
+            __torajs_array_from_async_dyn(items)
+        } else {
+            __torajs_array_from_async_map_dyn(items, mapfn)
+        };
+        box_void_ptr(p)
+    }
+}
+
 /// §20.1.2.11 Object.hasOwn — step 1 ToObject throws on a nullish
 /// target; every other receiver routes through the same prop_has
 /// probe the `hasOwnProperty` dispatcher arm uses (single source).

@@ -264,6 +264,11 @@ unsafe fn dispatch(id: i64, argv: *const u64, argc: i64) -> u64 {
                 arg_at(argv, argc, 2),
             ),
             Disp::ReflectSet => super::ns_static_reflect::reflect_set(argv, argc),
+            Disp::FromAsyncDyn => super::ns_static_ctor::from_async_dyn(argv, argc),
+            Disp::JsonRawJson => crate::json_raw::__torajs_json_raw_json(arg_at(argv, argc, 0)),
+            Disp::JsonIsRawJson => {
+                crate::json_raw::__torajs_json_is_raw_json(arg_at(argv, argc, 0))
+            }
         }
     }
 }

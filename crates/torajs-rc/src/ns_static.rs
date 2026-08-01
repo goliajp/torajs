@@ -218,6 +218,24 @@ pub static NS_STATIC_TABLE: &[NsStaticRow] = &[
     // §28.1.13 Reflect.set (rotation 268) — strict gate + the
     // boolean-answer [[Set]] kernel. Length 3 per spec.
     row("Reflect", "set", 3),
+    // proposal-array-from-async §2.1.1 Array.fromAsync (rotation 275
+    // 刀 2) — a detached call has an undefined |this|, which is not a
+    // constructor, so §3.k.iv falls to ArrayCreate: the arm delegates
+    // to the same sync-source kernels the direct-call lowering bakes.
+    // Length 1 per proposal (mapfn / thisArg optional).
+    row("Array", "fromAsync", 1),
+    // §27.2.4.8 Promise.try — step 1 requires the |this| value to be
+    // an object (the species ctor); a detached call's undefined
+    // |this| raises the same TypeError as resolve / reject
+    // (Disp::PromiseSettle). The direct-call form desugars at the
+    // AST layer and never reaches this cell. Length 1 per spec.
+    row("Promise", "try", 1),
+    // ES2026 json-parse-with-source JSON.rawJSON / isRawJSON
+    // (rotation 275 刀 2) — same-crate kernels (json_raw.rs), so the
+    // detached call face is the real §25.5.1/.3 semantics. Lengths
+    // per spec.
+    row("JSON", "rawJSON", 1),
+    row("JSON", "isRawJSON", 1),
 ];
 
 /// Compile-time `(namespace, member)` → id. Linear scan — lower-time

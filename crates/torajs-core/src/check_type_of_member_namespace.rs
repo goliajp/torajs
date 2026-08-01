@@ -208,6 +208,19 @@ pub(crate) fn try_match(obj_ty: &Type, name: &str) -> Option<Result<Type, String
         (Type::Object("Promise"), "resolve" | "reject" | "all" | "allSettled" | "any" | "race") => {
             Type::Function(vec![Type::Any], Box::new(Type::Any))
         }
+        // §27.2.4.8 Promise.try read as a VALUE (rotation 275 刀 2)
+        // — the direct-call form desugars at the AST layer and never
+        // reaches here; the reified cell's PromiseSettle arm raises
+        // the step-1 undefined-|this| TypeError on a detached call.
+        (Type::Object("Promise"), "try") => Type::Function(vec![Type::Any], Box::new(Type::Any)),
+        // proposal-array-from-async Array.fromAsync read as a VALUE
+        // (rotation 275 刀 2) — call positions hit the from/fromAsync
+        // wedge first; the reified cell's detached call falls to
+        // ArrayCreate (undefined |this| is not a constructor) through
+        // the same sync-source kernels.
+        (Type::Object("Array"), "fromAsync") => {
+            Type::Function(vec![Type::Any], Box::new(Type::Any))
+        }
         // Iterator statics read as VALUES (RFC 20260731 刀 5) — call
         // positions hit the statics wedges first; this arm serves the
         // reflection face (`Iterator.concat.length`, aliased calls
