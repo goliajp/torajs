@@ -50,20 +50,24 @@ impl GenSm<'_> {
             || finally_body
                 .as_ref()
                 .is_some_and(|f| f.iter().any(stmt_contains_yield));
-        // D1 finally regions handle `try {B} finally {F}` (no catch)
-        // when B carries no return and no jump that escapes the try —
-        // either would have to run F on the way out, which the
-        // duplication lowering below doesn't route (registered
-        // follow-up). F itself MAY return (the Return arm's done-step
-        // correctly encodes "finally overrides the completion") and
-        // MAY yield (each copy is state-machined independently).
-        let finally_ok = !had_catch
-            && finally_body.is_some()
+        // D1/D2 finally regions handle `try {B} [catch {C}] finally
+        // {F}` when neither B nor C carries a return or a jump that
+        // escapes the try — either would have to run F on the way
+        // out, which the duplication lowering below doesn't route
+        // (registered follow-up). F itself MAY return (the Return
+        // arm's done-step correctly encodes "finally overrides the
+        // completion") and MAY yield (each copy is state-machined
+        // independently).
+        let finally_ok = finally_body.is_some()
             && !stmts_block_finally_region(&body, false)
+            && !stmts_block_finally_region(&catch_body, false)
             && !finally_body
                 .as_ref()
                 .is_some_and(|f| stmts_block_finally_region(f, true));
-        if !has_yield || (finally_body.is_some() && !finally_ok) || (!had_catch && !finally_ok) {
+        if !has_yield
+            || (finally_body.is_some() && !finally_ok)
+            || (finally_body.is_none() && !had_catch)
+        {
             let mut s = Stmt::Try {
                 body,
                 had_catch,
@@ -77,7 +81,27 @@ impl GenSm<'_> {
             return;
         }
         if let Some(f) = finally_body {
-            self.lower_try_finally(body, f);
+            if had_catch {
+                // D2 — catch+finally decomposes into the standard
+                // nesting `try { try {B} catch {C} } finally {F}`
+                // (§14.13.3: catch handles first, finally always
+                // runs after). The inner try/catch region nests
+                // inside the outer finally region numerically, and
+                // the inner CATCH's states land inside the outer
+                // range only — so a throw from C routes to F's
+                // exception copy, exactly the spec order.
+                let inner = Stmt::Try {
+                    body,
+                    had_catch,
+                    catch_param,
+                    catch_type,
+                    catch_body,
+                    finally_body: None,
+                };
+                self.lower_try_finally(vec![inner], f);
+            } else {
+                self.lower_try_finally(body, f);
+            }
             return;
         }
 
