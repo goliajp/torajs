@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-01T12:12:05.135Z",
+  "generatedAt": "2026-08-01T12:37:28.461Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,9 +9,9 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-01T12:05:05Z",
-    "headSha": "a08ff268",
-    "elapsedSec": 388.21,
+    "ranAt": "2026-08-01T12:36:47Z",
+    "headSha": "d9831e8f",
+    "elapsedSec": 390.39,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 66.78
   },
   "torajs": {
-    "commit": "a08ff268",
-    "commitSubject": "feat(core): object-literal methods join the static-argv face",
+    "commit": "d9831e8f",
+    "commitSubject": "fix(core): value-return fns that can fall through answer undefined",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "d9831e8f",
+      "subject": "fix(core): value-return fns that can fall through answer undefined"
+    },
+    {
+      "hash": "e90a5982",
+      "subject": "chore(docs,hardev): rotation 272 final census at a08ff268"
+    },
+    {
       "hash": "a08ff268",
       "subject": "feat(core): object-literal methods join the static-argv face"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "5748fe9e",
       "subject": "feat(core): devirtualize exclusively-called fn-value aliases in the arguments face"
-    },
-    {
-      "hash": "ab1164f7",
-      "subject": "fix(core): forwarder relay calls stay out of the static-argv argc vote"
-    },
-    {
-      "hash": "d5457de4",
-      "subject": "fix(core): tombstone orphaned assign nodes after uninit-let splice"
     }
   ],
-  "headSha": "a08ff268",
+  "headSha": "d9831e8f",
   "autorun": {
     "total": 576,
     "baselineTarget": 10,

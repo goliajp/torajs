@@ -1530,7 +1530,15 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 9215301c`, never as a constant.
 
-**Re-derived @ `a08ff268`** (2026-08-01, rotation 272 — six knives:
+**Re-derived @ `d9831e8f`** (2026-08-01, rotation 272 close — knife
+F on top of the `a08ff268` sweep below: value-return fns that can
+fall through now answer undefined per §10.2.1.4 instead of trapping
+on an `unreachable` tail; re-sweep moved exactly 2 verdicts,
+10.6-10-c-ii-1/2 `exit 133` → loud `exit 1` (the pre-existing crash
+those relabels pointed at is closed; every bucket total and the gate
+predicate are byte-identical to the stamp below).
+
+**Previous @ `a08ff268`** (2026-08-01, rotation 272 — six knives:
 untyped rest param → implicit `any[]`, the rest-aware static-argv
 face, the whole face going unmapped for module-strict semantics
 with FoldTo re-admitted as the mutation-free snapshot, the mutating
