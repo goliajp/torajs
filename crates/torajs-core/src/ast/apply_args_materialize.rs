@@ -62,42 +62,55 @@ fn is_pad_safe_literal(ast: &Ast, d: ExprId) -> bool {
 }
 
 /// Whether the default is safe to evaluate inside the callee body —
-/// a recursive WHITELIST over expression shapes with no function
-/// literal anywhere in them. An arrow-bearing default (the IIFE
-/// shape `_ = (() => { cc++; })()`) stays on the call-site pad: a
-/// closure minted inside a fn body cannot capture a top-level `let`
-/// today (pre-existing "closure capture not in scope", gate-caught
-/// on the first cut of this pass), while the padded copy sits at
-/// the top-level call site where the capture works. Unknown shapes
-/// answer false — keeping today's behavior is always safe.
-fn body_safe_default(ast: &Ast, e: ExprId) -> bool {
+/// a recursive WHITELIST over expression shapes. A CAPTURING
+/// function literal (the IIFE shape `_ = (() => { cc++; })()`)
+/// stays on the call-site pad: a closure minted inside a fn body
+/// cannot capture a top-level `let` today (pre-existing "closure
+/// capture not in scope", gate-caught on the first cut of this
+/// pass), while the padded copy sits at the top-level call site
+/// where the capture works. A CLOSED function literal (free-var
+/// set empty after the top-level-FnDecl / builtin filter — the
+/// t262 abrupt template `(function() { throw new Test262Error();
+/// }())`) has no capture to go wrong and converts, which is what
+/// lets an async fn's throwing default reject instead of throwing
+/// synchronously (see [`splice_guards`]). Unknown shapes answer
+/// false — keeping today's behavior is always safe.
+fn body_safe_default(ast: &Ast, e: ExprId, global_fns: &[String]) -> bool {
     match ast.get_expr(e) {
         Expr::Number(_) | Expr::String(_) | Expr::Bool(_) | Expr::Null | Expr::Ident(_) => true,
         Expr::BinOp { left, right, .. } => {
-            body_safe_default(ast, *left) && body_safe_default(ast, *right)
+            body_safe_default(ast, *left, global_fns) && body_safe_default(ast, *right, global_fns)
         }
-        Expr::Unary { expr, .. } | Expr::As { expr, .. } => body_safe_default(ast, *expr),
-        Expr::Member { obj, .. } => body_safe_default(ast, *obj),
+        Expr::Unary { expr, .. } | Expr::As { expr, .. } => {
+            body_safe_default(ast, *expr, global_fns)
+        }
+        Expr::Member { obj, .. } => body_safe_default(ast, *obj, global_fns),
         Expr::Index { obj, index } => {
-            body_safe_default(ast, *obj) && body_safe_default(ast, *index)
+            body_safe_default(ast, *obj, global_fns) && body_safe_default(ast, *index, global_fns)
         }
         Expr::Ternary {
             cond,
             then_branch,
             else_branch,
         } => {
-            body_safe_default(ast, *cond)
-                && body_safe_default(ast, *then_branch)
-                && body_safe_default(ast, *else_branch)
+            body_safe_default(ast, *cond, global_fns)
+                && body_safe_default(ast, *then_branch, global_fns)
+                && body_safe_default(ast, *else_branch, global_fns)
         }
         Expr::Sequence { left, right } => {
-            body_safe_default(ast, *left) && body_safe_default(ast, *right)
+            body_safe_default(ast, *left, global_fns) && body_safe_default(ast, *right, global_fns)
         }
         Expr::Call { callee, args } => {
-            body_safe_default(ast, *callee) && args.iter().all(|a| body_safe_default(ast, *a))
+            body_safe_default(ast, *callee, global_fns)
+                && args.iter().all(|a| body_safe_default(ast, *a, global_fns))
         }
-        Expr::Array(elems) => elems.iter().all(|a| body_safe_default(ast, *a)),
-        Expr::ObjectLit { fields } => fields.iter().all(|(_, v)| body_safe_default(ast, *v)),
+        Expr::Array(elems) => elems.iter().all(|a| body_safe_default(ast, *a, global_fns)),
+        Expr::ObjectLit { fields } => fields
+            .iter()
+            .all(|(_, v)| body_safe_default(ast, *v, global_fns)),
+        Expr::ArrowFn { params, body, .. } => {
+            super::free_vars::free_vars_of_arrow(ast, params, body, global_fns).is_empty()
+        }
         _ => false,
     }
 }
@@ -123,9 +136,9 @@ fn build_default_guard(ast: &mut Ast, name: &str, d: ExprId) -> Stmt {
 /// Shared per-param conversion gate: an expression default that the
 /// pad cannot carry (not a scope-free literal), is body-safe, and
 /// sits on an `any` / unannotated param.
-fn converting_default(ast: &Ast, p: &super::Param) -> Option<ExprId> {
+fn converting_default(ast: &Ast, p: &super::Param, global_fns: &[String]) -> Option<ExprId> {
     let d = p.default?;
-    if is_pad_safe_literal(ast, d) || !body_safe_default(ast, d) {
+    if is_pad_safe_literal(ast, d) || !body_safe_default(ast, d, global_fns) {
         return None;
     }
     let ann_ok = p.type_ann.as_deref().is_none_or(|a| a.trim() == "any");
@@ -133,6 +146,35 @@ fn converting_default(ast: &Ast, p: &super::Param) -> Option<ExprId> {
         return None;
     }
     Some(d)
+}
+
+/// Splice the guard block into a function body. §15.8.4
+/// EvaluateAsyncFunctionBody steps 2-3: an abrupt completion from
+/// parameter instantiation REJECTS the async fn's promise instead
+/// of propagating synchronously. The async desugar wraps a body as
+/// exactly one `try { ... } catch (__async_err: any) { return
+/// Promise.reject(__async_err); }` (`build_async_body`, same shape
+/// for async class methods and async fn values), so guards for such
+/// a body go INSIDE that try; every other body takes the head
+/// splice. (Generators — sync AND async — are unaffected: their
+/// factory body is never async-wrapped, and instantiation abrupt
+/// completions there propagate synchronously per §27.3/§27.6.)
+fn splice_guards(body: &mut Vec<Stmt>, guards: Vec<Stmt>) {
+    let into_try = matches!(
+        &body[..],
+        [Stmt::Try {
+            catch_param: Some(p),
+            ..
+        }] if p == "__async_err"
+    );
+    if into_try {
+        let Stmt::Try { body: tb, .. } = &mut body[0] else {
+            unreachable!()
+        };
+        tb.splice(0..0, guards);
+    } else {
+        body.splice(0..0, guards);
+    }
 }
 
 /// See module doc. Walks every top-level FnDecl (all function forms
@@ -145,6 +187,18 @@ fn converting_default(ast: &Ast, p: &super::Param) -> Option<ExprId> {
 /// through with their defaults pasted into the caller's scope
 /// (`unknown identifier`, rotation 276).
 pub fn materialize_expr_defaults(ast: &mut Ast) {
+    // Top-level FnDecl names — pre-bound in the closed-fn-literal
+    // check so a reference to one (the t262 harness `Test262Error`
+    // shape) doesn't read as a capture. Same construction as
+    // `lift_arrow_fns`.
+    let global_fns: Vec<String> = ast
+        .stmts
+        .iter()
+        .filter_map(|s| match s {
+            Stmt::FnDecl { name, .. } => Some(name.clone()),
+            _ => None,
+        })
+        .collect();
     // Phase A — collect (stmt index, param index, param name,
     // default ExprId) for every converting param, immutably.
     let mut sites: Vec<(usize, usize, String, ExprId)> = Vec::new();
@@ -153,7 +207,7 @@ pub fn materialize_expr_defaults(ast: &mut Ast) {
             continue;
         };
         for (pi, p) in params.iter().enumerate() {
-            if let Some(d) = converting_default(ast, p) {
+            if let Some(d) = converting_default(ast, p, &global_fns) {
                 sites.push((si, pi, p.name.clone(), d));
             }
         }
@@ -164,7 +218,7 @@ pub fn materialize_expr_defaults(ast: &mut Ast) {
             continue;
         };
         for (pi, p) in params.iter().enumerate() {
-            if let Some(d) = converting_default(ast, p) {
+            if let Some(d) = converting_default(ast, p, &global_fns) {
                 arrow_sites.push((ei, pi, p.name.clone(), d));
             }
         }
@@ -204,7 +258,7 @@ pub fn materialize_expr_defaults(ast: &mut Ast) {
         let Stmt::FnDecl { body, .. } = &mut ast.stmts[si] else {
             unreachable!()
         };
-        body.splice(0..0, guards);
+        splice_guards(body, guards);
     }
     // Phase B' — same conversion for arrow-fn / fn-expression values
     // still living in the expr arena (nested arrows included: the
@@ -232,6 +286,6 @@ pub fn materialize_expr_defaults(ast: &mut Ast) {
                 params[pi].type_ann = Some("any".to_string());
             }
         }
-        body.splice(0..0, guards);
+        splice_guards(body, guards);
     }
 }
