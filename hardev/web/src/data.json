@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-01T06:35:58.824Z",
+  "generatedAt": "2026-08-01T08:37:27.409Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-01T06:33:22Z",
-    "headSha": "b33b3128",
-    "elapsedSec": 384.06,
+    "ranAt": "2026-08-01T08:36:10Z",
+    "headSha": "55c866dc",
+    "elapsedSec": 387.85,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 19465,
-    "passNoOracle": 556,
-    "passNegative": 3758,
-    "passTotal": 23779,
-    "bug": 11943,
-    "incompatible": 17452,
+    "pass": 19503,
+    "passNoOracle": 560,
+    "passNegative": 3764,
+    "passTotal": 23827,
+    "bug": 11910,
+    "incompatible": 17437,
     "bunSkip": 7467,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 35722,
-    "passRateInScope": 44.72,
-    "passRateTrAccepted": 66.57
+    "trAccepted": 35737,
+    "passRateInScope": 44.81,
+    "passRateTrAccepted": 66.67
   },
   "torajs": {
-    "commit": "fccc097f",
-    "commitSubject": "chore(docs,hardev): rotation 269 final census at b33b3128",
+    "commit": "0e74e0ff",
+    "commitSubject": "chore(docs,hardev): rotation 270 final census at e2f482ab",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,38 @@
   },
   "commits": [
     {
+      "hash": "0e74e0ff",
+      "subject": "chore(docs,hardev): rotation 270 final census at e2f482ab"
+    },
+    {
+      "hash": "e2f482ab",
+      "subject": "fix(core): array length writes join the may-throw analysis"
+    },
+    {
+      "hash": "1a98faa5",
+      "subject": "feat(core): generator methods route their real argv into arguments"
+    },
+    {
+      "hash": "e371c18d",
+      "subject": "feat(core): generator bodies capture the factory argv for arguments"
+    },
+    {
+      "hash": "3b3e7321",
+      "subject": "feat(core): single-owner class methods join the arguments static-argv face"
+    },
+    {
+      "hash": "945c273d",
+      "subject": "fix(core): bare arguments assignment exits every swapping face"
+    },
+    {
+      "hash": "32d372af",
+      "subject": "fix(core): arguments.length writes ride live length; shadowed fns exit tiers"
+    },
+    {
+      "hash": "55c866dc",
+      "subject": "chore(hardev): dashboard snapshot rotation 269 final"
+    },
+    {
       "hash": "fccc097f",
       "subject": "chore(docs,hardev): rotation 269 final census at b33b3128"
     },
@@ -727,59 +759,38 @@
     {
       "hash": "9aca7430",
       "subject": "feat(core,anyvalue): Math namespace object as a first-class value"
-    },
-    {
-      "hash": "d48ac1dc",
-      "subject": "feat(core): named top-level fns join the static-argv arguments face"
-    },
-    {
-      "hash": "a48f0525",
-      "subject": "feat(core): closure-value bare arguments escape rides the argv face"
-    },
-    {
-      "hash": "d7349ef0",
-      "subject": "feat(core): iife static-argv face — bare arguments escape resolves statically"
-    },
-    {
-      "hash": "77aeca80",
-      "subject": "chore(hardev): dashboard snapshot rotation 268 final"
-    },
-    {
-      "hash": "592a8dd2",
-      "subject": "chore(docs,hardev): rotation 268 final census at 49d94689"
-    },
-    {
-      "hash": "49d94689",
-      "subject": "perf(core,egraph): kill per-comparison allocs and per-probe hashing on wide-struct compiles"
-    },
-    {
-      "hash": "8fd94108",
-      "subject": "feat(core): Reflect.set with no-throw refusal semantics"
-    },
-    {
-      "hash": "88c66e0e",
-      "subject": "refactor(anyvalue): split member_set receiver arms and ns_static utils to siblings"
     }
   ],
-  "headSha": "fccc097f",
+  "headSha": "0e74e0ff",
   "autorun": {
-    "total": 573,
+    "total": 574,
     "baselineTarget": 10,
-    "bySelf": 568,
+    "bySelf": 569,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785559004-5abf",
-      "at": "2026-08-01T04:36:44Z",
-      "ts": 1785559004,
+      "rotationId": "r-1785566172-1f91",
+      "at": "2026-08-01T06:36:12Z",
+      "ts": 1785566172,
       "trigger": "self",
-      "prevHead": "77aeca80",
-      "handoffSha": "sha256:9bf8f0c12179cbd8ea3021eab0d954c331b314c54a0e2239995256f8edfab3dd",
-      "handoffAgeSec": 16,
+      "prevHead": "55c866dc",
+      "handoffSha": "sha256:47caecdba4ada4909b33848a040eafc808f89354f24abb1a8ae8bec5ff6c2521",
+      "handoffAgeSec": 32,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1785566172-1f91",
+        "at": "2026-08-01T06:36:12Z",
+        "ts": 1785566172,
+        "trigger": "self",
+        "prevHead": "55c866dc",
+        "handoffSha": "sha256:47caecdba4ada4909b33848a040eafc808f89354f24abb1a8ae8bec5ff6c2521",
+        "handoffAgeSec": 32,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785559004-5abf",
         "at": "2026-08-01T04:36:44Z",
@@ -876,17 +887,6 @@
         "prevHead": "b38532c1",
         "handoffSha": "sha256:c88679d189996168af484fb3bb9ad3b874308ba80f2b305c7963f94392f5a243",
         "handoffAgeSec": 1083,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1785466977-0dd2",
-        "at": "2026-07-31T03:02:57Z",
-        "ts": 1785466977,
-        "trigger": "self",
-        "prevHead": "03f668a1",
-        "handoffSha": "sha256:8140cca6009d4e86e73dea6d0818789b6d35718ef74045468166ff9641a4e65c",
-        "handoffAgeSec": 0,
         "conformanceBefore": null,
         "commitsInSession": null
       }
