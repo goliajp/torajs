@@ -57,6 +57,13 @@ pub(super) struct GenSm<'a> {
     /// hoisted catch-param slots). The driver appends these to
     /// `lifted_locals` so they become class fields.
     pub(super) hoisted: Vec<(String, String)>,
+    /// D3a — enclosing try/finally frames (innermost last). A
+    /// `return v` inside such a frame's try body must run F on the
+    /// way out: it stores v into the frame's slot and gotos the
+    /// frame's return-copy entry — whose state number isn't known
+    /// until the body finishes lowering, so the goto literal is a
+    /// placeholder ExprId patched by `lower_try_finally` afterwards.
+    pub(super) finally_ret: Vec<super::desugar_generators_sm_finally::FinallyRetFrame>,
     /// (continue_target, break_target, label) for each enclosing
     /// yield-loop. Yield-FREE inner loops emit inline — their
     /// break/continue keep their normal Stmt::Break / Stmt::Continue
@@ -87,6 +94,7 @@ impl<'a> GenSm<'a> {
             cur_buf: Vec::new(),
             regions: Vec::new(),
             hoisted: Vec::new(),
+            finally_ret: Vec::new(),
             loop_stack: Vec::new(),
             pending_label: None,
             yield_ty,
@@ -225,6 +233,12 @@ impl<'a> GenSm<'a> {
             // completed. Value routing mirrors `emit_yield_return`
             // (Default-Any generators box via `As any`).
             Stmt::Return(v) => {
+                // D3a — inside a try/finally frame the return routes
+                // through F's return copy instead of completing here.
+                if !self.finally_ret.is_empty() {
+                    self.emit_return_through_finally(v);
+                    return;
+                }
                 let obj = self.make_done_step(v);
                 self.cur_buf.push(Stmt::Return(Some(obj)));
             }

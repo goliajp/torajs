@@ -43,6 +43,18 @@ impl GenSm<'_> {
     pub(super) fn rewrite_nested_returns(&mut self, s: &mut Stmt) {
         match s {
             Stmt::Return(v) => {
+                // D3a — under a try/finally frame the return routes
+                // through F's return copy. Inline positions reached
+                // here are continue-safe by construction: the finally
+                // gate walker falls back on any return inside an
+                // inner loop before a frame ever goes live over it.
+                if !self.finally_ret.is_empty() {
+                    let val = v
+                        .take()
+                        .unwrap_or_else(|| self.ast.add_expr(Expr::Ident("undefined".into())));
+                    *s = Stmt::Block(self.build_finally_ret_stmts(val));
+                    return;
+                }
                 let obj = self.make_done_step(v.take());
                 *s = Stmt::Return(Some(obj));
             }

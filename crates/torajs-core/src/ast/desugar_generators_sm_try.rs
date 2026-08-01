@@ -13,6 +13,7 @@
 //! ES try semantics with zero extra bookkeeping.
 
 use super::desugar_generators_sm::{GenSm, RESUME_LOCAL};
+use super::desugar_generators_sm_finally::stmts_block_finally_region;
 use super::desugar_generators_sm_rewrite::stmt_contains_yield;
 use super::{Ast, BinOp, Expr, Stmt};
 
@@ -153,120 +154,6 @@ impl GenSm<'_> {
             slot,
         });
     }
-
-    /// D1 — `try { B } finally { F }` via finally duplication (the
-    /// javac lowering): one copy of F per exit path. Normal completion
-    /// runs the first copy and moves on; an exception from B routes
-    /// through the region to the second copy, which rethrows the
-    /// preserved exception after F completes. Both copies sit OUTSIDE
-    /// the region, so an exception inside F replaces the completion
-    /// and propagates (§14.13.3), and a `throw()` injected while
-    /// suspended at a yield inside F escapes without re-running F.
-    fn lower_try_finally(&mut self, body: Vec<Stmt>, f: Vec<Stmt>) {
-        let try_entry = self.alloc_state();
-        let mut g = self.emit_goto(try_entry);
-        self.cur_buf.append(&mut g);
-        self.flush_cur();
-
-        self.cur_state = try_entry;
-        self.lower_seq(body);
-        let region_end = self.arms.len() - 1;
-        // Normal copy gets its OWN entry state: B's tail otherwise
-        // shares its arm with F's first chunk, and with an empty B
-        // that arm IS the region — an exception inside F would
-        // wrongly route back to the exception copy and run F twice.
-        let fin_norm_entry = self.alloc_state();
-        let mut to_norm = self.emit_goto(fin_norm_entry);
-        self.cur_buf.append(&mut to_norm);
-        self.flush_cur();
-
-        self.cur_state = fin_norm_entry;
-        self.lower_seq(f.clone());
-        let fin_exc_entry = self.alloc_state();
-        let post = self.alloc_state();
-        let mut exit = self.emit_goto(post);
-        self.cur_buf.append(&mut exit);
-        self.flush_cur();
-
-        self.cur_state = fin_exc_entry;
-        let slot = format!("__caught{fin_exc_entry}");
-        self.hoisted.push((slot.clone(), "any".into()));
-        self.lower_seq(f);
-        let this_id = self.ast.add_expr(Expr::This);
-        let slot_read = self.ast.add_expr(Expr::Member {
-            obj: this_id,
-            name: slot.clone(),
-        });
-        self.cur_buf.push(Stmt::Throw(slot_read));
-        self.flush_cur();
-
-        self.cur_state = post;
-        self.regions.push(TryRegion {
-            start: try_entry,
-            end: region_end,
-            catch_entry: fin_exc_entry,
-            slot,
-        });
-    }
-}
-
-/// D1 gate — true when `stmts` contain something the finally-region
-/// lowering can't route: a `return` (unless `allow_return` — a return
-/// IN the finally body legitimately overrides the completion), a
-/// labeled jump (could escape the try at any depth), or a bare
-/// break/continue not owned by an inner loop. Conservative in the
-/// fallback direction: switch bodies count as escaping surface for
-/// bare jumps too (a bare `continue` inside switch escapes to the
-/// loop; distinguishing it from switch-owned `break` isn't worth the
-/// precision — fallback just keeps today's shape).
-fn stmts_block_finally_region(stmts: &[Stmt], allow_return: bool) -> bool {
-    fn walk(s: &Stmt, allow_return: bool, in_loop: bool) -> bool {
-        match s {
-            Stmt::Return(_) => !allow_return,
-            Stmt::Break(l) | Stmt::Continue(l) => l.is_some() || !in_loop,
-            Stmt::Block(ss) | Stmt::Multi(ss) => ss.iter().any(|x| walk(x, allow_return, in_loop)),
-            Stmt::If {
-                then_branch,
-                else_branch,
-                ..
-            } => {
-                walk(then_branch, allow_return, in_loop)
-                    || else_branch
-                        .as_deref()
-                        .is_some_and(|e| walk(e, allow_return, in_loop))
-            }
-            Stmt::Labeled { body, .. } => walk(body, allow_return, in_loop),
-            Stmt::While { body, .. }
-            | Stmt::DoWhile { body, .. }
-            | Stmt::ForOf { body, .. }
-            | Stmt::ForOfSplitIter { body, .. } => walk(body, allow_return, true),
-            Stmt::For { init, body, .. } => {
-                init.as_deref()
-                    .is_some_and(|i| walk(i, allow_return, in_loop))
-                    || walk(body, allow_return, true)
-            }
-            Stmt::Switch { cases, default, .. } => {
-                cases
-                    .iter()
-                    .any(|c| c.body.iter().any(|x| walk(x, allow_return, in_loop)))
-                    || default
-                        .as_ref()
-                        .is_some_and(|d| d.iter().any(|x| walk(x, allow_return, in_loop)))
-            }
-            Stmt::Try {
-                body,
-                catch_body,
-                finally_body,
-                ..
-            } => body
-                .iter()
-                .chain(catch_body.iter())
-                .chain(finally_body.iter().flatten())
-                .any(|x| walk(x, allow_return, in_loop)),
-            _ => false,
-        }
-    }
-    stmts.iter().any(|s| walk(s, allow_return, false))
 }
 
 /// Catch binding of the dispatch wrap. Unannotated ⇒ Any per P7.2b-2.
