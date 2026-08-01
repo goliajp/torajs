@@ -23,7 +23,7 @@
 use super::arguments_object_walkers::{
     body_has_arguments_length, body_has_non_length_arguments_touch,
 };
-use super::{Ast, Expr, Stmt};
+use super::{Ast, Expr, ExprId, Stmt};
 
 pub(super) fn devirtualize_fn_value_aliases(ast: &mut Ast) {
     use std::collections::{HashMap, HashSet};
@@ -67,18 +67,39 @@ pub(super) fn devirtualize_fn_value_aliases(ast: &mut Ast) {
             .filter(|&i| matches!(&ast.exprs[i as usize], Expr::Ident(n) if n == name))
             .collect();
         let mut call_sites: Vec<u32> = Vec::new();
-        for e in &ast.exprs {
+        let mut call_idxs: Vec<usize> = Vec::new();
+        for (ci, e) in ast.exprs.iter().enumerate() {
             if let Expr::Call { callee, .. } = e
                 && eids.contains(&callee.0)
             {
                 call_sites.push(callee.0);
+                call_idxs.push(ci);
             }
         }
         if eids.len() != call_sites.len() || call_sites.is_empty() {
             continue;
         }
-        for eid in call_sites {
-            ast.exprs[eid as usize] = Expr::Ident(target.clone());
+        // Knife 5 (rotation 273) — a `__this`-first target (a
+        // static-method forwarder: `__sm_<C>__<m>(__this: any, …)`)
+        // is called through the relay's PUBLIC face, which skips the
+        // receiver slot and feeds `undefined`. Bypassing the relay
+        // must do the same, or the first user argument lands in the
+        // receiver slot (probe: `ref(9, "z")` fed 9 into `__this`
+        // and dropped "z", and the shifted argc broke the static
+        // face's uniform vote next to a normal direct call).
+        let takes_this = ast.stmts.iter().any(|s| {
+            matches!(s, Stmt::FnDecl { name: n, params, .. }
+                if n == target && params.first().is_some_and(|p| p.name == "__this"))
+        });
+        let undef_args: Vec<ExprId> = call_idxs
+            .iter()
+            .map(|_| ast.add_expr(Expr::Ident("undefined".into())))
+            .collect();
+        for (k, eid) in call_sites.iter().enumerate() {
+            ast.exprs[*eid as usize] = Expr::Ident(target.clone());
+            if takes_this && let Expr::Call { args, .. } = &mut ast.exprs[call_idxs[k]] {
+                args.insert(0, undef_args[k]);
+            }
         }
         drop_idxs.push(*si);
     }

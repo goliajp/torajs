@@ -202,7 +202,13 @@ pub(super) fn collect_method_static_argv(ast: &Ast) -> std::collections::HashMap
         else {
             continue;
         };
-        if !name.starts_with("__cm_") {
+        // Knife 5 (rotation 273) — static-method forwarders
+        // (`__sm_<C>__<m>`, `__this: any` first, receiver is the
+        // class object / undefined) join too: a static generator
+        // method's forwarder carries the knife-2b `[...arguments]`
+        // tail, and without a face it folded to a statically empty
+        // argv (probe: `C.gm(42,'TC39')` answered length 0).
+        if !name.starts_with("__cm_") && !name.starts_with("__sm_") {
             continue;
         }
         if params.first().is_none_or(|p| p.name != "__this") {
@@ -211,11 +217,11 @@ pub(super) fn collect_method_static_argv(ast: &Ast) -> std::collections::HashMap
         if params.iter().any(|p| p.default.is_some() || p.is_rest) {
             continue;
         }
-        if ast
-            .method_owners
-            .iter()
-            .any(|(m, owners)| owners.iter().any(|o| name == &format!("__cm_{o}__{m}")))
-        {
+        if ast.method_owners.iter().any(|(m, owners)| {
+            owners
+                .iter()
+                .any(|o| name == &format!("__cm_{o}__{m}") || name == &format!("__sm_{o}__{m}"))
+        }) {
             continue;
         }
         if !body_has_non_length_arguments_touch(ast, body)
