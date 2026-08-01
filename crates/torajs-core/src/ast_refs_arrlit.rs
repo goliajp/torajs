@@ -11,15 +11,34 @@
 
 use crate::ast::{Ast, Expr, ExprId};
 
-/// `None` — keeping the binding main-local — for an empty literal
-/// (`[]` has no statically certain element type, at any depth), any
-/// non-literal element, or mixed element shapes. Integral and
-/// fractional Number literals unify to the wide `f64[]` slot at any
-/// shared nesting depth (storing f64 bits in an i64 slot reads back
-/// garbage; the reverse widens losslessly). Nested Array literals
-/// recurse (`[[1, 2], [3]]` → `number[][]` — the test262 matrix
-/// prelude shape).
+/// `None` — keeping the binding main-local — for any non-literal
+/// element or mixed element shapes. Integral and fractional Number
+/// literals unify to the wide `f64[]` slot at any shared nesting
+/// depth (storing f64 bits in an i64 slot reads back garbage; the
+/// reverse widens losslessly). Nested Array literals recurse
+/// (`[[1, 2], [3]]` → `number[][]` — the test262 matrix prelude
+/// shape).
+///
+/// A TOP-LEVEL empty literal (`var results = [];` — the test262
+/// collector idiom) has no statically certain element type, so it
+/// answers the wide `any[]` slot: every push boxes, reads are
+/// kind-aware, and the K.6 empty-array fast path (`arr_alloc_any`)
+/// mints the init. A NESTED empty literal still poisons its parent
+/// to `None` — `[[]]` as `any[][]` would claim elem certainty the
+/// outer spelling doesn't have.
 pub(crate) fn arrlit_literal_elem_ann(ast: &Ast, init: ExprId) -> Option<String> {
+    if let Expr::Array(elems) = ast.get_expr(init)
+        && elems.is_empty()
+    {
+        return Some("any[]".to_string());
+    }
+    arrlit_elem_ann_nonempty(ast, init)
+}
+
+/// The recursive body — nested levels come back here directly, so a
+/// nested empty literal answers `None` (poisons the parent) instead
+/// of the top-level `any[]` arm.
+fn arrlit_elem_ann_nonempty(ast: &Ast, init: ExprId) -> Option<String> {
     let Expr::Array(elems) = ast.get_expr(init) else {
         return None;
     };
@@ -37,7 +56,7 @@ pub(crate) fn arrlit_literal_elem_ann(ast: &Ast, init: ExprId) -> Option<String>
             .to_string(),
             Expr::String(_) => "string".to_string(),
             Expr::Bool(_) => "boolean".to_string(),
-            Expr::Array(_) => arrlit_literal_elem_ann(ast, *e)?,
+            Expr::Array(_) => arrlit_elem_ann_nonempty(ast, *e)?,
             _ => return None,
         };
         elem_ann = Some(match elem_ann {
