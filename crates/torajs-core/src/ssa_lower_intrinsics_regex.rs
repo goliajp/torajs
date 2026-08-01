@@ -49,6 +49,11 @@ pub(crate) struct RegexIds {
     /// the plain `regex_compile` — literal-time throw needs an
     /// entry-block-safe check shape (L3b).
     pub regex_compile_or_throw: FuncId,
+    /// §22.2.3.1 with boxed operands — a RegExp pattern copies
+    /// source (+ flags when flags is undefined); everything else
+    /// runs ToString (rotation 267; the RegExp call→construct
+    /// rewrite exposed non-Str patterns).
+    pub regex_compile_any: FuncId,
     pub regex_compile_from_static_dfa: FuncId,
     pub regex_test: FuncId,
     pub regex_drop: FuncId,
@@ -101,6 +106,13 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             fn_table,
             "__torajs_regex_compile_or_throw",
             &[Type::Str, Type::Str],
+            Type::RegExp,
+        ),
+        regex_compile_any: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_regex_compile_any",
+            &[Type::Any, Type::Any],
             Type::RegExp,
         ),
         regex_compile_from_static_dfa: declare_intrinsic(

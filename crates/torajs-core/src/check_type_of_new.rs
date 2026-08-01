@@ -304,19 +304,15 @@ fn check_regexp(checker: &mut Checker, ast: &Ast, args: &[ExprId]) -> Result<Typ
             args.len()
         ));
     }
-    for (i, arg) in args.iter().enumerate() {
-        let arg_ty = checker.type_of(ast, *arg)?;
-        if !is_assignable_to_resolved(
-            &Type::String,
-            &arg_ty,
-            &checker.class_structs,
-            &checker.aliases,
-            &checker.generic_alias_decls,
-        ) {
-            return Err(format!(
-                "`new RegExp(...)`: arg {i} must be string, got {arg_ty:?}"
-            ));
-        }
+    // §22.2.3.1 — the pattern domain is the whole value domain (a
+    // RegExp pattern copies source/flags per step 5, everything else
+    // runs ToString per step 6; the compile_any kernel dispatches at
+    // run time), and undefined flags default to the pattern's. The
+    // old String-only gate predates the RegExp(...)-as-function
+    // rewrite (rotation 267); it survives only as the argument-count
+    // check above.
+    for arg in args {
+        checker.type_of(ast, *arg)?;
     }
     Ok(Type::RegExp)
 }

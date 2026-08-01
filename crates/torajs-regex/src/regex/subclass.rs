@@ -111,8 +111,9 @@ pub unsafe extern "C" fn __torajs_regex_subclass_super(this_av: u64, pat_av: u64
     this_av
 }
 
-/// Decode a boxed value down to a live RegExp cell, else `None`.
-unsafe fn pattern_as_regex(v: u64) -> Option<*mut RegExp> {
+/// Decode a boxed value down to a live RegExp cell, else `None`
+/// (shared with the compile_any §22.2.3.1 entry).
+pub(crate) unsafe fn pattern_as_regex(v: u64) -> Option<*mut RegExp> {
     unsafe {
         let p = __torajs_anyv_cell_ptr(v) as *mut RegExp;
         if p.is_null() || (*p).header.type_tag != TAG_REGEX {

@@ -252,24 +252,31 @@ pub unsafe extern "C" fn __torajs_regex_compile_or_throw(
     flags_str: *const c_void,
 ) -> *mut c_void {
     let raw = unsafe { __torajs_regex_compile(pattern_str, flags_str) };
-    // `regex_compile` always returns a non-null RegExp (stub or
-    // valid). Peek at the rejected byte + src/flags to format a
-    // spec-shaped message when the parser rejected the pattern.
+    unsafe { throw_if_rejected(raw) };
+    raw
+}
+
+/// Shared rejected-pattern tail — `regex_compile` always returns a
+/// non-null RegExp (stub or valid); peek at the rejected byte +
+/// src/flags to record a spec-shaped SyntaxError when the parser
+/// rejected the pattern. Message shape mirrors bun/JSC: `Invalid
+/// regular expression: /<pattern>/<flags>`. The parser tracks a bool
+/// err flag only (no per-site reason), so tr's message omits the
+/// ": <reason>" trailer — sufficient to distinguish from other error
+/// kinds in user `try/catch` blocks. Flag-byte → letter mapping is
+/// [`flag_letters`] (ES §22.2.6.4 order — a deterministic canonical
+/// spelling for tests).
+///
+/// # Safety
+/// `raw` is NULL or a live RegExp cell.
+pub(crate) unsafe fn throw_if_rejected(raw: *mut c_void) {
     if raw.is_null() {
-        return raw;
+        return;
     }
     let re = unsafe { &*(raw as *const RegExp) };
     if re.rejected == 0 {
-        return raw;
+        return;
     }
-    // Message shape mirrors bun/JSC: `Invalid regular expression:
-    // /<pattern>/<flags>`. The parser tracks a bool err flag only
-    // (no per-site reason), so tr's message omits the ": <reason>"
-    // trailer — sufficient to distinguish from other error kinds
-    // in user `try/catch` blocks. Flag-byte → letter mapping mirrors
-    // `parse_flags` (bit-to-char inverse); iteration order is fixed
-    // to match ES §22.2.6.4 (`d g i m s u v y`), giving a
-    // deterministic canonical spelling for tests.
     let mut buf: Vec<u8> = Vec::with_capacity(32 + re.src_bytes.len() + 8);
     buf.extend_from_slice(b"Invalid regular expression: /");
     buf.extend_from_slice(&re.src_bytes);
@@ -280,7 +287,6 @@ pub unsafe extern "C" fn __torajs_regex_compile_or_throw(
         __torajs_throw_syntax_error(buf.as_ptr());
     }
     drop(buf);
-    raw
 }
 
 /// Flag byte → canonical letter spelling, ES §22.2.6.4 order

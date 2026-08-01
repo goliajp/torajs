@@ -393,30 +393,72 @@ fn lower_array_n(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
 
 fn lower_regexp(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
     let pat_op = ctx.lower_expr(args[0]);
-    let flag_op = if args.len() == 2 {
-        ctx.lower_expr(args[1])
+    let pat_ty = ctx.operand_ty(&pat_op);
+    let flag_info = if args.len() >= 2 {
+        let f = ctx.lower_expr(args[1]);
+        let fty = ctx.operand_ty(&f);
+        Some((f, fty))
     } else {
-        let flag_v = ctx.intern_string_literal("");
-        Operand::Value(flag_v)
+        None
     };
-    let cur_block = ctx.cur_block;
-    // `new RegExp(pat, flags)` goes through the throw-aware entry:
+    // `new RegExp(pat, flags)` goes through a throw-aware entry:
     // when the parser rejects the pattern (`[` / `(unbalanced` /
-    // `\u{ZZZ}` under `u` / etc.), `__torajs_regex_compile_or_throw`
-    // records a `SyntaxError` on the TLS pending-throw slot before
-    // returning the never-match stub. `emit_throw_check_owned` then
-    // propagates that pending throw as a catchable JS exception,
-    // dropping the stub RegExp on both catch and propagate branches
-    // so the ref never leaks. Literal `/pat/flags` in
-    // `ssa_lower_lit.rs` intentionally keeps calling plain
-    // `regex_compile` (its call is hoisted to `BlockId(0)` for LICM
-    // and needs an entry-block-safe throw-check shape — L3b).
-    let v = ctx.f.append_inst(
-        cur_block,
-        InstKind::Call(ctx.intrinsics.regex_compile_or_throw, vec![pat_op, flag_op]),
-        Type::RegExp,
-        None,
-    );
+    // `\u{ZZZ}` under `u` / etc.), the kernel records a `SyntaxError`
+    // on the TLS pending-throw slot before returning the never-match
+    // stub. `emit_throw_check_owned` then propagates that pending
+    // throw as a catchable JS exception, dropping the stub RegExp on
+    // both catch and propagate branches so the ref never leaks.
+    // Literal `/pat/flags` in `ssa_lower_lit.rs` intentionally keeps
+    // calling plain `regex_compile` (its call is hoisted to
+    // `BlockId(0)` for LICM and needs an entry-block-safe throw-check
+    // shape — L3b).
+    let str_fast = matches!(pat_ty, Type::Str)
+        && flag_info
+            .as_ref()
+            .is_none_or(|(_, t)| matches!(t, Type::Str));
+    let v = if str_fast {
+        let flag_op = match flag_info {
+            Some((f, _)) => f,
+            None => Operand::Value(ctx.intern_string_literal("")),
+        };
+        let cur_block = ctx.cur_block;
+        ctx.f.append_inst(
+            cur_block,
+            InstKind::Call(ctx.intrinsics.regex_compile_or_throw, vec![pat_op, flag_op]),
+            Type::RegExp,
+            None,
+        )
+    } else {
+        // §22.2.3.1 runtime-shaped operands (rotation 267; the
+        // RegExp call→construct rewrite exposed non-Str patterns —
+        // a RegExp-object pattern read as a Str cell SIGSEGV'd):
+        // both box to Any and the kernel dispatches per shape (a
+        // RegExp pattern copies source/flags, everything else runs
+        // ToString; absent flags ride an undefined box).
+        let pat_any = ctx.box_to_any_from_expr(args[0], pat_op);
+        let flag_any = match flag_info {
+            Some((f, _)) => ctx.box_to_any_from_expr(args[1], f),
+            None => {
+                let u = ctx.f.append_inst(
+                    ctx.cur_block,
+                    InstKind::Call(
+                        ctx.intrinsics.any_box,
+                        vec![Operand::ConstI64(5), Operand::ConstI64(0)],
+                    ),
+                    Type::Any,
+                    None,
+                );
+                Operand::Value(u)
+            }
+        };
+        let cur_block = ctx.cur_block;
+        ctx.f.append_inst(
+            cur_block,
+            InstKind::Call(ctx.intrinsics.regex_compile_any, vec![pat_any, flag_any]),
+            Type::RegExp,
+            None,
+        )
+    };
     ctx.emit_throw_check_owned(None, Operand::Value(v), Type::RegExp);
     Operand::Value(v)
 }

@@ -171,6 +171,7 @@ pub(crate) fn build(
         regexp_escape_any: init_b.regex.regexp_escape_any,
         regex_compile: init_b.regex.regex_compile,
         regex_compile_or_throw: init_b.regex.regex_compile_or_throw,
+        regex_compile_any: init_b.regex.regex_compile_any,
         regex_compile_from_static_dfa: init_b.regex.regex_compile_from_static_dfa,
         regex_test: init_b.regex.regex_test,
         regex_get_source: init_b.regex.regex_get_source,

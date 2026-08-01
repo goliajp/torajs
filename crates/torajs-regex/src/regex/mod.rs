@@ -25,6 +25,7 @@
 //! - [`split`] — `__torajs_str_split_regex`.
 
 mod compile;
+pub mod compile_any;
 pub mod compile_aot;
 pub mod escape;
 pub mod lifecycle;
