@@ -1,7 +1,7 @@
 //! Param-list early-error checks — split from `param_list.rs` when
 //! the untyped-rest implicit-`any[]` wedge pushed it past the
 //! 500-line limit (the rotation-227 watch predicted exactly this
-//! move). Two §15 early errors shared by every parameter-list
+//! move). Three §15 early errors shared by every parameter-list
 //! parser; the doc on each records the measured test262 cost of
 //! refusing more eagerly than the spec does.
 
@@ -106,6 +106,54 @@ impl<'a> Parser<'a> {
             if bound.contains(&name.as_str()) {
                 return Err(format!(
                     "`{name}` is declared in the body and is already a parameter, at {}",
+                    self.at()
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// ES §15.1.1 (mirrored for every other function form — arrow
+    /// §15.3.1, method §15.4.1, generator §15.5.1, async §15.8.1,
+    /// async generator §15.6.1, async arrow §15.9.1): it is a Syntax
+    /// Error if ContainsUseStrict of the body is true and
+    /// IsSimpleParameterList of the parameter list is false. The
+    /// directive would retroactively make the parameter initializers
+    /// strict code, so the spec refuses the combination outright.
+    ///
+    /// ContainsUseStrict looks only at this function's own directive
+    /// prologue — the leading run of string-literal expression
+    /// statements — never into nested bodies, which each get their own
+    /// call at their own parse site.
+    ///
+    /// Precision note: a Use Strict Directive is defined on the *source
+    /// text* (`"use strict"` is not one), but by the time the body
+    /// reaches us the lexer has cooked escapes away, so this compares
+    /// the cooked value. The divergence needs an escaped spelling AND a
+    /// non-simple parameter list in the same function — test262 has no
+    /// such case (its two escaped-directive cases are simple-param) and
+    /// real code has no reason to write one. Single-part template
+    /// literals collapse to `Expr::String` in the parser and are
+    /// caught here too; same reasoning.
+    pub(super) fn reject_use_strict_with_non_simple_params(
+        &self,
+        params: &[Param],
+        body: &[Stmt],
+    ) -> Result<(), String> {
+        let simple = params
+            .iter()
+            .all(|p| p.default.is_none() && !p.is_rest && !p.name.starts_with("__param_destr_"));
+        if simple {
+            return Ok(());
+        }
+        for s in body {
+            let Stmt::Expr(id) = s else { break };
+            let Expr::String(v) = &self.ast.exprs[id.0 as usize] else {
+                break;
+            };
+            if v == "use strict" {
+                return Err(format!(
+                    "`\"use strict\"` directive in a function with a non-simple parameter list at {}",
                     self.at()
                 ));
             }

@@ -256,6 +256,7 @@ impl<'a> Parser<'a> {
             }
         }
         self.reject_lexical_shadowing_param(&params, &destr_lets, &stmts)?;
+        self.reject_use_strict_with_non_simple_params(&params, &stmts)?;
         let destr_prefix = destr_lets.len();
         let stmts = if destr_lets.is_empty() {
             stmts
@@ -464,6 +465,7 @@ impl<'a> Parser<'a> {
             vec![Stmt::Return(Some(e))]
         };
         self.reject_lexical_shadowing_param(&params, &param_destr_lets, &body)?;
+        self.reject_use_strict_with_non_simple_params(&params, &body)?;
         // V3-18 wedge — prepend destr-param lets to the body, matching
         // the parse_fn wedge.
         let body = if param_destr_lets.is_empty() {

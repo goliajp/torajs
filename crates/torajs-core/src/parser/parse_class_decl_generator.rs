@@ -179,6 +179,7 @@ impl<'a> Parser<'a> {
         // of body statements, so the receiver parameter prepended below
         // does not enter into it.
         self.reject_lexical_shadowing_param(&params, &destr_lets, &body)?;
+        self.reject_use_strict_with_non_simple_params(&params, &body)?;
         let destr_prefix = destr_lets.len();
         let body = if destr_lets.is_empty() {
             body

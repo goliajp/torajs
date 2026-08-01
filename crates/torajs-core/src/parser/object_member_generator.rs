@@ -126,6 +126,7 @@ impl<'a> Parser<'a> {
         // entry the lets stay in the body and `__param_destr_N` resolves
         // against a field that was never created.
         self.reject_lexical_shadowing_param(&params, &destr_lets, &body)?;
+        self.reject_use_strict_with_non_simple_params(&params, &body)?;
         let destr_prefix = destr_lets.len();
         let body = if destr_lets.is_empty() {
             body
