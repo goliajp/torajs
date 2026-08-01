@@ -23,6 +23,7 @@ pub(crate) mod ast_desugar_builtin_new;
 pub(crate) mod ast_desugar_function_prototype_methods;
 pub(crate) mod ast_desugar_implicit_generics;
 pub(crate) mod ast_desugar_implicit_generics_closure;
+pub(crate) mod ast_desugar_promise_try;
 pub(crate) mod ast_desugar_regex_syntax_error;
 pub(crate) mod ast_early_redecl;
 pub(crate) mod ast_printer;

@@ -544,6 +544,13 @@ pub fn desugar_regex_syntax_error(ast: &mut Ast) {
     crate::ast_desugar_regex_syntax_error::run(ast);
 }
 
+/// ES2025 `Promise.try` — rewrites `Promise.try(f, ...args)` into an
+/// immediately-invoked try/catch arrow over the resolve/reject
+/// statics. See sibling module for the shape and ordering contract.
+pub fn desugar_promise_try(ast: &mut Ast) {
+    crate::ast_desugar_promise_try::run(ast);
+}
+
 /// Block / switch-CaseBlock redeclaration early errors — must run on
 /// the RAW post-parse AST (before generator / async / var-hoist
 /// desugars move one side of a conflict away). See sibling module.

@@ -219,6 +219,7 @@ fn compute_diagnostics(uri: &Uri, text: &str) -> Vec<Diagnostic> {
         torajs_core::ast::desugar_builtin_imports(&mut ast);
         torajs_core::ast::desugar_builtin_new(&mut ast);
         torajs_core::ast::desugar_regex_syntax_error(&mut ast);
+        torajs_core::ast::desugar_promise_try(&mut ast);
         if !ast.regex_parse_errors.is_empty() {
             return ast
                 .regex_parse_errors
