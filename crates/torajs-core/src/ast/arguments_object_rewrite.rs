@@ -214,8 +214,10 @@ pub(super) fn rewrite_arguments_in_expr(
                     // RFC 20260801 — IIFE static-argv face: the call
                     // site's exact arg count (NOT params.len(), which
                     // over-counts on an under-filled site and carries
-                    // the injected extras otherwise).
-                    ArgcMode::FoldTo(n) => {
+                    // the injected extras otherwise). The unmapped
+                    // face folds the same count — only element
+                    // aliasing differs (see the Index arm).
+                    ArgcMode::FoldTo(n) | ArgcMode::Unmapped(n) => {
                         return ast.add_expr(Expr::Number(n as f64));
                     }
                     // Length-write knife — reads AND writes ride the
@@ -266,7 +268,14 @@ pub(super) fn rewrite_arguments_in_expr(
                 if argc_mode == ArgcMode::KeepLoud {
                     return eid;
                 }
-                if let Expr::Number(n) = ast.get_expr(index)
+                // Unmapped face (default / rest / destructured
+                // params, ES §10.4.4.7) — `arguments[i]` never
+                // aliases the param: the literal-index substitution
+                // below would write through (`arguments[0] = 2`
+                // mutating `a`). Every index rides the materialized
+                // array instead.
+                if !matches!(argc_mode, ArgcMode::Unmapped(_))
+                    && let Expr::Number(n) = ast.get_expr(index)
                     && n.fract() == 0.0
                     && (*n as usize) < params.len()
                 {
@@ -304,7 +313,12 @@ pub(super) fn rewrite_arguments_in_expr(
         // consumer then treats as an ordinary array-like. Every other
         // mode leaves the node for the checker's loud reject.
         Expr::Ident(n) if n == "arguments" => {
-            if is_argv_fn || matches!(argc_mode, ArgcMode::FoldTo(_) | ArgcMode::LiveLength(_)) {
+            if is_argv_fn
+                || matches!(
+                    argc_mode,
+                    ArgcMode::FoldTo(_) | ArgcMode::LiveLength(_) | ArgcMode::Unmapped(_)
+                )
+            {
                 return ast.add_expr(Expr::Ident("__torajs_arguments".into()));
             }
             eid

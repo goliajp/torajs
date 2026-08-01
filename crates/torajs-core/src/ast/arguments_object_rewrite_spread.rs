@@ -24,9 +24,11 @@ fn spread_take(params: &[String], argc_mode: ArgcMode) -> usize {
 /// must read the LIVE materialized array (a length write may have
 /// grown or truncated it); inline-expanding the static prefix would
 /// answer the stale pre-write shape. The argv face already spreads
-/// the array for its own reason (beyond-declared values).
+/// the array for its own reason (beyond-declared values), and the
+/// unmapped face for element-write visibility (`arguments[0] = 2`
+/// must show in a later spread — params never alias).
 fn spread_rides_array(argc_mode: ArgcMode, is_argv_fn: bool) -> bool {
-    is_argv_fn || matches!(argc_mode, ArgcMode::LiveLength(_))
+    is_argv_fn || matches!(argc_mode, ArgcMode::LiveLength(_) | ArgcMode::Unmapped(_))
 }
 
 /// `f(...arguments)` — argv-face bodies swap the spread source to the

@@ -14,6 +14,7 @@
 //! `crate::ast::arguments_object_rewrite::rewrite_arguments_in_stmt`.
 
 use super::arguments_object_collect::{collect_value_argc, collect_value_argv};
+use super::arguments_object_inject::{inject_argc_params, prepend_static_argc};
 use super::arguments_object_static_argv::{
     collect_iife_static_argv, collect_method_static_argv, collect_named_static_argv,
     inject_iife_static_params,
@@ -23,7 +24,7 @@ use super::arguments_object_walkers::{
     body_has_arguments_length, body_has_arguments_length_write, body_has_bare_arguments_assign,
     body_has_non_length_arguments_touch, stmt_uses_dynamic_arguments,
 };
-use super::{Ast, Expr, Param, Stmt};
+use super::{Ast, Expr, Stmt};
 
 /// How `arguments.length` rewrites inside a given fn body (chunk 613).
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -55,6 +56,16 @@ pub(super) enum ArgcMode {
     /// `...arguments` spreads swap to the live array rather than
     /// inline-expanding a stale prefix.
     LiveLength(usize),
+    /// Unmapped-arguments knife (rotation 271, ES §10.4.4.6/7) — a
+    /// static-argv-face body whose fn carries a default / rest /
+    /// destructured param: such fns get an UNMAPPED arguments object,
+    /// so `arguments[i]` never aliases the param. The literal-index
+    /// param substitution (correct on the mapped face) wrote through
+    /// (`arguments[0] = 2` mutated `a` — test262 unmapped/via-params
+    /// family observed the param unchanged). Reads and writes both
+    /// ride the materialized `__torajs_arguments` array instead;
+    /// `arguments.length` still folds to the static argc like FoldTo.
+    Unmapped(usize),
     /// Leave the node alone so the checker rejects it loudly — a
     /// closure VALUE's real argc needs the ABI face (recorded);
     /// folding the declared arity would be silent-wrong.
@@ -141,7 +152,13 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
 
     let stmts_clone: Vec<Stmt> = ast.stmts.clone();
     for (idx, stmt) in stmts_clone.iter().enumerate() {
-        if let Stmt::FnDecl { name, body, .. } = stmt {
+        if let Stmt::FnDecl {
+            name,
+            params: decl_params,
+            body,
+            ..
+        } = stmt
+        {
             // A shadowed fn's `arguments` idents refer to its OWN
             // `var arguments` local — leave the body untouched (the
             // hoisted decl resolves them as an ordinary binding).
@@ -167,6 +184,12 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
                 // `.length` (see ArgcMode::LiveLength).
                 if body_has_arguments_length_write(ast, body) {
                     ArgcMode::LiveLength(n)
+                } else if decl_params.iter().any(|p| {
+                    p.default.is_some() || p.is_rest || p.name.starts_with("__param_destr_")
+                }) {
+                    // Default / rest / destructured params make the
+                    // arguments object UNMAPPED (see ArgcMode doc).
+                    ArgcMode::Unmapped(n)
                 } else {
                     ArgcMode::FoldTo(n)
                 }
@@ -194,7 +217,8 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
             // adapter's argv — beyond-declared values included);
             // named-fn bodies keep the declared-params builder,
             // gated on a dynamic use.
-            let mut needs_materialize = is_argv_fn || matches!(argc_mode, ArgcMode::LiveLength(_));
+            let mut needs_materialize =
+                is_argv_fn || matches!(argc_mode, ArgcMode::LiveLength(_) | ArgcMode::Unmapped(_));
             if !needs_materialize {
                 for s in body {
                     if stmt_uses_dynamic_arguments(ast, s) {
@@ -221,7 +245,9 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
                 // covered by the injected extras already in `params`;
                 // an under-filled site takes the leading argc params.
                 let take = match argc_mode {
-                    ArgcMode::FoldTo(n) | ArgcMode::LiveLength(n) => n.min(params.len()),
+                    ArgcMode::FoldTo(n) | ArgcMode::LiveLength(n) | ArgcMode::Unmapped(n) => {
+                        n.min(params.len())
+                    }
                     _ => params.len(),
                 };
                 Some(synth_arguments_local(ast, &params[..take]))
@@ -366,129 +392,4 @@ fn collect_iife_real_argc(
         }
     }
     (iife_real_argc, iife_call_sites)
-}
-
-/// T-31 — inject `__torajs_real_argc: number` at param[0] for each
-/// uses_real_argc fn. Done before the body-rewrite walk so the
-/// typechecker (which runs after desugar) sees the new signature
-/// and so the recursive `arguments.length` rewrite can resolve
-/// `Ident("__torajs_real_argc")` cleanly.
-fn inject_argc_params(
-    ast: &mut Ast,
-    uses_real_argc: &std::collections::HashSet<String>,
-    iife_real_argc: &std::collections::HashSet<String>,
-    value_real_argc: &std::collections::HashSet<String>,
-    value_argv_fns: &std::collections::HashSet<String>,
-) {
-    if uses_real_argc.is_empty()
-        && iife_real_argc.is_empty()
-        && value_real_argc.is_empty()
-        && value_argv_fns.is_empty()
-    {
-        return;
-    }
-    for s in ast.stmts.iter_mut() {
-        if let Stmt::FnDecl { name, params, .. } = s {
-            // Chunk 613 — IIFE closures put the synthetic param
-            // AFTER the hidden `__env` (first USER param slot);
-            // RFC 20260708 value-form closures share that slot.
-            let at = if iife_real_argc.contains(name)
-                || value_real_argc.contains(name)
-                || value_argv_fns.contains(name)
-            {
-                1
-            } else if uses_real_argc.contains(name) {
-                0
-            } else {
-                continue;
-            };
-            params.insert(
-                at,
-                Param {
-                    name: "__torajs_real_argc".into(),
-                    type_ann: Some("number".into()),
-                    default: None,
-                    is_rest: false,
-                },
-            );
-            // argv-face bodies also take the adapter's raw argv
-            // pointer right after the argc slot.
-            if value_argv_fns.contains(name) {
-                params.insert(
-                    at + 1,
-                    Param {
-                        name: "__torajs_argv".into(),
-                        type_ann: Some("__argvptr()".into()),
-                        default: None,
-                        is_rest: false,
-                    },
-                );
-            }
-        }
-    }
-}
-
-/// T-31 + chunk 613 — prepend the argc argument at static call
-/// sites: every direct-Ident call to a `uses_real_argc` top-level
-/// fn gets `Number(args.len())` as new arg[0], and each qualifying
-/// IIFE call site gets its static count (the closure's `__env` is
-/// not part of the Call args, so the count lands in the injected
-/// first-USER-param slot).
-fn prepend_static_argc(
-    ast: &mut Ast,
-    uses_real_argc: &std::collections::HashSet<String>,
-    iife_call_sites: Vec<usize>,
-) {
-    // T-31 — arena walk: every Call whose callee is a direct Ident to
-    // a uses_real_argc fn gets `Number(args.len())` prepended as new
-    // arg[0]. args.len() at this point is the user-passed count BEFORE
-    // T-28's trailing-undef pad runs in check.rs / ssa_lower. The
-    // checker sees the prepended arg, accepts the call (the remaining
-    // user params are all Any and qualify for T-28 pad), and ssa_lower
-    // lowers the prepended Number as ConstI64 matching the callee's
-    // `: number` first param.
-    if !uses_real_argc.is_empty() {
-        let n = ast.exprs.len();
-        for i in 0..n {
-            let (callee, args_clone) = match &ast.exprs[i] {
-                Expr::Call { callee, args } => (*callee, args.clone()),
-                _ => continue,
-            };
-            let name = match ast.get_expr(callee) {
-                Expr::Ident(n) => n.clone(),
-                _ => continue,
-            };
-            if !uses_real_argc.contains(&name) {
-                continue;
-            }
-            let argc = args_clone.len();
-            let argc_lit = ast.add_expr(Expr::Number(argc as f64));
-            let mut new_args = Vec::with_capacity(argc + 1);
-            new_args.push(argc_lit);
-            new_args.extend(args_clone);
-            ast.exprs[i] = Expr::Call {
-                callee,
-                args: new_args,
-            };
-        }
-    }
-
-    // Chunk 613 — prepend the static argc at each qualifying IIFE
-    // call site (the closure's `__env` is not part of the Call args,
-    // so the count lands in the injected first-USER-param slot).
-    for i in iife_call_sites {
-        let Expr::Call { callee, args } = &ast.exprs[i] else {
-            continue;
-        };
-        let callee = *callee;
-        let args_clone = args.clone();
-        let argc_lit = ast.add_expr(Expr::Number(args_clone.len() as f64));
-        let mut new_args = Vec::with_capacity(args_clone.len() + 1);
-        new_args.push(argc_lit);
-        new_args.extend(args_clone);
-        ast.exprs[i] = Expr::Call {
-            callee,
-            args: new_args,
-        };
-    }
 }
