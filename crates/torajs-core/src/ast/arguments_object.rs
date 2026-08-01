@@ -14,6 +14,9 @@
 //! `crate::ast::arguments_object_rewrite::rewrite_arguments_in_stmt`.
 
 use super::arguments_object_collect::{collect_value_argc, collect_value_argv};
+use super::arguments_object_static_argv::{
+    collect_iife_static_argv, collect_named_static_argv, inject_iife_static_params,
+};
 use super::arguments_object_walkers::{
     body_has_arguments_length, body_has_non_length_arguments_touch, stmt_uses_dynamic_arguments,
     synth_arguments_local, synth_arguments_local_argv,
@@ -49,14 +52,25 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
     let (mut fn_params, uses_real_argc, env_fns) = snapshot_fn_params(ast);
     let (iife_real_argc, iife_call_sites) = collect_iife_real_argc(ast);
 
-    // RFC 20260801-arguments-escape-face knife 1 — IIFE static-argv
+    // RFC 20260801-arguments-escape-face knives 1+3a — static-argv
     // face: any non-length arguments touch (index / spread / bare
-    // escape) inside an IIFE resolves fully statically from its
-    // single call site. Injects trailing `__torajs_iife_extra_*: any`
-    // params so over-arity args reach the body, and extends the
-    // rewrite param table to match.
-    let iife_static_argv = collect_iife_static_argv(ast, &iife_real_argc);
+    // escape) resolves fully statically when every call site is
+    // known and passes the same arg count: an IIFE's single site
+    // (knife 1), or a top-level named fn whose every reference is a
+    // direct call with one uniform argc (knife 3a). Injects trailing
+    // `__torajs_static_extra_*: any` params so over-arity args reach
+    // the body, and extends the rewrite param table to match.
+    let mut static_argv = collect_iife_static_argv(ast, &iife_real_argc);
+    static_argv.extend(collect_named_static_argv(ast, &env_fns));
+    let iife_static_argv = static_argv;
     inject_iife_static_params(ast, &iife_static_argv, &mut fn_params);
+    // A named fn admitted to the static face must leave the T-31
+    // real-argc tier (param injection + call-site argc prepend would
+    // double-reshape its signature).
+    let uses_real_argc: std::collections::HashSet<String> = uses_real_argc
+        .into_iter()
+        .filter(|n| !iife_static_argv.contains_key(n))
+        .collect();
 
     // RFC 20260708-closure-argc-abi chunk 1 — closure VALUE form
     // seed + binding safety walk (see collect_value_argc).
@@ -258,81 +272,6 @@ fn collect_iife_real_argc(ast: &Ast) -> (std::collections::HashSet<String>, Vec<
         }
     }
     (iife_real_argc, iife_call_sites)
-}
-
-/// RFC 20260801-arguments-escape-face knife 1 — collect IIFEs whose
-/// body touches `arguments` in any non-length form. The single call
-/// site makes the whole argv static: `fn name → call-site arg count`.
-/// A fn spotted at two call sites is skipped defensively (lifted
-/// IIFE closures have exactly one; two means this isn't the shape we
-/// think it is — over-kill only loses the admit, never wrong).
-fn collect_iife_static_argv(
-    ast: &Ast,
-    iife_real_argc: &std::collections::HashSet<String>,
-) -> std::collections::HashMap<String, usize> {
-    use std::collections::{HashMap, HashSet};
-    let mut argc: HashMap<String, usize> = HashMap::new();
-    let mut dup: HashSet<String> = HashSet::new();
-    for e in &ast.exprs {
-        let Expr::Call { callee, args } = e else {
-            continue;
-        };
-        let Expr::Closure { fn_name, .. } = ast.get_expr(*callee) else {
-            continue;
-        };
-        if argc.insert(fn_name.clone(), args.len()).is_some() {
-            dup.insert(fn_name.clone());
-        }
-    }
-    for d in &dup {
-        argc.remove(d);
-    }
-    argc.retain(|name, _| {
-        !iife_real_argc.contains(name)
-            && ast.stmts.iter().any(|s| {
-                matches!(s, Stmt::FnDecl { name: n, body, .. }
-                    if n == name && body_has_non_length_arguments_touch(ast, body))
-            })
-    });
-    argc
-}
-
-/// RFC 20260801 knife 1 — append `__torajs_iife_extra_i: any` params
-/// to each static-argv IIFE whose call site passes more args than
-/// declared, so the over-arity values reach the body (instead of the
-/// direct-call trailing-ignore drop). The rewrite param table gets
-/// the same names so `arguments[<literal>]` and the materialized
-/// array resolve them like any declared param.
-fn inject_iife_static_params(
-    ast: &mut Ast,
-    iife_static_argv: &std::collections::HashMap<String, usize>,
-    fn_params: &mut std::collections::HashMap<String, Vec<String>>,
-) {
-    if iife_static_argv.is_empty() {
-        return;
-    }
-    for s in ast.stmts.iter_mut() {
-        if let Stmt::FnDecl { name, params, .. } = s
-            && let Some(&n) = iife_static_argv.get(name)
-        {
-            let Some(user_params) = fn_params.get_mut(name) else {
-                continue;
-            };
-            // Name embeds the (unique) lifted-closure fn name: a
-            // plain `__torajs_iife_extra_{i}` collides ACROSS
-            // closures in any name-keyed downstream analysis.
-            for i in 0..n.saturating_sub(user_params.len()) {
-                let extra = format!("__torajs_iife_extra_{name}_{i}");
-                params.push(Param {
-                    name: extra.clone(),
-                    type_ann: Some("any".into()),
-                    default: None,
-                    is_rest: false,
-                });
-                user_params.push(extra);
-            }
-        }
-    }
 }
 
 /// T-31 — inject `__torajs_real_argc: number` at param[0] for each
