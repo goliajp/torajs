@@ -38,6 +38,7 @@ mod desugar_classes_pass3;
 mod desugar_classes_statics;
 mod desugar_classes_super;
 mod desugar_generators;
+mod desugar_generators_assemble;
 mod desugar_generators_class;
 mod desugar_generators_forof;
 mod desugar_generators_methods;
