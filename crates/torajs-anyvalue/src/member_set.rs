@@ -27,9 +27,7 @@
 
 use core::ffi::c_void;
 
-use torajs_rc::{ANY_RPROP_LAST_INDEX, ANY_WPROP_ARR_LENGTH, FLAG_NON_EXTENSIBLE, Tag};
-
-use crate::member_set_wrapper::{reject_non_extensible, strwrapper_own_domain_key};
+use torajs_rc::{ANY_RPROP_LAST_INDEX, Tag};
 
 use crate::nanbox::{AnyValue, as_void_ptr, is_cell};
 use crate::nanbox_encode::__torajs_anyv_box_from_pair;
@@ -43,27 +41,15 @@ unsafe extern "C" {
     fn __torajs_anyv_proto_member_set(obj: u64, proto: u64);
     /// torajs-dynobj — realloc-on-grow set; the slot receives the
     /// possibly-relocated block pointer.
-    fn __torajs_dynobj_set(obj_slot: *mut *mut c_void, key: *mut c_void, tag: u64, value: u64);
-    /// torajs-arr — expando write through the lazily-allocated
-    /// props dynobj.
-    fn __torajs_arrprops_set(arr_ptr: *mut c_void, key: *const c_void, tag: i64, value: i64);
-    /// torajs-arr — §10.4.2.4 length setter (ToUint32 validate +
-    /// real resize) for the dynamic-string-key `o[k] = v` form.
-    fn __torajs_arr_set_length_any(arr: *mut c_void, tag: i64, value: i64);
-    /// torajs-arr — kind-aware element store (consumes a tag-4 rc).
-    fn __torajs_arr_index_set(arr: *mut c_void, idx: i64, tag: u64, value: u64);
-    /// torajs-arr — per-index attribute flags (RFC
-    /// 20260712-arr-exotic-define chunk C writable gate).
-    fn __torajs_arr_index_flags(arr: *const c_void, idx: u64) -> u64;
-    /// torajs-arr — the index's AccessorPair, NULL when not an
-    /// accessor (RFC 20260713 chunk C).
-    fn __torajs_arr_index_accessor(arr: *const c_void, idx: u64) -> *mut c_void;
+    pub(crate) fn __torajs_dynobj_set(
+        obj_slot: *mut *mut c_void,
+        key: *mut c_void,
+        tag: u64,
+        value: u64,
+    );
     /// torajs-dynobj — setter dispatch; `0` = getter-only accessor.
     fn __torajs_accessor_invoke_setter(pair: *const c_void, recv_anyv: u64, value_anyv: u64)
     -> i32;
-    /// torajs-arr — re-create a deleted index as a default data
-    /// property (hole revive, RFC 20260713 chunk C).
-    fn __torajs_arr_index_revive(arr: *mut c_void, key: *mut c_void);
     /// torajs-regex — `re.lastIndex` setter.
     fn __torajs_regex_set_last_index(re: *mut c_void, idx: f64);
     /// torajs-regex — verbatim non-numeric lastIndex store (§22.2.4.1
@@ -72,12 +58,12 @@ unsafe extern "C" {
     fn __torajs_regex_last_index_store_boxed(re: *mut c_void, v: u64);
     /// torajs-dynobj — fresh empty table for the first closure
     /// expando write.
-    fn __torajs_dynobj_alloc() -> *mut c_void;
+    pub(crate) fn __torajs_dynobj_alloc() -> *mut c_void;
     /// torajs-dynobj — probe whether a key already lives in the
     /// entry table (1 = live entry). Used by the wrapper
     /// `[[Extensible]] = false` gate to distinguish new-key writes
     /// (throw) from updates (allowed).
-    fn __torajs_dynobj_has(obj: *const c_void, key: *const c_void) -> i32;
+    pub(crate) fn __torajs_dynobj_has(obj: *const c_void, key: *const c_void) -> i32;
     /// torajs-dynobj — chain-entry probes for the §10.1.9.2 walk
     /// (tag distinguishes an AccessorPair entry; flags carry the
     /// packed W/E/C bits, bit 0 = writable).
@@ -111,15 +97,6 @@ unsafe fn reject(tag: u64, value: u64) {
 /// a live Str cell; blade 7 reads its bytes to resolve the accessor).
 pub(crate) const STR_LEN_OFF: usize = 8;
 pub(crate) const STR_DATA_OFF: usize = 16;
-
-/// Closure-cell lazy props slot — mirror of torajs-core
-/// `ssa_lower.rs::CLOSURE_PROPS_OFF`.
-const MEMBER_SET_CLOSURE_PROPS_OFF: usize = 24;
-
-/// Number/String/Boolean-wrapper lazy props slot — mirror of
-/// `torajs-wrapper::WRAPPER_PROPS_OFF` (RFC 20260716 刀 5, rotation
-/// 121). Every wrapper cell layout is `[header:8][value:8][props:8]`.
-const MEMBER_SET_WRAPPER_PROPS_OFF: usize = 16;
 
 /// §10.1.9.2 OrdinarySet — an own miss consults the user
 /// [[Prototype]] chain (RFC 20260721 候补刀): an inherited accessor
@@ -251,59 +228,6 @@ unsafe fn set_dynobj_member(
     }
 }
 
-/// `Tag::Arr` receiver — RFC 20260712-arr-exotic-define chunk C
-/// own-domain routing, so an index key reaches element storage
-/// instead of landing in the expando dynobj.
-unsafe fn set_arr_member(ptr: *mut c_void, key: *mut c_void, tag: u64, value: u64, hint: i64) {
-    unsafe {
-        // RFC 20260712-arr-exotic-define chunk C — own-domain
-        // routing for the dynamic string key. Pre-fix every
-        // `o[k] = v` landed in the expando dynobj: an index key
-        // never reached element storage (the write "succeeded"
-        // but reads answered the old element), and a "length"
-        // key missed the resize path.
-        if hint == ANY_WPROP_ARR_LENGTH || crate::prop_has::key_is(key, b"length") {
-            __torajs_arr_set_length_any(ptr, tag as i64, value as i64);
-            return;
-        }
-        if let Some(idx) = crate::prop_has::canonical_index(key) {
-            // An accessor index writes through its setter (RFC
-            // 20260713 chunk C) — checked before the writable
-            // gate, which would misread the pair entry's dead w
-            // bit as a readonly data property.
-            let pair = __torajs_arr_index_accessor(ptr, idx);
-            if !pair.is_null() {
-                let value_anyv = __torajs_anyv_box_from_pair(tag as i64, value as i64);
-                let recv_anyv = __torajs_anyv_box_from_pair(4, ptr as i64);
-                if __torajs_accessor_invoke_setter(pair, recv_anyv, value_anyv) == 0 {
-                    __torajs_throw_type_error(
-                        c"Attempted to assign to readonly property.".as_ptr(),
-                    );
-                }
-                return;
-            }
-            let flags = __torajs_arr_index_flags(ptr, idx);
-            if flags & crate::prop_has::ARR_F_HOLE != 0 {
-                // A deleted index is absent — the set re-creates
-                // it as a fresh default data property (chunk C;
-                // the shadow upsert clears the hole sentinel).
-                __torajs_arr_index_set(ptr, idx as i64, tag, value);
-                __torajs_arr_index_revive(ptr, key as *mut c_void);
-                return;
-            }
-            if flags & 0x1 == 0 {
-                drop_payload(tag, value);
-                __torajs_throw_type_error(c"Attempted to assign to readonly property.".as_ptr());
-                return;
-            }
-            __torajs_arr_index_set(ptr, idx as i64, tag, value);
-            return;
-        }
-        __torajs_arrprops_set(ptr, key, tag as i64, value as i64);
-        return;
-    }
-}
-
 /// intern: `ANY_RPROP_LAST_INDEX` for `lastIndex`,
 /// `ANY_WPROP_ARR_LENGTH` for `length`, −1 otherwise.
 ///
@@ -367,47 +291,7 @@ pub unsafe extern "C" fn __torajs_any_member_set(
             return;
         }
         if cell_tag == Tag::Closure as u16 {
-            // chunk C (RFC 20260711) — ES §20.2.4 `name` / `length`
-            // are non-writable; tr programs are module-strict so the
-            // assign throws (bun: "Attempted to assign to readonly
-            // property."). Unconditional even after a delete — the
-            // set then walks to `Function.prototype`'s own
-            // non-writable pair and refuses the same way (bun
-            // parity); recreates go through defineProperty (a
-            // recorded follow-up).
-            if crate::prop_has::key_is(key, b"name") || crate::prop_has::key_is(key, b"length") {
-                drop_payload(tag, value);
-                __torajs_throw_type_error(c"Attempted to assign to readonly property.".as_ptr());
-                return;
-            }
-            // §22.1.2.4 family — a builtin ctor cell's `prototype`
-            // is {[[Writable]]: false} (RFC 20260721 刀 11 G11); an
-            // ordinary closure keeps its writable prototype expando.
-            if crate::prop_has::key_is(key, b"prototype")
-                && crate::method_value::ctor::ctor_tag_of_cell(ptr).is_some()
-            {
-                drop_payload(tag, value);
-                __torajs_throw_type_error(c"Attempted to assign to readonly property.".as_ptr());
-                return;
-            }
-            // §6.1.5.1 — the Symbol ctor's well-known data statics
-            // are {writable: false}; module-strict assign throws
-            // (RFC 20260722 刀 2).
-            if crate::method_value::symbol_static::is_wellknown_on_symbol_ctor(ptr, key) {
-                drop_payload(tag, value);
-                __torajs_throw_type_error(c"Attempted to assign to readonly property.".as_ptr());
-                return;
-            }
-            let props_slot = ptr.cast::<u8>().add(MEMBER_SET_CLOSURE_PROPS_OFF) as *mut u64;
-            let mut props = *props_slot as *mut c_void;
-            if props.is_null() {
-                props = __torajs_dynobj_alloc();
-            }
-            __torajs_dynobj_set(&mut props, key, tag, value);
-            // First-write alloc and resize relocation both land the
-            // fresh table back in the +24 slot; the closure cell
-            // itself never moves.
-            *props_slot = props as u64;
+            crate::member_set_closure::set_closure_member(ptr, key, tag, value);
             return;
         }
         // RFC 20260714-objlit-accessor blade 7 — a struct accessor's
@@ -439,59 +323,18 @@ pub unsafe extern "C" fn __torajs_any_member_set(
             }
         }
         if cell_tag == Tag::Arr as u16 {
-            set_arr_member(ptr, key, tag, value, hint);
+            crate::member_set_arr::set_arr_member(ptr, key, tag, value, hint);
             return;
         }
         // RFC 20260716 刀 5 (rotation 121 chunk 4) — a primitive-
         // wrapper receiver (`new Number()` / `new String()` /
-        // `new Boolean()`) grew a `+16` lazy props slot; the first
-        // `wrap.foo = X` allocates a fresh dynobj, subsequent sets
-        // resize-relocate the same slot. Mirror of the closure-cell
-        // path above — no cell-identity move (only the props slot's
-        // stored pointer moves on grow). Unlocks the test262
-        // `Object.create` primitive-wrapper mutation cluster and the
-        // broader `wrap.foo = ...` face that was previously TypeErr.
+        // `new Boolean()`) grew a `+16` lazy props slot; arm body in
+        // [`crate::member_set_wrapper::set_wrapper_member`].
         if cell_tag == Tag::NumberWrapper as u16
             || cell_tag == Tag::StringWrapper as u16
             || cell_tag == Tag::BooleanWrapper as u16
         {
-            // §10.4.3 String Exotic — `"length"` and the in-range
-            // code-unit indices are non-writable own properties:
-            // [[Set]] answers false and strict assignment turns
-            // that into a TypeError (§13.15.2; bun throws). The
-            // pre-fix store landed in the expando dynobj, so the
-            // dynamic-key read handed back the shadow value and
-            // test262's isWritable probe saw a writable length.
-            if cell_tag == Tag::StringWrapper as u16 && strwrapper_own_domain_key(ptr, key) {
-                drop_payload(tag, value);
-                __torajs_throw_type_error(c"Attempted to assign to readonly property.".as_ptr());
-                return;
-            }
-            let props_slot = ptr.cast::<u8>().add(MEMBER_SET_WRAPPER_PROPS_OFF) as *mut u64;
-            let mut props = *props_slot as *mut c_void;
-            // §10.1.5.1 [[Set]] on a non-extensible wrapper rejects new
-            // keys. The wrapper cell owns the `FLAG_NON_EXTENSIBLE`
-            // bit (set by `Object.preventExtensions(w)`), not the
-            // expando dynobj it lazily allocates — so `dynobj_set`'s
-            // own gate can't cover this; check the wrapper header
-            // directly here. Update to an existing expando key
-            // (`w.foo = 2` after `w.foo = 1; preventExtensions(w)`)
-            // stays allowed — matches bun-parity, mirror of the
-            // dynobj_set / dynobj_define gates.
-            let wrapper_flags = *(ptr.cast::<u8>().add(6) as *const u16);
-            if wrapper_flags & FLAG_NON_EXTENSIBLE != 0 {
-                let key_present = !props.is_null()
-                    && __torajs_dynobj_has(props as *const c_void, key as *const c_void) != 0;
-                if !key_present {
-                    reject_non_extensible(tag, value);
-                    return;
-                }
-            }
-            if props.is_null() {
-                props = __torajs_dynobj_alloc();
-            }
-            __torajs_dynobj_set(&mut props, key, tag, value);
-            *props_slot = props as u64;
+            crate::member_set_wrapper::set_wrapper_member(ptr, cell_tag, key, tag, value);
             return;
         }
         reject(tag, value);

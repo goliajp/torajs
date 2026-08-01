@@ -1,0 +1,67 @@
+//! `Tag::Closure` receiver arm of [`crate::member_set`] — the
+//! non-writable reflection pair (§20.2.4 `name` / `length`), the
+//! builtin-ctor `prototype` lock (§22.1.2.4 family) and the lazy
+//! `+24` expando props slot. Split out of `member_set.rs` (rotation
+//! 268 — Reflect.set 参数化前的余量腾挪, mechanical move).
+
+use core::ffi::c_void;
+
+use crate::member_set::{
+    __torajs_dynobj_alloc, __torajs_dynobj_set, __torajs_throw_type_error, drop_payload,
+};
+
+/// Closure-cell lazy props slot — mirror of torajs-core
+/// `ssa_lower.rs::CLOSURE_PROPS_OFF`.
+const MEMBER_SET_CLOSURE_PROPS_OFF: usize = 24;
+
+/// `Tag::Closure` receiver — chunk C (RFC 20260711) reflection-pair
+/// refusals plus the lazy expando write.
+///
+/// # Safety
+/// `ptr` is a live `Tag::Closure` cell; `key` is a live Str cell;
+/// `(tag, value)` carries the caller's +1 on heap payloads.
+pub(crate) unsafe fn set_closure_member(ptr: *mut c_void, key: *mut c_void, tag: u64, value: u64) {
+    unsafe {
+        // chunk C (RFC 20260711) — ES §20.2.4 `name` / `length`
+        // are non-writable; tr programs are module-strict so the
+        // assign throws (bun: "Attempted to assign to readonly
+        // property."). Unconditional even after a delete — the
+        // set then walks to `Function.prototype`'s own
+        // non-writable pair and refuses the same way (bun
+        // parity); recreates go through defineProperty (a
+        // recorded follow-up).
+        if crate::prop_has::key_is(key, b"name") || crate::prop_has::key_is(key, b"length") {
+            drop_payload(tag, value);
+            __torajs_throw_type_error(c"Attempted to assign to readonly property.".as_ptr());
+            return;
+        }
+        // §22.1.2.4 family — a builtin ctor cell's `prototype`
+        // is {[[Writable]]: false} (RFC 20260721 刀 11 G11); an
+        // ordinary closure keeps its writable prototype expando.
+        if crate::prop_has::key_is(key, b"prototype")
+            && crate::method_value::ctor::ctor_tag_of_cell(ptr).is_some()
+        {
+            drop_payload(tag, value);
+            __torajs_throw_type_error(c"Attempted to assign to readonly property.".as_ptr());
+            return;
+        }
+        // §6.1.5.1 — the Symbol ctor's well-known data statics
+        // are {writable: false}; module-strict assign throws
+        // (RFC 20260722 刀 2).
+        if crate::method_value::symbol_static::is_wellknown_on_symbol_ctor(ptr, key) {
+            drop_payload(tag, value);
+            __torajs_throw_type_error(c"Attempted to assign to readonly property.".as_ptr());
+            return;
+        }
+        let props_slot = ptr.cast::<u8>().add(MEMBER_SET_CLOSURE_PROPS_OFF) as *mut u64;
+        let mut props = *props_slot as *mut c_void;
+        if props.is_null() {
+            props = __torajs_dynobj_alloc();
+        }
+        __torajs_dynobj_set(&mut props, key, tag, value);
+        // First-write alloc and resize relocation both land the
+        // fresh table back in the +24 slot; the closure cell
+        // itself never moves.
+        *props_slot = props as u64;
+    }
+}

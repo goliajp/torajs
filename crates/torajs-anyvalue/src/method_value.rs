@@ -79,6 +79,7 @@ pub(crate) mod symbol_static;
 mod ns_static_obj;
 mod ns_static_reflect;
 mod ns_static_table;
+mod ns_static_util;
 // rotation-197 file-size sweep — per-receiver support table split.
 mod supported;
 pub(crate) use supported::builtin_method_supported;
