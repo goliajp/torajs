@@ -84,12 +84,13 @@ pub(super) fn collect_named_static_argv(
             crate::ast_collect_bindings::collect_local_binding_names(body, &mut fn_local_names);
         }
     }
+    let fwd_sites = forwarder_call_callee_eids(ast);
     let mut out: HashMap<String, usize> = HashMap::new();
     for name in cand {
         if fn_local_names.contains(&name) {
             continue;
         }
-        if let Some(n) = uniform_direct_call_argc(ast, &name, 0) {
+        if let Some(n) = uniform_direct_call_argc(ast, &name, 0, &fwd_sites) {
             out.insert(name, n);
         }
     }
@@ -101,7 +102,24 @@ pub(super) fn collect_named_static_argv(
 /// pass ONE uniform user arg count. `this_slots` leading args are
 /// excluded from the count — 1 for `__cm_` methods (the pass-2
 /// rewrite carries the receiver at arg[0]), 0 for plain named fns.
-fn uniform_direct_call_argc(ast: &Ast, name: &str, this_slots: usize) -> Option<usize> {
+///
+/// `fwd_sites` — Call callee eids inside synthesized `__forward_*`
+/// bodies (see `forwarder_call_callee_eids`). A value escape
+/// (`var ref = C.method`) reroutes through such a forwarder, whose
+/// declared-arity relay call would otherwise break the uniform-argc
+/// gate for every escaped fn. The relay is a direct call (legal),
+/// but not a USER site: it stays out of the argc vote. Escape calls
+/// through the forwarder pad missing trailing params (injected
+/// extras included) with undefined — memory-safe, wrong-at-parity
+/// with the pre-face FoldArity answer (test262
+/// cls-*-meth-static-args-trailing-comma family stores the escape
+/// without calling it).
+fn uniform_direct_call_argc(
+    ast: &Ast,
+    name: &str,
+    this_slots: usize,
+    fwd_sites: &std::collections::HashSet<u32>,
+) -> Option<usize> {
     use std::collections::HashSet;
     let eids: HashSet<u32> = (0..ast.exprs.len() as u32)
         .filter(|&i| matches!(&ast.exprs[i as usize], Expr::Ident(n) if n == name))
@@ -116,7 +134,9 @@ fn uniform_direct_call_argc(ast: &Ast, name: &str, this_slots: usize) -> Option<
             && eids.contains(&callee.0)
         {
             legal.insert(callee.0);
-            argcs.insert(args.len().saturating_sub(this_slots));
+            if !fwd_sites.contains(&callee.0) {
+                argcs.insert(args.len().saturating_sub(this_slots));
+            }
         }
     }
     if eids.difference(&legal).next().is_some() {
@@ -127,6 +147,23 @@ fn uniform_direct_call_argc(ast: &Ast, name: &str, this_slots: usize) -> Option<
     } else {
         None
     }
+}
+
+/// Collect the relay-call callee eids inside synthesized
+/// `__forward_<target>` bodies (single `return target(args...)` —
+/// see forwarders_object::synthesize_forwarder_decls).
+fn forwarder_call_callee_eids(ast: &Ast) -> std::collections::HashSet<u32> {
+    let mut out = std::collections::HashSet::new();
+    for s in &ast.stmts {
+        if let Stmt::FnDecl { name, body, .. } = s
+            && name.starts_with("__forward_")
+            && let [Stmt::Return(Some(eid))] = body.as_slice()
+            && let Expr::Call { callee, .. } = ast.get_expr(*eid)
+        {
+            out.insert(callee.0);
+        }
+    }
+    out
 }
 
 /// RFC 20260801-arguments-method-face knife 1 — single-owner class
@@ -146,6 +183,7 @@ fn uniform_direct_call_argc(ast: &Ast, name: &str, this_slots: usize) -> Option<
 /// defensively excluded.
 pub(super) fn collect_method_static_argv(ast: &Ast) -> std::collections::HashMap<String, usize> {
     use std::collections::HashMap;
+    let fwd_sites = forwarder_call_callee_eids(ast);
     let mut out: HashMap<String, usize> = HashMap::new();
     for s in &ast.stmts {
         let Stmt::FnDecl {
@@ -175,7 +213,7 @@ pub(super) fn collect_method_static_argv(ast: &Ast) -> std::collections::HashMap
         {
             continue;
         }
-        if let Some(n) = uniform_direct_call_argc(ast, name, 1) {
+        if let Some(n) = uniform_direct_call_argc(ast, name, 1, &fwd_sites) {
             out.insert(name.clone(), n);
         }
     }
