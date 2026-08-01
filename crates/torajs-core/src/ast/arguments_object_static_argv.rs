@@ -133,6 +133,16 @@ fn uniform_direct_call_argc(
         if let Expr::Call { callee, args } = e
             && eids.contains(&callee.0)
         {
+            // A spread argument's runtime length is not statically
+            // known — an args.len() count would under-report it and
+            // the face would answer a wrong argc (silent). The fn
+            // stays out of the static face (loud / Real tier).
+            if args
+                .iter()
+                .any(|a| matches!(ast.get_expr(*a), Expr::Spread { .. }))
+            {
+                return None;
+            }
             legal.insert(callee.0);
             if !fwd_sites.contains(&callee.0) {
                 argcs.insert(args.len().saturating_sub(this_slots));
