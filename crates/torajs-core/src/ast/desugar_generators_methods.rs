@@ -37,29 +37,77 @@ fn emit_close_state(ast: &mut Ast) -> Stmt {
 /// `{ value: <default>, done: true }` tail, then returns
 /// `{ value: arg, done: true }` directly.
 ///
-/// Narrow MVP — no try/finally cleanup: J.2.b still forbids
-/// `yield` inside `try` / `catch` / `finally`, so the spec's
-/// "abrupt completion runs through any open finally" branch
-/// has nothing to walk. P10.6-A2 lifts that restriction
-/// together with `.throw` and will revisit the cleanup path.
-pub(super) fn build_return_method(ast: &mut Ast, yield_ty: &str, step_ann: &str) -> ClassMethod {
+/// RFC 20260802 D3b — a generator with a return-injectable finally
+/// region (`has_finally_ret`) instead delegates, the dual of the C2
+/// throw() shape: `this.__ret_inj = v; this.__ret_pending = true;
+/// return this.next();`. next()'s dispatch return-check routes a
+/// suspended-in-finally-region state to that region's D3a return
+/// copy (F runs — may yield — then completes with the stashed
+/// value, chaining outer frames), and completes directly otherwise
+/// — same caller-visible shape as the close path.
+///
+/// Generators without such a region keep the close+return shape: no
+/// finally can observe the abrupt completion, and skipping the
+/// delegate keeps their class free of the `__ret_*` fields.
+pub(super) fn build_return_method(
+    ast: &mut Ast,
+    yield_ty: &str,
+    step_ann: &str,
+    has_finally_ret: bool,
+) -> ClassMethod {
     let val_param = Param {
         name: RET_VAL_PARAM.into(),
         type_ann: Some(yield_ty.into()),
         default: None,
         is_rest: false,
     };
-    let close_stmt = emit_close_state(ast);
-    let val_ident = ast.add_expr(Expr::Ident(RET_VAL_PARAM.into()));
-    let done_true = ast.add_expr(Expr::Bool(true));
-    let result = ast.add_expr(Expr::ObjectLit {
-        fields: vec![("value".into(), val_ident), ("done".into(), done_true)],
-    });
+    let body = if has_finally_ret {
+        let this_id = ast.add_expr(Expr::This);
+        let inj = ast.add_expr(Expr::Member {
+            obj: this_id,
+            name: "__ret_inj".into(),
+        });
+        let val_ident = ast.add_expr(Expr::Ident(RET_VAL_PARAM.into()));
+        let stash = ast.add_expr(Expr::Assign {
+            target: inj,
+            value: val_ident,
+        });
+        let this_arm = ast.add_expr(Expr::This);
+        let pending = ast.add_expr(Expr::Member {
+            obj: this_arm,
+            name: "__ret_pending".into(),
+        });
+        let true_lit = ast.add_expr(Expr::Bool(true));
+        let arm = ast.add_expr(Expr::Assign {
+            target: pending,
+            value: true_lit,
+        });
+        // `this.next()` — the arg pads via apply_default_args like
+        // every user `it.next()` call site.
+        let this_recv = ast.add_expr(Expr::This);
+        let next_callee = ast.add_expr(Expr::Member {
+            obj: this_recv,
+            name: "next".into(),
+        });
+        let call = ast.add_expr(Expr::Call {
+            callee: next_callee,
+            args: Vec::new(),
+        });
+        vec![Stmt::Expr(stash), Stmt::Expr(arm), Stmt::Return(Some(call))]
+    } else {
+        let close_stmt = emit_close_state(ast);
+        let val_ident = ast.add_expr(Expr::Ident(RET_VAL_PARAM.into()));
+        let done_true = ast.add_expr(Expr::Bool(true));
+        let result = ast.add_expr(Expr::ObjectLit {
+            fields: vec![("value".into(), val_ident), ("done".into(), done_true)],
+        });
+        vec![close_stmt, Stmt::Return(Some(result))]
+    };
     ClassMethod {
         name: "return".into(),
         params: vec![val_param],
         return_type: Some(step_ann.into()),
-        body: vec![close_stmt, Stmt::Return(Some(result))],
+        body,
         is_abstract: false,
         visibility: Visibility::Public,
         accessor_kind: None,

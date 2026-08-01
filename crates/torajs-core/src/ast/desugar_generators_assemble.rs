@@ -16,8 +16,10 @@ use super::{Ast, BinOp, Expr, Stmt, default_init_for_type};
 ///
 /// RFC 20260802 — also returns the hoisted catch-param slots the SM
 /// minted (extra class fields the driver appends to lifted_locals)
-/// and whether exception regions exist (the driver picks the
-/// injecting `throw()` shape only for region-bearing generators).
+/// and two flags: whether exception regions exist (the driver picks
+/// the injecting `throw()` shape only for region-bearing generators)
+/// and — D3b — whether any finally region can take a `return()`
+/// injection (the driver then picks the delegating `return()` shape).
 /// When the SM recorded regions, the dispatch if-chain is wrapped in
 /// the region-routing try/catch and the `throw()` injection prologue
 /// + fields are added; region-free generators keep the exact pre-RFC
@@ -26,7 +28,7 @@ pub(super) fn build_state_machine_next_body(
     ast: &mut Ast,
     gen_body: Vec<Stmt>,
     yield_ty: &str,
-) -> (Vec<Stmt>, Vec<(String, String)>, bool) {
+) -> (Vec<Stmt>, Vec<(String, String)>, bool, bool) {
     // Build the state machine. Each arm is the body of one state in
     // an if-chain wrapped by `while (true) { ... }`. Yields close an
     // arm with `return {value:e, done:false}`; control-flow gotos
@@ -82,12 +84,20 @@ pub(super) fn build_state_machine_next_body(
     // throws it at the suspended state so the region wrap can route
     // it to an enclosing catch.
     let has_regions = !regions.is_empty();
+    let has_finally_ret = regions.iter().any(|r| r.ret.is_some());
     let mut inject_prologue: Vec<Stmt> = Vec::new();
     let loop_body = if has_regions {
         hoisted.push(("__inject".into(), "boolean".into()));
         hoisted.push(("__thrown".into(), "any".into()));
-        inject_prologue = super::desugar_generators_sm_try::emit_inject_prologue(ast);
-        super::desugar_generators_sm_try::wrap_dispatch_with_region_catch(ast, loop_body, &regions)
+        if has_finally_ret {
+            hoisted.push(("__ret_pending".into(), "boolean".into()));
+            hoisted.push(("__ret_inj".into(), "any".into()));
+        }
+        inject_prologue =
+            super::desugar_generators_sm_try::emit_inject_prologue(ast, has_finally_ret);
+        super::desugar_generators_sm_try::wrap_dispatch_with_region_catch(
+            ast, loop_body, &regions, yield_ty,
+        )
     } else {
         loop_body
     };
@@ -140,5 +150,5 @@ pub(super) fn build_state_machine_next_body(
         body: Box::new(Stmt::Block(loop_body)),
     });
     body.push(Stmt::Return(Some(final_after)));
-    (body, hoisted, has_regions)
+    (body, hoisted, has_regions, has_finally_ret)
 }

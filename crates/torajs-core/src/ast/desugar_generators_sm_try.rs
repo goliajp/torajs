@@ -15,7 +15,7 @@
 use super::desugar_generators_sm::{GenSm, RESUME_LOCAL};
 use super::desugar_generators_sm_finally::stmts_block_finally_region;
 use super::desugar_generators_sm_rewrite::stmt_contains_yield;
-use super::{Ast, BinOp, Expr, Stmt};
+use super::{Ast, BinOp, Expr, ExprId, Stmt};
 
 /// One try/catch exception region. A throw escaping user code while
 /// `__gen_st ∈ [start, end]` stores the exception into `this.<slot>`
@@ -25,6 +25,16 @@ pub(super) struct TryRegion {
     pub(super) end: usize,
     pub(super) catch_entry: usize,
     pub(super) slot: String,
+    /// D3b — `Some((ret_entry, ret_slot))` for a finally region whose
+    /// return copy was minted: a `return()` injected while suspended
+    /// in `[start, end]` stores the value into `this.<ret_slot>` and
+    /// re-enters the dispatch at `ret_entry` (the D3a copy, which
+    /// runs F and completes with the slot — chaining outer frames).
+    /// `None` for catch regions (a catch never intercepts a return
+    /// completion, §27.5.1.7) and for finally regions with no yield
+    /// in B — no suspendable state sits in their range, so injection
+    /// can't target them and the copy isn't minted.
+    pub(super) ret: Option<(usize, String)>,
 }
 
 impl GenSm<'_> {
@@ -152,6 +162,7 @@ impl GenSm<'_> {
             end: region_end,
             catch_entry,
             slot,
+            ret: None,
         });
     }
 }
@@ -165,32 +176,50 @@ const DISPATCH_EXC: &str = "__gen_exc";
 /// don't re-fire the injected throw.
 const INJECT_LOCAL: &str = "__gen_inj";
 
-/// C2 — prologue pair for region-bearing generators:
-/// `let __gen_inj: boolean = this.__inject; this.__inject = false;`
-pub(super) fn emit_inject_prologue(ast: &mut Ast) -> Vec<Stmt> {
+/// D3b — local carrying the `return()` injection flag through one
+/// `next()` call, seeded-and-cleared exactly like [`INJECT_LOCAL`].
+const RET_LOCAL: &str = "__gen_ret";
+
+/// Seed a local from a boolean `this.<field>` and clear the field in
+/// the same breath: `let <local>: boolean = this.<field>;
+/// this.<field> = false;` — the C2 prologue shape, shared by the
+/// throw() and return() injection flags.
+fn emit_flag_seed_pair(ast: &mut Ast, local: &str, field: &str) -> [Stmt; 2] {
     let this_read = ast.add_expr(Expr::This);
-    let inj_read = ast.add_expr(Expr::Member {
+    let flag_read = ast.add_expr(Expr::Member {
         obj: this_read,
-        name: "__inject".into(),
+        name: field.into(),
     });
     let seed = Stmt::LetDecl {
         mutable: true,
-        name: INJECT_LOCAL.into(),
+        name: local.into(),
         type_ann: Some("boolean".into()),
-        init: inj_read,
+        init: flag_read,
         is_var: false,
     };
     let this_clear = ast.add_expr(Expr::This);
-    let inj_member = ast.add_expr(Expr::Member {
+    let flag_member = ast.add_expr(Expr::Member {
         obj: this_clear,
-        name: "__inject".into(),
+        name: field.into(),
     });
     let false_lit = ast.add_expr(Expr::Bool(false));
     let clear = ast.add_expr(Expr::Assign {
-        target: inj_member,
+        target: flag_member,
         value: false_lit,
     });
-    vec![seed, Stmt::Expr(clear)]
+    [seed, Stmt::Expr(clear)]
+}
+
+/// C2 — prologue for region-bearing generators:
+/// `let __gen_inj: boolean = this.__inject; this.__inject = false;`
+/// plus (D3b, only when a finally region can take a return
+/// injection) the same pair for `__gen_ret` / `this.__ret_pending`.
+pub(super) fn emit_inject_prologue(ast: &mut Ast, with_ret: bool) -> Vec<Stmt> {
+    let mut out: Vec<Stmt> = emit_flag_seed_pair(ast, INJECT_LOCAL, "__inject").into();
+    if with_ret {
+        out.extend(emit_flag_seed_pair(ast, RET_LOCAL, "__ret_pending"));
+    }
+    out
 }
 
 /// C2 — `if (__gen_inj) { __gen_inj = false; throw this.__thrown; }`,
@@ -218,6 +247,108 @@ fn emit_inject_check(ast: &mut Ast) -> Stmt {
     }
 }
 
+/// Build the `__gen_st ∈ [start, end]` range test for one region.
+fn emit_range_cond(ast: &mut Ast, r: &TryRegion) -> ExprId {
+    let st_lo = ast.add_expr(Expr::Ident(RESUME_LOCAL.into()));
+    let lo = ast.add_expr(Expr::Number(r.start as f64));
+    let ge = ast.add_expr(Expr::BinOp {
+        op: BinOp::Ge,
+        left: st_lo,
+        right: lo,
+    });
+    let st_hi = ast.add_expr(Expr::Ident(RESUME_LOCAL.into()));
+    let hi = ast.add_expr(Expr::Number(r.end as f64));
+    let le = ast.add_expr(Expr::BinOp {
+        op: BinOp::Le,
+        left: st_hi,
+        right: hi,
+    });
+    ast.add_expr(Expr::BinOp {
+        op: BinOp::LAnd,
+        left: ge,
+        right: le,
+    })
+}
+
+/// D3b — `if (__gen_ret) { __gen_ret = false; <route> }`, the
+/// return-injection check next to the throw check (§27.5.1.7
+/// GeneratorResumeAbrupt with a return completion). Routing,
+/// innermost-first over the finally regions only: suspended inside
+/// one ⇒ stash the value into its D3a return slot and re-enter the
+/// dispatch at its return copy (F runs, may yield, completes with
+/// the slot — chaining outer frames for free); in none ⇒ the
+/// generator just completes with `{ value, done: true }` — the
+/// prologue kill already stamped it dead, and suspendedStart /
+/// completed / suspended-outside-any-finally all take this branch.
+/// Returns `None` when no region can take a return injection.
+fn emit_return_check(ast: &mut Ast, regions: &[TryRegion], yield_ty: &str) -> Option<Stmt> {
+    let mut regs: Vec<&TryRegion> = regions.iter().filter(|r| r.ret.is_some()).collect();
+    if regs.is_empty() {
+        return None;
+    }
+    regs.sort_by(|a, b| b.start.cmp(&a.start));
+
+    // Tail: complete directly. Value routing mirrors the D3a return
+    // copy — exactly one As wrap (`as any` boxes the any lane's step
+    // write; `as T` unboxes the any slot back to the typed lane).
+    let this_id = ast.add_expr(Expr::This);
+    let inj_read = ast.add_expr(Expr::Member {
+        obj: this_id,
+        name: "__ret_inj".into(),
+    });
+    let val = ast.add_expr(Expr::As {
+        expr: inj_read,
+        ty_ann: yield_ty.into(),
+    });
+    let done = ast.add_expr(Expr::Bool(true));
+    let step = ast.add_expr(Expr::ObjectLit {
+        fields: vec![("value".into(), val), ("done".into(), done)],
+    });
+    let mut chain = Stmt::Return(Some(step));
+    for r in regs.iter().rev() {
+        let (ret_entry, ret_slot) = r.ret.as_ref().expect("filtered above");
+        let cond = emit_range_cond(ast, r);
+        let this_slot = ast.add_expr(Expr::This);
+        let slot_member = ast.add_expr(Expr::Member {
+            obj: this_slot,
+            name: ret_slot.clone(),
+        });
+        let this_inj = ast.add_expr(Expr::This);
+        let inj = ast.add_expr(Expr::Member {
+            obj: this_inj,
+            name: "__ret_inj".into(),
+        });
+        let store = ast.add_expr(Expr::Assign {
+            target: slot_member,
+            value: inj,
+        });
+        let st_write = ast.add_expr(Expr::Ident(RESUME_LOCAL.into()));
+        let entry_lit = ast.add_expr(Expr::Number(*ret_entry as f64));
+        let goto = ast.add_expr(Expr::Assign {
+            target: st_write,
+            value: entry_lit,
+        });
+        chain = Stmt::If {
+            cond,
+            then_branch: Box::new(Stmt::Block(vec![Stmt::Expr(store), Stmt::Expr(goto)])),
+            else_branch: Some(Box::new(chain)),
+        };
+    }
+
+    let cond = ast.add_expr(Expr::Ident(RET_LOCAL.into()));
+    let ret_write = ast.add_expr(Expr::Ident(RET_LOCAL.into()));
+    let false_lit = ast.add_expr(Expr::Bool(false));
+    let disarm = ast.add_expr(Expr::Assign {
+        target: ret_write,
+        value: false_lit,
+    });
+    Some(Stmt::If {
+        cond,
+        then_branch: Box::new(Stmt::Block(vec![Stmt::Expr(disarm), chain])),
+        else_branch: None,
+    })
+}
+
 /// Wrap the assembled dispatch if-chain in
 /// `try { <chain> } catch (__gen_exc) { <region routing> }`.
 /// Routing is an if-else chain checked innermost-first (descending
@@ -230,7 +361,14 @@ pub(super) fn wrap_dispatch_with_region_catch(
     ast: &mut Ast,
     mut loop_body: Vec<Stmt>,
     regions: &[TryRegion],
+    yield_ty: &str,
 ) -> Vec<Stmt> {
+    // D3b return check sits after the throw check; after its routing
+    // arm moves `__gen_st`, control falls into the if-chain below in
+    // the same iteration and the return-copy arm fires.
+    if let Some(ret_check) = emit_return_check(ast, regions, yield_ty) {
+        loop_body.insert(0, ret_check);
+    }
     loop_body.insert(0, emit_inject_check(ast));
     let mut regs: Vec<&TryRegion> = regions.iter().collect();
     regs.sort_by(|a, b| b.start.cmp(&a.start));
@@ -239,25 +377,7 @@ pub(super) fn wrap_dispatch_with_region_catch(
     let exc = ast.add_expr(Expr::Ident(DISPATCH_EXC.into()));
     let mut chain = Stmt::Throw(exc);
     for r in regs.iter().rev() {
-        let st_lo = ast.add_expr(Expr::Ident(RESUME_LOCAL.into()));
-        let lo = ast.add_expr(Expr::Number(r.start as f64));
-        let ge = ast.add_expr(Expr::BinOp {
-            op: BinOp::Ge,
-            left: st_lo,
-            right: lo,
-        });
-        let st_hi = ast.add_expr(Expr::Ident(RESUME_LOCAL.into()));
-        let hi = ast.add_expr(Expr::Number(r.end as f64));
-        let le = ast.add_expr(Expr::BinOp {
-            op: BinOp::Le,
-            left: st_hi,
-            right: hi,
-        });
-        let cond = ast.add_expr(Expr::BinOp {
-            op: BinOp::LAnd,
-            left: ge,
-            right: le,
-        });
+        let cond = emit_range_cond(ast, r);
         let this_id = ast.add_expr(Expr::This);
         let slot_member = ast.add_expr(Expr::Member {
             obj: this_id,

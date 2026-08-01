@@ -8,6 +8,7 @@
 //! dispatch wrap, and throw-injection stay in the `_sm_try` sibling.
 
 use super::desugar_generators_sm::{GenSm, RESUME_LOCAL};
+use super::desugar_generators_sm_rewrite::stmt_contains_yield;
 use super::desugar_generators_sm_try::TryRegion;
 use super::{Expr, Stmt};
 
@@ -87,6 +88,12 @@ impl GenSm<'_> {
     /// consults the OUTER frames (this frame is popped by then), so
     /// nested finally chains run outside-in for free.
     pub(super) fn lower_try_finally(&mut self, body: Vec<Stmt>, f: Vec<Stmt>) {
+        // D3b — a yield in B (or a nested C) puts a suspendable state
+        // inside the region, making it a `return()` injection target:
+        // the return copy below must then exist even when B routes no
+        // return of its own. Yield-free bodies can't suspend in range,
+        // so injection never matches them and the copy stays unminted.
+        let body_has_yield = body.iter().any(stmt_contains_yield);
         let try_entry = self.alloc_state();
         let mut g = self.emit_goto(try_entry);
         self.cur_buf.append(&mut g);
@@ -129,8 +136,11 @@ impl GenSm<'_> {
         self.cur_buf.push(Stmt::Throw(slot_read));
         self.flush_cur();
 
-        // D3a return copy — only when B actually routed a return.
-        if !frame.gotos.is_empty() {
+        // D3a return copy — when B actually routed a return, or (D3b)
+        // when B can suspend in range so a `return()` injection could
+        // route here.
+        let mut ret = None;
+        if !frame.gotos.is_empty() || body_has_yield {
             let fin_ret_entry = self.alloc_state();
             self.hoisted.push((frame.slot.clone(), "any".into()));
             self.cur_state = fin_ret_entry;
@@ -158,6 +168,7 @@ impl GenSm<'_> {
             for eid in frame.gotos {
                 self.ast.exprs[eid.0 as usize] = Expr::Number(fin_ret_entry as f64);
             }
+            ret = Some((fin_ret_entry, frame.slot));
         }
 
         self.cur_state = post;
@@ -166,6 +177,7 @@ impl GenSm<'_> {
             end: region_end,
             catch_entry: fin_exc_entry,
             slot,
+            ret,
         });
     }
 }
