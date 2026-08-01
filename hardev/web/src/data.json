@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-01T00:23:03.217Z",
+  "generatedAt": "2026-08-01T00:48:30.254Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-01T00:21:30Z",
-    "headSha": "5c60601a",
-    "elapsedSec": 463.06,
+    "ranAt": "2026-08-01T00:46:08Z",
+    "headSha": "d3ec34a2",
+    "elapsedSec": 539.25,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 18984,
+    "pass": 19148,
     "passNoOracle": 553,
     "passNegative": 3758,
-    "passTotal": 23295,
-    "bug": 11855,
-    "incompatible": 18024,
+    "passTotal": 23459,
+    "bug": 11868,
+    "incompatible": 17847,
     "bunSkip": 7467,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 35150,
-    "passRateInScope": 43.81,
-    "passRateTrAccepted": 66.27
+    "trAccepted": 35327,
+    "passRateInScope": 44.12,
+    "passRateTrAccepted": 66.41
   },
   "torajs": {
-    "commit": "bf1bb1df",
-    "commitSubject": "chore(docs,hardev): rotation 267 census at 5c60601a",
+    "commit": "d8bd0668",
+    "commitSubject": "chore(docs,hardev): rotation 267 final census at d3ec34a2",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,18 @@
   },
   "commits": [
     {
+      "hash": "d8bd0668",
+      "subject": "chore(docs,hardev): rotation 267 final census at d3ec34a2"
+    },
+    {
+      "hash": "d3ec34a2",
+      "subject": "feat(core): object spread with an any-typed source"
+    },
+    {
+      "hash": "152fe000",
+      "subject": "chore(hardev): dashboard snapshot rotation 267"
+    },
+    {
       "hash": "bf1bb1df",
       "subject": "chore(docs,hardev): rotation 267 census at 5c60601a"
     },
@@ -747,21 +759,9 @@
     {
       "hash": "4f4e800e",
       "subject": "chore(docs,hardev): rotation 266 census at c44a5d10"
-    },
-    {
-      "hash": "c44a5d10",
-      "subject": "feat(core): RegExp.escape per ES2025"
-    },
-    {
-      "hash": "9f326cfd",
-      "subject": "feat(core): Array.of reads as a value"
-    },
-    {
-      "hash": "5f7d935b",
-      "subject": "feat(core): Reflect.setPrototypeOf with boolean-answer semantics"
     }
   ],
-  "headSha": "bf1bb1df",
+  "headSha": "d8bd0668",
   "autorun": {
     "total": 571,
     "baselineTarget": 10,
