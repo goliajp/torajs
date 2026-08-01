@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-31T22:54:51.495Z",
+  "generatedAt": "2026-08-01T00:23:03.217Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-07-31T22:53:15Z",
-    "headSha": "c44a5d10",
-    "elapsedSec": 389.68,
+    "ranAt": "2026-08-01T00:21:30Z",
+    "headSha": "5c60601a",
+    "elapsedSec": 463.06,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 18857,
-    "passNoOracle": 551,
+    "pass": 18984,
+    "passNoOracle": 553,
     "passNegative": 3758,
-    "passTotal": 23166,
-    "bug": 11819,
-    "incompatible": 18189,
+    "passTotal": 23295,
+    "bug": 11855,
+    "incompatible": 18024,
     "bunSkip": 7467,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 34985,
-    "passRateInScope": 43.57,
-    "passRateTrAccepted": 66.22
+    "trAccepted": 35150,
+    "passRateInScope": 43.81,
+    "passRateTrAccepted": 66.27
   },
   "torajs": {
-    "commit": "c44a5d10",
-    "commitSubject": "feat(core): RegExp.escape per ES2025",
+    "commit": "bf1bb1df",
+    "commitSubject": "chore(docs,hardev): rotation 267 census at 5c60601a",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,42 @@
   },
   "commits": [
     {
+      "hash": "bf1bb1df",
+      "subject": "chore(docs,hardev): rotation 267 census at 5c60601a"
+    },
+    {
+      "hash": "5c60601a",
+      "subject": "fix(core): new RegExp with non-string pattern per section 22.2.3.1"
+    },
+    {
+      "hash": "d28cb673",
+      "subject": "feat(core): Reflect.defineProperty accessor-descriptor refusals answer false"
+    },
+    {
+      "hash": "74af45b0",
+      "subject": "feat(core): RegExp called as a function is construct-equivalent"
+    },
+    {
+      "hash": "1244f3b0",
+      "subject": "feat(core): callback parameter elision in generic unification"
+    },
+    {
+      "hash": "b6680f4d",
+      "subject": "feat(core): Reflect.apply via the Function.prototype.apply kernel"
+    },
+    {
+      "hash": "368d8d03",
+      "subject": "feat(core): Reflect.defineProperty with boolean-answer define kernel"
+    },
+    {
+      "hash": "a72896e2",
+      "subject": "chore(docs,hardev): rotation 266 census artifacts (roadmap P-SURF + sweep archive)"
+    },
+    {
+      "hash": "4f4e800e",
+      "subject": "chore(docs,hardev): rotation 266 census at c44a5d10"
+    },
+    {
       "hash": "c44a5d10",
       "subject": "feat(core): RegExp.escape per ES2025"
     },
@@ -723,63 +759,38 @@
     {
       "hash": "5f7d935b",
       "subject": "feat(core): Reflect.setPrototypeOf with boolean-answer semantics"
-    },
-    {
-      "hash": "e06118bd",
-      "subject": "feat(core): Reflect.deleteProperty with no-throw refusal semantics"
-    },
-    {
-      "hash": "16997af9",
-      "subject": "feat(core): Reflect getPrototypeOf / preventExtensions / isExtensible"
-    },
-    {
-      "hash": "182c4f86",
-      "subject": "feat(core): Reflect.getOwnPropertyDescriptor with strict IsObject gate"
-    },
-    {
-      "hash": "3fe0385a",
-      "subject": "style: fmt-drift fix (multiline tuple arm collapsed by rustfmt)"
-    },
-    {
-      "hash": "d3428ed7",
-      "subject": "feat(core): promise combinator statics read as values"
-    },
-    {
-      "hash": "53e38780",
-      "subject": "chore(docs,hardev): rotation 265 census at 38d1b8ca"
-    },
-    {
-      "hash": "38d1b8ca",
-      "subject": "feat(core): escaped await/yield spellings reject like any reserved word"
-    },
-    {
-      "hash": "b93a5a6c",
-      "subject": "feat(core): deleting a private name is a parse-time SyntaxError"
-    },
-    {
-      "hash": "4ade86bf",
-      "subject": "feat(core): reject lexical declarations in single-statement positions"
     }
   ],
-  "headSha": "c44a5d10",
+  "headSha": "bf1bb1df",
   "autorun": {
-    "total": 570,
+    "total": 571,
     "baselineTarget": 10,
-    "bySelf": 565,
+    "bySelf": 566,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785532779-6c56",
-      "at": "2026-07-31T21:19:39Z",
-      "ts": 1785532779,
+      "rotationId": "r-1785538570-2408",
+      "at": "2026-07-31T22:56:10Z",
+      "ts": 1785538570,
       "trigger": "self",
-      "prevHead": "53e38780",
-      "handoffSha": "sha256:d5ea1145c7bc8544e975e65466dd83cd3ae4806e8565d1af906849f1f6b48d19",
-      "handoffAgeSec": 6,
+      "prevHead": "a72896e2",
+      "handoffSha": "sha256:806c67b2d5daa09255ba1f78398fed3a0ea3c8ed6515b0a89a4f674a23f469ff",
+      "handoffAgeSec": 33,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1785538570-2408",
+        "at": "2026-07-31T22:56:10Z",
+        "ts": 1785538570,
+        "trigger": "self",
+        "prevHead": "a72896e2",
+        "handoffSha": "sha256:806c67b2d5daa09255ba1f78398fed3a0ea3c8ed6515b0a89a4f674a23f469ff",
+        "handoffAgeSec": 33,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785532779-6c56",
         "at": "2026-07-31T21:19:39Z",
@@ -876,17 +887,6 @@
         "prevHead": "dae62237",
         "handoffSha": "sha256:d7da1d41e76678f21a7b9bec100d84789a4983bd88db9a2ecbfaf07e39cd1180",
         "handoffAgeSec": 4,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1785410856-2e49",
-        "at": "2026-07-30T11:27:36Z",
-        "ts": 1785410856,
-        "trigger": "self",
-        "prevHead": "a556cba5",
-        "handoffSha": "sha256:376b70d4f25b07cc255857816e6d0f952a65b6333f0ec0272a26cbee757719dc",
-        "handoffAgeSec": 46,
         "conformanceBefore": null,
         "commitsInSession": null
       }
