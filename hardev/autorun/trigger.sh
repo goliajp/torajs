@@ -52,6 +52,18 @@ if [ "$TRIGGER" = "self" ]; then
   fi
 fi
 
+# HARD invariant (takagi 2026-08-02): a rotation may not close while
+# ANY child process of this session survives — every watcher/poller/
+# sleeper is reaped mechanically here, not by agent discipline. Runs
+# on every accepted trigger (self AND manual). rotation-276 incident:
+# a sweep watcher polling a pattern that never appears ran 6h into
+# the next rotation because the ps-based audit truncated its command
+# line; this reaper walks the process tree instead.
+"$SCRIPT_DIR/kill_stray_shells.sh" || {
+  echo "trigger.sh: kill_stray_shells.sh FAILED — rotation close aborted" >&2
+  exit 1
+}
+
 rotation_id=$(autorun_new_id)
 
 # 1. intent file (used by P1 Stop hook; also a discoverable trace in P0).
