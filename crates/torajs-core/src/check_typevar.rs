@@ -41,6 +41,15 @@ pub(crate) fn unify_typevar(
             }
             Ok(())
         }
+        // `any` in pattern position admits every actual and binds
+        // nothing — it is the top type here. An explicitly-`any`
+        // param sits alongside TypeVars whenever only SOME params of
+        // an implicit-generic fn were annotated or materialized
+        // (`f(a = <expr>, y = 1)` after V2b turns `a` into
+        // `a: any = undefined` while `y` stays a fresh TypeVar);
+        // the structural fallback below would reject the call with
+        // "expected Any, got Number".
+        (Type::Any, _) => Ok(()),
         (Type::Array(p_elem), Type::Array(a_elem)) => unify_typevar(p_elem, a_elem, subst),
         (Type::Function(p_args, p_ret), Type::Function(a_args, a_ret)) => {
             // Rest-tail pattern (`(...args: T[]) => T`, RFC
