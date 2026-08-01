@@ -37,7 +37,7 @@ use std::collections::HashMap;
 
 use crate::ast::{Ast, Expr, ExprId};
 use crate::check::{Checker, Type, substitute_typevars};
-use crate::check_typevar::{typevar_appears_in, typevar_appears_in_iter, unify_typevar};
+use crate::check_typevar::{typevar_appears_in_iter, unify_typevar};
 
 /// RC-4 — a `Nullable<Array<..>>` arg (exec/match result, chunk 598
 /// retype) decays to its inner Array against an Array-shaped generic
@@ -98,7 +98,16 @@ pub(crate) fn try_match(
         && let Some(type_params) = checker.generic_type_params.get(name).cloned()
         && let Some(Type::Function(params, ret)) = checker.globals.get(name).cloned()
     {
-        // T-28 — trailing-typevar-Any padding path.
+        // T-28 — trailing-typevar-Any padding path. A missing slot is
+        // paddable when it is a fresh TypeVar (an unannotated param —
+        // §10.2.1.4 binds it undefined, so the var resolves to Any) or
+        // an explicit/materialized Any (which holds the undefined box
+        // directly). A trailing TypeVar may appear in the RETURN type
+        // — it just resolves the return to Any (`f(x = y, y)` with
+        // `return y` answers undefined, the t262 ref-later missing-arg
+        // shape) — but one bound by an EARLIER param stays a strict
+        // arity error: its binding could be a concrete type whose slot
+        // can't carry the undefined pad.
         if args.len() < params.len() {
             let missing = params.len() - args.len();
             let trailing = &params[args.len()..];
@@ -109,12 +118,14 @@ pub(crate) fn try_match(
                     _ => None,
                 })
                 .collect();
-            let trailing_all_typevar = trailing_typevars.len() == trailing.len();
+            let trailing_padable = trailing
+                .iter()
+                .all(|p| matches!(p, Type::TypeVar(_) | Type::Any));
             let earlier = &params[..args.len()];
-            let trailing_independent = trailing_all_typevar
-                && trailing_typevars.iter().all(|tv| {
-                    !typevar_appears_in_iter(earlier, tv) && !typevar_appears_in(&ret, tv)
-                });
+            let trailing_independent = trailing_padable
+                && trailing_typevars
+                    .iter()
+                    .all(|tv| !typevar_appears_in_iter(earlier, tv));
             if trailing_independent {
                 let mut subst: HashMap<String, Type> = HashMap::new();
                 for (i, (param_ty, arg_id)) in
