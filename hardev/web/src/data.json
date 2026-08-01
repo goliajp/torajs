@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-01T08:37:27.409Z",
+  "generatedAt": "2026-08-01T10:46:24.094Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-01T08:36:10Z",
+    "ranAt": "2026-08-01T10:43:18Z",
     "headSha": "55c866dc",
-    "elapsedSec": 387.85,
+    "elapsedSec": 612.17,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 19503,
+    "pass": 19531,
     "passNoOracle": 560,
     "passNegative": 3764,
-    "passTotal": 23827,
-    "bug": 11910,
+    "passTotal": 23855,
+    "bug": 11882,
     "incompatible": 17437,
     "bunSkip": 7467,
     "harnessError": 0,
     "inScope": 53174,
     "trAccepted": 35737,
-    "passRateInScope": 44.81,
-    "passRateTrAccepted": 66.67
+    "passRateInScope": 44.86,
+    "passRateTrAccepted": 66.75
   },
   "torajs": {
-    "commit": "0e74e0ff",
-    "commitSubject": "chore(docs,hardev): rotation 270 final census at e2f482ab",
+    "commit": "36f97ddd",
+    "commitSubject": "fix(core): default/rest/destructured params take the unmapped arguments face",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "36f97ddd",
+      "subject": "fix(core): default/rest/destructured params take the unmapped arguments face"
+    },
+    {
+      "hash": "0d539ce7",
+      "subject": "fix(core): spread call sites keep a fn out of the static-argv face"
+    },
+    {
+      "hash": "5748fe9e",
+      "subject": "feat(core): devirtualize exclusively-called fn-value aliases in the arguments face"
+    },
+    {
+      "hash": "ab1164f7",
+      "subject": "fix(core): forwarder relay calls stay out of the static-argv argc vote"
+    },
+    {
+      "hash": "d5457de4",
+      "subject": "fix(core): tombstone orphaned assign nodes after uninit-let splice"
+    },
+    {
+      "hash": "f1a8940d",
+      "subject": "chore(hardev): dashboard snapshot rotation 270 final"
+    },
+    {
       "hash": "0e74e0ff",
       "subject": "chore(docs,hardev): rotation 270 final census at e2f482ab"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "945c273d",
       "subject": "fix(core): bare arguments assignment exits every swapping face"
-    },
-    {
-      "hash": "32d372af",
-      "subject": "fix(core): arguments.length writes ride live length; shadowed fns exit tiers"
-    },
-    {
-      "hash": "55c866dc",
-      "subject": "chore(hardev): dashboard snapshot rotation 269 final"
-    },
-    {
-      "hash": "fccc097f",
-      "subject": "chore(docs,hardev): rotation 269 final census at b33b3128"
-    },
-    {
-      "hash": "b33b3128",
-      "subject": "fix(core): module-top braceless fn decls keep the sloppy hoist leak"
-    },
-    {
-      "hash": "c7e86b5a",
-      "subject": "fix(core): braceless if-branch fn decls inside fn bodies compile"
-    },
-    {
-      "hash": "9aca7430",
-      "subject": "feat(core,anyvalue): Math namespace object as a first-class value"
     }
   ],
-  "headSha": "0e74e0ff",
+  "headSha": "36f97ddd",
   "autorun": {
-    "total": 574,
+    "total": 575,
     "baselineTarget": 10,
-    "bySelf": 569,
+    "bySelf": 570,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785566172-1f91",
-      "at": "2026-08-01T06:36:12Z",
-      "ts": 1785566172,
+      "rotationId": "r-1785573526-1918",
+      "at": "2026-08-01T08:38:46Z",
+      "ts": 1785573526,
       "trigger": "self",
-      "prevHead": "55c866dc",
-      "handoffSha": "sha256:47caecdba4ada4909b33848a040eafc808f89354f24abb1a8ae8bec5ff6c2521",
-      "handoffAgeSec": 32,
+      "prevHead": "f1a8940d",
+      "handoffSha": "sha256:b8646d39d44eae8f1e23c01c4a3556419f26b71676c4e154798a0c799e340437",
+      "handoffAgeSec": 8,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1785573526-1918",
+        "at": "2026-08-01T08:38:46Z",
+        "ts": 1785573526,
+        "trigger": "self",
+        "prevHead": "f1a8940d",
+        "handoffSha": "sha256:b8646d39d44eae8f1e23c01c4a3556419f26b71676c4e154798a0c799e340437",
+        "handoffAgeSec": 8,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785566172-1f91",
         "at": "2026-08-01T06:36:12Z",
@@ -876,17 +887,6 @@
         "prevHead": "6db40466",
         "handoffSha": "sha256:f8237a81844c5cce81aa909be7e3640734f5acd03748eade4559c76614f9ea26",
         "handoffAgeSec": 0,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1785472480-2ba4",
-        "at": "2026-07-31T04:34:40Z",
-        "ts": 1785472480,
-        "trigger": "self",
-        "prevHead": "b38532c1",
-        "handoffSha": "sha256:c88679d189996168af484fb3bb9ad3b874308ba80f2b305c7963f94392f5a243",
-        "handoffAgeSec": 1083,
         "conformanceBefore": null,
         "commitsInSession": null
       }

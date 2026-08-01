@@ -1530,7 +1530,29 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 9215301c`, never as a constant.
 
-**Re-derived @ `d3ec34a2`** (2026-08-01, rotation 267 — seven
+**Re-derived @ `36f97ddd`** (2026-08-01, rotation 271 — five
+arguments-face knives off the trailing-comma census: uninit-let
+orphan tombstone, forwarder-relay argc-vote exclusion, fn-value
+alias devirtualization, spread-site face disqualification, and the
+unmapped-arguments mode for default/rest/destructured params):
+passTotal **23855** (+28 vs the rotation-270 census @ `e2f482ab`),
+bug **11882** (−28), trAccepted **35737** (flat — conservation
+exact: 0 = +28 − 28), incompatible **17437** (flat), core **11555**
+(flat). Gate predicate: **387** clusters of ≥ 4 holding 10483,
+residue 816 clusters / 1072 cases. 95 verdict transitions; the
+arguments-object directory's non-pass fell 204 → ~160 (the whole
+declare-then-assign func-expr / cls-static-meth / gen-func-expr /
+unmapped-via-params families now pass; 6 class-elements
+init-err-contains-arguments negatives flipped to pass-negative; 3
+Array HOF cases moved incompat → honest bug:exit). **One
+pass-loss**: RGI_Emoji_Modifier_Sequence pass → tr-timeout, standalone
+rerun 0.04s exit 1 — a 10-worker scheduling blip, not a code
+regression. New crashes 0. Registered residue: private-method
+getter-return + obj-literal method escapes need the method-value
+argv ABI (runtime tier, RFC knife 4); cls async-gen meth ~37 rides
+the same; untyped rest params still die at mandatory-ann.
+
+**Previous @ `d3ec34a2`** (2026-08-01, rotation 267 — seven
 blades: Reflect.defineProperty data + accessor halves, Reflect.apply,
 generic-callback parameter elision, RegExp-called-as-function, the
 new-RegExp-with-non-string-pattern crash fix, and object spread with
