@@ -1530,7 +1530,35 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 9215301c`, never as a constant.
 
-**Latest @ `0fd3f1d7`** (2026-08-02, rotation 275 — six knives:
+**Latest @ `a3a45e66`** (2026-08-02, rotation 276 — six knives, RFC
+20260802-generator-try-region C0-D2 + one default-param knife:
+generator try/catch/finally exception regions in the regenerator
+tryEntries shape (monotonic state allocation makes the numeric range
+[try_entry, region_end] equal lexical containment, so nested regions
+and inner-catch-rethrow-to-outer come free); the dispatch if-chain
+wraps in a region-routing try/catch only when regions exist;
+GeneratorPrototype.throw injects the stashed error at the suspended
+state via a next() delegate; try/finally lowers by per-exit-path
+duplication (javac shape) with a conservative fallback walker;
+catch+finally decomposes into the standard nesting; and V2b
+expression-default materialization extended to arrow / function-
+expression values still in the expr arena (the dflt-params
+ref-prior families' unknown-identifier root cause)): passTotal
+**24323** (+53), bug **11718** (+28), trAccepted **36041** (+81 —
+conservation exact: +81 = +53 + 28), incompatible **17133** (−81),
+core **11252** (−81). Gate predicate: **377** clusters of ≥ 4
+holding 10173 (−4 clusters, −82 cases — both axes down), residue
+817 / 1079. Forward 53 (GeneratorPrototype/throw all 13, yield 9,
+function 7, object 7, arrow-function 6, AsyncGeneratorPrototype/
+throw 4, GeneratorPrototype/return 4, async-function 2,
+async-arrow 1); the 35 incompatible→bug moves are the unblocked
+faces running into real semantic residue (yield 21, Generator/
+AsyncGenerator return 4+4 — the D3 finally-return face, for-of 4,
+AsyncFromSync 2). **Zero pass regressions, zero new timeouts, zero
+new crashes.** Top clusters: eval 1411 / `__this` 267 /
+dynamic-import 250.
+
+**Previous @ `0fd3f1d7`** (2026-08-02, rotation 275 — six knives:
 JSON.rawJSON / isRawJSON runtime kernels + frozen [[IsRawJSON]]
 carrier spliced verbatim by the any-lane stringify; the
 fromAsync / Promise.try / rawJSON-pair ns-static reflection rows

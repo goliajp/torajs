@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-01T18:11:38.320Z",
+  "generatedAt": "2026-08-01T19:19:49.888Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-01T18:10:17Z",
-    "headSha": "0fd3f1d7",
-    "elapsedSec": 392.65,
+    "ranAt": "2026-08-01T19:16:27Z",
+    "headSha": "a3a45e66",
+    "elapsedSec": 391.51,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 19886,
+    "pass": 19939,
     "passNoOracle": 558,
     "passNegative": 3826,
-    "passTotal": 24270,
-    "bug": 11690,
-    "incompatible": 17214,
+    "passTotal": 24323,
+    "bug": 11718,
+    "incompatible": 17133,
     "bunSkip": 7467,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 35960,
-    "passRateInScope": 45.64,
+    "trAccepted": 36041,
+    "passRateInScope": 45.74,
     "passRateTrAccepted": 67.49
   },
   "torajs": {
-    "commit": "0fd3f1d7",
-    "commitSubject": "fix(core): default-param TDZ rewrite skips plain async functions",
+    "commit": "a3a45e66",
+    "commitSubject": "feat(core): expression defaults materialize for arrow and fn-expression values",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "a3a45e66",
+      "subject": "feat(core): expression defaults materialize for arrow and fn-expression values"
+    },
+    {
+      "hash": "3fc602c1",
+      "subject": "feat(core): generator try/catch/finally via standard nesting decomposition"
+    },
+    {
+      "hash": "41315e80",
+      "subject": "feat(core): generator try/finally via per-exit-path duplication"
+    },
+    {
+      "hash": "49a20226",
+      "subject": "feat(core): GeneratorPrototype.throw injects at the suspended yield"
+    },
+    {
+      "hash": "f76d58bf",
+      "subject": "feat(core): generator try/catch exception regions"
+    },
+    {
+      "hash": "0ad83e72",
+      "subject": "refactor(core): move generator state-machine assembly to sibling module"
+    },
+    {
+      "hash": "c7ff77cd",
+      "subject": "chore(docs,hardev): rotation 275 final census at 0fd3f1d7"
+    },
+    {
       "hash": "0fd3f1d7",
       "subject": "fix(core): default-param TDZ rewrite skips plain async functions"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "0e4eeda8",
       "subject": "feat(core,anyvalue,rc): reify fromAsync / Promise.try / rawJSON pair as ns-static cells"
-    },
-    {
-      "hash": "8134df45",
-      "subject": "feat(core,anyvalue): JSON.rawJSON / isRawJSON mint and probe the frozen raw-json carrier"
-    },
-    {
-      "hash": "cbca4f8e",
-      "subject": "chore(docs,hardev): rotation 274 final census at a28a5177"
-    },
-    {
-      "hash": "a28a5177",
-      "subject": "feat(core,promise): any-lane Promise.resolve adopts a boxed promise cell"
-    },
-    {
-      "hash": "bf5b849e",
-      "subject": "chore(docs,hardev): rotation 274 final census at 3db6224b"
-    },
-    {
-      "hash": "3db6224b",
-      "subject": "feat(core): Promise.try desugars to an immediately-invoked try/catch arrow"
-    },
-    {
-      "hash": "24ef2593",
-      "subject": "chore(docs,hardev): rotation 274 final census at 49aa4ebb"
-    },
-    {
-      "hash": "49aa4ebb",
-      "subject": "feat(core): mixed data-literal array globals fall back to the any-elem lane"
     }
   ],
-  "headSha": "0fd3f1d7",
+  "headSha": "a3a45e66",
   "autorun": {
-    "total": 579,
+    "total": 580,
     "baselineTarget": 10,
-    "bySelf": 574,
+    "bySelf": 575,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785600425-2920",
-      "at": "2026-08-01T16:07:05Z",
-      "ts": 1785600425,
+      "rotationId": "r-1785607981-6b63",
+      "at": "2026-08-01T18:13:01Z",
+      "ts": 1785607981,
       "trigger": "self",
-      "prevHead": "cbca4f8e",
-      "handoffSha": "sha256:6e8bc6985d182a9d27b321a1c0aa5ea1cee671920a6df0e73c9cd1e264d4c9aa",
-      "handoffAgeSec": 14,
+      "prevHead": "c7ff77cd",
+      "handoffSha": "sha256:41585c5a1161cde805badee7478e50dd49f4a60bc5d9526948012ff4155b0973",
+      "handoffAgeSec": 0,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1785607981-6b63",
+        "at": "2026-08-01T18:13:01Z",
+        "ts": 1785607981,
+        "trigger": "self",
+        "prevHead": "c7ff77cd",
+        "handoffSha": "sha256:41585c5a1161cde805badee7478e50dd49f4a60bc5d9526948012ff4155b0973",
+        "handoffAgeSec": 0,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785600425-2920",
         "at": "2026-08-01T16:07:05Z",
@@ -876,17 +887,6 @@
         "prevHead": "a72896e2",
         "handoffSha": "sha256:806c67b2d5daa09255ba1f78398fed3a0ea3c8ed6515b0a89a4f674a23f469ff",
         "handoffAgeSec": 33,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1785532779-6c56",
-        "at": "2026-07-31T21:19:39Z",
-        "ts": 1785532779,
-        "trigger": "self",
-        "prevHead": "53e38780",
-        "handoffSha": "sha256:d5ea1145c7bc8544e975e65466dd83cd3ae4806e8565d1af906849f1f6b48d19",
-        "handoffAgeSec": 6,
         "conformanceBefore": null,
         "commitsInSession": null
       }
