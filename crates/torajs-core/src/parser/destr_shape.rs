@@ -189,6 +189,18 @@ impl<'a> Parser<'a> {
                 t if Self::keyword_property_name(t).is_some() => {
                     (Self::keyword_property_name(t).unwrap().to_string(), true)
                 }
+                // §13.3.3 PropertyName : NumericLiteral — `{ 0: v,
+                // length: z }` (the array-as-object pattern family).
+                // A numeric key cannot shorthand-bind, so it takes
+                // the same mandatory-rename path as keyword fields; the
+                // load recipe turns an all-digit field into an index
+                // read. Non-integer numerics keep the loud reject.
+                Token::Number(n) if n.fract() == 0.0 && *n >= 0.0 => {
+                    ((*n as u64).to_string(), true)
+                }
+                // PropertyName : StringLiteral — `{ "a b": v }`; the
+                // field is the cooked string, rename mandatory.
+                Token::String(s) => (s.clone(), true),
                 t => {
                     return Err(format!(
                         "expected identifier in object destructuring, got {t:?} at {}",

@@ -361,6 +361,15 @@ impl<'a> Parser<'a> {
                     t if Self::keyword_property_name(t).is_some() => {
                         (Self::keyword_property_name(t).unwrap().to_string(), true)
                     }
+                    // §13.3.3 PropertyName : NumericLiteral /
+                    // StringLiteral (`{ 0: v }` / `{ "a b": v }`) —
+                    // rename mandatory, same as keyword fields; the
+                    // load recipe turns all-digit fields into
+                    // length-guarded index reads.
+                    Token::Number(n) if n.fract() == 0.0 && *n >= 0.0 => {
+                        ((*n as u64).to_string(), true)
+                    }
+                    Token::String(s) => (s.clone(), true),
                     t => {
                         return Err(format!(
                             "expected identifier in object param destructuring, got {t:?} at {}",
@@ -370,11 +379,19 @@ impl<'a> Parser<'a> {
                 };
                 self.pos += 1;
                 seen_fields.push(field.clone());
-                let src_ref = self.ast.add_expr(Expr::Ident(src_name.clone()));
-                let mem = self.ast.add_expr(Expr::Member {
-                    obj: src_ref,
-                    name: field.clone(),
-                });
+                // All-digit fields read as length-guarded index loads
+                // (OOB answers undefined so a `= default` wrapper can
+                // fire), everything else as a member read.
+                let mem = if !field.is_empty() && field.bytes().all(|b| b.is_ascii_digit()) {
+                    let idx = field.parse::<usize>().unwrap_or(0);
+                    self.dstra_elem_load(&src_name, idx, None)
+                } else {
+                    let src_ref = self.ast.add_expr(Expr::Ident(src_name.clone()));
+                    self.ast.add_expr(Expr::Member {
+                        obj: src_ref,
+                        name: field.clone(),
+                    })
+                };
                 if matches!(self.peek(), Token::Colon) {
                     self.pos += 1;
                     match self.peek() {

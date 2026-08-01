@@ -350,6 +350,17 @@ impl<'a> Parser<'a> {
         field: &str,
         default: Option<ExprId>,
     ) -> ExprId {
+        // §13.3.3 PropertyName : NumericLiteral — an all-digit field
+        // (`{ 0: v }`) is an index read, not a member read (`src.0`
+        // is not a member the lowering can express; `src[0]` is the
+        // canonical access for arrays-as-objects and dynobjs alike).
+        // The elem-load recipe carries the length-guard, so a
+        // past-end key answers undefined (and fires the default)
+        // instead of the typed lane's OOB RangeError.
+        if !field.is_empty() && field.bytes().all(|b| b.is_ascii_digit()) {
+            let idx = field.parse::<usize>().unwrap_or(0);
+            return self.dstra_elem_load(src_name, idx, default);
+        }
         let src_ref = self.ast.add_expr(Expr::Ident(src_name.to_string()));
         let load = self.ast.add_expr(Expr::Member {
             obj: src_ref,
