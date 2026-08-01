@@ -1530,7 +1530,32 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 9215301c`, never as a constant.
 
-**Re-derived @ `c44a5d10`** (2026-08-01, rotation 266 — the Object
+**Re-derived @ `5c60601a`** (2026-08-01, rotation 267 — six blades:
+Reflect.defineProperty data + accessor halves, Reflect.apply,
+generic-callback parameter elision, RegExp-called-as-function, and
+the new-RegExp-with-non-string-pattern crash fix): passTotal
+**23295** (+129), bug **11855** (+36), trAccepted **35150** (+165,
+conservation exact = +129 + 36), incompatible **18024** (−165),
+core **12113** (−140). Gate predicate: **389** clusters of ≥ 4
+holding 11046 (clusters −3, cases −133 — the first
+both-numbers-down rotation since 227), residue 813 clusters / 1067
+cases. **Zero regressions, zero new timeouts, zero new crashes** —
+129 forward transitions. The R5a blade threaded `throw_on_refusal`
+through the whole define chain (dynobj + torajs-arr, dual extern
+shells, three new soft shells); R5b closed the accessor half; R6
+reused the `apply_list` kernel with the §28.1.1 no-nullish-amnesty
+delta. The mid-rotation sweep @ `d28cb673` caught 4 new exit-139
+crashes (the RegExp call→construct rewrite exposed RegExp-object
+patterns crashing the Str-shaped compile kernel) — fixed same
+rotation by the `__torajs_regex_compile_any` kernel (§22.2.3.1
+shape dispatch: RegExp copies source/flags, else ToString), which
+also closed the pre-existing `new RegExp(any)` silent-death gap.
+The `no member X on Object("X")` family fell further 187 → 175;
+`expected N argument(s)` direct-call arity (372, untouched by the
+generic-unify elision blade — different signature) is the next
+addressable cluster after eval (1385, awaiting takagi).
+
+**Previous @ `c44a5d10`** (2026-08-01, rotation 266 — the Object
 member cluster survey plus seven blades: Promise combinator statics
 as values, Reflect gOPD / getPrototypeOf / preventExtensions /
 isExtensible / deleteProperty / setPrototypeOf, Array.of as a value,
