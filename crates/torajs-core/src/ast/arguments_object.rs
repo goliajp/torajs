@@ -17,7 +17,7 @@ use super::arguments_object_collect::{collect_value_argc, collect_value_argv};
 use super::arguments_object_inject::{inject_argc_params, prepend_static_argc};
 use super::arguments_object_static_argv::{
     collect_iife_static_argv, collect_method_static_argv, collect_named_static_argv,
-    inject_iife_static_params,
+    collect_objlit_method_static_argv, inject_iife_static_params,
 };
 use super::arguments_object_synth::{
     synth_arguments_local, synth_arguments_local_argv, synth_arguments_local_rest,
@@ -124,6 +124,9 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
     // class methods ride the same face (receiver slot excluded from
     // the argc count).
     static_argv.extend(collect_method_static_argv(ast));
+    // RFC 20260801 objlit branch — object-literal methods whose
+    // member call sites are all visible and uniform.
+    static_argv.extend(collect_objlit_method_static_argv(ast, &env_fns));
     // Shadowed fns (a binding named `arguments` in the body — see
     // collect_arguments_shadowed_fns) and bare-assign fns never
     // join any face.
@@ -139,15 +142,20 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
         .collect();
 
     // RFC 20260708-closure-argc-abi chunk 1 — closure VALUE form
-    // seed + binding safety walk (see collect_value_argc).
-    let (value_real_argc, argc_locals) =
+    // seed + binding safety walk (see collect_value_argc). A closure
+    // the static face admitted (objlit branch) must leave the value
+    // tiers — the face already reshaped its signature, and the value
+    // adapters would double-reshape it.
+    let (mut value_real_argc, argc_locals) =
         collect_value_argc(ast, &env_fns, &iife_real_argc, &excluded);
+    value_real_argc.retain(|n| !iife_static_argv.contains_key(n));
     ast.closure_argc_locals = argc_locals;
 
     // RFC 20260708-closure-argv-face — full-arguments tier seed +
     // the same binding safety walk (see collect_value_argv).
-    let (value_argv_fns, argv_locals) =
+    let (mut value_argv_fns, argv_locals) =
         collect_value_argv(ast, &env_fns, &iife_real_argc, &excluded);
+    value_argv_fns.retain(|n| !iife_static_argv.contains_key(n));
     ast.closure_argv_fns = value_argv_fns.clone();
     ast.closure_argv_locals = argv_locals;
 
