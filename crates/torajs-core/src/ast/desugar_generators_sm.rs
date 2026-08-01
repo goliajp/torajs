@@ -45,8 +45,18 @@ pub(super) const RESUME_LOCAL: &str = "__gen_st";
 pub(super) struct GenSm<'a> {
     pub(super) ast: &'a mut Ast,
     pub(super) arms: Vec<Vec<Stmt>>,
-    cur_state: usize,
+    pub(super) cur_state: usize,
     pub(super) cur_buf: Vec<Stmt>,
+    /// RFC 20260802 — exception regions recorded by the `Stmt::Try`
+    /// arm (sibling `desugar_generators_sm_try`). Non-empty ⇒ the
+    /// assembly wraps the dispatch if-chain in a try/catch that
+    /// routes a throw from any state in `[start, end]` to the
+    /// region's catch-entry state (regenerator tryEntries shape).
+    pub(super) regions: Vec<super::desugar_generators_sm_try::TryRegion>,
+    /// Extra `this.<name>` fields minted during SM lowering (the
+    /// hoisted catch-param slots). The driver appends these to
+    /// `lifted_locals` so they become class fields.
+    pub(super) hoisted: Vec<(String, String)>,
     /// (continue_target, break_target, label) for each enclosing
     /// yield-loop. Yield-FREE inner loops emit inline — their
     /// break/continue keep their normal Stmt::Break / Stmt::Continue
@@ -65,7 +75,7 @@ pub(super) struct GenSm<'a> {
     /// Without the wrap the field write hits a layout mismatch (step
     /// declares `value: any` but the ObjectLit's field_tys carries the
     /// concrete primitive type) and SIGSEGVs.
-    yield_ty: String,
+    pub(super) yield_ty: String,
 }
 
 impl<'a> GenSm<'a> {
@@ -75,13 +85,15 @@ impl<'a> GenSm<'a> {
             arms: vec![Vec::new()],
             cur_state: 0,
             cur_buf: Vec::new(),
+            regions: Vec::new(),
+            hoisted: Vec::new(),
             loop_stack: Vec::new(),
             pending_label: None,
             yield_ty,
         }
     }
 
-    fn alloc_state(&mut self) -> usize {
+    pub(super) fn alloc_state(&mut self) -> usize {
         let s = self.arms.len();
         self.arms.push(Vec::new());
         s
@@ -134,7 +146,7 @@ impl<'a> GenSm<'a> {
     /// A goto is a transition WITHIN one `next()` call, so it moves the
     /// local resume cursor, not the persisted field — see
     /// [`RESUME_LOCAL`].
-    fn emit_goto(&mut self, target: usize) -> Vec<Stmt> {
+    pub(super) fn emit_goto(&mut self, target: usize) -> Vec<Stmt> {
         let st = self.ast.add_expr(Expr::Ident(RESUME_LOCAL.into()));
         let lit = self.ast.add_expr(Expr::Number(target as f64));
         let assign = self.ast.add_expr(Expr::Assign {
@@ -142,95 +154,6 @@ impl<'a> GenSm<'a> {
             value: lit,
         });
         vec![Stmt::Expr(assign), Stmt::Continue(None)]
-    }
-
-    /// S2.30 — build the `{ value: v, done: true }` step object a user
-    /// `return v;` completes with (§27.5.1.2 return completion; `None`
-    /// = bare `return;` → `undefined`). Value routing mirrors
-    /// [`Self::emit_yield_return`] (Default-Any generators box via
-    /// `As any`). No state store: entry already stamped the dead
-    /// sentinel (RESUME_LOCAL doc), so any non-yield exit completes.
-    fn make_done_step(&mut self, v: Option<ExprId>) -> ExprId {
-        let val = match v {
-            Some(e) => e,
-            None => self.ast.add_expr(Expr::Ident("undefined".into())),
-        };
-        let val_for_step = if self.yield_ty == "any" {
-            self.ast.add_expr(Expr::As {
-                expr: val,
-                ty_ann: "any".into(),
-            })
-        } else {
-            val
-        };
-        let done = self.ast.add_expr(Expr::Bool(true));
-        self.ast.add_expr(Expr::ObjectLit {
-            fields: vec![("value".into(), val_for_step), ("done".into(), done)],
-        })
-    }
-
-    /// S2.30 — rewrite every `return v;` nested inside an
-    /// inline-emitted statement (a yield-free If / While / For body,
-    /// or any stmt the catch-all passes through verbatim) into the
-    /// done-step return the top-level `Stmt::Return` arm produces.
-    /// Walks the Stmt tree only — a nested closure body lives behind
-    /// an ExprId (a different function), so it is never visited.
-    fn rewrite_nested_returns(&mut self, s: &mut Stmt) {
-        match s {
-            Stmt::Return(v) => {
-                let obj = self.make_done_step(v.take());
-                *s = Stmt::Return(Some(obj));
-            }
-            Stmt::Block(ss) | Stmt::Multi(ss) => {
-                for x in ss {
-                    self.rewrite_nested_returns(x);
-                }
-            }
-            Stmt::If {
-                then_branch,
-                else_branch,
-                ..
-            } => {
-                self.rewrite_nested_returns(then_branch);
-                if let Some(e) = else_branch {
-                    self.rewrite_nested_returns(e);
-                }
-            }
-            Stmt::While { body, .. }
-            | Stmt::DoWhile { body, .. }
-            | Stmt::For { body, .. }
-            | Stmt::ForOf { body, .. }
-            | Stmt::ForOfSplitIter { body, .. }
-            | Stmt::Labeled { body, .. } => self.rewrite_nested_returns(body),
-            Stmt::Switch { cases, default, .. } => {
-                for c in cases {
-                    for x in &mut c.body {
-                        self.rewrite_nested_returns(x);
-                    }
-                }
-                if let Some(ds) = default {
-                    for x in ds {
-                        self.rewrite_nested_returns(x);
-                    }
-                }
-            }
-            Stmt::Try {
-                body,
-                catch_body,
-                finally_body,
-                ..
-            } => {
-                for x in body.iter_mut().chain(catch_body.iter_mut()) {
-                    self.rewrite_nested_returns(x);
-                }
-                if let Some(fs) = finally_body {
-                    for x in fs {
-                        self.rewrite_nested_returns(x);
-                    }
-                }
-            }
-            _ => {}
-        }
     }
 
     fn emit_yield_return(&mut self, val: ExprId, next: usize) -> Vec<Stmt> {
@@ -262,8 +185,27 @@ impl<'a> GenSm<'a> {
         }
     }
 
-    fn lower(&mut self, stmt: Stmt) {
+    pub(super) fn lower(&mut self, stmt: Stmt) {
         match stmt {
+            // RFC 20260802 — try/catch with yield lowers into an
+            // exception region (sibling `desugar_generators_sm_try`);
+            // yield-free / finally-bearing trys fall back to the
+            // verbatim inline push inside `lower_try`.
+            Stmt::Try {
+                body,
+                had_catch,
+                catch_param,
+                catch_type,
+                catch_body,
+                finally_body,
+            } => self.lower_try(
+                body,
+                had_catch,
+                catch_param,
+                catch_type,
+                catch_body,
+                finally_body,
+            ),
             Stmt::Yield(e) => {
                 let next = self.alloc_state();
                 let mut yr = self.emit_yield_return(e, next);

@@ -71,7 +71,25 @@ pub(crate) fn expand_yield_into_in_stmt(ast: &mut Ast, s: &mut Stmt, yield_ty: &
                 expand_yield_into_in_stmt(ast, s, yield_ty);
             }
         }
-        // Switch / try cases not yet in yield scope (J.2.b).
+        // RFC 20260802 — try/catch is in yield scope now. Descending
+        // into a yield-free try is a no-op (nothing to expand), so no
+        // gate is needed here.
+        Stmt::Try {
+            body,
+            catch_body,
+            finally_body,
+            ..
+        } => {
+            for s in body.iter_mut().chain(catch_body.iter_mut()) {
+                expand_yield_into_in_stmt(ast, s, yield_ty);
+            }
+            if let Some(fs) = finally_body {
+                for s in fs {
+                    expand_yield_into_in_stmt(ast, s, yield_ty);
+                }
+            }
+        }
+        // Switch cases not yet in yield scope (J.2.b).
         _ => {}
     }
 }
@@ -143,7 +161,33 @@ pub(crate) fn lift_lets_in_stmt(ast: &mut Ast, s: &mut Stmt, lifted: &mut Vec<(S
                 lift_lets_in_stmt(ast, s, lifted);
             }
         }
-        // Switch / try cases don't yet support yields (J.2.b scope)
+        // RFC 20260802 — a yield-bearing try gets region-lowered, so
+        // its lets must survive yield boundaries like everyone else's.
+        // Yield-FREE trys keep today's inline shape (lets stay plain
+        // locals — no lift, no collision-panic surface change).
+        Stmt::Try {
+            body,
+            catch_body,
+            finally_body,
+            ..
+        } => {
+            let has_yield = body
+                .iter()
+                .chain(catch_body.iter())
+                .chain(finally_body.iter().flatten())
+                .any(super::desugar_generators_sm_rewrite::stmt_contains_yield);
+            if has_yield {
+                for s in body.iter_mut().chain(catch_body.iter_mut()) {
+                    lift_lets_in_stmt(ast, s, lifted);
+                }
+                if let Some(fs) = finally_body {
+                    for s in fs {
+                        lift_lets_in_stmt(ast, s, lifted);
+                    }
+                }
+            }
+        }
+        // Switch cases don't yet support yields (J.2.b scope)
         // so their inner lets stay as plain locals — no lift needed.
         _ => {}
     }

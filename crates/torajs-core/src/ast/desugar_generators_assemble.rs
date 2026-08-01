@@ -13,11 +13,17 @@ use super::{Ast, BinOp, Expr, Stmt, default_init_for_type};
 /// GenSm into `arms`, then assemble `[while(true) { if(state==0){arm0}
 /// if(state==1){arm1} ... ; catch-all }, return {value:0,done:true}]`
 /// as the two-stmt body. Caller wraps it into the ClassMethod.
+///
+/// RFC 20260802 — also returns the hoisted catch-param slots the SM
+/// minted (extra class fields the driver appends to lifted_locals).
+/// When the SM recorded exception regions, the dispatch if-chain is
+/// wrapped in the region-routing try/catch; region-free generators
+/// keep the exact pre-RFC shape.
 pub(super) fn build_state_machine_next_body(
     ast: &mut Ast,
     gen_body: Vec<Stmt>,
     yield_ty: &str,
-) -> Vec<Stmt> {
+) -> (Vec<Stmt>, Vec<(String, String)>) {
     // Build the state machine. Each arm is the body of one state in
     // an if-chain wrapped by `while (true) { ... }`. Yields close an
     // arm with `return {value:e, done:false}`; control-flow gotos
@@ -34,6 +40,8 @@ pub(super) fn build_state_machine_next_body(
     });
     sm.cur_buf.push(Stmt::Return(Some(final_obj)));
     sm.flush_cur();
+    let regions = std::mem::take(&mut sm.regions);
+    let hoisted = std::mem::take(&mut sm.hoisted);
 
     // Assemble: while (true) { if (st==0){arm0} if (st==1){arm1} ... ; catch-all }
     let mut loop_body: Vec<Stmt> = Vec::new();
@@ -63,6 +71,14 @@ pub(super) fn build_state_machine_next_body(
         fields: vec![("value".into(), zero_tail_id), ("done".into(), done_tail)],
     });
     loop_body.push(Stmt::Return(Some(final_tail)));
+
+    // RFC 20260802 — exception regions route a throw from any state
+    // inside a try range to its catch-entry state.
+    let loop_body = if regions.is_empty() {
+        loop_body
+    } else {
+        super::desugar_generators_sm_try::wrap_dispatch_with_region_catch(ast, loop_body, &regions)
+    };
 
     let true_lit = ast.add_expr(Expr::Bool(true));
     // Unreachable trailing return after the `while (true)` — the
@@ -105,13 +121,16 @@ pub(super) fn build_state_machine_next_body(
         target: state_kill,
         value: dead_lit,
     });
-    vec![
-        seed_local,
-        Stmt::Expr(kill),
-        Stmt::While {
-            cond: true_lit,
-            body: Box::new(Stmt::Block(loop_body)),
-        },
-        Stmt::Return(Some(final_after)),
-    ]
+    (
+        vec![
+            seed_local,
+            Stmt::Expr(kill),
+            Stmt::While {
+                cond: true_lit,
+                body: Box::new(Stmt::Block(loop_body)),
+            },
+            Stmt::Return(Some(final_after)),
+        ],
+        hoisted,
+    )
 }

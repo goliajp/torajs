@@ -214,7 +214,7 @@ fn desugar_one_generator(
     }
     let captures_arguments =
         push_arguments_capture(ast, &gen_params, &gen_body, &mut rewrite_params);
-    let (gen_body, lifted_locals) = crate::ast::desugar_generators_prep::prep_generator_body(
+    let (gen_body, mut lifted_locals) = crate::ast::desugar_generators_prep::prep_generator_body(
         ast,
         gen_body,
         &gen_name,
@@ -250,9 +250,13 @@ fn desugar_one_generator(
     // Yields close an arm with `return {value:e, done:false}`;
     // control-flow gotos close with `state = N; continue;` and the
     // `while(true)` loop re-enters the if-chain at the new state.
-    let next_body = crate::ast::desugar_generators_assemble::build_state_machine_next_body(
-        ast, gen_body, &yield_ty,
-    );
+    let (next_body, gen_hoisted) =
+        crate::ast::desugar_generators_assemble::build_state_machine_next_body(
+            ast, gen_body, &yield_ty,
+        );
+    // RFC 20260802 — the SM's hoisted catch-param slots become class
+    // fields alongside the lifted locals.
+    lifted_locals.extend(gen_hoisted);
 
     // Build the generator class with __state field + ctor + next().
     let zero_init = default_init_for_type("number");

@@ -14,17 +14,35 @@ use super::{Ast, Expr, ExprId, Param, Stmt};
 /// ExprId keeps its semantic meaning; only its kind changes from
 /// `Ident` to `Member { obj: this, name }`.
 pub(super) fn rewrite_params_to_this(ast: &mut Ast, body: &[Stmt], params: &[Param]) {
-    let pset: std::collections::HashSet<String> = params.iter().map(|p| p.name.clone()).collect();
+    // Identity map: each name rewrites to a this-field of the SAME
+    // name. RFC 20260802 generalized the walker to a name→field map
+    // so the catch-param slot rewrite below can share it.
+    let map: std::collections::HashMap<String, String> = params
+        .iter()
+        .map(|p| (p.name.clone(), p.name.clone()))
+        .collect();
     let mut visited: std::collections::HashSet<u32> = std::collections::HashSet::new();
     for s in body {
-        rewrite_params_in_stmt(ast, s, &pset, &mut visited);
+        rewrite_params_in_stmt(ast, s, &map, &mut visited);
+    }
+}
+
+/// RFC 20260802 — rewrite every `Ident(from)` reachable from `body`
+/// into `this.<slot>`. Used by the generator try-region arm to point
+/// catch-param references at the hoisted exception field.
+pub(super) fn rewrite_ident_to_this_slot(ast: &mut Ast, body: &[Stmt], from: &str, slot: &str) {
+    let mut map = std::collections::HashMap::new();
+    map.insert(from.to_string(), slot.to_string());
+    let mut visited: std::collections::HashSet<u32> = std::collections::HashSet::new();
+    for s in body {
+        rewrite_params_in_stmt(ast, s, &map, &mut visited);
     }
 }
 
 fn rewrite_params_in_stmt(
     ast: &mut Ast,
     s: &Stmt,
-    pset: &std::collections::HashSet<String>,
+    pset: &std::collections::HashMap<String, String>,
     visited: &mut std::collections::HashSet<u32>,
 ) {
     match s {
@@ -126,6 +144,48 @@ fn rewrite_params_in_stmt(
                 }
             }
         }
+        // RFC 20260802 — descend ONLY into yield-bearing trys (the
+        // ones the SM region-lowers); yield-free trys keep today's
+        // untouched inline shape. The catch param shadows any
+        // same-named generator param / lifted local inside the catch
+        // body, so it drops out of the rewrite map there.
+        Stmt::Try {
+            body,
+            catch_param,
+            catch_body,
+            finally_body,
+            ..
+        } => {
+            let has_yield = body
+                .iter()
+                .chain(catch_body.iter())
+                .chain(finally_body.iter().flatten())
+                .any(super::desugar_generators_sm_rewrite::stmt_contains_yield);
+            if !has_yield {
+                return;
+            }
+            for s in body {
+                rewrite_params_in_stmt(ast, s, pset, visited);
+            }
+            let reduced;
+            let catch_set = match catch_param {
+                Some(p) if pset.contains_key(p) => {
+                    let mut c = pset.clone();
+                    c.remove(p);
+                    reduced = c;
+                    &reduced
+                }
+                _ => pset,
+            };
+            for s in catch_body {
+                rewrite_params_in_stmt(ast, s, catch_set, visited);
+            }
+            if let Some(fs) = finally_body {
+                for s in fs {
+                    rewrite_params_in_stmt(ast, s, pset, visited);
+                }
+            }
+        }
         _ => {}
     }
 }
@@ -133,7 +193,7 @@ fn rewrite_params_in_stmt(
 fn rewrite_params_in_expr(
     ast: &mut Ast,
     eid: ExprId,
-    pset: &std::collections::HashSet<String>,
+    pset: &std::collections::HashMap<String, String>,
     visited: &mut std::collections::HashSet<u32>,
 ) {
     if !visited.insert(eid.0) {
@@ -141,9 +201,13 @@ fn rewrite_params_in_expr(
     }
     let kind = ast.exprs[eid.0 as usize].clone();
     match kind {
-        Expr::Ident(name) if pset.contains(&name) => {
+        Expr::Ident(name) if pset.contains_key(&name) => {
+            let field = pset[&name].clone();
             let this_id = ast.add_expr(Expr::This);
-            ast.exprs[eid.0 as usize] = Expr::Member { obj: this_id, name };
+            ast.exprs[eid.0 as usize] = Expr::Member {
+                obj: this_id,
+                name: field,
+            };
         }
         Expr::BinOp { left, right, .. } => {
             rewrite_params_in_expr(ast, left, pset, visited);
