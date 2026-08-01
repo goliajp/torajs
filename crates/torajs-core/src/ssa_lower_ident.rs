@@ -80,8 +80,31 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, eid: crate::ast::ExprId, name: &str)
         if let Some(op) = try_builtin_ctor_ident(ctx, name) {
             return op;
         }
+        if let Some(op) = try_ns_object_ident(ctx, name) {
+            return op;
+        }
     }
     lower_local_binding(ctx, name)
+}
+
+/// RFC 20260801-ns-object-value — `Math` in a value position (thisArg
+/// / call arg / return / identity compare) answers the interned
+/// namespace-object singleton (an immortal pre-filled dynobj, Any).
+/// Static member reads and `Math.xxx(...)` calls never reach here —
+/// they resolve in the member / call lanes first — and a local
+/// binding named Math shadows through the outer `locals` gate.
+fn try_ns_object_ident(ctx: &mut LowerCtx<'_>, name: &str) -> Option<Operand> {
+    if name != "Math" || ctx.ast.class_parents.contains_key(name) {
+        return None;
+    }
+    let cur_block = ctx.cur_block;
+    let v = ctx.f.append_inst(
+        cur_block,
+        InstKind::Call(ctx.intrinsics.ns_object_math, vec![]),
+        Type::Any,
+        None,
+    );
+    Some(Operand::Value(v))
 }
 
 /// RFC 20260730-undeclared-ident — §6.2.5.5 GetValue on an

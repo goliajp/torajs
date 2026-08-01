@@ -63,6 +63,9 @@ pub(crate) struct MathIds {
     pub math_sum_precise_i64: FuncId,
     pub math_f16round: FuncId,
     pub math_random: FuncId,
+    /// RFC 20260801-ns-object-value — the Math namespace object as a
+    /// first-class value (interned immortal singleton, Any).
+    pub ns_object_math: FuncId,
 }
 
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) -> MathIds {
@@ -135,5 +138,12 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
         ),
         math_f16round: f_to_f(module, fn_table, "__torajs_math_f16round"),
         math_random: declare_intrinsic(module, fn_table, "__torajs_math_random", &[], Type::F64),
+        ns_object_math: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_ns_object_math",
+            &[],
+            Type::Any,
+        ),
     }
 }
