@@ -313,6 +313,25 @@ fn close_fallthrough_path(ctx: &mut LowerCtx<'_>, cb: ssa::BlockId) {
         Type::F64 => Terminator::Ret(Some(Operand::ConstF64(f64::from_bits(
             crate::ssa_lower_nullable_guard::F64_UNDEF_SENTINEL_BITS,
         )))),
+        // An `any` return spells its undefined as the immediate
+        // ANY_UNDEF box (tag 5, payload 0), not a heap cell — the
+        // implicit-generics pass routes every value-returning fn
+        // whose body can fall through to an `any` ret precisely so
+        // this path has a spelling (a Bool/I64 ret has none, and
+        // the open block used to terminate `unreachable`: running
+        // off the end of `if (c) return true;` trapped).
+        Type::Any => {
+            let b = ctx.f.append_inst(
+                cb,
+                ssa::InstKind::Call(
+                    ctx.intrinsics.any_box,
+                    vec![Operand::ConstI64(5), Operand::ConstI64(0)],
+                ),
+                Type::Any,
+                None,
+            );
+            Terminator::Ret(Some(Operand::Value(b)))
+        }
         ret_ty => match ctx.str_undef_sentinel_for(ret_ty) {
             Some(cell) => Terminator::Ret(Some(cell)),
             None => Terminator::Unreachable,
