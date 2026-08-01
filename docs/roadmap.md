@@ -1530,7 +1530,21 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 9215301c`, never as a constant.
 
-**Latest @ `3db6224b`** (2026-08-02, rotation 274 knife 6 on top of
+**Latest @ `a28a5177`** (2026-08-02, rotation 274 knife 7 on top of
+the `3db6224b` stamp below — the any-lane `Promise.resolve` adopts a
+boxed %Promise% cell via the new `__torajs_promise_resolve_any`
+kernel instead of double-wrapping it, closing the Promise.try
+flatten face; re-sweep moved exactly the 3 Promise/resolve
+S25.4.4.5 adopt-semantics cases bug→pass, nothing else): passTotal
+**24058** (+3), bug **11714** (−3), trAccepted **35772** (flat —
+conservation exact), incompatible **17402** (flat), core **11521**
+(flat). Gate predicate: **385** clusters of ≥ 4 holding 10444,
+residue 816 / 1077 — all flat. Zero regressions. Known residue:
+native Promise.try resolves through a resolve function (+1
+thenable-job tick) while the desugar rides the static, so
+cross-chain interleaving can differ; per-chain output is identical.
+
+**Previous @ `3db6224b`** (2026-08-02, rotation 274 knife 6 on top of
 the `49aa4ebb` sweep below — ES2025 `Promise.try` desugared to an
 immediately-invoked try/catch arrow over the resolve/reject statics;
 re-sweep moved exactly the 4 core-semantics Promise/try cases

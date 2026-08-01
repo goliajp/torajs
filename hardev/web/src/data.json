@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-01T15:43:43.928Z",
+  "generatedAt": "2026-08-01T16:06:02.074Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,18 +9,18 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-01T15:42:46Z",
-    "headSha": "3db6224b",
-    "elapsedSec": 389.73,
+    "ranAt": "2026-08-01T16:04:48Z",
+    "headSha": "a28a5177",
+    "elapsedSec": 421.2,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 19675,
+    "pass": 19678,
     "passNoOracle": 554,
     "passNegative": 3826,
-    "passTotal": 24055,
-    "bug": 11717,
+    "passTotal": 24058,
+    "bug": 11714,
     "incompatible": 17402,
     "bunSkip": 7467,
     "harnessError": 0,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 67.25
   },
   "torajs": {
-    "commit": "3db6224b",
-    "commitSubject": "feat(core): Promise.try desugars to an immediately-invoked try/catch arrow",
+    "commit": "a28a5177",
+    "commitSubject": "feat(core,promise): any-lane Promise.resolve adopts a boxed promise cell",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "a28a5177",
+      "subject": "feat(core,promise): any-lane Promise.resolve adopts a boxed promise cell"
+    },
+    {
+      "hash": "bf5b849e",
+      "subject": "chore(docs,hardev): rotation 274 final census at 3db6224b"
+    },
+    {
       "hash": "3db6224b",
       "subject": "feat(core): Promise.try desugars to an immediately-invoked try/catch arrow"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "05b98530",
       "subject": "feat(core): object-literal generator methods route real argv into arguments"
-    },
-    {
-      "hash": "c3cf8a2e",
-      "subject": "feat(core): escaped object-literal methods answer their true argv"
-    },
-    {
-      "hash": "c419b72d",
-      "subject": "feat(core): method values deliver their real argv into arguments"
     }
   ],
-  "headSha": "3db6224b",
+  "headSha": "a28a5177",
   "autorun": {
     "total": 578,
     "baselineTarget": 10,
