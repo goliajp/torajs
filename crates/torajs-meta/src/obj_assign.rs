@@ -48,6 +48,7 @@ unsafe extern "C" {
     );
     fn __torajs_anyv_unbox_tag(v: u64) -> i64;
     fn __torajs_anyv_unbox_value(v: u64) -> i64;
+    fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64;
 }
 
 /// Copy `source`'s own enumerable string-keyed properties into
@@ -66,32 +67,61 @@ pub unsafe extern "C" fn __torajs_anyv_assign(target: u64, source: u64) {
         }
         return;
     }
+    let mut t_slot = target;
+    unsafe { copy_own_into(&mut t_slot, source) };
+}
+
+/// `{ ...source }` into the dynobj lane's fresh literal — §7.3.25
+/// CopyDataProperties (rotation 267). Same own-enumerable walk as
+/// [`__torajs_anyv_assign`]: a fresh plain dynobj has no setters or
+/// prototype, so the walk's [[Set]] ≡ CreateDataProperty. `obj_slot`
+/// is the lane's live dynobj POINTER slot — member_set may resize
+/// the block, and the fresh pointer rides the anyv slot back out.
+///
+/// # Safety
+/// `obj_slot` points at a live dynobj pointer; `source` is a live
+/// AnyValue bit pattern. Caller must check for a pending throw.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_dynobj_spread_from(obj_slot: *mut *mut c_void, source: u64) {
+    let mut t_anyv =
+        unsafe { __torajs_anyv_box_from_pair(ANY_HEAP_TAG as i64, (*obj_slot) as i64) };
+    unsafe { copy_own_into(&mut t_anyv, source) };
+    unsafe { *obj_slot = __torajs_anyv_unbox_value(t_anyv) as *mut c_void };
+}
+
+/// Shared own-enumerable copy — §20.1.2.1 step 4 / §7.3.25 body. A
+/// nullish source contributes nothing (step 4.a / step 1). Own
+/// enumerable keys — full ToObject taxonomy (dynobj / struct / arr /
+/// str / closure / wrapper arms) lives in the keys kernel; this walk
+/// is shape-blind. OwnPropertyKeys includes the §10.1.11.1 SYMBOL
+/// bucket (enumerable-filtered, same as the string buckets) — a
+/// second pass over the same per-key body, because the two buckets
+/// come from separate kernels by construction.
+unsafe fn copy_own_into(target_slot: *mut u64, source: u64) {
     if source == VALUE_NULL_IMM || source == VALUE_UNDEFINED_IMM {
         return;
     }
-    // Own enumerable keys — full ToObject taxonomy (dynobj / struct /
-    // arr / str / closure / wrapper arms) lives in the keys kernel;
-    // this walk is shape-blind. §20.1.2.1 step 4.b.i runs
-    // OwnPropertyKeys, so the §10.1.11.1 SYMBOL bucket is copied too
-    // (enumerable-filtered, same as the string buckets) — a second pass
-    // over the same per-key body, because the two buckets come from
-    // separate kernels by construction.
     let strings = unsafe { crate::obj_own_keys::__torajs_anyv_own_keys(source, 0) };
-    let threw = unsafe { copy_keys(target, source, strings) };
+    let threw = unsafe { copy_keys(target_slot, source, strings) };
     if !threw {
         let symbols = unsafe { crate::own_names::__torajs_anyv_own_enum_symbols(source) };
-        unsafe { copy_keys(target, source, symbols) };
+        unsafe { copy_keys(target_slot, source, symbols) };
     }
 }
 
-/// Copy every key in a keys array from `source` into `target`, then
-/// release the array and the key stakes it holds. Returns `true` when a
-/// getter or setter recorded a pending throw, which ends the assign.
+/// Copy every key in a keys array from `source` into the target
+/// anyv slot, then release the array and the key stakes it holds.
+/// Returns `true` when a getter or setter recorded a pending throw,
+/// which ends the assign. The slot form keeps a dynobj target valid
+/// across a member_set resize (the kernel writes the relocated box
+/// back through the slot; the old per-key `let mut t_slot = target`
+/// re-read a stale box after a resize).
 ///
 /// # Safety
-/// `keys` is an owned `+1`-rc keys array this call consumes; `target` /
-/// `source` are live AnyValue bit patterns.
-unsafe fn copy_keys(target: u64, source: u64, keys: *mut c_void) -> bool {
+/// `keys` is an owned `+1`-rc keys array this call consumes;
+/// `target_slot` points at a live AnyValue; `source` is a live
+/// AnyValue bit pattern.
+unsafe fn copy_keys(target_slot: *mut u64, source: u64, keys: *mut c_void) -> bool {
     let len = unsafe { (keys.cast::<u8>().add(ARR_LEN_OFF) as *const u64).read() };
     let data = unsafe { (keys.cast::<u8>().add(ARR_DATA_PTR_OFF) as *const *const u64).read() };
     let mut threw = false;
@@ -122,8 +152,7 @@ unsafe fn copy_keys(target: u64, source: u64, keys: *mut c_void) -> bool {
             }
             (tag, v)
         };
-        let mut t_slot = target;
-        unsafe { __torajs_any_member_set(&mut t_slot, key, vtag, vval, -1) };
+        unsafe { __torajs_any_member_set(target_slot, key, vtag, vval, -1) };
         if unsafe { __torajs_throw_check() } != 0 {
             threw = true;
             break;

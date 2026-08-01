@@ -55,6 +55,17 @@ use crate::ssa::{InstKind, Operand, StructId, Type};
 use crate::ssa_lower::{LowerCtx, OBJ_CLASS_TAG_OFF, OBJ_HEADER_SIZE, OBJ_VTABLE_OFF};
 
 pub(crate) fn lower(ctx: &mut LowerCtx<'_>, fields: Vec<(String, ExprId)>, eid: ExprId) -> Operand {
+    // Rotation 267 — a literal the checker typed Any (an any-spread
+    // member has no static field list) has no struct layout to
+    // resolve; the whole literal lives on the dynobj lane, where the
+    // spread runs the runtime CopyDataProperties walk. Claim-and-drop
+    // both let-decl hints so they don't leak into a nested literal.
+    if matches!(ctx.expr_types.get(&eid), Some(crate::check::Type::Any)) {
+        let _ = ctx.let_stack_alloc_hint.take();
+        let _ = ctx.let_declared_obj_layout.take();
+        let dynobj = ctx.lower_dynobj_init(eid);
+        return ctx.box_to_any(dynobj);
+    }
     // Chunk 760 — claim the let-decl stack hint BEFORE the field
     // lowering: a nested object literal in a field value otherwise
     // consumed it inside `lower_field_entries` — the INNER block got

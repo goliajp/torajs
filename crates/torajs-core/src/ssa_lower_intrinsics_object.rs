@@ -136,6 +136,10 @@ pub(crate) struct ObjectIds {
     /// Function.prototype.apply kernel (nullish argumentsList
     /// throws).
     pub reflect_apply: FuncId,
+    /// §7.3.25 CopyDataProperties into the dynobj lane's fresh
+    /// literal (`{ ...anySrc }`, rotation 267) — pointer-slot form
+    /// so a member_set resize writes the relocated block back.
+    pub dynobj_spread_from: FuncId,
     pub object_create_check_proto: FuncId,
     pub object_create_link_proto: FuncId,
     pub anyv_set_prototype_of: FuncId,
@@ -230,6 +234,7 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             I64
         ),
         reflect_apply: decl!("__torajs_reflect_apply", [Any, Any, Any], Any),
+        dynobj_spread_from: decl!("__torajs_dynobj_spread_from", [Ptr, Any], Void),
         object_create_check_proto: decl!("__torajs_object_create_check_proto", [Any], Void),
         object_create_link_proto: decl!("__torajs_object_create_link_proto", [Ptr, Any], Void),
         anyv_set_prototype_of: decl!("__torajs_anyv_set_prototype_of", [Any, Any], Void),

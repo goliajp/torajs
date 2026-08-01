@@ -341,6 +341,50 @@ impl<'a> LowerCtx<'a> {
                 self.emit_dynobj_accessor_field(slot, &prop, fval_eid, false);
                 continue;
             }
+            // Rotation 267 — `{ ...src }` runs the §7.3.25 runtime
+            // CopyDataProperties walk into the fresh dynobj
+            // (pointer-slot form: a member_set resize writes the
+            // relocated block back through `slot`). Pre-fix the
+            // sentinel fell through to the general path and stored a
+            // literal `__spread__` key. MUST run before the
+            // `undefined` fast arm below — `{ ...undefined }`'s value
+            // expr IS `Ident("undefined")` (a nullish source
+            // contributes nothing inside the kernel). The
+            // destructuring-rest omit form copies then deletes the
+            // excluded keys (recorded divergence: their getters run).
+            if let Some(omit) = crate::check_type_of_object_lit::spread_omit_set(&fname) {
+                let omit: Vec<String> = omit.iter().map(|s| s.to_string()).collect();
+                let src = self.lower_expr(fval_eid);
+                let src_ty = self.operand_ty(&src);
+                let src_any = if matches!(src_ty, Type::Any) {
+                    src.clone()
+                } else {
+                    self.box_to_any_from_expr(fval_eid, src.clone())
+                };
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Call(
+                        self.intrinsics.dynobj_spread_from,
+                        vec![Operand::Value(slot), src_any],
+                    ),
+                );
+                self.release_owned_temp(fval_eid, &src);
+                self.emit_throw_check(None);
+                for k in &omit {
+                    let key = self.intern_string_literal(k);
+                    let d = self.load_dynobj(slot);
+                    let _ = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(
+                            self.intrinsics.dynobj_delete,
+                            vec![Operand::Value(d), Operand::Value(key)],
+                        ),
+                        Type::I32,
+                        None,
+                    );
+                }
+                continue;
+            }
             // RFC 20260712-object-create-define-props — a nested
             // ObjectLit recurses through the dynobj lane (mirror of
             // lower_array_any_literal's nested-array recursion): the

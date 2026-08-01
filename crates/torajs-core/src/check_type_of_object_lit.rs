@@ -46,6 +46,12 @@ pub(crate) fn check(
     fields: &[(String, ExprId)],
 ) -> Result<Type, String> {
     let mut field_tys: Vec<(String, Type)> = Vec::new();
+    // Rotation 267 — a spread whose source is Any has no static
+    // field list, so the whole literal leaves the struct layer and
+    // answers Any (the dynobj lane's runtime CopyDataProperties
+    // names the fields). Remaining fields still typecheck below for
+    // side effects.
+    let mut any_spread = false;
     for (n, eid) in fields {
         // S2.24 刀 4 — a CoverInitializedName field (`{ x = D }`)
         // reaching expression position is the §13.2.5.1 early error:
@@ -58,6 +64,15 @@ pub(crate) fn check(
         }
         if let Some(omit) = spread_omit_set(n) {
             let src_ty = checker.type_of(ast, *eid)?;
+            // Any-typed spread source → the whole literal goes to the
+            // dynobj lane (see above). The destructuring-rest omit
+            // form (`__spread_omit__:` with keys) keeps the struct
+            // refuse for now — its runtime shape needs an excluded-key
+            // walk (registered).
+            if matches!(src_ty, Type::Any) && omit.is_empty() {
+                any_spread = true;
+                continue;
+            }
             let Type::Struct(src_fields) = &src_ty else {
                 return Err(format!(
                     "object spread source must be a struct, got {src_ty:?}"
@@ -111,6 +126,9 @@ pub(crate) fn check(
                 field_tys.push((n.clone(), ty));
             }
         }
+    }
+    if any_spread {
+        return Ok(Type::Any);
     }
     Ok(Type::Struct(field_tys))
 }
