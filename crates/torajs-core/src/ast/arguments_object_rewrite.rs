@@ -10,6 +10,7 @@
 //! and the pub(super) markers below.
 
 use super::arguments_object::ArgcMode;
+use super::arguments_object_rewrite_spread::{rewrite_array_arm, rewrite_call_arm};
 use super::{Ast, Expr, ExprId, Stmt};
 
 pub(super) fn rewrite_arguments_in_stmt(
@@ -300,6 +301,80 @@ pub(super) fn rewrite_arguments_in_expr(
             }
             ast.add_expr(Expr::Unary { op, expr: e2 })
         }
+        // RFC 20260801 knife 2 — every arm below mirrors a shape the
+        // walkers' detection scan reaches: a body the pass decided to
+        // materialize must have its touches swapped here too, or the
+        // stale `arguments` ident silently rides a fallback lane
+        // (`typeof arguments` folded to "undefined" through the
+        // undeclared-ident typeof fold).
+        Expr::TypeOf { expr } => {
+            let e2 = rewrite_arguments_in_expr(ast, expr, params, argc_mode, is_argv_fn);
+            if e2 == expr {
+                return eid;
+            }
+            ast.add_expr(Expr::TypeOf { expr: e2 })
+        }
+        Expr::Spread { expr } => {
+            let e2 = rewrite_arguments_in_expr(ast, expr, params, argc_mode, is_argv_fn);
+            if e2 == expr {
+                return eid;
+            }
+            ast.add_expr(Expr::Spread { expr: e2 })
+        }
+        Expr::Ternary {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            let c = rewrite_arguments_in_expr(ast, cond, params, argc_mode, is_argv_fn);
+            let t = rewrite_arguments_in_expr(ast, then_branch, params, argc_mode, is_argv_fn);
+            let e2 = rewrite_arguments_in_expr(ast, else_branch, params, argc_mode, is_argv_fn);
+            if c == cond && t == then_branch && e2 == else_branch {
+                return eid;
+            }
+            ast.add_expr(Expr::Ternary {
+                cond: c,
+                then_branch: t,
+                else_branch: e2,
+            })
+        }
+        Expr::Nullish { lhs, rhs } => {
+            let l = rewrite_arguments_in_expr(ast, lhs, params, argc_mode, is_argv_fn);
+            let r = rewrite_arguments_in_expr(ast, rhs, params, argc_mode, is_argv_fn);
+            if l == lhs && r == rhs {
+                return eid;
+            }
+            ast.add_expr(Expr::Nullish { lhs: l, rhs: r })
+        }
+        Expr::OptChain { obj, name } => {
+            let o = rewrite_arguments_in_expr(ast, obj, params, argc_mode, is_argv_fn);
+            if o == obj {
+                return eid;
+            }
+            ast.add_expr(Expr::OptChain { obj: o, name })
+        }
+        Expr::OptIndex { obj, index } => {
+            let o = rewrite_arguments_in_expr(ast, obj, params, argc_mode, is_argv_fn);
+            let ix = rewrite_arguments_in_expr(ast, index, params, argc_mode, is_argv_fn);
+            if o == obj && ix == index {
+                return eid;
+            }
+            ast.add_expr(Expr::OptIndex { obj: o, index: ix })
+        }
+        Expr::OptCall { callee, args } => {
+            let c = rewrite_arguments_in_expr(ast, callee, params, argc_mode, is_argv_fn);
+            let new_args: Vec<ExprId> = args
+                .iter()
+                .map(|a| rewrite_arguments_in_expr(ast, *a, params, argc_mode, is_argv_fn))
+                .collect();
+            if c == callee && new_args == args {
+                return eid;
+            }
+            ast.add_expr(Expr::OptCall {
+                callee: c,
+                args: new_args,
+            })
+        }
         Expr::Call { callee, args } => {
             rewrite_call_arm(ast, eid, callee, args, params, argc_mode, is_argv_fn)
         }
@@ -354,108 +429,4 @@ pub(super) fn rewrite_arguments_in_expr(
         // the arena with no-op clones.
         _ => eid,
     }
-}
-
-/// RFC 20260801 — how many leading params an inline `...arguments`
-/// expansion takes: the static call-site argc under FoldTo (extras
-/// included, under-filled tail excluded), everything otherwise
-/// (declared == actual on the named-fn / declared-pair paths).
-fn spread_take(params: &[String], argc_mode: ArgcMode) -> usize {
-    match argc_mode {
-        ArgcMode::FoldTo(n) => n.min(params.len()),
-        _ => params.len(),
-    }
-}
-
-/// `f(...arguments)` — argv-face bodies swap the spread source to the
-/// materialized `__torajs_arguments` array (apply_spread_args expands
-/// it downstream against fixed-arity callees; rest-callees take it
-/// directly); named-fn / declared-pair bodies expand the spread inline
-/// as `f(p0, p1, ...)` — declared == actual there. Handles arbitrary
-/// mix of regular args and the spread.
-fn rewrite_call_arm(
-    ast: &mut Ast,
-    eid: ExprId,
-    callee: ExprId,
-    args: Vec<ExprId>,
-    params: &[String],
-    argc_mode: ArgcMode,
-    is_argv_fn: bool,
-) -> ExprId {
-    let c = rewrite_arguments_in_expr(ast, callee, params, argc_mode, is_argv_fn);
-    let mut new_args: Vec<ExprId> = Vec::with_capacity(args.len());
-    for a in &args {
-        if let Expr::Spread { expr } = ast.get_expr(*a)
-            && let Expr::Ident(n) = ast.get_expr(*expr)
-            && n == "arguments"
-        {
-            if is_argv_fn {
-                let src = ast.add_expr(Expr::Ident("__torajs_arguments".into()));
-                new_args.push(ast.add_expr(Expr::Spread { expr: src }));
-            } else {
-                // FoldTo — expand exactly argc idents (the leading
-                // params; extras included, under-filled tail excluded).
-                for p in &params[..spread_take(params, argc_mode)] {
-                    new_args.push(ast.add_expr(Expr::Ident(p.clone())));
-                }
-            }
-            continue;
-        }
-        new_args.push(rewrite_arguments_in_expr(
-            ast, *a, params, argc_mode, is_argv_fn,
-        ));
-    }
-    if c == callee && new_args == args {
-        return eid;
-    }
-    let new_id = ast.add_expr(Expr::Call {
-        callee: c,
-        args: new_args,
-    });
-    // A genuinely-rewritten call keeps its speculative class-method
-    // demotion candidacy (cm_demote.rs) — the map is keyed by the
-    // Call node the checker will visit.
-    if let Some(&alt) = ast.speculative_cm_rewrites.get(&eid) {
-        ast.speculative_cm_rewrites.insert(new_id, alt);
-    }
-    new_id
-}
-
-/// `[...arguments]` — argv-face bodies swap the source to
-/// `[...__torajs_arguments]` (the existing Arr<Any> literal-spread
-/// lane); named-fn / declared-pair bodies expand inline. Same shape as
-/// the Call arm above. Mixed elems (regular + spread) supported by
-/// interleaving.
-fn rewrite_array_arm(
-    ast: &mut Ast,
-    eid: ExprId,
-    elems: Vec<ExprId>,
-    params: &[String],
-    argc_mode: ArgcMode,
-    is_argv_fn: bool,
-) -> ExprId {
-    let mut new_elems: Vec<ExprId> = Vec::with_capacity(elems.len());
-    for e in &elems {
-        if let Expr::Spread { expr } = ast.get_expr(*e)
-            && let Expr::Ident(n) = ast.get_expr(*expr)
-            && n == "arguments"
-        {
-            if is_argv_fn {
-                let src = ast.add_expr(Expr::Ident("__torajs_arguments".into()));
-                new_elems.push(ast.add_expr(Expr::Spread { expr: src }));
-            } else {
-                for p in &params[..spread_take(params, argc_mode)] {
-                    new_elems.push(ast.add_expr(Expr::Ident(p.clone())));
-                }
-            }
-            continue;
-        }
-        new_elems.push(rewrite_arguments_in_expr(
-            ast, *e, params, argc_mode, is_argv_fn,
-        ));
-    }
-    if new_elems == elems {
-        return eid;
-    }
-    ast.add_expr(Expr::Array(new_elems))
 }

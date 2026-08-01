@@ -10,8 +10,8 @@
 //!   safety walk both tiers gate on.
 
 use super::arguments_object_walkers::{
-    body_has_arguments_length, body_has_escaping_arguments_touch,
-    body_has_non_length_arguments_touch, body_has_unsafe_return_arguments,
+    body_has_arguments_length, body_has_non_length_arguments_touch,
+    body_has_unsafe_return_arguments,
 };
 use super::{Ast, Expr, Stmt};
 
@@ -148,10 +148,16 @@ pub(super) fn collect_value_argc(
 }
 
 /// RFC 20260708-closure-argv-face — collect the full-arguments tier:
-/// lifted closures whose body reads `arguments[i]` (dynamic OR
-/// beyond-declared literal) and touches `arguments` in no form the
-/// materialized array can't serve (spread / alias / bare escape stay
-/// KeepLoud — chunk 3). The value must survive the same
+/// lifted closures whose body touches `arguments` in any non-length
+/// form. RFC 20260801 knife 2 admitted the bare-escape shapes
+/// (return / alias / call arg / member) too: the rewriter swaps the
+/// bare `arguments` to the materialized `__torajs_arguments` array,
+/// which every consumer then treats as an ordinary `any[]` (a bare
+/// root return takes the moved mark — see
+/// `consume_all_idents_in_return`). Only the pass-through
+/// `return arguments[i]` shape stays KeepLoud (the elem box would
+/// leave borrowing the array's stake — UAF once the array
+/// scope-drops). The value must survive the same
 /// direct-call-or-alias binding walk as the argc tier: every call
 /// then rides the boxed dual entry (the checker mints the type
 /// rest-tail), whose adapter feeds real argc + argv. Returns
@@ -171,7 +177,6 @@ pub(super) fn collect_value_argv(
             && env_fns.contains(name)
             && !iife_real_argc.contains(name)
             && body_has_non_length_arguments_touch(ast, body)
-            && !body_has_escaping_arguments_touch(ast, body)
             && !body_has_unsafe_return_arguments(ast, body)
         {
             full.insert(name.clone());

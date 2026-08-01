@@ -22,13 +22,10 @@ enum ScanFor {
     /// spreads `...arguments`, aliases it, or touches any other
     /// member — all of which need the arg VALUES (the argv face)
     /// and disqualify the runtime-argc-only tier.
+    /// RFC 20260801 knife 2 retired the separate EscapingTouch
+    /// scan: bare escapes ride the argv face now (the rewriter
+    /// swaps them to the materialized `__torajs_arguments`).
     NonLengthTouch,
-    /// An `arguments` touch that even the argv face can't serve
-    /// from the materialized array (RFC 20260708-closure-argv-face):
-    /// `arguments[i]` and `arguments.length` are absorbed; a bare
-    /// `arguments` anywhere else (spread, call arg, alias, member)
-    /// hits. A body with such a touch stays KeepLoud.
-    EscapingTouch,
 }
 
 /// True if the body touches `arguments` in any form other than
@@ -111,13 +108,6 @@ pub(super) fn body_has_unsafe_return_arguments(ast: &Ast, body: &[Stmt]) -> bool
         }
     }
     body.iter().any(|s| stmt_walk(ast, s))
-}
-
-/// True if the body touches `arguments` in a form the argv-face
-/// materialized array can't serve (see [`ScanFor::EscapingTouch`]).
-pub(super) fn body_has_escaping_arguments_touch(ast: &Ast, body: &[Stmt]) -> bool {
-    body.iter()
-        .any(|s| stmt_scan(ast, s, ScanFor::EscapingTouch))
 }
 
 pub(super) fn stmt_uses_dynamic_arguments(ast: &Ast, s: &Stmt) -> bool {
@@ -375,17 +365,7 @@ fn expr_scan(ast: &Ast, eid: ExprId, what: ScanFor) -> bool {
             expr_scan(ast, *obj, what)
         }
         Expr::Member { obj, .. } => expr_scan(ast, *obj, what),
-        Expr::Index { obj, index } => {
-            // Escaping scan absorbs `arguments[...]` (the argv face
-            // serves it from the materialized array) but still
-            // recurses the index expression.
-            if what == ScanFor::EscapingTouch
-                && matches!(ast.get_expr(*obj), Expr::Ident(n) if n == "arguments")
-            {
-                return expr_scan(ast, *index, what);
-            }
-            expr_scan(ast, *obj, what) || expr_scan(ast, *index, what)
-        }
+        Expr::Index { obj, index } => expr_scan(ast, *obj, what) || expr_scan(ast, *index, what),
         Expr::BinOp { left, right, .. } => {
             expr_scan(ast, *left, what) || expr_scan(ast, *right, what)
         }
@@ -400,21 +380,8 @@ fn expr_scan(ast: &Ast, eid: ExprId, what: ScanFor) -> bool {
         }
         Expr::Array(items) => items.iter().any(|e| expr_scan(ast, *e, what)),
         Expr::ObjectLit { fields } => fields.iter().any(|(_, e)| expr_scan(ast, *e, what)),
-        Expr::Spread { expr } => {
-            // Escaping scan absorbs `...arguments` — the argv face
-            // serves it from the materialized array (the rewrite
-            // Call / Array arms swap the ident to
-            // `__torajs_arguments`). Other spread sources recurse.
-            if what == ScanFor::EscapingTouch
-                && matches!(ast.get_expr(*expr), Expr::Ident(n) if n == "arguments")
-            {
-                return false;
-            }
-            expr_scan(ast, *expr, what)
-        }
-        Expr::Ident(n) if n == "arguments" => {
-            matches!(what, ScanFor::NonLengthTouch | ScanFor::EscapingTouch)
-        }
+        Expr::Spread { expr } => expr_scan(ast, *expr, what),
+        Expr::Ident(n) if n == "arguments" => what == ScanFor::NonLengthTouch,
         Expr::Ternary {
             cond,
             then_branch,
