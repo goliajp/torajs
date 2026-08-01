@@ -40,17 +40,24 @@ impl Constraint {
     }
 }
 
-/// Per-block entry constraints, keyed by `BlockId.0`.
+/// Per-block entry constraints, indexed by `BlockId.0` — block ids
+/// are dense positions (`BlockId.0 == position`, the splice_body
+/// renumber invariant), so a direct-index Vec replaces the historical
+/// `HashMap<u32, _>`: `inherited` probes `at` once per idom-chain
+/// level, and the per-probe SipHash was the top self-time slice of
+/// the 75KB test262 unicode-ident class file's egraph stall
+/// (rotation 268 profile).
 pub struct Constraints {
-    at_entry: HashMap<u32, Vec<Constraint>>,
+    at_entry: Vec<Vec<Constraint>>,
 }
 
 impl Constraints {
     /// Collect edge constraints for every conditional branch in `func`.
     /// `defs` maps single-def values to their defining instruction.
     pub fn compute(func: &Function, defs: &HashMap<ValueId, InstKind>) -> Self {
-        let mut preds: HashMap<u32, u32> = HashMap::new();
-        let mut bump = |b: BlockId| *preds.entry(b.0).or_insert(0) += 1;
+        let n = func.blocks.len();
+        let mut preds: Vec<u32> = vec![0; n];
+        let mut bump = |b: BlockId| preds[b.0 as usize] += 1;
         for block in &func.blocks {
             match &block.term {
                 Terminator::Br(t) => bump(*t),
@@ -64,7 +71,7 @@ impl Constraints {
             }
         }
 
-        let mut at_entry: HashMap<u32, Vec<Constraint>> = HashMap::new();
+        let mut at_entry: Vec<Vec<Constraint>> = vec![Vec::new(); n];
         for block in &func.blocks {
             let Terminator::CondBr {
                 cond: Operand::Value(c),
@@ -76,11 +83,11 @@ impl Constraints {
             };
             let Some(kind) = defs.get(c) else { continue };
             for (target, taken) in [(*then_blk, true), (*else_blk, false)] {
-                if preds.get(&target.0) != Some(&1) {
+                if preds[target.0 as usize] != 1 {
                     continue;
                 }
                 if let Some(cs) = edge_constraints(kind, taken, defs) {
-                    at_entry.entry(target.0).or_default().extend(cs);
+                    at_entry[target.0 as usize].extend(cs);
                 }
             }
         }
@@ -88,7 +95,7 @@ impl Constraints {
     }
 
     pub fn at(&self, b: BlockId) -> &[Constraint] {
-        self.at_entry.get(&b.0).map_or(&[], |v| v.as_slice())
+        &self.at_entry[b.0 as usize]
     }
 
     /// Constraints valid at `b`'s entry, inherited down the idom

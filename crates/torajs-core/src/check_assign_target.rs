@@ -56,7 +56,10 @@ pub(crate) fn check_member(
     // its NAME (`ClassRef(C)`); every structural step below needs the
     // shape behind it.
     let obj_ty_nominal = checker.type_of(ast, obj)?;
-    let obj_ty = resolve_class_ref(
+    // Cow flavor — the common already-resolved Struct receiver
+    // borrows instead of deep-cloning its whole field list per
+    // assignment (rotation 268: O(N²) clone stall on wide structs).
+    let obj_ty = crate::check_resolve_class_ref::resolve_class_ref_cow(
         &obj_ty_nominal,
         &checker.class_structs,
         &checker.aliases,
@@ -69,11 +72,11 @@ pub(crate) fn check_member(
     // contract. The historical consume both leaked the source's
     // stake (props lanes) and loudly rejected legal alias-rhs
     // writes.
-    if matches!(obj_ty, Type::Any | Type::Function(..) | Type::Array(_)) {
+    if matches!(*obj_ty, Type::Any | Type::Function(..) | Type::Array(_)) {
         let _ = checker.type_of(ast, value)?;
         return Ok(Type::Any);
     }
-    if matches!(obj_ty, Type::RegExp) && field == "lastIndex" {
+    if matches!(*obj_ty, Type::RegExp) && field == "lastIndex" {
         let value_ty = checker.type_of(ast, value)?;
         if !matches!(value_ty, Type::Number) {
             return Err(format!(
@@ -82,7 +85,7 @@ pub(crate) fn check_member(
         }
         return Ok(Type::Number);
     }
-    let Type::Struct(fields) = &obj_ty else {
+    let Type::Struct(fields) = &*obj_ty else {
         return Err(format!(
             "field assignment target must be a struct, got {obj_ty:?}"
         ));
@@ -172,14 +175,15 @@ fn try_objlit_setter(
     field: &str,
     value: ExprId,
 ) -> Result<Option<Type>, String> {
-    let setter = fields
-        .iter()
-        .find(|(n, _)| *n == format!("__setter_{field}"));
+    // The probe names build ONCE — a per-comparison `format!` inside
+    // the scan closure allocated O(fields) strings per assignment,
+    // O(N²) across a wide-struct program (21s checker stall on the
+    // 75KB test262 unicode-ident class file, rotation 268 profile).
+    let setter_name = format!("__setter_{field}");
+    let setter = fields.iter().find(|(n, _)| *n == setter_name);
     let Some((_, Type::Function(params, _))) = setter else {
-        if fields
-            .iter()
-            .any(|(n, _)| *n == format!("__getter_{field}"))
-        {
+        let getter_name = format!("__getter_{field}");
+        if fields.iter().any(|(n, _)| *n == getter_name) {
             return Err(format!(
                 "cannot assign to `{field}`: it is a getter-only accessor"
             ));

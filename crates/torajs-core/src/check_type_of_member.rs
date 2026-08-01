@@ -95,20 +95,23 @@ pub(crate) fn check(
     // structurally distinct from `{a:1}`, unlike the class lane, which
     // reverse-looks-up a class name from a structurally-equal alias and
     // therefore lets a plain `{a:1}` reach a same-layout class's getter.
-    if let Type::Struct(fields) = &resolved_obj_ty
-        && let Some((_, ty)) = fields
-            .iter()
-            .find(|(fname, _)| *fname == format!("__getter_{name}"))
-    {
-        let Type::Function(_, ret) = ty else {
-            return Err(format!("accessor `{name}` is not a getter closure"));
-        };
-        return Ok(resolve_class_ref(
-            ret,
-            &checker.class_structs,
-            &checker.aliases,
-            &checker.generic_alias_decls,
-        ));
+    if let Type::Struct(fields) = &resolved_obj_ty {
+        // The probe name builds ONCE per struct read — a
+        // per-comparison `format!` in the scan closure was O(fields)
+        // allocs per member read (the try_objlit_setter mirror,
+        // rotation 268 profile on the 75KB unicode-ident class file).
+        let getter_name = format!("__getter_{name}");
+        if let Some((_, ty)) = fields.iter().find(|(fname, _)| *fname == getter_name) {
+            let Type::Function(_, ret) = ty else {
+                return Err(format!("accessor `{name}` is not a getter closure"));
+            };
+            return Ok(resolve_class_ref(
+                ret,
+                &checker.class_structs,
+                &checker.aliases,
+                &checker.generic_alias_decls,
+            ));
+        }
     }
     // P8.2 — accessor read: `c.value` where the resolved
     // class C has a `get value(): T` declaration. After the

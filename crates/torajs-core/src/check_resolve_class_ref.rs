@@ -20,6 +20,8 @@
 //! `check_type_of_member`) continue to use the canonical
 //! `crate::check::resolve_class_ref` import path.
 
+use std::borrow::Cow;
+
 use crate::check::{GenericAliasMap, Type};
 use crate::check_type_ann::resolve_type_ann_full;
 
@@ -27,6 +29,48 @@ use crate::check_type_ann::resolve_type_ann_full;
 /// See [module doc](crate::check_resolve_class_ref) for the full
 /// rationale + recursion invariant.
 pub fn resolve_class_ref(
+    ty: &Type,
+    class_structs: &std::collections::HashMap<String, Type>,
+    aliases: &std::collections::HashMap<String, Type>,
+    generic_aliases: &GenericAliasMap,
+) -> Type {
+    resolve_class_ref_cow(ty, class_structs, aliases, generic_aliases).into_owned()
+}
+
+/// Borrow-preserving flavor of [`resolve_class_ref`] — the common
+/// already-resolved input (a plain `Struct` / primitive) answers
+/// `Cow::Borrowed` instead of deep-cloning the whole shape. A
+/// wide-struct program pays that clone per member access: the 75KB
+/// test262 unicode-ident class file spent a double-digit slice of its
+/// 21s checker stall re-cloning one thousands-of-fields Struct
+/// (rotation 268 profile). Only the transforming arms (`ClassRef`
+/// unwrap, `Nullable` / `Array` inner recursion) allocate.
+pub fn resolve_class_ref_cow<'t>(
+    ty: &'t Type,
+    class_structs: &std::collections::HashMap<String, Type>,
+    aliases: &std::collections::HashMap<String, Type>,
+    generic_aliases: &GenericAliasMap,
+) -> Cow<'t, Type> {
+    match ty {
+        Type::ClassRef(_) => Cow::Owned(resolve_class_ref_unwrap(
+            ty,
+            class_structs,
+            aliases,
+            generic_aliases,
+        )),
+        Type::Nullable(_) | Type::Array(_) => Cow::Owned(resolve_class_ref_one(
+            ty,
+            class_structs,
+            aliases,
+            generic_aliases,
+        )),
+        _ => Cow::Borrowed(ty),
+    }
+}
+
+/// The `ClassRef` unwrap arm of [`resolve_class_ref`] (body verbatim
+/// from the pre-Cow entry).
+fn resolve_class_ref_unwrap(
     ty: &Type,
     class_structs: &std::collections::HashMap<String, Type>,
     aliases: &std::collections::HashMap<String, Type>,
