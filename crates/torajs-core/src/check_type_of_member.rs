@@ -191,9 +191,17 @@ pub(crate) fn check(
     if let Some(cname) = class_name_of(&obj_ty, ast) {
         let cm_name = format!("__cm_{cname}__{name}");
         if let Some(Type::Function(params, ret)) = checker.globals.get(&cm_name) {
-            // Strip the implicit `__this` first param.
-            if !params.is_empty() {
-                let user_params = params[1..].to_vec();
+            // Strip the implicit `__this` first param — plus the
+            // knife-4a `__torajs_real_argc` / `__torajs_argv`
+            // synthetics when the body took the runtime argv face
+            // (the adapter feeds those; a caller never spells them).
+            let skip = if ast.method_argv_fns.contains(&cm_name) {
+                3
+            } else {
+                1
+            };
+            if params.len() >= skip {
+                let user_params = params[skip..].to_vec();
                 return Ok(Type::Function(user_params, ret.clone()));
             }
         }

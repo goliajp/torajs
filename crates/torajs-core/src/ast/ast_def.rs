@@ -369,6 +369,15 @@ pub struct Ast {
     /// symmetry with `closure_argc_locals`; the SSA variadic
     /// registration rides the checker's rest-tail type instead.
     pub closure_argv_locals: std::collections::HashSet<String>,
+    /// RFC 20260801-arguments-method-face knife 4a — `__cm_` method
+    /// bodies admitted to the runtime argv face: reached only through
+    /// member-value reads (zero arena Ident references), so every
+    /// call rides the boxed adapter, which forwards true argc/argv
+    /// into the injected `__torajs_real_argc` / `__torajs_argv`
+    /// params. The checker reads this to strip THREE leading params
+    /// (`__this` + the two synthetics) when answering the method's
+    /// value type, instead of the usual one.
+    pub method_argv_fns: std::collections::HashSet<String>,
     /// Phase L.2 — names of `async function` declarations recorded by
     /// the parser. desugar_async iterates ast.stmts and, for any
     /// FnDecl whose name is in this set, wraps the return value in a

@@ -341,26 +341,40 @@ pub(crate) fn populate_class_layouts(
             let Some(verdicts) = fn_dflt_verdicts.get(f.name.as_str()) else {
                 return false;
             };
+            // Knife 4a — an argv-face method carries the synthetic
+            // `__torajs_real_argc` / `__torajs_argv` right after
+            // `__this`. The boxed adapter feeds those two directly
+            // (they never consume argv positions), so a bare call
+            // can't poison them with an undefined box — the audit
+            // skips them; only the real user slots are examined.
+            let skip = if ast.method_argv_fns.contains(f.name.as_str()) {
+                3
+            } else {
+                1
+            };
             fn_ignores_receiver(f)
                 && f.params.len() == verdicts.len()
-                && f.params[1..].iter().zip(&verdicts[1..]).all(|(&p, v)| {
-                    let ty = &f.values[p.0 as usize].ty;
-                    match v {
-                        // No default: only an Any slot passes an
-                        // undefined argv box through losslessly.
-                        None => *ty == Type::Any,
-                        // Adapter-substituted literal: the undefined
-                        // case never reaches the typed unbox, so any
-                        // scalar slot is safe.
-                        Some(true) => matches!(
-                            ty,
-                            Type::Any | Type::I64 | Type::I32 | Type::F64 | Type::Bool
-                        ),
-                        // Expression default: a runtime bare call
-                        // bypasses caller-side injection — refuse.
-                        Some(false) => false,
-                    }
-                })
+                && f.params[skip..]
+                    .iter()
+                    .zip(&verdicts[skip..])
+                    .all(|(&p, v)| {
+                        let ty = &f.values[p.0 as usize].ty;
+                        match v {
+                            // No default: only an Any slot passes an
+                            // undefined argv box through losslessly.
+                            None => *ty == Type::Any,
+                            // Adapter-substituted literal: the undefined
+                            // case never reaches the typed unbox, so any
+                            // scalar slot is safe.
+                            Some(true) => matches!(
+                                ty,
+                                Type::Any | Type::I64 | Type::I32 | Type::F64 | Type::Bool
+                            ),
+                            // Expression default: a runtime bare call
+                            // bypasses caller-side injection — refuse.
+                            Some(false) => false,
+                        }
+                    })
         })
         .collect();
     for (cname, _tag) in &class_names_by_tag {

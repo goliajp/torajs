@@ -159,12 +159,22 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
     ast.closure_argv_fns = value_argv_fns.clone();
     ast.closure_argv_locals = argv_locals;
 
+    // RFC 20260801-arguments-method-face knife 4a — class methods
+    // reached ONLY through member-value reads (escape / getter-return
+    // / reified cell) take the argv face too: the boxed adapter
+    // already delivers true argc/argv and forwards both into the
+    // injected params. See the module doc for the admission bounds.
+    let method_argv_fns =
+        super::arguments_object_method_argv::collect_method_argv(ast, &excluded, &iife_static_argv);
+    ast.method_argv_fns = method_argv_fns.clone();
+
     inject_argc_params(
         ast,
         &uses_real_argc,
         &iife_real_argc,
         &value_real_argc,
         &value_argv_fns,
+        &method_argv_fns,
     );
 
     let stmts_clone: Vec<Stmt> = ast.stmts.clone();
@@ -186,7 +196,7 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
                 continue;
             };
             let params = params.clone();
-            let is_argv_fn = value_argv_fns.contains(name);
+            let is_argv_fn = value_argv_fns.contains(name) || method_argv_fns.contains(name);
             // RFC 20260708-closure-argv-face chunk 2 — an env
             // closure that did NOT qualify for the argv face (killed
             // binding chain / escaping touch / unsafe return) stays

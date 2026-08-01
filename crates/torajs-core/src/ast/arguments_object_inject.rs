@@ -17,11 +17,13 @@ pub(super) fn inject_argc_params(
     iife_real_argc: &std::collections::HashSet<String>,
     value_real_argc: &std::collections::HashSet<String>,
     value_argv_fns: &std::collections::HashSet<String>,
+    method_argv_fns: &std::collections::HashSet<String>,
 ) {
     if uses_real_argc.is_empty()
         && iife_real_argc.is_empty()
         && value_real_argc.is_empty()
         && value_argv_fns.is_empty()
+        && method_argv_fns.is_empty()
     {
         return;
     }
@@ -29,10 +31,14 @@ pub(super) fn inject_argc_params(
         if let Stmt::FnDecl { name, params, .. } = s {
             // Chunk 613 — IIFE closures put the synthetic param
             // AFTER the hidden `__env` (first USER param slot);
-            // RFC 20260708 value-form closures share that slot.
+            // RFC 20260708 value-form closures share that slot, and
+            // knife-4a method bodies put it after `__this` — the
+            // same index, and `build_boxed_entry` finds it at
+            // `params[env_count]` in both shapes.
             let at = if iife_real_argc.contains(name)
                 || value_real_argc.contains(name)
                 || value_argv_fns.contains(name)
+                || method_argv_fns.contains(name)
             {
                 1
             } else if uses_real_argc.contains(name) {
@@ -51,7 +57,7 @@ pub(super) fn inject_argc_params(
             );
             // argv-face bodies also take the adapter's raw argv
             // pointer right after the argc slot.
-            if value_argv_fns.contains(name) {
+            if value_argv_fns.contains(name) || method_argv_fns.contains(name) {
                 params.insert(
                     at + 1,
                     Param {
