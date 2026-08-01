@@ -1562,6 +1562,32 @@ argument(s)` direct-call arity (372, untouched by the generic-unify
 elision blade — different signature) is the next addressable
 cluster after eval (1385, awaiting takagi).
 
+**Re-derived @ `49d94689`** (2026-08-01, rotation 268 — four
+blades: direct-call over-arity trailing-ignore, the member_set /
+ns_static pre-split, Reflect.set Set-a, and the wide-struct
+compile-time perf triple): passTotal **23517** (+58), bug **12076**
+(+208), trAccepted **35593** (+266, conservation exact = +58 +
+208), incompatible **17581** (−266), core **11699** (−244). Gate
+predicate: **388** clusters of ≥ 4 holding 10628 (clusters flat,
+cases −246), residue 815 clusters / 1071 cases. **Zero
+regressions, zero new crashes, zero new timeouts**; 58 forward
+transitions; the unicode-10.0.0 identifier pair moved tr-timeout →
+honest not-yet-supported (the perf blade cut its 21s checker/egraph
+stall to 10.7s, back inside the sweep budget). The over-arity blade
+retired the former #2 cluster (`expected N argument(s), got N`, 372
+— out of the top 12 entirely); its admitted programs largely land
+in the bug bucket for now (arguments-object content and
+callback-this divergences — the +208), which is the honest ledger:
+they compile and run where they previously refused. Reflect.set
+rode the R3-style parameterization across the whole member_set
+chain (five receiver arms + the §10.1.9.2 inherited walk,
+`Option<i64>` form); the Reflect namespace now lacks only
+`construct` (133, newTarget + Proxy deep water) and the 4-arg
+receiver form of `set` (Set-b, registered). Next addressable after
+eval (1386, awaiting takagi): `__this` 267 (surveyed — alias/ctor
+positions need an RFC-level design, adjacent to construct) and
+dynamic-import LParen 250.
+
 **Previous @ `c44a5d10`** (2026-08-01, rotation 266 — the Object
 member cluster survey plus seven blades: Promise combinator statics
 as values, Reflect gOPD / getPrototypeOf / preventExtensions /
