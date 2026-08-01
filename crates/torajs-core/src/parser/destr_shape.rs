@@ -22,12 +22,21 @@ use super::*;
 pub(super) enum PatShape {
     Ary {
         elems: Vec<AryElem>,
-        rest: Option<String>,
+        rest: Option<RestShape>,
     },
     Obj {
         fields: Vec<ObjField>,
         rest: Option<String>,
     },
+}
+
+/// An array pattern's rest slot — §13.3.3 BindingRestElement is
+/// `... BindingIdentifier` or `... BindingPattern` (`[...[x, y]]`).
+/// Object rest stays a bare String: BindingRestProperty admits only
+/// an identifier.
+pub(super) enum RestShape {
+    Bind(String),
+    Nested(Box<PatShape>),
 }
 
 pub(super) enum AryElem {
@@ -79,7 +88,7 @@ impl<'a> Parser<'a> {
     fn read_ary_pattern(&mut self) -> Result<PatShape, String> {
         self.pos += 1; // consume `[`
         let mut elems: Vec<AryElem> = Vec::new();
-        let mut rest: Option<String> = None;
+        let mut rest: Option<RestShape> = None;
         while !matches!(self.peek(), Token::RBracket) {
             if matches!(self.peek(), Token::Comma) {
                 elems.push(AryElem::Elide);
@@ -88,17 +97,25 @@ impl<'a> Parser<'a> {
             }
             if matches!(self.peek(), Token::DotDotDot) {
                 self.pos += 1;
-                let n = match self.peek() {
-                    Token::Ident(n) => n.clone(),
+                let r = match self.peek() {
+                    Token::Ident(n) => {
+                        let n = n.clone();
+                        self.pos += 1;
+                        RestShape::Bind(n)
+                    }
+                    // §13.3.3 BindingRestElement : ... BindingPattern
+                    // (`[...[x, y]]` / `[...{ len: length }]`).
+                    Token::LBracket | Token::LBrace => {
+                        RestShape::Nested(Box::new(self.read_pattern_shape()?))
+                    }
                     t => {
                         return Err(format!(
-                            "expected identifier after `...` in array destructuring, got {t:?} at {}",
+                            "expected identifier or pattern after `...` in array destructuring, got {t:?} at {}",
                             self.at()
                         ));
                     }
                 };
-                self.pos += 1;
-                rest = Some(n);
+                rest = Some(r);
                 break; // rest must be last — expect `]` next
             }
             let elem = match self.peek() {
@@ -267,7 +284,7 @@ impl<'a> Parser<'a> {
     fn emit_ary_binds(
         &mut self,
         elems: &[AryElem],
-        rest: &Option<String>,
+        rest: &Option<RestShape>,
         src_expr: ExprId,
         mutable: bool,
         out: &mut Vec<Stmt>,
@@ -313,7 +330,7 @@ impl<'a> Parser<'a> {
                 }
             }
         }
-        if let Some(rest_name) = rest {
+        if let Some(r) = rest {
             let src_ref = self.ast.add_expr(Expr::Ident(src_name));
             let slice_m = self.ast.add_expr(Expr::Member {
                 obj: src_ref,
@@ -324,13 +341,23 @@ impl<'a> Parser<'a> {
                 callee: slice_m,
                 args: vec![start],
             });
-            out.push(Stmt::LetDecl {
-                mutable,
-                name: rest_name.clone(),
-                type_ann: None,
-                init: tail,
-                is_var: false,
-            });
+            match r {
+                RestShape::Bind(rest_name) => {
+                    out.push(Stmt::LetDecl {
+                        mutable,
+                        name: rest_name.clone(),
+                        type_ann: None,
+                        init: tail,
+                        is_var: false,
+                    });
+                }
+                // `[...[x, y]]` — the collected tail array is itself
+                // the nested pattern's source; the recursion hoists
+                // it into its own group temp like any other source.
+                RestShape::Nested(pat) => {
+                    self.emit_pattern_binds(pat, tail, mutable, out);
+                }
+            }
         }
     }
 
