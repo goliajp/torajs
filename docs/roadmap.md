@@ -1530,7 +1530,30 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 9215301c`, never as a constant.
 
-**Re-derived @ `36f97ddd`** (2026-08-01, rotation 271 — five
+**Re-derived @ `a08ff268`** (2026-08-01, rotation 272 — six knives:
+untyped rest param → implicit `any[]`, the rest-aware static-argv
+face, the whole face going unmapped for module-strict semantics
+with FoldTo re-admitted as the mutation-free snapshot, the mutating
+FoldArity ride, and object-literal methods joining the face):
+passTotal **23865** (+10), bug **11874** (−8), trAccepted **35739**
+(+2 — conservation exact: +2 = +10 − 8), incompatible **17435**
+(−2), core **11554** (−1). Gate predicate: **387** clusters of ≥ 4
+holding 10477 (flat clusters, −6 cases), residue 818 / 1077.
+Forward 23 (meth-args-trailing-comma ×4, mapped ×6 + unmapped ×2,
+rest-parameters ×2, 10.5-1gs, 10.6-10-c-ii-1-s). Regressions 13,
+all attributed: 6 rest-param-strict-body pass-negatives were
+metric-water (the mandatory-ann refusal rejected for the wrong
+reason; knife A accepts rest params so they now surface as
+negative-phase-mismatch — the real §15.2.1 non-simple-params +
+use-strict early error is a registered small knife), 5
+sloppy-mapped asserts (10.6-10-c-ii-1/2, mapped/ ×3) correctly fail
+under the unmapped semantics (bun fails them too — module code is
+strict; 2 of them additionally trip a **pre-existing**
+fall-through-return crash, bisected to the rotation-271 baseline,
+registered), plus 2 async variants of the same families. New
+crashes beyond those 2 relabels: 0.
+
+**Previous @ `36f97ddd`** (2026-08-01, rotation 271 — five
 arguments-face knives off the trailing-comma census: uninit-let
 orphan tombstone, forwarder-relay argc-vote exclusion, fn-value
 alias devirtualization, spread-site face disqualification, and the
