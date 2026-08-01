@@ -62,6 +62,11 @@ pub(super) enum ArgcMode {
 }
 
 pub fn desugar_arguments_object(ast: &mut Ast) {
+    // Pre-pass — rewrite exclusively-called fn-value aliases into
+    // direct calls so the face analyses below see their sites (and
+    // the forwarder relay's arg drop is bypassed). See the module
+    // doc in arguments_object_devirt.
+    super::arguments_object_devirt::devirtualize_fn_value_aliases(ast);
     // Stage helpers extracted chunk 767 (the pass had drifted past
     // the 200-line fn limit as argc/argv tiers stacked up).
     let shadowed = collect_arguments_shadowed_fns(ast);
