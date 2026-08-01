@@ -1530,7 +1530,27 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 9215301c`, never as a constant.
 
-**Latest @ `a28a5177`** (2026-08-02, rotation 274 knife 7 on top of
+**Latest @ `0fd3f1d7`** (2026-08-02, rotation 275 — six knives:
+JSON.rawJSON / isRawJSON runtime kernels + frozen [[IsRawJSON]]
+carrier spliced verbatim by the any-lane stringify; the
+fromAsync / Promise.try / rawJSON-pair ns-static reflection rows
+(detached fromAsync falls to ArrayCreate, plus the §10.4.2.2
+length > 2³²−1 RangeError gate replacing a ~2³¹-index hang);
+default-parameter TDZ (bare self/later-param default reads throw
+ReferenceError at call time — plain async functions skipped, their
+existing channel already answers the §15.8.4 rejection, caught as 7
+sweep regressions and fixed same-rotation); array rest slots accept
+nested binding patterns (`[...[x, y]]`); numeric / string-literal
+property keys in object binding patterns (`{ 0: v, length: z }` via
+length-guarded index reads)): passTotal **24270** (+212), bug
+**11690** (−24), trAccepted **35960** (+188 — conservation exact),
+incompatible **17214** (−188), core **11333** (−188). Gate
+predicate: **381** clusters of ≥ 4 holding 10255 (−4 clusters,
+−189 cases), residue 816 / 1078. **Zero pass regressions vs
+`a28a5177`.** Top clusters unchanged: eval 1387 / `__this` 267 /
+dynamic-import 250.
+
+**Previous @ `a28a5177`** (2026-08-02, rotation 274 knife 7 on top of
 the `3db6224b` stamp below — the any-lane `Promise.resolve` adopts a
 boxed %Promise% cell via the new `__torajs_promise_resolve_any`
 kernel instead of double-wrapping it, closing the Promise.try

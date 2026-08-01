@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-01T16:06:02.074Z",
+  "generatedAt": "2026-08-01T18:11:38.320Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-01T16:04:48Z",
-    "headSha": "a28a5177",
-    "elapsedSec": 421.2,
+    "ranAt": "2026-08-01T18:10:17Z",
+    "headSha": "0fd3f1d7",
+    "elapsedSec": 392.65,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 19678,
-    "passNoOracle": 554,
+    "pass": 19886,
+    "passNoOracle": 558,
     "passNegative": 3826,
-    "passTotal": 24058,
-    "bug": 11714,
-    "incompatible": 17402,
+    "passTotal": 24270,
+    "bug": 11690,
+    "incompatible": 17214,
     "bunSkip": 7467,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 35772,
-    "passRateInScope": 45.24,
-    "passRateTrAccepted": 67.25
+    "trAccepted": 35960,
+    "passRateInScope": 45.64,
+    "passRateTrAccepted": 67.49
   },
   "torajs": {
-    "commit": "a28a5177",
-    "commitSubject": "feat(core,promise): any-lane Promise.resolve adopts a boxed promise cell",
+    "commit": "0fd3f1d7",
+    "commitSubject": "fix(core): default-param TDZ rewrite skips plain async functions",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "0fd3f1d7",
+      "subject": "fix(core): default-param TDZ rewrite skips plain async functions"
+    },
+    {
+      "hash": "18178296",
+      "subject": "feat(core): numeric and string-literal property keys in object binding patterns"
+    },
+    {
+      "hash": "50a43514",
+      "subject": "feat(core): array rest slot accepts a nested binding pattern"
+    },
+    {
+      "hash": "c1ab5cbe",
+      "subject": "feat(core): default-parameter TDZ throws on bare self/later-param reads"
+    },
+    {
+      "hash": "0e4eeda8",
+      "subject": "feat(core,anyvalue,rc): reify fromAsync / Promise.try / rawJSON pair as ns-static cells"
+    },
+    {
+      "hash": "8134df45",
+      "subject": "feat(core,anyvalue): JSON.rawJSON / isRawJSON mint and probe the frozen raw-json carrier"
+    },
+    {
+      "hash": "cbca4f8e",
+      "subject": "chore(docs,hardev): rotation 274 final census at a28a5177"
+    },
+    {
       "hash": "a28a5177",
       "subject": "feat(core,promise): any-lane Promise.resolve adopts a boxed promise cell"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "49aa4ebb",
       "subject": "feat(core): mixed data-literal array globals fall back to the any-elem lane"
-    },
-    {
-      "hash": "20ba8fd0",
-      "subject": "feat(core): empty array-literal globals promote to the any-elem lane"
-    },
-    {
-      "hash": "6b0caedb",
-      "subject": "feat(core): undefined-valued fields join the data-literal global promote"
-    },
-    {
-      "hash": "0cdc7ac8",
-      "subject": "feat(core): data-only literal object globals promote to the any lane"
-    },
-    {
-      "hash": "1200371f",
-      "subject": "feat(core): empty object-literal globals promote to the any lane"
-    },
-    {
-      "hash": "f1a55bc1",
-      "subject": "chore(docs,hardev): rotation 273 final census at a4be9596"
-    },
-    {
-      "hash": "a4be9596",
-      "subject": "feat(core): static methods join the argv face; devirt feeds the receiver slot"
-    },
-    {
-      "hash": "05b98530",
-      "subject": "feat(core): object-literal generator methods route real argv into arguments"
     }
   ],
-  "headSha": "a28a5177",
+  "headSha": "0fd3f1d7",
   "autorun": {
-    "total": 578,
+    "total": 579,
     "baselineTarget": 10,
-    "bySelf": 573,
+    "bySelf": 574,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785593969-67e5",
-      "at": "2026-08-01T14:19:29Z",
-      "ts": 1785593969,
+      "rotationId": "r-1785600425-2920",
+      "at": "2026-08-01T16:07:05Z",
+      "ts": 1785600425,
       "trigger": "self",
-      "prevHead": "f1a55bc1",
-      "handoffSha": "sha256:e7616764242a4cd24cdc0d96451eb959881932352e0f134b849cd64ef8d768bf",
-      "handoffAgeSec": 39,
+      "prevHead": "cbca4f8e",
+      "handoffSha": "sha256:6e8bc6985d182a9d27b321a1c0aa5ea1cee671920a6df0e73c9cd1e264d4c9aa",
+      "handoffAgeSec": 14,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1785600425-2920",
+        "at": "2026-08-01T16:07:05Z",
+        "ts": 1785600425,
+        "trigger": "self",
+        "prevHead": "cbca4f8e",
+        "handoffSha": "sha256:6e8bc6985d182a9d27b321a1c0aa5ea1cee671920a6df0e73c9cd1e264d4c9aa",
+        "handoffAgeSec": 14,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785593969-67e5",
         "at": "2026-08-01T14:19:29Z",
@@ -876,17 +887,6 @@
         "prevHead": "53e38780",
         "handoffSha": "sha256:d5ea1145c7bc8544e975e65466dd83cd3ae4806e8565d1af906849f1f6b48d19",
         "handoffAgeSec": 6,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1785525860-0eab",
-        "at": "2026-07-31T19:24:20Z",
-        "ts": 1785525860,
-        "trigger": "self",
-        "prevHead": "31e2a4f8",
-        "handoffSha": "sha256:39e597d689d9f7b0a1f06996398ad152e06c9d104fe940304c44a1aaf9076c02",
-        "handoffAgeSec": 36,
         "conformanceBefore": null,
         "commitsInSession": null
       }
