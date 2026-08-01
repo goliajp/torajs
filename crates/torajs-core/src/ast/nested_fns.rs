@@ -5,13 +5,15 @@
 //! level FnDecl body + module-top-level non-FnDecl stmts, finds
 //! nested `function f() {...}` decls inside any block-shape stmt,
 //! lifts them to top-level with mangled names
-//! `__nested_<parent>_<name>_<uid>`, rewrites references. Six
-//! private helpers (`collect_nested_fns_in_stmt/to_lift/in_other`,
-//! `rewrite_idents_in_body/stmt/expr`) do the tree walk.
+//! `__nested_<parent>_<name>_<uid>`, rewrites references. The
+//! private helpers (`collect_nested_fns_in_stmt/to_lift`,
+//! `rewrite_idents_in_body/stmt/expr` in the idents sibling) do the
+//! tree walk — both passes share ONE stmt collector since rotation
+//! 269 (the pass-1-only sibling lacked the bare-FnDecl-branch arm).
 
 use super::nested_fns_idents::{rewrite_idents_in_body, rewrite_idents_in_stmt};
 use super::{Ast, Stmt};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// P3.4 — block-scoped / nested function declaration hoisting per
 /// ES spec Annex B §B.3.3 (FunctionDeclarations in IfStatement
@@ -43,10 +45,31 @@ pub fn desugar_nested_fns(ast: &mut Ast) {
         {
             let parent = parent_name.clone();
             let mut renames: HashMap<String, String> = HashMap::new();
+            let mut branch_scoped: HashSet<String> = HashSet::new();
             let mut lifted: Vec<Stmt> = Vec::new();
-            collect_nested_fns_to_lift(body, &parent, &mut renames, &mut lifted, &mut counter);
+            collect_nested_fns_to_lift(
+                body,
+                &parent,
+                &mut renames,
+                &mut branch_scoped,
+                &mut lifted,
+                &mut counter,
+            );
             if !renames.is_empty() {
-                rewrite_idents_in_body(ast, body, &renames);
+                // A bare-branch decl (`if (c) function f() {}`) is
+                // block-scoped in TS semantics: outer references keep
+                // the ORIGINAL name (they resolve nowhere and ride the
+                // catchable-ReferenceError undeclared-read lane, which
+                // is exactly what bun answers). Only the lifted body
+                // itself sees the mangled name (self-recursion).
+                let outer_map: HashMap<String, String> = renames
+                    .iter()
+                    .filter(|(k, _)| !branch_scoped.contains(*k))
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect();
+                if !outer_map.is_empty() {
+                    rewrite_idents_in_body(ast, body, &outer_map);
+                }
                 for lf in lifted.iter_mut() {
                     if let Stmt::FnDecl { body: lb, .. } = lf {
                         rewrite_idents_in_body(ast, lb, &renames);
@@ -66,6 +89,7 @@ pub fn desugar_nested_fns(ast: &mut Ast) {
     // For / ForOf / ForIn / Try / Switch nested at module top.
     let parent = "__top".to_string();
     let mut top_renames: HashMap<String, String> = HashMap::new();
+    let mut top_branch_scoped: HashSet<String> = HashSet::new();
     let mut top_lifted: Vec<Stmt> = Vec::new();
     for stmt in top.iter_mut() {
         match stmt {
@@ -75,6 +99,7 @@ pub fn desugar_nested_fns(ast: &mut Ast) {
                     other,
                     &parent,
                     &mut top_renames,
+                    &mut top_branch_scoped,
                     &mut top_lifted,
                     &mut counter,
                 );
@@ -84,8 +109,16 @@ pub fn desugar_nested_fns(ast: &mut Ast) {
     if !top_renames.is_empty() {
         // Rewrite ident references in the entire top-level (excluding
         // the lifted decls themselves; those get rewritten below).
-        for stmt in top.iter_mut() {
-            rewrite_idents_in_stmt(ast, stmt, &top_renames);
+        // Branch-scoped names stay un-rewritten outside — see pass 1.
+        let outer_map: HashMap<String, String> = top_renames
+            .iter()
+            .filter(|(k, _)| !top_branch_scoped.contains(*k))
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        if !outer_map.is_empty() {
+            for stmt in top.iter_mut() {
+                rewrite_idents_in_stmt(ast, stmt, &outer_map);
+            }
         }
         for lf in top_lifted.iter_mut() {
             if let Stmt::FnDecl { body: lb, .. } = lf {
@@ -106,6 +139,7 @@ fn collect_nested_fns_in_stmt(
     stmt: &mut Stmt,
     parent_name: &str,
     renames: &mut HashMap<String, String>,
+    branch_scoped: &mut HashSet<String>,
     lifted: &mut Vec<Stmt>,
     counter: &mut u32,
 ) {
@@ -121,6 +155,13 @@ fn collect_nested_fns_in_stmt(
             let mangled = format!("__nested_{parent_name}_{name}_{counter}");
             *counter += 1;
             renames.insert(name.clone(), mangled.clone());
+            // TS semantics: a bare-branch decl is block-scoped, so
+            // the rename must NOT redirect references outside the
+            // lifted body (bun answers ReferenceError there; the
+            // sloppy annexB hoist face is an S5.7 boundary decision,
+            // recorded). Block-shaped `{ function f() {} }` keeps
+            // the historical leak-to-parent behavior.
+            branch_scoped.insert(name.clone());
             // Take the FnDecl out of the slot, replace with empty
             // Block, push the renamed decl into `lifted`.
             let taken = std::mem::replace(stmt, Stmt::Block(Vec::new()));
@@ -149,27 +190,41 @@ fn collect_nested_fns_in_stmt(
         }
     }
     match stmt {
-        Stmt::Block(body) => {
-            collect_nested_fns_to_lift(body, parent_name, renames, lifted, counter);
+        Stmt::Block(body) | Stmt::Multi(body) => {
+            collect_nested_fns_to_lift(body, parent_name, renames, branch_scoped, lifted, counter);
         }
         Stmt::If {
             then_branch,
             else_branch,
             ..
         } => {
-            collect_nested_fns_in_stmt(then_branch, parent_name, renames, lifted, counter);
+            collect_nested_fns_in_stmt(
+                then_branch,
+                parent_name,
+                renames,
+                branch_scoped,
+                lifted,
+                counter,
+            );
             if let Some(eb) = else_branch {
-                collect_nested_fns_in_stmt(eb, parent_name, renames, lifted, counter);
+                collect_nested_fns_in_stmt(
+                    eb,
+                    parent_name,
+                    renames,
+                    branch_scoped,
+                    lifted,
+                    counter,
+                );
             }
         }
         Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
-            collect_nested_fns_in_stmt(body, parent_name, renames, lifted, counter);
+            collect_nested_fns_in_stmt(body, parent_name, renames, branch_scoped, lifted, counter);
         }
         Stmt::For { body, .. }
         | Stmt::ForOfSplitIter { body, .. }
         | Stmt::ForOf { body, .. }
         | Stmt::Labeled { body, .. } => {
-            collect_nested_fns_in_stmt(body, parent_name, renames, lifted, counter);
+            collect_nested_fns_in_stmt(body, parent_name, renames, branch_scoped, lifted, counter);
         }
         Stmt::Try {
             body,
@@ -177,18 +232,39 @@ fn collect_nested_fns_in_stmt(
             finally_body,
             ..
         } => {
-            collect_nested_fns_to_lift(body, parent_name, renames, lifted, counter);
-            collect_nested_fns_to_lift(catch_body, parent_name, renames, lifted, counter);
+            collect_nested_fns_to_lift(body, parent_name, renames, branch_scoped, lifted, counter);
+            collect_nested_fns_to_lift(
+                catch_body,
+                parent_name,
+                renames,
+                branch_scoped,
+                lifted,
+                counter,
+            );
             if let Some(fb) = finally_body {
-                collect_nested_fns_to_lift(fb, parent_name, renames, lifted, counter);
+                collect_nested_fns_to_lift(
+                    fb,
+                    parent_name,
+                    renames,
+                    branch_scoped,
+                    lifted,
+                    counter,
+                );
             }
         }
         Stmt::Switch { cases, default, .. } => {
             for case in cases.iter_mut() {
-                collect_nested_fns_to_lift(&mut case.body, parent_name, renames, lifted, counter);
+                collect_nested_fns_to_lift(
+                    &mut case.body,
+                    parent_name,
+                    renames,
+                    branch_scoped,
+                    lifted,
+                    counter,
+                );
             }
             if let Some(d) = default {
-                collect_nested_fns_to_lift(d, parent_name, renames, lifted, counter);
+                collect_nested_fns_to_lift(d, parent_name, renames, branch_scoped, lifted, counter);
             }
         }
         _ => {} // leaf stmts have no nested FnDecl children
@@ -199,6 +275,7 @@ fn collect_nested_fns_to_lift(
     body: &mut Vec<Stmt>,
     parent_name: &str,
     renames: &mut HashMap<String, String>,
+    branch_scoped: &mut HashSet<String>,
     lifted: &mut Vec<Stmt>,
     counter: &mut u32,
 ) {
@@ -240,66 +317,26 @@ fn collect_nested_fns_to_lift(
                 // Original site: drop entirely.
             }
             mut other => {
-                collect_nested_fns_in_other(&mut other, parent_name, renames, lifted, counter);
+                // RFC 20260801 (rotation 269) — pass 1 now walks the
+                // same collector as the module-top pass: the old
+                // sibling walk (`collect_nested_fns_in_other`,
+                // deleted) lacked the bare-FnDecl-branch arm, so a
+                // braceless `if (c) function f() {}` INSIDE a fn
+                // body (annexB B.3.2's most common shape, usually
+                // under an IIFE) reached the lowering catch-all
+                // panic while the identical shape at module top
+                // lifted fine.
+                collect_nested_fns_in_stmt(
+                    &mut other,
+                    parent_name,
+                    renames,
+                    branch_scoped,
+                    lifted,
+                    counter,
+                );
                 new_body.push(other);
             }
         }
     }
     *body = new_body;
-}
-
-fn collect_nested_fns_in_other(
-    s: &mut Stmt,
-    parent: &str,
-    renames: &mut HashMap<String, String>,
-    lifted: &mut Vec<Stmt>,
-    counter: &mut u32,
-) {
-    match s {
-        Stmt::If {
-            then_branch,
-            else_branch,
-            ..
-        } => {
-            collect_nested_fns_in_other(then_branch, parent, renames, lifted, counter);
-            if let Some(eb) = else_branch.as_deref_mut() {
-                collect_nested_fns_in_other(eb, parent, renames, lifted, counter);
-            }
-        }
-        Stmt::Block(b) | Stmt::Multi(b) => {
-            collect_nested_fns_to_lift(b, parent, renames, lifted, counter);
-        }
-        Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
-            collect_nested_fns_in_other(body, parent, renames, lifted, counter);
-        }
-        Stmt::For { body, .. }
-        | Stmt::ForOfSplitIter { body, .. }
-        | Stmt::ForOf { body, .. }
-        | Stmt::Labeled { body, .. } => {
-            collect_nested_fns_in_other(body, parent, renames, lifted, counter);
-        }
-        Stmt::Try {
-            body,
-            catch_body,
-            finally_body,
-            ..
-        } => {
-            collect_nested_fns_to_lift(body, parent, renames, lifted, counter);
-            collect_nested_fns_to_lift(catch_body, parent, renames, lifted, counter);
-            if let Some(fb) = finally_body {
-                collect_nested_fns_to_lift(fb, parent, renames, lifted, counter);
-            }
-        }
-        Stmt::Switch { cases, default, .. } => {
-            for case in cases {
-                collect_nested_fns_to_lift(&mut case.body, parent, renames, lifted, counter);
-            }
-            if let Some(dflt) = default {
-                collect_nested_fns_to_lift(dflt, parent, renames, lifted, counter);
-            }
-        }
-        // Don't descend into FnDecl — its body is its own scope
-        // (handled at top level).
-        _ => {}
-    }
 }
