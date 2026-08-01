@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-01T06:34:44.935Z",
+  "generatedAt": "2026-08-01T06:35:58.824Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 66.57
   },
   "torajs": {
-    "commit": "b33b3128",
-    "commitSubject": "fix(core): module-top braceless fn decls keep the sloppy hoist leak",
+    "commit": "fccc097f",
+    "commitSubject": "chore(docs,hardev): rotation 269 final census at b33b3128",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,10 @@
   },
   "commits": [
     {
+      "hash": "fccc097f",
+      "subject": "chore(docs,hardev): rotation 269 final census at b33b3128"
+    },
+    {
       "hash": "b33b3128",
       "subject": "fix(core): module-top braceless fn decls keep the sloppy hoist leak"
     },
@@ -755,13 +759,9 @@
     {
       "hash": "88c66e0e",
       "subject": "refactor(anyvalue): split member_set receiver arms and ns_static utils to siblings"
-    },
-    {
-      "hash": "5639b152",
-      "subject": "feat(core): direct-call over-arity trailing-arg ignore"
     }
   ],
-  "headSha": "b33b3128",
+  "headSha": "fccc097f",
   "autorun": {
     "total": 573,
     "baselineTarget": 10,
