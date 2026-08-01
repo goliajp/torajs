@@ -16,9 +16,19 @@ use super::{Expr, Stmt};
 /// stores v into `this.<slot>` and gotos F's return copy; the copy's
 /// state number is unknown until the body finishes lowering, so each
 /// goto's Number literal is recorded here and patched afterwards.
+///
+/// D4 — a bare `break` / `continue` under it whose target loop sits
+/// OUTSIDE the try (target state < `try_entry` — states are
+/// allocated monotonically, so a loop entered before the try has
+/// smaller states) must run F on the way out too: it gotos a
+/// per-jump-kind F copy whose terminal RE-LOWERS the jump, chaining
+/// outer frames exactly like the return copy.
 pub(super) struct FinallyRetFrame {
+    pub(super) try_entry: usize,
     pub(super) slot: String,
     pub(super) gotos: Vec<super::ExprId>,
+    pub(super) brk_gotos: Vec<super::ExprId>,
+    pub(super) cont_gotos: Vec<super::ExprId>,
 }
 
 impl GenSm<'_> {
@@ -73,6 +83,58 @@ impl GenSm<'_> {
         ]
     }
 
+    /// D4 — does a jump to `target`'s state escape the innermost
+    /// finally frame? States are allocated monotonically, so a loop
+    /// entered BEFORE the try has all its jump-target states below
+    /// `try_entry`; a loop opened inside the try sits above it and
+    /// its jumps never route.
+    pub(super) fn jump_escapes_finally(&self, target: usize) -> bool {
+        self.finally_ret
+            .last()
+            .is_some_and(|f| target < f.try_entry)
+    }
+
+    /// D4 — the routed form of a bare `break` / `continue` whose
+    /// target loop sits outside the innermost finally frame:
+    /// `[__gen_st = <placeholder>; continue;]`, recorded on the
+    /// frame's per-kind goto list for the patch. The dual of
+    /// [`Self::build_finally_ret_stmts`] minus the value stash.
+    pub(super) fn build_finally_jump_stmts(&mut self, want_break: bool) -> Vec<Stmt> {
+        let st = self.ast.add_expr(Expr::Ident(RESUME_LOCAL.into()));
+        let placeholder = self.ast.add_expr(Expr::Number(0.0));
+        let goto_assign = self.ast.add_expr(Expr::Assign {
+            target: st,
+            value: placeholder,
+        });
+        let frame = self.finally_ret.last_mut().expect("caller checked");
+        if want_break {
+            frame.brk_gotos.push(placeholder);
+        } else {
+            frame.cont_gotos.push(placeholder);
+        }
+        vec![Stmt::Expr(goto_assign), Stmt::Continue(None)]
+    }
+
+    /// D4 — mint one F copy per escaping-jump kind. The terminal
+    /// RE-LOWERS the bare jump with this frame already popped: the
+    /// Break/Continue arm consults the (unchanged) loop stack again
+    /// and either gotos the real target or routes through the next
+    /// enclosing frame — nested finally chains run inside-out for
+    /// free, the D3a return-copy pattern.
+    fn mint_jump_copy(&mut self, f: &[Stmt], gotos: Vec<super::ExprId>, jump: Stmt) {
+        if gotos.is_empty() {
+            return;
+        }
+        let entry = self.alloc_state();
+        self.cur_state = entry;
+        self.lower_seq(f.to_vec());
+        self.lower(jump);
+        self.flush_cur();
+        for eid in gotos {
+            self.ast.exprs[eid.0 as usize] = Expr::Number(entry as f64);
+        }
+    }
+
     /// D1 — `try { B } finally { F }` via finally duplication (the
     /// javac lowering): one copy of F per exit path. Normal completion
     /// runs the first copy and moves on; an exception from B routes
@@ -101,8 +163,11 @@ impl GenSm<'_> {
 
         self.cur_state = try_entry;
         self.finally_ret.push(FinallyRetFrame {
+            try_entry,
             slot: format!("__retval{try_entry}"),
             gotos: Vec::new(),
+            brk_gotos: Vec::new(),
+            cont_gotos: Vec::new(),
         });
         self.lower_seq(body);
         let frame = self.finally_ret.pop().expect("pushed above");
@@ -135,6 +200,10 @@ impl GenSm<'_> {
         });
         self.cur_buf.push(Stmt::Throw(slot_read));
         self.flush_cur();
+
+        // D4 escaping-jump copies — one per jump kind B routed.
+        self.mint_jump_copy(&f, frame.brk_gotos, Stmt::Break(None));
+        self.mint_jump_copy(&f, frame.cont_gotos, Stmt::Continue(None));
 
         // D3a return copy — when B actually routed a return, or (D3b)
         // when B can suspend in range so a `return()` injection could
@@ -184,50 +253,51 @@ impl GenSm<'_> {
 
 /// D1 gate — true when `stmts` contain something the finally-region
 /// lowering can't route: a labeled jump (could escape the try at any
-/// depth), a bare break/continue not owned by an inner loop, or —
-/// since the D3a return routing rewrites a return into a bare
+/// depth), a bare jump on a switch surface (a bare `break` there is
+/// switch-owned, not loop-owned — distinguishing them isn't worth
+/// the precision, fallback keeps today's shape), or — since both the
+/// D3a return routing and the D4 jump routing rewrite into a bare
 /// `continue` back to the dispatch — a `return` sitting inside an
-/// inner loop, where that continue would bind wrong. Returns at
-/// continue-safe depths route through the finally copies (D3a);
+/// inner loop, where that continue would bind wrong. Bare escaping
+/// jumps at other depths route through the D4 finally copies;
+/// returns at continue-safe depths route through the D3a copy;
 /// returns IN the finally body itself (`allow_return`) legitimately
-/// override the completion. Conservative in the fallback direction:
-/// switch bodies count as escaping surface for bare jumps too (a
-/// bare `continue` inside switch escapes to the loop; distinguishing
-/// it from switch-owned `break` isn't worth the precision — fallback
-/// just keeps today's shape).
+/// override the completion.
 pub(super) fn stmts_block_finally_region(stmts: &[Stmt], allow_return: bool) -> bool {
-    fn walk(s: &Stmt, allow_return: bool, in_loop: bool) -> bool {
+    fn walk(s: &Stmt, allow_return: bool, in_loop: bool, in_switch: bool) -> bool {
         match s {
             Stmt::Return(_) => !allow_return && in_loop,
-            Stmt::Break(l) | Stmt::Continue(l) => l.is_some() || !in_loop,
-            Stmt::Block(ss) | Stmt::Multi(ss) => ss.iter().any(|x| walk(x, allow_return, in_loop)),
+            Stmt::Break(l) | Stmt::Continue(l) => l.is_some() || in_switch,
+            Stmt::Block(ss) | Stmt::Multi(ss) => {
+                ss.iter().any(|x| walk(x, allow_return, in_loop, in_switch))
+            }
             Stmt::If {
                 then_branch,
                 else_branch,
                 ..
             } => {
-                walk(then_branch, allow_return, in_loop)
+                walk(then_branch, allow_return, in_loop, in_switch)
                     || else_branch
                         .as_deref()
-                        .is_some_and(|e| walk(e, allow_return, in_loop))
+                        .is_some_and(|e| walk(e, allow_return, in_loop, in_switch))
             }
-            Stmt::Labeled { body, .. } => walk(body, allow_return, in_loop),
+            Stmt::Labeled { body, .. } => walk(body, allow_return, in_loop, in_switch),
             Stmt::While { body, .. }
             | Stmt::DoWhile { body, .. }
             | Stmt::ForOf { body, .. }
-            | Stmt::ForOfSplitIter { body, .. } => walk(body, allow_return, true),
+            | Stmt::ForOfSplitIter { body, .. } => walk(body, allow_return, true, false),
             Stmt::For { init, body, .. } => {
                 init.as_deref()
-                    .is_some_and(|i| walk(i, allow_return, in_loop))
-                    || walk(body, allow_return, true)
+                    .is_some_and(|i| walk(i, allow_return, in_loop, in_switch))
+                    || walk(body, allow_return, true, false)
             }
             Stmt::Switch { cases, default, .. } => {
                 cases
                     .iter()
-                    .any(|c| c.body.iter().any(|x| walk(x, allow_return, in_loop)))
+                    .any(|c| c.body.iter().any(|x| walk(x, allow_return, in_loop, true)))
                     || default
                         .as_ref()
-                        .is_some_and(|d| d.iter().any(|x| walk(x, allow_return, in_loop)))
+                        .is_some_and(|d| d.iter().any(|x| walk(x, allow_return, in_loop, true)))
             }
             Stmt::Try {
                 body,
@@ -238,9 +308,9 @@ pub(super) fn stmts_block_finally_region(stmts: &[Stmt], allow_return: bool) -> 
                 .iter()
                 .chain(catch_body.iter())
                 .chain(finally_body.iter().flatten())
-                .any(|x| walk(x, allow_return, in_loop)),
+                .any(|x| walk(x, allow_return, in_loop, in_switch)),
             _ => false,
         }
     }
-    stmts.iter().any(|s| walk(s, allow_return, false))
+    stmts.iter().any(|s| walk(s, allow_return, false, false))
 }

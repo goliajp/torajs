@@ -66,6 +66,7 @@ pub(super) fn rewrite_break_continue_for_outer(
     ast: &mut Ast,
     s: &mut Stmt,
     loop_stack: &[(usize, usize, Option<String>)],
+    frames: &mut Vec<super::desugar_generators_sm_finally::FinallyRetFrame>,
 ) {
     /// A rewritten `break` / `continue` is a goto, so it moves the local
     /// resume cursor — same as [`super::GenSm::emit_goto`], and for the
@@ -80,6 +81,29 @@ pub(super) fn rewrite_break_continue_for_outer(
             target: st,
             value: lit,
         });
+        Stmt::Block(vec![Stmt::Expr(assign), Stmt::Continue(None)])
+    }
+    /// D4 — the routed variant: goto a placeholder recorded on the
+    /// innermost finally frame's per-kind list; the frame's F copy
+    /// entry is patched in afterwards. Inline mirror of
+    /// [`super::GenSm::build_finally_jump_stmts`].
+    fn make_routed_goto(
+        ast: &mut Ast,
+        frames: &mut [super::desugar_generators_sm_finally::FinallyRetFrame],
+        want_break: bool,
+    ) -> Stmt {
+        let st = ast.add_expr(Expr::Ident(RESUME_LOCAL.into()));
+        let placeholder = ast.add_expr(Expr::Number(0.0));
+        let assign = ast.add_expr(Expr::Assign {
+            target: st,
+            value: placeholder,
+        });
+        let frame = frames.last_mut().expect("caller checked");
+        if want_break {
+            frame.brk_gotos.push(placeholder);
+        } else {
+            frame.cont_gotos.push(placeholder);
+        }
         Stmt::Block(vec![Stmt::Expr(assign), Stmt::Continue(None)])
     }
     // Resolve a bare / labeled jump to a yield-loop state on the stack.
@@ -97,15 +121,30 @@ pub(super) fn rewrite_break_continue_for_outer(
                 .map(pick),
         }
     };
+    // D4 route test — bare jump whose target loop was entered before
+    // the innermost enclosing try/finally (monotonic state alloc ⇒
+    // smaller state = outside the try) must run F on the way out.
+    let escapes =
+        |target: usize, frames: &[super::desugar_generators_sm_finally::FinallyRetFrame]| {
+            frames.last().is_some_and(|f| target < f.try_entry)
+        };
     match s {
         Stmt::Continue(l) => {
             if let Some(cont) = resolve(l, false) {
-                *s = make_goto(ast, cont);
+                *s = if l.is_none() && escapes(cont, frames) {
+                    make_routed_goto(ast, frames, false)
+                } else {
+                    make_goto(ast, cont)
+                };
             }
         }
         Stmt::Break(l) => {
             if let Some(brk) = resolve(l, true) {
-                *s = make_goto(ast, brk);
+                *s = if l.is_none() && escapes(brk, frames) {
+                    make_routed_goto(ast, frames, true)
+                } else {
+                    make_goto(ast, brk)
+                };
             }
         }
         // Inner loops own their bare break/continue — don't descend.
@@ -123,14 +162,14 @@ pub(super) fn rewrite_break_continue_for_outer(
             else_branch,
             ..
         } => {
-            rewrite_break_continue_for_outer(ast, then_branch, loop_stack);
+            rewrite_break_continue_for_outer(ast, then_branch, loop_stack, frames);
             if let Some(eb) = else_branch.as_deref_mut() {
-                rewrite_break_continue_for_outer(ast, eb, loop_stack);
+                rewrite_break_continue_for_outer(ast, eb, loop_stack, frames);
             }
         }
         Stmt::Block(stmts) | Stmt::Multi(stmts) => {
             for s in stmts {
-                rewrite_break_continue_for_outer(ast, s, loop_stack);
+                rewrite_break_continue_for_outer(ast, s, loop_stack, frames);
             }
         }
         _ => {}

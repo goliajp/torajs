@@ -262,7 +262,12 @@ impl<'a> GenSm<'a> {
                     };
                     if !self.loop_stack.is_empty() {
                         let stack = self.loop_stack.clone();
-                        rewrite_break_continue_for_outer(self.ast, &mut s, &stack);
+                        rewrite_break_continue_for_outer(
+                            self.ast,
+                            &mut s,
+                            &stack,
+                            &mut self.finally_ret,
+                        );
                     }
                     self.rewrite_nested_returns(&mut s);
                     self.cur_buf.push(s);
@@ -402,7 +407,15 @@ impl<'a> GenSm<'a> {
             }
             Stmt::Continue(label) => {
                 if let Some(cont) = self.sm_loop_target(&label, false) {
-                    let mut g = self.emit_goto(cont);
+                    // D4 — a bare continue whose loop sits outside an
+                    // enclosing try/finally runs F first (labeled
+                    // jumps never reach here routed: the gate walker
+                    // falls back on any labeled jump).
+                    let mut g = if label.is_none() && self.jump_escapes_finally(cont) {
+                        self.build_finally_jump_stmts(false)
+                    } else {
+                        self.emit_goto(cont)
+                    };
                     self.cur_buf.append(&mut g);
                     self.flush_cur();
                     let dead = self.alloc_state();
@@ -413,7 +426,11 @@ impl<'a> GenSm<'a> {
             }
             Stmt::Break(label) => {
                 if let Some(brk) = self.sm_loop_target(&label, true) {
-                    let mut g = self.emit_goto(brk);
+                    let mut g = if label.is_none() && self.jump_escapes_finally(brk) {
+                        self.build_finally_jump_stmts(true)
+                    } else {
+                        self.emit_goto(brk)
+                    };
                     self.cur_buf.append(&mut g);
                     self.flush_cur();
                     let dead = self.alloc_state();
@@ -446,7 +463,7 @@ impl<'a> GenSm<'a> {
             let mut s = Stmt::Labeled { label, body };
             if !self.loop_stack.is_empty() {
                 let stack = self.loop_stack.clone();
-                rewrite_break_continue_for_outer(self.ast, &mut s, &stack);
+                rewrite_break_continue_for_outer(self.ast, &mut s, &stack, &mut self.finally_ret);
             }
             self.cur_buf.push(s);
         }
