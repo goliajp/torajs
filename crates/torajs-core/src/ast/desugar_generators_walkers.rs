@@ -96,7 +96,9 @@ pub(crate) fn lift_lets_in_stmt(ast: &mut Ast, s: &mut Stmt, lifted: &mut Vec<(S
             // historical "number" fallback would pin the lifted
             // field's type wrong (`.length on Number`).
             let t = type_ann.clone().unwrap_or_else(|| {
-                if matches!(ast.get_expr(*init), Expr::Ident(nm) if nm == "arguments") {
+                if matches!(ast.get_expr(*init), Expr::Ident(nm)
+                    if nm == "arguments" || nm == crate::ast::GEN_ARGV_PARAM)
+                {
                     "any".into()
                 } else {
                     "number".into()

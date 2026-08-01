@@ -51,7 +51,9 @@
 //! other static method's.
 
 use super::Parser;
-use crate::ast::{ClassMethod, Expr, GEN_METHOD_PREFIX, GEN_RECV_PARAM, Param, Stmt, Visibility};
+use crate::ast::{
+    ClassMethod, Expr, GEN_ARGV_PARAM, GEN_METHOD_PREFIX, GEN_RECV_PARAM, Param, Stmt, Visibility,
+};
 use crate::lexer::Token;
 
 impl<'a> Parser<'a> {
@@ -213,6 +215,26 @@ impl<'a> Parser<'a> {
                 .iter()
                 .any(|e| matches!(e, Expr::Ident(n) if n == GEN_RECV_PARAM));
 
+        // RFC 20260801-arguments-method-face knife 2b — the body's
+        // `arguments` idents rename to the trailing argv param over
+        // the same arena range (once the state machine owns the
+        // body, `arguments` would denote next()'s own object). A
+        // body that declares its own `arguments` binding keeps it
+        // (sloppy shadow, pre-face semantics).
+        let mut body_uses_arguments = false;
+        {
+            let mut local_binds = std::collections::HashSet::new();
+            crate::ast_collect_bindings::collect_local_binding_names(&body, &mut local_binds);
+            if !local_binds.contains("arguments") && !params.iter().any(|p| p.name == "arguments") {
+                for e in self.ast.exprs[body_expr_start..].iter_mut() {
+                    if matches!(e, Expr::Ident(n) if n == "arguments") {
+                        *e = Expr::Ident(GEN_ARGV_PARAM.into());
+                        body_uses_arguments = true;
+                    }
+                }
+            }
+        }
+
         // The hoisted generator: receiver first, then the user's params.
         // An instance receiver carries the declaring class's own name
         // (S2.11): `super.m()` rewrites below to `__cm_<Parent>__<m>`,
@@ -249,6 +271,17 @@ impl<'a> Parser<'a> {
             is_rest: false,
         }];
         synth_params.extend(params.iter().cloned());
+        // Knife 2b — the argv rides a trailing `any` param: an
+        // ordinary generator param, so the __Gen field / ctor /
+        // factory plumbing carries it with zero desugar changes.
+        if body_uses_arguments {
+            synth_params.push(Param {
+                name: GEN_ARGV_PARAM.into(),
+                type_ann: Some("any".into()),
+                default: None,
+                is_rest: false,
+            });
+        }
         // P-SURF S2.18 — `async *g() {}`. Async-ness rides a side table
         // keyed by the declared name, so the hoisted `function*` is
         // registered exactly as a top-level `async function*` would be.
@@ -286,6 +319,16 @@ impl<'a> Parser<'a> {
         let mut args = vec![recv_arg];
         for p in &params {
             args.push(self.ast.add_expr(Expr::Ident(p.name.clone())));
+        }
+        // Knife 2b — the forwarder hands over its own argv as
+        // `[...arguments]`: the inline-spread rewrite expands the
+        // exact call-site args when the forwarder joins the method
+        // static-argv face, and degrades to the declared params
+        // otherwise (never a compile break).
+        if body_uses_arguments {
+            let src = self.ast.add_expr(Expr::Ident("arguments".into()));
+            let spread = self.ast.add_expr(Expr::Spread { expr: src });
+            args.push(self.ast.add_expr(Expr::Array(vec![spread])));
         }
         let call = self.ast.add_expr(Expr::Call { callee, args });
         let forwarder = ClassMethod {

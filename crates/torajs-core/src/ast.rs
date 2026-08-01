@@ -133,7 +133,7 @@ pub use sfi_pass::rewrite_split_for_i_to_iter;
 pub use stmt::{
     AccessorKind, ClassCtor, ClassMethod, StaticField, StaticInit, Stmt, SwitchCase, Visibility,
 };
-pub(crate) use stmt::{GEN_METHOD_PREFIX, GEN_RECV_PARAM};
+pub(crate) use stmt::{GEN_ARGV_PARAM, GEN_METHOD_PREFIX, GEN_RECV_PARAM};
 pub use stmt_flat::toplevel_stmts_flat;
 pub use this_param::bind_this_param;
 pub use toplevel_this::rewrite_toplevel_this;

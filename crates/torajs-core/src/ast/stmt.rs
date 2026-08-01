@@ -432,3 +432,13 @@ pub(crate) const GEN_METHOD_PREFIX: &str = "__cm_gen_";
 /// field named `__this` collides with the `__this` that class's own
 /// `next()` receives.
 pub(crate) const GEN_RECV_PARAM: &str = "__genrecv";
+
+/// RFC 20260801-arguments-method-face knife 2b — the trailing param
+/// carrying a generator METHOD's real argv into the hoisted
+/// `function*`. The body's `arguments` idents are renamed to this
+/// while the method parses (same reasoning as [`GEN_RECV_PARAM`]:
+/// once the state machine owns the body, `arguments` would denote
+/// the `next()` method's own object), and the class-side forwarder
+/// passes `[...arguments]` — which the method static-argv face
+/// expands to the exact call-site argv.
+pub(crate) const GEN_ARGV_PARAM: &str = "__torajs_gen_argv";
