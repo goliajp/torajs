@@ -9,24 +9,15 @@ use super::arguments_object::ArgcMode;
 use super::arguments_object_rewrite::rewrite_arguments_in_expr;
 use super::{Ast, Expr, ExprId};
 
-/// RFC 20260801 — how many leading params an inline `...arguments`
-/// expansion takes: the static call-site argc under FoldTo (extras
-/// included, under-filled tail excluded), everything otherwise
-/// (declared == actual on the named-fn / declared-pair paths).
-fn spread_take(params: &[String], argc_mode: ArgcMode) -> usize {
-    match argc_mode {
-        ArgcMode::FoldTo(n) => n.min(params.len()),
-        _ => params.len(),
-    }
-}
-
 /// Length-write knife — a LiveLength body's `...arguments` spread
 /// must read the LIVE materialized array (a length write may have
 /// grown or truncated it); inline-expanding the static prefix would
 /// answer the stale pre-write shape. The argv face already spreads
 /// the array for its own reason (beyond-declared values), and the
 /// unmapped face for element-write visibility (`arguments[0] = 2`
-/// must show in a later spread — params never alias).
+/// must show in a later spread — params never alias). Everything
+/// else (Real / FoldArity — no materialized array) expands the
+/// declared params inline: declared == actual on those paths.
 fn spread_rides_array(argc_mode: ArgcMode, is_argv_fn: bool) -> bool {
     is_argv_fn || matches!(argc_mode, ArgcMode::LiveLength(_) | ArgcMode::Unmapped(_))
 }
@@ -57,9 +48,7 @@ pub(super) fn rewrite_call_arm(
                 let src = ast.add_expr(Expr::Ident("__torajs_arguments".into()));
                 new_args.push(ast.add_expr(Expr::Spread { expr: src }));
             } else {
-                // FoldTo — expand exactly argc idents (the leading
-                // params; extras included, under-filled tail excluded).
-                for p in &params[..spread_take(params, argc_mode)] {
+                for p in params {
                     new_args.push(ast.add_expr(Expr::Ident(p.clone())));
                 }
             }
@@ -108,7 +97,7 @@ pub(super) fn rewrite_array_arm(
                 let src = ast.add_expr(Expr::Ident("__torajs_arguments".into()));
                 new_elems.push(ast.add_expr(Expr::Spread { expr: src }));
             } else {
-                for p in &params[..spread_take(params, argc_mode)] {
+                for p in params {
                     new_elems.push(ast.add_expr(Expr::Ident(p.clone())));
                 }
             }

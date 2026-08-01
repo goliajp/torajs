@@ -36,17 +36,8 @@ pub(super) enum ArgcMode {
     /// Fold to the declared arity (legacy fallback; still serves
     /// class methods, whose ABI is untouched — recorded face).
     FoldArity,
-    /// RFC 20260801-arguments-escape-face — IIFE static-argv face:
-    /// the single call site's arg count is statically known, so
-    /// `arguments.length` folds to it directly. Distinct from
-    /// FoldArity because params.len() is wrong on both sides: an
-    /// under-filled site has fewer args than declared params, and
-    /// the over-arity side carries injected `__torajs_iife_extra_*`
-    /// params. Bare `arguments` escapes rewrite to the materialized
-    /// `__torajs_arguments` local under this mode.
-    FoldTo(usize),
     /// Length-write knife (rotation 270) — a static-argv-face body
-    /// that WRITES `arguments.length`: the FoldTo fold would (a)
+    /// that WRITES `arguments.length`: a static fold would (a)
     /// mint a literal in the write target ("invalid assignment
     /// target") and (b) keep answering the stale constant on every
     /// later read. Length reads AND writes ride the materialized
@@ -56,17 +47,20 @@ pub(super) enum ArgcMode {
     /// arguments-iterator tests observe. The payload still carries
     /// the static argc for the materialize take-count, and
     /// `...arguments` spreads swap to the live array rather than
-    /// inline-expanding a stale prefix.
+    /// inline-expanding a stale prefix. Element indices ride the
+    /// array too — see Unmapped below for why no mode may alias.
     LiveLength(usize),
-    /// Unmapped-arguments knife (rotation 271, ES §10.4.4.6/7) — a
-    /// static-argv-face body whose fn carries a default / rest /
-    /// destructured param: such fns get an UNMAPPED arguments object,
-    /// so `arguments[i]` never aliases the param. The literal-index
-    /// param substitution (correct on the mapped face) wrote through
-    /// (`arguments[0] = 2` mutated `a` — test262 unmapped/via-params
-    /// family observed the param unchanged). Reads and writes both
-    /// ride the materialized `__torajs_arguments` array instead;
-    /// `arguments.length` still folds to the static argc like FoldTo.
+    /// The static-argv face's standard mode (rotation 271 introduced
+    /// it for default / rest / destructured params per ES
+    /// §10.4.4.6/7; rotation 272 made it the whole face's mode):
+    /// tr's semantic baseline is bun running TS, and a TS file
+    /// executes as an ES module — always strict code — where the
+    /// arguments object is UNMAPPED for every fn, simple params
+    /// included. The old mapped literal-index param substitution
+    /// diverged both ways (`arguments[0] = 2` wrote through to `a`;
+    /// `a = 99` showed in a later `arguments[0]` read). Reads and
+    /// writes both ride the materialized `__torajs_arguments` array
+    /// instead; `arguments.length` still folds to the static argc.
     Unmapped(usize),
     /// Leave the node alone so the checker rejects it loudly — a
     /// closure VALUE's real argc needs the ABI face (recorded);
@@ -181,19 +175,14 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
             // undefined for beyond-declared values reached through
             // any-call / container dispatch (probe ac6/ac7).
             let argc_mode = if let Some(&n) = iife_static_argv.get(name) {
-                // Length-write bodies leave the fold — reads and
-                // writes both ride the materialized array's live
-                // `.length` (see ArgcMode::LiveLength).
+                // Length-write bodies additionally ride the array's
+                // live `.length` (see ArgcMode::LiveLength);
+                // everything else on the face is Unmapped — strict
+                // (module) code never maps arguments to params.
                 if body_has_arguments_length_write(ast, body) {
                     ArgcMode::LiveLength(n)
-                } else if decl_params.iter().any(|p| {
-                    p.default.is_some() || p.is_rest || p.name.starts_with("__param_destr_")
-                }) {
-                    // Default / rest / destructured params make the
-                    // arguments object UNMAPPED (see ArgcMode doc).
-                    ArgcMode::Unmapped(n)
                 } else {
-                    ArgcMode::FoldTo(n)
+                    ArgcMode::Unmapped(n)
                 }
             } else if uses_real_argc.contains(name)
                 || iife_real_argc.contains(name)
@@ -284,17 +273,13 @@ fn synth_materialized_arguments(
         && let Some((rest_name, fixed)) = params.split_last()
     {
         let take = match argc_mode {
-            ArgcMode::FoldTo(n) | ArgcMode::LiveLength(n) | ArgcMode::Unmapped(n) => {
-                n.min(fixed.len())
-            }
+            ArgcMode::LiveLength(n) | ArgcMode::Unmapped(n) => n.min(fixed.len()),
             _ => fixed.len(),
         };
         synth_arguments_local_rest(ast, &fixed[..take], rest_name)
     } else {
         let take = match argc_mode {
-            ArgcMode::FoldTo(n) | ArgcMode::LiveLength(n) | ArgcMode::Unmapped(n) => {
-                n.min(params.len())
-            }
+            ArgcMode::LiveLength(n) | ArgcMode::Unmapped(n) => n.min(params.len()),
             _ => params.len(),
         };
         synth_arguments_local(ast, &params[..take])

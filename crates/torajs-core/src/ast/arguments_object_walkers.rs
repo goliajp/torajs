@@ -30,7 +30,7 @@ enum ScanFor {
     /// `arguments.length` in a WRITE position — Assign target or
     /// PostIncr/PostDecr target (pre-incr desugars to Assign in the
     /// parser, so the two arms cover every mutation form). A hit
-    /// moves a static-argv-face body from FoldTo to LiveLength:
+    /// moves a static-argv-face body from Unmapped to LiveLength:
     /// folding the write target mints a literal ("invalid
     /// assignment target") and every later read would answer the
     /// stale constant.
