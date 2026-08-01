@@ -26,6 +26,18 @@ impl<'a> LowerCtx<'a> {
     /// closure / arrow bodies (their captured names live in a
     /// separate frame).
     pub(crate) fn consume_all_idents_in_return(&mut self, eid: ExprId) {
+        // RFC 20260801-arguments-escape-face — a BARE
+        // `return __torajs_arguments` (root Ident) transfers the
+        // materialized array itself to the caller; it must take the
+        // moved mark like any local or the scope drop frees the heap
+        // the caller just received (knife-1 probe: the returned
+        // arguments array read back the NEXT allocation's bytes).
+        // The unconditional skip below only guards NON-root touches
+        // (index reads retain at the root / feed consuming nodes),
+        // which never hand the array itself out.
+        let bare_arguments_root = matches!(
+            self.ast.get_expr(eid), Expr::Ident(n) if n == "__torajs_arguments"
+        );
         let mut stack: Vec<ExprId> = vec![eid];
         let mut visited: std::collections::HashSet<u32> = std::collections::HashSet::new();
         while let Some(id) = stack.pop() {
@@ -36,12 +48,13 @@ impl<'a> LowerCtx<'a> {
                 Expr::Ident(name) => {
                     // RFC 20260708-closure-argv-face — the
                     // materialized `__torajs_arguments` array is
-                    // never transferred by a return (its index
-                    // reads either retain at the return root or
-                    // feed a consuming node); marking it moved
-                    // stranded one array per call. It keeps its
-                    // scope drop unconditionally.
-                    if name == "__torajs_arguments" {
+                    // never transferred by a NON-root return touch
+                    // (its index reads either retain at the return
+                    // root or feed a consuming node); marking it
+                    // moved stranded one array per call. It keeps
+                    // its scope drop unless the return root IS the
+                    // bare array (see above).
+                    if name == "__torajs_arguments" && !bare_arguments_root {
                         continue;
                     }
                     if let Some(info) = self.locals.get_mut(&name)

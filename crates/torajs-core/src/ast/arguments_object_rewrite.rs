@@ -136,6 +136,45 @@ pub(super) fn rewrite_arguments_in_stmt(
                     .collect()
             }),
         },
+        // RFC 20260801 — for-of bodies were previously cloned opaque
+        // (the `other` arm below), leaving `arguments` touches inside
+        // the loop unrewritten → checker unknown-identifier. The
+        // source itself is a parser-hoisted LetDecl (its init rides
+        // the LetDecl arm above); only elem_expr + body need walking.
+        Stmt::ForOf {
+            var_name,
+            var_type_ann,
+            src_ident,
+            i_ident,
+            elem_expr,
+            body,
+            forin_obj,
+            is_await,
+        } => Stmt::ForOf {
+            var_name: var_name.clone(),
+            var_type_ann: var_type_ann.clone(),
+            src_ident: src_ident.clone(),
+            i_ident: i_ident.clone(),
+            elem_expr: rewrite_arguments_in_expr(ast, *elem_expr, params, argc_mode, is_argv_fn),
+            body: Box::new(rewrite_arguments_in_stmt(
+                ast, body, params, argc_mode, is_argv_fn,
+            )),
+            forin_obj: *forin_obj,
+            is_await: *is_await,
+        },
+        Stmt::ForOfSplitIter {
+            var_name,
+            parent,
+            sep,
+            body,
+        } => Stmt::ForOfSplitIter {
+            var_name: var_name.clone(),
+            parent: rewrite_arguments_in_expr(ast, *parent, params, argc_mode, is_argv_fn),
+            sep: rewrite_arguments_in_expr(ast, *sep, params, argc_mode, is_argv_fn),
+            body: Box::new(rewrite_arguments_in_stmt(
+                ast, body, params, argc_mode, is_argv_fn,
+            )),
+        },
         // Nested FnDecl owns its own arguments scope — leave it for
         // the outer pass to handle independently when it iterates
         // ast.stmts (lift_arrow_fns has already hoisted closures to
@@ -170,6 +209,13 @@ pub(super) fn rewrite_arguments_in_expr(
                     }
                     ArgcMode::FoldArity => {
                         return ast.add_expr(Expr::Number(params.len() as f64));
+                    }
+                    // RFC 20260801 — IIFE static-argv face: the call
+                    // site's exact arg count (NOT params.len(), which
+                    // over-counts on an under-filled site and carries
+                    // the injected extras otherwise).
+                    ArgcMode::FoldTo(n) => {
+                        return ast.add_expr(Expr::Number(n as f64));
                     }
                     // Keep the `arguments.length` node untouched so the
                     // checker rejects it loudly — a closure VALUE's real
@@ -291,10 +337,33 @@ pub(super) fn rewrite_arguments_in_expr(
             }
             ast.add_expr(Expr::ObjectLit { fields: new_fields })
         }
+        // RFC 20260801-arguments-escape-face — bare `arguments`
+        // escape (return / assign value / call arg / for-of source
+        // hoist init): under a materializing mode it becomes the
+        // synthesized `__torajs_arguments: any[]` local, which the
+        // consumer then treats as an ordinary array-like. Every other
+        // mode leaves the node for the checker's loud reject.
+        Expr::Ident(n) if n == "arguments" => {
+            if is_argv_fn || matches!(argc_mode, ArgcMode::FoldTo(_)) {
+                return ast.add_expr(Expr::Ident("__torajs_arguments".into()));
+            }
+            eid
+        }
         // Leaf / opaque shapes — no children to recurse through here.
         // Intentionally returns the original `eid` so we don't bloat
         // the arena with no-op clones.
         _ => eid,
+    }
+}
+
+/// RFC 20260801 — how many leading params an inline `...arguments`
+/// expansion takes: the static call-site argc under FoldTo (extras
+/// included, under-filled tail excluded), everything otherwise
+/// (declared == actual on the named-fn / declared-pair paths).
+fn spread_take(params: &[String], argc_mode: ArgcMode) -> usize {
+    match argc_mode {
+        ArgcMode::FoldTo(n) => n.min(params.len()),
+        _ => params.len(),
     }
 }
 
@@ -324,7 +393,9 @@ fn rewrite_call_arm(
                 let src = ast.add_expr(Expr::Ident("__torajs_arguments".into()));
                 new_args.push(ast.add_expr(Expr::Spread { expr: src }));
             } else {
-                for p in params {
+                // FoldTo — expand exactly argc idents (the leading
+                // params; extras included, under-filled tail excluded).
+                for p in &params[..spread_take(params, argc_mode)] {
                     new_args.push(ast.add_expr(Expr::Ident(p.clone())));
                 }
             }
@@ -373,7 +444,7 @@ fn rewrite_array_arm(
                 let src = ast.add_expr(Expr::Ident("__torajs_arguments".into()));
                 new_elems.push(ast.add_expr(Expr::Spread { expr: src }));
             } else {
-                for p in params {
+                for p in &params[..spread_take(params, argc_mode)] {
                     new_elems.push(ast.add_expr(Expr::Ident(p.clone())));
                 }
             }

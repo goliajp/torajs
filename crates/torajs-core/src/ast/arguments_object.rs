@@ -28,6 +28,15 @@ pub(super) enum ArgcMode {
     /// Fold to the declared arity (legacy fallback; still serves
     /// class methods, whose ABI is untouched — recorded face).
     FoldArity,
+    /// RFC 20260801-arguments-escape-face — IIFE static-argv face:
+    /// the single call site's arg count is statically known, so
+    /// `arguments.length` folds to it directly. Distinct from
+    /// FoldArity because params.len() is wrong on both sides: an
+    /// under-filled site has fewer args than declared params, and
+    /// the over-arity side carries injected `__torajs_iife_extra_*`
+    /// params. Bare `arguments` escapes rewrite to the materialized
+    /// `__torajs_arguments` local under this mode.
+    FoldTo(usize),
     /// Leave the node alone so the checker rejects it loudly — a
     /// closure VALUE's real argc needs the ABI face (recorded);
     /// folding the declared arity would be silent-wrong.
@@ -37,8 +46,17 @@ pub(super) enum ArgcMode {
 pub fn desugar_arguments_object(ast: &mut Ast) {
     // Stage helpers extracted chunk 767 (the pass had drifted past
     // the 200-line fn limit as argc/argv tiers stacked up).
-    let (fn_params, uses_real_argc, env_fns) = snapshot_fn_params(ast);
+    let (mut fn_params, uses_real_argc, env_fns) = snapshot_fn_params(ast);
     let (iife_real_argc, iife_call_sites) = collect_iife_real_argc(ast);
+
+    // RFC 20260801-arguments-escape-face knife 1 — IIFE static-argv
+    // face: any non-length arguments touch (index / spread / bare
+    // escape) inside an IIFE resolves fully statically from its
+    // single call site. Injects trailing `__torajs_iife_extra_*: any`
+    // params so over-arity args reach the body, and extends the
+    // rewrite param table to match.
+    let iife_static_argv = collect_iife_static_argv(ast, &iife_real_argc);
+    inject_iife_static_params(ast, &iife_static_argv, &mut fn_params);
 
     // RFC 20260708-closure-argc-abi chunk 1 — closure VALUE form
     // seed + binding safety walk (see collect_value_argc).
@@ -75,7 +93,9 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
             // into a declared-params-only array, silently answering
             // undefined for beyond-declared values reached through
             // any-call / container dispatch (probe ac6/ac7).
-            let argc_mode = if uses_real_argc.contains(name)
+            let argc_mode = if let Some(&n) = iife_static_argv.get(name) {
+                ArgcMode::FoldTo(n)
+            } else if uses_real_argc.contains(name)
                 || iife_real_argc.contains(name)
                 || value_real_argc.contains(name)
                 || is_argv_fn
@@ -121,7 +141,15 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
             let synth_opt = if is_argv_fn {
                 Some(synth_arguments_local_argv(ast))
             } else if needs_materialize && argc_mode != ArgcMode::KeepLoud {
-                Some(synth_arguments_local(ast, &params))
+                // FoldTo — the materialized array is exactly argc
+                // long (arguments.length semantics): over-arity is
+                // covered by the injected extras already in `params`;
+                // an under-filled site takes the leading argc params.
+                let take = match argc_mode {
+                    ArgcMode::FoldTo(n) => n.min(params.len()),
+                    _ => params.len(),
+                };
+                Some(synth_arguments_local(ast, &params[..take]))
             } else {
                 None
             };
@@ -215,9 +243,14 @@ fn collect_iife_real_argc(ast: &Ast) -> (std::collections::HashSet<String>, Vec<
             continue;
         };
         let fn_name = fn_name.clone();
+        // RFC 20260801 knife 1 narrowed this tier to length-ONLY
+        // bodies: any non-length touch (index / spread / escape)
+        // routes to the static-argv face instead, which serves
+        // length AND values fully statically.
         let has_len = ast.stmts.iter().any(|s| {
             matches!(s, Stmt::FnDecl { name, body, .. }
-                if *name == fn_name && body_has_arguments_length(ast, body))
+                if *name == fn_name && body_has_arguments_length(ast, body)
+                    && !body_has_non_length_arguments_touch(ast, body))
         });
         if has_len {
             iife_real_argc.insert(fn_name);
@@ -225,6 +258,81 @@ fn collect_iife_real_argc(ast: &Ast) -> (std::collections::HashSet<String>, Vec<
         }
     }
     (iife_real_argc, iife_call_sites)
+}
+
+/// RFC 20260801-arguments-escape-face knife 1 — collect IIFEs whose
+/// body touches `arguments` in any non-length form. The single call
+/// site makes the whole argv static: `fn name → call-site arg count`.
+/// A fn spotted at two call sites is skipped defensively (lifted
+/// IIFE closures have exactly one; two means this isn't the shape we
+/// think it is — over-kill only loses the admit, never wrong).
+fn collect_iife_static_argv(
+    ast: &Ast,
+    iife_real_argc: &std::collections::HashSet<String>,
+) -> std::collections::HashMap<String, usize> {
+    use std::collections::{HashMap, HashSet};
+    let mut argc: HashMap<String, usize> = HashMap::new();
+    let mut dup: HashSet<String> = HashSet::new();
+    for e in &ast.exprs {
+        let Expr::Call { callee, args } = e else {
+            continue;
+        };
+        let Expr::Closure { fn_name, .. } = ast.get_expr(*callee) else {
+            continue;
+        };
+        if argc.insert(fn_name.clone(), args.len()).is_some() {
+            dup.insert(fn_name.clone());
+        }
+    }
+    for d in &dup {
+        argc.remove(d);
+    }
+    argc.retain(|name, _| {
+        !iife_real_argc.contains(name)
+            && ast.stmts.iter().any(|s| {
+                matches!(s, Stmt::FnDecl { name: n, body, .. }
+                    if n == name && body_has_non_length_arguments_touch(ast, body))
+            })
+    });
+    argc
+}
+
+/// RFC 20260801 knife 1 — append `__torajs_iife_extra_i: any` params
+/// to each static-argv IIFE whose call site passes more args than
+/// declared, so the over-arity values reach the body (instead of the
+/// direct-call trailing-ignore drop). The rewrite param table gets
+/// the same names so `arguments[<literal>]` and the materialized
+/// array resolve them like any declared param.
+fn inject_iife_static_params(
+    ast: &mut Ast,
+    iife_static_argv: &std::collections::HashMap<String, usize>,
+    fn_params: &mut std::collections::HashMap<String, Vec<String>>,
+) {
+    if iife_static_argv.is_empty() {
+        return;
+    }
+    for s in ast.stmts.iter_mut() {
+        if let Stmt::FnDecl { name, params, .. } = s
+            && let Some(&n) = iife_static_argv.get(name)
+        {
+            let Some(user_params) = fn_params.get_mut(name) else {
+                continue;
+            };
+            // Name embeds the (unique) lifted-closure fn name: a
+            // plain `__torajs_iife_extra_{i}` collides ACROSS
+            // closures in any name-keyed downstream analysis.
+            for i in 0..n.saturating_sub(user_params.len()) {
+                let extra = format!("__torajs_iife_extra_{name}_{i}");
+                params.push(Param {
+                    name: extra.clone(),
+                    type_ann: Some("any".into()),
+                    default: None,
+                    is_rest: false,
+                });
+                user_params.push(extra);
+            }
+        }
+    }
 }
 
 /// T-31 — inject `__torajs_real_argc: number` at param[0] for each
