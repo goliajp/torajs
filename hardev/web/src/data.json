@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-02T08:04:29.963Z",
+  "generatedAt": "2026-08-02T10:34:18.553Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-02T08:02:31Z",
-    "headSha": "887e6422",
-    "elapsedSec": 386.06,
+    "ranAt": "2026-08-02T10:21:28Z",
+    "headSha": "e34a7fa9",
+    "elapsedSec": 405.14,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 20259,
-    "passNoOracle": 547,
-    "passNegative": 3919,
-    "passTotal": 24725,
-    "bug": 11603,
-    "incompatible": 16846,
+    "pass": 20332,
+    "passNoOracle": 551,
+    "passNegative": 3917,
+    "passTotal": 24800,
+    "bug": 11676,
+    "incompatible": 16698,
     "bunSkip": 7467,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 36328,
-    "passRateInScope": 46.5,
-    "passRateTrAccepted": 68.06
+    "trAccepted": 36476,
+    "passRateInScope": 46.64,
+    "passRateTrAccepted": 67.99
   },
   "torajs": {
-    "commit": "887e6422",
-    "commitSubject": "feat(core): await is an early error outside async bodies and the module top level",
+    "commit": "e34a7fa9",
+    "commitSubject": "feat(core): runtime-computed class fields — instance and static",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,38 @@
   },
   "commits": [
     {
+      "hash": "e34a7fa9",
+      "subject": "feat(core): runtime-computed class fields — instance and static"
+    },
+    {
+      "hash": "d4fb1ea5",
+      "subject": "feat(meta,anyvalue): struct expandos surface on every enumeration face"
+    },
+    {
+      "hash": "0e486a62",
+      "subject": "feat(anyvalue): typed structs grow dynamic properties through the any lane"
+    },
+    {
+      "hash": "bc783e94",
+      "subject": "fix(core): struct-literal fields take a real share of borrowed and As-wrapped sources"
+    },
+    {
+      "hash": "fdd7663f",
+      "subject": "style: fmt-drift fix for blade-1 touched files"
+    },
+    {
+      "hash": "e1f1b319",
+      "subject": "feat(core,runtime): struct cells grow a lazily-allocated props slot at +24"
+    },
+    {
+      "hash": "ffec3dff",
+      "subject": "fix(core): json-parse and fromentries structs get a real anon class tag and null vtable"
+    },
+    {
+      "hash": "deffde3f",
+      "subject": "chore(docs,hardev): rotation 281 final census at 887e6422"
+    },
+    {
       "hash": "887e6422",
       "subject": "feat(core): await is an early error outside async bodies and the module top level"
     },
@@ -727,59 +759,38 @@
     {
       "hash": "2d3342bd",
       "subject": "feat(core): accessor arity early errors — getter takes none, setter exactly one"
-    },
-    {
-      "hash": "55f28f8b",
-      "subject": "feat(core): yield expression is not a valid assignment or update target"
-    },
-    {
-      "hash": "3159a243",
-      "subject": "chore(docs,hardev): rotation 280 final census at 2563958c"
-    },
-    {
-      "hash": "2563958c",
-      "subject": "refactor(core): parser token-cursor and span helpers move to parser/cursor.rs"
-    },
-    {
-      "hash": "12bc2255",
-      "subject": "feat(core): bare class fields terminate by ASI at a line break"
-    },
-    {
-      "hash": "437b9fda",
-      "subject": "feat(core): comma-operator expression statements desugar to sequential statements"
-    },
-    {
-      "hash": "73c69f53",
-      "subject": "feat(core): expression-position yield hoists to YieldInto temps at parse time"
-    },
-    {
-      "hash": "96bf52fd",
-      "subject": "feat(core): class-field early errors land, async modifier admits computed and literal member names"
-    },
-    {
-      "hash": "1f08d20b",
-      "subject": "chore(docs,hardev): rotation 279 final census at 72ac3231"
     }
   ],
-  "headSha": "887e6422",
+  "headSha": "e34a7fa9",
   "autorun": {
-    "total": 585,
+    "total": 586,
     "baselineTarget": 10,
-    "bySelf": 580,
+    "bySelf": 581,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785650231-2cc7",
-      "at": "2026-08-02T05:57:11Z",
-      "ts": 1785650231,
+      "rotationId": "r-1785657938-4b5b",
+      "at": "2026-08-02T08:05:38Z",
+      "ts": 1785657938,
       "trigger": "self",
-      "prevHead": "3159a243",
-      "handoffSha": "sha256:76f30d49c182611592ce37cd78950dcf1dba4f48a02befacc349599dc268b20c",
-      "handoffAgeSec": 105,
+      "prevHead": "deffde3f",
+      "handoffSha": "sha256:afbcfa80b1118553a7376e38bf15b1753c11387c9eabfc4fecca44cf35e156dd",
+      "handoffAgeSec": 27,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1785657938-4b5b",
+        "at": "2026-08-02T08:05:38Z",
+        "ts": 1785657938,
+        "trigger": "self",
+        "prevHead": "deffde3f",
+        "handoffSha": "sha256:afbcfa80b1118553a7376e38bf15b1753c11387c9eabfc4fecca44cf35e156dd",
+        "handoffAgeSec": 27,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785650231-2cc7",
         "at": "2026-08-02T05:57:11Z",
@@ -876,17 +887,6 @@
         "prevHead": "f06d5f95",
         "handoffSha": "sha256:00a95d130f8c2520094548b8afcba86ac430b096046e5e0b33254455129a9b90",
         "handoffAgeSec": 8,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1785581247-593c",
-        "at": "2026-08-01T10:47:27Z",
-        "ts": 1785581247,
-        "trigger": "self",
-        "prevHead": "a8818690",
-        "handoffSha": "sha256:60dc6ddc3ac3a147a8f5cf40f3f3345671019cadc5ff408d092a77ec36b39e1c",
-        "handoffAgeSec": 5,
         "conformanceBefore": null,
         "commitsInSession": null
       }
