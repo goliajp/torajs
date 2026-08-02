@@ -253,6 +253,14 @@ pub struct Ast {
     /// early-error on it (check_type_of_object_lit); only a
     /// destructuring re-read may consume it.
     pub objlit_cover_init_exprs: std::collections::HashSet<ExprId>,
+    /// Array literals whose last element is a spread followed by a
+    /// trailing comma (`[...x,]`). Legal as an ArrayLiteral
+    /// expression (§13.2.4 permits the trailing comma), but the
+    /// cover-grammar re-read as an assignment PATTERN requires the
+    /// rest element to be last (§13.15.1) — the dstr-assign walk
+    /// rejects members of this set. The comma is consumed at parse
+    /// time; this side table is the only carrier of that fact.
+    pub arrlit_trailing_comma_after_rest: std::collections::HashSet<ExprId>,
     /// S2.24 刀 4 — Member ExprIds minted by `dstra_field_load` for a
     /// DEFAULT-guarded pattern field (`{ f = D }` / `{ f: y = D }`,
     /// both lanes — declaration and assignment share the recipe).

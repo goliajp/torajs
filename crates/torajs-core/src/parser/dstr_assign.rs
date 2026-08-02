@@ -160,7 +160,18 @@ impl<'a> Parser<'a> {
         out: &mut Vec<Stmt>,
     ) -> Result<(), String> {
         match self.ast.get_expr(pat).clone() {
-            Expr::Array(elems) => self.emit_dstr_assign_array(&elems, src_name, out),
+            Expr::Array(elems) => {
+                // `[...x,] = src` — the literal parsed fine, but the
+                // pattern re-read requires the rest element to be
+                // LAST; the trailing comma broke that (§13.15.1).
+                if self.ast.arrlit_trailing_comma_after_rest.contains(&pat) {
+                    return Err(format!(
+                        "rest element must be last in a destructuring pattern at {}",
+                        self.at()
+                    ));
+                }
+                self.emit_dstr_assign_array(&elems, src_name, out)
+            }
             Expr::ObjectLit { fields } => self.emit_dstr_assign_object(&fields, src_name, out),
             _ => Err(format!(
                 "invalid destructuring assignment target at {}",
@@ -275,6 +286,17 @@ impl<'a> Parser<'a> {
         // `0, { yield } = {}` — the shorthand hoisted to a `__yx_`
         // temp, which is not a valid assignment target (§13.15.1).
         self.reject_yield_temp_target(target)?;
+        // §13.15.1 — `eval` / `arguments` are not valid simple
+        // assignment targets in strict code (module code always is).
+        if let Expr::Ident(n) = self.ast.get_expr(target)
+            && (n == "arguments" || n == "eval")
+        {
+            return Err(format!(
+                "`{n}` is not a valid assignment target in a destructuring pattern at {} \
+                 (ES §13.15.1)",
+                self.at()
+            ));
+        }
         let is_simple = matches!(
             self.ast.get_expr(target),
             Expr::Ident(_) | Expr::Member { .. } | Expr::Index { .. }

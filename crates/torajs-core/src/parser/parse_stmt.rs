@@ -149,6 +149,34 @@ impl<'a> Parser<'a> {
         if let Some(mutable) = mutable {
             return self.parse_let_decl_stmt(mutable, is_var);
         }
+        // Explicit Resource Management (`using x = …` / `await using
+        // x = …`) is unimplemented. `using` lexes as an ordinary
+        // Ident, so without a loud reject the head parses as an
+        // expression statement — `using a = r, b;` silently became a
+        // comma statement that exits 0. The declaration head requires
+        // a binding identifier on the SAME line after `using`; the
+        // line-break form stays an expression statement per ASI, and
+        // `using[i]` / `using(x)` stay member/call expressions.
+        let using_bind_pos = match self.peek() {
+            Token::Ident(n) if n == "using" => Some(self.pos + 1),
+            Token::Await => match self.tokens.get(self.pos + 1).map(|s| &s.token) {
+                Some(Token::Ident(n)) if n == "using" => Some(self.pos + 2),
+                _ => None,
+            },
+            _ => None,
+        };
+        if let Some(bind_pos) = using_bind_pos
+            && matches!(
+                self.tokens.get(bind_pos).map(|s| &s.token),
+                Some(Token::Ident(_))
+            )
+            && !self.has_newline_before(bind_pos)
+        {
+            return Err(format!(
+                "not yet supported: `using` declarations (Explicit Resource Management) at {}",
+                self.at()
+            ));
+        }
         // T-46 — labeled statement (`label: stmt`). JS spec §13.13.
         // The label is retained (as a `Stmt::Labeled` wrapper) so
         // `break label` / `continue label` inside `body` can target it.

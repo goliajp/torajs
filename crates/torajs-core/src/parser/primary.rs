@@ -167,12 +167,20 @@ impl<'a> Parser<'a> {
             }
             this.parse_array_element()
         };
+        let mut trailing_after_rest = false;
         if !matches!(self.peek(), Token::RBracket) {
             elements.push(parse_elem_or_elision(self)?);
             while matches!(self.peek(), Token::Comma) {
                 self.pos += 1;
                 if matches!(self.peek(), Token::RBracket) {
-                    break; // trailing comma allowed
+                    // Trailing comma allowed as an expression; when it
+                    // follows a rest element, record it — the
+                    // assignment-pattern re-read must reject (§13.15.1,
+                    // see `arrlit_trailing_comma_after_rest`).
+                    trailing_after_rest = elements
+                        .last()
+                        .is_some_and(|&e| matches!(self.ast.get_expr(e), Expr::Spread { .. }));
+                    break;
                 }
                 elements.push(parse_elem_or_elision(self)?);
             }
@@ -186,7 +194,11 @@ impl<'a> Parser<'a> {
                 ));
             }
         }
-        Ok(self.ast.add_expr(Expr::Array(elements)))
+        let id = self.ast.add_expr(Expr::Array(elements));
+        if trailing_after_rest {
+            self.ast.arrlit_trailing_comma_after_rest.insert(id);
+        }
+        Ok(id)
     }
 
     /// One slot inside an array literal — either a spread `...src` or a
