@@ -132,6 +132,23 @@ pub(crate) fn lift_lets_in_stmt(ast: &mut Ast, s: &mut Stmt, lifted: &mut Vec<(S
                     // "number" fallback would pin the lifted field's
                     // type against whatever next() actually sends.
                     "any".into()
+                } else if n.starts_with("__forof_src_")
+                    || n.starts_with("__forof_destr_")
+                    || n.starts_with("__ary_src_")
+                    || n.starts_with("__nested_destr_")
+                {
+                    // r283 — the parser's for-of / destructure desugar
+                    // temps carry NO annotation (checker-inferred
+                    // outside a generator: the hoisted source array,
+                    // the destructured loop element, and the pattern-
+                    // unpack aliases); lifted to fields the "number"
+                    // fallback pinned them against their array/element
+                    // inits (t262 for-await-of dstr family, 366-case
+                    // cluster "field is Number, value is Array(...)"
+                    // plus the plain-generator `for (const [a] of
+                    // [[7]])` shape). `__forof_i_N` stays on the
+                    // number fallback — it really is the counter.
+                    "any".into()
                 } else {
                     "number".into()
                 }
