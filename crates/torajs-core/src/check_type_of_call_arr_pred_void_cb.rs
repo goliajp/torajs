@@ -88,8 +88,18 @@ pub(crate) fn try_match(
     // admit — their ret feeds the result element / accumulator, a
     // different contract. A Boolean ret keeps the strict general
     // loop (exact-sig fast path unchanged).
-    if m_name == "map" || is_reduce {
+    if m_name == "map" {
         if !matches!(*ret, Type::Void) {
+            return None;
+        }
+    } else if is_reduce {
+        // rotation 285 — reduce's ret feeds the acc, and §23.1.3.24
+        // makes the result the LAST ret (or the seed, untouched, on
+        // an empty/singleton walk) — so a hetero typed ret rides the
+        // Any-acc lane and answers Any. The homogeneous ret (== elem)
+        // and the Any ret keep the strict lane (exact sig / Any
+        // widening — more precise result types).
+        if *ret == *elem || matches!(*ret, Type::Any) {
             return None;
         }
     } else if matches!(*ret, Type::Boolean | Type::Any) {

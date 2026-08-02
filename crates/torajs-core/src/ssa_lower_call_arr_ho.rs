@@ -171,6 +171,14 @@ fn lower_higher_order(
         arr_ty
     };
     let dst_slot = prepare_dst_slot(ctx, &method, src_arr, dst_arr_ty);
+    // Explicit reduce init lowers here (arg order preserved: cb, then
+    // initialValue) so its static type can pick the acc lane below.
+    let is_reduce_family = matches!(method.as_str(), "reduce" | "reduceRight");
+    let reduce_init_op = if is_reduce_family && args.len() >= 2 {
+        Some(ctx.lower_expr(args[1]))
+    } else {
+        None
+    };
     // W4 — reduce acc width follows callback ret (acc is fed back from
     // it every iter), not receiver's elem: i64 elems + f64-widened
     // callback left the acc slot narrow → GPR/FPR mismatch (array-007).
@@ -181,8 +189,38 @@ fn lower_higher_order(
         Type::FnSig(s) | Type::Closure(s) => ctx.fn_sigs[s.0 as usize].1,
         _ => elem_ty,
     };
+    // rotation 285 — a HETERO reduce seed (explicit init or the
+    // no-init elem seed whose type differs from the cb ret) forces
+    // the Any acc lane: §23.1.3.24's acc is `init` before the first
+    // call and the cb ret after, so a typed slot can hold neither
+    // union member without silent bit reinterpretation (an empty
+    // array + typed slot answered the seed's raw bits under the
+    // ret's type). The F64←I64 widening keeps its coerce lane
+    // (array-007), and an Any ret is already the boxed lane.
+    let acc_ty = if is_reduce_family && acc_ty != Type::Any {
+        let seed_ty = reduce_init_op
+            .as_ref()
+            .map(|op| ctx.operand_ty(op))
+            .unwrap_or(elem_ty);
+        if seed_ty != acc_ty && !(acc_ty == Type::F64 && seed_ty == Type::I64) {
+            Type::Any
+        } else {
+            acc_ty
+        }
+    } else {
+        acc_ty
+    };
     let reduce_no_init = matches!(method.as_str(), "reduce" | "reduceRight") && args.len() == 1;
-    let acc_slot = prepare_acc_slot(ctx, &method, args, src_arr, elem_ty, acc_ty, reduce_no_init);
+    let acc_slot = prepare_acc_slot(
+        ctx,
+        &method,
+        args,
+        src_arr,
+        elem_ty,
+        acc_ty,
+        reduce_no_init,
+        reduce_init_op,
+    );
     let frame = begin_loop(ctx, &method, src_arr, dst_slot, dst_arr_ty, reduce_no_init);
     emit_per_method_body(
         ctx,
@@ -258,9 +296,11 @@ fn prepare_dst_slot(
     Some(slot)
 }
 
-/// `reduce`/`reduceRight`: allocate `__iter_acc`, seed from args[1]
-/// (2-arg form) or arr[0] / arr[len-1] (1-arg form, throws on empty arr
-/// per spec §22.1.3.21/22 step 3).
+/// `reduce`/`reduceRight`: allocate `__iter_acc`, seed from `init_op`
+/// (2-arg form — lowered by the caller so the acc lane could read its
+/// type) or arr[0] / arr[len-1] (1-arg form, throws on empty arr per
+/// spec §22.1.3.21/22 step 3).
+#[allow(clippy::too_many_arguments)]
 fn prepare_acc_slot(
     ctx: &mut LowerCtx<'_>,
     method: &str,
@@ -269,6 +309,7 @@ fn prepare_acc_slot(
     elem_ty: Type,
     acc_ty: Type,
     reduce_no_init: bool,
+    init_op: Option<Operand>,
 ) -> Option<ValueId> {
     if !matches!(method, "reduce" | "reduceRight") {
         return None;
@@ -359,7 +400,7 @@ fn prepare_acc_slot(
         }
         Operand::Value(seed)
     } else {
-        ctx.lower_expr(args[1])
+        init_op.expect("reduce 2-arg form lowered its init at the call site")
     };
     let init_ty = ctx.operand_ty(&init_v);
     let init_v = match (acc_ty, init_ty) {

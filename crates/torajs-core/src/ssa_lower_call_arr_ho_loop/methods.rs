@@ -198,11 +198,26 @@ pub(super) fn emit_reduce(
     // RC-1 — Void-ret callback: the new accumulator is `undefined`
     // (boxed ANY_UNDEF; the dispatch entry maps a Void callback ret
     // to an Any acc slot).
-    let new_acc = if ctx.callback_ret_ty(fn_ty) == Some(Type::Void) {
+    let cb_ret = ctx.callback_ret_ty(fn_ty);
+    let new_acc = if cb_ret == Some(Type::Void) {
         let _ = emit_do_call(ctx, known_fid, fn_val, fn_ty, reduce_args, 0);
         emit_undef_any_box(ctx)
     } else {
-        emit_do_call(ctx, known_fid, fn_val, fn_ty, reduce_args, 0)
+        let v = emit_do_call(ctx, known_fid, fn_val, fn_ty, reduce_args, 0);
+        // rotation 285 — the hetero-seed acc lane (dispatch picked an
+        // Any slot because the seed's type differs from the cb ret):
+        // the typed ret boxes on the way in. box_to_any is rc-neutral
+        // for every kind, so an owned heap ret transfers its stake
+        // into the box; the post-store old-acc drop releases it as
+        // Any on the next overwrite.
+        if acc_ty == Type::Any && cb_ret.is_some_and(|r| r != Type::Any) {
+            match ctx.box_to_any(Operand::Value(v)) {
+                Operand::Value(b) => b,
+                _ => unreachable!("box_to_any returns an SSA value"),
+            }
+        } else {
+            v
+        }
     };
     ctx.f.append_void(
         ctx.cur_block,
