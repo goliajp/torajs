@@ -311,6 +311,15 @@ pub struct Ast {
     /// parse time and `Symbol.`-chains keep `__sym_<chain>__` (刀 1),
     /// so neither appears here.
     pub class_computed_keys: std::collections::HashMap<(String, String), ExprId>,
+    /// RFC 20260802 刀 3 后半 — STATIC runtime-computed class FIELDS:
+    /// `(class name, `__ccm_<n>__` sentinel, init ExprId)` in
+    /// declaration order. The key expr lives in
+    /// [`Self::class_computed_keys`] under the same sentinel; pass 3
+    /// emits `let __ccmk_<C>_<n> = <key>` plus a keyed store onto the
+    /// class object at the class-decl position. INSTANCE computed
+    /// fields ride `field_inits` under their sentinel name instead
+    /// (the ctor-prefix injection rewrites them to keyed writes).
+    pub class_computed_static_fields: Vec<(String, String, ExprId)>,
     /// RFC 20260718-builtin-error-ctor-first-class 刀 1 — the class
     /// names `inject_builtin_classes` synthesized (Error + the
     /// NativeError subclasses). class_globals emits the

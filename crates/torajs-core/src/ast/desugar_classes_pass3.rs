@@ -323,7 +323,12 @@ fn emit_computed_member_reifies(
     static_methods: &[ClassMethod],
     patch: &mut Vec<Stmt>,
 ) {
-    let mut entries: Vec<(usize, String, i64, i64)> = Vec::new();
+    // kind: 0 = method, 1 = getter, 2 = setter (reify call);
+    // 3 = instance FIELD (key-global let only — the ctor prefix does
+    // the per-construction keyed write); 4 = static FIELD (key-global
+    // let + a keyed store onto the class object, both at the
+    // class-decl position per §15.7.14 definition-time evaluation).
+    let mut entries: Vec<(usize, String, i64, i64, Option<ExprId>)> = Vec::new();
     for (ms, is_static) in [(methods, 0i64), (static_methods, 1i64)] {
         for m in ms {
             let Some(rest) = m.name.strip_prefix("__ccm_") else {
@@ -337,17 +342,84 @@ fn emit_computed_member_reifies(
                 Some(AccessorKind::Getter) => 1,
                 Some(AccessorKind::Setter) => 2,
             };
-            entries.push((n, m.name.clone(), kind, is_static));
+            entries.push((n, m.name.clone(), kind, is_static, None));
         }
     }
-    entries.sort();
-    for (_, sentinel, kind, is_static) in entries {
+    for (fc, sentinel, init) in &ast.class_computed_static_fields {
+        if fc != cname {
+            continue;
+        }
+        let Some(rest) = sentinel.strip_prefix("__ccm_") else {
+            continue;
+        };
+        let Ok(n) = rest.trim_end_matches('_').parse::<usize>() else {
+            continue;
+        };
+        entries.push((n, sentinel.clone(), 4, 1, Some(*init)));
+    }
+    // Instance fields: every sentinel with a recorded key that is
+    // neither a method/accessor nor a static field.
+    let claimed: std::collections::HashSet<String> =
+        entries.iter().map(|(_, s, ..)| s.clone()).collect();
+    for (ck, _) in ast.class_computed_keys.clone() {
+        let (kc, sentinel) = ck;
+        if kc != cname || claimed.contains(&sentinel) {
+            continue;
+        }
+        let Some(rest) = sentinel.strip_prefix("__ccm_") else {
+            continue;
+        };
+        let Ok(n) = rest.trim_end_matches('_').parse::<usize>() else {
+            continue;
+        };
+        entries.push((n, sentinel, 3, 0, None));
+    }
+    entries.sort_by_key(|(n, ..)| *n);
+    for (n, sentinel, kind, is_static, init) in entries {
         let Some(&key_eid) = ast
             .class_computed_keys
             .get(&(cname.to_string(), sentinel.clone()))
         else {
             continue;
         };
+        if kind >= 3 {
+            // Field lanes — the evaluated key parks in a module
+            // global the ctor prefix / static store reference.
+            let key_any = ast.add_expr(Expr::As {
+                expr: key_eid,
+                ty_ann: "any".into(),
+            });
+            // `mutable: true` — never reassigned, but the K.6/chunk-809
+            // module-global promote (which is what makes the name
+            // readable from the `__new_<C>` factory body) only admits
+            // mutable refcounted lets; an immutable one stays a
+            // main-fn local the factory cannot see.
+            patch.push(Stmt::LetDecl {
+                mutable: true,
+                name: format!("__ccmk_{cname}_{n}"),
+                type_ann: Some("any".into()),
+                init: key_any,
+                is_var: false,
+            });
+            if kind == 4 {
+                let cls_ref = ast.add_expr(Expr::Ident(cname.to_string()));
+                let cls_any = ast.add_expr(Expr::As {
+                    expr: cls_ref,
+                    ty_ann: "any".into(),
+                });
+                let key_ref = ast.add_expr(Expr::Ident(format!("__ccmk_{cname}_{n}")));
+                let lhs = ast.add_expr(Expr::Index {
+                    obj: cls_any,
+                    index: key_ref,
+                });
+                let assign = ast.add_expr(Expr::Assign {
+                    target: lhs,
+                    value: init.expect("static computed field carries its init"),
+                });
+                patch.push(Stmt::Expr(assign));
+            }
+            continue;
+        }
         let cname_str = ast.add_expr(Expr::String(cname.to_string()));
         let sent_str = ast.add_expr(Expr::String(sentinel));
         let kind_e = ast.add_expr(Expr::Number(kind as f64));

@@ -187,7 +187,12 @@ pub(crate) fn collect_toplevel_globals(
                     | Type::Symbol
             ) || (ty == Type::Any
                 && binding_refs.named_fn_refs.contains(name)
-                && !name.starts_with("__"));
+                // Desugar-minted sentinels stay locals — EXCEPT the
+                // computed-field key globals (RFC 20260802 刀 3
+                // 后半): `__ccmk_<C>_<n>` holds the class-definition-
+                // time evaluated key that the `__new_<C>` factory's
+                // ctor prefix reads per construction.
+                && (!name.starts_with("__") || name.starts_with("__ccmk_")));
             if !supported {
                 continue;
             }

@@ -63,6 +63,18 @@ impl<'a> LowerCtx<'a> {
         let is_non_deque = self.arr_expr_is_non_deque(obj);
         let arr_val = self.lower_expr(obj);
         let arr_ty = self.operand_ty(&arr_val);
+        // RFC 20260802 刀 3 后半 — a STRUCT receiver's keyed WRITE
+        // rides the any lane (the 刀 3a read box's write mirror): the
+        // box is a pure tag-4 encode, and member_set's struct arm
+        // dispatches layout field / accessor / expando (blade 2).
+        // The computed-field ctor prefix (`(this as any)[key] = v`)
+        // lands here too — the As is a bare pass-through for a heap
+        // source, so the operand still reads Type::Obj.
+        let (arr_val, arr_ty) = if matches!(arr_ty, Type::Obj(_)) {
+            (self.box_to_any(arr_val), Type::Any)
+        } else {
+            (arr_val, arr_ty)
+        };
         // Any-dynamic-access RFC (20260704) S3-set — `recv[i] = v`
         // where recv is an `any` value: runtime kind-aware dispatch;
         // OOB → catchable RangeError, elem-kind mismatch → catchable
