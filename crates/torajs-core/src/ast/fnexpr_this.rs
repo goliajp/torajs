@@ -431,8 +431,9 @@ fn promote_variable_routed(
 
 /// The array HOF methods whose any-lane kernels carry the
 /// receiver-first channel (knife 4). `reduce` / `reduceRight` take
-/// no thisArg per §23.1.3.24 and stay out.
-fn is_hof_method(name: &str) -> bool {
+/// no thisArg per §23.1.3.24 and stay out. Shared with the named-fn
+/// callback mirror ([`super::namedfn_recv_cb`]).
+pub(super) fn is_hof_method(name: &str) -> bool {
     matches!(
         name,
         "forEach"

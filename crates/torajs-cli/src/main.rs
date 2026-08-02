@@ -1,3 +1,4 @@
+mod ast_pipeline;
 mod cmd_build;
 mod cmd_build_extern_relocs;
 mod cmd_build_ssa_string_registries;
@@ -16,7 +17,7 @@ use std::env;
 use std::path::Path;
 use std::process::ExitCode;
 
-use torajs_core::{ast, ast_closure_param_tag, check, lexer, modules, parser, ssa, ssa_lower};
+use torajs_core::{ast, check, lexer, modules, parser, ssa, ssa_lower};
 
 use cmd_cache::run_cache_subcmd;
 use cmd_debug::run_debug;
@@ -231,63 +232,9 @@ fn pipeline(src: &str, base_dir: &Path, stage: Stage) -> ExitCode {
         }
         return ExitCode::from(1);
     }
-    ast::desugar_prototype_call(&mut ast);
-    ast::inject_builtin_classes(&mut ast);
-    ast::desugar_classes(&mut ast);
-    // §8.6.2 default-param TDZ — after desugar_classes (methods are
-    // flat `__cm_` FnDecls, the `__new_*` error factories exist),
-    // before materialize_expr_defaults (which would otherwise move a
-    // bare self/later-param read into the body where it reads the
-    // undefined-bound parameter instead of throwing).
-    ast::desugar_dflt_param_tdz(&mut ast);
-    ast::materialize_expr_defaults(&mut ast);
-    // Must follow desugar_classes: that pass is what turns `this`
-    // into the name `__this`, and this one is what gives plain
-    // functions somewhere to bind it (RFC 20260726 blade 1).
-    ast::bind_this_param(&mut ast);
-    ast::rewrite_toplevel_this(&mut ast);
-    // Reads the receiver parameter the pass above may have added,
-    // so it has to follow it (RFC 20260726 blade 2).
-    ast::synthesize_fn_constructors(&mut ast);
-    // Every factory that will exist exists by now, so a `new <name>()`
-    // still holding a name nobody claimed is constructing a value
-    // (S-NEW 刀 4). Must follow both factory-synthesizing passes.
-    ast::route_non_class_new(&mut ast);
-    ast::fill_optional_fields(&mut ast);
-    ast::synthesize_class_globals(&mut ast);
-    ast::tag_struct_field_closure_types(&mut ast);
-    // A nested `function` that reads an outer local wants the closure
-    // lane, not the top-level lift below — see ast/nested_fns_capture.
-    // Must precede `lift_arrow_fns`: the rewrite it emits is a function
-    // expression, and that is the pass which gives one its env.
-    ast::desugar_capturing_nested_fns(&mut ast);
-    ast::lift_arrow_fns(&mut ast);
-    ast::infer_anonymous_closure_params(&mut ast);
-    ast_closure_param_tag::tag_closure_arg_params(&mut ast);
-    ast::synthesize_forwarders(&mut ast);
-    // Nested-fn lift runs BEFORE the fn-to-closure collector (RFC
-    // 20260717-namedfn-canonical-cell O3): a body-local fn name is
-    // shadow-rejected by the collector, so lifting first hands it
-    // the mangled top-level `__nested___top_*` decls and their
-    // rewritten references — nested fn VALUE reads then join the
-    // forwarder canonical-cell lane like any top-level fn (pre-fix
-    // they lowered to raw FnSig addresses and face === bare-name
-    // diverged).
-    ast::desugar_nested_fns(&mut ast);
-    ast::synthesize_fn_to_closure_forwarders(&mut ast);
-    ast::desugar_function_prototype_methods(&mut ast);
-    // P2.1 — see embed/lib.rs for ordering rationale.
-    ast::desugar_uninit_let(&mut ast);
-    ast::desugar_var_hoist(&mut ast);
-    ast::desugar_variadic_push(&mut ast);
-    ast::desugar_arguments_object(&mut ast);
-    ast::rewrite_split_for_i_to_iter(&mut ast);
-    ast::escape_analyze_array_literals(&mut ast);
-    ast::desugar_implicit_generics(&mut ast);
-    ast::apply_default_args(&mut ast);
-    ast::apply_rest_args(&mut ast);
-    ast::apply_spread_args(&mut ast);
-    ast::fold_fromentries(&mut ast);
+    // Shared 31-pass desugar chain — see ast_pipeline.rs for the
+    // per-pass ordering notes.
+    ast_pipeline::run_ast_desugar_pipeline(&mut ast);
     if matches!(stage, Stage::Parse) {
         ast.print();
         return ExitCode::SUCCESS;

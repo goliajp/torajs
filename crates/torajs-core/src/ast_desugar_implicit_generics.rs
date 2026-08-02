@@ -323,7 +323,11 @@ pub(crate) fn is_synth_closure_name(name: &str) -> bool {
     // type (`{ g: top }` inferred `g: number`, not `g: () => number`).
     // Both namespaces are unspellable in user source, so the shared
     // map stays unambiguous.
-    name.starts_with("__closure_") || name.starts_with("__forward_")
+    name.starts_with("__closure_")
+        || name.starts_with("__forward_")
+        // Receiver-first callback forwarders (ast/namedfn_recv_cb) —
+        // same closure-shaped synth namespace, same full-ann read.
+        || name.starts_with("__fwdrecv_")
 }
 
 fn preinfer_closure_sigs(

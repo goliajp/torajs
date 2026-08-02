@@ -80,6 +80,7 @@ mod inject_builtin_classes_data;
 mod lift_arrow_fns;
 mod module_passes;
 mod named_eval;
+mod namedfn_recv_cb;
 pub(crate) mod nested_closure_captures;
 mod nested_fns;
 mod nested_fns_capture;
@@ -136,6 +137,7 @@ pub(crate) use lift_arrow_fns::{
 };
 pub use module_passes::{desugar_builtin_imports, rename_user_main, unwrap_exports};
 pub(crate) use named_eval::collect_named_eval_positions;
+pub use namedfn_recv_cb::synthesize_recv_cb_forwarders;
 pub use nested_fns::desugar_nested_fns;
 pub use nested_fns_capture::desugar_capturing_nested_fns;
 pub use prop_key::{literal_prop_key, number_prop_key};
