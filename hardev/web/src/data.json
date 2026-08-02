@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-02T05:56:17.142Z",
+  "generatedAt": "2026-08-02T08:04:29.963Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-02T05:51:22Z",
-    "headSha": "2563958c",
-    "elapsedSec": 390.75,
+    "ranAt": "2026-08-02T08:02:31Z",
+    "headSha": "887e6422",
+    "elapsedSec": 386.06,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 20268,
-    "passNoOracle": 557,
-    "passNegative": 3858,
-    "passTotal": 24683,
-    "bug": 11748,
-    "incompatible": 16743,
+    "pass": 20259,
+    "passNoOracle": 547,
+    "passNegative": 3919,
+    "passTotal": 24725,
+    "bug": 11603,
+    "incompatible": 16846,
     "bunSkip": 7467,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 36431,
-    "passRateInScope": 46.42,
-    "passRateTrAccepted": 67.75
+    "trAccepted": 36328,
+    "passRateInScope": 46.5,
+    "passRateTrAccepted": 68.06
   },
   "torajs": {
-    "commit": "2563958c",
-    "commitSubject": "refactor(core): parser token-cursor and span helpers move to parser/cursor.rs",
+    "commit": "887e6422",
+    "commitSubject": "feat(core): await is an early error outside async bodies and the module top level",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "887e6422",
+      "subject": "feat(core): await is an early error outside async bodies and the module top level"
+    },
+    {
+      "hash": "73fffad9",
+      "subject": "feat(core): loud reject for using declarations plus two dstr-assign early errors"
+    },
+    {
+      "hash": "e328aff6",
+      "subject": "feat(core): yield and await are early errors inside formal parameter lists"
+    },
+    {
+      "hash": "2d3342bd",
+      "subject": "feat(core): accessor arity early errors — getter takes none, setter exactly one"
+    },
+    {
+      "hash": "55f28f8b",
+      "subject": "feat(core): yield expression is not a valid assignment or update target"
+    },
+    {
+      "hash": "3159a243",
+      "subject": "chore(docs,hardev): rotation 280 final census at 2563958c"
+    },
+    {
       "hash": "2563958c",
       "subject": "refactor(core): parser token-cursor and span helpers move to parser/cursor.rs"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "1f08d20b",
       "subject": "chore(docs,hardev): rotation 279 final census at 72ac3231"
-    },
-    {
-      "hash": "72ac3231",
-      "subject": "fix(core): un-annotated setter params force the any annotation on accessor faces"
-    },
-    {
-      "hash": "dbdd4f74",
-      "subject": "feat(core,anyvalue): struct-receiver keyed access rides the any lane, symbol keys walk the class prototype chain"
-    },
-    {
-      "hash": "f98b789e",
-      "subject": "fix(anyvalue): struct proto-chain call probe skips reified builtin cells"
-    },
-    {
-      "hash": "efdf60d2",
-      "subject": "feat(core,meta,anyvalue): runtime computed class member names install under their evaluated keys"
-    },
-    {
-      "hash": "e5c1d6d8",
-      "subject": "feat(core): class member names accept string/numeric literals and whole-literal computed keys"
-    },
-    {
-      "hash": "884871f8",
-      "subject": "chore(docs,hardev): rotation 278 final census at 7b5aca04"
     }
   ],
-  "headSha": "2563958c",
+  "headSha": "887e6422",
   "autorun": {
-    "total": 584,
+    "total": 585,
     "baselineTarget": 10,
-    "bySelf": 579,
+    "bySelf": 580,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785640447-6aed",
-      "at": "2026-08-02T03:14:07Z",
-      "ts": 1785640447,
+      "rotationId": "r-1785650231-2cc7",
+      "at": "2026-08-02T05:57:11Z",
+      "ts": 1785650231,
       "trigger": "self",
-      "prevHead": "1f08d20b",
-      "handoffSha": "sha256:95107b5b6567d32dfb51e132807ce964fe822f8c16af1d90d379278b41fb53ad",
-      "handoffAgeSec": 64,
+      "prevHead": "3159a243",
+      "handoffSha": "sha256:76f30d49c182611592ce37cd78950dcf1dba4f48a02befacc349599dc268b20c",
+      "handoffAgeSec": 105,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1785650231-2cc7",
+        "at": "2026-08-02T05:57:11Z",
+        "ts": 1785650231,
+        "trigger": "self",
+        "prevHead": "3159a243",
+        "handoffSha": "sha256:76f30d49c182611592ce37cd78950dcf1dba4f48a02befacc349599dc268b20c",
+        "handoffAgeSec": 105,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785640447-6aed",
         "at": "2026-08-02T03:14:07Z",
@@ -876,17 +887,6 @@
         "prevHead": "a8818690",
         "handoffSha": "sha256:60dc6ddc3ac3a147a8f5cf40f3f3345671019cadc5ff408d092a77ec36b39e1c",
         "handoffAgeSec": 5,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1785573526-1918",
-        "at": "2026-08-01T08:38:46Z",
-        "ts": 1785573526,
-        "trigger": "self",
-        "prevHead": "f1a8940d",
-        "handoffSha": "sha256:b8646d39d44eae8f1e23c01c4a3556419f26b71676c4e154798a0c799e340437",
-        "handoffAgeSec": 8,
         "conformanceBefore": null,
         "commitsInSession": null
       }

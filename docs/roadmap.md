@@ -1530,7 +1530,30 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 9215301c`, never as a constant.
 
-**Latest @ `2563958c`** (2026-08-02, rotation 280 — five knives:
+**Latest @ `887e6422`** (2026-08-02, rotation 281 — five early-error
+knives closing the rotation-280 regression ledger plus the whole
+await-context face: yield as an assignment/update target rejects
+(§13.15.1 — `(yield) = v`, `(yield)++`, `++(yield)`, dstr slots);
+accessor arity early errors (§15.4.1 — getter zero params, setter
+exactly one non-rest, class + object-literal faces); yield/await
+inside formal parameter lists reject for every function kind
+(§15.1.2/§15.8.1, new in_formal_params flag — fixes the silent
+hoist-past-params of `function f(x = yield)`); `using` / `await
+using` declaration heads get a loud not-yet-supported reject plus
+`[...x,] = src` and `[arguments]/[eval] = src` dstr early errors;
+await outside async bodies / module top level rejects at parse
+(new await_allowed flag threaded through every function-like body
+incl. static blocks): sweep passTotal 24683 → **24725 (+42)** /
+bug 11748 → **11603 (−145)** / trAccepted −103 / incompatible
++103; gate predicate **366 clusters / 9905 cases** (−1 / +101 —
+bug-bucket cleanse shape: the case-axis rise mirrors 145 silent-
+wrong accepts becoming loud rejects); forward 63 (all
+pass-negative) / 21 regressions (17 using-family coincidental
+passes now loud rejects, 6 sloppy `{eval, arguments} = {}`
+no-oracle cases refused by the always-strict surface), zero new
+timeouts / crashes.
+
+**Previous @ `2563958c`** (2026-08-02, rotation 280 — five knives:
 §15.7.1 class-field early errors ('constructor' in every literal
 spelling, `#constructor` in every ClassElementName position,
 ContainsArguments over field initializers) + async-modifier
