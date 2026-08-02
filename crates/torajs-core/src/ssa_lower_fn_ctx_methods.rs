@@ -40,11 +40,23 @@ impl<'a> LowerCtx<'a> {
 
     /// step 4 of `lower_fn`: materialize each param as an alloca-backed
     /// local (refcounted capture box for escape-captured Copy params;
-    /// `__env` / `__cm_*` `__this` marked moved+borrowed — caller owns)
+    /// `__env` / `__cm_*` `__this` marked moved+borrowed — caller owns).
+    ///
+    /// `assigned_in_body` — names the body (or a closure it builds)
+    /// reassigns. A non-Copy param in that set copies IN an owned
+    /// stake and books as an owned local: the reassignment site
+    /// clears `moved` at COMPILE time (fn-exit drop then fires) while
+    /// the assignment itself may sit on a runtime branch — the
+    /// default-param guard `if (x === undefined) x = d` — so on the
+    /// explicit-argument path the borrow convention would release the
+    /// caller's stake (t262 gen dstr-default regression: the freed
+    /// default generator's address was recycled by the next gen cell,
+    /// whose ctor-side IteratorClose then closed ITSELF).
     pub(crate) fn materialize_fn_params(
         &mut self,
         fn_name: &str,
         param_setup: Vec<(String, ValueId, Type)>,
+        assigned_in_body: &std::collections::HashSet<String>,
     ) {
         for (pname, pid, ty) in param_setup {
             // RFC 20260710 C4 — a mutated non-Copy captured PARAM
@@ -77,7 +89,21 @@ impl<'a> LowerCtx<'a> {
             }
             let is_env_param = pname == "__env";
             let is_class_self = fn_name.starts_with("__cm_") && pname == "__this";
-            let borrows_caller = is_env_param || is_class_self || !ty.is_copy() || escape_captured;
+            // Reassigned non-Copy param → owned local (see fn doc).
+            // Substr stays borrowed (view semantics, no stake to
+            // take); the boxed path carries its own stake above.
+            let reassigned_owned = !boxed_noncopy
+                && !escape_captured
+                && !ty.is_copy()
+                && ty != Type::Substr
+                && !is_env_param
+                && !is_class_self
+                && assigned_in_body.contains(&pname);
+            if reassigned_owned {
+                self.emit_owned_result_inc(Operand::Value(pid), ty);
+            }
+            let borrows_caller = !reassigned_owned
+                && (is_env_param || is_class_self || !ty.is_copy() || escape_captured);
             self.locals.insert(
                 pname.clone(),
                 LocalInfo {

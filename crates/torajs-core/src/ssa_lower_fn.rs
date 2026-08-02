@@ -190,12 +190,12 @@ pub(crate) fn lower_fn(
         owned_member_reads: std::collections::HashSet::new(),
     };
 
-    ctx.prime_body_binding_sets(body.iter());
+    let assigned_in_body = ctx.prime_body_binding_sets(body.iter());
     // RC-4 F1c — mirror of the checker's dynobj_degraded set
     // (scope-correct walk; see `crate::dynobj_degrade`).
     ctx.dynobj_degraded = crate::dynobj_degrade::collect_dynobj_degraded_inits(ctx.ast);
 
-    ctx.materialize_fn_params(name, param_setup);
+    ctx.materialize_fn_params(name, param_setup, &assigned_in_body);
     ctx.emit_closure_env_preamble(name, params);
 
     seed_undef_sentinel_params(&mut ctx, name, params);

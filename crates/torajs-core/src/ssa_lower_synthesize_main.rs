@@ -147,7 +147,7 @@ pub(crate) fn synthesize_main(
         // T-15.g.5 — prime the binding sets BEFORE lowering any
         // top-level let-decl (an unprimed escape-captured `let`
         // stack-allocs and SIGABRTs at env_drop; see the helper doc).
-        ctx.prime_body_binding_sets(stmts.iter().copied());
+        let _ = ctx.prime_body_binding_sets(stmts.iter().copied());
         crate::ssa_lower_stmt_let_decl_recursive::hoist_forward_boxes(
             &mut ctx,
             stmts.iter().copied(),

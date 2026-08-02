@@ -32,10 +32,17 @@ impl<'a> LowerCtx<'a> {
     /// a later closure must not stack-alloc), the mutated-capture
     /// mirror, deque-unsafe Array bindings (11-A1) and escape-bound
     /// Obj bindings (11-A2-a).
+    ///
+    /// Returns the body-scoped assigned-name set so `lower_fn` can
+    /// hand it to `materialize_fn_params`: a non-Copy param that the
+    /// body reassigns must copy-in an owned stake (the reassignment
+    /// clears `moved` at compile time while firing only on a runtime
+    /// branch — a default-param guard — so the borrow convention
+    /// cannot stay balanced on the explicit-argument path).
     pub(crate) fn prime_body_binding_sets<'s>(
         &mut self,
         body: impl Iterator<Item = &'s Stmt> + Clone,
-    ) {
+    ) -> std::collections::HashSet<String> {
         let mut scan = crate::ssa_lower_closure_captures::ClosureScan::default();
         for s in body.clone() {
             crate::ssa_lower_closure_captures::collect_closure_captures_in_stmt(
@@ -43,17 +50,17 @@ impl<'a> LowerCtx<'a> {
             );
         }
         self.escape_captured_lets.extend(scan.captures);
+        // Scoped to this body + the closures it constructs — a
+        // same-named assignment in an unrelated scope must not
+        // promote this fn's never-written binding to a capture
+        // box (RFC 20260731-mono-closure-clone 刀 2).
+        let assigned = crate::ssa_lower_closure_captures::collect_assigned_names_scoped(
+            self.ast,
+            body.clone(),
+            &scan.fn_names,
+        );
         if !self.escape_captured_lets.is_empty() {
-            // Scoped to this body + the closures it constructs — a
-            // same-named assignment in an unrelated scope must not
-            // promote this fn's never-written binding to a capture
-            // box (RFC 20260731-mono-closure-clone 刀 2).
-            self.mutated_captured_lets =
-                crate::ssa_lower_closure_captures::collect_assigned_names_scoped(
-                    self.ast,
-                    body.clone(),
-                    &scan.fn_names,
-                );
+            self.mutated_captured_lets = assigned.clone();
         }
         for s in body.clone() {
             crate::ssa_lower_deque_escape::collect_deque_arr_names_in_stmt(
@@ -69,6 +76,7 @@ impl<'a> LowerCtx<'a> {
                 &mut self.escape_obj_lets,
             );
         }
+        assigned
     }
 
     /// W1 — the num_width SlotKey for a let binding in the current fn.
