@@ -23,7 +23,7 @@
 //! `break` would skip finally execution.
 
 use crate::ast::Stmt;
-use crate::ssa::{BlockId, InstKind, Operand, Terminator};
+use crate::ssa::{BlockId, InstKind, Operand, Terminator, ValueId};
 use crate::ssa_lower::LowerCtx;
 
 /// Target of a labeled statement, kept on `LowerCtx::label_stack`
@@ -50,10 +50,17 @@ pub(crate) struct LabelFrame {
     /// `try_finally_stack.len()` captured when this label was pushed.
     /// A `break`/`continue` whose current finally depth exceeds this
     /// crossed a `try...finally` opened *inside* the labeled statement,
-    /// so branching straight to the target would skip that finally.
-    /// Routing a labeled jump through intervening finallys is a roadmap
-    /// follow-up; until then that shape is rejected (never silent-wrong).
+    /// so branching straight to the target would skip that finally —
+    /// the jump routes through the innermost finally instead, via a
+    /// lazily-allocated pending flag below.
     pub(crate) finally_depth_at_push: usize,
+    /// Pending-jump flags `[continue, break]` for jumps to this label
+    /// that cross an intervening try-finally: the jump site sets the
+    /// flag and branches to the innermost finally; each finally tail
+    /// dispatches it onward (to the next outer finally while depth
+    /// still exceeds `finally_depth_at_push`, else — flag cleared —
+    /// to the label's target). Allocated on first such jump.
+    pub(crate) pending_flags: [Option<ValueId>; 2],
 }
 
 /// `Stmt::Labeled { label, body }` — ES §13.13. The label is registered
@@ -76,6 +83,7 @@ pub(crate) fn lower_labeled(ctx: &mut LowerCtx, label: &str, body: &Stmt) {
             LabelFrame {
                 target: LabelTarget::Loop(idx),
                 finally_depth_at_push: finally_depth,
+                pending_flags: [None, None],
             },
         ));
         ctx.lower_stmt(body);
@@ -87,6 +95,7 @@ pub(crate) fn lower_labeled(ctx: &mut LowerCtx, label: &str, body: &Stmt) {
             LabelFrame {
                 target: LabelTarget::Block(after),
                 finally_depth_at_push: finally_depth,
+                pending_flags: [None, None],
             },
         ));
         ctx.lower_stmt(body);
@@ -116,28 +125,56 @@ fn stmt_is_loop_like(s: &Stmt) -> bool {
     }
 }
 
-/// Resolve a `break`/`continue` label to its frame, panicking on an
-/// unknown label (a valid program never reaches this — the same loud
-/// convention as `break` outside any loop) and rejecting a jump that
-/// would skip a `try...finally` opened inside the labeled statement.
-fn resolve_label(ctx: &LowerCtx, kw: &str, label: &str) -> LabelFrame {
-    let frame = ctx
-        .label_stack
+/// Resolve a `break`/`continue` label to its stack index, panicking
+/// on an unknown label (a valid program never reaches this — the
+/// same loud convention as `break` outside any loop).
+fn resolve_label(ctx: &LowerCtx, kw: &str, label: &str) -> usize {
+    ctx.label_stack
         .iter()
-        .rev()
-        .find(|(name, _)| name == label)
-        .map(|(_, f)| *f)
-        .unwrap_or_else(|| panic!("ssa-lower: `{kw} {label}` to unknown label"));
-    assert!(
-        ctx.try_finally_stack.len() <= frame.finally_depth_at_push,
-        "ssa-lower: `{kw} {label}` across a try-finally is not yet supported"
+        .rposition(|(name, _)| name == label)
+        .unwrap_or_else(|| panic!("ssa-lower: `{kw} {label}` to unknown label"))
+}
+
+/// A labeled jump that crossed a `try...finally` opened inside the
+/// labeled statement can't branch straight to its target — that
+/// would skip the finally. Instead it sets the frame's per-kind
+/// pending flag (lazily allocated) and branches to the innermost
+/// finally; each finally tail dispatches the flag onward (see
+/// `ssa_lower_stmt_try_finally::emit_pending_label_flags`). Returns
+/// true when it emitted the routed form.
+fn route_labeled_through_finally(ctx: &mut LowerCtx, frame_idx: usize, want_break: bool) -> bool {
+    let frame = ctx.label_stack[frame_idx].1;
+    if ctx.try_finally_stack.len() <= frame.finally_depth_at_push {
+        return false;
+    }
+    let slot = want_break as usize;
+    let flag = match frame.pending_flags[slot] {
+        Some(f) => f,
+        None => {
+            let kw = if want_break { "brk" } else { "cont" };
+            let name = format!("__pending_{kw}_{}", ctx.label_stack[frame_idx].0);
+            let f = ctx.alloca_bool_flag_in_entry(Some(&name));
+            ctx.label_stack[frame_idx].1.pending_flags[slot] = Some(f);
+            f
+        }
+    };
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Store(Operand::ConstBool(true), Operand::Value(flag), 0),
     );
-    frame
+    let fb = *ctx.try_finally_stack.last().expect("depth checked above");
+    let cb = ctx.cur_block;
+    ctx.f.set_term(cb, Terminator::Br(fb));
+    true
 }
 
 pub(crate) fn lower_break(ctx: &mut LowerCtx, label: Option<&str>) {
     if let Some(label) = label {
-        let after = match resolve_label(ctx, "break", label).target {
+        let idx = resolve_label(ctx, "break", label);
+        if route_labeled_through_finally(ctx, idx, true) {
+            return;
+        }
+        let after = match ctx.label_stack[idx].1.target {
             LabelTarget::Loop(idx) => ctx.loop_stack[idx].1,
             LabelTarget::Block(blk) => blk,
         };
@@ -173,7 +210,11 @@ pub(crate) fn lower_break(ctx: &mut LowerCtx, label: Option<&str>) {
 
 pub(crate) fn lower_continue(ctx: &mut LowerCtx, label: Option<&str>) {
     if let Some(label) = label {
-        let cont = match resolve_label(ctx, "continue", label).target {
+        let idx = resolve_label(ctx, "continue", label);
+        if route_labeled_through_finally(ctx, idx, false) {
+            return;
+        }
+        let cont = match ctx.label_stack[idx].1.target {
             LabelTarget::Loop(idx) => ctx.loop_stack[idx].0,
             // `continue` requires an iteration statement (ES §14.8);
             // a labeled non-loop target is a syntax error upstream.

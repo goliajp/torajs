@@ -46,6 +46,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx, fb: BlockId, fbody: &[Stmt], after_blk: 
         if let Some(flag) = ctx.pending_continue_flag {
             emit_pending_loop_flag(ctx, flag, false, after_blk);
         }
+        emit_pending_label_flags(ctx);
         let cb4 = ctx.cur_block;
         ctx.f.set_term(cb4, Terminator::Br(after_blk));
     }
@@ -276,6 +277,64 @@ fn emit_pending_return(ctx: &mut LowerCtx) {
             .set_term(cb4, Terminator::Ret(Some(Operand::Value(v))));
     }
     ctx.cur_block = no_ret_blk;
+}
+
+/// Labeled-jump tails — one dispatch per live pending flag on the
+/// label stack (a labeled break/continue that crossed an intervening
+/// try-finally set it and branched here). While the popped finally
+/// depth still exceeds the label frame's `finally_depth_at_push`,
+/// another finally sits between this one and the label — chain to it
+/// with the flag kept; otherwise clear the flag and branch to the
+/// label's real target.
+fn emit_pending_label_flags(ctx: &mut LowerCtx) {
+    let frames: Vec<crate::ssa_lower_stmt_break_continue::LabelFrame> =
+        ctx.label_stack.iter().map(|(_, f)| *f).collect();
+    for frame in frames {
+        for (slot, flag) in frame.pending_flags.into_iter().enumerate() {
+            let Some(flag) = flag else { continue };
+            let take_break = slot == 1;
+            let f = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Load(Type::Bool, Operand::Value(flag), 0),
+                Type::Bool,
+                None,
+            );
+            let hit_blk = ctx.f.add_block();
+            let no_hit_blk = ctx.f.add_block();
+            let cb = ctx.cur_block;
+            ctx.f.set_term(
+                cb,
+                Terminator::CondBr {
+                    cond: Operand::Value(f),
+                    then_blk: hit_blk,
+                    else_blk: no_hit_blk,
+                },
+            );
+            ctx.cur_block = hit_blk;
+            let still_intervening = ctx.try_finally_stack.len() > frame.finally_depth_at_push;
+            if still_intervening {
+                let outer_fb = *ctx.try_finally_stack.last().expect("len checked");
+                let cb2 = ctx.cur_block;
+                ctx.f.set_term(cb2, Terminator::Br(outer_fb));
+            } else {
+                use crate::ssa_lower_stmt_break_continue::LabelTarget;
+                let target = match frame.target {
+                    LabelTarget::Loop(idx) => {
+                        let (cont, brk) = ctx.loop_stack[idx];
+                        if take_break { brk } else { cont }
+                    }
+                    LabelTarget::Block(blk) => blk,
+                };
+                ctx.f.append_void(
+                    ctx.cur_block,
+                    InstKind::Store(Operand::ConstBool(false), Operand::Value(flag), 0),
+                );
+                let cb2 = ctx.cur_block;
+                ctx.f.set_term(cb2, Terminator::Br(target));
+            }
+            ctx.cur_block = no_hit_blk;
+        }
+    }
 }
 
 /// 4-way tails #3/#4 — pending break (`take_break`) / continue: to the
