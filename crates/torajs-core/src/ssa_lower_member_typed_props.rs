@@ -135,7 +135,7 @@ pub(crate) fn try_lower(
         {
             return Some(Operand::ConstI64(i64::from(arity)));
         }
-        return Some(lower_fn_length_or_name(ctx, obj_val, obj_ty, name));
+        return Some(lower_fn_length_or_name(ctx, obj, obj_val, obj_ty, name));
     }
     // RFC 20260721 刀 9 — `fun.prototype` on a Closure-typed
     // receiver: the runtime kernel materializes the §10.2.5 object
@@ -211,8 +211,38 @@ fn ctor_proto_tag_of(obj_ty: &Type) -> Option<i64> {
     }
 }
 
+/// `f.length` §10.2.5 via the AST when the receiver is a top-level
+/// binding of a lifted fn value (`let f = function (…) {}` — the
+/// init is an `Ident("__closure_N")` / `Closure{fn_name}` naming the
+/// lifted FnDecl). Only the AST knows which params carry defaults;
+/// the sig fallback over-counts defaulted tails.
+fn try_ast_expected_count(ctx: &LowerCtx<'_>, obj: crate::ast::ExprId) -> Option<usize> {
+    use crate::ast::{Expr, Stmt};
+    let Expr::Ident(bind) = ctx.ast.get_expr(obj) else {
+        return None;
+    };
+    let decl_name = ctx.ast.stmts.iter().find_map(|s| match s {
+        Stmt::LetDecl { name, init, .. } if name == bind => match ctx.ast.get_expr(*init) {
+            Expr::Ident(n) if n.starts_with("__closure_") || n.starts_with("__genexpr_") => {
+                Some(n.clone())
+            }
+            Expr::Closure { fn_name, .. } => Some(fn_name.clone()),
+            _ => None,
+        },
+        _ => None,
+    })?;
+    let params = ctx.ast.stmts.iter().find_map(|s| match s {
+        Stmt::FnDecl { name, params, .. } if *name == decl_name => Some(params),
+        _ => None,
+    })?;
+    Some(crate::ssa_lower_member_fn_intro::expected_argument_count(
+        params,
+    ))
+}
+
 fn lower_fn_length_or_name(
     ctx: &mut LowerCtx<'_>,
+    obj: crate::ast::ExprId,
     obj_val: Operand,
     obj_ty: Type,
     name: &str,
@@ -222,6 +252,9 @@ fn lower_fn_length_or_name(
         _ => unreachable!(),
     };
     if name == "length" {
+        if let Some(n) = try_ast_expected_count(ctx, obj) {
+            return Operand::ConstI64(n as i64);
+        }
         let (params, _ret) = &ctx.fn_sigs[sig_id.0 as usize];
         let visible =
             if matches!(obj_ty, Type::Closure(_)) && !params.is_empty() && params[0] == Type::Ptr {

@@ -76,6 +76,19 @@ fn try_generator_factory_prototype(ctx: &mut LowerCtx<'_>, fn_name_ref: &str) ->
     Some(Operand::Value(v))
 }
 
+/// ES §10.2.5 ExpectedArgumentCount — `fn.length` counts params up
+/// to (not including) the first one carrying a default or the rest
+/// param, after dropping tr's synthetic prefix params. A default the
+/// materialize pass rewrote to the `undefined` literal still counts
+/// as a default (the param HAD an initializer in source).
+pub(crate) fn expected_argument_count(params: &[crate::ast::Param]) -> usize {
+    params
+        .iter()
+        .filter(|p| p.name != "__env" && p.name != "__this" && p.name != "__torajs_real_argc")
+        .take_while(|p| p.default.is_none() && !p.is_rest)
+        .count()
+}
+
 fn try_top_level_fn_decl(ctx: &mut LowerCtx<'_>, fn_name_ref: &str, name: &str) -> Option<Operand> {
     let fn_decl = ctx.ast.stmts.iter().find_map(|s| match s {
         Stmt::FnDecl {
@@ -85,16 +98,7 @@ fn try_top_level_fn_decl(ctx: &mut LowerCtx<'_>, fn_name_ref: &str, name: &str) 
     })?;
     let (fn_name_owned, params) = fn_decl;
     if name == "length" {
-        let visible = params
-            .iter()
-            .filter(|p| {
-                p.name != "__env"
-                    && p.name != "__this"
-                    && p.name != "__torajs_real_argc"
-                    && !p.is_rest
-            })
-            .count();
-        return Some(Operand::ConstI64(visible as i64));
+        return Some(Operand::ConstI64(expected_argument_count(&params) as i64));
     }
     let visible_name = if fn_name_owned.starts_with("__closure_") {
         String::new()
@@ -124,6 +128,24 @@ fn try_closure_local_binding(
     let fid = *ctx.fn_table.get(fn_name_ref)?;
     let sig_id = *ctx.fn_sig_ids.get(&fid)?;
     if name == "length" {
+        // Prefer the AST decl — only it knows which params carry
+        // defaults (§10.2.5 stops counting at the first one). The
+        // binding name (`let f = function (…) {}`) aliases the lifted
+        // `__closure_N` decl, so resolve by FnId equality, not name.
+        // The sig fallback covers table entries with no AST decl and
+        // over-counts defaulted tails (recorded).
+        if let Some(ast_params) = ctx.ast.stmts.iter().find_map(|s| match s {
+            Stmt::FnDecl {
+                name: n, params, ..
+            } if n == fn_name_ref || ctx.fn_table.get(n.as_str()) == Some(&fid) => {
+                Some(params.clone())
+            }
+            _ => None,
+        }) {
+            return Some(Operand::ConstI64(
+                expected_argument_count(&ast_params) as i64
+            ));
+        }
         let (params, _) = &ctx.fn_sigs[sig_id.0 as usize];
         let visible = if !params.is_empty()
             && params[0] == Type::Ptr
