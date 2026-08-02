@@ -61,7 +61,7 @@ pub struct MonoOutput {
 /// Two ann keys can share one type-arg vector (I64 "number" vs
 /// "f64" both check as `Type::Number`) — each still emits and
 /// checks its own specialization because the clone ExprIds differ.
-type WorkItem = (String, Vec<String>, Vec<Type>);
+pub(crate) type WorkItem = (String, Vec<String>, Vec<Type>);
 
 pub(crate) fn monomorphize_and_check(c: &mut Checker, ast: &Ast) -> MonoOutput {
     let mut owned_ast: Ast = ast.clone();
@@ -119,9 +119,67 @@ pub(crate) fn monomorphize_and_check(c: &mut Checker, ast: &Ast) -> MonoOutput {
     );
 
     let mut mono_decls: Vec<Stmt> = Vec::new();
-    while let Some((name, arg_anns, type_args)) = worklist.pop_front() {
+    while let Some(item) = worklist.pop_front() {
+        process_one_generic(
+            c,
+            &mut owned_ast,
+            &generics,
+            &mut cache,
+            &mut worklist,
+            &mut call_retargets,
+            &mut mono_decls,
+            &mut generic_fn_names,
+            item,
+        );
+    }
+    // RFC 20260802-any-arg-typed-param-mono — retarget every admitted
+    // `Array(Any)`-into-`Array(T)` call site to an any-widened callee
+    // clone; alternates with the generic worklist until both drain.
+    crate::check_monomorph_any_widen::run(
+        c,
+        &mut owned_ast,
+        &generics,
+        &mut cache,
+        &mut worklist,
+        &mut call_retargets,
+        &mut mono_decls,
+        &mut generic_fn_names,
+    );
+    owned_ast.stmts.extend(mono_decls);
+    // Blade 3 — the checker's per-group lane verdicts (top-level ones
+    // from the main pipeline, specialization ones from the body checks
+    // above) ride to the lowerer on the AST it already reads.
+    owned_ast.iter_destr_srcs = std::mem::take(&mut c.iter_destr_srcs);
+    owned_ast.undeclared_reads = std::mem::take(&mut c.undeclared_reads);
+    prune_unresolved_captures(c, &mut owned_ast);
+    MonoOutput {
+        mono_ast: owned_ast,
+        call_retargets,
+        generic_fn_names,
+    }
+}
+
+/// One generic-worklist item: emit + check the specialization for
+/// `(name, arg_anns, type_args)` and seed whatever its body records.
+/// Body verbatim from the pre-RFC-20260802 `while` loop; extracted so
+/// the any-widen pass can re-drain the worklist after its own clones
+/// seed new records.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn process_one_generic(
+    c: &mut Checker,
+    owned_ast: &mut Ast,
+    generics: &Generics,
+    cache: &mut HashMap<(String, Vec<String>), String>,
+    worklist: &mut VecDeque<WorkItem>,
+    call_retargets: &mut HashMap<ExprId, String>,
+    mono_decls: &mut Vec<Stmt>,
+    generic_fn_names: &mut HashSet<String>,
+    item: WorkItem,
+) {
+    {
+        let (name, arg_anns, type_args) = item;
         let Some((type_params, params, return_type, body)) = generics.get(&name) else {
-            continue;
+            return;
         };
         let mono_name = cache[&(name.clone(), arg_anns.clone())].clone();
         // `MakeIterable$$_boolean` → `$$_boolean`; the same suffix
@@ -135,7 +193,7 @@ pub(crate) fn monomorphize_and_check(c: &mut Checker, ast: &Ast) -> MonoOutput {
             .zip(arg_anns.iter().cloned())
             .collect();
         let (new_params, new_return_type, new_body, id_map) =
-            clone_spec_body(&mut owned_ast, params, return_type, body, &subst);
+            clone_spec_body(owned_ast, params, return_type, body, &subst);
         // Type-level signature for the checker: substitute the
         // ORIGINAL generic signature's typevars with the inferred
         // type args and register under the mono name so
@@ -201,12 +259,12 @@ pub(crate) fn monomorphize_and_check(c: &mut Checker, ast: &Ast) -> MonoOutput {
         // generic calls for the seed pass below.
         let closure_rename = crate::check_monomorph_closures::clone_spec_closures(
             c,
-            &mut owned_ast,
+            owned_ast,
             &spec_suffix,
             &id_map,
             &subst,
         );
-        c.check_stmt(&owned_ast, &spec_decl);
+        c.check_stmt(owned_ast, &spec_decl);
         c.errors.truncate(saved_error_count);
         let inner_sites = std::mem::replace(&mut c.generic_call_sites, saved_sites);
         let inner_pads = std::mem::replace(&mut c.arity_pad_count, saved_pads);
@@ -220,13 +278,13 @@ pub(crate) fn monomorphize_and_check(c: &mut Checker, ast: &Ast) -> MonoOutput {
         // the arg (a bare Ident) sees neither.
         let param_env: HashMap<String, String> = spec_params_env(&spec_decl);
         seed_records(
-            &owned_ast,
+            owned_ast,
             &inner,
-            &generics,
+            generics,
             &param_env,
-            &mut cache,
-            &mut worklist,
-            &mut call_retargets,
+            cache,
+            worklist,
+            call_retargets,
         );
         c.generic_call_sites.extend(inner_sites);
         c.arity_pad_count.extend(inner_pads);
@@ -238,18 +296,6 @@ pub(crate) fn monomorphize_and_check(c: &mut Checker, ast: &Ast) -> MonoOutput {
         // (mono_decls append behind everything).
         generic_fn_names.extend(closure_rename.keys().cloned());
         mono_decls.push(spec_decl);
-    }
-    owned_ast.stmts.extend(mono_decls);
-    // Blade 3 — the checker's per-group lane verdicts (top-level ones
-    // from the main pipeline, specialization ones from the body checks
-    // above) ride to the lowerer on the AST it already reads.
-    owned_ast.iter_destr_srcs = std::mem::take(&mut c.iter_destr_srcs);
-    owned_ast.undeclared_reads = std::mem::take(&mut c.undeclared_reads);
-    prune_unresolved_captures(c, &mut owned_ast);
-    MonoOutput {
-        mono_ast: owned_ast,
-        call_retargets,
-        generic_fn_names,
     }
 }
 
@@ -295,7 +341,7 @@ fn prune_unresolved_captures(c: &mut Checker, owned_ast: &mut Ast) {
 /// fresh ExprIds so the specialization's own check picks each group's
 /// lane; it can differ per instantiation (the same `const [a, b] = xs`
 /// destructures an array in one and a generator in the next).
-fn clone_spec_body(
+pub(crate) fn clone_spec_body(
     owned_ast: &mut Ast,
     params: &[Param],
     return_type: &Option<String>,
@@ -338,7 +384,7 @@ fn clone_spec_body(
 /// shared cache (queueing the instantiation on first sight — the
 /// early reservation breaks recursion cycles), and retarget the
 /// call's ExprId.
-fn seed_records(
+pub(crate) fn seed_records(
     owned_ast: &Ast,
     records: &[(ExprId, (String, Vec<Type>))],
     generics: &Generics,
@@ -373,7 +419,7 @@ fn seed_records(
 /// The (param name → substituted ann) environment of one emitted
 /// specialization — the seed pass hands it to the width/closure-shape
 /// classifiers so param-passthrough args keep their lane.
-fn spec_params_env(spec_decl: &Stmt) -> HashMap<String, String> {
+pub(crate) fn spec_params_env(spec_decl: &Stmt) -> HashMap<String, String> {
     let Stmt::FnDecl { params, .. } = spec_decl else {
         return HashMap::new();
     };

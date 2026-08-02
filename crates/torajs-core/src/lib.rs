@@ -44,6 +44,7 @@ pub(crate) mod check_hoist_closure_lets;
 pub(crate) mod check_js_semantics;
 pub(crate) mod check_method_name;
 pub(crate) mod check_monomorph;
+pub(crate) mod check_monomorph_any_widen;
 pub(crate) mod check_monomorph_closures;
 pub(crate) mod check_pipeline;
 pub(crate) mod check_resolve_class_ref;

@@ -201,6 +201,7 @@ impl Checker {
             any_promoted_inits: std::collections::HashSet::new(),
             generic_type_params: HashMap::new(),
             generic_call_sites: HashMap::new(),
+            any_widen_mono_sites: HashMap::new(),
             arity_pad_count: HashMap::new(),
             generic_alias_decls: HashMap::new(),
             fn_defaults: HashMap::new(),
@@ -309,6 +310,15 @@ pub(crate) struct Checker {
     /// at each generic call site to pick / generate the right specialized
     /// fn. Public via `pub fn check_with_generics` below.
     pub generic_call_sites: HashMap<ExprId, (String, Vec<Type>)>,
+    /// RFC 20260802-any-arg-typed-param-mono — call sites whose
+    /// `Array(Any)` argument was admitted against a typed `Array(T)`
+    /// param of a plain-Ident user FnDecl. Keyed by the Call ExprId;
+    /// value is `(callee_name, widened param indexes)`. Every entry
+    /// MUST be retargeted by `check_monomorph_any_widen` to a clone
+    /// whose params are widened to `any[]` — an admitted-but-not-
+    /// retargeted site would hand a NaN-boxed Arr<Any> block to a
+    /// typed slot reader (silent wrong values).
+    pub any_widen_mono_sites: HashMap<ExprId, (String, Vec<usize>)>,
     /// T-28 — per-Call-site count of trailing args to pad with
     /// ANY_UNDEF. Set when caller passes fewer args than the callee's
     /// param count AND the trailing missing params are all Type::Any

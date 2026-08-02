@@ -120,6 +120,7 @@ pub(crate) fn general_call(
         if !arg_admitted(
             checker,
             ast,
+            eid,
             callee,
             is_class_method,
             i,
@@ -207,8 +208,9 @@ fn apply_arity_narrow_wedges(
 /// grown the loop body past the 200-line fn limit).
 #[allow(clippy::too_many_arguments)]
 fn arg_admitted(
-    checker: &Checker,
+    checker: &mut Checker,
     ast: &Ast,
+    eid: ExprId,
     callee: &ExprId,
     is_class_method: bool,
     i: usize,
@@ -268,6 +270,36 @@ fn arg_admitted(
     {
         return true;
     }
+    // RFC 20260802-any-arg-typed-param-mono — the REVERSE direction:
+    // an `Array(Any)` arg into a typed `Array(T)` param is TS any-
+    // assignability (`var seq = []; seq.push(1); f(seq)` against
+    // `f(xs: number[])`). Admission is monomorph-backed: the site is
+    // recorded and `check_monomorph_any_widen` retargets it to a
+    // callee clone whose param is widened to `any[]`, so a typed
+    // reader never sees the NaN-boxed block. Gated to plain-Ident
+    // non-generic non-generator user FnDecls without rest params —
+    // the only shape the clone+retarget lane handles; everything
+    // else stays loud.
+    if matches!(param_ty, Type::Array(el) if !matches!(**el, Type::Any))
+        && matches!(arg_ty, Type::Array(el) if matches!(**el, Type::Any))
+        && let crate::ast::Expr::Ident(n) = ast.get_expr(*callee)
+        && !checker.closure_fn_names.contains(n)
+        && checker
+            .generic_type_params
+            .get(n)
+            .is_none_or(|tp| tp.is_empty())
+        && widenable_fn_decl(ast, n, i)
+    {
+        let name = n.clone();
+        let entry = checker
+            .any_widen_mono_sites
+            .entry(eid)
+            .or_insert_with(|| (name, Vec::new()));
+        if !entry.1.contains(&i) {
+            entry.1.push(i);
+        }
+        return true;
+    }
     // Chunk 641 — an empty `[]` literal argument has no element
     // to infer from and types Array(Any); any Array(T) param
     // admits it contextually (`take([])`, `new N([])` — bun
@@ -313,4 +345,22 @@ fn arg_admitted(
     // lattice the let-decl lane uses. See
     // [`crate::check_type_of_call_struct_field_covariance`].
     crate::check_type_of_call_struct_field_covariance::matches(checker, param_ty, arg_ty)
+}
+
+/// RFC 20260802 gate — can the any-widen lane clone this callee with
+/// param `i` widened? Requires a top-level non-generic non-generator
+/// FnDecl that is not a lifted closure (`__env` first param), has no
+/// rest param (the rest stretch remaps arg indexes past the real
+/// param list, so an override index would land on the wrong slot),
+/// and declares param `i` (T-28 pad / arity wedges can shift counts).
+fn widenable_fn_decl(ast: &Ast, name: &str, i: usize) -> bool {
+    ast.stmts.iter().any(|s| {
+        matches!(s, crate::ast::Stmt::FnDecl { name: n, type_params, is_generator, params, .. }
+            if n == name
+                && type_params.is_empty()
+                && !*is_generator
+                && params.first().is_none_or(|p| p.name != "__env")
+                && params.iter().all(|p| !p.is_rest)
+                && i < params.len())
+    })
 }
