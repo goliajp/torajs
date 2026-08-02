@@ -40,26 +40,19 @@
 //! registered follow-up, not part of this pass).
 //!
 //! Guarded faces:
-//! - Only `any` / unannotated params convert. A TYPED expression
-//!   default (`y: number = x`) keeps today's loud reject — its slot
-//!   cannot carry the undefined box the pad would send.
-//! - Literal defaults (`b = 5`) keep the call-site pad unchanged.
+//! - Only `any` / unannotated params convert. A TYPED default
+//!   (`y: number = x` or `b: number = 5`) keeps today's behavior —
+//!   its slot cannot carry the undefined box the pad would send.
+//! - Literal defaults (`b = 5`) on unannotated params ALSO convert:
+//!   §10.2.1.4 fires a default on an explicit `undefined` argument,
+//!   which only a callee-side guard can observe (the pad fills
+//!   missing positions only). See [`converting_default`].
 //! - Guards go at the very head of the body — BEFORE a destructured
 //!   param's unpack prefix, which is what §9.2's ordering wants
 //!   (the synthetic `__param_destr_N` materializes its default
 //!   before the unpack lets read it).
 
 use super::{Ast, BinOp, Expr, ExprId, Stmt};
-
-/// A default the call-site pad can carry verbatim: a scope-free
-/// literal. Everything else references the callee's environment and
-/// must materialize in the body.
-fn is_pad_safe_literal(ast: &Ast, d: ExprId) -> bool {
-    matches!(
-        ast.get_expr(d),
-        Expr::Number(_) | Expr::String(_) | Expr::Bool(_) | Expr::Null
-    ) || matches!(ast.get_expr(d), Expr::Ident(n) if n == "undefined")
-}
 
 /// Whether the default is safe to evaluate inside the callee body —
 /// a recursive WHITELIST over expression shapes. A CAPTURING
@@ -133,12 +126,29 @@ fn build_default_guard(ast: &mut Ast, name: &str, d: ExprId) -> Stmt {
     }
 }
 
-/// Shared per-param conversion gate: an expression default that the
-/// pad cannot carry (not a scope-free literal), is body-safe, and
-/// sits on an `any` / unannotated param.
+/// Shared per-param conversion gate: a body-safe default on an
+/// `any` / unannotated param. Literal defaults convert too —
+/// §10.2.1.4 fires a default on an EXPLICIT `undefined` argument,
+/// which the call-site pad can never see (it only fills MISSING
+/// positions), so the IsUndefined test must live in the callee as a
+/// guard. Two exclusions:
+/// - `__yield_arg`: the generator desugar's resume slot keeps its
+///   shape-uniform `Number(0)` default across lanes — converting
+///   only the any-lane copy desyncs `merge_method_defaults`'
+///   `same_literal` check and evicts "next" from the pad table
+///   (every `it.next()` then binds the implicit fill: silent
+///   wrong, the rotation-275 ref-prior failure shape).
+/// - the `undefined` literal: it is this pass's own pad value — a
+///   guard assigning `undefined` on undefined is a no-op.
 fn converting_default(ast: &Ast, p: &super::Param, global_fns: &[String]) -> Option<ExprId> {
     let d = p.default?;
-    if is_pad_safe_literal(ast, d) || !body_safe_default(ast, d, global_fns) {
+    if p.name == "__yield_arg" {
+        return None;
+    }
+    if matches!(ast.get_expr(d), Expr::Ident(n) if n == "undefined") {
+        return None;
+    }
+    if !body_safe_default(ast, d, global_fns) {
         return None;
     }
     let ann_ok = p.type_ann.as_deref().is_none_or(|a| a.trim() == "any");
