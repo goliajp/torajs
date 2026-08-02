@@ -230,12 +230,17 @@ pub(crate) unsafe fn struct_method(
                 // `__proto_<C>` under its runtime key, which no static
                 // table above can answer. A callable hit invokes with
                 // the instance bound as `this` (the pair is a borrow —
-                // the prototype entry keeps the stake); a chain miss
-                // keeps the ordinary fallback below.
+                // the prototype entry keeps the stake). A reified
+                // BUILTIN cell (`__proto_Error`'s `toString`) falls
+                // through instead: its boxed dual entry is the
+                // bare-receiver throw, and the ordinary fallback below
+                // re-routes it through the mid dispatcher with the
+                // receiver bound. A chain miss keeps the fallback too.
                 let (ptag, pval) =
                     crate::struct_error_msg::struct_proto_chain_pair(obj, name_str.cast());
                 if ptag == 4
                     && let Some((env, entry)) = closure_cell_entry(pval as *mut c_void)
+                    && crate::method_value::builtin_method_mid(env).is_none()
                 {
                     let recv = crate::nanbox_encode::__torajs_anyv_box_from_pair(4, obj as i64);
                     return crate::method_call::invoke_with_this(env, entry, recv, argv, argc);
