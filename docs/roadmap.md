@@ -1530,7 +1530,29 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 9215301c`, never as a constant.
 
-**Latest @ `887e6422`** (2026-08-02, rotation 281 — five early-error
+**Latest @ `f76e0d15`** (2026-08-02, rotation 283 — five substrate
+knives: reassigned non-Copy params copy in an owned stake (the
+default-param guard's compile-time `moved` clear over-released the
+caller's borrow — root cause of the seven r282 gen dstr-default pass
+regressions, all recovered; e1f1b319's cell resize was only the
+size-class shift that made the stale IteratorClose write land on a
+live cell); zero-arg `Function()` / `new Function()` answer an empty
+function; typevar inference joins Array(Any) with typed arrays
+structurally (149-case dstr-rest cluster); generator-lifted
+destructure temps ride the any lane instead of the "number" lift
+fallback (366-case for-await-of dstr cluster); nested-fn hoisting
+runs to a fixpoint (120-case async-`$DONE` cluster): sweep passTotal
+24800 → **25224 (+424)** / bug 11676 → 11798 (+122) / trAccepted
++546 / incompatible 16698 → **16152 (−546)**, conservation exact
+(546 = 424 + 122); gate predicate **351 clusters / 9245 cases**
+(−15 / −515, both axes down); regressions: **zero semantic** (the
+single pass→timeout flip, `new Array(4294967295)`, re-runs clean
+solo — load-state flake). Interim rotation-282 sweep @ `e34a7fa9`
+(struct-dynamic-props blades 1-3 + computed class fields) had moved
+passTotal 24725 → 24800 / incompat −148 and was not recorded here —
+folded into this entry's baseline.
+
+**Previous @ `887e6422`** (2026-08-02, rotation 281 — five early-error
 knives closing the rotation-280 regression ledger plus the whole
 await-context face: yield as an assignment/update target rejects
 (§13.15.1 — `(yield) = v`, `(yield)++`, `++(yield)`, dstr slots);

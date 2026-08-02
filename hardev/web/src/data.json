@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-02T10:34:18.553Z",
+  "generatedAt": "2026-08-02T12:36:23.041Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-02T10:21:28Z",
-    "headSha": "e34a7fa9",
-    "elapsedSec": 405.14,
+    "ranAt": "2026-08-02T12:33:27Z",
+    "headSha": "f76e0d15",
+    "elapsedSec": 449.95,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 20332,
-    "passNoOracle": 551,
+    "pass": 20749,
+    "passNoOracle": 558,
     "passNegative": 3917,
-    "passTotal": 24800,
-    "bug": 11676,
-    "incompatible": 16698,
+    "passTotal": 25224,
+    "bug": 11798,
+    "incompatible": 16152,
     "bunSkip": 7467,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 36476,
-    "passRateInScope": 46.64,
-    "passRateTrAccepted": 67.99
+    "trAccepted": 37022,
+    "passRateInScope": 47.44,
+    "passRateTrAccepted": 68.13
   },
   "torajs": {
-    "commit": "e34a7fa9",
-    "commitSubject": "feat(core): runtime-computed class fields — instance and static",
+    "commit": "f76e0d15",
+    "commitSubject": "fix(core): nested-fn hoisting runs to a fixpoint",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,38 @@
   },
   "commits": [
     {
+      "hash": "f76e0d15",
+      "subject": "fix(core): nested-fn hoisting runs to a fixpoint"
+    },
+    {
+      "hash": "9e2215aa",
+      "subject": "fix(core): generator-lifted destructure temps ride the any lane"
+    },
+    {
+      "hash": "1c83d1e7",
+      "subject": "fix(core): typevar inference joins Array(Any) with typed arrays structurally"
+    },
+    {
+      "hash": "02c7b24e",
+      "subject": "feat(core): zero-arg Function() and new Function() answer an empty function"
+    },
+    {
+      "hash": "9bbd7620",
+      "subject": "fix(core): reassigned non-copy params copy in an owned stake"
+    },
+    {
+      "hash": "2f180a4e",
+      "subject": "chore(hardev): test262 sweep artifacts at e34a7fa9"
+    },
+    {
+      "hash": "adba91ef",
+      "subject": "chore(docs,hardev): rotation 282 final census at 91c44b60"
+    },
+    {
+      "hash": "91c44b60",
+      "subject": "refactor(core): computed-field parse tail moves to its own parser sibling"
+    },
+    {
       "hash": "e34a7fa9",
       "subject": "feat(core): runtime-computed class fields — instance and static"
     },
@@ -727,59 +759,38 @@
     {
       "hash": "bc783e94",
       "subject": "fix(core): struct-literal fields take a real share of borrowed and As-wrapped sources"
-    },
-    {
-      "hash": "fdd7663f",
-      "subject": "style: fmt-drift fix for blade-1 touched files"
-    },
-    {
-      "hash": "e1f1b319",
-      "subject": "feat(core,runtime): struct cells grow a lazily-allocated props slot at +24"
-    },
-    {
-      "hash": "ffec3dff",
-      "subject": "fix(core): json-parse and fromentries structs get a real anon class tag and null vtable"
-    },
-    {
-      "hash": "deffde3f",
-      "subject": "chore(docs,hardev): rotation 281 final census at 887e6422"
-    },
-    {
-      "hash": "887e6422",
-      "subject": "feat(core): await is an early error outside async bodies and the module top level"
-    },
-    {
-      "hash": "73fffad9",
-      "subject": "feat(core): loud reject for using declarations plus two dstr-assign early errors"
-    },
-    {
-      "hash": "e328aff6",
-      "subject": "feat(core): yield and await are early errors inside formal parameter lists"
-    },
-    {
-      "hash": "2d3342bd",
-      "subject": "feat(core): accessor arity early errors — getter takes none, setter exactly one"
     }
   ],
-  "headSha": "e34a7fa9",
+  "headSha": "f76e0d15",
   "autorun": {
-    "total": 586,
+    "total": 587,
     "baselineTarget": 10,
-    "bySelf": 581,
+    "bySelf": 582,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785657938-4b5b",
-      "at": "2026-08-02T08:05:38Z",
-      "ts": 1785657938,
+      "rotationId": "r-1785667352-44a9",
+      "at": "2026-08-02T10:42:32Z",
+      "ts": 1785667352,
       "trigger": "self",
-      "prevHead": "deffde3f",
-      "handoffSha": "sha256:afbcfa80b1118553a7376e38bf15b1753c11387c9eabfc4fecca44cf35e156dd",
-      "handoffAgeSec": 27,
+      "prevHead": "2f180a4e",
+      "handoffSha": "sha256:6047d579ed112426080c8c7c0647998ab1e7e6b5ad0e43e0e15efce0555ac16a",
+      "handoffAgeSec": 34,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1785667352-44a9",
+        "at": "2026-08-02T10:42:32Z",
+        "ts": 1785667352,
+        "trigger": "self",
+        "prevHead": "2f180a4e",
+        "handoffSha": "sha256:6047d579ed112426080c8c7c0647998ab1e7e6b5ad0e43e0e15efce0555ac16a",
+        "handoffAgeSec": 34,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785657938-4b5b",
         "at": "2026-08-02T08:05:38Z",
@@ -876,17 +887,6 @@
         "prevHead": "f1a55bc1",
         "handoffSha": "sha256:e7616764242a4cd24cdc0d96451eb959881932352e0f134b849cd64ef8d768bf",
         "handoffAgeSec": 39,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1785587899-3359",
-        "at": "2026-08-01T12:38:19Z",
-        "ts": 1785587899,
-        "trigger": "self",
-        "prevHead": "f06d5f95",
-        "handoffSha": "sha256:00a95d130f8c2520094548b8afcba86ac430b096046e5e0b33254455129a9b90",
-        "handoffAgeSec": 8,
         "conformanceBefore": null,
         "commitsInSession": null
       }
