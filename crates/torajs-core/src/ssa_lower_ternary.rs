@@ -175,7 +175,16 @@ fn widen_branches(
     // layout being read by the other's (probe: `(!t ? [1, 2] :
     // anyArr)[0]` answered the slot's NaN-box bits as a number).
     let arr_join = matches!(tt, Type::Arr(_)) && matches!(et, Type::Arr(_)) && tt != et;
-    if (struct_join || arr_join || then_undef != else_undef) && tt != Type::Any && et != Type::Any {
+    // rotation 284 — one branch an array, the other a class instance
+    // (the dstr default-guard `Array(Any)` × generator ClassRef join
+    // the checker widened to Any): same both-sides box, so the
+    // consumer's any lanes see tagged values whichever branch runs.
+    let heap_mixed_join = (matches!(tt, Type::Arr(_)) && matches!(et, Type::Obj(_)))
+        || (matches!(tt, Type::Obj(_)) && matches!(et, Type::Arr(_)));
+    if (struct_join || arr_join || heap_mixed_join || then_undef != else_undef)
+        && tt != Type::Any
+        && et != Type::Any
+    {
         ctx.cur_block = then_end;
         if tt.is_refcounted() && !ctx.expr_transfers_ownership(then_branch) {
             ctx.emit_rc_inc(then_val.clone());

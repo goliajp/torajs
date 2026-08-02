@@ -90,6 +90,17 @@ pub(crate) fn unify_ternary(t: &Type, e: &Type) -> Option<Type> {
         {
             Some(Type::Any)
         }
+        // rotation 284 — an `Array(Any)` branch against a class
+        // instance joins to ANY, same posture. The dstr default
+        // guard mints this shape (`const [[,] = g()] = [[]]`: the
+        // source element types Array(Any), the default a generator
+        // ClassRef); both sides box and the downstream destructure
+        // walks the any iterator protocol.
+        (Type::Array(el), Type::ClassRef(_)) | (Type::ClassRef(_), Type::Array(el))
+            if matches!(**el, Type::Any) =>
+        {
+            Some(Type::Any)
+        }
         (Type::Null, other) | (other, Type::Null) => Some(Type::Nullable(Box::new(other.clone()))),
         (Type::Nullable(inner), other) | (other, Type::Nullable(inner)) => {
             if inner.as_ref() == other {
