@@ -62,6 +62,28 @@ pub(crate) fn try_lower(
     );
     let obj_op = Operand::Value(obj_ptr);
     ctx.emit_obj_header_init(obj_op.clone());
+    // `obj_alloc` is plain malloc — class_tag and vtable_ptr MUST be
+    // stored explicitly (a garbage class_tag can alias a real class id
+    // and hand the drop/cycle walkers the wrong ClassLayout). The
+    // built struct is anonymous; the anon-stamp pool assigns a
+    // registered tag so layout-driven walkers release the fields.
+    let anon_tag = ctx.anon_stamp_pool.borrow_mut().assign_or_get(sid);
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Store(
+            Operand::ConstI64(anon_tag as i64),
+            obj_op.clone(),
+            crate::ssa_lower::OBJ_CLASS_TAG_OFF,
+        ),
+    );
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Store(
+            Operand::ConstPtrNull,
+            obj_op.clone(),
+            crate::ssa_lower::OBJ_VTABLE_OFF,
+        ),
+    );
     let entries_data = ctx.emit_arr_data_ptr(entries_op.clone());
     for (idx, (_fname, fty)) in layout.iter().enumerate() {
         let inner_off = (idx as u64) * 8;

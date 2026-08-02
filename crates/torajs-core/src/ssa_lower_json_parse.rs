@@ -222,9 +222,13 @@ impl LowerCtx<'_> {
                 ),
             );
             // alloc object — same shape as obj literal lowering:
-            // header (24 B) + N fields × 8 B; class_tag = 0
-            // (parsed objects are anonymous structs, not class
-            // instances), vtable_ptr = null.
+            // header + N fields × 8 B. `obj_alloc` is plain malloc,
+            // so class_tag and vtable_ptr MUST be stored explicitly:
+            // a garbage class_tag can alias a real class id and hand
+            // the drop/cycle walkers the wrong ClassLayout. Parsed
+            // objects are anonymous structs — the anon-stamp pool
+            // assigns a registered tag so the layout-driven walkers
+            // release the parsed fields.
             let total_size = OBJ_HEADER_SIZE + (layout.len() as u64) * 8;
             let obj_ptr_v = self.f.append_inst(
                 self.cur_block,
@@ -236,6 +240,23 @@ impl LowerCtx<'_> {
                 None,
             );
             self.emit_obj_header_init(Operand::Value(obj_ptr_v));
+            let anon_tag = self.anon_stamp_pool.borrow_mut().assign_or_get(sid);
+            self.f.append_void(
+                self.cur_block,
+                InstKind::Store(
+                    Operand::ConstI64(anon_tag as i64),
+                    Operand::Value(obj_ptr_v),
+                    crate::ssa_lower::OBJ_CLASS_TAG_OFF,
+                ),
+            );
+            self.f.append_void(
+                self.cur_block,
+                InstKind::Store(
+                    Operand::ConstPtrNull,
+                    Operand::Value(obj_ptr_v),
+                    crate::ssa_lower::OBJ_VTABLE_OFF,
+                ),
+            );
             let obj_ptr = Operand::Value(obj_ptr_v);
             // arr_first('{', '}') — handle empty object.
             let first = self.f.append_inst(
