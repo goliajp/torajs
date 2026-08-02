@@ -35,6 +35,18 @@ use super::{Ast, Expr, ExprId, Stmt};
 /// this ("Iterator is closed following abrupt completion").
 pub(super) const RESUME_LOCAL: &str = "__gen_st";
 
+/// Label on the dispatch `while (true)` loop. Every goto is a
+/// `continue __sm;` so it re-enters the dispatch from ANY nesting
+/// depth — a bare `continue` inside an inline-emitted (yield-free)
+/// inner loop would bind to that loop instead, which is why the
+/// finally gate walker used to reject returns inside inner loops.
+/// The labeled form is also immune to reinterpretation: neither the
+/// SM Continue arm nor the outer-jump rewriter can resolve `__sm`
+/// (it never names a yield-loop on the stack), so a routed goto
+/// passes through both untouched. `__`-prefixed like every other
+/// desugar-reserved name.
+pub(super) const DISPATCH_LABEL: &str = "__sm";
+
 /// State-machine emitter for generator bodies. Each state's body is
 /// accumulated into `cur_buf` and flushed into `arms[cur_state]` when
 /// the state ends (via yield, goto, or descent into a nested state).
@@ -153,7 +165,8 @@ impl<'a> GenSm<'a> {
 
     /// A goto is a transition WITHIN one `next()` call, so it moves the
     /// local resume cursor, not the persisted field — see
-    /// [`RESUME_LOCAL`].
+    /// [`RESUME_LOCAL`]. The continue names the dispatch loop's label
+    /// so it reaches it from any nesting depth ([`DISPATCH_LABEL`]).
     pub(super) fn emit_goto(&mut self, target: usize) -> Vec<Stmt> {
         let st = self.ast.add_expr(Expr::Ident(RESUME_LOCAL.into()));
         let lit = self.ast.add_expr(Expr::Number(target as f64));
@@ -161,7 +174,10 @@ impl<'a> GenSm<'a> {
             target: st,
             value: lit,
         });
-        vec![Stmt::Expr(assign), Stmt::Continue(None)]
+        vec![
+            Stmt::Expr(assign),
+            Stmt::Continue(Some(DISPATCH_LABEL.into())),
+        ]
     }
 
     fn emit_yield_return(&mut self, val: ExprId, next: usize) -> Vec<Stmt> {

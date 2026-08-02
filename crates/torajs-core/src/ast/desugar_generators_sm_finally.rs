@@ -7,7 +7,7 @@
 //! gotos), and the conservative gate walker. The catch-region arm,
 //! dispatch wrap, and throw-injection stay in the `_sm_try` sibling.
 
-use super::desugar_generators_sm::{GenSm, RESUME_LOCAL};
+use super::desugar_generators_sm::{DISPATCH_LABEL, GenSm, RESUME_LOCAL};
 use super::desugar_generators_sm_rewrite::stmt_contains_yield;
 use super::desugar_generators_sm_try::TryRegion;
 use super::{Expr, Stmt};
@@ -48,11 +48,11 @@ impl GenSm<'_> {
 
     /// Shared builder for the arm-level route above and the inline
     /// rewrite in `rewrite_nested_returns`: `[this.<slot> = val;
-    /// __gen_st = <placeholder>; continue;]`. The placeholder literal
-    /// is recorded on the innermost frame for the patch. Inline
-    /// callers are continue-safe by construction — the finally gate
-    /// walker falls back on any return sitting inside an inner loop,
-    /// where a bare `continue` would bind wrong.
+    /// __gen_st = <placeholder>; continue __sm;]`. The placeholder
+    /// literal is recorded on the innermost frame for the patch. The
+    /// labeled continue reaches the dispatch from any nesting depth,
+    /// so a return inside an inline inner loop routes correctly
+    /// ([`DISPATCH_LABEL`]).
     pub(super) fn build_finally_ret_stmts(&mut self, val: super::ExprId) -> Vec<Stmt> {
         let frame = self.finally_ret.last().expect("caller checked");
         let slot = frame.slot.clone();
@@ -79,7 +79,7 @@ impl GenSm<'_> {
         vec![
             Stmt::Expr(store),
             Stmt::Expr(goto_assign),
-            Stmt::Continue(None),
+            Stmt::Continue(Some(DISPATCH_LABEL.into())),
         ]
     }
 
@@ -112,7 +112,10 @@ impl GenSm<'_> {
         } else {
             frame.cont_gotos.push(placeholder);
         }
-        vec![Stmt::Expr(goto_assign), Stmt::Continue(None)]
+        vec![
+            Stmt::Expr(goto_assign),
+            Stmt::Continue(Some(DISPATCH_LABEL.into())),
+        ]
     }
 
     /// D4 — mint one F copy per escaping-jump kind. The terminal
@@ -253,51 +256,40 @@ impl GenSm<'_> {
 
 /// D1 gate — true when `stmts` contain something the finally-region
 /// lowering can't route: a labeled jump (could escape the try at any
-/// depth), a bare jump on a switch surface (a bare `break` there is
+/// depth — a per-label F-copy scheme is the registered upgrade), or
+/// a bare jump on a switch surface (a bare `break` there is
 /// switch-owned, not loop-owned — distinguishing them isn't worth
-/// the precision, fallback keeps today's shape), or — since both the
-/// D3a return routing and the D4 jump routing rewrite into a bare
-/// `continue` back to the dispatch — a `return` sitting inside an
-/// inner loop, where that continue would bind wrong. Bare escaping
-/// jumps at other depths route through the D4 finally copies;
-/// returns at continue-safe depths route through the D3a copy;
-/// returns IN the finally body itself (`allow_return`) legitimately
-/// override the completion.
-pub(super) fn stmts_block_finally_region(stmts: &[Stmt], allow_return: bool) -> bool {
-    fn walk(s: &Stmt, allow_return: bool, in_loop: bool, in_switch: bool) -> bool {
+/// the precision, fallback keeps today's shape). Returns route at
+/// ANY depth since the dispatch loop grew its label: the D3a goto is
+/// a `continue __sm;`, which binds correctly even from inside an
+/// inline inner loop ([`DISPATCH_LABEL`]). Bare escaping jumps route
+/// through the D4 finally copies.
+pub(super) fn stmts_block_finally_region(stmts: &[Stmt]) -> bool {
+    fn walk(s: &Stmt, in_switch: bool) -> bool {
         match s {
-            Stmt::Return(_) => !allow_return && in_loop,
             Stmt::Break(l) | Stmt::Continue(l) => l.is_some() || in_switch,
-            Stmt::Block(ss) | Stmt::Multi(ss) => {
-                ss.iter().any(|x| walk(x, allow_return, in_loop, in_switch))
-            }
+            Stmt::Block(ss) | Stmt::Multi(ss) => ss.iter().any(|x| walk(x, in_switch)),
             Stmt::If {
                 then_branch,
                 else_branch,
                 ..
             } => {
-                walk(then_branch, allow_return, in_loop, in_switch)
-                    || else_branch
-                        .as_deref()
-                        .is_some_and(|e| walk(e, allow_return, in_loop, in_switch))
+                walk(then_branch, in_switch)
+                    || else_branch.as_deref().is_some_and(|e| walk(e, in_switch))
             }
-            Stmt::Labeled { body, .. } => walk(body, allow_return, in_loop, in_switch),
+            Stmt::Labeled { body, .. } => walk(body, in_switch),
             Stmt::While { body, .. }
             | Stmt::DoWhile { body, .. }
             | Stmt::ForOf { body, .. }
-            | Stmt::ForOfSplitIter { body, .. } => walk(body, allow_return, true, false),
+            | Stmt::ForOfSplitIter { body, .. } => walk(body, false),
             Stmt::For { init, body, .. } => {
-                init.as_deref()
-                    .is_some_and(|i| walk(i, allow_return, in_loop, in_switch))
-                    || walk(body, allow_return, true, false)
+                init.as_deref().is_some_and(|i| walk(i, in_switch)) || walk(body, false)
             }
             Stmt::Switch { cases, default, .. } => {
-                cases
-                    .iter()
-                    .any(|c| c.body.iter().any(|x| walk(x, allow_return, in_loop, true)))
+                cases.iter().any(|c| c.body.iter().any(|x| walk(x, true)))
                     || default
                         .as_ref()
-                        .is_some_and(|d| d.iter().any(|x| walk(x, allow_return, in_loop, true)))
+                        .is_some_and(|d| d.iter().any(|x| walk(x, true)))
             }
             Stmt::Try {
                 body,
@@ -308,9 +300,9 @@ pub(super) fn stmts_block_finally_region(stmts: &[Stmt], allow_return: bool) -> 
                 .iter()
                 .chain(catch_body.iter())
                 .chain(finally_body.iter().flatten())
-                .any(|x| walk(x, allow_return, in_loop, in_switch)),
+                .any(|x| walk(x, in_switch)),
             _ => false,
         }
     }
-    stmts.iter().any(|s| walk(s, allow_return, false, false))
+    stmts.iter().any(|s| walk(s, false))
 }

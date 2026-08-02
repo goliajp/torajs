@@ -145,9 +145,15 @@ pub(super) fn build_state_machine_next_body(
     });
     let mut body = vec![seed_local, Stmt::Expr(kill)];
     body.extend(inject_prologue);
-    body.push(Stmt::While {
-        cond: true_lit,
-        body: Box::new(Stmt::Block(loop_body)),
+    // The dispatch loop carries the goto label: every SM goto is a
+    // `continue __sm;`, which reaches the dispatch from any nesting
+    // depth (see `desugar_generators_sm::DISPATCH_LABEL`).
+    body.push(Stmt::Labeled {
+        label: super::desugar_generators_sm::DISPATCH_LABEL.into(),
+        body: Box::new(Stmt::While {
+            cond: true_lit,
+            body: Box::new(Stmt::Block(loop_body)),
+        }),
     });
     body.push(Stmt::Return(Some(final_after)));
     (body, hoisted, has_regions, has_finally_ret)

@@ -3,7 +3,7 @@
 //! break/continue work) to keep that file under the size limit. Both
 //! functions are `pub(super)` and consumed only by [`super::GenSm`].
 
-use super::desugar_generators_sm::RESUME_LOCAL;
+use super::desugar_generators_sm::{DISPATCH_LABEL, RESUME_LOCAL};
 use super::{Ast, Expr, Stmt};
 
 /// Returns true if `s` (or any nested stmt) contains a `yield`. Used
@@ -81,7 +81,10 @@ pub(super) fn rewrite_break_continue_for_outer(
             target: st,
             value: lit,
         });
-        Stmt::Block(vec![Stmt::Expr(assign), Stmt::Continue(None)])
+        Stmt::Block(vec![
+            Stmt::Expr(assign),
+            Stmt::Continue(Some(DISPATCH_LABEL.into())),
+        ])
     }
     /// D4 — the routed variant: goto a placeholder recorded on the
     /// innermost finally frame's per-kind list; the frame's F copy
@@ -104,7 +107,10 @@ pub(super) fn rewrite_break_continue_for_outer(
         } else {
             frame.cont_gotos.push(placeholder);
         }
-        Stmt::Block(vec![Stmt::Expr(assign), Stmt::Continue(None)])
+        Stmt::Block(vec![
+            Stmt::Expr(assign),
+            Stmt::Continue(Some(DISPATCH_LABEL.into())),
+        ])
     }
     // Resolve a bare / labeled jump to a yield-loop state on the stack.
     // Bare → innermost; labeled → the matching enclosing yield-loop.

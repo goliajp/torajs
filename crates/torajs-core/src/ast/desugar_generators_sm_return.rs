@@ -44,10 +44,10 @@ impl GenSm<'_> {
         match s {
             Stmt::Return(v) => {
                 // D3a — under a try/finally frame the return routes
-                // through F's return copy. Inline positions reached
-                // here are continue-safe by construction: the finally
-                // gate walker falls back on any return inside an
-                // inner loop before a frame ever goes live over it.
+                // through F's return copy. The routed goto is a
+                // labeled continue (DISPATCH_LABEL), so it reaches
+                // the dispatch even from inside an inline inner
+                // loop — no depth restriction.
                 if !self.finally_ret.is_empty() {
                     let val = v
                         .take()
