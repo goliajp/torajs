@@ -82,11 +82,11 @@ pub(super) struct GenSm<'a> {
     /// meaning, never enter this stack. `label` is `Some` when the
     /// yield-loop was wrapped in a `Stmt::Labeled`, so `break label` /
     /// `continue label` naming it resolve to its state (ES §13.13).
-    loop_stack: Vec<(usize, usize, Option<String>)>,
+    pub(super) loop_stack: Vec<(usize, usize, Option<String>)>,
     /// Set by the `Stmt::Labeled` arm just before lowering a
     /// yield-bearing labeled loop; the loop's arm `take`s it into its
     /// `loop_stack` entry. `None` outside that hand-off.
-    pending_label: Option<String>,
+    pub(super) pending_label: Option<String>,
     /// P10.7 — the generator's yield type ann. When `"any"`,
     /// `emit_yield_return` wraps the yielded value in `Expr::As { ...,
     /// ty_ann: "any" }` so the step's `value` field write goes through
@@ -138,6 +138,17 @@ impl<'a> GenSm<'a> {
                 .find(|(_, _, lbl)| lbl.as_deref() == Some(l.as_str()))
                 .map(pick),
         }
+    }
+
+    /// Labels of the enclosing yield-bearing loops — the finally
+    /// gate walker's outer-label set (a labeled jump resolving to
+    /// one of these routes through the SM, so it doesn't block a
+    /// finally region).
+    pub(super) fn outer_loop_labels(&self) -> Vec<String> {
+        self.loop_stack
+            .iter()
+            .filter_map(|(_, _, l)| l.clone())
+            .collect()
     }
 
     pub(super) fn flush_cur(&mut self) {
@@ -276,15 +287,7 @@ impl<'a> GenSm<'a> {
                         then_branch,
                         else_branch,
                     };
-                    if !self.loop_stack.is_empty() {
-                        let stack = self.loop_stack.clone();
-                        rewrite_break_continue_for_outer(
-                            self.ast,
-                            &mut s,
-                            &stack,
-                            &mut self.finally_ret,
-                        );
-                    }
+                    self.rewrite_outer_jumps(&mut s);
                     self.rewrite_nested_returns(&mut s);
                     self.cur_buf.push(s);
                     return;
@@ -321,114 +324,20 @@ impl<'a> GenSm<'a> {
 
                 self.cur_state = post;
             }
-            Stmt::While { cond, body } => {
-                if !stmt_contains_yield(&body) {
-                    let mut s = Stmt::While { cond, body };
-                    self.rewrite_nested_returns(&mut s);
-                    self.cur_buf.push(s);
-                    return;
-                }
-                let head = self.alloc_state();
-                let body_entry = self.alloc_state();
-                let post = self.alloc_state();
-
-                let mut to_head = self.emit_goto(head);
-                self.cur_buf.append(&mut to_head);
-                self.flush_cur();
-
-                self.cur_state = head;
-                let then_jump = self.emit_goto(body_entry);
-                let else_jump = self.emit_goto(post);
-                self.cur_buf.push(Stmt::If {
-                    cond,
-                    then_branch: Box::new(Stmt::Block(then_jump)),
-                    else_branch: Some(Box::new(Stmt::Block(else_jump))),
-                });
-                self.flush_cur();
-
-                self.cur_state = body_entry;
-                self.loop_stack
-                    .push((head, post, self.pending_label.take()));
-                self.lower(*body);
-                self.loop_stack.pop();
-                let mut back = self.emit_goto(head);
-                self.cur_buf.append(&mut back);
-                self.flush_cur();
-
-                self.cur_state = post;
-            }
+            Stmt::While { cond, body } => self.lower_while(cond, body),
             Stmt::For {
                 init,
                 cond,
                 step,
                 body,
-            } => {
-                if !stmt_contains_yield(&body) && !init.as_deref().is_some_and(stmt_contains_yield)
-                {
-                    let mut s = Stmt::For {
-                        init,
-                        cond,
-                        step,
-                        body,
-                    };
-                    self.rewrite_nested_returns(&mut s);
-                    self.cur_buf.push(s);
-                    return;
-                }
-                if let Some(i) = init {
-                    self.lower(*i);
-                }
-                let head = self.alloc_state();
-                let body_entry = self.alloc_state();
-                let step_state = self.alloc_state();
-                let post = self.alloc_state();
-
-                let mut to_head = self.emit_goto(head);
-                self.cur_buf.append(&mut to_head);
-                self.flush_cur();
-
-                self.cur_state = head;
-                if let Some(c) = cond {
-                    let then_jump = self.emit_goto(body_entry);
-                    let else_jump = self.emit_goto(post);
-                    self.cur_buf.push(Stmt::If {
-                        cond: c,
-                        then_branch: Box::new(Stmt::Block(then_jump)),
-                        else_branch: Some(Box::new(Stmt::Block(else_jump))),
-                    });
-                } else {
-                    let mut g = self.emit_goto(body_entry);
-                    self.cur_buf.append(&mut g);
-                }
-                self.flush_cur();
-
-                self.cur_state = body_entry;
-                self.loop_stack
-                    .push((step_state, post, self.pending_label.take()));
-                self.lower(*body);
-                self.loop_stack.pop();
-                let mut to_step = self.emit_goto(step_state);
-                self.cur_buf.append(&mut to_step);
-                self.flush_cur();
-
-                self.cur_state = step_state;
-                if let Some(s) = step {
-                    self.cur_buf.push(Stmt::Expr(s));
-                }
-                let mut back = self.emit_goto(head);
-                self.cur_buf.append(&mut back);
-                self.flush_cur();
-
-                self.cur_state = post;
-            }
+            } => self.lower_for(init, cond, step, body),
             Stmt::Continue(label) => {
                 if let Some(cont) = self.sm_loop_target(&label, false) {
-                    // D4 — a bare continue whose loop sits outside an
-                    // enclosing try/finally runs F first (labeled
-                    // jumps never reach here routed: the gate walker
-                    // falls back on any labeled jump).
-                    let mut g = if label.is_none() && self.jump_escapes_finally(cont) {
-                        self.build_finally_jump_stmts(false)
+                    // D4 — a continue (bare or labeled) whose loop
+                    // sits outside an enclosing try/finally runs F
+                    // first via a per-(kind, label) F copy.
+                    let mut g = if self.jump_escapes_finally(cont) {
+                        self.build_finally_jump_stmts(false, label)
                     } else {
                         self.emit_goto(cont)
                     };
@@ -442,8 +351,8 @@ impl<'a> GenSm<'a> {
             }
             Stmt::Break(label) => {
                 if let Some(brk) = self.sm_loop_target(&label, true) {
-                    let mut g = if label.is_none() && self.jump_escapes_finally(brk) {
-                        self.build_finally_jump_stmts(true)
+                    let mut g = if self.jump_escapes_finally(brk) {
+                        self.build_finally_jump_stmts(true, label)
                     } else {
                         self.emit_goto(brk)
                     };
@@ -457,9 +366,22 @@ impl<'a> GenSm<'a> {
             }
             Stmt::Labeled { label, body } => self.lower_labeled(label, body),
             mut other => {
+                self.rewrite_outer_jumps(&mut other);
                 self.rewrite_nested_returns(&mut other);
                 self.cur_buf.push(other);
             }
+        }
+    }
+
+    /// Run the outer-jump rewriter over an inline-emitted stmt when
+    /// any yield-loop is live — a labeled jump inside it (even under
+    /// an inner loop, switch, or verbatim try) that names an
+    /// enclosing yield-loop must become a goto, since the loop it
+    /// targets is state-machined away.
+    pub(super) fn rewrite_outer_jumps(&mut self, s: &mut Stmt) {
+        if !self.loop_stack.is_empty() {
+            let stack = self.loop_stack.clone();
+            rewrite_break_continue_for_outer(self.ast, s, &stack, &mut self.finally_ret);
         }
     }
 
@@ -477,10 +399,7 @@ impl<'a> GenSm<'a> {
             self.pending_label = None;
         } else {
             let mut s = Stmt::Labeled { label, body };
-            if !self.loop_stack.is_empty() {
-                let stack = self.loop_stack.clone();
-                rewrite_break_continue_for_outer(self.ast, &mut s, &stack, &mut self.finally_ret);
-            }
+            self.rewrite_outer_jumps(&mut s);
             self.cur_buf.push(s);
         }
     }

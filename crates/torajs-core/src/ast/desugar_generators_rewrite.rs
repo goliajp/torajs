@@ -144,11 +144,15 @@ fn rewrite_params_in_stmt(
                 }
             }
         }
-        // RFC 20260802 — descend ONLY into yield-bearing trys (the
-        // ones the SM region-lowers); yield-free trys keep today's
-        // untouched inline shape. The catch param shadows any
-        // same-named generator param / lifted local inside the catch
-        // body, so it drops out of the rewrite map there.
+        // RFC 20260802 — descend into EVERY try: a yield-bearing one
+        // gets region-lowered, and even a yield-free try kept inline
+        // still reads generator params / lifted locals through its
+        // body (the same reason inline loops descend — a `this.i`
+        // read doesn't care whether a try wraps it). Its own `let`s
+        // stay plain locals (lift_lets keeps that gate). The catch
+        // param shadows any same-named generator param / lifted
+        // local inside the catch body, so it drops out of the
+        // rewrite map there.
         Stmt::Try {
             body,
             catch_param,
@@ -156,14 +160,6 @@ fn rewrite_params_in_stmt(
             finally_body,
             ..
         } => {
-            let has_yield = body
-                .iter()
-                .chain(catch_body.iter())
-                .chain(finally_body.iter().flatten())
-                .any(super::desugar_generators_sm_rewrite::stmt_contains_yield);
-            if !has_yield {
-                return;
-            }
             for s in body {
                 rewrite_params_in_stmt(ast, s, pset, visited);
             }

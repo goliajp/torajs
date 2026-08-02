@@ -10,25 +10,27 @@
 use super::desugar_generators_sm::{DISPATCH_LABEL, GenSm, RESUME_LOCAL};
 use super::desugar_generators_sm_rewrite::stmt_contains_yield;
 use super::desugar_generators_sm_try::TryRegion;
-use super::{Expr, Stmt};
+use super::{Expr, ExprId, Stmt};
 
 /// D3a — one enclosing try/finally frame. A `return v` under it
 /// stores v into `this.<slot>` and gotos F's return copy; the copy's
 /// state number is unknown until the body finishes lowering, so each
 /// goto's Number literal is recorded here and patched afterwards.
 ///
-/// D4 — a bare `break` / `continue` under it whose target loop sits
-/// OUTSIDE the try (target state < `try_entry` — states are
-/// allocated monotonically, so a loop entered before the try has
-/// smaller states) must run F on the way out too: it gotos a
-/// per-jump-kind F copy whose terminal RE-LOWERS the jump, chaining
-/// outer frames exactly like the return copy.
+/// D4 — a `break` / `continue` under it (bare or labeled) whose
+/// target loop sits OUTSIDE the try (target state < `try_entry` —
+/// states are allocated monotonically, so a loop entered before the
+/// try has smaller states) must run F on the way out too: it gotos
+/// a per-(kind, label) F copy whose terminal RE-LOWERS the jump,
+/// chaining outer frames exactly like the return copy.
 pub(super) struct FinallyRetFrame {
     pub(super) try_entry: usize,
     pub(super) slot: String,
     pub(super) gotos: Vec<super::ExprId>,
-    pub(super) brk_gotos: Vec<super::ExprId>,
-    pub(super) cont_gotos: Vec<super::ExprId>,
+    /// Escaping-jump placeholders keyed by (is_break, label): one F
+    /// copy is minted per distinct key, its terminal re-lowering
+    /// exactly that jump.
+    pub(super) jump_gotos: Vec<((bool, Option<String>), super::ExprId)>,
 }
 
 impl GenSm<'_> {
@@ -94,12 +96,17 @@ impl GenSm<'_> {
             .is_some_and(|f| target < f.try_entry)
     }
 
-    /// D4 — the routed form of a bare `break` / `continue` whose
-    /// target loop sits outside the innermost finally frame:
-    /// `[__gen_st = <placeholder>; continue;]`, recorded on the
-    /// frame's per-kind goto list for the patch. The dual of
-    /// [`Self::build_finally_ret_stmts`] minus the value stash.
-    pub(super) fn build_finally_jump_stmts(&mut self, want_break: bool) -> Vec<Stmt> {
+    /// D4 — the routed form of a `break` / `continue` (bare or
+    /// labeled) whose target loop sits outside the innermost finally
+    /// frame: `[__gen_st = <placeholder>; continue __sm;]`, recorded
+    /// on the frame's (kind, label)-keyed goto list for the patch.
+    /// The dual of [`Self::build_finally_ret_stmts`] minus the value
+    /// stash.
+    pub(super) fn build_finally_jump_stmts(
+        &mut self,
+        want_break: bool,
+        label: Option<String>,
+    ) -> Vec<Stmt> {
         let st = self.ast.add_expr(Expr::Ident(RESUME_LOCAL.into()));
         let placeholder = self.ast.add_expr(Expr::Number(0.0));
         let goto_assign = self.ast.add_expr(Expr::Assign {
@@ -107,34 +114,41 @@ impl GenSm<'_> {
             value: placeholder,
         });
         let frame = self.finally_ret.last_mut().expect("caller checked");
-        if want_break {
-            frame.brk_gotos.push(placeholder);
-        } else {
-            frame.cont_gotos.push(placeholder);
-        }
+        frame.jump_gotos.push(((want_break, label), placeholder));
         vec![
             Stmt::Expr(goto_assign),
             Stmt::Continue(Some(DISPATCH_LABEL.into())),
         ]
     }
 
-    /// D4 — mint one F copy per escaping-jump kind. The terminal
-    /// RE-LOWERS the bare jump with this frame already popped: the
-    /// Break/Continue arm consults the (unchanged) loop stack again
-    /// and either gotos the real target or routes through the next
-    /// enclosing frame — nested finally chains run inside-out for
-    /// free, the D3a return-copy pattern.
-    fn mint_jump_copy(&mut self, f: &[Stmt], gotos: Vec<super::ExprId>, jump: Stmt) {
-        if gotos.is_empty() {
-            return;
+    /// D4 — mint one F copy per distinct (kind, label) the body
+    /// routed. Each copy's terminal RE-LOWERS its jump with this
+    /// frame already popped: the Break/Continue arm consults the
+    /// (unchanged) loop stack again and either gotos the real target
+    /// or routes through the next enclosing frame — nested finally
+    /// chains run inside-out for free, the D3a return-copy pattern.
+    fn mint_jump_copies(&mut self, f: &[Stmt], jump_gotos: Vec<((bool, Option<String>), ExprId)>) {
+        let mut grouped: Vec<((bool, Option<String>), Vec<ExprId>)> = Vec::new();
+        for (key, eid) in jump_gotos {
+            match grouped.iter_mut().find(|(k, _)| *k == key) {
+                Some((_, v)) => v.push(eid),
+                None => grouped.push((key, vec![eid])),
+            }
         }
-        let entry = self.alloc_state();
-        self.cur_state = entry;
-        self.lower_seq(f.to_vec());
-        self.lower(jump);
-        self.flush_cur();
-        for eid in gotos {
-            self.ast.exprs[eid.0 as usize] = Expr::Number(entry as f64);
+        for ((is_break, label), gotos) in grouped {
+            let entry = self.alloc_state();
+            self.cur_state = entry;
+            self.lower_seq(f.to_vec());
+            let jump = if is_break {
+                Stmt::Break(label)
+            } else {
+                Stmt::Continue(label)
+            };
+            self.lower(jump);
+            self.flush_cur();
+            for eid in gotos {
+                self.ast.exprs[eid.0 as usize] = Expr::Number(entry as f64);
+            }
         }
     }
 
@@ -169,8 +183,7 @@ impl GenSm<'_> {
             try_entry,
             slot: format!("__retval{try_entry}"),
             gotos: Vec::new(),
-            brk_gotos: Vec::new(),
-            cont_gotos: Vec::new(),
+            jump_gotos: Vec::new(),
         });
         self.lower_seq(body);
         let frame = self.finally_ret.pop().expect("pushed above");
@@ -204,9 +217,8 @@ impl GenSm<'_> {
         self.cur_buf.push(Stmt::Throw(slot_read));
         self.flush_cur();
 
-        // D4 escaping-jump copies — one per jump kind B routed.
-        self.mint_jump_copy(&f, frame.brk_gotos, Stmt::Break(None));
-        self.mint_jump_copy(&f, frame.cont_gotos, Stmt::Continue(None));
+        // D4 escaping-jump copies — one per (kind, label) B routed.
+        self.mint_jump_copies(&f, frame.jump_gotos);
 
         // D3a return copy — when B actually routed a return, or (D3b)
         // when B can suspend in range so a `return()` injection could
@@ -255,41 +267,47 @@ impl GenSm<'_> {
 }
 
 /// D1 gate — true when `stmts` contain something the finally-region
-/// lowering can't route: a labeled jump (could escape the try at any
-/// depth — a per-label F-copy scheme is the registered upgrade), or
-/// a bare jump on a switch surface (a bare `break` there is
-/// switch-owned, not loop-owned — distinguishing them isn't worth
-/// the precision, fallback keeps today's shape). Returns route at
-/// ANY depth since the dispatch loop grew its label: the D3a goto is
-/// a `continue __sm;`, which binds correctly even from inside an
-/// inline inner loop ([`DISPATCH_LABEL`]). Bare escaping jumps route
-/// through the D4 finally copies.
-pub(super) fn stmts_block_finally_region(stmts: &[Stmt]) -> bool {
-    fn walk(s: &Stmt, in_switch: bool) -> bool {
+/// lowering can't route: a bare jump on a switch surface (a bare
+/// `break` there is switch-owned, not loop-owned — distinguishing
+/// them isn't worth the precision, fallback keeps today's shape), or
+/// a labeled jump whose target is neither declared inside the try
+/// nor an enclosing yield-loop's label (`outer_labels`) — e.g. a
+/// labeled BLOCK outside the try, which the SM resolver can't reach
+/// (labeled blocks never enter the loop stack), so the jump would
+/// survive as a literal naming a label the state-machining erased.
+/// Returns route at ANY depth (the D3a goto is a `continue __sm;`,
+/// [`DISPATCH_LABEL`]); escaping jumps — bare or labeled — route
+/// through the per-(kind, label) D4 finally copies.
+pub(super) fn stmts_block_finally_region(stmts: &[Stmt], outer_labels: &[String]) -> bool {
+    fn collect_labels(s: &Stmt, out: &mut Vec<String>) {
         match s {
-            Stmt::Break(l) | Stmt::Continue(l) => l.is_some() || in_switch,
-            Stmt::Block(ss) | Stmt::Multi(ss) => ss.iter().any(|x| walk(x, in_switch)),
+            Stmt::Labeled { label, body } => {
+                out.push(label.clone());
+                collect_labels(body, out);
+            }
+            Stmt::Block(ss) | Stmt::Multi(ss) => ss.iter().for_each(|x| collect_labels(x, out)),
             Stmt::If {
                 then_branch,
                 else_branch,
                 ..
             } => {
-                walk(then_branch, in_switch)
-                    || else_branch.as_deref().is_some_and(|e| walk(e, in_switch))
+                collect_labels(then_branch, out);
+                if let Some(e) = else_branch.as_deref() {
+                    collect_labels(e, out);
+                }
             }
-            Stmt::Labeled { body, .. } => walk(body, in_switch),
             Stmt::While { body, .. }
             | Stmt::DoWhile { body, .. }
             | Stmt::ForOf { body, .. }
-            | Stmt::ForOfSplitIter { body, .. } => walk(body, false),
-            Stmt::For { init, body, .. } => {
-                init.as_deref().is_some_and(|i| walk(i, in_switch)) || walk(body, false)
-            }
+            | Stmt::ForOfSplitIter { body, .. }
+            | Stmt::For { body, .. } => collect_labels(body, out),
             Stmt::Switch { cases, default, .. } => {
-                cases.iter().any(|c| c.body.iter().any(|x| walk(x, true)))
-                    || default
-                        .as_ref()
-                        .is_some_and(|d| d.iter().any(|x| walk(x, true)))
+                cases
+                    .iter()
+                    .for_each(|c| c.body.iter().for_each(|x| collect_labels(x, out)));
+                if let Some(ds) = default {
+                    ds.iter().for_each(|x| collect_labels(x, out));
+                }
             }
             Stmt::Try {
                 body,
@@ -300,9 +318,60 @@ pub(super) fn stmts_block_finally_region(stmts: &[Stmt]) -> bool {
                 .iter()
                 .chain(catch_body.iter())
                 .chain(finally_body.iter().flatten())
-                .any(|x| walk(x, in_switch)),
+                .for_each(|x| collect_labels(x, out)),
+            _ => {}
+        }
+    }
+    fn walk(s: &Stmt, known: &[String], in_switch: bool) -> bool {
+        match s {
+            Stmt::Break(l) | Stmt::Continue(l) => match l {
+                Some(name) => !known.contains(name),
+                None => in_switch,
+            },
+            Stmt::Block(ss) | Stmt::Multi(ss) => ss.iter().any(|x| walk(x, known, in_switch)),
+            Stmt::If {
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                walk(then_branch, known, in_switch)
+                    || else_branch
+                        .as_deref()
+                        .is_some_and(|e| walk(e, known, in_switch))
+            }
+            Stmt::Labeled { body, .. } => walk(body, known, in_switch),
+            Stmt::While { body, .. }
+            | Stmt::DoWhile { body, .. }
+            | Stmt::ForOf { body, .. }
+            | Stmt::ForOfSplitIter { body, .. } => walk(body, known, false),
+            Stmt::For { init, body, .. } => {
+                init.as_deref().is_some_and(|i| walk(i, known, in_switch))
+                    || walk(body, known, false)
+            }
+            Stmt::Switch { cases, default, .. } => {
+                cases
+                    .iter()
+                    .any(|c| c.body.iter().any(|x| walk(x, known, true)))
+                    || default
+                        .as_ref()
+                        .is_some_and(|d| d.iter().any(|x| walk(x, known, true)))
+            }
+            Stmt::Try {
+                body,
+                catch_body,
+                finally_body,
+                ..
+            } => body
+                .iter()
+                .chain(catch_body.iter())
+                .chain(finally_body.iter().flatten())
+                .any(|x| walk(x, known, in_switch)),
             _ => false,
         }
     }
-    stmts.iter().any(|s| walk(s, false))
+    let mut known: Vec<String> = outer_labels.to_vec();
+    for s in stmts {
+        collect_labels(s, &mut known);
+    }
+    stmts.iter().any(|s| walk(s, &known, false))
 }

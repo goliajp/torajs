@@ -50,10 +50,14 @@ pub(super) fn stmt_contains_yield(s: &Stmt) -> bool {
 }
 
 /// Rewrite `continue;` / `break;` inside `s` into `state = <target>;
-/// continue;` gotos that re-enter the enclosing `while (true)` state
-/// machine at the loop's continue / break target. Stops at inner loop
-/// boundaries — break/continue inside a nested yield-free
-/// `while` / `for` belong to that inner loop and stay literal.
+/// continue __sm;` gotos that re-enter the enclosing `while (true)`
+/// state machine at the loop's continue / break target. A bare jump
+/// inside a nested yield-free `while` / `for` / `switch` belongs to
+/// that construct and stays literal (`bare_owned`), but a LABELED
+/// jump resolves through any depth — the goto is a labeled continue,
+/// so binding is depth-independent, and ES §13.13 forbids duplicate
+/// labels in a nesting chain, so a label resolving to a yield-loop
+/// on the stack can't be shadowed by an inner one.
 ///
 /// `loop_stack` is the enclosing yield-bearing loops (innermost last),
 /// each `(continue_state, break_state, label)`. A bare `break`/
@@ -67,6 +71,16 @@ pub(super) fn rewrite_break_continue_for_outer(
     s: &mut Stmt,
     loop_stack: &[(usize, usize, Option<String>)],
     frames: &mut Vec<super::desugar_generators_sm_finally::FinallyRetFrame>,
+) {
+    rewrite_jumps(ast, s, loop_stack, frames, false)
+}
+
+fn rewrite_jumps(
+    ast: &mut Ast,
+    s: &mut Stmt,
+    loop_stack: &[(usize, usize, Option<String>)],
+    frames: &mut Vec<super::desugar_generators_sm_finally::FinallyRetFrame>,
+    bare_owned: bool,
 ) {
     /// A rewritten `break` / `continue` is a goto, so it moves the local
     /// resume cursor — same as [`super::GenSm::emit_goto`], and for the
@@ -87,13 +101,14 @@ pub(super) fn rewrite_break_continue_for_outer(
         ])
     }
     /// D4 — the routed variant: goto a placeholder recorded on the
-    /// innermost finally frame's per-kind list; the frame's F copy
-    /// entry is patched in afterwards. Inline mirror of
-    /// [`super::GenSm::build_finally_jump_stmts`].
+    /// innermost finally frame's (kind, label)-keyed list; the
+    /// frame's F copy entry is patched in afterwards. Inline mirror
+    /// of [`super::GenSm::build_finally_jump_stmts`].
     fn make_routed_goto(
         ast: &mut Ast,
         frames: &mut [super::desugar_generators_sm_finally::FinallyRetFrame],
         want_break: bool,
+        label: Option<String>,
     ) -> Stmt {
         let st = ast.add_expr(Expr::Ident(RESUME_LOCAL.into()));
         let placeholder = ast.add_expr(Expr::Number(0.0));
@@ -102,11 +117,7 @@ pub(super) fn rewrite_break_continue_for_outer(
             value: placeholder,
         });
         let frame = frames.last_mut().expect("caller checked");
-        if want_break {
-            frame.brk_gotos.push(placeholder);
-        } else {
-            frame.cont_gotos.push(placeholder);
-        }
+        frame.jump_gotos.push(((want_break, label), placeholder));
         Stmt::Block(vec![
             Stmt::Expr(assign),
             Stmt::Continue(Some(DISPATCH_LABEL.into())),
@@ -136,46 +147,86 @@ pub(super) fn rewrite_break_continue_for_outer(
         };
     match s {
         Stmt::Continue(l) => {
+            if l.is_none() && bare_owned {
+                return;
+            }
             if let Some(cont) = resolve(l, false) {
-                *s = if l.is_none() && escapes(cont, frames) {
-                    make_routed_goto(ast, frames, false)
+                *s = if escapes(cont, frames) {
+                    make_routed_goto(ast, frames, false, l.clone())
                 } else {
                     make_goto(ast, cont)
                 };
             }
         }
         Stmt::Break(l) => {
+            if l.is_none() && bare_owned {
+                return;
+            }
             if let Some(brk) = resolve(l, true) {
-                *s = if l.is_none() && escapes(brk, frames) {
-                    make_routed_goto(ast, frames, true)
+                *s = if escapes(brk, frames) {
+                    make_routed_goto(ast, frames, true, l.clone())
                 } else {
                     make_goto(ast, brk)
                 };
             }
         }
-        // Inner loops own their bare break/continue — don't descend.
-        Stmt::While { .. } | Stmt::DoWhile { .. } | Stmt::For { .. } => {}
-        // Switch swallows `break` (it targets the switch). `continue`
-        // inside a switch belongs to the enclosing loop, but yields
-        // inside switch aren't in J.2.b scope so we don't touch this.
-        Stmt::Switch { .. } => {}
-        Stmt::Try { .. } => {}
-        // A labeled statement wraps its own loop/block that owns its
-        // jumps — leave literal (ssa_lower resolves it).
-        Stmt::Labeled { .. } => {}
+        // Inner loops own their bare break/continue; labeled jumps
+        // still resolve through them (the goto is depth-independent).
+        Stmt::While { body, .. } | Stmt::DoWhile { body, .. } | Stmt::For { body, .. } => {
+            rewrite_jumps(ast, body, loop_stack, frames, true);
+        }
+        // Switch swallows a bare `break` (it targets the switch); a
+        // bare `continue` inside it targets the enclosing loop, but
+        // that pre-existing face stays untouched (bare_owned covers
+        // both). Labeled jumps resolve through.
+        Stmt::Switch { cases, default, .. } => {
+            for c in cases {
+                for x in &mut c.body {
+                    rewrite_jumps(ast, x, loop_stack, frames, true);
+                }
+            }
+            if let Some(ds) = default {
+                for x in ds {
+                    rewrite_jumps(ast, x, loop_stack, frames, true);
+                }
+            }
+        }
+        // An inline try owns no jumps — descend transparently.
+        Stmt::Try {
+            body,
+            catch_body,
+            finally_body,
+            ..
+        } => {
+            for x in body.iter_mut().chain(catch_body.iter_mut()) {
+                rewrite_jumps(ast, x, loop_stack, frames, bare_owned);
+            }
+            if let Some(fs) = finally_body {
+                for x in fs {
+                    rewrite_jumps(ast, x, loop_stack, frames, bare_owned);
+                }
+            }
+        }
+        // A labeled statement's own label can't collide with a
+        // yield-loop label (§13.13 duplicate-label early error), so
+        // jumps naming an OUTER yield-loop still resolve; its own
+        // jumps resolve to nothing on the stack and stay literal.
+        Stmt::Labeled { body, .. } => {
+            rewrite_jumps(ast, body, loop_stack, frames, bare_owned);
+        }
         Stmt::If {
             then_branch,
             else_branch,
             ..
         } => {
-            rewrite_break_continue_for_outer(ast, then_branch, loop_stack, frames);
+            rewrite_jumps(ast, then_branch, loop_stack, frames, bare_owned);
             if let Some(eb) = else_branch.as_deref_mut() {
-                rewrite_break_continue_for_outer(ast, eb, loop_stack, frames);
+                rewrite_jumps(ast, eb, loop_stack, frames, bare_owned);
             }
         }
         Stmt::Block(stmts) | Stmt::Multi(stmts) => {
             for s in stmts {
-                rewrite_break_continue_for_outer(ast, s, loop_stack, frames);
+                rewrite_jumps(ast, s, loop_stack, frames, bare_owned);
             }
         }
         _ => {}

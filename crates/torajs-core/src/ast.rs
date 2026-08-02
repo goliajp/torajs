@@ -46,6 +46,7 @@ mod desugar_generators_prep;
 mod desugar_generators_rewrite;
 mod desugar_generators_sm;
 mod desugar_generators_sm_finally;
+mod desugar_generators_sm_loops;
 mod desugar_generators_sm_return;
 mod desugar_generators_sm_rewrite;
 mod desugar_generators_sm_try;

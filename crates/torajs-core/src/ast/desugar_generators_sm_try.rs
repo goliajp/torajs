@@ -62,19 +62,21 @@ impl GenSm<'_> {
                 .as_ref()
                 .is_some_and(|f| f.iter().any(stmt_contains_yield));
         // D1/D2 finally regions handle `try {B} [catch {C}] finally
-        // {F}` unless B, C, or F carries a labeled jump or a
-        // switch-surface bare jump (the walker's remaining fallback
-        // faces; labeled routing is the registered upgrade). Returns
-        // route at any depth — the D3a goto is a labeled continue —
+        // {F}` unless B, C, or F carries a switch-surface bare jump
+        // or a labeled jump whose target the SM can't reach (the
+        // walker's remaining fallback faces). Returns route at any
+        // depth — the D3a goto is a labeled continue — labeled jumps
+        // to enclosing yield-loops route through per-label F copies,
         // and F itself MAY return (the Return arm's done-step
         // correctly encodes "finally overrides the completion") and
         // MAY yield (each copy is state-machined independently).
+        let outer_labels = self.outer_loop_labels();
         let finally_ok = finally_body.is_some()
-            && !stmts_block_finally_region(&body)
-            && !stmts_block_finally_region(&catch_body)
+            && !stmts_block_finally_region(&body, &outer_labels)
+            && !stmts_block_finally_region(&catch_body, &outer_labels)
             && !finally_body
                 .as_ref()
-                .is_some_and(|f| stmts_block_finally_region(f));
+                .is_some_and(|f| stmts_block_finally_region(f, &outer_labels));
         if !has_yield
             || (finally_body.is_some() && !finally_ok)
             || (finally_body.is_none() && !had_catch)
@@ -87,6 +89,7 @@ impl GenSm<'_> {
                 catch_body,
                 finally_body,
             };
+            self.rewrite_outer_jumps(&mut s);
             self.rewrite_nested_returns(&mut s);
             self.cur_buf.push(s);
             return;
