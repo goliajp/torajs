@@ -204,11 +204,11 @@ fn rebase_targets_only_child_offsets_when_no_fields() {
 
 #[test]
 fn single_entry_with_one_field_layout_shape() {
-    // 1 class, 0 child_offsets, 1 field "x" at offset 24, type_tag 1.
+    // 1 class, 0 child_offsets, 1 field "x" at offset 32, type_tag 1.
     // Inner region: name string "x" (1B) + pad to 8 (7B) + field_meta
     //   header (8B) + 1 FieldMeta (24B) = 40B.
     // Outer: 32B. Count: 4B. Total = 40 + 32 + 4 = 76.
-    let fields = vec![fmeta("x", 24, 1)];
+    let fields = vec![fmeta("x", 32, 1)];
     let class_layouts = [entry_with_fields(&[], fields)];
     let layout = compute_user_class_layouts_layout(&class_layouts, 0x4000, 0x1_0000_4000, false);
     assert_eq!(layout.entries.len(), 1);
@@ -229,7 +229,7 @@ fn single_entry_with_one_field_layout_shape() {
 
 #[test]
 fn single_entry_with_fields_payload_emits_in_order() {
-    let fields = vec![fmeta("x", 24, 1)];
+    let fields = vec![fmeta("x", 32, 1)];
     let class_layouts = [entry_with_fields(&[], fields)];
     let layout = compute_user_class_layouts_layout(&class_layouts, 0x4000, 0x1_0000_4000, false);
     // Two link values consumed: 1 name_ptr (FieldMeta x.name) + 1
@@ -253,8 +253,8 @@ fn single_entry_with_fields_payload_emits_in_order() {
     );
     // [24..28] FieldMeta name_len = 1
     assert_eq!(u32::from_le_bytes(payload[24..28].try_into().unwrap()), 1);
-    // [28..32] FieldMeta field_byte_offset = 24
-    assert_eq!(u32::from_le_bytes(payload[28..32].try_into().unwrap()), 24);
+    // [28..32] FieldMeta field_byte_offset = 32
+    assert_eq!(u32::from_le_bytes(payload[28..32].try_into().unwrap()), 32);
     // [32]     FieldMeta type_tag = 1
     assert_eq!(payload[32], 1);
     // [33..40] FieldMeta tail pad

@@ -189,6 +189,28 @@ fn emit_drop_obj(ctx: &mut LowerCtx, val: Operand, sid: crate::ssa::StructId) {
                 .append_inst(ctx.cur_block, InstKind::Load(*fty, val, offset), *fty, None);
         ctx.emit_drop_value(Operand::Value(field_val), *fty);
     }
+    // Props dynobj @ +24 (RFC 20260714-struct-dynamic-props blade 1)
+    // — release the lazily-allocated expando shadow. value_drop_heap
+    // is NULL-safe, so the common no-expando case costs one load and
+    // an immediately-returning call (the cycle walker's per-child
+    // convention, torajs-cycle/obj_drop.rs).
+    let props_val = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(
+            Type::Ptr,
+            val,
+            crate::ssa_lower::OBJ_PROPS_OFF,
+        ),
+        Type::Ptr,
+        None,
+    );
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Call(
+            ctx.intrinsics.value_drop_heap,
+            vec![Operand::Value(props_val)],
+        ),
+    );
     if is_class_sid {
         ctx.f.append_void(
             ctx.cur_block,

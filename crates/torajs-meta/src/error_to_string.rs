@@ -17,10 +17,11 @@
 use core::ffi::c_void;
 
 // OBJ instance layout — mirror of `torajs-throw`'s reader: the
-// universal 24-byte header, then Str-pointer fields `message` @+24 and
-// `name` @+32. Str length is a u32 at +8 (`torajs-str` STR_LEN_OFF).
-const OBJ_MESSAGE_OFF: usize = 24;
-const OBJ_NAME_OFF: usize = 32;
+// universal 32-byte header (blade 1: props dynobj @ +24), then
+// Str-pointer fields `message` @+32 and `name` @+40. Str length is a
+// u32 at +8 (`torajs-str` STR_LEN_OFF).
+const OBJ_MESSAGE_OFF: usize = 32;
+const OBJ_NAME_OFF: usize = 40;
 const STR_LEN_OFF: usize = 8;
 
 unsafe extern "C" {

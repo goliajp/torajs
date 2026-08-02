@@ -34,9 +34,9 @@ use crate::closure_walk::{closure_trace_fn, trace_clear_tramp, trace_visit_tramp
 use crate::dynobj::{dynobj_child_at, dynobj_entries_len, dynobj_value_slot_clear};
 use crate::layout::{
     CLASS_LAYOUT_FLAG_NAMED, CLOSURE_PROPS_OFF, COLOR_BLACK, COLOR_GRAY, COLOR_PURPLE, COLOR_WHITE,
-    FLAG_BUFFERED, FLAG_STATIC_LITERAL, HeapHeader, TAG_BOOLEAN_WRAPPER, TAG_CLOSURE, TAG_DYNOBJ,
-    TAG_NUMBER_WRAPPER, TAG_STRING_WRAPPER, WRAPPER_PROPS_OFF, arr_elems_walkable, color_of,
-    has_walkable_children, is_class_obj, layout_for_class_obj, set_color,
+    FLAG_BUFFERED, FLAG_STATIC_LITERAL, HeapHeader, OBJ_PROPS_OFF, TAG_BOOLEAN_WRAPPER, TAG_CLOSURE,
+    TAG_DYNOBJ, TAG_NUMBER_WRAPPER, TAG_STRING_WRAPPER, WRAPPER_PROPS_OFF, arr_elems_walkable,
+    color_of, has_walkable_children, is_class_obj, layout_for_class_obj, set_color,
 };
 
 /// Sentinel child index for a cell's out-of-band expando / props
@@ -79,6 +79,14 @@ pub(crate) unsafe fn for_each_child(p: *mut c_void, mut f: impl FnMut(u64, *mut 
             if !child.is_null() {
                 f(i, child);
             }
+        }
+        // +24 expando props dict (RFC 20260714-struct-dynamic-props
+        // blade 1) — same fixed slot Closure / Arr / wrapper carry.
+        // An `obj.x = <cycle>` expando is a cycle child like any
+        // layout field.
+        let props = unsafe { *((p as *const u8).add(OBJ_PROPS_OFF) as *const *mut c_void) };
+        if !props.is_null() {
+            f(PROPS_SLOT_INDEX, props);
         }
     } else if unsafe { (*(p as *const HeapHeader)).type_tag } == TAG_DYNOBJ {
         // Dense entry values (holes / NaN-box immediates filter to
@@ -148,6 +156,15 @@ pub(crate) unsafe fn for_each_child(p: *mut c_void, mut f: impl FnMut(u64, *mut 
 /// yielded for this `p`.
 pub(crate) unsafe fn clear_child_slot(p: *mut c_void, i: u64) {
     if unsafe { is_class_obj(p) } {
+        // The props sentinel MUST be tested before indexing
+        // child_offsets — `child_offsets.add(u64::MAX)` is an OOB
+        // read followed by a wild write (the closure arm's ordering).
+        if i == PROPS_SLOT_INDEX {
+            unsafe {
+                *((p as *mut u8).add(OBJ_PROPS_OFF) as *mut *mut c_void) = core::ptr::null_mut()
+            };
+            return;
+        }
         let lay = unsafe { layout_for_class_obj(p) };
         let off = unsafe { *(*lay).child_offsets.add(i as usize) };
         unsafe { *((p as *mut u8).add(off as usize) as *mut *mut c_void) = core::ptr::null_mut() };

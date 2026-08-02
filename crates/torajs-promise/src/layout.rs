@@ -96,10 +96,11 @@ pub const ARR_LEN_OFF: usize = 8;
 pub const ARR_HEAD_OFF: usize = 20;
 
 /// allsettled inner-struct constants. The MVP packs every settled
-/// outcome into the same `{status: string, value: number}` Obj
-/// (matches the C code's `__TORAJS_OBJ_HEADER_SIZE_AS = 24`).
+/// outcome into the same `{status: string, value: number}` Obj.
+/// Header size mirrors `ssa_lower::OBJ_HEADER_SIZE` (blade 1: 32 —
+/// header 8 + class_tag 8 + vtable 8 + props dynobj 8).
 pub const ALLSETTLED_OBJ_TAG: u16 = 1;
-pub const ALLSETTLED_OBJ_HEADER_SIZE: usize = 24;
+pub const ALLSETTLED_OBJ_HEADER_SIZE: usize = 32;
 
 /// Throw-tag constants used by `get_value`'s rejection path.
 /// Match runtime_str.c's torajs_throw_native conventions:

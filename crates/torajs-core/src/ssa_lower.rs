@@ -35,19 +35,36 @@ use crate::ssa_lower_inner::lower_inner;
 pub(crate) use crate::ssa_lower_intrinsics::Intrinsics;
 pub(crate) use crate::ssa_lower_synthesize_main::{declare_intrinsic, synthesize_main};
 
-/// Phase 2B refcount: every heap-allocated Obj reserves a 24-byte
+/// Phase 2B refcount: every heap-allocated Obj reserves a 32-byte
 /// header:
 ///   offset 0  — universal heap header (refcount u32 + type_tag u16 + flags u16)
 ///   offset 8  — class tag (u64-slot; low 32 bits = per-class id, high
 ///               32 reserved)
 ///   offset 16 — vtable pointer (per-class const global; null for plain
 ///               `type` aliases)
+///   offset 24 — props dynobj ptr (RFC 20260714-struct-dynamic-props
+///               blade 1 — lazily-allocated expando/tombstone shadow;
+///               NULL = no dynamic property was ever written. Same
+///               +24 slot Arr (`ARR_PROPS_OFF`) and Closure
+///               (`CLOSURE_PROPS_OFF`) carry, so the three growable
+///               cells share one convention. Fixed offset — an
+///               anonymous struct (class_tag 0, no layout row) still
+///               reaches its props without a table lookup.)
 /// Field 0 lives at `OBJ_HEADER_SIZE`, field i at
 /// `OBJ_HEADER_SIZE + i*8`. Closure env layout is unaffected — it has
 /// its own fn-ptr header at offset 0 and lives in a separate alloc path.
-pub(crate) const OBJ_HEADER_SIZE: u64 = 24;
+///
+/// Runtime mirrors that must move in lockstep (each self-documents):
+/// `torajs-anyvalue/src/arg_struct_coerce.rs` OBJ_HEADER_SIZE,
+/// `torajs-promise/src/layout.rs` ALLSETTLED_OBJ_HEADER_SIZE,
+/// `torajs-throw/src/uncaught.rs` + `torajs-meta/src/error_to_string.rs`
+/// OBJ_MESSAGE_OFF / OBJ_NAME_OFF.
+pub(crate) const OBJ_HEADER_SIZE: u64 = 32;
 pub(crate) const OBJ_CLASS_TAG_OFF: u64 = 8;
 pub(crate) const OBJ_VTABLE_OFF: u64 = 16;
+/// Inline props-dynobj slot (blade 1). NULL until the first dynamic
+/// write through the `any` lane; blade 2 wires the write side.
+pub(crate) const OBJ_PROPS_OFF: u64 = 24;
 
 /// Phase 2A refcount + T-13.5 deque layout (mirrors the `ARR_HDR_*`
 /// constants in torajs-arr):

@@ -70,7 +70,10 @@ unsafe extern "C" {
 const ANY_HEAP: u64 = 4;
 const OBJ_TAG_OFF: usize = 4;
 const OBJ_CLASS_TAG_OFF: usize = 8;
-const OBJ_HEADER_SIZE: usize = 24;
+/// Mirror of `ssa_lower::OBJ_HEADER_SIZE` (blade 1: 32 — header 8 +
+/// class_tag 8 + vtable 8 + props dynobj 8). `alloc_zeroed` below
+/// zeroes the +24 props slot along with the vtable.
+const OBJ_HEADER_SIZE: usize = 32;
 
 /// See the module doc. `class_tag` is the param sid's stamp (anon
 /// pool / class factory — the same tag the ObjectLit alloc writes at

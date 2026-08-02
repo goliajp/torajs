@@ -32,11 +32,12 @@ const HDR_FLAGS_OFF: usize = 6;
 /// `torajs_rc::FLAG_ERROR` — set on Error-derived class instances by
 /// ssa_lower's `__new_<C>` factory codegen.
 const FLAG_ERROR: u16 = 1 << 7;
-/// Obj field layout: `[header:24][field0:8][field1:8]…`. Error's
+/// Obj field layout: `[header:32][field0:8][field1:8]…`. Error's
 /// declaration order is `message` (field0) then `name` (field1), both
-/// Str pointers — mirror of `ssa_lower::OBJ_HEADER_SIZE`.
-const OBJ_MESSAGE_OFF: usize = 24;
-const OBJ_NAME_OFF: usize = 32;
+/// Str pointers — mirror of `ssa_lower::OBJ_HEADER_SIZE` (blade 1:
+/// props dynobj slot @ +24 pushed field 0 to +32).
+const OBJ_MESSAGE_OFF: usize = 32;
+const OBJ_NAME_OFF: usize = 40;
 
 /// Write a Str block's payload bytes to stderr. `str_ptr` points at a
 /// Str heap object (`[header:8][len:8][bytes:N]`). Null / empty → no-op.

@@ -106,6 +106,13 @@ pub const FLAG_BUFFERED: u16 = 1 << 5;
 /// right after the universal 8-byte heap header.
 pub const OBJ_CLASS_TAG_OFF: usize = 8;
 
+/// Inline props-dynobj slot of a `Tag::Obj` struct cell (RFC
+/// 20260714-struct-dynamic-props blade 1; mirror of
+/// `ssa_lower::OBJ_PROPS_OFF`). Same +24 convention as
+/// [`CLOSURE_PROPS_OFF`] and the Arr props slot. NULL until the
+/// first dynamic write through the `any` lane.
+pub const OBJ_PROPS_OFF: usize = 24;
+
 /// `Array<Any>` marker (torajs-rc `FLAG_ARR_ANY` mirror) — 8-byte
 /// NaN-box `AnyValue` slots, immediates mixed with cell pointers.
 /// Walkable since RFC 20260706 Phase C (chunk 574): `arr_child_at`

@@ -256,7 +256,7 @@ pub unsafe extern "C" fn __torajs_anyv_struct_print_inline_at(v: u64, indent: u3
         let info = unsafe { __torajs_struct_field_info(layout, i) };
         // SAFETY: field_byte_offset is the SSA-emitted slot offset;
         // every well-formed Tag::Obj cell has `n` slots laid out
-        // starting at OBJ_HEADER_SIZE (8) + i*8 by struct construction.
+        // starting at OBJ_HEADER_SIZE (32) + i*8 by struct construction.
         let raw = unsafe {
             cell.cast::<u8>()
                 .add(info.field_byte_offset as usize)

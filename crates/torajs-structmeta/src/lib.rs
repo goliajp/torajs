@@ -172,7 +172,7 @@ impl StrSlice {
 /// Field byte-offset + type-tag returned by
 /// [`__torajs_struct_field_info`]. A zeroed value (`field_byte_offset
 /// == 0`) signals an out-of-range index — a real field offset is
-/// always `>= OBJ_HEADER_SIZE` (8), never 0.
+/// always `>= OBJ_HEADER_SIZE` (32), never 0.
 #[repr(C)]
 pub struct FieldInfo {
     pub field_byte_offset: u32,

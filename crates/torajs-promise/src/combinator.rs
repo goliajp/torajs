@@ -240,9 +240,9 @@ unsafe fn make_settled_str(literal: &[u8]) -> *mut c_void {
     s as *mut c_void
 }
 
-/// Allocate a `{status: string, value: number}` Obj. Mirrors the C
-/// `alloc_settled_struct_` exactly: header(8) + class_tag(8 zeroed)
-/// + vtable(8 zeroed) + status_ptr(8) + value(8) = 40 bytes.
+/// Allocate a `{status: string, value: number}` Obj: header(8) +
+/// class_tag(8 zeroed) + vtable(8 zeroed) + props(8 zeroed, blade 1)
+/// + status_ptr(8) + value(8) = 48 bytes.
 /// `pub(crate)` — the any-lane sibling packs boxed AnyValue bits
 /// into the same value slot.
 pub(crate) unsafe fn alloc_settled_struct(state: u8, value: i64) -> *mut c_void {
@@ -252,19 +252,21 @@ pub(crate) unsafe fn alloc_settled_struct(state: u8, value: i64) -> *mut c_void 
         *(p as *mut u32) = 1;
         *(p.add(4) as *mut u16) = ALLSETTLED_OBJ_TAG;
         *(p.add(6) as *mut u16) = 0;
-        // class_tag (+8) + vtable (+16) — zeroed for "no class".
+        // class_tag (+8) + vtable (+16) — zeroed for "no class";
+        // props dynobj (+24) — NULL, malloc'd so an explicit store.
         *(p.add(8) as *mut u64) = 0;
         *(p.add(16) as *mut u64) = 0;
-        // status (+24)
+        *(p.add(24) as *mut u64) = 0;
+        // status (+32)
         let lit = if state == STATE_FULFILLED {
             STATUS_FULFILLED_LIT
         } else {
             STATUS_REJECTED_LIT
         };
         let status_str = make_settled_str(lit);
-        *(p.add(24) as *mut *mut c_void) = status_str;
-        // value (+32)
-        *(p.add(32) as *mut i64) = value;
+        *(p.add(32) as *mut *mut c_void) = status_str;
+        // value (+40)
+        *(p.add(40) as *mut i64) = value;
     }
     p as *mut c_void
 }
