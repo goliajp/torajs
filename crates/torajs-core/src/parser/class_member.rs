@@ -227,12 +227,23 @@ impl<'a> Parser<'a> {
                 Some(Token::Star)
             );
         let name_off = if async_star { 2 } else { 1 };
+        // RFC 20260802-class-computed-member 残尾 — §13.4 PropertyName
+        // widens the async-method name slot exactly like the get/set
+        // arm below: string / numeric literals (`async 'm'()` /
+        // `async 0x10()`) keep the trailing-LParen disambiguation, and
+        // a `[` head is unambiguous on its own (a member NAMED `async`
+        // is always `async(` — never `async [`), so no after-name
+        // lookahead applies to the computed form.
         let is_async = if matches!(self.peek(), Token::Async)
             && let Some(t1) = self.tokens.get(self.pos + name_off)
-            && matches!(t1.token, Token::Ident(_) | Token::PrivateIdent(_))
-            && let Some(t2) = self.tokens.get(self.pos + name_off + 1)
-            && matches!(t2.token, Token::LParen)
-        {
+            && (matches!(t1.token, Token::LBracket)
+                || (matches!(
+                    t1.token,
+                    Token::Ident(_) | Token::PrivateIdent(_) | Token::String(_) | Token::Number(_)
+                ) && matches!(
+                    self.tokens.get(self.pos + name_off + 1).map(|t| &t.token),
+                    Some(Token::LParen)
+                ))) {
             member_span_start = self.tokens.get(self.pos).map(|t| t.span.start);
             self.pos += 1;
             true

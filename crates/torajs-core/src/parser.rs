@@ -33,6 +33,7 @@
 use crate::ast::{self, Ast, BinOp, ClassCtor, ClassMethod, Expr, ExprId, Param, StaticInit, Stmt};
 use crate::lexer::{self, Spanned, Token};
 
+mod class_field_early_errors;
 mod class_member;
 mod destr_defaults;
 mod destr_helpers;

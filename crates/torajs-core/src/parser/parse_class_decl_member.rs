@@ -169,6 +169,16 @@ impl<'a> Parser<'a> {
                 // the same `__priv_<C>__<n>`, matching the rewrite
                 // table keys Pass 2.5 builds from this declaration.
                 Token::PrivateIdent(n) => {
+                    // ES §15.7.1 early error — `ClassElementName :
+                    // PrivateIdentifier` is a Syntax Error if its
+                    // StringValue is "#constructor", in EVERY member
+                    // position (field, method, accessor, generator).
+                    if n == "constructor" {
+                        return Err(format!(
+                            "class member may not be named `#constructor` in class `{name}` at {} (ES §15.7.1)",
+                            self.at()
+                        ));
+                    }
                     let priv_name = n.clone();
                     *explicit_visibility = Some(ast::Visibility::Private);
                     format!("__priv_{name}__{priv_name}")
@@ -235,6 +245,24 @@ impl<'a> Parser<'a> {
                 self.at()
             ));
         }
+        // ES §15.7.1 early error — `ClassElement : FieldDefinition;`
+        // is a Syntax Error if PropName of FieldDefinition is
+        // "constructor" (ident, string-literal, or folded `['...']`
+        // spelling all produce that PropName). A COMPUTED
+        // `["constructor"]` key is legal — PropName of a
+        // ComputedPropertyName is empty — and the literal fold above
+        // already flipped `consumed_computed_name` for it, so that
+        // flag is exactly the spec's LiteralPropertyName test. The
+        // method position stays untouched: `'constructor'() {}` IS
+        // the constructor and never reaches this field dispatch.
+        if !consumed_computed_name && member_name == "constructor" {
+            return Err(format!(
+                "class field may not be named `constructor` in class `{name}` at {} (ES §15.7.1)",
+                self.at()
+            ));
+        }
+        let field_inits_mark = field_inits.len();
+        let static_init_mark = static_init.len();
         // Same lookahead the member loop matched on: the member name
         // is still unconsumed unless the computed-name path already
         // ate it (`name + ]`), so the shape token sits one ahead.
@@ -255,7 +283,7 @@ impl<'a> Parser<'a> {
                 fields,
                 static_init,
                 field_inits,
-            ),
+            )?,
             Some(Token::Eq) => self.parse_class_member_field_untyped(
                 name,
                 member_name,
@@ -267,7 +295,7 @@ impl<'a> Parser<'a> {
                 fields,
                 static_init,
                 field_inits,
-            ),
+            )?,
             _ => self.parse_class_member_field_bare(
                 name,
                 member_name,
@@ -279,8 +307,32 @@ impl<'a> Parser<'a> {
                 fields,
                 static_init,
                 field_inits,
-            ),
+            )?,
         }
+        // ES §15.7.1 early error — it is a Syntax Error if
+        // ContainsArguments of the field's Initializer is true. The
+        // three field parsers above push at most one entry onto
+        // `field_inits` (instance) or `static_init` (static), so the
+        // pre-call marks identify exactly this member's initializer.
+        for (_, init) in &field_inits[field_inits_mark..] {
+            if super::class_field_early_errors::init_contains_arguments(&self.ast, *init) {
+                return Err(format!(
+                    "`arguments` is not allowed in a class field initializer in class `{name}` at {} (ES §15.7.1)",
+                    self.at()
+                ));
+            }
+        }
+        for si in &static_init[static_init_mark..] {
+            if let StaticInit::Field(f) = si
+                && super::class_field_early_errors::init_contains_arguments(&self.ast, f.init)
+            {
+                return Err(format!(
+                    "`arguments` is not allowed in a class field initializer in class `{name}` at {} (ES §15.7.1)",
+                    self.at()
+                ));
+            }
+        }
+        Ok(())
     }
 
     /// Untyped class field with initializer (`name = init` /

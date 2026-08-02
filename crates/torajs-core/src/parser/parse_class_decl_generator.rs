@@ -92,6 +92,15 @@ impl<'a> Parser<'a> {
             // its `any`-typed receiver exactly as a public `static *g()`
             // does, so nothing downstream needs a static-private lane.
             Token::PrivateIdent(n) => {
+                // ES §15.7.1 — "#constructor" is a Syntax Error in
+                // every ClassElementName position (same check as the
+                // ordinary-member path in parse_class_decl_member.rs).
+                if n == "constructor" {
+                    return Err(format!(
+                        "class member may not be named `#constructor` in class `{class_name}` at {} (ES §15.7.1)",
+                        self.at()
+                    ));
+                }
                 visibility = Visibility::Private;
                 format!("__priv_{class_name}__{n}")
             }
