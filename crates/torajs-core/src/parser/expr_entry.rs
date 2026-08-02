@@ -208,6 +208,7 @@ impl<'a> Parser<'a> {
             };
         if let Some(op_name) = logical_assign {
             self.pos += 2;
+            self.reject_yield_temp_target(target)?;
             self.drop_class_alias_on_assign(target);
             // `??= ||= &&=` rhs only evaluates when the guard fires —
             // conditional position, no yield hoist.
@@ -258,6 +259,7 @@ impl<'a> Parser<'a> {
             };
         if let Some(op) = bit_assign {
             self.pos += 2;
+            self.reject_yield_temp_target(target)?;
             self.drop_class_alias_on_assign(target);
             let value = self.parse_assign()?;
             let lhs = self.clone_expr_for_compound(target);
@@ -282,6 +284,7 @@ impl<'a> Parser<'a> {
             _ => return Ok(target),
         };
         self.pos += 1;
+        self.reject_yield_temp_target(target)?;
         self.drop_class_alias_on_assign(target);
         let value = self.parse_assign()?; // right-associative
         if let Some(op) = compound_op {

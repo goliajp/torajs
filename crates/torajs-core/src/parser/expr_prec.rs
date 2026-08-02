@@ -469,6 +469,7 @@ impl<'a> Parser<'a> {
             let is_inc = matches!(self.peek(), Token::PlusPlus);
             self.pos += 1;
             let target = self.parse_unary()?;
+            self.reject_yield_temp_target(target)?;
             let lhs_clone = self.clone_expr_for_compound(target);
             let one = self.ast.add_expr(Expr::Number(1.0));
             let op = if is_inc { BinOp::Add } else { BinOp::Sub };

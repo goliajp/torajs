@@ -86,6 +86,23 @@ impl<'a> Parser<'a> {
         r
     }
 
+    /// §13.15.1 / §13.4.2-5 early error: AssignmentTargetType of a
+    /// YieldExpression is invalid — `(yield) = v`, `(yield)++`,
+    /// `++(yield)` are SyntaxErrors at parse time. After hoisting the
+    /// yield reads back as a `__yx_` temp, so a target that IS the
+    /// temp ident can only come from a parenthesized yield in target
+    /// position (`__yx_` is the reserved desugar namespace, same
+    /// assumption `expr_reads_yield_temp` already makes).
+    pub(super) fn reject_yield_temp_target(&self, target: ExprId) -> Result<(), String> {
+        if matches!(self.ast.get_expr(target), Expr::Ident(n) if n.starts_with("__yx_")) {
+            return Err(format!(
+                "`yield` is not a valid assignment target at {} (ES §13.15.1)",
+                self.at()
+            ));
+        }
+        Ok(())
+    }
+
     /// Drain wrapper around the statement dispatcher — see module doc.
     pub(super) fn parse_stmt(&mut self) -> Result<Stmt, String> {
         let outer_buf = std::mem::take(&mut self.yield_hoist_buf);
