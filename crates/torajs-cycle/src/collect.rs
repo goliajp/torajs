@@ -34,9 +34,10 @@ use crate::closure_walk::{closure_trace_fn, trace_clear_tramp, trace_visit_tramp
 use crate::dynobj::{dynobj_child_at, dynobj_entries_len, dynobj_value_slot_clear};
 use crate::layout::{
     CLASS_LAYOUT_FLAG_NAMED, CLOSURE_PROPS_OFF, COLOR_BLACK, COLOR_GRAY, COLOR_PURPLE, COLOR_WHITE,
-    FLAG_BUFFERED, FLAG_STATIC_LITERAL, HeapHeader, OBJ_PROPS_OFF, TAG_BOOLEAN_WRAPPER, TAG_CLOSURE,
-    TAG_DYNOBJ, TAG_NUMBER_WRAPPER, TAG_STRING_WRAPPER, WRAPPER_PROPS_OFF, arr_elems_walkable,
-    color_of, has_walkable_children, is_class_obj, layout_for_class_obj, set_color,
+    FLAG_BUFFERED, FLAG_STATIC_LITERAL, HeapHeader, OBJ_PROPS_OFF, TAG_BOOLEAN_WRAPPER,
+    TAG_CLOSURE, TAG_DYNOBJ, TAG_NUMBER_WRAPPER, TAG_STRING_WRAPPER, WRAPPER_PROPS_OFF,
+    arr_elems_walkable, color_of, has_walkable_children, is_class_obj, layout_for_class_obj,
+    set_color,
 };
 
 /// Sentinel child index for a cell's out-of-band expando / props

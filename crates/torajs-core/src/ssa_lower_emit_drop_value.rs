@@ -196,11 +196,7 @@ fn emit_drop_obj(ctx: &mut LowerCtx, val: Operand, sid: crate::ssa::StructId) {
     // convention, torajs-cycle/obj_drop.rs).
     let props_val = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::Load(
-            Type::Ptr,
-            val,
-            crate::ssa_lower::OBJ_PROPS_OFF,
-        ),
+        InstKind::Load(Type::Ptr, val, crate::ssa_lower::OBJ_PROPS_OFF),
         Type::Ptr,
         None,
     );
