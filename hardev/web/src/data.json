@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-02T12:36:23.041Z",
+  "generatedAt": "2026-08-02T15:08:21.643Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-02T12:33:27Z",
-    "headSha": "f76e0d15",
-    "elapsedSec": 449.95,
+    "ranAt": "2026-08-02T15:06:11Z",
+    "headSha": "882462f3",
+    "elapsedSec": 644.83,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 20749,
-    "passNoOracle": 558,
+    "pass": 20886,
+    "passNoOracle": 557,
     "passNegative": 3917,
-    "passTotal": 25224,
-    "bug": 11798,
-    "incompatible": 16152,
+    "passTotal": 25360,
+    "bug": 11736,
+    "incompatible": 16078,
     "bunSkip": 7467,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 37022,
-    "passRateInScope": 47.44,
-    "passRateTrAccepted": 68.13
+    "trAccepted": 37096,
+    "passRateInScope": 47.69,
+    "passRateTrAccepted": 68.36
   },
   "torajs": {
-    "commit": "f76e0d15",
-    "commitSubject": "fix(core): nested-fn hoisting runs to a fixpoint",
+    "commit": "882462f3",
+    "commitSubject": "fix: array predicate callbacks accept any return type via ToBoolean",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "882462f3",
+      "subject": "fix: array predicate callbacks accept any return type via ToBoolean"
+    },
+    {
+      "hash": "b667d387",
+      "subject": "fix: ternary Array(Any) x class-instance branches join to Any"
+    },
+    {
+      "hash": "9082fb19",
+      "subject": "fix: ternary Array(T) x Array(Any) branches join to Any with both sides boxed"
+    },
+    {
+      "hash": "ed3b3784",
+      "subject": "feat: any[] arguments flow into typed array params via widened monomorph clones"
+    },
+    {
+      "hash": "fddce1da",
+      "subject": "fix: method-call receiver parks on every lower-then-decline dispatch arm"
+    },
+    {
+      "hash": "25f808f0",
+      "subject": "chore(docs,hardev): rotation 283 sweep artifacts and census at f76e0d15"
+    },
+    {
       "hash": "f76e0d15",
       "subject": "fix(core): nested-fn hoisting runs to a fixpoint"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "2f180a4e",
       "subject": "chore(hardev): test262 sweep artifacts at e34a7fa9"
-    },
-    {
-      "hash": "adba91ef",
-      "subject": "chore(docs,hardev): rotation 282 final census at 91c44b60"
-    },
-    {
-      "hash": "91c44b60",
-      "subject": "refactor(core): computed-field parse tail moves to its own parser sibling"
-    },
-    {
-      "hash": "e34a7fa9",
-      "subject": "feat(core): runtime-computed class fields — instance and static"
-    },
-    {
-      "hash": "d4fb1ea5",
-      "subject": "feat(meta,anyvalue): struct expandos surface on every enumeration face"
-    },
-    {
-      "hash": "0e486a62",
-      "subject": "feat(anyvalue): typed structs grow dynamic properties through the any lane"
-    },
-    {
-      "hash": "bc783e94",
-      "subject": "fix(core): struct-literal fields take a real share of borrowed and As-wrapped sources"
     }
   ],
-  "headSha": "f76e0d15",
+  "headSha": "882462f3",
   "autorun": {
-    "total": 587,
+    "total": 588,
     "baselineTarget": 10,
-    "bySelf": 582,
+    "bySelf": 583,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785667352-44a9",
-      "at": "2026-08-02T10:42:32Z",
-      "ts": 1785667352,
+      "rotationId": "r-1785674285-3c28",
+      "at": "2026-08-02T12:38:05Z",
+      "ts": 1785674285,
       "trigger": "self",
-      "prevHead": "2f180a4e",
-      "handoffSha": "sha256:6047d579ed112426080c8c7c0647998ab1e7e6b5ad0e43e0e15efce0555ac16a",
-      "handoffAgeSec": 34,
+      "prevHead": "25f808f0",
+      "handoffSha": "sha256:9f9478cc03c89e2dcba3d03327950c28d7725325b69299369a9b86646f44dce0",
+      "handoffAgeSec": 22,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1785674285-3c28",
+        "at": "2026-08-02T12:38:05Z",
+        "ts": 1785674285,
+        "trigger": "self",
+        "prevHead": "25f808f0",
+        "handoffSha": "sha256:9f9478cc03c89e2dcba3d03327950c28d7725325b69299369a9b86646f44dce0",
+        "handoffAgeSec": 22,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785667352-44a9",
         "at": "2026-08-02T10:42:32Z",
@@ -876,17 +887,6 @@
         "prevHead": "cbca4f8e",
         "handoffSha": "sha256:6e8bc6985d182a9d27b321a1c0aa5ea1cee671920a6df0e73c9cd1e264d4c9aa",
         "handoffAgeSec": 14,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1785593969-67e5",
-        "at": "2026-08-01T14:19:29Z",
-        "ts": 1785593969,
-        "trigger": "self",
-        "prevHead": "f1a55bc1",
-        "handoffSha": "sha256:e7616764242a4cd24cdc0d96451eb959881932352e0f134b849cd64ef8d768bf",
-        "handoffAgeSec": 39,
         "conformanceBefore": null,
         "commitsInSession": null
       }
