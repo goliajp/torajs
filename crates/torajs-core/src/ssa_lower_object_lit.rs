@@ -325,13 +325,35 @@ fn lower_regular_field(
     let v = ctx.lower_expr(eid);
     ctx.let_declared_obj_layout = None;
     let ty = ctx.operand_ty(&v);
+    // Peel value-transparent `As` wrappers before judging borrow-ness:
+    // `lower_as_cast` is IDENTITY for an Any-typed source (the borrow
+    // rides through the cast), a fresh IMMEDIATE box for a primitive
+    // (whose inc below is a payload-gated no-op), and a bare
+    // pass-through for a heap source — in every shape the inner read
+    // decides whether the field owes an extra share. Pre-fix the As
+    // node fell into the `_ => false` arm and the SM step struct
+    // (`{value: __ys_src[i] as any, done: false}`) bare-stored a
+    // borrowed box the struct drop walk then released as an owned
+    // child: `function* g() { yield* [obj] }` freed the module global
+    // on the first for-of drive (use-after-free that blade 1's layout
+    // change surfaced as a SIGSEGV).
+    let mut src_eid = eid;
+    while let Expr::As { expr, .. } = ctx.ast.get_expr(src_eid) {
+        src_eid = *expr;
+    }
     let needs_inc = ty.is_refcounted()
-        && match ctx.ast.get_expr(eid) {
-            Expr::Ident(name) => ctx
-                .locals
-                .get(name)
-                .map(|info| !info.moved)
-                .unwrap_or(false),
+        && match ctx.ast.get_expr(src_eid) {
+            // An Ident read is a BORROW off its slot unless the local
+            // was moved — and a name that is not a local at all (a
+            // promoted module global read from a method / fn body) has
+            // no move semantics, so the field share must inc too.
+            // unwrap_or(false) here bare-stored the global's pointer
+            // while the struct drop walk released it as an owned
+            // child (`function* g() { yield obj }` — same UAF family
+            // as the As shape above; a static cell's inc is
+            // FLAG-gated to a no-op, so the `true` arm is safe for
+            // interned singletons).
+            Expr::Ident(name) => ctx.locals.get(name).map(|info| !info.moved).unwrap_or(true),
             Expr::Member { .. } | Expr::Index { .. } => true,
             // Hoisted regex-literal singleton (fn-scope LICM) — the
             // field takes a share; see apply_borrow_rc_inc mirror.
@@ -339,10 +361,14 @@ fn lower_regular_field(
             _ => false,
         };
     // No consume on the else side: every shape reaching it is a no-op
-    // for the move-walk (Copy binding / non-local Ident / already-moved
-    // Ident / non-Ident expr) — chunk 572 removed the dead marker.
+    // for the move-walk (Copy binding / already-moved Ident / non-Ident
+    // expr) — chunk 572 removed the dead marker.
     if needs_inc {
-        ctx.emit_rc_inc(v);
+        // Type-aware: an Any-flavored operand is a NaN-box whose raw
+        // header inc the rc_inc cell gate silently skips — the share
+        // must go through the payload-gated any_box_rc_inc instead
+        // (immediates stay no-ops). Raw inc kept for plain heap types.
+        ctx.emit_owned_result_inc(v, ty);
     }
     if let Some(pos) = field_tys.iter().position(|(k, _)| k == name) {
         field_tys[pos] = (name.to_string(), ty);
