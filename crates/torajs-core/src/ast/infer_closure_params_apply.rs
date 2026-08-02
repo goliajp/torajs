@@ -23,8 +23,9 @@ pub(super) fn apply_closure_ann_updates(
     ast: &mut Ast,
     updates: &std::collections::HashMap<String, (Vec<String>, String)>,
     param_only_updates: &std::collections::HashMap<String, Vec<String>>,
+    view_promotes: &std::collections::HashMap<String, (usize, String)>,
 ) {
-    if updates.is_empty() && param_only_updates.is_empty() {
+    if updates.is_empty() && param_only_updates.is_empty() && view_promotes.is_empty() {
         return;
     }
     let (stmts, exprs) = (&mut ast.stmts, &ast.exprs);
@@ -82,6 +83,21 @@ pub(super) fn apply_closure_ann_updates(
                         p.type_ann = Some(ann.clone());
                     }
                 }
+            }
+            // srcArray-slot view promotion — a user-annotated
+            // `{elem}[]` / `Array<{elem}>` on the spec srcArray slot
+            // is normalized to `any[]` so the callback reads the
+            // receiver block through the kind-aware Arr<Any> view
+            // (a typed `number[]` view would raw-LoadDyn f64 over an
+            // i64-slot literal block). Mismatched spellings are left
+            // to loud-reject at the call site, matching tsc.
+            if let Some((slot, elem)) = view_promotes.get(name)
+                && let Some(p) = params.get_mut(user_start + slot)
+                && p.type_ann
+                    .as_deref()
+                    .is_some_and(|t| t == format!("{elem}[]") || t == format!("Array<{elem}>"))
+            {
+                p.type_ann = Some("any[]".to_string());
             }
         }
     }

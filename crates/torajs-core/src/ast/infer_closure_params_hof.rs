@@ -27,6 +27,7 @@ pub(super) fn apply_hof_param_only_arm(
     all_anns: &HashMap<String, String>,
     fn_user_param_count: &HashMap<String, usize>,
     param_only_updates: &mut HashMap<String, Vec<String>>,
+    view_promotes: &mut HashMap<String, (usize, String)>,
 ) -> bool {
     // `.map(cb)` — seed only the cb's param (elem), leave the return
     // annotation to the body sniff. Heterogeneous returns like
@@ -41,6 +42,7 @@ pub(super) fn apply_hof_param_only_arm(
             if p >= 1 {
                 param_only_updates.insert(fn_name.clone(), hof_pos_anns(elem_ann, p));
             }
+            view_promotes.insert(fn_name.clone(), (2, elem_ann.to_string()));
         }
         return true;
     }
@@ -55,6 +57,7 @@ pub(super) fn apply_hof_param_only_arm(
             if p >= 1 {
                 param_only_updates.insert(fn_name.clone(), hof_pos_anns(elem_ann, p));
             }
+            view_promotes.insert(fn_name.clone(), (2, elem_ann.to_string()));
         }
         return true;
     }
@@ -79,6 +82,7 @@ pub(super) fn apply_hof_param_only_arm(
             param_anns.extend(hof_pos_anns(elem_ann, p.saturating_sub(1)));
             param_anns.truncate(p);
             param_only_updates.insert(fn_name.clone(), param_anns);
+            view_promotes.insert(fn_name.clone(), (3, elem_ann.to_string()));
         }
         return true;
     }

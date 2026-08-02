@@ -209,6 +209,12 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
     // guess that only fits the param position).
     let mut param_only_updates: HashMap<String, Vec<String>> = HashMap::new();
 
+    // srcArray-slot view promotion — lifted fn name → (user-slot
+    // index, receiver elem ann); a receiver-matching user annotation
+    // on that slot is normalized to `any[]` at apply time (rationale
+    // in `apply_closure_ann_updates`).
+    let mut view_promotes: HashMap<String, (usize, String)> = HashMap::new();
+
     let (fn_param_pos_anns, fn_type_params, fn_user_param_count, fn_ret_anns) =
         collect_fn_decl_metadata(ast);
 
@@ -336,6 +342,7 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
             &all_anns,
             &fn_user_param_count,
             &mut param_only_updates,
+            &mut view_promotes,
         ) {
             continue;
         }
@@ -367,10 +374,13 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
         let Some(expected) = expected else { continue };
         for (_arg_idx, fn_name) in &closure_args {
             updates.insert(fn_name.clone(), expected.clone());
+            if name != "sort" {
+                view_promotes.insert(fn_name.clone(), (2, elem_ann.clone()));
+            }
         }
     }
 
-    apply_closure_ann_updates(ast, &updates, &param_only_updates);
+    apply_closure_ann_updates(ast, &updates, &param_only_updates, &view_promotes);
 }
 
 // Promise `.then(cb)` / `.catch(cb)` cb-param inference lives in
