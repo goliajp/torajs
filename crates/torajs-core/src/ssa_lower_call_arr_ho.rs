@@ -179,37 +179,7 @@ fn lower_higher_order(
     } else {
         None
     };
-    // W4 — reduce acc width follows callback ret (acc is fed back from
-    // it every iter), not receiver's elem: i64 elems + f64-widened
-    // callback left the acc slot narrow → GPR/FPR mismatch (array-007).
-    let acc_ty = match fn_ty {
-        // RC-1 — Void-ret callback: the fed-back accumulator is the
-        // boxed `undefined`, so the acc slot must hold an Any.
-        Type::FnSig(s) | Type::Closure(s) if ctx.fn_sigs[s.0 as usize].1 == Type::Void => Type::Any,
-        Type::FnSig(s) | Type::Closure(s) => ctx.fn_sigs[s.0 as usize].1,
-        _ => elem_ty,
-    };
-    // rotation 285 — a HETERO reduce seed (explicit init or the
-    // no-init elem seed whose type differs from the cb ret) forces
-    // the Any acc lane: §23.1.3.24's acc is `init` before the first
-    // call and the cb ret after, so a typed slot can hold neither
-    // union member without silent bit reinterpretation (an empty
-    // array + typed slot answered the seed's raw bits under the
-    // ret's type). The F64←I64 widening keeps its coerce lane
-    // (array-007), and an Any ret is already the boxed lane.
-    let acc_ty = if is_reduce_family && acc_ty != Type::Any {
-        let seed_ty = reduce_init_op
-            .as_ref()
-            .map(|op| ctx.operand_ty(op))
-            .unwrap_or(elem_ty);
-        if seed_ty != acc_ty && !(acc_ty == Type::F64 && seed_ty == Type::I64) {
-            Type::Any
-        } else {
-            acc_ty
-        }
-    } else {
-        acc_ty
-    };
+    let acc_ty = resolve_acc_ty(ctx, fn_ty, elem_ty, is_reduce_family, &reduce_init_op);
     let reduce_no_init = matches!(method.as_str(), "reduce" | "reduceRight") && args.len() == 1;
     let acc_slot = prepare_acc_slot(
         ctx,
@@ -294,6 +264,44 @@ fn prepare_dst_slot(
         InstKind::Store(Operand::Value(dst_arr), Operand::Value(slot), 0),
     );
     Some(slot)
+}
+
+/// W4 — reduce acc width follows callback ret (acc is fed back from
+/// it every iter), not receiver's elem: i64 elems + f64-widened
+/// callback left the acc slot narrow → GPR/FPR mismatch (array-007).
+/// RC-1 — a Void-ret callback feeds back the boxed `undefined`, so
+/// the slot holds an Any.
+///
+/// rotation 285 — a HETERO reduce seed (explicit init or the no-init
+/// elem seed whose type differs from the cb ret) forces the Any acc
+/// lane: §23.1.3.24's acc is `init` before the first call and the cb
+/// ret after, so a typed slot can hold neither union member without
+/// silent bit reinterpretation (an empty array + typed slot answered
+/// the seed's raw bits under the ret's type). The F64←I64 widening
+/// keeps its coerce lane (array-007), and an Any ret is already the
+/// boxed lane.
+fn resolve_acc_ty(
+    ctx: &LowerCtx<'_>,
+    fn_ty: Type,
+    elem_ty: Type,
+    is_reduce_family: bool,
+    reduce_init_op: &Option<Operand>,
+) -> Type {
+    let acc_ty = match fn_ty {
+        Type::FnSig(s) | Type::Closure(s) if ctx.fn_sigs[s.0 as usize].1 == Type::Void => Type::Any,
+        Type::FnSig(s) | Type::Closure(s) => ctx.fn_sigs[s.0 as usize].1,
+        _ => elem_ty,
+    };
+    if is_reduce_family && acc_ty != Type::Any {
+        let seed_ty = reduce_init_op
+            .as_ref()
+            .map(|op| ctx.operand_ty(op))
+            .unwrap_or(elem_ty);
+        if seed_ty != acc_ty && !(acc_ty == Type::F64 && seed_ty == Type::I64) {
+            return Type::Any;
+        }
+    }
+    acc_ty
 }
 
 /// `reduce`/`reduceRight`: allocate `__iter_acc`, seed from `init_op`
