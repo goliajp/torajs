@@ -415,6 +415,44 @@ unsafe fn any_member_set_impl(
             if crate::struct_error_msg::struct_data_field_set(ptr, key, tag, value) {
                 return 1;
             }
+            // RFC 20260714-struct-dynamic-props blade 2 — a name the
+            // layout doesn't carry lands in the +24 expando dynobj
+            // (lazily allocated; blade 1 zeroed the slot at every
+            // alloc site). §10.1.5.1 [[Set]] on a non-extensible
+            // struct rejects NEW keys — the struct header owns the
+            // flag, not the expando dict, so the gate sits here
+            // (wrapper-arm mirror); an update to a live expando key
+            // stays allowed. dynobj_set consumes the caller's +1 and
+            // writes the possibly-relocated block back through the
+            // slot.
+            if crate::struct_probe::struct_field_pair(ptr, key).is_none()
+                && !crate::struct_probe::struct_accessor_key(ptr, key)
+            {
+                let hdr_flags = (ptr.cast::<u8>().add(6) as *const u16).read();
+                let props_slot = ptr
+                    .cast::<u8>()
+                    .add(crate::member_get_layout::OBJ_PROPS_OFF)
+                    as *mut *mut c_void;
+                if hdr_flags & torajs_rc::FLAG_NON_EXTENSIBLE != 0 {
+                    let key_present = !(*props_slot).is_null()
+                        && __torajs_dynobj_has(*props_slot, key as *const c_void) != 0;
+                    if !key_present {
+                        drop_payload(tag, value);
+                        if throw_on_refusal {
+                            __torajs_throw_type_error(
+                                c"Attempting to define property on object that is not extensible."
+                                    .as_ptr(),
+                            );
+                        }
+                        return 0;
+                    }
+                }
+                if (*props_slot).is_null() {
+                    *props_slot = __torajs_dynobj_alloc();
+                }
+                __torajs_dynobj_set(props_slot, key, tag, value);
+                return 1;
+            }
         }
         if cell_tag == Tag::Arr as u16 {
             return crate::member_set_arr::set_arr_member(

@@ -46,7 +46,12 @@ const WRAPPER_PROPS_OFF: usize = 16;
 /// The in-layout expando-dict slot for a shape that carries one, or
 /// `None` for a shape that cannot hold a symbol-keyed property.
 fn props_slot_off(cell_tag: u16) -> Option<usize> {
-    if cell_tag == Tag::Arr as u16 || cell_tag == Tag::Closure as u16 {
+    // Blade 2 (RFC 20260714-struct-dynamic-props) — a struct cell
+    // carries the same +24 expando slot as Arr / Closure: a symbol
+    // key never collides with the string-keyed layout fields, so no
+    // layout probe is needed on this lane.
+    if cell_tag == Tag::Arr as u16 || cell_tag == Tag::Closure as u16 || cell_tag == Tag::Obj as u16
+    {
         return Some(CELL_PROPS_OFF);
     }
     if cell_tag == Tag::NumberWrapper as u16

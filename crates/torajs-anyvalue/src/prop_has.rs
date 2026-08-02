@@ -116,6 +116,13 @@ pub(crate) unsafe fn key_is(key: *const c_void, name: &[u8]) -> bool {
 /// # Safety
 /// `ptr` is a live `Tag::Obj` heap pointer; `key` is a live Str cell.
 unsafe fn struct_has_own(ptr: *const c_void, key: *const c_void) -> i64 {
+    // Blade 2 — an expando entry is an own property; probed first so
+    // an anonymous struct without a layout row (NULL lookup below)
+    // still answers its expandos.
+    let props = unsafe { crate::member_get_layout::struct_props(ptr) };
+    if !props.is_null() && unsafe { __torajs_dynobj_has(props, key) } != 0 {
+        return 1;
+    }
     let class_tag = unsafe { ptr.cast::<u8>().add(OBJ_CLASS_TAG_OFF).cast::<u32>().read() };
     let layout = unsafe { __torajs_struct_layout_lookup(class_tag) };
     if layout.is_null() {

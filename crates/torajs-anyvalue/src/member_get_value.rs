@@ -181,6 +181,12 @@ pub unsafe extern "C" fn __torajs_any_member_get_value(recv: AnyValue, key: *con
             if crate::struct_probe::struct_accessor_key(ptr, key) {
                 return 0;
             }
+            // Blade 2 — expando dict own face (mirror of the tag
+            // channel; borrow-shaped like the dynobj bucket).
+            let props = crate::member_get_layout::struct_props(ptr);
+            if !props.is_null() && __torajs_dynobj_has(props, key) != 0 {
+                return __torajs_dynobj_get_value(props, key);
+            }
             // L3b ⑧ — class prototype chain (mirror of the tag
             // channel).
             let (ptag, pval) = crate::struct_error_msg::struct_proto_chain_pair(ptr, key);

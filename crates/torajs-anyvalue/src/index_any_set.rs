@@ -139,9 +139,16 @@ pub unsafe extern "C" fn __torajs_any_index_set(
     // non-extensible gate all live there). The wrapper cell's
     // identity never moves — only the props slot's stored pointer —
     // so the local recv copy needs no writeback.
+    // Blade 2 (RFC 20260714-struct-dynamic-props) — a struct
+    // receiver's numeric write rides the same member-set route as
+    // the wrappers below: the decimal key hits a layout field named
+    // by its §7.1.19 spelling or lands in the +24 expando dict (the
+    // non-extensible gate lives in the struct arm). The struct
+    // cell's identity never moves either.
     if hdr_tag == Tag::NumberWrapper as u16
         || hdr_tag == Tag::StringWrapper as u16
         || hdr_tag == Tag::BooleanWrapper as u16
+        || hdr_tag == Tag::Obj as u16
     {
         let mut buf = [0u8; 20];
         let (start, len) = i64_dec(&mut buf, idx);

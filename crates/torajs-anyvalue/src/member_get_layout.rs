@@ -15,6 +15,18 @@ use crate::nanbox::{AnyValue, as_void_ptr, is_cell};
 /// `ssa_lower.rs::CLOSURE_PROPS_OFF`.
 pub(crate) const CLOSURE_PROPS_OFF: usize = 24;
 
+/// Struct-cell (`Tag::Obj`) lazy props slot — mirror of torajs-core
+/// `ssa_lower.rs::OBJ_PROPS_OFF` (RFC 20260714-struct-dynamic-props
+/// blade 1/2). NULL until the first expando write through the `any`
+/// lane.
+pub(crate) const OBJ_PROPS_OFF: usize = 24;
+
+/// The struct cell's `props_dynobj` pointer, NULL when no expando
+/// was ever written. Same read shape as [`wrapper_props`].
+pub(crate) unsafe fn struct_props(ptr: *const c_void) -> *const c_void {
+    unsafe { *(ptr.cast::<u8>().add(OBJ_PROPS_OFF) as *const u64) as *const c_void }
+}
+
 /// Wrapper-cell lazy props slot — mirror of
 /// `torajs-wrapper::WRAPPER_PROPS_OFF` (RFC 20260716 刀 5, rotation
 /// 121). Every wrapper cell layout is `[header:8][value:8][props:8]`.

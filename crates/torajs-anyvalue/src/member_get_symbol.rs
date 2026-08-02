@@ -72,6 +72,12 @@ pub(crate) unsafe fn own_dict(ptr: *mut c_void, t: u16) -> *const c_void {
         // Both keep the expando dict in the same +24 slot.
         return unsafe { closure_props(ptr) };
     }
+    // Blade 2 (RFC 20260714-struct-dynamic-props) — a struct cell
+    // carries the same +24 expando slot; a symbol-keyed expando
+    // (`(c as any)[sym] = v`) lives there like any other key.
+    if t == Tag::Obj as u16 {
+        return unsafe { crate::member_get_layout::struct_props(ptr) };
+    }
     if is_wrapper_tag(t) {
         return unsafe { wrapper_props(ptr) };
     }

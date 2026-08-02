@@ -232,6 +232,14 @@ pub unsafe extern "C" fn __torajs_any_member_get_tag(recv: AnyValue, key: *const
             if crate::struct_probe::struct_accessor_key(ptr, key) {
                 return crate::struct_probe::ANY_ACCESSOR_TAG;
             }
+            // RFC 20260714-struct-dynamic-props blade 2 — the +24
+            // expando dict is an OWN face: it answers before the
+            // prototype chain (§10.1.8.1 own-first). NULL slot =
+            // never written, fall through.
+            let props = crate::member_get_layout::struct_props(ptr);
+            if !props.is_null() && __torajs_dynobj_has(props, key) != 0 {
+                return __torajs_dynobj_get_tag(props, key);
+            }
             // L3b ⑧ — an own-face miss reads through the class
             // prototype chain (§10.1.8.1 step 3): the reified method
             // face, the wired `constructor`, a prototype expando. A

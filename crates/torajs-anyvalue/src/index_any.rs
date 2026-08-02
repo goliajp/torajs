@@ -160,14 +160,27 @@ unsafe fn struct_index_get(obj: *mut c_void, idx: i64) -> AnyValue {
     unsafe {
         let key = __torajs_str_alloc(buf[start..].as_ptr(), len as i64);
         let pair = crate::struct_probe::struct_field_pair(obj, key as *const c_void);
-        __torajs_str_drop(key as *mut c_void);
         let Some((ftag, fval)) = pair else {
+            // Blade 2 (RFC 20260714-struct-dynamic-props) — a numeric
+            // expando (`(c as any)[4] = v`) lives in the +24 dict
+            // under its §7.1.19 decimal spelling; own face, so it
+            // answers before the accessor fallback's undefined.
+            let props = crate::member_get_layout::struct_props(obj);
+            if !props.is_null() && __torajs_dynobj_has(props, key as *const c_void) != 0 {
+                let etag = __torajs_dynobj_get_tag(props, key as *const c_void);
+                let eval = __torajs_dynobj_get_value(props, key as *const c_void);
+                __torajs_str_drop(key as *mut c_void);
+                crate::payload_rc_inc(etag as i64, eval as i64);
+                return crate::nanbox_encode::__torajs_anyv_box_from_pair(etag as i64, eval as i64);
+            }
+            __torajs_str_drop(key as *mut c_void);
             return crate::struct_probe::__torajs_struct_accessor_get(
                 obj,
                 buf[start..].as_ptr(),
                 len as u32,
             );
         };
+        __torajs_str_drop(key as *mut c_void);
         crate::payload_rc_inc(ftag as i64, fval as i64);
         crate::nanbox_encode::__torajs_anyv_box_from_pair(ftag as i64, fval as i64)
     }

@@ -113,6 +113,12 @@ pub unsafe extern "C" fn __torajs_any_method_probe(
             }
         }
         Some((ptr, t)) if t == Tag::Obj as u16 => {
+            // Blade 2 — an expando entry answers the existence probe
+            // like any own property.
+            let props = unsafe { crate::member_get_layout::struct_props(ptr) };
+            if !props.is_null() && unsafe { __torajs_dynobj_has(props, key) } != 0 {
+                return 1;
+            }
             let class_tag =
                 unsafe { (ptr.cast::<u8>().add(OBJ_CLASS_TAG_OFF) as *const u32).read() };
             let layout = unsafe { __torajs_struct_layout_lookup(class_tag) };
