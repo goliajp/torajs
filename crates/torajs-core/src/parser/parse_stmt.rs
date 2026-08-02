@@ -168,6 +168,24 @@ impl<'a> Parser<'a> {
             return Ok(Stmt::Labeled { label, body });
         }
         let expr = self.parse_expr()?;
+        // §13.16 comma-operator expression STATEMENT (`a = 1, b = 2;`
+        // / `for (i = 0, j = 9; ...)` init). Every segment's value is
+        // discarded, so the segments desugar to sequential statements
+        // under a transparent Multi — which also gives each segment
+        // the dstr-assign face (`[a] = [1], [b] = [2];`). Comma in
+        // expression POSITION (parens, args) is unaffected.
+        if matches!(self.peek(), Token::Comma) {
+            let mut segs: Vec<Stmt> = vec![self.expr_stmt_or_dstr_assign(expr)?];
+            while matches!(self.peek(), Token::Comma) {
+                self.pos += 1;
+                let e = self.parse_expr()?;
+                segs.push(self.expr_stmt_or_dstr_assign(e)?);
+            }
+            if matches!(self.peek(), Token::Semi) {
+                self.pos += 1;
+            }
+            return Ok(Stmt::Multi(segs));
+        }
         if matches!(self.peek(), Token::Semi) {
             self.pos += 1;
         }
