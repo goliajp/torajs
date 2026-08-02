@@ -134,67 +134,9 @@ pub(crate) fn try_match(obj_ty: &Type, name: &str) -> Option<Result<Type, String
         (Type::Object("Array"), "of") => {
             Type::Function(vec![Type::Rest(Box::new(Type::Any))], Box::new(Type::Any))
         }
-        // Object.is(a, b) — strict equality with two
-        // corner-case overrides vs `===`: NaN is equal to
-        // NaN, and +0 is NOT equal to -0. Lowered per arg
-        // SSA type (Type::Number → __torajs_object_is_f64
-        // runtime helper that bitcasts the ±0 case;
-        // Type::String → __torajs_str_eq; everything else
-        // falls back to SSA-level == compare).
-        (Type::Object("Object"), "is") => {
-            Type::Function(vec![Type::Any, Type::Any], Box::new(Type::Boolean))
-        }
-        /* T-09.b (v0.4.0) — Object.entries(obj) returns
-         * `Array<Array<Any>>` (each inner is `[key, value]`).
-         * Codegen unfolds at compile time using the static
-         * struct layout from check.rs's struct_layouts —
-         * zero-cost reflection just like Object.keys. The
-         * Type::Any tagged-slot path from T-10 carries the
-         * mixed key (Str) + value (per-field type). */
-        (Type::Object("Object"), "entries") => Type::Function(
-            vec![Type::Any],
-            Box::new(Type::Array(Box::new(Type::Array(Box::new(Type::Any))))),
-        ),
-        /* T-09.c (v0.4.0) — Object.fromEntries(entries)
-         * uses caller-driven typing (similar to JSON.parse):
-         * the typecheck-level return is Any, and ssa_lower's
-         * LetDecl arm unfolds per the slot struct schema.
-         * MVP: entries are assumed to be in struct field
-         * declaration order (matches Object.entries
-         * round-trip), no key-matching scan.
-         *
-         * Chunk 693 — the param widens from Array<Array<Any>>
-         * to Any: the runtime dynobj walker takes every pairs
-         * shape (Array<Array<String>>, an Object.entries result
-         * typed Array<Any>, …) kind-aware per slot, and its
-         * ToObject/iterable guard throws the loud TypeError for
-         * non-array receivers. */
-        (Type::Object("Object"), "fromEntries") => {
-            Type::Function(vec![Type::Any], Box::new(Type::Any))
-        }
-        /* S258 — Object.values(obj) → Array<Any>. SSA-emit
-         * already dispatches Obj/Arr/Str/Any receivers
-         * (ssa_lower.rs ~18495); checktime sig was missing.
-         * Return Array<Any> — heterogeneous struct fields
-         * + Any receiver both box to Any per ssa_lower's
-         * anyv_struct_values walker; homogeneous struct
-         * + Arr receivers also typecheck under Array<Any>
-         * (downcast-on-use). */
-        (Type::Object("Object"), "values") => {
-            Type::Function(vec![Type::Any], Box::new(Type::Array(Box::new(Type::Any))))
-        }
-        /* T-09.d (v0.4.0) — Object.freeze(obj) sets the
-         * FROZEN bit on the universal heap header. Returns
-         * the same obj per spec. Subsequent field writes
-         * are silently ignored (matches non-strict mode;
-         * tr has no `"use strict"` directive). The arg
-         * type is permissive (Type::Any) — runtime accepts
-         * any heap object pointer. */
-        (Type::Object("Object"), "freeze") => Type::Function(vec![Type::Any], Box::new(Type::Any)),
-        /* Object.isFrozen(obj) — reads the FROZEN bit. */
-        (Type::Object("Object"), "isFrozen") => {
-            Type::Function(vec![Type::Any], Box::new(Type::Boolean))
-        }
+        // `Object` namespace family — extracted to try_match_object
+        // (rotation 286: this fn crossed the 200-line hard limit).
+        (Type::Object("Object"), _) => return try_match_object(name),
         /* Promise statics as VALUES (RFC 20260720 刀 6; combinators
          * added rotation 266). Direct member calls never reach this
          * arm (the call checker's T-15.g.4 promise-static handling
@@ -247,6 +189,68 @@ pub(crate) fn try_match(obj_ty: &Type, name: &str) -> Option<Result<Type, String
         _ => return None,
     };
     let _ = obj_ty;
+    Some(Ok(ty))
+}
+
+/// `Type::Object("Object")` arms — extracted from [`try_match`]
+/// (rotation 286; the parent crossed the 200-line fn hard limit).
+fn try_match_object(name: &str) -> Option<Result<Type, String>> {
+    let ty = match name {
+        // Object.is(a, b) — strict equality with two
+        // corner-case overrides vs `===`: NaN is equal to
+        // NaN, and +0 is NOT equal to -0. Lowered per arg
+        // SSA type (Type::Number → __torajs_object_is_f64
+        // runtime helper that bitcasts the ±0 case;
+        // Type::String → __torajs_str_eq; everything else
+        // falls back to SSA-level == compare).
+        "is" => Type::Function(vec![Type::Any, Type::Any], Box::new(Type::Boolean)),
+        /* T-09.b (v0.4.0) — Object.entries(obj) returns
+         * `Array<Array<Any>>` (each inner is `[key, value]`).
+         * Codegen unfolds at compile time using the static
+         * struct layout from check.rs's struct_layouts —
+         * zero-cost reflection just like Object.keys. The
+         * Type::Any tagged-slot path from T-10 carries the
+         * mixed key (Str) + value (per-field type). */
+        "entries" => Type::Function(
+            vec![Type::Any],
+            Box::new(Type::Array(Box::new(Type::Array(Box::new(Type::Any))))),
+        ),
+        /* T-09.c (v0.4.0) — Object.fromEntries(entries)
+         * uses caller-driven typing (similar to JSON.parse):
+         * the typecheck-level return is Any, and ssa_lower's
+         * LetDecl arm unfolds per the slot struct schema.
+         * MVP: entries are assumed to be in struct field
+         * declaration order (matches Object.entries
+         * round-trip), no key-matching scan.
+         *
+         * Chunk 693 — the param widens from Array<Array<Any>>
+         * to Any: the runtime dynobj walker takes every pairs
+         * shape (Array<Array<String>>, an Object.entries result
+         * typed Array<Any>, …) kind-aware per slot, and its
+         * ToObject/iterable guard throws the loud TypeError for
+         * non-array receivers. */
+        "fromEntries" => Type::Function(vec![Type::Any], Box::new(Type::Any)),
+        /* S258 — Object.values(obj) → Array<Any>. SSA-emit
+         * already dispatches Obj/Arr/Str/Any receivers
+         * (ssa_lower.rs ~18495); checktime sig was missing.
+         * Return Array<Any> — heterogeneous struct fields
+         * + Any receiver both box to Any per ssa_lower's
+         * anyv_struct_values walker; homogeneous struct
+         * + Arr receivers also typecheck under Array<Any>
+         * (downcast-on-use). */
+        "values" => Type::Function(vec![Type::Any], Box::new(Type::Array(Box::new(Type::Any)))),
+        /* T-09.d (v0.4.0) — Object.freeze(obj) sets the
+         * FROZEN bit on the universal heap header. Returns
+         * the same obj per spec. Subsequent field writes
+         * are silently ignored (matches non-strict mode;
+         * tr has no `"use strict"` directive). The arg
+         * type is permissive (Type::Any) — runtime accepts
+         * any heap object pointer. */
+        "freeze" => Type::Function(vec![Type::Any], Box::new(Type::Any)),
+        /* Object.isFrozen(obj) — reads the FROZEN bit. */
+        "isFrozen" => Type::Function(vec![Type::Any], Box::new(Type::Boolean)),
+        _ => return None,
+    };
     Some(Ok(ty))
 }
 
