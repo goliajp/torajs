@@ -193,6 +193,29 @@ impl<'a> Parser<'a> {
                     )?;
                 }
                 t => {
+                    // ES §12.10 ASI — a bare FieldDefinition's `;` can
+                    // be supplied by a line break: `a` on its own line
+                    // followed by the next member (`*m() {} a\nb = 42`,
+                    // the t262 after-same-line-*-asi family). Only a
+                    // NEWLINE triggers it (`a b` on one line stays the
+                    // loud error), and only for a plain unconsumed
+                    // name (a computed key's shape token was already
+                    // decided above).
+                    if !consumed_computed_name && self.has_newline_before(self.pos + 1) {
+                        self.parse_class_member_field_dispatch(
+                            &name,
+                            member_name,
+                            consumed_computed_name,
+                            explicit_visibility,
+                            is_readonly,
+                            is_abstract_method,
+                            is_static,
+                            &mut fields,
+                            &mut static_init,
+                            &mut field_inits,
+                        )?;
+                        continue;
+                    }
                     return Err(format!(
                         "expected `(` (method) or `:` (field) after `{member_name}`, got {t:?} at {}",
                         self.at()
