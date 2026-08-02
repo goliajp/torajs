@@ -31,6 +31,22 @@ use std::collections::{HashMap, HashSet};
 /// first param + Closure shape) — substrate followup if test262
 /// surfaces it.
 pub fn desugar_nested_fns(ast: &mut Ast) {
+    // r283 — fixpoint over the single-round pass: a lifted FnDecl can
+    // itself contain a nested FnDecl (`function a() { function b() {
+    // function c() {} } }` — the t262 async-case tail's `assertions`
+    // / `$DONE` pair, 120-case cluster). Each round only walks
+    // top-level decls, so freshly-lifted bodies get their own round;
+    // a round that lifts nothing is the (idempotent) fixed point.
+    loop {
+        let before = ast.stmts.len();
+        desugar_nested_fns_once(ast);
+        if ast.stmts.len() == before {
+            break;
+        }
+    }
+}
+
+fn desugar_nested_fns_once(ast: &mut Ast) {
     let mut top = std::mem::take(&mut ast.stmts);
     let mut new_top: Vec<Stmt> = Vec::new();
     let mut counter: u32 = 0;
