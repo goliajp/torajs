@@ -192,6 +192,103 @@ pub(super) fn try_lower_static_field_reify(
     Some(Operand::ConstI64(0))
 }
 
+/// RFC 20260802-class-computed-member 刀 2 —
+/// `__torajs_class_computed_reify("<C>", "<sentinel>", <key expr>,
+/// kind, is_static)`: the class-decl-position patch for one runtime
+/// computed member. `lower_key(DefineKey::Expr)` evaluates the key
+/// at the spec ClassDefinitionEvaluation point (Str coerce / Symbol
+/// pass-through / any-lane ToPropertyKey with throw check), the
+/// sentinel resolves the ordinary `__cm_` / `__sm_` body's boxed
+/// adapter (accessor faces under `_get` / `_set`), and the runtime
+/// define lands the reified face on `__proto_<C>` / `__class_<C>`.
+/// kind: 0 = method, 1 = getter, 2 = setter. Adapter-dropout skips
+/// the define (same posture as the sibling reifies) — but the key
+/// STILL evaluates: its side effects and throws are spec-observable
+/// (accessor-name computed-err-* family).
+pub(super) fn try_lower_class_computed_reify(
+    ctx: &mut LowerCtx<'_>,
+    args: &[ExprId],
+) -> Option<Operand> {
+    if args.len() != 5 {
+        return None;
+    }
+    let Expr::String(cname) = ctx.ast.get_expr(args[0]) else {
+        return None;
+    };
+    let Expr::String(sentinel) = ctx.ast.get_expr(args[1]) else {
+        return None;
+    };
+    let Expr::Number(kind) = ctx.ast.get_expr(args[3]) else {
+        return None;
+    };
+    let Expr::Number(is_static) = ctx.ast.get_expr(args[4]) else {
+        return None;
+    };
+    let cname = cname.clone();
+    let sentinel = sentinel.clone();
+    let kind = *kind as i64;
+    let is_static = *is_static as i64;
+    // §15.4 evaluation order — the ComputedPropertyName evaluates
+    // unconditionally (side effects + throws are observable), even
+    // when a tag / adapter dropout skips the define below.
+    let (key_op, key_owned) = crate::ssa_lower_object_define::lower_key(
+        ctx,
+        &crate::ssa_lower_object_define::DefineKey::Expr(args[2]),
+    );
+    let tag = ctx.class_name_to_tag.get(&cname).copied();
+    let prefix = if is_static != 0 { "__sm_" } else { "__cm_" };
+    let adapter = |suffix: &str| -> Option<(crate::ssa::FuncId, crate::ssa::SigId)> {
+        let body = format!("{prefix}{cname}__{sentinel}{suffix}");
+        let body_fid = ctx.fn_table.get(body.as_str()).copied()?;
+        ctx.boxed_entries.get(&body_fid).copied()
+    };
+    let resolved = match kind {
+        0 => adapter(""),
+        1 => adapter("_get"),
+        _ => adapter("_set"),
+    };
+    if let (Some(tag), Some((fid, sig))) = (tag, resolved) {
+        let cur_block = ctx.cur_block;
+        let vaddr = ctx
+            .f
+            .append_inst(cur_block, InstKind::FnAddr(fid), Type::FnSig(sig), None);
+        let (define, def_args) = if kind == 0 {
+            (
+                ctx.intrinsics.class_computed_method_define,
+                vec![
+                    Operand::ConstI64(tag as i64),
+                    key_op.clone(),
+                    Operand::Value(vaddr),
+                    Operand::ConstI64(is_static),
+                ],
+            )
+        } else {
+            let (g, s) = if kind == 1 {
+                (Operand::Value(vaddr), Operand::ConstI64(0))
+            } else {
+                (Operand::ConstI64(0), Operand::Value(vaddr))
+            };
+            (
+                ctx.intrinsics.class_computed_accessor_define,
+                vec![
+                    Operand::ConstI64(tag as i64),
+                    key_op.clone(),
+                    g,
+                    s,
+                    Operand::ConstI64(is_static),
+                ],
+            )
+        };
+        ctx.f
+            .append_void(cur_block, InstKind::Call(define, def_args));
+    }
+    crate::ssa_lower_object_define::emit_key_release(ctx, key_op, key_owned);
+    if let Some(tag) = tag {
+        emit_class_binding_writeback(ctx, &cname, tag, is_static == 0);
+    }
+    Some(Operand::ConstI64(0))
+}
+
 /// RFC 20260718-accessor-reify 刀 2+3 —
 /// `__torajs_class_accessor_reify("<C>", "<p>")` (instance,
 /// `__cm_` faces onto the prototype) and its static twin

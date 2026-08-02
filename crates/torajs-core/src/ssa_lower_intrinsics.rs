@@ -446,6 +446,8 @@ pub(crate) struct Intrinsics {
     pub(crate) error_message_get: FuncId,
     pub(crate) ctor_no_super_throw: FuncId,
     pub(crate) throw_reference_error_name: FuncId,
+    pub(crate) class_computed_method_define: FuncId,
+    pub(crate) class_computed_accessor_define: FuncId,
     pub(crate) arr_subclass_alloc: FuncId,
     pub(crate) arr_subclass_super_len: FuncId,
     pub(crate) number_wrapper_subclass_alloc: FuncId,

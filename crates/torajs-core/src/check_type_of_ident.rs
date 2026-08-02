@@ -114,6 +114,19 @@ pub(crate) fn check(
         "__torajs_class_accessor_reify" | "__torajs_class_static_accessor_reify" => Ok(
             Type::Function(vec![Type::String, Type::String], Box::new(Type::Void)),
         ),
+        // RFC 20260802-class-computed-member 刀 2 — the class-decl-
+        // position patch for one runtime computed member: (class,
+        // sentinel, key expr, kind, is_static).
+        "__torajs_class_computed_reify" => Ok(Type::Function(
+            vec![
+                Type::String,
+                Type::String,
+                Type::Any,
+                Type::Number,
+                Type::Number,
+            ],
+            Box::new(Type::Void),
+        )),
         "__torajs_error_proto_install" => {
             Ok(Type::Function(vec![Type::String], Box::new(Type::Void)))
         }

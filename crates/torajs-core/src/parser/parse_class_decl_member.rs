@@ -115,11 +115,21 @@ impl<'a> Parser<'a> {
                     self.pos += 1;
                     k
                 }
-                t => {
-                    return Err(format!(
-                        "not yet supported: runtime computed class member name (non-literal `[...]` key, got {t:?}) in class `{name}` at {}",
-                        self.at()
-                    ));
+                _ => {
+                    // RFC 20260802 刀 2 — every other expression is a
+                    // RUNTIME computed key (§15.4 ClassElementName →
+                    // ComputedPropertyName evaluates at class-
+                    // definition time). The member installs under a
+                    // unique `__ccm_<n>__` sentinel through the
+                    // ordinary method / accessor machinery;
+                    // desugar_classes emits the ToPropertyKey +
+                    // define patch at the class-decl position.
+                    let key_expr = self.parse_assign()?;
+                    let sentinel = format!("__ccm_{}__", self.ast.class_computed_keys.len());
+                    self.ast
+                        .class_computed_keys
+                        .insert((name.to_string(), sentinel.clone()), key_expr);
+                    sentinel
                 }
             };
             if !matches!(self.peek(), Token::RBracket) {
@@ -214,6 +224,17 @@ impl<'a> Parser<'a> {
         static_init: &mut Vec<StaticInit>,
         field_inits: &mut Vec<(String, ExprId)>,
     ) -> Result<(), String> {
+        // RFC 20260802 刀 2 boundary — a runtime computed FIELD
+        // (`[expr] = 1`) would bake the `__ccm_` sentinel into the
+        // static struct layout, installing under a name unrelated to
+        // the runtime key. Per-instance computed fields need the
+        // struct expando surface (RFC 刀 3); reject loud until then.
+        if member_name.starts_with("__ccm_") {
+            return Err(format!(
+                "not yet supported: runtime computed class field name in class `{name}` at {}",
+                self.at()
+            ));
+        }
         // Same lookahead the member loop matched on: the member name
         // is still unconsumed unless the computed-name path already
         // ate it (`name + ]`), so the shape token sits one ahead.

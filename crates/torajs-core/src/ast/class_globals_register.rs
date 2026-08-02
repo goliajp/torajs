@@ -214,6 +214,10 @@ pub(super) fn emit_reify_stmts(
                 }
                 _ => None,
             })
+            // RFC 20260802 刀 2 — a runtime computed member's `__ccm_`
+            // sentinel is not a property name; the class-decl-position
+            // computed define installs it under its runtime key.
+            .filter(|m| !m.starts_with("__ccm_"))
             .collect();
         for m in mnames {
             let cname_str = ast.add_expr(Expr::String(cname.clone()));
@@ -239,7 +243,9 @@ pub(super) fn emit_reify_stmts(
         pairs.sort();
         pairs.dedup();
         for (cname, prop) in pairs {
-            if gen_class_set.contains(&cname) {
+            // RFC 20260802 刀 2 — same `__ccm_` sentinel skip as the
+            // instance-accessor sweep below.
+            if gen_class_set.contains(&cname) || prop.starts_with("__ccm_") {
                 continue;
             }
             let cname_str = ast.add_expr(Expr::String(cname));
@@ -273,7 +279,10 @@ pub(super) fn emit_reify_stmts(
         pairs.sort();
         pairs.dedup();
         for (cname, prop) in pairs {
-            if gen_class_set.contains(&cname) {
+            // RFC 20260802 刀 2 — computed accessors (`__ccm_`
+            // sentinels) define under their runtime key at the
+            // class-decl position, not under the sentinel spelling.
+            if gen_class_set.contains(&cname) || prop.starts_with("__ccm_") {
                 continue;
             }
             let cname_str = ast.add_expr(Expr::String(cname));

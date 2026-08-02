@@ -197,6 +197,13 @@ pub(super) fn rewrite_classdecls_pass3(
     accessor_getter_records: &mut Vec<(String, String, String)>,
     accessor_setter_records: &mut Vec<(String, String, String)>,
 ) {
+    // RFC 20260802-class-computed-member 刀 2 — per-class reify
+    // patches spliced AFTER the TypeDecl at the class-decl position
+    // (ClassDefinitionEvaluation: the computed key exprs must see
+    // bindings declared above the class, so they cannot ride the
+    // module-top class_globals prepend). Collected during the loop,
+    // spliced in reverse so earlier indices stay valid.
+    let mut computed_patches: Vec<(usize, Vec<Stmt>)> = Vec::new();
     // Pass 3 — rewrite the stmt list. Replace each ClassDecl in-place
     // with its TypeDecl (using the flattened field list so subclasses
     // carry parent fields too), and accumulate the generated FnDecls.
@@ -290,5 +297,66 @@ pub(super) fn rewrite_classdecls_pass3(
         // M-OO.4 — emit `function __sm_<C>__<name>(...): R { body }`
         // for each static method. See `ast/desugar_classes_emit.rs`.
         emit_class_static_methods(ast, static_methods, cname, type_params, appended);
+
+        let mut patch: Vec<Stmt> = Vec::new();
+        emit_computed_member_reifies(ast, cname, methods, static_methods, &mut patch);
+        if !patch.is_empty() {
+            computed_patches.push((*idx, patch));
+        }
+    }
+    for (idx, patch) in computed_patches.into_iter().rev() {
+        ast.stmts.splice(idx + 1..idx + 1, patch);
+    }
+}
+
+/// RFC 20260802-class-computed-member 刀 2 — one
+/// `__torajs_class_computed_reify("<C>", "<sentinel>", <key expr>,
+/// kind, is_static)` call per runtime computed member, in DECLARATION
+/// order across the instance / static split (the `__ccm_<n>__`
+/// sentinel number IS the declaration order — each
+/// ComputedPropertyName evaluates once, in order, per §15.7.14).
+/// kind: 0 = method, 1 = getter, 2 = setter.
+fn emit_computed_member_reifies(
+    ast: &mut Ast,
+    cname: &str,
+    methods: &[ClassMethod],
+    static_methods: &[ClassMethod],
+    patch: &mut Vec<Stmt>,
+) {
+    let mut entries: Vec<(usize, String, i64, i64)> = Vec::new();
+    for (ms, is_static) in [(methods, 0i64), (static_methods, 1i64)] {
+        for m in ms {
+            let Some(rest) = m.name.strip_prefix("__ccm_") else {
+                continue;
+            };
+            let Ok(n) = rest.trim_end_matches('_').parse::<usize>() else {
+                continue;
+            };
+            let kind = match m.accessor_kind {
+                None => 0,
+                Some(AccessorKind::Getter) => 1,
+                Some(AccessorKind::Setter) => 2,
+            };
+            entries.push((n, m.name.clone(), kind, is_static));
+        }
+    }
+    entries.sort();
+    for (_, sentinel, kind, is_static) in entries {
+        let Some(&key_eid) = ast
+            .class_computed_keys
+            .get(&(cname.to_string(), sentinel.clone()))
+        else {
+            continue;
+        };
+        let cname_str = ast.add_expr(Expr::String(cname.to_string()));
+        let sent_str = ast.add_expr(Expr::String(sentinel));
+        let kind_e = ast.add_expr(Expr::Number(kind as f64));
+        let stat_e = ast.add_expr(Expr::Number(is_static as f64));
+        let callee = ast.add_expr(Expr::Ident("__torajs_class_computed_reify".to_string()));
+        let call = ast.add_expr(Expr::Call {
+            callee,
+            args: vec![cname_str, sent_str, key_eid, kind_e, stat_e],
+        });
+        patch.push(Stmt::Expr(call));
     }
 }

@@ -290,6 +290,19 @@ pub struct Ast {
     /// routes a member in this set through the accessor define kernel
     /// (`DefineKey::Expr`) instead of the data-field store.
     pub objlit_computed_accessors: std::collections::HashMap<ExprId, bool>,
+    /// RFC 20260802-class-computed-member 刀 2 — `(class, sentinel)`
+    /// → key ExprId of a runtime computed class member name
+    /// (`class C { [expr]() {} / get [expr]() {} }`). The member
+    /// installs under a unique `__ccm_<n>__` sentinel through the
+    /// ordinary method / accessor machinery; desugar_classes splices
+    /// a `__torajs_class_computed_reify` call at the class-decl
+    /// position (ClassDefinitionEvaluation order — the key expr must
+    /// see bindings declared above the class), which ToPropertyKey's
+    /// the key and defines the reified face onto `__proto_<C>` /
+    /// `__class_<C>`. Literal string / numeric whole keys fold at
+    /// parse time and `Symbol.`-chains keep `__sym_<chain>__` (刀 1),
+    /// so neither appears here.
+    pub class_computed_keys: std::collections::HashMap<(String, String), ExprId>,
     /// RFC 20260718-builtin-error-ctor-first-class 刀 1 — the class
     /// names `inject_builtin_classes` synthesized (Error + the
     /// NativeError subclasses). class_globals emits the

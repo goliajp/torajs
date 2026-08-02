@@ -311,6 +311,12 @@ unsafe fn reify_prototype_methods(tag: i64, proto: *mut c_void) {
             if name.starts_with(b"__getter_") || name.starts_with(b"__setter_") {
                 continue;
             }
+            // RFC 20260802 刀 2 — a runtime computed member's `__ccm_`
+            // sentinel is not a property name; its own entry lands via
+            // the class-decl-position computed define instead.
+            if name.starts_with(b"__ccm_") {
+                continue;
+            }
             // S2.38 — bit 0 of the MethodMeta flags word marks a
             // receiver-free body; the face runs bare calls with a
             // null receiver instead of the this-undefined TypeError.

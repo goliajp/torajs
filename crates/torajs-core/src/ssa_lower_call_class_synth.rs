@@ -64,6 +64,7 @@ pub(crate) fn try_lower(
         "__torajs_class_static_accessor_reify" => {
             reify::try_lower_class_accessor_reify(ctx, args, true)
         }
+        "__torajs_class_computed_reify" => reify::try_lower_class_computed_reify(ctx, args),
         "__torajs_register_native_error" => try_lower_register_native_error(ctx, args),
         "__torajs_undef_str" => crate::ssa_lower_call_error_magic::try_lower_undef_str(ctx, args),
         "__torajs_ctor_no_super_throw" => {
