@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-02T15:08:21.643Z",
+  "generatedAt": "2026-08-02T22:55:33.030Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-02T15:06:11Z",
-    "headSha": "882462f3",
-    "elapsedSec": 644.83,
+    "ranAt": "2026-08-02T22:27:12Z",
+    "headSha": "b4440fbd",
+    "elapsedSec": 396.58,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 20886,
+    "pass": 20965,
     "passNoOracle": 557,
     "passNegative": 3917,
-    "passTotal": 25360,
-    "bug": 11736,
-    "incompatible": 16078,
+    "passTotal": 25439,
+    "bug": 11680,
+    "incompatible": 16055,
     "bunSkip": 7467,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 37096,
-    "passRateInScope": 47.69,
-    "passRateTrAccepted": 68.36
+    "trAccepted": 37119,
+    "passRateInScope": 47.84,
+    "passRateTrAccepted": 68.53
   },
   "torajs": {
-    "commit": "882462f3",
-    "commitSubject": "fix: array predicate callbacks accept any return type via ToBoolean",
+    "commit": "b4440fbd",
+    "commitSubject": "refactor: extract resolve_acc_ty from the arr HO dispatch",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "b4440fbd",
+      "subject": "refactor: extract resolve_acc_ty from the arr HO dispatch"
+    },
+    {
+      "hash": "a99f0261",
+      "subject": "fix: predicate-family boolean seed yields to the body's sniffed return"
+    },
+    {
+      "hash": "474df8da",
+      "subject": "feat: reduce callback return polymorphism rides an Any accumulator lane"
+    },
+    {
+      "hash": "b9db40d8",
+      "subject": "feat: map callback return polymorphism at full spec arity with thisArg"
+    },
+    {
+      "hash": "d8c5e1c4",
+      "subject": "feat: named-fn HOF callbacks receive the thisArg through a receiver-first forwarder"
+    },
+    {
+      "hash": "4ee4e760",
+      "subject": "fix: filter keep test folds callback return through ToBoolean"
+    },
+    {
+      "hash": "f6dd36a4",
+      "subject": "chore(docs,hardev): rotation 284 sweep artifacts and census at 882462f3"
+    },
+    {
       "hash": "882462f3",
       "subject": "fix: array predicate callbacks accept any return type via ToBoolean"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "fddce1da",
       "subject": "fix: method-call receiver parks on every lower-then-decline dispatch arm"
-    },
-    {
-      "hash": "25f808f0",
-      "subject": "chore(docs,hardev): rotation 283 sweep artifacts and census at f76e0d15"
-    },
-    {
-      "hash": "f76e0d15",
-      "subject": "fix(core): nested-fn hoisting runs to a fixpoint"
-    },
-    {
-      "hash": "9e2215aa",
-      "subject": "fix(core): generator-lifted destructure temps ride the any lane"
-    },
-    {
-      "hash": "1c83d1e7",
-      "subject": "fix(core): typevar inference joins Array(Any) with typed arrays structurally"
-    },
-    {
-      "hash": "02c7b24e",
-      "subject": "feat(core): zero-arg Function() and new Function() answer an empty function"
-    },
-    {
-      "hash": "9bbd7620",
-      "subject": "fix(core): reassigned non-copy params copy in an owned stake"
-    },
-    {
-      "hash": "2f180a4e",
-      "subject": "chore(hardev): test262 sweep artifacts at e34a7fa9"
     }
   ],
-  "headSha": "882462f3",
+  "headSha": "b4440fbd",
   "autorun": {
-    "total": 588,
+    "total": 589,
     "baselineTarget": 10,
-    "bySelf": 583,
+    "bySelf": 584,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785674285-3c28",
-      "at": "2026-08-02T12:38:05Z",
-      "ts": 1785674285,
+      "rotationId": "r-1785683324-10fc",
+      "at": "2026-08-02T15:08:44Z",
+      "ts": 1785683324,
       "trigger": "self",
-      "prevHead": "25f808f0",
-      "handoffSha": "sha256:9f9478cc03c89e2dcba3d03327950c28d7725325b69299369a9b86646f44dce0",
-      "handoffAgeSec": 22,
+      "prevHead": "f6dd36a4",
+      "handoffSha": "sha256:f7bf0ceaa9f354cf07f49c0f46e682b9e66ee6b922eb69062f29f467fd478b1d",
+      "handoffAgeSec": 56,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1785683324-10fc",
+        "at": "2026-08-02T15:08:44Z",
+        "ts": 1785683324,
+        "trigger": "self",
+        "prevHead": "f6dd36a4",
+        "handoffSha": "sha256:f7bf0ceaa9f354cf07f49c0f46e682b9e66ee6b922eb69062f29f467fd478b1d",
+        "handoffAgeSec": 56,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785674285-3c28",
         "at": "2026-08-02T12:38:05Z",
@@ -876,17 +887,6 @@
         "prevHead": "c7ff77cd",
         "handoffSha": "sha256:41585c5a1161cde805badee7478e50dd49f4a60bc5d9526948012ff4155b0973",
         "handoffAgeSec": 0,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1785600425-2920",
-        "at": "2026-08-01T16:07:05Z",
-        "ts": 1785600425,
-        "trigger": "self",
-        "prevHead": "cbca4f8e",
-        "handoffSha": "sha256:6e8bc6985d182a9d27b321a1c0aa5ea1cee671920a6df0e73c9cd1e264d4c9aa",
-        "handoffAgeSec": 14,
         "conformanceBefore": null,
         "commitsInSession": null
       }

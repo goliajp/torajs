@@ -1530,7 +1530,28 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 9215301c`, never as a constant.
 
-**Latest @ `f76e0d15`** (2026-08-02, rotation 283 — five substrate
+**Latest @ `b4440fbd`** (2026-08-03, rotation 285 — the HOF-callback
+face, five substrate knives + one mechanical extract: filter's keep
+test folds through ToBoolean (§23.1.3.7, the trio-kernel gap the
+rotation-284 predicate fix left); a NAMED fn callback receives the
+HOF thisArg through a receiver-first `__fwdrecv_` forwarder riding
+the knife-4 protocol unchanged (root cause of the 22-case rotation-284
+honest re-baseline dip — all recovered); map callback return
+polymorphism at full spec arity with thisArg; reduce hetero returns
+ride an Any accumulator lane (empty-walk seed passthrough
+silent-wrong closed); the predicate-family "boolean" contextual seed
+yields to the body's sniffed return (arrow faces): sweep passTotal
+25360 → **25439 (+79)** / bug 11736 → 11680 (−56) / trAccepted
++23 / incompatible 16078 → **16055 (−23)**, conservation exact
+(23 = 79 − 56); gate predicate **347 clusters / 9170 cases** (−1 /
+−15); regressions: **ZERO** — all 79 forward moves land in the five
+knives' target faces (map 22 / every 14 / forEach 14 / some 14 /
+filter 8 / reduce family 5 + 2 spillover); crash count 34 flat.
+Rotation-284 interim @ `882462f3`: passTotal 25224 → 25360 (+136) /
+incompat −74, gate predicate 348 / 9185, the 22-case every/some
+thisArg dip honestly re-baselined (recovered this rotation).
+
+**Prior @ `f76e0d15`** (2026-08-02, rotation 283 — five substrate
 knives: reassigned non-Copy params copy in an owned stake (the
 default-param guard's compile-time `moved` clear over-released the
 caller's borrow — root cause of the seven r282 gen dstr-default pass
