@@ -102,14 +102,24 @@ impl<'a> Parser<'a> {
         // is an early SyntaxError here (ES §15.7.1).
         let saved_super = std::mem::replace(&mut self.super_call_allowed, false);
         let saved_async_gen = std::mem::replace(&mut self.in_async_gen, is_async);
+        let saved_await = std::mem::replace(&mut self.await_allowed, is_async);
         // Knife 4d — arena range for the `arguments` rename sweep
         // below (the class half does the same, see
         // parse_class_decl_generator.rs knife 2b).
         let body_expr_start = self.ast.exprs.len();
         let mut body = Vec::new();
         while !matches!(self.peek(), Token::RBrace | Token::Eof) {
-            body.push(self.parse_stmt()?);
+            match self.parse_stmt() {
+                Ok(s) => body.push(s),
+                Err(e) => {
+                    self.await_allowed = saved_await;
+                    self.in_async_gen = saved_async_gen;
+                    self.super_call_allowed = saved_super;
+                    return Err(e);
+                }
+            }
         }
+        self.await_allowed = saved_await;
         self.in_async_gen = saved_async_gen;
         self.super_call_allowed = saved_super;
         match self.peek() {

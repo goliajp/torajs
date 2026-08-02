@@ -33,6 +33,7 @@
 use crate::ast::{self, Ast, BinOp, ClassCtor, ClassMethod, Expr, ExprId, Param, StaticInit, Stmt};
 use crate::lexer::{self, Spanned, Token};
 
+mod arrow_fn;
 mod class_field_early_errors;
 mod class_member;
 mod cursor;
@@ -127,6 +128,7 @@ pub fn parse_into(source: &str, tokens: &[Spanned], target: &mut Ast) -> Result<
         yield_hoist_buf: Vec::new(),
         yield_hoist_allowed: true,
         in_formal_params: false,
+        await_allowed: true,
     };
     let result = p.parse_program();
     *target = p.ast;
@@ -227,6 +229,12 @@ struct Parser<'a> {
     /// function kind. Cleared per-statement by the `parse_stmt`
     /// wrapper so a nested function BODY inside a default is exempt.
     in_formal_params: bool,
+    /// §15.8.1 — `await` is only valid at the top level of a module
+    /// (init true) and inside async function bodies. Every
+    /// function-like body parse replaces this with its own asyncness
+    /// and restores on exit; a class static block forces false
+    /// (§15.7.1 ClassStaticBlockBody may not contain await).
+    await_allowed: bool,
     /// P-SURF S2.37 — name of the class whose STATIC member body we
     /// are currently inside, or None elsewhere. While set, `this`
     /// mints `Ident(<ClassName>)` directly: per ES §15.7.14 a static

@@ -148,6 +148,7 @@ impl<'a> Parser<'a> {
         // resolved below.
         let saved_super = std::mem::replace(&mut self.super_call_allowed, false);
         let saved_async_gen = std::mem::replace(&mut self.in_async_gen, is_async);
+        let saved_await = std::mem::replace(&mut self.await_allowed, is_async);
         let mut body = Vec::new();
         while !matches!(self.peek(), Token::RBrace | Token::Eof) {
             match self.parse_stmt() {
@@ -155,12 +156,14 @@ impl<'a> Parser<'a> {
                 Err(e) => {
                     self.in_gen_class_method = saved_in_gen;
                     self.in_async_gen = saved_async_gen;
+                    self.await_allowed = saved_await;
                     return Err(e);
                 }
             }
         }
         self.in_gen_class_method = saved_in_gen;
         self.in_async_gen = saved_async_gen;
+        self.await_allowed = saved_await;
         self.super_call_allowed = saved_super;
         // Byte end of the MethodDefinition span (ES §20.2.3.5) — the
         // closing `}`, captured before it is consumed, same as the

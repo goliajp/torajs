@@ -135,13 +135,19 @@ impl<'a> Parser<'a> {
                     None
                 },
             );
+            // §15.8.1 — await legality follows the member's own
+            // asyncness (a constructor is never async).
+            let saved_await =
+                std::mem::replace(&mut self.await_allowed, is_async && !is_ctor_branch);
             let mut body = Vec::new();
             while !matches!(self.peek(), Token::RBrace | Token::Eof) {
                 if let Err(e) = self.parse_stmt().map(|s| body.push(s)) {
+                    self.await_allowed = saved_await;
                     self.static_this_class = saved_static_this;
                     return Err(e);
                 }
             }
+            self.await_allowed = saved_await;
             self.static_this_class = saved_static_this;
             self.super_call_allowed = saved_super;
             match self.peek() {

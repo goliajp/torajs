@@ -20,13 +20,23 @@ impl<'a> Parser<'a> {
     ) -> Result<(), String> {
         self.pos += 2; // consume `static` + `{`
         // S2.9 — a static block is not a constructor, so `super()` in it
-        // is an early SyntaxError (ES §15.7.1).
+        // is an early SyntaxError (ES §15.7.1). §15.7.1 also forbids
+        // `await` anywhere in a ClassStaticBlockBody.
         let saved_super = std::mem::replace(&mut self.super_call_allowed, false);
+        let saved_await = std::mem::replace(&mut self.await_allowed, false);
         let mut block_stmts: Vec<Stmt> = Vec::new();
         while !matches!(self.peek(), Token::RBrace | Token::Eof) {
-            let s = self.parse_stmt()?;
+            let s = match self.parse_stmt() {
+                Ok(s) => s,
+                Err(e) => {
+                    self.await_allowed = saved_await;
+                    self.super_call_allowed = saved_super;
+                    return Err(e);
+                }
+            };
             block_stmts.push(s);
         }
+        self.await_allowed = saved_await;
         self.super_call_allowed = saved_super;
         if !matches!(self.peek(), Token::RBrace) {
             return Err(format!(

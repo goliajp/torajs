@@ -453,6 +453,13 @@ impl<'a> Parser<'a> {
                     self.at()
                 ));
             }
+            if !self.await_allowed {
+                return Err(format!(
+                    "`await` is only valid in async functions and at the top level of a \
+                     module at {} (ES §15.8.1)",
+                    self.at()
+                ));
+            }
             self.pos += 1;
             let inner = self.parse_unary()?;
             let read = self.ast.add_expr(Expr::Member {

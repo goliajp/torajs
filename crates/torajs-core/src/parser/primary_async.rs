@@ -57,26 +57,37 @@ impl<'a> Parser<'a> {
                     let pname = pname.clone();
                     self.pos += 1; // consume param ident
                     self.pos += 1; // consume `=>` (lookahead-guaranteed)
-                    let body = if matches!(self.peek(), Token::LBrace) {
+                    // §15.8.1 — this IS an async body: await is legal.
+                    let saved_await = std::mem::replace(&mut self.await_allowed, true);
+                    let body_result = if matches!(self.peek(), Token::LBrace) {
                         self.pos += 1;
                         let mut stmts = Vec::new();
+                        let mut err = None;
                         while !matches!(self.peek(), Token::RBrace | Token::Eof) {
-                            stmts.push(self.parse_stmt()?);
-                        }
-                        match self.peek() {
-                            Token::RBrace => self.pos += 1,
-                            t => {
-                                return Err(format!(
-                                    "expected `}}` after async arrow body, got {t:?} at {}",
-                                    self.at()
-                                ));
+                            match self.parse_stmt() {
+                                Ok(s) => stmts.push(s),
+                                Err(e) => {
+                                    err = Some(e);
+                                    break;
+                                }
                             }
                         }
-                        stmts
+                        match (err, self.peek()) {
+                            (Some(e), _) => Err(e),
+                            (None, Token::RBrace) => {
+                                self.pos += 1;
+                                Ok(stmts)
+                            }
+                            (None, t) => Err(format!(
+                                "expected `}}` after async arrow body, got {t:?} at {}",
+                                self.at()
+                            )),
+                        }
                     } else {
-                        let e = self.parse_expr()?;
-                        vec![Stmt::Return(Some(e))]
+                        self.parse_expr().map(|e| vec![Stmt::Return(Some(e))])
                     };
+                    self.await_allowed = saved_await;
+                    let body = body_result?;
                     self.ast.add_expr(Expr::ArrowFn {
                         params: vec![Param {
                             name: pname,
@@ -90,7 +101,9 @@ impl<'a> Parser<'a> {
                 } else {
                     // Paren form — parse_arrow_fn assumes the cursor
                     // sits on `(` and handles params / return ann /
-                    // `=>` / body.
+                    // `=>` / body. The one-shot handshake marks its
+                    // body async so `await` is legal there (§15.8.1).
+                    self.pending_async_fn_expr = true;
                     self.parse_arrow_fn()?
                 };
                 self.respan_expr(eid, start_pos);

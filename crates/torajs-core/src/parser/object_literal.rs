@@ -426,10 +426,20 @@ impl<'a> Parser<'a> {
         // constructor role, so `super()` in it is an early SyntaxError
         // (ES §15.7.1) even when the literal sits in a derived ctor.
         let saved_super = std::mem::replace(&mut self.super_call_allowed, false);
+        // §15.8.1 — a non-async method/accessor body may not await.
+        let saved_await = std::mem::replace(&mut self.await_allowed, false);
         let mut body = Vec::new();
         while !matches!(self.peek(), Token::RBrace | Token::Eof) {
-            body.push(self.parse_stmt()?);
+            match self.parse_stmt() {
+                Ok(s) => body.push(s),
+                Err(e) => {
+                    self.await_allowed = saved_await;
+                    self.super_call_allowed = saved_super;
+                    return Err(e);
+                }
+            }
         }
+        self.await_allowed = saved_await;
         self.super_call_allowed = saved_super;
         match self.peek() {
             Token::RBrace => self.pos += 1,
