@@ -14,7 +14,7 @@
 //!   fallback, so the cb's actual return face isn't clobbered by a
 //!   promise-inner guess that only fits the param position.
 
-use super::{Ast, Stmt};
+use super::{Ast, Stmt, infer_return_ann};
 
 /// Apply the deferred updates: mutate each lifted FnDecl's params +
 /// return type (deferred so the call-site walk doesn't mutate
@@ -27,7 +27,8 @@ pub(super) fn apply_closure_ann_updates(
     if updates.is_empty() && param_only_updates.is_empty() {
         return;
     }
-    for stmt in &mut ast.stmts {
+    let (stmts, exprs) = (&mut ast.stmts, &ast.exprs);
+    for stmt in stmts.iter_mut() {
         if let Stmt::FnDecl {
             name,
             params,
@@ -53,7 +54,23 @@ pub(super) fn apply_closure_ann_updates(
                     }
                 }
                 if return_type.is_none() && body_returns_value(body) {
-                    *return_type = Some(new_ret_ann.clone());
+                    // rotation 285 — the predicate-family "boolean"
+                    // seed is a FALLBACK, not a pin: ES ToBoolean
+                    // folds any predicate ret, and the hetero-ret
+                    // wedges admit non-Bool rets — but a seeded
+                    // "boolean" made the body's own `return v % 2`
+                    // a return-type mismatch before those wedges
+                    // could look. Sniff the body's actual return
+                    // first (params are already seeded above, so an
+                    // elem-typed identity ret resolves); only an
+                    // unsniffable body keeps the positional seed.
+                    let ann = if new_ret_ann == "boolean" {
+                        infer_return_ann(exprs, body, params, &std::collections::HashMap::new())
+                            .unwrap_or_else(|| new_ret_ann.clone())
+                    } else {
+                        new_ret_ann.clone()
+                    };
+                    *return_type = Some(ann);
                 }
             }
             if let Some(new_param_anns) = param_only_updates.get(name) {
