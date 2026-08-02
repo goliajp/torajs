@@ -126,6 +126,7 @@ pub fn parse_into(source: &str, tokens: &[Spanned], target: &mut Ast) -> Result<
         dyn_import_counter: 0,
         yield_hoist_buf: Vec::new(),
         yield_hoist_allowed: true,
+        in_formal_params: false,
     };
     let result = p.parse_program();
     *target = p.ast;
@@ -220,6 +221,12 @@ struct Parser<'a> {
     /// (loop cond/step, short-circuit rhs, ternary branch, optional
     /// call, defaults) — expression-position `yield` rejects there.
     yield_hoist_allowed: bool,
+    /// True while parsing a formal parameter list (defaults included):
+    /// §15.1.2 / §15.8.1 forbid both YieldExpression and
+    /// AwaitExpression anywhere inside FormalParameters, for every
+    /// function kind. Cleared per-statement by the `parse_stmt`
+    /// wrapper so a nested function BODY inside a default is exempt.
+    in_formal_params: bool,
     /// P-SURF S2.37 — name of the class whose STATIC member body we
     /// are currently inside, or None elsewhere. While set, `this`
     /// mints `Ident(<ClassName>)` directly: per ES §15.7.14 a static

@@ -250,7 +250,7 @@ impl<'a> Parser<'a> {
                     // the same wedge.
                     let default = if matches!(self.peek(), Token::Eq) {
                         self.pos += 1;
-                        Some(self.parse_expr()?)
+                        Some(self.with_in_formal_params(|p| p.parse_expr())?)
                     } else {
                         None
                     };
@@ -328,7 +328,7 @@ impl<'a> Parser<'a> {
                 };
                 let default = if !is_rest && matches!(self.peek(), Token::Eq) {
                     self.pos += 1;
-                    Some(self.parse_expr()?)
+                    Some(self.with_in_formal_params(|p| p.parse_expr())?)
                 } else if optional {
                     // §9.2 — see param_optional_default.
                     Some(self.implicit_optional_default(type_ann.as_deref()))

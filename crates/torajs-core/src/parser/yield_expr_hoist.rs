@@ -43,6 +43,12 @@ impl<'a> Parser<'a> {
     /// `yield [operand]` in expression position. Caller
     /// (`parse_assign`) has peeked `Token::Yield` and NOT consumed it.
     pub(super) fn parse_yield_expr_hoist(&mut self) -> Result<ExprId, String> {
+        if self.in_formal_params {
+            return Err(format!(
+                "`yield` may not be used in a formal parameter list at {} (ES §15.1.2)",
+                self.at()
+            ));
+        }
         if !self.yield_hoist_allowed {
             return Err(format!(
                 "not yet supported: `yield` in a conditional expression position \
@@ -86,6 +92,20 @@ impl<'a> Parser<'a> {
         r
     }
 
+    /// Run `f` with the formal-parameter-list flag set: §15.1.2 /
+    /// §15.8.1 forbid both YieldExpression and AwaitExpression inside
+    /// FormalParameters (defaults included), for every function kind
+    /// — a generator's or async function's own params too.
+    pub(super) fn with_in_formal_params<T>(
+        &mut self,
+        f: impl FnOnce(&mut Self) -> Result<T, String>,
+    ) -> Result<T, String> {
+        let saved = std::mem::replace(&mut self.in_formal_params, true);
+        let r = f(self);
+        self.in_formal_params = saved;
+        r
+    }
+
     /// §13.15.1 / §13.4.2-5 early error: AssignmentTargetType of a
     /// YieldExpression is invalid — `(yield) = v`, `(yield)++`,
     /// `++(yield)` are SyntaxErrors at parse time. After hoisting the
@@ -108,9 +128,13 @@ impl<'a> Parser<'a> {
         let outer_buf = std::mem::take(&mut self.yield_hoist_buf);
         // A fresh statement is an unconditional evaluation position
         // even when the ENCLOSING expression was conditional (an
-        // arrow body inside a ternary): re-allow, restore after.
+        // arrow body inside a ternary): re-allow, restore after. The
+        // formal-params flag clears for the same reason — a function
+        // BODY nested inside a parameter default is its own context.
         let saved_allowed = std::mem::replace(&mut self.yield_hoist_allowed, true);
+        let saved_params = std::mem::replace(&mut self.in_formal_params, false);
         let result = self.parse_stmt_dispatch();
+        self.in_formal_params = saved_params;
         self.yield_hoist_allowed = saved_allowed;
         let my_buf = std::mem::replace(&mut self.yield_hoist_buf, outer_buf);
         let stmt = result?;

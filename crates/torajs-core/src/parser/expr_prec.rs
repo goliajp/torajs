@@ -447,6 +447,12 @@ impl<'a> Parser<'a> {
         // the L.1 eager-fire model). Right-associative so chained
         // forms parse like other unary prefixes.
         if matches!(self.peek(), Token::Await) {
+            if self.in_formal_params {
+                return Err(format!(
+                    "`await` may not be used in a formal parameter list at {} (ES §15.8.1)",
+                    self.at()
+                ));
+            }
             self.pos += 1;
             let inner = self.parse_unary()?;
             let read = self.ast.add_expr(Expr::Member {
