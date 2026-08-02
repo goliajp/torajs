@@ -113,12 +113,25 @@ pub(super) fn emit_filter(
         cb_args(this_arg, elem, i_now, src_arr, cb_arity),
         usize::from(this_arg.is_some()),
     );
+    // The keep test folds through ToBoolean (ES §23.1.3.7 step
+    // 8.c.ii): a non-Bool cb ret (Any box, numbers, strings)
+    // coerces; coerce_to_bool is a no-op on Bool so the exact-sig
+    // path is unchanged. An owned heap ret is released after the
+    // truthiness read — the test is its only consumer. (The
+    // predicate-family mirror landed rotation 284; filter's kernel
+    // is this trio loop, which kept the raw CondBr.)
+    let raw = Operand::Value(keep);
+    let ret_ty = ctx.operand_ty(&raw);
+    let keep_b = ctx.coerce_to_bool(raw.clone());
+    if ret_ty.is_refcounted() {
+        ctx.emit_drop_value(raw, ret_ty);
+    }
     let push_blk = ctx.f.add_block();
     let next_blk = ctx.f.add_block();
     ctx.f.set_term(
         ctx.cur_block,
         Terminator::CondBr {
-            cond: Operand::Value(keep),
+            cond: keep_b,
             then_blk: push_blk,
             else_blk: next_blk,
         },
