@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-01T21:22:11.283Z",
+  "generatedAt": "2026-08-02T01:41:27.168Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-01T21:16:00Z",
-    "headSha": "58002883",
-    "elapsedSec": 550.32,
+    "ranAt": "2026-08-02T01:40:17Z",
+    "headSha": "7b5aca04",
+    "elapsedSec": 648.28,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 19992,
+    "pass": 20020,
     "passNoOracle": 559,
     "passNegative": 3826,
-    "passTotal": 24377,
-    "bug": 11681,
-    "incompatible": 17116,
+    "passTotal": 24405,
+    "bug": 11652,
+    "incompatible": 17117,
     "bunSkip": 7467,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 36058,
-    "passRateInScope": 45.84,
-    "passRateTrAccepted": 67.6
+    "trAccepted": 36057,
+    "passRateInScope": 45.9,
+    "passRateTrAccepted": 67.68
   },
   "torajs": {
-    "commit": "58002883",
-    "commitSubject": "feat(core): async generator return() awaits its value",
+    "commit": "7b5aca04",
+    "commitSubject": "feat(core): fn.length stops counting at the first default or rest param",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "7b5aca04",
+      "subject": "feat(core): fn.length stops counting at the first default or rest param"
+    },
+    {
+      "hash": "6c71d1cc",
+      "subject": "feat(core): labeled break/continue route through intervening try-finally"
+    },
+    {
+      "hash": "8e892588",
+      "subject": "feat(core): labeled jumps route through generator finally regions and inner loops"
+    },
+    {
+      "hash": "49088cc9",
+      "subject": "feat(core): labeled generator dispatch loop routes returns from inner loops"
+    },
+    {
+      "hash": "7953bc4e",
+      "subject": "feat(core): explicit undefined argument triggers parameter default"
+    },
+    {
+      "hash": "72854917",
+      "subject": "feat(hardev): rotation close mechanically reaps every session child process"
+    },
+    {
+      "hash": "c84729b6",
+      "subject": "chore(docs,hardev): rotation 277 final census at 58002883"
+    },
+    {
       "hash": "58002883",
       "subject": "feat(core): async generator return() awaits its value"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "a6bf3acb",
       "subject": "test: async generator return() through finally fixture"
-    },
-    {
-      "hash": "5648e603",
-      "subject": "feat(core): generator escaping break/continue routes through finally copies"
-    },
-    {
-      "hash": "688991c5",
-      "subject": "fix(core): unify_typevar admits any in pattern position"
-    },
-    {
-      "hash": "b7c07515",
-      "subject": "feat(core): async fn throwing param default rejects instead of throwing"
-    },
-    {
-      "hash": "2f18e444",
-      "subject": "feat(core): generator return() injects through finally regions"
-    },
-    {
-      "hash": "93b7a7d9",
-      "subject": "chore(docs,hardev): rotation 276 final census at 6ecef1a7"
-    },
-    {
-      "hash": "6ecef1a7",
-      "subject": "feat(core): generator return routes through enclosing finally copies"
-    },
-    {
-      "hash": "8cb58e07",
-      "subject": "chore(docs,hardev): rotation 276 final census at a3a45e66"
     }
   ],
-  "headSha": "58002883",
+  "headSha": "7b5aca04",
   "autorun": {
-    "total": 581,
+    "total": 582,
     "baselineTarget": 10,
-    "bySelf": 576,
+    "bySelf": 577,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785613422-32c5",
-      "at": "2026-08-01T19:43:42Z",
-      "ts": 1785613422,
+      "rotationId": "r-1785619346-6e48",
+      "at": "2026-08-01T21:22:26Z",
+      "ts": 1785619346,
       "trigger": "self",
-      "prevHead": "93b7a7d9",
-      "handoffSha": "sha256:559405152ac3e7ba7d5d3ba5865673e3c03b0c710316df55cdd9278943fbb491",
-      "handoffAgeSec": 46,
+      "prevHead": "c84729b6",
+      "handoffSha": "sha256:d4ba5715997c1c7ae743200061d332b2dc2e3da4bd29b03017ed00659ebbac5a",
+      "handoffAgeSec": 56,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1785619346-6e48",
+        "at": "2026-08-01T21:22:26Z",
+        "ts": 1785619346,
+        "trigger": "self",
+        "prevHead": "c84729b6",
+        "handoffSha": "sha256:d4ba5715997c1c7ae743200061d332b2dc2e3da4bd29b03017ed00659ebbac5a",
+        "handoffAgeSec": 56,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785613422-32c5",
         "at": "2026-08-01T19:43:42Z",
@@ -876,17 +887,6 @@
         "prevHead": "77aeca80",
         "handoffSha": "sha256:9bf8f0c12179cbd8ea3021eab0d954c331b314c54a0e2239995256f8edfab3dd",
         "handoffAgeSec": 16,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1785545365-72d3",
-        "at": "2026-08-01T00:49:25Z",
-        "ts": 1785545365,
-        "trigger": "self",
-        "prevHead": "0ada5bf7",
-        "handoffSha": "sha256:5de273a61e1492ee5f39da6de26b93822be75f9bc238e832439eb2a8b505a86a",
-        "handoffAgeSec": 10,
         "conformanceBefore": null,
         "commitsInSession": null
       }
