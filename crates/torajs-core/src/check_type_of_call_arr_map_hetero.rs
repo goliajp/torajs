@@ -35,7 +35,7 @@ pub(crate) fn try_match(
     else {
         return None;
     };
-    if m_name != "map" || args.len() != 1 {
+    if m_name != "map" || args.is_empty() {
         return None;
     }
     let src_ty = match checker.type_of(ast, *src_id) {
@@ -52,14 +52,35 @@ pub(crate) fn try_match(
     let Type::Function(ps, ret) = &cb_ty else {
         return None;
     };
-    if ps.len() != 1 {
+    // Full spec arity — §23.1.3.19's cb gets (elem, index,
+    // srcArray); a shorter declared list is legal JS (rotation 285
+    // — the census's dominant shape is an untyped 3-arity named fn
+    // returning Boolean).
+    if ps.len() > 3 {
         return None;
     }
-    // Accept `(T) => U` (the elem match), the `(any) => U`
-    // widening (contravariance), and the `(elem-typed) => U`
-    // literal shape. Anything else falls through to the
-    // strict method-table arm.
-    if ps[0] != **elem && ps[0] != Type::Any && **elem != Type::Any {
+    // Accept `(T, ...) => U` (the elem match), the `(any, ...) => U`
+    // widening (contravariance), and the `(elem-typed, ...) => U`
+    // literal shape. The index / srcArray slots must be the shapes
+    // the trio loop feeds (i64 index, source array) or Any — any
+    // other spelling falls through to the strict method-table arm's
+    // loud reject rather than passing a raw bit-pattern.
+    if ps
+        .first()
+        .is_some_and(|p| *p != **elem && *p != Type::Any && **elem != Type::Any)
+    {
+        return None;
+    }
+    if ps
+        .get(1)
+        .is_some_and(|p| !matches!(p, Type::Number | Type::Any))
+    {
+        return None;
+    }
+    if ps
+        .get(2)
+        .is_some_and(|p| !matches!(p, Type::Array(_) | Type::Any))
+    {
         return None;
     }
     // Same-`T` return keeps the method-table arm (its type
@@ -82,6 +103,14 @@ pub(crate) fn try_match(
         Type::Number | Type::String | Type::Boolean | Type::Any
     ) {
         return None;
+    }
+    // S270 — type_of + drop trailing args (thisArg + extras) so
+    // side-effect expressions surface their own errors; SSA-emit
+    // reads args[0] (and a promoted callback's thisArg).
+    for &t in args.iter().skip(1) {
+        if let Err(e) = checker.type_of(ast, t) {
+            return Some(Err(e));
+        }
     }
     Some(Ok(Type::Array(ret.clone())))
 }
