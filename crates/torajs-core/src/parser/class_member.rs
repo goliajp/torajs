@@ -94,6 +94,13 @@ fn token_starts_class_member_name(t: Option<&Token>, allow_private: bool) -> boo
             // `static` is taken for the member name itself, reporting
             // "expected `(` (method) or `:` (field) after `static`".
             | Token::Star
+            // RFC 20260802-class-computed-member 刀 1 — §12.7.6
+            // PropertyName also admits string / numeric literals
+            // (`get 'default'()` / `static 0x10() {}`) and the
+            // ComputedPropertyName `[expr]` form (`static [k]()`).
+            | Token::String(_)
+            | Token::Number(_)
+            | Token::LBracket
     )
 }
 
@@ -259,8 +266,21 @@ impl<'a> Parser<'a> {
             // legal accessor name (§15.4 ClassElementName includes
             // PrivateIdentifier). No ambiguity with a member NAMED
             // `get`: that shape is `get(` — never `get #p(`.
-            if matches!(name_tok, Some(Token::Ident(_) | Token::PrivateIdent(_)))
-                && matches!(after_name, Some(Token::LParen))
+            //
+            // RFC 20260802-class-computed-member 刀 1 — §13.4
+            // PropertyName widens the accessor-name slot to string /
+            // numeric literals (`get 'default'()` / `get 0x10()`) and
+            // the ComputedPropertyName `[expr]` head (`get [k]()`).
+            // A `[` after the keyword is unambiguous on its own — a
+            // member NAMED `get` is always `get(` — so no after-name
+            // lookahead applies (the key is an arbitrary expression).
+            if matches!(
+                name_tok,
+                Some(
+                    Token::Ident(_) | Token::PrivateIdent(_) | Token::String(_) | Token::Number(_)
+                )
+            ) && matches!(after_name, Some(Token::LParen))
+                || matches!(name_tok, Some(Token::LBracket))
             {
                 accessor_kind = Some(match kw.as_str() {
                     "get" => AccessorKind::Getter,

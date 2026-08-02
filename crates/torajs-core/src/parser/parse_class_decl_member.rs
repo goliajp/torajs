@@ -49,20 +49,36 @@ impl<'a> Parser<'a> {
         _is_static: bool,
         explicit_visibility: &mut Option<ast::Visibility>,
     ) -> Result<(String, bool), String> {
-        // P5.2 — computed-key class member `[Symbol.iterator]() {
-        // ... }`. Mirrors the object-literal computed-key handling
-        // (parse_object_field) so the same `__sym_Symbol_iterator__`
-        // synthetic name flows through into the class layout. Only
-        // member-name shape `[<Ident>(. <Ident>)*]` is accepted —
-        // string-literal keys (`["foo"]`) and arbitrary exprs are
-        // out of scope for the class-method computed-key surface.
+        // P5.2 + RFC 20260802-class-computed-member 刀 1 — computed
+        // class member key `[<key>]`. Three compile-time-foldable
+        // shapes install under a static name:
+        //   * `[Symbol.<chain>]` → `__sym_Symbol_<chain>__` (the
+        //     vtable / iterator-protocol consumers key off exactly
+        //     this synthetic name),
+        //   * `["str"]` whole-literal key → the string itself,
+        //   * `[0x10]` whole-literal numeric key → its §6.1.6.1.20
+        //     canonical string ("16"), same fold as object literals.
+        // Every other expression is a RUNTIME computed key
+        // (§15.4 ClassElementName → ComputedPropertyName evaluates at
+        // class-definition time); the runtime install lane is 刀 2 of
+        // the RFC, so those reject loudly here. The old behaviour —
+        // folding ANY ident chain to `__sym_<chain>__` — silently
+        // installed `[k]()` under a name unrelated to the runtime
+        // value of `k`, which is exactly the silent-wrong shape the
+        // reject replaces.
         // Body parsing falls through to the normal method branch
         // by emitting a synthetic name + advancing past `]`.
         let mut consumed_computed_name = false;
         let member_name = if matches!(self.peek(), Token::LBracket) {
             self.pos += 1;
             let key = match self.peek() {
-                Token::Ident(_) => {
+                Token::Ident(head)
+                    if head == "Symbol"
+                        && matches!(
+                            self.tokens.get(self.pos + 1).map(|t| &t.token),
+                            Some(Token::Dot)
+                        ) =>
+                {
                     let mut parts: Vec<String> = Vec::new();
                     loop {
                         if let Token::Ident(n) = self.peek() {
@@ -79,14 +95,29 @@ impl<'a> Parser<'a> {
                     }
                     format!("__sym_{}__", parts.join("_"))
                 }
-                Token::String(s) => {
+                Token::String(s)
+                    if matches!(
+                        self.tokens.get(self.pos + 1).map(|t| &t.token),
+                        Some(Token::RBracket)
+                    ) =>
+                {
                     let k = s.clone();
+                    self.pos += 1;
+                    k
+                }
+                Token::Number(n)
+                    if matches!(
+                        self.tokens.get(self.pos + 1).map(|t| &t.token),
+                        Some(Token::RBracket)
+                    ) =>
+                {
+                    let k = crate::ast::number_prop_key(*n);
                     self.pos += 1;
                     k
                 }
                 t => {
                     return Err(format!(
-                        "expected `Symbol.iterator`-style key inside `[...]` for class `{name}` member, got {t:?} at {}",
+                        "not yet supported: runtime computed class member name (non-literal `[...]` key, got {t:?}) in class `{name}` at {}",
                         self.at()
                     ));
                 }
@@ -144,6 +175,15 @@ impl<'a> Parser<'a> {
                 // ES §12.7.2 — the same IdentifierName written with an
                 // escape (`break() {}`).
                 Token::EscapedIdent(n) => n.clone(),
+                // RFC 20260802-class-computed-member 刀 1 — §12.7.6
+                // PropertyName literal forms as direct member names:
+                // `'default'() {}` / `get 'str'()` fold to the string
+                // itself; `0x10() {}` / `get 1.0()` fold to the
+                // §6.1.6.1.20 canonical string ("16" / "1"), the same
+                // fold object literals use. Single tokens, so the
+                // shared "name still unconsumed" protocol holds.
+                Token::String(s) => s.clone(),
+                Token::Number(n) => crate::ast::number_prop_key(*n),
                 t => {
                     return Err(format!(
                         "expected class member name, got {t:?} at {}",
