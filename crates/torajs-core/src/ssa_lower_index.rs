@@ -155,6 +155,18 @@ pub(crate) fn lower_from_value(
         ctx.owned_member_reads.insert(eid);
         return Operand::Value(v);
     }
+    // RFC 20260802-class-computed-member 刀 3a — a STRUCT receiver's
+    // keyed read rides the any lane: the box is a pure tag-4 encode,
+    // and member_get's struct arm carries the class-layout field
+    // probe plus the class prototype chain, so both an own field
+    // spelled dynamically (`c["m"]`) and a runtime-computed member
+    // (`c[Symbol.iterator]`) resolve. Numeric keys land the same
+    // keyed kernels' ToPropertyKey spelling.
+    let (arr_val, arr_ty) = if matches!(arr_ty, Type::Obj(_)) {
+        (ctx.box_to_any(arr_val), Type::Any)
+    } else {
+        (arr_val, arr_ty)
+    };
     // Any-dynamic-access RFC (20260704) S3 — `recv[i]` where recv is
     // an `any` value: runtime dispatch (kind-aware Arr / Str /
     // primitive) via `__torajs_any_index_get`. A null/undefined

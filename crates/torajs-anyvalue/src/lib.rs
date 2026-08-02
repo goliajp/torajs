@@ -381,6 +381,12 @@ mod tests {
     pub unsafe extern "C" fn __torajs_weakref_target_dying(_target: *mut c_void) {}
     #[unsafe(no_mangle)]
     pub unsafe extern "C" fn __torajs_value_drop_heap(_child: *mut c_void) {}
+    // RFC 20260802 刀 3a — torajs-meta's per-class prototype registry
+    // read (member_get_symbol's struct chain arm); 0 = unregistered.
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_proto_cell_raw(_tag: i64) -> u64 {
+        0
+    }
     // chunk B3c-1 — the Object statics the ns-static DISPATCH table
     // delegates to (torajs-meta / torajs-rc in the shipped binary).
     // The table is test-reachable, so `-dead_strip` keeps the module

@@ -27,6 +27,9 @@ use crate::member_get_own::{array_proto_props, function_proto_props, user_proto_
 use crate::nanbox::AnyValue;
 
 unsafe extern "C" {
+    /// torajs-meta — borrow read of `PROTOS_BY_TAG_IMM[tag]`
+    /// (RFC 20260802 刀 3a struct symbol-key inheritance).
+    fn __torajs_proto_cell_raw(tag: i64) -> u64;
     fn __torajs_dynobj_get_tag(obj: *const c_void, key: *const c_void) -> u64;
     fn __torajs_dynobj_get_value(obj: *const c_void, key: *const c_void) -> u64;
     /// Disambiguates "absent" from "present, storing undefined" — both
@@ -89,6 +92,21 @@ unsafe fn inherited_dict(ptr: *mut c_void, t: u16) -> InheritedFrom {
             Some(parent) => InheritedFrom::Receiver(parent),
             None => InheritedFrom::Nothing,
         };
+    }
+    // RFC 20260802-class-computed-member 刀 3a — a struct instance
+    // inherits symbol keys through its class prototype chain: a
+    // runtime-computed `[Symbol(...)]()` member lands on
+    // `__proto_<C>` as a symbol-keyed own entry, which the recursive
+    // DynObj probe above then answers (grandparents via
+    // `user_proto_cell`). The raw table read is a borrow (the
+    // registry slot is process-lifetime); 0 = unregistered tag.
+    if t == Tag::Obj as u16 {
+        let class_tag = unsafe { ptr.cast::<u8>().add(8).cast::<u32>().read() };
+        let root = unsafe { __torajs_proto_cell_raw(class_tag as i64) };
+        if crate::nanbox::is_cell(root) {
+            return InheritedFrom::Receiver(root);
+        }
+        return InheritedFrom::Nothing;
     }
     let proto_props = if t == Tag::Arr as u16 {
         array_proto_props()
