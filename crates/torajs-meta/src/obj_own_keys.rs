@@ -233,6 +233,16 @@ pub unsafe extern "C" fn __torajs_obj_own_keys(
             if strip {
                 unsafe { strip_key(static_names, b"message") };
             }
+            // Blade 3 (RFC 20260714-struct-dynamic-props) — fold the
+            // +24 expando dict's keys in per §10.1.11.1 (NULL props
+            // short-circuits inside).
+            return unsafe {
+                crate::obj_own_keys_struct::struct_keys_with_expandos(
+                    obj,
+                    static_names,
+                    include_nonenum,
+                )
+            };
         }
         return static_names;
     }

@@ -29,7 +29,7 @@
 //! documented A1 anon-stamp coverage gap, not a regression introduced
 //! here.
 
-use crate::reflect::{TAG_OBJ, heap_type_tag, is_cell_imm};
+use crate::reflect::{__torajs_rc_inc, TAG_OBJ, heap_type_tag, is_cell_imm};
 use crate::struct_reflect::{accessor_slot_name, field_slot_to_pair_owned, slot_key};
 use core::ffi::{c_char, c_void};
 
@@ -208,7 +208,15 @@ pub unsafe extern "C" fn __torajs_anyv_struct_keys(v: u64, include_nonenum: i64)
         }
         i += 1;
     }
-    out as *mut c_void
+    // Blade 3 (RFC 20260714-struct-dynamic-props) — fold expando
+    // keys in per §10.1.11.1 (NULL props short-circuits inside).
+    unsafe {
+        crate::obj_own_keys_struct::struct_keys_with_expandos(
+            cell,
+            out as *mut c_void,
+            include_nonenum,
+        )
+    }
 }
 
 /// RFC 20260718-error-message-own-prop — whether the enumeration
@@ -335,6 +343,18 @@ pub unsafe extern "C" fn __torajs_anyv_struct_values(v: u64) -> *mut c_void {
         out = unsafe { __torajs_arr_push_any(out as *mut c_void, tag, val) };
         i += 1;
     }
+    // Blade 3 — expando values after the layout fields (insertion
+    // order; the pair read is a borrow, the array takes a fresh
+    // share). Numeric-key ordering interleave is a recorded
+    // boundary: keys merges integers first, values/entries append.
+    unsafe {
+        crate::obj_own_keys_struct::for_each_enumerable_expando(cell, |_key, tag, val| {
+            if tag == ANY_HEAP {
+                __torajs_rc_inc(val as *mut c_void);
+            }
+            out = __torajs_arr_push_any(out as *mut c_void, tag, val);
+        })
+    };
     out as *mut c_void
 }
 
@@ -392,5 +412,20 @@ pub unsafe extern "C" fn __torajs_anyv_struct_entries(v: u64) -> *mut c_void {
         outer = unsafe { __torajs_arr_push(outer, inner as i64) };
         i += 1;
     }
+    // Blade 3 — expando `[key, value]` pairs after the layout fields
+    // (same boundary note as the values walk; both reads borrow, the
+    // inner array takes fresh shares).
+    unsafe {
+        crate::obj_own_keys_struct::for_each_enumerable_expando(cell, |key, tag, val| {
+            __torajs_rc_inc(key);
+            if tag == ANY_HEAP {
+                __torajs_rc_inc(val as *mut c_void);
+            }
+            let inner = __torajs_arr_alloc_any(2);
+            let inner = __torajs_arr_push_any(inner as *mut c_void, ANY_HEAP, key as u64);
+            let inner = __torajs_arr_push_any(inner as *mut c_void, tag, val);
+            outer = __torajs_arr_push(outer, inner as i64);
+        })
+    };
     outer as *mut c_void
 }

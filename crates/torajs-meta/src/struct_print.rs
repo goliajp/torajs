@@ -121,6 +121,16 @@ unsafe extern "C" {
     // (inspect wrap trunk), bun `estimated_line_length` mirror.
     fn __torajs_inspect_line_reset(cols: u32);
     fn __torajs_inspect_line_add(n: u32);
+
+    // torajs-dynobj — expando-dict walk (blade 3; the own-keys
+    // walker's iter trio) + entry pair read.
+    fn __torajs_dynobj_iter_len(obj: *const c_void) -> u64;
+    fn __torajs_dynobj_iter_key(obj: *const c_void, i: u64) -> *mut c_void;
+    fn __torajs_dynobj_iter_order(obj: *const c_void, out: *mut u64, cap: u64) -> u64;
+    fn __torajs_dynobj_iter_flags(obj: *const c_void, i: u64) -> u64;
+    fn __torajs_dynobj_get_tag(obj: *const c_void, key: *const u8) -> u64;
+    fn __torajs_dynobj_get_value(obj: *const c_void, key: *const u8) -> u64;
+    fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64;
 }
 
 /// Mirrors `torajs-structmeta::StrSlice` — `(ptr, len)` borrowed view
@@ -212,7 +222,17 @@ pub unsafe extern "C" fn __torajs_anyv_struct_print_inline_at(v: u64, indent: u3
         unsafe { put_byte(b' ') };
     }
 
-    if n == 0 {
+    // Blade 3 (RFC 20260714-struct-dynamic-props) — expando entries
+    // render after the layout fields (insertion order; enumerable
+    // only, matching the keys face).
+    let props = unsafe { crate::obj_own_keys_struct::struct_props(cell) };
+    let n_props = if props.is_null() {
+        0
+    } else {
+        unsafe { __torajs_dynobj_iter_len(props) }
+    };
+
+    if n == 0 && n_props == 0 {
         unsafe { put_bytes(b"{}") };
         return;
     }
@@ -271,6 +291,40 @@ pub unsafe extern "C" fn __torajs_anyv_struct_print_inline_at(v: u64, indent: u3
         unsafe { __torajs_print_anyv_inline_at(anyv, indent + 2) };
         emitted += 1;
         i += 1;
+    }
+    // Blade 3 — expando entries (insertion order, enumerable only;
+    // the pair read is a borrow, boxed for the inline printer with
+    // zero rc traffic).
+    if n_props > 0 {
+        let mut order = vec![0u64; n_props as usize];
+        let n_ord = unsafe { __torajs_dynobj_iter_order(props, order.as_mut_ptr(), n_props) };
+        for &pi in order.iter().take(n_ord as usize) {
+            let flags = unsafe { __torajs_dynobj_iter_flags(props, pi) };
+            if flags & crate::obj_own_keys::FLAG_ENUMERABLE == 0 {
+                continue;
+            }
+            let key = unsafe { __torajs_dynobj_iter_key(props, pi) };
+            if key.is_null() {
+                continue;
+            }
+            if emitted > 0 {
+                unsafe { put_bytes(b",\n") };
+                unsafe { __torajs_inspect_line_add(1) };
+            }
+            let klen = unsafe { key.cast::<u8>().add(8).cast::<u32>().read() } as usize;
+            let kbytes = unsafe { key.cast::<u8>().add(16) };
+            unsafe { put_indent(indent + 2) };
+            unsafe { put_bytes_from_raw(kbytes, klen) };
+            unsafe { put_bytes(b": ") };
+            unsafe { __torajs_inspect_line_add(klen as u32 + 2) };
+            // The kernel keys by the live Str CELL (fnprops' `*const
+            // u8` spelling is the same pointer).
+            let etag = unsafe { __torajs_dynobj_get_tag(props, key.cast::<u8>()) };
+            let eval = unsafe { __torajs_dynobj_get_value(props, key.cast::<u8>()) };
+            let anyv = unsafe { __torajs_anyv_box_from_pair(etag as i64, eval as i64) };
+            unsafe { __torajs_print_anyv_inline_at(anyv, indent + 2) };
+            emitted += 1;
+        }
     }
     unsafe { put_bytes(b",\n") };
     unsafe { __torajs_inspect_line_add(1) };

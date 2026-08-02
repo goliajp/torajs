@@ -37,6 +37,7 @@ pub mod obj_assign;
 pub mod obj_forin_keys;
 pub mod obj_own_keys;
 pub(crate) mod obj_own_keys_key_shape;
+pub(crate) mod obj_own_keys_struct;
 pub mod obj_own_values;
 pub mod object_group_by;
 pub mod object_proto_install;

@@ -110,9 +110,9 @@ pub(super) unsafe fn write_struct(sb: *mut c_void, ptr: *mut c_void, depth: u32,
         __torajs_jsb_push_byte(sb, b'{');
         let class_tag = (ptr.cast::<u8>().add(8) as *const u32).read();
         let layout = __torajs_struct_layout_lookup(class_tag);
+        let mut emitted = false;
         if !layout.is_null() {
             let n = __torajs_struct_field_count(layout);
-            let mut emitted = false;
             for i in 0..n {
                 let name = __torajs_struct_field_name(layout, i);
                 let mut value: u64 = 0;
@@ -155,9 +155,61 @@ pub(super) unsafe fn write_struct(sb: *mut c_void, ptr: *mut c_void, depth: u32,
                     break;
                 }
             }
-            if emitted {
-                push_indent(sb, depth, gap);
+        }
+        // Blade 3 (RFC 20260714-struct-dynamic-props) — expando
+        // entries after the layout fields (insertion order,
+        // enumerable only; the pair read is a borrow). toJSON /
+        // nothing handling mirrors the dynobj walk above; accessor
+        // entries can't exist here yet (the defineProperty struct
+        // arm is a recorded follow-up), so no getter dispatch.
+        let props = crate::member_get_layout::struct_props(ptr)
+            .cast_mut()
+            .cast::<c_void>();
+        if !props.is_null() && __torajs_throw_check() == 0 {
+            let n_props = __torajs_dynobj_iter_len(props);
+            let mut order = vec![0u64; n_props as usize];
+            let n_ord = __torajs_dynobj_iter_order(props, order.as_mut_ptr(), n_props);
+            for &pi in order.iter().take(n_ord as usize) {
+                if __torajs_dynobj_iter_flags(props, pi) & BUCKET_FLAG_ENUMERABLE == 0 {
+                    continue;
+                }
+                let mut value = __torajs_dynobj_iter_value(props, pi);
+                let mut owned = false;
+                if let Some(r) = crate::json_stringify_tojson::apply_tojson(value) {
+                    value = r;
+                    owned = true;
+                    if __torajs_throw_check() != 0 {
+                        crate::nanbox_ffi::__torajs_anyv_rc_dec(value);
+                        break;
+                    }
+                }
+                if serializes_to_nothing(value) {
+                    if owned {
+                        crate::nanbox_ffi::__torajs_anyv_rc_dec(value);
+                    }
+                    continue;
+                }
+                if emitted {
+                    __torajs_jsb_push_byte(sb, b',');
+                }
+                emitted = true;
+                push_indent(sb, depth + 1, gap);
+                __torajs_jsb_push_str_quoted(sb, __torajs_dynobj_iter_key(props, pi) as *const u8);
+                __torajs_jsb_push_byte(sb, b':');
+                if !gap.is_empty() {
+                    __torajs_jsb_push_byte(sb, b' ');
+                }
+                write_value(sb, value, depth + 1, gap);
+                if owned {
+                    crate::nanbox_ffi::__torajs_anyv_rc_dec(value);
+                }
+                if __torajs_throw_check() != 0 {
+                    break;
+                }
             }
+        }
+        if emitted {
+            push_indent(sb, depth, gap);
         }
         __torajs_jsb_push_byte(sb, b'}');
     }
