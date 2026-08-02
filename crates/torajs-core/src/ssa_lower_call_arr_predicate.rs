@@ -402,7 +402,20 @@ fn emit_body_and_step(
         Operand::ConstBool(false)
     } else {
         let pred_v = ctx.call_fn_value(fn_val, fn_ty, pred_args, sig_skip);
-        Operand::Value(pred_v)
+        // rotation 284 — the predicate return folds through ToBoolean
+        // (ES §23.1.3.{8-11,30}): a non-Bool cb ret (1/0 counters,
+        // strings, boxed values) coerces here; coerce_to_bool is a
+        // no-op on Bool so the exact-sig path is unchanged. An owned
+        // heap ret is released after the truthiness read — the test
+        // is its only consumer.
+        let raw = Operand::Value(pred_v);
+        let ret_ty = ctx.operand_ty(&raw);
+
+        let b = ctx.coerce_to_bool(raw.clone());
+        if ret_ty.is_refcounted() {
+            ctx.emit_drop_value(raw, ret_ty);
+        }
+        b
     };
     // some + findIndex break on `pred == true`; every breaks on
     // `pred == false`.

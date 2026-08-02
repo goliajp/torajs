@@ -78,10 +78,29 @@ pub(crate) fn try_match(
     let Type::Function(ps, ret) = arg0_ty else {
         return None;
     };
-    if !matches!(*ret, Type::Void) {
+    let is_reduce = matches!(m_name.as_str(), "reduce" | "reduceRight");
+    // rotation 284 — a predicate's return folds through ToBoolean
+    // (ES §23.1.3.{8-11,30}), so the seven predicate methods admit
+    // ANY callback return type, not just Void (`cb` returning 1/0
+    // counters or heap values is legal JS; TS stdlib spells these
+    // `=> unknown`). ssa_lower's predicate/filter arms coerce the
+    // ret and release an owned one. map/reduce keep the Void-only
+    // admit — their ret feeds the result element / accumulator, a
+    // different contract. A Boolean ret keeps the strict general
+    // loop (exact-sig fast path unchanged).
+    if m_name == "map" || is_reduce {
+        if !matches!(*ret, Type::Void) {
+            return None;
+        }
+    } else if matches!(*ret, Type::Boolean | Type::Any) {
+        // Boolean and Any rets already pass the strict general loop
+        // (exact sig / callback-subtype Any widening) — and that path
+        // carries the thisArg-promotion records this early route does
+        // not (a `this`-using cb claimed here answered `this ===
+        // thisArg` false: every/15.4.4.16-5-* regressed to exit 1).
+        // Only the rets the general loop REJECTS take this lane.
         return None;
     }
-    let is_reduce = matches!(m_name.as_str(), "reduce" | "reduceRight");
     // Full spec arity — (elem, index, srcArray); reducers lead with acc.
     if ps.len() > if is_reduce { 4 } else { 3 } {
         return None;
