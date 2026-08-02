@@ -23,7 +23,10 @@
 use super::*;
 
 impl<'a> Parser<'a> {
-    pub(super) fn parse_stmt(&mut self) -> Result<Stmt, String> {
+    /// Statement dispatcher body — call through the `parse_stmt`
+    /// wrapper (yield_expr_hoist.rs), which drains hoisted
+    /// expression-position yields in front of the finished statement.
+    pub(super) fn parse_stmt_dispatch(&mut self) -> Result<Stmt, String> {
         // V3-18 m1.h.29 — empty statement (`;`). JS spec §13.4
         // ExpressionStatement allows a bare semicolon. Return an
         // empty Block — semantically a no-op, matches what the

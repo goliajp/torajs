@@ -22,7 +22,9 @@ impl<'a> Parser<'a> {
             return Ok(cond);
         }
         self.pos += 1;
-        let then_branch = self.parse_assign()?; // right-associative through assign
+        // Ternary branches evaluate conditionally — expression-
+        // position yield may not hoist out of them.
+        let then_branch = self.with_yield_hoist_disallowed(|p| p.parse_assign())?;
         if !matches!(self.peek(), Token::Colon) {
             return Err(format!(
                 "expected `:` in ternary expression, got {:?}",
@@ -30,7 +32,7 @@ impl<'a> Parser<'a> {
             ));
         }
         self.pos += 1;
-        let else_branch = self.parse_assign()?;
+        let else_branch = self.with_yield_hoist_disallowed(|p| p.parse_assign())?;
         Ok(self.ast.add_expr(Expr::Ternary {
             cond,
             then_branch,
@@ -56,7 +58,8 @@ impl<'a> Parser<'a> {
             )
         {
             self.pos += 1;
-            let right = self.parse_logical_or()?;
+            // `??` rhs is conditionally evaluated — no yield hoist.
+            let right = self.with_yield_hoist_disallowed(|p| p.parse_logical_or())?;
             left = self.ast.add_expr(Expr::Nullish {
                 lhs: left,
                 rhs: right,
@@ -76,7 +79,8 @@ impl<'a> Parser<'a> {
             )
         {
             self.pos += 1;
-            let right = self.parse_logical_and()?;
+            // `||` rhs is conditionally evaluated — no yield hoist.
+            let right = self.with_yield_hoist_disallowed(|p| p.parse_logical_and())?;
             left = self.ast.add_expr(Expr::BinOp {
                 op: BinOp::LOr,
                 left,
@@ -97,7 +101,8 @@ impl<'a> Parser<'a> {
             )
         {
             self.pos += 1;
-            let right = self.parse_bit_or()?;
+            // `&&` rhs is conditionally evaluated — no yield hoist.
+            let right = self.with_yield_hoist_disallowed(|p| p.parse_bit_or())?;
             left = self.ast.add_expr(Expr::BinOp {
                 op: BinOp::LAnd,
                 left,

@@ -460,8 +460,12 @@ impl<'a> Parser<'a> {
             }
             stmts
         } else {
-            // expression body — desugar to single Return
-            let e = self.parse_expr()?;
+            // expression body — desugar to single Return. No stmt
+            // boundary of its own exists here, so a hoisted yield
+            // would drain OUTSIDE the arrow — and an arrow body is
+            // not a yield position anyway (§15.5.5: arrows are not
+            // generators): reject via the disallow guard.
+            let e = self.with_yield_hoist_disallowed(|p| p.parse_expr())?;
             vec![Stmt::Return(Some(e))]
         };
         self.reject_lexical_shadowing_param(&params, &param_destr_lets, &body)?;

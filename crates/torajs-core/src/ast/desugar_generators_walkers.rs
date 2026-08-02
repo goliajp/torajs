@@ -118,6 +118,20 @@ pub(crate) fn lift_lets_in_stmt(ast: &mut Ast, s: &mut Stmt, lifted: &mut Vec<(S
                     if nm == "arguments" || nm == crate::ast::GEN_ARGV_PARAM)
                 {
                     "any".into()
+                } else if super::free_vars::free_vars_of_body(
+                    ast,
+                    &[],
+                    std::slice::from_ref(&Stmt::Expr(*init)),
+                )
+                .iter()
+                .any(|n| n.starts_with("__yx_"))
+                {
+                    // RFC 20260802-yield-expr-hoist — an untyped local
+                    // whose init reads a hoisted yield-resumption temp
+                    // (`__yx_*`, always any) rides the any lane; the
+                    // "number" fallback would pin the lifted field's
+                    // type against whatever next() actually sends.
+                    "any".into()
                 } else {
                     "number".into()
                 }

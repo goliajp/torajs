@@ -167,7 +167,7 @@ impl<'a> Parser<'a> {
                 };
                 let default = if !is_rest && matches!(self.peek(), Token::Eq) {
                     self.pos += 1;
-                    Some(self.parse_expr()?)
+                    Some(self.with_yield_hoist_disallowed(|p| p.parse_expr())?)
                 } else if optional {
                     // §9.2 — see param_optional_default.
                     Some(self.implicit_optional_default(type_ann.as_deref()))
@@ -251,7 +251,7 @@ impl<'a> Parser<'a> {
                     // / class-method parse_param_list).
                     let default = if matches!(self.peek(), Token::Eq) {
                         self.pos += 1;
-                        Some(self.parse_expr()?)
+                        Some(self.with_yield_hoist_disallowed(|p| p.parse_expr())?)
                     } else {
                         None
                     };
@@ -328,7 +328,7 @@ impl<'a> Parser<'a> {
                 // see param_optional_default.
                 let default = if !is_rest && matches!(self.peek(), Token::Eq) {
                     self.pos += 1;
-                    Some(self.parse_expr()?)
+                    Some(self.with_yield_hoist_disallowed(|p| p.parse_expr())?)
                 } else if optional {
                     Some(self.implicit_optional_default(type_ann.as_deref()))
                 } else {

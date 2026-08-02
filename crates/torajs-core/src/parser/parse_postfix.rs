@@ -40,9 +40,10 @@ impl<'a> Parser<'a> {
                         // `callee?.(args…)` — ES2020 optional call
                         // (chunk 705). Args parse eagerly; lowering
                         // guards their evaluation behind the nullish
-                        // short-circuit.
+                        // short-circuit — so they are a conditional
+                        // position: no yield hoist.
                         self.pos += 1;
-                        let args = self.parse_call_args()?;
+                        let args = self.with_yield_hoist_disallowed(|p| p.parse_call_args())?;
                         node = self.add_expr_at(start_pos, Expr::OptCall { callee: node, args });
                     } else {
                         let name = self.expect_member_name("?.")?;

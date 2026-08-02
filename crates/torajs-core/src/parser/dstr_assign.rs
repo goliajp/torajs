@@ -206,6 +206,13 @@ impl<'a> Parser<'a> {
                     target,
                     value: default,
                 } => {
+                    if super::yield_expr_hoist::expr_reads_yield_temp(&self.ast, default) {
+                        return Err(format!(
+                            "not yet supported: `yield` in a destructuring-assignment \
+                             default (conditional position) at {}",
+                            self.at()
+                        ));
+                    }
                     let load = self.dstra_elem_load(src_name, i, Some(default));
                     self.emit_dstr_assign_slot(target, load, out)?;
                 }
@@ -241,6 +248,15 @@ impl<'a> Parser<'a> {
                 Expr::Assign { target, value } => (*target, Some(*value)),
                 _ => (*val, None),
             };
+            if let Some(d) = default
+                && super::yield_expr_hoist::expr_reads_yield_temp(&self.ast, d)
+            {
+                return Err(format!(
+                    "not yet supported: `yield` in a destructuring-assignment \
+                     default (conditional position) at {}",
+                    self.at()
+                ));
+            }
             let load = self.dstra_field_load(src_name, fname, default);
             self.emit_dstr_assign_slot(target, load, out)?;
         }

@@ -263,10 +263,14 @@ impl<'a> Parser<'a> {
     }
 
     /// Optional `= <default>` after a binding / nested pattern slot.
+    /// Defaults evaluate conditionally (only on undefined) — no
+    /// yield hoist.
     fn read_pattern_default(&mut self) -> Result<Option<ExprId>, String> {
         if matches!(self.peek(), Token::Eq) {
             self.pos += 1;
-            Ok(Some(self.parse_assign()?))
+            Ok(Some(
+                self.with_yield_hoist_disallowed(|p| p.parse_assign())?,
+            ))
         } else {
             Ok(None)
         }

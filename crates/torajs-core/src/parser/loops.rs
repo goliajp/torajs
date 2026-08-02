@@ -65,7 +65,9 @@ impl<'a> Parser<'a> {
                 ));
             }
         }
-        let cond = self.parse_expr()?;
+        // Re-evaluated every iteration — hoisting a yield out of it
+        // would run the yield exactly once.
+        let cond = self.with_yield_hoist_disallowed(|p| p.parse_expr())?;
         match self.peek() {
             Token::RParen => self.pos += 1,
             t => {
@@ -102,7 +104,8 @@ impl<'a> Parser<'a> {
                 ));
             }
         }
-        let cond = self.parse_expr()?;
+        // Per-iteration position, same as the while condition.
+        let cond = self.with_yield_hoist_disallowed(|p| p.parse_expr())?;
         match self.peek() {
             Token::RParen => self.pos += 1,
             t => {
@@ -155,7 +158,9 @@ impl<'a> Parser<'a> {
             match self.peek() {
                 Token::Case => {
                     self.pos += 1;
-                    let value = self.parse_expr()?;
+                    // Case values evaluate in order until one matches
+                    // — conditional position, no yield hoist.
+                    let value = self.with_yield_hoist_disallowed(|p| p.parse_expr())?;
                     match self.peek() {
                         Token::Colon => self.pos += 1,
                         t => {
@@ -285,10 +290,11 @@ impl<'a> Parser<'a> {
             Some(Box::new(self.parse_stmt()?))
         };
         // cond clause — empty means infinite-loop (true). Empty is `;`.
+        // Per-iteration position: no yield hoist (see parse_while).
         let cond = if matches!(self.peek(), Token::Semi) {
             None
         } else {
-            Some(self.parse_expr()?)
+            Some(self.with_yield_hoist_disallowed(|p| p.parse_expr())?)
         };
         match self.peek() {
             Token::Semi => self.pos += 1,
@@ -303,13 +309,14 @@ impl<'a> Parser<'a> {
         // V3-18 m1.h.31 — JS allows comma-separated step expressions
         // (`for (...; ...; i++, j--)`). Parse them as a chained
         // Expr::Sequence so the lowerer evaluates each in order.
+        // Per-iteration position: no yield hoist.
         let step = if matches!(self.peek(), Token::RParen) {
             None
         } else {
-            let mut s = self.parse_expr()?;
+            let mut s = self.with_yield_hoist_disallowed(|p| p.parse_expr())?;
             while matches!(self.peek(), Token::Comma) {
                 self.pos += 1;
-                let next = self.parse_expr()?;
+                let next = self.with_yield_hoist_disallowed(|p| p.parse_expr())?;
                 s = self.ast.add_expr(Expr::Sequence {
                     left: s,
                     right: next,

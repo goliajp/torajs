@@ -32,7 +32,9 @@ impl<'a> Parser<'a> {
             return Ok(load_expr);
         }
         self.pos += 1; // consume `=`
-        let default_expr = self.parse_expr()?;
+        // Default initializers evaluate conditionally (only on
+        // undefined) — no yield hoist.
+        let default_expr = self.with_yield_hoist_disallowed(|p| p.parse_expr())?;
         if let Some(b) = binding {
             self.record_dstr_default_name(default_expr, b);
         }
@@ -88,7 +90,9 @@ impl<'a> Parser<'a> {
             return Ok(load_expr);
         }
         self.pos += 1; // consume `=`
-        let default_expr = self.parse_expr()?;
+        // Default initializers evaluate conditionally (only on
+        // undefined) — no yield hoist.
+        let default_expr = self.with_yield_hoist_disallowed(|p| p.parse_expr())?;
         if let Some(b) = binding {
             self.record_dstr_default_name(default_expr, b);
         }

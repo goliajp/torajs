@@ -73,6 +73,7 @@ mod type_ann;
 mod type_ann_fn;
 mod type_ann_helpers;
 mod type_decl;
+mod yield_expr_hoist;
 use class_member::ClassMemberModifierPrefix;
 use type_ann_helpers::{is_identifier_name, unwrap_generator_return_ann};
 
@@ -122,6 +123,8 @@ pub fn parse_into(source: &str, tokens: &[Spanned], target: &mut Ast) -> Result<
         synth_classes: Vec::new(),
         class_value_aliases: std::collections::HashMap::new(),
         dyn_import_counter: 0,
+        yield_hoist_buf: Vec::new(),
+        yield_hoist_allowed: true,
     };
     let result = p.parse_program();
     *target = p.ast;
@@ -208,6 +211,14 @@ struct Parser<'a> {
     /// `parse_fn_expr` entry; combined with its own `*` detection it
     /// scopes `in_async_gen` to exactly that body.
     pending_async_fn_expr: bool,
+    /// Expression-position `yield` hoisting (yield_expr_hoist.rs):
+    /// `YieldInto` temps minted mid-expression, drained by the
+    /// `parse_stmt` wrapper in front of the finished statement.
+    yield_hoist_buf: Vec<Stmt>,
+    /// False while parsing a conditionally-evaluated sub-expression
+    /// (loop cond/step, short-circuit rhs, ternary branch, optional
+    /// call, defaults) — expression-position `yield` rejects there.
+    yield_hoist_allowed: bool,
     /// P-SURF S2.37 — name of the class whose STATIC member body we
     /// are currently inside, or None elsewhere. While set, `this`
     /// mints `Ident(<ClassName>)` directly: per ES §15.7.14 a static

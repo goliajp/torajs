@@ -99,6 +99,11 @@ impl<'a> Parser<'a> {
                         // const-decls register).
                         class_value_aliases: self.class_value_aliases.clone(),
                         dyn_import_counter: self.dyn_import_counter,
+                        // `${yield x}` is legal in a generator —
+                        // hoisted YieldIntos flow back to the outer
+                        // buffer below, position marker rides along.
+                        yield_hoist_buf: Vec::new(),
+                        yield_hoist_allowed: self.yield_hoist_allowed,
                     };
                     let result = sub.parse_expr()?;
                     // Tokens vec ends with Token::Eof; anything before
@@ -117,6 +122,9 @@ impl<'a> Parser<'a> {
                     // outer parser so they flush at the enclosing
                     // stmt boundary.
                     self.synth_classes.append(&mut sub.synth_classes);
+                    // Expression-position yields hoisted inside the
+                    // interpolation drain at the ENCLOSING statement.
+                    self.yield_hoist_buf.append(&mut sub.yield_hoist_buf);
                     // P13-S5 — propagate dynamic-import counter so
                     // the next minted name doesn't collide.
                     self.dyn_import_counter = sub.dyn_import_counter;
@@ -177,6 +185,14 @@ impl<'a> Parser<'a> {
     }
 
     pub(super) fn parse_assign(&mut self) -> Result<ExprId, String> {
+        // §15.5.5 — YieldExpression is an AssignmentExpression
+        // alternative; expression-position yields hoist to a
+        // `YieldInto` temp (yield_expr_hoist.rs). The statement /
+        // let-init lanes peeked their `yield` earlier, so this only
+        // sees genuinely nested positions.
+        if matches!(self.peek(), Token::Yield) {
+            return self.parse_yield_expr_hoist();
+        }
         let target = self.parse_ternary()?;
         // V3-18 wedge — ES2021 logical assignment: `??=` / `||=` /
         // `&&=`. Detected here (after the lhs is parsed) by peeking
@@ -193,7 +209,9 @@ impl<'a> Parser<'a> {
         if let Some(op_name) = logical_assign {
             self.pos += 2;
             self.drop_class_alias_on_assign(target);
-            let value = self.parse_assign()?;
+            // `??= ||= &&=` rhs only evaluates when the guard fires —
+            // conditional position, no yield hoist.
+            let value = self.with_yield_hoist_disallowed(|p| p.parse_assign())?;
             let lhs = self.clone_expr_for_compound(target);
             // ES2021 §13.15 requires short-circuit — PutValue must not
             // fire when the lhs already satisfies the guard (truthy for
