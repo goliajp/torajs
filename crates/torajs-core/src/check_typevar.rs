@@ -23,18 +23,24 @@ pub(crate) fn unify_typevar(
                 // concrete binding would monomorphize the clone to raw
                 // typed slot loads over an Any-repr argument, reading
                 // NaN-box bits as scalars (RFC
-                // 20260721-array-proto-cluster 刀 13a). Only two
-                // distinct concrete types conflict.
-                if existing != concrete
-                    && !matches!(existing, Type::Any)
-                    && !matches!(concrete, Type::Any)
-                {
-                    return Err(format!(
-                        "type parameter `{name}` was inferred as {existing:?} earlier but here is {concrete:?}"
-                    ));
-                }
-                if matches!(concrete, Type::Any) && !matches!(existing, Type::Any) {
-                    subst.insert(name.clone(), Type::Any);
+                // 20260721-array-proto-cluster 刀 13a). The absorption
+                // is STRUCTURAL: Array(Any) joins Array(Number) as
+                // Array(Any) the same way Any joins Number (t262
+                // dstr-rest census r283 — the rest pattern collects
+                // Array(Any) while the assert's expected literal is
+                // Array(Number)). Only structurally-distinct concrete
+                // types conflict.
+                match any_absorbing_join(existing, concrete) {
+                    Some(joined) => {
+                        if joined != *existing {
+                            subst.insert(name.clone(), joined);
+                        }
+                    }
+                    None => {
+                        return Err(format!(
+                            "type parameter `{name}` was inferred as {existing:?} earlier but here is {concrete:?}"
+                        ));
+                    }
                 }
             } else {
                 subst.insert(name.clone(), concrete.clone());
@@ -119,6 +125,26 @@ pub(crate) fn unify_typevar(
         (Type::Nullable(p), Type::Nullable(a)) => unify_typevar(p, a, subst),
         (a, b) if a == b => Ok(()),
         (a, b) => Err(format!("expected {a:?}, got {b:?}")),
+    }
+}
+
+/// Structural any-absorbing join of two inferred bindings: equal
+/// types join as themselves, `Any` absorbs anything at any depth,
+/// and Array joins element-wise (`Array(Any)` ⊔ `Array(Number)` =
+/// `Array(Any)`). `None` = genuinely distinct concrete types — the
+/// caller keeps the inference-conflict reject. Function shapes stay
+/// conflict-on-difference: widening a callback signature would
+/// change its calling convention, not just its repr.
+fn any_absorbing_join(a: &Type, b: &Type) -> Option<Type> {
+    if a == b {
+        return Some(a.clone());
+    }
+    match (a, b) {
+        (Type::Any, _) | (_, Type::Any) => Some(Type::Any),
+        (Type::Array(ae), Type::Array(be)) => {
+            Some(Type::Array(Box::new(any_absorbing_join(ae, be)?)))
+        }
+        _ => None,
     }
 }
 
