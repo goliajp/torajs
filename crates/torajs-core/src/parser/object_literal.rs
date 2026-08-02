@@ -341,9 +341,9 @@ impl<'a> Parser<'a> {
         // `{ set [expr](v) {} }` per §13.2.5 ComputedPropertyName in a
         // MethodDefinition accessor. See `object_literal_computed.rs`.
         if matches!(self.peek(), Token::LBracket) {
-            return self
-                .parse_computed_accessor(name, member_start_pos)
-                .map(Some);
+            let pair = self.parse_computed_accessor(name, member_start_pos)?;
+            self.reject_objlit_accessor_arity(name, pair.1)?;
+            return Ok(Some(pair));
         }
         // P0.10 — getter / setter shorthand also accepts string-
         // literal and numeric-literal property names per ES spec
@@ -363,8 +363,25 @@ impl<'a> Parser<'a> {
             false,
             &format!("{name}ter `{prop_name}`"),
         )?;
+        self.reject_objlit_accessor_arity(name, value)?;
         let synth = format!("__{name}ter_{prop_name}");
         Ok(Some((synth, value)))
+    }
+
+    /// §15.4.1 early errors for the object-literal accessor
+    /// shorthands — the parsed body is an `Expr::ArrowFn` whose params
+    /// are still the source parameter list (no desugar has run yet);
+    /// non-ArrowFn stubs (async computed) pass through.
+    fn reject_objlit_accessor_arity(&self, name: &str, value: ExprId) -> Result<(), String> {
+        if let Expr::ArrowFn { params, .. } = self.ast.get_expr(value) {
+            let kind = if name == "get" {
+                ast::AccessorKind::Getter
+            } else {
+                ast::AccessorKind::Setter
+            };
+            self.reject_accessor_arity(Some(kind), params, &format!("{name}ter"))?;
+        }
+        Ok(())
     }
 
     /// Shared tail of the accessor / method shorthands:

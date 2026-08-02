@@ -19,6 +19,31 @@
 use super::*;
 
 impl<'a> Parser<'a> {
+    /// §15.4.1 MethodDefinition early errors — a getter has no
+    /// parameters, a setter exactly one and never a rest parameter.
+    /// Shared by the class-member path and the object-literal
+    /// accessor shorthand (`object_literal.rs`).
+    pub(super) fn reject_accessor_arity(
+        &self,
+        kind: Option<ast::AccessorKind>,
+        params: &[Param],
+        ctx: &str,
+    ) -> Result<(), String> {
+        match kind {
+            Some(ast::AccessorKind::Getter) if !params.is_empty() => Err(format!(
+                "a getter takes no parameters: `{ctx}` at {} (ES §15.4.1)",
+                self.at()
+            )),
+            Some(ast::AccessorKind::Setter) if params.len() != 1 || params[0].is_rest => {
+                Err(format!(
+                    "a setter takes exactly one non-rest parameter: `{ctx}` at {} (ES §15.4.1)",
+                    self.at()
+                ))
+            }
+            _ => Ok(()),
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub(super) fn parse_class_member_method_or_ctor(
         &mut self,
@@ -48,6 +73,7 @@ impl<'a> Parser<'a> {
         } else {
             let (mut p, dl) = self.parse_param_list()?;
             self.reject_duplicate_params(&p, true)?;
+            self.reject_accessor_arity(accessor_kind, &p, &member_name)?;
             // 刀 1b — method-position default params infer their ann
             // from the default (see param_list.rs).
             self.infer_default_param_anns(&mut p);
