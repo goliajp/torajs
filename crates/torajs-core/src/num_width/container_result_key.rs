@@ -247,6 +247,15 @@ impl<'a> Analysis<'a> {
             Some(cb) => {
                 let rk = SlotKey::Ret(cb);
                 let elem_src = if self.cb_returns_array(args[0]) {
+                    // Walking the returned array's elements IS container
+                    // evidence on the callback's ret point. Without the
+                    // mark, an identity callback (`(x) => x`) left the
+                    // `return x` guarded edge and the param's nested
+                    // edge dormant — the ret's annotation-seeded f64
+                    // class never reached the receiver's inner blocks,
+                    // and the inner walk f64-read their i64 slots as
+                    // denormals.
+                    self.mark_containerish(&rk);
                     SlotKey::Elem(Box::new(rk))
                 } else {
                     rk
