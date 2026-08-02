@@ -76,6 +76,20 @@ pub(crate) fn unify_ternary(t: &Type, e: &Type) -> Option<Type> {
             }
             Some(Type::Any)
         }
+        // rotation 284 — an `Array(Any)` branch against any other
+        // array joins to ANY, the S129-1 posture (`b ? [1, 2] : seq`
+        // where `seq` grew from an empty literal). Both branches ride
+        // the ternary lowering's both-sides box: the typed side's
+        // block is boxed with its kind mark, so every consumer goes
+        // through the kind-aware any lanes. A static Array(Any) join
+        // would hand the typed block to an Arr<Any> reader WITHOUT
+        // the mark — the same wrong-repr trap the S129-1 comment
+        // records for scalars.
+        (Type::Array(ta), Type::Array(ea))
+            if matches!(**ta, Type::Any) || matches!(**ea, Type::Any) =>
+        {
+            Some(Type::Any)
+        }
         (Type::Null, other) | (other, Type::Null) => Some(Type::Nullable(Box::new(other.clone()))),
         (Type::Nullable(inner), other) | (other, Type::Nullable(inner)) => {
             if inner.as_ref() == other {

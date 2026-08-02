@@ -168,7 +168,14 @@ fn widen_branches(
     // read by the other's (probe: `(false ? {v: 1} : {v: undefined})
     // .v` answered the sentinel-cell pointer as a number).
     let struct_join = matches!(tt, Type::Obj(_)) && matches!(et, Type::Obj(_)) && tt != et;
-    if (struct_join || then_undef != else_undef) && tt != Type::Any && et != Type::Any {
+    // rotation 284 — two array-shaped branches whose element reprs
+    // differ (the checker joined `Array(T)` × `Array(Any)` to Any):
+    // box BOTH sides expr-aware, so each block reads back through
+    // the kind-aware any lanes instead of one flavor's raw slot
+    // layout being read by the other's (probe: `(!t ? [1, 2] :
+    // anyArr)[0]` answered the slot's NaN-box bits as a number).
+    let arr_join = matches!(tt, Type::Arr(_)) && matches!(et, Type::Arr(_)) && tt != et;
+    if (struct_join || arr_join || then_undef != else_undef) && tt != Type::Any && et != Type::Any {
         ctx.cur_block = then_end;
         if tt.is_refcounted() && !ctx.expr_transfers_ownership(then_branch) {
             ctx.emit_rc_inc(then_val.clone());
