@@ -203,6 +203,20 @@ pub(in crate::ast) fn emit_class_instance_methods(
             is_rest: false,
         });
         params.extend(m.params.iter().cloned());
+        // RFC 20260802 residue fix — an un-annotated SETTER param is
+        // `any` per TS inference, but a None ann parses to Type::Void
+        // at the SSA sig, which fails the boxed-adapter `boxable`
+        // gate and silently dropped the AccessorPair's set face
+        // (`gOPD(C.prototype, p).set` answered undefined and the
+        // keyed write threw "readonly"). Same force-`any` posture as
+        // the defaulted-param rule in parse_param_list.
+        if m.accessor_kind == Some(AccessorKind::Setter) {
+            for p in params.iter_mut().skip(1) {
+                if p.type_ann.is_none() {
+                    p.type_ann = Some("any".to_string());
+                }
+            }
+        }
         let suffix = match m.accessor_kind {
             Some(AccessorKind::Getter) => "_get",
             Some(AccessorKind::Setter) => "_set",
@@ -284,10 +298,22 @@ pub(in crate::ast) fn emit_class_static_methods(
         }
         let (body, return_type) = maybe_rewrite_async_method_body(ast, cname, "__sm_", sm)
             .unwrap_or_else(|| (sm.body.clone(), sm.return_type.clone()));
+        // RFC 20260802 residue fix — force `any` on an un-annotated
+        // static-SETTER param (mirror of the instance emit above:
+        // None ann → Type::Void sig → boxed-adapter dropout → the
+        // AccessorPair set face silently missing).
+        let mut params = sm.params.clone();
+        if sm.accessor_kind == Some(AccessorKind::Setter) {
+            for p in params.iter_mut() {
+                if p.type_ann.is_none() {
+                    p.type_ann = Some("any".to_string());
+                }
+            }
+        }
         appended.push(Stmt::FnDecl {
             name: fn_name,
             type_params: type_params.to_vec(),
-            params: sm.params.clone(),
+            params,
             return_type,
             body,
             is_generator: false,
