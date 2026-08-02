@@ -47,7 +47,12 @@ pub(crate) fn try_lower(
     let method_name = name.clone();
     let recv_op = ctx.lower_expr(recv_id);
     let recv_ty = ctx.operand_ty(&recv_op);
+    // RFC 20260705 chunk 555 park protocol — every decline below this
+    // point has already lowered (or consumed a parked) receiver, so it
+    // must re-park the operand for the next dispatcher; dropping it
+    // would re-evaluate a side-effecting receiver downstream.
     let Type::Obj(_sid) = recv_ty else {
+        ctx.redispatch_lowered = Some((recv_id, recv_op));
         return None;
     };
 
@@ -55,9 +60,18 @@ pub(crate) fn try_lower(
     // NAME. The layout id is shared by every same-shaped class (and by
     // a plain object literal), so a reverse lookup by shape answered
     // whichever class registered first.
-    let cname = crate::ssa_lower_member_obj_field::class_name_of_expr(ctx, recv_id)?;
-    let fn_name = declaring_class_fn(ctx, &cname, &method_name)?;
-    let fid = *ctx.fn_table.get(&fn_name)?;
+    let Some(cname) = crate::ssa_lower_member_obj_field::class_name_of_expr(ctx, recv_id) else {
+        ctx.redispatch_lowered = Some((recv_id, recv_op));
+        return None;
+    };
+    let Some(fn_name) = declaring_class_fn(ctx, &cname, &method_name) else {
+        ctx.redispatch_lowered = Some((recv_id, recv_op));
+        return None;
+    };
+    let Some(fid) = ctx.fn_table.get(&fn_name).copied() else {
+        ctx.redispatch_lowered = Some((recv_id, recv_op));
+        return None;
+    };
 
     let mut arg_ops: Vec<Operand> = args.iter().map(|a| ctx.lower_expr(*a)).collect();
     // S2.42 (rotation 240) — this lane handed every argument verbatim

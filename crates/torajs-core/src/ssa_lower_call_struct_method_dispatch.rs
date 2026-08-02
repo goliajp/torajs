@@ -110,15 +110,26 @@ pub(crate) fn try_lower(
     let name = name.as_str();
     let recv_op = ctx.lower_expr(obj);
     let recv_ty = ctx.operand_ty(&recv_op);
+    // RFC 20260705 chunk 555 park protocol — a decline after lowering
+    // the receiver must park the operand so the next dispatcher reuses
+    // it instead of re-emitting (a side-effecting receiver like
+    // `f(x++).m()` would otherwise evaluate twice; the class-instance
+    // admit above lets `gen.next()` reach here, whose name is a class
+    // METHOD and never a layout field, so the no-field miss below is a
+    // hot decline path, not a corner).
     let Type::Obj(sid) = recv_ty else {
+        ctx.redispatch_lowered = Some((obj, recv_op));
         return None;
     };
-    let layout = &ctx.struct_layouts[sid.0 as usize];
-    let (field_idx, ssa_field_ty) = layout
+    let field_hit = ctx.struct_layouts[sid.0 as usize]
         .iter()
         .enumerate()
         .find(|(_, (n, _))| n == name)
-        .map(|(i, (_, t))| (i, *t))?;
+        .map(|(i, (_, t))| (i, *t));
+    let Some((field_idx, ssa_field_ty)) = field_hit else {
+        ctx.redispatch_lowered = Some((obj, recv_op));
+        return None;
+    };
     let offset = OBJ_HEADER_SIZE + (field_idx as u64) * 8;
     // T-28 — the checker recorded the trailing-Any missing-arg count
     // for this Call ExprId; a CallIndirect whose argv is shorter than
