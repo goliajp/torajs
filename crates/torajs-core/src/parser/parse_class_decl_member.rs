@@ -244,44 +244,10 @@ impl<'a> Parser<'a> {
         static_init: &mut Vec<StaticInit>,
         field_inits: &mut Vec<(String, ExprId)>,
     ) -> Result<(), String> {
-        // RFC 20260802 刀 3 后半 — a runtime computed FIELD
-        // (`[expr] = 1`). The key evaluated once at class-definition
-        // time (pass 3 emits `let __ccmk_<C>_<n> = <key>` at the
-        // class-decl position); the member NEVER enters the static
-        // struct layout — an instance field becomes a ctor-prefix
-        // keyed write into the expando dict (blade 2), a static one
-        // a keyed store onto the class object. `[k]: T = v` type
-        // annotations are consumed and erased (the value lands in an
-        // `any`-keyed slot either way).
+        // RFC 20260802 刀 3 后半 — runtime computed FIELD; tail parse
+        // in the `parse_class_decl_computed_field.rs` sibling.
         if member_name.starts_with("__ccm_") {
-            if matches!(self.peek(), Token::Colon) {
-                self.pos += 1; // consume `:`
-                self.parse_type_ann()?;
-            }
-            let init = if matches!(self.peek(), Token::Eq) {
-                self.pos += 1; // consume `=`
-                let e = self.parse_assign()?;
-                if super::class_field_early_errors::init_contains_arguments(&self.ast, e) {
-                    return Err(format!(
-                        "`arguments` is not allowed in a class field initializer in class `{name}` at {} (ES §15.7.1)",
-                        self.at()
-                    ));
-                }
-                e
-            } else {
-                self.ast.add_expr(Expr::Ident("undefined".into()))
-            };
-            if matches!(self.peek(), Token::Semi) {
-                self.pos += 1;
-            }
-            if is_static {
-                self.ast
-                    .class_computed_static_fields
-                    .push((name.to_string(), member_name, init));
-            } else {
-                field_inits.push((member_name, init));
-            }
-            return Ok(());
+            return self.parse_computed_field_tail(name, member_name, is_static, field_inits);
         }
         // ES §15.7.1 early error — `ClassElement : FieldDefinition;`
         // is a Syntax Error if PropName of FieldDefinition is
@@ -470,28 +436,10 @@ impl<'a> Parser<'a> {
         let mut prefix: Vec<Stmt> = Vec::new();
         for (fname, init_expr) in &field_inits {
             let this_ref = self.ast.add_expr(Expr::This);
-            // RFC 20260802 刀 3 后半 — a computed field rides the
-            // list under its `__ccm_<n>__` sentinel and becomes a
-            // KEYED write into the instance's expando dict: the key
-            // was evaluated once at class-definition time into the
-            // `__ccmk_<C>_<n>` module global (pass 3), the init
-            // re-evaluates per construction right here, in
-            // declaration order with the named fields.
-            let lhs = if let Some(n) = fname
-                .strip_prefix("__ccm_")
-                .map(|r| r.trim_end_matches('_'))
-            {
-                let this_any = self.ast.add_expr(Expr::As {
-                    expr: this_ref,
-                    ty_ann: "any".into(),
-                });
-                let key_ref = self
-                    .ast
-                    .add_expr(Expr::Ident(format!("__ccmk_{class_name}_{n}")));
-                self.ast.add_expr(Expr::Index {
-                    obj: this_any,
-                    index: key_ref,
-                })
+            // A `__ccm_<n>__` sentinel field becomes a KEYED write
+            // into the expando dict (lhs built in the sibling).
+            let lhs = if fname.starts_with("__ccm_") {
+                self.computed_field_init_lhs(class_name, fname, this_ref)
             } else {
                 self.ast.add_expr(Expr::Member {
                     obj: this_ref,

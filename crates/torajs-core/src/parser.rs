@@ -56,6 +56,7 @@ mod param_list;
 mod param_list_early_errors;
 mod param_optional_default;
 mod parse_class_decl;
+mod parse_class_decl_computed_field;
 mod parse_class_decl_generator;
 mod parse_class_decl_header;
 mod parse_class_decl_member;
