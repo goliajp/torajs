@@ -73,12 +73,14 @@ pub(crate) fn try_match(
     if **inner == **elem {
         return None;
     }
-    // Only primitive `U` lanes have a matching dst arr flavor today
-    // (a heap-inner flatMap needs the same struct-registry path map
-    // hetero is missing).
+    // Primitive `U` lanes plus nested-array inners — an `Array<V>`
+    // element is a pointer slot, which the flat_map walk already
+    // handles exactly like Str (LoadDyn pointer + rc_inc + push).
+    // Struct inners still need the struct-registry path map hetero
+    // is missing.
     if !matches!(
         **inner,
-        Type::Number | Type::String | Type::Boolean | Type::Any
+        Type::Number | Type::String | Type::Boolean | Type::Any | Type::Array(_)
     ) {
         return None;
     }
