@@ -1530,7 +1530,30 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 9215301c`, never as a constant.
 
-**Latest @ `72ac3231`** (2026-08-02, rotation 279 — RFC
+**Latest @ `2563958c`** (2026-08-02, rotation 280 — five knives:
+§15.7.1 class-field early errors ('constructor' in every literal
+spelling, `#constructor` in every ClassElementName position,
+ContainsArguments over field initializers) + async-modifier
+lookahead admits computed/literal names; expression-position
+`yield` lands via parse-time hoisting to `__yx_` YieldInto temps
+(top-#4 cluster, 171 cases — conditional positions and
+pre-yield side effects reject loudly, untyped locals reading a
+temp lift as `any`); comma-operator expression statements desugar
+to sequential statements (cluster #15, 119 cases, for-init comma
+included); bare class fields terminate by ASI at a line break
+(cluster #13, 122 cases); parser.rs 504-line breach cleaned into
+parser/cursor.rs): sweep passTotal 24500 → **24683 (+183)** / bug
+11706 → 11748 / trAccepted +225 / incompatible 16968 → **16743
+(−225)**; gate predicate **367 clusters / 9804 cases** (+3 / −225
+— unlock-exposes-new-signatures shape, case axis down big);
+forward 205 / 22 regressions (all metric-hygiene: `(yield) = 1`
+and getter-with-params now parse where the old wrong parse error
+masked missing early errors — AssignmentTargetType, accessor
+arity, param-default yield coverage, `using` statement-head
+reject; four thin knives specified in handoff), zero new
+timeouts / crashes.
+
+**Previous @ `72ac3231`** (2026-08-02, rotation 279 — RFC
 20260802-class-computed-member, four knives + one fix-up: class
 member names accept string / numeric literals and whole-literal
 computed keys (parse-time fold, `__sym_` narrowed to Symbol-headed
