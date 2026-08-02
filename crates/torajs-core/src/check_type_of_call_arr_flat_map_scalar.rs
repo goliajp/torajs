@@ -68,6 +68,15 @@ pub(crate) fn try_match(
     if matches!(ret.as_ref(), Type::Array(_)) {
         return None;
     }
+    // A value-less callback answers `undefined` per §23.1.3.11 step
+    // 8.d (a non-Array result is pushed as-if `[U]`), so the product
+    // is an array of undefineds — typed `Array<Any>` because the
+    // lowering's scalar arm pushes the boxed-undefined sentinel into
+    // the Any dst flavor (there is no dedicated undefined-elem
+    // layout).
+    if matches!(ret.as_ref(), Type::Void | Type::Undefined) {
+        return Some(Ok(Type::Array(Box::new(Type::Any))));
+    }
     // Only primitive `U` lanes have a matching dst arr flavor today
     // (matches the sibling hetero's set — heap-inner scalar U needs
     // the same struct-registry path).
