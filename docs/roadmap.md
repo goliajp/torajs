@@ -1530,7 +1530,31 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 9215301c`, never as a constant.
 
-**Latest @ `6ecef1a7`** (2026-08-02, rotation 276 knife 7 = RFC
+**Latest @ `72ac3231`** (2026-08-02, rotation 279 — RFC
+20260802-class-computed-member, four knives + one fix-up: class
+member names accept string / numeric literals and whole-literal
+computed keys (parse-time fold, `__sym_` narrowed to Symbol-headed
+chains, silent misinstall of `[k]` under `__sym_k__` replaced by
+the runtime lane); runtime computed member names install under
+their evaluated keys at the class-decl position (ToPropertyKey with
+Symbol pass-through and throw propagation, get/set merge via
+single-face present bits, sentinel names fenced out of every reify
+sweep, struct_method miss chain probes the class prototype chain);
+struct-receiver keyed access rides the any lane and symbol keys
+walk the class prototype chain (instance-side symbol-keyed read +
+call, subclass chain included); un-annotated setter params force
+`any` on accessor faces (None-ann Type::Void sig dropped the
+AccessorPair set face — the accessor-name-static literal-numeric
+family's exact assert surface): sweep passTotal 24405 → **24500
+(+95)** / bug 11652 → 11706 / trAccepted +149 / incompatible
+17117 → **16968 (−149)**; gate predicate **364 clusters / 10029
+cases** (−12 / −130, both axes down); forward 113 / 18 regressions
+(all metric-hygiene shape: 14 negative cases that used to pass on
+the wrong parse error now expose two missing early errors, 4
+no-oracle `static async *[k]` lookahead breaks — all registered in
+L3b), zero new timeouts / crashes.
+
+**Previous @ `6ecef1a7`** (2026-08-02, rotation 276 knife 7 = RFC
 20260802 D3a on top of the `a3a45e66` stamp below — a `return`
 inside a generator's try/finally body (or nested catch body) now
 routes through every enclosing finally copy before completing,

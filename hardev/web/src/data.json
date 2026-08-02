@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-02T01:41:27.168Z",
+  "generatedAt": "2026-08-02T03:11:13.219Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-02T01:40:17Z",
-    "headSha": "7b5aca04",
-    "elapsedSec": 648.28,
+    "ranAt": "2026-08-02T03:09:33Z",
+    "headSha": "72ac3231",
+    "elapsedSec": 387.8,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 20020,
-    "passNoOracle": 559,
-    "passNegative": 3826,
-    "passTotal": 24405,
-    "bug": 11652,
-    "incompatible": 17117,
+    "pass": 20129,
+    "passNoOracle": 555,
+    "passNegative": 3816,
+    "passTotal": 24500,
+    "bug": 11706,
+    "incompatible": 16968,
     "bunSkip": 7467,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 36057,
-    "passRateInScope": 45.9,
-    "passRateTrAccepted": 67.68
+    "trAccepted": 36206,
+    "passRateInScope": 46.08,
+    "passRateTrAccepted": 67.67
   },
   "torajs": {
-    "commit": "7b5aca04",
-    "commitSubject": "feat(core): fn.length stops counting at the first default or rest param",
+    "commit": "72ac3231",
+    "commitSubject": "fix(core): un-annotated setter params force the any annotation on accessor faces",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "72ac3231",
+      "subject": "fix(core): un-annotated setter params force the any annotation on accessor faces"
+    },
+    {
+      "hash": "dbdd4f74",
+      "subject": "feat(core,anyvalue): struct-receiver keyed access rides the any lane, symbol keys walk the class prototype chain"
+    },
+    {
+      "hash": "f98b789e",
+      "subject": "fix(anyvalue): struct proto-chain call probe skips reified builtin cells"
+    },
+    {
+      "hash": "efdf60d2",
+      "subject": "feat(core,meta,anyvalue): runtime computed class member names install under their evaluated keys"
+    },
+    {
+      "hash": "e5c1d6d8",
+      "subject": "feat(core): class member names accept string/numeric literals and whole-literal computed keys"
+    },
+    {
+      "hash": "884871f8",
+      "subject": "chore(docs,hardev): rotation 278 final census at 7b5aca04"
+    },
+    {
       "hash": "7b5aca04",
       "subject": "feat(core): fn.length stops counting at the first default or rest param"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "72854917",
       "subject": "feat(hardev): rotation close mechanically reaps every session child process"
-    },
-    {
-      "hash": "c84729b6",
-      "subject": "chore(docs,hardev): rotation 277 final census at 58002883"
-    },
-    {
-      "hash": "58002883",
-      "subject": "feat(core): async generator return() awaits its value"
-    },
-    {
-      "hash": "f1304b1e",
-      "subject": "chore(hardev): archive rotation 277 sweep artifacts at 72974723"
-    },
-    {
-      "hash": "92434991",
-      "subject": "chore(docs,hardev): rotation 277 final census at 72974723"
-    },
-    {
-      "hash": "72974723",
-      "subject": "feat(core): missing trailing typevar/any params pad undefined"
-    },
-    {
-      "hash": "a6bf3acb",
-      "subject": "test: async generator return() through finally fixture"
     }
   ],
-  "headSha": "7b5aca04",
+  "headSha": "72ac3231",
   "autorun": {
-    "total": 582,
+    "total": 583,
     "baselineTarget": 10,
-    "bySelf": 577,
+    "bySelf": 578,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785619346-6e48",
-      "at": "2026-08-01T21:22:26Z",
-      "ts": 1785619346,
+      "rotationId": "r-1785635005-7099",
+      "at": "2026-08-02T01:43:25Z",
+      "ts": 1785635005,
       "trigger": "self",
-      "prevHead": "c84729b6",
-      "handoffSha": "sha256:d4ba5715997c1c7ae743200061d332b2dc2e3da4bd29b03017ed00659ebbac5a",
-      "handoffAgeSec": 56,
+      "prevHead": "884871f8",
+      "handoffSha": "sha256:d2d2f7c0aaeb73f5aea1f2940a09234123de2beb862c8ab2b442a1e1614e0bf1",
+      "handoffAgeSec": 4,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1785635005-7099",
+        "at": "2026-08-02T01:43:25Z",
+        "ts": 1785635005,
+        "trigger": "self",
+        "prevHead": "884871f8",
+        "handoffSha": "sha256:d2d2f7c0aaeb73f5aea1f2940a09234123de2beb862c8ab2b442a1e1614e0bf1",
+        "handoffAgeSec": 4,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785619346-6e48",
         "at": "2026-08-01T21:22:26Z",
@@ -876,17 +887,6 @@
         "prevHead": "55c866dc",
         "handoffSha": "sha256:47caecdba4ada4909b33848a040eafc808f89354f24abb1a8ae8bec5ff6c2521",
         "handoffAgeSec": 32,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1785559004-5abf",
-        "at": "2026-08-01T04:36:44Z",
-        "ts": 1785559004,
-        "trigger": "self",
-        "prevHead": "77aeca80",
-        "handoffSha": "sha256:9bf8f0c12179cbd8ea3021eab0d954c331b314c54a0e2239995256f8edfab3dd",
-        "handoffAgeSec": 16,
         "conformanceBefore": null,
         "commitsInSession": null
       }
