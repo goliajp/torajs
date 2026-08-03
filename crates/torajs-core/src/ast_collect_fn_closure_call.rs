@@ -152,6 +152,28 @@ impl<'a> FnToClosureCollector<'a> {
         {
             self.try_mark(*obj);
         }
+        // r291 — the apply/bind forms the fn-proto desugar does NOT
+        // swallow (dynamic argArray `f.apply(t, arr)`, surplus bind
+        // partials): the member call survives to lowering, so the
+        // fn-name receiver must ride the wrapped closure lane (the
+        // any-method apply/bind kernels take it from there). The
+        // desugar's own predicate is the single source of truth —
+        // wrapping a swallowed form would hide the Ident the
+        // desugar's rewrite matches on.
+        if let Expr::Member { obj, name: mname } = self.ast.get_expr(*callee)
+            && matches!(mname.as_str(), "apply" | "bind")
+            && let Expr::Ident(fname) = self.ast.get_expr(*obj)
+            && let Some((params, _, _)) = self.fn_sigs.get(fname)
+            && !crate::ast_desugar_function_prototype_methods::swallows_fn_proto_call(
+                self.ast,
+                mname,
+                args,
+                params.len(),
+            )
+            && !self.is_generator_family_ident(*obj)
+        {
+            self.try_mark(*obj);
+        }
         // Cluster #1 (test262) — a member-call argument fn-Ident whose
         // raw FnSig can't serve the value use: a
         // bind_this_param-promoted fn (hidden `__this` first param —

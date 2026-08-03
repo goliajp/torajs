@@ -35,6 +35,39 @@ use std::collections::HashMap;
 
 use crate::ast::{Ast, Expr, ExprId, Param, Stmt};
 
+/// Whether this pass will rewrite `f.<m_name>(args)` for a plain
+/// top-FnDecl `f` with `fn_params_len` params. The single source of
+/// truth the collector's receiver-wrap axis consults: a form this
+/// pass swallows becomes a direct call (receiver must NOT wrap, or
+/// the Ident match below would stop seeing it); a form it leaves —
+/// dynamic argArray, surplus bind partials — keeps the member call,
+/// whose fn-name receiver then rides the wrapped closure lane.
+pub(crate) fn swallows_fn_proto_call(
+    ast: &Ast,
+    m_name: &str,
+    args: &[ExprId],
+    fn_params_len: usize,
+) -> bool {
+    match m_name {
+        "call" => true,
+        "apply" => match args.len() {
+            0 | 1 => true,
+            2 => {
+                matches!(
+                    ast.exprs.get(args[1].0 as usize),
+                    Some(Expr::Array(_)) | Some(Expr::Null)
+                ) || matches!(
+                    ast.exprs.get(args[1].0 as usize),
+                    Some(Expr::Ident(n)) if n == "undefined"
+                )
+            }
+            _ => false,
+        },
+        "bind" => args.len().saturating_sub(1) <= fn_params_len,
+        _ => false,
+    }
+}
+
 pub(crate) fn run(ast: &mut Ast) {
     let mut fn_sigs: HashMap<String, (Vec<Param>, Option<String>)> = HashMap::new();
     for s in &ast.stmts {
@@ -79,6 +112,9 @@ pub(crate) fn run(ast: &mut Ast) {
             continue;
         };
         if fn_params.first().is_some_and(|p| p.name == "__env") {
+            continue;
+        }
+        if !swallows_fn_proto_call(ast, &m_name, &args_clone, fn_params.len()) {
             continue;
         }
 
