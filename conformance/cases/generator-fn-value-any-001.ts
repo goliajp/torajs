@@ -36,6 +36,15 @@ console.log(gfp === Object.getPrototypeOf(function* () {}));
 console.log(gfp !== agfp);
 console.log(gfp.constructor.name, agfp.constructor.name);
 
+// member-call receiver forms (restricted-properties / forbidden-ext)
+console.log(g.hasOwnProperty("caller"), g.hasOwnProperty("arguments"));
+console.log(ag.hasOwnProperty("caller"));
+
+// unswallowed apply with a dynamic argArray on a generator factory
+const dyn = [1, 2];
+const it2 = g.apply(null, dyn);
+console.log((it2 as any).next().value);
+
 // the factory itself still mints working generators
 const it = g();
 console.log(it.next().value, it.next().value, it.next().done);

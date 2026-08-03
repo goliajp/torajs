@@ -158,8 +158,13 @@ impl<'a> FnToClosureCollector<'a> {
                 mname.as_str(),
                 "call" | "apply" | "bind" | "toString" | "toLocaleString"
             )
-            && !self.is_generator_family_ident(*obj)
         {
+            // r292 — generator factories wrap here too (the G2
+            // forward-cell reflection faces carry them):
+            // `f.hasOwnProperty("caller")` — the forbidden-ext /
+            // restricted-properties family. `.prototype` reads are
+            // member READS, not calls — the static fold this axis
+            // must not erase never routes through it.
             self.try_mark(*obj);
         }
         // r291 — the apply/bind forms the fn-proto desugar does NOT
@@ -180,8 +185,11 @@ impl<'a> FnToClosureCollector<'a> {
                 args,
                 params.len(),
             )
-            && !self.is_generator_family_ident(*obj)
         {
+            // r292 — the generator exclusion drops here too: an
+            // unswallowed `g.apply(t, arr)` boxes its factory
+            // receiver the same way (forward cell → any-apply
+            // kernel → the factory dispatch mints the generator).
             self.try_mark(*obj);
         }
         // Cluster #1 (test262) — a member-call argument fn-Ident whose
