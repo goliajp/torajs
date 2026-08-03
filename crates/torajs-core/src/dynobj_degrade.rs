@@ -295,7 +295,11 @@ impl Walker<'_> {
         let ast = self.ast;
         match ast.get_expr(target) {
             Expr::Member { obj, name } => {
-                let Expr::Ident(recv) = ast.get_expr(*obj) else {
+                // r293 — `as` layers are value pass-throughs:
+                // `(box as any).k = v` writes the same binding
+                // `box.k = v` does, so the receiver resolves through
+                // them (S13_A10-adjacent "layout: []" family).
+                let Expr::Ident(recv) = ast.get_expr(strip_as(ast, *obj)) else {
                     return;
                 };
                 match self.resolve(recv) {
@@ -314,7 +318,7 @@ impl Walker<'_> {
                 }
             }
             Expr::Index { obj, .. } => {
-                let Expr::Ident(recv) = ast.get_expr(*obj) else {
+                let Expr::Ident(recv) = ast.get_expr(strip_as(ast, *obj)) else {
                     return;
                 };
                 match self.resolve(recv) {
@@ -340,7 +344,7 @@ impl Walker<'_> {
         let (Expr::Member { obj, .. } | Expr::Index { obj, .. }) = ast.get_expr(operand) else {
             return;
         };
-        let Expr::Ident(recv) = ast.get_expr(*obj) else {
+        let Expr::Ident(recv) = ast.get_expr(strip_as(ast, *obj)) else {
             return;
         };
         match self.resolve(recv) {
@@ -381,6 +385,15 @@ impl Walker<'_> {
                 .any(|(n, _)| n.starts_with("__getter_") || n.starts_with("__setter_"))
         )
     }
+}
+
+/// Peel `as` layers off a receiver expression — TS casts are static
+/// assertions, the runtime binding underneath is what degrades (r293).
+fn strip_as(ast: &Ast, mut e: ExprId) -> ExprId {
+    while let Expr::As { expr, .. } = ast.get_expr(e) {
+        e = *expr;
+    }
+    e
 }
 
 #[cfg(test)]

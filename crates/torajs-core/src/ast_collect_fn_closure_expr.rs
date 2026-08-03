@@ -55,9 +55,14 @@ impl<'a> FnToClosureCollector<'a> {
         {
             self.try_mark(*value);
         }
-        // Chunk 733 — `fns[i] = top_fn` where `fns` was
-        // declared with a fn-typed array ann (Closure-repr
-        // element slot).
+        // Chunk 733 — `fns[i] = top_fn` where `fns` was declared
+        // with a fn-typed array ann (Closure-repr element slot).
+        // (r293 probed widening this to every index-assign RHS —
+        // `Array.prototype[Symbol.iterator] = function*(){}` — but
+        // the wrapped cell trips a pre-existing Symbol-key
+        // index-assign codegen fault (materialize_operand_gpr on an
+        // Fpr slot, SIGABRT), a worse verdict than the loud FnSig
+        // reject. Widen only after that lane is fixed; L3b r293.)
         if let Expr::Index { obj, .. } = self.ast.get_expr(*target)
             && let Expr::Ident(oname) = self.ast.get_expr(*obj)
             && self.fn_arr_bindings.contains(oname)
@@ -85,12 +90,22 @@ impl<'a> FnToClosureCollector<'a> {
         // binding (`var __music_box = {}` — S13_A10): the store
         // rides the dynobj assign lane, whose value slot boxes into
         // the any world, which a raw FnSig can't. The wrapped cell
-        // keeps `typeof` = "function" and the call face.
-        if let Expr::Member { obj, .. } = self.ast.get_expr(*target)
-            && let Expr::Ident(oname) = self.ast.get_expr(*obj)
-            && self.any_bindings.contains(oname)
-        {
-            self.try_mark(*value);
+        // keeps `typeof` = "function" and the call face. `as` layers
+        // on the receiver peel — `(box as any).prop = fn` writes the
+        // same binding.
+        if let Expr::Member { obj, .. } = self.ast.get_expr(*target) {
+            let base = {
+                let mut e = *obj;
+                while let Expr::As { expr, .. } = self.ast.get_expr(e) {
+                    e = *expr;
+                }
+                e
+            };
+            if let Expr::Ident(oname) = self.ast.get_expr(base)
+                && self.any_bindings.contains(oname)
+            {
+                self.try_mark(*value);
+            }
         }
         self.walk_expr(*target);
         self.walk_expr(*value);
