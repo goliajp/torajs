@@ -144,8 +144,9 @@ fn collect_sites(
         {
             continue;
         }
-        // Receiver-aware gate — knife-4 mirror (see module doc).
-        let typed_ok = mname != "flatMap";
+        // Receiver-aware gate — knife-4 mirror (see module doc);
+        // flatMap joined the typed-receiver set in rotation 286.
+        let typed_ok = true;
         let mapset_ok = mname == "forEach";
         let recv_ok = (typed_ok && matches!(ast.get_expr(*obj), Expr::Array(_)))
             || matches!(ast.get_expr(*obj), Expr::Ident(n)

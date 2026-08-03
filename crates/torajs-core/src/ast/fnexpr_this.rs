@@ -248,14 +248,13 @@ fn collect_position_faces(
             // A syntactically-certain TYPED array receiver (const
             // ArrayLit init) promotes for the inlined-loop shapes
             // that thread a thisArg: the trio (`forEach` / `map` /
-            // `filter` — `ssa_lower_call_arr_ho`) and, rotation 261,
-            // the predicate family (`find*` / `some` / `every` —
-            // `ssa_lower_call_arr_predicate` mirrors the knife-4
-            // protocol). That is every HOF here but `flatMap`
-            // (runtime-kernel only); other receivers keep today's
-            // loud reject.
+            // `filter` — `ssa_lower_call_arr_ho`), the predicate
+            // family (`find*` / `some` / `every` — rotation 261),
+            // and `flatMap` (rotation 286 — its inlined loop now
+            // mirrors the same knife-4 protocol); other receivers
+            // keep today's loud reject.
             Expr::Member { obj, name } if is_hof_method(name) => {
-                let typed_ok = name != "flatMap";
+                let typed_ok = true;
                 // Typed Map / Set receivers ride the same channel for
                 // forEach only (their sole callback-bearing method —
                 // the mapset kernels thread the thisArg box).
