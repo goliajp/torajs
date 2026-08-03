@@ -1530,7 +1530,42 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 9215301c`, never as a constant.
 
-**Latest @ `936712e4`** (2026-08-03, rotation 286 — the annotated-
+**Latest @ `c0e82d13`** (2026-08-03, rotation 287 — the generic
+array-like / method-value face, four substrate knives + one harness
+knife: Array.prototype.flat / flatMap join the runtime's
+"intentionally generic" array-like arm (has-gated walk, one-level
+spread through arr_extend_any, the shared flat-depth kernel); Array
+receivers join the method-value reify family (ARRAY_PROTO_TAG mint
+on both mirror sides — `[].flat.call(arrayLike)` /
+`[].flatMap.call(arrayLike, fn)` / first-class `const m = arr.map` /
+bind); flat accepts a RUNTIME depth operand (ToIntegerOrInfinity in
+a new kernel shell: null → 0, numeric strings parse, Infinity
+saturates, Symbol throws); the test262 runner stages sibling
+`*_FIXTURE.js` files beside the assembled case (module-import
+fixtures resolved against the temp dir and always missed — worker
+slots own temp subdirectories now, staged bytes salt the bun-oracle
+key); bare named exports (`export { a, b as c }`) resolve through
+both import shapes, and injected lib decls reset their source spans
+to the (0,0) sentinel (they indexed the LIB file's text while every
+consumer slices the MAIN file's — out-of-bounds panic when the main
+file is shorter): sweep passTotal 25441 → **25486 (+45)** / bug
+11680 → 11692 (+12) / trAccepted +57 / incompatible 16053 →
+**15996 (−57)**, conservation exact (57 = 45 + 12); gate predicate
+**338 clusters / 9145 cases** (−9 / −24, both axes down), core
+10118 (−57); regressions: **ONE** —
+`test/language/statements/class/async-gen-method/yield-star-next-then-non-callable-symbol-fulfillpromise.js`
+pass → bug:stdout-mismatch, a release-profile-only layout-sensitive
+latent bug (bisects to the flat-runtime-depth commit whose only
+global effect on this case is an intrinsics-table FuncId shift; the
+iter profile passes on every commit; inserting two console.log
+lines flips release to pass; its 11 same-semantics variants all
+pass) — root-cause investigation registered in plan-state L3b. The
+46 forward moves land in the knives' faces: flat 6 / includes 6 /
+find family 8 / flatMap 2 / dynamic-import 10 (fixture staging
+unlocked string-literal `import()` cases) / import-defer syntax 2 /
+misc array-generic 12.
+
+**Prior @ `936712e4`** (2026-08-03, rotation 286 — the annotated-
 callback + flatMap face, seven substrate knives + one debt extract:
 a receiver-matching `{elem}[]` / `Array<{elem}>` annotation on the
 §23.1.3 srcArray callback slot normalizes to the kind-aware `any[]`
