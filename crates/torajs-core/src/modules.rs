@@ -94,7 +94,6 @@ fn inject_side_effect_stmt(
     target_dir: &Path,
     injections: &mut Vec<Stmt>,
     s: Stmt,
-    target_path: &Path,
 ) -> Result<(), String> {
     if let Stmt::ImportDecl {
         source,
@@ -112,10 +111,10 @@ fn inject_side_effect_stmt(
     {
         injections.push(*boxed);
     } else if let Stmt::ExportDecl { inner: None, .. } = s {
-        return Err(format!(
-            "bare named export not supported in K.2 ({})",
-            target_path.display()
-        ));
+        // P13-S4b — a side-effect import binds no names, so the
+        // export FACE of a bare named export (`export { a }`) has no
+        // consumer here; the decls it lists already injected as
+        // ordinary top-level statements above. Drop the face.
     } else {
         injections.push(s);
     }
@@ -208,10 +207,12 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
         // `let <alias> = { name1: name1, name2: name2, ... }`.
         let mut namespace_fields: Vec<String> = Vec::new();
 
+        let bare_exports = collect_bare_exports(&lib_section);
+
         for s in lib_section {
             // Side-effect-only import — see [`inject_side_effect_stmt`].
             if side_effect_only {
-                inject_side_effect_stmt(&mut work, &target_dir, &mut injections, s, &target_path)?;
+                inject_side_effect_stmt(&mut work, &target_dir, &mut injections, s)?;
                 continue;
             }
             match s {
@@ -279,13 +280,20 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
                     )?;
                 }
                 Stmt::ExportDecl { inner: None, .. } => {
-                    return Err(format!(
-                        "bare named export not supported in K.2 ({})",
-                        target_path.display()
-                    ));
+                    // P13-S4b — the bare named export FACE: its
+                    // (orig, exported) pairs were collected before
+                    // the walk; the decls themselves inject below.
                 }
-                _ => {
-                    // Lib-level non-export top-level stmt — dropped.
+                other => {
+                    inject_bare_exported_decl(
+                        &mut injections,
+                        other,
+                        &bare_exports,
+                        &want,
+                        &rename,
+                        namespace_alias.is_some(),
+                        &mut namespace_fields,
+                    );
                 }
             }
         }
@@ -297,10 +305,98 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
 
     if !injections.is_empty() {
         let mut new_stmts = injections;
+        // An injected lib decl's recorded span indexes the LIB
+        // file's text, but every span consumer downstream
+        // (`intern_fn_source` / the class-method registry) slices
+        // the MAIN file's `ast.source`: out of bounds when the main
+        // file is shorter, silently wrong toString text otherwise.
+        // Reset to the (0,0) "no user source" sentinel — toString
+        // answers the native form.
+        for s in &mut new_stmts {
+            clear_injected_spans(s);
+        }
         new_stmts.extend(std::mem::take(&mut ast.stmts));
         ast.stmts = new_stmts;
     }
     Ok(closure_files)
+}
+
+/// P13-S4b — bare named exports (`export { a, b as c }`, no `from`)
+/// alias top-level decls declared elsewhere in the lib. Collected
+/// orig → exported up front so the decl statements (previously
+/// dropped as non-exports) inject when the importer wants them.
+fn collect_bare_exports(lib_section: &[Stmt]) -> HashMap<String, String> {
+    let mut bare_exports: HashMap<String, String> = HashMap::new();
+    for s in lib_section {
+        if let Stmt::ExportDecl {
+            inner: None,
+            named,
+            default_expr: None,
+            source: None,
+        } = s
+        {
+            for (orig, alias) in named {
+                bare_exports.insert(orig.clone(), alias.clone().unwrap_or_else(|| orig.clone()));
+            }
+        }
+    }
+    bare_exports
+}
+
+/// P13-S4b — a top-level decl a bare named export lists injects
+/// under its EXPORTED name (then the importer's own alias applies
+/// inside `inject_export_inner`). Everything else is a lib-level
+/// non-export statement — dropped.
+#[allow(clippy::too_many_arguments)]
+fn inject_bare_exported_decl(
+    injections: &mut Vec<Stmt>,
+    other: Stmt,
+    bare_exports: &HashMap<String, String>,
+    want: &HashSet<&str>,
+    rename: &HashMap<&str, &str>,
+    namespace_on: bool,
+    namespace_fields: &mut Vec<String>,
+) {
+    if let Some(dname) = decl_name(&other)
+        && let Some(exported) = bare_exports.get(&dname)
+    {
+        let mut inner = other;
+        if *exported != dname {
+            rename_decl(&mut inner, exported.clone());
+        }
+        inject_export_inner(
+            injections,
+            inner,
+            want,
+            rename,
+            namespace_on,
+            namespace_fields,
+        );
+    }
+}
+
+/// See the injection-splice comment in [`resolve_imports`] — recurse
+/// through nested fn bodies so every registry-visible declaration
+/// carries the sentinel.
+fn clear_injected_spans(s: &mut Stmt) {
+    match s {
+        Stmt::FnDecl { span, body, .. } => {
+            *span = crate::lexer::Span { start: 0, end: 0 };
+            for inner in body {
+                clear_injected_spans(inner);
+            }
+        }
+        Stmt::ClassDecl {
+            methods,
+            static_methods,
+            ..
+        } => {
+            for m in methods.iter_mut().chain(static_methods.iter_mut()) {
+                m.span = crate::lexer::Span { start: 0, end: 0 };
+            }
+        }
+        _ => {}
+    }
 }
 
 mod resolve_helpers;
