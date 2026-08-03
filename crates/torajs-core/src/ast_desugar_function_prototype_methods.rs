@@ -158,117 +158,144 @@ pub(crate) fn run(ast: &mut Ast) {
                 // Only MORE partials than params keeps the reject —
                 // dropping surplus args would drop their evaluation.
                 let partial_args: Vec<ExprId> = args_clone.iter().skip(1).copied().collect();
-                let partial_count = partial_args.len();
-                if partial_count > fn_params.len() {
+                if partial_args.len() > fn_params.len() {
                     continue;
                 }
                 let id = id_counter;
                 id_counter += 1;
-                let bound_name = format!("__bound_{}_{}", fn_name, id);
-                let factory_name = format!("__bind_create_{}_{}", fn_name, id);
-
-                let cap_names: Vec<String> = (0..partial_count)
-                    .map(|k| format!("__bp_{}_{}", id, k))
-                    .collect();
-                let remaining_count = fn_params.len() - partial_count;
-                let rem_names: Vec<String> = (0..remaining_count)
-                    .map(|k| format!("__br_{}_{}", id, k))
-                    .collect();
-
-                let env_ann = format!("__env({})", cap_names.join("|"));
-                let mut bound_params: Vec<Param> = Vec::with_capacity(remaining_count + 1);
-                bound_params.push(Param {
-                    name: "__env".into(),
-                    type_ann: Some(env_ann),
-                    default: None,
-                    is_rest: false,
-                });
-                for k in 0..remaining_count {
-                    let src_param = &fn_params[partial_count + k];
-                    bound_params.push(Param {
-                        name: rem_names[k].clone(),
-                        type_ann: src_param.type_ann.clone(),
-                        default: None,
-                        is_rest: false,
-                    });
-                }
-                let callee_ident_id = ast.add_expr(Expr::Ident(fn_name.clone()));
-                let mut call_args: Vec<ExprId> = Vec::with_capacity(fn_params.len());
-                for cn in &cap_names {
-                    call_args.push(ast.add_expr(Expr::Ident(cn.clone())));
-                }
-                for rn in &rem_names {
-                    call_args.push(ast.add_expr(Expr::Ident(rn.clone())));
-                }
-                let call_id = ast.add_expr(Expr::Call {
-                    callee: callee_ident_id,
-                    args: call_args,
-                });
-                let bound_body = vec![Stmt::Return(Some(call_id))];
-                // An unannotated source fn's return type is inferred
-                // later — `any` is the only annotation the factory can
-                // write that agrees with whatever that inference says
-                // (`void` rejected every value-returning unannotated fn).
-                let ret_type_str = fn_ret.clone().unwrap_or_else(|| "any".to_string());
-                let bound_decl = Stmt::FnDecl {
-                    name: bound_name.clone(),
-                    type_params: Vec::new(),
-                    params: bound_params,
-                    // Mirrors the factory's `->R` (any when the source
-                    // is unannotated) so the wrapper's own return
-                    // boundary boxes the forwarded value — an inferred
-                    // Number returned raw through a `__cls(..)->any`
-                    // slot reads back as a garbage tag.
-                    return_type: Some(ret_type_str.clone()),
-                    body: bound_body,
-                    is_generator: false,
-                    span: crate::lexer::Span { start: 0, end: 0 },
-                };
-
-                let mut factory_params: Vec<Param> = Vec::with_capacity(partial_count);
-                for k in 0..partial_count {
-                    let src_param = &fn_params[k];
-                    factory_params.push(Param {
-                        name: cap_names[k].clone(),
-                        type_ann: src_param.type_ann.clone(),
-                        default: None,
-                        is_rest: false,
-                    });
-                }
-                let rem_tys: Vec<String> = (partial_count..fn_params.len())
-                    .map(|k| {
-                        fn_params[k]
-                            .type_ann
-                            .clone()
-                            .unwrap_or_else(|| "any".to_string())
-                    })
-                    .collect();
-                let factory_ret = format!("__cls({})->{}", rem_tys.join("|"), ret_type_str);
-                let closure_expr_id = ast.add_expr(Expr::Closure {
-                    fn_name: bound_name,
-                    captures: cap_names.clone(),
-                });
-                let factory_body = vec![Stmt::Return(Some(closure_expr_id))];
-                new_decls.push(Stmt::FnDecl {
-                    name: factory_name.clone(),
-                    type_params: Vec::new(),
-                    params: factory_params,
-                    return_type: Some(factory_ret),
-                    body: factory_body,
-                    is_generator: false,
-                    span: crate::lexer::Span { start: 0, end: 0 },
-                });
-                new_decls.push(bound_decl);
-
-                let new_callee = ast.add_expr(Expr::Ident(factory_name));
-                ast.exprs[i] = Expr::Call {
-                    callee: new_callee,
-                    args: partial_args,
-                };
+                synth_bind(
+                    ast,
+                    i,
+                    id,
+                    &fn_name,
+                    &fn_params,
+                    &fn_ret,
+                    partial_args,
+                    &mut new_decls,
+                );
             }
             _ => unreachable!(),
         }
     }
 
     ast.stmts.extend(new_decls);
+}
+
+/// The `.bind` rewrite's synthesis half: mint the `__bound_<f>_<id>`
+/// wrapper + `__bind_create_<f>_<id>` factory pair and replace the
+/// call at arena slot `i` with the factory invocation over the
+/// partial args (see module doc).
+#[allow(clippy::too_many_arguments)]
+fn synth_bind(
+    ast: &mut Ast,
+    i: usize,
+    id: u32,
+    fn_name: &str,
+    fn_params: &[Param],
+    fn_ret: &Option<String>,
+    partial_args: Vec<ExprId>,
+    new_decls: &mut Vec<Stmt>,
+) {
+    let partial_count = partial_args.len();
+    let bound_name = format!("__bound_{}_{}", fn_name, id);
+    let factory_name = format!("__bind_create_{}_{}", fn_name, id);
+
+    let cap_names: Vec<String> = (0..partial_count)
+        .map(|k| format!("__bp_{}_{}", id, k))
+        .collect();
+    let remaining_count = fn_params.len() - partial_count;
+    let rem_names: Vec<String> = (0..remaining_count)
+        .map(|k| format!("__br_{}_{}", id, k))
+        .collect();
+
+    let env_ann = format!("__env({})", cap_names.join("|"));
+    let mut bound_params: Vec<Param> = Vec::with_capacity(remaining_count + 1);
+    bound_params.push(Param {
+        name: "__env".into(),
+        type_ann: Some(env_ann),
+        default: None,
+        is_rest: false,
+    });
+    for k in 0..remaining_count {
+        let src_param = &fn_params[partial_count + k];
+        bound_params.push(Param {
+            name: rem_names[k].clone(),
+            type_ann: src_param.type_ann.clone(),
+            default: None,
+            is_rest: false,
+        });
+    }
+    let callee_ident_id = ast.add_expr(Expr::Ident(fn_name.to_string()));
+    let mut call_args: Vec<ExprId> = Vec::with_capacity(fn_params.len());
+    for cn in &cap_names {
+        call_args.push(ast.add_expr(Expr::Ident(cn.clone())));
+    }
+    for rn in &rem_names {
+        call_args.push(ast.add_expr(Expr::Ident(rn.clone())));
+    }
+    let call_id = ast.add_expr(Expr::Call {
+        callee: callee_ident_id,
+        args: call_args,
+    });
+    let bound_body = vec![Stmt::Return(Some(call_id))];
+    // An unannotated source fn's return type is inferred
+    // later — `any` is the only annotation the factory can
+    // write that agrees with whatever that inference says
+    // (`void` rejected every value-returning unannotated fn).
+    let ret_type_str = fn_ret.clone().unwrap_or_else(|| "any".to_string());
+    let bound_decl = Stmt::FnDecl {
+        name: bound_name.clone(),
+        type_params: Vec::new(),
+        params: bound_params,
+        // Mirrors the factory's `->R` (any when the source
+        // is unannotated) so the wrapper's own return
+        // boundary boxes the forwarded value — an inferred
+        // Number returned raw through a `__cls(..)->any`
+        // slot reads back as a garbage tag.
+        return_type: Some(ret_type_str.clone()),
+        body: bound_body,
+        is_generator: false,
+        span: crate::lexer::Span { start: 0, end: 0 },
+    };
+
+    let mut factory_params: Vec<Param> = Vec::with_capacity(partial_count);
+    for k in 0..partial_count {
+        let src_param = &fn_params[k];
+        factory_params.push(Param {
+            name: cap_names[k].clone(),
+            type_ann: src_param.type_ann.clone(),
+            default: None,
+            is_rest: false,
+        });
+    }
+    let rem_tys: Vec<String> = (partial_count..fn_params.len())
+        .map(|k| {
+            fn_params[k]
+                .type_ann
+                .clone()
+                .unwrap_or_else(|| "any".to_string())
+        })
+        .collect();
+    let factory_ret = format!("__cls({})->{}", rem_tys.join("|"), ret_type_str);
+    let closure_expr_id = ast.add_expr(Expr::Closure {
+        fn_name: bound_name,
+        captures: cap_names.clone(),
+    });
+    let factory_body = vec![Stmt::Return(Some(closure_expr_id))];
+    new_decls.push(Stmt::FnDecl {
+        name: factory_name.clone(),
+        type_params: Vec::new(),
+        params: factory_params,
+        return_type: Some(factory_ret),
+        body: factory_body,
+        is_generator: false,
+        span: crate::lexer::Span { start: 0, end: 0 },
+    });
+    new_decls.push(bound_decl);
+
+    let new_callee = ast.add_expr(Expr::Ident(factory_name));
+    ast.exprs[i] = Expr::Call {
+        callee: new_callee,
+        args: partial_args,
+    };
 }
