@@ -384,6 +384,18 @@ mod tests {
     pub unsafe extern "C" fn __torajs_weakref_target_dying(_target: *mut c_void) {}
     #[unsafe(no_mangle)]
     pub unsafe extern "C" fn __torajs_value_drop_heap(_child: *mut c_void) {}
+    // Iterator-close-under-throw (proposal 2.1.5) stash/restore —
+    // torajs-throw provides these in the shipped binary.
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_throw_take() -> i64 {
+        0
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_throw_take_tag() -> i64 {
+        0
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_throw_set(_tag: i64, _value: i64) {}
     // RFC 20260802 刀 3a — torajs-meta's per-class prototype registry
     // read (member_get_symbol's struct chain arm); 0 = unregistered.
     #[unsafe(no_mangle)]

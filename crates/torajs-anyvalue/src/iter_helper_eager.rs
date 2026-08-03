@@ -164,7 +164,7 @@ pub(crate) unsafe fn iter_eager(
                     crate::nanbox_ffi::__torajs_anyv_rc_dec(acc);
                 }
                 crate::nanbox_ffi::__torajs_anyv_rc_dec(next_av);
-                crate::iter_any_close::__torajs_iter_close_value(recv);
+                crate::iter_any_close::iter_close_under_pending_throw(recv);
                 return VALUE_UNDEFINED;
             }
             match mid {

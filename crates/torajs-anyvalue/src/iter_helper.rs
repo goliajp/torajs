@@ -303,11 +303,13 @@ unsafe fn iter_helper_step_inner(ptr: *mut c_void, out: *mut AnyValue) -> i64 {
             let result = invoke_boxed(env, entry, argv.as_ptr(), 2);
             if __torajs_throw_check() != 0 {
                 // §27.1.4.6 step 5.b.v — callback threw: close the
-                // underlying, kill the helper, forward the throw.
+                // underlying (under the stashed throw, so its
+                // return() actually runs), kill the helper, forward
+                // the throw.
                 crate::nanbox_ffi::__torajs_anyv_rc_dec(item);
                 crate::nanbox_ffi::__torajs_anyv_rc_dec(result);
                 (ptr.cast::<u8>().add(ALIVE_OFF)).write(0);
-                crate::iter_any_close::__torajs_iter_close_value(underlying);
+                crate::iter_any_close::iter_close_under_pending_throw(underlying);
                 return 0;
             }
             if kind == ITER_HELPER_FILTER {

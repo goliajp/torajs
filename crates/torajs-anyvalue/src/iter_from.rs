@@ -224,9 +224,9 @@ pub(crate) unsafe fn iter_flat_map_step(ptr: *mut c_void, out: *mut AnyValue) ->
                 }
                 if __torajs_throw_check() != 0 {
                     // Step 5.b.ix.4.d — an inner abrupt completion
-                    // closes the outer.
+                    // closes the outer (under the stashed throw).
                     (p.add(ALIVE_OFF)).write(0);
-                    crate::iter_any_close::__torajs_iter_close_value(underlying);
+                    crate::iter_any_close::iter_close_under_pending_throw(underlying);
                     return 0;
                 }
                 // Inner exhausted — release it and step the outer.
@@ -255,11 +255,11 @@ pub(crate) unsafe fn iter_flat_map_step(ptr: *mut c_void, out: *mut AnyValue) ->
             let mapped = invoke_boxed(env, entry, argv.as_ptr(), 2);
             __torajs_anyv_rc_dec(item);
             if __torajs_throw_check() != 0 {
-                // Step 5.b.iv — mapper threw: close the outer,
-                // forward the throw.
+                // Step 5.b.iv — mapper threw: close the outer
+                // (under the stashed throw), forward the throw.
                 __torajs_anyv_rc_dec(mapped);
                 (p.add(ALIVE_OFF)).write(0);
-                crate::iter_any_close::__torajs_iter_close_value(underlying);
+                crate::iter_any_close::iter_close_under_pending_throw(underlying);
                 return 0;
             }
             match derive_flattenable(mapped, false) {
@@ -272,10 +272,11 @@ pub(crate) unsafe fn iter_flat_map_step(ptr: *mut c_void, out: *mut AnyValue) ->
                 }
                 None => {
                     // Step 5.b.vi — not flattenable: close the
-                    // outer, forward the TypeError.
+                    // outer (under the stashed TypeError), forward
+                    // the TypeError.
                     __torajs_anyv_rc_dec(mapped);
                     (p.add(ALIVE_OFF)).write(0);
-                    crate::iter_any_close::__torajs_iter_close_value(underlying);
+                    crate::iter_any_close::iter_close_under_pending_throw(underlying);
                     return 0;
                 }
             }

@@ -14,6 +14,38 @@ unsafe extern "C" {
     /// torajs-throw — record a pending catchable TypeError; returns
     /// normally (caller's throw-check propagates).
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
+    fn __torajs_throw_check() -> i64;
+    fn __torajs_throw_take() -> i64;
+    fn __torajs_throw_take_tag() -> i64;
+    fn __torajs_throw_set(tag: i64, value: i64);
+}
+
+/// §7.4.9 IteratorClose driven by an ABRUPT completion
+/// (IfAbruptCloseIterator — the callback-threw arms of the lazy /
+/// eager helpers). The pending throw must be STASHED before the
+/// close: a live pending throw bounces every callee straight out of
+/// its prologue check, so the underlying's own `return()` body never
+/// ran and test262's closed-on-call-throws family observed
+/// `closed === false`. Per step 6 the original completion wins — a
+/// throw the close itself raises is swallowed (its heap value
+/// released) and the original is restored.
+///
+/// # Safety
+/// `iter` is `undefined` or a live AnyValue; a throw is pending.
+pub(crate) unsafe fn iter_close_under_pending_throw(iter: AnyValue) {
+    unsafe {
+        let tag = __torajs_throw_take_tag();
+        let val = __torajs_throw_take();
+        __torajs_iter_close_value(iter);
+        if __torajs_throw_check() != 0 {
+            let ctag = __torajs_throw_take_tag();
+            let cval = __torajs_throw_take();
+            // box_from_pair re-encodes without a new stake, so this
+            // dec releases the swallowed throw's own reference.
+            __torajs_anyv_rc_dec(crate::__torajs_anyv_box_from_pair(ctag, cval));
+        }
+        __torajs_throw_set(tag, val);
+    }
 }
 
 /// `__torajs_any_iter_close(recv, iter_slot)` — ES §7.4.9
