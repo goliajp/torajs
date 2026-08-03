@@ -1522,15 +1522,43 @@ not the surface a TS runtime has to present. P-SURF is that surface,
 and unlike the trunk above it is **derived from measurement rather than
 from design intent**.
 
-**Where the numbers come from.** Full sweep @ `9215301c` (53174 cases,
+**Where the numbers come from.** Full sweep @ `0f8f8257` (53174 cases,
 `hardev/test262-latest.json`), then the `incompatible` bucket dumped per
 case (`--incompat-ndjson`) and clustered by
 `hardev/autorun/cluster_incompat.py`. **The script is the authority** —
 every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
-snapshot stamped `@ 9215301c`, never as a constant.
+snapshot stamped `@ 0f8f8257`, never as a constant.
 
-**Latest @ `c0e82d13`** (2026-08-03, rotation 287 — the generic
+**Latest @ `0f8f8257`** (2026-08-03, rotation 288 — the rotation-287
+heisenbug root cause + the dynamic-import parse face, four substrate
+knives: `__torajs_anyv_await`'s identity arm (non-promise cell) now
+mints the +1 stake its lowering call site releases — pre-fix `await
+<owned non-promise cell>` freed the operand's only stake and handed
+back a dangling pointer, which is the whole release-only /
+cross-machine / instrument-to-flip heisenbug (async-gen `yield*`
+awaits its step object; the UAF read of the freed cell's tag byte is
+what the layout decided; Guard Malloc turned it into a deterministic
+crash and an lldb refcount watchpoint on the dev box gave the
+alloc → dec-to-free → UAF-inc timeline); `import defer` parses as a
+contextual keyword (`defer` + `*` only; eager semantics layered) and
+a default-binding clause now requires the `,` before a namespace /
+named clause; statement-position `import("...")` is an expression
+per §13.3.10 and rewrites to `Promise.resolve(__dyn_ns_<n>)` so
+`.then()` chains and `await import(...)` unwraps; a CallExpression
+is not a valid assignment target (§13.15.1 early error — closes the
+15 negatives the ImportCall dispatch exposed, which had passed on an
+unrelated parse error): sweep passTotal 25486 → **25568 (+82)** /
+bug 11692 → 11735 (+43) / trAccepted +125 / incompatible 15996 →
+**15871 (−125)**, conservation exact (125 = 82 + 43); gate predicate
+**336 clusters / 9001 cases** (−2 / −144), core 9993 (−125, first
+time under 10k); regressions: **ZERO** (the rotation-287 regression
+case is back to pass — root-caused, fixed, and its 11 variants +
+minimized repros run clean under Guard Malloc). The 82 forward moves:
+dynamic-import 71 / assignmenttargettype 6 / logical-assignment 3 /
+top-level-await 1 / the heisenbug class case 1.
+
+**Prior @ `c0e82d13`** (2026-08-03, rotation 287 — the generic
 array-like / method-value face, four substrate knives + one harness
 knife: Array.prototype.flat / flatMap join the runtime's
 "intentionally generic" array-like arm (has-gated walk, one-level
