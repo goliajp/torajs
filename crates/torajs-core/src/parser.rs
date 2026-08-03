@@ -125,7 +125,10 @@ pub fn parse_into(source: &str, tokens: &[Spanned], target: &mut Ast) -> Result<
         current_class_has_parent: false,
         synth_classes: Vec::new(),
         class_value_aliases: std::collections::HashMap::new(),
-        dyn_import_counter: 0,
+        // Seeded like `desugar_id`: a lib file's own dynamic imports
+        // must mint `__dyn_ns_<n>` names that can't collide with the
+        // main file's (the resolver rewrites these BY NAME).
+        dyn_import_counter: id_offset,
         yield_hoist_buf: Vec::new(),
         yield_hoist_allowed: true,
         in_formal_params: false,

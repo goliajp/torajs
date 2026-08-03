@@ -201,3 +201,89 @@ pub(super) fn materialize_namespace(
         is_var: false,
     });
 }
+
+/// P13-S4b — bare named exports (`export { a, b as c }`, no `from`)
+/// alias top-level decls declared elsewhere in the lib. Collected
+/// orig → exported up front so the decl statements (previously
+/// dropped as non-exports) inject when the importer wants them.
+pub(super) fn collect_bare_exports(lib_section: &[Stmt]) -> HashMap<String, String> {
+    let mut bare_exports: HashMap<String, String> = HashMap::new();
+    for s in lib_section {
+        if let Stmt::ExportDecl {
+            inner: None,
+            named,
+            default_expr: None,
+            source: None,
+        } = s
+        {
+            for (orig, alias) in named {
+                bare_exports.insert(orig.clone(), alias.clone().unwrap_or_else(|| orig.clone()));
+            }
+        }
+    }
+    bare_exports
+}
+
+/// P13-S4b — a top-level decl a bare named export lists injects
+/// under its EXPORTED name (then the importer's own alias applies
+/// inside `inject_export_inner`). Everything else is a lib-level
+/// non-export statement — dropped.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn inject_bare_exported_decl(
+    injections: &mut Vec<Stmt>,
+    other: Stmt,
+    bare_exports: &HashMap<String, String>,
+    want: &HashSet<&str>,
+    rename: &HashMap<&str, &str>,
+    namespace_on: bool,
+    namespace_fields: &mut Vec<String>,
+) {
+    if let Some(dname) = decl_name(&other)
+        && let Some(exported) = bare_exports.get(&dname)
+    {
+        let mut inner = other;
+        if *exported != dname {
+            rename_decl(&mut inner, exported.clone());
+        }
+        inject_export_inner(
+            injections,
+            inner,
+            want,
+            rename,
+            namespace_on,
+            namespace_fields,
+        );
+    }
+}
+
+/// Dynamic-import namespaces skip the `let` above: the use site may
+/// sit inside a (lifted) fn body where a main-local top-level binding
+/// is invisible, so each `Ident(__dyn_ns_<n>)` becomes the namespace
+/// object literal in place. Field Idents reference the injected lib
+/// decls, which named-fn bodies resolve (FnDecls via the pass-1
+/// signature hoist, literal consts via the pass-2 pre-pass). The
+/// arena scan is name-keyed — sound because `__dyn_ns_<n>` names are
+/// parser-minted and arena-offset-seeded, so no other Ident can
+/// spell one.
+pub(super) fn inline_dyn_ns_objlits(ast: &mut Ast, rewrites: &[(String, Vec<String>)]) {
+    for (ns_name, field_names) in rewrites {
+        let hits: Vec<usize> = ast
+            .exprs
+            .iter()
+            .enumerate()
+            .filter_map(|(i, e)| match e {
+                Expr::Ident(n) if n == ns_name => Some(i),
+                _ => None,
+            })
+            .collect();
+        for idx in hits {
+            let mut fields: Vec<(String, crate::ast::ExprId)> =
+                Vec::with_capacity(field_names.len());
+            for name in field_names {
+                let id = ast.add_expr(Expr::Ident(name.clone()));
+                fields.push((name.clone(), id));
+            }
+            ast.exprs[idx] = Expr::ObjectLit { fields };
+        }
+    }
+}

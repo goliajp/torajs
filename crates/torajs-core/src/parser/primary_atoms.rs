@@ -59,9 +59,12 @@ impl<'a> Parser<'a> {
         let n = self.dyn_import_counter;
         self.dyn_import_counter += 1;
         let ns_name = format!("__dyn_ns_{n}");
-        // Synthesize: `import * as <ns_name> from <source>`. The
-        // existing K.2 namespace pipeline (P13-S2) materializes the
-        // alias as a struct literal of all of `source`'s exports.
+        // Synthesize: `import * as <ns_name> from <source>`. The K.2
+        // resolver injects `source`'s exports as top-level decls and
+        // rewrites the `Ident(<ns_name>)` below into the namespace
+        // object literal IN PLACE (`inline_dyn_ns_objlits`) — no
+        // top-level `let`, so the expression works inside (lifted)
+        // async fn bodies where a main-local binding is invisible.
         self.synth_classes.push(Stmt::ImportDecl {
             default: None,
             namespace: Some(ns_name.clone()),
