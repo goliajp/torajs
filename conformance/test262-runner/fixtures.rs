@@ -1,0 +1,63 @@
+//! Sibling `*_FIXTURE.js` staging for module-import cases.
+//!
+//! test262 module cases import fixture files from their own corpus
+//! directory (`import "./setup_FIXTURE.js"` — the `_FIXTURE` suffix
+//! marks files the runner must never execute as tests). The runner
+//! executes the assembled case from a temp file, so those relative
+//! imports resolved against the temp dir and always missed. Staging
+//! copies the case directory's fixtures next to the assembled
+//! source: each worker slot owns a temp SUBDIRECTORY
+//! (`torajs-test262-<pid>-<slot>/case.ts`), fixtures land beside it,
+//! and both tr and the bun oracle resolve them naturally.
+//!
+//! The returned salt (fixture names + bytes) appends to the oracle
+//! cache's case key: a fixture-referencing case's cached verdict was
+//! recorded against the fixture-missing environment, and the key
+//! must flip now that imports resolve (fixture-less cases keep their
+//! existing entries — no oracle rebuild).
+
+use std::path::Path;
+
+/// Prepare `slot_dir` for one case: clear fixtures staged by the
+/// previous case on this slot, then — when the case references a
+/// fixture — copy every sibling `*_FIXTURE.js` in and answer the
+/// cache salt. Chained fixture-to-fixture imports resolve because
+/// the whole sibling set stages together. Best-effort on I/O errors:
+/// a missing fixture keeps today's import-error verdict.
+pub fn stage(slot_dir: &Path, case_path: &Path, case_src: &str) -> Vec<u8> {
+    let _ = std::fs::create_dir_all(slot_dir);
+    if let Ok(rd) = std::fs::read_dir(slot_dir) {
+        for e in rd.flatten() {
+            if e.file_name().to_string_lossy().ends_with("_FIXTURE.js") {
+                let _ = std::fs::remove_file(e.path());
+            }
+        }
+    }
+    if !case_src.contains("_FIXTURE") {
+        return Vec::new();
+    }
+    let Some(dir) = case_path.parent() else {
+        return Vec::new();
+    };
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    let mut names: Vec<String> = rd
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| n.ends_with("_FIXTURE.js"))
+        .collect();
+    // Deterministic salt across sweeps regardless of read_dir order.
+    names.sort();
+    let mut salt = Vec::new();
+    for n in &names {
+        if let Ok(bytes) = std::fs::read(dir.join(n)) {
+            let _ = std::fs::write(slot_dir.join(n), &bytes);
+            salt.extend_from_slice(n.as_bytes());
+            salt.push(0xff);
+            salt.extend_from_slice(&bytes);
+            salt.push(0xff);
+        }
+    }
+    salt
+}

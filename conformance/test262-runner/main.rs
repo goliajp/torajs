@@ -36,6 +36,7 @@
 mod args;
 mod bugdump;
 mod cache;
+mod fixtures;
 mod frontmatter;
 mod harness_shake;
 mod summary_json;
@@ -436,12 +437,14 @@ fn run_case(
         let _ = std::fs::write(dir.join(format!("{rel}.ts")), &full);
     }
 
-    // Distinct tmp file per worker slot to avoid races. Use `.ts` so
-    // tr's read_source treats it as a normal source file (extension
-    // isn't actually checked but the convention matches the rest of
-    // the pipeline).
-    let tmp_path =
-        std::env::temp_dir().join(format!("torajs-test262-{}-{}.ts", std::process::id(), slot));
+    // Distinct tmp SUBDIRECTORY per worker slot to avoid races —
+    // sibling `*_FIXTURE.js` files stage beside the assembled case
+    // so its relative module imports resolve (fixtures module doc).
+    // `.ts` so tr's read_source treats it as a normal source file.
+    let slot_dir =
+        std::env::temp_dir().join(format!("torajs-test262-{}-{}", std::process::id(), slot));
+    let fixture_salt = fixtures::stage(&slot_dir, path, &case_src);
+    let tmp_path = slot_dir.join("case.ts");
     if let Err(e) = std::fs::write(&tmp_path, &full) {
         return Outcome::HarnessError {
             msg: format!("write tmp: {e}"),
@@ -474,8 +477,19 @@ fn run_case(
     // silently scored tr against the previous transform's oracle —
     // the shape of wrongness that dropping the `var` rewrite exposed
     // (298 cases came back carrying the rewritten program's verdict).
+    // Fixture-staging cases salt the oracle key with the staged
+    // fixture bytes: their cached verdicts predate resolvable
+    // imports (fixtures module doc). Fixture-less cases keep their
+    // existing entries.
+    let salted_case: Vec<u8>;
+    let oracle_case: &[u8] = if fixture_salt.is_empty() {
+        transformed.as_bytes()
+    } else {
+        salted_case = [transformed.as_bytes(), &[0xff], &fixture_salt].concat();
+        &salted_case
+    };
     let (bun_success, bun_stdout) =
-        match cache::bun_oracle(transformed.as_bytes(), harness_min.as_bytes(), &tmp_path) {
+        match cache::bun_oracle(oracle_case, harness_min.as_bytes(), &tmp_path) {
             Ok(v) => v,
             Err(e) => {
                 let _ = std::fs::remove_file(&tmp_path);
