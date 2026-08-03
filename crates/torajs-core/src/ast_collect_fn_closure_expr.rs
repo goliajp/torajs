@@ -81,6 +81,17 @@ impl<'a> FnToClosureCollector<'a> {
         {
             self.try_mark(*value);
         }
+        // r293 — `box.prop = top_fn` where `box` is an any/var
+        // binding (`var __music_box = {}` — S13_A10): the store
+        // rides the dynobj assign lane, whose value slot boxes into
+        // the any world, which a raw FnSig can't. The wrapped cell
+        // keeps `typeof` = "function" and the call face.
+        if let Expr::Member { obj, .. } = self.ast.get_expr(*target)
+            && let Expr::Ident(oname) = self.ast.get_expr(*obj)
+            && self.any_bindings.contains(oname)
+        {
+            self.try_mark(*value);
+        }
         self.walk_expr(*target);
         self.walk_expr(*value);
     }

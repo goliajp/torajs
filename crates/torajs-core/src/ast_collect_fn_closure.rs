@@ -164,9 +164,20 @@ impl<'a> FnToClosureCollector<'a> {
                 type_ann,
                 init,
                 is_var,
+                name,
                 ..
             } => {
                 self.collect_objectlit_field_sites(*init, type_ann.as_deref());
+                // r293 — the for-in head hoist (`let __forin_obj_N =
+                // <src>`, parser-minted): a bare fn-name src wraps so
+                // the keys call sees a boxable closure cell — for-in
+                // over a function enumerates its expando props
+                // (§14.7.5; none on a plain fn), which the any-lane
+                // `anyv_forin_keys` already answers. Raw FnSig had no
+                // arm anywhere on that path (13.2-23-s family).
+                if name.starts_with("__forin_obj_") {
+                    self.try_mark(*init);
+                }
                 // RFC 20260729-fn-value-any V4 刀 3 — a `var` slot is
                 // an `any` destination whatever the source says: the
                 // hoist pass (which runs AFTER this collector) mints
@@ -326,6 +337,15 @@ impl<'a> FnToClosureCollector<'a> {
                 }
             }
             Stmt::Throw(eid) | Stmt::Yield(eid) => self.walk_expr(*eid),
+            // r293 — for-of / for-in loops were invisible to the walk
+            // (the catch-all swallowed them), so every store-site
+            // inside a loop body escaped the wrap axes (`box.cb =
+            // top_fn` inside `for (... of ...)` — S13_A10 shape under
+            // iteration). The head exprs ride their hoisted LetDecls;
+            // the body is what was missing.
+            Stmt::ForOf { body, .. } | Stmt::ForOfSplitIter { body, .. } => {
+                self.walk_stmt(body, ret_is_any);
+            }
             _ => {}
         }
     }
