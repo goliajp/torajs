@@ -167,8 +167,18 @@ pub(crate) fn try_lower(
     // conversion used to be spelled out on this side, in the one
     // direction the crash showed; it is one direction of the shared
     // argument contract, which `call_fn_value` now applies for every
-    // lane.
-    let cb_ret = ctx.call_fn_value(fn_val, fn_ty, vec![Operand::Value(elem)], 0);
+    // lane. Spec §23.1.3 arity — (index, srcArray) slots are appended
+    // per the callback's own declared arity (`materialize_call_args`
+    // aligns the reprs, same as the ho-loop family's cb_args).
+    let cb_arity = ctx.sig_param_tys(fn_ty).map_or(1, |p| p.len());
+    let mut call_args = vec![Operand::Value(elem)];
+    if cb_arity >= 2 {
+        call_args.push(Operand::Value(i_now));
+    }
+    if cb_arity >= 3 {
+        call_args.push(Operand::Value(src_arr));
+    }
+    let cb_ret = ctx.call_fn_value(fn_val, fn_ty, call_args, 0);
 
     let final_dst = if scalar_ret {
         // Scalar return — cb answered an owned scalar U directly (no

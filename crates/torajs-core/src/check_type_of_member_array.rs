@@ -259,14 +259,15 @@ fn try_match_iter(obj_ty: &Type, name: &str) -> Option<Type> {
         }
         // `xs.flatMap(fn)` — same homogeneous constraint as
         // map (`(T) => T[]` callback), returns `T[]`. Inner
-        // arrays are flattened one level into the result.
+        // arrays are flattened one level into the result. The
+        // callback takes the full §23.1.3 spec arity (elem,
+        // index, srcArray) — shorter callbacks ride the S133
+        // prefix rule, and the lowering appends index/srcArray
+        // per the callback's own declared arity (rotation 286).
         (Type::Array(elem), "flatMap") => {
             let inner = (**elem).clone();
             let arr_t = Type::Array(Box::new(inner.clone()));
-            Type::Function(
-                vec![Type::Function(vec![inner], Box::new(arr_t.clone()))],
-                Box::new(arr_t),
-            )
+            Type::Function(vec![cb3(&inner, arr_t.clone())], Box::new(arr_t))
         }
         // M6.2 — `xs.filter(predicate)`: takes a `(T) => boolean`,
         // returns `T[]` of kept elements.

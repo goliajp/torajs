@@ -53,7 +53,10 @@ pub(crate) fn try_match(
     let Type::Function(ps, ret) = &cb_ty else {
         return None;
     };
-    if ps.len() != 1 {
+    // Full §23.1.3 spec arity — (elem, index, srcArray); the trailing
+    // slots are seed/promote-shaped so only the elem slot gates
+    // (pred_void_cb's stance).
+    if ps.is_empty() || ps.len() > 3 {
         return None;
     }
     // Accept `(T) => Array<U>`, the `(any) => ...` widening
