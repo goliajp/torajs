@@ -129,6 +129,12 @@ pub(crate) fn check(
         // main home would route to mono sigs the boxed slot value
         // can never satisfy.
         Type::Any
+    } else if checker.cross_type_widened.contains(&init) {
+        // RFC 20260804-mutable-let-widen — a later reassign of a
+        // different syntactic family (JS `let it = new C();
+        // it = Iterator.from(it)`) makes the binding `any` from
+        // declaration; the lowerer consults the same set.
+        Type::Any
     } else {
         final_ty
     };

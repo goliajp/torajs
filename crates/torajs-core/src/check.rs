@@ -198,6 +198,7 @@ impl Checker {
             closure_captures: HashMap::new(),
             closure_fn_names: std::collections::HashSet::new(),
             dynobj_degraded: std::collections::HashSet::new(),
+            cross_type_widened: std::collections::HashSet::new(),
             any_promoted_inits: std::collections::HashSet::new(),
             generic_type_params: HashMap::new(),
             generic_call_sites: HashMap::new(),
@@ -222,6 +223,10 @@ impl Checker {
         // `crate::dynobj_degrade`). Collected before the passes so
         // the LetDecl arm sees the set.
         self.dynobj_degraded = crate::dynobj_degrade::collect_dynobj_degraded_inits(ast);
+        // RFC 20260804-mutable-let-widen — cross-family reassigned
+        // mutable lets type `any` from declaration (same shared-set
+        // architecture; the lowerer recomputes from its own snapshot).
+        self.cross_type_widened = crate::let_widen::collect_cross_type_widen_inits(ast);
         // Three native passes split out into `check_pipeline` sibling
         // (chunk 136). Order matters: Pass 1 reads aliases populated
         // by Pass 0; Pass 2 reads globals populated by Pass 1 and
@@ -290,6 +295,11 @@ pub(crate) struct Checker {
     /// so it lowers through the P3.2 dynobj-init lane and the define
     /// write-back can rebind it.
     pub(crate) dynobj_degraded: std::collections::HashSet<crate::ast::ExprId>,
+    /// RFC 20260804-mutable-let-widen — init ExprIds of mutable
+    /// lets later reassigned a different syntactic family
+    /// (`crate::let_widen` scope-correct walk); such bindings type
+    /// `any` from declaration.
+    pub(crate) cross_type_widened: std::collections::HashSet<crate::ast::ExprId>,
     /// S2.35 — init ExprIds pass_2 promoted to an `Any` global via
     /// the shared [`crate::ast_refs_any_promote`] verdict (call-init
     /// / method-objlit). The LetDecl arm widens the main binding to

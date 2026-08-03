@@ -220,6 +220,7 @@ pub(crate) mod cm_demote;
 pub(crate) mod dynobj_degrade;
 pub(crate) mod fn_source_erase;
 pub mod formatter;
+pub(crate) mod let_widen;
 pub mod lexer;
 pub mod linter;
 pub mod modules;
