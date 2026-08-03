@@ -234,7 +234,25 @@ impl<'a> FnToClosureCollector<'a> {
             Expr::PostIncr { target, .. } => self.walk_expr(*target),
             Expr::New { args, .. } | Expr::Super { args } => {
                 for a in args {
-                    self.walk_expr(*a);
+                    // r292 — a fn-name construct argument boxes at
+                    // the ctor boundary (`new Object(func)` —
+                    // S15.2.2.1_A2_T6), which a raw FnSig can't; the
+                    // canonical cell keeps the `===` faces.
+                    if !self.try_mark(*a) {
+                        self.walk_expr(*a);
+                    }
+                }
+            }
+            // The runtime-construct form route_non_class_new minted
+            // (`new Object(x)` — Object is not a declared class);
+            // same ctor-boundary boxing as Expr::New. The walk had no
+            // arm at all before r292 — args were invisible.
+            Expr::NewDynamic { callee, args } => {
+                self.walk_expr(*callee);
+                for a in args {
+                    if !self.try_mark(*a) {
+                        self.walk_expr(*a);
+                    }
                 }
             }
             _ => {}

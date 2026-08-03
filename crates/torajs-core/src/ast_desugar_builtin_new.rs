@@ -187,13 +187,24 @@ fn rewrite_array_args(ast: &mut Ast) {
 fn rewrite_zero_arg_object(ast: &mut Ast) {
     let n = ast.exprs.len();
     for i in 0..n {
-        let zero_arg_object = matches!(
-            &ast.exprs[i],
-            Expr::New { class_name, args, .. }
-                if class_name == "Object" && args.is_empty()
-        );
-        if zero_arg_object {
+        let object_args: Option<Vec<crate::ast::ExprId>> = match &ast.exprs[i] {
+            Expr::New {
+                class_name, args, ..
+            } if class_name == "Object" => Some(args.clone()),
+            _ => None,
+        };
+        let Some(args) = object_args else {
+            continue;
+        };
+        if args.is_empty() {
             ast.exprs[i] = Expr::ObjectLit { fields: Vec::new() };
+        } else {
+            // §20.1.1.1 — Object's [[Construct]] with an ordinary
+            // NewTarget IS its [[Call]] (nullish → fresh object,
+            // else ToObject); rewrite to the call form the kernel
+            // already serves (r292 — S15.2.2.1_A2 family).
+            let callee = ast.add_expr(Expr::Ident("Object".to_string()));
+            ast.exprs[i] = Expr::Call { callee, args };
         }
     }
 }
