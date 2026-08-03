@@ -181,7 +181,7 @@ pub(crate) unsafe fn symbol_key_pair(recv: AnyValue, key: *const c_void) -> (u64
     let Some((ptr, t)) = recv_cell(recv) else {
         if crate::nanbox::is_short_str(recv)
             && let Some(cell) =
-                unsafe { crate::method_value::builtin_symbol_iterator_lookup(Tag::Str as u16, key) }
+                unsafe { crate::method_value::builtin_symbol_method_lookup(Tag::Str as u16, key) }
         {
             return (4, cell as u64);
         }
@@ -204,7 +204,7 @@ pub(crate) unsafe fn symbol_key_pair(recv: AnyValue, key: *const c_void) -> (u64
     // monkey-patch in the dicts above shadows it, per the probes'
     // order). Tag 4 = Heap; the cell is immortal, borrow-shaped.
     // SAFETY: key is a live Symbol cell per the caller contract.
-    if let Some(cell) = unsafe { crate::method_value::builtin_symbol_iterator_lookup(t, key) } {
+    if let Some(cell) = unsafe { crate::method_value::builtin_symbol_method_lookup(t, key) } {
         return (4, cell as u64);
     }
     (TAG_UNDEF, 0)

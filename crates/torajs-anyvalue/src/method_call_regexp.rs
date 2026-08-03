@@ -23,7 +23,10 @@
 
 use core::ffi::c_void;
 
-use torajs_rc::{ANY_METHOD_EXEC, ANY_METHOD_TEST, ANY_METHOD_TO_STRING};
+use torajs_rc::{
+    ANY_METHOD_EXEC, ANY_METHOD_MATCH, ANY_METHOD_MATCH_ALL, ANY_METHOD_REPLACE, ANY_METHOD_SEARCH,
+    ANY_METHOD_SPLIT, ANY_METHOD_TEST, ANY_METHOD_TO_STRING,
+};
 
 use crate::method_call::method_no_such;
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED};
@@ -88,6 +91,33 @@ pub(crate) unsafe fn regexp_method(
             }
             m if m == ANY_METHOD_TO_STRING => {
                 __torajs_anyv_box_from_pair(4, __torajs_regex_to_string(re) as i64)
+            }
+            // §22.2.6.8/.11/.12/.13/.14 — the @@match / @@matchAll /
+            // @@replace / @@search / @@split protocol methods (r289).
+            // Each flips the operand order of its String.prototype
+            // delegator (`re[@@match](s, …)` ≡ `s.match(re, …)`), so
+            // the arm hands the call to the Str home with the
+            // receiver boxed back as the pattern argument — coercion,
+            // lastIndex advance and spec evaluation order all stay in
+            // one place. The haystack materializes like every other
+            // arm here (owned temp, dropped after); the pattern box
+            // is a pure borrow encode the Str arms never take over
+            // (`regexp_drop_if_coerced` only drops MINTED cells).
+            m if m == ANY_METHOD_MATCH
+                || m == ANY_METHOD_MATCH_ALL
+                || m == ANY_METHOD_REPLACE
+                || m == ANY_METHOD_SEARCH
+                || m == ANY_METHOD_SPLIT =>
+            {
+                let hay = __torajs_anyv_to_str(arg_at(0));
+                let re_box = __torajs_anyv_box_from_pair(4, re as i64);
+                // Slot 1 carries @@split's limit / @@replace's
+                // replacement; absent args pad undefined, which the
+                // Str arms' own arg_at treats as absent.
+                let argv2: [u64; 2] = [re_box, arg_at(1)];
+                let out = crate::method_call_str::str_method(hay.cast(), m, argv2.as_ptr(), 2);
+                __torajs_str_drop(hay);
+                out
             }
             _ => method_no_such(),
         }

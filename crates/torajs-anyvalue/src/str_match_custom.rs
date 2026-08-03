@@ -76,8 +76,30 @@ pub unsafe extern "C" fn __torajs_any_str_symbol_probe(arg: AnyValue, wk_idx: i6
         if sym.is_null() {
             return 0;
         }
-        let (tag, _) = crate::member_get_symbol::symbol_key_pair(arg, sym);
+        let (tag, payload) = crate::member_get_symbol::symbol_key_pair(arg, sym);
         let _ = __torajs_rc_dec(sym);
+        // A builtin reified protocol cell is NOT a user override
+        // (r289 — the RegExp @@match/@@search/@@split/@@matchAll/
+        // @@replace reify): the kernel lane the caller falls back to
+        // IS that cell's behavior, and dispatching through it would
+        // re-enter this probe from the delegation arm — the same
+        // "un-shadowed builtin @@split → fast path" test every
+        // engine's split fast path makes. An own-dict / monkey-patch
+        // resolution never answers a mid-carrying cell unless the
+        // user stored the reified builtin itself, where the fast
+        // path is again behavior-identical.
+        if tag == 4 {
+            let cell = payload as *mut c_void;
+            // SAFETY: tag 4 payloads are live heap cells; the mid
+            // read only follows for Closure-tagged cells (the only
+            // layout carrying the boxed-entry discriminator).
+            let ct = (cell.cast::<u8>().add(4) as *const u16).read();
+            if ct == torajs_rc::Tag::Closure as u16
+                && crate::method_value::builtin_method_mid(cell).is_some()
+            {
+                return 0;
+            }
+        }
         i64::from(tag != TAG_UNDEF && tag != TAG_NULL)
     }
 }

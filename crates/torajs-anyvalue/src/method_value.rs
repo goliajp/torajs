@@ -85,6 +85,10 @@ mod ns_static_util;
 mod supported;
 pub(crate) use supported::builtin_method_supported;
 
+// r290 file-size split — the well-known-symbol reify table.
+mod symbol_lookup;
+pub(crate) use symbol_lookup::builtin_symbol_method_lookup;
+
 /// Interned name Str layout — mirror of torajs-str
 /// `layout::{STR_LEN_OFF, STR_DATA_OFF}` + the `IS_LATIN1` flags
 /// bit (`layout::STR_FLAG_IS_LATIN1`; method names are ASCII).
@@ -423,52 +427,6 @@ pub(crate) unsafe fn builtin_method_lookup(recv: AnyValue, key: *const c_void) -
         mid
     };
     Some(builtin_method_cell(recv_proto_family(recv), mid))
-}
-
-/// `[Symbol.iterator]` read off a native iterable tag — RFC
-/// 20260728-gen-forof-yieldstar F0. The spec aliases each builtin's
-/// @@iterator to a named prototype method (§23.1.3.40 Array →
-/// `values`, §24.1.3.12 Map → `entries`, §24.2.3.11 Set → `values`),
-/// so the reify answers the SAME interned cell as the named read —
-/// `a[Symbol.iterator] === a.values` holds like the Set keys/values
-/// alias above. `None` for every other key / receiver tag (the
-/// symbol lane's dict miss stays undefined).
-///
-/// # Safety
-/// `key` is a live Symbol cell.
-pub(crate) unsafe fn builtin_symbol_iterator_lookup(
-    recv_tag: u16,
-    key: *const c_void,
-) -> Option<*mut u8> {
-    // Alphabetical WELL_KNOWN_NAMES index 5 = "iterator"; the
-    // singleton is immortal so pointer identity IS symbol identity.
-    let iter_sym = crate::method_value::symbol_static::well_known_singleton(5);
-    if key != iter_sym {
-        return None;
-    }
-    let (family, mid) = match recv_tag {
-        t if t == Tag::Arr as u16 => (2, torajs_rc::ANY_METHOD_VALUES),
-        t if t == Tag::Map as u16 => (11, torajs_rc::ANY_METHOD_ENTRIES),
-        t if t == Tag::Set as u16 => (12, torajs_rc::ANY_METHOD_VALUES),
-        // §22.1.3.36 — no named alias; the dedicated own id (a
-        // Substr view shares Tag::Str). A StringWrapper inherits
-        // the same String.prototype face (§22.1.5's this is
-        // ToString-generic).
-        t if t == Tag::Str as u16 || t == Tag::StringWrapper as u16 => {
-            (3, torajs_rc::ANY_METHOD_STR_ITERATOR)
-        }
-        // §27.1.2.1 — iterator cells inherit the
-        // %Iterator.prototype% return-this (Iterator family row,
-        // proto tag 15; RFC 20260730-iterator-global 刀 4 长尾).
-        t if t == Tag::MapIter as u16
-            || t == Tag::ArrIter as u16
-            || t == Tag::IterHelper as u16 =>
-        {
-            (15, torajs_rc::any_method_iter::ANY_METHOD_ITER_SELF)
-        }
-        _ => return None,
-    };
-    Some(builtin_method_cell(family, mid))
 }
 
 /// True iff the boxed value is a live `Tag::Set` heap cell.

@@ -92,6 +92,14 @@ pub(crate) fn check(
         // since Map/Set carry no indexed elements at all).
         && !(matches!(obj_ty, Type::Map | Type::Set)
             && matches!(idx_ty, Type::String | Type::Symbol | Type::Any))
+        // A REGEXP receiver joins for the same §7.1.19 reason as
+        // Map/Set — `re[Symbol.match]` is an ordinary property read
+        // off the prototype surface (r289; the well-known-symbol
+        // protocol probes of §22.2.6 all take this shape). A NUMBER
+        // key stays the loud reject: a RegExp carries no indexed
+        // elements.
+        && !(matches!(obj_ty, Type::RegExp)
+            && matches!(idx_ty, Type::String | Type::Symbol | Type::Any))
     {
         return Err(format!("index must be number, got {idx_ty:?}"));
     }
@@ -113,9 +121,9 @@ pub(crate) fn check(
         // keep the loud reject in `check_assign_target` (a typed
         // slot store needs a static field type — recorded boundary).
         Type::Struct(_) => Ok(Type::Any),
-        // See the Map/Set note on the reject above — property reads
-        // over the prototype surface answer Any.
-        Type::Map | Type::Set => Ok(Type::Any),
+        // See the Map/Set/RegExp notes on the reject above — property
+        // reads over the prototype surface answer Any.
+        Type::Map | Type::Set | Type::RegExp => Ok(Type::Any),
         // RC-4 F1a — un-narrowed Nullable<Array<T>> (exec/match
         // result) decays for indexing; null is a runtime
         // TypeError at the lowering-side guard.

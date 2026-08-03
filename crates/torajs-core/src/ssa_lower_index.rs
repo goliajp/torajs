@@ -161,8 +161,10 @@ pub(crate) fn lower_from_value(
     // probe plus the class prototype chain, so both an own field
     // spelled dynamically (`c["m"]`) and a runtime-computed member
     // (`c[Symbol.iterator]`) resolve. Numeric keys land the same
-    // keyed kernels' ToPropertyKey spelling.
-    let (arr_val, arr_ty) = if matches!(arr_ty, Type::Obj(_)) {
+    // keyed kernels' ToPropertyKey spelling. A REGEXP receiver rides
+    // the same box (r289): `re[Symbol.match]` is a prototype-surface
+    // property read, and the checker only admits its non-number keys.
+    let (arr_val, arr_ty) = if matches!(arr_ty, Type::Obj(_) | Type::RegExp) {
         (ctx.box_to_any(arr_val), Type::Any)
     } else {
         (arr_val, arr_ty)
