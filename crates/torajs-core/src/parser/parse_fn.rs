@@ -234,6 +234,11 @@ impl<'a> Parser<'a> {
         let mut param_destr_lets: Vec<Stmt> = Vec::new();
         if !matches!(self.peek(), Token::RParen) {
             loop {
+                match self.try_consume_this_param(params.is_empty())? {
+                    super::param_list::ThisParamStep::Continue => continue,
+                    super::param_list::ThisParamStep::Break => break,
+                    super::param_list::ThisParamStep::NotThis => {}
+                }
                 let is_rest = matches!(self.peek(), Token::DotDotDot);
                 if is_rest {
                     self.pos += 1;

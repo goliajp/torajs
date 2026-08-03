@@ -20,6 +20,14 @@
 
 use super::*;
 
+/// What the param loop does after probing for a TS this-parameter —
+/// see [`Parser::try_consume_this_param`].
+pub(super) enum ThisParamStep {
+    NotThis,
+    Continue,
+    Break,
+}
+
 impl<'a> Parser<'a> {
     /// V3-18 wedge — TS parameter-property shorthand
     /// (`constructor(public x: number, private readonly y: string)`).
@@ -44,6 +52,11 @@ impl<'a> Parser<'a> {
         let mut destr_lets: Vec<Stmt> = Vec::new();
         if !matches!(self.peek(), Token::RParen) {
             loop {
+                match self.try_consume_this_param(params.is_empty())? {
+                    ThisParamStep::Continue => continue,
+                    ThisParamStep::Break => break,
+                    ThisParamStep::NotThis => {}
+                }
                 // Consume any TS modifiers: visibility (`public` /
                 // `private` / `protected`) and `readonly`. Order is
                 // visibility-then-readonly per TS, but we accept any
@@ -222,6 +235,38 @@ impl<'a> Parser<'a> {
     /// than identifiers. The caller is responsible for prepending
     /// destr_lets to the parsed body. When no destr params appear,
     /// destr_lets is empty and the caller's prepend is a no-op.
+    /// TS this-parameter — `(this: T, ...)` declares the callee's
+    /// `this` type only; it produces no runtime parameter (the
+    /// fnexpr/namedfn `__this` desugars carry the value). Legal in
+    /// first position only, per TS. Answers what the caller's param
+    /// loop should do next: `Continue` re-enters for the next param,
+    /// `Break` ends the list, `NotThis` falls through to the normal
+    /// parse.
+    pub(super) fn try_consume_this_param(&mut self, first: bool) -> Result<ThisParamStep, String> {
+        if !first || !matches!(self.peek(), Token::This) {
+            return Ok(ThisParamStep::NotThis);
+        }
+        self.pos += 1;
+        if matches!(self.peek(), Token::Colon) {
+            self.pos += 1;
+            let _ = self.parse_type_ann()?;
+        }
+        match self.peek() {
+            Token::Comma => {
+                self.pos += 1;
+                if matches!(self.peek(), Token::RParen) {
+                    return Ok(ThisParamStep::Break);
+                }
+                Ok(ThisParamStep::Continue)
+            }
+            Token::RParen => Ok(ThisParamStep::Break),
+            t => Err(format!(
+                "expected `,` or `)` after this-parameter, got {t:?} at {}",
+                self.at()
+            )),
+        }
+    }
+
     pub(super) fn parse_param_list(&mut self) -> Result<(Vec<Param>, Vec<Stmt>), String> {
         match self.peek() {
             Token::LParen => self.pos += 1,
@@ -231,6 +276,11 @@ impl<'a> Parser<'a> {
         let mut param_destr_lets: Vec<Stmt> = Vec::new();
         if !matches!(self.peek(), Token::RParen) {
             loop {
+                match self.try_consume_this_param(params.is_empty())? {
+                    ThisParamStep::Continue => continue,
+                    ThisParamStep::Break => break,
+                    ThisParamStep::NotThis => {}
+                }
                 // Rest parameter: `...name`. Must be the last param;
                 // the post-loop check enforces it.
                 let is_rest = matches!(self.peek(), Token::DotDotDot);
