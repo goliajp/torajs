@@ -177,6 +177,7 @@ mod prop_delete;
 mod prop_has;
 mod prop_has_proto;
 mod reflect_apply;
+mod reflect_construct;
 mod str_iterator;
 mod str_match_custom;
 mod struct_error_msg;

@@ -71,6 +71,26 @@ fn boxable(ty: &Type) -> bool {
         ) || ty.is_refcounted())
 }
 
+/// S-NEW 刀 2 — factory adapters exist only so
+/// `__torajs_anyv_construct` can reach a class through a value. A
+/// program that never constructs from a value gets none of them: one
+/// extra function per class is a real cost to an artifact whose size
+/// is a differentiator. r293 — `Reflect.construct` reaches the same
+/// registry through its own kernel, so its call shape arms the
+/// synthesis too.
+fn program_constructs_from_value(ast: &Ast) -> bool {
+    ast.exprs.iter().any(|e| match e {
+        crate::ast::Expr::NewDynamic { .. } => true,
+        crate::ast::Expr::Call { callee, .. } => matches!(
+            ast.get_expr(*callee),
+            crate::ast::Expr::Member { obj, name }
+                if name == "construct"
+                    && matches!(ast.get_expr(*obj), crate::ast::Expr::Ident(ns) if ns == "Reflect")
+        ),
+        _ => false,
+    })
+}
+
 /// Walk the lifted closure fns and synthesize one adapter each.
 /// Returns `body fid → (adapter fid, adapter sig)` for the closure
 /// construction sites.
@@ -102,15 +122,7 @@ pub(crate) fn synthesize_boxed_entries(
             .copied()
             .unwrap_or_else(|| anon_stamp_pool.borrow_mut().assign_or_get(sid))
     };
-    // S-NEW 刀 2 — factory adapters exist only so
-    // `__torajs_anyv_construct` can reach a class through a value. A
-    // program that never constructs from a value gets none of them:
-    // one extra function per class is a real cost to an artifact
-    // whose size is a differentiator.
-    let constructs_from_value = ast
-        .exprs
-        .iter()
-        .any(|e| matches!(e, crate::ast::Expr::NewDynamic { .. }));
+    let constructs_from_value = program_constructs_from_value(ast);
     let mut targets: Vec<BoxedEntryTarget> = Vec::new();
     for stmt in &ast.stmts {
         let Stmt::FnDecl { name, params, .. } = stmt else {

@@ -87,7 +87,7 @@ pub extern "C" fn __torajs_anyv_ctor_register(class_av: AnyValue, entry: *mut c_
 }
 
 /// Look up a class object's factory adapter; 0 if it has none.
-fn ctor_entry(key: u64) -> u64 {
+pub(crate) fn ctor_entry(key: u64) -> u64 {
     let mut i = (mix(key) & CTOR_MASK) as usize;
     for _ in 0..CTOR_SLOTS {
         let held = CTOR_KEY[i].load(Ordering::Relaxed);

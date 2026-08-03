@@ -140,6 +140,10 @@ pub(crate) struct ObjectIds {
     /// Function.prototype.apply kernel (nullish argumentsList
     /// throws).
     pub reflect_apply: FuncId,
+    /// §28.1.2 Reflect.construct — IsConstructor gates on target and
+    /// newTarget, CreateListFromArrayLike, factory-adapter construct,
+    /// newTarget [[Prototype]] re-wire (rotation 293).
+    pub reflect_construct: FuncId,
     /// §7.3.25 CopyDataProperties into the dynobj lane's fresh
     /// literal (`{ ...anySrc }`, rotation 267) — pointer-slot form
     /// so a member_set resize writes the relocated block back.
@@ -243,6 +247,7 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             I64
         ),
         reflect_apply: decl!("__torajs_reflect_apply", [Any, Any, Any], Any),
+        reflect_construct: decl!("__torajs_reflect_construct", [Any, Any, Any], Any),
         dynobj_spread_from: decl!("__torajs_dynobj_spread_from", [Ptr, Any], Void),
         object_create_check_proto: decl!("__torajs_object_create_check_proto", [Any], Void),
         object_create_link_proto: decl!("__torajs_object_create_link_proto", [Ptr, Any], Void),

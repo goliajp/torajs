@@ -137,6 +137,15 @@ pub(crate) fn try_match(obj_ty: &Type, name: &str) -> Option<Result<Type, String
         (Type::Object("Reflect"), "apply") => {
             Type::Function(vec![Type::Any, Type::Any, Type::Any], Box::new(Type::Any))
         }
+        // §28.1.2 Reflect.construct (rotation 293) — IsConstructor
+        // gates on target and newTarget, unconditional
+        // CreateListFromArrayLike, factory-adapter construct with
+        // the newTarget [[Prototype]] re-wire. The two-argument form
+        // rides the same 3-param sig (the call route fills newTarget
+        // with the target).
+        (Type::Object("Reflect"), "construct") => {
+            Type::Function(vec![Type::Any, Type::Any, Type::Any], Box::new(Type::Any))
+        }
         // §28.1.13 Reflect.set (rotation 268) — strict gate + the
         // boolean-answer [[Set]] (refusal = false, no throw; a setter
         // throw still propagates). 3-arg form; the 4-arg receiver
