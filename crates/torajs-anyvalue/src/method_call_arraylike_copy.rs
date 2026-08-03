@@ -15,7 +15,7 @@
 use core::ffi::c_void;
 
 use crate::method_call::to_index;
-use crate::method_call_arraylike::arraylike_get;
+use crate::method_call_arraylike::{arraylike_get, arraylike_has};
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED};
 use crate::nanbox_encode::{
     __torajs_anyv_box_pointer, __torajs_anyv_unbox_tag, __torajs_anyv_unbox_value,
@@ -35,6 +35,46 @@ unsafe extern "C" {
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
     /// Cross-tier — universal NaN-box-safe heap-value release.
     fn __torajs_value_drop_heap(p: *mut c_void);
+    /// torajs-arr — §23.1.3.13 flat with ToIntegerOrInfinity depth
+    /// (fresh +1 rc out; depth ≤ 0 answers a plain copy).
+    fn __torajs_arr_any_flat_depth(arr: *const u8, depth: i64) -> *mut u8;
+}
+
+/// `flat` over the generic receiver (§23.1.3.13) — the depthNum
+/// decode (ToIntegerOrInfinity; its ToNumber throws on a Symbol) is
+/// ordered after the caller's length read, before any element Get.
+/// Has-gated collect (absent keys skip entirely — no undefined
+/// filler), then the shared flat-depth kernel spreads array
+/// elements; inner spreads read fresh Arr cells, no observable
+/// getters fire past the top-level walk.
+pub(crate) unsafe fn arraylike_flat(
+    obj: *mut c_void,
+    len: i64,
+    argv: *const u64,
+    argc: i64,
+) -> AnyValue {
+    unsafe {
+        let depth_av = if argc > 0 { *argv } else { VALUE_UNDEFINED };
+        let depth = to_index(depth_av, 1);
+        if __torajs_throw_check() != 0 {
+            return VALUE_UNDEFINED;
+        }
+        let mut tmp: *mut u8 = __torajs_arr_alloc_any(0);
+        let mut k: i64 = 0;
+        while k < len {
+            if arraylike_has(obj, k) {
+                tmp = append_gets(tmp, obj, k, k + 1);
+                if __torajs_throw_check() != 0 {
+                    __torajs_value_drop_heap(tmp as *mut c_void);
+                    return VALUE_UNDEFINED;
+                }
+            }
+            k += 1;
+        }
+        let p = __torajs_arr_any_flat_depth(tmp as *const u8, depth);
+        __torajs_value_drop_heap(tmp as *mut c_void);
+        __torajs_anyv_box_pointer(p as *mut c_void)
+    }
 }
 
 /// Append `Get(O, lo) … Get(O, hi-1)` onto `dst` (each Get's stake

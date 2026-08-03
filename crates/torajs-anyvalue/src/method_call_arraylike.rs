@@ -35,11 +35,11 @@ use core::ffi::c_void;
 
 use torajs_rc::{
     ANY_METHOD_AT, ANY_METHOD_EVERY, ANY_METHOD_FILTER, ANY_METHOD_FIND, ANY_METHOD_FIND_INDEX,
-    ANY_METHOD_FIND_LAST, ANY_METHOD_FIND_LAST_INDEX, ANY_METHOD_FOR_EACH, ANY_METHOD_INCLUDES,
-    ANY_METHOD_INDEX_OF, ANY_METHOD_JOIN, ANY_METHOD_LAST_INDEX_OF, ANY_METHOD_MAP,
-    ANY_METHOD_REDUCE, ANY_METHOD_REDUCE_RIGHT, ANY_METHOD_SLICE, ANY_METHOD_SOME,
-    ANY_METHOD_TO_REVERSED, ANY_METHOD_TO_SORTED, ANY_METHOD_TO_SPLICED, ANY_METHOD_TO_STRING,
-    ANY_METHOD_WITH,
+    ANY_METHOD_FIND_LAST, ANY_METHOD_FIND_LAST_INDEX, ANY_METHOD_FLAT, ANY_METHOD_FLAT_MAP,
+    ANY_METHOD_FOR_EACH, ANY_METHOD_INCLUDES, ANY_METHOD_INDEX_OF, ANY_METHOD_JOIN,
+    ANY_METHOD_LAST_INDEX_OF, ANY_METHOD_MAP, ANY_METHOD_REDUCE, ANY_METHOD_REDUCE_RIGHT,
+    ANY_METHOD_SLICE, ANY_METHOD_SOME, ANY_METHOD_TO_REVERSED, ANY_METHOD_TO_SORTED,
+    ANY_METHOD_TO_SPLICED, ANY_METHOD_TO_STRING, ANY_METHOD_WITH,
 };
 
 use crate::method_call::to_index;
@@ -109,6 +109,8 @@ pub(crate) fn arraylike_supported(mid: i64) -> bool {
             | ANY_METHOD_FIND_LAST_INDEX
             | ANY_METHOD_REDUCE
             | ANY_METHOD_REDUCE_RIGHT
+            | ANY_METHOD_FLAT
+            | ANY_METHOD_FLAT_MAP
     )
 }
 
@@ -228,40 +230,7 @@ pub(crate) unsafe fn arraylike_method(
                     __torajs_anyv_box_from_pair(1, 0)
                 }
             }
-            m if m == ANY_METHOD_LAST_INDEX_OF => {
-                let needle = arg_at(0);
-                // §23.1.3.20 step 4 — absent fromIndex starts at the
-                // last slot; a PRESENT undefined is 0.
-                let from = if argc >= 2 {
-                    to_index(arg_at(1), 0)
-                } else {
-                    len - 1
-                };
-                if __torajs_throw_check() != 0 {
-                    return VALUE_UNDEFINED;
-                }
-                let mut k = if from < 0 {
-                    from + len
-                } else {
-                    from.min(len - 1)
-                };
-                while k >= 0 {
-                    if arraylike_has(obj, k) {
-                        let v = arraylike_get(obj, k);
-                        if __torajs_throw_check() != 0 {
-                            __torajs_value_drop_heap(v as *mut c_void);
-                            return VALUE_UNDEFINED;
-                        }
-                        let hit = __torajs_anyv_strict_eq(needle, v);
-                        __torajs_value_drop_heap(v as *mut c_void);
-                        if hit {
-                            return __torajs_anyv_box_i64(k);
-                        }
-                    }
-                    k -= 1;
-                }
-                __torajs_anyv_box_i64(-1)
-            }
+            m if m == ANY_METHOD_LAST_INDEX_OF => arraylike_last_index_of(obj, len, argv, argc),
             m if m == ANY_METHOD_AT => {
                 let rel = to_index(arg_at(0), 0);
                 let adj = if rel < 0 { rel + len } else { rel };
@@ -337,10 +306,65 @@ pub(crate) unsafe fn arraylike_method(
                 }
                 __torajs_anyv_box_pointer(sorted as *mut c_void)
             }
+            // §23.1.3.13 — has-gated collect + shared flat-depth
+            // kernel (the copy sibling; depth decode ordered there).
+            m if m == ANY_METHOD_FLAT => {
+                crate::method_call_arraylike_copy::arraylike_flat(obj, len, argv, argc)
+            }
             // Callback family — the hof sibling (callability check
             // ordered after the length read above, per spec).
             _ => crate::method_call_arraylike_hof::arraylike_hof(obj, mid, len, argv, argc),
         }
+    }
+}
+
+/// §23.1.3.20 — descending has-gated strict-eq scan. Step 4: an
+/// absent fromIndex starts at the last slot; a PRESENT undefined
+/// is 0.
+unsafe fn arraylike_last_index_of(
+    obj: *mut c_void,
+    len: i64,
+    argv: *const u64,
+    argc: i64,
+) -> AnyValue {
+    let arg_at = |i: i64| -> u64 {
+        if i < argc {
+            unsafe { *argv.add(i as usize) }
+        } else {
+            VALUE_UNDEFINED
+        }
+    };
+    unsafe {
+        let needle = arg_at(0);
+        let from = if argc >= 2 {
+            to_index(arg_at(1), 0)
+        } else {
+            len - 1
+        };
+        if __torajs_throw_check() != 0 {
+            return VALUE_UNDEFINED;
+        }
+        let mut k = if from < 0 {
+            from + len
+        } else {
+            from.min(len - 1)
+        };
+        while k >= 0 {
+            if arraylike_has(obj, k) {
+                let v = arraylike_get(obj, k);
+                if __torajs_throw_check() != 0 {
+                    __torajs_value_drop_heap(v as *mut c_void);
+                    return VALUE_UNDEFINED;
+                }
+                let hit = __torajs_anyv_strict_eq(needle, v);
+                __torajs_value_drop_heap(v as *mut c_void);
+                if hit {
+                    return __torajs_anyv_box_i64(k);
+                }
+            }
+            k -= 1;
+        }
+        __torajs_anyv_box_i64(-1)
     }
 }
 

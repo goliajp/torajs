@@ -14,8 +14,8 @@ use core::ffi::c_void;
 
 use torajs_rc::{
     ANY_METHOD_EVERY, ANY_METHOD_FILTER, ANY_METHOD_FIND, ANY_METHOD_FIND_INDEX,
-    ANY_METHOD_FIND_LAST, ANY_METHOD_FIND_LAST_INDEX, ANY_METHOD_MAP, ANY_METHOD_REDUCE,
-    ANY_METHOD_REDUCE_RIGHT, ANY_METHOD_SOME,
+    ANY_METHOD_FIND_LAST, ANY_METHOD_FIND_LAST_INDEX, ANY_METHOD_FLAT_MAP, ANY_METHOD_MAP,
+    ANY_METHOD_REDUCE, ANY_METHOD_REDUCE_RIGHT, ANY_METHOD_SOME, Tag,
 };
 
 use crate::method_call::{
@@ -41,6 +41,9 @@ unsafe extern "C" {
     /// parity with the Arr arm).
     fn __torajs_arr_throw_reduce_empty();
     fn __torajs_arr_throw_reduce_right_empty();
+    /// torajs-arr — splice src's slots onto dst (copy + inc; src
+    /// keeps its own stake). Caller captures the moved return.
+    fn __torajs_arr_extend_any(dst: *mut u8, src: *const u8) -> *mut u8;
     /// Cross-tier — universal NaN-box-safe heap-value release.
     fn __torajs_value_drop_heap(p: *mut c_void);
 }
@@ -64,6 +67,75 @@ unsafe fn call_cb(
         argv[s + 1] = __torajs_anyv_box_i64(k);
         argv[s + 2] = obj_boxed;
         invoke_boxed(cb_env, cb_entry, argv.as_ptr(), (3 + s) as i64)
+    }
+}
+
+/// §23.1.3.11 step 8.c-d — an array-valued mapped element spreads
+/// exactly one level (its slots copy + inc through extend; the
+/// mapped temp's own stake drops here); everything else appends
+/// as-is (its stake transfers into the slot). Answers the
+/// possibly-moved product.
+unsafe fn flat_map_append(product: *mut u8, r: AnyValue) -> *mut u8 {
+    unsafe {
+        let is_arr = crate::nanbox::is_cell(r) && {
+            let p = crate::nanbox::as_void_ptr(r);
+            (p.cast::<u8>().add(4) as *const u16).read() == Tag::Arr as u16
+        };
+        if is_arr {
+            let out = __torajs_arr_extend_any(product, crate::nanbox::as_void_ptr(r) as *const u8);
+            __torajs_value_drop_heap(r as *mut c_void);
+            out
+        } else {
+            __torajs_arr_push_any(
+                product as *mut c_void,
+                __torajs_anyv_unbox_tag(r) as u64,
+                __torajs_anyv_unbox_value(r) as u64,
+            )
+        }
+    }
+}
+
+/// The find family (§23.1.3.8-.10) — Gets EVERY index (no Has
+/// gate), ascending or descending per the mid; the index flavors
+/// answer k / -1, the value flavors the element / undefined.
+unsafe fn arraylike_find(
+    obj: *mut c_void,
+    mid: i64,
+    len: i64,
+    cb_env: *mut c_void,
+    cb_entry: u64,
+    obj_boxed: AnyValue,
+) -> AnyValue {
+    unsafe {
+        let right = mid == ANY_METHOD_FIND_LAST || mid == ANY_METHOD_FIND_LAST_INDEX;
+        let wants_index = mid == ANY_METHOD_FIND_INDEX || mid == ANY_METHOD_FIND_LAST_INDEX;
+        let mut step: i64 = 0;
+        while step < len {
+            let k = if right { len - 1 - step } else { step };
+            step += 1;
+            let v = arraylike_get(obj, k);
+            let r = call_cb(cb_env, cb_entry, v, k, obj_boxed);
+            if __torajs_throw_check() != 0 {
+                __torajs_value_drop_heap(v as *mut c_void);
+                __torajs_value_drop_heap(r as *mut c_void);
+                return VALUE_UNDEFINED;
+            }
+            let hit = __torajs_anyv_to_bool(r);
+            __torajs_value_drop_heap(r as *mut c_void);
+            if hit {
+                if wants_index {
+                    __torajs_value_drop_heap(v as *mut c_void);
+                    return __torajs_anyv_box_i64(k);
+                }
+                return v;
+            }
+            __torajs_value_drop_heap(v as *mut c_void);
+        }
+        if wants_index {
+            __torajs_anyv_box_i64(-1)
+        } else {
+            VALUE_UNDEFINED
+        }
     }
 }
 
@@ -142,42 +214,16 @@ pub(crate) unsafe fn arraylike_hof(
                 || m == ANY_METHOD_FIND_LAST
                 || m == ANY_METHOD_FIND_LAST_INDEX =>
             {
-                let right = m == ANY_METHOD_FIND_LAST || m == ANY_METHOD_FIND_LAST_INDEX;
-                let wants_index = m == ANY_METHOD_FIND_INDEX || m == ANY_METHOD_FIND_LAST_INDEX;
-                let mut step: i64 = 0;
-                while step < len {
-                    let k = if right { len - 1 - step } else { step };
-                    step += 1;
-                    // The find family Gets every index — no Has gate.
-                    let v = arraylike_get(obj, k);
-                    let r = call_cb(cb_env, cb_entry, v, k, obj_boxed);
-                    if __torajs_throw_check() != 0 {
-                        __torajs_value_drop_heap(v as *mut c_void);
-                        __torajs_value_drop_heap(r as *mut c_void);
-                        return VALUE_UNDEFINED;
-                    }
-                    let hit = __torajs_anyv_to_bool(r);
-                    __torajs_value_drop_heap(r as *mut c_void);
-                    if hit {
-                        if wants_index {
-                            __torajs_value_drop_heap(v as *mut c_void);
-                            return __torajs_anyv_box_i64(k);
-                        }
-                        return v;
-                    }
-                    __torajs_value_drop_heap(v as *mut c_void);
-                }
-                if wants_index {
-                    __torajs_anyv_box_i64(-1)
-                } else {
-                    VALUE_UNDEFINED
-                }
+                arraylike_find(obj, m, len, cb_env, cb_entry, obj_boxed)
             }
             // every / some / forEach / map / filter — has-gated walk.
             _ => {
                 // Cap hint only (push grows on demand) — a
                 // ToLength-sized length must not size the malloc.
-                let mut product: *mut u8 = if mid == ANY_METHOD_MAP || mid == ANY_METHOD_FILTER {
+                let mut product: *mut u8 = if mid == ANY_METHOD_MAP
+                    || mid == ANY_METHOD_FILTER
+                    || mid == ANY_METHOD_FLAT_MAP
+                {
                     __torajs_arr_alloc_any(len.clamp(0, 4096) as u64)
                 } else {
                     core::ptr::null_mut()
@@ -229,6 +275,10 @@ pub(crate) unsafe fn arraylike_hof(
                             );
                             __torajs_value_drop_heap(v as *mut c_void);
                         }
+                        mm if mm == ANY_METHOD_FLAT_MAP => {
+                            product = flat_map_append(product, r);
+                            __torajs_value_drop_heap(v as *mut c_void);
+                        }
                         mm if mm == ANY_METHOD_FILTER => {
                             let keep = __torajs_anyv_to_bool(r);
                             __torajs_value_drop_heap(r as *mut c_void);
@@ -254,7 +304,10 @@ pub(crate) unsafe fn arraylike_hof(
                 match mid {
                     mm if mm == ANY_METHOD_EVERY => VALUE_TRUE,
                     mm if mm == ANY_METHOD_SOME => VALUE_FALSE,
-                    mm if mm == ANY_METHOD_MAP || mm == ANY_METHOD_FILTER => {
+                    mm if mm == ANY_METHOD_MAP
+                        || mm == ANY_METHOD_FILTER
+                        || mm == ANY_METHOD_FLAT_MAP =>
+                    {
                         __torajs_anyv_box_pointer(product as *mut c_void)
                     }
                     _ => VALUE_UNDEFINED,

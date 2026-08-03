@@ -1483,6 +1483,7 @@ mod tests {
         __torajs_arr_delete_index,
         __torajs_arr_drop_any,
         __torajs_arr_drop_heap,
+        __torajs_arr_extend_any,
         __torajs_arr_fill_any,
         __torajs_arr_get_any_boxed,
         __torajs_arr_get_any_tag,
