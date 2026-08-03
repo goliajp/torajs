@@ -364,6 +364,15 @@ impl<'a> Parser<'a> {
             // through to parse_expr which won't accept yield —
             // matches the v0.5 generator semantics.
             if decls.is_empty() && matches!(self.peek(), Token::Yield) {
+                // §15.5.5 / §16.1 early error (r290) — same
+                // parse-time gate as the statement / expression
+                // lanes.
+                if !self.in_generator {
+                    return Err(format!(
+                        "`yield` is only valid inside a `function*` generator body at {} (ES §15.5.5)",
+                        self.at()
+                    ));
+                }
                 self.pos += 1;
                 // S2.41 — `let v = yield;` binds the resumption value
                 // with an undefined operand (same optional-operand

@@ -43,6 +43,18 @@ impl<'a> Parser<'a> {
     /// `yield [operand]` in expression position. Caller
     /// (`parse_assign`) has peeked `Token::Yield` and NOT consumed it.
     pub(super) fn parse_yield_expr_hoist(&mut self) -> Result<ExprId, String> {
+        // §15.5.5 / §16.1 early error (r290) — module code is strict,
+        // so `yield` outside a `function*` body is a parse-time
+        // reject. It must fire HERE rather than at the checker: a
+        // yield nested in an `import(...)` argument would otherwise
+        // reach the resolver first and fail on path resolution
+        // instead of the expected parse-phase SyntaxError.
+        if !self.in_generator {
+            return Err(format!(
+                "`yield` is only valid inside a `function*` generator body at {} (ES §15.5.5)",
+                self.at()
+            ));
+        }
         if self.in_formal_params {
             return Err(format!(
                 "`yield` may not be used in a formal parameter list at {} (ES §15.1.2)",

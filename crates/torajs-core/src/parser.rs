@@ -119,6 +119,7 @@ pub fn parse_into(source: &str, tokens: &[Spanned], target: &mut Ast) -> Result<
         current_class: None,
         in_gen_class_method: false,
         in_async_gen: false,
+        in_generator: false,
         pending_async_fn_expr: false,
         static_this_class: None,
         super_call_allowed: false,
@@ -213,6 +214,15 @@ struct Parser<'a> {
     /// at every generator-body parse site, same discipline as
     /// `super_call_allowed`.
     in_async_gen: bool,
+    /// §15.5.5 early error (r290) — whether the cursor is inside ANY
+    /// `function*` body (sync or async; `in_async_gen` is the async
+    /// subset). `yield` outside one is a parse-time reject: module
+    /// code is strict (§16.1) where `yield` is reserved, and the
+    /// reject must precede the resolver so a `yield` nested in an
+    /// `import(...)` argument fails at parse phase, not on path
+    /// resolution. Save/restore at every function-body parse site,
+    /// same discipline as `in_async_gen`; arrows inherit (§15.3).
+    in_generator: bool,
     /// One-shot handshake from `primary_async` to `parse_fn_expr`:
     /// the `async` keyword was consumed one token earlier, so the
     /// expression parser cannot see async-ness itself. `take`n at

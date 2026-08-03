@@ -119,12 +119,14 @@ impl<'a> Parser<'a> {
         // value is moot.
         let saved_super = std::mem::replace(&mut self.super_call_allowed, false);
         let saved_async_gen = std::mem::replace(&mut self.in_async_gen, is_async && is_generator);
+        let saved_gen = std::mem::replace(&mut self.in_generator, is_generator);
         let saved_await = std::mem::replace(&mut self.await_allowed, is_async);
         let mut body = Vec::new();
         while !matches!(self.peek(), Token::RBrace | Token::Eof) {
             body.push(self.parse_stmt()?);
         }
         self.await_allowed = saved_await;
+        self.in_generator = saved_gen;
         self.in_async_gen = saved_async_gen;
         self.super_call_allowed = saved_super;
         match self.peek() {

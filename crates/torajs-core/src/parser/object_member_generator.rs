@@ -102,6 +102,7 @@ impl<'a> Parser<'a> {
         // is an early SyntaxError here (ES §15.7.1).
         let saved_super = std::mem::replace(&mut self.super_call_allowed, false);
         let saved_async_gen = std::mem::replace(&mut self.in_async_gen, is_async);
+        let saved_gen = std::mem::replace(&mut self.in_generator, true);
         let saved_await = std::mem::replace(&mut self.await_allowed, is_async);
         // Knife 4d — arena range for the `arguments` rename sweep
         // below (the class half does the same, see
@@ -113,6 +114,7 @@ impl<'a> Parser<'a> {
                 Ok(s) => body.push(s),
                 Err(e) => {
                     self.await_allowed = saved_await;
+                    self.in_generator = saved_gen;
                     self.in_async_gen = saved_async_gen;
                     self.super_call_allowed = saved_super;
                     return Err(e);
@@ -120,6 +122,7 @@ impl<'a> Parser<'a> {
             }
         }
         self.await_allowed = saved_await;
+        self.in_generator = saved_gen;
         self.in_async_gen = saved_async_gen;
         self.super_call_allowed = saved_super;
         match self.peek() {

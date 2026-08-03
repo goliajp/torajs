@@ -24,9 +24,16 @@ impl<'a> Parser<'a> {
     /// `yield e ;` / `yield ;` / `yield * gen(args) ;` /
     /// `yield * [elems] ;` statement. Caller has peeked `Token::Yield`.
     pub(super) fn parse_yield_stmt(&mut self) -> Result<Stmt, String> {
-        // `yield e ;` — Phase J. Parser-level only; the surrounding
-        // function must be `function*` or `desugar_generators` will
-        // surface this as a typecheck error.
+        // §15.5.5 / §16.1 early error (r290) — same parse-time gate
+        // as the expression-position twin (yield_expr_hoist.rs): the
+        // checker's own reject fires too late for shapes the resolver
+        // walks first.
+        if !self.in_generator {
+            return Err(format!(
+                "`yield` is only valid inside a `function*` generator body at {} (ES §15.5.5)",
+                self.at()
+            ));
+        }
         self.pos += 1;
         if matches!(self.peek(), Token::Star) {
             self.pos += 1;

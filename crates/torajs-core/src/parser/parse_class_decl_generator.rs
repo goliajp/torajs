@@ -148,6 +148,7 @@ impl<'a> Parser<'a> {
         // resolved below.
         let saved_super = std::mem::replace(&mut self.super_call_allowed, false);
         let saved_async_gen = std::mem::replace(&mut self.in_async_gen, is_async);
+        let saved_gen = std::mem::replace(&mut self.in_generator, true);
         let saved_await = std::mem::replace(&mut self.await_allowed, is_async);
         let mut body = Vec::new();
         while !matches!(self.peek(), Token::RBrace | Token::Eof) {
@@ -155,6 +156,7 @@ impl<'a> Parser<'a> {
                 Ok(s) => body.push(s),
                 Err(e) => {
                     self.in_gen_class_method = saved_in_gen;
+                    self.in_generator = saved_gen;
                     self.in_async_gen = saved_async_gen;
                     self.await_allowed = saved_await;
                     return Err(e);
@@ -162,6 +164,7 @@ impl<'a> Parser<'a> {
             }
         }
         self.in_gen_class_method = saved_in_gen;
+        self.in_generator = saved_gen;
         self.in_async_gen = saved_async_gen;
         self.await_allowed = saved_await;
         self.super_call_allowed = saved_super;

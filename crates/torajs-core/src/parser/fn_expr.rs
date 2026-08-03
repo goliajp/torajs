@@ -234,6 +234,7 @@ impl<'a> Parser<'a> {
         // nested inside an async-generator body.
         let saved_async_gen =
             std::mem::replace(&mut self.in_async_gen, was_async_prefixed && is_generator);
+        let saved_gen = std::mem::replace(&mut self.in_generator, is_generator);
         let saved_await = std::mem::replace(&mut self.await_allowed, was_async_prefixed);
         let mut stmts = Vec::new();
         while !matches!(self.peek(), Token::RBrace | Token::Eof) {
@@ -241,6 +242,7 @@ impl<'a> Parser<'a> {
                 Ok(s) => s,
                 Err(e) => {
                     self.await_allowed = saved_await;
+                    self.in_generator = saved_gen;
                     self.in_async_gen = saved_async_gen;
                     return Err(e);
                 }
@@ -248,6 +250,7 @@ impl<'a> Parser<'a> {
             stmts.push(s);
         }
         self.await_allowed = saved_await;
+        self.in_generator = saved_gen;
         self.in_async_gen = saved_async_gen;
         match self.peek() {
             Token::RBrace => self.pos += 1,
