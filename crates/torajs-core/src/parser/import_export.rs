@@ -110,6 +110,10 @@ impl<'a> Parser<'a> {
             while !matches!(self.peek(), Token::RBrace) {
                 let orig = match self.peek() {
                     Token::Ident(n) => n.clone(),
+                    // §16.2.2 ImportSpecifier — ModuleExportName
+                    // covers reserved words; `default as x` re-binds
+                    // the default export under a local name.
+                    Token::Default => "default".to_string(),
                     t => {
                         return Err(format!(
                             "expected ident in import named clause, got {t:?} at {}",
@@ -140,6 +144,28 @@ impl<'a> Parser<'a> {
                 }
             }
             self.pos += 1; // consume `}`
+        }
+        // `default as x` rides the resolver's default lane — it IS
+        // the default binding (§16.2.2). Bare `{ default }` is a
+        // syntax error: `default` is a reserved word, not a legal
+        // ImportedBinding. When a default binding is ALSO present
+        // (`import d, { default as x }`) the named entry stays; its
+        // lookup misses every named export and drops silently
+        // (recorded subset boundary — the double-binding form).
+        if let Some(idx) = named.iter().position(|(o, _)| o == "default") {
+            match (&named[idx].1, &default) {
+                (None, _) => {
+                    return Err(format!(
+                        "`default` in an import named clause requires `as <binding>` at {}",
+                        self.at()
+                    ));
+                }
+                (Some(alias), None) => {
+                    default = Some(alias.clone());
+                    named.remove(idx);
+                }
+                (Some(_), Some(_)) => {}
+            }
         }
         // `from "./x"` tail.
         self.expect_ident_keyword("from")?;
