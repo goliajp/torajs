@@ -91,6 +91,22 @@ impl<'a> FnToClosureCollector<'a> {
                 }
             }
         }
+        // r290 (box_to_any FnSig sweep cluster) — an indirect call
+        // through a binding that is NOT a top-FnDecl name
+        // (`var every = Array.prototype.every; every(callback)`):
+        // the callee has no static signature, so its argv packs
+        // any-boxed slots, which a raw FnSig can't. Wrap every
+        // top-FnDecl Ident argument. Known-fn callees ride the
+        // declared-param axis above (typed params keep raw-FnSig
+        // direct dispatch), and a typed closure param is already
+        // Closure-repr, so the wrap agrees with it.
+        if let Expr::Ident(cname) = self.ast.get_expr(*callee)
+            && !self.fn_sigs.contains_key(cname)
+        {
+            for &arg in args {
+                self.try_mark(arg);
+            }
+        }
         // `<key> in <fn>` — the parser rewrites the binary op to a
         // synthetic `__torajs_in_op(key, obj)` call; a top-FnDecl
         // Ident on the rhs is a value use (the lowering boxes the
@@ -424,8 +440,18 @@ impl<'a> FnToClosureCollector<'a> {
                 self.walk_expr(*right);
             }
             Expr::Array(eids) => {
+                // Untyped array literal (r290) — same posture as the
+                // bare ObjectLit field below: a top-FnDecl Ident
+                // element has no surrounding annotation to key off,
+                // and the raw FnSig slot rejects at every any-boxing
+                // site (`[a, b].forEach(cb)` — the box_to_any FnSig
+                // sweep cluster). The wrap routes the element through
+                // the closure construction site; a pure fn-arr
+                // consumer calls the closure the same way.
                 for e in eids {
-                    self.walk_expr(*e);
+                    if !self.try_mark(*e) {
+                        self.walk_expr(*e);
+                    }
                 }
             }
             Expr::ObjectLit { fields } => {
