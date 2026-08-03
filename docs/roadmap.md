@@ -1530,7 +1530,30 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 176bcffb`, never as a constant.
 
-**Latest @ `7b756e00`** (2026-08-04, rotation 292 — the fn-value /
+**Latest @ `b6940559`** (2026-08-04, rotation 293 — the fn-value
+store-site blind-spot sweep plus Reflect.construct, four knives all
+green through the gate chain 2414 → 2419: the NewDynamic CALLEE and
+a lifted arrow's untyped params reach the wrapped-closure lane
+(`new Error.isError()` answers the spec TypeError through the
+construct kernel's conservative IsConstructor; the lazy-Iterator
+`iter => iter.map(fn)` family boxes); the collector's walk gains the
+arms it never had — Stmt::ForOf/ForOfSplitIter bodies were entirely
+invisible, dynobj member-assign stores and the for-in head hoist
+wrap their fn-name operands; §28.1.2 Reflect.construct lands three
+layers deep (kernel with both IsConstructor gates + unconditional
+CreateListFromArrayLike + newTarget [[Prototype]] re-wire, checker
+arm, lowering route; the factory-adapter synthesis predicate now
+arms on its call shape — the 136-case single-API cluster), and
+as-cast receivers peel to reach the degrade pass (the layout-[]
+family): sweep passTotal 26024 → **26043 (+19)** / bug 11761 →
+11874 (+113 — Reflect.construct unlocks run to runtime and expose
+their signatures) / trAccepted +132 / incompatible 15389 → **15257
+(−132)**, conservation exact (132 = 19 + 113); gate predicate **333
+clusters / 8446 cases** (flat / −65), core 9441 (−70); regressions
+**ZERO** (verdicts diff: 0 cases left pass), new timeouts/crashes
+zero (tr-timeout flat 35). Previous stamp below.
+
+**Previous @ `7b756e00`** (2026-08-04, rotation 292 — the fn-value /
 iterator-protocol residue face, seven knives all green through the
 gate chain 2409 → 2414: iterator helpers cache the next method at
 construction per GetIteratorDirect (helper cell grows a next slot,
@@ -1558,7 +1581,7 @@ incompatible 15411 → **15389 (−22)**, conservation exact (22 = 92 −
 box_to_any FnSig cluster 14 → **2** (Error.isError namespace-static
 fn value + one staging shape). Previous stamp below.
 
-**Previous @ `176bcffb`** (2026-08-03, rotation 289 — the dynamic-import
+**Prior @ `176bcffb`** (2026-08-03, rotation 289 — the dynamic-import
 residue face, four substrate knives: `await import("...")` works
 inside async fn bodies — a dyn-import namespace no longer
 materializes a top-level main-local `let` (invisible from a lifted
