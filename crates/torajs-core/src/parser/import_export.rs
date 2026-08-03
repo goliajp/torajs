@@ -46,7 +46,22 @@ impl<'a> Parser<'a> {
                 source,
             });
         }
+        // import-defer proposal — `import defer * as ns from "..."`.
+        // `defer` is a CONTEXTUAL keyword: it only reads as one when
+        // the very next token is `*` at the head of the clause;
+        // `import defer from "./x"` keeps `defer` as a plain default
+        // binding name (test262 valid-default-binding-named-defer).
+        // Deferred evaluation is layered — this parse accepts the
+        // form and the module resolves EAGERLY through the normal
+        // namespace lane; the laziness itself waits for a lazy
+        // module-init substrate (roadmap phase, not dropped scope).
+        if matches!(self.peek(), Token::Ident(n) if n == "defer")
+            && matches!(self.tokens[self.pos + 1].token, Token::Star)
+        {
+            self.pos += 1; // consume `defer`
+        }
         // Default import: `import x ...` (next token is Ident).
+        let mut default_comma = false;
         if let Token::Ident(_) = self.peek() {
             let name = match self.peek() {
                 Token::Ident(n) => n.clone(),
@@ -57,7 +72,21 @@ impl<'a> Parser<'a> {
             // Optional `, { ... }` or `, * as ns`.
             if matches!(self.peek(), Token::Comma) {
                 self.pos += 1;
+                default_comma = true;
             }
+        }
+        // §16.2.2 ImportClause — a namespace / named clause after a
+        // default binding requires the `,` separator; without it
+        // `import defer { x } from` (test262 invalid-defer-named)
+        // and `import x { y } from` parsed as if the comma were
+        // there.
+        if default.is_some() && !default_comma && matches!(self.peek(), Token::Star | Token::LBrace)
+        {
+            return Err(format!(
+                "expected `,` or `from` after default import binding, got {:?} at {}",
+                self.peek(),
+                self.at()
+            ));
         }
         // Namespace: `* as ns` (Token::Star + Ident("as") + Ident).
         if matches!(self.peek(), Token::Star) {
