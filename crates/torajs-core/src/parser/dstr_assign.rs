@@ -224,6 +224,15 @@ impl<'a> Parser<'a> {
                             self.at()
                         ));
                     }
+                    // §8.4.5 NamedEvaluation reaches assignment-pattern
+                    // defaults too — and the registry entry is ALSO the
+                    // hoisted-generator wrap axis's key (`[g =
+                    // function*(){}] = []` panicked at box_to_any
+                    // without it; the binding lane records upstream).
+                    if let Expr::Ident(b) = self.ast.get_expr(target) {
+                        let b = b.clone();
+                        self.record_dstr_default_name(default, &b);
+                    }
                     let load = self.dstra_elem_load(src_name, i, Some(default));
                     self.emit_dstr_assign_slot(target, load, out)?;
                 }
@@ -267,6 +276,14 @@ impl<'a> Parser<'a> {
                      default (conditional position) at {}",
                     self.at()
                 ));
+            }
+            // §8.4.5 NamedEvaluation for the field default (also the
+            // hoisted-generator wrap axis's key — see the array lane).
+            if let Some(d) = default
+                && let Expr::Ident(b) = self.ast.get_expr(target)
+            {
+                let b = b.clone();
+                self.record_dstr_default_name(d, &b);
             }
             let load = self.dstra_field_load(src_name, fname, default);
             self.emit_dstr_assign_slot(target, load, out)?;
