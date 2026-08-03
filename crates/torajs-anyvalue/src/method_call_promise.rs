@@ -168,8 +168,14 @@ pub(crate) unsafe fn promise_method(
 /// (the sync-resolve model's guard, same as the typed read); an
 /// UNSTAMPED fulfilled cell refuses loudly — never a silent mis-box.
 /// Every other value — including a thenable struct (L3b) — passes
-/// through identity. The call site drains microtasks first, same as
-/// the typed await route.
+/// through identity WITH a fresh +1: the contract is "+1 stake on
+/// every return path", and the lowering call site
+/// (`lower_any_await`) releases an owned operand after this call on
+/// that assumption. Pre-fix the identity arm returned the same cell
+/// without the bump, so `await <owned non-promise cell>` freed the
+/// operand's only stake and handed back a dangling pointer (async-gen
+/// `yield*` step objects — rotation 288 heisenbug root cause). The
+/// call site drains microtasks first, same as the typed await route.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_await(av: AnyValue) -> AnyValue {
     unsafe {
@@ -179,6 +185,7 @@ pub unsafe extern "C" fn __torajs_anyv_await(av: AnyValue) -> AnyValue {
         let ptr = crate::nanbox::as_void_ptr(av);
         let tag = (ptr.cast::<u8>().add(4) as *const u16).read();
         if tag != torajs_rc::Tag::Promise as u16 {
+            crate::nanbox_ffi::__torajs_anyv_rc_inc(av);
             return av;
         }
         let state = ptr.cast::<u8>().add(P_STATE_OFF).read();
