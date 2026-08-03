@@ -1522,15 +1522,46 @@ not the surface a TS runtime has to present. P-SURF is that surface,
 and unlike the trunk above it is **derived from measurement rather than
 from design intent**.
 
-**Where the numbers come from.** Full sweep @ `0f8f8257` (53174 cases,
+**Where the numbers come from.** Full sweep @ `176bcffb` (53174 cases,
 `hardev/test262-latest.json`), then the `incompatible` bucket dumped per
 case (`--incompat-ndjson`) and clustered by
 `hardev/autorun/cluster_incompat.py`. **The script is the authority** —
 every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
-snapshot stamped `@ 0f8f8257`, never as a constant.
+snapshot stamped `@ 176bcffb`, never as a constant.
 
-**Latest @ `0f8f8257`** (2026-08-03, rotation 288 — the rotation-287
+**Latest @ `176bcffb`** (2026-08-03, rotation 289 — the dynamic-import
+residue face, four substrate knives: `await import("...")` works
+inside async fn bodies — a dyn-import namespace no longer
+materializes a top-level main-local `let` (invisible from a lifted
+async body, which answered `unknown identifier __dyn_ns_0`); the
+resolver rewrites each `Ident(__dyn_ns_<n>)` use site into the
+namespace object literal in place (`inline_dyn_ns_objlits`), whose
+field Idents resolve against the injected lib decls from any fn
+body, with per-path field lists so a second `import()` of a visited
+module still rewrites, and `dyn_import_counter` seeded from the
+arena offset so a lib's own dynamic imports cannot mint colliding
+names; `import(spec, options)` parses — the options expression is
+consumed and discarded (the eager AOT subset resolves at compile
+time; trailing commas legal in both arg forms); `import { default
+as x }` rides the resolver's default lane (§16.2.2 ModuleExportName
+covers reserved words; bare `{ default }` stays a syntax error);
+`import.defer("...")` parses as an eager dynamic import in both
+expression and statement position while `import.source` rejects
+loudly naming its missing ModuleSource substrate: sweep passTotal
+25568 → **25674 (+106)** / bug 11735 → 11793 (+58) / trAccepted
++164 / incompatible 15871 → **15707 (−164)**, conservation exact
+(164 = 106 + 58); gate predicate **334 clusters / 8821 cases**
+(−2 / −180), core 9829 (−164); regressions: **ZERO real** — the one
+verdict that moved off pass,
+`dynamic-import/import-attributes/2nd-param-yield-ident-invalid.js`
+(pass-negative → negative-unsupported), had only ever passed on the
+pre-knife-2 unrelated Comma parse error (metric-inflation
+recovery; the real gap — `yield` as a reserved word in module
+code — is registered in L3b). The 191 forward moves: dynamic-import
+190 / import-defer 1.
+
+**Prior @ `0f8f8257`** (2026-08-03, rotation 288 — the rotation-287
 heisenbug root cause + the dynamic-import parse face, four substrate
 knives: `__torajs_anyv_await`'s identity arm (non-promise cell) now
 mints the +1 stake its lowering call site releases — pre-fix `await
