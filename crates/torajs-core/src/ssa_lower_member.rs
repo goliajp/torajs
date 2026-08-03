@@ -207,18 +207,22 @@ pub(crate) fn lower_with_val(
     crate::ssa_lower_member_obj_field::try_lower(ctx, obj, obj_val, sid, name)
 }
 
-/// The builtin proto family a primitive receiver's method VALUE read
-/// mints against (`torajs_rc::builtin_proto` tags), or `None` when
-/// the receiver is not a reifiable primitive. Str / Substr, Number
-/// and Boolean receivers each reify off their own prototype so the
-/// runtime's family-generic gate — §22.1.3 ToString(this) for the
-/// String family, the §21.1.3 / §20.3.3 brand checks for the wrapper
-/// families — selects correctly on `.call` / `.bind`.
+/// The builtin proto family a receiver's method VALUE read mints
+/// against (`torajs_rc::builtin_proto` tags), or `None` when the
+/// receiver is not reifiable. Str / Substr, Number and Boolean
+/// receivers each reify off their own prototype so the runtime's
+/// family-generic gate — §22.1.3 ToString(this) for the String
+/// family, the §21.1.3 / §20.3.3 brand checks for the wrapper
+/// families — selects correctly on `.call` / `.bind`. Array
+/// receivers reify off the Array prototype: an Array-minted cell's
+/// `.call` re-dispatch reaches the ES "intentionally generic"
+/// array-like arm on a plain-object thisArg (`[].flat.call(obj)`).
 pub(crate) fn mv_family_of_ssa_ty(t: &Type) -> Option<i64> {
     Some(match t {
         Type::Str | Type::Substr => torajs_rc::builtin_proto::STRING_PROTO_TAG as i64,
         Type::I64 | Type::F64 => torajs_rc::builtin_proto::NUMBER_PROTO_TAG as i64,
         Type::Bool => torajs_rc::builtin_proto::BOOLEAN_PROTO_TAG as i64,
+        Type::Arr(_) => torajs_rc::builtin_proto::ARRAY_PROTO_TAG as i64,
         _ => return None,
     })
 }
@@ -230,6 +234,7 @@ pub(crate) fn mv_family_of_checker_ty(t: &crate::check::Type) -> Option<i64> {
         crate::check::Type::String => torajs_rc::builtin_proto::STRING_PROTO_TAG as i64,
         crate::check::Type::Number => torajs_rc::builtin_proto::NUMBER_PROTO_TAG as i64,
         crate::check::Type::Boolean => torajs_rc::builtin_proto::BOOLEAN_PROTO_TAG as i64,
+        crate::check::Type::Array(_) => torajs_rc::builtin_proto::ARRAY_PROTO_TAG as i64,
         _ => return None,
     })
 }
