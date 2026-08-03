@@ -168,15 +168,35 @@ pub(crate) fn try_match_replace(
 /// (the test262 cstm-matcher-on-*-primitive regressions). So the
 /// gate keys off DIRECT store evidence instead: an Ident pattern
 /// joins only when the program somewhere computed-key-stores into
-/// that name (`name[expr] = v` — the only spelling that can plant a
-/// `@@match`) or hands it to `Object.defineProperty` /
-/// `defineProperties` / `Reflect.defineProperty`. Everything else
-/// (non-Ident patterns, store-free names) keeps the member-table
-/// route and today's coerce behavior.
+/// that name (`name[expr] = v`), hands it to `Object.defineProperty`
+/// / `defineProperties` / `Reflect.defineProperty`, or (r290) wrote
+/// a computed-key object-literal field anywhere — `{ [Symbol.split]:
+/// fn }` plants a `@@sym` at literal position, and the LetDecl
+/// name-to-init association lives in Stmt space, so the arm is
+/// name-blind at the same coarseness as the index-assign arm (a
+/// false positive costs one runtime probe on a behavior-identical
+/// fallback). An inline literal pattern joins directly. Everything
+/// else (store-free names, non-literal non-Ident patterns) keeps the
+/// member-table route and today's coerce behavior.
 pub(crate) fn any_pattern_may_carry_matcher(ast: &Ast, arg: ExprId) -> bool {
+    // An inline literal usually rides an `as any` widen — peel it.
+    let mut arg = arg;
+    while let Expr::As { expr, .. } = ast.get_expr(arg) {
+        arg = *expr;
+    }
+    if let Expr::ObjectLit { fields } = ast.get_expr(arg)
+        && fields
+            .iter()
+            .any(|(_, v)| ast.objlit_computed_keys.contains_key(v))
+    {
+        return true;
+    }
     let Expr::Ident(name) = ast.get_expr(arg) else {
         return false;
     };
+    if !ast.objlit_computed_keys.is_empty() {
+        return true;
+    }
     for e in &ast.exprs {
         match e {
             Expr::Assign { target, .. } => {
