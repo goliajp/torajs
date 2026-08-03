@@ -35,7 +35,15 @@ impl<'a> Parser<'a> {
             self.pos += 1;
             return Ok(Stmt::Block(Vec::new()));
         }
-        if matches!(self.peek(), Token::Import) {
+        // ES §16.2.2 ImportDeclaration vs §13.3.10 ImportCall — a
+        // statement-position `import(...)` is an EXPRESSION statement
+        // (`import("./x").then(...)`), not an import declaration;
+        // only `import` followed by anything else takes the decl
+        // parser. Falls through to the expression-statement tail,
+        // whose primary tier owns the `import(` form.
+        if matches!(self.peek(), Token::Import)
+            && !matches!(self.tokens[self.pos + 1].token, Token::LParen)
+        {
             return self.parse_import();
         }
         if matches!(self.peek(), Token::Export) {

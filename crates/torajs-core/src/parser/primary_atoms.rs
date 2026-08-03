@@ -68,16 +68,23 @@ impl<'a> Parser<'a> {
             named: Vec::new(),
             source,
         });
-        // The expression is the namespace struct itself. `await
-        // import("./y")` passes it through identity (rotation 233 —
-        // await dispatches by type, and the namespace is not a
-        // Promise), matching the common `const M = await import(...)`
-        // pattern without the typecheck traversing
-        // Promise<struct-with-fn-fields>. Pre-233 this minted a
-        // `{value: ns}` wrapper to feed await's `.value` field read;
-        // with the by-type dispatch the wrapper would leak out
-        // whole. Standalone `.then()` use stays the L3b gap it was.
-        return Ok(self.ast.add_expr(Expr::Ident(ns_name)));
+        // The expression is `Promise.resolve(<ns>)` — a REAL Promise
+        // per §13.3.10, so both consumer shapes work: `await
+        // import(...)` unwraps it and `import(...).then(cb)` chains
+        // (rotation 288; the bare-namespace form this replaces made
+        // `await` an identity pass but left `.then()` a typecheck
+        // error — the top dynamic-import signature after the
+        // statement-position dispatch fix).
+        let ns_ident = self.ast.add_expr(Expr::Ident(ns_name));
+        let promise_ident = self.ast.add_expr(Expr::Ident("Promise".to_string()));
+        let resolve = self.ast.add_expr(Expr::Member {
+            obj: promise_ident,
+            name: "resolve".to_string(),
+        });
+        return Ok(self.ast.add_expr(Expr::Call {
+            callee: resolve,
+            args: vec![ns_ident],
+        }));
     }
 
     pub(super) fn parse_primary_paren(&mut self) -> Result<ExprId, String> {
