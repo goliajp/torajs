@@ -141,8 +141,18 @@ pub(crate) fn collect_toplevel_globals(
             // (Str / Arr / Obj) keep the global path: their promotion
             // is tied to the exit-time drop hook, not to named-fn
             // visibility alone.
+            // r290 (closure-capture sweep cluster) — a NESTED
+            // closure's capture of a top-level primitive resolves
+            // through the globals table (the capture filter in
+            // `ssa_lower_closure` strips global names from the env),
+            // so a closure-captured binding must promote like a
+            // named-fn-read one: localizing it leaves the lifted
+            // body's name with no home ("closure capture not in
+            // scope"). Copy slots carry no K.4 fresh-heap-init
+            // requirement, so the wider gate is init-shape-safe.
             if matches!(ty, Type::I64 | Type::F64 | Type::Bool | Type::I32)
                 && !binding_refs.named_fn_refs.contains(name)
+                && !binding_refs.closure_captured.contains(name)
             {
                 continue;
             }
@@ -186,7 +196,11 @@ pub(crate) fn collect_toplevel_globals(
                     | Type::Closure(_)
                     | Type::Symbol
             ) || (ty == Type::Any
-                && binding_refs.named_fn_refs.contains(name)
+                // r290 — a closure capture reads/writes the slot
+                // through the same global lanes a named-fn body does
+                // (see the localize-gate note above).
+                && (binding_refs.named_fn_refs.contains(name)
+                    || binding_refs.closure_captured.contains(name))
                 // Desugar-minted sentinels stay locals — EXCEPT the
                 // computed-field key globals (RFC 20260802 刀 3
                 // 后半): `__ccmk_<C>_<n>` holds the class-definition-
@@ -245,13 +259,19 @@ pub(crate) fn collect_toplevel_globals(
             // Symbol rides the Str profile: no in-place mutation
             // methods exist, so assignment (drop-old/store-new in
             // the Assign-Ident lane) is the only mutation face.
+            // r290 — a closure-captured Any binding joins the gate:
+            // the hoisted-var `: any` shape's init is the Uninit
+            // sentinel the Any lane already digests, so the K.4
+            // fresh-heap-init concern that keeps the concrete
+            // refcounted types on the named-fn gate does not apply.
             let mutable_promote = (ty == Type::Str
                 || matches!(ty, Type::Closure(_))
                 || ty == Type::Any
                 || matches!(ty, Type::Obj(_))
                 || matches!(ty, Type::Arr(_))
                 || ty == Type::Symbol)
-                && binding_refs.named_fn_refs.contains(name);
+                && (binding_refs.named_fn_refs.contains(name)
+                    || (ty == Type::Any && binding_refs.closure_captured.contains(name)));
             if *mutable && ty.is_refcounted() && !mutable_promote {
                 continue;
             }
@@ -306,8 +326,13 @@ fn inferred_slot_ty(
     // the same way: the lifted body's writes take the Assign-Ident
     // global lane, so reads and writes share the one global home
     // (the old env-copy snapshot disagreed with ES shared-binding
-    // semantics — `inc(); show()` read a stale main-local).
-    if !binding_refs.named_fn_refs.contains(name) {
+    // semantics — `inc(); show()` read a stale main-local). r290 —
+    // the capture side of that promise consults `closure_captured`:
+    // a NESTED closure's capture (a fn-expr inside a named fn body
+    // reading a top-level binding) reaches this table without any
+    // named-fn read, and localizing the binding leaves the lifted
+    // body's name with no home ("closure capture not in scope").
+    if !binding_refs.named_fn_refs.contains(name) && !binding_refs.closure_captured.contains(name) {
         return None;
     }
     // Rotation 204 — a dynobj-degraded ObjectLit init promotes as
