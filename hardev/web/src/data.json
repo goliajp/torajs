@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-03T14:20:32.958Z",
+  "generatedAt": "2026-08-03T16:23:06.094Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-03T14:17:48Z",
-    "headSha": "1be43fd9",
-    "elapsedSec": 410.49,
+    "ranAt": "2026-08-03T16:16:32Z",
+    "headSha": "0aac14c4",
+    "elapsedSec": 428.92,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 21239,
-    "passNoOracle": 633,
+    "pass": 21342,
+    "passNoOracle": 657,
     "passNegative": 3933,
-    "passTotal": 25805,
-    "bug": 11829,
-    "incompatible": 15540,
+    "passTotal": 25932,
+    "bug": 11831,
+    "incompatible": 15411,
     "bunSkip": 7155,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 37634,
-    "passRateInScope": 48.53,
-    "passRateTrAccepted": 68.57
+    "trAccepted": 37763,
+    "passRateInScope": 48.77,
+    "passRateTrAccepted": 68.67
   },
   "torajs": {
-    "commit": "1be43fd9",
-    "commitSubject": "fix: capture promotion keys off named-fn-interior closures only",
+    "commit": "8eb15539",
+    "commitSubject": "refactor: bind synthesis extracts from the fn-proto desugar loop",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "8eb15539",
+      "subject": "refactor: bind synthesis extracts from the fn-proto desugar loop"
+    },
+    {
+      "hash": "0aac14c4",
+      "subject": "feat: unswallowed apply/bind receivers ride the wrapped closure lane"
+    },
+    {
+      "hash": "a86f86fd",
+      "subject": "fix: assignment-pattern dstr defaults record named-eval registry"
+    },
+    {
+      "hash": "0ebd7555",
+      "subject": "fix: heterogeneous array literal return inference widens to any[]"
+    },
+    {
+      "hash": "74f28fc4",
+      "subject": "feat: fn-name args to generic typevar params wrap as closures"
+    },
+    {
+      "hash": "fe14437e",
+      "subject": "feat: call/apply/bind nullary and nullish-argarray forms desugar"
+    },
+    {
+      "hash": "d06d94a9",
+      "subject": "chore(docs,hardev): rotation 290 sweep artifacts and census at 1be43fd9"
+    },
+    {
       "hash": "1be43fd9",
       "subject": "fix: capture promotion keys off named-fn-interior closures only"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "07bf3a05",
       "subject": "feat: computed-key object literal joins the symbol-matcher store evidence"
-    },
-    {
-      "hash": "048a942c",
-      "subject": "feat: regexp symbol protocol methods reify and dispatch"
-    },
-    {
-      "hash": "70f95d4d",
-      "subject": "chore(hardev): dashboard snapshot at rotation 289 close"
-    },
-    {
-      "hash": "f190a2cb",
-      "subject": "chore(docs,hardev): rotation 289 sweep artifacts and census at 176bcffb"
-    },
-    {
-      "hash": "176bcffb",
-      "subject": "feat: import.defer parses as an eager dynamic import"
-    },
-    {
-      "hash": "5f78f490",
-      "subject": "feat: import named clause accepts default as x"
-    },
-    {
-      "hash": "b5b719e6",
-      "subject": "feat: dynamic import accepts the options argument"
-    },
-    {
-      "hash": "4dfa78be",
-      "subject": "feat: dynamic import works inside async fn bodies"
     }
   ],
-  "headSha": "1be43fd9",
+  "headSha": "8eb15539",
   "autorun": {
-    "total": 594,
+    "total": 595,
     "baselineTarget": 10,
-    "bySelf": 589,
+    "bySelf": 590,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785755457-0cd6",
-      "at": "2026-08-03T11:10:57Z",
-      "ts": 1785755457,
+      "rotationId": "r-1785766893-244a",
+      "at": "2026-08-03T14:21:33Z",
+      "ts": 1785766893,
       "trigger": "self",
-      "prevHead": "70f95d4d",
-      "handoffSha": "sha256:bef7670b36b5c75b50b2349bca0945797afb06465c53c068220b62f7e0a80400",
-      "handoffAgeSec": 40,
+      "prevHead": "d06d94a9",
+      "handoffSha": "sha256:19599152690d7fb7326fb8b2624fc8544ec55ec896110070761bd5c6a0d84014",
+      "handoffAgeSec": 6,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1785766893-244a",
+        "at": "2026-08-03T14:21:33Z",
+        "ts": 1785766893,
+        "trigger": "self",
+        "prevHead": "d06d94a9",
+        "handoffSha": "sha256:19599152690d7fb7326fb8b2624fc8544ec55ec896110070761bd5c6a0d84014",
+        "handoffAgeSec": 6,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785755457-0cd6",
         "at": "2026-08-03T11:10:57Z",
@@ -876,17 +887,6 @@
         "prevHead": "deffde3f",
         "handoffSha": "sha256:afbcfa80b1118553a7376e38bf15b1753c11387c9eabfc4fecca44cf35e156dd",
         "handoffAgeSec": 27,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1785650231-2cc7",
-        "at": "2026-08-02T05:57:11Z",
-        "ts": 1785650231,
-        "trigger": "self",
-        "prevHead": "3159a243",
-        "handoffSha": "sha256:76f30d49c182611592ce37cd78950dcf1dba4f48a02befacc349599dc268b20c",
-        "handoffAgeSec": 105,
         "conformanceBefore": null,
         "commitsInSession": null
       }
