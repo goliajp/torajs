@@ -234,7 +234,7 @@ pub(crate) unsafe fn iter_flat_map_step(ptr: *mut c_void, out: *mut AnyValue) ->
                 (p.add(INNER_OFF) as *mut u64).write(VALUE_UNDEFINED);
             }
             let mut item: AnyValue = VALUE_UNDEFINED;
-            let hit = crate::iter_any_step::step_derived_iterator(underlying, &mut item, false);
+            let hit = crate::iter_helper_next::helper_underlying_step(ptr, &mut item);
             if hit == 0 {
                 // Outer done or threw — either way this helper is
                 // finished (the caller's throw check tells apart).

@@ -115,6 +115,7 @@ mod iter_concat;
 mod iter_from;
 mod iter_helper;
 mod iter_helper_eager;
+mod iter_helper_next;
 mod iter_zip;
 mod iter_zip_keyed;
 mod iter_zip_shared;

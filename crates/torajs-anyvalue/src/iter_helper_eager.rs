@@ -28,11 +28,16 @@ unsafe extern "C" {
 /// `ptr` is a live heap cell honoring the iterator protocol.
 pub(crate) unsafe fn iter_to_array(ptr: *mut c_void) -> AnyValue {
     unsafe {
+        // §27.1.4.10 step 3 GetIteratorDirect — one next-method Get.
+        let Ok(next_av) = crate::iter_helper_next::resolve_next_method(ptr as u64) else {
+            return VALUE_UNDEFINED;
+        };
         let mut arr = __torajs_arr_alloc_any(0);
         loop {
             let mut item: AnyValue = VALUE_UNDEFINED;
-            let hit = crate::iter_any_step::step_derived_iterator(ptr as u64, &mut item, false);
+            let hit = crate::iter_helper_next::step_via(ptr as u64, next_av, &mut item);
             if hit == 0 {
+                crate::nanbox_ffi::__torajs_anyv_rc_dec(next_av);
                 if __torajs_throw_check() != 0 {
                     crate::nanbox_ffi::__torajs_anyv_rc_dec(__torajs_anyv_box_pointer(
                         arr as *mut c_void,
@@ -81,6 +86,11 @@ pub(crate) unsafe fn iter_eager(
             return VALUE_UNDEFINED;
         };
         let recv = ptr as u64;
+        // §27.1.4.x step 3 GetIteratorDirect — the callable check
+        // above precedes the one next-method Get, per spec order.
+        let Ok(next_av) = crate::iter_helper_next::resolve_next_method(recv) else {
+            return VALUE_UNDEFINED;
+        };
         // reduce seeds from the explicit initialValue or the first
         // step; an empty iterator with no initial is the §27.1.4.8
         // step 6.b TypeError.
@@ -98,8 +108,9 @@ pub(crate) unsafe fn iter_eager(
         let mut counter: i64 = 0;
         loop {
             let mut item: AnyValue = VALUE_UNDEFINED;
-            let hit = crate::iter_any_step::step_derived_iterator(recv, &mut item, false);
+            let hit = crate::iter_helper_next::step_via(recv, next_av, &mut item);
             if hit == 0 {
+                crate::nanbox_ffi::__torajs_anyv_rc_dec(next_av);
                 if __torajs_throw_check() != 0 {
                     crate::nanbox_ffi::__torajs_anyv_rc_dec(acc);
                     return VALUE_UNDEFINED;
@@ -152,6 +163,7 @@ pub(crate) unsafe fn iter_eager(
                 if mid != torajs_rc::ANY_METHOD_REDUCE {
                     crate::nanbox_ffi::__torajs_anyv_rc_dec(acc);
                 }
+                crate::nanbox_ffi::__torajs_anyv_rc_dec(next_av);
                 crate::iter_any_close::__torajs_iter_close_value(recv);
                 return VALUE_UNDEFINED;
             }
@@ -168,6 +180,7 @@ pub(crate) unsafe fn iter_eager(
                     crate::nanbox_ffi::__torajs_anyv_rc_dec(r);
                     crate::nanbox_ffi::__torajs_anyv_rc_dec(item);
                     if b {
+                        crate::nanbox_ffi::__torajs_anyv_rc_dec(next_av);
                         crate::iter_any_close::__torajs_iter_close_value(recv);
                         return crate::nanbox::VALUE_TRUE;
                     }
@@ -177,6 +190,7 @@ pub(crate) unsafe fn iter_eager(
                     crate::nanbox_ffi::__torajs_anyv_rc_dec(r);
                     crate::nanbox_ffi::__torajs_anyv_rc_dec(item);
                     if !b {
+                        crate::nanbox_ffi::__torajs_anyv_rc_dec(next_av);
                         crate::iter_any_close::__torajs_iter_close_value(recv);
                         return crate::nanbox::VALUE_FALSE;
                     }
@@ -185,6 +199,7 @@ pub(crate) unsafe fn iter_eager(
                     let b = crate::nanbox_ffi::__torajs_anyv_to_bool(r);
                     crate::nanbox_ffi::__torajs_anyv_rc_dec(r);
                     if b {
+                        crate::nanbox_ffi::__torajs_anyv_rc_dec(next_av);
                         crate::iter_any_close::__torajs_iter_close_value(recv);
                         return item;
                     }

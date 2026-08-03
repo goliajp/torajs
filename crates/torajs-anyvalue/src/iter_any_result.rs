@@ -20,6 +20,28 @@ unsafe extern "C" {
     /// torajs-throw — non-zero iff a throw is in flight (a getter the
     /// dispatcher lane invoked may throw).
     fn __torajs_throw_check() -> i64;
+    /// torajs-dynobj — the [`iter_result_obj`] mint pair.
+    fn __torajs_dynobj_alloc() -> *mut c_void;
+    fn __torajs_dynobj_set(dst: *mut *mut c_void, key: *mut c_void, tag: u64, value: u64);
+}
+
+/// Fresh `{ value, done }` IteratorResult dynobj; `value` transfers
+/// in owned (same ledger as the MapIter/ArrIter next() arms).
+pub(crate) unsafe fn iter_result_obj(value: AnyValue, done: bool) -> AnyValue {
+    unsafe {
+        let mut obj = __torajs_dynobj_alloc();
+        let (tag, payload) = (
+            crate::__torajs_anyv_unbox_tag(value),
+            crate::__torajs_anyv_unbox_value(value),
+        );
+        let k_value = __torajs_str_alloc(c"value".as_ptr() as *const u8, 5);
+        __torajs_dynobj_set(&mut obj, k_value as *mut c_void, tag as u64, payload as u64);
+        __torajs_str_drop(k_value as *mut c_void);
+        let k_done = __torajs_str_alloc(c"done".as_ptr() as *const u8, 4);
+        __torajs_dynobj_set(&mut obj, k_done as *mut c_void, 1, done as u64);
+        __torajs_str_drop(k_done as *mut c_void);
+        obj as u64
+    }
 }
 
 /// One §7.4.4/§7.4.5 [[Get]] off the IteratorResult, whatever its

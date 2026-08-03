@@ -9,22 +9,22 @@
 //!
 //! ```text
 //! { header:8 | underlying:8 | fn:8 | counter:8 | kind:1 alive:1
-//!   pad:6 | inner:8 }                                    (48 B)
+//!   pad:6 | inner:8 | next:8 }                           (56 B)
 //! ```
 //!
 //! `inner` is the flatMap current-inner-iterator slot (undefined for
 //! every other kind; carried in the one layout so the cell never
-//! needs a second shape).
-//!
-//! Recorded boundary (RFC §3.3 deviation): the spec's
-//! GetIteratorDirect caches `next` at helper-construction time; this
-//! implementation re-reads it per step through
-//! [`step_derived_iterator`] (the §7.4.2-6 driver every other
-//! consumer uses). The get-next-method-only-once test262 shape
-//! diverges; everything else agrees.
+//! needs a second shape). `next` is the GetIteratorDirect cache —
+//! the underlying's next method, read ONCE at mint through
+//! [`crate::iter_helper_next::resolve_next_method`] (undefined =
+//! the legacy per-step driver; see that module's doc for the lane
+//! split and remaining inner-iterator boundary).
 
 use core::ffi::c_void;
 
+// The `{ value, done }` mint lives with the IteratorResult reads;
+// re-exported so the method faces keep their import face.
+pub(crate) use crate::iter_any_result::iter_result_obj;
 use crate::iter_helper_eager::{iter_eager, iter_to_array};
 use crate::method_call_closure_dispatch::{closure_cell_entry, invoke_boxed};
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED};
@@ -68,15 +68,13 @@ pub(crate) const ALIVE_OFF: usize = 33;
 const RUNNING_OFF: usize = 34;
 /// The flatMap current-inner-iterator slot.
 pub(crate) const INNER_OFF: usize = 40;
-const CELL_SIZE: usize = 48;
+/// The GetIteratorDirect next-method cache.
+pub(crate) const NEXT_OFF: usize = 48;
+const CELL_SIZE: usize = 56;
 
 unsafe extern "C" {
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
     fn __torajs_throw_range_error(msg: *const core::ffi::c_char);
-    fn __torajs_dynobj_alloc() -> *mut c_void;
-    fn __torajs_dynobj_set(dst: *mut *mut c_void, key: *mut c_void, tag: u64, value: u64);
-    fn __torajs_str_alloc(bytes: *const u8, len: i64) -> *mut u8;
-    fn __torajs_str_drop(s: *mut c_void);
     fn __torajs_throw_check() -> i64;
 }
 
@@ -122,10 +120,17 @@ pub(crate) unsafe fn iter_helper_mint(recv: AnyValue, kind: u8, fn_av: AnyValue)
             }
             return VALUE_UNDEFINED;
         }
-        unsafe { torajs_rc::__torajs_rc_inc(as_void_ptr(fn_av) as *mut c_void) };
         fn_av
     };
+    // §27.1.4.x GetIteratorDirect — cache the next method (a Get
+    // that may fire an accessor exactly once; a throw forwards).
+    let Ok(next_slot) = (unsafe { crate::iter_helper_next::resolve_next_method(recv) }) else {
+        return VALUE_UNDEFINED;
+    };
     unsafe {
+        if !numeric_kind {
+            torajs_rc::__torajs_rc_inc(as_void_ptr(fn_slot) as *mut c_void);
+        }
         let layout = core::alloc::Layout::from_size_align(CELL_SIZE, 8).unwrap();
         let cell = std::alloc::alloc_zeroed(layout);
         *(cell as *mut u32) = 1;
@@ -141,6 +146,7 @@ pub(crate) unsafe fn iter_helper_mint(recv: AnyValue, kind: u8, fn_av: AnyValue)
         *(cell.add(KIND_OFF) as *mut u8) = kind;
         *(cell.add(ALIVE_OFF) as *mut u8) = 1;
         *(cell.add(INNER_OFF) as *mut u64) = VALUE_UNDEFINED;
+        *(cell.add(NEXT_OFF) as *mut u64) = next_slot;
         __torajs_anyv_box_pointer(cell as *mut c_void)
     }
 }
@@ -159,6 +165,7 @@ pub(crate) unsafe fn iter_helper_cell_alloc(kind: u8) -> *mut u8 {
         *(cell.add(KIND_OFF) as *mut u8) = kind;
         *(cell.add(ALIVE_OFF) as *mut u8) = 1;
         *(cell.add(INNER_OFF) as *mut u64) = VALUE_UNDEFINED;
+        *(cell.add(NEXT_OFF) as *mut u64) = VALUE_UNDEFINED;
         cell
     }
 }
@@ -172,8 +179,15 @@ pub(crate) unsafe fn iter_helper_cell_alloc(kind: u8) -> *mut u8 {
 /// `underlying` is an owned live cell AnyValue.
 pub(crate) unsafe fn iter_helper_mint_wrap(underlying: AnyValue) -> AnyValue {
     unsafe {
+        // §27.1.6.2 GetIteratorDirect — the wrapped record carries
+        // the cached next; a throwing Get releases and forwards.
+        let Ok(next_slot) = crate::iter_helper_next::resolve_next_method(underlying) else {
+            crate::nanbox_ffi::__torajs_anyv_rc_dec(underlying);
+            return VALUE_UNDEFINED;
+        };
         let cell = iter_helper_cell_alloc(ITER_HELPER_WRAP);
         *(cell.add(UNDERLYING_OFF) as *mut u64) = underlying;
+        *(cell.add(NEXT_OFF) as *mut u64) = next_slot;
         __torajs_anyv_box_pointer(cell as *mut c_void)
     }
 }
@@ -248,8 +262,7 @@ unsafe fn iter_helper_step_inner(ptr: *mut c_void, out: *mut AnyValue) -> i64 {
             let mut to_skip = f64::from_bits((ptr.cast::<u8>().add(FN_OFF) as *const u64).read());
             while to_skip > 0.0 {
                 let mut skipped: AnyValue = VALUE_UNDEFINED;
-                let hit =
-                    crate::iter_any_step::step_derived_iterator(underlying, &mut skipped, false);
+                let hit = crate::iter_helper_next::helper_underlying_step(ptr, &mut skipped);
                 if hit == 0 {
                     (ptr.cast::<u8>().add(ALIVE_OFF)).write(0);
                     return 0;
@@ -260,7 +273,7 @@ unsafe fn iter_helper_step_inner(ptr: *mut c_void, out: *mut AnyValue) -> i64 {
         }
         loop {
             let mut item: AnyValue = VALUE_UNDEFINED;
-            let hit = crate::iter_any_step::step_derived_iterator(underlying, &mut item, false);
+            let hit = crate::iter_helper_next::helper_underlying_step(ptr, &mut item);
             if hit == 0 {
                 // Underlying done or threw — either way this helper
                 // is finished (§27.1.4.2 step 5.b.ii; a throw
@@ -446,28 +459,9 @@ pub(crate) unsafe fn try_helper_chain(
     Some(unsafe { iter_helper_mint(ptr as u64, kind, fn_av) })
 }
 
-/// Fresh `{ value, done }` IteratorResult dynobj; `value` transfers
-/// in owned (same ledger as the MapIter/ArrIter next() arms).
-pub(crate) unsafe fn iter_result_obj(value: AnyValue, done: bool) -> AnyValue {
-    unsafe {
-        let mut obj = __torajs_dynobj_alloc();
-        let (tag, payload) = (
-            crate::__torajs_anyv_unbox_tag(value),
-            crate::__torajs_anyv_unbox_value(value),
-        );
-        let k_value = __torajs_str_alloc(c"value".as_ptr() as *const u8, 5);
-        __torajs_dynobj_set(&mut obj, k_value as *mut c_void, tag as u64, payload as u64);
-        __torajs_str_drop(k_value as *mut c_void);
-        let k_done = __torajs_str_alloc(c"done".as_ptr() as *const u8, 4);
-        __torajs_dynobj_set(&mut obj, k_done as *mut c_void, 1, done as u64);
-        __torajs_str_drop(k_done as *mut c_void);
-        obj as u64
-    }
-}
-
 /// Drop glue — the torajs-value-drop dispatcher contract is
 /// RELEASE ONE REFERENCE: rc-dec the cell itself, and only on
-/// hit-zero release the three owned AnyValue slots and free the
+/// hit-zero release the four owned AnyValue slots and free the
 /// block (mirror of `__torajs_arr_iter_drop`). The 刀 2b churn
 /// caught the unconditional-free first cut: a chained helper's
 /// underlying release freed the inner cell while its binding still
@@ -487,6 +481,7 @@ pub unsafe extern "C" fn __torajs_iter_helper_drop(cell: *mut c_void) {
         crate::nanbox_ffi::__torajs_anyv_rc_dec((p.add(UNDERLYING_OFF) as *const u64).read());
         crate::nanbox_ffi::__torajs_anyv_rc_dec((p.add(FN_OFF) as *const u64).read());
         crate::nanbox_ffi::__torajs_anyv_rc_dec((p.add(INNER_OFF) as *const u64).read());
+        crate::nanbox_ffi::__torajs_anyv_rc_dec((p.add(NEXT_OFF) as *const u64).read());
         let layout = core::alloc::Layout::from_size_align(CELL_SIZE, 8).unwrap();
         std::alloc::dealloc(p, layout);
     }
