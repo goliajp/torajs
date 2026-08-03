@@ -48,6 +48,21 @@ impl<'a> Parser<'a> {
                 ));
             }
         };
+        // §13.3.10 ImportCall's optional second argument (import
+        // options). Parsed and DISCARDED — the eager AOT subset
+        // resolves the module at compile time, so options cannot
+        // change linking (their evaluation side effects are a
+        // recorded subset boundary). Trailing commas are grammar-
+        // legal in both the 1-arg and 2-arg forms.
+        if matches!(self.peek(), Token::Comma) {
+            self.pos += 1;
+            if !matches!(self.peek(), Token::RParen) {
+                let _ = self.parse_expr()?;
+                if matches!(self.peek(), Token::Comma) {
+                    self.pos += 1;
+                }
+            }
+        }
         if !matches!(self.peek(), Token::RParen) {
             return Err(format!(
                 "expected `)` to close dynamic `import(...)`, got {:?} at {}",
