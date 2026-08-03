@@ -211,6 +211,10 @@ impl<'a> Parser<'a> {
             }
         }
         let body = self.parse_stmt()?;
+        // §14.7.5 ForIn/OfStatement takes a Statement, not a
+        // Declaration — same gate every other single-stmt body has
+        // (r294 刀 4; test262 for-of/decl-cls family).
+        self.reject_decl_in_single_stmt(&body, "a for-of loop")?;
         // RFC 20260727-dstr-decl-shape 刀 B — prepend the recursive
         // pattern binds when the loop var was a decl-head pattern.
         let body = self.wrap_forof_pattern_body(&destruct_pat, &var_name, body);
