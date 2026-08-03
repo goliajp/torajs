@@ -203,8 +203,33 @@ fn try_flat(
         for &a in args.iter().skip(1) {
             let _ = ctx.lower_expr(a);
         }
+        let literal_depth = args.is_empty()
+            || match ctx.ast.get_expr(args[0]) {
+                Expr::Number(_) => true,
+                Expr::Ident(n) => n == "Infinity" || n == "undefined",
+                _ => false,
+            };
         let depth: i64 = if args.is_empty() {
             1
+        } else if !literal_depth {
+            // Non-literal depth (checker mirror: the wedge admits it
+            // as Array<Any>) — ToIntegerOrInfinity runs at runtime
+            // inside the kernel (§23.1.3.13 step 2: NaN → 0, a
+            // Symbol/BigInt operand leaves a pending TypeError).
+            // NULL out = pending throw; the check unwinds before the
+            // value is consumed.
+            let d = ctx.lower_expr(args[0]);
+            let d_any = ctx.box_to_any(d);
+            ctx.emit_arr_mark_kind(&recv_op);
+            let any_id = crate::ssa_lower::intern_arr_layout(ctx.arr_layouts, Type::Any);
+            let v = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.arr_flat_runtime_depth, vec![recv_op, d_any]),
+                Type::Arr(any_id),
+                None,
+            );
+            ctx.emit_throw_check(None);
+            return Some(Operand::Value(v));
         } else if let Expr::Number(d) = ctx.ast.get_expr(args[0]) {
             *d as i64
         } else if let Expr::Ident(name) = ctx.ast.get_expr(args[0])

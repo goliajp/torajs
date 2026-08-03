@@ -85,6 +85,29 @@ unsafe extern "C" {
     /// Cross-tier — universal NaN-box-safe heap-value release (the
     /// flatMap / toSpliced intermediates).
     fn __torajs_value_drop_heap(p: *mut c_void);
+    /// torajs-throw — pending-throw flag (1 = a throw is recorded).
+    fn __torajs_throw_check() -> i64;
+}
+
+/// `xs.flat(depth)` with a RUNTIME depth operand (SSA lowering's
+/// non-literal lane) — ToIntegerOrInfinity decode (§23.1.3.13 step
+/// 2: undefined → 1, NaN → 0, Symbol/BigInt leave a pending
+/// TypeError through ToNumber), then the shared flat-depth kernel.
+/// Answers a fresh owned Arr pointer; NULL = pending throw (the
+/// caller's throw check unwinds before the value is consumed).
+///
+/// # Safety
+/// `arr` is a valid `Tag::Arr` heap pointer; `depth_av` is a
+/// NaN-box AnyValue.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_flat_runtime_depth(arr: *const u8, depth_av: u64) -> *mut u8 {
+    unsafe {
+        let depth = to_index(depth_av, 1);
+        if __torajs_throw_check() != 0 {
+            return core::ptr::null_mut();
+        }
+        __torajs_arr_any_flat_depth(arr, depth)
+    }
 }
 
 /// Extension id-switch — see module doc. `arr` / `argv` contracts

@@ -645,6 +645,7 @@ pub(crate) fn build(
         arr_set_length_any: init_d.arr_str_etc.arr_set_length_any,
         arr_to_reversed: init_d.arr_str_etc.arr_to_reversed,
         arr_with: init_d.arr_str_etc.arr_with,
+        arr_flat_runtime_depth: init_d.arr_str_etc.arr_flat_runtime_depth,
         arr_oob_throw: init_d.arr_str_etc.arr_oob_throw,
         arr_join: init_d.arr_str_etc.arr_join,
         arr_join_substr: init_d.arr_str_etc.arr_join_substr,

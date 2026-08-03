@@ -92,7 +92,27 @@ pub(crate) fn try_match(
             }
             return Some(Ok(t));
         }
-        return Some(Err("flat depth must be a number literal".into()));
+        // Non-literal depth (a variable / member read / call) —
+        // §23.1.3.13 step 2 runs ToIntegerOrInfinity at RUNTIME
+        // (NaN → 0, a Symbol/BigInt operand throws), so the peel
+        // count is unknowable here: the receiver must still be an
+        // Array, the operand types on its own, and the product is
+        // Array<Any> (lowering mirror: the runtime-depth lane in
+        // `ssa_lower_str_arr_join_flat` keys on the same
+        // literal-shape test and rides the flat-depth kernel).
+        let recv_ty = match checker.type_of(ast, *recv) {
+            Ok(t) => t,
+            Err(e) => return Some(Err(e)),
+        };
+        let Type::Array(_) = &recv_ty else {
+            return Some(Err(format!(
+                "flat receiver must be Array<...>, got {recv_ty:?}"
+            )));
+        };
+        if let Err(e) = checker.type_of(ast, args[0]) {
+            return Some(Err(e));
+        }
+        return Some(Ok(Type::Array(Box::new(Type::Any))));
     }
     None
 }
