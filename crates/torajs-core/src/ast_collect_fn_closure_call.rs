@@ -104,12 +104,22 @@ impl<'a> FnToClosureCollector<'a> {
         // closure-receiver forms already answer spec meta — probe
         // d5/d7). A user binding named Object/Reflect shadowing the
         // namespace only costs the wrap.
-        if let Expr::Member { obj, .. } = self.ast.get_expr(*callee)
+        if let Expr::Member { obj, name: nsname } = self.ast.get_expr(*callee)
             && let Expr::Ident(ns) = self.ast.get_expr(*obj)
             && matches!(ns.as_str(), "Object" | "Reflect")
         {
+            // getPrototypeOf keeps the generator exclusion: its
+            // bare-Ident arg rides the compile-time genfn-trio fold
+            // (kind-exact, ssa_lower_call_object_get_prototype_of),
+            // which a wrap would erase. Every other member wraps —
+            // the forward cell carries the G2 reflection faces
+            // (gen-proto install + FLAG_FN_GENERATOR), so gOPD /
+            // gOPN / keys answer through the closure kernels
+            // (r292: the restricted-properties / forbidden-ext
+            // box_to_any FnSig family).
+            let keep_gen_exclusion = nsname == "getPrototypeOf";
             for &arg in args {
-                if !self.is_generator_family_ident(arg) {
+                if !(keep_gen_exclusion && self.is_generator_family_ident(arg)) {
                     self.try_mark(arg);
                 }
             }
@@ -279,10 +289,13 @@ impl<'a> FnToClosureCollector<'a> {
         if typed_ident_recv {
             return;
         }
+        // r292 — generator / async-generator factory idents wrap too:
+        // the canonical forward cell carries the G2 reflection faces
+        // (gen-proto install at mint + FLAG_FN_GENERATOR), so the
+        // any-method lane can box them (`GeneratorPrototype.next
+        // .call(g)` — the this-val-not-generator family).
         for &arg in args {
-            if !self.is_generator_family_ident(arg) {
-                self.try_mark(arg);
-            }
+            self.try_mark(arg);
         }
     }
 }
