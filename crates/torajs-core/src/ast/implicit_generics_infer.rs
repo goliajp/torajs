@@ -407,7 +407,21 @@ pub(crate) fn infer_expr_ann_with(
             let (a, b) = (recur(*then_branch)?, recur(*else_branch)?);
             if a == b { Some(a) } else { Some("any".into()) }
         }
-        Expr::Array(elems) => Some(format!("{}[]", recur(*elems.first()?)?)),
+        // Heterogeneous literals widen to `any[]` (mirrors the
+        // checker's T-10.c anchor widening — answering the first
+        // element's type for `["use", x]` stamps a `string[]` ret the
+        // literal's Arr<Any> lowering can't satisfy: NULL reads on
+        // the named-fn lane, a runtime elem-type throw on the
+        // closure lane). An element whose type can't be inferred
+        // widens the same way rather than guessing.
+        Expr::Array(elems) => {
+            let first = recur(*elems.first()?)?;
+            let uniform = elems
+                .iter()
+                .skip(1)
+                .all(|e| recur(*e).as_deref() == Some(first.as_str()));
+            Some(format!("{}[]", if uniform { first } else { "any".into() }))
+        }
         Expr::Member { obj, name } if name == "length" => recur(*obj)
             .filter(|r| r == "string" || r.ends_with("[]"))
             .map(|_| "number".into()),
