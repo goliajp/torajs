@@ -44,9 +44,10 @@ use torajs_rc::{
     ANY_METHOD_TO_LOCALE_STRING, ANY_METHOD_TO_STRING, ANY_METHOD_VALUE_OF, Tag,
 };
 
-use crate::method_call::{
-    MAX_BOXED_ARGS, closure_cell_entry, invoke_with_this, method_no_such, not_callable,
-};
+use crate::method_call::{closure_cell_entry, invoke_with_this, method_no_such, not_callable};
+// The apply tail (CreateListFromArrayLike) lives beside this arm;
+// re-exported so reflect_apply keeps its import face.
+pub(crate) use crate::method_call_closure_apply_like::apply_list;
 use crate::nanbox::{
     AnyValue, VALUE_UNDEFINED, as_void_ptr, is_bool, is_cell, is_double, is_int32, is_null,
     is_short_str, is_undefined,
@@ -61,9 +62,6 @@ unsafe extern "C" {
     fn __torajs_fn_native_form_str(name_ptr: *const u8, name_len: u32) -> *mut u8;
     /// torajs-dynobj — own-property probe (5 = absent).
     fn __torajs_dynobj_get_tag(obj: *const c_void, key: *const c_void) -> u64;
-    /// torajs-arr — kind-aware boxed element read (owned +1 for
-    /// cells; holes and OOB answer undefined).
-    fn __torajs_arr_index_get(arr: *const c_void, idx: i64) -> u64;
     /// torajs-throw — record a pending catchable TypeError.
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
     /// torajs-str — release an owned Str temp.
@@ -73,9 +71,6 @@ unsafe extern "C" {
 /// Closure-cell lazy props slot — mirror of torajs-core
 /// `ssa_lower.rs::CLOSURE_PROPS_OFF`.
 const CLOSURE_PROPS_OFF: usize = 24;
-
-/// Arr cell length slot — mirror of torajs-arr `layout::ARR_LEN_OFF`.
-const ARR_LEN_OFF: usize = 8;
 
 /// `Tag::Closure` arm — see module doc.
 ///
@@ -436,55 +431,5 @@ pub(crate) unsafe fn generic_str_this(
         let out = crate::method_call_str::str_method(s as *mut u8, mid, argv, argc);
         __torajs_str_drop(s);
         Some(out)
-    }
-}
-
-/// CreateListFromArrayLike + invoke — `undefined` / `null` is an
-/// empty list, an `Arr` cell unpacks element-by-element, everything
-/// else is a catchable TypeError.
-pub(crate) unsafe fn apply_list(
-    target: &CallTarget,
-    this_arg: AnyValue,
-    list: AnyValue,
-) -> AnyValue {
-    unsafe {
-        if is_undefined(list) || is_null(list) {
-            return dispatch(target, this_arg, core::ptr::null(), 0);
-        }
-        let arr = if is_cell(list) {
-            as_void_ptr(list)
-        } else {
-            core::ptr::null_mut()
-        };
-        if arr.is_null() || (arr.cast::<u8>().add(4) as *const u16).read() != Tag::Arr as u16 {
-            __torajs_throw_type_error(
-                c"second argument to Function.prototype.apply must be an array".as_ptr(),
-            );
-            return VALUE_UNDEFINED;
-        }
-        let n = *(arr.cast::<u8>().add(ARR_LEN_OFF) as *const u64) as usize;
-        // Element boxes are owned temps (+1 per cell) — released
-        // after the invoke; the common small shape stays on the
-        // stack, mirror of `invoke_boxed`'s own buffer split.
-        let out;
-        if n > MAX_BOXED_ARGS {
-            let boxed: Vec<u64> = (0..n)
-                .map(|i| __torajs_arr_index_get(arr, i as i64))
-                .collect();
-            out = dispatch(target, this_arg, boxed.as_ptr(), n as i64);
-            for b in boxed {
-                crate::nanbox_ffi::__torajs_anyv_rc_dec(b);
-            }
-        } else {
-            let mut buf = [VALUE_UNDEFINED; MAX_BOXED_ARGS];
-            for (i, slot) in buf.iter_mut().enumerate().take(n) {
-                *slot = __torajs_arr_index_get(arr, i as i64);
-            }
-            out = dispatch(target, this_arg, buf.as_ptr(), n as i64);
-            for b in buf.iter().take(n) {
-                crate::nanbox_ffi::__torajs_anyv_rc_dec(*b);
-            }
-        }
-        out
     }
 }

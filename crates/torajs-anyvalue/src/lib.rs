@@ -148,6 +148,7 @@ mod method_call_arraylike_mut_prim;
 mod method_call_bigint;
 mod method_call_cell;
 mod method_call_closure;
+mod method_call_closure_apply_like;
 mod method_call_closure_dispatch;
 mod method_call_date;
 mod method_call_dynobj;
