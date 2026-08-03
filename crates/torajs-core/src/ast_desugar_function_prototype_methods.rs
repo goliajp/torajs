@@ -12,9 +12,10 @@
 //! Rewrites three Function.prototype helpers:
 //!
 //! - **`.call(thisArg, a1, a2)`** → `f(a1, a2)` (thisArg dropped per
-//!   our subset; requires args.len() >= 1).
-//! - **`.apply(thisArg, [a, b])`** → `f(a, b)` (only array-literal
-//!   2nd arg supported; dynamic array routes through P5.5 spread).
+//!   our subset; the bare `f.call()` form is `f()`).
+//! - **`.apply(thisArg, [a, b])`** → `f(a, b)` (array-literal 2nd
+//!   arg unpacks; absent / `undefined` / `null` argArray is `f()`
+//!   per §22.2.3.1; dynamic arrays stay unsupported here).
 //! - **`.bind(thisArg, p0, p1, ...)`** →
 //!   `__bind_create_<id>(p0, p1, ...)`. Synthesizes a wrapper
 //!   `__bound_<id>(__env(captures), rem_params...) -> R` plus a
@@ -83,9 +84,9 @@ pub(crate) fn run(ast: &mut Ast) {
 
         match m_name.as_str() {
             "call" => {
-                if args_clone.is_empty() {
-                    continue;
-                }
+                // `f.call()` is a zero-arg invocation with thisArg
+                // undefined — the same subset that drops thisArg from
+                // `f.call(t, ...)` makes the empty form `f()`.
                 let new_args: Vec<ExprId> = args_clone.iter().skip(1).copied().collect();
                 ast.exprs[i] = Expr::Call {
                     callee: obj_eid,
@@ -93,12 +94,20 @@ pub(crate) fn run(ast: &mut Ast) {
                 };
             }
             "apply" => {
-                if args_clone.len() != 2 {
-                    continue;
-                }
-                let arr_eid = args_clone[1];
-                let lit_args: Vec<ExprId> = match ast.exprs.get(arr_eid.0 as usize) {
-                    Some(Expr::Array(els)) => els.clone(),
+                // §22.2.3.1: argArray absent / undefined / null means
+                // "call with no arguments" — so `f.apply()` /
+                // `f.apply(t)` / `f.apply(t, undefined|null)` are all
+                // the bare invocation. Only a present, non-nullish
+                // argArray demands the array-literal unpack (dynamic
+                // arrays stay unsupported here).
+                let lit_args: Vec<ExprId> = match args_clone.len() {
+                    0 | 1 => Vec::new(),
+                    2 => match ast.exprs.get(args_clone[1].0 as usize) {
+                        Some(Expr::Array(els)) => els.clone(),
+                        Some(Expr::Null) => Vec::new(),
+                        Some(Expr::Ident(n)) if n == "undefined" => Vec::new(),
+                        _ => continue,
+                    },
                     _ => continue,
                 };
                 ast.exprs[i] = Expr::Call {
@@ -107,12 +116,14 @@ pub(crate) fn run(ast: &mut Ast) {
                 };
             }
             "bind" => {
-                if args_clone.is_empty() {
-                    continue;
-                }
+                // `f.bind()` / `f.bind(t)` bind no partial args; a
+                // partial list covering every param leaves a zero-param
+                // bound fn (`__cls()->R` interns an empty param list).
+                // Only MORE partials than params keeps the reject —
+                // dropping surplus args would drop their evaluation.
                 let partial_args: Vec<ExprId> = args_clone.iter().skip(1).copied().collect();
                 let partial_count = partial_args.len();
-                if partial_count >= fn_params.len() {
+                if partial_count > fn_params.len() {
                     continue;
                 }
                 let id = id_counter;
@@ -158,11 +169,21 @@ pub(crate) fn run(ast: &mut Ast) {
                     args: call_args,
                 });
                 let bound_body = vec![Stmt::Return(Some(call_id))];
+                // An unannotated source fn's return type is inferred
+                // later — `any` is the only annotation the factory can
+                // write that agrees with whatever that inference says
+                // (`void` rejected every value-returning unannotated fn).
+                let ret_type_str = fn_ret.clone().unwrap_or_else(|| "any".to_string());
                 let bound_decl = Stmt::FnDecl {
                     name: bound_name.clone(),
                     type_params: Vec::new(),
                     params: bound_params,
-                    return_type: fn_ret.clone(),
+                    // Mirrors the factory's `->R` (any when the source
+                    // is unannotated) so the wrapper's own return
+                    // boundary boxes the forwarded value — an inferred
+                    // Number returned raw through a `__cls(..)->any`
+                    // slot reads back as a garbage tag.
+                    return_type: Some(ret_type_str.clone()),
                     body: bound_body,
                     is_generator: false,
                     span: crate::lexer::Span { start: 0, end: 0 },
@@ -186,7 +207,6 @@ pub(crate) fn run(ast: &mut Ast) {
                             .unwrap_or_else(|| "any".to_string())
                     })
                     .collect();
-                let ret_type_str = fn_ret.clone().unwrap_or_else(|| "void".to_string());
                 let factory_ret = format!("__cls({})->{}", rem_tys.join("|"), ret_type_str);
                 let closure_expr_id = ast.add_expr(Expr::Closure {
                     fn_name: bound_name,
