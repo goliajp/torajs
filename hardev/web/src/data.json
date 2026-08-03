@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-03T04:10:18.277Z",
+  "generatedAt": "2026-08-03T09:37:05.450Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-03T03:58:07Z",
-    "headSha": "c0e82d13",
-    "elapsedSec": 449.48,
+    "ranAt": "2026-08-03T09:34:22Z",
+    "headSha": "0f8f8257",
+    "elapsedSec": 395.36,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 21002,
-    "passNoOracle": 562,
-    "passNegative": 3922,
-    "passTotal": 25486,
-    "bug": 11692,
-    "incompatible": 15996,
+    "pass": 21050,
+    "passNoOracle": 585,
+    "passNegative": 3933,
+    "passTotal": 25568,
+    "bug": 11735,
+    "incompatible": 15871,
     "bunSkip": 7155,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 37178,
-    "passRateInScope": 47.93,
-    "passRateTrAccepted": 68.55
+    "trAccepted": 37303,
+    "passRateInScope": 48.08,
+    "passRateTrAccepted": 68.54
   },
   "torajs": {
-    "commit": "0988d587",
-    "commitSubject": "chore(docs,hardev): rotation 287 sweep artifacts and census at c0e82d13",
+    "commit": "2c9001f7",
+    "commitSubject": "chore(docs,hardev): rotation 288 sweep artifacts and census at 0f8f8257",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "2c9001f7",
+      "subject": "chore(docs,hardev): rotation 288 sweep artifacts and census at 0f8f8257"
+    },
+    {
+      "hash": "0f8f8257",
+      "subject": "fix: a call expression is not a valid assignment target"
+    },
+    {
+      "hash": "be6ba41d",
+      "subject": "feat: statement-position import() is an expression answering a real promise"
+    },
+    {
+      "hash": "7b747946",
+      "subject": "feat: import defer parses as a contextual keyword"
+    },
+    {
+      "hash": "a5c6aa6d",
+      "subject": "fix: anyv_await identity arm mints the +1 stake its call site releases"
+    },
+    {
+      "hash": "5e379f27",
+      "subject": "chore(hardev): dashboard snapshot at rotation 287 close"
+    },
+    {
       "hash": "0988d587",
       "subject": "chore(docs,hardev): rotation 287 sweep artifacts and census at c0e82d13"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "1a67e4d4",
       "subject": "feat: flat and flatMap join the generic array-like receiver arm"
-    },
-    {
-      "hash": "610073d2",
-      "subject": "chore(docs,hardev): rotation 286 sweep artifacts and census at 936712e4"
-    },
-    {
-      "hash": "936712e4",
-      "subject": "feat: parse the ts this-parameter as a type-only first param"
-    },
-    {
-      "hash": "18019219",
-      "subject": "feat: flatMap joins the knife-4 thisArg protocol with a runtime spread arm"
-    },
-    {
-      "hash": "24a44bd2",
-      "subject": "feat: flatMap callback rides the full spec arity"
-    },
-    {
-      "hash": "31490c4c",
-      "subject": "refactor: extract the Object namespace arms from the member dispatch"
-    },
-    {
-      "hash": "35a8b6a8",
-      "subject": "feat: flatMap admits nested-array callback inners on the hetero lane"
     }
   ],
-  "headSha": "0988d587",
+  "headSha": "2c9001f7",
   "autorun": {
-    "total": 591,
+    "total": 592,
     "baselineTarget": 10,
-    "bySelf": 586,
+    "bySelf": 587,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785717403-62d8",
-      "at": "2026-08-03T00:36:43Z",
-      "ts": 1785717403,
+      "rotationId": "r-1785730301-1a02",
+      "at": "2026-08-03T04:11:41Z",
+      "ts": 1785730301,
       "trigger": "self",
-      "prevHead": "610073d2",
-      "handoffSha": "sha256:065197a1558a32af2749b57c59a4df0e9eabe9757d4e4692c8a95135d0396788",
-      "handoffAgeSec": 44,
+      "prevHead": "5e379f27",
+      "handoffSha": "sha256:0c4cfdbcf32658ec68eb965124c34eed38880f15bc8bf70194826f125669cc3d",
+      "handoffAgeSec": 5,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1785730301-1a02",
+        "at": "2026-08-03T04:11:41Z",
+        "ts": 1785730301,
+        "trigger": "self",
+        "prevHead": "5e379f27",
+        "handoffSha": "sha256:0c4cfdbcf32658ec68eb965124c34eed38880f15bc8bf70194826f125669cc3d",
+        "handoffAgeSec": 5,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785717403-62d8",
         "at": "2026-08-03T00:36:43Z",
@@ -876,17 +887,6 @@
         "prevHead": "884871f8",
         "handoffSha": "sha256:d2d2f7c0aaeb73f5aea1f2940a09234123de2beb862c8ab2b442a1e1614e0bf1",
         "handoffAgeSec": 4,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1785619346-6e48",
-        "at": "2026-08-01T21:22:26Z",
-        "ts": 1785619346,
-        "trigger": "self",
-        "prevHead": "c84729b6",
-        "handoffSha": "sha256:d4ba5715997c1c7ae743200061d332b2dc2e3da4bd29b03017ed00659ebbac5a",
-        "handoffAgeSec": 56,
         "conformanceBefore": null,
         "commitsInSession": null
       }
