@@ -43,6 +43,14 @@ impl<'a> Parser<'a> {
         // whose primary tier owns the `import(` form.
         if matches!(self.peek(), Token::Import)
             && !matches!(self.tokens[self.pos + 1].token, Token::LParen)
+            // `import.defer("...")` / `import.source("...")` in
+            // statement position are ImportCall expressions like bare
+            // `import(...)` (§13.3.10 + phase-import proposals) — only
+            // `import.<other>` and clause forms take the declaration
+            // parser.
+            && !(matches!(self.tokens[self.pos + 1].token, Token::Dot)
+                && matches!(&self.tokens[self.pos + 2].token,
+                    Token::Ident(n) if n == "defer" || n == "source"))
         {
             return self.parse_import();
         }

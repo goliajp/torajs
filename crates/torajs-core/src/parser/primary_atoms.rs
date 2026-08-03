@@ -27,6 +27,28 @@ impl<'a> Parser<'a> {
     // `import()` per ES §13.3.10.
     pub(super) fn parse_primary_dyn_import(&mut self) -> Result<ExprId, String> {
         self.pos += 1;
+        // import-defer proposal — `import.defer("...")` is the
+        // dynamic phase-import form. The eager AOT subset resolves
+        // it like a plain `import(...)` (deferred evaluation is
+        // layered — same posture as the `import defer * as ns`
+        // declaration). `import.source` stays a loud reject: it
+        // answers a ModuleSource object, which needs a module-
+        // reflection substrate no eager rewrite can fake.
+        if matches!(self.peek(), Token::Dot) {
+            match &self.tokens[self.pos + 1].token {
+                Token::Ident(n) if n == "defer" => {
+                    self.pos += 2; // consume `.` + `defer`
+                }
+                Token::Ident(n) if n == "source" => {
+                    return Err(format!(
+                        "`import.source` needs a ModuleSource substrate \
+                         (module-reflection proposal) at {}",
+                        self.at()
+                    ));
+                }
+                _ => {} // fall through — the LParen check rejects
+            }
+        }
         if !matches!(self.peek(), Token::LParen) {
             return Err(format!(
                 "dynamic `import` requires `(<source>)`; got {:?} at {}",
