@@ -1530,7 +1530,31 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 9215301c`, never as a constant.
 
-**Latest @ `b4440fbd`** (2026-08-03, rotation 285 — the HOF-callback
+**Latest @ `936712e4`** (2026-08-03, rotation 286 — the annotated-
+callback + flatMap face, seven substrate knives + one debt extract:
+a receiver-matching `{elem}[]` / `Array<{elem}>` annotation on the
+§23.1.3 srcArray callback slot normalizes to the kind-aware `any[]`
+view (all 8 HOFs accept fully-annotated signatures; mismatched
+spellings stay loud, matching tsc); flatMap identity over nested int
+arrays read i64 slots as f64 denormals — the result-key now marks
+the callback's ret point as container evidence so the guarded/nested
+width edges activate (silent-wrong closed); a void flatMap callback
+pushes boxed undefined per §23.1.3.11 step 8.d; nested-array callback
+inners admit on the hetero lane; flatMap's callback rides the full
+spec arity (elem, index, srcArray); flatMap joins the knife-4 thisArg
+protocol with a runtime IsArray spread arm (an Any-returning callback
+branches spread-vs-scalar per element at runtime); the TS
+this-parameter (`function f(this: T, …)`) parses as a type-only first
+param across fn-decls / fn-exprs / ctors: sweep passTotal 25439 →
+**25441 (+2)** / bug 11680 flat / trAccepted +2 / incompatible 16055
+→ **16053 (−2)**, conservation exact (2 = 2 + 0); gate predicate
+**347 clusters / 9169 cases** (flat / −1), core 10175; regressions:
+**ZERO** — both forward moves land in the flatMap knives' faces
+(depth-always-one / thisArg-argument). The rotation's main yield is
+TS-annotation-surface (conformance 2375 → 2382, +7 fixtures) which
+test262's pure-JS corpus barely samples.
+
+**Prior @ `b4440fbd`** (2026-08-03, rotation 285 — the HOF-callback
 face, five substrate knives + one mechanical extract: filter's keep
 test folds through ToBoolean (§23.1.3.7, the trio-kernel gap the
 rotation-284 predicate fix left); a NAMED fn callback receives the

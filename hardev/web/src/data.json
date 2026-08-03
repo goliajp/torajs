@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-02T22:55:33.030Z",
+  "generatedAt": "2026-08-03T00:35:12.513Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-02T22:27:12Z",
-    "headSha": "b4440fbd",
-    "elapsedSec": 396.58,
+    "ranAt": "2026-08-03T00:33:23Z",
+    "headSha": "936712e4",
+    "elapsedSec": 394.66,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 20965,
+    "pass": 20967,
     "passNoOracle": 557,
     "passNegative": 3917,
-    "passTotal": 25439,
+    "passTotal": 25441,
     "bug": 11680,
-    "incompatible": 16055,
+    "incompatible": 16053,
     "bunSkip": 7467,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 37119,
+    "trAccepted": 37121,
     "passRateInScope": 47.84,
-    "passRateTrAccepted": 68.53
+    "passRateTrAccepted": 68.54
   },
   "torajs": {
-    "commit": "b4440fbd",
-    "commitSubject": "refactor: extract resolve_acc_ty from the arr HO dispatch",
+    "commit": "936712e4",
+    "commitSubject": "feat: parse the ts this-parameter as a type-only first param",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,42 @@
   },
   "commits": [
     {
+      "hash": "936712e4",
+      "subject": "feat: parse the ts this-parameter as a type-only first param"
+    },
+    {
+      "hash": "18019219",
+      "subject": "feat: flatMap joins the knife-4 thisArg protocol with a runtime spread arm"
+    },
+    {
+      "hash": "24a44bd2",
+      "subject": "feat: flatMap callback rides the full spec arity"
+    },
+    {
+      "hash": "31490c4c",
+      "subject": "refactor: extract the Object namespace arms from the member dispatch"
+    },
+    {
+      "hash": "35a8b6a8",
+      "subject": "feat: flatMap admits nested-array callback inners on the hetero lane"
+    },
+    {
+      "hash": "de538700",
+      "subject": "feat: flatMap void callback pushes boxed undefined per spec step 8.d"
+    },
+    {
+      "hash": "43627025",
+      "subject": "fix: flatMap array-ret callback marks its ret point as container evidence"
+    },
+    {
+      "hash": "1fa44f95",
+      "subject": "feat: receiver-matching srcArray callback annotations promote to the kind-aware view"
+    },
+    {
+      "hash": "b2829414",
+      "subject": "chore(docs,hardev): rotation 285 sweep artifacts and census at b4440fbd"
+    },
+    {
       "hash": "b4440fbd",
       "subject": "refactor: extract resolve_acc_ty from the arr HO dispatch"
     },
@@ -723,63 +759,38 @@
     {
       "hash": "474df8da",
       "subject": "feat: reduce callback return polymorphism rides an Any accumulator lane"
-    },
-    {
-      "hash": "b9db40d8",
-      "subject": "feat: map callback return polymorphism at full spec arity with thisArg"
-    },
-    {
-      "hash": "d8c5e1c4",
-      "subject": "feat: named-fn HOF callbacks receive the thisArg through a receiver-first forwarder"
-    },
-    {
-      "hash": "4ee4e760",
-      "subject": "fix: filter keep test folds callback return through ToBoolean"
-    },
-    {
-      "hash": "f6dd36a4",
-      "subject": "chore(docs,hardev): rotation 284 sweep artifacts and census at 882462f3"
-    },
-    {
-      "hash": "882462f3",
-      "subject": "fix: array predicate callbacks accept any return type via ToBoolean"
-    },
-    {
-      "hash": "b667d387",
-      "subject": "fix: ternary Array(Any) x class-instance branches join to Any"
-    },
-    {
-      "hash": "9082fb19",
-      "subject": "fix: ternary Array(T) x Array(Any) branches join to Any with both sides boxed"
-    },
-    {
-      "hash": "ed3b3784",
-      "subject": "feat: any[] arguments flow into typed array params via widened monomorph clones"
-    },
-    {
-      "hash": "fddce1da",
-      "subject": "fix: method-call receiver parks on every lower-then-decline dispatch arm"
     }
   ],
-  "headSha": "b4440fbd",
+  "headSha": "936712e4",
   "autorun": {
-    "total": 589,
+    "total": 590,
     "baselineTarget": 10,
-    "bySelf": 584,
+    "bySelf": 585,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785683324-10fc",
-      "at": "2026-08-02T15:08:44Z",
-      "ts": 1785683324,
+      "rotationId": "r-1785711371-3346",
+      "at": "2026-08-02T22:56:11Z",
+      "ts": 1785711371,
       "trigger": "self",
-      "prevHead": "f6dd36a4",
-      "handoffSha": "sha256:f7bf0ceaa9f354cf07f49c0f46e682b9e66ee6b922eb69062f29f467fd478b1d",
-      "handoffAgeSec": 56,
+      "prevHead": "b2829414",
+      "handoffSha": "sha256:49c6c3434e21d9a45d29a2e0e54dc164edbaa2015ee7afd30e16ba1895d46404",
+      "handoffAgeSec": 52,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1785711371-3346",
+        "at": "2026-08-02T22:56:11Z",
+        "ts": 1785711371,
+        "trigger": "self",
+        "prevHead": "b2829414",
+        "handoffSha": "sha256:49c6c3434e21d9a45d29a2e0e54dc164edbaa2015ee7afd30e16ba1895d46404",
+        "handoffAgeSec": 52,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785683324-10fc",
         "at": "2026-08-02T15:08:44Z",
@@ -876,17 +887,6 @@
         "prevHead": "93b7a7d9",
         "handoffSha": "sha256:559405152ac3e7ba7d5d3ba5865673e3c03b0c710316df55cdd9278943fbb491",
         "handoffAgeSec": 46,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1785607981-6b63",
-        "at": "2026-08-01T18:13:01Z",
-        "ts": 1785607981,
-        "trigger": "self",
-        "prevHead": "c7ff77cd",
-        "handoffSha": "sha256:41585c5a1161cde805badee7478e50dd49f4a60bc5d9526948012ff4155b0973",
-        "handoffAgeSec": 0,
         "conformanceBefore": null,
         "commitsInSession": null
       }
