@@ -1530,7 +1530,35 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 176bcffb`, never as a constant.
 
-**Latest @ `176bcffb`** (2026-08-03, rotation 289 — the dynamic-import
+**Latest @ `7b756e00`** (2026-08-04, rotation 292 — the fn-value /
+iterator-protocol residue face, seven knives all green through the
+gate chain 2409 → 2414: iterator helpers cache the next method at
+construction per GetIteratorDirect (helper cell grows a next slot,
+48 → 56 B — the 8 get-next-method-only-once tr-timeouts whose
+accessor minted a fresh generator per step all clear, tr-timeout
+45 → 35); the collector's blanket generator-factory wrap exclusion
+(predating the G2 forward-cell reflection faces) drops across four
+axes — Object/Reflect namespace args except getPrototypeOf's
+kind-exact fold, any-receiver member-call args, member-call
+receivers, unswallowed apply/bind receivers — plus the let-init axis
+admits hoisted genexpr inits (fn-name-gen family, NamedEvaluation
+answers through the existing registry); the apply/Reflect.apply
+kernel reads non-Arr objects array-like per CreateListFromArrayLike
+(a function argArray answers its virtual length — the 15.3.4.3-*-s
+family), with the mid-rotation sweep catching a Symbol cell riding
+the new lane (argarray-not-object regressed pass → bug; fixed
+same-rotation, Symbol + BigInt join the primitive gate);
+`new Object(value)` rewrites to the call form (§20.1.1.1 construct
+IS call) and the collector gains construct-arg marking plus a
+NewDynamic arm that form's args never had: sweep passTotal 25932 →
+**26024 (+92)** / bug 11831 → 11761 (−70) / trAccepted +22 /
+incompatible 15411 → **15389 (−22)**, conservation exact (22 = 92 −
+70); gate predicate **333 clusters / 8511 cases** (−1 / −24), core
+9511 (−22); regressions **ZERO** (verdicts diff: 0 cases left pass);
+box_to_any FnSig cluster 14 → **2** (Error.isError namespace-static
+fn value + one staging shape). Previous stamp below.
+
+**Previous @ `176bcffb`** (2026-08-03, rotation 289 — the dynamic-import
 residue face, four substrate knives: `await import("...")` works
 inside async fn bodies — a dyn-import namespace no longer
 materializes a top-level main-local `let` (invisible from a lifted

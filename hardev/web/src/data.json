@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-03T16:23:06.094Z",
+  "generatedAt": "2026-08-03T18:24:20.079Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-03T16:16:32Z",
-    "headSha": "0aac14c4",
-    "elapsedSec": 428.92,
+    "ranAt": "2026-08-03T18:21:09Z",
+    "headSha": "7b756e00",
+    "elapsedSec": 502.27,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 21342,
+    "pass": 21434,
     "passNoOracle": 657,
     "passNegative": 3933,
-    "passTotal": 25932,
-    "bug": 11831,
-    "incompatible": 15411,
+    "passTotal": 26024,
+    "bug": 11761,
+    "incompatible": 15389,
     "bunSkip": 7155,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 37763,
-    "passRateInScope": 48.77,
-    "passRateTrAccepted": 68.67
+    "trAccepted": 37785,
+    "passRateInScope": 48.94,
+    "passRateTrAccepted": 68.87
   },
   "torajs": {
-    "commit": "8eb15539",
-    "commitSubject": "refactor: bind synthesis extracts from the fn-proto desugar loop",
+    "commit": "7b756e00",
+    "commitSubject": "feat: generator receivers of member calls ride the wrapped lane",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,38 @@
   },
   "commits": [
     {
+      "hash": "7b756e00",
+      "subject": "feat: generator receivers of member calls ride the wrapped lane"
+    },
+    {
+      "hash": "d5eba1e6",
+      "subject": "fix: symbol and bigint argarray stay the spec typeerror"
+    },
+    {
+      "hash": "255c875d",
+      "subject": "feat: new Object(value) rides the call form, construct args wrap"
+    },
+    {
+      "hash": "37c1ef0b",
+      "subject": "feat: apply kernel reads non-array argarray array-like"
+    },
+    {
+      "hash": "00fe917b",
+      "subject": "feat: genexpr const bindings ride the wrapped closure lane"
+    },
+    {
+      "hash": "8d83dd6c",
+      "subject": "feat: generator fn values ride the wrapped closure lane in any positions"
+    },
+    {
+      "hash": "310d52c0",
+      "subject": "feat: iterator helpers cache the next method at construction"
+    },
+    {
+      "hash": "c80a0ba0",
+      "subject": "chore(docs,hardev): rotation 291 sweep artifacts and census at 0aac14c4"
+    },
+    {
       "hash": "8eb15539",
       "subject": "refactor: bind synthesis extracts from the fn-proto desugar loop"
     },
@@ -727,59 +759,38 @@
     {
       "hash": "0ebd7555",
       "subject": "fix: heterogeneous array literal return inference widens to any[]"
-    },
-    {
-      "hash": "74f28fc4",
-      "subject": "feat: fn-name args to generic typevar params wrap as closures"
-    },
-    {
-      "hash": "fe14437e",
-      "subject": "feat: call/apply/bind nullary and nullish-argarray forms desugar"
-    },
-    {
-      "hash": "d06d94a9",
-      "subject": "chore(docs,hardev): rotation 290 sweep artifacts and census at 1be43fd9"
-    },
-    {
-      "hash": "1be43fd9",
-      "subject": "fix: capture promotion keys off named-fn-interior closures only"
-    },
-    {
-      "hash": "a365840e",
-      "subject": "feat: closure-captured top-level bindings promote to data globals"
-    },
-    {
-      "hash": "c0560cb2",
-      "subject": "feat: fn-name values wrap in untyped arrays and indirect call args"
-    },
-    {
-      "hash": "8f449934",
-      "subject": "feat: yield outside a generator body rejects at parse time"
-    },
-    {
-      "hash": "07bf3a05",
-      "subject": "feat: computed-key object literal joins the symbol-matcher store evidence"
     }
   ],
-  "headSha": "8eb15539",
+  "headSha": "7b756e00",
   "autorun": {
-    "total": 595,
+    "total": 596,
     "baselineTarget": 10,
-    "bySelf": 590,
+    "bySelf": 591,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785766893-244a",
-      "at": "2026-08-03T14:21:33Z",
-      "ts": 1785766893,
+      "rotationId": "r-1785774230-3cdb",
+      "at": "2026-08-03T16:23:50Z",
+      "ts": 1785774230,
       "trigger": "self",
-      "prevHead": "d06d94a9",
-      "handoffSha": "sha256:19599152690d7fb7326fb8b2624fc8544ec55ec896110070761bd5c6a0d84014",
-      "handoffAgeSec": 6,
+      "prevHead": "c80a0ba0",
+      "handoffSha": "sha256:e1fe6db138701f0d072d95160f3f61d0b1c2f0396b6782768f1165a727fb7826",
+      "handoffAgeSec": 56,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1785774230-3cdb",
+        "at": "2026-08-03T16:23:50Z",
+        "ts": 1785774230,
+        "trigger": "self",
+        "prevHead": "c80a0ba0",
+        "handoffSha": "sha256:e1fe6db138701f0d072d95160f3f61d0b1c2f0396b6782768f1165a727fb7826",
+        "handoffAgeSec": 56,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785766893-244a",
         "at": "2026-08-03T14:21:33Z",
@@ -876,17 +887,6 @@
         "prevHead": "2f180a4e",
         "handoffSha": "sha256:6047d579ed112426080c8c7c0647998ab1e7e6b5ad0e43e0e15efce0555ac16a",
         "handoffAgeSec": 34,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1785657938-4b5b",
-        "at": "2026-08-02T08:05:38Z",
-        "ts": 1785657938,
-        "trigger": "self",
-        "prevHead": "deffde3f",
-        "handoffSha": "sha256:afbcfa80b1118553a7376e38bf15b1753c11387c9eabfc4fecca44cf35e156dd",
-        "handoffAgeSec": 27,
         "conformanceBefore": null,
         "commitsInSession": null
       }
