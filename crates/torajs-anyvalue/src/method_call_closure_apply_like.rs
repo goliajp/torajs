@@ -107,9 +107,16 @@ pub(crate) unsafe fn apply_list(
         } else {
             (arr.cast::<u8>().add(4) as *const u16).read()
         };
-        if arr.is_null() || arr_tag == Tag::Str as u16 {
+        if arr.is_null()
+            || arr_tag == Tag::Str as u16
+            || arr_tag == Tag::Symbol as u16
+            || arr_tag == Tag::BigInt as u16
+        {
             // §7.3.18 step 2 — a primitive argArray (number, bool,
-            // string — heap Str included) is a TypeError.
+            // string, symbol, bigint — the heap-celled primitives
+            // included) is a TypeError. (r292 sweep caught the
+            // Symbol cell riding the array-like lane —
+            // argarray-not-object regression.)
             __torajs_throw_type_error(
                 c"second argument to Function.prototype.apply must be an array".as_ptr(),
             );

@@ -35,6 +35,16 @@ try {
 } catch (e) {
   console.log("caught string");
 }
+try {
+  p.apply(null, Symbol());
+} catch (e) {
+  console.log("caught symbol");
+}
+try {
+  p.apply(null, 10n);
+} catch (e) {
+  console.log("caught bigint");
+}
 
 // poisoned length getter forwards
 try {
