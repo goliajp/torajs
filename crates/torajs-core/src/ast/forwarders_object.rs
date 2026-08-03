@@ -348,7 +348,6 @@ fn collect_let_init_axis_rewrites(
             && type_ann
                 .as_deref()
                 .is_none_or(|a| is_fn_like_ann(a) && !a.contains("__rest("))
-            && binding_refs.named_fn_refs.contains(name)
             // Chunk 737 — immutable closure-captured bindings promote
             // (the capture filter resolves them to the global), so
             // their named-fn inits wrap too. Chunk 740 — the
@@ -356,6 +355,16 @@ fn collect_let_init_axis_rewrites(
             // (capture filter reads + Assign-Ident global writes =
             // one home), so its named-fn init wraps too.
             && let Expr::Ident(n) = ast.get_expr(*init)
+            // r292 — a hoisted generator-expression init wraps without
+            // the named-fn-refs gate: its top-level reads (harness
+            // verifyProperty args — the fn-name-gen family) box into
+            // any, which a raw FnSig can't, and the factory call is
+            // alloc-heavy anyway so the closure-invoke detour is
+            // free. Plain named-fn inits keep the read gate (their
+            // direct calls are hot paths).
+            && (binding_refs.named_fn_refs.contains(name)
+                || ast.generator_factory_classes.contains_key(n)
+                || ast.async_generator_fns.contains(n))
             // Chunk 805 — no explicit-return-ann gate anymore: the
             // forwarder clones the target's `None` ret, and
             // `desugar_implicit_generics` (which runs AFTER this
