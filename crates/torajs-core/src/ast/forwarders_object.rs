@@ -84,20 +84,30 @@ pub fn tag_struct_field_closure_types(ast: &mut Ast) {
 ///
 /// Runs after `synthesize_forwarders` so Return-site renames already
 /// happened; we extend coverage to the remaining three store-sites.
-pub fn synthesize_fn_to_closure_forwarders(ast: &mut Ast) {
-    use std::collections::{HashMap, HashSet};
-
-    // Snapshot non-closure-shaped FnDecls' signatures (for forwarder
-    // body synthesis). Skip forwarders themselves (`__forward_*`) and
-    // closure-shaped fns (first param `__env`).
-    let mut fn_sigs: HashMap<String, (Vec<Param>, Option<String>, crate::lexer::Span)> =
-        HashMap::new();
-    let mut existing_forwarders: HashSet<String> = HashSet::new();
+/// Snapshot non-closure-shaped FnDecls' signatures (for forwarder
+/// body synthesis) plus the already-synthesized forwarder names and
+/// each generic fn's type-param list (the generic-param call-arg
+/// axis: a fn-name argument to `sameValue<T>(actual: T, expected:
+/// T)` instantiates T at Any, which can't box a raw FnSig). Skips
+/// forwarders themselves (`__forward_*`) and closure-shaped fns
+/// (first param `__env`).
+#[allow(clippy::type_complexity)]
+fn snapshot_fn_sigs(
+    ast: &Ast,
+) -> (
+    std::collections::HashMap<String, (Vec<Param>, Option<String>, crate::lexer::Span)>,
+    std::collections::HashSet<String>,
+    std::collections::HashMap<String, Vec<String>>,
+) {
+    let mut fn_sigs = std::collections::HashMap::new();
+    let mut existing_forwarders = std::collections::HashSet::new();
+    let mut fn_type_params = std::collections::HashMap::new();
     for s in &ast.stmts {
         if let Stmt::FnDecl {
             name,
             params,
             return_type,
+            type_params,
             span,
             ..
         } = s
@@ -109,9 +119,19 @@ pub fn synthesize_fn_to_closure_forwarders(ast: &mut Ast) {
             let is_closure_shaped = params.first().is_some_and(|p| p.name == "__env");
             if !is_closure_shaped {
                 fn_sigs.insert(name.clone(), (params.clone(), return_type.clone(), *span));
+                if !type_params.is_empty() {
+                    fn_type_params.insert(name.clone(), type_params.clone());
+                }
             }
         }
     }
+    (fn_sigs, existing_forwarders, fn_type_params)
+}
+
+pub fn synthesize_fn_to_closure_forwarders(ast: &mut Ast) {
+    use std::collections::{HashMap, HashSet};
+
+    let (fn_sigs, existing_forwarders, fn_type_params) = snapshot_fn_sigs(ast);
     if fn_sigs.is_empty() {
         return;
     }
@@ -235,6 +255,7 @@ pub fn synthesize_fn_to_closure_forwarders(ast: &mut Ast) {
     let mut collector = crate::ast_collect_fn_closure::FnToClosureCollector {
         ast,
         fn_sigs: &fn_sigs,
+        fn_type_params: &fn_type_params,
         struct_field_anns: &struct_field_anns,
         generic_field_anns: &generic_field_anns,
         any_bindings: &any_bindings,

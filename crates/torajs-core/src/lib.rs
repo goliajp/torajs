@@ -17,6 +17,7 @@ pub mod ast_closure_param_tag;
 pub(crate) mod ast_closure_param_tag_axes;
 pub(crate) mod ast_collect_bindings;
 pub(crate) mod ast_collect_fn_closure;
+pub(crate) mod ast_collect_fn_closure_call;
 pub(crate) mod ast_collect_fn_closure_expr;
 pub(crate) mod ast_collect_fn_closure_init;
 pub(crate) mod ast_desugar_builtin_new;

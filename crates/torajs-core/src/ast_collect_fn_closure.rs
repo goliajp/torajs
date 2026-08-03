@@ -61,6 +61,13 @@ use crate::ast::{Ast, Expr, ExprId, Param, Stmt, is_fn_like_ann};
 pub(crate) struct FnToClosureCollector<'a> {
     pub(crate) ast: &'a Ast,
     pub(crate) fn_sigs: &'a HashMap<String, (Vec<Param>, Option<String>, crate::lexer::Span)>,
+    /// fn name → its type-param names (generic FnDecls only) — the
+    /// generic-param call-arg axis: a fn-name argument matching a
+    /// TypeVar-annotated param (`sameValue<T>(actual: T, expected:
+    /// T)`) instantiates the generic at Any, and the any-boxed argv
+    /// slot can't take a raw FnSig. The canonical `__forward_*` cell
+    /// keeps identity across wrap sites, so `===` faces still agree.
+    pub(crate) fn_type_params: &'a HashMap<String, Vec<String>>,
     pub(crate) struct_field_anns: &'a HashMap<String, HashMap<String, String>>,
     /// Generic TypeDecl snapshots (name → (type params, fields with
     /// the params still spelled inside)) — chunk 795: the wrap axes
