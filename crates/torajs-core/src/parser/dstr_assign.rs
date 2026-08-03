@@ -285,7 +285,7 @@ impl<'a> Parser<'a> {
     ) -> Result<(), String> {
         // `0, { yield } = {}` — the shorthand hoisted to a `__yx_`
         // temp, which is not a valid assignment target (§13.15.1).
-        self.reject_yield_temp_target(target)?;
+        self.reject_invalid_assignment_target(target)?;
         // §13.15.1 — `eval` / `arguments` are not valid simple
         // assignment targets in strict code (module code always is).
         if let Expr::Ident(n) = self.ast.get_expr(target)

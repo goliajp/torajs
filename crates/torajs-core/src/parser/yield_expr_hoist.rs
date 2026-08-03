@@ -106,21 +106,34 @@ impl<'a> Parser<'a> {
         r
     }
 
-    /// §13.15.1 / §13.4.2-5 early error: AssignmentTargetType of a
-    /// YieldExpression is invalid — `(yield) = v`, `(yield)++`,
-    /// `++(yield)` are SyntaxErrors at parse time. After hoisting the
-    /// yield reads back as a `__yx_` temp, so a target that IS the
-    /// temp ident can only come from a parenthesized yield in target
-    /// position (`__yx_` is the reserved desugar namespace, same
-    /// assumption `expr_reads_yield_temp` already makes).
-    pub(super) fn reject_yield_temp_target(&self, target: ExprId) -> Result<(), String> {
-        if matches!(self.ast.get_expr(target), Expr::Ident(n) if n.starts_with("__yx_")) {
-            return Err(format!(
+    /// §13.15.1 / §13.4.2-5 AssignmentTargetType early errors —
+    /// every assignment / update form (`=`, compounds, `++`/`--`)
+    /// routes its target through here.
+    ///
+    /// - A YieldExpression target (`(yield) = v`, `(yield)++`) is a
+    ///   SyntaxError at parse time. After hoisting the yield reads
+    ///   back as a `__yx_` temp, so a target that IS the temp ident
+    ///   can only come from a parenthesized yield in target position
+    ///   (`__yx_` is the reserved desugar namespace, same assumption
+    ///   `expr_reads_yield_temp` already makes).
+    /// - A CallExpression target (`f() = v`, `import(x)++` — the
+    ///   ImportCall rewrites to a `Promise.resolve(...)` Call) has
+    ///   AssignmentTargetType invalid (rotation 288: the
+    ///   statement-position ImportCall dispatch exposed 15 test262
+    ///   negatives that previously "passed" on an unrelated parse
+    ///   error).
+    pub(super) fn reject_invalid_assignment_target(&self, target: ExprId) -> Result<(), String> {
+        match self.ast.get_expr(target) {
+            Expr::Ident(n) if n.starts_with("__yx_") => Err(format!(
                 "`yield` is not a valid assignment target at {} (ES §13.15.1)",
                 self.at()
-            ));
+            )),
+            Expr::Call { .. } | Expr::OptCall { .. } => Err(format!(
+                "a call expression is not a valid assignment target at {} (ES §13.15.1)",
+                self.at()
+            )),
+            _ => Ok(()),
         }
-        Ok(())
     }
 
     /// Drain wrapper around the statement dispatcher — see module doc.
