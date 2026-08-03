@@ -23,6 +23,13 @@
 use super::*;
 
 pub fn desugar_classes(ast: &mut Ast) {
+    // Pre-pass — move capture-free ClassDecls out of nested statement
+    // containers (fn bodies, fn-expression bodies, blocks) to the top
+    // level, where the snapshot below can see them. Doing it here
+    // rather than in the pipeline covers every caller (cli / repl /
+    // lsp / num_width) at once.
+    super::hoist_nested_classes::hoist_nested_classes(ast);
+
     // Pass 1 — extract every ClassDecl. After this loop the original
     // ClassDecl stmts are replaced by their generated TypeDecl in-place;
     // ctor / methods / factory FnDecls accumulate in `appended`.

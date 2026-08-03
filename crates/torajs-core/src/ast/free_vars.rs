@@ -275,8 +275,9 @@ fn walk_stmt(ast: &Ast, s: &Stmt, bound: &mut Vec<String>, out: &mut Vec<String>
 /// closure captures even when they appear as bare idents inside an
 /// arrow body. Currently the runtime-provided print / namespace
 /// objects. Kept in sync with `check.rs`'s `type_of(Expr::Ident)`
-/// fallback list.
-fn is_global_name(name: &str) -> bool {
+/// fallback list. `pub(super)` since the nested-class hoist pass
+/// asks it whether an `extends <name>` parent resolves globally.
+pub(super) fn is_global_name(name: &str) -> bool {
     // Compiler-synthesized helpers (`__torajs_date_from_ms`, the
     // arguments materializer, reify hooks, ...) resolve through the
     // checker's ident fallback and lower as intrinsics — capturing

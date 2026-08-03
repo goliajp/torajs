@@ -1,0 +1,282 @@
+//! Nested-class hoist — the `desugar_classes` pre-pass.
+//!
+//! `desugar_classes` snapshots `Stmt::ClassDecl` from `ast.stmts`
+//! only, so a class declared inside any nested statement container
+//! (a fn body, an fn-expression body, a block, a switch arm, ...)
+//! never desugars and aborts loud in check.rs. This pass moves every
+//! CAPTURE-FREE nested ClassDecl to the top level so the existing
+//! class machinery lifts it with zero downstream changes — the same
+//! strategy the parser already applies to class *expressions*
+//! (`parse_primary_class_expr` buffers them to `synth_classes` and
+//! splices at top level).
+//!
+//! Capture-free means: every ctor / method / static body resolves
+//! its free identifiers against top-level names (plus the class's
+//! own bindings), and the `extends` parent is a top-level or global
+//! name. A class reading an enclosing fn's local stays where it is
+//! and keeps the loud not-yet-supported abort.
+//!
+//! Renaming: the hoisted class keeps its source name unless that
+//! name collides with a top-level binding or another hoisted class
+//! (two fn bodies each declaring `class C`). On collision the class
+//! and every reference in its ENCLOSING CONTAINER subtree are
+//! α-renamed to `__hc<N>_<name>`.
+//!
+//! Recorded semantic deviations (same register as the class-expr
+//! L3b entries):
+//! - class evaluation moves to program top level: static inits /
+//!   computed keys evaluate once at startup, not per enclosing-fn
+//!   call, and every call shares one class identity;
+//! - a renamed class answers `.name` with the synth name;
+//! - block-scope visibility widens to the whole program (a name-only
+//!   inner shadow of the same identifier inside the container would
+//!   be renamed with it).
+
+use super::*;
+
+pub(super) fn hoist_nested_classes(ast: &mut Ast) {
+    // Top-level visible names — the prebound set for the capture
+    // check plus the collision domain for renaming.
+    let mut top_names: Vec<String> = Vec::new();
+    for s in &ast.stmts {
+        collect_decl_name(s, &mut top_names);
+    }
+
+    let mut hoisted: Vec<Stmt> = Vec::new();
+    let mut counter: u32 = 0;
+
+    // Stmt tree first. Top level itself never hoists (already there);
+    // only nested containers are scanned.
+    let mut stmts = std::mem::take(&mut ast.stmts);
+    for s in &mut stmts {
+        walk_child(ast, s, &mut top_names, &mut hoisted, &mut counter);
+    }
+    ast.stmts = stmts;
+
+    // Fn-expression / arrow bodies live in the expr arena. Nested
+    // arrows are separate arena entries, so this flat loop covers
+    // arbitrarily deep nesting. The pass adds no exprs, so the
+    // length is stable.
+    for i in 0..ast.exprs.len() {
+        let mut body = match &mut ast.exprs[i] {
+            Expr::ArrowFn { body, .. } => std::mem::take(body),
+            _ => continue,
+        };
+        walk_container(ast, &mut body, &mut top_names, &mut hoisted, &mut counter);
+        if let Expr::ArrowFn { body: b, .. } = &mut ast.exprs[i] {
+            *b = body;
+        }
+    }
+
+    ast.stmts.extend(hoisted);
+}
+
+fn collect_decl_name(s: &Stmt, out: &mut Vec<String>) {
+    match s {
+        Stmt::FnDecl { name, .. }
+        | Stmt::LetDecl { name, .. }
+        | Stmt::ClassDecl { name, .. }
+        | Stmt::TypeDecl { name, .. } => out.push(name.clone()),
+        Stmt::ExportDecl {
+            inner: Some(inner), ..
+        } => collect_decl_name(inner, out),
+        _ => {}
+    }
+}
+
+/// Scan one nested statement list: hoist this level's capture-free
+/// ClassDecls first (top-down — a hoisted outer class becomes a
+/// top-level name that unlocks an inner `extends` of it), then
+/// recurse into each statement's child containers.
+fn walk_container(
+    ast: &mut Ast,
+    stmts: &mut Vec<Stmt>,
+    top_names: &mut Vec<String>,
+    hoisted: &mut Vec<Stmt>,
+    counter: &mut u32,
+) {
+    // Sibling class names count as resolvable during the capture
+    // check: they either hoist together or the straggler fails loud
+    // in desugar's parent validation.
+    let sibling_start = top_names.len();
+    for s in stmts.iter() {
+        if let Stmt::ClassDecl { name, .. } = s {
+            top_names.push(name.clone());
+        }
+    }
+
+    for idx in 0..stmts.len() {
+        if !matches!(stmts[idx], Stmt::ClassDecl { .. }) {
+            continue;
+        }
+        if !class_is_capture_free(ast, &stmts[idx], top_names) {
+            continue;
+        }
+        let old_name = match &stmts[idx] {
+            Stmt::ClassDecl { name, .. } => name.clone(),
+            _ => unreachable!(),
+        };
+        // Collision domain: everything visible at top level once the
+        // hoist lands. Sibling entries pushed above shadow the check
+        // for the class's own occurrence, so count duplicates.
+        let collides = top_names.iter().filter(|n| **n == old_name).count() > 1
+            || top_names[..sibling_start].contains(&old_name);
+        if collides {
+            let new_name = format!("__hc{}_{}", *counter, old_name);
+            *counter += 1;
+            super::hoist_nested_classes_rename::rename_in_stmts(ast, stmts, &old_name, &new_name);
+            top_names.push(new_name);
+        } else {
+            top_names.push(old_name);
+        }
+        let cls = std::mem::replace(&mut stmts[idx], Stmt::Multi(Vec::new()));
+        hoisted.push(cls);
+    }
+
+    for s in stmts.iter_mut() {
+        walk_child(ast, s, top_names, hoisted, counter);
+    }
+}
+
+/// Recurse into every child statement container of one statement.
+/// `Box<Stmt>` positions (if/while bodies) recurse through here too;
+/// a bare ClassDecl in single-statement position is a spec syntax
+/// error and is left alone (stays loud).
+fn walk_child(
+    ast: &mut Ast,
+    s: &mut Stmt,
+    top_names: &mut Vec<String>,
+    hoisted: &mut Vec<Stmt>,
+    counter: &mut u32,
+) {
+    match s {
+        Stmt::FnDecl { body, .. } => walk_container(ast, body, top_names, hoisted, counter),
+        Stmt::Block(v) | Stmt::Multi(v) => walk_container(ast, v, top_names, hoisted, counter),
+        Stmt::If {
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            walk_child(ast, then_branch, top_names, hoisted, counter);
+            if let Some(eb) = else_branch {
+                walk_child(ast, eb, top_names, hoisted, counter);
+            }
+        }
+        Stmt::While { body, .. }
+        | Stmt::DoWhile { body, .. }
+        | Stmt::ForOfSplitIter { body, .. }
+        | Stmt::ForOf { body, .. }
+        | Stmt::Labeled { body, .. } => walk_child(ast, body, top_names, hoisted, counter),
+        Stmt::For { init, body, .. } => {
+            if let Some(i) = init {
+                walk_child(ast, i, top_names, hoisted, counter);
+            }
+            walk_child(ast, body, top_names, hoisted, counter);
+        }
+        Stmt::Switch { cases, default, .. } => {
+            for c in cases {
+                walk_container(ast, &mut c.body, top_names, hoisted, counter);
+            }
+            if let Some(d) = default {
+                walk_container(ast, d, top_names, hoisted, counter);
+            }
+        }
+        Stmt::Try {
+            body,
+            catch_body,
+            finally_body,
+            ..
+        } => {
+            walk_container(ast, body, top_names, hoisted, counter);
+            walk_container(ast, catch_body, top_names, hoisted, counter);
+            if let Some(fb) = finally_body {
+                walk_container(ast, fb, top_names, hoisted, counter);
+            }
+        }
+        Stmt::ClassDecl {
+            ctor,
+            methods,
+            static_methods,
+            static_init,
+            ..
+        } => {
+            if let Some(c) = ctor {
+                walk_container(ast, &mut c.body, top_names, hoisted, counter);
+            }
+            for m in methods.iter_mut().chain(static_methods.iter_mut()) {
+                walk_container(ast, &mut m.body, top_names, hoisted, counter);
+            }
+            for si in static_init {
+                if let StaticInit::Block(v) = si {
+                    walk_container(ast, v, top_names, hoisted, counter);
+                }
+            }
+        }
+        Stmt::ExportDecl {
+            inner: Some(inner), ..
+        } => walk_child(ast, inner, top_names, hoisted, counter),
+        _ => {}
+    }
+}
+
+/// Every body of the class resolves against top-level names only.
+/// Instance-field initializers are already folded into the ctor body
+/// by the parser (`finalize_class_field_inits`), so the ctor walk
+/// covers them.
+fn class_is_capture_free(ast: &Ast, s: &Stmt, top_names: &[String]) -> bool {
+    let Stmt::ClassDecl {
+        name,
+        type_params,
+        parent,
+        ctor,
+        methods,
+        static_methods,
+        static_init,
+        ..
+    } = s
+    else {
+        return false;
+    };
+    if let Some(p) = parent
+        && !top_names.contains(p)
+        && !super::free_vars::is_global_name(p)
+    {
+        return false;
+    }
+    let mut prebound: Vec<String> = top_names.to_vec();
+    prebound.push(name.clone());
+    prebound.extend(type_params.iter().cloned());
+    prebound.push("arguments".into());
+
+    let body_free = |params: &[Param], body: &[Stmt]| -> bool {
+        let mut bound = prebound.clone();
+        bound.extend(params.iter().map(|p| p.name.clone()));
+        super::free_vars::free_vars_of_body(ast, &bound, body)
+            .iter()
+            // `super.m()` parses as a Call to the marker ident
+            // `__supercall__m` — desugar_classes rewrites it from the
+            // class's own parent link, so it is never a capture.
+            .all(|n| n.starts_with("__supercall__"))
+    };
+
+    if let Some(c) = ctor
+        && !body_free(&c.params, &c.body)
+    {
+        return false;
+    }
+    for m in methods.iter().chain(static_methods.iter()) {
+        if !body_free(&m.params, &m.body) {
+            return false;
+        }
+    }
+    for si in static_init {
+        let ok = match si {
+            StaticInit::Field(f) => body_free(&[], &[Stmt::Expr(f.init)]),
+            StaticInit::Block(v) => body_free(&[], v),
+        };
+        if !ok {
+            return false;
+        }
+    }
+    true
+}

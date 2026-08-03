@@ -66,6 +66,8 @@ mod forwarders_object;
 mod free_vars;
 mod gen_fn_expr;
 mod hoist_gen_fn_exprs;
+mod hoist_nested_classes;
+mod hoist_nested_classes_rename;
 mod implicit_generics_infer;
 mod infer_closure_lets;
 mod infer_closure_params;
