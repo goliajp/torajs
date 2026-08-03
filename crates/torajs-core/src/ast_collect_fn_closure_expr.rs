@@ -248,7 +248,24 @@ impl<'a> FnToClosureCollector<'a> {
             // same ctor-boundary boxing as Expr::New. The walk had no
             // arm at all before r292 — args were invisible.
             Expr::NewDynamic { callee, args } => {
-                self.walk_expr(*callee);
+                // r293 — the CALLEE boxes at the same boundary: a
+                // static-method fn-name callee (`new Error.isError()`
+                // — desugared to the bare `__sm_Error__isError`
+                // Ident) reaches `__torajs_anyv_construct` as an any,
+                // which a raw FnSig can't box. The wrapped cell is a
+                // closure, and the kernel's IsConstructor answers
+                // false for closures — the spec TypeError, same as
+                // the any-bound alias form already gives. `as` layers
+                // are value pass-throughs (eq-operand axis
+                // precedent) — `new (E as any)()` marks the inner
+                // ident.
+                let mut inner = *callee;
+                while let Expr::As { expr, .. } = self.ast.get_expr(inner) {
+                    inner = *expr;
+                }
+                if !self.try_mark(inner) {
+                    self.walk_expr(*callee);
+                }
                 for a in args {
                     if !self.try_mark(*a) {
                         self.walk_expr(*a);

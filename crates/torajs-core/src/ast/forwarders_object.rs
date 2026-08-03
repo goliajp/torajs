@@ -267,6 +267,7 @@ pub fn synthesize_fn_to_closure_forwarders(ast: &mut Ast) {
         targets: HashSet::new(),
         rewrites: Vec::new(),
         shadowed: Vec::new(),
+        any_param_frames: Vec::new(),
     };
     for s in &stmts_snapshot {
         collector.walk_stmt(s, false);

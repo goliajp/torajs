@@ -95,35 +95,7 @@ impl<'a> FnToClosureCollector<'a> {
         {
             self.try_mark(args[1]);
         }
-        // Cluster #4 (test262) — a bare top-FnDecl Ident argument to
-        // an Object / Reflect namespace-static call
-        // (`Object.getOwnPropertyDescriptor(inner, "caller")`): the
-        // checker's Any-param sig admits it and the lowering packs
-        // an any argv, which a raw FnSig can't box. Wrap it so the
-        // boxed closure cell reaches the reflection kernels (the
-        // closure-receiver forms already answer spec meta — probe
-        // d5/d7). A user binding named Object/Reflect shadowing the
-        // namespace only costs the wrap.
-        if let Expr::Member { obj, name: nsname } = self.ast.get_expr(*callee)
-            && let Expr::Ident(ns) = self.ast.get_expr(*obj)
-            && matches!(ns.as_str(), "Object" | "Reflect")
-        {
-            // getPrototypeOf keeps the generator exclusion: its
-            // bare-Ident arg rides the compile-time genfn-trio fold
-            // (kind-exact, ssa_lower_call_object_get_prototype_of),
-            // which a wrap would erase. Every other member wraps —
-            // the forward cell carries the G2 reflection faces
-            // (gen-proto install + FLAG_FN_GENERATOR), so gOPD /
-            // gOPN / keys answer through the closure kernels
-            // (r292: the restricted-properties / forbidden-ext
-            // box_to_any FnSig family).
-            let keep_gen_exclusion = nsname == "getPrototypeOf";
-            for &arg in args {
-                if !(keep_gen_exclusion && self.is_generator_family_ident(arg)) {
-                    self.try_mark(arg);
-                }
-            }
-        }
+        self.mark_namespace_static_args(callee, args);
         // S2.37 followup — a REWRITE-MINTED method-body ident
         // (`__sm_<C>__<m>` / `__cm_<C>__<m>`, the static-member /
         // static-this rewrite's product — user code never spells
@@ -273,6 +245,42 @@ impl<'a> FnToClosureCollector<'a> {
         }
     }
 
+    /// Cluster #4 (test262) — a bare top-FnDecl Ident argument to
+    /// an Object / Reflect namespace-static call
+    /// (`Object.getOwnPropertyDescriptor(inner, "caller")`): the
+    /// checker's Any-param sig admits it and the lowering packs
+    /// an any argv, which a raw FnSig can't box. Wrap it so the
+    /// boxed closure cell reaches the reflection kernels (the
+    /// closure-receiver forms already answer spec meta — probe
+    /// d5/d7). A user binding named Object/Reflect shadowing the
+    /// namespace only costs the wrap.
+    fn mark_namespace_static_args(&mut self, callee: &ExprId, args: &[ExprId]) {
+        let Expr::Member { obj, name: nsname } = self.ast.get_expr(*callee) else {
+            return;
+        };
+        let Expr::Ident(ns) = self.ast.get_expr(*obj) else {
+            return;
+        };
+        if !matches!(ns.as_str(), "Object" | "Reflect") {
+            return;
+        }
+        // getPrototypeOf keeps the generator exclusion: its
+        // bare-Ident arg rides the compile-time genfn-trio fold
+        // (kind-exact, ssa_lower_call_object_get_prototype_of),
+        // which a wrap would erase. Every other member wraps —
+        // the forward cell carries the G2 reflection faces
+        // (gen-proto install + FLAG_FN_GENERATOR), so gOPD /
+        // gOPN / keys answer through the closure kernels
+        // (r292: the restricted-properties / forbidden-ext
+        // box_to_any FnSig family).
+        let keep_gen_exclusion = nsname == "getPrototypeOf";
+        for &arg in args {
+            if !(keep_gen_exclusion && self.is_generator_family_ident(arg)) {
+                self.try_mark(arg);
+            }
+        }
+    }
+
     /// RFC 20260729-fn-value-any V1 — a user top-FnDecl Ident
     /// argument of a member call whose receiver cannot be statically
     /// typed: an `any`-bound ident receiver (`p.then(done)`, p: any)
@@ -293,6 +301,10 @@ impl<'a> FnToClosureCollector<'a> {
             self.ast.get_expr(*obj),
             Expr::Ident(n) if !self.any_bindings.contains(n)
                 && !self.new_init_bindings.contains(n)
+                // r293 — an `any`/untyped param of the enclosing fn
+                // (a lifted arrow's `iter => iter.map(fn)`) is an
+                // any receiver too.
+                && !self.any_param_frames.iter().any(|f| f.contains(n))
         );
         if typed_ident_recv {
             return;

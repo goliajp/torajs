@@ -120,6 +120,15 @@ pub(crate) struct FnToClosureCollector<'a> {
     /// raw-FnSig behavior, the lesser wrong) rather than risk wrapping
     /// a shadowed read.
     pub(crate) shadowed: Vec<HashSet<String>>,
+    /// Per-fn stack of param names whose annotation is `any` or
+    /// missing (r293) — the any-receiver member-call axis reads it:
+    /// a lifted arrow's untyped param IS an `any` binding
+    /// (`iter => iter.map(fn)` — the t262 lazy-Iterator family),
+    /// but only `any_bindings` (top-level lets) answered before, so
+    /// the receiver looked typed and the fn-name argument kept its
+    /// raw FnSig into the any-method argv. Same frame discipline as
+    /// `shadowed`.
+    pub(crate) any_param_frames: Vec<HashSet<String>>,
 }
 
 // Annotation-predicate binding walks (collect_any_bindings /
@@ -217,9 +226,20 @@ impl<'a> FnToClosureCollector<'a> {
                 let mut frame: HashSet<String> = params.iter().map(|p| p.name.clone()).collect();
                 crate::ast_collect_bindings::collect_local_binding_names(body, &mut frame);
                 self.shadowed.push(frame);
+                self.any_param_frames.push(
+                    params
+                        .iter()
+                        .filter(|p| {
+                            p.type_ann.is_none()
+                                || p.type_ann.as_deref().is_some_and(|a| a.trim() == "any")
+                        })
+                        .map(|p| p.name.clone())
+                        .collect(),
+                );
                 for inner in body {
                     self.walk_stmt(inner, ret_any);
                 }
+                self.any_param_frames.pop();
                 self.shadowed.pop();
             }
             Stmt::Expr(eid) => self.walk_expr(*eid),
