@@ -93,7 +93,10 @@ impl<'a> FnToClosureCollector<'a> {
         // the any world, which a raw FnSig can't. The wrapped cell
         // keeps `typeof` = "function" and the call face. `as` layers
         // on the receiver peel — `(box as any).prop = fn` writes the
-        // same binding.
+        // same binding. r295 — a top-FnDecl RECEIVER rides the same
+        // lane (`__FACTORY.prototype = __PROTO`, S13.2.2_A1): the
+        // expando store boxes its value the same way, so a bare
+        // fn-Ident RHS wraps there too.
         if let Expr::Member { obj, .. } = self.ast.get_expr(*target) {
             let base = {
                 let mut e = *obj;
@@ -103,7 +106,7 @@ impl<'a> FnToClosureCollector<'a> {
                 e
             };
             if let Expr::Ident(oname) = self.ast.get_expr(base)
-                && self.any_bindings.contains(oname)
+                && (self.any_bindings.contains(oname) || self.fn_sigs.contains_key(oname))
             {
                 self.try_mark(*value);
             }

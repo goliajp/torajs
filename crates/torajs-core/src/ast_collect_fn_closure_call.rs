@@ -136,8 +136,18 @@ impl<'a> FnToClosureCollector<'a> {
             // `f.hasOwnProperty("caller")` — the forbidden-ext /
             // restricted-properties family. `.prototype` reads are
             // member READS, not calls — the static fold this axis
-            // must not erase never routes through it.
-            self.try_mark(*obj);
+            // must not erase never routes through it. r295 — `as`
+            // layers on the receiver peel, same as the store-site
+            // twin (`(__PROTO as any).isPrototypeOf(m)` marks the
+            // inner Ident; the As forwards the cell unchanged).
+            let base = {
+                let mut e = *obj;
+                while let Expr::As { expr, .. } = self.ast.get_expr(e) {
+                    e = *expr;
+                }
+                e
+            };
+            self.try_mark(base);
         }
         // r291 — the apply/bind forms the fn-proto desugar does NOT
         // swallow (dynamic argArray `f.apply(t, arr)`, surplus bind
