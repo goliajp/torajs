@@ -210,9 +210,48 @@ pub(super) fn rewrite_idents_in_expr(
             Expr::InstanceOf { expr, .. } => {
                 stack.push(expr);
             }
-            // ArrowFn / Closure bodies are separate scopes — don't
-            // descend (handled by lift_arrow_fns + their own pass).
+            // An arrow body is a separate scope, but a nested scope
+            // SEES its enclosing bindings — and renaming a nested
+            // `function f` is a rename of one. Skipping the descent
+            // left `(x) => step(x)` calling a `step` that no longer
+            // exists under that name once the declaration lifted to
+            // `__nested_<parent>_step_N`; `lift_arrow_fns` moves the
+            // arrow to top level before this pass runs, so nothing
+            // downstream was in a position to fix it either
+            // ("handled by their own pass" was not true of this
+            // case). Names the arrow rebinds are dropped from the map
+            // first — those references are its own.
+            Expr::ArrowFn { params, body, .. } => {
+                let sub: HashMap<String, String> = renames
+                    .iter()
+                    .filter(|(k, _)| !arrow_rebinds(&params, &body, k))
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect();
+                if !sub.is_empty() {
+                    let mut inner = body;
+                    rewrite_idents_in_body(ast, &mut inner, &sub);
+                    if let Expr::ArrowFn { body: slot, .. } = &mut ast.exprs[id.0 as usize] {
+                        *slot = inner;
+                    }
+                }
+            }
             _ => {}
         }
     }
+}
+
+/// True when an arrow rebinds `name` itself — as a parameter, or as a
+/// declaration at the top of its body. Such a reference belongs to the
+/// arrow, not to the enclosing scope whose declaration is being
+/// renamed, so it must keep the original name.
+///
+/// Deliberately shallow: a rebinding nested deeper than the arrow's
+/// own statement list shadows only within that inner block, where a
+/// reference to the outer name cannot appear anyway.
+fn arrow_rebinds(params: &[super::Param], body: &[Stmt], name: &str) -> bool {
+    params.iter().any(|p| p.name == name)
+        || body.iter().any(|s| match s {
+            Stmt::LetDecl { name: n, .. } | Stmt::FnDecl { name: n, .. } => n == name,
+            _ => false,
+        })
 }

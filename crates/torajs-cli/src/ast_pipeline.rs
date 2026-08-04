@@ -43,6 +43,14 @@ pub(crate) fn run_ast_desugar_pipeline(ast: &mut ast::Ast) {
     ast::synthesize_class_globals(ast);
     ast::tag_struct_field_closure_types(ast);
     ast::desugar_capturing_nested_fns(ast);
+    // Once BEFORE the arrows lift and once after (below). The rename a
+    // lift performs has to reach the arrows that call the nested
+    // function, and they are only still inside the parent's body at
+    // this point; the later call is what catches a nested function
+    // declared inside an arrow, which is not top-level until
+    // `lift_arrow_fns` has made it one. The pass is a fixpoint and
+    // idempotent, so running it twice costs a walk that lifts nothing.
+    ast::desugar_nested_fns(ast);
     ast::lift_arrow_fns(ast);
     ast::infer_anonymous_closure_params(ast);
     ast_closure_param_tag::tag_closure_arg_params(ast);
