@@ -148,125 +148,131 @@ pub(crate) fn collect_toplevel_globals(
             {
                 continue;
             }
-            // K.3 — primitive Copy types (no lifetime concerns).
-            // K.4 — refcount Str (drop on program exit).
-            // K.6 — refcount Arr / Obj (same drop machinery as Str —
-            //       `emit_drop_value` dispatches by type, walking
-            //       refcounted array elements / object fields).
-            // Closure / FnSig still deferred: Closure needs the
-            // matching `__env_drop_<closure>` to wire through the
-            // global-drop path, and FnSig globals haven't surfaced
-            // a real use case yet.
-            // RFC 20260709-closure-global chunk 1 — Closure joins:
-            // the drop machinery dispatches by type (env drop_fn
-            // @+16, chunk 530), init is a fresh lifted env (K.4
-            // fresh-heap-init holds), reads ride the global-closure
-            // CallIndirect lane. Chunk 809 — Type::Any joins for
-            // USER `any`-annotated bindings a named fn reads: the
-            // slot holds a NaN-box AnyValue (the same 8-byte repr
-            // every Arr<Any> slot carries), init boxes through
-            // `box_to_any_from_expr`, the assign lane drops-old /
-            // boxes-new, and the exit hook's `emit_drop_value` Any
-            // arm settles the box. The historical dynobj-shape
-            // mismatch concern predates the unified NaN-box repr.
-            // Synthetic class plumbing (`__class_*` / `__proto_*`,
-            // `: any`-annotated by construction) stays main-local —
-            // the class machinery owns its own access lanes.
-            // Cluster #4 follow-up (rotation 235) — Symbol joins:
-            // fresh-mint init (§20.4.1), no in-place mutation
-            // surface (same profile as Str), drop dispatch already
-            // carries a Symbol arm (`symbol_drop`).
-            let supported = matches!(
-                ty,
-                Type::I64
-                    | Type::F64
-                    | Type::Bool
-                    | Type::I32
-                    | Type::Str
-                    | Type::Arr(_)
-                    | Type::Obj(_)
-                    | Type::Closure(_)
-                    | Type::Symbol
-            ) || (ty == Type::Any
-                && binding_refs.named_fn_refs.contains(name)
-                // Desugar-minted sentinels stay locals — EXCEPT the
-                // computed-field key globals (RFC 20260802 刀 3
-                // 后半): `__ccmk_<C>_<n>` holds the class-definition-
-                // time evaluated key that the `__new_<C>` factory's
-                // ctor prefix reads per construction.
-                && (!name.starts_with("__") || name.starts_with("__ccmk_")));
-            if !supported {
+            if !slot_type_supported(&ty, name, &binding_refs) {
                 continue;
             }
-            // K.6 — mutable Obj/Arr globals promote (see the gate
-            // below); the historical writeback concern is retired.
-            // For Arr, B1 fixed the cell across growth: `push` /
-            // `set_any_grow` realloc only the spilled data buffer
-            // behind ARR_DATA_PTR_OFF and return the same cell
-            // (`__torajs_arr_push` in torajs-arr grow.rs), so hidden
-            // mutation through method calls needs no slot writeback —
-            // the push global lane already ships on that invariant
-            // ("B1 — cell fixed across grow; global-slot write-back
-            // retired", ssa_lower_call_arr_push). Whole-binding
-            // reassignment rides the Assign-Ident global lane's
-            // drop-old/store-new. Mutable primitive Copy globals stay
-            // promoted (K.3 / globals-001 depends on it). Mutable Str
-            // globals promote ONLY behind the named-fn-refs gate
-            // (chunk 558): strings have no in-place mutation methods,
-            // so the writeback concern doesn't exist and the
-            // Assign-Ident path handles drop-old/store-new — but the
-            // slot's sole purpose is named-fn visibility, and
-            // unconditional promotion drags await-init / borrow-
-            // shaped-init bindings (`let s: string = await p`) into
-            // the K.4 fresh-heap-init requirement they don't meet.
-            // No named-fn reader/writer → keep the main-local home
-            // (its scope-drop walk already owns cleanup).
-            // Chunk 730 (RFC 20260709-closure-global) — mutable
-            // Closure globals promote behind the same gate: a
-            // closure's env is opaque to user code (no in-place
-            // mutation surface), assignment is the only mutation
-            // face and the Assign-Ident lane owns
-            // drop-old/store-new. Chunk 740 — closure-captured
-            // bindings promote too: the capture filter resolves the
-            // name to the global for reads AND the lifted body's
-            // writes take the same Assign-Ident global lane, so the
-            // slot IS the single home (the old env-copy snapshot
-            // disagreed with ES shared-binding semantics).
-            // Chunk 809 — mutable Any globals promote behind the same
-            // gate: assignment is the only mutation face this lane
-            // owns (drop-old/box-new in the Assign-Ident lane), and
-            // member writes route through the runtime any-member
-            // helpers on the loaded box.
-            // RFC 20260725 (own-field-write follow-up) — mutable
-            // struct globals promote behind the same gate: a struct
-            // cell's field write is an in-place fixed-offset store
-            // (no reallocating method surface exists on Obj), so the
-            // K.6 writeback concern doesn't apply, and whole-binding
-            // reassignment rides the Assign-Ident global lane's
-            // drop-old/store-new like Str/Closure/Any.
-            // Symbol rides the Str profile: no in-place mutation
-            // methods exist, so assignment (drop-old/store-new in
-            // the Assign-Ident lane) is the only mutation face.
-            // r290 — a closure-captured Any binding joins the gate:
-            // the hoisted-var `: any` shape's init is the Uninit
-            // sentinel the Any lane already digests, so the K.4
-            // fresh-heap-init concern that keeps the concrete
-            // refcounted types on the named-fn gate does not apply.
-            let mutable_promote = (ty == Type::Str
-                || matches!(ty, Type::Closure(_))
-                || ty == Type::Any
-                || matches!(ty, Type::Obj(_))
-                || matches!(ty, Type::Arr(_))
-                || ty == Type::Symbol)
-                && (binding_refs.named_fn_refs.contains(name)
-                    || (ty == Type::Any && binding_refs.closure_captured.contains(name)));
-            if *mutable && ty.is_refcounted() && !mutable_promote {
+            if *mutable && ty.is_refcounted() && !mutable_promotes(&ty, name, &binding_refs) {
                 continue;
             }
             globals.insert(name.clone(), ty);
         }
     }
     globals
+}
+
+/// Whether `ty` is a slot type the data-global machinery carries at
+/// all (the `supported` gate, extracted verbatim rotation 297).
+///
+/// K.3 — primitive Copy types (no lifetime concerns).
+/// K.4 — refcount Str (drop on program exit).
+/// K.6 — refcount Arr / Obj (same drop machinery as Str —
+///       `emit_drop_value` dispatches by type, walking refcounted
+///       array elements / object fields).
+/// FnSig still deferred: FnSig globals haven't surfaced a real use
+/// case yet.
+/// RFC 20260709-closure-global chunk 1 — Closure joins: the drop
+/// machinery dispatches by type (env drop_fn @+16, chunk 530), init
+/// is a fresh lifted env (K.4 fresh-heap-init holds), reads ride the
+/// global-closure CallIndirect lane. Chunk 809 — Type::Any joins for
+/// USER `any`-annotated bindings a named fn reads: the slot holds a
+/// NaN-box AnyValue (the same 8-byte repr every Arr<Any> slot
+/// carries), init boxes through `box_to_any_from_expr`, the assign
+/// lane drops-old / boxes-new, and the exit hook's `emit_drop_value`
+/// Any arm settles the box. The historical dynobj-shape mismatch
+/// concern predates the unified NaN-box repr. Synthetic class
+/// plumbing (`__class_*` / `__proto_*`, `: any`-annotated by
+/// construction) stays main-local — the class machinery owns its own
+/// access lanes. Cluster #4 follow-up (rotation 235) — Symbol joins:
+/// fresh-mint init (§20.4.1), no in-place mutation surface (same
+/// profile as Str), drop dispatch already carries a Symbol arm
+/// (`symbol_drop`).
+fn slot_type_supported(
+    ty: &Type,
+    name: &str,
+    binding_refs: &crate::ast_refs::ToplevelBindingRefs,
+) -> bool {
+    matches!(
+        ty,
+        Type::I64
+            | Type::F64
+            | Type::Bool
+            | Type::I32
+            | Type::Str
+            | Type::Arr(_)
+            | Type::Obj(_)
+            | Type::Closure(_)
+            | Type::Symbol
+    ) || (*ty == Type::Any
+        && binding_refs.named_fn_refs.contains(name)
+        // Desugar-minted sentinels stay locals — EXCEPT the
+        // computed-field key globals (RFC 20260802 刀 3 后半):
+        // `__ccmk_<C>_<n>` holds the class-definition-time evaluated
+        // key that the `__new_<C>` factory's ctor prefix reads per
+        // construction.
+        && (!name.starts_with("__") || name.starts_with("__ccmk_")))
+}
+
+/// Whether a MUTABLE refcounted binding still promotes to a data
+/// global (the `mutable_promote` gate, extracted verbatim rotation
+/// 297).
+///
+/// K.6 — mutable Obj/Arr globals promote; the historical writeback
+/// concern is retired. For Arr, B1 fixed the cell across growth:
+/// `push` / `set_any_grow` realloc only the spilled data buffer
+/// behind ARR_DATA_PTR_OFF and return the same cell
+/// (`__torajs_arr_push` in torajs-arr grow.rs), so hidden mutation
+/// through method calls needs no slot writeback — the push global
+/// lane already ships on that invariant ("B1 — cell fixed across
+/// grow; global-slot write-back retired", ssa_lower_call_arr_push).
+/// Whole-binding reassignment rides the Assign-Ident global lane's
+/// drop-old/store-new. Mutable primitive Copy globals stay promoted
+/// (K.3 / globals-001 depends on it). Mutable Str globals promote
+/// ONLY behind the named-fn-refs gate (chunk 558): strings have no
+/// in-place mutation methods, so the writeback concern doesn't exist
+/// and the Assign-Ident path handles drop-old/store-new — but the
+/// slot's sole purpose is named-fn visibility, and unconditional
+/// promotion drags await-init / borrow-shaped-init bindings
+/// (`let s: string = await p`) into the K.4 fresh-heap-init
+/// requirement they don't meet. No named-fn reader/writer → keep the
+/// main-local home (its scope-drop walk already owns cleanup).
+/// Chunk 730 (RFC 20260709-closure-global) — mutable Closure globals
+/// promote behind the same gate: a closure's env is opaque to user
+/// code (no in-place mutation surface), assignment is the only
+/// mutation face and the Assign-Ident lane owns drop-old/store-new.
+/// Chunk 740 — closure-captured bindings promote too: the capture
+/// filter resolves the name to the global for reads AND the lifted
+/// body's writes take the same Assign-Ident global lane, so the slot
+/// IS the single home (the old env-copy snapshot disagreed with ES
+/// shared-binding semantics). Chunk 809 — mutable Any globals promote
+/// behind the same gate: assignment is the only mutation face this
+/// lane owns (drop-old/box-new in the Assign-Ident lane), and member
+/// writes route through the runtime any-member helpers on the loaded
+/// box. RFC 20260725 (own-field-write follow-up) — mutable struct
+/// globals promote behind the same gate: a struct cell's field write
+/// is an in-place fixed-offset store (no reallocating method surface
+/// exists on Obj), so the K.6 writeback concern doesn't apply, and
+/// whole-binding reassignment rides the Assign-Ident global lane's
+/// drop-old/store-new like Str/Closure/Any. Symbol rides the Str
+/// profile: no in-place mutation methods exist, so assignment
+/// (drop-old/store-new in the Assign-Ident lane) is the only
+/// mutation face. r290 — a closure-captured Any binding joins the
+/// gate: the hoisted-var `: any` shape's init is the Uninit sentinel
+/// the Any lane already digests, so the K.4 fresh-heap-init concern
+/// that keeps the concrete refcounted types on the named-fn gate
+/// does not apply.
+fn mutable_promotes(
+    ty: &Type,
+    name: &str,
+    binding_refs: &crate::ast_refs::ToplevelBindingRefs,
+) -> bool {
+    (*ty == Type::Str
+        || matches!(ty, Type::Closure(_))
+        || *ty == Type::Any
+        || matches!(ty, Type::Obj(_))
+        || matches!(ty, Type::Arr(_))
+        || *ty == Type::Symbol)
+        && (binding_refs.named_fn_refs.contains(name)
+            || (*ty == Type::Any && binding_refs.closure_captured.contains(name)))
 }
 
 /// K.3b — slot type for an ANNOTATED top-level binding. `None` keeps
