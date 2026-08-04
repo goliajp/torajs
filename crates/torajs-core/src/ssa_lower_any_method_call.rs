@@ -229,7 +229,19 @@ pub(crate) fn pack_any_argv(
         let raw = ctx.lower_expr(aid);
         let raw_ty = ctx.operand_ty(&raw);
         let (slot_val, we_boxed) = if raw_ty == Type::Any {
-            (raw, false)
+            // An operand that is already an Any rides verbatim — the
+            // runtime borrows argv, so nothing is boxed here. It can
+            // still be OWNED: an any-member read mints its result,
+            // and so does an inner any-call, and with no post-call
+            // release that stake belongs to nobody. The one that made
+            // it visible was `new Promise(executor)`, whose desugar
+            // passes the settle pair as `__ex(__pr.resolve,
+            // __pr.reject)` — ~885 bytes stranded per mint, because
+            // each leaked closure holds an env that holds the cell.
+            // Binding the same read to a `const` first never leaked,
+            // which is what a missing temp release looks like.
+            let owned = ctx.expr_is_fresh_owned(aid);
+            (raw, owned)
         } else {
             if is_borrow && raw_ty.is_refcounted() {
                 ctx.emit_rc_inc(raw.clone());
