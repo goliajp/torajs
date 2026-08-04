@@ -10,9 +10,10 @@ pub(super) fn rewrite_idents_in_body(
     ast: &mut Ast,
     body: &mut Vec<Stmt>,
     renames: &HashMap<String, String>,
+    arrows: bool,
 ) {
     for s in body.iter_mut() {
-        rewrite_idents_in_stmt(ast, s, renames);
+        rewrite_idents_in_stmt(ast, s, renames, arrows);
     }
 }
 
@@ -20,27 +21,28 @@ pub(super) fn rewrite_idents_in_stmt(
     ast: &mut Ast,
     s: &mut Stmt,
     renames: &HashMap<String, String>,
+    arrows: bool,
 ) {
     match s {
-        Stmt::Expr(eid) => rewrite_idents_in_expr(ast, *eid, renames),
-        Stmt::LetDecl { init, .. } => rewrite_idents_in_expr(ast, *init, renames),
-        Stmt::Return(Some(eid)) => rewrite_idents_in_expr(ast, *eid, renames),
-        Stmt::Throw(eid) => rewrite_idents_in_expr(ast, *eid, renames),
+        Stmt::Expr(eid) => rewrite_idents_in_expr(ast, *eid, renames, arrows),
+        Stmt::LetDecl { init, .. } => rewrite_idents_in_expr(ast, *init, renames, arrows),
+        Stmt::Return(Some(eid)) => rewrite_idents_in_expr(ast, *eid, renames, arrows),
+        Stmt::Throw(eid) => rewrite_idents_in_expr(ast, *eid, renames, arrows),
         Stmt::If {
             cond,
             then_branch,
             else_branch,
         } => {
-            rewrite_idents_in_expr(ast, *cond, renames);
-            rewrite_idents_in_stmt(ast, then_branch, renames);
+            rewrite_idents_in_expr(ast, *cond, renames, arrows);
+            rewrite_idents_in_stmt(ast, then_branch, renames, arrows);
             if let Some(eb) = else_branch.as_deref_mut() {
-                rewrite_idents_in_stmt(ast, eb, renames);
+                rewrite_idents_in_stmt(ast, eb, renames, arrows);
             }
         }
-        Stmt::Labeled { body, .. } => rewrite_idents_in_stmt(ast, body, renames),
+        Stmt::Labeled { body, .. } => rewrite_idents_in_stmt(ast, body, renames, arrows),
         Stmt::While { cond, body } | Stmt::DoWhile { body, cond } => {
-            rewrite_idents_in_expr(ast, *cond, renames);
-            rewrite_idents_in_stmt(ast, body, renames);
+            rewrite_idents_in_expr(ast, *cond, renames, arrows);
+            rewrite_idents_in_stmt(ast, body, renames, arrows);
         }
         Stmt::For {
             init,
@@ -49,19 +51,19 @@ pub(super) fn rewrite_idents_in_stmt(
             body,
         } => {
             if let Some(i) = init.as_deref_mut() {
-                rewrite_idents_in_stmt(ast, i, renames);
+                rewrite_idents_in_stmt(ast, i, renames, arrows);
             }
             if let Some(c) = cond {
-                rewrite_idents_in_expr(ast, *c, renames);
+                rewrite_idents_in_expr(ast, *c, renames, arrows);
             }
             if let Some(st) = step {
-                rewrite_idents_in_expr(ast, *st, renames);
+                rewrite_idents_in_expr(ast, *st, renames, arrows);
             }
-            rewrite_idents_in_stmt(ast, body, renames);
+            rewrite_idents_in_stmt(ast, body, renames, arrows);
         }
         Stmt::Block(b) | Stmt::Multi(b) => {
             for s2 in b.iter_mut() {
-                rewrite_idents_in_stmt(ast, s2, renames);
+                rewrite_idents_in_stmt(ast, s2, renames, arrows);
             }
         }
         Stmt::Try {
@@ -71,14 +73,14 @@ pub(super) fn rewrite_idents_in_stmt(
             ..
         } => {
             for s2 in body.iter_mut() {
-                rewrite_idents_in_stmt(ast, s2, renames);
+                rewrite_idents_in_stmt(ast, s2, renames, arrows);
             }
             for s2 in catch_body.iter_mut() {
-                rewrite_idents_in_stmt(ast, s2, renames);
+                rewrite_idents_in_stmt(ast, s2, renames, arrows);
             }
             if let Some(fb) = finally_body {
                 for s2 in fb.iter_mut() {
-                    rewrite_idents_in_stmt(ast, s2, renames);
+                    rewrite_idents_in_stmt(ast, s2, renames, arrows);
                 }
             }
         }
@@ -87,34 +89,34 @@ pub(super) fn rewrite_idents_in_stmt(
             cases,
             default,
         } => {
-            rewrite_idents_in_expr(ast, *scrutinee, renames);
+            rewrite_idents_in_expr(ast, *scrutinee, renames, arrows);
             for case in cases.iter_mut() {
-                rewrite_idents_in_expr(ast, case.value, renames);
+                rewrite_idents_in_expr(ast, case.value, renames, arrows);
                 for s2 in case.body.iter_mut() {
-                    rewrite_idents_in_stmt(ast, s2, renames);
+                    rewrite_idents_in_stmt(ast, s2, renames, arrows);
                 }
             }
             if let Some(dflt) = default {
                 for s2 in dflt.iter_mut() {
-                    rewrite_idents_in_stmt(ast, s2, renames);
+                    rewrite_idents_in_stmt(ast, s2, renames, arrows);
                 }
             }
         }
         Stmt::ForOfSplitIter {
             parent, sep, body, ..
         } => {
-            rewrite_idents_in_expr(ast, *parent, renames);
-            rewrite_idents_in_expr(ast, *sep, renames);
-            rewrite_idents_in_stmt(ast, body, renames);
+            rewrite_idents_in_expr(ast, *parent, renames, arrows);
+            rewrite_idents_in_expr(ast, *sep, renames, arrows);
+            rewrite_idents_in_stmt(ast, body, renames, arrows);
         }
         Stmt::ForOf {
             elem_expr, body, ..
         } => {
-            rewrite_idents_in_expr(ast, *elem_expr, renames);
-            rewrite_idents_in_stmt(ast, body, renames);
+            rewrite_idents_in_expr(ast, *elem_expr, renames, arrows);
+            rewrite_idents_in_stmt(ast, body, renames, arrows);
         }
         Stmt::Yield(eid) | Stmt::YieldInto { value: eid, .. } => {
-            rewrite_idents_in_expr(ast, *eid, renames);
+            rewrite_idents_in_expr(ast, *eid, renames, arrows);
         }
         _ => {}
     }
@@ -124,6 +126,7 @@ pub(super) fn rewrite_idents_in_expr(
     ast: &mut Ast,
     eid: ExprId,
     renames: &HashMap<String, String>,
+    arrows: bool,
 ) {
     use std::collections::HashSet;
     let mut seen: HashSet<ExprId> = HashSet::new();
@@ -212,7 +215,16 @@ pub(super) fn rewrite_idents_in_expr(
             }
             // An arrow body is a separate scope, but a nested scope
             // SEES its enclosing bindings — and renaming a nested
-            // `function f` is a rename of one. Skipping the descent
+            // `function f` is a rename of one, WHEN the rename is a
+            // hoist into the enclosing function scope (`arrows`).
+            // Pass 2's module-top-level blocks are the other case: in
+            // strict mode `{ function f(){} }` at global scope is
+            // block-scoped and nothing outside the block resolves it,
+            // so the descent must NOT happen there — doing it made
+            // `assert.throws(ReferenceError, function() { f; })`
+            // resolve and stop throwing (test262
+            // `global-code/{block,switch-case,switch-dflt}-decl-strict`).
+            // Skipping the descent
             // left `(x) => step(x)` calling a `step` that no longer
             // exists under that name once the declaration lifted to
             // `__nested_<parent>_step_N`; `lift_arrow_fns` moves the
@@ -221,7 +233,7 @@ pub(super) fn rewrite_idents_in_expr(
             // ("handled by their own pass" was not true of this
             // case). Names the arrow rebinds are dropped from the map
             // first — those references are its own.
-            Expr::ArrowFn { params, body, .. } => {
+            Expr::ArrowFn { params, body, .. } if arrows => {
                 let sub: HashMap<String, String> = renames
                     .iter()
                     .filter(|(k, _)| !arrow_rebinds(&params, &body, k))
@@ -229,7 +241,7 @@ pub(super) fn rewrite_idents_in_expr(
                     .collect();
                 if !sub.is_empty() {
                     let mut inner = body;
-                    rewrite_idents_in_body(ast, &mut inner, &sub);
+                    rewrite_idents_in_body(ast, &mut inner, &sub, arrows);
                     if let Expr::ArrowFn { body: slot, .. } = &mut ast.exprs[id.0 as usize] {
                         *slot = inner;
                     }

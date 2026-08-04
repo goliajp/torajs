@@ -85,11 +85,11 @@ fn desugar_nested_fns_once(ast: &mut Ast) {
                     .map(|(k, v)| (k.clone(), v.clone()))
                     .collect();
                 if !outer_map.is_empty() {
-                    rewrite_idents_in_body(ast, body, &outer_map);
+                    rewrite_idents_in_body(ast, body, &outer_map, true);
                 }
                 for lf in lifted.iter_mut() {
                     if let Stmt::FnDecl { body: lb, .. } = lf {
-                        rewrite_idents_in_body(ast, lb, &renames);
+                        rewrite_idents_in_body(ast, lb, &renames, true);
                     }
                 }
             }
@@ -135,12 +135,12 @@ fn desugar_nested_fns_once(ast: &mut Ast) {
             .collect();
         if !outer_map.is_empty() {
             for stmt in top.iter_mut() {
-                rewrite_idents_in_stmt(ast, stmt, &outer_map);
+                rewrite_idents_in_stmt(ast, stmt, &outer_map, false);
             }
         }
         for lf in top_lifted.iter_mut() {
             if let Stmt::FnDecl { body: lb, .. } = lf {
-                rewrite_idents_in_body(ast, lb, &top_renames);
+                rewrite_idents_in_body(ast, lb, &top_renames, true);
             }
         }
     }
