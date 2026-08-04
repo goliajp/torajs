@@ -76,6 +76,11 @@ impl<'a> Parser<'a> {
                         // method's body must mint the same receiver
                         // reference the surrounding body does.
                         in_gen_class_method: self.in_gen_class_method,
+                        // r295 — a `${this.x}` mint inside the
+                        // interpolation must count for the enclosing
+                        // generator-expression body's receiver-param
+                        // decision; the flag flows back below.
+                        gen_recv_minted: self.gen_recv_minted,
                         // Same inheritance rationale: `${this.x}` in a
                         // static method body must mint the class-object
                         // reference the surrounding body does (S2.37).
@@ -118,6 +123,7 @@ impl<'a> Parser<'a> {
                         ));
                     }
                     self.ast = sub.ast;
+                    self.gen_recv_minted = sub.gen_recv_minted;
                     self.desugar_id = sub.desugar_id;
                     self.generator_fns = sub.generator_fns;
                     // P8.5 — propagate any class expressions parsed

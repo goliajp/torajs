@@ -85,6 +85,18 @@ pub fn hoist_gen_fn_exprs(ast: &mut Ast) {
         else {
             panic!("gen_fn_exprs marker on a non-ArrowFn ExprId {eid:?} (parser contract)");
         };
+        // r295 — a body whose `this` was minted to `__genrecv`
+        // (fn_expr.rs prepends the receiver param): register the wrap
+        // forwarder's name for FLAG_CLOSURE_RECV_FIRST, so a
+        // method-shaped call of the wrapped cell seeds the receiver
+        // into argv[0] — which lands exactly on the leading
+        // `__genrecv` param the forwarder forwards verbatim.
+        if params
+            .first()
+            .is_some_and(|p| p.name == crate::ast::GEN_RECV_PARAM)
+        {
+            ast.fnexpr_recv_fns.insert(format!("__forward_{name}"));
+        }
         let captures =
             crate::ast::free_vars::free_vars_of_arrow(ast, &params, &body, &global_names);
         if !captures.is_empty() {

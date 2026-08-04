@@ -118,6 +118,7 @@ pub fn parse_into(source: &str, tokens: &[Spanned], target: &mut Ast) -> Result<
         generator_fns: std::collections::HashMap::new(),
         current_class: None,
         in_gen_class_method: false,
+        gen_recv_minted: false,
         in_async_gen: false,
         in_generator: false,
         pending_async_fn_expr: false,
@@ -204,6 +205,13 @@ struct Parser<'a> {
     /// receiver. Minting the parameter reference up front keeps the two
     /// apart.
     in_gen_class_method: bool,
+    /// r295 — set by the `this`-mint in `primary.rs` while
+    /// `in_gen_class_method` is on. The fn-EXPRESSION generator body
+    /// (`fn_expr.rs`) reads it after the body parse: a body that
+    /// minted the receiver gets a leading `__genrecv: any = undefined`
+    /// param (the class-method form's forwarder passes `this`
+    /// explicitly, so it never needs the flag or the default).
+    gen_recv_minted: bool,
     /// F2/F3 (RFC 20260728-gen-forof-yieldstar) — whether the cursor
     /// is inside an `async function*` body. The generic `yield* e`
     /// desugar reads it to stamp `is_await` on its ForOf (F3: the F1

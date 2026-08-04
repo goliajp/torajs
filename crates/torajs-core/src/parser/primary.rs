@@ -122,6 +122,10 @@ impl<'a> Parser<'a> {
                 // instance. See `Parser::in_gen_class_method`.
                 if self.in_gen_class_method {
                     let recv = crate::ast::GEN_RECV_PARAM;
+                    // r295 — the fn-expression generator form reads
+                    // this to know its body actually used `this` (and
+                    // so needs the leading `__genrecv` param).
+                    self.gen_recv_minted = true;
                     return Ok(self.ast.add_expr(Expr::Ident(recv.into())));
                 }
                 // P-SURF S2.37 — inside a static member body `this` is

@@ -236,6 +236,16 @@ impl<'a> Parser<'a> {
             std::mem::replace(&mut self.in_async_gen, was_async_prefixed && is_generator);
         let saved_gen = std::mem::replace(&mut self.in_generator, is_generator);
         let saved_await = std::mem::replace(&mut self.await_allowed, was_async_prefixed);
+        // r295 — a generator EXPRESSION body's `this` is the factory
+        // call's receiver (§27.5.1.1: OrdinaryCallBindThis on the
+        // [[Call]] that mints the generator object). Ride the class
+        // generator method's parse-time mint: `this` becomes
+        // `Ident(__genrecv)`, and after the body parse a mint that
+        // actually fired adds the leading receiver param below. Same
+        // known limitation as the class form (parser.rs field doc): a
+        // non-arrow fn expression nested in the body inherits the mint.
+        let saved_igcm = std::mem::replace(&mut self.in_gen_class_method, is_generator);
+        let saved_minted = std::mem::replace(&mut self.gen_recv_minted, false);
         let mut stmts = Vec::new();
         while !matches!(self.peek(), Token::RBrace | Token::Eof) {
             let s = match self.parse_stmt() {
@@ -244,14 +254,19 @@ impl<'a> Parser<'a> {
                     self.await_allowed = saved_await;
                     self.in_generator = saved_gen;
                     self.in_async_gen = saved_async_gen;
+                    self.in_gen_class_method = saved_igcm;
+                    self.gen_recv_minted = saved_minted;
                     return Err(e);
                 }
             };
             stmts.push(s);
         }
+        let recv_minted = self.gen_recv_minted;
         self.await_allowed = saved_await;
         self.in_generator = saved_gen;
         self.in_async_gen = saved_async_gen;
+        self.in_gen_class_method = saved_igcm;
+        self.gen_recv_minted = saved_minted;
         match self.peek() {
             Token::RBrace => self.pos += 1,
             t => {
@@ -271,6 +286,26 @@ impl<'a> Parser<'a> {
             full.extend(stmts);
             full
         };
+        // r295 — the body minted the receiver: prepend the
+        // `__genrecv: any = undefined` param. The generator desugar
+        // turns it into a `__Gen_*` field like any other param; the
+        // wrap forwarder's cell carries FLAG_CLOSURE_RECV_FIRST (the
+        // hoist pass registers it) so a method-shaped call seeds the
+        // receiver into argv[0], and the `undefined` default covers a
+        // detached / direct call (§10.2.1.2, no thisArgument).
+        let mut params = params;
+        if is_generator && recv_minted {
+            let undef = self.ast.add_expr(Expr::Ident("undefined".into()));
+            params.insert(
+                0,
+                crate::ast::Param {
+                    name: crate::ast::GEN_RECV_PARAM.into(),
+                    type_ann: Some("any".into()),
+                    default: Some(undef),
+                    is_rest: false,
+                },
+            );
+        }
         let eid = self.add_expr_at(
             start_pos,
             Expr::ArrowFn {
