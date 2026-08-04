@@ -175,7 +175,13 @@ pub unsafe extern "C" fn __torajs_promise_all_sync(promises_arr: *mut c_void) ->
     unsafe { absorb_inputs(promises_arr) };
     let len = unsafe { arr_len(promises_arr) };
     // Pre-scan: first rejected → reject outer with that reason; first
-    // pending → reject with placeholder (MVP — no fan-in yet).
+    // pending → reject with placeholder (MVP — no fan-in yet). The
+    // element form is read here as well, so the build loop below
+    // already knows whether the result array will co-own its slots
+    // before it starts filling them. The typed tier guarantees a
+    // homogeneous `Array<Promise<T>>` input, so the first element's
+    // form describes all of them.
+    let mut elem_repr = REPR_UNSTAMPED;
     for i in 0..len {
         let pp = unsafe { arr_slot_ptr(promises_arr, i) };
         if pp.is_null() {
@@ -188,27 +194,38 @@ pub unsafe extern "C" fn __torajs_promise_all_sync(promises_arr: *mut c_void) ->
         if state == STATE_PENDING {
             return unsafe { defer_settle(STATE_REJECTED, 0, 0, REPR_VOID) };
         }
+        if elem_repr == REPR_UNSTAMPED {
+            elem_repr = unsafe { (*pp).value_repr };
+        }
     }
-    // All fulfilled — build result Array. The elem kind comes from
-    // the first source's value repr (the typed tier guarantees a
-    // homogeneous Array<Promise<T>> input).
+    // All fulfilled — build the result Array.
+    let chain = repr_arr_kind_chain(elem_repr);
+    // A heap-chained result array DROPS every non-null slot once its
+    // last owner dies (`__torajs_arr_drop_heap` walks them all), while
+    // each source promise keeps its own stake — so every element the
+    // result co-owns has to be paid for here. Without this the sources
+    // died first and freed the very cells the result still pointed at,
+    // and the reads came back as whatever later reused those blocks:
+    // SILENTLY wrong values rather than a crash. `allSettled`'s
+    // inner-value inc and `race`/`any`'s forwarded-value inc are the
+    // same payment; only this loop was missing it.
+    let co_owns = chain == Some(4);
     let mut result_arr = unsafe { __torajs_arr_alloc(len) };
-    let mut elem_repr = REPR_UNSTAMPED;
     for i in 0..len {
         let pp = unsafe { arr_slot_ptr(promises_arr, i) };
         let v = if pp.is_null() {
             0
         } else {
-            if elem_repr == REPR_UNSTAMPED {
-                elem_repr = unsafe { (*pp).value_repr };
-            }
             unsafe { (*pp).value }
         };
+        if co_owns && v != 0 {
+            unsafe { __torajs_rc_inc(v as *mut c_void) };
+        }
         result_arr = unsafe { __torajs_arr_push(result_arr, v) };
     }
-    let out_repr = match repr_arr_kind_chain(elem_repr) {
-        Some(chain) => {
-            unsafe { __torajs_arr_mark_kind(result_arr, chain) };
+    let out_repr = match chain {
+        Some(c) => {
+            unsafe { __torajs_arr_mark_kind(result_arr, c) };
             REPR_HEAP
         }
         // Unmarkable slots — keep the settled cell loud rather than
