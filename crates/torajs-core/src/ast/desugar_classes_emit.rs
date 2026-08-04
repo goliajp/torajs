@@ -338,7 +338,13 @@ pub(in crate::ast) fn emit_class_static_methods(
         // static methods mint; a this-free body mints nothing.
         if sm.accessor_kind.is_none() {
             super::desugar_classes_generic_twin::mint_static_generic_twin(
-                ast, &fn_name, &params, &body, type_params, sm.span, appended,
+                ast,
+                &fn_name,
+                &params,
+                &body,
+                type_params,
+                sm.span,
+                appended,
             );
         }
         appended.push(Stmt::FnDecl {
