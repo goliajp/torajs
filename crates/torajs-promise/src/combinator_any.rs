@@ -176,15 +176,18 @@ pub(crate) unsafe fn all_sync_any(promises_arr: *mut c_void) -> *mut c_void {
 }
 
 /// `Promise.allSettled` over an `Array<Any>` (§27.2.4.3). Every
-/// element lands in the result as a `{status, value}` settled struct
-/// (the typed kernel's MVP shape — a rejected element's reason rides
-/// the `value` slot until the spec-strict union shape ships), and a
-/// rejected element does NOT short-circuit. The struct's value slot
+/// element lands in the result as a settled record — `{status, value}`
+/// when fulfilled, `{status, reason}` when rejected, which is why
+/// `record_tags` carries a stamp for each shape — and a rejected
+/// element does NOT short-circuit. The struct's second slot
 /// holds boxed AnyValue bits; the checker types the result element
 /// `{status: string, value: any}` so field reads decode the NaN-box.
 /// The result is a typed heap-cell array (chain 4) of struct
 /// pointers — exactly the typed kernel's result shape.
-pub(crate) unsafe fn allsettled_sync_any(promises_arr: *mut c_void) -> *mut c_void {
+pub(crate) unsafe fn allsettled_sync_any(
+    promises_arr: *mut c_void,
+    record_tags: u64,
+) -> *mut c_void {
     unsafe {
         let len = *((promises_arr as *mut u8).add(ARR_LEN_OFF) as *const u64);
         // Absorb + verdict in one walk: a PENDING element (MVP — no
@@ -215,13 +218,21 @@ pub(crate) unsafe fn allsettled_sync_any(promises_arr: *mut c_void) -> *mut c_vo
                 Some(pp) => {
                     let v = box_settled_owned((*pp).value_repr, (*pp).value)
                         .unwrap_or_else(|| __torajs_anyv_box_from_pair(5, 0));
-                    crate::combinator_allsettled::alloc_settled_struct((*pp).state, v as i64)
+                    crate::combinator_allsettled::alloc_settled_struct(
+                        (*pp).state,
+                        v as i64,
+                        record_tags,
+                    )
                 }
                 None => {
                     // Plain value — already fulfilled (§27.2.4.3
                     // resolve-wrap), stored boxed verbatim.
                     __torajs_anyv_rc_inc(bits);
-                    crate::combinator_allsettled::alloc_settled_struct(STATE_FULFILLED, bits as i64)
+                    crate::combinator_allsettled::alloc_settled_struct(
+                        STATE_FULFILLED,
+                        bits as i64,
+                        record_tags,
+                    )
                 }
             };
             result_arr = __torajs_arr_push(result_arr, s as i64);

@@ -108,9 +108,10 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
     // (RFC 20260720-anylane-promise-methods; finally forwards only).
     let p_ptr_repr = &[Type::Promise, Type::Ptr, Type::I64][..];
     let ptr1 = &[Type::Ptr][..];
-    // `Promise.all` carries the element form its result array must hold
-    // — the call site is the only place that knows it, since SSA's
-    // `Type::Promise` erases the inner T.
+    // One trailing word the call site alone can supply, since SSA's
+    // `Type::Promise` erases the inner T: for `all` the element form
+    // its result array must hold, for `allSettled` the class tag its
+    // `{status, value}` records must carry.
     let ptr_repr = &[Type::Ptr, Type::I64][..];
     let i641 = &[Type::I64][..];
     PromiseIds {
@@ -292,7 +293,7 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             module,
             fn_table,
             "__torajs_promise_allsettled_sync",
-            ptr1,
+            ptr_repr,
             Type::Promise,
         ),
         promise_all_dyn: declare_intrinsic(

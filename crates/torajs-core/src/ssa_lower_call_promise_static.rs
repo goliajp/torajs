@@ -41,6 +41,7 @@
 //! through to subsequent arms or the generic call lowering.
 
 use crate::ast::{Expr, ExprId};
+use crate::check::{self as check_mod};
 use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 
@@ -116,6 +117,73 @@ fn all_result_elem_repr(ctx: &mut LowerCtx<'_>, eid: ExprId) -> i64 {
     crate::ssa_lower_promise_repr_mark::promise_value_repr(&elem, as_f64, false).unwrap_or(0)
 }
 
+/// The class tag `Promise.allSettled`'s `{status, value}` records have
+/// to carry so a by-name read can find their fields.
+///
+/// The records used to be 48 anonymous bytes with `class_tag = 0`,
+/// which is invisible to every by-name lookup: an unannotated handler
+/// (parameter inferred `any`) read them as `{}`. An ordinary `{x: 1}`
+/// literal is any-readable because the COMPILER stamps it out of
+/// `anon_stamp_pool` and emits a layout row for it, and
+/// `collect_class_field_candidates` walks that pool — so the record
+/// joins the same pool rather than getting a mechanism of its own.
+/// The runtime cannot mint this itself: `__torajs_class_layouts` is
+/// link-emitted rodata with nothing appending to it at startup.
+///
+/// Two tags, packed low word / high word: the fulfilled record's
+/// `{status, value}` and the rejected one's `{status, reason}`. §27.2.4.2
+/// names the second field differently per outcome, and one layout cannot
+/// answer to two names at the same offset — so the rejected shape is
+/// interned as its own struct and stamped separately. The runtime picks
+/// by state; the bytes it writes are identical either way.
+///
+/// `0` when the element shape is not a struct here — the anonymous
+/// posture, unchanged.
+fn allsettled_record_tags(ctx: &mut LowerCtx<'_>, eid: ExprId) -> i64 {
+    let inner = crate::ssa_lower_member_promise_value::recover_inner_ssa_ty(ctx, eid);
+    let Some(Type::Arr(aid)) = inner else {
+        return 0;
+    };
+    let Type::Obj(sid) = ctx.arr_layouts[aid.0 as usize] else {
+        return 0;
+    };
+    let fulfilled = ctx.anon_stamp_pool.borrow_mut().assign_or_get(sid);
+    // The rejected twin: the checker's own element struct with its
+    // second field renamed, so the field TYPES follow whatever it
+    // settled on for T and the offsets stay identical.
+    let Some(check_mod::Type::Promise(pinner)) = ctx.expr_types.get(&eid) else {
+        return i64::from(fulfilled);
+    };
+    let check_mod::Type::Array(elem) = &**pinner else {
+        return i64::from(fulfilled);
+    };
+    let check_mod::Type::Struct(fields) = &**elem else {
+        return i64::from(fulfilled);
+    };
+    let [(_, status_ty), (_, value_ty)] = &fields[..] else {
+        return i64::from(fulfilled);
+    };
+    let rejected_shape = check_mod::Type::Struct(vec![
+        ("status".to_string(), status_ty.clone()),
+        ("reason".to_string(), value_ty.clone()),
+    ]);
+    let ann = crate::check_type_to_ann::type_to_ann(&rejected_shape);
+    let rejected_ty = crate::ssa_lower_parse_type::parse_type(
+        Some(&ann),
+        ctx.aliases,
+        ctx.arr_layouts,
+        ctx.fn_sigs,
+        ctx.generic_struct_decls,
+        ctx.struct_layouts,
+        ctx.inst_memo,
+    );
+    let Type::Obj(rsid) = rejected_ty else {
+        return i64::from(fulfilled);
+    };
+    let rejected = ctx.anon_stamp_pool.borrow_mut().assign_or_get(rsid);
+    i64::from(fulfilled) | (i64::from(rejected) << 32)
+}
+
 /// `Promise.all/race/any/allSettled(xs, ...)` — lower `args[0]` and
 /// drop the rest for side-effects per S273 / ES §27.2.4.
 fn lower_aggregate(ctx: &mut LowerCtx<'_>, eid: ExprId, method: &str, args: &[ExprId]) -> Operand {
@@ -160,13 +228,14 @@ fn lower_aggregate(ctx: &mut LowerCtx<'_>, eid: ExprId, method: &str, args: &[Ex
         "allSettled" => ctx.intrinsics.promise_allsettled_sync,
         _ => unreachable!(),
     };
-    // Only `all` buries its elements in an array the top-level value
-    // read cannot reach into; race / any forward one settled value, so
-    // the awaiting site's own repr decode already covers them.
+    // `all` and `allSettled` each need one word only the call site can
+    // supply. race / any forward a single settled value, so the
+    // awaiting site's own repr decode already covers them.
     let mut call_args = vec![arr_op.clone()];
-    if method == "all" {
-        let repr = all_result_elem_repr(ctx, eid);
-        call_args.push(Operand::ConstI64(repr));
+    match method {
+        "all" => call_args.push(Operand::ConstI64(all_result_elem_repr(ctx, eid))),
+        "allSettled" => call_args.push(Operand::ConstI64(allsettled_record_tags(ctx, eid))),
+        _ => {}
     }
     let cur_block = ctx.cur_block;
     let v = ctx.f.append_inst(
