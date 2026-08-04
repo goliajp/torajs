@@ -131,6 +131,26 @@ pub(super) fn try_lower_static_method_reify(
         Type::FnSig(adapter_sig),
         None,
     );
+    // RFC 20260804-fn-this-channel knife 3b — the receiver-polymorphic
+    // static twin's boxed adapter (knife 3a's `__smany_` mint), or 0
+    // when no twin exists (this-free body / mint residue): the face
+    // cell carries it and `invoke_with_this` routes a `.call/.apply`
+    // rebind through it (a static face encodes as tag 0 + twin ≠ 0).
+    let twin_name = format!("__smany_{cname}__{mname}");
+    let twin_op = ctx
+        .fn_table
+        .get(twin_name.as_str())
+        .copied()
+        .and_then(|fid| ctx.boxed_entries.get(&fid).copied())
+        .map(|(twin_fid, twin_sig)| {
+            Operand::Value(ctx.f.append_inst(
+                cur_block,
+                InstKind::FnAddr(twin_fid),
+                Type::FnSig(twin_sig),
+                None,
+            ))
+        })
+        .unwrap_or(Operand::ConstI64(0));
     let define = ctx.intrinsics.static_method_define;
     ctx.f.append_void(
         cur_block,
@@ -141,6 +161,7 @@ pub(super) fn try_lower_static_method_reify(
                 name_op.clone(),
                 Operand::Value(adapter),
                 Operand::ConstI64(i64::from(this_free)),
+                twin_op,
             ],
         ),
     );

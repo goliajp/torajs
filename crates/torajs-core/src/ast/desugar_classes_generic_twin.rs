@@ -112,9 +112,10 @@ pub(in crate::ast) fn mint_generic_twin(
 /// Mint drops (clone neutralized, mono behavior kept — the recorded
 /// RFC residue): a body with no receiver read (`this`-free statics
 /// never rebind-misbehave), and a body carrying a static-dispatch
-/// call form (`__cm_` / `__dispatch_` / `__supercall__`) whose
-/// receiver would type `any` in the twin and trip the checker's
-/// ClassRef arg gate.
+/// call form with no restore record (the super rewrite — see
+/// [`restore_dynamic_calls`]; a static-this `this.m()` rewrite
+/// records its intact Member as a speculative-demote alt, which the
+/// restore step copies back so the twin dispatches dynamically).
 pub(in crate::ast) fn mint_static_generic_twin(
     ast: &mut Ast,
     mono_name: &str,
@@ -136,21 +137,19 @@ pub(in crate::ast) fn mint_static_generic_twin(
         neutralize_clone(&mut cloner);
         return;
     }
-    let has_static_call_form = cloner.map.values().any(|id| {
-        let Expr::Call { callee, .. } = cloner.ast.get_expr(*id) else {
-            return false;
-        };
-        matches!(cloner.ast.get_expr(*callee), Expr::Ident(f)
-            if f.starts_with("__cm_") || f.starts_with("__dispatch_") || f.starts_with("__supercall__"))
-    });
-    if has_static_call_form {
-        neutralize_clone(&mut cloner);
-        return;
-    }
     for new in this_sites {
         cloner.ast.exprs[new.0 as usize] = Expr::Ident("__this".into());
     }
     super::clone_body_tables::migrate(&mut cloner);
+    // Same restore step as the instance mint: every static-dispatch
+    // call form in the clone goes back to its member-call shape (a
+    // static body's `this.#f()` recorded its intact Member as a
+    // speculative-demote alt — see `restore_dynamic_calls`). A form
+    // with no record (the super rewrite) drops the mint.
+    if !restore_dynamic_calls(&mut cloner) {
+        neutralize_clone(&mut cloner);
+        return;
+    }
     let mut cloned_params: Vec<Param> = Vec::with_capacity(params.len() + 1);
     cloned_params.push(Param {
         name: "__this".into(),
@@ -211,6 +210,29 @@ fn restore_dynamic_calls(cloner: &mut BodyCloner<'_>) -> bool {
             continue;
         }
         let Some(member) = cloner.ast.cm_this_static_calls.get(&id).copied() else {
+            // Knife 3c (RFC 20260804-fn-this-channel) — a receiver
+            // that was not `this` at rewrite time (a typed receiver,
+            // or a STATIC body's `this` already minted to the class
+            // name) recorded its intact member-call shape as a
+            // speculative-demote alt instead. The alt Call was
+            // migrated alongside the clone, so restoring is copying
+            // its shape over the static-dispatch node (its Member
+            // callee's `obj` is the cloned receiver read — for a
+            // static-this site, the `__this` the mint just wrote).
+            if let Some(alt) = cloner.ast.speculative_cm_rewrites.get(&id).copied() {
+                let Expr::Call {
+                    callee: alt_callee,
+                    args: alt_args,
+                } = cloner.ast.get_expr(alt).clone()
+                else {
+                    return false;
+                };
+                cloner.ast.exprs[id.0 as usize] = Expr::Call {
+                    callee: alt_callee,
+                    args: alt_args,
+                };
+                continue;
+            }
             return false;
         };
         // Pass 2 prepended the receiver; the intact Member callee's

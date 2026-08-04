@@ -312,7 +312,7 @@ pub(crate) fn declare(
         error_is_error: decl!("__torajs_error_is_error", [Any], Bool),
         static_method_define: decl!(
             "__torajs_class_static_method_define",
-            [I64, Str, I64, I64],
+            [I64, Str, I64, I64, I64],
             Void
         ),
         static_field_define: decl!(

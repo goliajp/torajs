@@ -109,7 +109,10 @@ fn head_shape(name: &str, params: &[crate::ast::Param]) -> (bool, bool, bool) {
         params.first().is_some_and(|p| p.name == "__env"),
         head_is_this && name.starts_with("__cm_") && !name.starts_with("__cmany_"),
         head_is_this
-            && name.starts_with("__cmany_")
+            // Knife 3b (RFC 20260804-fn-this-channel) — the static
+            // twin `__smany_` has the same any-typed `__this` head
+            // and the same recv-first adapter shape.
+            && (name.starts_with("__cmany_") || name.starts_with("__smany_"))
             && !params
                 .iter()
                 .any(|p| p.name == "__torajs_real_argc" || p.name == "__torajs_argv"),

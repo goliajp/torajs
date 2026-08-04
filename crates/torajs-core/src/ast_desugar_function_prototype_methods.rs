@@ -123,7 +123,26 @@ pub(crate) fn run(ast: &mut Ast) {
         // a `__this: any` leading param) receives the thisArg in that
         // slot per §22.2.3.{3,4}; only a this-free target keeps the
         // historic thisArg drop (its body never reads the receiver).
-        let this_using = fn_params.first().is_some_and(|p| p.name == "__this");
+        let mut this_using = fn_params.first().is_some_and(|p| p.name == "__this");
+        // Knife 3c — `C.g.call(recv, …)` arrives here as
+        // `Ident("__sm_C__g").call(…)` (the static-member rewrite runs
+        // inside desugar_classes, before this pass). The mono has no
+        // receiver channel at all, but a this-using static minted a
+        // `__smany_` twin (knife 3a): devirtualize the rebind to a
+        // direct twin call, thisArg in the leading `__this` slot. A
+        // twin-less static keeps the historic drop (this-free bodies
+        // run identically; mint residues keep mono behavior).
+        let mut callee_target = obj_eid;
+        if !this_using
+            && m_name != "bind"
+            && let Some(rest) = fn_name.strip_prefix("__sm_")
+        {
+            let twin = format!("__smany_{rest}");
+            if fn_sigs.contains_key(&twin) {
+                callee_target = ast.add_expr(Expr::Ident(twin));
+                this_using = true;
+            }
+        }
 
         match m_name.as_str() {
             "call" => {
@@ -141,7 +160,7 @@ pub(crate) fn run(ast: &mut Ast) {
                 }
                 new_args.extend(args_clone.iter().skip(1).copied());
                 ast.exprs[i] = Expr::Call {
-                    callee: obj_eid,
+                    callee: callee_target,
                     args: new_args,
                 };
             }
@@ -172,7 +191,7 @@ pub(crate) fn run(ast: &mut Ast) {
                 }
                 new_args.extend(lit_args);
                 ast.exprs[i] = Expr::Call {
-                    callee: obj_eid,
+                    callee: callee_target,
                     args: new_args,
                 };
             }

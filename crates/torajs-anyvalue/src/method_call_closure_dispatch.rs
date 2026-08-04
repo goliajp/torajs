@@ -215,6 +215,17 @@ pub(crate) unsafe fn invoke_with_this(
         // receiver can never run it. Accessor faces don't answer the
         // method-face probe and keep their own not-callable path.
         if let Some(adapter) = crate::method_value_class::class_method_face_adapter(env) {
+            // RFC 20260804-fn-this-channel knife 3b — a STATIC method
+            // face encodes as `(tag 0, twin ≠ 0)`: its mono body has
+            // no receiver channel (a static `this` resolved to the
+            // class object at compile time), so a rebind always takes
+            // the `__smany_` twin, whatever the thisValue — instance,
+            // class object, foreign object, or primitive (§27.7.5.1
+            // OrdinaryCallBindThis puts no shape bound on it).
+            let (face_tag, twin) = crate::method_value_class::class_method_face_guard(env);
+            if face_tag == 0 && twin != 0 {
+                return invoke_boxed_recv_first(env, twin, this_arg, argv, argc);
+            }
             if is_cell(this_arg) {
                 // Blade 3 (RFC 20260804-method-rebind-generic-body)
                 // — the mono body reads the receiver at baked class
@@ -229,7 +240,6 @@ pub(crate) unsafe fn invoke_with_this(
                 // bodies are the recorded residue) — keep the mono
                 // path, today's behavior.
                 let recv = as_void_ptr(this_arg);
-                let (face_tag, twin) = crate::method_value_class::class_method_face_guard(env);
                 if face_tag != 0 && twin != 0 && !receiver_is_class(recv, face_tag) {
                     return invoke_boxed_recv_first(env, twin, this_arg, argv, argc);
                 }

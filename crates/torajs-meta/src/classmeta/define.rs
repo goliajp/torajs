@@ -33,6 +33,7 @@ pub unsafe extern "C" fn __torajs_class_static_method_define(
     name_str: *const u8,
     adapter: u64,
     this_free: u64,
+    twin: u64,
 ) {
     if !in_range(tag) || name_str.is_null() || adapter == 0 {
         return;
@@ -47,15 +48,21 @@ pub unsafe extern "C" fn __torajs_class_static_method_define(
         return;
     }
     unsafe {
-        // S2.38 — a static body never depends on a runtime receiver
-        // (its `this` resolves to the class object at parse time and
-        // the `__sm_` adapter drops its env argument); the compiler
-        // still gates the flag on a lossless argument surface
-        // (all-`Any` params, no caller-side defaults), so the emit
-        // side decides and this define just carries the verdict.
-        // tag 0 / twin 0 — a static method carries no receiver, so
-        // the blade-3 guard stays disarmed.
-        let cell = __torajs_class_method_cell_new(adapter, this_free, 0, 0);
+        // S2.38 — a static body's `this` resolves to the class object
+        // at compile time (the `__sm_` adapter drops its env
+        // argument); the compiler still gates the flag on a lossless
+        // argument surface (all-`Any` params, no caller-side
+        // defaults), so the emit side decides and this define just
+        // carries the verdict.
+        // RFC 20260804-fn-this-channel knife 3b — `twin` is the
+        // `__smany_` receiver-polymorphic body's boxed adapter (0 =
+        // this-free / mint residue). A STATIC face encodes as
+        // `(tag 0, twin ≠ 0)` in the guard pair: the mono body has
+        // no receiver channel at all, so a `.call/.apply` rebind
+        // must ALWAYS take the twin — there is no receiver value
+        // the mono path could honor (the instance guard's tag
+        // compare has nothing to compare against).
+        let cell = __torajs_class_method_cell_new(adapter, this_free, 0, twin);
         let mut slot = class_anyv as *mut c_void;
         __torajs_dynobj_define(
             &mut slot,
