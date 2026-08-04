@@ -27,7 +27,9 @@ use crate::layout::{REPR_VOID, STATE_REJECTED, as_promise};
 use crate::pool::{__torajs_promise_alloc_pending, __torajs_promise_drop};
 use crate::state::{__torajs_promise_attach_then, __torajs_promise_resolve};
 use crate::then::{ThenCbI64, ThenClosureFn, stamp_result_repr};
-use crate::then_box::{PARAM_ANY_FLAG, PARAM_REPR_SHIFT, refuse_unstamped, settle_param};
+use crate::then_box::{
+    PARAM_ANY_FLAG, PARAM_REPR_SHIFT, refuse_unstamped, reject_on_pending_throw, settle_param,
+};
 
 /// Bit 9 of a then2 handler word — the handler pointer is a closure
 /// env block, not a bare fn.
@@ -99,10 +101,15 @@ unsafe extern "C" fn then2_dispatch(arg: i64) {
             (*src).value,
         );
         let result = run_leg(handler, flags, repr, value);
-        stamp_result_repr((*a).result, repr);
-        // Both legs FULFILL on normal handler return — onErr's
-        // return value is the recovery (§27.2.5.4).
-        __torajs_promise_resolve((*a).result, result);
+        // Either leg may complete abruptly; the throw becomes the
+        // result's rejection (§27.2.2.1 steps 8-9) — including onErr's,
+        // whose throw REPLACES the reason it was handed.
+        if !reject_on_pending_throw((*a).result) {
+            stamp_result_repr((*a).result, repr);
+            // Both legs FULFILL on normal handler return — onErr's
+            // return value is the recovery (§27.2.5.4).
+            __torajs_promise_resolve((*a).result, result);
+        }
         __torajs_promise_drop((*a).source);
         if (*a).ok_flags & FLAG_CLOSURE != 0 {
             __torajs_value_drop_heap((*a).on_ok);

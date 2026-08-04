@@ -14,6 +14,7 @@ use crate::state::{
     __torajs_promise_attach_then, __torajs_promise_reject, __torajs_promise_resolve,
 };
 use crate::then::{FinallyCb, FinallyClosureFn, stamp_result_repr};
+use crate::then_box::reject_on_pending_throw;
 
 unsafe extern "C" {
     /// torajs-mmalloc libc-compat — v0.7-A2 step 6b cutover.
@@ -41,13 +42,18 @@ unsafe extern "C" fn finally_dispatch(arg: i64) {
     unsafe {
         let src = as_promise((*a).source);
         ((*a).cb)();
-        stamp_result_repr((*a).result, (*src).value_repr);
-        if (*src).state == STATE_FULFILLED {
-            __torajs_promise_resolve((*a).result, (*src).value);
-        } else {
-            // REJECTED — finally re-rejects with same reason via the
-            // proper reject path so any .catch on `result` drains.
-            __torajs_promise_reject((*a).result, (*src).value);
+        // §27.2.5.3 — onFinally throwing WINS over the settlement it
+        // was about to forward, on either leg.
+        if !reject_on_pending_throw((*a).result) {
+            stamp_result_repr((*a).result, (*src).value_repr);
+            if (*src).state == STATE_FULFILLED {
+                __torajs_promise_resolve((*a).result, (*src).value);
+            } else {
+                // REJECTED — finally re-rejects with same reason via
+                // the proper reject path so any .catch on `result`
+                // drains.
+                __torajs_promise_reject((*a).result, (*src).value);
+            }
         }
         __torajs_promise_drop((*a).source);
         __torajs_promise_drop((*a).result);
@@ -99,11 +105,13 @@ unsafe extern "C" fn finally_closure_dispatch(arg: i64) {
         let fn_ptr = *(((*a).env as *mut u8).add(8) as *const *mut c_void);
         let cb: FinallyClosureFn = core::mem::transmute(fn_ptr);
         cb((*a).env);
-        stamp_result_repr((*a).result, (*src).value_repr);
-        if (*src).state == STATE_FULFILLED {
-            __torajs_promise_resolve((*a).result, (*src).value);
-        } else {
-            __torajs_promise_reject((*a).result, (*src).value);
+        if !reject_on_pending_throw((*a).result) {
+            stamp_result_repr((*a).result, (*src).value_repr);
+            if (*src).state == STATE_FULFILLED {
+                __torajs_promise_resolve((*a).result, (*src).value);
+            } else {
+                __torajs_promise_reject((*a).result, (*src).value);
+            }
         }
         __torajs_promise_drop((*a).source);
         __torajs_value_drop_heap((*a).env);

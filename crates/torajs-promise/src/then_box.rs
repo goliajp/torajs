@@ -19,6 +19,7 @@ use crate::layout::{
     REPR_ANY, REPR_BOOL, REPR_F64, REPR_HEAP, REPR_I64, REPR_NULL, REPR_STR, REPR_UNSTAMPED,
     REPR_VOID, as_promise,
 };
+use crate::state::__torajs_promise_reject;
 
 /// Bit 8 of the then/catch kernels' `ret_repr` parameter — set when
 /// the handler's first parameter is `any` (dispatch boxes the settled
@@ -48,6 +49,48 @@ unsafe extern "C" {
     fn __torajs_anyv_unbox_tag(v: u64) -> i64;
     fn __torajs_anyv_unbox_value(v: u64) -> i64;
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
+    fn __torajs_throw_check() -> i64;
+    fn __torajs_throw_take() -> i64;
+    fn __torajs_throw_take_tag() -> i64;
+}
+
+/// §27.2.2.1 PromiseReactionJob steps 8-9 — a handler that completes
+/// ABRUPTLY rejects the derived promise with the thrown value; it does
+/// not fulfill it with the (absent) return. Answers `true` when it
+/// settled `result`, so the caller skips its resolve leg and goes
+/// straight to teardown.
+///
+/// Until this existed the typed kernels read the return register
+/// regardless and resolved with whatever garbage it held, so the throw
+/// stayed pending in the TLS with no live frame to check it: a
+/// `.then(() => { throw e })` chain silently turned into a fulfillment
+/// and every downstream `.catch` was dead code. The any-lane bridge
+/// (torajs-anyvalue `method_call_promise.rs::then_any_dispatch`) has
+/// always done this — the two lanes disagreeing is what let async
+/// test262 cases whose assertion throws inside a `.then` handler report
+/// success.
+///
+/// Reason encoding mirrors that bridge exactly: box the (tag, value)
+/// pair off the throw TLS and stamp the cell `REPR_ANY`, so a
+/// downstream handler's [`settle_param`] converts it into whatever lane
+/// that handler declared. `value_is_heap` marks the boxed stake as the
+/// cell's to release; the take composition (tag peeked before value —
+/// `take` clears `active` but leaves the tag slot) transfers the
+/// throw's stake into the box.
+pub(crate) unsafe fn reject_on_pending_throw(result: *mut c_void) -> bool {
+    unsafe {
+        if __torajs_throw_check() == 0 {
+            return false;
+        }
+        let tag = __torajs_throw_take_tag();
+        let value = __torajs_throw_take();
+        let reason = __torajs_anyv_box_from_pair(tag, value);
+        let pp = as_promise(result);
+        (*pp).value_is_heap = 1;
+        (*pp).value_repr = REPR_ANY;
+        __torajs_promise_reject(result, reason as i64);
+        true
+    }
 }
 
 /// Box the source's settled value per its repr stamp — mirror of the
