@@ -248,6 +248,22 @@ pub(in crate::ast) fn emit_class_instance_methods(
                     rewrite_this_in_ann(&effective_ret, this_ann),
                 )
             });
+        // RFC 20260804-method-rebind-generic-body blade 2 — the
+        // receiver-polymorphic twin, minted off the SAME body the
+        // mono FnDecl gets (async methods clone the rewritten body).
+        // Accessor faces keep their own reify lane (recorded RFC
+        // follow-up), so only plain methods mint.
+        if m.accessor_kind.is_none() {
+            super::desugar_classes_generic_twin::mint_generic_twin(
+                ast,
+                &fn_name,
+                &params,
+                &body,
+                type_params,
+                m.span,
+                appended,
+            );
+        }
         appended.push(Stmt::FnDecl {
             name: fn_name,
             type_params: type_params.to_vec(),

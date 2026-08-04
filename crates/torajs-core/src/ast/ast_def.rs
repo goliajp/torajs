@@ -152,6 +152,13 @@ pub struct Ast {
     /// instead) when the receiver checks as a builtin container —
     /// full mechanism in cm_demote.rs.
     pub speculative_cm_rewrites: std::collections::HashMap<ExprId, ExprId>,
+    /// RFC 20260804-method-rebind-generic-body — mono class-method
+    /// name (`__cm_<C>__<m>`) → its receiver-polymorphic twin
+    /// (`__cmany_<C>__<m>`). Minted by `desugar_classes_generic_twin`
+    /// for every instance method whose body reads `this`; consumed by
+    /// the boxed-adapter synthesis (blade 3), which guards on the
+    /// receiver's class tag and routes foreign receivers to the twin.
+    pub cmany_twins: std::collections::HashMap<String, String>,
     /// RFC 20260724-regex-literal-syntax-error — side-channel populated
     /// by `ast_desugar_regex_syntax_error::run`. Keyed by `Expr::Regex`
     /// ExprId; value = the SyntaxError message to raise when the
