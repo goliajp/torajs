@@ -40,6 +40,16 @@ impl<'a> Parser<'a> {
         // overwrites; we restore the outer name on its successful exit.
         let saved_class = self.current_class.take();
         self.current_class = Some(name.clone());
+        // Private-name lexical scope for this body (ES §15.7 — nested
+        // classes see outer `#x` names, an inner redeclaration
+        // shadows). Declarations fill the set as members parse;
+        // `#x` REFERENCES defer to `resolve_private_refs`, which walks
+        // this stack once the whole file is in.
+        let scope_id = self.ast.class_private_scopes.len() as u32;
+        self.ast
+            .class_private_scopes
+            .push((name.clone(), std::collections::HashSet::new()));
+        self.class_stack.push(scope_id);
         // Optional generic type params: `class Map<K, V> { ... }`.
         let type_params = self.parse_class_type_params()?;
         let parent = self.parse_class_heritage()?;
@@ -244,6 +254,7 @@ impl<'a> Parser<'a> {
         // is moot).
         self.current_class = saved_class;
         self.current_class_has_parent = saved_has_parent;
+        self.class_stack.pop();
         Ok(Stmt::ClassDecl {
             name,
             type_params,

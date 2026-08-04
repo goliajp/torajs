@@ -188,10 +188,23 @@ impl<'a> Parser<'a> {
         // `#`-name for the lookup layer" route had rotted into a
         // silent `undefined` through the dynobj member-miss lane.)
         if let Token::PrivateIdent(n) = self.peek() {
-            if let Some(cls) = &self.current_class {
-                let mangled = format!("__priv_{cls}__{n}");
+            let n = n.clone();
+            if self.current_class.is_some() {
+                // Which enclosing class declares `#n` is undecidable
+                // mid-body (later members may still declare it, and a
+                // nested class must see outer names — ES §15.7
+                // lexical scoping), so park a site with the current
+                // scope stack and mint a `__privu_<site>__<n>`
+                // placeholder; `resolve_private_refs` rewrites it to
+                // the declaring class's `__priv_<C>__<n>` once the
+                // file has parsed.
+                let site = self.ast.private_ref_sites.len();
+                let mut stack = self.class_stack.clone();
+                stack.reverse(); // innermost first
+                self.ast.private_ref_sites.push((n.clone(), stack));
+                let placeholder = format!("__privu_{site}__{n}");
                 self.pos += 1;
-                return Some(mangled);
+                return Some(placeholder);
             }
             return None;
         }

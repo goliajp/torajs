@@ -191,6 +191,14 @@ impl<'a> Parser<'a> {
                     }
                     let priv_name = n.clone();
                     *explicit_visibility = Some(ast::Visibility::Private);
+                    // Register the RAW name on the innermost private
+                    // scope so `resolve_private_refs` can bind nested
+                    // `#<n>` references lexically.
+                    if let Some(&sid) = self.class_stack.last() {
+                        self.ast.class_private_scopes[sid as usize]
+                            .1
+                            .insert(priv_name.clone());
+                    }
                     format!("__priv_{name}__{priv_name}")
                 }
                 // V3-18 wedge — accept the full reserved-word list

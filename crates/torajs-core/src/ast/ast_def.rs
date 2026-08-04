@@ -45,6 +45,28 @@ pub struct Ast {
     /// naming position lands an EMPTY string (the ES answer), so a
     /// missing key means "not a hoisted generator expression".
     pub genexpr_names: std::collections::HashMap<String, String>,
+    /// Private-name lexical scopes, one entry per class body in parse
+    /// order (the entry index is the scope id carried on
+    /// `Parser::class_stack`). `.0` is the parse-time class name (the
+    /// same string declaration-side mangling bakes into
+    /// `__priv_<C>__<n>` member names); `.1` is the set of RAW private
+    /// names (`m`, not `#m` / not mangled) the body declares. A `#x`
+    /// REFERENCE resolves against the innermost enclosing scope that
+    /// declares `x` (ES §15.7 private-name lexical scoping — nested
+    /// classes see outer names, an inner redeclaration shadows), which
+    /// a single-pass parser cannot decide at the reference token
+    /// (later members of the same body may still declare it), so
+    /// references park a site in `private_ref_sites` and
+    /// `resolve_private_refs` rewrites them once the file is parsed.
+    pub class_private_scopes: Vec<(String, std::collections::HashSet<String>)>,
+    /// Deferred `#x` reference sites: `.0` is the raw private name,
+    /// `.1` the enclosing class-scope-id stack at the reference,
+    /// innermost FIRST. The parse-time placeholder member name is
+    /// `__privu_<site-index>__<raw>`; `resolve_private_refs` rewrites
+    /// it to the declaring class's `__priv_<C>__<raw>` (falling back
+    /// to the innermost scope when nothing declares it, which keeps
+    /// the checker's undeclared-private compile-time reject).
+    pub private_ref_sites: Vec<(String, Vec<u32>)>,
     /// RFC 20260714-dstr-residual blade 3 — every array binding pattern
     /// reads its elements out of a `__ary_src_<id>` group temp, and the
     /// temp's init ExprId is the key here. The value is the pattern's

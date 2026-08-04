@@ -70,6 +70,7 @@ mod primary;
 mod primary_async;
 mod primary_atoms;
 mod primary_new_super;
+mod private_refs;
 mod ret_throw_try;
 mod try_parse_for_of;
 mod type_ann;
@@ -117,6 +118,7 @@ pub fn parse_into(source: &str, tokens: &[Spanned], target: &mut Ast) -> Result<
         desugar_id: id_offset,
         generator_fns: std::collections::HashMap::new(),
         current_class: None,
+        class_stack: Vec::new(),
         in_gen_class_method: false,
         gen_recv_minted: false,
         in_async_gen: false,
@@ -137,6 +139,14 @@ pub fn parse_into(source: &str, tokens: &[Spanned], target: &mut Ast) -> Result<
         await_allowed: true,
     };
     let result = p.parse_program();
+    // Private `#x` references parse to `__privu_<site>__<raw>`
+    // placeholders (their declaring class is undecidable mid-body);
+    // resolve them against the recorded lexical scopes now that every
+    // declaration of this file is in. Error paths skip it — the parse
+    // failed and the arena is moot.
+    if result.is_ok() {
+        p.resolve_private_refs(id_offset);
+    }
     *target = p.ast;
     result?;
     Ok(stmt_offset)
@@ -190,6 +200,13 @@ struct Parser<'a> {
     /// possible without static type info — those flow through as
     /// raw `#name` and typecheck/desugar can mangle later (P8.x).
     current_class: Option<String>,
+    /// Enclosing class-body scope ids, innermost LAST (ids index
+    /// `ast.class_private_scopes`). Pushed/popped alongside
+    /// `current_class` by `parse_class_decl_with_abstract`; snapshotted
+    /// (reversed) into `ast.private_ref_sites` by each deferred `#x`
+    /// reference so `resolve_private_refs` can walk out through the
+    /// lexical nesting after the whole file has parsed.
+    class_stack: Vec<u32>,
     /// P-SURF S2.1 — set while parsing the body of a class generator
     /// method, which is hoisted to a top-level `function*` taking the
     /// receiver as a parameter. While it is set, `this` mints

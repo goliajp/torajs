@@ -1,0 +1,66 @@
+//! Deferred private-name reference resolution (ES §15.7 lexical
+//! scoping).
+//!
+//! A `#x` reference inside a class body binds to the INNERMOST
+//! enclosing class that declares `#x` — nested classes see outer
+//! names, an inner redeclaration shadows. A single forward pass
+//! cannot decide the declaring class at the reference token (later
+//! members of the same body may still declare `#x`), so
+//! `member_name_after_dot` parses every reference to a
+//! `__privu_<site>__<raw>` placeholder and parks `(raw name, scope-id
+//! stack)` in `ast.private_ref_sites`. This pass runs at the end of
+//! `parse_into` — every declaration of the file is in — and rewrites
+//! each placeholder to the declaring class's `__priv_<C>__<raw>`
+//! member name, the exact string declaration-side mangling baked into
+//! `struct_layouts`, so everything downstream (checker visibility,
+//! static rewrite tables, runtime by-name dispatch) is untouched.
+//!
+//! No declaring scope on the stack → fall back to the INNERMOST
+//! class. That reproduces the pre-pass single-`current_class` mangle
+//! byte-for-byte, and the checker's undeclared-private compile-time
+//! reject (`check_type_of_member.rs` `__priv_` branch) stays the
+//! error surface for `this.#nope`.
+
+use super::*;
+
+impl Parser<'_> {
+    /// Rewrite every `__privu_<site>__<raw>` member name minted while
+    /// parsing exprs `from..` to its resolved `__priv_<C>__<raw>`
+    /// form. `from` scopes the walk to this file's slice of the arena
+    /// (imported files resolved their own slice already; placeholders
+    /// never survive a `parse_into`).
+    pub(super) fn resolve_private_refs(&mut self, from: u32) {
+        if self.ast.private_ref_sites.is_empty() {
+            return;
+        }
+        for i in (from as usize)..self.ast.exprs.len() {
+            let (Expr::Member { name, .. } | Expr::OptChain { name, .. }) = &mut self.ast.exprs[i]
+            else {
+                continue;
+            };
+            let Some(rest) = name.strip_prefix("__privu_") else {
+                continue;
+            };
+            let Some((site, _)) = rest.split_once("__") else {
+                continue;
+            };
+            let Ok(site) = site.parse::<usize>() else {
+                continue;
+            };
+            let (raw, stack) = &self.ast.private_ref_sites[site];
+            let declaring = stack
+                .iter()
+                .find(|&&sid| self.ast.class_private_scopes[sid as usize].1.contains(raw))
+                // Nothing on the stack declares `#raw` — fall back to
+                // the innermost class so the checker's undeclared-
+                // private reject fires with the same class it named
+                // before this pass existed.
+                .or_else(|| stack.first())
+                .copied();
+            if let Some(sid) = declaring {
+                let cls = &self.ast.class_private_scopes[sid as usize].0;
+                *name = format!("__priv_{cls}__{raw}");
+            }
+        }
+    }
+}

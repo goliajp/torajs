@@ -71,6 +71,13 @@ impl<'a> Parser<'a> {
                         desugar_id: self.desugar_id,
                         generator_fns: std::mem::take(&mut self.generator_fns),
                         current_class: self.current_class.clone(),
+                        // `${this.#x}` inside the interpolation must
+                        // park its deferred private-ref site with the
+                        // SAME lexical class stack the surrounding
+                        // body would (the scope tables live on the
+                        // taken `ast`, so the site lands in the shared
+                        // arena directly).
+                        class_stack: self.class_stack.clone(),
                         // Inherited for the same reason `current_class`
                         // is: `${this.x}` inside a class generator
                         // method's body must mint the same receiver

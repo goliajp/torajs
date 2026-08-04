@@ -387,7 +387,7 @@ impl<'a> Parser<'a> {
             // name parses to its `__priv_<cls>__<n>` mangling
             // (member_name_after_dot), so that prefix is the marker.
             if let Expr::Member { name, .. } = self.ast.get_expr(inner)
-                && name.starts_with("__priv_")
+                && (name.starts_with("__priv_") || name.starts_with("__privu_"))
             {
                 let bare = name.rsplit("__").next().unwrap_or(name);
                 return Err(format!(

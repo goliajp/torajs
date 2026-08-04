@@ -102,6 +102,14 @@ impl<'a> Parser<'a> {
                     ));
                 }
                 visibility = Visibility::Private;
+                let n = n.clone();
+                // Same raw-name registration as the ordinary-member
+                // path — a nested `#<n>` reference binds lexically.
+                if let Some(&sid) = self.class_stack.last() {
+                    self.ast.class_private_scopes[sid as usize]
+                        .1
+                        .insert(n.clone());
+                }
                 format!("__priv_{class_name}__{n}")
             }
             t => {
