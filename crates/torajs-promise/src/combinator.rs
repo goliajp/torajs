@@ -360,8 +360,55 @@ pub unsafe extern "C" fn __torajs_promise_race_sync(promises_arr: *mut c_void) -
             return unsafe { defer_settle(STATE_REJECTED, value, 0, (*pp).value_repr) };
         }
     }
-    // Empty or all-pending — placeholder reject.
-    unsafe { defer_settle(STATE_REJECTED, 0, 0, REPR_VOID) }
+    // Nothing has settled yet. §27.2.4.5.1 attaches a reaction to every
+    // element and lets the FIRST settlement win; the placeholder reject
+    // that used to stand here was the MVP's way of saying it could not
+    // wait. It can now — an adopt job per element settles the outer
+    // from whichever element settles first, and the losers' jobs find
+    // the cell already settled and no-op through resolve/reject's
+    // PENDING guard.
+    //
+    // An empty iterable answers a FOREVER-PENDING promise per §27.2.4.5
+    // step 3 (there is no element that could ever settle it), which the
+    // loop below produces by attaching nothing — matching bun, where
+    // `Promise.race([])` also just runs out of work and exits.
+    unsafe { race_fan_in(promises_arr, len) }
+}
+
+/// Attach one adopt job per pending element (see the call site).
+///
+/// Each element is borrowed from the input array, so it takes an inc to
+/// pay for the stake `adopt_into` consumes. The result is pre-stamped
+/// from the first element's form for the same reason the `.then`
+/// kernels pre-stamp theirs: a chained any-param attach can land before
+/// this cell settles and its gate refuses an UNSTAMPED source. The
+/// winning adopt job overwrites the stamp with what actually settled.
+unsafe fn race_fan_in(promises_arr: *mut c_void, len: u64) -> *mut c_void {
+    unsafe {
+        let result = crate::pool::__torajs_promise_alloc_pending();
+        // An empty iterable leaves the loop below with nothing to stamp
+        // from, and the cell can never settle — so no value exists to
+        // mis-box and the any-param attach gate has nothing to protect.
+        // VOID keeps it quiet; UNSTAMPED would make `Promise.race([])
+        // .then(cb)` throw where the spec says the handler simply never
+        // runs.
+        (*as_promise(result)).value_repr = REPR_VOID;
+        let mut stamped = false;
+        for i in 0..len {
+            let pp = arr_slot_ptr(promises_arr, i);
+            if pp.is_null() {
+                continue;
+            }
+            if !stamped {
+                (*as_promise(result)).value_repr = (*pp).value_repr;
+                (*as_promise(result)).value_is_heap = (*pp).value_is_heap;
+                stamped = true;
+            }
+            __torajs_rc_inc(pp as *mut c_void);
+            crate::then_adopt::adopt_into(result, pp as *mut c_void);
+        }
+        result
+    }
 }
 
 // ============================================================

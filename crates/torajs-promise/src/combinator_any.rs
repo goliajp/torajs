@@ -44,6 +44,9 @@ unsafe extern "C" {
     fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64;
     fn __torajs_anyv_box_str_slot(s: *mut c_void) -> u64;
     fn __torajs_anyv_rc_inc(v: u64);
+    /// torajs-rc — raw cell share (the race fan-in pays for the stake
+    /// each adopt job consumes).
+    fn __torajs_rc_inc(p: *mut c_void);
     /// torajs-arr raw-slot alloc + push + elem-kind mark — the
     /// allSettled result is a typed heap-cell array of `{status,
     /// value}` structs (the typed kernel's result shape), not an
@@ -271,10 +274,31 @@ pub(crate) unsafe fn race_sync_any(promises_arr: *mut c_void) -> *mut c_void {
                 };
                 return crate::combinator::defer_settle(state, v as i64, 1, REPR_ANY);
             }
-            // PENDING — skip (MVP: array-order first-settled).
+            // PENDING — skip (array-order first-settled).
         }
-        // Empty or all-pending — placeholder reject (typed parity).
-        crate::combinator::defer_settle(STATE_REJECTED, 0, 0, REPR_VOID)
+        // Nothing settled yet — fan in, exactly as the typed sibling
+        // does (see `combinator::race_fan_in`): one adopt job per
+        // element, first settlement wins, an empty iterable answers a
+        // forever-pending promise per §27.2.4.5 step 3.
+        let result = crate::pool::__torajs_promise_alloc_pending();
+        let rp = crate::layout::as_promise(result);
+        // Empty iterable — never settles, so nothing to mis-box; see
+        // the typed sibling's note on why VOID and not UNSTAMPED.
+        (*rp).value_repr = REPR_VOID;
+        let mut stamped = false;
+        for i in 0..len {
+            let Some(pp) = slot_promise(any_slot(promises_arr, i)) else {
+                continue;
+            };
+            if !stamped {
+                (*rp).value_repr = (*pp).value_repr;
+                (*rp).value_is_heap = (*pp).value_is_heap;
+                stamped = true;
+            }
+            __torajs_rc_inc(pp as *mut c_void);
+            crate::then_adopt::adopt_into(result, pp as *mut c_void);
+        }
+        result
     }
 }
 
