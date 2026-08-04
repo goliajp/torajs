@@ -49,13 +49,25 @@ const ANY_UNDEF_TAG: u64 = 5;
 const BUCKET_COUNT: usize = 256;
 const BUCKET_MASK: usize = BUCKET_COUNT - 1;
 
+/// Closure-cell props-slot offset (mirrors
+/// `torajs_anyvalue::member_get::CLOSURE_PROPS_OFF` — header 8 +
+/// fn_addr 8 + drop_fn 8).
+const CLOSURE_PROPS_OFF: usize = 24;
+
 /// Open-chaining hash node. `next` walks the bucket's collision
-/// chain; `(fn_ptr, dynobj)` is the entry payload.
+/// chain; `(fn_ptr, dynobj)` is the entry payload. `cell` — RFC
+/// 20260804-fnprops-canonical-cell: once the fn's canonical forward
+/// cell is minted it becomes the ONE authoritative props slot
+/// (`cell + CLOSURE_PROPS_OFF`), and this table delegates to it so
+/// the FnSig static spelling and the any-lane cell spelling read and
+/// write the same bag. `cell == 0` = un-wrapped fn, `dynobj` bag
+/// mode as before. Exactly one of (dynobj, cell) is non-zero.
 #[repr(C)]
 struct Node {
     next: *mut Node,
     fn_ptr: usize,
     dynobj: usize,
+    cell: usize,
 }
 
 /// Bucket array — 256 head pointers. Wrapped in `UnsafeCell` so we
@@ -112,67 +124,68 @@ unsafe fn find_in_bucket(
     ptr::null_mut()
 }
 
-/// Get-or-create the dynobj associated with `fn_ptr`. First read
-/// path is one bucket walk; the miss path allocs a fresh dynobj +
-/// a `Box::leak`'d `Node` and pushes it onto the bucket head.
+/// Get-or-create the node for `fn_ptr`. The miss path pushes a fresh
+/// `Box::leak`'d empty node (no bag until the first write) onto the
+/// bucket head. Caller must hold `FNPROPS_LOCK`.
 #[inline]
-fn intern(fn_ptr: *mut c_void) -> *mut c_void {
-    let _g = FNPROPS_LOCK.lock();
-    // SAFETY: lock held → exclusive access to BUCKETS.0.
-    let buckets = unsafe { &mut *BUCKETS.0.get() };
-    let b = bucket_of(fn_ptr as usize);
-    let existing = unsafe { find_in_bucket(buckets, b, fn_ptr as usize) };
+unsafe fn intern_node(buckets: &mut [*mut Node; BUCKET_COUNT], fn_ptr: usize) -> *mut Node {
+    let b = bucket_of(fn_ptr);
+    let existing = unsafe { find_in_bucket(buckets, b, fn_ptr) };
     if !existing.is_null() {
-        return unsafe { (*existing).dynobj } as *mut c_void;
+        return existing;
     }
-    let new_dynobj = unsafe { __torajs_dynobj_alloc() };
     // `Box::leak` to give the node program-lifetime ownership; the
     // C side table this replaces never freed its entries either.
     let node = Box::leak(Box::new(Node {
         next: buckets[b],
-        fn_ptr: fn_ptr as usize,
-        dynobj: new_dynobj as usize,
+        fn_ptr,
+        dynobj: 0,
+        cell: 0,
     }));
     buckets[b] = node as *mut Node;
-    new_dynobj
+    node
 }
 
-/// Pure lookup — null if `fn_ptr` has no entry. Used by the two
-/// getter intrinsics.
+/// The authoritative props slot for a delegated node: the canonical
+/// cell's own `props_dynobj` field. `dynobj_set` writes a grown bag
+/// back through this slot, which is exactly the cell-spelling slot —
+/// both spellings stay on one bag by construction.
 #[inline]
-fn lookup(fn_ptr: *mut c_void) -> *mut c_void {
-    let _g = FNPROPS_LOCK.lock();
-    // SAFETY: lock held → exclusive (shared-immutable here) access.
-    let buckets = unsafe { &*BUCKETS.0.get() };
-    let b = bucket_of(fn_ptr as usize);
-    let n = unsafe { find_in_bucket(buckets, b, fn_ptr as usize) };
-    if n.is_null() {
-        ptr::null_mut()
-    } else {
-        unsafe { (*n).dynobj as *mut c_void }
+fn cell_props_slot(cell: usize) -> *mut *mut c_void {
+    (cell + CLOSURE_PROPS_OFF) as *mut *mut c_void
+}
+
+/// Bind `fn_ptr`'s props storage to its canonical forward cell (RFC
+/// 20260804-fnprops-canonical-cell). Called once from the cell's
+/// lazy-mint block. A bag the FnSig spelling already filled migrates
+/// into the cell's (still empty at mint) props slot, so earlier
+/// writes stay visible. Idempotent — the canonical cell is a per-fn
+/// singleton, so a repeat bind carries the same cell.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_fnprops_bind_cell(fn_ptr: *mut c_void, cell: *mut c_void) {
+    if fn_ptr.is_null() || cell.is_null() {
+        return;
     }
-}
-
-/// Update the stored dynobj pointer for an already-interned
-/// `fn_ptr`. Called by `__torajs_fnprops_set` after the underlying
-/// `__torajs_dynobj_set` may have reassigned the dynobj (e.g.
-/// growth from inline → heap storage).
-#[inline]
-fn store_dynobj(fn_ptr: *mut c_void, dynobj: *mut c_void) {
     let _g = FNPROPS_LOCK.lock();
+    // SAFETY: lock held → exclusive access to BUCKETS.0.
     let buckets = unsafe { &mut *BUCKETS.0.get() };
-    let b = bucket_of(fn_ptr as usize);
-    let n = unsafe { find_in_bucket(buckets, b, fn_ptr as usize) };
-    if !n.is_null() {
-        unsafe { (*n).dynobj = dynobj as usize };
+    let node = unsafe { intern_node(buckets, fn_ptr as usize) };
+    unsafe {
+        if (*node).cell == cell as usize {
+            return;
+        }
+        if (*node).dynobj != 0 {
+            *cell_props_slot(cell as usize) = (*node).dynobj as *mut c_void;
+            (*node).dynobj = 0;
+        }
+        (*node).cell = cell as usize;
     }
-    // If the caller never called intern() this is a no-op; the
-    // intrinsic contract is intern→set, so a missing entry here is
-    // a compiler-emit bug, not a runtime data error.
 }
 
-/// `fn.x = value` — intern the per-fn dynobj if needed, then
-/// `__torajs_dynobj_set` the (key, tag, value) triple onto it.
+/// `fn.x = value` (FnSig spelling) — write through the fn's
+/// authoritative props slot: the canonical cell's when bound, the
+/// node's own bag otherwise. `dynobj_set` may grow and reassign the
+/// bag; the slot it wrote through keeps the fresh pointer either way.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_fnprops_set(
     fn_ptr: *mut c_void,
@@ -180,18 +193,54 @@ pub unsafe extern "C" fn __torajs_fnprops_set(
     tag: i64,
     value: i64,
 ) {
-    let mut dynobj = intern(fn_ptr);
-    // dynobj_set may grow the dynobj and reassign the pointer; we
-    // need to write the new pointer back into the table.
-    unsafe { __torajs_dynobj_set(&mut dynobj, key as *const u8, tag as u64, value as u64) };
-    store_dynobj(fn_ptr, dynobj);
+    let _g = FNPROPS_LOCK.lock();
+    let buckets = unsafe { &mut *BUCKETS.0.get() };
+    let node = unsafe { intern_node(buckets, fn_ptr as usize) };
+    unsafe {
+        if (*node).cell != 0 {
+            __torajs_dynobj_set(
+                cell_props_slot((*node).cell),
+                key as *const u8,
+                tag as u64,
+                value as u64,
+            );
+        } else {
+            if (*node).dynobj == 0 {
+                (*node).dynobj = __torajs_dynobj_alloc() as usize;
+            }
+            let mut bag = (*node).dynobj as *mut c_void;
+            __torajs_dynobj_set(&mut bag, key as *const u8, tag as u64, value as u64);
+            (*node).dynobj = bag as usize;
+        }
+    }
+}
+
+/// Resolve the fn's current bag for a read — the cell's props when
+/// bound, the node's own bag otherwise, null when neither exists.
+#[inline]
+fn lookup_bag(fn_ptr: *mut c_void) -> *mut c_void {
+    let _g = FNPROPS_LOCK.lock();
+    // SAFETY: lock held → exclusive (shared-immutable here) access.
+    let buckets = unsafe { &*BUCKETS.0.get() };
+    let b = bucket_of(fn_ptr as usize);
+    let n = unsafe { find_in_bucket(buckets, b, fn_ptr as usize) };
+    if n.is_null() {
+        return ptr::null_mut();
+    }
+    unsafe {
+        if (*n).cell != 0 {
+            *cell_props_slot((*n).cell)
+        } else {
+            (*n).dynobj as *mut c_void
+        }
+    }
 }
 
 /// `fn.x` — return the slot's tag, or `ANY_UNDEF` if no fnprops
 /// entry / no key.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_fnprops_get_tag(fn_ptr: *mut c_void, key: *const c_void) -> u64 {
-    let dynobj = lookup(fn_ptr);
+    let dynobj = lookup_bag(fn_ptr);
     if dynobj.is_null() {
         return ANY_UNDEF_TAG;
     }
@@ -204,7 +253,7 @@ pub unsafe extern "C" fn __torajs_fnprops_get_value(
     fn_ptr: *mut c_void,
     key: *const c_void,
 ) -> u64 {
-    let dynobj = lookup(fn_ptr);
+    let dynobj = lookup_bag(fn_ptr);
     if dynobj.is_null() {
         return 0;
     }

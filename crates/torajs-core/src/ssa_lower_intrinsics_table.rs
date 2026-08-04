@@ -298,6 +298,7 @@ pub(crate) fn build(
         fnprops_set: init_c.any_substrate.fnprops_set,
         fnprops_get_tag: init_c.any_substrate.fnprops_get_tag,
         fnprops_get_value: init_c.any_substrate.fnprops_get_value,
+        fnprops_bind_cell: init_c.runtime_misc.fnprops_bind_cell,
         arrprops_set: init_c.any_substrate.arrprops_set,
         arr_define: init_c.any_substrate.arr_define,
         arr_keys_only_of: init_b.object.arr_keys_only_of,

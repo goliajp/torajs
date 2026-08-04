@@ -354,6 +354,7 @@ pub(crate) mod ssa_lower_call_universal_methods;
 pub(crate) mod ssa_lower_call_vtable_dispatch;
 pub(crate) mod ssa_lower_call_weakref_collections;
 pub(crate) mod ssa_lower_closure;
+pub(crate) mod ssa_lower_closure_canonical;
 pub mod ssa_lower_closure_captures;
 pub(crate) mod ssa_lower_closure_order;
 pub(crate) mod ssa_lower_coerce_to_str;

@@ -340,6 +340,7 @@ pub(crate) struct Intrinsics {
     pub(crate) fnprops_set: FuncId,
     pub(crate) fnprops_get_tag: FuncId,
     pub(crate) fnprops_get_value: FuncId,
+    pub(crate) fnprops_bind_cell: FuncId,
     pub(crate) arrprops_set: FuncId,
     pub(crate) arr_define: FuncId,
     pub(crate) arr_keys_only_of: FuncId,

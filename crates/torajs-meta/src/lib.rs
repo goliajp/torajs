@@ -60,7 +60,10 @@ pub use classmeta::{
     __torajs_anyv_proto_register,
 };
 pub use error_to_string::__torajs_error_to_string;
-pub use fnprops::{__torajs_fnprops_get_tag, __torajs_fnprops_get_value, __torajs_fnprops_set};
+pub use fnprops::{
+    __torajs_fnprops_bind_cell, __torajs_fnprops_get_tag, __torajs_fnprops_get_value,
+    __torajs_fnprops_set,
+};
 pub use reflect_get_property_descriptor::__torajs_anyv_get_property_descriptor;
 pub use reflect_proto::{__torajs_anyv_get_proto_of_any, __torajs_anyv_proto_member_get};
 pub use throw_readonly::__torajs_throw_readonly_assign;
