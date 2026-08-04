@@ -37,7 +37,7 @@ use crate::layout::{
     FLAG_BUFFERED, FLAG_STATIC_LITERAL, HeapHeader, OBJ_PROPS_OFF, TAG_BOOLEAN_WRAPPER,
     TAG_CLOSURE, TAG_DYNOBJ, TAG_NUMBER_WRAPPER, TAG_STRING_WRAPPER, WRAPPER_PROPS_OFF,
     arr_elems_walkable, color_of, has_walkable_children, is_class_obj, layout_for_class_obj,
-    set_color,
+    nan_box_is_cell_like, set_color,
 };
 
 /// Sentinel child index for a cell's out-of-band expando / props
@@ -77,7 +77,16 @@ pub(crate) unsafe fn for_each_child(p: *mut c_void, mut f: impl FnMut(u64, *mut 
         for i in 0..n_children as u64 {
             let off = unsafe { *(*lay).child_offsets.add(i as usize) };
             let child = unsafe { *((p as *mut u8).add(off as usize) as *mut *mut c_void) };
-            if !child.is_null() {
+            // An `any`-typed field holds NaN-box bits, not a pointer,
+            // whenever it carries an immediate — `undefined` is
+            // `0x…0a`, and dereferencing that reads address 10. Every
+            // other shape filters immediates where it produces them
+            // (`dynobj_child_at`, `arr_child_at`, the closure trace
+            // trampoline); this arm answered them raw, so a consumer
+            // without its own gate crashed. `collect_white`'s first
+            // sweep has one (`has_walkable_children`) and its second
+            // does not, which is where it landed.
+            if !child.is_null() && nan_box_is_cell_like(child) {
                 f(i, child);
             }
         }
