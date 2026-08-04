@@ -44,29 +44,6 @@ use crate::ast::{Ast, Expr, ExprId, Param, Stmt};
 /// the Ident match below would stop seeing it); a form it leaves —
 /// dynamic argArray, surplus bind partials — keeps the member call,
 /// whose fn-name receiver then rides the wrapped closure lane.
-/// The `__smany_` twin that should receive `f.<call|apply|bind>(…)`
-/// in place of a this-using static's mono, or `None` when the mono
-/// stands. `twin_exists` probes the caller's own fn-signature map.
-///
-/// A static's mono has no receiver channel at all (knife 2 binds its
-/// `this` to the class name), so a rebind can only be served by the
-/// twin — and BOTH the rewrite and the collector's receiver-wrap axis
-/// have to agree on which signature is in play, or they disagree
-/// about whether the form is swallowed. Hence one shared resolver
-/// rather than the test living at either call site.
-pub(crate) fn retarget_static_twin(
-    fn_name: &str,
-    fn_params: &[Param],
-    twin_exists: impl FnOnce(&str) -> bool,
-) -> Option<String> {
-    if fn_params.first().is_some_and(|p| p.name == "__this") {
-        return None;
-    }
-    let rest = fn_name.strip_prefix("__sm_")?;
-    let twin = format!("__smany_{rest}");
-    twin_exists(&twin).then_some(twin)
-}
-
 pub(crate) fn swallows_fn_proto_call(
     ast: &Ast,
     m_name: &str,
@@ -143,36 +120,11 @@ pub(crate) fn run(ast: &mut Ast) {
             Some(Expr::Ident(n)) => n.clone(),
             _ => continue,
         };
-        let Some((mut fn_params, mut fn_ret)) = fn_sigs.get(&fn_name).cloned() else {
+        let Some((fn_params, fn_ret)) = fn_sigs.get(&fn_name).cloned() else {
             continue;
         };
         if fn_params.first().is_some_and(|p| p.name == "__env") {
             continue;
-        }
-
-        // Knife 3c — `C.g.call(recv, …)` arrives here as
-        // `Ident("__sm_C__g").call(…)` (the static-member rewrite runs
-        // inside desugar_classes, before this pass). The mono has no
-        // receiver channel at all, but a this-using static minted a
-        // `__smany_` twin (knife 3a): devirtualize the rebind to a
-        // direct twin call, thisArg in the leading `__this` slot. A
-        // twin-less static keeps the historic drop (this-free bodies
-        // run identically; mint residues keep mono behavior).
-        //
-        // Resolved BEFORE the swallow test, and the retargeted
-        // signature is what everything downstream reads: the twin has
-        // one more param than the mono, and `.bind` spends a param
-        // slot per partial, so testing the mono's arity here would
-        // answer for the wrong function.
-        let mut fn_name = fn_name;
-        let mut retargeted = false;
-        if let Some(twin) = retarget_static_twin(&fn_name, &fn_params, |t| fn_sigs.contains_key(t))
-            && let Some((twin_params, twin_ret)) = fn_sigs.get(&twin).cloned()
-        {
-            fn_name = twin;
-            fn_params = twin_params;
-            fn_ret = twin_ret;
-            retargeted = true;
         }
         if !swallows_fn_proto_call(ast, &m_name, &args_clone, &fn_params) {
             continue;
@@ -183,17 +135,26 @@ pub(crate) fn run(ast: &mut Ast) {
         // a `__this: any` leading param) receives the thisArg in that
         // slot per §22.2.3.{3,4}; only a this-free target keeps the
         // historic thisArg drop (its body never reads the receiver).
-        // A retargeted static reads this-using off the twin's own
-        // leading `__this`.
-        let this_using = fn_params.first().is_some_and(|p| p.name == "__this");
-        // `.bind` synthesizes its own callee Ident from `fn_name`, so
-        // it needs no rewritten callee here — minting one would leave
-        // an orphan node in the arena for whole-arena walks to find.
-        let callee_target = if retargeted && m_name != "bind" {
-            ast.add_expr(Expr::Ident(fn_name.clone()))
-        } else {
-            obj_eid
-        };
+        let mut this_using = fn_params.first().is_some_and(|p| p.name == "__this");
+        // Knife 3c — `C.g.call(recv, …)` arrives here as
+        // `Ident("__sm_C__g").call(…)` (the static-member rewrite runs
+        // inside desugar_classes, before this pass). The mono has no
+        // receiver channel at all, but a this-using static minted a
+        // `__smany_` twin (knife 3a): devirtualize the rebind to a
+        // direct twin call, thisArg in the leading `__this` slot. A
+        // twin-less static keeps the historic drop (this-free bodies
+        // run identically; mint residues keep mono behavior).
+        let mut callee_target = obj_eid;
+        if !this_using
+            && m_name != "bind"
+            && let Some(rest) = fn_name.strip_prefix("__sm_")
+        {
+            let twin = format!("__smany_{rest}");
+            if fn_sigs.contains_key(&twin) {
+                callee_target = ast.add_expr(Expr::Ident(twin));
+                this_using = true;
+            }
+        }
 
         match m_name.as_str() {
             "call" => {
