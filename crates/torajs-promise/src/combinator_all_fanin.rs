@@ -27,11 +27,21 @@
 //! than growing a second copy of the protocol — four combinators times
 //! two lanes times a job per element is the largest refcount surface
 //! this crate has, and it is worth keeping in one place.
+//!
+//! `any` is the same machinery read in a mirror. A FULFILMENT is what
+//! short-circuits, the count that has to reach zero is of rejections,
+//! and the indexed slots hold the `errors` list §27.2.4.2's
+//! AggregateError carries — pre-sized and written by index because
+//! §27.2.4.2.1 stores at `errors[index]` and that order is observable.
+//! Sharing the block is what makes the mirror obvious; a second copy
+//! would have made it look like a different algorithm.
 
 use core::ffi::c_void;
 
 use crate::combinator::{absorb_inputs, arr_len, arr_slot_ptr};
-use crate::layout::{REPR_HEAP, REPR_UNSTAMPED, STATE_FULFILLED, STATE_REJECTED, as_promise};
+use crate::layout::{
+    Promise, REPR_HEAP, REPR_UNSTAMPED, STATE_FULFILLED, STATE_REJECTED, as_promise,
+};
 use crate::pool::__torajs_promise_drop;
 use crate::state::__torajs_promise_attach_then;
 
@@ -52,17 +62,24 @@ pub(crate) const MODE_ALL: u8 = 0;
 /// `Promise.allSettled` — nothing short-circuits; every element
 /// contributes a `{status, value}` / `{status, reason}` record.
 pub(crate) const MODE_ALLSETTLED: u8 = 1;
+/// `Promise.any` — the counter runs the other way. A fulfilment
+/// settles the result at once, a rejection is collected, and the
+/// count that has to reach zero is of REJECTIONS. The indexed slots
+/// hold the `errors` list §27.2.4.2's AggregateError carries.
+pub(crate) const MODE_ANY: u8 = 2;
 
 /// State every element job of one fan-in shares.
 #[repr(C)]
 pub(crate) struct AllBlock {
     /// The outer promise. One stake, released when the last job goes.
     pub(crate) result: *mut c_void,
-    /// The pre-sized result array. Owned here until it is handed to the
-    /// outer on fulfilment; NULL afterwards so the release path knows
-    /// not to drop what it gave away.
+    /// The pre-sized result array — for `any`, the `errors` list.
+    /// Owned here until it is handed to the outer (or to the
+    /// AggregateError); NULL afterwards so the release path knows not
+    /// to drop what it gave away.
     pub(crate) result_arr: *mut c_void,
-    /// §27.2.4.1.3 remainingElementsCount — fulfilments still owed.
+    /// §27.2.4.1.3 remainingElementsCount — fulfilments still owed,
+    /// or for `any` (§27.2.4.2.3) rejections still owed.
     pub(crate) remaining: u64,
     /// Jobs still holding this block. The block outlives the settlement
     /// because the losing jobs still have to run and release.
@@ -73,7 +90,7 @@ pub(crate) struct AllBlock {
     pub(crate) elem_repr: u8,
     /// The outer has been settled — later jobs only release.
     pub(crate) done: u8,
-    /// [`MODE_ALL`] or [`MODE_ALLSETTLED`].
+    /// [`MODE_ALL`], [`MODE_ALLSETTLED`] or [`MODE_ANY`].
     pub(crate) mode: u8,
     /// allSettled only — the pair of class tags its records carry (see
     /// `combinator_allsettled::alloc_settled_struct`).
@@ -121,13 +138,21 @@ unsafe extern "C" fn all_elem_dispatch(arg: i64) {
         let b = (*a).block;
         let ep = as_promise((*a).elem);
         if (*b).done == 0 {
-            if (*b).mode == MODE_ALL && (*ep).state == STATE_REJECTED {
-                crate::combinator_fanin_slot::reject_from(b, ep);
+            // `any` is the mirror: what short-circuits is a
+            // FULFILMENT, and what the counter waits for is the last
+            // rejection.
+            let short_circuits = if (*b).mode == MODE_ANY {
+                (*ep).state == STATE_FULFILLED
+            } else {
+                (*b).mode == MODE_ALL && (*ep).state == STATE_REJECTED
+            };
+            if short_circuits {
+                crate::combinator_fanin_slot::settle_from(b, ep);
             } else {
                 crate::combinator_fanin_slot::store_element(b, (*a).index, ep);
                 (*b).remaining -= 1;
                 if (*b).remaining == 0 {
-                    crate::combinator_fanin_slot::fulfil(b);
+                    crate::combinator_fanin_slot::finish(b);
                 }
             }
         }
@@ -164,13 +189,24 @@ pub(crate) unsafe fn fan_in(
             absorb_inputs(promises_arr);
         }
         let result = crate::pool::__torajs_promise_alloc_pending();
-        (*as_promise(result)).value_repr = REPR_HEAP;
-        (*as_promise(result)).value_is_heap = 1;
+        if mode == MODE_ANY {
+            // `any` forwards a single settled value rather than an
+            // array, so its pre-stamp comes from the same place
+            // `race`'s does — the first element's form, overwritten by
+            // whichever element actually settles the outer.
+            pre_stamp_from_first(result, promises_arr, len, input_any);
+        } else {
+            (*as_promise(result)).value_repr = REPR_HEAP;
+            (*as_promise(result)).value_is_heap = 1;
+        }
 
-        // `all` over an any-shape input answers an any-shape array (its
-        // elements have no single static form to share); everything else
-        // is a raw-slot array the jobs overwrite by index.
-        let result_arr = if input_any && mode == MODE_ALL {
+        // `any` fills an `errors` list; `all` over an any-shape input
+        // answers an any-shape array (its elements have no single
+        // static form to share); everything else is a raw-slot array
+        // the jobs overwrite by index.
+        let result_arr = if mode == MODE_ANY {
+            crate::combinator_aggregate::alloc_errors(len)
+        } else if input_any && mode == MODE_ALL {
             crate::combinator_any::alloc_any_result(len)
         } else {
             let mut a = __torajs_arr_alloc(len);
@@ -208,10 +244,17 @@ pub(crate) unsafe fn fan_in(
         __torajs_rc_inc(result);
 
         for i in 0..len {
-            let pp = if input_any {
+            // `minted` marks a wrapper this loop made: its single
+            // stake goes straight into the job, with no inc to pay.
+            let (pp, minted) = if input_any {
                 let bits = crate::combinator_any::any_slot(promises_arr, i);
                 match crate::combinator_any::slot_promise(bits) {
-                    Some(p) => p,
+                    Some(p) => (p, false),
+                    // §27.2.4.2 gives a non-thenable element a
+                    // `promiseResolve` wrapper like every other one,
+                    // and for `any` that tick is observable (see
+                    // `wrap_plain`).
+                    None if mode == MODE_ANY => (wrap_plain(bits), true),
                     None => {
                         // §27.2.4.1 treats a non-thenable element as an
                         // already-fulfilled value. Nothing to wait on, so
@@ -222,7 +265,7 @@ pub(crate) unsafe fn fan_in(
                     }
                 }
             } else {
-                arr_slot_ptr(promises_arr, i)
+                (arr_slot_ptr(promises_arr, i), false)
             };
             if pp.is_null() {
                 (*b).remaining -= 1;
@@ -233,13 +276,16 @@ pub(crate) unsafe fn fan_in(
             (*a).elem = pp as *mut c_void;
             (*a).index = i;
             (*b).jobs += 1;
-            // The element is borrowed from the input array, so it takes
-            // an inc to pay for the stake its job consumes.
-            __torajs_rc_inc(pp as *mut c_void);
+            // An element borrowed from the input array takes an inc to
+            // pay for the stake its job consumes.
+            if !minted {
+                __torajs_rc_inc(pp as *mut c_void);
+            }
             __torajs_promise_attach_then(pp as *mut c_void, Some(all_elem_dispatch), a as i64);
         }
         // An all-NULL (or empty) input owes nothing — §27.2.4.1 / .3
-        // resolve with the empty array rather than waiting forever.
+        // resolve with the empty array rather than waiting forever,
+        // and §27.2.4.2 rejects with an empty AggregateError.
         if (*b).remaining == 0 && (*b).done == 0 {
             (*b).elem_repr = if (*b).elem_repr == REPR_UNSTAMPED && len == 0 {
                 // Nothing will ever describe the slots of an empty
@@ -248,10 +294,64 @@ pub(crate) unsafe fn fan_in(
             } else {
                 (*b).elem_repr
             };
-            crate::combinator_fanin_slot::fulfil(b);
+            crate::combinator_fanin_slot::finish(b);
         }
         release_block(b);
         result
+    }
+}
+
+/// §27.2.4.2's `promiseResolve` wrapper for a non-thenable element: an
+/// already-fulfilled cell carrying the boxed value, so it reaches the
+/// outer through a job like every other element.
+///
+/// `all` does not need one — a plain element only contributes a slot
+/// there, and the result still waits for the rest. For `any` the plain
+/// element DECIDES the result, so the tick it decides on is
+/// observable: settling it during setup put the reaction a microtask
+/// ahead of bun, since `.then` was attaching to an already-resolved
+/// cell.
+unsafe fn wrap_plain(bits: u64) -> *mut Promise {
+    unsafe {
+        // The wrapper owns what it carries; the input array keeps its
+        // own stake.
+        crate::combinator_any::box_share(bits);
+        let p = crate::pool::__torajs_promise_alloc_fulfilled_heap(bits as i64);
+        let pp = as_promise(p);
+        (*pp).value_repr = crate::layout::REPR_ANY;
+        pp
+    }
+}
+
+/// Stamp the result cell from the first element that has a form, the
+/// way `combinator::race_fan_in` does: an any-param attach can land
+/// before this cell settles, and its gate refuses an UNSTAMPED source.
+/// An any-shape input always settles boxed, so it needs no walk.
+unsafe fn pre_stamp_from_first(
+    result: *mut c_void,
+    promises_arr: *mut c_void,
+    len: u64,
+    input_any: bool,
+) {
+    unsafe {
+        let rp = as_promise(result);
+        if input_any {
+            (*rp).value_repr = crate::layout::REPR_ANY;
+            (*rp).value_is_heap = 1;
+            return;
+        }
+        // An empty input can never carry a value, so VOID keeps the
+        // gate quiet — `race`'s note on why not UNSTAMPED applies here
+        // verbatim.
+        (*rp).value_repr = crate::layout::REPR_VOID;
+        for i in 0..len {
+            let pp = arr_slot_ptr(promises_arr, i);
+            if !pp.is_null() {
+                (*rp).value_repr = (*pp).value_repr;
+                (*rp).value_is_heap = (*pp).value_is_heap;
+                return;
+            }
+        }
     }
 }
 
@@ -264,6 +364,18 @@ pub(crate) unsafe fn all_fan_in(promises_arr: *mut c_void, target_repr: u8) -> *
 /// `Promise.all`'s fan-in over an any-shape input.
 pub(crate) unsafe fn all_fan_in_any(promises_arr: *mut c_void) -> *mut c_void {
     unsafe { fan_in(promises_arr, MODE_ALL, REPR_UNSTAMPED, 0, true) }
+}
+
+/// `Promise.any`'s fan-in. No element form is needed: a fulfilment
+/// forwards the winner's own settlement and the `errors` list is an
+/// `Array<Any>` either way.
+pub(crate) unsafe fn any_fan_in(promises_arr: *mut c_void) -> *mut c_void {
+    unsafe { fan_in(promises_arr, MODE_ANY, REPR_UNSTAMPED, 0, false) }
+}
+
+/// `Promise.any`'s fan-in over an any-shape input.
+pub(crate) unsafe fn any_fan_in_any(promises_arr: *mut c_void) -> *mut c_void {
+    unsafe { fan_in(promises_arr, MODE_ANY, REPR_UNSTAMPED, 0, true) }
 }
 
 /// `Promise.allSettled`'s fan-in over an any-shape input. The records

@@ -2,11 +2,11 @@
 //! [`crate::combinator_allsettled`]).
 //!
 //! Port of `runtime_promise.c` T-17.a, T-17.b, T-17.d sections (P6.1,
-//! 2026-05-24). `race` waits on genuinely pending elements — one adopt
-//! job per element, first settlement wins — because it needs neither a
-//! counter nor a result array. `all` and `any` still take the MVP
-//! posture there: a pending element rejects the result with a
-//! placeholder, pending real fan-in.
+//! 2026-05-24). Each kernel here answers an input whose elements have
+//! all settled, and hands a pending one to the fan-in next door:
+//! `race` through one adopt job per element (it needs neither a
+//! counter nor a result array), `all` / `allSettled` / `any` through
+//! the shared counter block.
 //!
 //! Array layout reads use the raw byte-offset accessors from
 //! `crate::layout` — torajs-promise carries its own knowledge of
@@ -369,11 +369,18 @@ pub unsafe extern "C" fn __torajs_promise_any_sync(promises_arr: *mut c_void) ->
     if unsafe { crate::combinator_any::arr_is_any(promises_arr) } {
         return unsafe { crate::combinator_any::any_sync_any(promises_arr) };
     }
+    // A genuinely pending element is the one thing the walk below
+    // cannot answer — it used to make `Promise.any([asyncCall(),
+    // asyncCall()])` reject with a placeholder. The fan-in waits, with
+    // the counter running the other way: a fulfilment short-circuits
+    // and the count that has to reach zero is of rejections.
+    if unsafe { crate::combinator_all_fanin::has_pending(promises_arr) } {
+        return unsafe { crate::combinator_all_fanin::any_fan_in(promises_arr) };
+    }
     unsafe { absorb_inputs(promises_arr) };
     let len = unsafe { arr_len(promises_arr) };
     let mut last_rejection: i64 = 0;
     let mut last_rejection_repr: u8 = REPR_VOID;
-    let mut saw_pending = false;
     for i in 0..len {
         let pp = unsafe { arr_slot_ptr(promises_arr, i) };
         if pp.is_null() {
@@ -394,16 +401,11 @@ pub unsafe extern "C" fn __torajs_promise_any_sync(promises_arr: *mut c_void) ->
         if state == STATE_REJECTED {
             last_rejection = value;
             last_rejection_repr = unsafe { (*pp).value_repr };
-        } else {
-            saw_pending = true;
         }
     }
-    // Nothing fulfilled and nothing left outstanding — §27.2.4.2's
-    // all-rejected answer. A still-pending element keeps the old
-    // forwarding posture: this kernel cannot wait, and answering with
-    // an AggregateError over a list that is not finished yet would be
-    // a different wrong answer.
-    if !saw_pending && let Some(err) = unsafe { any_aggregate_error(promises_arr, len) } {
+    // Nothing fulfilled, and the gate above ruled out anything still
+    // outstanding — §27.2.4.2's all-rejected answer.
+    if let Some(err) = unsafe { any_aggregate_error(promises_arr, len) } {
         return unsafe { defer_settle(STATE_REJECTED, err as i64, 1, REPR_HEAP) };
     }
     unsafe { defer_settle(STATE_REJECTED, last_rejection, 0, last_rejection_repr) }

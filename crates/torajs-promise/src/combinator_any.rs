@@ -342,20 +342,24 @@ pub(crate) unsafe fn race_sync_any(promises_arr: *mut c_void) -> *mut c_void {
 }
 
 /// `Promise.any` over an `Array<Any>` (§27.2.4.2). First FULFILLED
-/// element wins; all-rejected falls back to the last rejection reason
-/// (the typed `any_sync` MVP posture — spec's AggregateError ships
-/// with real fan-in). A rejected element's `(repr, value)` is borrowed
-/// off the still-live input array and boxed only if it ends up the
-/// winner, so no owned rejection is stranded when a later element
-/// fulfills.
+/// element wins; all-rejected answers an AggregateError over every
+/// reason. A rejected element's `(repr, value)` is borrowed off the
+/// still-live input array and boxed only where it is kept, so no owned
+/// rejection is stranded when a later element fulfills.
 pub(crate) unsafe fn any_sync_any(promises_arr: *mut c_void) -> *mut c_void {
     unsafe {
+        // A pending element gets waited on, exactly as on the typed
+        // lane — leaving this behind would make "does a pending
+        // element get waited on" depend on whether the array literal
+        // happened to infer `Array<Any>`.
+        if crate::combinator_all_fanin::has_pending_any(promises_arr) {
+            return crate::combinator_all_fanin::any_fan_in_any(promises_arr);
+        }
         let len = *((promises_arr as *mut u8).add(ARR_LEN_OFF) as *const u64);
         absorb_any_inputs(promises_arr);
         let mut have_rej = false;
         let mut last_rej_repr: u8 = REPR_VOID;
         let mut last_rej_value: i64 = 0;
-        let mut saw_pending = false;
         for i in 0..len {
             let bits = any_slot(promises_arr, i);
             let Some(pp) = slot_promise(bits) else {
@@ -376,13 +380,12 @@ pub(crate) unsafe fn any_sync_any(promises_arr: *mut c_void) -> *mut c_void {
                     last_rej_repr = (*pp).value_repr;
                     last_rej_value = (*pp).value;
                 }
-                _ => saw_pending = true, // PENDING.
+                _ => {} // PENDING — the gate above ruled these out.
             }
         }
         // Every element rejected — §27.2.4.2's AggregateError, the
-        // typed sibling's answer verbatim. A still-pending element
-        // keeps the old forwarding posture (see there).
-        if !saw_pending && let Some(err) = any_aggregate_error(promises_arr, len) {
+        // typed sibling's answer verbatim.
+        if let Some(err) = any_aggregate_error(promises_arr, len) {
             return crate::combinator::defer_settle(STATE_REJECTED, err as i64, 1, REPR_HEAP);
         }
         if have_rej {
