@@ -43,7 +43,7 @@ pub mod pool;
 pub mod print;
 pub mod state;
 pub mod then;
-pub(crate) mod then_adopt;
+pub mod then_adopt;
 pub mod then_box;
 pub mod then_finally;
 pub mod then_two;
@@ -72,6 +72,7 @@ pub use then::{
     __torajs_promise_catch_closure, __torajs_promise_catch_simple, __torajs_promise_then_closure,
     __torajs_promise_then_simple,
 };
+pub use then_adopt::__torajs_promise_adopt_if_thenable;
 pub use then_finally::{__torajs_promise_finally, __torajs_promise_finally_closure};
 pub use unhandled::{
     __torajs_main_exit_code, __torajs_process_on_unhandled_rejection_register_closure,

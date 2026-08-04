@@ -53,6 +53,11 @@ unsafe extern "C" {
     fn __torajs_promise_get_value(p: *const c_void) -> i64;
     fn __torajs_promise_resolve(p: *mut c_void, value: i64);
     fn __torajs_promise_reject(p: *mut c_void, reason: i64);
+    /// §27.2.1.3.2 — adopt a promise the handler returned instead of
+    /// storing it as the fulfilment value. Non-zero = adopted, and the
+    /// returned stake went with it. Implementation (shared with the
+    /// typed kernels): torajs-promise `then_adopt.rs`.
+    fn __torajs_promise_adopt_if_thenable(result: *mut c_void, repr: i64, value: i64) -> i64;
     fn __torajs_promise_attach_then(
         source: *mut c_void,
         invoke: Option<unsafe extern "C" fn(i64)>,
@@ -301,7 +306,7 @@ unsafe extern "C" fn then_any_dispatch(arg: i64) {
                 let reason = __torajs_anyv_box_from_pair(ttag, tval);
                 stamp_result(result, REPR_ANY, 1);
                 __torajs_promise_reject(result, reason as i64);
-            } else {
+            } else if __torajs_promise_adopt_if_thenable(result, REPR_ANY as i64, ret as i64) == 0 {
                 stamp_result(result, REPR_ANY, 1);
                 __torajs_promise_resolve(result, ret as i64);
             }

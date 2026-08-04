@@ -140,3 +140,32 @@ pub(crate) unsafe fn adopt_into(result: *mut c_void, inner: *mut c_void) {
         __torajs_promise_attach_then(inner, Some(adopt_dispatch), a as i64);
     }
 }
+
+/// The same protocol for the any-lane bridge, which lives in
+/// torajs-anyvalue (`method_call_promise.rs::then_any_dispatch`) and so
+/// reaches adoption across the C boundary. Answers non-zero when it
+/// adopted — the caller then skips its own resolve leg.
+///
+/// A heap-tagged NaN box IS the cell pointer, so the handler's returned
+/// stake on the box is the stake on the promise: it transfers into the
+/// job block exactly as in [`adopt_into`], and the caller must not
+/// release it on this path.
+///
+/// # Safety
+///
+/// `result` is a live PENDING promise cell; `value` carries the form
+/// `repr` names.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_promise_adopt_if_thenable(
+    result: *mut c_void,
+    repr: i64,
+    value: i64,
+) -> i64 {
+    unsafe {
+        let Some(inner) = returned_promise(repr as u8, value) else {
+            return 0;
+        };
+        adopt_into(result, inner);
+        1
+    }
+}

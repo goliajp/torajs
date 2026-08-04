@@ -1604,6 +1604,7 @@ mod tests {
         __torajs_num_to_string_radix_f,
         __torajs_num_to_string_radix_i,
         __torajs_number_wrapper_new,
+        __torajs_promise_adopt_if_thenable,
         __torajs_promise_alloc_pending,
         __torajs_promise_attach_then,
         __torajs_promise_drop,
