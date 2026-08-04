@@ -1530,7 +1530,30 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 176bcffb`, never as a constant.
 
-**Latest @ `b6940559`** (2026-08-04, rotation 293 — the fn-value
+**Latest @ `9ee27236`** (2026-08-04, rotation 294 — the nested-class
+hoist plus the iterator-close and let-widen knives, five knives all
+green through the gate chain 2419 → 2422: capture-free ClassDecls
+nested in fn / fn-expression / block bodies hoist to the top level
+(the desugar_classes pre-pass, α-renaming on collision — the same
+strategy the parser already applied to class expressions); the lazy
+and eager Iterator helpers close their underlying UNDER the stashed
+pending throw so a user `return()` actually runs (proposal 2.1.5 /
+IfAbruptCloseIterator); a mutable unannotated `let` reassigned a
+value of a different syntactic family types `any` from declaration
+(RFC 20260804-mutable-let-widen, the third shared init-eid set in
+the dynobj_degrade family); for-of/for-in bodies reject lexical
+declarations like every other single-statement position, with the
+sloppy `let \n x` ASI-identifier spelling exempted across all seven
+positions). passTotal 26043 → **26099 (+56)**, bug 11874 → 11906
+(+32, unlock shape), trAccepted +88 / incompat **15169 (−88)** —
+conservation exact (88 = 56 + 32); gate predicate **331
+clusters / 8382 cases** (−2 / −64), core 9370 (−71); regressions
+**zero** (all three pass verdicts diffed; the one blade-4 regression
+was caught by the mid-rotation sweep and fixed same-rotation by
+blade 5); one new tr-timeout (36 total — a hoist-unlocked TDZ
+self-reference loop, registered).
+
+**Previous @ `b6940559`** (2026-08-04, rotation 293 — the fn-value
 store-site blind-spot sweep plus Reflect.construct, four knives all
 green through the gate chain 2414 → 2419: the NewDynamic CALLEE and
 a lifted arrow's untyped params reach the wrapped-closure lane
@@ -1553,7 +1576,7 @@ clusters / 8446 cases** (flat / −65), core 9441 (−70); regressions
 **ZERO** (verdicts diff: 0 cases left pass), new timeouts/crashes
 zero (tr-timeout flat 35). Previous stamp below.
 
-**Previous @ `7b756e00`** (2026-08-04, rotation 292 — the fn-value /
+**Prior @ `7b756e00`** (2026-08-04, rotation 292 — the fn-value /
 iterator-protocol residue face, seven knives all green through the
 gate chain 2409 → 2414: iterator helpers cache the next method at
 construction per GetIteratorDirect (helper cell grows a next slot,
@@ -1580,37 +1603,6 @@ incompatible 15411 → **15389 (−22)**, conservation exact (22 = 92 −
 9511 (−22); regressions **ZERO** (verdicts diff: 0 cases left pass);
 box_to_any FnSig cluster 14 → **2** (Error.isError namespace-static
 fn value + one staging shape). Previous stamp below.
-
-**Prior @ `176bcffb`** (2026-08-03, rotation 289 — the dynamic-import
-residue face, four substrate knives: `await import("...")` works
-inside async fn bodies — a dyn-import namespace no longer
-materializes a top-level main-local `let` (invisible from a lifted
-async body, which answered `unknown identifier __dyn_ns_0`); the
-resolver rewrites each `Ident(__dyn_ns_<n>)` use site into the
-namespace object literal in place (`inline_dyn_ns_objlits`), whose
-field Idents resolve against the injected lib decls from any fn
-body, with per-path field lists so a second `import()` of a visited
-module still rewrites, and `dyn_import_counter` seeded from the
-arena offset so a lib's own dynamic imports cannot mint colliding
-names; `import(spec, options)` parses — the options expression is
-consumed and discarded (the eager AOT subset resolves at compile
-time; trailing commas legal in both arg forms); `import { default
-as x }` rides the resolver's default lane (§16.2.2 ModuleExportName
-covers reserved words; bare `{ default }` stays a syntax error);
-`import.defer("...")` parses as an eager dynamic import in both
-expression and statement position while `import.source` rejects
-loudly naming its missing ModuleSource substrate: sweep passTotal
-25568 → **25674 (+106)** / bug 11735 → 11793 (+58) / trAccepted
-+164 / incompatible 15871 → **15707 (−164)**, conservation exact
-(164 = 106 + 58); gate predicate **334 clusters / 8821 cases**
-(−2 / −180), core 9829 (−164); regressions: **ZERO real** — the one
-verdict that moved off pass,
-`dynamic-import/import-attributes/2nd-param-yield-ident-invalid.js`
-(pass-negative → negative-unsupported), had only ever passed on the
-pre-knife-2 unrelated Comma parse error (metric-inflation
-recovery; the real gap — `yield` as a reserved word in module
-code — is registered in L3b). The 191 forward moves: dynamic-import
-190 / import-defer 1.
 
 **Prior @ `0f8f8257`** (2026-08-03, rotation 288 — the rotation-287
 heisenbug root cause + the dynamic-import parse face, four substrate
