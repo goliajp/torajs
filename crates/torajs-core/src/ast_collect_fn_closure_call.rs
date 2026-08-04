@@ -161,8 +161,20 @@ impl<'a> FnToClosureCollector<'a> {
             && matches!(mname.as_str(), "apply" | "bind")
             && let Expr::Ident(fname) = self.ast.get_expr(*obj)
             && let Some((params, _, _)) = self.fn_sigs.get(fname)
+            // A this-using static's rebind retargets to its `__smany_`
+            // twin, whose arity differs from the mono's — ask the
+            // predicate about the signature that will actually take
+            // the rewrite, or the two passes disagree over whether
+            // this form is swallowed.
+            && let eff_params = crate::ast_desugar_function_prototype_methods::retarget_static_twin(
+                fname,
+                params,
+                |t| self.fn_sigs.contains_key(t),
+            )
+            .and_then(|t| self.fn_sigs.get(&t))
+            .map_or(params.as_slice(), |(p, _, _)| p.as_slice())
             && !crate::ast_desugar_function_prototype_methods::swallows_fn_proto_call(
-                self.ast, mname, args, params,
+                self.ast, mname, args, eff_params,
             )
         {
             // r292 — the generator exclusion drops here too: an
