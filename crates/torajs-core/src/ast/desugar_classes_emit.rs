@@ -314,16 +314,21 @@ pub(in crate::ast) fn emit_class_static_methods(
         }
         let (body, return_type) = maybe_rewrite_async_method_body(ast, cname, "__sm_", sm)
             .unwrap_or_else(|| (sm.body.clone(), sm.return_type.clone()));
-        // RFC 20260802 residue fix — force `any` on an un-annotated
-        // static-SETTER param (mirror of the instance emit above:
-        // None ann → Type::Void sig → boxed-adapter dropout → the
-        // AccessorPair set face silently missing).
+        // RFC 20260802 residue fix, widened rotation 297 — force
+        // `any` on EVERY un-annotated static-method param, not just
+        // the setter's. An un-annotated param whose type inference
+        // finds no seed (no static call site — e.g. an inner
+        // ClassExpr's static method only ever dispatched through an
+        // any-held class object) kept a `Type::Void` sig →
+        // boxed-adapter dropout → reify skipped → DCE erased the fn
+        // → the by-name dispatch answered "not a function". An
+        // un-annotated param IS implicit `any` (TS semantics); a
+        // direct `C.f(x)` call stays a direct call, its args just
+        // box.
         let mut params = sm.params.clone();
-        if sm.accessor_kind == Some(AccessorKind::Setter) {
-            for p in params.iter_mut() {
-                if p.type_ann.is_none() {
-                    p.type_ann = Some("any".to_string());
-                }
+        for p in params.iter_mut() {
+            if p.type_ann.is_none() {
+                p.type_ann = Some("any".to_string());
             }
         }
         appended.push(Stmt::FnDecl {
