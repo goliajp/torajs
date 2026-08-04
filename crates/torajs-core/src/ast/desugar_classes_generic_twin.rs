@@ -127,18 +127,9 @@ pub(in crate::ast) fn mint_static_generic_twin(
 ) {
     let mut cloner = BodyCloner::new(ast);
     let cloned_body = cloner.clone_stmts(body);
-    let this_sites: Vec<super::ExprId> = cloner
-        .map
-        .iter()
-        .filter(|(old, _)| cloner.ast.static_this_sites.contains_key(old))
-        .map(|(_, new)| *new)
-        .collect();
-    if this_sites.is_empty() {
+    if !rebind_this_sites(&mut cloner) {
         neutralize_clone(&mut cloner);
         return;
-    }
-    for new in this_sites {
-        cloner.ast.exprs[new.0 as usize] = Expr::Ident("__this".into());
     }
     super::clone_body_tables::migrate(&mut cloner);
     // Same restore step as the instance mint: every static-dispatch
@@ -150,6 +141,18 @@ pub(in crate::ast) fn mint_static_generic_twin(
         neutralize_clone(&mut cloner);
         return;
     }
+    // Rebind AGAIN, because `migrate` may have minted more receiver
+    // reads: a speculative alt lives OUTSIDE the body (it hangs off
+    // the side table, not off a cloned stmt), so `resolve_value`
+    // deep-clones it — and `clone_expr` does not memoize, so the
+    // alt's own receiver read becomes a FRESH `Ident(<cls>)` node
+    // rather than the one the first pass just rebound. Since
+    // `restore_dynamic_calls` installs exactly that alt shape as the
+    // twin's call, skipping this second pass leaves the twin reading
+    // the class object (`C.f()`) instead of its rebound receiver —
+    // every `C.g.call(recv)` then missed, silently for a field read
+    // and as "not a function" for a method call.
+    rebind_this_sites(&mut cloner);
     let mut cloned_params: Vec<Param> = Vec::with_capacity(params.len() + 1);
     cloned_params.push(Param {
         name: "__this".into(),
@@ -173,6 +176,27 @@ pub(in crate::ast) fn mint_static_generic_twin(
         is_generator: false,
         span,
     });
+}
+
+/// Point every cloned counterpart of a static-`this` site at the
+/// twin's leading receiver param. `false` = the body reads no
+/// receiver at all (a `this`-free static never rebind-misbehaves, so
+/// the caller drops the mint and keeps direct-mono dispatch).
+///
+/// Idempotent, and deliberately re-run after
+/// [`super::clone_body_tables::migrate`] — see the second call site.
+fn rebind_this_sites(cloner: &mut BodyCloner<'_>) -> bool {
+    let sites: Vec<super::ExprId> = cloner
+        .map
+        .iter()
+        .filter(|(old, _)| cloner.ast.static_this_sites.contains_key(old))
+        .map(|(_, new)| *new)
+        .collect();
+    let found = !sites.is_empty();
+    for new in sites {
+        cloner.ast.exprs[new.0 as usize] = Expr::Ident("__this".into());
+    }
+    found
 }
 
 /// Overwrite every cloned node with the inert `Uninit` leaf — a
