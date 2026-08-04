@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-04T09:48:39.787Z",
+  "generatedAt": "2026-08-04T11:46:36.295Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-04T09:46:25Z",
-    "headSha": "8e7e683e",
-    "elapsedSec": 387.24,
+    "ranAt": "2026-08-04T11:44:56Z",
+    "headSha": "921d5124",
+    "elapsedSec": 388.17,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 21576,
-    "passNoOracle": 662,
+    "pass": 21670,
+    "passNoOracle": 664,
     "passNegative": 3956,
-    "passTotal": 26194,
-    "bug": 11963,
-    "incompatible": 15017,
+    "passTotal": 26290,
+    "bug": 11916,
+    "incompatible": 14968,
     "bunSkip": 7155,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 38157,
-    "passRateInScope": 49.26,
-    "passRateTrAccepted": 68.65
+    "trAccepted": 38206,
+    "passRateInScope": 49.44,
+    "passRateTrAccepted": 68.81
   },
   "torajs": {
-    "commit": "8e7e683e",
-    "commitSubject": "fix: undeclared private-name member miss stays a compile-time reject",
+    "commit": "921d5124",
+    "commitSubject": "fix: private-in negative forms reject at parse, object rhs never throws",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,42 @@
   },
   "commits": [
     {
+      "hash": "921d5124",
+      "subject": "fix: private-in negative forms reject at parse, object rhs never throws"
+    },
+    {
+      "hash": "40da3ce3",
+      "subject": "feat: ergonomic brand check, private name on the in operator"
+    },
+    {
+      "hash": "50e341d6",
+      "subject": "refactor: file-size debt clean, flat-map and parse-stmt over-limit fns"
+    },
+    {
+      "hash": "f9fb1e2c",
+      "subject": "refactor: extract let-widen walker try/class arms to per-arm fns"
+    },
+    {
+      "hash": "dbe144ca",
+      "subject": "refactor: extract toplevel-globals supported/mutable-promote gates"
+    },
+    {
+      "hash": "b1b693b0",
+      "subject": "fix: un-annotated static-method params are implicit any, face survives"
+    },
+    {
+      "hash": "d83bc566",
+      "subject": "feat: private member read off a foreign-brand receiver throws TypeError"
+    },
+    {
+      "hash": "e278b0c3",
+      "subject": "feat: private-name references bind lexically across nested classes"
+    },
+    {
+      "hash": "1343208c",
+      "subject": "chore(docs,hardev): rotation 296 sweep artifacts, census at 8e7e683e, dashboard snapshot"
+    },
+    {
       "hash": "8e7e683e",
       "subject": "fix: undeclared private-name member miss stays a compile-time reject"
     },
@@ -723,63 +759,38 @@
     {
       "hash": "b774d8f6",
       "subject": "feat: class-instance member miss reads as undefined, not a reject"
-    },
-    {
-      "hash": "776cfdc7",
-      "subject": "feat: reified method face guards its receiver, foreign this takes twin"
-    },
-    {
-      "hash": "11f964de",
-      "subject": "fix: dropped twin mint neutralizes its clone to uninit leaves"
-    },
-    {
-      "hash": "74e32230",
-      "subject": "fix: cmany twin restores the member-call shape at this-recv sites"
-    },
-    {
-      "hash": "1792bc0b",
-      "subject": "feat: any-member post-incr composes getv, step kernel, member-set"
-    },
-    {
-      "hash": "0ba4996f",
-      "subject": "feat: ast fn-body deep clone mints the receiver-polymorphic cmany twin"
-    },
-    {
-      "hash": "68383264",
-      "subject": "chore(hardev): dashboard snapshot at rotation 295 close"
-    },
-    {
-      "hash": "43827f6e",
-      "subject": "chore(docs,hardev): rotation 295 sweep artifacts and census at 0e556523"
-    },
-    {
-      "hash": "0e556523",
-      "subject": "feat: generator expression body this rides the genrecv receiver channel"
-    },
-    {
-      "hash": "3f9b49de",
-      "subject": "feat: fn props unify on the canonical cell, fnprops table delegates"
     }
   ],
-  "headSha": "8e7e683e",
+  "headSha": "921d5124",
   "autorun": {
-    "total": 600,
+    "total": 601,
     "baselineTarget": 10,
-    "bySelf": 595,
+    "bySelf": 596,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785810323-1fc2",
-      "at": "2026-08-04T02:25:23Z",
-      "ts": 1785810323,
+      "rotationId": "r-1785836980-6d39",
+      "at": "2026-08-04T09:49:40Z",
+      "ts": 1785836980,
       "trigger": "self",
-      "prevHead": "68383264",
-      "handoffSha": "sha256:8f53bca2d2c8c6a8cec8ba3ca7ef292d32ad9dd5cff57f61afbc71de6d810749",
-      "handoffAgeSec": 31,
+      "prevHead": "1343208c",
+      "handoffSha": "sha256:f04a8dc3836112c5a709fc0085c71f19aa862eef4f427311b513d5dd5e3d3307",
+      "handoffAgeSec": 8,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1785836980-6d39",
+        "at": "2026-08-04T09:49:40Z",
+        "ts": 1785836980,
+        "trigger": "self",
+        "prevHead": "1343208c",
+        "handoffSha": "sha256:f04a8dc3836112c5a709fc0085c71f19aa862eef4f427311b513d5dd5e3d3307",
+        "handoffAgeSec": 8,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785810323-1fc2",
         "at": "2026-08-04T02:25:23Z",
@@ -876,17 +887,6 @@
         "prevHead": "5e379f27",
         "handoffSha": "sha256:0c4cfdbcf32658ec68eb965124c34eed38880f15bc8bf70194826f125669cc3d",
         "handoffAgeSec": 5,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1785717403-62d8",
-        "at": "2026-08-03T00:36:43Z",
-        "ts": 1785717403,
-        "trigger": "self",
-        "prevHead": "610073d2",
-        "handoffSha": "sha256:065197a1558a32af2749b57c59a4df0e9eabe9757d4e4692c8a95135d0396788",
-        "handoffAgeSec": 44,
         "conformanceBefore": null,
         "commitsInSession": null
       }
