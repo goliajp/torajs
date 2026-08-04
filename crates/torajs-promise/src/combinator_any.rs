@@ -196,7 +196,7 @@ pub(crate) unsafe fn all_sync_any(promises_arr: *mut c_void) -> *mut c_void {
             };
             *(data.add(((head + i) * 8) as usize) as *mut u64) = v;
         }
-        crate::combinator::defer_settle(STATE_FULFILLED, out as i64, 1, REPR_HEAP)
+        crate::combinator::settle_result(len, STATE_FULFILLED, out as i64, 1, REPR_HEAP)
     }
 }
 
@@ -267,7 +267,7 @@ pub(crate) unsafe fn allsettled_sync_any(
         }
         // {status, value} obj cells — heap-ptr slots (chain 4).
         __torajs_arr_mark_kind(result_arr, 4);
-        crate::combinator::defer_settle(STATE_FULFILLED, result_arr as i64, 1, REPR_HEAP)
+        crate::combinator::settle_result(len, STATE_FULFILLED, result_arr as i64, 1, REPR_HEAP)
     }
 }
 
@@ -386,7 +386,7 @@ pub(crate) unsafe fn any_sync_any(promises_arr: *mut c_void) -> *mut c_void {
         // Every element rejected — §27.2.4.2's AggregateError, the
         // typed sibling's answer verbatim.
         if let Some(err) = any_aggregate_error(promises_arr, len) {
-            return crate::combinator::defer_settle(STATE_REJECTED, err as i64, 1, REPR_HEAP);
+            return crate::combinator::settle_result(len, STATE_REJECTED, err as i64, 1, REPR_HEAP);
         }
         if have_rej {
             let Some(v) = box_settled_owned(last_rej_repr, last_rej_value) else {

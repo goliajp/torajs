@@ -208,6 +208,6 @@ pub unsafe extern "C" fn __torajs_promise_allsettled_sync(
     unsafe {
         // {status, value} obj cells — heap-ptr slots (chain 4).
         __torajs_arr_mark_kind(result_arr, 4);
-        defer_settle(STATE_FULFILLED, result_arr as i64, 1, REPR_HEAP)
+        crate::combinator::settle_result(len, STATE_FULFILLED, result_arr as i64, 1, REPR_HEAP)
     }
 }

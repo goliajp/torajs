@@ -148,6 +148,44 @@ pub(crate) unsafe fn defer_settle(state: u8, value: i64, is_heap: u8, repr: u8) 
     }
 }
 
+/// Settle a combinator's result: an EMPTY input synchronously,
+/// anything else through [`defer_settle`].
+///
+/// The deferral exists because the spec settles a non-empty
+/// combinator through a round of element jobs, so minting one settled
+/// put its callbacks a microtask EARLY. An empty iterable has no
+/// elements and no jobs — §27.2.4.1 step 8 and §27.2.4.2 step 8 reach
+/// remainingElementsCount 0 before the call returns, and bun settles
+/// there and then. Routing it through the same deferral was the
+/// mirror error, one microtask LATE: `Promise.all([]).then(cb)` ran
+/// `cb` after a plain `Promise.resolve(0).then(t1)` where bun runs it
+/// before. Probed on `all` / `allSettled` / `any` alike, which is why
+/// the rule lives here rather than in one kernel.
+///
+/// `race` has no empty answer to settle — §27.2.4.5 step 3 leaves it
+/// forever pending — so it never comes through here.
+pub(crate) unsafe fn settle_result(
+    len: u64,
+    state: u8,
+    value: i64,
+    is_heap: u8,
+    repr: u8,
+) -> *mut c_void {
+    unsafe {
+        if len != 0 {
+            return defer_settle(state, value, is_heap, repr);
+        }
+        let p = match (state, is_heap) {
+            (STATE_REJECTED, 0) => crate::pool::__torajs_promise_alloc_rejected(value),
+            (STATE_REJECTED, _) => crate::pool::__torajs_promise_alloc_rejected_heap(value),
+            (_, 0) => crate::pool::__torajs_promise_alloc_fulfilled(value),
+            (_, _) => crate::pool::__torajs_promise_alloc_fulfilled_heap(value),
+        };
+        (*as_promise(p)).value_repr = repr;
+        p
+    }
+}
+
 /// `Some(lane)` when this element settled through the `any` world and
 /// has to be unboxed into `lane` before it can sit in the result array;
 /// `None` when its slot is already in the form the array holds.
@@ -262,7 +300,7 @@ pub unsafe extern "C" fn __torajs_promise_all_sync(
         // hand the any lane a misdecoding array.
         None => REPR_UNSTAMPED,
     };
-    unsafe { defer_settle(STATE_FULFILLED, result_arr as i64, 1, out_repr) }
+    unsafe { settle_result(len, STATE_FULFILLED, result_arr as i64, 1, out_repr) }
 }
 
 // ============================================================
@@ -406,7 +444,7 @@ pub unsafe extern "C" fn __torajs_promise_any_sync(promises_arr: *mut c_void) ->
     // Nothing fulfilled, and the gate above ruled out anything still
     // outstanding — §27.2.4.2's all-rejected answer.
     if let Some(err) = unsafe { any_aggregate_error(promises_arr, len) } {
-        return unsafe { defer_settle(STATE_REJECTED, err as i64, 1, REPR_HEAP) };
+        return unsafe { settle_result(len, STATE_REJECTED, err as i64, 1, REPR_HEAP) };
     }
     unsafe { defer_settle(STATE_REJECTED, last_rejection, 0, last_rejection_repr) }
 }

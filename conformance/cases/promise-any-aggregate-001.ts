@@ -38,10 +38,8 @@ Promise.any([Promise.reject("first"), Promise.reject("second")]).then(
   }
 );
 
-// The empty iterable lives in its own case file: its ANSWER is the
-// same shape, but the tick it lands on differs from bun for reasons
-// that predate this and hold for the whole family — see
-// promise-any-aggregate-002.
+// The empty iterable lives in its own case file, where the tick it
+// settles on is the subject — see promise-any-aggregate-002.
 //
 // D — any lane: a mixed literal infers Array<Any> and routes to the
 // sibling kernel, which has to answer the same shape.
