@@ -25,13 +25,32 @@ impl<'a> Parser<'a> {
     /// is a VariableStatement proper. The check is post-parse on the
     /// produced Stmt — parse side effects are moot since the whole
     /// compile aborts.
-    pub(super) fn reject_decl_in_single_stmt(&self, body: &Stmt, ctx: &str) -> Result<(), String> {
+    pub(super) fn reject_decl_in_single_stmt(
+        &self,
+        body: &Stmt,
+        body_start: usize,
+        ctx: &str,
+    ) -> Result<(), String> {
         let offending = match body {
             Stmt::LetDecl {
                 is_var: false,
                 mutable,
                 ..
-            } => Some(if *mutable { "let" } else { "const" }),
+            } => {
+                // Sloppy-mode `let \n x = 1` is an ASI-split
+                // ExpressionStatement pair (`let` the identifier),
+                // not a LexicalDeclaration — the §13.16 lookahead
+                // only forbids `let [`. tr misparses the shape into
+                // one LetDecl; rejecting it here turned a
+                // runs-fine program into a parse error (test262
+                // let-identifier-with-newline family), so the
+                // newline spelling keeps the historical behavior.
+                if *mutable && self.let_newline_asi_form(body_start) {
+                    None
+                } else {
+                    Some(if *mutable { "let" } else { "const" })
+                }
+            }
             Stmt::ClassDecl { .. } => Some("class"),
             Stmt::FnDecl {
                 name, is_generator, ..
@@ -53,6 +72,20 @@ impl<'a> Parser<'a> {
             )),
             None => Ok(()),
         }
+    }
+
+    /// `let` at `body_start` followed by a LINE-BREAK then an
+    /// identifier — the ASI-identifier spelling the reject above
+    /// exempts. (`var` shares `Token::Let` at the token level but
+    /// its LetDecl carries `is_var: true` and never reaches this.)
+    fn let_newline_asi_form(&self, body_start: usize) -> bool {
+        let (Some(a), Some(b)) = (self.tokens.get(body_start), self.tokens.get(body_start + 1))
+        else {
+            return false;
+        };
+        matches!(a.token, Token::Let)
+            && matches!(b.token, Token::Ident(_))
+            && self.source[a.span.end as usize..b.span.start as usize].contains('\n')
     }
     pub(super) fn parse_while(&mut self) -> Result<Stmt, String> {
         self.pos += 1; // consume `while`
@@ -77,15 +110,17 @@ impl<'a> Parser<'a> {
                 ));
             }
         }
+        let body_start = self.pos;
         let body = Box::new(self.parse_stmt()?);
-        self.reject_decl_in_single_stmt(&body, "a while loop")?;
+        self.reject_decl_in_single_stmt(&body, body_start, "a while loop")?;
         Ok(Stmt::While { cond, body })
     }
 
     pub(super) fn parse_do_while(&mut self) -> Result<Stmt, String> {
         self.pos += 1; // consume `do`
+        let body_start = self.pos;
         let body = Box::new(self.parse_stmt()?);
-        self.reject_decl_in_single_stmt(&body, "a do-while loop")?;
+        self.reject_decl_in_single_stmt(&body, body_start, "a do-while loop")?;
         match self.peek() {
             Token::While => self.pos += 1,
             t => {
@@ -333,8 +368,9 @@ impl<'a> Parser<'a> {
                 ));
             }
         }
+        let body_start = self.pos;
         let body = Box::new(self.parse_stmt()?);
-        self.reject_decl_in_single_stmt(&body, "a for loop")?;
+        self.reject_decl_in_single_stmt(&body, body_start, "a for loop")?;
         Ok(Stmt::For {
             init,
             cond,
