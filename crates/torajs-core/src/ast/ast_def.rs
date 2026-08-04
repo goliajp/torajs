@@ -152,6 +152,15 @@ pub struct Ast {
     /// instead) when the receiver checks as a builtin container —
     /// full mechanism in cm_demote.rs.
     pub speculative_cm_rewrites: std::collections::HashMap<ExprId, ExprId>,
+    /// `call ExprId → intact Member callee ExprId` for the
+    /// `this`-receiver half of the same Pass 2 rewrite — the half
+    /// `speculative_cm_rewrites` deliberately skips (a `this`
+    /// receiver's type is always the enclosing class, so no demotion
+    /// decision exists). The twin mint reads it to restore the
+    /// member-call shape inside a cloned `any`-receiver body, where
+    /// the static `__cm_` / `__dispatch_` call would reject at the
+    /// checker's ClassRef arg gate (RFC 20260804 blade 2).
+    pub cm_this_static_calls: std::collections::HashMap<ExprId, ExprId>,
     /// RFC 20260804-method-rebind-generic-body — mono class-method
     /// name (`__cm_<C>__<m>`) → its receiver-polymorphic twin
     /// (`__cmany_<C>__<m>`). Minted by `desugar_classes_generic_twin`

@@ -48,6 +48,16 @@ pub(crate) fn record_speculative_rewrite(
     let recv_is_this = matches!(&ast.exprs[obj_id.0 as usize], Expr::This)
         || matches!(&ast.exprs[obj_id.0 as usize], Expr::Ident(n) if n == "__this");
     if recv_is_this {
+        // No demotion decision exists for a `this` receiver, but the
+        // intact Member callee still matters: the cmany twin mint
+        // restores the member-call shape from it inside a cloned
+        // any-receiver body (RFC 20260804 blade 2). The super-call
+        // rewrite produces the same `__cm_` call shape WITHOUT an
+        // entry here — that absence is how the mint tells a
+        // (dynamic-by-spec) method call from a (static-by-spec)
+        // super call.
+        ast.cm_this_static_calls
+            .insert(ExprId(call_idx as u32), callee_id);
         return;
     }
     let alt = ast.add_expr(Expr::Call {

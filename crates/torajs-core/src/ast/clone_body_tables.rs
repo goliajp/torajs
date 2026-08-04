@@ -31,6 +31,10 @@ pub(crate) fn migrate(cloner: &mut BodyCloner<'_>) {
             let v2 = resolve_value(cloner, v);
             cloner.ast.objlit_computed_keys.insert(*new, v2);
         }
+        if let Some(v) = cloner.ast.cm_this_static_calls.get(old).copied() {
+            let v2 = resolve_value(cloner, v);
+            cloner.ast.cm_this_static_calls.insert(*new, v2);
+        }
     }
 
     let pairs: Vec<(ExprId, ExprId)> = cloner.map.iter().map(|(o, n)| (*o, *n)).collect();
