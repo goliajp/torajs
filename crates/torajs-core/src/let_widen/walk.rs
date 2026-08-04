@@ -119,28 +119,12 @@ impl Walker<'_> {
                 catch_body,
                 finally_body,
                 ..
-            } => {
-                self.scopes.push(HashMap::new());
-                for s in body {
-                    self.walk_stmt(s);
-                }
-                self.scopes.pop();
-                self.scopes.push(HashMap::new());
-                if let Some(p) = catch_param {
-                    self.shadow(p);
-                }
-                for s in catch_body {
-                    self.walk_stmt(s);
-                }
-                self.scopes.pop();
-                if let Some(fb) = finally_body {
-                    self.scopes.push(HashMap::new());
-                    for s in fb {
-                        self.walk_stmt(s);
-                    }
-                    self.scopes.pop();
-                }
-            }
+            } => self.walk_try(
+                body,
+                catch_param.as_deref(),
+                catch_body,
+                finally_body.as_deref(),
+            ),
             Stmt::Block(v) => {
                 self.scopes.push(HashMap::new());
                 for s in v {
@@ -166,26 +150,7 @@ impl Walker<'_> {
                 methods,
                 static_methods,
                 ..
-            } => {
-                for si in static_init {
-                    match si {
-                        StaticInit::Field(f) => self.walk_expr(f.init),
-                        StaticInit::Block(stmts) => {
-                            self.scopes.push(HashMap::new());
-                            for s in stmts {
-                                self.walk_stmt(s);
-                            }
-                            self.scopes.pop();
-                        }
-                    }
-                }
-                if let Some(c) = ctor {
-                    self.walk_fn_body(&c.params, &c.body);
-                }
-                for m in methods.iter().chain(static_methods.iter()) {
-                    self.walk_fn_body(&m.params, &m.body);
-                }
-            }
+            } => self.walk_class_decl(static_init, ctor.as_ref(), methods, static_methods),
             Stmt::Return(e) => {
                 if let Some(e) = e {
                     self.walk_expr(*e);
@@ -309,6 +274,68 @@ impl Walker<'_> {
                 self.walk_expr(*else_branch);
             }
             Expr::PostIncr { target, .. } => self.walk_expr(*target),
+        }
+    }
+
+    /// `Stmt::Try` arm body (verbatim, split under the 200-line fn
+    /// rule) — each of the three blocks scopes independently, the
+    /// catch param shadowing inside the catch scope.
+    fn walk_try(
+        &mut self,
+        body: &[Stmt],
+        catch_param: Option<&str>,
+        catch_body: &[Stmt],
+        finally_body: Option<&[Stmt]>,
+    ) {
+        self.scopes.push(HashMap::new());
+        for s in body {
+            self.walk_stmt(s);
+        }
+        self.scopes.pop();
+        self.scopes.push(HashMap::new());
+        if let Some(p) = catch_param {
+            self.shadow(p);
+        }
+        for s in catch_body {
+            self.walk_stmt(s);
+        }
+        self.scopes.pop();
+        if let Some(fb) = finally_body {
+            self.scopes.push(HashMap::new());
+            for s in fb {
+                self.walk_stmt(s);
+            }
+            self.scopes.pop();
+        }
+    }
+
+    /// `Stmt::ClassDecl` arm body (verbatim, same split) — static
+    /// field inits / static blocks walk in place, every method body
+    /// through the fresh-scope fn walk.
+    fn walk_class_decl(
+        &mut self,
+        static_init: &[StaticInit],
+        ctor: Option<&crate::ast::ClassCtor>,
+        methods: &[crate::ast::ClassMethod],
+        static_methods: &[crate::ast::ClassMethod],
+    ) {
+        for si in static_init {
+            match si {
+                StaticInit::Field(f) => self.walk_expr(f.init),
+                StaticInit::Block(stmts) => {
+                    self.scopes.push(HashMap::new());
+                    for s in stmts {
+                        self.walk_stmt(s);
+                    }
+                    self.scopes.pop();
+                }
+            }
+        }
+        if let Some(c) = ctor {
+            self.walk_fn_body(&c.params, &c.body);
+        }
+        for m in methods.iter().chain(static_methods.iter()) {
+            self.walk_fn_body(&m.params, &m.body);
         }
     }
 
