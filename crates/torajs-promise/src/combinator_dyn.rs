@@ -164,11 +164,12 @@ pub unsafe extern "C" fn __torajs_promise_any_dyn(v: u64) -> *mut c_void {
 }
 
 /// Same shape as [`all_sync_untargeted`]: `allsettled_sync` takes the
-/// class tag its records must carry, and the dyn entry has no call site
-/// to mint one from. `0` leaves the records anonymous — the posture
-/// every allSettled record had before the tag existed.
+/// class tags its records must carry and the form their value slot
+/// holds, and the dyn entry has no call site to derive either from.
+/// Two zeros leave the records anonymous with their slots untouched —
+/// the posture every allSettled record had before those words existed.
 unsafe extern "C" fn allsettled_sync_untagged(arr: *mut c_void) -> *mut c_void {
-    unsafe { crate::combinator_allsettled::__torajs_promise_allsettled_sync(arr, 0) }
+    unsafe { crate::combinator_allsettled::__torajs_promise_allsettled_sync(arr, 0, 0) }
 }
 
 /// # Safety

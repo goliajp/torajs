@@ -1,5 +1,5 @@
-//! Real fan-in for `Promise.all` (§27.2.4.1) — the path taken when an
-//! element has not settled yet.
+//! Real fan-in for `Promise.all` (§27.2.4.1) and `Promise.allSettled`
+//! (§27.2.4.3) — the path taken when an element has not settled yet.
 //!
 //! The sync kernel next door answers an all-settled input by walking it
 //! once, and that stays: its microtask position is what every existing
@@ -19,6 +19,14 @@
 //! share, and the ownership protocol is `adopt_into`'s: each element's
 //! stake transfers into its job, the block is refcounted by the jobs
 //! holding it, and the dispatcher releases both.
+//!
+//! `allSettled` wants the same counter and the same indexed slots and
+//! differs in exactly two places: a rejected element contributes a
+//! record instead of short-circuiting, and the slot holds that record
+//! rather than the raw value. It therefore shares this block rather
+//! than growing a second copy of the protocol — four combinators times
+//! two lanes times a job per element is the largest refcount surface
+//! this crate has, and it is worth keeping in one place.
 
 use core::ffi::c_void;
 
@@ -43,7 +51,13 @@ unsafe extern "C" {
     fn __torajs_arr_mark_kind(arr: *mut c_void, chain: u64);
 }
 
-/// State every element job of one `Promise.all` call shares.
+/// `Promise.all` — a rejected element settles the result at once.
+pub(crate) const MODE_ALL: u8 = 0;
+/// `Promise.allSettled` — nothing short-circuits; every element
+/// contributes a `{status, value}` / `{status, reason}` record.
+pub(crate) const MODE_ALLSETTLED: u8 = 1;
+
+/// State every element job of one fan-in shares.
 #[repr(C)]
 struct AllBlock {
     /// The outer promise. One stake, released when the last job goes.
@@ -63,6 +77,16 @@ struct AllBlock {
     elem_repr: u8,
     /// The outer has been settled — later jobs only release.
     done: u8,
+    /// [`MODE_ALL`] or [`MODE_ALLSETTLED`].
+    mode: u8,
+    /// allSettled only — the pair of class tags its records carry (see
+    /// `combinator_allsettled::alloc_settled_struct`).
+    record_tags: u64,
+    /// allSettled only — the form each record's value slot must hold,
+    /// so an element settled through the any lane is unboxed into it
+    /// rather than parked as box bits. `elem_repr` above describes the
+    /// RESULT array's slots, which for allSettled are always records.
+    record_value_repr: u8,
 }
 
 #[repr(C)]
@@ -103,9 +127,29 @@ unsafe fn release_block(b: *mut AllBlock) {
     }
 }
 
-/// One element fulfilled: park its value in the slot it was given.
+/// One element reported in: park what it contributes in the slot it was
+/// given.
 unsafe fn store_element(b: *mut AllBlock, index: u64, ep: *mut Promise) {
     unsafe {
+        if (*b).mode == MODE_ALLSETTLED {
+            let (v, owned) = crate::combinator_allsettled::record_slot(
+                (*ep).value_repr,
+                (*b).record_value_repr,
+                (*ep).value,
+            );
+            let rec = crate::combinator_allsettled::alloc_settled_struct(
+                (*ep).state,
+                v,
+                (*b).record_tags,
+            );
+            // The record co-owns a heap-typed inner value, exactly as
+            // the synchronous allSettled kernel's inc does.
+            if owned && v != 0 {
+                __torajs_rc_inc(v as *mut c_void);
+            }
+            store_slot((*b).result_arr, index, rec as i64);
+            return;
+        }
         if (*b).elem_repr == REPR_UNSTAMPED {
             (*b).elem_repr = (*ep).value_repr;
         }
@@ -170,7 +214,7 @@ unsafe extern "C" fn all_elem_dispatch(arg: i64) {
         let b = (*a).block;
         let ep = as_promise((*a).elem);
         if (*b).done == 0 {
-            if (*ep).state == STATE_REJECTED {
+            if (*b).mode == MODE_ALL && (*ep).state == STATE_REJECTED {
                 reject_from(b, ep);
             } else {
                 store_element(b, (*a).index, ep);
@@ -198,7 +242,12 @@ unsafe extern "C" fn all_elem_dispatch(arg: i64) {
 /// could not). Pre-stamping the result `REPR_HEAP` matters for the same
 /// reason it does in `race`: an any-param attach can land before this
 /// cell settles, and its gate refuses an UNSTAMPED source.
-pub(crate) unsafe fn all_fan_in(promises_arr: *mut c_void, target_repr: u8) -> *mut c_void {
+pub(crate) unsafe fn fan_in(
+    promises_arr: *mut c_void,
+    mode: u8,
+    target_repr: u8,
+    record_tags: u64,
+) -> *mut c_void {
     unsafe {
         let len = arr_len(promises_arr);
         absorb_inputs(promises_arr);
@@ -219,8 +268,22 @@ pub(crate) unsafe fn all_fan_in(promises_arr: *mut c_void, target_repr: u8) -> *
         // of already-settled elements cannot free the block from under
         // the loop still attaching to the rest.
         (*b).jobs = 1;
-        (*b).elem_repr = target_repr;
+        // allSettled's slots always hold record cells, so their chain
+        // is fixed; `all`'s comes from the call site (or the first
+        // element to settle, when the site could not name one).
+        (*b).elem_repr = if mode == MODE_ALLSETTLED {
+            REPR_HEAP
+        } else {
+            target_repr
+        };
         (*b).done = 0;
+        (*b).mode = mode;
+        (*b).record_tags = record_tags;
+        (*b).record_value_repr = if mode == MODE_ALLSETTLED {
+            target_repr
+        } else {
+            REPR_UNSTAMPED
+        };
         __torajs_rc_inc(result);
 
         for i in 0..len {
@@ -239,8 +302,8 @@ pub(crate) unsafe fn all_fan_in(promises_arr: *mut c_void, target_repr: u8) -> *
             __torajs_rc_inc(pp as *mut c_void);
             __torajs_promise_attach_then(pp as *mut c_void, Some(all_elem_dispatch), a as i64);
         }
-        // An all-NULL (or empty) input owes nothing — §27.2.4.1 resolves
-        // with the empty array rather than waiting forever.
+        // An all-NULL (or empty) input owes nothing — §27.2.4.1 / .3
+        // resolve with the empty array rather than waiting forever.
         if (*b).remaining == 0 && (*b).done == 0 {
             (*b).elem_repr = if (*b).elem_repr == REPR_UNSTAMPED && len == 0 {
                 // Nothing will ever describe the slots of an empty
@@ -256,8 +319,25 @@ pub(crate) unsafe fn all_fan_in(promises_arr: *mut c_void, target_repr: u8) -> *
     }
 }
 
+/// `Promise.all`'s fan-in. `target_repr` is the element form the call
+/// site named (0 when it could not).
+pub(crate) unsafe fn all_fan_in(promises_arr: *mut c_void, target_repr: u8) -> *mut c_void {
+    unsafe { fan_in(promises_arr, MODE_ALL, target_repr, 0) }
+}
+
+/// `Promise.allSettled`'s fan-in. `record_tags` is the class-tag pair
+/// its records carry; the slots are record cells, so no element form is
+/// needed.
+pub(crate) unsafe fn allsettled_fan_in(
+    promises_arr: *mut c_void,
+    record_tags: u64,
+    value_repr: u8,
+) -> *mut c_void {
+    unsafe { fan_in(promises_arr, MODE_ALLSETTLED, value_repr, record_tags) }
+}
+
 /// True when some element has not settled yet — the only case the sync
-/// kernel cannot answer on its own.
+/// kernels cannot answer on their own.
 pub(crate) unsafe fn has_pending(promises_arr: *mut c_void) -> bool {
     unsafe {
         let len = arr_len(promises_arr);

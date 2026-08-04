@@ -113,6 +113,9 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
     // its result array must hold, for `allSettled` the class tag its
     // `{status, value}` records must carry.
     let ptr_repr = &[Type::Ptr, Type::I64][..];
+    // `allSettled` needs a second: the class tags its records carry AND
+    // the form their value slot holds.
+    let ptr_repr2 = &[Type::Ptr, Type::I64, Type::I64][..];
     let i641 = &[Type::I64][..];
     PromiseIds {
         microtask_enqueue_closure: declare_intrinsic(
@@ -293,7 +296,7 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             module,
             fn_table,
             "__torajs_promise_allsettled_sync",
-            ptr_repr,
+            ptr_repr2,
             Type::Promise,
         ),
         promise_all_dyn: declare_intrinsic(

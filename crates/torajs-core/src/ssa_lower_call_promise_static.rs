@@ -184,6 +184,29 @@ fn allsettled_record_tags(ctx: &mut LowerCtx<'_>, eid: ExprId) -> i64 {
     i64::from(fulfilled) | (i64::from(rejected) << 32)
 }
 
+/// The form each `allSettled` record's value slot has to hold — the
+/// same problem `all`'s result array has, in the one other place that
+/// buries a value where the awaiting site's own repr decode cannot
+/// reach it. An element settled through the any lane carries a NaN box,
+/// and the record's field is typed T.
+///
+/// Read off the record struct's SECOND field, so it follows whatever
+/// the checker settled on rather than being re-derived.
+fn allsettled_value_repr(ctx: &mut LowerCtx<'_>, eid: ExprId) -> i64 {
+    let inner = crate::ssa_lower_member_promise_value::recover_inner_ssa_ty(ctx, eid);
+    let Some(Type::Arr(aid)) = inner else {
+        return 0;
+    };
+    let Type::Obj(sid) = ctx.arr_layouts[aid.0 as usize] else {
+        return 0;
+    };
+    let Some(value_ty) = ctx.struct_layouts[sid.0 as usize].get(1).map(|(_, t)| *t) else {
+        return 0;
+    };
+    let as_f64 = matches!(value_ty, Type::F64);
+    crate::ssa_lower_promise_repr_mark::promise_value_repr(&value_ty, as_f64, false).unwrap_or(0)
+}
+
 /// `Promise.all/race/any/allSettled(xs, ...)` — lower `args[0]` and
 /// drop the rest for side-effects per S273 / ES §27.2.4.
 fn lower_aggregate(ctx: &mut LowerCtx<'_>, eid: ExprId, method: &str, args: &[ExprId]) -> Operand {
@@ -234,7 +257,10 @@ fn lower_aggregate(ctx: &mut LowerCtx<'_>, eid: ExprId, method: &str, args: &[Ex
     let mut call_args = vec![arr_op.clone()];
     match method {
         "all" => call_args.push(Operand::ConstI64(all_result_elem_repr(ctx, eid))),
-        "allSettled" => call_args.push(Operand::ConstI64(allsettled_record_tags(ctx, eid))),
+        "allSettled" => {
+            call_args.push(Operand::ConstI64(allsettled_record_tags(ctx, eid)));
+            call_args.push(Operand::ConstI64(allsettled_value_repr(ctx, eid)));
+        }
         _ => {}
     }
     let cur_block = ctx.cur_block;

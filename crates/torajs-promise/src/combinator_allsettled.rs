@@ -10,10 +10,10 @@
 
 use core::ffi::c_void;
 
-use crate::combinator::{absorb_inputs, arr_len, arr_slot_ptr, defer_settle};
+use crate::combinator::{absorb_inputs, arr_len, arr_slot_ptr, defer_settle, unbox_target};
 use crate::layout::{
-    ALLSETTLED_OBJ_HEADER_SIZE, ALLSETTLED_OBJ_TAG, REPR_HEAP, REPR_VOID, STATE_FULFILLED,
-    STATE_PENDING, STATE_REJECTED, STR_HDR_SIZE,
+    ALLSETTLED_OBJ_HEADER_SIZE, ALLSETTLED_OBJ_TAG, REPR_ANY, REPR_HEAP, REPR_STR, REPR_VOID,
+    STATE_FULFILLED, STATE_REJECTED, STR_HDR_SIZE,
 };
 
 unsafe extern "C" {
@@ -33,6 +33,40 @@ unsafe extern "C" {
     fn __torajs_arr_alloc(initial_cap: u64) -> *mut c_void;
     fn __torajs_arr_push(arr: *mut c_void, val: i64) -> *mut c_void;
     fn __torajs_arr_mark_kind(arr: *mut c_void, chain: u64);
+}
+
+/// The value the record's second slot must hold.
+///
+/// An executor-minted element settles through the any lane, so its slot
+/// carries a NaN box while the record's field is typed `T` — the same
+/// mismatch `Promise.all`'s result array had, in the one place left
+/// that buries a value where the awaiting site's own repr decode cannot
+/// reach it. It read as box bits (`{"value":-562949953421311}`) and was
+/// invisible until the records became readable at all.
+#[inline]
+pub(crate) unsafe fn record_slot(src_repr: u8, target_repr: u8, v: i64) -> (i64, bool) {
+    (
+        unsafe { record_value(src_repr, target_repr, v) },
+        value_field_is_owned(target_repr),
+    )
+}
+
+#[inline]
+unsafe fn record_value(src_repr: u8, target_repr: u8, v: i64) -> i64 {
+    match unbox_target(src_repr, target_repr) {
+        Some(lane) => unsafe { crate::then_box::unbox_settled(lane, v) },
+        None => v,
+    }
+}
+
+/// Does the record co-own what sits in its value slot? The layout walk
+/// that eventually drops the record releases exactly the fields whose
+/// type is refcounted, so the payment here has to follow the same rule
+/// — reading it off the target form rather than the source cell's
+/// `value_is_heap`, which says nothing about the record's field type.
+#[inline]
+fn value_field_is_owned(target_repr: u8) -> bool {
+    matches!(target_repr, REPR_STR | REPR_HEAP | REPR_ANY)
 }
 
 const STATUS_FULFILLED_LIT: &[u8] = b"fulfilled";
@@ -130,8 +164,10 @@ pub(crate) unsafe fn alloc_settled_struct(state: u8, value: i64, tags: u64) -> *
 pub unsafe extern "C" fn __torajs_promise_allsettled_sync(
     promises_arr: *mut c_void,
     record_tags: i64,
+    value_repr: i64,
 ) -> *mut c_void {
     let record_tags = record_tags as u64;
+    let value_repr = value_repr as u8;
     if promises_arr.is_null() {
         return unsafe { defer_settle(STATE_REJECTED, 0, 0, REPR_VOID) };
     }
@@ -140,17 +176,18 @@ pub unsafe extern "C" fn __torajs_promise_allsettled_sync(
     if unsafe { crate::combinator_any::arr_is_any(promises_arr) } {
         return unsafe { crate::combinator_any::allsettled_sync_any(promises_arr, record_tags) };
     }
+    // A pending element is the one thing the walk below cannot answer;
+    // it used to reject the result with a placeholder, which is a
+    // strange thing for a combinator that per §27.2.4.3 never rejects
+    // at all. The fan-in waits. An all-settled input keeps this walk so
+    // its microtask position does not move.
+    if unsafe { crate::combinator_all_fanin::has_pending(promises_arr) } {
+        return unsafe {
+            crate::combinator_all_fanin::allsettled_fan_in(promises_arr, record_tags, value_repr)
+        };
+    }
     unsafe { absorb_inputs(promises_arr) };
     let len = unsafe { arr_len(promises_arr) };
-    for i in 0..len {
-        let pp = unsafe { arr_slot_ptr(promises_arr, i) };
-        if pp.is_null() {
-            continue;
-        }
-        if unsafe { (*pp).state } == STATE_PENDING {
-            return unsafe { defer_settle(STATE_REJECTED, 0, 0, REPR_VOID) };
-        }
-    }
     let mut result_arr = unsafe { __torajs_arr_alloc(len) };
     for i in 0..len {
         let pp = unsafe { arr_slot_ptr(promises_arr, i) };
@@ -159,13 +196,12 @@ pub unsafe extern "C" fn __torajs_promise_allsettled_sync(
             result_arr = unsafe { __torajs_arr_push(result_arr, s as i64) };
             continue;
         }
-        let s = unsafe { alloc_settled_struct((*pp).state, (*pp).value, record_tags) };
-        // T-17.c-A3 — heap-typed inner value: settled struct co-owns
-        // it, so inc to pair the struct's eventual drop_heap call.
-        unsafe {
-            if (*pp).value_is_heap != 0 && (*pp).value != 0 {
-                __torajs_rc_inc((*pp).value as *mut c_void);
-            }
+        let v = unsafe { record_value((*pp).value_repr, value_repr, (*pp).value) };
+        let s = unsafe { alloc_settled_struct((*pp).state, v, record_tags) };
+        // T-17.c-A3 — the record co-owns a heap-typed inner value, so
+        // inc to pair the drop its layout walk will perform.
+        if value_field_is_owned(value_repr) && v != 0 {
+            unsafe { __torajs_rc_inc(v as *mut c_void) };
         }
         result_arr = unsafe { __torajs_arr_push(result_arr, s as i64) };
     }
