@@ -118,12 +118,28 @@ pub(crate) fn run(ast: &mut Ast) {
             continue;
         }
 
+        // RFC 20260804-fn-this-channel knife 1 — a this-using target
+        // (bind_this_param, which runs earlier in the pipeline, gave it
+        // a `__this: any` leading param) receives the thisArg in that
+        // slot per §22.2.3.{3,4}; only a this-free target keeps the
+        // historic thisArg drop (its body never reads the receiver).
+        let this_using = fn_params.first().is_some_and(|p| p.name == "__this");
+
         match m_name.as_str() {
             "call" => {
                 // `f.call()` is a zero-arg invocation with thisArg
-                // undefined — the same subset that drops thisArg from
-                // `f.call(t, ...)` makes the empty form `f()`.
-                let new_args: Vec<ExprId> = args_clone.iter().skip(1).copied().collect();
+                // undefined — a this-free target makes the empty form
+                // `f()`; a this-using one gets an explicit `undefined`
+                // receiver (strict mode skips ToObject, §10.2.1.2).
+                let mut new_args: Vec<ExprId> = Vec::new();
+                if this_using {
+                    let recv = match args_clone.first() {
+                        Some(&t) => t,
+                        None => ast.add_expr(Expr::Ident("undefined".into())),
+                    };
+                    new_args.push(recv);
+                }
+                new_args.extend(args_clone.iter().skip(1).copied());
                 ast.exprs[i] = Expr::Call {
                     callee: obj_eid,
                     args: new_args,
@@ -146,9 +162,18 @@ pub(crate) fn run(ast: &mut Ast) {
                     },
                     _ => continue,
                 };
+                let mut new_args: Vec<ExprId> = Vec::new();
+                if this_using {
+                    let recv = match args_clone.first() {
+                        Some(&t) => t,
+                        None => ast.add_expr(Expr::Ident("undefined".into())),
+                    };
+                    new_args.push(recv);
+                }
+                new_args.extend(lit_args);
                 ast.exprs[i] = Expr::Call {
                     callee: obj_eid,
-                    args: lit_args,
+                    args: new_args,
                 };
             }
             "bind" => {
