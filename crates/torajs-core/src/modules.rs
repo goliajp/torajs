@@ -368,7 +368,10 @@ fn walk_lib_stmt(
 /// See the injection-splice comment in [`resolve_imports`] — recurse
 /// through nested fn bodies so every registry-visible declaration
 /// carries the sentinel.
-fn clear_injected_spans(s: &mut Stmt) {
+///
+/// Shared with `ast::desugar_async_sm`, which parses its driver from a
+/// literal for the same reason and inherits the same hazard.
+pub(crate) fn clear_injected_spans(s: &mut Stmt) {
     match s {
         Stmt::FnDecl { span, body, .. } => {
             *span = crate::lexer::Span { start: 0, end: 0 };

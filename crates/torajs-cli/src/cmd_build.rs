@@ -148,6 +148,7 @@ pub(crate) fn lower_to_ssa(input: &str) -> Result<Module, ExitCode> {
     ast::unwrap_exports(&mut ast);
     ast::rename_user_main(&mut ast);
     ast::hoist_gen_fn_exprs(&mut ast);
+    ast::desugar_async_state_machine(&mut ast);
     ast::desugar_generators(&mut ast);
     ast::desugar_async(&mut ast);
     ast::desugar_builtin_imports(&mut ast);
