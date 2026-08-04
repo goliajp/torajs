@@ -91,6 +91,31 @@ fn program_constructs_from_value(ast: &Ast) -> bool {
     })
 }
 
+/// Head-param classification of one FnDecl: `(first_is_env,
+/// first_is_this, is_twin)`. Env-first (lifted closure) and
+/// this-first (`__cm_` mono method) bodies feed the adapter's env
+/// argument into their pointer-shaped head param. A `__cmany_`
+/// twin's `__this` is an ANY param, not a pointer (blade 3, RFC
+/// 20260804-method-rebind-generic-body): it must NOT ride the env
+/// channel (the env ptr's raw bits are not a nanbox) — it maps as an
+/// ordinary user param instead, and the guard-fail path calls the
+/// adapter recv-first (receiver prepended in argv[0], any→any
+/// pass-through). An argv-face twin (synthetic `__torajs_real_argc`
+/// head) would mis-map that slot, so it synthesizes nothing (twin
+/// stays 0 in the face; recorded RFC residue).
+fn head_shape(name: &str, params: &[crate::ast::Param]) -> (bool, bool, bool) {
+    let head_is_this = params.first().is_some_and(|p| p.name == "__this");
+    (
+        params.first().is_some_and(|p| p.name == "__env"),
+        head_is_this && name.starts_with("__cm_") && !name.starts_with("__cmany_"),
+        head_is_this
+            && name.starts_with("__cmany_")
+            && !params
+                .iter()
+                .any(|p| p.name == "__torajs_real_argc" || p.name == "__torajs_argv"),
+    )
+}
+
 /// Walk the lifted closure fns and synthesize one adapter each.
 /// Returns `body fid → (adapter fid, adapter sig)` for the closure
 /// construction sites.
@@ -134,24 +159,7 @@ pub(crate) fn synthesize_boxed_entries(
         // any-held class instance can dispatch its methods by name
         // through the class-methods table. Both are pointer-shaped
         // first params the adapter feeds its env argument into.
-        let first_is_env = params.first().is_some_and(|p| p.name == "__env");
-        let first_is_this = params.first().is_some_and(|p| p.name == "__this")
-            && name.starts_with("__cm_")
-            && !name.starts_with("__cmany_");
-        // Blade 3 (RFC 20260804-method-rebind-generic-body) — a
-        // `__cmany_` twin's `__this` is an ANY param, not a pointer:
-        // it must NOT ride the env channel (the env ptr's raw bits
-        // are not a nanbox). It maps as an ordinary user param
-        // instead — the guard-fail path calls the adapter recv-first
-        // (receiver prepended in argv[0], any→any pass-through). An
-        // argv-face twin (synthetic `__torajs_real_argc` head) would
-        // mis-map that slot, so it synthesizes nothing (twin stays 0
-        // in the face; recorded RFC residue).
-        let is_twin = params.first().is_some_and(|p| p.name == "__this")
-            && name.starts_with("__cmany_")
-            && !params
-                .iter()
-                .any(|p| p.name == "__torajs_real_argc" || p.name == "__torajs_argv");
+        let (first_is_env, first_is_this, is_twin) = head_shape(name, params);
         // RFC 20260717-class-first-class-value knife B cut 2 — static
         // method bodies (`__sm_<C>__<m>`) have NO env/this head param;
         // their adapter maps argv straight onto the user params and

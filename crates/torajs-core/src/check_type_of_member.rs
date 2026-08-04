@@ -24,9 +24,9 @@
 //! - Static class members (`Math.floor` / `ClassName.STATIC_FIELD`)
 //! - Any / Function fallbacks at the end
 
-use crate::ast::Visibility;
-use crate::ast::{Ast, Expr, ExprId};
+use crate::ast::{Ast, ExprId};
 use crate::check::{Checker, Type, resolve_class_ref};
+use crate::check_type_of_member_accessor::{class_name_of, enforce_visibility};
 
 /// `lenient_missing` — S2.24 刀 4: true for a desugar-minted
 /// default-guarded pattern load (`Ast::dstr_default_member_loads`);
@@ -87,61 +87,16 @@ pub(crate) fn check(
         // resolve on their own.
         return Ok(ty.clone());
     }
-    // RFC 20260714-objlit-accessor blade 2 — an object-literal accessor
-    // lives in the layout under `__getter_<name>` holding the getter
-    // closure, so `o.b` reads as the getter's RETURN type (ES §10.1.7
-    // [[Get]] hands back a value, not a function). Keeping the accessor
-    // IN the type is what makes it un-stealable: `{a:1, get b(){}}` is
-    // structurally distinct from `{a:1}`, unlike the class lane, which
-    // reverse-looks-up a class name from a structurally-equal alias and
-    // therefore lets a plain `{a:1}` reach a same-layout class's getter.
-    if let Type::Struct(fields) = &resolved_obj_ty {
-        // The probe name builds ONCE per struct read — a
-        // per-comparison `format!` in the scan closure was O(fields)
-        // allocs per member read (the try_objlit_setter mirror,
-        // rotation 268 profile on the 75KB unicode-ident class file).
-        let getter_name = format!("__getter_{name}");
-        if let Some((_, ty)) = fields.iter().find(|(fname, _)| *fname == getter_name) {
-            let Type::Function(_, ret) = ty else {
-                return Err(format!("accessor `{name}` is not a getter closure"));
-            };
-            return Ok(resolve_class_ref(
-                ret,
-                &checker.class_structs,
-                &checker.aliases,
-                &checker.generic_alias_decls,
-            ));
-        }
-    }
-    // P8.2 — accessor read: `c.value` where the resolved
-    // class C has a `get value(): T` declaration. After the
-    // struct-field lookup misses (accessors aren't fields),
-    // probe `accessor_getters` for the receiver's class and
-    // return the getter's declared return type. ssa_lower
-    // emits a `Call(__cm_<C>__value_get, c)` at the
-    // matching Member arm — type-wise we just return the
-    // getter's `ret` so caller sites see a normal value
-    // (not a Function), matching ES §10.1.7 [[Get]]
-    // semantics.
-    // RFC 20260715-nominal-class-identity — the receiver's own type
-    // NAMES its class. This used to scan `aliases` for a class whose
-    // struct equalled the receiver's, so a plain `{a: 1}` reached
-    // `class C { a; get b() }`'s getter and answered its value — a
-    // silent-wrong needing neither `any` nor a cast. An object literal
-    // is a bare `Struct` and owns no class's accessors.
-    {
-        let accessor_class = class_name_of(&obj_ty, ast);
-        if let Some(cls) = accessor_class
-            && let Some(getter_fn) = ast.accessor_getters.get(&(cls.clone(), name.to_string()))
-            && let Some(Type::Function(_params, ret)) = checker.globals.get(getter_fn)
-        {
-            return Ok(resolve_class_ref(
-                ret,
-                &checker.class_structs,
-                &checker.aliases,
-                &checker.generic_alias_decls,
-            ));
-        }
+    // Accessor reads (objlit `__getter_` slot + class
+    // `accessor_getters` probe) — see the sibling's doc.
+    if let Some(r) = crate::check_type_of_member_accessor::try_accessor_read(
+        checker,
+        ast,
+        &obj_ty,
+        &resolved_obj_ty,
+        name,
+    ) {
+        return r;
     }
     /* T-15.g.2 (v0.5.0) — built-in `Promise<T>.value` returns
      * T. The parser desugars `await p` to `p.value` (Phase L
@@ -240,70 +195,6 @@ pub(crate) fn check(
         return Ok(Type::Any);
     }
     Err(format!("no member `.{name}` on type {obj_ty:?}"))
-}
-
-/// M-OO.5 — visibility enforcement. Find the binding's nominal class:
-///
-///   - `this` inside a class method body inherits the current class
-///     context.
-///   - An Ident bound by `let x: ClassName = ...` carries its
-///     `declared_class` from the LetDecl arm.
-///
-/// Other shapes (chained Member, Call result, etc.) currently get no
-/// nominal info; treat their visibility as Public until that path needs
-/// tightening.
-fn enforce_visibility(
-    checker: &Checker,
-    ast: &Ast,
-    obj: &ExprId,
-    name: &str,
-) -> Result<(), String> {
-    let obj_class: Option<String> = match ast.get_expr(*obj) {
-        Expr::This => checker.current_class.clone(),
-        Expr::Ident(n) => checker.lookup(n).and_then(|info| info.declared_class),
-        _ => None,
-    };
-    let Some(cls) = obj_class.as_deref() else {
-        return Ok(());
-    };
-    let Some(vis) = ast
-        .member_visibility
-        .get(&(cls.to_string(), name.to_string()))
-        .copied()
-    else {
-        return Ok(());
-    };
-    let allowed = match vis {
-        Visibility::Public => true,
-        Visibility::Private => checker.current_class.as_deref() == Some(cls),
-        Visibility::Protected => checker
-            .current_class
-            .as_deref()
-            .map(|c| c == cls || checker.is_descendant_of(ast, c, cls))
-            .unwrap_or(false),
-    };
-    if !allowed {
-        return Err(format!(
-            "M-OO.5: cannot access {vis:?} member `{cls}.{name}` from {}",
-            checker
-                .current_class
-                .as_deref()
-                .map(|c| format!("class `{c}`"))
-                .unwrap_or_else(|| "outside any class".to_string())
-        ));
-    }
-    Ok(())
-}
-
-/// RFC 20260715-nominal-class-identity — the class a receiver belongs
-/// to, taken from its type's NAME. A bare `Struct` (object literal, or
-/// a `type P = {...}` alias) belongs to no class, however closely its
-/// shape matches one — that is the whole point.
-fn class_name_of(obj_ty: &Type, ast: &Ast) -> Option<String> {
-    match obj_ty {
-        Type::ClassRef(n) if ast.class_parents.contains_key(n) => Some(n.clone()),
-        _ => None,
-    }
 }
 
 /// Per-type-family `try_match` dispatch chain (chunks 191-206).

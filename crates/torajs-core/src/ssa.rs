@@ -24,16 +24,17 @@
 //   will land in step 2 when we lower `while`.
 
 mod function_methods;
+mod module_class_layouts;
 mod module_extras;
 mod module_methods;
 mod op_impls;
 mod type_def;
 mod visit;
 
+pub use module_class_layouts::{ClassLayoutMeta, FieldMetaSpec, MethodMetaSpec, field_type_tag_of};
 pub use module_extras::demo_fib40;
 pub use module_methods::{
-    BakedRegexEntry, ClassLayoutMeta, DataGlobal, FieldMetaSpec, FnNameEntry, MethodMetaSpec,
-    Module, StringLiteral, VtableGlobal, field_type_tag_of,
+    BakedRegexEntry, DataGlobal, FnNameEntry, Module, StringLiteral, VtableGlobal,
 };
 pub use type_def::Type;
 pub use visit::visit_value_operands;
