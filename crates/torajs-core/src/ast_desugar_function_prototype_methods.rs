@@ -17,7 +17,9 @@
 //!   arg unpacks; absent / `undefined` / `null` argArray is `f()`
 //!   per §22.2.3.1; dynamic arrays stay unsupported here).
 //! - **`.bind(thisArg, p0, p1, ...)`** →
-//!   `__bind_create_<id>(p0, p1, ...)`. Synthesizes a wrapper
+//!   `__bind_create_<id>(p0, p1, ...)` — leading with the thisArg
+//!   when the target is this-using, since its receiver is param 0
+//!   and binding it is just the first partial. Synthesizes a wrapper
 //!   `__bound_<id>(__env(captures), rem_params...) -> R` plus a
 //!   factory `__bind_create_<id>(captures...) -> __cls(rem_tys)->R`
 //!   that returns a Closure capturing the partial args. The wrapper
@@ -36,7 +38,7 @@ use std::collections::HashMap;
 use crate::ast::{Ast, Expr, ExprId, Param, Stmt};
 
 /// Whether this pass will rewrite `f.<m_name>(args)` for a plain
-/// top-FnDecl `f` with `fn_params_len` params. The single source of
+/// top-FnDecl `f` declaring `fn_params`. The single source of
 /// truth the collector's receiver-wrap axis consults: a form this
 /// pass swallows becomes a direct call (receiver must NOT wrap, or
 /// the Ident match below would stop seeing it); a form it leaves —
@@ -46,8 +48,9 @@ pub(crate) fn swallows_fn_proto_call(
     ast: &Ast,
     m_name: &str,
     args: &[ExprId],
-    fn_params_len: usize,
+    fn_params: &[Param],
 ) -> bool {
+    let fn_params_len = fn_params.len();
     match m_name {
         "call" => true,
         "apply" => match args.len() {
@@ -63,7 +66,16 @@ pub(crate) fn swallows_fn_proto_call(
             }
             _ => false,
         },
-        "bind" => args.len().saturating_sub(1) <= fn_params_len,
+        // Knife 4 — a this-using target spends one more param slot
+        // than the source wrote: its thisArg becomes the leading
+        // partial (see the `bind` arm), so the surplus test has to
+        // count it. Getting this wrong desynchronizes the two callers
+        // — the collector would leave a receiver unwrapped for a form
+        // the desugar then declines to swallow.
+        "bind" => {
+            let implicit_recv = usize::from(fn_params.first().is_some_and(|p| p.name == "__this"));
+            args.len().saturating_sub(1) + implicit_recv <= fn_params_len
+        }
         _ => false,
     }
 }
@@ -114,7 +126,7 @@ pub(crate) fn run(ast: &mut Ast) {
         if fn_params.first().is_some_and(|p| p.name == "__env") {
             continue;
         }
-        if !swallows_fn_proto_call(ast, &m_name, &args_clone, fn_params.len()) {
+        if !swallows_fn_proto_call(ast, &m_name, &args_clone, &fn_params) {
             continue;
         }
 
@@ -201,7 +213,22 @@ pub(crate) fn run(ast: &mut Ast) {
                 // bound fn (`__cls()->R` interns an empty param list).
                 // Only MORE partials than params keeps the reject —
                 // dropping surplus args would drop their evaluation.
-                let partial_args: Vec<ExprId> = args_clone.iter().skip(1).copied().collect();
+                let mut partial_args: Vec<ExprId> = args_clone.iter().skip(1).copied().collect();
+                // Knife 4 (RFC 20260804-fn-this-channel) — binding a
+                // thisArg IS partially applying the receiver slot:
+                // bind_this_param made it param 0, so the thisArg just
+                // leads the partial list and rides the factory's
+                // capture env like any other bound argument. `f.bind()`
+                // on a this-using target binds an explicit undefined
+                // (§22.2.3.2 takes thisArg however it comes, and strict
+                // mode skips ToObject per §10.2.1.2).
+                if this_using {
+                    let recv = match args_clone.first() {
+                        Some(&t) => t,
+                        None => ast.add_expr(Expr::Ident("undefined".into())),
+                    };
+                    partial_args.insert(0, recv);
+                }
                 if partial_args.len() > fn_params.len() {
                     continue;
                 }
