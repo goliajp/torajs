@@ -18,8 +18,7 @@ use core::ffi::c_void;
 
 use crate::layout::{
     ARR_DATA_PTR_OFF, ARR_HEAD_OFF, ARR_LEN_OFF, Promise, REPR_ANY, REPR_BOOL, REPR_F64, REPR_HEAP,
-    REPR_I64, REPR_STR, REPR_UNSTAMPED, REPR_VOID, STATE_FULFILLED, STATE_PENDING, STATE_REJECTED,
-    as_promise,
+    REPR_I64, REPR_STR, REPR_UNSTAMPED, REPR_VOID, STATE_FULFILLED, STATE_REJECTED, as_promise,
 };
 
 unsafe extern "C" {
@@ -85,7 +84,7 @@ pub(crate) unsafe fn absorb_inputs(promises_arr: *mut c_void) {
 /// self-describe (AnyValue bits / void / null fillers) — the caller
 /// leaves the settled cell UNSTAMPED so the any lane stays loud
 /// instead of misdecoding slots.
-fn repr_arr_kind_chain(repr: u8) -> Option<u64> {
+pub(crate) fn repr_arr_kind_chain(repr: u8) -> Option<u64> {
     match repr {
         REPR_I64 => Some(1),
         REPR_F64 => Some(2),
@@ -169,7 +168,7 @@ pub(crate) unsafe fn defer_settle(state: u8, value: i64, is_heap: u8, repr: u8) 
 /// already take the lane they are feeding. A `target_repr` of 0 means
 /// the site could not name one, which keeps the old behaviour exactly.
 #[inline]
-fn unbox_target(src_repr: u8, target_repr: u8) -> Option<u8> {
+pub(crate) fn unbox_target(src_repr: u8, target_repr: u8) -> Option<u8> {
     if src_repr != REPR_ANY || target_repr == REPR_UNSTAMPED || target_repr == REPR_ANY {
         return None;
     }
@@ -191,10 +190,19 @@ pub unsafe extern "C" fn __torajs_promise_all_sync(
     if unsafe { crate::combinator_any::arr_is_any(promises_arr) } {
         return unsafe { crate::combinator_any::all_sync_any(promises_arr) };
     }
+    // A genuinely pending element is the one thing the walk below
+    // cannot answer: it used to reject the result with a placeholder,
+    // which is how the commonest shape in the family
+    // (`Promise.all([asyncCall(), asyncCall()])`) became an uncaught
+    // rejection. The fan-in waits instead. The all-settled input keeps
+    // this walk — its microtask position is what the existing fixtures
+    // encode, and routing it through jobs would move ticks for nothing.
+    if unsafe { crate::combinator_all_fanin::has_pending(promises_arr) } {
+        return unsafe { crate::combinator_all_fanin::all_fan_in(promises_arr, target_repr) };
+    }
     unsafe { absorb_inputs(promises_arr) };
     let len = unsafe { arr_len(promises_arr) };
-    // Pre-scan: first rejected → reject outer with that reason; first
-    // pending → reject with placeholder (MVP — no fan-in yet). The
+    // Pre-scan: first rejected → reject outer with that reason. The
     // element form is read here as well, so the build loop below
     // already knows whether the result array will co-own its slots
     // before it starts filling them. The typed tier guarantees a
@@ -209,9 +217,6 @@ pub unsafe extern "C" fn __torajs_promise_all_sync(
         let state = unsafe { (*pp).state };
         if state == STATE_REJECTED {
             return unsafe { defer_settle(STATE_REJECTED, (*pp).value, 0, (*pp).value_repr) };
-        }
-        if state == STATE_PENDING {
-            return unsafe { defer_settle(STATE_REJECTED, 0, 0, REPR_VOID) };
         }
         if elem_repr == REPR_UNSTAMPED {
             let src = unsafe { (*pp).value_repr };
