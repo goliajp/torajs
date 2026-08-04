@@ -71,6 +71,18 @@ pub(crate) fn scan_call(
             if name == "__torajs_ctor_no_super_throw" {
                 *direct = true;
             }
+            // Rotation 297 — the parser's synthetic relational calls
+            // throw: `in` records a §13.10.1 step-5 TypeError on a
+            // non-Object rhs, and the `#x in o` brand check does the
+            // same. Without this bit a fn whose ONLY throw source is
+            // a bare `return #x in o` is judged never-throwing, the
+            // caller prunes its check, and the pending throw strands
+            // — poisoning the NEXT checked call into a bogus early
+            // return (probe answered `false` for a receiver that
+            // carries the field).
+            if name == "__torajs_in_op" || name == "__torajs_priv_in_op" {
+                *direct = true;
+            }
             // bug-327 C2.5 — indirect call through a fn-valued
             // binding: the target is statically unknown, so the
             // fn must conservatively count as may-throw.

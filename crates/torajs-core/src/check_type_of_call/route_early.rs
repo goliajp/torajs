@@ -111,6 +111,10 @@ pub(crate) fn try_route(
     if let Some(r) = crate::check_type_of_call_in_op::try_match(checker, ast, callee, args) {
         return Some(r);
     }
+    // §13.10 ergonomic brand check (`#x in o`) — the priv sibling.
+    if let Some(r) = crate::check_type_of_call_in_op::try_match_priv(checker, ast, callee, args) {
+        return Some(r);
+    }
     // Promise<T>.then / .catch early-route arms (T-19.l 2-arg
     // shape, T-19.o heterogeneous T→U + P10.7 Promise<Any>,
     // P10.2-A1.1 Promise<Undefined>, P10.2-A4 Promise<Array<U>>)

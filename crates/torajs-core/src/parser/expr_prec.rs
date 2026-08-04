@@ -190,6 +190,44 @@ impl<'a> Parser<'a> {
     }
 
     pub(super) fn parse_comparison(&mut self) -> Result<ExprId, String> {
+        // ES2022 §13.10 `RelationalExpression : PrivateIdentifier in
+        // ShiftExpression` — the ergonomic brand check (`#x in o`).
+        // Only legal lexically inside a class body (§13.1 early
+        // error otherwise). Same synthetic-Call shape as `in`
+        // (`__torajs_priv_in_op(key, obj)` — no new Expr variant for
+        // the recursive walkers), the key a deferred
+        // `__privu_<site>__<raw>` placeholder String that
+        // `resolve_private_refs` rewrites like any member reference.
+        if let Token::PrivateIdent(n) = self.peek()
+            && matches!(
+                self.tokens.get(self.pos + 1).map(|s| &s.token),
+                Some(Token::Ident(k)) if k == "in"
+            )
+        {
+            let n = n.clone();
+            if self.current_class.is_none() {
+                return Err(format!(
+                    "private name `#{n}` is only allowed within a class body (at {})",
+                    self.at()
+                ));
+            }
+            let site = self.ast.private_ref_sites.len();
+            let mut stack = self.class_stack.clone();
+            stack.reverse(); // innermost first
+            self.ast.private_ref_sites.push((n.clone(), stack));
+            self.pos += 2; // consume `#name` + `in`
+            let right = self.parse_shift()?;
+            let key = self
+                .ast
+                .add_expr(Expr::String(format!("__privu_{site}__{n}")));
+            let callee = self
+                .ast
+                .add_expr(Expr::Ident("__torajs_priv_in_op".to_string()));
+            return Ok(self.ast.add_expr(Expr::Call {
+                callee,
+                args: vec![key, right],
+            }));
+        }
         let mut left = self.parse_shift()?;
         loop {
             // `expr instanceof ClassName` — relational-precedence operator.

@@ -66,3 +66,27 @@ pub(crate) fn try_match(
     }
     Some(Ok(Type::Boolean))
 }
+
+/// ES2022 §13.10 ergonomic brand check —
+/// `__torajs_priv_in_op(key, obj)`, the parser's synthetic for
+/// `#x in o` (rotation 297). The key is a compiler-minted mangled
+/// String literal (never user data); the rhs may be anything — a
+/// non-Object rhs is the runtime kernel's §13.10.1 step-5 TypeError,
+/// not a compile reject (`#x in 42` must throw, not fail to build).
+pub(crate) fn try_match_priv(
+    checker: &mut Checker,
+    ast: &Ast,
+    callee: &ExprId,
+    args: &Vec<ExprId>,
+) -> Option<Result<Type, String>> {
+    let Expr::Ident(n) = ast.get_expr(*callee) else {
+        return None;
+    };
+    if n != "__torajs_priv_in_op" || args.len() != 2 {
+        return None;
+    }
+    if let Err(e) = checker.type_of(ast, args[1]) {
+        return Some(Err(e));
+    }
+    Some(Ok(Type::Boolean))
+}

@@ -350,6 +350,15 @@ pub(crate) fn infer_expr_ann_with(
         Expr::Call { callee, .. } => {
             let c = exprs.get(callee.0 as usize)?;
             if let Expr::Ident(n) = c {
+                // The parser's synthetic relational calls answer Bool
+                // (`in` / the §13.10 `#x in o` brand check) — they
+                // are not user fns, so fn_sigs can't know them, and a
+                // bare `return #x in o` would bail the sniff to Void
+                // (the mono body then hands unboxed garbage back
+                // through an any ret).
+                if n == "__torajs_in_op" || n == "__torajs_priv_in_op" {
+                    return Some("boolean".to_string());
+                }
                 return fn_sigs.get(n).cloned();
             }
             if let Expr::Member { obj, name } = c {

@@ -17,6 +17,7 @@ use crate::ssa_lower::declare_intrinsic;
 
 pub(crate) struct PrivateIds {
     pub any_member_get_priv_tag: FuncId,
+    pub any_member_priv_has: FuncId,
 }
 
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) -> PrivateIds {
@@ -27,6 +28,14 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             "__torajs_any_member_get_priv_tag",
             &[Type::Any, Type::Ptr],
             Type::I64,
+        ),
+        // §13.10.1 ergonomic brand check (`#x in o`).
+        any_member_priv_has: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_any_member_priv_has",
+            &[Type::Any, Type::Ptr],
+            Type::Bool,
         ),
     }
 }

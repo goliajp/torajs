@@ -179,3 +179,53 @@ pub(crate) fn try_lower(
     }
     panic!("ssa-lower: `in` rhs unsupported type {obj_ty:?}");
 }
+
+/// ES2022 §13.10 ergonomic brand check —
+/// `__torajs_priv_in_op(key, obj)`, the parser's synthetic for
+/// `#x in o` (rotation 297). The key arrives as the resolved
+/// `__priv_<C>__<x>` String literal (compiler-minted, interned
+/// directly — never a runtime value); the rhs boxes to Any and the
+/// `__torajs_any_member_priv_has` kernel answers the own-brand
+/// probe, throwing the §13.10.1 step-5 TypeError for a non-Object
+/// rhs.
+pub(crate) fn try_lower_priv(
+    ctx: &mut LowerCtx<'_>,
+    callee: ExprId,
+    args: &[ExprId],
+) -> Option<Operand> {
+    let Expr::Ident(n) = ctx.ast.get_expr(callee) else {
+        return None;
+    };
+    if n != "__torajs_priv_in_op" || args.len() != 2 {
+        return None;
+    }
+    let Expr::String(key) = ctx.ast.get_expr(args[0]) else {
+        return None;
+    };
+    let key = key.clone();
+    let key_str = ctx.intern_string_literal(&key);
+    let obj_op = ctx.lower_expr(args[1]);
+    let obj_ty = ctx.operand_ty(&obj_op);
+    let boxed = if matches!(obj_ty, Type::Any) {
+        obj_op.clone()
+    } else {
+        // Borrow'd NaN-box (no rc traffic) — same face the `in`
+        // struct arm takes.
+        ctx.box_to_any(obj_op.clone())
+    };
+    let cur_block = ctx.cur_block;
+    let r = ctx.f.append_inst(
+        cur_block,
+        InstKind::Call(
+            ctx.intrinsics.any_member_priv_has,
+            vec![boxed, Operand::Value(key_str)],
+        ),
+        Type::Bool,
+        None,
+    );
+    // Kernel arms the non-Object TypeError and still returns a bool
+    // — same pending-throw contract as the `in` kernels.
+    ctx.emit_throw_check(None);
+    ctx.release_owned_temp(args[1], &obj_op);
+    Some(Operand::Value(r))
+}

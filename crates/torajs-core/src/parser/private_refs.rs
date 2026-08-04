@@ -34,20 +34,31 @@ impl Parser<'_> {
             return;
         }
         for i in (from as usize)..self.ast.exprs.len() {
-            let (Expr::Member { name, .. } | Expr::OptChain { name, .. }) = &mut self.ast.exprs[i]
-            else {
-                continue;
+            // `#x in o` keys ride as a String literal inside the
+            // synthetic `__torajs_priv_in_op` Call — the placeholder
+            // is only rewritten when it round-trips against a parked
+            // site (index in range AND the raw name matches), so an
+            // ordinary user string can't be caught by accident.
+            let name = match &mut self.ast.exprs[i] {
+                Expr::Member { name, .. } | Expr::OptChain { name, .. } => name,
+                Expr::String(s) if s.starts_with("__privu_") => s,
+                _ => continue,
             };
             let Some(rest) = name.strip_prefix("__privu_") else {
                 continue;
             };
-            let Some((site, _)) = rest.split_once("__") else {
+            let Some((site, site_raw)) = rest.split_once("__") else {
                 continue;
             };
             let Ok(site) = site.parse::<usize>() else {
                 continue;
             };
-            let (raw, stack) = &self.ast.private_ref_sites[site];
+            let Some((raw, stack)) = self.ast.private_ref_sites.get(site) else {
+                continue;
+            };
+            if site_raw != raw {
+                continue;
+            }
             let declaring = stack
                 .iter()
                 .find(|&&sid| self.ast.class_private_scopes[sid as usize].1.contains(raw))

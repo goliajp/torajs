@@ -66,3 +66,34 @@ pub unsafe extern "C" fn __torajs_any_member_get_priv_tag(
     }
     tag
 }
+
+/// ES2022 §13.10.1 ergonomic brand check (`#x in o`) — whether the
+/// receiver's OWN face carries the private element: a declared layout
+/// field, a degraded-instance expando entry, a dynobj entry, or a
+/// present value / accessor through the base tag walk (a private
+/// METHOD reifies on the class prototype face, which that walk
+/// resolves). A non-Object rhs throws TypeError per step 5 and
+/// answers false under the pending throw.
+///
+/// # Safety
+/// Cell receivers are valid heap pointers; `key` is a live Str cell.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_any_member_priv_has(recv: AnyValue, key: *const c_void) -> bool {
+    match recv_cell(recv) {
+        Some((ptr, t)) if t == Tag::Obj as u16 => unsafe {
+            struct_field_pair(ptr, key).is_some()
+                || {
+                    let props = struct_props(ptr);
+                    !props.is_null() && __torajs_dynobj_has(props, key) != 0
+                }
+                || __torajs_any_member_get_tag(recv, key) != AnySlotTag::Undef as u64
+        },
+        Some((ptr, t)) if t == Tag::DynObj as u16 => unsafe { __torajs_dynobj_has(ptr, key) != 0 },
+        _ => {
+            unsafe {
+                __torajs_throw_type_error(c"right-hand side of `in` must be an object".as_ptr());
+            }
+            false
+        }
+    }
+}

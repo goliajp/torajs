@@ -523,6 +523,8 @@ pub(crate) struct Intrinsics {
     /// Brand-gated tag channel for `__priv_`-named member reads —
     /// own-face miss throws TypeError (§7.3.31 PrivateGet).
     pub(crate) any_member_get_priv_tag: FuncId,
+    /// §13.10.1 ergonomic brand check (`#x in o`).
+    pub(crate) any_member_priv_has: FuncId,
     pub(crate) any_member_get_value: FuncId,
     pub(crate) any_accessor_get: FuncId,
     pub(crate) any_member_set: FuncId,
