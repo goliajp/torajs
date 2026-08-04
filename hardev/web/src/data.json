@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-04T15:45:47.810Z",
+  "generatedAt": "2026-08-04T17:17:54.551Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-04T15:45:08Z",
-    "headSha": "d9beeb5c",
-    "elapsedSec": 390.24,
+    "ranAt": "2026-08-04T17:16:18Z",
+    "headSha": "212d3d5b",
+    "elapsedSec": 403.7,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 21721,
+    "pass": 21726,
     "passNoOracle": 639,
     "passNegative": 3956,
-    "passTotal": 26316,
-    "bug": 11891,
+    "passTotal": 26321,
+    "bug": 11886,
     "incompatible": 14967,
     "bunSkip": 7155,
     "harnessError": 0,
     "inScope": 53174,
     "trAccepted": 38207,
-    "passRateInScope": 49.49,
-    "passRateTrAccepted": 68.88
+    "passRateInScope": 49.5,
+    "passRateTrAccepted": 68.89
   },
   "torajs": {
-    "commit": "d9beeb5c",
-    "commitSubject": "feat: Promise.race waits for pending elements instead of rejecting",
+    "commit": "212d3d5b",
+    "commitSubject": "feat: the any lane waits for pending elements too",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "212d3d5b",
+      "subject": "feat: the any lane waits for pending elements too"
+    },
+    {
+      "hash": "cc8b2f2f",
+      "subject": "feat: allSettled waits for pending elements and its records hold values"
+    },
+    {
+      "hash": "b3b933a3",
+      "subject": "feat: Promise.all waits for elements that have not settled yet"
+    },
+    {
+      "hash": "279bd68f",
+      "subject": "feat: allSettled's settled records are real objects with per-outcome fields"
+    },
+    {
+      "hash": "f65fcc83",
+      "subject": "feat: Promise.all builds its result array in the element form the site names"
+    },
+    {
+      "hash": "967e7488",
+      "subject": "fix: Promise.all result array pays for the elements it keeps"
+    },
+    {
+      "hash": "874bc568",
+      "subject": "chore(hardev): re-census at d9beeb5c, dashboard snapshot"
+    },
+    {
       "hash": "d9beeb5c",
       "subject": "feat: Promise.race waits for pending elements instead of rejecting"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "fdad33d7",
       "subject": "fix: a throwing then/catch/finally handler rejects its derived promise"
-    },
-    {
-      "hash": "fd9ab907",
-      "subject": "chore(hardev): rotation 298 sweep artifacts, census at a7bd0220, dashboard snapshot"
-    },
-    {
-      "hash": "a7bd0220",
-      "subject": "revert: bind retargeting a static to its receiver twin"
-    },
-    {
-      "hash": "b79253fe",
-      "subject": "feat: bind reaches a static method through its receiver twin"
-    },
-    {
-      "hash": "cd133d36",
-      "subject": "feat: bind forwards its thisArg into the receiver param"
-    },
-    {
-      "hash": "91db2769",
-      "subject": "fix: static twin rebinds the receiver its restored call reads"
-    },
-    {
-      "hash": "cfbbc6a2",
-      "subject": "style: fmt drift on the static twin mint call site"
-    },
-    {
-      "hash": "68f19761",
-      "subject": "feat: static method this rebinds through call/apply via the smany twin"
     }
   ],
-  "headSha": "d9beeb5c",
+  "headSha": "212d3d5b",
   "autorun": {
-    "total": 603,
+    "total": 604,
     "baselineTarget": 10,
-    "bySelf": 598,
+    "bySelf": 599,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785853211-694c",
-      "at": "2026-08-04T14:20:11Z",
-      "ts": 1785853211,
+      "rotationId": "r-1785858616-1d1e",
+      "at": "2026-08-04T15:50:16Z",
+      "ts": 1785858616,
       "trigger": "self",
-      "prevHead": "fd9ab907",
-      "handoffSha": "sha256:e7b7a2ef1b9a47ac7e13dd3898534f71b2cad4f1f258a74fc9da39982934bd94",
-      "handoffAgeSec": 26,
+      "prevHead": "874bc568",
+      "handoffSha": "sha256:987182641b6029e67cabbf758aa0fc948d669dd001398f7fefd06b6372d78535",
+      "handoffAgeSec": 7,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1785858616-1d1e",
+        "at": "2026-08-04T15:50:16Z",
+        "ts": 1785858616,
+        "trigger": "self",
+        "prevHead": "874bc568",
+        "handoffSha": "sha256:987182641b6029e67cabbf758aa0fc948d669dd001398f7fefd06b6372d78535",
+        "handoffAgeSec": 7,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785853211-694c",
         "at": "2026-08-04T14:20:11Z",
@@ -876,17 +887,6 @@
         "prevHead": "d06d94a9",
         "handoffSha": "sha256:19599152690d7fb7326fb8b2624fc8544ec55ec896110070761bd5c6a0d84014",
         "handoffAgeSec": 6,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1785755457-0cd6",
-        "at": "2026-08-03T11:10:57Z",
-        "ts": 1785755457,
-        "trigger": "self",
-        "prevHead": "70f95d4d",
-        "handoffSha": "sha256:bef7670b36b5c75b50b2349bca0945797afb06465c53c068220b62f7e0a80400",
-        "handoffAgeSec": 40,
         "conformanceBefore": null,
         "commitsInSession": null
       }
