@@ -38,6 +38,7 @@ pub(crate) mod combinator_all_fanin;
 pub mod combinator_allsettled;
 pub(crate) mod combinator_any;
 pub mod combinator_dyn;
+pub(crate) mod combinator_fanin_slot;
 pub mod from_async;
 pub mod layout;
 pub mod micro;
