@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-04T17:17:54.551Z",
+  "generatedAt": "2026-08-04T20:34:00.427Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-04T17:16:18Z",
-    "headSha": "212d3d5b",
-    "elapsedSec": 403.7,
+    "ranAt": "2026-08-04T20:31:16Z",
+    "headSha": "4b3c3ee5",
+    "elapsedSec": 391.36,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 21726,
+    "pass": 21732,
     "passNoOracle": 639,
     "passNegative": 3956,
-    "passTotal": 26321,
-    "bug": 11886,
-    "incompatible": 14967,
+    "passTotal": 26327,
+    "bug": 11881,
+    "incompatible": 14966,
     "bunSkip": 7155,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 38207,
-    "passRateInScope": 49.5,
-    "passRateTrAccepted": 68.89
+    "trAccepted": 38208,
+    "passRateInScope": 49.51,
+    "passRateTrAccepted": 68.9
   },
   "torajs": {
-    "commit": "212d3d5b",
-    "commitSubject": "feat: the any lane waits for pending elements too",
+    "commit": "4b3c3ee5",
+    "commitSubject": "fix: an owned temp handed to an any-call is released after it",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "4b3c3ee5",
+      "subject": "fix: an owned temp handed to an any-call is released after it"
+    },
+    {
+      "hash": "a965d5b6",
+      "subject": "feat: an empty iterable settles a combinator synchronously"
+    },
+    {
+      "hash": "5a59955f",
+      "subject": "feat: .finally uses what its handler returns"
+    },
+    {
+      "hash": "342a06f5",
+      "subject": "feat: Promise.any waits for elements that have not settled yet"
+    },
+    {
+      "hash": "a4cab86d",
+      "subject": "feat: an all-rejected Promise.any answers an AggregateError"
+    },
+    {
+      "hash": "5e5d653d",
+      "subject": "refactor: split what an element contributes out of the fan-in module"
+    },
+    {
+      "hash": "b2706065",
+      "subject": "chore(hardev): rotation 300 sweep at 212d3d5b, dashboard snapshot"
+    },
+    {
       "hash": "212d3d5b",
       "subject": "feat: the any lane waits for pending elements too"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "f65fcc83",
       "subject": "feat: Promise.all builds its result array in the element form the site names"
-    },
-    {
-      "hash": "967e7488",
-      "subject": "fix: Promise.all result array pays for the elements it keeps"
-    },
-    {
-      "hash": "874bc568",
-      "subject": "chore(hardev): re-census at d9beeb5c, dashboard snapshot"
-    },
-    {
-      "hash": "d9beeb5c",
-      "subject": "feat: Promise.race waits for pending elements instead of rejecting"
-    },
-    {
-      "hash": "667bfa07",
-      "subject": "chore(hardev): rotation 299 sweep artifacts, census at 5e2f3586, dashboard snapshot"
-    },
-    {
-      "hash": "5e2f3586",
-      "subject": "fix: the any-lane .then adopts a returned promise like the typed one"
-    },
-    {
-      "hash": "b2da1cb0",
-      "subject": "feat: a then/catch handler returning a promise is adopted, not stored"
-    },
-    {
-      "hash": "fdad33d7",
-      "subject": "fix: a throwing then/catch/finally handler rejects its derived promise"
     }
   ],
-  "headSha": "212d3d5b",
+  "headSha": "4b3c3ee5",
   "autorun": {
-    "total": 604,
+    "total": 605,
     "baselineTarget": 10,
-    "bySelf": 599,
+    "bySelf": 600,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785858616-1d1e",
-      "at": "2026-08-04T15:50:16Z",
-      "ts": 1785858616,
+      "rotationId": "r-1785864258-675b",
+      "at": "2026-08-04T17:24:18Z",
+      "ts": 1785864258,
       "trigger": "self",
-      "prevHead": "874bc568",
-      "handoffSha": "sha256:987182641b6029e67cabbf758aa0fc948d669dd001398f7fefd06b6372d78535",
-      "handoffAgeSec": 7,
+      "prevHead": "5e5d653d",
+      "handoffSha": "sha256:e51c6e35b3e3a9070545e072f83c8afd3d2c6713d4023ce5b58f90feb032e9fe",
+      "handoffAgeSec": 5,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1785864258-675b",
+        "at": "2026-08-04T17:24:18Z",
+        "ts": 1785864258,
+        "trigger": "self",
+        "prevHead": "5e5d653d",
+        "handoffSha": "sha256:e51c6e35b3e3a9070545e072f83c8afd3d2c6713d4023ce5b58f90feb032e9fe",
+        "handoffAgeSec": 5,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785858616-1d1e",
         "at": "2026-08-04T15:50:16Z",
@@ -876,17 +887,6 @@
         "prevHead": "c80a0ba0",
         "handoffSha": "sha256:e1fe6db138701f0d072d95160f3f61d0b1c2f0396b6782768f1165a727fb7826",
         "handoffAgeSec": 56,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1785766893-244a",
-        "at": "2026-08-03T14:21:33Z",
-        "ts": 1785766893,
-        "trigger": "self",
-        "prevHead": "d06d94a9",
-        "handoffSha": "sha256:19599152690d7fb7326fb8b2624fc8544ec55ec896110070761bd5c6a0d84014",
-        "handoffAgeSec": 6,
         "conformanceBefore": null,
         "commitsInSession": null
       }

@@ -1530,7 +1530,32 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 176bcffb`, never as a constant.
 
-**Latest @ `8e7e683e`** (2026-08-04, rotation 296 — the method-rebind
+**Latest @ `4b3c3ee5`** (2026-08-05, rotation 301 — the promise
+combinator family closes out and one leak underneath it: an
+all-rejected `Promise.any` answers a real AggregateError built through
+torajs-throw's factory registry (the call site implies the class the
+way bigint division implies RangeError); `Promise.any` gets its fan-in,
+the last of the four, sharing `all`'s block read in a mirror; `.finally`
+uses what its handler returns — a checker wedge admitting any return
+plus the ret-repr word plus a waiting job, where before every non-void
+return was a COMPILE reject; an empty iterable settles synchronously
+like bun instead of a microtask late, found by probe while writing the
+first knife and belonging to the whole family; and the leak the last
+rotation measured without attributing — `new Promise(executor)`
+stranding ~885 bytes per call — turns out to be `pack_any_argv` never
+releasing an owned `Any` argument, so the executor's two settle
+closures leaked with the envs that hold the cell): passTotal 26321 →
+**26327 (+6)**, bug 11886 → 11881 (−5), trAccepted +1 / incompatible
+14967 → **14966 (−1)** — conservation exact (1 = 6 + −5); gate
+predicate **328 clusters / 8189 cases** (flat), core 9168 (−1);
+regressions **zero** — 7 verdict moves, all forward (6 `Promise/any/*`
+bug→pass, 1 `Promise/allSettled/resolved-then-catch-finally.js`
+incompatible→bug as the `.finally` wedge unlocks it past the checker),
+tr-timeout 36 flat, exit-138/139 crashes 34 flat. Top clusters
+unchanged: eval 1433 / `__this` 253 / globalThis 216;
+harness-includes 5935 (39.7%), type error 4490 (30.0%).
+
+**Previous @ `8e7e683e`** (2026-08-04, rotation 296 — the method-rebind
 RFC lands whole: the receiver-polymorphic cmany twin (a class method
 read off its instance and re-bound to a foreign receiver runs the twin
 body through the any-member lane instead of silent-wrong slot reads —
