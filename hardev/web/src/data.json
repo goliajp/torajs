@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-03T22:04:24.795Z",
+  "generatedAt": "2026-08-04T00:26:13.312Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-03T22:02:32Z",
-    "headSha": "b6940559",
-    "elapsedSec": 382.2,
+    "ranAt": "2026-08-04T00:24:06Z",
+    "headSha": "9ee27236",
+    "elapsedSec": 387.7,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 21452,
-    "passNoOracle": 658,
-    "passNegative": 3933,
-    "passTotal": 26043,
-    "bug": 11874,
-    "incompatible": 15257,
+    "pass": 21482,
+    "passNoOracle": 661,
+    "passNegative": 3956,
+    "passTotal": 26099,
+    "bug": 11906,
+    "incompatible": 15169,
     "bunSkip": 7155,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 37917,
-    "passRateInScope": 48.98,
-    "passRateTrAccepted": 68.68
+    "trAccepted": 38005,
+    "passRateInScope": 49.08,
+    "passRateTrAccepted": 68.67
   },
   "torajs": {
-    "commit": "53f6d0c8",
-    "commitSubject": "chore(docs,hardev): rotation 293 sweep artifacts and census at b6940559",
+    "commit": "0b686768",
+    "commitSubject": "chore(docs,hardev): rotation 294 sweep artifacts and census at 9ee27236",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,34 @@
   },
   "commits": [
     {
+      "hash": "0b686768",
+      "subject": "chore(docs,hardev): rotation 294 sweep artifacts and census at 9ee27236"
+    },
+    {
+      "hash": "9ee27236",
+      "subject": "fix: single-statement decl reject exempts the let-newline ASI form"
+    },
+    {
+      "hash": "72a932d1",
+      "subject": "fix: for-of and for-in bodies reject lexical declarations"
+    },
+    {
+      "hash": "ee11652c",
+      "subject": "feat: mutable lets reassigned across syntactic families widen to any"
+    },
+    {
+      "hash": "87ab139c",
+      "subject": "feat: iterator helpers close the underlying under the stashed throw"
+    },
+    {
+      "hash": "28e8d834",
+      "subject": "feat: capture-free nested classes hoist to the top level"
+    },
+    {
+      "hash": "d7a22046",
+      "subject": "chore(hardev): dashboard snapshot at rotation 293 close"
+    },
+    {
       "hash": "53f6d0c8",
       "subject": "chore(docs,hardev): rotation 293 sweep artifacts and census at b6940559"
     },
@@ -731,55 +759,38 @@
     {
       "hash": "85f90d37",
       "subject": "feat: new-dynamic callees and any-param receivers ride the wrapped lane"
-    },
-    {
-      "hash": "98dcbf4f",
-      "subject": "chore(docs,hardev): rotation 292 sweep artifacts and census at 7b756e00"
-    },
-    {
-      "hash": "7b756e00",
-      "subject": "feat: generator receivers of member calls ride the wrapped lane"
-    },
-    {
-      "hash": "d5eba1e6",
-      "subject": "fix: symbol and bigint argarray stay the spec typeerror"
-    },
-    {
-      "hash": "255c875d",
-      "subject": "feat: new Object(value) rides the call form, construct args wrap"
-    },
-    {
-      "hash": "37c1ef0b",
-      "subject": "feat: apply kernel reads non-array argarray array-like"
-    },
-    {
-      "hash": "00fe917b",
-      "subject": "feat: genexpr const bindings ride the wrapped closure lane"
-    },
-    {
-      "hash": "8d83dd6c",
-      "subject": "feat: generator fn values ride the wrapped closure lane in any positions"
     }
   ],
-  "headSha": "53f6d0c8",
+  "headSha": "0b686768",
   "autorun": {
-    "total": 597,
+    "total": 598,
     "baselineTarget": 10,
-    "bySelf": 592,
+    "bySelf": 593,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785781482-3a7f",
-      "at": "2026-08-03T18:24:42Z",
-      "ts": 1785781482,
+      "rotationId": "r-1785794762-779a",
+      "at": "2026-08-03T22:06:02Z",
+      "ts": 1785794762,
       "trigger": "self",
-      "prevHead": "98dcbf4f",
-      "handoffSha": "sha256:218cec5fccc01a29f11a6efdf74cdd86dbe48559f237c44c45d9d96285c8d17b",
-      "handoffAgeSec": 30,
+      "prevHead": "d7a22046",
+      "handoffSha": "sha256:baf0911bd8d2978015821bde69ee8cb8d6ddab63ba77cf30365ebe3c91202c94",
+      "handoffAgeSec": 14,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1785794762-779a",
+        "at": "2026-08-03T22:06:02Z",
+        "ts": 1785794762,
+        "trigger": "self",
+        "prevHead": "d7a22046",
+        "handoffSha": "sha256:baf0911bd8d2978015821bde69ee8cb8d6ddab63ba77cf30365ebe3c91202c94",
+        "handoffAgeSec": 14,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785781482-3a7f",
         "at": "2026-08-03T18:24:42Z",
@@ -876,17 +887,6 @@
         "prevHead": "f6dd36a4",
         "handoffSha": "sha256:f7bf0ceaa9f354cf07f49c0f46e682b9e66ee6b922eb69062f29f467fd478b1d",
         "handoffAgeSec": 56,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1785674285-3c28",
-        "at": "2026-08-02T12:38:05Z",
-        "ts": 1785674285,
-        "trigger": "self",
-        "prevHead": "25f808f0",
-        "handoffSha": "sha256:9f9478cc03c89e2dcba3d03327950c28d7725325b69299369a9b86646f44dce0",
-        "handoffAgeSec": 22,
         "conformanceBefore": null,
         "commitsInSession": null
       }
