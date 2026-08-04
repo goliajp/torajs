@@ -373,6 +373,7 @@ pub unsafe extern "C" fn __torajs_promise_any_sync(promises_arr: *mut c_void) ->
     let len = unsafe { arr_len(promises_arr) };
     let mut last_rejection: i64 = 0;
     let mut last_rejection_repr: u8 = REPR_VOID;
+    let mut saw_pending = false;
     for i in 0..len {
         let pp = unsafe { arr_slot_ptr(promises_arr, i) };
         if pp.is_null() {
@@ -393,7 +394,40 @@ pub unsafe extern "C" fn __torajs_promise_any_sync(promises_arr: *mut c_void) ->
         if state == STATE_REJECTED {
             last_rejection = value;
             last_rejection_repr = unsafe { (*pp).value_repr };
+        } else {
+            saw_pending = true;
         }
     }
+    // Nothing fulfilled and nothing left outstanding — §27.2.4.2's
+    // all-rejected answer. A still-pending element keeps the old
+    // forwarding posture: this kernel cannot wait, and answering with
+    // an AggregateError over a list that is not finished yet would be
+    // a different wrong answer.
+    if !saw_pending && let Some(err) = unsafe { any_aggregate_error(promises_arr, len) } {
+        return unsafe { defer_settle(STATE_REJECTED, err as i64, 1, REPR_HEAP) };
+    }
     unsafe { defer_settle(STATE_REJECTED, last_rejection, 0, last_rejection_repr) }
+}
+
+/// Collect every element's rejection reason, in input order, into the
+/// `AggregateError` §27.2.4.2 answers with. `None` = no class to build
+/// one from (see [`crate::combinator_aggregate`]).
+unsafe fn any_aggregate_error(promises_arr: *mut c_void, len: u64) -> Option<*mut c_void> {
+    unsafe {
+        let errors = crate::combinator_aggregate::alloc_errors(len);
+        for i in 0..len {
+            let pp = arr_slot_ptr(promises_arr, i);
+            if pp.is_null() {
+                continue;
+            }
+            // The list co-owns each reason: the element promises keep
+            // their own stakes, and `box_settled_owned` incs. An
+            // UNSTAMPED reason has no form to box from, and undefined
+            // keeps the walk total without a panic path.
+            let boxed = crate::combinator_any::box_settled_owned((*pp).value_repr, (*pp).value)
+                .unwrap_or_else(|| crate::combinator_any::box_undefined());
+            crate::combinator_aggregate::store_error(errors, i, boxed);
+        }
+        crate::combinator_aggregate::make(errors)
+    }
 }

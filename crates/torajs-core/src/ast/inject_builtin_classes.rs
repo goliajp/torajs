@@ -315,6 +315,19 @@ pub fn inject_builtin_classes(ast: &mut Ast) {
     let uses_bigint =
         ast.exprs.iter().any(|e| matches!(e, Expr::BigInt { .. })) || referenced("BigInt");
 
+    // §27.2.4.2 — an all-rejected `Promise.any` answers a freshly
+    // built AggregateError, so the combinator is a producer of one
+    // exactly the way bigint division is a producer of RangeError.
+    // Nothing in `Promise.any([a, b])` names the class, so without
+    // this the registry slot stays empty and the runtime falls back
+    // to the pre-spec posture of forwarding the last rejection.
+    // Imply-only: a program that never mentions `Promise.any` pays
+    // nothing, and a user class of the same name still shadows.
+    let uses_promise_any = ast.exprs.iter().any(|e| {
+        matches!(e, Expr::Member { obj, name } if name == "any"
+            && matches!(ast.get_expr(*obj), Expr::Ident(o) if o == "Promise"))
+    });
+
     // Subclasses to inject: (referenced OR implied OR runtime-thrown)
     // AND not user-shadowed.
     //
@@ -352,7 +365,9 @@ pub fn inject_builtin_classes(ast: &mut Ast) {
 
     // The data-carrying subclasses (§20.5.7 / §20.5.8): own params
     // land as own `any` fields ahead of the shared optional message.
-    // Reference-gated only — no runtime helper ever throws these.
+    // Reference-gated, plus AggregateError's one implication above —
+    // no runtime helper THROWS either of these, but `Promise.any`
+    // builds one.
     const DATA_SUBCLASSES: [(&str, &[&str]); 2] = [
         ("AggregateError", &["errors"]),
         ("SuppressedError", &["error", "suppressed"]),
@@ -365,7 +380,8 @@ pub fn inject_builtin_classes(ast: &mut Ast) {
                 .stmts
                 .iter()
                 .any(|s| matches!(s, Stmt::ClassDecl { name, .. } if name == n));
-            !shadowed && referenced(n)
+            let implied = *n == "AggregateError" && uses_promise_any;
+            !shadowed && (referenced(n) || implied)
         })
         .collect();
 

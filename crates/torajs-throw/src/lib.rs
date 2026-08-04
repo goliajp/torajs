@@ -9,14 +9,15 @@
 //!
 //! ## What this crate provides
 //!
-//! 1. **Native-error factory registry** — three slots (Error,
-//!    TypeError, RangeError) into which `synthesize_module_init`
-//!    registers each Error subclass's `__new_<C>(message)` factory.
-//!    When a runtime helper raises a native error (e.g. bigint
-//!    div-by-zero), the registry is consulted to build a real
+//! 1. **Native-error factory registry** ([`registry`]) — one slot per
+//!    runtime-buildable Error class, into which
+//!    `synthesize_module_init` registers that class's `__new_<C>`
+//!    factory. When a runtime helper raises a native error (e.g.
+//!    bigint div-by-zero), the registry is consulted to build a real
 //!    catchable instance (with proper `.message` / `.name` /
 //!    `instanceof` / `.stack`) instead of the legacy bare-string
-//!    fallback.
+//!    fallback. `Promise.any`'s AggregateError is built through the
+//!    same table without being thrown at all.
 //!
 //! 2. **`throw_range_error` / `throw_type_error` helpers** —
 //!    cross-translation-unit shims that bigint / regex / dynobj
@@ -30,7 +31,7 @@
 //! ## Design notes (per project "石头 + 水泥" metaphor)
 //!
 //! This is a stone: a self-contained Layer-1 substrate other crates
-//! depend on. The registry is a 3-slot `AtomicPtr<()>` array —
+//! depend on. The registry is an `AtomicPtr<()>` array —
 //! single-write-at-startup, read-only after — `AtomicPtr` only for
 //! Rust's safety story, NOT for actual concurrent mutation (the
 //! runtime is single-threaded).
@@ -60,87 +61,20 @@
 
 use std::ffi::{c_char, c_void};
 use std::ptr;
-use std::sync::atomic::{AtomicI64, AtomicPtr, Ordering};
+use std::sync::atomic::{AtomicI64, Ordering};
 
 // ============================================================
-// Native-error factory registry
+// Native-error factory registry (see `registry`)
 // ============================================================
 
-/// `slot` discriminants matching the C ABI:
-/// `0` = Error, `1` = TypeError, `2` = RangeError. Read from
-/// userspace JS via the SyntaxError / ReferenceError / EvalError /
-/// URIError subclasses inheriting from Error (slot 0 fallback);
-/// the three concrete slots cover the runtime-raised cases.
-pub const SLOT_ERROR: usize = 0;
-pub const SLOT_TYPE_ERROR: usize = 1;
-pub const SLOT_RANGE_ERROR: usize = 2;
-/// RFC 20260718-error-message-own-prop 刀 3 — the derived-ctor
-/// no-super ReferenceError (§9.2.2 [[Construct]] this-TDZ).
-pub const SLOT_REFERENCE_ERROR: usize = 3;
-/// RFC 20260720-ctor-static-reflection 刀 5b — the §7.1.14
-/// StringToBigInt parse-failure SyntaxError (`BigInt("abc")`).
-pub const SLOT_SYNTAX_ERROR: usize = 4;
-const SLOT_COUNT: usize = 5;
+pub mod registry;
 
-/// Factory fn-ptr type: takes a `*mut Str` (borrowed — the codegen'd
-/// TS-level `__new_<C>` fn's ctor field store retains its own
-/// reference) and returns a fresh Error-subclass instance with
-/// `.message` filled in. The caller keeps its own stake on the Str
-/// and must release it after the call.
-pub type NativeErrorFactory = unsafe extern "C" fn(message_str: *mut c_void) -> *mut c_void;
-
-/// 3-slot registry. `AtomicPtr<()>` rather than `*mut c_void`
-/// because raw pointers aren't `Sync`. Each slot is a fn-ptr
-/// (typed as `Option<NativeErrorFactory>` after `load`); 4 bytes
-/// of padding on 32-bit systems, but Rust pointer width matches
-/// host so no layout issue.
-static REGISTRY: [AtomicPtr<()>; SLOT_COUNT] = [
-    AtomicPtr::new(ptr::null_mut()),
-    AtomicPtr::new(ptr::null_mut()),
-    AtomicPtr::new(ptr::null_mut()),
-    AtomicPtr::new(ptr::null_mut()),
-    AtomicPtr::new(ptr::null_mut()),
-];
-
-/// Register a factory for the given slot. Called once at program
-/// startup by the codegen'd `synthesize_module_init` for each
-/// builtin Error-family class (`Error` / `TypeError` / `RangeError`)
-/// emitted by `inject_builtin_classes`.
-///
-/// `fnptr` is a raw fn-ptr to the codegen'd `__new_<C>(message)`
-/// factory; out-of-range slots are silently ignored (defensive —
-/// codegen always emits valid slots).
-///
-/// # Safety
-///
-/// `fnptr` must be either null or a valid fn-ptr matching the
-/// `NativeErrorFactory` signature. The pointer is stored without
-/// type-checking; calling it from `torajs_throw_native` later
-/// transmutes it to the typed fn-ptr.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_register_native_error(slot: i64, fnptr: *mut c_void) {
-    if slot < 0 || (slot as usize) >= SLOT_COUNT {
-        return;
-    }
-    REGISTRY[slot as usize].store(fnptr.cast(), Ordering::Relaxed);
-}
-
-/// Look up a registered factory; returns `None` if the slot is
-/// unregistered (graceful fallback to bare-string throw).
-#[inline]
-fn lookup_factory(slot: usize) -> Option<NativeErrorFactory> {
-    let raw = REGISTRY[slot].load(Ordering::Relaxed);
-    if raw.is_null() {
-        None
-    } else {
-        // SAFETY: raw was stored by __torajs_register_native_error
-        // which is documented to be called only with valid
-        // NativeErrorFactory fn-ptrs. The atomic load returns a
-        // bit-equal pointer to what was stored, so the transmute
-        // round-trips identity.
-        Some(unsafe { core::mem::transmute::<*mut (), NativeErrorFactory>(raw) })
-    }
-}
+pub use registry::{
+    __torajs_make_aggregate_error, __torajs_register_native_error, AggregateErrorFactory,
+    NativeErrorFactory, SLOT_AGGREGATE_ERROR, SLOT_ERROR, SLOT_RANGE_ERROR, SLOT_REFERENCE_ERROR,
+    SLOT_SYNTAX_ERROR, SLOT_TYPE_ERROR,
+};
+use registry::{SLOT_COUNT, lookup_factory};
 
 // ============================================================
 // External Str helpers (still in C; Layer-2 `torajs-str` rewrite
@@ -452,59 +386,6 @@ mod tests {
     // no_std crate; the test harness re-enables std automatically
     // since cfg(test) ↔ host build. No extra imports needed.
     use super::*;
-
-    #[test]
-    fn slot_constants_match_c_abi() {
-        assert_eq!(SLOT_ERROR, 0);
-        assert_eq!(SLOT_TYPE_ERROR, 1);
-        assert_eq!(SLOT_RANGE_ERROR, 2);
-    }
-
-    #[test]
-    fn registry_starts_empty() {
-        // Slot indices that never had register called — Atomic
-        // initializers are null_mut. Verifies the static-init path.
-        // Use a fresh slot index to avoid interaction with other
-        // tests that may register; SLOT_ERROR is rarely registered
-        // in tora's current code so it stays null here.
-        assert!(REGISTRY[SLOT_ERROR].load(Ordering::Relaxed).is_null());
-    }
-
-    #[test]
-    fn register_out_of_range_is_no_op() {
-        // No panic, no stash; out-of-range slot silently ignored.
-        unsafe {
-            __torajs_register_native_error(-1, core::ptr::null_mut::<c_void>().wrapping_add(1));
-            __torajs_register_native_error(99, core::ptr::null_mut::<c_void>().wrapping_add(1));
-        }
-        // Lookups on real slots stay null (nothing was clobbered).
-        assert!(REGISTRY[SLOT_ERROR].load(Ordering::Relaxed).is_null());
-    }
-
-    #[test]
-    fn lookup_factory_null_returns_none() {
-        // Empty slot → None.
-        assert!(lookup_factory(SLOT_ERROR).is_none());
-    }
-
-    #[test]
-    fn lookup_factory_after_register_returns_some() {
-        // Register a sentinel fn-ptr in SLOT_RANGE_ERROR (we use
-        // it explicitly below; ok to leave installed).
-        unsafe extern "C" fn sentinel_factory(_msg: *mut c_void) -> *mut c_void {
-            0xCAFEF00D as *mut c_void
-        }
-        let fnptr = sentinel_factory as *mut c_void;
-        unsafe {
-            __torajs_register_native_error(SLOT_RANGE_ERROR as i64, fnptr);
-        }
-        assert!(lookup_factory(SLOT_RANGE_ERROR).is_some());
-        // Cleanup so other tests aren't perturbed.
-        unsafe {
-            __torajs_register_native_error(SLOT_RANGE_ERROR as i64, core::ptr::null_mut());
-        }
-        assert!(lookup_factory(SLOT_RANGE_ERROR).is_none());
-    }
 
     // ---- P2.4-b: throw-slot machinery ----
 

@@ -355,6 +355,7 @@ pub(crate) unsafe fn any_sync_any(promises_arr: *mut c_void) -> *mut c_void {
         let mut have_rej = false;
         let mut last_rej_repr: u8 = REPR_VOID;
         let mut last_rej_value: i64 = 0;
+        let mut saw_pending = false;
         for i in 0..len {
             let bits = any_slot(promises_arr, i);
             let Some(pp) = slot_promise(bits) else {
@@ -375,8 +376,14 @@ pub(crate) unsafe fn any_sync_any(promises_arr: *mut c_void) -> *mut c_void {
                     last_rej_repr = (*pp).value_repr;
                     last_rej_value = (*pp).value;
                 }
-                _ => {} // PENDING — skip.
+                _ => saw_pending = true, // PENDING.
             }
+        }
+        // Every element rejected — §27.2.4.2's AggregateError, the
+        // typed sibling's answer verbatim. A still-pending element
+        // keeps the old forwarding posture (see there).
+        if !saw_pending && let Some(err) = any_aggregate_error(promises_arr, len) {
+            return crate::combinator::defer_settle(STATE_REJECTED, err as i64, 1, REPR_HEAP);
         }
         if have_rej {
             let Some(v) = box_settled_owned(last_rej_repr, last_rej_value) else {
@@ -386,5 +393,23 @@ pub(crate) unsafe fn any_sync_any(promises_arr: *mut c_void) -> *mut c_void {
         }
         // Empty or all-pending — placeholder reject.
         crate::combinator::defer_settle(STATE_REJECTED, 0, 0, REPR_VOID)
+    }
+}
+
+/// The any-lane form of `combinator::any_aggregate_error`: the reasons
+/// are read off boxed slots, and a non-promise element is an
+/// already-fulfilled value that never reaches here.
+unsafe fn any_aggregate_error(promises_arr: *mut c_void, len: u64) -> Option<*mut c_void> {
+    unsafe {
+        let errors = crate::combinator_aggregate::alloc_errors(len);
+        for i in 0..len {
+            let Some(pp) = slot_promise(any_slot(promises_arr, i)) else {
+                continue;
+            };
+            let boxed =
+                box_settled_owned((*pp).value_repr, (*pp).value).unwrap_or_else(|| box_undefined());
+            crate::combinator_aggregate::store_error(errors, i, boxed);
+        }
+        crate::combinator_aggregate::make(errors)
     }
 }

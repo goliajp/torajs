@@ -312,7 +312,15 @@ pub(super) fn emit_native_error_register(ast: &mut Ast, meta: &ClassMetadata, ou
     for cname in &meta.class_names {
         if matches!(
             cname.as_str(),
-            "Error" | "TypeError" | "RangeError" | "ReferenceError" | "SyntaxError"
+            "Error"
+                | "TypeError"
+                | "RangeError"
+                | "ReferenceError"
+                | "SyntaxError"
+                // §27.2.4.2 — `Promise.any`'s all-rejected answer is
+                // built by the runtime, so its factory has to be
+                // reachable from there like the thrown ones.
+                | "AggregateError"
         ) {
             let name_str = ast.add_expr(Expr::String(cname.clone()));
             let callee = ast.add_expr(Expr::Ident("__torajs_register_native_error".to_string()));

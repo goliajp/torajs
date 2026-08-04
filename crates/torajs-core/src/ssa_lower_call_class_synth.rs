@@ -372,6 +372,11 @@ fn try_lower_register_native_error(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> O
         // RFC 20260720 刀 5b — the StringToBigInt parse-failure
         // SyntaxError factory.
         "SyntaxError" => 4,
+        // §27.2.4.2 — the rejection an all-rejected `Promise.any`
+        // answers. Its factory takes the `errors` array ahead of the
+        // message, which is why torajs-throw reads this slot through
+        // its own typed lookup.
+        "AggregateError" => 5,
         _ => return Some(Operand::ConstI64(0)),
     };
     let factory = format!("__new_{cname}");
