@@ -227,6 +227,18 @@ pub(crate) fn check(
     if lenient_missing {
         return Ok(Type::Any);
     }
+    // RFC 20260804-method-rebind-generic-body blade 4 — a CLASS
+    // INSTANCE receiver's terminal miss is not an error: §10.1.8.1
+    // [[Get]] on an absent property answers undefined (bun runs
+    // these programs). Answer Any; the lowering's struct-field miss
+    // arm boxes the receiver and rides the any-member lane (runtime
+    // GetV — an expando / prototype write may have landed the name).
+    // Anonymous Struct shapes keep the loud reject: an object
+    // literal's fields are all statically known, so a miss there is
+    // overwhelmingly a typo (recorded diagnostic-posture boundary).
+    if matches!(obj_ty, Type::ClassRef(_)) {
+        return Ok(Type::Any);
+    }
     Err(format!("no member `.{name}` on type {obj_ty:?}"))
 }
 

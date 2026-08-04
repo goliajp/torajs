@@ -204,7 +204,7 @@ pub(crate) fn lower_with_val(
         let boxed_recv = ctx.box_to_any(obj_val);
         return crate::ssa_lower_any_member::lower_any_member_read(ctx, eid, boxed_recv, name);
     }
-    crate::ssa_lower_member_obj_field::try_lower(ctx, obj, obj_val, sid, name)
+    crate::ssa_lower_member_obj_field::try_lower(ctx, eid, obj, obj_val, sid, name)
 }
 
 /// The builtin proto family a receiver's method VALUE read mints

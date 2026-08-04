@@ -45,6 +45,7 @@ pub(crate) fn class_name_of_expr(ctx: &LowerCtx<'_>, obj: ExprId) -> Option<Stri
 
 pub(crate) fn try_lower(
     ctx: &mut LowerCtx<'_>,
+    eid: ExprId,
     obj: ExprId,
     obj_val: Operand,
     sid: StructId,
@@ -80,7 +81,7 @@ pub(crate) fn try_lower(
         );
         return Operand::Value(v);
     }
-    lower_struct_field(ctx, obj_val, sid, name)
+    lower_struct_field(ctx, eid, obj_val, sid, name)
 }
 
 /// RFC 20260714-objlit-accessor blade 2 — `o.b` where the literal
@@ -142,18 +143,26 @@ fn try_accessor_getter(
 
 fn lower_struct_field(
     ctx: &mut LowerCtx<'_>,
+    eid: ExprId,
     obj_val: Operand,
     sid: StructId,
     name: &str,
 ) -> Operand {
     let layout = &ctx.struct_layouts[sid.0 as usize];
-    let (idx, field_ty) = layout
+    let Some((idx, field_ty)) = layout
         .iter()
         .enumerate()
         .find_map(|(i, (fname, fty))| if fname == name { Some((i, *fty)) } else { None })
-        .unwrap_or_else(|| {
-            panic!("ssa-lower: struct {sid:?} has no field `{name}` (layout: {layout:?})")
-        });
+    else {
+        // Blade 4 (RFC 20260804-method-rebind-generic-body) — the
+        // checker admitted this read as a class-instance terminal
+        // miss (§10.1.8.1 [[Get]] on an absent property answers
+        // undefined). Box the receiver and ride the any-member lane:
+        // an expando / prototype write may have landed the name at
+        // runtime, and a true miss answers ANY_UNDEF.
+        let boxed_recv = ctx.box_to_any(obj_val);
+        return crate::ssa_lower_any_member::lower_any_member_read(ctx, eid, boxed_recv, name);
+    };
     let offset = OBJ_HEADER_SIZE + idx as u64 * 8;
     let cur_block = ctx.cur_block;
     let v = ctx.f.append_inst(

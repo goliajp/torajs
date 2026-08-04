@@ -204,6 +204,7 @@ fn materialize_src(
         let len_op = crate::ssa_lower_member_obj_field::try_lower(
             ctx,
             arg_eid,
+            arg_eid,
             arg_op.clone(),
             sid,
             "length",
