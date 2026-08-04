@@ -63,7 +63,7 @@ pub(crate) unsafe fn arr_is_any(arr: *mut c_void) -> bool {
 
 /// Raw NaN-box bits of logical slot `i` (8B stride behind the data
 /// pointer — the combinator `arr_slot_ptr` walk, bits not pointer).
-unsafe fn any_slot(arr: *mut c_void, i: u64) -> u64 {
+pub(crate) unsafe fn any_slot(arr: *mut c_void, i: u64) -> u64 {
     unsafe {
         let bytes = arr as *mut u8;
         let head = *(bytes.add(ARR_HEAD_OFF) as *const u32) as u64;
@@ -85,6 +85,23 @@ pub(crate) unsafe fn slot_promise(bits: u64) -> Option<*mut Promise> {
         return None;
     }
     Some(p as *mut Promise)
+}
+
+/// The undefined box — the total-function filler for a slot with no
+/// form to describe it (the sync siblings gate those out up front).
+pub(crate) unsafe fn box_undefined() -> u64 {
+    unsafe { __torajs_anyv_box_from_pair(5, 0) }
+}
+
+/// An any-shape result array, `len` slots prefilled with undefined —
+/// the fan-in overwrites each as its element reports in.
+pub(crate) unsafe fn alloc_any_result(len: u64) -> *mut c_void {
+    unsafe { __torajs_arr_alloc_any_filled(len) as *mut c_void }
+}
+
+/// Share one more owner of a NaN-box slot (immediates no-op).
+pub(crate) unsafe fn box_share(bits: u64) {
+    unsafe { __torajs_anyv_rc_inc(bits) };
 }
 
 /// Box a settled promise slot per its repr stamp, OWNED protocol —
@@ -116,6 +133,14 @@ pub(crate) unsafe fn box_settled_owned(repr: u8, value: i64) -> Option<u64> {
 /// result `Array<Any>`.
 pub(crate) unsafe fn all_sync_any(promises_arr: *mut c_void) -> *mut c_void {
     unsafe {
+        // A pending element gets waited on, exactly as on the typed
+        // lane. Leaving this one behind would make "does a pending
+        // element get waited on" depend on whether the array literal
+        // happened to infer `Array<Any>` — the same lane asymmetry the
+        // reaction handlers had.
+        if crate::combinator_all_fanin::has_pending_any(promises_arr) {
+            return crate::combinator_all_fanin::all_fan_in_any(promises_arr);
+        }
         let len = *((promises_arr as *mut u8).add(ARR_LEN_OFF) as *const u64);
         // Absorb + pre-scan in one walk (the typed path's
         // `absorb_inputs` shape — every promise element counts as
@@ -189,6 +214,9 @@ pub(crate) unsafe fn allsettled_sync_any(
     record_tags: u64,
 ) -> *mut c_void {
     unsafe {
+        if crate::combinator_all_fanin::has_pending_any(promises_arr) {
+            return crate::combinator_all_fanin::allsettled_fan_in_any(promises_arr, record_tags);
+        }
         let len = *((promises_arr as *mut u8).add(ARR_LEN_OFF) as *const u64);
         // Absorb + verdict in one walk: a PENDING element (MVP — no
         // fan-in yet) or an UNSTAMPED settled promise element (mint
@@ -249,7 +277,7 @@ pub(crate) unsafe fn allsettled_sync_any(
 /// would reach the HPRT-check microtask with `has_handler = 0` and
 /// spuriously report an unhandled rejection (§27.2.4.{2,5} attach a
 /// reject-element handler to every input).
-unsafe fn absorb_any_inputs(promises_arr: *mut c_void) {
+pub(crate) unsafe fn absorb_any_inputs(promises_arr: *mut c_void) {
     unsafe {
         let len = *((promises_arr as *mut u8).add(ARR_LEN_OFF) as *const u64);
         for i in 0..len {

@@ -87,6 +87,10 @@ struct AllBlock {
     /// rather than parked as box bits. `elem_repr` above describes the
     /// RESULT array's slots, which for allSettled are always records.
     record_value_repr: u8,
+    /// The input carried NaN-box slots, so `all`'s result must too: its
+    /// elements have no single static form to share. allSettled's
+    /// result is a record array either way.
+    input_any: u8,
 }
 
 #[repr(C)]
@@ -150,6 +154,18 @@ unsafe fn store_element(b: *mut AllBlock, index: u64, ep: *mut Promise) {
             store_slot((*b).result_arr, index, rec as i64);
             return;
         }
+        if (*b).input_any != 0 && (*b).mode == MODE_ALL {
+            // The result is an `Array<Any>`; its slots hold boxes, and
+            // the array keeps its own stake on each (`box_settled_owned`
+            // incs, NaN-box aware so immediates pass through). An
+            // UNSTAMPED element has no form to box from — the sync
+            // sibling refuses those up front, and undefined keeps this
+            // total without a panic path.
+            let boxed = crate::combinator_any::box_settled_owned((*ep).value_repr, (*ep).value)
+                .unwrap_or_else(|| crate::combinator_any::box_undefined());
+            store_slot((*b).result_arr, index, boxed as i64);
+            return;
+        }
         if (*b).elem_repr == REPR_UNSTAMPED {
             (*b).elem_repr = (*ep).value_repr;
         }
@@ -172,6 +188,21 @@ unsafe fn fulfil(b: *mut AllBlock) {
     unsafe {
         let arr = (*b).result_arr;
         let rp = as_promise((*b).result);
+        // Only `all` over an any-shape input answers an any-shape array;
+        // allSettled's result is a raw-slot array of record cells either
+        // way, and it still needs its chain mark — the same condition
+        // the allocation above is chosen by. Getting this wrong left the
+        // records unmarked and the any lane read them as nulls.
+        if (*b).input_any != 0 && (*b).mode == MODE_ALL {
+            // An `Array<Any>` describes its own slots; there is no
+            // elem-kind chain to mark.
+            (*rp).value_is_heap = 1;
+            (*rp).value_repr = REPR_HEAP;
+            (*b).result_arr = core::ptr::null_mut();
+            (*b).done = 1;
+            __torajs_promise_resolve((*b).result, arr as i64);
+            return;
+        }
         let repr = match repr_arr_kind_chain((*b).elem_repr) {
             Some(chain) => {
                 __torajs_arr_mark_kind(arr, chain);
@@ -247,18 +278,31 @@ pub(crate) unsafe fn fan_in(
     mode: u8,
     target_repr: u8,
     record_tags: u64,
+    input_any: bool,
 ) -> *mut c_void {
     unsafe {
         let len = arr_len(promises_arr);
-        absorb_inputs(promises_arr);
+        if input_any {
+            crate::combinator_any::absorb_any_inputs(promises_arr);
+        } else {
+            absorb_inputs(promises_arr);
+        }
         let result = crate::pool::__torajs_promise_alloc_pending();
         (*as_promise(result)).value_repr = REPR_HEAP;
         (*as_promise(result)).value_is_heap = 1;
 
-        let mut result_arr = __torajs_arr_alloc(len);
-        for _ in 0..len {
-            result_arr = __torajs_arr_push(result_arr, 0);
-        }
+        // `all` over an any-shape input answers an any-shape array (its
+        // elements have no single static form to share); everything else
+        // is a raw-slot array the jobs overwrite by index.
+        let result_arr = if input_any && mode == MODE_ALL {
+            crate::combinator_any::alloc_any_result(len)
+        } else {
+            let mut a = __torajs_arr_alloc(len);
+            for _ in 0..len {
+                a = __torajs_arr_push(a, 0);
+            }
+            a
+        };
 
         let b = malloc(core::mem::size_of::<AllBlock>()) as *mut AllBlock;
         (*b).result = result;
@@ -284,10 +328,26 @@ pub(crate) unsafe fn fan_in(
         } else {
             REPR_UNSTAMPED
         };
+        (*b).input_any = u8::from(input_any);
         __torajs_rc_inc(result);
 
         for i in 0..len {
-            let pp = arr_slot_ptr(promises_arr, i);
+            let pp = if input_any {
+                let bits = crate::combinator_any::any_slot(promises_arr, i);
+                match crate::combinator_any::slot_promise(bits) {
+                    Some(p) => p,
+                    None => {
+                        // §27.2.4.1 treats a non-thenable element as an
+                        // already-fulfilled value. Nothing to wait on, so
+                        // it lands now and only counts itself out.
+                        store_plain(b, i, bits);
+                        (*b).remaining -= 1;
+                        continue;
+                    }
+                }
+            } else {
+                arr_slot_ptr(promises_arr, i)
+            };
             if pp.is_null() {
                 (*b).remaining -= 1;
                 continue;
@@ -319,10 +379,52 @@ pub(crate) unsafe fn fan_in(
     }
 }
 
+/// A plain (non-promise) element of an any-shape input: already
+/// fulfilled, so it contributes at setup rather than through a job.
+unsafe fn store_plain(b: *mut AllBlock, index: u64, bits: u64) {
+    unsafe {
+        if (*b).mode == MODE_ALLSETTLED {
+            let rec = crate::combinator_allsettled::alloc_settled_struct(
+                STATE_FULFILLED,
+                bits as i64,
+                (*b).record_tags,
+            );
+            crate::combinator_any::box_share(bits);
+            store_slot((*b).result_arr, index, rec as i64);
+            return;
+        }
+        crate::combinator_any::box_share(bits);
+        store_slot((*b).result_arr, index, bits as i64);
+    }
+}
+
 /// `Promise.all`'s fan-in. `target_repr` is the element form the call
 /// site named (0 when it could not).
 pub(crate) unsafe fn all_fan_in(promises_arr: *mut c_void, target_repr: u8) -> *mut c_void {
-    unsafe { fan_in(promises_arr, MODE_ALL, target_repr, 0) }
+    unsafe { fan_in(promises_arr, MODE_ALL, target_repr, 0, false) }
+}
+
+/// `Promise.all`'s fan-in over an any-shape input.
+pub(crate) unsafe fn all_fan_in_any(promises_arr: *mut c_void) -> *mut c_void {
+    unsafe { fan_in(promises_arr, MODE_ALL, REPR_UNSTAMPED, 0, true) }
+}
+
+/// `Promise.allSettled`'s fan-in over an any-shape input. The records
+/// hold boxed values, so the value form is `REPR_ANY` — nothing to
+/// unbox into.
+pub(crate) unsafe fn allsettled_fan_in_any(
+    promises_arr: *mut c_void,
+    record_tags: u64,
+) -> *mut c_void {
+    unsafe {
+        fan_in(
+            promises_arr,
+            MODE_ALLSETTLED,
+            crate::layout::REPR_ANY,
+            record_tags,
+            true,
+        )
+    }
 }
 
 /// `Promise.allSettled`'s fan-in. `record_tags` is the class-tag pair
@@ -333,7 +435,34 @@ pub(crate) unsafe fn allsettled_fan_in(
     record_tags: u64,
     value_repr: u8,
 ) -> *mut c_void {
-    unsafe { fan_in(promises_arr, MODE_ALLSETTLED, value_repr, record_tags) }
+    unsafe {
+        fan_in(
+            promises_arr,
+            MODE_ALLSETTLED,
+            value_repr,
+            record_tags,
+            false,
+        )
+    }
+}
+
+/// True when some element of an any-shape input has not settled yet.
+/// Plain (non-promise) slots are already-fulfilled values, so they
+/// never hold the result up.
+pub(crate) unsafe fn has_pending_any(promises_arr: *mut c_void) -> bool {
+    unsafe {
+        let len = arr_len(promises_arr);
+        for i in 0..len {
+            let bits = crate::combinator_any::any_slot(promises_arr, i);
+            if let Some(pp) = crate::combinator_any::slot_promise(bits)
+                && (*pp).state != STATE_FULFILLED
+                && (*pp).state != STATE_REJECTED
+            {
+                return true;
+            }
+        }
+        false
+    }
 }
 
 /// True when some element has not settled yet — the only case the sync
