@@ -1530,7 +1530,39 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 176bcffb`, never as a constant.
 
-**Latest @ `9ee27236`** (2026-08-04, rotation 294 — the nested-class
+**Latest @ `8e7e683e`** (2026-08-04, rotation 296 — the method-rebind
+RFC lands whole: the receiver-polymorphic cmany twin (a class method
+read off its instance and re-bound to a foreign receiver runs the twin
+body through the any-member lane instead of silent-wrong slot reads —
+`f.getM().call({v:42})` answers 42), the reified method face guarding
+its receiver by exact class tag, any-member postfix incr/decr composing
+GetV → step kernel → member-set, and the checker's terminal member miss
+on a class-instance receiver answering undefined per §10.1.8.1 instead
+of rejecting — with the undeclared-private-name carve-out (`this.#x`
+unresolved stays an early SyntaxError; the mid-rotation sweep caught 40
+pass-negative cases regressing to phase-mismatch and the fix landed
+same-rotation), plus the five file-size debt splits from the close-out
+audit): passTotal 26170 → **26194 (+24)**, bug 11919 → 11963 (+44 —
+member-miss unlocks running to runtime), trAccepted +68 / incompatible
+15085 → **15017 (−68)** — conservation exact (68 = 24 + 44); gate
+predicate **331 clusters / 8235 cases** (flat / −67), core 9219 (−68);
+regressions **zero** in the final sweep (the 40-case private-name
+family verified restored), tr-timeout 36 flat. Forward 24:
+Iterator/prototype 11, class family 5, postfix incr/decr 2, scattered.
+Top clusters: eval 1433 / `__this` 253 / globalThis 216;
+harness-includes 5935.
+
+**Previous @ `0e556523`** (2026-08-04, rotation 295 — fn-value
+semantics three ways plus the width-analysis root fix: container
+poison reaching scalars, fn-receiver store wraps, fnprops delegating
+to the canonical cell, and generator-expression bodies threading the
+user `this` through `__genrecv`): passTotal 26099 → **26170 (+71)**,
+bug +13, trAccepted +84 / incompatible **15085 (−84)** — conservation
+exact; gate predicate 331 clusters / 8302 cases, core 9287 (−83);
+regressions zero, tr-timeout 36 flat. Forward 71 ≈ the destructuring
+family (~67) through the patched-iterator runtime-protocol lane.
+
+**Previous @ `9ee27236`** (2026-08-04, rotation 294 — the nested-class
 hoist plus the iterator-close and let-widen knives, five knives all
 green through the gate chain 2419 → 2422: capture-free ClassDecls
 nested in fn / fn-expression / block bodies hoist to the top level
