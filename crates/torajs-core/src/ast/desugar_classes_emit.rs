@@ -331,6 +331,16 @@ pub(in crate::ast) fn emit_class_static_methods(
                 p.type_ann = Some("any".to_string());
             }
         }
+        // RFC 20260804-fn-this-channel knife 3a — the
+        // receiver-polymorphic static twin (`__smany_`), minted off
+        // the same body the mono FnDecl gets. Accessor faces keep
+        // their reify lane (recorded RFC residue), so only plain
+        // static methods mint; a this-free body mints nothing.
+        if sm.accessor_kind.is_none() {
+            super::desugar_classes_generic_twin::mint_static_generic_twin(
+                ast, &fn_name, &params, &body, type_params, sm.span, appended,
+            );
+        }
         appended.push(Stmt::FnDecl {
             name: fn_name,
             type_params: type_params.to_vec(),

@@ -94,6 +94,88 @@ pub(in crate::ast) fn mint_generic_twin(
     });
 }
 
+/// RFC 20260804-fn-this-channel knife 3a — the STATIC-method mirror
+/// of [`mint_generic_twin`]: mint `__smany_<C>__<m>` beside
+/// `__sm_<C>__<m>` when the static body reads `this`.
+///
+/// A static body's `this` is the class object at a direct `C.g()`
+/// call, and desugar pass 2 rewrote every such site to `Ident(<cls>)`
+/// (knife 2 recorded the sites in `ast.static_this_sites`, keyed by
+/// the ORIGINAL ExprId — which is exactly what lets this mint tell a
+/// receiver read apart from a user-written `C.x`). The twin restores
+/// the receiver at those sites: each cloned counterpart becomes
+/// `__this`, declared as the leading `any` param, so `C.g.call(recv)`
+/// can rebind per §27.7.5.1 — member reads lower through the any
+/// lane, and a `this.#f()` rides the private-brand kernels (a
+/// receiver without the brand throws, an instance with it runs).
+///
+/// Mint drops (clone neutralized, mono behavior kept — the recorded
+/// RFC residue): a body with no receiver read (`this`-free statics
+/// never rebind-misbehave), and a body carrying a static-dispatch
+/// call form (`__cm_` / `__dispatch_` / `__supercall__`) whose
+/// receiver would type `any` in the twin and trip the checker's
+/// ClassRef arg gate.
+pub(in crate::ast) fn mint_static_generic_twin(
+    ast: &mut Ast,
+    mono_name: &str,
+    params: &[Param],
+    body: &[Stmt],
+    type_params: &[String],
+    span: crate::lexer::Span,
+    appended: &mut Vec<Stmt>,
+) {
+    let mut cloner = BodyCloner::new(ast);
+    let cloned_body = cloner.clone_stmts(body);
+    let this_sites: Vec<super::ExprId> = cloner
+        .map
+        .iter()
+        .filter(|(old, _)| cloner.ast.static_this_sites.contains_key(old))
+        .map(|(_, new)| *new)
+        .collect();
+    if this_sites.is_empty() {
+        neutralize_clone(&mut cloner);
+        return;
+    }
+    let has_static_call_form = cloner.map.values().any(|id| {
+        let Expr::Call { callee, .. } = cloner.ast.get_expr(*id) else {
+            return false;
+        };
+        matches!(cloner.ast.get_expr(*callee), Expr::Ident(f)
+            if f.starts_with("__cm_") || f.starts_with("__dispatch_") || f.starts_with("__supercall__"))
+    });
+    if has_static_call_form {
+        neutralize_clone(&mut cloner);
+        return;
+    }
+    for new in this_sites {
+        cloner.ast.exprs[new.0 as usize] = Expr::Ident("__this".into());
+    }
+    super::clone_body_tables::migrate(&mut cloner);
+    let mut cloned_params: Vec<Param> = Vec::with_capacity(params.len() + 1);
+    cloned_params.push(Param {
+        name: "__this".into(),
+        type_ann: Some("any".into()),
+        default: None,
+        is_rest: false,
+    });
+    cloned_params.extend(params.iter().map(|p| Param {
+        name: p.name.clone(),
+        type_ann: Some(if p.is_rest { "any[]" } else { "any" }.to_string()),
+        default: p.default.map(|d| cloner.clone_expr(d)),
+        is_rest: p.is_rest,
+    }));
+    let twin_name = format!("__smany_{}", &mono_name["__sm_".len()..]);
+    appended.push(Stmt::FnDecl {
+        name: twin_name,
+        type_params: type_params.to_vec(),
+        params: cloned_params,
+        return_type: Some("any".to_string()),
+        body: cloned_body,
+        is_generator: false,
+        span,
+    });
+}
+
 /// Overwrite every cloned node with the inert `Uninit` leaf — a
 /// dropped mint must leave NOTHING a whole-arena walk can match (see
 /// the module-doc Ledger note; a stranded cloned ArrowFn was lifted
