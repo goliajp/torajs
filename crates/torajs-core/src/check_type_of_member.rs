@@ -191,7 +191,18 @@ pub(crate) fn check(
     // Anonymous Struct shapes keep the loud reject: an object
     // literal's fields are all statically known, so a miss there is
     // overwhelmingly a typo (recorded diagnostic-posture boundary).
+    // A `__priv_<cls>__<name>` miss stays a compile-time reject: an
+    // undeclared private name is an early SyntaxError (§13.1 all
+    // private references must resolve lexically), never a runtime
+    // undefined — the mangled prefix is minted only by the parser's
+    // PrivateIdent path, so the gate is mechanical.
     if matches!(obj_ty, Type::ClassRef(_)) {
+        if let Some(rest) = name.strip_prefix("__priv_") {
+            let field = rest.split_once("__").map(|(_, f)| f).unwrap_or(rest);
+            return Err(format!(
+                "private field `#{field}` is not declared in this class"
+            ));
+        }
         return Ok(Type::Any);
     }
     Err(format!("no member `.{name}` on type {obj_ty:?}"))
