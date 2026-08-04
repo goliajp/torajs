@@ -123,9 +123,15 @@ pub(crate) fn try_route(
     // decomposition). All 4 patterns must run BEFORE the
     // regular method-table dispatch because the table's
     // static signature fixes arg count and inner-T constraint.
-    // `.finally` is intentionally not handled — its cb is
-    // `() => void` and the table arm already covers it.
+    // `.finally` is not handled there — its `() => void` shape is
+    // the table arm's, and every OTHER return shape is the arm
+    // below's (§27.2.5.3 declares `onFinally` as `() => any`).
     if let Some(r) = crate::check_type_of_call_promise_then::try_match(checker, ast, callee, args) {
+        return Some(r);
+    }
+    if let Some(r) =
+        crate::check_type_of_call_promise_finally::try_match(checker, ast, callee, args)
+    {
         return Some(r);
     }
     // Global bare-Ident ctor / coercion call shapes
@@ -179,6 +185,21 @@ pub(crate) fn try_route(
     {
         return Some(r);
     }
+    route_tail(checker, ast, callee, args)
+}
+
+/// Tail of the segment, split off when the `.finally` arm pushed
+/// `try_route` past the 200-line function limit. The seam is
+/// mechanical like the segment boundaries themselves — consecutive
+/// arms, relative order unchanged — and every arm here is
+/// receiver-name-based, so nothing above it can be claimed by
+/// running it second.
+fn route_tail(
+    checker: &mut Checker,
+    ast: &Ast,
+    callee: &ExprId,
+    args: &Vec<ExprId>,
+) -> Option<Result<Type, String>> {
     // `arr.flat(N)` literal-depth early-route arm — see
     // [`crate::check_type_of_call_arr_flat`] (chunk 212 —
     // sixth sub-batch). Peels `Array<>` layers from the

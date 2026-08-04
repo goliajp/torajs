@@ -103,9 +103,11 @@ pub(crate) struct PromiseIds {
 // registered as a carve-out candidate in rotation 255's audit, stamp
 // applied on first touch per the ledger's instruction).
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) -> PromiseIds {
-    let p_ptr = &[Type::Promise, Type::Ptr][..];
     // knife 3 — then/catch entries carry the callback-return repr
-    // (RFC 20260720-anylane-promise-methods; finally forwards only).
+    // (RFC 20260720-anylane-promise-methods). `finally` joined them
+    // in rotation 301: §27.2.5.3 declares `onFinally` as `() => any`
+    // and WAITS on a thenable it returns, so the kernel has to know
+    // whether the return register holds anything and what form.
     let p_ptr_repr = &[Type::Promise, Type::Ptr, Type::I64][..];
     let ptr1 = &[Type::Ptr][..];
     // One trailing word the call site alone can supply, since SSA's
@@ -247,7 +249,7 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             module,
             fn_table,
             "__torajs_promise_finally",
-            p_ptr,
+            p_ptr_repr,
             Type::Promise,
         ),
         fetch_sync: declare_intrinsic(
@@ -268,7 +270,7 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             module,
             fn_table,
             "__torajs_promise_finally_closure",
-            p_ptr,
+            p_ptr_repr,
             Type::Promise,
         ),
         promise_all_sync: declare_intrinsic(

@@ -77,11 +77,14 @@ pub type ThenCbI64 = unsafe extern "C" fn(i64) -> i64;
 /// the source's resolved value.
 pub type ThenClosureFn = unsafe extern "C" fn(*mut c_void, i64) -> i64;
 
-/// `.finally(cb)` simple — no value in, no return.
-pub type FinallyCb = unsafe extern "C" fn();
+/// `.finally(cb)` simple — no value in. §27.2.5.3 runs the handler
+/// argument-free but USES what it returns (a thenable is waited on),
+/// so the return rides back like the then/catch pair's, with the call
+/// site's ret-repr word saying whether the register holds anything.
+pub type FinallyCb = unsafe extern "C" fn() -> i64;
 
-/// `.finally(cb)` closure — env in, no return.
-pub type FinallyClosureFn = unsafe extern "C" fn(*mut c_void);
+/// `.finally(cb)` closure — env in, return as above.
+pub type FinallyClosureFn = unsafe extern "C" fn(*mut c_void) -> i64;
 
 // ============================================================
 // .then simple — cb: (v: i64) -> i64

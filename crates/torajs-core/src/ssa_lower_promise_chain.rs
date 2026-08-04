@@ -405,20 +405,23 @@ impl crate::ssa_lower::LowerCtx<'_> {
             _ => unreachable!(),
         };
         // knife 3 — then/catch carry the cb-return repr for the
-        // kernel's result stamp; finally forwards only (no param).
-        // RFC 20260720-promise-any-cb knife 1 — bit 8 marks an
-        // any-param handler (kernel boxes per the source's repr
-        // stamp; an UNSTAMPED source throws at attach, so the call
-        // gets a throw-check).
+        // kernel's result stamp. RFC 20260720-promise-any-cb knife 1
+        // — bit 8 marks an any-param handler (kernel boxes per the
+        // source's repr stamp; an UNSTAMPED source throws at attach,
+        // so the call gets a throw-check).
+        //
+        // `finally` carries the RETURN half only: §27.2.5.3 runs the
+        // handler argument-free, but WAITS on a thenable it returns,
+        // so the kernel has to know whether the return register holds
+        // anything and in what form. Nothing to unbox on the way in,
+        // hence no param word and no throw-check.
         let repr_word = if m_name == "finally" {
-            0
+            self.chain_cb_repr_word(&cb_ty)
         } else {
             self.chain_cb_repr_word(&cb_ty) | self.chain_cb_param_repr(&cb_pre_ty)
         };
         let mut call_args = vec![src_op.clone(), cb_op];
-        if m_name != "finally" {
-            call_args.push(Operand::ConstI64(repr_word));
-        }
+        call_args.push(Operand::ConstI64(repr_word));
         let v = self.f.append_inst(
             self.cur_block,
             InstKind::Call(then_intrinsic, call_args),
