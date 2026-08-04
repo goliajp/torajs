@@ -34,6 +34,7 @@
 extern crate torajs_mmalloc as _;
 
 pub mod combinator;
+pub mod combinator_allsettled;
 pub(crate) mod combinator_any;
 pub mod combinator_dyn;
 pub mod from_async;
@@ -50,9 +51,9 @@ pub mod then_two;
 pub mod unhandled;
 
 pub use combinator::{
-    __torajs_promise_all_sync, __torajs_promise_allsettled_sync, __torajs_promise_any_sync,
-    __torajs_promise_race_sync,
+    __torajs_promise_all_sync, __torajs_promise_any_sync, __torajs_promise_race_sync,
 };
+pub use combinator_allsettled::__torajs_promise_allsettled_sync;
 pub use combinator_dyn::{
     __torajs_promise_all_dyn, __torajs_promise_allsettled_dyn, __torajs_promise_any_dyn,
     __torajs_promise_race_dyn,

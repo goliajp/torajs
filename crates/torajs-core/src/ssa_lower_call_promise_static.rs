@@ -68,7 +68,7 @@ pub(crate) fn try_lower(
     let m = method.as_str();
     match m {
         "all" | "race" | "any" | "allSettled" if !args.is_empty() => {
-            Some(lower_aggregate(ctx, m, args))
+            Some(lower_aggregate(ctx, eid, m, args))
         }
         "resolve" | "reject" if args.is_empty() => Some(lower_zero_arg(ctx, m)),
         "resolve" | "reject" => Some(lower_one_plus(ctx, eid, m, args)),
@@ -93,9 +93,32 @@ fn lower_with_resolvers(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
     Operand::Value(v)
 }
 
+/// The element form `Promise.all`'s result array has to hold, derived
+/// the same way the awaiting site derives how to READ those slots — so
+/// the two ends name one lane instead of two.
+///
+/// The checker typed this call `Promise<T[]>`, but SSA's `Type::Promise`
+/// is inner-erased, so the word cannot come off the operand; it comes
+/// off the checker's per-expression side table, which lowering already
+/// carries (`LowerCtx::expr_types`). `recover_inner_ssa_ty` +
+/// `widen_promise_inner_ty` is verbatim what `await` runs on this same
+/// ExprId in `ssa_lower_member_promise_value`, width table included.
+///
+/// `0` = no lane could be named, which leaves the kernel on the
+/// behaviour it had before this word existed.
+fn all_result_elem_repr(ctx: &mut LowerCtx<'_>, eid: ExprId) -> i64 {
+    let inner = crate::ssa_lower_member_promise_value::recover_inner_ssa_ty(ctx, eid);
+    let Some(Type::Arr(aid)) = ctx.widen_promise_inner_ty(inner, eid) else {
+        return 0;
+    };
+    let elem = ctx.arr_layouts[aid.0 as usize];
+    let as_f64 = matches!(elem, Type::F64);
+    crate::ssa_lower_promise_repr_mark::promise_value_repr(&elem, as_f64, false).unwrap_or(0)
+}
+
 /// `Promise.all/race/any/allSettled(xs, ...)` — lower `args[0]` and
 /// drop the rest for side-effects per S273 / ES §27.2.4.
-fn lower_aggregate(ctx: &mut LowerCtx<'_>, method: &str, args: &[ExprId]) -> Operand {
+fn lower_aggregate(ctx: &mut LowerCtx<'_>, eid: ExprId, method: &str, args: &[ExprId]) -> Operand {
     let arr_op = ctx.lower_expr(args[0]);
     for &a in &args[1..] {
         let _ = ctx.lower_expr(a);
@@ -137,10 +160,18 @@ fn lower_aggregate(ctx: &mut LowerCtx<'_>, method: &str, args: &[ExprId]) -> Ope
         "allSettled" => ctx.intrinsics.promise_allsettled_sync,
         _ => unreachable!(),
     };
+    // Only `all` buries its elements in an array the top-level value
+    // read cannot reach into; race / any forward one settled value, so
+    // the awaiting site's own repr decode already covers them.
+    let mut call_args = vec![arr_op.clone()];
+    if method == "all" {
+        let repr = all_result_elem_repr(ctx, eid);
+        call_args.push(Operand::ConstI64(repr));
+    }
     let cur_block = ctx.cur_block;
     let v = ctx.f.append_inst(
         cur_block,
-        InstKind::Call(fid, vec![arr_op.clone()]),
+        InstKind::Call(fid, call_args),
         Type::Promise,
         None,
     );

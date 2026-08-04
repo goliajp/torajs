@@ -297,7 +297,10 @@ fn awaited_lane_repr(inner_ssa_ty: Option<&Type>) -> i64 {
     crate::ssa_lower_promise_repr_mark::promise_value_repr(ty, as_f64, false).unwrap_or(0)
 }
 
-fn recover_inner_ssa_ty(ctx: &mut LowerCtx<'_>, obj: ExprId) -> Option<Type> {
+/// `pub(crate)`: the `Promise.all` lowering runs the same recovery on
+/// its own call expression, so the array it BUILDS and the `await` that
+/// READS it name the same element lane (`ssa_lower_call_promise_static`).
+pub(crate) fn recover_inner_ssa_ty(ctx: &mut LowerCtx<'_>, obj: ExprId) -> Option<Type> {
     let ann = if let Some(check_mod::Type::Promise(inner)) = ctx.expr_types.get(&obj) {
         check_mod::type_to_ann(inner)
     } else {

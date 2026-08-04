@@ -132,12 +132,21 @@ unsafe fn dyn_combinator(
     }
 }
 
+/// `all_sync` takes the result array's target element form from its
+/// call site; the dyn entry has none to give. Everything it collects is
+/// an any-shape array, which `all_sync` hands to its any-lane sibling
+/// before that form would be consulted, so `0` ("the site could not
+/// name a lane") is the honest word here rather than a lost opportunity.
+unsafe extern "C" fn all_sync_untargeted(arr: *mut c_void) -> *mut c_void {
+    unsafe { crate::combinator::__torajs_promise_all_sync(arr, 0) }
+}
+
 /// # Safety
 /// `v` is a live any-boxed value the caller owns for the duration
 /// of the call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_promise_all_dyn(v: u64) -> *mut c_void {
-    unsafe { dyn_combinator(v, crate::combinator::__torajs_promise_all_sync) }
+    unsafe { dyn_combinator(v, all_sync_untargeted) }
 }
 
 /// # Safety
@@ -158,5 +167,5 @@ pub unsafe extern "C" fn __torajs_promise_any_dyn(v: u64) -> *mut c_void {
 /// See [`__torajs_promise_all_dyn`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_promise_allsettled_dyn(v: u64) -> *mut c_void {
-    unsafe { dyn_combinator(v, crate::combinator::__torajs_promise_allsettled_sync) }
+    unsafe { dyn_combinator(v, crate::combinator_allsettled::__torajs_promise_allsettled_sync) }
 }

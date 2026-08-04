@@ -215,13 +215,13 @@ pub(crate) unsafe fn allsettled_sync_any(promises_arr: *mut c_void) -> *mut c_vo
                 Some(pp) => {
                     let v = box_settled_owned((*pp).value_repr, (*pp).value)
                         .unwrap_or_else(|| __torajs_anyv_box_from_pair(5, 0));
-                    crate::combinator::alloc_settled_struct((*pp).state, v as i64)
+                    crate::combinator_allsettled::alloc_settled_struct((*pp).state, v as i64)
                 }
                 None => {
                     // Plain value — already fulfilled (§27.2.4.3
                     // resolve-wrap), stored boxed verbatim.
                     __torajs_anyv_rc_inc(bits);
-                    crate::combinator::alloc_settled_struct(STATE_FULFILLED, bits as i64)
+                    crate::combinator_allsettled::alloc_settled_struct(STATE_FULFILLED, bits as i64)
                 }
             };
             result_arr = __torajs_arr_push(result_arr, s as i64);
