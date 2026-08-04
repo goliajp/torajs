@@ -58,37 +58,7 @@ pub(crate) fn try_lower(
         _ => unreachable!(),
     };
     let fn_val = ctx.lower_expr(args[0]);
-    // Rotation 286 — a promoted fn-expr callback (inline Closure in
-    // `fnexpr_recv_fns`, or a knife-2 variable-routed binding in
-    // `fnexpr_recv_locals`) takes the §23.1.3 thisArg (T) as its
-    // leading `__this` arg: args[1] lowers into an Any box (undefined
-    // when absent) — the arr_ho knife-4 protocol mirrored onto
-    // flatMap, same as the predicate family (rotation 261).
-    let promoted = matches!(ctx.ast.get_expr(args[0]),
-        Expr::Closure { fn_name, .. } if ctx.ast.fnexpr_recv_fns.contains(fn_name))
-        || matches!(ctx.ast.get_expr(args[0]),
-            Expr::Ident(n) if ctx.ast.fnexpr_recv_locals.contains(n));
-    let mut this_temp: Option<(ExprId, Operand)> = None;
-    let this_arg: Option<Operand> = if promoted {
-        if let Some(&t) = args.get(1) {
-            let op = ctx.lower_expr(t);
-            let boxed = ctx.box_to_any_from_expr(t, op.clone());
-            this_temp = Some((t, op));
-            Some(boxed)
-        } else {
-            Some(Operand::Value(
-                crate::ssa_lower_call_arr_ho_loop::emit_undef_any_box(ctx),
-            ))
-        }
-    } else {
-        None
-    };
-    // S319 — lower-and-drop trailing args (thisArg + any further
-    // trailing) for spec left-to-right side-effect order; a promoted
-    // callback's thisArg lowered above.
-    for &a in args.iter().skip(if promoted { 2 } else { 1 }) {
-        let _ = ctx.lower_expr(a);
-    }
+    let (this_arg, this_temp) = lower_promoted_this(ctx, args);
     let fn_ty = ctx.operand_ty(&fn_val);
     let cb_ret_ty = match fn_ty {
         Type::FnSig(s) | Type::Closure(s) => ctx.fn_sigs[s.0 as usize].1,
@@ -165,30 +135,7 @@ pub(crate) fn try_lower(
         Type::Arr(id) => id.0 as usize,
         _ => unreachable!(),
     }];
-    // T-13.5: head-aware offset for flatMap src walk. RFC 20260707
-    // chunk 625 — an Any elem reads through the kind-aware
-    // borrowed-box helper (typed-behind-Arr<Any> raw slots misread
-    // under a raw LoadDyn).
-    let elem = if src_elem_ty == Type::Any {
-        ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Call(
-                ctx.intrinsics.arr_get_any_boxed,
-                vec![Operand::Value(src_arr), Operand::Value(i_now)],
-            ),
-            Type::Any,
-            None,
-        )
-    } else {
-        let (off_base, off) =
-            ctx.emit_arr_slot_byte_offset(Operand::Value(src_arr), Operand::Value(i_now), 3, false);
-        ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::LoadDyn(src_elem_ty, off_base, off),
-            src_elem_ty,
-            None,
-        )
-    };
+    let elem = emit_src_elem_load(ctx, src_elem_ty, src_arr, i_now);
     // RFC 20260726-array-elem-width knife 9 — the element's width and
     // the callback parameter's width answer to two different classes,
     // so they can legitimately disagree: a named callback widened by
@@ -248,6 +195,75 @@ pub(crate) fn try_lower(
         ctx.release_owned_temp(t, &op);
     }
     Some(Operand::Value(final_dst))
+}
+
+/// Rotation 286 — a promoted fn-expr callback (inline Closure in
+/// `fnexpr_recv_fns`, or a knife-2 variable-routed binding in
+/// `fnexpr_recv_locals`) takes the §23.1.3 thisArg (T) as its leading
+/// `__this` arg: args[1] lowers into an Any box (undefined when
+/// absent) — the arr_ho knife-4 protocol mirrored onto flatMap, same
+/// as the predicate family (rotation 261). Non-promoted callbacks
+/// answer `(None, None)`. Also lowers-and-drops the trailing args
+/// (S319 — spec left-to-right side-effect order).
+fn lower_promoted_this(
+    ctx: &mut LowerCtx<'_>,
+    args: &[ExprId],
+) -> (Option<Operand>, Option<(ExprId, Operand)>) {
+    let promoted = matches!(ctx.ast.get_expr(args[0]),
+        Expr::Closure { fn_name, .. } if ctx.ast.fnexpr_recv_fns.contains(fn_name))
+        || matches!(ctx.ast.get_expr(args[0]),
+            Expr::Ident(n) if ctx.ast.fnexpr_recv_locals.contains(n));
+    let mut this_temp: Option<(ExprId, Operand)> = None;
+    let this_arg: Option<Operand> = if promoted {
+        if let Some(&t) = args.get(1) {
+            let op = ctx.lower_expr(t);
+            let boxed = ctx.box_to_any_from_expr(t, op.clone());
+            this_temp = Some((t, op));
+            Some(boxed)
+        } else {
+            Some(Operand::Value(
+                crate::ssa_lower_call_arr_ho_loop::emit_undef_any_box(ctx),
+            ))
+        }
+    } else {
+        None
+    };
+    for &a in args.iter().skip(if promoted { 2 } else { 1 }) {
+        let _ = ctx.lower_expr(a);
+    }
+    (this_arg, this_temp)
+}
+
+/// T-13.5: head-aware offset for the flatMap src walk. RFC 20260707
+/// chunk 625 — an Any elem reads through the kind-aware borrowed-box
+/// helper (typed-behind-Arr<Any> raw slots misread under a raw
+/// LoadDyn).
+fn emit_src_elem_load(
+    ctx: &mut LowerCtx<'_>,
+    src_elem_ty: Type,
+    src_arr: crate::ssa::ValueId,
+    i_now: crate::ssa::ValueId,
+) -> crate::ssa::ValueId {
+    if src_elem_ty == Type::Any {
+        ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(
+                ctx.intrinsics.arr_get_any_boxed,
+                vec![Operand::Value(src_arr), Operand::Value(i_now)],
+            ),
+            Type::Any,
+            None,
+        )
+    } else {
+        let (off_base, off) =
+            ctx.emit_arr_slot_byte_offset(Operand::Value(src_arr), Operand::Value(i_now), 3, false);
+        ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::LoadDyn(src_elem_ty, off_base, off),
+            src_elem_ty,
+            None,
+        )
+    }
 }
 
 /// The destination's shape: whether the callback answers a scalar, and

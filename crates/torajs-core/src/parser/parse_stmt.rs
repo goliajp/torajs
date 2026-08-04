@@ -165,52 +165,9 @@ impl<'a> Parser<'a> {
         if let Some(mutable) = mutable {
             return self.parse_let_decl_stmt(mutable, is_var);
         }
-        // Explicit Resource Management (`using x = …` / `await using
-        // x = …`) is unimplemented. `using` lexes as an ordinary
-        // Ident, so without a loud reject the head parses as an
-        // expression statement — `using a = r, b;` silently became a
-        // comma statement that exits 0. The declaration head requires
-        // a binding identifier on the SAME line after `using`; the
-        // line-break form stays an expression statement per ASI, and
-        // `using[i]` / `using(x)` stay member/call expressions.
-        let using_bind_pos = match self.peek() {
-            Token::Ident(n) if n == "using" => Some(self.pos + 1),
-            Token::Await => match self.tokens.get(self.pos + 1).map(|s| &s.token) {
-                Some(Token::Ident(n)) if n == "using" => Some(self.pos + 2),
-                _ => None,
-            },
-            _ => None,
-        };
-        if let Some(bind_pos) = using_bind_pos
-            && matches!(
-                self.tokens.get(bind_pos).map(|s| &s.token),
-                Some(Token::Ident(_))
-            )
-            && !self.has_newline_before(bind_pos)
-        {
-            return Err(format!(
-                "not yet supported: `using` declarations (Explicit Resource Management) at {}",
-                self.at()
-            ));
-        }
-        // T-46 — labeled statement (`label: stmt`). JS spec §13.13.
-        // The label is retained (as a `Stmt::Labeled` wrapper) so
-        // `break label` / `continue label` inside `body` can target it.
-        // Stacked labels (`L1: L2: stmt`) nest via the recursive call.
-        // Detection: stmt-level `Ident COLON` is unambiguous — the
-        // only conflicting expression-level shape (`obj: type` in an
-        // object literal / interface) only appears as an Expr context,
-        // not as the first two tokens of a Stmt.
-        if let Token::Ident(name) = self.peek()
-            && let Some(next) = self.tokens.get(self.pos + 1)
-            && matches!(next.token, Token::Colon)
-        {
-            let label = name.clone();
-            self.pos += 2; // consume label ident + ':'
-            let body_start = self.pos;
-            let body = Box::new(self.parse_stmt()?);
-            self.reject_decl_in_single_stmt(&body, body_start, "a labeled statement")?;
-            return Ok(Stmt::Labeled { label, body });
+        self.reject_using_decl()?;
+        if let Some(labeled) = self.try_parse_labeled()? {
+            return Ok(labeled);
         }
         let expr = self.parse_expr()?;
         // §13.16 comma-operator expression STATEMENT (`a = 1, b = 2;`
@@ -235,6 +192,61 @@ impl<'a> Parser<'a> {
             self.pos += 1;
         }
         self.expr_stmt_or_dstr_assign(expr)
+    }
+
+    /// Explicit Resource Management (`using x = …` / `await using
+    /// x = …`) is unimplemented. `using` lexes as an ordinary Ident,
+    /// so without a loud reject the head parses as an expression
+    /// statement — `using a = r, b;` silently became a comma
+    /// statement that exits 0. The declaration head requires a
+    /// binding identifier on the SAME line after `using`; the
+    /// line-break form stays an expression statement per ASI, and
+    /// `using[i]` / `using(x)` stay member/call expressions.
+    fn reject_using_decl(&mut self) -> Result<(), String> {
+        let using_bind_pos = match self.peek() {
+            Token::Ident(n) if n == "using" => Some(self.pos + 1),
+            Token::Await => match self.tokens.get(self.pos + 1).map(|s| &s.token) {
+                Some(Token::Ident(n)) if n == "using" => Some(self.pos + 2),
+                _ => None,
+            },
+            _ => None,
+        };
+        if let Some(bind_pos) = using_bind_pos
+            && matches!(
+                self.tokens.get(bind_pos).map(|s| &s.token),
+                Some(Token::Ident(_))
+            )
+            && !self.has_newline_before(bind_pos)
+        {
+            return Err(format!(
+                "not yet supported: `using` declarations (Explicit Resource Management) at {}",
+                self.at()
+            ));
+        }
+        Ok(())
+    }
+
+    /// T-46 — labeled statement (`label: stmt`). JS spec §13.13.
+    /// The label is retained (as a `Stmt::Labeled` wrapper) so
+    /// `break label` / `continue label` inside `body` can target it.
+    /// Stacked labels (`L1: L2: stmt`) nest via the recursive call.
+    /// Detection: stmt-level `Ident COLON` is unambiguous — the only
+    /// conflicting expression-level shape (`obj: type` in an object
+    /// literal / interface) only appears as an Expr context, not as
+    /// the first two tokens of a Stmt. `None` = not a label head.
+    fn try_parse_labeled(&mut self) -> Result<Option<Stmt>, String> {
+        if let Token::Ident(name) = self.peek()
+            && let Some(next) = self.tokens.get(self.pos + 1)
+            && matches!(next.token, Token::Colon)
+        {
+            let label = name.clone();
+            self.pos += 2; // consume label ident + ':'
+            let body_start = self.pos;
+            let body = Box::new(self.parse_stmt()?);
+            self.reject_decl_in_single_stmt(&body, body_start, "a labeled statement")?;
+            return Ok(Some(Stmt::Labeled { label, body }));
+        }
+        Ok(None)
     }
 
     /// `break`/`continue` optional label — ES §14.9/§14.8 restricted
