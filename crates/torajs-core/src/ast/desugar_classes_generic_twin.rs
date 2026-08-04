@@ -19,10 +19,15 @@
 //! map — an `Expr::This` / `Ident("__this")` among the cloned
 //! nodes). A twin-less method keeps today's direct-mono dispatch.
 //!
-//! Ledger: a receiver-free probe miss leaves the cloned subtree as
-//! unreferenced arena entries — append-only arena garbage the same
-//! way every desugar rewrite strands its pre-rewrite nodes; nothing
-//! lowers them.
+//! Ledger: a dropped mint (receiver-free probe miss, or a super
+//! call in the body — see `restore_dynamic_calls`) neutralizes its
+//! cloned subtree to `Expr::Uninit` leaves. Plain "unreferenced
+//! arena garbage" is NOT inert enough: stmts-walk passes never see
+//! it, but whole-arena walks do — `lift_arrow_fns` (`for i in
+//! 0..ast.exprs.len()`) lifted a stranded cloned ArrowFn into a
+//! `__closure_N` FnDecl whose construction site never lowers, and
+//! body lowering then died on the missing capture types
+//! (class-super-arrow-001-nested, gate 74e32230).
 
 use super::ast_def::Ast;
 use super::clone_body::BodyCloner;
@@ -54,6 +59,7 @@ pub(in crate::ast) fn mint_generic_twin(
             || matches!(cloner.ast.get_expr(*old), Expr::Ident(n) if n == "__this")
     });
     if !reads_receiver {
+        neutralize_clone(&mut cloner);
         return;
     }
     super::clone_body_tables::migrate(&mut cloner);
@@ -71,6 +77,7 @@ pub(in crate::ast) fn mint_generic_twin(
     // receiver param still rejects `any`, so such a method minting no
     // twin is the recorded RFC residue (super-route follow-up blade).
     if !restore_dynamic_calls(&mut cloner) {
+        neutralize_clone(&mut cloner);
         return;
     }
     let twin_name = format!("__cmany_{}", &mono_name["__cm_".len()..]);
@@ -87,12 +94,24 @@ pub(in crate::ast) fn mint_generic_twin(
     });
 }
 
+/// Overwrite every cloned node with the inert `Uninit` leaf — a
+/// dropped mint must leave NOTHING a whole-arena walk can match (see
+/// the module-doc Ledger note; a stranded cloned ArrowFn was lifted
+/// into an orphan `__closure_N` whose construction site never
+/// lowers). Side-table entries migrated onto these ids stay behind,
+/// keyed by ids nothing references — inert by construction.
+fn neutralize_clone(cloner: &mut BodyCloner<'_>) {
+    let ids: Vec<crate::ast::ExprId> = cloner.map.values().copied().collect();
+    for id in ids {
+        cloner.ast.exprs[id.0 as usize] = Expr::Uninit;
+    }
+}
+
 /// Rewrite every cloned static-dispatch call back to its member-call
 /// shape (see the call-site comment in [`mint_generic_twin`]). `true`
 /// = every static form restored; `false` = a form with no restore
-/// entry (the super rewrite) — the caller drops the mint, leaving the
-/// cloned subtree as ordinary arena garbage (restores already applied
-/// to it are equally unreferenced).
+/// entry (the super rewrite) — the caller neutralizes the clone and
+/// drops the mint.
 fn restore_dynamic_calls(cloner: &mut BodyCloner<'_>) -> bool {
     let new_ids: Vec<crate::ast::ExprId> = cloner.map.values().copied().collect();
     for id in new_ids {
