@@ -119,6 +119,7 @@ pub fn parse_into(source: &str, tokens: &[Spanned], target: &mut Ast) -> Result<
         generator_fns: std::collections::HashMap::new(),
         current_class: None,
         class_stack: Vec::new(),
+        in_for_init: false,
         in_gen_class_method: false,
         gen_recv_minted: false,
         in_async_gen: false,
@@ -144,9 +145,10 @@ pub fn parse_into(source: &str, tokens: &[Spanned], target: &mut Ast) -> Result<
     // resolve them against the recorded lexical scopes now that every
     // declaration of this file is in. Error paths skip it — the parse
     // failed and the arena is moot.
-    if result.is_ok() {
-        p.resolve_private_refs(id_offset);
-    }
+    let result = result.and_then(|r| {
+        p.resolve_private_refs(id_offset)?;
+        Ok(r)
+    });
     *target = p.ast;
     result?;
     Ok(stmt_offset)
@@ -207,6 +209,12 @@ struct Parser<'a> {
     /// reference so `resolve_private_refs` can walk out through the
     /// lexical nesting after the whole file has parsed.
     class_stack: Vec<u32>,
+    /// §14.7.4 [In]-parameter approximation — true while parsing a
+    /// C-style for-head init clause, where the `#x in o` production
+    /// does not exist (relational `in` would be ambiguous with the
+    /// for-in head). `parse_primary_paren` clears it (parentheses
+    /// reset [In]); restored on the for-head's exit.
+    in_for_init: bool,
     /// P-SURF S2.1 — set while parsing the body of a class generator
     /// method, which is hoisted to a top-level `function*` taking the
     /// receiver as a parameter. While it is set, `this` mints

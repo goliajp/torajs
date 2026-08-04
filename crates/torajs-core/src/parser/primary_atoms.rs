@@ -135,6 +135,9 @@ impl<'a> Parser<'a> {
             return self.parse_arrow_fn();
         }
         self.pos += 1; // consume `(`
+        // §14.7.4 — parentheses reset the [In] restriction: a
+        // for-head `for ((#x in o) ? a : b;;)` is legal inside them.
+        let saved_in_for_init = std::mem::replace(&mut self.in_for_init, false);
         // V3-18 m1.h.6 — JS spec §13.16 comma operator inside
         // parentheses: `(a, b, c)` evaluates left-to-right and
         // returns the rightmost value. Earlier subexpressions
@@ -161,6 +164,7 @@ impl<'a> Parser<'a> {
                 ));
             }
         }
+        self.in_for_init = saved_in_for_init;
         return Ok(last);
     }
 

@@ -29,9 +29,9 @@ impl Parser<'_> {
     /// form. `from` scopes the walk to this file's slice of the arena
     /// (imported files resolved their own slice already; placeholders
     /// never survive a `parse_into`).
-    pub(super) fn resolve_private_refs(&mut self, from: u32) {
+    pub(super) fn resolve_private_refs(&mut self, from: u32) -> Result<(), String> {
         if self.ast.private_ref_sites.is_empty() {
-            return;
+            return Ok(());
         }
         for i in (from as usize)..self.ast.exprs.len() {
             // `#x in o` keys ride as a String literal inside the
@@ -39,9 +39,9 @@ impl Parser<'_> {
             // is only rewritten when it round-trips against a parked
             // site (index in range AND the raw name matches), so an
             // ordinary user string can't be caught by accident.
-            let name = match &mut self.ast.exprs[i] {
-                Expr::Member { name, .. } | Expr::OptChain { name, .. } => name,
-                Expr::String(s) if s.starts_with("__privu_") => s,
+            let (name, is_in_key) = match &mut self.ast.exprs[i] {
+                Expr::Member { name, .. } | Expr::OptChain { name, .. } => (name, false),
+                Expr::String(s) if s.starts_with("__privu_") => (s, true),
                 _ => continue,
             };
             let Some(rest) = name.strip_prefix("__privu_") else {
@@ -62,16 +62,32 @@ impl Parser<'_> {
             let declaring = stack
                 .iter()
                 .find(|&&sid| self.ast.class_private_scopes[sid as usize].1.contains(raw))
-                // Nothing on the stack declares `#raw` — fall back to
-                // the innermost class so the checker's undeclared-
-                // private reject fires with the same class it named
-                // before this pass existed.
-                .or_else(|| stack.first())
                 .copied();
-            if let Some(sid) = declaring {
-                let cls = &self.ast.class_private_scopes[sid as usize].0;
-                *name = format!("__priv_{cls}__{raw}");
+            match declaring {
+                Some(sid) => {
+                    let cls = &self.ast.class_private_scopes[sid as usize].0;
+                    *name = format!("__priv_{cls}__{raw}");
+                }
+                // §13.10 / §13.1 early error — an in-key with no
+                // declaring scope has nothing to brand-check against
+                // (`class C { #a; m(o) { return #b in o; } }`).
+                None if is_in_key => {
+                    return Err(format!(
+                        "private name `#{raw}` is not declared in any enclosing class"
+                    ));
+                }
+                // Member references fall back to the innermost class
+                // so the checker's undeclared-private reject fires
+                // with the same class it named before this pass
+                // existed.
+                None => {
+                    if let Some(&sid) = stack.first() {
+                        let cls = &self.ast.class_private_scopes[sid as usize].0;
+                        *name = format!("__priv_{cls}__{raw}");
+                    }
+                }
             }
         }
+        Ok(())
     }
 }

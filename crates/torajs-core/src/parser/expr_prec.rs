@@ -211,12 +211,40 @@ impl<'a> Parser<'a> {
                     self.at()
                 ));
             }
+            // §14.7.4 early error — the production only exists with
+            // the [In] parameter, so a C-style for-head init
+            // (`for (#x in v;;)`) refuses it (a parenthesized head
+            // resets [In]; `parse_primary_paren` clears the flag).
+            if self.in_for_init {
+                return Err(format!(
+                    "`#{n} in` is not allowed in a for-statement head (at {})",
+                    self.at()
+                ));
+            }
             let site = self.ast.private_ref_sites.len();
             let mut stack = self.class_stack.clone();
             stack.reverse(); // innermost first
             self.ast.private_ref_sites.push((n.clone(), stack));
             self.pos += 2; // consume `#name` + `in`
+            // §13.10 — the rhs is a ShiftExpression: a BARE arrow
+            // (`#f in () => {}` / `#f in x => 1`) is a Syntax Error,
+            // while a parenthesized one (`#f in (() => {})`) reaches
+            // it through PrimaryExpression and is legal. The paren
+            // form never leaves a bare-arrow marker: its arrow parses
+            // INSIDE parse_primary_paren's recursion.
+            let bare_paren_arrow =
+                matches!(self.peek(), Token::LParen) && self.is_arrow_fn_at_lparen();
+            let right_start = self.pos;
             let right = self.parse_shift()?;
+            if bare_paren_arrow
+                || (matches!(self.ast.get_expr(right), Expr::ArrowFn { .. })
+                    && !matches!(self.tokens[right_start].token, Token::LParen))
+            {
+                return Err(format!(
+                    "the right-hand side of `#{n} in` must be a ShiftExpression — parenthesize the arrow function (at {})",
+                    self.at()
+                ));
+            }
             let key = self
                 .ast
                 .add_expr(Expr::String(format!("__privu_{site}__{n}")));

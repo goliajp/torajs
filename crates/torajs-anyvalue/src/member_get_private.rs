@@ -79,6 +79,12 @@ pub unsafe extern "C" fn __torajs_any_member_get_priv_tag(
 /// Cell receivers are valid heap pointers; `key` is a live Str cell.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_any_member_priv_has(recv: AnyValue, key: *const c_void) -> bool {
+    // §13.10.1 step 5 — a non-Object rhs (immediates + the heap
+    // primitives) throws; every OTHER object shape (closure, array,
+    // map, wrapper …) is a legal rhs that simply carries no brand.
+    if unsafe { torajs_rc::in_op_any::require_object_rhs(recv as i64) }.is_none() {
+        return false;
+    }
     match recv_cell(recv) {
         Some((ptr, t)) if t == Tag::Obj as u16 => unsafe {
             struct_field_pair(ptr, key).is_some()
@@ -89,11 +95,6 @@ pub unsafe extern "C" fn __torajs_any_member_priv_has(recv: AnyValue, key: *cons
                 || __torajs_any_member_get_tag(recv, key) != AnySlotTag::Undef as u64
         },
         Some((ptr, t)) if t == Tag::DynObj as u16 => unsafe { __torajs_dynobj_has(ptr, key) != 0 },
-        _ => {
-            unsafe {
-                __torajs_throw_type_error(c"right-hand side of `in` must be an object".as_ptr());
-            }
-            false
-        }
+        _ => false,
     }
 }

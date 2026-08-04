@@ -78,6 +78,9 @@ impl<'a> Parser<'a> {
                         // taken `ast`, so the site lands in the shared
                         // arena directly).
                         class_stack: self.class_stack.clone(),
+                        // Template interpolation is a parenthesized-
+                        // like nesting — [In] resets.
+                        in_for_init: false,
                         // Inherited for the same reason `current_class`
                         // is: `${this.x}` inside a class generator
                         // method's body must mint the same receiver

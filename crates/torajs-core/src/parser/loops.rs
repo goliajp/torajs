@@ -321,8 +321,14 @@ impl<'a> Parser<'a> {
             self.pos += 1;
             None
         } else {
+            // §14.7.4 — the init position parses without [In]
+            // (`#x in o` refuses here); error paths don't restore,
+            // following `current_class`.
+            self.in_for_init = true;
             // parse_stmt eats its own trailing `;` for let / expr stmts.
-            Some(Box::new(self.parse_stmt()?))
+            let s = self.parse_stmt()?;
+            self.in_for_init = false;
+            Some(Box::new(s))
         };
         // cond clause — empty means infinite-loop (true). Empty is `;`.
         // Per-iteration position: no yield hoist (see parse_while).

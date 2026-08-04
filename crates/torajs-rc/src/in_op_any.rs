@@ -180,7 +180,9 @@ fn proto_family_of(type_tag: u16) -> Option<i64> {
 ///
 /// # Safety
 /// `v` is an unconstrained i64; defensive on every step.
-unsafe fn require_object_rhs(v: i64) -> Option<(*const c_void, u16)> {
+/// `pub` for the `#x in o` brand-check kernel (torajs-anyvalue
+/// `member_get_private`) — same step-5 contract.
+pub unsafe fn require_object_rhs(v: i64) -> Option<(*const c_void, u16)> {
     let reject = || {
         unsafe {
             __torajs_throw_type_error(b"Right hand side of 'in' should be an object\0".as_ptr());
