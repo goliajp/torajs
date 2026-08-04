@@ -128,14 +128,19 @@ impl<'a> Parser<'a> {
                     self.gen_recv_minted = true;
                     return Ok(self.ast.add_expr(Expr::Ident(recv.into())));
                 }
-                // P-SURF S2.37 — inside a static member body `this` is
-                // the constructor object (ES §15.7.14); minting the
-                // class name lets the static-member rewrite resolve
-                // `this.#x` / `this.m` without a runtime receiver.
-                // Checked after the generator arm: a static generator
-                // body's receiver already arrives as GEN_RECV_PARAM.
-                if let Some(cls) = &self.static_this_class {
-                    return Ok(self.ast.add_expr(Expr::Ident(cls.clone())));
+                // P-SURF S2.37, reshaped by RFC 20260804-fn-this-channel
+                // knife 2 — inside a static member body `this` is the
+                // constructor object (ES §15.7.14). The class-name mint
+                // moved down to `desugar_classes` pass 2 (driven by
+                // `ast.static_this_sites`) so the AST keeps a real
+                // `Expr::This` node a receiver-generic twin can later
+                // rebind. Checked after the generator arm: a static
+                // generator body's receiver already arrives as
+                // GEN_RECV_PARAM.
+                if let Some(cls) = self.static_this_class.clone() {
+                    let eid = self.ast.add_expr(Expr::This);
+                    self.ast.static_this_sites.insert(eid, cls);
+                    return Ok(eid);
                 }
                 Ok(self.ast.add_expr(Expr::This))
             }

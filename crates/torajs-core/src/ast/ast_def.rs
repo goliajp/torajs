@@ -67,6 +67,16 @@ pub struct Ast {
     /// to the innermost scope when nothing declares it, which keeps
     /// the checker's undeclared-private compile-time reject).
     pub private_ref_sites: Vec<(String, Vec<u32>)>,
+    /// RFC 20260804-fn-this-channel knife 2 — `Expr::This` ExprIds
+    /// sitting in a STATIC method/accessor body, keyed to the owning
+    /// class name. The parser used to mint `Ident(<cls>)` right at the
+    /// token (P-SURF S2.37), which erased the receiver concept from
+    /// the AST; now it mints `Expr::This` and records the site here,
+    /// and `desugar_classes` pass 2 performs the same class-name
+    /// rewrite one layer down — mono semantics byte-identical, but a
+    /// future receiver-generic twin can rewrite the same site to
+    /// `__this` instead (knife 3).
+    pub static_this_sites: std::collections::HashMap<ExprId, String>,
     /// RFC 20260714-dstr-residual blade 3 — every array binding pattern
     /// reads its elements out of a `__ary_src_<id>` group temp, and the
     /// temp's init ExprId is the key here. The value is the pattern's

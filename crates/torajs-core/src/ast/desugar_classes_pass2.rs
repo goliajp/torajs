@@ -42,7 +42,17 @@ pub(super) fn rewrite_expr_arena_pass2(
     for i in 0..n {
         match &ast.exprs[i] {
             Expr::This => {
-                ast.exprs[i] = Expr::Ident("__this".into());
+                // RFC 20260804-fn-this-channel knife 2 — a `this` the
+                // parser recorded as a STATIC body site becomes the
+                // constructor object (the class name), exactly the mint
+                // the parser itself used to do at the token (S2.37);
+                // every other `this` is an instance receiver, `__this`.
+                let eid = super::ExprId(i as u32);
+                if let Some(cls) = ast.static_this_sites.get(&eid).cloned() {
+                    ast.exprs[i] = Expr::Ident(cls);
+                } else {
+                    ast.exprs[i] = Expr::Ident("__this".into());
+                }
             }
             // P4.5 — `new.target` deliberately NOT rewritten here.
             // Unlike `this` (which is only valid inside class methods,
