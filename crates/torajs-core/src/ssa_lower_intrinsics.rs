@@ -500,6 +500,9 @@ pub(crate) struct Intrinsics {
     pub(crate) any_bitnot: FuncId,
     /// `x++` / `x--` over an `any` slot (§13.4.4 / §13.4.5).
     pub(crate) any_incr_slot: FuncId,
+    /// Value-shaped ToNumeric + step twin — the any-member update
+    /// lane's GetV → step → member-set composition (§13.4.4.1).
+    pub(crate) anyv_incr_value: FuncId,
     pub(crate) any_compare: FuncId,
     pub(crate) any_strict_eq: FuncId,
     /// SameValueZero pair variant (§7.2.9) — includes-with-any-needle.

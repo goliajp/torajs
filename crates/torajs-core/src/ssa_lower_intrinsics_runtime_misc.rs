@@ -66,6 +66,11 @@ pub(crate) struct RuntimeMiscIds {
     /// storage to its canonical forward cell at the cell's lazy mint
     /// (bag migrates; both spellings share one slot after).
     pub fnprops_bind_cell: FuncId,
+    /// §13.4.4.1 ToNumeric + step over a VALUE (no slot) — the
+    /// any-member update lane composes it between its GetV and the
+    /// member-set kernel. Writes the coerced old value through the
+    /// ptr arg, answers the stepped new value.
+    pub anyv_incr_value: FuncId,
 }
 
 pub(crate) fn declare(
@@ -198,6 +203,13 @@ pub(crate) fn declare(
             "__torajs_fnprops_bind_cell",
             &[Type::Ptr, Type::Ptr],
             Type::Void,
+        ),
+        anyv_incr_value: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_anyv_incr_value",
+            &[Type::Any, Type::I64, Type::Ptr],
+            Type::Any,
         ),
     }
 }

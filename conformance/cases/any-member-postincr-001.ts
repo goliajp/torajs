@@ -1,0 +1,11 @@
+const o: any = { c: 3 };
+console.log(o.c++);
+console.log(o.c);
+console.log(o.c--);
+console.log(o.c);
+const s: any = { v: "5" };
+console.log(s.v++);
+console.log(s.v);
+const b: any = { n: 7n };
+console.log(b.n++);
+console.log(b.n);

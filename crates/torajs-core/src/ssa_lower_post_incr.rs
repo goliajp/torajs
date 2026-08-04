@@ -30,8 +30,13 @@
 //! ToNumeric between the load and the add, which must run exactly once
 //! and which picks the numeric domain — BigInt or Number — the step
 //! happens in. Both Ident shapes hand the slot pointer to one runtime
-//! call instead ([`lower_any_slot`]); Member and Index on an `any`
-//! element stay loud (registered).
+//! call instead ([`lower_any_slot`]). Member on an `any` RECEIVER has
+//! no slot pointer to hand over — the store must go back through the
+//! member-set kernel with its accessor / refusal semantics — so
+//! [`lower_member_any`] composes three existing lanes: the
+//! accessor-aware any-member read (GetV), the value-shaped
+//! ToNumeric + step kernel (`anyv_incr_value`), and the tag-gated
+//! member-set tail. Index on an `any` element stays loud (registered).
 //!
 //! Returns `Operand` directly (terminal arm — caller's
 //! `Expr::PostIncr` match arm bottoms out here).
@@ -40,7 +45,7 @@ use crate::ast::{Expr, ExprId};
 use crate::ssa::{BinOp as SsaBinOp, InstKind, Operand, Type};
 use crate::ssa_lower::{LowerCtx, OBJ_HEADER_SIZE};
 
-pub(crate) fn lower(ctx: &mut LowerCtx<'_>, target: ExprId, is_inc: bool) -> Operand {
+pub(crate) fn lower(ctx: &mut LowerCtx<'_>, eid: ExprId, target: ExprId, is_inc: bool) -> Operand {
     match ctx.ast.get_expr(target).clone() {
         // RFC 20260730-undeclared-ident, write position — §13.4.4.1
         // step 1 is GetValue on the target, so an update expression
@@ -59,7 +64,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, target: ExprId, is_inc: bool) -> Ope
             return Operand::ConstPtrNull;
         }
         Expr::Ident(name) => lower_ident(ctx, name, is_inc),
-        Expr::Member { obj, name: field } => lower_member(ctx, obj, field, is_inc),
+        Expr::Member { obj, name: field } => lower_member(ctx, eid, target, obj, field, is_inc),
         Expr::Index { obj, index } => lower_index(ctx, obj, index, is_inc),
         other => panic!("ssa-lower: post-incr target shape not supported: {other:?}"),
     }
@@ -153,7 +158,14 @@ fn lower_any_slot(ctx: &mut LowerCtx<'_>, slot: Operand, is_inc: bool) -> Operan
     Operand::Value(old)
 }
 
-fn lower_member(ctx: &mut LowerCtx<'_>, obj: ExprId, field: String, is_inc: bool) -> Operand {
+fn lower_member(
+    ctx: &mut LowerCtx<'_>,
+    eid: ExprId,
+    target: ExprId,
+    obj: ExprId,
+    field: String,
+    is_inc: bool,
+) -> Operand {
     let obj_val = ctx.lower_expr(obj);
     let obj_ty = ctx.operand_ty(&obj_val);
     // Length-write knife (rotation 270) — `xs.length--` / `++` on an
@@ -164,6 +176,9 @@ fn lower_member(ctx: &mut LowerCtx<'_>, obj: ExprId, field: String, is_inc: bool
     // `arguments.length`, but serves plain arrays the same.
     if matches!(obj_ty, Type::Arr(_)) && field == "length" {
         return lower_arr_length(ctx, obj, obj_val, obj_ty, is_inc);
+    }
+    if matches!(obj_ty, Type::Any) {
+        return lower_member_any(ctx, eid, target, obj, obj_val, &field, is_inc);
     }
     let sid = match obj_ty {
         Type::Obj(sid) => sid,
@@ -200,6 +215,82 @@ fn lower_member(ctx: &mut LowerCtx<'_>, obj: ExprId, field: String, is_inc: bool
     ctx.f.append_void(
         cur_block,
         InstKind::Store(Operand::Value(new_v), obj_val, offset),
+    );
+    Operand::Value(old)
+}
+
+/// The `any`-receiver lane of [`lower_member`] — §13.4.4.1 over a
+/// receiver whose shape is a runtime question. Three existing lanes
+/// compose: the accessor-aware any-member read answers the current
+/// value (GetV), `anyv_incr_value` runs ToNumeric exactly once and
+/// steps in the operand's own numeric domain, and the tag-gated
+/// member-set tail stores the new value with the full setter /
+/// refusal semantics (write-back included for a named Any receiver).
+/// The expression answers the coerced OLD value — owned, so the
+/// PostIncr eid joins `owned_member_reads` and consumers release it.
+fn lower_member_any(
+    ctx: &mut LowerCtx<'_>,
+    eid: ExprId,
+    target: ExprId,
+    obj: ExprId,
+    obj_val: Operand,
+    field: &str,
+    is_inc: bool,
+) -> Operand {
+    let old_box =
+        crate::ssa_lower_any_member::lower_any_member_read(ctx, target, obj_val.clone(), field);
+    let old_slot = ctx.alloca(Type::Any, Some("__incr_old"));
+    let flag = Operand::ConstI64(if is_inc { 1 } else { 0 });
+    let cur_block = ctx.cur_block;
+    let new_v = ctx.f.append_inst(
+        cur_block,
+        InstKind::Call(
+            ctx.intrinsics.anyv_incr_value,
+            vec![old_box.clone(), flag, Operand::Value(old_slot)],
+        ),
+        Type::Any,
+        None,
+    );
+    ctx.emit_drop_value(old_box, Type::Any);
+    // Owned unbox (tag, payload+1) feeds the member-set kernel; the
+    // surplus box stake releases after the store — the
+    // `lower_dynobj_assign_any_payload` contract.
+    let cur_block = ctx.cur_block;
+    let tag_v = ctx.f.append_inst(
+        cur_block,
+        InstKind::Call(ctx.intrinsics.any_unbox_tag, vec![Operand::Value(new_v)]),
+        Type::I64,
+        None,
+    );
+    let val_v = ctx.f.append_inst(
+        cur_block,
+        InstKind::Call(
+            ctx.intrinsics.any_unbox_value_owned,
+            vec![Operand::Value(new_v)],
+        ),
+        Type::I64,
+        None,
+    );
+    let obj_ident = match ctx.ast.get_expr(obj) {
+        Expr::Ident(n) => Some(n.clone()),
+        _ => None,
+    };
+    crate::ssa_lower_assign_member_any::emit_any_member_set(
+        ctx,
+        obj_val,
+        field,
+        Operand::Value(tag_v),
+        Operand::Value(val_v),
+        &obj_ident,
+    );
+    ctx.emit_drop_value(Operand::Value(new_v), Type::Any);
+    ctx.owned_member_reads.insert(eid);
+    let cur_block = ctx.cur_block;
+    let old = ctx.f.append_inst(
+        cur_block,
+        InstKind::Load(Type::Any, Operand::Value(old_slot), 0),
+        Type::Any,
+        None,
     );
     Operand::Value(old)
 }

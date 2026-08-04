@@ -46,11 +46,64 @@ const OP_SUB: i64 = 0;
 pub unsafe extern "C" fn __torajs_anyv_incr_slot(slot: *mut AnyValue, is_inc: i64) -> AnyValue {
     // SAFETY: caller invariant — slot is live and initialised.
     let cur = unsafe { *slot };
+    // SAFETY: cur is a live AnyValue.
+    let Some((old, new)) = (unsafe { step_numeric(cur, is_inc) }) else {
+        return VALUE_UNDEFINED;
+    };
+    // SAFETY: cur is the slot's own stake, replaced by `new`.
+    unsafe { crate::nanbox_ffi::__torajs_anyv_rc_dec(cur) };
+    // SAFETY: caller invariant — slot is writable.
+    unsafe { *slot = new };
+    old
+}
+
+/// The value-shaped face of the same §13.4.4.1 step — no slot, so the
+/// member update lane can compose it between its own GetV and PutValue
+/// (`(o: any).f++` has no slot pointer to hand over: the store must go
+/// back through the member-set kernel with its accessor / refusal
+/// semantics). Coerces `cur` per ToNumeric exactly once, writes the
+/// coerced OLD value to `old_out`, and answers the stepped NEW value.
+///
+/// Both `*old_out` and the returned value are owned by the caller;
+/// `cur` is borrowed. A failed BigInt mint answers undefined in both
+/// positions (mirrors the slot form's bail).
+///
+/// # Safety
+///
+/// `cur` is a live AnyValue; `old_out` points at writable storage.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_incr_value(
+    cur: AnyValue,
+    is_inc: i64,
+    old_out: *mut AnyValue,
+) -> AnyValue {
+    // SAFETY: cur is a live AnyValue.
+    let Some((old, new)) = (unsafe { step_numeric(cur, is_inc) }) else {
+        // SAFETY: caller invariant — old_out is writable.
+        unsafe { *old_out = VALUE_UNDEFINED };
+        return VALUE_UNDEFINED;
+    };
+    // SAFETY: caller invariant — old_out is writable.
+    unsafe { *old_out = old };
+    new
+}
+
+/// ToNumeric + step core shared by the slot and value faces above:
+/// answers `(old, new)`, both owned, with the coercion run exactly
+/// once and the step taken in the operand's own numeric domain
+/// (§6.1.6.2 — a BigInt steps as a BigInt, everything else as a
+/// Number). `None` = a BigInt operand mint failed; callers bail
+/// without storing.
+///
+/// # Safety
+///
+/// `cur` is a live AnyValue.
+unsafe fn step_numeric(cur: AnyValue, is_inc: i64) -> Option<(AnyValue, AnyValue)> {
     let tag = __torajs_anyv_unbox_tag(cur);
     let value = __torajs_anyv_unbox_value(cur);
 
     // SAFETY: tag / value came out of a live AnyValue.
-    let (old, new) = match unsafe { heap_bigint_ptr(tag, value) } {
+    let pair = match unsafe { heap_bigint_ptr(tag, value) } {
         // BigInt lane — ToNumeric is the identity, and the step must
         // stay in the BigInt domain (§6.1.6.2). Mixing in a Number 1
         // here is exactly the TypeError the arith kernel raises for
@@ -59,7 +112,7 @@ pub unsafe extern "C" fn __torajs_anyv_incr_slot(slot: *mut AnyValue, is_inc: i6
             // SAFETY: pure FFI; mints a fresh rc=1 cell.
             let one = unsafe { bigint_ffi::__torajs_bigint_from_number(1.0) };
             if one.is_null() {
-                return VALUE_UNDEFINED;
+                return None;
             }
             let kernel = if is_inc != 0 {
                 bigint_ffi::__torajs_bigint_add
@@ -71,7 +124,7 @@ pub unsafe extern "C" fn __torajs_anyv_incr_slot(slot: *mut AnyValue, is_inc: i6
             // SAFETY: the minted operand is ours to release.
             unsafe { bigint_ffi::__torajs_bigint_drop(one as *mut c_void) };
             if out.is_null() {
-                return VALUE_UNDEFINED;
+                return None;
             }
             // cur is a live BigInt AnyValue; retain takes the caller's
             // stake in the value we are about to answer.
@@ -94,10 +147,5 @@ pub unsafe extern "C" fn __torajs_anyv_incr_slot(slot: *mut AnyValue, is_inc: i6
             (old, new)
         }
     };
-
-    // SAFETY: cur is the slot's own stake, replaced by `new`.
-    unsafe { crate::nanbox_ffi::__torajs_anyv_rc_dec(cur) };
-    // SAFETY: caller invariant — slot is writable.
-    unsafe { *slot = new };
-    old
+    Some(pair)
 }

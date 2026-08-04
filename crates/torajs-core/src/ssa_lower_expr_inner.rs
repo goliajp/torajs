@@ -340,7 +340,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx, eid: ExprId) -> Operand {
             // shapes (Ident global/local + Member + Index)
             // share incr-by-1 pattern. See
             // [`crate::ssa_lower_post_incr::lower`].
-            crate::ssa_lower_post_incr::lower(ctx, *target, *is_inc)
+            crate::ssa_lower_post_incr::lower(ctx, eid, *target, *is_inc)
         }
         // V3-07 — `expr as T`. At SSA, most casts are identity:
         // typecheck has already widened/narrowed the surrounding
