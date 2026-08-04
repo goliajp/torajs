@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-04T15:27:30.779Z",
+  "generatedAt": "2026-08-04T15:45:47.810Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-04T15:24:15Z",
-    "headSha": "5e2f3586",
-    "elapsedSec": 627.55,
+    "ranAt": "2026-08-04T15:45:08Z",
+    "headSha": "d9beeb5c",
+    "elapsedSec": 390.24,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 21718,
+    "pass": 21721,
     "passNoOracle": 639,
     "passNegative": 3956,
-    "passTotal": 26313,
-    "bug": 11893,
-    "incompatible": 14968,
+    "passTotal": 26316,
+    "bug": 11891,
+    "incompatible": 14967,
     "bunSkip": 7155,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 38206,
-    "passRateInScope": 49.48,
-    "passRateTrAccepted": 68.87
+    "trAccepted": 38207,
+    "passRateInScope": 49.49,
+    "passRateTrAccepted": 68.88
   },
   "torajs": {
-    "commit": "5e2f3586",
-    "commitSubject": "fix: the any-lane .then adopts a returned promise like the typed one",
+    "commit": "d9beeb5c",
+    "commitSubject": "feat: Promise.race waits for pending elements instead of rejecting",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "d9beeb5c",
+      "subject": "feat: Promise.race waits for pending elements instead of rejecting"
+    },
+    {
+      "hash": "667bfa07",
+      "subject": "chore(hardev): rotation 299 sweep artifacts, census at 5e2f3586, dashboard snapshot"
+    },
+    {
       "hash": "5e2f3586",
       "subject": "fix: the any-lane .then adopts a returned promise like the typed one"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "68f19761",
       "subject": "feat: static method this rebinds through call/apply via the smany twin"
-    },
-    {
-      "hash": "9ec3e656",
-      "subject": "feat: receiver-polymorphic static twin minted beside sm fndecls"
-    },
-    {
-      "hash": "59515e07",
-      "subject": "refactor: static-body this keeps its ast node, class-name mint moves to pass 2"
     }
   ],
-  "headSha": "5e2f3586",
+  "headSha": "d9beeb5c",
   "autorun": {
     "total": 603,
     "baselineTarget": 10,
