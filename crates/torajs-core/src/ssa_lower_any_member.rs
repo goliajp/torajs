@@ -323,6 +323,36 @@ fn emit_member_fallback(
     key_str: crate::ssa::ValueId,
     name: &str,
 ) -> Operand {
+    if name.starts_with("__priv_") {
+        // §7.3.31 PrivateGet / PrivateBrandCheck — reading a private
+        // element off a receiver whose class did not declare it
+        // throws TypeError, never answers undefined. Statically
+        // selected here (private names only ever reach the any lane
+        // pre-mangled), so the ordinary tag channel pays nothing;
+        // the value channel stays the base intrinsic (it answers 0
+        // on the thrown path without a second throw — the
+        // null-receiver convention).
+        let tag = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(
+                ctx.intrinsics.any_member_get_priv_tag,
+                vec![obj_val.clone(), Operand::Value(key_str)],
+            ),
+            Type::I64,
+            None,
+        );
+        let value = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(
+                ctx.intrinsics.any_member_get_value,
+                vec![obj_val.clone(), Operand::Value(key_str)],
+            ),
+            Type::I64,
+            None,
+        );
+        ctx.emit_throw_check(None);
+        return crate::ssa_lower_accessor::emit_any_get_result(ctx, obj_val, key_str, tag, value);
+    }
     if name == "length" {
         let v = ctx.f.append_inst(
             ctx.cur_block,

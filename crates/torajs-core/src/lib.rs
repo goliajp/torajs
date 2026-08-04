@@ -429,6 +429,7 @@ pub(crate) mod ssa_lower_intrinsics_obj_capture;
 pub(crate) mod ssa_lower_intrinsics_object;
 pub(crate) mod ssa_lower_intrinsics_print_freeze;
 pub(crate) mod ssa_lower_intrinsics_print_str;
+pub(crate) mod ssa_lower_intrinsics_private;
 pub(crate) mod ssa_lower_intrinsics_process;
 pub(crate) mod ssa_lower_intrinsics_promise;
 pub(crate) mod ssa_lower_intrinsics_regex;

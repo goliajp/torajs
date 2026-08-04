@@ -451,6 +451,7 @@ pub(crate) fn build(
         any_size_get: init_c.any_substrate.any_size_get,
         any_regexp_prop: init_c.any_substrate.any_regexp_prop,
         any_member_get_tag: init_c.any_substrate.any_member_get_tag,
+        any_member_get_priv_tag: init_c.private.any_member_get_priv_tag,
         any_member_get_value: init_c.any_substrate.any_member_get_value,
         any_accessor_get: init_c.any_substrate.any_accessor_get,
         any_member_set: init_c.any_substrate.any_member_set,
