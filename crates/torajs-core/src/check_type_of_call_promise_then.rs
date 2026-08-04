@@ -41,6 +41,24 @@
 use crate::ast::{Ast, Expr, ExprId};
 use crate::check::{Checker, Type};
 
+/// The result type of a `.then` / `.catch` whose handler returns `ret`.
+///
+/// §27.2.1.3.2 — the derived promise ADOPTS a thenable the handler
+/// returns rather than fulfilling with it, so a `(T) => Promise<U>`
+/// handler answers `Promise<U>`, never `Promise<Promise<U>>`. This is
+/// the type-side half of `torajs-promise/src/then_adopt.rs`: the two
+/// must agree, or the checker hands the next handler a promise the
+/// runtime already unwrapped.
+///
+/// One level is all that can occur — the collapse runs at every mint,
+/// so a nested inner is itself already collapsed.
+fn promise_of(ret: &Type) -> Type {
+    match ret {
+        Type::Promise(inner) => Type::Promise(inner.clone()),
+        other => Type::Promise(Box::new(other.clone())),
+    }
+}
+
 pub(crate) fn try_match(
     checker: &mut Checker,
     ast: &Ast,
@@ -169,7 +187,7 @@ fn try_then_two_arg(
                     )));
                 }
             }
-            return Some(Ok(Type::Promise(Box::new(result_inner))));
+            return Some(Ok(promise_of(&result_inner)));
         }
     }
     None
@@ -221,7 +239,7 @@ fn try_then_heterogeneous(
                 && params.len() == 1
                 && matches!(params[0], Type::Any)
             {
-                return Some(Ok(Type::Promise(ret.clone())));
+                return Some(Ok(promise_of(ret)));
             }
         }
         /* rotation 233 — Struct joins the 1-arg lane for the same
@@ -255,14 +273,24 @@ fn try_then_heterogeneous(
                 && params.len() == 1
                 && matches!(params[0], Type::Any)
             {
-                return Some(Ok(Type::Promise(ret.clone())));
+                return Some(Ok(promise_of(ret)));
             }
             if let Type::Function(params, ret) = &cb_ty
                 && params.len() == 1
                 && params[0] == inner_ty
                 && matches!(
                     **ret,
-                    Type::Number | Type::String | Type::Boolean | Type::Void
+                    Type::Number
+                        | Type::String
+                        | Type::Boolean
+                        | Type::Void
+                        // A handler returning a promise is the adopted
+                        // shape (§27.2.1.3.2) — `promise_of` collapses
+                        // it, so this lane answers Promise<U> for a
+                        // `(T) => Promise<U>` handler. It moves as a
+                        // cell through the kernel's REPR_HEAP return,
+                        // the same slot the other admits use.
+                        | Type::Promise(_)
                 )
                 && **ret != inner_ty
             {
@@ -275,7 +303,7 @@ fn try_then_heterogeneous(
                  * handler (bun runs it); the kernel's
                  * REPR_VOID ret stamp zeroes the result leg
                  * (knife 1), same as the any-param lane. */
-                return Some(Ok(Type::Promise(ret.clone())));
+                return Some(Ok(promise_of(ret)));
             }
             // A handler that declares NO parameter. §27.2.5.4 hands
             // the settled value to onFulfilled as one argument; how
@@ -295,7 +323,7 @@ fn try_then_heterogeneous(
                     Type::Void => Type::Undefined,
                     other => other.clone(),
                 };
-                return Some(Ok(Type::Promise(Box::new(result_inner))));
+                return Some(Ok(promise_of(&result_inner)));
             }
         }
     }
@@ -373,7 +401,7 @@ fn try_then_undefined(
                         )));
                     }
                 };
-                return Some(Ok(Type::Promise(Box::new(result_inner))));
+                return Some(Ok(promise_of(&result_inner)));
             }
             return Some(Err(format!(
                 "Promise.{m_name} on Promise<Undefined>: cb must be 0-arg `() => U`, got {cb_ty:?}"
@@ -441,7 +469,7 @@ fn try_then_array(
                 && params.len() == 1
                 && matches!(params[0], Type::Any)
             {
-                return Some(Ok(Type::Promise(ret.clone())));
+                return Some(Ok(promise_of(ret)));
             }
             if let Type::Function(params, ret) = &cb_ty
                 && params.len() == 1
@@ -456,7 +484,7 @@ fn try_then_array(
                         )));
                     }
                 };
-                return Some(Ok(Type::Promise(Box::new(result_inner))));
+                return Some(Ok(promise_of(&result_inner)));
             }
             return Some(Err(format!(
                 "Promise.{m_name} on Promise<{inner_arr_ty:?}>: cb must be `(arr: {inner_arr_ty:?}) => V`, got {cb_ty:?}"

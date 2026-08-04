@@ -43,6 +43,7 @@ pub mod pool;
 pub mod print;
 pub mod state;
 pub mod then;
+pub(crate) mod then_adopt;
 pub mod then_box;
 pub mod then_finally;
 pub mod then_two;

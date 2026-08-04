@@ -93,6 +93,25 @@ pub(crate) unsafe fn reject_on_pending_throw(result: *mut c_void) -> bool {
     }
 }
 
+/// A reaction handler's complete outcome protocol, in spec order: an
+/// abrupt completion rejects (§27.2.2.1 steps 8-9), a returned promise
+/// is ADOPTED rather than stored (§27.2.1.3.2), and anything else
+/// fulfills the derived promise verbatim under the call site's static
+/// return repr.
+pub(crate) unsafe fn settle_handler_return(result: *mut c_void, ret_repr: u8, value: i64) {
+    unsafe {
+        if reject_on_pending_throw(result) {
+            return;
+        }
+        if let Some(inner) = crate::then_adopt::returned_promise(ret_repr, value) {
+            crate::then_adopt::adopt_into(result, inner);
+            return;
+        }
+        (*as_promise(result)).value_repr = ret_repr;
+        crate::state::__torajs_promise_resolve(result, value);
+    }
+}
+
 /// Box the source's settled value per its repr stamp — mirror of the
 /// any-lane bridge's `box_settled` (`torajs-anyvalue/src/
 /// method_call_promise.rs`, must move in lockstep). Rc-neutral: the

@@ -46,7 +46,7 @@ use crate::state::{
     __torajs_promise_attach_then, __torajs_promise_reject, __torajs_promise_resolve,
 };
 use crate::then_box::{
-    PARAM_ANY_FLAG, PARAM_REPR_SHIFT, refuse_unstamped, reject_on_pending_throw, settle_param,
+    PARAM_ANY_FLAG, PARAM_REPR_SHIFT, refuse_unstamped, settle_handler_return, settle_param,
 };
 
 unsafe extern "C" {
@@ -121,10 +121,7 @@ unsafe extern "C" fn then_simple_dispatch(arg: i64) {
             } else {
                 result
             };
-            if !reject_on_pending_throw((*a).result) {
-                stamp_result_repr((*a).result, (*a).ret_repr);
-                __torajs_promise_resolve((*a).result, result);
-            }
+            settle_handler_return((*a).result, (*a).ret_repr, result);
         }
         __torajs_promise_drop((*a).source);
         __torajs_promise_drop((*a).result);
@@ -212,10 +209,7 @@ unsafe extern "C" fn then_closure_dispatch(arg: i64) {
         } else {
             result
         };
-        if !reject_on_pending_throw((*a).result) {
-            stamp_result_repr((*a).result, (*a).ret_repr);
-            __torajs_promise_resolve((*a).result, result);
-        }
+        settle_handler_return((*a).result, (*a).ret_repr, result);
         __torajs_promise_drop((*a).source);
         // Release the closure env ref inc'd at attach_then time.
         __torajs_value_drop_heap((*a).env);
@@ -293,10 +287,7 @@ unsafe extern "C" fn catch_simple_dispatch(arg: i64) {
             } else {
                 result
             };
-            if !reject_on_pending_throw((*a).result) {
-                stamp_result_repr((*a).result, (*a).ret_repr);
-                __torajs_promise_resolve((*a).result, result);
-            }
+            settle_handler_return((*a).result, (*a).ret_repr, result);
         } else {
             stamp_result_repr((*a).result, (*src).value_repr);
             __torajs_promise_resolve((*a).result, (*src).value);
@@ -378,10 +369,7 @@ unsafe extern "C" fn catch_closure_dispatch(arg: i64) {
             } else {
                 result
             };
-            if !reject_on_pending_throw((*a).result) {
-                stamp_result_repr((*a).result, (*a).ret_repr);
-                __torajs_promise_resolve((*a).result, result);
-            }
+            settle_handler_return((*a).result, (*a).ret_repr, result);
         } else {
             stamp_result_repr((*a).result, (*src).value_repr);
             __torajs_promise_resolve((*a).result, (*src).value);
