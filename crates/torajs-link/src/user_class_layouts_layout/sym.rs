@@ -5,9 +5,9 @@ use super::types::{
     CLASS_LAYOUTS_SYM, FIELD_META_NAME_PTR_OFFSET_IN_ELEM, INNER_FIELD_META_ELEM_SIZE,
     INNER_FIELD_META_HEADER_SIZE, INNER_METHOD_META_ELEM_SIZE, INNER_METHOD_META_HEADER_SIZE,
     METHOD_META_ADAPTER_PTR_OFFSET_IN_ELEM, METHOD_META_NAME_PTR_OFFSET_IN_ELEM,
-    N_CLASS_LAYOUTS_SYM, OUTER_CHILD_OFFSETS_PTR_OFFSET_IN_ENTRY,
-    OUTER_FIELD_META_PTR_OFFSET_IN_ENTRY, OUTER_METHOD_TABLE_PTR_OFFSET_IN_ENTRY,
-    UserClassLayoutsLayout,
+    METHOD_META_TWIN_PTR_OFFSET_IN_ELEM, N_CLASS_LAYOUTS_SYM,
+    OUTER_CHILD_OFFSETS_PTR_OFFSET_IN_ENTRY, OUTER_FIELD_META_PTR_OFFSET_IN_ENTRY,
+    OUTER_METHOD_TABLE_PTR_OFFSET_IN_ENTRY, UserClassLayoutsLayout,
 };
 use crate::chained_fixups_starts::RebaseTarget;
 use crate::exec::UserClassLayoutEntry;
@@ -104,6 +104,18 @@ pub fn compute_class_layouts_rebase_targets(
                     adapter_slot - seg_vmaddr_base,
                     adapter_vaddr - image_vmaddr_base,
                 ));
+                // Blade 3 — the twin adapter slot, only when minted
+                // (payload writes a raw 0 otherwise; lockstep with
+                // build_user_class_layouts_payload's take order).
+                if let Some(twin_id) = mm.twin_fn_id {
+                    let twin_vaddr = fn_vaddrs[twin_id as usize];
+                    debug_assert!(
+                        twin_vaddr >= image_vmaddr_base,
+                        "class_methods twin target {twin_vaddr:#x} cannot precede image base {image_vmaddr_base:#x}",
+                    );
+                    let twin_slot = elem_vaddr + u64::from(METHOD_META_TWIN_PTR_OFFSET_IN_ELEM);
+                    targets.push((twin_slot - seg_vmaddr_base, twin_vaddr - image_vmaddr_base));
+                }
             }
         }
     }

@@ -114,6 +114,10 @@ pub struct UserMethodMetaEntry {
     /// S2.38 — MethodMeta flags word (bit 0 = this-free body); baked
     /// into the elem's formerly-pad u32 at +12.
     pub flags: u32,
+    /// Blade 3 (RFC 20260804-method-rebind-generic-body) — the
+    /// `__cmany_` twin's boxed adapter `FuncId` index, `None` when
+    /// the method minted no twin (bakes a 0 twin_ptr slot).
+    pub twin_fn_id: Option<u32>,
 }
 
 /// W-J A3b — one per-field metadata row carried into the link layer.

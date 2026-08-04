@@ -264,6 +264,13 @@ pub struct MethodMetaSpec {
     /// this-undefined TypeError (ES §10.2.1.2 — a this-free body
     /// runs regardless of the thisArgument).
     pub this_free: bool,
+    /// RFC 20260804-method-rebind-generic-body blade 3 — the
+    /// receiver-polymorphic `__cmany_` twin's boxed adapter, when the
+    /// method minted one (this-reading body, no super call). The
+    /// reified face's receiver guard routes a foreign receiver here;
+    /// `None` bakes a 0 twin_ptr (guard fail keeps the mono path —
+    /// the recorded super-route residue).
+    pub twin_adapter_fid: Option<FuncId>,
 }
 
 #[derive(Debug, Clone)]

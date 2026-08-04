@@ -210,6 +210,16 @@ pub(crate) unsafe fn call_target(ptr: *mut c_void) -> Option<CallTarget> {
             let fam = crate::method_value::builtin_method_family(ptr);
             return Some(CallTarget::Builtin(target_mid, fam));
         }
+        // Blade 3 (RFC 20260804-method-rebind-generic-body) — a
+        // METHOD face routes through the Boxed lane so
+        // `invoke_with_this`'s receiver guard runs (the face cell in
+        // the env slot carries the class tag + twin; the entry is
+        // the recognizer sentinel it re-derives the adapter from).
+        // Accessor faces keep the direct ClassAdapter invoke — their
+        // re-bind guard is the recorded RFC follow-up.
+        if crate::method_value_class::class_method_face_adapter(ptr).is_some() {
+            return closure_cell_entry(ptr).map(|(env, entry)| CallTarget::Boxed(env, entry));
+        }
         if let Some(adapter) = crate::method_value_class::class_method_adapter(ptr) {
             return Some(CallTarget::ClassAdapter(adapter));
         }

@@ -93,7 +93,7 @@ fn collect_own_class_methods(
     ast: &crate::ast::Ast,
     fn_table: &HashMap<String, ssa::FuncId>,
     class_names: &[&String],
-) -> HashMap<String, Vec<(String, ssa::FuncId)>> {
+) -> HashMap<String, Vec<(String, ssa::FuncId, Option<ssa::FuncId>)>> {
     let mut accessor_slots: HashMap<&str, String> = HashMap::new();
     for ((_, prop), fname) in &ast.accessor_getters {
         accessor_slots.insert(fname.as_str(), format!("__getter_{prop}"));
@@ -101,11 +101,18 @@ fn collect_own_class_methods(
     for ((_, prop), fname) in &ast.accessor_setters {
         accessor_slots.insert(fname.as_str(), format!("__setter_{prop}"));
     }
-    let mut own: HashMap<String, Vec<(String, ssa::FuncId)>> = HashMap::new();
+    let mut own: HashMap<String, Vec<(String, ssa::FuncId, Option<ssa::FuncId>)>> = HashMap::new();
     for (fname, &fid) in fn_table {
         let Some(rest) = fname.strip_prefix("__cm_") else {
             continue;
         };
+        // A `__cmany_` twin body is itself in the fn_table but is
+        // never an own method row (explicit skip — a user class
+        // named `any_<X>` would otherwise collide via the shared
+        // `__cm` spelling).
+        if fname.starts_with("__cmany_") {
+            continue;
+        }
         // Longest class-name match wins (`__cm_A__b__c` with classes
         // `A` and `A__b` belongs to `A__b`).
         let mut best: Option<(&str, &str)> = None;
@@ -124,9 +131,15 @@ fn collect_own_class_methods(
             Some(slot) => slot.clone(),
             None => mname.to_string(),
         };
+        // Blade 3 — the receiver-polymorphic twin's body fid, when
+        // blade 2 minted one for this mono.
+        let twin_fid = ast
+            .cmany_twins
+            .get(fname.as_str())
+            .and_then(|twin_name| fn_table.get(twin_name.as_str()).copied());
         own.entry(cname.to_string())
             .or_default()
-            .push((entry_name, fid));
+            .push((entry_name, fid, twin_fid));
     }
     own
 }
@@ -232,7 +245,7 @@ fn fn_ignores_receiver(f: &ssa::Function) -> bool {
 /// honest no-such TypeError.
 fn resolve_class_methods(
     ast: &crate::ast::Ast,
-    own_methods: &HashMap<String, Vec<(String, ssa::FuncId)>>,
+    own_methods: &HashMap<String, Vec<(String, ssa::FuncId, Option<ssa::FuncId>)>>,
     boxed_entries: &HashMap<ssa::FuncId, (ssa::FuncId, ssa::SigId)>,
     this_free_fids: &std::collections::HashSet<ssa::FuncId>,
     cname: &str,
@@ -246,7 +259,7 @@ fn resolve_class_methods(
             break;
         }
         if let Some(methods) = own_methods.get(&name) {
-            for (mname, fid) in methods {
+            for (mname, fid, twin_fid) in methods {
                 if seen.contains(mname.as_str()) {
                     continue;
                 }
@@ -255,6 +268,8 @@ fn resolve_class_methods(
                         name: mname.clone(),
                         adapter_fid,
                         this_free: this_free_fids.contains(fid),
+                        twin_adapter_fid: twin_fid
+                            .and_then(|t| boxed_entries.get(&t).map(|&(a, _)| a)),
                     });
                 }
                 // Shadow even on adapter dropout — a child decl
@@ -335,7 +350,7 @@ pub(crate) fn populate_class_layouts(
     let this_free_fids: std::collections::HashSet<ssa::FuncId> = own_methods
         .values()
         .flatten()
-        .map(|(_, fid)| *fid)
+        .map(|(_, fid, _)| *fid)
         .filter(|fid| {
             let f = &module.funcs[fid.0 as usize];
             let Some(verdicts) = fn_dflt_verdicts.get(f.name.as_str()) else {

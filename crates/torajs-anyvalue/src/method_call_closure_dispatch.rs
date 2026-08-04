@@ -216,7 +216,24 @@ pub(crate) unsafe fn invoke_with_this(
         // method-face probe and keep their own not-callable path.
         if let Some(adapter) = crate::method_value_class::class_method_face_adapter(env) {
             if is_cell(this_arg) {
-                return invoke_boxed(as_void_ptr(this_arg), adapter, argv, argc);
+                // Blade 3 (RFC 20260804-method-rebind-generic-body)
+                // — the mono body reads the receiver at baked class
+                // offsets, sound only when the receiver really is
+                // this class. Guard on the instance's class tag
+                // (precise: a subclass fails too — its layout may
+                // extend); a foreign receiver routes to the
+                // receiver-polymorphic `__cmany_` twin, whose body
+                // reads members through the any lane. tag 0 disarms
+                // (runtime-define mint sites); twin 0 = no twin
+                // minted (this-free never guards here; super-route
+                // bodies are the recorded residue) — keep the mono
+                // path, today's behavior.
+                let recv = as_void_ptr(this_arg);
+                let (face_tag, twin) = crate::method_value_class::class_method_face_guard(env);
+                if face_tag != 0 && twin != 0 && !receiver_is_class(recv, face_tag) {
+                    return invoke_boxed_recv_first(env, twin, this_arg, argv, argc);
+                }
+                return invoke_boxed(recv, adapter, argv, argc);
             }
             // S2.38 — a compiler-proven receiver-free body runs a
             // bare / primitive-`this` call with a null receiver (ES
@@ -234,6 +251,21 @@ pub(crate) unsafe fn invoke_with_this(
             return invoke_boxed_recv_first(env, entry, this_arg, argv, argc);
         }
         invoke_boxed(env, entry, argv, argc)
+    }
+}
+
+/// Blade 3 — `true` when `recv` is a `Tag::Obj` instance whose
+/// baked `class_tag@+8` equals the face's owning class (mirror of
+/// torajs-core `ssa_lower::OBJ_CLASS_TAG_OFF`). Precise equality:
+/// a subclass instance answers `false` and takes the twin's
+/// any-lane reads (its layout may extend the parent's).
+///
+/// # Safety
+/// `recv` is a live heap cell pointer.
+unsafe fn receiver_is_class(recv: *mut c_void, face_tag: u64) -> bool {
+    unsafe {
+        (recv.cast::<u8>().add(4) as *const u16).read() == Tag::Obj as u16
+            && u64::from(recv.cast::<u8>().add(8).cast::<u32>().read()) == face_tag
     }
 }
 

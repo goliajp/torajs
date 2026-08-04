@@ -74,9 +74,10 @@ pub(super) const OUTER_METHOD_TABLE_PTR_OFFSET_IN_ENTRY: u32 = 24;
 /// `u32 _pad`), mirroring the FieldMeta header shape.
 pub(super) const INNER_METHOD_META_HEADER_SIZE: u32 = 8;
 /// 刀 4 — on-disk size of one MethodMeta entry:
-///   `ptr name (8)` + `u32 name_len (4)` + `u32 _pad (4)`
-///   + `ptr adapter (8)` = 24 bytes.
-pub(super) const INNER_METHOD_META_ELEM_SIZE: u32 = 24;
+///   `ptr name (8)` + `u32 name_len (4)` + `u32 flags (4)`
+///   + `ptr adapter (8)` + `ptr twin (8)` = 32 bytes (blade 3
+///   appended the `__cmany_` twin adapter slot; 0 = no twin).
+pub(super) const INNER_METHOD_META_ELEM_SIZE: u32 = 32;
 /// 刀 4 — alignment of the inner MethodMeta global.
 pub(super) const INNER_METHOD_META_ALIGN: u32 = 8;
 /// 刀 4 — byte offset of `name_ptr` inside one MethodMeta entry.
@@ -85,6 +86,9 @@ pub(super) const METHOD_META_NAME_PTR_OFFSET_IN_ELEM: u32 = 0;
 pub(super) const METHOD_META_NAME_LEN_OFFSET_IN_ELEM: u32 = 8;
 /// 刀 4 — byte offset of `adapter_ptr` inside one MethodMeta entry.
 pub(super) const METHOD_META_ADAPTER_PTR_OFFSET_IN_ELEM: u32 = 16;
+/// Blade 3 — byte offset of the `__cmany_` twin adapter ptr inside
+/// one MethodMeta entry (0-baked when the method has no twin).
+pub(super) const METHOD_META_TWIN_PTR_OFFSET_IN_ELEM: u32 = 24;
 
 /// W-J A3b — placement record for one per-field name byte string and
 /// its FieldMeta descriptor. Both live in the inner globals region; the
@@ -122,6 +126,9 @@ pub struct UserMethodMetaPlacement {
     /// The boxed adapter's fn id — indexes the link layer's
     /// `fn_vaddrs` slice at rebase-assembly time.
     pub adapter_fn_id: u32,
+    /// Blade 3 — the `__cmany_` twin's boxed adapter fn id; `None`
+    /// bakes a 0 twin_ptr and enumerates no rebase target for it.
+    pub twin_fn_id: Option<u32>,
     /// S2.38 — MethodMeta flags word (bit 0 = this-free body),
     /// written into the elem's `+12` u32 (formerly pad).
     pub flags: u32,

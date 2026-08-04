@@ -105,6 +105,7 @@ pub fn compute_user_class_layouts_layout(
                 name_vaddr,
                 name_file_offset,
                 adapter_fn_id: mm.adapter_fn_id,
+                twin_fn_id: mm.twin_fn_id,
                 flags: mm.flags,
             });
         }

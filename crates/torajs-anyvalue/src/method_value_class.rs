@@ -46,7 +46,14 @@ const CLOSURE_DROP_FN_OFF: usize = 16;
 const CLOSURE_PROPS_OFF: usize = 24;
 const CLOSURE_BOXED_ENTRY_OFF: usize = 32;
 const CLOSURE_CAP_BASE_OFF: usize = 48;
-const CELL_SIZE: usize = 56;
+/// Blade 3 (RFC 20260804-method-rebind-generic-body) — two extra
+/// method-face slots after the adapter: the owning class's tag (the
+/// receiver guard's expected value) and the `__cmany_` twin's boxed
+/// adapter (0 = no twin; guard fail keeps the mono path — the
+/// recorded super-route residue).
+const CLS_CELL_TAG_OFF: usize = 56;
+const CLS_CELL_TWIN_OFF: usize = 64;
+const CELL_SIZE: usize = 72;
 
 /// Boxed dual entry of every reified class-method cell — a bare call
 /// is the ES `this = undefined` TypeError. Also the recognizer
@@ -86,7 +93,12 @@ unsafe extern "C" fn class_native_entry() -> u64 {
 /// this-undefined TypeError (ES §10.2.1.2 — a this-free body runs
 /// regardless of the thisArgument).
 #[unsafe(no_mangle)]
-pub extern "C" fn __torajs_class_method_cell_new(adapter: u64, this_free: u64) -> *mut u8 {
+pub extern "C" fn __torajs_class_method_cell_new(
+    adapter: u64,
+    this_free: u64,
+    class_tag: u64,
+    twin: u64,
+) -> *mut u8 {
     // SAFETY: fresh CELL_SIZE allocation, fully initialized below.
     unsafe {
         let layout = core::alloc::Layout::from_size_align(CELL_SIZE, 8).unwrap();
@@ -104,7 +116,25 @@ pub extern "C" fn __torajs_class_method_cell_new(adapter: u64, this_free: u64) -
         *(cell.add(CLOSURE_PROPS_OFF) as *mut u64) = 0;
         *(cell.add(CLOSURE_BOXED_ENTRY_OFF) as *mut u64) = class_bare_entry as *const () as u64;
         *(cell.add(CLOSURE_CAP_BASE_OFF) as *mut u64) = adapter;
+        *(cell.add(CLS_CELL_TAG_OFF) as *mut u64) = class_tag;
+        *(cell.add(CLS_CELL_TWIN_OFF) as *mut u64) = twin;
         cell
+    }
+}
+
+/// Blade 3 — the face's receiver-guard pair `(class_tag, twin)`.
+/// Only meaningful for a cell [`class_method_face_adapter`] already
+/// recognized; a `class_tag` of 0 disarms the guard (runtime-define
+/// mint sites carry no tag).
+///
+/// # Safety
+/// `ptr` points at a live reified class-METHOD cell.
+pub(crate) unsafe fn class_method_face_guard(ptr: *mut c_void) -> (u64, u64) {
+    unsafe {
+        (
+            *(ptr.cast::<u8>().add(CLS_CELL_TAG_OFF) as *const u64),
+            *(ptr.cast::<u8>().add(CLS_CELL_TWIN_OFF) as *const u64),
+        )
     }
 }
 

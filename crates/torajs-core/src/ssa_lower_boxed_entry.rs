@@ -135,8 +135,23 @@ pub(crate) fn synthesize_boxed_entries(
         // through the class-methods table. Both are pointer-shaped
         // first params the adapter feeds its env argument into.
         let first_is_env = params.first().is_some_and(|p| p.name == "__env");
-        let first_is_this =
-            params.first().is_some_and(|p| p.name == "__this") && name.starts_with("__cm_");
+        let first_is_this = params.first().is_some_and(|p| p.name == "__this")
+            && name.starts_with("__cm_")
+            && !name.starts_with("__cmany_");
+        // Blade 3 (RFC 20260804-method-rebind-generic-body) — a
+        // `__cmany_` twin's `__this` is an ANY param, not a pointer:
+        // it must NOT ride the env channel (the env ptr's raw bits
+        // are not a nanbox). It maps as an ordinary user param
+        // instead — the guard-fail path calls the adapter recv-first
+        // (receiver prepended in argv[0], any→any pass-through). An
+        // argv-face twin (synthetic `__torajs_real_argc` head) would
+        // mis-map that slot, so it synthesizes nothing (twin stays 0
+        // in the face; recorded RFC residue).
+        let is_twin = params.first().is_some_and(|p| p.name == "__this")
+            && name.starts_with("__cmany_")
+            && !params
+                .iter()
+                .any(|p| p.name == "__torajs_real_argc" || p.name == "__torajs_argv");
         // RFC 20260717-class-first-class-value knife B cut 2 — static
         // method bodies (`__sm_<C>__<m>`) have NO env/this head param;
         // their adapter maps argv straight onto the user params and
@@ -148,7 +163,7 @@ pub(crate) fn synthesize_boxed_entries(
         // argv maps straight onto them. `__torajs_anyv_construct`
         // reaches a class object's factory through this adapter.
         let is_factory = constructs_from_value && name.starts_with("__new_");
-        if !first_is_env && !first_is_this && !is_static && !is_factory {
+        if !first_is_env && !first_is_this && !is_static && !is_factory && !is_twin {
             continue;
         }
         let feeds_env = first_is_env || first_is_this;

@@ -56,7 +56,15 @@ unsafe extern "C" {
     /// torajs-structmeta — the record's flags word (S2.38, bit 0 =
     /// this-free body).
     fn __torajs_struct_method_flags_at(layout: *const c_void, idx: u32) -> u32;
-    fn __torajs_class_method_cell_new(adapter: u64, this_free: u64) -> *mut u8;
+    /// torajs-structmeta — the record's `__cmany_` twin adapter
+    /// vaddr (blade 3; NULL = no twin minted).
+    fn __torajs_struct_method_twin_at(layout: *const c_void, idx: u32) -> *const c_void;
+    fn __torajs_class_method_cell_new(
+        adapter: u64,
+        this_free: u64,
+        class_tag: u64,
+        twin: u64,
+    ) -> *mut u8;
     fn __torajs_builtin_method_cell(mid: i64) -> *mut u8;
     /// torajs-anyvalue — reified class-accessor face (RFC
     /// 20260718-accessor-reify 刀 2; name transfers).
@@ -321,7 +329,13 @@ unsafe fn reify_prototype_methods(tag: i64, proto: *mut c_void) {
             // receiver-free body; the face runs bare calls with a
             // null receiver instead of the this-undefined TypeError.
             let this_free = u64::from(__torajs_struct_method_flags_at(layout, i) & 1);
-            let cell = __torajs_class_method_cell_new(adapter as u64, this_free);
+            // Blade 3 — the face carries its owning class tag + the
+            // `__cmany_` twin adapter so a re-bound receiver routes
+            // through the any-lane body instead of the mono's baked
+            // offsets (invoke_with_this's guard).
+            let twin = __torajs_struct_method_twin_at(layout, i);
+            let cell =
+                __torajs_class_method_cell_new(adapter as u64, this_free, tag as u64, twin as u64);
             let key = alloc_str_key(name);
             // The minted cell is FLAG_STATIC_LITERAL (rc no-op) — the
             // define's transferred stake is the entry's sole handle.

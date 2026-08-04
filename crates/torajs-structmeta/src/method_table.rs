@@ -4,8 +4,9 @@
 //!
 //! ```text
 //!   MethodMetaArrayHeader { u32 n_methods; u32 _pad }  // 8 bytes
-//!   MethodMeta[n_methods] { *name; u32 name_len;       // 24 bytes
-//!                           u32 _pad; *adapter }        //   each
+//!   MethodMeta[n_methods] { *name; u32 name_len;       // 32 bytes
+//!                           u32 flags; *adapter;        //   each
+//!                           *twin }
 //! ```
 //!
 //! Each `adapter` is the `__cm_<C>__<m>` body's boxed dual-entry fn
@@ -23,13 +24,15 @@ const OUTER_METHOD_TABLE_PTR_OFFSET: usize = 24;
 /// `INNER_METHOD_META_HEADER_SIZE` — `{ u32 n_methods, u32 _pad }`.
 const INNER_METHOD_META_HEADER_SIZE: usize = 8;
 /// `INNER_METHOD_META_ELEM_SIZE` — one [`MethodMeta`].
-const INNER_METHOD_META_ELEM_SIZE: usize = 24;
+const INNER_METHOD_META_ELEM_SIZE: usize = 32;
 /// `METHOD_META_NAME_PTR_OFFSET_IN_ELEM`.
 const METHOD_META_NAME_PTR_OFFSET: usize = 0;
 /// `METHOD_META_NAME_LEN_OFFSET_IN_ELEM`.
 const METHOD_META_NAME_LEN_OFFSET: usize = 8;
 /// `METHOD_META_ADAPTER_PTR_OFFSET_IN_ELEM`.
 const METHOD_META_ADAPTER_PTR_OFFSET: usize = 16;
+/// `METHOD_META_TWIN_PTR_OFFSET_IN_ELEM` (blade 3).
+const METHOD_META_TWIN_PTR_OFFSET: usize = 24;
 
 /// Header at the top of every non-empty `.__class_methods_<i>` inner
 /// global (mirrors the FieldMeta header shape).
@@ -41,8 +44,9 @@ struct MethodMetaArrayHeader {
 
 /// One method-metadata record.
 ///
-/// Layout: `{ *const u8 name; u32 name_len; u32 _pad;
-/// *const c_void adapter }` — 24 bytes, 8-aligned.
+/// Layout: `{ *const u8 name; u32 name_len; u32 flags;
+/// *const c_void adapter; *const c_void twin }` — 32 bytes,
+/// 8-aligned.
 #[repr(C)]
 pub struct MethodMeta {
     /// UTF-8 method-name bytes (no NUL terminator).
@@ -54,6 +58,11 @@ pub struct MethodMeta {
     pub flags: u32,
     /// The boxed adapter's vaddr (rebased at load time).
     pub adapter: *const core::ffi::c_void,
+    /// Blade 3 (RFC 20260804-method-rebind-generic-body) — the
+    /// receiver-polymorphic `__cmany_` twin's boxed adapter vaddr;
+    /// NULL when the method minted no twin (this-free body, or the
+    /// super-route residue).
+    pub twin: *const core::ffi::c_void,
 }
 
 /// S2.38 — MethodMeta flags bit 0: the `__cm_` body never reads its
@@ -71,6 +80,7 @@ const _: () = {
     assert!(offset_of!(MethodMeta, name_ptr) == METHOD_META_NAME_PTR_OFFSET);
     assert!(offset_of!(MethodMeta, name_len) == METHOD_META_NAME_LEN_OFFSET);
     assert!(offset_of!(MethodMeta, adapter) == METHOD_META_ADAPTER_PTR_OFFSET);
+    assert!(offset_of!(MethodMeta, twin) == METHOD_META_TWIN_PTR_OFFSET);
     assert!(size_of::<MethodMetaArrayHeader>() == INNER_METHOD_META_HEADER_SIZE);
 };
 
@@ -262,6 +272,27 @@ pub unsafe extern "C" fn __torajs_struct_method_at(
     m.adapter
 }
 
+/// The `idx`-th record's `__cmany_` twin adapter vaddr (blade 3) —
+/// NULL when the method minted no twin, for a NULL layout, or an
+/// out-of-range index.
+///
+/// # Safety
+/// `layout` as above.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_struct_method_twin_at(
+    layout: *const StructLayoutEntry,
+    idx: u32,
+) -> *const core::ffi::c_void {
+    if layout.is_null() {
+        return core::ptr::null();
+    }
+    // SAFETY: caller contract above.
+    match (unsafe { &*layout }).method(idx) {
+        Some(m) => m.twin,
+        None => core::ptr::null(),
+    }
+}
+
 /// The `idx`-th record's flags word (S2.38 — bit 0 =
 /// [`METHOD_FLAG_THIS_FREE`]); `0` for a NULL layout or an
 /// out-of-range index.
@@ -324,12 +355,14 @@ mod tests {
                     name_len: NAME_NEXT.len() as u32,
                     flags: 0,
                     adapter: ADAPTER_A,
+                    twin: core::ptr::null(),
                 },
                 MethodMeta {
                     name_ptr: NAME_ADD.as_ptr(),
                     name_len: NAME_ADD.len() as u32,
                     flags: 0,
                     adapter: ADAPTER_B,
+                    twin: core::ptr::null(),
                 },
             ],
         }
@@ -365,12 +398,14 @@ mod tests {
                     name_len: NAME_GETTER_B.len() as u32,
                     flags: 0,
                     adapter: ADAPTER_A,
+                    twin: core::ptr::null(),
                 },
                 MethodMeta {
                     name_ptr: NAME_SETTER_B.as_ptr(),
                     name_len: NAME_SETTER_B.len() as u32,
                     flags: 0,
                     adapter: ADAPTER_B,
+                    twin: core::ptr::null(),
                 },
             ],
         }

@@ -53,7 +53,9 @@ pub unsafe extern "C" fn __torajs_class_static_method_define(
         // still gates the flag on a lossless argument surface
         // (all-`Any` params, no caller-side defaults), so the emit
         // side decides and this define just carries the verdict.
-        let cell = __torajs_class_method_cell_new(adapter, this_free);
+        // tag 0 / twin 0 — a static method carries no receiver, so
+        // the blade-3 guard stays disarmed.
+        let cell = __torajs_class_method_cell_new(adapter, this_free, 0, 0);
         let mut slot = class_anyv as *mut c_void;
         __torajs_dynobj_define(
             &mut slot,
@@ -200,7 +202,9 @@ pub unsafe extern "C" fn __torajs_class_computed_method_define(
         return;
     }
     unsafe {
-        let cell = __torajs_class_method_cell_new(adapter, 0);
+        // tag 0 / twin 0 — this runtime-define mint site has no
+        // class-tag context; the blade-3 guard stays disarmed.
+        let cell = __torajs_class_method_cell_new(adapter, 0, 0, 0);
         let mut slot = target_anyv as *mut c_void;
         __torajs_dynobj_define(
             &mut slot,

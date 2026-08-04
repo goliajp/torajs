@@ -15,7 +15,7 @@ use super::types::{
     FIELD_META_NAME_PTR_OFFSET_IN_ELEM, FIELD_META_TYPE_TAG_OFFSET_IN_ELEM,
     INNER_FIELD_META_ELEM_SIZE, INNER_METHOD_META_ELEM_SIZE,
     METHOD_META_ADAPTER_PTR_OFFSET_IN_ELEM, METHOD_META_NAME_LEN_OFFSET_IN_ELEM,
-    UserClassLayoutsLayout,
+    METHOD_META_TWIN_PTR_OFFSET_IN_ELEM, UserClassLayoutsLayout,
 };
 
 pub fn build_user_class_layouts_payload(
@@ -92,7 +92,7 @@ pub fn build_user_class_layouts_payload(
             // Header: u32 n_methods + u32 _pad.
             buf.extend_from_slice(&(entry.methods.len() as u32).to_le_bytes());
             buf.extend_from_slice(&[0u8; 4]);
-            // Body: N x MethodMeta (24B each).
+            // Body: N x MethodMeta (32B each).
             for mm in &entry.methods {
                 let elem_start = buf.len();
                 // name_ptr u64 (chain-fixup link value).
@@ -112,6 +112,19 @@ pub fn build_user_class_layouts_payload(
                 // adapter_ptr u64 (chain-fixup link value → fn vaddr).
                 let lv = take_link_value(class_layouts_link_values, &mut link_idx);
                 buf.extend_from_slice(&lv.to_le_bytes());
+                debug_assert_eq!(
+                    buf.len() - elem_start,
+                    METHOD_META_TWIN_PTR_OFFSET_IN_ELEM as usize
+                );
+                // twin_ptr u64 — blade 3: a minted twin consumes a
+                // link value (lockstep with the sym.rs enumeration);
+                // no twin bakes a raw 0.
+                let twin_lv = if mm.twin_fn_id.is_some() {
+                    take_link_value(class_layouts_link_values, &mut link_idx)
+                } else {
+                    0
+                };
+                buf.extend_from_slice(&twin_lv.to_le_bytes());
                 debug_assert_eq!(buf.len() - elem_start, INNER_METHOD_META_ELEM_SIZE as usize);
             }
         }

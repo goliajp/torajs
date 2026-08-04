@@ -329,6 +329,7 @@ fn build_class_layout_entries(ssa_module: &Module) -> Vec<UserClassLayoutEntry> 
                     name: mm.name.clone(),
                     adapter_fn_id: mm.adapter_fid.0,
                     flags: u32::from(mm.this_free),
+                    twin_fn_id: mm.twin_adapter_fid.map(|f| f.0),
                 })
                 .collect(),
         })
