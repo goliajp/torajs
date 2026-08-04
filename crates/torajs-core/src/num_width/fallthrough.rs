@@ -7,9 +7,57 @@
 //! Split out of `mod.rs` when knife 4's arrow-binding alias pass pushed
 //! that file past the 500-line limit.
 
-use super::{Analysis, SlotKey};
+use super::{Analysis, Scope, SlotKey, walk};
 use crate::ast::{Ast, Expr, Stmt};
 use std::collections::HashSet;
+
+/// One top-level `FnDecl`: seed its param / return escape faces, put
+/// it on the fall-through table when it can answer `undefined`, then
+/// walk its body under its own scope.
+pub(super) fn seed_and_walk_fn(
+    a: &mut Analysis<'_>,
+    stmt: &Stmt,
+    undef_sentinel_params: &HashSet<(String, String)>,
+    fallthrough_fns: &mut HashSet<String>,
+) {
+    let Stmt::FnDecl {
+        name,
+        params,
+        body,
+        return_type,
+        ..
+    } = stmt
+    else {
+        return;
+    };
+    // W-ESC — any-annotated param / return faces are escape sinks
+    // (escape.rs).
+    for p in params {
+        if let Some(ann) = &p.type_ann {
+            let pk = SlotKey::Param(name.clone(), p.name.clone());
+            a.seed_any_face(&pk, ann);
+        }
+    }
+    if let Some(r) = return_type {
+        let rk = SlotKey::Ret(name.clone());
+        a.seed_any_face(&rk, r);
+        seed_fallthrough_return(a, rk, r, name, body, undef_sentinel_params, fallthrough_fns);
+    }
+    let scope = Scope {
+        fn_name: name,
+        params: params.iter().map(|p| p.name.clone()).collect(),
+        locals: {
+            let mut s = HashSet::new();
+            for b in body {
+                walk::collect_let_names(b, &mut s);
+            }
+            s
+        },
+    };
+    for b in body {
+        a.walk_stmt(b, &scope);
+    }
+}
 
 /// RFC 20260725-fallthrough-return knife 4 — an arrow function is
 /// lifted to a `__closure_N` FnDecl before this analysis runs, so it

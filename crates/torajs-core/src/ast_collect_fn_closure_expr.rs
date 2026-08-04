@@ -55,18 +55,19 @@ impl<'a> FnToClosureCollector<'a> {
         {
             self.try_mark(*value);
         }
-        // Chunk 733 — `fns[i] = top_fn` where `fns` was declared
-        // with a fn-typed array ann (Closure-repr element slot).
-        // (r293 probed widening this to every index-assign RHS —
-        // `Array.prototype[Symbol.iterator] = function*(){}` — but
-        // the wrapped cell trips a pre-existing Symbol-key
-        // index-assign codegen fault (materialize_operand_gpr on an
-        // Fpr slot, SIGABRT), a worse verdict than the loud FnSig
-        // reject. Widen only after that lane is fixed; L3b r293.)
-        if let Expr::Index { obj, .. } = self.ast.get_expr(*target)
-            && let Expr::Ident(oname) = self.ast.get_expr(*obj)
-            && self.fn_arr_bindings.contains(oname)
-        {
+        // Chunk 733 — `fns[i] = top_fn` (fn-typed array ann,
+        // Closure-repr element slot); widened to EVERY index-assign
+        // RHS in r295: a computed-key store on any receiver —
+        // `(Array.prototype as any)[Symbol.iterator] = gen` — rides
+        // the keyed set lane, whose value slot boxes into the any
+        // world, which a raw FnSig can't. (r293's probe of this
+        // widening hit a poison-split codegen fault — the container
+        // poison reached field layouts but not their scalar
+        // dependents, bit-punning an F64 load into a GPR consumer;
+        // fixed in num_width::analyze. No generator-family skip:
+        // since r292 the forward cell carries the G2 generator
+        // reflection faces.)
+        if let Expr::Index { .. } = self.ast.get_expr(*target) {
             self.try_mark(*value);
         }
         // Chunk 783 — `o.cb = top_fn` where `o` was declared
