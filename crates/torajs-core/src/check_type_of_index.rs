@@ -30,15 +30,13 @@ pub(crate) fn check(
     // the shape first. (The literal-key lane below re-enters the member
     // checker with the receiver EXPR, which sees the name again and
     // keeps accessor / method lookup nominal.)
-    let obj_ty = {
-        let t = checker.type_of(ast, obj)?;
-        crate::check::resolve_class_ref(
-            &t,
-            &checker.class_structs,
-            &checker.aliases,
-            &checker.generic_alias_decls,
-        )
-    };
+    let raw_obj_ty = checker.type_of(ast, obj)?;
+    let obj_ty = crate::check::resolve_class_ref(
+        &raw_obj_ty,
+        &checker.class_structs,
+        &checker.aliases,
+        &checker.generic_alias_decls,
+    );
     // Chunk 745 — struct receiver + compile-time literal index:
     // `g[0]` ≡ `g."0"` per ES ToPropertyKey (§7.1.19). Numeric keys
     // in object literals are stored under their integer spelling
@@ -112,7 +110,26 @@ pub(crate) fn check(
         Type::Array(_) if matches!(idx_ty, Type::String | Type::Symbol | Type::Any) => {
             Ok(Type::Any)
         }
-        Type::Array(elem) => Ok(*elem),
+        // An element read must answer with the element's own type,
+        // CLASS AND ALL. Resolving above is about the RECEIVER — a
+        // class instance indexes through its struct shape — but
+        // `resolve_class_ref` recurses into the element type as well,
+        // so `bs[0]` on an `Array(ClassRef("Box"))` came back as the
+        // anonymous struct. Reading it straight through still worked
+        // (the call checker recovers the class from the receiver
+        // expression), but BINDING it did not: `const first = bs[0]`
+        // recorded the nameless struct, and every method call on
+        // `first` then failed to compile — "no member `.get` on type
+        // Struct([(\"v\", Number)])" on a program every engine runs.
+        // The mirror of the same question one level out (an element
+        // of a `Promise<T>[]` is as much a promise as a binding is).
+        Type::Array(_) => match &raw_obj_ty {
+            Type::Array(raw_elem) => Ok((**raw_elem).clone()),
+            _ => match obj_ty {
+                Type::Array(elem) => Ok(*elem),
+                _ => unreachable!("matched Array above"),
+            },
+        },
         // Chunk 753 — struct receiver + dynamic index (the literal
         // form resolved through the member checker above): runtime
         // property lookup over the struct's layout table via the
