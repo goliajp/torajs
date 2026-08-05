@@ -88,12 +88,52 @@ pub(crate) struct LiftCtx<'a> {
 /// `New` is: the shared sniff has no notion of the hoisted spelling,
 /// and teaching it one reaches all of its callers.
 fn gen_method_call_ann(ast: &Ast, callee: super::ExprId, ctx: &LiftCtx) -> Option<String> {
-    let Expr::Member { obj, name } = ast.get_expr(callee) else {
-        return None;
-    };
-    let recv = super::infer_expr_ann_with(&ast.exprs, *obj, ctx.params, &ctx.binds, ctx.fn_sigs)?;
-    let hoisted = format!("{}{recv}__{name}", super::GEN_METHOD_PREFIX);
-    ctx.fn_sigs.get(&hoisted).cloned()
+    match ast.get_expr(callee) {
+        Expr::Member { obj, name } => {
+            let recv =
+                super::infer_expr_ann_with(&ast.exprs, *obj, ctx.params, &ctx.binds, ctx.fn_sigs)?;
+            let hoisted = format!("{}{recv}__{name}", super::GEN_METHOD_PREFIX);
+            ctx.fn_sigs.get(&hoisted).cloned()
+        }
+        // Calling a local that holds a closure. The shared sniff reads
+        // `fn_sigs`, which is keyed on top-level function names, so a
+        // local was not in it and `const add3 = add(3)` fell to
+        // `number` — then `add3(4)` said "not callable: type Number".
+        // The local's own field annotation is fn-shaped and says what
+        // the call answers.
+        Expr::Ident(n) => ctx
+            .binds
+            .get(n)
+            .or_else(|| ctx.params.iter().find(|p| p.name == *n)?.type_ann.as_ref())
+            .and_then(|ann| fn_ann_return(ann))
+            .map(str::to_string),
+        _ => None,
+    }
+}
+
+/// The `R` of a `__cls(P|..)->R` / `__fn(P|..)->R` annotation.
+///
+/// Depth-aware, because a parameter can itself be fn-shaped —
+/// `__cls(__fn(number)->number)->any` closes its own paren before the
+/// one that matters.
+fn fn_ann_return(ann: &str) -> Option<&str> {
+    let rest = ann
+        .strip_prefix("__cls(")
+        .or_else(|| ann.strip_prefix("__fn("))?;
+    let mut depth = 1usize;
+    for (i, c) in rest.char_indices() {
+        match c {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    return rest[i + 1..].strip_prefix("->");
+                }
+            }
+            _ => {}
+        }
+    }
+    None
 }
 
 fn direct_field_ann(ast: &Ast, init: super::ExprId, ctx: &LiftCtx) -> Option<String> {
@@ -121,7 +161,16 @@ fn direct_field_ann(ast: &Ast, init: super::ExprId, ctx: &LiftCtx) -> Option<Str
         // sniff has no entry for either — it bailed, and the field
         // fell back to `number` while the closure itself came out
         // `Function([Number], Number)`.
-        None => super::infer_return_ann_seeded(&ast.exprs, body, params, &ctx.binds, ctx.fn_sigs)?,
+        // `any` when the seeded sniff cannot read the body either —
+        // the honest answer for a return nothing here can see, and the
+        // one an explicit annotation proves works. Declining instead
+        // handed the field back to the `number` fallback, which is a
+        // claim about the return, not an absence of one: `const add =
+        // (n: number) => (m: number) => n + m` (the sniff has no arm
+        // for an arrow in return position) came out `number` and every
+        // later `add(3)` said "not callable: type Number".
+        None => super::infer_return_ann_seeded(&ast.exprs, body, params, &ctx.binds, ctx.fn_sigs)
+            .unwrap_or_else(|| "any".into()),
     };
     Some(format!("__cls({})->{}", param_anns.join("|"), ret))
 }
