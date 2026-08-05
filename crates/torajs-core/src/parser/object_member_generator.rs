@@ -22,10 +22,14 @@
 //! `Generator<T>` / `IterableIterator<T>` / `Iterator<T>` collapse to
 //! the yield type `T` that the desugar consumes.
 //!
-//! `*[computed]() {}` is deliberately not matched — computed keys ride
-//! their own path (`object_literal_computed.rs`), and pairing the two
-//! is a separate item. Falling through with `Ok(None)` leaves that
-//! shape's existing diagnostic intact rather than half-claiming it.
+//! `*[computed]() {}` is matched here too, which is the one place it
+//! can be: the computed-property arm (`object_literal_computed.rs`)
+//! dispatches on a leading `[`, and by the time a `[` is current the
+//! `*` has already been refused. So neither arm could claim the pair
+//! and `{ *[Symbol.iterator]() {} }` — the ordinary way to write an
+//! iterable — reached neither. The key is read here and handed the
+//! same `__computed_N__` sentinel + `objlit_computed_keys` entry that
+//! arm mints, so everything downstream sees one shape, not two.
 
 use super::Parser;
 use super::type_ann_helpers::unwrap_generator_return_ann;
@@ -64,18 +68,59 @@ impl<'a> Parser<'a> {
         let Some(t1) = self.tokens.get(self.pos + star_off + 1) else {
             return Ok(None);
         };
-        let Token::Ident(name) = &t1.token else {
-            return Ok(None);
+        // `{ *[Symbol.iterator]() {} }` — a computed key on a generator
+        // method. Both key shapes are claimed here rather than next
+        // door, because the `*` has to be consumed before the key can
+        // be read and the computed-property arm only ever sees a
+        // leading `[`. Neither arm could take this alone, which is why
+        // it used to reach neither.
+        let (method_name, computed_key) = if matches!(t1.token, Token::LBracket) {
+            // Consume the optional `async`, the `*`, and the `[`. From
+            // here the shape is unambiguous — nothing else in an object
+            // literal starts `*[` — so a malformed remainder is an
+            // error rather than a decline, which would rewind into a
+            // caller that has no path for it either.
+            self.pos += star_off + 2;
+            let key_expr = self.parse_assign()?;
+            match self.peek() {
+                Token::RBracket => self.pos += 1,
+                t => {
+                    return Err(format!(
+                        "expected `]` after computed generator-method key, got {t:?} at {}",
+                        self.at()
+                    ));
+                }
+            }
+            if !matches!(self.peek(), Token::LParen) {
+                return Err(format!(
+                    "expected `(` after computed generator-method key, got {:?} at {}",
+                    self.peek(),
+                    self.at()
+                ));
+            }
+            // The same `__computed_N__` sentinel + `objlit_computed_keys`
+            // side table the ordinary computed-property arm mints, at
+            // the same point in the parse (after the key, before the
+            // body) so the numbering agrees with it.
+            (
+                format!("__computed_{}__", self.ast.objlit_computed_keys.len()),
+                Some(key_expr),
+            )
+        } else {
+            let Token::Ident(name) = &t1.token else {
+                return Ok(None);
+            };
+            let method_name = name.clone();
+            let Some(t2) = self.tokens.get(self.pos + star_off + 2) else {
+                return Ok(None);
+            };
+            if !matches!(t2.token, Token::LParen) {
+                return Ok(None);
+            }
+            // Consume the optional `async`, the `*`, and the method name.
+            self.pos += star_off + 2;
+            (method_name, None)
         };
-        let method_name = name.clone();
-        let Some(t2) = self.tokens.get(self.pos + star_off + 2) else {
-            return Ok(None);
-        };
-        if !matches!(t2.token, Token::LParen) {
-            return Ok(None);
-        }
-        // Consume the optional `async`, the `*`, and the method name.
-        self.pos += star_off + 2;
 
         let (mut params, destr_lets) = self.parse_param_list()?;
         self.infer_default_param_anns(&mut params);
@@ -218,6 +263,9 @@ impl<'a> Parser<'a> {
         });
 
         let value = self.ast.add_expr(Expr::Ident(synth_name));
+        if let Some(key_expr) = computed_key {
+            self.ast.objlit_computed_keys.insert(value, key_expr);
+        }
         Ok(Some((method_name, value)))
     }
 }
