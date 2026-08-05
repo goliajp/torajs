@@ -78,6 +78,32 @@ pub(crate) fn try_lower_global_let(ctx: &mut LowerCtx, name: &str, init: ExprId)
     // block (the global slot takes the fresh cell's only stake, so
     // the borrow-inc below is skipped for converted inits).
     let (init_val, converted) = maybe_arr_any_to_typed(ctx, slot_ty, init, init_val);
+    // RFC 20260710 C1, at the GLOBAL position — `undefined` into a
+    // sentinel-capable slot binds that width's immortal cell. Without
+    // it the init is an `Expr::Ident`, which the borrow gate below
+    // reads as an alias of another binding and refuses for a type
+    // mismatch (`const a: string | undefined = undefined` was a K.4
+    // "init shape is not yet supported"); the same declaration
+    // spelled `let` has worked since this rotation's second blade,
+    // and the two should not disagree about one line of source.
+    //
+    // `converted` is the existing channel for "ownership is already
+    // settled, skip the borrow gate", and a sentinel qualifies for a
+    // reason the other two users do not share: the cell is immortal
+    // (FLAG_STATIC_LITERAL — rc and drop are no-ops), so there is no
+    // stake to settle. Answers None for Any, which boxes to
+    // ANY_UNDEF through the arm below instead.
+    let (init_val, converted) = if !converted
+        && matches!(
+            ctx.expr_types.get(&init),
+            Some(crate::check::Type::Undefined)
+        )
+        && let Some(sentinel) = ctx.str_undef_sentinel_for(slot_ty)
+    {
+        (sentinel, true)
+    } else {
+        (init_val, converted)
+    };
     // Chunk 809 — an Any slot boxes a concrete init value: a
     // borrowed source rc_incs first (`box_to_any` TRANSFERS the
     // stake into the box), so the fresh box is the slot's own ref
