@@ -25,7 +25,17 @@ pub(crate) fn matches(param_ty: &Type, arg_ty: &Type) -> bool {
         // does not take that away. Requiring the actual to be `Any`
         // itself left `function a(x?: any) {}` rejecting `a(1)`, which
         // is the one call an `any` parameter cannot refuse.
-        inner.as_ref() == &Type::Any || arg_ty == &Type::Null || arg_ty == inner.as_ref()
+        //
+        // `Undefined` is admitted for the reason stated at the top of
+        // this file: the shape being modelled IS `T | undefined`. It
+        // was missing while the implicit default for an omitted typed
+        // optional was a literal `null`, so nothing ever handed this
+        // predicate an `Undefined` — the gap and the workaround kept
+        // each other alive.
+        inner.as_ref() == &Type::Any
+            || arg_ty == &Type::Null
+            || arg_ty == &Type::Undefined
+            || arg_ty == inner.as_ref()
     } else {
         false
     }

@@ -99,6 +99,21 @@ pub(crate) fn emit_arg_conv(
     op: Operand,
     owned: &mut Vec<(Operand, Type)>,
 ) -> Operand {
+    // RFC 20260710 C1, at the ARGUMENT position — an `undefined`
+    // actual for a sentinel-capable formal must arrive as that width's
+    // undefined cell, not as the NULL its literal lowers to. The field
+    // position has always done this; a call had no such step, so
+    // `f(undefined)` on `f(x: string | undefined)` bound null and every
+    // `x === undefined` test inside answered false. `str_undef_sentinel_for`
+    // answers None for Any (which boxes to ANY_UNDEF on its own) and
+    // for the scalar widths, so those lanes are untouched.
+    if matches!(
+        ctx.expr_types.get(&arg),
+        Some(crate::check::Type::Undefined)
+    ) && let Some(sentinel) = ctx.str_undef_sentinel_for(expected)
+    {
+        return sentinel;
+    }
     let actual = ctx.operand_ty(&op);
     match arg_conv(expected, actual) {
         ArgConv::None => op,

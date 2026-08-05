@@ -388,7 +388,16 @@ fn seed_undef_sentinel_params(ctx: &mut LowerCtx<'_>, name: &str, params: &[ast:
     // told. `ts(ss[7])` answered "string" and `td(ds[7])` "object"
     // for want of these three lines.
     for p in params {
-        if !ctx.num_f64_slots.param_takes_undef_sentinel(name, &p.name) {
+        // A WRITTEN `T | null` / `T | undefined` says the same thing
+        // the call-site collector infers, and says it directly — the
+        // annotation is the one piece of evidence neither this gate
+        // nor the let-decl twin was reading. Without it `typeof s` on
+        // `function k(s: string | null)` answered "string" for a null.
+        let annotated_nullable = p
+            .type_ann
+            .as_deref()
+            .is_some_and(|a| a.starts_with("__nullable("));
+        if !annotated_nullable && !ctx.num_f64_slots.param_takes_undef_sentinel(name, &p.name) {
             continue;
         }
         let slot_ty = ctx.locals.get(&p.name).map(|l| l.ty);

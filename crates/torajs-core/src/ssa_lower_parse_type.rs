@@ -23,6 +23,24 @@ use crate::ssa_lower::intern_arr_layout;
 /// is unchanged. A `__nullable(<alias>)` whose alias RESOLVES to a
 /// scalar is not covered yet (keeps the pre-RFC in-band collapse);
 /// every other spelling delegates verbatim.
+/// Does `__nullable(<inner>)` materialize as `Type::Any` rather than
+/// as the pointer-shaped in-band collapse?
+///
+/// A scalar `T | null` has nowhere to PUT the null — the in-band 0
+/// sentinel is a legitimate `0` / `false` — so it pays the 8B NaN-box
+/// tax instead (RFC 20260710-optional-undefined-repr C4). A
+/// pointer-shaped T genuinely has the bit pattern to spare and stays
+/// raw. An alias RESOLVING to a scalar is not covered (it keeps the
+/// pre-RFC collapse), the same gap the field arm has.
+///
+/// Every position that has to spell "the absent value" for such a slot
+/// asks HERE rather than restating the list — the parser's implicit
+/// optional-parameter default is the second caller, and two spellings
+/// of one rule is how the answers drift apart.
+pub(crate) fn nullable_inner_boxes(inner: &str) -> bool {
+    matches!(inner, "number" | "boolean")
+}
+
 pub(crate) fn parse_struct_field_type(
     ann: &str,
     aliases: &HashMap<String, Type>,
@@ -34,7 +52,7 @@ pub(crate) fn parse_struct_field_type(
 ) -> Type {
     if let Some(rest) = ann.strip_prefix("__nullable(")
         && let Some(inner) = rest.strip_suffix(')')
-        && matches!(inner, "number" | "boolean")
+        && nullable_inner_boxes(inner)
     {
         return Type::Any;
     }
@@ -74,7 +92,7 @@ pub(crate) fn parse_type(
     // positions, which this shares with it verbatim.
     if let Some(rest) = s.strip_prefix("__nullable(")
         && let Some(inner) = rest.strip_suffix(')')
-        && matches!(inner, "number" | "boolean")
+        && nullable_inner_boxes(inner)
     {
         return Type::Any;
     }

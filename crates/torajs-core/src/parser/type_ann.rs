@@ -181,19 +181,7 @@ impl<'a> Parser<'a> {
                 self.pos += 2;
                 name.push_str("[]");
             }
-            if matches!(self.peek(), Token::Pipe) {
-                self.pos += 1;
-                if matches!(self.peek(), Token::Null) {
-                    self.pos += 1;
-                    name = format!("__nullable({name})");
-                } else {
-                    return Err(format!(
-                        "only `T | null` unions are supported (no other unions yet); got {:?} at {}",
-                        self.peek(),
-                        self.at()
-                    ));
-                }
-            }
+            name = self.consume_nullish_union_suffix(name)?;
             return Ok(name);
         }
         // V3-18 wedge — string-literal type-ann (`type Mode =
@@ -365,22 +353,40 @@ impl<'a> Parser<'a> {
             }
             name.push_str("[]");
         }
-        // Trailing `| null` → wrap in a `__nullable(T)` marker. Parser
-        // doesn't try to be a full TS union solver — only the
-        // single-side-null case is supported in this subset.
-        if matches!(self.peek(), Token::Pipe) {
-            self.pos += 1;
-            if matches!(self.peek(), Token::Null) {
-                self.pos += 1;
-                name = format!("__nullable({name})");
-            } else {
-                return Err(format!(
-                    "only `T | null` unions are supported (no other unions yet); got {:?} at {}",
-                    self.peek(),
-                    self.at()
-                ));
-            }
-        }
+        name = self.consume_nullish_union_suffix(name)?;
         Ok(name)
+    }
+
+    /// A trailing `| null` or `| undefined` wraps the type in the
+    /// `__nullable(T)` marker; anything else is still rejected. The
+    /// parser does not try to be a full TS union solver.
+    ///
+    /// Both nullish spellings land on the SAME marker, which is what
+    /// the optional shape `T?` has always desugared to — §9.2 widens
+    /// an optional to `T | undefined`, so admitting only `| null` left
+    /// the shorthand working and the longhand a parse error. The two
+    /// VALUES stay distinct where it counts: at runtime a scalar slot
+    /// is Any and holds ANY_NULL or ANY_UNDEF, a pointer-shaped one
+    /// holds NULL or its per-type undefined sentinel. It is the
+    /// checker that folds them, and it folds `T?` the same way.
+    fn consume_nullish_union_suffix(&mut self, name: String) -> Result<String, String> {
+        if !matches!(self.peek(), Token::Pipe) {
+            return Ok(name);
+        }
+        self.pos += 1;
+        let nullish = match self.peek() {
+            Token::Null => true,
+            Token::Ident(s) => s == "undefined",
+            _ => false,
+        };
+        if !nullish {
+            return Err(format!(
+                "only `T | null` and `T | undefined` unions are supported (no other unions yet); got {:?} at {}",
+                self.peek(),
+                self.at()
+            ));
+        }
+        self.pos += 1;
+        Ok(format!("__nullable({name})"))
     }
 }

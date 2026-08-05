@@ -111,6 +111,35 @@ pub(crate) fn record_binding_flags(
     if crate::ssa_lower_nullable_guard::is_nullable_str_source(ctx, init) {
         ctx.nullable_str_lets.insert(name.to_string());
     }
+    // A WRITTEN `T | null` / `T | undefined` says the same thing the
+    // init-shape probes above infer, and says it directly. Every
+    // registry here reads the INIT; the annotation — the one piece of
+    // evidence the programmer stated outright — went unread, so
+    // `const a: string | undefined = undefined` answered
+    // `typeof a === "string"`. Which set follows the slot width, the
+    // same split the parameter twin makes.
+    if type_ann.is_some_and(|a| a.starts_with("__nullable(")) {
+        match crate::ssa_lower_parse_type::parse_type(
+            type_ann.map(|s| s.as_str()),
+            &ctx.aliases,
+            &mut ctx.arr_layouts,
+            &mut ctx.fn_sigs,
+            ctx.generic_struct_decls,
+            &mut ctx.struct_layouts,
+            &mut ctx.inst_memo,
+        ) {
+            Type::Str => {
+                ctx.nullable_str_lets.insert(name.to_string());
+            }
+            Type::Substr => {
+                ctx.undefable_substr_lets.insert(name.to_string());
+            }
+            t if t.spells_undef_with_generic_cell() => {
+                ctx.undefable_heap_lets.insert(name.to_string());
+            }
+            _ => {}
+        }
+    }
     // RFC 20260708-typed-arr-oob-read chunk 2 — record `number[]`
     // index-read let-inits (`const x = a[i]`) so typeof / strict-eq
     // / nullish / print / box consumers treat the binding as

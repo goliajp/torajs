@@ -435,6 +435,21 @@ fn lower_let_init_val(ctx: &mut LowerCtx, ty: Type, init: ExprId) -> Operand {
         let _ = ctx.lower_expr(init);
         return Operand::ConstPtrNull;
     }
+    // RFC 20260710 C1, at the LET-INIT position — a plain
+    // `= undefined` for a sentinel-capable slot binds that width's
+    // undefined cell rather than the NULL its literal lowers to. The
+    // struct-FIELD position has always done this; `const a: string |
+    // undefined = undefined` did not, so it bound null and answered
+    // `typeof a === "string"`, `a === undefined` false. None for Any
+    // (which boxes to ANY_UNDEF on its own), for the scalar widths,
+    // and for the un-annotated Void sentinel — those lanes unchanged.
+    if matches!(
+        ctx.expr_types.get(&init),
+        Some(crate::check::Type::Undefined)
+    ) && let Some(sentinel) = ctx.str_undef_sentinel_for(ty)
+    {
+        return sentinel;
+    }
     if let Expr::Array(els) = ctx.ast.get_expr(init)
         && els.is_empty()
         // An `any`-annotated `[]` falls through to the any-literal
