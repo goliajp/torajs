@@ -106,6 +106,19 @@ fn awaited_promise_inner<'c>(ctx: &'c LowerCtx<'_>, eid: ExprId) -> Option<&'c c
 /// binding recorded in `ctx.nullable_str_lets` (let-init of that
 /// shape, alias-propagated).
 pub(crate) fn is_nullable_str_source(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
+    // A read the CHECKER already typed `Nullable(String)` is one by
+    // definition, whatever its syntax — the probes below each infer
+    // the same fact from one shape (a let's init, a param's
+    // annotation, an element load), and a class field read matched
+    // none of them, so `typeof k.p` on `p?: string` answered
+    // "string" for an undefined. Asking the type covers every
+    // position at once, including the ones no probe was written for.
+    if matches!(
+        ctx.expr_types.get(&eid),
+        Some(crate::check::Type::Nullable(inner)) if **inner == crate::check::Type::String
+    ) {
+        return true;
+    }
     if callee_falls_through(ctx, eid) {
         return true;
     }

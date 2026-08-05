@@ -59,6 +59,7 @@ mod parse_class_decl;
 mod parse_class_decl_computed_field;
 mod parse_class_decl_generator;
 mod parse_class_decl_header;
+mod class_field_inits;
 mod parse_class_decl_member;
 mod parse_class_member_field;
 mod parse_class_member_method;

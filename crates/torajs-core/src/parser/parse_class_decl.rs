@@ -184,6 +184,26 @@ impl<'a> Parser<'a> {
                         continue;
                     }
                 }
+                // §9.2 optional field — `p?: T`, `p?`, `p? = init`.
+                // The `?` shifts every downstream cursor by one, which
+                // is the whole of what `optional` carries; the type it
+                // implies (`T | undefined`) is applied where the
+                // annotation is read.
+                Some(Token::Question) => {
+                    self.parse_class_member_field_dispatch(
+                        &name,
+                        member_name,
+                        consumed_computed_name,
+                        true,
+                        explicit_visibility,
+                        is_readonly,
+                        is_abstract_method,
+                        is_static,
+                        &mut fields,
+                        &mut static_init,
+                        &mut field_inits,
+                    )?;
+                }
                 Some(Token::Colon) | Some(Token::Eq) | Some(Token::Semi) | Some(Token::RBrace) => {
                     // Field declaration — typed (`:`), initialized
                     // (`=`), or bare (`;` / trailing `}`). One
@@ -193,6 +213,7 @@ impl<'a> Parser<'a> {
                         &name,
                         member_name,
                         consumed_computed_name,
+                        false,
                         explicit_visibility,
                         is_readonly,
                         is_abstract_method,
@@ -216,6 +237,7 @@ impl<'a> Parser<'a> {
                             &name,
                             member_name,
                             consumed_computed_name,
+                            false,
                             explicit_visibility,
                             is_readonly,
                             is_abstract_method,

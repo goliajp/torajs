@@ -22,6 +22,7 @@ impl<'a> Parser<'a> {
         name: &str,
         member_name: String,
         consumed_computed_name: bool,
+        optional: bool,
         explicit_visibility: Option<ast::Visibility>,
         is_readonly: bool,
         is_abstract_method: bool,
@@ -42,9 +43,22 @@ impl<'a> Parser<'a> {
         if consumed_computed_name {
             self.pos += 1; // consume colon only
         } else {
-            self.pos += 2; // consume name + colon
+            // name + colon, plus the `?` of an optional field between
+            // them. Every advance here is measured from the same
+            // lookahead the member loop matched on, so a token added
+            // in the middle has to be counted in both places or the
+            // cursor lands on the type and reads it as a member.
+            self.pos += 2 + usize::from(optional);
         }
         let ty = self.parse_type_ann()?;
+        // §9.2 — `p?: T` IS `p: T | undefined`, which is the same
+        // marker the parameter position wraps. Written-out
+        // `T | undefined` already arrives wrapped, hence the guard.
+        let ty = if optional && !ty.starts_with("__nullable(") {
+            format!("__nullable({ty})")
+        } else {
+            ty
+        };
         let visibility = explicit_visibility.unwrap_or(ast::Visibility::Public);
         if visibility != ast::Visibility::Public {
             self.ast
@@ -82,6 +96,16 @@ impl<'a> Parser<'a> {
             let init = if matches!(self.peek(), Token::Eq) {
                 self.pos += 1;
                 Some(self.parse_assign()?)
+            } else if optional {
+                // §9.2 — an optional field with no initializer holds
+                // `undefined`, and saying so explicitly is what gets
+                // it there: an absent initializer leaves the slot on
+                // its type's zero, which for the pointer-shaped
+                // `__nullable(T)` is NULL, i.e. `null`. The bare
+                // `p?;` arm below has always synthesized this; the
+                // typed spelling has to as well or the two disagree
+                // about the same declaration.
+                Some(self.ast.add_expr(Expr::Ident("undefined".into())))
             } else {
                 None
             };
@@ -109,6 +133,7 @@ impl<'a> Parser<'a> {
         name: &str,
         member_name: String,
         consumed_computed_name: bool,
+        optional: bool,
         explicit_visibility: Option<ast::Visibility>,
         is_readonly: bool,
         is_abstract_method: bool,
@@ -124,7 +149,8 @@ impl<'a> Parser<'a> {
             ));
         }
         if !consumed_computed_name {
-            self.pos += 1; // consume the member name; cursor on `;` / `}`
+            // the member name, plus the `?` of `p?;`
+            self.pos += 1 + usize::from(optional);
         }
         if matches!(self.peek(), Token::Semi) {
             self.pos += 1;
