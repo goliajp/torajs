@@ -105,16 +105,56 @@ fn lower_with_resolvers(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
 /// `widen_promise_inner_ty` is verbatim what `await` runs on this same
 /// ExprId in `ssa_lower_member_promise_value`, width table included.
 ///
-/// `0` = no lane could be named, which leaves the kernel on the
-/// behaviour it had before this word existed.
+/// A `T | null` element names the ANY lane instead. A raw slot cannot
+/// carry the difference between "null" and "the value": a Str-formed
+/// array reads a NULL slot back as undefined, and a `number | null`
+/// one reads it as `0`, both silently. Nor can the static word settle
+/// it — `Type::Ptr` folds null and undefined together, so mapping it
+/// to either one would turn the other into it.
+///
+/// Naming ANY hands the question to the runtime, which never had to
+/// guess: the boxed lane boxes each element off THAT promise's own
+/// stamp, and `Promise.resolve(null)` stamps REPR_NULL while
+/// `Promise.resolve(undefined)` stamps REPR_VOID. The conflation only
+/// exists in the collapsed static type; per element the two were
+/// always distinct. The checker types a bare `null` element
+/// `Nullable(String)` (`check::promise_static`), so the all-null
+/// array — which used to leave the result UNSTAMPED and throw at
+/// attach — arrives here as the same shape.
+///
+/// An element form with no raw-slot shape at all takes the same road,
+/// for the same reason rather than a weaker one: "no raw lane" is
+/// precisely the condition the tagged lane exists to serve. An
+/// all-`undefined` input reached here as `Type::Ptr`, answered `None`,
+/// and left the result UNSTAMPED — which the any-param handler then
+/// refused, loudly, on an array it could have described perfectly
+/// well. `0` survives only where the result is not an array at all.
 fn all_result_elem_repr(ctx: &mut LowerCtx<'_>, eid: ExprId) -> i64 {
+    if elem_is_nullable(ctx, eid) {
+        return crate::ssa_lower_promise_repr_mark::REPR_ANY;
+    }
     let inner = crate::ssa_lower_member_promise_value::recover_inner_ssa_ty(ctx, eid);
     let Some(Type::Arr(aid)) = ctx.widen_promise_inner_ty(inner, eid) else {
         return 0;
     };
     let elem = ctx.arr_layouts[aid.0 as usize];
     let as_f64 = matches!(elem, Type::F64);
-    crate::ssa_lower_promise_repr_mark::promise_value_repr(&elem, as_f64, false).unwrap_or(0)
+    crate::ssa_lower_promise_repr_mark::promise_value_repr(&elem, as_f64, false)
+        .unwrap_or(crate::ssa_lower_promise_repr_mark::REPR_ANY)
+}
+
+/// Whether the checker settled this `Promise.all`'s result element on
+/// a nullable type. Read off the same per-expression side table
+/// `allsettled_record_tags` uses — the SSA element word is where the
+/// nullability is lost, so it has to be asked before that.
+fn elem_is_nullable(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
+    let Some(check_mod::Type::Promise(inner)) = ctx.expr_types.get(&eid) else {
+        return false;
+    };
+    let check_mod::Type::Array(elem) = &**inner else {
+        return false;
+    };
+    matches!(**elem, check_mod::Type::Nullable(_))
 }
 
 /// The class tag `Promise.allSettled`'s `{status, value}` records have
