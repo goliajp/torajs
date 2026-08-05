@@ -294,10 +294,40 @@ unsafe fn struct_accessor_descriptor(
     unsafe { crate::reflect::build_accessor_descriptor(get_t, get_v, set_t, set_v, 1, 1) }
 }
 
+/// The descriptor for an EXPANDO entry — an own property the layout
+/// metadata cannot mention because it was written at runtime (RFC
+/// 20260714-struct-dynamic-props; `err.cause` is one the injected
+/// Error ctor installs). The entries live in an ordinary dynobj at
+/// `+24`, so the dict's own gOPD arm reads both the value and the
+/// per-entry W/E/C flags — which is the whole reason a
+/// `defineProperty`'d expando can report `enumerable: false`, a thing
+/// no layout field can be.
+///
+/// # Safety
+/// `cell` is a live `Tag::Obj` heap pointer; `key` is a live key cell.
+unsafe fn expando_descriptor(cell: *const c_void, key: *const c_void) -> u64 {
+    let props = unsafe { crate::obj_own_keys_struct::struct_props(cell) };
+    if props.is_null() {
+        return VALUE_UNDEFINED_IMM;
+    }
+    unsafe {
+        crate::reflect_get_property_descriptor::__torajs_anyv_get_property_descriptor(
+            props as u64,
+            key,
+        )
+    }
+}
+
 /// `Object.getOwnPropertyDescriptor` arm for a `Tag::Obj` struct cell.
 /// Returns the 4-key descriptor as a NaN-box AnyValue cell, or
-/// `undefined` when the class has no layout (anonymous struct interned
-/// too late — `class_tag` 0 / out of range) or the key is not a field.
+/// `undefined` when the key names neither a layout slot nor an
+/// expando entry.
+///
+/// The layout is consulted first and answers every hit, but a miss is
+/// not the end of the question: the field list was never the whole
+/// set of own properties. `Object.keys` has always walked the expando
+/// dict, so conceding `undefined` here left the object disagreeing
+/// with itself — the same split the `hasOwnProperty` fold had.
 ///
 /// # Safety
 /// `cell` is a live `Tag::Obj` heap pointer (caller checked the header
@@ -312,7 +342,9 @@ pub(crate) unsafe fn struct_cell_descriptor(cell: *const c_void, key: *const c_v
     };
     let layout = unsafe { __torajs_struct_layout_lookup(class_tag) };
     if layout.is_null() {
-        return VALUE_UNDEFINED_IMM;
+        // An anonymous struct interned too late has no layout row at
+        // all, but it can still carry expandos.
+        return unsafe { expando_descriptor(cell, key) };
     }
 
     // Resolve the key to a field index.
@@ -325,7 +357,11 @@ pub(crate) unsafe fn struct_cell_descriptor(cell: *const c_void, key: *const c_v
         // an accessor, which the layout carries under a synthetic slot
         // (`__getter_v` / `__setter_v`). Answer the accessor
         // descriptor before conceding `undefined`.
-        return unsafe { struct_accessor_descriptor(cell, layout, key_bytes, key_len) };
+        let acc = unsafe { struct_accessor_descriptor(cell, layout, key_bytes, key_len) };
+        if acc != VALUE_UNDEFINED_IMM {
+            return acc;
+        }
+        return unsafe { expando_descriptor(cell, key) };
     }
 
     // Read the raw 8-byte slot at the field's byte offset, box per type.

@@ -34,8 +34,10 @@ use crate::reflect::{
 /// cell is a Str (tag 0) or a Symbol (tag 7) per §6.1.7.
 const TAG_SYMBOL_KEY: u16 = 7;
 
-/// Arr / Closure in-layout expando props-dynobj slot
-/// (`torajs_dynobj::layout::CELL_PROPS_OFF` mirror).
+/// Arr / Closure / struct in-layout expando props-dynobj slot
+/// (`torajs_dynobj::layout::CELL_PROPS_OFF` mirror; a `Tag::Obj`
+/// struct cell's dict sits at the same offset — `torajs-core
+/// ssa_lower::OBJ_PROPS_OFF`).
 const CELL_PROPS_OFF: usize = 24;
 
 /// True when the property-key cell is a Symbol rather than a Str.
@@ -67,7 +69,11 @@ unsafe fn symbol_key_descriptor_via_dict(
     key: *const c_void,
 ) -> u64 {
     let props_off = match htag {
-        TAG_ARR | TAG_CLOSURE => CELL_PROPS_OFF,
+        // A class instance carries expandos in the same +24 dict
+        // (RFC 20260714-struct-dynamic-props), and a symbol-keyed one
+        // has nowhere else it could live — the layout metadata is
+        // name-keyed by construction.
+        TAG_ARR | TAG_CLOSURE | TAG_OBJ => CELL_PROPS_OFF,
         t if is_wrapper_tag(t) => WRAPPER_PROPS_OFF,
         _ => return VALUE_UNDEFINED_IMM,
     };
