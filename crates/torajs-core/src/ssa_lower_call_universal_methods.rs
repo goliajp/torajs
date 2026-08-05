@@ -339,13 +339,19 @@ fn try_str_prop_check(
 /// the struct's field names (zero-alloc — each name interned as
 /// literal Str).
 ///
-/// An Error-derived receiver's `message` attributes are runtime state
-/// (§20.5.6.1.1): propertyIsEnumerable("message") is constantly false
-/// ([[Enumerable]]: false), hasOwnProperty("message") reads the
-/// own-absence sentinel through `__torajs_error_message_present`.
-/// `stack` carries the same [[Enumerable]]: false but is written by
-/// every construction, so its own-ness needs no runtime probe — only
-/// the enumerable answer moves.
+/// All three of an Error-derived receiver's injected slots carry
+/// runtime state a layout list cannot express, and each differently:
+///
+/// - `message` (§20.5.6.1.1) — propertyIsEnumerable is constantly
+///   false ([[Enumerable]]: false); hasOwnProperty reads the
+///   own-absence sentinel through `__torajs_error_message_present`.
+/// - `name` (§20.5.3.2) — lives on `<C>.prototype`, so an own one
+///   exists only where user code assigned it, and that assignment is
+///   an ordinary enumerable data property. Both probes therefore ask
+///   the same question and share `__torajs_error_name_present`.
+/// - `stack` — same [[Enumerable]]: false as `message`, but written
+///   by every construction, so its own-ness needs no runtime probe
+///   and only the enumerable answer moves.
 fn emit_obj_has_own_property(
     ctx: &mut LowerCtx<'_>,
     recv_id: ExprId,
@@ -361,11 +367,16 @@ fn emit_obj_has_own_property(
     let is_err_recv = crate::ssa_lower_member_obj_field::class_name_of_expr(ctx, recv_id)
         .is_some_and(|c| ctx.class_is_error_derived(&c));
     let is_enumerable_probe = m_name == "propertyIsEnumerable";
-    let emit_message_present = |ctx: &mut LowerCtx<'_>| {
+    let emit_present = |ctx: &mut LowerCtx<'_>, key: &str| {
+        let target = if key == "message" {
+            ctx.intrinsics.error_message_present
+        } else {
+            ctx.intrinsics.error_name_present
+        };
         let cur_block = ctx.cur_block;
         let v = ctx.f.append_inst(
             cur_block,
-            InstKind::Call(ctx.intrinsics.error_message_present, vec![recv_op.clone()]),
+            InstKind::Call(target, vec![recv_op.clone()]),
             Type::Bool,
             None,
         );
@@ -397,7 +408,13 @@ fn emit_obj_has_own_property(
                 if is_enumerable_probe {
                     return Operand::ConstBool(false);
                 }
-                return emit_message_present(ctx);
+                return emit_present(ctx, "message");
+            }
+            // `name` answers the SAME probe either way: an own one
+            // only exists because user code assigned it, and that
+            // assignment is an ordinary enumerable data property.
+            if key == "name" {
+                return emit_present(ctx, "name");
             }
             // `stack` shares msgDesc's [[Enumerable]]: false but is
             // unconditionally own, so only the enumerable probe moves.
@@ -437,8 +454,8 @@ fn emit_obj_has_own_property(
             None,
         );
         let mut eq_op = Operand::Value(eq);
-        if is_err_recv && public == "message" {
-            let present = emit_message_present(ctx);
+        if is_err_recv && (public == "message" || public == "name") {
+            let present = emit_present(ctx, public);
             let and = ctx.f.append_inst(
                 ctx.cur_block,
                 InstKind::BinOp(SsaBinOp::And, eq_op, present),

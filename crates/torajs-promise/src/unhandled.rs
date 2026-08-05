@@ -41,7 +41,7 @@
 use core::ffi::c_void;
 use std::sync::atomic::{AtomicI32, AtomicPtr, AtomicU8, AtomicUsize, Ordering};
 
-use crate::layout::{HeapHeader, Promise, STATE_REJECTED, as_promise};
+use crate::layout::{STATE_REJECTED, as_promise};
 
 unsafe extern "C" {
     fn __torajs_rc_inc(p: *mut c_void);
@@ -57,6 +57,15 @@ unsafe extern "C" {
     /// UTF-8 transcoding, so a Latin-1 / UTF-16 `message` renders
     /// correctly rather than as raw payload bytes.
     fn __torajs_str_write_err(s: *const u8);
+    /// torajs-anyvalue — an error instance's `name` resolved through
+    /// its own slot and then the class prototype chain (§20.5.3.2);
+    /// the `torajs_throw::uncaught` twin declares the same symbol.
+    /// Borrowed Str; never NULL.
+    fn __torajs_error_name_get(obj: *const u8) -> *const u8;
+    /// torajs-str — own-absence sentinel identity probe; see the
+    /// `torajs_throw::uncaught` twin for why the raw length read of
+    /// the `message` slot is not enough.
+    fn __torajs_str_is_undef(p: *const u8) -> i64;
     /// torajs-mmalloc libc-compat realloc / sized free — same
     /// externs `torajs_microtask::mt_grow` and `pool.rs` use.
     #[link_name = "__torajs_realloc"]
@@ -78,28 +87,28 @@ type ClosureCb = unsafe extern "C" fn(env: *mut c_void, reason: i64);
 /// `torajs_rc::Tag::Str`. Re-declared as a `u16` constant to keep
 /// this crate free of a torajs-rc dep (same independent-knowledge
 /// pattern `combinator.rs` uses for Array layout).
-const TAG_STR: u16 = 0;
+pub(crate) const TAG_STR: u16 = 0;
 
 /// Universal heap-header `type_tag` for class instances
 /// (`torajs_rc::Tag::Obj`). Same mirrored-constant convention as
 /// [`TAG_STR`]; the value also appears as
 /// `layout::ALLSETTLED_OBJ_TAG`.
-const TAG_OBJ: u16 = 1;
+pub(crate) const TAG_OBJ: u16 = 1;
 
 /// `torajs_rc::FLAG_ERROR` — header bit 7, set on Error-derived
 /// class instances by ssa_lower's `__new_<C>` factory codegen. It
 /// IS tr's [[ErrorData]] internal slot. Mirror of
 /// `torajs_throw::uncaught::FLAG_ERROR` (the uncaught-throw twin of
 /// this reporter) and `torajs_meta::struct_reflect::FLAG_ERROR`.
-const FLAG_ERROR: u16 = 1 << 7;
+pub(crate) const FLAG_ERROR: u16 = 1 << 7;
 
 /// Error instance field offsets. Obj layout is
 /// `[header:32][field0:8][field1:8]…`, and Error declares `message`
 /// first, then `name` — both Str pointers. Lockstep mirror of
-/// `torajs_throw::uncaught::OBJ_{MESSAGE,NAME}_OFF`; the header size
-/// is the same 32 as `layout::ALLSETTLED_OBJ_HEADER_SIZE`.
-const OBJ_MESSAGE_OFF: usize = 32;
-const OBJ_NAME_OFF: usize = 40;
+/// `torajs_throw::uncaught::OBJ_MESSAGE_OFF`; the header size is the
+/// same 32 as `layout::ALLSETTLED_OBJ_HEADER_SIZE`. `name` is
+/// resolved rather than read at an offset — see the twin.
+pub(crate) const OBJ_MESSAGE_OFF: usize = 32;
 
 /// Str `length` field offset. The block is
 /// `[header:8][length:4][_pad:4][bytes:N]` — the count is a **u32**,
@@ -110,7 +119,7 @@ const OBJ_NAME_OFF: usize = 40;
 /// Read only to decide whether a `message` is empty; the payload
 /// itself goes through `__torajs_str_write_err`, which does its own
 /// encoding-aware slicing.
-const STR_LEN_OFF: usize = 8;
+pub(crate) const STR_LEN_OFF: usize = 8;
 
 /// NaN-box "cell-like" gate — mirrors
 /// `torajs_value_drop::nan_box_is_cell_like` /
@@ -160,7 +169,7 @@ static UNHANDLED_CAP: AtomicUsize = AtomicUsize::new(0);
 /// A user-side `process.on('unhandledRejection', cb)` handler
 /// suppresses the default reporter AND the flag — bun's behaviour
 /// when a listener is registered.
-static UNHANDLED_REJECTION_OCCURRED: AtomicI32 = AtomicI32::new(0);
+pub(crate) static UNHANDLED_REJECTION_OCCURRED: AtomicI32 = AtomicI32::new(0);
 
 /// `process.on('unhandledRejection', cb)` listener slot. `KIND`
 /// 0 → no listener (default reporter runs);
@@ -298,7 +307,7 @@ unsafe fn sweep_unhandled_list() {
             if (*pp).state == STATE_REJECTED && (*pp).has_handler == 0 {
                 let kind = UNHANDLED_CB_KIND.load(Ordering::Relaxed);
                 if kind == CB_KIND_NONE {
-                    fire_unhandled_reporter(pp);
+                    crate::unhandled_report::fire_unhandled_reporter(pp);
                 } else {
                     let reason = box_reason_as_anyvalue((*pp).value, (*pp).value_is_heap);
                     let cb_ptr = UNHANDLED_CB_PTR.load(Ordering::Relaxed);
@@ -323,163 +332,6 @@ unsafe fn sweep_unhandled_list() {
         }
     }
     unsafe { tr_free(buf as *mut c_void, cap * core::mem::size_of::<i64>()) };
-}
-
-/// Default unhandled-rejection reporter. Writes one line to stderr
-/// and sets the process-global flag.
-///
-/// The line is `<label>: <detail>`, where the label is the literal
-/// `error` for every reason except an Error instance — there the
-/// Error's own `name` IS the label. That is bun's shape: it reports
-/// `Promise.reject("hi")` as `error: hi` but
-/// `Promise.reject(new TypeError("mine"))` as `TypeError: mine`,
-/// never stacking one label on the other.
-///
-/// Reason rendering:
-///   - heap Str (real heap pointer, type_tag == 0) → reuse
-///     `__torajs_str_print_err`, prefixed.
-///   - Error-derived instance (type_tag == Obj + FLAG_ERROR) →
-///     `name: message\n` read from the Error layout prefix, with
-///     `: message` omitted when the message is empty. Verbatim
-///     twin of `torajs_throw::__torajs_uncaught_exit_code`'s
-///     rendering, so tr's two error-report paths agree.
-///   - other real heap (Closure / RegExp / Date / Symbol / plain
-///     object / etc.) → `error: <object>\n` placeholder.
-///   - NaN-box immediate (a Type::Any reason routed through the
-///     `_heap` alloc path) → `error: <any>\n` placeholder.
-///   - primitive (`value_is_heap == 0`) non-zero → `error: <value>\n`
-///     with the i64 written as decimal via the local int formatter.
-///   - primitive zero → `error: null\n` (bun-parity for the
-///     0-arg `Promise.reject()` sentinel).
-///
-/// v0.5 narrow MVP renderer; A4 lands user-side `process.on(
-/// 'unhandledRejection', cb)` which gets the raw reason in
-/// NaN-box form and lets user code stringify with full
-/// anyvalue dispatch.
-unsafe fn fire_unhandled_reporter(pp: *mut Promise) {
-    const PREFIX: &[u8] = b"error: ";
-    const OBJ_PLACEHOLDER: &[u8] = b"error: <object>\n";
-    const ANY_PLACEHOLDER: &[u8] = b"error: <any>\n";
-    const NULL_PLACEHOLDER: &[u8] = b"error: null\n";
-
-    UNHANDLED_REJECTION_OCCURRED.store(1, Ordering::Relaxed);
-
-    let reason = unsafe { (*pp).value };
-    let is_heap = unsafe { (*pp).value_is_heap };
-
-    if is_heap != 0 && reason != 0 {
-        // Type::Any reasons walk through `alloc_rejected_heap` but
-        // carry a NaN-box immediate, not a real heap pointer. The
-        // cell-like gate isolates real pointers; anything else is
-        // surfaced via the `<any>` placeholder so dereferencing the
-        // (non-)header can't SIGSEGV.
-        if !reason_is_cell_like(reason) {
-            unsafe {
-                __torajs_syscall_write(2, ANY_PLACEHOLDER.as_ptr(), ANY_PLACEHOLDER.len());
-            }
-            return;
-        }
-        let header = reason as *const HeapHeader;
-        let type_tag = unsafe { (*header).type_tag };
-        if type_tag == TAG_STR {
-            unsafe { __torajs_syscall_write(2, PREFIX.as_ptr(), PREFIX.len()) };
-            // `str_print_err` already appends a newline.
-            unsafe { __torajs_str_print_err(reason as *const u8) };
-            return;
-        }
-        if type_tag == TAG_OBJ && unsafe { (*header).flags } & FLAG_ERROR != 0 {
-            unsafe { report_error_instance(reason as *const u8) };
-            return;
-        }
-        unsafe {
-            __torajs_syscall_write(2, OBJ_PLACEHOLDER.as_ptr(), OBJ_PLACEHOLDER.len());
-        }
-        return;
-    }
-
-    if reason == 0 && is_heap == 0 {
-        // i64 0 + non-heap — spec-wise this is "rejected with the
-        // integer 0", but in practice this is the default-reject
-        // sentinel for null / unknown reasons (Promise.reject(),
-        // Promise.all([pending]), thenable absorption of pending).
-        // Bun prints `null` for these, so we match.
-        unsafe { __torajs_syscall_write(2, NULL_PLACEHOLDER.as_ptr(), NULL_PLACEHOLDER.len()) };
-        return;
-    }
-
-    // Primitive non-zero — format reason as a signed decimal.
-    unsafe {
-        __torajs_syscall_write(2, PREFIX.as_ptr(), PREFIX.len());
-        write_i64_decimal_stderr(reason);
-        __torajs_syscall_write(2, b"\n".as_ptr(), 1);
-    }
-}
-
-/// Report an Error-derived instance as `name: message\n`, the
-/// Error's own `name` standing in for the `error: ` label every
-/// other reason shape carries.
-///
-/// `: message` is omitted when the message is empty, matching the
-/// `Error.prototype.stack` first-line shape (`"Error"`, not
-/// `"Error: "`) and the uncaught-throw twin in
-/// `torajs_throw::uncaught`.
-///
-/// # Safety
-///
-/// `p` must point at a live `Tag::Obj` instance carrying
-/// [`FLAG_ERROR`]. A null `name` / `message` slot is tolerated
-/// rather than dereferenced: this reporter runs at process exit on
-/// a value nobody handled, so a partially-constructed Error must
-/// still yield a line rather than a fault.
-unsafe fn report_error_instance(p: *const u8) {
-    let name_ptr = unsafe { (p.add(OBJ_NAME_OFF) as *const usize).read() } as *const u8;
-    let msg_ptr = unsafe { (p.add(OBJ_MESSAGE_OFF) as *const usize).read() } as *const u8;
-
-    unsafe { __torajs_str_write_err(name_ptr) };
-
-    let msg_len = if msg_ptr.is_null() {
-        0
-    } else {
-        unsafe { (msg_ptr.add(STR_LEN_OFF) as *const u32).read() as usize }
-    };
-    if msg_len > 0 {
-        unsafe { __torajs_syscall_write(2, b": ".as_ptr(), 2) };
-        unsafe { __torajs_str_write_err(msg_ptr) };
-    }
-    unsafe { __torajs_syscall_write(2, b"\n".as_ptr(), 1) };
-}
-
-/// Write `n` as a signed decimal to stderr. Stack buffer is sized
-/// for `i64::MIN` (`-9223372036854775808`, 20 chars) + sign. Single
-/// `write(2)` keeps the line atomic.
-unsafe fn write_i64_decimal_stderr(n: i64) {
-    let mut buf = [0u8; 21];
-    let mut idx = buf.len();
-    let (mut abs, negative) = if n < 0 {
-        // Use wrapping_neg so i64::MIN doesn't trap; its abs as u64
-        // is exactly 1 << 63 which fits unsigned.
-        (n.wrapping_neg() as u64, true)
-    } else {
-        (n as u64, false)
-    };
-    if abs == 0 {
-        idx -= 1;
-        buf[idx] = b'0';
-    } else {
-        while abs > 0 {
-            idx -= 1;
-            buf[idx] = b'0' + (abs % 10) as u8;
-            abs /= 10;
-        }
-    }
-    if negative {
-        idx -= 1;
-        buf[idx] = b'-';
-    }
-    let n_bytes = buf.len() - idx;
-    unsafe {
-        __torajs_syscall_write(2, buf.as_ptr().add(idx), n_bytes);
-    }
 }
 
 /// `main`'s exit code — first sweeps any pending unhandled

@@ -225,17 +225,24 @@ pub unsafe extern "C" fn __torajs_obj_own_keys(
         // for-in / gOPN emit routes through.
         if !obj.is_null() && unsafe { heap_type_tag_local(obj) } == TAG_OBJ_CELL {
             let hdr_flags = unsafe { obj.cast::<u8>().add(6).cast::<u16>().read() };
-            if include_nonenum == 0 {
-                // Enumerable-only surface: BOTH §20.5 slots carry
-                // [[Enumerable]]: false. `stack` joins `message` here
-                // and nowhere else — it is unconditionally own, so
-                // gOPN keeps it (`struct_enum::error_prop_skip` twin).
-                if hdr_flags & crate::struct_reflect::FLAG_ERROR != 0 {
+            if hdr_flags & crate::struct_reflect::FLAG_ERROR != 0 {
+                if include_nonenum == 0 {
+                    // Enumerable-only surface: both §20.5 slots carry
+                    // [[Enumerable]]: false. `stack` joins `message`
+                    // here and nowhere else — it is unconditionally
+                    // own, so gOPN keeps it.
                     unsafe { strip_key(static_names, b"message") };
                     unsafe { strip_key(static_names, b"stack") };
+                } else if unsafe { crate::struct_enum::error_field_absent(obj, b"message") } {
+                    unsafe { strip_key(static_names, b"message") };
                 }
-            } else if unsafe { crate::struct_enum::error_message_absent(obj) } {
-                unsafe { strip_key(static_names, b"message") };
+                // `name` is absent on both surfaces alike: §20.5.3.2
+                // gives it to `Error.prototype`, so an instance owns
+                // one only after user code assigned it
+                // (`struct_enum::error_prop_skip` twin).
+                if unsafe { crate::struct_enum::error_field_absent(obj, b"name") } {
+                    unsafe { strip_key(static_names, b"name") };
+                }
             }
             // Blade 3 (RFC 20260714-struct-dynamic-props) — fold the
             // +24 expando dict's keys in per §10.1.11.1 (NULL props

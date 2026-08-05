@@ -43,6 +43,22 @@ pub(crate) fn class_name_of_expr(ctx: &LowerCtx<'_>, obj: ExprId) -> Option<Stri
     }
 }
 
+/// Whether `sid`'s layout is the injected Error shape — `message` /
+/// `name` / `stack` as the first three Str fields, which desugar
+/// field-flattening puts ahead of any subclass's own fields. Every
+/// Error-derived class matches; so would a user class declaring the
+/// same trio, and that is precisely the case a compile-time test
+/// cannot resolve (it shares the sid), so the emitted helper decides
+/// off `FLAG_ERROR` instead.
+fn layout_is_error_shape(ctx: &LowerCtx<'_>, sid: crate::ssa::StructId) -> bool {
+    let layout = &ctx.struct_layouts[sid.0 as usize];
+    layout.len() >= 3
+        && ["message", "name", "stack"]
+            .iter()
+            .zip(layout.iter())
+            .all(|(want, (have, ty))| have == want && *ty == Type::Str)
+}
+
 pub(crate) fn try_lower(
     ctx: &mut LowerCtx<'_>,
     eid: ExprId,
@@ -69,13 +85,31 @@ pub(crate) fn try_lower(
     // (`Err.prototype.message` shadow → `__proto_Error`'s spec "").
     // The helper answers a BORROWED Str, exactly like the field
     // `Load` it replaces.
-    if name == "message"
-        && class_name_of_expr(ctx, obj).is_some_and(|c| ctx.class_is_error_derived(&c))
-    {
+    //
+    // §20.5.3.2 gives `name` the same treatment for a different
+    // reason: the class name lives on `<C>.prototype`, so the slot
+    // holds the absence sentinel until user code assigns `this.name`
+    // — the ordinary read is a chain walk, not a field load.
+    //
+    // The gate is the LAYOUT, not the receiver's class name. A
+    // receiver annotated `any` still lowers through this typed arm
+    // when SSA kept its Obj shape, and there `class_name_of_expr`
+    // answers None — which used to leave `(err as any).name` reading
+    // the raw slot, i.e. the sentinel. Layout is also the honest
+    // granularity: structurally identical classes SHARE a sid, so no
+    // compile-time test can separate an error from a hypothetical
+    // class declaring the same trio. The helper settles that at
+    // runtime off the header's error bit.
+    if matches!(name, "message" | "name") && layout_is_error_shape(ctx, sid) {
+        let target = if name == "message" {
+            ctx.intrinsics.error_message_get
+        } else {
+            ctx.intrinsics.error_name_get
+        };
         let cur_block = ctx.cur_block;
         let v = ctx.f.append_inst(
             cur_block,
-            InstKind::Call(ctx.intrinsics.error_message_get, vec![obj_val]),
+            InstKind::Call(target, vec![obj_val]),
             Type::Str,
             None,
         );

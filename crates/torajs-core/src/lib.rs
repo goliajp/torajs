@@ -415,6 +415,7 @@ pub(crate) mod ssa_lower_intrinsics_arr_str_etc;
 pub(crate) mod ssa_lower_intrinsics_bigint;
 pub(crate) mod ssa_lower_intrinsics_class_computed;
 pub(crate) mod ssa_lower_intrinsics_date;
+pub(crate) mod ssa_lower_intrinsics_error_slots;
 pub(crate) mod ssa_lower_intrinsics_fs;
 pub(crate) mod ssa_lower_intrinsics_init_a;
 pub(crate) mod ssa_lower_intrinsics_init_b;

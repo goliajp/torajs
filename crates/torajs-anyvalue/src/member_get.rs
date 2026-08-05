@@ -216,12 +216,13 @@ pub unsafe extern "C" fn __torajs_any_member_get_tag(recv: AnyValue, key: *const
         // field miss falling through is exact).
         Some((ptr, t)) if t == Tag::Obj as u16 => unsafe {
             if let Some((tag, _)) = crate::struct_probe::struct_field_pair(ptr, key) {
-                // RFC 20260718-error-message-own-prop — an absent
-                // error `message` reads through the prototype chain
-                // (§10.1.8.1 step 3; `__proto_Error` carries the
-                // spec `""`).
-                if crate::struct_error_msg::error_message_absent_key(ptr, key) {
-                    return crate::struct_error_msg::error_message_proto_pair(ptr).0;
+                // An absent error `message` / `name` reads through
+                // the prototype chain (§10.1.8.1 step 3; `__proto_Error`
+                // carries the spec `""` and each `__proto_<C>` its own
+                // `name`). Same live key drives both the miss test and
+                // the chain walk.
+                if crate::struct_error_msg::error_absent_key(ptr, key) {
+                    return crate::struct_error_msg::struct_proto_chain_pair(ptr, key).0;
                 }
                 return tag;
             }

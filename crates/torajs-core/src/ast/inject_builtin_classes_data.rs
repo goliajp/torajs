@@ -3,7 +3,7 @@
 //! lines; the shared one-shape builder stays there, the data-param
 //! variant lives here).
 
-use super::inject_builtin_classes::{build_msg_default, build_stack_concat};
+use super::inject_builtin_classes::build_absent_sentinel;
 use super::{Ast, ClassCtor, Expr, Param, Stmt};
 
 /// §20.5.7 AggregateError / §20.5.8 SuppressedError — the two
@@ -15,9 +15,7 @@ use super::{Ast, ClassCtor, Expr, Param, Stmt};
 ///   errors: any;
 ///   constructor(errors: any, message: string = <undef sentinel>) {
 ///     super(message);
-///     this.name = "AggregateError";
 ///     this.errors = errors;
-///     this.stack = __torajs_error_stack(this);
 ///   }
 /// }
 /// ```
@@ -44,18 +42,14 @@ pub(super) fn build_error_data_subclass(
     let super_call = ast.add_expr(Expr::Super {
         args: vec![msg_ident, opts_ident],
     });
-    let this0 = ast.add_expr(Expr::This);
-    let name_member = ast.add_expr(Expr::Member {
-        obj: this0,
-        name: "name".to_string(),
-    });
-    let name_value = ast.add_expr(Expr::String(sub_name.to_string()));
-    let assign_name = ast.add_expr(Expr::Assign {
-        target: name_member,
-        value: name_value,
-    });
-
-    let mut body = vec![Stmt::Expr(super_call), Stmt::Expr(assign_name)];
+    // §20.5.3.2 — the class name belongs to `<N>.prototype.name`,
+    // where `__torajs_error_proto_install` already put it; writing it
+    // into the instance field shadowed that with an enumerable own
+    // copy. `build_error_subclass` retired the same pair of statements
+    // for the same reason (the `stack` re-run below went with it —
+    // Error's ctor resolves the name off the receiver's prototype
+    // chain, so its header line already reads `<N>: msg`).
+    let mut body = vec![Stmt::Expr(super_call)];
     for p in data_params {
         let this_ref = ast.add_expr(Expr::This);
         let field = ast.add_expr(Expr::Member {
@@ -69,21 +63,7 @@ pub(super) fn build_error_data_subclass(
         });
         body.push(Stmt::Expr(assign));
     }
-    // Same P7.3 posture as build_error_subclass: re-set the stack
-    // AFTER the name override so it reads "<SubName>: msg".
-    let stack_expr = build_stack_concat(ast);
-    let stack_obj = ast.add_expr(Expr::This);
-    let stack_member = ast.add_expr(Expr::Member {
-        obj: stack_obj,
-        name: "stack".to_string(),
-    });
-    let assign_stack = ast.add_expr(Expr::Assign {
-        target: stack_member,
-        value: stack_expr,
-    });
-    body.push(Stmt::Expr(assign_stack));
-
-    let msg_default = build_msg_default(ast);
+    let msg_default = build_absent_sentinel(ast);
     let mut params: Vec<Param> = data_params
         .iter()
         .map(|p| Param {

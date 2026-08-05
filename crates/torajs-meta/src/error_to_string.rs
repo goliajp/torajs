@@ -19,9 +19,10 @@ use core::ffi::c_void;
 // OBJ instance layout — mirror of `torajs-throw`'s reader: the
 // universal 32-byte header (blade 1: props dynobj @ +24), then
 // Str-pointer fields `message` @+32 and `name` @+40. Str length is a
-// u32 at +8 (`torajs-str` STR_LEN_OFF).
+// u32 at +8 (`torajs-str` STR_LEN_OFF). The `name` offset is no
+// longer read here: that slot normally holds the own-absence
+// sentinel, so the value comes from the resolver instead.
 const OBJ_MESSAGE_OFF: usize = 32;
-const OBJ_NAME_OFF: usize = 40;
 const STR_LEN_OFF: usize = 8;
 
 unsafe extern "C" {
@@ -60,7 +61,13 @@ unsafe fn str_len(s: *const u8) -> u32 {
 /// `name` fields at the fixed offsets hold Str pointers or NULL).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_error_to_string(p: *const u8) -> *mut u8 {
-    let name_ptr = unsafe { (p.add(OBJ_NAME_OFF) as *const *const u8).read() };
+    // §20.5.3.2 — `name` normally lives on `<C>.prototype`, not on the
+    // instance, so the slot at the fixed offset holds the own-absence
+    // sentinel unless user code assigned `this.name`. The resolver
+    // answers the own value when there is one and the prototype
+    // chain's otherwise; reading the slot raw here printed the
+    // sentinel's own text ("undefined") as the error's name.
+    let name_ptr = unsafe { __torajs_error_name_get(p.cast()) } as *const u8;
     let msg_ptr = unsafe { (p.add(OBJ_MESSAGE_OFF) as *const *const u8).read() };
     let name_len = unsafe { str_len(name_ptr) };
     let msg_len = unsafe { str_len(msg_ptr) };
@@ -98,6 +105,11 @@ pub unsafe extern "C" fn __torajs_error_to_string(p: *const u8) -> *mut u8 {
 // OrdinaryToPrimitive; symbol / throwing toString record a pending
 // throw the checks below abort on).
 unsafe extern "C" {
+    /// torajs-anyvalue — `name` resolved through own-slot then the
+    /// class prototype chain (the own-absence sentinel is the
+    /// ordinary state; §20.5.3.2). Borrowed Str, never NULL: a fully
+    /// missing chain answers the undefined sentinel.
+    fn __torajs_error_name_get(obj: *const c_void) -> *mut u8;
     fn __torajs_any_member_get_tag(recv: u64, key: *const c_void) -> u64;
     fn __torajs_any_member_get_value(recv: u64, key: *const c_void) -> u64;
     fn __torajs_any_accessor_get(recv: u64, key: *const c_void, pair_bits: u64) -> u64;

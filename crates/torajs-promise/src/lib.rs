@@ -52,6 +52,7 @@ pub mod then_box;
 pub mod then_finally;
 pub mod then_two;
 pub mod unhandled;
+mod unhandled_report;
 
 pub use combinator::{
     __torajs_promise_all_sync, __torajs_promise_any_sync, __torajs_promise_race_sync,

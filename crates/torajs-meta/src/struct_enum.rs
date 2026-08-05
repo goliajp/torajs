@@ -220,20 +220,26 @@ pub unsafe extern "C" fn __torajs_anyv_struct_keys(v: u64, include_nonenum: i64)
 }
 
 /// Whether the enumeration walk skips this slot under the ES §20.5
-/// error-instance property attributes. Two slots of the injected
-/// Error layout are NOT ordinary enumerable class fields:
+/// error-instance property attributes. Three slots of the injected
+/// Error layout are NOT ordinary enumerable class fields, and no two
+/// of them for quite the same reason:
 ///
 /// - `message` — §20.5.6.1.1 msgDesc `{W:1, E:0, C:1}`, and own only
 ///   when the ctor got one (RFC 20260718-error-message-own-prop).
 /// - `stack` — the same `{W:1, E:0, C:1}` shape, but unconditionally
 ///   own: every construction writes a header line, so unlike
 ///   `message` there is no absent state to test.
+/// - `name` — §20.5.3.2 puts it on `Error.prototype`, so an instance
+///   owns one ONLY when user code assigned it, and such an assignment
+///   is an ordinary CreateDataProperty. Its enumerability therefore
+///   never moves; what moves is whether it exists, which both
+///   surfaces must respect.
 ///
 /// So the enumerable-only surfaces (`Object.keys` / for-in / values /
-/// entries, `include_nonenum = 0`) skip BOTH, while the gOPN surface
-/// (`include_nonenum = 1`) keeps `stack` and skips `message` only in
-/// its own-ABSENT state (the undefined sentinel in the slot — no
-/// ctor message / deleted).
+/// entries, `include_nonenum = 0`) skip `message` and `stack` outright,
+/// the gOPN surface (`include_nonenum = 1`) keeps `stack`, and both
+/// skip a slot sitting in its own-ABSENT state — the undefined
+/// sentinel, which for `name` is the ordinary case.
 unsafe fn error_prop_skip(
     cell: *const c_void,
     layout: *const c_void,
@@ -244,12 +250,26 @@ unsafe fn error_prop_skip(
     let (kp, klen) = key;
     let bytes = unsafe { core::slice::from_raw_parts(kp, klen) };
     let is_message = bytes == b"message";
-    if !is_message && bytes != b"stack" {
+    let is_name = bytes == b"name";
+    if !is_message && !is_name && bytes != b"stack" {
         return false;
     }
     let hdr_flags = unsafe { cell.cast::<u8>().add(6).cast::<u16>().read() };
     if hdr_flags & crate::struct_reflect::FLAG_ERROR == 0 {
         return false;
+    }
+    let slot_absent = || {
+        let info = unsafe { __torajs_struct_field_info(layout, idx) };
+        let raw = unsafe {
+            cell.cast::<u8>()
+                .add(info.field_byte_offset as usize)
+                .cast::<u64>()
+                .read()
+        };
+        raw != 0 && unsafe { __torajs_str_is_undef(raw as *const u8) } != 0
+    };
+    if is_name {
+        return slot_absent();
     }
     if include_nonenum == 0 {
         return true;
@@ -257,14 +277,7 @@ unsafe fn error_prop_skip(
     if !is_message {
         return false;
     }
-    let info = unsafe { __torajs_struct_field_info(layout, idx) };
-    let raw = unsafe {
-        cell.cast::<u8>()
-            .add(info.field_byte_offset as usize)
-            .cast::<u64>()
-            .read()
-    };
-    raw != 0 && unsafe { __torajs_str_is_undef(raw as *const u8) } != 0
+    slot_absent()
 }
 
 unsafe extern "C" {
@@ -274,10 +287,10 @@ unsafe extern "C" {
     fn __torajs_struct_field_find(layout: *const c_void, name: *const u8, name_len: u32) -> u32;
 }
 
-/// Whether `cell` is a `FLAG_ERROR` struct whose `message` slot holds
+/// Whether `cell` is a `FLAG_ERROR` struct whose `field` slot holds
 /// the own-absence sentinel (layout self-resolved) — the
 /// static-key-list filter's probe (`obj_own_keys` typed chooser).
-pub(crate) unsafe fn error_message_absent(cell: *const c_void) -> bool {
+pub(crate) unsafe fn error_field_absent(cell: *const c_void, field: &[u8]) -> bool {
     let hdr_flags = unsafe { cell.cast::<u8>().add(6).cast::<u16>().read() };
     if hdr_flags & crate::struct_reflect::FLAG_ERROR == 0 {
         return false;
@@ -292,7 +305,7 @@ pub(crate) unsafe fn error_message_absent(cell: *const c_void) -> bool {
     if layout.is_null() {
         return false;
     }
-    let idx = unsafe { __torajs_struct_field_find(layout, b"message".as_ptr(), 7) };
+    let idx = unsafe { __torajs_struct_field_find(layout, field.as_ptr(), field.len() as u32) };
     if idx == u32::MAX {
         return false;
     }

@@ -49,13 +49,18 @@ pub(super) fn build_stack_concat(ast: &mut Ast) -> ExprId {
     })
 }
 
-/// §20.5.1.1 — the ctor `message` param's default: the own-absence
-/// Str sentinel (`__torajs_undef_str()`, GlobalRef mint). A missing
-/// message stores the sentinel into the field slot = no own
-/// `message` property (RFC 20260718-error-message-own-prop 刀 2;
-/// pre-fix the default was `""`, which owned the property on every
-/// no-arg construction).
-pub(super) fn build_msg_default(ast: &mut Ast) -> ExprId {
+/// The own-absence Str sentinel (`__torajs_undef_str()`, GlobalRef
+/// mint). A slot holding it carries no own property at all, which is
+/// how two of the injected layout's fields express a spec shape a
+/// declared field cannot:
+///
+/// - the `message` param's default (§20.5.1.1 — a missing message
+///   defines no own `message`; pre-fix the default was `""`, which
+///   owned the property on every no-arg construction).
+/// - the `name` slot unconditionally (§20.5.3.2 — `name` lives on
+///   `Error.prototype`, so an instance owns one only when user code
+///   assigns it and overwrites the sentinel).
+pub(super) fn build_absent_sentinel(ast: &mut Ast) -> ExprId {
     let callee = ast.add_expr(Expr::Ident("__torajs_undef_str".to_string()));
     ast.add_expr(Expr::Call {
         callee,
@@ -74,12 +79,21 @@ fn build_error_class(ast: &mut Ast) -> Stmt {
         target: msg_member,
         value: msg_value,
     });
+    // §20.5.3.2 — `name` is `Error.prototype`'s own property, not the
+    // instance's; `__torajs_error_proto_install` already puts it there
+    // with the spec `{W:1, E:0, C:1}` attributes. Writing the class
+    // name into the field too shadowed that entry with a second,
+    // enumerable copy, so `Object.keys(new Error("m"))` listed `name`
+    // where every engine lists nothing. The slot instead carries the
+    // own-absence sentinel: reads fall through to the prototype, and
+    // a user's `this.name = "..."` overwrites it into a real own
+    // property — which IS enumerable, exactly as bun reports.
     let this1 = ast.add_expr(Expr::This);
     let name_member = ast.add_expr(Expr::Member {
         obj: this1,
         name: "name".to_string(),
     });
-    let name_value = ast.add_expr(Expr::String("Error".to_string()));
+    let name_value = build_absent_sentinel(ast);
     let assign2 = ast.add_expr(Expr::Assign {
         target: name_member,
         value: name_value,
@@ -105,7 +119,7 @@ fn build_error_class(ast: &mut Ast) -> Stmt {
 
     // §20.5.1.1 — `message` is optional (`new Error()` is legal);
     // a missing one stores the own-absence sentinel (刀 2).
-    let msg_default = build_msg_default(ast);
+    let msg_default = build_absent_sentinel(ast);
     // §20.5.8.1 runs last: `cause` is installed after `stack`, so a
     // reader walking own keys sees the declared fields first and the
     // conditional one behind them.
@@ -174,14 +188,20 @@ fn build_error_class(ast: &mut Ast) -> Stmt {
 }
 
 /// Synthetic `class <N> extends Error { constructor(message: string)
-/// { super(message); this.name = "<N>"; } }` for the four standard
-/// NativeError subclasses (spec §20.5.5). No own fields: `message` /
-/// `name` are inherited from Error via desugar field-flattening
-/// (which panics on parent-field redeclaration), so the ctor just
-/// forwards to Error's ctor through `super` and overrides `name`.
-/// The `super(message)` site is rewritten to `__cm_Error__ctor(...)`
-/// by the existing Pass 1.5 super-rewrite in `desugar_classes` —
-/// identical to a user-written subclass.
+/// { super(message); } }` for the four standard NativeError
+/// subclasses (spec §20.5.5). No own fields: `message` / `name` are
+/// inherited from Error via desugar field-flattening (which panics on
+/// parent-field redeclaration), so the ctor only forwards to Error's
+/// ctor through `super`. The `super(message)` site is rewritten to
+/// `__cm_Error__ctor(...)` by the existing Pass 1.5 super-rewrite in
+/// `desugar_classes` — identical to a user-written subclass.
+///
+/// The body used to carry two more statements, and the `name` fix
+/// (§20.5.3.2) retires both: `this.name = "<N>"` is what shadowed
+/// `<N>.prototype.name` with an enumerable own copy, and the `stack`
+/// re-run existed only to pick the overridden name back up. Error's
+/// ctor now resolves the name off the receiver's own prototype chain,
+/// so the header line it writes already reads `<N>: msg`.
 fn build_error_subclass(ast: &mut Ast, sub_name: &str) -> Stmt {
     let msg_ident = ast.add_expr(Expr::Ident("message".to_string()));
     // §20.5.8.1 is installed once, in Error's ctor; every subclass
@@ -190,34 +210,10 @@ fn build_error_subclass(ast: &mut Ast, sub_name: &str) -> Stmt {
     let super_call = ast.add_expr(Expr::Super {
         args: vec![msg_ident, opts_ident],
     });
-    let this0 = ast.add_expr(Expr::This);
-    let name_member = ast.add_expr(Expr::Member {
-        obj: this0,
-        name: "name".to_string(),
-    });
-    let name_value = ast.add_expr(Expr::String(sub_name.to_string()));
-    let assign_name = ast.add_expr(Expr::Assign {
-        target: name_member,
-        value: name_value,
-    });
-    // P7.3 — re-set this.stack AFTER overriding name so it reflects
-    // the subclass name ("TypeError: msg"), not Error's. The Error
-    // ctor reached via super() already set a "Error: msg" stack;
-    // this overwrites it on the same inherited field.
-    let stack_expr = build_stack_concat(ast);
-    let stack_obj = ast.add_expr(Expr::This);
-    let stack_member = ast.add_expr(Expr::Member {
-        obj: stack_obj,
-        name: "stack".to_string(),
-    });
-    let assign_stack = ast.add_expr(Expr::Assign {
-        target: stack_member,
-        value: stack_expr,
-    });
 
     // Same §20.5.1.1 optional-message face as the Error root ctor,
     // and the same §20.5.8.1 options tail it forwards to.
-    let msg_default = build_msg_default(ast);
+    let msg_default = build_absent_sentinel(ast);
     let options_param = build_options_param(ast);
     let ctor = ClassCtor {
         params: vec![
@@ -229,11 +225,7 @@ fn build_error_subclass(ast: &mut Ast, sub_name: &str) -> Stmt {
             },
             options_param,
         ],
-        body: vec![
-            Stmt::Expr(super_call),
-            Stmt::Expr(assign_name),
-            Stmt::Expr(assign_stack),
-        ],
+        body: vec![Stmt::Expr(super_call)],
     };
 
     Stmt::ClassDecl {

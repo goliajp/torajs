@@ -139,13 +139,6 @@ pub(crate) struct AnySubstrateIds {
     /// `toString` before the fixed-offset formatter; NULL answer =
     /// pending throw recorded.
     pub error_tostring_dispatch: FuncId,
-    /// RFC 20260718-error-message-own-prop — own-presence probe of a
-    /// FLAG_ERROR instance's `message` slot (1 unless the slot holds
-    /// the own-absence sentinel); the typed hasOwnProperty emit.
-    pub error_message_present: FuncId,
-    /// 刀 2 — typed `err.message` read: own slot or prototype-chain
-    /// walk; BORROWED Str return (Load-equivalent).
-    pub error_message_get: FuncId,
     /// 刀 3 — derived-ctor no-super ReferenceError raiser (§9.2.2
     /// this-TDZ; records the pending throw, message baked in).
     pub ctor_no_super_throw: FuncId,
@@ -333,8 +326,6 @@ pub(crate) fn declare(
         proto_member_get: decl!("__torajs_anyv_proto_member_get", [Any], Any),
         error_to_string: decl!("__torajs_error_to_string", [Ptr], Str),
         error_tostring_dispatch: decl!("__torajs_error_tostring_dispatch", [Ptr], Str),
-        error_message_present: decl!("__torajs_error_message_present", [Ptr], Bool),
-        error_message_get: decl!("__torajs_error_message_get", [Ptr], Str),
         ctor_no_super_throw: decl!("__torajs_ctor_no_super_throw", [], Void),
         throw_reference_error_name: decl!("__torajs_throw_reference_error_name", [Str], Void),
         genfn_proto: decl!("__torajs_genfn_proto", [I64], Any),

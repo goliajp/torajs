@@ -168,10 +168,10 @@ pub unsafe extern "C" fn __torajs_any_member_get_value(recv: AnyValue, key: *con
         // Chunk 744 — struct cell field probe (see the tag channel).
         Some((ptr, t)) if t == Tag::Obj as u16 => unsafe {
             if let Some((_, val)) = crate::struct_probe::struct_field_pair(ptr, key) {
-                // Absent error `message` — prototype-chain read
-                // (mirror of the tag channel).
-                if crate::struct_error_msg::error_message_absent_key(ptr, key) {
-                    return crate::struct_error_msg::error_message_proto_pair(ptr).1;
+                // Absent error `message` / `name` — prototype-chain
+                // read (mirror of the tag channel).
+                if crate::struct_error_msg::error_absent_key(ptr, key) {
+                    return crate::struct_error_msg::struct_proto_chain_pair(ptr, key).1;
                 }
                 return val;
             }

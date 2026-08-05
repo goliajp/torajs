@@ -126,6 +126,14 @@ pub(super) unsafe fn write_struct(sb: *mut c_void, ptr: *mut c_void, depth: u32,
                     if key == b"message" || key == b"stack" {
                         continue;
                     }
+                    // §20.5.3.2 — an unassigned `name` is not an own
+                    // property at all (the class name is the
+                    // prototype's), so it contributes no entry. An
+                    // assigned one is ordinary and enumerable, and
+                    // serializes like any other field.
+                    if key == b"name" && crate::struct_error_msg::error_name_is_absent(ptr) {
+                        continue;
+                    }
                 }
                 let mut value: u64 = 0;
                 if __torajs_struct_field_read_anyv(ptr, name.ptr, name.len as u32, &mut value) == 0

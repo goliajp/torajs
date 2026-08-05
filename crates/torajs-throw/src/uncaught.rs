@@ -19,6 +19,17 @@ use core::sync::atomic::Ordering;
 unsafe extern "C" {
     /// Raw fd write — Layer-0 syscall shim (torajs-syscall).
     fn __torajs_syscall_write(fd: i32, buf: *const u8, n: usize) -> isize;
+    /// torajs-anyvalue — an error instance's `name` resolved through
+    /// its own slot and then the class prototype chain (§20.5.3.2 puts
+    /// the class name on `<C>.prototype`, so the slot normally holds
+    /// the own-absence sentinel). Borrowed Str; never NULL.
+    fn __torajs_error_name_get(obj: *const u8) -> *const u8;
+    /// torajs-str — own-absence sentinel identity probe. The `message`
+    /// slot holds that cell when the ctor got none (§20.5.1.1), and
+    /// its payload text is literally "undefined", so a raw length read
+    /// reported `Error: undefined` where the omit-empty rule below
+    /// wants a bare `Error`.
+    fn __torajs_str_is_undef(p: *const u8) -> i64;
 }
 
 /// Heap type_tag discriminant for Str blocks (`torajs_rc::Tag::Str`).
@@ -35,9 +46,10 @@ const FLAG_ERROR: u16 = 1 << 7;
 /// Obj field layout: `[header:32][field0:8][field1:8]…`. Error's
 /// declaration order is `message` (field0) then `name` (field1), both
 /// Str pointers — mirror of `ssa_lower::OBJ_HEADER_SIZE` (blade 1:
-/// props dynobj slot @ +24 pushed field 0 to +32).
+/// props dynobj slot @ +24 pushed field 0 to +32). Only `message` is
+/// read at its offset: `name` goes through the resolver, since its
+/// slot normally carries the own-absence sentinel.
 const OBJ_MESSAGE_OFF: usize = 32;
-const OBJ_NAME_OFF: usize = 40;
 
 /// Write a Str block's payload bytes to stderr. `str_ptr` points at a
 /// Str heap object (`[header:8][len:8][bytes:N]`). Null / empty → no-op.
@@ -101,11 +113,17 @@ pub unsafe extern "C" fn __torajs_uncaught_exit_code() -> i32 {
             // bun first-line shape ("Error", not "Error: ").
             let flags = unsafe { (p.add(HDR_FLAGS_OFF) as *const u16).read() };
             if flags & FLAG_ERROR != 0 {
-                let name_ptr = unsafe { (p.add(OBJ_NAME_OFF) as *const usize).read() } as *const u8;
+                // §20.5.3.2 — the instance's `name` slot normally
+                // holds the own-absence sentinel (the class name lives
+                // on `<C>.prototype`), so a raw read here printed the
+                // sentinel's own text, "undefined". The resolver
+                // answers an assigned own name or the prototype's.
+                let name_ptr = unsafe { __torajs_error_name_get(p) };
                 let msg_ptr =
                     unsafe { (p.add(OBJ_MESSAGE_OFF) as *const usize).read() } as *const u8;
                 unsafe { write_str_to_stderr(name_ptr) };
-                let msg_len = if msg_ptr.is_null() {
+                let msg_len = if msg_ptr.is_null() || unsafe { __torajs_str_is_undef(msg_ptr) } != 0
+                {
                     0usize
                 } else {
                     unsafe { (msg_ptr.add(STR_LEN_OFF) as *const u64).read() as usize }

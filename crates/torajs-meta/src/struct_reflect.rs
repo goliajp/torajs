@@ -350,7 +350,13 @@ pub(crate) unsafe fn struct_cell_descriptor(cell: *const c_void, key: *const c_v
     // false` but is unconditionally own, so it joins the enumerable
     // verdict below without an absence test of its own.
     let is_error_nonenum = is_error_message || (is_error && key_slice == b"stack");
-    if is_error_message && raw != 0 && unsafe { __torajs_str_is_undef(raw as *const u8) } != 0 {
+    // `name` is the mirror case: its attributes are ordinary (an own
+    // one only exists because user code assigned it, which is a plain
+    // CreateDataProperty), but the sentinel state means no own
+    // property at all — §20.5.3.2 leaves it to `Error.prototype`.
+    let is_error_absence_slot = is_error_message || (is_error && key_slice == b"name");
+    if is_error_absence_slot && raw != 0 && unsafe { __torajs_str_is_undef(raw as *const u8) } != 0
+    {
         return VALUE_UNDEFINED_IMM;
     }
 

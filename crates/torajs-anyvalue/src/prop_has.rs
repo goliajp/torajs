@@ -130,11 +130,12 @@ unsafe fn struct_has_own(ptr: *const c_void, key: *const c_void) -> i64 {
     }
     let (name_bytes, name_len) = unsafe { key_bytes(key) };
     if unsafe { __torajs_struct_field_find(layout, name_bytes, name_len) } != u32::MAX {
-        // RFC 20260718-error-message-own-prop — an error instance's
-        // `message` slot holding the own-absence sentinel means the
-        // property does not exist (§20.5.6.1.1: an undefined ctor
-        // message defines no own `message`; a delete detaches it).
-        if unsafe { crate::struct_error_msg::error_message_absent_key(ptr, key) } {
+        // A `message` / `name` slot holding the own-absence sentinel
+        // means the property does not exist (§20.5.6.1.1: an undefined
+        // ctor message defines no own `message`; a delete detaches it.
+        // §20.5.3.2: `name` is the prototype's until user code assigns
+        // one).
+        if unsafe { crate::struct_error_msg::error_absent_key(ptr, key) } {
             return 0;
         }
         return 1;

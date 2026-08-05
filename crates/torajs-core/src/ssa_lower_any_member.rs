@@ -119,7 +119,7 @@ pub(crate) fn lower_any_member_read(
         None,
     );
     let mut current = cls_dispatch;
-    for (ctag, offset, field_ty, is_err_msg) in &candidates {
+    for (ctag, offset, field_ty, is_err_slot) in &candidates {
         ctx.cur_block = current;
         let eq = ctx.f.append_inst(
             ctx.cur_block,
@@ -142,17 +142,19 @@ pub(crate) fn lower_any_member_read(
             },
         );
         ctx.cur_block = match_blk;
-        // RFC 20260718-error-message-own-prop 刀 2 — an Error-derived
-        // candidate's `message` is runtime own-state: the helper reads
-        // the own slot or walks the prototype chain (BORROWED Str,
-        // Load-equivalent). Every other field keeps the direct load.
-        let field_v = if *is_err_msg {
+        // An Error-derived candidate's `message` / `name` is runtime
+        // own-state: the helper reads the own slot or walks the
+        // prototype chain (BORROWED Str, Load-equivalent). Every
+        // other field keeps the direct load.
+        let field_v = if *is_err_slot {
+            let target = if name == "message" {
+                ctx.intrinsics.error_message_get
+            } else {
+                ctx.intrinsics.error_name_get
+            };
             ctx.f.append_inst(
                 ctx.cur_block,
-                InstKind::Call(
-                    ctx.intrinsics.error_message_get,
-                    vec![Operand::Value(dynobj)],
-                ),
+                InstKind::Call(target, vec![Operand::Value(dynobj)]),
                 Type::Str,
                 None,
             )
@@ -285,11 +287,16 @@ fn collect_class_field_candidates(ctx: &LowerCtx, name: &str) -> Vec<(u32, u64, 
         let layout = &ctx.struct_layouts[sid.0 as usize];
         if let Some((idx, (_, fty))) = layout.iter().enumerate().find(|(_, (n, _))| n == name) {
             let offset = OBJ_HEADER_SIZE + (idx as u64) * 8;
-            // RFC 20260718-error-message-own-prop 刀 2 — the error
-            // `message` candidate routes through the own-or-proto
-            // read helper instead of the direct load.
-            let is_err_msg = name == "message" && ctx.class_is_error_derived(cname);
-            candidates.push((*ctag, offset, *fty, is_err_msg));
+            // An error candidate's `message` (§20.5.6.1.1) and `name`
+            // (§20.5.3.2) are runtime own-state, so they route through
+            // the own-or-proto read helper instead of the direct load.
+            // `name` matters most: the class name is the PROTOTYPE's,
+            // so the slot holds the own-absence sentinel and a direct
+            // load reads it as `undefined` — which is what made
+            // `(err as any).name` disagree with `err.name`.
+            let is_err_slot =
+                matches!(name, "message" | "name") && ctx.class_is_error_derived(cname);
+            candidates.push((*ctag, offset, *fty, is_err_slot));
         }
     }
     let pool = ctx.anon_stamp_pool.borrow();

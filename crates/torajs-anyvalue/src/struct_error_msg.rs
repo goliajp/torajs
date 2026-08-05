@@ -60,29 +60,65 @@ const OBJ_CLASS_TAG_OFF: usize = 8;
 const STR_LEN_OFF: usize = 8;
 const STR_DATA_OFF: usize = 16;
 
-/// Resolve the `message` field slot of a `FLAG_ERROR` struct cell.
-/// `None` when the cell is not an error instance or its layout has
-/// no `message` field (a user subclass that shadowed the walk —
-/// desugar field-flattening makes that unreachable today, but the
-/// probe stays total).
+/// The two injected-layout slots that carry own-ABSENCE through the
+/// sentinel rather than through the field list. `message` is absent
+/// when the ctor got none (§20.5.1.1) or after a delete; `name` is
+/// absent on every construction, because §20.5.3.2 puts it on
+/// `Error.prototype` and only user code assigning `this.name` makes
+/// an instance own one.
+const ABSENCE_SLOTS: [&[u8]; 2] = [b"message", b"name"];
+
+/// Resolve a named field slot of a `FLAG_ERROR` struct cell. `None`
+/// when the cell is not an error instance or its layout has no such
+/// field (a user subclass that shadowed the walk — desugar
+/// field-flattening makes that unreachable today, but the probe stays
+/// total).
 ///
 /// # Safety
 /// `ptr` is a live `Tag::Obj` heap pointer.
-unsafe fn error_message_slot(ptr: *const c_void) -> Option<*mut u64> {
+unsafe fn error_slot(ptr: *const c_void, field: &[u8]) -> Option<*mut u64> {
     if !unsafe { crate::member_get::header_flag(ptr, torajs_rc::FLAG_ERROR) } {
         return None;
     }
+    unsafe { layout_slot(ptr, field) }
+}
+
+/// [`error_slot`] without the error gate — the layout lookup alone.
+/// The typed `.message` / `.name` emit fires on layout SHAPE (an
+/// error's field trio), and structurally identical classes share one
+/// StructId, so the helper it calls can receive a cell that is not an
+/// error at all. Such a cell has no class-prototype story: it answers
+/// straight out of its slot.
+///
+/// # Safety
+/// `ptr` is a live `Tag::Obj` heap pointer.
+unsafe fn layout_slot(ptr: *const c_void, field: &[u8]) -> Option<*mut u64> {
     let class_tag = unsafe { ptr.cast::<u8>().add(OBJ_CLASS_TAG_OFF).cast::<u32>().read() };
     let layout = unsafe { __torajs_struct_layout_lookup(class_tag) };
     if layout.is_null() {
         return None;
     }
-    let idx = unsafe { __torajs_struct_field_find(layout, b"message".as_ptr(), 7) };
+    let idx = unsafe { __torajs_struct_field_find(layout, field.as_ptr(), field.len() as u32) };
     if idx == u32::MAX {
         return None;
     }
     let info = unsafe { __torajs_struct_field_info(layout, idx) };
     Some(unsafe { ptr.cast::<u8>().add(info.field_byte_offset as usize) } as *mut u64)
+}
+
+/// Whether `ptr` is a `FLAG_ERROR` cell whose `field` slot holds the
+/// own-absence sentinel.
+///
+/// # Safety
+/// `ptr` is a live `Tag::Obj` heap pointer.
+unsafe fn error_field_is_absent(ptr: *const c_void, field: &[u8]) -> bool {
+    match unsafe { error_slot(ptr, field) } {
+        Some(slot) => {
+            let raw = unsafe { slot.read() };
+            raw != 0 && unsafe { __torajs_str_is_undef(raw as *const u8) } != 0
+        }
+        None => false,
+    }
 }
 
 /// Whether `ptr` is a `FLAG_ERROR` cell whose `message` slot holds
@@ -91,13 +127,17 @@ unsafe fn error_message_slot(ptr: *const c_void) -> Option<*mut u64> {
 /// # Safety
 /// `ptr` is a live `Tag::Obj` heap pointer.
 pub(crate) unsafe fn error_message_is_absent(ptr: *const c_void) -> bool {
-    match unsafe { error_message_slot(ptr) } {
-        Some(slot) => {
-            let raw = unsafe { slot.read() };
-            raw != 0 && unsafe { __torajs_str_is_undef(raw as *const u8) } != 0
-        }
-        None => false,
-    }
+    unsafe { error_field_is_absent(ptr, b"message") }
+}
+
+/// Whether `ptr` is a `FLAG_ERROR` cell whose `name` slot holds the
+/// own-absence sentinel — i.e. nobody has assigned `this.name`, so
+/// the property is the prototype's and not the instance's.
+///
+/// # Safety
+/// `ptr` is a live `Tag::Obj` heap pointer.
+pub(crate) unsafe fn error_name_is_absent(ptr: *const c_void) -> bool {
+    unsafe { error_field_is_absent(ptr, b"name") }
 }
 
 /// `delete err.message` — §20.5.6.1.1 msgDesc [[Configurable]]:
@@ -112,7 +152,7 @@ pub(crate) unsafe fn error_message_delete(ptr: *mut c_void, key: *const c_void) 
     if !unsafe { crate::prop_has::key_is(key, b"message") } {
         return 0;
     }
-    let Some(slot) = (unsafe { error_message_slot(ptr) }) else {
+    let Some(slot) = (unsafe { error_slot(ptr, b"message") }) else {
         return 0;
     };
     let old = unsafe { slot.read() };
@@ -123,14 +163,17 @@ pub(crate) unsafe fn error_message_delete(ptr: *mut c_void, key: *const c_void) 
     1
 }
 
-/// Whether `key` names the error-message own property in its ABSENT
-/// state (`FLAG_ERROR` cell + `"message"` + sentinel slot) — the
-/// hasOwnProperty / gOPD miss gate.
+/// Whether `key` names one of the [`ABSENCE_SLOTS`] in its ABSENT
+/// state (`FLAG_ERROR` cell + the sentinel in that slot) — the
+/// hasOwnProperty / gOPD / member-get miss gate. The caller answers
+/// the miss by walking the prototype chain with the same key.
 ///
 /// # Safety
 /// `ptr` is a live `Tag::Obj` heap pointer; `key` is a live Str cell.
-pub(crate) unsafe fn error_message_absent_key(ptr: *const c_void, key: *const c_void) -> bool {
-    unsafe { crate::prop_has::key_is(key, b"message") && error_message_is_absent(ptr) }
+pub(crate) unsafe fn error_absent_key(ptr: *const c_void, key: *const c_void) -> bool {
+    ABSENCE_SLOTS.iter().any(|field| unsafe {
+        crate::prop_has::key_is(key, field) && error_field_is_absent(ptr, field)
+    })
 }
 
 /// C ABI own-presence probe — the typed tier's
@@ -144,6 +187,20 @@ pub unsafe extern "C" fn __torajs_error_message_present(obj: *const c_void) -> i
     (!unsafe { error_message_is_absent(obj) }) as i64
 }
 
+/// C ABI own-presence probe for `name` — the typed tier's
+/// `err.hasOwnProperty("name")` / `propertyIsEnumerable("name")`
+/// emit. Unlike `message`, an own `name` only ever comes from user
+/// code assigning it, and such an assignment is an ordinary
+/// CreateDataProperty — so own here also means ENUMERABLE, and the
+/// two probes share this one answer.
+///
+/// # Safety
+/// `obj` is a live `Tag::Obj` heap pointer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_error_name_present(obj: *const c_void) -> i64 {
+    (!unsafe { error_name_is_absent(obj) }) as i64
+}
+
 unsafe extern "C" {
     // torajs-meta classmeta — per-class-tag `__proto_<C>` lookup
     // (OWNED AnyValue: a cell payload arrives +1).
@@ -154,20 +211,6 @@ unsafe extern "C" {
     fn __torajs_dynobj_get_value(obj: *const c_void, key: *const c_void) -> u64;
     // torajs-str — key mint for the walk.
     fn __torajs_str_alloc(bytes: *const u8, len: i64) -> *mut u8;
-}
-
-/// `message` through the [[Prototype]] chain of an error instance
-/// whose OWN message is absent — `__proto_<C>` per-tag lookup, then
-/// the `PROTO_SLOT_KEY` chain upward (`Err.prototype.message = v`
-/// shadows; the root `__proto_Error` carries the spec `""` installed
-/// by `__torajs_error_proto_install`). Borrow-shaped `(tag, value)`
-/// pair (the member-get contract); `(ANY_UNDEF, 0)` on a fully
-/// missing chain.
-///
-/// # Safety
-/// `ptr` is a live `Tag::Obj` heap pointer.
-pub(crate) unsafe fn error_message_proto_pair(ptr: *const c_void) -> (u64, u64) {
-    unsafe { error_proto_chain_pair(ptr, b"message") }
 }
 
 /// The generalized walk behind [`error_message_proto_pair`] — any
@@ -244,13 +287,51 @@ pub(crate) unsafe fn struct_proto_chain_pair(ptr: *const c_void, key: *const c_v
 /// `obj` is a live `Tag::Obj` heap pointer.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_error_message_get(obj: *const c_void) -> *mut u8 {
-    if let Some(slot) = unsafe { error_message_slot(obj) } {
+    unsafe { error_slot_get(obj, b"message") }
+}
+
+/// Typed-tier `err.name` read — the [`__torajs_error_message_get`]
+/// twin, and the reason every `name` reader keeps working after the
+/// ctor stopped writing the class name into the slot: own-absent
+/// (the ordinary case) walks to `<C>.prototype.name`, which
+/// `__torajs_error_proto_install` filled with the spec value.
+///
+/// Also the resolver behind the three stderr / toString reporters
+/// that used to read the `name` field at its fixed offset — they call
+/// it rather than repeat the sentinel test three times.
+///
+/// # Safety
+/// `obj` is a live `Tag::Obj` heap pointer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_error_name_get(obj: *const c_void) -> *mut u8 {
+    unsafe { error_slot_get(obj, b"name") }
+}
+
+/// Shared body of the two readers above — BORROWED Str pointer,
+/// mirroring the struct-field `Load` the typed emit replaces (the
+/// struct / the prototype object keeps the stake; consumers take
+/// their own share as usual). Own-present answers the slot;
+/// own-absent walks the prototype chain; a chain miss or a non-Str
+/// chain value answers the undefined sentinel (a non-Str prototype
+/// entry read through the typed Str surface is a recorded boundary —
+/// the any tier reads it exactly).
+///
+/// # Safety
+/// `obj` is a live `Tag::Obj` heap pointer.
+unsafe fn error_slot_get(obj: *const c_void, field: &[u8]) -> *mut u8 {
+    if let Some(slot) = unsafe { layout_slot(obj, field) } {
         let raw = unsafe { slot.read() };
         if raw != 0 && unsafe { __torajs_str_is_undef(raw as *const u8) } == 0 {
             return raw as *mut u8;
         }
+        // Non-error cell sharing the layout: no chain to consult, so
+        // the slot's own answer (NULL = JS null, or the sentinel) is
+        // exactly what the field `Load` this replaces would give.
+        if !unsafe { crate::member_get::header_flag(obj, torajs_rc::FLAG_ERROR) } {
+            return raw as *mut u8;
+        }
     }
-    let (tag, val) = unsafe { error_message_proto_pair(obj) };
+    let (tag, val) = unsafe { error_proto_chain_pair(obj, field) };
     if tag == AnySlotTag::Heap as u64 && val != 0 {
         let cell_tag = unsafe { (val as *const u8).add(4).cast::<u16>().read() };
         if cell_tag == Tag::Str as u16 {
