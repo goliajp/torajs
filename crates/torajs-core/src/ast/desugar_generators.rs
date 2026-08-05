@@ -120,10 +120,23 @@ pub fn desugar_generators(ast: &mut Ast) {
 /// exist yet. A call to a function that never wrote its return type
 /// is simply absent from the map, and the lift falls back exactly as
 /// it did before.
+///
+/// A `function*` is the exception, and the reason is that its
+/// declared return type describes what it YIELDS, not what calling it
+/// answers. `function* ag(): any` called as `ag()` answers the
+/// iterator object — which this very pass is about to mint as
+/// `__Gen_ag` — so that is what the map says. Reading the annotation
+/// instead pinned `const it = ag()` to the yield type and every
+/// `it.next()` after it failed ("no member `.next` on type Number").
 fn collect_declared_fn_return_types(ast: &Ast) -> std::collections::HashMap<String, String> {
     ast.stmts
         .iter()
         .filter_map(|s| match s {
+            Stmt::FnDecl {
+                name,
+                is_generator: true,
+                ..
+            } => Some((name.clone(), format!("__Gen_{name}"))),
             Stmt::FnDecl {
                 name,
                 return_type: Some(rt),

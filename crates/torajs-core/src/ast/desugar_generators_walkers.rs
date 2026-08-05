@@ -29,8 +29,24 @@ pub(crate) struct LiftCtx<'a> {
     pub(crate) binds: std::collections::HashMap<String, String>,
 }
 
-/// The field annotation for a local initialized by an arrow, or None
-/// for every other initializer.
+/// The field annotation for initializers the shared sniff cannot
+/// answer at this point in the pipeline, or None to let it try.
+///
+/// Three shapes, each of which pinned a lifted local to `number` and
+/// took every later use of it down:
+///
+/// * **an arrow** — `infer_expr_ann_with`'s `Expr::Closure` arm reads
+///   a signature published under a lifted `__closure_*` name, and this
+///   pass runs before `lift_arrow_fns`, so the node is still an
+///   `Expr::ArrowFn` and no such name exists yet. See below for why
+///   the answer is `__cls(` and not `__fn(`.
+/// * **`new C()`** — the constructed class IS the annotation. The
+///   shared sniff has no `New` arm and adding one reaches all of its
+///   callers, so it is answered here, where the field being typed is.
+///   `const s = new Set()` did not compile inside a `function*`.
+/// * **`undefined`** — JS's untyped slot is `any`, and `number` made
+///   the difference observable: a local holding `undefined` printed
+///   `0`.
 ///
 /// `infer_expr_ann_with` cannot answer this one: its `Expr::Closure`
 /// arm reads a signature `preinfer_closure_sigs` publishes under the
@@ -51,14 +67,16 @@ pub(crate) struct LiftCtx<'a> {
 /// does not; guessing `any` here would pin the field against whatever
 /// that pass concludes, which is the failure this whole change exists
 /// to stop repeating.
-fn arrow_field_ann(ast: &Ast, init: super::ExprId, ctx: &LiftCtx) -> Option<String> {
-    let Expr::ArrowFn {
-        params,
-        return_type,
-        body,
-    } = ast.get_expr(init)
-    else {
-        return None;
+fn direct_field_ann(ast: &Ast, init: super::ExprId, ctx: &LiftCtx) -> Option<String> {
+    let (params, return_type, body) = match ast.get_expr(init) {
+        Expr::ArrowFn {
+            params,
+            return_type,
+            body,
+        } => (params, return_type, body),
+        Expr::New { class_name, .. } => return Some(class_name.clone()),
+        Expr::Ident(n) if n == "undefined" => return Some("any".into()),
+        _ => return None,
     };
     let mut param_anns: Vec<String> = Vec::with_capacity(params.len());
     for p in params {
@@ -237,7 +255,7 @@ pub(crate) fn lift_lets_in_stmt(
                     // stays as what is left when the sniff declines,
                     // so every shape it cannot read keeps today's
                     // behaviour.
-                    arrow_field_ann(ast, *init, ctx)
+                    direct_field_ann(ast, *init, ctx)
                         .or_else(|| {
                             super::infer_expr_ann_with(
                                 &ast.exprs,
