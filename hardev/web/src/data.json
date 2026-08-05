@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-05T16:35:50.243Z",
+  "generatedAt": "2026-08-05T17:06:26.746Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,9 +9,9 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-05T16:33:46Z",
-    "headSha": "8d59258a",
-    "elapsedSec": 397.51,
+    "ranAt": "2026-08-05T17:04:53Z",
+    "headSha": "f36afe79",
+    "elapsedSec": 395.73,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 69.07
   },
   "torajs": {
-    "commit": "8d59258a",
-    "commitSubject": "fix: a ctor-installed error cause enumerated like an ordinary write",
+    "commit": "f36afe79",
+    "commitSubject": "fix: a struct's expando properties were invisible to hasOwnProperty",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "f36afe79",
+      "subject": "fix: a struct's expando properties were invisible to hasOwnProperty"
+    },
+    {
+      "hash": "ddd35165",
+      "subject": "chore: stow rotation 309 sweep and refresh hardev dashboard"
+    },
+    {
       "hash": "8d59258a",
       "subject": "fix: a ctor-installed error cause enumerated like an ordinary write"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "cd961dd1",
       "subject": "fix: a mixed Promise.all read every slot through one element's form"
-    },
-    {
-      "hash": "01152c29",
-      "subject": "chore: refresh hardev dashboard snapshot at 3bbed7bf"
-    },
-    {
-      "hash": "3bbed7bf",
-      "subject": "docs: rotation 307 sweep at f3af5bb4 — zero test262 movement, one SIGSEGV gone"
     }
   ],
-  "headSha": "8d59258a",
+  "headSha": "f36afe79",
   "autorun": {
     "total": 612,
     "baselineTarget": 10,
