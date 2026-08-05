@@ -14,9 +14,7 @@
 // checker — which types the call correctly — rejected the store:
 // "field is Number, value is ClassRef(__Gen___cm_gen_Box__each)".
 // Two locals apart, since the second one has to read a `binds` entry
-// the first one wrote. The two loops use distinct binding names
-// because both would lift to the same `this.<name>` field otherwise
-// (the J.2.b limitation, which this fixture is not about).
+// the first one wrote.
 
 class Box {
   items: number[] = [1, 2, 3];

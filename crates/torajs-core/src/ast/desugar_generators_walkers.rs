@@ -211,6 +211,23 @@ pub(crate) fn expand_yield_into_in_stmt(ast: &mut Ast, s: &mut Stmt, yield_ty: &
     }
 }
 
+/// Lift the lets of one statement list — every scope that owns one
+/// goes through here, so a name a lifted field already claims gets
+/// resolved (J.2.b, see `desugar_generators_alpha`) while the
+/// declaration is still a declaration and its visibility range is
+/// still `list[i..]`.
+pub(crate) fn lift_lets_in_list(
+    ast: &mut Ast,
+    list: &mut [Stmt],
+    lifted: &mut Vec<(String, String)>,
+    ctx: &mut LiftCtx,
+) {
+    for i in 0..list.len() {
+        super::desugar_generators_alpha::resolve_duplicate_let(ast, &mut list[i..], lifted);
+        lift_lets_in_stmt(ast, &mut list[i], lifted, ctx);
+    }
+}
+
 /// Recursively replace every `let x = init` in `s` (and any nested
 /// stmts) with `this.x = init`, recording each lifted `(name, type)`
 /// in `lifted`. Used by `desugar_generators` so locals declared in
@@ -222,6 +239,11 @@ pub(crate) fn lift_lets_in_stmt(
     lifted: &mut Vec<(String, String)>,
     ctx: &mut LiftCtx,
 ) {
+    // J.2.b — a `for (let i = ..)` counter whose name a lifted field
+    // already claims is renamed across the whole loop first; the
+    // declaration is about to stop being one. A no-op for every other
+    // statement, and for a `for` whose name is still free.
+    super::desugar_generators_alpha::resolve_duplicate_for_let(ast, s, lifted);
     match s {
         Stmt::LetDecl {
             name,
@@ -333,7 +355,13 @@ pub(crate) fn lift_lets_in_stmt(
             }
             lift_lets_in_stmt(ast, body, lifted, ctx);
         }
-        Stmt::Block(stmts) | Stmt::Multi(stmts) => {
+        Stmt::Block(stmts) => lift_lets_in_list(ast, stmts, lifted, ctx),
+        // Not a scope of its own: `Stmt::Multi` is the wrapper the
+        // yield-into expansion puts around a `[yield e; let v = ..]`
+        // pair, so a `let` inside it belongs to the list that holds
+        // the Multi — which has already run the J.2.b hook over a
+        // range that covers it.
+        Stmt::Multi(stmts) => {
             for s in stmts {
                 lift_lets_in_stmt(ast, s, lifted, ctx);
             }
@@ -354,13 +382,13 @@ pub(crate) fn lift_lets_in_stmt(
                 .chain(finally_body.iter().flatten())
                 .any(super::desugar_generators_sm_rewrite::stmt_contains_yield);
             if has_yield {
-                for s in body.iter_mut().chain(catch_body.iter_mut()) {
-                    lift_lets_in_stmt(ast, s, lifted, ctx);
-                }
+                // Three separate scopes — a `let` in the body and one
+                // in the catch are the J.2.b collision this pass is
+                // most often asked about.
+                lift_lets_in_list(ast, body, lifted, ctx);
+                lift_lets_in_list(ast, catch_body, lifted, ctx);
                 if let Some(fs) = finally_body {
-                    for s in fs {
-                        lift_lets_in_stmt(ast, s, lifted, ctx);
-                    }
+                    lift_lets_in_list(ast, fs, lifted, ctx);
                 }
             }
         }

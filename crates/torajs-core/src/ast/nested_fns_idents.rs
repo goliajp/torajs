@@ -8,7 +8,7 @@ use std::collections::HashMap;
 
 pub(super) fn rewrite_idents_in_body(
     ast: &mut Ast,
-    body: &mut Vec<Stmt>,
+    body: &mut [Stmt],
     renames: &HashMap<String, String>,
     arrows: bool,
 ) {

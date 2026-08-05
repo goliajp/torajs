@@ -13,9 +13,11 @@
 //!    disturbing surrounding scope.
 //! 2. **let-lift** — every `let x: T = init` lifts to a class field
 //!    (recorded in `lifted_locals`) so the binding survives yield
-//!    boundaries. Same-name lets in different scopes both map to
-//!    the same field and would clobber; we panic on collision so
-//!    the user has to rename (Phase J.2.b limitation).
+//!    boundaries. Same-name lets in different scopes would both map
+//!    to the same field; the second one is renamed across its own
+//!    visibility range instead (`desugar_generators_alpha`), and the
+//!    panic below is left for the one range shape a rename cannot
+//!    cover.
 //! 3. **params + locals rewrite** — every Ident matching a
 //!    generator param or lifted local rewrites to `this.<name>` so
 //!    the iterator class's field path picks it up.
@@ -24,7 +26,8 @@
 //! both into the class-assembly step.
 
 use super::desugar_generators_walkers::LiftCtx;
-use super::{Ast, Param, Stmt, expand_yield_into_in_stmt, lift_lets_in_stmt};
+use super::desugar_generators_walkers::lift_lets_in_list;
+use super::{Ast, Param, Stmt, expand_yield_into_in_stmt};
 
 pub(super) fn prep_generator_body(
     ast: &mut Ast,
@@ -64,17 +67,17 @@ pub(super) fn prep_generator_body(
             .filter_map(|p| p.type_ann.clone().map(|a| (p.name.clone(), a)))
             .collect(),
     };
-    for s in &mut gen_body {
-        lift_lets_in_stmt(ast, s, &mut lifted_locals, &mut lift_ctx);
-    }
+    lift_lets_in_list(ast, &mut gen_body, &mut lifted_locals, &mut lift_ctx);
     for i in 0..lifted_locals.len() {
         for j in (i + 1)..lifted_locals.len() {
             if lifted_locals[i].0 == lifted_locals[j].0 {
                 panic!(
                     "function* {gen_name}: duplicate `let {}` declarations across \
-                     scopes — both lift to `this.{}` and would collide. Rename \
-                     one (Phase J.2.b limitation).",
-                    lifted_locals[i].0, lifted_locals[i].0
+                     scopes, and one of the two ranges declares the name again \
+                     deeper in — renaming it would have to stop at that inner \
+                     declaration. Rename one by hand (J.2.b residue; the plain \
+                     sibling-scope case is resolved automatically).",
+                    lifted_locals[i].0
                 );
             }
         }
