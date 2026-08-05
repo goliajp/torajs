@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-04T20:34:00.427Z",
+  "generatedAt": "2026-08-05T01:38:17.771Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-04T20:31:16Z",
-    "headSha": "4b3c3ee5",
-    "elapsedSec": 391.36,
+    "ranAt": "2026-08-05T01:32:30Z",
+    "headSha": "e6e616f5",
+    "elapsedSec": 390.1,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 21732,
+    "pass": 21745,
     "passNoOracle": 639,
     "passNegative": 3956,
-    "passTotal": 26327,
+    "passTotal": 26340,
     "bug": 11881,
-    "incompatible": 14966,
+    "incompatible": 14953,
     "bunSkip": 7155,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 38208,
-    "passRateInScope": 49.51,
-    "passRateTrAccepted": 68.9
+    "trAccepted": 38221,
+    "passRateInScope": 49.54,
+    "passRateTrAccepted": 68.91
   },
   "torajs": {
-    "commit": "4b3c3ee5",
-    "commitSubject": "fix: an owned temp handed to an any-call is released after it",
+    "commit": "9c215754",
+    "commitSubject": "docs: rotation 303 sweep at e6e616f5 — D0 lands, D1 re-measured 20 to 12",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,73 +713,84 @@
   },
   "commits": [
     {
+      "hash": "9c215754",
+      "subject": "docs: rotation 303 sweep at e6e616f5 — D0 lands, D1 re-measured 20 to 12"
+    },
+    {
+      "hash": "e6e616f5",
+      "subject": "fix: a generator local holding the result of a call that returns nothing"
+    },
+    {
+      "hash": "700401bd",
+      "subject": "fix: a generator local holding a constructed object, an iterator or undefined"
+    },
+    {
+      "hash": "876073d4",
+      "subject": "fix: an arrow held in a generator local is callable, and sees what it captures"
+    },
+    {
+      "hash": "804f1a4a",
+      "subject": "fix: a generator's lifted local keeps the type its initializer says"
+    },
+    {
+      "hash": "8a33dfe7",
+      "subject": "fix: a top-level block's function declaration stays out of nested scopes"
+    },
+    {
+      "hash": "5ee3a546",
+      "subject": "fix: a lifted nested function's rename reaches the arrows that call it"
+    },
+    {
+      "hash": "c56e4f1a",
+      "subject": "fix: the cycle collector no longer dereferences a nan-box immediate"
+    },
+    {
+      "hash": "58622df1",
+      "subject": "Revert \"feat: an async function suspends at its first await\""
+    },
+    {
+      "hash": "3b68b95c",
+      "subject": "feat: an async function suspends at its first await"
+    },
+    {
+      "hash": "8377b549",
+      "subject": "chore(hardev): rotation 301 sweep at 4b3c3ee5, dashboard snapshot"
+    },
+    {
       "hash": "4b3c3ee5",
       "subject": "fix: an owned temp handed to an any-call is released after it"
-    },
-    {
-      "hash": "a965d5b6",
-      "subject": "feat: an empty iterable settles a combinator synchronously"
-    },
-    {
-      "hash": "5a59955f",
-      "subject": "feat: .finally uses what its handler returns"
-    },
-    {
-      "hash": "342a06f5",
-      "subject": "feat: Promise.any waits for elements that have not settled yet"
-    },
-    {
-      "hash": "a4cab86d",
-      "subject": "feat: an all-rejected Promise.any answers an AggregateError"
-    },
-    {
-      "hash": "5e5d653d",
-      "subject": "refactor: split what an element contributes out of the fan-in module"
-    },
-    {
-      "hash": "b2706065",
-      "subject": "chore(hardev): rotation 300 sweep at 212d3d5b, dashboard snapshot"
-    },
-    {
-      "hash": "212d3d5b",
-      "subject": "feat: the any lane waits for pending elements too"
-    },
-    {
-      "hash": "cc8b2f2f",
-      "subject": "feat: allSettled waits for pending elements and its records hold values"
-    },
-    {
-      "hash": "b3b933a3",
-      "subject": "feat: Promise.all waits for elements that have not settled yet"
-    },
-    {
-      "hash": "279bd68f",
-      "subject": "feat: allSettled's settled records are real objects with per-outcome fields"
-    },
-    {
-      "hash": "f65fcc83",
-      "subject": "feat: Promise.all builds its result array in the element form the site names"
     }
   ],
-  "headSha": "4b3c3ee5",
+  "headSha": "9c215754",
   "autorun": {
-    "total": 605,
+    "total": 606,
     "baselineTarget": 10,
-    "bySelf": 600,
+    "bySelf": 601,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785864258-675b",
-      "at": "2026-08-04T17:24:18Z",
-      "ts": 1785864258,
+      "rotationId": "r-1785875762-2342",
+      "at": "2026-08-04T20:36:02Z",
+      "ts": 1785875762,
       "trigger": "self",
-      "prevHead": "5e5d653d",
-      "handoffSha": "sha256:e51c6e35b3e3a9070545e072f83c8afd3d2c6713d4023ce5b58f90feb032e9fe",
-      "handoffAgeSec": 5,
+      "prevHead": "8377b549",
+      "handoffSha": "sha256:195ade6c6d6c304c8cb9cbaf04db0f908d3f4846a8904dc7bfcb814e2f632413",
+      "handoffAgeSec": 37,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1785875762-2342",
+        "at": "2026-08-04T20:36:02Z",
+        "ts": 1785875762,
+        "trigger": "self",
+        "prevHead": "8377b549",
+        "handoffSha": "sha256:195ade6c6d6c304c8cb9cbaf04db0f908d3f4846a8904dc7bfcb814e2f632413",
+        "handoffAgeSec": 37,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785864258-675b",
         "at": "2026-08-04T17:24:18Z",
@@ -876,17 +887,6 @@
         "prevHead": "98dcbf4f",
         "handoffSha": "sha256:218cec5fccc01a29f11a6efdf74cdd86dbe48559f237c44c45d9d96285c8d17b",
         "handoffAgeSec": 30,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1785774230-3cdb",
-        "at": "2026-08-03T16:23:50Z",
-        "ts": 1785774230,
-        "trigger": "self",
-        "prevHead": "c80a0ba0",
-        "handoffSha": "sha256:e1fe6db138701f0d072d95160f3f61d0b1c2f0396b6782768f1165a727fb7826",
-        "handoffAgeSec": 56,
         "conformanceBefore": null,
         "commitsInSession": null
       }
