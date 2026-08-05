@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-05T18:57:07.853Z",
+  "generatedAt": "2026-08-05T23:47:23.387Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,9 +9,9 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-05T18:53:42Z",
-    "headSha": "b00e9bea",
-    "elapsedSec": 394.78,
+    "ranAt": "2026-08-05T23:46:24Z",
+    "headSha": "91fb2020",
+    "elapsedSec": 395.61,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 69.08
   },
   "torajs": {
-    "commit": "b00e9bea",
-    "commitSubject": "feat: Object.getOwnPropertyDescriptors, and the string it revealed",
+    "commit": "91fb2020",
+    "commitSubject": "fix: a top-level const could not be initialized with undefined",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "91fb2020",
+      "subject": "fix: a top-level const could not be initialized with undefined"
+    },
+    {
+      "hash": "c5a8f183",
+      "subject": "feat: an optional class member, and the undefined it is supposed to hold"
+    },
+    {
+      "hash": "6c56c5bc",
+      "subject": "fix: a promise's own stamp went unread when both sides were typed and disagreed"
+    },
+    {
+      "hash": "543cd8a2",
+      "subject": "fix: `T | undefined` did not parse, and the shorthand that did bound null"
+    },
+    {
+      "hash": "740869c4",
+      "subject": "fix: a declared field could not be redefined, for want of somewhere to put attributes"
+    },
+    {
+      "hash": "b0da8370",
+      "subject": "chore: stow rotation 310 final sweep and refresh hardev dashboard"
+    },
+    {
       "hash": "b00e9bea",
       "subject": "feat: Object.getOwnPropertyDescriptors, and the string it revealed"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "c2c0ce50",
       "subject": "fix: a scalar T | null had nowhere to put the null"
-    },
-    {
-      "hash": "10f0adc0",
-      "subject": "fix: a struct's expando properties had no descriptor"
-    },
-    {
-      "hash": "5a080b0d",
-      "subject": "chore: stow rotation 309 sweep and refresh hardev dashboard"
-    },
-    {
-      "hash": "f36afe79",
-      "subject": "fix: a struct's expando properties were invisible to hasOwnProperty"
-    },
-    {
-      "hash": "ddd35165",
-      "subject": "chore: stow rotation 309 sweep and refresh hardev dashboard"
-    },
-    {
-      "hash": "8d59258a",
-      "subject": "fix: a ctor-installed error cause enumerated like an ordinary write"
-    },
-    {
-      "hash": "8b5f79ab",
-      "subject": "fix: an error's name shadowed the prototype's with an enumerable copy"
     }
   ],
-  "headSha": "b00e9bea",
+  "headSha": "91fb2020",
   "autorun": {
-    "total": 613,
+    "total": 614,
     "baselineTarget": 10,
-    "bySelf": 608,
+    "bySelf": 609,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785949600-6aa1",
-      "at": "2026-08-05T17:06:40Z",
-      "ts": 1785949600,
+      "rotationId": "r-1785956249-2583",
+      "at": "2026-08-05T18:57:29Z",
+      "ts": 1785956249,
       "trigger": "self",
-      "prevHead": "5a080b0d",
-      "handoffSha": "sha256:4101a5ee60575bef6e8d31200f5f956f9cbba4a4da0d56da52da2ded7a4a9ee6",
-      "handoffAgeSec": 21,
+      "prevHead": "b0da8370",
+      "handoffSha": "sha256:9b8c646e99034777ea94cace30422d3e60d952136086836674b38adfa47a0f99",
+      "handoffAgeSec": 43,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1785956249-2583",
+        "at": "2026-08-05T18:57:29Z",
+        "ts": 1785956249,
+        "trigger": "self",
+        "prevHead": "b0da8370",
+        "handoffSha": "sha256:9b8c646e99034777ea94cace30422d3e60d952136086836674b38adfa47a0f99",
+        "handoffAgeSec": 43,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785949600-6aa1",
         "at": "2026-08-05T17:06:40Z",
@@ -876,17 +887,6 @@
         "prevHead": "5e5d653d",
         "handoffSha": "sha256:e51c6e35b3e3a9070545e072f83c8afd3d2c6713d4023ce5b58f90feb032e9fe",
         "handoffAgeSec": 5,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1785858616-1d1e",
-        "at": "2026-08-04T15:50:16Z",
-        "ts": 1785858616,
-        "trigger": "self",
-        "prevHead": "874bc568",
-        "handoffSha": "sha256:987182641b6029e67cabbf758aa0fc948d669dd001398f7fefd06b6372d78535",
-        "handoffAgeSec": 7,
         "conformanceBefore": null,
         "commitsInSession": null
       }
