@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-05T18:27:17.438Z",
+  "generatedAt": "2026-08-05T18:57:07.853Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-05T18:23:41Z",
-    "headSha": "467c1d29",
-    "elapsedSec": 396.9,
+    "ranAt": "2026-08-05T18:53:42Z",
+    "headSha": "b00e9bea",
+    "elapsedSec": 394.78,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 21829,
+    "pass": 21837,
     "passNoOracle": 639,
     "passNegative": 3956,
-    "passTotal": 26424,
-    "bug": 11830,
-    "incompatible": 14920,
+    "passTotal": 26432,
+    "bug": 11831,
+    "incompatible": 14911,
     "bunSkip": 7155,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 38254,
-    "passRateInScope": 49.69,
+    "trAccepted": 38263,
+    "passRateInScope": 49.71,
     "passRateTrAccepted": 69.08
   },
   "torajs": {
-    "commit": "467c1d29",
-    "commitSubject": "fix: defineProperty on a class instance did nothing at all",
+    "commit": "b00e9bea",
+    "commitSubject": "feat: Object.getOwnPropertyDescriptors, and the string it revealed",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,14 @@
   },
   "commits": [
     {
+      "hash": "b00e9bea",
+      "subject": "feat: Object.getOwnPropertyDescriptors, and the string it revealed"
+    },
+    {
+      "hash": "cc07c232",
+      "subject": "chore: stow rotation 310 sweep and refresh hardev dashboard"
+    },
+    {
       "hash": "467c1d29",
       "subject": "fix: defineProperty on a class instance did nothing at all"
     },
@@ -751,17 +759,9 @@
     {
       "hash": "8b5f79ab",
       "subject": "fix: an error's name shadowed the prototype's with an enumerable copy"
-    },
-    {
-      "hash": "fe01aaff",
-      "subject": "fix: an error's message and stack were ordinary enumerable fields"
-    },
-    {
-      "hash": "391fbd75",
-      "subject": "chore: stow rotation 308 sweep and refresh hardev dashboard"
     }
   ],
-  "headSha": "467c1d29",
+  "headSha": "b00e9bea",
   "autorun": {
     "total": 613,
     "baselineTarget": 10,

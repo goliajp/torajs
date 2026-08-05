@@ -1530,27 +1530,32 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 176bcffb`, never as a constant.
 
-**Latest @ `467c1d29`** (2026-08-06, rotation 310 — five knives on one
+**Latest @ `b00e9bea`** (2026-08-06, rotation 310 — six knives on one
 question: where does a value live. A class instance's own properties
-live in a dict the compile-time layout cannot see, and a scalar
-`T | null` had nowhere at all to put the null): passTotal 26422 →
-**26424 (+2)**, bug 11832 → **11830 (−2)**, trAccepted **38254** and
-incompatible **14920** both flat — conservation exact (0 = +2 + −2).
-Both moves are in the oracle-backed `pass` bucket, `passNoOracle` flat
-at 639. The verdict diff is exactly two lines, both forward, both the
-defineProperty knife: `Object/defineProperties/15.2.3.7-6-a-21.js` and
-`Object/defineProperty/15.2.3.6-4-42.js`, each `bug:exit 1` → `pass`.
-Gate predicate **321 clusters / 8145 cases**, core **9122** — all
-three flat, which is the necessary consequence of a delta that moves
-cases from `bug` into `pass` without touching `incompatible` at all:
-the predicate reads the composition of `incompatible` only, so it is
-blind to fixing a case that already runs. Regressions **zero**, no new
-timeouts or crashes. The other four knives fixed real defects (five
-fixtures byte-equal with bun, all wrong before) that no test262 case
-happens to observe — not dilution and not regression, simply outside
-this metric's window. Top clusters unchanged: eval 1433 (26 dirs) /
-`__this` 253 (20 dirs) / globalThis 216 (14 dirs); coverage curve top
-25 = 42.6%, top 100 = 70.5%.
+live in a dict the compile-time layout cannot see; a scalar
+`T | null` had nowhere at all to put the null; and
+`getOwnPropertyDescriptors` had no lowering, which on being built
+revealed that the descriptor kernel underneath has no arm for a
+string receiver at all): passTotal 26422 → **26432 (+10)**, bug
+11832 → **11831 (−1)**, trAccepted 38254 → **38263 (+9)**,
+incompatible 14920 → **14911 (−9)** — conservation exact
+(9 = 10 + −1). The +10 is entirely in the oracle-backed `pass`
+bucket, `passNoOracle` flat at 639, so none of it is dilution. The
+verdict diff is ten lines, all under
+`Object/getOwnPropertyDescriptors/`: eight forward from
+`incompatible:not yet supported` to `pass`, one newly-running case
+that now fails (`order-after-define-property`, exactly the residual
+the defineProperty knife declared — redefining a DECLARED field needs
+per-field attribute storage the layout has no room for), and one bug
+whose exit code changed (the proxy face is unimplemented). Gate
+predicate **320 clusters / 8136 cases** (−1 / −9), core **9113 (−9)**
+— clusters and cases moving DOWN together, as in rotation 227.
+Regressions **zero**: no `pass` moved to anything else. The other
+five knives fixed real defects (six fixtures byte-equal with bun, all
+wrong before); two of them show up here, the rest are outside this
+metric's window — neither dilution nor regression. Top clusters
+unchanged: eval 1433 (26 dirs) / `__this` 253 (20 dirs) / globalThis
+216 (14 dirs); coverage curve top 25 = 42.6%, top 100 = 70.6%.
 
 **Previous @ `4b2659f7`** (2026-08-05, rotation 308 — five knives, four
 of them silent-wrong, three of them the same shape: the checker had
