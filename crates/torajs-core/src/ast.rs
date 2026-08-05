@@ -44,6 +44,7 @@ mod desugar_generators;
 mod desugar_generators_alpha;
 mod desugar_generators_assemble;
 mod desugar_generators_class;
+mod desugar_generators_field_ann;
 mod desugar_generators_forof;
 mod desugar_generators_methods;
 mod desugar_generators_prep;
