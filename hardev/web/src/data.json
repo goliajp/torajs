@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-05T17:06:26.746Z",
+  "generatedAt": "2026-08-05T18:27:17.438Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-08-05T17:04:53Z",
-    "headSha": "f36afe79",
-    "elapsedSec": 395.73,
+    "ranAt": "2026-08-05T18:23:41Z",
+    "headSha": "467c1d29",
+    "elapsedSec": 396.9,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 21827,
+    "pass": 21829,
     "passNoOracle": 639,
     "passNegative": 3956,
-    "passTotal": 26422,
-    "bug": 11832,
+    "passTotal": 26424,
+    "bug": 11830,
     "incompatible": 14920,
     "bunSkip": 7155,
     "harnessError": 0,
     "inScope": 53174,
     "trAccepted": 38254,
     "passRateInScope": 49.69,
-    "passRateTrAccepted": 69.07
+    "passRateTrAccepted": 69.08
   },
   "torajs": {
-    "commit": "f36afe79",
-    "commitSubject": "fix: a struct's expando properties were invisible to hasOwnProperty",
+    "commit": "467c1d29",
+    "commitSubject": "fix: defineProperty on a class instance did nothing at all",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -713,6 +713,30 @@
   },
   "commits": [
     {
+      "hash": "467c1d29",
+      "subject": "fix: defineProperty on a class instance did nothing at all"
+    },
+    {
+      "hash": "75168098",
+      "subject": "fix: a nullable promise had no .then at all"
+    },
+    {
+      "hash": "e0242bf1",
+      "subject": "fix: Promise.all read every null element as something else"
+    },
+    {
+      "hash": "c2c0ce50",
+      "subject": "fix: a scalar T | null had nowhere to put the null"
+    },
+    {
+      "hash": "10f0adc0",
+      "subject": "fix: a struct's expando properties had no descriptor"
+    },
+    {
+      "hash": "5a080b0d",
+      "subject": "chore: stow rotation 309 sweep and refresh hardev dashboard"
+    },
+    {
       "hash": "f36afe79",
       "subject": "fix: a struct's expando properties were invisible to hasOwnProperty"
     },
@@ -735,51 +759,38 @@
     {
       "hash": "391fbd75",
       "subject": "chore: stow rotation 308 sweep and refresh hardev dashboard"
-    },
-    {
-      "hash": "78ba28f2",
-      "subject": "docs: rotation 308 sweep at 4b2659f7 — +82 pass, zero regressions"
-    },
-    {
-      "hash": "4b2659f7",
-      "subject": "fix: a mixed allSettled lost its numbers"
-    },
-    {
-      "hash": "932a63bc",
-      "subject": "fix: half the binary operators ignored an object's valueOf"
-    },
-    {
-      "hash": "c8565b7a",
-      "subject": "fix: a rest parameter was an alias of the caller's array"
-    },
-    {
-      "hash": "87e8e8bd",
-      "subject": "fix: the usual way to write an iterable object did not parse"
-    },
-    {
-      "hash": "cd961dd1",
-      "subject": "fix: a mixed Promise.all read every slot through one element's form"
     }
   ],
-  "headSha": "f36afe79",
+  "headSha": "467c1d29",
   "autorun": {
-    "total": 612,
+    "total": 613,
     "baselineTarget": 10,
-    "bySelf": 607,
+    "bySelf": 608,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1785929826-0544",
-      "at": "2026-08-05T11:37:06Z",
-      "ts": 1785929826,
+      "rotationId": "r-1785949600-6aa1",
+      "at": "2026-08-05T17:06:40Z",
+      "ts": 1785949600,
       "trigger": "self",
-      "prevHead": "391fbd75",
-      "handoffSha": "sha256:342bffef928f111603445635044d9cad0bd5a2aadbb6b8f2a3cb0e1cca3dabf7",
-      "handoffAgeSec": 4,
+      "prevHead": "5a080b0d",
+      "handoffSha": "sha256:4101a5ee60575bef6e8d31200f5f956f9cbba4a4da0d56da52da2ded7a4a9ee6",
+      "handoffAgeSec": 21,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1785949600-6aa1",
+        "at": "2026-08-05T17:06:40Z",
+        "ts": 1785949600,
+        "trigger": "self",
+        "prevHead": "5a080b0d",
+        "handoffSha": "sha256:4101a5ee60575bef6e8d31200f5f956f9cbba4a4da0d56da52da2ded7a4a9ee6",
+        "handoffAgeSec": 21,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1785929826-0544",
         "at": "2026-08-05T11:37:06Z",
@@ -876,17 +887,6 @@
         "prevHead": "874bc568",
         "handoffSha": "sha256:987182641b6029e67cabbf758aa0fc948d669dd001398f7fefd06b6372d78535",
         "handoffAgeSec": 7,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1785853211-694c",
-        "at": "2026-08-04T14:20:11Z",
-        "ts": 1785853211,
-        "trigger": "self",
-        "prevHead": "fd9ab907",
-        "handoffSha": "sha256:e7b7a2ef1b9a47ac7e13dd3898534f71b2cad4f1f258a74fc9da39982934bd94",
-        "handoffAgeSec": 26,
         "conformanceBefore": null,
         "commitsInSession": null
       }

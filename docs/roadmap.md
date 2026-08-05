@@ -1530,7 +1530,29 @@ every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
 snapshot stamped `@ 176bcffb`, never as a constant.
 
-**Latest @ `4b2659f7`** (2026-08-05, rotation 308 — five knives, four
+**Latest @ `467c1d29`** (2026-08-06, rotation 310 — five knives on one
+question: where does a value live. A class instance's own properties
+live in a dict the compile-time layout cannot see, and a scalar
+`T | null` had nowhere at all to put the null): passTotal 26422 →
+**26424 (+2)**, bug 11832 → **11830 (−2)**, trAccepted **38254** and
+incompatible **14920** both flat — conservation exact (0 = +2 + −2).
+Both moves are in the oracle-backed `pass` bucket, `passNoOracle` flat
+at 639. The verdict diff is exactly two lines, both forward, both the
+defineProperty knife: `Object/defineProperties/15.2.3.7-6-a-21.js` and
+`Object/defineProperty/15.2.3.6-4-42.js`, each `bug:exit 1` → `pass`.
+Gate predicate **321 clusters / 8145 cases**, core **9122** — all
+three flat, which is the necessary consequence of a delta that moves
+cases from `bug` into `pass` without touching `incompatible` at all:
+the predicate reads the composition of `incompatible` only, so it is
+blind to fixing a case that already runs. Regressions **zero**, no new
+timeouts or crashes. The other four knives fixed real defects (five
+fixtures byte-equal with bun, all wrong before) that no test262 case
+happens to observe — not dilution and not regression, simply outside
+this metric's window. Top clusters unchanged: eval 1433 (26 dirs) /
+`__this` 253 (20 dirs) / globalThis 216 (14 dirs); coverage curve top
+25 = 42.6%, top 100 = 70.5%.
+
+**Previous @ `4b2659f7`** (2026-08-05, rotation 308 — five knives, four
 of them silent-wrong, three of them the same shape: the checker had
 already worked the answer out and the runtime was not reading it. A
 heterogeneous `Promise.all` decoded every slot of its result array
@@ -1567,7 +1589,7 @@ globalThis 216. Note the span: this delta is measured against rotation
 303 — rotations 304-307 recorded their sweeps in plan-state and
 handoff without refreshing this section.
 
-**Previous @ `e6e616f5`** (2026-08-05, rotation 303 — a generator's
+**Earlier @ `e6e616f5`** (2026-08-05, rotation 303 — a generator's
 lifted locals keep the types their initializers say they have. The
 let-lift moves every `let` in a generator body to a field of the
 synthesized `__Gen_*` class so the binding survives a yield boundary,
