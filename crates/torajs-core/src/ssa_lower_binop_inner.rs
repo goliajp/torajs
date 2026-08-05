@@ -69,6 +69,17 @@ pub(crate) fn lower(ctx: &mut LowerCtx, op: AstBinOp, a: Operand, b: Operand) ->
     // [`crate::ssa_lower_binop_inner_any_arith`] (chunk 190 —
     // sub-stage extraction mirroring chunks 185-189; gets
     // this file ≤500 LOC HARD).
+    // An object operand on an operator whose ToPrimitive can answer
+    // something other than a number. Boxing it hands the any-lane
+    // kernels below the shape they dispatch on, so the object case and
+    // the `any` case become one path — and those kernels already carry
+    // the whole §13.15.3 / §13.10 / §13.12 walk (valueOf then
+    // toString, either answer, throws propagated).
+    //
+    // `-` / `*` / `/` / `%` deliberately do NOT come here: ToNumeric
+    // has no answer but a number, so they keep the static f64 lane in
+    // `coerce_object_operands` below.
+    let (a, b) = box_object_operands_for_any_lane(ctx, op, a, b);
     if let Some(v) = crate::ssa_lower_binop_inner_any_arith::try_lower(ctx, op, a, b) {
         return v;
     }
@@ -193,6 +204,54 @@ pub(crate) fn lower(ctx: &mut LowerCtx, op: AstBinOp, a: Operand, b: Operand) ->
 /// The kernel is the one the `any` lane already used. Boxing the
 /// pointer is a pure encode with no refcount traffic, and the throw
 /// check is there because a user `valueOf` can throw.
+/// Box an object operand so the any-lane kernels claim the expression.
+///
+/// The checker types these pairs exactly as it types an `any` operand
+/// (`objectish_numeric_pair` in `check_type_of_binop`), so the value
+/// the kernel answers with is the one the surrounding code expects.
+///
+/// A String on the other side is left alone: `Str + obj` has its own
+/// concat lane that the checker types String, and boxing here would
+/// answer Any instead. The ordering operators never reach this with a
+/// String either — the checker refuses that pair outright.
+fn box_object_operands_for_any_lane(
+    ctx: &mut LowerCtx,
+    op: AstBinOp,
+    a: Operand,
+    b: Operand,
+) -> (Operand, Operand) {
+    if !matches!(
+        op,
+        AstBinOp::Add
+            | AstBinOp::Pow
+            | AstBinOp::Lt
+            | AstBinOp::Le
+            | AstBinOp::Gt
+            | AstBinOp::Ge
+            | AstBinOp::BitAnd
+            | AstBinOp::BitOr
+            | AstBinOp::BitXor
+            | AstBinOp::Shl
+            | AstBinOp::Shr
+            | AstBinOp::UShr
+    ) {
+        return (a, b);
+    }
+    let a_obj = matches!(ctx.operand_ty(&a), Type::Obj(_));
+    let b_obj = matches!(ctx.operand_ty(&b), Type::Obj(_));
+    if !a_obj && !b_obj {
+        return (a, b);
+    }
+    if matches!(ctx.operand_ty(&a), Type::Str | Type::Substr)
+        || matches!(ctx.operand_ty(&b), Type::Str | Type::Substr)
+    {
+        return (a, b);
+    }
+    let a = if a_obj { ctx.box_to_any(a) } else { a };
+    let b = if b_obj { ctx.box_to_any(b) } else { b };
+    (a, b)
+}
+
 fn coerce_object_operands(
     ctx: &mut LowerCtx,
     op: AstBinOp,

@@ -100,9 +100,35 @@ fn check_add(l: Type, r: Type) -> Result<Type, String> {
     if js_add_coerces_to_number(&l, &r) {
         return Ok(Type::Number);
     }
+    // §13.15.3 ToPrimitive with the DEFAULT hint, which for an object
+    // reaches `valueOf` first and `toString` after — so `{valueOf(){return 42}} + 1`
+    // is 43 while a hook-free object concatenates. Which one it is
+    // cannot be known here, so this answers Any and lowering hands both
+    // sides to `any_add`, the kernel that already carries the whole
+    // walk (it is what an `any`-typed operand has always used).
+    if objectish_numeric_pair(&l, &r) {
+        return Ok(Type::Any);
+    }
     Err(format!(
         "`+` requires matching number/string/bigint operands or string+number, got {l:?} and {r:?}"
     ))
+}
+
+/// One side is an object, and the other is one the numeric lanes can
+/// describe — the shape every binary operator sends through
+/// ToPrimitive before doing anything else (§13.15.3 for `+`, §13.10
+/// for ordering, §13.12 for bitwise, §13.7 for the rest).
+///
+/// A String on the other side is deliberately NOT admitted here. For
+/// `+` it already has a concat arm that this must not shadow; for the
+/// ordering operators it would need §13.10's string-comparison branch
+/// rather than a numeric one, which is a different question and stays
+/// a loud reject until someone answers it.
+fn objectish_numeric_pair(l: &Type, r: &Type) -> bool {
+    let objectish = |t: &Type| matches!(t, Type::Struct(_) | Type::ClassRef(_));
+    (objectish(l) || objectish(r))
+        && (objectish(l) || *l == Type::Number)
+        && (objectish(r) || *r == Type::Number)
 }
 
 fn check_arith(l: Type, r: Type) -> Result<Type, String> {
@@ -120,15 +146,11 @@ fn check_arith(l: Type, r: Type) -> Result<Type, String> {
     }
     // §13.7-§13.10 call ToNumeric on each operand unconditionally, so
     // an object side runs its `valueOf` and answers NaN when it has
-    // none. `+` is NOT here: its ToPrimitive uses the DEFAULT hint,
-    // whose answer for a hook-free object is a STRING, so `{v:1} + 1`
-    // concatenates rather than answering NaN — a result type this arm
-    // could not promise.
-    let objectish = |t: &Type| matches!(t, Type::Struct(_) | Type::ClassRef(_));
-    if (objectish(&l) || objectish(&r))
-        && (objectish(&l) || l == Type::Number)
-        && (objectish(&r) || r == Type::Number)
-    {
+    // none. This arm can promise Number because ToNumeric has no other
+    // answer; the operators whose ToPrimitive can hand back a string
+    // (`+`) or needs a string branch (ordering) route to the any-lane
+    // kernels instead — see `objectish_numeric_pair`.
+    if objectish_numeric_pair(&l, &r) {
         return Ok(Type::Number);
     }
     Err(format!(
@@ -153,6 +175,11 @@ fn check_pow(l: Type, r: Type) -> Result<Type, String> {
     if matches!(l, Type::Any) || matches!(r, Type::Any) {
         return Ok(Type::Any);
     }
+    // §13.6 is ToNumeric both sides, which reaches `valueOf`; the arith
+    // kernel's op 4 takes it exactly as it does for an `any` operand.
+    if objectish_numeric_pair(&l, &r) {
+        return Ok(Type::Any);
+    }
     Err(format!(
         "`**` requires matching number or bigint operands, got {l:?} and {r:?}"
     ))
@@ -175,6 +202,11 @@ fn check_bitwise(l: Type, r: Type) -> Result<Type, String> {
     if js_arith_coerces_to_number(&l, &r) {
         return Ok(Type::Number);
     }
+    // §13.12 ToInt32/ToUint32 both sides, which reaches `valueOf`;
+    // `any_bitwise` takes it as it does for an `any` operand.
+    if objectish_numeric_pair(&l, &r) {
+        return Ok(Type::Any);
+    }
     Err(format!(
         "bitwise op requires matching number or bigint operands, got {l:?} and {r:?}"
     ))
@@ -196,6 +228,10 @@ fn check_ushr(l: Type, r: Type) -> Result<Type, String> {
     if js_arith_coerces_to_number(&l, &r) {
         return Ok(Type::Number);
     }
+    // §13.12 op 5 — same ToUint32 walk, same kernel.
+    if objectish_numeric_pair(&l, &r) {
+        return Ok(Type::Any);
+    }
     Err(format!(
         "bitwise op requires number operands, got {l:?} and {r:?}"
     ))
@@ -215,6 +251,12 @@ fn check_compare(l: Type, r: Type) -> Result<Type, String> {
         return Ok(Type::Boolean);
     }
     if js_arith_coerces_to_number(&l, &r) {
+        return Ok(Type::Boolean);
+    }
+    // §13.10 ToPrimitive with the NUMBER hint on both sides, then the
+    // numeric comparison — `any_compare` carries it, same as for an
+    // `any` operand.
+    if objectish_numeric_pair(&l, &r) {
         return Ok(Type::Boolean);
     }
     Err(format!(
